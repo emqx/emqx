@@ -23,8 +23,12 @@ init([]) ->
     {ok, undefined, hibernate, {backoff, 1000, 1000, 10000}}.
 
 handle_call({go, Sock}, _From, State) ->
-	error_logger:info_msg("go.... sock: ~p", [Sock]),
-	inet:setopts(Sock, [{active, true}]),
+    process_flag(trap_exit, true),
+    ok = throw_on_error(
+           inet_error, fun () -> emqtt_net:tune_buffer_size(Sock) end),
+    {ok, ConnStr} = emqtt_net:connection_string(Sock, inbound),
+    error_logger:info_msg("accepting MQTT connection (~s)~n", [ConnStr]),
+	%inet:setopts(Sock, [{active, once}]),
 	{reply, ok, State}.
 
 handle_cast(Msg, State) ->
@@ -39,3 +43,11 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 	
+throw_on_error(E, Thunk) ->
+    case Thunk() of
+        {error, Reason} -> throw({E, Reason});
+        {ok, Res}       -> Res;
+        Res             -> Res
+    end.
+
+
