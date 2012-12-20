@@ -1,5 +1,4 @@
 
-
 -module(emqtt_topic).
 
 -include("emqtt.hrl").
@@ -24,14 +23,14 @@ start_link() ->
 	gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 match(Topic) when is_binary(Topic) ->
-	DirectMatches = mnesia:dirty_read(direct_topic, Topic),
 	Words = topic_split(Topic), 
-	WildcardMatches =  lists:append([
+	DirectMatches = mnesia:dirty_read(direct_topic, Words),
+	WildcardMatches = lists:append([
 		mnesia:dirty_read(wildcard_topic, Key)	|| 
-			Key <- mnesia:dirty_all_keys(wildcard_topic), topic_match(Words, Key)
+			Key <- mnesia:dirty_all_keys(wildcard_topic),
+				topic_match(Words, Key)
 	]),
 	DirectMatches ++ WildcardMatches.
-
 
 insert(Topic) when is_binary(Topic) ->
 	gen_server:call(?MODULE, {insert, Topic}).
@@ -42,12 +41,15 @@ delete(Topic) when is_binary(Topic) ->
 init([]) ->
 	{atomic, ok} = mnesia:create_table(
 					direct_topic, [
+					{record_name, topic},
 					{ram_copies, [node()]}, 
-					{attributes, record_info(fields, direct_topic)}]),
+					{attributes, record_info(fields, topic)}]),
 	{atomic, ok} = mnesia:create_table(
 					wildcard_topic, [
+					{record_name, topic},
 					{ram_copies, [node()]}, 
-					{attributes, record_info(fields, wildcard_topic)}]),
+					{attributes, record_info(fields, topic)}]),
+	error_logger:info_msg("emqtt_topic is started."),
 	{ok, #state{}}.
 
 handle_call({insert, Topic}, _From, State) ->
@@ -55,9 +57,9 @@ handle_call({insert, Topic}, _From, State) ->
 	Reply =
 	case topic_type(Words) of
 	direct -> 
-		mnesia:dirty_write(#direct_topic{name=Topic});
+		mnesia:dirty_write(direct_topic, #topic{words=Words, path=Topic});
 	wildcard -> 
-		mnesia:dirty_write(#wildcard_topic{words=Words})
+		mnesia:dirty_write(wildcard_topic, #topic{words=Words, path=Topic})
 	end,
 	{reply, Reply, State};
 
@@ -68,9 +70,9 @@ handle_cast({delete, Topic}, State) ->
 	Words = topic_split(Topic),
 	case topic_type(Words) of
 	direct ->
-		mnesia:dirty_delete(direct_topic, Topic);
+		mnesia:dirty_delete(direct_topic, #topic{words=Words, path=Topic});
 	wildcard -> 
-		mnesia:direct_delete(wildcard_topic, Words)
+		mnesia:direct_delete(wildcard_topic, #topic{words=Words, path=Topic})
 	end,
 	{noreply, State};
 
@@ -113,3 +115,4 @@ topic_match([], [_H|_T2]) ->
 topic_split(S) ->
 	binary:split(S, [<<"/">>], [global]).
 	
+

@@ -27,6 +27,7 @@ start_link() ->
 init([]) ->
     {ok, { {one_for_all, 5, 10}, [
 		?CHILD(emqtt_topic, worker),
-		?CHILD(emqtt_router, worker)
+		?CHILD(emqtt_router, worker),
+		?CHILD(emqtt_client_sup, supervisor)
 	]} }.
 

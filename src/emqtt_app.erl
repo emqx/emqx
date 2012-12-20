@@ -19,13 +19,14 @@ start_app(mnesia) ->
 start_app(App) ->
 	application:start(App).
 
-
 %% ===================================================================
 %% Application callbacks
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    emqtt_sup:start_link().
+    {ok, Sup} = emqtt_sup:start_link(),
+	emqtt_networking:boot(),
+	{ok, Sup}.
 
 stop(_State) ->
     ok.
