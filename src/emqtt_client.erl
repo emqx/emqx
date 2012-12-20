@@ -24,6 +24,7 @@ init([]) ->
 
 handle_call({go, Sock}, _From, State) ->
 	error_logger:info_msg("go.... sock: ~p", [Sock]),
+	inet:setopts(Sock, [{active, true}]),
 	{reply, ok, State}.
 
 handle_cast(Msg, State) ->
