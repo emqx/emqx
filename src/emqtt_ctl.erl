@@ -6,12 +6,12 @@
 	
 status() ->
     {InternalStatus, _ProvidedStatus} = init:get_status(),
-    ?PRINT("Node ~p is ~p.", [node(), InternalStatus]),
-    case lists:keysearch(wifioss, 1, application:which_applications()) of
+    ?PRINT("Node ~p is ~p~n", [node(), InternalStatus]),
+    case lists:keysearch(emqtt, 1, application:which_applications()) of
 	false ->
-		?PRINT_MSG("wifioss is not running~n");
+		?PRINT_MSG("emqtt is not running~n");
 	{value,_Version} ->
-		?PRINT_MSG("wifioss is running~n")
+		?PRINT_MSG("emqtt is running~n")
     end.
 
 cluster_info() ->
