@@ -1,0 +1,3 @@
+#!/bin/bash
+
+erl -pa ebin -pa lib/rabbitlib/ebin -config etc/emqtt.config -s emqtt_app start
