@@ -1,0 +1,15 @@
+The emqtt server is licensed under the MPL. 
+
+The files below copied from rabbitmq and licensed under LICENSE-MPL-RabbitMQ:
+
+credit_flow.erl
+file_handle_cache.erl
+gen_server2.erl
+priority_queue.erl
+supervisor2.erl
+tcp_acceptor.erl
+tcp_acceptor_sup.erl
+tcp_listener.erl
+tcp_listener_sup.erl
+
+If you have any questions regarding licensing, please contact ery.lee@gmail.com

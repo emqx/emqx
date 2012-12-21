@@ -50,7 +50,7 @@ init([]) ->
 					{record_name, topic},
 					{ram_copies, [node()]}, 
 					{attributes, record_info(fields, topic)}]),
-	error_logger:info_msg("emqtt_topic is started."),
+	?INFO_MSG("emqtt_topic is started."),
 	{ok, #state{}}.
 
 handle_call({insert, Topic}, _From, State) ->

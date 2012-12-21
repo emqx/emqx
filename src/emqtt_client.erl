@@ -179,7 +179,7 @@ run_socket(State = #state{ socket = Sock }) ->
 
 control_throttle(State = #state{ connection_state = Flow,
                                  conserve         = Conserve }) ->
-    case {Flow, Conserve orelse credit_flow:blocked()} of
+    case {Flow, Conserve} of
         {running,   true} -> State #state{ connection_state = blocked };
         {blocked,  false} -> run_socket(State #state{
                                                 connection_state = running });

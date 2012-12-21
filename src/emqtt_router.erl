@@ -1,6 +1,7 @@
 -module(emqtt_router).
 
 -include("emqtt.hrl").
+
 -include("emqtt_frame.hrl").
 
 -export([start_link/0]).
@@ -44,8 +45,8 @@ delete(Sub) when is_record(Sub, subscriber) ->
 	gen_server:cast(?MODULE, {delete, Sub}).
 
 init([]) ->
-	Res = ets:new(subscriber, [bag, protected, named_table, {keypos, 2}]),
-	error_logger:info_msg("emqtt_router is started: ~p~n", [Res]),
+	ets:new(subscriber, [bag, named_table, {keypos, 2}]),
+	?INFO_MSG("emqtt_router is started."),
 	{ok, #state{}}.
 
 handle_call({insert, Sub}, _From, State) ->
