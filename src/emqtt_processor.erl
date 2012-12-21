@@ -19,7 +19,7 @@
 -module(emqtt_processor).
 
 -export([info/2, initial_state/1,
-         process_frame/2, send_will/1]).
+         process_frame/2, send_client/2, send_will/1]).
 
 -include("emqtt.hrl").
 -include("emqtt_frame.hrl").
@@ -53,11 +53,6 @@ initial_state(Socket) ->
 
 info(client_id, #proc_state{ client_id = ClientId }) -> ClientId.
 
-process_frame(#mqtt_frame{ fixed = #mqtt_frame_fixed{ type = Type }},
-              PState = #proc_state{ connection = undefined } )
-  when Type =/= ?CONNECT ->
-    {err, connect_expected, PState};
-
 process_frame(Frame = #mqtt_frame{ fixed = #mqtt_frame_fixed{ type = Type }},
               PState ) ->
     process_request(Type, Frame, PState).
@@ -69,6 +64,7 @@ process_request(?CONNECT,
                                           proto_ver  = ProtoVersion,
                                           clean_sess = CleanSess,
                                           client_id  = ClientId } = Var}, PState) ->
+	error_logger:info_msg("connect frame: ~p~n", [Var]),
     {ReturnCode, PState1} =
         case {ProtoVersion =:= ?MQTT_PROTO_MAJOR,
               emqtt_util:valid_client_id(ClientId)} of
@@ -110,7 +106,7 @@ process_request(?PUBLISH,
                                              dup    = Dup },
                   variable = #mqtt_frame_publish{ topic_name = Topic,
                                                   message_id = MessageId },
-                  payload = Payload }, PState) ->
+                  payload = Payload }, #proc_state{ message_id = MsgId } = PState) ->
 	Msg =  #mqtt_msg{ retain     = Retain,
 					 qos        = Qos,
 					 topic      = Topic,
@@ -118,10 +114,10 @@ process_request(?PUBLISH,
 					 message_id = MessageId,
 					 payload    = Payload },
 	emqtt_router:route(Msg),
-
+	
 	send_client(
 	  #mqtt_frame{ fixed    = #mqtt_frame_fixed{ type = ?PUBACK },
-				   variable = #mqtt_frame_publish{ message_id = MessageId }},
+				   variable = #mqtt_frame_publish{ message_id = MsgId}},
               PState),
     {ok, PState};
 
@@ -141,7 +137,7 @@ process_request(?SUBSCRIBE,
 
 	[emqtt_topic:insert(Name) || #mqtt_topic{name=Name} <- Topics],
 
-	[emqtt_router:insert(#subscriber{topic=Name, pid=self()}) 
+	[emqtt_router:insert(#subscriber{topic=emqtt_util:binary(Name), pid=self()}) 
 				|| #mqtt_topic{name=Name} <- Topics],
 	
     send_client(#mqtt_frame{ fixed    = #mqtt_frame_fixed{ type = ?SUBACK },

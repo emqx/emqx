@@ -1,10 +1,12 @@
 -module(emqtt_router).
 
 -include("emqtt.hrl").
+-include("emqtt_frame.hrl").
 
 -export([start_link/0]).
 
--export([route/2,
+-export([route/1,
+		route/2,
 		insert/1,
 		delete/1]).
 
@@ -22,6 +24,16 @@
 start_link() ->
 	gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+binary(S) when is_list(S) ->
+	list_to_binary(S);
+
+binary(B) when is_binary(B) ->
+	B.
+
+route(#mqtt_msg{topic=Topic}=Msg) when is_record(Msg, mqtt_msg) ->
+	error_logger:info_msg("route msg: ~p~n", [Msg]),
+	[ Pid ! {route, Msg} || #subscriber{pid=Pid} <- ets:lookup(subscriber, binary(Topic)) ].
+
 route(Topic, Msg) ->
 	[ Pid ! {route, Msg} || #subscriber{pid=Pid} <- ets:lookup(subscriber, Topic) ].
 
@@ -32,8 +44,8 @@ delete(Sub) when is_record(Sub, subscriber) ->
 	gen_server:cast(?MODULE, {delete, Sub}).
 
 init([]) ->
-	ets:new(subscriber, [bag, protected, {keypos, 2}]),
-	error_logger:info_msg("emqtt_router is started."),
+	Res = ets:new(subscriber, [bag, protected, named_table, {keypos, 2}]),
+	error_logger:info_msg("emqtt_router is started: ~p~n", [Res]),
 	{ok, #state{}}.
 
 handle_call({insert, Sub}, _From, State) ->

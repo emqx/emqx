@@ -12,6 +12,7 @@
 		terminate/2]).
 
 -include("emqtt.hrl").
+-include("emqtt_frame.hrl").
 
 -define(CLIENT_ID_MAXLEN, 23).
 
@@ -53,20 +54,38 @@ handle_call({go, Sock}, _From, _State) ->
            inet_error, fun () -> emqtt_net:tune_buffer_size(Sock) end),
     {ok, ConnStr} = emqtt_net:connection_string(Sock, inbound),
     error_logger:info_msg("accepting MQTT connection (~s)~n", [ConnStr]),
-    control_throttle(
+    {reply, ok, 
+	  control_throttle(
        #state{ socket           = Sock,
                conn_name        = ConnStr,
                await_recv       = false,
                connection_state = running,
                conserve         = false,
                parse_state      = emqtt_frame:initial_state(),
-               proc_state       = emqtt_processor:initial_state(Sock) }).
+               proc_state       = emqtt_processor:initial_state(Sock) })}.
 
 handle_cast(Msg, State) ->
 	{stop, {badmsg, Msg}, State}.
 
-handle_info({route, Msg}, State) ->
-	emqtt_processor:send_client(Msg),
+handle_info({route, Msg}, #state{proc_state=PState} = State) ->
+	#mqtt_msg{ retain     = Retain,
+		qos        = Qos,
+		topic      = Topic,
+		dup        = Dup,
+		message_id = MessageId,
+		payload    = Payload } = Msg,
+	
+	Frame = #mqtt_frame{fixed = #mqtt_frame_fixed{ 
+							type = ?PUBLISH,
+							qos    = Qos,
+							retain = Retain,
+							dup    = Dup },
+						variable = #mqtt_frame_publish{ 
+								topic_name = Topic,
+								message_id = 1},
+						payload = Payload },
+
+	emqtt_processor:send_client(Frame, PState),
     {noreply, State};
 
 handle_info({inet_reply, _Ref, ok}, State) ->

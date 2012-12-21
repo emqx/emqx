@@ -6,6 +6,9 @@
 
 -compile(export_all).
 
+binary(L) when is_list(L) -> list_to_binary(L);
+binary(B) when is_binary(B) -> B.
+
 subcription_queue_name(ClientId) ->
     Base = "mqtt-subscription-" ++ ClientId ++ "qos",
     {list_to_binary(Base ++ "0"), list_to_binary(Base ++ "1")}.

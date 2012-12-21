@@ -22,7 +22,8 @@
 start_link() ->
 	gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-match(Topic) when is_binary(Topic) ->
+match(Topic0)  ->
+	Topic = emqtt_util:binary(Topic0),
 	Words = topic_split(Topic), 
 	DirectMatches = mnesia:dirty_read(direct_topic, Words),
 	WildcardMatches = lists:append([
@@ -32,11 +33,11 @@ match(Topic) when is_binary(Topic) ->
 	]),
 	DirectMatches ++ WildcardMatches.
 
-insert(Topic) when is_binary(Topic) ->
-	gen_server:call(?MODULE, {insert, Topic}).
+insert(Topic) ->
+	gen_server:call(?MODULE, {insert, emqtt_util:binary(Topic)}).
 
-delete(Topic) when is_binary(Topic) ->
-	gen_server:cast(?MODULE, {delete, Topic}).
+delete(Topic) ->
+	gen_server:cast(?MODULE, {delete, emqtt_util:binary(Topic)}).
 
 init([]) ->
 	{atomic, ok} = mnesia:create_table(
