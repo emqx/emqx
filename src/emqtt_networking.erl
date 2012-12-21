@@ -89,6 +89,10 @@ start_client(Sock) ->
     {ok, Client} = supervisor:start_child(emqtt_client_sup, []),
 	ok = gen_tcp:controlling_process(Sock, Client),
 	emqtt_client:go(Client, Sock),
+
+    %% see comment in rabbit_networking:start_client/2
+    gen_event:which_handlers(error_logger),
+
 	Client.
 
 %%--------------------------------------------------------------------
