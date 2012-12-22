@@ -295,9 +295,6 @@ make_will_msg(#mqtt_frame_connect{ will_retain = Retain,
                dup     = false,
                payload = Msg }.
 
-creds(User, Pass) ->
-	{User, Pass}.
-
 supported_subs_qos(?QOS_0) -> ?QOS_0;
 supported_subs_qos(?QOS_1) -> ?QOS_1;
 supported_subs_qos(?QOS_2) -> ?QOS_1.
