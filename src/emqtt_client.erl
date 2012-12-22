@@ -163,6 +163,7 @@ process_received_bytes(Bytes,
 
 process_frame(Frame = #mqtt_frame{ fixed = #mqtt_frame_fixed{ type = Type }},
               State ) ->
+	?INFO("~p", [Frame]),
     process_request(Type, Frame, State).
 
 process_request(?CONNECT,
@@ -172,20 +173,19 @@ process_request(?CONNECT,
                                           proto_ver  = ProtoVersion,
                                           clean_sess = CleanSess,
                                           client_id  = ClientId } = Var}, #state{socket = Sock} = State) ->
-	?INFO("connect frame: ~p~n", [Var]),
     {ReturnCode, State1} =
         case {ProtoVersion =:= ?MQTT_PROTO_MAJOR,
-              emqtt_util:valid_client_id(ClientId)} of
+              valid_client_id(ClientId)} of
             {false, _} ->
                 {?CONNACK_PROTO_VER, State};
             {_, false} ->
                 {?CONNACK_INVALID_ID, State};
             _ ->
-                case creds(Username, Password) of
-                    nocreds ->
+                case emqtt_auth:check(Username, Password) of
+                    false ->
                         error_logger:error_msg("MQTT login failed - no credentials~n"),
                         {?CONNACK_CREDENTIALS, State};
-                    {UserBin, PassBin} ->
+                    true ->
 						{?CONNACK_ACCEPT,
 						 State #state{ will_msg   = make_will_msg(Var),
 											 client_id  = ClientId }}
@@ -221,7 +221,7 @@ process_request(?PUBLISH,
 					 dup        = Dup,
 					 message_id = MessageId,
 					 payload    = Payload },
-	emqtt_router:route(Msg),
+	emqtt_router:publish(Topic, Msg),
 	
 	send_frame(Sock,
 	  #mqtt_frame{ fixed    = #mqtt_frame_fixed{ type = ?PUBACK },
@@ -336,4 +336,7 @@ control_throttle(State = #state{ connection_state = Flow,
 stop(Reason, State ) ->
     {stop, Reason, State}.
 
+valid_client_id(ClientId) ->
+    ClientIdLen = size(ClientId),
+    1 =< ClientIdLen andalso ClientIdLen =< ?CLIENT_ID_MAXLEN.
 

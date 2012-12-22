@@ -21,7 +21,7 @@
 start_link() ->
 	gen_server2:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-check(Username, Password) when is_binary(Username) ->
+check(Username, Password) ->
 	gen_server2:call(?MODULE, {check, Username, Password}).
 
 add(Username, Password) when is_binary(Username) ->

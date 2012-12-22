@@ -14,6 +14,10 @@ init(_Opts) ->
 	mnesia:add_table_copy(internal_user, node(), ram_copies),
 	ok.
 
+check(undefined, _) -> false;
+
+check(_, undefined) -> false;
+
 check(Username, Password) when is_binary(Username) ->
 	PasswdHash = crypto:md5(Password),	
 	case mnesia:dirty_read(internal_user, Username) of
@@ -21,9 +25,9 @@ check(Username, Password) when is_binary(Username) ->
 	_ -> false
 	end.
 	
-add(Username, Password) ->
+add(Username, Password) when is_binary(Username) and is_binary(Password) ->
 	mnesia:dirty_write(#internal_user{username=Username, passwdhash=crypto:md5(Password)}).
 
-delete(Username) ->
+delete(Username) when is_binary(Username) ->
 	mnesia:dirty_delete(internal_user, Username).
 

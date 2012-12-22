@@ -21,11 +21,14 @@
 -define(LICENSE_MESSAGE, "Licensed under the MPL.").               
 
 -define(PROTOCOL_VERSION, "MQTT/3.1").                                                 
+
 -define(ERTS_MINIMUM, "5.6.3").                  
+
+-record(internal_user, {username, passwdhash}).
 
 -record(topic, {words, path}).
 
--record(subscriber, {topic, pid}).
+-record(subscriber, {topic, qos, client, monref}).
 
 
 %% ---------------------------------

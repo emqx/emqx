@@ -5,14 +5,10 @@
 		check/2,
 		delete/1]).
 
-init(_Opts) ->
-	ok.
+init(_Opts) -> ok.
 
-check(Username, _) when is_binary(Username) ->
-	true.
+check(_, _) -> true.
 
-add(Username, _Password) when is_binary(Username) ->
-	ok.
+add(_, _) -> ok.
 
-delete(Username) when is_binary(Username) ->
-	ok.
+delete(_Username) -> ok.

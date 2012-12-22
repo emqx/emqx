@@ -71,14 +71,15 @@ handle_call({subscribe, Topic, Client}, _From, State) ->
 	wildcard -> 
 		ok = mnesia:dirty_write(wildcard_topic, #topic{words=Words, path=Topic})
 	end,
-	ets:insert(subscriber, #subscriber{topic=Topic, client=Client}),
+	Ref = erlang:monitor(process, Client),
+	ets:insert(subscriber, #subscriber{topic=Topic, client=Client, monref=Ref}),
 	{reply, ok, State};
 
 handle_call(Req, _From, State) ->
 	{stop, {badreq, Req}, State}.
 
 handle_cast({unsubscribe, Topic, Client}, State) ->
-	ets:delete_object(subscriber, #subscriber{topic=Topic, client=Client}),
+	ets:match_delete(subscriber, #subscriber{topic=Topic, client=Client}),
 	%TODO: how to remove topic
 	%
 	%Words = topic_split(Topic),
@@ -92,6 +93,10 @@ handle_cast({unsubscribe, Topic, Client}, State) ->
 
 handle_cast(Msg, State) ->
 	{stop, {badmsg, Msg}, State}.
+
+handle_info({'DOWN', MonitorRef, _Type, _Object, _Info}, State) ->
+	ets:match_delete(subscriber, #subscriber{monref=MonitorRef}),
+	{noreply, State};
 
 handle_info(Info, State) ->
 	{stop, {badinfo, Info}, State}.
@@ -126,6 +131,9 @@ topic_match([_H|T1], [<<"+">>|T2]) ->
 
 topic_match(_, [<<"#">>]) ->
 	true;
+
+topic_match([_H1|_], [_H2|_]) ->
+	false;
 
 topic_match([], [_H|_T2]) ->
 	false.
