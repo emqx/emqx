@@ -6,10 +6,9 @@
 
 -export([start_link/0]).
 
--export([route/1,
-		route/2,
-		insert/1,
-		delete/1]).
+-export([subscribe/2,
+		unsubscribe/2,
+		publish/2]).
 
 -behaviour(gen_server).
 
@@ -23,41 +22,72 @@
 -record(state, {}).
 
 start_link() ->
-	gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+	gen_server2:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-binary(S) when is_list(S) ->
-	list_to_binary(S);
+subscribe(Topic, Client) when is_binary(Topic) and is_pid(Client) ->
+	gen_server2:call(?MODULE, {subscribe, Topic, Client}).
 
-binary(B) when is_binary(B) ->
-	B.
+unsubscribe(Topic, Client) when is_binary(Topic) and is_pid(Client) ->
+	gen_server2:cast(?MODULE, {unsubscribe, Topic, Client}).
 
-route(#mqtt_msg{topic=Topic}=Msg) when is_record(Msg, mqtt_msg) ->
-	error_logger:info_msg("route msg: ~p~n", [Msg]),
-	[ Pid ! {route, Msg} || #subscriber{pid=Pid} <- ets:lookup(subscriber, binary(Topic)) ].
+publish(Topic, Msg) when is_binary(Topic) and is_record(Msg, mqtt_msg) ->
+	[	
+		[Client ! {route, Msg} || #subscriber{client=Client} <- ets:lookup(subscriber, Path)]
+	|| #topic{path=Path} <- match(Topic)].
 
-route(Topic, Msg) ->
-	[ Pid ! {route, Msg} || #subscriber{pid=Pid} <- ets:lookup(subscriber, Topic) ].
 
-insert(Sub) when is_record(Sub, subscriber) ->
-	gen_server:call(?MODULE, {insert, Sub}).
-
-delete(Sub) when is_record(Sub, subscriber) ->
-	gen_server:cast(?MODULE, {delete, Sub}).
+match(Topic) when is_binary(Topic)  ->
+	Words = topic_split(Topic), 
+	DirectMatches = mnesia:dirty_read(direct_topic, Words),
+	WildcardMatches = lists:append([
+		mnesia:dirty_read(wildcard_topic, Key)	|| 
+			Key <- mnesia:dirty_all_keys(wildcard_topic),
+				topic_match(Words, Key)
+	]),
+	DirectMatches ++ WildcardMatches.
 
 init([]) ->
+	mnesia:create_table(
+		direct_topic, [
+		{record_name, topic},
+		{ram_copies, [node()]}, 
+		{attributes, record_info(fields, topic)}]),
+	mnesia:add_table_copy(direct_topic, node(), ram_copies),
+	mnesia:create_table(
+		wildcard_topic, [
+		{record_name, topic},
+		{ram_copies, [node()]}, 
+		{attributes, record_info(fields, topic)}]),
+	mnesia:add_table_copy(wildcard_topic, node(), ram_copies),
 	ets:new(subscriber, [bag, named_table, {keypos, 2}]),
 	?INFO_MSG("emqtt_router is started."),
 	{ok, #state{}}.
 
-handle_call({insert, Sub}, _From, State) ->
-	ets:insert(subscriber, Sub),
+handle_call({subscribe, Topic, Client}, _From, State) ->
+	Words = topic_split(Topic),
+	case topic_type(Words) of
+	direct -> 
+		ok = mnesia:dirty_write(direct_topic, #topic{words=Words, path=Topic});
+	wildcard -> 
+		ok = mnesia:dirty_write(wildcard_topic, #topic{words=Words, path=Topic})
+	end,
+	ets:insert(subscriber, #subscriber{topic=Topic, client=Client}),
 	{reply, ok, State};
 
 handle_call(Req, _From, State) ->
 	{stop, {badreq, Req}, State}.
 
-handle_cast({delete, Sub}, State) ->
-	ets:delete_object(subscriber, Sub),
+handle_cast({unsubscribe, Topic, Client}, State) ->
+	ets:delete_object(subscriber, #subscriber{topic=Topic, client=Client}),
+	%TODO: how to remove topic
+	%
+	%Words = topic_split(Topic),
+	%case topic_type(Words) of
+	%direct ->
+	%	mnesia:dirty_delete(direct_topic, #topic{words=Words, path=Topic});
+	%wildcard -> 
+	%	mnesia:direct_delete(wildcard_topic, #topic{words=Words, path=Topic})
+	%end,
 	{noreply, State};
 
 handle_cast(Msg, State) ->
@@ -72,4 +102,35 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, _State, _Extra) ->
 	ok.
 
+%--------------------------------------
+% internal functions
+%--------------------------------------
+
+topic_type([]) ->
+	direct;
+topic_type([<<"#">>]) ->
+	wildcard;
+topic_type([<<"+">>|_T]) ->
+	wildcard;
+topic_type([_|T]) ->
+	topic_type(T).
+
+topic_match([], []) ->
+	true;
+
+topic_match([H|T1], [H|T2]) ->
+	topic_match(T1, T2);
+
+topic_match([_H|T1], [<<"+">>|T2]) ->
+	topic_match(T1, T2);
+
+topic_match(_, [<<"#">>]) ->
+	true;
+
+topic_match([], [_H|_T2]) ->
+	false.
+	
+topic_split(S) ->
+	binary:split(S, [<<"/">>], [global]).
+	
 

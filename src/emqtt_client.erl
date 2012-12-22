@@ -68,7 +68,7 @@ handle_call({go, Sock}, _From, _State) ->
                parse_state      = emqtt_frame:initial_state(),
 			   message_id		= 1,
                subscriptions 	= dict:new(),
-			   awaiting_ack		= gb_tree:empty()})}.
+			   awaiting_ack		= gb_trees:empty()})}.
 
 handle_cast(Msg, State) ->
 	{stop, {badmsg, Msg}, State}.
@@ -241,11 +241,8 @@ process_request(?SUBSCRIBE,
 				   [SupportedQos | QosList]
 			   end, [], Topics),
 
-	[emqtt_topic:insert(Name) || #mqtt_topic{name=Name} <- Topics],
+	[emqtt_router:subscribe(Name, self()) || #mqtt_topic{name=Name} <- Topics],
 
-	[emqtt_router:insert(#subscriber{topic=emqtt_util:binary(Name), pid=self()}) 
-				|| #mqtt_topic{name=Name} <- Topics],
-	
     send_frame(Sock, #mqtt_frame{ fixed    = #mqtt_frame_fixed{ type = ?SUBACK },
                              variable = #mqtt_frame_suback{
                                          message_id = MessageId,
@@ -261,8 +258,7 @@ process_request(?UNSUBSCRIBE,
                                                       subscriptions = Subs0} = State) ->
 
 	
-	[emqtt_router:delete(#subscriber{topic=Name, pid=self()}) 
-		|| #mqtt_topic{name=Name} <- Topics],
+	[emqtt_router:unsubscribe(Name, self()) || #mqtt_topic{name=Name} <- Topics],
 	
     send_frame(Sock, #mqtt_frame{ fixed    = #mqtt_frame_fixed { type       = ?UNSUBACK },
                              variable = #mqtt_frame_suback{ message_id = MessageId }}),

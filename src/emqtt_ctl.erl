@@ -26,3 +26,8 @@ cluster(Node) ->
         ?PRINT("failed to cluster with ~p~n", [Node])
 	end.
 
+add_user(Username, Password) ->
+	?PRINT("~p", [emqtt_auth:add(list_to_binary(Username), list_to_binary(Password))]).
+
+delete_user(Username) ->
+	?PRINT("~p", [emqtt_auth:delete(list_to_binary(Username))]).

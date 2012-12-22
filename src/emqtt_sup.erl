@@ -26,7 +26,7 @@ start_link(Listeners) ->
 
 init([Listeners]) ->
     {ok, { {one_for_all, 5, 10}, [
-		?CHILD(emqtt_topic, worker),
+		?CHILD(emqtt_auth, worker),
 		?CHILD(emqtt_router, worker),
 		?CHILD(emqtt_client_sup, supervisor)
 		| listener_children(Listeners) ]}
