@@ -73,6 +73,7 @@ handle_call({subscribe, Topic, Client}, _From, State) ->
 	end,
 	Ref = erlang:monitor(process, Client),
 	ets:insert(subscriber, #subscriber{topic=Topic, client=Client, monref=Ref}),
+	emqtt_retained:send(Topic, Client),
 	{reply, ok, State};
 
 handle_call(Req, _From, State) ->
@@ -104,8 +105,8 @@ handle_info(Info, State) ->
 terminate(_Reason, _State) ->
 	ok.
 
-code_change(_OldVsn, _State, _Extra) ->
-	ok.
+code_change(_OldVsn, State, _Extra) ->
+	{ok, State}.
 
 %--------------------------------------
 % internal functions

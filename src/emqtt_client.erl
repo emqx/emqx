@@ -238,7 +238,11 @@ process_request(?PUBLISH,
 					 dup        = Dup,
 					 message_id = MessageId,
 					 payload    = Payload },
+	
 	emqtt_router:publish(Topic, Msg),
+
+	%Retained?
+	retained(Retain, Topic, Msg),
 	
 	send_frame(Sock,
 	  #mqtt_frame{ fixed    = #mqtt_frame_fixed{ type = ?PUBACK },
@@ -357,4 +361,10 @@ valid_client_id(ClientId) ->
     ClientIdLen = size(ClientId),
     1 =< ClientIdLen andalso ClientIdLen =< ?CLIENT_ID_MAXLEN.
 
+retained(false, _Topic, _Msg) ->
+	ignore;
+retained(true, Topic, #mqtt_msg{payload = <<>>}) ->
+	emqtt_retained:delete(Topic);
+retained(true, Topic, Msg) ->
+	emqtt_retained:insert(Topic, Msg).
 
