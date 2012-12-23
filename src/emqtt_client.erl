@@ -123,7 +123,8 @@ handle_info(keep_alive_timeout, #state{keep_alive=KeepAlive}=State) ->
 handle_info(Info, State) ->
 	{stop, {badinfo, Info}, State}.
 
-terminate(_Reason, #state{keep_alive=KeepAlive}) ->
+terminate(_Reason, #state{client_id=ClientId, keep_alive=KeepAlive}) ->
+    ok = emqtt_registry:unregister(ClientId),
 	emqtt_keep_alive:cancel(KeepAlive),
 	ok.
 
@@ -201,6 +202,7 @@ process_request(?CONNECT,
                         ?ERROR_MSG("MQTT login failed - no credentials"),
                         {?CONNACK_CREDENTIALS, State};
                     true ->
+						ok = emqtt_registry:register(ClientId, self()),
 						KeepAlive = emqtt_keep_alive:new(AlivePeriod*1500, keep_alive_timeout),
 						{?CONNACK_ACCEPT,
 						 State #state{ will_msg   = make_will_msg(Var),
@@ -355,6 +357,7 @@ control_throttle(State = #state{ connection_state = Flow,
     end.
 
 stop(Reason, State ) ->
+
     {stop, Reason, State}.
 
 valid_client_id(ClientId) ->

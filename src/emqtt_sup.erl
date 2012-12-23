@@ -29,6 +29,7 @@ init([Listeners]) ->
 		?CHILD(emqtt_auth, worker),
 		?CHILD(emqtt_retained, worker),
 		?CHILD(emqtt_router, worker),
+		?CHILD(emqtt_registry, worker),
 		?CHILD(emqtt_client_sup, supervisor)
 		| listener_children(Listeners) ]}
 	}.
