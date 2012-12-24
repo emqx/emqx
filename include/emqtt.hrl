@@ -33,7 +33,7 @@
 
 %topic: topic name
 
--record(subscriber, {topic, qos, client, monref}).
+-record(subscriber, {topic, qos, client}).
 
 %% ---------------------------------
 %% Logging mechanism

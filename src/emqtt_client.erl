@@ -28,7 +28,7 @@
                 will_msg,
 				keep_alive, 
 				awaiting_ack,
-                subscriptions}).
+                subtopics}).
 
 
 -define(FRAME_TYPE(Frame, Type),
@@ -58,7 +58,9 @@ handle_call({go, Sock}, _From, _State) ->
     ok = throw_on_error(
            inet_error, fun () -> emqtt_net:tune_buffer_size(Sock) end),
     {ok, ConnStr} = emqtt_net:connection_string(Sock, inbound),
-    error_logger:info_msg("accepting MQTT connection (~s)~n", [ConnStr]),
+	%FIXME: merge to registry
+	emqtt_client_monitor:mon(self()),
+    ?INFO("accepting MQTT connection (~s)~n", [ConnStr]),
     {reply, ok, 
 	  control_throttle(
        #state{ socket           = Sock,
@@ -68,7 +70,7 @@ handle_call({go, Sock}, _From, _State) ->
                conserve         = false,
                parse_state      = emqtt_frame:initial_state(),
 			   message_id		= 1,
-               subscriptions 	= dict:new(),
+               subtopics		= [],
 			   awaiting_ack		= gb_trees:empty()})}.
 
 handle_cast(Msg, State) ->
@@ -240,53 +242,58 @@ process_request(?PUBLISH,
 					 dup        = Dup,
 					 message_id = MessageId,
 					 payload    = Payload },
-	
-	emqtt_router:publish(Topic, Msg),
-
-	%Retained?
-	retained(Retain, Topic, Msg),
-	
+	case emqtt_topic:validate({publish, Topic}) of
+	true ->
+		emqtt_router:publish(Topic, Msg),
+		%Retained?
+		retained(Retain, Topic, Msg);
+	false ->
+		?ERROR("badtopic: ~p", [Topic])
+	end,	
 	send_frame(Sock,
-	  #mqtt_frame{ fixed    = #mqtt_frame_fixed{ type = ?PUBACK },
-				   variable = #mqtt_frame_publish{ message_id = MsgId}}),
+	  #mqtt_frame{fixed    = #mqtt_frame_fixed{ type = ?PUBACK },
+				  variable = #mqtt_frame_publish{ message_id = MsgId}}),
     {ok, State};
 
 process_request(?SUBSCRIBE,
                 #mqtt_frame{
-                  variable = #mqtt_frame_subscribe{ message_id  = MessageId,
-                                                    topic_table = Topics },
-                  payload = undefined },
-                #state{socket=Sock} = State0) ->
-    QosResponse =
-	lists:foldl(fun (#mqtt_topic{ name = TopicName,
-								   qos  = Qos }, QosList) ->
-				   SupportedQos = supported_subs_qos(Qos),
-				   [SupportedQos | QosList]
-			   end, [], Topics),
+                  variable = #mqtt_frame_subscribe{message_id  = MessageId,
+                                                   topic_table = Topics},
+                  payload = undefined},
+                #state{socket=Sock} = State) ->
 
-	[emqtt_router:subscribe(Name, self()) || #mqtt_topic{name=Name} <- Topics],
+	Topics1 = [Topic#mqtt_topic{qos=supported_subs_qos(Qos)}
+					|| Topic = #mqtt_topic{name=Name, qos=Qos} <- Topics,
+							emqtt_topic:validate({subscribe, Name})],
 
-    send_frame(Sock, #mqtt_frame{ fixed    = #mqtt_frame_fixed{ type = ?SUBACK },
-                             variable = #mqtt_frame_suback{
-                                         message_id = MessageId,
-                                         qos_table  = QosResponse }}),
+	[emqtt_router:subscribe({Name, Qos}, self()) || 
+			#mqtt_topic{name=Name, qos=Qos} <- Topics1],
 
-    {ok, State0};
+    GrantedQos = [Qos || #mqtt_topic{qos=Qos} <- Topics1],
+
+    send_frame(Sock, #mqtt_frame{fixed = #mqtt_frame_fixed{type = ?SUBACK},
+								 variable = #mqtt_frame_suback{
+											 message_id = MessageId,
+											 qos_table  = GrantedQos}}),
+
+    {ok, State#state{subtopics=Topics1}};
 
 process_request(?UNSUBSCRIBE,
                 #mqtt_frame{
-                  variable = #mqtt_frame_subscribe{ message_id  = MessageId,
-                                                    topic_table = Topics },
-                  payload = undefined }, #state{ socket = Sock, client_id     = ClientId,
-                                                      subscriptions = Subs0} = State) ->
+                  variable = #mqtt_frame_subscribe{message_id  = MessageId,
+                                                   topic_table = Topics },
+                  payload = undefined}, #state{socket = Sock, client_id = ClientId,
+                                               subtopics = Subs0} = State) ->
 
 	
-	[emqtt_router:unsubscribe(Name, self()) || #mqtt_topic{name=Name} <- Topics],
+	[emqtt_router:unsubscribe(Name, self()) || 
+		#mqtt_topic{name=Name} <- Topics, emqtt_topic:validate(Name)],
 	
-    send_frame(Sock, #mqtt_frame{ fixed    = #mqtt_frame_fixed { type       = ?UNSUBACK },
-                             variable = #mqtt_frame_suback{ message_id = MessageId }}),
+    send_frame(Sock, #mqtt_frame{fixed = #mqtt_frame_fixed{type = ?UNSUBACK },
+                             	 variable = #mqtt_frame_suback{message_id = MessageId }}),
 
-    {ok, State #state{ subscriptions = Subs0 }};
+	%TODO: fixme later
+    {ok, State #state{subtopics = Subs0}};
 
 process_request(?PINGREQ, #mqtt_frame{}, #state{socket=Sock, keep_alive=KeepAlive}=State) ->
 	%Keep alive timer
