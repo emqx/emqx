@@ -1,7 +1,7 @@
 {application, emqtt,
  [
   {description, "erlang mqtt broker"},
-  {vsn, "0.1.0"},
+  {vsn, "0.1.1"},
   {modules, [
 	emqtt,
 	emqtt_app,
@@ -10,12 +10,14 @@
 	emqtt_auth_internal,
 	emqtt_client,
 	emqtt_client_sup,
+	emqtt_client_monitor,
 	emqtt_ctl,
 	emqtt_frame,
 	emqtt_lib,
 	emqtt_listener,
 	emqtt_net,
 	emqtt_router,
+	emqtt_registry,
 	emqtt_sup,
 	file_handle_cache,
 	gen_server2,
@@ -26,11 +28,13 @@
 	tcp_listener,
 	tcp_listener_sup
   ]},
-  {registered, [emqtt_auth, emqtt_router]},
-  {applications, [
-                  kernel,
-                  stdlib
-                 ]},
-  {mod, { emqtt_app, []}},
+  {registered, [emqtt_auth,
+			    emqtt_router,
+				emqtt_registry,
+				emqtt_client_monitor]},
+  {applications, [kernel,
+                  stdlib]},
+  {mod, {emqtt_app, []}},
   {env, []}
  ]}.
+
