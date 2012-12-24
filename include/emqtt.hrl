@@ -26,10 +26,14 @@
 
 -record(internal_user, {username, passwdhash}).
 
--record(topic, {words, path}).
+%name: <<"a/b/c">>
+%node: node()
+%words: [<<"a">>, <<"b">>, <<"c">>]
+-record(topic, {name, node, words}).
+
+%topic: topic name
 
 -record(subscriber, {topic, qos, client, monref}).
-
 
 %% ---------------------------------
 %% Logging mechanism

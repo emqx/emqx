@@ -16,20 +16,19 @@
 
 -define(CLIENT_ID_MAXLEN, 23).
 
--record(state, 	{ socket,
-				  conn_name,
-				  await_recv,
-				  connection_state,
-				  conserve,
-				  parse_state,
-                  message_id,
-                  client_id,
-                  clean_sess,
-                  will_msg,
-				  keep_alive, 
-				  awaiting_ack,
-                  subscriptions
-			 }).
+-record(state, {socket,
+				conn_name,
+				await_recv,
+				connection_state,
+				conserve,
+				parse_state,
+                message_id,
+                client_id,
+                clean_sess,
+                will_msg,
+				keep_alive, 
+				awaiting_ack,
+                subscriptions}).
 
 
 -define(FRAME_TYPE(Frame, Type),
@@ -144,35 +143,36 @@ async_recv(Sock, Length, infinity) when is_port(Sock) ->
 async_recv(Sock, Length, Timeout) when is_port(Sock) ->
     prim_inet:async_recv(Sock, Length, Timeout).
 
+%-------------------------------------------------------
+% receive and parse tcp data
+%-------------------------------------------------------
 process_received_bytes(<<>>, State) ->
     {noreply, State};
+
 process_received_bytes(Bytes,
                        State = #state{ parse_state = ParseState,
                                        conn_name   = ConnStr }) ->
-    case
-        emqtt_frame:parse(Bytes, ParseState) of
-            {more, ParseState1} ->
-                {noreply,
-                 control_throttle( State #state{ parse_state = ParseState1 }),
-                 hibernate};
-            {ok, Frame, Rest} ->
-                case process_frame(Frame, State) of
-                    {ok, State1} ->
-                        PS = emqtt_frame:initial_state(),
-                        process_received_bytes(
-                          Rest,
-                          State1 #state{ parse_state = PS});
-                    {err, Reason, State1} ->
-                        ?ERROR("MQTT protocol error ~p for connection ~p~n",
-                                  [Reason, ConnStr]),
-                        stop({shutdown, Reason}, State1);
-                    {stop, State1} ->
-                        stop(normal, State1)
-                end;
-            {error, Error} ->
-                ?ERROR("MQTT detected framing error ~p for connection ~p~n",
-                           [ConnStr, Error]),
-                stop({shutdown, Error}, State)
+    case emqtt_frame:parse(Bytes, ParseState) of
+	{more, ParseState1} ->
+		{noreply,
+		 control_throttle( State #state{ parse_state = ParseState1 }),
+		 hibernate};
+	{ok, Frame, Rest} ->
+		case process_frame(Frame, State) of
+		{ok, State1} ->
+			PS = emqtt_frame:initial_state(),
+			process_received_bytes(
+			  Rest,
+			  State1 #state{ parse_state = PS});
+		{err, Reason, State1} ->
+			?ERROR("MQTT protocol error ~p for connection ~p~n", [Reason, ConnStr]),
+			stop({shutdown, Reason}, State1);
+		{stop, State1} ->
+			stop(normal, State1)
+		end;
+	{error, Error} ->
+		?ERROR("MQTT detected framing error ~p for connection ~p~n", [ConnStr, Error]),
+		stop({shutdown, Error}, State)
     end.
 
 process_frame(Frame = #mqtt_frame{ fixed = #mqtt_frame_fixed{ type = Type }},

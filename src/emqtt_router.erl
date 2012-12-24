@@ -4,11 +4,14 @@
 
 -include("emqtt_frame.hrl").
 
+-include_lib("stdlib/include/qlc.hrl").
+
 -export([start_link/0]).
 
 -export([subscribe/2,
 		unsubscribe/2,
-		publish/2]).
+		publish/2,
+		route/2]).
 
 -behaviour(gen_server).
 
@@ -30,31 +33,39 @@ subscribe(Topic, Client) when is_binary(Topic) and is_pid(Client) ->
 unsubscribe(Topic, Client) when is_binary(Topic) and is_pid(Client) ->
 	gen_server2:cast(?MODULE, {unsubscribe, Topic, Client}).
 
+%publish to cluster node.
 publish(Topic, Msg) when is_binary(Topic) and is_record(Msg, mqtt_msg) ->
-	[	
-		[Client ! {route, Msg} || #subscriber{client=Client} <- ets:lookup(subscriber, Path)]
-	|| #topic{path=Path} <- match(Topic)].
+	lists:foreach(fun(#topic{name=Name, node=Node}) ->
+		case Node == node() of
+		true -> route(Name, Msg);
+		false -> rpc:call(Node, ?MODULE, route, [Name, Msg])
+		end
+	end, match(Topic)).
 
+%route locally, should only be called by publish
+route(Topic, Msg) ->
+	[Client ! {route, Msg} || #subscriber{client=Client} <- ets:lookup(subscriber, Topic)].
 
 match(Topic) when is_binary(Topic)  ->
-	Words = topic_split(Topic), 
-	DirectMatches = mnesia:dirty_read(direct_topic, Words),
-	WildcardMatches = lists:append([
-		mnesia:dirty_read(wildcard_topic, Key)	|| 
-			Key <- mnesia:dirty_all_keys(wildcard_topic),
-				topic_match(Words, Key)
-	]),
+	DirectMatches = mnesia:dirty_read(direct_topic, Topic),
+	TopicWords = topic_split(Topic),
+	WildcardQuery = qlc:q([T || T = #topic{words=Words}
+								<- mnesia:table(wildcard_topic), 
+									topic_match(TopicWords, Words)]), %
+	
+	{atomic, WildcardMatches} = mnesia:transaction(fun() -> qlc:e(WildcardQuery) end), %mnesia:async_dirty(fun qlc:e/1, WildcardQuery),
+	?INFO("~p", [WildcardMatches]),
 	DirectMatches ++ WildcardMatches.
 
 init([]) ->
-	mnesia:create_table(
-		direct_topic, [
+	mnesia:create_table(direct_topic, [
+		{type, bag},
 		{record_name, topic},
 		{ram_copies, [node()]}, 
 		{attributes, record_info(fields, topic)}]),
 	mnesia:add_table_copy(direct_topic, node(), ram_copies),
-	mnesia:create_table(
-		wildcard_topic, [
+	mnesia:create_table(wildcard_topic, [
+		{type, bag},
 		{record_name, topic},
 		{ram_copies, [node()]}, 
 		{attributes, record_info(fields, topic)}]),
@@ -63,17 +74,17 @@ init([]) ->
 	?INFO_MSG("emqtt_router is started."),
 	{ok, #state{}}.
 
-handle_call({subscribe, Topic, Client}, _From, State) ->
-	Words = topic_split(Topic),
-	case topic_type(Words) of
+handle_call({subscribe, Name, Client}, _From, State) ->
+	Topic = #topic{name=Name, node=node(), words=topic_split(Name)},
+	case topic_type(Topic) of
 	direct -> 
-		ok = mnesia:dirty_write(direct_topic, #topic{words=Words, path=Topic});
+		ok = mnesia:dirty_write(direct_topic, Topic);
 	wildcard -> 
-		ok = mnesia:dirty_write(wildcard_topic, #topic{words=Words, path=Topic})
+		ok = mnesia:dirty_write(wildcard_topic, Topic)
 	end,
 	Ref = erlang:monitor(process, Client),
-	ets:insert(subscriber, #subscriber{topic=Topic, client=Client, monref=Ref}),
-	emqtt_retained:send(Topic, Client),
+	ets:insert(subscriber, #subscriber{topic=Name, client=Client, monref=Ref}),
+	emqtt_retained:send(Name, Client),
 	{reply, ok, State};
 
 handle_call(Req, _From, State) ->
@@ -111,7 +122,8 @@ code_change(_OldVsn, State, _Extra) ->
 %--------------------------------------
 % internal functions
 %--------------------------------------
-
+topic_type(#topic{words=Words}) ->
+	topic_type(Words);
 topic_type([]) ->
 	direct;
 topic_type([<<"#">>]) ->
@@ -123,23 +135,17 @@ topic_type([_|T]) ->
 
 topic_match([], []) ->
 	true;
-
 topic_match([H|T1], [H|T2]) ->
 	topic_match(T1, T2);
-
 topic_match([_H|T1], [<<"+">>|T2]) ->
 	topic_match(T1, T2);
-
 topic_match(_, [<<"#">>]) ->
 	true;
-
 topic_match([_H1|_], [_H2|_]) ->
 	false;
-
 topic_match([], [_H|_T2]) ->
 	false.
 	
 topic_split(S) ->
 	binary:split(S, [<<"/">>], [global]).
-	
 
