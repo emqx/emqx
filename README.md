@@ -18,8 +18,6 @@ make
 release
 =======
 
-#generate a release in rel/emqtt folder
-
 make generate
 
 deloy
@@ -32,11 +30,9 @@ start
 
 cd $INSTALL_DRI/emqtt
 
-#debug mode
-
 ./bin/emqtt console
 
-#startup 
+or
 
 ./bin/emqtt start
 
@@ -54,7 +50,6 @@ logs
 ====
 
 log/*
-
 
 design
 =====
