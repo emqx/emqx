@@ -1,3 +1,5 @@
+#!/usr/bin/env escript
+
 %% -*- mode: erlang;erlang-indent-level: 4;indent-tabs-mode: nil -*-
 %% ex: ft=erlang ts=4 sw=4 et
 %% -------------------------------------------------------------------
@@ -5,22 +7,60 @@
 %% nodetool: Helper Script for interacting with live nodes
 %%
 %% -------------------------------------------------------------------
+-mode(compile).
 
 main(Args) ->
     ok = start_epmd(),
     %% Extract the args
     {RestArgs, TargetNode} = process_args(Args, [], undefined),
 
+    %% process_args() has side-effects (e.g. when processing "-name"),
+    %% so take care of app-starting business first.
+    [application:start(App) || App <- [crypto, public_key, ssl]],
+
+    %% any commands that don't need a running node
+    case RestArgs of
+        ["chkconfig", File] ->
+            case file:consult(File) of
+                {ok, Terms} ->
+                    case validate(Terms) of
+                        ok ->
+                            io:format("ok\n"),
+                            halt(0);
+                        {error, Problems} ->
+                            lists:foreach(fun print_issue/1, Problems),
+                            %% halt(1) if any problems were errors
+                            halt(case [x || {error, _} <- Problems] of
+                                     [] -> 0;
+                                     _  -> 1
+                                 end)
+                    end;
+                {error, {Line, Mod, Term}} ->
+                    io:format(standard_error, ["Error on line ", file:format_error({Line, Mod, Term}), "\n"], []),
+                    halt(1);
+                {error, R} ->
+                    io:format(standard_error, ["Error reading config file: ", file:format_error(R), "\n"], []),
+                    halt(1)
+            end;
+        _ ->
+            ok
+    end,
+
     %% See if the node is currently running  -- if it's not, we'll bail
     case {net_kernel:hidden_connect_node(TargetNode), net_adm:ping(TargetNode)} of
         {true, pong} ->
             ok;
+        {false,pong} ->
+            io:format("Failed to connect to node ~p .\n", [TargetNode]),
+            halt(1);
         {_, pang} ->
             io:format("Node ~p not responding to pings.\n", [TargetNode]),
             halt(1)
     end,
 
     case RestArgs of
+        ["getpid"] ->
+            io:format("~p\n", [list_to_integer(rpc:call(TargetNode, os, getpid, []))]);
         ["ping"] ->
             %% If we got this far, the node already responsed to a ping, so just dump
             %% a "pong"
@@ -42,6 +82,16 @@ main(Args) ->
                 _ ->
                     halt(1)
             end;
+        ["rpc_infinity", Module, Function | RpcArgs] ->
+            case rpc:call(TargetNode, list_to_atom(Module), list_to_atom(Function), [RpcArgs], infinity) of
+                ok ->
+                    ok;
+                {badrpc, Reason} ->
+                    io:format("RPC to ~p failed: ~p\n", [TargetNode, Reason]),
+                    halt(1);
+                _ ->
+                    halt(1)
+            end;
         ["rpcterms", Module, Function, ArgsAsString] ->
             case rpc:call(TargetNode, list_to_atom(Module), list_to_atom(Function),
                           consult(ArgsAsString), 60000) of
@@ -53,9 +103,10 @@ main(Args) ->
             end;
         Other ->
             io:format("Other: ~p\n", [Other]),
-            io:format("Usage: nodetool {ping|stop|restart|reboot}\n")
+            io:format("Usage: nodetool {chkconfig|getpid|ping|stop|restart|reboot|rpc|rpc_infinity|rpcterms}\n")
     end,
     net_kernel:stop().
+
 
 process_args([], Acc, TargetNode) ->
     {lists:reverse(Acc), TargetNode};
@@ -136,3 +187,28 @@ consult(Cont, Str, Acc) ->
         {more, Cont1} ->
             consult(Cont1, eof, Acc)
     end.
+
+
+%%
+%% Validation functions for checking the app.config
+%%
+validate([Terms]) ->
+    Results = [ValidateFun(Terms) || ValidateFun <- get_validation_funs()],
+    Failures = [Res || Res <- Results, Res /= true],
+    case Failures of
+        [] ->
+            ok;
+        _ ->
+            {error, Failures}
+    end.
+
+%% Some initial and basic checks for the app.config file
+get_validation_funs() ->
+    [ ].
+
+print_issue({warning, Warning}) ->
+    io:format(standard_error, "Warning in app.config: ~s~n", [Warning]);
+print_issue({error, Error}) ->
+    io:format(standard_error, "Error in app.config: ~s~n", [Error]).
+
+

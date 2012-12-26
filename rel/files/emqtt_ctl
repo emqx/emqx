@@ -1,22 +1,45 @@
-#!/bin/bash
+#!/bin/sh
 
-RUNNER_SCRIPT_DIR=$(cd ${0%/*} && pwd)
+# /bin/sh on Solaris is not a POSIX compatible shell, but /usr/bin/ksh is.
+if [ `uname -s` = 'SunOS' -a "${POSIX_SHELL}" != "true" ]; then
+    POSIX_SHELL="true"
+    export POSIX_SHELL
+    # To support 'whoami' add /usr/ucb to path
+    PATH=/usr/ucb:$PATH
+    export PATH
+    exec /usr/bin/ksh $0 "$@"
+fi
+unset POSIX_SHELL # clear it so if we invoke other scripts, they run as ksh as well
 
-RUNNER_BASE_DIR=${RUNNER_SCRIPT_DIR%/*}
-RUNNER_ETC_DIR=$RUNNER_BASE_DIR/etc
-RUNNER_BIN_DIR=$RUNNER_BASE_DIR/bin
-RUNNER_LOG_DIR=$RUNNER_BASE_DIR/log
+RUNNER_SCRIPT_DIR={{runner_script_dir}}
+RUNNER_SCRIPT=${0##*/}
 
-RUNNER_EBIN_DIR=$RUNNER_BASE_DIR/ebin
-RUNNER_USER=
+RUNNER_BASE_DIR={{runner_base_dir}}
+RUNNER_ETC_DIR={{runner_etc_dir}}
+RUNNER_LIB_DIR={{platform_lib_dir}}
+RUNNER_LOG_DIR={{runner_log_dir}}
+RUNNER_USER={{runner_user}}
+
+WHOAMI=$(whoami)
+
+# Make sure this script is running as the appropriate user
+if ([ "$RUNNER_USER" ] && [ "x$WHOAMI" != "x$RUNNER_USER" ]); then
+    type sudo > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        echo "sudo doesn't appear to be installed and your EUID isn't $RUNNER_USER" 1>&2
+        exit 1
+    fi
+    echo "Attempting to restart script through sudo -H -u $RUNNER_USER" >&2
+    exec sudo -H -u $RUNNER_USER -i $RUNNER_SCRIPT_DIR/$RUNNER_SCRIPT $@
+fi
 
 # Make sure CWD is set to runner base dir
 cd $RUNNER_BASE_DIR
 
 # Extract the target node name from node.args
-NAME_ARG=`grep '\-[s]*name' $RUNNER_ETC_DIR/emqtt.args`
+NAME_ARG=`egrep "^ *-s?name" $RUNNER_ETC_DIR/vm.args`
 if [ -z "$NAME_ARG" ]; then
-    echo "emqtt.args needs to have either -name or -sname parameter."
+    echo "vm.args needs to have either -name or -sname parameter."
     exit 1
 fi
 
@@ -36,9 +59,9 @@ else
 fi
 
 # Extract the target cookie
-COOKIE_ARG=`grep '\-setcookie' $RUNNER_ETC_DIR/emqtt.args`
+COOKIE_ARG=`grep '\-setcookie' $RUNNER_ETC_DIR/vm.args`
 if [ -z "$COOKIE_ARG" ]; then
-    echo "emqtt.args needs to have a -setcookie parameter."
+    echo "vm.args needs to have a -setcookie parameter."
     exit 1
 fi
 
@@ -46,16 +69,15 @@ fi
 SCRIPT=`basename $0`
 
 # Parse out release and erts info
-ERLANG_BASE_DIR=/usr/local/lib/erlang
-START_ERL=`cat $ERLANG_BASE_DIR/releases/start_erl.data`
+START_ERL=`cat $RUNNER_BASE_DIR/releases/start_erl.data`
 ERTS_VSN=${START_ERL% *}
 APP_VSN=${START_ERL#* }
 
 # Add ERTS bin dir to our path
-ERTS_PATH=$ERLANG_BASE_DIR/erts-$ERTS_VSN/bin
+ERTS_PATH=$RUNNER_BASE_DIR/erts-$ERTS_VSN/bin
 
 # Setup command to control the node
-NODETOOL="$ERTS_PATH/escript $RUNNER_BIN_DIR/nodetool $NAME_ARG $COOKIE_ARG"
+NODETOOL="$ERTS_PATH/escript $ERTS_PATH/nodetool $NAME_ARG $COOKIE_ARG"
 
 # Check the first argument for instructions
 case "$1" in
@@ -65,7 +87,6 @@ case "$1" in
             exit 1
         fi
 
-        # Make sure the local node IS running
         RES=`$NODETOOL ping`
         if [ "$RES" != "pong" ]; then
             echo "Node is not running!"
