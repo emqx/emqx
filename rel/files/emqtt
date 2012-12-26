@@ -159,7 +159,7 @@ case "$1" in
             if [ "$?" -ne 0 ]; then
                 continue
             fi
-		#TODO: echo start successfully?
+	    echo "emqtt is started successfully!"
             exit 0
         done
         echo "emqtt failed to start within ${WAIT_FOR_ERLANG:-15} seconds,"
