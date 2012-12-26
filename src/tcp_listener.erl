@@ -16,6 +16,8 @@
 
 -module(tcp_listener).
 
+-include("emqtt.hrl").
+
 -behaviour(gen_server).
 
 -export([start_link/8]).
@@ -63,18 +65,16 @@ init({IPAddress, Port, SocketOpts,
                           end,
                           lists:duplicate(ConcurrentAcceptorCount, dummy)),
             {ok, {LIPAddress, LPort}} = inet:sockname(LSock),
-            error_logger:info_msg(
-              "started ~s on ~s:~p~n",
-              [Label, ntoab(LIPAddress), LPort]),
+            ?INFO("started ~s on ~s:~p~n",
+				[Label, ntoab(LIPAddress), LPort]),
             apply(M, F, A ++ [IPAddress, Port]),
             {ok, #state{sock = LSock,
                         on_startup = OnStartup, on_shutdown = OnShutdown,
                         label = Label}};
         {error, Reason} ->
-            error_logger:error_msg(
-              "failed to start ~s on ~s:~p - ~p (~s)~n",
-              [Label, ntoab(IPAddress), Port,
-               Reason, inet:format_error(Reason)]),
+            ?ERROR("failed to start ~s on ~s:~p - ~p (~s)~n",
+				[Label, ntoab(IPAddress), Port,
+				 Reason, inet:format_error(Reason)]),
             {stop, {cannot_listen, IPAddress, Port, Reason}}
     end.
 
@@ -90,8 +90,8 @@ handle_info(_Info, State) ->
 terminate(_Reason, #state{sock=LSock, on_shutdown = {M,F,A}, label=Label}) ->
     {ok, {IPAddress, Port}} = inet:sockname(LSock),
     gen_tcp:close(LSock),
-    error_logger:info_msg("stopped ~s on ~s:~p~n",
-                          [Label, ntoab(IPAddress), Port]),
+    ?ERROR("stopped ~s on ~s:~p~n",
+           [Label, ntoab(IPAddress), Port]),
     apply(M, F, A ++ [IPAddress, Port]).
 
 code_change(_OldVsn, State, _Extra) ->
