@@ -2,7 +2,7 @@ Changes with emqtt 0.1.2                                         27 Dec 2012
 
     *) Feature: release support like riak
 
-    *) Bugfix: 
+    *) Bugfix: use ?INFO/?ERROR to print log in tcp_listener.erl
  
 
 Changes with emqtt 0.1.1                                         24 Dec 2012
