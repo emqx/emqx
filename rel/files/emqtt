@@ -1,0 +1,292 @@
+#!/bin/sh
+# -*- tab-width:4;indent-tabs-mode:nil -*-
+# ex: ts=4 sw=4 et
+
+RUNNER_SCRIPT_DIR=$(cd ${0%/*} && pwd)
+
+CALLER_DIR=$PWD
+
+RUNNER_BASE_DIR=${RUNNER_SCRIPT_DIR%/*}
+RUNNER_ETC_DIR=$RUNNER_BASE_DIR/etc
+# Note the trailing slash on $PIPE_DIR/
+PIPE_DIR=/tmp/$RUNNER_BASE_DIR/
+RUNNER_USER=
+
+# Make sure this script is running as the appropriate user
+if [ ! -z "$RUNNER_USER" ] && [ `whoami` != "$RUNNER_USER" ]; then
+    exec sudo -u $RUNNER_USER -i $0 $@
+fi
+
+# Identify the script name
+SCRIPT=`basename $0`
+
+# Parse out release and erts info
+START_ERL=`cat $RUNNER_BASE_DIR/releases/start_erl.data`
+ERTS_VSN=${START_ERL% *}
+APP_VSN=${START_ERL#* }
+
+# Use $CWD/vm.args if exists, otherwise releases/APP_VSN/vm.args, or else etc/vm.args
+if [ -e "$CALLER_DIR/vm.args" ]; then
+    VMARGS_PATH=$CALLER_DIR/vm.args
+    USE_DIR=$CALLER_DIR
+else
+    USE_DIR=$RUNNER_BASE_DIR
+    if [ -e "$RUNNER_BASE_DIR/releases/$APP_VSN/vm.args" ]; then
+        VMARGS_PATH="$RUNNER_BASE_DIR/releases/$APP_VSN/vm.args"
+    else
+        VMARGS_PATH="$RUNNER_ETC_DIR/vm.args"
+    fi
+fi
+
+RUNNER_LOG_DIR=$USE_DIR/log
+# Make sure log directory exists
+mkdir -p $RUNNER_LOG_DIR
+
+# Use releases/VSN/sys.config if it exists otherwise use etc/app.config
+if [ -e "$USE_DIR/sys.config" ]; then
+    CONFIG_PATH="$USE_DIR/sys.config"
+else
+    if [ -e "$RUNNER_BASE_DIR/releases/$APP_VSN/sys.config" ]; then
+        CONFIG_PATH="$RUNNER_BASE_DIR/releases/$APP_VSN/sys.config"
+    else
+        CONFIG_PATH="$RUNNER_ETC_DIR/app.config"
+    fi
+fi
+
+# Extract the target node name from node.args
+NAME_ARG=`egrep '^-s?name' $VMARGS_PATH`
+if [ -z "$NAME_ARG" ]; then
+    echo "vm.args needs to have either -name or -sname parameter."
+    exit 1
+fi
+
+# Extract the name type and name from the NAME_ARG for REMSH
+REMSH_TYPE=`echo $NAME_ARG | awk '{print $1}'`
+REMSH_NAME=`echo $NAME_ARG | awk '{print $2}'`
+
+# Note the `date +%s`, used to allow multiple remsh to the same node transparently
+REMSH_NAME_ARG="$REMSH_TYPE remsh`date +%s`@`echo $REMSH_NAME | awk -F@ '{print $2}'`"
+REMSH_REMSH_ARG="-remsh $REMSH_NAME"
+
+# Extract the target cookie
+COOKIE_ARG=`grep '^-setcookie' $VMARGS_PATH`
+if [ -z "$COOKIE_ARG" ]; then
+    echo "vm.args needs to have a -setcookie parameter."
+    exit 1
+fi
+
+# Make sure CWD is set to the right dir
+cd $USE_DIR
+
+# Make sure log directory exists
+mkdir -p $USE_DIR/log
+
+
+# Add ERTS bin dir to our path
+ERTS_PATH=$RUNNER_BASE_DIR/erts-$ERTS_VSN/bin
+
+# Setup command to control the node
+NODETOOL="$ERTS_PATH/escript $ERTS_PATH/nodetool $NAME_ARG $COOKIE_ARG"
+
+# Setup remote shell command to control node
+REMSH="$ERTS_PATH/erl $REMSH_NAME_ARG $REMSH_REMSH_ARG $COOKIE_ARG"
+
+# Check the first argument for instructions
+case "$1" in
+    start|start_boot)
+        # Make sure there is not already a node running
+        RES=`$NODETOOL ping`
+        if [ "$RES" = "pong" ]; then
+            echo "Node is already running!"
+            exit 1
+        fi
+        case "$1" in
+            start)
+                shift
+                START_OPTION="console"
+                HEART_OPTION="start"
+                ;;
+            start_boot)
+                shift
+                START_OPTION="console_boot"
+                HEART_OPTION="start_boot"
+                ;;
+        esac
+        RUN_PARAM=$(printf "\'%s\' " "$@")
+        HEART_COMMAND="$RUNNER_BASE_DIR/bin/$SCRIPT $HEART_OPTION $RUN_PARAM"
+        export HEART_COMMAND
+        mkdir -p $PIPE_DIR
+        $ERTS_PATH/run_erl -daemon $PIPE_DIR $RUNNER_LOG_DIR "exec $RUNNER_BASE_DIR/bin/$SCRIPT $START_OPTION $RUN_PARAM" 2>&1
+        ;;
+
+    stop)
+        # Wait for the node to completely stop...
+        case `uname -s` in
+            Linux|Darwin|FreeBSD|DragonFly|NetBSD|OpenBSD)
+                # PID COMMAND
+                PID=`ps ax -o pid= -o command=|\
+                    grep "$RUNNER_BASE_DIR/.*/[b]eam"|awk '{print $1}'`
+                ;;
+            SunOS)
+                # PID COMMAND
+                PID=`ps -ef -o pid= -o args=|\
+                    grep "$RUNNER_BASE_DIR/.*/[b]eam"|awk '{print $1}'`
+                ;;
+            CYGWIN*)
+                # UID PID PPID TTY STIME COMMAND
+                PID=`ps -efW|grep "$RUNNER_BASE_DIR/.*/[b]eam"|awk '{print $2}'`
+                ;;
+        esac
+        $NODETOOL stop
+        ES=$?
+        if [ "$ES" -ne 0 ]; then
+            exit $ES
+        fi
+        while `kill -0 $PID 2>/dev/null`;
+        do
+            sleep 1
+        done
+        ;;
+
+    restart)
+        ## Restart the VM without exiting the process
+        $NODETOOL restart
+        ES=$?
+        if [ "$ES" -ne 0 ]; then
+            exit $ES
+        fi
+        ;;
+
+    reboot)
+        ## Restart the VM completely (uses heart to restart it)
+        $NODETOOL reboot
+        ES=$?
+        if [ "$ES" -ne 0 ]; then
+            exit $ES
+        fi
+        ;;
+
+    ping)
+        ## See if the VM is alive
+        $NODETOOL ping
+        ES=$?
+        if [ "$ES" -ne 0 ]; then
+            exit $ES
+        fi
+        ;;
+
+    attach)
+        # Make sure a node IS running
+        RES=`$NODETOOL ping`
+        ES=$?
+        if [ "$ES" -ne 0 ]; then
+            echo "Node is not running!"
+            exit $ES
+        fi
+
+        shift
+        exec $ERTS_PATH/to_erl $PIPE_DIR
+        ;;
+
+    remote_console)
+        # Make sure a node IS running
+        RES=`$NODETOOL ping`
+        ES=$?
+        if [ "$ES" -ne 0 ]; then
+            echo "Node is not running!"
+            exit $ES
+        fi
+
+        shift
+        exec $REMSH
+        ;;
+
+    upgrade)
+        if [ -z "$2" ]; then
+            echo "Missing upgrade package argument"
+            echo "Usage: $SCRIPT upgrade {package base name}"
+            echo "NOTE {package base name} MUST NOT include the .tar.gz suffix"
+            exit 1
+        fi
+
+        # Make sure a node IS running
+        RES=`$NODETOOL ping`
+        ES=$?
+        if [ "$ES" -ne 0 ]; then
+            echo "Node is not running!"
+            exit $ES
+        fi
+
+        node_name=`echo $NAME_ARG | awk '{print $2}'`
+        erlang_cookie=`echo $COOKIE_ARG | awk '{print $2}'`
+
+        $ERTS_PATH/escript $RUNNER_BASE_DIR/bin/install_upgrade.escript $node_name $erlang_cookie $2
+        ;;
+
+    console|console_clean|console_boot)
+        # .boot file typically just $SCRIPT (ie, the app name)
+        # however, for debugging, sometimes start_clean.boot is useful.
+        # For e.g. 'setup', one may even want to name another boot script.
+        case "$1" in
+            console)        BOOTFILE=$SCRIPT ;;
+            console_clean)  BOOTFILE=start_clean ;;
+            console_boot)
+                shift
+                BOOTFILE="$1"
+                shift
+                ;;
+        esac
+        # Setup beam-required vars
+        ROOTDIR=$RUNNER_BASE_DIR
+        BINDIR=$ROOTDIR/erts-$ERTS_VSN/bin
+        EMU=beam
+        PROGNAME=`echo $0 | sed 's/.*\\///'`
+        CMD="$BINDIR/erlexec -boot $RUNNER_BASE_DIR/releases/$APP_VSN/$BOOTFILE -mode embedded -config $CONFIG_PATH -args_file $VMARGS_PATH"
+        export EMU
+        export ROOTDIR
+        export BINDIR
+        export PROGNAME
+
+        # Dump environment info for logging purposes
+        echo "Exec: $CMD" -- ${1+"$@"}
+        echo "Root: $ROOTDIR"
+
+        # Log the startup
+        logger -t "$SCRIPT[$$]" "Starting up"
+
+        # Start the VM
+        exec $CMD -- ${1+"$@"}
+        ;;
+
+    foreground)
+        # start up the release in the foreground for use by runit
+        # or other supervision services
+
+        BOOTFILE=$SCRIPT
+        FOREGROUNDOPTIONS="-noinput +Bd"
+
+        # Setup beam-required vars
+        ROOTDIR=$RUNNER_BASE_DIR
+        BINDIR=$ROOTDIR/erts-$ERTS_VSN/bin
+        EMU=beam
+        PROGNAME=`echo $0 | sed 's/.*\///'`
+        CMD="$BINDIR/erlexec $FOREGROUNDOPTIONS -boot $RUNNER_BASE_DIR/releases/$APP_VSN/$BOOTFILE -config $CONFIG_PATH -args_file $VMARGS_PATH"
+        export EMU
+        export ROOTDIR
+        export BINDIR
+        export PROGNAME
+
+        # Dump environment info for logging purposes
+        echo "Exec: $CMD" -- ${1+"$@"}
+        echo "Root: $ROOTDIR"
+
+        # Start the VM
+        exec $CMD -- ${1+"$@"}
+        ;;
+    *)
+        echo "Usage: $SCRIPT {start|start_boot <file>|foreground|stop|restart|reboot|ping|console|console_clean|console_boot <file>|attach|remote_console|upgrade}"
+        exit 1
+        ;;
+esac
+
+exit 0

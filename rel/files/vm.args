@@ -1,0 +1,20 @@
+## Name of the node
+-sname emqtt
+
+## Cookie for distributed erlang
+-setcookie emqtt
+
+## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
+## (Disabled by default..use with caution!)
+##-heart
+-smp true
+
+## Enable kernel poll and a few async threads
++K true
++A 32
+
+## Increase number of concurrent ports/sockets
+##-env ERL_MAX_PORTS 4096
+
+## Tweak GC to run more often
+##-env ERL_FULLSWEEP_AFTER 10
