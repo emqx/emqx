@@ -2,9 +2,13 @@
 
 -include("emqtt.hrl").
 
--compile(export_all).
+-export([status/1,
+		cluster_info/1,
+		cluster/1,
+		add_user/1,
+		delete_user/1]).
 	
-status() ->
+status([]) ->
     {InternalStatus, _ProvidedStatus} = init:get_status(),
     ?PRINT("Node ~p is ~p~n", [node(), InternalStatus]),
     case lists:keysearch(emqtt, 1, application:which_applications()) of
@@ -14,11 +18,11 @@ status() ->
 		?PRINT_MSG("emqtt is running~n")
     end.
 
-cluster_info() ->
+cluster_info([]) ->
     Nodes = [node()|nodes()],
     ?PRINT("cluster nodes: ~p~n", [Nodes]).
 
-cluster(Node) ->
+cluster([Node]) ->
 	case net_adm:ping(list_to_atom(Node)) of
 	pong ->
 		?PRINT("cluster with ~p successfully.~n", [Node]);
@@ -26,8 +30,8 @@ cluster(Node) ->
         ?PRINT("failed to cluster with ~p~n", [Node])
 	end.
 
-add_user(Username, Password) ->
+add_user([Username, Password]) ->
 	?PRINT("~p", [emqtt_auth:add(list_to_binary(Username), list_to_binary(Password))]).
 
-delete_user(Username) ->
+delete_user([Username]) ->
 	?PRINT("~p", [emqtt_auth:delete(list_to_binary(Username))]).
