@@ -1,5 +1,5 @@
 ## Name of the node
--name emqtt@127.0.0.1
+-sname emqtt
 
 ## Cookie for distributed erlang
 -setcookie emqtt

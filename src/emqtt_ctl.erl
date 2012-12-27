@@ -22,8 +22,9 @@ cluster_info([]) ->
     Nodes = [node()|nodes()],
     ?PRINT("cluster nodes: ~p~n", [Nodes]).
 
-cluster([Node]) ->
-	case net_adm:ping(list_to_atom(Node)) of
+cluster([SNode]) ->
+	Node = list_to_atom(SNode),
+	case net_adm:ping(Node) of
 	pong ->
 		application:stop(emqtt),
 		mnesia:stop(),
