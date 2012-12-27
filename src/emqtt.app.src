@@ -12,6 +12,7 @@
 	emqtt_client_sup,
 	emqtt_client_monitor,
 	emqtt_ctl,
+	emqtt_db,
 	emqtt_frame,
 	emqtt_lib,
 	emqtt_listener,

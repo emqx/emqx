@@ -13,29 +13,19 @@
 %% The Initial Developer of the Original Code is <ery.lee at gmail dot com>
 %% Copyright (C) 2012 Ery Lee All Rights Reserved.
 
--module(emqtt_client_sup).
+-module(emqtt_db).
 
--export([start_link/0, start_client/1]).
+-export([init/0, stop/0]).
 
--behaviour(supervisor2).
+init() ->
+	case mnesia:system_info(extra_db_nodes) of
+    [] -> mnesia:create_schema([node()]);
+    _ -> ok
+    end,
+    ok = mnesia:start(),
+    mnesia:wait_for_tables(mnesia:system_info(local_tables), infinity).
 
--export([init/1]).
+stop() ->
+	mnesia:stop().
 
-start_link() ->
-	supervisor2:start_link({local, ?MODULE}, ?MODULE, []).
-
-init([]) ->
-    {ok, {{simple_one_for_one_terminate, 0, 1},
-          [{client, {emqtt_client, start_link, []}, 
-				temporary, 5000, worker, [emqtt_client]}]}}.
-
-start_client(Sock) ->
-    {ok, Client} = supervisor:start_child(?MODULE, []),
-	ok = gen_tcp:controlling_process(Sock, Client),
-	emqtt_client:go(Client, Sock),
-
-    %% see comment in rabbit_networking:start_client/2
-    gen_event:which_handlers(error_logger),
-
-	Client.
 
