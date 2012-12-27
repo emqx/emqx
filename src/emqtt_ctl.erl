@@ -25,9 +25,14 @@ cluster_info([]) ->
 cluster([Node]) ->
 	case net_adm:ping(list_to_atom(Node)) of
 	pong ->
+		application:stop(emqtt),
+		mnesia:stop(),
+		mnesia:start(),
+		mnesia:change_config(extra_db_nodes, [Node]),
+		application:start(emqtt),
 		?PRINT("cluster with ~p successfully.~n", [Node]);
 	pang ->
-        ?PRINT("failed to cluster with ~p~n", [Node])
+        ?PRINT("failed to connect to ~p~n", [Node])
 	end.
 
 add_user([Username, Password]) ->

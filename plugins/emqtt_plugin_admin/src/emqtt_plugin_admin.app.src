@@ -1,0 +1,12 @@
+{application, emqtt_plugin_admin,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { emqtt_plugin_admin_app, []}},
+  {env, []}
+ ]}.
