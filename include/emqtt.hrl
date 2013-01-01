@@ -29,7 +29,13 @@
 %name: <<"a/b/c">>
 %node: node()
 %words: [<<"a">>, <<"b">>, <<"c">>]
--record(topic, {name, node, words}).
+-record(topic, {name, node}).
+
+-record(trie, {edge, node_id}).
+
+-record(trie_node, {node_id, edge_count=0, topic}).
+
+-record(trie_edge, {node_id, word}).
 
 %topic: topic name
 

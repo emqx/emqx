@@ -13,6 +13,8 @@
 %%
 -module(emqtt_topic).
 
+-import(string, [rchr/2, substr/2, substr/3]).
+
 %% ------------------------------------------------------------------------
 %% Topic semantics and usage
 %% ------------------------------------------------------------------------
@@ -35,25 +37,30 @@
 
 -include("emqtt.hrl").
  
--export([new/1, type/1, match/2, validate/1, words/1]).
+-export([new/1,
+		 type/1,
+		 match/2,
+		 validate/1,
+		 triples/1,
+		 words/1]).
 
 -export([test/0]).
 
 -define(MAX_LEN, 64*1024).
 
-new(Name) when is_binary(Name) ->
-	#topic{name=Name, node=node(), words=words(Name)}.
+new(Name) when is_list(Name) ->
+	#topic{name=Name, node=node()}.
 
 %% ------------------------------------------------------------------------
 %% topic type: direct or wildcard
 %% ------------------------------------------------------------------------
-type(#topic{words=Words}) ->
-	type(Words);
+type(#topic{name=Name}) ->
+	type(words(Name));
 type([]) ->
 	direct;
-type([<<"#">>]) ->
+type(["#"]) ->
 	wildcard;
-type([<<"+">>|_T]) ->
+type(["+"|_T]) ->
 	wildcard;
 type([_|T]) ->
 	type(T).
@@ -65,9 +72,9 @@ match([], []) ->
 	true;
 match([H|T1], [H|T2]) ->
 	match(T1, T2);
-match([_H|T1], [<<"+">>|T2]) ->
+match([_H|T1], ["+"|T2]) ->
 	match(T1, T2);
-match(_, [<<"#">>]) ->
+match(_, ["#"]) ->
 	true;
 match([_H1|_], [_H2|_]) ->
 	false;
@@ -78,38 +85,61 @@ match([], [_H|_T2]) ->
 %% ------------------------------------------------------------------------
 %% topic validate
 %% ------------------------------------------------------------------------
-validate({_, <<>>}) ->
+validate({_, ""}) ->
 	false;
-validate({_, Topic}) when size(Topic) > ?MAX_LEN ->
+validate({_, Topic}) when length(Topic) > ?MAX_LEN ->
 	false;
-validate({subscribe, Topic}) when is_binary(Topic) ->
+validate({subscribe, Topic}) when is_list(Topic) ->
 	valid(words(Topic));
-validate({publish, Topic}) when is_binary(Topic) ->
+validate({publish, Topic}) when is_list(Topic) ->
 	Words = words(Topic),
 	valid(Words) and (not include_wildcard(Words)).
 
-words(Topic) when is_binary(Topic) ->
-	binary:split(Topic, [<<"/">>], [global]).
+triples(S) when is_list(S) ->
+	triples(S, []).
 
-valid([<<>>|Words]) -> valid2(Words);
+triples(S, Acc) ->
+	triples(rchr(S, $/), S, Acc).
+
+triples(0, S, Acc) ->
+	[{root, S, S}|Acc];
+
+triples(I, S, Acc) ->
+	S1 = substr(S, 1, I-1),
+	S2 = substr(S, I+1),
+	triples(S1, [{S1, S2, S}|Acc]).
+
+words(Topic) when is_list(Topic) ->
+	words(Topic, [], []).
+
+words([], Word, ResAcc) ->
+	lists:reverse([Word|ResAcc]);
+
+words([$/|Topic], Word, ResAcc) ->
+	words(Topic, [], [Word|ResAcc]);
+
+words([C|Topic], Word, ResAcc) ->
+	words(Topic, lists:reverse([C|Word]), ResAcc).
+
+valid([""|Words]) -> valid2(Words);
 valid(Words) -> valid2(Words).
 
-valid2([<<>>|_Words]) -> false;
-valid2([<<"#">>|Words]) when length(Words) > 0 -> false; 
+valid2([""|_Words]) -> false;
+valid2(["#"|Words]) when length(Words) > 0 -> false; 
 valid2([_|Words]) -> valid2(Words);
 valid2([]) -> true.
 
 include_wildcard([]) -> false;
-include_wildcard([<<"#">>|_T]) -> true;
-include_wildcard([<<"+">>|_T]) -> true;
+include_wildcard(["#"|_T]) -> true;
+include_wildcard(["+"|_T]) -> true;
 include_wildcard([_H|T]) -> include_wildcard(T).
 
 
 test() ->
-	true = validate({subscribe, <<"a/b/c">>}),
-	true = validate({subscribe, <<"/a/b">>}),
-	true = validate({subscribe, <<"/+/x">>}),
-	true = validate({subscribe, <<"/a/b/c/#">>}),
-	false = validate({subscribe, <<"a/#/c">>}),
+	true = validate({subscribe, "a/b/c"}),
+	true = validate({subscribe, "/a/b"}),
+	true = validate({subscribe, "/+/x"}),
+	true = validate({subscribe, "/a/b/c/#"}),
+	false = validate({subscribe, "a/#/c"}),
 	ok.
 

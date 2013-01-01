@@ -383,7 +383,7 @@ stop(Reason, State ) ->
     {stop, Reason, State}.
 
 valid_client_id(ClientId) ->
-    ClientIdLen = size(ClientId),
+    ClientIdLen = length(ClientId),
     1 =< ClientIdLen andalso ClientIdLen =< ?CLIENT_ID_MAXLEN.
 
 retained(false, _Topic, _Msg) ->

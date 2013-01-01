@@ -23,7 +23,7 @@
 -export([serialise/1]).
 
 -define(RESERVED, 0).
--define(PROTOCOL_MAGIC, <<"MQIsdp">>).
+-define(PROTOCOL_MAGIC, "MQIsdp").
 -define(MAX_LEN, 16#fffffff).
 -define(HIGHBIT, 2#10000000).
 -define(LOWBITS, 2#01111111).
@@ -145,7 +145,7 @@ parse_utf(Bin, _) ->
     parse_utf(Bin).
 
 parse_utf(<<Len:16/big, Str:Len/binary, Rest/binary>>) ->
-    {Str, Rest}.
+    {binary_to_list(Str), Rest}.
 
 parse_msg(Bin, 0) ->
     {undefined, Bin};
