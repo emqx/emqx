@@ -24,6 +24,7 @@
 -export([topics/0,
 		subscribe/2,
 		unsubscribe/2,
+		publish/1,
 		publish/2,
 		route/2,
 		match/1,
@@ -51,6 +52,9 @@ subscribe({Topic, Qos}, Client) when is_pid(Client) ->
 
 unsubscribe(Topic, Client) when is_list(Topic) and is_pid(Client) ->
 	gen_server2:cast(?MODULE, {unsubscribe, Topic, Client}).
+
+publish(Msg=#mqtt_msg{topic=Topic}) ->
+	publish(Topic, Msg).
 
 %publish to cluster node.
 publish(Topic, Msg) when is_list(Topic) and is_record(Msg, mqtt_msg) ->

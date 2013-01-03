@@ -418,7 +418,8 @@ validate_frame(?UNSUBSCRIBE, Frame) ->
 	validate_frame(?SUBSCRIBE, Frame);
 
 validate_frame(?SUBSCRIBE, #mqtt_frame{variable = #mqtt_frame_subscribe{topic_table = Topics}}) ->
-	ErrTopics = [Topic || Topic <- Topics, not emqtt_topic:validate({subscribe, Topic})],
+	ErrTopics = [Topic || #mqtt_topic{name=Topic} <- Topics,
+						not emqtt_topic:validate({subscribe, Topic})],
 	case ErrTopics of
 	[] -> ok;
 	_ -> ?ERROR("error topics: ~p", [ErrTopics]), {error, badtopic}
