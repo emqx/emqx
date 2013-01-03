@@ -102,7 +102,7 @@ parse_frame(Bin, #mqtt_frame_fixed{ type = Type,
             wrap(Fixed, #mqtt_frame_publish { topic_name = TopicName,
                                               message_id = MessageId },
                  Payload, Rest);
-        {?PUBACK, <<FrameBin:Length/binary, Rest/binary>>} ->
+        {?PUBREL, <<FrameBin:Length/binary, Rest/binary>>} ->
             <<MessageId:16/big>> = FrameBin,
             wrap(Fixed, #mqtt_frame_publish { message_id = MessageId }, Rest);
         {Subs, <<FrameBin:Length/binary, Rest/binary>>}
