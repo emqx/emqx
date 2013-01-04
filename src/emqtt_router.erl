@@ -67,7 +67,7 @@ publish(Topic, Msg) when is_list(Topic) and is_record(Msg, mqtt_msg) ->
 
 %route locally, should only be called by publish
 route(Topic, Msg) ->
-	[Client ! {route, Msg} || #subscriber{client=Client} <- ets:lookup(subscriber, Topic)].
+	[Client ! {route, Msg#mqtt_msg{qos=Qos}} || #subscriber{qos=Qos, client=Client} <- ets:lookup(subscriber, Topic)].
 
 match(Topic) when is_list(Topic) ->
 	TrieNodes = mnesia:async_dirty(fun trie_match/1, [emqtt_topic:words(Topic)]),

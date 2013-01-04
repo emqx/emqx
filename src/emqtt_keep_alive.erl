@@ -37,7 +37,7 @@ state(#keep_alive{state=State}) ->
 activate(undefined) -> 
 	undefined; 
 activate(KeepAlive) when is_record(KeepAlive, keep_alive) -> 
-	KeepAlive#keep_alive{state=ative}.
+	KeepAlive#keep_alive{state=active}.
 
 reset(undefined) ->
 	undefined;
