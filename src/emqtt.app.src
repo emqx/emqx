@@ -1,7 +1,7 @@
 {application, emqtt,
  [
   {description, "erlang mqtt broker"},
-  {vsn, "0.1.3"},
+  {vsn, "0.1.4"},
   {modules, [
 	emqtt,
 	emqtt_app,
