@@ -76,7 +76,7 @@ handle_call({go, Sock}, _From, _State) ->
     {ok, ConnStr} = emqtt_net:connection_string(Sock, inbound),
 	%FIXME: merge to registry
 	emqtt_client_monitor:mon(self()),
-    ?INFO("accepting MQTT connection (~s)~n", [ConnStr]),
+    ?INFO("accepting connection (~s)", [ConnStr]),
     {reply, ok, 
 	  control_throttle(
        #state{ socket           = Sock,
@@ -101,17 +101,18 @@ handle_info({route, Msg}, #state{socket = Sock} = State) ->
 		message_id = MessageId,
 		payload    = Payload } = Msg,
 
-	SendMsgId =
+	{DestQos, SendMsgId} =
 	if
-	Qos > ?QOS_0 -> MessageId;
-	true -> 0
+	Qos == ?QOS_0 -> {Qos, 0};
+	Qos == ?QOS_1 -> {?QOS_0, MessageId};
+	Qos == ?QOS_2 -> {?QOS_1, MessageId}
 	end,
 	
-	
+	%?INFO("~p route: ~p", [ConnName, Msg]),
 	%TODO: FIXME LATER
 	Frame = #mqtt_frame{fixed = #mqtt_frame_fixed{ 
 							type = ?PUBLISH,
-							qos    = Qos,
+							qos    = DestQos,
 							retain = Retain,
 							dup    = Dup },
 						variable = #mqtt_frame_publish{ 
@@ -234,6 +235,7 @@ process_request(?CONNECT,
                         ?ERROR_MSG("MQTT login failed - no credentials"),
                         {?CONNACK_CREDENTIALS, State};
                     true ->
+						?INFO("connect from clientid: ~s", [ClientId]),
 						ok = emqtt_registry:register(ClientId, self()),
 						KeepAlive = emqtt_keep_alive:new(AlivePeriod*1500, keep_alive_timeout),
 						{?CONNACK_ACCEPT,
@@ -324,7 +326,8 @@ process_request(?PINGREQ, #mqtt_frame{}, #state{socket=Sock, keep_alive=KeepAliv
     send_frame(Sock, #mqtt_frame{ fixed = #mqtt_frame_fixed{ type = ?PINGRESP }}),
     {ok, State#state{keep_alive=KeepAlive1}};
 
-process_request(?DISCONNECT, #mqtt_frame{}, State) ->
+process_request(?DISCONNECT, #mqtt_frame{}, State=#state{client_id=ClientId}) ->
+	?INFO("~s disconnected", [ClientId]),
     {stop, State}.
 
 next_msg_id(State = #state{ message_id = 16#ffff }) ->

@@ -61,7 +61,6 @@ handle_call(Req, _From, State) ->
     {stop, {badreq, Req}, State}.
 
 handle_cast({register, ClientId, Pid}, State) ->
-	?INFO("register ~p ~p", [ClientId, Pid]),
 	case ets:lookup(client, ClientId) of
 	[{_, {OldPid, MRef}}] ->
 		catch gen_server2:call(OldPid, duplicate_id),
@@ -73,7 +72,6 @@ handle_cast({register, ClientId, Pid}, State) ->
     {noreply, State};
 
 handle_cast({unregister, ClientId}, State) ->
-	?INFO("unregister ~p", [ClientId]),
 	case ets:lookup(client, ClientId) of
 	[{_, {_Pid, MRef}}] ->
 		erlang:demonitor(MRef),

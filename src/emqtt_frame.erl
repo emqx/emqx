@@ -188,7 +188,8 @@ serialise_variable(#mqtt_frame_fixed   { type       = ?PUBLISH,
     TopicBin = serialise_utf(TopicName),
     MessageIdBin = case Qos of
                        0 -> <<>>;
-                       1 -> <<MessageId:16/big>>
+                       1 -> <<MessageId:16/big>>;
+                       2 -> <<MessageId:16/big>>
                    end,
     serialise_fixed(Fixed, <<TopicBin/binary, MessageIdBin/binary>>, PayloadBin);
 
@@ -197,6 +198,17 @@ serialise_variable(#mqtt_frame_fixed   { type       = ?PUBACK } = Fixed,
                    PayloadBin) ->
     MessageIdBin = <<MessageId:16/big>>,
     serialise_fixed(Fixed, MessageIdBin, PayloadBin);
+
+
+serialise_variable(#mqtt_frame_fixed { type = ?PUBREC } = Fixed,
+			  	   #mqtt_frame_publish{ message_id = MsgId},
+				   PayloadBin) ->
+    serialise_fixed(Fixed, <<MsgId:16/big>>, PayloadBin);
+
+serialise_variable(#mqtt_frame_fixed { type = ?PUBCOMP } = Fixed,
+			  	   #mqtt_frame_publish{ message_id = MsgId},
+				   PayloadBin) ->
+    serialise_fixed(Fixed, <<MsgId:16/big>>, PayloadBin);
 
 serialise_variable(#mqtt_frame_fixed {} = Fixed,
                    undefined,
