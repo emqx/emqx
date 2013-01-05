@@ -1,8 +1,15 @@
+Changes with emqtt 0.1.5                                         05 Jan 2012
+
+    *) Bugfix: remove QOS_1 match when handle PUBREL request 
+	
+    *) Bugfix: reverse word in emqtt_topic:words/1 function
+
+
 Changes with emqtt 0.1.4                                         04 Jan 2012
 
     *) Bugfix: fix "mosquitto_sub -q 2 ......" bug
 
-	*) Bugfix: fix keep alive bug
+    *) Bugfix: fix keep alive bug
 
 Changes with emqtt 0.1.3                                         04 Jan 2012
 

@@ -100,7 +100,7 @@ handle_info({route, Msg}, #state{socket = Sock, message_id=MsgId} = State) ->
 			  topic      = Topic,
 			  dup        = Dup,
 			  payload    = Payload} = Msg,
-	
+
 	Frame = #mqtt_frame{
 		fixed = #mqtt_frame_fixed{type 	 = ?PUBLISH,
 								  qos    = Qos,
@@ -291,7 +291,6 @@ process_request(?PUBREC, #mqtt_frame{
 
 process_request(?PUBREL,
                 #mqtt_frame{
-                  fixed = #mqtt_frame_fixed{ qos    = ?QOS_1 },
                   variable = #mqtt_frame_publish{message_id = MsgId}},
 				  State=#state{socket=Sock}) ->
 	erase({msg, MsgId}),

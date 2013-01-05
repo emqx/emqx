@@ -13,6 +13,8 @@
 %%
 -module(emqtt_topic).
 
+-import(lists, [reverse/1]).
+
 -import(string, [rchr/2, substr/2, substr/3]).
 
 %% ------------------------------------------------------------------------
@@ -113,13 +115,13 @@ words(Topic) when is_list(Topic) ->
 	words(Topic, [], []).
 
 words([], Word, ResAcc) ->
-	lists:reverse([Word|ResAcc]);
+	reverse([reverse(W) || W <- [Word|ResAcc]]);
 
 words([$/|Topic], Word, ResAcc) ->
 	words(Topic, [], [Word|ResAcc]);
 
 words([C|Topic], Word, ResAcc) ->
-	words(Topic, lists:reverse([C|Word]), ResAcc).
+	words(Topic, [C|Word], ResAcc).
 
 valid([""|Words]) -> valid2(Words);
 valid(Words) -> valid2(Words).
