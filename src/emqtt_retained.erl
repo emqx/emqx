@@ -34,6 +34,8 @@
 
 -include("emqtt.hrl").
 
+-include_lib("elog/include/elog.hrl").
+
 -export([start_link/0,
 		lookup/1,
 		insert/2,

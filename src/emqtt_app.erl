@@ -19,6 +19,8 @@
 
 -include("emqtt.hrl").
 
+-include_lib("elog/include/elog.hrl").
+
 -behaviour(application).
 
 %% Application callbacks

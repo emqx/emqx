@@ -15,7 +15,7 @@
 
 -module(emqtt_auth_internal).
 
--include("emqtt.hrl").
+-include("emqtt_internal.hrl").
 
 -export([init/1,
 		add/2,

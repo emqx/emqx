@@ -17,6 +17,8 @@
 
 -include("emqtt.hrl").
 
+-include_lib("elog/include/elog.hrl").
+
 -export([status/1,
 		cluster_info/1,
 		cluster/1,

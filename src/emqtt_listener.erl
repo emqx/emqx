@@ -16,6 +16,8 @@
 
 -include("emqtt.hrl").
 
+-include_lib("elog/include/elog.hrl").
+
 -export([spec/2, listener_started/3, listener_stopped/3]).
 
 spec({Listener, SockOpts}, Callback) ->

@@ -17,7 +17,11 @@
 
 -include("emqtt_frame.hrl").
 
+-include("emqtt_internal.hrl").
+
 -include_lib("stdlib/include/qlc.hrl").
+
+-include_lib("elog/include/elog.hrl").
 
 -export([start_link/0]).
 

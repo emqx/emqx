@@ -27,7 +27,12 @@
 		terminate/2]).
 
 -include("emqtt.hrl").
+
 -include("emqtt_frame.hrl").
+
+-include("emqtt_internal.hrl").
+
+-include_lib("elog/include/elog.hrl").
 
 -define(CLIENT_ID_MAXLEN, 23).
 
@@ -99,7 +104,14 @@ handle_info({route, Msg}, #state{socket = Sock, message_id=MsgId} = State) ->
 			  qos        = Qos,
 			  topic      = Topic,
 			  dup        = Dup,
-			  payload    = Payload} = Msg,
+			  payload    = Payload,
+			  encoder 	 = Encoder} = Msg,
+	
+	Payload1 = 
+	if
+	Encoder == undefined -> Payload;
+	true -> Encoder(Payload)
+	end,
 
 	Frame = #mqtt_frame{
 		fixed = #mqtt_frame_fixed{type 	 = ?PUBLISH,
@@ -111,7 +123,7 @@ handle_info({route, Msg}, #state{socket = Sock, message_id=MsgId} = State) ->
 													Qos == ?QOS_0 -> undefined;
 													true -> MsgId
 													end},
-		payload = Payload},
+		payload = Payload1},
 
 	send_frame(Sock, Frame),
 

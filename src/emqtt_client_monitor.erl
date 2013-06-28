@@ -17,6 +17,10 @@
 
 -include("emqtt.hrl").
 
+-include("emqtt_internal.hrl").
+
+-include_lib("elog/include/elog.hrl").
+
 -export([start_link/0, mon/1]).
 
 -behaviour(gen_server).

@@ -19,6 +19,8 @@
 
 -include("emqtt_frame.hrl").
 
+-include("emqtt_internal.hrl").
+
 -export([parse/2, initial_state/0]).
 -export([serialise/1]).
 
