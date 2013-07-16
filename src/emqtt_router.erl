@@ -78,6 +78,8 @@ match(Topic) when is_list(Topic) ->
     Names = [Name || #trie_node{topic=Name} <- TrieNodes, Name=/= undefined],
 	lists:flatten([mnesia:dirty_read(topic, Name) || Name <- Names]).
 
+%TODO: this api is really ugly 
+
 down(Client) when is_pid(Client) ->
 	gen_server2:cast(?MODULE, {down, Client}).
 
