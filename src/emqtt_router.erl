@@ -223,6 +223,8 @@ trie_add_path({Node, Word, Child}) ->
 		mnesia:write(#trie{edge=Edge, node_id=Child})
 	end.
 
+trie_delete_path([]) ->
+	ok;
 trie_delete_path([{NodeId, Word, _} | RestPath]) ->
 	Edge = #trie_edge{node_id=NodeId, word=Word},
 	mnesia:delete({trie, Edge}),
