@@ -156,7 +156,7 @@ parse_utf(Bin, _) ->
     parse_utf(Bin).
 
 parse_utf(<<Len:16/big, Str:Len/binary, Rest/binary>>) ->
-    {binary_to_list(Str), Rest}.
+    {Str, Rest}.
 
 parse_msg(Bin, 0) ->
     {undefined, Bin};
@@ -241,11 +241,12 @@ serialise_fixed(#mqtt_frame_fixed{ type   = Type,
     <<Type:4, (opt(Dup)):1, (opt(Qos)):2, (opt(Retain)):1,
       LenBin/binary, VariableBin/binary, PayloadBin/binary>>.
 
-serialise_utf(String) ->
-    StringBin = unicode:characters_to_binary(String),
-    Len = size(StringBin),
+serialise_utf(String) when is_list(String) ->
+    serialise_utf(unicode:characters_to_binary(String));
+serialise_utf(String) when is_binary(String) ->
+    Len = size(String),
     true = (Len =< 16#ffff),
-    <<Len:16/big, StringBin/binary>>.
+    <<Len:16/big, String/binary>>.
 
 serialise_len(N) when N =< ?LOWBITS ->
     <<0:1, N:7>>;

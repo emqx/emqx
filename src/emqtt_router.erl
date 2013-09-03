@@ -52,16 +52,18 @@ topics() ->
 	mnesia:dirty_all_keys(topic).
 
 subscribe({Topic, Qos}, Client) when is_pid(Client) ->
-	gen_server2:call(?MODULE, {subscribe, {Topic, Qos}, Client}).
+	gen_server2:call(?MODULE, {subscribe, {to_binary(Topic), Qos}, Client});
+subscribe(Topic, Client) ->
+	subscribe({Topic, ?QOS_0}, Client).
 
-unsubscribe(Topic, Client) when is_list(Topic) and is_pid(Client) ->
-	gen_server2:cast(?MODULE, {unsubscribe, Topic, Client}).
+unsubscribe(Topic, Client) when is_pid(Client) ->
+	gen_server2:cast(?MODULE, {unsubscribe, to_binary(Topic), Client}).
 
 publish(Msg=#mqtt_msg{topic=Topic}) ->
 	publish(Topic, Msg).
 
 %publish to cluster node.
-publish(Topic, Msg) when is_list(Topic) and is_record(Msg, mqtt_msg) ->
+publish(Topic, Msg) when is_record(Msg, mqtt_msg) ->
 	lists:foreach(fun(#topic{name=Name, node=Node}) ->
 		case Node == node() of
 		true -> route(Name, Msg);
@@ -70,11 +72,11 @@ publish(Topic, Msg) when is_list(Topic) and is_record(Msg, mqtt_msg) ->
 	end, match(Topic)).
 
 %route locally, should only be called by publish
-route(Topic, Msg) ->
+route(Topic, Msg) when is_binary(Topic) ->
 	[Client ! {route, Msg#mqtt_msg{qos=Qos}} || #subscriber{qos=Qos, client=Client} <- ets:lookup(subscriber, Topic)].
 
-match(Topic) when is_list(Topic) ->
-	TrieNodes = mnesia:async_dirty(fun trie_match/1, [emqtt_topic:words(Topic)]),
+match(Topic) ->
+	TrieNodes = mnesia:async_dirty(fun trie_match/1, [emqtt_topic:words(to_binary(Topic))]),
     Names = [Name || #trie_node{topic=Name} <- TrieNodes, Name=/= undefined],
 	lists:flatten([mnesia:dirty_read(topic, Name) || Name <- Names]).
 
@@ -197,10 +199,10 @@ trie_match(NodeId, [W|Words], ResAcc) ->
 		[#trie{node_id=ChildId}] -> trie_match(ChildId, Words, Acc);
 		[] -> Acc
 		end
-	end, 'trie_match_#'(NodeId, ResAcc), [W, "+"]).
+	end, 'trie_match_#'(NodeId, ResAcc), [W, $+]).
 
 'trie_match_#'(NodeId, ResAcc) ->
-	case mnesia:read(trie, #trie_edge{node_id=NodeId, word="#"}) of
+	case mnesia:read(trie, #trie_edge{node_id=NodeId, word=$#}) of
 	[#trie{node_id=ChildId}] ->
 		mnesia:read(trie_node, ChildId) ++ ResAcc;	
 	[] ->
@@ -239,4 +241,10 @@ trie_delete_path([{NodeId, Word, _} | RestPath]) ->
 	[] ->
 		throw({notfound, NodeId}) 
 	end.
+
+
+to_binary(L) when is_list(L) ->
+	unicode:characters_to_binary(L);
+to_binary(B) when is_binary(B) ->
+	B.
 
