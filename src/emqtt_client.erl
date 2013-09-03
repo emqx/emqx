@@ -351,7 +351,7 @@ process_request(?SUBSCRIBE,
 
     [   with_access_control(State#state.access_control, 
                             subscribe, 
-                            Name,
+                            {Name,Qos},
                             fun() -> emqtt_router:subscribe({Name,Qos}, self()) end,
                             State#state.client_auth)
         || #mqtt_topic{name=Name, qos=Qos} <- Topics],
@@ -513,13 +513,20 @@ make_msg(#mqtt_frame{
               payload    = Payload}.
 
 
-with_access_control(undefined, _Action, _Topic, Fun, _ClientAuth) ->
+with_access_control(undefined, _Action, _TopicOrMsg, Fun, _ClientAuth) ->
     Fun();
-with_access_control({M,F}, Action, Topic, Fun, ClientAuth) ->
-    case M:F(Action, Topic, ClientAuth) of
+with_access_control({M,F}, Action, TopicOrMsg, Fun, ClientAuth) ->
+    case M:F(Action, TopicOrMsg, ClientAuth) of
         true ->
             Fun();
         false -> 
-            ?ERROR("denied ~p to ~p for ~p", [Action, Topic, ClientAuth]),
-            {error, eacces}
+            ?ERROR("denied ~p to ~p for ~p", [Action, topic1(TopicOrMsg), ClientAuth]),
+            {error, eacces};
+        handled ->
+            ok
     end.
+
+topic1(#mqtt_msg{topic=Topic}) -> Topic;
+topic1({Name,_Qos}) -> Name;
+topic1(Topic) -> Topic.
+
