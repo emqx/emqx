@@ -50,12 +50,18 @@ delete(Username) when is_binary(Username) ->
 	gen_server2:cast(?MODULE, {delete, Username}).
 
 init([]) ->
-	{ok, {Name, Opts}} = application:get_env(auth),
+	{Name, Opts} = get_auth(),
 	AuthMod = authmod(Name),
 	ok = AuthMod:init(Opts),
 	?INFO("authmod is ~p", [AuthMod]),
 	?INFO("~p is started", [?MODULE]),
 	{ok, #state{authmod=AuthMod, authopts=Opts}}.
+
+get_auth() ->
+	case application:get_env(auth) of
+		{ok, Auth} -> Auth;
+		undefined -> {anonymous, []}
+	end.
 
 authmod(Name) when is_atom(Name) ->
 	list_to_atom(lists:concat(["emqtt_auth_", Name])).

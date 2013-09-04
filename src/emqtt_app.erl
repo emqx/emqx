@@ -35,11 +35,16 @@
 %%
 start(_StartType, _StartArgs) ->
 	?INFO("starting emqtt on node '~s'", [node()]),
-	{ok, Listeners} = application:get_env(listeners),
-    {ok, SupPid} = emqtt_sup:start_link(Listeners),
+    {ok, SupPid} = emqtt_sup:start_link(listeners()),
 	register(emqtt, self()),
 	?INFO_MSG("emqtt broker is running now."),
 	{ok, SupPid}.
+
+listeners() ->
+	case application:get_env(listeners) of
+		{ok, Listeners} -> Listeners;
+		undefined -> []
+	end.
 
 %%
 %% @spec stop(atom) -> 'ok'
