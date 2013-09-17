@@ -151,7 +151,7 @@ handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
 handle_info(keep_alive_timeout, #state{keep_alive=KeepAlive}=State) ->
 	case emqtt_keep_alive:state(KeepAlive) of
 	idle ->
-		?INFO("keep alive timeout: ~p", [State#state.conn_name]),
+		?INFO("keep_alive timeout: ~p", [State#state.conn_name]),
 		{stop, normal, State};
 	active ->
 		KeepAlive1 = emqtt_keep_alive:reset(KeepAlive),
@@ -351,6 +351,7 @@ process_request(?UNSUBSCRIBE,
     {ok, State};
 
 process_request(?PINGREQ, #mqtt_frame{}, #state{socket=Sock, keep_alive=KeepAlive}=State) ->
+	%?INFO("PINGREQ...",[]),
 	%Keep alive timer
 	KeepAlive1 = emqtt_keep_alive:reset(KeepAlive),
     send_frame(Sock, #mqtt_frame{fixed = #mqtt_frame_fixed{ type = ?PINGRESP }}),
