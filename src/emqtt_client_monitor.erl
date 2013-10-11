@@ -52,9 +52,14 @@ handle_call(Req, _From, State) ->
 	{stop, {badreq, Req}, State}.
 
 handle_cast({monitor, Client}, State) ->
-	Ref = erlang:monitor(process, Client),
-	ets:insert(clientmon, {Client, Ref}),
-	ets:insert(clientmon_reverse, {Ref, Client}),
+	case ets:lookup(clientmon, Client) of
+		[] ->
+			Ref = erlang:monitor(process, Client),
+			ets:insert(clientmon, {Client, Ref}),
+			ets:insert(clientmon_reverse, {Ref, Client});
+		[_] ->
+			ok
+	end,
 	{noreply, State};
 
 handle_cast(Msg, State) ->

@@ -106,7 +106,8 @@ init([]) ->
 
 handle_call({subscribe, {Topic, Qos}, Client}, _From, State) ->
 	case mnesia:transaction(fun trie_add/1, [Topic]) of
-	{atomic, _} ->	
+	{atomic, _} ->
+		emqtt_client_monitor:mon(Client), 
 		ets:insert(subscriber, #subscriber{topic=Topic, qos=Qos, client=Client}),
 		emqtt_retained:send(Topic, Client),
 		{reply, ok, State};
