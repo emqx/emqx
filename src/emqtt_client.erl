@@ -67,6 +67,10 @@ info(Pid) ->
 init([]) ->
     {ok, undefined, hibernate, {backoff, 1000, 1000, 10000}}.
 
+handle_call(duplicate_id, _From, State=#state{conn_name=ConnName, client_id=ClientId}) ->
+	?ERROR("Shutdown for duplicate clientid:~s, conn:~s", [ClientId, ConnName]), 
+	stop({shutdown, duplicate_id}, State);
+
 handle_call(info, _From, #state{conn_name=ConnName, 
 	message_id=MsgId, client_id=ClientId} = State) ->
 	Info = [{conn_name, ConnName},
@@ -418,7 +422,6 @@ control_throttle(State = #state{ connection_state = Flow,
     end.
 
 stop(Reason, State ) ->
-
     {stop, Reason, State}.
 
 valid_client_id(ClientId) ->
