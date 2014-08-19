@@ -24,7 +24,7 @@
 		cluster/1,
 		add_user/1,
 		delete_user/1]).
-	
+
 status([]) ->
     {InternalStatus, _ProvidedStatus} = init:get_status(),
     ?PRINT("Node ~p is ~p~n", [node(), InternalStatus]),
