@@ -52,14 +52,21 @@ start_child(Mod, Type) when is_atom(Mod) and is_atom(Type) ->
 %% ===================================================================
 
 init([Listeners]) ->
+	Listeners2 = lists:map(fun({Port, Args}) ->
+								{Port, Args};
+							({Port, Size, Args}) ->
+								[{Port+I, Args} || I <- lists:seq(0,Size)]
+		end, Listeners),
+	
     {ok, { {one_for_all, 5, 10}, [
+		?CHILD(emqtt_monitor, worker),
 		?CHILD(emqtt_auth, worker),
 		?CHILD(emqtt_retained, worker),
 		?CHILD(emqtt_router, worker),
 		?CHILD(emqtt_registry, worker),
 		?CHILD(emqtt_client_monitor, worker),
 		?CHILD(emqtt_client_sup, supervisor)
-		| listener_children(Listeners) ]}
+		| listener_children(lists:flatten(Listeners2)) ]}
 	}.
 
 listener_children(Listeners) ->
