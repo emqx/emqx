@@ -8,9 +8,12 @@
 5 cluster...
 6. support MQTT3.1.1...
 7. python, java test code
+8. emqtt_cm to manager clientId, clientPid...
 
 
 ????
     {ok, {{simple_one_for_one_terminate, 0, 1},
           [{client, {emqtt_client, start_link, []}, 
 				temporary, 5000, worker, [emqtt_client]}]}}.
+
+fucking stupid..... esockd locked

@@ -1,17 +1,24 @@
-%% The contents of this file are subject to the Mozilla Public License
-%% Version 1.1 (the "License"); you may not use this file except in
-%% compliance with the License. You may obtain a copy of the License at
-%% http://www.mozilla.org/MPL/
-%%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See the
-%% License for the specific language governing rights and limitations
-%% under the License.
-%%
-%% The Original Code is eMQTT
-%%
-%% The Initial Developer of the Original Code is <ery.lee at gmail dot com>
-%% Copyright (C) 2012 Ery Lee All Rights Reserved.
+%%-----------------------------------------------------------------------------
+%% Copyright (c) 2014, Feng Lee <feng.lee@slimchat.io>
+%% 
+%% Permission is hereby granted, free of charge, to any person obtaining a copy
+%% of this software and associated documentation files (the "Software"), to deal
+%% in the Software without restriction, including without limitation the rights
+%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+%% copies of the Software, and to permit persons to whom the Software is
+%% furnished to do so, subject to the following conditions:
+%% 
+%% The above copyright notice and this permission notice shall be included in all
+%% copies or substantial portions of the Software.
+%% 
+%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+%% SOFTWARE.
+%%------------------------------------------------------------------------------
 
 -module(emqtt_sup).
 
@@ -20,7 +27,7 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/1,
+-export([start_link/0,
 		start_child/1,
 		start_child/2]).
 
@@ -33,9 +40,8 @@
 %% ===================================================================
 %% API functions
 %% ===================================================================
-start_link(Listeners) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [Listeners]).
-
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 start_child(ChildSpec) when is_tuple(ChildSpec) ->
 	supervisor:start_child(?MODULE, ChildSpec).
@@ -51,26 +57,14 @@ start_child(Mod, Type) when is_atom(Mod) and is_atom(Type) ->
 %% Supervisor callbacks
 %% ===================================================================
 
-init([Listeners]) ->
-	Listeners2 = lists:map(fun({Port, Args}) ->
-								{Port, Args};
-							({Port, Size, Args}) ->
-								[{Port+I, Args} || I <- lists:seq(0,Size)]
-		end, Listeners),
-	
+init([]) ->
     {ok, { {one_for_all, 5, 10}, [
+		?CHILD(emqtt_cm, worker),
 		?CHILD(emqtt_monitor, worker),
 		?CHILD(emqtt_auth, worker),
 		?CHILD(emqtt_retained, worker),
+		?CHILD(emqtt_pubsub, worker),
 		?CHILD(emqtt_router, worker),
-		?CHILD(emqtt_registry, worker),
-		?CHILD(emqtt_client_monitor, worker),
-		?CHILD(emqtt_client_sup, supervisor)
-		| listener_children(lists:flatten(Listeners2)) ]}
+		?CHILD(emqtt_registry, worker)]}
 	}.
-
-listener_children(Listeners) ->
-	lists:append([emqtt_listener:spec(Listener, 
-		{emqtt_client_sup, start_client, []}) || Listener <- Listeners]).
-
 
