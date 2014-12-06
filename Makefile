@@ -9,8 +9,5 @@ deps:
 clean:
 	./rebar clean
 
-generate:
+dist:
 	./rebar generate -f
-
-relclean:
-	rm -rf rel/emqtt

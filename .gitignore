@@ -1,6 +1,12 @@
-lib
+.eunit
+deps
+!deps/.placeholder
+*.o
+*.beam
+*.plt
+erl_crash.dump
 ebin
-var
-*.log
 rel/emqtt
-
+.concrete/DEV_MODE
+.rebar
+test/ebin/*.beam
