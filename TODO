@@ -1,0 +1,16 @@
+0.2.0
+=====
+
+1. project structure...
+2. apps, deps, plugins,
+3. rel...
+4. mochiweb: http publish...
+5 cluster...
+6. support MQTT3.1.1...
+7. python, java test code
+
+
+????
+    {ok, {{simple_one_for_one_terminate, 0, 1},
+          [{client, {emqtt_client, start_link, []}, 
+				temporary, 5000, worker, [emqtt_client]}]}}.

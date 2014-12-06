@@ -16,9 +16,19 @@
 
 -include("emqtt.hrl").
 
--include_lib("elog/include/elog.hrl").
+-define(MQTT_SOCKOPTS, [
+	binary,
+	{packet,        raw},
+	{reuseaddr,     true},
+	{backlog,       128},
+	{nodelay,       false}
+]).
 
--export([spec/2, listener_started/3, listener_stopped/3]).
+-export([start/1]).
+
+start(Listeners) ->
+	todo.
+	
 
 spec({Listener, SockOpts}, Callback) ->
     [tcp_listener_spec(emqtt_tcp_listener_sup, Address, SockOpts,
