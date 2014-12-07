@@ -51,6 +51,11 @@ logs
 
 log/*
 
+http api
+========
+
+curl -v --basic -u user:passwd -d "topic=/abc&message=akakakk&qos=0" -k http://localhost:8883/mqtt/publish
+
 design
 =====
 

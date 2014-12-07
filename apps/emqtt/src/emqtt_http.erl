@@ -22,8 +22,57 @@
 
 -module(emqtt_http).
 
+-include("emqtt.hrl").
+
+-import(proplists, [get_value/2, get_value/3]).
+
 -export([handle/2]).
 
 handle(Req, Auth) ->
-    Req:not_found().
+	case authorized(Req, Auth) of
+	true ->
+		Path = Req:get(path),
+		Method = Req:get(method),
+		handle(Method, Path, Req);
+	false ->
+		error_logger:info_msg("Fobbidden"),
+		Req:respond({401, [], <<"Fobbiden">>})
+	end.
+
+handle('POST', "/mqtt/publish", Req) ->
+    Params = mochiweb_request:parse_post(Req),
+	error_logger:info_msg("~p~n", [Params]),
+	Topic = get_value("topic", Params),
+	Message = list_to_binary(get_value("message", Params)),
+	Qos = list_to_integer(get_value("qos", Params, "0")),
+	%TODO: DUP, RETAIN...
+	emqtt_router:publish(Topic, #mqtt_msg {
+				retain     = 0,
+				qos        = Qos,
+				topic      = Topic,
+				dup        = 0,
+				payload    = Message
+	}),
+	Req:ok({"text/plan", "ok"});
+
+handle(_Method, _Path, Req) ->
+	Req:not_found().
+
+%%------------------------------------------------------------------------------
+%% basic authorization
+%%------------------------------------------------------------------------------
+authorized(Req, {Username, Password}) ->
+	case mochiweb_request:get_header_value("Authorization", Req) of
+	undefined -> false;
+	"Basic " ++ BasicAuth ->
+		case user_passwd(BasicAuth) of
+		{Username, Password} -> true;
+		_ -> false
+		end
+	end.
+
+user_passwd(BasicAuth) ->
+	[U, P] = binary:split(base64:decode(BasicAuth), <<":">>), 
+	{binary_to_list(U), binary_to_list(P)}.
+
 

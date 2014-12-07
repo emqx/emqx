@@ -41,14 +41,14 @@ check(undefined, _) -> false;
 check(_, undefined) -> false;
 
 check(Username, Password) when is_binary(Username) ->
-	PasswdHash = crypto:md5(Password),	
+	PasswdHash = crypto:hash(md5, Password),	
 	case mnesia:dirty_read(internal_user, Username) of
 	[#internal_user{passwdhash=PasswdHash}] -> true;
 	_ -> false
 	end.
 	
 add(Username, Password) when is_binary(Username) and is_binary(Password) ->
-	mnesia:dirty_write(#internal_user{username=Username, passwdhash=crypto:md5(Password)}).
+	mnesia:dirty_write(#internal_user{username=Username, passwdhash=crypto:hash(md5, Password)}).
 
 delete(Username) when is_binary(Username) ->
 	mnesia:dirty_delete(internal_user, Username).
