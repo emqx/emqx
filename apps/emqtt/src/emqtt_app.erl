@@ -42,7 +42,7 @@ start(_StartType, _StartArgs) ->
 	print_banner(),
     {ok, SupPid} = emqtt_sup:start_link(),
 	{ok, Listeners} = application:get_env(listen),
-    emqtt_listener:start(Listeners),
+    emqtt:listen(Listeners),
 	register(emqtt, self()),
     print_vsn(),
 	{ok, SupPid}.

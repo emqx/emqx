@@ -22,8 +22,8 @@
 
 -module(emqtt_http).
 
--export([handle/1]).
+-export([handle/2]).
 
-handle(Req) ->
+handle(Req, Auth) ->
     Req:not_found().
 
