@@ -24,7 +24,7 @@
 
 -export([tcp_name/3, tcp_host/1, getaddr/2, port_to_listeners/1]).
 
--export([tune_buffer_size/1, connection_string/2]).
+-export([connection_string/2]).
 
 -include_lib("kernel/include/inet.hrl").
 
@@ -153,13 +153,6 @@ tcp_name(Prefix, IPAddress, Port)
       lists:flatten(
 		io_lib:format(
 			"~w_~s:~w", [Prefix, inet_parse:ntoa(IPAddress), Port]))).
-
-tune_buffer_size(Sock) ->
-    case getopts(Sock, [sndbuf, recbuf, buffer]) of
-        {ok, BufSizes} -> BufSz = lists:max([Sz || {_Opt, Sz} <- BufSizes]),
-                          setopts(Sock, [{buffer, BufSz}]);
-        Err            -> Err
-    end.
 
 connection_string(Sock, Direction) ->
     case socket_ends(Sock, Direction) of
