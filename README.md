@@ -54,7 +54,7 @@ log/*
 design
 =====
 
-https://github.com/emqtt/emqtt/wiki
+https://github.com/slimpp/emqtt/wiki
 
 author
 =====
@@ -65,26 +65,5 @@ Ery Lee <ery.lee at gmail dot com>
 license
 ======
 
-The emqtt broker is licensed under the MOZILLA PUBLIC LICENSE Version 1.1. 
+The MIT License (MIT)
 
-The files below copied from rabbitmq: 
-
-credit_flow.erl
-
-file_handle_cache.erl
-
-gen_server2.erl
-
-priority_queue.erl
-
-supervisor2.erl
-
-tcp_acceptor.erl
-
-tcp_acceptor_sup.erl
-
-tcp_listener.erl
-
-tcp_listener_sup.erl
-
-any questions regarding licensing, please contact ery.lee at gmail dot com.
