@@ -13,8 +13,15 @@
 +K true
 +A 32
 
+## max process numbers
++P 100000
+
 ## Increase number of concurrent ports/sockets
 -env ERL_MAX_PORTS 4096
+
+-env ERTS_MAX_PORTS 4096
+
+#-env ERL_MAX_ETS_TABLES 1024
 
 ## Tweak GC to run more often
 ##-env ERL_FULLSWEEP_AFTER 10
