@@ -22,9 +22,13 @@
 
 -module(emqtt_pubsub).
 
--behaviour(gen_server).
+-include("emqtt.hrl").
 
--define(SERVER, ?MODULE).
+-include("emqtt_log.hrl").
+
+-include("emqtt_internal.hrl").
+
+-include_lib("stdlib/include/qlc.hrl").
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -32,35 +36,155 @@
 
 -export([start_link/0]).
 
+-export([topics/0,
+		subscribe/2,
+		unsubscribe/2,
+		publish/1,
+		publish/2,
+        %local node
+		dispatch/2, 
+		match/1]).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+-behaviour(gen_server).
+
+-define(SERVER, ?MODULE).
+
+-export([init/1,
+		handle_call/3,
+		handle_cast/2,
+		handle_info/2,
+        terminate/2,
+		code_change/3]).
+
+-record(state, {}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
+%%
+%% @doc Start Pubsub.
+%%
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+%%
+%% @doc All topics
+%%
+-spec topics() -> list(topic()).
+topics() ->
+	mnesia:dirty_all_keys(topic).
+
+%%
+%% @doc Subscribe Topic
+%%
+-spec subscribe({Topic :: binary(), Qos :: qos()}, SubPid :: pid()) -> any().
+subscribe({Topic, Qos}, SubPid) when is_binary(Topic) and is_pid(SubPid) ->
+	gen_server:call(?SERVER, {subscribe, {Topic, Qos}, SubPid}).
+
+%%
+%% @doc Unsubscribe Topic
+%%
+-spec unsubscribe(Topic :: binary(), SubPid :: pid()) -> any().
+unsubscribe(Topic, SubPid) when is_binary(Topic) and is_pid(SubPid) ->
+	gen_server:cast(?SERVER, {unsubscribe, Topic, SubPid}).
+
+%%
+%% @doc Publish to cluster node.
+%%
+-spec publish(Msg :: mqtt_msg()) -> ok.
+publish(Msg=#mqtt_msg{topic=Topic}) ->
+	publish(Topic, Msg).
+
+-spec publish(Topic :: binary(), Msg :: mqtt_msg()) -> any().
+publish(Topic, Msg) when is_binary(Topic) ->
+	lists:foreach(fun(#topic{name=Name, node=Node}) ->
+        case Node =:= node() of
+		true -> dispatch(Name, Msg);
+		false -> rpc:call(Node, ?MODULE, dispatch, [Name, Msg])
+		end
+	end, match(Topic)).
+
+%dispatch locally, should only be called by publish
+dispatch(Topic, Msg) when is_binary(Topic) ->
+	[SubPid ! {dispatch, Msg} || #topic_subscriber{subpid=SubPid} <- ets:lookup(topic_subscriber, Topic)].
+
+-spec match(Topic :: binary()) -> [topic()].
+match(Topic) when is_binary(Topic) ->
+	TrieNodes = mnesia:async_dirty(fun trie_match/1, [emqtt_topic:words(Topic)]),
+    Names = [Name || #topic_trie_node{topic=Name} <- TrieNodes, Name=/= undefined],
+	lists:flatten([mnesia:dirty_read(topic, Name) || Name <- Names]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init(Args) ->
-    {ok, Args}.
+init([]) ->
+	mnesia:create_table(topic_trie, [
+		{ram_copies, [node()]},
+		{attributes, record_info(fields, topic_trie)}]),
+	mnesia:create_table(topic_trie_node, [
+		{ram_copies, [node()]},
+		{attributes, record_info(fields, topic_trie_node)}]),
+	mnesia:create_table(topic, [
+		{type, bag},
+		{record_name, topic},
+		{ram_copies, [node()]}, 
+		{attributes, record_info(fields, topic)}]),
+	mnesia:add_table_copy(topic_trie, node(), ram_copies),
+	mnesia:add_table_copy(topic_trie_node, node(), ram_copies),
+	mnesia:add_table_copy(topic, node(), ram_copies),
+	ets:new(topic_subscriber, [bag, named_table, {keypos, 2}]),
+	{ok, #state{}}.
 
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+handle_call({subscribe, {Topic, Qos}, SubPid}, _From, State) ->
+	case mnesia:transaction(fun trie_add/1, [Topic]) of
+	{atomic, _} ->	
+		case get({subscriber, SubPid}) of
+		undefined -> 
+			MonRef = erlang:monitor(process, SubPid),
+			put({subcriber, SubPid}, MonRef),
+			put({submon, MonRef}, SubPid);
+		_ ->
+			already_monitored
+		end,
+		ets:insert(topic_subscriber, #topic_subscriber{topic=Topic, qos = Qos, subpid=SubPid}),
+		{reply, ok, State};
+	{aborted, Reason} ->
+		{reply, {error, Reason}, State}
+	end;
 
-handle_cast(_Msg, State) ->
-    {noreply, State}.
+handle_call(Req, _From, State) ->
+	{stop, {badreq, Req}, State}.
 
-handle_info(_Info, State) ->
-    {noreply, State}.
+handle_cast({unsubscribe, Topic, SubPid}, State) ->
+	ets:match_delete(topic_subscriber, #topic_subscriber{topic=Topic, qos ='_', subpid=SubPid}),
+	try_remove_topic(Topic),
+	{noreply, State};
+
+handle_cast(Msg, State) ->
+	{stop, {badmsg, Msg}, State}.
+
+handle_info({'DOWN', Mon, _Type, _Object, _Info}, State) ->
+	case get({submon, Mon}) of
+	undefined ->
+		?ERROR("unexpected 'DOWN': ~p", [Mon]);
+	SubPid ->
+		%?INFO("subscriber DOWN: ~p", [SubPid]),
+		erase({submon, Mon}),
+		erase({subscriber, SubPid}),
+		Subs = ets:match_object(topic_subscriber, #topic_subscriber{subpid=SubPid, _='_'}),
+		[ets:delete_object(topic_subscriber, Sub) || Sub <- Subs],
+		[try_remove_topic(Topic) || #topic_subscriber{topic=Topic} <- Subs]
+	end,
+	{noreply, State};
+
+handle_info(Info, State) ->
+	{stop, {badinfo, Info}, State}.
 
 terminate(_Reason, _State) ->
     ok.
@@ -71,4 +195,99 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+try_remove_topic(Name) when is_binary(Name) ->
+	case ets:member(topic_subscriber, Name) of
+	false -> 
+		Topic = emqtt_topic:new(Name),
+		Fun = fun() -> 
+			mnesia:delete_object(Topic),
+			case mnesia:read(topic, Name) of
+			[] -> trie_delete(Name);		
+			_ -> ignore
+			end
+		end,
+		mnesia:transaction(Fun);
+	true -> 
+		ok
+	end.
+
+trie_add(Topic) when is_binary(Topic) ->
+	mnesia:write(emqtt_topic:new(Topic)),
+	case mnesia:read(topic_trie_node, Topic) of
+	[TrieNode=#topic_trie_node{topic=undefined}] ->
+		mnesia:write(TrieNode#topic_trie_node{topic=Topic});
+	[#topic_trie_node{topic=Topic}] ->
+		ignore;
+	[] ->
+		%add trie path
+		[trie_add_path(Triple) || Triple <- emqtt_topic:triples(Topic)],
+		%add last node
+		mnesia:write(#topic_trie_node{node_id=Topic, topic=Topic})
+	end.
+
+trie_delete(Topic) when is_binary(Topic) ->
+	case mnesia:read(topic_trie_node, Topic) of
+	[#topic_trie_node{edge_count=0}] -> 
+		mnesia:delete({topic_trie_node, Topic}),
+		trie_delete_path(lists:reverse(emqtt_topic:triples(Topic)));
+	[TrieNode] ->
+		mnesia:write(TrieNode#topic_trie_node{topic=Topic});
+	[] ->
+		ignore
+	end.
+	
+trie_match(Words) ->
+	trie_match(root, Words, []).
+
+trie_match(NodeId, [], ResAcc) ->
+	mnesia:read(topic_trie_node, NodeId) ++ 'trie_match_#'(NodeId, ResAcc);
+
+trie_match(NodeId, [W|Words], ResAcc) ->
+	lists:foldl(fun(WArg, Acc) ->
+		case mnesia:read(topic_trie, #topic_trie_edge{node_id=NodeId, word=WArg}) of
+		[#topic_trie{node_id=ChildId}] -> trie_match(ChildId, Words, Acc);
+		[] -> Acc
+		end
+	end, 'trie_match_#'(NodeId, ResAcc), [W, "+"]).
+
+'trie_match_#'(NodeId, ResAcc) ->
+	case mnesia:read(topic_trie, #topic_trie_edge{node_id=NodeId, word="#"}) of
+	[#topic_trie{node_id=ChildId}] ->
+		mnesia:read(topic_trie_node, ChildId) ++ ResAcc;	
+	[] ->
+		ResAcc
+	end.
+
+trie_add_path({Node, Word, Child}) ->
+	Edge = #topic_trie_edge{node_id=Node, word=Word},
+	case mnesia:read(topic_trie_node, Node) of
+	[TrieNode = #topic_trie_node{edge_count=Count}] ->
+		case mnesia:read(topic_trie, Edge) of
+		[] -> 
+			mnesia:write(TrieNode#topic_trie_node{edge_count=Count+1}),
+			mnesia:write(#topic_trie{edge=Edge, node_id=Child});
+		[_] -> 
+			ok
+		end;
+	[] ->
+		mnesia:write(#topic_trie_node{node_id=Node, edge_count=1}),
+		mnesia:write(#topic_trie{edge=Edge, node_id=Child})
+	end.
+
+trie_delete_path([]) ->
+	ok;
+trie_delete_path([{NodeId, Word, _} | RestPath]) ->
+	Edge = #topic_trie_edge{node_id=NodeId, word=Word},
+	mnesia:delete({topic_trie, Edge}),
+	case mnesia:read(topic_trie_node, NodeId) of
+	[#topic_trie_node{edge_count=1, topic=undefined}] -> 
+		mnesia:delete({topic_trie_node, NodeId}),
+		trie_delete_path(RestPath);
+	[TrieNode=#topic_trie_node{edge_count=1, topic=_}] -> 
+		mnesia:write(TrieNode#topic_trie_node{edge_count=0});
+	[TrieNode=#topic_trie_node{edge_count=C}] ->
+		mnesia:write(TrieNode#topic_trie_node{edge_count=C-1});
+	[] ->
+		throw({notfound, NodeId}) 
+	end.
 

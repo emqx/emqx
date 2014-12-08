@@ -273,7 +273,7 @@ process_request(?CONNECT,
 
 process_request(?PUBLISH, Frame=#mqtt_frame{
 									fixed = #mqtt_frame_fixed{qos = ?QOS_0}}, State) ->
-	emqtt_router:publish(make_msg(Frame)),
+	emqtt_pubsub:publish(make_msg(Frame)),
 	{ok, State};
 
 process_request(?PUBLISH,
@@ -281,7 +281,7 @@ process_request(?PUBLISH,
                   fixed = #mqtt_frame_fixed{qos    = ?QOS_1},
                   variable = #mqtt_frame_publish{message_id = MsgId}}, 
 				State=#state{socket=Sock}) ->
-	emqtt_router:publish(make_msg(Frame)),
+	emqtt_pubsub:publish(make_msg(Frame)),
 	send_frame(Sock, #mqtt_frame{fixed = #mqtt_frame_fixed{ type = ?PUBACK },
 							  variable = #mqtt_frame_publish{ message_id = MsgId}}),
 	{ok, State};
@@ -291,7 +291,7 @@ process_request(?PUBLISH,
                   fixed = #mqtt_frame_fixed{qos    = ?QOS_2},
                   variable = #mqtt_frame_publish{message_id = MsgId}}, 
 				State=#state{socket=Sock}) ->
-	emqtt_router:publish(make_msg(Frame)),
+	emqtt_pubsub:publish(make_msg(Frame)),
 	put({msg, MsgId}, pubrec),
 	send_frame(Sock, #mqtt_frame{fixed = #mqtt_frame_fixed{type = ?PUBREC},
 			  variable = #mqtt_frame_publish{ message_id = MsgId}}),
@@ -333,7 +333,7 @@ process_request(?SUBSCRIBE,
                   payload = undefined},
                 #state{socket=Sock} = State) ->
 
-	[emqtt_router:subscribe({Name, Qos}, self()) || 
+	[emqtt_pubsub:subscribe({Name, Qos}, self()) || 
 			#mqtt_topic{name=Name, qos=Qos} <- Topics],
 
     GrantedQos = [Qos || #mqtt_topic{qos=Qos} <- Topics],
@@ -352,7 +352,7 @@ process_request(?UNSUBSCRIBE,
                   payload = undefined}, #state{socket = Sock, client_id = ClientId} = State) ->
 
 	
-	[emqtt_router:unsubscribe(Name, self()) || #mqtt_topic{name=Name} <- Topics], 
+	[emqtt_pubsub:unsubscribe(Name, self()) || #mqtt_topic{name=Name} <- Topics], 
 
     send_frame(Sock, #mqtt_frame{fixed = #mqtt_frame_fixed{type = ?UNSUBACK },
                              	 variable = #mqtt_frame_suback{message_id = MessageId }}),

@@ -46,7 +46,7 @@ handle('POST', "/mqtt/publish", Req) ->
 	Message = list_to_binary(get_value("message", Params)),
 	Qos = list_to_integer(get_value("qos", Params, "0")),
 	%TODO: DUP, RETAIN...
-	emqtt_router:publish(Topic, #mqtt_msg {
+	emqtt_pubsub:publish(#mqtt_msg {
 				retain     = 0,
 				qos        = Qos,
 				topic      = Topic,

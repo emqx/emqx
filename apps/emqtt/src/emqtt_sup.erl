@@ -64,7 +64,6 @@ init([]) ->
 		?CHILD(emqtt_auth, worker),
 		?CHILD(emqtt_retained, worker),
 		?CHILD(emqtt_pubsub, worker),
-		?CHILD(emqtt_router, worker),
 		?CHILD(emqtt_registry, worker)]}
 	}.
 

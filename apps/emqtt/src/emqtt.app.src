@@ -3,10 +3,7 @@
   {description, "Erlang MQTT Broker"},
   {vsn, git},
   {modules, []},
-  {registered, [emqtt_auth,
-			    emqtt_router,
-				emqtt_registry
-				]},
+  {registered, [ ]},
   {applications, [kernel,
                   stdlib]},
   {mod, {emqtt_app, []}},

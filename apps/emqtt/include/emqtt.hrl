@@ -37,6 +37,8 @@
 -define(QOS_1, 1).
 -define(QOS_2, 2).
 
+-type qos() :: ?QOS_2 | ?QOS_1 | ?QOS_0.
+
 -record(mqtt_msg, {
     retain,
     qos,
@@ -46,4 +48,7 @@
     payload,
     encoder
 }).
+
+-type mqtt_msg() :: #mqtt_msg{}.
+
 
