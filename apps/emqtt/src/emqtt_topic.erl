@@ -45,7 +45,7 @@
 %% There can be any number of root nodes; that is, there can be any number of topic trees.
 %% ------------------------------------------------------------------------
 
--include("emqtt_internal.hrl").
+-include("emqtt_topic.hrl").
  
 -export([new/1,
 		 type/1,

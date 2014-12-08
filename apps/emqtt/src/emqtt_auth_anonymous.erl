@@ -22,7 +22,7 @@
 
 -module(emqtt_auth_anonymous).
 
--author('ery.lee@gmail.com').
+-author('feng.lee@slimchat.io').
 
 -export([init/1,
 		add/2,
@@ -36,3 +36,4 @@ check(_, _) -> true.
 add(_, _) -> ok.
 
 delete(_Username) -> ok.
+

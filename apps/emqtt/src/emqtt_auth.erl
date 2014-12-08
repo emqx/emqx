@@ -22,12 +22,11 @@
 
 -module(emqtt_auth).
 
--author('ery.lee@gmail.com').
+-author('feng.lee@slimchat.io').
 
 -include("emqtt.hrl").
 
 -include("emqtt_log.hrl").
-
 
 -export([start_link/0,
 		add/2,
@@ -43,43 +42,39 @@
 		terminate/2,
 		code_change/3]).
 
--record(state, {authmod, authopts}).
-
 start_link() ->
 	gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+-spec check(Usename :: binary(), Password :: binary()) -> true | false.
 check(Username, Password) ->
-	gen_server:call(?MODULE, {check, Username, Password}).
+	execute(check, [Username, Password]).
 
-add(Username, Password) when is_binary(Username) ->
-	gen_server:call(?MODULE, {add, Username, Password}).
+-spec add(Usename :: binary(), Password :: binary()) -> ok.
+add(Username, Password) ->
+	execute(add, [Username, Password]).
 
-delete(Username) when is_binary(Username) ->
-	gen_server:cast(?MODULE, {delete, Username}).
+-spec delete(Username :: binary()) -> ok.
+delete(Username) ->
+	execute(delete, [Username]).
+
+execute(F, Args) ->
+	[{_, M}] = ets:lookup(emqtt_auth, mod), 
+	apply(M, F, Args).
 
 init([]) ->
 	{ok, {Name, Opts}} = application:get_env(auth),
 	AuthMod = authmod(Name),
 	ok = AuthMod:init(Opts),
-	?INFO("authmod is ~p", [AuthMod]),
-	?INFO("~p is started", [?MODULE]),
-	{ok, #state{authmod=AuthMod, authopts=Opts}}.
+	ets:new(emqtt_auth, [named_table, protected]),
+	ets:insert(emqtt_quth, {mod, AuthMod}),
+	?PRINT("emqtt authmod is ~p", [AuthMod]),
+	{ok, undefined}.
 
 authmod(Name) when is_atom(Name) ->
 	list_to_atom(lists:concat(["emqtt_auth_", Name])).
 
-handle_call({check, Username, Password}, _From, #state{authmod=AuthMod} = State) ->
-	{reply, AuthMod:check(Username, Password), State};
-
-handle_call({add, Username, Password}, _From, #state{authmod=AuthMod} = State) ->
-	{reply, AuthMod:add(Username, Password), State};
-
 handle_call(Req, _From, State) ->
 	{stop, {badreq, Req}, State}.
-
-handle_cast({delete, Username}, #state{authmod=AuthMod} = State) ->
-	AuthMod:delete(Username),
-	{noreply, State};
 
 handle_cast(Msg, State) ->
 	{stop, {badmsg, Msg}, State}.
@@ -92,3 +87,4 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
 	{ok, State}.
+

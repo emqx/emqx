@@ -26,7 +26,7 @@
 
 -include("emqtt_log.hrl").
 
--include("emqtt_internal.hrl").
+-include("emqtt_topic.hrl").
 
 -include_lib("stdlib/include/qlc.hrl").
 
@@ -174,7 +174,6 @@ handle_info({'DOWN', Mon, _Type, _Object, _Info}, State) ->
 	undefined ->
 		?ERROR("unexpected 'DOWN': ~p", [Mon]);
 	SubPid ->
-		%?INFO("subscriber DOWN: ~p", [SubPid]),
 		erase({submon, Mon}),
 		erase({subscriber, SubPid}),
 		Subs = ets:match_object(topic_subscriber, #topic_subscriber{subpid=SubPid, _='_'}),

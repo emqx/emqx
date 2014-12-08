@@ -24,7 +24,7 @@
 
 -behaviour(gen_server).
 
--export([start_link/1, info/1, go/2]).
+-export([start_link/1, info/1, go/2, stop/2]).
 
 -export([init/1,
 		handle_call/3,
@@ -38,8 +38,6 @@
 -include("emqtt_log.hrl").
 
 -include("emqtt_frame.hrl").
-
--include("emqtt_internal.hrl").
 
 -define(CLIENT_ID_MAXLEN, 23).
 
@@ -71,6 +69,9 @@ info(Pid) ->
 go(Pid, Sock) ->
 	gen_server:call(Pid, {go, Sock}).
 
+stop(Pid, Error) ->
+	gen_server:cast(Pid, {stop, Error}).
+
 init([Sock]) ->
     {ok, #state{socket = Sock}}.
 
@@ -89,9 +90,6 @@ handle_call({go, Sock}, _From, State=#state{socket = Sock}) ->
 			   awaiting_ack		= gb_trees:empty(),
 			   awaiting_rel		= gb_trees:empty()})};
 
-handle_call(duplicate_id, _From, State=#state{conn_name=ConnName, client_id=ClientId}) ->
-	?ERROR("Shutdown for duplicate clientid:~s, conn:~s", [ClientId, ConnName]), 
-	stop({shutdown, duplicate_id}, State);
 
 handle_call(info, _From, #state{conn_name=ConnName, 
 	message_id=MsgId, client_id=ClientId} = State) ->
@@ -102,6 +100,10 @@ handle_call(info, _From, #state{conn_name=ConnName,
 
 handle_call(_Req, _From, State) ->
     {reply, ok, State}.
+
+handle_cast({stop, duplicate_id}, State=#state{conn_name=ConnName, client_id=ClientId}) ->
+	?ERROR("Shutdown for duplicate clientid:~s, conn:~s", [ClientId, ConnName]), 
+	stop({shutdown, duplicate_id}, State);
 
 handle_cast(Msg, State) ->
 	{stop, {badmsg, Msg}, State}.

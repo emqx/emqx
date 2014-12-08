@@ -2,7 +2,6 @@
 % NOTICE: copy from rabbitmq mqtt-adaper
 %
 
-
 %% The contents of this file are subject to the Mozilla Public License
 %% Version 1.1 (the "License"); you may not use this file except in
 %% compliance with the License. You may obtain a copy of the License
@@ -18,6 +17,8 @@
 %% The Initial Developer of the Original Code is VMware, Inc.
 %% Copyright (c) 2007-2012 VMware, Inc.  All rights reserved.
 %%
+
+-define(PROTOCOL_NAMES,  [{3, "MQIsdp"}, {4, "MQTT"}]).
 
 -define(MQTT_PROTO_MAJOR, 3).
 -define(MQTT_PROTO_MINOR, 1).

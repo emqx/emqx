@@ -40,7 +40,6 @@ listen({mqtt, Port, Options}) ->
     esockd:listen(mqtt, Port, Options ++ ?MQTT_SOCKOPTS, MFArgs);
 
 listen({http, Port, Options}) ->
-	Auth = proplists:get_value(auth, Options),
-    MFArgs = {emqtt_http, handle, [Auth]},
-	mochiweb:start_http(Port, proplists:delete(auth, Options), MFArgs).
+    MFArgs = {emqtt_http, handle, []},
+	mochiweb:start_http(Port, Options, MFArgs).
     

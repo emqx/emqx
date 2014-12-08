@@ -40,12 +40,13 @@
 %%
 start(_StartType, _StartArgs) ->
 	print_banner(),
-    {ok, SupPid} = emqtt_sup:start_link(),
+    {ok, Sup} = emqtt_sup:start_link(),
+	start_servers(Sup),
 	{ok, Listeners} = application:get_env(listen),
     emqtt:listen(Listeners),
 	register(emqtt, self()),
     print_vsn(),
-	{ok, SupPid}.
+	{ok, Sup}.
 
 print_banner() ->
 	?PRINT("starting emqtt on node '~s'~n", [node()]).
@@ -54,6 +55,40 @@ print_vsn() ->
 	{ok, Vsn} = application:get_key(vsn),
 	{ok, Desc} = application:get_key(description),
 	?PRINT("~s ~s is running now~n", [Desc, Vsn]).
+
+start_servers(Sup) ->
+	lists:foreach(
+        fun({Name, F}) when is_function(F) ->
+			?PRINT("~s is starting...", [Name]),
+            F(),
+			?PRINT_MSG("[done]~n");
+		   ({Name, Server}) when is_atom(Server) ->
+			?PRINT("~s is starting...", [Name]),
+			start_child(Sup, Server),
+			?PRINT_MSG("[done]~n");
+           ({Name, Server, Opts}) when is_atom(Server) ->
+			?PRINT("~s is starting...", [ Name]),
+			start_child(Sup, Server, Opts),
+			?PRINT_MSG("[done]~n")
+		end,
+	 	[{"emqtt cm", emqtt_cm},
+         {"emqtt auth", emqtt_auth},
+		 {"emqtt retained", emqtt_retained},
+		 {"emqtt pubsub", emqtt_pubsub},
+		 {"emqtt monitor", emqtt_monitor}
+		]).
+
+start_child(Sup, Name) ->
+    {ok, _ChiId} = supervisor:start_child(Sup, worker_spec(Name)).
+start_child(Sup, Name, Opts) ->
+    {ok, _ChiId} = supervisor:start_child(Sup, worker_spec(Name, Opts)).
+
+worker_spec(Name) ->
+    {Name, {Name, start_link, []}, 
+        permanent, 5000, worker, [Name]}.
+worker_spec(Name, Opts) ->
+    {Name, {Name, start_link, [Opts]}, 
+        permanent, 5000, worker, [Name]}.
 
 %%
 %% @spec stop(atom) -> 'ok'

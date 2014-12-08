@@ -22,7 +22,7 @@
 
 -module(emqtt_auth_internal).
 
--include("emqtt_internal.hrl").
+-include("emqtt.hrl").
 
 -export([init/1,
 		add/2,
@@ -30,10 +30,10 @@
 		delete/1]).
 
 init(_Opts) ->
-	mnesia:create_table(internal_user, [
+	mnesia:create_table(emqtt_user, [
 		{ram_copies, [node()]}, 
-		{attributes, record_info(fields, internal_user)}]),
-	mnesia:add_table_copy(internal_user, node(), ram_copies),
+		{attributes, record_info(fields, emqtt_user)}]),
+	mnesia:add_table_copy(emqtt_user, node(), ram_copies),
 	ok.
 
 check(undefined, _) -> false;
@@ -42,14 +42,14 @@ check(_, undefined) -> false;
 
 check(Username, Password) when is_binary(Username) ->
 	PasswdHash = crypto:hash(md5, Password),	
-	case mnesia:dirty_read(internal_user, Username) of
-	[#internal_user{passwdhash=PasswdHash}] -> true;
+	case mnesia:dirty_read(emqtt_user, Username) of
+	[#emqtt_user{passwdhash=PasswdHash}] -> true;
 	_ -> false
 	end.
 	
 add(Username, Password) when is_binary(Username) and is_binary(Password) ->
-	mnesia:dirty_write(#internal_user{username=Username, passwdhash=crypto:hash(md5, Password)}).
+	mnesia:dirty_write(#emqtt_user{username=Username, passwdhash=crypto:hash(md5, Password)}).
 
 delete(Username) when is_binary(Username) ->
-	mnesia:dirty_delete(internal_user, Username).
+	mnesia:dirty_delete(emqtt_user, Username).
 

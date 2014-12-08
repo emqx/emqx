@@ -26,10 +26,10 @@
 
 -import(proplists, [get_value/2, get_value/3]).
 
--export([handle/2]).
+-export([handle/1]).
 
-handle(Req, Auth) ->
-	case authorized(Req, Auth) of
+handle(Req) ->
+	case authorized(Req) of
 	true ->
 		Path = Req:get(path),
 		Method = Req:get(method),
@@ -44,11 +44,9 @@ handle('POST', "/mqtt/publish", Req) ->
 	error_logger:info_msg("~p~n", [Params]),
 	Topic = get_value("topic", Params),
 	Message = list_to_binary(get_value("message", Params)),
-	Qos = list_to_integer(get_value("qos", Params, "0")),
-	%TODO: DUP, RETAIN...
 	emqtt_pubsub:publish(#mqtt_msg {
 				retain     = 0,
-				qos        = Qos,
+				qos        = ?QOS_0,
 				topic      = Topic,
 				dup        = 0,
 				payload    = Message
@@ -61,14 +59,13 @@ handle(_Method, _Path, Req) ->
 %%------------------------------------------------------------------------------
 %% basic authorization
 %%------------------------------------------------------------------------------
-authorized(Req, {Username, Password}) ->
+authorized(Req) ->
 	case mochiweb_request:get_header_value("Authorization", Req) of
-	undefined -> false;
+	undefined ->
+		false;
 	"Basic " ++ BasicAuth ->
-		case user_passwd(BasicAuth) of
-		{Username, Password} -> true;
-		_ -> false
-		end
+		{Username, Password} = user_passwd(BasicAuth),
+		emqtt_auth:check(Username, Password)
 	end.
 
 user_passwd(BasicAuth) ->

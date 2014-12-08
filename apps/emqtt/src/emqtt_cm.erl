@@ -56,15 +56,25 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
+-spec lookup(ClientId :: binary()) -> pid() | undefined.
 lookup(ClientId) ->
 	case ets:lookup(emqtt_client, ClientId) of
 	[{_, Pid}] -> Pid;
 	[] -> undefined
 	end.
 
+-spec create(ClientId :: binary(), Pid :: pid()) -> ok.
 create(ClientId, Pid) ->
+	case lookup(ClientId) of
+		OldPid when is_pid(OldPid) ->
+			%%TODO: FIX STOP...
+			emqtt_client:stop(OldPid, duplicate_id);
+		undefined -> 
+			ok
+	end,
 	ets:insert(emqtt_client, {ClientId, Pid}).
 
+-spec destroy(binary() | pid()) -> ok.
 destroy(ClientId) when is_binary(ClientId) ->
 	ets:delete(emqtt_client, ClientId);
 
@@ -94,4 +104,5 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
 
