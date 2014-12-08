@@ -54,23 +54,25 @@
 		 triples/1,
 		 words/1]).
 
--export([test/0]).
+-define(MAX_LEN, 1024).
 
--define(MAX_LEN, 64*1024).
-
-new(Name) when is_list(Name) ->
+-spec new(Name :: binary()) -> topic().
+new(Name) when is_binary(Name) ->
 	#topic{name=Name, node=node()}.
 
 %% ------------------------------------------------------------------------
 %% topic type: direct or wildcard
 %% ------------------------------------------------------------------------
-type(#topic{name=Name}) ->
+-spec type(Topic :: topic()) -> direct | wildcard.
+type(#topic{name=Name}) when is_binary(Name) ->
 	type(words(Name));
-type([]) ->
+type([]) -> 
 	direct;
-type(["#"]) ->
+type([<<>>|T]) -> 
+	type(T);
+type([<<$#, _/binary>>|_]) ->
 	wildcard;
-type(["+"|_T]) ->
+type([<<$+, _/binary>>|_]) ->
 	wildcard;
 type([_|T]) ->
 	type(T).
@@ -78,52 +80,55 @@ type([_|T]) ->
 %% ------------------------------------------------------------------------
 %% topic match
 %% ------------------------------------------------------------------------
+-spec match(B1 :: binary(), B2 :: binary()) -> boolean().
+match(B1, B2) when is_binary(B1) and is_binary(B2) ->
+	match(words(B1), words(B2));
 match([], []) ->
 	true;
 match([H|T1], [H|T2]) ->
 	match(T1, T2);
-match([_H|T1], ["+"|T2]) ->
+match([_H|T1], [<<"+">>|T2]) ->
 	match(T1, T2);
-match(_, ["#"]) ->
+match(_, [<<"#">>]) ->
 	true;
 match([_H1|_], [_H2|_]) ->
 	false;
 match([], [_H|_T2]) ->
 	false.
 
-
 %% ------------------------------------------------------------------------
 %% topic validate
 %% ------------------------------------------------------------------------
-validate({_, ""}) ->
+-spec validate({Type :: subscribe | publish, Topic :: binary()}) -> boolean().
+validate({_, <<>>}) ->
 	false;
-validate({_, Topic}) when length(Topic) > ?MAX_LEN ->
+validate({_, Topic}) when is_binary(Topic) and (size(Topic) > ?MAX_LEN) ->
 	false;
-validate({subscribe, Topic}) when is_list(Topic) ->
+validate({subscribe, Topic}) when is_binary(Topic) ->
 	valid(words(Topic));
-validate({publish, Topic}) when is_list(Topic) ->
+validate({publish, Topic}) when is_binary(Topic) ->
 	Words = words(Topic),
 	valid(Words) and (not include_wildcard(Words)).
 
-triples(S) when is_list(S) ->
-	triples(S, []).
+triples(B) when is_binary(B) ->
+	triples(binary_to_list(B), []).
 
 triples(S, Acc) ->
 	triples(rchr(S, $/), S, Acc).
 
 triples(0, S, Acc) ->
-	[{root, S, S}|Acc];
+	[{root, l2b(S), l2b(S)}|Acc];
 
 triples(I, S, Acc) ->
 	S1 = substr(S, 1, I-1),
 	S2 = substr(S, I+1),
-	triples(S1, [{S1, S2, S}|Acc]).
+	triples(S1, [{l2b(S1), l2b(S2), l2b(S)}|Acc]).
 
-words(Topic) when is_list(Topic) ->
-	words(Topic, [], []).
+words(Topic) when is_binary(Topic) ->
+	words(binary_to_list(Topic), [], []).
 
 words([], Word, ResAcc) ->
-	reverse([reverse(W) || W <- [Word|ResAcc]]);
+	reverse([l2b(reverse(W)) || W <- [Word|ResAcc]]);
 
 words([$/|Topic], Word, ResAcc) ->
 	words(Topic, [], [Word|ResAcc]);
@@ -131,25 +136,18 @@ words([$/|Topic], Word, ResAcc) ->
 words([C|Topic], Word, ResAcc) ->
 	words(Topic, [C|Word], ResAcc).
 
-valid([""|Words]) -> valid2(Words);
+valid([<<>>|Words]) -> valid2(Words);
 valid(Words) -> valid2(Words).
 
-valid2([""|_Words]) -> false;
-valid2(["#"|Words]) when length(Words) > 0 -> false; 
+valid2([<<>>|_Words]) -> false;
+valid2([<<"#">>|Words]) when length(Words) > 0 -> false; 
 valid2([_|Words]) -> valid2(Words);
 valid2([]) -> true.
 
-include_wildcard([]) -> false;
-include_wildcard(["#"|_T]) -> true;
-include_wildcard(["+"|_T]) -> true;
-include_wildcard([_H|T]) -> include_wildcard(T).
+include_wildcard(<<>>) -> false;
+include_wildcard(<<$#, _T/binary>>) -> true;
+include_wildcard(<<$+, _T/binary>>) -> true;
+include_wildcard(<<_H, T/binary>>) -> include_wildcard(T).
 
-
-test() ->
-	true = validate({subscribe, "a/b/c"}),
-	true = validate({subscribe, "/a/b"}),
-	true = validate({subscribe, "/+/x"}),
-	true = validate({subscribe, "/a/b/c/#"}),
-	false = validate({subscribe, "a/#/c"}),
-	ok.
+l2b(L) when is_list(L) -> list_to_binary(L).
 

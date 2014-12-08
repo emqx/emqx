@@ -200,7 +200,6 @@ process_received_bytes(<<>>, State) ->
 process_received_bytes(Bytes,
                        State = #state{ parse_state = ParseState,
                                        conn_name   = ConnStr }) ->
-	?INFO("~p~n", [Bytes]),
     case emqtt_frame:parse(Bytes, ParseState) of
 	{more, ParseState1} ->
 		{noreply,
