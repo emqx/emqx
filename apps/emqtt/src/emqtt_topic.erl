@@ -1,5 +1,5 @@
 %%-----------------------------------------------------------------------------
-%% Copyright (c) 2014, Feng Lee <feng.lee@slimchat.io>
+%% Copyright (c) 2014, Feng Lee <feng@slimchat.io>
 %% 
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
 %% of this software and associated documentation files (the "Software"), to deal
@@ -19,7 +19,10 @@
 %% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
+
 -module(emqtt_topic).
+
+-author('feng@slimchat.io').
 
 -import(lists, [reverse/1]).
 
