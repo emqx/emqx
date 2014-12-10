@@ -11,7 +11,7 @@ eMQTT requires Erlang R17+.
 
 	$ cd emqtt
 
-	$ make && make generate
+	$ make && make dist
 
 	$ cd rel/emqtt
 
