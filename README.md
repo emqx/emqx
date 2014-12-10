@@ -38,6 +38,14 @@ eMQTT requires Erlang R17+.
 
 ```
 
+## Configuration
+
+......
+
+## Admin and Cluster
+
+......
+
 ## HTTP API
 
 eMQTT support http to publish message.
@@ -70,7 +78,6 @@ message | Text Message
 The MIT License (MIT)
 
 ## Author
-=====
 
 feng at slimchat.io
 
