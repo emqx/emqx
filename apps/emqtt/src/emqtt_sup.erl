@@ -22,6 +22,8 @@
 
 -module(emqtt_sup).
 
+-author('feng@slimchat.io').
+
 -include("emqtt.hrl").
 
 -behaviour(supervisor).

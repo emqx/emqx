@@ -22,6 +22,8 @@
 
 -module(emqtt_monitor).
 
+-author('feng@slimchat.io').
+
 -include("emqtt_log.hrl").
 
 -behavior(gen_server).

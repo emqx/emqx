@@ -66,13 +66,14 @@ lookup(ClientId) ->
 -spec create(ClientId :: binary(), Pid :: pid()) -> ok.
 create(ClientId, Pid) ->
 	case lookup(ClientId) of
+        Pid ->
+            ignore;
 		OldPid when is_pid(OldPid) ->
-			%%TODO: FIX STOP...
-			emqtt_client:stop(OldPid, duplicate_id);
+			OldPid ! {stop, duplicate_id},
+            ets:insert(emqtt_client, {ClientId, Pid});
 		undefined -> 
-			ok
-	end,
-	ets:insert(emqtt_client, {ClientId, Pid}).
+            ets:insert(emqtt_client, {ClientId, Pid})
+	end.
 
 -spec destroy(binary() | pid()) -> ok.
 destroy(ClientId) when is_binary(ClientId) ->

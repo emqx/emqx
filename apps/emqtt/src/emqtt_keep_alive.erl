@@ -19,7 +19,10 @@
 %% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
+
 -module(emqtt_keep_alive).
+
+-author('feng@slimchat.io').
 
 -export([new/2,
 		state/1,

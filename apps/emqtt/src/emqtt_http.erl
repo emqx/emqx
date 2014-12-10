@@ -22,6 +22,8 @@
 
 -module(emqtt_http).
 
+-author('feng@slimchat.io').
+
 -include("emqtt.hrl").
 
 -import(proplists, [get_value/2, get_value/3]).

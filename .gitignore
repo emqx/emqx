@@ -10,3 +10,4 @@ rel/emqtt
 .concrete/DEV_MODE
 .rebar
 test/ebin/*.beam
+.exrc

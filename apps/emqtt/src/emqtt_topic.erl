@@ -19,7 +19,10 @@
 %% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
+
 -module(emqtt_topic).
+
+-author('feng@slimchat.io').
 
 -import(lists, [reverse/1]).
 

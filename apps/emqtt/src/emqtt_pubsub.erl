@@ -22,6 +22,8 @@
 
 -module(emqtt_pubsub).
 
+-author('feng@slimchat.io').
+
 -include("emqtt.hrl").
 
 -include("emqtt_log.hrl").

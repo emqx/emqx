@@ -22,6 +22,10 @@
 
 -module(emqtt_retained).
 
+-author('feng@slimchat.io').
+
+%%TODO: FIXME Later...
+
 %%
 %% <<MQTT_V3.1_Protocol_Specific>>
 
@@ -74,11 +78,10 @@ delete(Topic) ->
 	gen_server:cast(?MODULE, {delete, Topic}).
 
 send(Topic, Client) ->
-	[Client ! {route, Msg} ||{_, Msg} <- lookup(Topic)].
+	[Client ! {dispatch, Msg} ||{_, Msg} <- lookup(Topic)].
 
 init([]) ->
 	ets:new(retained_msg, [set, protected, named_table]),
-	?INFO("~p is started.", [?MODULE]),
 	{ok, #state{}}.
 
 handle_call(Req, _From, State) ->

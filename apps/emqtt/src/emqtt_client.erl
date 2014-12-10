@@ -26,7 +26,9 @@
 
 -behaviour(gen_server).
 
--export([start_link/1, info/1, go/2, stop/2]).
+-export([start_link/1,
+        info/1,
+        go/2]).
 
 -export([init/1,
 		handle_call/3,
@@ -71,11 +73,8 @@ info(Pid) ->
 go(Pid, Sock) ->
 	gen_server:call(Pid, {go, Sock}).
 
-stop(Pid, Error) ->
-	gen_server:cast(Pid, {stop, Error}).
-
 init([Sock]) ->
-    {ok, #state{socket = Sock}}.
+    {ok, #state{socket = Sock}, 1000}.
 
 handle_call({go, Sock}, _From, State=#state{socket = Sock}) ->
     {ok, ConnStr} = emqtt_net:connection_string(Sock, inbound),
@@ -103,14 +102,17 @@ handle_call(info, _From, #state{conn_name=ConnName,
 handle_call(_Req, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({stop, duplicate_id}, State=#state{conn_name=ConnName, client_id=ClientId}) ->
-	?ERROR("Shutdown for duplicate clientid:~s, conn:~s", [ClientId, ConnName]), 
-	stop({shutdown, duplicate_id}, State);
-
 handle_cast(Msg, State) ->
 	{stop, {badmsg, Msg}, State}.
 
-handle_info({route, Msg}, #state{socket = Sock, message_id=MsgId} = State) ->
+handle_info(timeout, State) ->
+	stop({shutdown, timeout}, State);
+    
+handle_info({stop, duplicate_id}, State=#state{conn_name=ConnName, client_id=ClientId}) ->
+	?ERROR("Shutdown for duplicate clientid:~s, conn:~s", [ClientId, ConnName]), 
+	stop({shutdown, duplicate_id}, State);
+
+handle_info({dispatch, Msg}, #state{socket = Sock, message_id=MsgId} = State) ->
 
 	#mqtt_msg{retain     = Retain,
 			  qos        = Qos,
@@ -157,7 +159,6 @@ handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
     network_error(Reason, State);
 
 handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
-	?ERROR("sock error: ~p~n", [Reason]), 
 	{noreply, State};
 
 handle_info(keep_alive_timeout, #state{keep_alive=KeepAlive}=State) ->
@@ -171,24 +172,17 @@ handle_info(keep_alive_timeout, #state{keep_alive=KeepAlive}=State) ->
 	end;
 
 handle_info(Info, State) ->
-	?ERROR("unext info :~p",[Info]),
+	?ERROR("badinfo :~p",[Info]),
 	{stop, {badinfo, Info}, State}.
 
-terminate(_Reason, #state{client_id=ClientId, keep_alive=KeepAlive}) ->
-    ok = emqtt_registry:unregister(ClientId),
+terminate(_Reason, #state{keep_alive=KeepAlive}) ->
 	emqtt_keep_alive:cancel(KeepAlive),
+    emqtt_cm:destroy(self()),
 	ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 	
-throw_on_error(E, Thunk) ->
-    case Thunk() of
-	{error, Reason} -> throw({E, Reason});
-	{ok, Res}       -> Res;
-	Res             -> Res
-    end.
-
 async_recv(Sock, Length, infinity) when is_port(Sock) ->
     prim_inet:async_recv(Sock, Length, -1);
 
@@ -261,7 +255,7 @@ process_request(?CONNECT,
                         {?CONNACK_CREDENTIALS, State};
                     true ->
 						?INFO("connect from clientid: ~p, ~p", [ClientId, AlivePeriod]),
-						ok = emqtt_registry:register(ClientId, self()),
+						emqtt_cm:create(ClientId, self()),
 						KeepAlive = emqtt_keep_alive:new(AlivePeriod*1500, keep_alive_timeout),
 						{?CONNACK_ACCEPT,
 						 State #state{ will_msg   = make_will_msg(Var),
@@ -364,7 +358,6 @@ process_request(?UNSUBSCRIBE,
     {ok, State};
 
 process_request(?PINGREQ, #mqtt_frame{}, #state{socket=Sock, keep_alive=KeepAlive}=State) ->
-	%?INFO("PINGREQ...",[]),
 	%Keep alive timer
 	KeepAlive1 = emqtt_keep_alive:reset(KeepAlive),
     send_frame(Sock, #mqtt_frame{fixed = #mqtt_frame_fixed{ type = ?PINGRESP }}),
@@ -400,7 +393,7 @@ make_will_msg(#mqtt_frame_connect{ will_retain = Retain,
 send_will_msg(#state{will_msg = undefined}) ->
 	ignore;
 send_will_msg(#state{will_msg = WillMsg }) ->
-	emqtt_router:publish(WillMsg).
+	emqtt_pubsub:publish(WillMsg).
 
 send_frame(Sock, Frame) ->
 	?INFO("send frame:~p", [Frame]),
