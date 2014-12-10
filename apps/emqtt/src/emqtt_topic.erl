@@ -111,7 +111,7 @@ validate({subscribe, Topic}) when is_binary(Topic) ->
 	valid(words(Topic));
 validate({publish, Topic}) when is_binary(Topic) ->
 	Words = words(Topic),
-	valid(Words) and (not include_wildcard(Words)).
+	valid(Words) and (not include_wildcard(Topic)).
 
 triples(B) when is_binary(B) ->
 	triples(binary_to_list(B), []).
@@ -152,5 +152,5 @@ include_wildcard(<<$#, _T/binary>>) -> true;
 include_wildcard(<<$+, _T/binary>>) -> true;
 include_wildcard(<<_H, T/binary>>) -> include_wildcard(T).
 
-l2b(L) when is_list(L) -> list_to_binary(L).
+l2b(L) -> list_to_binary(L).
 

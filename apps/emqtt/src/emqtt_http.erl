@@ -26,6 +26,8 @@
 
 -include("emqtt.hrl").
 
+-include("emqtt_log.hrl").
+
 -import(proplists, [get_value/2, get_value/3]).
 
 -export([handle/1]).
@@ -43,8 +45,8 @@ handle(Req) ->
 
 handle('POST', "/mqtt/publish", Req) ->
     Params = mochiweb_request:parse_post(Req),
-	error_logger:info_msg("~p~n", [Params]),
-	Topic = get_value("topic", Params),
+	?INFO("~p~n", [Params]),
+	Topic = list_to_binary(get_value("topic", Params)),
 	Message = list_to_binary(get_value("message", Params)),
 	emqtt_pubsub:publish(#mqtt_msg {
 				retain     = 0,
@@ -66,12 +68,9 @@ authorized(Req) ->
 	undefined ->
 		false;
 	"Basic " ++ BasicAuth ->
-		{Username, Password} = user_passwd(BasicAuth),
-		emqtt_auth:check(Username, Password)
+		emqtt_auth:check(user_passwd(BasicAuth))
 	end.
 
 user_passwd(BasicAuth) ->
-	[U, P] = binary:split(base64:decode(BasicAuth), <<":">>), 
-	{binary_to_list(U), binary_to_list(P)}.
-
+	list_to_tuple(binary:split(base64:decode(BasicAuth), <<":">>)). 
 

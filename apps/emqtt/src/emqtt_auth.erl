@@ -30,7 +30,7 @@
 
 -export([start_link/0,
 		add/2,
-		check/2,
+		check/1, check/2,
 		delete/1]).
 
 -behavior(gen_server).
@@ -42,8 +42,14 @@
 		terminate/2,
 		code_change/3]).
 
+-define(TAB, ?MODULE).
+
 start_link() ->
 	gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+-spec check({Usename :: binary(), Password :: binary()}) -> true | false.
+check({Username, Password}) ->
+	execute(check, [Username, Password]).
 
 -spec check(Usename :: binary(), Password :: binary()) -> true | false.
 check(Username, Password) ->
@@ -58,15 +64,15 @@ delete(Username) ->
 	execute(delete, [Username]).
 
 execute(F, Args) ->
-	[{_, M}] = ets:lookup(emqtt_auth, mod), 
+	[{_, M}] = ets:lookup(?TAB, mod), 
 	apply(M, F, Args).
 
 init([]) ->
 	{ok, {Name, Opts}} = application:get_env(auth),
 	AuthMod = authmod(Name),
 	ok = AuthMod:init(Opts),
-	ets:new(emqtt_auth, [named_table, protected]),
-	ets:insert(emqtt_quth, {mod, AuthMod}),
+	ets:new(?TAB, [named_table, protected]),
+	ets:insert(?TAB, {mod, AuthMod}),
 	?PRINT("emqtt authmod is ~p", [AuthMod]),
 	{ok, undefined}.
 

@@ -242,7 +242,7 @@ process_request(?CONNECT,
 										  keep_alive = AlivePeriod,
                                           client_id  = ClientId } = Var}, #state{socket = Sock} = State) ->
     {ReturnCode, State1} =
-        case {ProtoVersion =:= ?MQTT_PROTO_MAJOR,
+        case {lists:member(ProtoVersion, proplists:get_keys(?PROTOCOL_NAMES)),
               valid_client_id(ClientId)} of
             {false, _} ->
                 {?CONNACK_PROTO_VER, State};
@@ -264,7 +264,7 @@ process_request(?CONNECT,
                 end
         end,
 		?INFO("recv conn...:~p", [ReturnCode]),
-		send_frame(Sock, #mqtt_frame{ fixed    = #mqtt_frame_fixed{ type = ?CONNACK},
+		send_frame(Sock, #mqtt_frame{ fixed = #mqtt_frame_fixed{ type = ?CONNACK},
 								 variable = #mqtt_frame_connack{
                                          return_code = ReturnCode }}),
     {ok, State1};
@@ -428,7 +428,7 @@ stop(Reason, State ) ->
     {stop, Reason, State}.
 
 valid_client_id(ClientId) ->
-    ClientIdLen = length(ClientId),
+    ClientIdLen = size(ClientId),
     1 =< ClientIdLen andalso ClientIdLen =< ?CLIENT_ID_MAXLEN.
 
 handle_retained(?PUBLISH, #mqtt_frame{fixed = #mqtt_frame_fixed{retain = false}}) ->

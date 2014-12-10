@@ -161,7 +161,7 @@ parse_utf(Bin, _) ->
     parse_utf(Bin).
 
 parse_utf(<<Len:16/big, Str:Len/binary, Rest/binary>>) ->
-    {binary_to_list(Str), Rest}.
+    {Str, Rest}.
 
 parse_msg(Bin, 0) ->
     {undefined, Bin};

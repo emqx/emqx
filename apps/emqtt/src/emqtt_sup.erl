@@ -60,12 +60,5 @@ start_child(Mod, Type) when is_atom(Mod) and is_atom(Type) ->
 %% ===================================================================
 
 init([]) ->
-    {ok, { {one_for_all, 5, 10}, [
-		?CHILD(emqtt_cm, worker),
-		?CHILD(emqtt_monitor, worker),
-		?CHILD(emqtt_auth, worker),
-		?CHILD(emqtt_retained, worker),
-		?CHILD(emqtt_pubsub, worker),
-		?CHILD(emqtt_registry, worker)]}
-	}.
+    {ok, { {one_for_all, 5, 10}, [] } }.
 
