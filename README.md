@@ -2,6 +2,8 @@
 
 eMQTT is a scalable, fault-tolerant and extensible mqtt broker written in Erlang/OTP.
 
+eMQTT support MQTT V3.1 Protocol Specification.
+
 eMQTT requires Erlang R17+.
 
 ## Startup in Five Minutes
