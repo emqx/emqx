@@ -40,7 +40,7 @@ check(undefined, _) -> false;
 
 check(_, undefined) -> false;
 
-check(Username, Password) when is_binary(Username) ->
+check(Username, Password) when is_binary(Username), is_binary(Password) ->
 	PasswdHash = crypto:hash(md5, Password),	
 	case mnesia:dirty_read(emqtt_user, Username) of
 	[#emqtt_user{passwdhash=PasswdHash}] -> true;
@@ -48,7 +48,12 @@ check(Username, Password) when is_binary(Username) ->
 	end.
 	
 add(Username, Password) when is_binary(Username) and is_binary(Password) ->
-	mnesia:dirty_write(#emqtt_user{username=Username, passwdhash=crypto:hash(md5, Password)}).
+	mnesia:dirty_write(
+        #emqtt_user{
+            username=Username, 
+            passwdhash=crypto:hash(md5, Password)
+        }
+    ).
 
 delete(Username) when is_binary(Username) ->
 	mnesia:dirty_delete(emqtt_user, Username).

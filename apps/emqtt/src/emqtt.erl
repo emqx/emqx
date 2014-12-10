@@ -26,10 +26,10 @@
 
 -define(MQTT_SOCKOPTS, [
 	binary,
-	{packet,        raw},
-	{reuseaddr,     true},
-	{backlog,       512},
-	{nodelay,       false}
+	{packet,    raw},
+	{reuseaddr, true},
+	{backlog,   512},
+	{nodelay,   false}
 ]).
 
 listen(Listeners) when is_list(Listeners) ->
@@ -43,3 +43,4 @@ listen({http, Port, Options}) ->
     MFArgs = {emqtt_http, handle, []},
 	mochiweb:start_http(Port, Options, MFArgs).
     
+
