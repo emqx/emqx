@@ -43,8 +43,6 @@
 
 -include("emqtt_frame.hrl").
 
--define(CLIENT_ID_MAXLEN, 23).
-
 -record(state, {socket,
 				conn_name,
 				await_recv,
