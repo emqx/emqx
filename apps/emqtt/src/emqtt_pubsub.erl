@@ -116,8 +116,8 @@ dispatch(Topic, Msg) when is_binary(Topic) ->
 	[SubPid ! {dispatch, Msg} || #topic_subscriber{subpid=SubPid} <- ets:lookup(topic_subscriber, Topic)].
 
 -spec match(Topic :: binary()) -> [topic()].
-match(Topic) when is_binary(Topic) ->
-	TrieNodes = mnesia:async_dirty(fun trie_match/1, [emqtt_topic:words(Topic)]),
+match(Topic) ->
+	TrieNodes = mnesia:async_dirty(fun trie_match/1, [emqtt_topic:words(to_binary(Topic))]),
     Names = [Name || #topic_trie_node{topic=Name} <- TrieNodes, Name=/= undefined],
 	lists:flatten([mnesia:dirty_read(topic, Name) || Name <- Names]).
 
@@ -249,10 +249,10 @@ trie_match(NodeId, [W|Words], ResAcc) ->
 		[#topic_trie{node_id=ChildId}] -> trie_match(ChildId, Words, Acc);
 		[] -> Acc
 		end
-	end, 'trie_match_#'(NodeId, ResAcc), [W, "+"]).
+	end, 'trie_match_#'(NodeId, ResAcc), [W, $+]).
 
 'trie_match_#'(NodeId, ResAcc) ->
-	case mnesia:read(topic_trie, #topic_trie_edge{node_id=NodeId, word="#"}) of
+	case mnesia:read(topic_trie, #topic_trie_edge{node_id=NodeId, word=$#}) of
 	[#topic_trie{node_id=ChildId}] ->
 		mnesia:read(topic_trie_node, ChildId) ++ ResAcc;	
 	[] ->
@@ -291,4 +291,9 @@ trie_delete_path([{NodeId, Word, _} | RestPath]) ->
 	[] ->
 		throw({notfound, NodeId}) 
 	end.
+
+to_binary(L) when is_list(L) ->
+	unicode:characters_to_binary(L);
+to_binary(B) when is_binary(B) ->
+	B.
 
