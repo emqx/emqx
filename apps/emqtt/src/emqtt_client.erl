@@ -43,6 +43,22 @@
 
 -include("emqtt_frame.hrl").
 
+-record(state, {socket,
+				conn_name,
+				await_recv,
+				connection_state,
+				conserve,
+				parse_state,
+                message_id,
+                client_id,
+                clean_sess,
+                will_msg,
+				keep_alive, 
+				awaiting_ack,
+                subtopics,
+				awaiting_rel}).
+
+
 -define(FRAME_TYPE(Frame, Type),
         Frame = #mqtt_frame{ fixed = #mqtt_frame_fixed{ type = Type }}).
 
