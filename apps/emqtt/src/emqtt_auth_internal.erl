@@ -22,6 +22,8 @@
 
 -module(emqtt_auth_internal).
 
+-author('feng@slimchat.io').
+
 -include("emqtt.hrl").
 
 -export([init/1,

@@ -24,7 +24,7 @@
 
 -author('feng@slimchat.io').
 
--export([tcp_name/3, tcp_host/1, getaddr/2, port_to_listeners/1]).
+-export([tcp_name/3, tcp_host/1, getopts/2, setopts/2, getaddr/2, port_to_listeners/1]).
 
 -export([connection_string/2]).
 

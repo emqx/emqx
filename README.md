@@ -1,74 +1,85 @@
-emqtt
-=====
+# eMQTT
 
-erlang mqtt broker.
+eMQTT is a scalable, fault-tolerant and extensible mqtt broker written in Erlang/OTP.
 
-requires
-========
+eMQTT support MQTT V3.1 Protocol Specification.
 
-erlang R15B+ 
+eMQTT requires Erlang R17+.
 
-git client
+## Startup in Five Minutes
 
-build
-=======
+```
+	$ git clone git://github.com/slimpp/emqtt.git
 
-make
+	$ cd emqtt
 
-release
-=======
+	$ make && make dist
 
-make generate
+	$ cd rel/emqtt
 
-deloy
-=====
+	$ ./bin/emqtt console
+```
 
-cp -R rel/emqtt $INSTALL_DIR
+## Deploy and Start
 
-start
-======
+### start
 
-cd $INSTALL_DRI/emqtt
+```
+	cp -R rel/emqtt $INSTALL_DIR
 
-./bin/emqtt console
+	cd $INSTALL_DIR/emqtt
 
-or
+	./bin/emqtt start
 
-./bin/emqtt start
+```
 
-status
-======
+### stop
 
-./bin/emqtt_ctl status
+```
+	./bin/emqtt stop
 
-stop
-====
+```
 
-./bin/emqtt stop
+## Configuration
 
-logs
-====
+......
 
-log/*
+## Admin and Cluster
 
-http api
-========
+......
 
-curl -v --basic -u user:passwd -d "topic=/abc&message=akakakk&qos=0" -k http://localhost:8883/mqtt/publish
+## HTTP API
 
-design
-=====
+eMQTT support http to publish message.
 
-https://github.com/slimpp/emqtt/wiki
+Example:
 
-author
-=====
+```
+	curl -v --basic -u user:passwd -d "topic=/a/b/c&message=hello from http..." -k http://localhost:8883/mqtt/publish
+```
 
-Ery Lee <ery.lee at gmail dot com>
+### URL
 
+```
+	HTTP POST http://host:8883/mqtt/publish
+```
 
-license
-======
+### Parameters
+
+Name | Description
+-----|-------------
+topic | MQTT Topic
+message | Text Message
+
+## Design
+
+[Design Wiki](https://github.com/slimpp/emqtt/wiki)
+
+## License
 
 The MIT License (MIT)
+
+## Author
+
+feng at slimchat.io
 

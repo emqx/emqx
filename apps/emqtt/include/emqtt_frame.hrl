@@ -18,10 +18,14 @@
 %% Copyright (c) 2007-2012 VMware, Inc.  All rights reserved.
 %%
 
--define(PROTOCOL_NAMES,  [{3, "MQIsdp"}, {4, "MQTT"}]).
+-define(CLIENT_ID_MAXLEN, 1024).
+
+-define(PROTOCOL_NAMES,  [{3, <<"MQIsdp">>}, {4, <<"MQTT">>}]).
 
 -define(MQTT_PROTO_MAJOR, 3).
 -define(MQTT_PROTO_MINOR, 1).
+
+-define(CLIENT_ID_MAXLEN, 23).
 
 %% frame types
 
@@ -48,6 +52,21 @@
 -define(CONNACK_SERVER,      3). %% server unavailable
 -define(CONNACK_CREDENTIALS, 4). %% bad user name or password
 -define(CONNACK_AUTH,        5). %% not authorized
+
+-record(state, {socket,
+				conn_name,
+				await_recv,
+				connection_state,
+				conserve,
+				parse_state,
+                message_id,
+                client_id,
+                clean_sess,
+                will_msg,
+				keep_alive, 
+				awaiting_ack,
+                subtopics,
+				awaiting_rel}).
 
 
 -record(mqtt_frame, {fixed,
