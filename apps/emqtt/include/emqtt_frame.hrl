@@ -87,4 +87,3 @@
 
 -record(mqtt_frame_other,    {other}).
 
-
