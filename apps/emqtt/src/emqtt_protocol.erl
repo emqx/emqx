@@ -164,4 +164,39 @@ process_request(?DISCONNECT, #mqtt_frame{}, State=#state{client_id=ClientId}) ->
 	?INFO("~s disconnected", [ClientId]),
     {stop, State}.
 
+send_frame(Sock, Frame) ->
+	?INFO("send frame:~p", [Frame]),
+    erlang:port_command(Sock, emqtt_frame:serialise(Frame)).
 
+valid_client_id(ClientId) ->
+    ClientIdLen = size(ClientId),
+    1 =< ClientIdLen andalso ClientIdLen =< ?CLIENT_ID_MAXLEN.
+
+validate_frame(_Type, _Frame) ->
+	ok.
+
+make_msg(#mqtt_frame{
+			  fixed = #mqtt_frame_fixed{qos    = Qos,
+										retain = Retain,
+										dup    = Dup},
+			  variable = #mqtt_frame_publish{topic_name = Topic,
+											 message_id = MessageId},
+			  payload = Payload}) ->
+	#mqtt_msg{retain     = Retain,
+			  qos        = Qos,
+			  topic      = Topic,
+			  dup        = Dup,
+			  msgid      = MessageId,
+			  payload    = Payload}.
+
+make_will_msg(#mqtt_frame_connect{ will_flag   = false }) ->
+    undefined;
+make_will_msg(#mqtt_frame_connect{ will_retain = Retain,
+                                   will_qos    = Qos,
+                                   will_topic  = Topic,
+                                   will_msg    = Msg }) ->
+    #mqtt_msg{retain  = Retain,
+              qos     = Qos,
+              topic   = Topic,
+              dup     = false,
+              payload = Msg }.
