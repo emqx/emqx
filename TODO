@@ -17,3 +17,12 @@
 				temporary, 5000, worker, [emqtt_client]}]}}.
 
 fucking stupid..... esockd locked
+
+0.2.1
+=====
+
+full MQTT 3.1.1 support...
+
+node cluster....
+
+one million connections test...

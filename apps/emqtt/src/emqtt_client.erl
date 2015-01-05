@@ -43,20 +43,21 @@
 
 -include("emqtt_frame.hrl").
 
--record(state, {socket,
-				conn_name,
-				await_recv,
-				connection_state,
-				conserve,
-				parse_state,
-                message_id,
-                client_id,
-                clean_sess,
-                will_msg,
-				keep_alive, 
-				awaiting_ack,
-                subtopics,
-				awaiting_rel}).
+%%
+%-record(state, {socket,
+%				conn_name,
+%				await_recv,
+%				connection_state,
+%				conserve,
+%				parse_state,
+%                message_id,
+%                client_id,
+%                clean_sess,
+%                will_msg,
+%				keep_alive, 
+%				awaiting_ack,
+%                subtopics,
+%				awaiting_rel}).
 
 
 -define(FRAME_TYPE(Frame, Type),
@@ -226,7 +227,7 @@ process_frame(Frame = #mqtt_frame{fixed = #mqtt_frame_fixed{type = Type}},
 	ok ->
 		?INFO("frame from ~s: ~p", [ClientId, Frame]),
 		handle_retained(Type, Frame),
-		process_request(Type, Frame, State#state{keep_alive=KeepAlive1});
+		emqtt_protocol:process_request(Type, Frame, State#state{keep_alive=KeepAlive1});
 	{error, Reason} ->
 		{err, Reason, State}
 	end.

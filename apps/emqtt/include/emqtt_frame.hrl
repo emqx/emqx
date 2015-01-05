@@ -18,12 +18,12 @@
 %% Copyright (c) 2007-2012 VMware, Inc.  All rights reserved.
 %%
 
--define(CLIENT_ID_MAXLEN, 1024).
-
 -define(PROTOCOL_NAMES,  [{3, <<"MQIsdp">>}, {4, <<"MQTT">>}]).
 
 -define(MQTT_PROTO_MAJOR, 3).
 -define(MQTT_PROTO_MINOR, 1).
+
+-define(CLIENT_ID_MAXLEN, 1024).
 
 %% frame types
 
@@ -103,5 +103,4 @@
                               qos}).
 
 -record(mqtt_frame_other,    {other}).
-
 
