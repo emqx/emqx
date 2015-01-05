@@ -25,8 +25,6 @@
 -define(MQTT_PROTO_MAJOR, 3).
 -define(MQTT_PROTO_MINOR, 1).
 
--define(CLIENT_ID_MAXLEN, 23).
-
 %% frame types
 
 -define(CONNECT,      1).

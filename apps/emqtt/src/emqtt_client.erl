@@ -173,9 +173,9 @@ handle_info(Info, State) ->
 	?ERROR("badinfo :~p",[Info]),
 	{stop, {badinfo, Info}, State}.
 
-terminate(_Reason, #state{keep_alive=KeepAlive}) ->
+terminate(_Reason, #state{client_id = ClientId, keep_alive=KeepAlive}) ->
 	emqtt_keep_alive:cancel(KeepAlive),
-    emqtt_cm:destroy(self()),
+    emqtt_cm:destroy(ClientId, self()),
 	ok.
 
 code_change(_OldVsn, State, _Extra) ->

@@ -29,15 +29,15 @@
 
 -define(SERVER, ?MODULE).
 
+-define(TAB, emqtt_client).
+
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
 
 -export([start_link/0]).
 
--export([create/2,
-		 destroy/1,
-		 lookup/1]).
+-export([lookup/1, create/2, destroy/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -59,28 +59,17 @@ start_link() ->
 -spec lookup(ClientId :: binary()) -> pid() | undefined.
 lookup(ClientId) ->
 	case ets:lookup(emqtt_client, ClientId) of
-	[{_, Pid}] -> Pid;
+	[{_, Pid, _}] -> Pid;
 	[] -> undefined
 	end.
 
 -spec create(ClientId :: binary(), Pid :: pid()) -> ok.
 create(ClientId, Pid) ->
-	case lookup(ClientId) of
-        Pid ->
-            ignore;
-		OldPid when is_pid(OldPid) ->
-			OldPid ! {stop, duplicate_id},
-            ets:insert(emqtt_client, {ClientId, Pid});
-		undefined -> 
-            ets:insert(emqtt_client, {ClientId, Pid})
-	end.
+	gen_server:call(?SERVER, {create, ClientId, Pid}).
 
--spec destroy(binary() | pid()) -> ok.
-destroy(ClientId) when is_binary(ClientId) ->
-	ets:delete(emqtt_client, ClientId);
-
-destroy(Pid) when is_pid(Pid) ->
-	ets:match_delete(emqtt_client, {{'_', Pid}}).
+-spec destroy(ClientId :: binary(), Pid :: pid()) -> ok.
+destroy(ClientId, Pid) when is_binary(ClientId) ->
+	gen_server:cast(?SERVER, {destroy, ClientId, Pid});
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -88,13 +77,43 @@ destroy(Pid) when is_pid(Pid) ->
 
 init(Args) ->
 	%on one node
-	ets:new(emqtt_client, [named_table, public]),
+	ets:new(?TAB, [set, named_table, protected]),
     {ok, Args}.
+
+handle_call({create, ClientId, Pid}, _From, State) ->
+	case ets:lookup(?TAB, ClientId) of
+        [{_, Pid, _}] ->
+			?ERROR("client '~s' has been registered with ~p", [ClientId, Pid]),
+            ignore;
+		[{_, OldPid, MRef}] ->
+			OldPid ! {stop, duplicate_id},
+			erlang:demonitor(MRef),
+            ets:insert(emqtt_client, {ClientId, Pid, erlang:monitor(process, Pid)});
+		[] -> 
+            ets:insert(emqtt_client, {ClientId, Pid, erlang:monitor(process, Pid)})
+	end.
+	{reply, ok, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
+handle_cast({destroy, ClientId, Pid}, State) when is_binary(ClientId) ->
+	case ets:lookup(?TAB, ClientId) of
+	[{_, Pid, MRef}] ->
+		erlang:demonitor(MRef),
+		ets:delete(?TAB, ClientId);
+	[_] ->
+		ignore;
+	[] ->
+		?ERROR("cannot find client '~s' with ~p", [ClientId, Pid])
+	end
+	{noreply, State};
+
 handle_cast(_Msg, State) ->
+    {noreply, State}.
+
+handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
+	ets:match_delete(emqtt_client, {{'_', DownPid, MRef}}),
     {noreply, State}.
 
 handle_info(_Info, State) ->
