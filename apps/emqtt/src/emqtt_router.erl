@@ -20,8 +20,23 @@
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
 
+%%route chain... statistics
 -module(emqtt_router).
+
+-include("emqtt.hrl").
+
+-include("emqtt_frame.hrl").
+
+-export([route/1]).
 
 %%Router Chain-->
 %%--->In
 %%Out<---
+
+-spec route(Msg :: mqtt_msg()) -> any().
+route(Msg) ->
+	emqtt_pubsub:publish(retained(Msg)).
+
+retained(Msg = #mqtt_msg{retain = true, topic = Topic}) ->
+	emqtt_retained:insert(Topic, Msg), Msg.
+	

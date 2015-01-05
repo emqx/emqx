@@ -25,6 +25,8 @@
 
 -author('feng@slimchat.io').
 
+-include("emqtt_log.hrl").
+
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
@@ -69,7 +71,7 @@ create(ClientId, Pid) ->
 
 -spec destroy(ClientId :: binary(), Pid :: pid()) -> ok.
 destroy(ClientId, Pid) when is_binary(ClientId) ->
-	gen_server:cast(?SERVER, {destroy, ClientId, Pid});
+	gen_server:cast(?SERVER, {destroy, ClientId, Pid}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -91,7 +93,7 @@ handle_call({create, ClientId, Pid}, _From, State) ->
             ets:insert(emqtt_client, {ClientId, Pid, erlang:monitor(process, Pid)});
 		[] -> 
             ets:insert(emqtt_client, {ClientId, Pid, erlang:monitor(process, Pid)})
-	end.
+	end,
 	{reply, ok, State};
 
 handle_call(_Request, _From, State) ->
@@ -106,7 +108,7 @@ handle_cast({destroy, ClientId, Pid}, State) when is_binary(ClientId) ->
 		ignore;
 	[] ->
 		?ERROR("cannot find client '~s' with ~p", [ClientId, Pid])
-	end
+	end,
 	{noreply, State};
 
 handle_cast(_Msg, State) ->
@@ -114,7 +116,7 @@ handle_cast(_Msg, State) ->
 
 handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
 	ets:match_delete(emqtt_client, {{'_', DownPid, MRef}}),
-    {noreply, State}.
+    {noreply, State};
 
 handle_info(_Info, State) ->
     {noreply, State}.

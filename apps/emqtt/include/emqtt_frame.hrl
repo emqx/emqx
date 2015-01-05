@@ -51,21 +51,6 @@
 -define(CONNACK_CREDENTIALS, 4). %% bad user name or password
 -define(CONNACK_AUTH,        5). %% not authorized
 
--record(state, {socket,
-				conn_name,
-				await_recv,
-				connection_state,
-				conserve,
-				parse_state,
-                message_id,
-                client_id,
-                clean_sess,
-                will_msg,
-				keep_alive, 
-				awaiting_ack,
-                subtopics,
-				awaiting_rel}).
-
 
 -record(mqtt_frame, {fixed,
                      variable,

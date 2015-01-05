@@ -26,9 +26,7 @@
 
 -behaviour(gen_server).
 
--export([start_link/1,
-        info/1,
-        go/2]).
+-export([start_link/1, info/1, go/2]).
 
 -export([init/1,
 		handle_call/3,
@@ -43,25 +41,17 @@
 
 -include("emqtt_frame.hrl").
 
-%%
-%-record(state, {socket,
-%				conn_name,
-%				await_recv,
-%				connection_state,
-%				conserve,
-%				parse_state,
-%                message_id,
-%                client_id,
-%                clean_sess,
-%                will_msg,
-%				keep_alive, 
-%				awaiting_ack,
-%                subtopics,
-%				awaiting_rel}).
-
-
--define(FRAME_TYPE(Frame, Type),
-        Frame = #mqtt_frame{ fixed = #mqtt_frame_fixed{ type = Type }}).
+%%Client State...
+-record(state, {
+	socket,
+	conn_name,
+	await_recv,
+	connection_state,
+	conserve,
+	parse_state,
+	proto_state,
+	keep_alive
+}).
 
 start_link(Sock) ->
     gen_server:start_link(?MODULE, [Sock], []).
@@ -73,9 +63,9 @@ go(Pid, Sock) ->
 	gen_server:call(Pid, {go, Sock}).
 
 init([Sock]) ->
-    {ok, #state{socket = Sock}, 1000}.
+    {ok, #state{socket = Sock}, hibernate}.
 
-handle_call({go, Sock}, _From, State=#state{socket = Sock}) ->
+handle_call({go, Sock}, _From, State = #state{socket = Sock}) ->
     {ok, ConnStr} = emqtt_net:connection_string(Sock, inbound),
     {reply, ok, 
 	 control_throttle(
@@ -85,21 +75,13 @@ handle_call({go, Sock}, _From, State=#state{socket = Sock}) ->
                connection_state = running,
                conserve         = false,
                parse_state      = emqtt_frame:initial_state(),
-			   message_id		= 1,
-               subtopics		= [],
-			   awaiting_ack		= gb_trees:empty(),
-			   awaiting_rel		= gb_trees:empty()})};
+			   proto_state		= emqtt_protocol:initial_state()})};
 
+handle_call(info, _From, State = #state{conn_name=ConnName, proto_state = ProtoState}) ->
+	{reply, [{conn_name, ConnName} | emqtt_protocol:info(ProtoState)], State};
 
-handle_call(info, _From, #state{conn_name=ConnName, 
-	message_id=MsgId, client_id=ClientId} = State) ->
-	Info = [{conn_name, ConnName},
-			{message_id, MsgId},
-			{client_id, ClientId}],
-	{reply, Info, State};
-
-handle_call(_Req, _From, State) ->
-    {reply, ok, State}.
+handle_call(Req, _From, State) ->
+    {stop, {badreq, Req}, State}.
 
 handle_cast(Msg, State) ->
 	{stop, {badmsg, Msg}, State}.
@@ -107,45 +89,15 @@ handle_cast(Msg, State) ->
 handle_info(timeout, State) ->
 	stop({shutdown, timeout}, State);
     
-handle_info({stop, duplicate_id}, State=#state{conn_name=ConnName, client_id=ClientId}) ->
-	?ERROR("Shutdown for duplicate clientid:~s, conn:~s", [ClientId, ConnName]), 
+handle_info({stop, duplicate_id}, State=#state{conn_name=ConnName}) ->
+	%%TODO:
+	%?ERROR("Shutdown for duplicate clientid:~s, conn:~s", [ClientId, ConnName]), 
 	stop({shutdown, duplicate_id}, State);
 
-handle_info({dispatch, Msg}, #state{socket = Sock, message_id=MsgId} = State) ->
-
-	#mqtt_msg{retain     = Retain,
-			  qos        = Qos,
-			  topic      = Topic,
-			  dup        = Dup,
-			  payload    = Payload,
-			  encoder 	 = Encoder} = Msg,
-	
-	Payload1 = 
-	if
-	Encoder == undefined -> Payload;
-	true -> Encoder(Payload)
-	end,
-
-	Frame = #mqtt_frame{
-		fixed = #mqtt_frame_fixed{type 	 = ?PUBLISH,
-								  qos    = Qos,
-								  retain = Retain,
-								  dup    = Dup},
-		variable = #mqtt_frame_publish{topic_name = Topic,
-									   message_id = if
-													Qos == ?QOS_0 -> undefined;
-													true -> MsgId
-													end},
-		payload = Payload1},
-
-	send_frame(Sock, Frame),
-
-	if
-	Qos == ?QOS_0 ->
-		{noreply, State};
-	true ->
-		{noreply, next_msg_id(State)}
-	end;
+%%TODO: ok??
+handle_info({dispatch, Msg}, #state{proto_state = ProtoState} = State) ->
+	{ok, ProtoState1} = emqtt_protocol:send_message(Msg, ProtoState),
+	{noreply, State#state{proto_state = ProtoState1}};
 
 handle_info({inet_reply, _Ref, ok}, State) ->
     {noreply, State, hibernate};
@@ -157,6 +109,7 @@ handle_info({inet_async, Sock, _Ref, {ok, Data}}, #state{ socket = Sock}=State) 
 handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
     network_error(Reason, State);
 
+%%TODO: HOW TO HANDLE THIS??
 handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
 	{noreply, State};
 
@@ -174,9 +127,10 @@ handle_info(Info, State) ->
 	?ERROR("badinfo :~p",[Info]),
 	{stop, {badinfo, Info}, State}.
 
-terminate(_Reason, #state{client_id = ClientId, keep_alive=KeepAlive}) ->
-	emqtt_keep_alive:cancel(KeepAlive),
-    emqtt_cm:destroy(ClientId, self()),
+terminate(_Reason, #state{proto_state = ProtoState}) ->
+	%%TODO: fix keep_alive...
+	%%emqtt_keep_alive:cancel(KeepAlive),
+	emqtt_protocol:client_terminated(ProtoState),
 	ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -192,10 +146,11 @@ async_recv(Sock, Length, Timeout) when is_port(Sock) ->
 % receive and parse tcp data
 %-------------------------------------------------------
 process_received_bytes(<<>>, State) ->
-    {noreply, State};
+    {noreply, State, hibernate};
 
 process_received_bytes(Bytes,
                        State = #state{ parse_state = ParseState,
+									   proto_state = ProtoState,
                                        conn_name   = ConnStr }) ->
     case emqtt_frame:parse(Bytes, ParseState) of
 	{more, ParseState1} ->
@@ -203,72 +158,31 @@ process_received_bytes(Bytes,
 		 control_throttle( State #state{ parse_state = ParseState1 }),
 		 hibernate};
 	{ok, Frame, Rest} ->
-		case process_frame(Frame, State) of
-		{ok, State1} ->
-			PS = emqtt_frame:initial_state(),
+		case emqtt_protol:handle_frame(Frame, ProtoState) of
+		{ok, ProtoState1} ->
 			process_received_bytes(
 			  Rest,
-			  State1 #state{ parse_state = PS});
-		{err, Reason, State1} ->
-			?ERROR("MQTT protocol error ~p for connection ~p~n", [Reason, ConnStr]),
-			stop({shutdown, Reason}, State1);
-		{stop, State1} ->
-			stop(normal, State1)
+			  State#state{ parse_state = emqtt_frame:initial_state(),
+						   proto_state = ProtoState1 });
+		{error, Error} ->
+			?ERROR("MQTT protocol error ~p for connection ~p~n", [Error, ConnStr]),
+			stop({shutdown, Error}, State);
+		{error, Error, ProtoState1} ->
+			stop({shutdown, Error}, State#state{proto_state = ProtoState1});
+		{stop, ProtoState1} ->
+			stop(normal, State#state{proto_state = ProtoState1})
 		end;
 	{error, Error} ->
 		?ERROR("MQTT detected framing error ~p for connection ~p~n", [ConnStr, Error]),
 		stop({shutdown, Error}, State)
     end.
 
-process_frame(Frame = #mqtt_frame{fixed = #mqtt_frame_fixed{type = Type}},
-              State=#state{client_id=ClientId, keep_alive=KeepAlive}) ->
-	KeepAlive1 = emqtt_keep_alive:activate(KeepAlive),
-	case validate_frame(Type, Frame) of	
-	ok ->
-		?INFO("frame from ~s: ~p", [ClientId, Frame]),
-		handle_retained(Type, Frame),
-		emqtt_protocol:process_request(Type, Frame, State#state{keep_alive=KeepAlive1});
-	{error, Reason} ->
-		{err, Reason, State}
-	end.
-
-next_msg_id(State = #state{ message_id = 16#ffff }) ->
-    State #state{ message_id = 1 };
-next_msg_id(State = #state{ message_id = MsgId }) ->
-    State #state{ message_id = MsgId + 1 }.
-
-maybe_clean_sess(false, _Conn, _ClientId) ->
-    % todo: establish subscription to deliver old unacknowledged messages
-    ok.
-
-%%----------------------------------------------------------------------------
-
-make_will_msg(#mqtt_frame_connect{ will_flag   = false }) ->
-    undefined;
-make_will_msg(#mqtt_frame_connect{ will_retain = Retain,
-                                   will_qos    = Qos,
-                                   will_topic  = Topic,
-                                   will_msg    = Msg }) ->
-    #mqtt_msg{retain  = Retain,
-              qos     = Qos,
-              topic   = Topic,
-              dup     = false,
-              payload = Msg }.
-
-send_will_msg(#state{will_msg = undefined}) ->
-	ignore;
-send_will_msg(#state{will_msg = WillMsg }) ->
-	emqtt_pubsub:publish(WillMsg).
-
-send_frame(Sock, Frame) ->
-	?INFO("send frame:~p", [Frame]),
-    erlang:port_command(Sock, emqtt_frame:serialise(Frame)).
-
 %%----------------------------------------------------------------------------
 network_error(Reason,
               State = #state{ conn_name  = ConnStr}) ->
     ?ERROR("MQTT detected network error '~p' for ~p", [Reason, ConnStr]),
-    send_will_msg(State),
+	%%TODO: where to SEND WILL MSG??
+    %%send_will_msg(State),
     % todo: flush channel after publish
     stop({shutdown, conn_closed}, State).
 
@@ -291,64 +205,4 @@ control_throttle(State = #state{ connection_state = Flow,
 
 stop(Reason, State ) ->
     {stop, Reason, State}.
-
-valid_client_id(ClientId) ->
-    ClientIdLen = size(ClientId),
-    1 =< ClientIdLen andalso ClientIdLen =< ?CLIENT_ID_MAXLEN.
-
-handle_retained(?PUBLISH, #mqtt_frame{fixed = #mqtt_frame_fixed{retain = false}}) ->
-	ignore;
-
-handle_retained(?PUBLISH, #mqtt_frame{
-                  fixed = #mqtt_frame_fixed{retain = true},
-                  variable = #mqtt_frame_publish{topic_name = Topic},
-				  payload= <<>> }) ->
-	emqtt_retained:delete(Topic);
-
-handle_retained(?PUBLISH, Frame=#mqtt_frame{
-                  fixed = #mqtt_frame_fixed{retain = true},
-                  variable = #mqtt_frame_publish{topic_name = Topic}}) ->
-	emqtt_retained:insert(Topic, make_msg(Frame));
-
-handle_retained(_, _) -> 
-	ignore.
-
-validate_frame(?PUBLISH, #mqtt_frame{variable = #mqtt_frame_publish{topic_name = Topic}}) ->
-	case emqtt_topic:validate({publish, Topic}) of
-	true -> ok;
-	false -> {error, badtopic}
-	end;
-
-validate_frame(?UNSUBSCRIBE, #mqtt_frame{variable = #mqtt_frame_subscribe{topic_table = Topics}}) ->
-	ErrTopics = [Topic || #mqtt_topic{name=Topic, qos=Qos} <- Topics,
-						not emqtt_topic:validate({subscribe, Topic})],
-	case ErrTopics of
-	[] -> ok;
-	_ -> ?ERROR("error topics: ~p", [ErrTopics]), {error, badtopic}
-	end;
-
-validate_frame(?SUBSCRIBE, #mqtt_frame{variable = #mqtt_frame_subscribe{topic_table = Topics}}) ->
-	ErrTopics = [Topic || #mqtt_topic{name=Topic, qos=Qos} <- Topics,
-						not (emqtt_topic:validate({subscribe, Topic}) and (Qos < 3))],
-	case ErrTopics of
-	[] -> ok;
-	_ -> ?ERROR("error topics: ~p", [ErrTopics]), {error, badtopic}
-	end;
-
-validate_frame(_Type, _Frame) ->
-	ok.
-
-make_msg(#mqtt_frame{
-			  fixed = #mqtt_frame_fixed{qos    = Qos,
-										retain = Retain,
-										dup    = Dup},
-			  variable = #mqtt_frame_publish{topic_name = Topic,
-											 message_id = MessageId},
-			  payload = Payload}) ->
-	#mqtt_msg{retain     = Retain,
-			  qos        = Qos,
-			  topic      = Topic,
-			  dup        = Dup,
-			  msgid      = MessageId,
-			  payload    = Payload}.
 
