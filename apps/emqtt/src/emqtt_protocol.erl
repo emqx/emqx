@@ -112,9 +112,10 @@ handle_request(?CONNECT,
                 end
         end,
 		lager:info("recv conn...:~p", [ReturnCode]),
-		send_frame(Sock, #mqtt_frame{ fixed = #mqtt_frame_fixed{ type = ?CONNACK},
-								 variable = #mqtt_frame_connack{
-                                         return_code = ReturnCode }}),
+		send_frame(Sock, #mqtt_frame{ 
+                fixed = #mqtt_frame_fixed{ type = ?CONNACK },
+				    variable = #mqtt_frame_connack{
+                        return_code = ReturnCode }}),
     {ok, State1};
 
 handle_request(?PUBLISH, Frame=#mqtt_frame{
