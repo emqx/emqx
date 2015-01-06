@@ -38,5 +38,7 @@ route(Msg) ->
 	emqtt_pubsub:publish(retained(Msg)).
 
 retained(Msg = #mqtt_msg{retain = true, topic = Topic}) ->
-	emqtt_retained:insert(Topic, Msg), Msg.
+	emqtt_retained:insert(Topic, Msg), Msg;
+
+retained(Msg) -> Msg.
 	

@@ -88,7 +88,8 @@ handle_request(?CONNECT,
                                           proto_ver  = ProtoVersion,
                                           clean_sess = CleanSess,
 										  keep_alive = AlivePeriod,
-                                          client_id  = ClientId } = Var}, State = #proto_state{socket = Sock}) ->
+                                          client_id  = ClientId } = Var}, State0 = #proto_state{socket = Sock}) ->
+    State = State0#proto_state{client_id = ClientId},
     {ReturnCode, State1} =
         case {lists:member(ProtoVersion, proplists:get_keys(?PROTOCOL_NAMES)),
               valid_client_id(ClientId)} of
@@ -262,7 +263,8 @@ send_frame(Sock, Frame) ->
 
 %%TODO: fix me later...
 client_terminated(#proto_state{client_id = ClientId} = State) ->
-    emqtt_cm:destroy(ClientId, self()).
+    ok.
+    %emqtt_cm:destroy(ClientId, self()).
 
 make_msg(#mqtt_frame{
 			  fixed = #mqtt_frame_fixed{qos    = Qos,

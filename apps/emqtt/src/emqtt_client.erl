@@ -65,6 +65,7 @@ init([Sock]) ->
 
 handle_call({go, Sock}, _From, State = #state{socket = Sock}) ->
     {ok, ConnStr} = emqtt_net:connection_string(Sock, inbound),
+     lager:debug("conn from ~s", [ConnStr]),
     {reply, ok, 
 	 control_throttle(
 	   #state{ socket           = Sock,
@@ -73,7 +74,7 @@ handle_call({go, Sock}, _From, State = #state{socket = Sock}) ->
                connection_state = running,
                conserve         = false,
                parse_state      = emqtt_frame:initial_state(),
-			   proto_state		= emqtt_protocol:initial_state()})};
+			   proto_state		= emqtt_protocol:initial_state(Sock)})};
 
 handle_call(info, _From, State = #state{conn_name=ConnName, proto_state = ProtoState}) ->
 	{reply, [{conn_name, ConnName} | emqtt_protocol:info(ProtoState)], State};
@@ -125,6 +126,12 @@ handle_info(Info, State) ->
 	lager:error("badinfo :~p",[Info]),
 	{stop, {badinfo, Info}, State}.
 
+terminate(_Reason, #state{proto_state = unefined}) ->
+	%%TODO: fix keep_alive...
+	%%emqtt_keep_alive:cancel(KeepAlive),
+	%emqtt_protocol:client_terminated(ProtoState),
+	ok;
+
 terminate(_Reason, #state{proto_state = ProtoState}) ->
 	%%TODO: fix keep_alive...
 	%%emqtt_keep_alive:cancel(KeepAlive),
@@ -156,7 +163,7 @@ process_received_bytes(Bytes,
 		 control_throttle( State #state{ parse_state = ParseState1 }),
 		 hibernate};
 	{ok, Frame, Rest} ->
-		case emqtt_protol:handle_frame(Frame, ProtoState) of
+		case emqtt_protocol:handle_frame(Frame, ProtoState) of
 		{ok, ProtoState1} ->
 			process_received_bytes(
 			  Rest,
