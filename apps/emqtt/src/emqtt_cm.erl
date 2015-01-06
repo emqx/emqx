@@ -37,7 +37,7 @@
 
 -export([start_link/0]).
 
--export([lookup/1, create/2, destroy/2]).
+-export([lookup/1, register/2, unregister/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -56,56 +56,65 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
+%%
+%% @doc lookup client pid with clientId.
+%%
 -spec lookup(ClientId :: binary()) -> pid() | undefined.
-lookup(ClientId) ->
+lookup(ClientId) when is_binary(ClientId) ->
 	case ets:lookup(emqtt_client, ClientId) of
 	[{_, Pid, _}] -> Pid;
 	[] -> undefined
 	end.
 
--spec create(ClientId :: binary(), Pid :: pid()) -> ok.
-create(ClientId, Pid) ->
-	gen_server:call(?SERVER, {create, ClientId, Pid}).
+%%
+%% @doc register clientId with pid.
+%%
+-spec register(ClientId :: binary(), Pid :: pid()) -> ok.
+register(ClientId, Pid) when is_binary(ClientId), is_pid(Pid) ->
+	gen_server:call(?SERVER, {register, ClientId, Pid}).
 
--spec destroy(ClientId :: binary(), Pid :: pid()) -> ok.
-destroy(ClientId, Pid) when is_binary(ClientId) ->
-	gen_server:cast(?SERVER, {destroy, ClientId, Pid}).
+%%
+%% @doc unregister clientId with pid.
+%%
+-spec unregister(ClientId :: binary(), Pid :: pid()) -> ok.
+unregister(ClientId, Pid) when is_binary(ClientId), is_pid(Pid) ->
+	gen_server:cast(?SERVER, {unregister, ClientId, Pid}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init(Args) ->
+init([]) ->
 	%on one node
 	ets:new(?TAB, [set, named_table, protected]),
-    {ok, Args}.
+    {ok, none}.
 
-handle_call({create, ClientId, Pid}, _From, State) ->
+handle_call({register, ClientId, Pid}, _From, State) ->
 	case ets:lookup(?TAB, ClientId) of
         [{_, Pid, _}] ->
-			lager:error("client '~s' has been registered with ~p", [ClientId, Pid]),
+			lager:error("clientId '~s' has been registered with ~p", [ClientId, Pid]),
             ignore;
 		[{_, OldPid, MRef}] ->
-			OldPid ! {stop, duplicate_id},
+			OldPid ! {stop, duplicate_id, Pid},
 			erlang:demonitor(MRef),
-            ets:insert(emqtt_client, {ClientId, Pid, erlang:monitor(process, Pid)});
+            insert(ClientId, Pid);
 		[] -> 
-            ets:insert(emqtt_client, {ClientId, Pid, erlang:monitor(process, Pid)})
+            insert(ClientId, Pid)
 	end,
 	{reply, ok, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({destroy, ClientId, Pid}, State) when is_binary(ClientId) ->
+handle_cast({unregister, ClientId, Pid}, State) ->
 	case ets:lookup(?TAB, ClientId) of
 	[{_, Pid, MRef}] ->
 		erlang:demonitor(MRef),
 		ets:delete(?TAB, ClientId);
-	[_] ->
+	[_] -> 
 		ignore;
 	[] ->
-		lager:error("cannot find client '~s' with ~p", [ClientId, Pid])
+		lager:error("cannot find clientId '~s' with ~p", [ClientId, Pid])
 	end,
 	{noreply, State};
 
@@ -125,4 +134,6 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+insert(ClientId, Pid) ->
+    ets:insert(emqtt_client, {ClientId, Pid, erlang:monitor(process, Pid)}).
 

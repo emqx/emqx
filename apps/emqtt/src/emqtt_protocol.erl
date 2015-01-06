@@ -106,7 +106,7 @@ handle_request(?CONNECT,
 						lager:info("connect from clientid: ~p, ~p", [ClientId, AlivePeriod]),
 						%%TODO: 
 						%%KeepAlive = emqtt_keep_alive:new(AlivePeriod*1500, keep_alive_timeout),
-						emqtt_cm:create(ClientId, self()),
+						emqtt_cm:register(ClientId, self()),
 						{?CONNACK_ACCEPT,
 						 State #proto_state{ will_msg   = make_will_msg(Var),
 											 client_id  = ClientId }}
@@ -265,7 +265,7 @@ send_frame(Sock, Frame) ->
 %%TODO: fix me later...
 client_terminated(#proto_state{client_id = ClientId} = State) ->
     ok.
-    %emqtt_cm:destroy(ClientId, self()).
+    %emqtt_cm:unregister(ClientId, self()).
 
 make_msg(#mqtt_frame{
 			  fixed = #mqtt_frame_fixed{qos    = Qos,
@@ -336,4 +336,4 @@ maybe_clean_sess(false, _Conn, _ClientId) ->
 send_will_msg(#proto_state{will_msg = undefined}) ->
 	ignore;
 send_will_msg(#proto_state{will_msg = WillMsg }) ->
-	emqtt_pubsub:publish(WillMsg).
+	emqtt_router:route(WillMsg).
