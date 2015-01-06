@@ -24,12 +24,14 @@
 
 -author('feng@slimchat.io').
 
--include("emqtt_log.hrl").
-
 -behaviour(application).
 
 %% Application callbacks
 -export([start/2, stop/1]).
+
+-define(PRINT_MSG(Msg), io:format(Msg)).
+
+-define(PRINT(Format, Args), io:format(Format, Args)).
 
 %% ===================================================================
 %% Application callbacks

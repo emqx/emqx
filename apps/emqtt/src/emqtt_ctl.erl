@@ -26,7 +26,11 @@
 
 -include("emqtt.hrl").
 
--include("emqtt_log.hrl").
+-define(PRINT_MSG(Msg), 
+    io:format(Msg)).
+
+-define(PRINT(Format, Args), 
+    io:format(Format, Args)).
 
 -export([status/1,
 		cluster/1,

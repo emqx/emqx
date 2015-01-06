@@ -24,8 +24,6 @@
 
 -author('feng@slimchat.io').
 
--include("emqtt_log.hrl").
-
 -behavior(gen_server).
 
 -export([start_link/0]).
@@ -50,7 +48,6 @@ start_link() ->
 %%--------------------------------------------------------------------
 init([]) ->
     erlang:system_monitor(self(), [{long_gc, 5000}, {large_heap, 1000000}, busy_port]),
-    ?INFO("monitor is started...[ok]", []),
     {ok, #state{}}.
 %%--------------------------------------------------------------------
 %% Function: %% handle_call(Request, From, State) -> {reply, Reply, State} |
@@ -62,7 +59,7 @@ init([]) ->
 %% Description: Handling call messages
 %%--------------------------------------------------------------------
 handle_call(Request, _From, State) ->
-    ?ERROR("unexpected request: ~p", [Request]),
+    lager:error("unexpected request: ~p", [Request]),
     {reply, {error, unexpected_request}, State}.
 %%--------------------------------------------------------------------
 %% Function: handle_cast(Msg, State) -> {noreply, State} |
@@ -71,7 +68,7 @@ handle_call(Request, _From, State) ->
 %% Description: Handling cast messages
 %%--------------------------------------------------------------------
 handle_cast(Msg, State) ->
-    ?ERROR("unexpected msg: ~p", [Msg]),
+    lager:error("unexpected msg: ~p", [Msg]),
     {noreply, State}.
 %%--------------------------------------------------------------------
 %% Function: handle_info(Info, State) -> {noreply, State} |
@@ -80,22 +77,22 @@ handle_cast(Msg, State) ->
 %% Description: Handling all non call/cast messages
 %%--------------------------------------------------------------------
 handle_info({monitor, GcPid, long_gc, Info}, State) ->
-    ?ERROR("long_gc: gcpid = ~p, ~p ~n ~p", [GcPid, process_info(GcPid, 
+    lager:error("long_gc: gcpid = ~p, ~p ~n ~p", [GcPid, process_info(GcPid, 
 		[registered_name, memory, message_queue_len,heap_size,total_heap_size]), Info]),
     {noreply, State};
 
 handle_info({monitor, GcPid, large_heap, Info}, State) ->
-    ?ERROR("large_heap: gcpid = ~p,~p ~n ~p", [GcPid, process_info(GcPid, 
+    lager:error("large_heap: gcpid = ~p,~p ~n ~p", [GcPid, process_info(GcPid, 
 		[registered_name, memory, message_queue_len,heap_size,total_heap_size]), Info]),
     {noreply, State};
 
 handle_info({monitor, SusPid, busy_port, Port}, State) ->
-    ?ERROR("busy_port: suspid = ~p, port = ~p", [process_info(SusPid, 
+    lager:error("busy_port: suspid = ~p, port = ~p", [process_info(SusPid, 
 		[registered_name, memory, message_queue_len,heap_size,total_heap_size]), Port]),
     {noreply, State};
 
 handle_info(Info, State) ->
-    ?ERROR("unexpected info: ~p", [Info]),
+    lager:error("unexpected info: ~p", [Info]),
     {noreply, State}.
 
 %%--------------------------------------------------------------------

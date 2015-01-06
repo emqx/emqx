@@ -46,8 +46,6 @@
 
 -include("emqtt.hrl").
 
--include("emqtt_log.hrl").
-
 -export([start_link/0,
 		lookup/1,
 		insert/2,

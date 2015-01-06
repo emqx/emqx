@@ -26,8 +26,6 @@
 
 -include("emqtt.hrl").
 
--include("emqtt_log.hrl").
-
 -include("emqtt_topic.hrl").
 
 -include_lib("stdlib/include/qlc.hrl").
@@ -174,7 +172,7 @@ handle_cast(Msg, State) ->
 handle_info({'DOWN', Mon, _Type, _Object, _Info}, State) ->
 	case get({submon, Mon}) of
 	undefined ->
-		?ERROR("unexpected 'DOWN': ~p", [Mon]);
+		lager:error("unexpected 'DOWN': ~p", [Mon]);
 	SubPid ->
 		erase({submon, Mon}),
 		erase({subscriber, SubPid}),

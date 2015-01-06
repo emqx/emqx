@@ -25,8 +25,6 @@
 
 -author('feng@slimchat.io').
 
--include("emqtt_log.hrl").
-
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
@@ -85,7 +83,7 @@ init(Args) ->
 handle_call({create, ClientId, Pid}, _From, State) ->
 	case ets:lookup(?TAB, ClientId) of
         [{_, Pid, _}] ->
-			?ERROR("client '~s' has been registered with ~p", [ClientId, Pid]),
+			lager:error("client '~s' has been registered with ~p", [ClientId, Pid]),
             ignore;
 		[{_, OldPid, MRef}] ->
 			OldPid ! {stop, duplicate_id},
@@ -107,7 +105,7 @@ handle_cast({destroy, ClientId, Pid}, State) when is_binary(ClientId) ->
 	[_] ->
 		ignore;
 	[] ->
-		?ERROR("cannot find client '~s' with ~p", [ClientId, Pid])
+		lager:error("cannot find client '~s' with ~p", [ClientId, Pid])
 	end,
 	{noreply, State};
 

@@ -37,8 +37,6 @@
 
 -include("emqtt.hrl").
 
--include("emqtt_log.hrl").
-
 -include("emqtt_frame.hrl").
 
 %%Client State...
@@ -91,7 +89,7 @@ handle_info(timeout, State) ->
     
 handle_info({stop, duplicate_id}, State=#state{conn_name=ConnName}) ->
 	%%TODO:
-	%?ERROR("Shutdown for duplicate clientid:~s, conn:~s", [ClientId, ConnName]), 
+	%lager:error("Shutdown for duplicate clientid:~s, conn:~s", [ClientId, ConnName]), 
 	stop({shutdown, duplicate_id}, State);
 
 %%TODO: ok??
@@ -116,7 +114,7 @@ handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
 handle_info(keep_alive_timeout, #state{keep_alive=KeepAlive}=State) ->
 	case emqtt_keep_alive:state(KeepAlive) of
 	idle ->
-		?INFO("keep_alive timeout: ~p", [State#state.conn_name]),
+		lager:info("keep_alive timeout: ~p", [State#state.conn_name]),
 		{stop, normal, State};
 	active ->
 		KeepAlive1 = emqtt_keep_alive:reset(KeepAlive),
@@ -124,7 +122,7 @@ handle_info(keep_alive_timeout, #state{keep_alive=KeepAlive}=State) ->
 	end;
 
 handle_info(Info, State) ->
-	?ERROR("badinfo :~p",[Info]),
+	lager:error("badinfo :~p",[Info]),
 	{stop, {badinfo, Info}, State}.
 
 terminate(_Reason, #state{proto_state = ProtoState}) ->
@@ -165,7 +163,7 @@ process_received_bytes(Bytes,
 			  State#state{ parse_state = emqtt_frame:initial_state(),
 						   proto_state = ProtoState1 });
 		{error, Error} ->
-			?ERROR("MQTT protocol error ~p for connection ~p~n", [Error, ConnStr]),
+			lager:error("MQTT protocol error ~p for connection ~p~n", [Error, ConnStr]),
 			stop({shutdown, Error}, State);
 		{error, Error, ProtoState1} ->
 			stop({shutdown, Error}, State#state{proto_state = ProtoState1});
@@ -173,14 +171,14 @@ process_received_bytes(Bytes,
 			stop(normal, State#state{proto_state = ProtoState1})
 		end;
 	{error, Error} ->
-		?ERROR("MQTT detected framing error ~p for connection ~p~n", [ConnStr, Error]),
+		lager:error("MQTT detected framing error ~p for connection ~p~n", [ConnStr, Error]),
 		stop({shutdown, Error}, State)
     end.
 
 %%----------------------------------------------------------------------------
 network_error(Reason,
               State = #state{ conn_name  = ConnStr}) ->
-    ?ERROR("MQTT detected network error '~p' for ~p", [Reason, ConnStr]),
+    lager:error("MQTT detected network error '~p' for ~p", [Reason, ConnStr]),
 	%%TODO: where to SEND WILL MSG??
     %%send_will_msg(State),
     % todo: flush channel after publish

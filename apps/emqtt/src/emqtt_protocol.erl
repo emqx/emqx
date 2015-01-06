@@ -24,8 +24,6 @@
 
 -include("emqtt.hrl").
 
--include("emqtt_log.hrl").
-
 -include("emqtt_frame.hrl").
 
 -record(proto_state, {
@@ -75,7 +73,7 @@ info(#proto_state{ message_id	= MsgId,
 
 handle_frame(Frame = #mqtt_frame{ fixed = #mqtt_frame_fixed{ type = Type }}, 
 				State = #proto_state{client_id = ClientId}) ->
-	?INFO("frame from ~s: ~p", [ClientId, Frame]),
+	lager:info("frame from ~s: ~p", [ClientId, Frame]),
 	case validate_frame(Type, Frame) of	
 	ok ->
 		handle_request(Type, Frame, State);
@@ -101,10 +99,10 @@ handle_request(?CONNECT,
             _ ->
                 case emqtt_auth:check(Username, Password) of
                     false ->
-                        ?ERROR_MSG("MQTT login failed - no credentials"),
+                        lager:error_MSG("MQTT login failed - no credentials"),
                         {?CONNACK_CREDENTIALS, State};
                     true ->
-						?INFO("connect from clientid: ~p, ~p", [ClientId, AlivePeriod]),
+						lager:info("connect from clientid: ~p, ~p", [ClientId, AlivePeriod]),
 						%%TODO: 
 						%%KeepAlive = emqtt_keep_alive:new(AlivePeriod*1500, keep_alive_timeout),
 						emqtt_cm:create(ClientId, self()),
@@ -113,7 +111,7 @@ handle_request(?CONNECT,
 											 client_id  = ClientId }}
                 end
         end,
-		?INFO("recv conn...:~p", [ReturnCode]),
+		lager:info("recv conn...:~p", [ReturnCode]),
 		send_frame(Sock, #mqtt_frame{ fixed = #mqtt_frame_fixed{ type = ?CONNACK},
 								 variable = #mqtt_frame_connack{
                                          return_code = ReturnCode }}),
@@ -216,7 +214,7 @@ handle_request(?PINGREQ, #mqtt_frame{}, #proto_state{socket=Sock}=State) ->
     {ok, State};
 
 handle_request(?DISCONNECT, #mqtt_frame{}, State=#proto_state{client_id=ClientId}) ->
-	?INFO("~s disconnected", [ClientId]),
+	lager:info("~s disconnected", [ClientId]),
     {stop, State}.
 
 -spec send_message(Message, State) -> {ok, NewState} when
@@ -259,7 +257,7 @@ send_message(Message, State = #proto_state{socket = Sock, message_id = MsgId}) -
 	end.
 
 send_frame(Sock, Frame) ->
-	?INFO("send frame:~p", [Frame]),
+	lager:info("send frame:~p", [Frame]),
     erlang:port_command(Sock, emqtt_frame:serialise(Frame)).
 
 %%TODO: fix me later...
@@ -312,7 +310,7 @@ validate_frame(?UNSUBSCRIBE, #mqtt_frame{variable = #mqtt_frame_subscribe{topic_
 						not emqtt_topic:validate({subscribe, Topic})],
 	case ErrTopics of
 	[] -> ok;
-	_ -> ?ERROR("error topics: ~p", [ErrTopics]), {error, badtopic}
+	_ -> lager:error("error topics: ~p", [ErrTopics]), {error, badtopic}
 	end;
 
 validate_frame(?SUBSCRIBE, #mqtt_frame{variable = #mqtt_frame_subscribe{topic_table = Topics}}) ->
@@ -320,7 +318,7 @@ validate_frame(?SUBSCRIBE, #mqtt_frame{variable = #mqtt_frame_subscribe{topic_ta
 						not (emqtt_topic:validate({subscribe, Topic}) and (Qos < 3))],
 	case ErrTopics of
 	[] -> ok;
-	_ -> ?ERROR("error topics: ~p", [ErrTopics]), {error, badtopic}
+	_ -> lager:error("error topics: ~p", [ErrTopics]), {error, badtopic}
 	end;
 
 validate_frame(_Type, _Frame) ->

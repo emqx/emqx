@@ -26,8 +26,6 @@
 
 -include("emqtt.hrl").
 
--include("emqtt_log.hrl").
-
 -import(proplists, [get_value/2, get_value/3]).
 
 -export([handle/1]).
@@ -45,7 +43,7 @@ handle(Req) ->
 
 handle('POST', "/mqtt/publish", Req) ->
     Params = mochiweb_request:parse_post(Req),
-	?INFO("~p~n", [Params]),
+	lager:info("~p~n", [Params]),
 	Topic = list_to_binary(get_value("topic", Params)),
 	Message = list_to_binary(get_value("message", Params)),
 	emqtt_pubsub:publish(#mqtt_msg {

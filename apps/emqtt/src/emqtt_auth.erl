@@ -26,8 +26,6 @@
 
 -include("emqtt.hrl").
 
--include("emqtt_log.hrl").
-
 -export([start_link/0,
 		add/2,
 		check/1, check/2,
@@ -73,7 +71,6 @@ init([]) ->
 	ok = AuthMod:init(Opts),
 	ets:new(?TAB, [named_table, protected]),
 	ets:insert(?TAB, {mod, AuthMod}),
-	?PRINT("emqtt authmod is ~p", [AuthMod]),
 	{ok, undefined}.
 
 authmod(Name) when is_atom(Name) ->
