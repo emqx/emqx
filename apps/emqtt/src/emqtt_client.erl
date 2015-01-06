@@ -61,11 +61,12 @@ go(Pid, Sock) ->
 	gen_server:call(Pid, {go, Sock}).
 
 init([Sock]) ->
+    io:format("client is created: ~p~n", [self()]),
     {ok, #conn_state{socket = Sock}, hibernate}.
 
 handle_call({go, Sock}, _From, State = #conn_state{socket = Sock}) ->
     {ok, ConnStr} = emqtt_net:connection_string(Sock, inbound),
-     lager:debug("conn from ~s", [ConnStr]),
+    io:format("conn from ~s~n", [ConnStr]),
     {reply, ok, 
 	 control_throttle(
 	   #conn_state{ socket           = Sock,
@@ -126,7 +127,8 @@ handle_info(Info, State) ->
 	lager:error("badinfo :~p",[Info]),
 	{stop, {badinfo, Info}, State}.
 
-terminate(_Reason, #conn_state{proto_state = unefined}) ->
+terminate(Reason, #conn_state{proto_state = unefined}) ->
+    io:format("client terminated: ~p, reason: ~p~n", [self(), Reason]),
 	%%TODO: fix keep_alive...
 	%%emqtt_keep_alive:cancel(KeepAlive),
 	%emqtt_protocol:client_terminated(ProtoState),

@@ -19,13 +19,7 @@
 %% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
-
-%%route chain... statistics
--module(emqtt_router).
-
--include("emqtt.hrl").
-
--include("emqtt_frame.hrl").
+-module(emqtt_queue).
 
 -behaviour(gen_server).
 
@@ -36,11 +30,6 @@
 %% ------------------------------------------------------------------
 
 -export([start_link/0]).
-
-%%Router Chain-->
-%%--->In
-%%Out<---
--export([route/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -54,11 +43,7 @@
 %% ------------------------------------------------------------------
 
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
-
--spec route(Msg :: mqtt_msg()) -> any().
-route(Msg) ->
-	emqtt_pubsub:publish(retained(Msg)).
+    gen_server:start_link(?MODULE, [], []).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -81,11 +66,8 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-	
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-retained(Msg = #mqtt_msg{retain = true, topic = Topic}) ->
-	emqtt_retained:insert(Topic, Msg), Msg;
 
-retained(Msg) -> Msg.

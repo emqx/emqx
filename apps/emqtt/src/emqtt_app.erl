@@ -77,6 +77,14 @@ start_servers(Sup) ->
          {"emqtt auth", emqtt_auth},
 		 {"emqtt retained", emqtt_retained},
 		 {"emqtt pubsub", emqtt_pubsub},
+		 {"emqtt router", emqtt_router},
+         {"emqtt queue supervisor", fun() ->
+             Mod = emqtt_queue_sup,
+             supervisor:start_child(Sup, 
+                 {Mod,
+                     {Mod, start_link, []},
+                        permanent, 1000, supervisor, [Mod]})
+         end},
 		 {"emqtt monitor", emqtt_monitor}
 		]).
 
