@@ -42,11 +42,62 @@ eMQTT requires Erlang R17+.
 
 ## Configuration
 
+### etc/app.config
+
+```
+ {emqtt, [
+    {auth, {anonymous, []}}, %internal, anonymous
+    {listen, [
+        {mqtt, 1883, [
+            {max_conns, 1024},
+            {acceptor_pool, 4}
+        ]},
+        {http, 8883, [
+            {max_conns, 512},
+            {acceptor_pool, 1}
+        ]}
+    ]}
+ ]}
+
+```
+
+### etc/vm.args
+
+```
+
+-sname emqtt
+
+-setcookie emqtt
+
+```
+
+When nodes clustered, vm.args should be configured as below:
+
+```
+-name emqtt@host1
+```
+
 ......
 
-## Admin and Cluster
+## Cluster
 
-......
+Suppose we cluster two nodes on 'host1', 'host2', steps:
+
+on 'host1':
+
+```
+./bin/emqtt start
+```
+
+on 'host2':
+
+```
+./bin/emqtt start
+
+./bin/emqtt cluster emqtt@host1
+```
+
+Run './bin/emqtt cluster' on 'host1' or 'host2' to check cluster nodes.
 
 ## HTTP API
 
