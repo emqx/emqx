@@ -26,3 +26,23 @@ full MQTT 3.1.1 support...
 node cluster....
 
 one million connections test...
+
+topic match benchmark tests...
+
+Dialyzer ...
+
+full test cases...
+
+spawn_link to replace 'spawn' and 'link'
+
+keepalive
+
+retained
+
+QOS
+
+dural sub
+
+packet dump...
+
+
