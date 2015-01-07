@@ -77,8 +77,6 @@ When nodes clustered, vm.args should be configured as below:
 -name emqtt@host1
 ```
 
-......
-
 ## Cluster
 
 Suppose we cluster two nodes on 'host1', 'host2', steps:
