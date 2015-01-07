@@ -79,7 +79,7 @@ When nodes clustered, vm.args should be configured as below:
 
 ## Cluster
 
-Suppose we cluster two nodes on 'host1', 'host2', steps:
+Suppose we cluster two nodes on 'host1', 'host2', Steps:
 
 on 'host1':
 
