@@ -14,6 +14,8 @@ rebar.config: fix mochiweb git url
 
 tag emqtt release accoding to [Semantic Versioning](http://semver.org/)
 
+max clientId length is 1024 now.
+
 0.2.0 (2014-12-07)
 -------------------
 
