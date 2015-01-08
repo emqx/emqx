@@ -122,7 +122,7 @@ message | Text Message
 
 ## Design
 
-[Design Wiki](https://github.com/slimpp/emqtt/wiki)
+[Design Wiki](https://github.com/emqtt/emqtt/wiki)
 
 ## License
 
@@ -130,5 +130,9 @@ The MIT License (MIT)
 
 ## Author
 
-feng at slimchat.io
+feng at emqtt.io
+
+## Thanks
+
+@desoulter (assoulter123 at gmail.com)
 
