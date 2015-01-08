@@ -247,10 +247,10 @@ trie_match(NodeId, [W|Words], ResAcc) ->
 		[#topic_trie{node_id=ChildId}] -> trie_match(ChildId, Words, Acc);
 		[] -> Acc
 		end
-	end, 'trie_match_#'(NodeId, ResAcc), [W, "+"]).
+	end, 'trie_match_#'(NodeId, ResAcc), [W, <<"+">>]).
 
 'trie_match_#'(NodeId, ResAcc) ->
-	case mnesia:read(topic_trie, #topic_trie_edge{node_id=NodeId, word="#"}) of
+	case mnesia:read(topic_trie, #topic_trie_edge{node_id=NodeId, word = <<"#">>}) of
 	[#topic_trie{node_id=ChildId}] ->
 		mnesia:read(topic_trie_node, ChildId) ++ ResAcc;	
 	[] ->
