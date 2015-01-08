@@ -1,9 +1,9 @@
-all: deps compile
+all: get-deps compile
 
-compile: deps
+compile: get-deps
 	./rebar compile
 
-deps:
+get-deps:
 	./rebar get-deps
 
 clean:
