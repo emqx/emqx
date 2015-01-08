@@ -1,5 +1,5 @@
 %%------------------------------------------------------------------------------
-%% Copyright (c) 2014, Feng Lee <feng@slimchat.io>
+%% Copyright (c) 2014, Feng Lee <feng@emqtt.io>
 %% 
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
 %% of this software and associated documentation files (the "Software"), to deal
@@ -23,7 +23,7 @@
 %% ---------------------------------
 %% banner
 %% ---------------------------------
--define(COPYRIGHT, "Copyright (C) 2014, Feng Lee<feng@slimchat.io>").
+-define(COPYRIGHT, "Copyright (C) 2014, Feng Lee<feng@emqtt.io>").
 
 -define(LICENSE_MESSAGE, "Licensed under MIT"). 
 

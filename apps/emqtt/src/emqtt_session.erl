@@ -1,5 +1,5 @@
 %%-----------------------------------------------------------------------------
-%% Copyright (c) 2014, Feng Lee <feng@emqtt.io>
+%% Copyright (c) 2015, Feng Lee <feng@emqtt.io>
 %% 
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
 %% of this software and associated documentation files (the "Software"), to deal
@@ -20,20 +20,5 @@
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
 
--module(emqtt_auth_anonymous).
-
--author('feng@emqtt.io').
-
--export([init/1,
-		add/2,
-		check/2,
-		delete/1]).
-
-init(_Opts) -> ok.
-
-check(_, _) -> true.
-
-add(_, _) -> ok.
-
-delete(_Username) -> ok.
+-module(emqtt_session).
 

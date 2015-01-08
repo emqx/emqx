@@ -1,5 +1,5 @@
 %%-----------------------------------------------------------------------------
-%% Copyright (c) 2014, Feng Lee <feng@slimchat.io>
+%% Copyright (c) 2014, Feng Lee <feng@emqtt.io>
 %% 
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
 %% of this software and associated documentation files (the "Software"), to deal
@@ -28,6 +28,7 @@
 
 -record(proto_state, {
 		socket,
+		connected = false, %received CONNECT action?
 		message_id,
 		client_id,
 		clean_sess,
@@ -43,8 +44,7 @@
 
 -export([info/1]).
 
--define(FRAME_TYPE(Frame, Type),
-        Frame = #mqtt_frame{ fixed = #mqtt_frame_fixed{ type = Type }}).
+-define(FRAME_TYPE(Type), #mqtt_frame{ fixed = #mqtt_frame_fixed{ type = Type }}).
 
 initial_state(Socket) ->
 	#proto_state{
@@ -71,6 +71,23 @@ info(#proto_state{ message_id	= MsgId,
 	State :: proto_state(),
 	NewState :: proto_state().
 
+
+%%CONNECT – Client requests a connection to a Server
+
+%%A Client can only send the CONNECT Packet once over a Network Connection. 369
+
+%%First CONNECT
+handle_frame(Frame = ?FRAME_TYPE(?CONNECT), State = #proto_state{connected = false}) ->
+		handle_connect(Frame, State#proto_state{connected = true});
+
+%%Sencond CONNECT
+handle_frame(?FRAME_TYPE(?CONNECT), State = #proto_state{connected = true}) ->
+		{error, bad_connect, State};
+
+%%Received other packets when CONNECT not arrived.
+handle_frame(_Frame, State = #proto_state{connected = false}) ->
+		{error, no_connected, State};
+
 handle_frame(Frame = #mqtt_frame{ fixed = #mqtt_frame_fixed{ type = Type }}, 
 				State = #proto_state{client_id = ClientId}) ->
 	lager:info("frame from ~s: ~p", [ClientId, Frame]),
@@ -81,14 +98,13 @@ handle_frame(Frame = #mqtt_frame{ fixed = #mqtt_frame_fixed{ type = Type }},
 		{error, Reason, State}
 	end.
 
-handle_request(?CONNECT,
-                #mqtt_frame{ variable = #mqtt_frame_connect{
-                                          username   = Username,
-                                          password   = Password,
-                                          proto_ver  = ProtoVersion,
-                                          clean_sess = CleanSess,
-										  keep_alive = AlivePeriod,
-                                          client_id  = ClientId } = Var}, State0 = #proto_state{socket = Sock}) ->
+handle_connect(#mqtt_frame{ variable = #mqtt_frame_connect{
+								username   = Username,
+								password   = Password,
+								proto_ver  = ProtoVersion,
+								clean_sess = CleanSess,
+								keep_alive = AlivePeriod,
+								client_id  = ClientId } = Var}, State0 = #proto_state{socket = Sock}) ->
     State = State0#proto_state{client_id = ClientId},
     {ReturnCode, State1} =
         case {lists:member(ProtoVersion, proplists:get_keys(?PROTOCOL_NAMES)),
@@ -117,7 +133,7 @@ handle_request(?CONNECT,
                 fixed = #mqtt_frame_fixed{ type = ?CONNACK },
 				    variable = #mqtt_frame_connack{
                         return_code = ReturnCode }}),
-    {ok, State1};
+    {ok, State1}.
 
 handle_request(?PUBLISH, Frame=#mqtt_frame{
 									fixed = #mqtt_frame_fixed{qos = ?QOS_0}}, State) ->
