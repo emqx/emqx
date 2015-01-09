@@ -1,5 +1,5 @@
 %%-----------------------------------------------------------------------------
-%% Copyright (c) 2014, Feng Lee <feng@emqtt.io>
+%% Copyright (c) 2012-2015, Feng Lee <feng@emqtt.io>
 %% 
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
 %% of this software and associated documentation files (the "Software"), to deal
@@ -82,7 +82,7 @@ topics() ->
 %%
 %% @doc Subscribe Topic
 %%
--spec subscribe({Topic :: binary(), Qos :: qos()}, SubPid :: pid()) -> any().
+-spec subscribe({Topic :: binary(), Qos :: mqtt_qos()}, SubPid :: pid()) -> any().
 subscribe({Topic, Qos}, SubPid) when is_binary(Topic) and is_pid(SubPid) ->
 	gen_server:call(?SERVER, {subscribe, {Topic, Qos}, SubPid}).
 
@@ -96,11 +96,11 @@ unsubscribe(Topic, SubPid) when is_binary(Topic) and is_pid(SubPid) ->
 %%
 %% @doc Publish to cluster node.
 %%
--spec publish(Msg :: mqtt_msg()) -> ok.
-publish(Msg=#mqtt_msg{topic=Topic}) ->
+-spec publish(Msg :: mqtt_message()) -> ok.
+publish(Msg=#mqtt_message{topic=Topic}) ->
 	publish(Topic, Msg).
 
--spec publish(Topic :: binary(), Msg :: mqtt_msg()) -> any().
+-spec publish(Topic :: binary(), Msg :: mqtt_message()) -> any().
 publish(Topic, Msg) when is_binary(Topic) ->
 	lists:foreach(fun(#topic{name=Name, node=Node}) ->
         case Node =:= node() of

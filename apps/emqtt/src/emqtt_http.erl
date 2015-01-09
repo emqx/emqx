@@ -1,5 +1,5 @@
 %%------------------------------------------------------------------------------
-%% Copyright (c) 2014, Feng Lee <feng@emqtt.io>
+%% Copyright (c) 2012-2015, Feng Lee <feng@emqtt.io>
 %% 
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
 %% of this software and associated documentation files (the "Software"), to deal
@@ -46,11 +46,8 @@ handle('POST', "/mqtt/publish", Req) ->
 	lager:info("~p~n", [Params]),
 	Topic = list_to_binary(get_value("topic", Params)),
 	Message = list_to_binary(get_value("message", Params)),
-	emqtt_pubsub:publish(#mqtt_msg {
-				retain     = 0,
-				qos        = ?QOS_0,
+	emqtt_pubsub:publish(#mqtt_message {
 				topic      = Topic,
-				dup        = 0,
 				payload    = Message
 	}),
 	Req:ok({"text/plan", "ok"});
