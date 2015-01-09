@@ -1,5 +1,5 @@
 %%-----------------------------------------------------------------------------
-%% Copyright (c) 2014, Feng Lee <feng@slimchat.io>
+%% Copyright (c) 2012-2015, Feng Lee <feng@emqtt.io>
 %% 
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
 %% of this software and associated documentation files (the "Software"), to deal
@@ -24,8 +24,6 @@
 -module(emqtt_router).
 
 -include("emqtt.hrl").
-
--include("emqtt_frame.hrl").
 
 -behaviour(gen_server).
 
@@ -56,7 +54,7 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec route(Msg :: mqtt_msg()) -> any().
+-spec route(Msg :: mqtt_message()) -> any().
 route(Msg) ->
 	emqtt_pubsub:publish(retained(Msg)).
 
@@ -85,7 +83,8 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-retained(Msg = #mqtt_msg{retain = true, topic = Topic}) ->
+retained(Msg = #mqtt_message{retain = true, topic = Topic}) ->
 	emqtt_retained:insert(Topic, Msg), Msg;
 
 retained(Msg) -> Msg.
+

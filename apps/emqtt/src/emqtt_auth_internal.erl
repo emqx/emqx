@@ -1,5 +1,5 @@
 %%-----------------------------------------------------------------------------
-%% Copyright (c) 2014, Feng Lee <feng@slimchat.io>
+%% Copyright (c) 2015, Feng Lee <feng@emqtt.io>
 %% 
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
 %% of this software and associated documentation files (the "Software"), to deal
@@ -22,7 +22,7 @@
 
 -module(emqtt_auth_internal).
 
--author('feng@slimchat.io').
+-author('feng@emqtt.io').
 
 -include("emqtt.hrl").
 
@@ -32,10 +32,10 @@
 		delete/1]).
 
 init(_Opts) ->
-	mnesia:create_table(emqtt_user, [
+	mnesia:create_table(mqtt_user, [
 		{ram_copies, [node()]}, 
-		{attributes, record_info(fields, emqtt_user)}]),
-	mnesia:add_table_copy(emqtt_user, node(), ram_copies),
+		{attributes, record_info(fields, mqtt_user)}]),
+	mnesia:add_table_copy(mqtt_user, node(), ram_copies),
 	ok.
 
 check(undefined, _) -> false;
@@ -44,19 +44,19 @@ check(_, undefined) -> false;
 
 check(Username, Password) when is_binary(Username), is_binary(Password) ->
 	PasswdHash = crypto:hash(md5, Password),	
-	case mnesia:dirty_read(emqtt_user, Username) of
-	[#emqtt_user{passwdhash=PasswdHash}] -> true;
+	case mnesia:dirty_read(mqtt_user, Username) of
+	[#mqtt_user{passwdhash=PasswdHash}] -> true;
 	_ -> false
 	end.
 	
 add(Username, Password) when is_binary(Username) and is_binary(Password) ->
 	mnesia:dirty_write(
-        #emqtt_user{
+        #mqtt_user{
             username=Username, 
             passwdhash=crypto:hash(md5, Password)
         }
     ).
 
 delete(Username) when is_binary(Username) ->
-	mnesia:dirty_delete(emqtt_user, Username).
+	mnesia:dirty_delete(mqtt_user, Username).
 

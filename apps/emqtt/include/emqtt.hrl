@@ -1,5 +1,5 @@
 %%------------------------------------------------------------------------------
-%% Copyright (c) 2014, Feng Lee <feng@slimchat.io>
+%% Copyright (c) 2012-2015, Feng Lee <feng@emqtt.io>
 %% 
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
 %% of this software and associated documentation files (the "Software"), to deal
@@ -20,56 +20,72 @@
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
 
-%% ---------------------------------
-%% banner
-%% ---------------------------------
--define(COPYRIGHT, "Copyright (C) 2014, Feng Lee<feng@slimchat.io>").
+%%------------------------------------------------------------------------------
+%% Banner
+%%------------------------------------------------------------------------------
+-define(COPYRIGHT, "Copyright (C) 2012-2015, Feng Lee <feng@emqtt.io>").
 
 -define(LICENSE_MESSAGE, "Licensed under MIT"). 
 
--define(PROTOCOL_VERSION, "MQTT/3.1").
+-define(PROTOCOL_VERSION, "MQTT/3.1.1").
 
 -define(ERTS_MINIMUM, "6.0").
 
 %%------------------------------------------------------------------------------
-%% MQTT Qos
+%% MQTT QoS
 %%------------------------------------------------------------------------------
 
 -define(QOS_0, 0).
 -define(QOS_1, 1).
 -define(QOS_2, 2).
 
--type qos() :: ?QOS_2 | ?QOS_1 | ?QOS_0.
+-type mqtt_qos() :: ?QOS_2 | ?QOS_1 | ?QOS_0.
 
 %%------------------------------------------------------------------------------
 %% MQTT Client
 %%------------------------------------------------------------------------------
 -record(mqtt_client, {
-        client_id
+	client_id,
+	username
 }).
+
+-type mqtt_client() :: #mqtt_client{}.
+
+%%------------------------------------------------------------------------------
+%% MQTT Session
+%%------------------------------------------------------------------------------
+-record(mqtt_session, {
+	client_id
+}).
+
+-type mqtt_session() :: #mqtt_session{}.
 
 %%------------------------------------------------------------------------------
 %% MQTT Message
 %%------------------------------------------------------------------------------
--record(mqtt_msg, {
-    retain,
-    qos,
-    topic,
-    dup,
-    msgid,
-    payload,
-    encoder
+-record(mqtt_message, {
+    qos		= ?QOS_0	:: mqtt_qos(),
+    retain	= false		:: boolean(),
+    dup		= false		:: boolean(),
+    msgid				:: integer(),
+    topic				:: binary(),
+    payload				:: binary()
 }).
 
--type mqtt_msg() :: #mqtt_msg{}.
+-type mqtt_message() :: #mqtt_message{}.
 
 %%------------------------------------------------------------------------------
 %% MQTT User Management
 %%------------------------------------------------------------------------------
--record(emqtt_user, {
+-record(mqtt_user, {
 	username	:: binary(), 
 	passwdhash	:: binary()
 }).
 
+%%------------------------------------------------------------------------------
+%% MQTT Authorization
+%%------------------------------------------------------------------------------
+
+%%TODO: ClientId | Username --> Pub | Sub --> Topics
 
 

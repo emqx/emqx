@@ -9,15 +9,15 @@ eMQTT requires Erlang R17+.
 ## Startup in Five Minutes
 
 ```
-	$ git clone git://github.com/slimpp/emqtt.git
+$ git clone git://github.com/slimpp/emqtt.git
 
-	$ cd emqtt
+$ cd emqtt
 
-	$ make && make dist
+$ make && make dist
 
-	$ cd rel/emqtt
+$ cd rel/emqtt
 
-	$ ./bin/emqtt console
+$ ./bin/emqtt console
 ```
 
 ## Deploy and Start
@@ -25,18 +25,18 @@ eMQTT requires Erlang R17+.
 ### start
 
 ```
-	cp -R rel/emqtt $INSTALL_DIR
+cp -R rel/emqtt $INSTALL_DIR
 
-	cd $INSTALL_DIR/emqtt
+cd $INSTALL_DIR/emqtt
 
-	./bin/emqtt start
+./bin/emqtt start
 
 ```
 
 ### stop
 
 ```
-	./bin/emqtt stop
+./bin/emqtt stop
 
 ```
 
@@ -77,7 +77,25 @@ When nodes clustered, vm.args should be configured as below:
 -name emqtt@host1
 ```
 
-......
+## Cluster
+
+Suppose we cluster two nodes on 'host1', 'host2', Steps:
+
+on 'host1':
+
+```
+./bin/emqtt start
+```
+
+on 'host2':
+
+```
+./bin/emqtt start
+
+./bin/emqtt_ctl cluster emqtt@host1
+```
+
+Run './bin/emqtt_ctl cluster' on 'host1' or 'host2' to check cluster nodes.
 
 ## Cluster
 
@@ -106,13 +124,13 @@ eMQTT support http to publish message.
 Example:
 
 ```
-	curl -v --basic -u user:passwd -d "topic=/a/b/c&message=hello from http..." -k http://localhost:8883/mqtt/publish
+curl -v --basic -u user:passwd -d "topic=/a/b/c&message=hello from http..." -k http://localhost:8883/mqtt/publish
 ```
 
 ### URL
 
 ```
-	HTTP POST http://host:8883/mqtt/publish
+HTTP POST http://host:8883/mqtt/publish
 ```
 
 ### Parameters
@@ -124,7 +142,7 @@ message | Text Message
 
 ## Design
 
-[Design Wiki](https://github.com/slimpp/emqtt/wiki)
+[Design Wiki](https://github.com/emqtt/emqtt/wiki)
 
 ## License
 
@@ -132,5 +150,10 @@ The MIT License (MIT)
 
 ## Author
 
-feng at slimchat.io
+feng at emqtt.io
+
+## Thanks
+
+@hejin1026 (260495915 at qq.com)
+@desoulter (assoulter123 at gmail.com)
 

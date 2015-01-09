@@ -1,5 +1,5 @@
 %%-----------------------------------------------------------------------------
-%% Copyright (c) 2014, Feng Lee <feng@slimchat.io>
+%% Copyright (c) 2012-2015, Feng Lee <feng@emqtt.io>
 %% 
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
 %% of this software and associated documentation files (the "Software"), to deal
@@ -22,7 +22,7 @@
 
 -module(emqtt_client).
 
--author('feng@slimchat.io').
+-author('feng@emqtt.io').
 
 -behaviour(gen_server).
 
@@ -37,14 +37,12 @@
 
 -include("emqtt.hrl").
 
--include("emqtt_frame.hrl").
-
 %%Client State...
--record(conn_state, {
+-record(state, {
 	socket,
 	conn_name,
 	await_recv,
-	connection_state,
+	conn_state,
 	conserve,
 	parse_state,
 	proto_state,
@@ -62,22 +60,24 @@ go(Pid, Sock) ->
 
 init([Sock]) ->
     io:format("client is created: ~p~n", [self()]),
-    {ok, #conn_state{socket = Sock}, hibernate}.
+    {ok, #state{socket = Sock}, hibernate}.
 
-handle_call({go, Sock}, _From, State = #conn_state{socket = Sock}) ->
+handle_call({go, Sock}, _From, #state{socket = Sock}) ->
     {ok, ConnStr} = emqtt_net:connection_string(Sock, inbound),
     io:format("conn from ~s~n", [ConnStr]),
     {reply, ok, 
-	 control_throttle(
-	   #conn_state{ socket           = Sock,
-               conn_name        = ConnStr,
-               await_recv       = false,
-               connection_state = running,
-               conserve         = false,
-               parse_state      = emqtt_frame:initial_state(),
-			   proto_state		= emqtt_protocol:initial_state(Sock)})};
+     control_throttle( 
+       #state{ socket       = Sock, 
+               conn_name    = ConnStr, 
+               await_recv   = false, 
+               conn_state   = running, 
+               conserve     = false, 
+               parse_state  = emqtt_packet:initial_state(), 
+               proto_state  = emqtt_protocol:initial_state(Sock)})};
 
-handle_call(info, _From, State = #conn_state{conn_name=ConnName, proto_state = ProtoState}) ->
+handle_call(info, _From, State = #state{
+                                    conn_name=ConnName, 
+                                    proto_state = ProtoState}) ->
 	{reply, [{conn_name, ConnName} | emqtt_protocol:info(ProtoState)], State};
 
 handle_call(Req, _From, State) ->
@@ -89,22 +89,22 @@ handle_cast(Msg, State) ->
 handle_info(timeout, State) ->
 	stop({shutdown, timeout}, State);
     
-handle_info({stop, duplicate_id}, State=#conn_state{conn_name=ConnName}) ->
+handle_info({stop, duplicate_id}, State=#state{conn_name=ConnName}) ->
 	%%TODO:
 	%lager:error("Shutdown for duplicate clientid:~s, conn:~s", [ClientId, ConnName]), 
 	stop({shutdown, duplicate_id}, State);
 
 %%TODO: ok??
-handle_info({dispatch, Msg}, #conn_state{proto_state = ProtoState} = State) ->
+handle_info({dispatch, Msg}, #state{proto_state = ProtoState} = State) ->
 	{ok, ProtoState1} = emqtt_protocol:send_message(Msg, ProtoState),
-	{noreply, State#conn_state{proto_state = ProtoState1}};
+	{noreply, State#state{proto_state = ProtoState1}};
 
 handle_info({inet_reply, _Ref, ok}, State) ->
     {noreply, State, hibernate};
 
-handle_info({inet_async, Sock, _Ref, {ok, Data}}, #conn_state{ socket = Sock}=State) ->
+handle_info({inet_async, Sock, _Ref, {ok, Data}}, #state{ socket = Sock}=State) ->
     process_received_bytes(
-      Data, control_throttle(State #conn_state{ await_recv = false }));
+      Data, control_throttle(State #state{ await_recv = false }));
 
 handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
     network_error(Reason, State);
@@ -113,28 +113,28 @@ handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
 handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
 	{noreply, State};
 
-handle_info(keep_alive_timeout, #conn_state{keep_alive=KeepAlive}=State) ->
+handle_info(keep_alive_timeout, #state{keep_alive=KeepAlive}=State) ->
 	case emqtt_keep_alive:state(KeepAlive) of
 	idle ->
-		lager:info("keep_alive timeout: ~p", [State#conn_state.conn_name]),
+		lager:info("keep_alive timeout: ~p", [State#state.conn_name]),
 		{stop, normal, State};
 	active ->
 		KeepAlive1 = emqtt_keep_alive:reset(KeepAlive),
-		{noreply, State#conn_state{keep_alive=KeepAlive1}}
+		{noreply, State#state{keep_alive=KeepAlive1}}
 	end;
 
 handle_info(Info, State) ->
 	lager:error("badinfo :~p",[Info]),
 	{stop, {badinfo, Info}, State}.
 
-terminate(Reason, #conn_state{proto_state = unefined}) ->
+terminate(Reason, #state{proto_state = unefined}) ->
     io:format("client terminated: ~p, reason: ~p~n", [self(), Reason]),
 	%%TODO: fix keep_alive...
 	%%emqtt_keep_alive:cancel(KeepAlive),
 	%emqtt_protocol:client_terminated(ProtoState),
 	ok;
 
-terminate(_Reason, #conn_state{proto_state = ProtoState}) ->
+terminate(_Reason, #state{proto_state = ProtoState}) ->
 	%%TODO: fix keep_alive...
 	%%emqtt_keep_alive:cancel(KeepAlive),
 	emqtt_protocol:client_terminated(ProtoState),
@@ -156,28 +156,28 @@ process_received_bytes(<<>>, State) ->
     {noreply, State, hibernate};
 
 process_received_bytes(Bytes,
-                       State = #conn_state{ parse_state = ParseState,
+                       State = #state{ parse_state = ParseState,
 									   proto_state = ProtoState,
                                        conn_name   = ConnStr }) ->
-    case emqtt_frame:parse(Bytes, ParseState) of
+    case emqtt_packet:parse(Bytes, ParseState) of
 	{more, ParseState1} ->
 		{noreply,
-		 control_throttle( State #conn_state{ parse_state = ParseState1 }),
+		 control_throttle( State #state{ parse_state = ParseState1 }),
 		 hibernate};
-	{ok, Frame, Rest} ->
-		case emqtt_protocol:handle_frame(Frame, ProtoState) of
+	{ok, Packet, Rest} ->
+		case emqtt_protocol:handle_packet(Packet, ProtoState) of
 		{ok, ProtoState1} ->
 			process_received_bytes(
 			  Rest,
-			  State#conn_state{ parse_state = emqtt_frame:initial_state(),
+			  State#state{ parse_state = emqtt_packet:initial_state(),
 						   proto_state = ProtoState1 });
 		{error, Error} ->
 			lager:error("MQTT protocol error ~p for connection ~p~n", [Error, ConnStr]),
 			stop({shutdown, Error}, State);
 		{error, Error, ProtoState1} ->
-			stop({shutdown, Error}, State#conn_state{proto_state = ProtoState1});
+			stop({shutdown, Error}, State#state{proto_state = ProtoState1});
 		{stop, ProtoState1} ->
-			stop(normal, State#conn_state{proto_state = ProtoState1})
+			stop(normal, State#state{proto_state = ProtoState1})
 		end;
 	{error, Error} ->
 		lager:error("MQTT detected framing error ~p for connection ~p~n", [ConnStr, Error]),
@@ -186,27 +186,27 @@ process_received_bytes(Bytes,
 
 %%----------------------------------------------------------------------------
 network_error(Reason,
-              State = #conn_state{ conn_name  = ConnStr}) ->
+              State = #state{ conn_name  = ConnStr}) ->
     lager:error("MQTT detected network error '~p' for ~p", [Reason, ConnStr]),
 	%%TODO: where to SEND WILL MSG??
     %%send_will_msg(State),
     % todo: flush channel after publish
     stop({shutdown, conn_closed}, State).
 
-run_socket(State = #conn_state{ connection_state = blocked }) ->
+run_socket(State = #state{ conn_state = blocked }) ->
     State;
-run_socket(State = #conn_state{ await_recv = true }) ->
+run_socket(State = #state{ await_recv = true }) ->
     State;
-run_socket(State = #conn_state{ socket = Sock }) ->
+run_socket(State = #state{ socket = Sock }) ->
     async_recv(Sock, 0, infinity),
-    State#conn_state{ await_recv = true }.
+    State#state{ await_recv = true }.
 
-control_throttle(State = #conn_state{ connection_state = Flow,
+control_throttle(State = #state{ conn_state = Flow,
                                  conserve         = Conserve }) ->
     case {Flow, Conserve} of
-        {running,   true} -> State #conn_state{ connection_state = blocked };
-        {blocked,  false} -> run_socket(State #conn_state{
-                                                connection_state = running });
+        {running,   true} -> State #state{ conn_state = blocked };
+        {blocked,  false} -> run_socket(State #state{
+                                                conn_state = running });
         {_,            _} -> run_socket(State)
     end.
 

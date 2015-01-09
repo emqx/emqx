@@ -1,6 +1,21 @@
 eMQTT ChangeLog
 ==================
 
+v0.2.1-beta (2015-01-08)
+------------------------
+
+pull request 26: Use binaries for topic paths and fix wildcard topics
+
+emqtt_pubsub.erl: fix wildcard topic match bug caused by binary topic in 0.2.0 
+
+Makefile: deps -> get-deps
+
+rebar.config: fix mochiweb git url
+
+tag emqtt release accoding to [Semantic Versioning](http://semver.org/)
+
+max clientId length is 1024 now.
+
 0.2.0 (2014-12-07)
 -------------------
 
