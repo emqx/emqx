@@ -103,7 +103,7 @@ handle_packet(?CONNECT, #mqtt_packet {
                                          password   = Password, 
                                          proto_ver  = ProtoVersion, 
                                          clean_sess = CleanSess, 
-                                         keep_alive = AlivePeriod, 
+                                         keep_alive = KeepAlive, 
                                          client_id  = ClientId } = Var }, 
               State0 = #proto_state{socket = Sock}) ->
 
@@ -118,19 +118,18 @@ handle_packet(?CONNECT, #mqtt_packet {
             _ ->
                 case emqtt_auth:check(Username, Password) of
                     false ->
-                        lager:error_MSG("MQTT login failed - no credentials"),
+                        lager:error("MQTT login failed - no credentials"),
                         {?CONNACK_CREDENTIALS, State};
                     true ->
-						lager:info("connect from clientid: ~p, ~p", [ClientId, AlivePeriod]),
-						%%TODO: 
-						%%KeepAlive = emqtt_keep_alive:new(AlivePeriod*1500, keep_alive_timeout),
+						lager:info("connect from clientid: ~p, keepalive: ", [ClientId, KeepAlive]),
+                        start_keepalive(KeepAlive),
 						emqtt_cm:register(ClientId, self()),
 						{?CONNACK_ACCEPT,
 						 State #proto_state{ will_msg   = make_will_msg(Var),
 											 client_id  = ClientId }}
                 end
         end,
-		lager:info("recv conn...:~p", [ReturnCode]),
+		lager:info("[SENT] MQTT CONNACK: ~p", [ReturnCode]),
 		send_packet(Sock, #mqtt_packet { 
                              header = #mqtt_packet_header { type = ?CONNACK }, 
                              variable = #mqtt_packet_connack{ return_code = ReturnCode }}),
@@ -357,4 +356,8 @@ send_will_msg(#proto_state{will_msg = undefined}) ->
 	ignore;
 send_will_msg(#proto_state{will_msg = WillMsg }) ->
 	emqtt_router:route(WillMsg).
+
+start_keepalive(0) -> ignore;
+start_keepalive(Sec) when Sec > 0 ->
+    self() ! {keepalive, start, Sec * 1.5}.
 

@@ -24,43 +24,48 @@
 
 -author('feng@emqtt.io').
 
--export([new/2,
-		state/1,
-		activate/1,
-		reset/1,
-		cancel/1]).
+-export([new/3, resume/1, cancel/1]).
 
--record(keep_alive, {state, period, timer, msg}).
+-record(keepalive, {socket, recv_oct, timeout_sec, timeout_msg, timer_ref}).
 
-new(undefined, _) -> 
-	undefined;
-new(0, _) -> 
-	undefined;
-new(Period, TimeoutMsg) when is_integer(Period) ->
-	Ref = erlang:send_after(Period, self(), TimeoutMsg),
-	#keep_alive{state=idle, period=Period, timer=Ref, msg=TimeoutMsg}.
+%%
+%% @doc create a keepalive.
+%%
+new(Socket, TimeoutSec, TimeoutMsg) when TimeoutSec > 0 ->
+    {ok, [{recv_oct, RecvOct}]} = inet:getstate(Socket, [recv_oct]),
+	Ref = erlang:send_after(TimeoutSec*1000, self(), TimeoutMsg),
+	#keepalive { socket      = Socket, 
+                 recv_oct    = RecvOct, 
+                 timeout_sec = TimeoutSec, 
+                 timeout_msg = TimeoutMsg,
+                 timer_ref   = Ref }.
 
-state(undefined) -> 
-	undefined;
-state(#keep_alive{state=State}) ->
-	State.
+%%
+%% @doc try to resume keepalive, called when timeout.
+%%
+resume(KeepAlive = #keepalive { socket      = Socket, 
+                                recv_oct    = RecvOct, 
+                                timeout_sec = TimeoutSec, 
+                                timeout_msg = TimeoutMsg, 
+                                timer_ref   = Ref }) ->
+    {ok, [{recv_oct, NewRecvOct}]} = inet:getstate(Socket, [recv_oct]),
+    if
+        NewRecvOct =:= RecvOct -> 
+            timeout;
+        true ->
+            %need?
+            cancel(Ref),
+            NewRef = erlang:send_after(TimeoutSec*1000, self(), TimeoutMsg),
+            {resumed, KeepAlive#keepalive { recv_oct = NewRecvOct, timer_ref = NewRef }}
+    end.
 
-activate(undefined) -> 
-	undefined; 
-activate(KeepAlive) when is_record(KeepAlive, keep_alive) -> 
-	KeepAlive#keep_alive{state=active}.
-
-reset(undefined) ->
-	undefined;
-reset(KeepAlive=#keep_alive{period=Period, timer=Timer, msg=Msg}) ->
-	catch erlang:cancel_timer(Timer),
-	Ref = erlang:send_after(Period, self(), Msg),
-	KeepAlive#keep_alive{state=idle, timer = Ref}.
-
+%%
+%% @doc cancel keepalive
+%%
+cancel(#keepalive { timer_ref = Ref }) ->
+    cancel(Ref);
 cancel(undefined) -> 
 	undefined;
-cancel(KeepAlive=#keep_alive{timer=Timer}) -> 
-	catch erlang:cancel_timer(Timer),
-	KeepAlive#keep_alive{timer=undefined}.
-
+cancel(Ref) -> 
+	catch erlang:cancel_timer(Ref).
 

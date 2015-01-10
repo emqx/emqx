@@ -217,7 +217,7 @@ serialise_variable(#mqtt_packet_header { type      = PubAck },
                    <<>> = _Payload) 
   when PubAck =:= ?PUBACK; PubAck =:= ?PUBREC; 
        PubAck =:= ?PUBREL; PubAck =:= ?PUBCOMP ->
-    {PacketIdBin = <<PacketId:16/big>>, <<>>};
+    {<<PacketId:16/big>>, <<>>};
 
 serialise_variable(#mqtt_packet_header { },
                    undefined,
