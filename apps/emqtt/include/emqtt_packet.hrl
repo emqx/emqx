@@ -75,7 +75,7 @@
 %%------------------------------------------------------------------------------
 -record(mqtt_packet_header, {
     type   = ?RESERVED  :: mqtt_packet_type(),
-    dup    = fasle      :: boolean(),
+    dup    = false      :: boolean(),
     qos    = 0          :: 0 | 1 | 2,
     retain = false      :: boolean() }).
 
