@@ -75,7 +75,7 @@ handle_call({go, Sock}, _From, #state{socket = Sock}) ->
                conn_state   = running, 
                conserve     = false, 
                parse_state  = emqtt_packet:initial_state(), 
-               proto_state  = emqtt_protocol:initial_state(Sock)}), 10000};
+               proto_state  = emqtt_protocol:initial_state(Sock, Peername)}), 10000};
 
 handle_call(info, _From, State = #state{
         conn_name=ConnName, proto_state = ProtoState}) ->

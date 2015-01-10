@@ -31,6 +31,8 @@
 
 -export([parse/2, serialise/1]).
 
+-export([dump/1]).
+
 -define(MAX_LEN, 16#fffffff).
 -define(HIGHBIT, 2#10000000).
 -define(LOWBITS, 2#01111111).
@@ -86,6 +88,7 @@ parse_frame(Bin, #mqtt_packet_header{ type = Type,
                     wrap(Header,
                          #mqtt_packet_connect{
                            proto_ver   = ProtoVersion,
+                           proto_name  = ProtoName,
                            will_retain = bool(WillRetain),
                            will_qos    = WillQos,
                            will_flag   = bool(WillFlag),
@@ -254,4 +257,79 @@ opt(X) when is_integer(X) -> X.
 
 protocol_name_approved(Ver, Name) ->
     lists:member({Ver, Name}, ?PROTOCOL_NAMES).
+
+dump(#mqtt_packet{header = Header, variable = Variable, payload = Payload}) when
+     Payload =:= undefined orelse Payload =:= <<>>  ->
+    dump_header(Header, dump_variable(Variable));
+
+dump(#mqtt_packet{header = Header, variable = Variable, payload = Payload}) ->
+    dump_header(Header, dump_variable(Variable, Payload)).
+
+dump_header(#mqtt_packet_header{type = Type, dup = Dup, qos = QoS, retain = Retain}, S) ->
+    io_lib:format("~s(Qos=~p, Retain=~s, Dup=~s, ~s)", [dump_type(Type), QoS, Retain, Dup, S]).
+
+dump_variable( #mqtt_packet_connect { 
+                  proto_ver     = ProtoVer, 
+                  proto_name    = ProtoName,
+                  will_retain   = WillRetain, 
+                  will_qos      = WillQoS, 
+                  will_flag     = WillFlag, 
+                  clean_sess    = CleanSess, 
+                  keep_alive    = KeepAlive, 
+                  client_id     = ClientId, 
+                  will_topic    = WillTopic, 
+                  will_msg      = WillMsg, 
+                  username      = Username, 
+                  password      = Password} ) ->
+    io_lib:format("ClientId=~s, ProtoName=~s, ProtoVsn=~p, CleanSess=~s, KeepAlive=~p, Username=~s, Password=~s", 
+                  [ClientId, ProtoName, ProtoVer, CleanSess, KeepAlive, Username, Password]); %%TODO: Will
+
+dump_variable( #mqtt_packet_connack { 
+                  ack_flags = AckFlags, 
+                  return_code = ReturnCode } ) ->
+    io_lib:format("AckFlags=~p, RetainCode=~p", [AckFlags, ReturnCode]);
+
+dump_variable( #mqtt_packet_publish {
+                 topic_name = TopicName,
+                 packet_id  = PacketId} ) ->
+    io_lib:format("TopicName=~s, PacketId=~p", [TopicName, PacketId]);
+
+dump_variable( #mqtt_packet_puback { 
+                  packet_id = PacketId } ) ->
+    io_lib:format("PacketId=~p", [PacketId]);
+
+dump_variable( #mqtt_packet_subscribe {
+                  packet_id = PacketId, 
+                  topic_table = TopicTable }) ->
+    L =  [{Name, QoS} || #mqtt_topic{name = Name, qos = QoS} <- TopicTable],
+    io_lib:format("PacketId=~p, TopicTable=~p", [PacketId, L]);
+
+dump_variable( #mqtt_packet_suback {
+                 packet_id = PacketId,
+                 qos_table = QosTable} ) ->
+    io_lib:format("PacketId=~p, QosTable=~p", [PacketId, QosTable]);
+
+dump_variable(PacketId) when is_integer(PacketId) ->
+    io_lib:format("PacketId=~p", [PacketId]);
+
+%%TODO: not right...
+dump_variable(undefined) -> "".
+
+dump_variable(Variable, Payload) ->
+    dump_variable(Variable).
+
+dump_type(?CONNECT)     -> "CONNECT"; 
+dump_type(?CONNACK)     -> "CONNACK";
+dump_type(?PUBLISH)     -> "PUBLISH";
+dump_type(?PUBACK)      -> "PUBACK";
+dump_type(?PUBREC)      -> "PUBREC";
+dump_type(?PUBREL)      -> "PUBREL";
+dump_type(?PUBCOMP)     -> "PUBCOMP";
+dump_type(?SUBSCRIBE)   -> "SUBSCRIBE";
+dump_type(?SUBACK)      -> "SUBACK";
+dump_type(?UNSUBSCRIBE) -> "UNSUBSCRIBE";
+dump_type(?UNSUBACK)    -> "UNSUBACK";
+dump_type(?PINGREQ)     -> "PINGREQ";
+dump_type(?PINGRESP)    -> "PINGRESP";
+dump_type(?DISCONNECT)  -> "DISCONNECT".
 

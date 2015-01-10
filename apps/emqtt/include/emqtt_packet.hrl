@@ -84,6 +84,7 @@
 %%------------------------------------------------------------------------------
 -record(mqtt_packet_connect,  {
     proto_ver,
+    proto_name,
     will_retain,
     will_qos,
     will_flag,
