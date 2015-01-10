@@ -266,7 +266,12 @@ dump(#mqtt_packet{header = Header, variable = Variable, payload = Payload}) ->
     dump_header(Header, dump_variable(Variable, Payload)).
 
 dump_header(#mqtt_packet_header{type = Type, dup = Dup, qos = QoS, retain = Retain}, S) ->
-    io_lib:format("~s(Qos=~p, Retain=~s, Dup=~s, ~s)", [dump_type(Type), QoS, Retain, Dup, S]).
+    S1 = 
+    if 
+        S == undefined -> <<>>;
+        true -> [", ", S]
+    end,
+    io_lib:format("~s(Qos=~p, Retain=~s, Dup=~s~s)", [dump_type(Type), QoS, Retain, Dup, S1]).
 
 dump_variable( #mqtt_packet_connect { 
                   proto_ver     = ProtoVer, 
@@ -312,11 +317,14 @@ dump_variable( #mqtt_packet_suback {
 dump_variable(PacketId) when is_integer(PacketId) ->
     io_lib:format("PacketId=~p", [PacketId]);
 
-%%TODO: not right...
-dump_variable(undefined) -> "".
+dump_variable(undefined) -> undefined.
 
+dump_variable(undefined, undefined) -> 
+    undefined;
+dump_variable(undefined, <<>>) -> 
+    undefined;
 dump_variable(Variable, Payload) ->
-    dump_variable(Variable).
+    io_lib:format("~s, Payload=~p", [dump_variable(Variable), Payload]).
 
 dump_type(?CONNECT)     -> "CONNECT"; 
 dump_type(?CONNACK)     -> "CONNACK";

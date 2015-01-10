@@ -97,7 +97,7 @@ handle_packet(_Packet, State = #proto_state{connected = false}) ->
 
 handle_packet(?PACKET_TYPE(Packet, Type),
 				State = #proto_state { peer_name = PeerName, client_id = ClientId }) ->
-	lager:info("RECV from ~s/~s: ~s", [PeerName, ClientId, emqtt_packet:dump(Packet)]),
+	lager:info("RECV from ~s@~s: ~s", [ClientId, PeerName, emqtt_packet:dump(Packet)]),
 	case validate_packet(Type, Packet) of	
 	ok ->
 		handle_packet(Type, Packet, State);
@@ -114,7 +114,7 @@ handle_packet(?CONNECT, Packet = #mqtt_packet {
                                          keep_alive = KeepAlive, 
                                          client_id  = ClientId } = Var }, 
               State = #proto_state{ peer_name = PeerName} ) ->
-    lager:info("RECV from ~s/~s: ~s", [PeerName, ClientId, emqtt_packet:dump(Packet)]),
+    lager:info("RECV from ~s@~s: ~s", [ClientId, PeerName, emqtt_packet:dump(Packet)]),
     {ReturnCode, State1} =
         case {lists:member(ProtoVersion, proplists:get_keys(?PROTOCOL_NAMES)),
               valid_client_id(ClientId)} of
@@ -128,7 +128,6 @@ handle_packet(?CONNECT, Packet = #mqtt_packet {
                         lager:error("MQTT login failed - no credentials"),
                         {?CONNACK_CREDENTIALS, State#proto_state{client_id = ClientId}};
                     true ->
-						lager:info("connect from clientid: ~s, keepalive: ~p", [ClientId, KeepAlive]),
                         start_keepalive(KeepAlive),
 						emqtt_cm:register(ClientId, self()),
 						{?CONNACK_ACCEPT,
@@ -225,7 +224,6 @@ handle_packet(?PINGREQ, #mqtt_packet{}, State) ->
     {ok, State};
 
 handle_packet(?DISCONNECT, #mqtt_packet{}, State=#proto_state{peer_name = PeerName, client_id = ClientId}) ->
-	lager:info("RECV from ~s/~s: DISCONNECT", [PeerName, ClientId]),
     {stop, State}.
 
 make_packet(Type) when Type >= ?CONNECT andalso Type =< ?DISCONNECT -> 
@@ -271,7 +269,7 @@ send_message(Message = #mqtt_message{
 	end.
 
 send_packet(Packet, #proto_state{socket = Sock, peer_name = PeerName, client_id = ClientId}) ->
-	lager:info("SENT to ~s/~s: ~p", [PeerName, ClientId, emqtt_packet:dump(Packet)]),
+	lager:info("SENT to ~s@~s: ~s", [ClientId, PeerName, emqtt_packet:dump(Packet)]),
     %%FIXME Later...
     erlang:port_command(Sock, emqtt_packet:serialise(Packet)).
 
