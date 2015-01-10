@@ -359,5 +359,5 @@ send_will_msg(#proto_state{will_msg = WillMsg }) ->
 
 start_keepalive(0) -> ignore;
 start_keepalive(Sec) when Sec > 0 ->
-    self() ! {keepalive, start, Sec * 1.5}.
+    self() ! {keepalive, start, round(Sec * 1.5)}.
 
