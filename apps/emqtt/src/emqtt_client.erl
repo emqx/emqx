@@ -115,14 +115,14 @@ handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
     {noreply, State};
 
 handle_info({keepalive, start, TimeoutSec}, State = #state{socket = Socket}) ->
-    lager:info("~s keepalive started: ~p", [State#state.peer_name, TimeoutSec]),
+    lager:info("Client: ~s: Start KeepAlive with ~p seconds", [State#state.peer_name, TimeoutSec]),
     KeepAlive = emqtt_keepalive:new(Socket, TimeoutSec, {keepalive, timeout}),
     {noreply, State#state{ keepalive = KeepAlive }};
 
 handle_info({keepalive, timeout}, State = #state { keepalive = KeepAlive }) ->
     case emqtt_keepalive:resume(KeepAlive) of
     timeout ->
-        lager:info("~s keepalive timeout!", [State#state.peer_name]),
+        lager:info("Client ~s: Keepalive Timeout!", [State#state.peer_name]),
         {stop, normal, State};
     {resumed, KeepAlive1} ->
         lager:info("~s keepalive resumed.", [State#state.peer_name]),
