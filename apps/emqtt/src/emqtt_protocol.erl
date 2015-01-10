@@ -121,7 +121,7 @@ handle_packet(?CONNECT, #mqtt_packet {
                         lager:error("MQTT login failed - no credentials"),
                         {?CONNACK_CREDENTIALS, State};
                     true ->
-						lager:info("connect from clientid: ~p, keepalive: ", [ClientId, KeepAlive]),
+						lager:info("connect from clientid: ~s, keepalive: ~p", [ClientId, KeepAlive]),
                         start_keepalive(KeepAlive),
 						emqtt_cm:register(ClientId, self()),
 						{?CONNACK_ACCEPT,
