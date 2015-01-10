@@ -20,47 +20,7 @@
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
 
--module(emqtt_keep_alive).
+-module(emqtt_bridge).
 
--author('feng@emqtt.io').
-
--export([new/2,
-		state/1,
-		activate/1,
-		reset/1,
-		cancel/1]).
-
--record(keep_alive, {state, period, timer, msg}).
-
-new(undefined, _) -> 
-	undefined;
-new(0, _) -> 
-	undefined;
-new(Period, TimeoutMsg) when is_integer(Period) ->
-	Ref = erlang:send_after(Period, self(), TimeoutMsg),
-	#keep_alive{state=idle, period=Period, timer=Ref, msg=TimeoutMsg}.
-
-state(undefined) -> 
-	undefined;
-state(#keep_alive{state=State}) ->
-	State.
-
-activate(undefined) -> 
-	undefined; 
-activate(KeepAlive) when is_record(KeepAlive, keep_alive) -> 
-	KeepAlive#keep_alive{state=active}.
-
-reset(undefined) ->
-	undefined;
-reset(KeepAlive=#keep_alive{period=Period, timer=Timer, msg=Msg}) ->
-	catch erlang:cancel_timer(Timer),
-	Ref = erlang:send_after(Period, self(), Msg),
-	KeepAlive#keep_alive{state=idle, timer = Ref}.
-
-cancel(undefined) -> 
-	undefined;
-cancel(KeepAlive=#keep_alive{timer=Timer}) -> 
-	catch erlang:cancel_timer(Timer),
-	KeepAlive#keep_alive{timer=undefined}.
 
 
