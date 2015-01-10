@@ -137,7 +137,7 @@ handle_packet(?CONNECT, Packet = #mqtt_packet {
         end,
 		send_packet( #mqtt_packet { 
                         header = #mqtt_packet_header { type = ?CONNACK }, 
-                        variable = #mqtt_packet_connack{ return_code = ReturnCode }}, State ),
+                        variable = #mqtt_packet_connack{ return_code = ReturnCode }}, State1 ),
     {ok, State1};
 
 handle_packet(?PUBLISH, Packet = #mqtt_packet {
