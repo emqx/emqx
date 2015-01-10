@@ -125,7 +125,7 @@ handle_info({keepalive, timeout}, State = #state { keepalive = KeepAlive }) ->
         lager:info("Client ~s: Keepalive Timeout!", [State#state.peer_name]),
         {stop, normal, State};
     {resumed, KeepAlive1} ->
-        lager:info("~s keepalive resumed.", [State#state.peer_name]),
+        lager:info("Client ~s: Keepalive Resumed", [State#state.peer_name]),
         {noreply, State#state{ keepalive = KeepAlive1 }}
     end;
 
