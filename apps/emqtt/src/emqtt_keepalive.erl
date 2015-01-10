@@ -32,7 +32,7 @@
 %% @doc create a keepalive.
 %%
 new(Socket, TimeoutSec, TimeoutMsg) when TimeoutSec > 0 ->
-    {ok, [{recv_oct, RecvOct}]} = inet:getstate(Socket, [recv_oct]),
+    {ok, [{recv_oct, RecvOct}]} = inet:getstat(Socket, [recv_oct]),
 	Ref = erlang:send_after(TimeoutSec*1000, self(), TimeoutMsg),
 	#keepalive { socket      = Socket, 
                  recv_oct    = RecvOct, 
@@ -48,7 +48,7 @@ resume(KeepAlive = #keepalive { socket      = Socket,
                                 timeout_sec = TimeoutSec, 
                                 timeout_msg = TimeoutMsg, 
                                 timer_ref   = Ref }) ->
-    {ok, [{recv_oct, NewRecvOct}]} = inet:getstate(Socket, [recv_oct]),
+    {ok, [{recv_oct, NewRecvOct}]} = inet:getstat(Socket, [recv_oct]),
     if
         NewRecvOct =:= RecvOct -> 
             timeout;
