@@ -45,7 +45,7 @@
 
 -export([initial_state/2]).
 
--export([handle_packet/2, send_packet/2, client_terminated/1]).
+-export([handle_packet/2, send_message/2, send_packet/2, client_terminated/1]).
 
 -export([info/1]).
 
