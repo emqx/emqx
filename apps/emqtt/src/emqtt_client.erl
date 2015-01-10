@@ -65,7 +65,7 @@ init([Sock]) ->
 handle_call({go, Sock}, _From, #state{socket = Sock}) ->
     {ok, Peername} = emqtt_net:peer_string(Sock),
     {ok, ConnStr} = emqtt_net:connection_string(Sock, inbound),
-    lager:debug("connection: ~s~n", [ConnStr]),
+    lager:info("Connect from ~s", [ConnStr]),
     {reply, ok, 
      control_throttle( 
        #state{ socket       = Sock, 
