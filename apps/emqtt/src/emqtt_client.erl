@@ -90,9 +90,11 @@ handle_cast(Msg, State) ->
 handle_info(timeout, State) ->
     stop({shutdown, timeout}, State);
     
-handle_info({stop, duplicate_id}, State=#state{conn_name=ConnName}) ->
-    %%TODO:
-    %lager:error("Shutdown for duplicate clientid:~s, conn:~s", [ClientId, ConnName]), 
+handle_info({stop, duplicate_id, NewPid}, State=#state{conn_name=ConnName}) ->
+    %% TODO: to...
+    %% need transfer data???
+    %% emqtt_client:transfer(NewPid, Data),
+    %% lager:error("Shutdown for duplicate clientid:~s, conn:~s", [ClientId, ConnName]), 
     stop({shutdown, duplicate_id}, State);
 
 %%TODO: ok??

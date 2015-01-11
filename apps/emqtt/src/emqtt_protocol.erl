@@ -236,7 +236,7 @@ make_packet(PubAck, PacketId) when PubAck >= ?PUBACK andalso PubAck =< ?PUBCOMP 
 puback_qos(?PUBACK) ->  ?QOS_0;
 puback_qos(?PUBREC) ->  ?QOS_0;
 puback_qos(?PUBREL) ->  ?QOS_1;
-puback_qos(?PUBCOMP) -> ?QOS_0;
+puback_qos(?PUBCOMP) -> ?QOS_0.
 
 -spec send_message(Message, State) -> {ok, NewState} when
 	Message 	:: mqtt_message(),
