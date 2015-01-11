@@ -286,8 +286,14 @@ dump_variable( #mqtt_packet_connect {
                   will_msg      = WillMsg, 
                   username      = Username, 
                   password      = Password} ) ->
-    io_lib:format("ClientId=~s, ProtoName=~s, ProtoVsn=~p, CleanSess=~s, KeepAlive=~p, Username=~s, Password=~s", 
-                  [ClientId, ProtoName, ProtoVer, CleanSess, KeepAlive, Username, Password]); %%TODO: Will
+    Format =  "ClientId=~s, ProtoName=~s, ProtoVsn=~p, CleanSess=~s, KeepAlive=~p, Username=~s, Password=~s",
+    Args = [ClientId, ProtoName, ProtoVer, CleanSess, KeepAlive, Username, dump_password(Password)],
+    {Format1, Args1} = if 
+                        WillFlag -> { Format ++ ", Will(Qos=~p, Retain=~s, Topic=~s, Msg=~s)",
+                                      Args ++ [ WillQoS, WillRetain, WillTopic, WillMsg ] };
+                        true -> {Format, Args}
+                       end,
+    io_lib:format(Format1, Args1);
 
 dump_variable( #mqtt_packet_connack { 
                   ack_flags = AckFlags, 
@@ -325,6 +331,9 @@ dump_variable(undefined, <<>>) ->
     undefined;
 dump_variable(Variable, Payload) ->
     io_lib:format("~s, Payload=~p", [dump_variable(Variable), Payload]).
+
+dump_password(undefined) -> undefined;
+dump_password(_) -> <<"******">>.
 
 dump_type(?CONNECT)     -> "CONNECT"; 
 dump_type(?CONNACK)     -> "CONNACK";
