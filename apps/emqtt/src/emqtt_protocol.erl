@@ -270,8 +270,10 @@ send_message(Message = #mqtt_message{
 
 send_packet(Packet, #proto_state{socket = Sock, peer_name = PeerName, client_id = ClientId}) ->
 	lager:info("SENT to ~s@~s: ~s", [ClientId, PeerName, emqtt_packet:dump(Packet)]),
+    Data = emqtt_packet:serialise(Packet),
+    lager:debug("SENT to ~s: ~p", [PeerName, Data]),
     %%FIXME Later...
-    erlang:port_command(Sock, emqtt_packet:serialise(Packet)).
+    erlang:port_command(Sock, Data).
 
 %%TODO: fix me later...
 client_terminated(#proto_state{client_id = ClientId} = State) ->

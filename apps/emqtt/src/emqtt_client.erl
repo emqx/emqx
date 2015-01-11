@@ -103,7 +103,8 @@ handle_info({dispatch, Message}, #state{proto_state = ProtoState} = State) ->
 handle_info({inet_reply, _Ref, ok}, State) ->
     {noreply, State, hibernate};
 
-handle_info({inet_async, Sock, _Ref, {ok, Data}}, #state{ socket = Sock}=State) ->
+handle_info({inet_async, Sock, _Ref, {ok, Data}}, #state{ peer_name = PeerName, socket = Sock } = State) ->
+    lager:debug("RECV from ~s: ~p", [State#state.peer_name, Data]),
     process_received_bytes(
         Data, control_throttle(State #state{ await_recv = false }));
 

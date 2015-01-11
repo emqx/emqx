@@ -73,7 +73,9 @@ start_servers(Sup) ->
 			start_child(Sup, Server, Opts),
 			?PRINT_MSG("[done]~n")
 		end,
-	 	[{"emqtt cm", emqtt_cm},
+	 	[{"emqtt config", emqtt_config},
+         {"emqtt client manager", emqtt_cm},
+         {"emqtt session manager", emqtt_sm},
          {"emqtt auth", emqtt_auth},
 		 {"emqtt retained", emqtt_retained},
 		 {"emqtt pubsub", emqtt_pubsub},
