@@ -140,13 +140,13 @@ terminate(Reason, #state{proto_state = unefined}) ->
     io:format("client terminated: ~p, reason: ~p~n", [self(), Reason]),
     %%TODO: fix keep_alive...
     %%emqtt_keep_alive:cancel(KeepAlive),
-    %emqtt_protocol:client_terminated(ProtoState),
+    %emqtt_protocol:connection_lost(ProtoState),
     ok;
 
 terminate(_Reason, #state { keepalive = KeepAlive, proto_state = ProtoState }) ->
     %%TODO: fix keep_alive...
     emqtt_keepalive:cancel(KeepAlive),
-    emqtt_protocol:client_terminated(ProtoState),
+    emqtt_protocol:connection_lost(ProtoState),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
