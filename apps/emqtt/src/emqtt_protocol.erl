@@ -45,7 +45,7 @@
 
 -export([initial_state/2]).
 
--export([handle_packet/2, send_message/2, send_packet/2, client_terminated/1]).
+-export([handle_packet/2, send_message/2, send_packet/2, connection_lost/1]).
 
 -export([info/1]).
 
@@ -277,7 +277,7 @@ send_packet(Packet, #proto_state{socket = Sock, peer_name = PeerName, client_id 
     erlang:port_command(Sock, Data).
 
 %%TODO: fix me later...
-client_terminated(#proto_state{client_id = ClientId} = State) ->
+connection_lost(#proto_state{client_id = ClientId} = State) ->
     ok.
     %emqtt_cm:unregister(ClientId, self()).
 
