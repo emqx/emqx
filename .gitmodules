@@ -1,0 +1,3 @@
+[submodule "tests/org.eclipse.paho.mqtt.testing"]
+	path = tests/org.eclipse.paho.mqtt.testing
+	url = git://git.eclipse.org/gitroot/paho/org.eclipse.paho.mqtt.testing.git

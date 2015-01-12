@@ -229,9 +229,14 @@ handle_packet(?DISCONNECT, #mqtt_packet{}, State=#proto_state{peer_name = PeerNa
 make_packet(Type) when Type >= ?CONNECT andalso Type =< ?DISCONNECT -> 
     #mqtt_packet{ header = #mqtt_packet_header { type = Type } }.
 
-make_packet(PubAck, PacketId) when PubAck >= ?PUBACK andalso PubAck =< ?PUBREC ->
-  #mqtt_packet { header = #mqtt_packet_header { type = PubAck}, 
+make_packet(PubAck, PacketId) when PubAck >= ?PUBACK andalso PubAck =< ?PUBCOMP ->
+  #mqtt_packet { header = #mqtt_packet_header { type = PubAck, qos = puback_qos(PubAck) }, 
                  variable = #mqtt_packet_puback { packet_id = PacketId}}.
+
+puback_qos(?PUBACK) ->  ?QOS_0;
+puback_qos(?PUBREC) ->  ?QOS_0;
+puback_qos(?PUBREL) ->  ?QOS_1;
+puback_qos(?PUBCOMP) -> ?QOS_0.
 
 -spec send_message(Message, State) -> {ok, NewState} when
 	Message 	:: mqtt_message(),

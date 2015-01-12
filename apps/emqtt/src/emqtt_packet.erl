@@ -119,6 +119,7 @@ parse_frame(Bin, #mqtt_packet_header{ type = Type,
             <<PacketId:16/big>> = FrameBin,
             wrap(Header, #mqtt_packet_puback{packet_id = PacketId}, Rest);
         {?PUBREL, <<FrameBin:Length/binary, Rest/binary>>} ->
+            1 = Qos,
             <<PacketId:16/big>> = FrameBin,
             wrap(Header, #mqtt_packet_puback{ packet_id = PacketId }, Rest);
         {?PUBCOMP, <<FrameBin:Length/binary, Rest/binary>>} ->
