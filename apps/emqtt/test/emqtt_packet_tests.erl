@@ -63,16 +63,19 @@ parse_connect_test() ->
                                                         dup = false, 
                                                         qos = 0, 
                                                         retain = false}, 
-                         variable = #mqtt_packet_connect { proto_ver = 4, 
-                                                           proto_name = <<"MQTT">>, 
-                                                           client_id = <<"mosqpub/10451-iMac.loca">>,
+                         variable = #mqtt_packet_connect { proto_ver = 3, 
+                                                           proto_name = <<"MQIsdp">>, 
+                                                           client_id = <<"mosqpub/10452-iMac.loca">>,
                                                            clean_sess = true, 
                                                            keep_alive = 60,
                                                            will_retain = false,
                                                            will_qos = 1,
                                                            will_flag = true,
                                                            will_topic = <<"/will">>,
-                                                           will_msg = <<"willMsg">> } }, <<>>}, parse(ConnBinWithWill, State)),
+                                                           will_msg = <<"willmsg">> ,
+                                                           username = <<"test">>,
+                                                           password = <<"public">> } },
+                                                   <<>> }, parse(ConnBinWithWill, State)),
     ok.
 
 parse_publish_test() ->
@@ -86,7 +89,7 @@ parse_publish_test() ->
                                                         retain = false},  
                          variable = #mqtt_packet_publish { topic_name = <<"a/b/c">>, 
                                                            packet_id = 1 },
-                         payload = <<"hahah">> }, <<>>}, parse(PubBin, State))
+                         payload = <<"hahah">> }, <<>>}, parse(PubBin, State)),
     
     %PUBLISH(Qos=0, Retain=false, Dup=false, TopicName=xxx/yyy, PacketId=undefined, Payload=<<"hello">>)
     %DISCONNECT(Qos=0, Retain=false, Dup=false)
@@ -98,15 +101,13 @@ parse_publish_test() ->
                                                         retain = false},  
                          variable = #mqtt_packet_publish { topic_name = <<"xxx/yyy">>, 
                                                            packet_id = undefined },
-                         payload = <<"hello">> }, Rest}, parse(PubBin1, State)),
+                         payload = <<"hello">> }, <<224,0>>}, parse(PubBin1, State)),
     ?assertMatch({ok, #mqtt_packet{ 
                          header = #mqtt_packet_header { type = ?DISCONNECT,
                                                         dup = false,
                                                         qos = 0,
                                                         retain = false}
-                        }, <<>>}, parse(Rest, State)),
-
-    ok.
+                        }, <<>>}, parse(<<224, 0>>, State)).
 
 parse_puback_test() ->
     %%PUBACK(Qos=0, Retain=false, Dup=false, PacketId=1)
@@ -128,7 +129,12 @@ parse_pingreq_test() ->
 parse_disconnect_test() ->
     %DISCONNECT(Qos=0, Retain=false, Dup=false)
     Bin = <<224, 0>>,
-    ok.
+    ?assertMatch({ok, #mqtt_packet { 
+                         header = #mqtt_packet_header { type = ?DISCONNECT, 
+                                                        dup = false, 
+                                                        qos = 0, 
+                                                        retain = false } 
+                        }, <<>>}, parse(Bin, initial_state())).
 
 serialise_connack_test() ->
     ConnAck = #mqtt_packet{ header = #mqtt_packet_header { type = ?CONNACK }, 
