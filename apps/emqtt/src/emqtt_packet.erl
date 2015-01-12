@@ -31,7 +31,7 @@
 
 -export([parse/2, serialise/1]).
 
--export([validate/2, dump/1]).
+-export([dump/1]).
 
 -define(MAX_LEN, 16#fffffff).
 -define(HIGHBIT, 2#10000000).
@@ -258,21 +258,6 @@ opt(X) when is_integer(X) -> X.
 
 protocol_name_approved(Ver, Name) ->
     lists:member({Ver, Name}, ?PROTOCOL_NAMES).
-
-validate(protocol, {Ver, Name}) ->
-    protocol_name_approved(Ver, Name);
-
-validate(clientid, {_, ClientId}) when ( size(ClientId) >= 1 ) 
-    andalso ( size(ClientId) >= ?MAX_CLIENTID_LEN ) ->
-    true;
-
-%% MQTT3.1.1 allow null clientId.
-validate(clientid, {?MQTT_PROTO_V311, ClientId}) 
-    when size(ClientId) =:= 0 ->
-    true;
-
-validate(clientid, {_, _}) -> 
-    false.
 
 dump(#mqtt_packet{header = Header, variable = Variable, payload = Payload}) when
      Payload =:= undefined orelse Payload =:= <<>>  ->

@@ -59,6 +59,7 @@ print_vsn() ->
 	?PRINT("~s ~s is running now~n", [Desc, Vsn]).
 
 start_servers(Sup) ->
+    {ok, SessOpts} = application:get_env(session),
 	lists:foreach(
         fun({Name, F}) when is_function(F) ->
 			?PRINT("~s is starting...", [Name]),
@@ -75,7 +76,7 @@ start_servers(Sup) ->
 		end,
 	 	[{"emqtt config", emqtt_config},
          {"emqtt client manager", emqtt_cm},
-         {"emqtt session manager", emqtt_sm},
+         {"emqtt session manager", emqtt_sm, SessOpts},
          {"emqtt auth", emqtt_auth},
 		 {"emqtt retained", emqtt_retained},
 		 {"emqtt pubsub", emqtt_pubsub},

@@ -51,9 +51,9 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0]).
+-export([start_link/1]).
 
--export([lookup/1, create/2, resume/2, destroy/1]).
+-export([lookup/1, register/2, resume/2, destroy/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -75,7 +75,7 @@ start_link(SessOpts) ->
 
 lookup(ClientId) -> ok.
 
-create(ClientId, Pid) -> ok.
+register(ClientId, Pid) -> ok.
 
 resume(ClientId, Pid) -> ok.
 
@@ -86,7 +86,6 @@ destroy(ClientId) -> ok.
 %% ------------------------------------------------------------------
 
 init(SessOpts) ->
-    {ok, SessOpts} = application:get_env(session),
     State = #state{ expires = proplists:get_value(expires, SessOpts, 24) * 3600, 
                     max_queue = proplists:get_value(max_queue, SessOpts, 1000) },
     {ok, State}.
