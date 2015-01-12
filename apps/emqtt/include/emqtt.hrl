@@ -55,7 +55,11 @@
 %% MQTT Session
 %%------------------------------------------------------------------------------
 -record(mqtt_session, {
-	client_id
+    client_id,
+    session_pid,
+    subscriptions = [],
+    awaiting_ack,
+    awaiting_rel
 }).
 
 -type mqtt_session() :: #mqtt_session{}.
