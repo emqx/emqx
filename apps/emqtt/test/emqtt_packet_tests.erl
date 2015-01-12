@@ -56,6 +56,18 @@ parse_connect_test() ->
                                                            clean_sess = true, 
                                                            keep_alive = 60 } }, <<>>}, parse(V311ConnBin, State)),
 
+    %% CONNECT(Qos=0, Retain=false, Dup=false, ClientId="", ProtoName=MQTT, ProtoVsn=4, CleanSess=true, KeepAlive=60)
+    V311ConnWithoutClientId = <<16,12,0,4,77,81,84,84,4,2,0,60,0,0>>,
+    ?assertMatch({ok, #mqtt_packet{ 
+                         header = #mqtt_packet_header { type = ?CONNECT, 
+                                                        dup = false, 
+                                                        qos = 0, 
+                                                        retain = false}, 
+                         variable = #mqtt_packet_connect { proto_ver = 4, 
+                                                           proto_name = <<"MQTT">>, 
+                                                           client_id = <<>>,
+                                                           clean_sess = true, 
+                                                           keep_alive = 60 } }, <<>>}, parse(V311ConnWithoutClientId, State)),
     %%CONNECT(Qos=0, Retain=false, Dup=false, ClientId=mosqpub/10452-iMac.loca, ProtoName=MQIsdp, ProtoVsn=3, CleanSess=true, KeepAlive=60, Username=test, Password=******, Will(Qos=1, Retain=false, Topic=/will, Msg=willmsg))
     ConnBinWithWill = <<16,67,0,6,77,81,73,115,100,112,3,206,0,60,0,23,109,111,115,113,112,117,98,47,49,48,52,53,50,45,105,77,97,99,46,108,111,99,97,0,5,47,119,105,108,108,0,7,119,105,108,108,109,115,103,0,4,116,101,115,116,0,6,112,117,98,108,105,99>>,
     ?assertMatch({ok, #mqtt_packet{ 

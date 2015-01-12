@@ -109,35 +109,31 @@ handle_packet(?CONNECT, Packet = #mqtt_packet {
                                     variable = #mqtt_packet_connect { 
                                          username   = Username, 
                                          password   = Password, 
-                                         proto_ver  = ProtoVersion, 
                                          clean_sess = CleanSess, 
                                          keep_alive = KeepAlive, 
                                          client_id  = ClientId } = Var }, 
-              State = #proto_state{ peer_name = PeerName} ) ->
+              State = #proto_state{ peer_name = PeerName } ) ->
     lager:info("RECV from ~s@~s: ~s", [ClientId, PeerName, emqtt_packet:dump(Packet)]),
-    {ReturnCode, State1} =
-        case {lists:member(ProtoVersion, proplists:get_keys(?PROTOCOL_NAMES)),
-              valid_client_id(ClientId)} of
-            {false, _} ->
-                {?CONNACK_PROTO_VER, State#proto_state{client_id = ClientId}};
-            {_, false} ->
-                {?CONNACK_INVALID_ID, State#proto_state{client_id = ClientId}};
-            _ ->
-                case emqtt_auth:check(Username, Password) of
-                    false ->
-                        lager:error("MQTT login failed - no credentials"),
-                        {?CONNACK_CREDENTIALS, State#proto_state{client_id = ClientId}};
-                    true ->
-                        start_keepalive(KeepAlive),
-						emqtt_cm:register(ClientId, self()),
-						{?CONNACK_ACCEPT,
-						 State #proto_state{ will_msg   = make_will_msg(Var),
-											 client_id  = ClientId }}
-                end
-        end,
-		send_packet( #mqtt_packet { 
-                        header = #mqtt_packet_header { type = ?CONNACK }, 
-                        variable = #mqtt_packet_connack{ return_code = ReturnCode }}, State1 ),
+    {ReturnCode1, State1} =
+    case validate_connect(Var) of
+        ?CONNACK_ACCEPT ->
+            case emqtt_auth:check(Username, Password) of
+                true ->
+                    ClientId1 = clientid(ClientId, State), 
+                    start_keepalive(KeepAlive),
+                    emqtt_cm:register(ClientId1, self()),
+                    {?CONNACK_ACCEPT,
+                        State#proto_state{ will_msg = make_will_msg(Var), client_id  = ClientId1 }};
+                false ->
+                    lager:error("~s@~s: username '~s' login failed - no credentials", [ClientId, PeerName, Username]),
+                    {?CONNACK_CREDENTIALS, State#proto_state{client_id = ClientId}}
+            end;
+        ReturnCode ->
+            {ReturnCode, State#proto_state{client_id = ClientId}}
+    end,
+    send_packet( #mqtt_packet {
+                    header = #mqtt_packet_header { type = ?CONNACK }, 
+                    variable = #mqtt_packet_connack{ return_code = ReturnCode1 }}, State1 ),
     {ok, State1};
 
 handle_packet(?PUBLISH, Packet = #mqtt_packet {
@@ -320,9 +316,22 @@ next_packet_id(State = #proto_state{ packet_id = 16#ffff }) ->
 next_packet_id(State = #proto_state{ packet_id = PacketId }) ->
     State #proto_state{ packet_id = PacketId + 1 }.
 
-valid_client_id(ClientId) ->
-    ClientIdLen = size(ClientId),
-    1 =< ClientIdLen andalso ClientIdLen =< ?MAX_CLIENTID_LEN.
+
+validate_connect( #mqtt_packet_connect { 
+                        proto_ver  = Ver, 
+                        proto_name = Name, 
+                        client_id = ClientId } ) -> 
+    case emqtt_packet:validate(protocol, {Ver, Name}) of
+        true -> 
+            case emqtt_packet:validate(clientid, {Ver, ClientId}) of
+                true -> 
+                    ?CONNACK_ACCEPT;
+                false -> 
+                    ?CONNACK_INVALID_ID
+            end;
+        false -> 
+            ?CONNACK_PROTO_VER
+    end.
 
 validate_packet(?PUBLISH, #mqtt_packet {
                             variable = #mqtt_packet_publish{
@@ -352,6 +361,11 @@ validate_packet(?SUBSCRIBE, #mqtt_packet{variable = #mqtt_packet_subscribe{topic
 
 validate_packet(_Type, _Frame) ->
 	ok.
+
+clientid(<<>>, #proto_state{peer_name = PeerName}) ->
+    <<"eMQTT/", (base64:encode(PeerName))/binary>>;
+
+clientid(ClientId, _State) -> ClientId.
 
 maybe_clean_sess(false, _Conn, _ClientId) ->
     % todo: establish subscription to deliver old unacknowledged messages
