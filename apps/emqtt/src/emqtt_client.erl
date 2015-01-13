@@ -38,16 +38,16 @@
 -include("emqtt.hrl").
 
 %%Client State...
--record(state, {
-    socket,
-    peer_name,
-    conn_name,
-    await_recv,
-    conn_state,
-    conserve,
-    parse_state,
-    proto_state,
-    keepalive
+-record(state, { 
+        socket, 
+        peer_name,
+        conn_name,
+        await_recv,
+        conn_state,
+        conserve,
+        parse_state,
+        proto_state,
+        keepalive
 }).
 
 start_link(Sock) ->
@@ -98,8 +98,8 @@ handle_info({stop, duplicate_id, NewPid}, State=#state{conn_name=ConnName}) ->
     stop({shutdown, duplicate_id}, State);
 
 %%TODO: ok??
-handle_info({dispatch, Message}, #state{proto_state = ProtoState} = State) ->
-    {ok, ProtoState1} = emqtt_protocol:send_message(Message, ProtoState),
+handle_info({dispatch, From, Message}, #state{proto_state = ProtoState} = State) ->
+    {ok, ProtoState1} = emqtt_protocol:send_message({From, Message}, ProtoState),
     {noreply, State#state{proto_state = ProtoState1}};
 
 handle_info({inet_reply, _Ref, ok}, State) ->
@@ -185,8 +185,8 @@ process_received_bytes(Bytes,
             stop({shutdown, Error}, State);
         {error, Error, ProtoState1} ->
             stop({shutdown, Error}, State#state{proto_state = ProtoState1});
-        {stop, ProtoState1} ->
-            stop(normal, State#state{proto_state = ProtoState1})
+        {stop, Reason, ProtoState1} ->
+            stop(Reason, State#state{proto_state = ProtoState1})
         end;
     {error, Error} ->
         lager:error("MQTT detected framing error ~p for connection ~p~n", [ConnStr, Error]),

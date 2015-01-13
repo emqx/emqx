@@ -22,6 +22,22 @@
 
 -module(emqtt_session).
 
+-include("emqtt.hrl").
+
+-include("emqtt_packet.hrl").
+
+%% ------------------------------------------------------------------
+%% API Function Exports
+%% ------------------------------------------------------------------
+-export([start/1, resume/1, publish/2, puback/2]).
+
+%% ------------------------------------------------------------------
+%% gen_server Function Exports
+%% ------------------------------------------------------------------
+
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2, code_change/3]).
+
 -record(session_state, { 
         client_id,
         client_pid,
@@ -30,18 +46,6 @@
         messages = [], %% do not receive rel
 		awaiting_ack,
         awaiting_rel }).
-
-%% ------------------------------------------------------------------
-%% API Function Exports
-%% ------------------------------------------------------------------
--export([start/1, resume/1, publish/2]).
-
-%% ------------------------------------------------------------------
-%% gen_server Function Exports
-%% ------------------------------------------------------------------
-
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -63,7 +67,7 @@ publish(_, {?QOS_0, Message}) ->
 
 %%TODO:
 publish(_, {?QOS_1, Message}) ->
-	emqtt_router:route(Message),
+	emqtt_router:route(Message);
 
 %%TODO:
 publish(Session = #session_state{awaiting_rel = Awaiting}, {?QOS_2, Message}) ->
@@ -72,8 +76,27 @@ publish(Session = #session_state{awaiting_rel = Awaiting}, {?QOS_2, Message}) ->
 
 publish(_, {?QOS_2, Message}) ->
     %TODO:
-	put({msg, PacketId}, pubrec),
-	emqtt_router:route(Message),
+	%put({msg, PacketId}, pubrec),
+	emqtt_router:route(Message).
+
+puback(_, {?PUBACK, PacketId}) ->
+    'TODO';
+puback(_, {?PUBREC, PacketId}) ->
+    'TODO';
+puback(_, {?PUBREL, PacketId}) ->
+	%FIXME Later: should release the message here
+	erase({msg, PacketId}),
+    'TODO';
+puback(_, {?PUBCOMP, PacketId}) ->
+    'TODO'.
+
+subscribe(Session, Topics) ->
+    %%TODO.
+    {ok, Session, [Qos || {_Name, Qos} <- Topics]}.
+
+unsubscribe(Session, Topics) ->
+    %%TODO.
+    {ok, Session}.
 
 initial_state(ClientId) ->
     #session_state { client_id = ClientId,

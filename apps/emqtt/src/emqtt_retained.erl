@@ -76,7 +76,7 @@ delete(Topic) ->
 	gen_server:cast(?MODULE, {delete, Topic}).
 
 send(Topic, Client) ->
-	[Client ! {dispatch, Msg} ||{_, Msg} <- lookup(Topic)].
+    [Client ! {dispatch, {self(), Msg}} ||{_, Msg} <- lookup(Topic)].
 
 init([]) ->
 	ets:new(retained_msg, [set, protected, named_table]),

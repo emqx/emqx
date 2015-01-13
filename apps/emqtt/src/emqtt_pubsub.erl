@@ -111,7 +111,7 @@ publish(Topic, Msg) when is_binary(Topic) ->
 
 %dispatch locally, should only be called by publish
 dispatch(Topic, Msg) when is_binary(Topic) ->
-	[SubPid ! {dispatch, Msg} || #topic_subscriber{subpid=SubPid} <- ets:lookup(topic_subscriber, Topic)].
+    [SubPid ! {dispatch, {self(), Msg}} || #topic_subscriber{subpid=SubPid} <- ets:lookup(topic_subscriber, Topic)].
 
 -spec match(Topic :: binary()) -> [topic()].
 match(Topic) when is_binary(Topic) ->
