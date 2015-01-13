@@ -47,13 +47,15 @@
 
 -define(SERVER, ?MODULE).
 
+-define(TABLE, emqtt_session).
+
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1]).
+-export([start_link/0]).
 
--export([lookup/1, register/2, resume/2, destroy/1]).
+-export([lookup_session/1, start_session/2, destroy_session/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -62,40 +64,92 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, { expires = 24, %hours 
-                 max_queue = 1000 }).
 
+%%----------------------------------------------------------------------------
+
+-ifdef(use_specs).
+
+-spec(start_link/0 :: () -> {ok, pid()}).
+
+-spec(lookup_session/1 :: (binary()) -> pid() | undefined).
+
+-spec(start_session/2 :: (binary(), pid()) -> {ok, pid()} | {error, any()}).
+
+-spec(destroy_session/1 :: (binary()) -> ok).
+
+-endif.
+
+%%----------------------------------------------------------------------------
+
+-record(state, {}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
-start_link(SessOpts) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [SessOpts], []).
 
-lookup(ClientId) -> ok.
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-register(ClientId, Pid) -> ok.
+lookup_session(ClientId) ->
+    case ets:lookup(?TABLE, ClientId) of
+        [{_, SessPid, _}] ->  SessPid;
+        [] -> undefined
+    end.
 
-resume(ClientId, Pid) -> ok.
+start_session(ClientId, ClientPid) ->
+    gen_server:call(?SERVER, {start_session, ClientId, ClientPid}).
 
-destroy(ClientId) -> ok.
+destory_session(ClientId) ->
+    gen_server:call(?SERVER, {destory_session, ClientId}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init(SessOpts) ->
-    State = #state{ expires = proplists:get_value(expires, SessOpts, 24) * 3600, 
-                    max_queue = proplists:get_value(max_queue, SessOpts, 1000) },
+init() ->
+    process_flag(trap_exit, true),
+    ets:new(?TABLE, [set, protected, named_table]),
     {ok, State}.
 
+handle_call({start_session, ClientId, ClientPid}, _From, State) ->
+    Reply =
+    case ets:lookup(?TABLE, ClientId) of
+        [{_, SessPid, MRef}] ->
+            emqtt_session:resume(SessPid, ClientPid), 
+            {ok, SessPid};
+        [] ->
+            case emqtt_session_sup:start_session(ClientId, ClientPid) of
+            {ok, SessPid} -> 
+                MRef = erlang:monitor(process, SessPid),
+                ets:insert(?TABLE, {ClientId, SessPid, MRef}),
+                {ok, SessPid};
+            {error, Error} ->
+                {error, Error}
+            end
+    end,
+    {reply, Reply, State};
+
+handle_call({destory_session, ClientId}, _From, State) ->
+    case ets:lookup(?TABLE, ClientId) of
+        [{_, SessPid, MRef}] ->
+            erlang:demonitor(MRef),
+            emqtt_session:destory(SessPid),
+            ets:delete(?TABLE, ClientId);
+        [] ->
+            ignore
+    end,
+    {reply, ok, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
+
+handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
+	ets:match_delete(emqtt_client, {{'_', DownPid, MRef}}),
+    {noreply, State};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -105,4 +159,5 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
 

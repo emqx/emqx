@@ -31,6 +31,8 @@
 %% ------------------------------------------------------------------
 -export([start/1, resume/1, publish/2, puback/2]).
 
+%%start gen_server
+-export([start_link/3]).
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
@@ -45,22 +47,30 @@
         subscriptions = [],
         messages = [], %% do not receive rel
 		awaiting_ack,
-        awaiting_rel }).
+        awaiting_rel,
+        expires,
+        max_queue }).
 
 %% ------------------------------------------------------------------
-%% API Function Definitions
+%% Start Session
 %% ------------------------------------------------------------------
-start({true = CleanSess, ClientId, ClientPid}) ->
-    %%destroy old session
-    %%TODO: emqtt_sm:destory_session(ClientId),
+start({true = CleanSess, ClientId, _ClientPid}) ->
+    %%Destroy old session if CleanSess is true before.
+    ok = emqtt_sm:destory_session(ClientId),
     {ok, initial_state(ClientId)};
 
 start({false = CleanSess, ClientId, ClientPid}) ->
-    %%TODO: emqtt_sm:start_session({ClientId, ClientPid})
-    gen_server:start_link(?MODULE, [ClientId, ClientPid], []).
+    {ok, SessPid} = emqtt_sm:start_session(ClientId, ClientPid),
+    {ok, SessPid}.
 
-resume(#session_state {}) -> 'TODO';
-resume(SessPid) when is_pid(SessPid) -> 'TODO'.
+%% ------------------------------------------------------------------
+%% Session API
+%% ------------------------------------------------------------------
+resume(SessState = #session_state{}, _ClientPid) -> 
+    SessState;
+resume(SessPid, ClientPid) when is_pid(SessPid) -> 
+    gen_server:cast(SessPid, {resume, ClientPid}),
+    SessPid.
 
 publish(_, {?QOS_0, Message}) ->
     emqtt_router:route(Message);
@@ -113,10 +123,16 @@ initial_state(ClientId, ClientPid) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init([ClientId, ClientPid]) ->
+start_link(SessOpts, ClientId, ClientPid) ->
+    gen_server:start_link(?MODULE, [SessOpts, ClientId, ClientPid], []).
+
+init([SessOpts, ClientId, ClientPid]) ->
     process_flag(trap_exit, true),
+    %%TODO: OK?
+    true = link(ClientPid),
     State = initial_state(ClientId, ClientPid),
-    {ok, State}.
+    {ok, State#state{ expires = proplists:get_value(expires, SessOpts, 24) * 3600, 
+                      max_queue = proplists:get_value(max_queue, SessOpts, 1000) } }.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.

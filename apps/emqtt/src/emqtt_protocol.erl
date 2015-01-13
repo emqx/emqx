@@ -138,10 +138,8 @@ handle_packet(?CONNECT, Packet = #mqtt_packet {
     send_packet( #mqtt_packet {
                     header = #mqtt_packet_header { type = ?CONNACK }, 
                     variable = #mqtt_packet_connack{ return_code = ReturnCode1 }}, State1 ),
-    %%
+    %%Starting session
     {ok, Session} = emqtt_session:start({CleanSess, ClientId, self()}),
-    emqtt_session:resume(Session),
-    %%TODO: Resume session
     {ok, State1#proto_state { session = Session }};
 
 handle_packet(?PUBLISH, Packet = #mqtt_packet {
