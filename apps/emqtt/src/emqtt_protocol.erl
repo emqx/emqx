@@ -349,7 +349,7 @@ validate_protocol(#mqtt_packet_connect { proto_ver = Ver, proto_name = Name }) -
     lists:member({Ver, Name}, ?PROTOCOL_NAMES).
 
 validate_clientid(#mqtt_packet_connect { client_id = ClientId }) 
-    when ( size(ClientId) >= 1 ) andalso ( size(ClientId) >= ?MAX_CLIENTID_LEN ) ->
+    when ( size(ClientId) >= 1 ) andalso ( size(ClientId) > ?MAX_CLIENTID_LEN ) ->
     true;
 
 %% MQTT3.1.1 allow null clientId.
