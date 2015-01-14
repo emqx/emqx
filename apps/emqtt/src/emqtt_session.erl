@@ -126,9 +126,9 @@ subscribe(SessState = #session_state{client_id = ClientId, submap = SubMap}, Top
         _  -> lager:warning("~s resubscribe ~p", [ClientId, Resubs])
     end,
     SubMap1 = lists:foldl(fun({Name, Qos}, Acc) -> maps:put(Name, Qos, Acc) end, SubMap, Topics),
-    [ok = emqtt_pubsub:subscribe({Topic, Qos}, self()) || {Topic, Qos} <- Topics],
-    %%TODO: granted all?
-    GrantedQos = [Qos || {_Name, Qos} <- Topics],
+    {ok, GrantedQos} = emqtt_pubsub:subscribe(Topics, self()),
+    %[ok = emqtt_pubsub:subscribe({Topic, Qos}, self()) || {Topic, Qos} <- Topics],
+    %GrantedQos = [Qos || {_Name, Qos} <- Topics],
     {ok, SessState#session_state{submap = SubMap1}, GrantedQos};
 
 subscribe(SessPid, Topics) when is_pid(SessPid) ->
@@ -142,7 +142,7 @@ unsubscribe(SessState = #session_state{client_id = ClientId, submap = SubMap}, T
         BadUnsubs -> lager:warning("~s should not unsubscribe ~p", [ClientId, BadUnsubs])
     end,
     %%unsubscribe from topic tree
-    [ok = emqtt_pubsub:unsubscribe(Topic, self()) || Topic <- Topics],
+    ok = emqtt_pubsub:unsubscribe(Topics, self()),
     SubMap1 = lists:foldl(fun(Topic, Acc) -> maps:remove(Topic, Acc) end, SubMap, Topics),
     {ok, SessState#session_state{submap = SubMap1}};
 
