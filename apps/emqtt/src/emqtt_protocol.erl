@@ -32,7 +32,7 @@
 
 -export([initial_state/2]).
 
--export([handle_packet/2, send_message/2, send_packet/2, connection_lost/1]).
+-export([handle_packet/2, send_message/2, send_packet/2, shutdown/2]).
 
 -export([info/1]).
 
@@ -125,7 +125,7 @@ handle_packet(?CONNECT, Packet = #mqtt_packet {
                     ClientId1 = clientid(ClientId, State), 
                     start_keepalive(KeepAlive),
                     emqtt_cm:register(ClientId1, self()),
-                    {?CONNACK_ACCEPT, State#proto_state{ will_msg   = make_will_msg(Var), 
+                    {?CONNACK_ACCEPT, State#proto_state{ will_msg   = make_willmsg(Var), 
                                                          clean_sess = CleanSess,
                                                          client_id  = ClientId1 }};
                 false ->
@@ -207,8 +207,9 @@ handle_packet(?PINGREQ, #mqtt_packet{}, State) ->
     send_packet(make_packet(?PINGRESP), State);
 
 handle_packet(?DISCONNECT, #mqtt_packet{}, State) ->
-    %%how to handle session?
-    {stop, normal, State}.
+    %%TODO: how to handle session?
+    % clean willmsg
+    {stop, normal, State#proto_state{will_msg = undefined}}.
 
 make_packet(Type) when Type >= ?CONNECT andalso Type =< ?DISCONNECT -> 
     #mqtt_packet{ header = #mqtt_packet_header { type = Type } }.
@@ -266,10 +267,11 @@ send_packet(Packet, State = #proto_state{socket = Sock, peer_name = PeerName, cl
     erlang:port_command(Sock, Data),
     {ok, State}.
 
-%%TODO: fix me later...
-connection_lost(#proto_state{client_id = ClientId} = State) ->
+shutdown(Error, State = #proto_state{peer_name = PeerName, client_id = ClientId, will_msg = WillMsg}) ->
+    send_willmsg(WillMsg),
+    try_unregister(ClientId, self()),
+	lager:info("Protocol ~s@~s Shutdown: ~p", [ClientId, PeerName, Error]),
     ok.
-    %emqtt_cm:unregister(ClientId, self()).
 
 make_message(#mqtt_packet { 
                 header = #mqtt_packet_header{
@@ -288,10 +290,10 @@ make_message(#mqtt_packet {
                    msgid      = PacketId, 
                    payload    = Payload}.
 
-make_will_msg(#mqtt_packet_connect{ will_flag   = false }) ->
+make_willmsg(#mqtt_packet_connect{ will_flag   = false }) ->
     undefined;
 
-make_will_msg(#mqtt_packet_connect{ will_retain = Retain, 
+make_willmsg(#mqtt_packet_connect{ will_retain = Retain, 
                                     will_qos    = Qos, 
                                     will_topic  = Topic, 
                                     will_msg    = Msg }) ->
@@ -307,8 +309,6 @@ next_packet_id(State = #proto_state{ packet_id = PacketId }) ->
     State #proto_state{ packet_id = PacketId + 1 }.
 
 
-
-
 clientid(<<>>, #proto_state{peer_name = PeerName}) ->
     <<"eMQTT/", (base64:encode(PeerName))/binary>>;
 
@@ -320,10 +320,9 @@ maybe_clean_sess(false, _Conn, _ClientId) ->
 
 %%----------------------------------------------------------------------------
 
-send_will_msg(#proto_state{will_msg = undefined}) ->
-	ignore;
-send_will_msg(#proto_state{will_msg = WillMsg }) ->
-	emqtt_router:route(WillMsg).
+send_willmsg(undefined) -> ignore;
+%%TODO:should call session...
+send_willmsg(WillMsg) -> emqtt_router:route(WillMsg).
 
 start_keepalive(0) -> ignore;
 start_keepalive(Sec) when Sec > 0 ->
@@ -393,4 +392,7 @@ validate_topics(Type, Topics) when Type =:= subscribe orelse Type =:= unsubscrib
 validate_qos(undefined) -> true;
 validate_qos(Qos) when Qos =< ?QOS_2 -> true;
 validate_qos(_) -> false.
+
+try_unregister(undefined, _) -> ok;
+try_unregister(ClientId, _) -> emqtt_cm:unregister(ClientId, self()).
 

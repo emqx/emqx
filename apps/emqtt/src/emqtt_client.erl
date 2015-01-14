@@ -113,12 +113,12 @@ handle_info({inet_async, Sock, _Ref, {ok, Data}}, #state{ peer_name = PeerName, 
 handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
     network_error(Reason, State);
 
-handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
-    lager:critical("unexpected inet_reply '~p'", [Reason]),
+handle_info({inet_reply, _Sock, {error, Reason}}, State = #state{peer_name = PeerName}) ->
+    lager:critical("Client ~s: unexpected inet_reply '~p'", [PeerName, Reason]),
     {noreply, State};
 
 handle_info({keepalive, start, TimeoutSec}, State = #state{socket = Socket}) ->
-    lager:info("Client: ~s: Start KeepAlive with ~p seconds", [State#state.peer_name, TimeoutSec]),
+    lager:info("Client ~s: Start KeepAlive with ~p seconds", [State#state.peer_name, TimeoutSec]),
     KeepAlive = emqtt_keepalive:new(Socket, TimeoutSec, {keepalive, timeout}),
     {noreply, State#state{ keepalive = KeepAlive }};
 
@@ -126,27 +126,25 @@ handle_info({keepalive, timeout}, State = #state { keepalive = KeepAlive }) ->
     case emqtt_keepalive:resume(KeepAlive) of
     timeout ->
         lager:info("Client ~s: Keepalive Timeout!", [State#state.peer_name]),
-        stop({shutdown, keepalive_timeout}, State);
+        stop({shutdown, keepalive_timeout}, State#state{keepalive = undefined});
     {resumed, KeepAlive1} ->
         lager:info("Client ~s: Keepalive Resumed", [State#state.peer_name]),
         {noreply, State#state{ keepalive = KeepAlive1 }}
     end;
 
-handle_info(Info, State) ->
-    lager:error("badinfo :~p",[Info]),
+handle_info(Info, State = #state{peer_name = PeerName}) ->
+    lager:critical("Client ~s: unexpected info ~p",[PeerName, Info]),
     {stop, {badinfo, Info}, State}.
 
-terminate(Reason, #state{proto_state = unefined}) ->
-    io:format("client terminated: ~p, reason: ~p~n", [self(), Reason]),
-    %%TODO: fix keep_alive...
-    %%emqtt_keep_alive:cancel(KeepAlive),
-    %emqtt_protocol:connection_lost(ProtoState),
-    ok;
-
-terminate(_Reason, #state { keepalive = KeepAlive, proto_state = ProtoState }) ->
-    %%TODO: fix keep_alive...
+terminate(Reason, #state{ peer_name = PeerName, keepalive = KeepAlive, proto_state = ProtoState }) ->
+    lager:info("Client ~s: ~p terminated, reason: ~p~n", [PeerName, self(), Reason]),
     emqtt_keepalive:cancel(KeepAlive),
-    emqtt_protocol:connection_lost(ProtoState),
+    case {ProtoState, Reason} of
+        {undefined, _} -> ok;
+        {_, {shutdown, Error}} -> 
+            emqtt_protocol:shutdown(Error, ProtoState);
+        {_, _} -> ok %TODO: 
+    end,
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -194,12 +192,8 @@ process_received_bytes(Bytes,
     end.
 
 %%----------------------------------------------------------------------------
-network_error(Reason,
-              State = #state{ conn_name  = ConnStr}) ->
-    lager:error("MQTT detected network error '~p' for ~p", [Reason, ConnStr]),
-    %%TODO: where to SEND WILL MSG??
-    %%send_will_msg(State),
-    % todo: flush channel after publish
+network_error(Reason, State = #state{ peer_name = PeerName, conn_name  = ConnStr }) ->
+    lager:error("Client ~s: MQTT detected network error '~p'", [PeerName, Reason]),
     stop({shutdown, conn_closed}, State).
 
 run_socket(State = #state{ conn_state = blocked }) ->
