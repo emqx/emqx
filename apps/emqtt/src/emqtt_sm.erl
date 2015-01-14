@@ -55,7 +55,7 @@
 
 -export([start_link/0]).
 
--export([lookup_session/1, start_session/2, destory_session/1]).
+-export([lookup_session/1, start_session/2, destroy_session/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -75,7 +75,7 @@
 
 -spec(start_session/2 :: (binary(), pid()) -> {ok, pid()} | {error, any()}).
 
--spec(destory_session/1 :: (binary()) -> ok).
+-spec(destroy_session/1 :: (binary()) -> ok).
 
 -endif.
 
@@ -100,8 +100,8 @@ lookup_session(ClientId) ->
 start_session(ClientId, ClientPid) ->
     gen_server:call(?SERVER, {start_session, ClientId, ClientPid}).
 
-destory_session(ClientId) ->
-    gen_server:call(?SERVER, {destory_session, ClientId}).
+destroy_session(ClientId) ->
+    gen_server:call(?SERVER, {destroy_session, ClientId}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -130,11 +130,11 @@ handle_call({start_session, ClientId, ClientPid}, _From, State) ->
     end,
     {reply, Reply, State};
 
-handle_call({destory_session, ClientId}, _From, State) ->
+handle_call({destroy_session, ClientId}, _From, State) ->
     case ets:lookup(?TABLE, ClientId) of
         [{_, SessPid, MRef}] ->
             erlang:demonitor(MRef),
-            emqtt_session:destory(SessPid),
+            emqtt_session:destory(SessPid, ClientId),
             ets:delete(?TABLE, ClientId);
         [] ->
             ignore

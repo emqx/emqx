@@ -29,7 +29,7 @@
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
--export([start/1, resume/3, publish/2, puback/2, subscribe/2, unsubscribe/2]).
+-export([start/1, resume/3, publish/2, puback/2, subscribe/2, unsubscribe/2, destroy/2]).
 
 %%start gen_server
 -export([start_link/3]).
@@ -56,12 +56,12 @@
 %% ------------------------------------------------------------------
 %% Start Session
 %% ------------------------------------------------------------------
-start({true = CleanSess, ClientId, _ClientPid}) ->
+start({true = _CleanSess, ClientId, _ClientPid}) ->
     %%Destroy old session if CleanSess is true before.
-    ok = emqtt_sm:destory_session(ClientId),
+    ok = emqtt_sm:destroy_session(ClientId),
     {ok, initial_state(ClientId)};
 
-start({false = CleanSess, ClientId, ClientPid}) ->
+start({false = _CleanSess, ClientId, ClientPid}) ->
     {ok, SessPid} = emqtt_sm:start_session(ClientId, ClientPid),
     {ok, SessPid}.
 
@@ -146,9 +146,12 @@ unsubscribe(SessState = #session_state{client_id = ClientId, submap = SubMap}, T
     SubMap1 = lists:foldl(fun(Topic, Acc) -> maps:remove(Topic, Acc) end, SubMap, Topics),
     {ok, SessState#session_state{submap = SubMap1}};
 
-unsubscribe(SessPid, Topics) ->
+unsubscribe(SessPid, Topics) when is_pid(SessPid) ->
     gen_server:call(SessPid, {unsubscribe, Topics}),
     {ok, SessPid}.
+
+destroy(SessPid, ClientId)  when is_pid(SessPid) ->
+    gen_server:cast(SessPid, {destroy, ClientId}).
 
 initial_state(ClientId) ->
     #session_state { client_id  = ClientId,
@@ -218,6 +221,10 @@ handle_cast({pubrel, PacketId}, State) ->
 handle_cast({pubcomp, PacketId}, State) ->
     NewState = puback(State, {?PUBCOMP, PacketId}),
     {noreply, NewState};
+
+handle_cast({destroy, ClientId}, State = #session_state{client_id = ClientId}) ->
+    lager:warning("Session: ~s destroyed", [ClientId]),
+    {stop, normal, State};
 
 handle_cast(Msg, State) ->
     {stop, {badmsg, Msg}, State}.
