@@ -184,8 +184,8 @@ handle_call({unsubscribe, Topics}, _From, State) ->
     {ok, NewState} = unsubscribe(State, Topics),
     {reply, ok, NewState};
 
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+handle_call(Req, _From, State) ->
+    {stop, {badreq, Req}, State}.
 
 handle_cast({publish, ?QOS_2, Message}, State) ->
     NewState = publish(State, {?QOS_2, Message}),
@@ -210,8 +210,8 @@ handle_cast({pubcomp, PacketId}, State) ->
 handle_cast(Msg, State) ->
     {stop, {badmsg, Msg}, State}.
 
-handle_info(_Info, State) ->
-    {noreply, State}.
+handle_info(Info, State) ->
+    {stop, {badinfo, Info}, State}.
 
 terminate(_Reason, _State) ->
     ok.
@@ -222,6 +222,5 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
 
 
