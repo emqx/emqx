@@ -98,7 +98,7 @@ handle_info({stop, duplicate_id, NewPid}, State=#state{conn_name=ConnName}) ->
     stop({shutdown, duplicate_id}, State);
 
 %%TODO: ok??
-handle_info({dispatch, From, Message}, #state{proto_state = ProtoState} = State) ->
+handle_info({dispatch, {From, Message}}, #state{proto_state = ProtoState} = State) ->
     {ok, ProtoState1} = emqtt_protocol:send_message({From, Message}, ProtoState),
     {noreply, State#state{proto_state = ProtoState1}};
 

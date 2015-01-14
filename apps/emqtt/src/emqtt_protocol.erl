@@ -222,8 +222,9 @@ puback_qos(?PUBREC) ->  ?QOS_0;
 puback_qos(?PUBREL) ->  ?QOS_1;
 puback_qos(?PUBCOMP) -> ?QOS_0.
 
--spec send_message(Message, State) -> {ok, NewState} when
-    Message 	:: {pid(), mqtt_message()},
+-spec send_message({From, Message}, State) -> {ok, NewState} when
+    From        :: pid(),
+    Message 	:: mqtt_message(),
 	State		:: proto_state(),
 	NewState	:: proto_state().
 
