@@ -116,7 +116,7 @@ handle_call({start_session, ClientId, ClientPid}, _From, State) ->
     Reply =
     case ets:lookup(?TABLE, ClientId) of
         [{_, SessPid, _MRef}] ->
-            emqtt_session:resume(SessPid, ClientPid), 
+            emqtt_session:resume(SessPid, ClientId, ClientPid), 
             {ok, SessPid};
         [] ->
             case emqtt_session_sup:start_session(ClientId, ClientPid) of
