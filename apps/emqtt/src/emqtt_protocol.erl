@@ -381,6 +381,10 @@ validate_packet(#mqtt_packet{ header  = #mqtt_packet_header { type = ?UNSUBSCRIB
 validate_packet(_Packet) -> 
     ok.
 
+validate_topics(Type, []) when Type =:= subscribe orelse Type =:= unsubscribe ->
+	lager:error("Empty Topics!"),
+    {error, empty_topics};
+
 validate_topics(Type, Topics) when Type =:= subscribe orelse Type =:= unsubscribe ->
 	ErrTopics = [Topic || #mqtt_topic{name=Topic, qos=Qos} <- Topics,
 						not (emqtt_topic:validate({Type, Topic}) and validate_qos(Qos))],
