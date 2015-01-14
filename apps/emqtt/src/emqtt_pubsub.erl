@@ -86,6 +86,8 @@ topics() ->
 subscribe({Topic, Qos}, SubPid) when is_binary(Topic) and is_pid(SubPid) ->
 	gen_server:call(?SERVER, {subscribe, {Topic, Qos}, SubPid}).
 
+
+
 %%
 %% @doc Unsubscribe Topic
 %%

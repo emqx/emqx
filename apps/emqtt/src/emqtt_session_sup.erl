@@ -26,7 +26,7 @@
 
 -behavior(supervisor).
 
--export([start_link/0, start_session/2]).
+-export([start_link/1, start_session/2]).
 
 -export([init/1]).
 

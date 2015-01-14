@@ -55,7 +55,7 @@
 
 -export([start_link/0]).
 
--export([lookup_session/1, start_session/2, destroy_session/1]).
+-export([lookup_session/1, start_session/2, destory_session/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -75,7 +75,7 @@
 
 -spec(start_session/2 :: (binary(), pid()) -> {ok, pid()} | {error, any()}).
 
--spec(destroy_session/1 :: (binary()) -> ok).
+-spec(destory_session/1 :: (binary()) -> ok).
 
 -endif.
 
@@ -107,15 +107,15 @@ destory_session(ClientId) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init() ->
+init([]) ->
     process_flag(trap_exit, true),
     ets:new(?TABLE, [set, protected, named_table]),
-    {ok, State}.
+    {ok, #state{}}.
 
 handle_call({start_session, ClientId, ClientPid}, _From, State) ->
     Reply =
     case ets:lookup(?TABLE, ClientId) of
-        [{_, SessPid, MRef}] ->
+        [{_, SessPid, _MRef}] ->
             emqtt_session:resume(SessPid, ClientPid), 
             {ok, SessPid};
         [] ->

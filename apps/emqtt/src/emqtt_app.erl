@@ -76,7 +76,15 @@ start_servers(Sup) ->
 		end,
 	 	[{"emqtt config", emqtt_config},
          {"emqtt client manager", emqtt_cm},
-         {"emqtt session manager", emqtt_sm, SessOpts},
+         {"emqtt session manager", emqtt_sm},
+         %%TODO: fixme
+         {"emqtt session supervisor", fun() ->
+             Mod = emqtt_session_sup,
+             supervisor:start_child(Sup, 
+                 {Mod,
+                     {Mod, start_link, [SessOpts]},
+                        permanent, 1000, supervisor, [Mod]})
+         end},
          {"emqtt auth", emqtt_auth},
 		 {"emqtt retained", emqtt_retained},
 		 {"emqtt pubsub", emqtt_pubsub},
