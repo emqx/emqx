@@ -126,7 +126,7 @@ handle_info({keepalive, timeout}, State = #state { keepalive = KeepAlive }) ->
     case emqtt_keepalive:resume(KeepAlive) of
     timeout ->
         lager:info("Client ~s: Keepalive Timeout!", [State#state.peer_name]),
-        {stop, normal, State};
+        stop({shutdown, keepalive_timeout}, State);
     {resumed, KeepAlive1} ->
         lager:info("Client ~s: Keepalive Resumed", [State#state.peer_name]),
         {noreply, State#state{ keepalive = KeepAlive1 }}
