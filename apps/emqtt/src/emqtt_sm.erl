@@ -134,7 +134,7 @@ handle_call({destroy_session, ClientId}, _From, State) ->
     case ets:lookup(?TABLE, ClientId) of
         [{_, SessPid, MRef}] ->
             erlang:demonitor(MRef),
-            emqtt_session:destory(SessPid, ClientId),
+            emqtt_session:destroy(SessPid, ClientId),
             ets:delete(?TABLE, ClientId);
         [] ->
             ignore
