@@ -195,7 +195,7 @@ handle_cast({resume, ClientId, ClientPid}, State = #session_state {
         expire_timer = ETimer}) ->
     lager:info("Session: client ~s resumed by ~p", [ClientId, ClientPid]),
     erlang:cancel_timer(ETimer),
-    [ClientPid ! {dispatch, {self(), Message}} || Message <- Messages],
+    [ClientPid ! {dispatch, {self(), Message}} || Message <- lists:reverse(Messages)],
     NewState = State#session_state{ client_pid = ClientPid, messages = [], expire_timer = undefined},
     {noreply, NewState};
 
