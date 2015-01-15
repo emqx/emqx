@@ -65,7 +65,7 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 route(Message) ->
-	emqtt_pubsub:publish(retained(Message)).
+	emqtt_pubsub:publish(retained(reset_dup(Message))).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -96,4 +96,7 @@ retained(Msg = #mqtt_message{retain = true, topic = Topic}) ->
 	emqtt_retained:insert(Topic, Msg), Msg;
 
 retained(Msg) -> Msg.
+
+reset_dup(Msg = #mqtt_message{dup = true}) -> Msg#mqtt_message{dup = false};
+reset_dup(Msg) -> Msg.
 
