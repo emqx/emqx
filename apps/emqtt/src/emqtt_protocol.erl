@@ -153,14 +153,14 @@ handle_packet(?CONNECT, Packet = #mqtt_packet {
 handle_packet(?PUBLISH, Packet = #mqtt_packet {
                                      header = #mqtt_packet_header {qos = ?QOS_0}}, 
                                  State = #proto_state{session = Session}) ->
-    emqtt_session:publish(Session, {?QOS_0, emqtt_messsage:from_packet(Packet)}),
+    emqtt_session:publish(Session, {?QOS_0, emqtt_message:from_packet(Packet)}),
 	{ok, State};
 
 handle_packet(?PUBLISH, Packet = #mqtt_packet { 
                                      header = #mqtt_packet_header { qos = ?QOS_1 }, 
                                      variable = #mqtt_packet_publish{packet_id = PacketId }}, 
                                  State = #proto_state { session = Session }) ->
-    emqtt_session:publish(Session, {?QOS_1, emqtt_messsage:from_packet(Packet)}),
+    emqtt_session:publish(Session, {?QOS_1, emqtt_message:from_packet(Packet)}),
     send_packet( make_packet(?PUBACK,  PacketId),  State);
 
 handle_packet(?PUBLISH, Packet = #mqtt_packet { 

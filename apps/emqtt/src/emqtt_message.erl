@@ -22,6 +22,8 @@
 
 -module(emqtt_message).
 
+-author('feng@emqtt.io').
+
 -include("emqtt.hrl").
 
 -include("emqtt_packet.hrl").
@@ -44,8 +46,8 @@
 %% @doc message from packet
 %%
 from_packet(#mqtt_packet{ header = #mqtt_packet_header{ type   = ?PUBLISH,
-                                                        qos    = Qos, 
                                                         retain = Retain, 
+                                                        qos    = Qos,
                                                         dup    = Dup }, 
                           variable = #mqtt_packet_publish{ topic_name = Topic, 
                                                            packet_id  = PacketId }, 
