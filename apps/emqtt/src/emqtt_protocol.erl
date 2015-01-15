@@ -260,7 +260,7 @@ shutdown(Error, #proto_state{peer_name = PeerName, client_id = ClientId, will_ms
     ok.
 
 willmsg(Packet) when is_record(Packet, mqtt_packet_connect) ->
-    emqtt_packet:from_packet(Packet).
+    emqtt_message:from_packet(Packet).
 
 clientid(<<>>, #proto_state{peer_name = PeerName}) ->
     <<"eMQTT/", (base64:encode(PeerName))/binary>>;
