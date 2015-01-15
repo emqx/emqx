@@ -30,29 +30,42 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([initial_state/2]).
+-export([initial_state/2, client_id/1]).
 
 -export([handle_packet/2, send_message/2, send_packet/2, shutdown/2]).
 
 -export([info/1]).
 
+
 %% ------------------------------------------------------------------
 %% Protocol State
 %% ------------------------------------------------------------------
--record(proto_state, { 
-        socket, 
+-record(proto_state, {
+        socket,
         peer_name,
         connected = false, %received CONNECT action?
-        proto_vsn, 
+        proto_vsn,
         proto_name,
-		packet_id,
+		%packet_id,
 		client_id,
 		clean_sess,
         session, %% session state or session pid
 		will_msg
 }).
 
--type proto_state() :: #proto_state{}.
+%%----------------------------------------------------------------------------
+
+-ifdef(use_specs).
+
+-type(proto_state() :: #proto_state{}).
+
+-spec(send_message({pid() | tuple(), mqtt_message()}, proto_state()) -> {ok, proto_state()}).
+
+-spec(handle_packet(mqtt_packet(), proto_state()) -> {ok, proto_state()} | {error, any()}). 
+
+-endif.
+
+%%----------------------------------------------------------------------------
 
 -define(PACKET_TYPE(Packet, Type), 
     Packet = #mqtt_packet { header = #mqtt_packet_header { type = Type }}).
@@ -62,28 +75,23 @@
 initial_state(Socket, Peername) ->
 	#proto_state{
 		socket			= Socket,
-        peer_name       = Peername,
-		packet_id		= 1
+        peer_name       = Peername
 	}. 
+
+client_id(#proto_state { client_id = ClientId }) -> ClientId.
 
 %%SHOULD be registered in emqtt_cm
 info(#proto_state{ proto_vsn    = ProtoVsn,
                    proto_name   = ProtoName,
-                   packet_id	= PacketId,
 				   client_id	= ClientId,
 				   clean_sess	= CleanSess,
 				   will_msg		= WillMsg }) ->
-	[ {packet_id,  PacketId},
-      {proto_vsn,  ProtoVsn},
+	[ {proto_vsn,  ProtoVsn},
       {proto_name, ProtoName},
 	  {client_id,  ClientId},
 	  {clean_sess, CleanSess},
 	  {will_msg,   WillMsg} ].
 
--spec handle_packet(Packet, State) -> {ok, NewState} | {error, any()} when 
-	Packet      :: mqtt_packet(), 
-	State       :: proto_state(),
-	NewState    :: proto_state().
 
 %%CONNECT – Client requests a connection to a Server
 
@@ -125,7 +133,7 @@ handle_packet(?CONNECT, Packet = #mqtt_packet {
                     ClientId1 = clientid(ClientId, State), 
                     start_keepalive(KeepAlive),
                     emqtt_cm:register(ClientId1, self()),
-                    {?CONNACK_ACCEPT, State#proto_state{ will_msg   = make_willmsg(Var), 
+                    {?CONNACK_ACCEPT, State#proto_state{ will_msg   = willmsg(Var), 
                                                          clean_sess = CleanSess,
                                                          client_id  = ClientId1 }};
                 false ->
@@ -145,21 +153,21 @@ handle_packet(?CONNECT, Packet = #mqtt_packet {
 handle_packet(?PUBLISH, Packet = #mqtt_packet {
                                      header = #mqtt_packet_header {qos = ?QOS_0}}, 
                                  State = #proto_state{session = Session}) ->
-    emqtt_session:publish(Session, {?QOS_0, make_message(Packet)}),
+    emqtt_session:publish(Session, {?QOS_0, emqtt_messsage:from_packet(Packet)}),
 	{ok, State};
 
 handle_packet(?PUBLISH, Packet = #mqtt_packet { 
                                      header = #mqtt_packet_header { qos = ?QOS_1 }, 
                                      variable = #mqtt_packet_publish{packet_id = PacketId }}, 
                                  State = #proto_state { session = Session }) ->
-    emqtt_session:publish(Session, {?QOS_1, make_message(Packet)}),
+    emqtt_session:publish(Session, {?QOS_1, emqtt_messsage:from_packet(Packet)}),
     send_packet( make_packet(?PUBACK,  PacketId),  State);
 
 handle_packet(?PUBLISH, Packet = #mqtt_packet { 
                                      header = #mqtt_packet_header { qos = ?QOS_2 }, 
                                      variable = #mqtt_packet_publish { packet_id = PacketId } }, 
                                  State = #proto_state { session = Session }) ->
-    NewSession = emqtt_session:publish(Session, {?QOS_2, make_message(Packet)}),
+    NewSession = emqtt_session:publish(Session, {?QOS_2, emqtt_message:from_packet(Packet)}),
 	send_packet( make_packet(?PUBREC, PacketId), State#proto_state {session = NewSession} );
 
 handle_packet(Puback, #mqtt_packet{variable = ?PUBACK_PACKET(PacketId) }, 
@@ -188,9 +196,9 @@ handle_packet(?SUBSCRIBE, #mqtt_packet {
     Topics = [{Name, Qos} || #mqtt_topic{name=Name, qos=Qos} <- TopicTable], 
     {ok, NewSession, GrantedQos} = emqtt_session:subscribe(Session, Topics),
     send_packet(#mqtt_packet { header = #mqtt_packet_header { type = ?SUBACK }, 
-                               variable = #mqtt_packet_suback{ 
-                                             packet_id = PacketId, 
-                                             qos_table  = GrantedQos }}, State);
+                               variable = #mqtt_packet_suback{ packet_id = PacketId, 
+                                                               qos_table  = GrantedQos }}, 
+                   State#proto_state{ session = NewSession });
 
 handle_packet(?UNSUBSCRIBE, #mqtt_packet { 
                                 variable = #mqtt_packet_subscribe{
@@ -223,41 +231,19 @@ puback_qos(?PUBREC) ->  ?QOS_0;
 puback_qos(?PUBREL) ->  ?QOS_1;
 puback_qos(?PUBCOMP) -> ?QOS_0.
 
--spec send_message({From, Message}, State) -> {ok, NewState} when
-    From        :: pid(),
-    Message 	:: mqtt_message(),
-	State		:: proto_state(),
-	NewState	:: proto_state().
+%% qos0 message
+send_message({_From, Message = #mqtt_message{ qos = ?QOS_0 }}, State) ->
+	send_packet(emqtt_message:to_packet(Message), State);
 
-send_message({From, Message = #mqtt_message{ 
-                          retain    = Retain, 
-                          qos        = Qos, 
-                          topic      = Topic, 
-                          dup        = Dup, 
-                          payload    = Payload}}, 
-             State = #proto_state{packet_id = PacketId}) ->
+%% message from session
+send_message({_From = SessPid, Message}, State = #proto_state{session = SessPid}) when is_pid(SessPid) ->
+	send_packet(emqtt_message:to_packet(Message), State);
 
-    Packet = #mqtt_packet { 
-                header = #mqtt_packet_header { 
-                            type 	 = ?PUBLISH, 
-                            qos    = Qos, 
-                            retain = Retain, 
-                            dup    = Dup }, 
-                variable = #mqtt_packet_publish {
-                             topic_name = Topic,
-                             packet_id = if
-                                             Qos == ?QOS_0 -> undefined; 
-                                             true -> PacketId 
-                                         end }, 
-                payload = Payload},
-
-	send_packet(Packet, State),
-	if
-	Qos == ?QOS_0 ->
-		{ok, State};
-	true ->
-		{ok, next_packet_id(State)}
-	end.
+%% message(qos1, qos2) not from session
+send_message({_From, Message = #mqtt_message{ qos = Qos }}, State = #proto_state{ session = Session }) 
+    when (Qos =:= ?QOS_1) orelse (Qos =:= ?QOS_2) ->
+    {Message1, NewSession} = emqtt_session:store(Session, Message),
+	send_packet(emqtt_message:to_packet(Message1), State#proto_state{session = NewSession}).
 
 send_packet(Packet, State = #proto_state{socket = Sock, peer_name = PeerName, client_id = ClientId}) ->
 	lager:info("SENT to ~s@~s: ~s", [ClientId, PeerName, emqtt_packet:dump(Packet)]),
@@ -267,56 +253,19 @@ send_packet(Packet, State = #proto_state{socket = Sock, peer_name = PeerName, cl
     erlang:port_command(Sock, Data),
     {ok, State}.
 
-shutdown(Error, State = #proto_state{peer_name = PeerName, client_id = ClientId, will_msg = WillMsg}) ->
+shutdown(Error, #proto_state{peer_name = PeerName, client_id = ClientId, will_msg = WillMsg}) ->
     send_willmsg(WillMsg),
     try_unregister(ClientId, self()),
 	lager:info("Protocol ~s@~s Shutdown: ~p", [ClientId, PeerName, Error]),
     ok.
 
-make_message(#mqtt_packet { 
-                header = #mqtt_packet_header{
-                            qos    = Qos, 
-                            retain = Retain, 
-                            dup    = Dup }, 
-                variable = #mqtt_packet_publish{
-                              topic_name = Topic, 
-                              packet_id = PacketId }, 
-                payload = Payload }) ->
-
-	#mqtt_message{ retain     = Retain, 
-                   qos        = Qos, 
-                   topic      = Topic, 
-                   dup        = Dup, 
-                   msgid      = PacketId, 
-                   payload    = Payload}.
-
-make_willmsg(#mqtt_packet_connect{ will_flag   = false }) ->
-    undefined;
-
-make_willmsg(#mqtt_packet_connect{ will_retain = Retain, 
-                                    will_qos    = Qos, 
-                                    will_topic  = Topic, 
-                                    will_msg    = Msg }) ->
-    #mqtt_message{ retain  = Retain, 
-                   qos     = Qos, 
-                   topic   = Topic, 
-                   dup     = false, 
-                   payload = Msg }.
-
-next_packet_id(State = #proto_state{ packet_id = 16#ffff }) ->
-    State #proto_state{ packet_id = 1 };
-next_packet_id(State = #proto_state{ packet_id = PacketId }) ->
-    State #proto_state{ packet_id = PacketId + 1 }.
-
+willmsg(Packet) when is_record(Packet, mqtt_packet_connect) ->
+    emqtt_packet:from_packet(Packet).
 
 clientid(<<>>, #proto_state{peer_name = PeerName}) ->
     <<"eMQTT/", (base64:encode(PeerName))/binary>>;
 
 clientid(ClientId, _State) -> ClientId.
-
-maybe_clean_sess(false, _Conn, _ClientId) ->
-    % todo: establish subscription to deliver old unacknowledged messages
-    ok.
 
 %%----------------------------------------------------------------------------
 
@@ -327,7 +276,6 @@ send_willmsg(WillMsg) -> emqtt_router:route(WillMsg).
 start_keepalive(0) -> ignore;
 start_keepalive(Sec) when Sec > 0 ->
     self() ! {keepalive, start, round(Sec * 1.5)}.
-
 
 %%----------------------------------------------------------------------------
 %% Validate Packets
@@ -365,7 +313,7 @@ validate_packet(#mqtt_packet { header  = #mqtt_packet_header { type = ?PUBLISH }
                                variable = #mqtt_packet_publish{ topic_name = Topic }}) ->
 	case emqtt_topic:validate({publish, Topic}) of
 	true -> ok;
-	false -> lager:error("Error Publish Topic: ~p", [Topic]), {error, badtopic}
+	false -> lager:warning("Error publish topic: ~p", [Topic]), {error, badtopic}
 	end;
 
 validate_packet(#mqtt_packet { header  = #mqtt_packet_header { type = ?SUBSCRIBE }, 

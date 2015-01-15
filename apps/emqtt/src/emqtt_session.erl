@@ -31,6 +31,8 @@
 %% ------------------------------------------------------------------
 -export([start/1, resume/3, publish/2, puback/2, subscribe/2, unsubscribe/2, destroy/2]).
 
+-export([store/2]).
+
 %%start gen_server
 -export([start_link/3]).
 
@@ -44,14 +46,14 @@
 -record(session_state, { 
         client_id   :: binary(),
         client_pid  :: pid(),
-		packet_id   = 1,
+		message_id  = 1,
         submap      :: map(),
-        messages    = [], %% do not receive rel
+        msg_queue, %% do not receive rel
         awaiting_ack :: map(),
         awaiting_rel :: map(),
+        awaiting_comp :: map(),
         expires,
-        expire_timer,
-        max_queue }).
+        expire_timer }).
 
 %% ------------------------------------------------------------------
 %% Start Session
@@ -74,51 +76,69 @@ resume(SessPid, ClientId, ClientPid) when is_pid(SessPid) ->
     gen_server:cast(SessPid, {resume, ClientId, ClientPid}),
     SessPid.
 
-publish(_, {?QOS_0, Message}) ->
-    emqtt_router:route(Message);
-%%TODO:
-publish(_, {?QOS_1, Message}) ->
-	emqtt_router:route(Message);
-%%TODO:
-publish(SessState = #session_state{awaiting_rel = Awaiting}, 
+publish(Session, {?QOS_0, Message}) ->
+    emqtt_router:route(Message), Session;
+
+publish(Session, {?QOS_1, Message}) ->
+	emqtt_router:route(Message), Session;
+
+publish(SessState = #session_state{awaiting_rel = AwaitingRel}, 
     {?QOS_2, Message = #mqtt_message{ msgid = MsgId }}) ->
-    %% store in awaiting map 
-    %%TODO: TIMEOUT
-    Awaiting1 = maps:put(MsgId,  Message, Awaiting),
-    SessState#session_state{awaiting_rel = Awaiting1};
+    %% store in awaiting_rel
+    SessState#session_state{awaiting_rel = maps:put(MsgId, Message, AwaitingRel)};
 
 publish(SessPid, {?QOS_2, Message}) when is_pid(SessPid) ->
     gen_server:cast(SessPid, {publish, ?QOS_2, Message}),
     SessPid.
 
+%% PUBACK
 puback(SessState = #session_state{client_id = ClientId, awaiting_ack = Awaiting}, {?PUBACK, PacketId}) ->
-    Awaiting1 = 
     case maps:is_key(PacketId, Awaiting) of
-        true -> maps:remove(PacketId, Awaiting);
-        false -> lager:warning("~s puback packetid '~p' not exist", [ClientId, PacketId])
+        true -> ok;
+        false -> lager:warning("Session ~s: PUBACK PacketId '~p' not found!", [ClientId, PacketId])
     end,
-    SessState#session_state{awaiting_ack= Awaiting1};
+    SessState#session_state{awaiting_ack = maps:remove(PacketId, Awaiting)};
 puback(SessPid, {?PUBACK, PacketId}) when is_pid(SessPid) ->
     gen_server:cast(SessPid, {puback, PacketId}), SessPid;
 
-puback(SessState = #session_state{}, {?PUBREC, PacketId}) ->
-    %%TODO'
-   SessState;
+%% PUBREC
+puback(SessState = #session_state{ client_id = ClientId, 
+                                   awaiting_ack = AwaitingAck,
+                                   awaiting_comp = AwaitingComp }, {?PUBREC, PacketId}) ->
+    case maps:is_key(PacketId, AwaitingAck) of
+        true -> ok;
+        false -> lager:warning("Session ~s: PUBREC PacketId '~p' not found!", [ClientId, PacketId])
+    end,
+    SessState#session_state{ awaiting_ack   = maps:remove(PacketId, AwaitingAck), 
+                             awaiting_comp  = maps:put(PacketId, true, AwaitingComp) };
+
 puback(SessPid, {?PUBREC, PacketId}) when is_pid(SessPid) ->
     gen_server:cast(SessPid, {pubrec, PacketId}), SessPid;
 
-puback(SessState = #session_state{}, {?PUBREL, PacketId}) ->
-	%FIXME Later: should release the message here
-	%%emqtt_router:route(Message).
-    'TODO', erase({msg, PacketId}), SessState;
+%% PUBREL
+puback(SessState = #session_state{client_id = ClientId, awaiting_rel = Awaiting}, {?PUBREL, PacketId}) ->
+    case maps:find(PacketId, Awaiting) of
+        {ok, Msg} -> emqtt_router:route(Msg);
+        error -> lager:warning("Session ~s: PUBREL PacketId '~p' not found!", [ClientId, PacketId])
+    end,
+    SessState#session_state{awaiting_rel = maps:remove(PacketId, Awaiting)};
+
 puback(SessPid, {?PUBREL, PacketId}) when is_pid(SessPid) ->
     gen_server:cast(SessPid, {pubrel, PacketId}), SessPid;
 
-puback(SessState = #session_state{}, {?PUBCOMP, PacketId}) ->
-    'TODO', SessState;
+%% PUBCOMP
+puback(SessState = #session_state{ client_id = ClientId, 
+                                   awaiting_comp = AwaitingComp}, {?PUBCOMP, PacketId}) ->
+    case maps:is_key(PacketId, AwaitingComp) of
+        true -> ok;
+        false -> lager:warning("Session ~s: PUBREC PacketId '~p' not exist", [ClientId, PacketId])
+    end,
+    SessState#session_state{ awaiting_comp  = maps:remove(PacketId, AwaitingComp) };
+
 puback(SessPid, {?PUBCOMP, PacketId}) when is_pid(SessPid) ->
     gen_server:cast(SessPid, {pubcomp, PacketId}), SessPid.
 
+%% SUBSCRIBE
 subscribe(SessState = #session_state{client_id = ClientId, submap = SubMap}, Topics) ->
     Resubs = [Topic || {Name, _Qos} = Topic <- Topics, maps:is_key(Name, SubMap)], 
     case Resubs of
@@ -127,14 +147,15 @@ subscribe(SessState = #session_state{client_id = ClientId, submap = SubMap}, Top
     end,
     SubMap1 = lists:foldl(fun({Name, Qos}, Acc) -> maps:put(Name, Qos, Acc) end, SubMap, Topics),
     {ok, GrantedQos} = emqtt_pubsub:subscribe(Topics, self()),
-    %[ok = emqtt_pubsub:subscribe({Topic, Qos}, self()) || {Topic, Qos} <- Topics],
-    %GrantedQos = [Qos || {_Name, Qos} <- Topics],
     {ok, SessState#session_state{submap = SubMap1}, GrantedQos};
 
 subscribe(SessPid, Topics) when is_pid(SessPid) ->
     {ok, GrantedQos} = gen_server:call(SessPid, {subscribe, Topics}),
     {ok, SessPid, GrantedQos}.
 
+%%
+%% @doc UNSUBSCRIBE
+%%
 unsubscribe(SessState = #session_state{client_id = ClientId, submap = SubMap}, Topics) ->
     %%TODO: refactor later.
     case Topics -- maps:keys(SubMap) of
@@ -153,12 +174,25 @@ unsubscribe(SessPid, Topics) when is_pid(SessPid) ->
 destroy(SessPid, ClientId)  when is_pid(SessPid) ->
     gen_server:cast(SessPid, {destroy, ClientId}).
 
+%store message(qos1) that sent to client
+store(SessState = #session_state{ message_id = MsgId, awaiting_ack = Awaiting}, 
+    Message = #mqtt_message{ qos = Qos }) when (Qos =:= ?QOS_1) orelse (Qos =:= ?QOS_2) ->
+    %%assign msgid before send
+    Message1 = Message#mqtt_message{ msgid = MsgId },
+    Message2 =
+    if
+        Qos =:= ?QOS_2 -> Message1#mqtt_message{dup = false};
+        true -> Message1
+    end,
+    Awaiting1 = maps:put(MsgId, Message2, Awaiting),
+    {Message1, next_msg_id(SessState#session_state{ awaiting_ack = Awaiting1 })}.
+
 initial_state(ClientId) ->
     #session_state { client_id  = ClientId,
-                     packet_id  = 1, 
                      submap     = #{}, 
                      awaiting_ack = #{},
-                     awaiting_rel = #{} }.
+                     awaiting_rel = #{},
+                     awaiting_comp = #{} }.
 
 initial_state(ClientId, ClientPid) ->
     State = initial_state(ClientId),
@@ -173,12 +207,14 @@ start_link(SessOpts, ClientId, ClientPid) ->
 
 init([SessOpts, ClientId, ClientPid]) ->
     process_flag(trap_exit, true),
-    %%TODO: OK?
+    %%TODO: Is this OK?
     true = link(ClientPid),
     State = initial_state(ClientId, ClientPid),
-    {ok, State#session_state{ 
-            expires = proplists:get_value(expires, SessOpts, 24) * 3600, 
-            max_queue = proplists:get_value(max_queue, SessOpts, 1000) } }.
+    Expires = proplists:get_value(expires, SessOpts, 1) * 3600,
+    MsgQueue = emqtt_queue:new( proplists:get_value(max_queue, SessOpts, 1000), 
+                                proplists:get_value(store_qos0, SessOpts, false) ),
+    {ok, State#session_state{ expires = Expires,
+                              msg_queue = MsgQueue }, hibernate}.
 
 handle_call({subscribe, Topics}, _From, State) ->
     {ok, NewState, GrantedQos} = subscribe(State, Topics),
@@ -194,13 +230,13 @@ handle_call(Req, _From, State) ->
 handle_cast({resume, ClientId, ClientPid}, State = #session_state { 
         client_id = ClientId, 
         client_pid = undefined, 
-        messages = Messages,
+        msg_queue = Queue,
         expire_timer = ETimer}) ->
     lager:info("Session: client ~s resumed by ~p", [ClientId, ClientPid]),
     erlang:cancel_timer(ETimer),
-    [ClientPid ! {dispatch, {self(), Message}} || Message <- lists:reverse(Messages)],
-    NewState = State#session_state{ client_pid = ClientPid, messages = [], expire_timer = undefined},
-    {noreply, NewState};
+    [ClientPid ! {dispatch, {self(), Message}} || Message <- emqtt_queue:all(Queue)],
+    NewState = State#session_state{ client_pid = ClientPid, msg_queue = emqtt_queue:clear(Queue), expire_timer = undefined},
+    {noreply, NewState, hibernate};
 
 handle_cast({publish, ?QOS_2, Message}, State) ->
     NewState = publish(State, {?QOS_2, Message}),
@@ -223,22 +259,14 @@ handle_cast({pubcomp, PacketId}, State) ->
     {noreply, NewState};
 
 handle_cast({destroy, ClientId}, State = #session_state{client_id = ClientId}) ->
-    lager:warning("Session: ~s destroyed", [ClientId]),
+    lager:warning("Session ~s destroyed", [ClientId]),
     {stop, normal, State};
 
 handle_cast(Msg, State) ->
     {stop, {badmsg, Msg}, State}.
 
-handle_info({dispatch, {_From, Message}}, State = #session_state{
-        client_pid = undefined, messages = Messages}) ->
-    %%TODO: queue len
-    NewState = State#session_state{messages = [Message | Messages]},
-    {noreply, NewState};
-
-handle_info({dispatch, {_From, Message}}, State = #session_state{client_pid = ClientPid}) ->
-    %%TODO: replace From with self(), ok?
-    ClientPid ! {dispatch, {self(), Message}},
-    {noreply, State};
+handle_info({dispatch, {_From, Message}}, State) ->
+    {noreply, dispatch(Message, State)};
 
 handle_info({'EXIT', ClientPid, Reason}, State = #session_state{ 
         client_id = ClientId, client_pid = ClientPid, expires = Expires}) ->
@@ -247,7 +275,7 @@ handle_info({'EXIT', ClientPid, Reason}, State = #session_state{
     {noreply, State#session_state{ client_pid = undefined, expire_timer = Timer}};
 
 handle_info(session_expired, State = #session_state{client_id = ClientId}) ->
-    lager:warning("Session: ~s session expired!", [ClientId]),
+    lager:warning("Session ~s expired!", [ClientId]),
     {stop, {shutdown, expired}, State};
 
 handle_info(Info, State) ->
@@ -263,4 +291,28 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+dispatch(Message, State = #session_state{ client_id = ClientId, 
+                                          client_pid = undefined }) ->
+    queue(ClientId, Message, State);
 
+dispatch(Message = #mqtt_message{ qos = ?QOS_0 }, State = #session_state{ 
+        client_pid = ClientPid }) ->
+    ClientPid ! {dispatch, {self(), Message}},
+    State;
+
+dispatch(Message = #mqtt_message{ qos = Qos }, State = #session_state{ client_pid = ClientPid }) 
+    when (Qos =:= ?QOS_1) orelse (Qos =:= ?QOS_2) ->
+    {Message1, NewState} = store(State, Message),
+    ClientPid ! {dispatch, {self(), Message1}},
+    NewState.
+
+queue(ClientId, Message, State = #session_state{msg_queue = Queue}) ->
+    State#session_state{msg_queue = emqtt_queue:in(ClientId, Message, Queue)}.
+
+next_msg_id(State = #session_state{ message_id = 16#ffff }) ->
+    State#session_state{ message_id = 1 };
+
+next_msg_id(State = #session_state{ message_id = MsgId }) ->
+    State#session_state{ message_id = MsgId + 1 }.
+
+    

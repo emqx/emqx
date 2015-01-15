@@ -21,53 +21,54 @@
 %%------------------------------------------------------------------------------
 -module(emqtt_queue).
 
--behaviour(gen_server).
+-include("emqtt.hrl").
 
--define(SERVER, ?MODULE).
+-export([new/1, new/2, in/3, all/1, clear/1]).
 
-%% ------------------------------------------------------------------
-%% API Function Exports
-%% ------------------------------------------------------------------
+%%----------------------------------------------------------------------------
 
--export([start_link/0]).
+-ifdef(use_specs).
 
-%% ------------------------------------------------------------------
-%% gen_server Function Exports
-%% ------------------------------------------------------------------
+-type(mqtt_queue() :: #mqtt_queue_wrapper{}).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+-spec(new(non_neg_intger()) -> mqtt_queue()).
 
-%% ------------------------------------------------------------------
-%% API Function Definitions
-%% ------------------------------------------------------------------
+-spec(in(binary(), mqtt_message(), mqtt_queue()) -> mqtt_queue()).
 
-start_link() ->
-    gen_server:start_link(?MODULE, [], []).
+-spec(all(mqtt_queue()) -> list()).
 
-%% ------------------------------------------------------------------
-%% gen_server Function Definitions
-%% ------------------------------------------------------------------
+-spec(clear(mqtt_queue()) -> mqtt_queue()).
 
-init(Args) ->
-    {ok, Args}.
+-endif.
 
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+%%----------------------------------------------------------------------------
 
-handle_cast(_Msg, State) ->
-    {noreply, State}.
+-define(DEFAULT_MAX_LEN, 1000).
 
-handle_info(_Info, State) ->
-    {noreply, State}.
+-record(mqtt_queue_wrapper, { queue = queue:new(), max_len = ?DEFAULT_MAX_LEN, store_qos0 = false }). 
 
-terminate(_Reason, _State) ->
-    ok.
+new(MaxLen) -> #mqtt_queue_wrapper{ max_len = MaxLen }.
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+new(MaxLen, StoreQos0) -> #mqtt_queue_wrapper{ max_len = MaxLen, store_qos0 = StoreQos0 }.
 
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
+in(ClientId, Message = #mqtt_message{qos = Qos}, 
+    Wrapper = #mqtt_queue_wrapper{ queue = Queue, max_len = MaxLen}) ->
+    case queue:len(Queue) < MaxLen of
+        true -> 
+            Wrapper#mqtt_queue_wrapper{ queue = queue:in(Message, Queue) };
+        false -> % full
+            if
+                Qos =:= ?QOS_0 ->
+                    lager:warning("Queue ~s drop qos0 message: ~p", [ClientId, Message]),
+                    Wrapper;
+                true ->
+                    {{value, Msg}, Queue1} = queue:drop(Queue),
+                    lager:warning("Queue ~s drop message: ~p", [ClientId, Msg]),
+                    Wrapper#mqtt_queue_wrapper{ queue = Queue1 }
+            end
+    end.
+
+all(#mqtt_queue_wrapper { queue = Queue }) -> queue:to_list(Queue).
+
+clear(Queue) -> Queue#mqtt_queue_wrapper{ queue = queue:new() }.
 

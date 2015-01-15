@@ -47,6 +47,16 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+%%----------------------------------------------------------------------------
+
+-ifdef(use_specs).
+
+-spec(start_link/1 :: () -> {ok, pid()}).
+
+-spec route(mqtt_message()) -> ok.
+
+-endif.
+
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
@@ -54,9 +64,8 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec route(Msg :: mqtt_message()) -> any().
-route(Msg) ->
-	emqtt_pubsub:publish(retained(Msg)).
+route(Message) ->
+	emqtt_pubsub:publish(retained(Message)).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions

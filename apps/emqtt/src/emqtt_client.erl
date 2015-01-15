@@ -90,11 +90,12 @@ handle_cast(Msg, State) ->
 handle_info(timeout, State) ->
     stop({shutdown, timeout}, State);
     
-handle_info({stop, duplicate_id, NewPid}, State=#state{conn_name=ConnName}) ->
+handle_info({stop, duplicate_id, _NewPid}, State=#state{ proto_state = ProtoState, conn_name=ConnName}) ->
     %% TODO: to...
     %% need transfer data???
     %% emqtt_client:transfer(NewPid, Data),
-    %% lager:error("Shutdown for duplicate clientid:~s, conn:~s", [ClientId, ConnName]), 
+    lager:error("Shutdown for duplicate clientid: ~s, conn:~s", 
+        [emqtt_protocol:client_id(ProtoState), ConnName]), 
     stop({shutdown, duplicate_id}, State);
 
 %%TODO: ok??
@@ -105,8 +106,8 @@ handle_info({dispatch, {From, Message}}, #state{proto_state = ProtoState} = Stat
 handle_info({inet_reply, _Ref, ok}, State) ->
     {noreply, State, hibernate};
 
-handle_info({inet_async, Sock, _Ref, {ok, Data}}, #state{ peer_name = PeerName, socket = Sock } = State) ->
-    lager:debug("RECV from ~s: ~p", [State#state.peer_name, Data]),
+handle_info({inet_async, Sock, _Ref, {ok, Data}}, State = #state{ peer_name = PeerName, socket = Sock }) ->
+    lager:debug("RECV from ~s: ~p", [PeerName, Data]),
     process_received_bytes(
         Data, control_throttle(State #state{ await_recv = false }));
 
@@ -192,7 +193,7 @@ process_received_bytes(Bytes,
     end.
 
 %%----------------------------------------------------------------------------
-network_error(Reason, State = #state{ peer_name = PeerName, conn_name  = ConnStr }) ->
+network_error(Reason, State = #state{ peer_name = PeerName }) ->
     lager:error("Client ~s: MQTT detected network error '~p'", [PeerName, Reason]),
     stop({shutdown, conn_closed}, State).
 

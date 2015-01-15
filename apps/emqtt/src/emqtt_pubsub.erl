@@ -127,8 +127,14 @@ publish(Topic, Msg) when is_binary(Topic) ->
 	end, match(Topic)).
 
 %dispatch locally, should only be called by publish
-dispatch(Topic, Msg) when is_binary(Topic) ->
-    [SubPid ! {dispatch, {self(), Msg}} || #topic_subscriber{subpid=SubPid} <- ets:lookup(topic_subscriber, Topic)].
+dispatch(Topic, Msg = #mqtt_message{qos = Qos}) when is_binary(Topic) ->
+    lists:foreach(fun(#topic_subscriber{qos = SubQos, subpid=SubPid}) -> 
+        Msg1 = if
+            Qos > SubQos -> Msg#mqtt_message{qos = SubQos};
+            true -> Msg
+        end,
+        SubPid ! {dispatch, {self(), Msg1}}
+    end, ets:lookup(topic_subscriber, Topic)).
 
 -spec match(Topic :: binary()) -> [topic()].
 match(Topic) when is_binary(Topic) ->

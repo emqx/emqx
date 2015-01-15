@@ -68,10 +68,10 @@
 %% MQTT Message
 %%------------------------------------------------------------------------------
 -record(mqtt_message, {
+    msgid				:: integer() | undefined,
     qos		= ?QOS_0	:: mqtt_qos(),
     retain	= false		:: boolean(),
     dup		= false		:: boolean(),
-    msgid				:: integer(),
     topic				:: binary(),
     payload				:: binary()
 }).
