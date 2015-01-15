@@ -26,7 +26,7 @@
 
 -include("emqtt_packet.hrl").
 
--export([to_packet/1]).
+-export([from_packet/1, to_packet/1]).
 
 %%----------------------------------------------------------------------------
 
@@ -36,10 +36,13 @@
 
 -spec( to_packet( mqtt_message() ) -> mqtt_packet() ).
 
--endif
+-endif.
 
 %%----------------------------------------------------------------------------
 
+%%
+%% @doc message from packet
+%%
 from_packet(#mqtt_packet{ header = #mqtt_packet_header{ type   = ?PUBLISH,
                                                         qos    = Qos, 
                                                         retain = Retain, 
@@ -67,6 +70,9 @@ from_packet(#mqtt_packet_connect{ will_retain = Retain,
                    dup     = false, 
                    payload = Msg }.
 
+%%
+%% @doc message to packet
+%%
 to_packet(#mqtt_message{ msgid   = MsgId,
                          qos     = Qos,
                          retain  = Retain,
