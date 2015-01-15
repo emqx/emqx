@@ -37,6 +37,8 @@
 
 -include("emqtt.hrl").
 
+-include("emqtt_packet.hrl").
+
 %%Client State...
 -record(state, { 
         socket, 
@@ -101,6 +103,10 @@ handle_info({stop, duplicate_id, _NewPid}, State=#state{ proto_state = ProtoStat
 %%TODO: ok??
 handle_info({dispatch, {From, Message}}, #state{proto_state = ProtoState} = State) ->
     {ok, ProtoState1} = emqtt_protocol:send_message({From, Message}, ProtoState),
+    {noreply, State#state{proto_state = ProtoState1}};
+
+handle_info({redeliver, {?PUBREL, PacketId}}, #state{proto_state = ProtoState} = State) ->
+    {ok, ProtoState1} = emqtt_protocol:redeliver({?PUBREL, PacketId}, ProtoState),
     {noreply, State#state{proto_state = ProtoState1}};
 
 handle_info({inet_reply, _Ref, ok}, State) ->

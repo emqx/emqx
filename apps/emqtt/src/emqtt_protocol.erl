@@ -32,7 +32,7 @@
 
 -export([initial_state/2, client_id/1]).
 
--export([handle_packet/2, send_message/2, send_packet/2, shutdown/2]).
+-export([handle_packet/2, send_message/2, send_packet/2, redeliver/2, shutdown/2]).
 
 -export([info/1]).
 
@@ -252,6 +252,12 @@ send_packet(Packet, State = #proto_state{socket = Sock, peer_name = PeerName, cl
     %%FIXME Later...
     erlang:port_command(Sock, Data),
     {ok, State}.
+
+%%
+%% @doc redeliver PUBREL PacketId
+%%
+redeliver({?PUBREL, PacketId}, State) ->
+    send_packet( make_packet(?PUBREL, PacketId), State).
 
 shutdown(Error, #proto_state{peer_name = PeerName, client_id = ClientId, will_msg = WillMsg}) ->
     send_willmsg(WillMsg),
