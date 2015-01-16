@@ -45,8 +45,8 @@
 %% MQTT Client
 %%------------------------------------------------------------------------------
 -record(mqtt_client, {
-	client_id,
-	username
+    client_id,
+    username
 }).
 
 -type mqtt_client() :: #mqtt_client{}.
@@ -68,12 +68,12 @@
 %% MQTT Message
 %%------------------------------------------------------------------------------
 -record(mqtt_message, {
-    msgid				:: integer() | undefined,
-    qos		= ?QOS_0	:: mqtt_qos(),
-    retain	= false		:: boolean(),
-    dup		= false		:: boolean(),
-    topic				:: binary(),
-    payload				:: binary()
+    msgid           :: integer() | undefined,
+    qos    = ?QOS_0 :: mqtt_qos(),
+    retain = false  :: boolean(),
+    dup    = false  :: boolean(),
+    topic           :: binary(),
+    payload         :: binary()
 }).
 
 -type mqtt_message() :: #mqtt_message{}.
@@ -82,8 +82,8 @@
 %% MQTT User Management
 %%------------------------------------------------------------------------------
 -record(mqtt_user, {
-	username	:: binary(), 
-	passwdhash	:: binary()
+    username    :: binary(), 
+    passwdhash    :: binary()
 }).
 
 %%------------------------------------------------------------------------------

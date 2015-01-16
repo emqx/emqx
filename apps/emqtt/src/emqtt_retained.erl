@@ -47,6 +47,7 @@
 -include("emqtt.hrl").
 
 -export([start_link/0,
+        retain/1,
 		lookup/1,
 		insert/2,
 		delete/1,
@@ -65,6 +66,11 @@
 
 start_link() ->
 	gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+retain(Msg = #mqtt_message{retain = true}) ->
+	Msg;
+
+retain(Msg) -> Msg.
 
 lookup(Topic) ->
 	ets:lookup(retained_msg, Topic).

@@ -235,17 +235,24 @@ handle_cast({resume, ClientId, ClientPid}, State = #session_state {
                                                 awaiting_comp = AwaitingComp,
                                                 expire_timer = ETimer}) ->
     lager:info("Session ~s resumed by ~p", [ClientId, ClientPid]),
+    %cancel timeout timer
     erlang:cancel_timer(ETimer),
 
     %% redelivery PUBREL
-    [ ClientPid ! {redeliver, {?PUBREL, PacketId}} || PacketId <- maps:keys(AwaitingComp) ],
+    lists:foreach(fun(PacketId) ->
+                ClientPid ! {redeliver, {?PUBREL, PacketId}}
+        end, maps:keys(AwaitingComp)),
 
     %% redelivery messages that awaiting PUBACK or PUBREC
     Dup = fun(Msg) -> Msg#mqtt_message{ dup = true } end,
-    [ ClientPid ! {dispatch, {self(), Dup(Message)}} || Message <- maps:values(AwaitingAck) ],
+    lists:foreach(fun(Msg) ->
+                ClientPid ! {dispatch, {self(), Dup(Msg)}}
+        end, maps:values(AwaitingAck)),
 
     %% send offline messages
-    [ClientPid ! {dispatch, {self(), Message}} || Message <- emqtt_queue:all(Queue)],
+    lists:foreach(fun(Msg) ->
+                ClientPid ! {dispatch, {self(), Msg}}
+        end, emqtt_queue:all(Queue)),
 
     NewState = State#session_state{ client_pid = ClientPid, 
                                     msg_queue = emqtt_queue:clear(Queue), 
