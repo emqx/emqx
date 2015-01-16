@@ -66,7 +66,7 @@ start_link() ->
 
 route(Msg) ->
     % need to retain?
-    emqtt_retained:retain(Message),
+    emqtt_retained:retain(Msg),
     % unset flag and pubsub
 	emqtt_pubsub:publish( emqtt_message:unset_flag(Msg) ).
 
