@@ -20,8 +20,9 @@
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
 
-%%route chain... statistics
--module(emqtt_router).
+-module(emqtt_server).
+
+-author('feng@slimpp.io').
 
 -include("emqtt.hrl").
 
@@ -29,16 +30,20 @@
 
 -define(SERVER, ?MODULE).
 
+-define(RETAINED_TAB, mqtt_retained).
+
+-define(STORE_LIMIT, 100000).
+
+-record(mqtt_retained, {topic, qos, payload}).
+
+-record(state, {store_limit}).
+
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0]).
-
-%%Router Chain-->
-%%--->In
-%%Out<---
--export([route/1]).
+%%TODO: subscribe
+-export([start_link/1, retain/1, subscribe/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -47,38 +52,56 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
-%%----------------------------------------------------------------------------
-
--ifdef(use_specs).
-
--spec(start_link/1 :: () -> {ok, pid()}).
-
--spec route(mqtt_message()) -> ok.
-
--endif.
-
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+start_link(RetainOpts) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [RetainOpts], []).
 
-route(Msg) ->
-    % need to retain?
-    emqtt_retained:retain(Message),
-    % unset flag and pubsub
-	emqtt_pubsub:publish( emqtt_message:unset_flag(Msg) ).
+retain(#mqtt_message{ retain = false }) -> ignore;
+
+%% RETAIN flag set to 1 and payload containing zero bytes
+retain(Msg = #mqtt_message{ retain = true, topic = Topic, payload = <<>> }) -> 
+    mnesia:dirty_delete(?RETAINED_TAB, Topic);
+
+retain(Msg = #mqtt_message{retain = true}) -> 
+    gen_server:cast(?SERVER, {retain, Msg}), Msg;
+
+%% 
+subscribe(Topics, CPid) when is_pid(CPid) ->
+    RetainedMsgs = lists:flatten([mnesia:dirty_read(?RETAINED_TAB, Topic) || Topic <- match(Topics)])
+    lists:foreach(fun(Msg) -> 
+                CPid ! {dispatch, {self(), retained_msg(Msg}}
+        end, RetainedMsgs).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init(Args) ->
-    {ok, Args, hibernate}.
+init([RetainOpts]) ->
+	mnesia:create_table(mqtt_retained, [
+        {type, ordered_set},
+		{ram_copies, [node()]}, 
+		{attributes, record_info(fields, mqtt_retained)}]),
+	mnesia:add_table_copy(mqtt_retained, node(), ram_copies),
+    Limit = proplists:get_value(store_limit, RetainOpts, ?STORE_LIMIT),
+    {ok, #state{store_limit = Limit}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
+
+handle_cast({retain, Msg}, State = #state{store_limit = Limit}) ->
+    case mnesia:table_info(?RETAINED_TAB, size) of
+        Size >= Limit -> 
+            lager:error("Server dropped message(retain) for table is full: ~p", [Msg]);
+        true -> 
+            lager:info("Server retained message: ~p", [Msg]),
+            mnesia:dirty_write(#mqtt_retained{ topic = Topic, 
+                                               qos = Qos, 
+                                               payload = Payload })
+    end,
+    {noreply, State};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -91,8 +114,14 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-	
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+match(Topics) ->
+    %%TODO: dirty_all_keys....
+    Topics.
+
+retained_msg(#mqtt_retained{topic = Topic, qos = Qos, payload = Payload}) ->
+    #mqtt_message { qos = Qos, retain = true, topic = Topic, payload = Payload }.
 
