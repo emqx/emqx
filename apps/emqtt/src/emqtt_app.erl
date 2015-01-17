@@ -60,56 +60,61 @@ print_vsn() ->
 
 start_servers(Sup) ->
     {ok, SessOpts} = application:get_env(session),
+    {ok, RetainOpts} = application:get_env(retain),
 	lists:foreach(
         fun({Name, F}) when is_function(F) ->
 			?PRINT("~s is starting...", [Name]),
             F(),
 			?PRINT_MSG("[done]~n");
-		   ({Name, Server}) when is_atom(Server) ->
+		   ({Name, Server}) ->
 			?PRINT("~s is starting...", [Name]),
 			start_child(Sup, Server),
 			?PRINT_MSG("[done]~n");
-           ({Name, Server, Opts}) when is_atom(Server) ->
+           ({Name, Server, Opts}) ->
 			?PRINT("~s is starting...", [ Name]),
 			start_child(Sup, Server, Opts),
 			?PRINT_MSG("[done]~n")
 		end,
 	 	[{"emqtt config", emqtt_config},
+		 {"emqtt server", emqtt_server, RetainOpts},
          {"emqtt client manager", emqtt_cm},
          {"emqtt session manager", emqtt_sm},
-         %%TODO: fixme
-         {"emqtt session supervisor", fun() ->
-             Mod = emqtt_session_sup,
-             supervisor:start_child(Sup, 
-                 {Mod,
-                     {Mod, start_link, [SessOpts]},
-                        permanent, 1000, supervisor, [Mod]})
-         end},
+         {"emqtt session supervisor", {supervisor, emqtt_session_sup}, SessOpts},
          {"emqtt auth", emqtt_auth},
-		 {"emqtt retained", emqtt_retained},
 		 {"emqtt pubsub", emqtt_pubsub},
 		 {"emqtt router", emqtt_router},
-         {"emqtt queue supervisor", fun() ->
-             Mod = emqtt_queue_sup,
-             supervisor:start_child(Sup, 
-                 {Mod,
-                     {Mod, start_link, []},
-                        permanent, 1000, supervisor, [Mod]})
-         end},
 		 {"emqtt monitor", emqtt_monitor}
 		]).
 
-start_child(Sup, Name) ->
+start_child(Sup, {supervisor, Name}) ->
+    supervisor:start_child(Sup, supervisor_spec(Name));
+start_child(Sup, Name) when is_atom(Name) ->
     {ok, _ChiId} = supervisor:start_child(Sup, worker_spec(Name)).
-start_child(Sup, Name, Opts) ->
+
+start_child(Sup, {supervisor, Name}, Opts) ->
+    supervisor:start_child(Sup, supervisor_spec(Name, Opts));
+start_child(Sup, Name, Opts) when is_atom(Name) ->
     {ok, _ChiId} = supervisor:start_child(Sup, worker_spec(Name, Opts)).
 
+%%TODO: refactor...
+supervisor_spec(Name) ->
+    {Name, 
+        {Name, start_link, []},
+            permanent, infinity, supervisor, [Name]}.
+
+supervisor_spec(Name, Opts) ->
+    {Name, 
+        {Name, start_link, [Opts]},
+            permanent, infinity, supervisor, [Name]}.
+
 worker_spec(Name) ->
-    {Name, {Name, start_link, []}, 
-        permanent, 5000, worker, [Name]}.
-worker_spec(Name, Opts) ->
-    {Name, {Name, start_link, [Opts]}, 
-        permanent, 5000, worker, [Name]}.
+    {Name, 
+        {Name, start_link, []}, 
+            permanent, 5000, worker, [Name]}.
+worker_spec(Name, Opts) -> 
+    {Name, 
+        {Name, start_link, [Opts]}, 
+            permanent, 5000, worker, [Name]}.
 
 %%
 %% @spec stop(atom) -> 'ok'
