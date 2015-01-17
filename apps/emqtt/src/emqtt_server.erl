@@ -121,8 +121,16 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 match(Topics) ->
-    %%TODO: dirty_all_keys....
-    Topics.
+    RetainedTopics = mnesia:dirty_all_keys(?RETAINED_TAB),
+    lists:flatten([match(Topic, RetainedTopics) || Topic <- Topics]).
+
+match(Topic, RetainedTopics) ->
+    case emqtt_topic:type(Topic) of
+        direct -> %% FIXME
+            [Topic];
+        wildcard ->
+            [ T || T <- RetainedTopics, emqtt_topic:match(T, Topic) ]
+    end.
 
 retained_msg(#mqtt_retained{topic = Topic, qos = Qos, payload = Payload}) ->
     #mqtt_message { qos = Qos, retain = true, topic = Topic, payload = Payload }.
