@@ -25,6 +25,7 @@
 -author('feng@slimpp.io').
 
 -include("emqtt.hrl").
+-include("emqtt_topic.hrl").
 
 -behaviour(gen_server).
 
@@ -125,7 +126,7 @@ match(Topics) ->
     lists:flatten([match(Topic, RetainedTopics) || Topic <- Topics]).
 
 match(Topic, RetainedTopics) ->
-    case emqtt_topic:type(Topic) of
+    case emqtt_topic:type(#topic{name=Topic}) of
         direct -> %% FIXME
             [Topic];
         wildcard ->
