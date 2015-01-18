@@ -43,15 +43,25 @@ handle(Req) ->
 
 handle('POST', "/mqtt/publish", Req) ->
     Params = mochiweb_request:parse_post(Req),
-	lager:info("~p~n", [Params]),
-	Topic = list_to_binary(get_value("topic", Params)),
-	Message = list_to_binary(get_value("message", Params)),
-	emqtt_pubsub:publish(#mqtt_message {
-				topic      = Topic,
-				payload    = Message
-	}),
-	Req:ok({"text/plan", "ok"});
-
+	lager:info("HTTP Publish: ~p~n", [Params]),
+    Qos = int(get_value("qos", Params, "0")),
+    Retain = bool(get_value("retain", Params,  "0")),
+    Topic = list_to_binary(get_value("topic", Params)),
+    Message = list_to_binary(get_value("message", Params)),
+    case {validate(qos, Qos), validate(topic, Topic)} of
+        {true, true} ->
+            emqtt_router:route(
+                #mqtt_message { qos     = Qos,
+                                retain  = Retain,
+                                topic   = Topic,
+                                payload = Message }),
+            Req:ok({"text/plan", <<"ok\n">>});
+       {false, _} ->
+            Req:respond({400, [], <<"Bad QoS">>});
+        {_, false} ->
+            Req:respond({400, [], <<"Bad Topic">>})
+    end;
+    
 handle(_Method, _Path, Req) ->
 	Req:not_found().
 
@@ -68,4 +78,15 @@ authorized(Req) ->
 
 user_passwd(BasicAuth) ->
 	list_to_tuple(binary:split(base64:decode(BasicAuth), <<":">>)). 
+
+validate(qos, Qos) ->
+    (Qos >= ?QOS_0) and (Qos =< ?QOS_2); 
+
+validate(topic, Topic) ->
+    emqtt_topic:validate({publish, Topic}).
+
+int(S) -> list_to_integer(S).
+
+bool("0") -> false;
+bool("1") -> true.
 

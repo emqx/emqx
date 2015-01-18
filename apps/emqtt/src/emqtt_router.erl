@@ -65,7 +65,7 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 route(Msg) ->
-    lager:info("Route message: ~s", [emqtt_message:dump(Msg)]),
+    lager:info("Route ~s", [emqtt_message:dump(Msg)]),
     % need to retain?
     emqtt_server:retain(Msg),
     % unset flag and pubsub
