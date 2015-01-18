@@ -25,6 +25,7 @@
 -author('feng@slimpp.io').
 
 -include("emqtt.hrl").
+
 -include("emqtt_topic.hrl").
 
 -behaviour(gen_server).
@@ -91,8 +92,8 @@ init([RetainOpts]) ->
     Limit = proplists:get_value(store_limit, RetainOpts, ?STORE_LIMIT),
     {ok, #state{store_limit = Limit}}.
 
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+handle_call(Req, _From, State) ->
+    {stop, {badreq, Req}, State}.
 
 handle_cast({retain, Msg = #mqtt_message{ qos = Qos, 
                                           topic = Topic, 
@@ -108,11 +109,11 @@ handle_cast({retain, Msg = #mqtt_message{ qos = Qos,
     end,
     {noreply, State};
 
-handle_cast(_Msg, State) ->
-    {noreply, State}.
+handle_cast(Msg, State) ->
+    {stop, {badmsg, Msg}, State}.
 
-handle_info(_Info, State) ->
-    {noreply, State}.
+handle_info(Info, State) ->
+    {stop, {badinfo, Info}, State}.
 
 terminate(_Reason, _State) ->
     ok.
