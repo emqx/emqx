@@ -52,7 +52,7 @@ cd $INSTALL_DIR/emqtt
             {max_conns, 1024},
             {acceptor_pool, 4}
         ]},
-        {http, 8883, [
+        {http, 8083, [
             {max_conns, 512},
             {acceptor_pool, 1}
         ]}
