@@ -52,7 +52,7 @@ cd $INSTALL_DIR/emqtt
             {max_conns, 1024},
             {acceptor_pool, 4}
         ]},
-        {http, 8883, [
+        {http, 8083, [
             {max_conns, 512},
             {acceptor_pool, 1}
         ]}
@@ -65,7 +65,7 @@ cd $INSTALL_DIR/emqtt
 
 ```
 
--sname emqtt
+-name emqtt@127.0.0.1
 
 -setcookie emqtt
 
@@ -124,13 +124,13 @@ eMQTT support http to publish message.
 Example:
 
 ```
-curl -v --basic -u user:passwd -d "qos=1&retain=0&topic=/a/b/c&message=hello from http..." -k http://localhost:8883/mqtt/publish
+curl -v --basic -u user:passwd -d "qos=1&retain=0&topic=/a/b/c&message=hello from http..." -k http://localhost:8083/mqtt/publish
 ```
 
 ### URL
 
 ```
-HTTP POST http://host:8883/mqtt/publish
+HTTP POST http://host:8083/mqtt/publish
 ```
 
 ### Parameters
@@ -157,5 +157,6 @@ feng at emqtt.io
 ## Thanks
 
 @hejin1026 (260495915 at qq.com)
+
 @desoulter (assoulter123 at gmail.com)
 
