@@ -44,8 +44,8 @@ handle(Req) ->
 handle('POST', "/mqtt/publish", Req) ->
     Params = mochiweb_request:parse_post(Req),
 	lager:info("HTTP Publish: ~p~n", [Params]),
-    Qos = int(get_value("qos", "0")),
-    Retain = bool(get_value("retain", "0")),
+    Qos = int(get_value("qos", Params, "0")),
+    Retain = bool(get_value("retain", Params,  "0")),
     Topic = list_to_binary(get_value("topic", Params)),
     Message = list_to_binary(get_value("message", Params)),
     case {validate(qos, Qos), validate(topic, Topic)} of
