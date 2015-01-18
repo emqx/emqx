@@ -55,7 +55,7 @@ handle('POST', "/mqtt/publish", Req) ->
                                 retain  = Retain,
                                 topic   = Topic,
                                 payload = Message }),
-            Req:ok({"text/plan", <<"ok">>});
+            Req:ok({"text/plan", <<"ok\n">>});
        {false, _} ->
             Req:respond({400, [], <<"Bad QoS">>});
         {_, false} ->
