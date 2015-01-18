@@ -71,7 +71,9 @@ retain(Msg = #mqtt_message{retain = true}) ->
 
 %% 
 subscribe(Topics, CPid) when is_pid(CPid) ->
+    lager:info("Retained Topics: ~p", [match(Topics)]),
     RetainedMsgs = lists:flatten([mnesia:dirty_read(?RETAINED_TAB, Topic) || Topic <- match(Topics)]),
+    lager:info("Retained Messages: ~p", [RetainedMsgs]),
     lists:foreach(fun(Msg) -> 
                 CPid ! {dispatch, {self(), retained_msg(Msg)}}
         end, RetainedMsgs).
