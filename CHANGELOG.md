@@ -28,6 +28,8 @@ Test: passed org.eclipse.paho.mqtt.testing/interoperability
 
 Test: simple cluster test
 
+Closed Issues: #22, #24, #27, #28, #29, #30, #31, #32, #33, #34, #36, #37, #38, #39, #41, #42, #43
+
 
 v0.2.1-beta (2015-01-08)
 ------------------------
