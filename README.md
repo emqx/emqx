@@ -9,7 +9,7 @@ eMQTT requires Erlang R17+.
 ## Startup in Five Minutes
 
 ```
-$ git clone git://github.com/slimpp/emqtt.git
+$ git clone git://github.com/emqtt/emqtt.git
 
 $ cd emqtt
 
