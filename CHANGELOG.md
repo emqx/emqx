@@ -1,6 +1,34 @@
 eMQTT ChangeLog
 ==================
 
+v0.3.0-alpha (2015-01-18)
+------------------------
+
+NOTICE: Full MQTT 3.1.1 support now!
+
+Feature: Passed org.eclipse.paho.mqtt.testing/interoperability tests
+
+Feature: Qos0, Qos1 and Qos2 publish and suscribe
+
+Feature: session(clean_sess=false) management and offline messages
+
+Feature: redeliver awaiting puback/pubrec messages(doc: Chapter 4.4)
+
+Feature: retain messages, add emqtt_server module
+
+Feature: MQTT 3.1.1 null client_id support
+
+Bugfix: keepalive timeout to send will message 
+
+Improve: overlapping subscription support
+
+Improve: add emqtt_packet:dump to dump packets
+
+Test: passed org.eclipse.paho.mqtt.testing/interoperability
+
+Test: simple cluster test
+
+
 v0.2.1-beta (2015-01-08)
 ------------------------
 

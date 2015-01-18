@@ -32,6 +32,8 @@
 
 -export([set_flag/1, set_flag/2, unset_flag/1, unset_flag/2]).
 
+-export([dump/1]).
+
 %%----------------------------------------------------------------------------
 
 -ifdef(use_specs).
@@ -119,4 +121,13 @@ unset_flag(dup, Msg = #mqtt_message{dup = true}) ->
 unset_flag(retain, Msg = #mqtt_message{retain = true}) ->
     Msg#mqtt_message{retain = false};
 unset_flag(Flag, Msg) when Flag =:= dup orelse Flag =:= retain -> Msg.
+
+
+%%
+%% @doc dump message
+%% 
+dump(#mqtt_message{msgid= MsgId, qos = Qos, retain = Retain, dup = Dup, topic = Topic}) ->
+    io_lib:format("Message(MsgId=~p, Qos=~p, Retain=~s, Dup=~s, Topic=~s)",
+              [ MsgId, Qos, Retain, Dup, Topic ]).
+
 
