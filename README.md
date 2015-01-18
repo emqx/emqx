@@ -124,7 +124,7 @@ eMQTT support http to publish message.
 Example:
 
 ```
-curl -v --basic -u user:passwd -d "topic=/a/b/c&message=hello from http..." -k http://localhost:8883/mqtt/publish
+curl -v --basic -u user:passwd -d "qos=1&retain=0&topic=/a/b/c&message=hello from http..." -k http://localhost:8883/mqtt/publish
 ```
 
 ### URL
@@ -135,10 +135,12 @@ HTTP POST http://host:8883/mqtt/publish
 
 ### Parameters
 
-Name | Description
------|-------------
-topic | MQTT Topic
-message | Text Message
+Name    |  Description
+--------|---------------
+qos     |  QoS(0, 1, 2)
+retain  |  Retain(0, 1)
+topic   |  Topic
+message |  Message
 
 ## Design
 
