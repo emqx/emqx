@@ -19,28 +19,23 @@
 %% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
+-module(emqtt_queue_sup).
 
--module(emqtt).
+-author('feng@emqtt.io').
 
--export([listen/1]).
+-behavior(supervisor).
 
--define(MQTT_SOCKOPTS, [
-	binary,
-	{packet,    raw},
-	{reuseaddr, true},
-	{backlog,   512},
-	{nodelay,   true}
-]).
+-export([start_link/0, start_queue/0, init/1]).
 
-listen(Listeners) when is_list(Listeners) ->
-    [listen(Listener) || Listener <- Listeners];
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-listen({mqtt, Port, Options}) ->
-    MFArgs = {emqtt_client, start_link, []},
-    esockd:listen(mqtt, Port, Options ++ ?MQTT_SOCKOPTS, MFArgs);
+start_queue() ->
+    supervisor:start_child(?MODULE, []).
 
-listen({http, Port, Options}) ->
-    MFArgs = {emqtt_http, handle, []},
-	mochiweb:start_http(Port, Options, MFArgs).
-    
+init([]) ->
+    {ok, {{simple_one_for_one, 0, 1},
+          [{queue, {emqtt_queue, start_link, []},
+              transient, 10000, worker, [emqtt_queue]}]}}.
+
 

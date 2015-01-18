@@ -1,5 +1,5 @@
 %%-----------------------------------------------------------------------------
-%% Copyright (c) 2014, Feng Lee <feng@slimchat.io>
+%% Copyright (c) 2012-2015, Feng Lee <feng@emqtt.io>
 %% 
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
 %% of this software and associated documentation files (the "Software"), to deal
@@ -22,11 +22,9 @@
 
 -module(emqtt_auth).
 
--author('feng@slimchat.io').
+-author('feng@emqtt.io').
 
 -include("emqtt.hrl").
-
--include("emqtt_log.hrl").
 
 -export([start_link/0,
 		add/2,
@@ -73,7 +71,6 @@ init([]) ->
 	ok = AuthMod:init(Opts),
 	ets:new(?TAB, [named_table, protected]),
 	ets:insert(?TAB, {mod, AuthMod}),
-	?PRINT("emqtt authmod is ~p", [AuthMod]),
 	{ok, undefined}.
 
 authmod(Name) when is_atom(Name) ->

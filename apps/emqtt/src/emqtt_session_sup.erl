@@ -1,5 +1,5 @@
 %%-----------------------------------------------------------------------------
-%% Copyright (c) 2014, Feng Lee <feng@slimchat.io>
+%% Copyright (c) 2012-2015, Feng Lee <feng@emqtt.io>
 %% 
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
 %% of this software and associated documentation files (the "Software"), to deal
@@ -20,47 +20,38 @@
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
 
--module(emqtt_keep_alive).
+-module(emqtt_session_sup).
 
--author('feng@slimchat.io').
+-author('feng@emqtt.io').
 
--export([new/2,
-		state/1,
-		activate/1,
-		reset/1,
-		cancel/1]).
+-behavior(supervisor).
 
--record(keep_alive, {state, period, timer, msg}).
+-export([start_link/1, start_session/2]).
 
-new(undefined, _) -> 
-	undefined;
-new(0, _) -> 
-	undefined;
-new(Period, TimeoutMsg) when is_integer(Period) ->
-	Ref = erlang:send_after(Period, self(), TimeoutMsg),
-	#keep_alive{state=idle, period=Period, timer=Ref, msg=TimeoutMsg}.
+-export([init/1]).
 
-state(undefined) -> 
-	undefined;
-state(#keep_alive{state=State}) ->
-	State.
+%%----------------------------------------------------------------------------
 
-activate(undefined) -> 
-	undefined; 
-activate(KeepAlive) when is_record(KeepAlive, keep_alive) -> 
-	KeepAlive#keep_alive{state=active}.
+-ifdef(use_specs).
 
-reset(undefined) ->
-	undefined;
-reset(KeepAlive=#keep_alive{period=Period, timer=Timer, msg=Msg}) ->
-	catch erlang:cancel_timer(Timer),
-	Ref = erlang:send_after(Period, self(), Msg),
-	KeepAlive#keep_alive{state=idle, timer = Ref}.
+-spec(start_link/1 :: (list(tuple())) -> {ok, pid()}).
 
-cancel(undefined) -> 
-	undefined;
-cancel(KeepAlive=#keep_alive{timer=Timer}) -> 
-	catch erlang:cancel_timer(Timer),
-	KeepAlive#keep_alive{timer=undefined}.
+-spec(start_session/2 :: (binary(), pid()) -> {ok, pid()}).
+
+-endif.
+
+%%----------------------------------------------------------------------------
+
+start_link(SessOpts) ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [SessOpts]).
+
+start_session(ClientId, ClientPid) ->
+    supervisor:start_child(?MODULE, [ClientId, ClientPid]).
+
+init([SessOpts]) ->
+    {ok, {{simple_one_for_one, 0, 1},
+          [{session, {emqtt_session, start_link, [SessOpts]},
+              transient, 10000, worker, [emqtt_session]}]}}.
+
 
 

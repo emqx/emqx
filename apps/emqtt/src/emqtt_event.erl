@@ -20,27 +20,10 @@
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
 
--module(emqtt).
+-module(emqtt_event).
 
--export([listen/1]).
+-export([start_link/0]).
 
--define(MQTT_SOCKOPTS, [
-	binary,
-	{packet,    raw},
-	{reuseaddr, true},
-	{backlog,   512},
-	{nodelay,   true}
-]).
-
-listen(Listeners) when is_list(Listeners) ->
-    [listen(Listener) || Listener <- Listeners];
-
-listen({mqtt, Port, Options}) ->
-    MFArgs = {emqtt_client, start_link, []},
-    esockd:listen(mqtt, Port, Options ++ ?MQTT_SOCKOPTS, MFArgs);
-
-listen({http, Port, Options}) ->
-    MFArgs = {emqtt_http, handle, []},
-	mochiweb:start_http(Port, Options, MFArgs).
-    
+start_link() ->
+    gen_event:start_link({local, ?MODULE}).
 

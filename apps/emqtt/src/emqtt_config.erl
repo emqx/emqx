@@ -20,16 +20,13 @@
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
 
-%client manager
--module(emqtt_cm).
+-module(emqtt_config).
 
--author('feng@emqtt.io').
+-export([lookup/1]).
 
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
-
--define(TAB, emqtt_client).
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -37,93 +34,38 @@
 
 -export([start_link/0]).
 
--export([lookup/1, register/2, unregister/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
 
--export([init/1,
-		 handle_call/3,
-		 handle_cast/2,
-		 handle_info/2,
-         terminate/2,
-		 code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2, code_change/3]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
+
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-%%
-%% @doc lookup client pid with clientId.
-%%
--spec lookup(ClientId :: binary()) -> pid() | undefined.
-lookup(ClientId) when is_binary(ClientId) ->
-	case ets:lookup(emqtt_client, ClientId) of
-	[{_, Pid, _}] -> Pid;
-	[] -> undefined
-	end.
-
-%%
-%% @doc register clientId with pid.
-%%
--spec register(ClientId :: binary(), Pid :: pid()) -> ok.
-register(ClientId, Pid) when is_binary(ClientId), is_pid(Pid) ->
-	gen_server:call(?SERVER, {register, ClientId, Pid}).
-
-%%
-%% @doc unregister clientId with pid.
-%%
--spec unregister(ClientId :: binary(), Pid :: pid()) -> ok.
-unregister(ClientId, Pid) when is_binary(ClientId), is_pid(Pid) ->
-	gen_server:cast(?SERVER, {unregister, ClientId, Pid}).
+%%TODO: fix later...
+lookup(Key) -> {ok, Key}.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init([]) ->
-	%on one node
-	ets:new(?TAB, [set, named_table, protected]),
+init(_Args) ->
+    ets:new(?MODULE, [set, protected, named_table]),
+    %%TODO: Load application config.
     {ok, none}.
-
-handle_call({register, ClientId, Pid}, _From, State) ->
-	case ets:lookup(?TAB, ClientId) of
-        [{_, Pid, _}] ->
-			lager:error("clientId '~s' has been registered with ~p", [ClientId, Pid]),
-            ignore;
-		[{_, OldPid, MRef}] ->
-			OldPid ! {stop, duplicate_id, Pid},
-			erlang:demonitor(MRef),
-            insert(ClientId, Pid);
-		[] -> 
-            insert(ClientId, Pid)
-	end,
-	{reply, ok, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({unregister, ClientId, Pid}, State) ->
-	case ets:lookup(?TAB, ClientId) of
-	[{_, Pid, MRef}] ->
-		erlang:demonitor(MRef),
-		ets:delete(?TAB, ClientId);
-	[_] -> 
-		ignore;
-	[] ->
-		lager:error("cannot find clientId '~s' with ~p", [ClientId, Pid])
-	end,
-	{noreply, State};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
-
-handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
-	ets:match_delete(emqtt_client, {{'_', DownPid, MRef}}),
-    {noreply, State};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -134,6 +76,7 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-insert(ClientId, Pid) ->
-    ets:insert(emqtt_client, {ClientId, Pid, erlang:monitor(process, Pid)}).
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
 

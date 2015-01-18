@@ -1,5 +1,5 @@
 %%-----------------------------------------------------------------------------
-%% Copyright (c) 2014, Feng Lee <feng@slimchat.io>
+%% Copyright (c) 2012-2015, Feng Lee <feng@emqtt.io>
 %% 
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
 %% of this software and associated documentation files (the "Software"), to deal
@@ -22,11 +22,11 @@
 
 -module(emqtt_net).
 
--author('feng@slimchat.io').
+-author('feng@emqtt.io').
 
 -export([tcp_name/3, tcp_host/1, getopts/2, setopts/2, getaddr/2, port_to_listeners/1]).
 
--export([connection_string/2]).
+-export([peername/1, sockname/1, peer_string/1, connection_string/2]).
 
 -include_lib("kernel/include/inet.hrl").
 
@@ -195,6 +195,14 @@ setopts(Sock, Options) when is_port(Sock) ->
     inet:setopts(Sock, Options).
 
 sockname(Sock)   when is_port(Sock) -> inet:sockname(Sock).
+
+peer_string(Sock) ->
+    case peername(Sock) of
+        {ok, {Addr, Port}} ->
+            {ok, lists:flatten(io_lib:format("~s:~p", [maybe_ntoab(Addr), Port]))};
+        Error -> 
+            Error
+    end.
 
 peername(Sock)   when is_port(Sock) -> inet:peername(Sock).
 

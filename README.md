@@ -45,19 +45,19 @@ cd $INSTALL_DIR/emqtt
 ### etc/app.config
 
 ```
-{emqtt, [
-   {auth, {anonymous, []}}, %internal, anonymous
-   {listen, [
-       {mqtt, 1883, [
-           {max_conns, 1024},
-           {acceptor_pool, 4}
-       ]},
-       {http, 8883, [
-           {max_conns, 512},
-           {acceptor_pool, 1}
-       ]}
-   ]}
-]}
+ {emqtt, [
+    {auth, {anonymous, []}}, %internal, anonymous
+    {listen, [
+        {mqtt, 1883, [
+            {max_conns, 1024},
+            {acceptor_pool, 4}
+        ]},
+        {http, 8883, [
+            {max_conns, 512},
+            {acceptor_pool, 1}
+        ]}
+    ]}
+ ]}
 
 ```
 
@@ -97,6 +97,26 @@ on 'host2':
 
 Run './bin/emqtt_ctl cluster' on 'host1' or 'host2' to check cluster nodes.
 
+## Cluster
+
+Suppose we cluster two nodes on 'host1', 'host2', steps:
+
+on 'host1':
+
+```
+./bin/emqtt start
+```
+
+on 'host2':
+
+```
+./bin/emqtt start
+
+./bin/emqtt cluster emqtt@host1
+```
+
+Run './bin/emqtt cluster' on 'host1' or 'host2' to check cluster nodes.
+
 ## HTTP API
 
 eMQTT support http to publish message.
@@ -134,5 +154,6 @@ feng at emqtt.io
 
 ## Thanks
 
+@hejin1026 (260495915 at qq.com)
 @desoulter (assoulter123 at gmail.com)
 
