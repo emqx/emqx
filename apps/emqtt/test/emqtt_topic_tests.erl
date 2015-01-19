@@ -30,17 +30,52 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(N, 100000).
+
 validate_test() ->
-	?assert( validate({subscribe, <<"a/b/c">>}) ),
-	?assert( validate({subscribe, <<"/a/b">>}) ),
-	?assert( validate({subscribe, <<"/+/x">>}) ),
-	?assert( validate({subscribe, <<"/a/b/c/#">>}) ),
-	?assertNot( validate({subscribe, <<"a/#/c">>}) ).
+	?assert( validate({filter, <<"a/b/c">>}) ),
+	?assert( validate({filter, <<"/a/b">>}) ),
+	?assert( validate({filter, <<"/+/x">>}) ),
+	?assert( validate({filter, <<"/a/b/c/#">>}) ),
+	?assertNot( validate({filter, <<"a/#/c">>}) ).
+
+match_test() ->
+    ?assert( match(<<"a/b/ccc">>, <<"a/#">>) ),
+    Name = <<"/abkc/19383/192939/akakdkkdkak/xxxyyuya/akakak">>,
+    Filter = <<"/abkc/19383/+/akakdkkdkak/#">>,
+    ?assert( match(Name, Filter) ),
+    ?debugFmt("Match ~p with ~p", [Name, Filter]),
+    {Time, _} = timer:tc(fun() -> 
+                [match(Name, Filter) || _I <- lists:seq(1, ?N)]
+        end),
+    ?debugFmt("Time for match: ~p(micro)", [Time/?N]),
+    ok.
+
+triples_test() ->
+    Topic = <<"/abkc/19383/192939/akakdkkdkak/xxxyyuya/akakak">>,
+    {Time, _} = timer:tc(fun() -> 
+                [triples(Topic) || _I <- lists:seq(1, ?N)]
+        end),
+    ?debugFmt("Time for triples: ~p(micro)", [Time/?N]),
+    ok.
 
 type_test() ->
 	?assertEqual(direct, type(#topic{name = <<"/a/b/cdkd">>})),
 	?assertEqual(wildcard, type(#topic{name = <<"/a/+/d">>})),
 	?assertEqual(wildcard, type(#topic{name = <<"/a/b/#">>})).
+
+words_test() ->
+    ?debugFmt("Words: ~p", [words(<<"/abkc/19383/+/akakdkkdkak/#">>)]),
+    ?assertMatch(['', <<"abkc">>, <<"19383">>, '+', <<"akakdkkdkak">>, '#'],  words(<<"/abkc/19383/+/akakdkkdkak/#">>)),
+    {Time, _} = timer:tc(fun() -> 
+                [words(<<"/abkc/19383/+/akakdkkdkak/#">>) || _I <- lists:seq(1, ?N)]
+        end),
+    ?debugFmt("Time for words: ~p(micro)", [Time/?N]),
+    {Time2, _} = timer:tc(fun() -> 
+                [binary:split(<<"/abkc/19383/+/akakdkkdkak/#">>, <<"/">>, [global]) || _I <- lists:seq(1, ?N)]
+        end),
+    ?debugFmt("Time for binary:split: ~p(micro)", [Time2/?N]),
+    ok.
 
 -endif.
 

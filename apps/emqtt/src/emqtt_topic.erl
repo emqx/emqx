@@ -26,8 +26,6 @@
 
 -import(lists, [reverse/1]).
 
--import(string, [rchr/2, substr/2, substr/3]).
-
 %% ------------------------------------------------------------------------
 %% Topic semantics and usage
 %% ------------------------------------------------------------------------
@@ -50,49 +48,61 @@
 
 -include("emqtt_topic.hrl").
  
--export([new/1,
-		 type/1,
-		 match/2,
-		 validate/1,
-		 triples/1,
-		 words/1]).
+-export([new/1, type/1, match/2, validate/1, triples/1, words/1]).
 
--define(MAX_LEN, 1024).
+%%----------------------------------------------------------------------------
 
--spec new(Name :: binary()) -> topic().
+-ifdef(use_specs).
+
+-spec new( binary() ) -> topic().
+
+-spec type(topic() | binary()) -> direct | wildcard.
+
+-spec match(binary(), binary()) -> boolean().
+
+-spec validate({name | filter, binary()}) -> boolean().
+
+-endif.
+
+%%----------------------------------------------------------------------------
+
+-define(MAX_TOPIC_LEN, 65535).
+
+%% ------------------------------------------------------------------------
+%% New Topic
+%% ------------------------------------------------------------------------
 new(Name) when is_binary(Name) ->
-	#topic{name=Name, node=node()}.
+	#topic{ name = Name, node = node() }.
 
 %% ------------------------------------------------------------------------
-%% topic type: direct or wildcard
+%% Topic Type: direct or wildcard
 %% ------------------------------------------------------------------------
--spec type(Topic :: topic()) -> direct | wildcard.
-type(#topic{name=Name}) when is_binary(Name) ->
-	type(words(Name));
-type([]) -> 
-	direct;
-type([<<>>|T]) -> 
-	type(T);
-type([<<$#, _/binary>>|_]) ->
-	wildcard;
-type([<<$+, _/binary>>|_]) ->
-	wildcard;
-type([_|T]) ->
-	type(T).
+type(#topic{ name = Name }) when is_binary(Name) ->
+	type(Name);
+type(Topic) when is_binary(Topic) ->
+	type2(words(Topic)).
+
+type2([]) -> 
+    direct;
+type2(['#'|_]) ->
+    wildcard;
+type2(['+'|_]) ->
+    wildcard;
+type2([_H |T]) ->
+    type2(T).
 
 %% ------------------------------------------------------------------------
-%% topic match
+%% Match Topic. B1 is Topic Name, B2 is Topic Filter.
 %% ------------------------------------------------------------------------
--spec match(B1 :: binary(), B2 :: binary()) -> boolean().
-match(B1, B2) when is_binary(B1) and is_binary(B2) ->
-	match(words(B1), words(B2));
+match(Name, Filter) when is_binary(Name) and is_binary(Filter) ->
+	match(words(Name), words(Filter));
 match([], []) ->
 	true;
 match([H|T1], [H|T2]) ->
 	match(T1, T2);
-match([_H|T1], [<<"+">>|T2]) ->
+match([_H|T1], ['+'|T2]) ->
 	match(T1, T2);
-match(_, [<<"#">>]) ->
+match(_, ['#']) ->
 	true;
 match([_H1|_], [_H2|_]) ->
 	false;
@@ -100,57 +110,78 @@ match([], [_H|_T2]) ->
 	false.
 
 %% ------------------------------------------------------------------------
-%% topic validate
+%% Validate Topic 
 %% ------------------------------------------------------------------------
--spec validate({Type :: subscribe | publish, Topic :: binary()}) -> boolean().
 validate({_, <<>>}) ->
 	false;
-validate({_, Topic}) when is_binary(Topic) and (size(Topic) > ?MAX_LEN) ->
+validate({_, Topic}) when is_binary(Topic) and (size(Topic) > ?MAX_TOPIC_LEN) ->
 	false;
-validate({subscribe, Topic}) when is_binary(Topic) ->
-	valid(words(Topic));
-validate({publish, Topic}) when is_binary(Topic) ->
+validate({filter, Topic}) when is_binary(Topic) ->
+	validate2(words(Topic));
+validate({name, Topic}) when is_binary(Topic) ->
 	Words = words(Topic),
-	valid(Words) and (not include_wildcard(Topic)).
+	validate2(Words) and (not include_wildcard(Words)).
 
-triples(B) when is_binary(B) ->
-	triples(binary_to_list(B), []).
+validate2([]) ->
+    true;
+validate2(['#']) -> % end with '#'
+    true;
+validate2(['#'|Words]) when length(Words) > 0 -> 
+    false; 
+validate2([''|Words]) ->
+    validate2(Words);
+validate2(['+'|Words]) ->
+    validate2(Words);
+validate2([W|Words]) ->
+    case validate3(W) of
+        true -> validate2(Words);
+        false -> false
+    end.
 
-triples(S, Acc) ->
-	triples(rchr(S, $/), S, Acc).
+validate3(<<>>) ->
+    true;
+validate3(<<C/utf8, _Rest/binary>>) when C == $#; C == $+; C == 0 ->
+    false;
+validate3(<<_/utf8, Rest/binary>>) ->
+    validate3(Rest).
 
-triples(0, S, Acc) ->
-	[{root, l2b(S), l2b(S)}|Acc];
+include_wildcard([])        -> false;
+include_wildcard(['#'|_T])  -> true;
+include_wildcard(['+'|_T])  -> true;
+include_wildcard([ _ | T])  -> include_wildcard(T).
 
-triples(I, S, Acc) ->
-	S1 = substr(S, 1, I-1),
-	S2 = substr(S, I+1),
-	triples(S1, [{l2b(S1), l2b(S2), l2b(S)}|Acc]).
+%% ------------------------------------------------------------------------
+%% Topic to Triples
+%% ------------------------------------------------------------------------
+triples(Topic) when is_binary(Topic) ->
+	triples(words(Topic), root, []).
 
+triples([], _Parent, Acc) ->
+    reverse(Acc);
+
+triples([W|Words], Parent, Acc) ->
+    Node = join(Parent, W),
+    triples(Words, Node, [{Parent, W, Node}|Acc]).
+
+join(root, W) -> 
+    W;
+join(Parent, W) ->
+    <<(bin(Parent))/binary, $/, (bin(W))/binary>>.
+
+bin('')  -> <<>>;
+bin('+') -> <<"+">>;
+bin('#') -> <<"#">>;
+bin( B ) when is_binary(B) -> B.
+
+%% ------------------------------------------------------------------------
+%% Split Topic to Words
+%% ------------------------------------------------------------------------
 words(Topic) when is_binary(Topic) ->
-	words(binary_to_list(Topic), [], []).
+    [word(W) || W <- binary:split(Topic, <<"/">>, [global])].
 
-words([], Word, ResAcc) ->
-	reverse([l2b(reverse(W)) || W <- [Word|ResAcc]]);
+word(<<>>)    -> '';
+word(<<"+">>) -> '+';
+word(<<"#">>) -> '#';
+word(Bin)     -> Bin.
 
-words([$/|Topic], Word, ResAcc) ->
-	words(Topic, [], [Word|ResAcc]);
-
-words([C|Topic], Word, ResAcc) ->
-	words(Topic, [C|Word], ResAcc).
-
-valid([<<>>|Words]) -> valid2(Words);
-valid(Words) -> valid2(Words).
-
-valid2([<<>>|_Words]) -> false;
-valid2([<<"#">>|Words]) when length(Words) > 0 -> false; 
-valid2([_|Words]) -> valid2(Words);
-valid2([]) -> true.
-
-include_wildcard(<<>>) -> false;
-include_wildcard(<<$#, _T/binary>>) -> true;
-include_wildcard(<<$+, _T/binary>>) -> true;
-include_wildcard(<<_H, T/binary>>) -> include_wildcard(T).
-
-l2b(L) -> list_to_binary(L).
 
