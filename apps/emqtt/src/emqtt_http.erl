@@ -83,7 +83,7 @@ validate(qos, Qos) ->
     (Qos >= ?QOS_0) and (Qos =< ?QOS_2); 
 
 validate(topic, Topic) ->
-    emqtt_topic:validate({publish, Topic}).
+    emqtt_topic:validate({name, Topic}).
 
 int(S) -> list_to_integer(S).
 

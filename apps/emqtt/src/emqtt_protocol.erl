@@ -317,7 +317,7 @@ validate_clientid(#mqtt_packet_connect { proto_ver = Ver, clean_sess = CleanSess
 
 validate_packet(#mqtt_packet { header  = #mqtt_packet_header { type = ?PUBLISH }, 
                                variable = #mqtt_packet_publish{ topic_name = Topic }}) ->
-	case emqtt_topic:validate({publish, Topic}) of
+	case emqtt_topic:validate({name, Topic}) of
 	true -> ok;
 	false -> lager:warning("Error publish topic: ~p", [Topic]), {error, badtopic}
 	end;
@@ -325,21 +325,21 @@ validate_packet(#mqtt_packet { header  = #mqtt_packet_header { type = ?PUBLISH }
 validate_packet(#mqtt_packet { header  = #mqtt_packet_header { type = ?SUBSCRIBE }, 
                                variable = #mqtt_packet_subscribe{topic_table = Topics }}) ->
 
-    validate_topics(subscribe, Topics);
+    validate_topics(filter, Topics);
 
 validate_packet(#mqtt_packet{ header  = #mqtt_packet_header { type = ?UNSUBSCRIBE }, 
                               variable = #mqtt_packet_subscribe{ topic_table = Topics }}) ->
 
-    validate_topics(unsubscribe, Topics);
+    validate_topics(filter, Topics);
 
 validate_packet(_Packet) -> 
     ok.
 
-validate_topics(Type, []) when Type =:= subscribe orelse Type =:= unsubscribe ->
+validate_topics(Type, []) when Type =:= name orelse Type =:= filter ->
 	lager:error("Empty Topics!"),
     {error, empty_topics};
 
-validate_topics(Type, Topics) when Type =:= subscribe orelse Type =:= unsubscribe ->
+validate_topics(Type, Topics) when Type =:= name orelse Type =:= filter ->
 	ErrTopics = [Topic || #mqtt_topic{name=Topic, qos=Qos} <- Topics,
 						not (emqtt_topic:validate({Type, Topic}) and validate_qos(Qos))],
 	case ErrTopics of

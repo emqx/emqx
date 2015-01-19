@@ -1,5 +1,5 @@
 %%-----------------------------------------------------------------------------
-%% Copyright (c) 2015, Feng Lee <feng@emqtt.io>
+%% Copyright (c) 2012-2015, Feng Lee <feng@emqtt.io>
 %% 
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
 %% of this software and associated documentation files (the "Software"), to deal
@@ -24,32 +24,32 @@
 %% Core PubSub Topic
 %%------------------------------------------------------------------------------
 -record(topic, {
-    name	:: binary(),
-    node	:: node()
+    name    :: binary(),
+    node    :: node()
 }).
 
 -type topic() :: #topic{}.
 
 -record(topic_subscriber, {
-	topic	:: binary(),
-	qos = 0	:: non_neg_integer(),
-	subpid	:: pid()
+    topic    :: binary(),
+    qos = 0  :: non_neg_integer(),
+    subpid   :: pid()
 }).
 
 -record(topic_trie_node, {
-	node_id			:: binary(),
-	edge_count = 0	:: non_neg_integer(),
-	topic			:: binary()
+    node_id        	:: binary() | atom(),
+    edge_count = 0  :: non_neg_integer(),
+    topic    		:: binary()
 }).
 
 -record(topic_trie_edge, {
-	node_id	:: binary(),
-	word	:: binary() | char()
+    node_id :: binary() | atom(),
+    word    :: binary() | atom()
 }).
 
 -record(topic_trie, {
-	edge	:: #topic_trie_edge{},
-	node_id	:: binary()
+    edge    :: #topic_trie_edge{},
+    node_id :: binary() | atom()
 }).
 
 %%------------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 # eMQTT
 
-eMQTT is a clusterable, scalable, fault-tolerant and extensible MQTT V3.1.1 broker written in Erlang/OTP.
+eMQTT is a clusterable, massively scalable, fault-tolerant and extensible MQTT V3.1/V3.1.1 broker written in Erlang/OTP.
 
 eMQTT support MQTT V3.1/V3.1.1 Protocol Specification.
 

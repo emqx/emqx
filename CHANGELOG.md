@@ -1,10 +1,19 @@
+
 eMQTT ChangeLog
 ==================
 
-v0.3.1-beta (2015-01-24)
+v0.3.0-beta (2015-01-19)
 ------------------------
 
 Feature: HTTP POST API to support 'qos', 'retain' parameters
+
+Feature: $SYS system topics support
+
+Change: Rewrite emqtt_topic.erl, use '', '#', '+' to replace <<"">>, <<"#">>, <<"+">>
+
+Change: fix emqtt_pubsub.erl to match '#', '+'
+
+Tests: emqtt_topic_tests.erl add more test cases
 
 v0.3.0-alpha (2015-01-18)
 ------------------------
