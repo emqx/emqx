@@ -2,7 +2,7 @@
 eMQTT ChangeLog
 ==================
 
-v0.3.1-beta (2015-01-24)
+v0.3.0-beta (2015-01-19)
 ------------------------
 
 Feature: HTTP POST API to support 'qos', 'retain' parameters
