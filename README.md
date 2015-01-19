@@ -97,26 +97,6 @@ on 'host2':
 
 Run './bin/emqtt_ctl cluster' on 'host1' or 'host2' to check cluster nodes.
 
-## Cluster
-
-Suppose we cluster two nodes on 'host1', 'host2', steps:
-
-on 'host1':
-
-```
-./bin/emqtt start
-```
-
-on 'host2':
-
-```
-./bin/emqtt start
-
-./bin/emqtt cluster emqtt@host1
-```
-
-Run './bin/emqtt cluster' on 'host1' or 'host2' to check cluster nodes.
-
 ## HTTP API
 
 eMQTT support http to publish message.
