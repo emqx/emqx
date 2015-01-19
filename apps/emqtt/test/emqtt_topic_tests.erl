@@ -33,18 +33,51 @@
 -define(N, 100000).
 
 validate_test() ->
+	?assert( validate({filter, <<"sport/tennis/#">>}) ),
 	?assert( validate({filter, <<"a/b/c">>}) ),
 	?assert( validate({filter, <<"/a/b">>}) ),
 	?assert( validate({filter, <<"/+/x">>}) ),
 	?assert( validate({filter, <<"/a/b/c/#">>}) ),
-	?assertNot( validate({filter, <<"a/#/c">>}) ).
+	?assertNot( validate({filter, <<"a/#/c">>}) ),
+	?assertNot( validate({filter, <<"sport/tennis#">>}) ),
+	?assertNot( validate({filter, <<"sport/tennis/#/ranking">>}) ).
+
+sigle_level_validate_test() ->
+    ?assert( validate({filter, <<"+">>}) ),
+    ?assert( validate({filter, <<"+/tennis/#">>}) ),
+    ?assertNot( validate({filter, <<"sport+">>}) ),
+    ?assert( validate({filter, <<"sport/+/player1">>}) ).
 
 match_test() ->
+    ?assert( match(<<"sport/tennis/player1">>, <<"sport/tennis/player1/#">>) ),
+    ?assert( match(<<"sport/tennis/player1/ranking">>, <<"sport/tennis/player1/#">>) ),
+    ?assert( match(<<"sport/tennis/player1/score/wimbledon">>, <<"sport/tennis/player1/#">>) ),
+
+    ?assert( match(<<"sport">>, <<"sport/#">>) ),
+    ?assert( match(<<"sport">>, <<"#">>) ),
+    ?assert( match(<<"/sport/football/score/1">>, <<"#">>) ).
+
+sigle_level_match_test() ->
+    ?assert( match(<<"sport/tennis/player1">>, <<"sport/tennis/+">>) ),
+    ?assertNot( match(<<"sport/tennis/player1/ranking">>, <<"sport/tennis/+">>) ),
+    ?assertNot( match(<<"sport">>, <<"sport/+">>) ),
+    ?assert( match(<<"sport/">>, <<"sport/+">>) ),
+    ?assert( match(<<"/finance">>, <<"+/+">>) ),
+    ?assert( match(<<"/finance">>, <<"/+">>) ),
+    ?assertNot( match(<<"/finance">>, <<"+">>) ).
+
+sys_match_test() ->
+    ?assert( match(<<"$SYS/borker/clients/testclient">>, <<"$SYS/#">>) ),
+    ?assert( match(<<"$SYS/borker">>, <<"$SYS/+">>) ),
+    ?assertNot( match(<<"$SYS/borker">>, <<"+/+">>) ),
+    ?assertNot( match(<<"$SYS/borker">>, <<"#">>) ).
+
+match_perf_test() ->
     ?assert( match(<<"a/b/ccc">>, <<"a/#">>) ),
     Name = <<"/abkc/19383/192939/akakdkkdkak/xxxyyuya/akakak">>,
     Filter = <<"/abkc/19383/+/akakdkkdkak/#">>,
     ?assert( match(Name, Filter) ),
-    ?debugFmt("Match ~p with ~p", [Name, Filter]),
+    %?debugFmt("Match ~p with ~p", [Name, Filter]),
     {Time, _} = timer:tc(fun() -> 
                 [match(Name, Filter) || _I <- lists:seq(1, ?N)]
         end),
@@ -52,6 +85,10 @@ match_test() ->
     ok.
 
 triples_test() ->
+    Triples = [{root, <<"a">>, <<"a">>}, {<<"a">>, <<"b">>, <<"a/b">>}],
+    ?assertMatch(Triples, triples(<<"a/b">>) ). 
+
+triples_perf_test() ->
     Topic = <<"/abkc/19383/192939/akakdkkdkak/xxxyyuya/akakak">>,
     {Time, _} = timer:tc(fun() -> 
                 [triples(Topic) || _I <- lists:seq(1, ?N)]
@@ -65,7 +102,6 @@ type_test() ->
 	?assertEqual(wildcard, type(#topic{name = <<"/a/b/#">>})).
 
 words_test() ->
-    ?debugFmt("Words: ~p", [words(<<"/abkc/19383/+/akakdkkdkak/#">>)]),
     ?assertMatch(['', <<"abkc">>, <<"19383">>, '+', <<"akakdkkdkak">>, '#'],  words(<<"/abkc/19383/+/akakdkkdkak/#">>)),
     {Time, _} = timer:tc(fun() -> 
                 [words(<<"/abkc/19383/+/akakdkkdkak/#">>) || _I <- lists:seq(1, ?N)]

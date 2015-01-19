@@ -100,11 +100,17 @@ match([], []) ->
 	true;
 match([H|T1], [H|T2]) ->
 	match(T1, T2);
+match([<<$$, _/binary>>|_], ['+'|_]) ->
+    false;
 match([_H|T1], ['+'|T2]) ->
 	match(T1, T2);
+match([<<$$, _/binary>>|_], ['#']) ->
+    false;
 match(_, ['#']) ->
 	true;
 match([_H1|_], [_H2|_]) ->
+	false;
+match([_H1|_], []) ->
 	false;
 match([], [_H|_T2]) ->
 	false.
