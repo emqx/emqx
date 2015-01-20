@@ -39,7 +39,7 @@
 -record(topic_trie_node, {
     node_id        	:: binary() | atom(),
     edge_count = 0  :: non_neg_integer(),
-    topic    		:: binary()
+    topic    		:: binary(),
     type = dynamic  :: dynamic | static
 }).
 
