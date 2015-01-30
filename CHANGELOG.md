@@ -15,6 +15,7 @@ Change: fix emqtt_pubsub.erl to match '#', '+'
 
 Tests: emqtt_topic_tests.erl add more test cases
 
+
 v0.3.0-alpha (2015-01-18)
 ------------------------
 

@@ -20,41 +20,32 @@
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
 
-%%------------------------------------------------------------------------------
-%% Core PubSub Topic
-%%------------------------------------------------------------------------------
--record(topic, {
-    name    :: binary(),
-    node    :: node()
-}).
+-module(emqtt_bridge_sup).
 
--type topic() :: #topic{}.
+-author('feng@emqtt.io').
 
--record(topic_subscriber, {
-    topic    :: binary(),
-    qos = 0  :: non_neg_integer(),
-    subpid   :: pid()
-}).
+-behavior(supervisor).
 
--record(topic_trie_node, {
-    node_id        	:: binary() | atom(),
-    edge_count = 0  :: non_neg_integer(),
-    topic    		:: binary(),
-    type = dynamic  :: dynamic | static
-}).
+-export([start_link/0, start_bridge/2, stop_bridge/1, init/1]).
 
--record(topic_trie_edge, {
-    node_id :: binary() | atom(),
-    word    :: binary() | atom()
-}).
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
--record(topic_trie, {
-    edge    :: #topic_trie_edge{},
-    node_id :: binary() | atom()
-}).
+%%TODO: FIXME LATER.
+start_bridge(Name, Opts) when is_atom(Name) ->
+    supervisor:start_child(?MODULE, {{bridge, Name}, 
+                            {eqmtt_bridge, start_link, [Opts]}, 
+                                transient, 16#fffff, worker, [emqtt_bridge]}).
 
-%%------------------------------------------------------------------------------
-%% System Topic
-%%------------------------------------------------------------------------------
--define(SYSTOP, <<"$SYS">>).
+stop_bridge(Name) ->
+    ChildId = {bridge, Name},
+    case supervisor:terminate_child(?MODULE, ChildId) of
+        ok -> 
+            supervisor:delete_child(?MODULE, ChildId);
+        {error, Reason} -> 
+            {error, Reason}
+    end.
+
+init([]) ->
+    {ok, {{one_for_one, 10, 1000}, []}}.
 
