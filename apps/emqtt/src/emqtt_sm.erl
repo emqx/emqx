@@ -147,7 +147,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
-	ets:match_delete(emqtt_client, {{'_', DownPid, MRef}}),
+	ets:match_delete(?TABLE, {{'_', DownPid, MRef}}),
     {noreply, State};
 
 handle_info(_Info, State) ->
