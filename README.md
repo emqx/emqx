@@ -1,4 +1,4 @@
-# eMQTT
+# eMQTT [![Build Status](https://travis-ci.org/emqtt/emqtt.svg?branch=master)](https://travis-ci.org/emqtt/emqtt)
 
 eMQTT is a clusterable, massively scalable, fault-tolerant and extensible MQTT V3.1/V3.1.1 broker written in Erlang/OTP.
 
