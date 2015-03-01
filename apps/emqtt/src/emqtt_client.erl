@@ -54,19 +54,20 @@
 }).
 
 start_link(SockArgs) ->
+    io:format("start_link: ~p~n", [SockArgs]),
     {ok, proc_lib:spawn_link(?MODULE, init, [SockArgs])}.
 
 info(Pid) ->
     gen_server:call(Pid, info).
 
-init([SockArgs = {Transport, Sock, _SockFun}]) ->
+init(SockArgs = {Transport, Sock, _SockFun}) ->
     %%TODO: replace emqtt_net??
+    {ok, NewSock} = esockd_connection:accept(SockArgs),
     {ok, Peername} = emqtt_net:peer_string(Sock),
     {ok, ConnStr} = emqtt_net:connection_string(Sock, inbound),
     lager:info("Connect from ~s", [ConnStr]),
-    {ok, NewSock} = esockd_connection:accept(SockArgs),
     State = control_throttle(#state{transport    = Transport,
-                                    socket       = Sock, 
+                                    socket       = NewSock, 
                                     peer_name    = Peername,
                                     conn_name    = ConnStr, 
                                     await_recv   = false, 
