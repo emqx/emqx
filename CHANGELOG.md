@@ -2,6 +2,16 @@
 eMQTT ChangeLog
 ==================
 
+v0.3.1-beta (2015-03-01)
+------------------------
+
+Feature: SSL Socket Support
+
+Change: upgrade esockd to v0.2.0
+
+Change: upgrade mochiweb to v3.0.0
+
+
 v0.3.0-beta (2015-01-19)
 ------------------------
 
