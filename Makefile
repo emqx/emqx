@@ -1,14 +1,30 @@
+.PHONY: test
+
+REBAR=./rebar
+
 all: get-deps compile
 
 compile: get-deps
-	./rebar compile
+	@$(REBAR) compile
 
 get-deps:
-	./rebar get-deps
+	@$(REBAR) get-deps
+
+update-deps:
+	@$(REBAR) update-deps
+
+xref:
+	@$(REBAR) xref skip_deps=true
 
 clean:
-	./rebar clean
+	@$(REBAR) clean
 	rm -rf rel/emqtt
+
+test:
+	@$(REBAR) skip_deps=true eunit
+
+edoc:
+	@$(REBAR) doc
 
 dist:
 	cd rel && ../rebar generate -f

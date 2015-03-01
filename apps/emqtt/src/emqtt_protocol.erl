@@ -30,7 +30,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([initial_state/2, client_id/1]).
+-export([initial_state/3, client_id/1]).
 
 -export([handle_packet/2, send_message/2, send_packet/2, redeliver/2, shutdown/2]).
 
@@ -41,6 +41,7 @@
 %% Protocol State
 %% ------------------------------------------------------------------
 -record(proto_state, {
+        transport,
         socket,
         peer_name,
         connected = false, %received CONNECT action?
@@ -72,8 +73,9 @@
 
 -define(PUBACK_PACKET(PacketId), #mqtt_packet_puback { packet_id = PacketId }).
 
-initial_state(Socket, Peername) ->
+initial_state(Transport, Socket, Peername) ->
 	#proto_state{
+        transport       = Transport,
 		socket			= Socket,
         peer_name       = Peername
 	}. 
@@ -245,12 +247,11 @@ send_message({_From, Message = #mqtt_message{ qos = Qos }}, State = #proto_state
     {Message1, NewSession} = emqtt_session:store(Session, Message),
 	send_packet(emqtt_message:to_packet(Message1), State#proto_state{session = NewSession}).
 
-send_packet(Packet, State = #proto_state{socket = Sock, peer_name = PeerName, client_id = ClientId}) ->
+send_packet(Packet, State = #proto_state{transport = Transport, socket = Sock, peer_name = PeerName, client_id = ClientId}) ->
 	lager:info("SENT to ~s@~s: ~s", [ClientId, PeerName, emqtt_packet:dump(Packet)]),
     Data = emqtt_packet:serialise(Packet),
     lager:debug("SENT to ~s: ~p", [PeerName, Data]),
-    %%FIXME Later...
-    erlang:port_command(Sock, Data),
+    Transport:send(Sock, Data),
     {ok, State}.
 
 %%

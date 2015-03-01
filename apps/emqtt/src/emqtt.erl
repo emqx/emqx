@@ -37,7 +37,11 @@ listen(Listeners) when is_list(Listeners) ->
 
 listen({mqtt, Port, Options}) ->
     MFArgs = {emqtt_client, start_link, []},
-    esockd:listen(mqtt, Port, Options ++ ?MQTT_SOCKOPTS, MFArgs);
+    esockd:open(mqtt, Port, Options ++ ?MQTT_SOCKOPTS, MFArgs);
+
+listen({mqtts, Port, Options}) ->
+    MFArgs = {emqtt_client, start_link, []},
+    esockd:open(mqtts, Port, Options ++ ?MQTT_SOCKOPTS, MFArgs);
 
 listen({http, Port, Options}) ->
     MFArgs = {emqtt_http, handle, []},
