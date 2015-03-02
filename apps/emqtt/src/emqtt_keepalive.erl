@@ -26,29 +26,31 @@
 
 -export([new/3, resume/1, cancel/1]).
 
--record(keepalive, {socket, recv_oct, timeout_sec, timeout_msg, timer_ref}).
+-record(keepalive, {transport, socket, recv_oct, timeout_sec, timeout_msg, timer_ref}).
 
 %%
 %% @doc create a keepalive.
 %%
-new(Socket, TimeoutSec, TimeoutMsg) when TimeoutSec > 0 ->
-    {ok, [{recv_oct, RecvOct}]} = inet:getstat(Socket, [recv_oct]),
+new({Transport, Socket}, TimeoutSec, TimeoutMsg) when TimeoutSec > 0 ->
+    {ok, [{recv_oct, RecvOct}]} = Transport:getstat(Socket, [recv_oct]),
 	Ref = erlang:send_after(TimeoutSec*1000, self(), TimeoutMsg),
-	#keepalive { socket      = Socket, 
-                 recv_oct    = RecvOct, 
-                 timeout_sec = TimeoutSec, 
-                 timeout_msg = TimeoutMsg,
-                 timer_ref   = Ref }.
+	#keepalive {transport   = Transport,
+                socket      = Socket, 
+                recv_oct    = RecvOct, 
+                timeout_sec = TimeoutSec, 
+                timeout_msg = TimeoutMsg,
+                timer_ref   = Ref }.
 
 %%
 %% @doc try to resume keepalive, called when timeout.
 %%
-resume(KeepAlive = #keepalive { socket      = Socket, 
-                                recv_oct    = RecvOct, 
-                                timeout_sec = TimeoutSec, 
-                                timeout_msg = TimeoutMsg, 
-                                timer_ref   = Ref }) ->
-    {ok, [{recv_oct, NewRecvOct}]} = inet:getstat(Socket, [recv_oct]),
+resume(KeepAlive = #keepalive {transport   = Transport, 
+                               socket      = Socket, 
+                               recv_oct    = RecvOct, 
+                               timeout_sec = TimeoutSec, 
+                               timeout_msg = TimeoutMsg, 
+                               timer_ref   = Ref }) ->
+    {ok, [{recv_oct, NewRecvOct}]} = Transport:getstat(Socket, [recv_oct]),
     if
         NewRecvOct =:= RecvOct -> 
             timeout;

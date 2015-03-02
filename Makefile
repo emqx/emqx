@@ -1,3 +1,4 @@
+.PHONY: test
 
 REBAR=./rebar
 
@@ -18,6 +19,12 @@ xref:
 clean:
 	@$(REBAR) clean
 	rm -rf rel/emqtt
+
+test:
+	@$(REBAR) skip_deps=true eunit
+
+edoc:
+	@$(REBAR) doc
 
 dist:
 	cd rel && ../rebar generate -f
