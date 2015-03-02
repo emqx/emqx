@@ -54,7 +54,6 @@
 }).
 
 start_link(SockArgs) ->
-    io:format("start_link: ~p~n", [SockArgs]),
     {ok, proc_lib:spawn_link(?MODULE, init, [SockArgs])}.
 
 info(Pid) ->
@@ -122,9 +121,9 @@ handle_info({inet_reply, _Sock, {error, Reason}}, State = #state{peer_name = Pee
     lager:critical("Client ~s: unexpected inet_reply '~p'", [PeerName, Reason]),
     {noreply, State};
 
-handle_info({keepalive, start, TimeoutSec}, State = #state{socket = Socket}) ->
+handle_info({keepalive, start, TimeoutSec}, State = #state{transport = Transport, socket = Socket}) ->
     lager:info("Client ~s: Start KeepAlive with ~p seconds", [State#state.peer_name, TimeoutSec]),
-    KeepAlive = emqtt_keepalive:new(Socket, TimeoutSec, {keepalive, timeout}),
+    KeepAlive = emqtt_keepalive:new({Transport, Socket}, TimeoutSec, {keepalive, timeout}),
     {noreply, State#state{ keepalive = KeepAlive }};
 
 handle_info({keepalive, timeout}, State = #state { keepalive = KeepAlive }) ->
