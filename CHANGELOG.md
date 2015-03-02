@@ -7,9 +7,15 @@ v0.3.1-beta (2015-03-02)
 
 Feature: SSL Socket Support
 
-Change: upgrade esockd to v0.2.0
+Feature: issue#44 HTTP API should add Qos parameter
 
-Change: upgrade mochiweb to v3.0.0
+Bugfix: issue#52 emqtt_session crash
+
+Bugfix: issue#53 sslsocket keepalive error
+
+Upgrade: esockd to v0.2.0
+
+Upgrade: mochiweb to v3.0.0
 
 
 v0.3.0-beta (2015-01-19)
