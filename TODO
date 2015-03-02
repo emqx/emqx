@@ -37,4 +37,22 @@ full test cases...
 
 spawn_link to replace 'spawn' and 'link'
 
+## ACL
 
+## Authentication with clientId
+
+## SSL/TLS Socket
+
+## $SYS/topics and Broker statistics...
+
+## Cluster 
+
+## Bridge
+
+## Websocket
+
+## MQTT over Websocket
+
+## Mnesia 
+
+Create Schema...

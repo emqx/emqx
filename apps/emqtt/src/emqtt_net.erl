@@ -194,7 +194,7 @@ getopts(Sock, Options) when is_port(Sock) ->
 setopts(Sock, Options) when is_port(Sock) ->
     inet:setopts(Sock, Options).
 
-sockname(Sock)   when is_port(Sock) -> inet:sockname(Sock).
+sockname(Sock) when is_port(Sock) -> inet:sockname(Sock).
 
 peer_string(Sock) ->
     case peername(Sock) of

@@ -22,9 +22,16 @@ Router to register queues
 
 ## Topic Tree
 
+## Offline Message
+
+## ACL
+
+## Authentication with clientId
+
+## SSL/TLS Socket
+
+## $SYS/topics and Broker statistics...
+
 ## Cluster 
 
 ## Bridge
-
-## Offline Message
-
