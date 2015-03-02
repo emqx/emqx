@@ -2,7 +2,7 @@
 eMQTT ChangeLog
 ==================
 
-v0.3.1-beta (2015-03-01)
+v0.3.1-beta (2015-03-02)
 ------------------------
 
 Feature: SSL Socket Support
