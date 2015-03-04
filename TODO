@@ -2,33 +2,7 @@
 =====
 merge emqttc code...
 
-
-0.2.2
-=====
-
-merge pull request#26
-
-0.2.0
-=====
-
-1. project structure...
-2. apps, deps, plugins,
-3. rel...
-4. mochiweb: http publish...
-5 cluster...
-6. support MQTT3.1.1...
-7. python, java test code
-8. emqtt_cm to manager clientId, clientPid...
-
-
-????
-    {ok, {{simple_one_for_one_terminate, 0, 1},
-          [{client, {emqtt_client, start_link, []}, 
-				temporary, 5000, worker, [emqtt_client]}]}}.
-
-fucking stupid..... esockd locked
-
-0.2.1
+0.6.0
 =====
 
 one million connections test...
@@ -41,3 +15,23 @@ full test cases...
 
 spawn_link to replace 'spawn' and 'link'
 
+=======
+## ACL
+
+## Authentication with clientId
+
+## SSL/TLS Socket
+
+## $SYS/topics and Broker statistics...
+
+## Cluster 
+
+## Bridge
+
+## Websocket
+
+## MQTT over Websocket
+
+## Mnesia 
+
+Create Schema...
