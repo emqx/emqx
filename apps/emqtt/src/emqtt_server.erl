@@ -19,7 +19,6 @@
 %% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
-
 -module(emqtt_server).
 
 -author('feng@slimpp.io').
@@ -27,6 +26,8 @@
 -include("emqtt.hrl").
 
 -include("emqtt_topic.hrl").
+
+-include("emqtt_packet.hrl").
 
 -behaviour(gen_server).
 

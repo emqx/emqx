@@ -195,22 +195,21 @@ handle_packet(?SUBSCRIBE, #mqtt_packet {
                               payload = undefined}, 
                       State = #proto_state { session = Session } ) ->
 
-    Topics = [{Name, Qos} || #mqtt_topic{name=Name, qos=Qos} <- TopicTable], 
-    {ok, NewSession, GrantedQos} = emqtt_session:subscribe(Session, Topics),
+    {ok, NewSession, GrantedQos} = emqtt_session:subscribe(Session, TopicTable),
     send_packet(#mqtt_packet { header = #mqtt_packet_header { type = ?SUBACK }, 
                                variable = #mqtt_packet_suback{ packet_id = PacketId, 
                                                                qos_table  = GrantedQos }}, 
                    State#proto_state{ session = NewSession });
 
-handle_packet(?UNSUBSCRIBE, #mqtt_packet { 
-                                variable = #mqtt_packet_subscribe{
-                                              packet_id  = PacketId, 
-                                              topic_table = Topics }, 
-                                payload = undefined}, 
+handle_packet(?UNSUBSCRIBE, #mqtt_packet{
+                                variable = #mqtt_packet_unsubscribe{
+                                              packet_id = PacketId, 
+                                              topics    = Topics}, 
+                                payload = undefined},
                State = #proto_state{session = Session}) ->
-    {ok, NewSession} = emqtt_session:unsubscribe(Session, [Name || #mqtt_topic{ name = Name } <- Topics]), 
+    {ok, NewSession} = emqtt_session:unsubscribe(Session, Topics),
     send_packet(#mqtt_packet { header = #mqtt_packet_header {type = ?UNSUBACK }, 
-                               variable = #mqtt_packet_suback{packet_id = PacketId }}, 
+                               variable = #mqtt_packet_unsuback{packet_id = PacketId }}, 
                            State#proto_state { session = NewSession } );
 
 handle_packet(?PINGREQ, #mqtt_packet{}, State) ->
@@ -249,7 +248,7 @@ send_message({_From, Message = #mqtt_message{ qos = Qos }}, State = #proto_state
 
 send_packet(Packet, State = #proto_state{transport = Transport, socket = Sock, peer_name = PeerName, client_id = ClientId}) ->
 	lager:info("SENT to ~s@~s: ~s", [ClientId, PeerName, emqtt_packet:dump(Packet)]),
-    Data = emqtt_packet:serialise(Packet),
+    Data = emqtt_serialiser:serialise(Packet),
     lager:debug("SENT to ~s: ~p", [PeerName, Data]),
     Transport:send(Sock, Data),
     {ok, State}.
@@ -341,7 +340,7 @@ validate_topics(Type, []) when Type =:= name orelse Type =:= filter ->
     {error, empty_topics};
 
 validate_topics(Type, Topics) when Type =:= name orelse Type =:= filter ->
-	ErrTopics = [Topic || #mqtt_topic{name=Topic, qos=Qos} <- Topics,
+	ErrTopics = [Topic || {Topic, Qos} <- Topics,
 						not (emqtt_topic:validate({Type, Topic}) and validate_qos(Qos))],
 	case ErrTopics of
 	[] -> ok;

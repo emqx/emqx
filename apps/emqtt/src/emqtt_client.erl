@@ -72,7 +72,7 @@ init(SockArgs = {Transport, Sock, _SockFun}) ->
                                     await_recv   = false, 
                                     conn_state   = running, 
                                     conserve     = false, 
-                                    parse_state  = emqtt_packet:initial_state(), 
+                                    parse_state  = emqtt_parser:new(), 
                                     proto_state  = emqtt_protocol:initial_state(Transport, NewSock, Peername)}),
     gen_server:enter_loop(?MODULE, [], State, 10000).
 
@@ -164,7 +164,7 @@ process_received_bytes(Bytes,
                        State = #state{ parse_state = ParseState,
                                        proto_state = ProtoState,
                                        conn_name   = ConnStr }) ->
-    case emqtt_packet:parse(Bytes, ParseState) of
+    case emqtt_parser:parse(Bytes, ParseState) of
     {more, ParseState1} ->
         {noreply,
          control_throttle( State #state{ parse_state = ParseState1 }),
@@ -174,7 +174,7 @@ process_received_bytes(Bytes,
         {ok, ProtoState1} ->
             process_received_bytes(
               Rest,
-              State#state{ parse_state = emqtt_packet:initial_state(),
+              State#state{ parse_state = emqtt_parser:new(),
                            proto_state = ProtoState1 });
         {error, Error} ->
             lager:error("MQTT protocol error ~p for connection ~p~n", [Error, ConnStr]),

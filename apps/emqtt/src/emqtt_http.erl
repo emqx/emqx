@@ -26,6 +26,8 @@
 
 -include("emqtt.hrl").
 
+-include("emqtt_packet.hrl").
+
 -import(proplists, [get_value/2, get_value/3]).
 
 -export([handle/1]).

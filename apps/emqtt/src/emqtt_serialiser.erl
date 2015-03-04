@@ -34,8 +34,6 @@
 -export([serialise/1]).
 
 
-%%TODO: doc and spec...
-
 serialise(#mqtt_packet{header = Header = #mqtt_packet_header{type = Type},
                        variable = Variable,
                        payload  = Payload}) ->
@@ -52,7 +50,7 @@ serialise_header(#mqtt_packet_header{type   = Type,
     Len = size(VariableBin) + size(PayloadBin),
     true = (Len =< ?MAX_LEN),
     LenBin = serialise_len(Len),
-    <<Type:4, (opt(Dup)):1, (opt(Qos)):2, (opt(Retain)):1, 
+    <<Type:4, (opt(Dup)):1, (opt(Qos)):2, (opt(Retain)):1,
       LenBin/binary, VariableBin/binary, PayloadBin/binary>>.
 
 serialise_variable(?CONNECT, #mqtt_packet_connect{client_id   =  ClientId,
@@ -90,7 +88,7 @@ serialise_variable(?CONNECT, #mqtt_packet_connect{client_id   =  ClientId,
     {VariableBin, <<PayloadBin1/binary, UserPasswd/binary>>};
 
 serialise_variable(?CONNACK, #mqtt_packet_connack{ack_flags   = AckFlags,
-                                                  return_code = ReturnCode },
+                                                  return_code = ReturnCode},
                    undefined) ->
     {<<AckFlags:8, ReturnCode:8>>, <<>>};
 
@@ -100,7 +98,7 @@ serialise_variable(?SUBSCRIBE, #mqtt_packet_subscribe{packet_id = PacketId,
 
 serialise_variable(?SUBACK, #mqtt_packet_suback {packet_id = PacketId,
                                                  qos_table = QosTable},
-                   undefined)
+                   undefined) ->
     {<<PacketId:16/big>>, << <<Q:8>> || Q <- QosTable >>};
 
 serialise_variable(?UNSUBSCRIBE, #mqtt_packet_unsubscribe{
@@ -108,7 +106,7 @@ serialise_variable(?UNSUBSCRIBE, #mqtt_packet_unsubscribe{
     {<<PacketId:16/big>>, serialise_topics(Topics)};
 
 serialise_variable(?UNSUBACK, #mqtt_packet_suback {packet_id = PacketId},
-                   undefined)
+                   undefined) ->
     {<<PacketId:16/big>>, <<>>};
 
 serialise_variable(?PUBLISH, #mqtt_packet_publish { topic_name = TopicName,
@@ -157,4 +155,3 @@ opt(false)                -> 0;
 opt(true)                 -> 1;
 opt(X) when is_integer(X) -> X;
 opt(B) when is_binary(B)  -> 1.
-

@@ -28,6 +28,8 @@
 
 -include("emqtt_topic.hrl").
 
+-include("emqtt_packet.hrl").
+
 -include_lib("stdlib/include/qlc.hrl").
 
 %% ------------------------------------------------------------------

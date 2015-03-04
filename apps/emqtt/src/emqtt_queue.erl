@@ -21,7 +21,7 @@
 %%------------------------------------------------------------------------------
 -module(emqtt_queue).
 
--include("emqtt.hrl").
+-include("emqtt_packet.hrl").
 
 -export([new/1, new/2, in/3, all/1, clear/1]).
 
