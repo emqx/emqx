@@ -30,7 +30,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([initial_state/3, client_id/1]).
+-export([init/3, client_id/1]).
 
 -export([handle_packet/2, send_message/2, send_packet/2, redeliver/2, shutdown/2]).
 
@@ -73,7 +73,7 @@
 
 -define(PUBACK_PACKET(PacketId), #mqtt_packet_puback { packet_id = PacketId }).
 
-initial_state(Transport, Socket, Peername) ->
+init(Transport, Socket, Peername) ->
 	#proto_state{
         transport       = Transport,
 		socket			= Socket,

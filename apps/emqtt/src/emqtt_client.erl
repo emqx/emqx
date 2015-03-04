@@ -19,7 +19,6 @@
 %% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
-
 -module(emqtt_client).
 
 -author('feng@emqtt.io').
@@ -40,27 +39,26 @@
 -include("emqtt_packet.hrl").
 
 %%Client State...
--record(state, {
-        transport,
-        socket,
-        peer_name,
-        conn_name,
-        await_recv,
-        conn_state,
-        conserve,
-        parse_state,
-        proto_state,
-        keepalive
-}).
+-record(state, {transport,
+                socket,
+                peer_name,
+                conn_name,
+                await_recv,
+                conn_state,
+                conserve,
+                parse_state,
+                proto_state,
+                keepalive}).
 
 start_link(SockArgs) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [SockArgs])}.
 
+%%TODO: rename?
 info(Pid) ->
     gen_server:call(Pid, info).
 
 init(SockArgs = {Transport, Sock, _SockFun}) ->
-    %%TODO: replace emqtt_net??
+    %transform if ssl.
     {ok, NewSock} = esockd_connection:accept(SockArgs),
     {ok, Peername} = emqtt_net:peer_string(Sock),
     {ok, ConnStr} = emqtt_net:connection_string(Sock, inbound),
@@ -72,8 +70,8 @@ init(SockArgs = {Transport, Sock, _SockFun}) ->
                                     await_recv   = false, 
                                     conn_state   = running, 
                                     conserve     = false, 
-                                    parse_state  = emqtt_parser:new(), 
-                                    proto_state  = emqtt_protocol:initial_state(Transport, NewSock, Peername)}),
+                                    parse_state  = emqtt_parser:init(), 
+                                    proto_state  = emqtt_protocol:init(Transport, NewSock, Peername)}),
     gen_server:enter_loop(?MODULE, [], State, 10000).
 
 handle_call(info, _From, State = #state{
@@ -174,7 +172,7 @@ process_received_bytes(Bytes,
         {ok, ProtoState1} ->
             process_received_bytes(
               Rest,
-              State#state{ parse_state = emqtt_parser:new(),
+              State#state{ parse_state = emqtt_parser:init(),
                            proto_state = ProtoState1 });
         {error, Error} ->
             lager:error("MQTT protocol error ~p for connection ~p~n", [Error, ConnStr]),
