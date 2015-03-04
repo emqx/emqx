@@ -19,7 +19,6 @@
 %% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
-
 -module(emqtt_protocol).
 
 -include("emqtt.hrl").
@@ -29,13 +28,11 @@
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
-
 -export([init/3, client_id/1]).
 
 -export([handle_packet/2, send_message/2, send_packet/2, redeliver/2, shutdown/2]).
 
 -export([info/1]).
-
 
 %% ------------------------------------------------------------------
 %% Protocol State
@@ -54,22 +51,14 @@
 		will_msg
 }).
 
-%%----------------------------------------------------------------------------
-
--ifdef(use_specs).
-
 -type(proto_state() :: #proto_state{}).
 
 -spec(send_message({pid() | tuple(), mqtt_message()}, proto_state()) -> {ok, proto_state()}).
 
 -spec(handle_packet(mqtt_packet(), proto_state()) -> {ok, proto_state()} | {error, any()}). 
 
--endif.
-
-%%----------------------------------------------------------------------------
-
 -define(PACKET_TYPE(Packet, Type), 
-    Packet = #mqtt_packet { header = #mqtt_packet_header { type = Type }}).
+    Packet = #mqtt_packet{header = #mqtt_packet_header { type = Type }}).
 
 -define(PUBACK_PACKET(PacketId), #mqtt_packet_puback { packet_id = PacketId }).
 
