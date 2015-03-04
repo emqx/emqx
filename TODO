@@ -2,6 +2,7 @@
 =====
 merge emqttc code...
 
+
 0.2.2
 =====
 
@@ -39,5 +40,4 @@ Dialyzer ...
 full test cases...
 
 spawn_link to replace 'spawn' and 'link'
-
 
