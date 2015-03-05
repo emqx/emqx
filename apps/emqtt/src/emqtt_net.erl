@@ -19,7 +19,6 @@
 %% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
-
 -module(emqtt_net).
 
 -author('feng@emqtt.io').
@@ -236,5 +235,4 @@ hostname() ->
         {ok,    #hostent{h_name = Name}} -> Name;
         {error, _Reason}                 -> Hostname
     end.
-
 

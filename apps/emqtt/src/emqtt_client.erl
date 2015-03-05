@@ -99,7 +99,7 @@ handle_info({stop, duplicate_id, _NewPid}, State=#state{proto_state = ProtoState
 
 %%TODO: ok??
 handle_info({dispatch, {From, Message}}, #state{proto_state = ProtoState} = State) ->
-    {ok, ProtoState1} = emqtt_protocol:send_message({From, Message}, ProtoState),
+    {ok, ProtoState1} = emqtt_protocol:send({From, Message}, ProtoState),
     {noreply, State#state{proto_state = ProtoState1}};
 
 handle_info({redeliver, {?PUBREL, PacketId}}, #state{proto_state = ProtoState} = State) ->
