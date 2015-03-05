@@ -2,6 +2,14 @@
 eMQTT ChangeLog
 ==================
 
+v0.3.2-beta (2015-03-05)
+------------------------
+
+Improve: merge emqttc serialiser, parser, packet
+
+Add: emqtt_opts to merge socket options
+
+
 v0.3.1-beta (2015-03-02)
 ------------------------
 
