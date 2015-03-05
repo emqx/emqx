@@ -20,38 +20,28 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqtt main module.
+%%% emqtt options handler.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqtt).
+-module(emqtt_opts).
 
--export([start/0, open/1]).
+-export([merge/2]).
 
--define(MQTT_SOCKOPTS, [
-	binary,
-	{packet,    raw},
-	{reuseaddr, true},
-	{backlog,   512},
-	{nodelay,   true}
-]).
+merge(Defaults, Options) ->
+    lists:foldl(
+        fun({Opt, Val}, Acc) ->
+                case lists:keymember(Opt, 1, Acc) of
+                    true ->
+                        lists:keyreplace(Opt, 1, Acc, {Opt, Val});
+                    false ->
+                        [{Opt, Val}|Acc]
+                end;
+            (Opt, Acc) ->
+                case lists:member(Opt, Acc) of
+                    true -> Acc;
+                    false -> [Opt | Acc]
+                end
+        end, Defaults, Options).
 
--spec start() -> ok | {error, any()}.
-start() ->
-    application:start(emqtt).
-
-open(Listeners) when is_list(Listeners) ->
-    [open(Listener) || Listener <- Listeners];
-
-open({mqtt, Port, Options}) ->
-    MFArgs = {emqtt_client, start_link, []},
-    esockd:open(mqtt, Port, emqtt_opts:merge(?MQTT_SOCKOPTS, Options) , MFArgs);
-
-open({mqtts, Port, Options}) ->
-    MFArgs = {emqtt_client, start_link, []},
-    esockd:open(mqtts, Port, emqtt_opts:merge(?MQTT_SOCKOPTS, Options) , MFArgs);
-
-open({http, Port, Options}) ->
-    MFArgs = {emqtt_http, handle, []},
-	mochiweb:start_http(Port, Options, MFArgs).
 

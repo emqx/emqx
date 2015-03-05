@@ -20,15 +20,17 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqtt main module.
+%%% emqtt_opts_tests.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqtt).
+-module(emqtt_opts_tests).
 
--export([start/0, open/1]).
+-ifdef(TEST).
 
--define(MQTT_SOCKOPTS, [
+-include_lib("eunit/include/eunit.hrl").
+
+-define(SOCKOPTS, [
 	binary,
 	{packet,    raw},
 	{reuseaddr, true},
@@ -36,22 +38,21 @@
 	{nodelay,   true}
 ]).
 
--spec start() -> ok | {error, any()}.
-start() ->
-    application:start(emqtt).
+merge_test() ->
+    Opts = emqtt_opts:merge(?SOCKOPTS, [raw,
+                                        {backlog, 1024},
+                                        {nodelay, false},
+                                        {max_clients, 1024},
+                                        {acceptor_pool, 4}]),
+    ?assertEqual(1024, proplists:get_value(backlog, Opts)),
+    ?assertEqual(1024, proplists:get_value(max_clients, Opts)),
+    ?assertEqual(lists:sort(Opts), [binary, raw,
+                                    {acceptor_pool,4},
+                                    {backlog,1024},
+                                    {max_clients,1024},
+                                    {nodelay,false},
+                                    {packet,raw},
+                                    {reuseaddr,true}]).
 
-open(Listeners) when is_list(Listeners) ->
-    [open(Listener) || Listener <- Listeners];
 
-open({mqtt, Port, Options}) ->
-    MFArgs = {emqtt_client, start_link, []},
-    esockd:open(mqtt, Port, emqtt_opts:merge(?MQTT_SOCKOPTS, Options) , MFArgs);
-
-open({mqtts, Port, Options}) ->
-    MFArgs = {emqtt_client, start_link, []},
-    esockd:open(mqtts, Port, emqtt_opts:merge(?MQTT_SOCKOPTS, Options) , MFArgs);
-
-open({http, Port, Options}) ->
-    MFArgs = {emqtt_http, handle, []},
-	mochiweb:start_http(Port, Options, MFArgs).
-
+-endif.

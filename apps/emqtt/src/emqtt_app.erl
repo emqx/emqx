@@ -45,7 +45,7 @@ start(_StartType, _StartArgs) ->
     {ok, Sup} = emqtt_sup:start_link(),
 	start_servers(Sup),
 	{ok, Listeners} = application:get_env(listen),
-    emqtt:listen(Listeners),
+    emqtt:open(Listeners),
 	register(emqtt, self()),
     print_vsn(),
 	{ok, Sup}.
