@@ -111,8 +111,8 @@ handle_info({inet_reply, _Ref, ok}, State) ->
 
 handle_info({inet_async, Sock, _Ref, {ok, Data}}, State = #state{peer_name = PeerName, socket = Sock}) ->
     lager:debug("RECV from ~s: ~p", [PeerName, Data]),
-    process_received_bytes(
-        Data, control_throttle(State #state{ await_recv = false }));
+    process_received_bytes(Data,
+                           control_throttle(State #state{await_recv = false}));
 
 handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
     network_error(Reason, State);
@@ -167,10 +167,10 @@ process_received_bytes(Bytes, State = #state{parse_state = ParseState,
     case emqtt_parser:parse(Bytes, ParseState) of
     {more, ParseState1} ->
         {noreply,
-         control_throttle( State #state{parse_state = ParseState1}),
+         control_throttle(State #state{parse_state = ParseState1}),
          hibernate};
     {ok, Packet, Rest} ->
-        case emqtt_protocol:handle_packet(Packet, ProtoState) of
+        case emqtt_protocol:received(Packet, ProtoState) of
         {ok, ProtoState1} ->
             process_received_bytes(Rest, State#state{parse_state = emqtt_parser:init(),
                                                      proto_state = ProtoState1});
@@ -198,7 +198,7 @@ run_socket(State = #state{await_recv = true}) ->
     State;
 run_socket(State = #state{transport = Transport, socket = Sock}) ->
     Transport:async_recv(Sock, 0, infinity),
-    State#state{ await_recv = true }.
+    State#state{await_recv = true}.
 
 control_throttle(State = #state{conn_state = Flow,
                                 conserve   = Conserve}) ->
