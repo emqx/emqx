@@ -25,8 +25,8 @@
 %%------------------------------------------------------------------------------
 -record(topic, {
     name    :: binary(),
-    type    :: static | dynamic | bridge
-    node    :: node(),
+    type    :: static | dynamic | bridge,
+    node    :: node()
 }).
 
 -type topic() :: #topic{}.

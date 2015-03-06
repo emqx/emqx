@@ -58,12 +58,10 @@ start_link(Options) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Options], []).
 
 version() ->
-    {ok, Version} = application:get_key(emqtt, vsn),
-    Version.
+    {ok, Version} = application:get_key(emqtt, vsn), Version.
 
 description() ->
-    {ok, Descr} = application:get_key(emqtt, description),
-    Descr.
+    {ok, Descr} = application:get_key(emqtt, description), Descr.
 
 uptime() ->
     gen_server:call(?SERVER, uptime).
@@ -78,9 +76,8 @@ init([Options]) ->
     ets:new(?MODULE, [set, public, name_table, {write_concurrency, true}]),
     {ok, #state{started_at = os:timestamp(), sys_interval = SysInterval}}.
 
-handle_call(uptime, _From, State = #state{started_at = Ts}) ->
-    Secs = timer:now_diff(os:timestamp(), Ts) div 1000000,
-    {reply, uptime(seconds, Secs), State};
+handle_call(uptime, _From, State) ->
+    {reply, uptime(State), State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -102,6 +99,10 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 systop(Topic) ->
     <<"$SYS/broker/", Topic/binary>>.
+
+uptime(#state{started_at = Ts}) ->
+    Secs = timer:now_diff(os:timestamp(), Ts) div 1000000,
+    uptime(seconds, Secs).
 
 uptime(seconds, Secs) when Secs < 60 ->
     [integer_to_list(Secs), " seconds"];

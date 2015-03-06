@@ -39,6 +39,7 @@
 -export([start_link/0]).
 
 -export([topics/0,
+        create/1,
 		subscribe/2,
 		unsubscribe/2,
 		publish/1,
@@ -93,6 +94,10 @@ start_link() ->
 %%
 topics() ->
 	mnesia:dirty_all_keys(topic).
+
+%TODO
+create(Topic) -> 
+    ok.
 
 %%
 %% @doc Subscribe Topic or Topics

@@ -80,7 +80,7 @@ dec(Metric, Val) ->
 
 init(_Args) ->
     % Bytes sent and received
-    [ok = emqtt_pubsub:create(<<"$SYS/broker/", Topic/binary>>) || Topic <- ?SYSTOP_METRICS],
+    [ok = emqtt_pubsub:create(Topic) || Topic <- ?SYSTOP_METRICS],
     % $SYS/broker/version
     %## Uptime
     % $SYS/broker/uptime
@@ -110,6 +110,4 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
-
 
