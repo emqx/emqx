@@ -25,7 +25,8 @@
 %%------------------------------------------------------------------------------
 -record(topic, {
     name    :: binary(),
-    node    :: node()
+    type    :: static | dynamic | bridge
+    node    :: node(),
 }).
 
 -type topic() :: #topic{}.
@@ -57,4 +58,33 @@
 %% System Topic
 %%------------------------------------------------------------------------------
 -define(SYSTOP, <<"$SYS">>).
+
+-define(SYSTOP_BROKER, [
+    % $SYS Broker Topics 
+    <<"$SYS/broker/version">>,
+    <<"$SYS/broker/uptime">>,
+    <<"$SYS/broker/description">>,
+    <<"$SYS/broker/timestamp">>,
+    % $SYS Client Topics
+    <<"$SYS/broker/clients/connected">>,
+    <<"$SYS/broker/clients/disconnected">>,
+    <<"$SYS/broker/clients/total">>,
+    <<"$SYS/broker/clients/max">>,
+    % $SYS Subscriber Topics
+    <<"$SYS/broker/subscribers/total">>,
+    <<"$SYS/broker/subscribers/max">>]).
+
+-define(SYSTOP_METRICS, [
+    % Bytes sent and received
+    <<"$SYS/broker/bytes/received">>,
+    <<"$SYS/broker/bytes/sent">>,
+    % Packets sent and received
+    <<"$SYS/broker/packets/received">>,
+    <<"$SYS/broker/packets/sent">>, 
+    % Messges sent and received
+    <<"$SYS/broker/messages/received">>,
+    <<"$SYS/broker/messages/sent">>,
+    <<"$SYS/broker/messages/retained">>,
+    <<"$SYS/broker/messages/stored">>,
+    <<"$SYS/broker/messages/dropped">>]).
 

@@ -26,6 +26,8 @@
 %%%-----------------------------------------------------------------------------
 -module(emqtt_broker).
 
+-include("emqtt_topic.hrl").
+
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
@@ -45,24 +47,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {started_at}).
+-record(state, {started_at, sys_interval}).
 
--define(SYS_TOPICS, [
-        % $SYS Broker Topics
-        <<"$SYS/broker/version">>,
-        <<"$SYS/broker/uptime">>, 
-        <<"$SYS/broker/description">>,
-        <<"$SYS/broker/timestamp">>,
-                                     
-        % $SYS Client Topics
-        <<"$SYS/broker/clients/connected">>,
-        <<"$SYS/broker/clients/disconnected">>,
-        <<"$SYS/broker/clients/total">>,
-        <<"$SYS/broker/clients/max">>,
-
-        % $SYS Subscriber Topics
-        <<"$SYS/broker/subscribers/total">>,
-        <<"$SYS/broker/subscribers/max">>]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -86,14 +72,15 @@ uptime() ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init([Options]) ->
+    SysInterval = proplists:get_value(sys_interval, Options, 60),
     % Create $SYS Topics
-    [emqtt_pubsub:create(Topic) || Topic <- ?SYS_TOPICS],
+    [emqtt_pubsub:create(systop(Topic)) || Topic <- ?SYSTOP_BROKER],
     ets:new(?MODULE, [set, public, name_table, {write_concurrency, true}]),
-    {ok, #state{started_at = os:timestamp()}}.
+    {ok, #state{started_at = os:timestamp(), sys_interval = SysInterval}}.
 
 handle_call(uptime, _From, State = #state{started_at = Ts}) ->
     Secs = timer:now_diff(os:timestamp(), Ts) div 1000000,
-    {reply, format(seconds, Secs), State};
+    {reply, uptime(seconds, Secs), State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -113,9 +100,22 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-format(seconds, Secs) when Secs < 60 ->
-    integer_to_list
-    <<(integer_to_list(Secs), 
+systop(Topic) ->
+    <<"$SYS/broker/", Topic/binary>>.
 
-    
+uptime(seconds, Secs) when Secs < 60 ->
+    [integer_to_list(Secs), " seconds"];
+uptime(seconds, Secs) ->
+    [uptime(minutes, Secs div 60), integer_to_list(Secs rem 60), " seconds"];
+uptime(minutes, M) when M < 60 ->
+    [integer_to_list(M), " minutes, "];
+uptime(minutes, M) ->
+    [uptime(hours, M div 60), integer_to_list(M rem 60), " minutes, "];
+uptime(hours, H) when H < 24 ->
+    [integer_to_list(H), " hours, "];
+uptime(hours, H) ->
+    [uptime(days, H div 24), integer_to_list(H rem 24), " hours, "];
+uptime(days, D) ->
+    [integer_to_list(D), " days,"].
+
 

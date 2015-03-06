@@ -26,6 +26,8 @@
 %%%-----------------------------------------------------------------------------
 -module(emqtt_metrics).
 
+-include("emqtt_topic.hrl").
+
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
@@ -38,8 +40,7 @@
 
 -export([start_link/0]).
 
--export([get_metrics/0, inc/1, inc/2]).
-
+-export([get_all/0, get_value/1, inc/1, dec/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -55,8 +56,23 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-get_metrics() -> 
-    gen_server:call(?SERVER, get_metrics).
+get_all() -> 
+    gen_server:call(?SERVER, get_all).
+
+get_value(Metric) ->
+    gen_server:call(?SERVER, {get_value, Metric}).
+
+inc(Metric) ->
+    ok.
+
+inc(Metric, Val) ->
+    ok.
+
+dec(Metric) ->
+    ok.
+
+dec(Metric, Val) ->
+    ok.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -64,7 +80,7 @@ get_metrics() ->
 
 init(_Args) ->
     % Bytes sent and received
-    emqtt_pubsub:create(<<"$SYS/broker/version">>),
+    [ok = emqtt_pubsub:create(<<"$SYS/broker/", Topic/binary>>) || Topic <- ?SYSTOP_METRICS],
     % $SYS/broker/version
     %## Uptime
     % $SYS/broker/uptime
