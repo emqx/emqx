@@ -62,6 +62,7 @@ start_servers(Sup) ->
     {ok, SessOpts} = application:get_env(session),
     {ok, RetainOpts} = application:get_env(retain),
     {ok, BrokerOpts} = application:get_env(broker),
+    {ok, MetricOpts} = application:get_env(metrics),
 	lists:foreach(
         fun({Name, F}) when is_function(F) ->
 			?PRINT("~s is starting...", [Name]),
@@ -85,7 +86,7 @@ start_servers(Sup) ->
 		 {"emqtt pubsub", emqtt_pubsub},
 		 {"emqtt router", emqtt_router},
 		 {"emqtt broker", emqtt_broker, BrokerOpts},
-		 {"emqtt metrics", emqtt_metrics},
+		 {"emqtt metrics", emqtt_metrics, MetricOpts},
 		 {"emqtt monitor", emqtt_monitor}
 		]).
 

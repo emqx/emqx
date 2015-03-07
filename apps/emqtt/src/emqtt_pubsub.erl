@@ -95,9 +95,11 @@ start_link() ->
 topics() ->
 	mnesia:dirty_all_keys(topic).
 
-%TODO
+%%
+%% @doc Create static topic.
+%%
 create(Topic) -> 
-    ok.
+    gen_server:call(?SERVER, {create, Topic}).
 
 %%
 %% @doc Subscribe Topic or Topics
@@ -170,6 +172,10 @@ init([]) ->
 	mnesia:add_table_copy(topic, node(), ram_copies),
 	ets:new(topic_subscriber, [bag, named_table, {keypos, 2}]),
 	{ok, #state{}}.
+
+handle_call({create, Topic}, _From, State) ->
+	Result = mnesia:transaction(fun trie_add/1, [Topic]),
+    {reply, Result , State};
 
 handle_call({subscribe, Topics, SubPid}, _From, State) ->
     Result = [subscribe_topic({Topic, Qos}, SubPid) || {Topic, Qos} <- Topics],

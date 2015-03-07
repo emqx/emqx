@@ -73,7 +73,7 @@ uptime() ->
 init([Options]) ->
     SysInterval = proplists:get_value(sys_interval, Options, 60),
     % Create $SYS Topics
-    [emqtt_pubsub:create(SysTopic) || SysTopic <- ?SYSTOP_BROKER],
+    [{atomic, _} = emqtt_pubsub:create(SysTopic) || SysTopic <- ?SYSTOP_BROKER],
     ets:new(?MODULE, [set, public, named_table, {write_concurrency, true}]),
     State = #state{started_at = os:timestamp(), sys_interval = SysInterval},
     {ok, tick(State)}.

@@ -24,9 +24,9 @@
 %% Core PubSub Topic
 %%------------------------------------------------------------------------------
 -record(topic, {
-    name    :: binary(),
-    type    :: static | dynamic | bridge,
-    node    :: node()
+    name           :: binary(),
+    %type = dynamic :: static | dynamic | bridge,
+    node           :: node()
 }).
 
 -type topic() :: #topic{}.
@@ -40,8 +40,7 @@
 -record(topic_trie_node, {
     node_id        	:: binary() | atom(),
     edge_count = 0  :: non_neg_integer(),
-    topic    		:: binary(),
-    type = dynamic  :: dynamic | static
+    topic    		:: binary()
 }).
 
 -record(topic_trie_edge, {

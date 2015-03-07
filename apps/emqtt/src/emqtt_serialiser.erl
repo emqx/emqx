@@ -125,6 +125,9 @@ serialise_variable(PubAck, #mqtt_packet_puback { packet_id = PacketId }, _Payloa
 serialise_variable(?PINGREQ, undefined, undefined) ->
     {<<>>, <<>>};
 
+serialise_variable(?PINGRESP, undefined, undefined) ->
+    {<<>>, <<>>};
+
 serialise_variable(?DISCONNECT, undefined, undefined) ->
     {<<>>, <<>>}.
 
