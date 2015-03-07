@@ -26,6 +26,8 @@
 %%%-----------------------------------------------------------------------------
 -module(emqtt_broker).
 
+-include("emqtt_packet.hrl").
+
 -include("emqtt_topic.hrl").
 
 -behaviour(gen_server).
@@ -47,8 +49,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {started_at, sys_interval}).
-
+-record(state, {started_at, sys_interval, tick_timer}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -72,9 +73,10 @@ uptime() ->
 init([Options]) ->
     SysInterval = proplists:get_value(sys_interval, Options, 60),
     % Create $SYS Topics
-    [emqtt_pubsub:create(systop(Topic)) || Topic <- ?SYSTOP_BROKER],
-    ets:new(?MODULE, [set, public, name_table, {write_concurrency, true}]),
-    {ok, #state{started_at = os:timestamp(), sys_interval = SysInterval}}.
+    [emqtt_pubsub:create(SysTopic) || SysTopic <- ?SYSTOP_BROKER],
+    ets:new(?MODULE, [set, public, named_table, {write_concurrency, true}]),
+    State = #state{started_at = os:timestamp(), sys_interval = SysInterval},
+    {ok, tick(State)}.
 
 handle_call(uptime, _From, State) ->
     {reply, uptime(State), State};
@@ -84,6 +86,12 @@ handle_call(_Request, _From, State) ->
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
+
+handle_info(tick, State) ->
+    publish(true, <<"$SYS/broker/version">>, version()),
+    publish(false, <<"$SYS/broker/uptime">>, uptime(State)),
+    publish(true, <<"$SYS/broker/description">>, description()),
+    {noreply, tick(State)};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -97,12 +105,15 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-systop(Topic) ->
-    <<"$SYS/broker/", Topic/binary>>.
+publish(Retain, Topic, Payload) when is_list(Payload) ->
+    publish(Retain, Topic, list_to_binary(Payload));
+
+publish(Retain, Topic, Payload) when is_binary(Payload) ->
+    emqtt_router:route(#mqtt_message{retain = Retain, topic = Topic, payload = Payload}).
 
 uptime(#state{started_at = Ts}) ->
     Secs = timer:now_diff(os:timestamp(), Ts) div 1000000,
-    uptime(seconds, Secs).
+    lists:flatten(uptime(seconds, Secs)).
 
 uptime(seconds, Secs) when Secs < 60 ->
     [integer_to_list(Secs), " seconds"];
@@ -119,4 +130,6 @@ uptime(hours, H) ->
 uptime(days, D) ->
     [integer_to_list(D), " days,"].
 
+tick(State = #state{sys_interval = SysInterval}) ->
+    State#state{tick_timer = erlang:send_after(SysInterval * 1000, self(), tick)}.
 

@@ -38,9 +38,11 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0]).
+-export([start_link/1]).
 
--export([get_all/0, get_value/1, inc/1, dec/2]).
+-export([all/0, value/1,
+         inc/1, inc/2,
+         dec/1, dec/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -48,46 +50,55 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {}).
+-record(state, {pub_interval, tick_timer}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+start_link(Options) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [Options], []).
 
-get_all() -> 
-    gen_server:call(?SERVER, get_all).
+all() ->
+    maps:to_list(
+        lists:foldl(
+            fun({{Metric, _N}, Val}, Map) ->
+                    case maps:find(Metric, Map) of
+                        {ok, Count} -> maps:put(Metric, Count+Val);
+                        error -> maps:put(Metric, 0)
+                    end
+            end, #{}, ets:tab2list(?TABLE))).
 
-get_value(Metric) ->
-    gen_server:call(?SERVER, {get_value, Metric}).
+value(Metric) ->
+    lists:sum(ets:select(?TABLE, [{{{Metric, '_'}, '$1'}, [], ['$1']}])).
 
 inc(Metric) ->
-    ok.
+    inc(Metric, 1).
 
 inc(Metric, Val) ->
-    ok.
+    ets:update_counter(?TABLE, key(Metric), {2, Val}).
 
 dec(Metric) ->
-    ok.
+    dec(Metric, 1).
 
 dec(Metric, Val) ->
-    ok.
+    %TODO: ok?
+    ets:update_counter(?TABLE, key(Metric), {2, -Val}).
+
+key(Metric) ->
+    {Metric, erlang:system_info(scheduler_id)}.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-
-init(_Args) ->
-    % Bytes sent and received
+init(Options) ->
+    % $SYS Topics for metrics
     [ok = emqtt_pubsub:create(Topic) || Topic <- ?SYSTOP_METRICS],
-    % $SYS/broker/version
-    %## Uptime
-    % $SYS/broker/uptime
-    % $SYS/broker/clients/connected
-    % $SYS/broker/clients/disconnected
+    % Create metrics table
     ets:new(?TABLE, [set, public, named_table, {write_concurrency, true}]),
-    {ok, #state{}}.
+    % Init metrics
+    [new(Metric) || <<"$SYS/broker/", Metric/binary>> <- ?SYSTOP_METRICS],
+    PubInterval = proplists:get_value(pub_interval, Options, 60),
+    {ok, tick(#state{pub_interval = PubInterval})}.
 
 handle_call(get_metrics, _From, State) ->
     {reply, [], State};
@@ -97,6 +108,11 @@ handle_call(_Request, _From, State) ->
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
+
+handle_info(tick, State) ->
+    %TODO:...
+    % publish metric message
+    {noreply, tick(State)};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -110,4 +126,12 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+new(Metric) ->
+    Key = list_to_tuple([list_to_atom(binary_to_list(Token)) 
+                         || Token <- binary:split(Metric, <<"/">>, [global])]),
+    [ets:insert(?TABLE, {{Key, N}, 0}) || N <- lists:seq(1, erlang:system_info(schedulers))].
+
+tick(State = #state{pub_interval = PubInterval}) ->
+    State#state{tick_timer = erlang:send_after(PubInterval * 1000, self(), tick)}.
 
