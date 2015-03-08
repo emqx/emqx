@@ -2,10 +2,17 @@
 eMQTT ChangeLog
 ==================
 
+v0.3.4-beta (2015-03-08)
+------------------------
+
+Bugfix: emqtt_serialiser.erl cannot serialise UNSUBACK packets
+
+
 v0.3.3-beta (2015-03-07)
 ------------------------
 
 Bugfix: emqtt_serialiser.erl cannot serialise PINGRESP issue#60
+
 
 v0.3.2-beta (2015-03-05)
 ------------------------
