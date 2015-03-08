@@ -33,7 +33,6 @@
 %% API
 -export([init/0, parse/2]).
 
-
 %%%-----------------------------------------------------------------------------
 %% @doc
 %% Initialize a parser.
@@ -178,9 +177,9 @@ parse_frame(Bin, #mqtt_packet_header{type = Type,
 wrap(Header, Variable, Payload, Rest) ->
     {ok, #mqtt_packet{header = Header, variable = Variable, payload = Payload}, Rest}.
 wrap(Header, Variable, Rest) ->
-    {ok, #mqtt_packet {header = Header, variable = Variable}, Rest}.
+    {ok, #mqtt_packet{header = Header, variable = Variable}, Rest}.
 wrap(Header, Rest) ->
-    {ok, #mqtt_packet {header = Header}, Rest}.
+    {ok, #mqtt_packet{header = Header}, Rest}.
 
 %client function
 %parse_qos(<<>>, Acc) ->
