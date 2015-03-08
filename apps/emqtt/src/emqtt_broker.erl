@@ -28,11 +28,13 @@
 
 -include("emqtt_packet.hrl").
 
--include("emqtt_topic.hrl").
+-include("emqtt_systop.hrl").
 
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
+
+-define(TABLE, ?MODULE).
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -73,8 +75,15 @@ uptime() ->
 init([Options]) ->
     SysInterval = proplists:get_value(sys_interval, Options, 60),
     % Create $SYS Topics
-    [{atomic, _} = emqtt_pubsub:create(SysTopic) || SysTopic <- ?SYSTOP_BROKER],
+    [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_BROKERS],
+    [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_CLIENTS],
+    [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_SUBSCRIBERS],
     ets:new(?MODULE, [set, public, named_table, {write_concurrency, true}]),
+    [ets:insert(?TABLE, {Name, 0}) || Name <- ?SYSTOP_CLIENTS],
+    [ets:insert(?TABLE, {Name, 0}) || Name <- ?SYSTOP_SUBSCRIBERS],
+    % retain version, description
+    retain(systop(version), version()),
+    retain(systop(description), description()),
     State = #state{started_at = os:timestamp(), sys_interval = SysInterval},
     {ok, tick(State)}.
 
@@ -88,9 +97,8 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(tick, State) ->
-    publish(true, <<"$SYS/broker/version">>, version()),
-    publish(false, <<"$SYS/broker/uptime">>, uptime(State)),
-    publish(true, <<"$SYS/broker/description">>, description()),
+    publish(systop(uptime), uptime(State)),
+    [publish(systop(Name), i2b(Val)) || {Name, Val} <- ets:tab2list(?TABLE)],
     {noreply, tick(State)};
 
 handle_info(_Info, State) ->
@@ -105,11 +113,21 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-publish(Retain, Topic, Payload) when is_list(Payload) ->
-    publish(Retain, Topic, list_to_binary(Payload));
 
-publish(Retain, Topic, Payload) when is_binary(Payload) ->
-    emqtt_router:route(#mqtt_message{retain = Retain, topic = Topic, payload = Payload}).
+systop(Name) when is_atom(Name) ->
+    list_to_binary(lists:concat(["$SYS/brokers/", node(), "/", Name])).
+
+create(Topic) ->
+    emqtt_pubsub:create(Topic).
+
+retain(Topic, Payload) when is_list(Payload) ->
+    emqtt_router:route(#mqtt_message{retain = true,
+                                     topic = Topic,
+                                     payload = Payload}).
+
+publish(Topic, Payload) when is_binary(Payload) ->
+    emqtt_router:route(#mqtt_message{topic = Topic,
+                                     payload = Payload}).
 
 uptime(#state{started_at = Ts}) ->
     Secs = timer:now_diff(os:timestamp(), Ts) div 1000000,
@@ -132,4 +150,7 @@ uptime(days, D) ->
 
 tick(State = #state{sys_interval = SysInterval}) ->
     State#state{tick_timer = erlang:send_after(SysInterval * 1000, self(), tick)}.
+
+i2b(I) when is_integer(I) ->
+    list_to_binary(integer_to_list(I)).
 

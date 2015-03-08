@@ -28,7 +28,7 @@
 
 -include("emqtt_packet.hrl").
 
--include("emqtt_topic.hrl").
+-include("emqtt_systop.hrl").
 
 -behaviour(gen_server).
 
@@ -142,12 +142,13 @@ key(Metric) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(Options) ->
+    Topics = ?SYSTOP_BYTES ++ ?SYSTOP_PACKETS ++ ?SYSTOP_MESSAGES,
     % $SYS Topics for metrics
-    [{atomic, _} = emqtt_pubsub:create(Topic) || Topic <- ?SYSTOP_METRICS],
+    [{atomic, _} = emqtt_pubsub:create(systop(Topic)) || Topic <- Topics],
     % Create metrics table
     ets:new(?TABLE, [set, public, named_table, {write_concurrency, true}]),
     % Init metrics
-    [new(Metric) || <<"$SYS/broker/", Metric/binary>> <- ?SYSTOP_METRICS],
+    [new_metric(Topic) || Topic <- Topics],
     PubInterval = proplists:get_value(pub_interval, Options, 60),
     {ok, tick(#state{pub_interval = PubInterval}), hibernate}.
 
@@ -162,12 +163,7 @@ handle_cast(_Msg, State) ->
 
 handle_info(tick, State) ->
     % publish metric message
-    lists:foreach(
-      fun({Metric, Val}) -> 
-              Topic = list_to_binary(atom_to_list(Metric)),
-              Payload = list_to_binary(integer_to_list(Val)),
-              publish(<<"$SYS/broker/", Topic/binary>>, Payload)
-      end, all()),
+    [publish(systop(Metric), i2b(Val))|| {Metric, Val} <- all()],
     {noreply, tick(State), hibernate};
 
 handle_info(_Info, State) ->
@@ -183,13 +179,19 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-new(Metric) ->
-    Key = list_to_atom(binary_to_list(Metric)),
-    [ets:insert(?TABLE, {{Key, N}, 0}) || N <- lists:seq(1, erlang:system_info(schedulers))].
+systop(Name) when is_atom(Name) ->
+    list_to_binary(lists:concat(["$SYS/brokers/", node(), "/", Name])).
+
+publish(Topic, Payload) ->
+    emqtt_router:route(#mqtt_message{topic = Topic, payload = Payload}).
+
+new_metric(Name) ->
+    Schedulers = lists:seq(1, erlang:system_info(schedulers)),
+    [ets:insert(?TABLE, {{Name, I}, 0}) || I <- Schedulers].
 
 tick(State = #state{pub_interval = PubInterval}) ->
     State#state{tick_timer = erlang:send_after(PubInterval * 1000, self(), tick)}.
 
-publish(Topic, Payload) ->
-    emqtt_router:route(#mqtt_message{topic = Topic, payload = Payload}).
+i2b(I) ->
+    list_to_binary(integer_to_list(I)).
 
