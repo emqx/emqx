@@ -31,20 +31,20 @@
 %% $SYS Topics of Broker
 %%------------------------------------------------------------------------------
 -define(SYSTOP_BROKERS, [
-    version,        % Broker version
-    uptime,         % Broker uptime
-    timestamp,      % Broker timestamp
-    description     % Broker description
+    version,      % Broker version
+    uptime,       % Broker uptime
+    datetime,     % Broker local datetime
+    description   % Broker description
 ]).
 
 %%------------------------------------------------------------------------------
 %% $SYS Topics of Clients
 %%------------------------------------------------------------------------------
 -define(SYSTOP_CLIENTS, [
-    %'clients/connected',     
-    %'clients/disconnected',  
     'clients/total',         % total clients connected current
     'clients/max'            % max clients connected
+    %'clients/connected',     
+    %'clients/disconnected',  
 ]).
 
 %%------------------------------------------------------------------------------
