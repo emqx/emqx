@@ -33,7 +33,6 @@
 %% API
 -export([serialise/1]).
 
-
 serialise(#mqtt_packet{header = Header = #mqtt_packet_header{type = Type},
                        variable = Variable,
                        payload  = Payload}) ->
@@ -105,7 +104,7 @@ serialise_variable(?UNSUBSCRIBE, #mqtt_packet_unsubscribe{
     packet_id  = PacketId, topics = Topics }, undefined) ->
     {<<PacketId:16/big>>, serialise_topics(Topics)};
 
-serialise_variable(?UNSUBACK, #mqtt_packet_suback {packet_id = PacketId},
+serialise_variable(?UNSUBACK, #mqtt_packet_unsuback{packet_id = PacketId},
                    undefined) ->
     {<<PacketId:16/big>>, <<>>};
 
