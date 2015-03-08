@@ -73,7 +73,7 @@ all() ->
             fun({{Metric, _N}, Val}, Map) ->
                     case maps:find(Metric, Map) of
                         {ok, Count} -> maps:put(Metric, Count+Val, Map);
-                        error -> maps:put(Metric, 0, Map)
+                        error -> maps:put(Metric, Val, Map)
                     end
             end, #{}, ?TABLE)).
 
