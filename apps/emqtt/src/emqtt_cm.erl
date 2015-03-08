@@ -39,7 +39,7 @@
 
 -export([lookup/1, register/2, unregister/2]).
 
--export([getstats/0]).
+-export([stats/0]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -84,17 +84,16 @@ register(ClientId, Pid) when is_binary(ClientId), is_pid(Pid) ->
 unregister(ClientId, Pid) when is_binary(ClientId), is_pid(Pid) ->
 	gen_server:cast(?SERVER, {unregister, ClientId, Pid}).
 
-getstats(?SERVER) ->
-    gen_server:call(?SERVER, getstats).
+stats() ->
+    gen_server:call(?SERVER, stats).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
 init([]) ->
-	%on one node
 	ets:new(?TABLE, [set, named_table, protected]),
-    {ok, none}.
+    {ok, #state{}}.
 
 handle_call({register, ClientId, Pid}, _From, State) ->
 	case ets:lookup(?TABLE, ClientId) of
@@ -108,9 +107,9 @@ handle_call({register, ClientId, Pid}, _From, State) ->
 		[] -> 
             insert(ClientId, Pid)
 	end,
-	{reply, ok, State};
+	{reply, ok, set_max(State)};
 
-handle_call(getstats, _From, State = #state{max = Max}) ->
+handle_call(stats, _From, State = #state{max = Max}) ->
     Stats = [{total, ets:info(?TABLE, size)}, {max, Max}],
     {reply, Stats, State};
 
@@ -145,6 +144,16 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
+
 insert(ClientId, Pid) ->
     ets:insert(?TABLE, {ClientId, Pid, erlang:monitor(process, Pid)}).
 
+set_max(State = #state{max = Max}) ->
+    Total = ets:info(?TABLE, size),
+    if
+        Total > Max -> State#state{max = Total};
+        true -> State
+    end.

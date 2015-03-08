@@ -41,16 +41,17 @@
 %% $SYS Topics of Clients
 %%------------------------------------------------------------------------------
 -define(SYSTOP_CLIENTS, [
-    'clients/connected',    % ???
-    'clients/disconnected', % ???
-    'clients/total',        % total clients connected current
-    'clients/max'           % max clients connected
+    %'clients/connected',     
+    %'clients/disconnected',  
+    'clients/total',         % total clients connected current
+    'clients/max'            % max clients connected
 ]).
 
 %%------------------------------------------------------------------------------
 %% $SYS Topics of Subscribers
 %%------------------------------------------------------------------------------
--define(SYSTOP_SUBSCRIBERS, [
+-define(SYSTOP_PUBSUB, [
+    'topics/total',        % ...
     'subscribers/total',   % ...
     'subscribers/max'      % ...
 ]).  

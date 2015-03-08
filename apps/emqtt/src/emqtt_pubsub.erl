@@ -48,6 +48,8 @@
 		dispatch/2, 
 		match/1]).
 
+-export([stats/0]).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
@@ -77,7 +79,7 @@
 
 %%----------------------------------------------------------------------------
 
--record(state, {}).
+-record(state, {max_subs = 0}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -88,6 +90,9 @@
 %%
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+stats() ->
+    gen_server:call(?SERVER, stats).
 
 %%
 %% @doc All topics
@@ -173,6 +178,12 @@ init([]) ->
 	ets:new(topic_subscriber, [bag, named_table, {keypos, 2}]),
 	{ok, #state{}}.
 
+handle_call(stats, _From, State = #state{max_subs = Max}) ->
+    Stats = [{'topics/total', mnesia:table_info(topic, size)},
+             {'subscribers/total', ets:info(topic_subscriber, size)},
+             {'subscribers/max', Max}],
+    {reply, Stats, State};
+
 handle_call({create, Topic}, _From, State) ->
 	Result = mnesia:transaction(fun trie_add/1, [Topic]),
     {reply, Result , State};
@@ -184,7 +195,7 @@ handle_call({subscribe, Topics, SubPid}, _From, State) ->
         [] -> {ok, [Qos || {ok, Qos} <- Result]};
         Errors -> hd(Errors)
     end,
-    {reply, Reply, State};
+    {reply, Reply, set_maxsubs(State)};
 
 handle_call(Req, _From, State) ->
 	{stop, {badreq, Req}, State}.
@@ -356,3 +367,9 @@ trie_delete_path([{NodeId, Word, _} | RestPath]) ->
 		throw({notfound, NodeId}) 
 	end.
 
+set_maxsubs(State = #state{max_subs = Max}) ->
+    Total = ets:info(topic_subscriber, size),
+    if
+        Total > Max -> State#state{max_subs = Total};
+        true -> State
+    end.

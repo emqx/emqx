@@ -77,10 +77,10 @@ init([Options]) ->
     % Create $SYS Topics
     [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_BROKERS],
     [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_CLIENTS],
-    [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_SUBSCRIBERS],
+    [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_PUBSUB],
     ets:new(?MODULE, [set, public, named_table, {write_concurrency, true}]),
     [ets:insert(?TABLE, {Name, 0}) || Name <- ?SYSTOP_CLIENTS],
-    [ets:insert(?TABLE, {Name, 0}) || Name <- ?SYSTOP_SUBSCRIBERS],
+    [ets:insert(?TABLE, {Name, 0}) || Name <- ?SYSTOP_PUBSUB],
     % retain version, description
     retain(systop(version), list_to_binary(version())),
     retain(systop(description), list_to_binary(description())),
@@ -99,6 +99,10 @@ handle_cast(_Msg, State) ->
 handle_info(tick, State) ->
     publish(systop(uptime), list_to_binary(uptime(State))),
     [publish(systop(Name), i2b(Val)) || {Name, Val} <- ets:tab2list(?TABLE)],
+    %%TODO... call emqtt_cm here?
+    [publish(systop(client, Stat), i2b(Val)) || {Stat, Val} <- emqtt_cm:stats()],
+    %%TODO... call emqtt_pubsub here?
+    [publish(systop(Stat), i2b(Val)) || {Stat, Val} <- emqtt_cm:stats()],
     {noreply, tick(State)};
 
 handle_info(_Info, State) ->
@@ -113,6 +117,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+systop(Prefix, Name) ->
+    systop(list_to_atom(lists:concat([Prefix, '/', Name]))).
 
 systop(Name) when is_atom(Name) ->
     list_to_binary(lists:concat(["$SYS/brokers/", node(), "/", Name])).
@@ -153,4 +160,5 @@ tick(State = #state{sys_interval = SysInterval}) ->
 
 i2b(I) when is_integer(I) ->
     list_to_binary(integer_to_list(I)).
+
 
