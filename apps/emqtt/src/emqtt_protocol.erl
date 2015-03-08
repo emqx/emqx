@@ -193,8 +193,10 @@ send({_From, Message = #mqtt_message{qos = Qos}}, State = #proto_state{session =
 
 send(Packet, State = #proto_state{transport = Transport, socket = Sock, peer_name = PeerName, client_id = ClientId}) when is_record(Packet, mqtt_packet) ->
 	lager:info("SENT to ~s@~s: ~s", [ClientId, PeerName, emqtt_packet:dump(Packet)]),
+    sent_stats(Packet),
     Data = emqtt_serialiser:serialise(Packet),
     lager:debug("SENT to ~s: ~p", [PeerName, Data]),
+    emqtt_metrics:inc('bytes/sent', size(Data)),
     Transport:send(Sock, Data),
     {ok, State}.
 
@@ -298,4 +300,20 @@ validate_qos(_) -> false.
 
 try_unregister(undefined, _) -> ok;
 try_unregister(ClientId, _) -> emqtt_cm:unregister(ClientId, self()).
+
+sent_stats(?PACKET(Type)) ->
+    emqtt_metrics:inc('packets/sent'), 
+    inc(Type).
+inc(?CONNACK) ->
+    emqtt_metrics:inc('packets/connack');
+inc(?PUBLISH) ->
+    emqtt_metrics:inc('packets/publish/sent');
+inc(?SUBACK) ->
+    emqtt_metrics:inc('packets/suback');
+inc(?UNSUBACK) ->
+    emqtt_metrics:inc('packets/unsuback');
+inc(?PINGRESP) ->
+    emqtt_metrics:inc('packets/pingresp');
+inc(_) ->
+    ingore.
 

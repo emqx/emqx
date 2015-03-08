@@ -111,6 +111,7 @@ handle_info({inet_reply, _Ref, ok}, State) ->
 
 handle_info({inet_async, Sock, _Ref, {ok, Data}}, State = #state{peer_name = PeerName, socket = Sock}) ->
     lager:debug("RECV from ~s: ~p", [PeerName, Data]),
+    emqtt_metrics:inc('bytes/received', size(Data)),
     process_received_bytes(Data,
                            control_throttle(State #state{await_recv = false}));
 
@@ -170,6 +171,7 @@ process_received_bytes(Bytes, State = #state{parse_state = ParseState,
          control_throttle(State #state{parse_state = ParseState1}),
          hibernate};
     {ok, Packet, Rest} ->
+        received_stats(Packet),
         case emqtt_protocol:received(Packet, ProtoState) of
         {ok, ProtoState1} ->
             process_received_bytes(Rest, State#state{parse_state = emqtt_parser:init(),
@@ -211,3 +213,21 @@ control_throttle(State = #state{conn_state = Flow,
 stop(Reason, State ) ->
     {stop, Reason, State}.
 
+received_stats(?PACKET(Type)) ->
+    emqtt_metrics:inc('packets/received'), 
+    inc(Type).
+inc(?CONNECT) ->
+    emqtt_metrics:inc('packets/connect');
+inc(?PUBLISH) ->
+    emqtt_metrics:inc('packets/publish/received');
+inc(?SUBSCRIBE) ->
+    emqtt_metrics:inc('packets/subscribe');
+inc(?UNSUBSCRIBE) ->
+    emqtt_metrics:inc('packets/unsubscribe');
+inc(?PINGREQ) ->
+    emqtt_metrics:inc('packets/pingreq');
+inc(?DISCONNECT) ->
+    emqtt_metrics:inc('packets/disconnect');
+inc(_) ->
+    ignore.
+    
