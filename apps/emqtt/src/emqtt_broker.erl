@@ -111,7 +111,7 @@ handle_info(tick, State) ->
     %%TODO... call emqtt_cm here?
     [publish(systop(Stat), i2b(Val)) || {Stat, Val} <- emqtt_cm:stats()],
     %%TODO... call emqtt_pubsub here?
-    [publish(systop(Stat), i2b(Val)) || {Stat, Val} <- emqtt_cm:stats()],
+    [publish(systop(Stat), i2b(Val)) || {Stat, Val} <- emqtt_pubsub:stats()],
     {noreply, tick(State)};
 
 handle_info(_Info, State) ->
