@@ -182,8 +182,8 @@
 %%------------------------------------------------------------------------------
 %% MQTT Packet Match
 %%------------------------------------------------------------------------------
--define(CONNECT_PACKET(Packet),
-    #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT}, variable = Packet}).
+-define(CONNECT_PACKET(Var),
+    #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT}, variable = Var}).
 
 -define(CONNACK_PACKET(ReturnCode),
     #mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK},
