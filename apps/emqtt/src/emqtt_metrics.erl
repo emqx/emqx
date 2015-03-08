@@ -142,6 +142,7 @@ key(Metric) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(Options) ->
+    random:seed(now()),
     Topics = ?SYSTOP_BYTES ++ ?SYSTOP_PACKETS ++ ?SYSTOP_MESSAGES,
     % $SYS Topics for metrics
     [{atomic, _} = emqtt_pubsub:create(systop(Topic)) || Topic <- Topics],
@@ -150,10 +151,7 @@ init(Options) ->
     % Init metrics
     [new_metric(Topic) || Topic <- Topics],
     PubInterval = proplists:get_value(pub_interval, Options, 60),
-    {ok, tick(#state{pub_interval = PubInterval}), hibernate}.
-
-handle_call(get_metrics, _From, State) ->
-    {reply, [], State};
+    {ok, tick(random:uniform(PubInterval), #state{pub_interval = PubInterval}), hibernate}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -190,7 +188,10 @@ new_metric(Name) ->
     [ets:insert(?TABLE, {{Name, I}, 0}) || I <- Schedulers].
 
 tick(State = #state{pub_interval = PubInterval}) ->
-    State#state{tick_timer = erlang:send_after(PubInterval * 1000, self(), tick)}.
+    tick(PubInterval, State).
+
+tick(Delay, State) ->
+    State#state{tick_timer = erlang:send_after(Delay * 1000, self(), tick)}.
 
 i2b(I) ->
     list_to_binary(integer_to_list(I)).

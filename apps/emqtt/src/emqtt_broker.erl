@@ -79,6 +79,7 @@ datetime() ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init([Options]) ->
+    random:seed(now()),
     SysInterval = proplists:get_value(sys_interval, Options, 60),
     % Create $SYS Topics
     [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_BROKERS],
@@ -88,8 +89,8 @@ init([Options]) ->
     [ets:insert(?TABLE, {Name, 0}) || Name <- ?SYSTOP_CLIENTS],
     [ets:insert(?TABLE, {Name, 0}) || Name <- ?SYSTOP_PUBSUB],
     % retain version, description
-    gen_server:cast(self(), prepare),
-    {ok, tick(#state{started_at = os:timestamp(), sys_interval = SysInterval})}.
+    State = #state{started_at = os:timestamp(), sys_interval = SysInterval},
+    {ok, tick(random:uniform(SysInterval), State)}.
 
 handle_call(uptime, _From, State) ->
     {reply, uptime(State), State};
@@ -97,15 +98,12 @@ handle_call(uptime, _From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast(prepare, State) ->
-    retain(systop(version), list_to_binary(version())),
-    retain(systop(description), list_to_binary(description())),
-    {noreply, State};
-
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(tick, State) ->
+    retain(systop(version), list_to_binary(version())),
+    retain(systop(description), list_to_binary(description())),
     publish(systop(uptime), list_to_binary(uptime(State))),
     publish(systop(datetime), list_to_binary(datetime())),
     %%TODO... call emqtt_cm here?
@@ -161,7 +159,10 @@ uptime(days, D) ->
     [integer_to_list(D), " days,"].
 
 tick(State = #state{sys_interval = SysInterval}) ->
-    State#state{tick_timer = erlang:send_after(SysInterval * 1000, self(), tick)}.
+    tick(SysInterval, State).
+
+tick(Delay, State) ->
+    State#state{tick_timer = erlang:send_after(Delay * 1000, self(), tick)}.
 
 i2b(I) when is_integer(I) ->
     list_to_binary(integer_to_list(I)).
