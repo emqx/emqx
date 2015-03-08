@@ -82,8 +82,8 @@ init([Options]) ->
     [ets:insert(?TABLE, {Name, 0}) || Name <- ?SYSTOP_CLIENTS],
     [ets:insert(?TABLE, {Name, 0}) || Name <- ?SYSTOP_SUBSCRIBERS],
     % retain version, description
-    retain(systop(version), version()),
-    retain(systop(description), description()),
+    retain(systop(version), list_to_binary(version())),
+    retain(systop(description), list_to_binary(description())),
     State = #state{started_at = os:timestamp(), sys_interval = SysInterval},
     {ok, tick(State)}.
 
@@ -97,7 +97,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(tick, State) ->
-    publish(systop(uptime), uptime(State)),
+    publish(systop(uptime), list_to_binary(uptime(State))),
     [publish(systop(Name), i2b(Val)) || {Name, Val} <- ets:tab2list(?TABLE)],
     {noreply, tick(State)};
 
@@ -120,7 +120,7 @@ systop(Name) when is_atom(Name) ->
 create(Topic) ->
     emqtt_pubsub:create(Topic).
 
-retain(Topic, Payload) when is_list(Payload) ->
+retain(Topic, Payload) when is_binary(Payload) ->
     emqtt_router:route(#mqtt_message{retain = true,
                                      topic = Topic,
                                      payload = Payload}).
