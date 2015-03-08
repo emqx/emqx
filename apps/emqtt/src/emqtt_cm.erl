@@ -110,7 +110,8 @@ handle_call({register, ClientId, Pid}, _From, State) ->
 	{reply, ok, set_max(State)};
 
 handle_call(stats, _From, State = #state{max = Max}) ->
-    Stats = [{total, ets:info(?TABLE, size)}, {max, Max}],
+    Stats = [{'clients/total', ets:info(?TABLE, size)},
+             {'clients/max', Max}],
     {reply, Stats, State};
 
 handle_call(_Request, _From, State) ->
