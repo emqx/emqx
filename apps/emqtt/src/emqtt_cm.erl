@@ -175,10 +175,10 @@ insert(ClientId, Pid) ->
 
 setstats(State = #state{max = Max}) ->
     Count = ets:info(?CLIENT_TAB, size),
-    emqtt_broker:setstat('client/count', Count),
+    emqtt_broker:setstat('clients/count', Count),
     if
         Count > Max ->
-            emqtt_broker:setstat('client/max', Count),
+            emqtt_broker:setstat('clients/max', Count),
             State#state{max = Count};
         true -> 
             State
