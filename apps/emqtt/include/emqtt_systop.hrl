@@ -68,37 +68,38 @@
 %% Bytes sent and received of Broker
 %%------------------------------------------------------------------------------
 -define(SYSTOP_BYTES, [
-    'bytes/received',   % Total bytes received
-    'bytes/sent'        % Total bytes sent
+    {counter, 'bytes/received'},   % Total bytes received
+    {counter, 'bytes/sent'}        % Total bytes sent
 ]).
 
 %%------------------------------------------------------------------------------
 %% Packets sent and received of Broker
 %%------------------------------------------------------------------------------
 -define(SYSTOP_PACKETS, [
-    'packets/received',         % All Packets received
-    'packets/sent',             % All Packets sent
-    'packets/connect',          % CONNECT Packets received
-    'packets/connack',          % CONNACK Packets sent
-    'packets/publish/received', % PUBLISH packets received
-    'packets/publish/sent',     % PUBLISH packets sent
-    'packets/subscribe',        % SUBSCRIBE Packets received 
-    'packets/suback',           % SUBACK packets sent 
-    'packets/unsubscribe',      % UNSUBSCRIBE Packets received
-    'packets/unsuback',         % UNSUBACK Packets sent
-    'packets/pingreq',          % PINGREQ packets received
-    'packets/pingresp',         % PINGRESP Packets sent
-    'packets/disconnect'        % DISCONNECT Packets received 
+    {counter, 'packets/received'},         % All Packets received
+    {counter, 'packets/sent'},             % All Packets sent
+    {counter, 'packets/connect'},          % CONNECT Packets received
+    {counter, 'packets/connack'},          % CONNACK Packets sent
+    {counter, 'packets/publish/received'}, % PUBLISH packets received
+    {counter, 'packets/publish/sent'},     % PUBLISH packets sent
+    {counter, 'packets/subscribe'},        % SUBSCRIBE Packets received 
+    {counter, 'packets/suback'},           % SUBACK packets sent 
+    {counter, 'packets/unsubscribe'},      % UNSUBSCRIBE Packets received
+    {counter, 'packets/unsuback'},         % UNSUBACK Packets sent
+    {counter, 'packets/pingreq'},          % PINGREQ packets received
+    {counter, 'packets/pingresp'},         % PINGRESP Packets sent
+    {counter, 'packets/disconnect'}        % DISCONNECT Packets received 
 ]).
 
 %%------------------------------------------------------------------------------
 %% Messages sent and received of broker
 %%------------------------------------------------------------------------------
 -define(SYSTOP_MESSAGES, [
-    'messages/received',      % Messages received
-    'messages/sent',          % Messages sent
-    'messages/retained/count',% Messagea retained
-    'messages/stored',        % Messages stored
-    'messages/dropped'        % Messages dropped
+    {counter, 'messages/received'},      % Messages received
+    {counter, 'messages/sent'},          % Messages sent
+    {gauge,   'messages/retained/count'},% Messagea retained
+    {gauge,   'messages/stored/count'},  % Messages stored
+    {counter, 'messages/dropped'}        % Messages dropped
 ]).
+
 

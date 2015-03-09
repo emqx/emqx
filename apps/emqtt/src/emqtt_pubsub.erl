@@ -63,7 +63,6 @@
         terminate/2,
 		code_change/3]).
 
-
 -record(state, {max_subs = 0}).
 
 %%%=============================================================================
@@ -148,14 +147,14 @@ publish(Msg=#mqtt_message{topic=Topic}) ->
 
 -spec publish(Topic :: binary(), Msg :: mqtt_message()) -> any().
 publish(Topic, Msg) when is_binary(Topic) ->
-	lists:foreach(fun(#topic{name=Name, node=Node}) ->
+    Count =
+	lists:foldl(fun(#topic{name=Name, node=Node}, Acc) ->
         case Node =:= node() of
-		true -> dispatch(Name, Msg);
-		false -> rpc:call(Node, ?MODULE, dispatch, [Name, Msg])
-		end
-	end, match(Topic)).
-
-%%TODO: dispatch counts....
+            true -> dispatch(Name, Msg) + Acc;
+            false -> rpc:call(Node, ?MODULE, dispatch, [Name, Msg]) + Acc
+        end
+	end, 0, match(Topic)),
+    dropped(Count =:= 0).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -163,14 +162,18 @@ publish(Topic, Msg) when is_binary(Topic) ->
 %%
 %% @end
 %%------------------------------------------------------------------------------
+-spec dispatch(Topic :: binary(), Msg :: mqtt_message()) -> non_neg_integer().
 dispatch(Topic, Msg = #mqtt_message{qos = Qos}) when is_binary(Topic) ->
-    lists:foreach(fun(#topic_subscriber{qos = SubQos, subpid=SubPid}) -> 
-        Msg1 = if
-            Qos > SubQos -> Msg#mqtt_message{qos = SubQos};
-            true -> Msg
-        end,
-        SubPid ! {dispatch, {self(), Msg1}}
-    end, ets:lookup(topic_subscriber, Topic)).
+    Subscribers = ets:lookup(topic_subscriber, Topic),
+    lists:foreach(
+        fun(#topic_subscriber{qos = SubQos, subpid=SubPid}) ->
+                Msg1 = if
+                    Qos > SubQos -> Msg#mqtt_message{qos = SubQos};
+                    true -> Msg
+                end,
+                SubPid ! {dispatch, {self(), Msg1}}
+            end, Subscribers), 
+    length(Subscribers).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -408,4 +411,8 @@ setstats(State = #state{max_subs = Max}) ->
             State
     end.
 
+dropped(true) ->
+    emqtt_metrics:inc('messages/dropped');
+dropped(false) ->
+    ok.
 
