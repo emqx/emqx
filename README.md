@@ -6,6 +6,35 @@ eMQTT support MQTT V3.1/V3.1.1 Protocol Specification.
 
 eMQTT requires Erlang R17+.
 
+
+## Featues
+
+Full MQTT V3.1.1 Support
+
+Both V3.1.1 and V3.1 protocol support
+
+QoS0, QoS1, QoS2 Publish and Subscribe
+
+Session Management and Offline Messages
+
+Retained Messages
+
+TCP/SSL connection support
+
+[$SYS/borkers/#](https://github.com/emqtt/emqtt/wiki/$SYS-Topics-of-Broker) support
+
+Passed eclipse paho interoperability tests
+
+
+## Clusterable, Massively Scalable
+
+Massive Connections Clients Support
+
+Cluster brokers on servers or cloud hosts
+
+Bridge brokers locally or remotelly
+
+
 ## Startup in Five Minutes
 
 ```
