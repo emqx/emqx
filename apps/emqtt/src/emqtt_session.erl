@@ -279,13 +279,13 @@ handle_call({unsubscribe, Topics}, _From, State) ->
 handle_call(Req, _From, State) ->
     {stop, {badreq, Req}, State}.
 
-handle_cast({resume, ClientId, ClientPid}, State = #session_state{ 
-                                                client_id = ClientId, 
-                                                client_pid = undefined, 
-                                                msg_queue = Queue,
-                                                awaiting_ack = AwaitingAck,
-                                                awaiting_comp = AwaitingComp,
-                                                expire_timer = ETimer}) ->
+handle_cast({resume, ClientId, ClientPid}, State = #session_state{
+                                                      client_id      = ClientId,
+                                                      client_pid     = undefined,
+                                                      msg_queue      = Queue,
+                                                      awaiting_ack   = AwaitingAck,
+                                                      awaiting_comp  = AwaitingComp,
+                                                      expire_timer   = ETimer}) ->
     lager:info("Session ~s resumed by ~p", [ClientId, ClientPid]),
     %cancel timeout timer
     erlang:cancel_timer(ETimer),
@@ -306,10 +306,9 @@ handle_cast({resume, ClientId, ClientPid}, State = #session_state{
                 ClientPid ! {dispatch, {self(), Msg}}
         end, emqtt_queue:all(Queue)),
 
-    NewState = State#session_state{client_pid = ClientPid,
-                                   msg_queue = emqtt_queue:clear(Queue),
-                                   expire_timer = undefined},
-    {noreply, NewState, hibernate};
+    {noreply, State#session_state{client_pid   = ClientPid,
+                                  msg_queue    = emqtt_queue:clear(Queue),
+                                  expire_timer = undefined}, hibernate};
 
 handle_cast({publish, ?QOS_2, Message}, State) ->
     NewState = publish(State, {?QOS_2, Message}),
