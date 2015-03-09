@@ -156,7 +156,7 @@ dec(gauge, Metric, Val) ->
 set(Metric, Val) when is_atom(Metric) ->
     set(gauge, Metric, Val).
 set(gauge, Metric, Val) ->
-    ets:insert(?METRIC_TAB, key(gauge, Metric), Val).
+    ets:insert(?METRIC_TAB, {key(gauge, Metric), Val}).
 
 %%------------------------------------------------------------------------------
 %% @doc
