@@ -2,6 +2,35 @@
 eMQTT ChangeLog
 ==================
 
+v0.4.0-alpha (2015-03-09)
+
+Support [$SYS Topics of Broker](https://github.com/emqtt/emqtt/wiki/$SYS-Topics-of-Broker) Now!
+
+Feature: emqtt_broker to publish version, uptime, datetime to $SYS/brokers/# topics
+
+Feature: emqtt_broker to publish count of clients, sessions, suscribers to $SYS/brokers/# topics
+
+Feature: emqtt_metrics to publish bytes, packets, messages metrics to $SYS/brokers/# topics
+
+Feature: add include/emqtt_systop.hrl
+
+Change: emqtt_cm to count current clients
+
+Change: emqtt_sm to count current sessions
+
+Change: emqtt_pubsub to count current topics and suscribers
+
+Change: emqtt_pubsub to add create/1 API
+
+Change: emqtt_pubsub dispatch/2 to return number of subscribers
+
+Change: emqtt_pubsub to count 'dropped' messages
+
+Change: emqtt_opts to add merge/2 function
+
+Test: add emqtt_serialiser_tests.erl
+
+
 v0.3.4-beta (2015-03-08)
 ------------------------
 
