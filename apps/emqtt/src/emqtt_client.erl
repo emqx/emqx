@@ -219,6 +219,7 @@ received_stats(?PACKET(Type)) ->
 inc(?CONNECT) ->
     emqtt_metrics:inc('packets/connect');
 inc(?PUBLISH) ->
+    emqtt_metrics:inc('messages/received'),
     emqtt_metrics:inc('packets/publish/received');
 inc(?SUBSCRIBE) ->
     emqtt_metrics:inc('packets/subscribe');

@@ -103,6 +103,7 @@ handle_cast({retain, Msg = #mqtt_message{ qos = Qos,
         Size when Size >= Limit -> 
             lager:error("Server dropped message(retain) for table is full: ~p", [Msg]);
         _ -> 
+            %emqtt_metrics:update('messages/retained', Size),
             lager:info("Server retained message: ~p", [Msg]),
             mnesia:dirty_write(#mqtt_retained{ topic = Topic, 
                                                qos = Qos, 

@@ -307,6 +307,7 @@ sent_stats(?PACKET(Type)) ->
 inc(?CONNACK) ->
     emqtt_metrics:inc('packets/connack');
 inc(?PUBLISH) ->
+    emqtt_metrics:inc('messages/sent'),
     emqtt_metrics:inc('packets/publish/sent');
 inc(?SUBACK) ->
     emqtt_metrics:inc('packets/suback');

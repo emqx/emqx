@@ -34,7 +34,7 @@
 
 -define(SERVER, ?MODULE).
 
--define(TABLE, ?MODULE).
+-define(BROKER_TAB, ?MODULE).
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -42,7 +42,10 @@
 
 -export([start_link/1]).
 
--export([version/0, uptime/0, datetime/0, description/0]).
+-export([version/0, uptime/0, datetime/0, sysdescr/0]).
+
+%% Statistics.
+-export([getstats/0, getstat/1, setstat/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -53,42 +56,109 @@
 
 -record(state, {started_at, sys_interval, tick_timer}).
 
-%% ------------------------------------------------------------------
-%% API Function Definitions
-%% ------------------------------------------------------------------
+%%%=============================================================================
+%%% API
+%%%=============================================================================
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% Start emqtt broker.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec start_link([tuple()]) -> {ok, pid()} | ignore | {error, term()}.
 start_link(Options) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Options], []).
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% Get broker version.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec version() -> string().
 version() ->
     {ok, Version} = application:get_key(emqtt, vsn), Version.
 
-description() ->
+%%------------------------------------------------------------------------------
+%% @doc
+%% Get broker description.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec sysdescr() -> string().
+sysdescr() ->
     {ok, Descr} = application:get_key(emqtt, description), Descr.
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% Get broker uptime.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec uptime() -> string().
 uptime() ->
     gen_server:call(?SERVER, uptime).
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% Get broker datetime.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec datetime() -> string().
 datetime() ->
     {{Y, M, D}, {H, MM, S}} = calendar:local_time(),
     lists:flatten(
         io_lib:format(
             "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S])).
 
-%% ------------------------------------------------------------------
-%% gen_server Function Definitions
-%% ------------------------------------------------------------------
+%%------------------------------------------------------------------------------
+%% @doc
+%% Get broker statistics.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec getstats() -> [{atom(), non_neg_integer()}].
+getstats() ->
+    ets:tab2list(?BROKER_TAB).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% Get stats by name.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec getstat(atom()) -> non_neg_integer() | undefined.
+getstat(Name) ->
+    case ets:lookup(?BROKER_TAB, Name) of
+        [{Name, Val}] -> Val;
+        [] -> undefined
+    end.
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% Set broker stats.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec setstat(atom(), pos_integer()) -> boolean().
+setstat(Name, Val) ->
+    ets:insert(?BROKER_TAB, {Name, Val}).
+
+%%%=============================================================================
+%%% gen_server callbacks
+%%%=============================================================================
+
 init([Options]) ->
     random:seed(now()),
-    SysInterval = proplists:get_value(sys_interval, Options, 60),
     % Create $SYS Topics
     [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_BROKERS],
     [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_CLIENTS],
+    [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_SESSIONS],
     [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_PUBSUB],
-    ets:new(?MODULE, [set, public, named_table, {write_concurrency, true}]),
-    [ets:insert(?TABLE, {Name, 0}) || Name <- ?SYSTOP_CLIENTS],
-    [ets:insert(?TABLE, {Name, 0}) || Name <- ?SYSTOP_PUBSUB],
-    % retain version, description
+    ets:new(?BROKER_TAB, [set, public, named_table, {write_concurrency, true}]),
+    SysInterval = proplists:get_value(sys_interval, Options, 60),
     State = #state{started_at = os:timestamp(), sys_interval = SysInterval},
     {ok, tick(random:uniform(SysInterval), State)}.
 
@@ -103,13 +173,11 @@ handle_cast(_Msg, State) ->
 
 handle_info(tick, State) ->
     retain(systop(version), list_to_binary(version())),
-    retain(systop(description), list_to_binary(description())),
+    retain(systop(sysdescr), list_to_binary(sysdescr())),
     publish(systop(uptime), list_to_binary(uptime(State))),
     publish(systop(datetime), list_to_binary(datetime())),
-    %%TODO... call emqtt_cm here?
-    [publish(systop(Stat), i2b(Val)) || {Stat, Val} <- emqtt_cm:stats()],
-    %%TODO... call emqtt_pubsub here?
-    [publish(systop(Stat), i2b(Val)) || {Stat, Val} <- emqtt_pubsub:stats()],
+    [publish(systop(Stat), i2b(Val)) 
+        || {Stat, Val} <- ets:tab2list(?BROKER_TAB)],
     {noreply, tick(State)};
 
 handle_info(_Info, State) ->
@@ -121,9 +189,10 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
+%%%=============================================================================
+%%% Internal functions
+%%%=============================================================================
+
 systop(Name) when is_atom(Name) ->
     list_to_binary(lists:concat(["$SYS/brokers/", node(), "/", Name])).
 

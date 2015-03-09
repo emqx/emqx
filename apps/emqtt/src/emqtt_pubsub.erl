@@ -1,28 +1,36 @@
-%%-----------------------------------------------------------------------------
-%% Copyright (c) 2012-2015, Feng Lee <feng@emqtt.io>
-%% 
-%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%% of this software and associated documentation files (the "Software"), to deal
-%% in the Software without restriction, including without limitation the rights
-%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%% copies of the Software, and to permit persons to whom the Software is
-%% furnished to do so, subject to the following conditions:
-%% 
-%% The above copyright notice and this permission notice shall be included in all
-%% copies or substantial portions of the Software.
-%% 
-%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%% SOFTWARE.
-%%------------------------------------------------------------------------------
-
+%%%-----------------------------------------------------------------------------
+%%% @Copyright (C) 2012-2015, Feng Lee <feng@emqtt.io>
+%%%
+%%% Permission is hereby granted, free of charge, to any person obtaining a copy
+%%% of this software and associated documentation files (the "Software"), to deal
+%%% in the Software without restriction, including without limitation the rights
+%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+%%% copies of the Software, and to permit persons to whom the Software is
+%%% furnished to do so, subject to the following conditions:
+%%%
+%%% The above copyright notice and this permission notice shall be included in all
+%%% copies or substantial portions of the Software.
+%%%
+%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+%%% SOFTWARE.
+%%%-----------------------------------------------------------------------------
+%%% @doc
+%%% emqtt core pubsub.
+%%%
+%%% @end
+%%%-----------------------------------------------------------------------------
 -module(emqtt_pubsub).
 
 -author('feng@emqtt.io').
+
+-behaviour(gen_server).
+
+-define(SERVER, ?MODULE).
 
 -include("emqtt.hrl").
 
@@ -32,11 +40,9 @@
 
 -include_lib("stdlib/include/qlc.hrl").
 
-%% ------------------------------------------------------------------
-%% API Function Exports
-%% ------------------------------------------------------------------
+%% API Exports 
 
--export([start_link/0]).
+-export([start_link/0, getstats/0]).
 
 -export([topics/0,
         create/1,
@@ -48,15 +54,7 @@
 		dispatch/2, 
 		match/1]).
 
--export([stats/0]).
-
-%% ------------------------------------------------------------------
 %% gen_server Function Exports
-%% ------------------------------------------------------------------
-
--behaviour(gen_server).
-
--define(SERVER, ?MODULE).
 
 -export([init/1,
 		handle_call/3,
@@ -65,68 +63,85 @@
         terminate/2,
 		code_change/3]).
 
-%%----------------------------------------------------------------------------
-
--ifdef(use_specs).
-
--spec topics() -> list(topic()).
-
--spec subscribe({binary(), mqtt_qos()} | list(), pid()) -> {ok, list(mqtt_qos())}.
-
--spec unsubscribe(binary() | list(binary()), pid()) -> ok.
-
--endif.
-
-%%----------------------------------------------------------------------------
 
 -record(state, {max_subs = 0}).
 
-%% ------------------------------------------------------------------
-%% API Function Definitions
-%% ------------------------------------------------------------------
+%%%=============================================================================
+%%% API
+%%%=============================================================================
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% Start Pubsub.
 %%
-%% @doc Start Pubsub.
-%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec start_link() -> {ok, pid()} | ignore | {error, any()}.
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-stats() ->
-    gen_server:call(?SERVER, stats).
+%%------------------------------------------------------------------------------
+%% @doc
+%% Get stats of PubSub.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec getstats() -> [{atom(), non_neg_integer()}].
+getstats() ->
+    gen_server:call(?SERVER, getstats).
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% All Topics.
 %%
-%% @doc All topics
-%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec topics() -> list(binary()).
 topics() ->
 	mnesia:dirty_all_keys(topic).
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% Create static topic.
 %%
-%% @doc Create static topic.
-%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec create(binary()) -> {atomic,  Reason :: any()} |  {aborted, Reason :: any()}.
 create(Topic) -> 
     gen_server:call(?SERVER, {create, Topic}).
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% Subscribe Topic or Topics
 %%
-%% @doc Subscribe Topic or Topics
-%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec subscribe({binary(), mqtt_qos()} | list(), pid()) -> {ok, list(mqtt_qos())}.
 subscribe({Topic, Qos}, SubPid) when is_binary(Topic) and is_pid(SubPid) ->
     subscribe([{Topic, Qos}], SubPid);
 
 subscribe(Topics, SubPid) when is_list(Topics) and is_pid(SubPid) ->
     gen_server:call(?SERVER, {subscribe, Topics, SubPid}).
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% Unsubscribe Topic or Topics
 %%
-%% @doc Unsubscribe Topic or Topics
-%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec unsubscribe(binary() | list(binary()), pid()) -> ok.
 unsubscribe(Topic, SubPid) when is_binary(Topic) and is_pid(SubPid) ->
     unsubscribe([Topic], SubPid);
 
 unsubscribe(Topics, SubPid) when is_list(Topics) and is_pid(SubPid) ->
 	gen_server:cast(?SERVER, {unsubscribe, Topics, SubPid}).
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% Publish to cluster node.
 %%
-%% @doc Publish to cluster node.
-%%
+%% @end
+%%------------------------------------------------------------------------------
 -spec publish(Msg :: mqtt_message()) -> ok.
 publish(Msg=#mqtt_message{topic=Topic}) ->
 	publish(Topic, Msg).
@@ -140,7 +155,14 @@ publish(Topic, Msg) when is_binary(Topic) ->
 		end
 	end, match(Topic)).
 
-%dispatch locally, should only be called by publish
+%%TODO: dispatch counts....
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% Dispatch Locally. Should only be called by publish.
+%%
+%% @end
+%%------------------------------------------------------------------------------
 dispatch(Topic, Msg = #mqtt_message{qos = Qos}) when is_binary(Topic) ->
     lists:foreach(fun(#topic_subscriber{qos = SubQos, subpid=SubPid}) -> 
         Msg1 = if
@@ -150,6 +172,13 @@ dispatch(Topic, Msg = #mqtt_message{qos = Qos}) when is_binary(Topic) ->
         SubPid ! {dispatch, {self(), Msg1}}
     end, ets:lookup(topic_subscriber, Topic)).
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% @private
+%% Match topic.
+%%
+%% @end
+%%------------------------------------------------------------------------------
 -spec match(Topic :: binary()) -> [topic()].
 match(Topic) when is_binary(Topic) ->
 	TrieNodes = mnesia:async_dirty(fun trie_match/1, [emqtt_topic:words(Topic)]),
@@ -178,15 +207,15 @@ init([]) ->
 	ets:new(topic_subscriber, [bag, named_table, {keypos, 2}]),
 	{ok, #state{}}.
 
-handle_call(stats, _From, State = #state{max_subs = Max}) ->
-    Stats = [{'topics/total', mnesia:table_info(topic, size)},
-             {'subscribers/total', ets:info(topic_subscriber, size)},
+handle_call(getstats, _From, State = #state{max_subs = Max}) ->
+    Stats = [{'topics/count', mnesia:table_info(topic, size)},
+             {'subscribers/count', ets:info(topic_subscriber, size)},
              {'subscribers/max', Max}],
     {reply, Stats, State};
 
 handle_call({create, Topic}, _From, State) ->
 	Result = mnesia:transaction(fun trie_add/1, [Topic]),
-    {reply, Result , State};
+    {reply, Result, setstats(State)};
 
 handle_call({subscribe, Topics, SubPid}, _From, State) ->
     Result = [subscribe_topic({Topic, Qos}, SubPid) || {Topic, Qos} <- Topics],
@@ -195,7 +224,7 @@ handle_call({subscribe, Topics, SubPid}, _From, State) ->
         [] -> {ok, [Qos || {ok, Qos} <- Result]};
         Errors -> hd(Errors)
     end,
-    {reply, Reply, set_maxsubs(State)};
+    {reply, Reply, setstats(State)};
 
 handle_call(Req, _From, State) ->
 	{stop, {badreq, Req}, State}.
@@ -205,7 +234,7 @@ handle_cast({unsubscribe, Topics, SubPid}, State) ->
         ets:match_delete(topic_subscriber, #topic_subscriber{topic=Topic, qos ='_', subpid=SubPid}),
         try_remove_topic(Topic)
     end, Topics),
-	{noreply, State};
+	{noreply, setstats(State)};
 
 handle_cast(Msg, State) ->
 	{stop, {badmsg, Msg}, State}.
@@ -221,7 +250,7 @@ handle_info({'DOWN', Mon, _Type, _Object, _Info}, State) ->
 		[ets:delete_object(topic_subscriber, Sub) || Sub <- Subs],
 		[try_remove_topic(Topic) || #topic_subscriber{topic=Topic} <- Subs]
 	end,
-	{noreply, State};
+	{noreply, setstats(State)};
 
 handle_info(Info, State) ->
 	{stop, {badinfo, Info}, State}.
@@ -232,9 +261,9 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
+%%%=============================================================================
+%%% Internal functions
+%%%=============================================================================
 subscribe_topic({Topic, Qos}, SubPid) ->
 	case mnesia:transaction(fun trie_add/1, [Topic]) of
 	{atomic, _} ->	
@@ -367,9 +396,16 @@ trie_delete_path([{NodeId, Word, _} | RestPath]) ->
 		throw({notfound, NodeId}) 
 	end.
 
-set_maxsubs(State = #state{max_subs = Max}) ->
-    Total = ets:info(topic_subscriber, size),
+setstats(State = #state{max_subs = Max}) ->
+    emqtt_broker:setstat('topics/count', mnesia:table_info(topic, size)),
+    SubCount = ets:info(topic_subscriber, size),
+    emqtt_broker:setstat('subscribers/count', SubCount),
     if
-        Total > Max -> State#state{max_subs = Total};
-        true -> State
+        SubCount > Max ->
+            emqtt_broker:setstat('subscribers/max', SubCount),
+            State#state{max_subs = SubCount};
+        true -> 
+            State
     end.
+
+
