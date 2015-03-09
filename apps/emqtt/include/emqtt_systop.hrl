@@ -20,7 +20,7 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqtt system topics.
+%%% eMQTT System Topics.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
@@ -34,27 +34,35 @@
     version,      % Broker version
     uptime,       % Broker uptime
     datetime,     % Broker local datetime
-    description   % Broker description
+    sysdescr      % Broker description
 ]).
 
 %%------------------------------------------------------------------------------
-%% $SYS Topics of Clients
+%% $SYS Topics for Clients
 %%------------------------------------------------------------------------------
 -define(SYSTOP_CLIENTS, [
-    'clients/total',         % total clients connected current
+    'clients/count',         % clients connected current
     'clients/max'            % max clients connected
     %'clients/connected',     
     %'clients/disconnected',  
 ]).
 
 %%------------------------------------------------------------------------------
-%% $SYS Topics of Subscribers
+%% $SYS Topics for Sessions
+%%------------------------------------------------------------------------------
+-define(SYSTOP_SESSIONS, [
+    'sessions/count',
+    'sessions/max'
+]).
+
+%%------------------------------------------------------------------------------
+%% $SYS Topics for Subscribers
 %%------------------------------------------------------------------------------
 -define(SYSTOP_PUBSUB, [
-    'topics/total',        % ...
-    'subscribers/total',   % ...
+    'topics/count',        % ...
+    'subscribers/count',   % ...
     'subscribers/max'      % ...
-]).  
+]).
 
 %%------------------------------------------------------------------------------
 %% Bytes sent and received of Broker
@@ -87,11 +95,10 @@
 %% Messages sent and received of broker
 %%------------------------------------------------------------------------------
 -define(SYSTOP_MESSAGES, [
-    'messages/received',    % Messages received
-    'messages/sent',        % Messages sent
-    'messages/retained',    % Messagea retained
-    'messages/stored',      % Messages stored
-    'messages/dropped'      % Messages dropped
+    'messages/received',      % Messages received
+    'messages/sent',          % Messages sent
+    'messages/retained/count',% Messagea retained
+    'messages/stored',        % Messages stored
+    'messages/dropped'        % Messages dropped
 ]).
-
 
