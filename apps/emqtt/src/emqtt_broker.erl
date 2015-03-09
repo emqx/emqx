@@ -36,21 +36,15 @@
 
 -define(BROKER_TAB, ?MODULE).
 
-%% ------------------------------------------------------------------
 %% API Function Exports
-%% ------------------------------------------------------------------
-
 -export([start_link/1]).
 
 -export([version/0, uptime/0, datetime/0, sysdescr/0]).
 
-%% Statistics.
+%% statistics API.
 -export([getstats/0, getstat/1, setstat/2]).
 
-%% ------------------------------------------------------------------
 %% gen_server Function Exports
-%% ------------------------------------------------------------------
-
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
@@ -152,15 +146,15 @@ setstat(Name, Val) ->
 
 init([Options]) ->
     random:seed(now()),
-    % Create $SYS Topics
-    [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_BROKERS],
-    [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_CLIENTS],
-    [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_SESSIONS],
-    [{atomic, _} = create(systop(Name)) || Name <- ?SYSTOP_PUBSUB],
     ets:new(?BROKER_TAB, [set, public, named_table, {write_concurrency, true}]),
+    Topics = ?SYSTOP_CLIENTS ++ ?SYSTOP_SESSIONS ++ ?SYSTOP_PUBSUB,
+    [ets:insert(?BROKER_TAB, {Topic, 0}) || Topic <- Topics],
+    % Create $SYS Topics
+    [{atomic, _} = create(systop(Topic)) || Topic <- ?SYSTOP_BROKERS],
+    [{atomic, _} = create(systop(Topic)) || Topic <- Topics],
     SysInterval = proplists:get_value(sys_interval, Options, 60),
     State = #state{started_at = os:timestamp(), sys_interval = SysInterval},
-    {ok, tick(random:uniform(SysInterval), State)}.
+    {ok, tick(random:uniform(SysInterval), State), hibernate}.
 
 handle_call(uptime, _From, State) ->
     {reply, uptime(State), State};
@@ -178,7 +172,7 @@ handle_info(tick, State) ->
     publish(systop(datetime), list_to_binary(datetime())),
     [publish(systop(Stat), i2b(Val)) 
         || {Stat, Val} <- ets:tab2list(?BROKER_TAB)],
-    {noreply, tick(State)};
+    {noreply, tick(State), hibernate};
 
 handle_info(_Info, State) ->
     {noreply, State}.
