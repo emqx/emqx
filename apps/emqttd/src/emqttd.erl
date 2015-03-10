@@ -28,7 +28,7 @@
 
 -author('feng@emqtt.io').
 
--export([start/0, open/1]).
+-export([start/0, open/1, is_running/1]).
 
 -define(MQTT_SOCKOPTS, [
 	binary,
@@ -68,5 +68,12 @@ open({mqtts, Port, Options}) ->
 open({http, Port, Options}) ->
     MFArgs = {emqttd_http, handle, []},
 	mochiweb:start_http(Port, Options, MFArgs).
+
+is_running(Node) ->
+    case rpc:call(Node, erlang, whereis, [emqttd]) of
+        {badrpc, _}          -> false;
+        undefined            -> false;
+        Pid when is_pid(Pid) -> true
+    end.
 
 

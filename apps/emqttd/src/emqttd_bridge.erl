@@ -39,7 +39,9 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {node, local_topic, status = running}).
+-define(PING_INTERVAL, 1000).
+
+-record(state, {node, local_topic, status = up}).
 
 %%%=============================================================================
 %%% API
@@ -53,9 +55,15 @@ start_link(Node, LocalTopic) ->
 %%%=============================================================================
 
 init([Node, LocalTopic]) ->
-    emqttd_pubsub:subscribe({LocalTopic, ?QOS_0}, self()),
-    %%TODO: monitor nodes...
-    {ok, #state{node = Node, local_topic = LocalTopic}}.
+    process_flag(trap_exit, true),
+    case net_kernel:connect_node(Node) of
+        true -> 
+            true = erlang:monitor_node(Node, true),
+            emqttd_pubsub:subscribe({LocalTopic, ?QOS_0}, self()),
+            {ok, #state{node = Node, local_topic = LocalTopic}};
+        false -> 
+            {stop, {cannot_connect, Node}}
+    end.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -63,13 +71,43 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+handle_info({dispatch, {_From, Msg}}, State = #state{node = Node, status = down}) ->
+    lager:warning("Bridge Dropped Msg for ~p Down:~n~p", [Node, Msg]),
+    {noreply, State};
+
+handle_info({dispatch, {_From, Msg}}, State = #state{node = Node, status = up}) ->
+    rpc:cast(Node, emqttd_router, route, [Msg]),
+    {noreply, State};
+
 handle_info({nodedown, Node}, State = #state{node = Node}) ->
-    %%....
+    lager:warning("Bridge Node Down: ~p", [Node]),
+    erlang:send_after(?PING_INTERVAL, self(), ping_down_node),
     {noreply, State#state{status = down}};
 
-handle_info({dispatch, {_From, Msg}}, State = #state{node = Node}) ->
-    %%TODO: CAST
-    rpc:call(Node, emqttd_router, route, [Msg]),
+handle_info({nodeup, Node}, State = #state{node = Node}) ->
+    %% TODO: Really fast??
+    case emqttd:is_running(Node) of
+        true -> 
+            lager:warning("Bridge Node Up: ~p", [Node]),
+            {noreply, State#state{status = up}};
+        false ->
+            self() ! {nodedown, Node},
+            {noreply, State#state{status = down}}
+    end;
+
+handle_info(ping_down_node, State = #state{node = Node}) ->
+    Self = self(),
+    spawn_link(fun() ->
+                     case net_kernel:connect_node(Node) of
+                         true -> %%TODO: this is not right... fixme later
+                             Self ! {nodeup, Node};
+                         false ->
+                             erlang:send_after(?PING_INTERVAL, Self, ping_down_node)
+                     end
+               end),
+    {noreply, State};
+
+handle_info({'EXIT', _Pid, normal}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
@@ -85,6 +123,4 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 %%% Internal functions
 %%%=============================================================================
-
-
 

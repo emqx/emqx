@@ -64,7 +64,7 @@ start(_StartType, _StartArgs) ->
     ok = emqttd_mnesia:wait(),
 	{ok, Listeners} = application:get_env(listen),
     emqttd:open(Listeners),
-	register(emqtt, self()),
+	register(emqttd, self()),
     print_vsn(),
 	{ok, Sup}.
 
@@ -103,8 +103,9 @@ start_servers(Sup) ->
          {"emqttd auth", emqttd_auth},
 		 {"emqttd pubsub", emqttd_pubsub},
 		 {"emqttd router", emqttd_router},
-		 {"emqttd broker", emqttd_broker, BrokerOpts},
+		 {"emqttd broker", emqttd_broker,   BrokerOpts},
 		 {"emqttd metrics", emqttd_metrics, MetricOpts},
+         {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}},
 		 {"emqttd monitor", emqttd_monitor}
 		]).
 

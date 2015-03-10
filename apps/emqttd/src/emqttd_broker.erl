@@ -154,7 +154,11 @@ init([Options]) ->
     [{atomic, _} = create(systop(Topic)) || Topic <- Topics],
     SysInterval = proplists:get_value(sys_interval, Options, 60),
     State = #state{started_at = os:timestamp(), sys_interval = SysInterval},
-    {ok, tick(random:uniform(SysInterval), State), hibernate}.
+    Delay = if 
+                SysInterval == 0 -> 0;
+                true -> random:uniform(SysInterval)
+            end,
+    {ok, tick(Delay, State), hibernate}.
 
 handle_call(uptime, _From, State) ->
     {reply, uptime(State), State};
@@ -224,9 +228,12 @@ uptime(days, D) ->
 tick(State = #state{sys_interval = SysInterval}) ->
     tick(SysInterval, State).
 
+tick(0, State) ->
+    State;
 tick(Delay, State) ->
     State#state{tick_timer = erlang:send_after(Delay * 1000, self(), tick)}.
 
 i2b(I) when is_integer(I) ->
     list_to_binary(integer_to_list(I)).
+
 

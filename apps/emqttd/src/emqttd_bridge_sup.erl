@@ -55,13 +55,7 @@ start_link() ->
 %%------------------------------------------------------------------------------
 -spec start_bridge(atom(), binary()) -> {ok, pid()} | {error, any()}.
 start_bridge(Node, LocalTopic) when is_atom(Node) and is_binary(LocalTopic) ->
-    %%TODO: mv this code to emqttd_bridge???
-    case net_kernel:connect_node(Node) of
-        true -> 
-            supervisor:start_child(?MODULE, bridge_spec(Node, LocalTopic));
-        false -> 
-            {error, {cannot_connect, Node}}
-    end.
+    supervisor:start_child(?MODULE, bridge_spec(Node, LocalTopic)).
 
 %%------------------------------------------------------------------------------
 %% @doc

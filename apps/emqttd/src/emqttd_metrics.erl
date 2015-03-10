@@ -56,7 +56,7 @@
 
 %%------------------------------------------------------------------------------
 %% @doc
-%% Start emqtt metrics.
+%% Start emqttd metrics.
 %%
 %% @end
 %%------------------------------------------------------------------------------
@@ -174,7 +174,7 @@ key(counter, Metric) ->
 %%% gen_server callbacks
 %%%=============================================================================
 
-init(Options) ->
+init([Options]) ->
     random:seed(now()),
     Metrics = ?SYSTOP_BYTES ++ ?SYSTOP_PACKETS ++ ?SYSTOP_MESSAGES,
     % Create metrics table
@@ -184,7 +184,11 @@ init(Options) ->
     % $SYS Topics for metrics
     [{atomic, _} = emqttd_pubsub:create(systop(Topic)) || {_, Topic} <- Metrics],
     PubInterval = proplists:get_value(pub_interval, Options, 60),
-    {ok, tick(random:uniform(PubInterval), #state{pub_interval = PubInterval}), hibernate}.
+    Delay = if 
+                PubInterval == 0 -> 0;
+                true -> random:uniform(PubInterval)
+            end,
+    {ok, tick(Delay, #state{pub_interval = PubInterval}), hibernate}.
 
 handle_call(Req, _From, State) ->
     {stop, {badreq, Req}, State}.
@@ -226,6 +230,8 @@ new_metric({counter, Name}) ->
 tick(State = #state{pub_interval = PubInterval}) ->
     tick(PubInterval, State).
 
+tick(0, State) ->
+    State;
 tick(Delay, State) ->
     State#state{tick_timer = erlang:send_after(Delay * 1000, self(), tick)}.
 
