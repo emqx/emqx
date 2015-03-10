@@ -2,8 +2,14 @@
 eMQTT ChangeLog
 ==================
 
+v0.5.0-alpha (2015-03-20)
+-------------------------
+
+rename 'eMQTT' to 'eMQTTD'
+
+
 v0.4.0-alpha (2015-03-10)
-------------------------
+-------------------------
 
 Support [$SYS Topics of Broker](https://github.com/emqtt/emqtt/wiki/$SYS-Topics-of-Broker) Now!
 

@@ -6,7 +6,7 @@ deps
 *.plt
 erl_crash.dump
 ebin
-rel/emqtt
+rel/emqttd
 .concrete/DEV_MODE
 .rebar
 test/ebin/*.beam
