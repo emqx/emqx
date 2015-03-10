@@ -40,7 +40,7 @@ init() ->
 
 %TODO: timeout should be configured?
 wait() ->
-    mnesia:wait_for_tables([topic, topic_trie, topic_trie_node, mqtt_user], 60000).
+    mnesia:wait_for_tables([topic, topic_trie, topic_trie_node], 30000).
 
 stop() ->
 	mnesia:stop().
