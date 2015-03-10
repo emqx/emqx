@@ -7,6 +7,9 @@ v0.5.0-alpha (2015-03-20)
 
 rename 'eMQTT' to 'eMQTTD'
 
+Support broker bridge... 
+
+....
 
 v0.4.0-alpha (2015-03-10)
 -------------------------
