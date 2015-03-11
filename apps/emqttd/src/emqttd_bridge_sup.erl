@@ -30,7 +30,9 @@
 
 -behavior(supervisor).
 
--export([start_link/0, start_bridge/2, stop_bridge/2]).
+-export([start_link/0,
+         start_bridge/2, start_bridge/3,
+         stop_bridge/2]).
 
 -export([init/1]).
 
@@ -54,8 +56,14 @@ start_link() ->
 %% @end
 %%------------------------------------------------------------------------------
 -spec start_bridge(atom(), binary()) -> {ok, pid()} | {error, any()}.
-start_bridge(Node, LocalTopic) when is_atom(Node) and is_binary(LocalTopic) ->
-    supervisor:start_child(?MODULE, bridge_spec(Node, LocalTopic)).
+start_bridge(Node, SubTopic) when is_atom(Node) and is_binary(SubTopic) ->
+    start_bridge(Node, SubTopic, []).
+
+-spec start_bridge(atom(), binary(), [emqttd_bridge:option()]) -> {ok, pid()} | {error, any()}.
+start_bridge(Node, SubTopic, Options) when is_atom(Node) and is_binary(SubTopic) ->
+    {ok, Env} = application:get_env(emqttd, bridge),
+    Options1 = emqttd_opts:merge(Env, Options),
+    supervisor:start_child(?MODULE, bridge_spec(Node, SubTopic, Options1)).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -64,8 +72,8 @@ start_bridge(Node, LocalTopic) when is_atom(Node) and is_binary(LocalTopic) ->
 %% @end
 %%------------------------------------------------------------------------------
 -spec stop_bridge(atom(), binary()) -> {ok, pid()} | ok.
-stop_bridge(Node, LocalTopic) ->
-    ChildId = bridge_id(Node, LocalTopic),
+stop_bridge(Node, SubTopic) ->
+    ChildId = bridge_id(Node, SubTopic),
     case supervisor:terminate_child(ChildId) of
         ok -> 
             supervisor:delete_child(?MODULE, ChildId);
@@ -80,12 +88,11 @@ stop_bridge(Node, LocalTopic) ->
 init([]) ->
     {ok, {{one_for_one, 10, 100}, []}}.
 
-bridge_id(Node, LocalTopic) ->
-    {bridge, Node, LocalTopic}.
+bridge_id(Node, SubTopic) ->
+    {bridge, Node, SubTopic}.
 
-bridge_spec(Node, LocalTopic) ->
-    ChildId = bridge_id(Node, LocalTopic),
-    {ChildId, {emqttd_bridge, start_link, [Node, LocalTopic]},
+bridge_spec(Node, SubTopic, Options) ->
+    ChildId = bridge_id(Node, SubTopic),
+    {ChildId, {emqttd_bridge, start_link, [Node, SubTopic, Options]},
         transient, 10000, worker, [emqttd_bridge]}.
-
 
