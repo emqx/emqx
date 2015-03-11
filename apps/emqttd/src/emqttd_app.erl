@@ -96,6 +96,7 @@ start_servers(Sup) ->
 			?PRINT_MSG("[done]~n")
 		end,
 	 	[{"emqttd config", emqttd_config},
+	 	 {"emqttd event", emqttd_event},
 		 {"emqttd server", emqttd_server, RetainOpts},
          {"emqttd client manager", emqttd_cm},
          {"emqttd session manager", emqttd_sm},
