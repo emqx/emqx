@@ -126,6 +126,7 @@ handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peer_name = PeerName}
         ReturnCode ->
             {ReturnCode, State#proto_state{client_id = ClientId}}
     end,
+    notify(connected, ReturnCode1, State1),
     send(?CONNACK_PACKET(ReturnCode1), State1),
     %%Starting session
     {ok, Session} = emqttd_session:start({CleanSess, ClientId, self()}),
@@ -317,5 +318,19 @@ inc(?PINGRESP) ->
     emqttd_metrics:inc('packets/pingresp');
 inc(_) ->
     ingore.
+
+notify(connected, ReturnCode, #proto_state{peer_name = PeerName, 
+                                           proto_vsn  = ProtoVsn, 
+                                           client_id  = ClientId, 
+                                           clean_sess = CleanSess}) ->
+    Sess = case CleanSess of
+        true -> false;
+        false -> true
+    end,
+    Params = [{from, PeerName},
+              {protocol, ProtoVsn},
+              {session, Sess},
+              {connack, ReturnCode}],
+    emqttd_event:notify({connected, ClientId, Params}).
 
 

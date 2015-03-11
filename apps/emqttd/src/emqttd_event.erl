@@ -30,7 +30,8 @@
 
 %% API Function Exports
 -export([start_link/0,
-         add_handler/2]).
+         add_handler/2,
+         notify/1]).
 
 %% gen_event Function Exports
 -export([init/1,
@@ -61,24 +62,26 @@ start_link() ->
 add_handler(Handler, Args) ->
     gen_event:add_handler(?MODULE, Handler, Args).
 
+notify(Event) ->
+    gen_event:notify(?MODULE, Event).
 %%%=============================================================================
 %%% gen_event callbacks
 %%%=============================================================================
 
 init([]) ->
-    SysTop = list_to_binary(lists:concat(["$SYS/brokers/", node()])),
+    SysTop = list_to_binary(lists:concat(["$SYS/brokers/", node(), "/"])),
     {ok, #state{systop = SysTop}}.
 
 handle_event({connected, ClientId, Params}, State = #state{systop = SysTop}) ->
     Topic = <<SysTop/binary, "clients/", ClientId/binary, "/connected">>,
     Msg = #mqtt_message{topic = Topic, payload = payload(connected, Params)},
-    emqttd_pubsub:publish(Msg),
+    emqttd_router:route(Msg),
     {ok, State};
 
 handle_event({disconnectd, ClientId, Reason}, State = #state{systop = SysTop}) ->
     Topic = <<SysTop/binary, "clients/", ClientId/binary, "/disconnected">>,
     Msg = #mqtt_message{topic = Topic, payload = payload(disconnected, Reason)},
-    emqttd_pubsub:publish(Msg),
+    emqttd_router:route(Msg),
     {ok, State};
 
 handle_event({subscribed, ClientId, TopicTable}, State) ->
@@ -116,5 +119,5 @@ payload(connected, Params) ->
     iolist_to_binary(io_lib:format("from: ~s~nprotocol: ~p~nsession: ~s", [From, Proto, Sess]));
 
 payload(disconnected, Reason) ->
-    list_to_binary(lists:concat(["reason: ", Reason])).
+    list_to_binary(io_lib:format(["reason: ~p", Reason])).
 

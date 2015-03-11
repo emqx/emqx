@@ -148,6 +148,7 @@ handle_info(Info, State = #state{peer_name = PeerName}) ->
 
 terminate(Reason, #state{peer_name = PeerName, keepalive = KeepAlive, proto_state = ProtoState}) ->
     lager:info("Client ~s: ~p terminated, reason: ~p~n", [PeerName, self(), Reason]),
+    notify(disconnected, Reason, ProtoState),
     emqttd_keepalive:cancel(KeepAlive),
     case {ProtoState, Reason} of
         {undefined, _} -> ok;
@@ -237,3 +238,11 @@ inc(?DISCONNECT) ->
 inc(_) ->
     ignore.
     
+%%TODO: should be moved to emqttd_protocol... for event emitted when protocol shutdown...
+notify(disconnected, _Reason, undefined) -> ingore;
+
+notify(disconnected, {shutdown, Reason}, ProtoState) ->
+    emqttd_event:notify({disconnected, emqttd_protocol:client_id(ProtoState), [{reason, Reason}]});
+
+notify(disconnected, Reason, ProtoState) ->
+    emqttd_event:notify({disconnected, emqttd_protocol:client_id(ProtoState), [{reason, Reason}]}).
