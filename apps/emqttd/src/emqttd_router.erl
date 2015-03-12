@@ -63,7 +63,7 @@ start_link() ->
 %%------------------------------------------------------------------------------
 -spec route(mqtt_message()) -> ok.
 route(Msg) ->
-    lager:info("Route ~s", [emqttd_message:dump(Msg)]),
+    lager:debug("Route ~s", [emqttd_message:dump(Msg)]),
     % TODO: need to retain?
     emqttd_server:retain(Msg),
     % unset flag and pubsub

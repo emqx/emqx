@@ -132,17 +132,17 @@ handle_info({inet_reply, _Sock, {error, Reason}}, State = #state{peer_name = Pee
     {noreply, State};
 
 handle_info({keepalive, start, TimeoutSec}, State = #state{transport = Transport, socket = Socket}) ->
-    lager:info("Client ~s: Start KeepAlive with ~p seconds", [State#state.peer_name, TimeoutSec]),
+    lager:debug("Client ~s: Start KeepAlive with ~p seconds", [State#state.peer_name, TimeoutSec]),
     KeepAlive = emqttd_keepalive:new({Transport, Socket}, TimeoutSec, {keepalive, timeout}),
     {noreply, State#state{ keepalive = KeepAlive }};
 
 handle_info({keepalive, timeout}, State = #state{keepalive = KeepAlive}) ->
     case emqttd_keepalive:resume(KeepAlive) of
     timeout ->
-        lager:info("Client ~s: Keepalive Timeout!", [State#state.peer_name]),
+        lager:debug("Client ~s: Keepalive Timeout!", [State#state.peer_name]),
         stop({shutdown, keepalive_timeout}, State#state{keepalive = undefined});
     {resumed, KeepAlive1} ->
-        lager:info("Client ~s: Keepalive Resumed", [State#state.peer_name]),
+        lager:debug("Client ~s: Keepalive Resumed", [State#state.peer_name]),
         {noreply, State#state{keepalive = KeepAlive1}}
     end;
 
@@ -151,7 +151,7 @@ handle_info(Info, State = #state{peer_name = PeerName}) ->
     {stop, {badinfo, Info}, State}.
 
 terminate(Reason, #state{peer_name = PeerName, keepalive = KeepAlive, proto_state = ProtoState}) ->
-    lager:info("Client ~s: ~p terminated, reason: ~p~n", [PeerName, self(), Reason]),
+    lager:debug("Client ~s: ~p terminated, reason: ~p~n", [PeerName, self(), Reason]),
     notify(disconnected, Reason, ProtoState),
     emqttd_keepalive:cancel(KeepAlive),
     case {ProtoState, Reason} of

@@ -92,7 +92,7 @@ received(_Packet, State = #proto_state{connected = false}) ->
 
 received(Packet = ?PACKET(_Type), State = #proto_state{peer_name = PeerName,
                                                        client_id = ClientId}) ->
-	lager:info("RECV from ~s@~s: ~s", [ClientId, PeerName, emqttd_packet:dump(Packet)]),
+	lager:debug("RECV from ~s@~s: ~s", [ClientId, PeerName, emqttd_packet:dump(Packet)]),
 	case validate_packet(Packet) of	
 	ok ->
 		handle(Packet, State);
@@ -109,7 +109,7 @@ handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peer_name = PeerName}
                          keep_alive = KeepAlive,
                          client_id  = ClientId} = Var,
 
-    lager:info("RECV from ~s@~s: ~s", [ClientId, PeerName, emqttd_packet:dump(Packet)]),
+    lager:debug("RECV from ~s@~s: ~s", [ClientId, PeerName, emqttd_packet:dump(Packet)]),
 
     {ReturnCode1, State1} =
     case validate_connect(Var, State) of
@@ -198,7 +198,7 @@ send({_From, Message = #mqtt_message{qos = Qos}}, State = #proto_state{session =
 	send(emqttd_message:to_packet(Message1), State#proto_state{session = NewSession});
 
 send(Packet, State = #proto_state{transport = Transport, socket = Sock, peer_name = PeerName, client_id = ClientId}) when is_record(Packet, mqtt_packet) ->
-	lager:info("SENT to ~s@~s: ~s", [ClientId, PeerName, emqttd_packet:dump(Packet)]),
+	lager:debug("SENT to ~s@~s: ~s", [ClientId, PeerName, emqttd_packet:dump(Packet)]),
     sent_stats(Packet),
     Data = emqttd_serialiser:serialise(Packet),
     lager:debug("SENT to ~s: ~p", [PeerName, Data]),
@@ -215,7 +215,7 @@ redeliver({?PUBREL, PacketId}, State) ->
 shutdown(Error, #proto_state{peer_name = PeerName, client_id = ClientId, will_msg = WillMsg}) ->
     send_willmsg(WillMsg),
     try_unregister(ClientId, self()),
-	lager:info("Protocol ~s@~s Shutdown: ~p", [ClientId, PeerName, Error]),
+	lager:debug("Protocol ~s@~s Shutdown: ~p", [ClientId, PeerName, Error]),
     ok.
 
 willmsg(Packet) when is_record(Packet, mqtt_packet_connect) ->
