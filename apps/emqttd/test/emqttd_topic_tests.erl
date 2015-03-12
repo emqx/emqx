@@ -71,6 +71,11 @@ sys_match_test() ->
     ?assertNot( match(<<"$SYS/borker">>, <<"+/+">>) ),
     ?assertNot( match(<<"$SYS/borker">>, <<"#">>) ).
 
+'#_match_test'() ->
+    ?assert( match(<<"a/b/c">>, <<"#">>) ),
+    ?assert( match(<<"a/b/c">>, <<"+/#">>) ),
+    ?assertNot( match(<<"$SYS/brokers">>, <<"#">>) ).
+
 match_perf_test() ->
     ?assert( match(<<"a/b/ccc">>, <<"a/#">>) ),
     Name = <<"/abkc/19383/192939/akakdkkdkak/xxxyyuya/akakak">>,
