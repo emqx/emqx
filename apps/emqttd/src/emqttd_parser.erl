@@ -31,7 +31,11 @@
 -include("emqttd_packet.hrl").
 
 %% API
--export([init/0, parse/2]).
+-export([init/1, parse/2]).
+
+-record(mqtt_packet_limit, {max_packet_size}).
+
+-type option() :: {atom(),  any()}.
 
 %%%-----------------------------------------------------------------------------
 %% @doc
@@ -39,8 +43,11 @@
 %%
 %% @end
 %%%-----------------------------------------------------------------------------
--spec init() -> none.
-init() -> none.
+-spec init(Opts :: [option()]) -> {none, #mqtt_packet_limit{}}.
+init(Opts) -> {none, limit(Opts)}.
+
+limit(Opts) ->
+    #mqtt_packet_limit{max_packet_size = proplists:get_value(max_packet_size, Opts, ?MAX_LEN)}.
 
 %%%-----------------------------------------------------------------------------
 %% @doc
@@ -48,33 +55,36 @@ init() -> none.
 %%
 %% @end
 %%%-----------------------------------------------------------------------------
--spec parse(binary(), none | fun()) -> {ok, mqtt_packet()} | {error, any()} | {more, fun()}.
-parse(<<>>, none) ->
-    {more, fun(Bin) -> parse(Bin, none) end};
-parse(<<PacketType:4, Dup:1, QoS:2, Retain:1, Rest/binary>>, none) ->
+-spec parse(binary(), {none, [option()]} | fun()) -> {ok, mqtt_packet()} | {error, any()} | {more, fun()}.
+parse(<<>>, {none, Limit}) ->
+    {more, fun(Bin) -> parse(Bin, {none, Limit}) end};
+parse(<<PacketType:4, Dup:1, QoS:2, Retain:1, Rest/binary>>, {none, Limit}) ->
     parse_remaining_len(Rest, #mqtt_packet_header{type   = PacketType,
                                                   dup    = bool(Dup),
                                                   qos    = QoS,
-                                                  retain = bool(Retain)});
+                                                  retain = bool(Retain)}, Limit);
 parse(Bin, Cont) -> Cont(Bin).
 
-parse_remaining_len(<<>>, Header) ->
-    {more, fun(Bin) -> parse_remaining_len(Bin, Header) end};
-parse_remaining_len(Rest, Header) ->
-    parse_remaining_len(Rest, Header, 1, 0).
+parse_remaining_len(<<>>, Header, Limit) ->
+    {more, fun(Bin) -> parse_remaining_len(Bin, Header, Limit) end};
+parse_remaining_len(Rest, Header, Limit) ->
+    parse_remaining_len(Rest, Header, 1, 0, Limit).
 
-parse_remaining_len(_Bin, _Header, _Multiplier, Length)
-    when Length > ?MAX_LEN ->
+parse_remaining_len(_Bin, _Header, _Multiplier, Length, #mqtt_packet_limit{max_packet_size = MaxLen})
+    when Length > MaxLen ->
     {error, invalid_mqtt_frame_len};
-parse_remaining_len(<<>>, Header, Multiplier, Length) ->
-    {more, fun(Bin) -> parse_remaining_len(Bin, Header, Multiplier, Length) end};
-parse_remaining_len(<<1:1, Len:7, Rest/binary>>, Header, Multiplier, Value) ->
-    parse_remaining_len(Rest, Header, Multiplier * ?HIGHBIT, Value + Len * Multiplier);
-parse_remaining_len(<<0:1, Len:7, Rest/binary>>, Header,  Multiplier, Value) ->
-    parse_frame(Rest, Header, Value + Len * Multiplier).
+parse_remaining_len(<<>>, Header, Multiplier, Length, Limit) ->
+    {more, fun(Bin) -> parse_remaining_len(Bin, Header, Multiplier, Length, Limit) end};
+parse_remaining_len(<<1:1, Len:7, Rest/binary>>, Header, Multiplier, Value, Limit) ->
+    parse_remaining_len(Rest, Header, Multiplier * ?HIGHBIT, Value + Len * Multiplier, Limit);
+parse_remaining_len(<<0:1, Len:7, Rest/binary>>, Header,  Multiplier, Value, #mqtt_packet_limit{max_packet_size = MaxLen}) ->
+    FrameLen = Value + Len * Multiplier,
+    if
+        FrameLen > MaxLen -> {error, invalid_mqtt_frame_len};
+        true -> parse_frame(Rest, Header, FrameLen)
+    end.
 
-parse_frame(Bin, #mqtt_packet_header{type = Type,
-                                     qos  = Qos} = Header, Length) ->
+parse_frame(Bin, #mqtt_packet_header{type = Type, qos  = Qos} = Header, Length) ->
     case {Type, Bin} of
         {?CONNECT, <<FrameBin:Length/binary, Rest/binary>>} ->
             {ProtoName, Rest1} = parse_utf(FrameBin),

@@ -30,7 +30,7 @@
 
 -behaviour(gen_server).
 
--export([start_link/1, info/1]).
+-export([start_link/2, info/1]).
 
 -export([init/1,
         handle_call/3,
@@ -53,30 +53,34 @@
                 conserve,
                 parse_state,
                 proto_state,
+                packet_opts,
                 keepalive}).
 
-start_link(SockArgs) ->
-    {ok, proc_lib:spawn_link(?MODULE, init, [SockArgs])}.
+start_link(SockArgs, PktOpts) ->
+    {ok, proc_lib:spawn_link(?MODULE, init, [[SockArgs, PktOpts]])}.
 
 %%TODO: rename?
 info(Pid) ->
     gen_server:call(Pid, info).
 
-init(SockArgs = {Transport, Sock, _SockFun}) ->
+init([SockArgs = {Transport, Sock, _SockFun}, PacketOpts]) ->
     %transform if ssl.
     {ok, NewSock} = esockd_connection:accept(SockArgs),
     {ok, Peername} = emqttd_net:peer_string(Sock),
     {ok, ConnStr} = emqttd_net:connection_string(Sock, inbound),
     lager:info("Connect from ~s", [ConnStr]),
+    ParserState = emqttd_parser:init(PacketOpts),
+    ProtoState = emqttd_protocol:init({Transport, NewSock, Peername}, PacketOpts),
     State = control_throttle(#state{transport    = Transport,
-                                    socket       = NewSock, 
+                                    socket       = NewSock,
                                     peer_name    = Peername,
-                                    conn_name    = ConnStr, 
-                                    await_recv   = false, 
-                                    conn_state   = running, 
-                                    conserve     = false, 
-                                    parse_state  = emqttd_parser:init(), 
-                                    proto_state  = emqttd_protocol:init(Transport, NewSock, Peername)}),
+                                    conn_name    = ConnStr,
+                                    await_recv   = false,
+                                    conn_state   = running,
+                                    conserve     = false,
+                                    packet_opts  = PacketOpts,
+                                    parse_state  = ParserState,
+                                    proto_state  = ProtoState}),
     gen_server:enter_loop(?MODULE, [], State, 10000).
 
 %%TODO: Not enough...
@@ -168,7 +172,8 @@ code_change(_OldVsn, State, _Extra) ->
 process_received_bytes(<<>>, State) ->
     {noreply, State, hibernate};
 
-process_received_bytes(Bytes, State = #state{parse_state = ParseState,
+process_received_bytes(Bytes, State = #state{packet_opts = PacketOpts,
+                                             parse_state = ParseState,
                                              proto_state = ProtoState,
                                              conn_name   = ConnStr}) ->
     case emqttd_parser:parse(Bytes, ParseState) of
@@ -180,7 +185,7 @@ process_received_bytes(Bytes, State = #state{parse_state = ParseState,
         received_stats(Packet),
         case emqttd_protocol:received(Packet, ProtoState) of
         {ok, ProtoState1} ->
-            process_received_bytes(Rest, State#state{parse_state = emqttd_parser:init(),
+            process_received_bytes(Rest, State#state{parse_state = emqttd_parser:init(PacketOpts),
                                                      proto_state = ProtoState1});
         {error, Error} ->
             lager:error("MQTT protocol error ~p for connection ~p~n", [Error, ConnStr]),

@@ -56,18 +56,21 @@ open(Listeners) when is_list(Listeners) ->
 
 %% open mqtt port
 open({mqtt, Port, Options}) ->
-    MFArgs = {emqttd_client, start_link, []},
-    esockd:open(mqtt, Port, emqttd_opts:merge(?MQTT_SOCKOPTS, Options) , MFArgs);
+    open(mqtt, Port, Options);
 
 %% open mqtt(SSL) port
 open({mqtts, Port, Options}) ->
-    MFArgs = {emqttd_client, start_link, []},
-    esockd:open(mqtts, Port, emqttd_opts:merge(?MQTT_SOCKOPTS, Options) , MFArgs);
+    open(mqtts, Port, Options);
 
 %% open http port
 open({http, Port, Options}) ->
     MFArgs = {emqttd_http, handle, []},
 	mochiweb:start_http(Port, Options, MFArgs).
+
+open(Protocol, Port, Options) ->
+    {ok, PktOpts} = application:get_env(emqttd, packet),
+    MFArgs = {emqttd_client, start_link, [PktOpts]},
+    esockd:open(Protocol, Port, emqttd_opts:merge(?MQTT_SOCKOPTS, Options) , MFArgs).
 
 is_running(Node) ->
     case rpc:call(Node, erlang, whereis, [emqttd]) of

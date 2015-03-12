@@ -31,7 +31,7 @@
 -include("emqttd_packet.hrl").
 
 %% API
--export([init/3, client_id/1]).
+-export([init/2, client_id/1]).
 
 -export([received/2, send/2, redeliver/2, shutdown/2]).
 
@@ -43,32 +43,34 @@
         socket,
         peer_name,
         connected = false, %received CONNECT action?
-        proto_vsn,
+        proto_ver,
         proto_name,
 		%packet_id,
 		client_id,
 		clean_sess,
         session, %% session state or session pid
-		will_msg
+		will_msg,
+        max_clientid_len = ?MAX_CLIENTID_LEN
 }).
 
 -type proto_state() :: #proto_state{}.
 
-init(Transport, Socket, Peername) ->
+init({Transport, Socket, Peername}, Opts) ->
 	#proto_state{
-        transport  = Transport,
-		socket	   = Socket,
-        peer_name  = Peername}. 
+        transport        = Transport,
+		socket	         = Socket,
+        peer_name        = Peername,
+        max_clientid_len = proplists:get_value(max_clientid_len, Opts, ?MAX_CLIENTID_LEN)}. 
 
 client_id(#proto_state{client_id = ClientId}) -> ClientId.
 
 %%SHOULD be registered in emqttd_cm
-info(#proto_state{proto_vsn    = ProtoVsn,
+info(#proto_state{proto_ver    = ProtoVer,
                   proto_name   = ProtoName,
 				  client_id	   = ClientId,
 				  clean_sess   = CleanSess,
 				  will_msg	   = WillMsg}) ->
-	[{proto_vsn,  ProtoVsn},
+	[{proto_ver,  ProtoVer},
      {proto_name, ProtoName},
 	 {client_id,  ClientId},
 	 {clean_sess, CleanSess},
@@ -100,7 +102,8 @@ received(Packet = ?PACKET(_Type), State = #proto_state{peer_name = PeerName,
 
 handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peer_name = PeerName}) ->
 
-    #mqtt_packet_connect{username   = Username,
+    #mqtt_packet_connect{proto_ver  = ProtoVer,
+                         username   = Username,
                          password   = Password,
                          clean_sess = CleanSess,
                          keep_alive = KeepAlive,
@@ -109,22 +112,24 @@ handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peer_name = PeerName}
     lager:info("RECV from ~s@~s: ~s", [ClientId, PeerName, emqttd_packet:dump(Packet)]),
 
     {ReturnCode1, State1} =
-    case validate_connect(Var) of
+    case validate_connect(Var, State) of
         ?CONNACK_ACCEPT ->
             case emqttd_auth:check(Username, Password) of
                 true ->
                     ClientId1 = clientid(ClientId, State), 
                     start_keepalive(KeepAlive),
                     emqttd_cm:register(ClientId1, self()),
-                    {?CONNACK_ACCEPT, State#proto_state{will_msg   = willmsg(Var),
+                    {?CONNACK_ACCEPT, State#proto_state{proto_ver  = ProtoVer,
+                                                        client_id  = ClientId1,
                                                         clean_sess = CleanSess,
-                                                        client_id  = ClientId1}};
+                                                        will_msg   = willmsg(Var)}};
                 false ->
                     lager:error("~s@~s: username '~s' login failed - no credentials", [ClientId, PeerName, Username]),
                     {?CONNACK_CREDENTIALS, State#proto_state{client_id = ClientId}}
             end;
         ReturnCode ->
-            {ReturnCode, State#proto_state{client_id = ClientId}}
+            {ReturnCode, State#proto_state{client_id = ClientId,
+                                           clean_sess = CleanSess}}
     end,
     notify(connected, ReturnCode1, State1),
     send(?CONNACK_PACKET(ReturnCode1), State1),
@@ -234,10 +239,10 @@ start_keepalive(Sec) when Sec > 0 ->
 %%----------------------------------------------------------------------------
 %% Validate Packets
 %%----------------------------------------------------------------------------
-validate_connect(Connect = #mqtt_packet_connect{}) ->
+validate_connect(Connect = #mqtt_packet_connect{}, ProtoState) ->
     case validate_protocol(Connect) of
         true -> 
-            case validate_clientid(Connect) of
+            case validate_clientid(Connect, ProtoState) of
                 true -> 
                     ?CONNACK_ACCEPT;
                 false -> 
@@ -250,16 +255,16 @@ validate_connect(Connect = #mqtt_packet_connect{}) ->
 validate_protocol(#mqtt_packet_connect{proto_ver = Ver, proto_name = Name}) ->
     lists:member({Ver, Name}, ?PROTOCOL_NAMES).
 
-validate_clientid(#mqtt_packet_connect{client_id = ClientId}) 
-    when ( size(ClientId) >= 1 ) andalso ( size(ClientId) =< ?MAX_CLIENTID_LEN ) ->
+validate_clientid(#mqtt_packet_connect{client_id = ClientId}, #proto_state{max_clientid_len = MaxLen})
+    when ( size(ClientId) >= 1 ) andalso ( size(ClientId) =< MaxLen ) ->
     true;
 
 %% MQTT3.1.1 allow null clientId.
-validate_clientid(#mqtt_packet_connect{proto_ver =?MQTT_PROTO_V311, client_id = ClientId}) 
+validate_clientid(#mqtt_packet_connect{proto_ver =?MQTT_PROTO_V311, client_id = ClientId}, _ProtoState) 
     when size(ClientId) =:= 0 ->
     true;
 
-validate_clientid(#mqtt_packet_connect {proto_ver = Ver, clean_sess = CleanSess, client_id = ClientId}) -> 
+validate_clientid(#mqtt_packet_connect {proto_ver = Ver, clean_sess = CleanSess, client_id = ClientId}, _ProtoState) -> 
     lager:warning("Invalid ClientId: ~s, ProtoVer: ~p, CleanSess: ~s", [ClientId, Ver, CleanSess]),
     false.
 
@@ -320,7 +325,7 @@ inc(_) ->
     ingore.
 
 notify(connected, ReturnCode, #proto_state{peer_name = PeerName, 
-                                           proto_vsn  = ProtoVsn, 
+                                           proto_ver  = ProtoVer, 
                                            client_id  = ClientId, 
                                            clean_sess = CleanSess}) ->
     Sess = case CleanSess of
@@ -328,7 +333,7 @@ notify(connected, ReturnCode, #proto_state{peer_name = PeerName,
         false -> true
     end,
     Params = [{from, PeerName},
-              {protocol, ProtoVsn},
+              {protocol, ProtoVer},
               {session, Sess},
               {connack, ReturnCode}],
     emqttd_event:notify({connected, ClientId, Params}).
