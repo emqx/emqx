@@ -237,7 +237,7 @@ case "$1" in
 		echo "		listeners                      #query emqttd listeners"
 		echo "		broker [stats | metrics]       #query broker stats/metrics"
 		echo "		cluster [<Node>]               #query or cluster nodes"
-        echo "		bridges                        #querey bridges"
+        echo "		bridges                        #query bridges"
         echo "		start_bridge <Node> <Topic>    #start bridge"
         echo "		stop_bridge <Node> <Topic>     #stop bridge"
 		echo "		useradd <Username> <Password>  #add user"
