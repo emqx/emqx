@@ -148,12 +148,100 @@ case "$1" in
         $NODETOOL rpc emqttd_ctl userdel $@
         ;;
 
+    broker)
+        if [ $# -gt 2 ]; then
+            echo "Usage: $SCRIPT broker [stats | metrics]"
+            exit 1
+        fi
+
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl broker $@
+        ;;
+
+    bridges)
+        if [ $# -gt 1 ]; then
+            echo "Usage: $SCRIPT bridges"
+            exit 1
+        fi
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl bridges $@
+        ;;
+
+    start_bridge)
+        if [ $# -ne 3 ]; then
+            echo "Usage: $SCRIPT start_bridge <Node> <Topic>"
+            exit 1
+        fi
+
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl start_bridge $@
+        ;;
+
+    stop_bridge)
+        if [ $# -ne 3 ]; then
+            echo "Usage: $SCRIPT stop_bridge <Node> <Topic>"
+            exit 1
+        fi
+
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl stop_bridge $@
+        ;;
+
+    listeners)
+        if [ $# -gt 1 ]; then
+            echo "Usage: $SCRIPT listeners"
+            exit 1
+        fi
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl listeners $@
+        ;;
+
     *)
         echo "Usage: $SCRIPT"
-		echo "		status       	    #query emqttd status"
-		echo "		cluster [<Node>]	#query or cluster nodes"
-		echo "		useradd <Username> <Password>	#add user"
-		echo "		userdel <Username> 	#delete user"
+		echo "		status       	               #query emqttd status"
+		echo "		listeners                      #query emqttd listeners"
+		echo "		broker [stats | metrics]       #query broker stats/metrics"
+		echo "		cluster [<Node>]               #query or cluster nodes"
+        echo "		bridges                        #querey bridges"
+        echo "		start_bridge <Node> <Topic>    #start bridge"
+        echo "		stop_bridge <Node> <Topic>     #stop bridge"
+		echo "		useradd <Username> <Password>  #add user"
+		echo "		userdel <Username>             #delete user"
         exit 1
         ;;
 	
