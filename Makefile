@@ -18,7 +18,7 @@ xref:
 
 clean:
 	@$(REBAR) clean
-	rm -rf rel/emqtt
+	rm -rf rel/emqttd
 
 test:
 	@$(REBAR) skip_deps=true eunit
