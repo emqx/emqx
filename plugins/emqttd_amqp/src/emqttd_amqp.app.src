@@ -1,4 +1,4 @@
-{application, emqtt_plugin_admin,
+{application, emqttd_amqp,
  [
   {description, ""},
   {vsn, "1"},
@@ -7,6 +7,6 @@
                   kernel,
                   stdlib
                  ]},
-  {mod, { emqtt_plugin_admin_app, []}},
+  {mod, { emqttd_amqp_app, []}},
   {env, []}
  ]}.

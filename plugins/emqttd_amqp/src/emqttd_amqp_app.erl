@@ -1,4 +1,4 @@
--module(emqtt_plugin_admin_app).
+-module(emqttd_amqp_app).
 
 -behaviour(application).
 
@@ -10,7 +10,7 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    emqtt_plugin_admin_sup:start_link().
+    emqttd_amqp_sup:start_link().
 
 stop(_State) ->
     ok.

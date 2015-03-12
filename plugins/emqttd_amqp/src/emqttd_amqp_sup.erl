@@ -1,5 +1,4 @@
-
--module(emqtt_plugin_admin_sup).
+-module(emqttd_amqp_sup).
 
 -behaviour(supervisor).
 

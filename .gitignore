@@ -12,3 +12,4 @@ rel/emqttd*
 .rebar
 test/ebin/*.beam
 .exrc
+plugins/*/ebin
