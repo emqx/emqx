@@ -11,6 +11,8 @@ Support [Broker Bridge](https://github.com/emqtt/emqttd/wiki/Bridge-Design) Now!
 
 Change: rename project from 'emqtt' to 'emqttd'
 
+Change: lager:debug to dump RECV/SENT packets
+
 Feature: emqttd_bridg, emqttd_bridge_sup to support broker bridge
 
 Feature: emqtt_event to publish client connected/disconnected message to $SYS topics
