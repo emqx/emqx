@@ -20,11 +20,11 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqtt_opts_tests.
+%%% emqttd_opts_tests.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqtt_opts_tests).
+-module(emqttd_opts_tests).
 
 -ifdef(TEST).
 
@@ -39,7 +39,7 @@
 ]).
 
 merge_test() ->
-    Opts = emqtt_opts:merge(?SOCKOPTS, [raw,
+    Opts = emqttd_opts:merge(?SOCKOPTS, [raw,
                                         {backlog, 1024},
                                         {nodelay, false},
                                         {max_clients, 1024},

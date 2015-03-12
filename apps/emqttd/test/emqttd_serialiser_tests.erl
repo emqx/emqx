@@ -20,57 +20,57 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqtt_serialiser tests.
+%%% emqttd_serialiser tests.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqtt_serialiser_tests).
+-module(emqttd_serialiser_tests).
 
--include("emqtt_packet.hrl").
+-include("emqttd_packet.hrl").
 
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 
 serialise_connect_test() ->
-    emqtt_serialiser:serialise(?CONNECT_PACKET(#mqtt_packet_connect{})).
+    emqttd_serialiser:serialise(?CONNECT_PACKET(#mqtt_packet_connect{})).
 
 serialise_connack_test() ->
     ConnAck = #mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK}, 
                            variable = #mqtt_packet_connack{ack_flags = 0, return_code = 0}},
-    ?assertEqual(<<32,2,0,0>>, emqtt_serialiser:serialise(ConnAck)).
+    ?assertEqual(<<32,2,0,0>>, emqttd_serialiser:serialise(ConnAck)).
 
 serialise_publish_test() ->
-    emqtt_serialiser:serialise(?PUBLISH_PACKET(?QOS_0, <<"Topic">>, undefined, <<"Payload">>)),
-    emqtt_serialiser:serialise(?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 938, <<"Payload">>)).
+    emqttd_serialiser:serialise(?PUBLISH_PACKET(?QOS_0, <<"Topic">>, undefined, <<"Payload">>)),
+    emqttd_serialiser:serialise(?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 938, <<"Payload">>)).
 
 serialise_puback_test() ->
-    emqtt_serialiser:serialise(?PUBACK_PACKET(?PUBACK, 10384)).
+    emqttd_serialiser:serialise(?PUBACK_PACKET(?PUBACK, 10384)).
 
 serialise_pubrel_test() ->
-    emqtt_serialiser:serialise(?PUBREL_PACKET(10384)).
+    emqttd_serialiser:serialise(?PUBREL_PACKET(10384)).
 
 serialise_subscribe_test() ->
     TopicTable = [{<<"TopicQos0">>, ?QOS_0}, {<<"TopicQos1">>, ?QOS_1}, {<<"TopicQos2">>, ?QOS_2}],
-    emqtt_serialiser:serialise(?SUBSCRIBE_PACKET(10, TopicTable)).
+    emqttd_serialiser:serialise(?SUBSCRIBE_PACKET(10, TopicTable)).
 
 serialise_suback_test() ->
-    emqtt_serialiser:serialise(?SUBACK_PACKET(10, [?QOS_0, ?QOS_1, 128])).
+    emqttd_serialiser:serialise(?SUBACK_PACKET(10, [?QOS_0, ?QOS_1, 128])).
 
 serialise_unsubscribe_test() ->
-    emqtt_serialiser:serialise(?UNSUBSCRIBE_PACKET(10, [<<"Topic1">>, <<"Topic2">>])).
+    emqttd_serialiser:serialise(?UNSUBSCRIBE_PACKET(10, [<<"Topic1">>, <<"Topic2">>])).
 
 serialise_unsuback_test() ->
-    emqtt_serialiser:serialise(?UNSUBACK_PACKET(10)).
+    emqttd_serialiser:serialise(?UNSUBACK_PACKET(10)).
 
 serialise_pingreq_test() ->
-    emqtt_serialiser:serialise(?PACKET(?PINGREQ)).
+    emqttd_serialiser:serialise(?PACKET(?PINGREQ)).
 
 serialise_pingresp_test() ->
-    emqtt_serialiser:serialise(?PACKET(?PINGRESP)).
+    emqttd_serialiser:serialise(?PACKET(?PINGRESP)).
 
 serialise_disconnect_test() ->
-    emqtt_serialiser:serialise(?PACKET(?DISCONNECT)).
+    emqttd_serialiser:serialise(?PACKET(?DISCONNECT)).
 
 -endif.
 

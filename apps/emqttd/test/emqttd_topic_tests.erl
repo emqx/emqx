@@ -19,12 +19,11 @@
 %% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
+-module(emqttd_topic_tests).
 
--module(emqtt_topic_tests).
+-include("emqttd_topic.hrl").
 
--include("emqtt_topic.hrl").
-
--import(emqtt_topic, [validate/1, type/1, match/2, triples/1, words/1]).
+-import(emqttd_topic, [validate/1, type/1, match/2, triples/1, words/1]).
 
 -ifdef(TEST).
 
