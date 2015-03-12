@@ -31,6 +31,7 @@
 -behavior(supervisor).
 
 -export([start_link/0,
+         bridges/0,
          start_bridge/2, start_bridge/3,
          stop_bridge/2]).
 
@@ -48,6 +49,11 @@
 %%------------------------------------------------------------------------------
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+-spec bridges() -> [{tuple(), pid()}].
+bridges() ->
+    [{{Node, SubTopic}, Pid} || {{bridge, Node, SubTopic}, Pid, worker, _} 
+                                <- supervisor:which_children(?MODULE)].
 
 %%------------------------------------------------------------------------------
 %% @doc
