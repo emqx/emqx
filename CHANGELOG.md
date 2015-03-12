@@ -1,20 +1,37 @@
 
-eMQTT ChangeLog
+eMQTTD ChangeLog
 ==================
 
-v0.5.0-alpha (2015-03-20)
+v0.5.0-alpha (2015-03-12)
 -------------------------
 
-rename 'eMQTT' to 'eMQTTD'
+RENAME 'emqtt' to 'emqttd'!
 
-Support broker bridge... 
+Support [Broker Bridge](https://github.com/emqtt/emqttd/wiki/Bridge-Design) Now!
 
-....
+Change: rename project from 'emqtt' to 'emqttd'
+
+Feature: emqttd_bridg, emqttd_bridge_sup to support broker bridge
+
+Feature: emqtt_event to publish client connected/disconnected message to $SYS topics
+
+Feature: ./bin/emqttd_ctl add more commands: listeners, broker, bridges, start_bridge, stop_bridge...
+
+Feature: issue#57 - support to configure max packet size
+
+Feature: issue#68 - if sys_interval = 0, emqttd_broker will not publish messages to $SYS/brokers/#
+
+Bugfix: issue#67 - subscribe '#' to receive all messages
+
+Bugfix: issue#64 - emqtt_app start/2: should wait_for_databases
+
+Test: emqttd_topic_tests add more '_match_test'
+
 
 v0.4.0-alpha (2015-03-10)
 -------------------------
 
-Support [$SYS Topics of Broker](https://github.com/emqtt/emqtt/wiki/$SYS-Topics-of-Broker) Now!
+Support [$SYS Topics of Broker](https://github.com/emqtt/emqttd/wiki/$SYS-Topics-of-Broker) Now!
 
 Feature: emqtt_broker to publish version, uptime, datetime to $SYS/brokers/# topics
 
