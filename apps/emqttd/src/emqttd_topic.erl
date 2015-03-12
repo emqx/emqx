@@ -169,8 +169,8 @@ triples([W|Words], Parent, Acc) ->
     Node = join(Parent, W),
     triples(Words, Node, [{Parent, W, Node}|Acc]).
 
-join(root, W) -> 
-    W;
+join(root, W) ->
+    bin(W);
 join(Parent, W) ->
     <<(bin(Parent))/binary, $/, (bin(W))/binary>>.
 
