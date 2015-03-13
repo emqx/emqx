@@ -25,9 +25,15 @@ LDAP Auth
 
 PG Auth
 
-Mnesia ACL 
+Mnesia ACL
 
-MySQL ACL 
+MySQL ACL
+
+
+v0.5.1-alpha (2015-03-13)
+-------------------------
+
+Change: upgrade esockd to v1.2.0-beta, rename 'acceptor_pool' to 'acceptors'
 
 
 v0.5.0-alpha (2015-03-12)
