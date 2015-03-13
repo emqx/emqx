@@ -2,6 +2,34 @@
 eMQTTD ChangeLog
 ==================
 
+v0.8.0-alpha (2015-03-20)
+-------------------------
+
+MQTT/WebSocket
+
+v0.7.0-alpha (2015-03-20)
+-------------------------
+
+Admin Console
+
+v0.6.0-alpha (2015-03-20)
+-------------------------
+
+Plugin Architecture
+
+Mnesia Authentication
+
+MySQL Auth
+
+LDAP Auth
+
+PG Auth
+
+Mnesia ACL 
+
+MySQL ACL 
+
+
 v0.5.0-alpha (2015-03-12)
 -------------------------
 

@@ -36,11 +36,14 @@
 -define(PRINT(Format, Args), 
     io:format(Format, Args)).
 
--export([status/1, cluster/1,
-         listeners/1,
-         useradd/1, userdel/1,
+-export([status/1,
          broker/1,
-         bridges/1, start_bridge/1, stop_bridge/1]).
+         cluster/1,
+         listeners/1,
+         bridges/1,
+         plugins/1,
+         useradd/1,
+         userdel/1]).
 
 status([]) ->
     {InternalStatus, _ProvidedStatus} = init:get_status(),
@@ -97,21 +100,40 @@ listeners([]) ->
                 ?PRINT("  current_clients: ~p~n", [esockd:get_current_clients(Pid)])
         end, esockd:listeners()).
 
-bridges([]) ->
+bridges(["list"]) ->
     lists:foreach(fun({{Node, Topic}, _Pid}) -> 
                 ?PRINT("bridge: ~s ~s~n", [Node, Topic]) 
-        end, emqttd_bridge_sup:bridges()).
+        end, emqttd_bridge_sup:bridges());
 
-start_bridge([SNode, Topic]) ->
+bridges(["start", SNode, Topic]) ->
     case emqttd_bridge_sup:start_bridge(list_to_atom(SNode), list_to_binary(Topic)) of
         {ok, _} -> ?PRINT_MSG("bridge is started.~n"); 
         {error, Error} -> ?PRINT("error: ~p~n", [Error])
-    end.
+    end;
 
-stop_bridge([SNode, Topic]) ->
+bridges(["stop", SNode, Topic]) ->
     case emqttd_bridge_sup:stop_bridge(list_to_atom(SNode), list_to_binary(Topic)) of
         ok -> ?PRINT_MSG("bridge is stopped.~n");
         {error, Error} -> ?PRINT("error: ~p~n", [Error])
+    end.
+
+plugins(["list"]) ->
+    Plugins = emqttd_plugin_manager:list(),
+    lists:foreach(fun({Name, Attrs}) ->
+                ?PRINT("plugin ~s~n", [Name]),
+                [?PRINT("  ~s:~p~n", [Attr, Val]) || {Attr, Val} <- Attrs]
+        end, Plugins);
+
+plugins(["load", Name]) ->
+    case emqttd_plugin_manager:load(list_to_atom(Name)) of
+        ok -> ?PRINT("plugin ~s is loaded successfully.~n", [Name]);
+        {error, Reason} -> ?PRINT("error: ~s~n", [Reason])
+    end;
+
+plugins(["unload", Name]) ->
+    case emqttd_plugin_manager:load(list_to_atom(Name)) of
+        ok -> ?PRINT("plugin ~s is unloaded successfully.~n", [Name]);
+        {error, Reason} -> ?PRINT("error: ~s~n", [Reason])
     end.
 
 node_name(SNode) ->
@@ -131,4 +153,5 @@ node_name(SNode) ->
          end
     end,
     list_to_atom(SNode1).
+
 

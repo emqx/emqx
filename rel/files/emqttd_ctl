@@ -150,7 +150,7 @@ case "$1" in
 
     broker)
         if [ $# -gt 2 ]; then
-            echo "Usage: $SCRIPT broker [stats | metrics]"
+            echo "Usage: $SCRIPT broker [status | stats | metrics]"
             exit 1
         fi
 
@@ -166,55 +166,45 @@ case "$1" in
         ;;
 
     bridges)
-        if [ $# -gt 1 ]; then
-            echo "Usage: $SCRIPT bridges"
-            exit 1
-        fi
         # Make sure the local node IS running
         RES=`$NODETOOL ping`
         if [ "$RES" != "pong" ]; then
             echo "emqttd is not running!"
             exit 1
         fi
-        shift
-
-        $NODETOOL rpc emqttd_ctl bridges $@
-        ;;
-
-    start_bridge)
-        if [ $# -ne 3 ]; then
-            echo "Usage: $SCRIPT start_bridge <Node> <Topic>"
+        if [[ $# -eq 2 ]] && [[ $2 = "list" ]]; then
+            $NODETOOL rpc emqttd_ctl bridges list
+        elif [ $# -eq 4 ]; then
+            shift
+            $NODETOOL rpc emqttd_ctl bridges $@
+        else
+            echo "Usage: "
+            echo "$SCRIPT bridges list"
+            echo "$SCRIPT bridges start <Node> <Topic>"
+            echo "$SCRIPT bridges stop  <Node> <Topic>"
             exit 1
         fi
-
+        ;;
+    plugins)
         # Make sure the local node IS running
         RES=`$NODETOOL ping`
         if [ "$RES" != "pong" ]; then
             echo "emqttd is not running!"
             exit 1
         fi
-        shift
-
-        $NODETOOL rpc emqttd_ctl start_bridge $@
-        ;;
-
-    stop_bridge)
-        if [ $# -ne 3 ]; then
-            echo "Usage: $SCRIPT stop_bridge <Node> <Topic>"
+        if [ $# -eq 2 && $2 = "list"]; then
+            $NODETOOL rpc emqttd_ctl plugins list
+        elif [ $# -eq 3 ]; then
+            shift
+            $NODETOOL rpc emqttd_ctl plugins $@
+        else
+            echo "Usage: "
+            echo "$SCRIPT plugins list"
+            echo "$SCRIPT plugins load <Plugin>"
+            echo "$SCRIPT plugins unload <Plugin>"
             exit 1
         fi
-
-        # Make sure the local node IS running
-        RES=`$NODETOOL ping`
-        if [ "$RES" != "pong" ]; then
-            echo "emqttd is not running!"
-            exit 1
-        fi
-        shift
-
-        $NODETOOL rpc emqttd_ctl stop_bridge $@
         ;;
-
     listeners)
         if [ $# -gt 1 ]; then
             echo "Usage: $SCRIPT listeners"
@@ -233,15 +223,18 @@ case "$1" in
 
     *)
         echo "Usage: $SCRIPT"
-		echo "		status       	               #query emqttd status"
-		echo "		listeners                      #query emqttd listeners"
-		echo "		broker [stats | metrics]       #query broker stats/metrics"
-		echo "		cluster [<Node>]               #query or cluster nodes"
-        echo "		bridges                        #query bridges"
-        echo "		start_bridge <Node> <Topic>    #start bridge"
-        echo "		stop_bridge <Node> <Topic>     #stop bridge"
-		echo "		useradd <Username> <Password>  #add user"
-		echo "		userdel <Username>             #delete user"
+		echo "  status                        #query status"
+		echo "  broker [stats | metrics]      #query broker stats or metrics"
+		echo "  cluster [<Node>]              #query or cluster nodes"
+        echo "  plugins list                  #query loaded plugins"
+        echo "  plugins load <Plugin>         #load plugin"
+        echo "  plugins unload <Plugin>       #unload plugin"
+        echo "  bridges list                  #query bridges"
+        echo "  bridges start <Node> <Topic>  #start bridge"
+        echo "  bridges stop <Node> <Topic>   #stop bridge"
+		echo "  useradd <Username> <Password> #add user"
+		echo "  userdel <Username>            #delete user"
+		echo "  listeners                     #query broker listeners"
         exit 1
         ;;
 	
