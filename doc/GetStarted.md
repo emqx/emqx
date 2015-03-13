@@ -99,12 +99,12 @@ cd emqtt && ./bin/emqtt stop
     ]},
     {listen, [
         {mqtt, 1883, [
-            {max_conns, 1024},
-            {acceptor_pool, 4}
+            {acceptors, 4},
+            {max_conns, 1024}
         ]},
         {http, 8083, [
-            {max_conns, 512},
-            {acceptor_pool, 1}
+            {acceptors, 1},
+            {max_conns, 512}
         ]}
     ]}
 ]}

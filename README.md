@@ -78,19 +78,19 @@ cd $INSTALL_DIR/emqtt
     {auth, {anonymous, []}}, %internal, anonymous
     {listen, [
         {mqtt, 1883, [
-            {max_clients, 1024},
-            {acceptor_pool, 4}
+            {acceptors, 4},
+            {max_clients, 1024}
         ]},
         {mqtts, 8883, [
+            {acceptors, 4},
             {max_clients, 1024},
-            {acceptor_pool, 4},
             %{cacertfile, "etc/ssl/cacert.pem"}, 
             {ssl, [{certfile, "etc/ssl.crt"},
                    {keyfile,  "etc/ssl.key"}]}
         ]},
         {http, 8083, [
-            {max_clients, 512},
-            {acceptor_pool, 1}
+            {acceptors, 1},
+            {max_clients, 512}
         ]}
     ]}
  ]}

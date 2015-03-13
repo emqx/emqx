@@ -95,7 +95,7 @@ broker(["metrics"]) ->
 listeners([]) ->
     lists:foreach(fun({{Protocol, Port}, Pid}) ->
                 ?PRINT("listener ~s:~p~n", [Protocol, Port]), 
-                ?PRINT("  acceptor_pool: ~p~n", [esockd:get_acceptor_pool(Pid)]),
+                ?PRINT("  acceptors: ~p~n", [esockd:get_acceptors(Pid)]),
                 ?PRINT("  max_clients: ~p~n", [esockd:get_max_clients(Pid)]),
                 ?PRINT("  current_clients: ~p~n", [esockd:get_current_clients(Pid)])
         end, esockd:listeners()).
