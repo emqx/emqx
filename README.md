@@ -1,4 +1,4 @@
-# eMQTT [![Build Status](https://travis-ci.org/emqtt/emqtt.svg?branch=master)](https://travis-ci.org/emqtt/emqtt)
+# eMQTT [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
 
 eMQTT is a clusterable, massively scalable, fault-tolerant and extensible MQTT V3.1/V3.1.1 broker written in Erlang/OTP.
 
@@ -6,6 +6,9 @@ eMQTT support MQTT V3.1/V3.1.1 Protocol Specification.
 
 eMQTT requires Erlang R17+.
 
+## NOTICE
+
+eMQTTD still cannot not handle massive retained messages.
 
 ## Featues
 
