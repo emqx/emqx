@@ -192,7 +192,7 @@ case "$1" in
             echo "emqttd is not running!"
             exit 1
         fi
-        if [ $# -eq 2 && $2 = "list"]; then
+        if [ $# -eq 2 -a $2 = "list" ]; then
             $NODETOOL rpc emqttd_ctl plugins list
         elif [ $# -eq 3 ]; then
             shift
