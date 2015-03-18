@@ -5,7 +5,7 @@ eMQTTD ChangeLog
 0.5.2-alpha (2015-03-18)
 -------------------------
 
-Change: upgrade esockd to 2.1.0-alpha 
+Change: upgrade esockd to 2.1.0-alpha, do not tune socket buffer for mqtt connection.
 
 
 v0.5.1-alpha (2015-03-13)
