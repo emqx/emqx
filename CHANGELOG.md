@@ -2,32 +2,10 @@
 eMQTTD ChangeLog
 ==================
 
-v0.8.0-alpha (2015-03-20)
+v0.5.1-alpha (2015-03-18)
 -------------------------
 
-MQTT/WebSocket
-
-v0.7.0-alpha (2015-03-20)
--------------------------
-
-Admin Console
-
-v0.6.0-alpha (2015-03-20)
--------------------------
-
-Plugin Architecture
-
-Mnesia Authentication
-
-MySQL Auth
-
-LDAP Auth
-
-PG Auth
-
-Mnesia ACL
-
-MySQL ACL
+Change: upgrade esockd to 2.1.0-alpha 
 
 
 v0.5.1-alpha (2015-03-13)
