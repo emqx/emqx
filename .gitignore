@@ -13,3 +13,4 @@ rel/emqttd*
 test/ebin/*.beam
 .exrc
 plugins/*/ebin
+log/
