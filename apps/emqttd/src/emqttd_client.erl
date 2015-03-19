@@ -202,7 +202,7 @@ process_received_bytes(Bytes, State = #state{packet_opts = PacketOpts,
 
 %%----------------------------------------------------------------------------
 network_error(Reason, State = #state{peer_name = PeerName}) ->
-    lager:error("Client ~s: MQTT detected network error '~p'", [PeerName, Reason]),
+    lager:warning("Client ~s: MQTT detected network error '~p'", [PeerName, Reason]),
     stop({shutdown, conn_closed}, State).
 
 run_socket(State = #state{conn_state = blocked}) ->
