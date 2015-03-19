@@ -2,6 +2,12 @@
 eMQTTD ChangeLog
 ==================
 
+0.5.3-alpha (2015-03-19)
+-------------------------
+
+Bugfix: issues#72 - emqttd_cm, emqtt_sm ets:match_delete/2 with wrong pattern
+
+
 0.5.2-alpha (2015-03-18)
 -------------------------
 
