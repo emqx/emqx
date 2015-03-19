@@ -140,7 +140,7 @@ handle_call(_Request, _From, State) ->
 handle_cast({unregister, ClientId, Pid}, State) ->
 	case ets:lookup(?CLIENT_TAB, ClientId) of
 	[{_, Pid, MRef}] ->
-		erlang:demonitor(MRef),
+		erlang:demonitor(MRef, [flush]),
 		ets:delete(?CLIENT_TAB, ClientId);
 	[_] -> 
 		ignore;
@@ -153,7 +153,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
-	ets:match_delete(?CLIENT_TAB, {{'_', DownPid, MRef}}),
+	ets:match_delete(?CLIENT_TAB, {'_', DownPid, MRef}),
     {noreply, setstats(State)};
 
 handle_info(_Info, State) ->

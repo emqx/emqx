@@ -142,7 +142,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
-	ets:match_delete(?SESSION_TAB, {{'_', DownPid, MRef}}),
+	ets:match_delete(?SESSION_TAB, {'_', DownPid, MRef}),
     {noreply, setstats(State)};
 
 handle_info(_Info, State) ->
