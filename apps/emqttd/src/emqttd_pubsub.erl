@@ -119,8 +119,12 @@ create(Topic) ->
 subscribe({Topic, Qos}, SubPid) when is_binary(Topic) and is_pid(SubPid) ->
     subscribe([{Topic, Qos}], SubPid);
 
+%% TODO: 
+%% call will not work when there are 2000K+ clients, 100+ sub requests/sec...
+%% will optimize in 0.9.x...
+%% 
 subscribe(Topics, SubPid) when is_list(Topics) and is_pid(SubPid) ->
-    gen_server:call(?SERVER, {subscribe, Topics, SubPid}).
+    gen_server:call(?SERVER, {subscribe, Topics, SubPid}, infinity).
 
 %%------------------------------------------------------------------------------
 %% @doc
