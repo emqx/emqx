@@ -22,6 +22,8 @@
 %%% @doc
 %%% emqttd core pubsub.
 %%%
+%%% TODO: should not use gen_server:call to create, subscribe topics...
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_pubsub).
