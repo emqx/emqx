@@ -182,7 +182,7 @@ init([Options]) ->
     % Init metrics
     [new_metric(Metric) ||  Metric <- Metrics],
     % $SYS Topics for metrics
-    [{atomic, _} = emqttd_pubsub:create(systop(Topic)) || {_, Topic} <- Metrics],
+    [ok = emqttd_pubsub:create(systop(Topic)) || {_, Topic} <- Metrics],
     PubInterval = proplists:get_value(pub_interval, Options, 60),
     Delay = if 
                 PubInterval == 0 -> 0;
