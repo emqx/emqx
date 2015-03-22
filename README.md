@@ -50,13 +50,13 @@ Bridge brokers locally or remotelly
 ## Startup in Five Minutes
 
 ```
-$ git clone git://github.com/emqtt/emqtt.git
+$ git clone git://github.com/emqtt/emqttd.git
 
-$ cd emqtt
+$ cd emqttd
 
 $ make && make dist
 
-$ cd rel/emqtt
+$ cd rel/emqttd
 
 $ ./bin/emqttd console
 ```
