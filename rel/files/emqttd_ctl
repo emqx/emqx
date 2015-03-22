@@ -149,8 +149,8 @@ case "$1" in
         ;;
 
     broker)
-        if [ $# -gt 2 ]; then
-            echo "Usage: $SCRIPT broker [status | stats | metrics]"
+        if [ $# -ne 1 ]; then
+            echo "Usage: $SCRIPT broker"
             exit 1
         fi
 
@@ -164,6 +164,41 @@ case "$1" in
 
         $NODETOOL rpc emqttd_ctl broker $@
         ;;
+
+    stats)
+        if [ $# -ne 1 ]; then
+            echo "Usage: $SCRIPT stats"
+            exit 1
+        fi
+
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl stats $@
+        ;;
+
+    metrics)
+        if [ $# -ne 1 ]; then
+            echo "Usage: $SCRIPT metrics"
+            exit 1
+        fi
+
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl metrics $@
+        ;;
+
 
     bridges)
         # Make sure the local node IS running
@@ -223,8 +258,10 @@ case "$1" in
 
     *)
         echo "Usage: $SCRIPT"
-		echo "  status                        #query status"
-		echo "  broker [stats | metrics]      #query broker stats or metrics"
+		echo "  status                        #query broker status"
+		echo "  broker                        #query broker version, uptime and description"
+		echo "  stats                         #query broker statistics of clients, topics, subscribers"
+        echo "  metrics                       #query broker metrics"
 		echo "  cluster [<Node>]              #query or cluster nodes"
         echo "  plugins list                  #query loaded plugins"
         echo "  plugins load <Plugin>         #load plugin"

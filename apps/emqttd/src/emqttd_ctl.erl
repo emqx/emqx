@@ -38,6 +38,8 @@
 
 -export([status/1,
          broker/1,
+         stats/1,
+         metrics/1,
          cluster/1,
          listeners/1,
          bridges/1,
@@ -84,12 +86,12 @@ userdel([Username]) ->
 
 broker([]) ->
     Funs = [sysdescr, version, uptime, datetime],
-    [?PRINT("~s: ~s~n", [Fun, emqttd_broker:Fun()]) || Fun <- Funs];
+    [?PRINT("~s: ~s~n", [Fun, emqttd_broker:Fun()]) || Fun <- Funs].
 
-broker(["stats"]) ->
-    [?PRINT("~s: ~p~n", [Stat, Val]) || {Stat, Val} <- emqttd_broker:getstats()];
+stats([]) ->
+    [?PRINT("~s: ~p~n", [Stat, Val]) || {Stat, Val} <- emqttd_broker:getstats()].
     
-broker(["metrics"]) ->
+metrics([]) ->
     [?PRINT("~s: ~p~n", [Metric, Val]) || {Metric, Val} <- emqttd_metrics:all()].
     
 listeners([]) ->
