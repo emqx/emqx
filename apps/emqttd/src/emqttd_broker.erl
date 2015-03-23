@@ -150,8 +150,8 @@ init([Options]) ->
     Topics = ?SYSTOP_CLIENTS ++ ?SYSTOP_SESSIONS ++ ?SYSTOP_PUBSUB,
     [ets:insert(?BROKER_TAB, {Topic, 0}) || Topic <- Topics],
     % Create $SYS Topics
-    [{atomic, _} = create(systop(Topic)) || Topic <- ?SYSTOP_BROKERS],
-    [{atomic, _} = create(systop(Topic)) || Topic <- Topics],
+    [ok = create(systop(Topic)) || Topic <- ?SYSTOP_BROKERS],
+    [ok = create(systop(Topic)) || Topic <- Topics],
     SysInterval = proplists:get_value(sys_interval, Options, 60),
     State = #state{started_at = os:timestamp(), sys_interval = SysInterval},
     Delay = if 

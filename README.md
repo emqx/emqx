@@ -1,14 +1,23 @@
-# eMQTT [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
+# eMQTTD [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
 
-eMQTT is a clusterable, massively scalable, fault-tolerant and extensible MQTT V3.1/V3.1.1 broker written in Erlang/OTP.
+eMQTTD is a clusterable, massively scalable, fault-tolerant and extensible MQTT V3.1/V3.1.1 broker written in Erlang/OTP.
 
-eMQTT support MQTT V3.1/V3.1.1 Protocol Specification.
+eMQTTD support MQTT V3.1/V3.1.1 Protocol Specification.
 
-eMQTT requires Erlang R17+.
+eMQTTD requires Erlang R17+.
+
+
+## Benchmark
+
+Benchmark 0.5.4-alpha on a ubuntu/14.04 server with 8 cores, 32G memory from QingCloud:
+
+200K Connections, 200K Topics, 20K Messages/sec, 20Mbps In/Out with 7G Memory, 40%CPU/core
+
 
 ## NOTICE
 
 eMQTTD still cannot handle massive retained messages.
+
 
 ## Featues
 
@@ -41,15 +50,15 @@ Bridge brokers locally or remotelly
 ## Startup in Five Minutes
 
 ```
-$ git clone git://github.com/emqtt/emqtt.git
+$ git clone git://github.com/emqtt/emqttd.git
 
-$ cd emqtt
+$ cd emqttd
 
 $ make && make dist
 
-$ cd rel/emqtt
+$ cd rel/emqttd
 
-$ ./bin/emqtt console
+$ ./bin/emqttd console
 ```
 
 ## Deploy and Start
@@ -57,18 +66,18 @@ $ ./bin/emqtt console
 ### start
 
 ```
-cp -R rel/emqtt $INSTALL_DIR
+cp -R rel/emqttd $INSTALL_DIR
 
-cd $INSTALL_DIR/emqtt
+cd $INSTALL_DIR/emqttd
 
-./bin/emqtt start
+./bin/emqttd start
 
 ```
 
 ### stop
 
 ```
-./bin/emqtt stop
+./bin/emqttd stop
 
 ```
 
@@ -77,7 +86,7 @@ cd $INSTALL_DIR/emqtt
 ### etc/app.config
 
 ```
- {emqtt, [
+ {emqttd, [
     {auth, {anonymous, []}}, %internal, anonymous
     {listen, [
         {mqtt, 1883, [
@@ -104,7 +113,7 @@ cd $INSTALL_DIR/emqtt
 
 ```
 
--name emqtt@127.0.0.1
+-name emqttd@127.0.0.1
 
 -setcookie emqtt
 
@@ -113,7 +122,7 @@ cd $INSTALL_DIR/emqtt
 When nodes clustered, vm.args should be configured as below:
 
 ```
--name emqtt@host1
+-name emqttd@host1
 ```
 
 ## Cluster
@@ -123,22 +132,22 @@ Suppose we cluster two nodes on 'host1', 'host2', Steps:
 on 'host1':
 
 ```
-./bin/emqtt start
+./bin/emqttd start
 ```
 
 on 'host2':
 
 ```
-./bin/emqtt start
+./bin/emqttd start
 
-./bin/emqtt_ctl cluster emqtt@host1
+./bin/emqttd_ctl cluster emqttd@host1
 ```
 
-Run './bin/emqtt_ctl cluster' on 'host1' or 'host2' to check cluster nodes.
+Run './bin/emqttd_ctl cluster' on 'host1' or 'host2' to check cluster nodes.
 
 ## HTTP API
 
-eMQTT support http to publish message.
+eMQTTD support http to publish message.
 
 Example:
 
@@ -163,7 +172,7 @@ message |  Message
 
 ## Design
 
-[Design Wiki](https://github.com/emqtt/emqtt/wiki)
+[Design Wiki](https://github.com/emqtt/emqttd/wiki)
 
 ## License
 

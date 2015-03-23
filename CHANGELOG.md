@@ -2,6 +2,30 @@
 eMQTTD ChangeLog
 ==================
 
+0.5.4-alpha (2015-03-22)
+-------------------------
+
+Benchmark this release on a ubuntu/14.04 server with 8 cores, 32G memory from QingCloud.com:
+
+```
+200K Connections,
+30K Messages/Sec,
+20Mbps In/Out Traffic,
+200K Topics,
+200K Subscribers,
+
+Consumed 7G memory, 40% CPU/core
+```
+
+Benchmark code: https://github.com/emqtt/emqttd_benchmark
+
+Change: rewrite emqttd_pubsub to handle more concurrent subscribe requests.
+
+Change: ./bin/emqttd_ctl add 'stats', 'metrics' commands.
+
+Bugfix: issue #71, #72
+
+
 0.5.3-alpha (2015-03-19)
 -------------------------
 

@@ -81,7 +81,7 @@ init([Node, SubTopic, Options]) ->
         true -> 
             true = erlang:monitor_node(Node, true),
             State = parse_opts(Options, #state{node = Node, subtopic = SubTopic}),
-            emqttd_pubsub:subscribe({SubTopic, ?QOS_0}, self()),
+            emqttd_pubsub:subscribe({SubTopic, ?QOS_0}),
             {ok, State};
         false -> 
             {stop, {cannot_connect, Node}}

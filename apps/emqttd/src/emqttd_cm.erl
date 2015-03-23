@@ -86,7 +86,8 @@ lookup(ClientId) when is_binary(ClientId) ->
 %%------------------------------------------------------------------------------
 -spec register(ClientId :: binary(), Pid :: pid()) -> ok.
 register(ClientId, Pid) when is_binary(ClientId), is_pid(Pid) ->
-	gen_server:call(?SERVER, {register, ClientId, Pid}).
+    %%TODO: infinify to block requests when too many clients, this will be redesinged in 0.9.x...
+	gen_server:call(?SERVER, {register, ClientId, Pid}, infinity).
 
 %%------------------------------------------------------------------------------
 %% @doc
