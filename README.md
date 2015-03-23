@@ -8,7 +8,7 @@ eMQTT requires Erlang R17+.
 
 ## NOTICE
 
-eMQTTD still cannot not handle massive retained messages.
+eMQTTD still cannot handle massive retained messages.
 
 ## Featues
 
