@@ -147,6 +147,23 @@ case "$1" in
 
         $NODETOOL rpc emqttd_ctl userdel $@
         ;;
+        
+    vm)
+        if [ $# -gt 2 ]; then
+            echo "Usage: $SCRIPT vm [ load | memory | process | io ]"
+            exit 1
+        fi
+
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl vm $@
+        ;;
 
     broker)
         if [ $# -ne 1 ]; then
@@ -198,7 +215,6 @@ case "$1" in
 
         $NODETOOL rpc emqttd_ctl metrics $@
         ;;
-
 
     bridges)
         # Make sure the local node IS running
@@ -259,6 +275,7 @@ case "$1" in
     *)
         echo "Usage: $SCRIPT"
 		echo "  status                        #query broker status"
+        echo "  vm [ load | memory | process | io ]    #query load, memory, process and io of erlang vm"
 		echo "  broker                        #query broker version, uptime and description"
 		echo "  stats                         #query broker statistics of clients, topics, subscribers"
         echo "  metrics                       #query broker metrics"
