@@ -70,13 +70,18 @@
 %% MQTT User Management
 %%------------------------------------------------------------------------------
 -record(mqtt_user, {
-    username    :: binary(), 
+    clientid    :: binary(),
+    peername    :: list(),
+    username    :: binary(),
     passwdhash  :: binary()
 }).
 
 %%------------------------------------------------------------------------------
 %% MQTT Authorization
 %%------------------------------------------------------------------------------
+
+%%{subscribe, From, Topic}
+%%{publish, From, Topic}
 
 %%TODO: ClientId | Username --> Pub | Sub --> Topics
 
