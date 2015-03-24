@@ -26,6 +26,8 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_metrics).
 
+-author('feng@emqtt.io').
+
 -include("emqttd_packet.hrl").
 
 -include("emqttd_systop.hrl").

@@ -73,8 +73,10 @@
     clientid    :: binary(),
     peername    :: list(),
     username    :: binary(),
-    passwdhash  :: binary()
+    password    :: binary()
 }).
+
+-type mqtt_user() :: #mqtt_user{}.
 
 %%------------------------------------------------------------------------------
 %% MQTT Authorization

@@ -24,8 +24,9 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
-
 -module(emqttd_plugin).
+
+-author('feng@emqtt.io').
 
 -behaviour(gen_server).
 
