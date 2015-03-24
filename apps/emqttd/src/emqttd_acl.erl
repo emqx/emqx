@@ -22,33 +22,23 @@
 %%% @doc
 %%% emqttd ACL.
 %%%
+%%% Two types of authorization:
+%%% 
+%%% subscribe topic
+%%% publish to topic
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_acl).
-
-%%TODO: 0.6.0...
-
-% Three types of authorization
-% 
-% 1. connection from
-% 2. subscribe topic
-% 3. publish to topic
-%
 
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
 
-%% ------------------------------------------------------------------
 %% API Function Exports
-%% ------------------------------------------------------------------
+-export([start_link/0, allow/3]).
 
--export([start_link/0]).
-
-%% ------------------------------------------------------------------
-%% gen_server Function Exports
-%% ------------------------------------------------------------------
-
+%% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
@@ -58,6 +48,11 @@
 
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+allow(subscribe, User, Topic) ->
+    true;
+allow(publish, User, Topic) ->
+    true.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions

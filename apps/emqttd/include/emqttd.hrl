@@ -80,8 +80,14 @@
 %% MQTT Authorization
 %%------------------------------------------------------------------------------
 
-%%{subscribe, From, Topic}
-%%{publish, From, Topic}
+%% {subscribe, From, Topic}
+%% {publish, From, Topic}
 
 %%TODO: ClientId | Username --> Pub | Sub --> Topics
+
+%%------------------------------------------------------------------------------
+%% MQTT Plugin
+%%------------------------------------------------------------------------------
+
+-record(mqtt_plugin, {name, version, attrs, description}).
 

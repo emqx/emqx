@@ -1,18 +1,10 @@
-
-v0.9.0-alpha (2015-03-20)
+0.5.5
 -------------------------
 
-emqtt_sm, emqtt_cm, emqtt_pubsub performance issue...
+static, dynmaic, bridge types of topic and trie node
 
-v0.8.0-alpha (2015-03-20)
--------------------------
+try_to_remove topic node
 
-MQTT/WebSocket
-
-v0.7.0-alpha (2015-03-20)
--------------------------
-
-Admin Console
 
 v0.6.0-alpha (2015-03-20)
 -------------------------
@@ -31,11 +23,25 @@ Mnesia ACL
 
 MySQL ACL
 
-
 0.6.0
 =====
 
 Tsung MQTT Test
+
+v0.9.0-alpha (2015-03-20)
+-------------------------
+
+emqtt_sm, emqtt_cm, emqtt_pubsub performance issue...
+
+v0.8.0-alpha (2015-03-20)
+-------------------------
+
+MQTT/WebSocket
+
+v0.7.0-alpha (2015-03-20)
+-------------------------
+
+Admin Console
 
 
 one million connections test...

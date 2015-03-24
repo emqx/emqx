@@ -2,6 +2,22 @@
 eMQTTD ChangeLog
 ==================
 
+0.6.0-alpha (2015-03-28)
+-------------------------
+
+ACL
+
+Plugin Architecture
+
+
+0.5.4-alpha (2015-03-24)
+-------------------------
+
+TODO: static, dynamic topics
+
+emqttd_pubsub to remove unused dynamic trie nodes...
+
+
 0.5.4-alpha (2015-03-22)
 -------------------------
 
