@@ -50,7 +50,6 @@ match(User, Topic, [{AllowDeny, all, TopicFilter}|Rules]) ->
         true -> AllowDeny;
         false -> match(User, Topic, Rules)
     end;
-
 match(User = #mqtt_user{clientid = ClientId}, Topic, [{AllowDeny, ClientId, TopicFilter}|Rules]) when is_binary(ClientId) ->
     case emqttd_topic:match(Topic, TopicFilter) of
         true -> AllowDeny;

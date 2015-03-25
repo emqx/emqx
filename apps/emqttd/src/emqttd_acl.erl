@@ -52,7 +52,7 @@
 
 -type pubsub() :: publish | subscribe.
 
--type who() :: all | 
+-type who() :: all | binary() |
                {clientid, binary()} | 
                {peername, string() | inet:ip_address()} |
                {username, binary()}.
