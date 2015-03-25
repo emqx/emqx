@@ -20,71 +20,32 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd main module.
+%%% emqttd trace.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd).
+-module(emqttd_trace).
 
--author('feng@emqtt.io').
-
--export([start/0, open/1, is_running/1]).
-
--define(MQTT_SOCKOPTS, [
-	binary,
-	{packet,    raw},
-	{reuseaddr, true},
-	{backlog,   512},
-	{nodelay,   true}
-]).
-
--type listener() :: {atom(), inet:port_number(), [esockd:option()]}. 
-
+%% Trace publish messages and write to file..
 %%------------------------------------------------------------------------------
 %% @doc
-%% Start emqttd application.
+%% Start to trace client or topic.
 %%
 %% @end
 %%------------------------------------------------------------------------------
--spec start() -> ok | {error, any()}.
-start() ->
-    application:start(emqttd).
+start_trace(client, ClientId) ->
+    ok;
+start_trace(topic, Topic) ->
+    ok.
 
--spec open([listener()] | listener()) -> any().
-open(Listeners) when is_list(Listeners) ->
-    [open(Listener) || Listener <- Listeners];
-
-%% open mqtt port
-open({mqtt, Port, Options}) ->
-    open(mqtt, Port, Options);
-
-%% open mqtt(SSL) port
-open({mqtts, Port, Options}) ->
-    open(mqtts, Port, Options);
-
-%% open http port
-open({http, Port, Options}) ->
-    MFArgs = {emqttd_http, handle, []},
-	mochiweb:start_http(Port, Options, MFArgs).
-
-open(Protocol, Port, Options) ->
-    {ok, PktOpts} = application:get_env(emqttd, packet),
-    MFArgs = {emqttd_client, start_link, [PktOpts]},
-    esockd:open(Protocol, Port, emqttd_opts:merge(?MQTT_SOCKOPTS, Options) , MFArgs).
-
-is_running(Node) ->
-    case rpc:call(Node, erlang, whereis, [emqttd]) of
-        {badrpc, _}          -> false;
-        undefined            -> false;
-        Pid when is_pid(Pid) -> true
-    end.
-
-%% TODO: publish chain...
-publish(FromClient, Topic, Message) ->
-    emqttd_router:route(Message).
-
-%% TODO: subscribe: subscribe chain...
-subscribe(FromClient, Topic) ->
-    emqttd_pubsub:subscribe(Topic).
-
+%%------------------------------------------------------------------------------
+%% @doc
+%% Stop tracing client or topic.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+stop_trace(client, ClientId) ->
+    ok;
+stop_trace(topic, Topic) ->
+    ok.
 
