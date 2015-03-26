@@ -86,8 +86,8 @@ start_link() ->
 check(PubSub, User, Topic) ->
     case match(User, Topic, lookup(PubSub)) of
         nomatch -> allowed;
-        allowed -> allowed;
-        refused -> refused
+        allow -> allow;
+        deny -> deny 
     end.
 
 lookup(PubSub) ->

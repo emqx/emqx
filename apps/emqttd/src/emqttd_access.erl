@@ -28,8 +28,20 @@
 
 -include("emqttd.hrl").
 
--export([match/2]).
+-export([match/3]).
 
-match({User, Topic}, Rules) ->
-    ok.
+match(_Who, _Topic, []) ->
+    nomatch;
+match(_Who, _Topic, [{AllowDeny, all}|_Rules]) ->
+    AllowDeny;
+match(User = #mqtt_user{clientid = ClientId}, Topic, [{AllowDeny, ClientId, Filter}|Rules]) ->
+    case emqttd_topic:match(Topic, Filter) of
+        true -> AllowDeny;
+        false -> match(User, Topic, Rules)
+    end;
+match(User = #mqtt_user) ->
+    
+
+
+
 
