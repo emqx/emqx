@@ -20,46 +20,26 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd internal authentication.
+%%% emqttd_access rules tests.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_auth_internal).
-
--author('feng@emqtt.io').
+-module(emqttd_access_tests).
 
 -include("emqttd.hrl").
 
--export([init/1, add/2, check/2, delete/1]).
+-ifdef(TEST).
 
--define(USER_TAB, mqtt_user).
+-include_lib("eunit/include/eunit.hrl").
 
-init(_Opts) ->
-	mnesia:create_table(?USER_TAB, [
-		{ram_copies, [node()]}, 
-		{attributes, record_info(fields, mqtt_user)}]),
-	mnesia:add_table_copy(?USER_TAB, node(), ram_copies),
-	ok.
+-define(RULES1, [{allow, all}]).
+-define(RULES2, [{deny, all}]).
 
-check(undefined, _) -> false;
+match_test() ->
+    User = #mqtt_user{peername = {127,0,0,1}, clientid = <<"testClient">>, username = <<"TestUser">>},
+    ?assertEqual(allow, emqttd_access:match(User, <<"Test/Topic">>, ?RULES1)),
+    ?assertEqual(deny,  emqttd_access:match(User, <<"Test/Topic">>, ?RULES2)).
 
-check(_, undefined) -> false;
+-endif.
 
-check(Username, Password) when is_binary(Username), is_binary(Password) ->
-	PasswdHash = crypto:hash(md5, Password),	
-	case mnesia:dirty_read(?USER_TAB, Username) of
-	[#mqtt_user{password=PasswdHash}] -> true;
-	_ -> false
-	end.
-	
-add(Username, Password) when is_binary(Username) and is_binary(Password) ->
-	mnesia:dirty_write(
-        #mqtt_user{
-            username = Username,
-            password = crypto:hash(md5, Password)
-        }
-    ).
-
-delete(Username) when is_binary(Username) ->
-	mnesia:dirty_delete(?USER_TAB, Username).
 

@@ -47,12 +47,12 @@ merge_test() ->
     ?assertEqual(1024, proplists:get_value(backlog, Opts)),
     ?assertEqual(1024, proplists:get_value(max_clients, Opts)),
     ?assertEqual(lists:sort(Opts), [binary, raw,
-                                    {acceptors,4},
-                                    {backlog,1024},
-                                    {max_clients,1024},
-                                    {nodelay,false},
-                                    {packet,raw},
-                                    {reuseaddr,true}]).
+                                    {acceptors, 16},
+                                    {backlog, 1024},
+                                    {max_clients, 1024},
+                                    {nodelay, false},
+                                    {packet, raw},
+                                    {reuseaddr, true}]).
 
 
 -endif.

@@ -20,46 +20,32 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd internal authentication.
+%%% emqttd trace.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_auth_internal).
+-module(emqttd_trace).
 
--author('feng@emqtt.io').
+%% Trace publish messages and write to file..
+%%------------------------------------------------------------------------------
+%% @doc
+%% Start to trace client or topic.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+start_trace(client, ClientId) ->
+    ok;
+start_trace(topic, Topic) ->
+    ok.
 
--include("emqttd.hrl").
-
--export([init/1, add/2, check/2, delete/1]).
-
--define(USER_TAB, mqtt_user).
-
-init(_Opts) ->
-	mnesia:create_table(?USER_TAB, [
-		{ram_copies, [node()]}, 
-		{attributes, record_info(fields, mqtt_user)}]),
-	mnesia:add_table_copy(?USER_TAB, node(), ram_copies),
-	ok.
-
-check(undefined, _) -> false;
-
-check(_, undefined) -> false;
-
-check(Username, Password) when is_binary(Username), is_binary(Password) ->
-	PasswdHash = crypto:hash(md5, Password),	
-	case mnesia:dirty_read(?USER_TAB, Username) of
-	[#mqtt_user{password=PasswdHash}] -> true;
-	_ -> false
-	end.
-	
-add(Username, Password) when is_binary(Username) and is_binary(Password) ->
-	mnesia:dirty_write(
-        #mqtt_user{
-            username = Username,
-            password = crypto:hash(md5, Password)
-        }
-    ).
-
-delete(Username) when is_binary(Username) ->
-	mnesia:dirty_delete(?USER_TAB, Username).
+%%------------------------------------------------------------------------------
+%% @doc
+%% Stop tracing client or topic.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+stop_trace(client, ClientId) ->
+    ok;
+stop_trace(topic, Topic) ->
+    ok.
 
