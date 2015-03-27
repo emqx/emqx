@@ -71,7 +71,7 @@
 %%------------------------------------------------------------------------------
 -record(mqtt_user, {
     clientid    :: binary(),
-    peername    :: list(),
+    ipaddr      :: inet:ip_address(),
     username    :: binary(),
     password    :: binary()
 }).
