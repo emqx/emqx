@@ -32,13 +32,28 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(RULES1, [{allow, all}]).
--define(RULES2, [{deny, all}]).
+compile_test() ->
+    ?assertMatch({allow, {ipaddr, {"127.0.0.1", _I, _I}}, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]},
+                 emqttd_access:compile({allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]})),
+    ?assertMatch({allow, {user, <<"testuser">>}, subscribe, [ [<<"a">>, <<"b">>, <<"c">>], [<<"d">>, <<"e">>, <<"f">>, '#'] ]},
+                 emqttd_access:compile({allow, {user, "testuser"}, subscribe, ["a/b/c", "d/e/f/#"]})),
+    ?assertEqual({allow, {user, <<"admin">>}, pubsub, [ [<<"d">>, <<"e">>, <<"f">>, '#'] ]},
+                 emqttd_access:compile({allow, {user, "admin"}, pubsub, ["d/e/f/#"]})),
+    ?assertEqual({allow, {client, <<"testClient">>}, publish, [ [<<"testTopics">>, <<"testClient">>] ]},
+                 emqttd_access:compile({allow, {client, "testClient"}, publish, ["testTopics/testClient"]})),
+    ?assertEqual({allow, all, pubsub, [{pattern, [<<"clients">>, <<"$c">>]}]},
+                 emqttd_access:compile({allow, all, pubsub, ["clients/$c"]})),
+    ?assertEqual({allow, all, subscribe, [{pattern, [<<"users">>, <<"$u">>, '#']}]},
+                 emqttd_access:compile({allow, all, subscribe, ["users/$u/#"]})),
+    ?assertEqual({deny, all, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]},
+                 emqttd_access:compile({deny, all, subscribe, ["$SYS/#", "#"]})),
+    ?assertEqual({allow, all}, emqttd_access:compile({allow, all})),
+    ?assertEqual({deny, all},  emqttd_access:compile({deny, all})).
 
 match_test() ->
-    User = #mqtt_user{peername = {127,0,0,1}, clientid = <<"testClient">>, username = <<"TestUser">>},
-    ?assertEqual(allow, emqttd_access:match(User, <<"Test/Topic">>, ?RULES1)),
-    ?assertEqual(deny,  emqttd_access:match(User, <<"Test/Topic">>, ?RULES2)).
+    User = #mqtt_user{ipaddr = {127,0,0,1}, clientid = <<"testClient">>, username = <<"TestUser">>},
+    ?assertEqual({matched, allow}, emqttd_access:match(User, <<"Test/Topic">>, {allow, all})),
+    ?assertEqual({matched, deny},  emqttd_access:match(User, <<"Test/Topic">>, {deny, all})).
 
 -endif.
 
