@@ -1,82 +1,66 @@
-%%-----------------------------------------------------------------------------
-%% Copyright (c) 2012-2015, Feng Lee <feng@emqtt.io>
-%% 
-%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%% of this software and associated documentation files (the "Software"), to deal
-%% in the Software without restriction, including without limitation the rights
-%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%% copies of the Software, and to permit persons to whom the Software is
-%% furnished to do so, subject to the following conditions:
-%% 
-%% The above copyright notice and this permission notice shall be included in all
-%% copies or substantial portions of the Software.
-%% 
-%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%% SOFTWARE.
-%%------------------------------------------------------------------------------
-
+%%%-----------------------------------------------------------------------------
+%%% @Copyright (C) 2012-2015, Feng Lee <feng@emqtt.io>
+%%%
+%%% Permission is hereby granted, free of charge, to any person obtaining a copy
+%%% of this software and associated documentation files (the "Software"), to deal
+%%% in the Software without restriction, including without limitation the rights
+%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+%%% copies of the Software, and to permit persons to whom the Software is
+%%% furnished to do so, subject to the following conditions:
+%%%
+%%% The above copyright notice and this permission notice shall be included in all
+%%% copies or substantial portions of the Software.
+%%%
+%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+%%% SOFTWARE.
+%%%-----------------------------------------------------------------------------
+%%% @doc
+%%% emqttd topic.
+%%%
+%%% @end
+%%%-----------------------------------------------------------------------------
 -module(emqttd_topic).
 
 -author('feng@emqtt.io').
 
--import(lists, [reverse/1]).
-
-%% ------------------------------------------------------------------------
-%% Topic semantics and usage
-%% ------------------------------------------------------------------------
-%% A topic must be at least one character long.
-%%
-%% Topic names are case sensitive. For example, ACCOUNTS and Accounts are two different topics.
-%%
-%% Topic names can include the space character. For example, Accounts payable is a valid topic.
-%%
-%% A leading "/" creates a distinct topic. For example, /finance is different from finance. /finance matches "+/+" and "/+", but not "+".
-%%
-%% Do not include the null character (Unicode \x0000) in any topic.
-%%
-%% The following principles apply to the construction and content of a topic tree:
-%%
-%% The length is limited to 64k but within that there are no limits to the number of levels in a topic tree.
-%%
-%% There can be any number of root nodes; that is, there can be any number of topic trees.
-%% ------------------------------------------------------------------------
-
 -include("emqttd_topic.hrl").
+
+-import(lists, [reverse/1]).
  
 -export([new/1, type/1, match/2, validate/1, triples/1, words/1]).
 
-%%----------------------------------------------------------------------------
+-type word()   :: '' | '+' | '#' | binary().
 
--ifdef(use_specs).
+-type words()  :: list(word()).
 
--spec new( binary() ) -> topic().
+-type triple() :: {root | binary(), word(), binary()}.
 
--spec type(topic() | binary()) -> direct | wildcard.
-
--spec match(binary(), binary()) -> boolean().
-
--spec validate({name | filter, binary()}) -> boolean().
-
--endif.
-
-%%----------------------------------------------------------------------------
+-export_type([word/0, triple/0]).
 
 -define(MAX_TOPIC_LEN, 65535).
 
-%% ------------------------------------------------------------------------
+%%%-----------------------------------------------------------------------------
+%% @doc
 %% New Topic
-%% ------------------------------------------------------------------------
+%%
+%% @end
+%%%-----------------------------------------------------------------------------
+-spec new(binary()) -> topic().
 new(Name) when is_binary(Name) ->
-	#topic{ name = Name, node = node() }.
+	#topic{name = Name, node = node()}.
 
-%% ------------------------------------------------------------------------
+%%%-----------------------------------------------------------------------------
+%% @doc
 %% Topic Type: direct or wildcard
-%% ------------------------------------------------------------------------
+%%
+%% @end
+%%%-----------------------------------------------------------------------------
+-spec type(topic() | binary()) -> direct | wildcard.
 type(#topic{ name = Name }) when is_binary(Name) ->
 	type(Name);
 type(Topic) when is_binary(Topic) ->
@@ -91,9 +75,15 @@ type2(['+'|_]) ->
 type2([_H |T]) ->
     type2(T).
 
-%% ------------------------------------------------------------------------
-%% Match Topic. B1 is Topic Name, B2 is Topic Filter.
-%% ------------------------------------------------------------------------
+%%%-----------------------------------------------------------------------------
+%% @doc
+%% Match Topic name with filter.
+%%
+%% @end
+%%%-----------------------------------------------------------------------------
+-spec match(Name, Filter) -> boolean() when
+    Name    :: binary() | words(),
+    Filter  :: binary() | words().
 match(Name, Filter) when is_binary(Name) and is_binary(Filter) ->
 	match(words(Name), words(Filter));
 match([], []) ->
@@ -115,9 +105,13 @@ match([_H1|_], []) ->
 match([], [_H|_T2]) ->
 	false.
 
-%% ------------------------------------------------------------------------
-%% Validate Topic 
-%% ------------------------------------------------------------------------
+%%%-----------------------------------------------------------------------------
+%% @doc
+%% Validate Topic
+%%
+%% @end
+%%%-----------------------------------------------------------------------------
+-spec validate({name | filter, binary()}) -> boolean().
 validate({_, <<>>}) ->
 	false;
 validate({_, Topic}) when is_binary(Topic) and (size(Topic) > ?MAX_TOPIC_LEN) ->
@@ -156,9 +150,13 @@ include_wildcard(['#'|_T])  -> true;
 include_wildcard(['+'|_T])  -> true;
 include_wildcard([ _ | T])  -> include_wildcard(T).
 
-%% ------------------------------------------------------------------------
-%% Topic to Triples
-%% ------------------------------------------------------------------------
+%%%-----------------------------------------------------------------------------
+%% @doc
+%% Topic to Triples.
+%%
+%% @end
+%%%-----------------------------------------------------------------------------
+-spec triples(binary()) -> list(triple()).
 triples(Topic) when is_binary(Topic) ->
 	triples(words(Topic), root, []).
 
@@ -177,11 +175,15 @@ join(Parent, W) ->
 bin('')  -> <<>>;
 bin('+') -> <<"+">>;
 bin('#') -> <<"#">>;
-bin( B ) when is_binary(B) -> B.
+bin(B) when is_binary(B) -> B.
 
-%% ------------------------------------------------------------------------
-%% Split Topic to Words
-%% ------------------------------------------------------------------------
+%%%-----------------------------------------------------------------------------
+%% @doc
+%% Split Topic to Words.
+%%
+%% @end
+%%%-----------------------------------------------------------------------------
+-spec words(binary()) -> words().
 words(Topic) when is_binary(Topic) ->
     [word(W) || W <- binary:split(Topic, <<"/">>, [global])].
 
