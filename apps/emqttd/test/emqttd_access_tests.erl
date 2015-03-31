@@ -52,8 +52,25 @@ compile_test() ->
 
 match_test() ->
     User = #mqtt_user{ipaddr = {127,0,0,1}, clientid = <<"testClient">>, username = <<"TestUser">>},
+    User2 = #mqtt_user{ipaddr = {192,168,0,10}, clientid = <<"testClient">>, username = <<"TestUser">>},
     ?assertEqual({matched, allow}, emqttd_access:match(User, <<"Test/Topic">>, {allow, all})),
-    ?assertEqual({matched, deny},  emqttd_access:match(User, <<"Test/Topic">>, {deny, all})).
+    ?assertEqual({matched, deny},  emqttd_access:match(User, <<"Test/Topic">>, {deny, all})),
+    ?assertMatch({matched, allow}, emqttd_access:match(User, <<"Test/Topic">>,
+                 emqttd_access:compile({allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]}))),
+    ?assertMatch({matched, allow}, emqttd_access:match(User2, <<"Test/Topic">>,
+                 emqttd_access:compile({allow, {ipaddr, "192.168.0.1/24"}, subscribe, ["$SYS/#", "#"]}))),
+    ?assertMatch({matched, allow}, emqttd_access:match(User, <<"d/e/f/x">>,
+                                                       emqttd_access:compile({allow, {user, "TestUser"}, subscribe, ["a/b/c", "d/e/f/#"]}))),
+    ?assertEqual(nomatch, emqttd_access:match(User, <<"d/e/f/x">>, emqttd_access:compile({allow, {user, "admin"}, pubsub, ["d/e/f/#"]}))),
+    ?assertMatch({matched, allow}, emqttd_access:match(User, <<"testTopics/testClient">>,
+                 emqttd_access:compile({allow, {client, "testClient"}, publish, ["testTopics/testClient"]}))),
+    ?assertMatch({matched, allow}, emqttd_access:match(User, <<"clients/testClient">>,
+                                                       emqttd_access:compile({allow, all, pubsub, ["clients/$c"]}))),
+    ?assertMatch({matched, allow}, emqttd_access:match(#mqtt_user{username = <<"user2">>}, <<"users/user2/abc/def">>,
+                                                                  emqttd_access:compile({allow, all, subscribe, ["users/$u/#"]}))),
+    ?assertMatch({matched, deny}, 
+                 emqttd_access:match(User, <<"d/e/f">>,
+                                     emqttd_access:compile({deny, all, subscribe, ["$SYS/#", "#"]}))).
 
 -endif.
 
