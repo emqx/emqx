@@ -27,8 +27,6 @@
 %%% subscribe topic
 %%% publish to topic
 %%%
-%%% TODO: Support regexp...
-%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_acl).
@@ -41,29 +39,37 @@
 
 -define(SERVER, ?MODULE).
 
--define(ACL_TAB, mqtt_acl).
-
 %% API Function Exports
--export([start_link/0, check/3, allow/3, deny/3]).
+-export([start_link/1, check/3, reload/0]).
+
+-ifdef(TEST).
+
+-export([compile/1, match/3]).
+
+-endif.
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--type pubsub() :: publish | subscribe.
+-type pubsub() :: subscribe | publish | pubsub.
 
 -type who() :: all | binary() |
-               {clientid, binary()} | 
-               {peername, string() | inet:ip_address()} |
-               {username, binary()}.
+               {ipaddr, esockd_access:cidr()} |
+               {client, binary()} |
+               {user, binary()}.
 
 -type rule() :: {allow, all} |
-                {allow, who(), binary()} |
-                {deny,  all} |
-                {deny,  who(), binary()}.
+                {allow, who(), pubsub(), list(binary())} |
+                {deny, all} |
+                {deny, who(), pubsub(), list(binary())}.
 
 -record(mqtt_acl, {pubsub   :: pubsub(),
                    rules    :: list(rule())}).
+
+-define(ACL_TAB, mqtt_acl).
+
+-record(state, {raw_rules = []}).
 
 %%%=============================================================================
 %%% API
@@ -75,19 +81,20 @@
 %%
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link() -> {ok, pid()} | ignore | {error, any()}.
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+-spec start_link(AclOpts) -> {ok, pid()} | ignore | {error, any()} when
+    AclOpts     :: [{file, list()}].
+start_link(AclOpts) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [AclOpts], []).
 
--spec check(PubSub, User, Topic) -> allowed | refused when
+-spec check(PubSub, User, Topic) -> allow | deny when
       PubSub :: pubsub(),
       User   :: mqtt_user(),
       Topic  :: binary().
 check(PubSub, User, Topic) ->
     case match(User, Topic, lookup(PubSub)) of
-        nomatch -> allowed;
-        allowed -> allowed;
-        refused -> refused
+        nomatch          -> allow;
+        {matched, allow} -> allow;
+        {matched, deny}  -> deny 
     end.
 
 lookup(PubSub) ->
@@ -98,68 +105,46 @@ lookup(PubSub) ->
 
 match(_User, _Topic, []) ->
     nomatch;
-match(User, Topic, Rules) ->
-    %TODO:...
-    nomatch.
 
--spec allow(PubSub, Who, Topic) -> ok | {error, any()} when 
-      PubSub :: pubsub(),
-      Who    :: who(),
-      Topic  :: binary().
-allow(PubSub, Who, Topic) ->
-    add_rule(PubSub, {allow, Who, Topic}).
-
--spec deny(PubSub, Who, Topic) -> ok | {error, any()} when
-      PubSub :: pubsub(),
-      Who    :: who(),
-      Topic  :: binary().
-deny(PubSub, Who, Topic) ->
-    add_rule(PubSub, {deny, Who, Topic}).
-
-add_rule(PubSub, RawRule) ->
-    case rule(RawRule) of
-        {error, Error} ->
-            {error, Error};
-        Rule -> 
-            F = fun() -> 
-                case mnesia:wread(?ACL_TAB, PubSub) of
-                    [] ->
-                        mnesia:write(?ACL_TAB, #mqtt_acl{pubsub = PubSub, rules = [Rule]});
-                    [Rules] ->
-                        mnesia:write(?ACL_TAB, #mqtt_acl{pubsub = PubSub, rules = [Rule|Rules]})
-                end
-            end,
-            case mnesia:transaction(F) of
-                {atomic, _} -> ok;
-                {aborted, Reason} -> {error, {aborted, Reason}}
-            end
+match(User, Topic, [Rule|Rules]) ->
+    case match_rule(User, Topic, Rule) of
+        nomatch -> match(User, Topic, Rules);
+        {matched, AllowDeny} -> {matched, AllowDeny}
     end.
 
-%% TODO: 
--spec rule(rule()) -> rule().
-rule({allow, all}) ->
-    {allow, all};
-rule({allow, Who, Topic}) ->
-    {allow, Who, Topic};
-rule({deny, Who, Topic}) ->
-    {deny, Who, Topic};
-rule({deny, all}) ->
-    {deny, all}.
+-spec reload() -> ok.
+reload() ->
+    gen_server:call(?SERVER, reload).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init(Args) ->
-    mnesia:create_table(?ACL_TAB, [
-		{type, set},
-		{record_name, mqtt_acl},
-		{ram_copies, [node()]},
-		{attributes, record_info(fields, mqtt_acl)}]),
-    mnesia:add_table_copy(?ACL_TAB, node(), ram_copies),
-    {ok, Args}.
+init([AclOpts]) ->
+    AclFile = proplists:get_value(file, AclOpts),
+    {ok, Terms} = file:consult(AclFile),
+    Rules = [compile(Term) || Term <- Terms],
+    ets:new(?ACL_TAB, [set, protected, named_table, {keypos, 2}]),
+    lists:foreach(fun(PubSub) ->
+        ets:insert(?ACL_TAB, #mqtt_acl{pubsub = PubSub, rules = 
+            lists:filter(fun(Rule) -> filter(PubSub, Rule) end, Rules)})
+        end, [publish, subscribe]),
+    {ok, #state{raw_rules = Terms}}.
 
-handle_call(_Request, _From, State) ->
-    {reply, error, State}.
+filter(_PubSub, {allow, all}) ->
+    true;
+filter(_PubSub, {deny, all}) ->
+    true;
+filter(publish, {_AllowDeny, _Who, publish, _Topics}) ->
+    true;
+filter(_PubSub, {_AllowDeny, _Who, pubsub, _Topics}) ->
+    true;
+filter(subscribe, {_AllowDeny, _Who, subscribe, _Topics}) ->
+    true;
+filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
+    false.
+
+handle_call(reload, _From, State) ->
+    {reply, {error, unsupported}, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -173,9 +158,114 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
+%%%=============================================================================
+%%% Internal functions
+%%%=============================================================================
 
+%%%-----------------------------------------------------------------------------
+%% @doc
+%% Compile rule.
+%%
+%% @end
+%%%-----------------------------------------------------------------------------
+compile({A, all}) when (A =:= allow) orelse (A =:= deny) ->
+    {A, all};
+
+compile({A, Who, PubSub, TopicFilters}) when (A =:= allow) orelse (A =:= deny) ->
+    {A, compile(who, Who), PubSub, [compile(topic, bin(Topic)) || Topic <- TopicFilters]}.
+
+compile(who, all) -> 
+    all;
+compile(who, {ipaddr, CIDR}) ->
+    {Start, End} = esockd_access:range(CIDR),
+    {ipaddr, {CIDR, Start, End}};
+compile(who, {client, all}) ->
+    {client, all};
+compile(who, {client, ClientId}) ->
+    {client, bin(ClientId)};
+compile(who, {user, all}) ->
+    {user, all};
+compile(who, {user, Username}) ->
+    {user, bin(Username)};
+
+compile(topic, Topic) ->
+    Words = emqttd_topic:words(Topic),
+    case pattern(Words) of
+        true -> {pattern, Words};
+        false -> Words
+    end.
+
+pattern(Words) ->
+    lists:member(<<"$u">>, Words)
+        orelse lists:member(<<"$c">>, Words).
+
+bin(L) when is_list(L) ->
+    list_to_binary(L);
+bin(B) when is_binary(B) ->
+    B.
+
+%%%-----------------------------------------------------------------------------
+%% @doc
+%% Match rule.
+%%
+%% @end
+%%%-----------------------------------------------------------------------------
+-spec match_rule(mqtt_user(), binary(), rule()) -> {matched, allow} | {matched, deny} | nomatch.
+match_rule(_User, _Topic, {AllowDeny, all}) when (AllowDeny =:= allow) orelse (AllowDeny =:= deny) ->
+    {matched, AllowDeny};
+match_rule(User, Topic, {AllowDeny, Who, _PubSub, TopicFilters})
+        when (AllowDeny =:= allow) orelse (AllowDeny =:= deny)  ->
+    case match_who(User, Who) andalso match_topics(User, Topic, TopicFilters) of
+        true -> {matched, AllowDeny};
+        false -> nomatch
+    end.
+
+match_who(_User, all) ->
+    true;
+match_who(_User, {user, all}) ->
+    true;
+match_who(_User, {client, all}) ->
+    true;
+match_who(#mqtt_user{clientid = ClientId}, {client, ClientId}) ->
+    true;
+match_who(#mqtt_user{username = Username}, {user, Username}) ->
+    true;
+match_who(#mqtt_user{ipaddr = IP}, {ipaddr, {_CDIR, Start, End}}) ->
+    I = esockd_access:atoi(IP),
+    I >= Start andalso I =< End;
+match_who(_User, _Who) ->
+    false.
+
+match_topics(_User, _Topic, []) ->
+    false;
+match_topics(User, Topic, [{pattern, PatternFilter}|Filters]) ->
+    TopicFilter = feed_var(User, PatternFilter),
+    case match_topic(emqttd_topic:words(Topic), TopicFilter) of
+        true -> true;
+        false -> match_topics(User, Topic, Filters)
+    end;
+match_topics(User, Topic, [TopicFilter|Filters]) ->
+   case match_topic(emqttd_topic:words(Topic), TopicFilter) of
+    true -> true;
+    false -> match_topics(User, Topic, Filters)
+    end.
+
+match_topic(Topic, TopicFilter) ->
+    emqttd_topic:match(Topic, TopicFilter).
+
+feed_var(User, Pattern) ->
+    feed_var(User, Pattern, []).
+feed_var(_User, [], Acc) ->
+    lists:reverse(Acc);
+feed_var(User = #mqtt_user{clientid = undefined}, [<<"$c">>|Words], Acc) ->
+    feed_var(User, Words, [<<"$c">>|Acc]);
+feed_var(User = #mqtt_user{clientid = ClientId}, [<<"$c">>|Words], Acc) ->
+    feed_var(User, Words, [ClientId |Acc]);
+feed_var(User = #mqtt_user{username = undefined}, [<<"$u">>|Words], Acc) ->
+    feed_var(User, Words, [<<"$u">>|Acc]);
+feed_var(User = #mqtt_user{username = Username}, [<<"$u">>|Words], Acc) ->
+    feed_var(User, Words, [Username|Acc]);
+feed_var(User, [W|Words], Acc) ->
+    feed_var(User, Words, [W|Acc]).
 
 
