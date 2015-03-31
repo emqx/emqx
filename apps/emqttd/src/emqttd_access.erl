@@ -100,7 +100,7 @@ match(_User, _Topic, {AllowDeny, all}) when ?'allow|deny'(AllowDeny) ->
 match(User, Topic, {AllowDeny, Who, _PubSub, TopicFilters})
         when ?'allow|deny'(AllowDeny) ->
     case match_who(User, Who) andalso match_topics(User, Topic, TopicFilters) of
-        true -> AllowDeny;
+        true -> {matched, AllowDeny};
         false -> nomatch
     end.
 
