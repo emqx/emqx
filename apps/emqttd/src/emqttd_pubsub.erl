@@ -252,7 +252,7 @@ init([]) ->
 
 handle_call(getstats, _From, State = #state{max_subs = Max}) ->
     Stats = [{'topics/count', mnesia:table_info(topic, size)},
-             {'subscribers/count', mnesia:info(topic_subscriber, size)},
+             {'subscribers/count', mnesia:table_info(topic_subscriber, size)},
              {'subscribers/max', Max}],
     {reply, Stats, State};
 
