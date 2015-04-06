@@ -20,53 +20,48 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd authentication.
+%%% emqttd authentication with username and password.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_auth).
+-module(emqttd_auth_username).
 
 -author('feng@emqtt.io').
 
 -include("emqttd.hrl").
 
--export([start_link/1, check/2]).
+-export([init/1, add/2, check/2, delete/1]).
 
--behavior(gen_server).
+-define(AUTH_USER_TABLE, mqtt_auth_username).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-record(mqtt_auth_username, {username, password}).
 
--define(AUTH_TABLE, mqtt_auth).
-
-start_link(AuthOpts) ->
-	gen_server:start_link({local, ?MODULE}, ?MODULE, [AuthOpts], []).
-
--spec check(mqtt_user(), binary()) -> true | false.
-check(User, Password) when is_record(User, mqtt_user) ->
-    [{_, }] = ets:lookup(?AUTH_TABLE, auth_modules),
-
-init([AuthOpts]) ->
-	AuthMod = authmod(Name),
-	ok = AuthMod:init(Opts),
-	ets:new(?TAB, [named_table, protected]),
-	ets:insert(?TAB, {mod, AuthMod}),
-	{ok, undefined}.
-
-authmod(Name) when is_atom(Name) ->
-	list_to_atom(lists:concat(["emqttd_auth_", Name])).
-
-handle_call(Req, _From, State) ->
-	{stop, {badreq, Req}, State}.
-
-handle_cast(Msg, State) ->
-	{stop, {badmsg, Msg}, State}.
-
-handle_info(Info, State) ->
-	{stop, {badinfo, Info}, State}.
-
-terminate(_Reason, _State) ->
+init(_Opts) ->
+	mnesia:create_table(?AUTH_USER_TABLE, [
+		{ram_copies, [node()]},
+		{attributes, record_info(fields, mqtt_user)}]),
+	mnesia:add_table_copy(?AUTH_USER_TABLE, node(), ram_copies),
 	ok.
 
-code_change(_OldVsn, State, _Extra) ->
-	{ok, State}.
+check(undefined, _) -> false;
+
+check(_, undefined) -> false;
+
+check(Username, Password) when is_binary(Username), is_binary(Password) ->
+	PasswdHash = crypto:hash(md5, Password),	
+	case mnesia:dirty_read(?AUTH_USER_TABLE, Username) of
+        [#mqtt_user{}] -> true; %password=PasswdHash}
+	_ -> false
+	end.
+	
+add(Username, Password) when is_binary(Username) and is_binary(Password) ->
+	mnesia:dirty_write(
+        #mqtt_user{
+            username = Username
+            %password = crypto:hash(md5, Password)
+        }
+    ).
+
+delete(Username) when is_binary(Username) ->
+	mnesia:dirty_delete(?AUTH_USER_TABLE, Username).
 

@@ -28,13 +28,16 @@
 
 -author('feng@emqtt.io').
 
--export([init/1, add/2, check/2, delete/1]).
+-export([init/1, add_user/2, check_login/2, del_user/1]).
 
 init(_Opts) -> ok.
 
-check(_, _) -> true.
+check_login(_, _) -> true.
 
-add(_, _) -> ok.
+add_user(_, _) -> ok.
 
-delete(_Username) -> ok.
+del_user(_Username) -> ok.
+
+
+
 

@@ -63,10 +63,9 @@
 %% MQTT User Management
 %%------------------------------------------------------------------------------
 -record(mqtt_user, {
-    clientid    :: binary(),
-    ipaddr      :: inet:ip_address(),
     username    :: binary(),
-    password    :: binary()
+    ipaddr      :: inet:ip_address(),
+    clientid    :: binary()
 }).
 
 -type mqtt_user() :: #mqtt_user{}.

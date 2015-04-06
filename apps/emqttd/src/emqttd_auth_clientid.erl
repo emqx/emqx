@@ -20,46 +20,24 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd internal authentication.
+%%% emqttd authentication with clientid.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_auth_internal).
+-module(emqttd_auth_clientid).
 
 -author('feng@emqtt.io').
 
 -include("emqttd.hrl").
 
--export([init/1, add/2, check/2, delete/1]).
+-export([init/1]).
 
--define(USER_TAB, mqtt_user).
+-define(AUTH_CLIENTID_TABLE, mqtt_auth_clientid).
 
-init(_Opts) ->
-	mnesia:create_table(?USER_TAB, [
-		{ram_copies, [node()]}, 
+init(Opts) ->
+	mnesia:create_table(?AUTH_CLIENTID_TABLE, [
+		{disc_copies, [node()]},
 		{attributes, record_info(fields, mqtt_user)}]),
-	mnesia:add_table_copy(?USER_TAB, node(), ram_copies),
-	ok.
-
-check(undefined, _) -> false;
-
-check(_, undefined) -> false;
-
-check(Username, Password) when is_binary(Username), is_binary(Password) ->
-	PasswdHash = crypto:hash(md5, Password),	
-	case mnesia:dirty_read(?USER_TAB, Username) of
-	[#mqtt_user{password=PasswdHash}] -> true;
-	_ -> false
-	end.
-	
-add(Username, Password) when is_binary(Username) and is_binary(Password) ->
-	mnesia:dirty_write(
-        #mqtt_user{
-            username = Username,
-            password = crypto:hash(md5, Password)
-        }
-    ).
-
-delete(Username) when is_binary(Username) ->
-	mnesia:dirty_delete(?USER_TAB, Username).
+	mnesia:add_table_copy(?AUTH_CLIENTID_TABLE, node(), ram_copies),
+	{ok, Opts}.
 
