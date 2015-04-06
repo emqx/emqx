@@ -43,6 +43,10 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+-define(ACL_RULE_TABLE, mqtt_acl_rule).
+
+-record(state, {acl_file, raw_rules = []}).
+
 %%%=============================================================================
 %%% API
 %%%=============================================================================
@@ -59,7 +63,7 @@ start_link(AclOpts) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [AclOpts], []).
 
 -spec check_acl(PubSub, User, Topic) -> {ok, allow} | {ok, deny} | ignore | {error, any()} when
-      PubSub :: pubsub(),
+      PubSub :: publish | subscribe,
       User   :: mqtt_user(),
       Topic  :: binary().
 check_acl(PubSub, User, Topic) ->
@@ -74,7 +78,7 @@ reload_acl() ->
     gen_server:call(?SERVER, reload).
 
 lookup(PubSub) ->
-    case ets:lookup(?ACL_TAB, PubSub) of
+    case ets:lookup(emqttd_acl:table(), PubSub) of
         [] -> [];
         [{PubSub, Rules}] -> Rules
     end.
@@ -83,19 +87,16 @@ match(_User, _Topic, []) ->
     nomatch;
 
 match(User, Topic, [Rule|Rules]) ->
-    case match_rule(User, Topic, Rule) of
+    case emqttd_acl_rule:match(User, Topic, Rule) of
         nomatch -> match(User, Topic, Rules);
         {matched, AllowDeny} -> {matched, AllowDeny}
     end.
-
-
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init([AclOpts]) ->
-    ets:new(?ACL_TAB, [set, protected, named_table]),
-    ets:insert(?ACL_TAB, {acl_mods, [?MODULE]}),
+    ets:insert(emqttd_acl:table(), {acl_mods, [?MODULE]}),
     AclFile = proplists:get_value(file, AclOpts),
     load_rules(#state{acl_file = AclFile}).
 
@@ -161,3 +162,4 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, _State) ->
     ok.
+

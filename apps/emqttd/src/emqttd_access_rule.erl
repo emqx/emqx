@@ -24,23 +24,23 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_acl_rule).
+-module(emqttd_access_rule).
 
 -include("emqttd.hrl").
-
--type pubsub() :: subscribe | publish | pubsub.
 
 -type who() :: all | binary() |
                {ipaddr, esockd_access:cidr()} |
                {client, binary()} |
                {user, binary()}.
 
--type rule() :: {allow, all} |
-                {allow, who(), pubsub(), list(binary())} |
-                {deny, all} |
-                {deny, who(), pubsub(), list(binary())}.
+-type access() :: subscribe | publish | pubsub.
 
--export_type([pubsub/0]).
+-type topic() :: binary().
+
+-type rule() :: {allow, all} |
+                {allow, who(), access(), list(topic())} |
+                {deny, all} |
+                {deny, who(), access(), list(topic())}.
 
 -export([compile/1, match/3]).
 

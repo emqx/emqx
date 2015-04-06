@@ -22,11 +22,6 @@
 %%% @doc
 %%% emqttd ACL.
 %%%
-%%% Two types of authorization:
-%%% 
-%%% subscribe topic
-%%% publish to topic
-%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_acl).
@@ -35,13 +30,6 @@
 
 -include("emqttd.hrl").
 
--callback check_acl(PubSub, User, Topic) -> {ok, allow | deny} | ignore | {error, any()} when
-    PubSub   :: pubsub(),
-    User     :: mqtt_user(),
-    Topic    :: binary().
-
--callback reload_acl() -> ok | {error, any()}.
-
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
@@ -49,12 +37,35 @@
 %% API Function Exports
 -export([start_link/1, check/3, reload/0, register_mod/1, unregister_mod/1]).
 
-%% ACL Callback
--export([check_acl/3, reload_acl/0]).
+%% gen_server callbacks
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2, code_change/3]).
 
--define(ACL_TAB, mqtt_acl).
+-define(ACL_TABLE, mqtt_acl).
 
--record(state, {acl_file, raw_rules = []}).
+%%%=============================================================================
+%%% ACL behavihour
+%%%=============================================================================
+
+-ifdef(use_specs).
+
+-callback check_acl(PubSub, User, Topic) -> {ok, allow | deny} | ignore | {error, any()} when
+    PubSub   :: publish | subscribe,
+    User     :: mqtt_user(),
+    Topic    :: binary().
+
+-callback reload_acl() -> ok | {error, any()}.
+
+-else.
+
+-export([behaviour_info/1]).
+
+behaviour_info(callbacks) ->
+        [{check_acl, 3}, {reload_acl, 0}, {description, 0}];
+behaviour_info(_Other) ->
+        undefined.
+
+-endif.
 
 %%%=============================================================================
 %%% API
@@ -71,91 +82,85 @@
 start_link(AclOpts) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [AclOpts], []).
 
--spec check(PubSub, User, Topic) -> allow | deny when
-      PubSub :: pubsub(),
+%%------------------------------------------------------------------------------
+%% @doc
+%% Check ACL.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec check(PubSub, User, Topic) -> {ok, allow | deny} | {error, any()} when
+      PubSub :: publish | subscribe,
       User   :: mqtt_user(),
       Topic  :: binary().
-check(PubSub, User, Topic) ->
-    case ets:lookup(?ACL_TAB, acl_mods) of
-        [] -> {error, "No ACL mod!"};
+check(PubSub, User, Topic) when PubSub =:= publish orelse PubSub =:= subscribe ->
+    case ets:lookup(?ACL_TABLE, acl_mods) of
+        [] -> {error, "No ACL mods!"};
         [{_, Mods}] -> check(PubSub, User, Topic, Mods)
     end.
+
 check(_PubSub, _User, _Topic, []) ->
     {error, "All ACL mods ignored!"};
+
 check(PubSub, User, Topic, [Mod|Mods]) ->
     case Mod:check_acl(PubSub, User, Topic) of
-        {ok, AllowDeny} -> AllowDeny;
+        {ok, AllowDeny} -> {ok, AllowDeny};
         ignore -> check(PubSub, User, Topic, Mods)
     end.
 
-%%TODO: 
+%%------------------------------------------------------------------------------
+%% @doc
+%% Reload ACL.
+%%
+%% @end
+%%------------------------------------------------------------------------------
 reload() ->
-    case ets:lookup(?ACL_TAB, acl_mods) of
+    case ets:lookup(?ACL_TABLE, acl_mods) of
         [] -> {error, "No ACL mod!"};
         [{_, Mods}] -> [M:reload() || M <- Mods]
     end.
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% Register ACL Module.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec register_mod(Mod :: atom()) -> ok | {error, any()}.
 register_mod(Mod) ->
-    gen_server:call(?MODULE, {register_mod, Mod}).
+    gen_server:call(?SERVER, {register_mod, Mod}).
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% Unregister ACL Module.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec unregister_mod(Mod :: atom()) -> ok | {error, any()}.
 unregister_mod(Mod) ->
-    gen_server:call(?MODULE, {unregister_mod, Mod}).
+    gen_server:call(?SERVER, {unregister_mod, Mod}).
 
-
-%% ------------------------------------------------------------------
-%% gen_server Function Definitions
-%% ------------------------------------------------------------------
-init([AclOpts]) ->
-    ets:new(?ACL_TAB, [set, protected, named_table]),
-    ets:insert(?ACL_TAB, {acl_mods, [?MODULE]}),
-    AclFile = proplists:get_value(file, AclOpts),
-    load_rules(#state{acl_file = AclFile}).
-
-load_rules(State = #state{acl_file = AclFile}) ->
-    {ok, Terms} = file:consult(AclFile),
-    Rules = [compile(Term) || Term <- Terms],
-    lists:foreach(fun(PubSub) ->
-        ets:insert(?ACL_TAB, {PubSub, 
-            lists:filter(fun(Rule) -> filter(PubSub, Rule) end, Rules)})
-        end, [publish, subscribe]),
-    {ok, State#state{raw_rules = Terms}}.
-
-filter(_PubSub, {allow, all}) ->
-    true;
-filter(_PubSub, {deny, all}) ->
-    true;
-filter(publish, {_AllowDeny, _Who, publish, _Topics}) ->
-    true;
-filter(_PubSub, {_AllowDeny, _Who, pubsub, _Topics}) ->
-    true;
-filter(subscribe, {_AllowDeny, _Who, subscribe, _Topics}) ->
-    true;
-filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
-    false.
-
-handle_call(reload, _From, State) ->
-    case catch load_rules(State) of
-        {ok, NewState} -> 
-            {reply, ok, NewState};
-        {'EXIT', Error} -> 
-            {reply, {error, Error}, State}
-    end;
+%%%=============================================================================
+%%% gen_server callbacks.
+%%%=============================================================================
+init([_AclOpts]) ->
+    ets:new(?ACL_TABLE, [set, protected, named_table]),
+    {ok, state}.
 
 handle_call({register_mod, Mod}, _From, State) ->
-    [{_, Mods}] = ets:lookup(?ACL_TAB, acl_mods), 
+    Mods = acl_mods(),
     case lists:member(Mod, Mods) of
-        true -> 
+        true ->
             {reply, {error, registered}, State};
-        false -> 
-            ets:insert(?ACL_TAB, {acl_mods, [Mod|Mods]}),
+        false ->
+            ets:insert(?ACL_TABLE, {acl_mods, [Mod | Mods]}),
             {reply, ok, State}
     end;
 
 handle_call({unregister_mod, Mod}, _From, State) ->
-    [{_, Mods}] = ets:lookup(?ACL_TAB, acl_mods), 
+    Mods = acl_mods(),
     case lists:member(Mod, Mods) of
         true ->
-            ets:insert(?ACL_TAB, lists:delete(Mod, Mods)),
+            ets:insert(?ACL_TABLE, lists:delete(Mod, Mods)),
             {reply, ok, State};
         false -> 
             {reply, {error, not_found}, State}
@@ -180,5 +185,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 %%% Internal functions
 %%%=============================================================================
-
+acl_mods() ->
+    case ets:lookup(?ACL_TABLE, acl_mods) of
+        [] -> [];
+        [{_, Mods}] -> Mods
+    end.
 
