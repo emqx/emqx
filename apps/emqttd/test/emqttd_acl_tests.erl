@@ -26,6 +26,8 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_acl_tests).
 
+-import(emqttd_access_rule, [compile/1, match/3]).
+
 -include("emqttd.hrl").
 
 -ifdef(TEST).
@@ -34,44 +36,43 @@
 
 compile_test() ->
     ?assertMatch({allow, {ipaddr, {"127.0.0.1", _I, _I}}, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]},
-                 emqttd_acl:compile({allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]})),
+                 compile({allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]})),
     ?assertMatch({allow, {user, <<"testuser">>}, subscribe, [ [<<"a">>, <<"b">>, <<"c">>], [<<"d">>, <<"e">>, <<"f">>, '#'] ]},
-                 emqttd_acl:compile({allow, {user, "testuser"}, subscribe, ["a/b/c", "d/e/f/#"]})),
+                 compile({allow, {user, "testuser"}, subscribe, ["a/b/c", "d/e/f/#"]})),
     ?assertEqual({allow, {user, <<"admin">>}, pubsub, [ [<<"d">>, <<"e">>, <<"f">>, '#'] ]},
-                 emqttd_acl:compile({allow, {user, "admin"}, pubsub, ["d/e/f/#"]})),
+                 compile({allow, {user, "admin"}, pubsub, ["d/e/f/#"]})),
     ?assertEqual({allow, {client, <<"testClient">>}, publish, [ [<<"testTopics">>, <<"testClient">>] ]},
-                 emqttd_acl:compile({allow, {client, "testClient"}, publish, ["testTopics/testClient"]})),
+                 compile({allow, {client, "testClient"}, publish, ["testTopics/testClient"]})),
     ?assertEqual({allow, all, pubsub, [{pattern, [<<"clients">>, <<"$c">>]}]},
-                 emqttd_acl:compile({allow, all, pubsub, ["clients/$c"]})),
+                 compile({allow, all, pubsub, ["clients/$c"]})),
     ?assertEqual({allow, all, subscribe, [{pattern, [<<"users">>, <<"$u">>, '#']}]},
-                 emqttd_acl:compile({allow, all, subscribe, ["users/$u/#"]})),
+                 compile({allow, all, subscribe, ["users/$u/#"]})),
     ?assertEqual({deny, all, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]},
-                 emqttd_acl:compile({deny, all, subscribe, ["$SYS/#", "#"]})),
-    ?assertEqual({allow, all}, emqttd_acl:compile({allow, all})),
-    ?assertEqual({deny, all},  emqttd_acl:compile({deny, all})).
+                 compile({deny, all, subscribe, ["$SYS/#", "#"]})),
+    ?assertEqual({allow, all}, compile({allow, all})),
+    ?assertEqual({deny, all},  compile({deny, all})).
 
 match_test() ->
     User = #mqtt_user{ipaddr = {127,0,0,1}, clientid = <<"testClient">>, username = <<"TestUser">>},
     User2 = #mqtt_user{ipaddr = {192,168,0,10}, clientid = <<"testClient">>, username = <<"TestUser">>},
     
-    ?assertEqual({matched, allow}, emqttd_acl:match(User, <<"Test/Topic">>, [{allow, all}])),
-    ?assertEqual({matched, deny},  emqttd_acl:match(User, <<"Test/Topic">>, [{deny, all}])),
-    ?assertMatch({matched, allow}, emqttd_acl:match(User, <<"Test/Topic">>,
-                 emqttd_acl:compile({allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]}))),
-    ?assertMatch({matched, allow}, emqttd_acl:match(User2, <<"Test/Topic">>,
-                 emqttd_acl:compile({allow, {ipaddr, "192.168.0.1/24"}, subscribe, ["$SYS/#", "#"]}))),
-    ?assertMatch({matched, allow}, emqttd_acl:match(User, <<"d/e/f/x">>,
-                                                       emqttd_acl:compile({allow, {user, "TestUser"}, subscribe, ["a/b/c", "d/e/f/#"]}))),
-    ?assertEqual(nomatch, emqttd_acl:match(User, <<"d/e/f/x">>, emqttd_access:compile({allow, {user, "admin"}, pubsub, ["d/e/f/#"]}))),
-    ?assertMatch({matched, allow}, emqttd_acl:match(User, <<"testTopics/testClient">>,
-                 emqttd_acl:compile({allow, {client, "testClient"}, publish, ["testTopics/testClient"]}))),
-    ?assertMatch({matched, allow}, emqttd_acl:match(User, <<"clients/testClient">>,
-                                                       emqttd_acl:compile({allow, all, pubsub, ["clients/$c"]}))),
-    ?assertMatch({matched, allow}, emqttd_acl:match(#mqtt_user{username = <<"user2">>}, <<"users/user2/abc/def">>,
-                                                                  emqttd_acl:compile({allow, all, subscribe, ["users/$u/#"]}))),
+    ?assertEqual({matched, allow}, match(User, <<"Test/Topic">>, {allow, all})),
+    ?assertEqual({matched, deny},  match(User, <<"Test/Topic">>, {deny, all})),
+    ?assertMatch({matched, allow}, match(User, <<"Test/Topic">>,
+                 compile({allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]}))),
+    ?assertMatch({matched, allow}, match(User2, <<"Test/Topic">>,
+                 compile({allow, {ipaddr, "192.168.0.1/24"}, subscribe, ["$SYS/#", "#"]}))),
+    ?assertMatch({matched, allow}, match(User, <<"d/e/f/x">>, compile({allow, {user, "TestUser"}, subscribe, ["a/b/c", "d/e/f/#"]}))),
+    ?assertEqual(nomatch, match(User, <<"d/e/f/x">>, compile({allow, {user, "admin"}, pubsub, ["d/e/f/#"]}))),
+    ?assertMatch({matched, allow}, match(User, <<"testTopics/testClient">>,
+                 compile({allow, {client, "testClient"}, publish, ["testTopics/testClient"]}))),
+    ?assertMatch({matched, allow}, match(User, <<"clients/testClient">>,
+                                                       compile({allow, all, pubsub, ["clients/$c"]}))),
+    ?assertMatch({matched, allow}, match(#mqtt_user{username = <<"user2">>}, <<"users/user2/abc/def">>,
+                                                                  compile({allow, all, subscribe, ["users/$u/#"]}))),
     ?assertMatch({matched, deny}, 
-                 emqttd_acl:match(User, <<"d/e/f">>,
-                                     emqttd_acl:compile({deny, all, subscribe, ["$SYS/#", "#"]}))).
+                 match(User, <<"d/e/f">>,
+                                     compile({deny, all, subscribe, ["$SYS/#", "#"]}))).
 
 -endif.
 

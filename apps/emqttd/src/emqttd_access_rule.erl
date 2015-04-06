@@ -53,8 +53,8 @@
 compile({A, all}) when (A =:= allow) orelse (A =:= deny) ->
     {A, all};
 
-compile({A, Who, PubSub, TopicFilters}) when (A =:= allow) orelse (A =:= deny) ->
-    {A, compile(who, Who), PubSub, [compile(topic, bin(Topic)) || Topic <- TopicFilters]}.
+compile({A, Who, Access, TopicFilters}) when (A =:= allow) orelse (A =:= deny) ->
+    {A, compile(who, Who), Access, [compile(topic, bin(Topic)) || Topic <- TopicFilters]}.
 
 compile(who, all) -> 
     all;
@@ -72,12 +72,12 @@ compile(who, {user, Username}) ->
 
 compile(topic, Topic) ->
     Words = emqttd_topic:words(Topic),
-    case pattern(Words) of
+    case 'pattern?'(Words) of
         true -> {pattern, Words};
         false -> Words
     end.
 
-pattern(Words) ->
+'pattern?'(Words) ->
     lists:member(<<"$u">>, Words)
         orelse lists:member(<<"$c">>, Words).
 
@@ -92,13 +92,13 @@ bin(B) when is_binary(B) ->
 %%
 %% @end
 %%%-----------------------------------------------------------------------------
--spec match(mqtt_user(), binary(), rule()) -> {matched, allow} | {matched, deny} | nomatch.
+-spec match(mqtt_user(), topic(), rule()) -> {matched, allow} | {matched, deny} | nomatch.
 match(_User, _Topic, {AllowDeny, all}) when (AllowDeny =:= allow) orelse (AllowDeny =:= deny) ->
     {matched, AllowDeny};
 match(User, Topic, {AllowDeny, Who, _PubSub, TopicFilters})
-        when (AllowDeny =:= allow) orelse (AllowDeny =:= deny)  ->
+        when (AllowDeny =:= allow) orelse (AllowDeny =:= deny) ->
     case match_who(User, Who) andalso match_topics(User, Topic, TopicFilters) of
-        true -> {matched, AllowDeny};
+        true  -> {matched, AllowDeny};
         false -> nomatch
     end.
 

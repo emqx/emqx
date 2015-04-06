@@ -35,7 +35,7 @@
 -define(SERVER, ?MODULE).
 
 %% API Function Exports
--export([start_link/1, check/3, reload/0, register_mod/1, unregister_mod/1]).
+-export([start_link/1, check/3, reload/0, register_mod/1, unregister_mod/1, all_modules/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -49,9 +49,9 @@
 
 -ifdef(use_specs).
 
--callback check_acl(PubSub, User, Topic) -> {ok, allow | deny} | ignore | {error, any()} when
-    PubSub   :: publish | subscribe,
+-callback check_acl(User, PubSub, Topic) -> {ok, allow | deny} | ignore | {error, any()} when
     User     :: mqtt_user(),
+    PubSub   :: publish | subscribe,
     Topic    :: binary().
 
 -callback reload_acl() -> ok | {error, any()}.
@@ -88,23 +88,23 @@ start_link(AclOpts) ->
 %%
 %% @end
 %%------------------------------------------------------------------------------
--spec check(PubSub, User, Topic) -> {ok, allow | deny} | {error, any()} when
-      PubSub :: publish | subscribe,
+-spec check(User, PubSub, Topic) -> {ok, allow | deny} | {error, any()} when
       User   :: mqtt_user(),
+      PubSub :: publish | subscribe,
       Topic  :: binary().
-check(PubSub, User, Topic) when PubSub =:= publish orelse PubSub =:= subscribe ->
-    case ets:lookup(?ACL_TABLE, acl_mods) of
+check(User, PubSub, Topic) when PubSub =:= publish orelse PubSub =:= subscribe ->
+    case ets:lookup(?ACL_TABLE, acl_modules) of
         [] -> {error, "No ACL mods!"};
-        [{_, Mods}] -> check(PubSub, User, Topic, Mods)
+        [{_, Mods}] -> check(User, PubSub, Topic, Mods)
     end.
 
-check(_PubSub, _User, _Topic, []) ->
+check(_User, _PubSub, _Topic, []) ->
     {error, "All ACL mods ignored!"};
 
-check(PubSub, User, Topic, [Mod|Mods]) ->
-    case Mod:check_acl(PubSub, User, Topic) of
+check(User, PubSub, Topic, [Mod|Mods]) ->
+    case Mod:check_acl(User, PubSub, Topic) of
         {ok, AllowDeny} -> {ok, AllowDeny};
-        ignore -> check(PubSub, User, Topic, Mods)
+        ignore -> check(User, PubSub, Topic, Mods)
     end.
 
 %%------------------------------------------------------------------------------
@@ -114,7 +114,7 @@ check(PubSub, User, Topic, [Mod|Mods]) ->
 %% @end
 %%------------------------------------------------------------------------------
 reload() ->
-    case ets:lookup(?ACL_TABLE, acl_mods) of
+    case ets:lookup(?ACL_TABLE, acl_modules) of
         [] -> {error, "No ACL mod!"};
         [{_, Mods}] -> [M:reload() || M <- Mods]
     end.
@@ -139,6 +139,18 @@ register_mod(Mod) ->
 unregister_mod(Mod) ->
     gen_server:call(?SERVER, {unregister_mod, Mod}).
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% All ACL Modules.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+all_modules() ->
+    case ets:lookup(?ACL_TABLE, acl_modules) of
+        [] -> [];
+        [{_, Mods}] -> Mods
+    end.
+
 %%%=============================================================================
 %%% gen_server callbacks.
 %%%=============================================================================
@@ -147,20 +159,20 @@ init([_AclOpts]) ->
     {ok, state}.
 
 handle_call({register_mod, Mod}, _From, State) ->
-    Mods = acl_mods(),
+    Mods = all_modules(),
     case lists:member(Mod, Mods) of
         true ->
             {reply, {error, registered}, State};
         false ->
-            ets:insert(?ACL_TABLE, {acl_mods, [Mod | Mods]}),
+            ets:insert(?ACL_TABLE, {acl_modules, [Mod | Mods]}),
             {reply, ok, State}
     end;
 
 handle_call({unregister_mod, Mod}, _From, State) ->
-    Mods = acl_mods(),
+    Mods = all_modules(),
     case lists:member(Mod, Mods) of
         true ->
-            ets:insert(?ACL_TABLE, lists:delete(Mod, Mods)),
+            ets:insert(?ACL_TABLE, {acl_modules, lists:delete(Mod, Mods)}),
             {reply, ok, State};
         false -> 
             {reply, {error, not_found}, State}
@@ -185,9 +197,4 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 %%% Internal functions
 %%%=============================================================================
-acl_mods() ->
-    case ets:lookup(?ACL_TABLE, acl_mods) of
-        [] -> [];
-        [{_, Mods}] -> Mods
-    end.
 
