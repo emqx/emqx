@@ -125,9 +125,11 @@ description() ->
 %%%=============================================================================
 
 init([AclOpts]) ->
-    ets:new(?ACL_RULE_TABLE, [set, proteted, named_table]),
+    ets:new(?ACL_RULE_TABLE, [set, protected, named_table]),
     AclFile = proplists:get_value(file, AclOpts),
-    load_rules(#state{acl_file = AclFile}).
+    {ok, State} = load_rules(#state{acl_file = AclFile}),
+    emqttd_acl:register_mod(?MODULE),
+    {ok, State}.
 
 handle_call(reload, _From, State) ->
     case catch load_rules(State) of

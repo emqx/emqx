@@ -81,6 +81,7 @@ start_servers(Sup) ->
     {ok, RetainOpts} = application:get_env(retain),
     {ok, BrokerOpts} = application:get_env(broker),
     {ok, MetricOpts} = application:get_env(metrics),
+    {ok, AclOpts} = application:get_env(acl),
 	lists:foreach(
         fun({Name, F}) when is_function(F) ->
 			?PRINT("~s is starting...", [Name]),
@@ -107,6 +108,8 @@ start_servers(Sup) ->
 		 {"emqttd broker", emqttd_broker,   BrokerOpts},
 		 {"emqttd metrics", emqttd_metrics, MetricOpts},
          {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}},
+         {"emqttd acl", emqttd_acl, AclOpts},
+         {"emqttd internal acl", emqttd_acl_internal, AclOpts},
 		 {"emqttd monitor", emqttd_monitor}
 		]).
 
