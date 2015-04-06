@@ -35,7 +35,7 @@
 -define(SERVER, ?MODULE).
 
 %% API Function Exports
--export([start_link/1, check/3, reload/0, register_mod/1, unregister_mod/1, all_modules/0]).
+-export([start_link/1, check/3, reload/0, register_mod/1, unregister_mod/1, all_modules/0, stop/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -116,7 +116,7 @@ check(User, PubSub, Topic, [Mod|Mods]) ->
 reload() ->
     case ets:lookup(?ACL_TABLE, acl_modules) of
         [] -> {error, "No ACL mod!"};
-        [{_, Mods}] -> [M:reload() || M <- Mods]
+        [{_, Mods}] -> [M:reload_acl() || M <- Mods]
     end.
 
 %%------------------------------------------------------------------------------
@@ -137,7 +137,7 @@ register_mod(Mod) ->
 %%------------------------------------------------------------------------------
 -spec unregister_mod(Mod :: atom()) -> ok | {error, any()}.
 unregister_mod(Mod) ->
-    gen_server:call(?SERVER, {unregister_mod, Mod}).
+    gen_server:cast(?SERVER, {unregister_mod, Mod}).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -150,6 +150,9 @@ all_modules() ->
         [] -> [];
         [{_, Mods}] -> Mods
     end.
+
+stop() ->
+    gen_server:call(?SERVER, stop).
 
 %%%=============================================================================
 %%% gen_server callbacks.
@@ -168,19 +171,22 @@ handle_call({register_mod, Mod}, _From, State) ->
             {reply, ok, State}
     end;
 
-handle_call({unregister_mod, Mod}, _From, State) ->
-    Mods = all_modules(),
-    case lists:member(Mod, Mods) of
-        true ->
-            ets:insert(?ACL_TABLE, {acl_modules, lists:delete(Mod, Mods)}),
-            {reply, ok, State};
-        false -> 
-            {reply, {error, not_found}, State}
-    end;
+handle_call(stop, _From, State) ->
+    {stop, normal, ok, State};
 
 handle_call(Req, _From, State) ->
     lager:error("Bad Request: ~p", [Req]),
     {reply, {error, badreq}, State}.
+
+handle_cast({unregister_mod, Mod}, State) ->
+    Mods = all_modules(),
+    case lists:member(Mod, Mods) of
+        true ->
+            ets:insert(?ACL_TABLE, {acl_modules, lists:delete(Mod, Mods)});
+        false -> 
+            lager:error("unknown acl module: ~s", [Mod])
+    end,
+    {noreply, State};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.

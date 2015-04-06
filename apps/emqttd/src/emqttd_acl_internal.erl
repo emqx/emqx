@@ -30,7 +30,7 @@
 
 -include("emqttd.hrl").
 
--export([start_link/1]).
+-export([start_link/1, stop/0]).
 
 -behaviour(emqttd_acl).
 
@@ -63,6 +63,9 @@
         AclOpts :: [{file, list()}].
 start_link(AclOpts) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [AclOpts], []).
+
+stop() ->
+    gen_server:call(?SERVER, stop).
 
 %%%=============================================================================
 %%% ACL callbacks 
@@ -139,6 +142,9 @@ handle_call(reload, _From, State) ->
             {reply, {error, Error}, State}
     end;
 
+handle_call(stop, _From, State) ->
+    {stop, normal, ok, State};
+
 handle_call(Req, _From, State) ->
     lager:error("BadReq: ~p", [Req]),
     {reply, {error, badreq}, State}.
@@ -150,6 +156,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
+    emqttd_acl:unregister_mod(?MODULE),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -170,6 +177,8 @@ load_rules(State = #state{acl_file = AclFile}) ->
 
 filter(_PubSub, {allow, all}) ->
     true;
+filter(_PubSub, {deny, all}) ->
+    true;
 filter(publish, {_AllowDeny, _Who, publish, _Topics}) ->
     true;
 filter(_PubSub, {_AllowDeny, _Who, pubsub, _Topics}) ->
@@ -178,4 +187,5 @@ filter(subscribe, {_AllowDeny, _Who, subscribe, _Topics}) ->
     true;
 filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
     false.
+
 

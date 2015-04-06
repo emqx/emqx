@@ -26,54 +26,62 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_acl_tests).
 
--import(emqttd_access_rule, [compile/1, match/3]).
-
 -include("emqttd.hrl").
 
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
 
-compile_test() ->
-    ?assertMatch({allow, {ipaddr, {"127.0.0.1", _I, _I}}, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]},
-                 compile({allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]})),
-    ?assertMatch({allow, {user, <<"testuser">>}, subscribe, [ [<<"a">>, <<"b">>, <<"c">>], [<<"d">>, <<"e">>, <<"f">>, '#'] ]},
-                 compile({allow, {user, "testuser"}, subscribe, ["a/b/c", "d/e/f/#"]})),
-    ?assertEqual({allow, {user, <<"admin">>}, pubsub, [ [<<"d">>, <<"e">>, <<"f">>, '#'] ]},
-                 compile({allow, {user, "admin"}, pubsub, ["d/e/f/#"]})),
-    ?assertEqual({allow, {client, <<"testClient">>}, publish, [ [<<"testTopics">>, <<"testClient">>] ]},
-                 compile({allow, {client, "testClient"}, publish, ["testTopics/testClient"]})),
-    ?assertEqual({allow, all, pubsub, [{pattern, [<<"clients">>, <<"$c">>]}]},
-                 compile({allow, all, pubsub, ["clients/$c"]})),
-    ?assertEqual({allow, all, subscribe, [{pattern, [<<"users">>, <<"$u">>, '#']}]},
-                 compile({allow, all, subscribe, ["users/$u/#"]})),
-    ?assertEqual({deny, all, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]},
-                 compile({deny, all, subscribe, ["$SYS/#", "#"]})),
-    ?assertEqual({allow, all}, compile({allow, all})),
-    ?assertEqual({deny, all},  compile({deny, all})).
+all_modules_test() ->
+    with_acl(
+        fun() ->
+            ?assertEqual([emqttd_acl_internal], emqttd_acl:all_modules())
+        end).
 
-match_test() ->
-    User = #mqtt_user{ipaddr = {127,0,0,1}, clientid = <<"testClient">>, username = <<"TestUser">>},
-    User2 = #mqtt_user{ipaddr = {192,168,0,10}, clientid = <<"testClient">>, username = <<"TestUser">>},
-    
-    ?assertEqual({matched, allow}, match(User, <<"Test/Topic">>, {allow, all})),
-    ?assertEqual({matched, deny},  match(User, <<"Test/Topic">>, {deny, all})),
-    ?assertMatch({matched, allow}, match(User, <<"Test/Topic">>,
-                 compile({allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]}))),
-    ?assertMatch({matched, allow}, match(User2, <<"Test/Topic">>,
-                 compile({allow, {ipaddr, "192.168.0.1/24"}, subscribe, ["$SYS/#", "#"]}))),
-    ?assertMatch({matched, allow}, match(User, <<"d/e/f/x">>, compile({allow, {user, "TestUser"}, subscribe, ["a/b/c", "d/e/f/#"]}))),
-    ?assertEqual(nomatch, match(User, <<"d/e/f/x">>, compile({allow, {user, "admin"}, pubsub, ["d/e/f/#"]}))),
-    ?assertMatch({matched, allow}, match(User, <<"testTopics/testClient">>,
-                 compile({allow, {client, "testClient"}, publish, ["testTopics/testClient"]}))),
-    ?assertMatch({matched, allow}, match(User, <<"clients/testClient">>,
-                                                       compile({allow, all, pubsub, ["clients/$c"]}))),
-    ?assertMatch({matched, allow}, match(#mqtt_user{username = <<"user2">>}, <<"users/user2/abc/def">>,
-                                                                  compile({allow, all, subscribe, ["users/$u/#"]}))),
-    ?assertMatch({matched, deny}, 
-                 match(User, <<"d/e/f">>,
-                                     compile({deny, all, subscribe, ["$SYS/#", "#"]}))).
+reload_test() ->
+    with_acl(
+        fun() ->
+            ?assertEqual([ok], emqttd_acl:reload())
+        end).
+
+register_mod_test() ->
+    with_acl(
+        fun() ->
+            emqttd_acl:register_mod(acl_mysql),
+            ?assertEqual([acl_mysql, emqttd_acl_internal], emqttd_acl:all_modules())
+        end).
+
+unregister_mod_test() ->
+    with_acl(
+        fun() ->
+            emqttd_acl:register_mod(acl_mysql),
+            ?assertEqual([acl_mysql, emqttd_acl_internal], emqttd_acl:all_modules()),
+            emqttd_acl:unregister_mod(acl_mysql),
+            timer:sleep(5),
+            ?assertEqual([emqttd_acl_internal], emqttd_acl:all_modules())
+        end).
+
+check_test() ->
+    with_acl(
+        fun() ->
+            User1 = #mqtt_user{clientid = <<"client1">>, username = <<"testuser">>},
+            User2 = #mqtt_user{clientid = <<"client2">>, username = <<"xyz">>},
+            ?assertEqual({ok, allow}, emqttd_acl:check(User1, subscribe, <<"users/testuser/1">>)),
+            ?assertEqual({ok, allow}, emqttd_acl:check(User1, subscribe, <<"clients/client1">>)),
+            ?assertEqual({ok, deny}, emqttd_acl:check(User1, subscribe, <<"clients/client1/x/y">>)),
+            ?assertEqual({ok, allow}, emqttd_acl:check(User1, publish, <<"users/testuser/1">>)),
+            ?assertEqual({ok, allow}, emqttd_acl:check(User1, subscribe, <<"a/b/c">>)),
+            ?assertEqual({ok, deny}, emqttd_acl:check(User2, subscribe, <<"a/b/c">>))
+        end).
+
+with_acl(Fun) ->
+    process_flag(trap_exit, true),
+    AclOpts = [{file, "../test/test_acl.config"}],
+    {ok, _AclSrv} = emqttd_acl:start_link(AclOpts),
+    {ok, _InternalAcl} = emqttd_acl_internal:start_link(AclOpts),
+    Fun(),
+    emqttd_acl_internal:stop(),
+    emqttd_acl:stop().
 
 -endif.
-
 
