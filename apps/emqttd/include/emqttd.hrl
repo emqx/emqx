@@ -60,18 +60,11 @@
 -type mqtt_session() :: #mqtt_session{}.
 
 %%------------------------------------------------------------------------------
-%% MQTT Retained Message
-%%------------------------------------------------------------------------------
--record(mqtt_retained, {topic, qos, payload}).
-
--type mqtt_retained() :: #mqtt_retained{}.
-
-%%------------------------------------------------------------------------------
 %% MQTT User Management
 %%------------------------------------------------------------------------------
 -record(mqtt_user, {
     clientid    :: binary(),
-    peername    :: list(),
+    ipaddr      :: inet:ip_address(),
     username    :: binary(),
     password    :: binary()
 }).
@@ -92,4 +85,11 @@
 %%------------------------------------------------------------------------------
 
 -record(mqtt_plugin, {name, version, attrs, description}).
+
+%%------------------------------------------------------------------------------
+%% MQTT Retained Message
+%%------------------------------------------------------------------------------
+-record(mqtt_retained, {topic, qos, payload}).
+
+-type mqtt_retained() :: #mqtt_retained{}.
 

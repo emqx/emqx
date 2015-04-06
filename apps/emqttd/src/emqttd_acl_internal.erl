@@ -20,41 +20,28 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd ACL.
-%%%
-%%% Two types of authorization:
-%%% 
-%%% subscribe topic
-%%% publish to topic
+%%% Internal ACL that load rules from etc/acl.config
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_acl).
+-module(emqttd_acl_internal).
 
 -author('feng@emqtt.io').
 
 -include("emqttd.hrl").
 
--callback check_acl(PubSub, User, Topic) -> {ok, allow | deny} | ignore | {error, any()} when
-    PubSub   :: pubsub(),
-    User     :: mqtt_user(),
-    Topic    :: binary().
-
--callback reload_acl() -> ok | {error, any()}.
+-define(SERVER, ?MODULE).
 
 -behaviour(gen_server).
 
--define(SERVER, ?MODULE).
+-export([start_link/1]).
 
-%% API Function Exports
--export([start_link/1, check/3, reload/0, register_mod/1, unregister_mod/1]).
-
-%% ACL Callback
+%% acl callbacks
 -export([check_acl/3, reload_acl/0]).
 
--define(ACL_TAB, mqtt_acl).
-
--record(state, {acl_file, raw_rules = []}).
+%% gen_server callbacks
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2, code_change/3]).
 
 %%%=============================================================================
 %%% API
@@ -62,7 +49,7 @@
 
 %%------------------------------------------------------------------------------
 %% @doc
-%% Start ACL Server.
+%% Start Internal ACL Server.
 %%
 %% @end
 %%------------------------------------------------------------------------------
@@ -71,35 +58,36 @@
 start_link(AclOpts) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [AclOpts], []).
 
--spec check(PubSub, User, Topic) -> allow | deny when
+-spec check_acl(PubSub, User, Topic) -> {ok, allow} | {ok, deny} | ignore | {error, any()} when
       PubSub :: pubsub(),
       User   :: mqtt_user(),
       Topic  :: binary().
-check(PubSub, User, Topic) ->
-    case ets:lookup(?ACL_TAB, acl_mods) of
-        [] -> {error, "No ACL mod!"};
-        [{_, Mods}] -> check(PubSub, User, Topic, Mods)
-    end.
-check(_PubSub, _User, _Topic, []) ->
-    {error, "All ACL mods ignored!"};
-check(PubSub, User, Topic, [Mod|Mods]) ->
-    case Mod:check_acl(PubSub, User, Topic) of
-        {ok, AllowDeny} -> AllowDeny;
-        ignore -> check(PubSub, User, Topic, Mods)
+check_acl(PubSub, User, Topic) ->
+    case match(User, Topic, lookup(PubSub)) of
+        {matched, allow} -> {ok, allow};
+        {matched, deny}  -> {ok, deny};
+        nomatch          -> {error, nomatch}
     end.
 
-%%TODO: 
-reload() ->
-    case ets:lookup(?ACL_TAB, acl_mods) of
-        [] -> {error, "No ACL mod!"};
-        [{_, Mods}] -> [M:reload() || M <- Mods]
+-spec reload_acl() -> ok.
+reload_acl() ->
+    gen_server:call(?SERVER, reload).
+
+lookup(PubSub) ->
+    case ets:lookup(?ACL_TAB, PubSub) of
+        [] -> [];
+        [{PubSub, Rules}] -> Rules
     end.
 
-register_mod(Mod) ->
-    gen_server:call(?MODULE, {register_mod, Mod}).
+match(_User, _Topic, []) ->
+    nomatch;
 
-unregister_mod(Mod) ->
-    gen_server:call(?MODULE, {unregister_mod, Mod}).
+match(User, Topic, [Rule|Rules]) ->
+    case match_rule(User, Topic, Rule) of
+        nomatch -> match(User, Topic, Rules);
+        {matched, AllowDeny} -> {matched, AllowDeny}
+    end.
+
 
 
 %% ------------------------------------------------------------------
@@ -173,12 +161,3 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, _State) ->
     ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-%%%=============================================================================
-%%% Internal functions
-%%%=============================================================================
-
-
