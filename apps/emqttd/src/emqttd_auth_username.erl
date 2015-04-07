@@ -30,38 +30,72 @@
 
 -include("emqttd.hrl").
 
--export([init/1, add/2, check/2, delete/1]).
+-export([add_user/2, remove_user/1,
+         lookup_user/1, all_users/0]).
 
--define(AUTH_USER_TABLE, mqtt_auth_username).
+%% emqttd_auth callbacks
+-export([init/1, check/3, description/0]).
 
--record(mqtt_auth_username, {username, password}).
+-define(AUTH_USERNAME_TABLE, mqtt_auth_username).
 
-init(_Opts) ->
-	mnesia:create_table(?AUTH_USER_TABLE, [
-		{ram_copies, [node()]},
-		{attributes, record_info(fields, mqtt_user)}]),
-	mnesia:add_table_copy(?AUTH_USER_TABLE, node(), ram_copies),
-	ok.
+-record(?AUTH_USERNAME_TABLE, {username, password}).
 
-check(undefined, _) -> false;
+%%%=============================================================================
+%%% API 
+%%%=============================================================================
 
-check(_, undefined) -> false;
+add_user(Username, Password) ->
+    R = #?AUTH_USERNAME_TABLE{username = Username, password = hash(Password)},
+    mnesia:transaction(fun() -> mnesia:write(R) end).
 
-check(Username, Password) when is_binary(Username), is_binary(Password) ->
-	PasswdHash = crypto:hash(md5, Password),	
-	case mnesia:dirty_read(?AUTH_USER_TABLE, Username) of
-        [#mqtt_user{}] -> true; %password=PasswdHash}
-	_ -> false
+lookup_user(Username) ->
+    mnesia:dirty_read(?AUTH_USERNAME_TABLE, Username).
+
+remove_user(Username) ->
+    mnesia:transaction(fun() -> mnesia:delete({?AUTH_USERNAME_TABLE, Username}) end).
+
+all_users() ->
+    mnesia:dirty_all_keys(?AUTH_USERNAME_TABLE).
+
+%%%=============================================================================
+%%% emqttd_auth callbacks
+%%%=============================================================================
+init(Opts) ->
+	mnesia:create_table(?AUTH_USERNAME_TABLE, [
+        {type, set},
+		{disc_copies, [node()]},
+		{attributes, record_info(fields, ?AUTH_USERNAME_TABLE)}]),
+	mnesia:add_table_copy(?AUTH_USERNAME_TABLE, node(), disc_copies),
+    {ok, Opts}.
+
+check(#mqtt_user{username = Username}, Password, _Opts) ->
+	case mnesia:dirty_read(?AUTH_USERNAME_TABLE, Username) of
+        [] -> 
+            {error, "Username Not Found"};
+        [#?AUTH_USERNAME_TABLE{password = <<Salt:4/binary, Hash>>}] ->
+            case Hash =:= hash(Salt, Password) of
+                true -> ok;
+                false -> {error, "Password Not Right"}
+            end
 	end.
 	
-add(Username, Password) when is_binary(Username) and is_binary(Password) ->
-	mnesia:dirty_write(
-        #mqtt_user{
-            username = Username
-            %password = crypto:hash(md5, Password)
-        }
-    ).
+description() -> "Username password authentication module".
 
-delete(Username) when is_binary(Username) ->
-	mnesia:dirty_delete(?AUTH_USER_TABLE, Username).
+%%%=============================================================================
+%%% Internal functions
+%%%=============================================================================
+
+hash(Password) ->
+    hash(salt(), Password).
+
+hash(SaltBin, Password) ->
+    Hash = erlang:md5(<<SaltBin/binary, Password/binary>>),
+    <<SaltBin/binary, Hash/binary>>.
+
+salt() ->
+    {A1,A2,A3} = now(),
+    random:seed(A1, A2, A3),
+    Salt = random:uniform(16#ffffffff),
+    <<Salt:32>>.
+
 

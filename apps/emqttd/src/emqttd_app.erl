@@ -28,30 +28,33 @@
 
 -author('feng@emqtt.io').
 
--define(PRINT_MSG(Msg), io:format(Msg)).
-
--define(PRINT(Format, Args), io:format(Format, Args)).
-
 -behaviour(application).
 
 %% Application callbacks
 -export([start/2, stop/1]).
 
+-define(SERVICES, [config,
+                   event,
+                   retained,
+                   client,
+                   session,
+                   pubsub,
+                   router,
+                   broker,
+                   metrics,
+                   bridge,
+                   auth,
+                   acl,
+                   monitor]).
+
+-define(PRINT_MSG(Msg), io:format(Msg)).
+
+-define(PRINT(Format, Args), io:format(Format, Args)).
+
 %%%=============================================================================
 %%% Application callbacks
 %%%=============================================================================
 
-%%------------------------------------------------------------------------------
-%% @private
-%% @doc
-%% This function is called whenever an application is started using
-%% application:start/[1,2], and should start the processes of the
-%% application. If the application is structured according to the OTP
-%% design principles as a supervision tree, this means starting the
-%% top supervisor of the tree.
-%%
-%% @end
-%%------------------------------------------------------------------------------
 -spec start(StartType, StartArgs) -> {ok, pid()} | {ok, pid(), State} | {error, Reason} when 
     StartType :: normal | {takeover, node()} | {failover, node()},
     StartArgs :: term(),
@@ -60,7 +63,7 @@
 start(_StartType, _StartArgs) ->
 	print_banner(),
     {ok, Sup} = emqttd_sup:start_link(),
-	start_servers(Sup),
+	start_services(Sup),
     ok = emqttd_mnesia:wait(),
 	{ok, Listeners} = application:get_env(listen),
     emqttd:open(Listeners),
@@ -76,12 +79,7 @@ print_vsn() ->
 	{ok, Desc} = application:get_key(description),
 	?PRINT("~s ~s is running now~n", [Desc, Vsn]).
 
-start_servers(Sup) ->
-    {ok, SessOpts} = application:get_env(session),
-    {ok, RetainOpts} = application:get_env(retain),
-    {ok, BrokerOpts} = application:get_env(broker),
-    {ok, MetricOpts} = application:get_env(metrics),
-    {ok, AclOpts} = application:get_env(acl),
+start_services(Sup) ->
 	lists:foreach(
         fun({Name, F}) when is_function(F) ->
 			?PRINT("~s is starting...", [Name]),
@@ -95,23 +93,54 @@ start_servers(Sup) ->
 			?PRINT("~s is starting...", [ Name]),
 			start_child(Sup, Server, Opts),
 			?PRINT_MSG("[done]~n")
-		end,
-	 	[{"emqttd config", emqttd_config},
-	 	 {"emqttd event", emqttd_event},
-		 {"emqttd server", emqttd_server, RetainOpts},
-         {"emqttd client manager", emqttd_cm},
-         {"emqttd session manager", emqttd_sm},
-         {"emqttd session supervisor", {supervisor, emqttd_session_sup}, SessOpts},
-         {"emqttd auth", emqttd_auth},
-		 {"emqttd pubsub", emqttd_pubsub},
-		 {"emqttd router", emqttd_router},
-		 {"emqttd broker", emqttd_broker,   BrokerOpts},
-		 {"emqttd metrics", emqttd_metrics, MetricOpts},
-         {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}},
-         {"emqttd acl", emqttd_acl, AclOpts},
-         {"emqttd internal acl", emqttd_acl_internal, AclOpts},
-		 {"emqttd monitor", emqttd_monitor}
-		]).
+		end, lists:flatten([service(Srv) || Srv <- ?SERVICES])).
+
+service(config) ->
+    {"emqttd config", emqttd_config};
+
+service(event) ->
+    {"emqttd event", emqttd_event};
+
+service(retained) ->
+    {ok, RetainOpts} = application:get_env(retain),
+    {"emqttd server", emqttd_server, RetainOpts};
+
+service(client) ->
+    {"emqttd client manager", emqttd_cm};
+
+service(session) ->
+    {ok, SessOpts} = application:get_env(session),
+    [{"emqttd session manager", emqttd_sm},
+     {"emqttd session supervisor", {supervisor, emqttd_session_sup}, SessOpts}];
+
+service(pubsub) ->
+    {"emqttd pubsub", emqttd_pubsub};
+
+service(router) ->
+    {"emqttd router", emqttd_router};
+
+service(broker) ->
+    {ok, BrokerOpts} = application:get_env(broker),
+    {"emqttd broker", emqttd_broker, BrokerOpts};
+
+service(metrics) ->
+    {ok, MetricOpts} = application:get_env(metrics),
+    {"emqttd metrics", emqttd_metrics, MetricOpts};
+
+service(bridge) ->
+    {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}};
+
+service(auth) ->
+    {ok, AuthMods} = application:get_env(auth),
+    {"emqttd auth", emqttd_auth, AuthMods};
+
+service(acl) ->
+    {ok, AclOpts} = application:get_env(acl),
+    [{"emqttd acl", emqttd_acl, AclOpts},
+     {"emqttd internal acl", emqttd_acl_internal, AclOpts}];
+
+service(monitor) ->
+    {"emqttd monitor", emqttd_monitor}.
 
 start_child(Sup, {supervisor, Name}) ->
     supervisor:start_child(Sup, supervisor_spec(Name));
@@ -143,15 +172,6 @@ worker_spec(Name, Opts) ->
         {Name, start_link, [Opts]},
             permanent, 5000, worker, [Name]}.
 
-%%------------------------------------------------------------------------------
-%% @private
-%% @doc
-%% This function is called whenever an application has stopped. It
-%% is intended to be the opposite of Module:start/2 and should do
-%% any necessary cleaning up. The return value is ignored.
-%%
-%% @end
-%%------------------------------------------------------------------------------
 -spec stop(State :: term()) -> term().
 stop(_State) ->
     ok.

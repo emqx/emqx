@@ -22,6 +22,8 @@
 %%% @doc
 %%% emqttd authentication.
 %%%
+%%% TODO: 
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_auth).
@@ -30,7 +32,7 @@
 
 -include("emqttd.hrl").
 
--export([start_link/1, check/2]).
+-export([start_link/1, login/2, add_module/2, remove_module/1, all_modules/0, stop/0]).
 
 -behavior(gen_server).
 
@@ -38,35 +40,119 @@
 
 -define(AUTH_TABLE, mqtt_auth).
 
-start_link(AuthOpts) ->
-	gen_server:start_link({local, ?MODULE}, ?MODULE, [AuthOpts], []).
+%%%=============================================================================
+%%% Auth behavihour
+%%%=============================================================================
 
--spec check(mqtt_user(), binary()) -> true | false.
-check(User, Password) when is_record(User, mqtt_user) ->
-    [{_, }] = ets:lookup(?AUTH_TABLE, auth_modules),
+-ifdef(use_specs).
 
-init([AuthOpts]) ->
-	AuthMod = authmod(Name),
-	ok = AuthMod:init(Opts),
-	ets:new(?TAB, [named_table, protected]),
-	ets:insert(?TAB, {mod, AuthMod}),
-	{ok, undefined}.
+-callback check(User, Password, State) -> ok | ignore | {error, string()} when
+    User     :: mqtt_user(),
+    Password :: binary(),
+    State    :: any().
 
-authmod(Name) when is_atom(Name) ->
-	list_to_atom(lists:concat(["emqttd_auth_", Name])).
+-callback description() -> string().
 
-handle_call(Req, _From, State) ->
-	{stop, {badreq, Req}, State}.
+-else.
 
-handle_cast(Msg, State) ->
-	{stop, {badmsg, Msg}, State}.
+-export([behaviour_info/1]).
 
-handle_info(Info, State) ->
-	{stop, {badinfo, Info}, State}.
+behaviour_info(callbacks) ->
+        [{check, 3}, {description, 0}];
+behaviour_info(_Other) ->
+        undefined.
+
+-endif.
+
+-spec start_link(list()) -> {ok, pid()} | ignore | {error, any()}.
+start_link(AuthMods) ->
+	gen_server:start_link({local, ?MODULE}, ?MODULE, [AuthMods], []).
+
+-spec login(mqtt_user(), undefined | binary()) -> ok | {error, string()}.
+login(User, Password) when is_record(User, mqtt_user) ->
+    [{_, AuthMods}] = ets:lookup(?AUTH_TABLE, auth_modules),
+    check(User, Password, AuthMods).
+
+check(_User, _Password, []) ->
+    {error, "No auth module to check!"};
+check(User, Password, [{Mod, State} | Mods]) ->
+    case Mod:check(User, Password, State) of
+        ok -> ok;
+        {error, Reason} -> {error, Reason};
+        ignore -> check(User, Password, Mods)
+    end.
+
+add_module(Mod, Opts) ->
+    gen_server:call(?MODULE, {add_module, Mod, Opts}).
+
+remove_module(Mod) ->
+    gen_server:call(?MODULE, {remove_module, Mod}).
+
+all_modules() ->
+    case ets:lookup(?AUTH_TABLE, auth_modules) of
+        [] -> [];
+        [{_, AuthMods}] -> AuthMods
+    end.
+
+stop() ->
+    gen_server:call(?MODULE, stop).
+
+init([AuthMods]) ->
+	ets:new(?AUTH_TABLE, [set, named_table, protected]),
+    Modules = [begin {ok, State} = Mod:init(Opts),
+                     {authmod(Mod), State} end || {Mod, Opts} <- AuthMods],
+    ets:insert(?AUTH_TABLE, {auth_modules, Modules}),
+	{ok, state}.
+
+handle_call({add_module, Mod, Opts}, _From, State) ->
+    AuthMods = all_modules(),
+    Reply =
+    case lists:keyfind(Mod, 1, AuthMods) of
+        false -> 
+            case catch Mod:init(Opts) of
+                {ok, ModState} -> 
+                    ets:insert(?AUTH_TABLE, {auth_modules, [{Mod, ModState}|AuthMods]}),
+                    ok;
+                {error, Reason} ->
+                    {error, Reason};
+                {'EXIT', Error} ->
+                    {error, Error}
+            end;
+        _ -> 
+            {error, existed}
+    end,
+    {reply, Reply, State};
+
+handle_call({remove_module, Mod}, _From, State) ->
+    AuthMods = all_modules(),
+    Reply =
+    case lists:keyfind(Mod, 1, AuthMods) of
+        false -> 
+            {error, not_found}; 
+        _ -> 
+            ets:insert(?AUTH_TABLE, {auth_modules, lists:keydelete(Mod, 1, AuthMods)}), ok
+    end,
+    {reply, Reply, State};
+
+handle_call(stop, _From, State) ->
+	{stop, normal, ok, State}.
+
+handle_cast(_Msg, State) ->
+	{noreply, State}.
+
+handle_info(_Info, State) ->
+	{noreply, State}.
 
 terminate(_Reason, _State) ->
 	ok.
 
 code_change(_OldVsn, State, _Extra) ->
 	{ok, State}.
+
+%%%=============================================================================
+%%% Internal functions
+%%%=============================================================================
+
+authmod(Name) when is_atom(Name) ->
+	list_to_atom(lists:concat(["emqttd_auth_", Name])).
 

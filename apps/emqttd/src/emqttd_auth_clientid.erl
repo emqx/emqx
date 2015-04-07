@@ -30,14 +30,65 @@
 
 -include("emqttd.hrl").
 
--export([init/1]).
+-export([add_clientid/1, add_clientid/2,
+         lookup_clientid/1, remove_clientid/1,
+         all_clientids/0]).
+
+-behaviour(emqttd_auth).
+
+%% emqttd_auth callbacks
+-export([init/1, check/3, description/0]).
 
 -define(AUTH_CLIENTID_TABLE, mqtt_auth_clientid).
 
+-record(?AUTH_CLIENTID_TABLE, {clientid, password = undefined}).
+
+add_clientid(ClientId) when is_binary(ClientId) ->
+    R = #mqtt_auth_clientid{clientid = ClientId},
+    mnesia:transaction(fun() -> mnesia:write(R) end).
+
+add_clientid(ClientId, Password) ->
+    R = #mqtt_auth_clientid{clientid = ClientId, password = Password},
+    mnesia:transaction(fun() -> mnesia:write(R) end).
+
+lookup_clientid(ClientId) ->
+	mnesia:dirty_read(?AUTH_CLIENTID_TABLE, ClientId).
+
+all_clientids() ->
+	mnesia:dirty_all_keys(?AUTH_CLIENTID_TABLE).
+
+remove_clientid(ClientId) ->
+    mnesia:transaction(fun() -> mnesia:delete({?AUTH_CLIENTID_TABLE, ClientId}) end).
+
 init(Opts) ->
 	mnesia:create_table(?AUTH_CLIENTID_TABLE, [
+        {type, set},
 		{disc_copies, [node()]},
-		{attributes, record_info(fields, mqtt_user)}]),
-	mnesia:add_table_copy(?AUTH_CLIENTID_TABLE, node(), ram_copies),
+		{attributes, record_info(fields, ?AUTH_CLIENTID_TABLE)}]),
+	mnesia:add_table_copy(?AUTH_CLIENTID_TABLE, node(), disc_copies),
 	{ok, Opts}.
+
+check(#mqtt_user{clientid = ClientId}, _Password, []) -> 
+    check_clientid_only(ClientId);
+check(#mqtt_user{clientid = ClientId}, _Password, [{password, no}|_]) -> 
+    check_clientid_only(ClientId);
+check(#mqtt_user{clientid = ClientId}, Password, [{password, yes}|_]) -> 
+    case mnesia:dirty_read(?AUTH_CLIENTID_TABLE, ClientId) of
+        [] -> {error, "ClientId Not Found"};
+        [#?AUTH_CLIENTID_TABLE{password = Password}]  -> ok; %% TODO: plaintext??
+        _ -> {error, "Password Not Right"}
+    end.
+
+description() -> "ClientId authentication module".
+
+%%%=============================================================================
+%%% Internal functions
+%%%=============================================================================
+
+check_clientid_only(ClientId) ->
+    case mnesia:dirty_read(?AUTH_CLIENTID_TABLE, ClientId) of
+        [] -> {error, "ClientId Not Found"};
+        _  -> ok
+    end.
+
 
