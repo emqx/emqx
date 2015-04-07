@@ -2,20 +2,22 @@
 eMQTTD ChangeLog
 ==================
 
-0.6.0-alpha (2015-03-28)
+0.6.0-alpha (2015-04-08)
 -------------------------
 
-ACL
+ACL Support
+
+Authentication with username, clientid
 
 Plugin Architecture
 
+emqttd_pubsub to remove unused dynamic trie nodes...
 
-0.5.4-alpha (2015-03-24)
+
+0.5.5-alpha (2015-04-07)
 -------------------------
 
-TODO: static, dynamic topics
-
-emqttd_pubsub to remove unused dynamic trie nodes...
+Bugfix: issue #75 - careless about function name when emqttd_pubsub handle getstats message.
 
 
 0.5.4-alpha (2015-03-22)
