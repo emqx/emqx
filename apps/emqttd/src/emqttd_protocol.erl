@@ -96,15 +96,7 @@ received(Packet = ?PACKET(_Type), State = #proto_state{peername  = Peername,
 	lager:debug("RECV from ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqttd_packet:dump(Packet)]),
 	case validate_packet(Packet) of	
 	ok ->
-        case access_control(Packet, State) of
-            {ok, allow} -> 
-                handle(Packet, State);
-            {ok, deny} -> 
-                {error, acl_denied, State};
-            {error, AclError} ->
-                lager:error("Client ~s@~s: acl error - ~p", [ClientId, emqttd_net:format(Peername), AclError]),
-                {error, acl_error, State}
-        end;
+        handle(Packet, State);
 	{error, Reason} ->
 		{error, Reason, State}
 	end.
@@ -149,20 +141,37 @@ handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peername = Peername =
     {ok, Session} = emqttd_session:start({CleanSess, ClientId, self()}),
     {ok, State2#proto_state{session = Session}};
 
-handle(Packet = ?PUBLISH_PACKET(?QOS_0, _Topic, _PacketId, _Payload),
-       State = #proto_state{session = Session}) ->
-    emqttd_session:publish(Session, {?QOS_0, emqttd_message:from_packet(Packet)}),
+handle(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload),
+       State = #proto_state{client_id = ClientId, session = Session}) ->
+    case emqttd_acl:check({mqtt_user(State), publish, Topic}) of
+        allow -> 
+            emqttd_session:publish(Session, {?QOS_0, emqttd_message:from_packet(Packet)});
+        deny -> 
+            lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic])
+    end,
 	{ok, State};
 
-handle(Packet = ?PUBLISH_PACKET(?QOS_1, _Topic, PacketId, _Payload),
-         State = #proto_state{session = Session}) ->
-    emqttd_session:publish(Session, {?QOS_1, emqttd_message:from_packet(Packet)}),
-    send(?PUBACK_PACKET(?PUBACK, PacketId), State);
+handle(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload),
+         State = #proto_state{client_id = ClientId, session = Session}) ->
+    case emqttd_acl:check({mqtt_user(State), publish, Topic}) of
+        allow -> 
+            emqttd_session:publish(Session, {?QOS_1, emqttd_message:from_packet(Packet)}),
+            send(?PUBACK_PACKET(?PUBACK, PacketId), State);
+        deny -> 
+            lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic]),
+            {ok, State}
+    end;
 
-handle(Packet = ?PUBLISH_PACKET(?QOS_2, _Topic, PacketId, _Payload),
-         State = #proto_state{session = Session}) ->
-    NewSession = emqttd_session:publish(Session, {?QOS_2, emqttd_message:from_packet(Packet)}),
-	send(?PUBACK_PACKET(?PUBREC, PacketId), State#proto_state{session = NewSession});
+handle(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload),
+         State = #proto_state{client_id = ClientId, session = Session}) ->
+    case emqttd_acl:check({mqtt_user(State), publish, Topic}) of
+        allow -> 
+            NewSession = emqttd_session:publish(Session, {?QOS_2, emqttd_message:from_packet(Packet)}),
+            send(?PUBACK_PACKET(?PUBREC, PacketId), State#proto_state{session = NewSession});
+        deny -> 
+            lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic]),
+            {ok, State}
+    end;
 
 handle(?PUBACK_PACKET(Type, PacketId), State = #proto_state{session = Session}) 
     when Type >= ?PUBACK andalso Type =< ?PUBCOMP ->
@@ -179,8 +188,15 @@ handle(?PUBACK_PACKET(Type, PacketId), State = #proto_state{session = Session})
 	{ok, NewState};
 
 handle(?SUBSCRIBE_PACKET(PacketId, TopicTable), State = #proto_state{session = Session}) ->
-    {ok, NewSession, GrantedQos} = emqttd_session:subscribe(Session, TopicTable),
-    send(?SUBACK_PACKET(PacketId, GrantedQos), State#proto_state{session = NewSession});
+    AllowDenies = [emqttd_acl:check({mqtt_user(State), subscribe, Topic}) || {Topic, _Qos} <- TopicTable],
+    case lists:member(deny, AllowDenies) of
+        true ->
+            %%TODO: return 128 QoS when deny...
+            {ok, State};
+        false ->
+            {ok, NewSession, GrantedQos} = emqttd_session:subscribe(Session, TopicTable),
+            send(?SUBACK_PACKET(PacketId, GrantedQos), State#proto_state{session = NewSession})
+    end;
 
 handle(?UNSUBSCRIBE_PACKET(PacketId, Topics), State = #proto_state{session = Session}) ->
     {ok, NewSession} = emqttd_session:unsubscribe(Session, Topics),
@@ -218,9 +234,7 @@ send(Packet, State = #proto_state{transport = Transport, socket = Sock, peername
     Transport:send(Sock, Data),
     {ok, State}.
 
-%%
 %% @doc redeliver PUBREL PacketId
-%%
 redeliver({?PUBREL, PacketId}, State) ->
     send(?PUBREL_PACKET(PacketId), State).
 
@@ -238,7 +252,8 @@ clientid(<<>>, #proto_state{peername = Peername}) ->
 
 clientid(ClientId, _State) -> ClientId.
 
-%%----------------------------------------------------------------------------
+mqtt_user(#proto_state{peername = {Addr, _Port}, client_id = ClientId, username = Username}) ->
+    #mqtt_user{username = Username, clientid = ClientId, ipaddr = Addr}.
 
 send_willmsg(undefined) -> ignore;
 %%TODO:should call session...
@@ -315,36 +330,6 @@ validate_topics(Type, Topics) when Type =:= name orelse Type =:= filter ->
 validate_qos(undefined) -> true;
 validate_qos(Qos) when Qos =< ?QOS_2 -> true;
 validate_qos(_) -> false.
-
-access_control(publish, Topic, State = #proto_state{client_id = ClientId}) ->
-    case emqttd_acl:check(mqtt_user(State), publish, Topic) of
-        {ok, allow} -> 
-            allow;
-        {ok, deny} -> 
-            lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic]), deny;
-        {error, AclError} ->
-            lager:error("ACL Error: ~p when ~s publish to ~s", [AclError, ClientId, Topic]), deny
-    end.
-
-access_control(?SUBSCRIBE_PACKET(_PacketId, TopicTable), State) ->
-    check_acl(mqtt_user(State), subscribe, [Topic || {Topic, _Qos} <- TopicTable]);
-
-mqtt_user(#proto_state{peername = {Addr, _Port}, client_id = ClientId, username = Username}) ->
-    #mqtt_user{username = Username, clientid = ClientId, ipaddr = Addr}.
-
-check_acl(_User, subscribe, []) ->
-    {ok, allow};
-check_acl(User = #mqtt_user{clientid=ClientId}, subscribe, [Topic|Topics]) ->
-    case emqttd_acl:check(User, subscribe, Topic) of
-        {ok, allow} -> 
-            check_acl(User, subscribe, Topics);
-        {ok, deny} -> 
-            lager:warning("ACL Deny: ~s cannnot subscribe ~s", [ClientId, Topic]),
-            {ok, deny};
-        {error, Error} -> 
-            {error, Error}
-    end.
-
 
 try_unregister(undefined, _) -> ok;
 try_unregister(ClientId, _) -> emqttd_cm:unregister(ClientId, self()).

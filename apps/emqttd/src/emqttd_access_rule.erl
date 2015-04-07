@@ -42,6 +42,8 @@
                 {deny, all} |
                 {deny, who(), access(), list(topic())}.
 
+-export_type([rule/0]).
+
 -export([compile/1, match/3]).
 
 %%%-----------------------------------------------------------------------------

@@ -136,8 +136,7 @@ service(auth) ->
 
 service(acl) ->
     {ok, AclOpts} = application:get_env(acl),
-    [{"emqttd acl", emqttd_acl, AclOpts},
-     {"emqttd internal acl", emqttd_acl_internal, AclOpts}];
+    {"emqttd acl", emqttd_acl, AclOpts};
 
 service(monitor) ->
     {"emqttd monitor", emqttd_monitor}.

@@ -30,62 +30,76 @@
 
 -include("emqttd.hrl").
 
--export([start_link/1, stop/0]).
+-export([all_rules/0]).
 
 -behaviour(emqttd_acl).
 
 %% ACL callbacks
--export([check_acl/3, reload_acl/0, description/0]).
-
--behaviour(gen_server).
-
--define(SERVER, ?MODULE).
-
-%% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+-export([init/1, check_acl/2, reload_acl/1, description/0]).
 
 -define(ACL_RULE_TABLE, mqtt_acl_rule).
 
--record(state, {acl_file, raw_rules = []}).
+-record(state, {acl_file, nomatch = allow}).
 
 %%%=============================================================================
 %%% API
 %%%=============================================================================
 
-%%------------------------------------------------------------------------------
-%% @doc
-%% Start Internal ACL Server.
-%%
-%% @end
-%%------------------------------------------------------------------------------
--spec start_link(AclOpts) -> {ok, pid()} | ignore | {error, any()} when
-        AclOpts :: [{file, list()}].
-start_link(AclOpts) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [AclOpts], []).
-
-stop() ->
-    gen_server:call(?SERVER, stop).
+%% @doc Read all rules.
+-spec all_rules() -> list(emqttd_access_rule:rule()).
+all_rules() ->
+    case ets:lookup(?ACL_RULE_TABLE, all_rules) of
+        [] -> [];
+        [{_, Rules}] -> Rules
+    end.
 
 %%%=============================================================================
 %%% ACL callbacks 
 %%%=============================================================================
 
-%%------------------------------------------------------------------------------
-%% @doc
-%% Check ACL.
-%%
-%% @end
-%%------------------------------------------------------------------------------
--spec check_acl(User, PubSub, Topic) -> allow | deny | ignore when
+%% @doc init internal ACL.
+-spec init(AclOpts :: list()) -> {ok, State :: any()}.
+init(AclOpts) ->
+    ets:new(?ACL_RULE_TABLE, [set, public, named_table]),
+    AclFile = proplists:get_value(file, AclOpts),
+    Default = proplists:get_value(nomatch, AclOpts, allow),
+    State = #state{acl_file = AclFile, nomatch = Default},
+    load_rules(State),
+    {ok, State}.
+
+load_rules(#state{acl_file = AclFile}) ->
+    {ok, Terms} = file:consult(AclFile),
+    Rules = [emqttd_access_rule:compile(Term) || Term <- Terms],
+    lists:foreach(fun(PubSub) ->
+        ets:insert(?ACL_RULE_TABLE, {PubSub,
+            lists:filter(fun(Rule) -> filter(PubSub, Rule) end, Rules)})
+        end, [publish, subscribe]),
+    ets:insert(?ACL_RULE_TABLE, {all_rules, Terms}).
+
+filter(_PubSub, {allow, all}) ->
+    true;
+filter(_PubSub, {deny, all}) ->
+    true;
+filter(publish, {_AllowDeny, _Who, publish, _Topics}) ->
+    true;
+filter(_PubSub, {_AllowDeny, _Who, pubsub, _Topics}) ->
+    true;
+filter(subscribe, {_AllowDeny, _Who, subscribe, _Topics}) ->
+    true;
+filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
+    false.
+
+%% @doc Check ACL.
+-spec check_acl({User, PubSub, Topic}, State) -> allow | deny | ignore when
       User   :: mqtt_user(),
       PubSub :: pubsub(),
-      Topic  :: binary().
-check_acl(User, PubSub, Topic) ->
+      Topic  :: binary(),
+      State  :: #state{}.
+check_acl({User, PubSub, Topic}, #state{nomatch = Default}) ->
     case match(User, Topic, lookup(PubSub)) of
         {matched, allow} -> allow;
         {matched, deny}  -> deny;
-        nomatch          -> ignore
+        nomatch          -> Default
     end.
 
 lookup(PubSub) ->
@@ -103,89 +117,16 @@ match(User, Topic, [Rule|Rules]) ->
         {matched, AllowDeny} -> {matched, AllowDeny}
     end.
 
-%%------------------------------------------------------------------------------
-%% @doc
-%% Reload ACL.
-%%
-%% @end
-%%------------------------------------------------------------------------------
--spec reload_acl() -> ok.
-reload_acl() ->
-    gen_server:call(?SERVER, reload).
+%% @doc Reload ACL.
+-spec reload_acl(State :: #state{}) -> ok | {error, Reason :: any()}.
+reload_acl(State) ->
+    case catch load_rules(State) of
+        {'EXIT', Error} -> {error, Error};
+        _ -> ok
+    end.
 
-%%------------------------------------------------------------------------------
-%% @doc
-%% ACL Description.
-%%
-%% @end
-%%------------------------------------------------------------------------------
+%% @doc ACL Description.
 -spec description() -> string().
 description() ->
     "Internal ACL with etc/acl.config".
-
-%%%=============================================================================
-%%% gen_server callbacks 
-%%%=============================================================================
-
-init([AclOpts]) ->
-    ets:new(?ACL_RULE_TABLE, [set, protected, named_table]),
-    AclFile = proplists:get_value(file, AclOpts),
-    {ok, State} = load_rules(#state{acl_file = AclFile}),
-    emqttd_acl:register_mod(?MODULE),
-    {ok, State}.
-
-handle_call(reload, _From, State) ->
-    case catch load_rules(State) of
-        {ok, NewState} -> 
-            {reply, ok, NewState};
-        {'EXIT', Error} -> 
-            {reply, {error, Error}, State}
-    end;
-
-handle_call(stop, _From, State) ->
-    {stop, normal, ok, State};
-
-handle_call(Req, _From, State) ->
-    lager:error("BadReq: ~p", [Req]),
-    {reply, {error, badreq}, State}.
-
-handle_cast(_Msg, State) ->
-    {noreply, State}.
-
-handle_info(_Info, State) ->
-    {noreply, State}.
-
-terminate(_Reason, _State) ->
-    emqttd_acl:unregister_mod(?MODULE),
-    ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-%%%=============================================================================
-%%% Internal functions
-%%%=============================================================================
-
-load_rules(State = #state{acl_file = AclFile}) ->
-    {ok, Terms} = file:consult(AclFile),
-    Rules = [emqttd_access_rule:compile(Term) || Term <- Terms],
-    lists:foreach(fun(PubSub) ->
-        ets:insert(?ACL_RULE_TABLE, {PubSub, 
-            lists:filter(fun(Rule) -> filter(PubSub, Rule) end, Rules)})
-        end, [publish, subscribe]),
-    {ok, State#state{raw_rules = Terms}}.
-
-filter(_PubSub, {allow, all}) ->
-    true;
-filter(_PubSub, {deny, all}) ->
-    true;
-filter(publish, {_AllowDeny, _Who, publish, _Topics}) ->
-    true;
-filter(_PubSub, {_AllowDeny, _Who, pubsub, _Topics}) ->
-    true;
-filter(subscribe, {_AllowDeny, _Who, subscribe, _Topics}) ->
-    true;
-filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
-    false.
-
 
