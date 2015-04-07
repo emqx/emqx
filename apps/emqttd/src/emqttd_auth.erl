@@ -99,8 +99,12 @@ stop() ->
 
 init([AuthMods]) ->
 	ets:new(?AUTH_TABLE, [set, named_table, protected]),
-    Modules = [begin {ok, State} = Mod:init(Opts),
-                     {authmod(Mod), State} end || {Mod, Opts} <- AuthMods],
+    Modules = lists:map(
+                fun({Mod, Opts}) ->
+                        AuthMod = authmod(Mod),
+                        {ok, State} = AuthMod:init(Opts),
+                        {AuthMod, State}
+                end, AuthMods),
     ets:insert(?AUTH_TABLE, {auth_modules, Modules}),
 	{ok, state}.
 
