@@ -51,19 +51,23 @@
 
 -ifdef(use_specs).
 
--callback check_acl(User, PubSub, Topic) -> {ok, allow | deny} | ignore | {error, any()} when
+-callback init(AclOpts :: list()) -> {ok, State :: any()}.
+
+-callback check_acl(User, PubSub, Topic) -> allow | deny | ignore when
     User     :: mqtt_user(),
-    PubSub   :: publish | subscribe,
+    PubSub   :: pubsub(),
     Topic    :: binary().
 
 -callback reload_acl() -> ok | {error, any()}.
+
+-callback description() -> string().
 
 -else.
 
 -export([behaviour_info/1]).
 
 behaviour_info(callbacks) ->
-        [{check_acl, 3}, {reload_acl, 0}, {description, 0}];
+        [{init, 1}, {check_acl, 3}, {reload_acl, 0}, {description, 0}];
 behaviour_info(_Other) ->
         undefined.
 
@@ -90,22 +94,24 @@ start_link(AclOpts) ->
 %%
 %% @end
 %%--------------------------------------------------------------------------
--spec check(User, PubSub, Topic) -> {ok, allow | deny} | {error, any()} when
+-spec check(User, PubSub, Topic) -> allow | deny | ignore when
       User   :: mqtt_user(),
-      PubSub :: publish | subscribe,
+      PubSub :: pubsub(),
       Topic  :: binary().
 check(User, PubSub, Topic) when PubSub =:= publish orelse PubSub =:= subscribe ->
     case ets:lookup(?ACL_TABLE, acl_modules) of
-        [] -> {error, "No ACL mods!"};
+        [] -> allow;
         [{_, Mods}] -> check(User, PubSub, Topic, Mods)
     end.
 
-check(_User, _PubSub, _Topic, []) ->
-    {error, "All ACL mods ignored!"};
+check(#mqtt_user{clientid = ClientId}, PubSub, Topic, []) ->
+    lager:error("ACL: nomatch when ~s ~s ~s", [ClientId, PubSub, Topic]),
+    allow;
 
 check(User, PubSub, Topic, [Mod|Mods]) ->
     case Mod:check_acl(User, PubSub, Topic) of
-        {ok, AllowDeny} -> {ok, AllowDeny};
+        allow -> allow;
+        deny  -> deny;
         ignore -> check(User, PubSub, Topic, Mods)
     end.
 
@@ -167,7 +173,7 @@ handle_call({register_mod, Mod}, _From, State) ->
     Mods = all_modules(),
     case lists:member(Mod, Mods) of
         true ->
-            {reply, {error, registered}, State};
+            {reply, {error, existed}, State};
         false ->
             ets:insert(?ACL_TABLE, {acl_modules, [Mod | Mods]}),
             {reply, ok, State}

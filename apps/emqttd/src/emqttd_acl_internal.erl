@@ -77,15 +77,15 @@ stop() ->
 %%
 %% @end
 %%------------------------------------------------------------------------------
--spec check_acl(User, PubSub, Topic) -> {ok, allow} | {ok, deny} | ignore | {error, any()} when
+-spec check_acl(User, PubSub, Topic) -> allow | deny | ignore when
       User   :: mqtt_user(),
-      PubSub :: publish | subscribe,
+      PubSub :: pubsub(),
       Topic  :: binary().
 check_acl(User, PubSub, Topic) ->
     case match(User, Topic, lookup(PubSub)) of
-        {matched, allow} -> {ok, allow};
-        {matched, deny}  -> {ok, deny};
-        nomatch          -> {error, nomatch}
+        {matched, allow} -> allow;
+        {matched, deny}  -> deny;
+        nomatch          -> ignore
     end.
 
 lookup(PubSub) ->
