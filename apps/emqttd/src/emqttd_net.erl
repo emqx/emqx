@@ -30,7 +30,7 @@
 
 -export([tcp_name/3, tcp_host/1, getopts/2, setopts/2, getaddr/2, port_to_listeners/1]).
 
--export([peername/1, sockname/1, peer_string/1, connection_string/2]).
+-export([peername/1, sockname/1, format/2, format/1, connection_string/2]).
 
 -include_lib("kernel/include/inet.hrl").
 
@@ -200,15 +200,14 @@ setopts(Sock, Options) when is_port(Sock) ->
 
 sockname(Sock) when is_port(Sock) -> inet:sockname(Sock).
 
-peer_string(Sock) ->
-    case peername(Sock) of
-        {ok, {Addr, Port}} ->
-            {ok, lists:flatten(io_lib:format("~s:~p", [maybe_ntoab(Addr), Port]))};
-        Error -> 
-            Error
-    end.
-
 peername(Sock)   when is_port(Sock) -> inet:peername(Sock).
+
+format(sockname, SockName) ->
+    format(SockName);
+format(peername, PeerName) ->
+    format(PeerName).
+format({Addr, Port}) ->
+    lists:flatten(io_lib:format("~s:~p", [maybe_ntoab(Addr), Port])).
 
 ntoa({0,0,0,0,0,16#ffff,AB,CD}) ->
     inet_parse:ntoa({AB bsr 8, AB rem 256, CD bsr 8, CD rem 256});

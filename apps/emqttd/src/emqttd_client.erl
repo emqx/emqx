@@ -46,7 +46,7 @@
 %%Client State...
 -record(state, {transport,
                 socket,
-                peer_name,
+                peername,
                 conn_name,
                 await_recv,
                 conn_state,
@@ -66,14 +66,14 @@ info(Pid) ->
 init([SockArgs = {Transport, Sock, _SockFun}, PacketOpts]) ->
     %transform if ssl.
     {ok, NewSock} = esockd_connection:accept(SockArgs),
-    {ok, Peername} = emqttd_net:peer_string(Sock),
+    {ok, Peername} = emqttd_net:peername(Sock),
     {ok, ConnStr} = emqttd_net:connection_string(Sock, inbound),
     lager:info("Connect from ~s", [ConnStr]),
     ParserState = emqttd_parser:init(PacketOpts),
     ProtoState = emqttd_protocol:init({Transport, NewSock, Peername}, PacketOpts),
     State = control_throttle(#state{transport    = Transport,
                                     socket       = NewSock,
-                                    peer_name    = Peername,
+                                    peername     = Peername,
                                     conn_name    = ConnStr,
                                     await_recv   = false,
                                     conn_state   = running,
@@ -118,8 +118,8 @@ handle_info({redeliver, {?PUBREL, PacketId}}, #state{proto_state = ProtoState} =
 handle_info({inet_reply, _Ref, ok}, State) ->
     {noreply, State, hibernate};
 
-handle_info({inet_async, Sock, _Ref, {ok, Data}}, State = #state{peer_name = PeerName, socket = Sock}) ->
-    lager:debug("RECV from ~s: ~p", [PeerName, Data]),
+handle_info({inet_async, Sock, _Ref, {ok, Data}}, State = #state{peername = Peername, socket = Sock}) ->
+    lager:debug("RECV from ~s: ~p", [emqttd_net:format(Peername), Data]),
     emqttd_metrics:inc('bytes/received', size(Data)),
     process_received_bytes(Data,
                            control_throttle(State #state{await_recv = false}));
@@ -127,31 +127,31 @@ handle_info({inet_async, Sock, _Ref, {ok, Data}}, State = #state{peer_name = Pee
 handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
     network_error(Reason, State);
 
-handle_info({inet_reply, _Sock, {error, Reason}}, State = #state{peer_name = PeerName}) ->
-    lager:critical("Client ~s: unexpected inet_reply '~p'", [PeerName, Reason]),
+handle_info({inet_reply, _Sock, {error, Reason}}, State = #state{peername = Peername}) ->
+    lager:critical("Client ~s: unexpected inet_reply '~p'", [emqttd_net:format(Peername), Reason]),
     {noreply, State};
 
-handle_info({keepalive, start, TimeoutSec}, State = #state{transport = Transport, socket = Socket}) ->
-    lager:debug("Client ~s: Start KeepAlive with ~p seconds", [State#state.peer_name, TimeoutSec]),
+handle_info({keepalive, start, TimeoutSec}, State = #state{transport = Transport, socket = Socket, peername = Peername}) ->
+    lager:debug("Client ~s: Start KeepAlive with ~p seconds", [emqttd_net:format(Peername), TimeoutSec]),
     KeepAlive = emqttd_keepalive:new({Transport, Socket}, TimeoutSec, {keepalive, timeout}),
     {noreply, State#state{ keepalive = KeepAlive }};
 
-handle_info({keepalive, timeout}, State = #state{keepalive = KeepAlive}) ->
+handle_info({keepalive, timeout}, State = #state{peername = Peername, keepalive = KeepAlive}) ->
     case emqttd_keepalive:resume(KeepAlive) of
     timeout ->
-        lager:debug("Client ~s: Keepalive Timeout!", [State#state.peer_name]),
+        lager:debug("Client ~s: Keepalive Timeout!", [emqttd_net:format(Peername)]),
         stop({shutdown, keepalive_timeout}, State#state{keepalive = undefined});
     {resumed, KeepAlive1} ->
-        lager:debug("Client ~s: Keepalive Resumed", [State#state.peer_name]),
+        lager:debug("Client ~s: Keepalive Resumed", [emqttd_net:format(Peername)]),
         {noreply, State#state{keepalive = KeepAlive1}}
     end;
 
-handle_info(Info, State = #state{peer_name = PeerName}) ->
-    lager:critical("Client ~s: unexpected info ~p",[PeerName, Info]),
+handle_info(Info, State = #state{peername = Peername}) ->
+    lager:critical("Client ~s: unexpected info ~p",[emqttd_net:format(Peername), Info]),
     {stop, {badinfo, Info}, State}.
 
-terminate(Reason, #state{peer_name = PeerName, keepalive = KeepAlive, proto_state = ProtoState}) ->
-    lager:debug("Client ~s: ~p terminated, reason: ~p~n", [PeerName, self(), Reason]),
+terminate(Reason, #state{peername = Peername, keepalive = KeepAlive, proto_state = ProtoState}) ->
+    lager:debug("Client ~s: ~p terminated, reason: ~p~n", [emqttd_net:format(Peername), self(), Reason]),
     notify(disconnected, Reason, ProtoState),
     emqttd_keepalive:cancel(KeepAlive),
     case {ProtoState, Reason} of
@@ -201,8 +201,9 @@ process_received_bytes(Bytes, State = #state{packet_opts = PacketOpts,
     end.
 
 %%----------------------------------------------------------------------------
-network_error(Reason, State = #state{peer_name = PeerName}) ->
-    lager:warning("Client ~s: MQTT detected network error '~p'", [PeerName, Reason]),
+network_error(Reason, State = #state{peername = Peername}) ->
+    lager:warning("Client ~s: MQTT detected network error '~p'",
+                    [emqttd_net:format(Peername), Reason]),
     stop({shutdown, conn_closed}, State).
 
 run_socket(State = #state{conn_state = blocked}) ->

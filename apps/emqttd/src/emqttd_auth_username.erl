@@ -62,18 +62,21 @@ all_users() ->
 %%%=============================================================================
 init(Opts) ->
 	mnesia:create_table(?AUTH_USERNAME_TABLE, [
-        {type, set},
-		{disc_copies, [node()]},
+		{ram_copies, [node()]},
 		{attributes, record_info(fields, ?AUTH_USERNAME_TABLE)}]),
-	mnesia:add_table_copy(?AUTH_USERNAME_TABLE, node(), disc_copies),
+	mnesia:add_table_copy(?AUTH_USERNAME_TABLE, node(), ram_copies),
     {ok, Opts}.
 
+check(#mqtt_user{username = undefined}, _Password, _Opts) ->
+    {error, "Username undefined"};
+check(_User, undefined, _Opts) ->
+    {error, "Password undefined"};
 check(#mqtt_user{username = Username}, Password, _Opts) ->
 	case mnesia:dirty_read(?AUTH_USERNAME_TABLE, Username) of
         [] -> 
             {error, "Username Not Found"};
-        [#?AUTH_USERNAME_TABLE{password = <<Salt:4/binary, Hash>>}] ->
-            case Hash =:= hash(Salt, Password) of
+        [#?AUTH_USERNAME_TABLE{password = <<Salt:4/binary, Hash/binary>>}] ->
+            case Hash =:= md5_hash(Salt, Password) of
                 true -> ok;
                 false -> {error, "Password Not Right"}
             end
@@ -86,11 +89,11 @@ description() -> "Username password authentication module".
 %%%=============================================================================
 
 hash(Password) ->
-    hash(salt(), Password).
+    SaltBin = salt(),
+    <<SaltBin/binary, (md5_hash(SaltBin, Password))/binary>>.
 
-hash(SaltBin, Password) ->
-    Hash = erlang:md5(<<SaltBin/binary, Password/binary>>),
-    <<SaltBin/binary, Hash/binary>>.
+md5_hash(SaltBin, Password) ->
+    erlang:md5(<<SaltBin/binary, Password/binary>>).
 
 salt() ->
     {A1,A2,A3} = now(),

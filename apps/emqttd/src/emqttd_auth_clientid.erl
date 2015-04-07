@@ -41,7 +41,7 @@
 
 -define(AUTH_CLIENTID_TABLE, mqtt_auth_clientid).
 
--record(?AUTH_CLIENTID_TABLE, {clientid, password = undefined}).
+-record(?AUTH_CLIENTID_TABLE, {clientid, ipaddr, password}).
 
 add_clientid(ClientId) when is_binary(ClientId) ->
     R = #mqtt_auth_clientid{clientid = ClientId},
@@ -62,17 +62,24 @@ remove_clientid(ClientId) ->
 
 init(Opts) ->
 	mnesia:create_table(?AUTH_CLIENTID_TABLE, [
-        {type, set},
-		{disc_copies, [node()]},
+		{ram_copies, [node()]},
 		{attributes, record_info(fields, ?AUTH_CLIENTID_TABLE)}]),
-	mnesia:add_table_copy(?AUTH_CLIENTID_TABLE, node(), disc_copies),
+	mnesia:add_table_copy(?AUTH_CLIENTID_TABLE, node(), ram_copies),
+    case proplists:get_value(file, Opts) of
+        undefined -> ok;
+        File -> load(File)
+    end,
 	{ok, Opts}.
 
-check(#mqtt_user{clientid = ClientId}, _Password, []) -> 
-    check_clientid_only(ClientId);
-check(#mqtt_user{clientid = ClientId}, _Password, [{password, no}|_]) -> 
-    check_clientid_only(ClientId);
-check(#mqtt_user{clientid = ClientId}, Password, [{password, yes}|_]) -> 
+check(#mqtt_user{clientid = undefined}, _Password, []) ->
+    {error, "ClientId undefined"};
+check(#mqtt_user{clientid = ClientId, ipaddr = IpAddr}, _Password, []) ->
+    check_clientid_only(ClientId, IpAddr);
+check(#mqtt_user{clientid = ClientId, ipaddr = IpAddr}, _Password, [{password, no}|_]) ->
+    check_clientid_only(ClientId, IpAddr);
+check(_User, undefined, [{password, yes}|_]) ->
+    {error, "Password undefined"};
+check(#mqtt_user{clientid = ClientId}, Password, [{password, yes}|_]) ->
     case mnesia:dirty_read(?AUTH_CLIENTID_TABLE, ClientId) of
         [] -> {error, "ClientId Not Found"};
         [#?AUTH_CLIENTID_TABLE{password = Password}]  -> ok; %% TODO: plaintext??
@@ -85,10 +92,41 @@ description() -> "ClientId authentication module".
 %%% Internal functions
 %%%=============================================================================
 
-check_clientid_only(ClientId) ->
+load(File) ->
+    {ok, Fd} = file:open(File, [read]),
+    load(Fd, file:read_line(Fd), []).
+
+load(Fd, {ok, Line}, Clients) when is_list(Line) ->
+    Clients1 =
+    case string:tokens(Line, " ") of
+        [ClientIdS] ->
+            ClientId = list_to_binary(string:strip(ClientIdS, right, $\n)),
+            [#mqtt_auth_clientid{clientid = ClientId} | Clients];
+        [ClientId, IpAddr0] ->
+            IpAddr = string:strip(IpAddr0, right, $\n),
+            Range = esockd_access:range(IpAddr),
+            [#mqtt_auth_clientid{clientid = list_to_binary(ClientId),
+                                 ipaddr = {IpAddr, Range}}|Clients];
+        BadLine ->
+            lager:error("BadLine in clients.config: ~s", [BadLine]),
+            Clients
+    end,
+    load(Fd, file:read_line(Fd), Clients1);
+
+load(Fd, eof, Clients) -> 
+    mnesia:transaction(fun() -> [mnesia:write(C) || C<- Clients] end),
+    file:close(Fd).
+
+check_clientid_only(ClientId, IpAddr) ->
     case mnesia:dirty_read(?AUTH_CLIENTID_TABLE, ClientId) of
         [] -> {error, "ClientId Not Found"};
-        _  -> ok
+        [#?AUTH_CLIENTID_TABLE{ipaddr = undefined}]  -> ok;
+        [#?AUTH_CLIENTID_TABLE{ipaddr = {_, {Start, End}}}] ->
+            I = esockd_access:atoi(IpAddr),
+            case I >= Start andalso I =< End of
+                true -> ok;
+                false -> {error, "ClientId with wrong IP address"}
+            end
     end.
 
 

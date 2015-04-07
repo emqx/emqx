@@ -79,10 +79,10 @@ cluster([SNode]) ->
 	end.
 
 useradd([Username, Password]) ->
-	?PRINT("~p", [emqttd_auth:add(list_to_binary(Username), list_to_binary(Password))]).
+	?PRINT("~p~n", [emqttd_auth_username:add_user(bin(Username), bin(Password))]).
 
 userdel([Username]) ->
-	?PRINT("~p", [emqttd_auth:delete(list_to_binary(Username))]).
+	?PRINT("~p~n", [emqttd_auth_username:remove_user(bin(Username))]).
 
 vm([]) ->
     [vm([Name]) || Name <- ["load", "memory", "process", "io"]];
@@ -128,13 +128,13 @@ bridges(["list"]) ->
         end, emqttd_bridge_sup:bridges());
 
 bridges(["start", SNode, Topic]) ->
-    case emqttd_bridge_sup:start_bridge(list_to_atom(SNode), list_to_binary(Topic)) of
+    case emqttd_bridge_sup:start_bridge(list_to_atom(SNode), bin(Topic)) of
         {ok, _} -> ?PRINT_MSG("bridge is started.~n"); 
         {error, Error} -> ?PRINT("error: ~p~n", [Error])
     end;
 
 bridges(["stop", SNode, Topic]) ->
-    case emqttd_bridge_sup:stop_bridge(list_to_atom(SNode), list_to_binary(Topic)) of
+    case emqttd_bridge_sup:stop_bridge(list_to_atom(SNode), bin(Topic)) of
         ok -> ?PRINT_MSG("bridge is stopped.~n");
         {error, Error} -> ?PRINT("error: ~p~n", [Error])
     end.
@@ -184,3 +184,5 @@ loads() ->
 ftos(F) -> 
     [S] = io_lib:format("~.2f", [F]), S.
 
+bin(S) when is_list(S) -> list_to_binary(S);
+bin(B) when is_binary(B) -> B.

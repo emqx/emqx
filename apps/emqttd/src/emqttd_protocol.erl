@@ -41,11 +41,12 @@
 -record(proto_state, {
         transport,
         socket,
-        peer_name,
+        peername,
         connected = false, %received CONNECT action?
         proto_ver,
         proto_name,
 		%packet_id,
+        username,
 		client_id,
 		clean_sess,
         session, %% session state or session pid
@@ -59,7 +60,7 @@ init({Transport, Socket, Peername}, Opts) ->
 	#proto_state{
         transport        = Transport,
 		socket	         = Socket,
-        peer_name        = Peername,
+        peername         = Peername,
         max_clientid_len = proplists:get_value(max_clientid_len, Opts, ?MAX_CLIENTID_LEN)}. 
 
 client_id(#proto_state{client_id = ClientId}) -> ClientId.
@@ -90,9 +91,9 @@ received(?PACKET(?CONNECT), State = #proto_state{connected = true}) ->
 received(_Packet, State = #proto_state{connected = false}) ->
     {error, protocol_not_connected, State};
 
-received(Packet = ?PACKET(_Type), State = #proto_state{peer_name = PeerName,
+received(Packet = ?PACKET(_Type), State = #proto_state{peername  = Peername,
                                                        client_id = ClientId}) ->
-	lager:debug("RECV from ~s@~s: ~s", [ClientId, PeerName, emqttd_packet:dump(Packet)]),
+	lager:debug("RECV from ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqttd_packet:dump(Packet)]),
 	case validate_packet(Packet) of	
 	ok ->
 		handle(Packet, State);
@@ -100,7 +101,7 @@ received(Packet = ?PACKET(_Type), State = #proto_state{peer_name = PeerName,
 		{error, Reason, State}
 	end.
 
-handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peer_name = PeerName}) ->
+handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peername = Peername = {Addr, _}}) ->
 
     #mqtt_packet_connect{proto_ver  = ProtoVer,
                          username   = Username,
@@ -109,33 +110,36 @@ handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peer_name = PeerName}
                          keep_alive = KeepAlive,
                          client_id  = ClientId} = Var,
 
-    lager:debug("RECV from ~s@~s: ~s", [ClientId, PeerName, emqttd_packet:dump(Packet)]),
+    lager:debug("RECV from ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqttd_packet:dump(Packet)]),
 
-    {ReturnCode1, State1} =
+    State1 = State#proto_state{proto_ver  = ProtoVer,
+                               username   = Username,
+                               client_id  = ClientId,
+                               clean_sess = CleanSess},
+    {ReturnCode1, State2} =
     case validate_connect(Var, State) of
         ?CONNACK_ACCEPT ->
-            case emqttd_auth:check(Username, Password) of
-                true ->
+            User = #mqtt_user{username = Username, ipaddr = Addr, clientid = ClientId},
+            case emqttd_auth:login(User, Password) of
+                ok ->
                     ClientId1 = clientid(ClientId, State), 
                     start_keepalive(KeepAlive),
                     emqttd_cm:register(ClientId1, self()),
-                    {?CONNACK_ACCEPT, State#proto_state{proto_ver  = ProtoVer,
-                                                        client_id  = ClientId1,
-                                                        clean_sess = CleanSess,
-                                                        will_msg   = willmsg(Var)}};
-                false ->
-                    lager:error("~s@~s: username '~s' login failed - no credentials", [ClientId, PeerName, Username]),
-                    {?CONNACK_CREDENTIALS, State#proto_state{client_id = ClientId}}
+                    {?CONNACK_ACCEPT, State1#proto_state{client_id  = ClientId1,
+                                                         will_msg   = willmsg(Var)}};
+                {error, Reason}->
+                    lager:error("~s@~s: username '~s' login failed - ~s", [ClientId, emqttd_net:format(Peername), Username, Reason]),
+                    {?CONNACK_CREDENTIALS, State1}
+                                                        
             end;
         ReturnCode ->
-            {ReturnCode, State#proto_state{client_id = ClientId,
-                                           clean_sess = CleanSess}}
+            {ReturnCode, State1}
     end,
-    notify(connected, ReturnCode1, State1),
-    send(?CONNACK_PACKET(ReturnCode1), State1),
+    notify(connected, ReturnCode1, State2),
+    send(?CONNACK_PACKET(ReturnCode1), State2),
     %%Starting session
     {ok, Session} = emqttd_session:start({CleanSess, ClientId, self()}),
-    {ok, State1#proto_state{session = Session}};
+    {ok, State2#proto_state{session = Session}};
 
 handle(Packet = ?PUBLISH_PACKET(?QOS_0, _Topic, _PacketId, _Payload),
        State = #proto_state{session = Session}) ->
@@ -197,11 +201,11 @@ send({_From, Message = #mqtt_message{qos = Qos}}, State = #proto_state{session =
     {Message1, NewSession} = emqttd_session:store(Session, Message),
 	send(emqttd_message:to_packet(Message1), State#proto_state{session = NewSession});
 
-send(Packet, State = #proto_state{transport = Transport, socket = Sock, peer_name = PeerName, client_id = ClientId}) when is_record(Packet, mqtt_packet) ->
-	lager:debug("SENT to ~s@~s: ~s", [ClientId, PeerName, emqttd_packet:dump(Packet)]),
+send(Packet, State = #proto_state{transport = Transport, socket = Sock, peername = Peername, client_id = ClientId}) when is_record(Packet, mqtt_packet) ->
+	lager:debug("SENT to ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqttd_packet:dump(Packet)]),
     sent_stats(Packet),
     Data = emqttd_serialiser:serialise(Packet),
-    lager:debug("SENT to ~s: ~p", [PeerName, Data]),
+    lager:debug("SENT to ~s: ~p", [emqttd_net:format(Peername), Data]),
     emqttd_metrics:inc('bytes/sent', size(Data)),
     Transport:send(Sock, Data),
     {ok, State}.
@@ -212,17 +216,17 @@ send(Packet, State = #proto_state{transport = Transport, socket = Sock, peer_nam
 redeliver({?PUBREL, PacketId}, State) ->
     send(?PUBREL_PACKET(PacketId), State).
 
-shutdown(Error, #proto_state{peer_name = PeerName, client_id = ClientId, will_msg = WillMsg}) ->
+shutdown(Error, #proto_state{peername = Peername, client_id = ClientId, will_msg = WillMsg}) ->
     send_willmsg(WillMsg),
     try_unregister(ClientId, self()),
-	lager:debug("Protocol ~s@~s Shutdown: ~p", [ClientId, PeerName, Error]),
+	lager:debug("Protocol ~s@~s Shutdown: ~p", [ClientId, emqttd_net:format(Peername), Error]),
     ok.
 
 willmsg(Packet) when is_record(Packet, mqtt_packet_connect) ->
     emqttd_message:from_packet(Packet).
 
-clientid(<<>>, #proto_state{peer_name = PeerName}) ->
-    <<"eMQTT/", (base64:encode(PeerName))/binary>>;
+clientid(<<>>, #proto_state{peername = Peername}) ->
+    <<"eMQTT/", (base64:encode(emqttd_net:format(Peername)))/binary>>;
 
 clientid(ClientId, _State) -> ClientId.
 
@@ -324,7 +328,7 @@ inc(?PINGRESP) ->
 inc(_) ->
     ingore.
 
-notify(connected, ReturnCode, #proto_state{peer_name = PeerName, 
+notify(connected, ReturnCode, #proto_state{peername   = Peername, 
                                            proto_ver  = ProtoVer, 
                                            client_id  = ClientId, 
                                            clean_sess = CleanSess}) ->
@@ -332,7 +336,7 @@ notify(connected, ReturnCode, #proto_state{peer_name = PeerName,
         true -> false;
         false -> true
     end,
-    Params = [{from, PeerName},
+    Params = [{from, emqttd_net:format(Peername)},
               {protocol, ProtoVer},
               {session, Sess},
               {connack, ReturnCode}],
