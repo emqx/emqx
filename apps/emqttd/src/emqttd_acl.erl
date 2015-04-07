@@ -35,7 +35,9 @@
 -define(SERVER, ?MODULE).
 
 %% API Function Exports
--export([start_link/1, check/3, reload/0, register_mod/1, unregister_mod/1, all_modules/0, stop/0]).
+-export([start_link/1, check/3, reload/0,
+         register_mod/1, unregister_mod/1, all_modules/0,
+         stop/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -87,7 +89,7 @@ start_link(AclOpts) ->
 %% Check ACL.
 %%
 %% @end
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------------
 -spec check(User, PubSub, Topic) -> {ok, allow | deny} | {error, any()} when
       User   :: mqtt_user(),
       PubSub :: publish | subscribe,

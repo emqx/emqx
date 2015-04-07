@@ -96,7 +96,15 @@ received(Packet = ?PACKET(_Type), State = #proto_state{peername  = Peername,
 	lager:debug("RECV from ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqttd_packet:dump(Packet)]),
 	case validate_packet(Packet) of	
 	ok ->
-		handle(Packet, State);
+        case access_control(Packet, State) of
+            {ok, allow} -> 
+                handle(Packet, State);
+            {ok, deny} -> 
+                {error, acl_denied, State};
+            {error, AclError} ->
+                lager:error("Client ~s@~s: acl error - ~p", [ClientId, emqttd_net:format(Peername), AclError]),
+                {error, acl_error, State}
+        end;
 	{error, Reason} ->
 		{error, Reason, State}
 	end.
@@ -307,6 +315,36 @@ validate_topics(Type, Topics) when Type =:= name orelse Type =:= filter ->
 validate_qos(undefined) -> true;
 validate_qos(Qos) when Qos =< ?QOS_2 -> true;
 validate_qos(_) -> false.
+
+access_control(publish, Topic, State = #proto_state{client_id = ClientId}) ->
+    case emqttd_acl:check(mqtt_user(State), publish, Topic) of
+        {ok, allow} -> 
+            allow;
+        {ok, deny} -> 
+            lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic]), deny;
+        {error, AclError} ->
+            lager:error("ACL Error: ~p when ~s publish to ~s", [AclError, ClientId, Topic]), deny
+    end.
+
+access_control(?SUBSCRIBE_PACKET(_PacketId, TopicTable), State) ->
+    check_acl(mqtt_user(State), subscribe, [Topic || {Topic, _Qos} <- TopicTable]);
+
+mqtt_user(#proto_state{peername = {Addr, _Port}, client_id = ClientId, username = Username}) ->
+    #mqtt_user{username = Username, clientid = ClientId, ipaddr = Addr}.
+
+check_acl(_User, subscribe, []) ->
+    {ok, allow};
+check_acl(User = #mqtt_user{clientid=ClientId}, subscribe, [Topic|Topics]) ->
+    case emqttd_acl:check(User, subscribe, Topic) of
+        {ok, allow} -> 
+            check_acl(User, subscribe, Topics);
+        {ok, deny} -> 
+            lager:warning("ACL Deny: ~s cannnot subscribe ~s", [ClientId, Topic]),
+            {ok, deny};
+        {error, Error} -> 
+            {error, Error}
+    end.
+
 
 try_unregister(undefined, _) -> ok;
 try_unregister(ClientId, _) -> emqttd_cm:unregister(ClientId, self()).
