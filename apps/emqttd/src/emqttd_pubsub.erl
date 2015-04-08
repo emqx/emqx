@@ -232,22 +232,26 @@ init([]) ->
 		{ram_copies, [node()]},
 		{attributes, record_info(fields, topic_trie)}]),
 	mnesia:add_table_copy(topic_trie, node(), ram_copies),
+    Result =
 	mnesia:create_table(topic, [
 		{type, bag},
 		{record_name, topic},
 		{ram_copies, [node()]}, 
 		{attributes, record_info(fields, topic)}]),
+    io:format("~p~n", [Result]),
 	mnesia:add_table_copy(topic, node(), ram_copies),
     mnesia:subscribe({table, topic, simple}),
     %% local table, not shared with other table
+    Result1 =
     mnesia:create_table(topic_subscriber, [
 		{type, bag},
 		{record_name, topic_subscriber},
 		{ram_copies, [node()]},
 		{attributes, record_info(fields, topic_subscriber)},
-        {index, [subpid]},
-        {local_content, true}]),
+        {index, [subpid]}]),
+        %{local_content, true}]),
     mnesia:subscribe({table, topic_subscriber, simple}),
+    io:format("~p~n", [Result1]),
 	{ok, #state{}}.
 
 handle_call(getstats, _From, State = #state{max_subs = Max}) ->

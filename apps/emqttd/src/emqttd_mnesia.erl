@@ -33,14 +33,14 @@
 -export([init/0, wait/0]).
 
 init() ->
-    case mnesia:system_info(extra_db_nodes) of
-        [] -> 
-            mnesia:stop(),
-            mnesia:create_schema([node()]);
-        _ -> 
-            ok
-    end,
-    ok = mnesia:start(),
+    %case mnesia:system_info(extra_db_nodes) of
+    %    [] -> 
+    %        mnesia:stop(),
+    %        mnesia:create_schema([node()]);
+    %    _ -> 
+    %        ok
+    %end,
+    %ok = mnesia:start(),
     create_tables().
 
 create_tables() ->
