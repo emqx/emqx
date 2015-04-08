@@ -35,7 +35,6 @@
 
 -define(SERVICES, [config,
                    event,
-                   retained,
                    client,
                    session,
                    pubsub,
@@ -62,6 +61,7 @@
     Reason    :: term().
 start(_StartType, _StartArgs) ->
 	print_banner(),
+    emqttd_mnesia:init(),
     {ok, Sup} = emqttd_sup:start_link(),
 	start_services(Sup),
     ok = emqttd_mnesia:wait(),
@@ -100,10 +100,6 @@ service(config) ->
 
 service(event) ->
     {"emqttd event", emqttd_event};
-
-service(retained) ->
-    {ok, RetainOpts} = application:get_env(retain),
-    {"emqttd server", emqttd_server, RetainOpts};
 
 service(client) ->
     {"emqttd client manager", emqttd_cm};

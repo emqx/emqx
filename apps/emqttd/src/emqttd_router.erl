@@ -65,7 +65,7 @@ start_link() ->
 route(Msg) ->
     lager:debug("Route ~s", [emqttd_message:dump(Msg)]),
     % TODO: need to retain?
-    emqttd_server:retain(Msg),
+    emqttd_retained:retain(Msg),
     % unset flag and pubsub
 	emqttd_pubsub:publish(emqttd_message:unset_flag(Msg)).
 

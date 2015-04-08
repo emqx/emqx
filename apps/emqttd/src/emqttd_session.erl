@@ -187,7 +187,7 @@ subscribe(SessState = #session_state{client_id = ClientId, submap = SubMap}, Top
     SubMap1 = lists:foldl(fun({Name, Qos}, Acc) -> maps:put(Name, Qos, Acc) end, SubMap, Topics),
     {ok, GrantedQos} = emqttd_pubsub:subscribe(Topics),
     %%TODO: should be gen_event and notification...
-    emqttd_server:subscribe([ Name || {Name, _} <- Topics ], self()),
+    emqttd_retained:dispatch([ Name || {Name, _} <- Topics ], self()),
     {ok, SessState#session_state{submap = SubMap1}, GrantedQos};
 
 subscribe(SessPid, Topics) when is_pid(SessPid) ->

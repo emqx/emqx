@@ -28,21 +28,28 @@
 
 -author('feng@emqtt.io').
 
--export([init/0, wait/0, stop/0]).
+-include("emqttd.hrl").
+
+-export([init/0, wait/0]).
 
 init() ->
-	case mnesia:system_info(extra_db_nodes) of
-    [] -> mnesia:create_schema([node()]);
-    _ -> ok
+    case mnesia:system_info(extra_db_nodes) of
+        [] -> 
+            mnesia:stop(),
+            mnesia:create_schema([node()]);
+        _ -> 
+            ok
     end,
     ok = mnesia:start(),
-    mnesia:wait_for_tables(mnesia:system_info(local_tables), infinity).
+    create_tables().
 
-%TODO: timeout should be configured?
+create_tables() ->
+	mnesia:create_table(mqtt_retained, [
+                        {type, ordered_set},
+                        {ram_copies, [node()]},
+                        {attributes, record_info(fields, mqtt_retained)}]),
+    mnesia:add_table_copy(mqtt_retained, node(), ram_copies).
+
 wait() ->
-    mnesia:wait_for_tables([topic, topic_trie, topic_trie_node], 30000).
-
-stop() ->
-	mnesia:stop().
-
+    mnesia:wait_for_tables(mnesia:system_info(local_tables), infinity).
 

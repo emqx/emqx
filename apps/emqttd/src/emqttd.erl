@@ -79,12 +79,4 @@ is_running(Node) ->
         Pid when is_pid(Pid) -> true
     end.
 
-%% TODO: publish chain...
-publish(FromClient, Topic, Message) ->
-    emqttd_router:route(Message).
-
-%% TODO: subscribe: subscribe chain...
-subscribe(FromClient, Topic) ->
-    emqttd_pubsub:subscribe(Topic).
-
 
