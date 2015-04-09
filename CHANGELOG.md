@@ -2,10 +2,12 @@
 eMQTTD ChangeLog
 ==================
 
-0.5.5-alpha (2015-04-07)
+0.5.5-alpha (2015-04-09)
 -------------------------
 
 Bugfix: issue #75 - careless about function name when emqttd_pubsub handle getstats message.
+
+Bugfix: issue #79 - cannot find topic_subscriber table after cluster with other nodes.
 
 
 0.5.4-alpha (2015-03-22)
