@@ -2,7 +2,7 @@
 eMQTTD ChangeLog
 ==================
 
-0.5.5-alpha (2015-04-09)
+0.5.5-beta (2015-04-09)
 -------------------------
 
 Bugfix: issue #75 - careless about function name when emqttd_pubsub handle getstats message.
