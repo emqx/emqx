@@ -242,11 +242,11 @@ init([]) ->
     %% local table, not shared with other table
     mnesia:create_table(topic_subscriber, [
 		{type, bag},
-		{record_name, topic_subscriber},
 		{ram_copies, [node()]},
 		{attributes, record_info(fields, topic_subscriber)},
         {index, [subpid]},
         {local_content, true}]),
+	mnesia:add_table_copy(topic_subscriber, node(), ram_copies),
     mnesia:subscribe({table, topic_subscriber, simple}),
 	{ok, #state{}}.
 
