@@ -34,7 +34,7 @@
 
 -define(SERVER, ?MODULE).
 
--define(BROKER_TAB, mqtt_broker).
+-define(BROKER_TABLE, mqtt_broker).
 
 %% API Function Exports
 -export([start_link/1]).
@@ -115,7 +115,7 @@ datetime() ->
 %%------------------------------------------------------------------------------
 -spec getstats() -> [{atom(), non_neg_integer()}].
 getstats() ->
-    ets:tab2list(?BROKER_TAB).
+    ets:tab2list(?BROKER_TABLE).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -125,7 +125,7 @@ getstats() ->
 %%------------------------------------------------------------------------------
 -spec getstat(atom()) -> non_neg_integer() | undefined.
 getstat(Name) ->
-    case ets:lookup(?BROKER_TAB, Name) of
+    case ets:lookup(?BROKER_TABLE, Name) of
         [{Name, Val}] -> Val;
         [] -> undefined
     end.
@@ -138,7 +138,7 @@ getstat(Name) ->
 %%------------------------------------------------------------------------------
 -spec setstat(atom(), pos_integer()) -> boolean().
 setstat(Name, Val) ->
-    ets:insert(?BROKER_TAB, {Name, Val}).
+    ets:insert(?BROKER_TABLE, {Name, Val}).
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -146,9 +146,9 @@ setstat(Name, Val) ->
 
 init([Options]) ->
     random:seed(now()),
-    ets:new(?BROKER_TAB, [set, public, named_table, {write_concurrency, true}]),
+    ets:new(?BROKER_TABLE, [set, public, named_table, {write_concurrency, true}]),
     Topics = ?SYSTOP_CLIENTS ++ ?SYSTOP_SESSIONS ++ ?SYSTOP_PUBSUB,
-    [ets:insert(?BROKER_TAB, {Topic, 0}) || Topic <- Topics],
+    [ets:insert(?BROKER_TABLE, {Topic, 0}) || Topic <- Topics],
     % Create $SYS Topics
     [ok = create(systop(Topic)) || Topic <- ?SYSTOP_BROKERS],
     [ok = create(systop(Topic)) || Topic <- Topics],
@@ -175,7 +175,7 @@ handle_info(tick, State) ->
     publish(systop(uptime), list_to_binary(uptime(State))),
     publish(systop(datetime), list_to_binary(datetime())),
     [publish(systop(Stat), i2b(Val)) 
-        || {Stat, Val} <- ets:tab2list(?BROKER_TAB)],
+        || {Stat, Val} <- ets:tab2list(?BROKER_TABLE)],
     {noreply, tick(State), hibernate};
 
 handle_info(_Info, State) ->

@@ -98,7 +98,7 @@ stop() ->
     gen_server:call(?MODULE, stop).
 
 init([AuthMods]) ->
-	ets:new(?AUTH_TABLE, [set, named_table, protected]),
+	ets:new(?AUTH_TABLE, [set, named_table, protected, {read_concurrency, true}]),
     Modules = lists:map(
                 fun({Mod, Opts}) ->
                         AuthMod = authmod(Mod),

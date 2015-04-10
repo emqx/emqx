@@ -32,7 +32,7 @@
 
 -define(SERVER, ?MODULE).
 
--define(CLIENT_TAB, mqtt_client).
+-define(CLIENT_TABLE, mqtt_client).
 
 %% API Exports 
 -export([start_link/0]).
@@ -73,7 +73,7 @@ start_link() ->
 %%------------------------------------------------------------------------------
 -spec lookup(ClientId :: binary()) -> pid() | undefined.
 lookup(ClientId) when is_binary(ClientId) ->
-	case ets:lookup(?CLIENT_TAB, ClientId) of
+	case ets:lookup(?CLIENT_TABLE, ClientId) of
 	[{_, Pid, _}] -> Pid;
 	[] -> undefined
 	end.
@@ -113,11 +113,11 @@ getstats() ->
 %%%=============================================================================
 
 init([]) ->
-	ets:new(?CLIENT_TAB, [set, named_table, protected]),
+	ets:new(?CLIENT_TABLE, [set, named_table, protected]),
     {ok, #state{}}.
 
 handle_call({register, ClientId, Pid}, _From, State) ->
-	case ets:lookup(?CLIENT_TAB, ClientId) of
+	case ets:lookup(?CLIENT_TABLE, ClientId) of
         [{_, Pid, _}] ->
 			lager:error("clientId '~s' has been registered with ~p", [ClientId, Pid]),
             ignore;
@@ -131,7 +131,7 @@ handle_call({register, ClientId, Pid}, _From, State) ->
 	{reply, ok, setstats(State)};
 
 handle_call(getstats, _From, State = #state{max = Max}) ->
-    Stats = [{'clients/count', ets:info(?CLIENT_TAB, size)},
+    Stats = [{'clients/count', ets:info(?CLIENT_TABLE, size)},
              {'clients/max', Max}],
     {reply, Stats, State};
 
@@ -139,10 +139,10 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({unregister, ClientId, Pid}, State) ->
-	case ets:lookup(?CLIENT_TAB, ClientId) of
+	case ets:lookup(?CLIENT_TABLE, ClientId) of
 	[{_, Pid, MRef}] ->
 		erlang:demonitor(MRef, [flush]),
-		ets:delete(?CLIENT_TAB, ClientId);
+		ets:delete(?CLIENT_TABLE, ClientId);
 	[_] -> 
 		ignore;
 	[] ->
@@ -154,7 +154,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
-	ets:match_delete(?CLIENT_TAB, {'_', DownPid, MRef}),
+	ets:match_delete(?CLIENT_TABLE, {'_', DownPid, MRef}),
     {noreply, setstats(State)};
 
 handle_info(_Info, State) ->
@@ -171,10 +171,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 
 insert(ClientId, Pid) ->
-    ets:insert(?CLIENT_TAB, {ClientId, Pid, erlang:monitor(process, Pid)}).
+    ets:insert(?CLIENT_TABLE, {ClientId, Pid, erlang:monitor(process, Pid)}).
 
 setstats(State = #state{max = Max}) ->
-    Count = ets:info(?CLIENT_TAB, size),
+    Count = ets:info(?CLIENT_TABLE, size),
     emqttd_broker:setstat('clients/count', Count),
     if
         Count > Max ->
