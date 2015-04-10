@@ -141,7 +141,7 @@ stop() ->
 %%% gen_server callbacks.
 %%%=============================================================================
 init([AclMods]) ->
-    ets:new(?ACL_TABLE, [set, protected, named_table]),
+    ets:new(?ACL_TABLE, [set, protected, named_table, {read_concurrency, true}]),
     AclMods1 = lists:map(
             fun({M, Opts}) ->
                 AclMod = aclmod(M),
