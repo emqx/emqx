@@ -22,6 +22,7 @@
 %%% @doc
 %%% emqttd client manager.
 %%%
+%%% TODO: NEED PG_HASH?
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_cm).
