@@ -187,7 +187,7 @@ subscribe(SessState = #session_state{client_id = ClientId, submap = SubMap}, Top
     SubMap1 = lists:foldl(fun({Name, Qos}, Acc) -> maps:put(Name, Qos, Acc) end, SubMap, Topics),
     {ok, GrantedQos} = emqttd_pubsub:subscribe(Topics),
     %%TODO: should be gen_event and notification...
-    emqttd_retained:dispatch([ Name || {Name, _} <- Topics ], self()),
+    emqttd_retained:redeliver([Name || {Name, _} <- Topics], self()),
     {ok, SessState#session_state{submap = SubMap1}, GrantedQos};
 
 subscribe(SessPid, Topics) when is_pid(SessPid) ->
@@ -336,6 +336,10 @@ handle_cast({destroy, ClientId}, State = #session_state{client_id = ClientId}) -
 
 handle_cast(Msg, State) ->
     {stop, {badmsg, Msg}, State}.
+
+handle_info({dispatch, {_From, Messages}}, State) when is_list(Messages) ->
+    F = fun(Message, S) -> dispatch(Message, S) end,
+    {noreply, lists:foldl(F, State, Messages)};
 
 handle_info({dispatch, {_From, Message}}, State) ->
     {noreply, dispatch(Message, State)};

@@ -107,6 +107,13 @@ handle_info({stop, duplicate_id, _NewPid}, State=#state{proto_state = ProtoState
     stop({shutdown, duplicate_id}, State);
 
 %%TODO: ok??
+handle_info({dispatch, {From, Messages}}, #state{proto_state = ProtoState} = State) when is_list(Messages) ->
+    ProtoState1 =
+    lists:foldl(fun(Message, PState) ->
+            {ok, PState1} = emqttd_protocol:send({From, Message}, PState), PState1
+        end, ProtoState, Messages),
+    {noreply, State#state{proto_state = ProtoState1}};
+
 handle_info({dispatch, {From, Message}}, #state{proto_state = ProtoState} = State) ->
     {ok, ProtoState1} = emqttd_protocol:send({From, Message}, ProtoState),
     {noreply, State#state{proto_state = ProtoState1}};

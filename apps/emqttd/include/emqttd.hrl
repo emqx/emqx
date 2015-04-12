@@ -93,7 +93,8 @@
 %%------------------------------------------------------------------------------
 %% MQTT Retained Message
 %%------------------------------------------------------------------------------
--record(mqtt_retained, {topic, qos, payload}).
+-record(message_retained, {topic, qos, payload}).
 
--type mqtt_retained() :: #mqtt_retained{}.
+-type message_retained() :: #message_retained{}.
+
 

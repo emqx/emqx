@@ -34,37 +34,35 @@
 
 -include("emqttd_packet.hrl").
 
+-define(RETAINED_TABLE, message_retained).
+
 %% API Function Exports
--export([retain/1, dispatch/2]).
+-export([retain/1, redeliver/2]).
 
 %% @doc retain message.
 -spec retain(mqtt_message()) -> ok | ignore.
 retain(#mqtt_message{retain = false}) -> ignore;
 
 %% RETAIN flag set to 1 and payload containing zero bytes
-retain(#mqtt_message{retain = true, topic = Topic, payload = <<>>}) -> 
-    mnesia:transaction(fun() -> mnesia:delete({mqtt_retained, Topic}) end);
+retain(#mqtt_message{retain = true, topic = Topic, payload = <<>>}) ->
+    mnesia:async_dirty(fun mnesia:delete/1, [{?RETAINED_TABLE, Topic}]);
 
 retain(Msg = #mqtt_message{retain = true,
                            topic = Topic,
                            qos = Qos,
                            payload = Payload}) ->
-    TabSize = mnesia:table_info(mqtt_retained, size),
+    TabSize = mnesia:table_info(?RETAINED_TABLE, size),
     case {TabSize < limit(table), size(Payload) < limit(payload)} of
         {true, true} ->
             lager:debug("Retained: store message: ~p", [Msg]),
-            mnesia:transaction(
-                fun() -> 
-                    mnesia:write(#mqtt_retained{topic = Topic,
-                                                qos   = Qos,
-                                                payload = Payload})
-                end), 
+            RetainedMsg = #message_retained{topic = Topic, qos = Qos, payload = Payload},
+            mnesia:async_dirty(fun mnesia:write/1, [RetainedMsg]),
             emqttd_metrics:set('messages/retained/count',
-                               mnesia:table_info(mqtt_retained, size));
+                               mnesia:table_info(?RETAINED_TABLE, size));
        {false, _}->
-            lager:error("Retained: dropped message(topic=~s) for table is full!", [Topic]);
+            lager:error("Dropped retained message(topic=~s) for table is full!", [Topic]);
        {_, false}->
-            lager:error("Retained: dropped message(topic=~s, payload=~p) for payload is too big!", [Topic, size(Payload)])
+            lager:error("Dropped retained message(topic=~s, payload=~p) for payload is too big!", [Topic, size(Payload)])
     end.
 
 limit(table) ->
@@ -81,26 +79,34 @@ env() ->
             Env
     end.
 
-%% @doc dispatch retained messages to subscribed client.
--spec dispatch(Topics, CPid) -> any() when
+%% @doc redeliver retained messages to subscribed client.
+-spec redeliver(Topics, CPid) -> any() when
         Topics  :: list(binary()),
         CPid    :: pid().
-dispatch(Topics, CPid) when is_pid(CPid) ->
-    Msgs = lists:flatten([mnesia:dirty_read(mqtt_retained, Topic) || Topic <- match(Topics)]),
-    lists:foreach(fun(Msg) -> CPid ! {dispatch, {self(), mqtt_msg(Msg)}} end, Msgs).
+redeliver(Topics, CPid) when is_pid(CPid) ->
+    lists:foreach(fun(Topic) ->
+        case emqttd_topic:type(#topic{name=Topic}) of
+            direct ->
+                dispatch(CPid, mnesia:dirty_read(message_retained, Topic));
+            wildcard ->
+                Fun = fun(Msg = #message_retained{topic = Name}, Acc) ->
+                        case emqttd_topic:match(Name, Topic) of
+                            true -> [Msg|Acc];
+                            false -> Acc
+                        end
+                end,
+                RetainedMsgs = mnesia:async_dirty(fun mnesia:foldl/3, [Fun, [], ?RETAINED_TABLE]),
+                dispatch(CPid, lists:reverse(RetainedMsgs))
+        end
+    end, Topics).
 
-match(Topics) ->
-    RetainedTopics = mnesia:dirty_all_keys(mqtt_retained),
-    lists:flatten([match(Topic, RetainedTopics) || Topic <- Topics]).
+dispatch(_CPid, []) ->
+    ignore;
+dispatch(CPid, RetainedMsgs) when is_list(RetainedMsgs) ->
+    CPid ! {dispatch, {self(), [mqtt_msg(Msg) || Msg <- RetainedMsgs]}};
+dispatch(CPid, RetainedMsg) when is_record(RetainedMsg, message_retained) ->
+    CPid ! {dispatch, {self(), mqtt_msg(RetainedMsg)}}.
 
-match(Topic, RetainedTopics) ->
-    case emqttd_topic:type(#topic{name=Topic}) of
-        direct -> %% FIXME
-            [Topic];
-        wildcard ->
-            [T || T <- RetainedTopics, emqttd_topic:match(T, Topic)]
-    end.
-
-mqtt_msg(#mqtt_retained{topic = Topic, qos = Qos, payload = Payload}) ->
+mqtt_msg(#message_retained{topic = Topic, qos = Qos, payload = Payload}) ->
     #mqtt_message{qos = Qos, retain = true, topic = Topic, payload = Payload}.
 

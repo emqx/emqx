@@ -109,10 +109,10 @@ create_tables() ->
                 {index, [subpid]},
                 {local_content, true}]),
     %% TODO: retained messages, this table should not be copied...
-    ok = create_table(mqtt_retained, [
+    ok = create_table(message_retained, [
                 {type, ordered_set},
                 {ram_copies, [node()]},
-                {attributes, record_info(fields, mqtt_retained)}]).
+                {attributes, record_info(fields, message_retained)}]).
 
 create_table(Table, Attrs) ->
     case mnesia:create_table(Table, Attrs) of
@@ -129,11 +129,18 @@ create_table(Table, Attrs) ->
 %% @end
 %%------------------------------------------------------------------------------
 copy_tables() ->
-    {atomic, ok} = mnesia:add_table_copy(topic, node(), ram_copies),
-	{atomic, ok} = mnesia:add_table_copy(topic_trie, node(), ram_copies),
-	{atomic, ok} = mnesia:add_table_copy(topic_trie_node, node(), ram_copies),
-	{atomic, ok} = mnesia:add_table_copy(topic_subscriber, node(), ram_copies),
-    {atomic, ok} = mnesia:add_table_copy(mqtt_retained, node(), ram_copies).
+    ok = copy_ram_table(topic),
+	ok = copy_ram_table(topic_trie),
+	ok = copy_ram_table(topic_trie_node),
+	ok = copy_ram_table(topic_subscriber),
+    ok = copy_ram_table(message_retained).
+
+copy_ram_table(Table) ->
+    case mnesia:add_table_copy(Table, node(), ram_copies) of
+        {atomic, ok} -> ok;
+        {aborted, {already_exists, Table, _Node}} -> ok;
+        {aborted, Error} -> Error
+    end.
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -173,7 +180,7 @@ cluster(Node) ->
             end
 
     end,
-    init_tables(),
+    copy_tables(),
     wait_for_tables().
  
 wait_for_mnesia(stop) ->
