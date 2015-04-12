@@ -153,13 +153,13 @@ wait_for_tables() ->
 %% Simple cluster with another nodes.
 %%
 %% @end
-%%------------------------------------------------------------------------------
+%%--------------
 cluster(Node) ->
     %% stop mnesia 
     mnesia:stop(),
     ok = wait_for_mnesia(stop),
     %% delete mnesia
-    ok = mnesia:delete_schema(node()),
+    ok = mnesia:delete_schema([node()]),
     %% start mnesia
     ok = mnesia:start(),
     %% connect with extra_db_nodes
