@@ -61,10 +61,9 @@
     Reason    :: term().
 start(_StartType, _StartArgs) ->
 	print_banner(),
-    emqttd_mnesia:init(),
+    emqttd_mnesia:start(),
     {ok, Sup} = emqttd_sup:start_link(),
 	start_services(Sup),
-    ok = emqttd_mnesia:wait(),
 	{ok, Listeners} = application:get_env(listen),
     emqttd:open(Listeners),
 	register(emqttd, self()),

@@ -42,7 +42,7 @@
 -export([version/0, uptime/0, datetime/0, sysdescr/0]).
 
 %% statistics API.
--export([getstats/0, getstat/1, setstat/2]).
+-export([getstats/0, getstat/1, setstat/2, setstats/3]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -136,9 +136,24 @@ getstat(Name) ->
 %%
 %% @end
 %%------------------------------------------------------------------------------
--spec setstat(atom(), pos_integer()) -> boolean().
-setstat(Name, Val) ->
-    ets:insert(?BROKER_TABLE, {Name, Val}).
+-spec setstat(Stat :: atom(), Val :: pos_integer()) -> boolean().
+setstat(Stat, Val) ->
+    ets:update_element(?BROKER_TABLE, Stat, {2, Val}).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% Set stats with max.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec setstats(Stat :: atom(), MaxStat :: atom(), Val :: pos_integer()) -> boolean().
+setstats(Stat, MaxStat, Val) ->
+    MaxVal = ets:lookup_element(?BROKER_TABLE, MaxStat, 2),
+    if
+        Val > MaxVal -> ets:update_element(?BROKER_TABLE, MaxStat, {2, Val});
+        true -> ok
+    end,
+    ets:update_element(?BROKER_TABLE, Stat, {2, Val}).
 
 %%%=============================================================================
 %%% gen_server callbacks

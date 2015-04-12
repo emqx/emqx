@@ -68,9 +68,7 @@ cluster([SNode]) ->
 	pong ->
 		application:stop(emqttd),
         application:stop(esockd),
-		mnesia:stop(),
-		mnesia:start(),
-		mnesia:change_config(extra_db_nodes, [Node]),
+        emqtt_mnesia:cluster(Node),
         application:start(esockd),
 		application:start(emqttd),
 		?PRINT("cluster with ~p successfully.~n", [Node]);

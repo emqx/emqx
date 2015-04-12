@@ -65,7 +65,7 @@
         terminate/2,
 		code_change/3]).
 
--record(state, {max_subs = 0}).
+-record(state, {}).
 
 %%%=============================================================================
 %%% API
@@ -89,7 +89,9 @@ start_link() ->
 %%------------------------------------------------------------------------------
 -spec getstats() -> [{atom(), non_neg_integer()}].
 getstats() ->
-    gen_server:call(?SERVER, getstats).
+    [{'topics/count', mnesia:table_info(topic, size)},
+     {'subscribers/count', mnesia:table_info(topic_subscriber, size)},
+     {'subscribers/max', emqttd_broker:getstat('subscribers/max')}].
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -223,42 +225,10 @@ match(Topic) when is_binary(Topic) ->
 %% ------------------------------------------------------------------
 
 init([]) ->
-    %% trie and topic tables, will be copied by all nodes.
-	mnesia:create_table(topic_trie_node, [
-		{ram_copies, [node()]},
-		{attributes, record_info(fields, topic_trie_node)}]),
-	mnesia:add_table_copy(topic_trie_node, node(), ram_copies),
-	mnesia:create_table(topic_trie, [
-		{ram_copies, [node()]},
-		{attributes, record_info(fields, topic_trie)}]),
-	mnesia:add_table_copy(topic_trie, node(), ram_copies),
-    Result =
-	mnesia:create_table(topic, [
-		{type, bag},
-		{record_name, topic},
-		{ram_copies, [node()]}, 
-		{attributes, record_info(fields, topic)}]),
-    io:format("~p~n", [Result]),
-	mnesia:add_table_copy(topic, node(), ram_copies),
     mnesia:subscribe({table, topic, simple}),
-    %% local table, not shared with other table
-    Result1 =
-    mnesia:create_table(topic_subscriber, [
-		{type, bag},
-		{ram_copies, [node()]},
-		{attributes, record_info(fields, topic_subscriber)},
-        {index, [subpid]},
-        {local_content, true}]),
-	mnesia:add_table_copy(topic_subscriber, node(), ram_copies),
+    %% trie and topic tables, will be copied by all nodes.
     mnesia:subscribe({table, topic_subscriber, simple}),
-    io:format("~p~n", [Result1]),
 	{ok, #state{}}.
-
-handle_call(getstats, _From, State = #state{max_subs = Max}) ->
-    Stats = [{'topics/count', mnesia:table_info(topic, size)},
-             {'subscribers/count', mnesia:table_info(topic_subscriber, size)},
-             {'subscribers/max', Max}],
-    {reply, Stats, State};
 
 handle_call(Req, _From, State) ->
     lager:error("Bad Req: ~p", [Req]),
@@ -293,7 +263,7 @@ handle_info({'DOWN', _Mon, _Type, DownPid, _Info}, State) ->
 	{noreply, setstats(State)};
 
 handle_info(Info, State) ->
-    lager:error("Bad Info: ~p", [Info]),
+    lager:error("Unexpected Info: ~p", [Info]),
 	{noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -405,17 +375,11 @@ trie_delete_path([{NodeId, Word, _} | RestPath]) ->
 		throw({notfound, NodeId}) 
 	end.
 
-setstats(State = #state{max_subs = Max}) ->
+setstats(State) ->
     emqttd_broker:setstat('topics/count', mnesia:table_info(topic, size)),
-    SubCount = mnesia:table_info(topic_subscriber, size),
-    emqttd_broker:setstat('subscribers/count', SubCount),
-    if
-        SubCount > Max ->
-            emqttd_broker:setstat('subscribers/max', SubCount),
-            State#state{max_subs = SubCount};
-        true -> 
-            State
-    end.
+    emqttd_broker:setstats('subscribers/count',
+                           'subscribers/max',
+                           mnesia:table_info(topic_subscriber, size)), State.
 
 dropped(true) ->
     emqttd_metrics:inc('messages/dropped');

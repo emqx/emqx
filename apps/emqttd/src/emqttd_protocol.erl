@@ -124,7 +124,7 @@ handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peername = Peername =
                 ok ->
                     ClientId1 = clientid(ClientId, State), 
                     start_keepalive(KeepAlive),
-                    emqttd_cm:register(ClientId1, self()),
+                    emqttd_cm:register(ClientId1),
                     {?CONNACK_ACCEPT, State1#proto_state{client_id  = ClientId1,
                                                          will_msg   = willmsg(Var)}};
                 {error, Reason}->
@@ -332,7 +332,7 @@ validate_qos(Qos) when Qos =< ?QOS_2 -> true;
 validate_qos(_) -> false.
 
 try_unregister(undefined, _) -> ok;
-try_unregister(ClientId, _) -> emqttd_cm:unregister(ClientId, self()).
+try_unregister(ClientId, _) -> emqttd_cm:unregister(ClientId).
 
 sent_stats(?PACKET(Type)) ->
     emqttd_metrics:inc('packets/sent'), 

@@ -55,7 +55,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {max = 0}).
+-record(state, {tab}).
 
 %%%=============================================================================
 %%% API
@@ -103,20 +103,20 @@ destroy_session(ClientId) ->
 
 init([]) ->
     process_flag(trap_exit, true),
-    ets:new(?SESSION_TABLE, [set, protected, named_table]),
-    {ok, #state{}}.
+    TabId = ets:new(?SESSION_TABLE, [set, protected, named_table]),
+    {ok, #state{tab = TabId}}.
 
-handle_call({start_session, ClientId, ClientPid}, _From, State) ->
+handle_call({start_session, ClientId, ClientPid}, _From, State = #state{tab = Tab}) ->
     Reply =
-    case ets:lookup(?SESSION_TABLE, ClientId) of
+    case ets:lookup(Tab, ClientId) of
         [{_, SessPid, _MRef}] ->
             emqttd_session:resume(SessPid, ClientId, ClientPid), 
             {ok, SessPid};
         [] ->
             case emqttd_session_sup:start_session(ClientId, ClientPid) of
             {ok, SessPid} -> 
-                MRef = erlang:monitor(process, SessPid),
-                ets:insert(?SESSION_TABLE, {ClientId, SessPid, MRef}),
+                ets:insert(Tab, {ClientId, SessPid,
+                                 erlang:monitor(process, SessPid)}),
                 {ok, SessPid};
             {error, Error} ->
                 {error, Error}
@@ -124,12 +124,12 @@ handle_call({start_session, ClientId, ClientPid}, _From, State) ->
     end,
     {reply, Reply, setstats(State)};
 
-handle_call({destroy_session, ClientId}, _From, State) ->
-    case ets:lookup(?SESSION_TABLE, ClientId) of
+handle_call({destroy_session, ClientId}, _From, State = #state{tab = Tab}) ->
+    case ets:lookup(Tab, ClientId) of
         [{_, SessPid, MRef}] ->
-            erlang:demonitor(MRef),
             emqttd_session:destroy(SessPid, ClientId),
-            ets:delete(?SESSION_TABLE, ClientId);
+            erlang:demonitor(MRef, [flush]),
+            ets:delete(Tab, ClientId);
         [] ->
             ignore
     end,
@@ -141,8 +141,8 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
-	ets:match_delete(?SESSION_TABLE, {'_', DownPid, MRef}),
+handle_info({'DOWN', MRef, process, DownPid, _Reason}, State = #state{tab = Tab}) ->
+	ets:match_delete(Tab, {'_', DownPid, MRef}),
     {noreply, setstats(State)};
 
 handle_info(_Info, State) ->
@@ -157,15 +157,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 %%% Internal functions
 %%%=============================================================================
-
-setstats(State = #state{max = Max}) ->
-    Count = ets:info(?SESSION_TABLE, size),
-    emqttd_broker:setstat('sessions/count', Count),
-    if
-        Count > Max ->
-            emqttd_broker:setstat('sessions/max', Count),
-            State#state{max = Count};
-        true -> 
-            State
-    end.
+setstats(State) ->
+    emqttd_broker:setstats('sessions/count',
+                           'sessions/max',
+                           ets:info(?SESSION_TABLE, size)), State.
 

@@ -30,26 +30,166 @@
 
 -include("emqttd.hrl").
 
--export([init/0, wait/0]).
+-include("emqttd_topic.hrl").
 
-init() ->
-    %case mnesia:system_info(extra_db_nodes) of
-    %    [] -> 
-    %        mnesia:stop(),
-    %        mnesia:create_schema([node()]);
-    %    _ -> 
-    %        ok
-    %end,
-    %ok = mnesia:start(),
-    create_tables().
+-export([start/0, cluster/1]).
 
+start() ->
+    case init_schema() of
+        ok -> 
+            ok;
+        {error, {_Node, {already_exists, _Node}}} ->
+            ok;
+        {error, Reason} -> 
+            lager:error("mnesia init_schema error: ~p", [Reason])
+    end,
+    ok = mnesia:start(),
+    init_tables(),
+    wait_for_tables().
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% @private
+%% init mnesia schema.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+init_schema() ->
+    case mnesia:system_info(extra_db_nodes) of
+        [] ->
+            %% create schema
+            mnesia:create_schema([node()]);
+        __ ->
+            ok
+    end.
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% @private
+%% init mnesia tables.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+init_tables() ->
+    case mnesia:system_info(extra_db_nodes) of
+        [] ->
+            create_tables();
+        _ ->
+            copy_tables()
+    end.
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% @private
+%% create tables.
+%%
+%% @end
+%%------------------------------------------------------------------------------
 create_tables() ->
-	mnesia:create_table(mqtt_retained, [
-                        {type, ordered_set},
-                        {ram_copies, [node()]},
-                        {attributes, record_info(fields, mqtt_retained)}]),
-    mnesia:add_table_copy(mqtt_retained, node(), ram_copies).
+    %% trie tree tables
+    ok = create_table(topic_trie_node, [
+                {ram_copies, [node()]},
+                {record_name, topic_trie_node},
+                {attributes, record_info(fields, topic_trie_node)}]),
+    ok = create_table(topic_trie, [
+                {ram_copies, [node()]},
+                {record_name, topic_trie},
+                {attributes, record_info(fields, topic_trie)}]),
+    %% topic table
+    ok = create_table(topic, [
+                {type, bag},
+                {ram_copies, [node()]},
+                {record_name, topic},
+                {attributes, record_info(fields, topic)}]),
+    %% local subscriber table, not shared with other nodes 
+    ok = create_table(topic_subscriber, [
+                {type, bag},
+                {ram_copies, [node()]},
+                {attributes, record_info(fields, topic_subscriber)},
+                {index, [subpid]},
+                {local_content, true}]),
+    %% TODO: retained messages, this table should not be copied...
+    ok = create_table(mqtt_retained, [
+                {type, ordered_set},
+                {ram_copies, [node()]},
+                {attributes, record_info(fields, mqtt_retained)}]).
 
-wait() ->
+create_table(Table, Attrs) ->
+    case mnesia:create_table(Table, Attrs) of
+        {atomic, ok} -> ok;
+        {aborted, {already_exists, Table}} -> ok;
+        Error -> Error
+    end.
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% @private
+%% copy tables.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+copy_tables() ->
+    {atomic, ok} = mnesia:add_table_copy(topic, node(), ram_copies),
+	{atomic, ok} = mnesia:add_table_copy(topic_trie, node(), ram_copies),
+	{atomic, ok} = mnesia:add_table_copy(topic_trie_node, node(), ram_copies),
+	{atomic, ok} = mnesia:add_table_copy(topic_subscriber, node(), ram_copies),
+    {atomic, ok} = mnesia:add_table_copy(mqtt_retained, node(), ram_copies).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% @private
+%% wait for tables.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+wait_for_tables() -> 
+    lager:info("local_tables: ~p", [mnesia:system_info(local_tables)]),
+    %%TODO: is not right?
     mnesia:wait_for_tables(mnesia:system_info(local_tables), infinity).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% @private
+%% Simple cluster with another nodes.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+cluster(Node) ->
+    %% stop mnesia 
+    mnesia:stop(),
+    ok = wait_for_mnesia(stop),
+    %% delete mnesia
+    ok = mnesia:delete_schema(node()),
+    %% start mnesia
+    ok = mnesia:start(),
+    %% connect with extra_db_nodes
+    case mnesia:change_config(extra_db_nodes, [Node]) of
+        {ok, []} -> 
+            throw({error, failed_to_connect_extra_db_nodes});
+        {ok, Nodes} ->
+            case lists:member(Node, Nodes) of
+                true -> lager:info("mnesia connected to extra_db_node '~s' successfully!", [Node]);
+                false -> lager:error("mnesia failed to connect extra_db_node '~s'!", [Node])
+            end
+
+    end,
+    init_tables(),
+    wait_for_tables().
+ 
+wait_for_mnesia(stop) ->
+    case mnesia:system_info(is_running) of
+        no ->
+            ok;
+        stopping ->
+            lager:info("Waiting for mnesia to stop..."),
+            timer:sleep(1000),
+            wait_for_mnesia(stop);
+        yes ->
+            {error, mnesia_unexpectedly_running};
+        starting ->
+            {error, mnesia_unexpectedly_starting}
+    end.
+
+    
+
 
