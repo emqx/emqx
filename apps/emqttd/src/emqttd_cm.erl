@@ -141,7 +141,7 @@ handle_cast({monitor, ClientId, Pid}, State = #state{tab = Tab}) ->
         true -> ok;
         false -> lager:error("failed to monitor clientId '~s' with pid ~p", [ClientId, Pid]) 
     end,
-    {noreply, State};
+    {noreply, setstats(State)};
 
 handle_cast({unregister, ClientId, Pid}, State) ->
 	case ets:lookup(?CLIENT_TABLE, ClientId) of

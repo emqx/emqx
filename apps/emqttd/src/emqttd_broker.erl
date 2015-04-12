@@ -150,7 +150,8 @@ setstat(Stat, Val) ->
 setstats(Stat, MaxStat, Val) ->
     MaxVal = ets:lookup_element(?BROKER_TABLE, MaxStat, 2),
     if
-        Val > MaxVal -> ets:update_element(?BROKER_TABLE, MaxStat, {2, Val});
+        Val > MaxVal -> 
+            ets:update_element(?BROKER_TABLE, MaxStat, {2, Val});
         true -> ok
     end,
     ets:update_element(?BROKER_TABLE, Stat, {2, Val}).
