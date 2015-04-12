@@ -20,14 +20,14 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd vm monitor.
+%%% emqttd system monitor.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 
 %%TODO: this is a demo module....
 
--module(emqttd_monitor).
+-module(emqttd_sysmon).
 
 -author('feng@emqtt.io').
 
@@ -35,9 +35,10 @@
 
 -export([start_link/0]).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2, code_change/3]).
 
--record(state, {ok}).
+-record(state, {}).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -58,8 +59,8 @@ init([]) ->
     {ok, #state{}}.
 
 handle_call(Request, _From, State) ->
-    lager:error("unexpected request: ~p", [Request]),
-    {stop, {error, unexpected_request}, State}.
+    lager:error("Unexpected request: ~p", [Request]),
+    {reply, {error, unexpected_request}, State}.
 
 handle_cast(Msg, State) ->
     lager:error("unexpected msg: ~p", [Msg]),
@@ -81,7 +82,7 @@ handle_info({monitor, SusPid, busy_port, Port}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    lager:error("unexpected info: ~p", [Info]),
+    lager:error("Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

@@ -33,18 +33,19 @@
 %% Application callbacks
 -export([start/2, stop/1]).
 
--define(SERVICES, [config,
-                   event,
-                   client,
-                   session,
-                   pubsub,
-                   router,
-                   broker,
-                   metrics,
-                   bridge,
-                   auth,
-                   acl,
-                   monitor]).
+%% Servers
+-define(SERVERS, [config,
+                  event,
+                  client,
+                  session,
+                  pubsub,
+                  router,
+                  broker,
+                  metrics,
+                  bridge,
+                  auth,
+                  acl,
+                  sysmon]).
 
 -define(PRINT_MSG(Msg), io:format(Msg)).
 
@@ -63,7 +64,7 @@ start(_StartType, _StartArgs) ->
 	print_banner(),
     emqttd_mnesia:start(),
     {ok, Sup} = emqttd_sup:start_link(),
-	start_services(Sup),
+	start_servers(Sup),
 	{ok, Listeners} = application:get_env(listen),
     emqttd:open(Listeners),
 	register(emqttd, self()),
@@ -78,63 +79,56 @@ print_vsn() ->
 	{ok, Desc} = application:get_key(description),
 	?PRINT("~s ~s is running now~n", [Desc, Vsn]).
 
-start_services(Sup) ->
-	lists:foreach(
-        fun({Name, F}) when is_function(F) ->
-			?PRINT("~s is starting...", [Name]),
-            F(),
-			?PRINT_MSG("[done]~n");
-		   ({Name, Server}) ->
-			?PRINT("~s is starting...", [Name]),
-			start_child(Sup, Server),
-			?PRINT_MSG("[done]~n");
-           ({Name, Server, Opts}) ->
-			?PRINT("~s is starting...", [ Name]),
-			start_child(Sup, Server, Opts),
-			?PRINT_MSG("[done]~n")
-		end, lists:flatten([service(Srv) || Srv <- ?SERVICES])).
+start_servers(Sup) ->
+    Servers = lists:flatten([server(Srv) || Srv <- ?SERVERS]),
+    [start_server(Sup, Server) || Server <- Servers].
 
-service(config) ->
+start_server(_Sup, {Name, F}) when is_function(F) ->
+    ?PRINT("~s is starting...", [Name]),
+    F(),
+    ?PRINT_MSG("[done]~n");
+
+start_server(Sup, {Name, Server}) ->
+    ?PRINT("~s is starting...", [Name]),
+    start_child(Sup, Server),
+    ?PRINT_MSG("[done]~n");
+
+start_server(Sup, {Name, Server, Opts}) ->
+    ?PRINT("~s is starting...", [ Name]),
+    start_child(Sup, Server, Opts),
+    ?PRINT_MSG("[done]~n").
+
+%%TODO: redesign later...
+server(config) ->
     {"emqttd config", emqttd_config};
-
-service(event) ->
-    {"emqttd event", emqttd_event};
-
-service(client) ->
+server(event) ->
+    {"emqttd event", emqttd_event}; 
+server(client) ->
     {"emqttd client manager", emqttd_cm};
-
-service(session) ->
+server(session) ->
     {ok, SessOpts} = application:get_env(session),
     [{"emqttd session manager", emqttd_sm},
      {"emqttd session supervisor", {supervisor, emqttd_session_sup}, SessOpts}];
-
-service(pubsub) ->
+server(pubsub) ->
     {"emqttd pubsub", emqttd_pubsub};
-
-service(router) ->
+server(router) ->
     {"emqttd router", emqttd_router};
-
-service(broker) ->
+server(broker) ->
     {ok, BrokerOpts} = application:get_env(broker),
     {"emqttd broker", emqttd_broker, BrokerOpts};
-
-service(metrics) ->
+server(metrics) ->
     {ok, MetricOpts} = application:get_env(metrics),
     {"emqttd metrics", emqttd_metrics, MetricOpts};
-
-service(bridge) ->
+server(bridge) ->
     {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}};
-
-service(auth) ->
+server(auth) ->
     {ok, AuthMods} = application:get_env(auth),
     {"emqttd auth", emqttd_auth, AuthMods};
-
-service(acl) ->
+server(acl) ->
     {ok, AclOpts} = application:get_env(acl),
     {"emqttd acl", emqttd_acl, AclOpts};
-
-service(monitor) ->
-    {"emqttd monitor", emqttd_monitor}.
+server(sysmon) ->
+    {"emqttd system monitor", emqttd_sysmon}.
 
 start_child(Sup, {supervisor, Name}) ->
     supervisor:start_child(Sup, supervisor_spec(Name));
@@ -169,6 +163,4 @@ worker_spec(Name, Opts) ->
 -spec stop(State :: term()) -> term().
 stop(_State) ->
     ok.
-
-
 
