@@ -28,11 +28,13 @@
 
 -author('feng@emqtt.io').
 
+-include("emqttd.hrl").
+
 -import(lists, [reverse/1]).
  
--export([new/1, new/2, wildcard/1, match/2, validate/1, triples/1, words/1]).
+-export([new/1, wildcard/1, match/2, validate/1, triples/1, words/1]).
 
--type type()   :: static | dynamic.
+%-type type()   :: static | dynamic.
 
 -type word()   :: '' | '+' | '#' | binary().
 
@@ -40,7 +42,7 @@
 
 -type triple() :: {root | binary(), word(), binary()}.
 
--export_type([type/0, word/0, triple/0]).
+-export_type([word/0, triple/0]).
 
 -define(MAX_TOPIC_LEN, 65535).
 
@@ -50,40 +52,29 @@
 %%
 %% @end
 %%%-----------------------------------------------------------------------------
--spec new(binary()) -> topic().
+-spec new(binary()) -> mqtt_topic().
 new(Name) when is_binary(Name) ->
-	#topic{name = Name, node = node()}.
+	#mqtt_topic{name = Name, node = node()}.
 
 %%%-----------------------------------------------------------------------------
 %% @doc
-%% New Topic with Type
+%% Is Wildcard Topic?
 %%
 %% @end
 %%%-----------------------------------------------------------------------------
--spec new(type(), binary()) -> topic().
-new(Type, Name) when (Type =:= static orelse Type =:= dynamic) andalso is_binary(Name) ->
-	#topic{name = Name, type = Type, node = node()}.
-
-%%%-----------------------------------------------------------------------------
-%% @doc
-%% Is Wildcard Topic.
-%%
-%% @end
-%%%-----------------------------------------------------------------------------
--spec wildcard(topic() | binary()) -> true | false.
-wildcard(#topic{name = Name}) when is_binary(Name) ->
+-spec wildcard(mqtt_topic() | binary()) -> true | false.
+wildcard(#mqtt_topic{name = Name}) when is_binary(Name) ->
 	wildcard(Name);
 wildcard(Topic) when is_binary(Topic) ->
-	wildcard2(words(Topic)).
-
-wildcard2([]) -> 
+	wildcard(words(Topic));
+wildcard([]) -> 
     false;
-wildcard2(['#'|_]) ->
+wildcard(['#'|_]) ->
     true;
-wildcard2(['+'|_]) ->
+wildcard(['+'|_]) ->
     true;
-wildcard2([_H |T]) ->
-    wildcard2(T).
+wildcard([_H|T]) ->
+    wildcard(T).
 
 %%%-----------------------------------------------------------------------------
 %% @doc
@@ -130,7 +121,7 @@ validate({filter, Topic}) when is_binary(Topic) ->
 	validate2(words(Topic));
 validate({name, Topic}) when is_binary(Topic) ->
 	Words = words(Topic),
-	validate2(Words) and (not include_wildcard(Words)).
+	validate2(Words) and (not wildcard(Words)).
 
 validate2([]) ->
     true;
@@ -154,11 +145,6 @@ validate3(<<C/utf8, _Rest/binary>>) when C == $#; C == $+; C == 0 ->
     false;
 validate3(<<_/utf8, Rest/binary>>) ->
     validate3(Rest).
-
-include_wildcard([])        -> false;
-include_wildcard(['#'|_T])  -> true;
-include_wildcard(['+'|_T])  -> true;
-include_wildcard([ _ | T])  -> include_wildcard(T).
 
 %%%-----------------------------------------------------------------------------
 %% @doc
@@ -201,5 +187,4 @@ word(<<>>)    -> '';
 word(<<"+">>) -> '+';
 word(<<"#">>) -> '#';
 word(Bin)     -> Bin.
-
 

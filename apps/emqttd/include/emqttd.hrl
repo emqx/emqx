@@ -56,7 +56,7 @@
 %%------------------------------------------------------------------------------
 -record(mqtt_subscriber, {
     topic    :: binary(),
-    qos = 0  :: non_neg_integer(),
+    qos = 0  :: 0 | 1 | 2,
     subpid   :: pid()
 }).
 

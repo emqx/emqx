@@ -32,15 +32,12 @@
 
 -include("emqttd_packet.hrl").
 
--include_lib("stdlib/include/qlc.hrl").
-
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
 
 %% API Exports 
-
--export([start_link/0, getstats/0]).
+-export([start_link/0]).
 
 -export([create/1,
          subscribe/1, unsubscribe/1,
@@ -49,7 +46,6 @@
          dispatch/2, match/1]).
 
 %% gen_server Function Exports
-
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
@@ -71,25 +67,13 @@ start_link() ->
 
 %%------------------------------------------------------------------------------
 %% @doc
-%% Get stats of PubSub.
-%%
-%% @end
-%%------------------------------------------------------------------------------
--spec getstats() -> [{atom(), non_neg_integer()}].
-getstats() ->
-    [{'topics/count', mnesia:table_info(topic, size)},
-     {'subscribers/count', mnesia:table_info(topic_subscriber, size)},
-     {'subscribers/max', emqttd_broker:getstat('subscribers/max')}].
-
-%%------------------------------------------------------------------------------
-%% @doc
-%% Create static topic.
+%% Create topic.
 %%
 %% @end
 %%------------------------------------------------------------------------------
 -spec create(binary()) -> ok.
 create(Topic) when is_binary(Topic) ->
-    {atomic, ok} = mnesia:transaction(fun add_topic/1, [emqttd_topic:new(Topic)]), ok.
+    {atomic, ok} = mnesia:transaction(fun insert_topic/1, [emqttd_topic:new(Topic)]), ok.
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -97,27 +81,37 @@ create(Topic) when is_binary(Topic) ->
 %%
 %% @end
 %%------------------------------------------------------------------------------
--spec subscribe({binary(), mqtt_qos()} | list()) -> {ok, list(mqtt_qos())}.
-subscribe({Topic, Qos}) when is_binary(Topic) ->
-    case subscribe([{Topic, Qos}]) of
-        {ok, [GrantedQos]} -> {ok, GrantedQos};
-        {error, Error} -> {error, Error}
-    end;
-subscribe(Topics = [{_Topic, _Qos}|_]) ->
-    subscribe(Topics, self(), []).
+-spec subscribe({Topic, Qos} | list({Topic, Qos})) -> {ok, Qos | list(Qos)} when 
+    Topic   :: binary(),
+    Qos     :: mqtt_qos().
+subscribe(Topics = [{Topic, Qos}|_]) when is_binary(Topic) andalso ?IS_QOS(Qos) ->
+    subscribe2(Topics, []).
 
-subscribe([], _SubPid, Acc) ->
-    {ok, lists:reverse(Acc)};
-subscribe([{Topic, Qos}|Topics], SubPid, Acc) ->
-    TopicObj = emqttd_topic:new(Topic),
-    Subscriber = #topic_subscriber{topic = Topic, qos = Qos, subpid = SubPid},
-    F = fun() -> trie_add(TopicObj), mnesia:write(Subscriber) end,
+-spec subscribe(Topic :: binary(), Qos :: mqtt_qos()) -> {ok, Qos :: mqtt_qos()}.
+subscribe(Topic, Qos) when is_binary(Topic) andalso ?IS_QOS(Qos) ->
+    TopicRecord = emqttd_topic:new(Topic),
+    Subscriber = #mqtt_subscriber{topic = Topic, qos = Qos, subpid = self()},
+    F = fun() ->
+            case insert_topic(TopicRecord) of
+               ok -> insert_subscriber(Subscriber);
+               Error -> Error
+            end
+        end,
     case mnesia:transaction(F) of
-        {atomic, ok} -> 
-            subscribe(Topics, SubPid, [Qos|Acc]);
-        Error -> 
-            {error, Error}
+        {atomic, ok} -> {ok, Qos};
+        Error -> Error
     end.
+
+subscribe2([], QosAcc) ->
+    {ok, lists:reverse(QosAcc)};
+subscribe2([{Topic, Qos}|Topics], Acc) ->
+    case subscribe(Topic, Qos) of
+        {ok, GrantedQos} ->
+            subscribe2(Topics, [GrantedQos|Acc]);
+        Error ->
+            Error
+    end.
+            
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -283,7 +277,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%		ok
 %%	end.
 %%
-add_topic(Topic = #topic{name = Name, node = Node}) ->
+insert_topic(Topic = #mqtt_topic{name = Name, node = Node}) ->
     case mnesia:wread(topic, Name) of
         [] ->
             trie_add(Name),
