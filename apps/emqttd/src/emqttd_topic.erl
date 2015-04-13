@@ -28,8 +28,6 @@
 
 -author('feng@emqtt.io').
 
--include("emqttd_topic.hrl").
-
 -import(lists, [reverse/1]).
  
 -export([new/1, new/2, wildcard/1, match/2, validate/1, triples/1, words/1]).

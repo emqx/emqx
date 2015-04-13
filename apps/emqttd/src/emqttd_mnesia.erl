@@ -30,8 +30,6 @@
 
 -include("emqttd.hrl").
 
--include("emqttd_topic.hrl").
-
 -export([start/0, cluster/1]).
 
 start() ->

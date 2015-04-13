@@ -30,8 +30,6 @@
 
 -include("emqttd.hrl").
 
--include("emqttd_topic.hrl").
-
 -include("emqttd_packet.hrl").
 
 -define(RETAINED_TABLE, message_retained).
