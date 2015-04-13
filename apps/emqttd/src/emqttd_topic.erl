@@ -32,7 +32,9 @@
 
 -import(lists, [reverse/1]).
  
--export([new/1, type/1, match/2, validate/1, triples/1, words/1]).
+-export([new/1, new/2, wildcard/1, match/2, validate/1, triples/1, words/1]).
+
+-type type()   :: static | dynamic.
 
 -type word()   :: '' | '+' | '#' | binary().
 
@@ -40,7 +42,7 @@
 
 -type triple() :: {root | binary(), word(), binary()}.
 
--export_type([word/0, triple/0]).
+-export_type([type/0, word/0, triple/0]).
 
 -define(MAX_TOPIC_LEN, 65535).
 
@@ -56,24 +58,34 @@ new(Name) when is_binary(Name) ->
 
 %%%-----------------------------------------------------------------------------
 %% @doc
-%% Topic Type: direct or wildcard
+%% New Topic with Type
 %%
 %% @end
 %%%-----------------------------------------------------------------------------
--spec type(topic() | binary()) -> direct | wildcard.
-type(#topic{ name = Name }) when is_binary(Name) ->
-	type(Name);
-type(Topic) when is_binary(Topic) ->
-	type2(words(Topic)).
+-spec new(type(), binary()) -> topic().
+new(Type, Name) when (Type =:= static orelse Type =:= dynamic) andalso is_binary(Name) ->
+	#topic{name = Name, type = Type, node = node()}.
 
-type2([]) -> 
-    direct;
-type2(['#'|_]) ->
-    wildcard;
-type2(['+'|_]) ->
-    wildcard;
-type2([_H |T]) ->
-    type2(T).
+%%%-----------------------------------------------------------------------------
+%% @doc
+%% Is Wildcard Topic.
+%%
+%% @end
+%%%-----------------------------------------------------------------------------
+-spec wildcard(topic() | binary()) -> true | false.
+wildcard(#topic{name = Name}) when is_binary(Name) ->
+	wildcard(Name);
+wildcard(Topic) when is_binary(Topic) ->
+	wildcard2(words(Topic)).
+
+wildcard2([]) -> 
+    false;
+wildcard2(['#'|_]) ->
+    true;
+wildcard2(['+'|_]) ->
+    true;
+wildcard2([_H |T]) ->
+    wildcard2(T).
 
 %%%-----------------------------------------------------------------------------
 %% @doc

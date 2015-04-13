@@ -129,13 +129,13 @@ create_table(Table, Attrs) ->
 %% @end
 %%------------------------------------------------------------------------------
 copy_tables() ->
-    ok = copy_ram_table(topic),
-	ok = copy_ram_table(topic_trie),
-	ok = copy_ram_table(topic_trie_node),
-	ok = copy_ram_table(topic_subscriber),
-    ok = copy_ram_table(message_retained).
+    ok = copy_table(topic),
+	ok = copy_table(topic_trie),
+	ok = copy_table(topic_trie_node),
+	ok = copy_table(topic_subscriber),
+    ok = copy_table(message_retained).
 
-copy_ram_table(Table) ->
+copy_table(Table) ->
     case mnesia:add_table_copy(Table, node(), ram_copies) of
         {atomic, ok} -> ok;
         {aborted, {already_exists, Table, _Node}} -> ok;

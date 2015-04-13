@@ -85,10 +85,10 @@ env() ->
         CPid    :: pid().
 redeliver(Topics, CPid) when is_pid(CPid) ->
     lists:foreach(fun(Topic) ->
-        case emqttd_topic:type(#topic{name=Topic}) of
-            direct ->
+        case emqttd_topic:wildcard(Topic) of
+            false ->
                 dispatch(CPid, mnesia:dirty_read(message_retained, Topic));
-            wildcard ->
+            true ->
                 Fun = fun(Msg = #message_retained{topic = Name}, Acc) ->
                         case emqttd_topic:match(Name, Topic) of
                             true -> [Msg|Acc];

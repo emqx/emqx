@@ -22,17 +22,11 @@
 %%% @doc
 %%% emqttd core pubsub.
 %%%
-%%% TODO: should not use gen_server:call to create, subscribe topics...
-%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_pubsub).
 
 -author('feng@emqtt.io').
-
--behaviour(gen_server).
-
--define(SERVER, ?MODULE).
 
 -include("emqttd.hrl").
 
@@ -42,28 +36,24 @@
 
 -include_lib("stdlib/include/qlc.hrl").
 
+-behaviour(gen_server).
+
+-define(SERVER, ?MODULE).
+
 %% API Exports 
 
 -export([start_link/0, getstats/0]).
 
--export([topics/0,
-        create/1,
-		subscribe/1,
-		unsubscribe/1,
-		publish/1,
-		publish/2,
-        %local node
-		dispatch/2, 
-		match/1]).
+-export([create/1,
+         subscribe/1, unsubscribe/1,
+         publish/1, publish/2,
+         %local node
+         dispatch/2, match/1]).
 
 %% gen_server Function Exports
 
--export([init/1,
-		handle_call/3,
-		handle_cast/2,
-		handle_info/2,
-        terminate/2,
-		code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2, code_change/3]).
 
 -record(state, {}).
 
@@ -95,27 +85,17 @@ getstats() ->
 
 %%------------------------------------------------------------------------------
 %% @doc
-%% All Topics.
-%%
-%% @end
-%%------------------------------------------------------------------------------
--spec topics() -> list(binary()).
-topics() ->
-	mnesia:dirty_all_keys(topic).
-
-%%------------------------------------------------------------------------------
-%% @doc
 %% Create static topic.
 %%
 %% @end
 %%------------------------------------------------------------------------------
--spec create(binary()) -> {atomic,  Reason :: any()} |  {aborted, Reason :: any()}.
-create(Topic) when is_binary(Topic) -> 
-    {atomic, ok} = mnesia:transaction(fun trie_add/1, [Topic]), ok.
+-spec create(binary()) -> ok.
+create(Topic) when is_binary(Topic) ->
+    {atomic, ok} = mnesia:transaction(fun add_topic/1, [emqttd_topic:new(Topic)]), ok.
 
 %%------------------------------------------------------------------------------
 %% @doc
-%% Subscribe Topic or Topics
+%% Subscribe topics
 %%
 %% @end
 %%------------------------------------------------------------------------------
@@ -130,13 +110,15 @@ subscribe(Topics = [{_Topic, _Qos}|_]) ->
 
 subscribe([], _SubPid, Acc) ->
     {ok, lists:reverse(Acc)};
-%%TODO: check this function later.
 subscribe([{Topic, Qos}|Topics], SubPid, Acc) ->
-    Subscriber = #topic_subscriber{topic=Topic, qos = Qos, subpid=SubPid},
-    F = fun() -> trie_add(Topic), mnesia:write(Subscriber) end,
+    TopicObj = emqttd_topic:new(Topic),
+    Subscriber = #topic_subscriber{topic = Topic, qos = Qos, subpid = SubPid},
+    F = fun() -> trie_add(TopicObj), mnesia:write(Subscriber) end,
     case mnesia:transaction(F) of
-        {atomic, ok} -> subscribe(Topics, SubPid, [Qos|Acc]);
-        Error -> {error, Error}
+        {atomic, ok} -> 
+            subscribe(Topics, SubPid, [Qos|Acc]);
+        Error -> 
+            {error, Error}
     end.
 
 %%------------------------------------------------------------------------------
@@ -152,7 +134,6 @@ unsubscribe(Topic) when is_binary(Topic) ->
 unsubscribe(Topics = [Topic|_]) when is_list(Topics) and is_binary(Topic) ->
     unsubscribe(Topics, self()).
 
-%%TODO: check this function later.
 unsubscribe(Topics, SubPid) ->
     F = fun() -> 
         Subscribers = mnesia:index_read(topic_subscriber, SubPid, #topic_subscriber.subpid),
@@ -303,86 +284,19 @@ code_change(_OldVsn, State, _Extra) ->
 %%	true -> 
 %%		ok
 %%	end.
+%%
+add_topic(Topic = #topic{name = Name, node = Node}) ->
+    case mnesia:wread(topic, Name) of
+        [] ->
+            trie_add(Name),
+            mnesia:write(Topic);
+        Topics  -> 
+            case lists:member(Topic, Topics) of
+                true -> ok;
+                false -> mnesia:write(Topic)
+            end
+    end.
 
-trie_add(Topic) when is_binary(Topic) ->
-	mnesia:write(emqttd_topic:new(Topic)),
-	case mnesia:read(topic_trie_node, Topic) of
-	[TrieNode=#topic_trie_node{topic=undefined}] ->
-		mnesia:write(TrieNode#topic_trie_node{topic=Topic});
-	[#topic_trie_node{topic=Topic}] ->
-        ok;
-	[] ->
-		%add trie path
-		[trie_add_path(Triple) || Triple <- emqttd_topic:triples(Topic)],
-		%add last node
-		mnesia:write(#topic_trie_node{node_id=Topic, topic=Topic})
-	end.
-
-trie_delete(Topic) when is_binary(Topic) ->
-	case mnesia:read(topic_trie_node, Topic) of
-	[#topic_trie_node{edge_count=0}] -> 
-		mnesia:delete({topic_trie_node, Topic}),
-		trie_delete_path(lists:reverse(emqttd_topic:triples(Topic)));
-	[TrieNode] ->
-		mnesia:write(TrieNode#topic_trie_node{topic=Topic});
-	[] ->
-		ignore
-	end.
-	
-trie_match(Words) ->
-	trie_match(root, Words, []).
-
-trie_match(NodeId, [], ResAcc) ->
-	mnesia:read(topic_trie_node, NodeId) ++ 'trie_match_#'(NodeId, ResAcc);
-
-trie_match(NodeId, [W|Words], ResAcc) ->
-	lists:foldl(fun(WArg, Acc) ->
-		case mnesia:read(topic_trie, #topic_trie_edge{node_id=NodeId, word=WArg}) of
-		[#topic_trie{node_id=ChildId}] -> trie_match(ChildId, Words, Acc);
-		[] -> Acc
-		end
-	end, 'trie_match_#'(NodeId, ResAcc), [W, '+']).
-
-'trie_match_#'(NodeId, ResAcc) ->
-	case mnesia:read(topic_trie, #topic_trie_edge{node_id=NodeId, word = '#'}) of
-	[#topic_trie{node_id=ChildId}] ->
-		mnesia:read(topic_trie_node, ChildId) ++ ResAcc;	
-	[] ->
-		ResAcc
-	end.
-
-trie_add_path({Node, Word, Child}) ->
-	Edge = #topic_trie_edge{node_id=Node, word=Word},
-	case mnesia:read(topic_trie_node, Node) of
-	[TrieNode = #topic_trie_node{edge_count=Count}] ->
-		case mnesia:read(topic_trie, Edge) of
-		[] -> 
-			mnesia:write(TrieNode#topic_trie_node{edge_count=Count+1}),
-			mnesia:write(#topic_trie{edge=Edge, node_id=Child});
-		[_] -> 
-			ok
-		end;
-	[] ->
-		mnesia:write(#topic_trie_node{node_id=Node, edge_count=1}),
-		mnesia:write(#topic_trie{edge=Edge, node_id=Child})
-	end.
-
-trie_delete_path([]) ->
-	ok;
-trie_delete_path([{NodeId, Word, _} | RestPath]) ->
-	Edge = #topic_trie_edge{node_id=NodeId, word=Word},
-	mnesia:delete({topic_trie, Edge}),
-	case mnesia:read(topic_trie_node, NodeId) of
-	[#topic_trie_node{edge_count=1, topic=undefined}] -> 
-		mnesia:delete({topic_trie_node, NodeId}),
-		trie_delete_path(RestPath);
-	[TrieNode=#topic_trie_node{edge_count=1, topic=_}] -> 
-		mnesia:write(TrieNode#topic_trie_node{edge_count=0});
-	[TrieNode=#topic_trie_node{edge_count=C}] ->
-		mnesia:write(TrieNode#topic_trie_node{edge_count=C-1});
-	[] ->
-		throw({notfound, NodeId}) 
-	end.
 
 upstats() ->
     upstats(topic), upstats(subscribe). 
