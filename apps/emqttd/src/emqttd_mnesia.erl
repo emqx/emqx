@@ -32,6 +32,8 @@
 
 -export([start/0, cluster/1]).
 
+-export([create_table/2, copy_table/1]). 
+
 start() ->
     case init_schema() of
         ok -> 
@@ -109,10 +111,8 @@ create_table(Table, Attrs) ->
 %% @end
 %%------------------------------------------------------------------------------
 copy_tables() ->
-    ok = copy_table(topic),
-	ok = copy_table(topic_trie),
-	ok = copy_table(topic_trie_node),
-	ok = copy_table(topic_subscriber),
+    ok = emqttd_trie:mnesia(create),
+    ok = emqttd_pubsub:mnesia(create),
     ok = copy_table(message_retained).
 
 copy_table(Table) ->
@@ -176,7 +176,5 @@ wait_for_mnesia(stop) ->
         starting ->
             {error, mnesia_unexpectedly_starting}
     end.
-
-    
 
 

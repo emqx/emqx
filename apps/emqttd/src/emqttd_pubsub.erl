@@ -48,7 +48,8 @@
 -export([start_link/0]).
 
 -export([create/1,
-         subscribe/1, unsubscribe/1,
+         subscribe/1, subscribe/2,
+         unsubscribe/1,
          publish/1, publish/2,
          %local node
          dispatch/2, match/1]).
@@ -236,14 +237,15 @@ handle_cast(Msg, State) ->
 
 handle_info({mnesia_table_event, {write, #topic_subscriber{subpid = Pid}, _ActivityId}},
             State = #state{submap = SubMap}) ->
+    NewSubMap =
     case maps:is_key(Pid, SubMap) of
-        false -> 
-            maps:put(Pid, erlang:monitor(process, Pid));
-        true -> 
-            ignore
+        false ->
+            maps:put(Pid, erlang:monitor(process, Pid), SubMap);
+        true ->
+            SubMap
     end,
     setstats(subscribers),
-    {noreply, State};
+    {noreply, State#state{submap = NewSubMap}};
 
 handle_info({mnesia_table_event, {write, #topic{}, _ActivityId}}, State) ->
     %%TODO: this is not right when clusterd.
@@ -301,7 +303,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%=============================================================================
 insert_topic(Topic = #topic{name = Name}) ->
-    case mnesia:wread(topic, Name) of
+    case mnesia:wread({topic, Name}) of
         [] ->
             ok = emqttd_trie:insert(Name),
             mnesia:write(Topic);
@@ -316,15 +318,14 @@ insert_subscriber(Subscriber) ->
     mnesia:write(Subscriber).
 
 try_remove_topic(Topic = #topic{name = Name}) ->
-    %%TODO: is this ok in transaction?
-    case ets:member(topic_subscriber, Name) of
-         false ->
+    case mnesia:read({topic_subscriber, Name}) of
+        [] ->
             mnesia:delete_object(Topic),
             case mnesia:read(topic, Name) of
                 [] -> emqttd_trie:delete(Name);		
                 _ -> ok
             end;
-         true -> 
+         _ -> 
             ok
  	end.
 
@@ -337,5 +338,4 @@ setstats(subscribers) ->
                            mnesia:table_info(topic_subscriber, size));
 setstats(dropped) ->
     emqttd_metrics:inc('messages/dropped').
-
 

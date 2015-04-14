@@ -157,7 +157,7 @@ add_path({Node, Word, Child}) ->
 	Edge = #trie_edge{node_id=Node, word=Word},
 	case mnesia:read(trie_node, Node) of
 	[TrieNode = #trie_node{edge_count=Count}] ->
-		case mnesia:wread(trie, Edge) of
+		case mnesia:wread({trie, Edge}) of
 		[] -> 
 			mnesia:write(TrieNode#trie_node{edge_count=Count+1}),
 			mnesia:write(#trie{edge=Edge, node_id=Child});
