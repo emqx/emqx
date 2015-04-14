@@ -20,7 +20,7 @@
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
 %%% @doc
-%%% emqtt header.
+%%% emqttd header.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
@@ -37,16 +37,38 @@
 -define(ERTS_MINIMUM, "6.0").
 
 %%------------------------------------------------------------------------------
-%% PubSub Type
+%% PubSub
 %%------------------------------------------------------------------------------
 -type pubsub() :: publish | subscribe.
+
+%%------------------------------------------------------------------------------
+%% MQTT Topic
+%%------------------------------------------------------------------------------
+-record(mqtt_topic, {
+    topic   :: binary(),
+    node    :: node()
+}).
+
+-type mqtt_topic() :: #mqtt_topic{}.
+
+%%------------------------------------------------------------------------------
+%% MQTT Topic Subscriber
+%%------------------------------------------------------------------------------
+-record(mqtt_subscriber, {
+    topic    :: binary(),
+    qos = 0  :: 0 | 1 | 2,
+    subpid   :: pid()
+}).
+
+-type mqtt_subscriber() :: #mqtt_subscriber{}.
 
 %%------------------------------------------------------------------------------
 %% MQTT Client
 %%------------------------------------------------------------------------------
 -record(mqtt_client, {
-    client_id,
-    username
+    clientid    :: binary(),
+    username    :: binary() | undefined,
+    ipaddr      :: inet:ip_address()
 }).
 
 -type mqtt_client() :: #mqtt_client{}.
@@ -55,7 +77,7 @@
 %% MQTT Session
 %%------------------------------------------------------------------------------
 -record(mqtt_session, {
-    client_id,
+    clientid,
     session_pid,
     subscriptions = [],
     awaiting_ack,
@@ -65,36 +87,25 @@
 -type mqtt_session() :: #mqtt_session{}.
 
 %%------------------------------------------------------------------------------
-%% MQTT User Management
-%%------------------------------------------------------------------------------
--record(mqtt_user, {
-    username    :: binary(),
-    ipaddr      :: inet:ip_address(),
-    clientid    :: binary()
-}).
-
--type mqtt_user() :: #mqtt_user{}.
-
-%%------------------------------------------------------------------------------
-%% MQTT Authorization
+%% MQTT Message
 %%------------------------------------------------------------------------------
 
-%% {subscribe, From, Topic}
-%% {publish, From, Topic}
+-type mqtt_msgid() :: undefined | 1..16#ffff.
 
-%%TODO: ClientId | Username --> Pub | Sub --> Topics
+-record(mqtt_message, {
+    %% topic is first for message may be retained
+    topic           :: binary(),
+    qos    = 0      :: 0 | 1 | 2,
+    retain = false  :: boolean(),
+    dup    = false  :: boolean(),
+    msgid           :: mqtt_msgid(),
+    payload         :: binary()}).
+
+-type mqtt_message() :: #mqtt_message{}.
 
 %%------------------------------------------------------------------------------
 %% MQTT Plugin
 %%------------------------------------------------------------------------------
 
 -record(mqtt_plugin, {name, version, attrs, description}).
-
-%%------------------------------------------------------------------------------
-%% MQTT Retained Message
-%%------------------------------------------------------------------------------
--record(message_retained, {topic, qos, payload}).
-
--type message_retained() :: #message_retained{}.
-
 

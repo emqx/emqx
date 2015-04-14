@@ -26,7 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_event).
 
--include("emqttd_packet.hrl").
+-include("emqttd.hrl").
 
 %% API Function Exports
 -export([start_link/0,

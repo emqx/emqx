@@ -28,7 +28,7 @@
 
 -include("emqttd.hrl").
 
--include("emqttd_packet.hrl").
+-include_lib("emqtt/include/emqtt_packet.hrl").
 
 %% API
 -export([init/2, client_id/1]).
@@ -93,7 +93,7 @@ received(_Packet, State = #proto_state{connected = false}) ->
 
 received(Packet = ?PACKET(_Type), State = #proto_state{peername  = Peername,
                                                        client_id = ClientId}) ->
-	lager:debug("RECV from ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqttd_packet:dump(Packet)]),
+	lager:debug("RECV from ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqtt_packet:dump(Packet)]),
 	case validate_packet(Packet) of	
 	ok ->
         handle(Packet, State);
@@ -110,7 +110,7 @@ handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peername = Peername =
                          keep_alive = KeepAlive,
                          client_id  = ClientId} = Var,
 
-    lager:debug("RECV from ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqttd_packet:dump(Packet)]),
+    lager:debug("RECV from ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqtt_packet:dump(Packet)]),
 
     State1 = State#proto_state{proto_ver  = ProtoVer,
                                username   = Username,
@@ -226,7 +226,7 @@ send({_From, Message = #mqtt_message{qos = Qos}}, State = #proto_state{session =
 	send(emqttd_message:to_packet(Message1), State#proto_state{session = NewSession});
 
 send(Packet, State = #proto_state{transport = Transport, socket = Sock, peername = Peername, client_id = ClientId}) when is_record(Packet, mqtt_packet) ->
-	lager:debug("SENT to ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqttd_packet:dump(Packet)]),
+	lager:debug("SENT to ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqtt_packet:dump(Packet)]),
     sent_stats(Packet),
     Data = emqttd_serialiser:serialise(Packet),
     lager:debug("SENT to ~s: ~p", [emqttd_net:format(Peername), Data]),
@@ -297,7 +297,7 @@ validate_clientid(#mqtt_packet_connect {proto_ver = Ver, clean_sess = CleanSess,
 
 validate_packet(#mqtt_packet{header  = #mqtt_packet_header{type = ?PUBLISH}, 
                              variable = #mqtt_packet_publish{topic_name = Topic}}) ->
-	case emqttd_topic:validate({name, Topic}) of
+	case emqtt_topic:validate({name, Topic}) of
 	true -> ok;
 	false -> lager:warning("Error publish topic: ~p", [Topic]), {error, badtopic}
 	end;
@@ -321,7 +321,7 @@ validate_topics(Type, []) when Type =:= name orelse Type =:= filter ->
 
 validate_topics(Type, Topics) when Type =:= name orelse Type =:= filter ->
 	ErrTopics = [Topic || {Topic, Qos} <- Topics,
-						not (emqttd_topic:validate({Type, Topic}) and validate_qos(Qos))],
+						not (emqtt_topic:validate({Type, Topic}) and validate_qos(Qos))],
 	case ErrTopics of
 	[] -> ok;
 	_ -> lager:error("Error Topics: ~p", [ErrTopics]), {error, badtopic}

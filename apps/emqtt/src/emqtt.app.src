@@ -1,0 +1,14 @@
+{application, emqtt,
+ [
+  {description, "Erlang MQTT Common Library"},
+  {vsn, "0.6.0"},
+  {modules, [
+             emqtt_parser
+            ]},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {env, []}
+ ]}.

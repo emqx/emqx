@@ -53,8 +53,8 @@
 
 -callback init(AclOpts :: list()) -> {ok, State :: any()}.
 
--callback check_acl({User, PubSub, Topic}, State :: any()) -> allow | deny | ignore when
-    User     :: mqtt_user(),
+-callback check_acl({Client, PubSub, Topic}, State :: any()) -> allow | deny | ignore when
+    Client   :: mqtt_client(),
     PubSub   :: pubsub(),
     Topic    :: binary().
 

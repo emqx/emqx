@@ -41,7 +41,7 @@
 
 -include("emqttd.hrl").
 
--include("emqttd_packet.hrl").
+-include_lib("emqtt/include/emqtt_packet.hrl").
 
 %%Client State...
 -record(state, {transport,

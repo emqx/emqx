@@ -20,15 +20,15 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd packet.
+%%% emqtt packet.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_packet).
+-module(emqtt_packet).
 
 -author("feng@emqtt.io").
 
--include("emqttd_packet.hrl").
+-include("emqtt_packet.hrl").
 
 %% API
 -export([protocol_name/1, type_name/1, connack_name/1]).

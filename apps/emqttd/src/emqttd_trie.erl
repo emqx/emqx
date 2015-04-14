@@ -108,7 +108,7 @@ insert(Topic) when is_binary(Topic) ->
 		mnesia:write(TrieNode#trie_node{topic=Topic});
 	[] ->
 		%add trie path
-		[add_path(Triple) || Triple <- emqttd_topic:triples(Topic)],
+		[add_path(Triple) || Triple <- emqtt_topic:triples(Topic)],
 		%add last node
 		mnesia:write(#trie_node{node_id=Topic, topic=Topic})
 	end.
@@ -121,7 +121,7 @@ insert(Topic) when is_binary(Topic) ->
 %%------------------------------------------------------------------------------
 -spec find(Topic :: binary()) -> list(MatchedTopic :: binary()).
 find(Topic) when is_binary(Topic) ->
-    TrieNodes = match_node(root, emqttd_topic:words(Topic), []),
+    TrieNodes = match_node(root, emqtt_topic:words(Topic), []),
     [Name || #trie_node{topic=Name} <- TrieNodes, Name=/= undefined].
 
 %%------------------------------------------------------------------------------
@@ -135,7 +135,7 @@ delete(Topic) when is_binary(Topic) ->
 	case mnesia:read(trie_node, Topic) of
 	[#trie_node{edge_count=0}] -> 
 		mnesia:delete({trie_node, Topic}),
-		delete_path(lists:reverse(emqttd_topic:triples(Topic)));
+		delete_path(lists:reverse(emqtt_topic:triples(Topic)));
 	[TrieNode] ->
 		mnesia:write(TrieNode#trie_node{topic=Topic});
 	[] ->

@@ -30,7 +30,7 @@
 
 -behaviour(gen_server).
 
--include("emqttd_packet.hrl").
+-include_lib("emqtt/include/emqtt_packet.hrl").
 
 %% API Function Exports
 -export([start_link/3]).

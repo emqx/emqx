@@ -28,7 +28,7 @@
 
 -author('feng@emqtt.io').
 
--include("emqttd_packet.hrl").
+-include("emqttd.hrl").
 
 -include("emqttd_systop.hrl").
 

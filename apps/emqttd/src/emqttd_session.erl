@@ -28,8 +28,6 @@
 
 -include("emqttd.hrl").
 
--include("emqttd_packet.hrl").
-
 %% API Function Exports
 -export([start/1,
          resume/3,

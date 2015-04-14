@@ -24,6 +24,7 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -author("feng@emqtt.io").
 
 %%------------------------------------------------------------------------------
@@ -223,17 +224,4 @@
 
 -define(PACKET(Type),
     #mqtt_packet{header = #mqtt_packet_header{type = Type}}).
-
-%%------------------------------------------------------------------------------
-%% MQTT Message
-%%------------------------------------------------------------------------------
--record(mqtt_message, {
-    qos    = ?QOS_0 :: mqtt_qos(),
-    retain = false  :: boolean(),
-    dup    = false  :: boolean(),
-    msgid           :: mqtt_packet_id(),
-    topic           :: binary(),
-    payload         :: binary()}).
-
--type mqtt_message() :: #mqtt_message{}.
 

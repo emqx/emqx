@@ -46,10 +46,10 @@
 
 -ifdef(use_specs).
 
--callback check(User, Password, State) -> ok | ignore | {error, string()} when
-    User     :: mqtt_user(),
-    Password :: binary(),
-    State    :: any().
+-callback check(Client, Password, State) -> ok | ignore | {error, string()} when
+    Client    :: mqtt_client(),
+    Password  :: binary(),
+    State     :: any().
 
 -callback description() -> string().
 
@@ -68,18 +68,18 @@ behaviour_info(_Other) ->
 start_link(AuthMods) ->
 	gen_server:start_link({local, ?MODULE}, ?MODULE, [AuthMods], []).
 
--spec login(mqtt_user(), undefined | binary()) -> ok | {error, string()}.
-login(User, Password) when is_record(User, mqtt_user) ->
+-spec login(mqtt_client(), undefined | binary()) -> ok | {error, string()}.
+login(Client, Password) when is_record(Client, mqtt_client) ->
     [{_, AuthMods}] = ets:lookup(?AUTH_TABLE, auth_modules),
-    check(User, Password, AuthMods).
+    check(Client, Password, AuthMods).
 
-check(_User, _Password, []) ->
+check(_Client, _Password, []) ->
     {error, "No auth module to check!"};
-check(User, Password, [{Mod, State} | Mods]) ->
-    case Mod:check(User, Password, State) of
+check(Client, Password, [{Mod, State} | Mods]) ->
+    case Mod:check(Client, Password, State) of
         ok -> ok;
         {error, Reason} -> {error, Reason};
-        ignore -> check(User, Password, Mods)
+        ignore -> check(Client, Password, Mods)
     end.
 
 add_module(Mod, Opts) ->

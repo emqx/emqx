@@ -30,8 +30,6 @@
 
 -include("emqttd.hrl").
 
--include("emqttd_packet.hrl").
-
 -define(RETAINED_TABLE, message_retained).
 
 %% API Function Exports
@@ -83,12 +81,12 @@ env() ->
         CPid    :: pid().
 redeliver(Topics, CPid) when is_pid(CPid) ->
     lists:foreach(fun(Topic) ->
-        case emqttd_topic:wildcard(Topic) of
+        case emqtt_topic:wildcard(Topic) of
             false ->
                 dispatch(CPid, mnesia:dirty_read(message_retained, Topic));
             true ->
                 Fun = fun(Msg = #message_retained{topic = Name}, Acc) ->
-                        case emqttd_topic:match(Name, Topic) of
+                        case emqtt_topic:match(Name, Topic) of
                             true -> [Msg|Acc];
                             false -> Acc
                         end

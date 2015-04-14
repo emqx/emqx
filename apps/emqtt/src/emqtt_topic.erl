@@ -20,19 +20,17 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd topic.
+%%% emqtt topic.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_topic).
+-module(emqtt_topic).
 
 -author('feng@emqtt.io').
 
--include("emqttd_topic.hrl").
-
 -import(lists, [reverse/1]).
  
--export([new/1, wildcard/1, match/2, validate/1, triples/1, words/1]).
+-export([match/2, validate/1, triples/1, words/1, wildcard/1]).
 
 %-type type()   :: static | dynamic.
 
@@ -48,23 +46,11 @@
 
 %%%-----------------------------------------------------------------------------
 %% @doc
-%% New Topic
+%% Is wildcard topic?
 %%
 %% @end
 %%%-----------------------------------------------------------------------------
--spec new(binary()) -> topic().
-new(Name) when is_binary(Name) ->
-	#topic{name = Name, node = node()}.
-
-%%%-----------------------------------------------------------------------------
-%% @doc
-%% Is Wildcard Topic?
-%%
-%% @end
-%%%-----------------------------------------------------------------------------
--spec wildcard(topic() | binary()) -> true | false.
-wildcard(#topic{name = Name}) when is_binary(Name) ->
-	wildcard(Name);
+-spec wildcard(binary()) -> true | false.
 wildcard(Topic) when is_binary(Topic) ->
 	wildcard(words(Topic));
 wildcard([]) -> 

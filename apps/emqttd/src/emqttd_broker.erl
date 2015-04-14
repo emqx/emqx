@@ -26,7 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_broker).
 
--include("emqttd_packet.hrl").
+-include("emqttd.hrl").
 
 -include("emqttd_systop.hrl").
 

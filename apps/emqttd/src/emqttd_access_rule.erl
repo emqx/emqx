@@ -73,7 +73,7 @@ compile(who, {user, Username}) ->
     {user, bin(Username)};
 
 compile(topic, Topic) ->
-    Words = emqttd_topic:words(Topic),
+    Words = emqtt_topic:words(Topic),
     case 'pattern?'(Words) of
         true -> {pattern, Words};
         false -> Words
@@ -126,18 +126,18 @@ match_topics(_User, _Topic, []) ->
     false;
 match_topics(User, Topic, [{pattern, PatternFilter}|Filters]) ->
     TopicFilter = feed_var(User, PatternFilter),
-    case match_topic(emqttd_topic:words(Topic), TopicFilter) of
+    case match_topic(emqtt_topic:words(Topic), TopicFilter) of
         true -> true;
         false -> match_topics(User, Topic, Filters)
     end;
 match_topics(User, Topic, [TopicFilter|Filters]) ->
-   case match_topic(emqttd_topic:words(Topic), TopicFilter) of
+   case match_topic(emqtt_topic:words(Topic), TopicFilter) of
     true -> true;
     false -> match_topics(User, Topic, Filters)
     end.
 
 match_topic(Topic, TopicFilter) ->
-    emqttd_topic:match(Topic, TopicFilter).
+    emqtt_topic:match(Topic, TopicFilter).
 
 feed_var(User, Pattern) ->
     feed_var(User, Pattern, []).

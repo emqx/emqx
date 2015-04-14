@@ -20,15 +20,15 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd packet serialiser.
+%%% emqtt packet serialiser.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_serialiser).
+-module(emqtt_serialiser).
 
 -author("feng@emqtt.io").
 
--include("emqttd_packet.hrl").
+-include("emqtt_packet.hrl").
 
 %% API
 -export([serialise/1]).

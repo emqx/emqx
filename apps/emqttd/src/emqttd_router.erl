@@ -23,7 +23,7 @@
 %%route chain... statistics
 -module(emqttd_router).
 
--include("emqttd_packet.hrl").
+-include("emqttd.hrl").
 
 -behaviour(gen_server).
 

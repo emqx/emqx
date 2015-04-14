@@ -30,7 +30,7 @@
 
 -include("emqttd.hrl").
 
--include("emqttd_packet.hrl").
+-include_lib("emqtt/include/emqtt_packet.hrl").
 
 -export([from_packet/1, to_packet/1]).
 

@@ -30,9 +30,7 @@
 
 -include("emqttd.hrl").
 
--include("emqttd_topic.hrl").
-
--include("emqttd_packet.hrl").
+-include_lib("emqtt/include/emqtt_packet.hrl").
 
 -behaviour(gen_server).
 
@@ -68,20 +66,20 @@ mnesia(create) ->
     ok = emqttd_mnesia:create_table(topic, [
                 {type, bag},
                 {ram_copies, [node()]},
-                {record_name, topic},
-                {attributes, record_info(fields, topic)}]),
+                {record_name, mqtt_topic},
+                {attributes, record_info(fields, mqtt_topic)}]),
     %% local subscriber table, not shared with other nodes 
-    ok = emqttd_mnesia:create_table(topic_subscriber, [
+    ok = emqttd_mnesia:create_table(subscriber, [
                 {type, bag},
                 {ram_copies, [node()]},
-                {record_name, topic_subscriber},
-                {attributes, record_info(fields, topic_subscriber)},
+                {record_name, mqtt_subscriber},
+                {attributes, record_info(fields, mqtt_subscriber)},
                 {index, [subpid]},
                 {local_content, true}]);
 
 mnesia(replicate) ->
     ok = emqttd_mnesia:copy_table(topic),
-    ok = emqttd_mnesia:copy_table(topic_subscriber).
+    ok = emqttd_mnesia:copy_table(subscriber).
 
 %%%=============================================================================
 %%% API
@@ -105,7 +103,8 @@ start_link() ->
 %%------------------------------------------------------------------------------
 -spec create(binary()) -> ok.
 create(Topic) when is_binary(Topic) ->
-    {atomic, ok} = mnesia:transaction(fun insert_topic/1, [emqttd_topic:new(Topic)]), ok.
+    Record = #mqtt_topic{topic = Topic, node = node()},
+    {atomic, ok} = mnesia:transaction(fun insert_topic/1, [Record]), ok.
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -128,7 +127,7 @@ subscribe(Topics = [{_Topic, _Qos}|_]) ->
 
 -spec subscribe(Topic :: binary(), Qos :: mqtt_qos()) -> {ok, Qos :: mqtt_qos()}.
 subscribe(Topic, Qos) when is_binary(Topic) andalso ?IS_QOS(Qos) ->
-    TopicRecord = emqttd_topic:new(Topic),
+    TopicRecord = #mqtt_topic{topic = Topic, node = node()},
     Subscriber = #topic_subscriber{topic = Topic, qos = Qos, subpid = self()},
     F = fun() ->
             case insert_topic(TopicRecord) of
@@ -150,9 +149,10 @@ subscribe(Topic, Qos) when is_binary(Topic) andalso ?IS_QOS(Qos) ->
 -spec unsubscribe(binary() | list(binary())) -> ok.
 unsubscribe(Topic) when is_binary(Topic) ->
     SubPid = self(),
-    TopicRecord = emqttd_topic:new(Topic),
+    TopicRecord = #mqtt_topic{topic = Topic, node = node()},
     F = fun() ->
-        Pattern = #topic_subscriber{topic = Topic, _ = '_', subpid = SubPid},
+        %%TODO record name...
+        Pattern = #mqtt_subscriber{topic = Topic, _ = '_', subpid = SubPid},
         [mnesia:delete_object(Sub) || Sub <- mnesia:match_object(Pattern)],
         try_remove_topic(TopicRecord)
     end,
@@ -173,7 +173,7 @@ publish(Msg=#mqtt_message{topic=Topic}) ->
 
 -spec publish(Topic :: binary(), Msg :: mqtt_message()) -> any().
 publish(Topic, Msg) when is_binary(Topic) ->
-	lists:foreach(fun(#topic{name=Name, node=Node}) ->
+	lists:foreach(fun(#mqtt_topic{topic=Name, node=Node}) ->
         case Node =:= node() of
             true -> dispatch(Name, Msg);
             false -> rpc:cast(Node, ?MODULE, dispatch, [Name, Msg])
@@ -194,7 +194,7 @@ dispatch(Topic, Msg = #mqtt_message{qos = Qos}) when is_binary(Topic) ->
             setstats(dropped);
         Subscribers ->
             lists:foreach(
-                fun(#topic_subscriber{qos = SubQos, subpid=SubPid}) ->
+                fun(#mqtt_subscriber{qos = SubQos, subpid=SubPid}) ->
                         Msg1 = if
                             Qos > SubQos -> Msg#mqtt_message{qos = SubQos};
                             true -> Msg
@@ -210,7 +210,7 @@ dispatch(Topic, Msg = #mqtt_message{qos = Qos}) when is_binary(Topic) ->
 %%
 %% @end
 %%------------------------------------------------------------------------------
--spec match(Topic :: binary()) -> [topic()].
+-spec match(Topic :: binary()) -> [mqtt_topic()].
 match(Topic) when is_binary(Topic) ->
 	MatchedTopics = mnesia:async_dirty(fun emqttd_trie:find/1, [Topic]),
 	lists:flatten([mnesia:dirty_read(topic, Name) || Name <- MatchedTopics]).
@@ -235,7 +235,7 @@ handle_cast(Msg, State) ->
     lager:error("Bad Msg: ~p", [Msg]),
 	{noreply, State}.
 
-handle_info({mnesia_table_event, {write, #topic_subscriber{subpid = Pid}, _ActivityId}},
+handle_info({mnesia_table_event, {write, #mqtt_subscriber{subpid = Pid}, _ActivityId}},
             State = #state{submap = SubMap}) ->
     NewSubMap =
     case maps:is_key(Pid, SubMap) of
@@ -247,7 +247,7 @@ handle_info({mnesia_table_event, {write, #topic_subscriber{subpid = Pid}, _Activ
     setstats(subscribers),
     {noreply, State#state{submap = NewSubMap}};
 
-handle_info({mnesia_table_event, {write, #topic{}, _ActivityId}}, State) ->
+handle_info({mnesia_table_event, {write, #mqtt_topic{}, _ActivityId}}, State) ->
     %%TODO: this is not right when clusterd.
     setstats(topics),
     {noreply, State};
