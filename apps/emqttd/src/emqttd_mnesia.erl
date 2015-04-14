@@ -85,27 +85,9 @@ init_tables() ->
 %%------------------------------------------------------------------------------
 create_tables() ->
     %% trie tree tables
-    ok = create_table(topic_trie_node, [
-                {ram_copies, [node()]},
-                {record_name, topic_trie_node},
-                {attributes, record_info(fields, topic_trie_node)}]),
-    ok = create_table(topic_trie, [
-                {ram_copies, [node()]},
-                {record_name, topic_trie},
-                {attributes, record_info(fields, topic_trie)}]),
-    %% topic table
-    ok = create_table(topic, [
-                {type, bag},
-                {ram_copies, [node()]},
-                {record_name, topic},
-                {attributes, record_info(fields, topic)}]),
-    %% local subscriber table, not shared with other nodes 
-    ok = create_table(topic_subscriber, [
-                {type, bag},
-                {ram_copies, [node()]},
-                {attributes, record_info(fields, topic_subscriber)},
-                {index, [subpid]},
-                {local_content, true}]),
+    %%TODO: should use module 'mnesia_create' attribute...
+    ok = emqttd_trie:mnesia(create),
+    ok = emqttd_pubsub:mnesia(create),
     %% TODO: retained messages, this table should not be copied...
     ok = create_table(message_retained, [
                 {type, ordered_set},

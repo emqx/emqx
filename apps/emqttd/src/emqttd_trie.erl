@@ -99,6 +99,7 @@ mnesia(replicate) ->
 %%
 %% @end
 %%------------------------------------------------------------------------------
+-spec insert(Topic :: binary()) -> ok.
 insert(Topic) when is_binary(Topic) ->
 	case mnesia:read(trie_node, Topic) of
 	[#trie_node{topic=Topic}] ->
@@ -118,8 +119,10 @@ insert(Topic) when is_binary(Topic) ->
 %%
 %% @end
 %%------------------------------------------------------------------------------
+-spec find(Topic :: binary()) -> list(MatchedTopic :: binary()).
 find(Topic) when is_binary(Topic) ->
-    match_node(root, emqttd_topic:words(Topic), []).
+    TrieNodes = match_node(root, emqttd_topic:words(Topic), []),
+    [Name || #trie_node{topic=Name} <- TrieNodes, Name=/= undefined].
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -127,6 +130,7 @@ find(Topic) when is_binary(Topic) ->
 %%
 %% @end
 %%------------------------------------------------------------------------------
+-spec delete(Topic :: binary()) -> ok.
 delete(Topic) when is_binary(Topic) ->
 	case mnesia:read(trie_node, Topic) of
 	[#trie_node{edge_count=0}] -> 
@@ -135,7 +139,7 @@ delete(Topic) when is_binary(Topic) ->
 	[TrieNode] ->
 		mnesia:write(TrieNode#trie_node{topic=Topic});
 	[] ->
-		ignore
+	    ok	
 	end.
 
 %%%=============================================================================

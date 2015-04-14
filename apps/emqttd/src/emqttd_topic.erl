@@ -28,7 +28,7 @@
 
 -author('feng@emqtt.io').
 
--include("emqttd.hrl").
+-include("emqttd_topic.hrl").
 
 -import(lists, [reverse/1]).
  
@@ -52,9 +52,9 @@
 %%
 %% @end
 %%%-----------------------------------------------------------------------------
--spec new(binary()) -> mqtt_topic().
+-spec new(binary()) -> topic().
 new(Name) when is_binary(Name) ->
-	#mqtt_topic{name = Name, node = node()}.
+	#topic{name = Name, node = node()}.
 
 %%%-----------------------------------------------------------------------------
 %% @doc
@@ -62,8 +62,8 @@ new(Name) when is_binary(Name) ->
 %%
 %% @end
 %%%-----------------------------------------------------------------------------
--spec wildcard(mqtt_topic() | binary()) -> true | false.
-wildcard(#mqtt_topic{name = Name}) when is_binary(Name) ->
+-spec wildcard(topic() | binary()) -> true | false.
+wildcard(#topic{name = Name}) when is_binary(Name) ->
 	wildcard(Name);
 wildcard(Topic) when is_binary(Topic) ->
 	wildcard(words(Topic));
