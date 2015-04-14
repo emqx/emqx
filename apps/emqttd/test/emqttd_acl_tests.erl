@@ -35,7 +35,7 @@
 all_modules_test() ->
     with_acl(
         fun() ->
-            ?assertEqual([emqttd_acl_internal], emqttd_acl:all_modules())
+            ?assertMatch([{emqttd_acl_internal, _State}], emqttd_acl:all_modules())
         end).
 
 reload_test() ->
@@ -47,18 +47,20 @@ reload_test() ->
 register_mod_test() ->
     with_acl(
         fun() ->
-            emqttd_acl:register_mod(acl_mysql),
-            ?assertEqual([acl_mysql, emqttd_acl_internal], emqttd_acl:all_modules())
+            emqttd_acl:register_mod(emqttd_acl_test_mod, []),
+            ?assertMatch([{emqttd_acl_test_mod, _}, {emqttd_acl_internal, _}],
+                          emqttd_acl:all_modules())
         end).
 
 unregister_mod_test() ->
     with_acl(
         fun() ->
-            emqttd_acl:register_mod(acl_mysql),
-            ?assertEqual([acl_mysql, emqttd_acl_internal], emqttd_acl:all_modules()),
-            emqttd_acl:unregister_mod(acl_mysql),
+            emqttd_acl:register_mod(emqttd_acl_test_mod, []),
+            ?assertMatch([{emqttd_acl_test_mod, _}, {emqttd_acl_internal, _}],
+                          emqttd_acl:all_modules()),
+            emqttd_acl:unregister_mod(emqttd_acl_test_mod),
             timer:sleep(5),
-            ?assertEqual([emqttd_acl_internal], emqttd_acl:all_modules())
+            ?assertMatch([{emqttd_acl_internal, _}], emqttd_acl:all_modules())
         end).
 
 check_test() ->
@@ -66,21 +68,20 @@ check_test() ->
         fun() ->
             User1 = #mqtt_user{clientid = <<"client1">>, username = <<"testuser">>},
             User2 = #mqtt_user{clientid = <<"client2">>, username = <<"xyz">>},
-            ?assertEqual({ok, allow}, emqttd_acl:check(User1, subscribe, <<"users/testuser/1">>)),
-            ?assertEqual({ok, allow}, emqttd_acl:check(User1, subscribe, <<"clients/client1">>)),
-            ?assertEqual({ok, deny}, emqttd_acl:check(User1, subscribe, <<"clients/client1/x/y">>)),
-            ?assertEqual({ok, allow}, emqttd_acl:check(User1, publish, <<"users/testuser/1">>)),
-            ?assertEqual({ok, allow}, emqttd_acl:check(User1, subscribe, <<"a/b/c">>)),
-            ?assertEqual({ok, deny}, emqttd_acl:check(User2, subscribe, <<"a/b/c">>))
+            ?assertEqual(allow, emqttd_acl:check({User1, subscribe, <<"users/testuser/1">>})),
+            ?assertEqual(allow, emqttd_acl:check({User1, subscribe, <<"clients/client1">>})),
+            ?assertEqual(deny, emqttd_acl:check({User1, subscribe, <<"clients/client1/x/y">>})),
+            ?assertEqual(allow, emqttd_acl:check({User1, publish, <<"users/testuser/1">>})),
+            ?assertEqual(allow, emqttd_acl:check({User1, subscribe, <<"a/b/c">>})),
+            ?assertEqual(deny, emqttd_acl:check({User2, subscribe, <<"a/b/c">>}))
         end).
 
 with_acl(Fun) ->
     process_flag(trap_exit, true),
-    AclOpts = [{file, "../test/test_acl.config"}],
+    AclOpts = [{internal, [{file, "../test/test_acl.config"},
+                           {nomatch, allow}]}],
     {ok, _AclSrv} = emqttd_acl:start_link(AclOpts),
-    {ok, _InternalAcl} = emqttd_acl_internal:start_link(AclOpts),
     Fun(),
-    emqttd_acl_internal:stop(),
     emqttd_acl:stop().
 
 -endif.

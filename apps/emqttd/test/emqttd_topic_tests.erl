@@ -23,7 +23,7 @@
 
 -include("emqttd_topic.hrl").
 
--import(emqttd_topic, [validate/1, type/1, match/2, triples/1, words/1]).
+-import(emqttd_topic, [validate/1, wildcard/1, match/2, triples/1, words/1]).
 
 -ifdef(TEST).
 
@@ -101,9 +101,9 @@ triples_perf_test() ->
     ok.
 
 type_test() ->
-	?assertEqual(direct, type(#topic{name = <<"/a/b/cdkd">>})),
-	?assertEqual(wildcard, type(#topic{name = <<"/a/+/d">>})),
-	?assertEqual(wildcard, type(#topic{name = <<"/a/b/#">>})).
+	?assertEqual(false, wildcard(#topic{name = <<"/a/b/cdkd">>})),
+	?assertEqual(true, wildcard(#topic{name = <<"/a/+/d">>})),
+	?assertEqual(true, wildcard(#topic{name = <<"/a/b/#">>})).
 
 words_test() ->
     ?assertMatch(['', <<"abkc">>, <<"19383">>, '+', <<"akakdkkdkak">>, '#'],  words(<<"/abkc/19383/+/akakdkkdkak/#">>)),
