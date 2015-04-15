@@ -26,7 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_event).
 
--include("emqttd.hrl").
+-include_lib("emqtt/include/emqtt.hrl").
 
 %% API Function Exports
 -export([start_link/0,

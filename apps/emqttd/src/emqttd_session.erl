@@ -26,9 +26,9 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_session).
 
--include("emqttd.hrl").
-
+-include_lib("emqtt/include/emqtt.hrl").
 -include_lib("emqtt/include/emqtt_packet.hrl").
+-include("emqttd.hrl").
 
 %% API Function Exports
 -export([start/1,

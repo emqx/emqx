@@ -39,9 +39,11 @@
         code_change/3,
         terminate/2]).
 
--include("emqttd.hrl").
+-include_lib("emqtt/include/emqtt.hrl").
 
 -include_lib("emqtt/include/emqtt_packet.hrl").
+
+-include("emqttd.hrl").
 
 %%Client State...
 -record(state, {transport,

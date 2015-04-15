@@ -26,9 +26,10 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_protocol).
 
--include("emqttd.hrl").
-
+-include_lib("emqtt/include/emqtt.hrl").
 -include_lib("emqtt/include/emqtt_packet.hrl").
+
+-include("emqttd.hrl").
 
 %% API
 -export([init/2, clientid/1]).

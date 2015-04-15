@@ -28,13 +28,15 @@
 
 -author('feng@emqtt.io').
 
--include("emqttd.hrl").
+-include_lib("emqtt/include/emqtt.hrl").
 
--include_lib("emqtt/include/emqtt_packet.hrl").
+-include("emqttd.hrl").
 
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
+
+-define(SUBACK_ERR, 128).
 
 %% Mnesia Callbacks
 -export([mnesia/1]).
@@ -115,13 +117,14 @@ create(Topic) when is_binary(Topic) ->
 -spec subscribe({Topic, Qos} | list({Topic, Qos})) -> {ok, Qos | list(Qos)} when 
     Topic   :: binary(),
     Qos     :: mqtt_qos().
-subscribe(Topics = [{_Topic, _Qos}|_]) ->
+subscribe(Topics = [{_Topic, _Qos} | _]) ->
     {ok, lists:map(fun({Topic, Qos}) ->
             case subscribe(Topic, Qos) of
                 {ok, GrantedQos} -> 
                     GrantedQos;
                 Error -> 
-                    lager:error("Failed to subscribe '~s': ~p", [Topic, Error]), ?QOS_ERR
+                    lager:error("Failed to subscribe '~s': ~p", [Topic, Error]), 
+                    ?SUBACK_ERR
             end
         end, Topics)}.
 

@@ -28,7 +28,7 @@
 
 -author('feng@emqtt.io').
 
--include("emqttd.hrl").
+-include_lib("emqtt/include/emqtt.hrl").
 
 -include("emqttd_systop.hrl").
 

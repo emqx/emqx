@@ -20,7 +20,7 @@
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
 %%% @doc
-%%% emqttd header.
+%%% MQTT Broker Header.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
@@ -87,24 +87,6 @@
 -type mqtt_session() :: #mqtt_session{}.
 
 %%------------------------------------------------------------------------------
-%% MQTT Message
-%%------------------------------------------------------------------------------
-
--type mqtt_msgid() :: undefined | 1..16#ffff.
-
--record(mqtt_message, {
-    %% topic is first for message may be retained
-    topic           :: binary(),
-    qos    = 0      :: 0 | 1 | 2,
-    retain = false  :: boolean(),
-    dup    = false  :: boolean(),
-    msgid           :: mqtt_msgid(),
-    payload         :: binary()
-}).
-
--type mqtt_message() :: #mqtt_message{}.
-
-%%------------------------------------------------------------------------------
 %% MQTT Plugin
 %%------------------------------------------------------------------------------
 -record(mqtt_plugin, {
@@ -113,5 +95,7 @@
     attrs,
     description
 }).
+
+-type mqtt_plugin() :: #mqtt_plugin{}.
 
 

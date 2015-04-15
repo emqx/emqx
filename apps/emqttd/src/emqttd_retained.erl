@@ -30,7 +30,7 @@
 
 -author('feng@slimpp.io').
 
--include("emqttd.hrl").
+-include_lib("emqtt/include/emqtt.hrl").
 
 %% Mnesia callbacks
 -export([mnesia/1]).
