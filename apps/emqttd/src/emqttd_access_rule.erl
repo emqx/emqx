@@ -119,29 +119,29 @@ match_who(#mqtt_client{ipaddr = undefined}, {ipaddr, _Tup}) ->
 match_who(#mqtt_client{ipaddr = IP}, {ipaddr, {_CDIR, Start, End}}) ->
     I = esockd_access:atoi(IP),
     I >= Start andalso I =< End;
-match_who(_User, _Who) ->
+match_who(_Client, _Who) ->
     false.
 
-match_topics(_User, _Topic, []) ->
+match_topics(_Client, _Topic, []) ->
     false;
-match_topics(User, Topic, [{pattern, PatternFilter}|Filters]) ->
-    TopicFilter = feed_var(User, PatternFilter),
+match_topics(Client, Topic, [{pattern, PatternFilter}|Filters]) ->
+    TopicFilter = feed_var(Client, PatternFilter),
     case match_topic(emqtt_topic:words(Topic), TopicFilter) of
         true -> true;
-        false -> match_topics(User, Topic, Filters)
+        false -> match_topics(Client, Topic, Filters)
     end;
-match_topics(User, Topic, [TopicFilter|Filters]) ->
+match_topics(Client, Topic, [TopicFilter|Filters]) ->
    case match_topic(emqtt_topic:words(Topic), TopicFilter) of
     true -> true;
-    false -> match_topics(User, Topic, Filters)
+    false -> match_topics(Client, Topic, Filters)
     end.
 
 match_topic(Topic, TopicFilter) ->
     emqtt_topic:match(Topic, TopicFilter).
 
-feed_var(User, Pattern) ->
-    feed_var(User, Pattern, []).
-feed_var(_User, [], Acc) ->
+feed_var(Client, Pattern) ->
+    feed_var(Client, Pattern, []).
+feed_var(_Client, [], Acc) ->
     lists:reverse(Acc);
 feed_var(Client = #mqtt_client{clientid = undefined}, [<<"$c">>|Words], Acc) ->
     feed_var(Client, Words, [<<"$c">>|Acc]);
@@ -153,5 +153,4 @@ feed_var(Client = #mqtt_client{username = Username}, [<<"$u">>|Words], Acc) ->
     feed_var(Client, Words, [Username|Acc]);
 feed_var(Client, [W|Words], Acc) ->
     feed_var(Client, Words, [W|Acc]).
-
 
