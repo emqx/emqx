@@ -26,6 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqtt_serialiser_tests).
 
+-include("emqtt.hrl").
 -include("emqtt_packet.hrl").
 
 -ifdef(TEST).

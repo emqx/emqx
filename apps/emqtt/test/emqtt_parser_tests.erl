@@ -26,6 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqtt_parser_tests).
 
+-include("emqtt.hrl").
 -include("emqtt_packet.hrl").
 
 -ifdef(TEST).
@@ -41,9 +42,9 @@ parse_connect_test() ->
                                                       dup  = false,
                                                       qos  = 0,
                                                       retain = false},
-                         variable = #mqtt_packet_connect{proto_ver = 3,
+                         variable = #mqtt_packet_connect{proto_ver  = 3,
                                                          proto_name = <<"MQIsdp">>,
-                                                         client_id = <<"mosqpub/10451-iMac.loca">>,
+                                                         clientid   = <<"mosqpub/10451-iMac.loca">>,
                                                          clean_sess = true,
                                                          keep_alive = 60}}, <<>>}, emqtt_parser:parse(V31ConnBin, State)),
     %% CONNECT(Qos=0, Retain=false, Dup=false, ClientId=mosqpub/10451-iMac.loca, ProtoName=MQTT, ProtoVsn=4, CleanSess=true, KeepAlive=60, Username=undefined, Password=undefined)
@@ -53,11 +54,11 @@ parse_connect_test() ->
                                                       dup = false, 
                                                       qos = 0, 
                                                       retain = false}, 
-                         variable = #mqtt_packet_connect{proto_ver = 4, 
+                         variable = #mqtt_packet_connect{proto_ver  = 4, 
                                                          proto_name = <<"MQTT">>, 
-                                                         client_id = <<"mosqpub/10451-iMac.loca">>,
+                                                         clientid   = <<"mosqpub/10451-iMac.loca">>,
                                                          clean_sess = true, 
-                                                           keep_alive = 60 } }, <<>>}, emqtt_parser:parse(V311ConnBin, State)),
+                                                         keep_alive = 60 } }, <<>>}, emqtt_parser:parse(V311ConnBin, State)),
 
     %% CONNECT(Qos=0, Retain=false, Dup=false, ClientId="", ProtoName=MQTT, ProtoVsn=4, CleanSess=true, KeepAlive=60)
     V311ConnWithoutClientId = <<16,12,0,4,77,81,84,84,4,2,0,60,0,0>>,
@@ -68,7 +69,7 @@ parse_connect_test() ->
                                                       retain = false}, 
                          variable = #mqtt_packet_connect{proto_ver = 4, 
                                                          proto_name = <<"MQTT">>, 
-                                                         client_id = <<>>,
+                                                         clientid = <<>>,
                                                          clean_sess = true, 
                                                          keep_alive = 60 } }, <<>>}, emqtt_parser:parse(V311ConnWithoutClientId, State)),
     %%CONNECT(Qos=0, Retain=false, Dup=false, ClientId=mosqpub/10452-iMac.loca, ProtoName=MQIsdp, ProtoVsn=3, CleanSess=true, KeepAlive=60, Username=test, Password=******, Will(Qos=1, Retain=false, Topic=/will, Msg=willmsg))
@@ -80,7 +81,7 @@ parse_connect_test() ->
                                                       retain = false},
                          variable = #mqtt_packet_connect{proto_ver = 3,
                                                          proto_name = <<"MQIsdp">>, 
-                                                         client_id = <<"mosqpub/10452-iMac.loca">>,
+                                                         clientid = <<"mosqpub/10452-iMac.loca">>,
                                                          clean_sess = true, 
                                                          keep_alive = 60,
                                                          will_retain = false,

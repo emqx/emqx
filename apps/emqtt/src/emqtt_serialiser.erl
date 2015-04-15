@@ -28,6 +28,8 @@
 
 -author("feng@emqtt.io").
 
+-include("emqtt.hrl").
+
 -include("emqtt_packet.hrl").
 
 %% API

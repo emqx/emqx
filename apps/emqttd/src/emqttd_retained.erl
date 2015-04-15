@@ -42,13 +42,13 @@
 -export([retain/1, redeliver/2]).
 
 mnesia(create) ->
-    ok = emqtt_mnesia:create_table(message, [
+    ok = emqttd_mnesia:create_table(message, [
                 {type, ordered_set},
                 {ram_copies, [node()]},
                 {record_name, mqtt_message},
                 {attributes, record_info(fields, mqtt_message)}]);
 mnesia(replicate) ->
-    ok = emqtt_mnesia:copy_table(message).
+    ok = emqttd_mnesia:copy_table(message).
 
 
 
