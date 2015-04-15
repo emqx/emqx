@@ -20,11 +20,10 @@
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
 
-%%route chain... statistics
+%%TODO: route chain... statistics
 -module(emqttd_router).
 
 -include_lib("emqtt/include/emqtt.hrl").
-%-include("emqttd.hrl").
 
 -behaviour(gen_server).
 
@@ -34,7 +33,7 @@
 -export([start_link/0]).
 
 %%Router Chain--> --->In Out<---
--export([route/1]).
+-export([route/2]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -58,22 +57,21 @@ start_link() ->
 
 %%------------------------------------------------------------------------------
 %% @doc
-%% Route mqtt message.
+%% Route mqtt message. From is clienid or module.
 %%
 %% @end
 %%------------------------------------------------------------------------------
--spec route(mqtt_message()) -> ok.
-route(Msg) ->
-    lager:debug("Route ~p", [emqtt_message:format(Msg)]),
-    % TODO: need to retain?
-    emqttd_retained:retain(Msg),
+-spec route(From :: binary() | atom(), Msg :: mqtt_message()) -> ok.
+route(From, Msg) ->
+    lager:debug("Route from ~s: ~p", [From, emqtt_message:format(Msg)]),
+    % TODO: retained message should be stored in emqttd_pubsub...
+    % emqttd_retained:retain(Msg),
     % unset flag and pubsub
-	emqttd_pubsub:publish(emqtt_message:unset_flag(Msg)).
+	emqttd_pubsub:publish(Msg).
 
 %%%=============================================================================
 %%% gen_server callbacks
 %%%=============================================================================
-
 init([]) ->
     {ok, #state{}, hibernate}.
 

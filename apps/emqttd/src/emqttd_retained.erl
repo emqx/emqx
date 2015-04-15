@@ -62,7 +62,6 @@ retain(#mqtt_message{retain = true, topic = Topic, payload = <<>>}) ->
 
 retain(Msg = #mqtt_message{topic = Topic,
                            retain = true,
-                           qos = Qos,
                            payload = Payload}) ->
     TabSize = mnesia:table_info(message, size),
     case {TabSize < limit(table), size(Payload) < limit(payload)} of

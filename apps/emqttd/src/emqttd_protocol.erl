@@ -249,7 +249,7 @@ redeliver({?PUBREL, PacketId}, State) ->
     send(?PUBREL_PACKET(PacketId), State).
 
 shutdown(Error, #proto_state{peername = Peername, clientid = ClientId, will_msg = WillMsg}) ->
-    send_willmsg(WillMsg),
+    send_willmsg(ClientId, WillMsg),
     try_unregister(ClientId, self()),
 	lager:debug("Protocol ~s@~s Shutdown: ~p", [ClientId, emqttd_net:format(Peername), Error]),
     ok.
@@ -262,9 +262,11 @@ clientid(<<>>, #proto_state{peername = Peername}) ->
 
 clientid(ClientId, _State) -> ClientId.
 
-send_willmsg(undefined) -> ignore;
+send_willmsg(_ClientId, undefined) ->
+    ignore;
 %%TODO:should call session...
-send_willmsg(WillMsg) -> emqttd_router:route(WillMsg).
+send_willmsg(ClientId, WillMsg) -> 
+    emqttd_router:route(ClientId, WillMsg).
 
 start_keepalive(0) -> ignore;
 start_keepalive(Sec) when Sec > 0 ->
