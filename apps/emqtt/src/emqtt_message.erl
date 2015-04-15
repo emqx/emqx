@@ -20,24 +20,23 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd message.
+%%% MQTT Message.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_message).
+-module(emqtt_message).
 
 -author('feng@emqtt.io').
 
--include("emqttd.hrl").
+-include("emqtt.hrl").
 
--include_lib("emqtt/include/emqtt.hrl").
--include_lib("emqtt/include/emqtt_packet.hrl").
+-include("emqtt_packet.hrl").
 
 -export([from_packet/1, to_packet/1]).
 
 -export([set_flag/1, set_flag/2, unset_flag/1, unset_flag/2]).
 
--export([dump/1]).
+-export([format/1]).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -79,8 +78,7 @@ from_packet(#mqtt_packet_connect{will_retain = Retain,
 %%
 %% @end
 %%------------------------------------------------------------------------------
--spec( to_packet( mqtt_message() ) -> mqtt_packet() ).
-
+-spec to_packet(mqtt_message()) -> mqtt_packet().
 to_packet(#mqtt_message{msgid   = MsgId,
                         qos     = Qos,
                         retain  = Retain,
@@ -138,11 +136,11 @@ unset_flag(Flag, Msg) when Flag =:= dup orelse Flag =:= retain -> Msg.
 
 %%------------------------------------------------------------------------------
 %% @doc
-%% Dump mqtt message.
+%% Format MQTT Message.
 %%
 %% @end
 %%------------------------------------------------------------------------------
-dump(#mqtt_message{msgid= MsgId, qos = Qos, retain = Retain, dup = Dup, topic = Topic}) ->
+format(#mqtt_message{msgid=MsgId, qos=Qos, retain=Retain, dup=Dup, topic=Topic}) ->
     io_lib:format("Message(MsgId=~p, Qos=~p, Retain=~s, Dup=~s, Topic=~s)",
               [MsgId, Qos, Retain, Dup, Topic]).
 

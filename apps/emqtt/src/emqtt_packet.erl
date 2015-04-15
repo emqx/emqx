@@ -20,7 +20,7 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqtt packet.
+%%% MQTT packet utility functions.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
@@ -35,7 +35,7 @@
 %% API
 -export([protocol_name/1, type_name/1, connack_name/1]).
 
--export([dump/1]).
+-export([format/1]).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -75,15 +75,15 @@ connack_name(?CONNACK_AUTH)         -> 'CONNACK_AUTH'.
 
 %%------------------------------------------------------------------------------
 %% @doc
-%% Dump packet.
+%% Format packet.
 %%
 %% @end
 %%------------------------------------------------------------------------------
--spec dump(mqtt_packet()) -> iolist().
-dump(#mqtt_packet{header = Header, variable = Variable, payload = Payload}) ->
-    dump_header(Header, dump_variable(Variable, Payload)).
+-spec format(mqtt_packet()) -> iolist().
+format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}) ->
+    format_header(Header, format_variable(Variable, Payload)).
 
-dump_header(#mqtt_packet_header{type = Type, dup = Dup, qos = QoS, retain = Retain}, S) ->
+format_header(#mqtt_packet_header{type = Type, dup = Dup, qos = QoS, retain = Retain}, S) ->
     S1 = 
     if 
         S == undefined -> <<>>;
@@ -91,28 +91,28 @@ dump_header(#mqtt_packet_header{type = Type, dup = Dup, qos = QoS, retain = Reta
     end,
     io_lib:format("~s(Qos=~p, Retain=~s, Dup=~s~s)", [type_name(Type), QoS, Retain, Dup, S1]).
 
-dump_variable(undefined, _) -> 
+format_variable(undefined, _) ->
     undefined;
-dump_variable(Variable, undefined) ->
-    dump_variable(Variable);
-dump_variable(Variable, Payload) ->
-    io_lib:format("~s, Payload=~p", [dump_variable(Variable), Payload]).
+format_variable(Variable, undefined) ->
+    format_variable(Variable);
+format_variable(Variable, Payload) ->
+    io_lib:format("~s, Payload=~p", [format_variable(Variable), Payload]).
 
-dump_variable(#mqtt_packet_connect{ 
-                 proto_ver     = ProtoVer, 
+format_variable(#mqtt_packet_connect{
+                 proto_ver     = ProtoVer,
                  proto_name    = ProtoName,
-                 will_retain   = WillRetain, 
-                 will_qos      = WillQoS, 
-                 will_flag     = WillFlag, 
-                 clean_sess    = CleanSess, 
-                 keep_alive    = KeepAlive, 
-                 clientid     = ClientId, 
+                 will_retain   = WillRetain,
+                 will_qos      = WillQoS,
+                 will_flag     = WillFlag,
+                 clean_sess    = CleanSess,
+                 keep_alive    = KeepAlive,
+                 clientid      = ClientId,
                  will_topic    = WillTopic, 
                  will_msg      = WillMsg, 
                  username      = Username, 
                  password      = Password}) ->
-    Format =  "ClientId=~s, ProtoName=~s, ProtoVsn=~p, CleanSess=~s, KeepAlive=~p, Username=~s, Password=~s",
-    Args = [ClientId, ProtoName, ProtoVer, CleanSess, KeepAlive, Username, dump_password(Password)],
+    Format = "ClientId=~s, ProtoName=~s, ProtoVsn=~p, CleanSess=~s, KeepAlive=~p, Username=~s, Password=~s",
+    Args = [ClientId, ProtoName, ProtoVer, CleanSess, KeepAlive, Username, format_password(Password)],
     {Format1, Args1} = if 
                         WillFlag -> { Format ++ ", Will(Qos=~p, Retain=~s, Topic=~s, Msg=~s)",
                                       Args ++ [ WillQoS, WillRetain, WillTopic, WillMsg ] };
@@ -120,37 +120,37 @@ dump_variable(#mqtt_packet_connect{
                        end,
     io_lib:format(Format1, Args1);
 
-dump_variable(#mqtt_packet_connack{ack_flags   = AckFlags,
-                                   return_code = ReturnCode } ) ->
+format_variable(#mqtt_packet_connack{ack_flags   = AckFlags,
+                                     return_code = ReturnCode}) ->
     io_lib:format("AckFlags=~p, RetainCode=~p", [AckFlags, ReturnCode]);
 
-dump_variable(#mqtt_packet_publish{topic_name = TopicName,
-                                   packet_id  = PacketId}) ->
+format_variable(#mqtt_packet_publish{topic_name = TopicName,
+                                     packet_id  = PacketId}) ->
     io_lib:format("TopicName=~s, PacketId=~p", [TopicName, PacketId]);
 
-dump_variable(#mqtt_packet_puback{packet_id = PacketId}) ->
+format_variable(#mqtt_packet_puback{packet_id = PacketId}) ->
     io_lib:format("PacketId=~p", [PacketId]);
 
-dump_variable(#mqtt_packet_subscribe{packet_id   = PacketId,
-                                     topic_table = TopicTable}) ->
+format_variable(#mqtt_packet_subscribe{packet_id   = PacketId,
+                                       topic_table = TopicTable}) ->
     io_lib:format("PacketId=~p, TopicTable=~p", [PacketId, TopicTable]);
 
-dump_variable(#mqtt_packet_unsubscribe{packet_id = PacketId,
-                                       topics    = Topics}) ->
+format_variable(#mqtt_packet_unsubscribe{packet_id = PacketId,
+                                         topics    = Topics}) ->
     io_lib:format("PacketId=~p, Topics=~p", [PacketId, Topics]);
 
-dump_variable(#mqtt_packet_suback{packet_id = PacketId,
-                                  qos_table = QosTable}) ->
+format_variable(#mqtt_packet_suback{packet_id = PacketId,
+                                    qos_table = QosTable}) ->
     io_lib:format("PacketId=~p, QosTable=~p", [PacketId, QosTable]);
 
-dump_variable(#mqtt_packet_unsuback{packet_id = PacketId}) ->
+format_variable(#mqtt_packet_unsuback{packet_id = PacketId}) ->
     io_lib:format("PacketId=~p", [PacketId]);
 
-dump_variable(PacketId) when is_integer(PacketId) ->
+format_variable(PacketId) when is_integer(PacketId) ->
     io_lib:format("PacketId=~p", [PacketId]);
 
-dump_variable(undefined) -> undefined.
+format_variable(undefined) -> undefined.
 
-dump_password(undefined) -> undefined;
-dump_password(_) -> <<"******">>.
+format_password(undefined) -> undefined;
+format_password(_Password) -> '******'.
 
