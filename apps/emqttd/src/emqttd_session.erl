@@ -33,7 +33,7 @@
 %% API Function Exports
 -export([start/1,
          resume/3,
-         publish/2,
+         publish/3,
          puback/2,
          subscribe/2,
          unsubscribe/2,
@@ -101,20 +101,20 @@ resume(SessPid, ClientId, ClientPid) when is_pid(SessPid) ->
 %%
 %% @end
 %%------------------------------------------------------------------------------
--spec publish(session(), {mqtt_qos(), mqtt_message()}) -> session().
-publish(Session = #session_state{clientid = ClientId}, {?QOS_0, Message}) ->
+-spec publish(session(), mqtt_clientid(), {mqtt_qos(), mqtt_message()}) -> session().
+publish(Session, ClientId, {?QOS_0, Message}) ->
     emqttd_router:route(ClientId, Message), Session;
 
-publish(Session = #session_state{clientid = ClientId}, {?QOS_1, Message}) ->
+publish(Session, ClientId, {?QOS_1, Message}) ->
 	emqttd_router:route(ClientId, Message), Session;
 
-publish(SessState = #session_state{awaiting_rel = AwaitingRel}, 
+publish(SessState = #session_state{awaiting_rel = AwaitingRel}, _ClientId,
         {?QOS_2, Message = #mqtt_message{msgid = MsgId}}) ->
     %% store in awaiting_rel
     SessState#session_state{awaiting_rel = maps:put(MsgId, Message, AwaitingRel)};
 
-publish(SessPid, {?QOS_2, Message}) when is_pid(SessPid) ->
-    gen_server:cast(SessPid, {publish, {?QOS_2, Message}}),
+publish(SessPid, ClientId, {?QOS_2, Message}) when is_pid(SessPid) ->
+    gen_server:cast(SessPid, {publish, ClientId, {?QOS_2, Message}}),
     SessPid.
 
 %%------------------------------------------------------------------------------
@@ -310,8 +310,8 @@ handle_cast({resume, ClientId, ClientPid}, State = #session_state{
                                   msg_queue    = emqttd_queue:clear(Queue),
                                   expire_timer = undefined}, hibernate};
 
-handle_cast({publish, {?QOS_2, Message}}, State) ->
-    NewState = publish(State, {?QOS_2, Message}),
+handle_cast({publish, ClientId, {?QOS_2, Message}}, State) ->
+    NewState = publish(State, ClientId, {?QOS_2, Message}),
     {noreply, NewState};
 
 handle_cast({puback, PacketId}, State) ->

@@ -63,7 +63,7 @@ start_link() ->
 %%------------------------------------------------------------------------------
 -spec route(From :: binary() | atom(), Msg :: mqtt_message()) -> ok.
 route(From, Msg) ->
-    lager:debug("Route from ~s: ~p", [From, emqtt_message:format(Msg)]),
+    lager:info("Route ~s from ~s", [emqtt_message:format(Msg), From]),
     % TODO: retained message should be stored in emqttd_pubsub...
     % emqttd_retained:retain(Msg),
     % unset flag and pubsub

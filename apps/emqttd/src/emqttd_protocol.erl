@@ -148,7 +148,7 @@ handle(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload),
        State = #proto_state{clientid = ClientId, session = Session}) ->
     case emqttd_acl:check({client(State), publish, Topic}) of
         allow -> 
-            emqttd_session:publish(Session, {?QOS_0, emqtt_message:from_packet(Packet)});
+            emqttd_session:publish(Session, ClientId, {?QOS_0, emqtt_message:from_packet(Packet)});
         deny -> 
             lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic])
     end,
@@ -158,7 +158,7 @@ handle(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload),
          State = #proto_state{clientid = ClientId, session = Session}) ->
     case emqttd_acl:check({client(State), publish, Topic}) of
         allow -> 
-            emqttd_session:publish(Session, {?QOS_1, emqtt_message:from_packet(Packet)}),
+            emqttd_session:publish(Session, ClientId, {?QOS_1, emqtt_message:from_packet(Packet)}),
             send(?PUBACK_PACKET(?PUBACK, PacketId), State);
         deny -> 
             lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic]),
@@ -169,7 +169,7 @@ handle(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload),
          State = #proto_state{clientid = ClientId, session = Session}) ->
     case emqttd_acl:check({client(State), publish, Topic}) of
         allow -> 
-            NewSession = emqttd_session:publish(Session, {?QOS_2, emqtt_message:from_packet(Packet)}),
+            NewSession = emqttd_session:publish(Session, ClientId, {?QOS_2, emqtt_message:from_packet(Packet)}),
             send(?PUBACK_PACKET(?PUBREC, PacketId), State#proto_state{session = NewSession});
         deny -> 
             lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic]),
@@ -239,10 +239,10 @@ send(Packet, State = #proto_state{transport = Transport, socket = Sock, peername
     {ok, State}.
 
 trace(recv, Packet, #proto_state{peername  = Peername, clientid = ClientId}) ->
-	lager:debug("RECV from ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqtt_packet:format(Packet)]);
+	lager:info("RECV from ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqtt_packet:format(Packet)]);
 
 trace(send, Packet, #proto_state{peername  = Peername, clientid = ClientId}) ->
-	lager:debug("SEND to ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqtt_packet:format(Packet)]).
+	lager:info("SEND to ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqtt_packet:format(Packet)]).
 
 %% @doc redeliver PUBREL PacketId
 redeliver({?PUBREL, PacketId}, State) ->
