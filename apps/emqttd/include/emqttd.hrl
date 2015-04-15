@@ -52,7 +52,7 @@
 -type mqtt_topic() :: #mqtt_topic{}.
 
 %%------------------------------------------------------------------------------
-%% MQTT Topic Subscriber
+%% MQTT Subscriber
 %%------------------------------------------------------------------------------
 -record(mqtt_subscriber, {
     topic    :: binary(),
@@ -99,13 +99,19 @@
     retain = false  :: boolean(),
     dup    = false  :: boolean(),
     msgid           :: mqtt_msgid(),
-    payload         :: binary()}).
+    payload         :: binary()
+}).
 
 -type mqtt_message() :: #mqtt_message{}.
 
 %%------------------------------------------------------------------------------
 %% MQTT Plugin
 %%------------------------------------------------------------------------------
+-record(mqtt_plugin, {
+    name,
+    version,
+    attrs,
+    description
+}).
 
--record(mqtt_plugin, {name, version, attrs, description}).
 

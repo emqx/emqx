@@ -103,7 +103,7 @@ handle_info({stop, duplicate_id, _NewPid}, State=#state{proto_state = ProtoState
     %% need transfer data???
     %% emqttd_client:transfer(NewPid, Data),
     lager:error("Shutdown for duplicate clientid: ~s, conn:~s", 
-        [emqttd_protocol:client_id(ProtoState), ConnName]), 
+        [emqttd_protocol:clientid(ProtoState), ConnName]), 
     stop({shutdown, duplicate_id}, State);
 
 %%TODO: ok??
@@ -255,7 +255,7 @@ inc(_) ->
 notify(disconnected, _Reason, undefined) -> ingore;
 
 notify(disconnected, {shutdown, Reason}, ProtoState) ->
-    emqttd_event:notify({disconnected, emqttd_protocol:client_id(ProtoState), [{reason, Reason}]});
+    emqttd_event:notify({disconnected, emqttd_protocol:clientid(ProtoState), [{reason, Reason}]});
 
 notify(disconnected, Reason, ProtoState) ->
-    emqttd_event:notify({disconnected, emqttd_protocol:client_id(ProtoState), [{reason, Reason}]}).
+    emqttd_event:notify({disconnected, emqttd_protocol:clientid(ProtoState), [{reason, Reason}]}).

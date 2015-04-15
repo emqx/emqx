@@ -90,13 +90,13 @@ filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
     false.
 
 %% @doc Check ACL.
--spec check_acl({User, PubSub, Topic}, State) -> allow | deny | ignore when
-      User   :: mqtt_user(),
+-spec check_acl({Client, PubSub, Topic}, State) -> allow | deny | ignore when
+      Client :: mqtt_client(),
       PubSub :: pubsub(),
       Topic  :: binary(),
       State  :: #state{}.
-check_acl({User, PubSub, Topic}, #state{nomatch = Default}) ->
-    case match(User, Topic, lookup(PubSub)) of
+check_acl({Client, PubSub, Topic}, #state{nomatch = Default}) ->
+    case match(Client, Topic, lookup(PubSub)) of
         {matched, allow} -> allow;
         {matched, deny}  -> deny;
         nomatch          -> Default
@@ -108,12 +108,12 @@ lookup(PubSub) ->
         [{PubSub, Rules}] -> Rules
     end.
 
-match(_User, _Topic, []) ->
+match(_Client, _Topic, []) ->
     nomatch;
 
-match(User, Topic, [Rule|Rules]) ->
-    case emqttd_access_rule:match(User, Topic, Rule) of
-        nomatch -> match(User, Topic, Rules);
+match(Client, Topic, [Rule|Rules]) ->
+    case emqttd_access_rule:match(Client, Topic, Rule) of
+        nomatch -> match(Client, Topic, Rules);
         {matched, AllowDeny} -> {matched, AllowDeny}
     end.
 

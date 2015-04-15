@@ -128,7 +128,7 @@ subscribe(Topics = [{_Topic, _Qos}|_]) ->
 -spec subscribe(Topic :: binary(), Qos :: mqtt_qos()) -> {ok, Qos :: mqtt_qos()}.
 subscribe(Topic, Qos) when is_binary(Topic) andalso ?IS_QOS(Qos) ->
     TopicRecord = #mqtt_topic{topic = Topic, node = node()},
-    Subscriber = #topic_subscriber{topic = Topic, qos = Qos, subpid = self()},
+    Subscriber = #mqtt_subscriber{topic = Topic, qos = Qos, subpid = self()},
     F = fun() ->
             case insert_topic(TopicRecord) of
                ok -> insert_subscriber(Subscriber);
@@ -188,7 +188,7 @@ publish(Topic, Msg) when is_binary(Topic) ->
 %%------------------------------------------------------------------------------
 -spec dispatch(Topic :: binary(), Msg :: mqtt_message()) -> non_neg_integer().
 dispatch(Topic, Msg = #mqtt_message{qos = Qos}) when is_binary(Topic) ->
-    case mnesia:dirty_read(topic_subscriber, Topic) of
+    case mnesia:dirty_read(subscriber, Topic) of
         [] -> 
             %%TODO: not right when clusted...
             setstats(dropped);
@@ -224,7 +224,7 @@ init([]) ->
     process_flag(priority, high),
     process_flag(min_heap_size, 1024*1024),
     mnesia:subscribe({table, topic, simple}),
-    mnesia:subscribe({table, topic_subscriber, simple}),
+    mnesia:subscribe({table, subscriber, simple}),
     {ok, #state{submap = maps:new()}}.
 
 handle_call(Req, _From, State) ->
@@ -265,10 +265,10 @@ handle_info({'DOWN', _Mon, _Type, DownPid, _Info}, State = #state{submap = SubMa
         true ->
             Node = node(),
             F = fun() -> 
-                    Subscribers = mnesia:index_read(topic_subscriber, DownPid, #topic_subscriber.subpid),
-                    lists:foreach(fun(Sub = #topic_subscriber{topic = Topic}) ->
-                                mnesia:delete_object(Sub),
-                                try_remove_topic(#topic{name = Topic, node = Node})
+                    Subscribers = mnesia:index_read(subscriber, DownPid, #mqtt_subscriber.subpid),
+                    lists:foreach(fun(Sub = #mqtt_subscriber{topic = Topic}) ->
+                                mnesia:delete_object(subscriber, Sub, write),
+                                try_remove_topic(#mqtt_topic{topic = Topic, node = Node})
                         end, Subscribers)
             end,
             NewState =
@@ -292,7 +292,7 @@ handle_info(Info, State) ->
 
 terminate(_Reason, _State) ->
     mnesia:unsubscribe({table, topic, simple}),
-    mnesia:unsubscribe({table, topic_subscriber, simple}),
+    mnesia:unsubscribe({table, subscriber, simple}),
     %%TODO: clear topics belongs to this node???
     ok.
 
@@ -302,27 +302,27 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 %%% Internal functions
 %%%=============================================================================
-insert_topic(Topic = #topic{name = Name}) ->
-    case mnesia:wread({topic, Name}) of
+insert_topic(Record = #mqtt_topic{topic = Topic}) ->
+    case mnesia:wread({topic, Topic}) of
         [] ->
-            ok = emqttd_trie:insert(Name),
-            mnesia:write(Topic);
-        Topics  -> 
-            case lists:member(Topic, Topics) of
+            ok = emqttd_trie:insert(Topic),
+            mnesia:write(topic, Record, write);
+        Records ->
+            case lists:member(Record, Records) of
                 true -> ok;
-                false -> mnesia:write(Topic)
+                false -> mnesia:write(topic, Record, write)
             end
     end.
 
 insert_subscriber(Subscriber) ->
-    mnesia:write(Subscriber).
+    mnesia:write(subscriber, Subscriber, write).
 
-try_remove_topic(Topic = #topic{name = Name}) ->
-    case mnesia:read({topic_subscriber, Name}) of
+try_remove_topic(Record = #mqtt_topic{topic = Topic}) ->
+    case mnesia:read({subscriber, Topic}) of
         [] ->
-            mnesia:delete_object(Topic),
-            case mnesia:read(topic, Name) of
-                [] -> emqttd_trie:delete(Name);		
+            mnesia:delete_object(topic, Record, write),
+            case mnesia:read(topic, Topic) of
+                [] -> emqttd_trie:delete(Topic);		
                 _ -> ok
             end;
          _ -> 
@@ -335,7 +335,7 @@ setstats(topics) ->
 setstats(subscribers) ->
     emqttd_broker:setstats('subscribers/count',
                            'subscribers/max',
-                           mnesia:table_info(topic_subscriber, size));
+                           mnesia:table_info(subscriber, size));
 setstats(dropped) ->
     emqttd_metrics:inc('messages/dropped').
 

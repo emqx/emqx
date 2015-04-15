@@ -128,7 +128,7 @@
 -type mqtt_packet_id() :: 1..16#ffff | undefined.
 
 -record(mqtt_packet_connect,  {
-    client_id   = <<>>              :: binary(),
+    clientid    = <<>>              :: binary(),
     proto_ver   = ?MQTT_PROTO_V311  :: mqtt_vsn(),
     proto_name  = <<"MQTT">>        :: binary(),
     will_retain = false             :: boolean(),
@@ -224,4 +224,5 @@
 
 -define(PACKET(Type),
     #mqtt_packet{header = #mqtt_packet_header{type = Type}}).
+
 

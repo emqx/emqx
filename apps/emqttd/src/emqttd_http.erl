@@ -28,6 +28,8 @@
 
 -author('feng@emqtt.io').
 
+-include_lib("emqtt/include/emqtt_packet.hrl").
+
 -include("emqttd.hrl").
 
 -import(proplists, [get_value/2, get_value/3]).

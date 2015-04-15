@@ -83,25 +83,25 @@ start_link(AclMods) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [AclMods], []).
 
 %% @doc Check ACL.
--spec check({User, PubSub, Topic}) -> allow | deny when
-      User   :: mqtt_user(),
+-spec check({Client, PubSub, Topic}) -> allow | deny when
+      Client :: mqtt_client(),
       PubSub :: pubsub(),
       Topic  :: binary().
-check({User, PubSub, Topic}) when PubSub =:= publish orelse PubSub =:= subscribe ->
+check({Client, PubSub, Topic}) when PubSub =:= publish orelse PubSub =:= subscribe ->
     case ets:lookup(?ACL_TABLE, acl_modules) of
         [] -> allow;
-        [{_, AclMods}] -> check({User, PubSub, Topic}, AclMods)
+        [{_, AclMods}] -> check({Client, PubSub, Topic}, AclMods)
     end.
 
-check({#mqtt_user{clientid = ClientId}, PubSub, Topic}, []) ->
+check({#mqtt_client{clientid = ClientId}, PubSub, Topic}, []) ->
     lager:error("ACL: nomatch when ~s ~s ~s", [ClientId, PubSub, Topic]),
     allow;
 
-check({User, PubSub, Topic}, [{M, State}|AclMods]) ->
-    case M:check_acl({User, PubSub, Topic}, State) of
+check({Client, PubSub, Topic}, [{M, State}|AclMods]) ->
+    case M:check_acl({Client, PubSub, Topic}, State) of
         allow -> allow;
         deny  -> deny;
-        ignore -> check({User, PubSub, Topic}, AclMods)
+        ignore -> check({Client, PubSub, Topic}, AclMods)
     end.
 
 %% @doc Reload ACL.

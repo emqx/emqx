@@ -114,7 +114,7 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos  = Qos} = Header, Length) 
                            will_flag   = bool(WillFlag),
                            clean_sess  = bool(CleanSession),
                            keep_alive  = KeepAlive,
-                           client_id   = ClientId,
+                           clientid   = ClientId,
                            will_topic  = WillTopic,
                            will_msg    = WillMsg,
                            username    = UserName,

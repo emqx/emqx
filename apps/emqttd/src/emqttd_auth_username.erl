@@ -67,11 +67,11 @@ init(Opts) ->
 	mnesia:add_table_copy(?AUTH_USERNAME_TABLE, node(), ram_copies),
     {ok, Opts}.
 
-check(#mqtt_user{username = undefined}, _Password, _Opts) ->
+check(#mqtt_client{username = undefined}, _Password, _Opts) ->
     {error, "Username undefined"};
 check(_User, undefined, _Opts) ->
     {error, "Password undefined"};
-check(#mqtt_user{username = Username}, Password, _Opts) ->
+check(#mqtt_client{username = Username}, Password, _Opts) ->
 	case mnesia:dirty_read(?AUTH_USERNAME_TABLE, Username) of
         [] -> 
             {error, "Username Not Found"};

@@ -91,10 +91,7 @@ create_tables() ->
     ok = emqttd_trie:mnesia(create),
     ok = emqttd_pubsub:mnesia(create),
     %% TODO: retained messages, this table should not be copied...
-    ok = create_table(message_retained, [
-                {type, ordered_set},
-                {ram_copies, [node()]},
-                {attributes, record_info(fields, message_retained)}]).
+    ok = emqttd_retained:mnesia(create).
 
 create_table(Table, Attrs) ->
     case mnesia:create_table(Table, Attrs) of
@@ -111,9 +108,9 @@ create_table(Table, Attrs) ->
 %% @end
 %%------------------------------------------------------------------------------
 copy_tables() ->
-    ok = emqttd_trie:mnesia(create),
-    ok = emqttd_pubsub:mnesia(create),
-    ok = copy_table(message_retained).
+    ok = emqttd_trie:mnesia(replicate),
+    ok = emqttd_pubsub:mnesia(replicate),
+    ok = emqttd_retained:mnesia(replicate).
 
 copy_table(Table) ->
     case mnesia:add_table_copy(Table, node(), ram_copies) of

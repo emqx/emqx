@@ -104,7 +104,7 @@ dump_variable(#mqtt_packet_connect{
                  will_flag     = WillFlag, 
                  clean_sess    = CleanSess, 
                  keep_alive    = KeepAlive, 
-                 client_id     = ClientId, 
+                 clientid     = ClientId, 
                  will_topic    = WillTopic, 
                  will_msg      = WillMsg, 
                  username      = Username, 

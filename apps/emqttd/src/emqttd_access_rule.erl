@@ -94,29 +94,29 @@ bin(B) when is_binary(B) ->
 %%
 %% @end
 %%%-----------------------------------------------------------------------------
--spec match(mqtt_user(), topic(), rule()) -> {matched, allow} | {matched, deny} | nomatch.
-match(_User, _Topic, {AllowDeny, all}) when (AllowDeny =:= allow) orelse (AllowDeny =:= deny) ->
+-spec match(mqtt_client(), topic(), rule()) -> {matched, allow} | {matched, deny} | nomatch.
+match(_Client, _Topic, {AllowDeny, all}) when (AllowDeny =:= allow) orelse (AllowDeny =:= deny) ->
     {matched, AllowDeny};
-match(User, Topic, {AllowDeny, Who, _PubSub, TopicFilters})
+match(Client, Topic, {AllowDeny, Who, _PubSub, TopicFilters})
         when (AllowDeny =:= allow) orelse (AllowDeny =:= deny) ->
-    case match_who(User, Who) andalso match_topics(User, Topic, TopicFilters) of
+    case match_who(Client, Who) andalso match_topics(Client, Topic, TopicFilters) of
         true  -> {matched, AllowDeny};
         false -> nomatch
     end.
 
-match_who(_User, all) ->
+match_who(_Client, all) ->
     true;
-match_who(_User, {user, all}) ->
+match_who(_Client, {user, all}) ->
     true;
-match_who(_User, {client, all}) ->
+match_who(_Client, {client, all}) ->
     true;
-match_who(#mqtt_user{clientid = ClientId}, {client, ClientId}) ->
+match_who(#mqtt_client{clientid = ClientId}, {client, ClientId}) ->
     true;
-match_who(#mqtt_user{username = Username}, {user, Username}) ->
+match_who(#mqtt_client{username = Username}, {user, Username}) ->
     true;
-match_who(#mqtt_user{ipaddr = undefined}, {ipaddr, _Tup}) ->
+match_who(#mqtt_client{ipaddr = undefined}, {ipaddr, _Tup}) ->
     false;
-match_who(#mqtt_user{ipaddr = IP}, {ipaddr, {_CDIR, Start, End}}) ->
+match_who(#mqtt_client{ipaddr = IP}, {ipaddr, {_CDIR, Start, End}}) ->
     I = esockd_access:atoi(IP),
     I >= Start andalso I =< End;
 match_who(_User, _Who) ->
@@ -143,14 +143,15 @@ feed_var(User, Pattern) ->
     feed_var(User, Pattern, []).
 feed_var(_User, [], Acc) ->
     lists:reverse(Acc);
-feed_var(User = #mqtt_user{clientid = undefined}, [<<"$c">>|Words], Acc) ->
-    feed_var(User, Words, [<<"$c">>|Acc]);
-feed_var(User = #mqtt_user{clientid = ClientId}, [<<"$c">>|Words], Acc) ->
-    feed_var(User, Words, [ClientId |Acc]);
-feed_var(User = #mqtt_user{username = undefined}, [<<"$u">>|Words], Acc) ->
-    feed_var(User, Words, [<<"$u">>|Acc]);
-feed_var(User = #mqtt_user{username = Username}, [<<"$u">>|Words], Acc) ->
-    feed_var(User, Words, [Username|Acc]);
-feed_var(User, [W|Words], Acc) ->
-    feed_var(User, Words, [W|Acc]).
+feed_var(Client = #mqtt_client{clientid = undefined}, [<<"$c">>|Words], Acc) ->
+    feed_var(Client, Words, [<<"$c">>|Acc]);
+feed_var(Client = #mqtt_client{clientid = ClientId}, [<<"$c">>|Words], Acc) ->
+    feed_var(Client, Words, [ClientId |Acc]);
+feed_var(Client = #mqtt_client{username = undefined}, [<<"$u">>|Words], Acc) ->
+    feed_var(Client, Words, [<<"$u">>|Acc]);
+feed_var(Client = #mqtt_client{username = Username}, [<<"$u">>|Words], Acc) ->
+    feed_var(Client, Words, [Username|Acc]);
+feed_var(Client, [W|Words], Acc) ->
+    feed_var(Client, Words, [W|Acc]).
+
 

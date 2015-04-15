@@ -71,15 +71,15 @@ init(Opts) ->
     end,
 	{ok, Opts}.
 
-check(#mqtt_user{clientid = undefined}, _Password, []) ->
+check(#mqtt_client{clientid = undefined}, _Password, []) ->
     {error, "ClientId undefined"};
-check(#mqtt_user{clientid = ClientId, ipaddr = IpAddr}, _Password, []) ->
+check(#mqtt_client{clientid = ClientId, ipaddr = IpAddr}, _Password, []) ->
     check_clientid_only(ClientId, IpAddr);
-check(#mqtt_user{clientid = ClientId, ipaddr = IpAddr}, _Password, [{password, no}|_]) ->
+check(#mqtt_client{clientid = ClientId, ipaddr = IpAddr}, _Password, [{password, no}|_]) ->
     check_clientid_only(ClientId, IpAddr);
-check(_User, undefined, [{password, yes}|_]) ->
+check(_Client, undefined, [{password, yes}|_]) ->
     {error, "Password undefined"};
-check(#mqtt_user{clientid = ClientId}, Password, [{password, yes}|_]) ->
+check(#mqtt_client{clientid = ClientId}, Password, [{password, yes}|_]) ->
     case mnesia:dirty_read(?AUTH_CLIENTID_TABLE, ClientId) of
         [] -> {error, "ClientId Not Found"};
         [#?AUTH_CLIENTID_TABLE{password = Password}]  -> ok; %% TODO: plaintext??
