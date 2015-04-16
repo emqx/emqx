@@ -37,7 +37,11 @@
 -copy_mnesia({mnesia, [copy]}).
 
 %% API Function Exports
--export([retain/1, read/2, delete/1]).
+-export([retain/1, redeliver/2]).
+
+%%%=============================================================================
+%%% Mnesia callbacks
+%%%=============================================================================
 
 mnesia(boot) ->
     ok = emqttd_mnesia:create_table(message, [
@@ -49,7 +53,16 @@ mnesia(boot) ->
 mnesia(copy) ->
     ok = emqttd_mnesia:copy_table(message).
 
-%% @doc retain message.
+%%%=============================================================================
+%%% API
+%%%=============================================================================
+
+%%%-----------------------------------------------------------------------------
+%% @doc
+%% Retain message.
+%%
+%% @end
+%%%-----------------------------------------------------------------------------
 -spec retain(mqtt_message()) -> ok | ignore.
 retain(#mqtt_message{retain = false}) -> ignore;
 
@@ -63,7 +76,7 @@ retain(Msg = #mqtt_message{topic = Topic,
     TabSize = mnesia:table_info(message, size),
     case {TabSize < limit(table), size(Payload) < limit(payload)} of
         {true, true} ->
-            lager:debug("Retained: store message: ~p", [Msg]),
+            lager:debug("Retained ~s", [emqtt_message:format(Msg)]),
             mnesia:async_dirty(fun mnesia:write/3, [message, Msg, write]),
             emqttd_metrics:set('messages/retained/count',
                                mnesia:table_info(message, size));
@@ -88,25 +101,23 @@ env() ->
     end.
 
 %% @doc redeliver retained messages to subscribed client.
--spec redeliver(Topics, CPid) -> any() when
-        Topics  :: list(binary()),
-        CPid    :: pid().
-redeliver(Topics, CPid) when is_pid(CPid) ->
-    lists:foreach(fun(Topic) ->
-        case emqtt_topic:wildcard(Topic) of
-            false ->
-                dispatch(CPid, mnesia:dirty_read(message, Topic));
-            true ->
-                Fun = fun(Msg = #mqtt_message{topic = Name}, Acc) ->
-                        case emqtt_topic:match(Name, Topic) of
-                            true -> [Msg|Acc];
-                            false -> Acc
-                        end
-                end,
-                Msgs = mnesia:async_dirty(fun mnesia:foldl/3, [Fun, [], message]),
-                dispatch(CPid, lists:reverse(Msgs))
-        end
-    end, Topics).
+-spec redeliver(Topic, CPid) -> any() when
+        Topic  :: binary(),
+        CPid   :: pid().
+redeliver(Topic, CPid) when is_binary(Topic) andalso is_pid(CPid) ->
+    case emqtt_topic:wildcard(Topic) of
+        false ->
+            dispatch(CPid, mnesia:dirty_read(message, Topic));
+        true ->
+            Fun = fun(Msg = #mqtt_message{topic = Name}, Acc) ->
+                    case emqtt_topic:match(Name, Topic) of
+                        true -> [Msg|Acc];
+                        false -> Acc
+                    end
+            end,
+            Msgs = mnesia:async_dirty(fun mnesia:foldl/3, [Fun, [], message]),
+            dispatch(CPid, lists:reverse(Msgs))
+    end.
 
 dispatch(_CPid, []) ->
     ignore;
@@ -114,4 +125,5 @@ dispatch(CPid, Msgs) when is_list(Msgs) ->
     CPid ! {dispatch, {self(), [Msg || Msg <- Msgs]}};
 dispatch(CPid, Msg) when is_record(Msg, mqtt_message) ->
     CPid ! {dispatch, {self(), Msg}}.
+
 

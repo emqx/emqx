@@ -139,8 +139,10 @@ subscribe(Topic, Qos) when is_binary(Topic) andalso ?IS_QOS(Qos) ->
             end
         end,
     case mnesia:transaction(F) of
-        {atomic, ok} -> {ok, Qos};
-        {aborted, Reason} -> {error, Reason}
+        {atomic, ok} -> 
+            {ok, Qos};
+        {aborted, Reason} -> 
+            {error, Reason}
     end.
 
 %%------------------------------------------------------------------------------

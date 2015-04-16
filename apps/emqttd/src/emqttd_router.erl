@@ -64,10 +64,8 @@ start_link() ->
 -spec route(From :: binary() | atom(), Msg :: mqtt_message()) -> ok.
 route(From, Msg) ->
     lager:info("Route ~s from ~s", [emqtt_message:format(Msg), From]),
-    % TODO: retained message should be stored in emqttd_pubsub...
-    % emqttd_retained:retain(Msg),
-    % unset flag and pubsub
-	emqttd_pubsub:publish(Msg).
+    emqttd_msg_store:retain(Msg),
+	emqttd_pubsub:publish(emqtt_message:unset_flag(Msg)).
 
 %%%=============================================================================
 %%% gen_server callbacks

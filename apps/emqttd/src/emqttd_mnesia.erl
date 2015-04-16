@@ -86,12 +86,7 @@ init_tables() ->
 %% @end
 %%------------------------------------------------------------------------------
 create_tables() ->
-    %% trie tree tables
-    %%TODO: should use module 'boot_mnesia' attribute...
-    ok = emqttd_trie:mnesia(create),
-    ok = emqttd_pubsub:mnesia(create),
-    %% TODO: retained messages, this table should not be copied...
-    ok = emqttd_retained:mnesia(create).
+    emqttd_utils:apply_module_attributes(boot_mnesia).
 
 create_table(Table, Attrs) ->
     case mnesia:create_table(Table, Attrs) of
@@ -108,9 +103,7 @@ create_table(Table, Attrs) ->
 %% @end
 %%------------------------------------------------------------------------------
 copy_tables() ->
-    ok = emqttd_trie:mnesia(replicate),
-    ok = emqttd_pubsub:mnesia(replicate),
-    ok = emqttd_retained:mnesia(replicate).
+    emqttd_utils:apply_module_attributes(copy_mnesia).
 
 copy_table(Table) ->
     case mnesia:add_table_copy(Table, node(), ram_copies) of
@@ -137,7 +130,7 @@ wait_for_tables() ->
 %% Simple cluster with another nodes.
 %%
 %% @end
-%%--------------
+%%------------------------------------------------------------------------------
 cluster(Node) ->
     %% stop mnesia 
     mnesia:stop(),
@@ -173,5 +166,4 @@ wait_for_mnesia(stop) ->
         starting ->
             {error, mnesia_unexpectedly_starting}
     end.
-
 

@@ -1,0 +1,64 @@
+%%%-----------------------------------------------------------------------------
+%%% @Copyright (C) 2012-2015, Feng Lee <feng@emqtt.io>
+%%%
+%%% Permission is hereby granted, free of charge, to any person obtaining a copy
+%%% of this software and associated documentation files (the "Software"), to deal
+%%% in the Software without restriction, including without limitation the rights
+%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+%%% copies of the Software, and to permit persons to whom the Software is
+%%% furnished to do so, subject to the following conditions:
+%%%
+%%% The above copyright notice and this permission notice shall be included in all
+%%% copies or substantial portions of the Software.
+%%%
+%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+%%% SOFTWARE.
+%%%-----------------------------------------------------------------------------
+%%% @doc
+%%% emqttd utility functions. 
+%%%
+%%% @end
+%%%-----------------------------------------------------------------------------
+-module(emqttd_utils).
+
+-export([apply_module_attributes/1,
+         all_module_attributes/1]).
+
+%% only {F, Args}...
+apply_module_attributes(Name) ->
+    [{Module, [apply(Module, F, Args) || {F, Args} <- Attrs]} || 
+        {_App, Module, Attrs} <- all_module_attributes(Name)].
+
+%% copy from rabbit_misc.erl
+all_module_attributes(Name) ->
+    Targets =
+        lists:usort(
+          lists:append(
+            [[{App, Module} || Module <- Modules] ||
+                {App, _, _}   <- application:loaded_applications(),
+                {ok, Modules} <- [application:get_key(App, modules)]])),
+    lists:foldl(
+      fun ({App, Module}, Acc) ->
+              case lists:append([Atts || {N, Atts} <- module_attributes(Module),
+                                         N =:= Name]) of
+                  []   -> Acc;
+                  Atts -> [{App, Module, Atts} | Acc]
+              end
+      end, [], Targets).
+
+%% copy from rabbit_misc.erl
+module_attributes(Module) ->
+    case catch Module:module_info(attributes) of
+        {'EXIT', {undef, [{Module, module_info, _} | _]}} ->
+            [];
+        {'EXIT', Reason} ->
+            exit(Reason);
+        V ->
+            V
+    end.
+
