@@ -20,29 +20,41 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd options handler.
+%%% emqttd ACL behaviour.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_opts).
+-module(emqttd_acl_mod).
 
--export([merge/2]).
+-author('feng@emqtt.io').
 
-merge(Defaults, Options) ->
-    lists:foldl(
-        fun({Opt, Val}, Acc) ->
-                case lists:keymember(Opt, 1, Acc) of
-                    true ->
-                        lists:keyreplace(Opt, 1, Acc, {Opt, Val});
-                    false ->
-                        [{Opt, Val}|Acc]
-                end;
-            (Opt, Acc) ->
-                case lists:member(Opt, Acc) of
-                    true -> Acc;
-                    false -> [Opt | Acc]
-                end
-        end, Defaults, Options).
+-include("emqttd.hrl").
 
+%%%=============================================================================
+%%% ACL behavihour
+%%%=============================================================================
 
+-ifdef(use_specs).
+
+-callback init(AclOpts :: list()) -> {ok, State :: any()}.
+
+-callback check_acl({Client, PubSub, Topic}, State :: any()) -> allow | deny | ignore when
+    Client   :: mqtt_client(),
+    PubSub   :: pubsub(),
+    Topic    :: binary().
+
+-callback reload_acl(State :: any()) -> ok | {error, any()}.
+
+-callback description() -> string().
+
+-else.
+
+-export([behaviour_info/1]).
+
+behaviour_info(callbacks) ->
+        [{init, 1}, {check_acl, 2}, {reload_acl, 1}, {description, 0}];
+behaviour_info(_Other) ->
+        undefined.
+
+-endif.
 

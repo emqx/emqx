@@ -20,29 +20,37 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd options handler.
+%%% emqttd authentication behaviour.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_opts).
+-module(emqttd_auth_mod).
 
--export([merge/2]).
+-author('feng@emqtt.io').
 
-merge(Defaults, Options) ->
-    lists:foldl(
-        fun({Opt, Val}, Acc) ->
-                case lists:keymember(Opt, 1, Acc) of
-                    true ->
-                        lists:keyreplace(Opt, 1, Acc, {Opt, Val});
-                    false ->
-                        [{Opt, Val}|Acc]
-                end;
-            (Opt, Acc) ->
-                case lists:member(Opt, Acc) of
-                    true -> Acc;
-                    false -> [Opt | Acc]
-                end
-        end, Defaults, Options).
+-include("emqttd.hrl").
 
+%%%=============================================================================
+%%% Auth behavihour
+%%%=============================================================================
 
+-ifdef(use_specs).
+
+-callback check(Client, Password, State) -> ok | ignore | {error, string()} when
+    Client    :: mqtt_client(),
+    Password  :: binary(),
+    State     :: any().
+
+-callback description() -> string().
+
+-else.
+
+-export([behaviour_info/1]).
+
+behaviour_info(callbacks) ->
+        [{check, 3}, {description, 0}];
+behaviour_info(_Other) ->
+        undefined.
+
+-endif.
 
