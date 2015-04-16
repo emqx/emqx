@@ -33,8 +33,8 @@
 %% Mnesia Callbacks
 -export([mnesia/1]).
 
--mnesia_create({mnesia, [create]}).
--mnesia_replicate({mnesia, [replicate]}).
+-boot_mnesia({mnesia, [boot]}).
+-copy_mnesia({mnesia, [copy]}).
 
 %% Trie API
 -export([insert/1, find/1, delete/1]).
@@ -67,8 +67,8 @@
 %%
 %% @end
 %%------------------------------------------------------------------------------
--spec mnesia(create | replicate) -> ok.
-mnesia(create) ->
+-spec mnesia(boot | copy) -> ok.
+mnesia(boot) ->
     %% trie tree tables
     ok = emqttd_mnesia:create_table(trie, [
                 {ram_copies, [node()]},
@@ -85,7 +85,7 @@ mnesia(create) ->
 %%
 %% @end
 %%------------------------------------------------------------------------------
-mnesia(replicate) ->
+mnesia(copy) ->
     ok = emqttd_mnesia:copy_table(trie),
     ok = emqttd_mnesia:copy_table(trie_node).
 

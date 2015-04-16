@@ -20,13 +20,11 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd retained messages.
+%%% MQTT retained message storage.
 %%% 
-%%% TODO: need to redesign later.
-%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_retained).
+-module(emqttd_msg_store).
 
 -author('feng@slimpp.io').
 
@@ -35,22 +33,21 @@
 %% Mnesia callbacks
 -export([mnesia/1]).
 
--mnesia_create({mnesia, [create]}).
--mnesia_replicate({mnesia, [replicate]}).
+-boot_mnesia({mnesia, [boot]}).
+-copy_mnesia({mnesia, [copy]}).
 
 %% API Function Exports
--export([retain/1, redeliver/2]).
+-export([retain/1, read/2, delete/1]).
 
-mnesia(create) ->
+mnesia(boot) ->
     ok = emqttd_mnesia:create_table(message, [
                 {type, ordered_set},
                 {ram_copies, [node()]},
                 {record_name, mqtt_message},
                 {attributes, record_info(fields, mqtt_message)}]);
-mnesia(replicate) ->
+
+mnesia(copy) ->
     ok = emqttd_mnesia:copy_table(message).
-
-
 
 %% @doc retain message.
 -spec retain(mqtt_message()) -> ok | ignore.

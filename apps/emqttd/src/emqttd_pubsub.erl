@@ -41,8 +41,8 @@
 %% Mnesia Callbacks
 -export([mnesia/1]).
 
--mnesia_create({mnesia, [create]}).
--mnesia_replicate({mnesia, [replicate]}).
+-boot_mnesia({mnesia, [boot]}).
+-copy_mnesia({mnesia, [copy]}).
 
 %% API Exports 
 -export([start_link/0]).
@@ -63,7 +63,7 @@
 %%%=============================================================================
 %%% Mnesia callbacks
 %%%=============================================================================
-mnesia(create) ->
+mnesia(boot) ->
     %% topic table
     ok = emqttd_mnesia:create_table(topic, [
                 {type, bag},
@@ -79,7 +79,7 @@ mnesia(create) ->
                 {index, [subpid]},
                 {local_content, true}]);
 
-mnesia(replicate) ->
+mnesia(copy) ->
     ok = emqttd_mnesia:copy_table(topic),
     ok = emqttd_mnesia:copy_table(subscriber).
 
