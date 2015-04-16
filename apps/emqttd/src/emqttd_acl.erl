@@ -88,7 +88,7 @@ start_link(AclMods) ->
       PubSub :: pubsub(),
       Topic  :: binary().
 check({Client, PubSub, Topic}) when PubSub =:= publish orelse PubSub =:= subscribe ->
-    case ets:lookup(?ACL_TABLE, acl_modules) of
+    case all_modules() of
         [] -> allow;
         [{_, AclMods}] -> check({Client, PubSub, Topic}, AclMods)
     end.

@@ -22,8 +22,6 @@
 %%% @doc
 %%% emqttd authentication.
 %%%
-%%% TODO: 
-%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_auth).
@@ -32,13 +30,16 @@
 
 -include("emqttd.hrl").
 
--export([start_link/1, login/2, add_module/2, remove_module/1, all_modules/0, stop/0]).
+-export([start_link/1, check/2,
+         register_mod/2, unregister_mod/1, all_modules/0,
+         stop/0]).
 
 -behavior(gen_server).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2, code_change/3]).
 
--define(AUTH_TABLE, mqtt_auth).
+-define(AUTH_TAB, mqtt_auth).
 
 %%%=============================================================================
 %%% Auth behavihour
@@ -64,14 +65,25 @@ behaviour_info(_Other) ->
 
 -endif.
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% Start authentication server.
+%%
+%% @end
+%%------------------------------------------------------------------------------
 -spec start_link(list()) -> {ok, pid()} | ignore | {error, any()}.
 start_link(AuthMods) ->
 	gen_server:start_link({local, ?MODULE}, ?MODULE, [AuthMods], []).
 
--spec login(mqtt_client(), undefined | binary()) -> ok | {error, string()}.
-login(Client, Password) when is_record(Client, mqtt_client) ->
-    [{_, AuthMods}] = ets:lookup(?AUTH_TABLE, auth_modules),
-    check(Client, Password, AuthMods).
+%%------------------------------------------------------------------------------
+%% @doc
+%% Authenticate client.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec check(mqtt_client(), undefined | binary()) -> ok | {error, string()}.
+check(Client, Password) when is_record(Client, mqtt_client) ->
+    check(Client, Password, all_modules()).
 
 check(_Client, _Password, []) ->
     {error, "No auth module to check!"};
@@ -82,14 +94,28 @@ check(Client, Password, [{Mod, State} | Mods]) ->
         ignore -> check(Client, Password, Mods)
     end.
 
-add_module(Mod, Opts) ->
-    gen_server:call(?MODULE, {add_module, Mod, Opts}).
+%%------------------------------------------------------------------------------
+%% @doc
+%% Register authentication module.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec register_mod(Mod :: atom(), Opts :: any()) -> ok | {error, any()}.
+register_mod(Mod, Opts) ->
+    gen_server:call(?MODULE, {register_mod, Mod, Opts}).
 
-remove_module(Mod) ->
-    gen_server:call(?MODULE, {remove_module, Mod}).
+%%------------------------------------------------------------------------------
+%% @doc
+%% Unregister authentication module.
+%%
+%% @end
+%%------------------------------------------------------------------------------
+-spec unregister_mod(Mod :: atom()) -> ok | {error, any()}.
+unregister_mod(Mod) ->
+    gen_server:call(?MODULE, {unregister_mod, Mod}).
 
 all_modules() ->
-    case ets:lookup(?AUTH_TABLE, auth_modules) of
+    case ets:lookup(?AUTH_TAB, auth_modules) of
         [] -> [];
         [{_, AuthMods}] -> AuthMods
     end.
@@ -98,24 +124,24 @@ stop() ->
     gen_server:call(?MODULE, stop).
 
 init([AuthMods]) ->
-	ets:new(?AUTH_TABLE, [set, named_table, protected, {read_concurrency, true}]),
+	ets:new(?AUTH_TAB, [set, named_table, protected, {read_concurrency, true}]),
     Modules = lists:map(
                 fun({Mod, Opts}) ->
                         AuthMod = authmod(Mod),
                         {ok, State} = AuthMod:init(Opts),
                         {AuthMod, State}
                 end, AuthMods),
-    ets:insert(?AUTH_TABLE, {auth_modules, Modules}),
+    ets:insert(?AUTH_TAB, {auth_modules, Modules}),
 	{ok, state}.
 
-handle_call({add_module, Mod, Opts}, _From, State) ->
+handle_call({register_mod, Mod, Opts}, _From, State) ->
     AuthMods = all_modules(),
     Reply =
     case lists:keyfind(Mod, 1, AuthMods) of
         false -> 
             case catch Mod:init(Opts) of
                 {ok, ModState} -> 
-                    ets:insert(?AUTH_TABLE, {auth_modules, [{Mod, ModState}|AuthMods]}),
+                    ets:insert(?AUTH_TAB, {auth_modules, [{Mod, ModState}|AuthMods]}),
                     ok;
                 {error, Reason} ->
                     {error, Reason};
@@ -127,14 +153,14 @@ handle_call({add_module, Mod, Opts}, _From, State) ->
     end,
     {reply, Reply, State};
 
-handle_call({remove_module, Mod}, _From, State) ->
+handle_call({unregister_mod, Mod}, _From, State) ->
     AuthMods = all_modules(),
     Reply =
     case lists:keyfind(Mod, 1, AuthMods) of
         false -> 
             {error, not_found}; 
         _ -> 
-            ets:insert(?AUTH_TABLE, {auth_modules, lists:keydelete(Mod, 1, AuthMods)}), ok
+            ets:insert(?AUTH_TAB, {auth_modules, lists:keydelete(Mod, 1, AuthMods)}), ok
     end,
     {reply, Reply, State};
 
@@ -156,7 +182,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 %%% Internal functions
 %%%=============================================================================
-
 authmod(Name) when is_atom(Name) ->
 	list_to_atom(lists:concat(["emqttd_auth_", Name])).
 
