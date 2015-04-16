@@ -167,7 +167,7 @@ handle(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload),
 
 handle(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload),
          State = #proto_state{clientid = ClientId, session = Session}) ->
-    case emqttd_access_control:check_acl({client(State), publish, Topic}) of
+    case emqttd_access_control:check_acl(client(State), publish, Topic) of
         allow -> 
             NewSession = emqttd_session:publish(Session, ClientId, {?QOS_2, emqtt_message:from_packet(Packet)}),
             send(?PUBACK_PACKET(?PUBREC, PacketId), State#proto_state{session = NewSession});

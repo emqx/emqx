@@ -95,7 +95,7 @@ auth(Client, Password, [{Mod, State} | Mods]) ->
 check_acl(Client, PubSub, Topic) when PubSub =:= publish orelse PubSub =:= subscribe ->
     case lookup_mods(acl) of
         [] -> allow;
-        [{_, AclMods}] -> check_acl(Client, PubSub, Topic, AclMods)
+        AclMods -> check_acl(Client, PubSub, Topic, AclMods)
     end.
 check_acl(#mqtt_client{clientid = ClientId}, PubSub, Topic, []) ->
     lager:error("ACL: nomatch when ~s ~s ~s", [ClientId, PubSub, Topic]),
@@ -124,7 +124,7 @@ reload_acl() ->
 %% @end
 %%------------------------------------------------------------------------------
 -spec register_mod(Type :: auth | acl, Mod :: atom(), Opts :: list()) -> ok | {error, any()}.
-register_mod(Type, Mod, Opts) ->
+register_mod(Type, Mod, Opts) when Type =:= auth; Type =:= acl->
     gen_server:call(?SERVER, {register_mod, Type, Mod, Opts}).
 
 %%------------------------------------------------------------------------------
@@ -134,7 +134,7 @@ register_mod(Type, Mod, Opts) ->
 %% @end
 %%------------------------------------------------------------------------------
 -spec unregister_mod(Type :: auth | acl, Mod :: atom()) -> ok | {error, any()}.
-unregister_mod(Type, Mod) ->
+unregister_mod(Type, Mod) when Type =:= auth; Type =:= acl ->
     gen_server:call(?SERVER, {unregister_mod, Type, Mod}).
 
 %%------------------------------------------------------------------------------
@@ -169,8 +169,8 @@ stop() ->
 
 init([AcOpts]) ->
 	ets:new(?ACCESS_CONTROL_TAB, [set, named_table, protected, {read_concurrency, true}]),
-    ets:insert(?ACCESS_CONTROL_TAB, init_mods(auth, proplists:get_value(auth, AcOpts))),
-    ets:insert(?ACCESS_CONTROL_TAB, init_mods(acl, proplists:get_value(acl, AcOpts))),
+    ets:insert(?ACCESS_CONTROL_TAB, {auth_modules, init_mods(auth, proplists:get_value(auth, AcOpts))}),
+    ets:insert(?ACCESS_CONTROL_TAB, {acl_modules, init_mods(acl, proplists:get_value(acl, AcOpts))}),
 	{ok, state}.
 
 init_mods(auth, AuthMods) ->
