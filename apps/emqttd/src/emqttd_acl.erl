@@ -205,4 +205,3 @@ code_change(_OldVsn, State, _Extra) ->
 aclmod(Name) when is_atom(Name) ->
 	list_to_atom(lists:concat(["emqttd_acl_", Name])).
 
-
