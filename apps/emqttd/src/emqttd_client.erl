@@ -69,7 +69,7 @@ init([SockArgs = {Transport, Sock, _SockFun}, PacketOpts]) ->
     {ok, Peername} = emqttd_net:peername(Sock),
     {ok, ConnStr} = emqttd_net:connection_string(Sock, inbound),
     lager:info("Connect from ~s", [ConnStr]),
-    ParserState = emqttd_parser:init(PacketOpts),
+    ParserState = emqtt_parser:init(PacketOpts),
     ProtoState = emqttd_protocol:init({Transport, NewSock, Peername}, PacketOpts),
     State = control_throttle(#state{transport    = Transport,
                                     socket       = NewSock,
@@ -183,7 +183,7 @@ process_received_bytes(Bytes, State = #state{packet_opts = PacketOpts,
                                              parse_state = ParseState,
                                              proto_state = ProtoState,
                                              conn_name   = ConnStr}) ->
-    case emqttd_parser:parse(Bytes, ParseState) of
+    case emqtt_parser:parse(Bytes, ParseState) of
     {more, ParseState1} ->
         {noreply,
          control_throttle(State #state{parse_state = ParseState1}),
@@ -192,7 +192,7 @@ process_received_bytes(Bytes, State = #state{packet_opts = PacketOpts,
         received_stats(Packet),
         case emqttd_protocol:received(Packet, ProtoState) of
         {ok, ProtoState1} ->
-            process_received_bytes(Rest, State#state{parse_state = emqttd_parser:init(PacketOpts),
+            process_received_bytes(Rest, State#state{parse_state = emqtt_parser:init(PacketOpts),
                                                      proto_state = ProtoState1});
         {error, Error} ->
             lager:error("MQTT protocol error ~p for connection ~p~n", [Error, ConnStr]),

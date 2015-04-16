@@ -232,7 +232,7 @@ send({_From, Message = #mqtt_message{qos = Qos}}, State = #proto_state{session =
 send(Packet, State = #proto_state{transport = Transport, socket = Sock, peername = Peername}) when is_record(Packet, mqtt_packet) ->
     trace(send, Packet, State),
     sent_stats(Packet),
-    Data = emqttd_serialiser:serialise(Packet),
+    Data = emqtt_serialiser:serialise(Packet),
     lager:debug("SENT to ~s: ~p", [emqttd_net:format(Peername), Data]),
     emqttd_metrics:inc('bytes/sent', size(Data)),
     Transport:send(Sock, Data),
