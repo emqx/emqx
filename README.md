@@ -1,10 +1,8 @@
-# eMQTTD [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
+# Overview [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
 
-eMQTTD is a clusterable, massively scalable, fault-tolerant and extensible MQTT V3.1/V3.1.1 broker written in Erlang/OTP.
+emqttd is a clusterable, massively scalable MQTT V3.1/V3.1.1 broker written in Erlang/OTP.  eMQTTD support MQTT V3.1/V3.1.1 Protocol Specification.  eMQTTD requires Erlang R17+.
 
-eMQTTD support MQTT V3.1/V3.1.1 Protocol Specification.
-
-eMQTTD requires Erlang R17+.
+You can download binary packege for linux, mac and freebsd from [emqtt.io/downloads](http://emqtt.io/downloads)
 
 
 ## Benchmark
@@ -12,11 +10,6 @@ eMQTTD requires Erlang R17+.
 Benchmark 0.5.4-alpha on a ubuntu/14.04 server with 8 cores, 32G memory from QingCloud:
 
 200K Connections, 200K Topics, 20K Messages/sec, 20Mbps In/Out with 7G Memory, 40%CPU/core
-
-
-## NOTICE
-
-eMQTTD still cannot handle massive retained messages.
 
 
 ## Featues
