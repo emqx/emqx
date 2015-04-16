@@ -87,7 +87,7 @@ vm([]) ->
 
 vm(["load"]) ->
     ?PRINT_MSG("Load: ~n"),
-    [?PRINT("  ~s:~s~n", [L, V]) || {L, V} <- loads()];
+    [?PRINT("  ~s:~s~n", [L, V]) || {L, V} <- emqttd_vm:loads()];
 
 vm(["memory"]) ->
     ?PRINT_MSG("Memory: ~n"),
@@ -174,13 +174,6 @@ node_name(SNode) ->
     end,
     list_to_atom(SNode1).
 
-loads() ->
-    [{load1, ftos(cpu_sup:avg1()/256)},
-     {load5, ftos(cpu_sup:avg5()/256)},
-     {load15, ftos(cpu_sup:avg15()/256)}].
-
-ftos(F) -> 
-    [S] = io_lib:format("~.2f", [F]), S.
-
 bin(S) when is_list(S) -> list_to_binary(S);
 bin(B) when is_binary(B) -> B.
+

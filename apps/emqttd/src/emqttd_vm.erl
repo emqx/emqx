@@ -25,3 +25,14 @@
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_vm).
+
+-export([loads/0]).
+
+loads() ->
+    [{load1, ftos(cpu_sup:avg1()/256)},
+     {load5, ftos(cpu_sup:avg5()/256)},
+     {load15, ftos(cpu_sup:avg15()/256)}].
+
+ftos(F) -> 
+    [S] = io_lib:format("~.2f", [F]), S.
+
