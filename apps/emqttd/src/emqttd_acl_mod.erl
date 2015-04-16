@@ -20,21 +20,41 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd anonymous authentication.
+%%% emqttd ACL behaviour.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_auth_anonymous).
+-module(emqttd_acl_mod).
 
 -author('feng@emqtt.io').
 
--behaviour(emqttd_auth_mod).
+-include("emqttd.hrl").
 
--export([init/1, check/3, description/0]).
+%%%=============================================================================
+%%% ACL behavihour
+%%%=============================================================================
 
-init(Opts) -> {ok, Opts}.
+-ifdef(use_specs).
 
-check(_User, _Password, _Opts) -> ok.
+-callback init(AclOpts :: list()) -> {ok, State :: any()}.
 
-description() -> "Anonymous authentication module".
+-callback check_acl({Client, PubSub, Topic}, State :: any()) -> allow | deny | ignore when
+    Client   :: mqtt_client(),
+    PubSub   :: pubsub(),
+    Topic    :: binary().
+
+-callback reload_acl(State :: any()) -> ok | {error, any()}.
+
+-callback description() -> string().
+
+-else.
+
+-export([behaviour_info/1]).
+
+behaviour_info(callbacks) ->
+        [{init, 1}, {check_acl, 2}, {reload_acl, 1}, {description, 0}];
+behaviour_info(_Other) ->
+        undefined.
+
+-endif.
 

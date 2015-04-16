@@ -26,6 +26,8 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_access_rule).
 
+-author('feng@emqtt.io').
+
 -include("emqttd.hrl").
 
 -type who() :: all | binary() |

@@ -123,7 +123,7 @@ handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peername = Peername =
     case validate_connect(Var, State) of
         ?CONNACK_ACCEPT ->
             Client = #mqtt_client{clientid = ClientId, username = Username, ipaddr = Addr},
-            case emqttd_auth:login(Client, Password) of
+            case emqttd_access_control:auth(Client, Password) of
                 ok ->
                     ClientId1 = clientid(ClientId, State),
                     start_keepalive(KeepAlive),
@@ -146,7 +146,7 @@ handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peername = Peername =
 
 handle(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload),
        State = #proto_state{clientid = ClientId, session = Session}) ->
-    case emqttd_acl:check({client(State), publish, Topic}) of
+    case emqttd_access_control:check_acl(client(State), publish, Topic) of
         allow -> 
             emqttd_session:publish(Session, ClientId, {?QOS_0, emqtt_message:from_packet(Packet)});
         deny -> 
@@ -156,7 +156,7 @@ handle(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload),
 
 handle(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload),
          State = #proto_state{clientid = ClientId, session = Session}) ->
-    case emqttd_acl:check({client(State), publish, Topic}) of
+    case emqttd_access_control:check_acl(client(State), publish, Topic) of
         allow -> 
             emqttd_session:publish(Session, ClientId, {?QOS_1, emqtt_message:from_packet(Packet)}),
             send(?PUBACK_PACKET(?PUBACK, PacketId), State);
@@ -167,7 +167,7 @@ handle(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload),
 
 handle(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload),
          State = #proto_state{clientid = ClientId, session = Session}) ->
-    case emqttd_acl:check({client(State), publish, Topic}) of
+    case emqttd_access_control:check_acl(client(State), publish, Topic) of
         allow -> 
             NewSession = emqttd_session:publish(Session, ClientId, {?QOS_2, emqtt_message:from_packet(Packet)}),
             send(?PUBACK_PACKET(?PUBREC, PacketId), State#proto_state{session = NewSession});
@@ -191,7 +191,7 @@ handle(?PUBACK_PACKET(Type, PacketId), State = #proto_state{session = Session})
 	{ok, NewState};
 
 handle(?SUBSCRIBE_PACKET(PacketId, TopicTable), State = #proto_state{clientid = ClientId, session = Session}) ->
-    AllowDenies = [emqttd_acl:check({client(State), subscribe, Topic}) || {Topic, _Qos} <- TopicTable],
+    AllowDenies = [emqttd_access_control:check_acl(client(State), subscribe, Topic) || {Topic, _Qos} <- TopicTable],
     case lists:member(deny, AllowDenies) of
         true ->
             %%TODO: return 128 QoS when deny...

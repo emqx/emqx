@@ -43,8 +43,7 @@
                   broker,
                   metrics,
                   bridge,
-                  auth,
-                  acl,
+                  access_control,
                   sysmon]).
 
 -define(PRINT_MSG(Msg), io:format(Msg)).
@@ -121,12 +120,9 @@ server(metrics) ->
     {"emqttd metrics", emqttd_metrics, MetricOpts};
 server(bridge) ->
     {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}};
-server(auth) ->
-    {ok, AuthMods} = application:get_env(auth),
-    {"emqttd auth", emqttd_auth, AuthMods};
-server(acl) ->
-    {ok, AclOpts} = application:get_env(acl),
-    {"emqttd acl", emqttd_acl, AclOpts};
+server(access_control) ->
+    {ok, AcOpts} = application:get_env(access_control),
+    {"emqttd access control", emqttd_access_control, AcOpts};
 server(sysmon) ->
     {"emqttd system monitor", emqttd_sysmon}.
 

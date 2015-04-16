@@ -20,21 +20,37 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd anonymous authentication.
+%%% emqttd authentication behaviour.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_auth_anonymous).
+-module(emqttd_auth_mod).
 
 -author('feng@emqtt.io').
 
--behaviour(emqttd_auth_mod).
+-include("emqttd.hrl").
 
--export([init/1, check/3, description/0]).
+%%%=============================================================================
+%%% Auth behavihour
+%%%=============================================================================
 
-init(Opts) -> {ok, Opts}.
+-ifdef(use_specs).
 
-check(_User, _Password, _Opts) -> ok.
+-callback check(Client, Password, State) -> ok | ignore | {error, string()} when
+    Client    :: mqtt_client(),
+    Password  :: binary(),
+    State     :: any().
 
-description() -> "Anonymous authentication module".
+-callback description() -> string().
+
+-else.
+
+-export([behaviour_info/1]).
+
+behaviour_info(callbacks) ->
+        [{check, 3}, {description, 0}];
+behaviour_info(_Other) ->
+        undefined.
+
+-endif.
 

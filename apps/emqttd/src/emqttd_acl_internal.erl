@@ -32,7 +32,7 @@
 
 -export([all_rules/0]).
 
--behaviour(emqttd_acl).
+-behaviour(emqttd_acl_mod).
 
 %% ACL callbacks
 -export([init/1, check_acl/2, reload_acl/1, description/0]).

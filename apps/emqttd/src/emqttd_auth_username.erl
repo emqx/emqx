@@ -30,6 +30,8 @@
 
 -include("emqttd.hrl").
 
+-behaviour(emqttd_auth_mod).
+
 -export([add_user/2, remove_user/1,
          lookup_user/1, all_users/0]).
 

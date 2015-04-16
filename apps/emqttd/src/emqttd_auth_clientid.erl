@@ -34,7 +34,7 @@
          lookup_clientid/1, remove_clientid/1,
          all_clientids/0]).
 
--behaviour(emqttd_auth).
+-behaviour(emqttd_auth_mod).
 
 %% emqttd_auth callbacks
 -export([init/1, check/3, description/0]).
