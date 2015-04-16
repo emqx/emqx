@@ -120,8 +120,8 @@ copy_table(Table) ->
 %% @end
 %%------------------------------------------------------------------------------
 wait_for_tables() -> 
-    lager:info("local_tables: ~p", [mnesia:system_info(local_tables)]),
     %%TODO: is not right?
+    %%lager:info("local_tables: ~p", [mnesia:system_info(local_tables)]),
     mnesia:wait_for_tables(mnesia:system_info(local_tables), infinity).
 
 %%------------------------------------------------------------------------------
