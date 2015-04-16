@@ -1,8 +1,10 @@
 # Overview [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
 
-emqttd is a clusterable, massively scalable MQTT V3.1/V3.1.1 broker written in Erlang/OTP.  eMQTTD support MQTT V3.1/V3.1.1 Protocol Specification.  eMQTTD requires Erlang R17+.
+emqttd is a clusterable, massively scalable MQTT V3.1/V3.1.1 broker written in Erlang/OTP. emqttd support both MQTT V3.1/V3.1.1 Protocol Specification.
 
-You can download binary packege for linux, mac and freebsd from [emqtt.io/downloads](http://emqtt.io/downloads)
+emqttd requires Erlang R17+ to build.
+
+Download binary packeges for linux, mac and freebsd from [emqtt.io/downloads](http://emqtt.io/downloads)
 
 
 ## Benchmark
@@ -140,12 +142,12 @@ Run './bin/emqttd_ctl cluster' on 'host1' or 'host2' to check cluster nodes.
 
 ## HTTP API
 
-eMQTTD support http to publish message.
+emqttd support http to publish message.
 
 Example:
 
 ```
-curl -v --basic -u user:passwd -d "qos=1&retain=0&topic=/a/b/c&message=hello from http..." -k http://localhost:8083/mqtt/publish
+curl -v --basic -u user:passwd -d "qos=1&retain=0&topic=a/b/c&message=hello from http..." -k http://localhost:8083/mqtt/publish
 ```
 
 ### URL
