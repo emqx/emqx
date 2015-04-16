@@ -28,7 +28,7 @@
 
 -author('feng@emqtt.io').
 
--behaviour(emqttd_auth).
+-behaviour(emqttd_auth_mod).
 
 -export([init/1, check/3, description/0]).
 

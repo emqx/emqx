@@ -78,7 +78,7 @@ authorized(Req) ->
 		false;
 	"Basic " ++ BasicAuth ->
         {Username, Password} = user_passwd(BasicAuth),
-        case emqttd_auth:login(#mqtt_client{username = Username}, Password) of
+        case emqttd_access_control:auth(#mqtt_client{username = Username}, Password) of
             ok ->
                 true;
             {error, Reason} ->
