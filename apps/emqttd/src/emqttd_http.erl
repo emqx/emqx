@@ -77,7 +77,14 @@ authorized(Req) ->
 	undefined ->
 		false;
 	"Basic " ++ BasicAuth ->
-		emqttd_auth:check(user_passwd(BasicAuth))
+        {Username, Password} = user_passwd(BasicAuth),
+        case emqttd_auth:login(#mqtt_client{username = Username}, Password) of
+            ok ->
+                true;
+            {error, Reason} ->
+                lager:error("HTTP Auth failure: username=~s, reason=~p", [Username, Reason]),
+                false
+        end
 	end.
 
 user_passwd(BasicAuth) ->
