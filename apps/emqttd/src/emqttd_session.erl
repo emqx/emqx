@@ -186,6 +186,7 @@ subscribe(SessState = #session_state{clientid = ClientId, submap = SubMap}, Topi
     end,
     SubMap1 = lists:foldl(fun({Name, Qos}, Acc) -> maps:put(Name, Qos, Acc) end, SubMap, Topics),
     {ok, GrantedQos} = emqttd_pubsub:subscribe(Topics),
+    lager:info("Client ~s subscribe ~p. Granted QoS: ~p", [ClientId, Topics, GrantedQos]),
     %%TODO: should be gen_event and notification...
     [emqttd_msg_store:redeliver(Name, self()) || {Name, _} <- Topics],
     {ok, SessState#session_state{submap = SubMap1}, GrantedQos};
@@ -209,6 +210,7 @@ unsubscribe(SessState = #session_state{clientid = ClientId, submap = SubMap}, To
     end,
     %%unsubscribe from topic tree
     ok = emqttd_pubsub:unsubscribe(Topics),
+    lager:info("Client ~s unsubscribe ~p.", [ClientId, Topics]),
     SubMap1 = lists:foldl(fun(Topic, Acc) -> maps:remove(Topic, Acc) end, SubMap, Topics),
     {ok, SessState#session_state{submap = SubMap1}};
 
