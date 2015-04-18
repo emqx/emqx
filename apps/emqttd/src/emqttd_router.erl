@@ -25,6 +25,8 @@
 
 -include_lib("emqtt/include/emqtt.hrl").
 
+-include("emqttd.hrl").
+
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
@@ -35,11 +37,31 @@
 %%Router Chain--> --->In Out<---
 -export([route/2]).
 
+%% Mnesia Callbacks
+-export([mnesia/1]).
+
+-boot_mnesia({mnesia, [boot]}).
+-copy_mnesia({mnesia, [copy]}).
+
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
 -record(state, {}).
+
+%%%=============================================================================
+%%% Mnesia callbacks
+%%%=============================================================================
+mnesia(boot) ->
+    %% topic table
+    ok = emqttd_mnesia:create_table(topic, [
+                {type, bag},
+                {ram_copies, [node()]},
+                {record_name, mqtt_topic},
+                {attributes, record_info(fields, mqtt_topic)}]).
+
+mnesia(copy) ->
+    ok = emqttd_mnesia:copy_table(topic),
 
 %%%=============================================================================
 %%% API
@@ -71,7 +93,20 @@ route(From, Msg) ->
 %%% gen_server callbacks
 %%%=============================================================================
 init([]) ->
-    {ok, #state{}, hibernate}.
+    TabId = ets:new(?CLIENT_TABLE, [bag,
+                                    named_table,
+                                    public,
+                                    {read_concurrency, true}]),
+    %% local subscriber table, not shared with other nodes 
+    ok = emqttd_mnesia:create_table(subscriber, [
+                {type, bag},
+                {ram_copies, [node()]},
+                {record_name, mqtt_subscriber},
+                {attributes, record_info(fields, mqtt_subscriber)},
+                {index, [subpid]},
+                {local_content, true}]);
+
+    {ok, #state{tab = TabId}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
