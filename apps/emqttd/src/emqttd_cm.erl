@@ -118,9 +118,9 @@ getstats() ->
 
 init([]) ->
     TabId = ets:new(?CLIENT_TAB, [set,
-                                    named_table,
-                                    public,
-                                    {write_concurrency, true}]),
+                                  named_table,
+                                  public,
+                                  {write_concurrency, true}]),
     {ok, #state{tab = TabId}}.
 
 handle_call(Req, _From, State) ->
