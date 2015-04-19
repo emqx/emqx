@@ -40,7 +40,7 @@ all_module_attributes(Name) ->
         lists:usort(
           lists:append(
             [[{App, Module} || Module <- Modules] ||
-                {App, _, _}   <- application:loaded_applications(),
+                {App, _, _}   <- ignore_lib_apps(application:loaded_applications()),
                 {ok, Modules} <- [application:get_key(App, modules)]])),
     lists:foldl(
       fun ({App, Module}, Acc) ->
@@ -61,4 +61,18 @@ module_attributes(Module) ->
         V ->
             V
     end.
+
+ignore_lib_apps(Apps) ->
+    LibApps = [kernel, stdlib, sasl,
+               syntax_tools, ssl, crypto,
+               mnesia, os_mon, inets,
+               goldrush, lager, gproc,
+               runtime_tools, snmp, otp_mibs,
+               public_key, asn1, ssh,
+               common_test, observer, webtool,
+               xmerl, tools, test_server,
+               compiler, debugger, eunit,
+               et, gen_logger, wx,
+               hipe, esockd, mochiweb],
+    [App || App = {Name, _, _} <- Apps, not lists:member(Name, LibApps)].
 
