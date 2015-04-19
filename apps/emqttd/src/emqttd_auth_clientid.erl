@@ -39,9 +39,9 @@
 %% emqttd_auth callbacks
 -export([init/1, check/3, description/0]).
 
--define(AUTH_CLIENTID_TABLE, mqtt_auth_clientid).
+-define(AUTH_CLIENTID_TAB, mqtt_auth_clientid).
 
--record(?AUTH_CLIENTID_TABLE, {clientid, ipaddr, password}).
+-record(?AUTH_CLIENTID_TAB, {clientid, ipaddr, password}).
 
 add_clientid(ClientId) when is_binary(ClientId) ->
     R = #mqtt_auth_clientid{clientid = ClientId},
@@ -52,19 +52,19 @@ add_clientid(ClientId, Password) ->
     mnesia:transaction(fun() -> mnesia:write(R) end).
 
 lookup_clientid(ClientId) ->
-	mnesia:dirty_read(?AUTH_CLIENTID_TABLE, ClientId).
+	mnesia:dirty_read(?AUTH_CLIENTID_TAB, ClientId).
 
 all_clientids() ->
-	mnesia:dirty_all_keys(?AUTH_CLIENTID_TABLE).
+	mnesia:dirty_all_keys(?AUTH_CLIENTID_TAB).
 
 remove_clientid(ClientId) ->
-    mnesia:transaction(fun() -> mnesia:delete({?AUTH_CLIENTID_TABLE, ClientId}) end).
+    mnesia:transaction(fun() -> mnesia:delete({?AUTH_CLIENTID_TAB, ClientId}) end).
 
 init(Opts) ->
-	mnesia:create_table(?AUTH_CLIENTID_TABLE, [
+	mnesia:create_table(?AUTH_CLIENTID_TAB, [
 		{ram_copies, [node()]},
-		{attributes, record_info(fields, ?AUTH_CLIENTID_TABLE)}]),
-	mnesia:add_table_copy(?AUTH_CLIENTID_TABLE, node(), ram_copies),
+		{attributes, record_info(fields, ?AUTH_CLIENTID_TAB)}]),
+	mnesia:add_table_copy(?AUTH_CLIENTID_TAB, node(), ram_copies),
     case proplists:get_value(file, Opts) of
         undefined -> ok;
         File -> load(File)
@@ -80,9 +80,9 @@ check(#mqtt_client{clientid = ClientId, ipaddr = IpAddr}, _Password, [{password,
 check(_Client, undefined, [{password, yes}|_]) ->
     {error, "Password undefined"};
 check(#mqtt_client{clientid = ClientId}, Password, [{password, yes}|_]) ->
-    case mnesia:dirty_read(?AUTH_CLIENTID_TABLE, ClientId) of
+    case mnesia:dirty_read(?AUTH_CLIENTID_TAB, ClientId) of
         [] -> {error, "ClientId Not Found"};
-        [#?AUTH_CLIENTID_TABLE{password = Password}]  -> ok; %% TODO: plaintext??
+        [#?AUTH_CLIENTID_TAB{password = Password}]  -> ok; %% TODO: plaintext??
         _ -> {error, "Password Not Right"}
     end.
 
@@ -118,10 +118,10 @@ load(Fd, eof, Clients) ->
     file:close(Fd).
 
 check_clientid_only(ClientId, IpAddr) ->
-    case mnesia:dirty_read(?AUTH_CLIENTID_TABLE, ClientId) of
+    case mnesia:dirty_read(?AUTH_CLIENTID_TAB, ClientId) of
         [] -> {error, "ClientId Not Found"};
-        [#?AUTH_CLIENTID_TABLE{ipaddr = undefined}]  -> ok;
-        [#?AUTH_CLIENTID_TABLE{ipaddr = {_, {Start, End}}}] ->
+        [#?AUTH_CLIENTID_TAB{ipaddr = undefined}]  -> ok;
+        [#?AUTH_CLIENTID_TAB{ipaddr = {_, {Start, End}}}] ->
             I = esockd_access:atoi(IpAddr),
             case I >= Start andalso I =< End of
                 true -> ok;
