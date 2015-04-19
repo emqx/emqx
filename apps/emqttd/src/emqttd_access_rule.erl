@@ -58,7 +58,7 @@ compile({A, all}) when (A =:= allow) orelse (A =:= deny) ->
     {A, all};
 
 compile({A, Who, Access, TopicFilters}) when (A =:= allow) orelse (A =:= deny) ->
-    {A, compile(who, Who), Access, [compile(topic, bin(Topic)) || Topic <- TopicFilters]}.
+    {A, compile(who, Who), Access, [compile(topic, Topic) || Topic <- TopicFilters]}.
 
 compile(who, all) -> 
     all;
@@ -74,8 +74,10 @@ compile(who, {user, all}) ->
 compile(who, {user, Username}) ->
     {user, bin(Username)};
 
+compile(topic, {eq, Topic}) ->
+    {eq, emqtt_topic:words(bin(Topic))};
 compile(topic, Topic) ->
-    Words = emqtt_topic:words(Topic),
+    Words = emqtt_topic:words(bin(Topic)),
     case 'pattern?'(Words) of
         true -> {pattern, Words};
         false -> Words
@@ -138,6 +140,8 @@ match_topics(Client, Topic, [TopicFilter|Filters]) ->
     false -> match_topics(Client, Topic, Filters)
     end.
 
+match_topic(Topic, {eq, TopicFilter}) ->
+    Topic =:= TopicFilter;
 match_topic(Topic, TopicFilter) ->
     emqtt_topic:match(Topic, TopicFilter).
 

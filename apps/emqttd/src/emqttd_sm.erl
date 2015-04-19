@@ -44,7 +44,7 @@
 
 -define(SERVER, ?MODULE).
 
--define(SESSION_TABLE, mqtt_session).
+-define(SESSION_TAB, mqtt_session).
 
 %% API Function Exports
 -export([start_link/0]).
@@ -72,7 +72,7 @@ start_link() ->
 %%------------------------------------------------------------------------------
 -spec lookup_session(binary()) -> pid() | undefined.
 lookup_session(ClientId) ->
-    case ets:lookup(?SESSION_TABLE, ClientId) of
+    case ets:lookup(?SESSION_TAB, ClientId) of
         [{_, SessPid, _}] ->  SessPid;
         [] -> undefined
     end.
@@ -103,7 +103,7 @@ destroy_session(ClientId) ->
 
 init([]) ->
     process_flag(trap_exit, true),
-    TabId = ets:new(?SESSION_TABLE, [set, protected, named_table]),
+    TabId = ets:new(?SESSION_TAB, [set, protected, named_table]),
     {ok, #state{tab = TabId}}.
 
 handle_call({start_session, ClientId, ClientPid}, _From, State = #state{tab = Tab}) ->
@@ -157,8 +157,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 %%% Internal functions
 %%%=============================================================================
+
 setstats(State) ->
     emqttd_broker:setstats('sessions/count',
                            'sessions/max',
-                           ets:info(?SESSION_TABLE, size)), State.
+                           ets:info(?SESSION_TAB, size)), State.
+
 

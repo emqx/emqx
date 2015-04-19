@@ -24,5 +24,5 @@
 #-env ERL_MAX_ETS_TABLES 1024
 
 ## Tweak GC to run more often
-##-env ERL_FULLSWEEP_AFTER 10
+##-env ERL_FULLSWEEP_AFTER 1000
 #

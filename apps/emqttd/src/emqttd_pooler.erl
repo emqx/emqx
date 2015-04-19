@@ -20,77 +20,71 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd system monitor.
+%%% emqttd pooler.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
-
-%%TODO: this is a demo module....
-
--module(emqttd_sysmon).
+-module(emqttd_pooler).
 
 -author('feng@emqtt.io').
 
--behavior(gen_server).
+-behaviour(gen_server).
 
--export([start_link/0]).
+%% API Exports 
+-export([start_link/1, submit/1, async_submit/1]).
 
+%% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {}).
-
-%%------------------------------------------------------------------------------
-%% @doc
-%% Start emqttd monitor.
-%%
-%% @end
-%%------------------------------------------------------------------------------
--spec start_link() -> {ok, pid()} | ignore | {error, term()}.
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+-record(state, {id}).
 
 %%%=============================================================================
-%%% gen_server callbacks
+%%% API
 %%%=============================================================================
+-spec start_link(I :: pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
+start_link(I) ->
+    gen_server:start_link(?MODULE, [I], []).
 
-init([]) ->
-    erlang:system_monitor(self(), [{long_gc, 5000},
-                                   {large_heap, 8 * 1024 * 1024},
-                                   busy_port]),
-    {ok, #state{}}.
+submit(Fun) ->
+   gen_server:call(gproc_pool:pick(pooler), {submit, Fun}, infinity).
 
-handle_call(Request, _From, State) ->
-    lager:error("Unexpected request: ~p", [Request]),
-    {reply, {error, unexpected_request}, State}.
+async_submit(Fun) ->
+    gen_server:cast(gproc_pool:pick(pooler), {async_submit, Fun}).
 
-handle_cast(Msg, State) ->
-    lager:error("unexpected msg: ~p", [Msg]),
+init([I]) ->
+    gproc_pool:connect_worker(pooler, {pooler, I}),
+    {ok, #state{id = I}}.
+
+handle_call({submit, Fun}, _From, State) ->
+    {reply, run(Fun), State};
+
+handle_call(_Req, _From, State) ->
+    {reply, ok, State}.
+
+handle_cast({async_submit, Fun}, State) ->
+    run(Fun),
+    {noreply, State};
+
+handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({monitor, GcPid, long_gc, Info}, State) ->
-    lager:error("long_gc: gcpid = ~p, ~p ~n ~p", [GcPid, process_info(GcPid, 
-		[registered_name, memory, message_queue_len,heap_size,total_heap_size]), Info]),
-    {noreply, State};
-
-handle_info({monitor, GcPid, large_heap, Info}, State) ->
-    lager:error("large_heap: gcpid = ~p,~p ~n ~p", [GcPid, process_info(GcPid, 
-		[registered_name, memory, message_queue_len,heap_size,total_heap_size]), Info]),
-    {noreply, State};
-
-handle_info({monitor, SusPid, busy_port, Port}, State) ->
-    lager:error("busy_port: suspid = ~p, port = ~p", [process_info(SusPid, 
-		[registered_name, memory, message_queue_len,heap_size,total_heap_size]), Port]),
-    {noreply, State};
-
-handle_info(Info, State) ->
-    lager:error("Unexpected info: ~p", [Info]),
+handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
-    ok.
+terminate(_Reason, #state{id = I}) ->
+    gproc_pool:disconnect_worker(pooler, {pooler, I}), ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+%%%=============================================================================
+%%% Internal functions
+%%%=============================================================================
+
+run({M, F, A}) ->
+    erlang:apply(M, F, A);
+run(Fun) when is_function(Fun) ->
+    Fun().
 
 

@@ -103,10 +103,10 @@ resume(SessPid, ClientId, ClientPid) when is_pid(SessPid) ->
 %%------------------------------------------------------------------------------
 -spec publish(session(), mqtt_clientid(), {mqtt_qos(), mqtt_message()}) -> session().
 publish(Session, ClientId, {?QOS_0, Message}) ->
-    emqttd_router:route(ClientId, Message), Session;
+    emqttd_pubsub:publish(ClientId, Message), Session;
 
 publish(Session, ClientId, {?QOS_1, Message}) ->
-	emqttd_router:route(ClientId, Message), Session;
+	emqttd_pubsub:publish(ClientId, Message), Session;
 
 publish(SessState = #session_state{awaiting_rel = AwaitingRel}, _ClientId,
         {?QOS_2, Message = #mqtt_message{msgid = MsgId}}) ->
@@ -151,7 +151,7 @@ puback(SessPid, {?PUBREC, PacketId}) when is_pid(SessPid) ->
 puback(SessState = #session_state{clientid = ClientId,
                                   awaiting_rel = Awaiting}, {?PUBREL, PacketId}) ->
     case maps:find(PacketId, Awaiting) of
-        {ok, Msg} -> emqttd_router:route(ClientId, Msg);
+        {ok, Msg} -> emqttd_pubsub:publish(ClientId, Msg);
         error -> lager:warning("Session ~s: PUBREL PacketId '~p' not found!", [ClientId, PacketId])
     end,
     SessState#session_state{awaiting_rel = maps:remove(PacketId, Awaiting)};

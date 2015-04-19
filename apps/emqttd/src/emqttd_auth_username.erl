@@ -38,35 +38,35 @@
 %% emqttd_auth callbacks
 -export([init/1, check/3, description/0]).
 
--define(AUTH_USERNAME_TABLE, mqtt_auth_username).
+-define(AUTH_USERNAME_TAB, mqtt_auth_username).
 
--record(?AUTH_USERNAME_TABLE, {username, password}).
+-record(?AUTH_USERNAME_TAB, {username, password}).
 
 %%%=============================================================================
 %%% API 
 %%%=============================================================================
 
 add_user(Username, Password) ->
-    R = #?AUTH_USERNAME_TABLE{username = Username, password = hash(Password)},
+    R = #?AUTH_USERNAME_TAB{username = Username, password = hash(Password)},
     mnesia:transaction(fun() -> mnesia:write(R) end).
 
 lookup_user(Username) ->
-    mnesia:dirty_read(?AUTH_USERNAME_TABLE, Username).
+    mnesia:dirty_read(?AUTH_USERNAME_TAB, Username).
 
 remove_user(Username) ->
-    mnesia:transaction(fun() -> mnesia:delete({?AUTH_USERNAME_TABLE, Username}) end).
+    mnesia:transaction(fun() -> mnesia:delete({?AUTH_USERNAME_TAB, Username}) end).
 
 all_users() ->
-    mnesia:dirty_all_keys(?AUTH_USERNAME_TABLE).
+    mnesia:dirty_all_keys(?AUTH_USERNAME_TAB).
 
 %%%=============================================================================
 %%% emqttd_auth callbacks
 %%%=============================================================================
 init(Opts) ->
-	mnesia:create_table(?AUTH_USERNAME_TABLE, [
-		{ram_copies, [node()]},
-		{attributes, record_info(fields, ?AUTH_USERNAME_TABLE)}]),
-	mnesia:add_table_copy(?AUTH_USERNAME_TABLE, node(), ram_copies),
+	mnesia:create_table(?AUTH_USERNAME_TAB, [
+		{disc_copies, [node()]},
+		{attributes, record_info(fields, ?AUTH_USERNAME_TAB)}]),
+	mnesia:add_table_copy(?AUTH_USERNAME_TAB, node(), ram_copies),
     {ok, Opts}.
 
 check(#mqtt_client{username = undefined}, _Password, _Opts) ->
@@ -74,10 +74,10 @@ check(#mqtt_client{username = undefined}, _Password, _Opts) ->
 check(_User, undefined, _Opts) ->
     {error, "Password undefined"};
 check(#mqtt_client{username = Username}, Password, _Opts) ->
-	case mnesia:dirty_read(?AUTH_USERNAME_TABLE, Username) of
+	case mnesia:dirty_read(?AUTH_USERNAME_TAB, Username) of
         [] -> 
             {error, "Username Not Found"};
-        [#?AUTH_USERNAME_TABLE{password = <<Salt:4/binary, Hash/binary>>}] ->
+        [#?AUTH_USERNAME_TAB{password = <<Salt:4/binary, Hash/binary>>}] ->
             case Hash =:= md5_hash(Salt, Password) of
                 true -> ok;
                 false -> {error, "Password Not Right"}

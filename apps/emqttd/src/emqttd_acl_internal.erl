@@ -37,7 +37,7 @@
 %% ACL callbacks
 -export([init/1, check_acl/2, reload_acl/1, description/0]).
 
--define(ACL_RULE_TABLE, mqtt_acl_rule).
+-define(ACL_RULE_TAB, mqtt_acl_rule).
 
 -record(state, {acl_file, nomatch = allow}).
 
@@ -48,7 +48,7 @@
 %% @doc Read all rules.
 -spec all_rules() -> list(emqttd_access_rule:rule()).
 all_rules() ->
-    case ets:lookup(?ACL_RULE_TABLE, all_rules) of
+    case ets:lookup(?ACL_RULE_TAB, all_rules) of
         [] -> [];
         [{_, Rules}] -> Rules
     end.
@@ -60,7 +60,7 @@ all_rules() ->
 %% @doc init internal ACL.
 -spec init(AclOpts :: list()) -> {ok, State :: any()}.
 init(AclOpts) ->
-    ets:new(?ACL_RULE_TABLE, [set, public, named_table, {read_concurrency, true}]),
+    ets:new(?ACL_RULE_TAB, [set, public, named_table, {read_concurrency, true}]),
     AclFile = proplists:get_value(file, AclOpts),
     Default = proplists:get_value(nomatch, AclOpts, allow),
     State = #state{acl_file = AclFile, nomatch = Default},
@@ -71,10 +71,10 @@ load_rules(#state{acl_file = AclFile}) ->
     {ok, Terms} = file:consult(AclFile),
     Rules = [emqttd_access_rule:compile(Term) || Term <- Terms],
     lists:foreach(fun(PubSub) ->
-        ets:insert(?ACL_RULE_TABLE, {PubSub,
+        ets:insert(?ACL_RULE_TAB, {PubSub,
             lists:filter(fun(Rule) -> filter(PubSub, Rule) end, Rules)})
         end, [publish, subscribe]),
-    ets:insert(?ACL_RULE_TABLE, {all_rules, Terms}).
+    ets:insert(?ACL_RULE_TAB, {all_rules, Terms}).
 
 filter(_PubSub, {allow, all}) ->
     true;
@@ -103,7 +103,7 @@ check_acl({Client, PubSub, Topic}, #state{nomatch = Default}) ->
     end.
 
 lookup(PubSub) ->
-    case ets:lookup(?ACL_RULE_TABLE, PubSub) of
+    case ets:lookup(?ACL_RULE_TAB, PubSub) of
         [] -> [];
         [{PubSub, Rules}] -> Rules
     end.

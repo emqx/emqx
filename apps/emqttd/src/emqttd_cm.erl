@@ -32,8 +32,6 @@
 
 -define(SERVER, ?MODULE).
 
--define(CLIENT_TABLE, mqtt_client).
-
 %% API Exports 
 -export([start_link/0]).
 
@@ -51,6 +49,8 @@
 		 code_change/3]).
 
 -record(state, {tab}).
+
+-define(CLIENT_TAB, mqtt_client).
 
 %%%=============================================================================
 %%% API
@@ -74,7 +74,7 @@ start_link() ->
 %%------------------------------------------------------------------------------
 -spec lookup(ClientId :: binary()) -> pid() | undefined.
 lookup(ClientId) when is_binary(ClientId) ->
-	case ets:lookup(?CLIENT_TABLE, ClientId) of
+	case ets:lookup(?CLIENT_TAB, ClientId) of
 	[{_, Pid, _}] -> Pid;
 	[] -> undefined
 	end.
@@ -87,7 +87,7 @@ lookup(ClientId) when is_binary(ClientId) ->
 register(ClientId) when is_binary(ClientId) ->
     Pid = self(),
     %% this is atomic
-    case ets:insert_new(?CLIENT_TABLE, {ClientId, Pid, undefined}) of
+    case ets:insert_new(?CLIENT_TAB, {ClientId, Pid, undefined}) of
         true -> gen_server:cast(?SERVER, {monitor, ClientId, Pid});
         false -> gen_server:cast(?SERVER, {register, ClientId, Pid})
     end.
@@ -117,10 +117,10 @@ getstats() ->
 %%%=============================================================================
 
 init([]) ->
-    TabId = ets:new(?CLIENT_TABLE, [set,
-                                    named_table,
-                                    public,
-                                    {write_concurrency, true}]),
+    TabId = ets:new(?CLIENT_TAB, [set,
+                                  named_table,
+                                  public,
+                                  {write_concurrency, true}]),
     {ok, #state{tab = TabId}}.
 
 handle_call(Req, _From, State) ->
@@ -144,10 +144,10 @@ handle_cast({monitor, ClientId, Pid}, State = #state{tab = Tab}) ->
     {noreply, setstats(State)};
 
 handle_cast({unregister, ClientId, Pid}, State) ->
-	case ets:lookup(?CLIENT_TABLE, ClientId) of
+	case ets:lookup(?CLIENT_TAB, ClientId) of
 	[{_, Pid, MRef}] ->
 		erlang:demonitor(MRef, [flush]),
-		ets:delete(?CLIENT_TABLE, ClientId);
+		ets:delete(?CLIENT_TAB, ClientId);
 	[_] -> 
 		ignore;
 	[] ->
@@ -159,7 +159,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
-	ets:match_delete(?CLIENT_TABLE, {'_', DownPid, MRef}),
+	ets:match_delete(?CLIENT_TAB, {'_', DownPid, MRef}),
     {noreply, setstats(State)};
 
 handle_info(_Info, State) ->
@@ -191,6 +191,6 @@ registerd(Tab, {ClientId, Pid}) ->
 setstats(State) ->
     emqttd_broker:setstats('clients/count',
                            'clients/max',
-                           ets:info(?CLIENT_TABLE, size)), State.
+                           ets:info(?CLIENT_TAB, size)), State.
 
 

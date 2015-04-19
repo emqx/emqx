@@ -113,7 +113,7 @@ handle_info({dispatch, {_From, Msg}}, State = #state{node = Node, status = down}
     {noreply, State};
 
 handle_info({dispatch, {_From, Msg}}, State = #state{node = Node, status = up}) ->
-    rpc:cast(Node, emqttd_router, route, [transform(Msg, State)]),
+    rpc:cast(Node, emqttd_pubsub, publish, [transform(Msg, State)]),
     {noreply, State};
 
 handle_info({nodedown, Node}, State = #state{node = Node, ping_down_interval = Interval}) ->
@@ -171,6 +171,4 @@ transform(Msg = #mqtt_message{topic = Topic}, #state{qos = Qos,
         true -> Msg#mqtt_message{qos = Qos}
     end,
     Msg1#mqtt_message{topic = <<Prefix/binary, Topic/binary, Suffix/binary>>}.
-
-
 

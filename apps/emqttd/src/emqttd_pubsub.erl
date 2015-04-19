@@ -28,15 +28,11 @@
 
 -author('feng@emqtt.io').
 
--include_lib("emqtt/include/emqtt.hrl").
-
 -include("emqttd.hrl").
 
--behaviour(gen_server).
+-include_lib("emqtt/include/emqtt.hrl").
 
--define(SERVER, ?MODULE).
-
--define(SUBACK_ERR, 128).
+-include_lib("emqtt/include/emqtt_packet.hrl").
 
 %% Mnesia Callbacks
 -export([mnesia/1]).
@@ -44,13 +40,15 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
+-behaviour(gen_server).
+
 %% API Exports 
--export([start_link/0]).
+-export([start_link/2]).
 
 -export([create/1,
-         subscribe/1, subscribe/2,
+         subscribe/1,
          unsubscribe/1,
-         publish/1, publish/2,
+         publish/2,
          %local node
          dispatch/2, match/1]).
 
@@ -58,7 +56,9 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {submap :: map()}).
+-define(POOL, pubsub).
+
+-record(state, {id, submap :: map()}).
 
 %%%=============================================================================
 %%% Mnesia callbacks
@@ -76,7 +76,7 @@ mnesia(boot) ->
                 {ram_copies, [node()]},
                 {record_name, mqtt_subscriber},
                 {attributes, record_info(fields, mqtt_subscriber)},
-                {index, [subpid]},
+                {index, [pid]},
                 {local_content, true}]);
 
 mnesia(copy) ->
@@ -88,96 +88,71 @@ mnesia(copy) ->
 %%%=============================================================================
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Start Pubsub.
-%%
-%% @end
+%% @doc Start one pubsub.
 %%------------------------------------------------------------------------------
--spec start_link() -> {ok, pid()} | ignore | {error, any()}.
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+-spec start_link(Id, Opts) -> {ok, pid()} | ignore | {error, any()} when
+    Id   :: pos_integer(),
+    Opts :: list().
+start_link(Id, Opts) ->
+    gen_server:start_link(?MODULE, [Id, Opts], []).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Create topic.
-%%
-%% @end
+%% @doc Create topic. Notice That this transaction is not protected by pubsub pool.
 %%------------------------------------------------------------------------------
--spec create(binary()) -> ok.
+-spec create(Topic :: binary()) -> ok | {error, Error :: any()}.
 create(Topic) when is_binary(Topic) ->
-    Record = #mqtt_topic{topic = Topic, node = node()},
-    {atomic, ok} = mnesia:transaction(fun insert_topic/1, [Record]), ok.
+    TopicR = #mqtt_topic{topic = Topic, node = node()},
+    case mnesia:transaction(fun add_topic/1, [TopicR]) of
+        {atomic, ok} -> setstats(topics), ok;
+        {aborted, Error} -> {error, Error}
+    end.  
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Subscribe topics
-%%
-%% @end
+%% @doc Subscribe topic.
 %%------------------------------------------------------------------------------
--spec subscribe({Topic, Qos} | list({Topic, Qos})) -> {ok, Qos | list(Qos)} when 
+-spec subscribe({Topic, Qos} | list({Topic, Qos})) -> {ok, Qos | list(Qos)} | {error, any()} when
     Topic   :: binary(),
     Qos     :: mqtt_qos().
+
+subscribe({Topic, Qos}) when is_binary(Topic) andalso ?IS_QOS(Qos) ->
+    call({subscribe, self(), Topic, Qos});
+
 subscribe(Topics = [{_Topic, _Qos} | _]) ->
-    {ok, lists:map(fun({Topic, Qos}) ->
-            case subscribe(Topic, Qos) of
-                {ok, GrantedQos} -> 
-                    GrantedQos;
-                Error -> 
-                    lager:error("Failed to subscribe '~s': ~p", [Topic, Error]), 
-                    ?SUBACK_ERR
-            end
-        end, Topics)}.
+    call({subscribe, self(), Topics}).
 
--spec subscribe(Topic :: binary(), Qos :: mqtt_qos()) -> {ok, Qos :: mqtt_qos()}.
-subscribe(Topic, Qos) when is_binary(Topic) andalso ?IS_QOS(Qos) ->
-    TopicRecord = #mqtt_topic{topic = Topic, node = node()},
-    Subscriber = #mqtt_subscriber{topic = Topic, qos = Qos, subpid = self()},
-    F = fun() ->
-            case insert_topic(TopicRecord) of
-               ok -> insert_subscriber(Subscriber);
-               Error -> Error
-            end
-        end,
-    case mnesia:transaction(F) of
-        {atomic, ok} -> 
-            {ok, Qos};
-        {aborted, Reason} -> 
-            {error, Reason}
-    end.
-
-%%------------------------------------------------------------------------------
-%% @doc
-%% Unsubscribe Topic or Topics
-%%
-%% @end
-%%------------------------------------------------------------------------------
+%% @doc Unsubscribe Topic or Topics
 -spec unsubscribe(binary() | list(binary())) -> ok.
 unsubscribe(Topic) when is_binary(Topic) ->
-    SubPid = self(),
-    TopicRecord = #mqtt_topic{topic = Topic, node = node()},
-    F = fun() ->
-        %%TODO record name...
-        Pattern = #mqtt_subscriber{topic = Topic, _ = '_', subpid = SubPid},
-        [mnesia:delete_object(Sub) || Sub <- mnesia:match_object(Pattern)],
-        try_remove_topic(TopicRecord)
-    end,
-    {atomic, _} = mneisa:transaction(F), ok;
+    cast({unsubscribe, self(), Topic});
 
 unsubscribe(Topics = [Topic|_]) when is_binary(Topic) ->
-    lists:foreach(fun(T) -> unsubscribe(T) end, Topics).
+    cast({unsubscribe, self(), Topics}).
+
+call(Req) ->
+    Pid = gproc_pool:pick_worker(?POOL, self()),
+    lager:info("~p call ~p", [self(), Pid]),
+    gen_server:call(Pid, Req, infinity).
+
+cast(Msg) ->
+    Pid = gproc_pool:pick_worker(?POOL, self()),
+    gen_server:cast(Pid, Msg).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Publish to cluster node.
-%%
-%% @end
+%% @doc Publish to cluster nodes.
 %%------------------------------------------------------------------------------
--spec publish(Msg :: mqtt_message()) -> ok.
-publish(Msg=#mqtt_message{topic=Topic}) ->
-	publish(Topic, Msg).
-
--spec publish(Topic :: binary(), Msg :: mqtt_message()) -> any().
-publish(Topic, Msg) when is_binary(Topic) ->
+-spec publish(From :: mqtt_clientid() | atom(), Msg :: mqtt_message()) -> ok.
+publish(From, Msg=#mqtt_message{topic=Topic}) ->
+    lager:info("~s PUBLISH to ~s", [From, Topic]),
+    %% Retain message first. Don't create retained topic.
+    case emqttd_msg_store:retain(Msg) of
+        ok ->
+            %TODO: why unset 'retain' flag?
+            publish(From, Topic, emqtt_message:unset_flag(Msg));
+        ignore ->
+            publish(From, Topic, Msg)
+     end.
+    
+publish(_From, Topic, Msg) when is_binary(Topic) ->
 	lists:foreach(fun(#mqtt_topic{topic=Name, node=Node}) ->
         case Node =:= node() of
             true -> dispatch(Name, Msg);
@@ -185,107 +160,113 @@ publish(Topic, Msg) when is_binary(Topic) ->
         end
 	end, match(Topic)).
 
-%%------------------------------------------------------------------------------
-%% @doc
-%% Dispatch Locally. Should only be called by publish.
-%%
-%% @end
-%%------------------------------------------------------------------------------
+%% @doc Dispatch message locally. should only be called by publish.
 -spec dispatch(Topic :: binary(), Msg :: mqtt_message()) -> non_neg_integer().
 dispatch(Topic, Msg = #mqtt_message{qos = Qos}) when is_binary(Topic) ->
-    case mnesia:dirty_read(subscriber, Topic) of
-        [] -> 
-            %%TODO: not right when clusted...
-            setstats(dropped);
-        Subscribers ->
-            lists:foreach(
-                fun(#mqtt_subscriber{qos = SubQos, subpid=SubPid}) ->
-                        Msg1 = if
-                            Qos > SubQos -> Msg#mqtt_message{qos = SubQos};
-                            true -> Msg
-                        end,
-                        SubPid ! {dispatch, {self(), Msg1}}
-                end, Subscribers)
-    end.
+    Subscribers = mnesia:dirty_read(subscriber, Topic),
+    setstats(dropped, Subscribers =:= []), %%TODO:...
+    lists:foreach(
+        fun(#mqtt_subscriber{qos = SubQos, pid=SubPid}) ->
+                Msg1 = if
+                    Qos > SubQos -> Msg#mqtt_message{qos = SubQos};
+                    true -> Msg
+                end,
+                SubPid ! {dispatch, {self(), Msg1}}
+            end, Subscribers), 
+    length(Subscribers).
 
-%%------------------------------------------------------------------------------
-%% @doc
-%% @private
-%% Match topic.
-%%
-%% @end
-%%------------------------------------------------------------------------------
 -spec match(Topic :: binary()) -> [mqtt_topic()].
 match(Topic) when is_binary(Topic) ->
 	MatchedTopics = mnesia:async_dirty(fun emqttd_trie:find/1, [Topic]),
-	lists:flatten([mnesia:dirty_read(topic, Name) || Name <- MatchedTopics]).
+	lists:append([mnesia:dirty_read(topic, Name) || Name <- MatchedTopics]).
 
 %%%=============================================================================
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([]) ->
-    %%TODO: really need?
-    process_flag(priority, high),
+init([Id, _Opts]) ->
     process_flag(min_heap_size, 1024*1024),
-    mnesia:subscribe({table, topic, simple}),
-    mnesia:subscribe({table, subscriber, simple}),
-    {ok, #state{submap = maps:new()}}.
+    gproc_pool:connect_worker(pubsub, {?MODULE, Id}),
+    {ok, #state{id = Id, submap = maps:new()}}.
+
+handle_call({subscribe, SubPid, Topics}, _From, State) ->
+    TopicSubs = lists:map(fun({Topic, Qos}) ->
+                    {#mqtt_topic{topic = Topic, node = node()},
+                     #mqtt_subscriber{topic = Topic, qos = Qos, pid = SubPid}}
+                end, Topics),
+    F = fun() ->
+            lists:map(fun add_subscriber/1, TopicSubs) 
+        end,
+    case mnesia:transaction(F) of
+        {atomic, _Result} ->
+            setstats(all),
+            NewState = monitor_subscriber(SubPid, State),
+            %% grant all qos
+            {reply, {ok, [Qos || {_Topic, Qos} <- Topics]}, NewState};
+        {aborted, Error} ->
+            {reply, {error, Error}, State}
+    end;
+
+handle_call({subscribe, SubPid, Topic, Qos}, _From, State) ->
+    TopicR = #mqtt_topic{topic = Topic, node = node()},
+    Subscriber = #mqtt_subscriber{topic = Topic, qos = Qos, pid = SubPid},
+    case mnesia:transaction(fun add_subscriber/1, [{TopicR, Subscriber}]) of
+        {atomic, ok} -> 
+            setstats(all),
+            {reply, {ok, Qos}, monitor_subscriber(SubPid, State)};
+        {aborted, Error} -> 
+            {reply, {error, Error}, State}
+    end;
 
 handle_call(Req, _From, State) ->
     lager:error("Bad Request: ~p", [Req]),
 	{reply, {error, badreq}, State}.
 
+handle_cast({unsubscribe, SubPid, Topics}, State) when is_list(Topics) ->
+    TopicSubs = lists:map(fun(Topic) ->
+                    {#mqtt_topic{topic = Topic, node = node()},
+                     #mqtt_subscriber{topic = Topic, _ = '_', pid = SubPid}}
+                end, Topics),
+    F = fun() -> lists:foreach(fun remove_subscriber/1, TopicSubs) end,
+    case mnesia:transaction(F) of
+        {atomic, _} -> ok;
+        {aborted, Error} -> lager:error("unsubscribe ~p error: ~p", [Topics, Error])
+    end,
+    setstats(all),
+    {noreply, State};
+
+handle_cast({unsubscribe, SubPid, Topic}, State) ->
+    TopicR = #mqtt_topic{topic = Topic, node = node()},
+    Subscriber = #mqtt_subscriber{topic = Topic, _ = '_', pid = SubPid},
+    case mnesia:transaction(fun remove_subscriber/1, [{TopicR, Subscriber}]) of
+        {atomic, _} -> ok;
+        {aborted, Error} -> lager:error("unsubscribe ~s error: ~p", [Topic, Error])
+    end,
+    setstats(all),
+    {noreply, State};
+
 handle_cast(Msg, State) ->
     lager:error("Bad Msg: ~p", [Msg]),
 	{noreply, State}.
-
-handle_info({mnesia_table_event, {write, #mqtt_subscriber{subpid = Pid}, _ActivityId}},
-            State = #state{submap = SubMap}) ->
-    NewSubMap =
-    case maps:is_key(Pid, SubMap) of
-        false ->
-            maps:put(Pid, erlang:monitor(process, Pid), SubMap);
-        true ->
-            SubMap
-    end,
-    setstats(subscribers),
-    {noreply, State#state{submap = NewSubMap}};
-
-handle_info({mnesia_table_event, {write, #mqtt_topic{}, _ActivityId}}, State) ->
-    %%TODO: this is not right when clusterd.
-    setstats(topics),
-    {noreply, State};
-
-%% {write, #topic{}, _ActivityId}
-%% {delete_object, _OldRecord, _ActivityId}
-%% {delete, {Tab, Key}, ActivityId}
-handle_info({mnesia_table_event, _Event}, State) ->
-    setstats(topics),
-    setstats(subscribers),
-    {noreply, State};
 
 handle_info({'DOWN', _Mon, _Type, DownPid, _Info}, State = #state{submap = SubMap}) ->
     case maps:is_key(DownPid, SubMap) of
         true ->
             Node = node(),
             F = fun() -> 
-                    Subscribers = mnesia:index_read(subscriber, DownPid, #mqtt_subscriber.subpid),
+                    Subscribers = mnesia:index_read(subscriber, DownPid, #mqtt_subscriber.pid),
                     lists:foreach(fun(Sub = #mqtt_subscriber{topic = Topic}) ->
                                 mnesia:delete_object(subscriber, Sub, write),
                                 try_remove_topic(#mqtt_topic{topic = Topic, node = Node})
                         end, Subscribers)
             end,
-            NewState =
             case catch mnesia:transaction(F) of
-                {atomic, _} ->
-                    State#state{submap = maps:remove(DownPid, SubMap)};
+                {atomic, _} -> ok;
                 {aborted, Reason} ->
-                    lager:error("Failed to delete 'DOWN' subscriber ~p: ~p", [DownPid, Reason]),
-                    State
+                    lager:error("Failed to delete 'DOWN' subscriber ~p: ~p", [DownPid, Reason])
             end,
-            setstats(topics), setstats(subscribers),
-            {noreply, NewState};
+            setstats(all),
+            {noreply, State#state{submap = maps:remove(DownPid, SubMap)}};
         false ->
             lager:error("Unexpected 'DOWN' from ~p", [DownPid]),
             {noreply, State}
@@ -296,10 +277,13 @@ handle_info(Info, State) ->
 	{noreply, State}.
 
 terminate(_Reason, _State) ->
-    mnesia:unsubscribe({table, topic, simple}),
-    mnesia:unsubscribe({table, subscriber, simple}),
-    %%TODO: clear topics belongs to this node???
-    ok.
+    TopicR = #mqtt_topic{_ = '_', node = node()},
+    F = fun() ->
+            [mnesia:delete_object(topic, R, write) || R <- mnesia:match_object(topic, TopicR, write)]
+            %%TODO: remove trie??
+        end,
+    mnesia:transaction(F),
+    setstats(all).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -307,25 +291,45 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 %%% Internal functions
 %%%=============================================================================
-insert_topic(Record = #mqtt_topic{topic = Topic}) ->
+
+add_topic(TopicR = #mqtt_topic{topic = Topic}) ->
     case mnesia:wread({topic, Topic}) of
         [] ->
             ok = emqttd_trie:insert(Topic),
-            mnesia:write(topic, Record, write);
+            mnesia:write(topic, TopicR, write);
         Records ->
-            case lists:member(Record, Records) of
+            case lists:member(TopicR, Records) of
                 true -> ok;
-                false -> mnesia:write(topic, Record, write)
+                false -> mnesia:write(topic, TopicR, write)
             end
     end.
 
-insert_subscriber(Subscriber) ->
-    mnesia:write(subscriber, Subscriber, write).
+add_subscriber({TopicR, Subscriber}) when is_record(TopicR, mqtt_topic) ->
+    case add_topic(TopicR) of
+        ok ->
+            mnesia:write(subscriber, Subscriber, write);
+        Error -> 
+            Error
+    end.
 
-try_remove_topic(Record = #mqtt_topic{topic = Topic}) ->
+monitor_subscriber(SubPid, State = #state{submap = SubMap}) ->
+    NewSubMap = case maps:is_key(SubPid, SubMap) of
+        false ->
+            maps:put(SubPid, erlang:monitor(process, SubPid), SubMap);
+        true ->
+            SubMap
+    end,
+    State#state{submap = NewSubMap}.
+
+remove_subscriber({TopicR, Subscriber}) when is_record(TopicR, mqtt_topic) ->
+    [mnesia:delete_object(subscriber, Sub, write) || 
+        Sub <- mnesia:match_object(subscriber, Subscriber, write)],
+    try_remove_topic(TopicR).
+
+try_remove_topic(TopicR = #mqtt_topic{topic = Topic}) ->
     case mnesia:read({subscriber, Topic}) of
         [] ->
-            mnesia:delete_object(topic, Record, write),
+            mnesia:delete_object(topic, TopicR, write),
             case mnesia:read(topic, Topic) of
                 [] -> emqttd_trie:delete(Topic);		
                 _ -> ok
@@ -334,13 +338,23 @@ try_remove_topic(Record = #mqtt_topic{topic = Topic}) ->
             ok
  	end.
 
+%%%=============================================================================
+%%% Stats functions
+%%%=============================================================================
+setstats(all) ->
+    setstats(topics),
+    setstats(subscribers);
 setstats(topics) ->
-    emqttd_broker:setstat('topics/count', mnesia:table_info(topic, size));
-
+    emqttd_broker:setstat('topics/count',
+                          mnesia:table_info(topic, size));
 setstats(subscribers) ->
     emqttd_broker:setstats('subscribers/count',
                            'subscribers/max',
-                           mnesia:table_info(subscriber, size));
-setstats(dropped) ->
+                           mnesia:table_info(subscriber, size)).
+
+setstats(dropped, false) ->
+    ignore;
+setstats(dropped, true) ->
     emqttd_metrics:inc('messages/dropped').
+
 

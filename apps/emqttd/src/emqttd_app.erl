@@ -33,19 +33,6 @@
 %% Application callbacks
 -export([start/2, stop/1]).
 
-%% Servers
--define(SERVERS, [config,
-                  event,
-                  client,
-                  session,
-                  pubsub,
-                  router,
-                  broker,
-                  metrics,
-                  bridge,
-                  access_control,
-                  sysmon]).
-
 -define(PRINT_MSG(Msg), io:format(Msg)).
 
 -define(PRINT(Format, Args), io:format(Format, Args)).
@@ -79,7 +66,25 @@ print_vsn() ->
 	?PRINT("~s ~s is running now~n", [Desc, Vsn]).
 
 start_servers(Sup) ->
-    Servers = lists:flatten([server(Srv) || Srv <- ?SERVERS]),
+    {ok, SessOpts} = application:get_env(session),
+    {ok, PubSubOpts} = application:get_env(pubsub),
+    {ok, BrokerOpts} = application:get_env(broker),
+    {ok, MetricOpts} = application:get_env(metrics),
+    {ok, AccessOpts} = application:get_env(access_control),
+    Servers = [
+            {"emqttd config", emqttd_config},
+            {"emqttd event", emqttd_event},
+            {"emqttd pooler", {supervisor, emqttd_pooler_sup}},
+            {"emqttd client manager", emqttd_cm},
+            {"emqttd session manager", emqttd_sm},
+            {"emqttd session supervisor", {supervisor, emqttd_session_sup}, SessOpts},
+            {"emqttd pubsub", {supervisor, emqttd_pubsub_sup}, PubSubOpts},
+            %{"emqttd router", emqttd_router},
+            {"emqttd broker", emqttd_broker, BrokerOpts},
+            {"emqttd metrics", emqttd_metrics, MetricOpts},
+            {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}},
+            {"emqttd access control", emqttd_access_control, AccessOpts},
+            {"emqttd system monitor", emqttd_sysmon}],
     [start_server(Sup, Server) || Server <- Servers].
 
 start_server(_Sup, {Name, F}) when is_function(F) ->
@@ -96,35 +101,6 @@ start_server(Sup, {Name, Server, Opts}) ->
     ?PRINT("~s is starting...", [ Name]),
     start_child(Sup, Server, Opts),
     ?PRINT_MSG("[done]~n").
-
-%%TODO: redesign later...
-server(config) ->
-    {"emqttd config", emqttd_config};
-server(event) ->
-    {"emqttd event", emqttd_event}; 
-server(client) ->
-    {"emqttd client manager", emqttd_cm};
-server(session) ->
-    {ok, SessOpts} = application:get_env(session),
-    [{"emqttd session manager", emqttd_sm},
-     {"emqttd session supervisor", {supervisor, emqttd_session_sup}, SessOpts}];
-server(pubsub) ->
-    {"emqttd pubsub", emqttd_pubsub};
-server(router) ->
-    {"emqttd router", emqttd_router};
-server(broker) ->
-    {ok, BrokerOpts} = application:get_env(broker),
-    {"emqttd broker", emqttd_broker, BrokerOpts};
-server(metrics) ->
-    {ok, MetricOpts} = application:get_env(metrics),
-    {"emqttd metrics", emqttd_metrics, MetricOpts};
-server(bridge) ->
-    {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}};
-server(access_control) ->
-    {ok, AcOpts} = application:get_env(access_control),
-    {"emqttd access control", emqttd_access_control, AcOpts};
-server(sysmon) ->
-    {"emqttd system monitor", emqttd_sysmon}.
 
 start_child(Sup, {supervisor, Name}) ->
     supervisor:start_child(Sup, supervisor_spec(Name));

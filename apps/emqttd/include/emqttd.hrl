@@ -57,7 +57,7 @@
 -record(mqtt_subscriber, {
     topic    :: binary(),
     qos = 0  :: 0 | 1 | 2,
-    subpid   :: pid()
+    pid      :: pid()
 }).
 
 -type mqtt_subscriber() :: #mqtt_subscriber{}.
