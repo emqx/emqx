@@ -43,17 +43,14 @@ start_link(Opts) ->
 
 init([Opts]) ->
     Schedulers = erlang:system_info(schedulers),
-    PoolSize = proplists:get_value(pool, Opts, Schedulers),
+    PoolSize = proplists:get_value(pool_size, Opts, Schedulers),
     gproc_pool:new(pubsub, hash, [{size, PoolSize}]),
     Children = lists:map(
                  fun(I) ->
-                         gproc_pool:add_worker(pubsub, emqttd_pubsub:name(I), I),
-                         child(I, Opts)
+                    Name = {emqttd_pubsub, I},
+                    gproc_pool:add_worker(pubsub, Name, I),
+                    {Name, {emqttd_pubsub, start_link, [I, Opts]},
+                        permanent, 5000, worker, [emqttd_pubsub]}
                  end, lists:seq(1, PoolSize)),
     {ok, {{one_for_all, 10, 100}, Children}}.
-
-child(I, Opts) ->
-    {{emqttd_pubsub, I},
-        {emqttd_pubsub, start_link, [I, Opts]},
-            permanent, 5000, worker, [emqttd_pubsub]}.
 

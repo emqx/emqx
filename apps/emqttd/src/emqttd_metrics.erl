@@ -220,7 +220,7 @@ systop(Name) when is_atom(Name) ->
     list_to_binary(lists:concat(["$SYS/brokers/", node(), "/", Name])).
 
 publish(Topic, Payload) ->
-    emqttd_router:route(metrics, #mqtt_message{topic = Topic, payload = Payload}).
+    emqttd_pubsub:publish(#mqtt_message{topic = Topic, payload = Payload}).
 
 new_metric({gauge, Name}) ->
     ets:insert(?METRIC_TABLE, {{Name, 0}, 0});

@@ -266,7 +266,7 @@ send_willmsg(_ClientId, undefined) ->
     ignore;
 %%TODO:should call session...
 send_willmsg(ClientId, WillMsg) -> 
-    emqttd_router:route(ClientId, WillMsg).
+    emqttd_pubsub:publish(WillMsg).
 
 start_keepalive(0) -> ignore;
 start_keepalive(Sec) when Sec > 0 ->

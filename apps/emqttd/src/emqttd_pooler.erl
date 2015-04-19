@@ -20,7 +20,7 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd pooler supervisor.
+%%% emqttd pooler.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
@@ -30,10 +30,8 @@
 
 -behaviour(gen_server).
 
--define(SERVER, ?MODULE).
-
 %% API Exports 
--export([start_link/1]).
+-export([start_link/1, submit/1, async_submit/1]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -48,12 +46,25 @@
 start_link(I) ->
     gen_server:start_link(?MODULE, [I], []).
 
+submit(Fun) ->
+   gen_server:call(gproc_pool:pick(pooler), {submit, Fun}, infinity).
+
+async_submit(Fun) ->
+    gen_server:cast(gproc_pool:pick(pooler), {async_submit, Fun}).
+
 init([I]) ->
     gproc_pool:connect_worker(pooler, {pooler, I}),
     {ok, #state{id = I}}.
 
+handle_call({submit, Fun}, _From, State) ->
+    {reply, run(Fun), State};
+
 handle_call(_Req, _From, State) ->
     {reply, ok, State}.
+
+handle_cast({async_submit, Fun}, State) ->
+    run(Fun),
+    {noreply, State};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -66,4 +77,14 @@ terminate(_Reason, #state{id = I}) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+%%%=============================================================================
+%%% Internal functions
+%%%=============================================================================
+
+run({M, F, A}) ->
+    erlang:apply(M, F, A);
+run(Fun) when is_function(Fun) ->
+    Fun().
+
 

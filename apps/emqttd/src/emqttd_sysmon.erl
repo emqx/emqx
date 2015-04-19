@@ -55,7 +55,9 @@ start_link() ->
 %%%=============================================================================
 
 init([]) ->
-    erlang:system_monitor(self(), [{long_gc, 5000}, {large_heap, 1000000}, busy_port]),
+    erlang:system_monitor(self(), [{long_gc, 5000},
+                                   {large_heap, 8 * 1024 * 1024},
+                                   busy_port]),
     {ok, #state{}}.
 
 handle_call(Request, _From, State) ->
