@@ -34,7 +34,7 @@
 
 -define(SERVER, ?MODULE).
 
--define(BROKER_TABLE, mqtt_broker).
+-define(BROKER_TAB, mqtt_broker).
 
 %% API Function Exports
 -export([start_link/1]).
@@ -115,7 +115,7 @@ datetime() ->
 %%------------------------------------------------------------------------------
 -spec getstats() -> [{atom(), non_neg_integer()}].
 getstats() ->
-    ets:tab2list(?BROKER_TABLE).
+    ets:tab2list(?BROKER_TAB).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -125,7 +125,7 @@ getstats() ->
 %%------------------------------------------------------------------------------
 -spec getstat(atom()) -> non_neg_integer() | undefined.
 getstat(Name) ->
-    case ets:lookup(?BROKER_TABLE, Name) of
+    case ets:lookup(?BROKER_TAB, Name) of
         [{Name, Val}] -> Val;
         [] -> undefined
     end.
@@ -138,7 +138,7 @@ getstat(Name) ->
 %%------------------------------------------------------------------------------
 -spec setstat(Stat :: atom(), Val :: pos_integer()) -> boolean().
 setstat(Stat, Val) ->
-    ets:update_element(?BROKER_TABLE, Stat, {2, Val}).
+    ets:update_element(?BROKER_TAB, Stat, {2, Val}).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -148,13 +148,13 @@ setstat(Stat, Val) ->
 %%------------------------------------------------------------------------------
 -spec setstats(Stat :: atom(), MaxStat :: atom(), Val :: pos_integer()) -> boolean().
 setstats(Stat, MaxStat, Val) ->
-    MaxVal = ets:lookup_element(?BROKER_TABLE, MaxStat, 2),
+    MaxVal = ets:lookup_element(?BROKER_TAB, MaxStat, 2),
     if
         Val > MaxVal -> 
-            ets:update_element(?BROKER_TABLE, MaxStat, {2, Val});
+            ets:update_element(?BROKER_TAB, MaxStat, {2, Val});
         true -> ok
     end,
-    ets:update_element(?BROKER_TABLE, Stat, {2, Val}).
+    ets:update_element(?BROKER_TAB, Stat, {2, Val}).
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -162,9 +162,9 @@ setstats(Stat, MaxStat, Val) ->
 
 init([Options]) ->
     random:seed(now()),
-    ets:new(?BROKER_TABLE, [set, public, named_table, {write_concurrency, true}]),
+    ets:new(?BROKER_TAB, [set, public, named_table, {write_concurrency, true}]),
     Topics = ?SYSTOP_CLIENTS ++ ?SYSTOP_SESSIONS ++ ?SYSTOP_PUBSUB,
-    [ets:insert(?BROKER_TABLE, {Topic, 0}) || Topic <- Topics],
+    [ets:insert(?BROKER_TAB, {Topic, 0}) || Topic <- Topics],
     % Create $SYS Topics
     [ok = create(systop(Topic)) || Topic <- ?SYSTOP_BROKERS],
     [ok = create(systop(Topic)) || Topic <- Topics],
@@ -191,7 +191,7 @@ handle_info(tick, State) ->
     publish(systop(uptime), list_to_binary(uptime(State))),
     publish(systop(datetime), list_to_binary(datetime())),
     [publish(systop(Stat), i2b(Val)) 
-        || {Stat, Val} <- ets:tab2list(?BROKER_TABLE)],
+        || {Stat, Val} <- ets:tab2list(?BROKER_TAB)],
     {noreply, tick(State), hibernate};
 
 handle_info(_Info, State) ->

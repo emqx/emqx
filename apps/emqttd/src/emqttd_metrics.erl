@@ -36,7 +36,7 @@
 
 -define(SERVER, ?MODULE).
 
--define(METRIC_TABLE, mqtt_broker_metric).
+-define(METRIC_TAB, mqtt_broker_metric).
 
 %% API Function Exports
 -export([start_link/1]).
@@ -81,7 +81,7 @@ all() ->
                         {ok, Count} -> maps:put(Metric, Count+Val, Map);
                         error -> maps:put(Metric, Val, Map)
                     end
-            end, #{}, ?METRIC_TABLE)).
+            end, #{}, ?METRIC_TAB)).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -91,7 +91,7 @@ all() ->
 %%------------------------------------------------------------------------------
 -spec value(atom()) -> non_neg_integer().
 value(Metric) ->
-    lists:sum(ets:select(?METRIC_TABLE, [{{{Metric, '_'}, '$1'}, [], ['$1']}])).
+    lists:sum(ets:select(?METRIC_TAB, [{{{Metric, '_'}, '$1'}, [], ['$1']}])).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -125,9 +125,9 @@ inc(Metric, Val) when is_atom(Metric) and is_integer(Val) ->
 %%------------------------------------------------------------------------------
 -spec inc(counter | gauge, atom(), pos_integer()) -> pos_integer().
 inc(gauge, Metric, Val) ->
-    ets:update_counter(?METRIC_TABLE, key(gauge, Metric), {2, Val});
+    ets:update_counter(?METRIC_TAB, key(gauge, Metric), {2, Val});
 inc(counter, Metric, Val) ->
-    ets:update_counter(?METRIC_TABLE, key(counter, Metric), {2, Val}).
+    ets:update_counter(?METRIC_TAB, key(counter, Metric), {2, Val}).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -147,7 +147,7 @@ dec(gauge, Metric) ->
 %%------------------------------------------------------------------------------
 -spec dec(gauge, atom(), pos_integer()) -> integer().
 dec(gauge, Metric, Val) ->
-    ets:update_counter(?METRIC_TABLE, key(gauge, Metric), {2, -Val}).
+    ets:update_counter(?METRIC_TAB, key(gauge, Metric), {2, -Val}).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -158,7 +158,7 @@ dec(gauge, Metric, Val) ->
 set(Metric, Val) when is_atom(Metric) ->
     set(gauge, Metric, Val).
 set(gauge, Metric, Val) ->
-    ets:insert(?METRIC_TABLE, {key(gauge, Metric), Val}).
+    ets:insert(?METRIC_TAB, {key(gauge, Metric), Val}).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -180,7 +180,7 @@ init([Options]) ->
     random:seed(now()),
     Metrics = ?SYSTOP_BYTES ++ ?SYSTOP_PACKETS ++ ?SYSTOP_MESSAGES,
     % Create metrics table
-    ets:new(?METRIC_TABLE, [set, public, named_table, {write_concurrency, true}]),
+    ets:new(?METRIC_TAB, [set, public, named_table, {write_concurrency, true}]),
     % Init metrics
     [new_metric(Metric) ||  Metric <- Metrics],
     % $SYS Topics for metrics
@@ -224,11 +224,11 @@ publish(Topic, Payload) ->
                                                  payload = Payload}).
 
 new_metric({gauge, Name}) ->
-    ets:insert(?METRIC_TABLE, {{Name, 0}, 0});
+    ets:insert(?METRIC_TAB, {{Name, 0}, 0});
 
 new_metric({counter, Name}) ->
     Schedulers = lists:seq(1, erlang:system_info(schedulers)),
-    [ets:insert(?METRIC_TABLE, {{Name, I}, 0}) || I <- Schedulers].
+    [ets:insert(?METRIC_TAB, {{Name, I}, 0}) || I <- Schedulers].
 
 tick(State = #state{pub_interval = PubInterval}) ->
     tick(PubInterval, State).
