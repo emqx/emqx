@@ -1,22 +1,61 @@
 
-eMQTTD ChangeLog
+emqttd ChangeLog
 ==================
 
 0.6.1-alpha (2015-04-20)
 -------------------------
 
-Redesign PUBSUB
+Integrate with [gproc library](https://github.com/uwiger/gproc) to support pool
 
-0.6.0-alpha (2015-04-08)
+Feature: issues#91 - should use worker_pool to handle some async work?
+
+Feature: issues#95 - Topic filters in ACL rule should support 'eq' tag
+
+Improve: issues#84 - emqttd_pubsub is redesigned again to protect mnesia transaction
+
+Improve: issues#74 - ACL Support and update [ACL Design Wiki](https://github.com/emqtt/emqttd/wiki/ACL-Design)
+
+
+0.6.0-alpha (2015-04-17)
 -------------------------
 
-ACL Support
+ACL Support Now: [ACL-Design Wiki](https://github.com/emqtt/emqttd/wiki/ACL-Design)
 
-Authentication with username, clientid
+Authentication with username, clientid Now: [Authentication Wiki](https://github.com/emqtt/emqttd/wiki/Authentication)
 
-Plugin Architecture
+Seperate common MQTT library to 'emqtt' application
 
-emqttd_pubsub to remove unused dynamic trie nodes...
+Redesign message pubsub, route and retain modules
+
+Redesign mnesia database cluster
+
+Feature: issues#47 - authentication, authorization support
+
+Feature: issues#92 - merge emqttd_acl and emqttd_auth to emqttd_access_control
+
+Feature: emqttd_acl_mod, emqttd_auth_mod behaviour to extend ACL, authentication 
+
+Feature: issues#85 - lager:info to log subscribe, unsubscribe actions
+
+Feature: issues#77 - authentication with clientid, ipaddress 
+
+Improve: issues#90 - fix lager_file_backend log format, and rotate 10 log files
+
+Improve: issues#88 - use '-mneisa_create', '-mnesia_replicate' attributes to init mneisa
+
+Improve: issues#87 - record mqtt_user and mqtt_client is duplicated
+
+Improve: issues#81 - redesign nodes cluster to support disc_copies mnesia tables
+
+Improve: issues#80 - redesign emqttd_cm to handle more concurrent connections
+
+Improve: issues#70 - how to handle connection flood? Now could support 2K+ CONNECT/sec
+
+Change: redesign mnesia tables: message, topic, subscriber, trie, trie_node
+
+Bugfix: issues#83 - emqttd_broker stats cannot work
+
+Bugfix: issues#75 - careless about function name when emqttd_pubsub handle getstats message
 
 
 0.5.5-beta (2015-04-09)
