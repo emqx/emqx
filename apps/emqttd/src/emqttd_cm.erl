@@ -32,8 +32,6 @@
 
 -define(SERVER, ?MODULE).
 
--define(CLIENT_TABLE, mqtt_client).
-
 %% API Exports 
 -export([start_link/0]).
 
@@ -51,6 +49,8 @@
 		 code_change/3]).
 
 -record(state, {tab}).
+
+-define(CLIENT_TABLE, mqtt_client).
 
 %%%=============================================================================
 %%% API
