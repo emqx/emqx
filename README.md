@@ -6,7 +6,7 @@ emqttd requires Erlang R17+ to build.
 
 ## Download
 
-Download binary packeges for linux, mac and freebsd from [emqtt.io/downloads](http://emqtt.io/downloads)
+Download binary packeges for linux, mac and freebsd from [http://emqtt.io/downloads](http://emqtt.io/downloads)
 
 ## Benchmark
 
