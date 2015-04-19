@@ -214,13 +214,13 @@ create(Topic) ->
     emqttd_pubsub:create(Topic).
 
 retain(Topic, Payload) when is_binary(Payload) ->
-    emqttd_pubsub:publish(#mqtt_message{retain = true,
-                                        topic = Topic,
-                                        payload = Payload}).
+    emqttd_pubsub:publish(broker, #mqtt_message{retain = true,
+                                                topic = Topic,
+                                                payload = Payload}).
 
 publish(Topic, Payload) when is_binary(Payload) ->
-    emqttd_pubsub:publish(#mqtt_message{topic = Topic,
-                                        payload = Payload}).
+    emqttd_pubsub:publish(broker, #mqtt_message{topic = Topic,
+                                                payload = Payload}).
 
 uptime(#state{started_at = Ts}) ->
     Secs = timer:now_diff(os:timestamp(), Ts) div 1000000,

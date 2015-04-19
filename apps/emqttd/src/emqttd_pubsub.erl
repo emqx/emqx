@@ -32,6 +32,8 @@
 
 -include_lib("emqtt/include/emqtt.hrl").
 
+-include_lib("emqtt/include/emqtt_packet.hrl").
+
 %% Mnesia Callbacks
 -export([mnesia/1]).
 
@@ -46,7 +48,7 @@
 -export([create/1,
          subscribe/1,
          unsubscribe/1,
-         publish/1, publish/2,
+         publish/2,
          %local node
          dispatch/2, match/1]).
 
@@ -138,12 +140,19 @@ cast(Msg) ->
 %%------------------------------------------------------------------------------
 %% @doc Publish to cluster nodes.
 %%------------------------------------------------------------------------------
--spec publish(Msg :: mqtt_message()) -> ok.
-publish(Msg=#mqtt_message{topic=Topic}) ->
-	publish(Topic, Msg).
-
--spec publish(Topic :: binary(), Msg :: mqtt_message()) -> any().
-publish(Topic, Msg) when is_binary(Topic) ->
+-spec publish(From :: mqtt_clientid() | atom(), Msg :: mqtt_message()) -> ok.
+publish(From, Msg=#mqtt_message{topic=Topic}) ->
+    lager:info("~s PUBLISH to ~s", [From, Topic]),
+    %% Retain message first. Don't create retained topic.
+    case emqttd_msg_store:retain(Msg) of
+        ok ->
+            %TODO: why unset 'retain' flag?
+            publish(From, Topic, emqtt_message:unset_flag(Msg));
+        ignore ->
+            publish(From, Topic, Msg)
+     end.
+    
+publish(_From, Topic, Msg) when is_binary(Topic) ->
 	lists:foreach(fun(#mqtt_topic{topic=Name, node=Node}) ->
         case Node =:= node() of
             true -> dispatch(Name, Msg);

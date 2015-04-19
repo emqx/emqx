@@ -84,7 +84,7 @@ retain(Msg = #mqtt_message{topic = Topic,
             lager:error("Dropped retained message(topic=~s) for table is full!", [Topic]);
        {_, false}->
             lager:error("Dropped retained message(topic=~s, payload=~p) for payload is too big!", [Topic, size(Payload)])
-    end.
+    end, ok.
 
 limit(table) ->
     proplists:get_value(max_message_num, env());
