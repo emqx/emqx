@@ -51,7 +51,7 @@ start(_StartType, _StartArgs) ->
     emqttd_mnesia:start(),
     {ok, Sup} = emqttd_sup:start_link(),
 	start_servers(Sup),
-	{ok, Listeners} = application:get_env(listen),
+	{ok, Listeners} = application:get_env(listeners),
     emqttd:open(Listeners),
 	register(emqttd, self()),
     print_vsn(),
@@ -127,13 +127,15 @@ supervisor_spec(Name, Opts) ->
 worker_spec(Name) ->
     {Name,
         {Name, start_link, []},
-            permanent, 5000, worker, [Name]}.
+            permanent, 10000, worker, [Name]}.
 worker_spec(Name, Opts) -> 
     {Name,
         {Name, start_link, [Opts]},
-            permanent, 5000, worker, [Name]}.
+            permanent, 10000, worker, [Name]}.
 
 -spec stop(State :: term()) -> term().
 stop(_State) ->
+	{ok, Listeners} = application:get_env(listeners),
+    emqttd:close(Listeners),
     ok.
 

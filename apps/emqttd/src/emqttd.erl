@@ -26,9 +26,9 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
--export([start/0, open/1, is_running/1]).
+-export([start/0, open/1, close/1, is_running/1]).
 
 -define(MQTT_SOCKOPTS, [
 	binary,
@@ -41,15 +41,17 @@
 -type listener() :: {atom(), inet:port_number(), [esockd:option()]}. 
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Start emqttd application.
-%%
+%% @doc Start emqttd application.
 %% @end
 %%------------------------------------------------------------------------------
 -spec start() -> ok | {error, any()}.
 start() ->
     application:start(emqttd).
 
+%%------------------------------------------------------------------------------
+%% @doc Open Listeners
+%% @end
+%%------------------------------------------------------------------------------
 -spec open([listener()] | listener()) -> any().
 open(Listeners) when is_list(Listeners) ->
     [open(Listener) || Listener <- Listeners];
@@ -71,6 +73,17 @@ open(Protocol, Port, Options) ->
     {ok, PktOpts} = application:get_env(emqttd, mqtt_packet),
     MFArgs = {emqttd_client, start_link, [PktOpts]},
     esockd:open(Protocol, Port, emqttd_opts:merge(?MQTT_SOCKOPTS, Options) , MFArgs).
+
+%%------------------------------------------------------------------------------
+%% @doc Close Listeners
+%% @end
+%%------------------------------------------------------------------------------
+-spec close([listener()] | listener()) -> any().
+close(Listeners) when is_list(Listeners) ->
+    [close(Listener) || Listener <- Listeners];
+
+close({Protocol, Port, _Options}) ->
+    esockd:close({Protocol, Port}).
 
 is_running(Node) ->
     case rpc:call(Node, erlang, whereis, [emqttd]) of
