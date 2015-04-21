@@ -113,7 +113,7 @@ handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peername = Peername =
                          keep_alive = KeepAlive,
                          clientid  = ClientId} = Var,
 
-    trace(recv, Packet, State),
+    trace(recv, Packet, State#proto_state{clientid = ClientId}), %%TODO: fix later...
 
     State1 = State#proto_state{proto_ver  = ProtoVer,
                                username   = Username,
@@ -239,10 +239,12 @@ send(Packet, State = #proto_state{transport = Transport, socket = Sock, peername
     {ok, State}.
 
 trace(recv, Packet, #proto_state{peername  = Peername, clientid = ClientId}) ->
-	lager:info("RECV from ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqtt_packet:format(Packet)]);
+    lager:info([{client, ClientId}], "RECV from ~s@~s: ~s",
+                   [ClientId, emqttd_net:format(Peername), emqtt_packet:format(Packet)]);
 
 trace(send, Packet, #proto_state{peername  = Peername, clientid = ClientId}) ->
-	lager:info("SEND to ~s@~s: ~s", [ClientId, emqttd_net:format(Peername), emqtt_packet:format(Packet)]).
+	lager:info([{client, ClientId}], "SEND to ~s@~s: ~s",
+                   [ClientId, emqttd_net:format(Peername), emqtt_packet:format(Packet)]).
 
 %% @doc redeliver PUBREL PacketId
 redeliver({?PUBREL, PacketId}, State) ->
@@ -251,7 +253,8 @@ redeliver({?PUBREL, PacketId}, State) ->
 shutdown(Error, #proto_state{peername = Peername, clientid = ClientId, will_msg = WillMsg}) ->
     send_willmsg(ClientId, WillMsg),
     try_unregister(ClientId, self()),
-	lager:debug("Protocol ~s@~s Shutdown: ~p", [ClientId, emqttd_net:format(Peername), Error]),
+	lager:info([{client, ClientId}], "Protocol ~s@~s Shutdown: ~p",
+                   [ClientId, emqttd_net:format(Peername), Error]),
     ok.
 
 willmsg(Packet) when is_record(Packet, mqtt_packet_connect) ->

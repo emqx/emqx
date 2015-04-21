@@ -66,7 +66,7 @@ print_vsn() ->
 	?PRINT("~s ~s is running now~n", [Desc, Vsn]).
 
 start_servers(Sup) ->
-    {ok, SessOpts} = application:get_env(session),
+    {ok, SessOpts} = application:get_env(mqtt_session),
     {ok, PubSubOpts} = application:get_env(pubsub),
     {ok, BrokerOpts} = application:get_env(broker),
     {ok, MetricOpts} = application:get_env(metrics),
@@ -74,6 +74,7 @@ start_servers(Sup) ->
     Servers = [
             {"emqttd config", emqttd_config},
             {"emqttd event", emqttd_event},
+            {"emqttd trace", emqttd_trace},
             {"emqttd pooler", {supervisor, emqttd_pooler_sup}},
             {"emqttd client manager", emqttd_cm},
             {"emqttd session manager", emqttd_sm},

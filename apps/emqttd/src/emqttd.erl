@@ -68,7 +68,7 @@ open({http, Port, Options}) ->
 	mochiweb:start_http(Port, Options, MFArgs).
 
 open(Protocol, Port, Options) ->
-    {ok, PktOpts} = application:get_env(emqttd, packet),
+    {ok, PktOpts} = application:get_env(emqttd, mqtt_packet),
     MFArgs = {emqttd_client, start_link, [PktOpts]},
     esockd:open(Protocol, Port, emqttd_opts:merge(?MQTT_SOCKOPTS, Options) , MFArgs).
 

@@ -271,6 +271,28 @@ case "$1" in
 
         $NODETOOL rpc emqttd_ctl listeners $@
         ;;
+    trace)
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        if [ $# -eq 2 -a $2 = "list" ]; then
+            $NODETOOL rpc emqttd_ctl trace list
+        elif [ $# -eq 4 ]; then
+            shift
+            $NODETOOL rpc emqttd_ctl trace $@
+        else
+            echo "Usage: "
+            echo "$SCRIPT trace list"
+            echo "$SCRIPT trace client <ClientId> <LogFile>"
+            echo "$SCRIPT trace client <ClientId> off"
+            echo "$SCRIPT trace topic <Topic> <LogFile>"
+            echo "$SCRIPT trace topic <Topic> off"
+            exit 1
+        fi
+        ;;
 
     *)
         echo "Usage: $SCRIPT"
@@ -280,15 +302,25 @@ case "$1" in
 		echo "  stats                         #query broker statistics of clients, topics, subscribers"
         echo "  metrics                       #query broker metrics"
 		echo "  cluster [<Node>]              #query or cluster nodes"
+        echo "  ----------------------------------------------------------------"
         echo "  plugins list                  #query loaded plugins"
         echo "  plugins load <Plugin>         #load plugin"
         echo "  plugins unload <Plugin>       #unload plugin"
+        echo "  ----------------------------------------------------------------"
         echo "  bridges list                  #query bridges"
         echo "  bridges start <Node> <Topic>  #start bridge"
         echo "  bridges stop <Node> <Topic>   #stop bridge"
+        echo "  ----------------------------------------------------------------"
 		echo "  useradd <Username> <Password> #add user"
 		echo "  userdel <Username>            #delete user"
+        echo "  ----------------------------------------------------------------"
 		echo "  listeners                     #query broker listeners"
+        echo "  ----------------------------------------------------------------"
+        echo "  trace list                    #query all traces"
+        echo "  trace client <ClientId> <LogFile>   #trace client with ClientId"
+        echo "  trace client <ClientId> off         #stop to trace client"
+        echo "  trace topic <Topic> <LogFile>       #trace topic with Topic"
+        echo "  trace topic <Topic> off             #stop to trace Topic"
         exit 1
         ;;
 	

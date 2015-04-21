@@ -130,7 +130,6 @@ unsubscribe(Topics = [Topic|_]) when is_binary(Topic) ->
 
 call(Req) ->
     Pid = gproc_pool:pick_worker(?POOL, self()),
-    lager:info("~p call ~p", [self(), Pid]),
     gen_server:call(Pid, Req, infinity).
 
 cast(Msg) ->
@@ -142,7 +141,7 @@ cast(Msg) ->
 %%------------------------------------------------------------------------------
 -spec publish(From :: mqtt_clientid() | atom(), Msg :: mqtt_message()) -> ok.
 publish(From, Msg=#mqtt_message{topic=Topic}) ->
-    lager:info("~s PUBLISH to ~s", [From, Topic]),
+    lager:info([{client, From}, {topic, Topic}], "~s PUBLISH to ~s", [From, Topic]),
     %% Retain message first. Don't create retained topic.
     case emqttd_msg_store:retain(Msg) of
         ok ->

@@ -45,6 +45,7 @@
          listeners/1,
          bridges/1,
          plugins/1,
+         trace/1,
          useradd/1,
          userdel/1]).
 
@@ -154,6 +155,35 @@ plugins(["unload", Name]) ->
     case emqttd_plugin_manager:load(list_to_atom(Name)) of
         ok -> ?PRINT("plugin ~s is unloaded successfully.~n", [Name]);
         {error, Reason} -> ?PRINT("error: ~s~n", [Reason])
+    end.
+
+trace(["list"]) ->
+    lists:foreach(fun({{Who, Name}, LogFile}) -> 
+            ?PRINT("trace ~s ~s -> ~s~n", [Who, Name, LogFile])
+        end, emqttd_trace:all_traces());
+
+trace(["client", ClientId, "off"]) ->
+    stop_trace(client, ClientId);
+trace(["client", ClientId, LogFile]) ->
+    start_trace(client, ClientId, LogFile);
+trace(["topic", Topic, "off"]) ->
+    stop_trace(topic, Topic);
+trace(["topic", Topic, LogFile]) ->
+    start_trace(topic, Topic, LogFile).
+
+start_trace(Who, Name, LogFile) ->
+    case emqttd_trace:start_trace({Who, bin(Name)}, LogFile) of
+        ok -> 
+            ?PRINT("trace ~s ~s successfully.~n", [Who, Name]);
+        {error, Error} ->
+            ?PRINT("trace ~s ~s error: ~p~n", [Who, Name, Error])
+    end.
+stop_trace(Who, Name) ->
+    case emqttd_trace:stop_trace({Who, bin(Name)}) of
+        ok -> 
+            ?PRINT("stop to trace ~s ~s successfully.~n", [Who, Name]);
+        {error, Error} ->
+            ?PRINT("stop to trace ~s ~s error: ~p.~n", [Who, Name, Error])
     end.
 
 node_name(SNode) ->
