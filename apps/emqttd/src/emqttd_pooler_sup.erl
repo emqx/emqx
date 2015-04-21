@@ -26,7 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_pooler_sup).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -54,4 +54,5 @@ init([PoolSize]) ->
                                 permanent, 5000, worker, [emqttd_pooler]}
                  end, lists:seq(1, PoolSize)),
     {ok, {{one_for_all, 10, 100}, Children}}.
+
 

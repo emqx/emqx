@@ -20,13 +20,13 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd client manager.
+%%% MQTT Client Manager
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_cm).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -behaviour(gen_server).
 
@@ -37,18 +37,11 @@
 
 -export([lookup/1, register/1, unregister/1]).
 
-%% Stats 
--export([getstats/0]).
-
 %% gen_server Function Exports
--export([init/1,
-		 handle_call/3,
-		 handle_cast/2,
-		 handle_info/2,
-         terminate/2,
-		 code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2, code_change/3]).
 
--record(state, {tab}).
+-record(state, {tab, statsfun}).
 
 -define(CLIENT_TAB, mqtt_client).
 
@@ -57,9 +50,7 @@
 %%%=============================================================================
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Start client manager.
-%%
+%% @doc Start client manager
 %% @end
 %%------------------------------------------------------------------------------
 -spec start_link() -> {ok, pid()} | ignore | {error, any()}.
@@ -67,9 +58,7 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Lookup client pid with clientId.
-%%
+%% @doc Lookup client pid with clientId
 %% @end
 %%------------------------------------------------------------------------------
 -spec lookup(ClientId :: binary()) -> pid() | undefined.
@@ -93,24 +82,12 @@ register(ClientId) when is_binary(ClientId) ->
     end.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Unregister clientId with pid.
-%%
+%% @doc Unregister clientId with pid.
 %% @end
 %%------------------------------------------------------------------------------
 -spec unregister(ClientId :: binary()) -> ok.
 unregister(ClientId) when is_binary(ClientId) ->
     gen_server:cast(?SERVER, {unregister, ClientId, self()}).
-
-%%------------------------------------------------------------------------------
-%% @doc
-%% Get statistics of client manager.
-%%
-%% @end
-%%------------------------------------------------------------------------------
-getstats() ->
-    [{Name, emqttd_broker:getstat(Name)} || 
-        Name <- ['clients/count', 'clients/max']].
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -121,7 +98,8 @@ init([]) ->
                                   named_table,
                                   public,
                                   {write_concurrency, true}]),
-    {ok, #state{tab = TabId}}.
+    StatsFun = emqttd_broker:statsfun('clients/count', 'clients/max'),
+    {ok, #state{tab = TabId, statsfun = StatsFun}}.
 
 handle_call(Req, _From, State) ->
     lager:error("unexpected request: ~p", [Req]),
@@ -188,9 +166,7 @@ registerd(Tab, {ClientId, Pid}) ->
             false
 	end.
 
-setstats(State) ->
-    emqttd_broker:setstats('clients/count',
-                           'clients/max',
-                           ets:info(?CLIENT_TAB, size)), State.
+setstats(State = #state{statsfun = StatsFun}) ->
+    StatsFun(ets:info(?CLIENT_TAB, size)), State.
 
 

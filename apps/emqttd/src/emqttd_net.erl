@@ -26,13 +26,13 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_net).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
+
+-include_lib("kernel/include/inet.hrl").
 
 -export([tcp_name/3, tcp_host/1, getopts/2, setopts/2, getaddr/2, port_to_listeners/1]).
 
 -export([peername/1, sockname/1, format/2, format/1, connection_string/2]).
-
--include_lib("kernel/include/inet.hrl").
 
 -define(FIRST_TEST_BIND_PORT, 10000).
 

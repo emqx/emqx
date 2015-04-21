@@ -20,28 +20,26 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd client.
+%%% MQTT Client
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_client).
 
--author('feng@emqtt.io').
-
--behaviour(gen_server).
-
--export([start_link/2, info/1]).
-
--export([init/1,
-        handle_call/3,
-        handle_cast/2,
-        handle_info/2,
-        code_change/3,
-        terminate/2]).
+-author("Feng Lee <feng@emqtt.io>").
 
 -include_lib("emqtt/include/emqtt.hrl").
 
 -include_lib("emqtt/include/emqtt_packet.hrl").
+
+%% API Function Exports
+-export([start_link/2, info/1]).
+
+-behaviour(gen_server).
+
+%% gen_server Function Exports
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+         code_change/3, terminate/2]).
 
 %%Client State...
 -record(state, {transport,

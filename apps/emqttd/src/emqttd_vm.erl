@@ -26,6 +26,8 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_vm).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -export([loads/0]).
 
 loads() ->

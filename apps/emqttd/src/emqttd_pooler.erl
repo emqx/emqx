@@ -26,7 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_pooler).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -behaviour(gen_server).
 
@@ -46,11 +46,23 @@
 start_link(I) ->
     gen_server:start_link(?MODULE, [I], []).
 
+%%------------------------------------------------------------------------------
+%% @doc Submit work to pooler
+%% @end
+%%------------------------------------------------------------------------------
 submit(Fun) ->
    gen_server:call(gproc_pool:pick(pooler), {submit, Fun}, infinity).
 
+%%------------------------------------------------------------------------------
+%% @doc Submit work to pooler asynchronously
+%% @end
+%%------------------------------------------------------------------------------
 async_submit(Fun) ->
     gen_server:cast(gproc_pool:pick(pooler), {async_submit, Fun}).
+
+%%%=============================================================================
+%%% gen_server callbacks
+%%%=============================================================================
 
 init([I]) ->
     gproc_pool:connect_worker(pooler, {pooler, I}),

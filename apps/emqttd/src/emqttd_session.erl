@@ -26,9 +26,13 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_session).
 
--include_lib("emqtt/include/emqtt.hrl").
--include_lib("emqtt/include/emqtt_packet.hrl").
+-author("Feng Lee <feng@emqtt.io>").
+
 -include("emqttd.hrl").
+
+-include_lib("emqtt/include/emqtt.hrl").
+
+-include_lib("emqtt/include/emqtt_packet.hrl").
 
 %% API Function Exports
 -export([start/1,
@@ -67,9 +71,7 @@
 %%%=============================================================================
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Start Session.
-%%
+%% @doc Start Session
 %% @end
 %%------------------------------------------------------------------------------
 -spec start({boolean(), binary(), pid()}) -> {ok, session()}.
@@ -83,9 +85,7 @@ start({false = _CleanSess, ClientId, ClientPid}) ->
     {ok, SessPid}.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Resume Session.
-%%
+%% @doc Resume Session
 %% @end
 %%------------------------------------------------------------------------------
 -spec resume(session(), binary(), pid()) -> session().
@@ -96,9 +96,7 @@ resume(SessPid, ClientId, ClientPid) when is_pid(SessPid) ->
     SessPid.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Publish message.
-%%
+%% @doc Publish message
 %% @end
 %%------------------------------------------------------------------------------
 -spec publish(session(), mqtt_clientid(), {mqtt_qos(), mqtt_message()}) -> session().
@@ -118,9 +116,7 @@ publish(SessPid, ClientId, {?QOS_2, Message}) when is_pid(SessPid) ->
     SessPid.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% PubAck message.
-%%
+%% @doc PubAck message
 %% @end
 %%------------------------------------------------------------------------------
 -spec puback(session(), {mqtt_packet_type(), mqtt_packet_id()}) -> session().
@@ -172,9 +168,7 @@ puback(SessPid, {?PUBCOMP, PacketId}) when is_pid(SessPid) ->
     gen_server:cast(SessPid, {pubcomp, PacketId}), SessPid.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Subscribe Topics.
-%%
+%% @doc Subscribe Topics
 %% @end
 %%------------------------------------------------------------------------------
 -spec subscribe(session(), [{binary(), mqtt_qos()}]) -> {ok, session(), [mqtt_qos()]}.
@@ -197,9 +191,7 @@ subscribe(SessPid, Topics) when is_pid(SessPid) ->
     {ok, SessPid, GrantedQos}.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Unsubscribe Topics.
-%%
+%% @doc Unsubscribe Topics
 %% @end
 %%------------------------------------------------------------------------------
 -spec unsubscribe(session(), [binary()]) -> {ok, session()}.
@@ -220,9 +212,7 @@ unsubscribe(SessPid, Topics) when is_pid(SessPid) ->
     {ok, SessPid}.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Destroy Session.
-%%
+%% @doc Destroy Session
 %% @end
 %%------------------------------------------------------------------------------
 -spec destroy(SessPid :: pid(), ClientId :: binary()) -> ok.

@@ -26,7 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_session_sup).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -behavior(supervisor).
 
@@ -47,6 +47,7 @@ start_session(ClientId, ClientPid) ->
 %%%=============================================================================
 %%% Supervisor callbacks
 %%%=============================================================================
+
 init([SessOpts]) ->
     {ok, {{simple_one_for_one, 0, 1},
           [{session, {emqttd_session, start_link, [SessOpts]},

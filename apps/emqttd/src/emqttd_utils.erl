@@ -26,6 +26,8 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_utils).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -export([apply_module_attributes/1,
          all_module_attributes/1]).
 

@@ -26,11 +26,11 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_http).
 
--author('feng@emqtt.io').
-
--include_lib("emqtt/include/emqtt.hrl").
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
+
+-include_lib("emqtt/include/emqtt.hrl").
 
 -import(proplists, [get_value/2, get_value/3]).
 

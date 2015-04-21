@@ -26,7 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_pubsub).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -88,7 +88,8 @@ mnesia(copy) ->
 %%%=============================================================================
 
 %%------------------------------------------------------------------------------
-%% @doc Start one pubsub.
+%% @doc Start one pubsub server
+%% @end
 %%------------------------------------------------------------------------------
 -spec start_link(Id, Opts) -> {ok, pid()} | ignore | {error, any()} when
     Id   :: pos_integer(),
@@ -97,30 +98,30 @@ start_link(Id, Opts) ->
     gen_server:start_link(?MODULE, [Id, Opts], []).
 
 %%------------------------------------------------------------------------------
-%% @doc Create topic. Notice That this transaction is not protected by pubsub pool.
+%% @doc Create topic. Notice That this transaction is not protected by pubsub pool
+%% @end
 %%------------------------------------------------------------------------------
 -spec create(Topic :: binary()) -> ok | {error, Error :: any()}.
 create(Topic) when is_binary(Topic) ->
-    TopicR = #mqtt_topic{topic = Topic, node = node()},
-    case mnesia:transaction(fun add_topic/1, [TopicR]) of
-        {atomic, ok} -> setstats(topics), ok;
-        {aborted, Error} -> {error, Error}
-    end.  
+    call({create, Topic}).
 
 %%------------------------------------------------------------------------------
-%% @doc Subscribe topic.
+%% @doc Subscribe topic
+%% @end
 %%------------------------------------------------------------------------------
 -spec subscribe({Topic, Qos} | list({Topic, Qos})) -> {ok, Qos | list(Qos)} | {error, any()} when
     Topic   :: binary(),
     Qos     :: mqtt_qos().
-
 subscribe({Topic, Qos}) when is_binary(Topic) andalso ?IS_QOS(Qos) ->
     call({subscribe, self(), Topic, Qos});
 
 subscribe(Topics = [{_Topic, _Qos} | _]) ->
     call({subscribe, self(), Topics}).
 
+%%------------------------------------------------------------------------------
 %% @doc Unsubscribe Topic or Topics
+%% @end
+%%------------------------------------------------------------------------------
 -spec unsubscribe(binary() | list(binary())) -> ok.
 unsubscribe(Topic) when is_binary(Topic) ->
     cast({unsubscribe, self(), Topic});
@@ -137,7 +138,8 @@ cast(Msg) ->
     gen_server:cast(Pid, Msg).
 
 %%------------------------------------------------------------------------------
-%% @doc Publish to cluster nodes.
+%% @doc Publish to cluster nodes
+%% @end
 %%------------------------------------------------------------------------------
 -spec publish(From :: mqtt_clientid() | atom(), Msg :: mqtt_message()) -> ok.
 publish(From, Msg=#mqtt_message{topic=Topic}) ->
@@ -159,7 +161,10 @@ publish(_From, Topic, Msg) when is_binary(Topic) ->
         end
 	end, match(Topic)).
 
+%%------------------------------------------------------------------------------
 %% @doc Dispatch message locally. should only be called by publish.
+%% @end
+%%------------------------------------------------------------------------------
 -spec dispatch(Topic :: binary(), Msg :: mqtt_message()) -> non_neg_integer().
 dispatch(Topic, Msg = #mqtt_message{qos = Qos}) when is_binary(Topic) ->
     Subscribers = mnesia:dirty_read(subscriber, Topic),
@@ -187,6 +192,16 @@ init([Id, _Opts]) ->
     process_flag(min_heap_size, 1024*1024),
     gproc_pool:connect_worker(pubsub, {?MODULE, Id}),
     {ok, #state{id = Id, submap = maps:new()}}.
+
+handle_call({create, Topic}, _From, State) ->
+    TopicR = #mqtt_topic{topic = Topic, node = node()},
+    Reply = 
+    case mnesia:transaction(fun add_topic/1, [TopicR]) of
+        {atomic, ok} -> ok;
+        {aborted, Error} -> {error, Error}
+    end,
+    setstats(topics), 
+    {reply, Reply, State};
 
 handle_call({subscribe, SubPid, Topics}, _From, State) ->
     TopicSubs = lists:map(fun({Topic, Qos}) ->

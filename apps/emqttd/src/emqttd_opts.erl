@@ -26,8 +26,14 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_opts).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -export([merge/2]).
 
+%%%-----------------------------------------------------------------------------
+%% @doc Merge Options
+%% @end
+%%%-----------------------------------------------------------------------------
 merge(Defaults, Options) ->
     lists:foldl(
         fun({Opt, Val}, Acc) ->
@@ -43,6 +49,4 @@ merge(Defaults, Options) ->
                     false -> [Opt | Acc]
                 end
         end, Defaults, Options).
-
-
 

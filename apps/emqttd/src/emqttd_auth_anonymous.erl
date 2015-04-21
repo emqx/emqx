@@ -20,13 +20,13 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd anonymous authentication.
+%%% Anonymous authentication module.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_auth_anonymous).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -behaviour(emqttd_auth_mod).
 
@@ -34,7 +34,7 @@
 
 init(Opts) -> {ok, Opts}.
 
-check(_User, _Password, _Opts) -> ok.
+check(_Client, _Password, _Opts) -> ok.
 
 description() -> "Anonymous authentication module".
 

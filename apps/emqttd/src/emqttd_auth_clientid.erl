@@ -20,13 +20,13 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd authentication with clientid.
+%%% ClientId authentication module.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_auth_clientid).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -36,29 +36,57 @@
 
 -behaviour(emqttd_auth_mod).
 
-%% emqttd_auth callbacks
+%% emqttd_auth_mod callbacks
 -export([init/1, check/3, description/0]).
 
 -define(AUTH_CLIENTID_TAB, mqtt_auth_clientid).
 
 -record(?AUTH_CLIENTID_TAB, {clientid, ipaddr, password}).
 
+%%%=============================================================================
+%%% API
+%%%=============================================================================
+
+%%------------------------------------------------------------------------------
+%% @doc Add clientid
+%% @end
+%%------------------------------------------------------------------------------
 add_clientid(ClientId) when is_binary(ClientId) ->
     R = #mqtt_auth_clientid{clientid = ClientId},
     mnesia:transaction(fun() -> mnesia:write(R) end).
 
+%%------------------------------------------------------------------------------
+%% @doc Add clientid with password
+%% @end
+%%------------------------------------------------------------------------------
 add_clientid(ClientId, Password) ->
     R = #mqtt_auth_clientid{clientid = ClientId, password = Password},
     mnesia:transaction(fun() -> mnesia:write(R) end).
 
+%%------------------------------------------------------------------------------
+%% @doc Lookup clientid
+%% @end
+%%------------------------------------------------------------------------------
 lookup_clientid(ClientId) ->
 	mnesia:dirty_read(?AUTH_CLIENTID_TAB, ClientId).
 
+%%------------------------------------------------------------------------------
+%% @doc Lookup all clientids
+%% @end
+%%------------------------------------------------------------------------------
 all_clientids() ->
 	mnesia:dirty_all_keys(?AUTH_CLIENTID_TAB).
 
+%%------------------------------------------------------------------------------
+%% @doc Remove clientid
+%% @end
+%%------------------------------------------------------------------------------
 remove_clientid(ClientId) ->
     mnesia:transaction(fun() -> mnesia:delete({?AUTH_CLIENTID_TAB, ClientId}) end).
+
+%%%=============================================================================
+%%% emqttd_auth_mod callbacks
+%%%=============================================================================
 
 init(Opts) ->
 	mnesia:create_table(?AUTH_CLIENTID_TAB, [
@@ -128,5 +156,4 @@ check_clientid_only(ClientId, IpAddr) ->
                 false -> {error, "ClientId with wrong IP address"}
             end
     end.
-
 

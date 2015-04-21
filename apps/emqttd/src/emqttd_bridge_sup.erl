@@ -26,7 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_bridge_sup).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -behavior(supervisor).
 
@@ -42,23 +42,20 @@
 %%%=============================================================================
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Start bridge supervisor.
-%%
+%% @doc Start bridge supervisor
 %% @end
 %%------------------------------------------------------------------------------
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
+%%TODO: bridges...
 -spec bridges() -> [{tuple(), pid()}].
 bridges() ->
     [{{Node, SubTopic}, Pid} || {{bridge, Node, SubTopic}, Pid, worker, _} 
                                 <- supervisor:which_children(?MODULE)].
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Start a bridge.
-%%
+%% @doc Start a bridge
 %% @end
 %%------------------------------------------------------------------------------
 -spec start_bridge(atom(), binary()) -> {ok, pid()} | {error, any()}.
@@ -72,9 +69,7 @@ start_bridge(Node, SubTopic, Options) when is_atom(Node) and is_binary(SubTopic)
     supervisor:start_child(?MODULE, bridge_spec(Node, SubTopic, Options1)).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Stop a bridge.
-%%
+%% @doc Stop a bridge
 %% @end
 %%------------------------------------------------------------------------------
 -spec stop_bridge(atom(), binary()) -> {ok, pid()} | ok.

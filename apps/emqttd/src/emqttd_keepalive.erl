@@ -19,23 +19,25 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd keepalive.
+%%% @doc client keepalive
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_keepalive).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -export([new/3, resume/1, cancel/1]).
 
--record(keepalive, {transport, socket, recv_oct, timeout_sec, timeout_msg, timer_ref}).
+-record(keepalive, {transport,
+                    socket,
+                    recv_oct,
+                    timeout_sec,
+                    timeout_msg,
+                    timer_ref}).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Create a keepalive.
-%%
+%% @doc Create a keepalive
 %% @end
 %%------------------------------------------------------------------------------
 new({Transport, Socket}, TimeoutSec, TimeoutMsg) when TimeoutSec > 0 ->
@@ -49,9 +51,7 @@ new({Transport, Socket}, TimeoutSec, TimeoutMsg) when TimeoutSec > 0 ->
                 timer_ref   = Ref}.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Try to resume keepalive, called when timeout.
-%%
+%% @doc Try to resume keepalive, called when timeout
 %% @end
 %%------------------------------------------------------------------------------
 resume(KeepAlive = #keepalive {transport   = Transport, 
@@ -72,9 +72,7 @@ resume(KeepAlive = #keepalive {transport   = Transport,
     end.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Cancel Keepalive.
-%%
+%% @doc Cancel Keepalive
 %% @end
 %%------------------------------------------------------------------------------
 cancel(#keepalive{timer_ref = Ref}) ->

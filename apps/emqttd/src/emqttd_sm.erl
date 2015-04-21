@@ -36,6 +36,8 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_sm).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 %%cleanSess: true | false
 
 -include("emqttd.hrl").
@@ -43,8 +45,6 @@
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
-
--define(SESSION_TAB, mqtt_session).
 
 %% API Function Exports
 -export([start_link/0]).
@@ -55,7 +55,9 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {tab}).
+-record(state, {tabid, statsfun}).
+
+-define(SESSION_TAB, mqtt_session).
 
 %%%=============================================================================
 %%% API
@@ -65,9 +67,7 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Lookup Session Pid.
-%%
+%% @doc Lookup Session Pid
 %% @end
 %%------------------------------------------------------------------------------
 -spec lookup_session(binary()) -> pid() | undefined.
@@ -78,9 +78,7 @@ lookup_session(ClientId) ->
     end.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Start Session.
-%%
+%% @doc Start a session
 %% @end
 %%------------------------------------------------------------------------------
 -spec start_session(binary(), pid()) -> {ok, pid()} | {error, any()}.
@@ -88,9 +86,7 @@ start_session(ClientId, ClientPid) ->
     gen_server:call(?SERVER, {start_session, ClientId, ClientPid}).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Destroy Session.
-%%
+%% @doc Destroy a session
 %% @end
 %%------------------------------------------------------------------------------
 -spec destroy_session(binary()) -> ok.
@@ -104,9 +100,10 @@ destroy_session(ClientId) ->
 init([]) ->
     process_flag(trap_exit, true),
     TabId = ets:new(?SESSION_TAB, [set, protected, named_table]),
-    {ok, #state{tab = TabId}}.
+    StatsFun = emqttd_broker:statsfun('sessions/count', 'sessions/max'),
+    {ok, #state{tabid = TabId, statsfun = StatsFun}}.
 
-handle_call({start_session, ClientId, ClientPid}, _From, State = #state{tab = Tab}) ->
+handle_call({start_session, ClientId, ClientPid}, _From, State = #state{tabid = Tab}) ->
     Reply =
     case ets:lookup(Tab, ClientId) of
         [{_, SessPid, _MRef}] ->
@@ -124,7 +121,7 @@ handle_call({start_session, ClientId, ClientPid}, _From, State = #state{tab = Ta
     end,
     {reply, Reply, setstats(State)};
 
-handle_call({destroy_session, ClientId}, _From, State = #state{tab = Tab}) ->
+handle_call({destroy_session, ClientId}, _From, State = #state{tabid = Tab}) ->
     case ets:lookup(Tab, ClientId) of
         [{_, SessPid, MRef}] ->
             emqttd_session:destroy(SessPid, ClientId),
@@ -141,7 +138,7 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'DOWN', MRef, process, DownPid, _Reason}, State = #state{tab = Tab}) ->
+handle_info({'DOWN', MRef, process, DownPid, _Reason}, State = #state{tabid = Tab}) ->
 	ets:match_delete(Tab, {'_', DownPid, MRef}),
     {noreply, setstats(State)};
 
@@ -158,9 +155,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%=============================================================================
 
-setstats(State) ->
-    emqttd_broker:setstats('sessions/count',
-                           'sessions/max',
-                           ets:info(?SESSION_TAB, size)), State.
-
+setstats(State = #state{statsfun = StatsFun}) ->
+    StatsFun(ets:info(?SESSION_TAB, size)), State.
 

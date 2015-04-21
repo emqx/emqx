@@ -26,7 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_access_control).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -55,9 +55,7 @@
 %%%=============================================================================
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Start access control server.
-%%
+%% @doc Start access control server
 %% @end
 %%------------------------------------------------------------------------------
 -spec start_link(AcOpts :: list()) -> {ok, pid()} | ignore | {error, any()}.
@@ -65,9 +63,7 @@ start_link(AcOpts) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [AcOpts], []).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Authenticate client.
-%%
+%% @doc Authenticate MQTT Client
 %% @end
 %%------------------------------------------------------------------------------
 -spec auth(mqtt_client(), undefined | binary()) -> ok | {error, string()}.
@@ -83,9 +79,7 @@ auth(Client, Password, [{Mod, State} | Mods]) ->
     end.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Check ACL.
-%%
+%% @doc Check ACL
 %% @end
 %%------------------------------------------------------------------------------
 -spec check_acl(Client, PubSub, Topic) -> allow | deny when
@@ -108,9 +102,7 @@ check_acl(Client, PubSub, Topic, [{M, State}|AclMods]) ->
     end.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Reload ACL.
-%%
+%% @doc Reload ACL
 %% @end
 %%------------------------------------------------------------------------------
 -spec reload_acl() -> list() | {error, any()}.
@@ -118,9 +110,7 @@ reload_acl() ->
     [M:reload_acl(State) || {M, State} <- lookup_mods(acl)].
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Register auth or ACL module.
-%%
+%% @doc Register authentication or ACL module
 %% @end
 %%------------------------------------------------------------------------------
 -spec register_mod(Type :: auth | acl, Mod :: atom(), Opts :: list()) -> ok | {error, any()}.
@@ -128,9 +118,7 @@ register_mod(Type, Mod, Opts) when Type =:= auth; Type =:= acl->
     gen_server:call(?SERVER, {register_mod, Type, Mod, Opts}).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Unregister auth or ACL module.
-%%
+%% @doc Unregister authentication or ACL module
 %% @end
 %%------------------------------------------------------------------------------
 -spec unregister_mod(Type :: auth | acl, Mod :: atom()) -> ok | {error, any()}.
@@ -138,9 +126,7 @@ unregister_mod(Type, Mod) when Type =:= auth; Type =:= acl ->
     gen_server:call(?SERVER, {unregister_mod, Type, Mod}).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Lookup authentication or ACL modules.
-%%
+%% @doc Lookup authentication or ACL modules
 %% @end
 %%------------------------------------------------------------------------------
 -spec lookup_mods(auth | acl) -> list().
@@ -155,9 +141,7 @@ tab_key(acl) ->
     acl_modules.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Stop access control server.
-%%
+%% @doc Stop access control server
 %% @end
 %%------------------------------------------------------------------------------
 stop() ->

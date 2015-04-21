@@ -26,10 +26,14 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_cluster).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -export([running_nodes/0]).
 
+%%------------------------------------------------------------------------------
+%% @doc Get running nodes
+%% @end
+%%------------------------------------------------------------------------------
 running_nodes() ->
     mnesia:system_info(running_db_nodes).
 

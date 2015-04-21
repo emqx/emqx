@@ -20,13 +20,13 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd ACL behaviour.
+%%% ACL module behaviour.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_acl_mod).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 

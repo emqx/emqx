@@ -26,6 +26,8 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_config).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -define(SERVER, ?MODULE).
 
 -behaviour(gen_server).

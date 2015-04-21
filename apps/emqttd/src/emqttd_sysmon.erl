@@ -29,7 +29,7 @@
 
 -module(emqttd_sysmon).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -behavior(gen_server).
 
@@ -41,9 +41,7 @@
 -record(state, {}).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Start emqttd monitor.
-%%
+%% @doc Start system monitor
 %% @end
 %%------------------------------------------------------------------------------
 -spec start_link() -> {ok, pid()} | ignore | {error, term()}.
@@ -92,5 +90,4 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
 

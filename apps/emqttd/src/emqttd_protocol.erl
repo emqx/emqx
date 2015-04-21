@@ -26,6 +26,8 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_protocol).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -include_lib("emqtt/include/emqtt.hrl").
 -include_lib("emqtt/include/emqtt_packet.hrl").
 

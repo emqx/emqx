@@ -26,15 +26,15 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_broker).
 
--include_lib("emqtt/include/emqtt.hrl").
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd_systop.hrl").
+
+-include_lib("emqtt/include/emqtt.hrl").
 
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
-
--define(BROKER_TAB, mqtt_broker).
 
 %% API Function Exports
 -export([start_link/1]).
@@ -42,11 +42,15 @@
 -export([version/0, uptime/0, datetime/0, sysdescr/0]).
 
 %% statistics API.
--export([getstats/0, getstat/1, setstat/2, setstats/3]).
+-export([statsfun/1, statsfun/2,
+         getstats/0, getstat/1,
+         setstat/2, setstats/3]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
+
+-define(BROKER_TAB, mqtt_broker).
 
 -record(state, {started_at, sys_interval, tick_timer}).
 
@@ -55,9 +59,7 @@
 %%%=============================================================================
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Start emqttd broker.
-%%
+%% @doc Start emqttd broker
 %% @end
 %%------------------------------------------------------------------------------
 -spec start_link([tuple()]) -> {ok, pid()} | ignore | {error, term()}.
@@ -65,9 +67,7 @@ start_link(Options) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Options], []).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Get broker version.
-%%
+%% @doc Get broker version
 %% @end
 %%------------------------------------------------------------------------------
 -spec version() -> string().
@@ -75,9 +75,7 @@ version() ->
     {ok, Version} = application:get_key(emqttd, vsn), Version.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Get broker description.
-%%
+%% @doc Get broker description
 %% @end
 %%------------------------------------------------------------------------------
 -spec sysdescr() -> string().
@@ -85,9 +83,7 @@ sysdescr() ->
     {ok, Descr} = application:get_key(emqttd, description), Descr.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Get broker uptime.
-%%
+%% @doc Get broker uptime
 %% @end
 %%------------------------------------------------------------------------------
 -spec uptime() -> string().
@@ -95,9 +91,7 @@ uptime() ->
     gen_server:call(?SERVER, uptime).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Get broker datetime.
-%%
+%% @doc Get broker datetime
 %% @end
 %%------------------------------------------------------------------------------
 -spec datetime() -> string().
@@ -108,9 +102,19 @@ datetime() ->
             "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S])).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Get broker statistics.
-%%
+%% @doc Generate stats fun
+%% @end
+%%------------------------------------------------------------------------------
+-spec statsfun(Stat :: atom()) -> fun().
+statsfun(Stat) ->
+    fun(Val) -> setstat(Stat, Val) end.
+    
+-spec statsfun(Stat :: atom(), MaxStat :: atom()) -> fun().
+statsfun(Stat, MaxStat) -> 
+    fun(Val) -> setstats(Stat, MaxStat, Val) end.
+
+%%------------------------------------------------------------------------------
+%% @doc Get broker statistics
 %% @end
 %%------------------------------------------------------------------------------
 -spec getstats() -> [{atom(), non_neg_integer()}].
@@ -118,9 +122,7 @@ getstats() ->
     ets:tab2list(?BROKER_TAB).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Get stats by name.
-%%
+%% @doc Get stats by name
 %% @end
 %%------------------------------------------------------------------------------
 -spec getstat(atom()) -> non_neg_integer() | undefined.
@@ -131,9 +133,7 @@ getstat(Name) ->
     end.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Set broker stats.
-%%
+%% @doc Set broker stats
 %% @end
 %%------------------------------------------------------------------------------
 -spec setstat(Stat :: atom(), Val :: pos_integer()) -> boolean().
@@ -141,9 +141,7 @@ setstat(Stat, Val) ->
     ets:update_element(?BROKER_TAB, Stat, {2, Val}).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Set stats with max.
-%%
+%% @doc Set stats with max
 %% @end
 %%------------------------------------------------------------------------------
 -spec setstats(Stat :: atom(), MaxStat :: atom(), Val :: pos_integer()) -> boolean().
@@ -180,7 +178,7 @@ handle_call(uptime, _From, State) ->
     {reply, uptime(State), State};
 
 handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+    {reply, error, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -251,5 +249,4 @@ tick(Delay, State) ->
 
 i2b(I) when is_integer(I) ->
     list_to_binary(integer_to_list(I)).
-
 

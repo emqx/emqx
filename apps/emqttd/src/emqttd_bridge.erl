@@ -26,13 +26,13 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_bridge).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
--behaviour(gen_server).
+-include("emqttd.hrl").
 
 -include_lib("emqtt/include/emqtt.hrl").
 
--include("emqttd.hrl").
+-behaviour(gen_server).
 
 %% API Function Exports
 -export([start_link/3]).
@@ -64,9 +64,7 @@
 %%%=============================================================================
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Start a bridge.
-%%
+%% @doc Start a bridge
 %% @end
 %%------------------------------------------------------------------------------
 -spec start_link(atom(), binary(), [option()]) -> {ok, pid()} | ignore | {error, term()}.
@@ -103,7 +101,7 @@ parse_opts([{ping_down_interval, Interval} | Opts], State) ->
     parse_opts(Opts, State#state{ping_down_interval = Interval*1000}).
 
 handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+    {reply, error, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.

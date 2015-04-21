@@ -26,7 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_msg_store).
 
--author('feng@slimpp.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -include_lib("emqtt/include/emqtt.hrl").
 
@@ -58,9 +58,7 @@ mnesia(copy) ->
 %%%=============================================================================
 
 %%%-----------------------------------------------------------------------------
-%% @doc
-%% Retain message.
-%%
+%% @doc Retain message
 %% @end
 %%%-----------------------------------------------------------------------------
 -spec retain(mqtt_message()) -> ok | ignore.
@@ -100,7 +98,10 @@ env() ->
             Env
     end.
 
-%% @doc redeliver retained messages to subscribed client.
+%%%-----------------------------------------------------------------------------
+%% @doc Redeliver retained messages to subscribed client
+%% @end
+%%%-----------------------------------------------------------------------------
 -spec redeliver(Topic, CPid) -> any() when
         Topic  :: binary(),
         CPid   :: pid().
@@ -125,5 +126,4 @@ dispatch(CPid, Msgs) when is_list(Msgs) ->
     CPid ! {dispatch, {self(), [Msg || Msg <- Msgs]}};
 dispatch(CPid, Msg) when is_record(Msg, mqtt_message) ->
     CPid ! {dispatch, {self(), Msg}}.
-
 

@@ -26,17 +26,15 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_metrics).
 
--author('feng@emqtt.io').
-
--include_lib("emqtt/include/emqtt.hrl").
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd_systop.hrl").
+
+-include_lib("emqtt/include/emqtt.hrl").
 
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
-
--define(METRIC_TAB, mqtt_broker_metric).
 
 %% API Function Exports
 -export([start_link/1]).
@@ -50,6 +48,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+-define(METRIC_TAB, mqtt_metric).
+
 -record(state, {pub_interval, tick_timer}).
 
 %%%=============================================================================
@@ -57,9 +57,7 @@
 %%%=============================================================================
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Start emqttd metrics.
-%%
+%% @doc Start metrics server
 %% @end
 %%------------------------------------------------------------------------------
 -spec start_link([tuple()]) -> {ok, pid()} | ignore | {error, term()}.
@@ -67,9 +65,7 @@ start_link(Options) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Options], []).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Get all metrics.
-%%
+%% @doc Get all metrics
 %% @end
 %%------------------------------------------------------------------------------
 -spec all() -> [{atom(), non_neg_integer()}].
@@ -84,9 +80,7 @@ all() ->
             end, #{}, ?METRIC_TAB)).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Get metric value.
-%%
+%% @doc Get metric value
 %% @end
 %%------------------------------------------------------------------------------
 -spec value(atom()) -> non_neg_integer().
@@ -94,9 +88,7 @@ value(Metric) ->
     lists:sum(ets:select(?METRIC_TAB, [{{{Metric, '_'}, '$1'}, [], ['$1']}])).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Increase counter.
-%%
+%% @doc Increase counter
 %% @end
 %%------------------------------------------------------------------------------
 -spec inc(atom()) -> non_neg_integer().
@@ -104,9 +96,7 @@ inc(Metric) ->
     inc(counter, Metric, 1).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Increase metric value.
-%%
+%% @doc Increase metric value
 %% @end
 %%------------------------------------------------------------------------------
 -spec inc(counter | gauge, atom()) -> non_neg_integer().
@@ -118,9 +108,7 @@ inc(Metric, Val) when is_atom(Metric) and is_integer(Val) ->
     inc(counter, Metric, Val).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Increase metric value.
-%%
+%% @doc Increase metric value
 %% @end
 %%------------------------------------------------------------------------------
 -spec inc(counter | gauge, atom(), pos_integer()) -> pos_integer().
@@ -130,9 +118,7 @@ inc(counter, Metric, Val) ->
     ets:update_counter(?METRIC_TAB, key(counter, Metric), {2, Val}).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Decrease metric value.
-%%
+%% @doc Decrease metric value
 %% @end
 %%------------------------------------------------------------------------------
 -spec dec(gauge, atom()) -> integer().
@@ -140,9 +126,7 @@ dec(gauge, Metric) ->
     dec(gauge, Metric, 1).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Decrease metric value
-%%
+%% @doc Decrease metric value
 %% @end
 %%------------------------------------------------------------------------------
 -spec dec(gauge, atom(), pos_integer()) -> integer().
@@ -150,9 +134,7 @@ dec(gauge, Metric, Val) ->
     ets:update_counter(?METRIC_TAB, key(gauge, Metric), {2, -Val}).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Set metric value.
-%%
+%% @doc Set metric value
 %% @end
 %%------------------------------------------------------------------------------
 set(Metric, Val) when is_atom(Metric) ->
@@ -161,10 +143,7 @@ set(gauge, Metric, Val) ->
     ets:insert(?METRIC_TAB, {key(gauge, Metric), Val}).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% @private
-%% Metric Key
-%%
+%% @doc Metric Key
 %% @end
 %%------------------------------------------------------------------------------
 key(gauge, Metric) ->
@@ -192,19 +171,19 @@ init([Options]) ->
             end,
     {ok, tick(Delay, #state{pub_interval = PubInterval}), hibernate}.
 
-handle_call(Req, _From, State) ->
-    {stop, {badreq, Req}, State}.
+handle_call(_Req, _From, State) ->
+    {reply, {error, badreq}, State}.
 
-handle_cast(Msg, State) ->
-    {stop, {badmsg, Msg}, State}.
+handle_cast(_Msg, State) ->
+    {noreply, State}.
 
 handle_info(tick, State) ->
     % publish metric message
     [publish(systop(Metric), i2b(Val))|| {Metric, Val} <- all()],
     {noreply, tick(State), hibernate};
 
-handle_info(Info, State) ->
-    {stop, {badinfo, Info}, State}.
+handle_info(_Info, State) ->
+    {noreply, State}.
 
 terminate(_Reason, _State) ->
     ok.
@@ -240,5 +219,4 @@ tick(Delay, State) ->
 
 i2b(I) ->
     list_to_binary(integer_to_list(I)).
-
 

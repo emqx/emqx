@@ -26,7 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_acl_internal).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -45,7 +45,10 @@
 %%% API
 %%%=============================================================================
 
-%% @doc Read all rules.
+%%------------------------------------------------------------------------------
+%% @doc Read all rules
+%% @end
+%%------------------------------------------------------------------------------
 -spec all_rules() -> list(emqttd_access_rule:rule()).
 all_rules() ->
     case ets:lookup(?ACL_RULE_TAB, all_rules) of
@@ -57,17 +60,20 @@ all_rules() ->
 %%% ACL callbacks 
 %%%=============================================================================
 
-%% @doc init internal ACL.
+%%------------------------------------------------------------------------------
+%% @doc Init internal ACL
+%% @end
+%%------------------------------------------------------------------------------
 -spec init(AclOpts :: list()) -> {ok, State :: any()}.
 init(AclOpts) ->
     ets:new(?ACL_RULE_TAB, [set, public, named_table, {read_concurrency, true}]),
     AclFile = proplists:get_value(file, AclOpts),
     Default = proplists:get_value(nomatch, AclOpts, allow),
     State = #state{acl_file = AclFile, nomatch = Default},
-    load_rules(State),
+    load_rules_from_file(State),
     {ok, State}.
 
-load_rules(#state{acl_file = AclFile}) ->
+load_rules_from_file(#state{acl_file = AclFile}) ->
     {ok, Terms} = file:consult(AclFile),
     Rules = [emqttd_access_rule:compile(Term) || Term <- Terms],
     lists:foreach(fun(PubSub) ->
@@ -89,7 +95,10 @@ filter(subscribe, {_AllowDeny, _Who, subscribe, _Topics}) ->
 filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
     false.
 
-%% @doc Check ACL.
+%%------------------------------------------------------------------------------
+%% @doc Check ACL
+%% @end
+%%------------------------------------------------------------------------------
 -spec check_acl({Client, PubSub, Topic}, State) -> allow | deny | ignore when
       Client :: mqtt_client(),
       PubSub :: pubsub(),
@@ -117,15 +126,21 @@ match(Client, Topic, [Rule|Rules]) ->
         {matched, AllowDeny} -> {matched, AllowDeny}
     end.
 
-%% @doc Reload ACL.
+%%------------------------------------------------------------------------------
+%% @doc Reload ACL
+%% @end
+%%------------------------------------------------------------------------------
 -spec reload_acl(State :: #state{}) -> ok | {error, Reason :: any()}.
 reload_acl(State) ->
-    case catch load_rules(State) of
+    case catch load_rules_from_file(State) of
         {'EXIT', Error} -> {error, Error};
         _ -> ok
     end.
 
-%% @doc ACL Description.
+%%------------------------------------------------------------------------------
+%% @doc ACL Module Description
+%% @end
+%%------------------------------------------------------------------------------
 -spec description() -> string().
 description() ->
     "Internal ACL with etc/acl.config".

@@ -26,27 +26,21 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_event).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -include_lib("emqtt/include/emqtt.hrl").
 
 %% API Function Exports
--export([start_link/0,
-         add_handler/2,
-         notify/1]).
+-export([start_link/0, add_handler/2, notify/1]).
 
 %% gen_event Function Exports
--export([init/1,
-         handle_event/2,
-         handle_call/2,
-         handle_info/2,
-         terminate/2,
-         code_change/3]).
+-export([init/1, handle_event/2, handle_call/2, handle_info/2,
+         terminate/2, code_change/3]).
 
 -record(state, {systop}).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Start emqttd event manager.
-%%
+%% @doc Start event manager
 %% @end
 %%------------------------------------------------------------------------------
 -spec start_link() -> {ok, pid()} | {error, any()}.
@@ -64,6 +58,7 @@ add_handler(Handler, Args) ->
 
 notify(Event) ->
     gen_event:notify(?MODULE, Event).
+
 %%%=============================================================================
 %%% gen_event callbacks
 %%%=============================================================================
@@ -108,9 +103,9 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
+%%%=============================================================================
+%%% Internal functions
+%%%=============================================================================
 
 payload(connected, Params) ->
     From = proplists:get_value(from, Params),

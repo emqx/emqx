@@ -26,7 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_ctl).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -49,6 +49,10 @@
          useradd/1,
          userdel/1]).
 
+%%------------------------------------------------------------------------------
+%% @doc Query node status
+%% @end
+%%------------------------------------------------------------------------------
 status([]) ->
     {InternalStatus, _ProvidedStatus} = init:get_status(),
     ?PRINT("Node ~p is ~p~n", [node(), InternalStatus]),
@@ -59,6 +63,10 @@ status([]) ->
 		?PRINT_MSG("emqttd is running~n")
     end.
 
+%%------------------------------------------------------------------------------
+%% @doc Cluster with other node
+%% @end
+%%------------------------------------------------------------------------------
 cluster([]) ->
     Nodes = [node()|nodes()],
     ?PRINT("cluster nodes: ~p~n", [Nodes]);
@@ -77,9 +85,17 @@ cluster([SNode]) ->
         ?PRINT("failed to connect to ~p~n", [Node])
 	end.
 
+%%------------------------------------------------------------------------------
+%% @doc Add usern
+%% @end
+%%------------------------------------------------------------------------------
 useradd([Username, Password]) ->
 	?PRINT("~p~n", [emqttd_auth_username:add_user(bin(Username), bin(Password))]).
 
+%%------------------------------------------------------------------------------
+%% @doc Delete user
+%% @end
+%%------------------------------------------------------------------------------
 userdel([Username]) ->
 	?PRINT("~p~n", [emqttd_auth_username:remove_user(bin(Username))]).
 
