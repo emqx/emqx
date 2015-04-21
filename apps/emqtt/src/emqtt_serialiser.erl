@@ -20,13 +20,13 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqtt packet serialiser.
+%%% MQTT Packet Serialiser.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqtt_serialiser).
 
--author("feng@emqtt.io").
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqtt.hrl").
 
@@ -36,9 +36,7 @@
 -export([serialise/1]).
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Serialise MQTT Packet.
-%%
+%% @doc Serialise MQTT Packet
 %% @end
 %%------------------------------------------------------------------------------
 -spec serialise(mqtt_packet()) -> binary().
