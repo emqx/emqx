@@ -1,0 +1,12 @@
+{application, emqttd_dashboard,
+ [
+  {description, "emqttd management dashboard"},
+  {vsn, "0.1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, {emqttd_dashboard_app, []}},
+  {env, []}
+]}.
