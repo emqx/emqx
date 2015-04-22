@@ -16,4 +16,6 @@ start(_StartType, _StartArgs) ->
     {ok, Sup}.
 
 stop(_State) ->
+    emqttd_access_control:unregister_mod(auth, emqttd_plugin_demo_auth),
+    emqttd_access_control:unregister_mod(acl, emqttd_plugin_demo_acl),
     ok.
