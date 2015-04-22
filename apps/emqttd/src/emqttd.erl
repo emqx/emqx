@@ -28,7 +28,12 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--export([start/0, open/1, close/1, is_running/1]).
+-export([start/0,
+         open_listeners/1, close_listeners/1,
+         load_all_plugins/0, unload_all_plugins/0,
+         load_plugin/1, unload_plugin/1,
+         loaded_plugins/0,
+         is_running/1]).
 
 -define(MQTT_SOCKOPTS, [
 	binary,
@@ -52,24 +57,24 @@ start() ->
 %% @doc Open Listeners
 %% @end
 %%------------------------------------------------------------------------------
--spec open([listener()] | listener()) -> any().
-open(Listeners) when is_list(Listeners) ->
-    [open(Listener) || Listener <- Listeners];
+-spec open_listeners([listener()]) -> any().
+open_listeners(Listeners) when is_list(Listeners) ->
+    [open_listener(Listener) || Listener <- Listeners].
 
 %% open mqtt port
-open({mqtt, Port, Options}) ->
-    open(mqtt, Port, Options);
+open_listener({mqtt, Port, Options}) ->
+    open_listener(mqtt, Port, Options);
 
 %% open mqtt(SSL) port
-open({mqtts, Port, Options}) ->
-    open(mqtts, Port, Options);
+open_listener({mqtts, Port, Options}) ->
+    open_listener(mqtts, Port, Options);
 
 %% open http port
-open({http, Port, Options}) ->
+open_listener({http, Port, Options}) ->
     MFArgs = {emqttd_http, handle, []},
 	mochiweb:start_http(Port, Options, MFArgs).
 
-open(Protocol, Port, Options) ->
+open_listener(Protocol, Port, Options) ->
     {ok, PktOpts} = application:get_env(emqttd, mqtt_packet),
     MFArgs = {emqttd_client, start_link, [PktOpts]},
     esockd:open(Protocol, Port, emqttd_opts:merge(?MQTT_SOCKOPTS, Options) , MFArgs).
@@ -78,13 +83,114 @@ open(Protocol, Port, Options) ->
 %% @doc Close Listeners
 %% @end
 %%------------------------------------------------------------------------------
--spec close([listener()] | listener()) -> any().
-close(Listeners) when is_list(Listeners) ->
-    [close(Listener) || Listener <- Listeners];
+-spec close_listeners([listener()]) -> any().
+close_listeners(Listeners) when is_list(Listeners) ->
+    [close_listener(Listener) || Listener <- Listeners].
 
-close({Protocol, Port, _Options}) ->
+close_listener({Protocol, Port, _Options}) ->
     esockd:close({Protocol, Port}).
 
+%%------------------------------------------------------------------------------
+%% @doc Load all plugins
+%% @end
+%%------------------------------------------------------------------------------
+-spec load_all_plugins() -> [{App :: atom(), ok | {error, any()}}].
+load_all_plugins() ->
+    %% save first
+    {ok, [PluginApps]} = file:consult("etc/plugins.config"),
+    application:set_env(emqttd, plugins, [App || {App, _Env} <- PluginApps]),
+    [{App, load_plugin(App)} || {App, _Env} <- PluginApps].
+
+%%------------------------------------------------------------------------------
+%% @doc Load plugin
+%% @end
+%%------------------------------------------------------------------------------
+-spec load_plugin(App :: atom()) -> ok | {error, any()}.
+load_plugin(App) ->
+    case load_app(App) of
+        ok ->
+            start_app(App);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+load_app(App) ->
+    case application:load(App) of
+        ok ->
+            lager:info("load plugin ~p successfully", [App]), ok;
+        {error, {already_loaded, App}} ->
+            lager:info("load plugin ~p is already loaded", [App]), ok;
+        {error, Reason} ->
+            lager:error("load plugin ~p error: ~p", [App, Reason]), {error, Reason}
+    end.
+
+start_app(App) ->
+    case application:start(App) of
+        ok ->
+            lager:info("start plugin ~p successfully", [App]), ok;
+        {error, {already_started, App}} ->
+            lager:error("plugin ~p is already started", [App]), ok;
+        {error, Reason} ->
+            lager:error("start plugin ~p error: ~p", [App, Reason]), {error, Reason}
+    end.
+
+%%------------------------------------------------------------------------------
+%% @doc Loaded plugins
+%% @end
+%%------------------------------------------------------------------------------
+loaded_plugins() ->
+    PluginApps = application:get_env(emqttd, plugins, []),
+    [App || App = {Name, _Descr, _Vsn} <- application:which_applications(),
+                                            lists:member(Name, PluginApps)].
+    
+%%------------------------------------------------------------------------------
+%% @doc Unload all plugins
+%% @end
+%%------------------------------------------------------------------------------
+-spec unload_all_plugins() -> [{App :: atom(), ok | {error, any()}}].
+unload_all_plugins() ->
+    PluginApps = application:get_env(emqttd, plugins, []),
+    [{App, unload_plugin(App)} || {App, _Env} <- PluginApps].
+
+
+%%------------------------------------------------------------------------------
+%% @doc Unload plugin
+%% @end
+%%------------------------------------------------------------------------------
+-spec unload_plugin(App :: atom()) -> ok | {error, any()}.
+unload_plugin(App) ->
+    case stop_app(App) of
+        ok ->
+            unload_app(App);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+    
+stop_app(App) ->
+    case application:stop(App) of
+        ok ->
+            lager:info("stop plugin ~p successfully~n", [App]), ok;
+        {error, {not_started, App}} ->
+            lager:error("plugin ~p is not started~n", [App]), ok;
+        {error, Reason} ->
+            lager:error("stop plugin ~p error: ~p", [App]), {error, Reason}
+    end.
+
+unload_app(App) ->
+    case application:unload(App) of
+        ok ->
+            lager:info("unload plugin ~p successfully~n", [App]), ok;
+        {error, {not_loaded, App}} ->
+            lager:info("load plugin ~p is not loaded~n", [App]), ok;
+        {error, Reason} ->
+            lager:error("unload plugin ~p error: ~p", [App, Reason]), {error, Reason}
+    end.
+
+
+%%------------------------------------------------------------------------------
+%% @doc Is running?
+%% @end
+%%------------------------------------------------------------------------------
 is_running(Node) ->
     case rpc:call(Node, erlang, whereis, [emqttd]) of
         {badrpc, _}          -> false;

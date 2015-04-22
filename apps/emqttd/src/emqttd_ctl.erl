@@ -155,17 +155,17 @@ bridges(["stop", SNode, Topic]) ->
     end.
 
 plugins(["list"]) ->
-    Plugins = emqttd_plugin_manager:loaded_plugins(),
+    Plugins = emqttd:loaded_plugins(),
     lists:foreach(fun(Plugin) -> ?PRINT("~p~n", [Plugin]) end, Plugins);
 
 plugins(["load", Name]) ->
-    case emqttd_plugin_manager:load_plugin(list_to_atom(Name)) of
+    case emqttd:load_plugin(list_to_atom(Name)) of
         ok -> ?PRINT("plugin ~s is loaded successfully.~n", [Name]);
         {error, Reason} -> ?PRINT("error: ~s~n", [Reason])
     end;
 
 plugins(["unload", Name]) ->
-    case emqttd_plugin_manager:unload_plugin(list_to_atom(Name)) of
+    case emqttd:unload_plugin(list_to_atom(Name)) of
         ok -> ?PRINT("plugin ~s is unloaded successfully.~n", [Name]);
         {error, Reason} -> ?PRINT("error: ~s~n", [Reason])
     end.
