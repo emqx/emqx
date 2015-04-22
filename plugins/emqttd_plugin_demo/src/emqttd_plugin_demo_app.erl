@@ -10,7 +10,10 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    emqttd_plugin_demo_sup:start_link().
+    {ok, Sup} = emqttd_plugin_demo_sup:start_link(),
+    emqttd_access_control:register_mod(auth, emqttd_plugin_demo_auth, []),
+    emqttd_access_control:register_mod(acl, emqttd_plugin_demo_acl, []),
+    {ok, Sup}.
 
 stop(_State) ->
     ok.

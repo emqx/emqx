@@ -1,7 +1,7 @@
 {application, emqttd_plugin_demo,
  [
-  {description, ""},
-  {vsn, "1"},
+  {description, "emqttd demo plugin"},
+  {vsn, "0.1"},
   {registered, []},
   {applications, [
                   kernel,

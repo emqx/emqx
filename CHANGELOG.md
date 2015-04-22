@@ -2,6 +2,16 @@
 emqttd ChangeLog
 ==================
 
+0.7.0-alpha (2015-04-20)
+-------------------------
+
+OK Trace API
+
+Plugin Load/Unload
+
+WebSocket
+
+
 0.6.1-alpha (2015-04-20)
 -------------------------
 
