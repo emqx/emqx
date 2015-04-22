@@ -27,4 +27,7 @@ edoc:
 	@$(REBAR) doc
 
 dist:
+	#TODO write new Makefile
 	cd rel && ../rebar generate -f
+	cp -R plugins/emqttd_plugin_demo rel/emqttd/plugins/ && rm -rf rel/emqttd/plugins/emqttd_plugin_demo/src
+

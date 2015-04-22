@@ -1,11 +1,3 @@
-0.5.5
--------------------------
-
-static, dynmaic, bridge types of topic and trie node
-
-try_to_remove topic node
-
-
 v0.6.0-alpha (2015-03-20)
 -------------------------
 
@@ -57,15 +49,6 @@ full test cases...
 spawn_link to replace 'spawn' and 'link'
 
 =======
-## ACL
-
-## Authentication with clientId
-
-## SSL/TLS Socket
-
-## $SYS/topics and Broker statistics...
-
-## Cluster 
 
 ## Bridge
 
@@ -75,4 +58,3 @@ spawn_link to replace 'spawn' and 'link'
 
 ## Mnesia 
 
-Create Schema...
