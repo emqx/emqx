@@ -103,7 +103,13 @@ start_link(Id, Opts) ->
 %%------------------------------------------------------------------------------
 -spec create(Topic :: binary()) -> ok | {error, Error :: any()}.
 create(Topic) when is_binary(Topic) ->
-    call({create, Topic}).
+    TopicR = #mqtt_topic{topic = Topic, node = node()},
+    case mnesia:transaction(fun add_topic/1, [TopicR]) of
+        {atomic, ok} ->
+            setstats(topics), ok;
+        {aborted, Error} ->
+            {error, Error}
+    end.
 
 %%------------------------------------------------------------------------------
 %% @doc Subscribe topic
@@ -192,16 +198,6 @@ init([Id, _Opts]) ->
     process_flag(min_heap_size, 1024*1024),
     gproc_pool:connect_worker(pubsub, {?MODULE, Id}),
     {ok, #state{id = Id, submap = maps:new()}}.
-
-handle_call({create, Topic}, _From, State) ->
-    TopicR = #mqtt_topic{topic = Topic, node = node()},
-    Reply = 
-    case mnesia:transaction(fun add_topic/1, [TopicR]) of
-        {atomic, ok} -> ok;
-        {aborted, Error} -> {error, Error}
-    end,
-    setstats(topics), 
-    {reply, Reply, State};
 
 handle_call({subscribe, SubPid, Topics}, _From, State) ->
     TopicSubs = lists:map(fun({Topic, Qos}) ->

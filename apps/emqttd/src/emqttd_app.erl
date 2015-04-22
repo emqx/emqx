@@ -52,6 +52,7 @@ start(_StartType, _StartArgs) ->
     {ok, Sup} = emqttd_sup:start_link(),
 	start_servers(Sup),
 	{ok, Listeners} = application:get_env(listeners),
+    emqttd_plugin_manager:load_all_plugins(),
     emqttd:open(Listeners),
 	register(emqttd, self()),
     print_vsn(),
@@ -137,5 +138,6 @@ worker_spec(Name, Opts) ->
 stop(_State) ->
 	{ok, Listeners} = application:get_env(listeners),
     emqttd:close(Listeners),
+    emqttd_plugin_manager:unload_all_plugins(),
     ok.
 
