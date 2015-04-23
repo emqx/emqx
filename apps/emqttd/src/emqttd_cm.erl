@@ -109,11 +109,6 @@ handle_call({register, ClientId, Pid}, _From, State = #state{tab = Tab}) ->
             ignore;
 		[{_, OldPid, MRef}] ->
 			lager:error("clientId '~s' is duplicated: pid=~p, oldpid=~p", [ClientId, Pid, OldPid]),
-            %%TODO: tell session old client is down here?
-            case emqttd_sm:lookup_session(ClientId) of
-                undefined -> ok;
-                SessPid -> emqttd_session:client_down(SessPid, {OldPid, duplicate_id})
-            end,
 			OldPid ! {stop, duplicate_id, Pid},
 			erlang:demonitor(MRef),
             ets:insert(Tab, {ClientId, Pid, erlang:monitor(process, Pid)});
