@@ -20,35 +20,43 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd session supervisor.
+%%% emqttd client manager supervisor.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_session_sup).
+-module(emqttd_cm_sup).
 
 -author('feng@emqtt.io').
 
--behavior(supervisor).
+-include("emqttd.hrl").
 
--export([start_link/1, start_session/2]).
+-behaviour(supervisor).
 
+%% API
+-export([start_link/0, table/0]).
+
+%% Supervisor callbacks
 -export([init/1]).
 
-%TODO: FIX COMMENTS...
+-define(CLIENT_TAB, mqtt_client).
 
--spec start_link([tuple()]) -> {ok, pid()}.
-start_link(SessOpts) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [SessOpts]).
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
--spec start_session(binary(), pid()) -> {ok, pid()}.
-start_session(ClientId, ClientPid) ->
-    supervisor:start_child(?MODULE, [ClientId, ClientPid]).
+table() -> ?CLIENT_TAB.
 
-%%%=============================================================================
-%%% Supervisor callbacks
-%%%=============================================================================
-init([SessOpts]) ->
-    {ok, {{simple_one_for_one, 10, 10},
-          [{session, {emqttd_session, start_link, [SessOpts]},
-              transient, 10000, worker, [emqttd_session]}]}}.
+init([]) ->
+    TabId = ets:new(?CLIENT_TAB, [set, named_table, public,
+                                  {write_concurrency, true}]),
+    Schedulers = erlang:system_info(schedulers),
+    gproc_pool:new(cm, hash, [{size, Schedulers}]),
+    Children = lists:map(
+                 fun(I) ->
+                    Name = {emqttd_cm, I},
+                    gproc_pool:add_worker(cm, Name, I),
+                    {Name, {emqttd_cm, start_link, [I, TabId]},
+                        permanent, 10000, worker, [emqttd_cm]}
+                 end, lists:seq(1, Schedulers)),
+    {ok, {{one_for_all, 10, 100}, Children}}.
+
 

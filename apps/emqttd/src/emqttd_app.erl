@@ -75,7 +75,7 @@ start_servers(Sup) ->
             {"emqttd config", emqttd_config},
             {"emqttd event", emqttd_event},
             {"emqttd pooler", {supervisor, emqttd_pooler_sup}},
-            {"emqttd client manager", emqttd_cm},
+            {"emqttd client manager", {supervisor, emqttd_cm_sup}},
             {"emqttd session manager", emqttd_sm},
             {"emqttd session supervisor", {supervisor, emqttd_session_sup}, SessOpts},
             {"emqttd pubsub", {supervisor, emqttd_pubsub_sup}, PubSubOpts},
