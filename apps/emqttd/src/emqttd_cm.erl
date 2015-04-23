@@ -110,7 +110,7 @@ handle_call({register, ClientId, Pid}, _From, State = #state{tab = Tab}) ->
 		[{_, OldPid, MRef}] ->
 			lager:error("clientId '~s' is duplicated: pid=~p, oldpid=~p", [ClientId, Pid, OldPid]),
             %%TODO: tell session old client is down here?
-            case emqttd_session:lookup(ClientId) of
+            case emqttd_sm:lookup_session(ClientId) of
                 undefined -> ok;
                 SessPid -> emqttd_session:client_down(SessPid, {OldPid, duplicate_id})
             end,
