@@ -5,11 +5,17 @@ emqttd is a massively scalable and clusterable MQTT V3.1/V3.1.1 broker written i
 
 emqttd requires Erlang R17+ to build.
 
-TODO: architecture diagraph.
-
 ## Goals
 
 emqttd aims to provide a solid, carrier-class MQTT broker that could support millions concurrent connections.
+
+## Architecture
+
+TODO: architecture diagraph.
+
+![Error Png](http://nextalk.im/static/img/design/WebimForPHP5.png)
+
+TODO: architecture diagraph.
 
 ## Featues
 
