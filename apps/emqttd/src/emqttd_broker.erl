@@ -96,59 +96,6 @@ datetime() ->
         io_lib:format(
             "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S])).
 
-%%------------------------------------------------------------------------------
-%% @doc Generate stats fun
-%% @end
-%%------------------------------------------------------------------------------
--spec statsfun(Stat :: atom()) -> fun().
-statsfun(Stat) ->
-    fun(Val) -> setstat(Stat, Val) end.
-    
--spec statsfun(Stat :: atom(), MaxStat :: atom()) -> fun().
-statsfun(Stat, MaxStat) -> 
-    fun(Val) -> setstats(Stat, MaxStat, Val) end.
-
-%%------------------------------------------------------------------------------
-%% @doc Get broker statistics
-%% @end
-%%------------------------------------------------------------------------------
--spec getstats() -> [{atom(), non_neg_integer()}].
-getstats() ->
-    ets:tab2list(?BROKER_TAB).
-
-%%------------------------------------------------------------------------------
-%% @doc Get stats by name
-%% @end
-%%------------------------------------------------------------------------------
--spec getstat(atom()) -> non_neg_integer() | undefined.
-getstat(Name) ->
-    case ets:lookup(?BROKER_TAB, Name) of
-        [{Name, Val}] -> Val;
-        [] -> undefined
-    end.
-
-%%------------------------------------------------------------------------------
-%% @doc Set broker stats
-%% @end
-%%------------------------------------------------------------------------------
--spec setstat(Stat :: atom(), Val :: pos_integer()) -> boolean().
-setstat(Stat, Val) ->
-    ets:update_element(?BROKER_TAB, Stat, {2, Val}).
-
-%%------------------------------------------------------------------------------
-%% @doc Set stats with max
-%% @end
-%%------------------------------------------------------------------------------
--spec setstats(Stat :: atom(), MaxStat :: atom(), Val :: pos_integer()) -> boolean().
-setstats(Stat, MaxStat, Val) ->
-    MaxVal = ets:lookup_element(?BROKER_TAB, MaxStat, 2),
-    if
-        Val > MaxVal -> 
-            ets:update_element(?BROKER_TAB, MaxStat, {2, Val});
-        true -> ok
-    end,
-    ets:update_element(?BROKER_TAB, Stat, {2, Val}).
-
 %%%=============================================================================
 %%% gen_server callbacks
 %%%=============================================================================
@@ -156,11 +103,9 @@ setstats(Stat, MaxStat, Val) ->
 init([Options]) ->
     random:seed(now()),
     ets:new(?BROKER_TAB, [set, public, named_table, {write_concurrency, true}]),
-    Topics = ?SYSTOP_CLIENTS ++ ?SYSTOP_SESSIONS ++ ?SYSTOP_PUBSUB,
     [ets:insert(?BROKER_TAB, {Topic, 0}) || Topic <- Topics],
     % Create $SYS Topics
     [ok = create(systop(Topic)) || Topic <- ?SYSTOP_BROKERS],
-    [ok = create(systop(Topic)) || Topic <- Topics],
     SysInterval = proplists:get_value(sys_interval, Options, 60),
     State = #state{started_at = os:timestamp(), sys_interval = SysInterval},
     Delay = if 

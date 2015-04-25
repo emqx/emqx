@@ -83,6 +83,7 @@ start_servers(Sup) ->
             {"emqttd pubsub", {supervisor, emqttd_pubsub_sup}, PubSubOpts},
             %{"emqttd router", emqttd_router},
             {"emqttd broker", emqttd_broker, BrokerOpts},
+            {"emqttd stats", emqttd_stats},
             {"emqttd metrics", emqttd_metrics, MetricOpts},
             {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}},
             {"emqttd access control", emqttd_access_control, AccessOpts},
