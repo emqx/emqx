@@ -7,6 +7,10 @@ emqttd requires Erlang R17+ to build.
 
 TODO: architecture diagraph.
 
+## Goals
+
+emqttd aims to provide a solid, carrier-class MQTT broker that could support millions concurrent connections.
+
 ## Featues
 
 * Full MQTT V3.1/V3.1.1 protocol specification support
@@ -37,144 +41,35 @@ Benchmark 0.6.1-alpha on a ubuntu/14.04 server with 8 cores, 32G memory from Qin
 
 200K+ Connections, 200K+ Topics, 20K+ In/Out Messages/sec, 20Mbps+ In/Out with 8G Memory, 50%CPU/core
 
-
 ## Sponsors
 
-...TODO...
+...Sponse us...
 
+## The MIT License
 
-## Startup in Five Minutes
+Copyright (c) 2012-2015, Feng Lee <feng@emqtt.io> 
 
-```
-$ git clone git://github.com/emqtt/emqttd.git
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-$ cd emqttd
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-$ make && make dist
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
-$ cd rel/emqttd
+## Author and Contributors
 
-$ ./bin/emqttd console
-```
-
-## Deploy and Start
-
-### start
-
-```
-cp -R rel/emqttd $INSTALL_DIR
-
-cd $INSTALL_DIR/emqttd
-
-./bin/emqttd start
-
-```
-
-### stop
-
-```
-./bin/emqttd stop
-
-```
-
-## Configuration
-
-### etc/app.config
-
-```
- {emqttd, [
-    {auth, {anonymous, []}}, %internal, anonymous
-    {listen, [
-        {mqtt, 1883, [
-            {acceptors, 4},
-            {max_clients, 1024}
-        ]},
-        {mqtts, 8883, [
-            {acceptors, 4},
-            {max_clients, 1024},
-            %{cacertfile, "etc/ssl/cacert.pem"}, 
-            {ssl, [{certfile, "etc/ssl.crt"},
-                   {keyfile,  "etc/ssl.key"}]}
-        ]},
-        {http, 8083, [
-            {acceptors, 1},
-            {max_clients, 512}
-        ]}
-    ]}
- ]}
-
-```
-
-### etc/vm.args
-
-```
-
--name emqttd@127.0.0.1
-
--setcookie emqtt
-
-```
-
-When nodes clustered, vm.args should be configured as below:
-
-```
--name emqttd@host1
-```
-
-## Cluster
-
-Suppose we cluster two nodes on 'host1', 'host2', Steps:
-
-on 'host1':
-
-```
-./bin/emqttd start
-```
-
-on 'host2':
-
-```
-./bin/emqttd start
-
-./bin/emqttd_ctl cluster emqttd@host1
-```
-
-Run './bin/emqttd_ctl cluster' on 'host1' or 'host2' to check cluster nodes.
-
-## HTTP API
-
-emqttd support http to publish message.
-
-Example:
-
-```
-curl -v --basic -u user:passwd -d "qos=1&retain=0&topic=a/b/c&message=hello from http..." -k http://localhost:8083/mqtt/publish
-```
-
-### URL
-
-```
-HTTP POST http://host:8083/mqtt/publish
-```
-
-### Parameters
-
-Name    |  Description
---------|---------------
-qos     |  QoS(0, 1, 2)
-retain  |  Retain(0, 1)
-topic   |  Topic
-message |  Message
-
-## License
-
-The MIT License (MIT)
-
-## Author
-
-feng at emqtt.io
-
-## Thanks
+feng@emqtt.io
 
 @hejin1026 (260495915 at qq.com)
 
