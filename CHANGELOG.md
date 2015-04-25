@@ -7,7 +7,7 @@ emqttd ChangeLog
 
 OK Trace API
 
-Plugin Load/Unload
+OK Plugin Load/Unload
 
 WebSocket
 
