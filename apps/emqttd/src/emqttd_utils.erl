@@ -29,7 +29,8 @@
 -author("Feng Lee <feng@emqtt.io>").
 
 -export([apply_module_attributes/1,
-         all_module_attributes/1]).
+         all_module_attributes/1,
+         cancel_timer/1]).
 
 %% only {F, Args}...
 apply_module_attributes(Name) ->
@@ -78,3 +79,8 @@ ignore_lib_apps(Apps) ->
                hipe, esockd, mochiweb],
     [App || App = {Name, _, _} <- Apps, not lists:member(Name, LibApps)].
 
+
+cancel_timer(undefined) -> 
+	undefined;
+cancel_timer(Ref) -> 
+	catch erlang:cancel_timer(Ref).

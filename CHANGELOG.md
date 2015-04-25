@@ -14,6 +14,16 @@ WebSocket
 Presence Management....
 
 
+0.6.2-alpha (2015-04-24)
+-------------------------
+
+Bugfix: critical issue #54, #104, #106 - error when resume session 
+
+Improve: add emqttd_cm_sup module, and use 'hash' gproc_pool to register/unregister client ids
+
+Improve: kick old client out when session is duplicated.
+
+Improve: move mnesia dir config from etc/app.config to etc/vm.args
 
 
 0.6.1-alpha (2015-04-20)

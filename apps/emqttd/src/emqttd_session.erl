@@ -243,6 +243,10 @@ initial_state(ClientId, ClientPid) ->
     State = initial_state(ClientId),
     State#session_state{client_pid = ClientPid}.
 
+%%------------------------------------------------------------------------------
+%% @doc Start a session process.
+%% @end
+%%------------------------------------------------------------------------------
 start_link(SessOpts, ClientId, ClientPid) ->
     gen_server:start_link(?MODULE, [SessOpts, ClientId, ClientPid], []).
 
@@ -270,18 +274,33 @@ handle_call({unsubscribe, Topics}, _From, State) ->
     {reply, ok, NewState};
 
 handle_call(Req, _From, State) ->
-    {stop, {badreq, Req}, State}.
+    lager:error("Unexpected request: ~p", [Req]),
+    {reply, error, State}.
 
 handle_cast({resume, ClientId, ClientPid}, State = #session_state{
                                                       clientid      = ClientId,
-                                                      client_pid    = undefined,
+                                                      client_pid    = OldClientPid,
                                                       msg_queue     = Queue,
                                                       awaiting_ack  = AwaitingAck,
                                                       awaiting_comp = AwaitingComp,
                                                       expire_timer  = ETimer}) ->
+
     lager:info([{client, ClientId}], "Session ~s resumed by ~p",[ClientId, ClientPid]),
-    %cancel timeout timer
-    erlang:cancel_timer(ETimer),
+
+    %% kick old client...
+    if
+        OldClientPid =:= undefined ->
+            ok;
+        OldClientPid =:= ClientPid ->
+            ok;
+        true ->
+			lager:error("Session '~s' is duplicated: pid=~p, oldpid=~p", [ClientId, ClientPid, OldClientPid]),
+            unlink(OldClientPid),
+			OldClientPid ! {stop, duplicate_id, ClientPid}
+    end,
+
+    %% cancel timeout timer
+    emqttd_utils:cancel_timer(ETimer),
 
     %% redelivery PUBREL
     lists:foreach(fun(PacketId) ->
@@ -328,7 +347,8 @@ handle_cast({destroy, ClientId}, State = #session_state{clientid = ClientId}) ->
     {stop, normal, State};
 
 handle_cast(Msg, State) ->
-    {stop, {badmsg, Msg}, State}.
+    lager:critical("Unexpected Msg: ~p, State: ~p", [Msg, State]), 
+    {noreply, State}.
 
 handle_info({dispatch, {_From, Messages}}, State) when is_list(Messages) ->
     F = fun(Message, S) -> dispatch(Message, S) end,
@@ -338,18 +358,21 @@ handle_info({dispatch, {_From, Message}}, State) ->
     {noreply, dispatch(Message, State)};
 
 handle_info({'EXIT', ClientPid, Reason}, State = #session_state{clientid = ClientId,
-                                                                client_pid = ClientPid,
-                                                                expires = Expires}) ->
-    lager:warning("Session: client ~s@~p exited, caused by ~p", [ClientId, ClientPid, Reason]),
-    Timer = erlang:send_after(Expires * 1000, self(), session_expired),
-    {noreply, State#session_state{client_pid = undefined, expire_timer = Timer}};
+                                                                client_pid = ClientPid}) ->
+    lager:error("Session: client ~s@~p exited, caused by ~p", [ClientId, ClientPid, Reason]),
+    {noreply, start_expire_timer(State#session_state{client_pid = undefined})};
+
+handle_info({'EXIT', ClientPid0, _Reason}, State = #session_state{client_pid = ClientPid}) ->
+    lager:error("Unexpected Client EXIT: pid=~p, pid(state): ~p", [ClientPid0, ClientPid]),
+    {noreply, State};
 
 handle_info(session_expired, State = #session_state{clientid = ClientId}) ->
     lager:warning("Session ~s expired!", [ClientId]),
     {stop, {shutdown, expired}, State};
 
 handle_info(Info, State) ->
-    {stop, {badinfo, Info}, State}.
+    lager:critical("Unexpected Info: ~p, State: ~p", [Info, State]),
+    {noreply, State}.
 
 terminate(_Reason, _State) ->
     ok.
@@ -384,4 +407,9 @@ next_msg_id(State = #session_state{message_id = 16#ffff}) ->
 next_msg_id(State = #session_state{message_id = MsgId}) ->
     State#session_state{message_id = MsgId + 1}.
 
+start_expire_timer(State = #session_state{expires = Expires,
+                                          expire_timer = OldTimer}) ->
+    emqttd_utils:cancel_timer(OldTimer),
+    Timer = erlang:send_after(Expires * 1000, self(), session_expired),
+    State#session_state{expire_timer = Timer}.
 

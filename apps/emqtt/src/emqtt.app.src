@@ -1,7 +1,7 @@
 {application, emqtt,
  [
-  {description, "Erlang Common MQTT Library"},
-  {vsn, "0.6.1"},
+  {description, "Erlang MQTT Common Library"},
+  {vsn, "0.7.0"},
   {modules, []},
   {registered, []},
   {applications, [
