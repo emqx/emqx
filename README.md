@@ -53,11 +53,3 @@ The MIT License (MIT)
 
 Feng Lee <feng@emqtt.io>
 
-## Contributors
-
-@hejin1026 <260495915 at qq.com>
-
-@desoulter <assoulter123 at gmail.com>
-
-@turtleDeng
-
