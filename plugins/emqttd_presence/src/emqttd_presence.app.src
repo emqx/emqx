@@ -1,0 +1,12 @@
+{application, emqttd_presence,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { emqttd_presence_app, []}},
+  {env, []}
+ ]}.
