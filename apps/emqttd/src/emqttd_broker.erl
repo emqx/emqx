@@ -41,11 +41,6 @@
 
 -export([version/0, uptime/0, datetime/0, sysdescr/0]).
 
-%% statistics API.
--export([statsfun/1, statsfun/2,
-         getstats/0, getstat/1,
-         setstat/2, setstats/3]).
-
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
