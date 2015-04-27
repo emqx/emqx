@@ -32,6 +32,8 @@
  
 -export([match/2, validate/1, triples/1, words/1, wildcard/1]).
 
+-export([systop/1]).
+
 %-type type()   :: static | dynamic.
 
 -type word()   :: '' | '+' | '#' | binary().
@@ -163,4 +165,15 @@ word(<<>>)    -> '';
 word(<<"+">>) -> '+';
 word(<<"#">>) -> '#';
 word(Bin)     -> Bin.
+
+%%------------------------------------------------------------------------------
+%% @doc '$SYS' Topic.
+%% @end
+%%------------------------------------------------------------------------------
+
+systop(Name) when is_atom(Name) ->
+    list_to_binary(lists:concat(["$SYS/brokers/", node(), "/", Name]));
+
+systop(Name) when is_binary(Name) ->
+    list_to_binary(["$SYS/brokers/", atom_to_list(node()), "/", Name]).
 

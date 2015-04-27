@@ -122,7 +122,7 @@ init([]) ->
     Topics = ?SYSTOP_CLIENTS ++ ?SYSTOP_SESSIONS ++ ?SYSTOP_PUBSUB,
     [ets:insert(?STATS_TAB, {Topic, 0}) || Topic <- Topics],
     % Create $SYS Topics
-    [ok = emqttd_pubsub:create(systop(Topic)) || Topic <- Topics],
+    [ok = emqttd_pubsub:create(emqtt_topic:systop(Topic)) || Topic <- Topics],
     SysInterval = proplists:get_value(sys_interval, Options, 60),
     {ok, #state{}}.
 
@@ -149,7 +149,4 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 %%% Internal functions
 %%%=============================================================================
-
-systop(Name) when is_atom(Name) ->
-    list_to_binary(lists:concat(["$SYS/brokers/", node(), "/", Name])).
 
