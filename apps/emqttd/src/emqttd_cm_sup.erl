@@ -26,7 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_cm_sup).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -49,12 +49,13 @@ init([]) ->
     TabId = ets:new(?CLIENT_TAB, [set, named_table, public,
                                   {write_concurrency, true}]),
     Schedulers = erlang:system_info(schedulers),
-    gproc_pool:new(cm, hash, [{size, Schedulers}]),
+    gproc_pool:new(cm_pool, hash, [{size, Schedulers}]),
+    StatsFun = emqttd_stats:statsfun('clients/count', 'clients/max'),
     Children = lists:map(
                  fun(I) ->
                     Name = {emqttd_cm, I},
-                    gproc_pool:add_worker(cm, Name, I),
-                    {Name, {emqttd_cm, start_link, [I, TabId]},
+                    gproc_pool:add_worker(cm_pool, Name, I),
+                    {Name, {emqttd_cm, start_link, [I, TabId, StatsFun]},
                         permanent, 10000, worker, [emqttd_cm]}
                  end, lists:seq(1, Schedulers)),
     {ok, {{one_for_all, 10, 100}, Children}}.

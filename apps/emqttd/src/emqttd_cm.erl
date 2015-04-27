@@ -33,7 +33,7 @@
 -define(SERVER, ?MODULE).
 
 %% API Exports 
--export([start_link/2]).
+-export([start_link/3]).
 
 -export([lookup/1, register/1, unregister/1]).
 
@@ -43,7 +43,7 @@
 
 -record(state, {tab, statsfun}).
 
--define(POOL, cm).
+-define(POOL, cm_pool).
 
 %%%=============================================================================
 %%% API
@@ -53,11 +53,12 @@
 %% @doc Start client manager
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link(Id, TabId) -> {ok, pid()} | ignore | {error, any()} when
+-spec start_link(Id, TabId, StatsFun) -> {ok, pid()} | ignore | {error, any()} when
         Id :: pos_integer(),
-        TabId :: ets:tid().
-start_link(Id, TabId) ->
-    gen_server:start_link(?MODULE, [Id, TabId], []).
+        TabId :: ets:tid(),
+        StatsFun :: fun().
+start_link(Id, TabId, StatsFun) ->
+    gen_server:start_link(?MODULE, [Id, TabId, StatsFun], []).
 
 %%------------------------------------------------------------------------------
 %% @doc Lookup client pid with clientId
@@ -92,9 +93,8 @@ unregister(ClientId) when is_binary(ClientId) ->
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([Id, TabId]) ->
+init([Id, TabId, StatsFun]) ->
     gproc_pool:connect_worker(?POOL, {?MODULE, Id}),
-    StatsFun = emqttd_stats:statsfun('clients/count', 'clients/max'),
     {ok, #state{tab = TabId, statsfun = StatsFun}}.
 
 handle_call({register, ClientId, Pid}, _From, State = #state{tab = Tab}) ->
@@ -110,7 +110,7 @@ handle_call({register, ClientId, Pid}, _From, State = #state{tab = Tab}) ->
 		[] -> 
             ets:insert(Tab, {ClientId, Pid, erlang:monitor(process, Pid)})
 	end,
-    {reply, ok, State};
+    {reply, ok, setstats(State)};
 
 handle_call(Req, _From, State) ->
     lager:error("unexpected request: ~p", [Req]),
@@ -150,5 +150,4 @@ code_change(_OldVsn, State, _Extra) ->
 
 setstats(State = #state{tab = TabId, statsfun = StatsFun}) ->
     StatsFun(ets:info(TabId, size)), State.
-
 
