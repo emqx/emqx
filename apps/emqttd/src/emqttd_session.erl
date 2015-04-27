@@ -247,17 +247,18 @@ initial_state(ClientId, ClientPid) ->
 %% @doc Start a session process.
 %% @end
 %%------------------------------------------------------------------------------
-start_link(SessOpts, ClientId, ClientPid) ->
-    gen_server:start_link(?MODULE, [SessOpts, ClientId, ClientPid], []).
+start_link(ClientId, ClientPid) ->
+    gen_server:start_link(?MODULE, [ClientId, ClientPid], []).
 
 %%%=============================================================================
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([SessOpts, ClientId, ClientPid]) ->
+init([ClientId, ClientPid]) ->
     process_flag(trap_exit, true),
-    %%TODO: Is this OK? should monitor...
+    %%TODO: Is this OK? or should monitor...
     true = link(ClientPid),
+    {ok, SessOpts} = application:get_env(mqtt_session),
     State = initial_state(ClientId, ClientPid),
     Expires = proplists:get_value(expires, SessOpts, 1) * 3600,
     MsgQueue = emqttd_queue:new(proplists:get_value(max_queue, SessOpts, 1000), 

@@ -20,61 +20,26 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd config manager.
+%%% emqttd tick.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_config).
+-module(emqttd_tick).
 
--author("Feng Lee <feng@emqtt.io>").
+-export([new/1, tick/1]).
 
--define(SERVER, ?MODULE).
+-record(tick_state, {interval, timer}).
 
--behaviour(gen_server).
+new(Interval) ->
+    Delay = if 
+                Interval == 0 -> 0;
+                true -> random:uniform(Interval)
+            end,
+    tick(Delay, #tick_state{interval = Interval}).
 
-%% API Function Exports
--export([start_link/0, lookup/1]).
+tick(Tick = #tick_state{interval = Interval}) ->
+    tick(Interval, Tick).
 
-%% gen_server Function Exports
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
-
-%%%=============================================================================
-%%% API
-%%%=============================================================================
-
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
-
-%%TODO: fix later...
-lookup(Key) -> {ok, Key}.
-
-%%%=============================================================================
-%%% gen_server callbacks
-%%%=============================================================================
-
-init(_Args) ->
-    %%TODO: Load application config.
-    ets:new(?MODULE, [set, protected, named_table]),
-    {ok, none}.
-
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
-
-handle_cast(_Msg, State) ->
-    {noreply, State}.
-
-handle_info(_Info, State) ->
-    {noreply, State}.
-
-terminate(_Reason, _State) ->
-    ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-%%%=============================================================================
-%%% Internal functions
-%%%=============================================================================
-
+tick(Delay, Tick) when is_record(Tick, tick_state) ->
+    Tick#tick_state{timer = erlang:send_after(Delay * 1000, self(), tick)}.
 

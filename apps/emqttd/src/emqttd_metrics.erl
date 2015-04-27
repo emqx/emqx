@@ -37,7 +37,7 @@
 -define(SERVER, ?MODULE).
 
 %% API Function Exports
--export([start_link/1]).
+-export([start_link/0]).
 
 -export([all/0, value/1,
          inc/1, inc/2, inc/3,
@@ -50,7 +50,7 @@
 
 -define(METRIC_TAB, mqtt_metric).
 
--record(state, {pub_interval, tick_timer}).
+-record(state, {tick}).
 
 %%%=============================================================================
 %%% API
@@ -60,9 +60,9 @@
 %% @doc Start metrics server
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link([tuple()]) -> {ok, pid()} | ignore | {error, term()}.
-start_link(Options) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [Options], []).
+-spec start_link() -> {ok, pid()} | ignore | {error, term()}.
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %%------------------------------------------------------------------------------
 %% @doc Get all metrics
@@ -155,8 +155,9 @@ key(counter, Metric) ->
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([Options]) ->
+init([]) ->
     random:seed(now()),
+    {ok, BrokerOpts} = application:get_env(mqtt_broker),
     Metrics = ?SYSTOP_BYTES ++ ?SYSTOP_PACKETS ++ ?SYSTOP_MESSAGES,
     % Create metrics table
     ets:new(?METRIC_TAB, [set, public, named_table, {write_concurrency, true}]),
@@ -164,12 +165,9 @@ init([Options]) ->
     [new_metric(Metric) ||  Metric <- Metrics],
     % $SYS Topics for metrics
     [ok = emqttd_pubsub:create(systop(Topic)) || {_, Topic} <- Metrics],
-    PubInterval = proplists:get_value(pub_interval, Options, 60),
-    Delay = if 
-                PubInterval == 0 -> 0;
-                true -> random:uniform(PubInterval)
-            end,
-    {ok, tick(Delay, #state{pub_interval = PubInterval}), hibernate}.
+    % Tick to publish stats
+    Tick = emqttd_tick:new(proplists:get_value(sys_interval, BrokerOpts, 60)),
+    {ok, #state{tick = Tick}, hibernate}.
 
 handle_call(_Req, _From, State) ->
     {reply, {error, badreq}, State}.
@@ -177,10 +175,10 @@ handle_call(_Req, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info(tick, State) ->
+handle_info(tick, State = #state{tick = Tick}) ->
     % publish metric message
-    [publish(systop(Metric), i2b(Val))|| {Metric, Val} <- all()],
-    {noreply, tick(State), hibernate};
+    [publish(Metric, Val) || {Metric, Val} <- all()],
+    {noreply, State#state{tick = emqttd_tick:tick(Tick)}, hibernate};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -195,12 +193,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%=============================================================================
 
-systop(Name) when is_atom(Name) ->
-    list_to_binary(lists:concat(["$SYS/brokers/", node(), "/", Name])).
-
-publish(Topic, Payload) ->
-    emqttd_pubsub:publish(metrics, #mqtt_message{topic = Topic,
-                                                 payload = Payload}).
+publish(Metric, Val) ->
+    emqttd_pubsub:publish(metrics, #mqtt_message{
+                                      topic = emqtt_topic:systop(Metric),
+                                      payload = emqttd_utils:integer_to_binary(Val)}).
 
 new_metric({gauge, Name}) ->
     ets:insert(?METRIC_TAB, {{Name, 0}, 0});
@@ -208,15 +204,4 @@ new_metric({gauge, Name}) ->
 new_metric({counter, Name}) ->
     Schedulers = lists:seq(1, erlang:system_info(schedulers)),
     [ets:insert(?METRIC_TAB, {{Name, I}, 0}) || I <- Schedulers].
-
-tick(State = #state{pub_interval = PubInterval}) ->
-    tick(PubInterval, State).
-
-tick(0, State) ->
-    State;
-tick(Delay, State) ->
-    State#state{tick_timer = erlang:send_after(Delay * 1000, self(), tick)}.
-
-i2b(I) ->
-    list_to_binary(integer_to_list(I)).
 

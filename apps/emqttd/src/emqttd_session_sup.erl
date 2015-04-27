@@ -30,16 +30,22 @@
 
 -behavior(supervisor).
 
--export([start_link/1, start_session/2]).
+-export([start_link/0, start_session/2]).
 
 -export([init/1]).
 
-%TODO: FIX COMMENTS...
+%%------------------------------------------------------------------------------
+%% @doc Start session supervisor
+%% @end
+%%------------------------------------------------------------------------------
+-spec start_link() -> {ok, pid()}.
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
--spec start_link([tuple()]) -> {ok, pid()}.
-start_link(SessOpts) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [SessOpts]).
-
+%%------------------------------------------------------------------------------
+%% @doc Start a session
+%% @end
+%%------------------------------------------------------------------------------
 -spec start_session(binary(), pid()) -> {ok, pid()}.
 start_session(ClientId, ClientPid) ->
     supervisor:start_child(?MODULE, [ClientId, ClientPid]).
@@ -48,8 +54,8 @@ start_session(ClientId, ClientPid) ->
 %%% Supervisor callbacks
 %%%=============================================================================
 
-init([SessOpts]) ->
+init([]) ->
     {ok, {{simple_one_for_one, 10, 10},
-          [{session, {emqttd_session, start_link, [SessOpts]},
+          [{session, {emqttd_session, start_link, []},
               transient, 10000, worker, [emqttd_session]}]}}.
 

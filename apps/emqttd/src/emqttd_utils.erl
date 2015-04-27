@@ -32,6 +32,8 @@
          all_module_attributes/1,
          cancel_timer/1]).
 
+-export([integer_to_binary/1]).
+
 %% only {F, Args}...
 apply_module_attributes(Name) ->
     [{Module, [apply(Module, F, Args) || {F, Args} <- Attrs]} || 
@@ -84,3 +86,8 @@ cancel_timer(undefined) ->
 	undefined;
 cancel_timer(Ref) -> 
 	catch erlang:cancel_timer(Ref).
+
+integer_to_binary(I) when is_integer(I) ->
+    list_to_binary(integer_to_list(I)).
+
+
