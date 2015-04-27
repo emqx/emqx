@@ -33,15 +33,16 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/1]).
+-export([start_link/0]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
-start_link(Opts) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [Opts]).
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-init([Opts]) ->
+init([]) ->
+    {ok, Opts} = application:get_env(mqtt_pubsub),
     Schedulers = erlang:system_info(schedulers),
     PoolSize = proplists:get_value(pool_size, Opts, Schedulers),
     gproc_pool:new(pubsub, hash, [{size, PoolSize}]),

@@ -35,7 +35,7 @@
 -define(SERVER, ?MODULE).
 
 %% API Function Exports
--export([start_link/1,
+-export([start_link/0,
          auth/2,       % authentication
          check_acl/3,  % acl check
          reload_acl/0, % reload acl
@@ -58,9 +58,9 @@
 %% @doc Start access control server
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link(AcOpts :: list()) -> {ok, pid()} | ignore | {error, any()}.
-start_link(AcOpts) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [AcOpts], []).
+-spec start_link() -> {ok, pid()} | ignore | {error, any()}.
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %%------------------------------------------------------------------------------
 %% @doc Authenticate MQTT Client
@@ -151,7 +151,8 @@ stop() ->
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([AcOpts]) ->
+init([]) ->
+    {ok, AcOpts} = application:get_env(access_control),
 	ets:new(?ACCESS_CONTROL_TAB, [set, named_table, protected, {read_concurrency, true}]),
     ets:insert(?ACCESS_CONTROL_TAB, {auth_modules, init_mods(auth, proplists:get_value(auth, AcOpts))}),
     ets:insert(?ACCESS_CONTROL_TAB, {acl_modules, init_mods(acl, proplists:get_value(acl, AcOpts))}),

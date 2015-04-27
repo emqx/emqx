@@ -24,7 +24,7 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_utils).
+-module(emqttd_util).
 
 -author("Feng Lee <feng@emqtt.io>").
 

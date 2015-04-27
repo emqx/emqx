@@ -100,7 +100,7 @@ destroy_session(ClientId) ->
 init([]) ->
     process_flag(trap_exit, true),
     TabId = ets:new(?SESSION_TAB, [set, protected, named_table]),
-    StatsFun = emqttd_broker:statsfun('sessions/count', 'sessions/max'),
+    StatsFun = emqttd_stats:statsfun('sessions/count', 'sessions/max'),
     {ok, #state{tabid = TabId, statsfun = StatsFun}}.
 
 handle_call({start_session, ClientId, ClientPid}, _From, State = #state{tabid = Tab}) ->

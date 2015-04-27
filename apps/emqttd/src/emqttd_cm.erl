@@ -94,7 +94,7 @@ unregister(ClientId) when is_binary(ClientId) ->
 
 init([Id, TabId]) ->
     gproc_pool:connect_worker(?POOL, {?MODULE, Id}),
-    StatsFun = emqttd_broker:statsfun('clients/count', 'clients/max'),
+    StatsFun = emqttd_stats:statsfun('clients/count', 'clients/max'),
     {ok, #state{tab = TabId, statsfun = StatsFun}}.
 
 handle_call({register, ClientId, Pid}, _From, State = #state{tab = Tab}) ->

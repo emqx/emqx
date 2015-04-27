@@ -355,10 +355,10 @@ setstats(all) ->
     setstats(topics),
     setstats(subscribers);
 setstats(topics) ->
-    emqttd_broker:setstat('topics/count',
+    emqttd_stats:setstat('topics/count',
                           mnesia:table_info(topic, size));
 setstats(subscribers) ->
-    emqttd_broker:setstats('subscribers/count',
+    emqttd_stats:setstats('subscribers/count',
                            'subscribers/max',
                            mnesia:table_info(subscriber, size)).
 

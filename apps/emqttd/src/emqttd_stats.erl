@@ -49,7 +49,7 @@
 
 -define(STATS_TAB, mqtt_stats).
 
--record(state, {tick}).
+-record(state, {tick_tref}).
 
 %%%=============================================================================
 %%% API
@@ -122,15 +122,14 @@ setstats(Stat, MaxStat, Val) ->
 
 init([]) ->
     random:seed(now()),
-    {ok, Options} = application:get_env(mqtt_broker),
     ets:new(?STATS_TAB, [set, public, named_table, {write_concurrency, true}]),
     Topics = ?SYSTOP_CLIENTS ++ ?SYSTOP_SESSIONS ++ ?SYSTOP_PUBSUB,
     [ets:insert(?STATS_TAB, {Topic, 0}) || Topic <- Topics],
     % Create $SYS Topics
     [ok = emqttd_pubsub:create(emqtt_topic:systop(Topic)) || Topic <- Topics],
     % Tick to publish stats
-    Tick = emqttd_tick:new(proplists:get_value(sys_interval, Options, 60)),
-    {ok, #state{tick = Tick}, hibernate}.
+    {ok, TRef} = timer:send_interval(timer:seconds(emqttd_broker:env(sys_interval)), tick),
+    {ok, #state{tick_tref = TRef}, hibernate}.
 
 handle_call(_Request, _From, State) ->
     {reply, error, State}.
@@ -138,15 +137,15 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info(tick, State = #state{tick = Tick}) ->
+handle_info(tick, State) ->
     [publish(Stat, Val) || {Stat, Val} <- ets:tab2list(?STATS_TAB)],
-    {noreply, State#state{tick = emqttd_tick:tick(Tick)}, hibernate};
+    {noreply, State, hibernate};
 
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
-    ok.
+terminate(_Reason, #state{tick_tref = TRef}) ->
+    timer:cancel(TRef), ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -155,8 +154,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%=============================================================================
 publish(Stat, Val) ->
-    emqttd_pubsub:publish(stats, #mqtt_message{
-                                    topic   = emqtt_topic:systop(Stat),
-                                    payload = emqttd_utils:integer_to_binary(Val)}).
+    emqttd_pubsub:publish(stats, #mqtt_message{topic   = emqtt_topic:systop(Stat),
+                                               payload = emqttd_util:integer_to_binary(Val)}).
 
 

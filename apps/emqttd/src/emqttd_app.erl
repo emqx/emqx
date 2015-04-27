@@ -67,25 +67,20 @@ print_vsn() ->
 	?PRINT("~s ~s is running now~n", [Desc, Vsn]).
 
 start_servers(Sup) ->
-    {ok, PubSubOpts} = application:get_env(pubsub),
-    {ok, BrokerOpts} = application:get_env(broker),
-    {ok, MetricOpts} = application:get_env(metrics),
-    {ok, AccessOpts} = application:get_env(access_control),
-    Servers = [
-            {"emqttd event", emqttd_event},
-            {"emqttd trace", emqttd_trace},
-            {"emqttd pooler", {supervisor, emqttd_pooler_sup}},
-            {"emqttd client manager", {supervisor, emqttd_cm_sup}},
-            {"emqttd session manager", emqttd_sm},
-            {"emqttd session supervisor", {supervisor, emqttd_session_sup}},
-            {"emqttd pubsub", {supervisor, emqttd_pubsub_sup}, PubSubOpts},
-            %{"emqttd router", emqttd_router},
-            {"emqttd broker", emqttd_broker, BrokerOpts},
-            {"emqttd stats", emqttd_stats},
-            {"emqttd metrics", emqttd_metrics, MetricOpts},
-            {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}},
-            {"emqttd access control", emqttd_access_control, AccessOpts},
-            {"emqttd system monitor", emqttd_sysmon}],
+    Servers = [{"emqttd event", emqttd_event},
+               {"emqttd trace", emqttd_trace},
+               {"emqttd pooler", {supervisor, emqttd_pooler_sup}},
+               {"emqttd client manager", {supervisor, emqttd_cm_sup}},
+               {"emqttd session manager", emqttd_sm},
+               {"emqttd session supervisor", {supervisor, emqttd_session_sup}},
+               {"emqttd pubsub", {supervisor, emqttd_pubsub_sup}},
+               %{"emqttd router", emqttd_router},
+               {"emqttd broker", emqttd_broker},
+               {"emqttd stats", emqttd_stats},
+               {"emqttd metrics", emqttd_metrics},
+               {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}},
+               {"emqttd access control", emqttd_access_control},
+               {"emqttd system monitor", emqttd_sysmon}],
     [start_server(Sup, Server) || Server <- Servers].
 
 start_server(_Sup, {Name, F}) when is_function(F) ->

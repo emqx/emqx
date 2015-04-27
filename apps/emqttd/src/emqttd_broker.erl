@@ -37,9 +37,13 @@
 -define(SERVER, ?MODULE).
 
 %% API Function Exports
--export([start_link/1]).
+-export([start_link/0]).
 
--export([version/0, uptime/0, datetime/0, sysdescr/0]).
+%% Event API
+-export([subscribe/1, notify/2]).
+
+%% Broker API
+-export([env/1, version/0, uptime/0, datetime/0, sysdescr/0]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -47,7 +51,7 @@
 
 -define(BROKER_TAB, mqtt_broker).
 
--record(state, {started_at, sys_interval, tick_timer}).
+-record(state, {started_at, sys_interval, tick_tref}).
 
 %%%=============================================================================
 %%% API
@@ -57,9 +61,33 @@
 %% @doc Start emqttd broker
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link([tuple()]) -> {ok, pid()} | ignore | {error, term()}.
-start_link(Options) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [Options], []).
+-spec start_link() -> {ok, pid()} | ignore | {error, any()}.
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+%%------------------------------------------------------------------------------
+%% @doc Subscribe broker event
+%% @end
+%%------------------------------------------------------------------------------
+-spec subscribe(EventType :: any()) -> ok.
+subscribe(EventType) ->
+    gproc:reg({p, l, {broker, EventType}}).
+    
+%%------------------------------------------------------------------------------
+%% @doc Notify broker event
+%% @end
+%%------------------------------------------------------------------------------
+-spec notify(EventType :: any(), Event :: any()) -> ok.
+notify(EventType, Event) ->
+     Key = {broker, EventType},
+     gproc:send({p, l, Key}, {self(), Key, Event}).
+
+%%------------------------------------------------------------------------------
+%% @doc Get broker env
+%% @end
+%%------------------------------------------------------------------------------
+env(Name) ->
+    proplists:get_value(Name, application:get_env(emqttd, mqtt_broker, [])).
 
 %%------------------------------------------------------------------------------
 %% @doc Get broker version
@@ -100,19 +128,16 @@ datetime() ->
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([Options]) ->
+init([]) ->
     random:seed(now()),
-    ets:new(?BROKER_TAB, [set, public, named_table, {write_concurrency, true}]),
-    [ets:insert(?BROKER_TAB, {Topic, 0}) || Topic <- Topics],
+    ets:new(?BROKER_TAB, [set, public, named_table]),
     % Create $SYS Topics
-    [ok = create(systop(Topic)) || Topic <- ?SYSTOP_BROKERS],
-    SysInterval = proplists:get_value(sys_interval, Options, 60),
-    State = #state{started_at = os:timestamp(), sys_interval = SysInterval},
-    Delay = if 
-                SysInterval == 0 -> 0;
-                true -> random:uniform(SysInterval)
-            end,
-    {ok, tick(Delay, State), hibernate}.
+    [ok = create_topic(Topic) || Topic <- ?SYSTOP_BROKERS],
+    % Tick
+    SysInterval = env(sys_interval),
+    {ok, TRef} = timer:send_interval(timer:seconds(SysInterval), tick),
+    State = #state{started_at = os:timestamp(), sys_interval = SysInterval, tick_tref = TRef},
+    {ok, State, hibernate}.
 
 handle_call(uptime, _From, State) ->
     {reply, uptime(State), State};
@@ -124,13 +149,11 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(tick, State) ->
-    retain(systop(version), list_to_binary(version())),
-    retain(systop(sysdescr), list_to_binary(sysdescr())),
-    publish(systop(uptime), list_to_binary(uptime(State))),
-    publish(systop(datetime), list_to_binary(datetime())),
-    [publish(systop(Stat), i2b(Val)) 
-        || {Stat, Val} <- ets:tab2list(?BROKER_TAB)],
-    {noreply, tick(State), hibernate};
+    retain(version, list_to_binary(version())),
+    retain(sysdescr, list_to_binary(sysdescr())),
+    publish(uptime, list_to_binary(uptime(State))),
+    publish(datetime, list_to_binary(datetime())),
+    {noreply, State, hibernate};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -145,20 +168,21 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%=============================================================================
 
-systop(Name) when is_atom(Name) ->
-    list_to_binary(lists:concat(["$SYS/brokers/", node(), "/", Name])).
-
-create(Topic) ->
-    emqttd_pubsub:create(Topic).
+create_topic(Topic) ->
+    emqttd_pubsub:create(emqtt_topic:systop(Topic)).
 
 retain(Topic, Payload) when is_binary(Payload) ->
-    emqttd_pubsub:publish(broker, #mqtt_message{retain = true,
-                                                topic = Topic,
-                                                payload = Payload}).
+    publish(#mqtt_message{retain = true,
+                          topic = emqtt_topic:systop(Topic),
+                          payload = Payload}).
 
 publish(Topic, Payload) when is_binary(Payload) ->
-    emqttd_pubsub:publish(broker, #mqtt_message{topic = Topic,
-                                                payload = Payload}).
+    publish( #mqtt_message{topic = emqtt_topic:systop(Topic),
+                           payload = Payload}).
+
+publish(Msg) ->
+    emqttd_pubsub:publish(broker, Msg).
+
 
 uptime(#state{started_at = Ts}) ->
     Secs = timer:now_diff(os:timestamp(), Ts) div 1000000,
@@ -178,15 +202,4 @@ uptime(hours, H) ->
     [uptime(days, H div 24), integer_to_list(H rem 24), " hours, "];
 uptime(days, D) ->
     [integer_to_list(D), " days,"].
-
-tick(State = #state{sys_interval = SysInterval}) ->
-    tick(SysInterval, State).
-
-tick(0, State) ->
-    State;
-tick(Delay, State) ->
-    State#state{tick_timer = erlang:send_after(Delay * 1000, self(), tick)}.
-
-i2b(I) when is_integer(I) ->
-    list_to_binary(integer_to_list(I)).
 

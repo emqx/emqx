@@ -46,7 +46,7 @@
 -export([store/2]).
 
 %% Start gen_server
--export([start_link/3]).
+-export([start_link/2]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -301,7 +301,7 @@ handle_cast({resume, ClientId, ClientPid}, State = #session_state{
     end,
 
     %% cancel timeout timer
-    emqttd_utils:cancel_timer(ETimer),
+    emqttd_util:cancel_timer(ETimer),
 
     %% redelivery PUBREL
     lists:foreach(fun(PacketId) ->
@@ -410,7 +410,7 @@ next_msg_id(State = #session_state{message_id = MsgId}) ->
 
 start_expire_timer(State = #session_state{expires = Expires,
                                           expire_timer = OldTimer}) ->
-    emqttd_utils:cancel_timer(OldTimer),
+    emqttd_util:cancel_timer(OldTimer),
     Timer = erlang:send_after(Expires * 1000, self(), session_expired),
     State#session_state{expire_timer = Timer}.
 
