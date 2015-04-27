@@ -75,7 +75,8 @@ handle(_Method, "/mqtt/wsocket", Req) ->
             Req:respond({400, [], <<"Bad Request">>})
     end;
 
-handle('GET', "/mqtt/" ++ File, Req) ->
+handle('GET', "/" ++ File, Req) ->
+    lager:info("GET File: ~s", [File]),
     mochiweb_request:serve_file(File, docroot(), Req);
 
 handle(_Method, _Path, Req) ->

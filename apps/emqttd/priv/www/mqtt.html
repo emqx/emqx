@@ -1,0 +1,63 @@
+<html>
+<head>
+      <title>MQTT over WebSocket</title>
+</head>
+<body>
+    <h1>MQTT Over WebSocket</h1>
+    <div id="connect">
+         <button id="btnConn">Connect</button>
+         &nbsp; State: <span id="connstate" style="font-weight:bold;"></span>
+    </div>
+    <script src="./mqttws31.js"></script>
+    <script>
+
+        var ws;
+        if (!window.WebSocket) {
+          alert("WebSocket not supported by this browser");
+        }
+        function $(id) {
+          return document.getElementById(id);
+        }
+
+        // Create a client instance
+        client = new Paho.MQTT.Client(location.hostname, Number(location.port), "/mqtt/wsocket", "clientId");
+
+        // set callback handlers
+        client.onConnectionLost = onConnectionLost;
+        client.onMessageArrived = onMessageArrived;
+
+        function go() {
+            // connect the client
+            client.connect({onSuccess:onConnect});
+        }
+
+        // called when the client connects
+        function onConnect() {
+              alert("connected"),
+              // Once a connection has been made, make a subscription and send a message.
+              console.log("onConnect");
+              client.subscribe("/World");
+              message = new Paho.MQTT.Message("Hello");
+              message.destinationName = "/World";
+              client.send(message); 
+        }
+
+        // called when the client loses its connection
+        function onConnectionLost(responseObject) {
+              if (responseObject.errorCode !== 0) {
+                  console.log("onConnectionLost:"+responseObject.errorMessage);
+              }
+        }
+
+        // called when a message arrives
+        function onMessageArrived(message) {
+              console.log("onMessageArrived:"+message.payloadString);
+        }
+
+        $('btnConn').onclick = function(event) {
+            go(); return false;
+        };
+
+   </script>
+</body>
+</html>
