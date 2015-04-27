@@ -20,7 +20,7 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd http handler.
+%%% emqttd http publish API and websocket client.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
@@ -37,35 +37,47 @@
 -export([handle/1]).
 
 handle(Req) ->
-	case authorized(Req) of
-	true ->
-		Path = Req:get(path),
-		Method = Req:get(method),
-		handle(Method, Path, Req);
-	false ->
-		Req:respond({401, [], <<"Fobbiden">>})
-	end.
+    handle(Req:get(method), Req:get(path), Req).
 
 handle('POST', "/mqtt/publish", Req) ->
     Params = mochiweb_request:parse_post(Req),
-	lager:info("HTTP Publish: ~p~n", [Params]),
-    Qos = int(get_value("qos", Params, "0")),
-    Retain = bool(get_value("retain", Params,  "0")),
-    Topic = list_to_binary(get_value("topic", Params)),
-    Message = list_to_binary(get_value("message", Params)),
-    case {validate(qos, Qos), validate(topic, Topic)} of
-        {true, true} ->
-            emqttd_pubsub:publish(http, #mqtt_message{qos     = Qos,
-                                                      retain  = Retain,
-                                                      topic   = Topic,
-                                                      payload = Message}),
-            Req:ok({"text/plan", <<"ok\n">>});
-       {false, _} ->
-            Req:respond({400, [], <<"Bad QoS">>});
-        {_, false} ->
-            Req:respond({400, [], <<"Bad Topic">>})
+    lager:info("HTTP Publish: ~p~n", [Params]),
+	case authorized(Req) of
+	true ->
+        Qos = int(get_value("qos", Params, "0")),
+        Retain = bool(get_value("retain", Params,  "0")),
+        Topic = list_to_binary(get_value("topic", Params)),
+        Message = list_to_binary(get_value("message", Params)),
+        case {validate(qos, Qos), validate(topic, Topic)} of
+            {true, true} ->
+                emqttd_pubsub:publish(http, #mqtt_message{qos     = Qos,
+                                                          retain  = Retain,
+                                                          topic   = Topic,
+                                                          payload = Message}),
+                Req:ok({"text/plan", <<"ok\n">>});
+           {false, _} ->
+                Req:respond({400, [], <<"Bad QoS">>});
+            {_, false} ->
+                Req:respond({400, [], <<"Bad Topic">>})
+        end;
+	false ->
+		Req:respond({401, [], <<"Fobbiden">>})
+	end;
+
+
+handle(_Method, "/mqtt/wsocket", Req) ->
+    lager:info("Websocket Headers: ~p~n", [Req:get(headers)]),
+    Up = Req:get_header_value("Upgrade"),
+    case Up =/= undefined andalso string:to_lower(Up) =:= "websocket" of
+        true ->
+            emqttd_websocket:init(Req);
+        false ->
+            Req:respond({400, [], <<"Bad Request">>})
     end;
-    
+
+handle('GET', "/mqtt/" ++ File, Req) ->
+    mochiweb_request:serve_file(File, docroot(), Req);
+
 handle(_Method, _Path, Req) ->
 	Req:not_found().
 
@@ -101,4 +113,8 @@ int(S) -> list_to_integer(S).
 bool("0") -> false;
 bool("1") -> true.
 
+docroot() ->
+    {file, Here} = code:is_loaded(?MODULE),
+    Dir = filename:dirname(filename:dirname(Here)),
+    filename:join([Dir, "priv", "www"]).
 

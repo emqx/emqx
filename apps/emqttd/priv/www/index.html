@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+  <title>MQTT Over Mochiweb websocket</title>
+</head>
+<body>
+<h1>MQTT Over Mochiweb websocket</h1>
+
+  <div id="connect">
+     <button id="btnConn">Connect</button>
+     &nbsp; State: <span id="connstate" style="font-weight:bold;"></span>
+  </div>
+    <br/><i>Protip: open your javascript error console, just in case..</i><br/>
+  <hr/>
+  <div id="connected">
+    <form id="sendForm">
+      <input id="phrase" type="text"/>
+      <input id="btnSend" class="button" type="submit" name="connect"
+         value="Send"/>
+    </form>
+  </div>
+  <hr/>
+  <div id="msgs"></div>
+
+  <script type="text/javascript">
+    var ws;
+    if (!window.WebSocket) {
+      alert("WebSocket not supported by this browser");
+    }
+    function $(id) {
+      return document.getElementById(id);
+    }
+    function go() {
+        ws = new WebSocket("ws://" + location.host + "/mqtt/wsocket");
+        ws.onopen = function () {
+          $('connstate').innerHTML = 'CONNECTED';
+        }
+        ws.onclose = function () {
+          $('connstate').innerHTML = 'CLOSED';
+        }
+        ws.onmessage = function (e) {
+          var p = document.createElement('pre');
+          p.appendChild(document.createTextNode(e.data));
+          $('msgs').appendChild(p);
+        }
+    }
+    $('sendForm').onsubmit = function (event) {
+      var p = $('phrase');
+      ws.send(p.value);
+      p.value='';
+      return false;
+    }
+    $('btnConn').onclick = function(event) {
+      go(); return false;
+    };
+  </script>
+  </body>
+</html>
+
