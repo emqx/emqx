@@ -34,7 +34,7 @@
 -include("emqttd.hrl").
 
 %% API
--export([init/2, clientid/1]).
+-export([init/3, clientid/1]).
 
 -export([received/2, send/2, redeliver/2, shutdown/2]).
 
@@ -42,9 +42,8 @@
 
 %% Protocol State
 -record(proto_state, {
-        transport,
-        socket,
         peername,
+        sendfun,
         connected = false, %received CONNECT action?
         proto_ver,
         proto_name,
@@ -59,12 +58,12 @@
 
 -type proto_state() :: #proto_state{}.
 
-init({Transport, Socket, Peername}, Opts) ->
+init(Peername, SendFun, Opts) ->
+    MaxLen = proplists:get_value(max_clientid_len, Opts, ?MAX_CLIENTID_LEN),
 	#proto_state{
-        transport        = Transport,
-		socket	         = Socket,
         peername         = Peername,
-        max_clientid_len = proplists:get_value(max_clientid_len, Opts, ?MAX_CLIENTID_LEN)}. 
+        sendfun          = SendFun,
+        max_clientid_len = MaxLen}. 
 
 clientid(#proto_state{clientid = ClientId}) -> ClientId.
 
@@ -231,22 +230,13 @@ send({_From, Message = #mqtt_message{qos = Qos}}, State = #proto_state{session =
     {Message1, NewSession} = emqttd_session:store(Session, Message),
 	send(emqtt_message:to_packet(Message1), State#proto_state{session = NewSession});
 
-send(Packet, State = #proto_state{transport = Transport, socket = Sock, peername = Peername}) when is_record(Packet, mqtt_packet) ->
+send(Packet, State = #proto_state{sendfun = SendFun, peername = Peername}) when is_record(Packet, mqtt_packet) ->
     trace(send, Packet, State),
     sent_stats(Packet),
     Data = emqtt_serialiser:serialise(Packet),
     lager:debug("SENT to ~s: ~p", [emqttd_net:format(Peername), Data]),
     emqttd_metrics:inc('bytes/sent', size(Data)),
-    if
-        is_function(Transport) -> 
-            io:format("Transport Fun: ~p~n", [Transport]),
-            try  
-                Transport(Data)
-            catch
-                _:Error -> io:format("Transport send error: ~p~n", [Error])
-            end;
-        true -> Transport:send(Sock, Data)
-    end,
+    SendFun(Data),
     {ok, State}.
 
 trace(recv, Packet, #proto_state{peername = Peername, clientid = ClientId}) ->

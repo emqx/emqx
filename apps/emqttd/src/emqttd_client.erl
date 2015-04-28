@@ -67,8 +67,9 @@ init([SockArgs = {Transport, Sock, _SockFun}, PacketOpts]) ->
     {ok, Peername} = emqttd_net:peername(Sock),
     {ok, ConnStr} = emqttd_net:connection_string(Sock, inbound),
     lager:info("Connect from ~s", [ConnStr]),
+    SendFun = fun(Data) -> Transport:send(NewSock, Data) end,
     ParserState = emqtt_parser:init(PacketOpts),
-    ProtoState = emqttd_protocol:init({Transport, NewSock, Peername}, PacketOpts),
+    ProtoState = emqttd_protocol:init(Peername, SendFun, PacketOpts),
     State = control_throttle(#state{transport    = Transport,
                                     socket       = NewSock,
                                     peername     = Peername,
@@ -200,7 +201,7 @@ process_received_bytes(Bytes, State = #state{packet_opts = PacketOpts,
             stop(Reason, State#state{proto_state = ProtoState1})
         end;
     {error, Error} ->
-        lager:error("MQTT detected framing error ~p for connection ~p~n", [ConnStr, Error]),
+        lager:error("MQTT detected framing error ~p for connection ~p", [Error, ConnStr]),
         stop({shutdown, Error}, State)
     end.
 

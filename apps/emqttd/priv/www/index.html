@@ -20,7 +20,7 @@
         }
 
         // Create a client instance
-        client = new Paho.MQTT.Client(location.hostname, Number(location.port), "/mqtt/wsocket", "clientId");
+        client = new Paho.MQTT.Client(location.hostname, Number(location.port), "/mqtt", "clientId");
 
         // set callback handlers
         client.onConnectionLost = onConnectionLost;
@@ -34,6 +34,7 @@
         // called when the client connects
         function onConnect() {
               alert("connected"),
+              $('connstate').innerHTML = 'CONNECTED';
               // Once a connection has been made, make a subscription and send a message.
               console.log("onConnect");
               client.subscribe("/World");

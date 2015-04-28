@@ -34,12 +34,15 @@
 
 -import(proplists, [get_value/2, get_value/3]).
 
--export([handle_req/1]).
+-export([handle_request/1]).
 
-handle_req(Req) ->
-    handle_req(Req:get(method), Req:get(path), Req).
+handle_request(Req) ->
+    handle_request(Req:get(method), Req:get(path), Req).
 
-handle_req('POST', "/mqtt/publish", Req) ->
+%%------------------------------------------------------------------------------
+%% HTTP Publish API
+%%------------------------------------------------------------------------------
+handle_request('POST', "/mqtt/publish", Req) ->
     Params = mochiweb_request:parse_post(Req),
     lager:info("HTTP Publish: ~p", [Params]),
 	case authorized(Req) of
@@ -64,21 +67,33 @@ handle_req('POST', "/mqtt/publish", Req) ->
 		Req:respond({401, [], <<"Fobbiden">>})
 	end;
 
-handle_req(_Method, "/mqtt/wsocket", Req) ->
+%%------------------------------------------------------------------------------
+%% MQTT Over WebSocket
+%%------------------------------------------------------------------------------
+handle_request('GET', "/mqtt", Req) ->
     lager:info("Websocket Connection from: ~s", [Req:get(peer)]),
-    Up = Req:get_header_value("Upgrade"),
-    case Up =/= undefined andalso string:to_lower(Up) =:= "websocket" of
-        true ->
-            emqttd_websocket:start_link(Req);
-        false ->
-            Req:respond({400, [], <<"Bad Request">>})
+    Upgrade = Req:get_header_value("Upgrade"),
+    Proto = Req:get_header_value("Sec-WebSocket-Protocol"),
+    case {is_websocket(Upgrade), Proto} of
+        {true, "mqtt" ++ _Vsn} ->
+            emqttd_ws_client:start_link(Req);
+        {false, _} ->
+            lager:error("Not WebSocket: Upgrade = ~s", [Upgrade]),
+            Req:respond({400, [], <<"Bad Request">>});
+        {_, Proto} ->
+            lager:error("WebSocket with error Protocol: ~s", [Proto]),
+            Req:respond({400, [], <<"Bad WebSocket Protocol">>})
     end;
 
-handle_req('GET', "/" ++ File, Req) ->
+%%------------------------------------------------------------------------------
+%% Get static files
+%%------------------------------------------------------------------------------
+handle_request('GET', "/" ++ File, Req) ->
     lager:info("HTTP GET File: ~s", [File]),
     mochiweb_request:serve_file(File, docroot(), Req);
 
-handle_req(_Method, _Path, Req) ->
+handle_request(Method, Path, Req) ->
+    lager:error("Unexpected HTTP Request: ~s ~s", [Method, Path]),
 	Req:not_found().
 
 %%------------------------------------------------------------------------------
@@ -112,6 +127,9 @@ int(S) -> list_to_integer(S).
 
 bool("0") -> false;
 bool("1") -> true.
+
+is_websocket(Upgrade) -> 
+    Upgrade =/= undefined andalso string:to_lower(Upgrade) =:= "websocket".
 
 docroot() ->
     {file, Here} = code:is_loaded(?MODULE),
