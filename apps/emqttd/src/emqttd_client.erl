@@ -165,8 +165,7 @@ terminate(Reason, #state{peername = Peername, keepalive = KeepAlive, proto_state
             emqttd_protocol:shutdown(Error, ProtoState);
         {_, _} -> 
             ok
-    end,
-    ok.
+    end.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

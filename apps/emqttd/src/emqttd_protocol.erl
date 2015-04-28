@@ -237,10 +237,19 @@ send(Packet, State = #proto_state{transport = Transport, socket = Sock, peername
     Data = emqtt_serialiser:serialise(Packet),
     lager:debug("SENT to ~s: ~p", [emqttd_net:format(Peername), Data]),
     emqttd_metrics:inc('bytes/sent', size(Data)),
-    Transport:send(Sock, Data),
+    if
+        is_function(Transport) -> 
+            io:format("Transport Fun: ~p~n", [Transport]),
+            try  
+                Transport(Data)
+            catch
+                _:Error -> io:format("Transport send error: ~p~n", [Error])
+            end;
+        true -> Transport:send(Sock, Data)
+    end,
     {ok, State}.
 
-trace(recv, Packet, #proto_state{peername  = Peername, clientid = ClientId}) ->
+trace(recv, Packet, #proto_state{peername = Peername, clientid = ClientId}) ->
     lager:info([{client, ClientId}], "RECV from ~s@~s: ~s",
                    [ClientId, emqttd_net:format(Peername), emqtt_packet:format(Packet)]);
 
