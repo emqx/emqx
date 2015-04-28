@@ -2,6 +2,17 @@
 emqttd ChangeLog
 ==================
 
+0.8.0 (2015-05-10)
+-------------------------
+
+Presence Management....
+
+0.7.1-alpha (2015-05-05)
+-------------------------
+
+Bugfix
+
+
 0.7.0-alpha (2015-04-20)
 -------------------------
 
@@ -10,8 +21,6 @@ OK Trace API
 OK Plugin Load/Unload
 
 WebSocket
-
-Presence Management....
 
 
 0.6.2-alpha (2015-04-24)
