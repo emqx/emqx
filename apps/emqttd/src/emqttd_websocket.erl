@@ -24,19 +24,39 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_websocket).
 
--export([init/1, loop/3]).
+-export([start_link/1, init/1, loop/3]).
 
--record(state, {}).
+-record(state, {request,
+                peername,
+                parse_state,
+                proto_state,
+                %packet_opts,
+                keepalive}).
 
-init(Req) ->
-    {ReentryWs, _ReplyChannel} = mochiweb_websocket:upgrade_connection(Req, fun ?MODULE:loop/3),
-    ReentryWs(#state{}).
+-record(client_state, {request, sender}).
 
-loop(Payload, State, ReplyChannel) ->
+-define(PACKET_OPTS, [{max_clientid_len, 1024},
+                      {max_packet_size,  4096}]).
+
+start_link(Req) ->
+    {ReentryWs, ReplyChannel} = mochiweb_websocket:upgrade_connection(Req, fun ?MODULE:loop/3),
+    {ok, Client} = gen_server:start_link(?MODULE, [Req, ReplyChannel], []),
+    ReentryWs(#state{client = Client,
+                     parse_state = emqtt_parser:init(?PACKET_OPTS)}).
+
+
+init([Req, ReplyChannel]) ->
+    {ok, 
+                     peername = Req:get_header_value(peername),
+    %ProtoState = emqttd_protocol:init({Transport, NewSock, Peername}, PacketOpts),
+
+loop(Payload, State = #state{parse_state = ParserState}, ReplyChannel) ->
     io:format("Received data: ~p~n", [Payload]),
     ReplyChannel(Payload),
     State.
+
 
 

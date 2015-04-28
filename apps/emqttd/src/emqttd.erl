@@ -71,7 +71,7 @@ open_listener({mqtts, Port, Options}) ->
 
 %% open http port
 open_listener({http, Port, Options}) ->
-    MFArgs = {emqttd_http, handle, []},
+    MFArgs = {emqttd_http, handle_req, []},
 	mochiweb:start_http(Port, Options, MFArgs).
 
 open_listener(Protocol, Port, Options) ->

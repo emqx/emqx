@@ -34,14 +34,14 @@
 
 -import(proplists, [get_value/2, get_value/3]).
 
--export([handle/1]).
+-export([handle_req/1]).
 
-handle(Req) ->
-    handle(Req:get(method), Req:get(path), Req).
+handle_req(Req) ->
+    handle_req(Req:get(method), Req:get(path), Req).
 
-handle('POST', "/mqtt/publish", Req) ->
+handle_req('POST', "/mqtt/publish", Req) ->
     Params = mochiweb_request:parse_post(Req),
-    lager:info("HTTP Publish: ~p~n", [Params]),
+    lager:info("HTTP Publish: ~p", [Params]),
 	case authorized(Req) of
 	true ->
         Qos = int(get_value("qos", Params, "0")),
@@ -64,29 +64,28 @@ handle('POST', "/mqtt/publish", Req) ->
 		Req:respond({401, [], <<"Fobbiden">>})
 	end;
 
-
-handle(_Method, "/mqtt/wsocket", Req) ->
-    lager:info("Websocket Headers: ~p~n", [Req:get(headers)]),
+handle_req(_Method, "/mqtt/wsocket", Req) ->
+    lager:info("Websocket Connection from: ~s", [Req:get(peer)]),
     Up = Req:get_header_value("Upgrade"),
     case Up =/= undefined andalso string:to_lower(Up) =:= "websocket" of
         true ->
-            emqttd_websocket:init(Req);
+            emqttd_websocket:start_link(Req);
         false ->
             Req:respond({400, [], <<"Bad Request">>})
     end;
 
-handle('GET', "/" ++ File, Req) ->
-    lager:info("GET File: ~s", [File]),
+handle_req('GET', "/" ++ File, Req) ->
+    lager:info("HTTP GET File: ~s", [File]),
     mochiweb_request:serve_file(File, docroot(), Req);
 
-handle(_Method, _Path, Req) ->
+handle_req(_Method, _Path, Req) ->
 	Req:not_found().
 
 %%------------------------------------------------------------------------------
 %% basic authorization
 %%------------------------------------------------------------------------------
 authorized(Req) ->
-	case mochiweb_request:get_header_value("Authorization", Req) of
+    case Req:get_header_value("Authorization") of
 	undefined ->
 		false;
 	"Basic " ++ BasicAuth ->
