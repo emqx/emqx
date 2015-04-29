@@ -45,6 +45,9 @@
 %% Broker API
 -export([env/1, version/0, uptime/0, datetime/0, sysdescr/0]).
 
+%% Tick API
+-export([start_tick/1, stop_tick/1]).
+
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -124,6 +127,27 @@ datetime() ->
         io_lib:format(
             "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S])).
 
+%%------------------------------------------------------------------------------
+%% @doc Start a tick timer
+%% @end
+%%------------------------------------------------------------------------------
+start_tick(Msg) ->
+    start_tick(timer:seconds(env(sys_interval)), Msg).
+
+start_tick(0, _Msg) ->
+    undefined;
+start_tick(Interval, Msg) when Interval > 0 ->
+    {ok, TRef} = timer:send_interval(Interval, Msg), TRef.
+
+%%------------------------------------------------------------------------------
+%% @doc Start tick timer
+%% @end
+%%------------------------------------------------------------------------------
+stop_tick(undefined) ->
+    ok;
+stop_tick(TRef) ->
+    timer:cancel(TRef).
+
 %%%=============================================================================
 %%% gen_server callbacks
 %%%=============================================================================
@@ -134,10 +158,7 @@ init([]) ->
     % Create $SYS Topics
     [ok = create_topic(Topic) || Topic <- ?SYSTOP_BROKERS],
     % Tick
-    SysInterval = env(sys_interval),
-    {ok, TRef} = timer:send_interval(timer:seconds(SysInterval), tick),
-    State = #state{started_at = os:timestamp(), sys_interval = SysInterval, tick_tref = TRef},
-    {ok, State, hibernate}.
+    {ok, #state{started_at = os:timestamp(), tick_tref = start_tick(tick)}, hibernate}.
 
 handle_call(uptime, _From, State) ->
     {reply, uptime(State), State};
@@ -158,8 +179,8 @@ handle_info(tick, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
-    ok.
+terminate(_Reason, #state{tick_tref = TRef}) ->
+    stop_tick(TRef).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

@@ -128,8 +128,7 @@ init([]) ->
     % Create $SYS Topics
     [ok = emqttd_pubsub:create(emqtt_topic:systop(Topic)) || Topic <- Topics],
     % Tick to publish stats
-    {ok, TRef} = timer:send_interval(timer:seconds(emqttd_broker:env(sys_interval)), tick),
-    {ok, #state{tick_tref = TRef}, hibernate}.
+    {ok, #state{tick_tref = emqttd_broker:start_tick(tick)}, hibernate}.
 
 handle_call(_Request, _From, State) ->
     {reply, error, State}.
@@ -137,6 +136,7 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+%% Interval Tick.
 handle_info(tick, State) ->
     [publish(Stat, Val) || {Stat, Val} <- ets:tab2list(?STATS_TAB)],
     {noreply, State, hibernate};
@@ -145,7 +145,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{tick_tref = TRef}) ->
-    timer:cancel(TRef), ok.
+    emqttd_broker:stop_tick(TRef).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -156,5 +156,4 @@ code_change(_OldVsn, State, _Extra) ->
 publish(Stat, Val) ->
     emqttd_pubsub:publish(stats, #mqtt_message{topic   = emqtt_topic:systop(Stat),
                                                payload = emqttd_util:integer_to_binary(Val)}).
-
 

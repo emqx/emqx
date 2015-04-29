@@ -165,8 +165,7 @@ init([]) ->
     % $SYS Topics for metrics
     [ok = create_topic(Topic) || {_, Topic} <- Metrics],
     % Tick to publish metrics
-    {ok, TRef} = timer:send_interval(timer:seconds(emqttd_broker:env(sys_interval)), tick),
-    {ok, #state{tick_tref = TRef}, hibernate}.
+    {ok, #state{tick_tref = emqttd_broker:start_tick(tick)}, hibernate}.
 
 handle_call(_Req, _From, State) ->
     {reply, error,  State}.
@@ -183,7 +182,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{tick_tref = TRef}) ->
-    timer:cancel(TRef), ok.
+    emqttd_broker:stop_tick(TRef).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
