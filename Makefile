@@ -18,7 +18,6 @@ xref:
 
 clean:
 	@$(REBAR) clean
-	rm -rf rel/emqttd
 
 test:
 	@$(REBAR) skip_deps=true eunit
@@ -26,7 +25,7 @@ test:
 edoc:
 	@$(REBAR) doc
 
-dist:
+dist: compile
 	#TODO write new Makefile
 	cd rel && ../rebar generate -f
 	cp -R plugins/emqttd_plugin_demo rel/emqttd/plugins/ && rm -rf rel/emqttd/plugins/emqttd_plugin_demo/src
