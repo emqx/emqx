@@ -190,7 +190,7 @@ consult(Cont, Str, Acc) ->
 
 
 %%
-%% Validation functions for checking the app.config
+%% Validation functions for checking the emqttd.config
 %%
 validate([Terms]) ->
     Results = [ValidateFun(Terms) || ValidateFun <- get_validation_funs()],
@@ -207,8 +207,8 @@ get_validation_funs() ->
     [ ].
 
 print_issue({warning, Warning}) ->
-    io:format(standard_error, "Warning in app.config: ~s~n", [Warning]);
+    io:format(standard_error, "Warning in emqttd.config: ~s~n", [Warning]);
 print_issue({error, Error}) ->
-    io:format(standard_error, "Error in app.config: ~s~n", [Error]).
+    io:format(standard_error, "Error in emqttd.config: ~s~n", [Error]).
 
 

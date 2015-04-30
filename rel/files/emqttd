@@ -134,10 +134,10 @@ case "$1" in
             echo "Node is already running!"
             exit 1
         fi
-        # Sanity check the app.config file
-        RES=`$NODETOOL_LITE chkconfig $RUNNER_ETC_DIR/app.config`
+        # Sanity check the emqttd.config file
+        RES=`$NODETOOL_LITE chkconfig $RUNNER_ETC_DIR/emqttd.config`
         if [ $? != 0 ]; then
-            echo "Error reading $RUNNER_ETC_DIR/app.config"
+            echo "Error reading $RUNNER_ETC_DIR/emqttd.config"
             echo $RES
             exit 1
         fi
@@ -258,10 +258,10 @@ case "$1" in
             echo "Node is already running - use '$SCRIPT attach' instead"
             exit 1
         fi
-        # Sanity check the app.config file
-        RES=`$NODETOOL_LITE chkconfig $RUNNER_ETC_DIR/app.config`
+        # Sanity check the emqttd.config file
+        RES=`$NODETOOL_LITE chkconfig $RUNNER_ETC_DIR/emqttd.config`
         if [ $? != 0 ]; then
-            echo "Error reading $RUNNER_ETC_DIR/app.config"
+            echo "Error reading $RUNNER_ETC_DIR/emqttd.config"
             echo $RES
             exit 1
         fi
@@ -279,7 +279,7 @@ case "$1" in
         EMU=beam
         PROGNAME=`echo $0 | sed 's/.*\///'`
         CMD="$BINDIR/erlexec -boot $RUNNER_BASE_DIR/releases/$APP_VSN/$SCRIPT \
-            -embedded -config $RUNNER_ETC_DIR/app.config -config $RUNNER_ETC_DIR/plugins.config \
+            -embedded -config $RUNNER_ETC_DIR/emqttd.config -config $RUNNER_ETC_DIR/plugins.config \
             -pa $RUNNER_LIB_DIR/basho-patches \
             -args_file $RUNNER_ETC_DIR/vm.args -- ${1+"$@"}"
         export EMU
@@ -299,9 +299,9 @@ case "$1" in
         exec $CMD
         ;;
     chkconfig)
-        RES=`$NODETOOL_LITE chkconfig $RUNNER_ETC_DIR/app.config`
+        RES=`$NODETOOL_LITE chkconfig $RUNNER_ETC_DIR/emqttd.config`
         if [ $? != 0 ]; then
-            echo "Error reading $RUNNER_ETC_DIR/app.config"
+            echo "Error reading $RUNNER_ETC_DIR/emqttd.config"
             echo $RES
             exit 1
         fi

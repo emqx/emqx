@@ -24,7 +24,7 @@
 @if exist "%releases_dir%\%release_version%\sys.config" (
     @set app_config="%releases_dir%\%release_version%\sys.config"
 ) else (
-    @set app_config="%node_root%\etc\app.config"
+    @set app_config="%node_root%\etc\emqttd.config"
 )
 
 @if exist "%releases_dir%\%release_version%\vm.args" (
