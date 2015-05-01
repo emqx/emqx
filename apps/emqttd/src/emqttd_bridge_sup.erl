@@ -64,8 +64,7 @@ start_bridge(Node, SubTopic) when is_atom(Node) and is_binary(SubTopic) ->
 
 -spec start_bridge(atom(), binary(), [emqttd_bridge:option()]) -> {ok, pid()} | {error, any()}.
 start_bridge(Node, SubTopic, Options) when is_atom(Node) and is_binary(SubTopic) ->
-    {ok, Env} = application:get_env(emqttd, bridge),
-    Options1 = emqttd_opts:merge(Env, Options),
+    Options1 = emqttd_opts:merge(emqttd_broker:env(bridge), Options),
     supervisor:start_child(?MODULE, bridge_spec(Node, SubTopic, Options1)).
 
 %%------------------------------------------------------------------------------

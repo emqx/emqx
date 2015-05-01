@@ -92,7 +92,7 @@ limit(payload) ->
 env() -> 
     case get({env, retained}) of
         undefined ->
-            {ok, Env} = application:get_env(emqttd, retained),
+            Env = emqttd_broker:env(retained),
             put({env, retained}, Env), Env;
         Env -> 
             Env

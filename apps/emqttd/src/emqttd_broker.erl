@@ -90,7 +90,7 @@ notify(EventType, Event) ->
 %% @end
 %%------------------------------------------------------------------------------
 env(Name) ->
-    proplists:get_value(Name, application:get_env(emqttd, mqtt_broker, [])).
+    proplists:get_value(Name, application:get_env(emqttd, broker, [])).
 
 %%------------------------------------------------------------------------------
 %% @doc Get broker version

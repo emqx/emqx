@@ -42,7 +42,7 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    {ok, Opts} = application:get_env(mqtt_pubsub),
+    Opts = emqttd_broker:env(pubsub),
     Schedulers = erlang:system_info(schedulers),
     PoolSize = proplists:get_value(pool_size, Opts, Schedulers),
     gproc_pool:new(pubsub, hash, [{size, PoolSize}]),
