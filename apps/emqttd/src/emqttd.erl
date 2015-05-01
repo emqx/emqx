@@ -28,7 +28,7 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--export([start/0,
+-export([start/0, env/1,
          open_listeners/1, close_listeners/1,
          load_all_plugins/0, unload_all_plugins/0,
          load_plugin/1, unload_plugin/1,
@@ -54,6 +54,14 @@ start() ->
     application:start(emqttd).
 
 %%------------------------------------------------------------------------------
+%% @doc Get mqtt environment
+%% @end
+%%------------------------------------------------------------------------------
+-spec env(atom()) -> undefined | any().
+env(Name) ->
+    proplists:get_value(Name, application:get_env(emqttd, mqtt, [])).
+
+%%------------------------------------------------------------------------------
 %% @doc Open Listeners
 %% @end
 %%------------------------------------------------------------------------------
@@ -75,9 +83,13 @@ open_listener({http, Port, Options}) ->
 	mochiweb:start_http(Port, Options, MFArgs).
 
 open_listener(Protocol, Port, Options) ->
-    {ok, PktOpts} = application:get_env(emqttd, mqtt_packet),
-    MFArgs = {emqttd_client, start_link, [PktOpts]},
-    esockd:open(Protocol, Port, emqttd_opts:merge(?MQTT_SOCKOPTS, Options) , MFArgs).
+    MFArgs = {emqttd_client, start_link, [env(packet)]},
+    esockd:open(Protocol, Port, merge_sockopts(Options) , MFArgs).
+
+merge_sockopts(Options) ->
+    SockOpts = emqttd_opts:merge(?MQTT_SOCKOPTS,
+                                 proplists:get_value(sockopts, Options, [])),
+    emqttd_opts:merge(Options, [{sockopts, SockOpts}]).
 
 %%------------------------------------------------------------------------------
 %% @doc Close Listeners
@@ -185,7 +197,6 @@ unload_app(App) ->
         {error, Reason} ->
             lager:error("unload plugin ~p error: ~p", [App, Reason]), {error, Reason}
     end.
-
 
 %%------------------------------------------------------------------------------
 %% @doc Is running?
