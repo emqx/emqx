@@ -2,25 +2,38 @@
 emqttd ChangeLog
 ==================
 
-0.8.0 (2015-05-10)
+0.7.0-alpha (2015-05-01)
 -------------------------
 
-Presence Management....
+[MQTT over WebSocket(SSL)](https://github.com/emqtt/emqttd/wiki/MQTT-Over-WebSocket) Now!
 
-0.7.1-alpha (2015-05-05)
--------------------------
+A slimple [Plugin Achitecture](https://github.com/emqtt/emqttd/wiki/Plugin%20Design) based on OTP appliation
 
-Bugfix
+[Trace MQTT Packets or Messages](https://github.com/emqtt/emqttd/wiki/Trace%20Design) to log files
 
+Feature: issue #40, #115 - WebSocket/SSL Support
 
-0.7.0-alpha (2015-04-20)
--------------------------
+Feature: issue #49, #105 - Plugin Architecture Support
 
-OK Trace API
+Feature: issue #93 - Trace API Design
 
-OK Plugin Load/Unload
+Improve: issue #109 - emqttd_broker should add subscribe, notify API 
 
-WebSocket
+Improve: update README.md to add 'Goals', 'Contributors' chapters
+
+Change: rename etc/app.config to etc/emqttd.config
+
+Change: etc/emqttd.config changed
+
+Bugfix: critical issue #54 - error when resume session!
+ 
+Bugfix: issue #118 - error report when UNSUBSCRIBE with no topics
+
+Bugfix: issue #117 - sys_interval = 0 config cannot work
+
+Bugfix: issue #112 - Makefile to support build plugins
+
+Bugfix: issue #96 - "make clean" cannot work
 
 
 0.6.2-alpha (2015-04-24)

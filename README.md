@@ -34,7 +34,7 @@ emqttd aims to provide a solid, enterprise grade open-source MQTT broker that co
 
 ## QuickStart
 
-Download binary packeges for linux, mac and freebsd from [http://emqtt.io/downloads](http://emqtt.io/downloads). And then:
+Download binary packeges for linux, mac and freebsd from [http://emqtt.io/downloads](http://emqtt.io/downloads).
 
 ```
 tar xvf emqttd-ubuntu64-0.7.0-alpha.tgz && cd emqttd
@@ -60,7 +60,7 @@ git clone https://github.com/emqtt/emqttd.git
 cd emqttd && make && make dist
 ```
 
-## GettingStart
+## GetStarted
 
 Read [GettingStarted](https://github.com/emqtt/emqttd/wiki/GettingStarted) for more installation and configuration guide.
 
@@ -76,9 +76,11 @@ The MIT License (MIT)
 
 ## Contributors
 
-* @hejin1026 <260495915 at qq.com>
-* @desoulter <assoulter123 at gmail.com>
-* @turtleDeng
+@hejin1026 <260495915 at qq.com>
+
+@desoulter <assoulter123 at gmail.com>
+
+@turtleDeng
 
 ## Author
 

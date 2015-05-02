@@ -1,6 +1,12 @@
 
+v0.9.0-alpha (2015-05-30)
+-------------------------
+
+
 v0.8.0-alpha (2015-05-10)
 -------------------------
+
+Documents...
 
 MySQL Auth
 
@@ -8,15 +14,17 @@ Dashboard
 
 AMQP
 
-README.md: add "Supports and Contact" include IRC,  mailling-list, email.
+Bridge Test
 
 
-v0.6.0-alpha (2015-03-20)
+0.8.0 (2015-05-10)
 -------------------------
 
-Plugin Architecture
+Presence Management....
 
-Mnesia Authentication
+Force Subscription...
+
+Point2Point Queue...
 
 MySQL Auth
 
@@ -24,32 +32,19 @@ LDAP Auth
 
 PG Auth
 
-Mnesia ACL
-
 MySQL ACL
 
 Retained Message...
 
-0.6.0
-=====
-
 Tsung MQTT Test
 
-v0.9.0-alpha (2015-03-20)
+
+0.7.1-alpha (2015-05-05)
 -------------------------
 
-emqtt_sm, emqtt_cm, emqtt_pubsub performance issue...
+Bugfix
 
-v0.8.0-alpha (2015-03-20)
--------------------------
-
-MQTT/WebSocket
-
-v0.7.0-alpha (2015-03-20)
--------------------------
-
-Admin Console
-
+Admin Dashboard
 
 one million connections test...
 
@@ -59,15 +54,6 @@ Dialyzer ...
 
 full test cases...
 
-spawn_link to replace 'spawn' and 'link'
+README.md: add "Supports and Contact" include IRC,  mailling-list, email.
 
-=======
-
-## Bridge
-
-## Websocket
-
-## MQTT over Websocket
-
-## Mnesia 
-
+Document
