@@ -9,7 +9,7 @@ emqttd requires Erlang R17+ to build.
 
 emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQTT broker for IoT(M2M) applications that need to support ten millions of concurrent MQTT clients.
 
-## Architecture
+## Design
 
 ![emqttd architecture](http://emqtt.io/static/img/Architecture.png)
 
