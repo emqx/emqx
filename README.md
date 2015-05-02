@@ -63,7 +63,7 @@ cd emqttd && make && make dist
 
 ## GetStarted
 
-Read [GettingStarted](https://github.com/emqtt/emqttd/wiki/GettingStarted) for more installation and configuration guide.
+Read [Get Started](https://github.com/emqtt/emqttd/wiki/Get-Started) for more installation and configuration guide.
 
 ## Benchmark
 
