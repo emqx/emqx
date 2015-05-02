@@ -2,7 +2,7 @@
 emqttd ChangeLog
 ==================
 
-0.7.0-alpha (2015-05-01)
+0.7.0-alpha (2015-05-02)
 -------------------------
 
 [MQTT over WebSocket(SSL)](https://github.com/emqtt/emqttd/wiki/MQTT-Over-WebSocket) Now!
