@@ -7,7 +7,7 @@ emqttd ChangeLog
 
 [MQTT over WebSocket(SSL)](https://github.com/emqtt/emqttd/wiki/MQTT-Over-WebSocket) Now!
 
-A slimple [Plugin Achitecture](https://github.com/emqtt/emqttd/wiki/Plugin%20Design) based on OTP appliation
+[Plugin Achitecture](https://github.com/emqtt/emqttd/wiki/Plugin%20Design) based on OTP application 
 
 [Trace MQTT Packets or Messages](https://github.com/emqtt/emqttd/wiki/Trace%20Design) to log files
 
