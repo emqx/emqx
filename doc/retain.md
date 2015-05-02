@@ -1,6 +1,0 @@
-# Retained Message
-
-## API
-
-store(
-
