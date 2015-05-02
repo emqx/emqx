@@ -24,11 +24,12 @@ emqttd aims to provide a solid, enterprise grade open-source MQTT broker that co
 * MQTT Over Websocket(SSL) Support
 * HTTP Publish API Support
 * [$SYS/borkers/#](https://github.com/emqtt/emqtt/wiki/$SYS-Topics-of-Broker) Support
-* Client Authentication with clientId or username, password.
+* Client Authentication with clientId, ipaddress
+* Client Authentication with  username, password.
 * Client ACL control with ipaddress, clientid, username.
 * Cluster brokers on several servers.
 * Bridge brokers locally or remotelly
-* 500K+ concurrent client connections per server
+* 500K+ concurrent clients connections per server
 * Extensible architecture with plugin support
 * Passed eclipse paho interoperability tests
 
@@ -76,11 +77,11 @@ The MIT License (MIT)
 
 ## Contributors
 
-@hejin1026 <260495915 at qq.com>
+[@hejin1026](https://github.com/hejin1026)
 
-@desoulter <assoulter123 at gmail.com>
+[@desoulter](https://github.com/desoulter)
 
-@turtleDeng
+[@turtleDeng](https://github.com/turtleDeng)
 
 ## Author
 
