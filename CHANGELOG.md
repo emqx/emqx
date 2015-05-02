@@ -2,6 +2,12 @@
 emqttd ChangeLog
 ==================
 
+0.7.1-alpha (2015-05-04)
+-------------------------
+
+Add doc/design/* and merge doc/* to github Wiki
+
+
 0.7.0-alpha (2015-05-02)
 -------------------------
 
