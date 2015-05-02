@@ -9,11 +9,7 @@ emqttd requires Erlang R17+ to build.
 
 emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQTT broker for IoT(M2M) applications that need to support ten millions of concurrent MQTT clients.
 
-## Design
-
-![emqttd architecture](http://emqtt.io/static/img/Architecture.png)
-
-## Featues
+## Features
 
 * Full MQTT V3.1/V3.1.1 protocol specification support
 * QoS0, QoS1, QoS2 Publish and Subscribe
@@ -25,7 +21,7 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 * HTTP Publish API Support
 * [$SYS/borkers/#](https://github.com/emqtt/emqtt/wiki/$SYS-Topics-of-Broker) Support
 * Client Authentication with clientId, ipaddress
-* Client Authentication with  username, password.
+* Client Authentication with username, password.
 * Client ACL control with ipaddress, clientid, username.
 * Cluster brokers on several servers.
 * Bridge brokers locally or remotelly
@@ -33,11 +29,17 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 * Extensible architecture with plugin support
 * Passed eclipse paho interoperability tests
 
+## Design
+
+![emqttd architecture](http://emqtt.io/static/img/Architecture.png)
+
 ## QuickStart
 
 Download binary packeges for linux, mac and freebsd from [http://emqtt.io/downloads](http://emqtt.io/downloads).
 
-```
+For example:
+
+```sh
 tar xvf emqttd-ubuntu64-0.7.0-alpha.tgz && cd emqttd
 
 # start console
