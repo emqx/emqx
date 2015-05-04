@@ -38,3 +38,18 @@ plugins:
 
 dist: rel plugins
 
+PLT  = $(BASE_DIR)/.emqttd_dialyzer.plt
+APPS = erts kernel stdlib sasl crypto ssl os_mon syntax_tools \
+	   public_key mnesia inets compiler
+
+check_plt: compile
+	dialyzer --check_plt --plt $(PLT) --apps $(APPS) \
+		deps/*/ebin apps/*/ebin
+
+build_plt: compile
+	dialyzer --build_plt --output_plt $(PLT) --apps $(APPS) \
+		deps/*/ebin apps/*/ebin
+
+dialyzer: compile
+	dialyzer -Wno_return --plt $(PLT) deps/*/ebin apps/*/ebin
+
