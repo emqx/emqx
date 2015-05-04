@@ -5,9 +5,16 @@ emqttd is a massively scalable and clusterable MQTT V3.1/V3.1.1 broker written i
 
 emqttd requires Erlang R17+ to build.
 
+
 ## Goals
 
 emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQTT broker for IoT(M2M) applications that need to support ten millions of concurrent MQTT clients.
+
+* Easy to install
+* Massively scalable
+* Easy to extend
+* Solid stable
+
 
 ## Features
 
@@ -29,9 +36,11 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 * Extensible architecture with plugin support
 * Passed eclipse paho interoperability tests
 
+
 ## Design
 
 ![emqttd architecture](http://emqtt.io/static/img/Architecture.png)
+
 
 ## QuickStart
 
@@ -63,9 +72,11 @@ git clone https://github.com/emqtt/emqttd.git
 cd emqttd && make && make dist
 ```
 
+
 ## GetStarted
 
 Read [emqtt wiki](https://github.com/emqtt/emqttd/wiki) for detailed installation and configuration guide.
+
 
 ## Benchmark
 
@@ -73,9 +84,11 @@ Benchmark 0.6.1-alpha on a ubuntu/14.04 server with 8 cores, 32G memory from Qin
 
 200K+ Connections, 200K+ Topics, 20K+ In/Out Messages/sec, 20Mbps+ In/Out with 8G Memory, 50%CPU/core
 
+
 ## License
 
 The MIT License (MIT)
+
 
 ## Contributors
 
@@ -83,6 +96,8 @@ The MIT License (MIT)
 [@desoulter](https://github.com/desoulter)
 [@turtleDeng](https://github.com/turtleDeng)
 [@Hades32](https://github.com/Hades32)
+[@huangdan](https://github.com/huangdan)
+
 
 ## Author
 
