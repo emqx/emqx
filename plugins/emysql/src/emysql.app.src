@@ -1,0 +1,14 @@
+{application, emysql,
+ [{description, "Erlang MySQL Driver"},
+  {vsn, "1.0"},
+  {modules, [
+		emysql,
+		emysql_app,
+		emysql_sup,
+		emysql_auth,
+		emysql_conn,
+		emysql_recv]},
+  {registered, []},
+  {applications, [kernel, stdlib, sasl, crypto]},
+  {env, []},
+  {mod, {emysql_app, []}}]}.
