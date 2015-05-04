@@ -57,10 +57,10 @@ status([]) ->
     {InternalStatus, _ProvidedStatus} = init:get_status(),
     ?PRINT("Node ~p is ~p~n", [node(), InternalStatus]),
     case lists:keysearch(emqttd, 1, application:which_applications()) of
-	false ->
-		?PRINT_MSG("emqttd is not running~n");
-	{value,_Version} ->
-		?PRINT_MSG("emqttd is running~n")
+    false ->
+        ?PRINT_MSG("emqttd is not running~n");
+    {value,_Version} ->
+        ?PRINT_MSG("emqttd is running~n")
     end.
 
 %%------------------------------------------------------------------------------
@@ -72,32 +72,41 @@ cluster([]) ->
     ?PRINT("cluster nodes: ~p~n", [Nodes]);
 
 cluster([SNode]) ->
-	Node = node_name(SNode),
-	case net_adm:ping(Node) of
-	pong ->
-		application:stop(emqttd),
-        application:stop(esockd),
-        emqttd_mnesia:cluster(Node),
-        application:start(esockd),
-		application:start(emqttd),
-		?PRINT("cluster with ~p successfully.~n", [Node]);
-	pang ->
+    Node = node_name(SNode),
+    case net_adm:ping(Node) of
+    pong ->
+        case emqttd:is_running(Node) of
+            true ->
+                %%TODO: should not unload here.
+                emqttd:unload_all_plugins(),
+                application:stop(emqttd),
+                application:stop(esockd),
+                application:stop(gproc),
+                emqttd_mnesia:cluster(Node),
+                application:start(gproc),
+                application:start(esockd),
+                application:start(emqttd),
+                ?PRINT("cluster with ~p successfully.~n", [Node]);
+            false ->
+                ?PRINT("emqttd is not running on ~p~n", [Node])
+        end;
+    pang ->
         ?PRINT("failed to connect to ~p~n", [Node])
-	end.
+    end.
 
 %%------------------------------------------------------------------------------
 %% @doc Add usern
 %% @end
 %%------------------------------------------------------------------------------
 useradd([Username, Password]) ->
-	?PRINT("~p~n", [emqttd_auth_username:add_user(bin(Username), bin(Password))]).
+    ?PRINT("~p~n", [emqttd_auth_username:add_user(bin(Username), bin(Password))]).
 
 %%------------------------------------------------------------------------------
 %% @doc Delete user
 %% @end
 %%------------------------------------------------------------------------------
 userdel([Username]) ->
-	?PRINT("~p~n", [emqttd_auth_username:remove_user(bin(Username))]).
+    ?PRINT("~p~n", [emqttd_auth_username:remove_user(bin(Username))]).
 
 vm([]) ->
     [vm([Name]) || Name <- ["load", "memory", "process", "io"]];
