@@ -162,7 +162,7 @@ loaded_plugins() ->
 -spec unload_all_plugins() -> [{App :: atom(), ok | {error, any()}}].
 unload_all_plugins() ->
     PluginApps = application:get_env(emqttd, plugins, []),
-    [{App, unload_plugin(App)} || {App, _Env} <- PluginApps].
+    [{App, unload_plugin(App)} || App <- PluginApps].
 
 
 %%------------------------------------------------------------------------------
