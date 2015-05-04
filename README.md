@@ -96,6 +96,8 @@ The MIT License (MIT)
 [@desoulter](https://github.com/desoulter)
 [@turtleDeng](https://github.com/turtleDeng)
 [@Hades32](https://github.com/Hades32)
+[@huangdan](https://github.com/huangdan)
+
 
 
 ## Author
