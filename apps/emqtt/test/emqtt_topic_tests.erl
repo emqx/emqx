@@ -115,5 +115,12 @@ words_test() ->
     ?debugFmt("Time for binary:split: ~p(micro)", [Time2/?N]),
     ok.
 
+feed_var_test() ->
+    ?assertEqual(<<"$Q/client/clientId">>, emqtt_topic:feed_var(<<"$c">>, <<"clientId">>, <<"$Q/client/$c">>)).
+
+join_test() ->
+    ?assertEqual(<<"/ab/cd/ef/">>, emqtt_topic:join(words(<<"/ab/cd/ef/">>))),
+    ?assertEqual(<<"ab/+/#">>, emqtt_topic:join(words(<<"ab/+/#">>))).
+
 -endif.
 

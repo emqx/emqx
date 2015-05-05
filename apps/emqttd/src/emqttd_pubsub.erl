@@ -438,7 +438,7 @@ setstats(queues) ->
                            mnesia:table_info(queue, size));
 
 setstats(topics) ->
-    emqttd_stats:setstat('topics/count', 'topics/max',
+    emqttd_stats:setstats('topics/count', 'topics/max',
                           mnesia:table_info(topic, size));
 setstats(subscribers) ->
     emqttd_stats:setstats('subscribers/count', 'subscribers/max',
