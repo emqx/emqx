@@ -32,7 +32,7 @@
  
 -export([match/2, validate/1, triples/1, words/1, wildcard/1]).
 
--export([systop/1]).
+-export([is_queue/1, systop/1]).
 
 %-type type()   :: static | dynamic.
 
@@ -165,6 +165,16 @@ word(<<>>)    -> '';
 word(<<"+">>) -> '+';
 word(<<"#">>) -> '#';
 word(Bin)     -> Bin.
+
+%%------------------------------------------------------------------------------
+%% @doc Queue is a special topic name that starts with "$Q/"
+%% @end
+%%------------------------------------------------------------------------------
+-spec is_queue(binary()) -> boolean().
+is_queue(<<"$Q/", _Queue/binary>>) ->
+    true;
+is_queue(_) ->
+    false.
 
 %%------------------------------------------------------------------------------
 %% @doc '$SYS' Topic.

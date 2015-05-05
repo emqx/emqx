@@ -139,6 +139,7 @@ handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peername = Peername =
         ReturnCode ->
             {ReturnCode, State1}
     end,
+    %%TODO: this is not right...
     notify(connected, ReturnCode1, State2),
     send(?CONNACK_PACKET(ReturnCode1), State2),
     %%Starting session
