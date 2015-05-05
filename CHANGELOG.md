@@ -2,6 +2,18 @@
 emqttd ChangeLog
 ==================
 
+0.7.1-alpha (2015-05-04)
+-------------------------
+
+Add doc/design/* and merge doc/* to github Wiki
+
+Bugfix: issue #121 - emqttd cluster issuse
+
+Bugfix: issue #123 - emqttd:unload_all_plugins/0 cannot unload any plugin
+
+Bugfix: fix errors found by dialyzer
+
+
 0.7.0-alpha (2015-05-02)
 -------------------------
 
