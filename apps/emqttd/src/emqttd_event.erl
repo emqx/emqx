@@ -114,5 +114,5 @@ payload(connected, Params) ->
     iolist_to_binary(io_lib:format("from: ~s~nprotocol: ~p~nsession: ~s", [From, Proto, Sess]));
 
 payload(disconnected, Reason) ->
-    list_to_binary(io_lib:format(["reason: ~p", Reason])).
+    list_to_binary(io_lib:format("reason: ~p", [Reason])).
 

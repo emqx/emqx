@@ -31,7 +31,7 @@
 -behaviour(application).
 
 %% Application callbacks
--export([start/2, stop/1]).
+-export([start/2, prep_stop/1, stop/1]).
 
 -define(PRINT_MSG(Msg), io:format(Msg)).
 
@@ -47,24 +47,24 @@
     State     :: term(),
     Reason    :: term().
 start(_StartType, _StartArgs) ->
-	print_banner(),
+    print_banner(),
     emqttd_mnesia:start(),
     {ok, Sup} = emqttd_sup:start_link(),
-	start_servers(Sup),
-	{ok, Listeners} = application:get_env(listeners),
+    start_servers(Sup),
+    {ok, Listeners} = application:get_env(listeners),
     emqttd:load_all_plugins(),
     emqttd:open_listeners(Listeners),
-	register(emqttd, self()),
+    register(emqttd, self()),
     print_vsn(),
-	{ok, Sup}.
+    {ok, Sup}.
 
 print_banner() ->
-	?PRINT("starting emqttd on node '~s'~n", [node()]).
+    ?PRINT("starting emqttd on node '~s'~n", [node()]).
 
 print_vsn() ->
-	{ok, Vsn} = application:get_key(vsn),
-	{ok, Desc} = application:get_key(description),
-	?PRINT("~s ~s is running now~n", [Desc, Vsn]).
+    {ok, Vsn} = application:get_key(vsn),
+    {ok, Desc} = application:get_key(description),
+    ?PRINT("~s ~s is running now~n", [Desc, Vsn]).
 
 start_servers(Sup) ->
     Servers = [{"emqttd event", emqttd_event},
@@ -128,10 +128,16 @@ worker_spec(Name, Opts) ->
         {Name, start_link, [Opts]},
             permanent, 10000, worker, [Name]}.
 
+%% close all listeners first...
+prep_stop(State) ->
+    %%TODO: esockd app should be running...
+    {ok, Listeners} = application:get_env(listeners),
+    emqttd:close_listeners(Listeners),
+    timer:sleep(2),
+    State.
+
 -spec stop(State :: term()) -> term().
 stop(_State) ->
-	{ok, Listeners} = application:get_env(listeners),
-    emqttd:close_listeners(Listeners),
-    emqttd:unload_all_plugins(),
     ok.
+
 
