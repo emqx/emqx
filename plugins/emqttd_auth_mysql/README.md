@@ -2,7 +2,9 @@
 
 Authentication with user table of MySQL database.
 
-## Demo User Table
+## User Table
+
+Notice: This is a demo table. You could authenticate with any user tables.
 
 ```
 CREATE TABLE `mqtt_users` (
@@ -16,6 +18,8 @@ CREATE TABLE `mqtt_users` (
 ) ENGINE=MyISAM AUTO_INCREMENT=1 DEFAULT CHARSET=utf8;
 ```
 
-## Plugin config
+## Plugins config
+
+Please configure 'etc/plugins.config' to loade emysql and emqttd_auth_mysql plugins.
 
 
