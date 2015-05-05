@@ -45,7 +45,8 @@ check(#mqtt_client{username = undefined}, _Password, _State) ->
 check(_Client, undefined, _State) ->
     {error, "Password undefined"};
 check(#mqtt_client{username = Username}, Password, #state{user_tab = UserTab}) ->
-    case emysql:select(UserTab, {{username, Username}, {password, erlang:md5(Password)}}) of
+    %%TODO: hash password...
+    case emysql:select(UserTab, {'and', {username, Username}, {password, Password}}) of
         {ok, []} -> {error, "Username or Password not match"};
         {ok, _Record} -> ok
     end.

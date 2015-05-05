@@ -38,6 +38,8 @@
 
 -export([received/2, send/2, redeliver/2, shutdown/2]).
 
+-export([handle/2]).
+
 -export([info/1]).
 
 %% Protocol State
@@ -126,24 +128,31 @@ handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peername = Peername =
             Client = #mqtt_client{clientid = ClientId, username = Username, ipaddr = Addr},
             case emqttd_access_control:auth(Client, Password) of
                 ok ->
+                    %% Generate one if null
                     ClientId1 = clientid(ClientId, State),
-                    start_keepalive(KeepAlive),
+                    %% Register clientId
                     emqttd_cm:register(ClientId1),
+                    %%Starting session
+                    {ok, Session} = emqttd_session:start({CleanSess, ClientId1, self()}),
+                    %% Force subscriptions
+                    force_subscribe(ClientId1),
+                    %% Start keepalive
+                    start_keepalive(KeepAlive),
                     {?CONNACK_ACCEPT, State1#proto_state{clientid  = ClientId1,
+                                                         session = Session,
                                                          will_msg   = willmsg(Var)}};
                 {error, Reason}->
-                    lager:error("~s@~s: username '~s' login failed - ~s", [ClientId, emqttd_net:format(Peername), Username, Reason]),
+                    lager:error("~s@~s: username '~s' login failed - ~s",
+                                    [ClientId, emqttd_net:format(Peername), Username, Reason]),
                     {?CONNACK_CREDENTIALS, State1}
                                                         
             end;
         ReturnCode ->
             {ReturnCode, State1}
     end,
+    %%TODO: this is not right...
     notify(connected, ReturnCode1, State2),
-    send(?CONNACK_PACKET(ReturnCode1), State2),
-    %%Starting session
-    {ok, Session} = emqttd_session:start({CleanSess, ClientId, self()}),
-    {ok, State2#proto_state{session = Session}};
+    send(?CONNACK_PACKET(ReturnCode1), State2);
 
 handle(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload),
        State = #proto_state{clientid = ClientId, session = Session}) ->
@@ -208,6 +217,10 @@ handle(?SUBSCRIBE_PACKET(PacketId, TopicTable), State = #proto_state{clientid = 
             send(?SUBACK_PACKET(PacketId, GrantedQos), State#proto_state{session = NewSession})
     end;
 
+handle({subscribe, Topic, Qos}, State = #proto_state{clientid = ClientId, session = Session}) ->
+    {ok, NewSession, _GrantedQos} = emqttd_session:subscribe(Session, [{Topic, Qos}]),
+    {ok, State#proto_state{session = NewSession}};
+
 %% protect from empty topic list
 handle(?UNSUBSCRIBE_PACKET(PacketId, []), State) ->
     send(?UNSUBACK_PACKET(PacketId), State);
@@ -270,9 +283,13 @@ shutdown(Error, #proto_state{peername = Peername, clientid = ClientId, will_msg 
 willmsg(Packet) when is_record(Packet, mqtt_packet_connect) ->
     emqtt_message:from_packet(Packet).
 
+%% generate a clientId
+clientid(undefined, State) ->
+    clientid(<<>>, State);
+%%TODO: <<>> is not right.
 clientid(<<>>, #proto_state{peername = Peername}) ->
-    <<"eMQTT_", (base64:encode(emqttd_net:format(Peername)))/binary>>;
-
+    {_, _, MicroSecs} = os:timestamp(),
+    iolist_to_binary(["emqttd_", base64:encode(emqttd_net:format(Peername)), integer_to_list(MicroSecs)]);
 clientid(ClientId, _State) -> ClientId.
 
 send_willmsg(_ClientId, undefined) ->
@@ -280,6 +297,22 @@ send_willmsg(_ClientId, undefined) ->
 %%TODO:should call session...
 send_willmsg(ClientId, WillMsg) -> 
     emqttd_pubsub:publish(ClientId, WillMsg).
+
+%%TODO: will be fixed in 0.8
+force_subscribe(ClientId) ->
+    case emqttd_broker:env(forced_subscriptions) of
+        undefined ->
+            ingore;
+        Topics ->
+            [force_subscribe(ClientId, {Topic, Qos}) || {Topic, Qos} <- Topics]
+    end.
+
+force_subscribe(ClientId, {Topic, Qos}) when is_list(Topic) ->
+    force_subscribe(ClientId, {list_to_binary(Topic), Qos});
+
+force_subscribe(ClientId, {Topic, Qos}) when is_binary(Topic) ->
+    Topic1 = emqtt_topic:feed_var(<<"$c">>, ClientId, Topic),
+    self() ! {force_subscribe, Topic1, Qos}.
 
 start_keepalive(0) -> ignore;
 start_keepalive(Sec) when Sec > 0 ->

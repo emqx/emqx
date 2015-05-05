@@ -32,7 +32,7 @@
  
 -export([match/2, validate/1, triples/1, words/1, wildcard/1]).
 
--export([systop/1]).
+-export([join/1, feed_var/3, is_queue/1, systop/1]).
 
 %-type type()   :: static | dynamic.
 
@@ -167,6 +167,16 @@ word(<<"#">>) -> '#';
 word(Bin)     -> Bin.
 
 %%------------------------------------------------------------------------------
+%% @doc Queue is a special topic name that starts with "$Q/"
+%% @end
+%%------------------------------------------------------------------------------
+-spec is_queue(binary()) -> boolean().
+is_queue(<<"$Q/", _Queue/binary>>) ->
+    true;
+is_queue(_) ->
+    false.
+
+%%------------------------------------------------------------------------------
 %% @doc '$SYS' Topic.
 %% @end
 %%------------------------------------------------------------------------------
@@ -176,4 +186,28 @@ systop(Name) when is_atom(Name) ->
 
 systop(Name) when is_binary(Name) ->
     list_to_binary(["$SYS/brokers/", atom_to_list(node()), "/", Name]).
+
+-spec feed_var(binary(), binary(), binary()) -> binary().
+feed_var(Var, Val, Topic) ->
+    feed_var(Var, Val, words(Topic), []).
+feed_var(_Var, _Val, [], Acc) ->
+    join(lists:reverse(Acc));
+feed_var(Var, Val, [Var|Words], Acc) ->
+    feed_var(Var, Val, Words, [Val|Acc]);
+feed_var(Var, Val, [W|Words], Acc) ->
+    feed_var(Var, Val, Words, [W|Acc]).
+
+-spec join(list(binary())) -> binary().
+join([]) ->
+    <<>>;
+join([W]) ->
+    bin(W);
+join(Words) ->
+    {_, Bin} =
+    lists:foldr(fun(W, {true, Tail}) ->
+                        {false, <<W/binary, Tail/binary>>};
+                   (W, {false, Tail}) ->
+                        {false, <<W/binary, "/", Tail/binary>>}
+                end, {true, <<>>}, [bin(W) || W <- Words]),
+    Bin.
 

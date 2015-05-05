@@ -56,7 +56,7 @@
 %% @end
 %%------------------------------------------------------------------------------
 start_link(Req) ->
-    PktOpts = emqttd:env(packet),
+    PktOpts = emqttd:env(mqtt, packet),
     {ReentryWs, ReplyChannel} = upgrade(Req),
     {ok, ClientPid} = gen_server:start_link(?MODULE, [self(), Req, ReplyChannel, PktOpts], []),
     ReentryWs(#wsocket_state{request      = Req,
