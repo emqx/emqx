@@ -7,6 +7,7 @@
 @for /F "delims=" %%I in ("%~dp0..") do @set node_root=%%~fI
 
 @set releases_dir=%node_root%\releases
+@set runner_etc_dir=%node_root%\etc
 
 @rem Parse ERTS version and release version from start_erl.data
 @for /F "usebackq tokens=1,2" %%I in ("%releases_dir%\start_erl.data") do @(
@@ -14,8 +15,8 @@
     @call :set_trim release_version %%J
 )
 
-@set vm_args=%releases_dir%\%release_version%\vm.args
-@set sys_config=%releases_dir%\%release_version%\sys.config
+@set vm_args=%runner_etc_dir%\vm.args
+@set sys_config=%runner_etc_dir%\emqttd.config
 @set node_boot_script=%releases_dir%\%release_version%\%node_name%
 @set clean_boot_script=%releases_dir%\%release_version%\start_clean
 
