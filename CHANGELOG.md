@@ -2,6 +2,12 @@
 emqttd ChangeLog
 ==================
 
+0.8.0-alpha (2015-05-16)
+-------------------------
+
+Improve: emqtt_topic module add join/1, feed_var/3, is_queue/1
+
+
 0.7.1-alpha (2015-05-04)
 -------------------------
 
