@@ -28,6 +28,11 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
+-export([handle_request/1]).
+
 %%TODO...
+
+handle_request(Req) ->
+    Req:ok("hello!").
 
 
