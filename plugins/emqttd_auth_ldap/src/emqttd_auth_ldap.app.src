@@ -1,23 +1,12 @@
 {application, emqttd_auth_ldap,
  [
-<<<<<<< HEAD
   {description, "emqttd LDA Authentication Plugin"},
   {vsn, "1.0"},
-=======
-  {description, ""},
-  {vsn, "1"},
->>>>>>> c6e92388798302ae3b44286f444505d1c385aba7
   {registered, []},
   {applications, [
                   kernel,
                   stdlib
                  ]},
-<<<<<<< HEAD
-  {mod, {emqttd_auth_ldap_app, []}},
-  {env, []}
-]}.
-=======
   {mod, { emqttd_auth_ldap_app, []}},
   {env, []}
  ]}.
->>>>>>> c6e92388798302ae3b44286f444505d1c385aba7
