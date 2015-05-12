@@ -1,11 +1,11 @@
-##  Overview
+
+## Overview
 
 Authentication with user table of MySQL database.
 
 ## etc/plugin.config
 
-```erlang
-[
+```
  {emysql, [
     {pool,      4},
     {host,      "localhost"},
@@ -24,7 +24,6 @@ Authentication with user table of MySQL database.
         {password, password}
     ]}
  ]}
-].
 ```
 
 ## Users Table(Demo)
