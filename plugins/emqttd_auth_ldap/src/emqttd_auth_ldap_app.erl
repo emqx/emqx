@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 %%%-----------------------------------------------------------------------------
 %%% Copyright (c) 2012-2015 eMQTT.IO, All Rights Reserved.
 %%%
@@ -21,7 +20,7 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% ldap authentication app.
+%%% LDAP Authentication APP.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
@@ -40,8 +39,8 @@
 %%%=============================================================================
 
 start(_StartType, _StartArgs) ->
-    Opts = application:get_all_env(emqttd_auth_ldap, ldap),
-    emqttd_access_control:register_mod(auth, emqttd_auth_ldap, Opts),
+    Env = application:get_all_env(emqttd_auth_ldap),
+    emqttd_access_control:register_mod(auth, emqttd_auth_ldap, Env),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 prep_stop(State) ->
@@ -51,31 +50,10 @@ stop(_State) ->
     ok.
 
 %%%=============================================================================
-%%% Supervisor callbacks
+%%% Supervisor callbacks(Dummy)
 %%%=============================================================================
 
 init([]) ->
     {ok, { {one_for_one, 5, 10}, []} }.
 
-=======
--module(emqttd_auth_ldap_app).
 
--behaviour(application).
-
-%% Application callbacks
--export([start/2, stop/1]).
-
-%% ===================================================================
-%% Application callbacks
-%% ===================================================================
-
-start(_StartType, _StartArgs) ->
-    {ok, Sup} = emqttd_auth_ldap_sup:start_link(),
-    Env = application:get_all_env(),
-    emqttd_access_control:register_mod(auth, emqttd_auth_ldap, Env),
-    {ok, Sup}.
-
-stop(_State) ->
-    emqttd_access_control:unregister_mod(auth, emqttd_auth_ldap),
-    ok.
->>>>>>> c6e92388798302ae3b44286f444505d1c385aba7

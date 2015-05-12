@@ -20,7 +20,7 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd authentication by mysql user table.
+%%% emqttd authentication by mysql 'user' table.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
@@ -34,22 +34,42 @@
 
 -export([init/1, check/3, description/0]).
 
--record(state, {user_tab}).
+-record(state, {user_table, name_field, pass_field, pass_hash}).
 
 init(Opts) -> 
-    UserTab = proplists:get_value(user_table, Opts, mqtt_users),
-    {ok, #state{user_tab = UserTab}}.
+    Mapper = proplists:get_value(field_mapper, Opts),
+    {ok, #state{user_table  = proplists:get_value(user_table, Opts, mqtt_users),
+                name_field = proplists:get_value(username, Mapper),
+                pass_field = proplists:get_value(password, Mapper),
+                pass_hash = proplists:get_value(Opts, password_hash)}}.
 
 check(#mqtt_client{username = undefined}, _Password, _State) ->
     {error, "Username undefined"};
 check(_Client, undefined, _State) ->
     {error, "Password undefined"};
-check(#mqtt_client{username = Username}, Password, #state{user_tab = UserTab}) ->
-    %%TODO: hash password...
-    case emysql:select(UserTab, {'and', {username, Username}, {password, Password}}) of
-        {ok, []} -> {error, "Username or Password not match"};
+check(#mqtt_client{username = Username}, Password,
+      #state{user_table = UserTab, pass_hash = Type,
+             name_field = NameField, pass_field = PassField}) ->
+    Where = {'and', {NameField, Username}, {PassField, hash(Type, Password)}},
+    case emysql:select(UserTab, Where) of
+        {ok, []} -> {error, "Username or Password "};
         {ok, _Record} -> ok
     end.
 
 description() -> "Authentication by MySQL".
+
+hash(plain, Password) ->
+    Password;
+
+hash(md5, Password) ->
+    hexstring(crypto:hash(md5, Password));
+
+hash(sha, Password) ->
+    hexstring(crypto:hash(sha, Password)).
+
+hexstring(<<X:128/big-unsigned-integer>>) ->
+    lists:flatten(io_lib:format("~32.16.0b", [X]));
+
+hexstring(<<X:160/big-unsigned-integer>>) ->
+    lists:flatten(io_lib:format("~40.16.0b", [X])).
 

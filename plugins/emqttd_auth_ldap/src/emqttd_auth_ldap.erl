@@ -20,11 +20,7 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-<<<<<<< HEAD
 %%% LDAP Authentication Module.
-=======
-%%% LDAP authentication module.
->>>>>>> c6e92388798302ae3b44286f444505d1c385aba7
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
@@ -38,7 +34,6 @@
 
 -export([init/1, check/3, description/0]).
 
-<<<<<<< HEAD
 -record(state, {servers, user_dn, options}).
 
 init(Opts) ->
@@ -91,11 +86,4 @@ fill(Username, UserDn) ->
             fun("$u") -> Username;
                 (S) -> S
             end, string:tokens(UserDn, ",="))).
-=======
-init(Opts) -> {ok, Opts}.
-
-check(_Client, _Password, _Opts) -> ingore.
-
-description() -> "LDAP authentication module".
->>>>>>> c6e92388798302ae3b44286f444505d1c385aba7
 

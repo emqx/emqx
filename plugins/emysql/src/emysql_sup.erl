@@ -21,7 +21,7 @@ start_link(Opts) ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, Opts).  
 
 init(Opts) ->
-    PoolSize = proplists:get_value(pool_size, Opts,
+    PoolSize = proplists:get_value(pool, Opts,
                                    erlang:system_info(schedulers)),
     {ok, {{one_for_one, 10, 10},
 		  [{emysql, {emysql, start_link, [PoolSize]}, transient,
@@ -31,3 +31,4 @@ init(Opts) ->
 		}
 	}.
 	
+
