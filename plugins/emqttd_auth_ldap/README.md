@@ -1,4 +1,3 @@
-
 ## Overview
 
 Authentication with LDAP.
@@ -16,7 +15,6 @@ Authentication with LDAP.
         {"certfile", "ssl.crt"},
         {"keyfile", "ssl.key"}]}
  ]}
-
 ```
 
 ## Load Plugin
