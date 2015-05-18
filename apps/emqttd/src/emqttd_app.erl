@@ -71,7 +71,7 @@ start_servers(Sup) ->
                {"emqttd trace", emqttd_trace},
                {"emqttd pooler", {supervisor, emqttd_pooler_sup}},
                {"emqttd client manager", {supervisor, emqttd_cm_sup}},
-               {"emqttd session manager", emqttd_sm},
+               {"emqttd session manager", {supervisor, emqttd_sm_sup}},
                {"emqttd session supervisor", {supervisor, emqttd_session_sup}},
                {"emqttd pubsub", {supervisor, emqttd_pubsub_sup}},
                {"emqttd stats", emqttd_stats},
