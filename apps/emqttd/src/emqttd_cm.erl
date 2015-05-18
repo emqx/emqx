@@ -41,7 +41,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {tab, statsfun}).
+-record(state, {id, tab, statsfun}).
 
 -define(POOL, cm_pool).
 
@@ -95,7 +95,7 @@ unregister(ClientId) when is_binary(ClientId) ->
 
 init([Id, TabId, StatsFun]) ->
     gproc_pool:connect_worker(?POOL, {?MODULE, Id}),
-    {ok, #state{tab = TabId, statsfun = StatsFun}}.
+    {ok, #state{id = Id, tab = TabId, statsfun = StatsFun}}.
 
 handle_call({register, ClientId, Pid}, _From, State = #state{tab = Tab}) ->
 	case ets:lookup(Tab, ClientId) of
@@ -138,8 +138,8 @@ handle_info({'DOWN', MRef, process, DownPid, _Reason}, State = #state{tab = TabI
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
-    ok.
+terminate(_Reason, #state{id = Id}) ->
+    gproc_pool:disconnect_worker(?POOL, {?MODULE, Id}), ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
