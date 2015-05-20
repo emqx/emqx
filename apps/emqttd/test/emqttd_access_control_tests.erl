@@ -43,7 +43,10 @@ register_mod_test() ->
         fun() ->
             emqttd_access_control:register_mod(acl, emqttd_acl_test_mod, []),
             ?assertMatch([{emqttd_acl_test_mod, _}, {emqttd_acl_internal, _}],
-                          emqttd_access_control:lookup_mods(acl))
+                          emqttd_access_control:lookup_mods(acl)),
+	    emqttd_access_control:register_mod(auth, emqttd_auth_anonymous_test_mod,[]),
+	    ?assertMatch([{emqttd_auth_anonymous_test_mod, _}, {emqttd_auth_anonymous, _}],
+                          emqttd_access_control:lookup_mods(auth))
         end).
 
 unregister_mod_test() ->
@@ -54,7 +57,15 @@ unregister_mod_test() ->
                           emqttd_access_control:lookup_mods(acl)),
             emqttd_access_control:unregister_mod(acl, emqttd_acl_test_mod),
             timer:sleep(5),
-            ?assertMatch([{emqttd_acl_internal, _}], emqttd_access_control:lookup_mods(acl))
+            ?assertMatch([{emqttd_acl_internal, _}], emqttd_access_control:lookup_mods(acl)),
+	
+	    emqttd_access_control:register_mod(auth, emqttd_auth_anonymous_test_mod,[]),
+	    ?assertMatch([{emqttd_auth_anonymous_test_mod, _}, {emqttd_auth_anonymous, _}],
+                          emqttd_access_control:lookup_mods(auth)),
+		
+	    emqttd_access_control:unregister_mod(auth, emqttd_auth_anonymous_test_mod),
+            timer:sleep(5),
+            ?assertMatch([{emqttd_auth_anonymous, _}], emqttd_access_control:lookup_mods(auth))
         end).
 
 check_acl_test() ->
@@ -64,7 +75,7 @@ check_acl_test() ->
             User2 = #mqtt_client{clientid = <<"client2">>, username = <<"xyz">>},
             ?assertEqual(allow, emqttd_access_control:check_acl(User1, subscribe, <<"users/testuser/1">>)),
 	    ?assertEqual(allow, emqttd_access_control:check_acl(User1, subscribe, <<"clients/client1">>)),
-	    %?assertEqual(deny, emqttd_access_control:check_acl(User1, subscribe, <<"clients/client1/x/y">>)),
+	    ?assertEqual(deny, emqttd_access_control:check_acl(User1, subscribe, <<"clients/client1/x/y">>)),
             ?assertEqual(allow, emqttd_access_control:check_acl(User1, publish, <<"users/testuser/1">>)),
             ?assertEqual(allow, emqttd_access_control:check_acl(User1, subscribe, <<"a/b/c">>)),
             ?assertEqual(deny, emqttd_access_control:check_acl(User2, subscribe, <<"a/b/c">>))
