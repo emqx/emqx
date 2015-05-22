@@ -33,7 +33,7 @@
 -define(SERVER, ?MODULE).
 
 %% API Exports 
--export([start_link/3]).
+-export([start_link/2, pool/0, table/0]).
 
 -export([lookup/1, register/1, unregister/1]).
 
@@ -43,7 +43,9 @@
 
 -record(state, {id, tab, statsfun}).
 
--define(POOL, cm_pool).
+-define(CM_POOL, cm_pool).
+
+-define(CLIENT_TAB, mqtt_client).
 
 %%%=============================================================================
 %%% API
@@ -53,12 +55,15 @@
 %% @doc Start client manager
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link(Id, TabId, StatsFun) -> {ok, pid()} | ignore | {error, any()} when
+-spec start_link(Id, StatsFun) -> {ok, pid()} | ignore | {error, any()} when
         Id :: pos_integer(),
-        TabId :: ets:tid(),
         StatsFun :: fun().
-start_link(Id, TabId, StatsFun) ->
-    gen_server:start_link(?MODULE, [Id, TabId, StatsFun], []).
+start_link(Id, StatsFun) ->
+    gen_server:start_link(?MODULE, [Id, StatsFun], []).
+
+pool() -> ?CM_POOL.
+
+table() -> ?CLIENT_TAB.
 
 %%------------------------------------------------------------------------------
 %% @doc Lookup client pid with clientId
@@ -66,7 +71,7 @@ start_link(Id, TabId, StatsFun) ->
 %%------------------------------------------------------------------------------
 -spec lookup(ClientId :: binary()) -> pid() | undefined.
 lookup(ClientId) when is_binary(ClientId) ->
-    case ets:lookup(emqttd_cm_sup:table(), ClientId) of
+    case ets:lookup(?CLIENT_TAB, ClientId) of
 	[{_, Pid, _}] -> Pid;
 	[] -> undefined
 	end.
@@ -77,7 +82,7 @@ lookup(ClientId) when is_binary(ClientId) ->
 %%------------------------------------------------------------------------------
 -spec register(ClientId :: binary()) -> ok.
 register(ClientId) when is_binary(ClientId) ->
-    CmPid = gproc_pool:pick_worker(?POOL, ClientId),
+    CmPid = gproc_pool:pick_worker(?CM_POOL, ClientId),
     gen_server:call(CmPid, {register, ClientId, self()}, infinity).
 
 %%------------------------------------------------------------------------------
@@ -86,19 +91,19 @@ register(ClientId) when is_binary(ClientId) ->
 %%------------------------------------------------------------------------------
 -spec unregister(ClientId :: binary()) -> ok.
 unregister(ClientId) when is_binary(ClientId) ->
-    CmPid = gproc_pool:pick_worker(?POOL, ClientId),
+    CmPid = gproc_pool:pick_worker(?CM_POOL, ClientId),
     gen_server:cast(CmPid, {unregister, ClientId, self()}).
 
 %%%=============================================================================
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([Id, TabId, StatsFun]) ->
-    gproc_pool:connect_worker(?POOL, {?MODULE, Id}),
-    {ok, #state{id = Id, tab = TabId, statsfun = StatsFun}}.
+init([Id, StatsFun]) ->
+    gproc_pool:connect_worker(?CM_POOL, {?MODULE, Id}),
+    {ok, #state{id = Id, statsfun = StatsFun}}.
 
-handle_call({register, ClientId, Pid}, _From, State = #state{tab = Tab}) ->
-	case ets:lookup(Tab, ClientId) of
+handle_call({register, ClientId, Pid}, _From, State) ->
+	case ets:lookup(?CLIENT_TAB, ClientId) of
         [{_, Pid, _}] ->
 			lager:error("clientId '~s' has been registered with ~p", [ClientId, Pid]),
             ignore;
@@ -106,9 +111,9 @@ handle_call({register, ClientId, Pid}, _From, State = #state{tab = Tab}) ->
 			lager:error("clientId '~s' is duplicated: pid=~p, oldpid=~p", [ClientId, Pid, OldPid]),
 			OldPid ! {stop, duplicate_id, Pid},
 			erlang:demonitor(MRef),
-            ets:insert(Tab, {ClientId, Pid, erlang:monitor(process, Pid)});
+            ets:insert(?CLIENT_TAB, {ClientId, Pid, erlang:monitor(process, Pid)});
 		[] -> 
-            ets:insert(Tab, {ClientId, Pid, erlang:monitor(process, Pid)})
+            ets:insert(?CLIENT_TAB, {ClientId, Pid, erlang:monitor(process, Pid)})
 	end,
     {reply, ok, setstats(State)};
 
@@ -116,11 +121,11 @@ handle_call(Req, _From, State) ->
     lager:error("unexpected request: ~p", [Req]),
     {reply, {error, badreq}, State}.
 
-handle_cast({unregister, ClientId, Pid}, State = #state{tab = TabId}) ->
-	case ets:lookup(TabId, ClientId) of
+handle_cast({unregister, ClientId, Pid}, State) ->
+	case ets:lookup(?CLIENT_TAB, ClientId) of
 	[{_, Pid, MRef}] ->
 		erlang:demonitor(MRef, [flush]),
-		ets:delete(TabId, ClientId);
+		ets:delete(?CLIENT_TAB, ClientId);
 	[_] -> 
 		ignore;
 	[] ->
@@ -131,15 +136,15 @@ handle_cast({unregister, ClientId, Pid}, State = #state{tab = TabId}) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'DOWN', MRef, process, DownPid, _Reason}, State = #state{tab = TabId}) ->
-	ets:match_delete(TabId, {'_', DownPid, MRef}),
+handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
+	ets:match_delete(?CLIENT_TAB, {'_', DownPid, MRef}),
     {noreply, setstats(State)};
 
 handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{id = Id}) ->
-    gproc_pool:disconnect_worker(?POOL, {?MODULE, Id}), ok.
+    gproc_pool:disconnect_worker(?CM_POOL, {?MODULE, Id}), ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -148,6 +153,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%=============================================================================
 
-setstats(State = #state{tab = TabId, statsfun = StatsFun}) ->
-    StatsFun(ets:info(TabId, size)), State.
+setstats(State = #state{statsfun = StatsFun}) ->
+    StatsFun(ets:info(?CLIENT_TAB, size)), State.
 
