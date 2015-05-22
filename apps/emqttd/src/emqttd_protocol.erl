@@ -217,7 +217,7 @@ handle(?SUBSCRIBE_PACKET(PacketId, TopicTable), State = #proto_state{clientid = 
             send(?SUBACK_PACKET(PacketId, GrantedQos), State#proto_state{session = NewSession})
     end;
 
-handle({subscribe, Topic, Qos}, State = #proto_state{clientid = ClientId, session = Session}) ->
+handle({subscribe, Topic, Qos}, State = #proto_state{session = Session}) ->
     {ok, NewSession, _GrantedQos} = emqttd_session:subscribe(Session, [{Topic, Qos}]),
     {ok, State#proto_state{session = NewSession}};
 
@@ -300,12 +300,8 @@ send_willmsg(ClientId, WillMsg) ->
 
 %%TODO: will be fixed in 0.8
 force_subscribe(ClientId) ->
-    case emqttd_broker:env(forced_subscriptions) of
-        undefined ->
-            ingore;
-        Topics ->
-            [force_subscribe(ClientId, {Topic, Qos}) || {Topic, Qos} <- Topics]
-    end.
+    [force_subscribe(ClientId, {Topic, Qos}) || {Topic, Qos} <- 
+        proplists:get_value(forced_subscriptions, emqttd:env(mqtt, client), [])].
 
 force_subscribe(ClientId, {Topic, Qos}) when is_list(Topic) ->
     force_subscribe(ClientId, {list_to_binary(Topic), Qos});
@@ -315,6 +311,7 @@ force_subscribe(ClientId, {Topic, Qos}) when is_binary(Topic) ->
     self() ! {force_subscribe, Topic1, Qos}.
 
 start_keepalive(0) -> ignore;
+
 start_keepalive(Sec) when Sec > 0 ->
     self() ! {keepalive, start, round(Sec * 1.5)}.
 
