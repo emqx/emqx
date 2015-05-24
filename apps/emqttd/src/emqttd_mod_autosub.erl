@@ -37,7 +37,8 @@
 
 load(Opts) ->
     Topics = [{list_to_binary(Topic), Qos} || {Topic, Qos} <- Opts, 0 =< Qos, Qos =< 2],
-    emqttd_broker:hook(client_connected, {?MODULE, subscribe, [Topics]}),
+    emqttd_broker:hook(client_connected, {?MODULE, subscribe},
+                       {?MODULE, subscribe, [Topics]}),
     {ok, #state{topics = Topics}}.
 
 subscribe({Client, ClientId}, Topics) ->
@@ -46,5 +47,4 @@ subscribe({Client, ClientId}, Topics) ->
 
 unload(_Opts) ->
     emqttd_broker:unhook(client_connected, {?MODULE, subscribe}).
-
 

@@ -31,18 +31,52 @@
 
 -behaviour(emqttd_gen_mod).
 
--export([load/1, rewrite/1, unload/1]).
+-export([load/1, reload/1, unload/1]).
+
+-export([rewrite/2]).
+
+%%%=============================================================================
+%%% API
+%%%=============================================================================
 
 load(Opts) ->
-    ok.
+    File = proplists:get_value(file, Opts),
+    Sections = compile(file:consult(File)),
+    emqttd_broker:hook(client_subscribe, {?MODULE, rewrite_subscribe}, 
+                       {?MODULE, rewrite, [subscribe, Sections]}),
+    emqttd_broker:hook(client_unsubscribe, {?MODULE, rewrite_unsubscribe},
+                       {?MODULE, rewrite_unsubscribe, [unsubscribe, Sections]}),
+    emqttd_broker:hook(client_publish, {?MODULE, rewrite_publish},
+                       {?MODULE, rewrite_publish, [publish, Sections]}).
 
-rewrite(Topic) ->
-    Topic.
+rewrite(TopicTable, [subscribe, _Sections]) ->
+    lager:info("Rewrite Subscribe: ~p", [TopicTable]),
+    TopicTable;
 
-reload(Opts) ->
-    ok.
+rewrite(Topics, [unsubscribe, _Sections]) ->
+    lager:info("Rewrite Unsubscribe: ~p", [Topics]),
+    Topics;
+
+rewrite(Message, [publish, _Sections]) ->
+    Message.
+
+reload(File) ->
+    %%TODO: The unload api is not right...
+    unload(state), load([{file, File}]).
             
-unload(_Opts) ->
-    ok.
+unload(_) ->
+    emqttd_broker:unhook(client_subscribe, {?MODULE, rewrite_subscribe}),
+    emqttd_broker:unhook(client_unsubscribe, {?MODULE, rewrite_unsubscribe}),
+    emqttd_broker:unhook(client_publish, {?MODULE, rewrite_publish}).
 
+%%%=============================================================================
+%%% Internal functions
+%%%=============================================================================
+
+compile(Sections) ->
+    C = fun({rewrite, Re, Dest}) ->
+           {ok, MP} = re:compile(Re),
+           {rewrite, MP, Dest}
+    end,
+    [{topic, Topic, [C(R) || R <- Rules]} || {topic, Topic, Rules} <- Sections].
 
