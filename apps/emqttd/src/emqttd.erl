@@ -32,7 +32,7 @@
          open_listeners/1, close_listeners/1,
          load_all_plugins/0, unload_all_plugins/0,
          load_plugin/1, unload_plugin/1,
-         load_all_mods/0,
+         load_all_mods/0, is_mod_enabled/1,
          loaded_plugins/0,
          is_running/1]).
 
@@ -210,6 +210,9 @@ load_all_mods() ->
         Mod:load(Opts),
         lager:info("load module ~s successfully", [Name])
     end, Mods).
+
+is_mod_enabled(Name) ->
+    env(modules, Name) =/= undefined.
 
 %%------------------------------------------------------------------------------
 %% @doc Is running?

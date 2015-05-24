@@ -41,7 +41,8 @@
 
 load(Opts) ->
     File = proplists:get_value(file, Opts),
-    Sections = compile(file:consult(File)),
+    {ok, Terms} = file:consult(File),
+    Sections = compile(Terms),
     emqttd_broker:hook(client_subscribe, {?MODULE, rewrite_subscribe}, 
                        {?MODULE, rewrite, [subscribe, Sections]}),
     emqttd_broker:hook(client_unsubscribe, {?MODULE, rewrite_unsubscribe},

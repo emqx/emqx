@@ -137,7 +137,7 @@ handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peername = Peername =
                     %% Start keepalive
                     start_keepalive(KeepAlive),
                     %% Run hooks
-                    emqttd_broker:run_hooks(client_connected, [{self(), ClientId1}]),
+                    emqttd_broker:foreach_hooks(client_connected, [{self(), ClientId1}]),
                     {?CONNACK_ACCEPT, State1#proto_state{clientid  = ClientId1,
                                                          session = Session,
                                                          will_msg   = willmsg(Var)}};
