@@ -134,10 +134,10 @@ handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peername = Peername =
                     emqttd_cm:register(ClientId1),
                     %%Starting session
                     {ok, Session} = emqttd_session:start({CleanSess, ClientId1, self()}),
-                    %% Force subscriptions
-                    force_subscribe(ClientId1),
                     %% Start keepalive
                     start_keepalive(KeepAlive),
+                    %% Run hooks
+                    emqttd_broker:run_hooks(client_connected, [{self(), ClientId1}]),
                     {?CONNACK_ACCEPT, State1#proto_state{clientid  = ClientId1,
                                                          session = Session,
                                                          will_msg   = willmsg(Var)}};
@@ -297,18 +297,6 @@ send_willmsg(_ClientId, undefined) ->
 %%TODO:should call session...
 send_willmsg(ClientId, WillMsg) -> 
     emqttd_pubsub:publish(ClientId, WillMsg).
-
-%%TODO: will be fixed in 0.8
-force_subscribe(ClientId) ->
-    [force_subscribe(ClientId, {Topic, Qos}) || {Topic, Qos} <- 
-        proplists:get_value(forced_subscriptions, emqttd:env(mqtt, client), [])].
-
-force_subscribe(ClientId, {Topic, Qos}) when is_list(Topic) ->
-    force_subscribe(ClientId, {list_to_binary(Topic), Qos});
-
-force_subscribe(ClientId, {Topic, Qos}) when is_binary(Topic) ->
-    Topic1 = emqtt_topic:feed_var(<<"$c">>, ClientId, Topic),
-    self() ! {force_subscribe, Topic1, Qos}.
 
 start_keepalive(0) -> ignore;
 

@@ -32,6 +32,7 @@
          open_listeners/1, close_listeners/1,
          load_all_plugins/0, unload_all_plugins/0,
          load_plugin/1, unload_plugin/1,
+         load_all_mods/0,
          loaded_plugins/0,
          is_running/1]).
 
@@ -201,6 +202,14 @@ unload_app(App) ->
         {error, Reason} ->
             lager:error("unload plugin ~p error: ~p", [App, Reason]), {error, Reason}
     end.
+
+load_all_mods() ->
+    Mods = application:get_env(emqttd, modules, []),
+    lists:foreach(fun({Name, Opts}) -> 
+        Mod = list_to_atom("emqttd_mod_" ++ atom_to_list(Name)),
+        Mod:load(Opts),
+        lager:info("load module ~s successfully", [Name])
+    end, Mods).
 
 %%------------------------------------------------------------------------------
 %% @doc Is running?

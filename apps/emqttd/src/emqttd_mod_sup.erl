@@ -20,11 +20,11 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd supervisor.
+%%% emqttd module supervisor.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_sup).
+-module(emqttd_mod_sup).
 
 -author("Feng Lee <feng@emqtt.io>").
 
@@ -63,5 +63,5 @@ start_child(Mod, Type) when is_atom(Mod) and is_atom(Type) ->
 %%%=============================================================================
 
 init([]) ->
-    {ok, {{one_for_all, 10, 3600}, []}}.
+    {ok, {{one_for_one, 10, 3600}, []}}.
 

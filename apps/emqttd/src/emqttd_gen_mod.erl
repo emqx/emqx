@@ -20,48 +20,30 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd supervisor.
+%%% emqttd gen_mod behaviour
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_sup).
+-module(emqttd_gen_mod).
 
 -author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
--behaviour(supervisor).
+-ifdef(use_specs).
 
-%% API
--export([start_link/0, start_child/1, start_child/2]).
+-callback load(Opts :: any()) -> {ok, State :: any()}.
 
-%% Supervisor callbacks
--export([init/1]).
+-callback unload(State :: any()) -> any().
 
-%% Helper macro for declaring children of supervisor
--define(CHILD(Mod, Type), {Mod, {Mod, start_link, []}, permanent, 5000, Type, [Mod]}).
+-else.
 
-%%%=============================================================================
-%%% API
-%%%=============================================================================
+-export([behaviour_info/1]).
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+behaviour_info(callbacks) ->
+        [{load, 1}, {unload, 1}];
+behaviour_info(_Other) ->
+        undefined.
 
-start_child(ChildSpec) when is_tuple(ChildSpec) ->
-	supervisor:start_child(?MODULE, ChildSpec).
-
-%%
-%% start_child(Mod::atom(), Type::type()) -> {ok, pid()}
-%% @type type() = worker | supervisor
-%%
-start_child(Mod, Type) when is_atom(Mod) and is_atom(Type) ->
-	supervisor:start_child(?MODULE, ?CHILD(Mod, Type)).
-
-%%%=============================================================================
-%%% Supervisor callbacks
-%%%=============================================================================
-
-init([]) ->
-    {ok, {{one_for_all, 10, 3600}, []}}.
+-endif.
 

@@ -20,48 +20,31 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd supervisor.
+%%% emqttd auto subscribe module.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_sup).
+
+-module(emqttd_mod_autosub).
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include("emqttd.hrl").
+-behaviour(emqttd_gen_mod).
 
--behaviour(supervisor).
+-export([load/1, subscribe/2, unload/1]).
 
-%% API
--export([start_link/0, start_child/1, start_child/2]).
+-record(state, {topics}).
 
-%% Supervisor callbacks
--export([init/1]).
+load(Opts) ->
+    Topics = [{list_to_binary(Topic), Qos} || {Topic, Qos} <- Opts, 0 =< Qos, Qos =< 2],
+    emqttd_broker:hook(client_connected, {?MODULE, subscribe, [Topics]}),
+    {ok, #state{topics = Topics}}.
 
-%% Helper macro for declaring children of supervisor
--define(CHILD(Mod, Type), {Mod, {Mod, start_link, []}, permanent, 5000, Type, [Mod]}).
+subscribe({Client, ClientId}, Topics) ->
+    F = fun(Topic) -> emqtt_topic:feed_var(<<"$c">>, ClientId, Topic) end,
+    [Client ! {subscribe, F(Topic), Qos} || {Topic, Qos} <- Topics].
 
-%%%=============================================================================
-%%% API
-%%%=============================================================================
+unload(_Opts) ->
+    emqttd_broker:unhook(client_connected, {?MODULE, subscribe}).
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-start_child(ChildSpec) when is_tuple(ChildSpec) ->
-	supervisor:start_child(?MODULE, ChildSpec).
-
-%%
-%% start_child(Mod::atom(), Type::type()) -> {ok, pid()}
-%% @type type() = worker | supervisor
-%%
-start_child(Mod, Type) when is_atom(Mod) and is_atom(Type) ->
-	supervisor:start_child(?MODULE, ?CHILD(Mod, Type)).
-
-%%%=============================================================================
-%%% Supervisor callbacks
-%%%=============================================================================
-
-init([]) ->
-    {ok, {{one_for_all, 10, 3600}, []}}.
 
