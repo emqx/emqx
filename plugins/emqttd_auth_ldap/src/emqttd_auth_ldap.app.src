@@ -1,6 +1,6 @@
 {application, emqttd_auth_ldap,
  [
-  {description, "emqttd LDA Authentication Plugin"},
+  {description, "emqttd LDAP Authentication Plugin"},
   {vsn, "1.0"},
   {registered, []},
   {applications, [

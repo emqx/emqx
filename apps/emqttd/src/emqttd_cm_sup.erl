@@ -33,30 +33,26 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, table/0]).
+-export([start_link/0]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
--define(CLIENT_TAB, mqtt_client).
-
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-table() -> ?CLIENT_TAB.
-
 init([]) ->
-    TabId = ets:new(?CLIENT_TAB, [set, named_table, public,
-                                  {write_concurrency, true}]),
+    ets:new(emqttd_cm:table(), [set, named_table, public,
+                                {write_concurrency, true}]),
     Schedulers = erlang:system_info(schedulers),
-    gproc_pool:new(cm_pool, hash, [{size, Schedulers}]),
+    gproc_pool:new(emqttd_cm:pool(), hash, [{size, Schedulers}]),
     StatsFun = emqttd_stats:statsfun('clients/count', 'clients/max'),
     Children = lists:map(
                  fun(I) ->
                     Name = {emqttd_cm, I},
-                    gproc_pool:add_worker(cm_pool, Name, I),
-                    {Name, {emqttd_cm, start_link, [I, TabId, StatsFun]},
-                        permanent, 10000, worker, [emqttd_cm]}
+                    gproc_pool:add_worker(emqttd_cm:pool(), Name, I),
+                    {Name, {emqttd_cm, start_link, [I, StatsFun]},
+                                permanent, 10000, worker, [emqttd_cm]}
                  end, lists:seq(1, Schedulers)),
     {ok, {{one_for_all, 10, 100}, Children}}.
 

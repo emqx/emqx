@@ -44,10 +44,8 @@
 
 -behaviour(gen_server).
 
--define(SERVER, ?MODULE).
-
 %% API Function Exports
--export([start_link/0]).
+-export([start_link/2, pool/0, table/0]).
 
 -export([lookup_session/1, start_session/2, destroy_session/1]).
 
@@ -55,16 +53,37 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {tabid, statsfun}).
+-record(state, {id, tabid, statsfun}).
+
+-define(SM_POOL, sm_pool).
 
 -define(SESSION_TAB, mqtt_session).
 
 %%%=============================================================================
 %%% API
 %%%=============================================================================
--spec start_link() -> {ok, pid()} | ignore | {error, any()}.
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+%%------------------------------------------------------------------------------
+%% @doc Start a session manager
+%% @end
+%%------------------------------------------------------------------------------
+-spec start_link(Id, StatsFun) -> {ok, pid()} | ignore | {error, any()} when
+        Id :: pos_integer(),
+        StatsFun :: fun().
+start_link(Id, StatsFun) ->
+    gen_server:start_link(?MODULE, [Id, StatsFun], []).
+
+%%------------------------------------------------------------------------------
+%% @doc Pool name.
+%% @end
+%%------------------------------------------------------------------------------
+pool() -> ?SM_POOL.
+
+%%------------------------------------------------------------------------------
+%% @doc Table name.
+%% @end
+%%------------------------------------------------------------------------------
+table() -> ?SESSION_TAB.
 
 %%------------------------------------------------------------------------------
 %% @doc Lookup Session Pid
@@ -72,7 +91,7 @@ start_link() ->
 %%------------------------------------------------------------------------------
 -spec lookup_session(binary()) -> pid() | undefined.
 lookup_session(ClientId) ->
-    case ets:lookup(?SESSION_TAB, ClientId) of
+    case ets:lookup(emqttd_sm_sup:table(), ClientId) of
         [{_, SessPid, _}] ->  SessPid;
         [] -> undefined
     end.
@@ -83,7 +102,8 @@ lookup_session(ClientId) ->
 %%------------------------------------------------------------------------------
 -spec start_session(binary(), pid()) -> {ok, pid()} | {error, any()}.
 start_session(ClientId, ClientPid) ->
-    gen_server:call(?SERVER, {start_session, ClientId, ClientPid}).
+    SmPid = gproc_pool:pick_worker(?SM_POOL, ClientId),
+    gen_server:call(SmPid, {start_session, ClientId, ClientPid}).
 
 %%------------------------------------------------------------------------------
 %% @doc Destroy a session
@@ -91,29 +111,27 @@ start_session(ClientId, ClientPid) ->
 %%------------------------------------------------------------------------------
 -spec destroy_session(binary()) -> ok.
 destroy_session(ClientId) ->
-    gen_server:call(?SERVER, {destroy_session, ClientId}).
+    SmPid = gproc_pool:pick_worker(?SM_POOL, ClientId),
+    gen_server:call(SmPid, {destroy_session, ClientId}).
 
 %%%=============================================================================
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([]) ->
-    process_flag(trap_exit, true),
-    TabId = ets:new(?SESSION_TAB, [set, protected, named_table]),
-    StatsFun = emqttd_stats:statsfun('sessions/count', 'sessions/max'),
-    {ok, #state{tabid = TabId, statsfun = StatsFun}}.
+init([Id, StatsFun]) ->
+    gproc_pool:connect_worker(?SM_POOL, {?MODULE, Id}),
+    {ok, #state{id = Id, statsfun = StatsFun}}.
 
-handle_call({start_session, ClientId, ClientPid}, _From, State = #state{tabid = Tab}) ->
+handle_call({start_session, ClientId, ClientPid}, _From, State) ->
     Reply =
-    case ets:lookup(Tab, ClientId) of
+    case ets:lookup(?SESSION_TAB, ClientId) of
         [{_, SessPid, _MRef}] ->
             emqttd_session:resume(SessPid, ClientId, ClientPid), 
             {ok, SessPid};
         [] ->
             case emqttd_session_sup:start_session(ClientId, ClientPid) of
             {ok, SessPid} -> 
-                ets:insert(Tab, {ClientId, SessPid,
-                                 erlang:monitor(process, SessPid)}),
+                ets:insert(?SESSION_TAB, {ClientId, SessPid, erlang:monitor(process, SessPid)}),
                 {ok, SessPid};
             {error, Error} ->
                 {error, Error}
@@ -121,12 +139,12 @@ handle_call({start_session, ClientId, ClientPid}, _From, State = #state{tabid = 
     end,
     {reply, Reply, setstats(State)};
 
-handle_call({destroy_session, ClientId}, _From, State = #state{tabid = Tab}) ->
-    case ets:lookup(Tab, ClientId) of
+handle_call({destroy_session, ClientId}, _From, State) ->
+    case ets:lookup(?SESSION_TAB, ClientId) of
         [{_, SessPid, MRef}] ->
             emqttd_session:destroy(SessPid, ClientId),
             erlang:demonitor(MRef, [flush]),
-            ets:delete(Tab, ClientId);
+            ets:delete(?SESSION_TAB, ClientId);
         [] ->
             ignore
     end,
@@ -145,8 +163,8 @@ handle_info({'DOWN', MRef, process, DownPid, _Reason}, State = #state{tabid = Ta
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
-    ok.
+terminate(_Reason, #state{id = Id}) ->
+    gproc_pool:disconnect_worker(?SM_POOL, {?MODULE, Id}), ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

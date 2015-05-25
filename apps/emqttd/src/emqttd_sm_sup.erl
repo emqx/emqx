@@ -20,39 +20,40 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% LDAP Authentication Plugin.
+%%% emqttd client manager supervisor.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_auth_ldap_app).
+-module(emqttd_sm_sup).
 
--behaviour(application).
-%% Application callbacks
--export([start/2, prep_stop/1, stop/1]).
+-author("Feng Lee <feng@emqtt.io>").
+
+-include("emqttd.hrl").
+
+%% API
+-export([start_link/0]).
 
 -behaviour(supervisor).
+
 %% Supervisor callbacks
 -export([init/1]).
 
-%%%=============================================================================
-%%% Application callbacks
-%%%=============================================================================
-
-start(_StartType, _StartArgs) ->
-    Env = application:get_all_env(emqttd_auth_ldap),
-    emqttd_access_control:register_mod(auth, emqttd_auth_ldap, Env),
+start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-prep_stop(State) ->
-    emqttd_access_control:unregister_mod(auth, emqttd_auth_ldap), State.
-
-stop(_State) ->
-    ok.
-
-%%%=============================================================================
-%%% Supervisor callbacks(Dummy)
-%%%=============================================================================
-
 init([]) ->
-    {ok, { {one_for_one, 5, 10}, []} }.
+    ets:new(emqttd_sm:table(), [set, named_table, public,
+                                {write_concurrency, true}]),
+    Schedulers = erlang:system_info(schedulers),
+    gproc_pool:new(emqttd_sm:pool(), hash, [{size, Schedulers}]),
+    StatsFun = emqttd_stats:statsfun('sessions/count', 'sessions/max'),
+    Children = lists:map(
+                 fun(I) ->
+                    Name = {emqttd_sm, I},
+                    gproc_pool:add_worker(emqttd_sm:pool(), Name, I),
+                    {Name, {emqttd_sm, start_link, [I, StatsFun]},
+                                permanent, 10000, worker, [emqttd_sm]}
+                 end, lists:seq(1, Schedulers)),
+    {ok, {{one_for_all, 10, 100}, Children}}.
+
 

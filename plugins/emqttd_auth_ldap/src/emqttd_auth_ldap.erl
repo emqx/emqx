@@ -30,6 +30,8 @@
 
 -include_lib("emqttd/include/emqttd.hrl").
 
+-import(proplists, [get_value/2, get_value/3]).
+
 -behaviour(emqttd_auth_mod).
 
 -export([init/1, check/3, description/0]).
@@ -37,14 +39,14 @@
 -record(state, {servers, user_dn, options}).
 
 init(Opts) ->
-    Servers = proplists:get_value(servers, Opts, ["localhost"]),
-    Port = proplists:get_value(port, Opts, 389),
-    Timeout = proplists:get_value(timeout, Opts, 30),
-    UserDn = proplists:get_value(user_dn, Opts),
+    Servers = get_value(servers, Opts, ["localhost"]),
+    Port    = get_value(port, Opts, 389),
+    Timeout = get_value(timeout, Opts, 30),
+    UserDn  = get_value(user_dn, Opts),
     LdapOpts =
-    case proplists:get_value(ssl, Opts, false) of
+    case get_value(ssl, Opts, false) of
         true -> 
-            SslOpts = proplists:get_value(sslopts, Opts),
+            SslOpts = get_value(sslopts, Opts),
             [{port, Port}, {timeout, Timeout}, {sslopts, SslOpts}];
         false ->
             [{port, Port}, {timeout, Timeout}]
@@ -67,8 +69,6 @@ check(#mqtt_client{username = Username}, Password,
             {error, Reason}
     end.
 
-description() -> "LDAP Authentication Module".
-
 ldap_bind(LDAP, UserDn, Password) ->
     case catch eldap:simple_bind(LDAP, UserDn, Password) of
         ok ->
@@ -86,4 +86,7 @@ fill(Username, UserDn) ->
             fun("$u") -> Username;
                 (S) -> S
             end, string:tokens(UserDn, ",="))).
+
+description() -> 
+    "LDAP Authentication Module".
 

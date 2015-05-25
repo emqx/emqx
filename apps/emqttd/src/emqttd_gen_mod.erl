@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @Copyright (C) 2012-2015, Feng Lee <feng@emqtt.io>
+%%% Copyright (c) 2012-2015 eMQTT.IO, All Rights Reserved.
 %%%
 %%% Permission is hereby granted, free of charge, to any person obtaining a copy
 %%% of this software and associated documentation files (the "Software"), to deal
@@ -20,26 +20,30 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd demo acl module.
+%%% emqttd gen_mod behaviour
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_plugin_demo_acl).
+-module(emqttd_gen_mod).
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include_lib("emqttd/include/emqttd.hrl").
+-include("emqttd.hrl").
 
--behaviour(emqttd_acl_mod).
+-ifdef(use_specs).
 
-%% ACL callbacks
--export([init/1, check_acl/2, reload_acl/1, description/0]).
+-callback load(Opts :: any()) -> {ok, State :: any()}.
 
-init(Opts) -> {ok, Opts}.
+-callback unload(State :: any()) -> any().
 
-check_acl({_Client, _PubSub, _Topic}, _State) -> ignore.
+-else.
 
-reload_acl(_State) -> ok.
+-export([behaviour_info/1]).
 
-description() -> "Demo ACL Module".
+behaviour_info(callbacks) ->
+        [{load, 1}, {unload, 1}];
+behaviour_info(_Other) ->
+        undefined.
+
+-endif.
 

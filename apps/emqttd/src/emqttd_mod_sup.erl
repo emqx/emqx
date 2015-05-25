@@ -20,39 +20,48 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% LDAP Authentication Plugin.
+%%% emqttd module supervisor.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_auth_ldap_app).
+-module(emqttd_mod_sup).
 
--behaviour(application).
-%% Application callbacks
--export([start/2, prep_stop/1, stop/1]).
+-author("Feng Lee <feng@emqtt.io>").
+
+-include("emqttd.hrl").
 
 -behaviour(supervisor).
+
+%% API
+-export([start_link/0, start_child/1, start_child/2]).
+
 %% Supervisor callbacks
 -export([init/1]).
 
+%% Helper macro for declaring children of supervisor
+-define(CHILD(Mod, Type), {Mod, {Mod, start_link, []}, permanent, 5000, Type, [Mod]}).
+
 %%%=============================================================================
-%%% Application callbacks
+%%% API
 %%%=============================================================================
 
-start(_StartType, _StartArgs) ->
-    Env = application:get_all_env(emqttd_auth_ldap),
-    emqttd_access_control:register_mod(auth, emqttd_auth_ldap, Env),
+start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-prep_stop(State) ->
-    emqttd_access_control:unregister_mod(auth, emqttd_auth_ldap), State.
+start_child(ChildSpec) when is_tuple(ChildSpec) ->
+	supervisor:start_child(?MODULE, ChildSpec).
 
-stop(_State) ->
-    ok.
+%%
+%% start_child(Mod::atom(), Type::type()) -> {ok, pid()}
+%% @type type() = worker | supervisor
+%%
+start_child(Mod, Type) when is_atom(Mod) and is_atom(Type) ->
+	supervisor:start_child(?MODULE, ?CHILD(Mod, Type)).
 
 %%%=============================================================================
-%%% Supervisor callbacks(Dummy)
+%%% Supervisor callbacks
 %%%=============================================================================
 
 init([]) ->
-    {ok, { {one_for_one, 5, 10}, []} }.
+    {ok, {{one_for_one, 10, 3600}, []}}.
 

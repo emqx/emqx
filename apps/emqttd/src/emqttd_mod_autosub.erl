@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @Copyright (C) 2012-2015, Feng Lee <feng@emqtt.io>
+%%% Copyright (c) 2012-2015 eMQTT.IO, All Rights Reserved.
 %%%
 %%% Permission is hereby granted, free of charge, to any person obtaining a copy
 %%% of this software and associated documentation files (the "Software"), to deal
@@ -20,23 +20,31 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd demo auth module.
+%%% emqttd auto subscribe module.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_plugin_demo_auth).
+
+-module(emqttd_mod_autosub).
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include_lib("emqttd/include/emqttd.hrl").
+-behaviour(emqttd_gen_mod).
 
--behaviour(emqttd_auth_mod).
+-export([load/1, subscribe/2, unload/1]).
 
--export([init/1, check/3, description/0]).
+-record(state, {topics}).
 
-init(Opts) -> {ok, Opts}.
+load(Opts) ->
+    Topics = [{list_to_binary(Topic), Qos} || {Topic, Qos} <- Opts, 0 =< Qos, Qos =< 2],
+    emqttd_broker:hook(client_connected, {?MODULE, subscribe},
+                       {?MODULE, subscribe, [Topics]}),
+    {ok, #state{topics = Topics}}.
 
-check(_Client, _Password, _Opts) -> ignore.
+subscribe({Client, ClientId}, Topics) ->
+    F = fun(Topic) -> emqtt_topic:feed_var(<<"$c">>, ClientId, Topic) end,
+    [Client ! {subscribe, F(Topic), Qos} || {Topic, Qos} <- Topics].
 
-description() -> "Demo authentication module".
+unload(_Opts) ->
+    emqttd_broker:unhook(client_connected, {?MODULE, subscribe}).
 
