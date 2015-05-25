@@ -158,7 +158,7 @@ handle(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload),
        State = #proto_state{clientid = ClientId, session = Session}) ->
     case check_acl(publish, Topic, State) of
         allow -> 
-            emqttd_session:publish(Session, ClientId, {?QOS_0, emqtt_message:from_packet(Packet)});
+            do_publish(Session, ClientId, ?QOS_0, Packet);
         deny -> 
             lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic])
     end,
@@ -168,7 +168,7 @@ handle(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload),
          State = #proto_state{clientid = ClientId, session = Session}) ->
     case check_acl(publish, Topic, State) of
         allow -> 
-            emqttd_session:publish(Session, ClientId, {?QOS_1, emqtt_message:from_packet(Packet)}),
+            do_publish(Session, ClientId, ?QOS_1, Packet),
             send(?PUBACK_PACKET(?PUBACK, PacketId), State);
         deny -> 
             lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic]),
@@ -179,7 +179,7 @@ handle(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload),
          State = #proto_state{clientid = ClientId, session = Session}) ->
     case check_acl(publish, Topic, State) of
         allow -> 
-            NewSession = emqttd_session:publish(Session, ClientId, {?QOS_2, emqtt_message:from_packet(Packet)}),
+            NewSession = do_publish(Session, ClientId, ?QOS_2, Packet), 
             send(?PUBACK_PACKET(?PUBREC, PacketId), State#proto_state{session = NewSession});
         deny -> 
             lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic]),
@@ -238,6 +238,10 @@ handle(?PACKET(?DISCONNECT), State) ->
     %%TODO: how to handle session?
     % clean willmsg
     {stop, normal, State#proto_state{will_msg = undefined}}.
+
+do_publish(Session, ClientId, Qos, Packet) ->
+    Message = emqttd_broker:foldl_hooks(client_publish, [], emqtt_message:from_packet(Packet)),
+    emqttd_session:publish(Session, ClientId, {Qos, Message}).
 
 -spec send({pid() | tuple(), mqtt_message()} | mqtt_packet(), proto_state()) -> {ok, proto_state()}.
 %% qos0 message

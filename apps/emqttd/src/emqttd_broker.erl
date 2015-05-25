@@ -173,7 +173,7 @@ foldl_hooks(Hook, Args, Acc0) ->
                     apply(M, F, [Acc, Args++A])
                 end, Acc0, Hooks);
         [] -> 
-            ok
+            Acc0
     end.
 
 %%------------------------------------------------------------------------------

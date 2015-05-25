@@ -48,14 +48,16 @@ load(Opts) ->
     emqttd_broker:hook(client_subscribe, {?MODULE, rewrite_subscribe}, 
                        {?MODULE, rewrite, [subscribe, Sections]}),
     emqttd_broker:hook(client_unsubscribe, {?MODULE, rewrite_unsubscribe},
-                       {?MODULE, rewrite_unsubscribe, [unsubscribe, Sections]}),
+                       {?MODULE, rewrite, [unsubscribe, Sections]}),
     emqttd_broker:hook(client_publish, {?MODULE, rewrite_publish},
-                       {?MODULE, rewrite_publish, [publish, Sections]}).
+                       {?MODULE, rewrite, [publish, Sections]}).
 
 rewrite(TopicTable, [subscribe, Sections]) ->
+    lager:info("rewrite subscribe: ~p", [TopicTable]),
     [{match_topic(Topic, Sections), Qos} || {Topic, Qos} <- TopicTable];
 
 rewrite(Topics, [unsubscribe, Sections]) ->
+    lager:info("rewrite unsubscribe: ~p", [Topics]),
     [match_topic(Topic, Sections) || Topic <- Topics];
 
 rewrite(Message=#mqtt_message{topic = Topic}, [publish, Sections]) ->
@@ -91,14 +93,17 @@ unload(_) ->
 
 compile(Sections) ->
     C = fun({rewrite, Re, Dest}) ->
-           {ok, MP} = re:compile(Re),
-           {rewrite, MP, Dest}
+       {ok, MP} = re:compile(Re),
+       {rewrite, MP, Dest}
     end,
-    [{topic, Topic, [C(R) || R <- Rules]} || {topic, Topic, Rules} <- Sections].
+    F = fun({topic, Topic, Rules}) ->
+        {topic, list_to_binary(Topic), [C(R) || R <- Rules]}
+    end,
+    [F(Section) || Section <- Sections].
 
 match_topic(Topic, []) ->
     Topic;
-match_topic(Topic, [{topic, Filter, Rules}|Sections]) ->
+match_topic(Topic, [{topic, Filter, Rules} | Sections]) ->
     case emqtt_topic:match(Topic, Filter) of
         true ->
             match_rule(Topic, Rules);
@@ -108,8 +113,8 @@ match_topic(Topic, [{topic, Filter, Rules}|Sections]) ->
 
 match_rule(Topic, []) ->
     Topic;
-match_rule(Topic, [{rewrite, MP, Dest}|Rules]) ->
-    case re:run(Topic, MP, [{captrue, all_but_first, list}]) of
+match_rule(Topic, [{rewrite, MP, Dest} | Rules]) ->
+    case re:run(Topic, MP, [{capture, all_but_first, list}]) of
         {match, Captured} ->
             %%TODO: stupid??? how to replace $1, $2?
             Vars = lists:zip(["\\$" ++ integer_to_list(I) || I <- lists:seq(1, length(Captured))], Captured),
