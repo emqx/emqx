@@ -5,7 +5,7 @@ emqttd ChangeLog
 0.8.0-alpha (2015-05-25)
 -------------------------
 
-[Hooks](https://github.com/emqtt/emqttd/wiki/Hooks%20Design), Modules and [Plugins](https://github.com/emqtt/emqttd/wiki/Plugin%20Design) to extend the Broker Now!
+[Hooks](https://github.com/emqtt/emqttd/wiki/Hooks%20Design), Modules and [Plugins](https://github.com/emqtt/emqttd/wiki/Plugin%20Design) to extend the broker Now!
 
 Plugin: emqttd_auth_mysql - MySQL authentication plugin (issues #116, #120)
 
