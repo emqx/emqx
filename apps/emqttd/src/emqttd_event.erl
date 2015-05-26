@@ -73,7 +73,7 @@ handle_event({connected, ClientId, Params}, State = #state{systop = SysTop}) ->
     emqttd_pubsub:publish(event, Msg),
     {ok, State};
 
-handle_event({disconnectd, ClientId, Reason}, State = #state{systop = SysTop}) ->
+handle_event({disconnected, ClientId, Reason}, State = #state{systop = SysTop}) ->
     Topic = <<SysTop/binary, "clients/", ClientId/binary, "/disconnected">>,
     Msg = #mqtt_message{topic = Topic, payload = payload(disconnected, Reason)},
     emqttd_pubsub:publish(event, Msg),

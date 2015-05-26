@@ -257,7 +257,8 @@ inc(_) ->
 notify(disconnected, _Reason, undefined) -> ingore;
 
 notify(disconnected, {shutdown, Reason}, ProtoState) ->
-    emqttd_event:notify({disconnected, emqttd_protocol:clientid(ProtoState), [{reason, Reason}]});
+    emqttd_event:notify({disconnected, emqttd_protocol:clientid(ProtoState), Reason});
 
 notify(disconnected, Reason, ProtoState) ->
-    emqttd_event:notify({disconnected, emqttd_protocol:clientid(ProtoState), [{reason, Reason}]}).
+    emqttd_event:notify({disconnected, emqttd_protocol:clientid(ProtoState), Reason}).
+
