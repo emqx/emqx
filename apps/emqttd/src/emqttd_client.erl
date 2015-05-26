@@ -161,15 +161,15 @@ handle_info(Info, State = #state{peername = Peername}) ->
     {stop, {badinfo, Info}, State}.
 
 terminate(Reason, #state{peername = Peername, keepalive = KeepAlive, proto_state = ProtoState}) ->
-    lager:debug("Client ~s: ~p terminated, reason: ~p~n", [emqttd_net:format(Peername), self(), Reason]),
+    lager:info("Client ~s: ~p terminated, reason: ~p~n", [emqttd_net:format(Peername), self(), Reason]),
     notify(disconnected, Reason, ProtoState),
     emqttd_keepalive:cancel(KeepAlive),
     case {ProtoState, Reason} of
         {undefined, _} -> ok;
         {_, {shutdown, Error}} -> 
             emqttd_protocol:shutdown(Error, ProtoState);
-        {_, _} -> 
-            ok
+        {_,  Reason} -> 
+            emqttd_protocol:shutdown(Reason, ProtoState)
     end.
 
 code_change(_OldVsn, State, _Extra) ->
