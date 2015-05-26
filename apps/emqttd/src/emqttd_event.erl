@@ -73,6 +73,10 @@ handle_event({connected, ClientId, Params}, State = #state{systop = SysTop}) ->
     emqttd_pubsub:publish(event, Msg),
     {ok, State};
 
+%%TODO: Protect from undefined clientId...
+handle_event({disconnected, undefined, Reason}, State = #state{systop = SysTop}) ->
+    {ok, State};
+
 handle_event({disconnected, ClientId, Reason}, State = #state{systop = SysTop}) ->
     Topic = <<SysTop/binary, "clients/", ClientId/binary, "/disconnected">>,
     Msg = #mqtt_message{topic = Topic, payload = payload(disconnected, Reason)},
