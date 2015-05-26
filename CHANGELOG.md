@@ -2,6 +2,14 @@
 emqttd ChangeLog
 ==================
 
+0.8.1-alpha (2015-05-28)
+-------------------------
+
+Bugfix: issue #138 - when client disconnected normally, broker will not publish disconnected $SYS message
+
+Improve: issue #136 - $SYS topics result should not include $SYS messages
+
+
 0.8.0-alpha (2015-05-25)
 -------------------------
 
