@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+<!DOCTYPE tsung SYSTEM "/usr/local/share/tsung/tsung-1.0.dtd">
+<tsung loglevel="error" version="1.0">
+  <!-- Client side setup -->
+  <clients>
+    <client host="loadnode1" weight="1" cpu="8" maxusers="200000">
+      <ip scan="true" value="eth0"/>
+    </client>
+    <client host="loadnode2" weight="1" maxusers="200000" cpu="8">
+      <ip scan="true" value="eth0"/>
+    </client>
+    <client host="loadnode3" weight="1" maxusers="200000" cpu="8">
+      <ip scan="true" value="eth0"/>
+    </client>
+</clients>
+
+  <!-- Server side setup -->
+<servers>
+  <server host="172.16.1.94" port="1883" type="tcp"></server>
+</servers>
+
+
+<load >
+	<arrivalphase phase="1" duration="90" unit="second">
+	    <users maxnumber="270000" arrivalrate="3000" unit="second"/>
+	</arrivalphase>
+	<arrivalphase phase="2" duration="90" unit="second">
+	    <users maxnumber="270000" arrivalrate="3000" unit="second"/>
+	</arrivalphase>
+</load>
+ <options>
+    <option name="ports_range" min="1025" max="65535"/>
+  </options>
+<sessions>
+	<session name="mqtt-example" probability="100" type="ts_mqtt">
+		<request>
+			<mqtt type="connect" clean_start="true" keepalive="10" will_topic="will_topic" will_qos="0" will_msg="will_msg" will_retain="false"></mqtt>
+		</request>
+		<for from="1" to="10" incr="1" var="loops">
+			<request subst="true">
+			<mqtt type="publish" topic="test_topic" qos="0" retained="false">test_message</mqtt>
+			</request>
+		</for>
+		<request>
+			<mqtt type="disconnect"></mqtt>
+		</request>
+	</session>
+	<!--<session name="mqtt-example" probability="0" type="ts_mqtt">
+		<request subst="true">
+			<mqtt type="subscribe" topic="test_topic" qos="1"></mqtt>
+		</request>
+		<request>
+			<mqtt type="waitForMessages" timeout="5"></mqtt>
+		</request>
+		<request subst="true">
+			<mqtt type="unsubscribe" topic="test_topic"></mqtt>
+		</request>
+		<request>
+			<mqtt type="disconnect"></mqtt>
+		</request>
+	</session>-->
+
+</sessions>
+</tsung>
