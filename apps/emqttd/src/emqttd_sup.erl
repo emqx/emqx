@@ -39,7 +39,7 @@
 -export([init/1]).
 
 %% Helper macro for declaring children of supervisor
--define(CHILD(I, Type), {I, {I, start_link, []}, permanent, 5000, Type, [I]}).
+-define(CHILD(Mod, Type), {Mod, {Mod, start_link, []}, permanent, 5000, Type, [Mod]}).
 
 %%%=============================================================================
 %%% API
@@ -63,5 +63,5 @@ start_child(Mod, Type) when is_atom(Mod) and is_atom(Type) ->
 %%%=============================================================================
 
 init([]) ->
-    {ok, {{one_for_all, 10, 100}, []}}.
+    {ok, {{one_for_all, 10, 3600}, []}}.
 

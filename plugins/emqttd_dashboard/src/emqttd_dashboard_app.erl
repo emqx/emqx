@@ -10,7 +10,18 @@
 %% ===================================================================
 
 start(_StartType, _StartArgs) ->
-    emqttd_dashboard_sup:start_link().
+    {ok, Sup} = emqttd_dashboard_sup:start_link(),
+    open_listener(application:get_env(listener)),
+    {ok, Sup}.
 
 stop(_State) ->
     ok.
+
+%% open http port
+open_listener({_Http, Port, Options}) ->
+    MFArgs = {emqttd_dashboard, handle_request, []},
+	mochiweb:start_http(Port, Options, MFArgs).
+
+close_listener(Port) ->
+    mochiweb:stop_http(Port).
+

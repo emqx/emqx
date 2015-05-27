@@ -33,7 +33,7 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 * Cluster brokers on several servers.
 * Bridge brokers locally or remotelly
 * 500K+ concurrent clients connections per server
-* Extensible architecture with plugin support
+* Extensible architecture with Hooks, Modules and Plugins
 * Passed eclipse paho interoperability tests
 
 

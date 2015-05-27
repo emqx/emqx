@@ -121,7 +121,7 @@ handle_info({redeliver, {?PUBREL, PacketId}}, #state{proto_state = ProtoState} =
     {ok, ProtoState1} = emqttd_protocol:redeliver({?PUBREL, PacketId}, ProtoState),
     {noreply, State#state{proto_state = ProtoState1}};
 
-handle_info({force_subscribe, Topic, Qos}, #state{proto_state = ProtoState} = State) ->
+handle_info({subscribe, Topic, Qos}, #state{proto_state = ProtoState} = State) ->
     {ok, ProtoState1} = emqttd_protocol:handle({subscribe, Topic, Qos}, ProtoState),
     {noreply, State#state{proto_state = ProtoState1}};
 
@@ -161,15 +161,15 @@ handle_info(Info, State = #state{peername = Peername}) ->
     {stop, {badinfo, Info}, State}.
 
 terminate(Reason, #state{peername = Peername, keepalive = KeepAlive, proto_state = ProtoState}) ->
-    lager:debug("Client ~s: ~p terminated, reason: ~p~n", [emqttd_net:format(Peername), self(), Reason]),
+    lager:info("Client ~s: ~p terminated, reason: ~p~n", [emqttd_net:format(Peername), self(), Reason]),
     notify(disconnected, Reason, ProtoState),
     emqttd_keepalive:cancel(KeepAlive),
     case {ProtoState, Reason} of
         {undefined, _} -> ok;
         {_, {shutdown, Error}} -> 
             emqttd_protocol:shutdown(Error, ProtoState);
-        {_, _} -> 
-            ok
+        {_,  Reason} -> 
+            emqttd_protocol:shutdown(Reason, ProtoState)
     end.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -257,7 +257,8 @@ inc(_) ->
 notify(disconnected, _Reason, undefined) -> ingore;
 
 notify(disconnected, {shutdown, Reason}, ProtoState) ->
-    emqttd_event:notify({disconnected, emqttd_protocol:clientid(ProtoState), [{reason, Reason}]});
+    emqttd_event:notify({disconnected, emqttd_protocol:clientid(ProtoState), Reason});
 
 notify(disconnected, Reason, ProtoState) ->
-    emqttd_event:notify({disconnected, emqttd_protocol:clientid(ProtoState), [{reason, Reason}]}).
+    emqttd_event:notify({disconnected, emqttd_protocol:clientid(ProtoState), Reason}).
+

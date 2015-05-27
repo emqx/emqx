@@ -2,6 +2,44 @@
 emqttd ChangeLog
 ==================
 
+0.8.1-alpha (2015-05-28)
+-------------------------
+
+Bugfix: issue #138 - when client disconnected normally, broker will not publish disconnected $SYS message
+
+Improve: issue #136 - $SYS topics result should not include $SYS messages
+
+
+0.8.0-alpha (2015-05-25)
+-------------------------
+
+[Hooks](https://github.com/emqtt/emqttd/wiki/Hooks%20Design), Modules and [Plugins](https://github.com/emqtt/emqttd/wiki/Plugin%20Design) to extend the broker Now!
+
+Plugin: emqttd_auth_mysql - MySQL authentication plugin (issues #116, #120)
+
+Plugin: emqttd_auth_ldap - LDAP authentication plugin
+
+Feature: emqttd_broker to support Hooks API
+
+Feature: issue #111 - Support 'Forced Subscriptions' by emqttd_mod_autosub module
+
+Feature: issue #126 - Support 'Rewrite rules' by emqttd_mod_rewrite module
+
+Improve: Support hooks, modules to extend the broker
+
+Improve: issue #76 - dialyzer check
+
+Improve: 'Get Started', 'User Guide', 'Developer Guide' Wiki
+
+Improve: emqtt_topic to add join/1, feed_var/3, is_queue/1
+
+Improve: emqttd_pooler to execute common tasks
+
+Improve: add emqttd_sm_sup module, and use 'hash' gproc_pool to manage sessions
+
+Tests: add more test cases for 'emqttd' app
+
+
 0.7.1-alpha (2015-05-04)
 -------------------------
 

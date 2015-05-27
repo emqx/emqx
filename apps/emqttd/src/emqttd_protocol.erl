@@ -134,10 +134,10 @@ handle(Packet = ?CONNECT_PACKET(Var), State = #proto_state{peername = Peername =
                     emqttd_cm:register(ClientId1),
                     %%Starting session
                     {ok, Session} = emqttd_session:start({CleanSess, ClientId1, self()}),
-                    %% Force subscriptions
-                    force_subscribe(ClientId1),
                     %% Start keepalive
                     start_keepalive(KeepAlive),
+                    %% Run hooks
+                    emqttd_broker:foreach_hooks(client_connected, [{self(), ClientId1}]),
                     {?CONNACK_ACCEPT, State1#proto_state{clientid  = ClientId1,
                                                          session = Session,
                                                          will_msg   = willmsg(Var)}};
@@ -158,7 +158,7 @@ handle(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload),
        State = #proto_state{clientid = ClientId, session = Session}) ->
     case check_acl(publish, Topic, State) of
         allow -> 
-            emqttd_session:publish(Session, ClientId, {?QOS_0, emqtt_message:from_packet(Packet)});
+            do_publish(Session, ClientId, ?QOS_0, Packet);
         deny -> 
             lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic])
     end,
@@ -168,7 +168,7 @@ handle(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload),
          State = #proto_state{clientid = ClientId, session = Session}) ->
     case check_acl(publish, Topic, State) of
         allow -> 
-            emqttd_session:publish(Session, ClientId, {?QOS_1, emqtt_message:from_packet(Packet)}),
+            do_publish(Session, ClientId, ?QOS_1, Packet),
             send(?PUBACK_PACKET(?PUBACK, PacketId), State);
         deny -> 
             lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic]),
@@ -179,7 +179,7 @@ handle(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload),
          State = #proto_state{clientid = ClientId, session = Session}) ->
     case check_acl(publish, Topic, State) of
         allow -> 
-            NewSession = emqttd_session:publish(Session, ClientId, {?QOS_2, emqtt_message:from_packet(Packet)}),
+            NewSession = do_publish(Session, ClientId, ?QOS_2, Packet), 
             send(?PUBACK_PACKET(?PUBREC, PacketId), State#proto_state{session = NewSession});
         deny -> 
             lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic]),
@@ -212,12 +212,13 @@ handle(?SUBSCRIBE_PACKET(PacketId, TopicTable), State = #proto_state{clientid = 
             lager:error("SUBSCRIBE from '~s' Denied: ~p", [ClientId, TopicTable]),
             {ok, State};
         false ->
+            TopicTable1 = emqttd_broker:foldl_hooks(client_subscribe, [], TopicTable),
             %%TODO: GrantedQos should be renamed.
-            {ok, NewSession, GrantedQos} = emqttd_session:subscribe(Session, TopicTable),
+            {ok, NewSession, GrantedQos} = emqttd_session:subscribe(Session, TopicTable1),
             send(?SUBACK_PACKET(PacketId, GrantedQos), State#proto_state{session = NewSession})
     end;
 
-handle({subscribe, Topic, Qos}, State = #proto_state{clientid = ClientId, session = Session}) ->
+handle({subscribe, Topic, Qos}, State = #proto_state{session = Session}) ->
     {ok, NewSession, _GrantedQos} = emqttd_session:subscribe(Session, [{Topic, Qos}]),
     {ok, State#proto_state{session = NewSession}};
 
@@ -226,7 +227,8 @@ handle(?UNSUBSCRIBE_PACKET(PacketId, []), State) ->
     send(?UNSUBACK_PACKET(PacketId), State);
 
 handle(?UNSUBSCRIBE_PACKET(PacketId, Topics), State = #proto_state{session = Session}) ->
-    {ok, NewSession} = emqttd_session:unsubscribe(Session, Topics),
+    Topics1 = emqttd_broker:foldl_hooks(client_unsubscribe, [], Topics),
+    {ok, NewSession} = emqttd_session:unsubscribe(Session, Topics1),
     send(?UNSUBACK_PACKET(PacketId), State#proto_state{session = NewSession});
 
 handle(?PACKET(?PINGREQ), State) ->
@@ -236,6 +238,10 @@ handle(?PACKET(?DISCONNECT), State) ->
     %%TODO: how to handle session?
     % clean willmsg
     {stop, normal, State#proto_state{will_msg = undefined}}.
+
+do_publish(Session, ClientId, Qos, Packet) ->
+    Message = emqttd_broker:foldl_hooks(client_publish, [], emqtt_message:from_packet(Packet)),
+    emqttd_session:publish(Session, ClientId, {Qos, Message}).
 
 -spec send({pid() | tuple(), mqtt_message()} | mqtt_packet(), proto_state()) -> {ok, proto_state()}.
 %% qos0 message
@@ -298,23 +304,8 @@ send_willmsg(_ClientId, undefined) ->
 send_willmsg(ClientId, WillMsg) -> 
     emqttd_pubsub:publish(ClientId, WillMsg).
 
-%%TODO: will be fixed in 0.8
-force_subscribe(ClientId) ->
-    case emqttd_broker:env(forced_subscriptions) of
-        undefined ->
-            ingore;
-        Topics ->
-            [force_subscribe(ClientId, {Topic, Qos}) || {Topic, Qos} <- Topics]
-    end.
-
-force_subscribe(ClientId, {Topic, Qos}) when is_list(Topic) ->
-    force_subscribe(ClientId, {list_to_binary(Topic), Qos});
-
-force_subscribe(ClientId, {Topic, Qos}) when is_binary(Topic) ->
-    Topic1 = emqtt_topic:feed_var(<<"$c">>, ClientId, Topic),
-    self() ! {force_subscribe, Topic1, Qos}.
-
 start_keepalive(0) -> ignore;
+
 start_keepalive(Sec) when Sec > 0 ->
     self() ! {keepalive, start, round(Sec * 1.5)}.
 

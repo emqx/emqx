@@ -2,15 +2,21 @@
 v0.9.0-alpha (2015-05-30)
 -------------------------
 
+Presence Management....
+
+Dashboard
+
+Presence Management....
+
 
 v0.8.0-alpha (2015-05-10)
 -------------------------
 
+Force Subscriptions...
+
 Documents...
 
 MySQL Auth
-
-Dashboard
 
 AMQP
 
@@ -19,8 +25,6 @@ Bridge Test
 
 0.8.0 (2015-05-10)
 -------------------------
-
-Presence Management....
 
 Force Subscription...
 

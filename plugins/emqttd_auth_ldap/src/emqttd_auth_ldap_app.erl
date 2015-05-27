@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @Copyright (C) 2012-2015, Feng Lee <feng@emqtt.io>
+%%% Copyright (c) 2012-2015 eMQTT.IO, All Rights Reserved.
 %%%
 %%% Permission is hereby granted, free of charge, to any person obtaining a copy
 %%% of this software and associated documentation files (the "Software"), to deal
@@ -20,23 +20,39 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% presence manager application
+%%% LDAP Authentication Plugin.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_presence_app).
+-module(emqttd_auth_ldap_app).
 
 -behaviour(application).
-
 %% Application callbacks
--export([start/2, stop/1]).
+-export([start/2, prep_stop/1, stop/1]).
 
-%% ===================================================================
-%% Application callbacks
-%% ===================================================================
+-behaviour(supervisor).
+%% Supervisor callbacks
+-export([init/1]).
+
+%%%=============================================================================
+%%% Application callbacks
+%%%=============================================================================
 
 start(_StartType, _StartArgs) ->
-    emqttd_presence_sup:start_link().
+    Env = application:get_all_env(emqttd_auth_ldap),
+    emqttd_access_control:register_mod(auth, emqttd_auth_ldap, Env),
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+prep_stop(State) ->
+    emqttd_access_control:unregister_mod(auth, emqttd_auth_ldap), State.
 
 stop(_State) ->
     ok.
+
+%%%=============================================================================
+%%% Supervisor callbacks(Dummy)
+%%%=============================================================================
+
+init([]) ->
+    {ok, { {one_for_one, 5, 10}, []} }.
+

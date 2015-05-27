@@ -53,8 +53,8 @@ compile_test() ->
     ?assertEqual({deny, all},  compile({deny, all})).
 
 match_test() ->
-    User = #mqtt_user{ipaddr = {127,0,0,1}, clientid = <<"testClient">>, username = <<"TestUser">>},
-    User2 = #mqtt_user{ipaddr = {192,168,0,10}, clientid = <<"testClient">>, username = <<"TestUser">>},
+    User = #mqtt_client{ipaddr = {127,0,0,1}, clientid = <<"testClient">>, username = <<"TestUser">>},
+    User2 = #mqtt_client{ipaddr = {192,168,0,10}, clientid = <<"testClient">>, username = <<"TestUser">>},
     
     ?assertEqual({matched, allow}, match(User, <<"Test/Topic">>, {allow, all})),
     ?assertEqual({matched, deny},  match(User, <<"Test/Topic">>, {deny, all})),
@@ -68,7 +68,7 @@ match_test() ->
                  compile({allow, {client, "testClient"}, publish, ["testTopics/testClient"]}))),
     ?assertMatch({matched, allow}, match(User, <<"clients/testClient">>,
                                                        compile({allow, all, pubsub, ["clients/$c"]}))),
-    ?assertMatch({matched, allow}, match(#mqtt_user{username = <<"user2">>}, <<"users/user2/abc/def">>,
+    ?assertMatch({matched, allow}, match(#mqtt_client{username = <<"user2">>}, <<"users/user2/abc/def">>,
                                                                   compile({allow, all, subscribe, ["users/$u/#"]}))),
     ?assertMatch({matched, deny}, 
                  match(User, <<"d/e/f">>,
