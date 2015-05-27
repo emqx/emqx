@@ -384,8 +384,14 @@ encode_where({like, Field, Value}) ->
 encode_where({'<', Field, Value}) ->	
 	atom_to_list(Field) ++ " < " ++ encode(Value);
 
+encode_where({'<=', Field, Value}) ->
+	atom_to_list(Field) ++ " <= " ++ encode(Value);
+
 encode_where({'>', Field, Value}) ->	
 	atom_to_list(Field) ++ " > " ++ encode(Value);
+
+encode_where({'>=', Field, Value}) ->
+	atom_to_list(Field) ++ " >= " ++ encode(Value);
 
 encode_where({'in', Field, Values}) ->	
 	InStr = string:join([encode(Value) || Value <- Values], ","),
