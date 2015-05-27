@@ -30,7 +30,8 @@
 
 -export([apply_module_attributes/1,
          all_module_attributes/1,
-         cancel_timer/1]).
+         cancel_timer/1,
+         timestamp/0, microsecs/0]).
 
 -export([integer_to_binary/1]).
 
@@ -90,4 +91,11 @@ cancel_timer(Ref) ->
 integer_to_binary(I) when is_integer(I) ->
     list_to_binary(integer_to_list(I)).
 
+timestamp() ->
+    {MegaSecs, Secs, _MicroSecs} = os:timestamp(),
+    MegaSecs * 1000000 + Secs.
+
+microsecs() ->
+    {Mega, Sec, Micro} = erlang:now(),
+    (Mega * 1000000 + Sec) * 1000000 + Micro.
 
