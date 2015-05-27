@@ -39,6 +39,9 @@
 %% API Function Exports
 -export([start_link/0]).
 
+%% Running nodes
+-export([running_nodes/0]).
+
 %% Event API
 -export([subscribe/1, notify/2]).
 
@@ -70,6 +73,13 @@
 -spec start_link() -> {ok, pid()} | ignore | {error, any()}.
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+%%------------------------------------------------------------------------------
+%% @doc Get running nodes
+%% @end
+%%------------------------------------------------------------------------------
+running_nodes() ->
+    mnesia:system_info(running_db_nodes).
 
 %%------------------------------------------------------------------------------
 %% @doc Subscribe broker event
@@ -205,6 +215,7 @@ init([]) ->
     random:seed(now()),
     ets:new(?BROKER_TAB, [set, public, named_table]),
     % Create $SYS Topics
+    emqttd_pubsub:create(<<"$SYS/brokers">>),
     [ok = create_topic(Topic) || Topic <- ?SYSTOP_BROKERS],
     % Tick
     {ok, #state{started_at = os:timestamp(), tick_tref = start_tick(tick)}, hibernate}.
@@ -244,6 +255,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(tick, State) ->
+    retain(brokers),
     retain(version, list_to_binary(version())),
     retain(sysdescr, list_to_binary(sysdescr())),
     publish(uptime, list_to_binary(uptime(State))),
@@ -265,6 +277,10 @@ code_change(_OldVsn, State, _Extra) ->
 
 create_topic(Topic) ->
     emqttd_pubsub:create(emqtt_topic:systop(Topic)).
+
+retain(brokers) ->
+    Payload = list_to_binary(string:join([atom_to_list(N) || N <- running_nodes()], ",")),
+    publish(#mqtt_message{retain = true, topic = <<"$SYS/brokers">>, payload = Payload}).
 
 retain(Topic, Payload) when is_binary(Payload) ->
     publish(#mqtt_message{retain = true,

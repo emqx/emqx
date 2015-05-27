@@ -422,7 +422,7 @@ notify(connected, ReturnCode, #proto_state{peername   = Peername,
     Params = [{from, emqttd_net:format(Peername)},
               {protocol, ProtoVer},
               {session, Sess},
-              {connack, ReturnCode}],
-    emqttd_event:notify({connected, ClientId, Params}).
+              {connack, ReturnCode}].
+    %emqttd_event:notify({connected, ClientId, Params}).
 
 

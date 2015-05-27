@@ -126,7 +126,7 @@ init([]) ->
     Topics = ?SYSTOP_CLIENTS ++ ?SYSTOP_SESSIONS ++ ?SYSTOP_PUBSUB,
     [ets:insert(?STATS_TAB, {Topic, 0}) || Topic <- Topics],
     % Create $SYS Topics
-    [ok = emqttd_pubsub:create(emqtt_topic:systop(Topic)) || Topic <- Topics],
+    [ok = emqttd_pubsub:create(stats_topic(Topic)) || Topic <- Topics],
     % Tick to publish stats
     {ok, #state{tick_tref = emqttd_broker:start_tick(tick)}, hibernate}.
 
@@ -154,6 +154,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%=============================================================================
 publish(Stat, Val) ->
-    emqttd_pubsub:publish(stats, #mqtt_message{topic   = emqtt_topic:systop(Stat),
+    emqttd_pubsub:publish(stats, #mqtt_message{topic   = stats_topic(Stat),
                                                payload = emqttd_util:integer_to_binary(Val)}).
+
+stats_topic(Stat) ->
+    emqtt_topic:systop(list_to_binary(lists:concat(['stats/', Stat]))).
 

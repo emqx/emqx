@@ -20,21 +20,34 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd cluster to monitor clusted nodes.
+%%% emqttd presence management module.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_cluster).
+-module(emqttd_mod_presence).
 
--author("Feng Lee <feng@emqtt.io>").
+-include_lib("emqtt/include/emqtt.hrl").
 
--export([running_nodes/0]).
+-export([load/1, unload/1]).
 
-%%------------------------------------------------------------------------------
-%% @doc Get running nodes
-%% @end
-%%------------------------------------------------------------------------------
-%%TODO: remove...
-running_nodes() ->
-    mnesia:system_info(running_db_nodes).
+-export([client_connected/2, client_disconnected/2]).
+
+load(Opts) ->
+    emqttd_broker:hook(client_connected, {?MODULE, client_connected}, {?MODULE, client_connected, [Opts]}),
+    emqttd_broker:hook(client_disconnected, {?MODULE, client_disconnected}, {?MODULE, client_disconnected, [Opts]}),
+    {ok, Opts}.
+
+client_connected({Client, ClientId}, _Opts) ->
+    Topic = emqtt_topic:systop(list_to_binary(["clients/", ClientId, "/connected"])),
+    Payload = iolist_to_binary(mochijson2:encode([{ts, emqttd_util:timestamp()}])),
+    emqttd_pubsub:publish(presence, #mqtt_message{topic = Topic, payload = Payload}).
+
+client_disconnected({ClientId, Reason}, _Opts) ->
+    Topic = emqtt_topic:systop(list_to_binary(["clients/", ClientId, "/disconnected"])),
+    Payload = iolist_to_binary(mochijson2:encode([{reason, Reason}, {ts, emqttd_util:timestamp()}])),
+    emqttd_pubsub:publish(presence, #mqtt_message{topic = Topic, payload = Payload}).
+
+unload(_Opts) ->
+    emqttd_broker:unhook(client_connected, {?MODULE, client_connected}),
+    emqttd_broker:unhook(client_disconnected, {?MODULE, client_disconnected}).
 

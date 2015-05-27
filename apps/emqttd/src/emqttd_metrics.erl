@@ -163,7 +163,7 @@ init([]) ->
     % Init metrics
     [create_metric(Metric) ||  Metric <- Metrics],
     % $SYS Topics for metrics
-    [ok = create_topic(Topic) || {_, Topic} <- Metrics],
+    [ok = emqttd_pubsub:create(metric_topic(Topic)) || {_, Topic} <- Metrics],
     % Tick to publish metrics
     {ok, #state{tick_tref = emqttd_broker:start_tick(tick)}, hibernate}.
 
@@ -192,7 +192,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 
 publish(Metric, Val) ->
-    emqttd_pubsub:publish(metrics, #mqtt_message{topic = emqtt_topic:systop(Metric),
+    emqttd_pubsub:publish(metrics, #mqtt_message{topic   = metric_topic(Metric),
                                                  payload = emqttd_util:integer_to_binary(Val)}).
 
 create_metric({gauge, Name}) ->
@@ -202,7 +202,7 @@ create_metric({counter, Name}) ->
     Schedulers = lists:seq(1, erlang:system_info(schedulers)),
     [ets:insert(?METRIC_TAB, {{Name, I}, 0}) || I <- Schedulers].
 
-create_topic(Topic) ->
-    emqttd_pubsub:create(emqtt_topic:systop(Topic)).
+metric_topic(Metric) ->
+    emqtt_topic:systop(list_to_binary(lists:concat(['metrics/', Metric]))).
 
 
