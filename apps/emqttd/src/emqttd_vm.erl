@@ -24,11 +24,22 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_vm).
 
 -author("Feng Lee <feng@emqtt.io>").
 
+-export([timestamp/0, microsecs/0]).
+
 -export([loads/0]).
+
+timestamp() ->
+    {MegaSecs, Secs, _MicroSecs} = os:timestamp(),
+    MegaSecs * 1000000 + Secs.
+
+microsecs() ->
+    {Mega, Sec, Micro} = erlang:now(),
+    (Mega * 1000000 + Sec) * 1000000 + Micro.
 
 loads() ->
     [{load1, ftos(cpu_sup:avg1()/256)},

@@ -77,9 +77,12 @@
 %% MQTT Client
 %%------------------------------------------------------------------------------
 -record(mqtt_client, {
-    clientid    :: binary(),
+    clientid    :: binary() | undefined,
     username    :: binary() | undefined,
-    ipaddr      :: inet:ip_address()
+    ipaddress   :: inet:ip_address(),
+    clean_sess  :: boolean(),
+    proto_ver   :: 3 | 4,
+    client_pid  :: pid()
 }).
 
 -type mqtt_client() :: #mqtt_client{}.

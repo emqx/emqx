@@ -114,9 +114,9 @@ match_who(#mqtt_client{clientid = ClientId}, {client, ClientId}) ->
     true;
 match_who(#mqtt_client{username = Username}, {user, Username}) ->
     true;
-match_who(#mqtt_client{ipaddr = undefined}, {ipaddr, _Tup}) ->
+match_who(#mqtt_client{ipaddress = undefined}, {ipaddr, _Tup}) ->
     false;
-match_who(#mqtt_client{ipaddr = IP}, {ipaddr, {_CDIR, Start, End}}) ->
+match_who(#mqtt_client{ipaddress = IP}, {ipaddr, {_CDIR, Start, End}}) ->
     I = esockd_access:atoi(IP),
     I >= Start andalso I =< End;
 match_who(_Client, _Who) ->

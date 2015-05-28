@@ -101,10 +101,10 @@ init(Opts) ->
 
 check(#mqtt_client{clientid = undefined}, _Password, []) ->
     {error, "ClientId undefined"};
-check(#mqtt_client{clientid = ClientId, ipaddr = IpAddr}, _Password, []) ->
-    check_clientid_only(ClientId, IpAddr);
-check(#mqtt_client{clientid = ClientId, ipaddr = IpAddr}, _Password, [{password, no}|_]) ->
-    check_clientid_only(ClientId, IpAddr);
+check(#mqtt_client{clientid = ClientId, ipaddress = IpAddress}, _Password, []) ->
+    check_clientid_only(ClientId, IpAddress);
+check(#mqtt_client{clientid = ClientId, ipaddress = IpAddress}, _Password, [{password, no}|_]) ->
+    check_clientid_only(ClientId, IpAddress);
 check(_Client, undefined, [{password, yes}|_]) ->
     {error, "Password undefined"};
 check(#mqtt_client{clientid = ClientId}, Password, [{password, yes}|_]) ->

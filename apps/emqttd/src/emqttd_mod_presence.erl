@@ -28,26 +28,52 @@
 
 -include_lib("emqtt/include/emqtt.hrl").
 
+-include("emqttd.hrl").
+
 -export([load/1, unload/1]).
 
--export([client_connected/2, client_disconnected/2]).
+-export([client_connected/3, client_disconnected/3]).
 
 load(Opts) ->
     emqttd_broker:hook(client_connected, {?MODULE, client_connected}, {?MODULE, client_connected, [Opts]}),
     emqttd_broker:hook(client_disconnected, {?MODULE, client_disconnected}, {?MODULE, client_disconnected, [Opts]}),
     {ok, Opts}.
 
-client_connected({Client, ClientId}, _Opts) ->
-    Topic = emqtt_topic:systop(list_to_binary(["clients/", ClientId, "/connected"])),
-    Payload = iolist_to_binary(mochijson2:encode([{ts, emqttd_util:timestamp()}])),
-    emqttd_pubsub:publish(presence, #mqtt_message{topic = Topic, payload = Payload}).
+client_connected(ConnAck, #mqtt_client{clientid   = ClientId,
+                                       username   = Username,
+                                       ipaddress  = IpAddress,
+                                       clean_sess = CleanSess,
+                                       proto_ver  = ProtoVer}, _Opts) ->
+    Sess = case CleanSess of
+        true -> false;
+        false -> true
+    end,
+    Json = mochijson2:encode([{username, Username},
+                              {ipaddress, emqttd_net:ntoa(IpAddress)},
+                              {session, Sess},
+                              {protocol, ProtoVer},
+                              {connack, ConnAck},
+                              {ts, emqttd_vm:timestamp()}]),
+    Message = #mqtt_message{topic = topic(connected, ClientId),
+                            payload = iolist_to_binary(Json)},
+    emqttd_pubsub:publish(presence, Message).
 
-client_disconnected({ClientId, Reason}, _Opts) ->
-    Topic = emqtt_topic:systop(list_to_binary(["clients/", ClientId, "/disconnected"])),
-    Payload = iolist_to_binary(mochijson2:encode([{reason, Reason}, {ts, emqttd_util:timestamp()}])),
-    emqttd_pubsub:publish(presence, #mqtt_message{topic = Topic, payload = Payload}).
+client_disconnected(Reason, ClientId, _Opts) ->
+    Json = mochijson2:encode([{reason, reason(Reason)}, {ts, emqttd_vm:timestamp()}]),
+    emqttd_pubsub:publish(presence, #mqtt_message{topic = topic(disconnected, ClientId),
+                                                  payload = iolist_to_binary(Json)}).
 
 unload(_Opts) ->
     emqttd_broker:unhook(client_connected, {?MODULE, client_connected}),
     emqttd_broker:unhook(client_disconnected, {?MODULE, client_disconnected}).
+
+
+topic(connected, ClientId) ->
+    emqtt_topic:systop(list_to_binary(["clients/", ClientId, "/connected"]));
+topic(disconnected, ClientId) ->
+    emqtt_topic:systop(list_to_binary(["clients/", ClientId, "/disconnected"])).
+
+reason(Reason) when is_atom(Reason) -> Reason;
+reason({Error, _}) when is_atom(Error) -> Error;
+reason(_) -> internal_error.
 

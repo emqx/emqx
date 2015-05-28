@@ -28,6 +28,8 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
+-include("emqttd.hrl").
+
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
@@ -69,10 +71,10 @@ table() -> ?CLIENT_TAB.
 %% @doc Lookup client pid with clientId
 %% @end
 %%------------------------------------------------------------------------------
--spec lookup(ClientId :: binary()) -> pid() | undefined.
+-spec lookup(ClientId :: binary()) -> mqtt_client() | undefined.
 lookup(ClientId) when is_binary(ClientId) ->
     case ets:lookup(?CLIENT_TAB, ClientId) of
-	[{_, Pid, _}] -> Pid;
+	[Client] -> Client;
 	[] -> undefined
 	end.
 
