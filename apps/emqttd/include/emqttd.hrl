@@ -80,9 +80,10 @@
     clientid    :: binary() | undefined,
     username    :: binary() | undefined,
     ipaddress   :: inet:ip_address(),
+    client_pid  :: pid(),
+    client_mon  :: reference(),
     clean_sess  :: boolean(),
-    proto_ver   :: 3 | 4,
-    client_pid  :: pid()
+    proto_ver   :: 3 | 4
 }).
 
 -type mqtt_client() :: #mqtt_client{}.
