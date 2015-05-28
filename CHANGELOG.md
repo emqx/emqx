@@ -7,6 +7,8 @@ emqttd ChangeLog
 
 Bugfix: issue #138 - when client disconnected normally, broker will not publish disconnected $SYS message
 
+Bugfix: fix websocket url in emqttd/priv/www/websocket.html
+
 Improve: issue #136 - $SYS topics result should not include $SYS messages
 
 
