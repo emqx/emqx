@@ -43,24 +43,26 @@ client_connected(ConnAck, #mqtt_client{clientid   = ClientId,
                                        username   = Username,
                                        ipaddress  = IpAddress,
                                        clean_sess = CleanSess,
-                                       proto_ver  = ProtoVer}, _Opts) ->
+                                       proto_ver  = ProtoVer}, Opts) ->
     Sess = case CleanSess of
         true -> false;
         false -> true
     end,
     Json = mochijson2:encode([{username, Username},
-                              {ipaddress, emqttd_net:ntoa(IpAddress)},
+                              {ipaddress, list_to_binary(emqttd_net:ntoa(IpAddress))},
                               {session, Sess},
                               {protocol, ProtoVer},
                               {connack, ConnAck},
                               {ts, emqttd_vm:timestamp()}]),
-    Message = #mqtt_message{topic = topic(connected, ClientId),
+    Message = #mqtt_message{qos     = proplists:get_value(qos, Opts, 0),
+                            topic   = topic(connected, ClientId),
                             payload = iolist_to_binary(Json)},
     emqttd_pubsub:publish(presence, Message).
 
-client_disconnected(Reason, ClientId, _Opts) ->
+client_disconnected(Reason, ClientId, Opts) ->
     Json = mochijson2:encode([{reason, reason(Reason)}, {ts, emqttd_vm:timestamp()}]),
-    emqttd_pubsub:publish(presence, #mqtt_message{topic = topic(disconnected, ClientId),
+    emqttd_pubsub:publish(presence, #mqtt_message{qos     = proplists:get_value(qos, Opts, 0),
+                                                  topic   = topic(disconnected, ClientId),
                                                   payload = iolist_to_binary(Json)}).
 
 unload(_Opts) ->

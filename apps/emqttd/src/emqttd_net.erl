@@ -32,7 +32,7 @@
 
 -export([tcp_name/3, tcp_host/1, getopts/2, setopts/2, getaddr/2, port_to_listeners/1]).
 
--export([peername/1, sockname/1, format/2, format/1, connection_string/2]).
+-export([peername/1, sockname/1, format/2, format/1, connection_string/2, ntoa/1]).
 
 -define(FIRST_TEST_BIND_PORT, 10000).
 

@@ -100,7 +100,6 @@ handle_info(timeout, State) ->
     
 handle_info({stop, duplicate_id, _NewPid}, State=#state{proto_state = ProtoState,
                                                         conn_name=ConnName}) ->
-    %% TODO: to...
     %% need transfer data???
     %% emqttd_client:transfer(NewPid, Data),
     lager:error("Shutdown for duplicate clientid: ~s, conn:~s", 

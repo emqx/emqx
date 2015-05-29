@@ -121,7 +121,7 @@ received(Packet = ?PACKET(_Type), State) ->
 		{error, Reason, State}
 	end.
 
-handle(Packet = ?CONNECT_PACKET(Var), State0 = #proto_state{peername = Peername = {Addr, _}}) ->
+handle(Packet = ?CONNECT_PACKET(Var), State0 = #proto_state{peername = Peername}) ->
 
     #mqtt_packet_connect{proto_ver  = ProtoVer,
                          proto_name = ProtoName, 
@@ -298,6 +298,9 @@ redeliver({?PUBREL, PacketId}, State) ->
 
 shutdown(duplicate_id, _State) ->
     quiet; %%
+
+shutdown(_, #proto_state{clientid = undefined}) ->
+    ignore;
 
 shutdown(normal, #proto_state{peername = Peername, clientid = ClientId}) ->
 	lager:info([{client, ClientId}], "Client ~s@~s: normal shutdown",
