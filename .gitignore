@@ -16,3 +16,4 @@ plugins/*/ebin
 log/
 *.swp
 *.so
+examples
