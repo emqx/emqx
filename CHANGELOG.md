@@ -5,11 +5,15 @@ emqttd ChangeLog
 0.8.1-alpha (2015-05-28)
 -------------------------
 
+Client [Presence](https://github.com/emqtt/emqttd/wiki/Presence) Support and [$SYS Topics](https://github.com/emqtt/emqttd/wiki/$SYS-Topics) Redesigned!
+
 Bugfix: issue #138 - when client disconnected normally, broker will not publish disconnected $SYS message
 
 Bugfix: fix websocket url in emqttd/priv/www/websocket.html
 
-Improve: issue #136 - $SYS topics result should not include $SYS messages
+Improve: etc/emqttd.config to allow websocket connections from any hosts
+
+Improve: rel/reltool.config to exclude unnecessary apps.
 
 
 0.8.0-alpha (2015-05-25)
