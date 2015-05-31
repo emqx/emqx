@@ -43,12 +43,39 @@
 		       message_queue_len, 
 		       current_function]).
 
+-define(PROCESS_INFO, [initial_call, 
+		       current_function,
+		       registered_name,
+		       status,
+		       message_queue_len,
+		       group_leader,
+		       priority,
+		       trap_exit,
+		       reductions,
+		       binary,
+		       last_calls,
+		       catchlevel,
+		       trace,
+		       suspending,
+		       sequential_trace_token,
+		       error_handler]).
+
+-define(PROCESS_GC, [memory,
+		     total_heap_size,
+		     heap_size,
+		     stack_size,
+		     min_heap_size]).%,
+		     %fullsweep_after]).
+
 -author("Feng Lee <feng@emqtt.io>").
 
 -export([loads/0,
 	 scheduler_usage/1,
  	 get_memory/0,
- 	 get_process_list/0]).
+ 	 get_process_list/0,
+ 	 get_process_info/0,
+ 	 get_process_gc/0,
+ 	 get_process_group_leader_info/1]).
 
 loads() ->
     [{load1, ftos(cpu_sup:avg1()/256)},
@@ -140,10 +167,30 @@ get_process_list(Pid) when is_pid(Pid) ->
     Info =  [process_info(Pid, Key) || Key <- ?PROCESS_LIST],
     [{pid, pid_port_fun_to_atom(Pid)}] ++ lists:flatten([convert_pid_info(Item) || Item <- Info]).
 
+get_process_info() ->
+    [get_process_info(Pid) || Pid <- processes()].
+get_process_info(Pid) when is_pid(Pid) ->
+    ProcessInfo = [process_info(Pid, Key) || Key <- ?PROCESS_INFO],
+    lists:flatten([convert_pid_info(Item) || Item <- ProcessInfo]).
+
+get_process_gc() ->
+    [get_process_gc(Pid) || Pid <- processes()].
+get_process_gc(Pid) when is_pid(Pid) ->
+    GcInfo = [process_info(Pid, Key) || Key <- ?PROCESS_GC],
+    lists:flatten([convert_pid_info(E) || E <- GcInfo]).
+
+get_process_group_leader_info(LeaderPid) when is_pid(LeaderPid) ->
+    LeaderInfo = [{Key, Value}|| {Key, Value} <- process_info(LeaderPid), lists:member(Key, ?PROCESS_INFO)],
+    lists:flatten([convert_pid_info(E) || E <- LeaderInfo]).
+
 convert_pid_info({initial_call,{_M, F, _A}}) ->
     {initial_call, F};
 convert_pid_info({current_function, {M, F, A}}) ->
     {current_function, list_to_atom(lists:concat([atom_to_list(M),":",atom_to_list(F),"/",integer_to_list(A)]))};
+convert_pid_info({suspending, List}) ->
+    {suspending, [pid_port_fun_to_atom(E) || E <- List]};
+convert_pid_info({binary, List}) ->
+    {binary,[tuple_to_list(E) || E <- List]};
 convert_pid_info({Key, Term}) when is_pid(Term) or is_port(Term) or is_function(Term) ->
     {Key, pid_port_fun_to_atom(Term)};
 convert_pid_info(Item) ->
