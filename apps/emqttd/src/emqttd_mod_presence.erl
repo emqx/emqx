@@ -26,6 +26,8 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_mod_presence).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -include_lib("emqtt/include/emqtt.hrl").
 
 -include("emqttd.hrl").

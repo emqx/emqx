@@ -61,6 +61,8 @@
     qos    = ?QOS_0 :: mqtt_qos(),
     retain = false  :: boolean(),
     dup    = false  :: boolean(),
+    %% $SYS message flag
+    sys    = false  :: boolean(),
     msgid           :: mqtt_msgid(),
     payload         :: binary()
 }).
