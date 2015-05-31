@@ -37,12 +37,18 @@
                           std_alloc
                          ]).
 
+-define(PROCESS_LIST, [initial_call,
+		       reductions,
+		       memory, 
+		       message_queue_len, 
+		       current_function]).
 
 -author("Feng Lee <feng@emqtt.io>").
 
 -export([loads/0,
 	 scheduler_usage/1,
- 	 get_memory/0]).
+ 	 get_memory/0,
+ 	 get_process_list/0]).
 
 loads() ->
     [{load1, ftos(cpu_sup:avg1()/256)},
@@ -57,7 +63,7 @@ scheduler_usage(Interval) when is_integer(Interval) ->
     %% We start and stop the scheduler_wall_time system flag
     %% if it wasn't in place already. Usually setting the flag 
     %% should have a CPU impact(make it higher) only when under low usage.
-    FormerFlag = erlang:system_flag(scheduler_wall_time),
+    FormerFlag = erlang:system_flag(scheduler_wall_time, true),
     First = erlang:statistics(scheduler_wall_time),
     timer:sleep(Interval),
     Last = erlang:statistics(scheduler_wall_time),
@@ -101,7 +107,7 @@ snapshot_int() ->
 allocators() ->
     UtilAllocators = erlang:system_info(alloc_util_allocators),
     Allocators = [sys_alloc, mseg_alloc|UtilAllocators],
-    [{{A, N},lists:sort(proplists:deleted(versions, Props))} || 
+    [{{A, N},lists:sort(proplists:delete(versions, Props))} || 
         A <- Allocators,
 	Allocs <- [erlang:system_info({allocator, A})],
 	Allocs =/= false,
@@ -127,3 +133,27 @@ container_value(Props, Pos, Type, Container) ->
     TypeProps = proplists:get_value(Type, Props),
     element(Pos, lists:keyfind(Container, 1, TypeProps)).
 
+get_process_list()->
+    [get_process_list(Pid) || Pid <- processes()].
+
+get_process_list(Pid) when is_pid(Pid) ->
+    Info =  [process_info(Pid, Key) || Key <- ?PROCESS_LIST],
+    [{pid, pid_port_fun_to_atom(Pid)}] ++ lists:flatten([convert_pid_info(Item) || Item <- Info]).
+
+convert_pid_info({initial_call,{_M, F, _A}}) ->
+    {initial_call, F};
+convert_pid_info({current_function, {M, F, A}}) ->
+    {current_function, list_to_atom(lists:concat([atom_to_list(M),":",atom_to_list(F),"/",integer_to_list(A)]))};
+convert_pid_info({Key, Term}) when is_pid(Term) or is_port(Term) or is_function(Term) ->
+    {Key, pid_port_fun_to_atom(Term)};
+convert_pid_info(Item) ->
+    Item.
+
+pid_port_fun_to_atom(Term) when is_pid(Term) ->
+    erlang:list_to_atom(pid_to_list(Term));
+pid_port_fun_to_atom(Term) when is_port(Term) ->
+    erlang:list_to_atom(erlang:port_to_list(Term));
+pid_port_fun_to_atom(Term) when is_function(Term) ->
+    erlang:list_to_atom(erlang:fun_to_list(Term));
+pid_port_fun_to_atom(Term) ->
+    Term.
