@@ -71,12 +71,21 @@ scheduler_usage_diff(First, Last) ->
     ).
 
 get_memory()->
-    [{Key, get_memory(Key, current)} || Key <- [used, allocated, unused]] ++ erlang:memory().
+    [{Key, get_memory(Key, current)} || Key <- [used, allocated, unused, usage]] ++ erlang:memory().
 
 get_memory(used, Keyword) ->
     lists:sum(lists:map(fun({_, Prop}) ->
 			        container_size(Prop, Keyword, blocks_size)
-			end, util_alloc())).
+			end, util_alloc()));
+get_memory(allocated, Keyword) ->
+    lists:sum(lists:map(fun({_, Prop})->
+		   		container_size(Prop, Keyword, carriers_size)
+	            	end, util_alloc()));
+get_memory(unused, Keyword) ->
+    get_memory(allocated, Keyword) - get_memory(used, Keyword);
+get_memory(usage, Keyword) ->
+    get_memory(used, Keyword) / get_memory(allocated, Keyword).
+
 util_alloc()->
     alloc(?UTIL_ALLOCATORS).
 
