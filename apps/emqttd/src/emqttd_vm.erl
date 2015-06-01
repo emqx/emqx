@@ -75,7 +75,13 @@
  	 get_process_list/0,
  	 get_process_info/0,
  	 get_process_gc/0,
- 	 get_process_group_leader_info/1]).
+ 	 get_process_group_leader_info/1,
+	 get_ets_list/0,
+ 	 get_ets_info/0,
+	 get_ets_info/1,
+ 	 get_ets_object/0,
+	 get_ets_object/1
+ 	]).
 
 loads() ->
     [{load1, ftos(cpu_sup:avg1()/256)},
@@ -182,6 +188,44 @@ get_process_gc(Pid) when is_pid(Pid) ->
 get_process_group_leader_info(LeaderPid) when is_pid(LeaderPid) ->
     LeaderInfo = [{Key, Value}|| {Key, Value} <- process_info(LeaderPid), lists:member(Key, ?PROCESS_INFO)],
     lists:flatten([convert_pid_info(E) || E <- LeaderInfo]).
+
+get_ets_list() ->
+     ets:all().
+
+get_ets_info() ->
+    [get_ets_info(Tab) || Tab <- ets:all()].
+
+get_ets_info(Tab) ->
+    case ets:info(Tab) of
+	undefined ->
+	    [];
+	Entries when is_list(Entries) ->
+	    mapping(Entries)
+    end.	
+
+get_ets_object() ->
+    [{Tab, get_ets_object(Tab)} || Tab <- ets:all()].
+
+get_ets_object(Tab) ->
+    TabInfo = ets:info(Tab),
+    Size = proplists:get_value(size, TabInfo),
+    NameTab = proplists:get_value(named_table, TabInfo),
+    if  (Size == 0) or (NameTab == false) ->
+	[];
+    true ->
+	ets:tab2list(Tab)	
+    end.
+
+mapping(Entries) ->
+    mapping(Entries, []).
+mapping([], Acc) ->
+    Acc;
+mapping([{owner, V}|Entries], Acc) when is_pid(V) ->
+    OwnerInfo = process_info(V),
+    Owner = proplists:get_value(registered_name, OwnerInfo, undefined),
+    mapping(Entries, [{owner, pid_port_fun_to_atom(Owner)}|Acc]);
+mapping([{Key, Value}|Entries], Acc) ->
+    mapping(Entries, [{Key, pid_port_fun_to_atom(Value)}|Acc]).
 
 convert_pid_info({initial_call,{_M, F, _A}}) ->
     {initial_call, F};
