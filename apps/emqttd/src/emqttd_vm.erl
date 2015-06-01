@@ -70,18 +70,23 @@
 -author("Feng Lee <feng@emqtt.io>").
 
 -export([loads/0,
-	 scheduler_usage/1,
- 	 get_memory/0,
- 	 get_process_list/0,
+	scheduler_usage/1]).
+
+-export([get_memory/0]).
+
+-export([get_process_list/0,
  	 get_process_info/0,
  	 get_process_gc/0,
- 	 get_process_group_leader_info/1,
-	 get_ets_list/0,
+ 	 get_process_group_leader_info/1]).
+	
+-export([get_ets_list/0,
  	 get_ets_info/0,
 	 get_ets_info/1,
  	 get_ets_object/0,
-	 get_ets_object/1
- 	]).
+	 get_ets_object/1]).
+
+-export([get_port_types/0]).
+
 
 loads() ->
     [{load1, ftos(cpu_sup:avg1()/256)},
@@ -215,6 +220,20 @@ get_ets_object(Tab) ->
     true ->
 	ets:tab2list(Tab)	
     end.
+
+get_port_types() ->
+    lists:usort(fun({KA, VA},{KB, VB})-> {VA, KB} >{VB, KA} end,
+	ports_type_count([Type || {_Port, Type} <- ports_type_list()])).
+
+ports_type_list() ->
+    [{Port, PortType} || Port <- erlang:ports(),
+		{_, PortType} <- [erlang:port_info(Port, name)]].
+
+ports_type_count(Types) ->
+    DictTypes = lists:foldl(fun(Type, Acc)->
+			dict:update_counter(Type, 1, Acc)	       
+		end, dict:new(), Types),
+    dict:to_list(DictTypes).
 
 mapping(Entries) ->
     mapping(Entries, []).
