@@ -145,6 +145,10 @@ handle_info({redeliver, {?PUBREL, PacketId}}, #state{proto_state = ProtoState} =
     {ok, ProtoState1} = emqttd_protocol:redeliver({?PUBREL, PacketId}, ProtoState),
     {noreply, State#state{proto_state = ProtoState1}};
 
+handle_info({subscribe, Topic, Qos}, #state{proto_state = ProtoState} = State) ->
+    {ok, ProtoState1} = emqttd_protocol:handle({subscribe, Topic, Qos}, ProtoState),
+    {noreply, State#state{proto_state = ProtoState1}};
+
 handle_info({stop, duplicate_id, _NewPid}, State=#state{proto_state = ProtoState}) ->
     lager:error("Shutdown for duplicate clientid: ~s", [emqttd_protocol:clientid(ProtoState)]), 
     stop({shutdown, duplicate_id}, State);
@@ -169,7 +173,8 @@ handle_info({keepalive, timeout}, State = #state{request = Req, keepalive = Keep
 handle_info({'EXIT', WsPid, Reason}, State = #state{ws_pid = WsPid}) ->
     stop(Reason, State);
 
-handle_info(_Info, State) ->
+handle_info(Info, State = #state{request = Req}) ->
+    lager:critical("Client(WebSocket) ~s: Unexpected Info - ~p", [Req:get(peer), Info]),
     {noreply, State}.
 
 terminate(Reason, #state{proto_state = ProtoState, keepalive = KeepAlive}) ->
