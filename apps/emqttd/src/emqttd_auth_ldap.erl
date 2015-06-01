@@ -82,10 +82,7 @@ ldap_bind(LDAP, UserDn, Password) ->
     end.
 
 fill(Username, UserDn) ->
-    lists:append(lists:map(
-            fun("$u") -> Username;
-                (S) -> S
-            end, string:tokens(UserDn, ",="))).
+    re:replace(UserDn, "\\$u", Username, [global, {return, list}]).
 
 description() -> 
     "LDAP Authentication Module".
