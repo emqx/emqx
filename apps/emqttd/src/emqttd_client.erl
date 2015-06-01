@@ -87,22 +87,23 @@ handle_call(info, _From, State = #state{conn_name=ConnName,
                                         proto_state = ProtoState}) ->
     {reply, [{conn_name, ConnName} | emqttd_protocol:info(ProtoState)], State};
 
-handle_call(Req, _From, State) ->
-    {stop, {badreq, Req}, State}.
+handle_call(Req, _From, State = #state{peername = Peername}) ->
+    lager:critical("Client ~s: unexpected request - ~p",[emqttd_net:format(Peername), Req]),
+    {reply, {error, unsupported_request}, State}.    
 
-handle_cast(Msg, State) ->
-    {stop, {badmsg, Msg}, State}.
+handle_cast(Msg, State = #state{peername = Peername}) ->
+    lager:critical("Client ~s: unexpected msg - ~p",[emqttd_net:format(Peername), Msg]),
+    {noreply, State}.
 
 handle_info(timeout, State) ->
     stop({shutdown, timeout}, State);
     
 handle_info({stop, duplicate_id, _NewPid}, State=#state{proto_state = ProtoState,
                                                         conn_name=ConnName}) ->
-    %% TODO: to...
     %% need transfer data???
     %% emqttd_client:transfer(NewPid, Data),
     lager:error("Shutdown for duplicate clientid: ~s, conn:~s", 
-        [emqttd_protocol:clientid(ProtoState), ConnName]), 
+                [emqttd_protocol:clientid(ProtoState), ConnName]), 
     stop({shutdown, duplicate_id}, State);
 
 %%TODO: ok??
@@ -158,17 +159,16 @@ handle_info({keepalive, timeout}, State = #state{peername = Peername, keepalive 
 
 handle_info(Info, State = #state{peername = Peername}) ->
     lager:critical("Client ~s: unexpected info ~p",[emqttd_net:format(Peername), Info]),
-    {stop, {badinfo, Info}, State}.
+    {noreply, State}.
 
 terminate(Reason, #state{peername = Peername, keepalive = KeepAlive, proto_state = ProtoState}) ->
-    lager:info("Client ~s: ~p terminated, reason: ~p~n", [emqttd_net:format(Peername), self(), Reason]),
-    notify(disconnected, Reason, ProtoState),
+    lager:info("Client ~s terminated, reason: ~p", [emqttd_net:format(Peername), Reason]),
     emqttd_keepalive:cancel(KeepAlive),
     case {ProtoState, Reason} of
         {undefined, _} -> ok;
         {_, {shutdown, Error}} -> 
             emqttd_protocol:shutdown(Error, ProtoState);
-        {_,  Reason} -> 
+        {_,  Reason} ->
             emqttd_protocol:shutdown(Reason, ProtoState)
     end.
 
@@ -231,7 +231,7 @@ control_throttle(State = #state{conn_state = Flow,
         {_,            _} -> run_socket(State)
     end.
 
-stop(Reason, State ) ->
+stop(Reason, State) ->
     {stop, Reason, State}.
 
 received_stats(?PACKET(Type)) ->
@@ -253,12 +253,3 @@ inc(?DISCONNECT) ->
 inc(_) ->
     ignore.
     
-%%TODO: should be moved to emqttd_protocol... for event emitted when protocol shutdown...
-notify(disconnected, _Reason, undefined) -> ingore;
-
-notify(disconnected, {shutdown, Reason}, ProtoState) ->
-    emqttd_event:notify({disconnected, emqttd_protocol:clientid(ProtoState), Reason});
-
-notify(disconnected, Reason, ProtoState) ->
-    emqttd_event:notify({disconnected, emqttd_protocol:clientid(ProtoState), Reason}).
-

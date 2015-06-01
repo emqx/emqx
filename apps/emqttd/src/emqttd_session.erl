@@ -360,7 +360,7 @@ handle_info({dispatch, {_From, Message}}, State) ->
 
 handle_info({'EXIT', ClientPid, Reason}, State = #session_state{clientid = ClientId,
                                                                 client_pid = ClientPid}) ->
-    lager:error("Session: client ~s@~p exited, caused by ~p", [ClientId, ClientPid, Reason]),
+    lager:info("Session: client ~s@~p exited for ~p", [ClientId, ClientPid, Reason]),
     {noreply, start_expire_timer(State#session_state{client_pid = undefined})};
 
 handle_info({'EXIT', ClientPid0, _Reason}, State = #session_state{client_pid = ClientPid}) ->

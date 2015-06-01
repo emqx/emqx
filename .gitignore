@@ -15,3 +15,5 @@ test/ebin/*.beam
 plugins/*/ebin
 log/
 *.swp
+*.so
+examples

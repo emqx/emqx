@@ -29,22 +29,32 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
+-include_lib("emqtt/include/emqtt.hrl").
+
+-include_lib("emqtt/include/emqtt_packet.hrl").
+
+-include("emqttd.hrl").
+
 -behaviour(emqttd_gen_mod).
 
--export([load/1, subscribe/2, unload/1]).
+-export([load/1, client_connected/3, unload/1]).
 
 -record(state, {topics}).
 
 load(Opts) ->
     Topics = [{list_to_binary(Topic), Qos} || {Topic, Qos} <- Opts, 0 =< Qos, Qos =< 2],
-    emqttd_broker:hook(client_connected, {?MODULE, subscribe},
-                       {?MODULE, subscribe, [Topics]}),
+    emqttd_broker:hook(client_connected, {?MODULE, client_connected},
+                       {?MODULE, client_connected, [Topics]}),
     {ok, #state{topics = Topics}}.
 
-subscribe({Client, ClientId}, Topics) ->
+client_connected(?CONNACK_ACCEPT, #mqtt_client{clientid = ClientId, client_pid = ClientPid}, Topics) ->
     F = fun(Topic) -> emqtt_topic:feed_var(<<"$c">>, ClientId, Topic) end,
-    [Client ! {subscribe, F(Topic), Qos} || {Topic, Qos} <- Topics].
+    [ClientPid ! {subscribe, F(Topic), Qos} || {Topic, Qos} <- Topics];
+
+client_connected(_ConnAck, _Client, _Topics) ->
+    ignore.
 
 unload(_Opts) ->
-    emqttd_broker:unhook(client_connected, {?MODULE, subscribe}).
+    emqttd_broker:unhook(client_connected, {?MODULE, client_connected}).
+
 

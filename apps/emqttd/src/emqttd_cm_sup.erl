@@ -42,7 +42,7 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    ets:new(emqttd_cm:table(), [set, named_table, public,
+    ets:new(emqttd_cm:table(), [set, named_table, public, {keypos, 2},
                                 {write_concurrency, true}]),
     Schedulers = erlang:system_info(schedulers),
     gproc_pool:new(emqttd_cm:pool(), hash, [{size, Schedulers}]),

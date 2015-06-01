@@ -34,6 +34,7 @@
 %% @doc Get running nodes
 %% @end
 %%------------------------------------------------------------------------------
+%%TODO: remove...
 running_nodes() ->
     mnesia:system_info(running_db_nodes).
 

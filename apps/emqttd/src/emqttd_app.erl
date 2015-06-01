@@ -68,8 +68,7 @@ print_vsn() ->
     ?PRINT("~s ~s is running now~n", [Desc, Vsn]).
 
 start_servers(Sup) ->
-    Servers = [{"emqttd event", emqttd_event},
-               {"emqttd trace", emqttd_trace},
+    Servers = [{"emqttd trace", emqttd_trace},
                {"emqttd pooler", {supervisor, emqttd_pooler_sup}},
                {"emqttd client manager", {supervisor, emqttd_cm_sup}},
                {"emqttd session manager", {supervisor, emqttd_sm_sup}},
