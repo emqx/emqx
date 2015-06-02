@@ -179,6 +179,7 @@ handle_call({register_mod, Type, Mod, Opts}, _From, State) ->
                     ets:insert(?ACCESS_CONTROL_TAB, {tab_key(Type), [{Mod, ModState}|Mods]}),
                     ok;
                 {'EXIT', Error} ->
+                    lager:error("Access Control: register ~s error - ~p", [Mod, Error]),
                     {error, Error}
             end;
         _ -> 

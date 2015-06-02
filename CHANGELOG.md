@@ -2,6 +2,14 @@
 emqttd ChangeLog
 ==================
 
+0.8.2-alpha (2015-06-01)
+-------------------------
+
+Bugfix: issue #147 - WebSocket client cannot subscribe queue '$Q/queue/${clientId}'
+
+Bugfix: issue #146 - emqttd_auth_ldap: fill(Username, UserDn) is not right
+
+
 0.8.1-alpha (2015-05-28)
 -------------------------
 

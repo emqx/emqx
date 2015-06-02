@@ -38,14 +38,18 @@
 
 init(Opts) -> 
     Mapper = proplists:get_value(field_mapper, Opts),
-    {ok, #state{user_table  = proplists:get_value(user_table, Opts, mqtt_users),
+    {ok, #state{user_table = proplists:get_value(user_table, Opts),
                 name_field = proplists:get_value(username, Mapper),
                 pass_field = proplists:get_value(password, Mapper),
-                pass_hash = proplists:get_value(Opts, password_hash)}}.
+                pass_hash  = proplists:get_value(password_hash, Opts)}}.
 
 check(#mqtt_client{username = undefined}, _Password, _State) ->
     {error, "Username undefined"};
+check(#mqtt_client{username = <<>>}, _Password, _State) ->
+    {error, "Username undefined"};
 check(_Client, undefined, _State) ->
+    {error, "Password undefined"};
+check(_Client, <<>>, _State) ->
     {error, "Password undefined"};
 check(#mqtt_client{username = Username}, Password,
       #state{user_table = UserTab, pass_hash = Type,
