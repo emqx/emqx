@@ -40,7 +40,7 @@
 
 start(_StartType, _StartArgs) ->
     Env = application:get_all_env(),
-    emqttd_access_control:register_mod(auth, emqttd_auth_mysql, Env),
+    ok = emqttd_access_control:register_mod(auth, emqttd_auth_mysql, Env),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 prep_stop(State) ->
