@@ -67,6 +67,37 @@
 		     min_heap_size]).%,
 		     %fullsweep_after]).
 
+-define(SOCKET_OPTS, [
+                      active,
+                      broadcast,
+		      buffer,
+		      buffer,
+		      buffer,
+		      buffer,
+                      delay_send,
+                      dontroute,
+                      exit_on_close,
+                      header,
+		      high_watermark,
+		      ipv6_v6only,
+                      keepalive,
+		      linger,
+		      low_watermark,
+		      mode,
+                      nodelay,
+                      packet,
+                      packet_size,
+		      priority,
+                      read_packets,
+                      recbuf,
+                      reuseaddr,
+                      send_timeout,
+                      send_timeout_close,
+                      sndbuf,
+                      tos
+                     ]).
+
+
 -author("Feng Lee <feng@emqtt.io>").
 
 -export([loads/0,
@@ -85,7 +116,9 @@
  	 get_ets_object/0,
 	 get_ets_object/1]).
 
--export([get_port_types/0]).
+-export([get_port_types/0,
+	 get_port_info/0,
+ 	 get_port_info/1]).
 
 
 loads() ->
@@ -225,6 +258,83 @@ get_port_types() ->
     lists:usort(fun({KA, VA},{KB, VB})-> {VA, KB} >{VB, KA} end,
 	ports_type_count([Type || {_Port, Type} <- ports_type_list()])).
 
+get_port_info() ->
+    [get_port_info(Port) ||Port <- erlang:ports()].
+
+get_port_info(PortTerm) ->
+    Port = transform_port(PortTerm),
+    [port_info(Port, Type) || Type <- [meta, signals, io, memory_used, specific]].
+
+port_info(Port, meta) ->
+	{meta, List} = port_info_type(Port, meta, [id, name, os_pid]),
+	case port_info(Port, registered_name)  of
+		[] -> {meta, List};
+		Name -> {meta, [Name | List]}
+end;
+
+port_info(PortTerm, signals) ->
+    port_info_type(PortTerm, signals, [connected, links, monitors]);
+
+port_info(PortTerm, io) ->
+    port_info_type(PortTerm, io, [input, output]);
+
+port_info(PortTerm, memory_used) ->
+    port_info_type(PortTerm, memory_used, [memory, queue_size]);
+
+port_info(PortTerm, specific) ->
+	Port = transform_port(PortTerm),
+	Props = case erlang:port_info(Port, name) of
+		{_, Type}  when Type =:= "udp_inet";
+				Type =:= "tcp_inet";
+				Type =:= "sctp_inet" ->
+					case catch inet:getstat(Port) of
+						{ok, Stats} -> [{statistics, Stats}];
+						_ ->[]
+
+		end ++
+		case catch inet:peername(Port) of
+			{ok, Peer} ->[{peername, Peer}];
+			{error, _} ->[]
+	end ++
+	case catch inet:sockname(Port) of
+		{ok, Local} ->[{sockname, Local}];
+		{error, _} -> []
+end ++
+case catch inet:getopts(Port, ?SOCKET_OPTS ) of
+	{ok, Opts} -> [{options, Opts}];
+	{error, _} -> []
+end;
+	{_, "efile"} ->
+		[];
+	_ ->[]
+end,
+	{specific, Props};
+port_info(PortTerm, Keys) when is_list(Keys) ->
+	Port = transform_port(PortTerm),
+	[erlang:port_info(Port, Key) || Key <- Keys];
+port_info(PortTerm, Key) when is_atom(Key) ->
+	Port = transform_port(PortTerm),
+	erlang:port_info(Port, Key).
+
+port_info_type(PortTerm, Type, Keys) ->
+	Port = transform_port(PortTerm),
+	{Type, [erlang:port_info(Port, Key) || Key <- Keys]}.
+
+transform_port(Port) when is_port(Port)  -> Port;
+transform_port("#Port<0." ++ Id) ->
+    N = list_to_integer(lists:sublist(Id, length(Id) - 1)),
+    transform_port(N);
+transform_port(N) when is_integer(N) ->
+    Name = iolist_to_binary(atom_to_list(node())),
+    NameLen = iolist_size(Name),
+    Vsn = binary:last(term_to_binary(self())),
+    Bin = <<131, 102, 100,
+    	    NameLen:2/unit:8,
+	    Name:NameLen/binary,
+	    N:4/unit:8,
+	    Vsn:8>>,
+    binary_to_term(Bin).
+
 ports_type_list() ->
     [{Port, PortType} || Port <- erlang:ports(),
 		{_, PortType} <- [erlang:port_info(Port, name)]].
@@ -246,6 +356,9 @@ mapping([{owner, V}|Entries], Acc) when is_pid(V) ->
 mapping([{Key, Value}|Entries], Acc) ->
     mapping(Entries, [{Key, pid_port_fun_to_atom(Value)}|Acc]).
 
+%ip_to_binary(Tuple) ->
+%    iolist_to_binary(string:join(lists:map(fun integer_to_list/1, tuple_to_list(Tuple)), ".")).
+
 convert_pid_info({initial_call,{_M, F, _A}}) ->
     {initial_call, F};
 convert_pid_info({current_function, {M, F, A}}) ->
@@ -258,6 +371,16 @@ convert_pid_info({Key, Term}) when is_pid(Term) or is_port(Term) or is_function(
     {Key, pid_port_fun_to_atom(Term)};
 convert_pid_info(Item) ->
     Item.
+
+%convert_port_info({name, Name}) ->
+%    {name, list_to_binary(Name)};
+%convert_port_info({links, List}) ->
+%    {links, [pid_port_fun_to_atom(Item) || Item <- List]};
+%convert_port_info({connected, Pid}) ->
+%    erlang:process_info(Pid, registered_name);
+%convert_port_info(Item) ->
+%    Item.
+
 
 pid_port_fun_to_atom(Term) when is_pid(Term) ->
     erlang:list_to_atom(pid_to_list(Term));
