@@ -25,7 +25,7 @@
 %%% @end
 %%%-----------------------------------------------------------------------------
 
-%% TODO: this module should be removed...
+%% TODO: this module should be rewrited...
 
 -module(emqttd_queue).
 
@@ -69,12 +69,12 @@ in(ClientId, Message = #mqtt_message{qos = Qos},
         false -> % full
             if
                 Qos =:= ?QOS_0 ->
-                    lager:warning("Queue ~s drop qos0 message: ~p", [ClientId, Message]),
+                    lager:error("Queue ~s drop qos0 message: ~p", [ClientId, Message]),
                     Wrapper;
                 true ->
                     {{value, Msg}, Queue1} = queue:drop(Queue),
-                    lager:warning("Queue ~s drop message: ~p", [ClientId, Msg]),
-                    Wrapper#mqtt_queue_wrapper{queue = Queue1}
+                    lager:error("Queue ~s drop message: ~p", [ClientId, Msg]),
+                    Wrapper#mqtt_queue_wrapper{queue = queue:in(Message, Queue1)}
             end
     end.
 

@@ -196,7 +196,7 @@ wrap(Header, Rest) ->
 %    parse_qos(Rest, [QoS | Acc]).
 
 parse_topics(_, <<>>, Topics) ->
-    Topics;
+    lists:reverse(Topics);
 parse_topics(?SUBSCRIBE = Sub, Bin, Topics) ->
     {Name, <<_:6, QoS:2, Rest/binary>>} = parse_utf(Bin),
     parse_topics(Sub, Rest, [{Name, QoS}| Topics]);
