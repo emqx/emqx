@@ -2,6 +2,16 @@
 emqttd ChangeLog
 ==================
 
+0.8.3-beta (2015-06-05)
+-------------------------
+
+Bugfix: issue #158 - should queue:in new message after old one dropped
+
+Bugfix: issue #155 - emqtt_parser.erl: parse_topics/3 should reverse topics
+
+Bugfix: issue #149 - Forget to merge plugins/emqttd_auth_mysql from 'dev' branch to 'master' in 0.8.x release
+
+
 0.8.2-alpha (2015-06-01)
 -------------------------
 
