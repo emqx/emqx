@@ -57,6 +57,8 @@
         client_pid  :: pid(),
 		message_id  = 1,
         submap      :: map(),
+        inflight_messages,
+        queued_messages,
         msg_queue, %% do not receive rel
         awaiting_ack :: map(),
         awaiting_rel :: map(),
