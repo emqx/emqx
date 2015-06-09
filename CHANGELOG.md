@@ -2,6 +2,12 @@
 emqttd ChangeLog
 ==================
 
+0.8.5-beta (2015-06-12)
+-------------------------
+
+Bugfix: issue #53 - client will receive duplicate messages when overlapping subscription
+
+
 0.8.4-beta (2015-06-08)
 -------------------------
 
