@@ -2,6 +2,18 @@
 emqttd ChangeLog
 ==================
 
+0.8.5-beta (2015-06-10)
+-------------------------
+
+Bugfix: issue #53 - client will receive duplicate messages when overlapping subscription
+
+
+0.8.4-beta (2015-06-08)
+-------------------------
+
+Bugfix: issue #165 - duplicated message when publish 'retained' message to persistent client
+
+
 0.8.3-beta (2015-06-05)
 -------------------------
 
