@@ -272,7 +272,7 @@ send({_From = SessPid, Message}, State = #proto_state{session = SessPid}) when i
 %% message(qos1, qos2) not from session
 send({_From, Message = #mqtt_message{qos = Qos}}, State = #proto_state{session = Session}) 
     when (Qos =:= ?QOS_1) orelse (Qos =:= ?QOS_2) ->
-    {Message1, NewSession} = emqttd_session:store(Session, Message),
+    {Message1, NewSession} = emqttd_session:await_ack(Session, Message),
 	send(emqtt_message:to_packet(Message1), State#proto_state{session = NewSession});
 
 send(Packet, State = #proto_state{sendfun = SendFun, peername = Peername}) when is_record(Packet, mqtt_packet) ->
