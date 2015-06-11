@@ -28,7 +28,7 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--export([merge/2]).
+-export([merge/2, g/2, g/3]).
 
 %%------------------------------------------------------------------------------
 %% @doc Merge Options
@@ -49,4 +49,14 @@ merge(Defaults, Options) ->
                     false -> [Opt | Acc]
                 end
         end, Defaults, Options).
+
+%%------------------------------------------------------------------------------
+%% @doc Get option
+%% @end
+%%------------------------------------------------------------------------------
+g(Key, Options) ->
+    proplists:get_value(Key, Options).
+
+g(Key, Options, Default) ->
+    proplists:get_value(Key, Options, Default).
 
