@@ -1,0 +1,14 @@
+## Overview
+
+ZenMQ is a general architecture of a distributed messaging queue written in Erlang.
+
+## Responsibilties
+
+* Topic Trie Tree
+* Message Route
+* Queue Management
+* Broker Cluster
+* Distributed Broker
+
+**Notice that this is an experimental design**
+

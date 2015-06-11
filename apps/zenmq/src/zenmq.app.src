@@ -1,12 +1,12 @@
-{application, emqtt,
+{application, zenmq,
  [
-  {description, "Erlang MQTT Common Library"},
-  {vsn, git},
-  {modules, []},
+  {description, ""},
+  {vsn, "1"},
   {registered, []},
   {applications, [
                   kernel,
                   stdlib
                  ]},
+  {mod, { zenmq_app, []}},
   {env, []}
  ]}.
