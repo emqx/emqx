@@ -2,6 +2,18 @@
 emqttd ChangeLog
 ==================
 
+0.9.0-alpha (2015-06-14)
+-------------------------
+
+Session
+
+Queue
+
+Alarm
+
+Protocol Compliant
+
+
 0.8.5-beta (2015-06-10)
 -------------------------
 

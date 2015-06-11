@@ -20,7 +20,7 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% simple message queue.
+%%% Simple message queue.
 %%%
 %%% Notice that MQTT is not an enterprise messaging queue. MQTT assume that client
 %%% should be online in most of the time.
@@ -44,8 +44,6 @@
          in/2, out/1,
          peek/1,
          to_list/1]).
-
-%% in_r/2, out_r/1,
 
 -define(MAX_LEN, 600).
 
@@ -78,9 +76,12 @@ new(Name, Opts) ->
     MaxLen = emqttd_opts:g(max_queued_messages, Opts, ?MAX_LEN),
     HighWM = round(MaxLen * emqttd_opts:g(high_queue_watermark, Opts, ?HIGH_WM)),
     LowWM  = round(MaxLen * emqttd_opts:g(low_queue_watermark, Opts, ?LOW_WM)),
-    #mqueue{name = Name, max_len = MaxLen,
-            store_qos0 = emqttd_opts:g(queue_qos0_messages, Opts, false),
-            high_watermark = HighWM, low_watermark = LowWM}.
+    StoreQos0 = emqttd_opts:g(queue_qos0_messages, Opts, false),
+    #mqueue{name = Name,
+            max_len = MaxLen,
+            store_qos0 = StoreQos0,
+            high_watermark = HighWM,
+            low_watermark = LowWM}.
 
 name(#mqueue{name = Name}) ->
     Name.
