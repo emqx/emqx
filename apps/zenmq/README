@@ -1,6 +1,6 @@
 ## Overview
 
-ZenMQ is a general architecture of a distributed messaging queue written in Erlang.
+ZenMQ is the core architecture of distributed pubsub messaging queue written in Erlang.
 
 ## Responsibilties
 
