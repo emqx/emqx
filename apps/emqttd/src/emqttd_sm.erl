@@ -53,7 +53,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {id, tabid, statsfun}).
+-record(state, {id, statsfun}).
 
 -define(SM_POOL, sm_pool).
 
@@ -91,7 +91,7 @@ table() -> ?SESSION_TAB.
 %%------------------------------------------------------------------------------
 -spec lookup_session(binary()) -> pid() | undefined.
 lookup_session(ClientId) ->
-    case ets:lookup(emqttd_sm_sup:table(), ClientId) of
+    case ets:lookup(?SESSION_TAB, ClientId) of
         [{_, SessPid, _}] ->  SessPid;
         [] -> undefined
     end.
@@ -156,8 +156,8 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'DOWN', MRef, process, DownPid, _Reason}, State = #state{tabid = Tab}) ->
-	ets:match_delete(Tab, {'_', DownPid, MRef}),
+handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
+	ets:match_delete(?SESSION_TAB, {'_', DownPid, MRef}),
     {noreply, setstats(State)};
 
 handle_info(_Info, State) ->
