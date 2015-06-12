@@ -20,7 +20,7 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd session process.
+%%% emqttd session process of persistent client.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
@@ -42,12 +42,55 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+%% Refactor this API.
+start({false = _CleanSess, ClientId, ClientPid}) ->
+    {ok, SessPid} = emqttd_sm:start_session(ClientId, ClientPid),
+    {ok, SessPid}.
+
 %%------------------------------------------------------------------------------
 %% @doc Start a session process.
 %% @end
 %%------------------------------------------------------------------------------
 start_link(ClientId, ClientPid) ->
     gen_server:start_link(?MODULE, [ClientId, ClientPid], []).
+
+resume(SessProc, ClientId, ClientPid) when is_pid(SessProc) ->
+    cast(SessProc, {resume, ClientId, ClientPid}).
+
+-spec publish(pid(), mqtt_clientid(), {mqtt_qos(), mqtt_message()}) -> pid().
+publish(SessProc, ClientId, {?QOS_0, Message}) when is_pid(SessProc) ->
+    emqttd_pubsub:publish(ClientId, Message), Session;
+
+publish(SessProc, ClientId, {?QOS_1, Message}) when is_pid(SessProc) ->
+	emqttd_pubsub:publish(ClientId, Message), Session;
+
+publish(SessProc, ClientId, {?QOS_2, Message}) when is_pid(SessProc) ->
+    cast(SessProc, {publish, ClientId, {?QOS_2, Message}}).
+
+puback(SessProc, {?PUBACK, PacketId}) when is_pid(SessProc) ->
+    cast(SessProc, {puback, PacketId}).
+
+puback(SessProc, {?PUBREL, PacketId}) when is_pid(SessProc) ->
+    cast(SessPid, {pubrel, PacketId}).
+
+puback(SessPid, {?PUBCOMP, PacketId}) when is_pid(SessPid) ->
+    cast(SessPid, {pubcomp, PacketId}).
+
+subscribe(SessPid, Topics) when is_pid(SessPid) ->
+    {ok, GrantedQos} = gen_server:call(SessPid, {subscribe, Topics}),
+    {ok, SessPid, GrantedQos}.
+
+unsubscribe(SessPid, Topics) when is_pid(SessPid) ->
+    gen_server:call(SessPid, {unsubscribe, Topics}),
+    {ok, SessPid}.
+
+-spec destroy(SessPid :: pid(), ClientId :: binary()) -> ok.
+destroy(SessPid, ClientId)  when is_pid(SessPid) ->
+    gen_server:cast(SessPid, {destroy, ClientId}).
+
+cast(SessProc, Msg) ->
+    gen_server:cast(SessProc, Msg), SessProc.
+
 
 %%%=============================================================================
 %%% gen_server callbacks
