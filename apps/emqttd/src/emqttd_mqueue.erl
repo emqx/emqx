@@ -20,15 +20,30 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% Simple message queue.
+%%%
+%%% A Simple in-memory message queue.
 %%%
 %%% Notice that MQTT is not an enterprise messaging queue. MQTT assume that client
 %%% should be online in most of the time.
 %%%
-%%% This module wraps an erlang queue to store offline messages temporarily for MQTT
-%%% persistent session.
+%%% This module implements a simple in-memory queue for MQTT persistent session.
 %%%
-%%% If the broker restarted or crashed, all the messages stored will be gone.
+%%% If the broker restarted or crashed, all the messages queued will be gone.
+%%% 
+%%% Desgin of The Queue:
+%%%       |<----------------- Max Len ----------------->|
+%%%       -----------------------------------------------
+%%% IN -> |       Pending Messages   | Inflight Window  | -> Out
+%%%       -----------------------------------------------
+%%%                                  |<--- Win Size --->|
+%%%
+%%%
+%%% 1. Inflight Window to store the messages awaiting for ack.
+%%%
+%%% 2. Suspend IN messages when the queue is deactive, or inflight windows is full.
+%%%
+%%% 3. If the queue is full, dropped qos0 messages if store_qos0 is true,
+%%%    otherwise dropped the oldest pending one.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
@@ -40,104 +55,98 @@
 -include_lib("emqtt/include/emqtt.hrl").
 
 -export([new/2, name/1,
-         is_empty/1, len/1,
-         in/2, out/1,
-         peek/1,
-         to_list/1]).
-
--define(MAX_LEN, 600).
-
--define(HIGH_WM, 0.6).
+         is_empty/1, is_full/1,
+         len/1, in/2, out/2]).
 
 -define(LOW_WM, 0.2).
 
+-define(HIGH_WM, 0.6).
+
+-define(MAX_LEN, 1000).
+
 -record(mqueue, {name,
-                 len = 0,
-                 max_len = ?MAX_LEN,
-                 queue = queue:new(),
-                 store_qos0 = false,
-                 high_watermark = ?HIGH_WM,
-                 low_watermark = ?LOW_WM,
-                 alert = false}).
+                 q        = queue:new(), %% pending queue
+                 len      = 0,           %% current queue len
+                 low_wm   = ?LOW_WM,
+                 high_wm  = ?HIGH_WM,
+                 max_len  = ?MAX_LEN,
+                 qos0     = false,
+                 alarm    = false}).
 
 -type mqueue() :: #mqueue{}.
 
--type queue_option() :: {max_queued_messages, pos_integer()} %% Max messages queued
-                      | {high_queue_watermark, float()}      %% High watermark
-                      | {low_queue_watermark, float()}       %% Low watermark
-                      | {queue_qos0_messages, boolean()}.    %% Queue Qos0 messages?
+-type mqueue_option() :: {max_length, pos_integer()}      %% Max queue length
+                       | {inflight_window, pos_integer()} %% Inflight Window
+                       | {low_watermark, float()}         %% Low watermark
+                       | {high_watermark, float()}        %% High watermark
+                       | {queue_qos0, boolean()}.         %% Queue Qos0
+
+-export_type([mqueue/0]).
 
 %%------------------------------------------------------------------------------
 %% @doc New Queue.
 %% @end
 %%------------------------------------------------------------------------------
--spec new(binary() | string(), list(queue_option())) -> mqueue().
+-spec new(binary(), list(mqueue_option())) -> mqueue().
 new(Name, Opts) ->
-    MaxLen = emqttd_opts:g(max_queued_messages, Opts, ?MAX_LEN),
-    HighWM = round(MaxLen * emqttd_opts:g(high_queue_watermark, Opts, ?HIGH_WM)),
-    LowWM  = round(MaxLen * emqttd_opts:g(low_queue_watermark, Opts, ?LOW_WM)),
-    StoreQos0 = emqttd_opts:g(queue_qos0_messages, Opts, false),
-    #mqueue{name = Name,
-            max_len = MaxLen,
-            store_qos0 = StoreQos0,
-            high_watermark = HighWM,
-            low_watermark = LowWM}.
+    MaxLen = emqttd_opts:g(max_length, Opts, ?MAX_LEN),
+    #mqueue{name     = Name,
+            max_len  = MaxLen,
+            low_wm   = round(MaxLen * emqttd_opts:g(low_watermark, Opts, ?LOW_WM)),
+            high_wm  = round(MaxLen * emqttd_opts:g(high_watermark, Opts, ?HIGH_WM)),
+            qos0     = emqttd_opts:g(queue_qos0, Opts, true)}.
 
 name(#mqueue{name = Name}) ->
     Name.
 
-len(#mqueue{len = Len}) ->
-    Len.
-
 is_empty(#mqueue{len = 0}) -> true;
-is_empty(_Q)               -> false.
+is_empty(_MQ)              -> false.
+
+is_full(#mqueue{len = Len, max_len = MaxLen})
+    when Len =:= MaxLen -> true;
+is_full(_MQ) -> false.
+
+len(#mqueue{len = Len}) -> Len.
 
 %%------------------------------------------------------------------------------
-%% @doc
-%% Queue one message.
-%%
+%% @doc Queue one message.
 %% @end
 %%------------------------------------------------------------------------------
 -spec in(mqtt_message(), mqueue()) -> mqueue().
-in(#mqtt_message{qos = ?QOS_0}, MQ = #mqueue{store_qos0 = false}) ->
+
+%% drop qos0
+in(#mqtt_message{qos = ?QOS_0}, MQ = #mqueue{qos0 = false}) ->
     MQ;
-%% queue is full, drop the oldest
-in(Msg, MQ = #mqueue{name = Name, len = Len, max_len = MaxLen, queue = Q}) when Len =:= MaxLen ->
-    Q2 = case queue:out(Q) of
-        {{value, OldMsg}, Q1} ->
-            %%TODO: publish the dropped message to $SYS?
-            lager:error("Queue(~s) drop message: ~p", [Name, OldMsg]),
-            Q1;
-        {empty, Q1} -> %% maybe max_len is 1
-            Q1
-    end,
-    MQ#mqueue{queue = queue:in(Msg, Q2)};
-in(Msg, MQ = #mqueue{len = Len, queue = Q}) ->
-    maybe_set_alarm(MQ#mqueue{len = Len+1, queue = queue:in(Msg, Q)}).
 
-out(MQ = #mqueue{len = 0, queue = _Q}) ->
+%% simply drop the oldest one if queue is full, improve later
+in(Msg, MQ = #mqueue{name = Name, len = Len, max_len = MaxLen})
+    when Len =:= MaxLen ->
+    {{value, OldMsg}, Q2} = queue:out(Q),
+    lager:error("queue(~s) drop message: ~p", [Name, OldMsg]),
+    MQ#mqueue{q = queue:in(Msg, Q2)};
+
+in(Msg, MQ = #mqueue{q = Q, len = Len}) ->
+    maybe_set_alarm(MQ#mqueue{q = queue:in(Msg, Q), len = Len + 1});
+
+out(MQ = #mqueue{len = 0}) ->
     {empty, MQ};
-out(MQ = #mqueue{len = Len, queue = Q}) ->
-    {Result, Q1} = queue:out(Q),
-    {Result, maybe_clear_alarm(MQ#mqueue{len = Len - 1, queue = Q1})}.
 
-peek(#mqueue{queue = Q}) ->
-    queue:peek(Q).
+out(MQ = #mqueue{q = Q, len = Len}) ->
+    {Result, Q2} = queue:out(Q),
+    {Result, maybe_clear_alarm(MQ#mqueue{q = Q2, len = Len - 1})}.
 
-to_list(#mqueue{queue = Q}) ->
-    queue:to_list(Q).
-
-maybe_set_alarm(MQ = #mqueue{name = Name, len = Len, high_watermark = HighWM, alert = false})
+maybe_set_alarm(MQ = #mqueue{name = Name, len = Len, high_wm = HighWM, alarm = false})
     when Len >= HighWM ->
     AlarmDescr = io_lib:format("len ~p > high_watermark ~p", [Len, HighWM]),
     emqttd_alarm:set_alarm({{queue_high_watermark, Name}, AlarmDescr}),
-    MQ#mqueue{alert = true};
+    MQ#mqueue{alarm = true};
 maybe_set_alarm(MQ) ->
     MQ.
 
-maybe_clear_alarm(MQ = #mqueue{name = Name, len = Len, low_watermark = LowWM, alert = true})
+maybe_clear_alarm(MQ = #mqueue{name = Name, len = Len, low_watermark = LowWM, alarm = true})
     when Len =< LowWM ->
-    emqttd_alarm:clear_alarm({queue_high_watermark, Name}), MQ#mqueue{alert = false};
+    emqttd_alarm:clear_alarm({queue_high_watermark, Name}),
+    MQ#mqueue{alarm = false};
 maybe_clear_alarm(MQ) ->
     MQ.
 
