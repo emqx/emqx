@@ -35,24 +35,20 @@
 
 -include_lib("emqtt/include/emqtt_packet.hrl").
 
-%% API Function Exports
+-define(SessProc, emqttd_session_proc). 
+
+%% Session Managenent APIs
 -export([start/1,
          resume/3,
-         publish/3,
+         destroy/2]).
+
+%% PubSub APIs
+-export([publish/3,
          puback/2,
          subscribe/2,
          unsubscribe/2,
-         destroy/2]).
-
-%% This api looks strange... :(
--export([store/2]).
-
-%% Start gen_server
--export([start_link/2]).
-
-%% gen_server Function Exports
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+         await/2,
+         dispatch/2]).
 
 -record(session, {
         %% ClientId: Identifier of Session
@@ -67,20 +63,11 @@
         %% Client’s subscriptions.
         subscriptions :: list(),
 
-        %% Inflight window size
-        inflight_window = 40,
-
         %% Inflight qos1, qos2 messages sent to the client but unacked,
         %% QoS 1 and QoS 2 messages which have been sent to the Client,
         %% but have not been completely acknowledged.
         %% Client <- Broker
-        inflight_queue :: list(),
-
-        %% Inflight qos2 messages received from client and waiting for pubrel.
-        %% QoS 2 messages which have been received from the Client,
-        %% but have not been completely acknowledged.
-        %% Client -> Broker
-        awaiting_queue :: list(),
+        inflight_window :: emqttd_mqwin:mqwin(),
 
         %% All qos1, qos2 messages published to when client is disconnected.
         %% QoS 1 and QoS 2 messages pending transmission to the Client.
@@ -88,18 +75,22 @@
         %% Optionally, QoS 0 messages pending transmission to the Client.
         pending_queue  :: emqttd_mqueue:mqueue(),
 
+        %% Inflight qos2 messages received from client and waiting for pubrel.
+        %% QoS 2 messages which have been received from the Client,
+        %% but have not been completely acknowledged.
+        %% Client -> Broker
+        awaiting_rel  :: map(),
+
         %% Awaiting timers for ack, rel and comp.
         awaiting_ack  :: map(),
-
-        awaiting_rel  :: map(),
 
         awaiting_comp :: map(),
 
         %% Retries to resend the unacked messages
-        max_unack_retries = 3,
+        unack_retries = 3,
 
         %% 4, 8, 16 seconds if 3 retries:)
-        unack_retry_after = 4,
+        unack_timeout = 4,
 
         %% Awaiting PUBREL timeout
         await_rel_timeout = 8,
@@ -109,9 +100,9 @@
 
         sess_expired_timer,
         
-        timestamp }).
+        timestamp}).
 
--type session() :: #session{} | pid().
+-type session() :: #session{}.
 
 %%%=============================================================================
 %%% Session API
@@ -139,6 +130,7 @@ start({false = _CleanSess, ClientId, ClientPid}) ->
 resume(SessState = #session{}, _ClientId, _ClientPid) ->
     SessState;
 resume(SessPid, ClientId, ClientPid) when is_pid(SessPid) ->
+    ?SessProc:
     gen_server:cast(SessPid, {resume, ClientId, ClientPid}),
     SessPid.
 
@@ -342,171 +334,6 @@ initial_state(ClientId, ClientPid) ->
     State = initial_state(ClientId),
     State#session{client_pid = ClientPid}.
 
-%%------------------------------------------------------------------------------
-%% @doc Start a session process.
-%% @end
-%%------------------------------------------------------------------------------
-start_link(ClientId, ClientPid) ->
-    gen_server:start_link(?MODULE, [ClientId, ClientPid], []).
-
-%%%=============================================================================
-%%% gen_server callbacks
-%%%=============================================================================
-
-init([ClientId, ClientPid]) ->
-    process_flag(trap_exit, true),
-    true = link(ClientPid),
-    State = initial_state(ClientId, ClientPid),
-    MQueue = emqttd_mqueue:new(ClientId, emqttd:env(mqtt, queue)),
-    State1 = State#session{pending_queue = MQueue,
-                                 timestamp = os:timestamp()},
-    {ok, init(emqttd:env(mqtt, session), State1), hibernate}.
-
-init([], State) ->
-    State;
-
-%% Session expired after hours
-init([{expired_after, Hours} | Opts], State) ->
-    init(Opts, State#session{sess_expired_after = Hours * 3600});
-    
-%% Max number of QoS 1 and 2 messages that can be “inflight” at one time.
-init([{max_inflight_messages, MaxInflight} | Opts], State) ->
-    init(Opts, State#session{inflight_window = MaxInflight});
-
-%% Max retries for unacknolege Qos1/2 messages
-init([{max_unack_retries, Retries} | Opts], State) ->
-    init(Opts, State#session{max_unack_retries = Retries});
-
-%% Retry after 4, 8, 16 seconds
-init([{unack_retry_after, Secs} | Opts], State) ->
-    init(Opts, State#session{unack_retry_after = Secs});
-
-%% Awaiting PUBREL timeout
-init([{await_rel_timeout, Secs} | Opts], State) ->
-    init(Opts, State#session{await_rel_timeout = Secs});
-
-init([Opt | Opts], State) ->
-    lager:error("Bad Session Option: ~p", [Opt]),
-    init(Opts, State).
-    
-handle_call({subscribe, Topics}, _From, State) ->
-    {ok, NewState, GrantedQos} = subscribe(State, Topics),
-    {reply, {ok, GrantedQos}, NewState};
-
-handle_call({unsubscribe, Topics}, _From, State) ->
-    {ok, NewState} = unsubscribe(State, Topics),
-    {reply, ok, NewState};
-
-handle_call(Req, _From, State) ->
-    lager:error("Unexpected request: ~p", [Req]),
-    {reply, error, State}.
-
-handle_cast({resume, ClientId, ClientPid}, State = #session{
-                                                      clientid      = ClientId,
-                                                      client_pid    = OldClientPid,
-                                                      msg_queue     = Queue,
-                                                      awaiting_ack  = AwaitingAck,
-                                                      awaiting_comp = AwaitingComp,
-                                                      expire_timer  = ETimer}) ->
-
-    lager:info([{client, ClientId}], "Session ~s resumed by ~p",[ClientId, ClientPid]),
-
-    %% kick old client...
-    if
-        OldClientPid =:= undefined ->
-            ok;
-        OldClientPid =:= ClientPid ->
-            ok;
-        true ->
-			lager:error("Session '~s' is duplicated: pid=~p, oldpid=~p", [ClientId, ClientPid, OldClientPid]),
-            unlink(OldClientPid),
-			OldClientPid ! {stop, duplicate_id, ClientPid}
-    end,
-
-    %% cancel timeout timer
-    emqttd_util:cancel_timer(ETimer),
-
-    %% redelivery PUBREL
-    lists:foreach(fun(PacketId) ->
-                ClientPid ! {redeliver, {?PUBREL, PacketId}}
-        end, maps:keys(AwaitingComp)),
-
-    %% redelivery messages that awaiting PUBACK or PUBREC
-    Dup = fun(Msg) -> Msg#mqtt_message{dup = true} end,
-    lists:foreach(fun(Msg) ->
-                ClientPid ! {dispatch, {self(), Dup(Msg)}}
-        end, maps:values(AwaitingAck)),
-
-    %% send offline messages
-    lists:foreach(fun(Msg) ->
-                ClientPid ! {dispatch, {self(), Msg}}
-        end, emqttd_queue:all(Queue)),
-
-    {noreply, State#session{client_pid   = ClientPid,
-                                  msg_queue    = emqttd_queue:clear(Queue),
-                                  expire_timer = undefined}, hibernate};
-
-handle_cast({publish, ClientId, {?QOS_2, Message}}, State) ->
-    NewState = publish(State, ClientId, {?QOS_2, Message}),
-    {noreply, NewState};
-
-handle_cast({puback, PacketId}, State) ->
-    NewState = puback(State, {?PUBACK, PacketId}),
-    {noreply, NewState};
-
-handle_cast({pubrec, PacketId}, State) ->
-    NewState = puback(State, {?PUBREC, PacketId}),
-    {noreply, NewState};
-
-handle_cast({pubrel, PacketId}, State) ->
-    NewState = puback(State, {?PUBREL, PacketId}),
-    {noreply, NewState};
-
-handle_cast({pubcomp, PacketId}, State) ->
-    NewState = puback(State, {?PUBCOMP, PacketId}),
-    {noreply, NewState};
-
-handle_cast({destroy, ClientId}, State = #session{clientid = ClientId}) ->
-    lager:warning("Session ~s destroyed", [ClientId]),
-    {stop, normal, State};
-
-handle_cast(Msg, State) ->
-    lager:critical("Unexpected Msg: ~p, State: ~p", [Msg, State]), 
-    {noreply, State}.
-
-handle_info({dispatch, {_From, Messages}}, State) when is_list(Messages) ->
-    F = fun(Message, S) -> dispatch(Message, S) end,
-    {noreply, lists:foldl(F, State, Messages)};
-
-handle_info({dispatch, {_From, Message}}, State) ->
-    {noreply, dispatch(Message, State)};
-
-handle_info({'EXIT', ClientPid, Reason}, State = #session{clientid = ClientId,
-                                                                client_pid = ClientPid}) ->
-    lager:info("Session: client ~s@~p exited for ~p", [ClientId, ClientPid, Reason]),
-    {noreply, start_expire_timer(State#session{client_pid = undefined})};
-
-handle_info({'EXIT', ClientPid0, _Reason}, State = #session{client_pid = ClientPid}) ->
-    lager:error("Unexpected Client EXIT: pid=~p, pid(state): ~p", [ClientPid0, ClientPid]),
-    {noreply, State};
-
-handle_info(session_expired, State = #session{clientid = ClientId}) ->
-    lager:warning("Session ~s expired!", [ClientId]),
-    {stop, {shutdown, expired}, State};
-
-handle_info({timeout, awaiting_rel, MsgId}, SessState) ->
-    NewState = timeout(awaiting_rel, MsgId, SessState),
-    {noreply, NewState};
-
-handle_info(Info, State) ->
-    lager:critical("Unexpected Info: ~p, State: ~p", [Info, State]),
-    {noreply, State}.
-
-terminate(_Reason, _State) ->
-    ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
 
 %%%=============================================================================
 %%% Internal functions
