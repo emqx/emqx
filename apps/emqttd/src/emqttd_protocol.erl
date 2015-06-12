@@ -51,6 +51,7 @@
         username,
 		clientid,
 		clean_sess,
+        sessmod,
         session,    %% session state or session pid
 		will_msg,
         max_clientid_len = ?MAX_CLIENTID_LEN,

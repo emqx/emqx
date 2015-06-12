@@ -47,7 +47,9 @@
 %% API Function Exports
 -export([start_link/2, pool/0, table/0]).
 
--export([lookup_session/1, start_session/2, destroy_session/1]).
+-export([lookup_session/1,
+         start_session/2,
+         destroy_session/1]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -86,6 +88,15 @@ pool() -> ?SM_POOL.
 table() -> ?SESSION_TAB.
 
 %%------------------------------------------------------------------------------
+%% @doc Start a session
+%% @end
+%%------------------------------------------------------------------------------
+-spec start_session(binary(), pid()) -> {ok, pid()} | {error, any()}.
+start_session(ClientId, ClientPid) ->
+    SmPid = gproc_pool:pick_worker(?SM_POOL, ClientId),
+    gen_server:call(SmPid, {start_session, ClientId, ClientPid}).
+
+%%------------------------------------------------------------------------------
 %% @doc Lookup Session Pid
 %% @end
 %%------------------------------------------------------------------------------
@@ -95,15 +106,6 @@ lookup_session(ClientId) ->
         [{_, SessPid, _}] ->  SessPid;
         [] -> undefined
     end.
-
-%%------------------------------------------------------------------------------
-%% @doc Start a session
-%% @end
-%%------------------------------------------------------------------------------
--spec start_session(binary(), pid()) -> {ok, pid()} | {error, any()}.
-start_session(ClientId, ClientPid) ->
-    SmPid = gproc_pool:pick_worker(?SM_POOL, ClientId),
-    gen_server:call(SmPid, {start_session, ClientId, ClientPid}).
 
 %%------------------------------------------------------------------------------
 %% @doc Destroy a session
