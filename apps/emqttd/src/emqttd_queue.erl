@@ -72,7 +72,7 @@ in(ClientId, Message = #mqtt_message{qos = Qos},
                     lager:error("Queue ~s drop qos0 message: ~p", [ClientId, Message]),
                     Wrapper;
                 true ->
-                    {{value, Msg}, Queue1} = queue:drop(Queue),
+                    {{value, Msg}, Queue1} = queue:out(Queue),
                     lager:error("Queue ~s drop message: ~p", [ClientId, Msg]),
                     Wrapper#mqtt_queue_wrapper{queue = queue:in(Message, Queue1)}
             end
