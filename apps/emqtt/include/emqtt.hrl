@@ -58,6 +58,10 @@
 -record(mqtt_message, {
     %% topic is first for message may be retained
     topic           :: binary(),
+    %% clientid from
+    from            :: binary() | atom(),
+    %% sender pid ??
+    sender          :: pid(),
     qos    = ?QOS_0 :: mqtt_qos(),
     retain = false  :: boolean(),
     dup    = false  :: boolean(),
