@@ -38,8 +38,6 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
-%%cleanSess: true | false
-
 -include("emqttd.hrl").
 
 -behaviour(gen_server).
@@ -55,7 +53,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {id, tabid, statsfun}).
+-record(state, {id, statsfun}).
 
 -define(SM_POOL, sm_pool).
 
@@ -91,10 +89,21 @@ table() -> ?SESSION_TAB.
 %% @doc Start a session
 %% @end
 %%------------------------------------------------------------------------------
--spec start_session(binary(), pid()) -> {ok, pid()} | {error, any()}.
-start_session(ClientId, ClientPid) ->
+
+-spec start_session(CleanSess :: boolean(), binary()) -> {ok, module(), record() | pid()}.
+start_session(true, ClientId) ->
+    %% destroy old session if existed
+    ok = destroy_session(ClientId),
+    {ok, emqttd_session, emqttd_session:new(ClientId)};
+
+start_session(false, ClientId) ->
     SmPid = gproc_pool:pick_worker(?SM_POOL, ClientId),
-    gen_server:call(SmPid, {start_session, ClientId, ClientPid}).
+    case call(SmPid, {start_session, ClientId, self()}) of
+        {ok, SessPid} ->
+            {ok, emqttd_session_proc, SessPid};
+        {error, Error} ->
+            {error, Error}
+    end.
 
 %%------------------------------------------------------------------------------
 %% @doc Lookup Session Pid
@@ -102,7 +111,7 @@ start_session(ClientId, ClientPid) ->
 %%------------------------------------------------------------------------------
 -spec lookup_session(binary()) -> pid() | undefined.
 lookup_session(ClientId) ->
-    case ets:lookup(emqttd_sm_sup:table(), ClientId) of
+    case ets:lookup(?SESSION_TAB, ClientId) of
         [{_, SessPid, _}] ->  SessPid;
         [] -> undefined
     end.
@@ -114,7 +123,9 @@ lookup_session(ClientId) ->
 -spec destroy_session(binary()) -> ok.
 destroy_session(ClientId) ->
     SmPid = gproc_pool:pick_worker(?SM_POOL, ClientId),
-    gen_server:call(SmPid, {destroy_session, ClientId}).
+    call(SmPid, {destroy_session, ClientId}).
+
+call(SmPid, Req) -> gen_server:call(SmPid, Req).
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -128,11 +139,11 @@ handle_call({start_session, ClientId, ClientPid}, _From, State) ->
     Reply =
     case ets:lookup(?SESSION_TAB, ClientId) of
         [{_, SessPid, _MRef}] ->
-            emqttd_session:resume(SessPid, ClientId, ClientPid), 
+            emqttd_session_proc:resume(SessPid, ClientId, ClientPid), 
             {ok, SessPid};
         [] ->
             case emqttd_session_sup:start_session(ClientId, ClientPid) of
-            {ok, SessPid} -> 
+            {ok, SessPid} ->
                 ets:insert(?SESSION_TAB, {ClientId, SessPid, erlang:monitor(process, SessPid)}),
                 {ok, SessPid};
             {error, Error} ->
@@ -158,8 +169,8 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'DOWN', MRef, process, DownPid, _Reason}, State = #state{tabid = Tab}) ->
-	ets:match_delete(Tab, {'_', DownPid, MRef}),
+handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
+	ets:match_delete(?SESSION_TAB, {'_', DownPid, MRef}),
     {noreply, setstats(State)};
 
 handle_info(_Info, State) ->

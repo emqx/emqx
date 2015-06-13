@@ -152,13 +152,13 @@ handle(Packet = ?CONNECT_PACKET(Var), State0 = #proto_state{peername = Peername}
                     emqttd_cm:register(client(State2)),
 
                     %%Starting session
-                    {ok, Session} = emqttd_session:start({CleanSess, clientid(State2), self()}),
+                    {ok, SessMod, Session} = emqttd_sm:start_session(CleanSess, clientid(State2)),
 
                     %% Start keepalive
                     start_keepalive(KeepAlive),
 
                     %% ACCEPT
-                    {?CONNACK_ACCEPT, State2#proto_state{session = Session, will_msg = willmsg(Var)}};
+                    {?CONNACK_ACCEPT, State2#proto_state{sessmod = SessMod, session = Session, will_msg = willmsg(Var)}};
                 {error, Reason}->
                     lager:error("~s@~s: username '~s', login failed - ~s",
                                     [ClientId, emqttd_net:format(Peername), Username, Reason]),

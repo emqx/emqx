@@ -56,6 +56,6 @@ start_session(ClientId, ClientPid) ->
 
 init([]) ->
     {ok, {{simple_one_for_one, 10, 10},
-          [{session, {emqttd_session, start_link, []},
-              transient, 10000, worker, [emqttd_session]}]}}.
+          [{session, {emqttd_session_proc, start_link, []},
+              transient, 10000, worker, [emqttd_session_proc]}]}}.
 
