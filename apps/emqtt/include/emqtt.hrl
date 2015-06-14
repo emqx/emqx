@@ -56,17 +56,12 @@
 -type mqtt_msgid() :: undefined | 1..16#ffff.
 
 -record(mqtt_message, {
-    %% topic is first for message may be retained
-    topic           :: binary(),
-    %% clientid from
-    from            :: binary() | atom(),
-    %% sender pid ??
-    sender          :: pid(),
+    topic           :: binary(),                 %% topic published to
+    from            :: mqtt_clientid() | atom(), %% from clientid
     qos    = ?QOS_0 :: mqtt_qos(),
     retain = false  :: boolean(),
     dup    = false  :: boolean(),
-    %% $SYS message flag
-    sys    = false  :: boolean(),
+    sys    = false  :: boolean(),                %% $SYS flag
     msgid           :: mqtt_msgid(),
     payload         :: binary()
 }).
