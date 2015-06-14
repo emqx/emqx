@@ -294,10 +294,12 @@ shutdown(duplicate_id, _State) ->
 shutdown(_, #proto_state{clientid = undefined}) ->
     ignore;
 
-shutdown(normal, #proto_state{peername = Peername, clientid = ClientId}) ->
+%%TODO:
+shutdown(normal, #proto_state{peername = Peername, clientid = ClientId, will_msg = WillMsg}) ->
 	lager:info([{client, ClientId}], "Client ~s@~s: normal shutdown",
             [ClientId, emqttd_net:format(Peername)]),
     try_unregister(ClientId),
+    send_willmsg(ClientId, WillMsg);
     emqttd_broker:foreach_hooks(client_disconnected, [normal, ClientId]);
 
 shutdown(Error, #proto_state{peername = Peername, clientid = ClientId, will_msg = WillMsg}) ->
@@ -321,9 +323,9 @@ clientid(ClientId, _State) -> ClientId.
 
 send_willmsg(_ClientId, undefined) ->
     ignore;
-%%TODO:should call session...
-send_willmsg(ClientId, WillMsg) ->
-    emqttd_pubsub:publish(WillMsg#mqtt_message{from = ClientId}).
+send_willmsg(ClientId, WillMsg) -> 
+    lager:info("Client ~s send willmsg: ~p", [ClientId, WillMsg]),
+    emqttd_pubsub:publish(ClientId, WillMsg).
 
 start_keepalive(0) -> ignore;
 
