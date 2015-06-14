@@ -90,20 +90,10 @@ table() -> ?SESSION_TAB.
 %% @end
 %%------------------------------------------------------------------------------
 
--spec start_session(CleanSess :: boolean(), binary()) -> {ok, module(), record() | pid()}.
-start_session(true, ClientId) ->
-    %% destroy old session if existed
-    ok = destroy_session(ClientId),
-    {ok, emqttd_session, emqttd_session:new(ClientId)};
-
-start_session(false, ClientId) ->
-    SmPid = gproc_pool:pick_worker(?SM_POOL, ClientId),
-    case call(SmPid, {start_session, ClientId, self()}) of
-        {ok, SessPid} ->
-            {ok, emqttd_session_proc, SessPid};
-        {error, Error} ->
-            {error, Error}
-    end.
+-spec start_session(CleanSess :: boolean(), binary()) -> {ok, pid()} | {error, any()}.
+start_session(CleanSess, ClientId) ->
+    SM = gproc_pool:pick_worker(?SM_POOL, ClientId),
+    call(SM, {start_session, {CleanSess, ClientId, self()}}).
 
 %%------------------------------------------------------------------------------
 %% @doc Lookup Session Pid
@@ -122,10 +112,10 @@ lookup_session(ClientId) ->
 %%------------------------------------------------------------------------------
 -spec destroy_session(binary()) -> ok.
 destroy_session(ClientId) ->
-    SmPid = gproc_pool:pick_worker(?SM_POOL, ClientId),
-    call(SmPid, {destroy_session, ClientId}).
+    SM = gproc_pool:pick_worker(?SM_POOL, ClientId),
+    call(SM, {destroy_session, ClientId}).
 
-call(SmPid, Req) -> gen_server:call(SmPid, Req).
+call(SM, Req) -> gen_server:call(SM, Req).
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -135,22 +125,26 @@ init([Id, StatsFun]) ->
     gproc_pool:connect_worker(?SM_POOL, {?MODULE, Id}),
     {ok, #state{id = Id, statsfun = StatsFun}}.
 
-handle_call({start_session, ClientId, ClientPid}, _From, State) ->
+handle_call({start_session, {false, ClientId, ClientPid}}, _From, State) ->
     Reply =
     case ets:lookup(?SESSION_TAB, ClientId) of
         [{_, SessPid, _MRef}] ->
-            emqttd_session_proc:resume(SessPid, ClientId, ClientPid), 
+            emqttd_session:resume(SessPid, ClientId, ClientPid),
             {ok, SessPid};
         [] ->
-            case emqttd_session_sup:start_session(ClientId, ClientPid) of
-            {ok, SessPid} ->
-                ets:insert(?SESSION_TAB, {ClientId, SessPid, erlang:monitor(process, SessPid)}),
-                {ok, SessPid};
-            {error, Error} ->
-                {error, Error}
-            end
+            new_session(false, ClientId, ClientPid)
     end,
     {reply, Reply, setstats(State)};
+
+handle_call({start_session, {true, ClientId, ClientPid}}, _From, State) ->
+    case ets:lookup(?SESSION_TAB, ClientId) of
+        [{_, SessPid, MRef}] ->
+            erlang:demonitor(MRef, [flush]),
+            emqttd_session:destroy_session(SessPid, ClientId);
+        [] ->
+            ok
+    end,
+    {reply, new_session(true, ClientId, ClientPid), setstats(State)};
 
 handle_call({destroy_session, ClientId}, _From, State) ->
     case ets:lookup(?SESSION_TAB, ClientId) of
@@ -186,6 +180,16 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%=============================================================================
 
+new_session(CleanSess, ClientId, ClientPid) ->
+    case emqttd_session_sup:start_session(CleanSess, ClientId, ClientPid) of
+        {ok, SessPid} ->
+            ets:insert(?SESSION_TAB, {ClientId, SessPid, erlang:monitor(process, SessPid)}),
+            {ok, SessPid};
+        {error, Error} ->
+            {error, Error}
+    end.
+
 setstats(State = #state{statsfun = StatsFun}) ->
     StatsFun(ets:info(?SESSION_TAB, size)), State.
+
 

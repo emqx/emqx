@@ -25,42 +25,47 @@
 %%% @end
 %%%-----------------------------------------------------------------------------
 
--module(emqttd_mqwin).
+-module(emqttd_inflight).
 
 -author("Feng Lee <feng@emqtt.io>").
 
--export([new/2, len/1, in/2, ack/2]).
+-include_lib("emqtt/include/emqtt.hrl").
 
--define(WIN_SIZE, 100).
+-export([new/2, is_full/1, len/1, in/2, ack/2]).
 
--record(mqwin, {name,
-                w     = [], %% window list
-                len   = 0,  %% current window len
-                size  = ?WIN_SIZE}).
+-define(MAX_SIZE, 100).
 
--type mqwin() :: #mqwin{}.
+-record(inflight, {name, q = [], len = 0, size = ?MAX_SIZE}).
 
--export_type([mqwin/0]).
+-type inflight() :: #inflight{}.
 
-new(Name, Opts) ->
-    WinSize = emqttd_opts:g(inflight_window, Opts, ?WIN_SIZE),
-    #mqwin{name = Name, size = WinSize}.
+-export_type([inflight/0]).
 
-len(#mqwin{len = Len}) ->
+new(Name, Max) ->
+    #inflight{name = Name, size = Max}.
+
+is_full(#inflight{size = 0}) ->
+    false;
+is_full(#inflight{len = Len, size = Size}) when Len < Size ->
+    false;
+is_full(_Inflight) ->
+    true.
+
+len(#inflight{len = Len}) ->
     Len.
 
-in(_Msg, #mqwin{len = Len, size = Size})
+in(_Msg, #inflight{len = Len, size = Size})
     when Len =:= Size -> {error, full};
 
-in(Msg, Win = #mqwin{w = W, len = Len}) ->
-    {ok, Win#mqwin{w = [Msg|W], len = Len +1}}.
+in(Msg = #mqtt_message{msgid = MsgId}, Inflight = #inflight{q = Q, len = Len}) ->
+    {ok, Inflight#inflight{q = [{MsgId, Msg}|Q], len = Len +1}}.
     
-ack(MsgId, QWin = #mqwin{w = W, len = Len}) ->
-    case lists:keyfind(MsgId, 2, W) of
+ack(MsgId, Inflight = #inflight{q = Q, len = Len}) ->
+    case lists:keyfind(MsgId, 1, Q) of
         false ->
-            lager:error("qwin(~s) cannot find msgid: ~p", [MsgId]), QWin;
+            lager:error("Inflight(~s) cannot find msgid: ~p", [MsgId]),
+            Inflight;
         _Msg ->
-            QWin#mqwin{w = lists:keydelete(MsgId, 2, W), len = Len - 1}
+            Inflight#inflight{q = lists:keydelete(MsgId, 1, Q), len = Len - 1}
     end.
-
 

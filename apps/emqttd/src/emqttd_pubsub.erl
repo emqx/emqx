@@ -177,7 +177,7 @@ publish(From, <<"$Q/", _/binary>> = Queue, #mqtt_message{qos = Qos} = Msg) ->
                 Qos > SubQos -> Msg#mqtt_message{qos = SubQos};
                 true -> Msg
             end,
-            SubPid ! {dispatch, {self(), Msg1}}
+            SubPid ! {dispatch, Msg1}
         end, mnesia:dirty_read(queue, Queue));
     
 publish(_From, Topic, Msg) when is_binary(Topic) ->
@@ -202,7 +202,7 @@ dispatch(Topic, #mqtt_message{qos = Qos} = Msg ) when is_binary(Topic) ->
                     Qos > SubQos -> Msg#mqtt_message{qos = SubQos};
                     true -> Msg
                 end,
-                SubPid ! {dispatch, {self(), Msg1}}
+                SubPid ! {dispatch, Msg1}
             end, Subscribers), 
     length(Subscribers).
 

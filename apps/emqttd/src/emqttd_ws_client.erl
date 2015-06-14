@@ -130,15 +130,8 @@ handle_cast({received, Packet}, State = #state{proto_state = ProtoState}) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({dispatch, {From, Messages}}, #state{proto_state = ProtoState} = State) when is_list(Messages) ->
-    ProtoState1 =
-    lists:foldl(fun(Message, PState) ->
-            {ok, PState1} = emqttd_protocol:send({From, Message}, PState), PState1
-        end, ProtoState, Messages),
-    {noreply, State#state{proto_state = ProtoState1}};
-
-handle_info({dispatch, {From, Message}}, #state{proto_state = ProtoState} = State) ->
-    {ok, ProtoState1} = emqttd_protocol:send({From, Message}, ProtoState),
+handle_info({deliver, Message}, #state{proto_state = ProtoState} = State) ->
+    {ok, ProtoState1} = emqttd_protocol:send(Message, ProtoState),
     {noreply, State#state{proto_state = ProtoState1}};
 
 handle_info({redeliver, {?PUBREL, PacketId}}, #state{proto_state = ProtoState} = State) ->

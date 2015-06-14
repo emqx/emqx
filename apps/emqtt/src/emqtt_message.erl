@@ -32,7 +32,7 @@
 
 -include("emqtt_packet.hrl").
 
--export([from_packet/1, to_packet/1]).
+-export([from_packet/1, from_packet/2, to_packet/1]).
 
 -export([set_flag/1, set_flag/2, unset_flag/1, unset_flag/2]).
 
@@ -69,6 +69,9 @@ from_packet(#mqtt_packet_connect{will_retain = Retain,
                   topic   = Topic,
                   dup     = false,
                   payload = Msg}.
+
+from_packet(ClientId, Packet) ->
+    Msg = from_packet(Packet), Msg#mqtt_message{from = ClientId}.
 
 %%------------------------------------------------------------------------------
 %% @doc Message to packet

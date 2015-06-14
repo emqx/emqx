@@ -106,11 +106,11 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({dispatch, {_From, Msg}}, State = #state{node = Node, status = down}) ->
+handle_info({dispatch, Msg}, State = #state{node = Node, status = down}) ->
     lager:warning("Bridge Dropped Msg for ~p Down:~n~p", [Node, Msg]),
     {noreply, State};
 
-handle_info({dispatch, {_From, Msg}}, State = #state{node = Node, status = up}) ->
+handle_info({dispatch, Msg}, State = #state{node = Node, status = up}) ->
     rpc:cast(Node, emqttd_pubsub, publish, [transform(Msg, State)]),
     {noreply, State};
 

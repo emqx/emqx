@@ -57,7 +57,7 @@
 
 -record(mqtt_message, {
     topic           :: binary(),                 %% topic published to
-    from            :: mqtt_clientid() | atom(), %% from clientid
+    from            :: binary() | atom(), %% from clientid
     qos    = ?QOS_0 :: mqtt_qos(),
     retain = false  :: boolean(),
     dup    = false  :: boolean(),

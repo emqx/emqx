@@ -53,30 +53,25 @@
 
 -include_lib("emqtt/include/emqtt_packet.hrl").
 
-%% Start gen_server
--export([start_link/2, resume/3, destroy/2]).
-
-%% Init Session State
--export([new/1]).
+%% Session API
+-export([start_link/3, resume/3, destroy/2]).
 
 %% PubSub APIs
--export([publish/3,
-         puback/2,
-         subscribe/2,
-         unsubscribe/2,
-         await/2,
-         dispatch/2]).
+-export([publish/2,
+         puback/2, pubrec/2, pubrel/2, pubcomp/2,
+         subscribe/2, unsubscribe/2]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
 -record(session, {
-        %% ClientId: Identifier of Session
-        clientid    :: binary(),
 
         %% Clean Session Flag
         clean_sess = true,
+
+        %% ClientId: Identifier of Session
+        clientid    :: binary(),
 
         %% Client Pid linked with session
         client_pid  :: pid(),
@@ -91,7 +86,7 @@
         %% QoS 1 and QoS 2 messages which have been sent to the Client,
         %% but have not been completely acknowledged.
         %% Client <- Broker
-        inflight_window :: emqttd_mqwin:mqwin(),
+        inflight_queue :: emqttd_inflight:inflight(),
 
         %% All qos1, qos2 messages published to when client is disconnected.
         %% QoS 1 and QoS 2 messages pending transmission to the Client.
@@ -129,167 +124,121 @@
         
         timestamp}).
 
--type session() :: #session{}.
-
-%%%=============================================================================
-%%% Session API
-%%%=============================================================================
-
 %%------------------------------------------------------------------------------
-%% @doc Start a session process.
+%% @doc Start a session.
 %% @end
 %%------------------------------------------------------------------------------
-start_link(ClientId, ClientPid) ->
-    gen_server:start_link(?MODULE, [ClientId, ClientPid], []).
+start_link(CleanSess, ClientId, ClientPid) ->
+    gen_server:start_link(?MODULE, [CleanSess, ClientId, ClientPid], []).
 
 %%------------------------------------------------------------------------------
 %% @doc Resume a session.
 %% @end
 %%------------------------------------------------------------------------------
-resume(Session, _ClientId, _ClientPid) when is_record(Session, session) ->
-    Session;
-resume(SessPid, ClientId, ClientPid) when is_pid(SessPid) ->
-    gen_server:cast(SessPid, {resume, ClientId, ClientPid}), SessPid.
+resume(Session, ClientId, ClientPid) when is_pid(Session) ->
+    gen_server:cast(Session, {resume, ClientId, ClientPid}).
 
 %%------------------------------------------------------------------------------
 %% @doc Destroy a session.
 %% @end
 %%------------------------------------------------------------------------------
--spec destroy(SessPid :: pid(), ClientId :: binary()) -> ok.
-destroy(SessPid, ClientId)  when is_pid(SessPid) ->
-    gen_server:cast(SessPid, {destroy, ClientId}), SessPid.
+-spec destroy(Session:: pid(), ClientId :: binary()) -> ok.
+destroy(Session, ClientId)  when is_pid(Session) ->
+    gen_server:call(Session, {destroy, ClientId}).
 
 %%------------------------------------------------------------------------------
-%% @doc Init Session State.
+%% @doc Publish message
 %% @end
 %%------------------------------------------------------------------------------
--spec new(binary()) -> session().
-new(ClientId) ->
+-spec publish(Session :: pid(), {mqtt_qos(), mqtt_message()}) -> ok.
+publish(Session, Msg = #mqtt_message{qos = ?QOS_0}) when is_pid(Session) ->
+    %% publish qos0 directly
+    emqttd_pubsub:publish(Msg);
+
+publish(Session, Msg = #mqtt_message{qos = ?QOS_1}) when is_pid(Session) ->
+    %% publish qos1 directly, and client will puback
+	emqttd_pubsub:publish(Msg);
+
+publish(Session, Msg = #mqtt_message{qos = ?QOS_2}) when is_pid(Session) ->
+    %% publish qos2 by session 
+    gen_server:cast(Session, {publish, Msg}).
+
+%%------------------------------------------------------------------------------
+%% @doc PubAck message
+%% @end
+%%------------------------------------------------------------------------------
+-spec puback(Session :: pid(), MsgId :: mqtt_packet_id()) -> ok.
+puback(Session, MsgId) when is_pid(Session) ->
+    gen_server:cast(Session, {puback, MsgId}).
+
+-spec pubrec(Session :: pid(), MsgId :: mqtt_packet_id()) -> ok.
+pubrec(Session, MsgId) when is_pid(Session) ->
+    gen_server:cast(Session, {pubrec, MsgId}).
+
+-spec pubrel(Session :: pid(), MsgId :: mqtt_packet_id()) -> ok.
+pubrel(Session, MsgId) when is_pid(Session) ->
+    gen_server:cast(Session, {pubrel, MsgId}).
+
+-spec pubcomp(Session :: pid(), MsgId :: mqtt_packet_id()) -> ok.
+pubcomp(Session, MsgId) when is_pid(Session) ->
+    gen_server:cast(Session, {pubcomp, MsgId}).
+
+%%------------------------------------------------------------------------------
+%% @doc Subscribe Topics
+%% @end
+%%------------------------------------------------------------------------------
+-spec subscribe(Session :: pid(), [{binary(), mqtt_qos()}]) -> {ok, [mqtt_qos()]}.
+subscribe(Session, Topics) when is_pid(Session) ->
+    gen_server:call(Session, {subscribe, Topics}).
+
+%%------------------------------------------------------------------------------
+%% @doc Unsubscribe Topics
+%% @end
+%%------------------------------------------------------------------------------
+-spec unsubscribe(Session :: pid(), [Topic :: binary()]) -> ok.
+unsubscribe(Session, Topics) when is_pid(Session) ->
+    gen_server:call(Session, {unsubscribe, Topics}).
+
+%%%=============================================================================
+%%% gen_server callbacks
+%%%=============================================================================
+init([CleanSess, ClientId, ClientPid]) ->
+    if
+        CleanSess =:= false ->
+            process_flag(trap_exit, true),
+            true = link(ClientPid);
+        CleanSess =:= true ->
+            ok
+    end,
     QEnv = emqttd:env(mqtt, queue),
     SessEnv = emqttd:env(mqtt, session),
-    #session{
+    PendingQ = emqttd_mqueue:new(ClientId, QEnv),
+    InflightQ = emqttd_inflight:new(ClientId, emqttd_opts:g(max_inflight, SessEnv)),
+    Session = #session{
+        clean_sess       = CleanSess,
         clientid         = ClientId,
-        clean_sess       = true,
+        client_pid       = ClientPid,
         subscriptions    = [],
-        inflight_window  = emqttd_mqwin:new(ClientId, QEnv),
-        pending_queue    = emqttd_mqueue:new(ClientId, QEnv),
-        awaiting_rel     = #{},  
+        inflight_queue   = InflightQ,
+        pending_queue    = PendingQ,
+        awaiting_rel     = #{},
         awaiting_ack     = #{},
         awaiting_comp    = #{},
         unack_retries    = emqttd_opts:g(unack_retries, SessEnv),
         unack_timeout    = emqttd_opts:g(unack_timeout, SessEnv),
         await_rel_timeout = emqttd_opts:g(await_rel_timeout, SessEnv),
         max_awaiting_rel  = emqttd_opts:g(max_awaiting_rel, SessEnv),
-        expired_after    = emqttd_opts:g(expired_after, SessEnv) * 3600
-    }.
+        expired_after     = emqttd_opts:g(expired_after, SessEnv) * 3600,
+        timestamp         = os:timestamp()
+    },
+    {ok, Session, hibernate}.
 
-%%------------------------------------------------------------------------------
-%% @doc Publish message
-%% @end
-%%------------------------------------------------------------------------------
--spec publish(session() | pid(), mqtt_clientid(), {mqtt_qos(), mqtt_message()}) -> session() | pid().
-publish(Session, ClientId, {?QOS_0, Message}) ->
-    %% publish qos0 directly
-    emqttd_pubsub:publish(ClientId, Message), Session;
-
-publish(Session, ClientId, {?QOS_1, Message}) ->
-    %% publish qos1 directly, and client will puback
-	emqttd_pubsub:publish(ClientId, Message), Session;
-
-publish(Session = #session{awaiting_rel      = AwaitingRel,
-                           await_rel_timeout = Timeout,
-                           max_awaiting_rel  = MaxLen}, ClientId,
-        {?QOS_2, Message = #mqtt_message{msgid = MsgId}}) ->
-    case maps:size(AwaitingRel) >= MaxLen of
-        true -> lager:error([{clientid, ClientId}], "Session ~s "
-                                " dropped Qos2 message for too many awaiting_rel: ~p", [ClientId, Message]);
-        false ->
-            %% store in awaiting_rel
-            TRef = erlang:send_after(Timeout * 1000, self(), {timeout, awaiting_rel, MsgId}),
-            Session#session{awaiting_rel = maps:put(MsgId, {Message, TRef}, AwaitingRel)};
-    end;
-publish(SessPid, ClientId, {?QOS_2, Message}) when is_pid(SessPid) ->
-    gen_server:cast(SessPid, {publish, ClientId, {?QOS_2, Message}}), SessPid.
-
-%%------------------------------------------------------------------------------
-%% @doc PubAck message
-%% @end
-%%------------------------------------------------------------------------------
-
--spec puback(session(), {mqtt_packet_type(), mqtt_packet_id()}) -> session().
-puback(Session = #session{clientid = ClientId, awaiting_ack = Awaiting}, {?PUBACK, PacketId}) ->
-    case maps:is_key(PacketId, Awaiting) of
-        true -> ok;
-        false -> lager:warning("Session ~s: PUBACK PacketId '~p' not found!", [ClientId, PacketId])
-    end,
-    Session#session{awaiting_ack = maps:remove(PacketId, Awaiting)};
-
-puback(SessPid, {?PUBACK, PacketId}) when is_pid(SessPid) ->
-    gen_server:cast(SessPid, {puback, {?PUBACK, PacketId});
-
-%% PUBREC
-puback(Session = #session{clientid = ClientId, 
-                                  awaiting_ack = AwaitingAck,
-                                  awaiting_comp = AwaitingComp}, {?PUBREC, PacketId}) ->
-    case maps:is_key(PacketId, AwaitingAck) of
-        true -> ok;
-        false -> lager:warning("Session ~s: PUBREC PacketId '~p' not found!", [ClientId, PacketId])
-    end,
-    Session#session{awaiting_ack   = maps:remove(PacketId, AwaitingAck),
-                      awaiting_comp  = maps:put(PacketId, true, AwaitingComp)};
-
-puback(SessPid, {?PUBREC, PacketId}) when is_pid(SessPid) ->
-    gen_server:cast(SessPid, {puback, {?PUBREC, PacketId});
-
-%% PUBREL
-puback(Session = #session{clientid = ClientId, awaiting_rel = Awaiting}, {?PUBREL, PacketId}) ->
-    case maps:find(PacketId, Awaiting) of
-        {ok, {Msg, TRef}} ->
-            catch erlang:cancel_timer(TRef),
-            emqttd_pubsub:publish(ClientId, Msg);
-        error ->
-            lager:error("Session ~s cannot find PUBREL PacketId '~p'!", [ClientId, PacketId])
-    end,
-    Session#session{awaiting_rel = maps:remove(PacketId, Awaiting)};
-
-puback(SessPid, {?PUBREL, PacketId}) when is_pid(SessPid) ->
-    gen_server:cast(SessPid, {puback, {?PUBREL, PacketId});
-
-%% PUBCOMP
-puback(Session = #session{clientid = ClientId, 
-                                  awaiting_comp = AwaitingComp}, {?PUBCOMP, PacketId}) ->
-    case maps:is_key(PacketId, AwaitingComp) of
-        true -> ok;
-        false -> lager:warning("Session ~s: PUBREC PacketId '~p' not exist", [ClientId, PacketId])
-    end,
-    Session#session{awaiting_comp = maps:remove(PacketId, AwaitingComp)};
-
-puback(SessPid, {?PUBCOMP, PacketId}) when is_pid(SessPid) ->
-    gen_server:cast(SessPid, {puback, {?PUBCOMP, PacketId});
-
-wait_ack
-
-timeout(awaiting_rel, MsgId, Session = #session{clientid = ClientId, awaiting_rel = Awaiting}) ->
-    case maps:find(MsgId, Awaiting) of
-        {ok, {Msg, _TRef}} ->
-            lager:error([{client, ClientId}], "Session ~s Awaiting Rel Timout!~nDrop Message:~p", [ClientId, Msg]),
-            Session#session{awaiting_rel = maps:remove(MsgId, Awaiting)};
-        error ->
-            lager:error([{client, ClientId}], "Session ~s Cannot find Awaiting Rel: MsgId=~p", [ClientId, MsgId]),
-            Session
-    end.
-
-%%------------------------------------------------------------------------------
-%% @doc Subscribe Topics
-%% @end
-%%------------------------------------------------------------------------------
--spec subscribe(session() | pid(), [{binary(), mqtt_qos()}]) -> {ok, session() | pid(), [mqtt_qos()]}.
-subscribe(Session = #session{clientid = ClientId, subscriptions = Subscriptions}, Topics) ->
+handle_call({subscribe, Topics}, _From, Session = #session{clientid = ClientId, subscriptions = Subscriptions}) ->
 
     %% subscribe first and don't care if the subscriptions have been existed
     {ok, GrantedQos} = emqttd_pubsub:subscribe(Topics),
 
-    lager:info([{client, ClientId}], "Client ~s subscribe ~p. Granted QoS: ~p",
+    lager:info([{client, ClientId}], "Session ~s subscribe ~p. Granted QoS: ~p",
                [ClientId, Topics, GrantedQos]),
 
     Subscriptions1 =
@@ -310,19 +259,9 @@ subscribe(Session = #session{clientid = ClientId, subscriptions = Subscriptions}
                         [{Topic, Qos} | Acc]
                 end
         end, Subscriptions, Topics),
+    {reply, {ok, GrantedQos}, Session#session{subscriptions = Subscriptions1}};
 
-    {ok, Session#session{subscriptions = Subscriptions1}, GrantedQos};
-
-subscribe(SessPid, Topics) when is_pid(SessPid) ->
-    {ok, GrantedQos} = gen_server:call(SessPid, {subscribe, Topics}),
-    {ok, SessPid, GrantedQos}.
-
-%%------------------------------------------------------------------------------
-%% @doc Unsubscribe Topics
-%% @end
-%%------------------------------------------------------------------------------
--spec unsubscribe(session() | pid(), [binary()]) -> {ok, session() | pid()}.
-unsubscribe(Session = #session{clientid = ClientId, subscriptions = Subscriptions}, Topics) ->
+handle_call({unsubscribe, Topics}, _From, Session = #session{clientid = ClientId, subscriptions = Subscriptions}) ->
 
     %%unsubscribe from topic tree
     ok = emqttd_pubsub:unsubscribe(Topics),
@@ -338,63 +277,11 @@ unsubscribe(Session = #session{clientid = ClientId, subscriptions = Subscription
                     end
                 end, Subscriptions, Topics),
 
-    {ok, Session#session{subscriptions = Subscriptions1}};
+    {reply, ok, Session#session{subscriptions = Subscriptions1}};
 
-unsubscribe(SessPid, Topics) when is_pid(SessPid) ->
-    gen_server:call(SessPid, {unsubscribe, Topics}),
-    {ok, SessPid}.
-
-%%------------------------------------------------------------------------------
-%% @doc Destroy Session
-%% @end
-%%------------------------------------------------------------------------------
-
-% message(qos1) is awaiting ack
-await_ack(Msg = #mqtt_message{qos = ?QOS_1}, Session = #session{message_id = MsgId,
-                                                                  inflight_queue = InflightQ,
-                                                                  awaiting_ack = Awaiting,
-                                                                  unack_retry_after = Time,
-                                                                  max_unack_retries = Retries}) ->
-    %% assign msgid before send
-    Msg1 = Msg#mqtt_message{msgid = MsgId},
-    TRef = erlang:send_after(Time * 1000, self(), {retry, MsgId}),
-    Awaiting1 = maps:put(MsgId, {TRef, Retries, Time}, Awaiting),
-    {Msg1, next_msgid(Session#session{inflight_queue = [{MsgId, Msg1} | InflightQ],
-                                        awaiting_ack = Awaiting1})}.
-
-% message(qos2) is awaiting ack
-await_ack(Message = #mqtt_message{qos = Qos}, Session = #session{message_id = MsgId, awaiting_ack = Awaiting},)
-    when (Qos =:= ?QOS_1) orelse (Qos =:= ?QOS_2) ->
-    %%assign msgid before send
-    Message1 = Message#mqtt_message{msgid = MsgId, dup = false},
-    Message2 =
-    if
-        Qos =:= ?QOS_2 -> Message1#mqtt_message{dup = false};
-        true -> Message1
-    end,
-    Awaiting1 = maps:put(MsgId, Message2, Awaiting),
-    {Message1, next_msgid(Session#session{awaiting_ack = Awaiting1})}.
-
-
-%%%=============================================================================
-%%% gen_server callbacks
-%%%=============================================================================
-init([ClientId, ClientPid]) ->
-    process_flag(trap_exit, true),
-    true = link(ClientPid),
-    Session = emqttd_session:new(ClientId),
-    {ok, Session#session{clean_sess = false,
-                         client_pid = ClientPid,
-                         timestamp = os:timestamp()}, hibernate}.
-
-
-handle_call({subscribe, Topics}, _From, Session) ->
-    {ok, NewSession, GrantedQos} = subscribe(Session, Topics),
-    {reply, {ok, GrantedQos}, NewSession};
-
-handle_call({unsubscribe, Topics}, _From, Session) ->
-    {ok, NewSession} = unsubscribe(Session, Topics),
-    {reply, ok, NewSession};
+handle_call({destroy, ClientId}, _From, Session = #session{clientid = ClientId}) ->
+    lager:warning("Session ~s destroyed", [ClientId]),
+    {stop, {shutdown, destroy}, ok, Session};
 
 handle_call(Req, _From, State) ->
     lager:error("Unexpected Request: ~p", [Req]),
@@ -403,10 +290,10 @@ handle_call(Req, _From, State) ->
 handle_cast({resume, ClientId, ClientPid}, State = #session{
                                                       clientid      = ClientId,
                                                       client_pid    = OldClientPid,
-                                                      msg_queue     = Queue,
+                                                      pending_queue     = Queue,
                                                       awaiting_ack  = AwaitingAck,
                                                       awaiting_comp = AwaitingComp,
-                                                      expire_timer  = ETimer}) ->
+                                                      expired_timer  = ETimer}) ->
 
     lager:info([{client, ClientId}], "Session ~s resumed by ~p",[ClientId, ClientPid]),
 
@@ -426,8 +313,8 @@ handle_cast({resume, ClientId, ClientPid}, State = #session{
     emqttd_util:cancel_timer(ETimer),
 
     %% redelivery PUBREL
-    lists:foreach(fun(PacketId) ->
-                ClientPid ! {redeliver, {?PUBREL, PacketId}}
+    lists:foreach(fun(MsgId) ->
+                ClientPid ! {redeliver, {?PUBREL, MsgId}}
         end, maps:keys(AwaitingComp)),
 
     %% redelivery messages that awaiting PUBACK or PUBREC
@@ -442,45 +329,114 @@ handle_cast({resume, ClientId, ClientPid}, State = #session{
         end, emqttd_queue:all(Queue)),
 
     {noreply, State#session{client_pid   = ClientPid,
-                            msg_queue    = emqttd_queue:clear(Queue),
-                            expire_timer = undefined}, hibernate};
+                            %%TODO:
+                            pending_queue = emqttd_queue:clear(Queue),
+                            expired_timer = undefined}, hibernate};
 
-handle_cast({publish, ClientId, {?QOS_2, Message}}, Session) ->
-    {noreply, publish(Session, ClientId, {?QOS_2, Message})};
+handle_cast({publish, Message = #mqtt_message{qos = ?QOS_2}}, Session) ->
+    {noreply, publish_qos2(Message, Session)};
 
-handle_cast({puback, {PubAck, PacketId}, Session) ->
-    {noreply, puback(Session, {PubAck, PacketId})};
 
-handle_cast({destroy, ClientId}, Session = #session{clientid = ClientId}) ->
-    lager:warning("Session ~s destroyed", [ClientId]),
-    {stop, normal, Session};
+handle_cast({puback, MsgId}, Session = #session{clientid = ClientId, inflight_queue = Q, awaiting_ack = Awaiting}) ->
+    case maps:find(MsgId, Awaiting) of
+        {ok, {_, TRef}} ->
+            catch erlang:cancel_timer(TRef),
+            {noreply, dispatch(Session#session{inflight_queue = emqttd_inflight:ack(MsgId, Q),
+                                               awaiting_ack   = maps:remove(MsgId, Awaiting)})};
+        error ->
+            lager:error("Session ~s cannot find PUBACK '~p'!", [ClientId, MsgId]),
+            {noreply, Session}
+    end;
+
+%% PUBREC
+handle_cast({pubrec, MsgId}, Session = #session{clientid = ClientId,
+                                                awaiting_ack = AwaitingAck,
+                                                awaiting_comp = AwaitingComp,
+                                                await_rel_timeout = Timeout}) ->
+    case maps:find(MsgId, AwaitingAck) of
+        {ok, {_, TRef}} ->
+            catch erlang:cancel_timer(TRef),
+            TRef1 = timer(Timeout, {timeout, awaiting_comp, MsgId}),
+            {noreply, dispatch(Session#session{awaiting_ack  = maps:remove(MsgId, AwaitingAck),
+                                               awaiting_comp = maps:put(MsgId, TRef1, AwaitingComp)})};
+        error ->
+            lager:error("Session ~s cannot find PUBREC '~p'!", [ClientId, MsgId]),
+            {noreply, Session}
+    end;
+
+handle_cast({pubrel, MsgId}, Session = #session{clientid = ClientId, awaiting_rel = Awaiting}) ->
+    case maps:find(MsgId, Awaiting) of
+        {ok, {Msg, TRef}} ->
+            catch erlang:cancel_timer(TRef),
+            emqttd_pubsub:publish(Msg),
+            {noreply, Session#session{awaiting_rel = maps:remove(MsgId, Awaiting)}};
+        error ->
+            lager:error("Session ~s cannot find PUBREL'~p'!", [ClientId, MsgId]),
+            {noreply, Session}
+    end;
+
+%% PUBCOMP
+handle_cast({pubcomp, MsgId}, Session = #session{clientid = ClientId, awaiting_comp = AwaitingComp}) ->
+    case maps:is_key(MsgId, AwaitingComp) of
+        true -> 
+            {noreply, Session#session{awaiting_comp = maps:remove(MsgId, AwaitingComp)}};
+        false ->
+            lager:error("Session ~s cannot find PUBREC MsgId '~p'", [ClientId, MsgId]),
+            {noreply, Session}
+    end;
 
 handle_cast(Msg, State) ->
-    lager:critical("Unexpected Msg: ~p, State: ~p", [Msg, State]), 
+    lager:critical("Unexpected Msg: ~p, State: ~p", [Msg, State]),
     {noreply, State}.
 
-handle_info({dispatch, {_From, Messages}}, Session) when is_list(Messages) ->
-    F = fun(Message, S) -> dispatch(Message, S) end,
-    {noreply, lists:foldl(F, Session, Messages)};
+handle_info({dispatch, MsgList}, Session) when is_list(MsgList) ->
+    NewSession = lists:foldl(fun(Msg, S) -> 
+                                     dispatch({new, Msg}, S)
+                             end, Session, MsgList),
+    {noreply, NewSession};
 
-handle_info({dispatch, {_From, Message}}, State) ->
-    {noreply, dispatch(Message, State)};
+handle_info({dispatch, {old, Msg}}, Session) when is_record(Msg, mqtt_message) ->
+    {noreply, dispatch({old, Msg}, Session)};
 
-handle_info({'EXIT', ClientPid, Reason}, Session = #session{clientid = ClientId,
-                                                            client_pid = ClientPid}) ->
-    lager:info("Session: client ~s@~p exited for ~p", [ClientId, ClientPid, Reason]),
-    {noreply, start_expire_timer(Session#session{client_pid = undefined})};
+handle_info({dispatch, Msg}, Session) when is_record(Msg, mqtt_message) ->
+    {noreply, dispatch({new, Msg}, Session)};
+
+handle_info({'EXIT', ClientPid, Reason}, Session = #session{clean_sess = false,
+                                                            clientid = ClientId,
+                                                            client_pid = ClientPid,
+                                                            expired_after = Expires}) ->
+    %%TODO: Clean puback, pubrel, pubcomp timers
+    lager:info("Session ~s: client ~p exited for ~p", [ClientId, ClientPid, Reason]),
+    TRef = timer(Expires * 1000, session_expired),
+    {noreply, Session#session{expired_timer = TRef}};
 
 handle_info({'EXIT', ClientPid0, _Reason}, State = #session{client_pid = ClientPid}) ->
-    lager:error("Unexpected Client EXIT: pid=~p, pid(state): ~p", [ClientPid0, ClientPid]),
+    lager:critical("Unexpected Client EXIT: pid=~p, pid(state): ~p", [ClientPid0, ClientPid]),
     {noreply, State};
 
 handle_info(session_expired, State = #session{clientid = ClientId}) ->
-    lager:warning("Session ~s expired!", [ClientId]),
+    lager:error("Session ~s expired, shutdown now!", [ClientId]),
     {stop, {shutdown, expired}, State};
 
-handle_info({timeout, awaiting_rel, MsgId}, Session) ->
-    {noreply, timeout(awaiting_rel, MsgId, Session)};
+handle_info({timeout, awaiting_rel, MsgId}, Session = #session{clientid = ClientId, awaiting_rel = Awaiting}) ->
+    case maps:find(MsgId, Awaiting) of
+        {ok, {Msg, _TRef}} ->
+            lager:error([{client, ClientId}], "Session ~s Awaiting Rel Timout!~nDrop Message:~p", [ClientId, Msg]),
+            {noreply, Session#session{awaiting_rel = maps:remove(MsgId, Awaiting)}};
+        error ->
+            lager:error([{client, ClientId}], "Session ~s Cannot find Awaiting Rel: MsgId=~p", [ClientId, MsgId]),
+            {noreply, Session}
+    end;
+
+handle_info({timeout, awaiting_comp, MsgId}, Session = #session{clientid = ClientId, awaiting_comp = Awaiting}) ->
+    case maps:find(MsgId, Awaiting) of
+        {ok, _TRef} ->
+            lager:error([{client, ClientId}], "Session ~s Awaiting PUBCOMP Timout: MsgId=~p!", [ClientId, MsgId]),
+            {noreply, Session#session{awaiting_comp = maps:remove(MsgId, Awaiting)}};
+        error ->
+            lager:error([{client, ClientId}], "Session ~s Cannot find Awaiting PUBCOMP: MsgId=~p", [ClientId, MsgId]),
+            {noreply, Session}
+    end;
 
 handle_info(Info, Session) ->
     lager:critical("Unexpected Info: ~p, Session: ~p", [Info, Session]),
@@ -493,52 +449,105 @@ code_change(_OldVsn, Session, _Extra) ->
     {ok, Session}.
 
 %%%=============================================================================
+%%% Internal functions
+%%%=============================================================================
+
+%%------------------------------------------------------------------------------
+%% @private
+%% @doc Plubish Qos2 message from client -> broker, and then wait for pubrel.
+%% @end
+%%------------------------------------------------------------------------------
+
+publish_qos2(Message = #mqtt_message{qos = ?QOS_2,msgid = MsgId}, Session = #session{clientid = ClientId,
+                                                                                     awaiting_rel = AwaitingRel,
+                                                                                     await_rel_timeout = Timeout}) ->
+
+    case check_awaiting_rel(Session) of
+        true -> 
+            TRef = timer(Timeout, {timeout, awaiting_rel, MsgId}),
+            Session#session{awaiting_rel = maps:put(MsgId, {Message, TRef}, AwaitingRel)};
+        false ->
+            lager:error([{clientid, ClientId}], "Session ~s "
+                                " dropped Qos2 message for too many awaiting_rel: ~p", [ClientId, Message]),
+            Session
+    end.
+
+check_awaiting_rel(#session{max_awaiting_rel = 0}) ->
+    true;
+check_awaiting_rel(#session{awaiting_rel = AwaitingRel,
+                            max_awaiting_rel = MaxLen}) ->
+    maps:size(AwaitingRel) < MaxLen.
+
+%%%=============================================================================
 %%% Dispatch message from broker -> client.
 %%%=============================================================================
 
+dispatch(Session = #session{client_pid = undefined}) ->
+    %% do nothing
+    Session;
+
+dispatch(Session = #session{pending_queue = PendingQ}) ->
+    case emqttd_mqueue:out(PendingQ) of
+        {empty, _Q} ->
+            Session;
+        {{value, Msg}, Q1} ->
+            self() ! {dispatch, {old, Msg}},
+            Session#session{pending_queue = Q1}
+        end.
+
 %% queued the message if client is offline
-dispatch(Msg, Session = #session{client_pid = undefined}) ->
-    queue(Msg, Session);
+dispatch({Type, Msg}, Session = #session{client_pid = undefined,
+                                         pending_queue= PendingQ}) ->
+    Session#session{pending_queue = emqttd_mqueue:in({Type, Msg}, PendingQ)};
 
 %% dispatch qos0 directly to client process
-dispatch(Msg = #mqtt_message{qos = ?QOS_0}, Session = #session{client_pid = ClientPid}) ->
-    ClientPid ! {dispatch, {self(), Msg}}, Session;
+dispatch({_Type, Msg} = #mqtt_message{qos = ?QOS_0}, Session = #session{client_pid = ClientPid}) ->
+    ClientPid ! {deliver,  Msg}, Session;
 
-%% dispatch qos1/2 messages and wait for puback
-dispatch(Msg = #mqtt_message{qos = Qos}, Session = #session{clientid = ClientId,
-                                                            message_id = MsgId,
-                                                            pending_queue = Q,
-                                                            inflight_window = Win})
-    when (Qos =:= ?QOS_1) orelse (Qos =:= ?QOS_2) ->
-
-    case emqttd_mqwin:is_full(InflightWin) of
-        true  ->
-            lager:error("Session ~s inflight window is full!", [ClientId]),
-            Session#session{pending_queue = emqttd_mqueue:in(Msg, Q)};
-        false ->
-            Msg1 = Msg#mqtt_message{msgid = MsgId},
-            Msg2 =
-            if
-                Qos =:= ?QOS_2 -> Msg1#mqtt_message{dup = false};
-                true -> Msg1
-            end,
-            ClientPid ! {dispatch, {self(), Msg2}},
-            NewWin = emqttd_mqwin:in(Msg2, Win),
-            await_ack(Msg2, next_msgid(Session#session{inflight_window = NewWin}))
+%% dispatch qos1/2 message and wait for puback
+dispatch({Type, Msg = #mqtt_message{qos = Qos}}, Session = #session{clientid = ClientId,
+                                                                    client_pid = ClientPid,
+                                                                    message_id = MsgId,
+                                                                    pending_queue = PendingQ,
+                                                                    inflight_queue= InflightQ})
+    when Qos =:= ?QOS_1 orelse Qos =:= ?QOS_2 ->
+    %% assign id first
+    Msg1 = Msg#mqtt_message{msgid = MsgId},
+    Msg2 =
+    if
+        Qos =:= ?QOS_1 -> Msg1;
+        Qos =:= ?QOS_2 -> Msg1#mqtt_message{dup = false}
+    end,
+    case emqttd_inflight:in(Msg1, InflightQ) of
+        {error, full} ->
+            lager:error("Session ~s inflight queue is full!", [ClientId]),
+            Session#session{pending_queue = emqttd_mqueue:in({Type, Msg}, PendingQ)};
+        {ok, InflightQ1} ->
+            ClientPid ! {deliver, Msg1},
+            await_ack(Msg1, next_msgid(Session#session{inflight_queue = InflightQ1}))
     end.
 
-queue(Msg, Session = #session{pending_queue= Queue}) ->
-    Session#session{pending_queue = emqttd_mqueue:in(Msg, Queue)}.
+deliver(Msg, Session) ->
+    ok.
 
-next_msgid(State = #session{message_id = 16#ffff}) ->
-    State#session{message_id = 1};
+await(Msg, Session) ->
+    ok.
 
-next_msgid(State = #session{message_id = MsgId}) ->
-    State#session{message_id = MsgId + 1}.
+% message(qos1/2) is awaiting ack
+await_ack(Msg = #mqtt_message{msgid = MsgId}, Session = #session{awaiting_ack = Awaiting,
+                                                                unack_retries = Retries,
+                                                                unack_timeout = Timeout}) ->
+    
+    TRef = timer(Timeout * 1000, {retry, MsgId}),
+    Awaiting1 = maps:put(MsgId, {{Retries, Timeout}, TRef}, Awaiting),
+    Session#session{awaiting_ack = Awaiting1}.
 
-start_expire_timer(Session = #session{expired_after = Expires,
-                                      expired_timer = OldTimer}) ->
-    emqttd_util:cancel_timer(OldTimer),
-    Timer = erlang:send_after(Expires * 1000, self(), session_expired),
-    Session#session{expired_timer = Timer}.
+timer(Timeout, TimeoutMsg) ->
+    erlang:send_after(Timeout * 1000, self(), TimeoutMsg).
+
+next_msgid(Session = #session{message_id = 16#ffff}) ->
+    Session#session{message_id = 1};
+
+next_msgid(Session = #session{message_id = MsgId}) ->
+    Session#session{message_id = MsgId + 1}.
 

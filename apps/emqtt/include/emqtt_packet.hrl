@@ -162,7 +162,7 @@
     #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT}, variable = Var}).
 
 -define(CONNACK_PACKET(ReturnCode),
-    #mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK},
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},
                  variable = #mqtt_packet_connack{return_code = ReturnCode}}).
 
 -define(PUBLISH_PACKET(Qos, Topic, PacketId, Payload),

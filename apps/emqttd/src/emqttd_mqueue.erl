@@ -56,7 +56,7 @@
 
 -export([new/2, name/1,
          is_empty/1, is_full/1,
-         len/1, in/2, out/2]).
+         len/1, in/2, out/1]).
 
 -define(LOW_WM, 0.2).
 
@@ -112,21 +112,29 @@ len(#mqueue{len = Len}) -> Len.
 %% @doc Queue one message.
 %% @end
 %%------------------------------------------------------------------------------
--spec in(mqtt_message(), mqueue()) -> mqueue().
+
+-spec in({new | old, mqtt_message()}, mqueue()) -> mqueue().
 
 %% drop qos0
-in(#mqtt_message{qos = ?QOS_0}, MQ = #mqueue{qos0 = false}) ->
+in({_, #mqtt_message{qos = ?QOS_0}}, MQ = #mqueue{qos0 = false}) ->
     MQ;
 
 %% simply drop the oldest one if queue is full, improve later
-in(Msg, MQ = #mqueue{name = Name, len = Len, max_len = MaxLen})
+in({new, Msg}, MQ = #mqueue{name = Name, q = Q, len = Len, max_len = MaxLen})
     when Len =:= MaxLen ->
     {{value, OldMsg}, Q2} = queue:out(Q),
     lager:error("queue(~s) drop message: ~p", [Name, OldMsg]),
     MQ#mqueue{q = queue:in(Msg, Q2)};
 
-in(Msg, MQ = #mqueue{q = Q, len = Len}) ->
+in({old, Msg}, MQ = #mqueue{name = Name, len = Len, max_len = MaxLen})
+    when Len =:= MaxLen ->
+    lager:error("queue(~s) drop message: ~p", [Name, Msg]), MQ;
+
+in({new, Msg}, MQ = #mqueue{q = Q, len = Len}) ->
     maybe_set_alarm(MQ#mqueue{q = queue:in(Msg, Q), len = Len + 1});
+
+in({old, Msg}, MQ = #mqueue{q = Q, len = Len}) ->
+    MQ#mqueue{q = queue:in_r(Msg, Q), len = Len + 1}.
 
 out(MQ = #mqueue{len = 0}) ->
     {empty, MQ};
@@ -143,7 +151,7 @@ maybe_set_alarm(MQ = #mqueue{name = Name, len = Len, high_wm = HighWM, alarm = f
 maybe_set_alarm(MQ) ->
     MQ.
 
-maybe_clear_alarm(MQ = #mqueue{name = Name, len = Len, low_watermark = LowWM, alarm = true})
+maybe_clear_alarm(MQ = #mqueue{name = Name, len = Len, low_wm = LowWM, alarm = true})
     when Len =< LowWM ->
     emqttd_alarm:clear_alarm({queue_high_watermark, Name}),
     MQ#mqueue{alarm = false};

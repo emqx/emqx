@@ -30,7 +30,7 @@
 
 -behavior(supervisor).
 
--export([start_link/0, start_session/2]).
+-export([start_link/0, start_session/3]).
 
 -export([init/1]).
 
@@ -46,16 +46,17 @@ start_link() ->
 %% @doc Start a session
 %% @end
 %%------------------------------------------------------------------------------
--spec start_session(binary(), pid()) -> {ok, pid()}.
-start_session(ClientId, ClientPid) ->
-    supervisor:start_child(?MODULE, [ClientId, ClientPid]).
+-spec start_session(boolean(), binary(), pid()) -> {ok, pid()}.
+start_session(CleanSess, ClientId, ClientPid) ->
+    supervisor:start_child(?MODULE, [CleanSess, ClientId, ClientPid]).
 
 %%%=============================================================================
 %%% Supervisor callbacks
 %%%=============================================================================
 
 init([]) ->
-    {ok, {{simple_one_for_one, 10, 10},
-          [{session, {emqttd_session_proc, start_link, []},
-              transient, 10000, worker, [emqttd_session_proc]}]}}.
+    {ok, {{simple_one_for_one, 0, 1},
+          [{session, {emqttd_session, start_link, []},
+              transient, 10000, worker, [emqttd_session]}]}}.
+
 

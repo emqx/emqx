@@ -51,8 +51,7 @@
         username,
 		clientid,
 		clean_sess,
-        sessmod,
-        session,    %% session state or session pid
+        session,    
 		will_msg,
         max_clientid_len = ?MAX_CLIENTID_LEN,
         client_pid
@@ -152,13 +151,13 @@ handle(Packet = ?CONNECT_PACKET(Var), State0 = #proto_state{peername = Peername}
                     emqttd_cm:register(client(State2)),
 
                     %%Starting session
-                    {ok, SessMod, Session} = emqttd_sm:start_session(CleanSess, clientid(State2)),
+                    {ok, Session} = emqttd_sm:start_session(CleanSess, clientid(State2)),
 
                     %% Start keepalive
                     start_keepalive(KeepAlive),
 
                     %% ACCEPT
-                    {?CONNACK_ACCEPT, State2#proto_state{sessmod = SessMod, session = Session, will_msg = willmsg(Var)}};
+                    {?CONNACK_ACCEPT, State2#proto_state{session = Session, will_msg = willmsg(Var)}};
                 {error, Reason}->
                     lager:error("~s@~s: username '~s', login failed - ~s",
                                     [ClientId, emqttd_net:format(Peername), Username, Reason]),
@@ -177,7 +176,7 @@ handle(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload),
        State = #proto_state{clientid = ClientId, session = Session}) ->
     case check_acl(publish, Topic, State) of
         allow -> 
-            do_publish(Session, ClientId, ?QOS_0, Packet);
+            do_publish(Session, ClientId, Packet);
         deny -> 
             lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic])
     end,
@@ -187,7 +186,7 @@ handle(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload),
          State = #proto_state{clientid = ClientId, session = Session}) ->
     case check_acl(publish, Topic, State) of
         allow -> 
-            do_publish(Session, ClientId, ?QOS_1, Packet),
+            do_publish(Session, ClientId, Packet),
             send(?PUBACK_PACKET(?PUBACK, PacketId), State);
         deny -> 
             lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic]),
@@ -198,26 +197,28 @@ handle(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload),
          State = #proto_state{clientid = ClientId, session = Session}) ->
     case check_acl(publish, Topic, State) of
         allow -> 
-            NewSession = do_publish(Session, ClientId, ?QOS_2, Packet), 
-            send(?PUBACK_PACKET(?PUBREC, PacketId), State#proto_state{session = NewSession});
+            do_publish(Session, ClientId, Packet), 
+            send(?PUBACK_PACKET(?PUBREC, PacketId), State);
         deny -> 
             lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic]),
             {ok, State}
     end;
 
-handle(?PUBACK_PACKET(Type, PacketId), State = #proto_state{session = Session}) 
-    when Type >= ?PUBACK andalso Type =< ?PUBCOMP ->
-    NewSession = emqttd_session:puback(Session, {Type, PacketId}),
-    NewState = State#proto_state{session = NewSession},
-    if 
-        Type =:= ?PUBREC ->
-            send(?PUBREL_PACKET(PacketId), NewState);
-        Type =:= ?PUBREL ->
-            send(?PUBACK_PACKET(?PUBCOMP, PacketId), NewState);
-        true ->
-            ok
-    end,
-	{ok, NewState};
+handle(?PUBACK_PACKET(?PUBACK, PacketId), State = #proto_state{session = Session}) ->
+    emqttd_session:puback(Session, PacketId),
+    {ok, State};
+
+handle(?PUBACK_PACKET(?PUBREC, PacketId), State = #proto_state{session = Session}) ->
+    emqttd_session:pubrec(Session, PacketId),
+    send(?PUBREL_PACKET(PacketId), State);
+
+handle(?PUBACK_PACKET(?PUBREL, PacketId), State = #proto_state{session = Session}) ->
+    emqttd_session:pubrel(Session, PacketId),
+    send(?PUBACK_PACKET(?PUBCOMP, PacketId), State);
+
+handle(?PUBACK_PACKET(?PUBCOMP, PacketId), State = #proto_state{session = Session}) ->
+    emqttd_session:pubcomp(Session, PacketId),
+    {ok, State};
 
 %% protect from empty topic list
 handle(?SUBSCRIBE_PACKET(PacketId, []), State) ->
@@ -233,13 +234,13 @@ handle(?SUBSCRIBE_PACKET(PacketId, TopicTable), State = #proto_state{clientid = 
         false ->
             TopicTable1 = emqttd_broker:foldl_hooks(client_subscribe, [], TopicTable),
             %%TODO: GrantedQos should be renamed.
-            {ok, NewSession, GrantedQos} = emqttd_session:subscribe(Session, TopicTable1),
-            send(?SUBACK_PACKET(PacketId, GrantedQos), State#proto_state{session = NewSession})
+            {ok, GrantedQos} = emqttd_session:subscribe(Session, TopicTable1),
+            send(?SUBACK_PACKET(PacketId, GrantedQos), State)
     end;
 
-handle({subscribe, Topic, Qos}, State = #proto_state{session = Session}) ->
-    {ok, NewSession, _GrantedQos} = emqttd_session:subscribe(Session, [{Topic, Qos}]),
-    {ok, State#proto_state{session = NewSession}};
+handle({subscribe, TopicTable}, State = #proto_state{session = Session}) ->
+    {ok, _GrantedQos} = emqttd_session:subscribe(Session, TopicTable),
+    {ok, State};
 
 %% protect from empty topic list
 handle(?UNSUBSCRIBE_PACKET(PacketId, []), State) ->
@@ -247,34 +248,24 @@ handle(?UNSUBSCRIBE_PACKET(PacketId, []), State) ->
 
 handle(?UNSUBSCRIBE_PACKET(PacketId, Topics), State = #proto_state{session = Session}) ->
     Topics1 = emqttd_broker:foldl_hooks(client_unsubscribe, [], Topics),
-    {ok, NewSession} = emqttd_session:unsubscribe(Session, Topics1),
-    send(?UNSUBACK_PACKET(PacketId), State#proto_state{session = NewSession});
+    ok = emqttd_session:unsubscribe(Session, Topics1),
+    send(?UNSUBACK_PACKET(PacketId), State);
 
 handle(?PACKET(?PINGREQ), State) ->
     send(?PACKET(?PINGRESP), State);
 
 handle(?PACKET(?DISCONNECT), State) ->
-    %%TODO: how to handle session?
     % clean willmsg
     {stop, normal, State#proto_state{will_msg = undefined}}.
 
-do_publish(Session, ClientId, Qos, Packet) ->
-    Message = emqttd_broker:foldl_hooks(client_publish, [], emqtt_message:from_packet(Packet)),
-    emqttd_session:publish(Session, ClientId, {Qos, Message}).
+do_publish(Session, ClientId, Packet) ->
+    Msg = emqtt_message:from_packet(ClientId, Packet),
+    Msg1 = emqttd_broker:foldl_hooks(client_publish, [], Msg),
+    emqttd_session:publish(Session, Msg1).
 
--spec send({pid() | tuple(), mqtt_message()} | mqtt_packet(), proto_state()) -> {ok, proto_state()}.
-%% qos0 message
-send({_From, Message = #mqtt_message{qos = ?QOS_0}}, State) ->
-	send(emqtt_message:to_packet(Message), State);
-
-%% message from session
-send({_From = SessPid, Message}, State = #proto_state{session = SessPid}) when is_pid(SessPid) ->
-	send(emqtt_message:to_packet(Message), State);
-%% message(qos1, qos2) not from session
-send({_From, Message = #mqtt_message{qos = Qos}}, State = #proto_state{session = Session}) 
-    when (Qos =:= ?QOS_1) orelse (Qos =:= ?QOS_2) ->
-    {Message1, NewSession} = emqttd_session:await_ack(Session, Message),
-	send(emqtt_message:to_packet(Message1), State#proto_state{session = NewSession});
+-spec send(mqtt_message() | mqtt_packet(), proto_state()) -> {ok, proto_state()}.
+send(Msg, State) when is_record(Msg, mqtt_message) ->
+	send(emqtt_message:to_packet(Msg), State);
 
 send(Packet, State = #proto_state{sendfun = SendFun, peername = Peername}) when is_record(Packet, mqtt_packet) ->
     trace(send, Packet, State),
@@ -331,8 +322,8 @@ clientid(ClientId, _State) -> ClientId.
 send_willmsg(_ClientId, undefined) ->
     ignore;
 %%TODO:should call session...
-send_willmsg(ClientId, WillMsg) -> 
-    emqttd_pubsub:publish(ClientId, WillMsg).
+send_willmsg(ClientId, WillMsg) ->
+    emqttd_pubsub:publish(WillMsg#mqtt_message{from = ClientId}).
 
 start_keepalive(0) -> ignore;
 
