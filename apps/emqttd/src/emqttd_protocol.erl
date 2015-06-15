@@ -299,7 +299,7 @@ shutdown(normal, #proto_state{peername = Peername, clientid = ClientId, will_msg
 	lager:info([{client, ClientId}], "Client ~s@~s: normal shutdown",
             [ClientId, emqttd_net:format(Peername)]),
     try_unregister(ClientId),
-    send_willmsg(ClientId, WillMsg);
+    send_willmsg(ClientId, WillMsg),
     emqttd_broker:foreach_hooks(client_disconnected, [normal, ClientId]);
 
 shutdown(Error, #proto_state{peername = Peername, clientid = ClientId, will_msg = WillMsg}) ->

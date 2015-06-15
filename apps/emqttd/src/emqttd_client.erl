@@ -114,8 +114,8 @@ handle_info({redeliver, {?PUBREL, PacketId}}, #state{proto_state = ProtoState} =
     {ok, ProtoState1} = emqttd_protocol:redeliver({?PUBREL, PacketId}, ProtoState),
     {noreply, State#state{proto_state = ProtoState1}};
 
-handle_info({subscribe, Topic, Qos}, #state{proto_state = ProtoState} = State) ->
-    {ok, ProtoState1} = emqttd_protocol:handle({subscribe, Topic, Qos}, ProtoState),
+handle_info({subscribe, TopicTable}, #state{proto_state = ProtoState} = State) ->
+    {ok, ProtoState1} = emqttd_protocol:handle({subscribe, TopicTable}, ProtoState),
     {noreply, State#state{proto_state = ProtoState1}};
 
 handle_info({inet_reply, _Ref, ok}, State) ->

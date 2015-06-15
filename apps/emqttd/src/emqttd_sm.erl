@@ -140,7 +140,7 @@ handle_call({start_session, {true, ClientId, ClientPid}}, _From, State) ->
     case ets:lookup(?SESSION_TAB, ClientId) of
         [{_, SessPid, MRef}] ->
             erlang:demonitor(MRef, [flush]),
-            emqttd_session:destroy_session(SessPid, ClientId);
+            emqttd_session:destroy(SessPid, ClientId);
         [] ->
             ok
     end,

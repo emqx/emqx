@@ -280,20 +280,24 @@ create_topic(Topic) ->
 
 retain(brokers) ->
     Payload = list_to_binary(string:join([atom_to_list(N) || N <- running_nodes()], ",")),
-    publish(#mqtt_message{retain = true, topic = <<"$SYS/brokers">>, payload = Payload}).
+    publish(#mqtt_message{from = broker,
+                          retain = true,
+                          topic = <<"$SYS/brokers">>,
+                          payload = Payload}).
 
 retain(Topic, Payload) when is_binary(Payload) ->
-    publish(#mqtt_message{retain = true,
+    publish(#mqtt_message{from = broker,
+                          retain = true,
                           topic = emqtt_topic:systop(Topic),
                           payload = Payload}).
 
 publish(Topic, Payload) when is_binary(Payload) ->
-    publish( #mqtt_message{topic = emqtt_topic:systop(Topic),
+    publish( #mqtt_message{from = broker,
+                           topic = emqtt_topic:systop(Topic),
                            payload = Payload}).
 
 publish(Msg) ->
-    emqttd_pubsub:publish(broker, Msg).
-
+    emqttd_pubsub:publish(Msg).
 
 uptime(#state{started_at = Ts}) ->
     Secs = timer:now_diff(os:timestamp(), Ts) div 1000000,

@@ -49,7 +49,7 @@ load(Opts) ->
 
 client_connected(?CONNACK_ACCEPT, #mqtt_client{clientid = ClientId, client_pid = ClientPid}, Topics) ->
     F = fun(Topic) -> emqtt_topic:feed_var(<<"$c">>, ClientId, Topic) end,
-    [ClientPid ! {subscribe, F(Topic), Qos} || {Topic, Qos} <- Topics];
+    ClientPid ! {subscribe, [{F(Topic), Qos} || {Topic, Qos} <- Topics]};
 
 client_connected(_ConnAck, _Client, _Topics) ->
     ignore.

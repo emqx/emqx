@@ -53,10 +53,11 @@ handle_request('POST', "/mqtt/publish", Req) ->
         Message = list_to_binary(get_value("message", Params)),
         case {validate(qos, Qos), validate(topic, Topic)} of
             {true, true} ->
-                emqttd_pubsub:publish(http, #mqtt_message{qos     = Qos,
-                                                          retain  = Retain,
-                                                          topic   = Topic,
-                                                          payload = Message}),
+                emqttd_pubsub:publish(#mqtt_message{from = http,
+                                                    qos     = Qos,
+                                                    retain  = Retain,
+                                                    topic   = Topic,
+                                                    payload = Message}),
                 Req:ok({"text/plan", <<"ok\n">>});
            {false, _} ->
                 Req:respond({400, [], <<"Bad QoS">>});

@@ -192,8 +192,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 
 publish(Metric, Val) ->
-    emqttd_pubsub:publish(metrics, #mqtt_message{topic   = metric_topic(Metric),
-                                                 payload = emqttd_util:integer_to_binary(Val)}).
+    emqttd_pubsub:publish(#mqtt_message{topic   = metric_topic(Metric),
+                                        from = metrics,
+                                        payload = emqttd_util:integer_to_binary(Val)}).
 
 create_metric({gauge, Name}) ->
     ets:insert(?METRIC_TAB, {{Name, 0}, 0});

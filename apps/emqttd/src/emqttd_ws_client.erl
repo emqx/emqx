@@ -133,9 +133,9 @@ handle_cast({received, Packet}, State = #client_state{proto_state = ProtoState})
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({deliver, Message}, #state{proto_state = ProtoState} = State) ->
+handle_info({deliver, Message}, #client_state{proto_state = ProtoState} = State) ->
     {ok, ProtoState1} = emqttd_protocol:send(Message, ProtoState),
-    {noreply, State#state{proto_state = ProtoState1}};
+    {noreply, State#client_state{proto_state = ProtoState1}};
 
 handle_info({redeliver, {?PUBREL, PacketId}}, #client_state{proto_state = ProtoState} = State) ->
     {ok, ProtoState1} = emqttd_protocol:redeliver({?PUBREL, PacketId}, ProtoState),
