@@ -47,7 +47,7 @@
 -export([create/1,
          subscribe/1,
          unsubscribe/1,
-         publish/2,
+         publish/1,
          %local node
          dispatch/2, match/1]).
 
@@ -81,7 +81,7 @@ mnesia(boot) ->
                 {ram_copies, [node()]},
                 {record_name, mqtt_subscriber},
                 {attributes, record_info(fields, mqtt_subscriber)},
-                {index, [pid]},
+                {index, [subpid]},
                 {local_content, true}]);
 
 mnesia(copy) ->
@@ -156,19 +156,23 @@ cast(Msg) ->
 %% @doc Publish to cluster nodes
 %% @end
 %%------------------------------------------------------------------------------
--spec publish(From :: mqtt_clientid() | atom(), Msg :: mqtt_message()) -> ok.
-publish(From, #mqtt_message{topic=Topic} = Msg) ->
+-spec publish(Msg :: mqtt_message()) -> ok.
+publish(#mqtt_message{topic=Topic, from = From} = Msg) ->
     trace(publish, From, Msg),
+
+    %%TODO:call hooks here...
+    %%Msg1 = emqttd_broker:foldl_hooks(client_publish, [], Msg),
+
     %% Retain message first. Don't create retained topic.
     case emqttd_msg_store:retain(Msg) of
         ok ->
             %TODO: why unset 'retain' flag?
-            publish(From, Topic, emqttd_message:unset_flag(Msg));
+            publish(Topic, emqttd_message:unset_flag(Msg));
         ignore ->
-            publish(From, Topic, Msg)
+            publish(Topic, Msg)
      end.
 
-publish(From, <<"$Q/", _/binary>> = Queue, #mqtt_message{qos = Qos} = Msg) ->
+publish(<<"$Q/", _/binary>> = Queue, #mqtt_message{qos = Qos} = Msg) ->
     lists:foreach(
         fun(#mqtt_queue{subpid = SubPid, qos = SubQos}) -> 
             Msg1 = if
@@ -178,7 +182,7 @@ publish(From, <<"$Q/", _/binary>> = Queue, #mqtt_message{qos = Qos} = Msg) ->
             SubPid ! {dispatch, Msg1}
         end, mnesia:dirty_read(queue, Queue));
     
-publish(_From, Topic, Msg) when is_binary(Topic) ->
+publish(Topic, Msg) when is_binary(Topic) ->
 	lists:foreach(fun(#mqtt_topic{topic=Name, node=Node}) ->
         case Node =:= node() of
             true -> dispatch(Name, Msg);

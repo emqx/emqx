@@ -170,37 +170,18 @@ handle(Packet = ?CONNECT_PACKET(Var), State0 = #proto_state{peername = Peername}
     %% Send connack
     send(?CONNACK_PACKET(ReturnCode1), State3);
 
-handle(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload),
-       State = #proto_state{clientid = ClientId, session = Session}) ->
+handle(Packet = ?PUBLISH_PACKET(_Qos, Topic, _PacketId, _Payload),
+           State = #proto_state{clientid = ClientId}) ->
+
     case check_acl(publish, Topic, State) of
-        allow -> 
-            do_publish(Session, ClientId, Packet);
+        allow ->
+            publish(Packet, State);
         deny -> 
             lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic])
     end,
 	{ok, State};
 
-handle(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload),
-         State = #proto_state{clientid = ClientId, session = Session}) ->
-    case check_acl(publish, Topic, State) of
-        allow -> 
-            do_publish(Session, ClientId, Packet),
-            send(?PUBACK_PACKET(?PUBACK, PacketId), State);
-        deny -> 
-            lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic]),
-            {ok, State}
-    end;
 
-handle(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload),
-         State = #proto_state{clientid = ClientId, session = Session}) ->
-    case check_acl(publish, Topic, State) of
-        allow -> 
-            do_publish(Session, ClientId, Packet), 
-            send(?PUBACK_PACKET(?PUBREC, PacketId), State);
-        deny -> 
-            lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic]),
-            {ok, State}
-    end;
 
 handle(?PUBACK_PACKET(?PUBACK, PacketId), State = #proto_state{session = Session}) ->
     emqttd_session:puback(Session, PacketId),
@@ -256,10 +237,26 @@ handle(?PACKET(?DISCONNECT), State) ->
     % clean willmsg
     {stop, normal, State#proto_state{will_msg = undefined}}.
 
-do_publish(Session, ClientId, Packet) ->
-    Msg = emqttd_message:from_packet(ClientId, Packet),
-    Msg1 = emqttd_broker:foldl_hooks(client_publish, [], Msg),
-    emqttd_session:publish(Session, Msg1).
+publish(Packet = ?PUBLISH(?QOS_0, _PacketId), #proto_state{clientid = ClientId, session = Session}) ->
+    emqttd_session:publish(Session, emqttd_message:from_packet(ClientId, Packet));
+
+publish(Packet = ?PUBLISH(?QOS_1, PacketId), State = #proto_state{clientid = ClientId, session = Session}) ->
+    case emqttd_session:publish(Session, emqttd_message:from_packet(ClientId, Packet)) of
+        ok ->
+            send(?PUBACK_PACKET(?PUBACK, PacketId), State);
+        {error, Error} ->
+            %%TODO: log format...
+            lager:error("Client ~s: publish qos1 error ~p", [ClientId, Error])
+    end;
+
+publish(Packet = ?PUBLISH(?QOS_2, PacketId), State = #proto_state{clientid = ClientId, session = Session}) ->
+    case emqttd_session:publish(Session, emqttd_message:from_packet(ClientId, Packet)) of
+        ok ->
+            send(?PUBACK_PACKET(?PUBREC, PacketId), State);
+        {error, Error} ->
+            %%TODO: log format...
+            lager:error("Client ~s: publish qos2 error ~p", [ClientId, Error])
+    end.
 
 -spec send(mqtt_message() | mqtt_packet(), proto_state()) -> {ok, proto_state()}.
 send(Msg, State) when is_record(Msg, mqtt_message) ->
@@ -323,7 +320,7 @@ send_willmsg(_ClientId, undefined) ->
     ignore;
 send_willmsg(ClientId, WillMsg) -> 
     lager:info("Client ~s send willmsg: ~p", [ClientId, WillMsg]),
-    emqttd_pubsub:publish(ClientId, WillMsg).
+    emqttd_pubsub:publish(WillMsg#mqtt_message{from = ClientId}).
 
 start_keepalive(0) -> ignore;
 

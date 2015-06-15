@@ -196,6 +196,11 @@
                                                  packet_id  = PacketId},
                  payload = Payload}).
 
+-define(PUBLISH(Qos, PacketId),
+    #mqtt_packet{header = #mqtt_packet_header{type = ?PUBLISH,
+                                              qos = Qos},
+                 variable = #mqtt_packet_publish{packet_id  = PacketId}}).
+
 -define(PUBACK_PACKET(Type, PacketId),
     #mqtt_packet{header = #mqtt_packet_header{type = Type},
                  variable = #mqtt_packet_puback{packet_id = PacketId}}).
