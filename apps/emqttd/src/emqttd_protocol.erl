@@ -28,11 +28,9 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include_lib("emqtt/include/emqtt.hrl").
-
--include_lib("emqtt/include/emqtt_packet.hrl").
-
 -include("emqttd.hrl").
+
+-include("emqttd_protocol.hrl").
 
 %% API
 -export([init/3, info/1, clientid/1, client/1]).
@@ -259,18 +257,18 @@ handle(?PACKET(?DISCONNECT), State) ->
     {stop, normal, State#proto_state{will_msg = undefined}}.
 
 do_publish(Session, ClientId, Packet) ->
-    Msg = emqtt_message:from_packet(ClientId, Packet),
+    Msg = emqttd_message:from_packet(ClientId, Packet),
     Msg1 = emqttd_broker:foldl_hooks(client_publish, [], Msg),
     emqttd_session:publish(Session, Msg1).
 
 -spec send(mqtt_message() | mqtt_packet(), proto_state()) -> {ok, proto_state()}.
 send(Msg, State) when is_record(Msg, mqtt_message) ->
-	send(emqtt_message:to_packet(Msg), State);
+	send(emqttd_message:to_packet(Msg), State);
 
 send(Packet, State = #proto_state{sendfun = SendFun, peername = Peername}) when is_record(Packet, mqtt_packet) ->
     trace(send, Packet, State),
     sent_stats(Packet),
-    Data = emqtt_serialiser:serialise(Packet),
+    Data = emqttd_serialiser:serialise(Packet),
     lager:debug("SENT to ~s: ~p", [emqttd_net:format(Peername), Data]),
     emqttd_metrics:inc('bytes/sent', size(Data)),
     SendFun(Data),
@@ -278,11 +276,11 @@ send(Packet, State = #proto_state{sendfun = SendFun, peername = Peername}) when 
 
 trace(recv, Packet, #proto_state{peername = Peername, clientid = ClientId}) ->
     lager:info([{client, ClientId}], "RECV from ~s@~s: ~s",
-                   [ClientId, emqttd_net:format(Peername), emqtt_packet:format(Packet)]);
+                   [ClientId, emqttd_net:format(Peername), emqttd_packet:format(Packet)]);
 
 trace(send, Packet, #proto_state{peername  = Peername, clientid = ClientId}) ->
 	lager:info([{client, ClientId}], "SEND to ~s@~s: ~s",
-                   [ClientId, emqttd_net:format(Peername), emqtt_packet:format(Packet)]).
+                   [ClientId, emqttd_net:format(Peername), emqttd_packet:format(Packet)]).
 
 %% @doc redeliver PUBREL PacketId
 redeliver({?PUBREL, PacketId}, State) ->
@@ -310,7 +308,7 @@ shutdown(Error, #proto_state{peername = Peername, clientid = ClientId, will_msg 
     emqttd_broker:foreach_hooks(client_disconnected, [Error, ClientId]).
 
 willmsg(Packet) when is_record(Packet, mqtt_packet_connect) ->
-    emqtt_message:from_packet(Packet).
+    emqttd_message:from_packet(Packet).
 
 %% generate a clientId
 clientid(undefined, State) ->
@@ -366,7 +364,7 @@ validate_clientid(#mqtt_packet_connect {proto_ver = Ver, clean_sess = CleanSess,
 
 validate_packet(#mqtt_packet{header  = #mqtt_packet_header{type = ?PUBLISH}, 
                              variable = #mqtt_packet_publish{topic_name = Topic}}) ->
-	case emqtt_topic:validate({name, Topic}) of
+	case emqttd_topic:validate({name, Topic}) of
 	true -> ok;
 	false -> lager:warning("Error publish topic: ~p", [Topic]), {error, badtopic}
 	end;
@@ -390,7 +388,7 @@ validate_topics(Type, []) when Type =:= name orelse Type =:= filter ->
 
 validate_topics(Type, Topics) when Type =:= name orelse Type =:= filter ->
 	ErrTopics = [Topic || {Topic, Qos} <- Topics,
-						not (emqtt_topic:validate({Type, Topic}) and validate_qos(Qos))],
+						not (emqttd_topic:validate({Type, Topic}) and validate_qos(Qos))],
 	case ErrTopics of
 	[] -> ok;
 	_ -> lager:error("Error Topics: ~p", [ErrTopics]), {error, badtopic}

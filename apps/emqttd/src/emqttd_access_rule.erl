@@ -73,9 +73,9 @@ compile(who, {user, Username}) ->
     {user, bin(Username)};
 
 compile(topic, {eq, Topic}) ->
-    {eq, emqtt_topic:words(bin(Topic))};
+    {eq, emqttd_topic:words(bin(Topic))};
 compile(topic, Topic) ->
-    Words = emqtt_topic:words(bin(Topic)),
+    Words = emqttd_topic:words(bin(Topic)),
     case 'pattern?'(Words) of
         true -> {pattern, Words};
         false -> Words
@@ -126,12 +126,12 @@ match_topics(_Client, _Topic, []) ->
     false;
 match_topics(Client, Topic, [{pattern, PatternFilter}|Filters]) ->
     TopicFilter = feed_var(Client, PatternFilter),
-    case match_topic(emqtt_topic:words(Topic), TopicFilter) of
+    case match_topic(emqttd_topic:words(Topic), TopicFilter) of
         true -> true;
         false -> match_topics(Client, Topic, Filters)
     end;
 match_topics(Client, Topic, [TopicFilter|Filters]) ->
-   case match_topic(emqtt_topic:words(Topic), TopicFilter) of
+   case match_topic(emqttd_topic:words(Topic), TopicFilter) of
     true -> true;
     false -> match_topics(Client, Topic, Filters)
     end.
@@ -139,7 +139,7 @@ match_topics(Client, Topic, [TopicFilter|Filters]) ->
 match_topic(Topic, {eq, TopicFilter}) ->
     Topic =:= TopicFilter;
 match_topic(Topic, TopicFilter) ->
-    emqtt_topic:match(Topic, TopicFilter).
+    emqttd_topic:match(Topic, TopicFilter).
 
 feed_var(Client, Pattern) ->
     feed_var(Client, Pattern, []).

@@ -29,8 +29,7 @@
 -author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
-
--include_lib("emqtt/include/emqtt.hrl").
+-include("emqttd_protocol.hrl").
 
 -import(proplists, [get_value/2, get_value/3]).
 
@@ -122,7 +121,7 @@ validate(qos, Qos) ->
     (Qos >= ?QOS_0) and (Qos =< ?QOS_2); 
 
 validate(topic, Topic) ->
-    emqtt_topic:validate({name, Topic}).
+    emqttd_topic:validate({name, Topic}).
 
 int(S) -> list_to_integer(S).
 

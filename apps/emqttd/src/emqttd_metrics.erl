@@ -28,9 +28,7 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include("emqttd_systop.hrl").
-
--include_lib("emqtt/include/emqtt.hrl").
+-include("emqttd.hrl").
 
 -behaviour(gen_server).
 
@@ -48,9 +46,41 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+-record(state, {tick_tref}).
+
 -define(METRIC_TAB, mqtt_metric).
 
--record(state, {tick_tref}).
+%% Bytes sent and received of Broker
+-define(SYSTOP_BYTES, [
+    {counter, 'bytes/received'},   % Total bytes received
+    {counter, 'bytes/sent'}        % Total bytes sent
+]).
+
+%% Packets sent and received of Broker
+-define(SYSTOP_PACKETS, [
+    {counter, 'packets/received'},         % All Packets received
+    {counter, 'packets/sent'},             % All Packets sent
+    {counter, 'packets/connect'},          % CONNECT Packets received
+    {counter, 'packets/connack'},          % CONNACK Packets sent
+    {counter, 'packets/publish/received'}, % PUBLISH packets received
+    {counter, 'packets/publish/sent'},     % PUBLISH packets sent
+    {counter, 'packets/subscribe'},        % SUBSCRIBE Packets received 
+    {counter, 'packets/suback'},           % SUBACK packets sent 
+    {counter, 'packets/unsubscribe'},      % UNSUBSCRIBE Packets received
+    {counter, 'packets/unsuback'},         % UNSUBACK Packets sent
+    {counter, 'packets/pingreq'},          % PINGREQ packets received
+    {counter, 'packets/pingresp'},         % PINGRESP Packets sent
+    {counter, 'packets/disconnect'}        % DISCONNECT Packets received 
+]).
+
+%% Messages sent and received of broker
+-define(SYSTOP_MESSAGES, [
+    {counter, 'messages/received'},      % Messages received
+    {counter, 'messages/sent'},          % Messages sent
+    {gauge,   'messages/retained/count'},% Messagea retained
+    {gauge,   'messages/stored/count'},  % Messages stored
+    {counter, 'messages/dropped'}        % Messages dropped
+]).
 
 %%%=============================================================================
 %%% API
@@ -204,6 +234,6 @@ create_metric({counter, Name}) ->
     [ets:insert(?METRIC_TAB, {{Name, I}, 0}) || I <- Schedulers].
 
 metric_topic(Metric) ->
-    emqtt_topic:systop(list_to_binary(lists:concat(['metrics/', Metric]))).
+    emqttd_topic:systop(list_to_binary(lists:concat(['metrics/', Metric]))).
 
 

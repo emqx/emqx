@@ -19,13 +19,13 @@
 %% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %% SOFTWARE.
 %%------------------------------------------------------------------------------
--module(emqtt_topic_tests).
-
--import(emqtt_topic, [validate/1, wildcard/1, match/2, triples/1, words/1]).
+-module(emqttd_topic_tests).
 
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
+
+-import(emqttd_topic, [validate/1, wildcard/1, match/2, triples/1, words/1]).
 
 -define(N, 100000).
 
@@ -116,11 +116,11 @@ words_test() ->
     ok.
 
 feed_var_test() ->
-    ?assertEqual(<<"$Q/client/clientId">>, emqtt_topic:feed_var(<<"$c">>, <<"clientId">>, <<"$Q/client/$c">>)).
+    ?assertEqual(<<"$Q/client/clientId">>, emqttd_topic:feed_var(<<"$c">>, <<"clientId">>, <<"$Q/client/$c">>)).
 
 join_test() ->
-    ?assertEqual(<<"/ab/cd/ef/">>, emqtt_topic:join(words(<<"/ab/cd/ef/">>))),
-    ?assertEqual(<<"ab/+/#">>, emqtt_topic:join(words(<<"ab/+/#">>))).
+    ?assertEqual(<<"/ab/cd/ef/">>, emqttd_topic:join(words(<<"/ab/cd/ef/">>))),
+    ?assertEqual(<<"ab/+/#">>, emqttd_topic:join(words(<<"ab/+/#">>))).
 
 -endif.
 

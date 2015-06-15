@@ -28,7 +28,7 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include_lib("emqtt/include/emqtt.hrl").
+-include("emqttd.hrl").
 
 %% Mnesia callbacks
 -export([mnesia/1]).
@@ -74,7 +74,7 @@ retain(Msg = #mqtt_message{topic = Topic,
     TabSize = mnesia:table_info(message, size),
     case {TabSize < limit(table), size(Payload) < limit(payload)} of
         {true, true} ->
-            lager:debug("Retained ~s", [emqtt_message:format(Msg)]),
+            lager:debug("Retained ~s", [emqttd_message:format(Msg)]),
             mnesia:async_dirty(fun mnesia:write/3, [message, Msg, write]),
             emqttd_metrics:set('messages/retained/count',
                                mnesia:table_info(message, size));
@@ -106,12 +106,12 @@ env() ->
         Topic  :: binary(),
         CPid   :: pid().
 redeliver(Topic, CPid) when is_binary(Topic) andalso is_pid(CPid) ->
-    case emqtt_topic:wildcard(Topic) of
+    case emqttd_topic:wildcard(Topic) of
         false ->
             dispatch(CPid, mnesia:dirty_read(message, Topic));
         true ->
             Fun = fun(Msg = #mqtt_message{topic = Name}, Acc) ->
-                    case emqtt_topic:match(Name, Topic) of
+                    case emqttd_topic:match(Name, Topic) of
                         true -> [Msg|Acc];
                         false -> Acc
                     end

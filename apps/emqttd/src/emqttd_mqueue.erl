@@ -52,7 +52,8 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include_lib("emqtt/include/emqtt.hrl").
+-include("emqttd.hrl").
+-include("emqttd_protocol.hrl").
 
 -export([new/2, name/1,
          is_empty/1, is_full/1,
@@ -61,8 +62,6 @@
 -define(LOW_WM, 0.2).
 
 -define(HIGH_WM, 0.6).
-
--define(MAX_LEN, 1000).
 
 -record(mqueue, {name,
                  q        = queue:new(), %% pending queue
@@ -89,7 +88,7 @@
 %%------------------------------------------------------------------------------
 -spec new(binary(), list(mqueue_option())) -> mqueue().
 new(Name, Opts) ->
-    MaxLen = emqttd_opts:g(max_length, Opts, ?MAX_LEN),
+    MaxLen = emqttd_opts:g(max_length, Opts, 1000),
     #mqueue{name     = Name,
             max_len  = MaxLen,
             low_wm   = round(MaxLen * emqttd_opts:g(low_watermark, Opts, ?LOW_WM)),

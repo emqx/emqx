@@ -28,15 +28,13 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include("emqttd_systop.hrl").
+-include("emqttd.hrl").
 
--include_lib("emqtt/include/emqtt.hrl").
+-export([start_link/0]).
 
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
-
--export([start_link/0]).
 
 %% statistics API.
 -export([statsfun/1, statsfun/2,
@@ -47,9 +45,31 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+-record(state, {tick_tref}).
+
 -define(STATS_TAB, mqtt_stats).
 
--record(state, {tick_tref}).
+%% $SYS Topics for Clients
+-define(SYSTOP_CLIENTS, [
+    'clients/count',         % clients connected current
+    'clients/max'            % max clients connected
+]).
+
+%% $SYS Topics for Sessions
+-define(SYSTOP_SESSIONS, [
+    'sessions/count',
+    'sessions/max'
+]).
+
+%% $SYS Topics for Subscribers
+-define(SYSTOP_PUBSUB, [
+    'topics/count',      % ...
+    'topics/max',        % ...
+    'subscribers/count', % ...
+    'subscribers/max',   % ...
+    'queues/count',      % ...
+    'queues/max'         % ...
+]).
 
 %%%=============================================================================
 %%% API
@@ -159,5 +179,5 @@ publish(Stat, Val) ->
                                         payload = emqttd_util:integer_to_binary(Val)}).
 
 stats_topic(Stat) ->
-    emqtt_topic:systop(list_to_binary(lists:concat(['stats/', Stat]))).
+    emqttd_topic:systop(list_to_binary(lists:concat(['stats/', Stat]))).
 

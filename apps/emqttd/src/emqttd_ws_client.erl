@@ -29,30 +29,24 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include_lib("emqtt/include/emqtt.hrl").
+-include("emqttd.hrl").
 
--include_lib("emqtt/include/emqtt_packet.hrl").
-
--behaviour(gen_server).
+-include("emqttd_protocol.hrl").
 
 %% API Exports
 -export([start_link/1, ws_loop/3]).
+
+-behaviour(gen_server).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
-%% WebSocket loop state
--record(wsocket_state, {request,
-                        client_pid,
-                        packet_opts,
-                        parser_state}).
+%% WebSocket Loop State
+-record(wsocket_state, {request, client_pid, packet_opts, parser_state}).
 
-%% Client state
--record(client_state, {ws_pid,
-                       request,
-                       proto_state,
-                       keepalive}).
+%% Client State
+-record(client_state, {ws_pid, request, proto_state, keepalive}).
 
 %%------------------------------------------------------------------------------
 %% @doc Start WebSocket client.
@@ -65,7 +59,7 @@ start_link(Req) ->
     ReentryWs(#wsocket_state{request      = Req,
                              client_pid   = ClientPid,
                              packet_opts  = PktOpts,
-                             parser_state = emqtt_parser:init(PktOpts)}).
+                             parser_state = emqttd_parser:init(PktOpts)}).
 
 %%------------------------------------------------------------------------------
 %% @private
@@ -88,7 +82,7 @@ ws_loop(Data, State = #wsocket_state{request = Req,
                                      parser_state = ParserState}, ReplyChannel) ->
     Peer = Req:get(peer),
     lager:debug("RECV from ~s(WebSocket): ~p", [Peer, Data]),
-    case emqtt_parser:parse(iolist_to_binary(Data), ParserState) of
+    case emqttd_parser:parse(iolist_to_binary(Data), ParserState) of
     {more, ParserState1} ->
         State#wsocket_state{parser_state = ParserState1};
     {ok, Packet, Rest} ->
@@ -100,7 +94,7 @@ ws_loop(Data, State = #wsocket_state{request = Req,
     end.
 
 reset_parser(State = #wsocket_state{packet_opts  = PktOpts}) ->
-    State#wsocket_state{parser_state = emqtt_parser:init(PktOpts)}.
+    State#wsocket_state{parser_state = emqttd_parser:init(PktOpts)}.
 
 %%%=============================================================================
 %%% gen_fsm callbacks

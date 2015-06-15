@@ -20,10 +20,34 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% MQTT Packet Header.
+%%% MQTT Protocol Header.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
+%%------------------------------------------------------------------------------
+%% MQTT Protocol Version and Levels
+%%------------------------------------------------------------------------------
+-define(MQTT_PROTO_V31,  3).
+-define(MQTT_PROTO_V311, 4).
+
+-define(PROTOCOL_NAMES, [
+    {?MQTT_PROTO_V31, <<"MQIsdp">>},
+    {?MQTT_PROTO_V311, <<"MQTT">>}]).
+
+-type mqtt_vsn() :: ?MQTT_PROTO_V31 | ?MQTT_PROTO_V311.
+
+%%------------------------------------------------------------------------------
+%% MQTT QoS
+%%------------------------------------------------------------------------------
+
+-define(QOS_0, 0). %% At most once
+-define(QOS_1, 1). %% At least once
+-define(QOS_2, 2). %% Exactly once
+
+-define(IS_QOS(I), (I >= ?QOS_0 andalso I =< ?QOS_2)).
+
+-type mqtt_qos() :: ?QOS_0 | ?QOS_1 | ?QOS_2.
 
 %%------------------------------------------------------------------------------
 %% Max ClientId Length. Why 1024? NiDongDe!
@@ -198,5 +222,4 @@
 
 -define(PACKET(Type),
     #mqtt_packet{header = #mqtt_packet_header{type = Type}}).
-
 

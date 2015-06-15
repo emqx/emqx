@@ -24,13 +24,13 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqtt_message).
+-module(emqttd_message).
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include("emqtt.hrl").
+-include("emqttd.hrl").
 
--include("emqtt_packet.hrl").
+-include("emqttd_protocol.hrl").
 
 -export([from_packet/1, from_packet/2, to_packet/1]).
 

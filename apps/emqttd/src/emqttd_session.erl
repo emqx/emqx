@@ -49,9 +49,7 @@
 
 -include("emqttd.hrl").
 
--include_lib("emqtt/include/emqtt.hrl").
-
--include_lib("emqtt/include/emqtt_packet.hrl").
+-include("emqttd_protocol.hrl").
 
 %% Session API
 -export([start_link/3, resume/3, destroy/2]).

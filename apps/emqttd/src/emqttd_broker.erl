@@ -28,13 +28,7 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include("emqttd_systop.hrl").
-
--include_lib("emqtt/include/emqtt.hrl").
-
--behaviour(gen_server).
-
--define(SERVER, ?MODULE).
+-include_lib("emqttd.hrl").
 
 %% API Function Exports
 -export([start_link/0]).
@@ -54,6 +48,10 @@
 %% Tick API
 -export([start_tick/1, stop_tick/1]).
 
+-behaviour(gen_server).
+
+-define(SERVER, ?MODULE).
+
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -61,6 +59,14 @@
 -define(BROKER_TAB, mqtt_broker).
 
 -record(state, {started_at, sys_interval, tick_tref}).
+
+%% $SYS Topics of Broker
+-define(SYSTOP_BROKERS, [
+    version,      % Broker version
+    uptime,       % Broker uptime
+    datetime,     % Broker local datetime
+    sysdescr      % Broker description
+]).
 
 %%%=============================================================================
 %%% API
@@ -276,7 +282,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 
 create_topic(Topic) ->
-    emqttd_pubsub:create(emqtt_topic:systop(Topic)).
+    emqttd_pubsub:create(emqttd_topic:systop(Topic)).
 
 retain(brokers) ->
     Payload = list_to_binary(string:join([atom_to_list(N) || N <- running_nodes()], ",")),
@@ -288,12 +294,12 @@ retain(brokers) ->
 retain(Topic, Payload) when is_binary(Payload) ->
     publish(#mqtt_message{from = broker,
                           retain = true,
-                          topic = emqtt_topic:systop(Topic),
+                          topic = emqttd_topic:systop(Topic),
                           payload = Payload}).
 
 publish(Topic, Payload) when is_binary(Payload) ->
     publish( #mqtt_message{from = broker,
-                           topic = emqtt_topic:systop(Topic),
+                           topic = emqttd_topic:systop(Topic),
                            payload = Payload}).
 
 publish(Msg) ->

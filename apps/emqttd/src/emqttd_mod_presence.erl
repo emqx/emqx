@@ -28,8 +28,6 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include_lib("emqtt/include/emqtt.hrl").
-
 -include("emqttd.hrl").
 
 -export([load/1, unload/1]).
@@ -75,9 +73,9 @@ unload(_Opts) ->
 
 
 topic(connected, ClientId) ->
-    emqtt_topic:systop(list_to_binary(["clients/", ClientId, "/connected"]));
+    emqttd_topic:systop(list_to_binary(["clients/", ClientId, "/connected"]));
 topic(disconnected, ClientId) ->
-    emqtt_topic:systop(list_to_binary(["clients/", ClientId, "/disconnected"])).
+    emqttd_topic:systop(list_to_binary(["clients/", ClientId, "/disconnected"])).
 
 reason(Reason) when is_atom(Reason) -> Reason;
 reason({Error, _}) when is_atom(Error) -> Error;

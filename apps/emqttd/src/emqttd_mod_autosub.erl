@@ -29,11 +29,9 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include_lib("emqtt/include/emqtt.hrl").
-
--include_lib("emqtt/include/emqtt_packet.hrl").
-
 -include("emqttd.hrl").
+
+-include("emqttd_protocol.hrl").
 
 -behaviour(emqttd_gen_mod).
 
@@ -48,7 +46,7 @@ load(Opts) ->
     {ok, #state{topics = Topics}}.
 
 client_connected(?CONNACK_ACCEPT, #mqtt_client{clientid = ClientId, client_pid = ClientPid}, Topics) ->
-    F = fun(Topic) -> emqtt_topic:feed_var(<<"$c">>, ClientId, Topic) end,
+    F = fun(Topic) -> emqttd_topic:feed_var(<<"$c">>, ClientId, Topic) end,
     ClientPid ! {subscribe, [{F(Topic), Qos} || {Topic, Qos} <- Topics]};
 
 client_connected(_ConnAck, _Client, _Topics) ->

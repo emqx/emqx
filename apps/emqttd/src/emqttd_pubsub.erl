@@ -31,9 +31,7 @@
 
 -include("emqttd.hrl").
 
--include_lib("emqtt/include/emqtt.hrl").
-
--include_lib("emqtt/include/emqtt_packet.hrl").
+-include("emqttd_protocol.hrl").
 
 %% Mnesia Callbacks
 -export([mnesia/1]).
@@ -165,7 +163,7 @@ publish(From, #mqtt_message{topic=Topic} = Msg) ->
     case emqttd_msg_store:retain(Msg) of
         ok ->
             %TODO: why unset 'retain' flag?
-            publish(From, Topic, emqtt_message:unset_flag(Msg));
+            publish(From, Topic, emqttd_message:unset_flag(Msg));
         ignore ->
             publish(From, Topic, Msg)
      end.
@@ -197,7 +195,7 @@ dispatch(Topic, #mqtt_message{qos = Qos} = Msg ) when is_binary(Topic) ->
     Subscribers = mnesia:dirty_read(subscriber, Topic),
     setstats(dropped, Subscribers =:= []), %%TODO:...
     lists:foreach(
-        fun(#mqtt_subscriber{qos = SubQos, pid=SubPid}) ->
+        fun(#mqtt_subscriber{subpid=SubPid, qos = SubQos}) ->
                 Msg1 = if
                     Qos > SubQos -> Msg#mqtt_message{qos = SubQos};
                     true -> Msg
@@ -226,7 +224,7 @@ handle_call({subscribe, SubPid, Topics}, _From, State) ->
                             #mqtt_queue{name = Queue, subpid = SubPid, qos = Qos};
                              ({Topic, Qos}) ->
                             {#mqtt_topic{topic = Topic, node = node()},
-                             #mqtt_subscriber{topic = Topic, qos = Qos, pid = SubPid}}
+                             #mqtt_subscriber{topic = Topic, subpid = SubPid, qos = Qos}}
                 end, Topics),
     F = fun() ->
             lists:map(fun(QueueR) when is_record(QueueR, mqtt_queue) ->
@@ -261,7 +259,7 @@ handle_call({subscribe, SubPid, <<"$Q/", _/binary>> = Queue, Qos}, _From, State)
 
 handle_call({subscribe, SubPid, Topic, Qos}, _From, State) ->
     TopicR = #mqtt_topic{topic = Topic, node = node()},
-    Subscriber = #mqtt_subscriber{topic = Topic, qos = Qos, pid = SubPid},
+    Subscriber = #mqtt_subscriber{topic = Topic, subpid = SubPid, qos = Qos},
     case mnesia:transaction(fun add_subscriber/1, [{TopicR, Subscriber}]) of
         {atomic, ok} -> 
             setstats(all),
@@ -280,7 +278,7 @@ handle_cast({unsubscribe, SubPid, Topics}, State) when is_list(Topics) ->
                                 #mqtt_queue{name = Queue, subpid = SubPid};
                              (Topic) ->
                                 {#mqtt_topic{topic = Topic, node = node()},
-                                 #mqtt_subscriber{topic = Topic, _ = '_', pid = SubPid}}
+                                 #mqtt_subscriber{topic = Topic, subpid = SubPid, _ = '_'}}
                 end, Topics),
     F = fun() ->
             lists:foreach(
@@ -309,7 +307,7 @@ handle_cast({unsubscribe, SubPid, <<"$Q/", _/binary>> = Queue}, State) ->
 
 handle_cast({unsubscribe, SubPid, Topic}, State) ->
     TopicR = #mqtt_topic{topic = Topic, node = node()},
-    Subscriber = #mqtt_subscriber{topic = Topic, _ = '_', pid = SubPid},
+    Subscriber = #mqtt_subscriber{topic = Topic, subpid = SubPid, _ = '_'},
     case mnesia:transaction(fun remove_subscriber/1, [{TopicR, Subscriber}]) of
         {atomic, _} -> ok;
         {aborted, Error} -> lager:error("unsubscribe ~s error: ~p", [Topic, Error])
@@ -333,7 +331,7 @@ handle_info({'DOWN', _Mon, _Type, DownPid, _Info}, State = #state{submap = SubMa
                         end, Queues),
 
                     %% remove subscribers...
-                    Subscribers = mnesia:index_read(subscriber, DownPid, #mqtt_subscriber.pid),
+                    Subscribers = mnesia:index_read(subscriber, DownPid, #mqtt_subscriber.subpid),
                     lists:foreach(fun(Sub = #mqtt_subscriber{topic = Topic}) ->
                                 mnesia:delete_object(subscriber, Sub, write),
                                 try_remove_topic(#mqtt_topic{topic = Topic, node = Node})
@@ -387,12 +385,12 @@ add_topic(TopicR = #mqtt_topic{topic = Topic}) ->
     end.
 
 %% Fix issue #53 - Remove Overlapping Subscriptions
-add_subscriber({TopicR, Subscriber = #mqtt_subscriber{topic = Topic, qos = Qos, pid = SubPid}})
+add_subscriber({TopicR, Subscriber = #mqtt_subscriber{topic = Topic, subpid = SubPid, qos = Qos}})
                 when is_record(TopicR, mqtt_topic) ->
     case add_topic(TopicR) of
         ok ->
             OverlapSubs = [Sub || Sub = #mqtt_subscriber{topic = SubTopic, qos = SubQos}
-                                    <- mnesia:index_read(subscriber, SubPid, #mqtt_subscriber.pid),
+                                    <- mnesia:index_read(subscriber, SubPid, #mqtt_subscriber.subpid),
                                         SubTopic =:= Topic, SubQos =/= Qos],
 
             %% remove overlapping subscribers

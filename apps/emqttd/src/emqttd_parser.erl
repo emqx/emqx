@@ -24,13 +24,13 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqtt_parser).
+-module(emqttd_parser).
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include("emqtt.hrl").
+-include("emqttd.hrl").
 
--include("emqtt_packet.hrl").
+-include("emqttd_protocol.hrl").
 
 %% API
 -export([init/1, parse/2]).

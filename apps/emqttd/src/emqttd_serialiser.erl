@@ -24,13 +24,13 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqtt_serialiser).
+-module(emqttd_serialiser).
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include("emqtt.hrl").
+-include("emqttd.hrl").
 
--include("emqtt_packet.hrl").
+-include("emqttd_protocol.hrl").
 
 %% API
 -export([serialise/1]).

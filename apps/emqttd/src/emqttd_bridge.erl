@@ -30,12 +30,12 @@
 
 -include("emqttd.hrl").
 
--include_lib("emqtt/include/emqtt.hrl").
-
--behaviour(gen_server).
+-include("emqttd_protocol.hrl").
 
 %% API Function Exports
 -export([start_link/3]).
+
+-behaviour(gen_server).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,

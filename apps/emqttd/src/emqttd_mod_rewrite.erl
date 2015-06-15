@@ -29,7 +29,7 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include_lib("emqtt/include/emqtt.hrl").
+-include("emqttd.hrl").
 
 -behaviour(emqttd_gen_mod).
 
@@ -104,7 +104,7 @@ compile(Sections) ->
 match_topic(Topic, []) ->
     Topic;
 match_topic(Topic, [{topic, Filter, Rules} | Sections]) ->
-    case emqtt_topic:match(Topic, Filter) of
+    case emqttd_topic:match(Topic, Filter) of
         true ->
             match_rule(Topic, Rules);
         false ->

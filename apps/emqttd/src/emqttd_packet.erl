@@ -24,13 +24,13 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqtt_packet).
+-module(emqttd_packet).
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include("emqtt.hrl").
+-include("emqttd.hrl").
 
--include("emqtt_packet.hrl").
+-include("emqttd_protocol.hrl").
 
 %% API
 -export([protocol_name/1, type_name/1, connack_name/1]).

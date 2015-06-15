@@ -36,6 +36,12 @@
 
 -define(ERTS_MINIMUM, "6.0").
 
+%% System Topics.
+-define(SYSTOP, <<"$SYS">>).
+
+%% Queue Topics.
+-define(QTop, <<"$Q">>).
+
 %%------------------------------------------------------------------------------
 %% PubSub
 %%------------------------------------------------------------------------------
@@ -56,8 +62,8 @@
 %%------------------------------------------------------------------------------
 -record(mqtt_subscriber, {
     topic    :: binary(),
-    qos = 0  :: 0 | 1 | 2,
-    pid      :: pid()
+    subpid   :: pid(),
+    qos = 0  :: 0 | 1 | 2
 }).
 
 -type mqtt_subscriber() :: #mqtt_subscriber{}.
@@ -94,12 +100,28 @@
 -record(mqtt_session, {
     clientid,
     session_pid,
-    subscriptions = [],
-    awaiting_ack,
-    awaiting_rel
+    subscriptions = []
 }).
 
 -type mqtt_session() :: #mqtt_session{}.
+
+%%------------------------------------------------------------------------------
+%% MQTT Message
+%%------------------------------------------------------------------------------
+-type mqtt_msgid() :: undefined | 1..16#ffff.
+
+-record(mqtt_message, {
+    topic           :: binary(),          %% The topic published to
+    from            :: binary() | atom(), %% ClientId of publisher
+    qos    = 0      :: 0 | 1 | 2,         %% Message QoS
+    retain = false  :: boolean(),         %% Retain flag
+    dup    = false  :: boolean(),         %% Dup flag
+    sys    = false  :: boolean(),         %% $SYS flag
+    msgid           :: mqtt_msgid(),      %% Message ID
+    payload         :: binary()           %% Payload
+}).
+
+-type mqtt_message() :: #mqtt_message{}.
 
 %%------------------------------------------------------------------------------
 %% MQTT Plugin

@@ -29,7 +29,7 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include_lib("emqtt/include/emqtt.hrl").
+-include("emqttd.hrl").
 
 -export([new/2, is_full/1, len/1, in/2, ack/2]).
 
