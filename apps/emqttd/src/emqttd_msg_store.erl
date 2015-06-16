@@ -123,7 +123,7 @@ redeliver(Topic, CPid) when is_binary(Topic) andalso is_pid(CPid) ->
 dispatch(_CPid, []) ->
     ignore;
 dispatch(CPid, Msgs) when is_list(Msgs) ->
-    CPid ! {dispatch, [Msg || Msg <- Msgs]};
+    [CPid ! {dispatch, Msg} || Msg <- Msgs];
 dispatch(CPid, Msg) when is_record(Msg, mqtt_message) ->
     CPid ! {dispatch, Msg}.
 

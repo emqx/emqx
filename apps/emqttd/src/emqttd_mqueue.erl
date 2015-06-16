@@ -112,28 +112,21 @@ len(#mqueue{len = Len}) -> Len.
 %% @end
 %%------------------------------------------------------------------------------
 
--spec in({new | old, mqtt_message()}, mqueue()) -> mqueue().
+-spec in({newcome | pending, mqtt_message()}, mqueue()) -> mqueue().
 
 %% drop qos0
 in({_, #mqtt_message{qos = ?QOS_0}}, MQ = #mqueue{qos0 = false}) ->
     MQ;
 
 %% simply drop the oldest one if queue is full, improve later
-in({new, Msg}, MQ = #mqueue{name = Name, q = Q, len = Len, max_len = MaxLen})
+in(Msg, MQ = #mqueue{name = Name, q = Q, len = Len, max_len = MaxLen})
     when Len =:= MaxLen ->
     {{value, OldMsg}, Q2} = queue:out(Q),
-    lager:error("queue(~s) drop message: ~p", [Name, OldMsg]),
+    lager:error("MQueue(~s) drop message: ~p", [Name, OldMsg]),
     MQ#mqueue{q = queue:in(Msg, Q2)};
 
-in({old, Msg}, MQ = #mqueue{name = Name, len = Len, max_len = MaxLen})
-    when Len =:= MaxLen ->
-    lager:error("queue(~s) drop message: ~p", [Name, Msg]), MQ;
-
-in({new, Msg}, MQ = #mqueue{q = Q, len = Len}) ->
-    maybe_set_alarm(MQ#mqueue{q = queue:in(Msg, Q), len = Len + 1});
-
-in({old, Msg}, MQ = #mqueue{q = Q, len = Len}) ->
-    MQ#mqueue{q = queue:in_r(Msg, Q), len = Len + 1}.
+in(Msg, MQ = #mqueue{q = Q, len = Len}) ->
+    maybe_set_alarm(MQ#mqueue{q = queue:in(Msg, Q), len = Len + 1}).
 
 out(MQ = #mqueue{len = 0}) ->
     {empty, MQ};
