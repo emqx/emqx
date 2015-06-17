@@ -2,6 +2,12 @@
 emqttd ChangeLog
 ==================
 
+0.8.6-beta (2015-06-17)
+-------------------------
+
+Bugfix: issue #175 - publish Will message when websocket is closed without 'DISCONNECT' packet
+
+
 0.8.5-beta (2015-06-10)
 -------------------------
 
