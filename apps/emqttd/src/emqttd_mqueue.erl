@@ -122,7 +122,7 @@ in({_, #mqtt_message{qos = ?QOS_0}}, MQ = #mqueue{qos0 = false}) ->
 in(Msg, MQ = #mqueue{name = Name, q = Q, len = Len, max_len = MaxLen})
     when Len =:= MaxLen ->
     {{value, OldMsg}, Q2} = queue:out(Q),
-    lager:error("MQueue(~s) drop message: ~p", [Name, OldMsg]),
+    lager:error("MQueue(~s) drop ~s", [Name, emqttd_message:format(OldMsg)]),
     MQ#mqueue{q = queue:in(Msg, Q2)};
 
 in(Msg, MQ = #mqueue{q = Q, len = Len}) ->
