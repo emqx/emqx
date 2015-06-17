@@ -302,20 +302,8 @@ shutdown(duplicate_id, _State) ->
 shutdown(_, #proto_state{clientid = undefined}) ->
     ignore;
 
-shutdown(normal, #proto_state{peername = Peername, clientid = ClientId, will_msg = WillMsg}) ->
-	lager:info([{client, ClientId}], "Client ~s@~s: normal shutdown",
-            [ClientId, emqttd_net:format(Peername)]),
-    try_unregister(ClientId),
-    if
-        WillMsg =/= undefined ->
-            send_willmsg(ClientId, WillMsg);
-        true ->
-            ok
-    end,
-    emqttd_broker:foreach_hooks(client_disconnected, [normal, ClientId]);
-
 shutdown(Error, #proto_state{peername = Peername, clientid = ClientId, will_msg = WillMsg}) ->
-	lager:info([{client, ClientId}], "Protocol ~s@~s: Shutdown for ~p",
+	lager:info([{client, ClientId}], "Client ~s@~s: shutdown ~p",
                    [ClientId, emqttd_net:format(Peername), Error]),
     send_willmsg(ClientId, WillMsg),
     try_unregister(ClientId),
