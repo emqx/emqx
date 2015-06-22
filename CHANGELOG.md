@@ -5,6 +5,12 @@ emqttd ChangeLog
 0.9.0-alpha (2015-06-14)
 -------------------------
 
+Session and Queue
+
+Merge emqtt, emqttd apps
+
+Move apps/emqttd/src src
+
 Session
 
 Queue
@@ -14,10 +20,10 @@ Alarm
 Protocol Compliant
 
 
-0.8.6-beta (2015-06-15)
+0.8.6-beta (2015-06-17)
 -------------------------
 
-Bugfix: issue #175 - should publish Will message when websocket is closed without 'DISCONNECT' packet
+Bugfix: issue #175 - publish Will message when websocket is closed without 'DISCONNECT' packet
 
 
 0.8.5-beta (2015-06-10)
