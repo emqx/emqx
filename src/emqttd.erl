@@ -114,9 +114,15 @@ close_listener({Protocol, Port, _Options}) ->
 -spec load_all_plugins() -> [{App :: atom(), ok | {error, any()}}].
 load_all_plugins() ->
     %% save first
-    {ok, [PluginApps]} = file:consult("etc/plugins.config"),
-    application:set_env(emqttd, plugins, [App || {App, _Env} <- PluginApps]),
-    [{App, load_plugin(App)} || {App, _Env} <- PluginApps].
+    case file:consult("etc/plugins.config") of
+        {ok, [PluginApps]} ->
+            application:set_env(emqttd, plugins, [App || {App, _Env} <- PluginApps]),
+            [{App, load_plugin(App)} || {App, _Env} <- PluginApps];
+        {error, enoent} ->
+            lager:error("etc/plugins.config not found!");
+        {error, Error} ->
+            lager:error("Load etc/plugins.config error: ~p", [Error])
+    end.
 
 %%------------------------------------------------------------------------------
 %% @doc Load plugin
@@ -168,7 +174,6 @@ loaded_plugins() ->
 unload_all_plugins() ->
     PluginApps = application:get_env(emqttd, plugins, []),
     [{App, unload_plugin(App)} || App <- PluginApps].
-
 
 %%------------------------------------------------------------------------------
 %% @doc Unload plugin
