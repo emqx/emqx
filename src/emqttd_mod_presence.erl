@@ -53,7 +53,7 @@ client_connected(ConnAck, #mqtt_client{clientid   = ClientId,
                               {session, Sess},
                               {protocol, ProtoVer},
                               {connack, ConnAck},
-                              {ts, emqttd_vm:timestamp()}]),
+                              {ts, emqttd_util:now_to_secs()}]),
     Message = #mqtt_message{from    = presence,
                             qos     = proplists:get_value(qos, Opts, 0),
                             topic   = topic(connected, ClientId),
@@ -61,7 +61,7 @@ client_connected(ConnAck, #mqtt_client{clientid   = ClientId,
     emqttd_pubsub:publish(Message).
 
 client_disconnected(Reason, ClientId, Opts) ->
-    Json = mochijson2:encode([{reason, reason(Reason)}, {ts, emqttd_vm:timestamp()}]),
+    Json = mochijson2:encode([{reason, reason(Reason)}, {ts, emqttd_util:now_to_secs()}]),
     emqttd_pubsub:publish(#mqtt_message{from = presence,
                                         qos  = proplists:get_value(qos, Opts, 0),
                                         topic   = topic(disconnected, ClientId),
@@ -70,7 +70,6 @@ client_disconnected(Reason, ClientId, Opts) ->
 unload(_Opts) ->
     emqttd_broker:unhook(client_connected, {?MODULE, client_connected}),
     emqttd_broker:unhook(client_disconnected, {?MODULE, client_disconnected}).
-
 
 topic(connected, ClientId) ->
     emqttd_topic:systop(list_to_binary(["clients/", ClientId, "/connected"]));
