@@ -30,7 +30,8 @@
 
 -export([apply_module_attributes/1,
          all_module_attributes/1,
-         cancel_timer/1]).
+         cancel_timer/1,
+         now_to_secs/0, now_to_secs/1]).
 
 -export([integer_to_binary/1]).
 
@@ -90,4 +91,9 @@ cancel_timer(Ref) ->
 integer_to_binary(I) when is_integer(I) ->
     list_to_binary(integer_to_list(I)).
 
+now_to_secs() ->
+    now_to_secs(os:timestamp()).
+
+now_to_secs({MegaSecs, Secs, _MicroSecs}) ->
+    MegaSecs * 1000000 + Secs.
 
