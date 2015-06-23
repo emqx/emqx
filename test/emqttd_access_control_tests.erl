@@ -98,8 +98,8 @@ with_acl(Fun) ->
             {internal,  [{file, "../test/test_acl.config"}, {nomatch, allow}]}
         ]}
     ],
-    application:set_env(emqttd, access, AclOpts),
-    emqttd_access_control:start_link(),
+    %application:set_env(emqttd, access, AclOpts),
+    emqttd_access_control:start_link(AclOpts),
     Fun(),
     emqttd_access_control:stop().
 
