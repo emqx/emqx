@@ -323,6 +323,8 @@ handle_cast({resume, ClientId, ClientPid}, Session) ->
 
     kick(ClientId, ClientPid, OldClientPid),
 
+    true = link(ClientPid),
+
     %% Redeliver PUBREL
     [ClientPid ! {redeliver, {?PUBREL, MsgId}} || MsgId <- maps:keys(AwaitingComp)],
 
@@ -479,12 +481,12 @@ handle_info({'EXIT', ClientPid, _Reason}, Session = #session{clean_sess = true,
     {stop, normal, Session};
 
 handle_info({'EXIT', ClientPid, Reason}, Session = #session{clean_sess = false,
-                                                            clientid = ClientId,
+                                                            clientid   = ClientId,
                                                             client_pid = ClientPid,
                                                             expired_after = Expires}) ->
     lager:info("Session ~s unlink with client ~p: reason=~p", [ClientId, ClientPid, Reason]),
     TRef = timer(Expires, session_expired),
-    {noreply, Session#session{expired_timer = TRef}, hibernate};
+    {noreply, Session#session{client_pid = undefined, expired_timer = TRef}, hibernate};
 
 handle_info({'EXIT', Pid, _Reason}, Session = #session{clientid = ClientId,
                                                      client_pid = ClientPid}) ->
