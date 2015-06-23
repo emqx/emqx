@@ -222,7 +222,7 @@ init([CleanSess, ClientId, ClientPid]) ->
             subscriptions     = [],
             inflight_queue    = [],
             max_inflight      = emqttd_opts:g(max_inflight, SessEnv, 0),
-            message_queue     = emqttd_mqueue:new(ClientId, QEnv),
+            message_queue     = emqttd_mqueue:new(ClientId, QEnv, emqttd_alarm:alarm_fun()),
             awaiting_rel      = #{},
             awaiting_ack      = #{},
             awaiting_comp     = #{},

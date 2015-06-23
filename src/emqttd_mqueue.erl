@@ -55,7 +55,7 @@
 -include("emqttd.hrl").
 -include("emqttd_protocol.hrl").
 
--export([new/2, name/1,
+-export([new/3, name/1,
          is_empty/1, is_full/1,
          len/1, in/2, out/1]).
 
@@ -64,18 +64,17 @@
 -define(HIGH_WM, 0.6).
 
 -record(mqueue, {name,
-                 q        = queue:new(), %% pending queue
-                 len      = 0,           %% current queue len
-                 low_wm   = ?LOW_WM,
-                 high_wm  = ?HIGH_WM,
-                 max_len  = ?MAX_LEN,
-                 qos0     = false,
-                 alarm    = false}).
+                 q          = queue:new(), %% pending queue
+                 len        = 0,           %% current queue len
+                 low_wm     = ?LOW_WM,
+                 high_wm    = ?HIGH_WM,
+                 max_len    = ?MAX_LEN,
+                 qos0       = false,
+                 alarm_fun}).
 
 -type mqueue() :: #mqueue{}.
 
 -type mqueue_option() :: {max_length, pos_integer()}      %% Max queue length
-                       | {inflight_window, pos_integer()} %% Inflight Window
                        | {low_watermark, float()}         %% Low watermark
                        | {high_watermark, float()}        %% High watermark
                        | {queue_qos0, boolean()}.         %% Queue Qos0
@@ -86,14 +85,15 @@
 %% @doc New Queue.
 %% @end
 %%------------------------------------------------------------------------------
--spec new(binary(), list(mqueue_option())) -> mqueue().
-new(Name, Opts) ->
+-spec new(binary(), list(mqueue_option()), fun()) -> mqueue().
+new(Name, Opts, AlarmFun) ->
     MaxLen = emqttd_opts:g(max_length, Opts, 1000),
     #mqueue{name     = Name,
             max_len  = MaxLen,
             low_wm   = round(MaxLen * emqttd_opts:g(low_watermark, Opts, ?LOW_WM)),
             high_wm  = round(MaxLen * emqttd_opts:g(high_watermark, Opts, ?HIGH_WM)),
-            qos0     = emqttd_opts:g(queue_qos0, Opts, true)}.
+            qos0     = emqttd_opts:g(queue_qos0, Opts, true),
+            alarm_fun = AlarmFun}.
 
 name(#mqueue{name = Name}) ->
     Name.
@@ -135,18 +135,21 @@ out(MQ = #mqueue{q = Q, len = Len}) ->
     {Result, Q2} = queue:out(Q),
     {Result, maybe_clear_alarm(MQ#mqueue{q = Q2, len = Len - 1})}.
 
-maybe_set_alarm(MQ = #mqueue{name = Name, len = Len, high_wm = HighWM, alarm = false})
-    when Len >= HighWM ->
-    AlarmDescr = io_lib:format("len ~p > high_watermark ~p", [Len, HighWM]),
-    emqttd_alarm:set_alarm({{queue_high_watermark, Name}, AlarmDescr}),
-    MQ#mqueue{alarm = true};
+maybe_set_alarm(MQ = #mqueue{name = Name, len = Len, high_wm = HighWM, alarm_fun = AlarmFun})
+    when Len > HighWM ->
+    Alarm = #mqtt_alarm{id = list_to_binary(["queue_high_watermark.", Name]),
+                        severity = warning,
+                        title = io_lib:format("Queue ~s high-water mark", [Name]),
+                        summary = io_lib:format("queue len ~p > high_watermark ~p", [Len, HighWM])},
+    MQ#mqueue{alarm_fun = AlarmFun(alert, Alarm)};
+
 maybe_set_alarm(MQ) ->
     MQ.
 
-maybe_clear_alarm(MQ = #mqueue{name = Name, len = Len, low_wm = LowWM, alarm = true})
-    when Len =< LowWM ->
-    emqttd_alarm:clear_alarm({queue_high_watermark, Name}),
-    MQ#mqueue{alarm = false};
+maybe_clear_alarm(MQ = #mqueue{name = Name, len = Len, low_wm = LowWM, alarm_fun = AlarmFun})
+    when Len < LowWM ->
+    MQ#mqueue{alarm_fun = AlarmFun(clear, list_to_binary(["queue_high_watermark.", Name]))};
+
 maybe_clear_alarm(MQ) ->
     MQ.
 

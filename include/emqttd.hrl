@@ -111,14 +111,15 @@
 -type mqtt_msgid() :: undefined | 1..16#ffff.
 
 -record(mqtt_message, {
-    topic           :: binary(),          %% The topic published to
+    topic           :: binary(),          %% Topic that the message is published to
     from            :: binary() | atom(), %% ClientId of publisher
     qos    = 0      :: 0 | 1 | 2,         %% Message QoS
     retain = false  :: boolean(),         %% Retain flag
     dup    = false  :: boolean(),         %% Dup flag
     sys    = false  :: boolean(),         %% $SYS flag
     msgid           :: mqtt_msgid(),      %% Message ID
-    payload         :: binary()           %% Payload
+    payload         :: binary(),          %% Payload
+    timestamp       :: erlang:timestamp() %% Timestamp
 }).
 
 -type mqtt_message() :: #mqtt_message{}.
@@ -135,4 +136,16 @@
 
 -type mqtt_plugin() :: #mqtt_plugin{}.
 
+%%------------------------------------------------------------------------------
+%% MQTT Alarm
+%%------------------------------------------------------------------------------
+-record(mqtt_alarm, {
+    id          :: binary(),
+    severity    :: warning | error | critical,
+    title       :: binary(),
+    summary     :: binary(),
+    timestamp   :: erlang:timestamp() %% Timestamp
+}).
+
+-type mqtt_alarm() :: #mqtt_alarm{}.
 
