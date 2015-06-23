@@ -48,7 +48,8 @@ client_connected(ConnAck, #mqtt_client{clientid   = ClientId,
         true -> false;
         false -> true
     end,
-    Json = mochijson2:encode([{username, Username},
+    Json = mochijson2:encode([{clientid, ClientId},
+                              {username, Username},
                               {ipaddress, list_to_binary(emqttd_net:ntoa(IpAddress))},
                               {session, Sess},
                               {protocol, ProtoVer},
@@ -61,7 +62,9 @@ client_connected(ConnAck, #mqtt_client{clientid   = ClientId,
     emqttd_pubsub:publish(Message).
 
 client_disconnected(Reason, ClientId, Opts) ->
-    Json = mochijson2:encode([{reason, reason(Reason)}, {ts, emqttd_util:now_to_secs()}]),
+    Json = mochijson2:encode([{clientid, ClientId},
+                              {reason, reason(Reason)},
+                              {ts, emqttd_util:now_to_secs()}]),
     emqttd_pubsub:publish(#mqtt_message{from = presence,
                                         qos  = proplists:get_value(qos, Opts, 0),
                                         topic   = topic(disconnected, ClientId),
