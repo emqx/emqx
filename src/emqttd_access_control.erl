@@ -36,6 +36,7 @@
 
 %% API Function Exports
 -export([start_link/0,
+         start_link/1,
          auth/2,       % authentication
          check_acl/3,  % acl check
          reload_acl/0, % reload acl
@@ -60,7 +61,12 @@
 %%------------------------------------------------------------------------------
 -spec start_link() -> {ok, pid()} | ignore | {error, any()}.
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+    {ok, AcOpts} = application:get_env(emqttd, access),
+    start_link(AcOpts).
+
+-spec start_link(AcOpts :: list()) -> {ok, pid()} | ignore | {error, any()}.
+start_link(AcOpts) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [AcOpts], []).
 
 %%------------------------------------------------------------------------------
 %% @doc Authenticate MQTT Client
@@ -151,8 +157,7 @@ stop() ->
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([]) ->
-    {ok, AcOpts} = application:get_env(emqttd, access),
+init([AcOpts]) ->
 	ets:new(?ACCESS_CONTROL_TAB, [set, named_table, protected, {read_concurrency, true}]),
     ets:insert(?ACCESS_CONTROL_TAB, {auth_modules, init_mods(auth, proplists:get_value(auth, AcOpts))}),
     ets:insert(?ACCESS_CONTROL_TAB, {acl_modules, init_mods(acl, proplists:get_value(acl, AcOpts))}),

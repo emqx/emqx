@@ -53,8 +53,8 @@ compile_test() ->
     ?assertEqual({deny, all},  compile({deny, all})).
 
 match_test() ->
-    User = #mqtt_client{ipaddr = {127,0,0,1}, clientid = <<"testClient">>, username = <<"TestUser">>},
-    User2 = #mqtt_client{ipaddr = {192,168,0,10}, clientid = <<"testClient">>, username = <<"TestUser">>},
+    User = #mqtt_client{ipaddress = {127,0,0,1}, clientid = <<"testClient">>, username = <<"TestUser">>},
+    User2 = #mqtt_client{ipaddress = {192,168,0,10}, clientid = <<"testClient">>, username = <<"TestUser">>},
     
     ?assertEqual({matched, allow}, match(User, <<"Test/Topic">>, {allow, all})),
     ?assertEqual({matched, deny},  match(User, <<"Test/Topic">>, {deny, all})),
