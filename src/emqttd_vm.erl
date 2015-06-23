@@ -107,8 +107,7 @@
 
 
 
--export([loads/0,
-	 get_system_info/0,
+-export([get_system_info/0,
  	% get_statistics/0, 
  	% get_process_info/0,
  	 get_ports_info/0,
