@@ -135,8 +135,8 @@ handle_info({redeliver, {?PUBREL, PacketId}}, #client_state{proto_state = ProtoS
     {ok, ProtoState1} = emqttd_protocol:redeliver({?PUBREL, PacketId}, ProtoState),
     {noreply, State#client_state{proto_state = ProtoState1}};
 
-handle_info({subscribe, Topic, Qos}, #client_state{proto_state = ProtoState} = State) ->
-    {ok, ProtoState1} = emqttd_protocol:handle({subscribe, Topic, Qos}, ProtoState),
+handle_info({subscribe, TopicTable}, #client_state{proto_state = ProtoState} = State) ->
+    {ok, ProtoState1} = emqttd_protocol:handle({subscribe, TopicTable}, ProtoState),
     {noreply, State#client_state{proto_state = ProtoState1}};
 
 handle_info({stop, duplicate_id, _NewPid}, State=#client_state{proto_state = ProtoState}) ->
@@ -145,7 +145,6 @@ handle_info({stop, duplicate_id, _NewPid}, State=#client_state{proto_state = Pro
 
 handle_info({keepalive, start, TimeoutSec}, State = #client_state{request = Req}) ->
     lager:debug("Client(WebSocket) ~s: Start KeepAlive with ~p seconds", [Req:get(peer), TimeoutSec]),
-    %%TODO: fix esockd_transport...
     KeepAlive = emqttd_keepalive:new({esockd_transport, Req:get(socket)},
                                      TimeoutSec, {keepalive, timeout}),
     {noreply, State#client_state{keepalive = KeepAlive}};
