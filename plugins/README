@@ -1,0 +1,9 @@
+
+## Plugin Submodule Folder
+
+emqttd_dashboard for example:
+
+```
+git submodule add https://github.com/emqtt/emqttd_dashboard.git plugins/emqttd_dashboard 
+```
+
