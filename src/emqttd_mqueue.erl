@@ -53,6 +53,7 @@
 -author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
+
 -include("emqttd_protocol.hrl").
 
 -export([new/3, name/1,
@@ -112,10 +113,9 @@ len(#mqueue{len = Len}) -> Len.
 %% @end
 %%------------------------------------------------------------------------------
 
--spec in({newcome | pending, mqtt_message()}, mqueue()) -> mqueue().
-
+-spec in(mqtt_message(), mqueue()) -> mqueue().
 %% drop qos0
-in({_, #mqtt_message{qos = ?QOS_0}}, MQ = #mqueue{qos0 = false}) ->
+in(#mqtt_message{qos = ?QOS_0}, MQ = #mqueue{qos0 = false}) ->
     MQ;
 
 %% simply drop the oldest one if queue is full, improve later
