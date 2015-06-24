@@ -53,7 +53,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {id, statsfun}).
+-record(state, {id, client_statsfun, sess_statsfun}).
 
 -define(SM_POOL, sm_pool).
 
@@ -67,11 +67,12 @@
 %% @doc Start a session manager
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link(Id, StatsFun) -> {ok, pid()} | ignore | {error, any()} when
+-spec start_link(Id, ClientStatsFun, SessStatsFun) -> {ok, pid()} | ignore | {error, any()} when
         Id :: pos_integer(),
-        StatsFun :: fun().
-start_link(Id, StatsFun) ->
-    gen_server:start_link(?MODULE, [Id, StatsFun], []).
+        ClientStatsFun :: fun(),
+        SessStatsFun :: fun().
+start_link(Id, ClientStatsFun, SessStatsFun) ->
+    gen_server:start_link(?MODULE, [Id, ClientStatsFun, SessStatsFun], []).
 
 %%------------------------------------------------------------------------------
 %% @doc Pool name.

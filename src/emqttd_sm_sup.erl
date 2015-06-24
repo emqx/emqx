@@ -46,12 +46,13 @@ init([]) ->
                                 {write_concurrency, true}]),
     Schedulers = erlang:system_info(schedulers),
     gproc_pool:new(emqttd_sm:pool(), hash, [{size, Schedulers}]),
-    StatsFun = emqttd_stats:statsfun('sessions/count', 'sessions/max'),
+    ClientStatsFun = emqttd_stats:statsfun('clients/count', 'clients/max'),
+    SessStatsFun = emqttd_stats:statsfun('sessions/count', 'sessions/max'),
     Children = lists:map(
                  fun(I) ->
                     Name = {emqttd_sm, I},
                     gproc_pool:add_worker(emqttd_sm:pool(), Name, I),
-                    {Name, {emqttd_sm, start_link, [I, StatsFun]},
+                    {Name, {emqttd_sm, start_link, [I, ClientStatsFun, SessStatsFun]},
                                 permanent, 10000, worker, [emqttd_sm]}
                  end, lists:seq(1, Schedulers)),
     {ok, {{one_for_all, 10, 100}, Children}}.

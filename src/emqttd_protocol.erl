@@ -63,11 +63,10 @@
 %%------------------------------------------------------------------------------
 init(Peername, SendFun, Opts) ->
     MaxLen = proplists:get_value(max_clientid_len, Opts, ?MAX_CLIENTID_LEN),
-	#proto_state{
-        peername         = Peername,
-        sendfun          = SendFun,
-        max_clientid_len = MaxLen,
-        client_pid       = self()}. 
+	#proto_state{peername         = Peername,
+                 sendfun          = SendFun,
+                 max_clientid_len = MaxLen,
+                 client_pid       = self()}.
 
 info(#proto_state{proto_ver    = ProtoVer,
                   proto_name   = ProtoName,
@@ -145,9 +144,6 @@ handle(Packet = ?CONNECT_PACKET(Var), State0 = #proto_state{peername = Peername}
                     %% Generate clientId if null
                     State2 = State1#proto_state{clientid = clientid(ClientId, State1)},
 
-                    %% Register the client to cm
-                    emqttd_cm:register(client(State2)),
-
                     %%Starting session
                     {ok, Session} = emqttd_sm:start_session(CleanSess, clientid(State2)),
 
@@ -166,7 +162,7 @@ handle(Packet = ?CONNECT_PACKET(Var), State0 = #proto_state{peername = Peername}
             {ReturnCode, State1}
     end,
     %% Run hooks
-    emqttd_broker:foreach_hooks(client_connected, [ReturnCode1, client(State3)]),
+    emqttd_broker:foreach_hooks('client.connected', [ReturnCode1, client(State3)]),
     %% Send connack
     send(?CONNACK_PACKET(ReturnCode1), State3);
 
@@ -293,8 +289,7 @@ shutdown(Error, #proto_state{peername = Peername, clientid = ClientId, will_msg 
 	lager:info([{client, ClientId}], "Client ~s@~s: shutdown ~p",
                    [ClientId, emqttd_net:format(Peername), Error]),
     send_willmsg(ClientId, WillMsg),
-    try_unregister(ClientId),
-    emqttd_broker:foreach_hooks(client_disconnected, [Error, ClientId]).
+    emqttd_broker:foreach_hooks('client.disconnected', [Error, ClientId]).
 
 willmsg(Packet) when is_record(Packet, mqtt_packet_connect) ->
     emqttd_message:from_packet(Packet).
@@ -386,9 +381,6 @@ validate_topics(Type, Topics) when Type =:= name orelse Type =:= filter ->
 validate_qos(undefined) -> true;
 validate_qos(Qos) when Qos =< ?QOS_2 -> true;
 validate_qos(_) -> false.
-
-try_unregister(undefined) -> ok;
-try_unregister(ClientId)  -> emqttd_cm:unregister(ClientId).
 
 %% publish ACL is cached in process dictionary.
 check_acl(publish, Topic, State) ->
