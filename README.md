@@ -37,6 +37,16 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 * Passed eclipse paho interoperability tests
 
 
+## Plugins
+
+* [emqttd_auth_clientid](https://github.com/emqtt/emqttd/wiki/Authentication) - Authentication with ClientIds
+* emqttd_auth_mysql - Authentication with MySQL
+* emqttd_auth_ldap - Authentication with LDAP
+* emqttd_mod_autosub - Subscribe some topics automatically when client connected
+* [emqttd_mod_presence](https://github.com/emqtt/emqttd/wiki/Presence) - Publish presence message to $SYS topics when client connected or disconnected
+* [emqttd_mod_rewrite](https://github.com/emqtt/emqttd/wiki/Rewrite) - Topics rewrite like HTTP rewrite module
+
+
 ## Design
 
 ![emqttd architecture](http://emqtt.io/static/img/Architecture.png)
@@ -92,12 +102,12 @@ The MIT License (MIT)
 
 ## Contributors
 
-[@hejin1026](https://github.com/hejin1026)
-[@desoulter](https://github.com/desoulter)
-[@turtleDeng](https://github.com/turtleDeng)
-[@Hades32](https://github.com/Hades32)
-[@huangdan](https://github.com/huangdan)
-
+* [@callbay](https://github.com/callbay)
+* [@hejin1026](https://github.com/hejin1026)
+* [@desoulter](https://github.com/desoulter)
+* [@turtleDeng](https://github.com/turtleDeng)
+* [@Hades32](https://github.com/Hades32)
+* [@huangdan](https://github.com/huangdan)
 
 
 ## Author

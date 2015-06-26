@@ -1,0 +1,12 @@
+{application, emqttd,
+ [
+  {description, "Erlang MQTT Broker"},
+  {vsn, git},
+  {modules, []},
+  {registered, []},
+  {applications, [kernel,
+                  stdlib]},
+  {mod, {emqttd_app, []}},
+  {env, []}
+ ]}.
+
