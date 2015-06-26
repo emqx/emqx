@@ -127,19 +127,19 @@ handle_cast({received, Packet}, State = #client_state{proto_state = ProtoState})
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({deliver, Message}, #client_state{proto_state = ProtoState} = State) ->
+handle_info({deliver, Message}, State = #client_state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:send(Message, ProtoState),
     {noreply, State#client_state{proto_state = ProtoState1}};
 
-handle_info({redeliver, {?PUBREL, PacketId}}, #client_state{proto_state = ProtoState} = State) ->
+handle_info({redeliver, {?PUBREL, PacketId}}, State = #client_state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:redeliver({?PUBREL, PacketId}, ProtoState),
     {noreply, State#client_state{proto_state = ProtoState1}};
 
-handle_info({subscribe, TopicTable}, #client_state{proto_state = ProtoState} = State) ->
+handle_info({subscribe, TopicTable}, State = #client_state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:handle({subscribe, TopicTable}, ProtoState),
     {noreply, State#client_state{proto_state = ProtoState1}};
 
-handle_info({stop, duplicate_id, _NewPid}, State=#client_state{proto_state = ProtoState}) ->
+handle_info({stop, duplicate_id, _NewPid}, State = #client_state{proto_state = ProtoState}) ->
     lager:error("Shutdown for duplicate clientid: ~s", [emqttd_protocol:clientid(ProtoState)]), 
     stop({shutdown, duplicate_id}, State);
 
