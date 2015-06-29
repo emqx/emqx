@@ -106,15 +106,15 @@ handle_info({stop, duplicate_id, _NewPid}, State=#state{proto_state = ProtoState
                 [emqttd_protocol:clientid(ProtoState), ConnName]), 
     stop({shutdown, duplicate_id}, State);
 
-handle_info({deliver, Message}, #state{proto_state = ProtoState} = State) ->
+handle_info({deliver, Message}, State = #state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:send(Message, ProtoState),
     {noreply, State#state{proto_state = ProtoState1}};
 
-handle_info({redeliver, {?PUBREL, PacketId}}, #state{proto_state = ProtoState} = State) ->
+handle_info({redeliver, {?PUBREL, PacketId}},  State = #state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:redeliver({?PUBREL, PacketId}, ProtoState),
     {noreply, State#state{proto_state = ProtoState1}};
 
-handle_info({subscribe, TopicTable}, #state{proto_state = ProtoState} = State) ->
+handle_info({subscribe, TopicTable}, State = #state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:handle({subscribe, TopicTable}, ProtoState),
     {noreply, State#state{proto_state = ProtoState1}};
 
