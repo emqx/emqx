@@ -97,7 +97,7 @@ check_acl(Client, PubSub, Topic) when PubSub =:= publish orelse PubSub =:= subsc
         [] -> allow;
         AclMods -> check_acl(Client, PubSub, Topic, AclMods)
     end.
-check_acl(#mqtt_client{clientid = ClientId}, PubSub, Topic, []) ->
+check_acl(#mqtt_client{client_id = ClientId}, PubSub, Topic, []) ->
     lager:error("ACL: nomatch when ~s ~s ~s", [ClientId, PubSub, Topic]),
     allow;
 check_acl(Client, PubSub, Topic, [{M, State}|AclMods]) ->

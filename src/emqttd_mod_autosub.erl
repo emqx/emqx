@@ -45,7 +45,7 @@ load(Opts) ->
                        {?MODULE, client_connected, [Topics]}),
     {ok, #state{topics = Topics}}.
 
-client_connected(?CONNACK_ACCEPT, #mqtt_client{clientid = ClientId, client_pid = ClientPid}, Topics) ->
+client_connected(?CONNACK_ACCEPT, #mqtt_client{client_id = ClientId, client_pid = ClientPid}, Topics) ->
     F = fun(Topic) -> emqttd_topic:feed_var(<<"$c">>, ClientId, Topic) end,
     ClientPid ! {subscribe, [{F(Topic), Qos} || {Topic, Qos} <- Topics]};
 

@@ -39,7 +39,7 @@ load(Opts) ->
     emqttd_broker:hook(client_disconnected, {?MODULE, client_disconnected}, {?MODULE, client_disconnected, [Opts]}),
     {ok, Opts}.
 
-client_connected(ConnAck, #mqtt_client{clientid   = ClientId,
+client_connected(ConnAck, #mqtt_client{client_id  = ClientId,
                                        username   = Username,
                                        ipaddress  = IpAddress,
                                        clean_sess = CleanSess,

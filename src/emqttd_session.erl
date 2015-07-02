@@ -73,7 +73,7 @@
         clean_sess = true,
 
         %% ClientId: Identifier of Session
-        clientid    :: binary(),
+        client_id   :: binary(),
 
         %% Client Pid linked with session
         client_pid  :: pid(),
@@ -133,7 +133,7 @@
 %% @doc Start a session.
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link(boolean(), mqtt_clientid(), pid()) -> {ok, pid()} | {error, any()}.
+-spec start_link(boolean(), mqtt_client_id(), pid()) -> {ok, pid()} | {error, any()}.
 start_link(CleanSess, ClientId, ClientPid) ->
     gen_server:start_link(?MODULE, [CleanSess, ClientId, ClientPid], []).
 
@@ -141,7 +141,7 @@ start_link(CleanSess, ClientId, ClientPid) ->
 %% @doc Resume a session.
 %% @end
 %%------------------------------------------------------------------------------
--spec resume(pid(), mqtt_clientid(), pid()) -> ok.
+-spec resume(pid(), mqtt_client_id(), pid()) -> ok.
 resume(Session, ClientId, ClientPid) ->
     gen_server:cast(Session, {resume, ClientId, ClientPid}).
 
@@ -149,7 +149,7 @@ resume(Session, ClientId, ClientPid) ->
 %% @doc Destroy a session.
 %% @end
 %%------------------------------------------------------------------------------
--spec destroy(pid(), mqtt_clientid()) -> ok.
+-spec destroy(pid(), mqtt_client_id()) -> ok.
 destroy(Session, ClientId) ->
     gen_server:call(Session, {destroy, ClientId}).
 
@@ -217,7 +217,7 @@ init([CleanSess, ClientId, ClientPid]) ->
     SessEnv = emqttd:env(mqtt, session),
     Session = #session{
             clean_sess        = CleanSess,
-            clientid          = ClientId,
+            client_id         = ClientId,
             client_pid        = ClientPid,
             subscriptions     = [],
             inflight_queue    = [],
@@ -234,7 +234,7 @@ init([CleanSess, ClientId, ClientPid]) ->
             timestamp         = os:timestamp()},
     {ok, Session, hibernate}.
 
-handle_call({subscribe, Topics}, _From, Session = #session{clientid = ClientId,
+handle_call({subscribe, Topics}, _From, Session = #session{client_id = ClientId,
                                                            subscriptions = Subscriptions}) ->
 
     %% subscribe first and don't care if the subscriptions have been existed
@@ -264,7 +264,7 @@ handle_call({subscribe, Topics}, _From, Session = #session{clientid = ClientId,
                 end, Subscriptions, Topics),
     {reply, {ok, GrantedQos}, Session#session{subscriptions = Subscriptions1}};
 
-handle_call({unsubscribe, Topics}, _From, Session = #session{clientid = ClientId,
+handle_call({unsubscribe, Topics}, _From, Session = #session{client_id = ClientId,
                                                              subscriptions = Subscriptions}) ->
 
     %% unsubscribe from topic tree
@@ -285,7 +285,7 @@ handle_call({unsubscribe, Topics}, _From, Session = #session{clientid = ClientId
     {reply, ok, Session#session{subscriptions = Subscriptions1}};
 
 handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, msgid = MsgId}}, _From, 
-            Session = #session{clientid = ClientId,
+            Session = #session{client_id = ClientId,
                                awaiting_rel = AwaitingRel,
                                await_rel_timeout = Timeout}) ->
     case check_awaiting_rel(Session) of
@@ -294,12 +294,12 @@ handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, msgid = MsgId}}, _From,
             AwaitingRel1 = maps:put(MsgId, {Msg, TRef}, AwaitingRel),
             {reply, ok, Session#session{awaiting_rel = AwaitingRel1}};
         false ->
-            lager:critical([{clientid, ClientId}], "Session ~s dropped Qos2 message "
+            lager:critical([{client, ClientId}], "Session ~s dropped Qos2 message "
                                 "for too many awaiting_rel: ~p", [ClientId, Msg]),
             {reply, {error, dropped}, Session}
     end;
 
-handle_call({destroy, ClientId}, _From, Session = #session{clientid = ClientId}) ->
+handle_call({destroy, ClientId}, _From, Session = #session{client_id = ClientId}) ->
     lager:warning("Session ~s destroyed", [ClientId]),
     {stop, {shutdown, destroy}, ok, Session};
 
@@ -309,7 +309,7 @@ handle_call(Req, _From, State) ->
 
 handle_cast({resume, ClientId, ClientPid}, Session) ->
 
-    #session{clientid       = ClientId,
+    #session{client_id       = ClientId,
              client_pid     = OldClientPid,
              inflight_queue = InflightQ,
              awaiting_ack   = AwaitingAck,
@@ -349,7 +349,7 @@ handle_cast({resume, ClientId, ClientPid}, Session) ->
     {noreply, dequeue(Session2), hibernate};
 
 %% PUBRAC
-handle_cast({puback, MsgId}, Session = #session{clientid = ClientId, awaiting_ack = Awaiting}) ->
+handle_cast({puback, MsgId}, Session = #session{client_id = ClientId, awaiting_ack = Awaiting}) ->
     case maps:find(MsgId, Awaiting) of
         {ok, {_, TRef}} ->
             cancel_timer(TRef),
@@ -361,7 +361,7 @@ handle_cast({puback, MsgId}, Session = #session{clientid = ClientId, awaiting_ac
     end;
 
 %% PUBREC
-handle_cast({pubrec, MsgId}, Session = #session{clientid = ClientId,
+handle_cast({pubrec, MsgId}, Session = #session{client_id = ClientId,
                                                 awaiting_ack = AwaitingAck,
                                                 awaiting_comp = AwaitingComp,
                                                 await_rel_timeout = Timeout}) ->
@@ -377,7 +377,7 @@ handle_cast({pubrec, MsgId}, Session = #session{clientid = ClientId,
     end;
 
 %% PUBREL
-handle_cast({pubrel, MsgId}, Session = #session{clientid = ClientId,
+handle_cast({pubrel, MsgId}, Session = #session{client_id = ClientId,
                                                 awaiting_rel = AwaitingRel}) ->
     case maps:find(MsgId, AwaitingRel) of
         {ok, {Msg, TRef}} ->
@@ -390,7 +390,7 @@ handle_cast({pubrel, MsgId}, Session = #session{clientid = ClientId,
     end;
 
 %% PUBCOMP
-handle_cast({pubcomp, MsgId}, Session = #session{clientid = ClientId, awaiting_comp = AwaitingComp}) ->
+handle_cast({pubcomp, MsgId}, Session = #session{client_id = ClientId, awaiting_comp = AwaitingComp}) ->
     case maps:find(MsgId, AwaitingComp) of
         {ok, TRef} ->
             cancel_timer(TRef),
@@ -417,7 +417,7 @@ handle_info({dispatch, Msg = #mqtt_message{qos = ?QOS_0}},
     {noreply, Session};
 
 handle_info({dispatch, Msg = #mqtt_message{qos = QoS}},
-            Session = #session{clientid = ClientId, message_queue  = MsgQ})
+            Session = #session{client_id = ClientId, message_queue  = MsgQ})
     when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
 
     case check_inflight(Session) of
@@ -433,7 +433,7 @@ handle_info({timeout, awaiting_ack, MsgId}, Session = #session{client_pid = unde
     %% just remove awaiting
     {noreply, Session#session{awaiting_ack = maps:remove(MsgId, AwaitingAck)}};
 
-handle_info({timeout, awaiting_ack, MsgId}, Session = #session{clientid = ClientId,
+handle_info({timeout, awaiting_ack, MsgId}, Session = #session{client_id = ClientId,
                                                                inflight_queue = InflightQ,
                                                                awaiting_ack = AwaitingAck}) ->
     case maps:find(MsgId, AwaitingAck) of
@@ -451,7 +451,7 @@ handle_info({timeout, awaiting_ack, MsgId}, Session = #session{clientid = Client
             {noreply, Session}
     end;
 
-handle_info({timeout, awaiting_rel, MsgId}, Session = #session{clientid = ClientId,
+handle_info({timeout, awaiting_rel, MsgId}, Session = #session{client_id = ClientId,
                                                                awaiting_rel = AwaitingRel}) ->
     case maps:find(MsgId, AwaitingRel) of
         {ok, {Msg, _TRef}} ->
@@ -463,7 +463,7 @@ handle_info({timeout, awaiting_rel, MsgId}, Session = #session{clientid = Client
             {noreply, Session}
     end;
 
-handle_info({timeout, awaiting_comp, MsgId}, Session = #session{clientid = ClientId,
+handle_info({timeout, awaiting_comp, MsgId}, Session = #session{client_id = ClientId,
                                                                 awaiting_comp = Awaiting}) ->
     case maps:find(MsgId, Awaiting) of
         {ok, _TRef} ->
@@ -481,25 +481,25 @@ handle_info({'EXIT', ClientPid, _Reason}, Session = #session{clean_sess = true,
     {stop, normal, Session};
 
 handle_info({'EXIT', ClientPid, Reason}, Session = #session{clean_sess = false,
-                                                            clientid   = ClientId,
+                                                            client_id   = ClientId,
                                                             client_pid = ClientPid,
                                                             expired_after = Expires}) ->
     lager:info("Session ~s unlink with client ~p: reason=~p", [ClientId, ClientPid, Reason]),
     TRef = timer(Expires, session_expired),
     {noreply, Session#session{client_pid = undefined, expired_timer = TRef}, hibernate};
 
-handle_info({'EXIT', Pid, _Reason}, Session = #session{clientid = ClientId,
+handle_info({'EXIT', Pid, _Reason}, Session = #session{client_id = ClientId,
                                                      client_pid = ClientPid}) ->
                                                             
     lager:error("Session ~s received unexpected EXIT:"
                     " client_pid=~p, exit_pid=~p", [ClientId, ClientPid, Pid]),
     {noreply, Session};
 
-handle_info(session_expired, Session = #session{clientid = ClientId}) ->
+handle_info(session_expired, Session = #session{client_id = ClientId}) ->
     lager:error("Session ~s expired, shutdown now!", [ClientId]),
     {stop, {shutdown, expired}, Session};
 
-handle_info(Info, Session = #session{clientid = ClientId}) ->
+handle_info(Info, Session = #session{client_id = ClientId}) ->
     lager:critical("Session ~s received unexpected info: ~p", [ClientId, Info]),
     {noreply, Session}.
 

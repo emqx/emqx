@@ -110,7 +110,7 @@ match_who(_Client, {user, all}) ->
     true;
 match_who(_Client, {client, all}) ->
     true;
-match_who(#mqtt_client{clientid = ClientId}, {client, ClientId}) ->
+match_who(#mqtt_client{client_id = ClientId}, {client, ClientId}) ->
     true;
 match_who(#mqtt_client{username = Username}, {user, Username}) ->
     true;
@@ -145,9 +145,9 @@ feed_var(Client, Pattern) ->
     feed_var(Client, Pattern, []).
 feed_var(_Client, [], Acc) ->
     lists:reverse(Acc);
-feed_var(Client = #mqtt_client{clientid = undefined}, [<<"$c">>|Words], Acc) ->
+feed_var(Client = #mqtt_client{client_id = undefined}, [<<"$c">>|Words], Acc) ->
     feed_var(Client, Words, [<<"$c">>|Acc]);
-feed_var(Client = #mqtt_client{clientid = ClientId}, [<<"$c">>|Words], Acc) ->
+feed_var(Client = #mqtt_client{client_id = ClientId}, [<<"$c">>|Words], Acc) ->
     feed_var(Client, Words, [ClientId |Acc]);
 feed_var(Client = #mqtt_client{username = undefined}, [<<"$u">>|Words], Acc) ->
     feed_var(Client, Words, [<<"$u">>|Acc]);

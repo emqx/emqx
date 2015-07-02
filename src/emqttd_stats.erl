@@ -124,6 +124,7 @@ setstat(Stat, Val) ->
 
 %%------------------------------------------------------------------------------
 %% @doc Set stats with max
+%% TODO: this is wrong...
 %% @end
 %%------------------------------------------------------------------------------
 -spec setstats(Stat :: atom(), MaxStat :: atom(), Val :: pos_integer()) -> boolean().
