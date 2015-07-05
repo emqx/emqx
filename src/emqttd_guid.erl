@@ -68,11 +68,11 @@ ts() ->
         true -> %% R18
             erlang:system_time(micro_seconds);
         false ->
-            {MegaSeconds, Seconds, MicroSeconds} = erlang:now(),
+            {MegaSeconds, Seconds, MicroSeconds} = os:timestamp(),
             (MegaSeconds * 1000000 + Seconds) * 1000000 + MicroSeconds
     end.
 
-%% code copied from https://github.com/okeuday/uuid.git.
+%% Copied from https://github.com/okeuday/uuid.git.
 npid() ->
     <<NodeD01, NodeD02, NodeD03, NodeD04, NodeD05,
       NodeD06, NodeD07, NodeD08, NodeD09, NodeD10,
