@@ -107,10 +107,12 @@
 %%------------------------------------------------------------------------------
 %% MQTT Message
 %%------------------------------------------------------------------------------
--type mqtt_msgid() :: binary().
+-type mqtt_msgid() :: binary() | undefined.
+-type mqtt_pktid() :: 1..16#ffff | undefined.
 
 -record(mqtt_message, {
     msgid           :: mqtt_msgid(),      %% Unique Message ID
+    pktid           :: 1..16#ffff,        %% PacketId
     topic           :: binary(),          %% Topic that the message is published to
     from            :: binary() | atom(), %% ClientId of publisher
     qos    = 0      :: 0 | 1 | 2,         %% Message QoS
@@ -118,7 +120,7 @@
     dup    = false  :: boolean(),         %% Dup flag
     sys    = false  :: boolean(),         %% $SYS flag
     payload         :: binary(),          %% Payload
-    timestamp       :: erlang:timestamp() %% Timestamp
+    timestamp       :: erlang:timestamp() %% os:timestamp
 }).
 
 -type mqtt_message() :: #mqtt_message{}.
