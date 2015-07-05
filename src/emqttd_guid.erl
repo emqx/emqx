@@ -31,7 +31,7 @@
 %%% 1. Timestamp: erlang:system_time if Erlang >= R18, otherwise os:timestamp
 %%% 2. NodeId:    encode node() to 2 bytes integer
 %%% 3. Pid:       encode pid to 4 bytes integer
-%%% 4. Sequence:  2 bytes sequence no per pid
+%%% 4. Sequence:  2 bytes sequence per pid
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
@@ -44,6 +44,10 @@
 
 -type guid() :: <<_:128>>.
 
+%%------------------------------------------------------------------------------
+%% @doc Generate a global unique id.
+%% @end
+%%------------------------------------------------------------------------------
 -spec gen() -> guid().
 gen() ->
     Guid = case get(guid) of
