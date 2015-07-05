@@ -193,5 +193,5 @@ new_session(CleanSess, ClientId, ClientPid) ->
 
 setstats(State = #state{statsfun = {CFun, SFun}}) ->
     CFun(ets:info(?SESSION_TAB, size)),
-    SFun(ets:select_count(?SESSION_TAB,  [{{true, '_', '_', '_'}, [], [true]}])),
+    SFun(ets:select_count(?SESSION_TAB,  [{{false, '_', '_', '_'}, [], [true]}])),
     State.
