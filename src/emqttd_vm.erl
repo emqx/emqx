@@ -27,6 +27,27 @@
 
 -module(emqttd_vm).
 
+-export([microsecs/0]).
+
+-export([loads/0, scheduler_usage/1]).
+
+-export([get_memory/0]).
+
+-export([get_process_list/0,
+         get_process_info/0,
+         get_process_gc/0,
+         get_process_group_leader_info/1]).
+	
+-export([get_ets_list/0,
+         get_ets_info/0,
+         get_ets_info/1,
+         get_ets_object/0,
+         get_ets_object/1]).
+
+-export([get_port_types/0,
+         get_port_info/0,
+         get_port_info/1]).
+
 -define(UTIL_ALLOCATORS, [temp_alloc,
                           eheap_alloc,
                           binary_alloc,
@@ -39,41 +60,36 @@
                          ]).
 
 -define(PROCESS_LIST, [initial_call,
-		       reductions,
-		       memory, 
-		       message_queue_len, 
-		       current_function]).
+                       reductions,
+                       memory,
+                       message_queue_len,
+                       current_function]).
 
--define(PROCESS_INFO, [initial_call, 
-		       current_function,
-		       registered_name,
-		       status,
-		       message_queue_len,
-		       group_leader,
-		       priority,
-		       trap_exit,
-		       reductions,
-		       binary,
-		       last_calls,
-		       catchlevel,
-		       trace,
-		       suspending,
-		       sequential_trace_token,
-		       error_handler]).
+-define(PROCESS_INFO, [initial_call,
+                       current_function,
+                       registered_name,
+                       status,
+                       message_queue_len,
+                       group_leader,
+                       priority,
+                       trap_exit,
+                       reductions,
+                       binary,
+                       last_calls,
+                       catchlevel,
+                       trace,
+                       suspending,
+                       sequential_trace_token,
+                       error_handler]).
 
 -define(PROCESS_GC, [memory,
-		     total_heap_size,
-		     heap_size,
-		     stack_size,
-		     min_heap_size]).%,
-		     %fullsweep_after]).
+                     total_heap_size,
+                     heap_size,
+                     stack_size,
+                     min_heap_size]).
+                     %fullsweep_after]).
 
--export([timestamp/0, microsecs/0]).
-
--export([loads/0]).
-
--define(SYSTEM_INFO, [
-                      allocated_areas,
+-define(SYSTEM_INFO, [allocated_areas,
                       allocator,
                       alloc_util_allocators,
                       build_type,
@@ -123,64 +139,30 @@
                       wordsize
                   ]).
 
--define(SOCKET_OPTS, [
-                      active,
+-define(SOCKET_OPTS, [active,
                       broadcast,
-		      buffer,
-		      buffer,
-		      buffer,
-		      buffer,
+                      buffer,
                       delay_send,
                       dontroute,
                       exit_on_close,
                       header,
-		      high_watermark,
-		      ipv6_v6only,
+                      high_watermark,
+                      ipv6_v6only,
                       keepalive,
-		      linger,
-		      low_watermark,
-		      mode,
+                      linger,
+                      low_watermark,
+                      mode,
                       nodelay,
                       packet,
                       packet_size,
-		      priority,
+                      priority,
                       read_packets,
                       recbuf,
                       reuseaddr,
                       send_timeout,
                       send_timeout_close,
                       sndbuf,
-                      tos
-                     ]).
-
-
--author("Feng Lee <feng@emqtt.io>").
-
--export([timestamp/0, microsecs/0]).
-
--export([loads/0,
-	scheduler_usage/1]).
-
--export([get_memory/0]).
-
--export([get_process_list/0,
- 	 get_process_info/0,
- 	 get_process_gc/0,
- 	 get_process_group_leader_info/1]).
-	
--export([get_ets_list/0,
- 	 get_ets_info/0,
-	 get_ets_info/1,
- 	 get_ets_object/0,
-	 get_ets_object/1]).
-
--export([get_port_types/0,
-	 get_port_info/0,
- 	 get_port_info/1]).
-
-timestamp() ->
-    {MegaSecs, Secs, _MicroSecs} = os:timestamp(),
-    MegaSecs * 1000000 + Secs.
+                      tos]).
 
 microsecs() ->
     {Mega, Sec, Micro} = erlang:now(),
