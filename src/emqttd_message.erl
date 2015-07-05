@@ -32,11 +32,38 @@
 
 -include("emqttd_protocol.hrl").
 
--export([from_packet/1, from_packet/2, to_packet/1]).
+-export([make/3, make/4, from_packet/1, from_packet/2, to_packet/1]).
 
 -export([set_flag/1, set_flag/2, unset_flag/1, unset_flag/2]).
 
 -export([format/1]).
+
+%%------------------------------------------------------------------------------
+%% @doc Make a message
+%% @end
+%%------------------------------------------------------------------------------
+-spec make(From, Topic, Payload) -> mqtt_message() when
+    From    :: atom() | binary(),
+    Topic   :: binary(),
+    Payload :: binary().
+make(From, Topic, Payload) ->
+    #mqtt_message{topic     = Topic,
+                  from      = From,
+                  payload   = Payload,
+                  timestamp = os:timestamp()}.
+
+-spec make(From, Qos, Topic, Payload) -> mqtt_message() when
+    From    :: atom() | binary(),
+    Qos     :: mqtt_qos(),
+    Topic   :: binary(),
+    Payload :: binary().
+make(From, Qos, Topic, Payload) ->
+    #mqtt_message{msgid     = msgid(Qos),
+                  topic     = Topic,
+                  from      = From,
+                  qos       = Qos,
+                  payload   = Payload,
+                  timestamp = os:timestamp()}.
 
 %%------------------------------------------------------------------------------
 %% @doc Message from Packet
@@ -50,12 +77,14 @@ from_packet(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                          variable = #mqtt_packet_publish{topic_name = Topic,
                                                          packet_id  = PacketId},
                          payload  = Payload}) ->
-	#mqtt_message{msgid    = PacketId,
+    #mqtt_message{msgid    = msgid(Qos),
+                  pktid    = PacketId,
                   qos      = Qos,
                   retain   = Retain,
                   dup      = Dup,
                   topic    = Topic,
-                  payload  = Payload};
+                  payload  = Payload,
+                  timestamp = os:timestamp()};
 
 from_packet(#mqtt_packet_connect{will_flag  = false}) ->
     undefined;
@@ -64,38 +93,44 @@ from_packet(#mqtt_packet_connect{will_retain = Retain,
                                  will_qos    = Qos,
                                  will_topic  = Topic,
                                  will_msg    = Msg}) ->
-    #mqtt_message{retain  = Retain,
-                  qos     = Qos,
-                  topic   = Topic,
-                  dup     = false,
-                  payload = Msg}.
+    #mqtt_message{msgid     = msgid(Qos),
+                  topic     = Topic,
+                  retain    = Retain,
+                  qos       = Qos,
+                  dup       = false,
+                  payload   = Msg, 
+                  timestamp = os:timestamp()}.
 
 from_packet(ClientId, Packet) ->
     Msg = from_packet(Packet), Msg#mqtt_message{from = ClientId}.
+
+msgid(?QOS_0) ->
+    undefined;
+msgid(_Qos)   ->
+    emqttd_guid:gen().
 
 %%------------------------------------------------------------------------------
 %% @doc Message to packet
 %% @end
 %%------------------------------------------------------------------------------
 -spec to_packet(mqtt_message()) -> mqtt_packet().
-to_packet(#mqtt_message{msgid   = MsgId,
+to_packet(#mqtt_message{pktid   = PkgId,
                         qos     = Qos,
                         retain  = Retain,
                         dup     = Dup,
                         topic   = Topic,
                         payload = Payload}) ->
 
-    PacketId = if 
-        Qos =:= ?QOS_0 -> undefined; 
-        true -> MsgId 
-    end,  
-
     #mqtt_packet{header = #mqtt_packet_header{type 	 = ?PUBLISH,
                                               qos    = Qos,
                                               retain = Retain,
                                               dup    = Dup},
                  variable = #mqtt_packet_publish{topic_name = Topic,
-                                                 packet_id  = PacketId},
+                                                 packet_id  = if 
+                                                                  Qos =:= ?QOS_0 -> undefined;
+                                                                  true -> PkgId
+                                                              end  
+                                                },
                  payload = Payload}.
 
 %%------------------------------------------------------------------------------
@@ -109,6 +144,8 @@ set_flag(Msg) ->
 -spec set_flag(atom(), mqtt_message()) -> mqtt_message().
 set_flag(dup, Msg = #mqtt_message{dup = false}) -> 
     Msg#mqtt_message{dup = true};
+set_flag(sys, Msg = #mqtt_message{sys = false}) -> 
+    Msg#mqtt_message{sys = true};
 set_flag(retain, Msg = #mqtt_message{retain = false}) ->
     Msg#mqtt_message{retain = true};
 set_flag(Flag, Msg) when Flag =:= dup orelse Flag =:= retain -> Msg.
@@ -133,7 +170,7 @@ unset_flag(Flag, Msg) when Flag =:= dup orelse Flag =:= retain -> Msg.
 %% @doc Format MQTT Message
 %% @end
 %%------------------------------------------------------------------------------
-format(#mqtt_message{msgid=MsgId, qos=Qos, retain=Retain, dup=Dup, topic=Topic}) ->
-    io_lib:format("Message(MsgId=~p, Qos=~p, Retain=~s, Dup=~s, Topic=~s)",
-              [MsgId, Qos, Retain, Dup, Topic]).
+format(#mqtt_message{msgid=MsgId, pktid = PktId, qos=Qos, retain=Retain, dup=Dup, topic=Topic}) ->
+    io_lib:format("Message(MsgId=~p, PktId=~p, Qos=~p, Retain=~s, Dup=~s, Topic=~s)",
+              [MsgId, PktId, Qos, Retain, Dup, Topic]).
 

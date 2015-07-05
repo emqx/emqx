@@ -35,8 +35,8 @@
 -export([client_connected/3, client_disconnected/3]).
 
 load(Opts) ->
-    emqttd_broker:hook(client_connected, {?MODULE, client_connected}, {?MODULE, client_connected, [Opts]}),
-    emqttd_broker:hook(client_disconnected, {?MODULE, client_disconnected}, {?MODULE, client_disconnected, [Opts]}),
+    emqttd_broker:hook('client.connected', {?MODULE, client_connected}, {?MODULE, client_connected, [Opts]}),
+    emqttd_broker:hook('client.disconnected', {?MODULE, client_disconnected}, {?MODULE, client_disconnected, [Opts]}),
     {ok, Opts}.
 
 client_connected(ConnAck, #mqtt_client{client_id  = ClientId,
@@ -55,24 +55,25 @@ client_connected(ConnAck, #mqtt_client{client_id  = ClientId,
                               {protocol, ProtoVer},
                               {connack, ConnAck},
                               {ts, emqttd_util:now_to_secs()}]),
-    Message = #mqtt_message{from    = presence,
-                            qos     = proplists:get_value(qos, Opts, 0),
-                            topic   = topic(connected, ClientId),
-                            payload = iolist_to_binary(Json)},
-    emqttd_pubsub:publish(Message).
+    Msg = emqttd_message:make(presence,
+                              proplists:get_value(qos, Opts, 0),
+                              topic(connected, ClientId),
+                              iolist_to_binary(Json)),
+    emqttd_pubsub:publish(Msg).
 
 client_disconnected(Reason, ClientId, Opts) ->
     Json = mochijson2:encode([{clientid, ClientId},
                               {reason, reason(Reason)},
                               {ts, emqttd_util:now_to_secs()}]),
-    emqttd_pubsub:publish(#mqtt_message{from = presence,
-                                        qos  = proplists:get_value(qos, Opts, 0),
-                                        topic   = topic(disconnected, ClientId),
-                                        payload = iolist_to_binary(Json)}).
+    Msg = emqttd_message:make(presence,
+                              proplists:get_value(qos, Opts, 0),
+                              topic(disconnected, ClientId),
+                              iolist_to_binary(Json)),
+    emqttd_pubsub:publish(Msg).
 
 unload(_Opts) ->
-    emqttd_broker:unhook(client_connected, {?MODULE, client_connected}),
-    emqttd_broker:unhook(client_disconnected, {?MODULE, client_disconnected}).
+    emqttd_broker:unhook('client.connected', {?MODULE, client_connected}),
+    emqttd_broker:unhook('client.disconnected', {?MODULE, client_disconnected}).
 
 topic(connected, ClientId) ->
     emqttd_topic:systop(list_to_binary(["clients/", ClientId, "/connected"]));

@@ -186,7 +186,7 @@ foldl_hooks(Hook, Args, Acc0) ->
     case ets:lookup(?BROKER_TAB, {hook, Hook}) of
         [{_, Hooks}] -> 
             lists:foldl(fun({_Name, {M, F, A}}, Acc) -> 
-                    apply(M, F, [Acc, Args++A])
+                    apply(M, F, lists:append([Args, [Acc], A]))
                 end, Acc0, Hooks);
         [] -> 
             Acc0
@@ -286,23 +286,15 @@ create_topic(Topic) ->
 
 retain(brokers) ->
     Payload = list_to_binary(string:join([atom_to_list(N) || N <- running_nodes()], ",")),
-    publish(#mqtt_message{from = broker,
-                          retain = true,
-                          topic = <<"$SYS/brokers">>,
-                          payload = Payload}).
+    Msg = emqttd_message:make(broker, <<"$SYS/brokers">>, Payload),
+    emqttd_pubsub:publish(emqttd_message:set_flag(sys, Msg)).
 
 retain(Topic, Payload) when is_binary(Payload) ->
-    publish(#mqtt_message{from = broker,
-                          retain = true,
-                          topic = emqttd_topic:systop(Topic),
-                          payload = Payload}).
+    Msg = emqttd_message:make(broker, emqttd_topic:systop(Topic), Payload),
+    emqttd_pubsub:publish(emqttd_message:set_flag(retain, Msg)).
 
 publish(Topic, Payload) when is_binary(Payload) ->
-    publish( #mqtt_message{from = broker,
-                           topic = emqttd_topic:systop(Topic),
-                           payload = Payload}).
-
-publish(Msg) ->
+    Msg = emqttd_message:make(broker, emqttd_topic:systop(Topic), Payload),
     emqttd_pubsub:publish(Msg).
 
 uptime(#state{started_at = Ts}) ->

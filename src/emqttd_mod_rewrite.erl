@@ -35,7 +35,7 @@
 
 -export([load/1, reload/1, unload/1]).
 
--export([rewrite/2]).
+-export([rewrite/3, rewrite/4]).
 
 %%%=============================================================================
 %%% API
@@ -45,22 +45,22 @@ load(Opts) ->
     File = proplists:get_value(file, Opts),
     {ok, Terms} = file:consult(File),
     Sections = compile(Terms),
-    emqttd_broker:hook(client_subscribe, {?MODULE, rewrite_subscribe}, 
+    emqttd_broker:hook('client.subscribe', {?MODULE, rewrite_subscribe}, 
                        {?MODULE, rewrite, [subscribe, Sections]}),
-    emqttd_broker:hook(client_unsubscribe, {?MODULE, rewrite_unsubscribe},
+    emqttd_broker:hook('client.unsubscribe', {?MODULE, rewrite_unsubscribe},
                        {?MODULE, rewrite, [unsubscribe, Sections]}),
-    emqttd_broker:hook(client_publish, {?MODULE, rewrite_publish},
+    emqttd_broker:hook('client.publish', {?MODULE, rewrite_publish},
                        {?MODULE, rewrite, [publish, Sections]}).
 
-rewrite(TopicTable, [subscribe, Sections]) ->
+rewrite(_ClientId, TopicTable, subscribe, Sections) ->
     lager:info("rewrite subscribe: ~p", [TopicTable]),
     [{match_topic(Topic, Sections), Qos} || {Topic, Qos} <- TopicTable];
 
-rewrite(Topics, [unsubscribe, Sections]) ->
+rewrite(_ClientId, Topics, unsubscribe, Sections) ->
     lager:info("rewrite unsubscribe: ~p", [Topics]),
-    [match_topic(Topic, Sections) || Topic <- Topics];
+    [match_topic(Topic, Sections) || Topic <- Topics].
 
-rewrite(Message=#mqtt_message{topic = Topic}, [publish, Sections]) ->
+rewrite(Message=#mqtt_message{topic = Topic}, publish, Sections) ->
     %%TODO: this will not work if the client is always online.
     RewriteTopic =
     case get({rewrite, Topic}) of
@@ -83,9 +83,9 @@ reload(File) ->
     end.
             
 unload(_) ->
-    emqttd_broker:unhook(client_subscribe, {?MODULE, rewrite_subscribe}),
-    emqttd_broker:unhook(client_unsubscribe, {?MODULE, rewrite_unsubscribe}),
-    emqttd_broker:unhook(client_publish, {?MODULE, rewrite_publish}).
+    emqttd_broker:unhook('client.subscribe', {?MODULE, rewrite_subscribe}),
+    emqttd_broker:unhook('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
+    emqttd_broker:unhook('client.publish', {?MODULE, rewrite_publish}).
 
 %%%=============================================================================
 %%% Internal functions
@@ -116,7 +116,6 @@ match_rule(Topic, []) ->
 match_rule(Topic, [{rewrite, MP, Dest} | Rules]) ->
     case re:run(Topic, MP, [{capture, all_but_first, list}]) of
         {match, Captured} ->
-            %%TODO: stupid??? how to replace $1, $2?
             Vars = lists:zip(["\\$" ++ integer_to_list(I) || I <- lists:seq(1, length(Captured))], Captured),
             iolist_to_binary(lists:foldl(
                     fun({Var, Val}, Acc) ->

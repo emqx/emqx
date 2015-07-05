@@ -121,12 +121,10 @@ terminate(_, _) ->
     ok.
 
 alarm_msg(Type, AlarmId, Json) ->
-    #mqtt_message{from    = alarm,
-                  qos     = 1,
-                  sys     = true,
-                  topic   = topic(Type, AlarmId),
-                  payload = iolist_to_binary(Json),
-                  timestamp = os:timestamp()}.
+    Msg = emqttd_message:make(alarm,
+                              topic(Type, AlarmId),
+                              iolist_to_binary(Json)),
+    emqttd_message:set_flag(sys, Msg).
 
 topic(alert, AlarmId) ->
     emqttd_topic:systop(<<"alarms/", AlarmId/binary, "/alert">>);

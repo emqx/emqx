@@ -81,7 +81,7 @@ init([Node, SubTopic, Options]) ->
         true -> 
             true = erlang:monitor_node(Node, true),
             State = parse_opts(Options, #state{node = Node, subtopic = SubTopic}),
-            emqttd_pubsub:subscribe({SubTopic, ?QOS_0}),
+            emqttd_pubsub:subscribe({SubTopic, State#state.qos}),
             {ok, State};
         false -> 
             {stop, {cannot_connect, Node}}
@@ -107,7 +107,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({dispatch, Msg}, State = #state{node = Node, status = down}) ->
-    lager:warning("Bridge Dropped Msg for ~p Down:~n~p", [Node, Msg]),
+    lager:error("Bridge Dropped Msg for ~p Down: ~s", [Node, emqttd_message:format(Msg)]),
     {noreply, State};
 
 handle_info({dispatch, Msg}, State = #state{node = Node, status = up}) ->
@@ -159,14 +159,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%=============================================================================
 
-%TODO: qos is not right...
-transform(Msg = #mqtt_message{topic = Topic}, #state{qos = Qos,
-                                                     topic_prefix = Prefix,
+transform(Msg = #mqtt_message{topic = Topic}, #state{topic_prefix = Prefix,
                                                      topic_suffix = Suffix}) ->
-    Msg1 =
-    if
-        Qos =:= undefined -> Msg;
-        true -> Msg#mqtt_message{qos = Qos}
-    end,
-    Msg1#mqtt_message{topic = <<Prefix/binary, Topic/binary, Suffix/binary>>}.
+    Msg#mqtt_message{topic = <<Prefix/binary, Topic/binary, Suffix/binary>>}.
 
