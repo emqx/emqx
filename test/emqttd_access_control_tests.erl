@@ -71,8 +71,8 @@ unregister_mod_test() ->
 check_acl_test() ->
     with_acl(
         fun() ->
-            User1 = #mqtt_client{clientid = <<"client1">>, username = <<"testuser">>},
-            User2 = #mqtt_client{clientid = <<"client2">>, username = <<"xyz">>},
+            User1 = #mqtt_client{client_id = <<"client1">>, username = <<"testuser">>},
+            User2 = #mqtt_client{client_id = <<"client2">>, username = <<"xyz">>},
             ?assertEqual(allow, emqttd_access_control:check_acl(User1, subscribe, <<"users/testuser/1">>)),
 	    ?assertEqual(allow, emqttd_access_control:check_acl(User1, subscribe, <<"clients/client1">>)),
 	    ?assertEqual(deny, emqttd_access_control:check_acl(User1, subscribe, <<"clients/client1/x/y">>)),
