@@ -2,7 +2,7 @@
 emqttd ChangeLog
 ==================
 
-0.9.0-alpha (2015-06-14)
+0.9.0-alpha (2015-07-xx)
 -------------------------
 
 Session and Queue
@@ -18,6 +18,12 @@ Queue
 Alarm
 
 Protocol Compliant
+
+Global msgid
+
+Hooks
+
+Plugins
 
 
 0.8.6-beta (2015-06-17)

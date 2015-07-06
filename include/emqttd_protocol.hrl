@@ -32,7 +32,7 @@
 -define(MQTT_PROTO_V311, 4).
 
 -define(PROTOCOL_NAMES, [
-    {?MQTT_PROTO_V31, <<"MQIsdp">>},
+    {?MQTT_PROTO_V31,  <<"MQIsdp">>},
     {?MQTT_PROTO_V311, <<"MQTT">>}]).
 
 -type mqtt_vsn() :: ?MQTT_PROTO_V31 | ?MQTT_PROTO_V311.
@@ -122,11 +122,11 @@
 %%------------------------------------------------------------------------------
 %% MQTT Packets
 %%------------------------------------------------------------------------------
--type mqtt_clientid()  :: binary().
+-type mqtt_client_id()  :: binary().
 -type mqtt_packet_id() :: 1..16#ffff | undefined.
 
 -record(mqtt_packet_connect,  {
-    clientid    = <<>>              :: mqtt_clientid(),
+    client_id   = <<>>              :: mqtt_client_id(),
     proto_ver   = ?MQTT_PROTO_V311  :: mqtt_vsn(),
     proto_name  = <<"MQTT">>        :: binary(),
     will_retain = false             :: boolean(),

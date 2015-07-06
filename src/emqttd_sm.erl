@@ -34,6 +34,7 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_sm).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -67,12 +68,11 @@
 %% @doc Start a session manager
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link(Id, SessStatsFun) -> {ok, pid()} | ignore | {error, any()} when
+-spec start_link(Id, StatsFun) -> {ok, pid()} | ignore | {error, any()} when
         Id :: pos_integer(),
-        %ClientStatsFun :: fun(),
-        SessStatsFun :: fun().
-start_link(Id, SessStatsFun) ->
-    gen_server:start_link(?MODULE, [Id, SessStatsFun], []).
+        StatsFun :: {fun(), fun()}.
+start_link(Id, StatsFun) ->
+    gen_server:start_link(?MODULE, [Id, StatsFun], []).
 
 %%------------------------------------------------------------------------------
 %% @doc Pool name.
@@ -103,7 +103,7 @@ start_session(CleanSess, ClientId) ->
 -spec lookup_session(binary()) -> pid() | undefined.
 lookup_session(ClientId) ->
     case ets:lookup(?SESSION_TAB, ClientId) of
-        [{_, SessPid, _}] ->  SessPid;
+        [{_Clean, _, SessPid, _}] -> SessPid;
         [] -> undefined
     end.
 
@@ -129,7 +129,7 @@ init([Id, StatsFun]) ->
 handle_call({start_session, {false, ClientId, ClientPid}}, _From, State) ->
     Reply =
     case ets:lookup(?SESSION_TAB, ClientId) of
-        [{_, SessPid, _MRef}] ->
+        [{_Clean, _, SessPid, _MRef}] ->
             emqttd_session:resume(SessPid, ClientId, ClientPid),
             {ok, SessPid};
         [] ->
@@ -139,7 +139,7 @@ handle_call({start_session, {false, ClientId, ClientPid}}, _From, State) ->
 
 handle_call({start_session, {true, ClientId, ClientPid}}, _From, State) ->
     case ets:lookup(?SESSION_TAB, ClientId) of
-        [{_, SessPid, MRef}] ->
+        [{_Clean, _, SessPid, MRef}] ->
             erlang:demonitor(MRef, [flush]),
             emqttd_session:destroy(SessPid, ClientId);
         [] ->
@@ -149,7 +149,7 @@ handle_call({start_session, {true, ClientId, ClientPid}}, _From, State) ->
 
 handle_call({destroy_session, ClientId}, _From, State) ->
     case ets:lookup(?SESSION_TAB, ClientId) of
-        [{_, SessPid, MRef}] ->
+        [{_Clean, _, SessPid, MRef}] ->
             emqttd_session:destroy(SessPid, ClientId),
             erlang:demonitor(MRef, [flush]),
             ets:delete(?SESSION_TAB, ClientId);
@@ -165,7 +165,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
-	ets:match_delete(?SESSION_TAB, {'_', DownPid, MRef}),
+	ets:match_delete(?SESSION_TAB, {'_', '_', DownPid, MRef}),
     {noreply, setstats(State)};
 
 handle_info(_Info, State) ->
@@ -184,13 +184,14 @@ code_change(_OldVsn, State, _Extra) ->
 new_session(CleanSess, ClientId, ClientPid) ->
     case emqttd_session_sup:start_session(CleanSess, ClientId, ClientPid) of
         {ok, SessPid} ->
-            ets:insert(?SESSION_TAB, {ClientId, SessPid, erlang:monitor(process, SessPid)}),
+            MRef = erlang:monitor(process, SessPid),
+            ets:insert(?SESSION_TAB, {CleanSess, ClientId, SessPid, MRef}),
             {ok, SessPid};
         {error, Error} ->
             {error, Error}
     end.
 
-setstats(State = #state{statsfun = StatsFun}) ->
-    StatsFun(ets:info(?SESSION_TAB, size)), State.
-
-
+setstats(State = #state{statsfun = {CFun, SFun}}) ->
+    CFun(ets:info(?SESSION_TAB, size)),
+    SFun(ets:select_count(?SESSION_TAB,  [{{true, '_', '_', '_'}, [], [true]}])),
+    State.

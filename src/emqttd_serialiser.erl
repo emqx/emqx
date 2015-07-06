@@ -60,7 +60,7 @@ serialise_header(#mqtt_packet_header{type   = Type,
       VariableBin/binary,
       PayloadBin/binary>>.
 
-serialise_variable(?CONNECT, #mqtt_packet_connect{clientid   =  ClientId,
+serialise_variable(?CONNECT, #mqtt_packet_connect{client_id   =  ClientId,
                                                   proto_ver   =  ProtoVer,
                                                   proto_name  =  ProtoName,
                                                   will_retain =  WillRetain,

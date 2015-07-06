@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2015 eMQTT.IO, All Rights Reserved.
+%%% @Copyright (C) 2012-2015, Feng Lee <feng@emqtt.io>
 %%%
 %%% Permission is hereby granted, free of charge, to any person obtaining a copy
 %%% of this software and associated documentation files (the "Software"), to deal
@@ -19,39 +19,20 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd auto subscribe module.
-%%%
-%%% @end
-%%%-----------------------------------------------------------------------------
 
--module(emqttd_mod_autosub).
+-module(emqttd_guid_tests).
 
--author("Feng Lee <feng@emqtt.io>").
+-ifdef(TEST).
 
--include("emqttd.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
--include("emqttd_protocol.hrl").
+gen_test() ->
+    Guid1 = emqttd_guid:gen(),
+    Guid2 = emqttd_guid:gen(),
+    ?assertMatch(<<_:128>>, Guid1),
+    ?assertEqual(true, Guid2 >= Guid1).
 
--behaviour(emqttd_gen_mod).
+-endif.
 
--export([load/1, client_connected/3, unload/1]).
 
--record(state, {topics}).
-
-load(Opts) ->
-    Topics = [{list_to_binary(Topic), Qos} || {Topic, Qos} <- Opts, 0 =< Qos, Qos =< 2],
-    emqttd_broker:hook('client.connected', {?MODULE, client_connected},
-                       {?MODULE, client_connected, [Topics]}),
-    {ok, #state{topics = Topics}}.
-
-client_connected(?CONNACK_ACCEPT, #mqtt_client{client_id = ClientId, client_pid = ClientPid}, Topics) ->
-    F = fun(Topic) -> emqttd_topic:feed_var(<<"$c">>, ClientId, Topic) end,
-    ClientPid ! {subscribe, [{F(Topic), Qos} || {Topic, Qos} <- Topics]};
-
-client_connected(_ConnAck, _Client, _Topics) ->
-    ignore.
-
-unload(_Opts) ->
-    emqttd_broker:unhook('client.connected', {?MODULE, client_connected}).
 

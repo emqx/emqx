@@ -157,19 +157,18 @@ cast(Msg) ->
 %% @end
 %%------------------------------------------------------------------------------
 -spec publish(Msg :: mqtt_message()) -> ok.
-publish(#mqtt_message{topic=Topic, from = From} = Msg) ->
+publish(#mqtt_message{from = From} = Msg) ->
     trace(publish, From, Msg),
 
-    %%TODO:call hooks here...
-    %%Msg1 = emqttd_broker:foldl_hooks(client_publish, [], Msg),
+    Msg1 = #mqtt_message{topic = Topic} = emqttd_broker:foldl_hooks('client.publish', [], Msg),
 
     %% Retain message first. Don't create retained topic.
-    case emqttd_msg_store:retain(Msg) of
+    case emqttd_retained:retain(Msg1) of
         ok ->
             %TODO: why unset 'retain' flag?
-            publish(Topic, emqttd_message:unset_flag(Msg));
+            publish(Topic, emqttd_message:unset_flag(Msg1));
         ignore ->
-            publish(Topic, Msg)
+            publish(Topic, Msg1)
      end.
 
 publish(<<"$Q/", _/binary>> = Queue, #mqtt_message{qos = Qos} = Msg) ->

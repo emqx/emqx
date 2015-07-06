@@ -124,6 +124,7 @@ setstat(Stat, Val) ->
 
 %%------------------------------------------------------------------------------
 %% @doc Set stats with max
+%% TODO: this is wrong...
 %% @end
 %%------------------------------------------------------------------------------
 -spec setstats(Stat :: atom(), MaxStat :: atom(), Val :: pos_integer()) -> boolean().
@@ -174,9 +175,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%=============================================================================
 publish(Stat, Val) ->
-    emqttd_pubsub:publish(#mqtt_message{from    = stats,
-                                        topic   = stats_topic(Stat),
-                                        payload = emqttd_util:integer_to_binary(Val)}).
+    Msg = emqttd_message:make(stats, stats_topic(Stat),
+                              emqttd_util:integer_to_binary(Val)),
+    emqttd_pubsub:publish(Msg).
 
 stats_topic(Stat) ->
     emqttd_topic:systop(list_to_binary(lists:concat(['stats/', Stat]))).
