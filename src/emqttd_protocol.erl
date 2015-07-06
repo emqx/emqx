@@ -207,9 +207,8 @@ handle(?SUBSCRIBE_PACKET(PacketId, TopicTable), State = #proto_state{client_id =
             lager:error("SUBSCRIBE from '~s' Denied: ~p", [ClientId, TopicTable]),
             {ok, State};
         false ->
-            TopicTable1 = emqttd_broker:foldl_hooks('client.subscribe', [ClientId], TopicTable),
             %%TODO: GrantedQos should be renamed.
-            {ok, GrantedQos} = emqttd_session:subscribe(Session, TopicTable1),
+            {ok, GrantedQos} = emqttd_session:subscribe(Session, TopicTable),
             send(?SUBACK_PACKET(PacketId, GrantedQos), State)
     end;
 
@@ -221,10 +220,8 @@ handle({subscribe, TopicTable}, State = #proto_state{session = Session}) ->
 handle(?UNSUBSCRIBE_PACKET(PacketId, []), State) ->
     send(?UNSUBACK_PACKET(PacketId), State);
 
-handle(?UNSUBSCRIBE_PACKET(PacketId, Topics), State = #proto_state{client_id = ClientId,
-                                                                   session = Session}) ->
-    Topics1 = emqttd_broker:foldl_hooks('client.unsubscribe', [ClientId], Topics),
-    ok = emqttd_session:unsubscribe(Session, Topics1),
+handle(?UNSUBSCRIBE_PACKET(PacketId, Topics), State = #proto_state{session = Session}) ->
+    ok = emqttd_session:unsubscribe(Session, Topics),
     send(?UNSUBACK_PACKET(PacketId), State);
 
 handle(?PACKET(?PINGREQ), State) ->

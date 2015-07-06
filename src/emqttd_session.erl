@@ -234,14 +234,16 @@ init([CleanSess, ClientId, ClientPid]) ->
             timestamp         = os:timestamp()},
     {ok, Session, hibernate}.
 
-handle_call({subscribe, Topics}, _From, Session = #session{client_id = ClientId,
-                                                           subscriptions = Subscriptions}) ->
+handle_call({subscribe, TopicTable0}, _From, Session = #session{client_id = ClientId,
+                                                               subscriptions = Subscriptions}) ->
 
+    TopicTable = emqttd_broker:foldl_hooks('client.subscribe', [ClientId], TopicTable0),
+    
     %% subscribe first and don't care if the subscriptions have been existed
-    {ok, GrantedQos} = emqttd_pubsub:subscribe(Topics),
+    {ok, GrantedQos} = emqttd_pubsub:subscribe(TopicTable),
 
     lager:info([{client, ClientId}], "Session ~s subscribe ~p, Granted QoS: ~p",
-                [ClientId, Topics, GrantedQos]),
+                [ClientId, TopicTable, GrantedQos]),
 
     Subscriptions1 =
     lists:foldl(fun({Topic, Qos}, Acc) ->
@@ -261,11 +263,13 @@ handle_call({subscribe, Topics}, _From, Session = #session{client_id = ClientId,
                             emqttd_retained:dispatch(Topic, self()),
                             [{Topic, Qos} | Acc]
                     end
-                end, Subscriptions, Topics),
+                end, Subscriptions, TopicTable),
     {reply, {ok, GrantedQos}, Session#session{subscriptions = Subscriptions1}};
 
-handle_call({unsubscribe, Topics}, _From, Session = #session{client_id = ClientId,
+handle_call({unsubscribe, Topics0}, _From, Session = #session{client_id = ClientId,
                                                              subscriptions = Subscriptions}) ->
+
+    Topics = emqttd_broker:foldl_hooks('client.unsubscribe', [ClientId], Topics0),
 
     %% unsubscribe from topic tree
     ok = emqttd_pubsub:unsubscribe(Topics),
