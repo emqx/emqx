@@ -158,6 +158,7 @@ cast(Msg) ->
 %%------------------------------------------------------------------------------
 -spec publish(Msg :: mqtt_message()) -> ok.
 publish(#mqtt_message{from = From} = Msg) ->
+
     trace(publish, From, Msg),
 
     Msg1 = #mqtt_message{topic = Topic} = emqttd_broker:foldl_hooks('client.publish', [], Msg),

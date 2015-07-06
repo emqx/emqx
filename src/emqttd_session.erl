@@ -596,8 +596,15 @@ await(#mqtt_message{pktid = PktId}, Session = #session{awaiting_ack = Awaiting,
     Awaiting1 = maps:put(PktId, {{Retries, Timeout}, TRef}, Awaiting),
     Session#session{awaiting_ack = Awaiting1}.
 
-acked(PktId, Session = #session{inflight_queue = InflightQ,
+acked(PktId, Session = #session{client_id      = ClientId,
+                                inflight_queue = InflightQ,
                                 awaiting_ack   = Awaiting}) ->
+    case lists:keyfind(PktId, 1, InflightQ) of
+        {_, Msg} ->
+            emqttd_broker:foldl_hooks('client.acked', [ClientId], Msg);
+        false ->
+            lager:error("Session(~s) cannot find acked message: ~p", [PktId])
+    end,
     Session#session{inflight_queue = lists:keydelete(PktId, 1, InflightQ),
                     awaiting_ack   = maps:remove(PktId, Awaiting)}.
 
