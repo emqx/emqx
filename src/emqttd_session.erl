@@ -159,7 +159,7 @@ destroy(Session, ClientId) ->
 %%------------------------------------------------------------------------------
 -spec subscribe(pid(), [{binary(), mqtt_qos()}]) -> {ok, [mqtt_qos()]}.
 subscribe(Session, TopicTable) ->
-    gen_server:call(Session, {subscribe, TopicTable}).
+    gen_server:call(Session, {subscribe, TopicTable}, infinity).
 
 %%------------------------------------------------------------------------------
 %% @doc Publish message
@@ -204,7 +204,7 @@ pubcomp(Session, PktId) ->
 %%------------------------------------------------------------------------------
 -spec unsubscribe(pid(), [binary()]) -> ok.
 unsubscribe(Session, Topics) ->
-    gen_server:call(Session, {unsubscribe, Topics}).
+    gen_server:call(Session, {unsubscribe, Topics}, infinity).
 
 %%%=============================================================================
 %%% gen_server callbacks

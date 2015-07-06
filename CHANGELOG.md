@@ -5,6 +5,8 @@ emqttd ChangeLog
 0.9.0-alpha (2015-07-xx)
 -------------------------
 
+TODO:......
+
 Session and Queue
 
 Merge emqtt, emqttd apps
