@@ -230,4 +230,3 @@ is_running(Node) ->
         Pid when is_pid(Pid) -> true
     end.
 
-

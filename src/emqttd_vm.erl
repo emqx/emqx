@@ -27,6 +27,8 @@
 
 -module(emqttd_vm).
 
+-export([schedulers/0]).
+
 -export([microsecs/0]).
 
 -export([loads/0, scheduler_usage/1]).
@@ -163,6 +165,9 @@
                       send_timeout_close,
                       sndbuf,
                       tos]).
+
+schedulers() ->
+    erlang:system_info(schedulers).
 
 microsecs() ->
     {Mega, Sec, Micro} = erlang:now(),

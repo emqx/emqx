@@ -48,7 +48,6 @@
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-%%TODO: bridges...
 -spec bridges() -> [{tuple(), pid()}].
 bridges() ->
     [{{Node, SubTopic}, Pid} || {{bridge, Node, SubTopic}, Pid, worker, _} 

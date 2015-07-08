@@ -24,6 +24,7 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_http).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -46,13 +47,14 @@ handle_request('POST', "/mqtt/publish", Req) ->
     lager:info("HTTP Publish: ~p", [Params]),
 	case authorized(Req) of
 	true ->
+        ClientId = get_value("client", Params, http),
         Qos = int(get_value("qos", Params, "0")),
         Retain = bool(get_value("retain", Params,  "0")),
         Topic = list_to_binary(get_value("topic", Params)),
         Payload = list_to_binary(get_value("message", Params)),
         case {validate(qos, Qos), validate(topic, Topic)} of
             {true, true} ->
-                Msg = emqttd_message:make(http, Qos, Topic, Payload),
+                Msg = emqttd_message:make(ClientId, Qos, Topic, Payload),
                 emqttd_pubsub:publish(Msg#mqtt_message{retain  = Retain}),
                 Req:ok({"text/plan", <<"ok\n">>});
            {false, _} ->

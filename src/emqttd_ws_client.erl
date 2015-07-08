@@ -43,7 +43,7 @@
          terminate/2, code_change/3]).
 
 %% WebSocket Loop State
--record(wsocket_state, {request, client_pid, packet_opts, parser_state}).
+-record(wsocket_state, {request, client_pid, packet_opts, parser}).
 
 %% Client State
 -record(client_state, {ws_pid, request, proto_state, keepalive}).
@@ -59,7 +59,7 @@ start_link(Req) ->
     ReentryWs(#wsocket_state{request      = Req,
                              client_pid   = ClientPid,
                              packet_opts  = PktOpts,
-                             parser_state = emqttd_parser:init(PktOpts)}).
+                             parser       = emqttd_parser:new(PktOpts)}).
 
 %%------------------------------------------------------------------------------
 %% @private
@@ -77,14 +77,14 @@ ws_loop(<<>>, State, _ReplyChannel) ->
     State;
 ws_loop([<<>>], State, _ReplyChannel) ->
     State;
-ws_loop(Data, State = #wsocket_state{request = Req,
+ws_loop(Data, State = #wsocket_state{request    = Req,
                                      client_pid = ClientPid,
-                                     parser_state = ParserState}, ReplyChannel) ->
+                                     parser     = Parser}, ReplyChannel) ->
     Peer = Req:get(peer),
     lager:debug("RECV from ~s(WebSocket): ~p", [Peer, Data]),
-    case emqttd_parser:parse(iolist_to_binary(Data), ParserState) of
-    {more, ParserState1} ->
-        State#wsocket_state{parser_state = ParserState1};
+    case Parser(iolist_to_binary(Data)) of
+    {more, NewParser} ->
+        State#wsocket_state{parser = NewParser};
     {ok, Packet, Rest} ->
         gen_server:cast(ClientPid, {received, Packet}),
         ws_loop(Rest, reset_parser(State), ReplyChannel);
@@ -93,8 +93,8 @@ ws_loop(Data, State = #wsocket_state{request = Req,
         exit({shutdown, Error})
     end.
 
-reset_parser(State = #wsocket_state{packet_opts  = PktOpts}) ->
-    State#wsocket_state{parser_state = emqttd_parser:init(PktOpts)}.
+reset_parser(State = #wsocket_state{packet_opts = PktOpts}) ->
+    State#wsocket_state{parser = emqttd_parser:new (PktOpts)}.
 
 %%%=============================================================================
 %%% gen_fsm callbacks

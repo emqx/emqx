@@ -39,17 +39,19 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
--behaviour(gen_server).
-
 %% API Exports 
 -export([start_link/2]).
 
 -export([create/1,
          subscribe/1,
          unsubscribe/1,
-         publish/1,
-         %local node
-         dispatch/2, match/1]).
+         publish/1]).
+
+%% Local node
+-export([dispatch/2,
+         match/1]).
+
+-behaviour(gen_server).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -62,6 +64,7 @@
 %%%=============================================================================
 %%% Mnesia callbacks
 %%%=============================================================================
+
 mnesia(boot) ->
     %% p2p queue table
     ok = emqttd_mnesia:create_table(queue, [
@@ -111,6 +114,7 @@ start_link(Id, Opts) ->
 create(<<"$Q/", _Queue/binary>>) ->
     %% protecte from queue
     {error, cannot_create_queue};
+
 create(Topic) when is_binary(Topic) ->
     TopicR = #mqtt_topic{topic = Topic, node = node()},
     case mnesia:transaction(fun add_topic/1, [TopicR]) of
@@ -124,7 +128,8 @@ create(Topic) when is_binary(Topic) ->
 %% @doc Subscribe topic
 %% @end
 %%------------------------------------------------------------------------------
--spec subscribe({Topic, Qos} | list({Topic, Qos})) -> {ok, Qos | list(Qos)} | {error, any()} when
+-spec subscribe({Topic, Qos} | list({Topic, Qos})) -> 
+    {ok, Qos | list(Qos)} | {error, any()} when
     Topic   :: binary(),
     Qos     :: mqtt_qos().
 subscribe({Topic, Qos}) when is_binary(Topic) andalso ?IS_QOS(Qos) ->
@@ -158,15 +163,14 @@ cast(Msg) ->
 %%------------------------------------------------------------------------------
 -spec publish(Msg :: mqtt_message()) -> ok.
 publish(#mqtt_message{from = From} = Msg) ->
-
     trace(publish, From, Msg),
-
-    Msg1 = #mqtt_message{topic = Topic} = emqttd_broker:foldl_hooks('client.publish', [], Msg),
+    Msg1 = #mqtt_message{topic = Topic}
+               = emqttd_broker:foldl_hooks('message.publish', [], Msg),
 
     %% Retain message first. Don't create retained topic.
     case emqttd_retained:retain(Msg1) of
         ok ->
-            %TODO: why unset 'retain' flag?
+            %% TODO: why unset 'retain' flag?
             publish(Topic, emqttd_message:unset_flag(Msg1));
         ignore ->
             publish(Topic, Msg1)
@@ -174,12 +178,12 @@ publish(#mqtt_message{from = From} = Msg) ->
 
 publish(<<"$Q/", _/binary>> = Queue, #mqtt_message{qos = Qos} = Msg) ->
     lists:foreach(
-        fun(#mqtt_queue{subpid = SubPid, qos = SubQos}) -> 
+        fun(#mqtt_queue{qpid = QPid, qos = SubQos}) -> 
             Msg1 = if
                 Qos > SubQos -> Msg#mqtt_message{qos = SubQos};
                 true -> Msg
             end,
-            SubPid ! {dispatch, Msg1}
+            QPid ! {dispatch, Msg1}
         end, mnesia:dirty_read(queue, Queue));
     
 publish(Topic, Msg) when is_binary(Topic) ->
@@ -197,7 +201,7 @@ publish(Topic, Msg) when is_binary(Topic) ->
 -spec dispatch(Topic :: binary(), Msg :: mqtt_message()) -> non_neg_integer().
 dispatch(Topic, #mqtt_message{qos = Qos} = Msg ) when is_binary(Topic) ->
     Subscribers = mnesia:dirty_read(subscriber, Topic),
-    setstats(dropped, Subscribers =:= []), %%TODO:...
+    setstats(dropped, Subscribers =:= []),
     lists:foreach(
         fun(#mqtt_subscriber{subpid=SubPid, qos = SubQos}) ->
                 Msg1 = if
@@ -220,12 +224,11 @@ match(Topic) when is_binary(Topic) ->
 init([Id, _Opts]) ->
     process_flag(min_heap_size, 1024*1024),
     gproc_pool:connect_worker(pubsub, {?MODULE, Id}),
-    %%TODO: gb_trees to replace maps?
     {ok, #state{id = Id, submap = maps:new()}}.
 
 handle_call({subscribe, SubPid, Topics}, _From, State) ->
     TopicSubs = lists:map(fun({<<"$Q/", _/binary>> = Queue, Qos}) ->
-                            #mqtt_queue{name = Queue, subpid = SubPid, qos = Qos};
+                            #mqtt_queue{name = Queue, qpid = SubPid, qos = Qos};
                              ({Topic, Qos}) ->
                             {#mqtt_topic{topic = Topic, node = node()},
                              #mqtt_subscriber{topic = Topic, subpid = SubPid, qos = Qos}}
@@ -252,7 +255,7 @@ handle_call({subscribe, SubPid, <<"$Q/", _/binary>> = Queue, Qos}, _From, State)
         [OldQueueR] -> lager:error("Queue is overwrited by ~p: ~p", [SubPid, OldQueueR]);
         [] -> ok
     end,
-    QueueR = #mqtt_queue{name = Queue, subpid = SubPid, qos = Qos},
+    QueueR = #mqtt_queue{name = Queue, qpid = SubPid, qos = Qos},
     case mnesia:transaction(fun add_queue/1, [QueueR]) of
         {atomic, ok} ->
             setstats(queues),
@@ -279,7 +282,7 @@ handle_call(Req, _From, State) ->
 handle_cast({unsubscribe, SubPid, Topics}, State) when is_list(Topics) ->
 
     TopicSubs = lists:map(fun(<<"$Q/", _/binary>> = Queue) ->
-                                #mqtt_queue{name = Queue, subpid = SubPid};
+                                #mqtt_queue{name = Queue, qpid = SubPid};
                              (Topic) ->
                                 {#mqtt_topic{topic = Topic, node = node()},
                                  #mqtt_subscriber{topic = Topic, subpid = SubPid, _ = '_'}}
@@ -300,7 +303,7 @@ handle_cast({unsubscribe, SubPid, Topics}, State) when is_list(Topics) ->
     {noreply, State};
 
 handle_cast({unsubscribe, SubPid, <<"$Q/", _/binary>> = Queue}, State) ->
-    QueueR = #mqtt_queue{name = Queue, subpid = SubPid},
+    QueueR = #mqtt_queue{name = Queue, qpid = SubPid},
     case mnesia:transaction(fun remove_queue/1, [QueueR]) of
         {atomic, _} -> 
             setstats(queues);
@@ -329,7 +332,7 @@ handle_info({'DOWN', _Mon, _Type, DownPid, _Info}, State = #state{submap = SubMa
             Node = node(),
             F = fun() -> 
                     %% remove queue...
-                    Queues = mnesia:match_object(queue, #mqtt_queue{subpid = DownPid, _ = '_'}, write),
+                    Queues = mnesia:match_object(queue, #mqtt_queue{qpid = DownPid, _ = '_'}, write),
                     lists:foreach(fun(QueueR) ->
                                 mnesia:delete_object(queue, QueueR, write) 
                         end, Queues),
@@ -420,9 +423,9 @@ monitor_subscriber(SubPid, State = #state{submap = SubMap}) ->
     end,
     State#state{submap = NewSubMap}.
 
-remove_queue(#mqtt_queue{name = Name, subpid = Pid}) ->
+remove_queue(#mqtt_queue{name = Name, qpid = Pid}) ->
     case mnesia:wread({queue, Name}) of
-        [R = #mqtt_queue{subpid = Pid}] -> 
+        [R = #mqtt_queue{qpid = Pid}] -> 
             mnesia:delete(queue, R, write);
         _ ->
             ok
@@ -463,12 +466,10 @@ setstats(subscribers) ->
     emqttd_stats:setstats('subscribers/count', 'subscribers/max',
                            mnesia:table_info(subscriber, size)).
 
-%%TODO: queue dropped?
 setstats(dropped, false) ->
     ignore;
 setstats(dropped, true) ->
     emqttd_metrics:inc('messages/dropped').
-
 
 %%%=============================================================================
 %%% Trace functions

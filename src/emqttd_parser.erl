@@ -33,21 +33,25 @@
 -include("emqttd_protocol.hrl").
 
 %% API
--export([init/1, parse/2]).
+-export([new/1, parse/2]).
 
 -record(mqtt_packet_limit, {max_packet_size}).
 
 -type option() :: {atom(),  any()}.
 
+-type parser() :: fun( (binary()) -> any() ).
+
 %%------------------------------------------------------------------------------
 %% @doc Initialize a parser
 %% @end
 %%------------------------------------------------------------------------------
--spec init(Opts :: [option()]) -> {none, #mqtt_packet_limit{}}.
-init(Opts) -> {none, limit(Opts)}.
+-spec new(Opts :: [option()]) -> parser().
+new(Opts) ->
+    fun(Bin) -> parse(Bin, {none, limit(Opts)}) end.
 
 limit(Opts) ->
-    #mqtt_packet_limit{max_packet_size = proplists:get_value(max_packet_size, Opts, ?MAX_LEN)}.
+    #mqtt_packet_limit{max_packet_size = 
+                        proplists:get_value(max_packet_size, Opts, ?MAX_LEN)}.
 
 %%------------------------------------------------------------------------------
 %% @doc Parse MQTT Packet

@@ -52,7 +52,6 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-
 %%------------------------------------------------------------------------------
 %% @doc Start to trace client or topic.
 %% @end

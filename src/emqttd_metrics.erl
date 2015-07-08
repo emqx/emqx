@@ -78,7 +78,6 @@
     {counter, 'messages/received'},      % Messages received
     {counter, 'messages/sent'},          % Messages sent
     {gauge,   'messages/retained'},      % Messagea retained
-    {gauge,   'messages/stored/count'},  % Messages stored
     {counter, 'messages/dropped'}        % Messages dropped
 ]).
 
@@ -235,5 +234,4 @@ create_metric({counter, Name}) ->
 
 metric_topic(Metric) ->
     emqttd_topic:systop(list_to_binary(lists:concat(['metrics/', Metric]))).
-
 

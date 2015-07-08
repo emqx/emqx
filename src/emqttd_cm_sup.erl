@@ -20,13 +20,40 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd client throttle.
+%%% emqttd client manager supervisor.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_throttle).
+-module(emqttd_cm_sup).
 
 -author("Feng Lee <feng@emqtt.io>").
 
-%% TODO:... 0.10.0...
+-include("emqttd.hrl").
+
+-behaviour(supervisor).
+
+%% API
+-export([start_link/0]).
+
+%% Supervisor callbacks
+-export([init/1]).
+
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+init([]) ->
+    ets:new(mqtt_client, [ordered_set, named_table, public,
+                          {keypos, 2}, {write_concurrency, true}]),
+    Schedulers = erlang:system_info(schedulers),
+    gproc_pool:new(emqttd_cm:pool(), hash, [{size, Schedulers}]),
+    StatsFun = emqttd_stats:statsfun('clients/count', 'clients/max'),
+    Children = lists:map(
+                 fun(I) ->
+                    Name = {emqttd_cm, I},
+                    gproc_pool:add_worker(emqttd_cm:pool(), Name, I),
+                    {Name, {emqttd_cm, start_link, [I, StatsFun]},
+                                permanent, 10000, worker, [emqttd_cm]}
+                 end, lists:seq(1, Schedulers)),
+    {ok, {{one_for_all, 10, 100}, Children}}.
+
 

@@ -41,7 +41,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          code_change/3, terminate/2]).
 
-%%Client State...
+%% Client State...
 -record(state, {transport,
                 socket,
                 peername,
@@ -49,7 +49,7 @@
                 await_recv,
                 conn_state,
                 conserve,
-                parse_state,
+                parser,
                 proto_state,
                 packet_opts,
                 keepalive}).
@@ -57,18 +57,16 @@
 start_link(SockArgs, PktOpts) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[SockArgs, PktOpts]])}.
 
-%%TODO: rename?
 info(Pid) ->
-    gen_server:call(Pid, info).
+    gen_server:call(Pid, info, infinity).
 
 init([SockArgs = {Transport, Sock, _SockFun}, PacketOpts]) ->
-    %transform if ssl.
+    % Transform if ssl.
     {ok, NewSock} = esockd_connection:accept(SockArgs),
     {ok, Peername} = emqttd_net:peername(Sock),
     {ok, ConnStr} = emqttd_net:connection_string(Sock, inbound),
     lager:info("Connect from ~s", [ConnStr]),
     SendFun = fun(Data) -> Transport:send(NewSock, Data) end,
-    ParserState = emqttd_parser:init(PacketOpts),
     ProtoState = emqttd_protocol:init(Peername, SendFun, PacketOpts),
     State = control_throttle(#state{transport    = Transport,
                                     socket       = NewSock,
@@ -78,17 +76,16 @@ init([SockArgs = {Transport, Sock, _SockFun}, PacketOpts]) ->
                                     conn_state   = running,
                                     conserve     = false,
                                     packet_opts  = PacketOpts,
-                                    parse_state  = ParserState,
+                                    parser       = emqttd_parser:new(PacketOpts),
                                     proto_state  = ProtoState}),
     gen_server:enter_loop(?MODULE, [], State, 10000).
 
-%%TODO: Not enough...
-handle_call(info, _From, State = #state{conn_name=ConnName,
+handle_call(info, _From, State = #state{conn_name = ConnName,
                                         proto_state = ProtoState}) ->
     {reply, [{conn_name, ConnName} | emqttd_protocol:info(ProtoState)], State};
 
 handle_call(Req, _From, State = #state{peername = Peername}) ->
-    lager:critical("Client ~s: unexpected request - ~p",[emqttd_net:format(Peername), Req]),
+    lager:critical("Client ~s: unexpected request - ~p", [emqttd_net:format(Peername), Req]),
     {reply, {error, unsupported_request}, State}.    
 
 handle_cast(Msg, State = #state{peername = Peername}) ->
@@ -100,8 +97,6 @@ handle_info(timeout, State) ->
     
 handle_info({stop, duplicate_id, _NewPid}, State=#state{proto_state = ProtoState,
                                                         conn_name=ConnName}) ->
-    %% need transfer data???
-    %% emqttd_client:transfer(NewPid, Data),
     lager:error("Shutdown for duplicate clientid: ~s, conn:~s", 
                 [emqttd_protocol:clientid(ProtoState), ConnName]), 
     stop({shutdown, duplicate_id}, State);
@@ -124,8 +119,7 @@ handle_info({inet_reply, _Ref, ok}, State) ->
 handle_info({inet_async, Sock, _Ref, {ok, Data}}, State = #state{peername = Peername, socket = Sock}) ->
     lager:debug("RECV from ~s: ~p", [emqttd_net:format(Peername), Data]),
     emqttd_metrics:inc('bytes/received', size(Data)),
-    process_received_bytes(Data,
-                           control_throttle(State #state{await_recv = false}));
+    received(Data, control_throttle(State #state{await_recv = false}));
 
 handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
     network_error(Reason, State);
@@ -170,24 +164,22 @@ code_change(_OldVsn, State, _Extra) ->
 %-------------------------------------------------------
 % receive and parse tcp data
 %-------------------------------------------------------
-process_received_bytes(<<>>, State) ->
+received(<<>>, State) ->
     {noreply, State, hibernate};
 
-process_received_bytes(Bytes, State = #state{packet_opts = PacketOpts,
-                                             parse_state = ParseState,
-                                             proto_state = ProtoState,
-                                             conn_name   = ConnStr}) ->
-    case emqttd_parser:parse(Bytes, ParseState) of
-    {more, ParseState1} ->
-        {noreply,
-         control_throttle(State #state{parse_state = ParseState1}),
-         hibernate};
+received(Bytes, State = #state{packet_opts = PacketOpts,
+                               parser = Parser,
+                               proto_state = ProtoState,
+                               conn_name   = ConnStr}) ->
+    case Parser(Bytes) of
+    {more, NewParser} ->
+        {noreply, control_throttle(State #state{parser = NewParser}), hibernate};
     {ok, Packet, Rest} ->
         received_stats(Packet),
         case emqttd_protocol:received(Packet, ProtoState) of
         {ok, ProtoState1} ->
-            process_received_bytes(Rest, State#state{parse_state = emqttd_parser:init(PacketOpts),
-                                                     proto_state = ProtoState1});
+            received(Rest, State#state{parser = emqttd_parser:new(PacketOpts),
+                                       proto_state = ProtoState1});
         {error, Error} ->
             lager:error("MQTT protocol error ~p for connection ~p~n", [Error, ConnStr]),
             stop({shutdown, Error}, State);
@@ -201,7 +193,6 @@ process_received_bytes(Bytes, State = #state{packet_opts = PacketOpts,
         stop({shutdown, Error}, State)
     end.
 
-%%----------------------------------------------------------------------------
 network_error(Reason, State = #state{peername = Peername}) ->
     lager:warning("Client ~s: MQTT detected network error '~p'",
                     [emqttd_net:format(Peername), Reason]),
@@ -244,4 +235,4 @@ inc(?DISCONNECT) ->
     emqttd_metrics:inc('packets/disconnect');
 inc(_) ->
     ignore.
-    
+
