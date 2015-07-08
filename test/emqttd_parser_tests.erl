@@ -33,7 +33,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 parse_connect_test() ->
-    State = emqttd_parser:init([]),
+    Parser = emqttd_parser:new([]),
     %% CONNECT(Qos=0, Retain=false, Dup=false, ClientId=mosqpub/10451-iMac.loca, ProtoName=MQIsdp, ProtoVsn=3, CleanSess=true, KeepAlive=60, Username=undefined, Password=undefined)
     V31ConnBin = <<16,37,0,6,77,81,73,115,100,112,3,2,0,60,0,23,109,111,115,113,112,117,98,47,49,48,52,53,49,45,105,77,97,99,46,108,111,99,97>>,
     ?assertMatch({ok, #mqtt_packet{
@@ -45,7 +45,7 @@ parse_connect_test() ->
                                                          proto_name = <<"MQIsdp">>,
                                                          client_id  = <<"mosqpub/10451-iMac.loca">>,
                                                          clean_sess = true,
-                                                         keep_alive = 60}}, <<>>}, emqttd_parser:parse(V31ConnBin, State)),
+                                                         keep_alive = 60}}, <<>>}, Parser(V31ConnBin)),
     %% CONNECT(Qos=0, Retain=false, Dup=false, ClientId=mosqpub/10451-iMac.loca, ProtoName=MQTT, ProtoVsn=4, CleanSess=true, KeepAlive=60, Username=undefined, Password=undefined)
     V311ConnBin = <<16,35,0,4,77,81,84,84,4,2,0,60,0,23,109,111,115,113,112,117,98,47,49,48,52,53,49,45,105,77,97,99,46,108,111,99,97>>,
     ?assertMatch({ok, #mqtt_packet{ 
@@ -57,7 +57,7 @@ parse_connect_test() ->
                                                          proto_name = <<"MQTT">>, 
                                                          client_id  = <<"mosqpub/10451-iMac.loca">>,
                                                          clean_sess = true, 
-                                                         keep_alive = 60 } }, <<>>}, emqttd_parser:parse(V311ConnBin, State)),
+                                                         keep_alive = 60 } }, <<>>}, Parser(V311ConnBin)),
 
     %% CONNECT(Qos=0, Retain=false, Dup=false, ClientId="", ProtoName=MQTT, ProtoVsn=4, CleanSess=true, KeepAlive=60)
     V311ConnWithoutClientId = <<16,12,0,4,77,81,84,84,4,2,0,60,0,0>>,
@@ -70,7 +70,7 @@ parse_connect_test() ->
                                                          proto_name = <<"MQTT">>, 
                                                          client_id  = <<>>,
                                                          clean_sess = true, 
-                                                         keep_alive = 60 } }, <<>>}, emqttd_parser:parse(V311ConnWithoutClientId, State)),
+                                                         keep_alive = 60 } }, <<>>}, Parser(V311ConnWithoutClientId)),
     %%CONNECT(Qos=0, Retain=false, Dup=false, ClientId=mosqpub/10452-iMac.loca, ProtoName=MQIsdp, ProtoVsn=3, CleanSess=true, KeepAlive=60, Username=test, Password=******, Will(Qos=1, Retain=false, Topic=/will, Msg=willmsg))
     ConnBinWithWill = <<16,67,0,6,77,81,73,115,100,112,3,206,0,60,0,23,109,111,115,113,112,117,98,47,49,48,52,53,50,45,105,77,97,99,46,108,111,99,97,0,5,47,119,105,108,108,0,7,119,105,108,108,109,115,103,0,4,116,101,115,116,0,6,112,117,98,108,105,99>>,
     ?assertMatch({ok, #mqtt_packet{ 
@@ -90,11 +90,11 @@ parse_connect_test() ->
                                                          will_msg = <<"willmsg">> ,
                                                          username = <<"test">>,
                                                          password = <<"public">>}},
-                                                   <<>> }, emqttd_parser:parse(ConnBinWithWill, State)),
+                  <<>> }, Parser(ConnBinWithWill)),
     ok.
 
 parse_publish_test() ->
-    State = emqttd_parser:init([]),
+    Parser = emqttd_parser:new([]),
     %%PUBLISH(Qos=1, Retain=false, Dup=false, TopicName=a/b/c, PacketId=1, Payload=<<"hahah">>)
     PubBin = <<50,14,0,5,97,47,98,47,99,0,1,104,97,104,97,104>>,
     ?assertMatch({ok, #mqtt_packet{ 
@@ -104,7 +104,7 @@ parse_publish_test() ->
                                                       retain = false},  
                          variable = #mqtt_packet_publish{topic_name = <<"a/b/c">>, 
                                                          packet_id = 1},
-                         payload = <<"hahah">> }, <<>>}, emqttd_parser:parse(PubBin, State)),
+                         payload = <<"hahah">> }, <<>>}, Parser(PubBin)),
     
     %PUBLISH(Qos=0, Retain=false, Dup=false, TopicName=xxx/yyy, PacketId=undefined, Payload=<<"hello">>)
     %DISCONNECT(Qos=0, Retain=false, Dup=false)
@@ -116,15 +116,16 @@ parse_publish_test() ->
                                                       retain = false},
                          variable = #mqtt_packet_publish{topic_name = <<"xxx/yyy">>, 
                                                          packet_id = undefined},
-                         payload = <<"hello">> }, <<224,0>>}, emqttd_parser:parse(PubBin1, State)),
+                         payload = <<"hello">> }, <<224,0>>}, Parser(PubBin1)),
     ?assertMatch({ok, #mqtt_packet{ 
                          header = #mqtt_packet_header{type = ?DISCONNECT,
                                                       dup = false,
                                                       qos = 0,
                                                       retain = false}
-                        }, <<>>}, emqttd_parser:parse(<<224, 0>>, State)).
+                        }, <<>>}, Parser(<<224, 0>>)).
 
 parse_puback_test() ->
+    Parser = emqttd_parser:new([]),
     %%PUBACK(Qos=0, Retain=false, Dup=false, PacketId=1)
     PubAckBin = <<64,2,0,1>>,
     ?assertMatch({ok, #mqtt_packet { 
@@ -132,7 +133,7 @@ parse_puback_test() ->
                                                       dup = false, 
                                                       qos = 0, 
                                                       retain = false } 
-                }, <<>>}, emqttd_parser:parse(PubAckBin, emqttd_parser:init([]))),
+                }, <<>>}, Parser(PubAckBin)),
     ok.
 
 parse_subscribe_test() ->
@@ -142,6 +143,7 @@ parse_pingreq_test() ->
     ok.
 
 parse_disconnect_test() ->
+    Parser = emqttd_parser:new([]),
     %DISCONNECT(Qos=0, Retain=false, Dup=false)
     Bin = <<224, 0>>,
     ?assertMatch({ok, #mqtt_packet{ 
@@ -149,7 +151,7 @@ parse_disconnect_test() ->
                                                       dup = false,
                                                       qos = 0,
                                                       retain = false}
-                }, <<>>}, emqttd_parser:parse(Bin, emqttd_parser:init([]))).
+                }, <<>>}, Parser(Bin)).
 
 -endif.
 
