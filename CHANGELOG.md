@@ -2,30 +2,62 @@
 emqttd ChangeLog
 ==================
 
-0.9.0-alpha (2015-07-xx)
+0.9.0-alpha (2015-07-09)
 -------------------------
 
-TODO:......
+[Session, Queue, Inflight Window, Hooks, Global MessageId and More Protocol Compliant](https://github.com/emqtt/emqttd/releases/tag/0.9.0-alpha) Now!
 
-Session and Queue
+Feature: Session/Queue/Inflight Window Design (#145).
 
-Merge emqtt, emqttd apps
+Feature: Support to resume a persistent session on other clustered node.
 
-Move apps/emqttd/src src
+Feature: Support alarm management.
 
-Session
+Feature: emqttd_guid to generate global unique message id.
 
-Queue
+Feature: Hooks for message pub/ack.
 
-Alarm
+Feature: Protocol compliant - message ordering, timeout and retry.
 
-Protocol Compliant
+Improve: Every client will start_link a session process, whether or not the client is persistent.
 
-Global msgid
+Improve: etc/emqttd.config to support more session, queue configuration.
 
-Hooks
+Improve: issue #179 - Max offline message queue {max_queue, 100} meaning.
 
-Plugins
+Improve: issue #180 - Should change project structure for other projects maybe depend on 'emqttd'. Merge emqtt, emqttd apps.
+
+Improve: issue #185 - PacketId and MessageId: the broker should generate global unique message id.
+
+Improve: issue #187 - etc/emqttd.config to support https listener
+
+Improve: issue #186 - emqttd_cm to store client details
+
+Improve: issue #174 - add 'from' field to mqtt_message record.
+
+Improve: issue #170 - $SYS Topics should support alarms.
+
+Improve: issue #169 - Add More [Hooks](https://github.com/emqtt/emqttd/wiki/Hooks-Design)
+
+Improve: issue #167 - Inflight window to assure message ordering.
+
+Improve: issue #166 - Message delivery timeout and retry.
+
+Improve: issue #143 - Qos1, Qos2 PubSub message timeout.
+
+Improve: issue #122 - Labeling message with unique id. emqttd_guid module to generate global unique msgid.
+
+Improve: emqttd_bridge to support pending message queue, and fix the wrong Qos design.
+
+Improve: mqtt_message record to add 'msgid', 'from' and 'sys' fields.
+
+Change: Add emqttd_mqueue, emqttd_guid, emqttd_alarm modules.
+
+Bugfix: issue #184 - emqttd_stats:setstats is not right.
+
+Bugfix: Closed issues #181, #119.
+
+Tests: fix the parser, acl test cases.
 
 
 0.8.6-beta (2015-06-17)
