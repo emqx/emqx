@@ -102,8 +102,7 @@ reset_parser(State = #wsocket_state{packet_opts = PktOpts}) ->
 
 init([WsPid, Req, ReplyChannel, PktOpts]) ->
     process_flag(trap_exit, true),
-    Socket = Req:get(socket),
-    {ok, Peername} = emqttd_net:peername(Socket),
+    {ok, Peername} = Req:get(peername),
     SendFun = fun(Payload) -> ReplyChannel({binary, Payload}) end,
     ProtoState = emqttd_protocol:init(Peername, SendFun, PktOpts),
     {ok, #client_state{ws_pid = WsPid, request = Req, proto_state = ProtoState}}.
