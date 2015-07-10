@@ -2,6 +2,12 @@
 emqttd ChangeLog
 ==================
 
+0.9.1-alpha (2015-07-10)
+-------------------------
+
+Bugfix: issue #189 - MQTT over WebSocket(SSL) cannot work?
+
+
 0.9.0-alpha (2015-07-09)
 -------------------------
 
