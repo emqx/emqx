@@ -56,7 +56,7 @@ handle_request('POST', "/mqtt/publish", Req) ->
             {true, true} ->
                 Msg = emqttd_message:make(ClientId, Qos, Topic, Payload),
                 emqttd_pubsub:publish(Msg#mqtt_message{retain  = Retain}),
-                Req:ok({"text/plan", <<"ok\n">>});
+                Req:ok({"text/plain", <<"ok\n">>});
            {false, _} ->
                 Req:respond({400, [], <<"Bad QoS">>});
             {_, false} ->
