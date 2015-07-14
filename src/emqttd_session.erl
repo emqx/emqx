@@ -602,7 +602,7 @@ acked(PktId, Session = #session{client_id      = ClientId,
                                 awaiting_ack   = Awaiting}) ->
     case lists:keyfind(PktId, 1, InflightQ) of
         {_, Msg} ->
-            emqttd_broker:foldl_hooks('client.acked', [ClientId], Msg);
+            emqttd_broker:foreach_hooks('message.acked', [ClientId, Msg]);
         false ->
             lager:error("Session(~s) cannot find acked message: ~p", [PktId])
     end,

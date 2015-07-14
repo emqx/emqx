@@ -7,6 +7,8 @@ emqttd ChangeLog
 
 Bugfix: issue #189 - MQTT over WebSocket(SSL) cannot work?
 
+Bugfix: issue #193 - 'client.ack' hook should be renamed to 'message.acked', and called by emqttd_broker:foreach_hooks 
+
 
 0.9.0-alpha (2015-07-09)
 -------------------------
