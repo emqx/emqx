@@ -312,8 +312,8 @@ shutdown(Error, #proto_state{peername = Peername, client_id = ClientId, will_msg
 	lager:info([{client, ClientId}], "Client ~s@~s: shutdown ~p",
                    [ClientId, emqttd_net:format(Peername), Error]),
     send_willmsg(ClientId, WillMsg),
-    emqttd_cm:unregister(ClientId),
-    emqttd_broker:foreach_hooks('client.disconnected', [Error, ClientId]).
+    emqttd_broker:foreach_hooks('client.disconnected', [Error, ClientId]),
+    emqttd_cm:unregister(ClientId).
 
 willmsg(Packet) when is_record(Packet, mqtt_packet_connect) ->
     emqttd_message:from_packet(Packet).
