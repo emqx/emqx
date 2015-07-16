@@ -5,6 +5,8 @@ emqttd ChangeLog
 0.9.1-alpha (2015-07-10)
 -------------------------
 
+Improve: issue #196 - Add New Hook 'client.subscribe.after' 
+
 Bugfix: issue #189 - MQTT over WebSocket(SSL) cannot work?
 
 Bugfix: issue #193 - 'client.ack' hook should be renamed to 'message.acked', and called by emqttd_broker:foreach_hooks 
