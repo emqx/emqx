@@ -242,6 +242,8 @@ handle_call({subscribe, TopicTable0}, _From, Session = #session{client_id = Clie
     %% subscribe first and don't care if the subscriptions have been existed
     {ok, GrantedQos} = emqttd_pubsub:subscribe(TopicTable),
 
+    emqttd_broker:foreach_hooks('client.subscribe.after', [ClientId, TopicTable]),
+
     lager:info([{client, ClientId}], "Session ~s subscribe ~p, Granted QoS: ~p",
                 [ClientId, TopicTable, GrantedQos]),
 
