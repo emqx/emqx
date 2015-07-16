@@ -85,6 +85,11 @@ open_listener({mqtts, Port, Options}) ->
 %% open http port
 open_listener({http, Port, Options}) ->
     MFArgs = {emqttd_http, handle_request, []},
+	mochiweb:start_http(Port, Options, MFArgs);
+
+%% open https port
+open_listener({https, Port, Options}) ->
+    MFArgs = {emqttd_http, handle_request, []},
 	mochiweb:start_http(Port, Options, MFArgs).
 
 open_listener(Protocol, Port, Options) ->
@@ -229,5 +234,4 @@ is_running(Node) ->
         undefined            -> false;
         Pid when is_pid(Pid) -> true
     end.
-
 

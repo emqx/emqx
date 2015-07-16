@@ -49,7 +49,7 @@ load(Opts) ->
                        {?MODULE, rewrite, [subscribe, Sections]}),
     emqttd_broker:hook('client.unsubscribe', {?MODULE, rewrite_unsubscribe},
                        {?MODULE, rewrite, [unsubscribe, Sections]}),
-    emqttd_broker:hook('client.publish', {?MODULE, rewrite_publish},
+    emqttd_broker:hook('message.publish', {?MODULE, rewrite_publish},
                        {?MODULE, rewrite, [publish, Sections]}).
 
 rewrite(_ClientId, TopicTable, subscribe, Sections) ->
@@ -85,7 +85,7 @@ reload(File) ->
 unload(_) ->
     emqttd_broker:unhook('client.subscribe', {?MODULE, rewrite_subscribe}),
     emqttd_broker:unhook('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
-    emqttd_broker:unhook('client.publish', {?MODULE, rewrite_publish}).
+    emqttd_broker:unhook('message.publish', {?MODULE, rewrite_publish}).
 
 %%%=============================================================================
 %%% Internal functions

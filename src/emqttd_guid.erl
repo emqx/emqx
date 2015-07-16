@@ -31,14 +31,14 @@
 %%% 1. Timestamp: erlang:system_time if Erlang >= R18, otherwise os:timestamp
 %%% 2. NodeId:    encode node() to 2 bytes integer
 %%% 3. Pid:       encode pid to 4 bytes integer
-%%% 4. Sequence:  2 bytes sequence per pid
+%%% 4. Sequence:  2 bytes sequence in one process
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 
 -module(emqttd_guid).
 
--export([gen/0]).
+-export([gen/0, new/0]).
 
 -define(MAX_SEQ, 16#FFFF).
 

@@ -78,7 +78,6 @@
     {counter, 'messages/received'},      % Messages received
     {counter, 'messages/sent'},          % Messages sent
     {gauge,   'messages/retained'},      % Messagea retained
-    {gauge,   'messages/stored/count'},  % Messages stored
     {counter, 'messages/dropped'}        % Messages dropped
 ]).
 
@@ -224,7 +223,7 @@ code_change(_OldVsn, State, _Extra) ->
 publish(Metric, Val) ->
     Payload = emqttd_util:integer_to_binary(Val),
     Msg = emqttd_message:make(metrics, metric_topic(Metric), Payload),
-    emqttd_pubsub:publish(Msg).
+    emqttd_pubsub:publish(emqttd_message:set_flag(sys, Msg)).
 
 create_metric({gauge, Name}) ->
     ets:insert(?METRIC_TAB, {{Name, 0}, 0});
@@ -235,5 +234,4 @@ create_metric({counter, Name}) ->
 
 metric_topic(Metric) ->
     emqttd_topic:systop(list_to_binary(lists:concat(['metrics/', Metric]))).
-
 

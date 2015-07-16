@@ -24,11 +24,14 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_mod_presence).
 
 -author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
+
+-behaviour(emqttd_gen_mod).
 
 -export([load/1, unload/1]).
 
@@ -41,7 +44,7 @@ load(Opts) ->
 
 client_connected(ConnAck, #mqtt_client{client_id  = ClientId,
                                        username   = Username,
-                                       ipaddress  = IpAddress,
+                                       peername   = {IpAddress, _},
                                        clean_sess = CleanSess,
                                        proto_ver  = ProtoVer}, Opts) ->
     Sess = case CleanSess of
@@ -80,7 +83,8 @@ topic(connected, ClientId) ->
 topic(disconnected, ClientId) ->
     emqttd_topic:systop(list_to_binary(["clients/", ClientId, "/disconnected"])).
 
-reason(Reason) when is_atom(Reason) -> Reason;
+reason(Reason) when is_atom(Reason)    -> Reason;
 reason({Error, _}) when is_atom(Error) -> Error;
 reason(_) -> internal_error.
+
 

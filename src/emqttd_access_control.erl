@@ -102,8 +102,8 @@ check_acl(#mqtt_client{client_id = ClientId}, PubSub, Topic, []) ->
     allow;
 check_acl(Client, PubSub, Topic, [{M, State}|AclMods]) ->
     case M:check_acl({Client, PubSub, Topic}, State) of
-        allow -> allow;
-        deny  -> deny;
+        allow  -> allow;
+        deny   -> deny;
         ignore -> check_acl(Client, PubSub, Topic, AclMods)
     end.
 

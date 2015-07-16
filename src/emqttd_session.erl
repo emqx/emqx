@@ -234,14 +234,16 @@ init([CleanSess, ClientId, ClientPid]) ->
             timestamp         = os:timestamp()},
     {ok, Session, hibernate}.
 
-handle_call({subscribe, Topics}, _From, Session = #session{client_id = ClientId,
-                                                           subscriptions = Subscriptions}) ->
+handle_call({subscribe, TopicTable0}, _From, Session = #session{client_id = ClientId,
+                                                               subscriptions = Subscriptions}) ->
 
+    TopicTable = emqttd_broker:foldl_hooks('client.subscribe', [ClientId], TopicTable0),
+    
     %% subscribe first and don't care if the subscriptions have been existed
-    {ok, GrantedQos} = emqttd_pubsub:subscribe(Topics),
+    {ok, GrantedQos} = emqttd_pubsub:subscribe(TopicTable),
 
     lager:info([{client, ClientId}], "Session ~s subscribe ~p, Granted QoS: ~p",
-                [ClientId, Topics, GrantedQos]),
+                [ClientId, TopicTable, GrantedQos]),
 
     Subscriptions1 =
     lists:foldl(fun({Topic, Qos}, Acc) ->
@@ -261,11 +263,13 @@ handle_call({subscribe, Topics}, _From, Session = #session{client_id = ClientId,
                             emqttd_retained:dispatch(Topic, self()),
                             [{Topic, Qos} | Acc]
                     end
-                end, Subscriptions, Topics),
+                end, Subscriptions, TopicTable),
     {reply, {ok, GrantedQos}, Session#session{subscriptions = Subscriptions1}};
 
-handle_call({unsubscribe, Topics}, _From, Session = #session{client_id = ClientId,
+handle_call({unsubscribe, Topics0}, _From, Session = #session{client_id = ClientId,
                                                              subscriptions = Subscriptions}) ->
+
+    Topics = emqttd_broker:foldl_hooks('client.unsubscribe', [ClientId], Topics0),
 
     %% unsubscribe from topic tree
     ok = emqttd_pubsub:unsubscribe(Topics),
@@ -309,7 +313,7 @@ handle_call(Req, _From, State) ->
 
 handle_cast({resume, ClientId, ClientPid}, Session) ->
 
-    #session{client_id       = ClientId,
+    #session{client_id      = ClientId,
              client_pid     = OldClientPid,
              inflight_queue = InflightQ,
              awaiting_ack   = AwaitingAck,
@@ -346,7 +350,7 @@ handle_cast({resume, ClientId, ClientPid}, Session) ->
         end, Session1, lists:reverse(InflightQ)),
 
     %% Dequeue pending messages
-    {noreply, dequeue(Session2), hibernate};
+    noreply(dequeue(Session2));
 
 %% PUBRAC
 handle_cast({puback, PktId}, Session = #session{client_id = ClientId, awaiting_ack = Awaiting}) ->
@@ -354,10 +358,10 @@ handle_cast({puback, PktId}, Session = #session{client_id = ClientId, awaiting_a
         {ok, {_, TRef}} ->
             cancel_timer(TRef),
             Session1 = acked(PktId, Session),
-            {noreply, dequeue(Session1)};
+            noreply(dequeue(Session1));
         error ->
             lager:error("Session ~s cannot find PUBACK '~p'!", [ClientId, PktId]),
-            {noreply, Session}
+            noreply(Session)
     end;
 
 %% PUBREC
@@ -370,10 +374,10 @@ handle_cast({pubrec, PktId}, Session = #session{client_id = ClientId,
             cancel_timer(TRef),
             TRef1 = timer(Timeout, {timeout, awaiting_comp, PktId}),
             Session1 = acked(PktId, Session#session{awaiting_comp = maps:put(PktId, TRef1, AwaitingComp)}),
-            {noreply, dequeue(Session1)};
+            noreply(dequeue(Session1));
         error ->
             lager:error("Session ~s cannot find PUBREC '~p'!", [ClientId, PktId]),
-            {noreply, Session}
+            noreply(Session)
     end;
 
 %% PUBREL
@@ -383,10 +387,10 @@ handle_cast({pubrel, PktId}, Session = #session{client_id = ClientId,
         {ok, {Msg, TRef}} ->
             cancel_timer(TRef),
             emqttd_pubsub:publish(Msg),
-            {noreply, Session#session{awaiting_rel = maps:remove(PktId, AwaitingRel)}};
+            noreply(Session#session{awaiting_rel = maps:remove(PktId, AwaitingRel)});
         error ->
             lager:error("Session ~s cannot find PUBREL: pktid=~p!", [ClientId, PktId]),
-            {noreply, Session}
+            noreply(Session)
     end;
 
 %% PUBCOMP
@@ -394,10 +398,10 @@ handle_cast({pubcomp, PktId}, Session = #session{client_id = ClientId, awaiting_
     case maps:find(PktId, AwaitingComp) of
         {ok, TRef} ->
             cancel_timer(TRef),
-            {noreply, Session#session{awaiting_comp = maps:remove(PktId, AwaitingComp)}};
+            noreply(Session#session{awaiting_comp = maps:remove(PktId, AwaitingComp)});
         error ->
             lager:error("Session ~s cannot find PUBCOMP: PktId=~p", [ClientId, PktId]),
-            {noreply, Session}
+            noreply(Session)
     end;
 
 handle_cast(Msg, State) ->
@@ -408,30 +412,30 @@ handle_cast(Msg, State) ->
 handle_info({dispatch, Msg}, Session = #session{client_pid = undefined,
                                                 message_queue = Q})
     when is_record(Msg, mqtt_message) ->
-    {noreply, Session#session{message_queue = emqttd_mqueue:in(Msg, Q)}};
+    noreply(Session#session{message_queue = emqttd_mqueue:in(Msg, Q)});
 
 %% Dispatch qos0 message directly to client
 handle_info({dispatch, Msg = #mqtt_message{qos = ?QOS_0}},
             Session = #session{client_pid = ClientPid}) ->
-    ClientPid ! {deliver, Msg}, 
-    {noreply, Session};
+    ClientPid ! {deliver, Msg},
+    noreply(Session);
 
 handle_info({dispatch, Msg = #mqtt_message{qos = QoS}},
-            Session = #session{client_id = ClientId, message_queue  = MsgQ})
+            Session = #session{client_id = ClientId, message_queue = MsgQ})
     when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
 
     case check_inflight(Session) of
         true ->
             {noreply, deliver(Msg, Session)};
         false ->
-            lager:warning([{client, ClientId}], "Session ~s inflight queue is full!", [ClientId]),
+            lager:error([{client, ClientId}], "Session ~s inflight queue is full!", [ClientId]),
             {noreply, Session#session{message_queue = emqttd_mqueue:in(Msg, MsgQ)}}
     end;
 
 handle_info({timeout, awaiting_ack, PktId}, Session = #session{client_pid = undefined,
                                                                awaiting_ack = AwaitingAck}) ->
     %% just remove awaiting
-    {noreply, Session#session{awaiting_ack = maps:remove(PktId, AwaitingAck)}};
+    noreply(Session#session{awaiting_ack = maps:remove(PktId, AwaitingAck)});
 
 handle_info({timeout, awaiting_ack, PktId}, Session = #session{client_id = ClientId,
                                                                inflight_queue = InflightQ,
@@ -439,8 +443,8 @@ handle_info({timeout, awaiting_ack, PktId}, Session = #session{client_id = Clien
     case maps:find(PktId, AwaitingAck) of
         {ok, {{0, _Timeout}, _TRef}} ->
             Session1 = Session#session{inflight_queue = lists:keydelete(PktId, 1, InflightQ),
-                                       awaiting_ack = maps:remove(PktId, AwaitingAck)},
-            {noreply, dequeue(Session1)};
+                                       awaiting_ack   = maps:remove(PktId, AwaitingAck)},
+            noreply(dequeue(Session1));
         {ok, {{Retries, Timeout}, _TRef}} ->
             TRef = timer(Timeout, {timeout, awaiting_ack, PktId}),
             AwaitingAck1 = maps:put(PktId, {{Retries-1, Timeout*2}, TRef}, AwaitingAck),
@@ -457,7 +461,7 @@ handle_info({timeout, awaiting_rel, PktId}, Session = #session{client_id = Clien
         {ok, {Msg, _TRef}} ->
             lager:error([{client, ClientId}], "Session ~s AwaitingRel Timout!~n"
                             "Drop Message:~p", [ClientId, Msg]),
-            {noreply, Session#session{awaiting_rel = maps:remove(PktId, AwaitingRel)}};
+            noreply(Session#session{awaiting_rel = maps:remove(PktId, AwaitingRel)});
         error ->
             lager:error([{client, ClientId}], "Session ~s Cannot find AwaitingRel: PktId=~p", [ClientId, PktId]),
             {noreply, Session}
@@ -469,27 +473,28 @@ handle_info({timeout, awaiting_comp, PktId}, Session = #session{client_id = Clie
         {ok, _TRef} ->
             lager:error([{client, ClientId}], "Session ~s "
                             "Awaiting PUBCOMP Timout: PktId=~p!", [ClientId, PktId]),
-            {noreply, Session#session{awaiting_comp = maps:remove(PktId, Awaiting)}};
+            noreply(Session#session{awaiting_comp = maps:remove(PktId, Awaiting)});
         error ->
             lager:error([{client, ClientId}], "Session ~s "
                             "Cannot find Awaiting PUBCOMP: PktId=~p", [ClientId, PktId]),
-            {noreply, Session}
+            noreply(Session)
     end;
 
 handle_info({'EXIT', ClientPid, _Reason}, Session = #session{clean_sess = true,
                                                              client_pid = ClientPid}) ->
     {stop, normal, Session};
 
-handle_info({'EXIT', ClientPid, Reason}, Session = #session{clean_sess = false,
-                                                            client_id   = ClientId,
-                                                            client_pid = ClientPid,
+handle_info({'EXIT', ClientPid, Reason}, Session = #session{clean_sess    = false,
+                                                            client_id     = ClientId,
+                                                            client_pid    = ClientPid,
                                                             expired_after = Expires}) ->
-    lager:info("Session ~s unlink with client ~p: reason=~p", [ClientId, ClientPid, Reason]),
+    lager:info("Session ~s unlink with client ~p: reason=~p",
+                    [ClientId, ClientPid, Reason]),
     TRef = timer(Expires, session_expired),
-    {noreply, Session#session{client_pid = undefined, expired_timer = TRef}, hibernate};
+    noreply(Session#session{client_pid = undefined, expired_timer = TRef});
 
 handle_info({'EXIT', Pid, _Reason}, Session = #session{client_id = ClientId,
-                                                     client_pid = ClientPid}) ->
+                                                       client_pid = ClientPid}) ->
                                                             
     lager:error("Session ~s received unexpected EXIT:"
                     " client_pid=~p, exit_pid=~p", [ClientId, ClientPid, Pid]),
@@ -537,7 +542,7 @@ check_inflight(#session{max_inflight = Max, inflight_queue = Q}) ->
 
 check_awaiting_rel(#session{max_awaiting_rel = 0}) ->
     true;
-check_awaiting_rel(#session{awaiting_rel = AwaitingRel,
+check_awaiting_rel(#session{awaiting_rel     = AwaitingRel,
                             max_awaiting_rel = MaxLen}) ->
     maps:size(AwaitingRel) < MaxLen.
 
@@ -592,8 +597,15 @@ await(#mqtt_message{pktid = PktId}, Session = #session{awaiting_ack = Awaiting,
     Awaiting1 = maps:put(PktId, {{Retries, Timeout}, TRef}, Awaiting),
     Session#session{awaiting_ack = Awaiting1}.
 
-acked(PktId, Session = #session{inflight_queue = InflightQ,
+acked(PktId, Session = #session{client_id      = ClientId,
+                                inflight_queue = InflightQ,
                                 awaiting_ack   = Awaiting}) ->
+    case lists:keyfind(PktId, 1, InflightQ) of
+        {_, Msg} ->
+            emqttd_broker:foreach_hooks('message.acked', [ClientId, Msg]);
+        false ->
+            lager:error("Session(~s) cannot find acked message: ~p", [PktId])
+    end,
     Session#session{inflight_queue = lists:keydelete(PktId, 1, InflightQ),
                     awaiting_ack   = maps:remove(PktId, Awaiting)}.
 
@@ -611,3 +623,5 @@ cancel_timer(undefined) ->
 cancel_timer(Ref) -> 
 	catch erlang:cancel_timer(Ref).
 
+noreply(State) ->
+    {noreply, State, hibernate}.

@@ -58,7 +58,7 @@
 
 -define(BROKER_TAB, mqtt_broker).
 
--record(state, {started_at, sys_interval, tick_tref}).
+-record(state, {started_at, sys_interval, heartbeat, tick_tref}).
 
 %% $SYS Topics of Broker
 -define(SYSTOP_BROKERS, [
@@ -224,7 +224,9 @@ init([]) ->
     emqttd_pubsub:create(<<"$SYS/brokers">>),
     [ok = create_topic(Topic) || Topic <- ?SYSTOP_BROKERS],
     % Tick
-    {ok, #state{started_at = os:timestamp(), tick_tref = start_tick(tick)}, hibernate}.
+    {ok, #state{started_at = os:timestamp(),
+                heartbeat  = start_tick(1000, heartbeat),
+                tick_tref  = start_tick(tick)}, hibernate}.
 
 handle_call(uptime, _From, State) ->
     {reply, uptime(State), State};
@@ -260,18 +262,22 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info(tick, State) ->
-    retain(brokers),
-    retain(version, list_to_binary(version())),
-    retain(sysdescr, list_to_binary(sysdescr())),
+handle_info(heartbeat, State) ->
     publish(uptime, list_to_binary(uptime(State))),
     publish(datetime, list_to_binary(datetime())),
+    {noreply, State, hibernate};
+
+handle_info(tick, State) ->
+    retain(brokers),
+    retain(version,  list_to_binary(version())),
+    retain(sysdescr, list_to_binary(sysdescr())),
     {noreply, State, hibernate};
 
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, #state{tick_tref = TRef}) ->
+terminate(_Reason, #state{heartbeat = Hb, tick_tref = TRef}) ->
+    stop_tick(Hb),
     stop_tick(TRef).
 
 code_change(_OldVsn, State, _Extra) ->

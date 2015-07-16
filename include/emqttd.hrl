@@ -1,24 +1,24 @@
-%%------------------------------------------------------------------------------
-%% Copyright (c) 2012-2015, Feng Lee <feng@emqtt.io>
-%% 
-%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%% of this software and associated documentation files (the "Software"), to deal
-%% in the Software without restriction, including without limitation the rights
-%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%% copies of the Software, and to permit persons to whom the Software is
-%% furnished to do so, subject to the following conditions:
-%% 
-%% The above copyright notice and this permission notice shall be included in all
-%% copies or substantial portions of the Software.
-%% 
-%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%% SOFTWARE.
-%%------------------------------------------------------------------------------
+%%%-----------------------------------------------------------------------------
+%%% Copyright (c) 2012-2015 eMQTT.IO, All Rights Reserved.
+%%%
+%%% Permission is hereby granted, free of charge, to any person obtaining a copy
+%%% of this software and associated documentation files (the "Software"), to deal
+%%% in the Software without restriction, including without limitation the rights
+%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+%%% copies of the Software, and to permit persons to whom the Software is
+%%% furnished to do so, subject to the following conditions:
+%%%
+%%% The above copyright notice and this permission notice shall be included in all
+%%% copies or substantial portions of the Software.
+%%%
+%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+%%% SOFTWARE.
+%%%-----------------------------------------------------------------------------
 %%% @doc
 %%% MQTT Broker Header.
 %%%
@@ -73,7 +73,7 @@
 %%------------------------------------------------------------------------------
 -record(mqtt_queue, {
     name     :: binary(),
-    subpid   :: pid(),
+    qpid     :: pid(),
     qos = 0  :: 0 | 1 | 2
 }).
 
@@ -83,12 +83,15 @@
 %% MQTT Client
 %%------------------------------------------------------------------------------
 -record(mqtt_client, {
-    client_id   :: binary() | undefined,
-    username    :: binary() | undefined,
-    ipaddress   :: inet:ip_address(),
-    clean_sess  :: boolean(),
-    client_pid  :: pid(),
-    proto_ver   :: 3 | 4
+    client_id     :: binary() | undefined,
+    client_pid    :: pid(),
+    username      :: binary() | undefined,
+    peername      :: {inet:ip_address(), integer()},
+    clean_sess    :: boolean(),
+    proto_ver     :: 3 | 4,
+    keepalive = 0,
+    will_topic    :: undefined | binary(),
+    connected_at  :: erlang:timestamp()
 }).
 
 -type mqtt_client() :: #mqtt_client{}.
@@ -98,8 +101,9 @@
 %%------------------------------------------------------------------------------
 -record(mqtt_session, {
     client_id,
-    session_pid,
-    subscriptions = []
+    sess_pid,
+    persistent,
+    on_node
 }).
 
 -type mqtt_session() :: #mqtt_session{}.
@@ -111,8 +115,8 @@
 -type mqtt_pktid() :: 1..16#ffff | undefined.
 
 -record(mqtt_message, {
-    msgid           :: mqtt_msgid(),      %% Unique Message ID
-    pktid           :: 1..16#ffff,        %% PacketId
+    msgid           :: mqtt_msgid(),      %% Global unique message ID
+    pktid           :: mqtt_pktid(),      %% PacketId
     topic           :: binary(),          %% Topic that the message is published to
     from            :: binary() | atom(), %% ClientId of publisher
     qos    = 0      :: 0 | 1 | 2,         %% Message QoS

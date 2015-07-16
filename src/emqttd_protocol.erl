@@ -24,6 +24,7 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_protocol).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -40,20 +41,20 @@
 -export([handle/2]).
 
 %% Protocol State
--record(proto_state, {
-        peername,
-        sendfun,
-        connected = false, %received CONNECT action?
-        proto_ver,
-        proto_name,
-        username,
-		client_id,
-		clean_sess,
-        session,    
-		will_msg,
-        max_clientid_len = ?MAX_CLIENTID_LEN,
-        client_pid
-}).
+-record(proto_state, {peername,
+                      sendfun,
+                      connected = false, %received CONNECT action?
+                      proto_ver,
+                      proto_name,
+                      username,
+                      client_id,
+                      clean_sess,
+                      session,
+                      will_msg,
+                      keepalive,
+                      max_clientid_len = ?MAX_CLIENTID_LEN,
+                      client_pid,
+                      connected_at}).
 
 -type proto_state() :: #proto_state{}.
 
@@ -61,6 +62,7 @@
 %% @doc Init protocol
 %% @end
 %%------------------------------------------------------------------------------
+
 init(Peername, SendFun, Opts) ->
     MaxLen = proplists:get_value(max_clientid_len, Opts, ?MAX_CLIENTID_LEN),
 	#proto_state{peername         = Peername,
@@ -68,32 +70,50 @@ init(Peername, SendFun, Opts) ->
                  max_clientid_len = MaxLen,
                  client_pid       = self()}.
 
-info(#proto_state{proto_ver    = ProtoVer,
+info(#proto_state{client_id	   = ClientId,
+                  username     = Username,
+                  peername     = Peername,
+                  proto_ver    = ProtoVer,
                   proto_name   = ProtoName,
-				  client_id	   = ClientId,
+                  keepalive    = KeepAlive,
 				  clean_sess   = CleanSess,
-				  will_msg	   = WillMsg}) ->
-	[{proto_ver,  ProtoVer},
+				  will_msg	   = WillMsg,
+                  connected_at = ConnectedAt}) ->
+    [{client_id, ClientId},
+     {username, Username},
+     {peername, Peername},
+     {proto_ver, ProtoVer},
      {proto_name, ProtoName},
-	 {client_id,   ClientId},
-	 {clean_sess, CleanSess},
-	 {will_msg,   WillMsg}].
+     {keepalive, KeepAlive},
+     {clean_sess, CleanSess},
+     {will_msg,	WillMsg},
+     {connected_at, ConnectedAt}].
 
 clientid(#proto_state{client_id = ClientId}) ->
     ClientId.
 
-client(#proto_state{peername = {Addr, _Port},
-                    client_id = ClientId,
-                    username = Username,
+client(#proto_state{client_id  = ClientId,
+                    peername   = Peername,
+                    username   = Username,
                     clean_sess = CleanSess,
                     proto_ver  = ProtoVer,
-                    client_pid = Pid}) ->
-    #mqtt_client{client_id   = ClientId,
+                    keepalive  = Keepalive,
+                    will_msg   = WillMsg,
+                    client_pid = Pid,
+                    connected_at = Time}) ->
+    WillTopic = if
+                    WillMsg =:= undefined -> undefined;
+                    true -> WillMsg#mqtt_message.topic
+                end,
+    #mqtt_client{client_id  = ClientId,
+                 client_pid = Pid,
                  username   = Username,
-                 ipaddress  = Addr,
+                 peername   = Peername,
                  clean_sess = CleanSess,
                  proto_ver  = ProtoVer,
-                 client_pid = Pid}.
+                 keepalive  = Keepalive,
+                 will_topic = WillTopic,
+                 connected_at = Time}.
 
 %% CONNECT – Client requests a connection to a Server
 
@@ -111,7 +131,7 @@ received(_Packet, State = #proto_state{connected = false}) ->
 
 received(Packet = ?PACKET(_Type), State) ->
     trace(recv, Packet, State),
-	case validate_packet(Packet) of	
+	case validate_packet(Packet) of
 	ok ->
         handle(Packet, State);
 	{error, Reason} ->
@@ -121,18 +141,21 @@ received(Packet = ?PACKET(_Type), State) ->
 handle(Packet = ?CONNECT_PACKET(Var), State0 = #proto_state{peername = Peername}) ->
 
     #mqtt_packet_connect{proto_ver  = ProtoVer,
-                         proto_name = ProtoName, 
+                         proto_name = ProtoName,
                          username   = Username,
                          password   = Password,
                          clean_sess = CleanSess,
-                         keep_alive = KeepAlive,
-                         client_id   = ClientId} = Var,
+                         keep_alive  = KeepAlive,
+                         client_id  = ClientId} = Var,
 
     State1 = State0#proto_state{proto_ver  = ProtoVer,
-                                proto_name = ProtoName, 
+                                proto_name = ProtoName,
                                 username   = Username,
                                 client_id  = ClientId,
-                                clean_sess = CleanSess},
+                                clean_sess = CleanSess,
+                                keepalive  = KeepAlive,
+                                will_msg   = willmsg(Var),
+                                connected_at = os:timestamp()},
 
     trace(recv, Packet, State1),
 
@@ -142,16 +165,20 @@ handle(Packet = ?CONNECT_PACKET(Var), State0 = #proto_state{peername = Peername}
             case emqttd_access_control:auth(client(State1), Password) of
                 ok ->
                     %% Generate clientId if null
-                    State2 = State1#proto_state{client_id = clientid(ClientId, State1)},
+                    State2 = maybe_set_clientid(State1),
 
-                    %%Starting session
-                    {ok, Session} = emqttd_sm:start_session(CleanSess, clientid(State2)),
-
-                    %% Start keepalive
-                    start_keepalive(KeepAlive),
-
-                    %% ACCEPT
-                    {?CONNACK_ACCEPT, State2#proto_state{session = Session, will_msg = willmsg(Var)}};
+                    %% Start session
+                    case emqttd_sm:start_session(CleanSess, clientid(State2)) of
+                        {ok, Session} ->
+                            %% Register the client
+                            emqttd_cm:register(client(State2)),
+                            %% Start keepalive
+                            start_keepalive(KeepAlive),
+                            %% ACCEPT
+                            {?CONNACK_ACCEPT, State2#proto_state{session = Session}};
+                        {error, Error} ->
+                            exit({shutdown, Error})
+                    end;
                 {error, Reason}->
                     lager:error("~s@~s: username '~s', login failed - ~s",
                                     [ClientId, emqttd_net:format(Peername), Username, Reason]),
@@ -176,8 +203,6 @@ handle(Packet = ?PUBLISH_PACKET(_Qos, Topic, _PacketId, _Payload),
             lager:error("ACL Deny: ~s cannot publish to ~s", [ClientId, Topic])
     end,
 	{ok, State};
-
-
 
 handle(?PUBACK_PACKET(?PUBACK, PacketId), State = #proto_state{session = Session}) ->
     emqttd_session:puback(Session, PacketId),
@@ -207,9 +232,8 @@ handle(?SUBSCRIBE_PACKET(PacketId, TopicTable), State = #proto_state{client_id =
             lager:error("SUBSCRIBE from '~s' Denied: ~p", [ClientId, TopicTable]),
             {ok, State};
         false ->
-            TopicTable1 = emqttd_broker:foldl_hooks('client.subscribe', [ClientId], TopicTable),
             %%TODO: GrantedQos should be renamed.
-            {ok, GrantedQos} = emqttd_session:subscribe(Session, TopicTable1),
+            {ok, GrantedQos} = emqttd_session:subscribe(Session, TopicTable),
             send(?SUBACK_PACKET(PacketId, GrantedQos), State)
     end;
 
@@ -221,10 +245,8 @@ handle({subscribe, TopicTable}, State = #proto_state{session = Session}) ->
 handle(?UNSUBSCRIBE_PACKET(PacketId, []), State) ->
     send(?UNSUBACK_PACKET(PacketId), State);
 
-handle(?UNSUBSCRIBE_PACKET(PacketId, Topics), State = #proto_state{client_id = ClientId,
-                                                                   session = Session}) ->
-    Topics1 = emqttd_broker:foldl_hooks('client.unsubscribe', [ClientId], Topics),
-    ok = emqttd_session:unsubscribe(Session, Topics1),
+handle(?UNSUBSCRIBE_PACKET(PacketId, Topics), State = #proto_state{session = Session}) ->
+    ok = emqttd_session:unsubscribe(Session, Topics),
     send(?UNSUBACK_PACKET(PacketId), State);
 
 handle(?PACKET(?PINGREQ), State) ->
@@ -242,8 +264,7 @@ publish(Packet = ?PUBLISH(?QOS_1, PacketId), State = #proto_state{client_id = Cl
         ok ->
             send(?PUBACK_PACKET(?PUBACK, PacketId), State);
         {error, Error} ->
-            %%TODO: log format...
-            lager:error("Client ~s: publish qos1 error ~p", [ClientId, Error])
+            lager:error("Client ~s: publish qos1 error - ~p", [ClientId, Error])
     end;
 
 publish(Packet = ?PUBLISH(?QOS_2, PacketId), State = #proto_state{client_id = ClientId, session = Session}) ->
@@ -251,15 +272,15 @@ publish(Packet = ?PUBLISH(?QOS_2, PacketId), State = #proto_state{client_id = Cl
         ok ->
             send(?PUBACK_PACKET(?PUBREC, PacketId), State);
         {error, Error} ->
-            %%TODO: log format...
-            lager:error("Client ~s: publish qos2 error ~p", [ClientId, Error])
+            lager:error("Client ~s: publish qos2 error - ~p", [ClientId, Error])
     end.
 
 -spec send(mqtt_message() | mqtt_packet(), proto_state()) -> {ok, proto_state()}.
 send(Msg, State) when is_record(Msg, mqtt_message) ->
 	send(emqttd_message:to_packet(Msg), State);
 
-send(Packet, State = #proto_state{sendfun = SendFun, peername = Peername}) when is_record(Packet, mqtt_packet) ->
+send(Packet, State = #proto_state{sendfun = SendFun, peername = Peername})
+        when is_record(Packet, mqtt_packet) ->
     trace(send, Packet, State),
     sent_stats(Packet),
     Data = emqttd_serialiser:serialise(Packet),
@@ -283,26 +304,29 @@ redeliver({?PUBREL, PacketId}, State) ->
 shutdown(duplicate_id, _State) ->
     quiet; %%
 
-shutdown(_, #proto_state{client_id = undefined}) ->
+shutdown(Error, #proto_state{client_id = undefined}) ->
+    lager:info("Protocol shutdown ~p", [Error]),
     ignore;
 
 shutdown(Error, #proto_state{peername = Peername, client_id = ClientId, will_msg = WillMsg}) ->
 	lager:info([{client, ClientId}], "Client ~s@~s: shutdown ~p",
                    [ClientId, emqttd_net:format(Peername), Error]),
     send_willmsg(ClientId, WillMsg),
+    emqttd_cm:unregister(ClientId),
     emqttd_broker:foreach_hooks('client.disconnected', [Error, ClientId]).
 
 willmsg(Packet) when is_record(Packet, mqtt_packet_connect) ->
     emqttd_message:from_packet(Packet).
 
-%% generate a clientId
-clientid(undefined, State) ->
-    clientid(<<>>, State);
-%%TODO: <<>> is not right.
-clientid(<<>>, #proto_state{peername = Peername}) ->
-    {_, _, MicroSecs} = os:timestamp(),
-    iolist_to_binary(["emqttd_", base64:encode(emqttd_net:format(Peername)), integer_to_list(MicroSecs)]);
-clientid(ClientId, _State) -> ClientId.
+%% Generate a client if if nulll
+maybe_set_clientid(State = #proto_state{client_id = NullId})
+        when NullId =:= undefined orelse NullId =:= <<>> ->
+    {_, NPid, _} = emqttd_guid:new(),
+    ClientId = iolist_to_binary(["emqttd_", integer_to_list(NPid)]),
+    State#proto_state{client_id = ClientId};
+
+maybe_set_clientid(State) ->
+    State.
 
 send_willmsg(_ClientId, undefined) ->
     ignore;

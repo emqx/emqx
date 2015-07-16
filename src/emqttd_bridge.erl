@@ -46,7 +46,8 @@
 -record(state, {node, subtopic,
                 qos,
                 topic_suffix       = <<>>,
-                topic_prefix       = <<>>,  
+                topic_prefix       = <<>>,
+                mqueue             = emqttd_mqueue:mqueue(),
                 max_queue_len      = 0,
                 ping_down_interval = ?PING_DOWN_INTERVAL,
                 status             = up}).
@@ -81,8 +82,11 @@ init([Node, SubTopic, Options]) ->
         true -> 
             true = erlang:monitor_node(Node, true),
             State = parse_opts(Options, #state{node = Node, subtopic = SubTopic}),
+            MQueue = emqttd_mqueue:new(qname(Node, SubTopic),
+                                       [{max_len, State#state.max_queue_len}],
+                                       emqttd_alarm:alarm_fun()),
             emqttd_pubsub:subscribe({SubTopic, State#state.qos}),
-            {ok, State};
+            {ok, State#state{mqueue = MQueue}};
         false -> 
             {stop, {cannot_connect, Node}}
     end.
@@ -100,15 +104,19 @@ parse_opts([{max_queue_len, Len} | Opts], State) ->
 parse_opts([{ping_down_interval, Interval} | Opts], State) ->
     parse_opts(Opts, State#state{ping_down_interval = Interval*1000}).
 
+qname(Node, SubTopic) when is_atom(Node) ->
+    qname(atom_to_list(Node), SubTopic);
+qname(Node, SubTopic) ->
+    list_to_binary(["Bridge:", Node, ":", SubTopic]).
+
 handle_call(_Request, _From, State) ->
     {reply, error, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({dispatch, Msg}, State = #state{node = Node, status = down}) ->
-    lager:error("Bridge Dropped Msg for ~p Down: ~s", [Node, emqttd_message:format(Msg)]),
-    {noreply, State};
+handle_info({dispatch, Msg}, State = #state{mqueue = MQ, status = down}) ->
+    {noreply, State#state{mqueue = emqttd_mqueue:in(Msg, MQ)}};
 
 handle_info({dispatch, Msg}, State = #state{node = Node, status = up}) ->
     rpc:cast(Node, emqttd_pubsub, publish, [transform(Msg, State)]),
@@ -124,7 +132,7 @@ handle_info({nodeup, Node}, State = #state{node = Node}) ->
     case emqttd:is_running(Node) of
         true -> 
             lager:warning("Bridge Node Up: ~p", [Node]),
-            {noreply, State#state{status = up}};
+            {noreply, dequeue(State#state{status = up})};
         false ->
             self() ! {nodedown, Node},
             {noreply, State#state{status = down}}
@@ -158,6 +166,15 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 %%% Internal functions
 %%%=============================================================================
+
+dequeue(State = #state{mqueue = MQ}) ->
+    case emqttd_mqueue:out(MQ) of
+        {empty, MQ1} ->
+            State#state{mqueue = MQ1};
+        {{value, Msg}, MQ1} ->
+            handle_info({dispatch, Msg}, State),
+            dequeue(State#state{mqueue = MQ1})
+    end.
 
 transform(Msg = #mqtt_message{topic = Topic}, #state{topic_prefix = Prefix,
                                                      topic_suffix = Suffix}) ->

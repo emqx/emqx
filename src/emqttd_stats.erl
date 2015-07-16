@@ -24,6 +24,7 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_stats).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -124,18 +125,11 @@ setstat(Stat, Val) ->
 
 %%------------------------------------------------------------------------------
 %% @doc Set stats with max
-%% TODO: this is wrong...
 %% @end
 %%------------------------------------------------------------------------------
 -spec setstats(Stat :: atom(), MaxStat :: atom(), Val :: pos_integer()) -> boolean().
 setstats(Stat, MaxStat, Val) ->
-    MaxVal = ets:lookup_element(?STATS_TAB, MaxStat, 2),
-    if
-        Val > MaxVal -> 
-            ets:update_element(?STATS_TAB, MaxStat, {2, Val});
-        true -> ok
-    end,
-    ets:update_element(?STATS_TAB, Stat, {2, Val}).
+    gen_server:cast(?MODULE, {setstats, Stat, MaxStat, Val}).
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -153,6 +147,17 @@ init([]) ->
 
 handle_call(_Request, _From, State) ->
     {reply, error, State}.
+
+%% atomic
+handle_cast({setstats, Stat, MaxStat, Val}, State) ->
+    MaxVal = ets:lookup_element(?STATS_TAB, MaxStat, 2),
+    if
+        Val > MaxVal ->
+            ets:update_element(?STATS_TAB, MaxStat, {2, Val});
+        true -> ok
+    end,
+    ets:update_element(?STATS_TAB, Stat, {2, Val}),
+    {noreply, State};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.

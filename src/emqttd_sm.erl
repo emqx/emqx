@@ -22,16 +22,6 @@
 %%% @doc
 %%% emqttd session manager.
 %%%
-%%% The Session state in the Server consists of:
-%%% The existence of a Session, even if the rest of the Session state is empty.
-%%% The Client’s subscriptions.
-%%% QoS 1 and QoS 2 messages which have been sent to the Client, but have not 
-%%% been completely acknowledged.
-%%% QoS 1 and QoS 2 messages pending transmission to the Client.
-%%% QoS 2 messages which have been received from the Client, but have not been
-%%% completely acknowledged.
-%%% Optionally, QoS 0 messages pending transmission to the Client.
-%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 
@@ -41,14 +31,18 @@
 
 -include("emqttd.hrl").
 
--behaviour(gen_server).
+%% Mnesia Callbacks
+-export([mnesia/1]).
+
+-boot_mnesia({mnesia, [boot]}).
+-copy_mnesia({mnesia, [copy]}).
 
 %% API Function Exports
--export([start_link/2, pool/0, table/0]).
+-export([start_link/2, pool/0]).
 
--export([lookup_session/1,
-         start_session/2,
-         destroy_session/1]).
+-export([start_session/2, lookup_session/1]).
+
+-behaviour(gen_server).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -58,7 +52,20 @@
 
 -define(SM_POOL, sm_pool).
 
--define(SESSION_TAB, mqtt_session).
+%%%=============================================================================
+%%% Mnesia callbacks
+%%%=============================================================================
+
+mnesia(boot) ->
+    ok = emqttd_mnesia:create_table(session, [
+                {type, ordered_set},
+                {ram_copies, [node()]},
+                {record_name, mqtt_session},
+                {attributes, record_info(fields, mqtt_session)},
+                {index, [sess_pid]}]);
+
+mnesia(copy) ->
+    ok = emqttd_mnesia:copy_table(session).
 
 %%%=============================================================================
 %%% API
@@ -69,8 +76,8 @@
 %% @end
 %%------------------------------------------------------------------------------
 -spec start_link(Id, StatsFun) -> {ok, pid()} | ignore | {error, any()} when
-        Id :: pos_integer(),
-        StatsFun :: {fun(), fun()}.
+        Id       :: pos_integer(),
+        StatsFun :: fun().
 start_link(Id, StatsFun) ->
     gen_server:start_link(?MODULE, [Id, StatsFun], []).
 
@@ -81,42 +88,26 @@ start_link(Id, StatsFun) ->
 pool() -> ?SM_POOL.
 
 %%------------------------------------------------------------------------------
-%% @doc Table name.
-%% @end
-%%------------------------------------------------------------------------------
-table() -> ?SESSION_TAB.
-
-%%------------------------------------------------------------------------------
 %% @doc Start a session
 %% @end
 %%------------------------------------------------------------------------------
-
 -spec start_session(CleanSess :: boolean(), binary()) -> {ok, pid()} | {error, any()}.
 start_session(CleanSess, ClientId) ->
     SM = gproc_pool:pick_worker(?SM_POOL, ClientId),
     call(SM, {start_session, {CleanSess, ClientId, self()}}).
 
 %%------------------------------------------------------------------------------
-%% @doc Lookup Session Pid
+%% @doc Lookup a Session
 %% @end
 %%------------------------------------------------------------------------------
 -spec lookup_session(binary()) -> pid() | undefined.
 lookup_session(ClientId) ->
-    case ets:lookup(?SESSION_TAB, ClientId) of
-        [{_Clean, _, SessPid, _}] -> SessPid;
+    case mnesia:dirty_read(session, ClientId) of
+        [Session] -> Session;
         [] -> undefined
     end.
 
-%%------------------------------------------------------------------------------
-%% @doc Destroy a session
-%% @end
-%%------------------------------------------------------------------------------
--spec destroy_session(binary()) -> ok.
-destroy_session(ClientId) ->
-    SM = gproc_pool:pick_worker(?SM_POOL, ClientId),
-    call(SM, {destroy_session, ClientId}).
-
-call(SM, Req) -> gen_server:call(SM, Req).
+call(SM, Req) -> gen_server:call(SM, Req, infinity).
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -126,37 +117,28 @@ init([Id, StatsFun]) ->
     gproc_pool:connect_worker(?SM_POOL, {?MODULE, Id}),
     {ok, #state{id = Id, statsfun = StatsFun}}.
 
+%% persistent session
 handle_call({start_session, {false, ClientId, ClientPid}}, _From, State) ->
-    Reply =
-    case ets:lookup(?SESSION_TAB, ClientId) of
-        [{_Clean, _, SessPid, _MRef}] ->
-            emqttd_session:resume(SessPid, ClientId, ClientPid),
-            {ok, SessPid};
-        [] ->
-            new_session(false, ClientId, ClientPid)
-    end,
-    {reply, Reply, setstats(State)};
+    case lookup_session(ClientId) of
+        undefined ->
+            %% create session locally
+            {reply, create_session(false, ClientId, ClientPid), State};
+        Session ->
+            {reply, resume_session(Session, ClientPid), State}
+    end;
 
 handle_call({start_session, {true, ClientId, ClientPid}}, _From, State) ->
-    case ets:lookup(?SESSION_TAB, ClientId) of
-        [{_Clean, _, SessPid, MRef}] ->
-            erlang:demonitor(MRef, [flush]),
-            emqttd_session:destroy(SessPid, ClientId);
-        [] ->
-            ok
-    end,
-    {reply, new_session(true, ClientId, ClientPid), setstats(State)};
-
-handle_call({destroy_session, ClientId}, _From, State) ->
-    case ets:lookup(?SESSION_TAB, ClientId) of
-        [{_Clean, _, SessPid, MRef}] ->
-            emqttd_session:destroy(SessPid, ClientId),
-            erlang:demonitor(MRef, [flush]),
-            ets:delete(?SESSION_TAB, ClientId);
-        [] ->
-            ignore
-    end,
-    {reply, ok, setstats(State)};
+    case lookup_session(ClientId) of
+        undefined ->
+            {reply, create_session(true, ClientId, ClientPid), State};
+        Session ->
+            case destroy_session(Session) of
+                ok ->
+                    {reply, create_session(true, ClientId, ClientPid), State};
+                {error, Error} ->
+                    {reply, {error, Error}, State}
+            end
+    end;
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -164,8 +146,11 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
-	ets:match_delete(?SESSION_TAB, {'_', '_', DownPid, MRef}),
+handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State) ->
+    mnesia:transaction(fun() ->
+                [mnesia:delete_object(session, Sess, write) || Sess 
+                    <- mnesia:index_read(session, DownPid, #mqtt_session.sess_pid)]
+        end),
     {noreply, setstats(State)};
 
 handle_info(_Info, State) ->
@@ -181,17 +166,116 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%=============================================================================
 
-new_session(CleanSess, ClientId, ClientPid) ->
+create_session(CleanSess, ClientId, ClientPid) ->
     case emqttd_session_sup:start_session(CleanSess, ClientId, ClientPid) of
         {ok, SessPid} ->
-            MRef = erlang:monitor(process, SessPid),
-            ets:insert(?SESSION_TAB, {CleanSess, ClientId, SessPid, MRef}),
-            {ok, SessPid};
+            Session = #mqtt_session{client_id  = ClientId,
+                                    sess_pid   = SessPid,
+                                    persistent = not CleanSess,
+                                    on_node    = node()},
+            case insert_session(Session) of
+                {aborted, {conflict, Node}} ->
+                    %% conflict with othe node?
+                    lager:critical("Session ~s conflict with node ~p!", [ClientId, Node]),
+                    {error, conflict};
+                {atomic, ok} ->
+                    erlang:monitor(process, SessPid),
+                    {ok, SessPid}
+            end;
         {error, Error} ->
             {error, Error}
     end.
 
-setstats(State = #state{statsfun = {CFun, SFun}}) ->
-    CFun(ets:info(?SESSION_TAB, size)),
-    SFun(ets:select_count(?SESSION_TAB,  [{{false, '_', '_', '_'}, [], [true]}])),
+insert_session(Session = #mqtt_session{client_id = ClientId}) ->
+    mnesia:transaction(fun() ->
+                case mnesia:wread({session, ClientId}) of
+                    [] ->
+                        mnesia:write(session, Session, write);
+                    [#mqtt_session{on_node = Node}] ->
+                        mnesia:abort({conflict, Node})
+                end
+        end).
+
+%% local node
+resume_session(#mqtt_session{client_id = ClientId,
+                             sess_pid  = SessPid,
+                             on_node   = Node}, ClientPid)
+        when Node =:= node() ->
+    case is_process_alive(SessPid) of 
+        true ->
+            emqttd_session:resume(SessPid, ClientId, ClientPid),
+            {ok, SessPid};
+        false ->
+            lager:critical("Session ~s@~p died unexpectedly!", [ClientId, SessPid]),
+            {error, session_died}
+    end;
+
+%% remote node
+resume_session(Session = #mqtt_session{client_id = ClientId,
+                                       sess_pid = SessPid,
+                                       on_node = Node}, ClientPid) ->
+    case emqttd:is_running(Node) of
+        true ->
+            case rpc:call(Node, emqttd_session, resume, [SessPid, ClientId, ClientPid]) of
+                ok ->
+                    {ok, SessPid};
+                {badrpc, Reason} ->
+                    lager:critical("Resume session ~s on remote node ~p failed for ~p",
+                                    [ClientId, Node, Reason]),
+                    {error, list_to_atom("session_" ++ atom_to_list(Reason))}
+            end;
+        false ->
+            lager:critical("Session ~s died for node ~p down!", [ClientId, Node]),
+            remove_session(Session),
+            {error, session_node_down}
+    end.
+
+%% local node
+destroy_session(Session = #mqtt_session{client_id = ClientId,
+                                        sess_pid  = SessPid,
+                                        on_node   = Node}) when Node =:= node() ->
+    case is_process_alive(SessPid) of
+        true ->
+            emqttd_session:destroy(SessPid, ClientId);
+        false ->
+            lager:critical("Session ~s@~p died unexpectedly!", [ClientId, SessPid])
+    end,
+    case remove_session(Session) of
+        {atomic, ok} -> ok;
+        {aborted, Error} -> {error, Error}
+    end;
+
+%% remote node
+destroy_session(Session = #mqtt_session{client_id = ClientId,
+                                        sess_pid  = SessPid,
+                                        on_node   = Node}) ->
+    case emqttd:is_running(Node) of
+        true ->
+            case rpc:call(Node, emqttd_session, destroy, [SessPid, ClientId]) of
+                ok ->
+                    case remove_session(Session) of
+                        {atomic, ok} -> ok;
+                        {aborted, Error} -> {error, Error}
+                    end;
+                {badrpc, Reason} ->
+                    lager:critical("Destroy session ~s on remote node ~p failed for ~p",
+                                    [ClientId, Node, Reason]),
+                    {error, list_to_atom("session_" ++ atom_to_list(Reason))}
+             end;
+        false ->
+            lager:error("Session ~s died for node ~p down!", [ClientId, Node]),
+            case remove_session(Session) of
+                {atomic, ok} -> ok;
+                {aborted, Error} -> {error, Error}
+            end
+    end.
+
+remove_session(Session) ->
+    mnesia:transaction(fun() ->
+            mnesia:delete_object(session, Session, write)
+        end).
+
+setstats(State = #state{statsfun = _StatsFun}) ->
     State.
+
+

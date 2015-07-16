@@ -24,6 +24,7 @@
 %%% 
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_retained).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -73,7 +74,7 @@ retain(#mqtt_message{retain = true, topic = Topic, payload = <<>>}) ->
 retain(Msg = #mqtt_message{topic = Topic,
                            retain = true,
                            payload = Payload}) ->
-    TabSize = mnesia:table_info(message, size),
+    TabSize = mnesia:table_info(retained, size),
     case {TabSize < limit(table), size(Payload) < limit(payload)} of
         {true, true} ->
             Retained = #mqtt_retained{topic = Topic, message = Msg},
@@ -83,7 +84,7 @@ retain(Msg = #mqtt_message{topic = Topic,
        {false, _}->
             lager:error("Dropped retained message(topic=~s) for table is full!", [Topic]);
        {_, false}->
-            lager:error("Dropped retained message(topic=~s, payload=~p) for payload is too big!", [Topic, size(Payload)])
+            lager:error("Dropped retained message(topic=~s, payload_size=~p) for payload is too big!", [Topic, size(Payload)])
     end, ok.
 
 limit(table) ->
@@ -107,7 +108,7 @@ env() ->
 -spec dispatch(Topic, CPid) -> any() when
         Topic  :: binary(),
         CPid   :: pid().
-dispatch(Topic, CPid) when is_binary(Topic) andalso is_pid(CPid) ->
+dispatch(Topic, CPid) when is_binary(Topic) ->
     Msgs =
     case emqttd_topic:wildcard(Topic) of
         false ->
