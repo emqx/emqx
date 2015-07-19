@@ -2,10 +2,14 @@
 emqttd ChangeLog
 ==================
 
-0.9.1-alpha (2015-07-18)
+0.9.2-alpha (2015-07-18)
 -------------------------
 
 Improve: issue #196 - Add New Hook 'client.subscribe.after' 
+
+
+0.9.1-alpha (2015-07-10)
+-------------------------
 
 Bugfix: issue #189 - MQTT over WebSocket(SSL) cannot work?
 
