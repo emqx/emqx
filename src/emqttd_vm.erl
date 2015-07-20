@@ -31,14 +31,15 @@
 
 -export([microsecs/0]).
 
--export([loads/0, scheduler_usage/1]).
+-export([loads/0, mem_info/0, scheduler_usage/1]).
 
 -export([get_memory/0]).
 
 -export([get_process_list/0,
          get_process_info/0,
          get_process_gc/0,
-         get_process_group_leader_info/1]).
+         get_process_group_leader_info/1,
+ 	 get_process_limit/0]).
 	
 -export([get_ets_list/0,
          get_ets_info/0,
@@ -178,6 +179,11 @@ loads() ->
      {load5, ftos(cpu_sup:avg5()/256)},
      {load15, ftos(cpu_sup:avg15()/256)}].
 
+mem_info() ->
+    Dataset = memsup:get_system_memory_data(),
+    [{total_memory, proplists:get_value(total_memory, Dataset)},
+     {used_memory, proplists:get_value(total_memory, Dataset) - proplists:get_value(free_memory, Dataset)}].
+
 ftos(F) -> 
     [S] = io_lib:format("~.2f", [F]), S.
 
@@ -278,6 +284,9 @@ get_process_gc(Pid) when is_pid(Pid) ->
 get_process_group_leader_info(LeaderPid) when is_pid(LeaderPid) ->
     LeaderInfo = [{Key, Value}|| {Key, Value} <- process_info(LeaderPid), lists:member(Key, ?PROCESS_INFO)],
     lists:flatten([convert_pid_info(E) || E <- LeaderInfo]).
+
+get_process_limit() ->
+    erlang:system_info(process_limit). 
 
 get_ets_list() ->
      ets:all().
