@@ -55,14 +55,14 @@ make(From, Topic, Payload) ->
 
 -spec make(From, Qos, Topic, Payload) -> mqtt_message() when
     From    :: atom() | binary(),
-    Qos     :: mqtt_qos(),
+    Qos     :: mqtt_qos() | mqtt_qos_name(),
     Topic   :: binary(),
     Payload :: binary().
 make(From, Qos, Topic, Payload) ->
     #mqtt_message{msgid     = msgid(Qos),
                   topic     = Topic,
                   from      = From,
-                  qos       = Qos,
+                  qos       = ?QOS_I(Qos),
                   payload   = Payload,
                   timestamp = os:timestamp()}.
 
@@ -107,7 +107,7 @@ from_packet(ClientId, Packet) ->
 
 msgid(?QOS_0) ->
     undefined;
-msgid(_Qos)   ->
+msgid(Qos) when Qos =:= ?QOS_1 orelse Qos =:= ?QOS_2 ->
     emqttd_guid:gen().
 
 %%------------------------------------------------------------------------------

@@ -49,6 +49,26 @@
 
 -type mqtt_qos() :: ?QOS_0 | ?QOS_1 | ?QOS_2.
 
+-type mqtt_qos_name() :: qos0 | at_most_once  |
+                         qos1 | at_least_once |
+                         qos2 | exactly_once.
+
+-define(QOS_I(Name),
+    begin
+        (case Name of
+            ?QOS_0        -> ?QOS_0;
+            qos0          -> ?QOS_0;
+            at_most_once  -> ?QOS_0;
+            ?QOS_1        -> ?QOS_1;
+            qos1          -> ?QOS_1;
+            at_least_once -> ?QOS_1;
+            ?QOS_2        -> ?QOS_2;
+            qos2          -> ?QOS_2;
+            exactly_once  -> ?QOS_2
+        end)
+    end).
+
+
 %%------------------------------------------------------------------------------
 %% Max ClientId Length. Why 1024? NiDongDe!
 %%------------------------------------------------------------------------------
