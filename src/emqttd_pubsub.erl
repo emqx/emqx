@@ -43,7 +43,7 @@
 -export([start_link/2]).
 
 -export([create/1,
-         subscribe/1,
+         subscribe/1, subscribe/2,
          unsubscribe/1,
          publish/1]).
 
@@ -128,15 +128,21 @@ create(Topic) when is_binary(Topic) ->
 %% @doc Subscribe topic
 %% @end
 %%------------------------------------------------------------------------------
--spec subscribe({Topic, Qos} | list({Topic, Qos})) -> 
+-spec subscribe({Topic, Qos} | list({Topic, Qos})) ->
     {ok, Qos | list(Qos)} | {error, any()} when
     Topic   :: binary(),
-    Qos     :: mqtt_qos().
-subscribe({Topic, Qos}) when is_binary(Topic) andalso ?IS_QOS(Qos) ->
-    call({subscribe, self(), Topic, Qos});
+    Qos     :: mqtt_qos() | mqtt_qos_name().
+subscribe({Topic, Qos}) when is_binary(Topic) andalso (?IS_QOS(Qos) orelse is_atom(Qos)) ->
+    call({subscribe, self(), Topic, ?QOS_I(Qos)});
 
 subscribe(Topics = [{_Topic, _Qos} | _]) ->
-    call({subscribe, self(), Topics}).
+    call({subscribe, self(), [{Topic, ?QOS_I(Qos)} || {Topic, Qos} <- Topics]}).
+
+-spec subscribe(Topic, Qos) -> {ok, Qos} when
+     Topic :: binary(),
+     Qos   :: mqtt_qos() | mqtt_qos_name().
+subscribe(Topic, Qos) ->
+    subscribe({Topic, Qos}).
 
 %%------------------------------------------------------------------------------
 %% @doc Unsubscribe Topic or Topics

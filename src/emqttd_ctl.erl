@@ -147,13 +147,29 @@ listeners([]) ->
         end, esockd:listeners()).
 
 bridges(["list"]) ->
-    lists:foreach(fun({{Node, Topic}, _Pid}) -> 
-                ?PRINT("bridge: ~s ~s~n", [Node, Topic]) 
+    lists:foreach(fun({{Node, Topic}, _Pid}) ->
+                ?PRINT("bridge: ~s ~s~n", [Node, Topic])
         end, emqttd_bridge_sup:bridges());
+
+bridges(["options"]) ->
+    ?PRINT_MSG("Options:~n"),
+    ?PRINT_MSG("  qos     = 0 | 1 | 2~n"),
+    ?PRINT_MSG("  prefix  = string~n"),
+    ?PRINT_MSG("  suffix  = string~n"),
+    ?PRINT_MSG("  queue   = integer~n"),
+    ?PRINT_MSG("Example:~n"),
+    ?PRINT_MSG("  qos=2,prefix=abc/,suffix=/yxz,queue=1000~n");
 
 bridges(["start", SNode, Topic]) ->
     case emqttd_bridge_sup:start_bridge(list_to_atom(SNode), bin(Topic)) of
-        {ok, _} -> ?PRINT_MSG("bridge is started.~n"); 
+        {ok, _} -> ?PRINT_MSG("bridge is started.~n");
+        {error, Error} -> ?PRINT("error: ~p~n", [Error])
+    end;
+
+bridges(["start", SNode, Topic, OptStr]) ->
+    Opts = parse_opts(bridge, OptStr),
+    case emqttd_bridge_sup:start_bridge(list_to_atom(SNode), bin(Topic), Opts) of
+        {ok, _} -> ?PRINT_MSG("bridge is started.~n");
         {error, Error} -> ?PRINT("error: ~p~n", [Error])
     end;
 
@@ -228,4 +244,20 @@ node_name(SNode) ->
 
 bin(S) when is_list(S) -> list_to_binary(S);
 bin(B) when is_binary(B) -> B.
+
+parse_opts(Cmd, OptStr) ->
+    Tokens = string:tokens(OptStr, ","),
+    [parse_opt(Cmd, list_to_atom(Opt), Val)
+        || [Opt, Val] <- [string:tokens(S, "=") || S <- Tokens]].
+
+parse_opt(bridge, qos, Qos) ->
+    {qos, list_to_integer(Qos)};
+parse_opt(bridge, suffix, Suffix) ->
+    {topic_suffix, list_to_binary(Suffix)};
+parse_opt(bridge, prefix, Prefix) ->
+    {topic_prefix, list_to_binary(Prefix)};
+parse_opt(bridge, queue, Len) ->
+    {max_queue_len, list_to_integer(Len)};
+parse_opt(_Cmd, Opt, _Val) ->
+    ?PRINT("Bad Option: ~s~n", [Opt]).
 
