@@ -44,10 +44,10 @@
 -define(PING_DOWN_INTERVAL, 1000).
 
 -record(state, {node, subtopic,
-                qos,
+                qos                = ?QOS_2,
                 topic_suffix       = <<>>,
                 topic_prefix       = <<>>,
-                mqueue             = emqttd_mqueue:mqueue(),
+                mqueue             :: emqttd_mqueue:mqueue(),
                 max_queue_len      = 0,
                 ping_down_interval = ?PING_DOWN_INTERVAL,
                 status             = up}).
