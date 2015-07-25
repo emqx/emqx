@@ -24,6 +24,7 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_bridge_sup).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -63,8 +64,13 @@ start_bridge(Node, SubTopic) when is_atom(Node) and is_binary(SubTopic) ->
 
 -spec start_bridge(atom(), binary(), [emqttd_bridge:option()]) -> {ok, pid()} | {error, any()}.
 start_bridge(Node, SubTopic, Options) when is_atom(Node) and is_binary(SubTopic) ->
-    Options1 = emqttd_opts:merge(emqttd_broker:env(bridge), Options),
-    supervisor:start_child(?MODULE, bridge_spec(Node, SubTopic, Options1)).
+    case Node =:= node() of
+        true  ->
+            {error, bridge_to_self};
+        false ->
+            Options1 = emqttd_opts:merge(emqttd_broker:env(bridge), Options),
+            supervisor:start_child(?MODULE, bridge_spec(Node, SubTopic, Options1))
+    end.
 
 %%------------------------------------------------------------------------------
 %% @doc Stop a bridge

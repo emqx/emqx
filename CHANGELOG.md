@@ -2,6 +2,20 @@
 emqttd ChangeLog
 ==================
 
+0.9.3-alpha (2015-07-25)
+-------------------------
+
+Wiki: [Bridge](https://github.com/emqtt/emqttd/wiki/Bridge)
+
+Improve: emqttd_protocol.hrl to define 'QOS_I'
+
+Improve: emqttd_pubsub to add subscribe/2 API
+
+Improve: ./bin/emqttd_ctl to support new bridges command
+
+Bugfix: issue #206 - Cannot bridge two nodes
+
+
 0.9.2-alpha (2015-07-18)
 -------------------------
 
