@@ -110,7 +110,7 @@
         %% Max Packets that Awaiting PUBREL
         max_awaiting_rel = 100,
 
-        %% Awaiting timers for ack, rel and comp.
+        %% Awaiting timers for ack, rel.
         awaiting_ack  :: map(),
 
         %% Retries to resend the unacked messages
