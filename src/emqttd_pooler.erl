@@ -51,14 +51,14 @@ start_link(I) ->
 %% @end
 %%------------------------------------------------------------------------------
 submit(Fun) ->
-   gen_server:call(gproc_pool:pick(pooler), {submit, Fun}, infinity).
+   gen_server:call(gproc_pool:pick_worker(pooler), {submit, Fun}, infinity).
 
 %%------------------------------------------------------------------------------
 %% @doc Submit work to pooler asynchronously
 %% @end
 %%------------------------------------------------------------------------------
 async_submit(Fun) ->
-    gen_server:cast(gproc_pool:pick(pooler), {async_submit, Fun}).
+    gen_server:cast(gproc_pool:pick_worker(pooler), {async_submit, Fun}).
 
 %%%=============================================================================
 %%% gen_server callbacks

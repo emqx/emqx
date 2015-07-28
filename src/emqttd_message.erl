@@ -59,7 +59,7 @@ make(From, Topic, Payload) ->
     Topic   :: binary(),
     Payload :: binary().
 make(From, Qos, Topic, Payload) ->
-    #mqtt_message{msgid     = msgid(Qos),
+    #mqtt_message{msgid     = msgid(?QOS_I(Qos)),
                   topic     = Topic,
                   from      = From,
                   qos       = ?QOS_I(Qos),
