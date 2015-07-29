@@ -68,7 +68,7 @@ status([]) ->
 %% @end
 %%------------------------------------------------------------------------------
 cluster([]) ->
-    Nodes = [node()|nodes()],
+    Nodes = emqttd_broker:running_nodes(),
     ?PRINT("cluster nodes: ~p~n", [Nodes]);
 
 cluster([SNode]) ->
