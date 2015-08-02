@@ -52,7 +52,7 @@ start(_StartType, _StartArgs) ->
     {ok, Sup} = emqttd_sup:start_link(),
     start_servers(Sup),
     emqttd:load_all_mods(),
-    emqttd:load_all_plugins(),
+    %% emqttd:load_all_plugins(),
     {ok, Listeners} = application:get_env(listeners),
     emqttd:open_listeners(Listeners),
     register(emqttd, self()),
