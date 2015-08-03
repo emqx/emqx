@@ -44,12 +44,12 @@ APPS = erts kernel stdlib sasl crypto ssl os_mon syntax_tools \
 
 check_plt: compile
 	dialyzer --check_plt --plt $(PLT) --apps $(APPS) \
-		deps/*/ebin apps/*/ebin
+		deps/*/ebin ./ebin
 
 build_plt: compile
 	dialyzer --build_plt --output_plt $(PLT) --apps $(APPS) \
-		deps/*/ebin apps/*/ebin
+		deps/*/ebin ./ebin
 
 dialyzer: compile
-	dialyzer -Wno_return --plt $(PLT) deps/*/ebin apps/*/ebin
+	dialyzer -Wno_return --plt $(PLT) deps/*/ebin ./ebin
 
