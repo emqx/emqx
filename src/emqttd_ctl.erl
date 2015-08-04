@@ -68,7 +68,7 @@ status([]) ->
 %% @end
 %%------------------------------------------------------------------------------
 cluster([]) ->
-    Nodes = [node()|nodes()],
+    Nodes = emqttd_broker:running_nodes(),
     ?PRINT("cluster nodes: ~p~n", [Nodes]);
 
 cluster([SNode]) ->
@@ -78,7 +78,7 @@ cluster([SNode]) ->
         case emqttd:is_running(Node) of
             true ->
                 %%TODO: should not unload here.
-                emqttd:unload_all_plugins(),
+                %% emqttd:unload_all_plugins(),
                 application:stop(emqttd),
                 application:stop(esockd),
                 application:stop(gproc),

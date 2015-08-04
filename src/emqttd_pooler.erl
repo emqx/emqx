@@ -75,7 +75,7 @@ handle_call(_Req, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({async_submit, Fun}, State) ->
-    run(Fun),
+    try run(Fun) catch _:Error -> lager:error("Pooler Error: ~p", [Error]) end,
     {noreply, State};
 
 handle_cast(_Msg, State) ->
