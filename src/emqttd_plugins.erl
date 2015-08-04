@@ -20,53 +20,75 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd plugin manager.
+%%% emqttd plugin admin.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 
--module(emqttd_plugin_mgr).
+-module(emqttd_plugins).
 
 -author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
--export([start/0, list/0, load/1, unload/1, stop/0]).
+-export([load/0, unload/0]).
+
+-export([list/0, load/1, unload/1]).
 
 %%------------------------------------------------------------------------------
-%% @doc Load all plugins
+%% @doc Load all plugins when the broker started.
 %% @end
 %%------------------------------------------------------------------------------
--spec start() -> ok | {error, any()}.
-start() ->
+-spec load() -> list() | {error, any()}.
+load() ->
     case read_loaded() of
-        {ok, AppNames} ->
-            NotFound = AppNames -- apps(plugin),
+        {ok, LoadNames} ->
+            NotFound = LoadNames -- apps(plugin),
             case NotFound of
                 [] -> ok;
                 NotFound -> lager:error("Cannot find plugins: ~p", [NotFound])
             end,
-            {ok, start_apps(AppNames -- NotFound -- apps(started))};
+            start_apps(LoadNames -- NotFound -- apps(started));
         {error, Error} ->
             lager:error("Read loaded_plugins file error: ~p", [Error]),
             {error, Error}
     end.
 
+start_apps(Apps) ->
+    [start_app(App) || App <- Apps].
+
+%%------------------------------------------------------------------------------
+%% @doc Unload all plugins before broker stopped.
+%% @end
+%%------------------------------------------------------------------------------
+-spec unload() -> list() | {error, any()}.
+unload() ->
+    case read_loaded() of
+        {ok, LoadNames} ->
+            stop_apps(LoadNames);
+        {error, Error} ->
+            lager:error("Read loaded_plugins file error: ~p", [Error]),
+            {error, Error}
+    end.
+
+stop_apps(Apps) ->
+    [stop_app(App) || App <- Apps].
+
 %%------------------------------------------------------------------------------
 %% @doc List all available plugins
 %% @end
 %%------------------------------------------------------------------------------
+-spec list() -> [mqtt_plugin()].
 list() ->
-    {ok, PluginEnv} = application:get_env(emqttd, plugins),
-    PluginsDir = proplists:get_value(dir, PluginEnv, "./plugins"),
+    PluginsDir = env(dir),
     AppFiles = filelib:wildcard("*/ebin/*.app", PluginsDir),
     Plugins = [plugin(filename:join(PluginsDir, AppFile)) || AppFile <- AppFiles],
-    StartedApps = [Name || {Name, _Descr, _Ver} <- application:which_applications()],
+    StartedApps = apps(started),
     lists:map(fun(Plugin = #mqtt_plugin{name = Name}) ->
-                      case lists:member(Name, StartedApps) of
-                          true  -> Plugin#mqtt_plugin{active = true};
-                          false -> Plugin
-                      end
+                  case lists:member(Name, StartedApps) of
+                      true  -> Plugin#mqtt_plugin{active = true};
+                      false -> Plugin
+                  end
               end, Plugins).
 
 plugin(AppFile) ->
@@ -76,23 +98,20 @@ plugin(AppFile) ->
     #mqtt_plugin{name = Name, version = Ver, descr = Descr}.
 
 %%------------------------------------------------------------------------------
-%% @doc Load Plugin
+%% @doc Load One Plugin
 %% @end
 %%------------------------------------------------------------------------------
 -spec load(atom()) -> ok | {error, any()}.
 load(PluginName) when is_atom(PluginName) ->
-    case lists:member(PluginName, apps(started)) of
-        true ->
-            lager:info("plugin ~p is started", [PluginName]),
+    case {lists:member(PluginName, apps(started)), lists:member(PluginName, apps(plugin))} of
+        {true, _} ->
+            lager:error("plugin ~p is started", [PluginName]),
             {error, already_started};
-        false ->
-            case lists:member(PluginName, apps(plugin)) of
-                true ->
-                    load_plugin(PluginName);
-                false ->
-                    lager:info("plugin ~p is not found", [PluginName]),
-                    {error, not_foun}
-            end
+        {false, true} ->
+            load_plugin(PluginName);
+        {false, false} ->
+            lager:error("plugin ~p is not found", [PluginName]),
+            {error, not_found}
     end.
     
 -spec load_plugin(App :: atom()) -> {ok, list()} | {error, any()}.
@@ -116,20 +135,27 @@ start_app(App) ->
     end.
 
 %%------------------------------------------------------------------------------
-%% @doc UnLoad Plugin
+%% @doc UnLoad One Plugin
 %% @end
 %%------------------------------------------------------------------------------
 -spec unload(atom()) -> ok | {error, any()}.
 unload(PluginName) when is_atom(PluginName) ->
-    %% stop plugin
-    %% write file if plugin is loaded
-    ok.
+    case {lists:member(PluginName, apps(started)), lists:member(PluginName, apps(plugin))} of
+        {false, _} ->
+            lager:error("plugin ~p is not started", [PluginName]),
+            {error, not_started};
+        {true, true} ->
+            unload_plugin(PluginName);
+        {true, false} ->
+            lager:error("~s is not a plugin, cannot unload it", [PluginName]),
+            {error, not_found}
+    end.
 
 -spec unload_plugin(App :: atom()) -> ok | {error, any()}.
 unload_plugin(App) ->
     case stop_app(App) of
         ok ->
-            unload_app(App);
+            plugin_unloaded(App), ok;
         {error, Reason} ->
             {error, Reason}
     end.
@@ -144,31 +170,9 @@ stop_app(App) ->
             lager:error("stop plugin ~p error: ~p", [App]), {error, Reason}
     end.
 
-unload_app(App) ->
-    case application:unload(App) of
-        ok ->
-            lager:info("unload plugin ~p successfully~n", [App]), ok;
-        {error, {not_loaded, App}} ->
-            lager:info("load plugin ~p is not loaded~n", [App]), ok;
-        {error, Reason} ->
-            lager:error("unload plugin ~p error: ~p", [App, Reason]), {error, Reason}
-    end.
-
-stop() ->
-    %% stop all plugins
-    PluginApps = application:get_env(emqttd, plugins, []),
-    %%[{App, unload_plugin(App)} || App <- PluginApps].
-    ok.
-
 %%%=============================================================================
 %%% Internal functions
 %%%=============================================================================
-
-start_apps(Apps) ->
-    [start_app(App) || App <- Apps].
-
-stop_apps(Apps) ->
-    [stop_app(App) || App <- Apps].
 
 apps(plugin) ->
     [Name || #mqtt_plugin{name = Name} <- list()];
@@ -181,7 +185,7 @@ plugin_loaded(Name) ->
         {ok, Names} ->
             case lists:member(Name, Names) of
                 true ->
-                    ok;
+                    ignore;
                 false ->
                     %% write file if plugin is loaded
                     write_loaded(lists:append(Names, Name))
@@ -190,21 +194,37 @@ plugin_loaded(Name) ->
             lager:error("Cannot read loaded plugins: ~p", [Error])
     end.
 
-
+plugin_unloaded(Name) ->
+    case read_loaded() of
+        {ok, Names} ->
+            case lists:member(Name, Names) of
+                true ->
+                    write_loaded(lists:delete(Name, Names));
+                false ->
+                    lager:error("Cannot find ~s in loaded_file", [Name])
+            end;
+        {error, Error} ->
+            lager:error("Cannot read loaded plugins: ~p", [Error])
+    end.
 
 read_loaded() ->
-    {ok, PluginEnv} = application:get_env(emqttd, plugins),
-    LoadedFile = proplists:get_value(loaded_file, PluginEnv, "./data/loaded_plugins"),
-    file:consult(LoadedFile).
+    file:consult(env(loaded_file)).
 
 write_loaded(AppNames) ->
-    {ok, PluginEnv} = application:get_env(emqttd, plugins),
-    LoadedFile = proplists:get_value(loaded_file, PluginEnv, "./data/loaded_plugins"),
-    case file:open(LoadedFile, [binary, write]) of
+    case file:open(env(loaded_file), [binary, write]) of
         {ok, Fd} ->
             Line = list_to_binary(io_lib:format("~w.~n", [AppNames])),
             file:write(Fd, Line);
         {error, Error} ->
             {error, Error}
     end.
+
+env(dir) ->
+    proplists:get_value(dir, env(), "./plugins");
+
+env(loaded_file) ->
+    proplists:get_value(loaded_file, env(), "./data/loaded_plugins").
+
+env() ->
+    {ok, PluginsEnv} = application:get_env(emqttd, plugins), PluginsEnv.
 
