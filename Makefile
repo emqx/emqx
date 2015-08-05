@@ -29,11 +29,14 @@ edoc:
 	@$(REBAR) doc
 
 rel: compile
-	@cd rel && ../rebar generate -f
+	@cd rel && $(REBAR) generate -f
 
 plugins:
 	@for plugin in ./plugins/* ; do \
+	if [ -d $${plugin} ]; then \
+		echo "copy $${plugin}"; \
 		cp -R $${plugin} $(DIST)/plugins/ && rm -rf $(DIST)/$${plugin}/src/ ; \
+	fi \
 	done
 
 dist: rel plugins

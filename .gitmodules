@@ -1,3 +1,9 @@
 [submodule "plugins/emqttd_dashboard"]
 	path = plugins/emqttd_dashboard
 	url = https://github.com/emqtt/emqttd_dashboard.git
+[submodule "plugins/emysql"]
+	path = plugins/emysql
+	url = https://github.com/erylee/emysql.git
+[submodule "plugins/emqttd_plugin_mysql"]
+	path = plugins/emqttd_plugin_mysql
+	url = https://github.com/emqtt/emqttd_plugin_mysql.git
