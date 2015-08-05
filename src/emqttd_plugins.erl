@@ -213,8 +213,9 @@ read_loaded() ->
 write_loaded(AppNames) ->
     case file:open(env(loaded_file), [binary, write]) of
         {ok, Fd} ->
-            Line = list_to_binary(io_lib:format("~w.~n", [AppNames])),
-            file:write(Fd, Line);
+            lists:foreach(fun(Name) ->
+                file:write(Fd, iolist_to_binary(io_lib:format("~s.~n", [Name])))
+            end, AppNames);
         {error, Error} ->
             {error, Error}
     end.
