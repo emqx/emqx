@@ -141,13 +141,6 @@ case "$1" in
             echo $RES
             exit 1
         fi
-        # Sanity check the plugins.config file
-        RES=`$NODETOOL_LITE chkconfig $RUNNER_ETC_DIR/plugins.config`
-        if [ $? != 0 ]; then
-            echo "Error reading $RUNNER_ETC_DIR/plugins.config"
-            echo $RES
-            exit 1
-        fi
         HEART_COMMAND="$RUNNER_SCRIPT_DIR/$SCRIPT start"
         export HEART_COMMAND
         mkdir -p $PIPE_DIR
@@ -265,13 +258,6 @@ case "$1" in
             echo $RES
             exit 1
         fi
-        # Sanity check the plugins.config file
-        RES=`$NODETOOL_LITE chkconfig $RUNNER_ETC_DIR/plugins.config`
-        if [ $? != 0 ]; then
-            echo "Error reading $RUNNER_ETC_DIR/plugins.config"
-            echo $RES
-            exit 1
-        fi
         # Setup beam-required vars
         ROOTDIR=$RUNNER_BASE_DIR
         ERL_LIBS=$ROOTDIR/plugins
@@ -279,7 +265,7 @@ case "$1" in
         EMU=beam
         PROGNAME=`echo $0 | sed 's/.*\///'`
         CMD="$BINDIR/erlexec -boot $RUNNER_BASE_DIR/releases/$APP_VSN/$SCRIPT \
-            -embedded -config $RUNNER_ETC_DIR/emqttd.config -config $RUNNER_ETC_DIR/plugins.config \
+            -embedded -config $RUNNER_ETC_DIR/emqttd.config \
             -pa $RUNNER_LIB_DIR/basho-patches \
             -args_file $RUNNER_ETC_DIR/vm.args -- ${1+"$@"}"
         export EMU
@@ -302,13 +288,6 @@ case "$1" in
         RES=`$NODETOOL_LITE chkconfig $RUNNER_ETC_DIR/emqttd.config`
         if [ $? != 0 ]; then
             echo "Error reading $RUNNER_ETC_DIR/emqttd.config"
-            echo $RES
-            exit 1
-        fi
-        # Sanity check the plugins.config file
-        RES=`$NODETOOL_LITE chkconfig $RUNNER_ETC_DIR/plugins.config`
-        if [ $? != 0 ]; then
-            echo "Error reading $RUNNER_ETC_DIR/plugins.config"
             echo $RES
             exit 1
         fi
