@@ -157,6 +157,8 @@ load_app(App, Config) ->
     case application:load(App) of
         ok ->
             set_config(Config);
+        {error, {already_loaded, App}} ->
+            set_config(Config);
         {error, Error} ->
             {error, Error}
     end.
@@ -241,7 +243,7 @@ plugin_loaded(Name, true) ->
             case lists:member(Name, Names) of
                 false ->
                     %% write file if plugin is loaded
-                    write_loaded(lists:append(Names, Name));
+                    write_loaded(lists:append(Names, [Name]));
                 true ->
                     ignore
             end;
@@ -272,12 +274,14 @@ read_loaded(File) ->
     file:consult(File).
 
 write_loaded(AppNames) ->
-    case file:open(env(loaded_file), [binary, write]) of
+    {ok, File} = env(loaded_file),
+    case file:open(File, [binary, write]) of
         {ok, Fd} ->
             lists:foreach(fun(Name) ->
                 file:write(Fd, iolist_to_binary(io_lib:format("~s.~n", [Name])))
             end, AppNames);
         {error, Error} ->
+            lager:error("Open File ~p Error: ~p", [File, Error]),
             {error, Error}
     end.
 

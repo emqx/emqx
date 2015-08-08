@@ -184,14 +184,14 @@ plugins(["list"]) ->
 
 plugins(["load", Name]) ->
     case emqttd_plugins:load(list_to_atom(Name)) of
-        {ok, StartedApps} -> ?PRINT("start apps: ~p, plugin ~s is loaded successfully.~n", [StartedApps, Name]);
-        {error, Reason} -> ?PRINT("load plugin error: ~s~n", [Reason])
+        {ok, StartedApps} -> ?PRINT("Start apps: ~p~nPlugin ~s loaded successfully.~n", [StartedApps, Name]);
+        {error, Reason} -> ?PRINT("load plugin error: ~p~n", [Reason])
     end;
 
 plugins(["unload", Name]) ->
     case emqttd_plugins:unload(list_to_atom(Name)) of
-        ok -> ?PRINT("plugin ~s is unloaded successfully.~n", [Name]);
-        {error, Reason} -> ?PRINT("unload plugin error: ~s~n", [Reason])
+        ok -> ?PRINT("Plugin ~s unloaded successfully.~n", [Name]);
+        {error, Reason} -> ?PRINT("unload plugin error: ~p~n", [Reason])
     end.
 
 trace(["list"]) ->
