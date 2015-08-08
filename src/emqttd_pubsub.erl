@@ -228,7 +228,7 @@ match(Topic) when is_binary(Topic) ->
 %%%=============================================================================
 
 init([Id, _Opts]) ->
-    process_flag(min_heap_size, 1024*1024),
+    %%process_flag(min_heap_size, 1024*1024),
     gproc_pool:connect_worker(pubsub, {?MODULE, Id}),
     {ok, #state{id = Id, submap = maps:new()}}.
 

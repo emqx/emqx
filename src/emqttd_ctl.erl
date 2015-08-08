@@ -68,7 +68,7 @@ status([]) ->
 %% @end
 %%------------------------------------------------------------------------------
 cluster([]) ->
-    Nodes = [node()|nodes()],
+    Nodes = emqttd_broker:running_nodes(),
     ?PRINT("cluster nodes: ~p~n", [Nodes]);
 
 cluster([SNode]) ->
@@ -77,8 +77,6 @@ cluster([SNode]) ->
     pong ->
         case emqttd:is_running(Node) of
             true ->
-                %%TODO: should not unload here.
-                emqttd:unload_all_plugins(),
                 application:stop(emqttd),
                 application:stop(esockd),
                 application:stop(gproc),
@@ -180,19 +178,20 @@ bridges(["stop", SNode, Topic]) ->
     end.
 
 plugins(["list"]) ->
-    Plugins = emqttd:loaded_plugins(),
-    lists:foreach(fun(Plugin) -> ?PRINT("~p~n", [Plugin]) end, Plugins);
+    lists:foreach(fun(#mqtt_plugin{name = Name, version = Ver, descr = Descr, active = Active}) ->
+            ?PRINT("Plugin(~s, version=~s, description=~s, active=~s)~n", [Name, Ver, Descr, Active])
+        end, emqttd_plugins:list());
 
 plugins(["load", Name]) ->
-    case emqttd:load_plugin(list_to_atom(Name)) of
-        ok -> ?PRINT("plugin ~s is loaded successfully.~n", [Name]);
-        {error, Reason} -> ?PRINT("error: ~s~n", [Reason])
+    case emqttd_plugins:load(list_to_atom(Name)) of
+        {ok, StartedApps} -> ?PRINT("Start apps: ~p~nPlugin ~s loaded successfully.~n", [StartedApps, Name]);
+        {error, Reason} -> ?PRINT("load plugin error: ~p~n", [Reason])
     end;
 
 plugins(["unload", Name]) ->
-    case emqttd:unload_plugin(list_to_atom(Name)) of
-        ok -> ?PRINT("plugin ~s is unloaded successfully.~n", [Name]);
-        {error, Reason} -> ?PRINT("error: ~s~n", [Reason])
+    case emqttd_plugins:unload(list_to_atom(Name)) of
+        ok -> ?PRINT("Plugin ~s unloaded successfully.~n", [Name]);
+        {error, Reason} -> ?PRINT("unload plugin error: ~p~n", [Reason])
     end.
 
 trace(["list"]) ->

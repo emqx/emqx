@@ -52,9 +52,8 @@ start(_StartType, _StartArgs) ->
     {ok, Sup} = emqttd_sup:start_link(),
     start_servers(Sup),
     emqttd:load_all_mods(),
-    emqttd:load_all_plugins(),
-    {ok, Listeners} = application:get_env(listeners),
-    emqttd:open_listeners(Listeners),
+    emqttd_plugins:load(),
+    start_listeners(),
     register(emqttd, self()),
     print_vsn(),
     {ok, Sup}.
@@ -66,6 +65,10 @@ print_vsn() ->
     {ok, Vsn} = application:get_key(vsn),
     {ok, Desc} = application:get_key(description),
     ?PRINT("~s ~s is running now~n", [Desc, Vsn]).
+
+start_listeners() ->
+    {ok, Listeners} = application:get_env(listeners),
+    emqttd:open_listeners(Listeners).
 
 start_servers(Sup) ->
     Servers = [{"emqttd trace", emqttd_trace},
@@ -131,14 +134,23 @@ worker_spec(Name, Opts) ->
 
 %% close all listeners first...
 prep_stop(State) ->
-    %%TODO: esockd app should be running...
-    {ok, Listeners} = application:get_env(listeners),
-    emqttd:close_listeners(Listeners),
+    stop_listeners(), 
+    timer:sleep(2),
+    emqttd_plugins:unload(),
     timer:sleep(2),
     State.
+
+stop_listeners() ->
+    %% ensure that esockd applications is started?
+    case lists:keyfind(esockd, 1, application:which_applications()) of
+        false  ->
+            ignore;
+        _Tuple ->
+            {ok, Listeners} = application:get_env(listeners),
+            emqttd:close_listeners(Listeners)
+    end.
 
 -spec stop(State :: term()) -> term().
 stop(_State) ->
     ok.
-
 
