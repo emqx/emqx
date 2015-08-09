@@ -57,6 +57,7 @@
 %%%=============================================================================
 
 mnesia(boot) ->
+    %% global session...
     ok = emqttd_mnesia:create_table(session, [
                 {type, ordered_set},
                 {ram_copies, [node()]},
