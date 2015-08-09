@@ -2,6 +2,18 @@
 emqttd ChangeLog
 ==================
 
+0.10.0-alpha (2015-08-10)
+-------------------------
+
+New Plugin Architecture
+
+Web Dashboard
+
+MySQL Authentication and ACL Plugin
+
+Session Statistics
+
+
 0.9.3-alpha (2015-07-25)
 -------------------------
 
