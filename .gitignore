@@ -6,6 +6,7 @@ deps
 *.plt
 erl_crash.dump
 ebin
+!ebin/.placeholder
 rel/emqttd
 rel/emqttd*
 .concrete/DEV_MODE
