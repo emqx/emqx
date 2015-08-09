@@ -184,7 +184,7 @@ handle_cast({unregister, true, ClientId}, State) ->
 
 handle_cast({unregister, false, ClientId}, State) ->
     ets:delete(mqtt_persistent_session, ClientId),
-    {noreply, State};
+    {noreply, setstats(State)};
 
 handle_cast(Msg, State) ->
     lager:critical("Unexpected Msg: ~p", [Msg]),
@@ -319,7 +319,6 @@ remove_session(Session) ->
             mnesia:delete_object(session, Session, write)
         end).
 
-setstats(State = #state{statsfun = _StatsFun}) ->
-    State.
-
+setstats(State = #state{statsfun = StatsFun}) ->
+    StatsFun(ets:info(mqtt_persistent_session, size)), State.
 
