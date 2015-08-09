@@ -43,6 +43,7 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
+    init_session_ets(),
     Schedulers = erlang:system_info(schedulers),
     gproc_pool:new(emqttd_sm:pool(), hash, [{size, Schedulers}]),
     StatsFun = emqttd_stats:statsfun('sessions/count', 'sessions/max'),
@@ -54,4 +55,9 @@ init([]) ->
                                 permanent, 10000, worker, [emqttd_sm]}
                  end, lists:seq(1, Schedulers)),
     {ok, {{one_for_all, 10, 100}, Children}}.
+
+init_session_ets() ->
+    Tables = [mqtt_transient_session, mqtt_persistent_session],
+    Attrs  = [ordered_set, named_table, public, {write_concurrency, true}],
+    lists:foreach(fun(Tab) -> ets:new(Tab, Attrs) end, Tables).
 

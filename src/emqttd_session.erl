@@ -232,6 +232,7 @@ init([CleanSess, ClientId, ClientPid]) ->
             max_awaiting_rel  = emqttd_opts:g(max_awaiting_rel, SessEnv),
             expired_after     = emqttd_opts:g(expired_after, SessEnv) * 3600,
             timestamp         = os:timestamp()},
+    emqttd_sm:register_session(CleanSess, ClientId, info(Session)),
     {ok, Session, hibernate}.
 
 handle_call({subscribe, TopicTable0}, _From, Session = #session{client_id = ClientId,
@@ -510,8 +511,8 @@ handle_info(Info, Session = #session{client_id = ClientId}) ->
     lager:critical("Session ~s received unexpected info: ~p", [ClientId, Info]),
     {noreply, Session}.
 
-terminate(_Reason, _Session) ->
-    ok.
+terminate(_Reason, #session{clean_sess = CleanSess, client_id = ClientId}) ->
+    emqttd_sm:unregister_session(CleanSess, ClientId).
 
 code_change(_OldVsn, Session, _Extra) ->
     {ok, Session}.
@@ -628,4 +629,21 @@ cancel_timer(Ref) ->
 
 noreply(State) ->
     {noreply, State, hibernate}.
+
+info(#session{subscriptions     = Subscriptions,
+              inflight_queue    = InflightQueue,
+              max_inflight      = MaxInflight,
+              message_queue     = MessageQueue,
+              awaiting_rel      = AwaitingRel,
+              awaiting_ack      = AwaitingAck,
+              awaiting_comp     = AwaitingComp,
+              timestamp         = CreatedAt}) ->
+    [{pid, self()}, {subscriptions, Subscriptions},
+     {max_inflight, MaxInflight},
+     {inflight_queue, lists:length(InflightQueue)},
+     {message_queue, emqttd_mqueue:len(MessageQueue)},
+     {awaiting_rel, maps:size(AwaitingRel)},
+     {awaiting_ack, maps:size(AwaitingAck)},
+     {awaiting_comp, maps:size(AwaitingComp)},
+     {created_at, CreatedAt}].
 
