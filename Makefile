@@ -34,8 +34,11 @@ rel: compile
 plugins:
 	@for plugin in ./plugins/* ; do \
 	if [ -d $${plugin} ]; then \
-		echo "copy $${plugin}"; \
-		cp -R $${plugin} $(DIST)/plugins/ && rm -rf $(DIST)/$${plugin}/src/ ; \
+		mkdir -p $(DIST)/$${plugin}/ ; \
+		cp -R $${plugin}/ebin $(DIST)/$${plugin}/ ; \
+		[ -d "$${plugin}/priv" ] && cp -R $${plugin}/priv $(DIST)/$${plugin}/ ; \
+		[ -d "$${plugin}/etc" ] && cp -R $${plugin}/etc $(DIST)/$${plugin}/ ; \
+		echo "$${plugin} copied" ; \
 	fi \
 	done
 
