@@ -1,0 +1,1 @@
+emqttd plugin cannot include "emqttd/include/emqttd.hrl" without this directory:(
