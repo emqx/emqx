@@ -54,6 +54,7 @@
                       keepalive,
                       max_clientid_len = ?MAX_CLIENTID_LEN,
                       client_pid,
+                      ws_cookie, %% for websocket client
                       connected_at}).
 
 -type proto_state() :: #proto_state{}.
@@ -65,10 +66,12 @@
 
 init(Peername, SendFun, Opts) ->
     MaxLen = proplists:get_value(max_clientid_len, Opts, ?MAX_CLIENTID_LEN),
+    WsCookie = proplists:get_value(ws_cookie, Opts),
 	#proto_state{peername         = Peername,
                  sendfun          = SendFun,
                  max_clientid_len = MaxLen,
-                 client_pid       = self()}.
+                 client_pid       = self(),
+                 ws_cookie        = WsCookie}.
 
 info(#proto_state{client_id	   = ClientId,
                   username     = Username,
@@ -100,6 +103,7 @@ client(#proto_state{client_id  = ClientId,
                     keepalive  = Keepalive,
                     will_msg   = WillMsg,
                     client_pid = Pid,
+                    ws_cookie  = WsCookie,
                     connected_at = Time}) ->
     WillTopic = if
                     WillMsg =:= undefined -> undefined;
@@ -113,6 +117,7 @@ client(#proto_state{client_id  = ClientId,
                  proto_ver  = ProtoVer,
                  keepalive  = Keepalive,
                  will_topic = WillTopic,
+                 ws_cookie  = WsCookie,
                  connected_at = Time}.
 
 %% CONNECT – Client requests a connection to a Server
