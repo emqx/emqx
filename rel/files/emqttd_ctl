@@ -242,6 +242,45 @@ case "$1" in
             exit 1
         fi
         ;;
+    clients)
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        if [ $# -eq 2 -a $2 = "list" ]; then
+            $NODETOOL rpc emqttd_ctl clients list
+        elif [ $# -eq 3 ]; then
+            shift
+            $NODETOOL rpc emqttd_ctl clients $@
+        else
+            echo "Usage: "
+            echo "$SCRIPT clients list"
+            echo "$SCRIPT clients show <ClientId>"
+            echo "$SCRIPT clients kick <ClientId>"
+            exit 1
+        fi
+        ;;
+    sessions)
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        if [ $# -eq 2 -a $2 = "list" ]; then
+            $NODETOOL rpc emqttd_ctl sessions list
+        elif [ $# -eq 3 ]; then
+            shift
+            $NODETOOL rpc emqttd_ctl sessions $@
+        else
+            echo "Usage: "
+            echo "$SCRIPT sessions list"
+            echo "$SCRIPT sessions show <ClientId>"
+            exit 1
+        fi
+        ;;
     plugins)
         # Make sure the local node IS running
         RES=`$NODETOOL ping`
@@ -308,6 +347,12 @@ case "$1" in
 		echo "  stats                         #query broker statistics of clients, topics, subscribers"
         echo "  metrics                       #query broker metrics"
 		echo "  cluster [<Node>]              #query or cluster nodes"
+        echo "  ----------------------------------------------------------------"
+        echo "  clients list                  #list all clients"
+        echo "  clients show <ClientId>       #show a client"
+        echo "  clients kick <ClientId>       #kick a client"
+        echo "  session list                  #list all sessions"
+        echo "  session show <ClientId>       #show a sessions"
         echo "  ----------------------------------------------------------------"
         echo "  plugins list                  #query loaded plugins"
         echo "  plugins load <Plugin>         #load plugin"

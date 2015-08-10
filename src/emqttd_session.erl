@@ -126,6 +126,10 @@
         expired_after = 172800,
 
         expired_timer,
+
+        collect_interval,
+
+        collect_timer,
         
         timestamp}).
 
@@ -231,8 +235,11 @@ init([CleanSess, ClientId, ClientPid]) ->
             await_rel_timeout = emqttd_opts:g(await_rel_timeout, SessEnv),
             max_awaiting_rel  = emqttd_opts:g(max_awaiting_rel, SessEnv),
             expired_after     = emqttd_opts:g(expired_after, SessEnv) * 3600,
+            collect_interval  = emqttd_opts:g(collect_interval, SessEnv, 0),
             timestamp         = os:timestamp()},
-    {ok, Session, hibernate}.
+    emqttd_sm:register_session(CleanSess, ClientId, info(Session)),
+    %% start statistics
+    {ok, start_collector(Session), hibernate}.
 
 handle_call({subscribe, TopicTable0}, _From, Session = #session{client_id = ClientId,
                                                                subscriptions = Subscriptions}) ->
@@ -482,6 +489,10 @@ handle_info({timeout, awaiting_comp, PktId}, Session = #session{client_id = Clie
             noreply(Session)
     end;
 
+handle_info(collect_info, Session = #session{clean_sess = CleanSess, client_id = ClientId}) ->
+    emqttd_sm:register_session(CleanSess, ClientId, info(Session)),
+    {noreply, start_collector(Session), hibernate};
+
 handle_info({'EXIT', ClientPid, _Reason}, Session = #session{clean_sess = true,
                                                              client_pid = ClientPid}) ->
     {stop, normal, Session};
@@ -510,8 +521,8 @@ handle_info(Info, Session = #session{client_id = ClientId}) ->
     lager:critical("Session ~s received unexpected info: ~p", [ClientId, Info]),
     {noreply, Session}.
 
-terminate(_Reason, _Session) ->
-    ok.
+terminate(_Reason, #session{clean_sess = CleanSess, client_id = ClientId}) ->
+    emqttd_sm:unregister_session(CleanSess, ClientId).
 
 code_change(_OldVsn, Session, _Extra) ->
     {ok, Session}.
@@ -628,4 +639,31 @@ cancel_timer(Ref) ->
 
 noreply(State) ->
     {noreply, State, hibernate}.
+
+start_collector(Session = #session{collect_interval = 0}) ->
+    Session;
+
+start_collector(Session = #session{collect_interval = Interval}) ->
+    TRef = erlang:send_after(Interval * 1000, self(), collect_info),
+    Session#session{collect_timer = TRef}.
+
+info(#session{clean_sess        = CleanSess,
+              subscriptions     = Subscriptions,
+              inflight_queue    = InflightQueue,
+              max_inflight      = MaxInflight,
+              message_queue     = MessageQueue,
+              awaiting_rel      = AwaitingRel,
+              awaiting_ack      = AwaitingAck,
+              awaiting_comp     = AwaitingComp,
+              timestamp         = CreatedAt}) ->
+    [{pid, self()}, 
+     {clean_sess, CleanSess},
+     {subscriptions, Subscriptions},
+     {max_inflight, MaxInflight},
+     {inflight_queue, length(InflightQueue)},
+     {message_queue, emqttd_mqueue:len(MessageQueue)},
+     {awaiting_rel, maps:size(AwaitingRel)},
+     {awaiting_ack, maps:size(AwaitingAck)},
+     {awaiting_comp, maps:size(AwaitingComp)},
+     {created_at, CreatedAt}].
 
