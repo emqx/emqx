@@ -58,7 +58,8 @@
 
 -export([new/3, name/1,
          is_empty/1, is_full/1,
-         len/1, in/2, out/1]).
+         len/1, max_len/1,
+         in/2, out/1]).
 
 -define(LOW_WM, 0.2).
 
@@ -107,6 +108,8 @@ is_full(#mqueue{len = Len, max_len = MaxLen})
 is_full(_MQ) -> false.
 
 len(#mqueue{len = Len}) -> Len.
+
+max_len(#mqueue{max_len= MaxLen}) -> MaxLen.
 
 %%------------------------------------------------------------------------------
 %% @doc Queue one message.
