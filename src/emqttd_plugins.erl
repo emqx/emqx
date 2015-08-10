@@ -173,8 +173,8 @@ set_config([{AppName, Envs} | Config]) ->
 start_app(App, SuccFun) ->
     case application:ensure_all_started(App) of
         {ok, Started} ->
-            lager:info("Started Apps: ~p", [Started]),
-            lager:info("Load plugin ~p successfully", [App]),
+            lager:info("started Apps: ~p", [Started]),
+            lager:info("load plugin ~p successfully", [App]),
             SuccFun(App),
             {ok, Started};
         {error, {ErrApp, Reason}} ->
