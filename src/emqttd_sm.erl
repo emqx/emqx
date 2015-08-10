@@ -118,9 +118,12 @@ lookup_session(ClientId) ->
     CleanSess :: boolean(),
     ClientId :: binary(),
     Info :: [tuple()].
-register_session(CleanSess, ClientId, Info) ->
+register_session(true, ClientId, Info) ->
+    ets:insert(mqtt_transient_session, {ClientId, Info});
+
+register_session(false, ClientId, Info) ->
     SM = gproc_pool:pick_worker(?SM_POOL, ClientId),
-    gen_server:cast(SM, {register, CleanSess, ClientId, Info}).
+    gen_server:cast(SM, {register, ClientId, Info}).
 
 %%------------------------------------------------------------------------------
 %% @doc Unregister a session.
@@ -128,10 +131,12 @@ register_session(CleanSess, ClientId, Info) ->
 %%------------------------------------------------------------------------------
 -spec unregister_session(CleanSess, ClientId) -> ok when
     CleanSess :: boolean(),
-    ClientId :: binary().
-unregister_session(CleanSess, ClientId) ->
+    ClientId  :: binary().
+unregister_session(true, ClientId) ->
+    ets:delete(mqtt_transient_session, ClientId);
+unregister_session(false, ClientId) ->
     SM = gproc_pool:pick_worker(?SM_POOL, ClientId),
-    gen_server:cast(SM, {unregister, CleanSess, ClientId}).
+    gen_server:cast(SM, {unregister, ClientId}).
 
 call(SM, Req) -> gen_server:call(SM, Req, infinity).
 
@@ -169,20 +174,12 @@ handle_call({start_session, {true, ClientId, ClientPid}}, _From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-%% transient session
-handle_cast({register, true, ClientId, Info}, State) ->
-    ets:insert(mqtt_transient_session, {ClientId, Info}),
-    {noreply, State};
-
-handle_cast({register, false, ClientId, Info}, State) ->
+%% persistent session
+handle_cast({register, ClientId, Info}, State) ->
     ets:insert(mqtt_persistent_session, {ClientId, Info}),
     {noreply, setstats(State)};
 
-handle_cast({unregister, true, ClientId}, State) ->
-    ets:delete(mqtt_transient_session, ClientId),
-    {noreply, State};
-
-handle_cast({unregister, false, ClientId}, State) ->
+handle_cast({unregister, ClientId}, State) ->
     ets:delete(mqtt_persistent_session, ClientId),
     {noreply, setstats(State)};
 
