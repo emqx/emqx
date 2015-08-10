@@ -42,6 +42,8 @@
          stats/1,
          metrics/1,
          cluster/1,
+         clients/1,
+         sessions/1,
          listeners/1,
          bridges/1,
          plugins/1,
@@ -135,6 +137,41 @@ stats([]) ->
     
 metrics([]) ->
     [?PRINT("~s: ~p~n", [Metric, Val]) || {Metric, Val} <- emqttd_metrics:all()].
+
+clients(["list"]) ->
+    dump(client, mqtt_client);
+
+clients(["show", ClientId]) ->
+    case emqttd_cm:lookup(list_to_binary(ClientId)) of
+        undefined ->
+            ?PRINT_MSG("Not Found.~n");
+        Client -> 
+            print(client, Client)
+    end;
+
+clients(["kick", ClientId]) ->
+    case emqttd_cm:lookup(list_to_binary(ClientId)) of
+        undefined ->
+            ?PRINT_MSG("Not Found.~n");
+        #mqtt_client{client_pid = Pid} -> 
+            emqttd_client:kick(Pid)
+    end.
+
+sessions(["list"]) ->
+    dump(session, mqtt_transient_session),
+    dump(session, mqtt_persistent_session);
+
+sessions(["show", ClientId0]) ->
+    ClientId = list_to_binary(ClientId0),
+    case {ets:lookup(mqtt_transient_session, ClientId),
+          ets:lookup(mqtt_persistent_session, ClientId)} of
+        {[], []} ->
+            ?PRINT_MSG("Not Found.~n");
+        {[SessInfo], _} -> 
+            print(session, SessInfo);
+        {_, [SessInfo]} -> 
+            print(session, SessInfo)
+    end.
     
 listeners([]) ->
     lists:foreach(fun({{Protocol, Port}, Pid}) ->
@@ -178,9 +215,7 @@ bridges(["stop", SNode, Topic]) ->
     end.
 
 plugins(["list"]) ->
-    lists:foreach(fun(#mqtt_plugin{name = Name, version = Ver, descr = Descr, active = Active}) ->
-            ?PRINT("Plugin(~s, version=~s, description=~s, active=~s)~n", [Name, Ver, Descr, Active])
-        end, emqttd_plugins:list());
+    lists:foreach(fun(Plugin) -> print(plugin, Plugin) end, emqttd_plugins:list());
 
 plugins(["load", Name]) ->
     case emqttd_plugins:load(list_to_atom(Name)) of
@@ -223,6 +258,7 @@ stop_trace(Who, Name) ->
             ?PRINT("stop to trace ~s ~s error: ~p.~n", [Who, Name, Error])
     end.
 
+
 node_name(SNode) ->
     SNode1 =
     case string:tokens(SNode, "@") of
@@ -259,4 +295,52 @@ parse_opt(bridge, queue, Len) ->
     {max_queue_len, list_to_integer(Len)};
 parse_opt(_Cmd, Opt, _Val) ->
     ?PRINT("Bad Option: ~s~n", [Opt]).
+
+dump(Type, Table) ->
+    dump(Type, Table, ets:first(Table)).
+
+dump(_Type, _Table, '$end_of_table') ->
+    ok;
+dump(Type, Table, Key) ->
+    case ets:lookup(Table, Key) of
+        [Record] -> print(Type, Record);
+        [] -> ignore
+    end,
+    dump(Type, Table, ets:next(Table, Key)).
+
+print(client, #mqtt_client{client_id = ClientId, clean_sess = CleanSess,
+                           username = Username, peername = Peername,
+                           connected_at = ConnectedAt}) ->
+    ?PRINT("Client(~s, clean_sess=~s, username=~s, peername=~s, connected_at=~p)~n",
+            [ClientId, CleanSess, Username,
+             emqttd_net:format(Peername),
+             emqttd_util:now_to_secs(ConnectedAt)]);
+
+print(session, {ClientId, SessInfo}) ->
+    InfoKeys = [clean_sess, 
+                max_inflight,
+                inflight_queue,
+                message_queue,
+                awaiting_rel,
+                awaiting_ack,
+                awaiting_comp,
+                created_at,
+                subscriptions],
+    ?PRINT("Session(~s, clean_sess=~s, max_inflight=~w, inflight_queue=~w, "
+           "message_queue=~w, awaiting_rel=~w, awaiting_ack=~w, awaiting_comp=~w, "
+           "created_at=~w, subscriptions=~s)~n",
+            [ClientId | [format(Key, proplists:get_value(Key, SessInfo)) || Key <- InfoKeys]]);
+
+print(plugin, #mqtt_plugin{name = Name, version = Ver, descr = Descr, active = Active}) ->
+    ?PRINT("Plugin(~s, version=~s, description=~s, active=~s)~n",
+               [Name, Ver, Descr, Active]).
+
+format(created_at, Val) ->
+    emqttd_util:now_to_secs(Val);
+
+format(subscriptions, List) ->
+    string:join([io_lib:format("~s:~w", [Topic, Qos]) || {Topic, Qos} <- List], ",");
+
+format(_, Val) ->
+    Val.
 

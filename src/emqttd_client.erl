@@ -24,6 +24,7 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_client).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -33,7 +34,7 @@
 -include("emqttd_protocol.hrl").
 
 %% API Function Exports
--export([start_link/2, info/1]).
+-export([start_link/2, info/1, kick/1]).
 
 -behaviour(gen_server).
 
@@ -60,6 +61,9 @@ start_link(SockArgs, PktOpts) ->
 info(Pid) ->
     gen_server:call(Pid, info, infinity).
 
+kick(Pid) ->
+    gen_server:call(Pid, kick).
+
 init([SockArgs = {Transport, Sock, _SockFun}, PacketOpts]) ->
     % Transform if ssl.
     {ok, NewSock} = esockd_connection:accept(SockArgs),
@@ -83,6 +87,9 @@ init([SockArgs = {Transport, Sock, _SockFun}, PacketOpts]) ->
 handle_call(info, _From, State = #state{conn_name = ConnName,
                                         proto_state = ProtoState}) ->
     {reply, [{conn_name, ConnName} | emqttd_protocol:info(ProtoState)], State};
+
+handle_call(kick, _From, State) ->
+    {stop, {shutdown, kick}, ok, State};
 
 handle_call(Req, _From, State = #state{peername = Peername}) ->
     lager:critical("Client ~s: unexpected request - ~p", [emqttd_net:format(Peername), Req]),
