@@ -308,6 +308,7 @@ shutdown(Error, #proto_state{client_id = undefined}) ->
     lager:info("Protocol shutdown ~p", [Error]),
     ignore;
 
+%% TODO: ClientId??
 shutdown(Error, #proto_state{peername = Peername, client_id = ClientId, will_msg = WillMsg}) ->
 	lager:info([{client, ClientId}], "Client ~s@~s: shutdown ~p",
                    [ClientId, emqttd_net:format(Peername), Error]),
