@@ -104,8 +104,9 @@ init([WsPid, Req, ReplyChannel, PktOpts]) ->
     process_flag(trap_exit, true),
     {ok, Peername} = Req:get(peername),
     SendFun = fun(Payload) -> ReplyChannel({binary, Payload}) end,
-    Cookie = Req:parse_cookie(),
-    ProtoState = emqttd_protocol:init(Peername, SendFun, [{ws_cookie, Cookie}|PktOpts]),
+    Headers = mochiweb_request:get(headers, Req),
+    HeadersList = mochiweb_headers:to_list(Headers),
+    ProtoState = emqttd_protocol:init(Peername, SendFun, [{ws_initial_headers, HeadersList}|PktOpts]),
     {ok, #client_state{ws_pid = WsPid, request = Req, proto_state = ProtoState}}.
 
 handle_call(_Req, _From, State) ->
