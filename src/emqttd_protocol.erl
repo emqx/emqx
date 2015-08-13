@@ -54,6 +54,7 @@
                       keepalive,
                       max_clientid_len = ?MAX_CLIENTID_LEN,
                       client_pid,
+                      ws_initial_headers, %% Headers from first HTTP request for websocket client
                       connected_at}).
 
 -type proto_state() :: #proto_state{}.
@@ -65,20 +66,23 @@
 
 init(Peername, SendFun, Opts) ->
     MaxLen = proplists:get_value(max_clientid_len, Opts, ?MAX_CLIENTID_LEN),
-	#proto_state{peername         = Peername,
-                 sendfun          = SendFun,
-                 max_clientid_len = MaxLen,
-                 client_pid       = self()}.
+    WsInitialHeaders = proplists:get_value(ws_initial_headers, Opts),
+	#proto_state{peername           = Peername,
+                 sendfun            = SendFun,
+                 max_clientid_len   = MaxLen,
+                 client_pid         = self(),
+                 ws_initial_headers = WsInitialHeaders}.
 
-info(#proto_state{client_id	   = ClientId,
-                  username     = Username,
-                  peername     = Peername,
-                  proto_ver    = ProtoVer,
-                  proto_name   = ProtoName,
-                  keepalive    = KeepAlive,
-				  clean_sess   = CleanSess,
-				  will_msg	   = WillMsg,
-                  connected_at = ConnectedAt}) ->
+info(#proto_state{client_id	         = ClientId,
+                  username           = Username,
+                  peername           = Peername,
+                  proto_ver          = ProtoVer,
+                  proto_name         = ProtoName,
+                  keepalive          = KeepAlive,
+				  clean_sess         = CleanSess,
+                  ws_initial_headers = WsInitialHeaders,
+				  will_msg	         = WillMsg,
+                  connected_at       = ConnectedAt}) ->
     [{client_id, ClientId},
      {username, Username},
      {peername, Peername},
@@ -86,34 +90,37 @@ info(#proto_state{client_id	   = ClientId,
      {proto_name, ProtoName},
      {keepalive, KeepAlive},
      {clean_sess, CleanSess},
+     {ws_initial_headers, WsInitialHeaders},
      {will_msg,	WillMsg},
      {connected_at, ConnectedAt}].
 
 clientid(#proto_state{client_id = ClientId}) ->
     ClientId.
 
-client(#proto_state{client_id  = ClientId,
-                    peername   = Peername,
-                    username   = Username,
-                    clean_sess = CleanSess,
-                    proto_ver  = ProtoVer,
-                    keepalive  = Keepalive,
-                    will_msg   = WillMsg,
-                    client_pid = Pid,
-                    connected_at = Time}) ->
+client(#proto_state{client_id          = ClientId,
+                    peername           = Peername,
+                    username           = Username,
+                    clean_sess         = CleanSess,
+                    proto_ver          = ProtoVer,
+                    keepalive          = Keepalive,
+                    will_msg           = WillMsg,
+                    client_pid         = Pid,
+                    ws_initial_headers = WsInitialHeaders,
+                    connected_at       = Time}) ->
     WillTopic = if
                     WillMsg =:= undefined -> undefined;
                     true -> WillMsg#mqtt_message.topic
                 end,
-    #mqtt_client{client_id  = ClientId,
-                 client_pid = Pid,
-                 username   = Username,
-                 peername   = Peername,
-                 clean_sess = CleanSess,
-                 proto_ver  = ProtoVer,
-                 keepalive  = Keepalive,
-                 will_topic = WillTopic,
-                 connected_at = Time}.
+    #mqtt_client{client_id          = ClientId,
+                 client_pid         = Pid,
+                 username           = Username,
+                 peername           = Peername,
+                 clean_sess         = CleanSess,
+                 proto_ver          = ProtoVer,
+                 keepalive          = Keepalive,
+                 will_topic         = WillTopic,
+                 ws_initial_headers = WsInitialHeaders,
+                 connected_at       = Time}.
 
 %% CONNECT – Client requests a connection to a Server
 

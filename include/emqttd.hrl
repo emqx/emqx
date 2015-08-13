@@ -82,6 +82,10 @@
 %%------------------------------------------------------------------------------
 %% MQTT Client
 %%------------------------------------------------------------------------------
+
+-type header_key() :: atom() | binary() | string().
+-type header_val() :: atom() | binary() | string() | integer().
+
 -record(mqtt_client, {
     client_id     :: binary() | undefined,
     client_pid    :: pid(),
@@ -91,6 +95,7 @@
     proto_ver     :: 3 | 4,
     keepalive = 0,
     will_topic    :: undefined | binary(),
+    ws_initial_headers :: list({header_key(), header_val()}),
     connected_at  :: erlang:timestamp()
 }).
 
