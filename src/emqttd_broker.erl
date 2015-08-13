@@ -246,8 +246,8 @@ handle_call({hook, Hook, Name, MFArgs}, _From, State) ->
     end,
     {reply, Reply, State};
 
-handle_call({unhook, Name}, _From, State) ->
-    Key = {hook, Name}, Reply =
+handle_call({unhook, Hook, Name}, _From, State) ->
+    Key = {hook, Hook}, Reply =
     case ets:lookup(?BROKER_TAB, Key) of
         [{Key, Hooks}] -> 
             ets:insert(?BROKER_TAB, {Key, lists:keydelete(Name, 1, Hooks)}); 
@@ -256,8 +256,9 @@ handle_call({unhook, Name}, _From, State) ->
     end,
     {reply, Reply, State};
 
-handle_call(_Request, _From, State) ->
-    {reply, {error, unsupport_request}, State}.
+handle_call(Req, _From, State) ->
+    lager:critical("Unexpected request: ~p", [Req]),
+    {reply, {error, badreq}, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
