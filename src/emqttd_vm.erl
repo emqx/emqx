@@ -31,7 +31,7 @@
 
 -export([microsecs/0]).
 
--export([loads/0, mem_info/0, scheduler_usage/1]).
+-export([loads/0, get_system_info/0, get_system_info/1,  mem_info/0, scheduler_usage/1]).
 
 -export([get_memory/0]).
 
@@ -178,6 +178,46 @@ loads() ->
     [{load1, ftos(cpu_sup:avg1()/256)},
      {load5, ftos(cpu_sup:avg5()/256)},
      {load15, ftos(cpu_sup:avg15()/256)}].
+
+get_system_info() ->
+    [{Key, format_system_info(Key, get_system_info(Key))} || Key <- ?SYSTEM_INFO].
+
+get_system_info(Key) ->
+    try erlang:system_info(Key) catch
+	error:badarg->undefined
+    end.
+%% conversion functions for erlang:system_info(Key)
+
+format_system_info(allocated_areas, List) ->
+    [convert_allocated_areas(Value) || Value <- List];
+format_system_info(allocator, {_,_,_,List}) ->
+    List;
+format_system_info(dist_ctrl, List) ->
+    lists:map(fun({Node, Socket}) ->
+	{ok, Stats} = inet:getstat(Socket),
+	{Node, Stats}
+	      end, List);
+format_system_info(driver_version, Value) ->
+    list_to_binary(Value);
+format_system_info(machine, Value) ->
+    list_to_binary(Value);
+format_system_info(otp_release, Value) ->
+    list_to_binary(Value);
+format_system_info(scheduler_bindings, Value) ->
+    tuple_to_list(Value);
+format_system_info(system_version, Value) ->
+    list_to_binary(Value);
+format_system_info(system_architecture, Value) ->
+    list_to_binary(Value);
+format_system_info(version, Value) ->
+    list_to_binary(Value);
+format_system_info(_, Value) ->
+    Value.
+
+convert_allocated_areas({Key, Value1, Value2}) ->
+    {Key, [Value1, Value2]};
+convert_allocated_areas({Key, Value}) ->
+    {Key, Value}.
 
 mem_info() ->
     Dataset = memsup:get_system_memory_data(),
