@@ -321,13 +321,14 @@ print(session, {ClientId, SessInfo}) ->
                 max_inflight,
                 inflight_queue,
                 message_queue,
+                message_dropped,
                 awaiting_rel,
                 awaiting_ack,
                 awaiting_comp,
                 created_at,
                 subscriptions],
     ?PRINT("Session(~s, clean_sess=~s, max_inflight=~w, inflight_queue=~w, "
-           "message_queue=~w, awaiting_rel=~w, awaiting_ack=~w, awaiting_comp=~w, "
+           "message_queue=~w, message_dropped=~w, awaiting_rel=~w, awaiting_ack=~w, awaiting_comp=~w, "
            "created_at=~w, subscriptions=~s)~n",
             [ClientId | [format(Key, proplists:get_value(Key, SessInfo)) || Key <- InfoKeys]]);
 
