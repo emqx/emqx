@@ -1,3 +1,6 @@
 [submodule "plugins/emqttd_dashboard"]
 	path = plugins/emqttd_dashboard
 	url = https://github.com/emqtt/emqttd_dashboard.git
+[submodule "plugins/emqttd_plugin_template"]
+	path = plugins/emqttd_plugin_template
+	url = https://github.com/emqtt/emqttd_plugin_template.git
