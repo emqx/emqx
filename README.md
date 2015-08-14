@@ -37,14 +37,29 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 * Passed eclipse paho interoperability tests
 
 
-## Plugins
+## Modules
 
 * [emqttd_auth_clientid](https://github.com/emqtt/emqttd/wiki/Authentication) - Authentication with ClientIds
-* emqttd_auth_mysql - Authentication with MySQL
-* emqttd_auth_ldap - Authentication with LDAP
-* emqttd_mod_autosub - Subscribe some topics automatically when client connected
+* [emqttd_auth_username](https://github.com/emqtt/emqttd/wiki/Authentication) - Authentication with Username and Password
+* [emqttd_auth_ldap](https://github.com/emqtt/emqttd/wiki/Authentication) - Authentication with LDAP
 * [emqttd_mod_presence](https://github.com/emqtt/emqttd/wiki/Presence) - Publish presence message to $SYS topics when client connected or disconnected
+* emqttd_mod_autosub - Subscribe topics when client connected
 * [emqttd_mod_rewrite](https://github.com/emqtt/emqttd/wiki/Rewrite) - Topics rewrite like HTTP rewrite module
+
+
+## Plugins
+
+* [emqttd_plugin_template](https://github.com/emqtt/emqttd_plugin_template) - Plugin template and demo
+* [emqttd_dashboard](https://github.com/emqtt/emqttd_dashboard) - Web Dashboard
+* [emqttd_plugin_mysql](https://github.com/emqtt/emqttd_plugin_mysql) - Authentication with MySQL
+* [emqttd_plugin_pgsql](https://github.com/emqtt/emqttd_plugin_pgsql) - Authentication with PostgreSQL
+
+
+## Dashboard
+
+The broker released a simple web dashboard in 0.10.0 version.
+
+Address: http://host:18083
 
 
 ## Design

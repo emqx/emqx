@@ -59,7 +59,8 @@
 -export([new/3, name/1,
          is_empty/1, is_full/1,
          len/1, max_len/1,
-         in/2, out/1]).
+         in/2, out/1,
+         stats/1]).
 
 -define(LOW_WM, 0.2).
 
@@ -72,6 +73,7 @@
                  high_wm    = ?HIGH_WM,
                  max_len    = ?MAX_LEN,
                  qos0       = false,
+                 dropped    = 0,
                  alarm_fun}).
 
 -type mqueue() :: #mqueue{}.
@@ -111,6 +113,9 @@ len(#mqueue{len = Len}) -> Len.
 
 max_len(#mqueue{max_len= MaxLen}) -> MaxLen.
 
+stats(#mqueue{max_len = MaxLen, len = Len, dropped = Dropped}) ->
+    [{max_len, MaxLen}, {len, Len}, {dropped, Dropped}].
+
 %%------------------------------------------------------------------------------
 %% @doc Queue one message.
 %% @end
@@ -122,11 +127,11 @@ in(#mqtt_message{qos = ?QOS_0}, MQ = #mqueue{qos0 = false}) ->
     MQ;
 
 %% simply drop the oldest one if queue is full, improve later
-in(Msg, MQ = #mqueue{name = Name, q = Q, len = Len, max_len = MaxLen})
+in(Msg, MQ = #mqueue{q = Q, len = Len, max_len = MaxLen, dropped = Dropped})
     when Len =:= MaxLen ->
-    {{value, OldMsg}, Q2} = queue:out(Q),
-    lager:error("MQueue(~s) drop ~s", [Name, emqttd_message:format(OldMsg)]),
-    MQ#mqueue{q = queue:in(Msg, Q2)};
+    {{value, _OldMsg}, Q2} = queue:out(Q),
+    %lager:error("MQueue(~s) drop ~s", [Name, emqttd_message:format(OldMsg)]),
+    MQ#mqueue{q = queue:in(Msg, Q2), dropped = Dropped +1};
 
 in(Msg, MQ = #mqueue{q = Q, len = Len}) ->
     maybe_set_alarm(MQ#mqueue{q = queue:in(Msg, Q), len = Len + 1}).
