@@ -50,7 +50,7 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 ## Plugins
 
 * [emqttd_plugin_template](https://github.com/emqtt/emqttd_plugin_template) - Plugin template and demo
-* [emqttd_dashboard](https://github.com/emqtt/emqttd_dashboard) -> Web Dashboard
+* [emqttd_dashboard](https://github.com/emqtt/emqttd_dashboard) - Web Dashboard
 * [emqttd_plugin_mysql](https://github.com/emqtt/emqttd_plugin_mysql) - Authentication with MySQL
 * [emqttd_plugin_pgsql](https://github.com/emqtt/emqttd_plugin_pgsql) - Authentication with PostgreSQL
 
