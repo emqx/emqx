@@ -38,7 +38,7 @@
 
 -module(emqttd_guid).
 
--export([gen/0, new/0]).
+-export([gen/0, new/0, timestamp/1]).
 
 -define(MAX_SEQ, 16#FFFF).
 
