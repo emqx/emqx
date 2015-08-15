@@ -61,11 +61,14 @@
          puback/2, pubrec/2, pubrel/2, pubcomp/2,
          subscribe/2, unsubscribe/2]).
 
--behaviour(gen_server).
+-behaviour(gen_server2).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
+
+%% gen_server2 Message Priorities
+-export([prioritise_call/4, prioritise_cast/3, prioritise_info/3]).
 
 -record(session, {
 
@@ -139,7 +142,7 @@
 %%------------------------------------------------------------------------------
 -spec start_link(boolean(), mqtt_client_id(), pid()) -> {ok, pid()} | {error, any()}.
 start_link(CleanSess, ClientId, ClientPid) ->
-    gen_server:start_link(?MODULE, [CleanSess, ClientId, ClientPid], []).
+    gen_server2:start_link(?MODULE, [CleanSess, ClientId, ClientPid], []).
 
 %%------------------------------------------------------------------------------
 %% @doc Resume a session.
@@ -147,7 +150,7 @@ start_link(CleanSess, ClientId, ClientPid) ->
 %%------------------------------------------------------------------------------
 -spec resume(pid(), mqtt_client_id(), pid()) -> ok.
 resume(Session, ClientId, ClientPid) ->
-    gen_server:cast(Session, {resume, ClientId, ClientPid}).
+    gen_server2:cast(Session, {resume, ClientId, ClientPid}).
 
 %%------------------------------------------------------------------------------
 %% @doc Destroy a session.
@@ -155,7 +158,7 @@ resume(Session, ClientId, ClientPid) ->
 %%------------------------------------------------------------------------------
 -spec destroy(pid(), mqtt_client_id()) -> ok.
 destroy(Session, ClientId) ->
-    gen_server:call(Session, {destroy, ClientId}).
+    gen_server2:call(Session, {destroy, ClientId}).
 
 %%------------------------------------------------------------------------------
 %% @doc Subscribe Topics
@@ -163,7 +166,7 @@ destroy(Session, ClientId) ->
 %%------------------------------------------------------------------------------
 -spec subscribe(pid(), [{binary(), mqtt_qos()}]) -> {ok, [mqtt_qos()]}.
 subscribe(Session, TopicTable) ->
-    gen_server:call(Session, {subscribe, TopicTable}, infinity).
+    gen_server2:call(Session, {subscribe, TopicTable}, infinity).
 
 %%------------------------------------------------------------------------------
 %% @doc Publish message
@@ -180,7 +183,7 @@ publish(_Session, Msg = #mqtt_message{qos = ?QOS_1}) ->
 
 publish(Session, Msg = #mqtt_message{qos = ?QOS_2}) ->
     %% publish qos2 by session 
-    gen_server:call(Session, {publish, Msg}).
+    gen_server2:call(Session, {publish, Msg}).
 
 %%------------------------------------------------------------------------------
 %% @doc PubAck message
@@ -188,19 +191,19 @@ publish(Session, Msg = #mqtt_message{qos = ?QOS_2}) ->
 %%------------------------------------------------------------------------------
 -spec puback(pid(), mqtt_packet_id()) -> ok.
 puback(Session, PktId) ->
-    gen_server:cast(Session, {puback, PktId}).
+    gen_server2:cast(Session, {puback, PktId}).
 
 -spec pubrec(pid(), mqtt_packet_id()) -> ok.
 pubrec(Session, PktId) ->
-    gen_server:cast(Session, {pubrec, PktId}).
+    gen_server2:cast(Session, {pubrec, PktId}).
 
 -spec pubrel(pid(), mqtt_packet_id()) -> ok.
 pubrel(Session, PktId) ->
-    gen_server:cast(Session, {pubrel, PktId}).
+    gen_server2:cast(Session, {pubrel, PktId}).
 
 -spec pubcomp(pid(), mqtt_packet_id()) -> ok.
 pubcomp(Session, PktId) ->
-    gen_server:cast(Session, {pubcomp, PktId}).
+    gen_server2:cast(Session, {pubcomp, PktId}).
 
 %%------------------------------------------------------------------------------
 %% @doc Unsubscribe Topics
@@ -208,7 +211,7 @@ pubcomp(Session, PktId) ->
 %%------------------------------------------------------------------------------
 -spec unsubscribe(pid(), [binary()]) -> ok.
 unsubscribe(Session, Topics) ->
-    gen_server:call(Session, {unsubscribe, Topics}, infinity).
+    gen_server2:call(Session, {unsubscribe, Topics}, infinity).
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -240,6 +243,33 @@ init([CleanSess, ClientId, ClientPid]) ->
     emqttd_sm:register_session(CleanSess, ClientId, info(Session)),
     %% start statistics
     {ok, start_collector(Session), hibernate}.
+
+prioritise_call(Msg, _From, _Len, _State) ->
+    case Msg of
+        {destroy, _}     -> 9;
+        {unsubscribe, _} -> 2;
+        {subscribe, _}   -> 1;
+        _                -> 0
+    end.
+
+prioritise_cast(Msg, _Len, _State) ->
+    case Msg of
+        {resume, _, _}    -> 9;
+        {pubrel,  _PktId} -> 8;
+        {pubcomp, _PktId} -> 8;
+        {pubrec,  _PktId} -> 8;
+        {puback,  _PktId} -> 7;
+        _                 -> 0
+    end.
+
+prioritise_info(Msg, _Len, _State) ->
+    case Msg of
+        {'EXIT', _, _}  -> 10;
+        session_expired -> 10;
+        {timeout, _, _} -> 5;
+        collect_info    -> 2;
+        _               -> 0
+    end.
 
 handle_call({subscribe, TopicTable0}, _From, Session = #session{client_id = ClientId,
                                                                subscriptions = Subscriptions}) ->
@@ -368,7 +398,7 @@ handle_cast({puback, PktId}, Session = #session{client_id = ClientId, awaiting_a
             cancel_timer(TRef),
             noreply(dequeue(acked(PktId, Session)));
         error ->
-            lager:error("Session ~s cannot find PUBACK '~p'!", [ClientId, PktId]),
+            lager:critical("Session(~s): cannot find PUBACK '~p'!", [ClientId, PktId]),
             noreply(Session)
     end;
 
@@ -429,8 +459,7 @@ handle_info({dispatch, Msg = #mqtt_message{qos = ?QOS_0}},
     ClientPid ! {deliver, Msg},
     noreply(Session);
 
-handle_info({dispatch, Msg = #mqtt_message{qos = QoS}},
-            Session = #session{client_id = ClientId, message_queue = MsgQ})
+handle_info({dispatch, Msg = #mqtt_message{qos = QoS}}, Session = #session{message_queue = MsgQ})
     when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
 
     case check_inflight(Session) of
@@ -461,7 +490,7 @@ handle_info({timeout, awaiting_ack, PktId}, Session = #session{client_id      = 
             {noreply, Session#session{awaiting_ack = AwaitingAck1}};
         error ->
             lager:error([{client, ClientId}], "Session ~s "
-                            "cannot find Awaiting Ack:~p", [ClientId, PktId]),
+                            "Cannot find Awaiting Ack:~p", [ClientId, PktId]),
             {noreply, Session}
     end;
 
