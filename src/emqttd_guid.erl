@@ -38,6 +38,8 @@
 
 -module(emqttd_guid).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -export([gen/0, new/0, timestamp/1]).
 
 -define(MAX_SEQ, 16#FFFF).
@@ -54,17 +56,21 @@ gen() ->
         undefined        -> new();
         {_Ts, NPid, Seq} -> next(NPid, Seq)
     end,
-    put(guid, Guid), enc(Guid).
+    put(guid, Guid), bin(Guid).
 
 new() ->
     {ts(), npid(), 0}.
+
+-spec timestamp(guid()) -> integer().
+timestamp(<<Ts:64, _/binary>>) ->
+    Ts.
 
 next(NPid, Seq) when Seq >= ?MAX_SEQ ->
     {ts(), NPid, 0};
 next(NPid, Seq) ->
     {ts(), NPid, Seq + 1}.
 
-enc({Ts, NPid, Seq}) ->
+bin({Ts, NPid, Seq}) ->
     <<Ts:64, NPid:48, Seq:16>>.
 
 ts() ->
