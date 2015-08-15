@@ -476,8 +476,7 @@ handle_info({timeout, awaiting_ack, PktId}, Session = #session{client_pid = unde
     %% just remove awaiting
     noreply(Session#session{awaiting_ack = maps:remove(PktId, AwaitingAck)});
 
-handle_info({timeout, awaiting_ack, PktId}, Session = #session{client_id      = ClientId,
-                                                               inflight_queue = InflightQ,
+handle_info({timeout, awaiting_ack, PktId}, Session = #session{inflight_queue = InflightQ,
                                                                awaiting_ack   = AwaitingAck}) ->
     case maps:find(PktId, AwaitingAck) of
         {ok, {{0, _Timeout}, _TRef}} ->
@@ -489,8 +488,9 @@ handle_info({timeout, awaiting_ack, PktId}, Session = #session{client_id      = 
             AwaitingAck1 = maps:put(PktId, {{Retries-1, Timeout*2}, TRef}, AwaitingAck),
             {noreply, Session#session{awaiting_ack = AwaitingAck1}};
         error ->
-            lager:error([{client, ClientId}], "Session ~s "
-                            "Cannot find Awaiting Ack:~p", [ClientId, PktId]),
+            % TODO: too many logs when overloaded...
+            % lager:error([{client, ClientId}], "Session ~s "
+            %                "Cannot find Awaiting Ack:~p", [ClientId, PktId]),
             {noreply, Session}
     end;
 
