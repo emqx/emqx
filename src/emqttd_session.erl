@@ -437,7 +437,8 @@ handle_info({dispatch, Msg = #mqtt_message{qos = QoS}},
         true ->
             {noreply, deliver(Msg, Session)};
         false ->
-            lager:error([{client, ClientId}], "Session ~s inflight queue is full!", [ClientId]),
+            %%TODO: should emit alarm?
+            %%lager:error([{client, ClientId}], "Session ~s inflight queue is full!", [ClientId]),
             {noreply, Session#session{message_queue = emqttd_mqueue:in(Msg, MsgQ)}}
     end;
 
