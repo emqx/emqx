@@ -8,7 +8,7 @@ emqttd requires Erlang R17+ to build.
 
 ## Goals
 
-emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQTT broker for IoT(M2M) applications that need to support ten millions of concurrent MQTT clients.
+emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQTT broker for IoT, M2M and Mobile applications that need to support ten millions of concurrent MQTT clients.
 
 * Easy to install
 * Massively scalable
@@ -129,4 +129,5 @@ The MIT License (MIT)
 ## Author
 
 Feng Lee <feng@emqtt.io>
+
 
