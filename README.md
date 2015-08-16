@@ -26,7 +26,7 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 * TCP/SSL Connection Support
 * MQTT Over Websocket(SSL) Support
 * HTTP Publish API Support
-* [$SYS/borkers/#](https://github.com/emqtt/emqtt/wiki/$SYS-Topics-of-Broker) Support
+* [$SYS/brokers/#](https://github.com/emqtt/emqtt/wiki/$SYS-Topics-of-Broker) Support
 * Client Authentication with clientId, ipaddress
 * Client Authentication with username, password.
 * Client ACL control with ipaddress, clientid, username.
