@@ -30,7 +30,7 @@
 
 -include("emqttd.hrl").
 
--behaviour(gen_server).
+-behaviour(gen_server2).
 
 -define(SERVER, ?MODULE).
 
@@ -59,7 +59,7 @@
         Id :: pos_integer(),
         StatsFun :: fun().
 start_link(Id, StatsFun) ->
-    gen_server:start_link(?MODULE, [Id, StatsFun], []).
+    gen_server2:start_link(?MODULE, [Id, StatsFun], []).
 
 pool() -> ?CM_POOL.
 
@@ -81,7 +81,7 @@ lookup(ClientId) when is_binary(ClientId) ->
 -spec register(Client :: mqtt_client()) -> ok.
 register(Client = #mqtt_client{client_id = ClientId}) ->
     CmPid = gproc_pool:pick_worker(?CM_POOL, ClientId),
-    gen_server:cast(CmPid, {register, Client}).
+    gen_server2:cast(CmPid, {register, Client}).
 
 %%------------------------------------------------------------------------------
 %% @doc Unregister clientId with pid.
@@ -90,7 +90,7 @@ register(Client = #mqtt_client{client_id = ClientId}) ->
 -spec unregister(ClientId :: binary()) -> ok.
 unregister(ClientId) when is_binary(ClientId) ->
     CmPid = gproc_pool:pick_worker(?CM_POOL, ClientId),
-    gen_server:cast(CmPid, {unregister, ClientId, self()}).
+    gen_server2:cast(CmPid, {unregister, ClientId, self()}).
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -105,7 +105,6 @@ handle_call(Req, _From, State) ->
     {reply, {error, badreq}, State}.
 
 handle_cast({register, Client = #mqtt_client{client_id = ClientId, client_pid = Pid}}, State) ->
-    lager:info("CM register ~s with ~p", [ClientId, Pid]),
 	case ets:lookup(mqtt_client, ClientId) of
         [#mqtt_client{client_pid = Pid}] ->
 			lager:error("ClientId '~s' has been registered with ~p", [ClientId, Pid]),
@@ -119,21 +118,22 @@ handle_cast({register, Client = #mqtt_client{client_id = ClientId, client_pid = 
     {noreply, setstats(State)};
 
 handle_cast({unregister, ClientId, Pid}, State) ->
-    lager:info("CM unregister ~s with ~p", [ClientId, Pid]),
 	case ets:lookup(mqtt_client, ClientId) of
 	[#mqtt_client{client_pid = Pid}] ->
 		ets:delete(mqtt_client, ClientId);
 	[_] -> 
 		ignore;
 	[] ->
-		lager:error("cannot find clientId '~s' with ~p", [ClientId, Pid])
+		lager:error("Cannot find clientId '~s' with ~p", [ClientId, Pid])
 	end,
 	{noreply, setstats(State)};
 
-handle_cast(_Msg, State) ->
+handle_cast(Msg, State) ->
+    lager:critical("Unexpected Msg: ~p", [Msg]),
     {noreply, State}.
 
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    lager:critical("Unexpected Msg: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{id = Id}) ->
