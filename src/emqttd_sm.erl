@@ -44,11 +44,14 @@
 
 -export([register_session/3, unregister_session/2]).
 
--behaviour(gen_server).
+-behaviour(gen_server2).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
+
+%% gen_server2 priorities
+-export([prioritise_call/4, prioritise_cast/3, prioritise_info/3]).
 
 -record(state, {id, statsfun}).
 
@@ -82,7 +85,7 @@ mnesia(copy) ->
         Id       :: pos_integer(),
         StatsFun :: fun().
 start_link(Id, StatsFun) ->
-    gen_server:start_link(?MODULE, [Id, StatsFun], []).
+    gen_server2:start_link(?MODULE, [Id, StatsFun], []).
 
 %%------------------------------------------------------------------------------
 %% @doc Pool name.
@@ -123,7 +126,7 @@ register_session(true, ClientId, Info) ->
 
 register_session(false, ClientId, Info) ->
     SM = gproc_pool:pick_worker(?SM_POOL, ClientId),
-    gen_server:cast(SM, {register, ClientId, Info}).
+    gen_server2:cast(SM, {register, ClientId, Info}).
 
 %%------------------------------------------------------------------------------
 %% @doc Unregister a session.
@@ -136,9 +139,9 @@ unregister_session(true, ClientId) ->
     ets:delete(mqtt_transient_session, ClientId);
 unregister_session(false, ClientId) ->
     SM = gproc_pool:pick_worker(?SM_POOL, ClientId),
-    gen_server:cast(SM, {unregister, ClientId}).
+    gen_server2:cast(SM, {unregister, ClientId}).
 
-call(SM, Req) -> gen_server:call(SM, Req, infinity).
+call(SM, Req) -> gen_server2:call(SM, Req, infinity).
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -147,6 +150,15 @@ call(SM, Req) -> gen_server:call(SM, Req, infinity).
 init([Id, StatsFun]) ->
     gproc_pool:connect_worker(?SM_POOL, {?MODULE, Id}),
     {ok, #state{id = Id, statsfun = StatsFun}}.
+
+prioritise_call(_Msg, _From, _Len, _State) ->
+    1.
+
+prioritise_cast(_Msg, _Len, _State) ->
+    0.
+
+prioritise_info(_Msg, _Len, _State) ->
+    1.
 
 %% persistent session
 handle_call({start_session, {false, ClientId, ClientPid}}, _From, State) ->
@@ -194,7 +206,8 @@ handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State) ->
         end),
     {noreply, setstats(State)};
 
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    lager:critical("Unexpected Info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{id = Id}) ->

@@ -110,11 +110,11 @@ handle_info({stop, duplicate_id, _NewPid}, State=#state{proto_state = ProtoState
 
 handle_info({deliver, Message}, State = #state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:send(Message, ProtoState),
-    {noreply, State#state{proto_state = ProtoState1}};
+    {noreply, State#state{proto_state = ProtoState1}, hibernate};
 
 handle_info({redeliver, {?PUBREL, PacketId}},  State = #state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:redeliver({?PUBREL, PacketId}, ProtoState),
-    {noreply, State#state{proto_state = ProtoState1}};
+    {noreply, State#state{proto_state = ProtoState1}, hibernate};
 
 handle_info({subscribe, TopicTable}, State = #state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:handle({subscribe, TopicTable}, ProtoState),

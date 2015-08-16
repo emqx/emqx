@@ -13,6 +13,8 @@ MySQL Authentication and ACL Plugin
 
 Session Statistics
 
+Session Improve
+
 
 0.9.3-alpha (2015-07-25)
 -------------------------

@@ -51,11 +51,14 @@
 -export([dispatch/2,
          match/1]).
 
--behaviour(gen_server).
+-behaviour(gen_server2).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
+
+%% gen_server2 priorities
+-export([prioritise_call/4, prioritise_cast/3, prioritise_info/3]).
 
 -define(POOL, pubsub).
 
@@ -104,7 +107,7 @@ mnesia(copy) ->
     Id   :: pos_integer(),
     Opts :: list().
 start_link(Id, Opts) ->
-    gen_server:start_link(?MODULE, [Id, Opts], []).
+    gen_server2:start_link(?MODULE, [Id, Opts], []).
 
 %%------------------------------------------------------------------------------
 %% @doc Create topic. Notice That this transaction is not protected by pubsub pool
@@ -157,11 +160,11 @@ unsubscribe(Topics = [Topic|_]) when is_binary(Topic) ->
 
 call(Req) ->
     Pid = gproc_pool:pick_worker(?POOL, self()),
-    gen_server:call(Pid, Req, infinity).
+    gen_server2:call(Pid, Req, infinity).
 
 cast(Msg) ->
     Pid = gproc_pool:pick_worker(?POOL, self()),
-    gen_server:cast(Pid, Msg).
+    gen_server2:cast(Pid, Msg).
 
 %%------------------------------------------------------------------------------
 %% @doc Publish to cluster nodes
@@ -231,6 +234,15 @@ init([Id, _Opts]) ->
     %%process_flag(min_heap_size, 1024*1024),
     gproc_pool:connect_worker(pubsub, {?MODULE, Id}),
     {ok, #state{id = Id, submap = maps:new()}}.
+
+prioritise_call(_Msg, _From, _Len, _State) ->
+    1.
+
+prioritise_cast(_Msg, _Len, _State) ->
+    0.
+
+prioritise_info(_Msg, _Len, _State) ->
+    1.
 
 handle_call({subscribe, SubPid, Topics}, _From, State) ->
     TopicSubs = lists:map(fun({<<"$Q/", _/binary>> = Queue, Qos}) ->
@@ -363,7 +375,7 @@ handle_info({'DOWN', _Mon, _Type, DownPid, _Info}, State = #state{submap = SubMa
     end;
 
 handle_info(Info, State) ->
-    lager:error("Unexpected Info: ~p", [Info]),
+    lager:critical("Unexpected Info: ~p", [Info]),
 	{noreply, State}.
 
 terminate(_Reason, _State) ->

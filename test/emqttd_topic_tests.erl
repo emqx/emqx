@@ -52,7 +52,11 @@ match_test() ->
 
     ?assert( match(<<"sport">>, <<"sport/#">>) ),
     ?assert( match(<<"sport">>, <<"#">>) ),
-    ?assert( match(<<"/sport/football/score/1">>, <<"#">>) ).
+    ?assert( match(<<"/sport/football/score/1">>, <<"#">>) ),
+    %% paho test
+    ?assert( match(<<"Topic/C">>, <<"+/+">>) ),
+    ?assert( match(<<"TopicA/B">>, <<"+/+">>) ),
+    ?assert( match(<<"TopicA/C">>, <<"+/+">>) ).
 
 sigle_level_match_test() ->
     ?assert( match(<<"sport/tennis/player1">>, <<"sport/tennis/+">>) ),
