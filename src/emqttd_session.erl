@@ -268,6 +268,7 @@ prioritise_info(Msg, _Len, _State) ->
         session_expired -> 10;
         {timeout, _, _} -> 5;
         collect_info    -> 2;
+        {dispatch, _}   -> 1;
         _               -> 0
     end.
 

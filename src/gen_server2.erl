@@ -633,8 +633,13 @@ extend_backoff({backoff, InitialTimeout, MinimumTimeout, DesiredHibPeriod}) ->
 %%% The MAIN loop.
 %%% ---------------------------------------------------
 loop(GS2State = #gs2_state { time          = hibernate,
-                             timeout_state = undefined }) ->
-    pre_hibernate(GS2State);
+                             timeout_state = undefined,
+                             queue         = Queue }) ->
+    case priority_queue:is_empty(Queue) of
+        true  -> pre_hibernate(GS2State);
+        false -> process_next_msg(GS2State)
+    end;
+
 loop(GS2State) ->
     process_next_msg(drain(GS2State)).
 

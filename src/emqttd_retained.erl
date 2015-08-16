@@ -122,5 +122,5 @@ dispatch(Topic, CPid) when is_binary(Topic) ->
             end,
             mnesia:async_dirty(fun mnesia:foldl/3, [Fun, [], retained])
     end,
-    [CPid ! {dispatch, Msg} || Msg <- Msgs].
+    lists:foreach(fun(Msg) -> CPid ! {dispatch, Msg} end, lists:reverse(Msgs)).
 
