@@ -235,14 +235,23 @@ init([Id, _Opts]) ->
     gproc_pool:connect_worker(pubsub, {?MODULE, Id}),
     {ok, #state{id = Id, submap = maps:new()}}.
 
-prioritise_call(_Msg, _From, _Len, _State) ->
-    1.
+prioritise_call(Msg, _From, _Len, _State) ->
+    case Msg of
+        {subscriber, _, _} -> 1;
+        _                  -> 0
+    end.
 
-prioritise_cast(_Msg, _Len, _State) ->
-    0.
+prioritise_cast(Msg, _Len, _State) ->
+    case Msg of
+        {unsubscribe, _, _} -> 2;
+        _                   -> 0
+    end.
 
-prioritise_info(_Msg, _Len, _State) ->
-    1.
+prioritise_info(Msg, _Len, _State) ->
+    case Msg of
+        {'DOWN', _, _, _, _} -> 3;
+        _                    -> 0
+    end.
 
 handle_call({subscribe, SubPid, Topics}, _From, State) ->
     TopicSubs = lists:map(fun({<<"$Q/", _/binary>> = Queue, Qos}) ->
