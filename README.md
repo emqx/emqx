@@ -76,7 +76,7 @@ Download binary packeges for linux, mac and freebsd from [http://emqtt.io/downlo
 For example:
 
 ```sh
-tar xvf emqttd-ubuntu64-0.9.0-alpha.tgz && cd emqttd
+unzip emqttd-ubuntu64-0.10.0-beta-20150820.zip && cd emqttd
 
 # start console
 ./bin/emqttd console
