@@ -9,7 +9,7 @@ emqttd ChangeLog
 
 Highlight: Web Dashboard to monitor Statistics, Metrics, Clients, Sessions and Topics of the broker.
 
-Highlight: JSON/HTTP API to query all clients conntected to broker.
+Highlight: JSON/HTTP API to query all clients connected to broker.
 
 Highlight: A new [Plugin Design](https://github.com/emqtt/emqttd/wiki/Plugin%20Design) and a [Template project](https://github.com/emqtt/emqttd_plugin_template) for plugin development.
 
