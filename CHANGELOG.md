@@ -2,18 +2,50 @@
 emqttd ChangeLog
 ==================
 
-0.10.0-alpha (2015-08-10)
+0.10.0-beta (2015-08-20)
 -------------------------
 
-New Plugin Architecture
+[Web Dashboard](https://github.com/emqtt/emqttd_dashboard) and [MySQL](https://github.com/emqtt/emqttd_plugin_mysql), [PostgreSQL](https://github.com/emqtt/emqttd_plugin_pgsql) Authentication/ACL Plugins!
 
-Web Dashboard
+Highlight: Web Dashboard to monitor Statistics, Metrics, Clients, Sessions and Topics of the broker.
 
-MySQL Authentication and ACL Plugin
+Highlight: JSON/HTTP API to query all clients conntected to broker.
 
-Session Statistics
+Highlight: A new [Plugin Design](https://github.com/emqtt/emqttd/wiki/Plugin%20Design) and a [Template project](https://github.com/emqtt/emqttd_plugin_template) for plugin development.
 
-Session Improve
+Highlight: Authentication/ACL with MySQL, PostreSQl databases (#194, #172)
+
+Feature: Session Statistics including inflight_queue, message_queue, message_dropped, awaiting_rel, awaiting_ack, awaiting_comp (#213)
+
+Feature: Cookie based authentication for MQTT over websocket connections (#231)
+
+Feature: Get all clients connected to the broker (#228, #230, #148, #129)
+
+Feature: "./bin/emqttd_ctl clients show ClientId" to query client status (#226)
+
+Feature: "./bin/emqttd_ctl clients kick ClientId" to kick out a client
+
+Feature: "./bin/emqttd_ctl sessions list" to show all sessions
+
+Feature: "./bin/emqttd_ctl sessions show ClientId" to show a session
+
+Feature: Erlang VM metrics monitor with Web Dashboard (#59)
+
+Improve: Too many "inflight queue is full!" log when session is overloaded (#247)
+
+Improve: There are two many "MQueue(~s) drop ~s" logs if the message queue of session is small (#244)
+
+Improve: gen_server2(from RabbitMQ) to improve emqttd_session, emqttd_pubsub
+
+Improve: Makefile to build plugins 
+
+Bugfix: emqttd_broker:unhook/2 cannot work (#238)
+
+Bugfix: emqttd plugin cannot include_lib("emqttd/include/emqttd.hrl") (#233)
+
+Bugfix: Too many 'Session ~s cannot find PUBACK' logs (#212)
+
+Bugfix: emqttd_pooler cannot work
 
 
 0.9.3-alpha (2015-07-25)
