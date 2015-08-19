@@ -53,6 +53,8 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 * [emqttd_dashboard](https://github.com/emqtt/emqttd_dashboard) - Web Dashboard
 * [emqttd_plugin_mysql](https://github.com/emqtt/emqttd_plugin_mysql) - Authentication with MySQL
 * [emqttd_plugin_pgsql](https://github.com/emqtt/emqttd_plugin_pgsql) - Authentication with PostgreSQL
+* [emqttd_plugin_kafka](https://github.com/emqtt/emqttd_plugin_kafka) - Publish MQTT Messages to Kafka
+* [emqttd_plugin_redis](https://github.com/emqtt/emqttd_plugin_redis) - Redis Plugin
 
 
 ## Dashboard
