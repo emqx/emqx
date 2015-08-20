@@ -34,7 +34,7 @@
 -include("emqttd_protocol.hrl").
 
 %% API Function Exports
--export([start_link/2, info/1, kick/1]).
+-export([start_link/2, info/1, kick/1, subscribe/2]).
 
 -behaviour(gen_server).
 
@@ -58,11 +58,14 @@
 start_link(SockArgs, PktOpts) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[SockArgs, PktOpts]])}.
 
-info(Pid) ->
-    gen_server:call(Pid, info, infinity).
+info(CPid) ->
+    gen_server:call(CPid, info, infinity).
 
-kick(Pid) ->
-    gen_server:call(Pid, kick).
+kick(CPid) ->
+    gen_server:call(CPid, kick).
+
+subscribe(CPid, TopicTable) ->
+    gen_server:cast(CPid, {subscribe, TopicTable}).
 
 init([SockArgs = {Transport, Sock, _SockFun}, PacketOpts]) ->
     % Transform if ssl.
@@ -95,6 +98,10 @@ handle_call(Req, _From, State = #state{peername = Peername}) ->
     lager:critical("Client ~s: unexpected request - ~p", [emqttd_net:format(Peername), Req]),
     {reply, {error, unsupported_request}, State}.    
 
+handle_cast({subscribe, TopicTable}, State = #state{proto_state = ProtoState}) ->
+    {ok, ProtoState1} = emqttd_protocol:handle({subscribe, TopicTable}, ProtoState),
+    noreply(State#state{proto_state = ProtoState1});
+
 handle_cast(Msg, State = #state{peername = Peername}) ->
     lager:critical("Client ~s: unexpected msg - ~p",[emqttd_net:format(Peername), Msg]),
     {noreply, State}.
@@ -110,18 +117,14 @@ handle_info({stop, duplicate_id, _NewPid}, State=#state{proto_state = ProtoState
 
 handle_info({deliver, Message}, State = #state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:send(Message, ProtoState),
-    {noreply, State#state{proto_state = ProtoState1}, hibernate};
+    noreply(State#state{proto_state = ProtoState1});
 
 handle_info({redeliver, {?PUBREL, PacketId}},  State = #state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:redeliver({?PUBREL, PacketId}, ProtoState),
-    {noreply, State#state{proto_state = ProtoState1}, hibernate};
-
-handle_info({subscribe, TopicTable}, State = #state{proto_state = ProtoState}) ->
-    {ok, ProtoState1} = emqttd_protocol:handle({subscribe, TopicTable}, ProtoState),
-    {noreply, State#state{proto_state = ProtoState1}};
+    noreply(State#state{proto_state = ProtoState1});
 
 handle_info({inet_reply, _Ref, ok}, State) ->
-    {noreply, State, hibernate};
+    noreply(State);
 
 handle_info({inet_async, Sock, _Ref, {ok, Data}}, State = #state{peername = Peername, socket = Sock}) ->
     lager:debug("RECV from ~s: ~p", [emqttd_net:format(Peername), Data]),
@@ -138,7 +141,7 @@ handle_info({inet_reply, _Sock, {error, Reason}}, State = #state{peername = Peer
 handle_info({keepalive, start, TimeoutSec}, State = #state{transport = Transport, socket = Socket, peername = Peername}) ->
     lager:debug("Client ~s: Start KeepAlive with ~p seconds", [emqttd_net:format(Peername), TimeoutSec]),
     KeepAlive = emqttd_keepalive:new({Transport, Socket}, TimeoutSec, {keepalive, timeout}),
-    {noreply, State#state{ keepalive = KeepAlive }};
+    noreply(State#state{keepalive = KeepAlive});
 
 handle_info({keepalive, timeout}, State = #state{peername = Peername, keepalive = KeepAlive}) ->
     case emqttd_keepalive:resume(KeepAlive) of
@@ -147,7 +150,7 @@ handle_info({keepalive, timeout}, State = #state{peername = Peername, keepalive 
         stop({shutdown, keepalive_timeout}, State#state{keepalive = undefined});
     {resumed, KeepAlive1} ->
         lager:debug("Client ~s: Keepalive Resumed", [emqttd_net:format(Peername)]),
-        {noreply, State#state{keepalive = KeepAlive1}}
+        noreply(State#state{keepalive = KeepAlive1})
     end;
 
 handle_info(Info, State = #state{peername = Peername}) ->
@@ -167,6 +170,9 @@ terminate(Reason, #state{peername = Peername, keepalive = KeepAlive, proto_state
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+noreply(State) ->
+    {noreply, State, hibernate}.
     
 %-------------------------------------------------------
 % receive and parse tcp data
