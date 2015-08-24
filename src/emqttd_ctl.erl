@@ -79,6 +79,7 @@ cluster([SNode]) ->
     pong ->
         case emqttd:is_running(Node) of
             true ->
+                emqttd_plugins:unload(),
                 application:stop(emqttd),
                 application:stop(esockd),
                 application:stop(gproc),

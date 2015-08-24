@@ -134,10 +134,7 @@ worker_spec(Name, Opts) ->
 
 %% close all listeners first...
 prep_stop(State) ->
-    stop_listeners(), 
-    timer:sleep(2),
-    emqttd_plugins:unload(),
-    timer:sleep(2),
+    stop_listeners(),
     State.
 
 stop_listeners() ->
