@@ -1,4 +1,6 @@
 @setlocal
+@echo off
+@setlocal enabledelayedexpansion
 
 @rem Parse arguments. erlsrv.exe prepends erl arguments prior to first ++.
 @rem Other args are position dependent.
@@ -33,7 +35,15 @@
     @set vm_args="%node_root%\etc\vm.args"
 )
 
-@%erl_exe% %erl_args% -boot %boot_file% -config %app_config% -args_file %vm_args%
+set dest_path=%~dp0
+cd /d !dest_path!..\plugins
+set current_path=%cd%
+set plugins=
+for /d %%P in (*) do (
+set "plugins=!plugins!!current_path!\%%P\ebin "
+)
+cd /d %node_root%
+@%erl_exe% %erl_args% -boot %boot_file% -config %app_config% -args_file %vm_args% -pa %plugins%
 
 :set_trim
 @set %1=%2

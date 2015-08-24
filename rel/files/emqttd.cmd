@@ -1,4 +1,6 @@
+@echo off
 @setlocal
+@setlocal enabledelayedexpansion
 
 @set node_name=emqttd
 
@@ -69,7 +71,16 @@
 @goto :EOF
 
 :console
-@start "%node_name% console" %werl% -boot "%node_boot_script%" -config "%sys_config%" -args_file "%vm_args%" -sname %node_name%
+set dest_path=%~dp0
+cd /d !dest_path!..\plugins
+set current_path=%cd%
+set plugins=
+for /d %%P in (*) do (
+set "plugins=!plugins!!current_path!\%%P\ebin "
+)
+cd /d %node_root%
+
+@start "%node_name% console" %werl% -boot "%node_boot_script%" -config "%sys_config%" -args_file "%vm_args%" -sname %node_name% -pa %plugins%
 @goto :EOF
 
 :query
