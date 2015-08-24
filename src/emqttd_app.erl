@@ -31,7 +31,7 @@
 -behaviour(application).
 
 %% Application callbacks
--export([start/2, prep_stop/1, stop/1]).
+-export([start/2, stop/1]).
 
 -define(PRINT_MSG(Msg), io:format(Msg)).
 
@@ -132,10 +132,9 @@ worker_spec(Name, Opts) ->
         {Name, start_link, [Opts]},
             permanent, 10000, worker, [Name]}.
 
-%% close all listeners first...
-prep_stop(State) ->
-    stop_listeners(),
-    State.
+-spec stop(State :: term()) -> term().
+stop(_State) ->
+    stop_listeners().
 
 stop_listeners() ->
     %% ensure that esockd applications is started?
@@ -146,8 +145,4 @@ stop_listeners() ->
             {ok, Listeners} = application:get_env(listeners),
             emqttd:close_listeners(Listeners)
     end.
-
--spec stop(State :: term()) -> term().
-stop(_State) ->
-    ok.
 
