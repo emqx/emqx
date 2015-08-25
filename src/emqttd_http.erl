@@ -39,6 +39,17 @@
 handle_request(Req) ->
     handle_request(Req:get(method), Req:get(path), Req).
 
+handle_request('GET', "/mqtt/status", Req) ->
+    {InternalStatus, _ProvidedStatus} = init:get_status(),
+    AppStatus =
+    case lists:keysearch(emqttd, 1, application:which_applications()) of
+        false         -> not_running;
+        {value, _Ver} -> running
+    end,
+    Status = io_lib:format("Node ~s is ~s~nemqttd is ~s~n",
+                            [node(), InternalStatus, AppStatus]),
+    Req:ok({"text/plain", iolist_to_binary(Status)});
+
 %%------------------------------------------------------------------------------
 %% HTTP Publish API
 %%------------------------------------------------------------------------------
