@@ -2,6 +2,12 @@
 emqttd ChangeLog
 ==================
 
+0.10.2-beta (2015-08-25)
+-------------------------
+
+Improve: issue#257 - After the node name changed, the broker cannot restart for mnesia schema error.
+
+
 0.10.1-beta (2015-08-25)
 -------------------------
 
