@@ -34,7 +34,7 @@
 -include("emqttd_protocol.hrl").
 
 %% API Exports
--export([start_link/1, ws_loop/3]).
+-export([start_link/1, ws_loop/3, subscribe/2]).
 
 -behaviour(gen_server).
 
@@ -60,6 +60,9 @@ start_link(Req) ->
                              client_pid   = ClientPid,
                              packet_opts  = PktOpts,
                              parser       = emqttd_parser:new(PktOpts)}).
+
+subscribe(CPid, TopicTable) ->
+    gen_server:cast(CPid, {subscribe, TopicTable}).
 
 %%------------------------------------------------------------------------------
 %% @private
@@ -112,6 +115,10 @@ init([WsPid, Req, ReplyChannel, PktOpts]) ->
 handle_call(_Req, _From, State) ->
     {reply, error, State}.
 
+handle_cast({subscribe, TopicTable}, State = #client_state{proto_state = ProtoState}) ->
+    {ok, ProtoState1} = emqttd_protocol:handle({subscribe, TopicTable}, ProtoState),
+    {noreply, State#client_state{proto_state = ProtoState1}, hibernate};
+
 handle_cast({received, Packet}, State = #client_state{proto_state = ProtoState}) ->
     case emqttd_protocol:received(Packet, ProtoState) of
     {ok, ProtoState1} ->
@@ -134,10 +141,6 @@ handle_info({deliver, Message}, State = #client_state{proto_state = ProtoState})
 
 handle_info({redeliver, {?PUBREL, PacketId}}, State = #client_state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:redeliver({?PUBREL, PacketId}, ProtoState),
-    {noreply, State#client_state{proto_state = ProtoState1}};
-
-handle_info({subscribe, TopicTable}, State = #client_state{proto_state = ProtoState}) ->
-    {ok, ProtoState1} = emqttd_protocol:handle({subscribe, TopicTable}, ProtoState),
     {noreply, State#client_state{proto_state = ProtoState1}};
 
 handle_info({stop, duplicate_id, _NewPid}, State = #client_state{proto_state = ProtoState}) ->
