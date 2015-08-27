@@ -20,6 +20,7 @@ RUNNER_BASE_DIR={{runner_base_dir}}
 RUNNER_ETC_DIR={{runner_etc_dir}}
 RUNNER_LIB_DIR={{platform_lib_dir}}
 RUNNER_LOG_DIR={{runner_log_dir}}
+RUNNER_DATA_DIR=$RUNNER_BASE_DIR/data
 RUNNER_PLUGINS_DIR=$RUNNER_BASE_DIR/plugins
 
 # Note the trailing slash on $PIPE_DIR/
@@ -72,6 +73,8 @@ if [ -z "$NAME_ARG" ]; then
     echo "vm.args needs to have either -name or -sname parameter."
     exit 1
 fi
+NAME_ARR=(${NAME_ARG// / })
+NODE_NAME=${NAME_ARR[1]}
 
 # Extract the target cookie
 COOKIE_ARG=`grep '^\-setcookie' $RUNNER_ETC_DIR/vm.args`
@@ -264,9 +267,12 @@ case "$1" in
         BINDIR=$ROOTDIR/erts-$ERTS_VSN/bin
         EMU=beam
         PROGNAME=`echo $0 | sed 's/.*\///'`
+        # Setup Mnesia Dir
+        MNESIA_DIR="$RUNNER_DATA_DIR/mnesia/$NODE_NAME"
         CMD="$BINDIR/erlexec -boot $RUNNER_BASE_DIR/releases/$APP_VSN/$SCRIPT \
             -embedded -config $RUNNER_ETC_DIR/emqttd.config \
             -pa $RUNNER_LIB_DIR/basho-patches \
+            -mnesia dir "\"${MNESIA_DIR}\"" \
             -args_file $RUNNER_ETC_DIR/vm.args -- ${1+"$@"}"
         export EMU
         export ROOTDIR

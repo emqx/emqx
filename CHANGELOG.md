@@ -2,6 +2,20 @@
 emqttd ChangeLog
 ==================
 
+0.10.2-beta (2015-08-26)
+-------------------------
+
+Improve: issue#257 - After the node name changed, the broker cannot restart for mnesia schema error.
+
+
+0.10.1-beta (2015-08-25)
+-------------------------
+
+Bugfix: issue#259 - when clustered the emqttd_dashboard port is close, and the 'emqttd' application cannot stop normally.
+
+Feature: issue#262 - Add 'http://host:8083/mqtt/status' Page for health check
+
+
 0.10.0-beta (2015-08-20)
 -------------------------
 
