@@ -73,8 +73,7 @@ if [ -z "$NAME_ARG" ]; then
     echo "vm.args needs to have either -name or -sname parameter."
     exit 1
 fi
-NAME_ARR=(${NAME_ARG// / })
-NODE_NAME=${NAME_ARR[1]}
+NODE_NAME=${NAME_ARG##* }
 
 # Extract the target cookie
 COOKIE_ARG=`grep '^\-setcookie' $RUNNER_ETC_DIR/vm.args`
