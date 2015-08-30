@@ -2,6 +2,16 @@
 emqttd ChangeLog
 ==================
 
+0.10.3-beta (2015-08-30)
+-------------------------
+
+Bugfix:  issue#271 - add emqttd_ws_client:subscribe/2 function
+
+Bugfix:  issue#269 - bin/emqttd Syntax error on ubuntu
+
+Improve: issue#265 - client under unstable mobile network generate a lot of logs
+
+
 0.10.2-beta (2015-08-26)
 -------------------------
 
