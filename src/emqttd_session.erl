@@ -571,7 +571,7 @@ kick(_ClientId, _ClientPid, undefined) ->
 kick(_ClientId, ClientPid, ClientPid) ->
             ok;
 kick(ClientId, ClientPid, OldClientPid) ->
-    lager:error("Session '~s' is duplicated: pid=~p, oldpid=~p", [ClientId, ClientPid, OldClientPid]),
+    lager:warning("Session '~s' is duplicated: pid=~p, oldpid=~p", [ClientId, ClientPid, OldClientPid]),
     unlink(OldClientPid),
     OldClientPid ! {stop, duplicate_id, ClientPid}.
 
