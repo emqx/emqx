@@ -110,9 +110,9 @@ handle_info(timeout, State) ->
     stop({shutdown, timeout}, State);
     
 handle_info({stop, duplicate_id, _NewPid}, State=#state{proto_state = ProtoState,
-                                                        conn_name=ConnName}) ->
-    lager:error("Shutdown for duplicate clientid: ~s, conn:~s", 
-                [emqttd_protocol:clientid(ProtoState), ConnName]), 
+                                                        conn_name   = ConnName}) ->
+    lager:warning("Shutdown for duplicate clientid: ~s, conn:~s",
+                  [emqttd_protocol:clientid(ProtoState), ConnName]),
     stop({shutdown, duplicate_id}, State);
 
 handle_info({deliver, Message}, State = #state{proto_state = ProtoState}) ->
