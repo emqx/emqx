@@ -110,7 +110,7 @@ handle_cast({register, Client = #mqtt_client{client_id = ClientId, client_pid = 
 			lager:error("ClientId '~s' has been registered with ~p", [ClientId, Pid]),
             ignore;
 		[#mqtt_client{client_pid = OldPid}] ->
-			lager:error("ClientId '~s' is duplicated: pid=~p, oldpid=~p", [ClientId, Pid, OldPid]);
+			lager:warning("ClientId '~s' is duplicated: pid=~p, oldpid=~p", [ClientId, Pid, OldPid]);
 		[] -> 
             ok
 	end,
