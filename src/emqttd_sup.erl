@@ -40,7 +40,8 @@
 -export([init/1]).
 
 %% Helper macro for declaring children of supervisor
--define(CHILD(Mod, Type), {Mod, {Mod, start_link, []}, permanent, 5000, Type, [Mod]}).
+-define(CHILD(Mod, Type), {Mod, {Mod, start_link, []},
+                                permanent, 5000, Type, [Mod]}).
 
 %%%=============================================================================
 %%% API
