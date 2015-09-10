@@ -57,6 +57,9 @@
 
 -define(SM_POOL, sm_pool).
 
+%% todo...
+-define(SESSION_TIMEOUT, 60000).
+
 %%%=============================================================================
 %%% Mnesia callbacks
 %%%=============================================================================
@@ -138,7 +141,7 @@ sesstab(false) ->
     mqtt_persistent_session.
 
 call(SM, Req) ->
-    gen_server2:call(SM, Req, infinity).
+    gen_server2:call(SM, Req, ?SESSION_TIMEOUT). %%infinity).
 
 %%%=============================================================================
 %%% gen_server callbacks
