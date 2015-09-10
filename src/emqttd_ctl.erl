@@ -176,10 +176,11 @@ sessions(["show", ClientId0]) ->
     
 listeners([]) ->
     lists:foreach(fun({{Protocol, Port}, Pid}) ->
-                ?PRINT("listener ~s:~p~n", [Protocol, Port]), 
-                ?PRINT("  acceptors: ~p~n", [esockd:get_acceptors(Pid)]),
-                ?PRINT("  max_clients: ~p~n", [esockd:get_max_clients(Pid)]),
-                ?PRINT("  current_clients: ~p~n", [esockd:get_current_clients(Pid)])
+                ?PRINT("listener ~s:~w~n", [Protocol, Port]),
+                ?PRINT("  acceptors: ~w~n", [esockd:get_acceptors(Pid)]),
+                ?PRINT("  max_clients: ~w~n", [esockd:get_max_clients(Pid)]),
+                ?PRINT("  current_clients: ~w~n", [esockd:get_current_clients(Pid)]),
+                ?PRINT("  shutdown_count: ~p~n", [esockd:get_shutdown_count(Pid)])
         end, esockd:listeners()).
 
 bridges(["list"]) ->

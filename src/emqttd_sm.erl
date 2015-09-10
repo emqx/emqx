@@ -38,7 +38,7 @@
 -copy_mnesia({mnesia, [copy]}).
 
 %% API Function Exports
--export([start_link/2, pool/0]).
+-export([start_link/1, pool/0]).
 
 -export([start_session/2, lookup_session/1]).
 
@@ -53,7 +53,7 @@
 %% gen_server2 priorities
 -export([prioritise_call/4, prioritise_cast/3, prioritise_info/3]).
 
--record(state, {id, statsfun}).
+-record(state, {id}).
 
 -define(SM_POOL, sm_pool).
 
@@ -64,11 +64,11 @@
 mnesia(boot) ->
     %% global session...
     ok = emqttd_mnesia:create_table(session, [
-                {type, ordered_set},
-                {ram_copies, [node()]},
-                {record_name, mqtt_session},
-                {attributes, record_info(fields, mqtt_session)},
-                {index, [sess_pid]}]);
+            {type, ordered_set},
+            {ram_copies, [node()]},
+            {record_name, mqtt_session},
+            {attributes, record_info(fields, mqtt_session)},
+            {index, [sess_pid]}]);
 
 mnesia(copy) ->
     ok = emqttd_mnesia:copy_table(session).
@@ -81,11 +81,9 @@ mnesia(copy) ->
 %% @doc Start a session manager
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link(Id, StatsFun) -> {ok, pid()} | ignore | {error, any()} when
-        Id       :: pos_integer(),
-        StatsFun :: fun().
-start_link(Id, StatsFun) ->
-    gen_server2:start_link(?MODULE, [Id, StatsFun], []).
+-spec start_link(Id :: pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
+start_link(Id) ->
+    gen_server2:start_link(?MODULE, [Id], []).
 
 %%------------------------------------------------------------------------------
 %% @doc Pool name.
@@ -119,14 +117,10 @@ lookup_session(ClientId) ->
 %%------------------------------------------------------------------------------
 -spec register_session(CleanSess, ClientId, Info) -> ok when
     CleanSess :: boolean(),
-    ClientId :: binary(),
-    Info :: [tuple()].
-register_session(true, ClientId, Info) ->
-    ets:insert(mqtt_transient_session, {ClientId, Info});
-
-register_session(false, ClientId, Info) ->
-    SM = gproc_pool:pick_worker(?SM_POOL, ClientId),
-    gen_server2:cast(SM, {register, ClientId, Info}).
+    ClientId  :: binary(),
+    Info      :: [tuple()].
+register_session(CleanSess, ClientId, Info) ->
+    ets:insert(sesstab(CleanSess), {{ClientId, self()}, Info}).
 
 %%------------------------------------------------------------------------------
 %% @doc Unregister a session.
@@ -135,21 +129,24 @@ register_session(false, ClientId, Info) ->
 -spec unregister_session(CleanSess, ClientId) -> ok when
     CleanSess :: boolean(),
     ClientId  :: binary().
-unregister_session(true, ClientId) ->
-    ets:delete(mqtt_transient_session, ClientId);
-unregister_session(false, ClientId) ->
-    SM = gproc_pool:pick_worker(?SM_POOL, ClientId),
-    gen_server2:cast(SM, {unregister, ClientId}).
+unregister_session(CleanSess, ClientId) ->
+    ets:delete(sesstab(CleanSess), {ClientId, self()}).
 
-call(SM, Req) -> gen_server2:call(SM, Req, infinity).
+sesstab(true)  ->
+    mqtt_transient_session;
+sesstab(false) ->
+    mqtt_persistent_session.
+
+call(SM, Req) ->
+    gen_server2:call(SM, Req, infinity).
 
 %%%=============================================================================
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([Id, StatsFun]) ->
+init([Id]) ->
     gproc_pool:connect_worker(?SM_POOL, {?MODULE, Id}),
-    {ok, #state{id = Id, statsfun = StatsFun}}.
+    {ok, #state{id = Id}}.
 
 prioritise_call(_Msg, _From, _Len, _State) ->
     1.
@@ -186,15 +183,6 @@ handle_call({start_session, {true, ClientId, ClientPid}}, _From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-%% persistent session
-handle_cast({register, ClientId, Info}, State) ->
-    ets:insert(mqtt_persistent_session, {ClientId, Info}),
-    {noreply, setstats(State)};
-
-handle_cast({unregister, ClientId}, State) ->
-    ets:delete(mqtt_persistent_session, ClientId),
-    {noreply, setstats(State)};
-
 handle_cast(Msg, State) ->
     lager:critical("Unexpected Msg: ~p", [Msg]),
     {noreply, State}.
@@ -204,7 +192,7 @@ handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State) ->
                 [mnesia:delete_object(session, Sess, write) || Sess 
                     <- mnesia:index_read(session, DownPid, #mqtt_session.sess_pid)]
         end),
-    {noreply, setstats(State)};
+    {noreply, State};
 
 handle_info(Info, State) ->
     lager:critical("Unexpected Info: ~p", [Info]),
@@ -325,10 +313,5 @@ destroy_session(Session = #mqtt_session{client_id = ClientId,
     end.
 
 remove_session(Session) ->
-    mnesia:transaction(fun() ->
-            mnesia:delete_object(session, Session, write)
-        end).
-
-setstats(State = #state{statsfun = StatsFun}) ->
-    StatsFun(ets:info(mqtt_persistent_session, size)), State.
+    mnesia:transaction(fun() -> mnesia:delete_object(session, Session, write) end).
 

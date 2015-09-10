@@ -157,9 +157,17 @@ handle_info(Info, State = #state{peername = Peername}) ->
     lager:critical("Client ~s: unexpected info ~p",[emqttd_net:format(Peername), Info]),
     {noreply, State}.
 
-terminate(Reason, #state{peername = Peername, keepalive = KeepAlive, proto_state = ProtoState}) ->
-    lager:info("Client ~s terminated, reason: ~p", [emqttd_net:format(Peername), Reason]),
+terminate(Reason, #state{peername = Peername,
+                         transport = Transport,
+                         socket = Socket,
+                         keepalive = KeepAlive,
+                         proto_state = ProtoState}) ->
+    lager:info("Client(~s) terminated, reason: ~p", [emqttd_net:format(Peername), Reason]),
     emqttd_keepalive:cancel(KeepAlive),
+    if
+        Reason == {shutdown, conn_closed} -> ok;
+        true -> Transport:fast_close(Socket)
+    end,
     case {ProtoState, Reason} of
         {undefined, _} -> ok;
         {_, {shutdown, Error}} -> 

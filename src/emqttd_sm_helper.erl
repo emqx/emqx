@@ -20,46 +20,64 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd session manager supervisor.
+%%% emqttd session helper.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 
--module(emqttd_sm_sup).
+%% TODO: Monitor mnesia node down...
+
+-module(emqttd_sm_helper).
 
 -author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
--define(CHILD(Mod), {Mod, {Mod, start_link, []},
-                        permanent, 5000, worker, [Mod]}).
-
-%% API
+%% API Function Exports
 -export([start_link/0]).
 
--behaviour(supervisor).
+-behaviour(gen_server).
 
-%% Supervisor callbacks
--export([init/1]).
+%% gen_server Function Exports
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2, code_change/3]).
 
+-record(state, {statsfun, ticker}).
+
+%%------------------------------------------------------------------------------
+%% @doc Start a session helper
+%% @end
+%%------------------------------------------------------------------------------
+-spec start_link() -> {ok, pid()} | ignore | {error, any()}.
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    gen_server:start_link(?MODULE, [], []).
 
 init([]) ->
-    init_session_ets(),
-    Schedulers = erlang:system_info(schedulers),
-    gproc_pool:new(emqttd_sm:pool(), hash, [{size, Schedulers}]),
-    Managers = lists:map(
-                 fun(I) ->
-                   Name = {emqttd_sm, I},
-                   gproc_pool:add_worker(emqttd_sm:pool(), Name, I),
-                   {Name, {emqttd_sm, start_link, [I]},
-                               permanent, 10000, worker, [emqttd_sm]}
-                 end, lists:seq(1, Schedulers)),
-    {ok, {{one_for_all, 10, 100}, [?CHILD(emqttd_sm_helper) | Managers]}}.
+    StatsFun = emqttd_stats:statsfun('sessions/count', 'sessions/max'),
+    {ok, TRef} = timer:send_interval(1000, self(), tick),
+    {ok, #state{statsfun = StatsFun, ticker = TRef}}.
 
-init_session_ets() ->
-    Tables = [mqtt_transient_session, mqtt_persistent_session],
-    Attrs  = [ordered_set, named_table, public, {write_concurrency, true}],
-    lists:foreach(fun(Tab) -> ets:new(Tab, Attrs) end, Tables).
+handle_call(_Request, _From, State) ->
+    {reply, ok, State}.
+
+handle_cast(Msg, State) ->
+    lager:critical("Unexpected Msg: ~p", [Msg]),
+    {noreply, State}.
+
+handle_info(tick, State) ->
+    {noreply, setstats(State)};
+
+handle_info(Info, State) ->
+    lager:critical("Unexpected Info: ~p", [Info]),
+    {noreply, State}.
+
+terminate(_Reason, _State = #state{ticker = TRef}) ->
+    timer:cancel(TRef).
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+setstats(State = #state{statsfun = StatsFun}) ->
+    StatsFun(ets:info(mqtt_persistent_session, size)), State.
+
 
