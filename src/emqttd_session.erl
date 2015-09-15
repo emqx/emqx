@@ -223,7 +223,7 @@ unsubscribe(SessPid, Topics) ->
 %%%=============================================================================
 
 init([CleanSess, ClientId, ClientPid]) ->
-    process_flag(trap_exit, true),
+    %process_flag(trap_exit, true),
     QEnv    = emqttd:env(mqtt, queue),
     SessEnv = emqttd:env(mqtt, session),
     Session = #session{

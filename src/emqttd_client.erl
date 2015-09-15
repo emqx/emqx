@@ -34,7 +34,7 @@
 -include("emqttd_protocol.hrl").
 
 %% API Function Exports
--export([start_link/2, info/1, kick/1, subscribe/2]).
+-export([start_link/2, session/1, info/1, kick/1, subscribe/2]).
 
 -behaviour(gen_server).
 
@@ -57,6 +57,9 @@
 
 start_link(SockArgs, PktOpts) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[SockArgs, PktOpts]])}.
+
+session(CPid) ->
+    gen_server:call(CPid, session).
 
 info(CPid) ->
     gen_server:call(CPid, info, infinity).
@@ -86,6 +89,9 @@ init([SockArgs = {Transport, Sock, _SockFun}, PacketOpts]) ->
                                     parser       = emqttd_parser:new(PacketOpts),
                                     proto_state  = ProtoState}),
     gen_server:enter_loop(?MODULE, [], State, 10000).
+
+handle_call(session, _From, State = #state{proto_state = ProtoState}) ->
+    {reply, emqttd_protocol:session(ProtoState), State};
 
 handle_call(info, _From, State = #state{conn_name = ConnName,
                                         proto_state = ProtoState}) ->

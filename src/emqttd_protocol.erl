@@ -34,7 +34,7 @@
 -include("emqttd_protocol.hrl").
 
 %% API
--export([init/3, info/1, clientid/1, client/1]).
+-export([init/3, info/1, clientid/1, client/1, session/1]).
 
 -export([received/2, send/2, redeliver/2, shutdown/2]).
 
@@ -121,6 +121,9 @@ client(#proto_state{client_id          = ClientId,
                  will_topic         = WillTopic,
                  ws_initial_headers = WsInitialHeaders,
                  connected_at       = Time}.
+
+session(#proto_state{session = Session}) ->
+    Session.
 
 %% CONNECT – Client requests a connection to a Server
 
