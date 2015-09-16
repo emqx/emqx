@@ -91,10 +91,16 @@ stop_plugins(Names) ->
 %%------------------------------------------------------------------------------
 -spec list() -> [mqtt_plugin()].
 list() ->
-    case env(plugins_dir) of
-        {ok, PluginsDir} -> 
-            AppFiles = filelib:wildcard("*/ebin/*.app", PluginsDir),
-            Plugins = [plugin(PluginsDir, AppFile) || AppFile <- AppFiles],
+    case env(plugins_enable) of
+        {ok, PluginsEnable} ->
+            LibDirs = lists:map(fun(Plugin) ->
+                                    LibDir = code:lib_dir(Plugin),
+                                    [AppFile] = filelib:wildcard(
+						  filename:join([LibDir, "ebin/*.app"]),
+						  LibDir),
+                                    {LibDir, AppFile}
+                                end, PluginsEnable),
+            Plugins = [plugin(LibDir, AppFile) || {LibDir, AppFile} <- LibDirs],
             StartedApps = names(started_app),
             lists:map(fun(Plugin = #mqtt_plugin{name = Name}) ->
                           case lists:member(Name, StartedApps) of
@@ -106,17 +112,17 @@ list() ->
             []
     end.
 
-plugin(PluginsDir, AppFile0) ->
-    AppFile = filename:join(PluginsDir, AppFile0),
+plugin(LibDir, AppFile) ->
     {ok, [{application, Name, Attrs}]} = file:consult(AppFile),
-    CfgFile = filename:join([PluginsDir, Name, "etc/plugin.config"]),
+    PrivDirCfgFile = filename:join([code:priv_dir(Name), "plugin.config"]),
+    CfgFiles = [PrivDirCfgFile],
     AppsEnv1 =
-    case filelib:is_file(CfgFile) of
-        true ->
-            {ok, [AppsEnv]} = file:consult(CfgFile),
-            AppsEnv;
-        false ->
-            []
+    case lists:filter(fun(File) -> filelib:is_file(File) end, CfgFiles) of
+        [] ->
+            [];
+        [H|_T] ->
+	    {ok, [AppsEnv]} = file:consult(H),
+	    AppsEnv
     end,
     Ver = proplists:get_value(vsn, Attrs, "0"),
     Descr = proplists:get_value(description, Attrs, ""),
