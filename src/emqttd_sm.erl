@@ -267,7 +267,7 @@ resume_session(Session = #mqtt_session{client_id = ClientId,
                 {badrpc, Reason} ->
                     lager:critical("Resume session ~s on remote node ~p failed for ~p",
                                     [ClientId, Node, Reason]),
-                    {error, list_to_atom("session_" ++ atom_to_list(Reason))}
+                    {error, Reason}
             end;
         false ->
             lager:critical("Session ~s died for node ~p down!", [ClientId, Node]),
