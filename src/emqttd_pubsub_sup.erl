@@ -52,7 +52,7 @@ init([]) ->
                     Name = {emqttd_pubsub, I},
                     gproc_pool:add_worker(pubsub, Name, I),
                     {Name, {emqttd_pubsub, start_link, [I, Opts]},
-                        permanent, 5000, worker, [emqttd_pubsub]}
+                        permanent, 10000, worker, [emqttd_pubsub]}
                  end, lists:seq(1, PoolSize)),
     {ok, {{one_for_all, 10, 100}, Children}}.
 
