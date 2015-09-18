@@ -4,6 +4,3 @@
 [submodule "plugins/emqttd_plugin_template"]
 	path = plugins/emqttd_plugin_template
 	url = https://github.com/emqtt/emqttd_plugin_template.git
-[submodule "plugins/emqttd_sockjs"]
-	path = plugins/emqttd_sockjs
-	url = https://github.com/emqtt/emqttd_sockjs.git
