@@ -2,6 +2,20 @@
 emqttd ChangeLog
 ==================
 
+0.10.4-beta (2015-09-18)
+-------------------------
+
+Optimize session management and upgrade eSockd library to 2.7.1
+
+Improve: issue#294 - [error] failed to start connection on 0.0.0.0:1883 - enotconn
+
+Improve: issue#297 - How do I allow user with some pattern to access topic with some pattern?
+
+Bugfix:  issue#291 - "./bin/emqttd attach ..." cannot work
+
+Bugfix:  issue#284 - Should not use erlang:list_to_atom/1 in emqttd_vm.erl
+
+
 0.10.3-beta (2015-08-30)
 -------------------------
 
