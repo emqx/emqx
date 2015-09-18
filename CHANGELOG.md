@@ -7,6 +7,8 @@ emqttd ChangeLog
 
 Optimize session management and upgrade eSockd library to 2.7.1
 
+[Benchmark for 0.10.4 release](https://github.com/emqtt/emqttd/wiki/benchmark-for-0.10.4-release)
+
 Improve: issue#294 - [error] failed to start connection on 0.0.0.0:1883 - enotconn
 
 Improve: issue#297 - How do I allow user with some pattern to access topic with some pattern?
