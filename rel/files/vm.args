@@ -22,6 +22,9 @@
 ## max process numbers
 +P 8192
 
+## Sets the maximum number of simultaneously existing ports for this system
++Q 8192
+
 ## max atom number
 ## +t
 
@@ -29,12 +32,13 @@
 ## Env
 ##-------------------------------------------------------------------------
 
-## Increase number of concurrent ports/sockets
--env ERL_MAX_PORTS 4096
+## Increase number of concurrent ports/sockets, deprecated in R17
+-env ERL_MAX_PORTS 8192
 
--env ERTS_MAX_PORTS 4096
+-env ERTS_MAX_PORTS 8192
 
 -env ERL_MAX_ETS_TABLES 1024
 
 ## Tweak GC to run more often
 -env ERL_FULLSWEEP_AFTER 1000
+
