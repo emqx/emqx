@@ -664,8 +664,8 @@ next_packet_id(Session = #session{packet_id = 16#ffff}) ->
 next_packet_id(Session = #session{packet_id = Id}) ->
     Session#session{packet_id = Id + 1}.
 
-timer(Timeout, TimeoutMsg) ->
-    erlang:send_after(Timeout * 1000, self(), TimeoutMsg).
+timer(TimeoutSec, TimeoutMsg) ->
+    erlang:send_after(timer:seconds(TimeoutSec), self(), TimeoutMsg).
 
 cancel_timer(undefined) -> 
 	undefined;
@@ -679,7 +679,7 @@ start_collector(Session = #session{collect_interval = 0}) ->
     Session;
 
 start_collector(Session = #session{collect_interval = Interval}) ->
-    TRef = erlang:send_after(Interval * 1000, self(), collect_info),
+    TRef = erlang:send_after(timer:seconds(Interval), self(), collect_info),
     Session#session{collect_timer = TRef}.
 
 info(#session{clean_sess      = CleanSess,
