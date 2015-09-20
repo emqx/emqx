@@ -15,6 +15,4 @@ Cond        = [{mod_cond, app}, {incl_cond, include}],
 
 NewSys      = lists:append(Sys, [{app, App, Cond} || App <- AppendApps]),
 
-io:format("~p~n", [NewSys]),
-
 lists:keyreplace(sys, 1, CONFIG, {sys, NewSys}).
