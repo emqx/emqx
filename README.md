@@ -5,6 +5,7 @@ emqttd is a massively scalable and clusterable MQTT V3.1/V3.1.1 broker written i
 
 emqttd requires Erlang R17+ to build.
 
+*** Notice that Erlang/OTP R18.0 introduced a [binary memory leak](http://erlang.org/pipermail/erlang-questions/2015-September/086098.html), DON'T compile emqttd with R18***
 
 ## Goals
 
