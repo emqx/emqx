@@ -7,11 +7,14 @@ DIST	 = $(BASE_DIR)/rel/$(APP)
 
 all: deps compile
 
-compile: deps
+compile: deps mods
 	@$(REBAR) compile
 
 deps:
 	@$(REBAR) get-deps
+
+mods:
+	@git submodule update --init
 
 update-deps:
 	@$(REBAR) update-deps
