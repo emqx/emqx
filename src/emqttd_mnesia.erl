@@ -146,10 +146,10 @@ cluster(Node) ->
             throw({error, failed_to_connect_extra_db_nodes});
         {ok, Nodes} ->
             case lists:member(Node, Nodes) of
-                true -> lager:info("mnesia connected to extra_db_node '~s' successfully!", [Node]);
+                true ->  lager:info("mnesia connected to extra_db_node '~s' successfully!", [Node]);
                 false -> lager:error("mnesia failed to connect extra_db_node '~s'!", [Node])
-            end
-
+            end,
+            mnesia:change_table_copy_type(schema, node(), disc_copies)
     end,
     copy_tables(),
     wait_for_tables().

@@ -311,12 +311,13 @@ trace(send, Packet, #proto_state{peername  = Peername, client_id = ClientId}) ->
 redeliver({?PUBREL, PacketId}, State) ->
     send(?PUBREL_PACKET(PacketId), State).
 
-shutdown(duplicate_id, _State) ->
-    quiet; %%
-
 shutdown(Error, #proto_state{client_id = undefined}) ->
     lager:info("Protocol shutdown ~p", [Error]),
     ignore;
+
+shutdown(duplicate_id, #proto_state{client_id = ClientId}) ->
+    %% unregister the device
+    emqttd_cm:unregister(ClientId);
 
 %% TODO: ClientId??
 shutdown(Error, #proto_state{peername = Peername, client_id = ClientId, will_msg = WillMsg}) ->

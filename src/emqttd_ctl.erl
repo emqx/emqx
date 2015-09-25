@@ -162,15 +162,15 @@ sessions(["list"]) ->
     dump(session, mqtt_transient_session),
     dump(session, mqtt_persistent_session);
 
-sessions(["show", ClientId0]) ->
-    ClientId = list_to_binary(ClientId0),
-    case {ets:lookup(mqtt_transient_session, ClientId),
-          ets:lookup(mqtt_persistent_session, ClientId)} of
+sessions(["show", ClientId]) ->
+    MP = {{list_to_binary(ClientId), '_'}, '_'},
+    case {ets:match_object(mqtt_transient_session, MP),
+          ets:match_object(mqtt_persistent_session, MP)} of
         {[], []} ->
             ?PRINT_MSG("Not Found.~n");
-        {[SessInfo], _} -> 
+        {[SessInfo], _} ->
             print(session, SessInfo);
-        {_, [SessInfo]} -> 
+        {_, [SessInfo]} ->
             print(session, SessInfo)
     end.
     
@@ -318,7 +318,7 @@ print(client, #mqtt_client{client_id = ClientId, clean_sess = CleanSess,
              emqttd_net:format(Peername),
              emqttd_util:now_to_secs(ConnectedAt)]);
 
-print(session, {ClientId, SessInfo}) ->
+print(session, {{ClientId, _ClientPid}, SessInfo}) ->
     InfoKeys = [clean_sess, 
                 max_inflight,
                 inflight_queue,
@@ -330,7 +330,8 @@ print(session, {ClientId, SessInfo}) ->
                 created_at,
                 subscriptions],
     ?PRINT("Session(~s, clean_sess=~s, max_inflight=~w, inflight_queue=~w, "
-           "message_queue=~w, message_dropped=~w, awaiting_rel=~w, awaiting_ack=~w, awaiting_comp=~w, "
+           "message_queue=~w, message_dropped=~w, "
+           "awaiting_rel=~w, awaiting_ack=~w, awaiting_comp=~w, "
            "created_at=~w, subscriptions=~s)~n",
             [ClientId | [format(Key, proplists:get_value(Key, SessInfo)) || Key <- InfoKeys]]);
 

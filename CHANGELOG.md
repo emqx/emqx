@@ -2,6 +2,32 @@
 emqttd ChangeLog
 ==================
 
+0.11.0-beta (2015-09-25)
+-------------------------
+
+Highlight: Rebar to manage plugin dependencies.
+
+Highlight: [Stomp](https://github.com/emqtt/emqttd_stomp) and [SockJS](https://github.com/emqtt/emqttd_sockjs) Plugins!
+
+Improve: add rel/files/emqttd.config.development|production.
+
+Improve: rel/reltool.config.script to release deps of plugin.
+
+Improve: persist mnesia schema on slave nodes.
+
+Improve: use timer:seconds/1 api.
+
+Improve: The binary release will be compiled with R18.1 now.
+
+Bugfix: issue#306 - emqttd_cm should unregister the duplicated client
+
+Bugfix: issue#310 - usage of emqttd_ctl error: 'session list' should be 'sessions list'
+
+Bugfix: issue#311 - './bin/emqttd_ctl sessions list' error
+
+Bugfix: issue#312 - unsubcribe will lead to crash if emqttd_plugin_template plugin loaded
+
+
 0.10.4-beta (2015-09-18)
 -------------------------
 

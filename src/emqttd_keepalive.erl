@@ -42,7 +42,7 @@
 %%------------------------------------------------------------------------------
 new({Transport, Socket}, TimeoutSec, TimeoutMsg) when TimeoutSec > 0 ->
     {ok, [{recv_oct, RecvOct}]} = Transport:getstat(Socket, [recv_oct]),
-	Ref = erlang:send_after(TimeoutSec*1000, self(), TimeoutMsg),
+	Ref = erlang:send_after(timer:seconds(TimeoutSec), self(), TimeoutMsg),
 	#keepalive {transport   = Transport,
                 socket      = Socket, 
                 recv_oct    = RecvOct, 
@@ -67,7 +67,7 @@ resume(KeepAlive = #keepalive {transport   = Transport,
         true ->
             %need?
             cancel(Ref),
-            NewRef = erlang:send_after(TimeoutSec*1000, self(), TimeoutMsg),
+            NewRef = erlang:send_after(timer:seconds(TimeoutSec), self(), TimeoutMsg),
             {resumed, KeepAlive#keepalive{recv_oct = NewRecvOct, timer_ref = NewRef}}
     end.
 
