@@ -13,3 +13,6 @@
 [submodule "plugins/emqttd_sockjs"]
 	path = plugins/emqttd_sockjs
 	url = https://github.com/emqtt/emqttd_sockjs.git
+[submodule "plugins/emqttd_stomp"]
+	path = plugins/emqttd_stomp
+	url = https://github.com/emqtt/emqttd_stomp.git
