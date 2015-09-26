@@ -5,15 +5,15 @@ BASE_DIR = $(shell pwd)
 REBAR    = $(BASE_DIR)/rebar
 DIST	 = $(BASE_DIR)/rel/$(APP)
 
-all: deps compile
+all: submods deps compile
 
-compile: deps mods
+compile: deps
 	@$(REBAR) compile
 
-deps:
+deps: submods
 	@$(REBAR) get-deps
 
-mods:
+submods:
 	@git submodule update --init
 
 update-deps:
