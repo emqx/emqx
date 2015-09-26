@@ -1,6 +1,6 @@
 .PHONY: rel deps test plugins
 
-APP		 = emqttd
+APP      = emqttd
 BASE_DIR = $(shell pwd)
 REBAR    = $(BASE_DIR)/rebar
 DIST	 = $(BASE_DIR)/rel/$(APP)
