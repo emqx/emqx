@@ -6,3 +6,4 @@ otp_release:
 script: 
   - make
 
+sudo: false
