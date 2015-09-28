@@ -128,6 +128,7 @@ Benchmark 0.6.1-alpha on a ubuntu/14.04 server with 8 cores, 32G memory from Qin
 * [@huangdan](https://github.com/huangdan)
 * [@phanimahesh](https://github.com/phanimahesh)
 * [@dvliman](https://github.com/dvliman)
+* [@phanimahesh](https://github.com/phanimahesh)
 
 ## Author
 
