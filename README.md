@@ -5,7 +5,9 @@ emqttd is a massively scalable and clusterable MQTT V3.1/V3.1.1 broker written i
 
 emqttd requires Erlang R17+ to build.
 
-Notice that Erlang/OTP R18.0 introduced a [binary memory leak](http://erlang.org/pipermail/erlang-questions/2015-September/086098.html), DON'T compile the broker with R18.
+**DON'T compile the broker with Erlang/OTP R18.0 which introduced a [binary memory leak](http://erlang.org/pipermail/erlang-questions/2015-September/086098.html).**
+
+Twitter: [@emqtt](https://twitter.com/emqtt)
 
 ## Goals
 
@@ -15,7 +17,6 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 * Massively scalable
 * Easy to extend
 * Solid stable
-
 
 ## Features
 
@@ -37,7 +38,6 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 * Extensible architecture with Hooks, Modules and Plugins
 * Passed eclipse paho interoperability tests
 
-
 ## Modules
 
 * [emqttd_auth_clientid](https://github.com/emqtt/emqttd/wiki/Authentication) - Authentication with ClientIds
@@ -46,7 +46,6 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 * [emqttd_mod_presence](https://github.com/emqtt/emqttd/wiki/Presence) - Publish presence message to $SYS topics when client connected or disconnected
 * emqttd_mod_autosub - Subscribe topics when client connected
 * [emqttd_mod_rewrite](https://github.com/emqtt/emqttd/wiki/Rewrite) - Topics rewrite like HTTP rewrite module
-
 
 ## Plugins
 
@@ -59,18 +58,15 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 * [emqttd_stomp](https://github.com/emqtt/emqttd_stomp) - Stomp Protocol Plugin
 * [emqttd_sockjs](https://github.com/emqtt/emqttd_sockjs) - SockJS(Stomp) Plugin
 
-
 ## Dashboard
 
 The broker released a simple web dashboard in 0.10.0 version.
 
 Address: http://host:18083
 
-
 ## Design
 
 ![emqttd architecture](http://emqtt.io/static/img/Architecture.png)
-
 
 ## QuickStart
 
@@ -102,11 +98,9 @@ git clone https://github.com/emqtt/emqttd.git
 cd emqttd && make && make dist
 ```
 
-
 ## GetStarted
 
 Read [emqtt wiki](https://github.com/emqtt/emqttd/wiki) for detailed installation and configuration guide.
-
 
 ## Benchmark
 
@@ -114,11 +108,15 @@ Benchmark 0.6.1-alpha on a ubuntu/14.04 server with 8 cores, 32G memory from Qin
 
 200K+ Connections, 200K+ Topics, 20K+ In/Out Messages/sec, 20Mbps+ In/Out with 8G Memory, 50%CPU/core
 
+## Supports
 
-## License
-
-The MIT License (MIT)
-
+* Homepage: http://emqtt.io
+* Downloads: http://emqtt.io/downloads
+* Wiki: https://github.com/emqtt/emqttd/wiki
+* Forum: https://groups.google.com/d/forum/emqtt
+* Mailing List: <emqtt@googlegroups.com>
+* Issues: https://github.com/emqtt/emqttd/issues
+* QQ Group: 12222225
 
 ## Contributors
 
@@ -131,14 +129,11 @@ The MIT License (MIT)
 * [@phanimahesh](https://github.com/phanimahesh)
 * [@dvliman](https://github.com/dvliman)
 
-
 ## Author
 
 Feng Lee <feng@emqtt.io>
 
+## License
 
-## Twitter
-
-https://twitter.com/emqtt
-
+The MIT License (MIT)
 
