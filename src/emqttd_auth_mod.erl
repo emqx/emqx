@@ -36,6 +36,8 @@
 
 -ifdef(use_specs).
 
+-callback init(AuthOpts :: list()) -> {ok, State :: any()}.
+
 -callback check(Client, Password, State) -> ok | ignore | {error, string()} when
     Client    :: mqtt_client(),
     Password  :: binary(),
