@@ -220,7 +220,7 @@ unsubscribe(SessPid, Topics) ->
 %%%=============================================================================
 
 init([CleanSess, ClientId, ClientPid]) ->
-    %process_flag(trap_exit, true),
+    %% process_flag(trap_exit, true),
     QEnv    = emqttd:env(mqtt, queue),
     SessEnv = emqttd:env(mqtt, session),
     Session = #session{
@@ -496,6 +496,7 @@ handle_info({timeout, awaiting_ack, PktId}, Session = #session{client_pid = unde
 handle_info({timeout, awaiting_ack, PktId}, Session = #session{client_id      = ClientId,
                                                                inflight_queue = InflightQ,
                                                                awaiting_ack   = AwaitingAck}) ->
+    lager:info("Awaiting Ack Timeout: ~p:", [PktId]),
     case maps:find(PktId, AwaitingAck) of
         {ok, _TRef} ->
             case lists:keyfind(PktId, 1, InflightQ) of
