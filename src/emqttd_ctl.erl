@@ -24,32 +24,86 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_ctl).
 
 -author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
--define(PRINT_MSG(Msg), 
-    io:format(Msg)).
+-include("emqttd_cli.hrl").
 
--define(PRINT(Format, Args), 
-    io:format(Format, Args)).
+-export([init/0,
+         register_cmd/3,
+         unregister_cmd/1,
+         run/1]).
 
 -export([status/1,
          vm/1,
-         broker/1,
          stats/1,
          metrics/1,
          cluster/1,
          clients/1,
          sessions/1,
          listeners/1,
-         bridges/1,
-         plugins/1,
-         trace/1,
-         useradd/1,
-         userdel/1]).
+         bridges/1]).
+
+-define(CMD_TAB, mqttd_ctl_cmd).
+
+%%%=============================================================================
+%%% API
+%%%=============================================================================
+
+%%------------------------------------------------------------------------------
+%% @doc Init cmd table.
+%% @end
+%%------------------------------------------------------------------------------
+init() ->
+    ets:new(?CMD_TAB, [ordered_set, named_table, public]),
+    register_cmd(status,  {?MODULE, status}, []),
+    register_cmd(vm,      {?MODULE, vm}, []),
+    register_cmd(cluster, {?MODULE, cluster}, []).
+
+%%------------------------------------------------------------------------------
+%% @doc Register a command
+%% @end
+%%------------------------------------------------------------------------------
+-spec register_cmd(atom(), {module(), atom()}, list()) -> true.
+register_cmd(Cmd, MF, Opts) ->
+    ets:insert(?CMD_TAB, {Cmd, MF, Opts}).
+
+%%------------------------------------------------------------------------------
+%% @doc Unregister a command
+%% @end
+%%------------------------------------------------------------------------------
+-spec unregister_cmd(atom()) -> true.
+unregister_cmd(Cmd) ->
+    ets:delete(?CMD_TAB, Cmd).
+
+%%------------------------------------------------------------------------------
+%% @doc Run a command
+%% @end
+%%------------------------------------------------------------------------------
+
+run([]) -> usage();
+
+run([CmdS|Args]) ->
+    case ets:lookup(?CMD_TAB, list_to_atom(CmdS)) of
+        [{_, {Mod, Fun}, _}] -> Mod:Fun(Args);
+        [] -> usage() 
+    end.
+    
+%%------------------------------------------------------------------------------
+%% @doc Usage
+%% @end
+%%------------------------------------------------------------------------------
+usage() ->
+    ?PRINT("Usage: ~s~n", [?MODULE]),
+    [Mod:Cmd(["help"]) || {_, {Mod, Cmd}, _} <- ets:tab2list(?CMD_TAB)].
+
+%%%=============================================================================
+%%% Commands
+%%%=============================================================================
 
 %%------------------------------------------------------------------------------
 %% @doc Query node status
@@ -63,7 +117,36 @@ status([]) ->
         ?PRINT_MSG("emqttd is not running~n");
     {value,_Version} ->
         ?PRINT_MSG("emqttd is running~n")
-    end.
+    end;
+status(_) ->
+     ?PRINT_CMD("status", "#query broker status").
+
+vm([]) ->
+    vm(["all"]);
+
+vm(["all"]) ->
+    [begin vm([Name]), ?PRINT_MSG("~n") end || Name <- ["load", "memory", "process", "io"]];
+
+vm(["load"]) ->
+    [?PRINT("cpu/~-20s~s~n", [L, V]) || {L, V} <- emqttd_vm:loads()];
+
+vm(["memory"]) ->
+    [?PRINT("memory/~-17s~w~n", [Cat, Val]) || {Cat, Val} <- erlang:memory()];
+
+vm(["process"]) ->
+    lists:foreach(fun({Name, Key}) ->
+        ?PRINT("process/~-16s~w~n", [Name, erlang:system_info(Key)])
+    end, [{limit, process_limit}, {count, process_count}]);
+
+vm(["io"]) ->
+    ?PRINT("io/~-21s~w~n", [max_fds, proplists:get_value(max_fds, erlang:system_info(check_io))]);
+
+vm(_) ->
+    ?PRINT_CMD("vm all",     "#query info of erlang vm"),
+    ?PRINT_CMD("vm load",    "#query load of erlang vm"),
+    ?PRINT_CMD("vm memory",  "#query memory of erlang vm"),
+    ?PRINT_CMD("vm process", "#query process of erlang vm"),
+    ?PRINT_CMD("vm io",      "#queue io of erlang vm").
 
 %%------------------------------------------------------------------------------
 %% @doc Cluster with other node
@@ -93,45 +176,11 @@ cluster([SNode]) ->
         end;
     pang ->
         ?PRINT("failed to connect to ~p~n", [Node])
-    end.
+    end;
 
-%%------------------------------------------------------------------------------
-%% @doc Add user
-%% @end
-%%------------------------------------------------------------------------------
-useradd([Username, Password]) ->
-    ?PRINT("~p~n", [emqttd_auth_username:add_user(bin(Username), bin(Password))]).
+cluster(_) ->
+    ?PRINT_CMD("cluster [<Node>]", "#cluster with node, query cluster info ").
 
-%%------------------------------------------------------------------------------
-%% @doc Delete user
-%% @end
-%%------------------------------------------------------------------------------
-userdel([Username]) ->
-    ?PRINT("~p~n", [emqttd_auth_username:remove_user(bin(Username))]).
-
-vm([]) ->
-    [vm([Name]) || Name <- ["load", "memory", "process", "io"]];
-
-vm(["load"]) ->
-    ?PRINT_MSG("Load: ~n"),
-    [?PRINT("  ~s:~s~n", [L, V]) || {L, V} <- emqttd_vm:loads()];
-
-vm(["memory"]) ->
-    ?PRINT_MSG("Memory: ~n"),
-    [?PRINT("  ~s:~p~n", [Cat, Val]) || {Cat, Val} <- erlang:memory()];
-
-vm(["process"]) ->
-    ?PRINT_MSG("Process: ~n"),
-    ?PRINT("  process_limit:~p~n", [erlang:system_info(process_limit)]),
-    ?PRINT("  process_count:~p~n", [erlang:system_info(process_count)]);
-
-vm(["io"]) ->
-    ?PRINT_MSG("IO: ~n"),
-    ?PRINT("  max_fds:~p~n", [proplists:get_value(max_fds, erlang:system_info(check_io))]).
-
-broker([]) ->
-    Funs = [sysdescr, version, uptime, datetime],
-    [?PRINT("~s: ~s~n", [Fun, emqttd_broker:Fun()]) || Fun <- Funs].
 
 stats([]) ->
     [?PRINT("~s: ~p~n", [Stat, Val]) || {Stat, Val} <- emqttd_stats:getstats()].
@@ -216,50 +265,6 @@ bridges(["stop", SNode, Topic]) ->
         {error, Error} -> ?PRINT("error: ~p~n", [Error])
     end.
 
-plugins(["list"]) ->
-    lists:foreach(fun(Plugin) -> print(plugin, Plugin) end, emqttd_plugins:list());
-
-plugins(["load", Name]) ->
-    case emqttd_plugins:load(list_to_atom(Name)) of
-        {ok, StartedApps} -> ?PRINT("Start apps: ~p~nPlugin ~s loaded successfully.~n", [StartedApps, Name]);
-        {error, Reason} -> ?PRINT("load plugin error: ~p~n", [Reason])
-    end;
-
-plugins(["unload", Name]) ->
-    case emqttd_plugins:unload(list_to_atom(Name)) of
-        ok -> ?PRINT("Plugin ~s unloaded successfully.~n", [Name]);
-        {error, Reason} -> ?PRINT("unload plugin error: ~p~n", [Reason])
-    end.
-
-trace(["list"]) ->
-    lists:foreach(fun({{Who, Name}, LogFile}) -> 
-            ?PRINT("trace ~s ~s -> ~s~n", [Who, Name, LogFile])
-        end, emqttd_trace:all_traces());
-
-trace(["client", ClientId, "off"]) ->
-    stop_trace(client, ClientId);
-trace(["client", ClientId, LogFile]) ->
-    start_trace(client, ClientId, LogFile);
-trace(["topic", Topic, "off"]) ->
-    stop_trace(topic, Topic);
-trace(["topic", Topic, LogFile]) ->
-    start_trace(topic, Topic, LogFile).
-
-start_trace(Who, Name, LogFile) ->
-    case emqttd_trace:start_trace({Who, bin(Name)}, LogFile) of
-        ok -> 
-            ?PRINT("trace ~s ~s successfully.~n", [Who, Name]);
-        {error, Error} ->
-            ?PRINT("trace ~s ~s error: ~p~n", [Who, Name, Error])
-    end.
-stop_trace(Who, Name) ->
-    case emqttd_trace:stop_trace({Who, bin(Name)}) of
-        ok -> 
-            ?PRINT("stop to trace ~s ~s successfully.~n", [Who, Name]);
-        {error, Error} ->
-            ?PRINT("stop to trace ~s ~s error: ~p.~n", [Who, Name, Error])
-    end.
-
 
 node_name(SNode) ->
     SNode1 =
@@ -333,11 +338,8 @@ print(session, {{ClientId, _ClientPid}, SessInfo}) ->
            "message_queue=~w, message_dropped=~w, "
            "awaiting_rel=~w, awaiting_ack=~w, awaiting_comp=~w, "
            "created_at=~w, subscriptions=~s)~n",
-            [ClientId | [format(Key, proplists:get_value(Key, SessInfo)) || Key <- InfoKeys]]);
+            [ClientId | [format(Key, proplists:get_value(Key, SessInfo)) || Key <- InfoKeys]]).
 
-print(plugin, #mqtt_plugin{name = Name, version = Ver, descr = Descr, active = Active}) ->
-    ?PRINT("Plugin(~s, version=~s, description=~s, active=~s)~n",
-               [Name, Ver, Descr, Active]).
 
 format(created_at, Val) ->
     emqttd_util:now_to_secs(Val);

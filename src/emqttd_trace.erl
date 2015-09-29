@@ -24,16 +24,22 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_trace).
 
 -author("Feng Lee <feng@emqtt.io>").
 
--behaviour(gen_server).
+-include("emqttd_cli.hrl").
+
+%% CLI
+-export([cli/1]).
 
 %% API Function Exports
 -export([start_link/0]).
 
 -export([start_trace/2, stop_trace/1, all_traces/0]).
+
+-behaviour(gen_server).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -44,6 +50,48 @@
 -type trace_who() :: {client | topic, binary()}.
 
 -define(TRACE_OPTIONS, [{formatter_config, [time, " [",severity,"] ", message, "\n"]}]).
+
+
+%%%=============================================================================
+%%% CLI
+%%%=============================================================================
+
+cli(["list"]) ->
+    lists:foreach(fun({{Who, Name}, LogFile}) -> 
+            ?PRINT("trace ~s ~s -> ~s~n", [Who, Name, LogFile])
+        end, all_traces());
+
+cli(["client", ClientId, "off"]) ->
+    cli(trace_off, client, ClientId);
+cli(["client", ClientId, LogFile]) ->
+    cli(trace_on, client, ClientId, LogFile);
+cli(["topic", Topic, "off"]) ->
+    cli(trace_off, topic, Topic);
+cli(["topic", Topic, LogFile]) ->
+    cli(trace_on, topic, Topic, LogFile);
+
+cli(_) ->
+    ?PRINT_CMD("trace list",                       "#query all traces"),
+    ?PRINT_CMD("trace client <ClientId> <LogFile>","#trace client with ClientId"),
+    ?PRINT_CMD("trace client <ClientId> off",      "#stop to trace client"),
+    ?PRINT_CMD("trace topic <Topic> <LogFile>",    "#trace topic with Topic"),
+    ?PRINT_CMD("trace topic <Topic> off",          "#stop to trace Topic").
+
+cli(trace_on, Who, Name, LogFile) ->
+    case start_trace({Who, list_to_binary(Name)}, LogFile) of
+        ok ->
+            ?PRINT("trace ~s ~s successfully.~n", [Who, Name]);
+        {error, Error} ->
+            ?PRINT("trace ~s ~s error: ~p~n", [Who, Name, Error])
+    end.
+
+cli(trace_off, Who, Name) ->
+    case stop_trace({Who, list_to_binary(Name)}) of
+        ok -> 
+            ?PRINT("stop to trace ~s ~s successfully.~n", [Who, Name]);
+        {error, Error} ->
+            ?PRINT("stop to trace ~s ~s error: ~p.~n", [Who, Name, Error])
+    end.
 
 %%%=============================================================================
 %%% API
@@ -85,6 +133,7 @@ all_traces() ->
     gen_server:call(?MODULE, all_traces).
 
 init([]) ->
+    emqttd_ctl:register_cmd(trace, {?MODULE, cli}, []),
     {ok, #state{level = info, trace_map = #{}}}.
 
 handle_call({start_trace, Who, LogFile}, _From, State = #state{level = Level, trace_map = TraceMap}) ->
@@ -122,6 +171,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
+    emqttd_ctl:unregister_cmd(trace),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

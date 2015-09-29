@@ -24,18 +24,21 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_metrics).
 
 -author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
+-include("emqttd_cli.hrl").
+
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
 
 %% API Function Exports
--export([start_link/0]).
+-export([start_link/0, cli/1]).
 
 -export([all/0, value/1,
          inc/1, inc/2, inc/3,
@@ -92,6 +95,17 @@
 -spec start_link() -> {ok, pid()} | ignore | {error, any()}.
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+%%------------------------------------------------------------------------------
+%% @doc CLI command callback
+%% @end
+%%------------------------------------------------------------------------------
+
+cli([]) ->
+    [?PRINT("~-32s ~w~n", [Metric, Val]) || {Metric, Val} <- lists:sort(emqttd_metrics:all())];
+
+cli(_) ->
+    ?PRINT_CMD("metrics", "#query broker metrics").
 
 %%------------------------------------------------------------------------------
 %% @doc Get all metrics
@@ -193,6 +207,8 @@ init([]) ->
     [create_metric(Metric) ||  Metric <- Metrics],
     % $SYS Topics for metrics
     [ok = emqttd_pubsub:create(metric_topic(Topic)) || {_, Topic} <- Metrics],
+    %% Register CLI commands
+    emqttd_ctl:register_cmd(metrics, {?MODULE, cli}, []),
     % Tick to publish metrics
     {ok, #state{tick_tref = emqttd_broker:start_tick(tick)}, hibernate}.
 

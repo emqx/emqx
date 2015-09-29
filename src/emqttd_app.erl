@@ -24,6 +24,7 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_app).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -49,6 +50,7 @@
 start(_StartType, _StartArgs) ->
     print_banner(),
     emqttd_mnesia:start(),
+    emqttd_ctl:init(),
     {ok, Sup} = emqttd_sup:start_link(),
     start_servers(Sup),
     emqttd:load_all_mods(),

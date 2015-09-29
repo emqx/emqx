@@ -30,6 +30,9 @@
 -author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
+-include("emqttd_cli.hrl").
+
+-export([cli/1]).
 
 -export([load/0, unload/0]).
 
@@ -38,12 +41,43 @@
 -export([list/0]).
 
 %%------------------------------------------------------------------------------
+%% CLI callback
+%%------------------------------------------------------------------------------
+
+cli(["list"]) ->
+    lists:foreach(fun(Plugin) -> print(Plugin) end, list());
+
+cli(["load", Name]) ->
+    case load(list_to_atom(Name)) of
+        {ok, StartedApps} -> ?PRINT("Start apps: ~p~nPlugin ~s loaded successfully.~n", [StartedApps, Name]);
+        {error, Reason} -> ?PRINT("load plugin error: ~p~n", [Reason])
+    end;
+
+cli(["unload", Name]) ->
+    case emqttd_plugins:unload(list_to_atom(Name)) of
+        ok ->
+            ?PRINT("Plugin ~s unloaded successfully.~n", [Name]);
+        {error, Reason} ->
+            ?PRINT("unload plugin error: ~p~n", [Reason])
+    end;
+
+cli(_) ->
+    ?PRINT_CMD("plugins list",            "#query loaded plugins"),
+    ?PRINT_CMD("plugins load <Plugin>",   "#load plugin"),
+    ?PRINT_CMD("plugins unload <Plugin>", "#unload plugin").
+
+print(#mqtt_plugin{name = Name, version = Ver, descr = Descr, active = Active}) ->
+    ?PRINT("Plugin(~s, version=~s, description=~s, active=~s)~n",
+               [Name, Ver, Descr, Active]).
+
+%%------------------------------------------------------------------------------
 %% @doc Load all plugins when the broker started.
 %% @end
 %%------------------------------------------------------------------------------
 
 -spec load() -> list() | {error, any()}.
 load() ->
+    emqttd_ctl:register_cmd(plugins, {?MODULE, cli}, []),
     case env(loaded_file) of
         {ok, File} ->
             with_loaded_file(File, fun(Names) -> load_plugins(Names, false) end);

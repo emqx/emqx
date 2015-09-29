@@ -28,7 +28,10 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include_lib("emqttd.hrl").
+-include("emqttd.hrl").
+-include("emqttd_cli.hrl").
+
+-export([cli/1]).
 
 %% API Function Exports
 -export([start_link/0]).
@@ -67,6 +70,16 @@
     datetime,     % Broker local datetime
     sysdescr      % Broker description
 ]).
+
+%%%=============================================================================
+%%% CLI callback
+%%%=============================================================================
+cli([]) ->
+    Funs = [sysdescr, version, uptime, datetime],
+    [?PRINT("~-20s~s~n", [Fun, ?MODULE:Fun()]) || Fun <- Funs];
+
+cli(_) ->
+    ?PRINT_CMD("broker", "#query broker version, uptime and description").
 
 %%%=============================================================================
 %%% API
@@ -223,6 +236,8 @@ init([]) ->
     % Create $SYS Topics
     emqttd_pubsub:create(<<"$SYS/brokers">>),
     [ok = create_topic(Topic) || Topic <- ?SYSTOP_BROKERS],
+    %% CLI
+    emqttd_ctl:register_cmd(broker, {?MODULE, cli}, []),
     % Tick
     {ok, #state{started_at = os:timestamp(),
                 heartbeat  = start_tick(1000, heartbeat),
@@ -279,7 +294,9 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, #state{heartbeat = Hb, tick_tref = TRef}) ->
     stop_tick(Hb),
-    stop_tick(TRef).
+    stop_tick(TRef),
+    emqttd_ctl:unregister_cmd(broker),
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
