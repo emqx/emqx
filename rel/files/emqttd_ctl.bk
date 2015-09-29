@@ -1,0 +1,300 @@
+# Check the first argument for instructions
+case "$1" in
+    status)
+        if [ $# -ne 1 ]; then
+            echo "Usage: $SCRIPT status"
+            exit 1
+        fi
+
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "Node is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl status $@
+        ;;
+
+    cluster)
+        if [ $# -gt 2 ]; then
+            echo "Usage: $SCRIPT cluster [<Node>]"
+            exit 1
+        fi
+
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl cluster $@
+        ;;
+
+    useradd)
+        if [ $# -ne 3 ]; then
+            echo "Usage: $SCRIPT useradd <Username> <Password>"
+            exit 1
+        fi
+
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl useradd $@
+        ;;
+
+    userdel)
+        if [ $# -ne 2 ]; then
+            echo "Usage: $SCRIPT userdel <Username>"
+            exit 1
+        fi
+
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl userdel $@
+        ;;
+        
+    vm)
+        if [ $# -gt 2 ]; then
+            echo "Usage: $SCRIPT vm [ load | memory | process | io ]"
+            exit 1
+        fi
+
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl vm $@
+        ;;
+
+    broker)
+        if [ $# -ne 1 ]; then
+            echo "Usage: $SCRIPT broker"
+            exit 1
+        fi
+
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl broker $@
+        ;;
+
+    stats)
+        if [ $# -ne 1 ]; then
+            echo "Usage: $SCRIPT stats"
+            exit 1
+        fi
+
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl stats $@
+        ;;
+
+    metrics)
+        if [ $# -ne 1 ]; then
+            echo "Usage: $SCRIPT metrics"
+            exit 1
+        fi
+
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl metrics $@
+        ;;
+
+    bridges)
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        if [[ $# -eq 2 ]] && [[ $2 = "list" ]]; then
+            $NODETOOL rpc emqttd_ctl bridges list
+        elif [[ $# -eq 2 ]] && [[ $2 = "options" ]]; then
+            $NODETOOL rpc emqttd_ctl bridges options
+        elif [[ $# -eq 4 ]] && [[ $2 = "stop" ]]; then
+            shift
+            $NODETOOL rpc emqttd_ctl bridges $@
+        elif [[ $# -ge 4 ]] && [[ $2 = "start" ]]; then
+            shift
+            $NODETOOL rpc emqttd_ctl bridges $@
+        else
+            echo "Usage: "
+            echo "$SCRIPT bridges list"
+            echo "$SCRIPT bridges start <Node> <Topic>"
+            echo "$SCRIPT bridges start <Node> <Topic> <Options>"
+            echo "$SCRIPT bridges stop  <Node> <Topic>"
+            exit 1
+        fi
+        ;;
+    clients)
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        if [ $# -eq 2 -a $2 = "list" ]; then
+            $NODETOOL rpc emqttd_ctl clients list
+        elif [ $# -eq 3 ]; then
+            shift
+            $NODETOOL rpc emqttd_ctl clients $@
+        else
+            echo "Usage: "
+            echo "$SCRIPT clients list"
+            echo "$SCRIPT clients show <ClientId>"
+            echo "$SCRIPT clients kick <ClientId>"
+            exit 1
+        fi
+        ;;
+    sessions)
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        if [ $# -eq 2 -a $2 = "list" ]; then
+            $NODETOOL rpc emqttd_ctl sessions list
+        elif [ $# -eq 3 ]; then
+            shift
+            $NODETOOL rpc emqttd_ctl sessions $@
+        else
+            echo "Usage: "
+            echo "$SCRIPT sessions list"
+            echo "$SCRIPT sessions show <ClientId>"
+            exit 1
+        fi
+        ;;
+    plugins)
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        if [ $# -eq 2 -a $2 = "list" ]; then
+            $NODETOOL rpc emqttd_ctl plugins list
+        elif [ $# -eq 3 ]; then
+            shift
+            $NODETOOL rpc emqttd_ctl plugins $@
+        else
+            echo "Usage: "
+            echo "$SCRIPT plugins list"
+            echo "$SCRIPT plugins load <Plugin>"
+            echo "$SCRIPT plugins unload <Plugin>"
+            exit 1
+        fi
+        ;;
+    listeners)
+        if [ $# -gt 1 ]; then
+            echo "Usage: $SCRIPT listeners"
+            exit 1
+        fi
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        shift
+
+        $NODETOOL rpc emqttd_ctl listeners $@
+        ;;
+    trace)
+        # Make sure the local node IS running
+        RES=`$NODETOOL ping`
+        if [ "$RES" != "pong" ]; then
+            echo "emqttd is not running!"
+            exit 1
+        fi
+        if [ $# -eq 2 -a $2 = "list" ]; then
+            $NODETOOL rpc emqttd_ctl trace list
+        elif [ $# -eq 4 ]; then
+            shift
+            $NODETOOL rpc emqttd_ctl trace $@
+        else
+            echo "Usage: "
+            echo "$SCRIPT trace list"
+            echo "$SCRIPT trace client <ClientId> <LogFile>"
+            echo "$SCRIPT trace client <ClientId> off"
+            echo "$SCRIPT trace topic <Topic> <LogFile>"
+            echo "$SCRIPT trace topic <Topic> off"
+            exit 1
+        fi
+        ;;
+
+    *)
+        echo "Usage: $SCRIPT"
+		echo "  status                        #query broker status"
+        echo "  vm [ load | memory | process | io ]    #query load, memory, process and io of erlang vm"
+		echo "  broker                        #query broker version, uptime and description"
+		echo "  stats                         #query broker statistics of clients, topics, subscribers"
+        echo "  metrics                       #query broker metrics"
+		echo "  cluster [<Node>]              #query or cluster nodes"
+        echo "  ----------------------------------------------------------------"
+        echo "  clients list                  #list all clients"
+        echo "  clients show <ClientId>       #show a client"
+        echo "  clients kick <ClientId>       #kick a client"
+        echo "  sessions list                 #list all sessions"
+        echo "  sessions show <ClientId>      #show a sessions"
+        echo "  ----------------------------------------------------------------"
+        echo "  plugins list                  #query loaded plugins"
+        echo "  plugins load <Plugin>         #load plugin"
+        echo "  plugins unload <Plugin>       #unload plugin"
+        echo "  ----------------------------------------------------------------"
+        echo "  bridges list                  #query bridges"
+        echo "  bridges options               #bridge options"
+        echo "  bridges start <Node> <Topic>  #start bridge"
+        echo "  bridges start <Node> <Topic> <Options> #start bridge with options"
+        echo "  bridges stop  <Node> <Topic>   #stop bridge"
+        echo "  ----------------------------------------------------------------"
+		echo "  useradd <Username> <Password> #add user"
+		echo "  userdel <Username>            #delete user"
+        echo "  ----------------------------------------------------------------"
+		echo "  listeners                     #query broker listeners"
+        echo "  ----------------------------------------------------------------"
+        echo "  trace list                    #query all traces"
+        echo "  trace client <ClientId> <LogFile>   #trace client with ClientId"
+        echo "  trace client <ClientId> off         #stop to trace client"
+        echo "  trace topic <Topic> <LogFile>       #trace topic with Topic"
+        echo "  trace topic <Topic> off             #stop to trace Topic"
+        exit 1
+        ;;
+	
+esac
+
