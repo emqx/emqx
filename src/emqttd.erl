@@ -90,7 +90,7 @@ open_listener({https, Port, Options}) ->
 	mochiweb:start_http(Port, Options, MFArgs).
 
 open_listener(Protocol, Port, Options) ->
-    MFArgs = {emqttd_client, start_link, env(mqtt)},
+    MFArgs = {emqttd_client, start_link, [env(mqtt)]},
     esockd:open(Protocol, Port, merge_sockopts(Options) , MFArgs).
 
 merge_sockopts(Options) ->
