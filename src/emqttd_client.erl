@@ -55,8 +55,8 @@
                 packet_opts,
                 keepalive}).
 
-start_link(SockArgs, PktOpts) ->
-    {ok, proc_lib:spawn_link(?MODULE, init, [[SockArgs, PktOpts]])}.
+start_link(SockArgs, MqttEnv) ->
+    {ok, proc_lib:spawn_link(?MODULE, init, [[SockArgs, MqttEnv]])}.
 
 session(CPid) ->
     gen_server:call(CPid, session).
@@ -70,14 +70,15 @@ kick(CPid) ->
 subscribe(CPid, TopicTable) ->
     gen_server:cast(CPid, {subscribe, TopicTable}).
 
-init([SockArgs = {Transport, Sock, _SockFun}, PacketOpts]) ->
+init([SockArgs = {Transport, Sock, _SockFun}, MqttEnv]) ->
     % Transform if ssl.
     {ok, NewSock} = esockd_connection:accept(SockArgs),
     {ok, Peername} = emqttd_net:peername(Sock),
     {ok, ConnStr} = emqttd_net:connection_string(Sock, inbound),
     lager:info("Connect from ~s", [ConnStr]),
     SendFun = fun(Data) -> Transport:send(NewSock, Data) end,
-    ProtoState = emqttd_protocol:init(Peername, SendFun, PacketOpts),
+    PktOpts = proplists:get_value(packet, MqttEnv),
+    ProtoState = emqttd_protocol:init(Peername, SendFun, PktOpts),
     State = control_throttle(#state{transport    = Transport,
                                     socket       = NewSock,
                                     peername     = Peername,
@@ -85,10 +86,12 @@ init([SockArgs = {Transport, Sock, _SockFun}, PacketOpts]) ->
                                     await_recv   = false,
                                     conn_state   = running,
                                     conserve     = false,
-                                    packet_opts  = PacketOpts,
-                                    parser       = emqttd_parser:new(PacketOpts),
+                                    packet_opts  = PktOpts,
+                                    parser       = emqttd_parser:new(PktOpts),
                                     proto_state  = ProtoState}),
-    gen_server:enter_loop(?MODULE, [], State, 10000).
+    ClientOpts = proplists:get_value(client, MqttEnv),
+    IdleTimout = proplists:get_value(idle_timeout, ClientOpts, 10),
+    gen_server:enter_loop(?MODULE, [], State, timer:seconds(IdleTimout)).
 
 handle_call(session, _From, State = #state{proto_state = ProtoState}) ->
     {reply, emqttd_protocol:session(ProtoState), State};

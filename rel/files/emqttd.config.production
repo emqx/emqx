@@ -73,6 +73,8 @@
         ]},
         %% Client
         {client, [
+            %% Socket is connected, but no 'CONNECT' packet received
+            {idle_timeout, 10} %% seconds
             %TODO: Network ingoing limit
             %{ingoing_rate_limit, '64KB/s'}
             %TODO: Reconnet control
@@ -83,14 +85,11 @@
             %% 0 means no limit
             {max_inflight, 100},
 
-            %% Max retries for unack Qos1/2 messages
-            {unack_retries, 3},
-
-            %% Retry after 8, 16, 32 seconds
-            {unack_timeout, 8},
+            %% Retry interval for redelivering QoS1/2 messages.
+            {unack_retry_interval, 30},
 
             %% Awaiting PUBREL Timeout
-            {await_rel_timeout, 8},
+            {await_rel_timeout, 20},
 
             %% Max Packets that Awaiting PUBREL, 0 means no limit
             {max_awaiting_rel, 0},
@@ -133,7 +132,7 @@
         %% PubSub
         {pubsub, [
             %% default should be scheduler numbers
-            {pool_size, 8}
+            %% {pool_size, 8}
         ]},
         %% Bridge
         {bridge, [
