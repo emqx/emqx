@@ -41,7 +41,7 @@
 
 -export([status/1, broker/1, cluster/1, bridges/1,
          clients/1, sessions/1, plugins/1, listeners/1,
-         vm/1, trace/1]).
+         vm/1, mnesia/1, trace/1]).
 
 -define(PROC_INFOKEYS, [status,
                         memory,
@@ -333,11 +333,21 @@ vm(_) ->
             {"vm memory",  "query memory of erlang vm"},
             {"vm process", "query process of erlang vm"},
             {"vm io",      "queue io of erlang vm"}]).
+
+%%------------------------------------------------------------------------------
+%% @doc mnesia Command
+%% @end
+%%------------------------------------------------------------------------------
+mnesia([]) ->
+    mnesia:system_info();
+
+mnesia(_) ->
+    ?PRINT_CMD("mnesia", "mnesia system info").
+
 %%------------------------------------------------------------------------------
 %% @doc Trace Command
 %% @end
 %%------------------------------------------------------------------------------
-
 trace(["list"]) ->
     foreach(fun({{Who, Name}, LogFile}) ->
                 ?PRINT("trace ~s ~s -> ~s~n", [Who, Name, LogFile])
@@ -390,7 +400,7 @@ listeners([]) ->
                         {shutdown_count, esockd:get_shutdown_count(Pid)}],
                 ?PRINT("listener on ~s:~w~n", [Protocol, Port]),
                 foreach(fun({Key, Val}) ->
-                            ?PRINT("  ~-16s:~w~n", [Key, Val])
+                            ?PRINT("  ~-16s: ~w~n", [Key, Val])
                         end, Info)
             end, esockd:listeners());
 
