@@ -27,5 +27,9 @@
     io:format(Msg)).
 
 -define(PRINT_CMD(Cmd, Descr),
-    io:format("~-40s~s~n", [Cmd, Descr])).
+    io:format("~-40s#~s~n", [Cmd, Descr])).
+
+-define(USAGE(CmdList),
+    [?PRINT_CMD(Cmd, Descr) || {Cmd, Descr} <- CmdList]).
+
 
