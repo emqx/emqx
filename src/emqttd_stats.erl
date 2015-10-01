@@ -31,11 +31,11 @@
 
 -include("emqttd.hrl").
 
--export([start_link/0]).
-
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
+
+-export([start_link/0]).
 
 %% statistics API.
 -export([statsfun/1, statsfun/2,
@@ -52,8 +52,8 @@
 
 %% $SYS Topics for Clients
 -define(SYSTOP_CLIENTS, [
-    'clients/count',         % clients connected current
-    'clients/max'            % max clients connected
+    'clients/count',    % clients connected current
+    'clients/max'       % max clients connected
 ]).
 
 %% $SYS Topics for Sessions
@@ -71,6 +71,7 @@
     'queues/count',      % ...
     'queues/max'         % ...
 ]).
+
 
 %%%=============================================================================
 %%% API
@@ -102,7 +103,7 @@ statsfun(Stat, MaxStat) ->
 %%------------------------------------------------------------------------------
 -spec getstats() -> [{atom(), non_neg_integer()}].
 getstats() ->
-    ets:tab2list(?STATS_TAB).
+    lists:sort(ets:tab2list(?STATS_TAB)).
 
 %%------------------------------------------------------------------------------
 %% @doc Get stats by name
