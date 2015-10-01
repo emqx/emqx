@@ -35,6 +35,8 @@
 
 -export([create_table/2, copy_table/1]). 
 
+-export([dump/3]).
+
 start() ->
     case init_schema() of
         ok -> 
@@ -167,4 +169,17 @@ wait_for_mnesia(stop) ->
         starting ->
             {error, mnesia_unexpectedly_starting}
     end.
+
+dump(ets, Table, Fun) ->
+    dump(ets, Table, ets:first(Table), Fun).
+
+dump(ets, _Table, '$end_of_table', _Fun) ->
+    ok;
+
+dump(ets, Table, Key, Fun) ->
+    case ets:lookup(Table, Key) of
+        [Record] -> Fun(Record);
+        [] -> ignore
+    end,
+    dump(ets, Table, ets:next(Table, Key), Fun).
 
