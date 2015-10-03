@@ -1,4 +1,6 @@
 #!/bin/sh
+# -*- tab-width:4;indent-tabs-mode:nil -*-
+# ex: ts=4 sw=4 et
 
 # /bin/sh on Solaris is not a POSIX compatible shell, but /usr/bin/ksh is.
 if [ `uname -s` = 'SunOS' -a "${POSIX_SHELL}" != "true" ]; then
