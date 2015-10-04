@@ -108,7 +108,7 @@ case "$1" in
 esac
 
 MYPID=$$
-ETOP_ARGS="-sort $SORTBY -interval 10 -lines 100 -tracing off"
+ETOP_ARGS="-sort $SORTBY -interval 10 -lines 50 -tracing off"
 $ERTS_PATH/erl -noshell -noinput \
     -pa $RUNNER_LIB_DIR/basho-patches \
     -hidden $NAME_PARAM emqttd_top$MYPID$NAME_HOST $COOKIE_ARG \
