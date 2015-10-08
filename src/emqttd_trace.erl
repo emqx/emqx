@@ -24,16 +24,17 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_trace).
 
 -author("Feng Lee <feng@emqtt.io>").
-
--behaviour(gen_server).
 
 %% API Function Exports
 -export([start_link/0]).
 
 -export([start_trace/2, stop_trace/1, all_traces/0]).
+
+-behaviour(gen_server).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,

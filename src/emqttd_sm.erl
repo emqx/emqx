@@ -55,9 +55,9 @@
 
 -record(state, {id}).
 
--define(SM_POOL, sm_pool).
+-define(SM_POOL, ?MODULE).
 
-%% todo...
+%% TODO...
 -define(SESSION_TIMEOUT, 60000).
 
 %%%=============================================================================

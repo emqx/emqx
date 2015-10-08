@@ -28,7 +28,7 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include_lib("emqttd.hrl").
+-include("emqttd.hrl").
 
 %% API Function Exports
 -export([start_link/0]).
@@ -279,7 +279,8 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, #state{heartbeat = Hb, tick_tref = TRef}) ->
     stop_tick(Hb),
-    stop_tick(TRef).
+    stop_tick(TRef),
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

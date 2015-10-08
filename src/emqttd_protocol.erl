@@ -239,16 +239,11 @@ handle(?SUBSCRIBE_PACKET(PacketId, TopicTable), State = #proto_state{client_id =
     case lists:member(deny, AllowDenies) of
         true ->
             %%TODO: return 128 QoS when deny... no need to SUBACK?
-            lager:error("SUBSCRIBE from '~s' Denied: ~p", [ClientId, TopicTable]),
-            {ok, State};
+            lager:error("SUBSCRIBE from '~s' Denied: ~p", [ClientId, TopicTable]);
         false ->
-            %%TODO: GrantedQos should be renamed.
-            {ok, GrantedQos} = emqttd_session:subscribe(Session, TopicTable),
-            send(?SUBACK_PACKET(PacketId, GrantedQos), State)
-    end;
-
-handle({subscribe, TopicTable}, State = #proto_state{session = Session}) ->
-    {ok, _GrantedQos} = emqttd_session:subscribe(Session, TopicTable),
+            Callback = fun(GrantedQos) -> send(?SUBACK_PACKET(PacketId, GrantedQos), State) end,
+            emqttd_session:subscribe(Session, TopicTable, Callback)
+    end,
     {ok, State};
 
 %% protect from empty topic list
@@ -256,7 +251,7 @@ handle(?UNSUBSCRIBE_PACKET(PacketId, []), State) ->
     send(?UNSUBACK_PACKET(PacketId), State);
 
 handle(?UNSUBSCRIBE_PACKET(PacketId, Topics), State = #proto_state{session = Session}) ->
-    ok = emqttd_session:unsubscribe(Session, Topics),
+    emqttd_session:unsubscribe(Session, Topics),
     send(?UNSUBACK_PACKET(PacketId), State);
 
 handle(?PACKET(?PINGREQ), State) ->
@@ -349,7 +344,7 @@ send_willmsg(ClientId, WillMsg) ->
 start_keepalive(0) -> ignore;
 
 start_keepalive(Sec) when Sec > 0 ->
-    self() ! {keepalive, start, round(Sec * 1.5)}.
+    self() ! {keepalive, start, round(Sec * 1.2)}.
 
 %%----------------------------------------------------------------------------
 %% Validate Packets

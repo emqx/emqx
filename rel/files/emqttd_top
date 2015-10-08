@@ -19,7 +19,6 @@ RUNNER_SCRIPT=${0##*/}
 RUNNER_BASE_DIR={{runner_base_dir}}
 RUNNER_ETC_DIR={{runner_etc_dir}}
 RUNNER_LIB_DIR={{platform_lib_dir}}
-RUNNER_LOG_DIR={{runner_log_dir}}
 RUNNER_USER={{runner_user}}
 
 WHOAMI=$(whoami)
@@ -78,6 +77,8 @@ APP_VSN=${START_ERL#* }
 # Add ERTS bin dir to our path
 ERTS_PATH=$RUNNER_BASE_DIR/erts-$ERTS_VSN/bin
 
+NODE_NAME=${NAME_ARG#* }
+
 # Setup command to control the node
 NODETOOL="$ERTS_PATH/escript $ERTS_PATH/nodetool $NAME_ARG $COOKIE_ARG"
 
@@ -87,5 +88,30 @@ if [ "$RES" != "pong" ]; then
     exit 1
 fi
 
-$NODETOOL rpc emqttd_ctl run $@
+case "$1" in
+    runtime)
+        SORTBY="runtime"
+        ;;
+    reductions)
+        SORTBY="reductions"
+        ;;
+    memory)
+        SORTBY="memory"
+        ;;
+    msg_q)
+        SORTBY="msg_q"
+        ;;
+    *)
+        echo "Usage: $SCRIPT {runtime | reductions | memory | msg_q}"
+        exit 1
+        ;;
+esac
+
+MYPID=$$
+ETOP_ARGS="-sort $SORTBY -interval 10 -lines 50 -tracing off"
+$ERTS_PATH/erl -noshell -noinput \
+    -pa $RUNNER_LIB_DIR/basho-patches \
+    -hidden $NAME_PARAM emqttd_top$MYPID$NAME_HOST $COOKIE_ARG \
+    -s etop -s erlang halt -output text \
+    -node $NODE_NAME $ETOP_ARGS
 

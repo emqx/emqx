@@ -16,3 +16,6 @@
 [submodule "plugins/emqttd_stomp"]
 	path = plugins/emqttd_stomp
 	url = https://github.com/emqtt/emqttd_stomp.git
+[submodule "plugins/emqttd_recon"]
+	path = plugins/emqttd_recon
+	url = https://github.com/emqtt/emqttd_recon.git

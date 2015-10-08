@@ -20,331 +20,120 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd control commands.
+%%% emqttd control.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_ctl).
 
 -author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
--define(PRINT_MSG(Msg), 
-    io:format(Msg)).
+-include("emqttd_cli.hrl").
 
--define(PRINT(Format, Args), 
-    io:format(Format, Args)).
+-behaviour(gen_server).
 
--export([status/1,
-         vm/1,
-         broker/1,
-         stats/1,
-         metrics/1,
-         cluster/1,
-         clients/1,
-         sessions/1,
-         listeners/1,
-         bridges/1,
-         plugins/1,
-         trace/1,
-         useradd/1,
-         userdel/1]).
+-define(SERVER, ?MODULE).
+
+%% API Function Exports
+-export([start_link/0,
+         register_cmd/3,
+         unregister_cmd/1,
+         run/1]).
+
+%% gen_server Function Exports
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2, code_change/3]).
+
+-record(state, {seq = 0}).
+
+-define(CMD_TAB, mqttd_ctl_cmd).
+
+%%%=============================================================================
+%%% API
+%%%=============================================================================
+
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %%------------------------------------------------------------------------------
-%% @doc Query node status
+%% @doc Register a command
 %% @end
 %%------------------------------------------------------------------------------
-status([]) ->
-    {InternalStatus, _ProvidedStatus} = init:get_status(),
-    ?PRINT("Node ~p is ~p~n", [node(), InternalStatus]),
-    case lists:keysearch(emqttd, 1, application:which_applications()) of
-    false ->
-        ?PRINT_MSG("emqttd is not running~n");
-    {value,_Version} ->
-        ?PRINT_MSG("emqttd is running~n")
-    end.
+-spec register_cmd(atom(), {module(), atom()}, list()) -> true.
+register_cmd(Cmd, MF, Opts) ->
+    gen_server:cast(?SERVER, {register_cmd, Cmd, MF, Opts}).
 
 %%------------------------------------------------------------------------------
-%% @doc Cluster with other node
+%% @doc Unregister a command
 %% @end
 %%------------------------------------------------------------------------------
-cluster([]) ->
-    Nodes = emqttd_broker:running_nodes(),
-    ?PRINT("cluster nodes: ~p~n", [Nodes]);
-
-cluster([SNode]) ->
-    Node = node_name(SNode),
-    case net_adm:ping(Node) of
-    pong ->
-        case emqttd:is_running(Node) of
-            true ->
-                emqttd_plugins:unload(),
-                application:stop(emqttd),
-                application:stop(esockd),
-                application:stop(gproc),
-                emqttd_mnesia:cluster(Node),
-                application:start(gproc),
-                application:start(esockd),
-                application:start(emqttd),
-                ?PRINT("cluster with ~p successfully.~n", [Node]);
-            false ->
-                ?PRINT("emqttd is not running on ~p~n", [Node])
-        end;
-    pang ->
-        ?PRINT("failed to connect to ~p~n", [Node])
-    end.
+-spec unregister_cmd(atom()) -> true.
+unregister_cmd(Cmd) ->
+    gen_server:cast(?SERVER, {unregister_cmd, Cmd}).
 
 %%------------------------------------------------------------------------------
-%% @doc Add user
+%% @doc Run a command
 %% @end
 %%------------------------------------------------------------------------------
-useradd([Username, Password]) ->
-    ?PRINT("~p~n", [emqttd_auth_username:add_user(bin(Username), bin(Password))]).
+run([]) -> usage();
 
-%%------------------------------------------------------------------------------
-%% @doc Delete user
-%% @end
-%%------------------------------------------------------------------------------
-userdel([Username]) ->
-    ?PRINT("~p~n", [emqttd_auth_username:remove_user(bin(Username))]).
+run(["help"]) -> usage();
 
-vm([]) ->
-    [vm([Name]) || Name <- ["load", "memory", "process", "io"]];
-
-vm(["load"]) ->
-    ?PRINT_MSG("Load: ~n"),
-    [?PRINT("  ~s:~s~n", [L, V]) || {L, V} <- emqttd_vm:loads()];
-
-vm(["memory"]) ->
-    ?PRINT_MSG("Memory: ~n"),
-    [?PRINT("  ~s:~p~n", [Cat, Val]) || {Cat, Val} <- erlang:memory()];
-
-vm(["process"]) ->
-    ?PRINT_MSG("Process: ~n"),
-    ?PRINT("  process_limit:~p~n", [erlang:system_info(process_limit)]),
-    ?PRINT("  process_count:~p~n", [erlang:system_info(process_count)]);
-
-vm(["io"]) ->
-    ?PRINT_MSG("IO: ~n"),
-    ?PRINT("  max_fds:~p~n", [proplists:get_value(max_fds, erlang:system_info(check_io))]).
-
-broker([]) ->
-    Funs = [sysdescr, version, uptime, datetime],
-    [?PRINT("~s: ~s~n", [Fun, emqttd_broker:Fun()]) || Fun <- Funs].
-
-stats([]) ->
-    [?PRINT("~s: ~p~n", [Stat, Val]) || {Stat, Val} <- emqttd_stats:getstats()].
-    
-metrics([]) ->
-    [?PRINT("~s: ~p~n", [Metric, Val]) || {Metric, Val} <- emqttd_metrics:all()].
-
-clients(["list"]) ->
-    dump(client, mqtt_client);
-
-clients(["show", ClientId]) ->
-    case emqttd_cm:lookup(list_to_binary(ClientId)) of
-        undefined ->
-            ?PRINT_MSG("Not Found.~n");
-        Client -> 
-            print(client, Client)
-    end;
-
-clients(["kick", ClientId]) ->
-    case emqttd_cm:lookup(list_to_binary(ClientId)) of
-        undefined ->
-            ?PRINT_MSG("Not Found.~n");
-        #mqtt_client{client_pid = Pid} -> 
-            emqttd_client:kick(Pid)
-    end.
-
-sessions(["list"]) ->
-    dump(session, mqtt_transient_session),
-    dump(session, mqtt_persistent_session);
-
-sessions(["show", ClientId]) ->
-    MP = {{list_to_binary(ClientId), '_'}, '_'},
-    case {ets:match_object(mqtt_transient_session, MP),
-          ets:match_object(mqtt_persistent_session, MP)} of
-        {[], []} ->
-            ?PRINT_MSG("Not Found.~n");
-        {[SessInfo], _} ->
-            print(session, SessInfo);
-        {_, [SessInfo]} ->
-            print(session, SessInfo)
+run([CmdS|Args]) ->
+    Cmd = list_to_atom(CmdS),
+    case ets:match(?CMD_TAB, {{'_', Cmd}, '$1', '_'}) of
+        [[{Mod, Fun}]] -> Mod:Fun(Args);
+        [] -> usage() 
     end.
     
-listeners([]) ->
-    lists:foreach(fun({{Protocol, Port}, Pid}) ->
-                ?PRINT("listener ~s:~w~n", [Protocol, Port]),
-                ?PRINT("  acceptors: ~w~n", [esockd:get_acceptors(Pid)]),
-                ?PRINT("  max_clients: ~w~n", [esockd:get_max_clients(Pid)]),
-                ?PRINT("  current_clients: ~w~n", [esockd:get_current_clients(Pid)]),
-                ?PRINT("  shutdown_count: ~p~n", [esockd:get_shutdown_count(Pid)])
-        end, esockd:listeners()).
+%%------------------------------------------------------------------------------
+%% @doc Usage
+%% @end
+%%------------------------------------------------------------------------------
+usage() ->
+    ?PRINT("Usage: ~s~n", [?MODULE]),
+    [begin ?PRINT("~80..-s~n", [""]), Mod:Cmd(usage) end
+        || {_, {Mod, Cmd}, _} <- ets:tab2list(?CMD_TAB)].
 
-bridges(["list"]) ->
-    lists:foreach(fun({{Node, Topic}, _Pid}) ->
-                ?PRINT("bridge: ~s ~s~n", [Node, Topic])
-        end, emqttd_bridge_sup:bridges());
+%%%=============================================================================
+%%% gen_server callbacks
+%%%=============================================================================
 
-bridges(["options"]) ->
-    ?PRINT_MSG("Options:~n"),
-    ?PRINT_MSG("  qos     = 0 | 1 | 2~n"),
-    ?PRINT_MSG("  prefix  = string~n"),
-    ?PRINT_MSG("  suffix  = string~n"),
-    ?PRINT_MSG("  queue   = integer~n"),
-    ?PRINT_MSG("Example:~n"),
-    ?PRINT_MSG("  qos=2,prefix=abc/,suffix=/yxz,queue=1000~n");
+init([]) ->
+    ets:new(?CMD_TAB, [ordered_set, named_table, protected]),
+    {ok, #state{seq = 0}}.
 
-bridges(["start", SNode, Topic]) ->
-    case emqttd_bridge_sup:start_bridge(list_to_atom(SNode), bin(Topic)) of
-        {ok, _} -> ?PRINT_MSG("bridge is started.~n");
-        {error, Error} -> ?PRINT("error: ~p~n", [Error])
-    end;
+handle_call(_Request, _From, State) ->
+    {reply, ok, State}.
 
-bridges(["start", SNode, Topic, OptStr]) ->
-    Opts = parse_opts(bridge, OptStr),
-    case emqttd_bridge_sup:start_bridge(list_to_atom(SNode), bin(Topic), Opts) of
-        {ok, _} -> ?PRINT_MSG("bridge is started.~n");
-        {error, Error} -> ?PRINT("error: ~p~n", [Error])
-    end;
+handle_cast({register_cmd, Cmd, MF, Opts}, State = #state{seq = Seq}) ->
+    ets:insert(?CMD_TAB, {{Seq, Cmd}, MF, Opts}),
+    noreply(next_seq(State));
 
-bridges(["stop", SNode, Topic]) ->
-    case emqttd_bridge_sup:stop_bridge(list_to_atom(SNode), bin(Topic)) of
-        ok -> ?PRINT_MSG("bridge is stopped.~n");
-        {error, Error} -> ?PRINT("error: ~p~n", [Error])
-    end.
+handle_cast({unregister_cmd, Cmd}, State) ->
+    ets:match_delete(?CMD_TAB, {{'_', Cmd}, '_', '_'}),
+    noreply(State);
 
-plugins(["list"]) ->
-    lists:foreach(fun(Plugin) -> print(plugin, Plugin) end, emqttd_plugins:list());
+handle_cast(_Msg, State) ->
+    noreply(State).
 
-plugins(["load", Name]) ->
-    case emqttd_plugins:load(list_to_atom(Name)) of
-        {ok, StartedApps} -> ?PRINT("Start apps: ~p~nPlugin ~s loaded successfully.~n", [StartedApps, Name]);
-        {error, Reason} -> ?PRINT("load plugin error: ~p~n", [Reason])
-    end;
+handle_info(_Info, State) ->
+    noreply(State).
 
-plugins(["unload", Name]) ->
-    case emqttd_plugins:unload(list_to_atom(Name)) of
-        ok -> ?PRINT("Plugin ~s unloaded successfully.~n", [Name]);
-        {error, Reason} -> ?PRINT("unload plugin error: ~p~n", [Reason])
-    end.
+terminate(_Reason, _State) ->
+    ok.
 
-trace(["list"]) ->
-    lists:foreach(fun({{Who, Name}, LogFile}) -> 
-            ?PRINT("trace ~s ~s -> ~s~n", [Who, Name, LogFile])
-        end, emqttd_trace:all_traces());
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
 
-trace(["client", ClientId, "off"]) ->
-    stop_trace(client, ClientId);
-trace(["client", ClientId, LogFile]) ->
-    start_trace(client, ClientId, LogFile);
-trace(["topic", Topic, "off"]) ->
-    stop_trace(topic, Topic);
-trace(["topic", Topic, LogFile]) ->
-    start_trace(topic, Topic, LogFile).
+%%%=============================================================================
+%%% Internal Function Definitions
+%%%=============================================================================
 
-start_trace(Who, Name, LogFile) ->
-    case emqttd_trace:start_trace({Who, bin(Name)}, LogFile) of
-        ok -> 
-            ?PRINT("trace ~s ~s successfully.~n", [Who, Name]);
-        {error, Error} ->
-            ?PRINT("trace ~s ~s error: ~p~n", [Who, Name, Error])
-    end.
-stop_trace(Who, Name) ->
-    case emqttd_trace:stop_trace({Who, bin(Name)}) of
-        ok -> 
-            ?PRINT("stop to trace ~s ~s successfully.~n", [Who, Name]);
-        {error, Error} ->
-            ?PRINT("stop to trace ~s ~s error: ~p.~n", [Who, Name, Error])
-    end.
+noreply(State) -> {noreply, State, hibernate}.
 
-
-node_name(SNode) ->
-    SNode1 =
-    case string:tokens(SNode, "@") of
-    [_Node, _Server] ->
-        SNode;
-    _ ->
-        case net_kernel:longnames() of
-         true ->
-             SNode ++ "@" ++ inet_db:gethostname() ++
-                  "." ++ inet_db:res_option(domain);
-         false ->
-             SNode ++ "@" ++ inet_db:gethostname();
-         _ ->
-             SNode
-         end
-    end,
-    list_to_atom(SNode1).
-
-bin(S) when is_list(S) -> list_to_binary(S);
-bin(B) when is_binary(B) -> B.
-
-parse_opts(Cmd, OptStr) ->
-    Tokens = string:tokens(OptStr, ","),
-    [parse_opt(Cmd, list_to_atom(Opt), Val)
-        || [Opt, Val] <- [string:tokens(S, "=") || S <- Tokens]].
-
-parse_opt(bridge, qos, Qos) ->
-    {qos, list_to_integer(Qos)};
-parse_opt(bridge, suffix, Suffix) ->
-    {topic_suffix, list_to_binary(Suffix)};
-parse_opt(bridge, prefix, Prefix) ->
-    {topic_prefix, list_to_binary(Prefix)};
-parse_opt(bridge, queue, Len) ->
-    {max_queue_len, list_to_integer(Len)};
-parse_opt(_Cmd, Opt, _Val) ->
-    ?PRINT("Bad Option: ~s~n", [Opt]).
-
-dump(Type, Table) ->
-    dump(Type, Table, ets:first(Table)).
-
-dump(_Type, _Table, '$end_of_table') ->
-    ok;
-dump(Type, Table, Key) ->
-    case ets:lookup(Table, Key) of
-        [Record] -> print(Type, Record);
-        [] -> ignore
-    end,
-    dump(Type, Table, ets:next(Table, Key)).
-
-print(client, #mqtt_client{client_id = ClientId, clean_sess = CleanSess,
-                           username = Username, peername = Peername,
-                           connected_at = ConnectedAt}) ->
-    ?PRINT("Client(~s, clean_sess=~s, username=~s, peername=~s, connected_at=~p)~n",
-            [ClientId, CleanSess, Username,
-             emqttd_net:format(Peername),
-             emqttd_util:now_to_secs(ConnectedAt)]);
-
-print(session, {{ClientId, _ClientPid}, SessInfo}) ->
-    InfoKeys = [clean_sess, 
-                max_inflight,
-                inflight_queue,
-                message_queue,
-                message_dropped,
-                awaiting_rel,
-                awaiting_ack,
-                awaiting_comp,
-                created_at,
-                subscriptions],
-    ?PRINT("Session(~s, clean_sess=~s, max_inflight=~w, inflight_queue=~w, "
-           "message_queue=~w, message_dropped=~w, "
-           "awaiting_rel=~w, awaiting_ack=~w, awaiting_comp=~w, "
-           "created_at=~w, subscriptions=~s)~n",
-            [ClientId | [format(Key, proplists:get_value(Key, SessInfo)) || Key <- InfoKeys]]);
-
-print(plugin, #mqtt_plugin{name = Name, version = Ver, descr = Descr, active = Active}) ->
-    ?PRINT("Plugin(~s, version=~s, description=~s, active=~s)~n",
-               [Name, Ver, Descr, Active]).
-
-format(created_at, Val) ->
-    emqttd_util:now_to_secs(Val);
-
-format(subscriptions, List) ->
-    string:join([io_lib:format("~s:~w", [Topic, Qos]) || {Topic, Qos} <- List], ",");
-
-format(_, Val) ->
-    Val.
+next_seq(State = #state{seq = Seq}) -> State#state{seq = Seq + 1}.
 

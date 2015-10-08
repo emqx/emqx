@@ -24,6 +24,7 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_app).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -51,6 +52,7 @@ start(_StartType, _StartArgs) ->
     emqttd_mnesia:start(),
     {ok, Sup} = emqttd_sup:start_link(),
     start_servers(Sup),
+    emqttd_cli:load(),
     emqttd:load_all_mods(),
     emqttd_plugins:load(),
     start_listeners(),
@@ -71,7 +73,8 @@ start_listeners() ->
     emqttd:open_listeners(Listeners).
 
 start_servers(Sup) ->
-    Servers = [{"emqttd trace", emqttd_trace},
+    Servers = [{"emqttd ctl", emqttd_ctl},
+               {"emqttd trace", emqttd_trace},
                {"emqttd pooler", {supervisor, emqttd_pooler_sup}},
                {"emqttd client manager", {supervisor, emqttd_cm_sup}},
                {"emqttd session manager", {supervisor, emqttd_sm_sup}},

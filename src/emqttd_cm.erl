@@ -30,14 +30,14 @@
 
 -include("emqttd.hrl").
 
--behaviour(gen_server2).
-
--define(SERVER, ?MODULE).
-
 %% API Exports 
 -export([start_link/2, pool/0]).
 
 -export([lookup/1, register/1, unregister/1]).
+
+-behaviour(gen_server2).
+
+-define(SERVER, ?MODULE).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -45,7 +45,7 @@
 
 -record(state, {id, statsfun}).
 
--define(CM_POOL, cm_pool).
+-define(CM_POOL, ?MODULE).
 
 %%%=============================================================================
 %%% API

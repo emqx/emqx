@@ -34,7 +34,10 @@
 -include("emqttd_protocol.hrl").
 
 %% API Function Exports
--export([start_link/2, session/1, info/1, kick/1, subscribe/2]).
+-export([start_link/2, session/1, info/1, kick/1]).
+
+%% SUB/UNSUB Asynchronously
+-export([subscribe/2, unsubscribe/2]).
 
 -behaviour(gen_server).
 
@@ -59,7 +62,7 @@ start_link(SockArgs, MqttEnv) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[SockArgs, MqttEnv]])}.
 
 session(CPid) ->
-    gen_server:call(CPid, session).
+    gen_server:call(CPid, session, infinity).
 
 info(CPid) ->
     gen_server:call(CPid, info, infinity).
@@ -69,6 +72,9 @@ kick(CPid) ->
 
 subscribe(CPid, TopicTable) ->
     gen_server:cast(CPid, {subscribe, TopicTable}).
+
+unsubscribe(CPid, Topics) ->
+    gen_server:cast(CPid, {unsubscribe, Topics}).
 
 init([SockArgs = {Transport, Sock, _SockFun}, MqttEnv]) ->
     % Transform if ssl.
@@ -107,9 +113,11 @@ handle_call(Req, _From, State = #state{peername = Peername}) ->
     lager:critical("Client ~s: unexpected request - ~p", [emqttd_net:format(Peername), Req]),
     {reply, {error, unsupported_request}, State}.    
 
-handle_cast({subscribe, TopicTable}, State = #state{proto_state = ProtoState}) ->
-    {ok, ProtoState1} = emqttd_protocol:handle({subscribe, TopicTable}, ProtoState),
-    noreply(State#state{proto_state = ProtoState1});
+handle_cast({subscribe, TopicTable}, State) ->
+    with_session(fun(SessPid) -> emqttd_session:subscribe(SessPid, TopicTable) end, State);
+
+handle_cast({unsubscribe, Topics}, State) ->
+    with_session(fun(SessPid) -> emqttd_session:unsubscribe(SessPid, Topics) end, State);
 
 handle_cast(Msg, State = #state{peername = Peername}) ->
     lager:critical("Client ~s: unexpected msg - ~p",[emqttd_net:format(Peername), Msg]),
@@ -149,17 +157,26 @@ handle_info({inet_reply, _Sock, {error, Reason}}, State = #state{peername = Peer
 
 handle_info({keepalive, start, TimeoutSec}, State = #state{transport = Transport, socket = Socket, peername = Peername}) ->
     lager:debug("Client ~s: Start KeepAlive with ~p seconds", [emqttd_net:format(Peername), TimeoutSec]),
-    KeepAlive = emqttd_keepalive:new({Transport, Socket}, TimeoutSec, {keepalive, timeout}),
+    StatFun = fun() ->
+            case Transport:getstat(Socket, [recv_oct]) of
+                {ok, [{recv_oct, RecvOct}]} -> {ok, RecvOct};
+                {error, Error} -> {error, Error}
+            end
+    end,
+    KeepAlive = emqttd_keepalive:start(StatFun, TimeoutSec, {keepalive, check}),
     noreply(State#state{keepalive = KeepAlive});
 
-handle_info({keepalive, timeout}, State = #state{peername = Peername, keepalive = KeepAlive}) ->
-    case emqttd_keepalive:resume(KeepAlive) of
-    timeout ->
+handle_info({keepalive, check}, State = #state{peername = Peername, keepalive = KeepAlive}) ->
+    case emqttd_keepalive:check(KeepAlive) of
+    {ok, KeepAlive1} ->
+        lager:debug("Client ~s: Keepalive Resumed", [emqttd_net:format(Peername)]),
+        noreply(State#state{keepalive = KeepAlive1});
+    {error, timeout} ->
         lager:debug("Client ~s: Keepalive Timeout!", [emqttd_net:format(Peername)]),
         stop({shutdown, keepalive_timeout}, State#state{keepalive = undefined});
-    {resumed, KeepAlive1} ->
-        lager:debug("Client ~s: Keepalive Resumed", [emqttd_net:format(Peername)]),
-        noreply(State#state{keepalive = KeepAlive1})
+    {error, Error} ->
+        lager:debug("Client ~s: Keepalive Error: ~p!", [emqttd_net:format(Peername), Error]),
+        stop({shutdown, keepalive_error}, State#state{keepalive = undefined})
     end;
 
 handle_info(Info, State = #state{peername = Peername}) ->
@@ -188,12 +205,20 @@ terminate(Reason, #state{peername = Peername,
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+%%%=============================================================================
+%%% Internal functions
+%%%=============================================================================
+
 noreply(State) ->
     {noreply, State, hibernate}.
-    
-%-------------------------------------------------------
-% receive and parse tcp data
-%-------------------------------------------------------
+
+stop(Reason, State) ->
+    {stop, Reason, State}.
+
+with_session(Fun, State = #state{proto_state = ProtoState}) ->
+    Fun(emqttd_protocol:session(ProtoState)), noreply(State).
+
+%% receive and parse tcp data
 received(<<>>, State) ->
     {noreply, State, hibernate};
 
@@ -244,12 +269,8 @@ control_throttle(State = #state{conn_state = Flow,
         {_,            _} -> run_socket(State)
     end.
 
-stop(Reason, State) ->
-    {stop, Reason, State}.
-
 received_stats(?PACKET(Type)) ->
-    emqttd_metrics:inc('packets/received'), 
-    inc(Type).
+    emqttd_metrics:inc('packets/received'), inc(Type).
 inc(?CONNECT) ->
     emqttd_metrics:inc('packets/connect');
 inc(?PUBLISH) ->
