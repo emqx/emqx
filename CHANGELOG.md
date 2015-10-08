@@ -15,6 +15,10 @@ Add **'./bin/emqttd_ctl broker pubsub'** command to check the status of the core
 
 Add **'./bin/emqttd_top'** command(like etop) to show the top 'msg_q', 'reductions', 'memory' or 'runtime' processes
 
+'rel/files/emqttd.config.production' for production deployment(default)
+
+'rel/files/emqttd.config.development' for development deployment
+
 #### Enhancemenets
 
 Qos1/2 messages will not be dropped under unstable mobile network (#264)
