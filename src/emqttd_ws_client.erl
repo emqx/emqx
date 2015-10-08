@@ -34,7 +34,10 @@
 -include("emqttd_protocol.hrl").
 
 %% API Exports
--export([start_link/1, ws_loop/3, subscribe/2]).
+-export([start_link/1, ws_loop/3, session/1, info/1, kick/1]).
+
+%% SUB/UNSUB Asynchronously
+-export([subscribe/2, unsubscribe/2]).
 
 -behaviour(gen_server).
 
@@ -61,8 +64,20 @@ start_link(Req) ->
                              packet_opts  = PktOpts,
                              parser       = emqttd_parser:new(PktOpts)}).
 
+session(CPid) ->
+    gen_server:call(CPid, session, infinity).
+
+info(CPid) ->
+    gen_server:call(CPid, info, infinity).
+
+kick(CPid) ->
+    gen_server:call(CPid, kick).
+
 subscribe(CPid, TopicTable) ->
     gen_server:cast(CPid, {subscribe, TopicTable}).
+
+unsubscribe(CPid, Topics) ->
+    gen_server:cast(CPid, {unsubscribe, Topics}).
 
 %%------------------------------------------------------------------------------
 %% @private
@@ -112,17 +127,30 @@ init([WsPid, Req, ReplyChannel, PktOpts]) ->
     ProtoState = emqttd_protocol:init(Peername, SendFun, [{ws_initial_headers, HeadersList}|PktOpts]),
     {ok, #client_state{ws_pid = WsPid, request = Req, proto_state = ProtoState}}.
 
+handle_call(session, _From, State = #client_state{proto_state = ProtoState}) ->
+    {reply, emqttd_protocol:session(ProtoState), State};
+
+handle_call(info, _From, State = #client_state{request = Req,
+                                               proto_state = ProtoState}) ->
+    {reply, [{websocket, true}, {peer, Req:get(peer)}
+             | emqttd_protocol:info(ProtoState)], State};
+
+handle_call(kick, _From, State) ->
+    {stop, {shutdown, kick}, ok, State};
+
 handle_call(_Req, _From, State) ->
     {reply, error, State}.
 
-handle_cast({subscribe, TopicTable}, State = #client_state{proto_state = ProtoState}) ->
-    {ok, ProtoState1} = emqttd_protocol:handle({subscribe, TopicTable}, ProtoState),
-    {noreply, State#client_state{proto_state = ProtoState1}, hibernate};
+handle_cast({subscribe, TopicTable}, State) ->
+    with_session(fun(SessPid) -> emqttd_session:subscribe(SessPid, TopicTable) end, State);
+
+handle_cast({unsubscribe, Topics}, State) ->
+    with_session(fun(SessPid) -> emqttd_session:unsubscribe(SessPid, Topics) end, State);
 
 handle_cast({received, Packet}, State = #client_state{proto_state = ProtoState}) ->
     case emqttd_protocol:received(Packet, ProtoState) of
     {ok, ProtoState1} ->
-        {noreply, State#client_state{proto_state = ProtoState1}};
+        noreply(State#client_state{proto_state = ProtoState1});
     {error, Error} ->
         lager:error("MQTT protocol error ~p", [Error]),
         stop({shutdown, Error}, State);
@@ -137,11 +165,11 @@ handle_cast(_Msg, State) ->
 
 handle_info({deliver, Message}, State = #client_state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:send(Message, ProtoState),
-    {noreply, State#client_state{proto_state = ProtoState1}};
+    noreply(State#client_state{proto_state = ProtoState1});
 
 handle_info({redeliver, {?PUBREL, PacketId}}, State = #client_state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:redeliver({?PUBREL, PacketId}, ProtoState),
-    {noreply, State#client_state{proto_state = ProtoState1}};
+    noreply(State#client_state{proto_state = ProtoState1});
 
 handle_info({stop, duplicate_id, _NewPid}, State = #client_state{proto_state = ProtoState}) ->
     lager:error("Shutdown for duplicate clientid: ~s", [emqttd_protocol:clientid(ProtoState)]), 
@@ -149,18 +177,27 @@ handle_info({stop, duplicate_id, _NewPid}, State = #client_state{proto_state = P
 
 handle_info({keepalive, start, TimeoutSec}, State = #client_state{request = Req}) ->
     lager:debug("Client(WebSocket) ~s: Start KeepAlive with ~p seconds", [Req:get(peer), TimeoutSec]),
-    KeepAlive = emqttd_keepalive:new({esockd_transport, Req:get(socket)},
-                                     TimeoutSec, {keepalive, timeout}),
-    {noreply, State#client_state{keepalive = KeepAlive}};
+    Socket = Req:get(socket),
+    StatFun = fun() ->
+        case esockd_transport:getstat(Socket, [recv_oct]) of
+            {ok, [{recv_oct, RecvOct}]} -> {ok, RecvOct};
+            {error, Error}              -> {error, Error}
+        end
+    end,
+    KeepAlive = emqttd_keepalive:start(StatFun, TimeoutSec, {keepalive, check}),
+    noreply(State#client_state{keepalive = KeepAlive});
 
-handle_info({keepalive, timeout}, State = #client_state{request = Req, keepalive = KeepAlive}) ->
-    case emqttd_keepalive:resume(KeepAlive) of
-    timeout ->
+handle_info({keepalive, check}, State = #client_state{request = Req, keepalive = KeepAlive}) ->
+    case emqttd_keepalive:check(KeepAlive) of
+    {ok, KeepAlive1} ->
+        lager:debug("Client(WebSocket) ~s: Keepalive Resumed", [Req:get(peer)]),
+        noreply(State#client_state{keepalive = KeepAlive1});
+    {error, timeout} ->
         lager:debug("Client(WebSocket) ~s: Keepalive Timeout!", [Req:get(peer)]),
         stop({shutdown, keepalive_timeout}, State#client_state{keepalive = undefined});
-    {resumed, KeepAlive1} ->
-        lager:debug("Client(WebSocket) ~s: Keepalive Resumed", [Req:get(peer)]),
-        {noreply, State#client_state{keepalive = KeepAlive1}}
+    {error, Error} ->
+        lager:debug("Client(WebSocket) ~s: Keepalive Error: ~p", [Req:get(peer), Error]),
+        stop({shutdown, keepalive_error}, State#client_state{keepalive = undefined})
     end;
 
 handle_info({'EXIT', WsPid, Reason}, State = #client_state{ws_pid = WsPid, proto_state = ProtoState}) ->
@@ -170,7 +207,7 @@ handle_info({'EXIT', WsPid, Reason}, State = #client_state{ws_pid = WsPid, proto
 
 handle_info(Info, State = #client_state{request = Req}) ->
     lager:critical("Client(WebSocket) ~s: Unexpected Info - ~p", [Req:get(peer), Info]),
-    {noreply, State}.
+    noreply(State).
 
 terminate(Reason, #client_state{proto_state = ProtoState, keepalive = KeepAlive}) ->
     lager:info("WebSocket client terminated: ~p", [Reason]),
@@ -189,6 +226,12 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%=============================================================================
 
+noreply(State) ->
+    {noreply, State, hibernate}.
+
 stop(Reason, State ) ->
     {stop, Reason, State}.
+
+with_session(Fun, State = #client_state{proto_state = ProtoState}) ->
+    Fun(emqttd_protocol:session(ProtoState)), noreply(State).
 

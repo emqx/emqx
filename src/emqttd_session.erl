@@ -59,7 +59,7 @@
 %% PubSub APIs
 -export([publish/2,
          puback/2, pubrec/2, pubrel/2, pubcomp/2,
-         subscribe/2, unsubscribe/2]).
+         subscribe/2, subscribe/3, unsubscribe/2]).
 
 -behaviour(gen_server2).
 
@@ -166,9 +166,13 @@ destroy(SessPid, ClientId) ->
 %% @doc Subscribe Topics
 %% @end
 %%------------------------------------------------------------------------------
--spec subscribe(pid(), [{binary(), mqtt_qos()}]) -> {ok, [mqtt_qos()]}.
+-spec subscribe(pid(), [{binary(), mqtt_qos()}]) -> ok.
 subscribe(SessPid, TopicTable) ->
-    gen_server2:call(SessPid, {subscribe, TopicTable}, ?PUBSUB_TIMEOUT).
+    subscribe(SessPid, TopicTable, fun(_) -> ok end).
+
+-spec subscribe(pid(), [{binary(), mqtt_qos()}], Callback :: fun()) -> ok.
+subscribe(SessPid, TopicTable, Callback) ->
+    gen_server2:cast(SessPid, {subscribe, TopicTable, Callback}).
 
 %%------------------------------------------------------------------------------
 %% @doc Publish message
@@ -213,7 +217,7 @@ pubcomp(SessPid, PktId) ->
 %%------------------------------------------------------------------------------
 -spec unsubscribe(pid(), [binary()]) -> ok.
 unsubscribe(SessPid, Topics) ->
-    gen_server2:call(SessPid, {unsubscribe, Topics}, ?PUBSUB_TIMEOUT).
+    gen_server2:cast(SessPid, {unsubscribe, Topics}).
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -247,26 +251,24 @@ init([CleanSess, ClientId, ClientPid]) ->
     {ok, start_collector(Session#session{client_mon = MRef}), hibernate}.
 
 prioritise_call(Msg, _From, _Len, _State) ->
-    case Msg of
-        {unsubscribe, _} -> 2;
-        {subscribe, _}   -> 1;
-        _                -> 0
-    end.
+    case Msg of _  -> 0 end.
 
 prioritise_cast(Msg, _Len, _State) ->
     case Msg of
-        {destroy, _}      -> 10;
-        {resume, _, _}    -> 9;
-        {pubrel,  _PktId} -> 8;
-        {pubcomp, _PktId} -> 8;
-        {pubrec,  _PktId} -> 8;
-        {puback,  _PktId} -> 7;
-        _                 -> 0
+        {destroy, _}        -> 10;
+        {resume, _, _}      -> 9;
+        {pubrel,  _PktId}   -> 8;
+        {pubcomp, _PktId}   -> 8;
+        {pubrec,  _PktId}   -> 8;
+        {puback,  _PktId}   -> 7;
+        {unsubscribe, _, _} -> 6;
+        {subscribe, _, _}   -> 5;
+        _                   -> 0
     end.
 
 prioritise_info(Msg, _Len, _State) ->
     case Msg of
-        {'DOWN', _, process, _, _} -> 10;
+        {'DOWN', _, _, _, _} -> 10;
         {'EXIT', _, _}  -> 10;
         session_expired -> 10;
         {timeout, _, _} -> 5;
@@ -275,16 +277,39 @@ prioritise_info(Msg, _Len, _State) ->
         _               -> 0
     end.
 
-handle_call({subscribe, TopicTable0}, _From, Session = #session{client_id = ClientId,
-                                                                subscriptions = Subscriptions}) ->
+handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, pktid = PktId}}, _From,
+                Session = #session{client_id         = ClientId,
+                                   awaiting_rel      = AwaitingRel,
+                                   await_rel_timeout = Timeout}) ->
+    case check_awaiting_rel(Session) of
+        true ->
+            TRef = timer(Timeout, {timeout, awaiting_rel, PktId}),
+            AwaitingRel1 = maps:put(PktId, {Msg, TRef}, AwaitingRel),
+            {reply, ok, Session#session{awaiting_rel = AwaitingRel1}};
+        false ->
+            lager:critical([{client, ClientId}], "Session(~s) dropped Qos2 message "
+                                "for too many awaiting_rel: ~p", [ClientId, Msg]),
+            {reply, {error, dropped}, Session}
+    end;
 
-    case TopicTable0 -- Subscriptions of
+handle_call(Req, _From, State) ->
+    lager:critical("Unexpected Request: ~p", [Req]),
+    {reply, ok, State}.
+
+handle_cast({subscribe, TopicTable0, Callback}, Session = #session{
+                client_id = ClientId, subscriptions = Subscriptions}) ->
+
+    TopicTable = emqttd_broker:foldl_hooks('client.subscribe', [ClientId], TopicTable0),
+
+    case TopicTable -- Subscriptions of
         [] ->
-            {reply, {ok, [Qos || {_, Qos} <- TopicTable0]}, Session};
+            catch Callback([Qos || {_, Qos} <- TopicTable]),
+            noreply(Session);
         _  ->
-            TopicTable = emqttd_broker:foldl_hooks('client.subscribe', [ClientId], TopicTable0),
             %% subscribe first and don't care if the subscriptions have been existed
             {ok, GrantedQos} = emqttd_pubsub:subscribe(TopicTable),
+
+            catch Callback(GrantedQos),
 
             emqttd_broker:foreach_hooks('client.subscribe.after', [ClientId, TopicTable]),
 
@@ -310,11 +335,11 @@ handle_call({subscribe, TopicTable0}, _From, Session = #session{client_id = Clie
                                     [{Topic, Qos} | Acc]
                             end
                         end, Subscriptions, TopicTable),
-            {reply, {ok, GrantedQos}, Session#session{subscriptions = Subscriptions1}}
+            noreply(Session#session{subscriptions = Subscriptions1})
     end;
 
-handle_call({unsubscribe, Topics0}, _From, Session = #session{client_id = ClientId,
-                                                             subscriptions = Subscriptions}) ->
+handle_cast({unsubscribe, Topics0}, Session = #session{client_id = ClientId,
+                                                       subscriptions = Subscriptions}) ->
 
     Topics = emqttd_broker:foldl_hooks('client.unsubscribe', [ClientId], Topics0),
 
@@ -333,26 +358,7 @@ handle_call({unsubscribe, Topics0}, _From, Session = #session{client_id = Client
                     end
                 end, Subscriptions, Topics),
 
-    {reply, ok, Session#session{subscriptions = Subscriptions1}};
-
-handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, pktid = PktId}}, _From, 
-            Session = #session{client_id = ClientId,
-                               awaiting_rel = AwaitingRel,
-                               await_rel_timeout = Timeout}) ->
-    case check_awaiting_rel(Session) of
-        true ->
-            TRef = timer(Timeout, {timeout, awaiting_rel, PktId}),
-            AwaitingRel1 = maps:put(PktId, {Msg, TRef}, AwaitingRel),
-            {reply, ok, Session#session{awaiting_rel = AwaitingRel1}};
-        false ->
-            lager:critical([{client, ClientId}], "Session(~s) dropped Qos2 message "
-                                "for too many awaiting_rel: ~p", [ClientId, Msg]),
-            {reply, {error, dropped}, Session}
-    end;
-
-handle_call(Req, _From, State) ->
-    lager:critical("Unexpected Request: ~p", [Req]),
-    {reply, ok, State}.
+    noreply(Session#session{subscriptions = Subscriptions1});
 
 handle_cast({destroy, ClientId}, Session = #session{client_id = ClientId}) ->
     lager:warning([{client, ClientId}], "Session(~s) destroyed", [ClientId]),

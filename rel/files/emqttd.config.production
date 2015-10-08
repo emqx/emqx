@@ -16,7 +16,7 @@
 	{error_logger_redirect, false},
 	{crash_log, "log/emqttd_crash.log"},
 	{handlers, [
-		{lager_console_backend, info},
+		%%{lager_console_backend, info},
 		{lager_file_backend, [
             {formatter_config, [time, " ", pid, " [",severity,"] ", message, "\n"]},
 			{file, "log/emqttd_error.log"},
@@ -95,7 +95,7 @@
             {max_awaiting_rel, 0},
 
             %% Statistics Collection Interval(seconds)
-            {collect_interval, 20},
+            {collect_interval, 0},
 
             %% Expired after 2 days
             {expired_after, 48}
