@@ -2,10 +2,46 @@
 emqttd ChangeLog
 ==================
 
-0.11.1-beta (2015-09-30)
+0.12.0-beta (2015-10-08)
 -------------------------
 
-Code refactor...
+#### Highlights
+
+Enhance the **emqttd_ctl** module to allow plugins to register new commands (#256)
+
+Add [emqttd_recon plugin](https://github.com/emqtt/emqttd_recon) to debug/optimize the broker (#235)
+
+Add **'./bin/emqttd_ctl broker pubsub'** command to check the status of core pubsub processes
+
+Add **'./bin/emqttd_top'** command(like etop) to show the top 'msg_q', 'reductions', 'memory' or 'runtime' processes
+
+'rel/files/emqttd.config.production' for production deployment(default)
+
+'rel/files/emqttd.config.development' for development deployment
+
+#### Enhancements
+
+Qos1/2 messages will not be dropped under unstable mobile network (#264)
+
+**emqttd_session:subscribe/2, emqttd_session:unsubscribe/2** APIs should be asynchronous (#292)
+
+**etc/emqttd.config**: 'idle_timeout' option to close the idle client(socket connected but no 'CONNECT' frame received)
+
+**etc/emqttd.config**: 'unack_retry_interval' option for redelivering Qos1/2 messages
+
+How to monitor large 'message_queue_len' (#283)
+
+#### Bugfix
+
+Behaviour emqttd_auth_mod is missing init callback (#318)
+
+#### Benchmark
+
+Write a new [benchmark tool](https://github.com/emqtt/emqtt_benchmark) to benchmark this release
+
+Hw requirements - 5K users, 25-50 msgs/sec, QoS=1 (#209)
+
+Supported Number of Connections Greatly Reduced When Clients are Subscribing (#324)
 
 
 0.11.0-beta (2015-09-25)
