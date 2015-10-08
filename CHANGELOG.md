@@ -11,7 +11,7 @@ Enhance the **emqttd_ctl** module to allow plugins to register new commands (#25
 
 Add [emqttd_recon plugin](https://github.com/emqtt/emqttd_recon) to debug/optimize the broker (#235)
 
-Add **'./bin/emqttd_ctl broker pubsub'** command to check the status of the core pubsub processes
+Add **'./bin/emqttd_ctl broker pubsub'** command to check the status of core pubsub processes
 
 Add **'./bin/emqttd_top'** command(like etop) to show the top 'msg_q', 'reductions', 'memory' or 'runtime' processes
 
@@ -19,7 +19,7 @@ Add **'./bin/emqttd_top'** command(like etop) to show the top 'msg_q', 'reductio
 
 'rel/files/emqttd.config.development' for development deployment
 
-#### Enhancemenets
+#### Enhancements
 
 Qos1/2 messages will not be dropped under unstable mobile network (#264)
 
