@@ -86,7 +86,7 @@
             {max_inflight, 100},
 
             %% Retry interval for redelivering QoS1/2 messages.
-            {unack_retry_interval, 30},
+            {unack_retry_interval, 60},
 
             %% Awaiting PUBREL Timeout
             {await_rel_timeout, 20},
