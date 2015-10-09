@@ -57,6 +57,7 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 * [emqttd_plugin_redis](https://github.com/emqtt/emqttd_plugin_redis) - Redis Plugin
 * [emqttd_stomp](https://github.com/emqtt/emqttd_stomp) - Stomp Protocol Plugin
 * [emqttd_sockjs](https://github.com/emqtt/emqttd_sockjs) - SockJS(Stomp) Plugin
+* [emqttd_recon](https://github.com/emqtt/emqttd_recon) - Recon Plugin
 
 ## Dashboard
 
@@ -75,7 +76,7 @@ Download binary packeges for linux, mac and freebsd from [http://emqtt.io/downlo
 For example:
 
 ```sh
-unzip emqttd-ubuntu64-0.10.0-beta-20150820.zip && cd emqttd
+unzip emqttd-ubuntu64-0.12.0-beta-20151008.zip && cd emqttd
 
 # start console
 ./bin/emqttd console
@@ -104,12 +105,17 @@ Read [emqtt wiki](https://github.com/emqtt/emqttd/wiki) for detailed installatio
 
 ## Benchmark
 
-Benchmark 0.6.1-alpha on a ubuntu/14.04 server with 8 cores, 32G memory from QingCloud:
+Benchmark 0.12.0-beta on a centos6 server with 8 Core, 32G memory from QingCloud:
 
-200K+ Connections, 200K+ Topics, 20K+ In/Out Messages/sec, 20Mbps+ In/Out with 8G Memory, 50%CPU/core
+250K Connections, 250K Topics, 250K Subscriptions, 4K Qos1 Messages/Sec In, 20K Qos1 Messages/Sec Out, 8M+(bps) In, 40M+(bps) Out Traffic
+
+Consumed  about 3.6G memory and 400+% CPU.
+
+Benchmark Report: [benchmark for 0.12.0 release](https://github.com/emqtt/emqttd/wiki/benchmark-for-0.12.0-release)
 
 ## Supports
 
+* Twitter: [@emqtt](https://twitter.com/emqtt)
 * Homepage: http://emqtt.io
 * Downloads: http://emqtt.io/downloads
 * Wiki: https://github.com/emqtt/emqttd/wiki
