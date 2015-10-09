@@ -50,7 +50,7 @@
 %%------------------------------------------------------------------------------
 -spec start_link() -> {ok, pid()} | ignore | {error, any()}.
 start_link() ->
-    gen_server:start_link(?MODULE, [], []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
     StatsFun = emqttd_stats:statsfun('sessions/count', 'sessions/max'),
