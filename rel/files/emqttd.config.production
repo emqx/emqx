@@ -124,8 +124,12 @@
 
         %% Retained messages
         {retained, [
+            %% Expired after seconds, never expired if 0
+            {expired_after, 0},
+
             %% Max number of retained messages
             {max_message_num, 100000},
+
             %% Max Payload Size of retained message
             {max_playload_size, 65536}
         ]},

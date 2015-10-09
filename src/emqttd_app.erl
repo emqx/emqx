@@ -75,6 +75,7 @@ start_listeners() ->
 start_servers(Sup) ->
     Servers = [{"emqttd ctl", emqttd_ctl},
                {"emqttd trace", emqttd_trace},
+               {"emqttd retained", emqttd_retained},
                {"emqttd pooler", {supervisor, emqttd_pooler_sup}},
                {"emqttd client manager", {supervisor, emqttd_cm_sup}},
                {"emqttd session manager", {supervisor, emqttd_sm_sup}},
