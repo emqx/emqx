@@ -114,7 +114,7 @@ handle_cast({register_cmd, Cmd, MF, Opts}, State = #state{seq = Seq}) ->
         [] ->
             ets:insert(?CMD_TAB, {{Seq, Cmd}, MF, Opts});
         [[OriginSeq] | _] ->
-            lager:error("CLI: ~s is overidden by ~p", [Cmd, MF]),
+            lager:warning("CLI: ~s is overidden by ~p", [Cmd, MF]),
             ets:insert(?CMD_TAB, {{OriginSeq, Cmd}, MF, Opts})
     end,
     noreply(next_seq(State));
