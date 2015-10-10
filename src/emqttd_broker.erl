@@ -257,7 +257,7 @@ handle_call({unhook, Hook, Name}, _From, State) ->
     {reply, Reply, State};
 
 handle_call(Req, _From, State) ->
-    lager:critical("Unexpected request: ~p", [Req]),
+    lager:error("Unexpected request: ~p", [Req]),
     {reply, {error, badreq}, State}.
 
 handle_cast(_Msg, State) ->

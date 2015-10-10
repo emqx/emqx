@@ -187,7 +187,7 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(Msg, State) ->
-    lager:critical("Unexpected Msg: ~p", [Msg]),
+    lager:error("Unexpected Msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State) ->
@@ -198,7 +198,7 @@ handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    lager:critical("Unexpected Info: ~p", [Info]),
+    lager:error("Unexpected Info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{id = Id}) ->
@@ -220,7 +220,7 @@ create_session(CleanSess, ClientId, ClientPid) ->
             case insert_session(Session) of
                 {aborted, {conflict, ConflictPid}} ->
                     %% Conflict with othe node?
-                    lager:critical("Session(~s): Conflict with ~p!", [ClientId, ConflictPid]),
+                    lager:error("Session(~s): Conflict with ~p!", [ClientId, ConflictPid]),
                     {error, conflict};
                 {atomic, ok} ->
                     erlang:monitor(process, SessPid),
@@ -256,11 +256,11 @@ resume_session(Session = #mqtt_session{client_id = ClientId, sess_pid = SessPid}
         ok ->
             {ok, SessPid};
         {badrpc, nodedown} ->
-            lager:critical("Session(~s): Died for node ~s down!", [ClientId, Node]),
+            lager:error("Session(~s): Died for node ~s down!", [ClientId, Node]),
             remove_session(Session),
             {error, session_nodedown};
         {badrpc, Reason} ->
-            lager:critical("Session(~s): Failed to resume from node ~s for ~p",
+            lager:error("Session(~s): Failed to resume from node ~s for ~p",
                             [ClientId, Node, Reason]),
             {error, Reason}
     end.
