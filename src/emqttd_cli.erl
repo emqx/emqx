@@ -43,8 +43,6 @@
          clients/1, sessions/1, plugins/1, listeners/1,
          vm/1, mnesia/1, trace/1]).
 
--export([node_name/1]).
-
 -define(PROC_INFOKEYS, [status,
                         memory,
                         message_queue_len,
@@ -128,7 +126,7 @@ cluster(usage) ->
     ?PRINT_CMD("cluster [<Node>]", "cluster with node, query cluster info ");
 
 cluster([SNode]) ->
-    Node = node_name(SNode),
+    Node = emqttd_dist:parse_node(SNode),
     case lists:member(Node, emqttd_broker:running_nodes()) of
         true ->
             ?PRINT("~s is already clustered~n", [Node]);
@@ -161,7 +159,7 @@ cluster(pong, Node, DoCluster) ->
     end;
 
 cluster(pang, Node, _DoCluster) ->
-    ?PRINT("Failed to connect ~s~n", [Node]).
+    ?PRINT("Cannot connect to ~s~n", [Node]).
 
 %%------------------------------------------------------------------------------
 %% @doc Query clients
@@ -408,24 +406,6 @@ listeners([]) ->
 
 listeners(_) ->
     ?PRINT_CMD("listeners", "query broker listeners").
-
-node_name(SNode) ->
-    SNode1 =
-    case string:tokens(SNode, "@") of
-        [_Node, _Server] ->
-            SNode;
-        _ ->
-            case net_kernel:longnames() of
-             true ->
-                 SNode ++ "@" ++ inet_db:gethostname() ++
-                      "." ++ inet_db:res_option(domain);
-             false ->
-                 SNode ++ "@" ++ inet_db:gethostname();
-             _ ->
-                 SNode
-             end
-    end,
-    list_to_atom(SNode1).
 
 print(#mqtt_plugin{name = Name, version = Ver, descr = Descr, active = Active}) ->
     ?PRINT("Plugin(~s, version=~s, description=~s, active=~s)~n",
