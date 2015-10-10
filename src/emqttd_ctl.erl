@@ -110,7 +110,13 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({register_cmd, Cmd, MF, Opts}, State = #state{seq = Seq}) ->
-    ets:insert(?CMD_TAB, {{Seq, Cmd}, MF, Opts}),
+    case ets:match(?CMD_TAB, {{'$1', Cmd}, '_', '_'}) of
+        [] ->
+            ets:insert(?CMD_TAB, {{Seq, Cmd}, MF, Opts});
+        [[OriginSeq] | _] ->
+            lager:error("CLI: ~s is overidden by ~p", [Cmd, MF]),
+            ets:insert(?CMD_TAB, {{OriginSeq, Cmd}, MF, Opts})
+    end,
     noreply(next_seq(State));
 
 handle_cast({unregister_cmd, Cmd}, State) ->
