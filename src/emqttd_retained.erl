@@ -149,10 +149,14 @@ dispatch(Topic, CPid) when is_binary(Topic) ->
 
 init([]) ->
     StatsFun = emqttd_stats:statsfun('retained/count', 'retained/max'),
+    %% One second
+    {ok, StatsTimer}  = timer:send_interval(1000, stats),
+    %% Five minutes
+    {ok, ExpireTimer} = timer:send_interval(300 * 1000, expire),
     {ok, #state{stats_fun     = StatsFun,
                 expired_after = env(expired_after),
-                stats_timer   = timer:send_interval(1000, stats),
-                expire_timer  = timer:send_interval(300 * 1000, expire)}}.
+                stats_timer   = StatsTimer,
+                expire_timer  = ExpireTimer}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
