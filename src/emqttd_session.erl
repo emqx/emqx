@@ -293,7 +293,7 @@ handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, pktid = PktId}}, _From,
     end;
 
 handle_call(Req, _From, State) ->
-    lager:critical("Unexpected Request: ~p", [Req]),
+    lager:error("Unexpected Request: ~p", [Req]),
     {reply, ok, State}.
 
 handle_cast({subscribe, TopicTable0, Callback}, Session = #session{
@@ -469,7 +469,7 @@ handle_cast({pubcomp, PktId}, Session = #session{client_id = ClientId, awaiting_
     end;
 
 handle_cast(Msg, State) ->
-    lager:critical("Unexpected Msg: ~p, State: ~p", [Msg, State]),
+    lager:error("Unexpected Msg: ~p, State: ~p", [Msg, State]),
     {noreply, State}.
 
 %% Queue messages when client is offline
@@ -570,7 +570,7 @@ handle_info(session_expired, Session = #session{client_id = ClientId}) ->
     {stop, {shutdown, expired}, Session};
 
 handle_info(Info, Session = #session{client_id = ClientId}) ->
-    lager:critical("Session(~s) unexpected info: ~p", [ClientId, Info]),
+    lager:error("Session(~s) unexpected info: ~p", [ClientId, Info]),
     {noreply, Session}.
 
 terminate(_Reason, #session{clean_sess = CleanSess, client_id = ClientId}) ->

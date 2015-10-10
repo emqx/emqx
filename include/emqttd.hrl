@@ -105,10 +105,9 @@
 %% MQTT Session
 %%------------------------------------------------------------------------------
 -record(mqtt_session, {
-    client_id,
-    sess_pid,
-    persistent,
-    on_node
+    client_id   :: binary(),
+    sess_pid    :: pid(),
+    persistent  :: boolean()
 }).
 
 -type mqtt_session() :: #mqtt_session{}.

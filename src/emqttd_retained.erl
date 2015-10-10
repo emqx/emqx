@@ -162,7 +162,7 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(Msg, State) ->
-    lager:critical("Unexpected Msg: ~p", [Msg]),
+    lager:error("Unexpected Msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(stats, State = #state{stats_fun = StatsFun}) ->
@@ -174,7 +174,7 @@ handle_info(expire, State = #state{expired_after = ExpiredAfter}) ->
     {noreply, State, hibernate};
 
 handle_info(Info, State) ->
-    lager:critical("Unexpected Info: ~p", [Info]),
+    lager:error("Unexpected Info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State = #state{stats_timer = TRef1, expire_timer = TRef2}) ->

@@ -129,11 +129,11 @@ handle_cast({unregister, ClientId, Pid}, State) ->
 	{noreply, setstats(State)};
 
 handle_cast(Msg, State) ->
-    lager:critical("Unexpected Msg: ~p", [Msg]),
+    lager:error("Unexpected Msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    lager:critical("Unexpected Msg: ~p", [Info]),
+    lager:error("Unexpected Msg: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{id = Id}) ->
