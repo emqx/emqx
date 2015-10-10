@@ -33,7 +33,7 @@
 -include("emqttd_cli.hrl").
 
 %% CLI callbacks
--export([useradd/1, userdel/1]).
+-export([cli/1]).
 
 -behaviour(emqttd_auth_mod).
 
@@ -51,17 +51,15 @@
 %%% CLI
 %%%=============================================================================
 
-useradd([Username, Password]) ->
+cli(["add", Username, Password]) ->
     ?PRINT("~p~n", [add_user(list_to_binary(Username), list_to_binary(Password))]);
 
-useradd(_) ->
-    ?PRINT_CMD("useradd <Username> <Password>", "add user").
-
-userdel([Username]) ->
+cli(["del", Username]) ->
     ?PRINT("~p~n", [remove_user(list_to_binary(Username))]);
 
-userdel(_) ->
-    ?PRINT_CMD("userdel <Username>", "delete user").
+cli(_) ->
+    ?USAGE([{"users add <Username> <Password>", "add user"},
+            {"users del <Username>", "delete user"}]).
 
 %%%=============================================================================
 %%% API 
@@ -88,8 +86,7 @@ init(Opts) ->
 		{disc_copies, [node()]},
 		{attributes, record_info(fields, ?AUTH_USERNAME_TAB)}]),
 	mnesia:add_table_copy(?AUTH_USERNAME_TAB, node(), ram_copies),
-    emqttd_ctl:register_cmd(useradd, {?MODULE, useradd}, []),
-    emqttd_ctl:register_cmd(userdel, {?MODULE, userdel}, []),
+    emqttd_ctl:register_cmd(users, {?MODULE, cli}, []),
     {ok, Opts}.
 
 check(#mqtt_client{username = undefined}, _Password, _Opts) ->
