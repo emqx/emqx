@@ -43,6 +43,8 @@
          clients/1, sessions/1, plugins/1, listeners/1,
          vm/1, mnesia/1, trace/1]).
 
+-export([node_name/1]).
+
 -define(PROC_INFOKEYS, [status,
                         memory,
                         message_queue_len,
