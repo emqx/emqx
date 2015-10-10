@@ -74,7 +74,7 @@
         %% Client
         {client, [
             %% Socket is connected, but no 'CONNECT' packet received
-            {idle_timeout, 10} %% seconds
+            {idle_timeout, 20} %% seconds
             %TODO: Network ingoing limit
             %{ingoing_rate_limit, '64KB/s'}
             %TODO: Reconnet control
