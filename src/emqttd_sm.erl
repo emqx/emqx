@@ -57,7 +57,6 @@
 
 -define(SM_POOL, ?MODULE).
 
-%% TODO...
 -define(SESSION_TIMEOUT, 60000).
 
 %%%=============================================================================
@@ -158,7 +157,7 @@ prioritise_cast(_Msg, _Len, _State) ->
     0.
 
 prioritise_info(_Msg, _Len, _State) ->
-    1.
+    2.
 
 %% persistent session
 handle_call({start_session, {false, ClientId, ClientPid}}, _From, State) ->
@@ -170,6 +169,7 @@ handle_call({start_session, {false, ClientId, ClientPid}}, _From, State) ->
             {reply, resume_session(Session, ClientPid), State}
     end;
 
+%% transient session
 handle_call({start_session, {true, ClientId, ClientPid}}, _From, State) ->
     case lookup_session(ClientId) of
         undefined ->
@@ -216,12 +216,11 @@ create_session(CleanSess, ClientId, ClientPid) ->
         {ok, SessPid} ->
             Session = #mqtt_session{client_id  = ClientId,
                                     sess_pid   = SessPid,
-                                    persistent = not CleanSess,
-                                    on_node    = node()},
+                                    persistent = not CleanSess},
             case insert_session(Session) of
-                {aborted, {conflict, Node}} ->
-                    %% conflict with othe node?
-                    lager:critical("Session ~s conflict with node ~p!", [ClientId, Node]),
+                {aborted, {conflict, ConflictPid}} ->
+                    %% Conflict with othe node?
+                    lager:critical("Session(~s): Conflict with ~p!", [ClientId, ConflictPid]),
                     {error, conflict};
                 {atomic, ok} ->
                     erlang:monitor(process, SessPid),
@@ -232,89 +231,65 @@ create_session(CleanSess, ClientId, ClientPid) ->
     end.
 
 insert_session(Session = #mqtt_session{client_id = ClientId}) ->
-    mnesia:transaction(fun() ->
-                case mnesia:wread({session, ClientId}) of
-                    [] ->
-                        mnesia:write(session, Session, write);
-                    [#mqtt_session{on_node = Node}] ->
-                        mnesia:abort({conflict, Node})
-                end
-        end).
+    mnesia:transaction(
+      fun() ->
+        case mnesia:wread({session, ClientId}) of
+            [] ->
+                mnesia:write(session, Session, write);
+            [#mqtt_session{sess_pid = SessPid}] ->
+                mnesia:abort({conflict, SessPid})
+        end
+      end).
 
-%% local node
+%% Local node
 resume_session(#mqtt_session{client_id = ClientId,
-                             sess_pid  = SessPid,
-                             on_node   = Node}, ClientPid)
-        when Node =:= node() ->
-    case is_process_alive(SessPid) of 
-        true ->
-            emqttd_session:resume(SessPid, ClientId, ClientPid),
+                             sess_pid  = SessPid}, ClientPid)
+    when node(SessPid) =:= node() ->
+
+    emqttd_session:resume(SessPid, ClientId, ClientPid),
+    {ok, SessPid};
+
+%% Remote node
+resume_session(Session = #mqtt_session{client_id = ClientId, sess_pid = SessPid}, ClientPid) ->
+    Node = node(SessPid),
+    case rpc:call(Node, emqttd_session, resume, [SessPid, ClientId, ClientPid]) of
+        ok ->
             {ok, SessPid};
-        false ->
-            lager:critical("Session ~s@~p died unexpectedly!", [ClientId, SessPid]),
-            {error, session_died}
-    end;
-
-%% remote node
-resume_session(Session = #mqtt_session{client_id = ClientId,
-                                       sess_pid = SessPid,
-                                       on_node = Node}, ClientPid) ->
-    case emqttd:is_running(Node) of
-        true ->
-            case rpc:call(Node, emqttd_session, resume, [SessPid, ClientId, ClientPid]) of
-                ok ->
-                    {ok, SessPid};
-                {badrpc, Reason} ->
-                    lager:critical("Resume session ~s on remote node ~p failed for ~p",
-                                    [ClientId, Node, Reason]),
-                    {error, Reason}
-            end;
-        false ->
-            lager:critical("Session ~s died for node ~p down!", [ClientId, Node]),
+        {badrpc, nodedown} ->
+            lager:critical("Session(~s): Died for node ~s down!", [ClientId, Node]),
             remove_session(Session),
-            {error, session_node_down}
+            {error, session_nodedown};
+        {badrpc, Reason} ->
+            lager:critical("Session(~s): Failed to resume from node ~s for ~p",
+                            [ClientId, Node, Reason]),
+            {error, Reason}
     end.
 
-%% local node
-destroy_session(Session = #mqtt_session{client_id = ClientId,
-                                        sess_pid  = SessPid,
-                                        on_node   = Node}) when Node =:= node() ->
-    case is_process_alive(SessPid) of
-        true ->
-            emqttd_session:destroy(SessPid, ClientId);
-        false ->
-            lager:critical("Session ~s@~p died unexpectedly!", [ClientId, SessPid])
-    end,
-    case remove_session(Session) of
-        {atomic, ok} -> ok;
-        {aborted, Error} -> {error, Error}
-    end;
+%% Local node
+destroy_session(Session = #mqtt_session{client_id = ClientId, sess_pid  = SessPid})
+    when node(SessPid) =:= node() ->
+    emqttd_session:destroy(SessPid, ClientId),
+    remove_session(Session);
 
-%% remote node
+%% Remote node
 destroy_session(Session = #mqtt_session{client_id = ClientId,
-                                        sess_pid  = SessPid,
-                                        on_node   = Node}) ->
-    case emqttd:is_running(Node) of
-        true ->
-            case rpc:call(Node, emqttd_session, destroy, [SessPid, ClientId]) of
-                ok ->
-                    case remove_session(Session) of
-                        {atomic, ok} -> ok;
-                        {aborted, Error} -> {error, Error}
-                    end;
-                {badrpc, Reason} ->
-                    lager:critical("Destroy session ~s on remote node ~p failed for ~p",
-                                    [ClientId, Node, Reason]),
-                    {error, list_to_atom("session_" ++ atom_to_list(Reason))}
-             end;
-        false ->
-            lager:error("Session ~s died for node ~p down!", [ClientId, Node]),
-            case remove_session(Session) of
-                {atomic, ok} -> ok;
-                {aborted, Error} -> {error, Error}
-            end
-    end.
+                                        sess_pid  = SessPid}) ->
+    Node = node(SessPid),
+    case rpc:call(Node, emqttd_session, destroy, [SessPid, ClientId]) of
+        ok ->
+            remove_session(Session);
+        {badrpc, nodedown} ->
+            lager:error("Session(~s): Died for node ~s down!", [ClientId, Node]),
+            remove_session(Session); 
+        {badrpc, Reason} ->
+            lager:error("Session(~s): Failed to destory ~p on remote node ~p for ~s",
+                            [ClientId, SessPid, Node, Reason]),
+            {error, Reason}
+     end.
 
 remove_session(Session) ->
-    mnesia:transaction(fun() -> mnesia:delete_object(session, Session, write) end).
+    case mnesia:transaction(fun mnesia:delete_object/3, [session, Session, write]) of
+        {atomic, ok}     -> ok;
+        {aborted, Error} -> {error, Error}
+    end.
 

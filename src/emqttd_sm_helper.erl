@@ -25,13 +25,13 @@
 %%% @end
 %%%-----------------------------------------------------------------------------
 
-%% TODO: Monitor mnesia node down...
-
 -module(emqttd_sm_helper).
 
 -author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
+
+-include_lib("stdlib/include/ms_transform.hrl").
 
 %% API Function Exports
 -export([start_link/0]).
@@ -42,7 +42,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {statsfun, ticker}).
+-record(state, {stats_fun, tick_tref}).
 
 %%------------------------------------------------------------------------------
 %% @doc Start a session helper
@@ -53,9 +53,10 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
+    %%mnesia:subscribe(system),
+    {ok, TRef} = timer:send_interval(1000, tick),
     StatsFun = emqttd_stats:statsfun('sessions/count', 'sessions/max'),
-    {ok, TRef} = timer:send_interval(1000, self(), tick),
-    {ok, #state{statsfun = StatsFun, ticker = TRef}}.
+    {ok, #state{stats_fun = StatsFun, tick_tref = TRef}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -64,20 +65,36 @@ handle_cast(Msg, State) ->
     lager:critical("Unexpected Msg: ~p", [Msg]),
     {noreply, State}.
 
+handle_info({mnesia_system_event, {mnesia_down, Node}}, State) ->
+    lager:error("!!!Mnesia node down: ~s", [Node]),
+    Fun = fun() ->
+            ClientIds =
+            mnesia:select(session, [{#mqtt_session{client_id = '$1', sess_pid = '$2'},
+                                    [{'==', {node, '$2'}, Node}],
+                                    ['$1']}]),
+             lists:foreach(fun(Id) -> mnesia:delete({session, Id}) end, ClientIds)
+          end,
+    mnesia:async_dirty(Fun),
+    {noreply, State};
+
 handle_info(tick, State) ->
-    {noreply, setstats(State)};
+    {noreply, setstats(State), hibernate};
 
 handle_info(Info, State) ->
     lager:critical("Unexpected Info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, _State = #state{ticker = TRef}) ->
-    timer:cancel(TRef).
+terminate(_Reason, _State = #state{tick_tref = TRef}) ->
+    timer:cancel(TRef),
+    mnesia:unsubscribe(system).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-setstats(State = #state{statsfun = StatsFun}) ->
-    StatsFun(ets:info(mqtt_persistent_session, size)), State.
+%%%=============================================================================
+%%% Internal functions
+%%%=============================================================================
 
+setstats(State = #state{stats_fun = StatsFun}) ->
+    StatsFun(ets:info(mqtt_persistent_session, size)), State.
 
