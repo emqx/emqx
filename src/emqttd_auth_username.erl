@@ -51,7 +51,7 @@
 %%% CLI
 %%%=============================================================================
 
-cli(["add", Username, Password]) -> 
+cli(["add", Username, Password]) ->
     ?PRINT("~p~n", [add_user(list_to_binary(Username), list_to_binary(Password))]);
 
 cli(["del", Username]) ->
