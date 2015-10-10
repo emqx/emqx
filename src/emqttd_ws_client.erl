@@ -206,7 +206,7 @@ handle_info({'EXIT', WsPid, Reason}, State = #client_state{ws_pid = WsPid, proto
     stop({shutdown, websocket_closed}, State);
 
 handle_info(Info, State = #client_state{request = Req}) ->
-    lager:critical("Client(WebSocket) ~s: Unexpected Info - ~p", [Req:get(peer), Info]),
+    lager:error("Client(WebSocket) ~s: Unexpected Info - ~p", [Req:get(peer), Info]),
     noreply(State).
 
 terminate(Reason, #client_state{proto_state = ProtoState, keepalive = KeepAlive}) ->

@@ -53,7 +53,7 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
-    %%mnesia:subscribe(system),
+    mnesia:subscribe(system),
     {ok, TRef} = timer:send_interval(1000, tick),
     StatsFun = emqttd_stats:statsfun('sessions/count', 'sessions/max'),
     {ok, #state{stats_fun = StatsFun, tick_tref = TRef}}.
@@ -62,7 +62,7 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(Msg, State) ->
-    lager:critical("Unexpected Msg: ~p", [Msg]),
+    lager:error("Unexpected Msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({mnesia_system_event, {mnesia_down, Node}}, State) ->
@@ -72,7 +72,7 @@ handle_info({mnesia_system_event, {mnesia_down, Node}}, State) ->
             mnesia:select(session, [{#mqtt_session{client_id = '$1', sess_pid = '$2'},
                                     [{'==', {node, '$2'}, Node}],
                                     ['$1']}]),
-             lists:foreach(fun(Id) -> mnesia:delete({session, Id}) end, ClientIds)
+             lists:foreach(fun(ClientId) -> mnesia:delete({session, ClientId}) end, ClientIds)
           end,
     mnesia:async_dirty(Fun),
     {noreply, State};
@@ -81,7 +81,7 @@ handle_info(tick, State) ->
     {noreply, setstats(State), hibernate};
 
 handle_info(Info, State) ->
-    lager:critical("Unexpected Info: ~p", [Info]),
+    lager:error("Unexpected Info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State = #state{tick_tref = TRef}) ->

@@ -385,7 +385,7 @@ handle_info({'DOWN', _Mon, _Type, DownPid, _Info}, State = #state{submap = SubMa
     end;
 
 handle_info(Info, State) ->
-    lager:critical("Unexpected Info: ~p", [Info]),
+    lager:error("Unexpected Info: ~p", [Info]),
 	{noreply, State}.
 
 terminate(_Reason, _State) ->

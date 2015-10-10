@@ -110,7 +110,7 @@ handle_call(kick, _From, State) ->
     {stop, {shutdown, kick}, ok, State};
 
 handle_call(Req, _From, State = #state{peername = Peername}) ->
-    lager:critical("Client ~s: unexpected request - ~p", [emqttd_net:format(Peername), Req]),
+    lager:error("Client ~s: unexpected request - ~p", [emqttd_net:format(Peername), Req]),
     {reply, {error, unsupported_request}, State}.    
 
 handle_cast({subscribe, TopicTable}, State) ->
@@ -120,7 +120,7 @@ handle_cast({unsubscribe, Topics}, State) ->
     with_session(fun(SessPid) -> emqttd_session:unsubscribe(SessPid, Topics) end, State);
 
 handle_cast(Msg, State = #state{peername = Peername}) ->
-    lager:critical("Client ~s: unexpected msg - ~p",[emqttd_net:format(Peername), Msg]),
+    lager:error("Client ~s: unexpected msg - ~p",[emqttd_net:format(Peername), Msg]),
     {noreply, State}.
 
 handle_info(timeout, State) ->
@@ -152,7 +152,7 @@ handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
     network_error(Reason, State);
 
 handle_info({inet_reply, _Sock, {error, Reason}}, State = #state{peername = Peername}) ->
-    lager:critical("Client ~s: unexpected inet_reply '~p'", [emqttd_net:format(Peername), Reason]),
+    lager:error("Client ~s: unexpected inet_reply '~p'", [emqttd_net:format(Peername), Reason]),
     {noreply, State};
 
 handle_info({keepalive, start, TimeoutSec}, State = #state{transport = Transport, socket = Socket, peername = Peername}) ->
@@ -180,7 +180,7 @@ handle_info({keepalive, check}, State = #state{peername = Peername, keepalive = 
     end;
 
 handle_info(Info, State = #state{peername = Peername}) ->
-    lager:critical("Client ~s: unexpected info ~p",[emqttd_net:format(Peername), Info]),
+    lager:error("Client ~s: unexpected info ~p",[emqttd_net:format(Peername), Info]),
     {noreply, State}.
 
 terminate(Reason, #state{peername = Peername,
