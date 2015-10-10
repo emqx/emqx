@@ -246,8 +246,14 @@ resume_session(#mqtt_session{client_id = ClientId,
                              sess_pid  = SessPid}, ClientPid)
     when node(SessPid) =:= node() ->
 
-    emqttd_session:resume(SessPid, ClientId, ClientPid),
-    {ok, SessPid};
+    case is_process_alive(SessPid) of
+        true ->
+            emqttd_session:resume(SessPid, ClientId, ClientPid),
+            {ok, SessPid};
+        false ->
+            lager:error("Session(~s): Cannot resume ~p, it seems already dead!", [ClientId, SessPid]),
+            {error, session_died}
+    end;
 
 %% Remote node
 resume_session(Session = #mqtt_session{client_id = ClientId, sess_pid = SessPid}, ClientPid) ->
