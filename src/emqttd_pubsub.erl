@@ -223,7 +223,7 @@ dispatch(Topic, #mqtt_message{qos = Qos} = Msg ) when is_binary(Topic) ->
 
 -spec match(Topic :: binary()) -> [mqtt_topic()].
 match(Topic) when is_binary(Topic) ->
-	MatchedTopics = mnesia:async_dirty(fun emqttd_trie:find/1, [Topic]),
+	MatchedTopics = mnesia:async_dirty(fun emqttd_trie:match/1, [Topic]),
 	lists:append([mnesia:dirty_read(topic, Name) || Name <- MatchedTopics]).
 
 %%%=============================================================================
