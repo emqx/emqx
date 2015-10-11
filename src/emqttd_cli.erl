@@ -111,7 +111,7 @@ broker(["pubsub"]) ->
 broker(_) ->
     ?USAGE([{"broker",         "query broker version, uptime and description"},
             {"broker pubsub",  "query process_info of pubsub"},
-            {"borker stats",   "query broker statistics of clients, topics, subscribers"},
+            {"broker stats",   "query broker statistics of clients, topics, subscribers"},
             {"broker metrics", "query broker metrics"}]).
 
 %%------------------------------------------------------------------------------
