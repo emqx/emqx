@@ -37,7 +37,7 @@
 -copy_mnesia({mnesia, [copy]}).
 
 %% Trie API
--export([insert/1, find/1, delete/1]).
+-export([insert/1, match/1, delete/1]).
 
 -type node_id() :: binary() | atom().
 
@@ -111,9 +111,9 @@ insert(Topic) when is_binary(Topic) ->
 %% @doc Find trie nodes that match topic
 %% @end
 %%------------------------------------------------------------------------------
--spec find(Topic :: binary()) -> list(MatchedTopic :: binary()).
-find(Topic) when is_binary(Topic) ->
-    TrieNodes = match_node(root, emqttd_topic:words(Topic), []),
+-spec match(Topic :: binary()) -> list(MatchedTopic :: binary()).
+match(Topic) when is_binary(Topic) ->
+    TrieNodes = match_node(root, emqttd_topic:words(Topic)),
     [Name || #trie_node{topic=Name} <- TrieNodes, Name=/= undefined].
 
 %%------------------------------------------------------------------------------
@@ -166,6 +166,13 @@ add_path({Node, Word, Child}) ->
 %%
 %% @end
 %%------------------------------------------------------------------------------
+
+match_node(root, [<<"$SYS">>|Words]) ->
+    match_node(<<"$SYS">>, Words, []);
+
+match_node(NodeId, Words) ->
+    match_node(NodeId, Words, []).
+
 match_node(NodeId, [], ResAcc) ->
 	mnesia:read(trie_node, NodeId) ++ 'match_#'(NodeId, ResAcc);
 
