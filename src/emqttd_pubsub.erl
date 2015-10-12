@@ -107,7 +107,10 @@ mnesia(copy) ->
     Id   :: pos_integer(),
     Opts :: list().
 start_link(Id, Opts) ->
-    gen_server2:start_link(?MODULE, [Id, Opts], []).
+    gen_server2:start_link({local, name(Id)}, ?MODULE, [Id, Opts], []).
+
+name(Id) ->
+    list_to_atom("emqttd_pubsub_" ++ integer_to_list(Id)).
 
 %%------------------------------------------------------------------------------
 %% @doc Create topic. Notice That this transaction is not protected by pubsub pool
