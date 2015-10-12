@@ -32,4 +32,3 @@
 -define(USAGE(CmdList),
     [?PRINT_CMD(Cmd, Descr) || {Cmd, Descr} <- CmdList]).
 
-
