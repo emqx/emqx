@@ -241,6 +241,27 @@
                 %{buffer, 4096},
             ]}
         ]}
+    ]},
+
+    %% Erlang System Monitor 
+    {sysmon, [
+
+        %% Long GC
+        {long_gc, 100},
+
+        %% 8M words. 32MB on 32-bit VM, 64MB on 64-bit VM.
+        %% 8 * 1024 * 1024
+        {large_heap, 8388608},
+
+        %% Long Schedule(ms)
+        {long_schedule, 50},
+
+        %% Busy Port
+        {busy_port, true},
+
+        %% Busy Dist Port
+        {busy_dist_port, true}
+
     ]}
  ]}
 ].
