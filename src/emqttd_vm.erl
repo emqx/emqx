@@ -39,7 +39,9 @@
 
 -export([get_process_list/0,
          get_process_info/0,
+         get_process_info/1,
          get_process_gc/0,
+         get_process_gc/1,
          get_process_group_leader_info/1,
          get_process_limit/0]).
 	
@@ -311,12 +313,12 @@ get_process_list(Pid) when is_pid(Pid) ->
 get_process_info() ->
     [get_process_info(Pid) || Pid <- processes()].
 get_process_info(Pid) when is_pid(Pid) ->
-    [process_info(Pid, Key) || Key <- ?PROCESS_INFO].
+    process_info(Pid, ?PROCESS_INFO).
 
 get_process_gc() ->
     [get_process_gc(Pid) || Pid <- processes()].
 get_process_gc(Pid) when is_pid(Pid) ->
-    [process_info(Pid, Key) || Key <- ?PROCESS_GC].
+    process_info(Pid, ?PROCESS_GC).
 
 get_process_group_leader_info(LeaderPid) when is_pid(LeaderPid) ->
     [{Key, Value}|| {Key, Value} <- process_info(LeaderPid), lists:member(Key, ?PROCESS_INFO)].
