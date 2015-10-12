@@ -85,7 +85,10 @@ mnesia(copy) ->
 %%------------------------------------------------------------------------------
 -spec start_link(Id :: pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
 start_link(Id) ->
-    gen_server2:start_link(?MODULE, [Id], []).
+    gen_server2:start_link({local, name(Id)}, ?MODULE, [Id], []).
+
+name(Id) ->
+    list_to_atom("emqttd_sm_" ++ integer_to_list(Id)).
 
 %%------------------------------------------------------------------------------
 %% @doc Pool name.
