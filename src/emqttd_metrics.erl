@@ -31,12 +31,17 @@
 
 -include("emqttd.hrl").
 
+-include("emqttd_protocol.hrl").
+
 -behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
 
 %% API Function Exports
 -export([start_link/0]).
+
+%% Received/Sent Metrics
+-export([received/1, sent/1]).
 
 -export([all/0, value/1,
          inc/1, inc/2, inc/3,
@@ -65,6 +70,14 @@
     {counter, 'packets/connack'},          % CONNACK Packets sent
     {counter, 'packets/publish/received'}, % PUBLISH packets received
     {counter, 'packets/publish/sent'},     % PUBLISH packets sent
+    {counter, 'packets/puback/received'},  % PUBACK packets received
+    {counter, 'packets/puback/sent'},      % PUBACK packets sent
+    {counter, 'packets/pubrec/received'},  % PUBREC packets received
+    {counter, 'packets/pubrec/sent'},      % PUBREC packets sent
+    {counter, 'packets/pubrel/received'},  % PUBREL packets received
+    {counter, 'packets/pubrel/sent'},      % PUBREL packets sent
+    {counter, 'packets/pubcomp/received'}, % PUBCOMP packets received
+    {counter, 'packets/pubcomp/sent'},     % PUBCOMP packets sent
     {counter, 'packets/subscribe'},        % SUBSCRIBE Packets received 
     {counter, 'packets/suback'},           % SUBACK packets sent 
     {counter, 'packets/unsubscribe'},      % UNSUBSCRIBE Packets received
@@ -78,6 +91,12 @@
 -define(SYSTOP_MESSAGES, [
     {counter, 'messages/received'},      % Messages received
     {counter, 'messages/sent'},          % Messages sent
+    {counter, 'messages/qos0/received'}, % Messages received
+    {counter, 'messages/qos0/sent'},     % Messages sent
+    {counter, 'messages/qos1/received'}, % Messages received
+    {counter, 'messages/qos1/sent'},     % Messages sent
+    {counter, 'messages/qos2/received'}, % Messages received
+    {counter, 'messages/qos2/sent'},     % Messages sent
     {gauge,   'messages/retained'},      % Messagea retained
     {counter, 'messages/dropped'}        % Messages dropped
 ]).
@@ -93,6 +112,73 @@
 -spec start_link() -> {ok, pid()} | ignore | {error, any()}.
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+received(Packet = ?PACKET(Type)) ->
+    inc('packets/received'),
+    received(Type, Packet).
+received(?CONNECT, _Packet) ->
+    inc('packets/connect');
+received(?PUBLISH, ?PUBLISH(Qos, _PktId)) ->
+    inc('packets/publish/received'),
+    inc('messages/received'),
+    qos_received(Qos);
+received(?PUBACK, _Packet) ->  
+    inc('packets/puback/received');
+received(?PUBREC, _Packet) ->  
+    inc('packets/pubrec/received');
+received(?PUBREL, _Packet) ->
+    inc('packets/pubrel/received');
+received(?PUBCOMP, _Packet) ->
+    inc('packets/pubcomp/received');
+received(?SUBSCRIBE, _Packet) ->
+    inc('packets/subscribe');
+received(?UNSUBSCRIBE, _Packet) ->
+    inc('packets/unsubscribe');
+received(?PINGREQ, _Packet) ->
+    inc('packets/pingreq');
+received(?DISCONNECT, _Packet) ->
+    inc('packets/disconnect');
+received(_, _) -> ignore.
+
+qos_received(?QOS_0) ->
+    inc('messages/qos0/received');
+qos_received(?QOS_1) ->
+    inc('messages/qos1/received');
+qos_received(?QOS_2) ->
+    inc('messages/qos2/received').
+
+sent(Packet = ?PACKET(Type)) ->
+    emqttd_metrics:inc('packets/sent'),
+    sent(Type, Packet).
+sent(?CONNACK, _Packet) ->
+    inc('packets/connack');
+sent(?PUBLISH, ?PUBLISH(Qos, _PktId)) ->
+    inc('packets/publish/sent'),
+    inc('messages/sent'),
+    qos_sent(Qos);
+sent(?PUBACK, _Packet) ->
+    inc('packets/puback/sent');
+sent(?PUBREC, _Packet) ->
+    inc('packets/pubrec/sent');
+sent(?PUBREL, _Packet) ->
+    inc('packets/pubrel/sent');
+sent(?PUBCOMP, _Packet) ->
+    inc('packets/pubcomp/sent');
+sent(?SUBACK, _Packet) ->
+    inc('packets/suback');
+sent(?UNSUBACK, _Packet) ->
+    inc('packets/unsuback');
+sent(?PINGRESP, _Packet) ->
+    inc('packets/pingresp');
+sent(_Type, _Packet) ->
+    ingore.
+
+qos_sent(?QOS_0) ->
+    inc('messages/qos0/sent');
+qos_sent(?QOS_1) ->
+    inc('messages/qos1/sent');
+qos_sent(?QOS_2) ->
+    inc('messages/qos2/sent').
 
 %%------------------------------------------------------------------------------
 %% @doc Get all metrics
@@ -198,7 +284,7 @@ init([]) ->
     {ok, #state{tick_tref = emqttd_broker:start_tick(tick)}, hibernate}.
 
 handle_call(_Req, _From, State) ->
-    {reply, error,  State}.
+    {reply, error, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
