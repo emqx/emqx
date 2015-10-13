@@ -1,16 +1,16 @@
 %%-----------------------------------------------------------------------------
 %% Copyright (c) 2012-2015, Feng Lee <feng@emqtt.io>
-%% 
+%%
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
 %% of this software and associated documentation files (the "Software"), to deal
 %% in the Software without restriction, including without limitation the rights
 %% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 %% copies of the Software, and to permit persons to whom the Software is
 %% furnished to do so, subject to the following conditions:
-%% 
+%%
 %% The above copyright notice and this permission notice shall be included in all
 %% copies or substantial portions of the Software.
-%% 
+%%
 %% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 %% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 %% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -68,10 +68,10 @@ sigle_level_match_test() ->
     ?assertNot( match(<<"/finance">>, <<"+">>) ).
 
 sys_match_test() ->
-    ?assert( match(<<"$SYS/borker/clients/testclient">>, <<"$SYS/#">>) ),
-    ?assert( match(<<"$SYS/borker">>, <<"$SYS/+">>) ),
-    ?assertNot( match(<<"$SYS/borker">>, <<"+/+">>) ),
-    ?assertNot( match(<<"$SYS/borker">>, <<"#">>) ).
+    ?assert( match(<<"$SYS/broker/clients/testclient">>, <<"$SYS/#">>) ),
+    ?assert( match(<<"$SYS/broker">>, <<"$SYS/+">>) ),
+    ?assertNot( match(<<"$SYS/broker">>, <<"+/+">>) ),
+    ?assertNot( match(<<"$SYS/broker">>, <<"#">>) ).
 
 '#_match_test'() ->
     ?assert( match(<<"a/b/c">>, <<"#">>) ),
@@ -84,7 +84,7 @@ match_perf_test() ->
     Filter = <<"/abkc/19383/+/akakdkkdkak/#">>,
     ?assert( match(Name, Filter) ),
     %?debugFmt("Match ~p with ~p", [Name, Filter]),
-    {Time, _} = timer:tc(fun() -> 
+    {Time, _} = timer:tc(fun() ->
                 [match(Name, Filter) || _I <- lists:seq(1, ?N)]
         end),
     ?debugFmt("Time for match: ~p(micro)", [Time/?N]),
@@ -92,11 +92,11 @@ match_perf_test() ->
 
 triples_test() ->
     Triples = [{root, <<"a">>, <<"a">>}, {<<"a">>, <<"b">>, <<"a/b">>}],
-    ?assertMatch(Triples, triples(<<"a/b">>) ). 
+    ?assertMatch(Triples, triples(<<"a/b">>) ).
 
 triples_perf_test() ->
     Topic = <<"/abkc/19383/192939/akakdkkdkak/xxxyyuya/akakak">>,
-    {Time, _} = timer:tc(fun() -> 
+    {Time, _} = timer:tc(fun() ->
                 [triples(Topic) || _I <- lists:seq(1, ?N)]
         end),
     ?debugFmt("Time for triples: ~p(micro)", [Time/?N]),
@@ -109,11 +109,11 @@ type_test() ->
 
 words_test() ->
     ?assertMatch(['', <<"abkc">>, <<"19383">>, '+', <<"akakdkkdkak">>, '#'],  words(<<"/abkc/19383/+/akakdkkdkak/#">>)),
-    {Time, _} = timer:tc(fun() -> 
+    {Time, _} = timer:tc(fun() ->
                 [words(<<"/abkc/19383/+/akakdkkdkak/#">>) || _I <- lists:seq(1, ?N)]
         end),
     ?debugFmt("Time for words: ~p(micro)", [Time/?N]),
-    {Time2, _} = timer:tc(fun() -> 
+    {Time2, _} = timer:tc(fun() ->
                 [binary:split(<<"/abkc/19383/+/akakdkkdkak/#">>, <<"/">>, [global]) || _I <- lists:seq(1, ?N)]
         end),
     ?debugFmt("Time for binary:split: ~p(micro)", [Time2/?N]),
@@ -127,4 +127,3 @@ join_test() ->
     ?assertEqual(<<"ab/+/#">>, emqttd_topic:join(words(<<"ab/+/#">>))).
 
 -endif.
-
