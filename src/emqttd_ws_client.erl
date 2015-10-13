@@ -101,18 +101,18 @@ ws_loop(Data, State = #wsocket_state{request    = Req,
     Peer = Req:get(peer),
     lager:debug("RECV from ~s(WebSocket): ~p", [Peer, Data]),
     case Parser(iolist_to_binary(Data)) of
-    {more, NewParser} ->
-        State#wsocket_state{parser = NewParser};
-    {ok, Packet, Rest} ->
-        gen_server:cast(ClientPid, {received, Packet}),
-        ws_loop(Rest, reset_parser(State), ReplyChannel);
-    {error, Error} ->
-        lager:error("MQTT(WebSocket) detected framing error ~p for connection ~s", [Error, Peer]),
-        exit({shutdown, Error})
+        {more, NewParser} ->
+            State#wsocket_state{parser = NewParser};
+        {ok, Packet, Rest} ->
+            gen_server:cast(ClientPid, {received, Packet}),
+            ws_loop(Rest, reset_parser(State), ReplyChannel);
+        {error, Error} ->
+            lager:error("MQTT(WebSocket) frame error ~p for connection ~s", [Error, Peer]),
+            exit({shutdown, Error})
     end.
 
 reset_parser(State = #wsocket_state{packet_opts = PktOpts}) ->
-    State#wsocket_state{parser = emqttd_parser:new (PktOpts)}.
+    State#wsocket_state{parser = emqttd_parser:new(PktOpts)}.
 
 %%%=============================================================================
 %%% gen_fsm callbacks
@@ -124,7 +124,8 @@ init([WsPid, Req, ReplyChannel, PktOpts]) ->
     SendFun = fun(Payload) -> ReplyChannel({binary, Payload}) end,
     Headers = mochiweb_request:get(headers, Req),
     HeadersList = mochiweb_headers:to_list(Headers),
-    ProtoState = emqttd_protocol:init(Peername, SendFun, [{ws_initial_headers, HeadersList}|PktOpts]),
+    ProtoState = emqttd_protocol:init(Peername, SendFun,
+                                      [{ws_initial_headers, HeadersList}|PktOpts]),
     {ok, #client_state{ws_pid = WsPid, request = Req, proto_state = ProtoState}}.
 
 handle_call(session, _From, State = #client_state{proto_state = ProtoState}) ->
@@ -149,15 +150,15 @@ handle_cast({unsubscribe, Topics}, State) ->
 
 handle_cast({received, Packet}, State = #client_state{proto_state = ProtoState}) ->
     case emqttd_protocol:received(Packet, ProtoState) of
-    {ok, ProtoState1} ->
-        noreply(State#client_state{proto_state = ProtoState1});
-    {error, Error} ->
-        lager:error("MQTT protocol error ~p", [Error]),
-        stop({shutdown, Error}, State);
-    {error, Error, ProtoState1} ->
-        stop({shutdown, Error}, State#client_state{proto_state = ProtoState1});
-    {stop, Reason, ProtoState1} ->
-        stop(Reason, State#client_state{proto_state = ProtoState1})
+        {ok, ProtoState1} ->
+            noreply(State#client_state{proto_state = ProtoState1});
+        {error, Error} ->
+            lager:error("MQTT protocol error ~p", [Error]),
+            stop({shutdown, Error}, State);
+        {error, Error, ProtoState1} ->
+            stop({shutdown, Error}, State#client_state{proto_state = ProtoState1});
+        {stop, Reason, ProtoState1} ->
+            stop(Reason, State#client_state{proto_state = ProtoState1})
     end;
 
 handle_cast(_Msg, State) ->
@@ -189,18 +190,18 @@ handle_info({keepalive, start, TimeoutSec}, State = #client_state{request = Req}
 
 handle_info({keepalive, check}, State = #client_state{request = Req, keepalive = KeepAlive}) ->
     case emqttd_keepalive:check(KeepAlive) of
-    {ok, KeepAlive1} ->
-        lager:debug("Client(WebSocket) ~s: Keepalive Resumed", [Req:get(peer)]),
-        noreply(State#client_state{keepalive = KeepAlive1});
-    {error, timeout} ->
-        lager:debug("Client(WebSocket) ~s: Keepalive Timeout!", [Req:get(peer)]),
-        stop({shutdown, keepalive_timeout}, State#client_state{keepalive = undefined});
-    {error, Error} ->
-        lager:debug("Client(WebSocket) ~s: Keepalive Error: ~p", [Req:get(peer), Error]),
-        stop({shutdown, keepalive_error}, State#client_state{keepalive = undefined})
+        {ok, KeepAlive1} ->
+            noreply(State#client_state{keepalive = KeepAlive1});
+        {error, timeout} ->
+            lager:debug("Client(WebSocket) ~s: Keepalive Timeout!", [Req:get(peer)]),
+            stop({shutdown, keepalive_timeout}, State#client_state{keepalive = undefined});
+        {error, Error} ->
+            lager:debug("Client(WebSocket) ~s: Keepalive Error: ~p", [Req:get(peer), Error]),
+            stop({shutdown, keepalive_error}, State#client_state{keepalive = undefined})
     end;
 
-handle_info({'EXIT', WsPid, Reason}, State = #client_state{ws_pid = WsPid, proto_state = ProtoState}) ->
+handle_info({'EXIT', WsPid, Reason}, State = #client_state{ws_pid = WsPid,
+                                                           proto_state = ProtoState}) ->
     ClientId = emqttd_protocol:clientid(ProtoState),
     lager:warning("Websocket client ~s exit: reason=~p", [ClientId, Reason]),
     stop({shutdown, websocket_closed}, State);

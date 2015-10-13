@@ -36,7 +36,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {tref, events = []}).
+-record(state, {tick_tref, events = []}).
 
 %%------------------------------------------------------------------------------
 %% @doc Start system monitor
@@ -53,8 +53,8 @@ start_link(Opts) ->
 
 init([Opts]) ->
     erlang:system_monitor(self(), parse_opt(Opts)),
-    {ok, TRef} = timer:send_interval(1000, reset),
-    {ok, #state{tref = TRef}}.
+    {ok, TRef} = timer:send_interval(timer:seconds(1), reset),
+    {ok, #state{tick_tref = TRef}}.
 
 parse_opt(Opts) ->
     parse_opt(Opts, []).
@@ -134,8 +134,8 @@ handle_info(Info, State) ->
     lager:error("Unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #state{tref = TRef}) ->
-    timer:cancel(TRef), ok.
+terminate(_Reason, #state{tick_tref = TRef}) ->
+    timer:cancel(TRef).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
