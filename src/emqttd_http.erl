@@ -40,7 +40,7 @@
 handle_request(Req) ->
     handle_request(Req:get(method), Req:get(path), Req).
 
-handle_request('GET', "/mqtt/status", Req) ->
+handle_request('GET', "/status", Req) ->
     {InternalStatus, _ProvidedStatus} = init:get_status(),
     AppStatus =
     case lists:keysearch(emqttd, 1, application:which_applications()) of
