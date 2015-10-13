@@ -24,6 +24,7 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_access_control).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -61,8 +62,7 @@
 %%------------------------------------------------------------------------------
 -spec start_link() -> {ok, pid()} | ignore | {error, any()}.
 start_link() ->
-    {ok, AcOpts} = application:get_env(emqttd, access),
-    start_link(AcOpts).
+    start_link(emqttd:env(access)).
 
 -spec start_link(AcOpts :: list()) -> {ok, pid()} | ignore | {error, any()}.
 start_link(AcOpts) ->
@@ -92,7 +92,7 @@ auth(Client, Password, [{Mod, State} | Mods]) ->
       Client :: mqtt_client(),
       PubSub :: pubsub(),
       Topic  :: binary().
-check_acl(Client, PubSub, Topic) when PubSub =:= publish orelse PubSub =:= subscribe ->
+check_acl(Client, PubSub, Topic) when ?IS_PUBSUB(PubSub) ->
     case lookup_mods(acl) of
         [] -> allow;
         AclMods -> check_acl(Client, PubSub, Topic, AclMods)
