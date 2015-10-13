@@ -30,6 +30,7 @@
 -author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
+
 -include("emqttd_protocol.hrl").
 
 -import(proplists, [get_value/2, get_value/3]).
@@ -46,7 +47,7 @@ handle_request('GET', "/mqtt/status", Req) ->
         false         -> not_running;
         {value, _Ver} -> running
     end,
-    Status = io_lib:format("Node ~s is ~s~nemqttd is ~s~n",
+    Status = io_lib:format("Node ~s is ~s~nemqttd is ~s",
                             [node(), InternalStatus, AppStatus]),
     Req:ok({"text/plain", iolist_to_binary(Status)});
 
@@ -59,15 +60,15 @@ handle_request('POST', "/mqtt/publish", Req) ->
 	case authorized(Req) of
 	true ->
         ClientId = get_value("client", Params, http),
-        Qos = int(get_value("qos", Params, "0")),
-        Retain = bool(get_value("retain", Params,  "0")),
-        Topic = list_to_binary(get_value("topic", Params)),
-        Payload = list_to_binary(get_value("message", Params)),
+        Qos      = int(get_value("qos", Params, "0")),
+        Retain   = bool(get_value("retain", Params,  "0")),
+        Topic    = list_to_binary(get_value("topic", Params)),
+        Payload  = list_to_binary(get_value("message", Params)),
         case {validate(qos, Qos), validate(topic, Topic)} of
             {true, true} ->
                 Msg = emqttd_message:make(ClientId, Qos, Topic, Payload),
                 emqttd_pubsub:publish(Msg#mqtt_message{retain  = Retain}),
-                Req:ok({"text/plain", <<"ok\n">>});
+                Req:ok({"text/plain", <<"ok">>});
            {false, _} ->
                 Req:respond({400, [], <<"Bad QoS">>});
             {_, false} ->
@@ -83,7 +84,7 @@ handle_request('POST', "/mqtt/publish", Req) ->
 handle_request('GET', "/mqtt", Req) ->
     lager:info("Websocket Connection from: ~s", [Req:get(peer)]),
     Upgrade = Req:get_header_value("Upgrade"),
-    Proto = Req:get_header_value("Sec-WebSocket-Protocol"),
+    Proto   = Req:get_header_value("Sec-WebSocket-Protocol"),
     case {is_websocket(Upgrade), Proto} of
         {true, "mqtt" ++ _Vsn} ->
             emqttd_ws_client:start_link(Req);

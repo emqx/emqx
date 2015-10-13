@@ -26,7 +26,7 @@
 %%%-----------------------------------------------------------------------------
 -module(emqttd_auth_mod).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -50,9 +50,9 @@
 -export([behaviour_info/1]).
 
 behaviour_info(callbacks) ->
-        [{init, 1}, {check, 3}, {description, 0}];
+    [{init, 1}, {check, 3}, {description, 0}];
 behaviour_info(_Other) ->
-        undefined.
+    undefined.
 
 -endif.
 

@@ -20,7 +20,7 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% ClientId authentication module.
+%%% ClientId Authentication Module.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
@@ -51,22 +51,25 @@
 %% @doc Add clientid
 %% @end
 %%------------------------------------------------------------------------------
+-spec add_clientid(binary()) -> {atomic, ok} | {aborted, any()}.
 add_clientid(ClientId) when is_binary(ClientId) ->
     R = #mqtt_auth_clientid{client_id = ClientId},
-    mnesia:transaction(fun() -> mnesia:write(R) end).
+    mnesia:transaction(fun mnesia:write/1, [R]).
 
 %%------------------------------------------------------------------------------
 %% @doc Add clientid with password
 %% @end
 %%------------------------------------------------------------------------------
+-spec add_clientid(binary(), binary()) -> {atomic, ok} | {aborted, any()}.
 add_clientid(ClientId, Password) ->
     R = #mqtt_auth_clientid{client_id = ClientId, password = Password},
-    mnesia:transaction(fun() -> mnesia:write(R) end).
+    mnesia:transaction(fun mnesia:write/1, [R]).
 
 %%------------------------------------------------------------------------------
 %% @doc Lookup clientid
 %% @end
 %%------------------------------------------------------------------------------
+-spec lookup_clientid(binary()) -> list().
 lookup_clientid(ClientId) ->
 	mnesia:dirty_read(?AUTH_CLIENTID_TAB, ClientId).
 
@@ -74,6 +77,7 @@ lookup_clientid(ClientId) ->
 %% @doc Lookup all clientids
 %% @end
 %%------------------------------------------------------------------------------
+-spec all_clientids() -> list(binary()).
 all_clientids() ->
 	mnesia:dirty_all_keys(?AUTH_CLIENTID_TAB).
 
@@ -81,8 +85,9 @@ all_clientids() ->
 %% @doc Remove clientid
 %% @end
 %%------------------------------------------------------------------------------
+-spec remove_clientid(binary()) -> {atomic, ok} | {aborted, any()}.
 remove_clientid(ClientId) ->
-    mnesia:transaction(fun() -> mnesia:delete({?AUTH_CLIENTID_TAB, ClientId}) end).
+    mnesia:transaction(fun mnesia:delete/1, [{?AUTH_CLIENTID_TAB, ClientId}]).
 
 %%%=============================================================================
 %%% emqttd_auth_mod callbacks
@@ -95,7 +100,7 @@ init(Opts) ->
 	mnesia:add_table_copy(?AUTH_CLIENTID_TAB, node(), ram_copies),
     case proplists:get_value(file, Opts) of
         undefined -> ok;
-        File -> load(File)
+        File      -> load(File)
     end,
 	{ok, Opts}.
 

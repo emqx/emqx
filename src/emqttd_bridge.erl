@@ -144,12 +144,12 @@ handle_info({nodeup, Node}, State = #state{node = Node}) ->
 handle_info(ping_down_node, State = #state{node = Node, ping_down_interval = Interval}) ->
     Self = self(),
     spawn_link(fun() ->
-                     case net_kernel:connect_node(Node) of
-                         true -> %%TODO: this is not right... fixme later
-                             Self ! {nodeup, Node};
-                         false ->
-                             erlang:send_after(Interval, Self, ping_down_node)
-                     end
+                 case net_kernel:connect_node(Node) of
+                     true -> %%TODO: this is not right... fixme later
+                         Self ! {nodeup, Node};
+                     false ->
+                         erlang:send_after(Interval, Self, ping_down_node)
+                 end
                end),
     {noreply, State};
 

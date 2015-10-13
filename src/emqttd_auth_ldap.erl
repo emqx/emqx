@@ -20,7 +20,7 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% LDAP Authentication Module.
+%%% LDAP Authentication Module
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
@@ -28,7 +28,7 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include_lib("emqttd/include/emqttd.hrl").
+-include("emqttd.hrl").
 
 -import(proplists, [get_value/2, get_value/3]).
 

@@ -139,7 +139,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal Function Definitions
 %%%=============================================================================
 
-noreply(State) -> {noreply, State, hibernate}.
+noreply(State) ->
+    {noreply, State, hibernate}.
 
-next_seq(State = #state{seq = Seq}) -> State#state{seq = Seq + 1}.
+next_seq(State = #state{seq = Seq}) ->
+    State#state{seq = Seq + 1}.
+
 

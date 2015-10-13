@@ -36,5 +36,5 @@ init(Opts) -> {ok, Opts}.
 
 check(_Client, _Password, _Opts) -> ok.
 
-description() -> "Anonymous authentication module".
+description() -> "Anonymous Authentication Module".
 

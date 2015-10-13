@@ -41,9 +41,9 @@
 -export([behaviour_info/1]).
 
 behaviour_info(callbacks) ->
-        [{load, 1}, {unload, 1}];
+    [{load, 1}, {unload, 1}];
 behaviour_info(_Other) ->
-        undefined.
+    undefined.
 
 -endif.
 
