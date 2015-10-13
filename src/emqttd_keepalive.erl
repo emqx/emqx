@@ -34,10 +34,13 @@
                     tsec, tmsg, tref,
                     repeat = 0}).
 
+-type keepalive() :: #keepalive{}.
+
 %%------------------------------------------------------------------------------
 %% @doc Start a keepalive
 %% @end
 %%------------------------------------------------------------------------------
+-spec start(fun(), integer(), any()) -> undefined | keepalive().
 start(_, 0, _) ->
     undefined;
 start(StatFun, TimeoutSec, TimeoutMsg) ->
@@ -50,6 +53,7 @@ start(StatFun, TimeoutSec, TimeoutMsg) ->
 %% @doc Check keepalive, called when timeout.
 %% @end
 %%------------------------------------------------------------------------------
+-spec check(keepalive()) -> {ok, keepalive()} | {error, any()}.
 check(KeepAlive = #keepalive{statfun = StatFun, statval = LastVal, repeat = Repeat}) ->
     case StatFun() of
         {ok, NewVal} ->
@@ -71,6 +75,7 @@ resume(KeepAlive = #keepalive{tsec = TimeoutSec, tmsg = TimeoutMsg}) ->
 %% @doc Cancel Keepalive
 %% @end
 %%------------------------------------------------------------------------------
+-spec cancel(keepalive()) -> ok.
 cancel(#keepalive{tref = TRef}) ->
     cancel(TRef);
 cancel(undefined) -> 
