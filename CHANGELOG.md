@@ -2,6 +2,26 @@
 emqttd ChangeLog
 ==================
 
+0.12.1-beta (2015-10-15)
+-------------------------
+
+Highlight: Release for Bugfix and Code Refactor.
+
+Feature: Retained message expiration (#182)
+
+Improve: '$SYS/#' publish will not match '#' or '+/#' (#68)
+
+Improve: Add more metrics and ignore '$SYS/#' publish (#266)
+
+Improve: emqttd_sm should be optimized for clustered nodes may be crashed (#282)
+
+Improve: Refactor emqttd_sysmon and suppress 'monitor' messages (#328)
+
+Task: benchmark for 0.12.0 release (#225)
+
+Benchmark: About 900K concurrent connections established on a 20Core, 32G CentOS server.
+
+
 0.12.0-beta (2015-10-08)
 -------------------------
 
