@@ -209,20 +209,20 @@
     #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},
                  variable = #mqtt_packet_connack{return_code = ReturnCode}}).
 
+-define(PUBLISH_PACKET(Qos, PacketId),
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBLISH,
+                                                qos = Qos},
+                 variable = #mqtt_packet_publish{packet_id = PacketId}}).
+
 -define(PUBLISH_PACKET(Qos, Topic, PacketId, Payload),
-    #mqtt_packet{header = #mqtt_packet_header{type = ?PUBLISH,
-                                              qos = Qos},
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBLISH,
+                                                qos = Qos},
                  variable = #mqtt_packet_publish{topic_name = Topic,
                                                  packet_id  = PacketId},
-                 payload = Payload}).
-
--define(PUBLISH(Qos, PacketId),
-    #mqtt_packet{header = #mqtt_packet_header{type = ?PUBLISH,
-                                              qos = Qos},
-                 variable = #mqtt_packet_publish{packet_id  = PacketId}}).
+                 payload  = Payload}).
 
 -define(PUBACK_PACKET(Type, PacketId),
-    #mqtt_packet{header = #mqtt_packet_header{type = Type},
+    #mqtt_packet{header   = #mqtt_packet_header{type = Type},
                  variable = #mqtt_packet_puback{packet_id = PacketId}}).
 
 -define(PUBREL_PACKET(PacketId),

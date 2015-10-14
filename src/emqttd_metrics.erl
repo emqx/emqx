@@ -113,33 +113,40 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-received(Packet = ?PACKET(Type)) ->
+%%------------------------------------------------------------------------------
+%% @doc Count packets received.
+%% @end
+%%------------------------------------------------------------------------------
+-spec received(mqtt_packet()) -> ok.
+received(Packet) ->
     inc('packets/received'),
-    received(Type, Packet).
-received(?CONNECT, _Packet) ->
-    inc('packets/connect');
-received(?PUBLISH, ?PUBLISH(Qos, _PktId)) ->
+    received1(Packet).
+received1(?PUBLISH_PACKET(Qos, _PktId)) ->
     inc('packets/publish/received'),
     inc('messages/received'),
     qos_received(Qos);
-received(?PUBACK, _Packet) ->  
+received1(?PACKET(Type)) ->
+    received2(Type).
+received2(?CONNECT) ->
+    inc('packets/connect');
+received2(?PUBACK) ->
     inc('packets/puback/received');
-received(?PUBREC, _Packet) ->  
+received2(?PUBREC) ->
     inc('packets/pubrec/received');
-received(?PUBREL, _Packet) ->
+received2(?PUBREL) ->
     inc('packets/pubrel/received');
-received(?PUBCOMP, _Packet) ->
+received2(?PUBCOMP) ->
     inc('packets/pubcomp/received');
-received(?SUBSCRIBE, _Packet) ->
+received2(?SUBSCRIBE) ->
     inc('packets/subscribe');
-received(?UNSUBSCRIBE, _Packet) ->
+received2(?UNSUBSCRIBE) ->
     inc('packets/unsubscribe');
-received(?PINGREQ, _Packet) ->
+received2(?PINGREQ) ->
     inc('packets/pingreq');
-received(?DISCONNECT, _Packet) ->
+received2(?DISCONNECT) ->
     inc('packets/disconnect');
-received(_, _) -> ignore.
-
+received2(_) ->
+    ignore.
 qos_received(?QOS_0) ->
     inc('messages/qos0/received');
 qos_received(?QOS_1) ->
@@ -147,32 +154,40 @@ qos_received(?QOS_1) ->
 qos_received(?QOS_2) ->
     inc('messages/qos2/received').
 
-sent(Packet = ?PACKET(Type)) ->
+%%------------------------------------------------------------------------------
+%% @doc Count packets received. Will not count $SYS PUBLISH.
+%% @end
+%%------------------------------------------------------------------------------
+-spec sent(mqtt_packet()) -> ok.
+sent(?PUBLISH_PACKET(_Qos, <<"$SYS/", _/binary>>, _, _)) ->
+    ignore;
+sent(Packet) ->
     emqttd_metrics:inc('packets/sent'),
-    sent(Type, Packet).
-sent(?CONNACK, _Packet) ->
-    inc('packets/connack');
-sent(?PUBLISH, ?PUBLISH(Qos, _PktId)) ->
+    sent1(Packet).
+sent1(?PUBLISH_PACKET(Qos, _PktId)) ->
     inc('packets/publish/sent'),
     inc('messages/sent'),
     qos_sent(Qos);
-sent(?PUBACK, _Packet) ->
+sent1(?PACKET(Type)) ->
+    sent2(Type).
+sent2(?CONNACK) ->
+    inc('packets/connack');
+sent2(?PUBACK) ->
     inc('packets/puback/sent');
-sent(?PUBREC, _Packet) ->
+sent2(?PUBREC) ->
     inc('packets/pubrec/sent');
-sent(?PUBREL, _Packet) ->
+sent2(?PUBREL) ->
     inc('packets/pubrel/sent');
-sent(?PUBCOMP, _Packet) ->
+sent2(?PUBCOMP) ->
     inc('packets/pubcomp/sent');
-sent(?SUBACK, _Packet) ->
+sent2(?SUBACK) ->
     inc('packets/suback');
-sent(?UNSUBACK, _Packet) ->
+sent2(?UNSUBACK) ->
     inc('packets/unsuback');
-sent(?PINGRESP, _Packet) ->
+sent2(?PINGRESP) ->
     inc('packets/pingresp');
-sent(_Type, _Packet) ->
+sent2(_Type) ->
     ingore.
-
 qos_sent(?QOS_0) ->
     inc('messages/qos0/sent');
 qos_sent(?QOS_1) ->
