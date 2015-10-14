@@ -261,12 +261,12 @@ process(?PACKET(?DISCONNECT), State) ->
     % clean willmsg
     {stop, normal, State#proto_state{will_msg = undefined}}.
 
-publish(Packet = ?PUBLISH(?QOS_0, _PacketId),
+publish(Packet = ?PUBLISH_PACKET(?QOS_0, _PacketId),
         #proto_state{client_id = ClientId, session = Session}) ->
     Msg = emqttd_message:from_packet(ClientId, Packet),
     emqttd_session:publish(Session, Msg);
 
-publish(Packet = ?PUBLISH(?QOS_1, PacketId),
+publish(Packet = ?PUBLISH_PACKET(?QOS_1, PacketId),
         State = #proto_state{client_id = ClientId, session = Session}) ->
     Msg = emqttd_message:from_packet(ClientId, Packet),
     case emqttd_session:publish(Session, Msg) of
@@ -276,7 +276,7 @@ publish(Packet = ?PUBLISH(?QOS_1, PacketId),
             lager:error("Client(~s): publish qos1 error - ~p", [ClientId, Error])
     end;
 
-publish(Packet = ?PUBLISH(?QOS_2, PacketId),
+publish(Packet = ?PUBLISH_PACKET(?QOS_2, PacketId),
         State = #proto_state{client_id = ClientId, session = Session}) ->
     Msg = emqttd_message:from_packet(ClientId, Packet),
     case emqttd_session:publish(Session, Msg) of
