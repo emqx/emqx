@@ -27,7 +27,7 @@
 
 -module(emqttd_mnesia).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 

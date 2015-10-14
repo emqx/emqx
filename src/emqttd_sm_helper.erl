@@ -54,7 +54,7 @@ start_link() ->
 
 init([]) ->
     mnesia:subscribe(system),
-    {ok, TRef} = timer:send_interval(1000, tick),
+    {ok, TRef} = timer:send_interval(timer:seconds(1), tick),
     StatsFun = emqttd_stats:statsfun('sessions/count', 'sessions/max'),
     {ok, #state{stats_fun = StatsFun, tick_tref = TRef}}.
 

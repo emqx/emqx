@@ -46,11 +46,11 @@ load(Opts) ->
     {ok, Terms} = file:consult(File),
     Sections = compile(Terms),
     emqttd_broker:hook('client.subscribe', {?MODULE, rewrite_subscribe}, 
-                       {?MODULE, rewrite, [subscribe, Sections]}),
+                        {?MODULE, rewrite, [subscribe, Sections]}),
     emqttd_broker:hook('client.unsubscribe', {?MODULE, rewrite_unsubscribe},
-                       {?MODULE, rewrite, [unsubscribe, Sections]}),
+                        {?MODULE, rewrite, [unsubscribe, Sections]}),
     emqttd_broker:hook('message.publish', {?MODULE, rewrite_publish},
-                       {?MODULE, rewrite, [publish, Sections]}).
+                        {?MODULE, rewrite, [publish, Sections]}).
 
 rewrite(_ClientId, TopicTable, subscribe, Sections) ->
     lager:info("rewrite subscribe: ~p", [TopicTable]),
@@ -83,9 +83,9 @@ reload(File) ->
     end.
             
 unload(_) ->
-    emqttd_broker:unhook('client.subscribe', {?MODULE, rewrite_subscribe}),
-    emqttd_broker:unhook('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
-    emqttd_broker:unhook('message.publish', {?MODULE, rewrite_publish}).
+    emqttd_broker:unhook('client.subscribe',  {?MODULE, rewrite_subscribe}),
+    emqttd_broker:unhook('client.unsubscribe',{?MODULE, rewrite_unsubscribe}),
+    emqttd_broker:unhook('message.publish',   {?MODULE, rewrite_publish}).
 
 %%%=============================================================================
 %%% Internal functions
@@ -116,7 +116,8 @@ match_rule(Topic, []) ->
 match_rule(Topic, [{rewrite, MP, Dest} | Rules]) ->
     case re:run(Topic, MP, [{capture, all_but_first, list}]) of
         {match, Captured} ->
-            Vars = lists:zip(["\\$" ++ integer_to_list(I) || I <- lists:seq(1, length(Captured))], Captured),
+            Vars = lists:zip(["\\$" ++ integer_to_list(I)
+                                || I <- lists:seq(1, length(Captured))], Captured),
             iolist_to_binary(lists:foldl(
                     fun({Var, Val}, Acc) ->
                             re:replace(Acc, Var, Val, [global])
@@ -124,3 +125,4 @@ match_rule(Topic, [{rewrite, MP, Dest} | Rules]) ->
         nomatch ->
             match_rule(Topic, Rules)
     end.
+

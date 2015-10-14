@@ -27,25 +27,35 @@
 
 -module(emqttd_alarm).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -include("emqttd.hrl").
 
+-behaviour(gen_event).
+
+-define(ALARM_MGR, ?MODULE).
+
+%% API Function Exports
 -export([start_link/0, alarm_fun/0, get_alarms/0,
          set_alarm/1, clear_alarm/1,
          add_alarm_handler/1, add_alarm_handler/2,
          delete_alarm_handler/1]).
 
+%% gen_event callbacks
 -export([init/1, handle_event/2, handle_call/2, handle_info/2,
-         terminate/2]).
+         terminate/2, code_change/3]).
 
--define(SERVER, ?MODULE).
+%%%=============================================================================
+%%% API
+%%%=============================================================================
 
 start_link() ->
-    case gen_event:start_link({local, ?SERVER}) of
-	{ok, Pid} ->
-	    gen_event:add_handler(?SERVER, ?MODULE, []),
-	    {ok, Pid};
-	Error ->
-        Error
+    start_with(fun(Pid) -> gen_event:add_handler(Pid, ?MODULE, []) end).
+
+start_with(Fun) ->
+    case gen_event:start_link({local, ?ALARM_MGR}) of
+        {ok, Pid} -> Fun(Pid), {ok, Pid};
+        Error     -> Error
     end.
 
 alarm_fun() ->
@@ -60,34 +70,36 @@ alarm_fun(Bool) ->
 
 -spec set_alarm(mqtt_alarm()) -> ok.
 set_alarm(Alarm) when is_record(Alarm, mqtt_alarm) ->
-    gen_event:notify(?SERVER, {set_alarm, Alarm}).
+    gen_event:notify(?ALARM_MGR, {set_alarm, Alarm}).
 
 -spec clear_alarm(any()) -> ok.
 clear_alarm(AlarmId) when is_binary(AlarmId) ->
-    gen_event:notify(?SERVER, {clear_alarm, AlarmId}).
+    gen_event:notify(?ALARM_MGR, {clear_alarm, AlarmId}).
 
+-spec get_alarms() -> list(mqtt_alarm()).
 get_alarms() ->
-    gen_event:call(?SERVER, ?MODULE, get_alarms).
+    gen_event:call(?ALARM_MGR, ?MODULE, get_alarms).
 
 add_alarm_handler(Module) when is_atom(Module) ->
-    gen_event:add_handler(?SERVER, Module, []).
+    gen_event:add_handler(?ALARM_MGR, Module, []).
 
 add_alarm_handler(Module, Args) when is_atom(Module) ->
-    gen_event:add_handler(?SERVER, Module, Args).
+    gen_event:add_handler(?ALARM_MGR, Module, Args).
 
 delete_alarm_handler(Module) when is_atom(Module) ->
-    gen_event:delete_handler(?SERVER, Module, []).
+    gen_event:delete_handler(?ALARM_MGR, Module, []).
 
-%%-----------------------------------------------------------------
-%% Default Alarm handler
-%%-----------------------------------------------------------------
+%%%=============================================================================
+%%% Default Alarm handler
+%%%=============================================================================
+
 init(_) ->
     {ok, []}.
     
-handle_event({set_alarm, Alarm = #mqtt_alarm{id = AlarmId,
+handle_event({set_alarm, Alarm = #mqtt_alarm{id       = AlarmId,
                                              severity = Severity,
-                                             title = Title,
-                                             summary = Summary}}, Alarms)->
+                                             title    = Title,
+                                             summary  = Summary}}, Alarms)->
     Timestamp = os:timestamp(),
     Json = mochijson2:encode([{id, AlarmId},
                               {severity, Severity},
@@ -120,6 +132,13 @@ terminate(swap, Alarms) ->
 terminate(_, _) ->
     ok.
 
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+%%%=============================================================================
+%%% Internal functions
+%%%=============================================================================
+
 alarm_msg(Type, AlarmId, Json) ->
     Msg = emqttd_message:make(alarm,
                               topic(Type, AlarmId),
@@ -131,5 +150,4 @@ topic(alert, AlarmId) ->
 
 topic(clear, AlarmId) ->
     emqttd_topic:systop(<<"alarms/", AlarmId/binary, "/clear">>).
-
 

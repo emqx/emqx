@@ -84,6 +84,7 @@ start_link() ->
 %% @doc Get running nodes
 %% @end
 %%------------------------------------------------------------------------------
+-spec running_nodes() -> list(node()).
 running_nodes() ->
     mnesia:system_info(running_db_nodes).
 
@@ -109,7 +110,7 @@ notify(EventType, Event) ->
 %% @end
 %%------------------------------------------------------------------------------
 env(Name) ->
-    proplists:get_value(Name, application:get_env(emqttd, broker, [])).
+    proplists:get_value(Name, emqttd:env(broker)).
 
 %%------------------------------------------------------------------------------
 %% @doc Get broker version
@@ -152,7 +153,7 @@ datetime() ->
 %%------------------------------------------------------------------------------
 -spec hook(Hook :: atom(), Name :: any(), MFA :: mfa()) -> ok | {error, any()}.
 hook(Hook, Name, MFA) ->
-    gen_server:call(?MODULE, {hook, Hook, Name, MFA}).
+    gen_server:call(?SERVER, {hook, Hook, Name, MFA}).
 
 %%------------------------------------------------------------------------------
 %% @doc Unhook
@@ -160,7 +161,7 @@ hook(Hook, Name, MFA) ->
 %%------------------------------------------------------------------------------
 -spec unhook(Hook :: atom(), Name :: any()) -> ok | {error, any()}.
 unhook(Hook, Name) ->
-    gen_server:call(?MODULE, {unhook, Hook, Name}).
+    gen_server:call(?SERVER, {unhook, Hook, Name}).
 
 %%------------------------------------------------------------------------------
 %% @doc Foreach hooks
@@ -266,13 +267,13 @@ handle_cast(_Msg, State) ->
 handle_info(heartbeat, State) ->
     publish(uptime, list_to_binary(uptime(State))),
     publish(datetime, list_to_binary(datetime())),
-    {noreply, State, hibernate};
+    {noreply, State};
 
 handle_info(tick, State) ->
     retain(brokers),
     retain(version,  list_to_binary(version())),
     retain(sysdescr, list_to_binary(sysdescr())),
-    {noreply, State, hibernate};
+    {noreply, State};
 
 handle_info(_Info, State) ->
     {noreply, State}.

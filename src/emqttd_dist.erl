@@ -27,6 +27,8 @@
 
 -module(emqttd_dist).
 
+-import(lists, [concat/1]).
+
 -export([parse_node/1]).
 
 parse_node(Name) when is_list(Name) ->
@@ -40,10 +42,10 @@ parse_node(Name) when is_list(Name) ->
 with_domain(Name) ->
     case net_kernel:longnames() of
     true ->
-        Name ++ "@" ++ inet_db:gethostname() ++
-             "." ++ inet_db:res_option(domain);
+        concat([Name, "@", inet_db:gethostname(),
+                  ".", inet_db:res_option(domain)]);
     false ->
-        Name ++ "@" ++ inet_db:gethostname();
+        concat([Name, "@", inet_db:gethostname()]);
     _ ->
         Name
     end.

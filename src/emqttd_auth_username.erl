@@ -20,13 +20,13 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd authentication with username and password.
+%%% Authentication with username and password.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_auth_username).
 
--author('feng@emqtt.io').
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -65,16 +65,36 @@ cli(_) ->
 %%% API 
 %%%=============================================================================
 
+%%------------------------------------------------------------------------------
+%% @doc Add user
+%% @end
+%%------------------------------------------------------------------------------
+-spec add_user(binary(), binary()) -> {atomic, ok} | {aborted, any()}.
 add_user(Username, Password) ->
-    R = #?AUTH_USERNAME_TAB{username = Username, password = hash(Password)},
-    mnesia:transaction(fun() -> mnesia:write(R) end).
+    User = #?AUTH_USERNAME_TAB{username = Username, password = hash(Password)},
+    mnesia:transaction(fun mnesia:write/1, [User]).
 
+%%------------------------------------------------------------------------------
+%% @doc Lookup user by username
+%% @end
+%%------------------------------------------------------------------------------
+-spec lookup_user(binary()) -> list().
 lookup_user(Username) ->
     mnesia:dirty_read(?AUTH_USERNAME_TAB, Username).
 
+%%------------------------------------------------------------------------------
+%% @doc Remove user
+%% @end
+%%------------------------------------------------------------------------------
+-spec remove_user(binary()) -> {atomic, ok} | {aborted, any()}.
 remove_user(Username) ->
-    mnesia:transaction(fun() -> mnesia:delete({?AUTH_USERNAME_TAB, Username}) end).
+    mnesia:transaction(fun mnesia:delete/1, [{?AUTH_USERNAME_TAB, Username}]).
 
+%%------------------------------------------------------------------------------
+%% @doc All usernames
+%% @end
+%%------------------------------------------------------------------------------
+-spec all_users() -> list().
 all_users() ->
     mnesia:dirty_all_keys(?AUTH_USERNAME_TAB).
 
@@ -104,7 +124,8 @@ check(#mqtt_client{username = Username}, Password, _Opts) ->
             end
 	end.
 	
-description() -> "Username password authentication module".
+description() ->
+    "Username password authentication module".
 
 %%%=============================================================================
 %%% Internal functions
@@ -122,5 +143,4 @@ salt() ->
     random:seed(A1, A2, A3),
     Salt = random:uniform(16#ffffffff),
     <<Salt:32>>.
-
 

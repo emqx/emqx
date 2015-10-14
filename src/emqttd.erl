@@ -24,6 +24,7 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -41,7 +42,7 @@
 	{nodelay,   true}
 ]).
 
--type listener() :: {atom(), inet:port_number(), [esockd:option()]}. 
+-type listener() :: {atom(), inet:port_number(), [esockd:option()]}.
 
 %%------------------------------------------------------------------------------
 %% @doc Start emqttd application.
@@ -109,14 +110,12 @@ close_listeners(Listeners) when is_list(Listeners) ->
 close_listener({Protocol, Port, _Options}) ->
     esockd:close({Protocol, Port}).
 
-
 load_all_mods() ->
-    Mods = application:get_env(emqttd, modules, []),
-    lists:foreach(fun({Name, Opts}) -> 
+    lists:foreach(fun({Name, Opts}) ->
         Mod = list_to_atom("emqttd_mod_" ++ atom_to_list(Name)),
         Mod:load(Opts),
         lager:info("load module ~s successfully", [Name])
-    end, Mods).
+    end, env(modules)).
 
 is_mod_enabled(Name) ->
     env(modules, Name) =/= undefined.

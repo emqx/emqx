@@ -223,8 +223,10 @@ plugins(["list"]) ->
 
 plugins(["load", Name]) ->
     case emqttd_plugins:load(list_to_atom(Name)) of
-        {ok, StartedApps} -> ?PRINT("Start apps: ~p~nPlugin ~s loaded successfully.~n", [StartedApps, Name]);
-        {error, Reason} -> ?PRINT("load plugin error: ~p~n", [Reason])
+        {ok, StartedApps} ->
+            ?PRINT("Start apps: ~p~nPlugin ~s loaded successfully.~n", [StartedApps, Name]);
+        {error, Reason}   ->
+            ?PRINT("load plugin error: ~p~n", [Reason])
     end;
 
 plugins(["unload", Name]) ->
@@ -236,7 +238,7 @@ plugins(["unload", Name]) ->
     end;
 
 plugins(_) ->
-    ?USAGE([{"plugins list",            "query loaded plugins"},
+    ?USAGE([{"plugins list",            "show loaded plugins"},
             {"plugins load <Plugin>",   "load plugin"},
             {"plugins unload <Plugin>", "unload plugin"}]).
 

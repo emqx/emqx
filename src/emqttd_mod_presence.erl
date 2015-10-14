@@ -38,8 +38,10 @@
 -export([client_connected/3, client_disconnected/3]).
 
 load(Opts) ->
-    emqttd_broker:hook('client.connected', {?MODULE, client_connected}, {?MODULE, client_connected, [Opts]}),
-    emqttd_broker:hook('client.disconnected', {?MODULE, client_disconnected}, {?MODULE, client_disconnected, [Opts]}),
+    emqttd_broker:hook('client.connected', {?MODULE, client_connected},
+                        {?MODULE, client_connected, [Opts]}),
+    emqttd_broker:hook('client.disconnected', {?MODULE, client_disconnected},
+                        {?MODULE, client_disconnected, [Opts]}),
     {ok, Opts}.
 
 client_connected(ConnAck, #mqtt_client{client_id  = ClientId,

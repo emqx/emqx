@@ -29,14 +29,12 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
+-include("emqttd_cli.hrl").
+
 -behaviour(application).
 
 %% Application callbacks
 -export([start/2, stop/1]).
-
--define(PRINT_MSG(Msg), io:format(Msg)).
-
--define(PRINT(Format, Args), io:format(Format, Args)).
 
 %%%=============================================================================
 %%% Application callbacks
@@ -106,35 +104,35 @@ start_server(Sup, {Name, Server, Opts}) ->
     start_child(Sup, Server, Opts),
     ?PRINT_MSG("[done]~n").
 
-start_child(Sup, {supervisor, Name}) ->
-    supervisor:start_child(Sup, supervisor_spec(Name));
-start_child(Sup, Name) when is_atom(Name) ->
-    {ok, _ChiId} = supervisor:start_child(Sup, worker_spec(Name)).
+start_child(Sup, {supervisor, Module}) ->
+    supervisor:start_child(Sup, supervisor_spec(Module));
 
-start_child(Sup, {supervisor, Name}, Opts) ->
-    supervisor:start_child(Sup, supervisor_spec(Name, Opts));
-start_child(Sup, Name, Opts) when is_atom(Name) ->
-    {ok, _ChiId} = supervisor:start_child(Sup, worker_spec(Name, Opts)).
+start_child(Sup, Module) when is_atom(Module) ->
+    {ok, _ChiId} = supervisor:start_child(Sup, worker_spec(Module)).
 
-%%TODO: refactor...
-supervisor_spec(Name) ->
-    {Name,
-        {Name, start_link, []},
-            permanent, infinity, supervisor, [Name]}.
+start_child(Sup, {supervisor, Module}, Opts) ->
+    supervisor:start_child(Sup, supervisor_spec(Module, Opts));
 
-supervisor_spec(Name, Opts) ->
-    {Name,
-        {Name, start_link, [Opts]},
-            permanent, infinity, supervisor, [Name]}.
+start_child(Sup, Module, Opts) when is_atom(Module) ->
+    supervisor:start_child(Sup, worker_spec(Module, Opts)).
 
-worker_spec(Name) ->
-    {Name,
-        {Name, start_link, []},
-            permanent, 10000, worker, [Name]}.
-worker_spec(Name, Opts) -> 
-    {Name,
-        {Name, start_link, [Opts]},
-            permanent, 10000, worker, [Name]}.
+supervisor_spec(Module) when is_atom(Module) ->
+    supervisor_spec(Module, start_link, []).
+
+supervisor_spec(Module, Opts) ->
+    supervisor_spec(Module, start_link, [Opts]).
+
+supervisor_spec(M, F, A) ->
+    {M, {M, F, A}, permanent, infinity, supervisor, [M]}.
+
+worker_spec(Module) when is_atom(Module) ->
+    worker_spec(Module, start_link, []).
+
+worker_spec(Module, Opts) when is_atom(Module) ->
+    worker_spec(Module, start_link, [Opts]).
+
+worker_spec(M, F, A) ->
+    {M, {M, F, A}, permanent, 10000, worker, [M]}.
 
 -spec stop(State :: term()) -> term().
 stop(_State) ->

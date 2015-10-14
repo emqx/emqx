@@ -41,7 +41,6 @@
 %% @doc Load all plugins when the broker started.
 %% @end
 %%------------------------------------------------------------------------------
-
 -spec load() -> list() | {error, any()}.
 load() ->
     case env(loaded_file) of
@@ -64,7 +63,7 @@ with_loaded_file(File, SuccFun) ->
 load_plugins(Names, Persistent) ->
     Plugins = list(), NotFound = Names -- names(Plugins),
     case NotFound of
-        [] -> ok;
+        []       -> ok;
         NotFound -> lager:error("Cannot find plugins: ~p", [NotFound])
     end,
     NeedToLoad = Names -- NotFound -- names(started_app),
@@ -78,7 +77,7 @@ load_plugins(Names, Persistent) ->
 unload() ->
     case env(loaded_file) of
         {ok, File} ->
-            with_loaded_file(File, fun(Names) -> stop_plugins(Names) end);
+            with_loaded_file(File, fun stop_plugins/1);
         undefined ->
             ignore
     end.
@@ -128,7 +127,6 @@ plugin(PluginsDir, AppFile0) ->
 %% @doc Load One Plugin
 %% @end
 %%------------------------------------------------------------------------------
-
 -spec load(atom()) -> ok | {error, any()}.
 load(PluginName) when is_atom(PluginName) ->
     case lists:member(PluginName, names(started_app)) of

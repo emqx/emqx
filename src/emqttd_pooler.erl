@@ -42,9 +42,12 @@
 %%%=============================================================================
 %%% API
 %%%=============================================================================
--spec start_link(I :: pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
-start_link(I) ->
-    gen_server:start_link(?MODULE, [I], []).
+-spec start_link(Id :: pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
+start_link(Id) ->
+    gen_server:start_link({local, name(Id)}, ?MODULE, [Id], []).
+
+name(Id) ->
+    list_to_atom(lists:concat([?MODULE, "_", integer_to_list(Id)])).
 
 %%------------------------------------------------------------------------------
 %% @doc Submit work to pooler
@@ -64,9 +67,9 @@ async_submit(Fun) ->
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([I]) ->
-    gproc_pool:connect_worker(pooler, {pooler, I}),
-    {ok, #state{id = I}}.
+init([Id]) ->
+    gproc_pool:connect_worker(pooler, {pooler, Id}),
+    {ok, #state{id = Id}}.
 
 handle_call({submit, Fun}, _From, State) ->
     {reply, run(Fun), State};

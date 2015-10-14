@@ -30,3 +30,4 @@
 
 -module(emqttd_log).
 
+%%TODO: Hooks to log???
