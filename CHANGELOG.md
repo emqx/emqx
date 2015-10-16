@@ -2,6 +2,12 @@
 emqttd ChangeLog
 ==================
 
+0.12.2-beta (2015-10-16)
+-------------------------
+
+Bugfix: Retained messages should not be expired if 'broker.retained.expired_after = 0' (#346)
+
+
 0.12.1-beta (2015-10-15)
 -------------------------
 

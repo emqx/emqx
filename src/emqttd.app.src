@@ -2,7 +2,7 @@
  [
   {description, "Erlang MQTT Broker"},
   {id, "emqttd"},
-  {vsn, "0.12.1"},
+  {vsn, "0.12.2"},
   {modules, []},
   {registered, []},
   {applications, [kernel,
