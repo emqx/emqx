@@ -25,6 +25,7 @@
 %%% @end
 %%%-----------------------------------------------------------------------------
 
+%% TODO: should match topic tree
 -module(emqttd_retained).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -150,9 +151,9 @@ dispatch(Topic, CPid) when is_binary(Topic) ->
 init([]) ->
     StatsFun = emqttd_stats:statsfun('retained/count', 'retained/max'),
     %% One second
-    {ok, StatsTimer}  = timer:send_interval(1000, stats),
+    {ok, StatsTimer}  = timer:send_interval(timer:seconds(1), stats),
     %% Five minutes
-    {ok, ExpireTimer} = timer:send_interval(300 * 1000, expire),
+    {ok, ExpireTimer} = timer:send_interval(timer:minutes(5), expire),
     {ok, #state{stats_fun     = StatsFun,
                 expired_after = env(expired_after),
                 stats_timer   = StatsTimer,
@@ -167,6 +168,10 @@ handle_cast(Msg, State) ->
 
 handle_info(stats, State = #state{stats_fun = StatsFun}) ->
     StatsFun(mnesia:table_info(retained, size)),
+    {noreply, State, hibernate};
+
+handle_info(expire, State = #state{expired_after = Never})
+    when Never =:= 0 orelse Never =:= undefined ->
     {noreply, State, hibernate};
 
 handle_info(expire, State = #state{expired_after = ExpiredAfter}) ->

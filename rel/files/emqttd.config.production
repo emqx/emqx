@@ -107,10 +107,10 @@
             %% or inflight window is full.
             {max_length, 100},
 
-            %% Low-water mark of queued messsages
+            %% Low-water mark of queued messages
             {low_watermark, 0.2},
 
-            %% High-water mark of queued messsages
+            %% High-water mark of queued messages
             {high_watermark, 0.6},
 
             %% Queue Qos0 messages?
