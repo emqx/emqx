@@ -145,7 +145,7 @@ init([]) ->
     random:seed(now()),
     ets:new(?STATS_TAB, [set, public, named_table, {write_concurrency, true}]),
     Topics = ?SYSTOP_CLIENTS ++ ?SYSTOP_SESSIONS ++ ?SYSTOP_PUBSUB ++ ?SYSTOP_RETAINED,
-    [ets:insert(?STATS_TAB, {Topic, 0}) || Topic <- Topics],
+    ets:insert(?STATS_TAB, [{Topic, 0} || Topic <- Topics]),
     % Create $SYS Topics
     [ok = emqttd_pubsub:create(stats_topic(Topic)) || Topic <- Topics],
     % Tick to publish stats
