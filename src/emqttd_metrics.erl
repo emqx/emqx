@@ -332,7 +332,7 @@ create_metric({gauge, Name}) ->
 
 create_metric({counter, Name}) ->
     Schedulers = lists:seq(1, erlang:system_info(schedulers)),
-    [ets:insert(?METRIC_TAB, {{Name, I}, 0}) || I <- Schedulers].
+    ets:insert(?METRIC_TAB, [{{Name, I}, 0} || I <- Schedulers]).
 
 metric_topic(Metric) ->
     emqttd_topic:systop(list_to_binary(lists:concat(['metrics/', Metric]))).
