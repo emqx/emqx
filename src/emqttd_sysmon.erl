@@ -150,7 +150,11 @@ suppress(Key, SuccFun, State = #state{events = Events}) ->
     end.
 
 procinfo(Pid) ->
-    emqttd_vm:get_process_info(Pid) ++ emqttd_vm:get_process_gc(Pid).
+    case {emqttd_vm:get_process_info(Pid), emqttd_vm:get_process_gc(Pid)} of
+        {undefined, _} -> undefined;
+        {_, undefined} -> undefined;
+        {Info, GcInfo} -> Info ++ GcInfo
+    end.
 
 publish(Sysmon, WarnMsg) ->
     Msg = emqttd_message:make(sysmon, topic(Sysmon), iolist_to_binary(WarnMsg)),
