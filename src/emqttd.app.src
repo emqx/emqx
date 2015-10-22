@@ -1,8 +1,8 @@
 {application, emqttd,
  [
-  {description, "Erlang MQTT Broker"},
   {id, "emqttd"},
-  {vsn, "0.12.2"},
+  {vsn, "0.12.3"},
+  {description, "Erlang MQTT Broker"},
   {modules, []},
   {registered, []},
   {applications, [kernel,
