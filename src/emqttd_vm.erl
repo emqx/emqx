@@ -80,7 +80,7 @@
                        priority,
                        trap_exit,
                        reductions,
-                       binary,
+                       %%binary,
                        last_calls,
                        catchlevel,
                        trace,

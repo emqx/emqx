@@ -2,6 +2,14 @@
 emqttd ChangeLog
 ==================
 
+0.12.3-beta (2015-10-22)
+-------------------------
+
+Bugfix: emqttd_sysmon crasher for 'undefined' process_info (#350)
+
+Bugfix: emqttd_client: catch parser exception (#353)
+
+
 0.12.2-beta (2015-10-16)
 -------------------------
 
