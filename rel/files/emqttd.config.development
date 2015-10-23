@@ -187,11 +187,11 @@
             {access, [{allow, all}]},
             %% Socket Options
             {sockopts, [
-                {backlog, 512}
                 %Set buffer if hight thoughtput
                 %{recbuf, 4096},
-                %{sndbuf, 4096}
+                %{sndbuf, 4096},
                 %{buffer, 4096},
+                {backlog, 512}
             ]}
         ]},
         {mqtts, 8883, [
