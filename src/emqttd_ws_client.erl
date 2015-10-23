@@ -115,7 +115,7 @@ reset_parser(State = #wsocket_state{packet_opts = PktOpts}) ->
     State#wsocket_state{parser = emqttd_parser:new(PktOpts)}.
 
 %%%=============================================================================
-%%% gen_fsm callbacks
+%%% gen_server callbacks
 %%%=============================================================================
 
 init([WsPid, Req, ReplyChannel, PktOpts]) ->
