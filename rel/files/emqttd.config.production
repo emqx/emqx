@@ -175,6 +175,8 @@
             {acceptors, 16},
             %% Maximum number of concurrent clients
             {max_clients, 8192},
+            %% Rate Limit. Format is 'burst, rate', Unit is KB/Sec.
+            %% {rate_limit, "10,1"}, %% 10K burst, 1K rate
             %% Socket Access Control
             {access, [{allow, all}]},
             %% Socket Options

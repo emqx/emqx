@@ -185,6 +185,8 @@
             {max_clients, 512},
             %% Socket Access Control
             {access, [{allow, all}]},
+            %% Rate Limit. Format is 'burst, rate', Unit is KB/Sec
+            %% {rate_limit, "100,10"}, %% 100K burst, 10K rate
             %% Socket Options
             {sockopts, [
                 %Set buffer if hight thoughtput
