@@ -167,8 +167,12 @@ destroy(SessPid, ClientId) ->
 subscribe(SessPid, TopicTable) ->
     subscribe(SessPid, TopicTable, fun(_) -> ok end).
 
--spec subscribe(pid(), [{binary(), mqtt_qos()}], AckFun :: fun()) -> ok.
-subscribe(SessPid, TopicTable, AckFun) ->
+-spec subscribe(pid(), mqtt_packet_id(), [{binary(), mqtt_qos()}]) -> ok.
+subscribe(SessPid, PacketId, TopicTable) ->
+    From   = self(),
+    AckFun = fun(GrantedQos) ->
+                 From ! {suback, PacketId, GrantedQos}
+             end,
     gen_server2:cast(SessPid, {subscribe, TopicTable, AckFun}).
 
 %%------------------------------------------------------------------------------
@@ -298,13 +302,13 @@ handle_cast({subscribe, TopicTable0, AckFun}, Session = #session{
 
     case TopicTable -- Subscriptions of
         [] ->
-            catch AckFun([Qos || {_, Qos} <- TopicTable]),
+            AckFun([Qos || {_, Qos} <- TopicTable]),
             noreply(Session);
         _  ->
             %% subscribe first and don't care if the subscriptions have been existed
             {ok, GrantedQos} = emqttd_pubsub:subscribe(TopicTable),
 
-            catch AckFun(GrantedQos),
+            AckFun(GrantedQos),
 
             emqttd_broker:foreach_hooks('client.subscribe.after', [ClientId, TopicTable]),
 

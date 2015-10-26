@@ -135,12 +135,11 @@ handle_cast(Msg, State) ->
 
 handle_info(timeout, State) ->
     stop({shutdown, timeout}, State);
-    
-handle_info({stop, duplicate_id, _NewPid}, State=#state{proto_state = ProtoState,
-                                                        conn_name   = ConnName}) ->
-    lager:warning("Shutdown for duplicate clientid: ~s, conn:~s",
-                  [emqttd_protocol:clientid(ProtoState), ConnName]),
-    stop({shutdown, duplicate_id}, State);
+
+%% Asynchronous SUBACK
+handle_info({suback, PacketId, GrantedQos}, State = #state{proto_state = ProtoState}) ->
+    {ok, ProtoState1} = emqttd_protocol:send(?SUBACK_PACKET(PacketId, GrantedQos), ProtoState),
+    noreply(State#state{proto_state = ProtoState1});
 
 handle_info({deliver, Message}, State = #state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:send(Message, ProtoState),
@@ -149,6 +148,12 @@ handle_info({deliver, Message}, State = #state{proto_state = ProtoState}) ->
 handle_info({redeliver, {?PUBREL, PacketId}},  State = #state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:redeliver({?PUBREL, PacketId}, ProtoState),
     noreply(State#state{proto_state = ProtoState1});
+
+handle_info({stop, duplicate_id, _NewPid}, State=#state{proto_state = ProtoState,
+                                                        conn_name   = ConnName}) ->
+    lager:warning("Shutdown for duplicate clientid: ~s, conn:~s",
+                  [emqttd_protocol:clientid(ProtoState), ConnName]),
+    stop({shutdown, duplicate_id}, State);
 
 handle_info(activate_sock, State) ->
     noreply(run_socket(State#state{conn_state = running}));
