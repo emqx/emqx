@@ -65,7 +65,9 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 
 The broker released a simple web dashboard in 0.10.0 version.
 
-Address: http://host:18083
+Address: http://localhost:18083
+Username: admin
+Password: public
 
 ## Design
 
