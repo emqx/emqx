@@ -1,187 +1,151 @@
+
 ## Overview [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
 
-emqttd is a clusterable, massively scalable MQTT V3.1/V3.1.1 broker written in Erlang/OTP. emqttd support both MQTT V3.1/V3.1.1 Protocol Specification.
+[![Join the chat at https://gitter.im/emqtt/emqttd](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/emqtt/emqttd?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
+emqttd is a massively scalable and clusterable MQTT V3.1/V3.1.1 broker written in Erlang/OTP. emqttd support both MQTT V3.1/V3.1.1 protocol specification with extended features.
 
 emqttd requires Erlang R17+ to build.
 
-## Download
+**DON'T compile the broker with Erlang/OTP R18.0 which introduced a [binary memory leak](http://erlang.org/pipermail/erlang-questions/2015-September/086098.html).**
 
-Download binary packeges for linux, mac and freebsd from [http://emqtt.io/downloads](http://emqtt.io/downloads)
+Demo Server: tcp://t.emqtt.io:1883
 
-## Benchmark
+Twitter: [@emqtt](https://twitter.com/emqtt)
 
-Benchmark 0.6.1-alpha on a ubuntu/14.04 server with 8 cores, 32G memory from QingCloud:
+## Goals
 
-200K+ Connections, 200K+ Topics, 20K+ In/Out Messages/sec, 20Mbps+ In/Out with 8G Memory, 50%CPU/core
+emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQTT broker for IoT, M2M and Mobile applications that need to support ten millions of concurrent MQTT clients.
 
-## Featues
+* Easy to install
+* Massively scalable
+* Easy to extend
+* Solid stable
 
-Full MQTT V3.1.1 Support
+## Features
 
-Both V3.1.1 and V3.1 protocol support
+* Full MQTT V3.1/V3.1.1 protocol specification support
+* QoS0, QoS1, QoS2 Publish and Subscribe
+* Session Management and Offline Messages
+* Retained Messages Support
+* Last Will Message Support
+* TCP/SSL Connection Support
+* MQTT Over Websocket(SSL) Support
+* HTTP Publish API Support
+* [$SYS/brokers/#](https://github.com/emqtt/emqtt/wiki/$SYS-Topics-of-Broker) Support
+* Client Authentication with clientId, ipaddress
+* Client Authentication with username, password.
+* Client ACL control with ipaddress, clientid, username.
+* Cluster brokers on several servers.
+* [Bridge](https://github.com/emqtt/emqttd/wiki/Bridge) brokers locally or remotelly
+* 500K+ concurrent clients connections per server
+* Extensible architecture with Hooks, Modules and Plugins
+* Passed eclipse paho interoperability tests
 
-QoS0, QoS1, QoS2 Publish and Subscribe
+## Modules
 
-Session Management and Offline Messages
+* [emqttd_auth_clientid](https://github.com/emqtt/emqttd/wiki/Authentication) - Authentication with ClientIds
+* [emqttd_auth_username](https://github.com/emqtt/emqttd/wiki/Authentication) - Authentication with Username and Password
+* [emqttd_auth_ldap](https://github.com/emqtt/emqttd/wiki/Authentication) - Authentication with LDAP
+* [emqttd_mod_presence](https://github.com/emqtt/emqttd/wiki/Presence) - Publish presence message to $SYS topics when client connected or disconnected
+* emqttd_mod_autosub - Subscribe topics when client connected
+* [emqttd_mod_rewrite](https://github.com/emqtt/emqttd/wiki/Rewrite) - Topics rewrite like HTTP rewrite module
 
-Retained Messages
+## Plugins
 
-TCP/SSL connection support
+* [emqttd_plugin_template](https://github.com/emqtt/emqttd_plugin_template) - Plugin template and demo
+* [emqttd_dashboard](https://github.com/emqtt/emqttd_dashboard) - Web Dashboard
+* [emqttd_plugin_mysql](https://github.com/emqtt/emqttd_plugin_mysql) - Authentication with MySQL
+* [emqttd_plugin_pgsql](https://github.com/emqtt/emqttd_plugin_pgsql) - Authentication with PostgreSQL
+* [emqttd_plugin_kafka](https://github.com/emqtt/emqttd_plugin_kafka) - Publish MQTT Messages to Kafka
+* [emqttd_plugin_redis](https://github.com/emqtt/emqttd_plugin_redis) - Redis Plugin
+* [emqttd_stomp](https://github.com/emqtt/emqttd_stomp) - Stomp Protocol Plugin
+* [emqttd_sockjs](https://github.com/emqtt/emqttd_sockjs) - SockJS(Stomp) Plugin
+* [emqttd_recon](https://github.com/emqtt/emqttd_recon) - Recon Plugin
 
-[$SYS/borkers/#](https://github.com/emqtt/emqtt/wiki/$SYS-Topics-of-Broker) support
+## Dashboard
 
-Passed eclipse paho interoperability tests
+The broker released a simple web dashboard in 0.10.0 version.
 
-
-## Clusterable, Massively Scalable
-
-Massive Connections Clients Support
-
-Cluster brokers on servers or cloud hosts
-
-Bridge brokers locally or remotelly
-
-
-## Startup in Five Minutes
-
-```
-$ git clone git://github.com/emqtt/emqttd.git
-
-$ cd emqttd
-
-$ make && make dist
-
-$ cd rel/emqttd
-
-$ ./bin/emqttd console
-```
-
-## Deploy and Start
-
-### start
-
-```
-cp -R rel/emqttd $INSTALL_DIR
-
-cd $INSTALL_DIR/emqttd
-
-./bin/emqttd start
-
-```
-
-### stop
-
-```
-./bin/emqttd stop
-
-```
-
-## Configuration
-
-### etc/app.config
-
-```
- {emqttd, [
-    {auth, {anonymous, []}}, %internal, anonymous
-    {listen, [
-        {mqtt, 1883, [
-            {acceptors, 4},
-            {max_clients, 1024}
-        ]},
-        {mqtts, 8883, [
-            {acceptors, 4},
-            {max_clients, 1024},
-            %{cacertfile, "etc/ssl/cacert.pem"}, 
-            {ssl, [{certfile, "etc/ssl.crt"},
-                   {keyfile,  "etc/ssl.key"}]}
-        ]},
-        {http, 8083, [
-            {acceptors, 1},
-            {max_clients, 512}
-        ]}
-    ]}
- ]}
-
-```
-
-### etc/vm.args
-
-```
-
--name emqttd@127.0.0.1
-
--setcookie emqtt
-
-```
-
-When nodes clustered, vm.args should be configured as below:
-
-```
--name emqttd@host1
-```
-
-## Cluster
-
-Suppose we cluster two nodes on 'host1', 'host2', Steps:
-
-on 'host1':
-
-```
-./bin/emqttd start
-```
-
-on 'host2':
-
-```
-./bin/emqttd start
-
-./bin/emqttd_ctl cluster emqttd@host1
-```
-
-Run './bin/emqttd_ctl cluster' on 'host1' or 'host2' to check cluster nodes.
-
-## HTTP API
-
-emqttd support http to publish message.
-
-Example:
-
-```
-curl -v --basic -u user:passwd -d "qos=1&retain=0&topic=a/b/c&message=hello from http..." -k http://localhost:8083/mqtt/publish
-```
-
-### URL
-
-```
-HTTP POST http://host:8083/mqtt/publish
-```
-
-### Parameters
-
-Name    |  Description
---------|---------------
-qos     |  QoS(0, 1, 2)
-retain  |  Retain(0, 1)
-topic   |  Topic
-message |  Message
+Address: http://localhost:18083
+Username: admin
+Password: public
 
 ## Design
 
-[Design Wiki](https://github.com/emqtt/emqttd/wiki)
+![emqttd architecture](http://emqtt.io/static/img/Architecture.png)
+
+## QuickStart
+
+Download binary packeges for linux, mac and freebsd from [http://emqtt.io/downloads](http://emqtt.io/downloads).
+
+For example:
+
+```sh
+unzip emqttd-ubuntu64-0.12.0-beta-20151008.zip && cd emqttd
+
+# start console
+./bin/emqttd console
+
+# start as daemon
+./bin/emqttd start
+
+# check status
+./bin/emqttd_ctl status
+
+# stop
+./bin/emqttd stop
+``` 
+
+Build from source:
+
+```
+git clone https://github.com/emqtt/emqttd.git
+
+cd emqttd && make && make dist
+```
+
+## GetStarted
+
+Read [emqtt wiki](https://github.com/emqtt/emqttd/wiki) for detailed installation and configuration guide.
+
+## Benchmark
+
+Benchmark 0.12.0-beta on a centos6 server with 8 Core, 32G memory from QingCloud:
+
+250K Connections, 250K Topics, 250K Subscriptions, 4K Qos1 Messages/Sec In, 20K Qos1 Messages/Sec Out, 8M+(bps) In, 40M+(bps) Out Traffic
+
+Consumed  about 3.6G memory and 400+% CPU.
+
+Benchmark Report: [benchmark for 0.12.0 release](https://github.com/emqtt/emqttd/wiki/benchmark-for-0.12.0-release)
+
+## Supports
+
+* Twitter: [@emqtt](https://twitter.com/emqtt)
+* Homepage: http://emqtt.io
+* Downloads: http://emqtt.io/downloads
+* Wiki: https://github.com/emqtt/emqttd/wiki
+* Forum: https://groups.google.com/d/forum/emqtt
+* Mailing List: <emqtt@googlegroups.com>
+* Issues: https://github.com/emqtt/emqttd/issues
+* QQ Group: 12222225
+
+## Contributors
+
+* [@callbay](https://github.com/callbay)
+* [@hejin1026](https://github.com/hejin1026)
+* [@desoulter](https://github.com/desoulter)
+* [@turtleDeng](https://github.com/turtleDeng)
+* [@Hades32](https://github.com/Hades32)
+* [@huangdan](https://github.com/huangdan)
+* [@phanimahesh](https://github.com/phanimahesh)
+* [@dvliman](https://github.com/dvliman)
+
+## Author
+
+Feng Lee <feng@emqtt.io>
 
 ## License
 
 The MIT License (MIT)
-
-## Author
-
-feng at emqtt.io
-
-## Thanks
-
-@hejin1026 (260495915 at qq.com)
-
-@desoulter (assoulter123 at gmail.com)
-
-@turtleDeng
 
