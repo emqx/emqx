@@ -17,7 +17,9 @@
 
 ## Enable kernel poll and a few async threads
 +K true
-+A 16
+
+## 12 threads/core.
++A 48
 
 ## max process numbers
 +P 8192
