@@ -240,10 +240,7 @@ process(?SUBSCRIBE_PACKET(PacketId, TopicTable),
             lager:error("SUBSCRIBE from '~s' Denied: ~p", [ClientId, TopicTable]),
             send(?SUBACK_PACKET(PacketId, [16#80 || _ <- TopicTable]), State);
         false ->
-            AckFun = fun(GrantedQos) ->
-                        send(?SUBACK_PACKET(PacketId, GrantedQos), State)
-                     end,
-            emqttd_session:subscribe(Session, TopicTable, AckFun), {ok, State}
+            emqttd_session:subscribe(Session, PacketId, TopicTable), {ok, State}
     end;
 
 %% protect from empty topic list

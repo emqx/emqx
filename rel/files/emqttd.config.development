@@ -185,13 +185,15 @@
             {max_clients, 512},
             %% Socket Access Control
             {access, [{allow, all}]},
+            %% Rate Limit. Format is 'burst, rate', Unit is KB/Sec
+            %% {rate_limit, "100,10"}, %% 100K burst, 10K rate
             %% Socket Options
             {sockopts, [
-                {backlog, 512}
                 %Set buffer if hight thoughtput
                 %{recbuf, 4096},
-                %{sndbuf, 4096}
+                %{sndbuf, 4096},
                 %{buffer, 4096},
+                {backlog, 512}
             ]}
         ]},
         {mqtts, 8883, [

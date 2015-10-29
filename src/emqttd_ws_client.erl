@@ -115,7 +115,7 @@ reset_parser(State = #wsocket_state{packet_opts = PktOpts}) ->
     State#wsocket_state{parser = emqttd_parser:new(PktOpts)}.
 
 %%%=============================================================================
-%%% gen_fsm callbacks
+%%% gen_server callbacks
 %%%=============================================================================
 
 init([WsPid, Req, ReplyChannel, PktOpts]) ->
@@ -163,6 +163,11 @@ handle_cast({received, Packet}, State = #client_state{proto_state = ProtoState})
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
+
+%% Asynchronous SUBACK
+handle_info({suback, PacketId, GrantedQos}, State = #client_state{proto_state = ProtoState}) ->
+    {ok, ProtoState1} = emqttd_protocol:send(?SUBACK_PACKET(PacketId, GrantedQos), ProtoState),
+    noreply(State#client_state{proto_state = ProtoState1});
 
 handle_info({deliver, Message}, State = #client_state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = emqttd_protocol:send(Message, ProtoState),
