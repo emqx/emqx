@@ -185,7 +185,8 @@
                 %{recbuf, 4096},
                 %{sndbuf, 4096},
                 %{buffer, 4096},
-                {backlog, 512}
+                %{nodelay, true},
+                {backlog, 1024}
             ]}
         ]},
         {mqtts, 8883, [
