@@ -32,7 +32,7 @@
 
 -include("emqttd_protocol.hrl").
 
--include("emqttd_internel.hrl").
+-include("emqttd_internal.hrl").
 
 -behaviour(gen_server).
 
