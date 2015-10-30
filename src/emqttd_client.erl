@@ -120,11 +120,11 @@ handle_call(session, _From, State = #client_state{proto_state = ProtoState}) ->
 
 handle_call(info, _From, State = #client_state{connection  = Connection,
                                                proto_state = ProtoState}) ->
-    ClientInfo = [{Key, Val} || {Key, Val} <- ?record_to_proplist(client_state, State), lists:member(Key, ?INFO_KEYS)],
-    ProtoInfo = emqttd_protocol:info(ProtoState),
+    ClientInfo = ?record_to_proplist(client_state, State, ?INFO_KEYS),
+    ProtoInfo  = emqttd_protocol:info(ProtoState),
     {ok, SockStats} = Connection:getstat(?SOCK_STATS),
-    Info = lists:append([ClientInfo, [{proto_info, ProtoInfo}, {sock_stats, SockStats}]]),
-    {reply, Info, State};
+    {noreply, lists:append([ClientInfo, [{proto_info, ProtoInfo},
+                                         {sock_stats, SockStats}]]), State};
 
 handle_call(kick, _From, State) ->
     {stop, {shutdown, kick}, ok, State};
@@ -176,7 +176,7 @@ handle_info(activate_sock, State) ->
 
 handle_info({inet_async, _Sock, _Ref, {ok, Data}}, State) ->
     Size = size(Data),
-    ?LOG(debug, "RECV: ~p", [Data], State),
+    ?LOG(debug, "RECV <- ~p", [Data], State),
     emqttd_metrics:inc('bytes/received', Size),
     received(Data, rate_limit(Size, State#client_state{await_recv = false}));
 
@@ -203,7 +203,7 @@ handle_info({keepalive, start, Interval}, State = #client_state{connection = Con
 handle_info({keepalive, check}, State = #client_state{keepalive = KeepAlive}) ->
     case emqttd_keepalive:check(KeepAlive) of
         {ok, KeepAlive1} ->
-            noreply(State#state{keepalive = KeepAlive1});
+            noreply(State#client_state{keepalive = KeepAlive1});
         {error, timeout} ->
             ?LOG(debug, "Keepalive timeout", [], State),
             shutdown(keepalive_timeout, State);
