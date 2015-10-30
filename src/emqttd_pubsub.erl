@@ -24,7 +24,6 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
-
 -module(emqttd_pubsub).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -48,8 +47,7 @@
          publish/1]).
 
 %% Local node
--export([dispatch/2,
-         match/1]).
+-export([dispatch/2, match/1]).
 
 -behaviour(gen_server2).
 
