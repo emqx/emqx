@@ -29,3 +29,7 @@
         lists:zip(record_info(fields, Def),
                   tl(tuple_to_list(Rec)))).
 
+-define(record_to_proplist(Def, Rec, Fields),
+    [{K, V} || {K, V} <- ?record_to_proplist(Def, Rec),
+                         lists:member(K, Fields)]).
+
