@@ -56,7 +56,7 @@
 
 -define(LOG(Level, Format, Args, State),
             lager:Level([{client, State#proto_state.client_id}], "Client(~s@~s): " ++ Format,
-                        [State#proto_state.client_id, State#proto_state.peername | Args])).
+                        [State#proto_state.client_id, esockd_net:format(State#proto_state.peername) | Args])).
 
 %%------------------------------------------------------------------------------
 %% @doc Init protocol
@@ -269,14 +269,10 @@ send(Packet, State = #proto_state{sendfun = SendFun})
     {ok, State}.
 
 trace(recv, Packet, ProtoState) ->
-    trace2("RECV <-", Packet, ProtoState);
+    ?LOG(info, "RECV ~s", [emqttd_packet:format(Packet)], ProtoState);
 
 trace(send, Packet, ProtoState) ->
-    trace2("SEND ->", Packet, ProtoState).
-
-trace2(Tag, Packet, #proto_state{peername = Peername, client_id = ClientId}) ->
-	lager:info([{client, ClientId}], "Client(~s@~s): ~s ~s",
-               [ClientId, Peername, Tag, emqttd_packet:format(Packet)]).
+    ?LOG(info, "SEND ~s", [emqttd_packet:format(Packet)], ProtoState).
 
 %% @doc redeliver PUBREL PacketId
 redeliver({?PUBREL, PacketId}, State) ->
@@ -289,7 +285,7 @@ shutdown(confict, #proto_state{client_id = ClientId}) ->
     emqttd_cm:unregister(ClientId);
 
 shutdown(Error, State = #proto_state{client_id = ClientId, will_msg = WillMsg}) ->
-    ?LOG(info, "shutdown for ~p", [Error], State),
+    ?LOG(info, "Shutdown for ~p", [Error], State),
     send_willmsg(ClientId, WillMsg),
     emqttd_broker:foreach_hooks('client.disconnected', [Error, ClientId]),
     emqttd_cm:unregister(ClientId).

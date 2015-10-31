@@ -47,17 +47,16 @@
          code_change/3, terminate/2]).
 
 %% Client State
--record(client_state, {connection, peername, peerhost, peerport,
-                       await_recv, conn_state, rate_limit,
-                       parser_fun, proto_state, packet_opts,
-                       keepalive}).
+-record(client_state, {connection, connname, peername, peerhost, peerport,
+                       await_recv, conn_state, rate_limit, parser_fun,
+                       proto_state, packet_opts, keepalive}).
 
 -define(INFO_KEYS, [peername, peerhost, peerport, await_recv, conn_state]).
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
 -define(LOG(Level, Format, Args, State),
-            lager:Level("Client(~s): " ++ Format, [State#client_state.peername | Args])).
+            lager:Level("Client(~s): " ++ Format, [State#client_state.connname | Args])).
 
 start_link(Connection, MqttEnv) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[Connection, MqttEnv]])}.
@@ -81,8 +80,8 @@ init([Connection0, MqttEnv]) ->
     {ok, Connection} = Connection0:wait(),
     {PeerHost, PeerPort, PeerName} =
     case Connection:peername() of
-        {ok, {Host, Port}} ->
-            {Host, Port, esockd_net:format({Host, Port})};
+        {ok, Peer = {Host, Port}} ->
+            {Host, Port, Peer};
         {error, enotconn} ->
             Connection:fast_close(),
             exit(normal);
@@ -90,6 +89,7 @@ init([Connection0, MqttEnv]) ->
             Connection:fast_close(),
             exit({shutdown, Reason})
     end,
+    ConnName = esockd_net:format(PeerName),
     SendFun = fun(Data) ->
         try Connection:async_send(Data) of
             true -> ok
@@ -102,6 +102,7 @@ init([Connection0, MqttEnv]) ->
     ProtoState = emqttd_protocol:init(PeerName, SendFun, PktOpts),
     RateLimit = proplists:get_value(rate_limit, Connection:opts()),
     State = run_socket(#client_state{connection   = Connection,
+                                     connname     = ConnName,
                                      peername     = PeerName,
                                      peerhost     = PeerHost,
                                      peerport     = PeerPort,
