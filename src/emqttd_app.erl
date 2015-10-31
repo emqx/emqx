@@ -24,7 +24,6 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
-
 -module(emqttd_app).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -73,14 +72,14 @@ start_listeners() ->
 start_servers(Sup) ->
     Servers = [{"emqttd ctl", emqttd_ctl},
                {"emqttd trace", emqttd_trace},
+               {"emqttd pubsub", {supervisor, emqttd_pubsub_sup}},
+               {"emqttd stats", emqttd_stats},
+               {"emqttd metrics", emqttd_metrics},
                {"emqttd retained", emqttd_retained},
                {"emqttd pooler", {supervisor, emqttd_pooler_sup}},
                {"emqttd client manager", {supervisor, emqttd_cm_sup}},
                {"emqttd session manager", {supervisor, emqttd_sm_sup}},
                {"emqttd session supervisor", {supervisor, emqttd_session_sup}},
-               {"emqttd pubsub", {supervisor, emqttd_pubsub_sup}},
-               {"emqttd stats", emqttd_stats},
-               {"emqttd metrics", emqttd_metrics},
                {"emqttd broker", emqttd_broker},
                {"emqttd alarm", emqttd_alarm},
                {"emqttd mode supervisor", emqttd_mod_sup},
