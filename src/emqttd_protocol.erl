@@ -263,7 +263,7 @@ send(Packet, State = #proto_state{sendfun = SendFun})
     trace(send, Packet, State),
     emqttd_metrics:sent(Packet),
     Data = emqttd_serialiser:serialise(Packet),
-    ?LOG(debug, "SENT -> ~p", [Data], State),
+    ?LOG(debug, "SEND ~p", [Data], State),
     emqttd_metrics:inc('bytes/sent', size(Data)),
     SendFun(Data),
     {ok, State}.

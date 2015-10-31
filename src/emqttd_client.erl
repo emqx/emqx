@@ -177,7 +177,7 @@ handle_info(activate_sock, State) ->
 
 handle_info({inet_async, _Sock, _Ref, {ok, Data}}, State) ->
     Size = size(Data),
-    ?LOG(debug, "RECV <- ~p", [Data], State),
+    ?LOG(debug, "RECV ~p", [Data], State),
     emqttd_metrics:inc('bytes/received', Size),
     received(Data, rate_limit(Size, State#client_state{await_recv = false}));
 
