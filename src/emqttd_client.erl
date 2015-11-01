@@ -281,14 +281,14 @@ received(Bytes, State = #client_state{parser_fun  = ParserFun,
 
 rate_limit(_Size, State = #client_state{rate_limit = undefined}) ->
     run_socket(State);
-rate_limit(Size, State = #client_state{rate_limit = Limiter}) ->
-    case esockd_ratelimit:check(Limiter, Size) of
-        {0, Limiter1} ->
-            run_socket(State#client_state{conn_state = running, rate_limit = Limiter1});
-        {Pause, Limiter1} ->
+rate_limit(Size, State = #client_state{rate_limit = Rl}) ->
+    case Rl:check(Size) of
+        {0, Rl1} ->
+            run_socket(State#client_state{conn_state = running, rate_limit = Rl1});
+        {Pause, Rl1} ->
             ?LOG(error, "Rate limiter pause for ~p", [Size, Pause], State),
             erlang:send_after(Pause, self(), activate_sock),
-            State#client_state{conn_state = blocked, rate_limit = Limiter1}    
+            State#client_state{conn_state = blocked, rate_limit = Rl1}
     end.
 
 run_socket(State = #client_state{conn_state = blocked}) ->
