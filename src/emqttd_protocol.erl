@@ -182,7 +182,7 @@ process(Packet = ?CONNECT_PACKET(Var), State0) ->
     send(?CONNACK_PACKET(ReturnCode1), State3);
 
 process(Packet = ?PUBLISH_PACKET(_Qos, Topic, _PacketId, _Payload), State) ->
-    case check_acl(publish, Topic, State) of
+    case check_acl(publish, Topic, client(State)) of
         allow ->
             publish(Packet, State);
         deny ->
@@ -210,7 +210,8 @@ process(?SUBSCRIBE_PACKET(PacketId, []), State) ->
     send(?SUBACK_PACKET(PacketId, []), State);
 
 process(?SUBSCRIBE_PACKET(PacketId, TopicTable), State = #proto_state{session = Session}) ->
-    AllowDenies = [check_acl(subscribe, Topic, State) || {Topic, _Qos} <- TopicTable],
+    Client = client(State),
+    AllowDenies = [check_acl(subscribe, Topic, Client) || {Topic, _Qos} <- TopicTable],
     case lists:member(deny, AllowDenies) of
         true ->
             ?LOG(error, "Cannot SUBSCRIBE ~p for ACL Deny", [TopicTable], State),
@@ -391,16 +392,16 @@ validate_qos(_) ->
     false.
 
 %% PUBLISH ACL is cached in process dictionary.
-check_acl(publish, Topic, State) ->
+check_acl(publish, Topic, Client) ->
     case get({acl, publish, Topic}) of
         undefined ->
-            AllowDeny = emqttd_access_control:check_acl(client(State), publish, Topic),
+            AllowDeny = emqttd_access_control:check_acl(Client, publish, Topic),
             put({acl, publish, Topic}, AllowDeny),
             AllowDeny;
         AllowDeny ->
             AllowDeny
     end;
 
-check_acl(subscribe, Topic, State) ->
-    emqttd_access_control:check_acl(client(State), subscribe, Topic).
+check_acl(subscribe, Topic, Client) ->
+    emqttd_access_control:check_acl(Client, subscribe, Topic).
 
