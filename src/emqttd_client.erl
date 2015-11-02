@@ -124,7 +124,7 @@ handle_call(info, _From, State = #client_state{connection  = Connection,
     ClientInfo = ?record_to_proplist(client_state, State, ?INFO_KEYS),
     ProtoInfo  = emqttd_protocol:info(ProtoState),
     {ok, SockStats} = Connection:getstat(?SOCK_STATS),
-    {noreply, lists:append([ClientInfo, [{proto_info, ProtoInfo},
+    {reply, lists:append([ClientInfo, [{proto_info, ProtoInfo},
                                          {sock_stats, SockStats}]]), State};
 
 handle_call(kick, _From, State) ->
