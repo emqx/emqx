@@ -126,7 +126,7 @@ handle_cast({unregister, ClientId, Pid}, State) ->
 	[_] ->
 		ignore;
 	[] ->
-        ?LOG(error, "Cannot find registered: ~p", [Pid], State)
+        lager:warning("CM(~s): Cannot find registered pid ~p", [ClientId, Pid])
 	end,
 	{noreply, setstats(State)};
 
