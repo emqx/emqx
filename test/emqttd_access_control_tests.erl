@@ -42,30 +42,33 @@ register_mod_test() ->
     with_acl(
         fun() ->
             emqttd_access_control:register_mod(acl, emqttd_acl_test_mod, []),
-            ?assertMatch([{emqttd_acl_test_mod, _}, {emqttd_acl_internal, _}],
+            ?assertMatch([{emqttd_acl_test_mod, _, 0}, {emqttd_acl_internal, _, 0}],
                           emqttd_access_control:lookup_mods(acl)),
 	    emqttd_access_control:register_mod(auth, emqttd_auth_anonymous_test_mod,[]),
-	    ?assertMatch([{emqttd_auth_anonymous_test_mod, _}, {emqttd_auth_anonymous, _}],
-                          emqttd_access_control:lookup_mods(auth))
+	    emqttd_access_control:register_mod(auth, emqttd_auth_dashboard, [], 99),
+	    ?assertMatch([{emqttd_auth_dashboard, _, 99},
+                      {emqttd_auth_anonymous_test_mod, _, 0},
+                      {emqttd_auth_anonymous, _, 0}],
+                     emqttd_access_control:lookup_mods(auth))
         end).
 
 unregister_mod_test() ->
     with_acl(
         fun() ->
-            emqttd_access_control:register_mod(acl,emqttd_acl_test_mod, []),
-            ?assertMatch([{emqttd_acl_test_mod, _}, {emqttd_acl_internal, _}],
+            emqttd_access_control:register_mod(acl, emqttd_acl_test_mod, []),
+            ?assertMatch([{emqttd_acl_test_mod, _, 0}, {emqttd_acl_internal, _, 0}],
                           emqttd_access_control:lookup_mods(acl)),
             emqttd_access_control:unregister_mod(acl, emqttd_acl_test_mod),
             timer:sleep(5),
-            ?assertMatch([{emqttd_acl_internal, _}], emqttd_access_control:lookup_mods(acl)),
+            ?assertMatch([{emqttd_acl_internal, _, 0}], emqttd_access_control:lookup_mods(acl)),
 	
 	    emqttd_access_control:register_mod(auth, emqttd_auth_anonymous_test_mod,[]),
-	    ?assertMatch([{emqttd_auth_anonymous_test_mod, _}, {emqttd_auth_anonymous, _}],
+	    ?assertMatch([{emqttd_auth_anonymous_test_mod, _, 0}, {emqttd_auth_anonymous, _, 0}],
                           emqttd_access_control:lookup_mods(auth)),
 		
 	    emqttd_access_control:unregister_mod(auth, emqttd_auth_anonymous_test_mod),
             timer:sleep(5),
-            ?assertMatch([{emqttd_auth_anonymous, _}], emqttd_access_control:lookup_mods(auth))
+            ?assertMatch([{emqttd_auth_anonymous, _, 0}], emqttd_access_control:lookup_mods(auth))
         end).
 
 check_acl_test() ->
@@ -83,7 +86,7 @@ check_acl_test() ->
 
 with_acl(Fun) ->
     process_flag(trap_exit, true),
-     AclOpts = [
+    AclOpts = [
         {auth, [
             %% Authentication with username, password
             %{username, []},
