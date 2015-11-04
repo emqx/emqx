@@ -98,7 +98,7 @@ retain(Msg = #mqtt_message{topic = Topic, retain = true, payload = Payload}) ->
     case {TabSize < limit(table), size(Payload) < limit(payload)} of
         {true, true} ->
             Retained = #mqtt_retained{topic = Topic, message = Msg},
-            lager:debug("Retained ~s", [emqttd_message:format(Msg)]),
+            lager:debug("RETAIN ~s", [emqttd_message:format(Msg)]),
             mnesia:async_dirty(fun mnesia:write/3, [retained, Retained, write]),
             emqttd_metrics:set('messages/retained', mnesia:table_info(retained, size));
        {false, _}->

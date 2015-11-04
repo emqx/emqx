@@ -24,7 +24,6 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
-
 -module(emqttd_access_rule).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -49,17 +48,22 @@
 
 -export([compile/1, match/3]).
 
+-define(ALLOW_DENY(A), ((A =:= allow) orelse (A =:= deny))).
+
 %%------------------------------------------------------------------------------
 %% @doc Compile access rule
 %% @end
 %%------------------------------------------------------------------------------
-compile({A, all}) when (A =:= allow) orelse (A =:= deny) ->
+compile({A, all}) when ?ALLOW_DENY(A) ->
     {A, all};
 
-compile({A, Who, Access, TopicFilters}) when (A =:= allow) orelse (A =:= deny) ->
+compile({A, Who, Access, Topic}) when ?ALLOW_DENY(A) andalso is_binary(Topic) ->
+    {A, compile(who, Who), Access, [compile(topic, Topic)]};
+
+compile({A, Who, Access, TopicFilters}) when ?ALLOW_DENY(A) ->
     {A, compile(who, Who), Access, [compile(topic, Topic) || Topic <- TopicFilters]}.
 
-compile(who, all) -> 
+compile(who, all) ->
     all;
 compile(who, {ipaddr, CIDR}) ->
     {Start, End} = esockd_access:range(CIDR),
@@ -72,6 +76,10 @@ compile(who, {user, all}) ->
     {user, all};
 compile(who, {user, Username}) ->
     {user, bin(Username)};
+compile(who, {'and', Conds}) when is_list(Conds) ->
+    {'and', [compile(who, Cond) || Cond <- Conds]};
+compile(who, {'or', Conds}) when is_list(Conds) ->
+    {'or', [compile(who, Cond) || Cond <- Conds]};
 
 compile(topic, {eq, Topic}) ->
     {eq, emqttd_topic:words(bin(Topic))};
@@ -120,6 +128,14 @@ match_who(#mqtt_client{peername = undefined}, {ipaddr, _Tup}) ->
 match_who(#mqtt_client{peername = {IP, _}}, {ipaddr, {_CDIR, Start, End}}) ->
     I = esockd_access:atoi(IP),
     I >= Start andalso I =< End;
+match_who(Client, {'and', Conds}) when is_list(Conds) ->
+    lists:foldl(fun(Who, Allow) ->
+                  match_who(Client, Who) andalso Allow
+                end, true, Conds);
+match_who(Client, {'or', Conds}) when is_list(Conds) ->
+    lists:foldl(fun(Who, Allow) ->
+                  match_who(Client, Who) orelse Allow
+                end, false, Conds);
 match_who(_Client, _Who) ->
     false.
 

@@ -37,8 +37,6 @@
 
 -behaviour(gen_server2).
 
--define(SERVER, ?MODULE).
-
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -46,6 +44,9 @@
 -record(state, {id, statsfun}).
 
 -define(CM_POOL, ?MODULE).
+
+-define(LOG(Level, Format, Args, Client),
+            lager:Level("CM(~s): " ++ Format, [Client#mqtt_client.client_id|Args])).
 
 %%%=============================================================================
 %%% API
@@ -102,15 +103,16 @@ init([Id, StatsFun]) ->
 
 handle_call(Req, _From, State) ->
     lager:error("unexpected request: ~p", [Req]),
-    {reply, {error, badreq}, State}.
+    {reply, {error, unsupported_req}, State}.
 
-handle_cast({register, Client = #mqtt_client{client_id = ClientId, client_pid = Pid}}, State) ->
+handle_cast({register, Client = #mqtt_client{client_id  = ClientId,
+                                             client_pid = Pid}}, State) ->
 	case ets:lookup(mqtt_client, ClientId) of
         [#mqtt_client{client_pid = Pid}] ->
-			lager:error("ClientId '~s' has been registered with ~p", [ClientId, Pid]),
             ignore;
 		[#mqtt_client{client_pid = OldPid}] ->
-			lager:warning("ClientId '~s' is duplicated: pid=~p, oldpid=~p", [ClientId, Pid, OldPid]);
+            %% TODO: should cancel monitor
+            ?LOG(warning, "client ~p conflict with ~p", [Pid, OldPid], Client);
 		[] -> 
             ok
 	end,
@@ -121,10 +123,10 @@ handle_cast({unregister, ClientId, Pid}, State) ->
 	case ets:lookup(mqtt_client, ClientId) of
 	[#mqtt_client{client_pid = Pid}] ->
 		ets:delete(mqtt_client, ClientId);
-	[_] -> 
+	[_] ->
 		ignore;
 	[] ->
-		lager:error("Cannot find clientId '~s' with ~p", [ClientId, Pid])
+        lager:warning("CM(~s): Cannot find registered pid ~p", [ClientId, Pid])
 	end,
 	{noreply, setstats(State)};
 
@@ -137,7 +139,8 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{id = Id}) ->
-    gproc_pool:disconnect_worker(?CM_POOL, {?MODULE, Id}), ok.
+    gproc_pool:disconnect_worker(?CM_POOL, {?MODULE, Id}),
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

@@ -20,13 +20,16 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 %%% @doc
-%%% emqttd client throttle.
+%%% MQTT Internal Header.
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
--module(emqttd_throttle).
 
--author("Feng Lee <feng@emqtt.io>").
+-define(record_to_proplist(Def, Rec),
+        lists:zip(record_info(fields, Def),
+                  tl(tuple_to_list(Rec)))).
 
-%% TODO:... 0.11.0...
+-define(record_to_proplist(Def, Rec, Fields),
+    [{K, V} || {K, V} <- ?record_to_proplist(Def, Rec),
+                         lists:member(K, Fields)]).
 

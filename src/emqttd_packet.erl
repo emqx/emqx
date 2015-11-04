@@ -74,13 +74,15 @@ connack_name(?CONNACK_AUTH)         -> 'CONNACK_AUTH'.
 format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}) ->
     format_header(Header, format_variable(Variable, Payload)).
 
-format_header(#mqtt_packet_header{type = Type, dup = Dup, qos = QoS, retain = Retain}, S) ->
-    S1 = 
-    if 
-        S == undefined -> <<>>;
-        true -> [", ", S]
-    end,
-    io_lib:format("~s(Qos=~p, Retain=~s, Dup=~s~s)", [type_name(Type), QoS, Retain, Dup, S1]).
+format_header(#mqtt_packet_header{type = Type,
+                                  dup = Dup,
+                                  qos = QoS,
+                                  retain = Retain}, S) ->
+    S1 = if 
+             S == undefined -> <<>>;
+             true           -> [", ", S]
+         end,
+    io_lib:format("~s(Q~p, R~p, D~p~s)", [type_name(Type), QoS, i(Retain), i(Dup), S1]).
 
 format_variable(undefined, _) ->
     undefined;
@@ -105,8 +107,8 @@ format_variable(#mqtt_packet_connect{
     Format = "ClientId=~s, ProtoName=~s, ProtoVsn=~p, CleanSess=~s, KeepAlive=~p, Username=~s, Password=~s",
     Args = [ClientId, ProtoName, ProtoVer, CleanSess, KeepAlive, Username, format_password(Password)],
     {Format1, Args1} = if 
-                        WillFlag -> { Format ++ ", Will(Qos=~p, Retain=~s, Topic=~s, Msg=~s)",
-                                      Args ++ [ WillQoS, WillRetain, WillTopic, WillMsg ] };
+                        WillFlag -> { Format ++ ", Will(Q~p, R~p, Topic=~s, Msg=~s)",
+                                      Args ++ [WillQoS, i(WillRetain), WillTopic, WillMsg] };
                         true -> {Format, Args}
                        end,
     io_lib:format(Format1, Args1);
@@ -145,3 +147,6 @@ format_variable(undefined) -> undefined.
 format_password(undefined) -> undefined;
 format_password(_Password) -> '******'.
 
+i(true)  -> 1;
+i(false) -> 0;
+i(I) when is_integer(I) -> I.

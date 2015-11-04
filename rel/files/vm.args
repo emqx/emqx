@@ -17,7 +17,9 @@
 
 ## Enable kernel poll and a few async threads
 +K true
-+A 16
+
+## 12 threads/core.
++A 48
 
 ## max process numbers
 +P 8192
@@ -27,6 +29,10 @@
 
 ## max atom number
 ## +t
+
+## Set the distribution buffer busy limit (dist_buf_busy_limit) in kilobytes.
+## Valid range is 1-2097151. Default is 1024.
+## +zdbbl 8192
 
 ##-------------------------------------------------------------------------
 ## Env

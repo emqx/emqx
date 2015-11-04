@@ -175,15 +175,18 @@
             {acceptors, 16},
             %% Maximum number of concurrent clients
             {max_clients, 8192},
+            %% Rate Limit. Format is 'burst, rate', Unit is KB/Sec.
+            %% {rate_limit, "10,1"}, %% 10K burst, 1K rate
             %% Socket Access Control
             {access, [{allow, all}]},
             %% Socket Options
             {sockopts, [
-                {backlog, 512}
                 %Set buffer if hight thoughtput
                 %{recbuf, 4096},
-                %{sndbuf, 4096}
+                %{sndbuf, 4096},
                 %{buffer, 4096},
+                %{nodelay, true},
+                {backlog, 1024}
             ]}
         ]},
         {mqtts, 8883, [
@@ -243,7 +246,7 @@
         {long_gc, false},
 
         %% Long Schedule(ms)
-        {long_schedule, 50},
+        {long_schedule, 100},
 
         %% 8M words. 32MB on 32-bit VM, 64MB on 64-bit VM.
         %% 8 * 1024 * 1024

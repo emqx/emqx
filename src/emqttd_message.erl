@@ -24,7 +24,6 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
-
 -module(emqttd_message).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -170,14 +169,12 @@ unset_flag(Flag, Msg) when Flag =:= dup orelse Flag =:= retain -> Msg.
 %% @doc Format MQTT Message
 %% @end
 %%------------------------------------------------------------------------------
-format(#mqtt_message{msgid=MsgId,
-                     pktid = PktId,
-                     from = From,
-                     qos=Qos,
-                     retain=Retain,
-                     dup=Dup,
-                     topic=Topic}) ->
-    io_lib:format("Message(MsgId=~p, PktId=~p, from=~s, "
-                    "Qos=~p, Retain=~s, Dup=~s, Topic=~s)",
-                      [MsgId, PktId, From, Qos, Retain, Dup, Topic]).
+format(#mqtt_message{msgid = MsgId, pktid = PktId, from = From,
+                     qos = Qos, retain = Retain, dup = Dup, topic =Topic}) ->
+    io_lib:format("Message(Q~p, R~p, D~p, MsgId=~p, PktId=~p, From=~s, Topic=~s)",
+                  [i(Qos), i(Retain), i(Dup), MsgId, PktId, From, Topic]).
+
+i(true)  -> 1;
+i(false) -> 0;
+i(I) when is_integer(I) -> I.
 

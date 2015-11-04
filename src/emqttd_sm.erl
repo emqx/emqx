@@ -57,7 +57,10 @@
 
 -define(SM_POOL, ?MODULE).
 
--define(SESSION_TIMEOUT, 60000).
+-define(CALL_TIMEOUT, 60000).
+
+-define(LOG(Level, Format, Args, Session),
+            lager:Level("SM(~s): " ++ Format, [Session#mqtt_session.client_id | Args])).
 
 %%%=============================================================================
 %%% Mnesia callbacks
@@ -113,7 +116,7 @@ start_session(CleanSess, ClientId) ->
 lookup_session(ClientId) ->
     case mnesia:dirty_read(session, ClientId) of
         [Session] -> Session;
-        [] -> undefined
+        []        -> undefined
     end.
 
 %%------------------------------------------------------------------------------
@@ -137,13 +140,11 @@ register_session(CleanSess, ClientId, Info) ->
 unregister_session(CleanSess, ClientId) ->
     ets:delete(sesstab(CleanSess), {ClientId, self()}).
 
-sesstab(true)  ->
-    mqtt_transient_session;
-sesstab(false) ->
-    mqtt_persistent_session.
+sesstab(true)  -> mqtt_transient_session;
+sesstab(false) -> mqtt_persistent_session.
 
 call(SM, Req) ->
-    gen_server2:call(SM, Req, ?SESSION_TIMEOUT). %%infinity).
+    gen_server2:call(SM, Req, ?CALL_TIMEOUT). %%infinity).
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -223,8 +224,8 @@ create_session(CleanSess, ClientId, ClientPid) ->
             case insert_session(Session) of
                 {aborted, {conflict, ConflictPid}} ->
                     %% Conflict with othe node?
-                    lager:error("Session(~s): Conflict with ~p!", [ClientId, ConflictPid]),
-                    {error, conflict};
+                    lager:error("SM(~s): Conflict with ~p", [ClientId, ConflictPid]),
+                    {error, mnesia_conflict};
                 {atomic, ok} ->
                     erlang:monitor(process, SessPid),
                     {ok, SessPid}
@@ -245,8 +246,8 @@ insert_session(Session = #mqtt_session{client_id = ClientId}) ->
       end).
 
 %% Local node
-resume_session(#mqtt_session{client_id = ClientId,
-                             sess_pid  = SessPid}, ClientPid)
+resume_session(Session = #mqtt_session{client_id = ClientId,
+                                       sess_pid  = SessPid}, ClientPid)
     when node(SessPid) =:= node() ->
 
     case is_process_alive(SessPid) of
@@ -254,7 +255,7 @@ resume_session(#mqtt_session{client_id = ClientId,
             emqttd_session:resume(SessPid, ClientId, ClientPid),
             {ok, SessPid};
         false ->
-            lager:error("Session(~s): Cannot resume ~p, it seems already dead!", [ClientId, SessPid]),
+            ?LOG(error, "Cannot resume ~p which seems already dead!", [SessPid], Session),
             {error, session_died}
     end;
 
@@ -265,12 +266,11 @@ resume_session(Session = #mqtt_session{client_id = ClientId, sess_pid = SessPid}
         ok ->
             {ok, SessPid};
         {badrpc, nodedown} ->
-            lager:error("Session(~s): Died for node ~s down!", [ClientId, Node]),
+            ?LOG(error, "Session died for node '~s' down", [Node], Session),
             remove_session(Session),
             {error, session_nodedown};
         {badrpc, Reason} ->
-            lager:error("Session(~s): Failed to resume from node ~s for ~p",
-                            [ClientId, Node, Reason]),
+            ?LOG(error, "Failed to resume from node ~s for ~p", [Node, Reason], Session),
             {error, Reason}
     end.
 
@@ -288,11 +288,11 @@ destroy_session(Session = #mqtt_session{client_id = ClientId,
         ok ->
             remove_session(Session);
         {badrpc, nodedown} ->
-            lager:error("Session(~s): Died for node ~s down!", [ClientId, Node]),
+            ?LOG(error, "Node '~s' down", [Node], Session),
             remove_session(Session); 
         {badrpc, Reason} ->
-            lager:error("Session(~s): Failed to destory ~p on remote node ~p for ~s",
-                            [ClientId, SessPid, Node, Reason]),
+            ?LOG(error, "Failed to destory ~p on remote node ~p for ~s",
+                 [SessPid, Node, Reason], Session),
             {error, Reason}
      end.
 
