@@ -282,7 +282,7 @@ redeliver({?PUBREL, PacketId}, State) ->
 shutdown(_Error, #proto_state{client_id = undefined}) ->
     ignore;
 
-shutdown(confict, #proto_state{client_id = ClientId}) ->
+shutdown(conflict, #proto_state{client_id = ClientId}) ->
     emqttd_cm:unregister(ClientId);
 
 shutdown(Error, State = #proto_state{client_id = ClientId, will_msg = WillMsg}) ->

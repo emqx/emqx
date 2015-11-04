@@ -196,7 +196,7 @@ handle_info({redeliver, {?PUBREL, PacketId}}, State) ->
 
 handle_info({shutdown, conflict, {ClientId, NewPid}}, State = #wsclient_state{request = Req}) ->
     ?WSLOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid], Req),
-    shutdown(confict, State);
+    shutdown(conflict, State);
 
 handle_info({keepalive, start, Interval}, State = #wsclient_state{request = Req}) ->
     ?WSLOG(debug, "Keepalive at the interval of ~p", [Interval], Req),

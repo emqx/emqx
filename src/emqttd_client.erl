@@ -170,7 +170,7 @@ handle_info({redeliver, {?PUBREL, PacketId}}, State) ->
 
 handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
     ?LOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid], State),
-    shutdown(confict, State);
+    shutdown(conflict, State);
 
 handle_info(activate_sock, State) ->
     noreply(run_socket(State#client_state{conn_state = running}));
