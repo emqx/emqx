@@ -35,6 +35,14 @@
 -include_lib("eunit/include/eunit.hrl").
 
 compile_test() ->
+
+    ?assertMatch({allow, {'and', [{ipaddr, {"127.0.0.1", _I, _I}},
+                                      {user, <<"user">>}]}, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]},
+                 compile({allow, {'and', [{ipaddr, "127.0.0.1"}, {user, <<"user">>}]}, subscribe, ["$SYS/#", "#"]})),
+    ?assertMatch({allow, {'or', [{ipaddr, {"127.0.0.1", _I, _I}},
+                                 {user, <<"user">>}]}, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]},
+                 compile({allow, {'or', [{ipaddr, "127.0.0.1"}, {user, <<"user">>}]}, subscribe, ["$SYS/#", "#"]})),
+
     ?assertMatch({allow, {ipaddr, {"127.0.0.1", _I, _I}}, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]},
                  compile({allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]})),
     ?assertMatch({allow, {user, <<"testuser">>}, subscribe, [ [<<"a">>, <<"b">>, <<"c">>], [<<"d">>, <<"e">>, <<"f">>, '#'] ]},
@@ -69,10 +77,15 @@ match_test() ->
     ?assertMatch({matched, allow}, match(User, <<"clients/testClient">>,
                                                        compile({allow, all, pubsub, ["clients/$c"]}))),
     ?assertMatch({matched, allow}, match(#mqtt_client{username = <<"user2">>}, <<"users/user2/abc/def">>,
-                                                                  compile({allow, all, subscribe, ["users/$u/#"]}))),
-    ?assertMatch({matched, deny}, 
-                 match(User, <<"d/e/f">>,
-                                     compile({deny, all, subscribe, ["$SYS/#", "#"]}))).
+                                         compile({allow, all, subscribe, ["users/$u/#"]}))),
+    ?assertMatch({matched, deny}, match(User, <<"d/e/f">>,
+                                        compile({deny, all, subscribe, ["$SYS/#", "#"]}))),
+    Rule = compile({allow, {'and', [{ipaddr, "127.0.0.1"}, {user, <<"WrongUser">>}]}, publish, <<"Topic">>}),
+    ?assertMatch(nomatch, match(User, <<"Topic">>, Rule)),
+    AndRule = compile({allow, {'and', [{ipaddr, "127.0.0.1"}, {user, <<"TestUser">>}]}, publish, <<"Topic">>}),
+    ?assertMatch({matched, allow}, match(User, <<"Topic">>, AndRule)),
+    OrRule = compile({allow, {'or', [{ipaddr, "127.0.0.1"}, {user, <<"WrongUser">>}]}, publish, ["Topic"]}),
+    ?assertMatch({matched, allow}, match(User, <<"Topic">>, OrRule)).
 
 -endif.
 
