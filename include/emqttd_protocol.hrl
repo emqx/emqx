@@ -209,6 +209,11 @@
     #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},
                  variable = #mqtt_packet_connack{return_code = ReturnCode}}).
 
+-define(CONNACK_PACKET(ReturnCode, SessPresent),
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},
+                 variable = #mqtt_packet_connack{ack_flags = SessPresent,
+                                                 return_code = ReturnCode}}).
+
 -define(PUBLISH_PACKET(Qos, PacketId),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBLISH,
                                                 qos = Qos},
