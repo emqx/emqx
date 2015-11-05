@@ -585,7 +585,8 @@ kick(_ClientId, Pid, Pid) ->
     ignore;
 kick(ClientId, OldPid, Pid) ->
     unlink(OldPid),
-    OldPid ! {shutdown, conflict, {ClientId, Pid}}.
+    OldPid ! {shutdown, conflict, {ClientId, Pid}},
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Check inflight and awaiting_rel
