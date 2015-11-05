@@ -149,7 +149,7 @@ process(Packet = ?CONNECT_PACKET(Var), State0) ->
 
     trace(recv, Packet, State1),
 
-    {ReturnCode1, State3} =
+    {ReturnCode1, SessPresent, State3} =
     case validate_connect(Var, State1) of
         ?CONNACK_ACCEPT ->
             case emqttd_access_control:auth(client(State1), Password) of
@@ -159,27 +159,27 @@ process(Packet = ?CONNECT_PACKET(Var), State0) ->
 
                     %% Start session
                     case emqttd_sm:start_session(CleanSess, clientid(State2)) of
-                        {ok, Session} ->
+                        {ok, Session, SP} ->
                             %% Register the client
                             emqttd_cm:register(client(State2)),
                             %% Start keepalive
                             start_keepalive(KeepAlive),
                             %% ACCEPT
-                            {?CONNACK_ACCEPT, State2#proto_state{session = Session}};
+                            {?CONNACK_ACCEPT, SP, State2#proto_state{session = Session}};
                         {error, Error} ->
                             exit({shutdown, Error})
                     end;
                 {error, Reason}->
                     ?LOG(error, "Username '~s' login failed for ~s", [Username, Reason], State1),
-                    {?CONNACK_CREDENTIALS, State1}
+                    {?CONNACK_CREDENTIALS, false, State1}
             end;
         ReturnCode ->
-            {ReturnCode, State1}
+            {ReturnCode, false, State1}
     end,
     %% Run hooks
     emqttd_broker:foreach_hooks('client.connected', [ReturnCode1, client(State3)]),
     %% Send connack
-    send(?CONNACK_PACKET(ReturnCode1), State3);
+    send(?CONNACK_PACKET(ReturnCode1, sp(SessPresent)), State3);
 
 process(Packet = ?PUBLISH_PACKET(_Qos, Topic, _PacketId, _Payload), State) ->
     case check_acl(publish, Topic, client(State)) of
@@ -404,4 +404,7 @@ check_acl(publish, Topic, Client) ->
 
 check_acl(subscribe, Topic, Client) ->
     emqttd_access_control:check_acl(Client, subscribe, Topic).
+
+sp(true)  -> 1;
+sp(false) -> 0.
 
