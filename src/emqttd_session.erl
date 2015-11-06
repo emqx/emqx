@@ -425,7 +425,7 @@ handle_cast({puback, PktId}, Session = #session{awaiting_ack = AwaitingAck}) ->
             cancel_timer(TRef),
             noreply(dequeue(acked(PktId, Session)));
         error ->
-            ?LOG(error, "Cannot find PUBACK: ~p", [PktId], Session),
+            ?LOG(warning, "Cannot find PUBACK: ~p", [PktId], Session),
             noreply(Session)
     end;
 
