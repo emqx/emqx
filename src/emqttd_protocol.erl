@@ -149,7 +149,7 @@ process(Packet = ?CONNECT_PACKET(Var), State0) ->
 
     trace(recv, Packet, State1),
 
-    {ReturnCode1, State3} =
+    {ReturnCode1, SessPresent, State3} =
     case validate_connect(Var, State1) of
         ?CONNACK_ACCEPT ->
             case emqttd_access_control:auth(client(State1), Password) of
@@ -159,30 +159,30 @@ process(Packet = ?CONNECT_PACKET(Var), State0) ->
 
                     %% Start session
                     case emqttd_sm:start_session(CleanSess, clientid(State2)) of
-                        {ok, Session} ->
+                        {ok, Session, SP} ->
                             %% Register the client
                             emqttd_cm:register(client(State2)),
                             %% Start keepalive
                             start_keepalive(KeepAlive),
                             %% ACCEPT
-                            {?CONNACK_ACCEPT, State2#proto_state{session = Session}};
+                            {?CONNACK_ACCEPT, SP, State2#proto_state{session = Session}};
                         {error, Error} ->
                             exit({shutdown, Error})
                     end;
                 {error, Reason}->
                     ?LOG(error, "Username '~s' login failed for ~s", [Username, Reason], State1),
-                    {?CONNACK_CREDENTIALS, State1}
+                    {?CONNACK_CREDENTIALS, false, State1}
             end;
         ReturnCode ->
-            {ReturnCode, State1}
+            {ReturnCode, false, State1}
     end,
     %% Run hooks
     emqttd_broker:foreach_hooks('client.connected', [ReturnCode1, client(State3)]),
     %% Send connack
-    send(?CONNACK_PACKET(ReturnCode1), State3);
+    send(?CONNACK_PACKET(ReturnCode1, sp(SessPresent)), State3);
 
 process(Packet = ?PUBLISH_PACKET(_Qos, Topic, _PacketId, _Payload), State) ->
-    case check_acl(publish, Topic, State) of
+    case check_acl(publish, Topic, client(State)) of
         allow ->
             publish(Packet, State);
         deny ->
@@ -210,7 +210,8 @@ process(?SUBSCRIBE_PACKET(PacketId, []), State) ->
     send(?SUBACK_PACKET(PacketId, []), State);
 
 process(?SUBSCRIBE_PACKET(PacketId, TopicTable), State = #proto_state{session = Session}) ->
-    AllowDenies = [check_acl(subscribe, Topic, State) || {Topic, _Qos} <- TopicTable],
+    Client = client(State),
+    AllowDenies = [check_acl(subscribe, Topic, Client) || {Topic, _Qos} <- TopicTable],
     case lists:member(deny, AllowDenies) of
         true ->
             ?LOG(error, "Cannot SUBSCRIBE ~p for ACL Deny", [TopicTable], State),
@@ -281,7 +282,7 @@ redeliver({?PUBREL, PacketId}, State) ->
 shutdown(_Error, #proto_state{client_id = undefined}) ->
     ignore;
 
-shutdown(confict, #proto_state{client_id = ClientId}) ->
+shutdown(conflict, #proto_state{client_id = ClientId}) ->
     emqttd_cm:unregister(ClientId);
 
 shutdown(Error, State = #proto_state{client_id = ClientId, will_msg = WillMsg}) ->
@@ -391,16 +392,19 @@ validate_qos(_) ->
     false.
 
 %% PUBLISH ACL is cached in process dictionary.
-check_acl(publish, Topic, State) ->
+check_acl(publish, Topic, Client) ->
     case get({acl, publish, Topic}) of
         undefined ->
-            AllowDeny = emqttd_access_control:check_acl(client(State), publish, Topic),
+            AllowDeny = emqttd_access_control:check_acl(Client, publish, Topic),
             put({acl, publish, Topic}, AllowDeny),
             AllowDeny;
         AllowDeny ->
             AllowDeny
     end;
 
-check_acl(subscribe, Topic, State) ->
-    emqttd_access_control:check_acl(client(State), subscribe, Topic).
+check_acl(subscribe, Topic, Client) ->
+    emqttd_access_control:check_acl(Client, subscribe, Topic).
+
+sp(true)  -> 1;
+sp(false) -> 0.
 

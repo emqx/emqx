@@ -72,8 +72,8 @@ status([]) ->
     case lists:keysearch(emqttd, 1, application:which_applications()) of
     false ->
         ?PRINT_MSG("emqttd is not running~n");
-    {value,_Version} ->
-        ?PRINT_MSG("emqttd is running~n")
+    {value, {emqttd, _Desc, Vsn}} ->
+        ?PRINT("emqttd ~s is running~n", [Vsn])
     end;
 status(_) ->
      ?PRINT_CMD("status", "query broker status").

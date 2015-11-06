@@ -378,6 +378,7 @@ handle_cast({destroy, ClientId}, Session = #session{client_id = ClientId}) ->
 
 handle_cast({resume, ClientId, ClientPid}, Session = #session{client_id      = ClientId,
                                                               client_pid     = OldClientPid,
+                                                              clean_sess     = CleanSess,
                                                               inflight_queue = InflightQ,
                                                               awaiting_ack   = AwaitingAck,
                                                               awaiting_comp  = AwaitingComp,
@@ -405,9 +406,20 @@ handle_cast({resume, ClientId, ClientPid}, Session = #session{client_id      = C
     [cancel_timer(TRef) || TRef <- maps:values(AwaitingComp)],
 
     Session1 = Session#session{client_pid    = ClientPid,
+                               clean_sess    = false,
                                awaiting_ack  = #{},
                                awaiting_comp = #{},
                                expired_timer = undefined},
+
+    %% CleanSess: true -> false?
+    if
+        CleanSess =:= true  ->
+            ?LOG(warning, "CleanSess changed to false.", [], Session),
+            emqttd_sm:unregister_session(CleanSess, ClientId),
+            emqttd_sm:register_session(false, ClientId, sess_info(Session1));
+        CleanSess =:= false ->
+            ok
+    end,
 
     %% Redeliver inflight messages
     Session2 =
@@ -585,7 +597,8 @@ kick(_ClientId, Pid, Pid) ->
     ignore;
 kick(ClientId, OldPid, Pid) ->
     unlink(OldPid),
-    OldPid ! {shutdown, conflict, {ClientId, Pid}}.
+    OldPid ! {shutdown, conflict, {ClientId, Pid}},
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Check inflight and awaiting_rel

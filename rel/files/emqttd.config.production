@@ -246,7 +246,7 @@
         {long_gc, false},
 
         %% Long Schedule(ms)
-        {long_schedule, 50},
+        {long_schedule, 100},
 
         %% 8M words. 32MB on 32-bit VM, 64MB on 64-bit VM.
         %% 8 * 1024 * 1024

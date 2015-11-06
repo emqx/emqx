@@ -24,7 +24,6 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
-
 -module(emqttd_sm).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -57,7 +56,7 @@
 
 -define(SM_POOL, ?MODULE).
 
--define(CALL_TIMEOUT, 60000).
+-define(TIMEOUT, 60000).
 
 -define(LOG(Level, Format, Args, Session),
             lager:Level("SM(~s): " ++ Format, [Session#mqtt_session.client_id | Args])).
@@ -103,7 +102,7 @@ pool() -> ?SM_POOL.
 %% @doc Start a session
 %% @end
 %%------------------------------------------------------------------------------
--spec start_session(CleanSess :: boolean(), binary()) -> {ok, pid()} | {error, any()}.
+-spec start_session(CleanSess :: boolean(), binary()) -> {ok, pid(), boolean()} | {error, any()}.
 start_session(CleanSess, ClientId) ->
     SM = gproc_pool:pick_worker(?SM_POOL, ClientId),
     call(SM, {start_session, {CleanSess, ClientId, self()}}).
@@ -144,7 +143,7 @@ sesstab(true)  -> mqtt_transient_session;
 sesstab(false) -> mqtt_persistent_session.
 
 call(SM, Req) ->
-    gen_server2:call(SM, Req, ?CALL_TIMEOUT). %%infinity).
+    gen_server2:call(SM, Req, ?TIMEOUT). %%infinity).
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -168,20 +167,20 @@ handle_call({start_session, {false, ClientId, ClientPid}}, _From, State) ->
     case lookup_session(ClientId) of
         undefined ->
             %% create session locally
-            {reply, create_session(false, ClientId, ClientPid), State};
+            reply(create_session(false, ClientId, ClientPid), false, State);
         Session ->
-            {reply, resume_session(Session, ClientPid), State}
+            reply(resume_session(Session, ClientPid), true, State)
     end;
 
 %% transient session
 handle_call({start_session, {true, ClientId, ClientPid}}, _From, State) ->
     case lookup_session(ClientId) of
         undefined ->
-            {reply, create_session(true, ClientId, ClientPid), State};
+            reply(create_session(true, ClientId, ClientPid), false, State);
         Session ->
             case destroy_session(Session) of
                 ok ->
-                    {reply, create_session(true, ClientId, ClientPid), State};
+                    reply(create_session(true, ClientId, ClientPid), false, State);
                 {error, Error} ->
                     {reply, {error, Error}, State}
             end
@@ -301,4 +300,9 @@ remove_session(Session) ->
         {atomic, ok}     -> ok;
         {aborted, Error} -> {error, Error}
     end.
+
+reply({ok, SessPid}, SP, State) ->
+    {reply, {ok, SessPid, SP}, State};
+reply({error, Error}, _SP, State) ->
+    {reply, {error, Error}, State}.
 

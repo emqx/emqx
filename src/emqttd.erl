@@ -91,22 +91,13 @@ open_listener({https, Port, Options}) ->
 	mochiweb:start_http(Port, Options, MFArgs).
 
 open_listener(Protocol, Port, Options) ->
-    Rl = rate_limiter(emqttd_opts:g(rate_limit, Options)),
-    MFArgs = {emqttd_client, start_link, [[{rate_limiter, Rl} | env(mqtt)]]},
+    MFArgs = {emqttd_client, start_link, [env(mqtt)]},
     esockd:open(Protocol, Port, merge_sockopts(Options) , MFArgs).
 
 merge_sockopts(Options) ->
     SockOpts = emqttd_opts:merge(?MQTT_SOCKOPTS,
                                  proplists:get_value(sockopts, Options, [])),
     emqttd_opts:merge(Options, [{sockopts, SockOpts}]).
-
-%% TODO: will refactor in 0.14.0 release.
-rate_limiter(undefined) ->
-    undefined;
-rate_limiter(Config) ->
-    Bps = fun(S) -> list_to_integer(string:strip(S)) * 1024 end,
-    [Burst, Rate] = [Bps(S) || S <- string:tokens(Config, ",")],
-    esockd_rate_limiter:new(Burst, Rate).
 
 %%------------------------------------------------------------------------------
 %% @doc Close Listeners

@@ -82,7 +82,7 @@ start_servers(Sup) ->
                {"emqttd session supervisor", {supervisor, emqttd_session_sup}},
                {"emqttd broker", emqttd_broker},
                {"emqttd alarm", emqttd_alarm},
-               {"emqttd mode supervisor", emqttd_mod_sup},
+               {"emqttd mod supervisor", emqttd_mod_sup},
                {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}},
                {"emqttd access control", emqttd_access_control},
                {"emqttd system monitor", emqttd_sysmon, emqttd:env(sysmon)}],

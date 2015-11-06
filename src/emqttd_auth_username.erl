@@ -105,7 +105,7 @@ init(Opts) ->
 	mnesia:create_table(?AUTH_USERNAME_TAB, [
 		{disc_copies, [node()]},
 		{attributes, record_info(fields, ?AUTH_USERNAME_TAB)}]),
-	mnesia:add_table_copy(?AUTH_USERNAME_TAB, node(), ram_copies),
+	mnesia:add_table_copy(?AUTH_USERNAME_TAB, node(), disc_copies),
     emqttd_ctl:register_cmd(users, {?MODULE, cli}, []),
     {ok, Opts}.
 

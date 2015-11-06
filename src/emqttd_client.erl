@@ -124,7 +124,7 @@ handle_call(info, _From, State = #client_state{connection  = Connection,
     ClientInfo = ?record_to_proplist(client_state, State, ?INFO_KEYS),
     ProtoInfo  = emqttd_protocol:info(ProtoState),
     {ok, SockStats} = Connection:getstat(?SOCK_STATS),
-    {noreply, lists:append([ClientInfo, [{proto_info, ProtoInfo},
+    {reply, lists:append([ClientInfo, [{proto_info, ProtoInfo},
                                          {sock_stats, SockStats}]]), State};
 
 handle_call(kick, _From, State) ->
@@ -170,7 +170,7 @@ handle_info({redeliver, {?PUBREL, PacketId}}, State) ->
 
 handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
     ?LOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid], State),
-    shutdown(confict, State);
+    shutdown(conflict, State);
 
 handle_info(activate_sock, State) ->
     noreply(run_socket(State#client_state{conn_state = running}));
@@ -281,14 +281,14 @@ received(Bytes, State = #client_state{parser_fun  = ParserFun,
 
 rate_limit(_Size, State = #client_state{rate_limit = undefined}) ->
     run_socket(State);
-rate_limit(Size, State = #client_state{rate_limit = Limiter}) ->
-    case esockd_ratelimit:check(Limiter, Size) of
-        {0, Limiter1} ->
-            run_socket(State#client_state{conn_state = running, rate_limit = Limiter1});
-        {Pause, Limiter1} ->
+rate_limit(Size, State = #client_state{rate_limit = Rl}) ->
+    case Rl:check(Size) of
+        {0, Rl1} ->
+            run_socket(State#client_state{conn_state = running, rate_limit = Rl1});
+        {Pause, Rl1} ->
             ?LOG(error, "Rate limiter pause for ~p", [Size, Pause], State),
             erlang:send_after(Pause, self(), activate_sock),
-            State#client_state{conn_state = blocked, rate_limit = Limiter1}    
+            State#client_state{conn_state = blocked, rate_limit = Rl1}
     end.
 
 run_socket(State = #client_state{conn_state = blocked}) ->

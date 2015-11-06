@@ -24,7 +24,6 @@
 %%%
 %%% @end
 %%%-----------------------------------------------------------------------------
-
 -module(emqttd_access_control).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -36,14 +35,13 @@
 -define(SERVER, ?MODULE).
 
 %% API Function Exports
--export([start_link/0,
-         start_link/1,
+-export([start_link/0, start_link/1,
          auth/2,       % authentication
          check_acl/3,  % acl check
          reload_acl/0, % reload acl
-         register_mod/3,
-         unregister_mod/2,
          lookup_mods/1,
+         register_mod/3, register_mod/4,
+         unregister_mod/2,
          stop/0]).
 
 %% gen_server callbacks
@@ -77,7 +75,7 @@ auth(Client, Password) when is_record(Client, mqtt_client) ->
     auth(Client, Password, lookup_mods(auth)).
 auth(_Client, _Password, []) ->
     {error, "No auth module to check!"};
-auth(Client, Password, [{Mod, State} | Mods]) ->
+auth(Client, Password, [{Mod, State, _Seq} | Mods]) ->
     case Mod:check(Client, Password, State) of
         ok -> ok;
         {error, Reason} -> {error, Reason};
@@ -100,7 +98,7 @@ check_acl(Client, PubSub, Topic) when ?IS_PUBSUB(PubSub) ->
 check_acl(#mqtt_client{client_id = ClientId}, PubSub, Topic, []) ->
     lager:error("ACL: nomatch when ~s ~s ~s", [ClientId, PubSub, Topic]),
     allow;
-check_acl(Client, PubSub, Topic, [{M, State}|AclMods]) ->
+check_acl(Client, PubSub, Topic, [{M, State, _Seq}|AclMods]) ->
     case M:check_acl({Client, PubSub, Topic}, State) of
         allow  -> allow;
         deny   -> deny;
@@ -113,7 +111,7 @@ check_acl(Client, PubSub, Topic, [{M, State}|AclMods]) ->
 %%------------------------------------------------------------------------------
 -spec reload_acl() -> list() | {error, any()}.
 reload_acl() ->
-    [M:reload_acl(State) || {M, State} <- lookup_mods(acl)].
+    [M:reload_acl(State) || {M, State, _Seq} <- lookup_mods(acl)].
 
 %%------------------------------------------------------------------------------
 %% @doc Register authentication or ACL module
@@ -121,7 +119,11 @@ reload_acl() ->
 %%------------------------------------------------------------------------------
 -spec register_mod(Type :: auth | acl, Mod :: atom(), Opts :: list()) -> ok | {error, any()}.
 register_mod(Type, Mod, Opts) when Type =:= auth; Type =:= acl->
-    gen_server:call(?SERVER, {register_mod, Type, Mod, Opts}).
+    register_mod(Type, Mod, Opts, 0).
+
+-spec register_mod(auth | acl, atom(), list(), pos_integer()) -> ok | {error, any()}.
+register_mod(Type, Mod, Opts, Seq) when Type =:= auth; Type =:= acl->
+    gen_server:call(?SERVER, {register_mod, Type, Mod, Opts, Seq}).
 
 %%------------------------------------------------------------------------------
 %% @doc Unregister authentication or ACL module
@@ -172,22 +174,26 @@ init_mods(acl, AclMods) ->
 init_mod(Fun, Name, Opts) ->
     Module = Fun(Name),
     {ok, State} = Module:init(Opts),
-    {Module, State}.
+    {Module, State, 0}.
 
-handle_call({register_mod, Type, Mod, Opts}, _From, State) ->
+handle_call({register_mod, Type, Mod, Opts, Seq}, _From, State) ->
     Mods = lookup_mods(Type),
     Reply =
     case lists:keyfind(Mod, 1, Mods) of
-        false -> 
+        false ->
             case catch Mod:init(Opts) of
-                {ok, ModState} -> 
-                    ets:insert(?ACCESS_CONTROL_TAB, {tab_key(Type), [{Mod, ModState}|Mods]}),
+                {ok, ModState} ->
+                    NewMods =
+                    lists:sort(fun({_, _, Seq1}, {_, _, Seq2}) ->
+                                   Seq1 >= Seq2
+                               end, [{Mod, ModState, Seq} | Mods]),
+                    ets:insert(?ACCESS_CONTROL_TAB, {tab_key(Type), NewMods}),
                     ok;
                 {'EXIT', Error} ->
                     lager:error("Access Control: register ~s error - ~p", [Mod, Error]),
                     {error, Error}
             end;
-        _ -> 
+        _ ->
             {error, existed}
     end,
     {reply, Reply, State};
