@@ -21,11 +21,11 @@
 %%%-----------------------------------------------------------------------------
 %%% @doc
 %%% MQTT retained message storage.
+%%%
+%%% TODO: should match topic tree
 %%% 
 %%% @end
 %%%-----------------------------------------------------------------------------
-
-%% TODO: should match topic tree
 -module(emqttd_retained).
 
 -author("Feng Lee <feng@emqtt.io>").
