@@ -76,8 +76,8 @@ subscribe(CPid, TopicTable) ->
 unsubscribe(CPid, Topics) ->
     gen_server:cast(CPid, {unsubscribe, Topics}).
 
-init([Connection0, MqttEnv]) ->
-    {ok, Connection} = Connection0:wait(),
+init([OriginConn, MqttEnv]) ->
+    {ok, Connection} = OriginConn:wait(),
     {PeerHost, PeerPort, PeerName} =
     case Connection:peername() of
         {ok, Peer = {Host, Port}} ->
@@ -125,7 +125,7 @@ handle_call(info, _From, State = #client_state{connection  = Connection,
     ProtoInfo  = emqttd_protocol:info(ProtoState),
     {ok, SockStats} = Connection:getstat(?SOCK_STATS),
     {reply, lists:append([ClientInfo, [{proto_info, ProtoInfo},
-                                         {sock_stats, SockStats}]]), State};
+                                       {sock_stats, SockStats}]]), State};
 
 handle_call(kick, _From, State) ->
     {stop, {shutdown, kick}, ok, State};
@@ -173,7 +173,7 @@ handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
     shutdown(conflict, State);
 
 handle_info(activate_sock, State) ->
-    noreply(run_socket(State#client_state{conn_state = running}));
+    hibernate(run_socket(State#client_state{conn_state = running}));
 
 handle_info({inet_async, _Sock, _Ref, {ok, Data}}, State) ->
     Size = size(Data),
@@ -185,7 +185,7 @@ handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
     shutdown(Reason, State);
 
 handle_info({inet_reply, _Sock, ok}, State) ->
-    noreply(State);
+    hibernate(State);
 
 handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
     shutdown(Reason, State);
@@ -199,12 +199,12 @@ handle_info({keepalive, start, Interval}, State = #client_state{connection = Con
                 end
              end,
     KeepAlive = emqttd_keepalive:start(StatFun, Interval, {keepalive, check}),
-    noreply(State#client_state{keepalive = KeepAlive});
+    hibernate(State#client_state{keepalive = KeepAlive});
 
 handle_info({keepalive, check}, State = #client_state{keepalive = KeepAlive}) ->
     case emqttd_keepalive:check(KeepAlive) of
         {ok, KeepAlive1} ->
-            noreply(State#client_state{keepalive = KeepAlive1});
+            hibernate(State#client_state{keepalive = KeepAlive1});
         {error, timeout} ->
             ?LOG(debug, "Keepalive timeout", [], State),
             shutdown(keepalive_timeout, State);
@@ -240,21 +240,21 @@ code_change(_OldVsn, State, _Extra) ->
 
 with_proto_state(Fun, State = #client_state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = Fun(ProtoState),
-    noreply(State#client_state{proto_state = ProtoState1}).
+    hibernate(State#client_state{proto_state = ProtoState1}).
 
 with_session(Fun, State = #client_state{proto_state = ProtoState}) ->
     Fun(emqttd_protocol:session(ProtoState)),
-    noreply(State).
+    hibernate(State).
 
 %% receive and parse tcp data
 received(<<>>, State) ->
-    noreply(State);
+    hibernate(State);
 
 received(Bytes, State = #client_state{parser_fun  = ParserFun,
                                       packet_opts = PacketOpts,
                                       proto_state = ProtoState}) ->
     case catch ParserFun(Bytes) of
-        {more, NewParser} ->
+        {more, NewParser}  ->
             noreply(run_socket(State#client_state{parser_fun = NewParser}));
         {ok, Packet, Rest} ->
             emqttd_metrics:received(Packet),
@@ -300,6 +300,9 @@ run_socket(State = #client_state{connection = Connection}) ->
     State#client_state{await_recv = true}.
 
 noreply(State) ->
+    {noreply, State}.
+
+hibernate(State) ->
     {noreply, State, hibernate}.
 
 shutdown(Reason, State) ->
