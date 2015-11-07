@@ -260,7 +260,7 @@
         ]}
     ]},
 
-    %% Erlang System Monitor 
+    %% Erlang System Monitor
     {sysmon, [
 
         %% Long GC

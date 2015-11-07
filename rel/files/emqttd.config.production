@@ -168,17 +168,25 @@
         %% File to store loaded plugin names.
         {loaded_file, "./data/loaded_plugins"}
     ]},
+
     %% Listeners
     {listeners, [
         {mqtt, 1883, [
             %% Size of acceptor pool
             {acceptors, 16},
+
             %% Maximum number of concurrent clients
             {max_clients, 8192},
-            %% Rate Limit. Format is 'burst, rate', Unit is KB/Sec.
-            %% {rate_limit, "10,1"}, %% 10K burst, 1K rate
+
             %% Socket Access Control
             {access, [{allow, all}]},
+
+            %% Connection Options
+            {connopts, [
+                %% Rate Limit. Format is 'burst, rate', Unit is KB/Sec
+                %% {rate_limit, "100,10"} %% 100K burst, 10K rate
+            ]},
+
             %% Socket Options
             {sockopts, [
                 %Set buffer if hight thoughtput
@@ -189,16 +197,21 @@
                 {backlog, 1024}
             ]}
         ]},
+
         {mqtts, 8883, [
             %% Size of acceptor pool
             {acceptors, 4},
+
             %% Maximum number of concurrent clients
             {max_clients, 512},
+
             %% Socket Access Control
             {access, [{allow, all}]},
+
             %% SSL certificate and key files
             {ssl, [{certfile, "etc/ssl/ssl.crt"},
                    {keyfile,  "etc/ssl/ssl.key"}]},
+
             %% Socket Options
             {sockopts, [
                 {backlog, 1024}
@@ -222,6 +235,7 @@
         %%      {backlog, 1024}
         %%  ]}
         %%]},
+
         %% HTTP and WebSocket Listener
         {http, 8083, [
             %% Size of acceptor pool
@@ -259,7 +273,6 @@
         {busy_dist_port, true}
 
     ]}
-
  ]}
 ].
 
