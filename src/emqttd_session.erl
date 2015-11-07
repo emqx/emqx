@@ -174,7 +174,7 @@ destroy(SessPid, ClientId) ->
 %%------------------------------------------------------------------------------
 -spec subscribe(pid(), [{binary(), mqtt_qos()}]) -> ok.
 subscribe(SessPid, TopicTable) ->
-    subscribe(SessPid, TopicTable, fun(_) -> ok end).
+    gen_server2:cast(SessPid, {subscribe, TopicTable, fun(_) -> ok end}).
 
 -spec subscribe(pid(), mqtt_packet_id(), [{binary(), mqtt_qos()}]) -> ok.
 subscribe(SessPid, PacketId, TopicTable) ->
