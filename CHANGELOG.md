@@ -2,17 +2,54 @@
 emqttd ChangeLog
 ==================
 
-0.13.0-alpha (2015-11-02)
+0.13.0-beta(2015-11-08)
 -------------------------
 
-eSockd 3.0
+#### Highlights
 
-MochiWeb 4.0
+Rate Limiting based on [Token Bucket](https://en.wikipedia.org/wiki/Token_bucket) and [Leaky Bucket](https://en.wikipedia.org/wiki/Leaky_bucket#The_Leaky_Bucket_Algorithm_as_a_Meter) Algorithm
 
-Log
+Upgrade eSockd and MochiWeb libraries to support Parameterized Connection Module
 
-Async Socket
-......
+Improve emqttd_client to support fully asynchronous socket networking
+
+#### Enhancements
+
+Protocol Compliant - Session Present Flag (#163)
+
+Compilation fails if repo is cloned with a different name (#348)
+
+emqttd_client: replace gen_tcp:send with port_command (#358)
+
+TCP sndbuf, recbuf, buffer tuning (#359)
+
+emqttd_client.erl to handle 'inet_async', 'inet_reply' properly (#360)
+
+Refator the [client/session management design](https://github.com/emqtt/emqttd/blob/master/doc/design/ClientSession.md)
+
+#### Bugfix
+
+Cannot kick transient client out when clientId collision (#357)
+
+Fix the order of emqttd_app:start_server/1 (#367)
+
+emqttd_session:subscribe/2 will crash (#374)
+
+#### Benchmark
+
+[benchmark for 0.13.0 release](https://github.com/emqtt/emqttd/wiki/benchmark-for-0.13.0-release)
+
+3.1G memory and 50+ CPU/core:
+
+```
+Connections: 250K
+Subscribers: 250K
+Topics:      50K
+Qos1 Messages/Sec In:  4K
+Qos1 Messages/Sec Out: 20K
+Traffic In(bps):  12M+
+Traffic Out(bps): 56M+
+```
 
 
 0.12.3-beta (2015-10-22)
