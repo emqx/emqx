@@ -286,7 +286,7 @@ rate_limit(Size, State = #client_state{rate_limit = Rl}) ->
         {0, Rl1} ->
             run_socket(State#client_state{conn_state = running, rate_limit = Rl1});
         {Pause, Rl1} ->
-            ?LOG(error, "Rate limiter pause for ~p", [Size, Pause], State),
+            ?LOG(error, "Rate limiter pause for ~p", [Pause], State),
             erlang:send_after(Pause, self(), activate_sock),
             State#client_state{conn_state = blocked, rate_limit = Rl1}
     end.
