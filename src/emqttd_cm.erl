@@ -48,9 +48,6 @@
 
 -define(CM_POOL, ?MODULE).
 
--define(LOG(Level, Format, Args, Client),
-            lager:Level("CM(~s): " ++ Format, [Client#mqtt_client.client_id|Args])).
-
 %%%=============================================================================
 %%% API
 %%%=============================================================================
@@ -127,7 +124,7 @@ prioritise_cast(Msg, _Len, _State) ->
     end.
 
 prioritise_info(_Msg, _Len, _State) ->
-    1.
+    3.
 
 handle_call(Req, _From, State) ->
     lager:error("Unexpected request: ~p", [Req]),
@@ -136,9 +133,9 @@ handle_call(Req, _From, State) ->
 handle_cast({register, Client = #mqtt_client{client_id  = ClientId,
                                              client_pid = Pid}}, State) ->
     case lookup_proc(ClientId) of
-        Pid  ->
+        Pid ->
             {noreply, State};
-        _None ->
+        _ ->
             ets:insert(mqtt_client, Client),
             {noreply, setstats(monitor_client(ClientId, Pid, State))}
 	end;
@@ -148,7 +145,7 @@ handle_cast({unregister, ClientId, Pid}, State) ->
         Pid ->
             ets:delete(mqtt_client, ClientId),
             {noreply, setstats(State)};
-        undefined ->
+        _ ->
             {noreply, State}
     end;
 
@@ -156,8 +153,8 @@ handle_cast(Msg, State) ->
     lager:error("Unexpected Msg: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({'DOWN', MRef, process, DownPid, _Reason}, State = #state{monitors = MonDict}) ->
-    case dict:find(MRef, MonDict) of
+handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
+    case dict:find(MRef, State#state.monitors) of
         {ok, {ClientId, DownPid}} ->
             case lookup_proc(ClientId) of
                 DownPid ->
