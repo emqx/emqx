@@ -91,7 +91,6 @@
 -record(mqtt_client, {
     client_id     :: binary() | undefined,
     client_pid    :: pid(),
-    client_mon    :: reference(),
     username      :: binary() | undefined,
     peername      :: {inet:ip_address(), integer()},
     clean_sess    :: boolean(),

@@ -282,14 +282,18 @@ redeliver({?PUBREL, PacketId}, State) ->
 shutdown(_Error, #proto_state{client_id = undefined}) ->
     ignore;
 
-shutdown(conflict, #proto_state{client_id = ClientId}) ->
-    emqttd_cm:unregister(ClientId);
+shutdown(conflict, #proto_state{client_id = _ClientId}) ->
+    %% let it down
+    %% emqttd_cm:unregister(ClientId);
+    ignore;
 
 shutdown(Error, State = #proto_state{client_id = ClientId, will_msg = WillMsg}) ->
     ?LOG(info, "Shutdown for ~p", [Error], State),
     send_willmsg(ClientId, WillMsg),
     emqttd_broker:foreach_hooks('client.disconnected', [Error, ClientId]),
-    emqttd_cm:unregister(ClientId).
+    %% let it down
+    %% emqttd_cm:unregister(ClientId).
+    ok.
 
 willmsg(Packet) when is_record(Packet, mqtt_packet_connect) ->
     emqttd_message:from_packet(Packet).
