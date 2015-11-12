@@ -78,7 +78,10 @@ handle_call(_Req, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({async_submit, Fun}, State) ->
-    try run(Fun) catch _:Error -> lager:error("Pooler Error: ~p", [Error]) end,
+    try run(Fun)
+    catch _:Error ->
+        lager:error("Pooler Error: ~p, ~p", [Error, erlang:get_stacktrace()])
+    end,
     {noreply, State};
 
 handle_cast(_Msg, State) ->
