@@ -172,7 +172,7 @@ cast(Msg) ->
 %% @end
 %%------------------------------------------------------------------------------
 -spec publish(Msg :: mqtt_message()) -> ok.
-publish(#mqtt_message{from = From} = Msg) ->
+publish(Msg = #mqtt_message{from = From}) ->
     trace(publish, From, Msg),
     Msg1 = #mqtt_message{topic = Topic}
                = emqttd_broker:foldl_hooks('message.publish', [], Msg),
@@ -186,7 +186,7 @@ publish(#mqtt_message{from = From} = Msg) ->
             publish(Topic, Msg1)
      end.
 
-publish(<<"$Q/", _/binary>> = Queue, #mqtt_message{qos = Qos} = Msg) ->
+publish(Queue = <<"$Q/", _/binary>>, Msg = #mqtt_message{qos = Qos}) ->
     lists:foreach(
         fun(#mqtt_queue{qpid = QPid, qos = SubQos}) -> 
             Msg1 = if
@@ -209,7 +209,7 @@ publish(Topic, Msg) when is_binary(Topic) ->
 %% @end
 %%------------------------------------------------------------------------------
 -spec dispatch(Topic :: binary(), Msg :: mqtt_message()) -> non_neg_integer().
-dispatch(Topic, #mqtt_message{qos = Qos} = Msg ) when is_binary(Topic) ->
+dispatch(Topic, Msg = #mqtt_message{qos = Qos}) when is_binary(Topic) ->
     Subscribers = mnesia:dirty_read(subscriber, Topic),
     setstats(dropped, Subscribers =:= []),
     lists:foreach(
