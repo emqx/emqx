@@ -76,7 +76,7 @@ cd /d !dest_path!..\plugins
 set current_path=%cd%
 set plugins=
 for /d %%P in (*) do (
-set "plugins=!plugins!!current_path!\%%P\ebin "
+set "plugins=!plugins!"!current_path!\%%P\ebin" "
 )
 cd /d %node_root%
 
