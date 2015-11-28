@@ -79,6 +79,9 @@
         %% Client Pid bind with session
         client_pid  :: pid(),
 
+        %% Old Client Pid that has been kickout
+        old_client_pid :: pid(),
+
         %% Last packet id of the session
 		packet_id = 1,
         
@@ -403,11 +406,12 @@ handle_cast({resume, ClientId, ClientPid}, Session = #session{client_id      = C
     %% Clear awaiting_comp timers
     [cancel_timer(TRef) || TRef <- maps:values(AwaitingComp)],
 
-    Session1 = Session#session{client_pid    = ClientPid,
-                               clean_sess    = false,
-                               awaiting_ack  = #{},
-                               awaiting_comp = #{},
-                               expired_timer = undefined},
+    Session1 = Session#session{client_pid     = ClientPid,
+                               old_client_pid = OldClientPid,
+                               clean_sess     = false,
+                               awaiting_ack   = #{},
+                               awaiting_comp  = #{},
+                               expired_timer  = undefined},
 
     %% CleanSess: true -> false?
     if
@@ -561,6 +565,10 @@ handle_info({'EXIT', ClientPid, Reason}, Session = #session{clean_sess    = fals
     TRef = timer(Expires, expired),
     hibernate(Session#session{client_pid = undefined, expired_timer = TRef});
 
+handle_info({'EXIT', Pid, _Reason}, Session = #session{old_client_pid = Pid}) ->
+    %%ignore
+    hibernate(Session);
+
 handle_info({'EXIT', Pid, Reason}, Session = #session{client_pid = ClientPid}) ->
 
     ?LOG(error, "Unexpected EXIT: client_pid=~p, exit_pid=~p, reason=~p",
@@ -595,7 +603,8 @@ kick(_ClientId, Pid, Pid) ->
 kick(ClientId, OldPid, Pid) ->
     unlink(OldPid),
     OldPid ! {shutdown, conflict, {ClientId, Pid}},
-    ok.
+    %% Clean noproc
+    receive {'EXIT', OldPid, _} -> ok after 0 -> ok end.
 
 %%------------------------------------------------------------------------------
 %% Check inflight and awaiting_rel

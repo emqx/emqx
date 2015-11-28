@@ -2,6 +2,20 @@
 emqttd ChangeLog
 ==================
 
+0.13.1-beta(2015-11-28)
+-------------------------
+
+Bugfix: Plugin pathes error under windows (#387)
+
+Improve: Too many error logs "[error] Session ..... Unexpected EXIT: client_pid=<0.14137.35>, exit_pid=<0.30829.22>, reason=nop..." (#383)
+
+Improve: Define QOS0/1/2, Pooler Error (PR#382)
+
+Improve: High CPU load when 400K unstable mobile connections (#377)
+
+BugFix: emqttd_plugin_pgsql - error using same query with latest update plugin (pgsql#5)
+
+
 0.13.0-beta(2015-11-08)
 -------------------------
 
