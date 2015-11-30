@@ -239,8 +239,8 @@ init([Id, _Opts]) ->
 
 prioritise_call(Msg, _From, _Len, _State) ->
     case Msg of
-        {subscriber, _, _} -> 1;
-        _                  -> 0
+        {subscribe, _, _} -> 1;
+        _                 -> 0
     end.
 
 prioritise_cast(Msg, _Len, _State) ->
