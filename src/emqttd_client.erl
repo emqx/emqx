@@ -19,22 +19,20 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% MQTT Client Connection.
+%%% @doc MQTT Client Connection
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_client).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(gen_server).
 
 -include("emqttd.hrl").
 
 -include("emqttd_protocol.hrl").
 
 -include("emqttd_internal.hrl").
-
--behaviour(gen_server).
 
 %% API Function Exports
 -export([start_link/2, session/1, info/1, kick/1]).

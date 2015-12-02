@@ -19,14 +19,12 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd protocol.
+%%% @doc emqttd protocol.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_protocol).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 

@@ -19,9 +19,7 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%%
-%%% Session for persistent MQTT client.
+%%% @doc Session for persistent MQTT client.
 %%%
 %%% Session State in the broker consists of:
 %%%
@@ -43,10 +41,11 @@
 %%% State of Message:  newcome, inflight, pending
 %%%
 %%% @end
+%%%
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_session).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -344,7 +343,7 @@ handle_cast({subscribe, TopicTable0, AckFun}, Session = #session{client_id = Cli
                                     %% <MQTT V3.1.1>: 3.8.4
                                     %% Where the Topic Filter is not identical to any existing Subscription’s filter,
                                     %% a new Subscription is created and all matching retained messages are sent.
-                                    emqttd_retained:dispatch(Topic, self()),
+                                    emqttd_retainer:dispatch(Topic, self()),
                                     [{Topic, Qos} | Acc]
                             end
                         end, Subscriptions, TopicTable),

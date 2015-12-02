@@ -19,14 +19,12 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd net utility functions. some functions copied from rabbitmq.
+%%% @doc emqttd net utility functions. some functions copied from rabbitmq.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_net).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include_lib("kernel/include/inet.hrl").
 

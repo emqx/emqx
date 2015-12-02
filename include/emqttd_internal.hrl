@@ -19,11 +19,17 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% MQTT Internal Header.
+%%% @doc Internal Header File
 %%%
-%%% @end
 %%%-----------------------------------------------------------------------------
+
+-define(GPROC_POOL(JoinOrLeave, Pool, I),
+        (begin
+            case JoinOrLeave of
+                join  -> gproc_pool:connect_worker(Pool, {Pool, Id});
+                leave -> gproc_pool:disconnect_worker(Pool, {Pool, I})
+            end
+        end)).
 
 -define(record_to_proplist(Def, Rec),
         lists:zip(record_info(fields, Def),

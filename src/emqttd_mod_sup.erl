@@ -19,18 +19,16 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd module supervisor.
+%%% @doc emqttd module supervisor.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_mod_sup).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(supervisor).
 
 -include("emqttd.hrl").
-
--behaviour(supervisor).
 
 %% API
 -export([start_link/0, start_child/1, start_child/2]).

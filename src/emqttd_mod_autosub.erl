@@ -19,20 +19,18 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd auto subscribe module.
+%%% @doc emqttd auto subscribe module.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_mod_autosub).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(emqttd_gen_mod).
 
 -include("emqttd.hrl").
 
 -include("emqttd_protocol.hrl").
-
--behaviour(emqttd_gen_mod).
 
 -export([load/1, client_connected/3, unload/1]).
 

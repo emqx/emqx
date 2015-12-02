@@ -19,14 +19,12 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd options handler.
+%%% @doc emqttd options handler.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_opts).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -export([merge/2, g/2, g/3]).
 

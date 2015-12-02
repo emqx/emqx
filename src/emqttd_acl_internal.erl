@@ -19,14 +19,12 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% Internal ACL that load rules from etc/acl.config
+%%% @doc Internal ACL that load rules from etc/acl.config
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_acl_internal).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 

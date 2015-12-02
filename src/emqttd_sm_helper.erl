@@ -19,23 +19,21 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd session helper.
+%%% @doc Session Helper.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_sm_helper).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(gen_server).
 
 -include("emqttd.hrl").
 
 -include_lib("stdlib/include/ms_transform.hrl").
 
 %% API Function Exports
--export([start_link/0]).
-
--behaviour(gen_server).
+-export([start_link/1]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -47,11 +45,11 @@
 %% @doc Start a session helper
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link() -> {ok, pid()} | ignore | {error, any()}.
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+-spec start_link(fun()) -> {ok, pid()} | ignore | {error, any()}.
+start_link(StatsFun) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [StatsFun], []).
 
-init([]) ->
+init([StatsFun]) ->
     mnesia:subscribe(system),
     {ok, TRef} = timer:send_interval(timer:seconds(1), tick),
     StatsFun = emqttd_stats:statsfun('sessions/count', 'sessions/max'),

@@ -19,19 +19,17 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd main module.
+%%% @doc emqttd main module.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -export([start/0, env/1, env/2,
          open_listeners/1, close_listeners/1,
          load_all_mods/0, is_mod_enabled/1,
-         is_running/1]).
+         is_running/1, ensure_pool/3]).
 
 -define(MQTT_SOCKOPTS, [
 	binary,
@@ -128,5 +126,15 @@ is_running(Node) ->
         {badrpc, _}          -> false;
         undefined            -> false;
         Pid when is_pid(Pid) -> true
+    end.
+
+%%------------------------------------------------------------------------------
+%% @doc Ensure gproc pool exist.
+%% @end
+%%------------------------------------------------------------------------------
+ensure_pool(Pool, Type, Opts) ->
+    try gproc_pool:new(Pool, Type, Opts)
+    catch
+        error:exists -> ok
     end.
 

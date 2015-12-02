@@ -19,14 +19,12 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% Anonymous authentication module.
+%%% @doc Anonymous authentication module
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_auth_anonymous).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -behaviour(emqttd_auth_mod).
 

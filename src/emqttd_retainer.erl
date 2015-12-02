@@ -19,16 +19,18 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% MQTT retained message storage.
+%%% @doc MQTT retained message storage.
 %%%
 %%% TODO: should match topic tree
-%%% 
+%%%
 %%% @end
+%%%
+%%% @author Feng Lee <feng@emqtt.io>
+%%% 
 %%%-----------------------------------------------------------------------------
--module(emqttd_retained).
+-module(emqttd_retainer).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(gen_server).
 
 -include("emqttd.hrl").
 
@@ -45,8 +47,6 @@
 
 %% API Function Exports
 -export([start_link/0, expire/1]).
-
--behaviour(gen_server).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,

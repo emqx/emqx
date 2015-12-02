@@ -19,20 +19,18 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd metrics. responsible for collecting broker metrics.
+%%% @doc emqttd metrics. responsible for collecting broker metrics
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_metrics).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(gen_server).
 
 -include("emqttd.hrl").
 
 -include("emqttd_protocol.hrl").
-
--behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
 

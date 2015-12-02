@@ -19,18 +19,18 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd pubsub supervisor.
+%%% @doc PubSub Supervisor
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_pubsub_sup).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(supervisor).
 
 -include("emqttd.hrl").
 
--behaviour(supervisor).
+-define(HELPER, emqttd_pubsub_helper).
 
 %% API
 -export([start_link/0]).
@@ -39,19 +39,42 @@
 -export([init/1]).
 
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-init([]) ->
     Opts = emqttd_broker:env(pubsub),
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [Opts]).
+
+init([Opts]) ->
+    %% Route Table
+    create_route_tabs(Opts),
+
+    %% PubSub Pool Sup
+    MFA = {emqttd_pubsub, start_link, [Opts]},
+    PoolSup = emqttd_pool_sup:spec(pool_sup, [
+                pubsub, hash, pool_size(Opts), MFA]),
+
+    %% PubSub Helper
+    Helper = {helper, {?HELPER, start_link, [Opts]},
+                permanent, infinity, worker, [?HELPER]},
+    {ok, {{one_for_all, 10, 60}, [Helper, PoolSup]}}.
+
+pool_size(Opts) ->
     Schedulers = erlang:system_info(schedulers),
-    PoolSize = proplists:get_value(pool_size, Opts, Schedulers),
-    gproc_pool:new(pubsub, hash, [{size, PoolSize}]),
-    Children = lists:map(
-                 fun(I) ->
-                    Name = {emqttd_pubsub, I},
-                    gproc_pool:add_worker(pubsub, Name, I),
-                    {Name, {emqttd_pubsub, start_link, [I, Opts]},
-                        permanent, 10000, worker, [emqttd_pubsub]}
-                 end, lists:seq(1, PoolSize)),
-    {ok, {{one_for_all, 10, 100}, Children}}.
+    proplists:get_value(pool_size, Opts, Schedulers).
+
+create_route_tabs(_Opts) ->
+    TabOpts = [bag, public, named_table,
+               {write_concurrency, true}],
+    %% Route Table: Topic -> {Pid, QoS}
+    %% Route Shard: {Topic, Shard} -> {Pid, QoS}
+    ensure_tab(route, TabOpts),
+
+    %% Reverse Route Table: Pid -> {Topic, QoS}
+    ensure_tab(reverse_route, TabOpts).
+
+ensure_tab(Tab, Opts) ->
+    case ets:info(Tab, name) of
+        undefined ->
+            ets:new(Tab, Opts);
+        _ ->
+            ok
+    end.
 

@@ -46,10 +46,11 @@
 %%%    otherwise dropped the oldest pending one.
 %%%
 %%% @end
+%%%
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_mqueue).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 

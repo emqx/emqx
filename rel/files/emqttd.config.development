@@ -141,11 +141,18 @@
             %% Max Payload Size of retained message
             {max_playload_size, 65536}
         ]},
-        %% PubSub
+
+        %% PubSub and Router
         {pubsub, [
-            %% default should be scheduler numbers
-            %% {pool_size, 8}
+            %% Default should be scheduler numbers
+            %% {pool_size, 8},
+
+            %% Route aging time(second)
+            {shard, true}, 
+
+            {aging, 10}
         ]},
+
         %% Bridge
         {bridge, [
             %%TODO: bridge queue size

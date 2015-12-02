@@ -19,14 +19,14 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd broker.
+%%% @doc emqttd broker
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_broker).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(gen_server).
 
 -include("emqttd.hrl").
 
@@ -48,17 +48,15 @@
 %% Tick API
 -export([start_tick/1, stop_tick/1]).
 
--behaviour(gen_server).
-
--define(SERVER, ?MODULE).
-
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--define(BROKER_TAB, mqtt_broker).
-
 -record(state, {started_at, sys_interval, heartbeat, tick_tref}).
+
+-define(SERVER, ?MODULE).
+
+-define(BROKER_TAB, mqtt_broker).
 
 %% $SYS Topics of Broker
 -define(SYSTOP_BROKERS, [

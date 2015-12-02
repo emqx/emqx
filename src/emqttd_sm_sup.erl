@@ -19,24 +19,26 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd session manager supervisor.
+%%% @doc Session Manager Supervisor.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_sm_sup).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(supervisor).
 
 -include("emqttd.hrl").
 
--define(CHILD(Mod), {Mod, {Mod, start_link, []},
-                        permanent, 5000, worker, [Mod]}).
+-define(SM, emqttd_sm).
+
+-define(HELPER, emqttd_sm_helper).
+
+-define(TABS, [mqtt_transient_session,
+               mqtt_persistent_session]).
 
 %% API
 -export([start_link/0]).
-
--behaviour(supervisor).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -45,20 +47,23 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    init_session_ets(),
-    Schedulers = erlang:system_info(schedulers),
-    gproc_pool:new(emqttd_sm:pool(), hash, [{size, Schedulers}]),
-    Managers = lists:map(
-                 fun(I) ->
-                   Name = {emqttd_sm, I},
-                   gproc_pool:add_worker(emqttd_sm:pool(), Name, I),
-                   {Name, {emqttd_sm, start_link, [I]},
-                               permanent, 10000, worker, [emqttd_sm]}
-                 end, lists:seq(1, Schedulers)),
-    {ok, {{one_for_all, 10, 100}, [?CHILD(emqttd_sm_helper) | Managers]}}.
+    %% Create session tables
+    create_session_tabs(),
 
-init_session_ets() ->
-    Tables = [mqtt_transient_session, mqtt_persistent_session],
-    Attrs  = [ordered_set, named_table, public, {write_concurrency, true}],
-    lists:foreach(fun(Tab) -> ets:new(Tab, Attrs) end, Tables).
+    %% Helper
+    StatsFun = emqttd_stats:statsfun('sessions/count', 'sessions/max'),
+    Helper = {?HELPER, {?HELPER, start_link, [StatsFun]},
+                permanent, 5000, worker, [?HELPER]},
+
+    %% SM Pool Sup
+    MFA = {?SM, start_link, []},
+    PoolSup = emqttd_pool_sup:spec(pool_sup, [
+                ?SM, hash, erlang:system_info(schedulers), MFA]),
+
+    {ok, {{one_for_all, 10, 3600}, [Helper, PoolSup]}}.
+    
+create_session_tabs() ->
+    Opts = [ordered_set, named_table, public,
+               {write_concurrency, true}],
+    [ets:new(Tab, Opts) || Tab <- ?TABS].
 

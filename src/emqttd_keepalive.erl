@@ -21,11 +21,10 @@
 %%%-----------------------------------------------------------------------------
 %%% @doc client keepalive
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_keepalive).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -export([start/3, check/1, cancel/1]).
 

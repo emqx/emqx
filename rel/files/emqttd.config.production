@@ -138,6 +138,15 @@
             %% default should be scheduler numbers
             %% {pool_size, 8}
         ]},
+
+        %% Router
+        {router, [
+            %% Default should be scheduler numbers
+            %% {pool_size, 8},
+            %% Route aging time(second)
+            {aging, 5}
+        ]},
+
         %% Bridge
         {bridge, [
             %%TODO: bridge queue size

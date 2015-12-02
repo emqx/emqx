@@ -60,26 +60,15 @@
 -type mqtt_topic() :: #mqtt_topic{}.
 
 %%------------------------------------------------------------------------------
-%% MQTT Subscriber
+%% MQTT Subscription
 %%------------------------------------------------------------------------------
--record(mqtt_subscriber, {
+-record(mqtt_subscription, {
+    clientid :: binary() | atom(),
     topic    :: binary(),
-    subpid   :: pid(),
     qos = 0  :: 0 | 1 | 2
 }).
 
--type mqtt_subscriber() :: #mqtt_subscriber{}.
-
-%%------------------------------------------------------------------------------
-%% P2P Queue Subscriber
-%%------------------------------------------------------------------------------
--record(mqtt_queue, {
-    name     :: binary(),
-    qpid     :: pid(),
-    qos = 0  :: 0 | 1 | 2
-}).
-
--type mqtt_queue() :: #mqtt_queue{}.
+-type mqtt_subscription() :: #mqtt_subscription{}.
 
 %%------------------------------------------------------------------------------
 %% MQTT Client

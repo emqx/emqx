@@ -19,14 +19,12 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd session manager.
+%%% @doc Session Manager
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_sm).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -54,7 +52,7 @@
 
 -record(state, {id}).
 
--define(SM_POOL, ?MODULE).
+-define(POOL, ?MODULE).
 
 -define(TIMEOUT, 60000).
 
@@ -93,18 +91,12 @@ name(Id) ->
     list_to_atom("emqttd_sm_" ++ integer_to_list(Id)).
 
 %%------------------------------------------------------------------------------
-%% @doc Pool name.
-%% @end
-%%------------------------------------------------------------------------------
-pool() -> ?SM_POOL.
-
-%%------------------------------------------------------------------------------
 %% @doc Start a session
 %% @end
 %%------------------------------------------------------------------------------
 -spec start_session(CleanSess :: boolean(), binary()) -> {ok, pid(), boolean()} | {error, any()}.
 start_session(CleanSess, ClientId) ->
-    SM = gproc_pool:pick_worker(?SM_POOL, ClientId),
+    SM = gproc_pool:pick_worker(?POOL, ClientId),
     call(SM, {start_session, {CleanSess, ClientId, self()}}).
 
 %%------------------------------------------------------------------------------
@@ -150,7 +142,7 @@ call(SM, Req) ->
 %%%=============================================================================
 
 init([Id]) ->
-    gproc_pool:connect_worker(?SM_POOL, {?MODULE, Id}),
+    gproc_pool:connect_worker(?POOL, {?MODULE, Id}),
     {ok, #state{id = Id}}.
 
 prioritise_call(_Msg, _From, _Len, _State) ->
@@ -193,6 +185,7 @@ handle_cast(Msg, State) ->
     lager:error("Unexpected Msg: ~p", [Msg]),
     {noreply, State}.
 
+%%TODO: fix this issue that index_read is really slow...
 handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State) ->
     mnesia:transaction(fun() ->
                 [mnesia:delete_object(session, Sess, write) || Sess 
@@ -205,7 +198,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{id = Id}) ->
-    gproc_pool:disconnect_worker(?SM_POOL, {?MODULE, Id}), ok.
+    gproc_pool:disconnect_worker(?POOL, {?MODULE, Id}), ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

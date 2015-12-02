@@ -19,14 +19,12 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd erlang vm.
+%%% @doc emqttd erlang vm.
 %%%
-%%% @end
+%%% @author huangdan
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_vm).
-
--author('huangdan').
 
 -export([schedulers/0]).
 

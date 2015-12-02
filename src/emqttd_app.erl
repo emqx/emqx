@@ -19,14 +19,12 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd application.
+%%% @doc emqttd application.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_app).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd_cli.hrl").
 
@@ -72,11 +70,12 @@ start_listeners() ->
 start_servers(Sup) ->
     Servers = [{"emqttd ctl", emqttd_ctl},
                {"emqttd trace", emqttd_trace},
+               {"emqttd router", {supervisor, emqttd_router_sup}},
                {"emqttd pubsub", {supervisor, emqttd_pubsub_sup}},
                {"emqttd stats", emqttd_stats},
                {"emqttd metrics", emqttd_metrics},
-               {"emqttd retained", emqttd_retained},
-               {"emqttd pooler", {supervisor, emqttd_pooler_sup}},
+               {"emqttd retainer", emqttd_retainer},
+               {"emqttd pooler", {supervisor, emqttd_pooler}},
                {"emqttd client manager", {supervisor, emqttd_cm_sup}},
                {"emqttd session manager", {supervisor, emqttd_sm_sup}},
                {"emqttd session supervisor", {supervisor, emqttd_session_sup}},

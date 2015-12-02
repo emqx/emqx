@@ -19,14 +19,12 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% copy alarm_handler.
+%%% @doc Copy alarm_handler
+%%% 
+%%% @author Feng Lee <feng@emqtt.io>
 %%%
-%%% @end
 %%%-----------------------------------------------------------------------------
 -module(emqttd_alarm).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 

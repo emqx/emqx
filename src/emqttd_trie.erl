@@ -25,10 +25,11 @@
 %%% [Trie](http://en.wikipedia.org/wiki/Trie)
 %%%
 %%% @end
+%%%
+%%% @author Feng Lee <feng@emqtt.io>
+%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_trie).
-
--author("Feng Lee <feng@emqtt.io>").
 
 %% Mnesia Callbacks
 -export([mnesia/1]).
