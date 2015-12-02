@@ -1,0 +1,7 @@
+
+TODO 1. refactor gproc_pool usage
+
+TODO 2. emqttd_router, emqttd_pubsub to route message
+
+TODO 3. sup, pool_sup, manager......
+
