@@ -39,13 +39,13 @@
 %%% Application callbacks
 %%%=============================================================================
 
--spec start(StartType, StartArgs) -> {ok, pid()} | {ok, pid(), State} | {error, Reason} when 
+-spec start(StartType, StartArgs) -> {ok, pid()} | {ok, pid(), State} | {error, Reason} when
     StartType :: normal | {takeover, node()} | {failover, node()},
     StartArgs :: term(),
     State     :: term(),
     Reason    :: term().
 start(_StartType, _StartArgs) ->
-    print_banner(),
+    error_logger:info_msg("Starting emqttd on node '~s'~n", [node()]),
     emqttd_mnesia:start(),
     {ok, Sup} = emqttd_sup:start_link(),
     start_servers(Sup),
@@ -57,13 +57,10 @@ start(_StartType, _StartArgs) ->
     print_vsn(),
     {ok, Sup}.
 
-print_banner() ->
-    ?PRINT("starting emqttd on node '~s'~n", [node()]).
-
 print_vsn() ->
     {ok, Vsn} = application:get_key(vsn),
     {ok, Desc} = application:get_key(description),
-    ?PRINT("~s ~s is running now~n", [Desc, Vsn]).
+    error_logger:info_msg("~s ~s is running now~n", [Desc, Vsn]).
 
 start_listeners() ->
     {ok, Listeners} = application:get_env(listeners),
@@ -86,22 +83,19 @@ start_servers(Sup) ->
                {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}},
                {"emqttd access control", emqttd_access_control},
                {"emqttd system monitor", emqttd_sysmon, emqttd:env(sysmon)}],
-    [start_server(Sup, Server) || Server <- Servers].
+   [start_server(Sup, Server) || Server <- Servers].
 
 start_server(_Sup, {Name, F}) when is_function(F) ->
-    ?PRINT("~s is starting...", [Name]),
     F(),
-    ?PRINT_MSG("[done]~n");
+    error_logger:info_msg("Started ~p~n", [Name]);
 
 start_server(Sup, {Name, Server}) ->
-    ?PRINT("~s is starting...", [Name]),
     start_child(Sup, Server),
-    ?PRINT_MSG("[done]~n");
+    error_logger:info_msg("Started ~p~n", [Name]);
 
 start_server(Sup, {Name, Server, Opts}) ->
-    ?PRINT("~s is starting...", [ Name]),
     start_child(Sup, Server, Opts),
-    ?PRINT_MSG("[done]~n").
+    error_logger:info_msg("Started ~p~n", [Name]).
 
 start_child(Sup, {supervisor, Module}) ->
     supervisor:start_child(Sup, supervisor_spec(Module));
