@@ -34,11 +34,11 @@
          is_running/1]).
 
 -define(MQTT_SOCKOPTS, [
-	binary,
-	{packet,    raw},
-	{reuseaddr, true},
-	{backlog,   512},
-	{nodelay,   true}
+        binary,
+        {packet,    raw},
+        {reuseaddr, true},
+        {backlog,   512},
+        {nodelay,   true}
 ]).
 
 -type listener() :: {atom(), inet:port_number(), [esockd:option()]}.
@@ -82,12 +82,12 @@ open_listener({mqtts, Port, Options}) ->
 %% open http port
 open_listener({http, Port, Options}) ->
     MFArgs = {emqttd_http, handle_request, []},
-	mochiweb:start_http(Port, Options, MFArgs);
+    mochiweb:start_http(Port, Options, MFArgs);
 
 %% open https port
 open_listener({https, Port, Options}) ->
     MFArgs = {emqttd_http, handle_request, []},
-	mochiweb:start_http(Port, Options, MFArgs).
+    mochiweb:start_http(Port, Options, MFArgs).
 
 open_listener(Protocol, Port, Options) ->
     MFArgs = {emqttd_client, start_link, [env(mqtt)]},
@@ -96,7 +96,8 @@ open_listener(Protocol, Port, Options) ->
 merge_sockopts(Options) ->
     SockOpts = emqttd_opts:merge(?MQTT_SOCKOPTS,
                                  proplists:get_value(sockopts, Options, [])),
-    emqttd_opts:merge(Options, [{sockopts, SockOpts}]).
+    Updated = [fix_address(Opt) || Opt <- SockOpts],
+    emqttd_opts:merge(Options, [{sockopts, Updated}]).
 
 %%------------------------------------------------------------------------------
 %% @doc Close Listeners
@@ -130,3 +131,15 @@ is_running(Node) ->
         Pid when is_pid(Pid) -> true
     end.
 
+
+%%------------------------------------------------------------------------------
+%% @doc Parse string address to tuple version
+%% @end
+%%------------------------------------------------------------------------------
+fix_address({ip, Address}) when is_list(Address) ->
+    {ok, Addr} = inet:parse_address(Address),
+    {ip, Addr};
+fix_address({ip, Address}) when is_binary(Address) ->
+    fix_address({ip, binary_to_list(Address)});
+fix_address(Opt) ->
+    Opt.
