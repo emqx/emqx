@@ -229,7 +229,7 @@ handle_call({subscribe, {SubId, SubPid}, TopicTable}, _From, State) ->
     %% Add subscriptions
     case mnesia:transaction(fun add_topics/1, [TRecords]) of
         {atomic, _} ->
-            %% store subscription
+            %%TODO: store subscription
             %% mnesia:async_dirty(fun add_subscriptions/2, [SubId, TopicTable]),
             {reply, {ok, [Qos || {_Topic, Qos} <- TopicTable]}, State};
         {aborted, Error} ->
