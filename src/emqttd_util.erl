@@ -22,7 +22,6 @@
 %%% @doc emqttd utility functions
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_util).
 

@@ -22,7 +22,6 @@
 %%% @doc emqttd websocket client
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_ws_client).
 

@@ -22,7 +22,6 @@
 %%% @doc emqttd statistics
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_stats).
 

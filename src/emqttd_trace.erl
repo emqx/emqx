@@ -22,7 +22,6 @@
 %%% @doc Trace MQTT packets/messages by clientid or topic.
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_trace).
 
