@@ -70,7 +70,6 @@ start_listeners() ->
 start_servers(Sup) ->
     Servers = [{"emqttd ctl", emqttd_ctl},
                {"emqttd trace", emqttd_trace},
-               {"emqttd router", {supervisor, emqttd_router_sup}},
                {"emqttd pubsub", {supervisor, emqttd_pubsub_sup}},
                {"emqttd stats", emqttd_stats},
                {"emqttd metrics", emqttd_metrics},

@@ -28,6 +28,8 @@
 
 -include("emqttd.hrl").
 
+-include("emqttd_internal.hrl").
+
 %% Mnesia Callbacks
 -export([mnesia/1]).
 
@@ -35,7 +37,7 @@
 -copy_mnesia({mnesia, [copy]}).
 
 %% API Function Exports
--export([start_link/1, pool/0]).
+-export([start_link/2]).
 
 -export([start_session/2, lookup_session/1]).
 
@@ -50,7 +52,7 @@
 %% gen_server2 priorities
 -export([prioritise_call/4, prioritise_cast/3, prioritise_info/3]).
 
--record(state, {id}).
+-record(state, {pool, id}).
 
 -define(POOL, ?MODULE).
 
@@ -64,7 +66,7 @@
 %%%=============================================================================
 
 mnesia(boot) ->
-    %% global session...
+    %% Global session...
     ok = emqttd_mnesia:create_table(session, [
             {type, ordered_set},
             {ram_copies, [node()]},
@@ -83,9 +85,9 @@ mnesia(copy) ->
 %% @doc Start a session manager
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link(Id :: pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
-start_link(Id) ->
-    gen_server2:start_link({local, name(Id)}, ?MODULE, [Id], []).
+-spec start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
+start_link(Pool, Id) ->
+    gen_server2:start_link({local, name(Id)}, ?MODULE, [Pool, Id], []).
 
 name(Id) ->
     list_to_atom("emqttd_sm_" ++ integer_to_list(Id)).
@@ -141,9 +143,9 @@ call(SM, Req) ->
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([Id]) ->
-    gproc_pool:connect_worker(?POOL, {?MODULE, Id}),
-    {ok, #state{id = Id}}.
+init([Pool, Id]) ->
+    ?GPROC_POOL(join, Pool, Id),
+    {ok, #state{pool = Pool, id = Id}}.
 
 prioritise_call(_Msg, _From, _Len, _State) ->
     1.
@@ -197,8 +199,8 @@ handle_info(Info, State) ->
     lager:error("Unexpected Info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #state{id = Id}) ->
-    gproc_pool:disconnect_worker(?POOL, {?MODULE, Id}), ok.
+terminate(_Reason, #state{pool = Pool, id = Id}) ->
+    ?GPROC_POOL(leave, Pool, Id).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

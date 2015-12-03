@@ -43,38 +43,17 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, [Opts]).
 
 init([Opts]) ->
-    %% Route Table
-    create_route_tabs(Opts),
+    %% PubSub Helper
+    Helper = {helper, {?HELPER, start_link, [Opts]},
+                permanent, infinity, worker, [?HELPER]},
 
     %% PubSub Pool Sup
     MFA = {emqttd_pubsub, start_link, [Opts]},
     PoolSup = emqttd_pool_sup:spec(pool_sup, [
                 pubsub, hash, pool_size(Opts), MFA]),
-
-    %% PubSub Helper
-    Helper = {helper, {?HELPER, start_link, [Opts]},
-                permanent, infinity, worker, [?HELPER]},
     {ok, {{one_for_all, 10, 60}, [Helper, PoolSup]}}.
 
 pool_size(Opts) ->
     Schedulers = erlang:system_info(schedulers),
     proplists:get_value(pool_size, Opts, Schedulers).
-
-create_route_tabs(_Opts) ->
-    TabOpts = [bag, public, named_table,
-               {write_concurrency, true}],
-    %% Route Table: Topic -> {Pid, QoS}
-    %% Route Shard: {Topic, Shard} -> {Pid, QoS}
-    ensure_tab(route, TabOpts),
-
-    %% Reverse Route Table: Pid -> {Topic, QoS}
-    ensure_tab(reverse_route, TabOpts).
-
-ensure_tab(Tab, Opts) ->
-    case ets:info(Tab, name) of
-        undefined ->
-            ets:new(Tab, Opts);
-        _ ->
-            ok
-    end.
 

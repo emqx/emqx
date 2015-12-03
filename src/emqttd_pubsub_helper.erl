@@ -33,7 +33,7 @@
 -define(SERVER, ?MODULE).
 
 %% API Function Exports
--export([start_link/0]).
+-export([start_link/1, clean/1, setstats/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -50,15 +50,30 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+start_link(Opts) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [Opts], []).
+
+clean(Topics) ->
+    ok.
+
+setstats(topic) ->
+    Size = mnesia:table_info(topic, size),
+    emqttd_stats:setstats('topics/count', 'topics/max', Size);
+
+setstats(subscription) ->
+    ok.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init(Args) ->
-    {ok, Args}.
+init([Opts]) ->
+    %% Aging Timer
+    AgingSecs = proplists:get_value(aging, Opts, 5),
+
+    {ok, TRef} = timer:send_interval(timer:seconds(AgingSecs), aging),
+
+    {ok, #state{aging = #aging{topics = [], timer = TRef}}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -69,7 +84,8 @@ handle_cast(_Msg, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, #state{aging = #aging{timer = TRef}}) ->
+    timer:cancel(TRef),
     TopicR = #mqtt_topic{_ = '_', node = node()},
     F = fun() ->
             [mnesia:delete_object(topic, R, write) || R <- mnesia:match_object(topic, TopicR, write)]
@@ -84,4 +100,20 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+try_remove_topic(TopicR = #mqtt_topic{topic = Topic}) ->
+    case mnesia:read({subscriber, Topic}) of
+        [] ->
+            mnesia:delete_object(topic, TopicR, write),
+            case mnesia:read(topic, Topic) of
+                [] -> emqttd_trie:delete(Topic);		
+                _ -> ok
+            end;
+         _ -> 
+            ok
+ 	end.
+
+%%%=============================================================================
+%%% Stats functions
+%%%=============================================================================
 

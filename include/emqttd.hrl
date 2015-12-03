@@ -63,9 +63,9 @@
 %% MQTT Subscription
 %%------------------------------------------------------------------------------
 -record(mqtt_subscription, {
-    clientid :: binary() | atom(),
-    topic    :: binary(),
-    qos = 0  :: 0 | 1 | 2
+    subid   :: binary() | atom(),
+    topic   :: binary(),
+    qos = 0 :: 0 | 1 | 2
 }).
 
 -type mqtt_subscription() :: #mqtt_subscription{}.
