@@ -27,7 +27,6 @@
 %%% @end
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_trie).
 
@@ -63,16 +62,17 @@
 %%%=============================================================================
 
 %%------------------------------------------------------------------------------
-%% @doc Create trie tables
+%% @doc Create Trie Tables
 %% @end
 %%------------------------------------------------------------------------------
 -spec mnesia(boot | copy) -> ok.
 mnesia(boot) ->
-    %% trie tree tables
+    %% Trie Table
     ok = emqttd_mnesia:create_table(trie, [
                 {ram_copies, [node()]},
                 {record_name, trie},
                 {attributes, record_info(fields, trie)}]),
+    %% Trie Node Table
     ok = emqttd_mnesia:create_table(trie_node, [
                 {ram_copies, [node()]},
                 {record_name, trie_node},
@@ -83,7 +83,9 @@ mnesia(boot) ->
 %% @end
 %%------------------------------------------------------------------------------
 mnesia(copy) ->
+    %% Copy Trie Table
     ok = emqttd_mnesia:copy_table(trie),
+    %% Copy Trie Node Table
     ok = emqttd_mnesia:copy_table(trie_node).
 
 %%%=============================================================================
