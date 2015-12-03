@@ -153,6 +153,9 @@
             %% Route shard
             {route_shard, true},
 
+            %% Route delay, false | integer
+            {route_delay, false},
+
             %% Route aging time(seconds)
             {route_aging, 10}
         ]},
