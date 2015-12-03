@@ -22,7 +22,6 @@
 %%% @doc emqttd auto subscribe module.
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_mod_autosub).
 

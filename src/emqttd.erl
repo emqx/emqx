@@ -22,7 +22,6 @@
 %%% @doc emqttd main module.
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd).
 

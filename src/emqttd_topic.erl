@@ -22,7 +22,6 @@
 %%% @doc MQTT Topic Functions
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_topic).
 

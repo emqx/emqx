@@ -22,7 +22,6 @@
 %%% @doc emqttd ACL Rule
 %%% 
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_access_rule).
 

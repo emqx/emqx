@@ -22,7 +22,6 @@
 %%% @doc emqttd system monitor
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_sysmon).
 

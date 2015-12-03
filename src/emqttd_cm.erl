@@ -22,7 +22,6 @@
 %%% @doc MQTT Client Manager
 %%%  
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_cm).
 

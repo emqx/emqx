@@ -22,7 +22,6 @@
 %%% @doc MQTT Message Functions
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_message).
 

@@ -22,7 +22,6 @@
 %%% @doc Session Manager
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_sm).
 
@@ -66,14 +65,14 @@
 %%%=============================================================================
 
 mnesia(boot) ->
-    %% Global session...
+    %% Global Session Table
     ok = emqttd_mnesia:create_table(session, [
-            {type, ordered_set},
-            {ram_copies, [node()]},
-            {record_name, mqtt_session},
-            {attributes, record_info(fields, mqtt_session)},
-            {index, [sess_pid]}]);
-
+                {type, ordered_set},
+                {ram_copies, [node()]},
+                {record_name, mqtt_session},
+                {attributes, record_info(fields, mqtt_session)},
+                %% TODO: index_read is slow...
+                {index, [sess_pid]}]);
 mnesia(copy) ->
     ok = emqttd_mnesia:copy_table(session).
 

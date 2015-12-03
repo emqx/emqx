@@ -22,7 +22,6 @@
 %%% @doc emqttd pubsub
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_pubsub).
 
@@ -66,31 +65,46 @@
 %%%=============================================================================
 %%% Mnesia callbacks
 %%%=============================================================================
-
 mnesia(boot) ->
-    %% Topic Table
-    ok = emqttd_mnesia:create_table(topic, [
-                {type, bag},
-                {ram_copies, [node()]},
-                {record_name, mqtt_topic},
-                {attributes, record_info(fields, mqtt_topic)}]),
-    RamOrDisc = case env(subscription) of
-        disc -> disc_copies;
-        _    -> ram_copies
-    end,
-    %% Subscription Table
-    ok = emqttd_mnesia:create_table(subscription, [
-                {type, bag},
-                {RamOrDisc, [node()]},
-                {record_name, mqtt_subscription},
-                {attributes, record_info(fields, mqtt_subscription)}]);
+    ok = create_table(topic, ram_copies),
+    case env(subscription) of
+        disc  -> ok = create_table(subscription, disc_copies);
+        ram   -> ok = create_table(subscription, ram_copies);
+        false -> ok
+    end;
 
 mnesia(copy) ->
     ok = emqttd_mnesia:copy_table(topic),
-    ok = emqttd_mnesia:copy_table(subscription).
+    case env(subscription) of
+        false -> ok;
+        _     -> ok = emqttd_mnesia:copy_table(subscription)
+    end.
+
+%% Topic Table
+create_table(topic, RamOrDisc) ->
+    emqttd_mnesia:create_table(topic, [
+            {type, bag},
+            {RamOrDisc, [node()]},
+            {record_name, mqtt_topic},
+            {attributes, record_info(fields, mqtt_topic)}]);
+
+%% Subscription Table
+create_table(subscription, RamOrDisc) ->
+    emqttd_mnesia:create_table(subscription, [
+            {type, bag},
+            {RamOrDisc, [node()]},
+            {record_name, mqtt_subscription},
+            {attributes, record_info(fields, mqtt_subscription)}]).
 
 env(Key) ->
-    proplists:get_value(Key, emqttd_broker:env(pubsub)).
+    case get({pubsub, Key}) of
+        undefined ->
+            Val = proplists:get_value(Key, emqttd_broker:env(pubsub)),
+            put({pubsub, Key}, Val),
+            Val;
+        Val ->
+            Val
+    end.
 
 %%%=============================================================================
 %%% API
@@ -309,7 +323,7 @@ remove_subscriptions(SubId, Topics) ->
 %%%=============================================================================
 
 trace(publish, From, _Msg) when is_atom(From) ->
-    %% Dont' trace broker publish
+    %% Dont' trace '$SYS' publish
     ignore;
 
 trace(publish, From, #mqtt_message{topic = Topic, payload = Payload}) ->

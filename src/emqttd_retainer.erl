@@ -26,7 +26,6 @@
 %%% @end
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%% 
 %%%-----------------------------------------------------------------------------
 -module(emqttd_retainer).
 
@@ -66,7 +65,6 @@ mnesia(boot) ->
                 {ram_copies, [node()]},
                 {record_name, mqtt_retained},
                 {attributes, record_info(fields, mqtt_retained)}]);
-
 mnesia(copy) ->
     ok = emqttd_mnesia:copy_table(retained).
 

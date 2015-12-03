@@ -22,7 +22,6 @@
 %%% @doc Authentication with username and password
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_auth_username).
 

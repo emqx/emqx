@@ -22,7 +22,6 @@
 %%% @doc emqttd metrics. responsible for collecting broker metrics
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_metrics).
 

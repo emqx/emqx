@@ -22,7 +22,6 @@
 %%% @doc Authentication and ACL Control Server
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_access_control).
 

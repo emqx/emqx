@@ -22,7 +22,6 @@
 %%% @doc emqttd module supervisor.
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_mod_sup).
 

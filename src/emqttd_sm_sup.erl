@@ -22,7 +22,6 @@
 %%% @doc Session Manager Supervisor.
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_sm_sup).
 

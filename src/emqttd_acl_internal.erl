@@ -22,7 +22,6 @@
 %%% @doc Internal ACL that load rules from etc/acl.config
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_acl_internal).
 

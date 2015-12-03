@@ -22,7 +22,6 @@
 %%% @doc emqttd http publish API and websocket client.
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_http).
 

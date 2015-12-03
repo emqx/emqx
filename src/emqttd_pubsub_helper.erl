@@ -22,7 +22,6 @@
 %%% @doc PubSub Helper
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_pubsub_helper).
 

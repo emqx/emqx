@@ -22,7 +22,6 @@
 %%% @doc Session Helper.
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_sm_helper).
 

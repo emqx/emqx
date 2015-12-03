@@ -22,7 +22,6 @@
 %%% @doc Common Pool Supervisor
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_pool_sup).
 

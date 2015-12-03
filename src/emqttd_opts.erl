@@ -22,7 +22,6 @@
 %%% @doc emqttd options handler.
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_opts).
 

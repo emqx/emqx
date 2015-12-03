@@ -22,7 +22,6 @@
 %%% @doc emqttd net utility functions. some functions copied from rabbitmq.
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_net).
 

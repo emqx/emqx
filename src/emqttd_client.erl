@@ -22,7 +22,6 @@
 %%% @doc MQTT Client Connection
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_client).
 

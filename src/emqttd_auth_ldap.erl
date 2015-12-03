@@ -22,7 +22,6 @@
 %%% @doc LDAP Authentication Module
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_auth_ldap).
 

@@ -22,7 +22,6 @@
 %%% @doc emqttd distribution functions
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_dist).
 

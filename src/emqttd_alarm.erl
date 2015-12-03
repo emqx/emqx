@@ -22,7 +22,6 @@
 %%% @doc Copy alarm_handler
 %%% 
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_alarm).
 

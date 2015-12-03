@@ -22,7 +22,6 @@
 %%% @doc PubSub Supervisor
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_pubsub_sup).
 
@@ -39,8 +38,7 @@
 -export([init/1]).
 
 start_link() ->
-    Opts = emqttd_broker:env(pubsub),
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [Opts]).
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [emqttd_broker:env(pubsub)]).
 
 init([Opts]) ->
     %% PubSub Helper

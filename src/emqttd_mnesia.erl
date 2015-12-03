@@ -22,7 +22,6 @@
 %%% @doc emqttd mnesia
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
-%%%
 %%%-----------------------------------------------------------------------------
 -module(emqttd_mnesia).
 
@@ -121,7 +120,7 @@ copy_table(Table) ->
 %%------------------------------------------------------------------------------
 wait_for_tables() -> 
     %%TODO: is not right?
-    %%lager:info("local_tables: ~p", [mnesia:system_info(local_tables)]),
+    io:format("mnesia wait_for_tables: ~p~n", [mnesia:system_info(local_tables)]),
     mnesia:wait_for_tables(mnesia:system_info(local_tables), infinity).
 
 %%------------------------------------------------------------------------------
