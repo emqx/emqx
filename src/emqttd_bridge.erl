@@ -119,12 +119,12 @@ handle_info({dispatch, Msg}, State = #state{mqueue = MQ, status = down}) ->
 
 handle_info({dispatch, Msg}, State = #state{node = Node, status = up}) ->
     rpc:cast(Node, emqttd_pubsub, publish, [transform(Msg, State)]),
-    {noreply, State};
+    {noreply, State, hibernate};
 
 handle_info({nodedown, Node}, State = #state{node = Node, ping_down_interval = Interval}) ->
     lager:warning("Bridge Node Down: ~p", [Node]),
     erlang:send_after(Interval, self(), ping_down_node),
-    {noreply, State#state{status = down}};
+    {noreply, State#state{status = down}, hibernate};
 
 handle_info({nodeup, Node}, State = #state{node = Node}) ->
     %% TODO: Really fast??

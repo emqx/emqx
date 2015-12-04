@@ -48,7 +48,7 @@
 %%------------------------------------------------------------------------------
 -spec start() -> ok | {error, any()}.
 start() ->
-    application:start(emqttd).
+    application:start(?APP).
 
 %%------------------------------------------------------------------------------
 %% @doc Get environment
@@ -56,7 +56,7 @@ start() ->
 %%------------------------------------------------------------------------------
 -spec env(atom()) -> list().
 env(Group) ->
-    application:get_env(emqttd, Group, []).
+    application:get_env(?APP, Group, []).
 
 -spec env(atom(), atom()) -> undefined | any().
 env(Group, Name) ->
@@ -111,11 +111,14 @@ stop_listener({Protocol, Port, _Options}) ->
     esockd:close({Protocol, Port}).
 
 load_all_mods() ->
-    lists:foreach(fun({Name, Opts}) ->
-        Mod = list_to_atom("emqttd_mod_" ++ atom_to_list(Name)),
-        Mod:load(Opts),
-        lager:info("load module ~s successfully", [Name])
-    end, env(modules)).
+    lists:foreach(fun load_mod/1, env(modules)).
+
+load_mod({Name, Opts}) ->
+    Mod = list_to_atom("emqttd_mod_" ++ atom_to_list(Name)),
+    case catch Mod:load(Opts) of
+        {ok, _State}     -> lager:info("load module ~s successfully", [Name]);
+        {'EXIT', Reason} -> lager:error("load module ~s error: ~p", [Name, Reason])
+    end.
 
 is_mod_enabled(Name) ->
     env(modules, Name) =/= undefined.
@@ -125,7 +128,7 @@ is_mod_enabled(Name) ->
 %% @end
 %%------------------------------------------------------------------------------
 is_running(Node) ->
-    case rpc:call(Node, erlang, whereis, [emqttd]) of
+    case rpc:call(Node, erlang, whereis, [?APP]) of
         {badrpc, _}          -> false;
         undefined            -> false;
         Pid when is_pid(Pid) -> true

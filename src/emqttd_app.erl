@@ -78,7 +78,7 @@ start_servers(Sup) ->
                {"emqttd mod supervisor", emqttd_mod_sup},
                {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}},
                {"emqttd access control", emqttd_access_control},
-               {"emqttd system monitor", emqttd_sysmon, emqttd:env(sysmon)}],
+               {"emqttd system monitor", {supervisor, emqttd_sysmon_sup}}],
     [start_server(Sup, Server) || Server <- Servers].
 
 start_server(_Sup, {Name, F}) when is_function(F) ->

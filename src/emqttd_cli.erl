@@ -39,6 +39,8 @@
          clients/1, sessions/1, plugins/1, listeners/1,
          vm/1, mnesia/1, trace/1]).
 
+%% TODO: topics, subscriptions...
+
 -define(PROC_INFOKEYS, [status,
                         memory,
                         message_queue_len,
@@ -46,6 +48,8 @@
                         heap_size,
                         stack_size,
                         reductions]).
+
+-define(APP, emqttd).
 
 load() ->
     Cmds = [Fun || {Fun, _} <- ?MODULE:module_info(exports), is_cmd(Fun)],
@@ -65,10 +69,10 @@ is_cmd(Fun) ->
 status([]) ->
     {InternalStatus, _ProvidedStatus} = init:get_status(),
     ?PRINT("Node ~p is ~p~n", [node(), InternalStatus]),
-    case lists:keysearch(emqttd, 1, application:which_applications()) of
+    case lists:keysearch(?APP, 1, application:which_applications()) of
     false ->
         ?PRINT_MSG("emqttd is not running~n");
-    {value, {emqttd, _Desc, Vsn}} ->
+    {value, {?APP, _Desc, Vsn}} ->
         ?PRINT("emqttd ~s is running~n", [Vsn])
     end;
 status(_) ->
@@ -129,13 +133,9 @@ cluster([SNode]) ->
         false ->
             cluster(Node, fun() ->
                 emqttd_plugins:unload(),
-                application:stop(emqttd),
-                application:stop(esockd),
-                application:stop(gproc),
+                stop_apps(),
                 emqttd_mnesia:cluster(Node),
-                application:start(gproc),
-                application:start(esockd),
-                application:start(emqttd)
+                start_apps() 
            end)
     end;
 
@@ -156,6 +156,12 @@ cluster(pong, Node, DoCluster) ->
 
 cluster(pang, Node, _DoCluster) ->
     ?PRINT("Cannot connect to ~s~n", [Node]).
+
+stop_apps() ->
+    [application:stop(App) || App <- [emqttd, esockd, gproc]].
+
+start_apps() ->
+    [application:start(App) || App <- [gproc, esockd, emqttd]].
 
 %%------------------------------------------------------------------------------
 %% @doc Query clients

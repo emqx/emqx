@@ -80,7 +80,7 @@ start_bridge(Node, SubTopic, Options) when is_atom(Node) and is_binary(SubTopic)
 stop_bridge(Node, SubTopic) ->
     ChildId = bridge_id(Node, SubTopic),
     case supervisor:terminate_child(?MODULE, ChildId) of
-        ok -> 
+        ok ->
             supervisor:delete_child(?MODULE, ChildId);
         {error, Reason} ->
             {error, Reason}

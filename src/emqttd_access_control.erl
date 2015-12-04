@@ -59,9 +59,9 @@
 start_link() ->
     start_link(emqttd:env(access)).
 
--spec start_link(AcOpts :: list()) -> {ok, pid()} | ignore | {error, any()}.
-start_link(AcOpts) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [AcOpts], []).
+-spec start_link(Opts :: list()) -> {ok, pid()} | ignore | {error, any()}.
+start_link(Opts) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [Opts], []).
 
 %%------------------------------------------------------------------------------
 %% @doc Authenticate MQTT Client
@@ -73,10 +73,11 @@ auth(Client, Password) when is_record(Client, mqtt_client) ->
 auth(_Client, _Password, []) ->
     {error, "No auth module to check!"};
 auth(Client, Password, [{Mod, State, _Seq} | Mods]) ->
-    case Mod:check(Client, Password, State) of
-        ok -> ok;
+    case catch Mod:check(Client, Password, State) of
+        ok              -> ok;
+        ignore          -> auth(Client, Password, Mods);
         {error, Reason} -> {error, Reason};
-        ignore -> auth(Client, Password, Mods)
+        {'EXIT', Error} -> {error, Error}
     end.
 
 %%------------------------------------------------------------------------------
@@ -114,7 +115,7 @@ reload_acl() ->
 %% @doc Register authentication or ACL module
 %% @end
 %%------------------------------------------------------------------------------
--spec register_mod(Type :: auth | acl, Mod :: atom(), Opts :: list()) -> ok | {error, any()}.
+-spec register_mod(auth | acl, atom(), list()) -> ok | {error, any()}.
 register_mod(Type, Mod, Opts) when Type =:= auth; Type =:= acl->
     register_mod(Type, Mod, Opts, 0).
 
@@ -140,10 +141,9 @@ lookup_mods(Type) ->
         [] -> [];
         [{_, Mods}] -> Mods
     end.
-tab_key(auth) ->
-    auth_modules;
-tab_key(acl) ->
-    acl_modules.
+
+tab_key(auth) -> auth_modules;
+tab_key(acl)  -> acl_modules.
 
 %%------------------------------------------------------------------------------
 %% @doc Stop access control server
@@ -156,10 +156,10 @@ stop() ->
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([AcOpts]) ->
-	ets:new(?ACCESS_CONTROL_TAB, [set, named_table, protected, {read_concurrency, true}]),
-    ets:insert(?ACCESS_CONTROL_TAB, {auth_modules, init_mods(auth, proplists:get_value(auth, AcOpts))}),
-    ets:insert(?ACCESS_CONTROL_TAB, {acl_modules, init_mods(acl, proplists:get_value(acl, AcOpts))}),
+init([Opts]) ->
+	ets:new(?ACCESS_CONTROL_TAB, [set, named_table, protected]),
+    ets:insert(?ACCESS_CONTROL_TAB, {auth_modules, init_mods(auth, proplists:get_value(auth, Opts))}),
+    ets:insert(?ACCESS_CONTROL_TAB, {acl_modules, init_mods(acl, proplists:get_value(acl, Opts))}),
 	{ok, state}.
 
 init_mods(auth, AuthMods) ->
@@ -230,8 +230,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 
 authmod(Name) when is_atom(Name) ->
-	list_to_atom(lists:concat(["emqttd_auth_", Name])).
+    mod(emqttd_auth_, Name).
 
 aclmod(Name) when is_atom(Name) ->
-	list_to_atom(lists:concat(["emqttd_acl_", Name])).
+    mod(emqttd_acl_, Name).
+
+mod(Prefix, Name) ->
+    list_to_atom(lists:concat([Prefix, Name])).
 

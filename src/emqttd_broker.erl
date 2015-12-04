@@ -216,7 +216,7 @@ stop_tick(TRef) ->
 %%%=============================================================================
 
 init([]) ->
-    random:seed(now()),
+    random:seed(os:timestamp()),
     ets:new(?BROKER_TAB, [set, public, named_table]),
     % Create $SYS Topics
     emqttd_pubsub:create(<<"$SYS/brokers">>),
@@ -270,7 +270,7 @@ handle_info(tick, State) ->
     retain(brokers),
     retain(version,  list_to_binary(version())),
     retain(sysdescr, list_to_binary(sysdescr())),
-    {noreply, State};
+    {noreply, State, hibernate};
 
 handle_info(_Info, State) ->
     {noreply, State}.

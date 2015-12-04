@@ -63,7 +63,7 @@ all_rules() ->
 %%------------------------------------------------------------------------------
 -spec init(AclOpts :: list()) -> {ok, State :: any()}.
 init(AclOpts) ->
-    ets:new(?ACL_RULE_TAB, [set, public, named_table, {read_concurrency, true}]),
+    ets:new(?ACL_RULE_TAB, [set, public, named_table]),
     AclFile = proplists:get_value(file, AclOpts),
     Default = proplists:get_value(nomatch, AclOpts, allow),
     State = #state{acl_file = AclFile, nomatch = Default},
@@ -139,6 +139,5 @@ reload_acl(State) ->
 %% @end
 %%------------------------------------------------------------------------------
 -spec description() -> string().
-description() ->
-    "Internal ACL with etc/acl.config".
+description() -> "Internal ACL with etc/acl.config".
 

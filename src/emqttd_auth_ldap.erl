@@ -81,6 +81,5 @@ ldap_bind(LDAP, UserDn, Password) ->
 fill(Username, UserDn) ->
     re:replace(UserDn, "\\$u", Username, [global, {return, list}]).
 
-description() -> 
-    "LDAP Authentication Module".
+description() -> "LDAP Authentication Module".
 

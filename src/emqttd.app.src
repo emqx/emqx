@@ -8,7 +8,8 @@
   {applications, [kernel,
                   stdlib,
                   gproc,
-                  esockd]},
+                  esockd,
+                  mochiweb]},
   {mod, {emqttd_app, []}},
   {env, []}
  ]}.
