@@ -181,12 +181,12 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%=============================================================================
 
-monitor_client(ClientId, Pid, State = #state{monitors = Monintors}) ->
+monitor_client(ClientId, Pid, State = #state{monitors = Monitors}) ->
     MRef = erlang:monitor(process, Pid),
-    State#state{monitors = dict:store(MRef, {ClientId, Pid}, Monintors)}.
+    State#state{monitors = dict:store(MRef, {ClientId, Pid}, Monitors)}.
 
-erase_monitor(MRef, State = #state{monitors = Monintors}) ->
-    State#state{monitors = dict:erase(MRef, Monintors)}.
+erase_monitor(MRef, State = #state{monitors = Monitors}) ->
+    State#state{monitors = dict:erase(MRef, Monitors)}.
 
 setstats(State = #state{statsfun = StatsFun}) ->
     StatsFun(ets:info(mqtt_client, size)), State.
