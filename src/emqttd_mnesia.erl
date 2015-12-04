@@ -35,7 +35,7 @@
 
 start() ->
     case init_schema() of
-        ok -> 
+        ok ->
             ok;
         {error, {_Node, {already_exists, _Node}}} ->
             ok;

@@ -63,16 +63,17 @@ name(Id) ->
 %% @end
 %%------------------------------------------------------------------------------
 submit(Fun) ->
-    Worker = gproc_pool:pick_worker(pooler),
-    gen_server:call(Worker, {submit, Fun}, infinity).
+    gen_server:call(worker(), {submit, Fun}, infinity).
 
 %%------------------------------------------------------------------------------
 %% @doc Submit work to pooler asynchronously
 %% @end
 %%------------------------------------------------------------------------------
 async_submit(Fun) ->
-    Worker = gproc_pool:pick_worker(pooler),
-    gen_server:cast(Worker, {async_submit, Fun}).
+    gen_server:cast(worker(), {async_submit, Fun}).
+
+worker() ->
+    gproc_pool:pick_worker(pooler).
 
 %%%=============================================================================
 %%% gen_server callbacks

@@ -42,16 +42,22 @@ start_link() ->
 
 init([Opts]) ->
     %% PubSub Helper
-    Helper = {helper, {?HELPER, start_link, [Opts]},
+    Helper = {helper, {?HELPER, start_link, [fun stats/1, Opts]},
                 permanent, infinity, worker, [?HELPER]},
 
     %% PubSub Pool Sup
-    MFA = {emqttd_pubsub, start_link, [Opts]},
-    PoolSup = emqttd_pool_sup:spec(pool_sup, [
-                pubsub, hash, pool_size(Opts), MFA]),
+    MFA = {emqttd_pubsub, start_link, [fun stats/1, Opts]},
+    PoolSup = emqttd_pool_sup:spec([pubsub, hash, pool_size(Opts), MFA]),
     {ok, {{one_for_all, 10, 60}, [Helper, PoolSup]}}.
 
 pool_size(Opts) ->
     Schedulers = erlang:system_info(schedulers),
     proplists:get_value(pool_size, Opts, Schedulers).
+
+stats(topic) ->
+    emqttd_stats:setstats('topics/count', 'topics/max',
+                          mnesia:table_info(topic, size));
+stats(subscription) ->
+    emqttd_stats:setstats('subscriptions/count', 'subscriptions/max',
+                          mnesia:table_info(subscription, size)).
 

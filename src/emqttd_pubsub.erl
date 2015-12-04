@@ -40,9 +40,9 @@
 -copy_mnesia({mnesia, [copy]}).
 
 %% API Exports 
--export([start_link/3]).
+-export([start_link/4]).
 
--export([create/1, subscribe/1, subscribe/2,
+-export([create/2, subscribe/1, subscribe/2,
          unsubscribe/1, unsubscribe/2, publish/1]).
 
 %% Local node
@@ -56,7 +56,7 @@
 -compile(export_all).
 -endif.
 
--record(state, {pool, id}).
+-record(state, {pool, id, statsfun}).
 
 -define(ROUTER, emqttd_router).
 
@@ -123,24 +123,31 @@ cache_env(Key) ->
 %% @doc Start one pubsub server
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link(Pool, Id, Opts) -> {ok, pid()} | ignore | {error, any()} when
-    Pool :: atom(),
-    Id   :: pos_integer(),
-    Opts :: list(tuple()).
-start_link(Pool, Id, Opts) ->
-    gen_server2:start_link({local, name(Id)}, ?MODULE, [Pool, Id, Opts], []).
+-spec start_link(Pool, Id, StatsFun, Opts) -> {ok, pid()} | ignore | {error, any()} when
+    Pool     :: atom(),
+    Id       :: pos_integer(),
+    StatsFun :: fun(),
+    Opts     :: list(tuple()).
+start_link(Pool, Id, StatsFun, Opts) ->
+    gen_server2:start_link({local, name(Id)}, ?MODULE, [Pool, Id, StatsFun, Opts], []).
 
 name(Id) ->
     list_to_atom("emqttd_pubsub_" ++ integer_to_list(Id)).
 
 %%------------------------------------------------------------------------------
-%% @doc Create Topic.
+%% @doc Create Topic or Subscription.
 %% @end
 %%------------------------------------------------------------------------------
--spec create(Topic :: binary()) -> ok | {error, Error :: any()}.
-create(Topic) when is_binary(Topic) ->
+-spec create(topic | subscription, binary()) -> ok | {error, any()}.
+create(topic, Topic) when is_binary(Topic) ->
     Record = #mqtt_topic{topic = Topic, node = node()},
     case mnesia:transaction(fun add_topic/1, [Record]) of
+        {atomic, ok}     -> ok;
+        {aborted, Error} -> {error, Error}
+    end;
+
+create(subscription, {SubId, Topic, Qos}) ->
+    case mnesia:transaction(fun add_subscription/2, [SubId, {Topic, Qos}]) of
         {atomic, ok}     -> ok;
         {aborted, Error} -> {error, Error}
     end.
@@ -233,12 +240,13 @@ match(Topic) when is_binary(Topic) ->
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([Pool, Id, Opts]) ->
+init([Pool, Id, StatsFun, Opts]) ->
     ?ROUTER:init(Opts),
     ?GPROC_POOL(join, Pool, Id),
-    {ok, #state{pool = Pool, id = Id}}.
+    {ok, #state{pool = Pool, id = Id, statsfun = StatsFun}}.
 
-handle_call({subscribe, {SubId, SubPid}, TopicTable}, _From, State) ->
+handle_call({subscribe, {SubId, SubPid}, TopicTable}, _From,
+            State = #state{statsfun = StatsFun}) ->
     %% Add routes first
     ?ROUTER:add_routes(TopicTable, SubPid),
 
@@ -247,11 +255,13 @@ handle_call({subscribe, {SubId, SubPid}, TopicTable}, _From, State) ->
 
     case mnesia:transaction(fun add_topics/1, [Topics]) of
         {atomic, _} ->
+            StatsFun(topic),
             if_subscription(
                 fun(_) ->
                     %% Add subscriptions
                     Args = [fun add_subscriptions/2, [SubId, TopicTable]],
-                    emqttd_pooler:async_submit({mnesia, async_dirty, Args})
+                    emqttd_pooler:async_submit({mnesia, async_dirty, Args}),
+                    StatsFun(subscription)
                 end),
             {reply, {ok, [Qos || {_Topic, Qos} <- TopicTable]}, State};
         {aborted, Error} ->
@@ -262,14 +272,16 @@ handle_call(Req, _From, State) ->
     lager:error("Bad Request: ~p", [Req]),
 	{reply, {error, badreq}, State}.
 
-handle_cast({unsubscribe, {SubId, SubPid}, Topics}, State) ->
+handle_cast({unsubscribe, {SubId, SubPid}, Topics}, State = #state{statsfun = StatsFun}) ->
     %% Delete routes first
     ?ROUTER:delete_routes(Topics, SubPid),
+
     %% Remove subscriptions
     if_subscription(
         fun(_) ->
             Args = [fun remove_subscriptions/2, [SubId, Topics]],
-            emqttd_pooler:async_submit({mnesia, async_dirty, Args})
+            emqttd_pooler:async_submit({mnesia, async_dirty, Args}),
+            StatsFun(subscription)
         end),
     {noreply, State};
 
@@ -311,7 +323,7 @@ add_topic(TopicR = #mqtt_topic{topic = Topic}) ->
             mnesia:write(topic, TopicR, write);
         Records ->
             case lists:member(TopicR, Records) of
-                true -> ok;
+                true  -> ok;
                 false -> mnesia:write(topic, TopicR, write)
             end
     end.
@@ -320,19 +332,35 @@ add_subscriptions(undefined, _TopicTable) ->
     ok;
 add_subscriptions(SubId, TopicTable) ->
     lists:foreach(fun({Topic, Qos}) ->
-            %%TODO: this is not right...
-            Subscription = #mqtt_subscription{subid = SubId, topic = Topic, qos = Qos},
-            mnesia:write(subscription, Subscription, write)
-        end,TopicTable).
+                    add_subscription(SubId, {Topic, Qos})
+                  end,TopicTable).
+
+add_subscription(SubId, {Topic, Qos}) ->
+    Subscription = #mqtt_subscription{subid = SubId, topic = Topic, qos = Qos},
+    Pattern = #mqtt_subscription{subid = SubId, topic = Topic, qos = '_'},
+    Records = mnesia:match_object(subscription, Pattern, write),
+    case lists:member(Subscription, Records) of
+        true  ->
+            ok;
+        false ->
+            [delete_subscription(Record) || Record <- Records],
+            insert_subscription(Subscription)
+    end.
+
+insert_subscription(Record) ->
+    mnesia:write(subscription, Record, write).
 
 remove_subscriptions(undefined, _Topics) ->
     ok;
 remove_subscriptions(SubId, Topics) ->
     lists:foreach(fun(Topic) ->
          Pattern = #mqtt_subscription{subid = SubId, topic = Topic, qos = '_'},
-         [mnesia:delete_object(subscription, Subscription, write)
-            || Subscription <- mnesia:match_object(subscription, Pattern, write)]
+         Records = mnesia:match_object(subscription, Pattern, write),
+         [delete_subscription(Record) || Record <- Records]
      end, Topics).
+
+delete_subscription(Record) ->
+    mnesia:delete_object(subscription, Record, write).
 
 %%%=============================================================================
 %%% Trace Functions

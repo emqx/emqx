@@ -28,14 +28,18 @@
 -behaviour(supervisor).
 
 %% API
--export([spec/2, start_link/3, start_link/4]).
+-export([spec/1, spec/2, start_link/3, start_link/4]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
+-spec spec(list()) -> supervisor:child_spec().
+spec(Args) ->
+    spec(pool_sup, Args).
+
 -spec spec(any(), list()) -> supervisor:child_spec().
-spec(Id, Args) ->
-    {Id, {?MODULE, start_link, Args},
+spec(ChildId, Args) ->
+    {ChildId, {?MODULE, start_link, Args},
         transient, infinity, supervisor, [?MODULE]}.
 
 -spec start_link(atom(), atom(), mfa()) -> {ok, pid()} | {error, any()}.
@@ -47,7 +51,7 @@ start_link(Pool, Type, MFA) ->
 start_link(Pool, Type, Size, MFA) ->
     supervisor:start_link({local, sup_name(Pool)}, ?MODULE, [Pool, Type, Size, MFA]).
 
-sup_name(Pool) ->
+sup_name(Pool) when is_atom(Pool) ->
     list_to_atom(atom_to_list(Pool) ++ "_pool_sup").
 
 init([Pool, Type, Size, {M, F, Args}]) ->

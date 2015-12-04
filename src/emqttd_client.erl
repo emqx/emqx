@@ -36,7 +36,7 @@
 %% API Function Exports
 -export([start_link/2, session/1, info/1, kick/1]).
 
-%% SUB/UNSUB Asynchronously, called by plugins.
+%% SUB/UNSUB Asynchronously. Called by plugins.
 -export([subscribe/2, unsubscribe/2]).
 
 %% gen_server Function Exports
@@ -243,7 +243,7 @@ with_session(Fun, State = #client_state{proto_state = ProtoState}) ->
     Fun(emqttd_protocol:session(ProtoState)),
     hibernate(State).
 
-%% receive and parse tcp data
+%% Receive and parse tcp data
 received(<<>>, State) ->
     hibernate(State);
 

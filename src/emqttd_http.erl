@@ -41,7 +41,7 @@ handle_request('GET', "/status", Req) ->
     AppStatus =
     case lists:keysearch(emqttd, 1, application:which_applications()) of
         false         -> not_running;
-        {value, _Ver} -> running
+        {value, _Val} -> running
     end,
     Status = io_lib:format("Node ~s is ~s~nemqttd is ~s",
                             [node(), InternalStatus, AppStatus]),
@@ -78,7 +78,7 @@ handle_request('POST', "/mqtt/publish", Req) ->
 %% MQTT Over WebSocket
 %%------------------------------------------------------------------------------
 handle_request('GET', "/mqtt", Req) ->
-    lager:info("Websocket Connection from: ~s", [Req:get(peer)]),
+    lager:info("WebSocket Connection from: ~s", [Req:get(peer)]),
     Upgrade = Req:get_header_value("Upgrade"),
     Proto   = Req:get_header_value("Sec-WebSocket-Protocol"),
     case {is_websocket(Upgrade), Proto} of

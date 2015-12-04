@@ -35,14 +35,12 @@ merge(Defaults, Options) ->
     lists:foldl(
         fun({Opt, Val}, Acc) ->
                 case lists:keymember(Opt, 1, Acc) of
-                    true ->
-                        lists:keyreplace(Opt, 1, Acc, {Opt, Val});
-                    false ->
-                        [{Opt, Val}|Acc]
+                    true  -> lists:keyreplace(Opt, 1, Acc, {Opt, Val});
+                    false -> [{Opt, Val}|Acc]
                 end;
             (Opt, Acc) ->
                 case lists:member(Opt, Acc) of
-                    true -> Acc;
+                    true  -> Acc;
                     false -> [Opt | Acc]
                 end
         end, Defaults, Options).

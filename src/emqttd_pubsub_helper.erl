@@ -30,7 +30,7 @@
 -include("emqttd.hrl").
 
 %% API Function Exports
--export([start_link/1, aging/1, setstats/1]).
+-export([start_link/2, aging/1]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -42,7 +42,7 @@
 
 -record(aging, {topics, time, tref}).
 
--record(state, {aging :: #aging{}}).
+-record(state, {aging :: #aging{}, statsfun}).
 
 -define(SERVER, ?MODULE).
 
@@ -53,12 +53,12 @@
 %%%=============================================================================
 
 %%------------------------------------------------------------------------------
-%% @doc Start pubsub helper. 
+%% @doc Start pubsub helper.
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link(list(tuple())) -> {ok, pid()} | ignore | {error, any()}. 
-start_link(Opts) ->
-    gen_server2:start_link({local, ?SERVER}, ?MODULE, [Opts], []).
+-spec start_link(fun(), list(tuple())) -> {ok, pid()} | ignore | {error, any()}.
+start_link(StatsFun, Opts) ->
+    gen_server2:start_link({local, ?SERVER}, ?MODULE, [StatsFun, Opts], []).
 
 %%------------------------------------------------------------------------------
 %% @doc Aging topics
@@ -68,19 +68,11 @@ start_link(Opts) ->
 aging(Topics) ->
     gen_server2:cast(?SERVER, {aging, Topics}).
 
-setstats(topic) ->
-    emqttd_stats:setstats('topics/count', 'topics/max',
-                          mnesia:table_info(topic, size));
-setstats(subscription) ->
-    emqttd_stats:setstats('subscriptions/count', 'subscriptions/max',
-                          mnesia:table_info(subscription, size)).
-
 %%%=============================================================================
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([Opts]) ->
-
+init([StatsFun, Opts]) ->
     mnesia:subscribe(system),
 
     AgingSecs = proplists:get_value(route_aging, Opts, 5),
@@ -90,13 +82,15 @@ init([Opts]) ->
 
     {ok, #state{aging = #aging{topics = dict:new(),
                                time   = AgingSecs,
-                               tref   = AgingTref}}}.
+                               tref   = AgingTref},
+               statsfun = StatsFun}}.
 
 start_tick(Secs) ->
     timer:send_interval(timer:seconds(Secs), {clean, aged}).
 
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+handle_call(Req, _From, State) ->
+    lager:error("Unexpected Request: ~p", [Req]),
+    {reply, {error, unsupported_request}, State}.
 
 handle_cast({aging, Topics}, State = #state{aging = Aging}) ->
     #aging{topics = Dict} = Aging,
@@ -123,7 +117,7 @@ handle_info({clean, aged}, State = #state{aging = Aging}) ->
 
     NewAging = Aging#aging{topics = dict:from_list(Dict1)},
 
-    {noreply, State#state{aging = NewAging}, hibernate};
+    noreply(State#state{aging = NewAging});
 
 handle_info({mnesia_system_event, {mnesia_down, Node}}, State) ->
     Pattern = #mqtt_topic{_ = '_', node = Node},
@@ -132,7 +126,7 @@ handle_info({mnesia_system_event, {mnesia_down, Node}}, State) ->
                 R <- mnesia:match_object(topic, Pattern, write)]
         end,
     mnesia:async_dirty(F),
-    {noreply, State};
+    noreply(State);
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -146,6 +140,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 %%% Internal Functions
 %%%=============================================================================
+
+noreply(State = #state{statsfun = StatsFun}) ->
+    StatsFun(topic), {noreply, State, hibernate}.
 
 try_clean(ByTime, List) ->
     try_clean(ByTime, List, []).

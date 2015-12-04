@@ -48,7 +48,7 @@ init([]) ->
 
     %% CM Pool Sup
     MFA = {?CM, start_link, [emqttd_stats:statsfun('clients/count', 'clients/max')]},
-    PoolSup = emqttd_pool_sup:spec(pool_sup, [?CM, hash, erlang:system_info(schedulers), MFA]),
+    PoolSup = emqttd_pool_sup:spec([?CM, hash, erlang:system_info(schedulers), MFA]),
 
     {ok, {{one_for_all, 10, 3600}, [PoolSup]}}.
 
