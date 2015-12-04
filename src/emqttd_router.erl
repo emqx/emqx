@@ -39,7 +39,7 @@
 
 -include("emqttd_protocol.hrl").
 
--export([init/1, route/2, lookup_routes/1,
+-export([init/1, route/2, lookup_routes/1, has_route/1,
          add_routes/2, delete_routes/1, delete_routes/2]).
 
 -ifdef(TEST).
@@ -91,6 +91,14 @@ add_routes(TopicTable, Pid) when is_pid(Pid) ->
 -spec lookup_routes(pid()) -> list({binary(), mqtt_qos()}).
 lookup_routes(Pid) when is_pid(Pid) ->
     [{Topic, Qos} || {_, Topic, Qos} <- ets:lookup(reverse_route, Pid)].
+
+%%------------------------------------------------------------------------------
+%% @doc Has Route
+%% @end
+%%------------------------------------------------------------------------------
+-spec has_route(binary()) -> boolean().
+has_route(Topic) ->
+    ets:member(route, Topic).
 
 %%------------------------------------------------------------------------------
 %% @doc Delete Routes.

@@ -67,18 +67,16 @@
 %%%=============================================================================
 mnesia(boot) ->
     ok = create_table(topic, ram_copies),
-    case env(subscription) of
-        disc  -> ok = create_table(subscription, disc_copies);
-        ram   -> ok = create_table(subscription, ram_copies);
-        false -> ok
-    end;
+    if_subscription(fun(RamOrDisc) ->
+                      ok = create_table(subscription, RamOrDisc)
+                    end);
 
 mnesia(copy) ->
     ok = emqttd_mnesia:copy_table(topic),
-    case env(subscription) of
-        false -> ok;
-        _     -> ok = emqttd_mnesia:copy_table(subscription)
-    end.
+    %% Only one disc_copy???
+    if_subscription(fun(_RamOrDisc) ->
+                      ok = emqttd_mnesia:copy_table(subscription)
+                    end).
 
 %% Topic Table
 create_table(topic, RamOrDisc) ->
@@ -96,15 +94,26 @@ create_table(subscription, RamOrDisc) ->
             {record_name, mqtt_subscription},
             {attributes, record_info(fields, mqtt_subscription)}]).
 
+if_subscription(Fun) ->
+    case env(subscription) of
+        disc      -> Fun(disc_copies);
+        ram       -> Fun(ram_copies);
+        false     -> ok;
+        undefined -> ok
+    end.
+
 env(Key) ->
     case get({pubsub, Key}) of
         undefined ->
-            Val = proplists:get_value(Key, emqttd_broker:env(pubsub)),
-            put({pubsub, Key}, Val),
-            Val;
+            cache_env(Key);
         Val ->
             Val
     end.
+
+cache_env(Key) ->
+    Val = emqttd_opts:g(Key, emqttd_broker:env(pubsub)),
+    put({pubsub, Key}, Val),
+    Val.
 
 %%%=============================================================================
 %%% API
@@ -217,7 +226,8 @@ publish(Topic, Msg) when is_binary(Topic) ->
 -spec match(Topic :: binary()) -> [mqtt_topic()].
 match(Topic) when is_binary(Topic) ->
 	MatchedTopics = mnesia:async_dirty(fun emqttd_trie:match/1, [Topic]),
-	lists:append([mnesia:dirty_read(topic, Name) || Name <- MatchedTopics]).
+    %% ets:lookup for topic table will be copied.
+	lists:append([ets:lookup(topic, Name) || Name <- MatchedTopics]).
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -226,25 +236,23 @@ match(Topic) when is_binary(Topic) ->
 init([Pool, Id, Opts]) ->
     ?ROUTER:init(Opts),
     ?GPROC_POOL(join, Pool, Id),
-    process_flag(priority, high),
     {ok, #state{pool = Pool, id = Id}}.
 
 handle_call({subscribe, {SubId, SubPid}, TopicTable}, _From, State) ->
-    %% Clean aging topics
-    ?HELPER:clean([Topic || {Topic, _Qos} <- TopicTable]),
-
     %% Add routes first
     ?ROUTER:add_routes(TopicTable, SubPid),
 
     %% Add topics
-    Node = node(),
-    TRecords = [#mqtt_topic{topic = Topic, node = Node} || {Topic, _Qos} <- TopicTable],
-    
-    %% Add subscriptions
-    case mnesia:transaction(fun add_topics/1, [TRecords]) of
+    Topics = [#mqtt_topic{topic = Topic, node = node()} || {Topic, _Qos} <- TopicTable],
+
+    case mnesia:transaction(fun add_topics/1, [Topics]) of
         {atomic, _} ->
-            %%TODO: store subscription
-            %% mnesia:async_dirty(fun add_subscriptions/2, [SubId, TopicTable]),
+            if_subscription(
+                fun(_) ->
+                    %% Add subscriptions
+                    Args = [fun add_subscriptions/2, [SubId, TopicTable]],
+                    emqttd_pooler:async_submit({mnesia, async_dirty, Args})
+                end),
             {reply, {ok, [Qos || {_Topic, Qos} <- TopicTable]}, State};
         {aborted, Error} ->
             {reply, {error, Error}, State}
@@ -257,10 +265,12 @@ handle_call(Req, _From, State) ->
 handle_cast({unsubscribe, {SubId, SubPid}, Topics}, State) ->
     %% Delete routes first
     ?ROUTER:delete_routes(Topics, SubPid),
-
     %% Remove subscriptions
-    mnesia:async_dirty(fun remove_subscriptions/2, [SubId, Topics]),
-
+    if_subscription(
+        fun(_) ->
+            Args = [fun remove_subscriptions/2, [SubId, Topics]],
+            emqttd_pooler:async_submit({mnesia, async_dirty, Args})
+        end),
     {noreply, State};
 
 handle_cast(Msg, State) ->
@@ -268,7 +278,13 @@ handle_cast(Msg, State) ->
 	{noreply, State}.
 
 handle_info({'DOWN', _Mon, _Type, DownPid, _Info}, State) ->
+    Routes = ?ROUTER:lookup_routes(DownPid),
+
+    %% Delete all routes of the process
     ?ROUTER:delete_routes(DownPid),
+
+    ?HELPER:aging([Topic || {Topic, _Qos} <- Routes, not ?ROUTER:has_route(Topic)]),
+
     {noreply, State, hibernate};
 
 handle_info(Info, State) ->

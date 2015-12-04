@@ -49,7 +49,7 @@ start(_StartType, _StartArgs) ->
     emqttd_cli:load(),
     emqttd:load_all_mods(),
     emqttd_plugins:load(),
-    start_listeners(),
+    emqttd:start_listeners(),
     register(emqttd, self()),
     print_vsn(),
     {ok, Sup}.
@@ -61,10 +61,6 @@ print_vsn() ->
     {ok, Vsn} = application:get_key(vsn),
     {ok, Desc} = application:get_key(description),
     ?PRINT("~s ~s is running now~n", [Desc, Vsn]).
-
-start_listeners() ->
-    {ok, Listeners} = application:get_env(listeners),
-    emqttd:open_listeners(Listeners).
 
 start_servers(Sup) ->
     Servers = [{"emqttd ctl", emqttd_ctl},
@@ -132,15 +128,5 @@ worker_spec(M, F, A) ->
 
 -spec stop(State :: term()) -> term().
 stop(_State) ->
-    stop_listeners().
-
-stop_listeners() ->
-    %% ensure that esockd applications is started?
-    case lists:keyfind(esockd, 1, application:which_applications()) of
-        false  ->
-            ignore;
-        _Tuple ->
-            {ok, Listeners} = application:get_env(listeners),
-            emqttd:close_listeners(Listeners)
-    end.
+    catch emqttd:stop_listeners().
 

@@ -51,11 +51,23 @@ sup_name(Pool) ->
     list_to_atom(atom_to_list(Pool) ++ "_pool_sup").
 
 init([Pool, Type, Size, {M, F, Args}]) ->
-    emqttd:ensure_pool(Pool, Type, [{size, Size}]),
+    ensure_pool(Pool, Type, [{size, Size}]),
     {ok, {{one_for_one, 10, 3600}, [
         begin
-            gproc_pool:add_worker(Pool, {Pool, I}, I),
+            ensure_pool_worker(Pool, {Pool, I}, I),
             {{M, I}, {M, F, [Pool, I | Args]},
                 transient, 5000, worker, [M]}
         end || I <- lists:seq(1, Size)]}}.
+
+ensure_pool(Pool, Type, Opts) ->
+    try gproc_pool:new(Pool, Type, Opts)
+    catch
+        error:exists -> ok
+    end.
+
+ensure_pool_worker(Pool, Name, Slot) ->
+    try gproc_pool:add_worker(Pool, Name, Slot)
+    catch
+        error:exists -> ok
+    end.
 

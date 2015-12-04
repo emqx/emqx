@@ -82,7 +82,7 @@ init([Node, SubTopic, Options]) ->
             MQueue = emqttd_mqueue:new(qname(Node, SubTopic),
                                        [{max_len, State#state.max_queue_len}],
                                        emqttd_alarm:alarm_fun()),
-            emqttd_pubsub:subscribe(SubTopic, State#state.qos),
+            emqttd_pubsub:subscribe({SubTopic, State#state.qos}),
             {ok, State#state{mqueue = MQueue}};
         false -> 
             {stop, {cannot_connect, Node}}

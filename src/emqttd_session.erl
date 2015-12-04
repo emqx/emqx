@@ -320,7 +320,7 @@ handle_cast({subscribe, TopicTable0, AckFun}, Session = #session{client_id = Cli
             hibernate(Session);
         _  ->
             %% subscribe first and don't care if the subscriptions have been existed
-            {ok, GrantedQos} = emqttd_pubsub:subscribe(TopicTable),
+            {ok, GrantedQos} = emqttd_pubsub:subscribe(ClientId, TopicTable),
 
             AckFun(GrantedQos),
 
