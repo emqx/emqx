@@ -126,8 +126,7 @@ prioritise_info(_Msg, _Len, _State) ->
     3.
 
 handle_call(Req, _From, State) ->
-    lager:error("Unexpected request: ~p", [Req]),
-    {reply, {error, unsupported_req}, State}.
+    ?UNEXPECTED_REQ(Req, State).
 
 handle_cast({register, Client = #mqtt_client{client_id  = ClientId,
                                              client_pid = Pid}}, State) ->
@@ -149,8 +148,7 @@ handle_cast({unregister, ClientId, Pid}, State) ->
     end;
 
 handle_cast(Msg, State) ->
-    lager:error("Unexpected Msg: ~p", [Msg]),
-    {noreply, State}.
+    ?UNEXPECTED_MSG(Msg, State).
 
 handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
     case dict:find(MRef, State#state.monitors) of
@@ -168,8 +166,7 @@ handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
     end;
 
 handle_info(Info, State) ->
-    lager:error("Unexpected Info: ~p", [Info]),
-    {noreply, State}.
+    ?UNEXPECTED_INFO(Info, State).
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
     ?GPROC_POOL(leave, Pool, Id), ok.

@@ -29,6 +29,8 @@
 
 -include("emqttd.hrl").
 
+-include("emqttd_internal.hrl").
+
 %% API Function Exports
 -export([start_link/0]).
 
@@ -219,7 +221,7 @@ init([]) ->
     random:seed(os:timestamp()),
     ets:new(?BROKER_TAB, [set, public, named_table]),
     % Create $SYS Topics
-    emqttd_pubsub:create(<<"$SYS/brokers">>),
+    emqttd_pubsub:create(topic, <<"$SYS/brokers">>),
     [ok = create_topic(Topic) || Topic <- ?SYSTOP_BROKERS],
     % Tick
     {ok, #state{started_at = os:timestamp(),
@@ -255,11 +257,10 @@ handle_call({unhook, Hook, Name}, _From, State) ->
     {reply, Reply, State};
 
 handle_call(Req, _From, State) ->
-    lager:error("Unexpected request: ~p", [Req]),
-    {reply, {error, badreq}, State}.
+    ?UNEXPECTED_REQ(Req, State).
 
-handle_cast(_Msg, State) ->
-    {noreply, State}.
+handle_cast(Msg, State) ->
+    ?UNEXPECTED_MSG(Msg, State).
 
 handle_info(heartbeat, State) ->
     publish(uptime, list_to_binary(uptime(State))),
@@ -272,8 +273,8 @@ handle_info(tick, State) ->
     retain(sysdescr, list_to_binary(sysdescr())),
     {noreply, State, hibernate};
 
-handle_info(_Info, State) ->
-    {noreply, State}.
+handle_info(Info, State) ->
+    ?UNEXPECTED_INFO(Info, State).
 
 terminate(_Reason, #state{heartbeat = Hb, tick_tref = TRef}) ->
     stop_tick(Hb),
@@ -288,7 +289,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 
 create_topic(Topic) ->
-    emqttd_pubsub:create(emqttd_topic:systop(Topic)).
+    emqttd_pubsub:create(topic, emqttd_topic:systop(Topic)).
 
 retain(brokers) ->
     Payload = list_to_binary(string:join([atom_to_list(N) || N <- running_nodes()], ",")),

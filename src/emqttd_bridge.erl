@@ -29,6 +29,8 @@
 
 -include("emqttd_protocol.hrl").
 
+-include("emqttd_internal.hrl").
+
 %% API Function Exports
 -export([start_link/3]).
 
@@ -108,11 +110,11 @@ qname(Node, SubTopic) when is_atom(Node) ->
 qname(Node, SubTopic) ->
     list_to_binary(["Bridge:", Node, ":", SubTopic]).
 
-handle_call(_Request, _From, State) ->
-    {reply, error, State}.
+handle_call(Req, _From, State) ->
+    ?UNEXPECTED_REQ(Req, State).
 
-handle_cast(_Msg, State) ->
-    {noreply, State}.
+handle_cast(Msg, State) ->
+    ?UNEXPECTED_MSG(Msg, State).
 
 handle_info({dispatch, Msg}, State = #state{mqueue = MQ, status = down}) ->
     {noreply, State#state{mqueue = emqttd_mqueue:in(Msg, MQ)}};
@@ -153,8 +155,7 @@ handle_info({'EXIT', _Pid, normal}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    lager:error("Unexpected Info: ~p", [Info]),
-    {noreply, State}.
+    ?UNEXPECTED_INFO(Info, State).
 
 terminate(_Reason, _State) ->
     ok.

@@ -29,6 +29,8 @@
 
 -include("emqttd.hrl").
 
+-include("emqttd_internal.hrl").
+
 -include_lib("stdlib/include/ms_transform.hrl").
 
 %% API Function Exports
@@ -53,12 +55,11 @@ init([StatsFun]) ->
     {ok, TRef} = timer:send_interval(timer:seconds(1), tick),
     {ok, #state{stats_fun = StatsFun, tick_tref = TRef}}.
 
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+handle_call(Req, _From, State) ->
+    ?UNEXPECTED_REQ(Req, State).
 
 handle_cast(Msg, State) ->
-    lager:error("Unexpected Msg: ~p", [Msg]),
-    {noreply, State}.
+    ?UNEXPECTED_MSG(Msg, State).
 
 handle_info({mnesia_system_event, {mnesia_down, Node}}, State) ->
     lager:error("!!!Mnesia node down: ~s", [Node]),
@@ -79,8 +80,7 @@ handle_info(tick, State) ->
     {noreply, setstats(State), hibernate};
 
 handle_info(Info, State) ->
-    lager:error("Unexpected Info: ~p", [Info]),
-    {noreply, State}.
+    ?UNEXPECTED_INFO(Info, State).
 
 terminate(_Reason, _State = #state{tick_tref = TRef}) ->
     timer:cancel(TRef),

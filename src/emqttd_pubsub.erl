@@ -269,8 +269,7 @@ handle_call({subscribe, {SubId, SubPid}, TopicTable}, _From,
     end;
 
 handle_call(Req, _From, State) ->
-    lager:error("Bad Request: ~p", [Req]),
-	{reply, {error, badreq}, State}.
+   ?UNEXPECTED_REQ(Req, State).
 
 handle_cast({unsubscribe, {SubId, SubPid}, Topics}, State = #state{statsfun = StatsFun}) ->
     %% Delete routes first
@@ -286,8 +285,7 @@ handle_cast({unsubscribe, {SubId, SubPid}, Topics}, State = #state{statsfun = St
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    lager:error("Bad Msg: ~p", [Msg]),
-	{noreply, State}.
+    ?UNEXPECTED_MSG(Msg, State).
 
 handle_info({'DOWN', _Mon, _Type, DownPid, _Info}, State) ->
     Routes = ?ROUTER:lookup_routes(DownPid),
@@ -300,8 +298,7 @@ handle_info({'DOWN', _Mon, _Type, DownPid, _Info}, State) ->
     {noreply, State, hibernate};
 
 handle_info(Info, State) ->
-    lager:error("Unexpected Info: ~p", [Info]),
-	{noreply, State}.
+    ?UNEXPECTED_INFO(Info, State).
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
     ?GPROC_POOL(leave, Pool, Id).

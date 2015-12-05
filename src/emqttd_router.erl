@@ -74,15 +74,17 @@ ensure_tab(Tab, Opts) ->
 %%------------------------------------------------------------------------------
 -spec add_routes(list({binary(), mqtt_qos()}), pid()) -> ok.
 add_routes(TopicTable, Pid) when is_pid(Pid) ->
-    case lookup_routes(Pid) of
-        [] ->
-            erlang:monitor(process, Pid),
-            insert_routes(TopicTable, Pid);
-        TopicInEts ->
-            {NewTopics, UpdatedTopics} = diff(TopicTable, TopicInEts),
-            update_routes(UpdatedTopics, Pid),
-            insert_routes(NewTopics, Pid)
-    end.
+    with_stats(fun() ->
+        case lookup_routes(Pid) of
+            [] ->
+                erlang:monitor(process, Pid),
+                insert_routes(TopicTable, Pid);
+            TopicInEts ->
+                {NewTopics, UpdatedTopics} = diff(TopicTable, TopicInEts),
+                update_routes(UpdatedTopics, Pid),
+                insert_routes(NewTopics, Pid)
+        end
+    end).
 
 %%------------------------------------------------------------------------------
 %% @doc Lookup Routes
@@ -93,7 +95,7 @@ lookup_routes(Pid) when is_pid(Pid) ->
     [{Topic, Qos} || {_, Topic, Qos} <- ets:lookup(reverse_route, Pid)].
 
 %%------------------------------------------------------------------------------
-%% @doc Has Route
+%% @doc Has Route?
 %% @end
 %%------------------------------------------------------------------------------
 -spec has_route(binary()) -> boolean().
@@ -101,19 +103,23 @@ has_route(Topic) ->
     ets:member(route, Topic).
 
 %%------------------------------------------------------------------------------
-%% @doc Delete Routes.
+%% @doc Delete Routes
 %% @end
 %%------------------------------------------------------------------------------
 -spec delete_routes(list(binary()), pid()) -> ok.
 delete_routes(Topics, Pid) ->
-    Routes = [{Topic, Pid} || Topic <- Topics],
-    lists:foreach(fun delete_route/1, Routes).
+    with_stats(fun() ->
+        Routes = [{Topic, Pid} || Topic <- Topics],
+        lists:foreach(fun delete_route/1, Routes)
+    end).
 
 -spec delete_routes(pid()) -> ok.
 delete_routes(Pid) when is_pid(Pid) ->
-    Routes = [{Topic, Pid} || {Topic, _Qos} <- lookup_routes(Pid)],
-    ets:delete(reverse_route, Pid),
-    lists:foreach(fun delete_route_only/1, Routes).
+    with_stats(fun() ->
+        Routes = [{Topic, Pid} || {Topic, _Qos} <- lookup_routes(Pid)],
+        ets:delete(reverse_route, Pid),
+        lists:foreach(fun delete_route_only/1, Routes)
+    end).
 
 %%------------------------------------------------------------------------------
 %% @doc Route Message on Local Node.
@@ -198,4 +204,14 @@ delete_route({Topic, Pid}) ->
 
 delete_route_only({Topic, Pid}) ->
     ets:match_delete(route, {Topic, Pid, '_'}).
+
+with_stats(Fun) ->
+    Ok = Fun(), setstats(), Ok.
+
+setstats() ->
+    lists:foreach(fun setstat/1, [{route, 'routes/count'},
+                                  {reverse_route, 'routes/reverse'}]).
+
+setstat({Tab, Stat}) ->
+    emqttd_stats:setstat(Stat, ets:info(Tab, size)).
 

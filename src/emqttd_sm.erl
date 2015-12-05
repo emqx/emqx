@@ -183,8 +183,7 @@ handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(Msg, State) ->
-    lager:error("Unexpected Msg: ~p", [Msg]),
-    {noreply, State}.
+    ?UNEXPECTED_MSG(Msg, State).
 
 %%TODO: fix this issue that index_read is really slow...
 handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State) ->
@@ -195,8 +194,7 @@ handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    lager:error("Unexpected Info: ~p", [Info]),
-    {noreply, State}.
+    ?UNEXPECTED_INFO(Info, State).
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
     ?GPROC_POOL(leave, Pool, Id).

@@ -50,6 +50,8 @@
 
 -include("emqttd_protocol.hrl").
 
+-include("emqttd_internal.hrl").
+
 -behaviour(gen_server2).
 
 %% Session API
@@ -83,6 +85,7 @@
         %% Last packet id of the session
 		packet_id = 1,
         
+        %%TODO: Removed??
         %% Client’s subscriptions.
         subscriptions :: list(),
 
@@ -306,8 +309,7 @@ handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, pktid = PktId}},
     end;
 
 handle_call(Req, _From, State) ->
-    ?LOG(critical, "Unexpected Request: ~p", [Req], State),
-    {reply, {error, unsupported_req}, State, hibernate}.
+    ?UNEXPECTED_REQ(Req, State).
 
 handle_cast({subscribe, TopicTable0, AckFun}, Session = #session{client_id = ClientId,
                                                                  subscriptions = Subscriptions}) ->
@@ -481,8 +483,7 @@ handle_cast({pubcomp, PktId}, Session = #session{awaiting_comp = AwaitingComp}) 
     end;
 
 handle_cast(Msg, State) ->
-    ?LOG(critical, "Unexpected Msg: ~p", [Msg], State),
-    hibernate(State).
+    ?UNEXPECTED_MSG(Msg, State).
 
 %% Queue messages when client is offline
 handle_info({dispatch, Msg}, Session = #session{client_pid = undefined,
@@ -578,8 +579,7 @@ handle_info(expired, Session) ->
     shutdown(expired, Session);
 
 handle_info(Info, Session) ->
-    ?LOG(critical, "Unexpected info: ~p", [Info], Session),
-    hibernate(Session).
+    ?UNEXPECTED_INFO(Info, Session).
 
 terminate(_Reason, #session{clean_sess = CleanSess, client_id = ClientId}) ->
     emqttd_sm:unregister_session(CleanSess, ClientId).

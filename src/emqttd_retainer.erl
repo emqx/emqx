@@ -33,6 +33,8 @@
 
 -include("emqttd.hrl").
 
+-include("emqttd_internal.hrl").
+
 -include_lib("stdlib/include/ms_transform.hrl").
 
 %% Mnesia callbacks
@@ -157,12 +159,11 @@ init([]) ->
                 stats_timer   = StatsTimer,
                 expire_timer  = ExpireTimer}}.
 
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+handle_call(Req, _From, State) ->
+    ?UNEXPECTED_REQ(Req, State).
 
 handle_cast(Msg, State) ->
-    lager:error("Unexpected Msg: ~p", [Msg]),
-    {noreply, State}.
+    ?UNEXPECTED_MSG(Msg, State).
 
 handle_info(stats, State = #state{stats_fun = StatsFun}) ->
     StatsFun(mnesia:table_info(retained, size)),
@@ -177,8 +178,7 @@ handle_info(expire, State = #state{expired_after = ExpiredAfter}) ->
     {noreply, State, hibernate};
 
 handle_info(Info, State) ->
-    lager:error("Unexpected Info: ~p", [Info]),
-    {noreply, State}.
+    ?UNEXPECTED_INFO(Info, State).
 
 terminate(_Reason, _State = #state{stats_timer = TRef1, expire_timer = TRef2}) ->
     timer:cancel(TRef1),

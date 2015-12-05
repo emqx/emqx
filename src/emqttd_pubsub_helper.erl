@@ -29,6 +29,8 @@
 
 -include("emqttd.hrl").
 
+-include("emqttd_internal.hrl").
+
 %% API Function Exports
 -export([start_link/2, aging/1]).
 
@@ -89,8 +91,7 @@ start_tick(Secs) ->
     timer:send_interval(timer:seconds(Secs), {clean, aged}).
 
 handle_call(Req, _From, State) ->
-    lager:error("Unexpected Request: ~p", [Req]),
-    {reply, {error, unsupported_request}, State}.
+    ?UNEXPECTED_REQ(Req, State).
 
 handle_cast({aging, Topics}, State = #state{aging = Aging}) ->
     #aging{topics = Dict} = Aging,
@@ -104,8 +105,8 @@ handle_cast({aging, Topics}, State = #state{aging = Aging}) ->
                 end, Dict, Topics),
     {noreply, State#state{aging = Aging#aging{topics = Dict1}}};
 
-handle_cast(_Msg, State) ->
-    {noreply, State}.
+handle_cast(Msg, State) ->
+    ?UNEXPECTED_MSG(Msg, State).
 
 handle_info({clean, aged}, State = #state{aging = Aging}) ->
 
@@ -120,6 +121,7 @@ handle_info({clean, aged}, State = #state{aging = Aging}) ->
     noreply(State#state{aging = NewAging});
 
 handle_info({mnesia_system_event, {mnesia_down, Node}}, State) ->
+    %% mnesia master?
     Pattern = #mqtt_topic{_ = '_', node = Node},
     F = fun() ->
             [mnesia:delete_object(topic, R, write) ||
@@ -128,8 +130,8 @@ handle_info({mnesia_system_event, {mnesia_down, Node}}, State) ->
     mnesia:async_dirty(F),
     noreply(State);
 
-handle_info(_Info, State) ->
-    {noreply, State}.
+handle_info(Info, State) ->
+    ?UNEXPECTED_INFO(Info, State).
 
 terminate(_Reason, #state{aging = #aging{tref = TRef}}) ->
     timer:cancel(TRef).
@@ -142,7 +144,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 
 noreply(State = #state{statsfun = StatsFun}) ->
-    StatsFun(topic), {noreply, State, hibernate}.
+    StatsFun(topic),
+    {noreply, State, hibernate}.
 
 try_clean(ByTime, List) ->
     try_clean(ByTime, List, []).
@@ -163,7 +166,6 @@ try_clean2(ByTime, {Topic, TS}, Left, Acc) when TS > ByTime ->
 
 try_clean2(ByTime, {Topic, _TS}, Left, Acc) ->
     TopicR = #mqtt_topic{topic = Topic, node = node()},
-    io:format("Try to remove topic: ~p~n", [Topic]),
     mnesia:transaction(fun try_remove_topic/1, [TopicR]),
     try_clean(ByTime, Left, Acc).
 

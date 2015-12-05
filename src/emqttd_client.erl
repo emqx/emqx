@@ -128,8 +128,7 @@ handle_call(kick, _From, State) ->
     {stop, {shutdown, kick}, ok, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(critical, "Unexpected request: ~p", [Req], State),
-    {reply, {error, unsupported_request}, State}.
+    ?UNEXPECTED_REQ(Req, State).
 
 handle_cast({subscribe, TopicTable}, State) ->
     with_session(fun(SessPid) ->
@@ -142,8 +141,7 @@ handle_cast({unsubscribe, Topics}, State) ->
                  end, State);
 
 handle_cast(Msg, State) ->
-    ?LOG(critical, "Unexpected msg: ~p", [Msg], State),
-    noreply(State).
+    ?UNEXPECTED_MSG(Msg, State).
 
 handle_info(timeout, State) ->
     shutdown(idle_timeout, State);
@@ -211,8 +209,7 @@ handle_info({keepalive, check}, State = #client_state{keepalive = KeepAlive}) ->
     end;
 
 handle_info(Info, State) ->
-    ?LOG(critical, "Unexpected info: ~p", [Info], State),
-    noreply(State).
+    ?UNEXPECTED_INFO(Info, State).
 
 terminate(Reason, #client_state{connection  = Connection,
                                 keepalive   = KeepAlive,

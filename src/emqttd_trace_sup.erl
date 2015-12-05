@@ -19,11 +19,11 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc emqttd sysmon supervisor.
+%%% @doc emqttd trace supervisor.
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
--module(emqttd_sysmon_sup).
+-module(emqttd_trace_sup).
 
 -behaviour(supervisor).
 
@@ -37,8 +37,7 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Env = emqttd:env(sysmon),
     {ok, {{one_for_one, 10, 100},
-          [{sysmon, {emqttd_sysmon, start_link, [Env]},
-             permanent, 5000, worker, [emqttd_sysmon]}]}}.
+          [{trace, {emqttd_trace, start_link, []},
+              permanent, 5000, worker, [emqttd_trace]}]}}.
 

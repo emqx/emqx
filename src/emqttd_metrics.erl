@@ -283,14 +283,14 @@ key(counter, Metric) ->
 %%%=============================================================================
 
 init([]) ->
-    random:seed(os:timstamp()),
+    random:seed(os:timestamp()),
     Metrics = ?SYSTOP_BYTES ++ ?SYSTOP_PACKETS ++ ?SYSTOP_MESSAGES,
     % Create metrics table
     ets:new(?METRIC_TAB, [set, public, named_table, {write_concurrency, true}]),
     % Init metrics
     [create_metric(Metric) ||  Metric <- Metrics],
     % $SYS Topics for metrics
-    [ok = emqttd_pubsub:create(metric_topic(Topic)) || {_, Topic} <- Metrics],
+    [ok = emqttd_pubsub:create(topic, metric_topic(Topic)) || {_, Topic} <- Metrics],
     % Tick to publish metrics
     {ok, #state{tick_tref = emqttd_broker:start_tick(tick)}, hibernate}.
 
