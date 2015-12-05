@@ -39,3 +39,21 @@
     [{K, V} || {K, V} <- ?record_to_proplist(Def, Rec),
                          lists:member(K, Fields)]).
 
+-define(UNEXPECTED_REQ(Req, State),
+        (begin
+            lager:error("Unexpected Request: ~p", [Req]),
+            {reply, {error, unexpected_request}, State}
+        end)).
+
+-define(UNEXPECTED_MSG(Msg, State),
+        (begin
+            lager:error("Unexpected Message: ~p", [Msg]),
+            {noreply, State}
+        end)).
+
+-define(UNEXPECTED_INFO(Info, State),
+        (begin
+            lager:error("Unexpected Info: ~p", [Info]),
+            {noreply, State}
+        end)).
+
