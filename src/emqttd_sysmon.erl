@@ -19,7 +19,7 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc emqttd system monitor
+%%% @doc VM System Monitor
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
@@ -36,7 +36,7 @@
 
 -record(state, {tickref, events = [], tracelog}).
 
--define(LOG_FMT, [{formatter_config, [time, " [",severity,"] ", message, "\n"]}]).
+-define(LOG_FMT, [{formatter_config, [time, " ", message, "\n"]}]).
 
 -define(LOG(Msg, ProcInfo),
         lager:warning([{sysmon, true}], "~s~n~p", [WarnMsg, ProcInfo])).
