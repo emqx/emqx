@@ -276,6 +276,8 @@
 
     %% Erlang System Monitor
     {sysmon, [
+        %% Log file.
+        {logfile, "log/emqttd_sysmon.log"},
 
         %% Long GC
         {long_gc, 100},
