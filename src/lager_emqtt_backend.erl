@@ -92,5 +92,5 @@ publish_log(Message, State = #state{formatter = Formatter,
     {ok, State}.
 
 topic(Severity) ->
-    emqttd_topic:systop(list_to_binary(lists:concat(['log/', Severity]))).
+    emqttd_topic:systop(list_to_binary(lists:concat(['logs/', Severity]))).
 
