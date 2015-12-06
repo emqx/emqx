@@ -224,8 +224,11 @@ publish(Msg = #mqtt_message{from = From}) ->
      end.
 
 publish(Topic, Msg) when is_binary(Topic) ->
-	lists:foreach(fun(#mqtt_topic{topic=Name, node=Node}) ->
-                    rpc:cast(Node, ?ROUTER, route, [Name, Msg])
+	lists:foreach(fun(#mqtt_topic{topic = Name, node = Node}) ->
+                    case Node =:= node() of
+                        true  -> ?ROUTER:route(Name, Msg);
+                        false -> rpc:cast(Node, ?ROUTER, route, [Name, Msg])
+                    end
                   end, match(Topic)).
 
 %%------------------------------------------------------------------------------
