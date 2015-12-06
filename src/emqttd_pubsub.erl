@@ -92,7 +92,9 @@ create_table(subscription, RamOrDisc) ->
             {type, bag},
             {RamOrDisc, [node()]},
             {record_name, mqtt_subscription},
-            {attributes, record_info(fields, mqtt_subscription)}]).
+            {attributes, record_info(fields, mqtt_subscription)},
+            {storage_properties, [{ets, [compressed]},
+                                  {dets, [{auto_save, 5000}]}]}]).
 
 if_subscription(Fun) ->
     case env(subscription) of
