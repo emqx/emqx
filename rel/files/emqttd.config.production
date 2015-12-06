@@ -17,6 +17,7 @@
 	{crash_log, "log/emqttd_crash.log"},
 	{handlers, [
 		%%{lager_console_backend, info},
+		%%{lager_emqtt_backend, error},
 		{lager_file_backend, [
             {formatter_config, [time, " ", pid, " [",severity,"] ", message, "\n"]},
 			{file, "log/emqttd_error.log"},
