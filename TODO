@@ -1,20 +1,20 @@
 
-TODO 1. refactor gproc_pool usage
+DONE TODO 1. refactor gproc_pool usage
 
-TODO 2. emqttd_router, emqttd_pubsub to route message
+DONE TODO 2. emqttd_router, emqttd_pubsub to route message
 
-TODO 3. sup, pool_sup, manager......
+DONE TODO 3. sup, pool_sup, manager......
 
-TODO 4. route ageing...
+DONE TODO 4. route ageing...
 
 TODO 5. dashboard
 
 TODO 6. emqttd_ctl
 
-TODO 7. transaction on route, and topic?
+DONE TODO 7. transaction on route, and topic?
 
 TODO 8. topics, subscriptions CLI
 
-TODO 9. LOG.....
+DONE TODO 9. LOG.....
 
-TODO 10. emqttd_sm.erl to remove mnesia:index_read...
+DONE TODO 10. emqttd_sm.erl to remove mnesia:index_read...
