@@ -60,8 +60,9 @@ start_link(Opts) ->
 init([Opts]) ->
     erlang:system_monitor(self(), parse_opt(Opts)),
     {ok, TRef} = timer:send_interval(timer:seconds(1), reset),
-    {ok, TraceLog} = start_tracelog(proplists:get_value(logfile, Opts)),
-    {ok, #state{tickref = TRef, tracelog = TraceLog}}.
+    %%TODO: don't trace for performance issue.
+    %%{ok, TraceLog} = start_tracelog(proplists:get_value(logfile, Opts)),
+    {ok, #state{tickref = TRef}}.
 
 parse_opt(Opts) ->
     parse_opt(Opts, []).
@@ -71,6 +72,8 @@ parse_opt([{long_gc, false}|Opts], Acc) ->
     parse_opt(Opts, Acc);
 parse_opt([{long_gc, Ms}|Opts], Acc) when is_integer(Ms) ->
     parse_opt(Opts, [{long_gc, Ms}|Acc]);
+parse_opt([{long_schedule, false}|Opts], Acc) ->
+    parse_opt(Opts, Acc);
 parse_opt([{long_schedule, Ms}|Opts], Acc) when is_integer(Ms) ->
     parse_opt(Opts, [{long_schedule, Ms}|Acc]);
 parse_opt([{large_heap, Size}|Opts], Acc) when is_integer(Size) ->
@@ -83,7 +86,7 @@ parse_opt([{busy_dist_port, true}|Opts], Acc) ->
     parse_opt(Opts, [busy_dist_port|Acc]);
 parse_opt([{busy_dist_port, false}|Opts], Acc) ->
     parse_opt(Opts, Acc);
-parse_opt([{logfile, _}|Opts], Acc) ->
+parse_opt([_Opt|Opts], Acc) ->
     parse_opt(Opts, Acc).
 
 handle_call(Req, _From, State) ->
