@@ -119,8 +119,7 @@ copy_table(Table) ->
 %% @end
 %%------------------------------------------------------------------------------
 wait_for_tables() -> 
-    %%TODO: is not right?
-    io:format("mnesia wait_for_tables: ~p~n", [mnesia:system_info(local_tables)]),
+    %% io:format("mnesia wait_for_tables: ~p~n", [mnesia:system_info(local_tables)]),
     mnesia:wait_for_tables(mnesia:system_info(local_tables), infinity).
 
 %%------------------------------------------------------------------------------
