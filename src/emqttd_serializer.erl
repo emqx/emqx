@@ -19,45 +19,45 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc MQTT Packet Serialiser
+%%% @doc MQTT Packet Serializer
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
--module(emqttd_serialiser).
+-module(emqttd_serializer).
 
 -include("emqttd.hrl").
 
 -include("emqttd_protocol.hrl").
 
 %% API
--export([serialise/1]).
+-export([serialize/1]).
 
 %%------------------------------------------------------------------------------
 %% @doc Serialise MQTT Packet
 %% @end
 %%------------------------------------------------------------------------------
--spec serialise(mqtt_packet()) -> binary().
-serialise(#mqtt_packet{header = Header = #mqtt_packet_header{type = Type},
+-spec serialize(mqtt_packet()) -> binary().
+serialize(#mqtt_packet{header = Header = #mqtt_packet_header{type = Type},
                        variable = Variable,
                        payload  = Payload}) ->
-    serialise_header(Header,
-        serialise_variable(Type, Variable,
-            serialise_payload(Payload))).
+    serialize_header(Header,
+        serialize_variable(Type, Variable,
+            serialize_payload(Payload))).
 
-serialise_header(#mqtt_packet_header{type   = Type,
+serialize_header(#mqtt_packet_header{type   = Type,
                                      dup    = Dup,
                                      qos    = Qos,
                                      retain = Retain},
                  {VariableBin, PayloadBin}) when ?CONNECT =< Type andalso Type =< ?DISCONNECT ->
     Len = size(VariableBin) + size(PayloadBin),
     true = (Len =< ?MAX_LEN),
-    LenBin = serialise_len(Len),
+    LenBin = serialize_len(Len),
     <<Type:4, (opt(Dup)):1, (opt(Qos)):2, (opt(Retain)):1,
       LenBin/binary,
       VariableBin/binary,
       PayloadBin/binary>>.
 
-serialise_variable(?CONNECT, #mqtt_packet_connect{client_id   =  ClientId,
+serialize_variable(?CONNECT, #mqtt_packet_connect{client_id   =  ClientId,
                                                   proto_ver   =  ProtoVer,
                                                   proto_name  =  ProtoName,
                                                   will_retain =  WillRetain,
@@ -80,79 +80,79 @@ serialise_variable(?CONNECT, #mqtt_packet_connect{client_id   =  ClientId,
                     (opt(CleanSess)):1,
                     0:1,
                     KeepAlive:16/big-unsigned-integer>>,
-    PayloadBin = serialise_utf(ClientId),
+    PayloadBin = serialize_utf(ClientId),
     PayloadBin1 = case WillFlag of
                       true -> <<PayloadBin/binary,
-                                (serialise_utf(WillTopic))/binary,
+                                (serialize_utf(WillTopic))/binary,
                                 (size(WillMsg)):16/big-unsigned-integer,
                                 WillMsg/binary>>;
                       false -> PayloadBin
                   end,
-    UserPasswd = << <<(serialise_utf(B))/binary>> || B <- [Username, Password], B =/= undefined >>,
+    UserPasswd = << <<(serialize_utf(B))/binary>> || B <- [Username, Password], B =/= undefined >>,
     {VariableBin, <<PayloadBin1/binary, UserPasswd/binary>>};
 
-serialise_variable(?CONNACK, #mqtt_packet_connack{ack_flags   = AckFlags,
+serialize_variable(?CONNACK, #mqtt_packet_connack{ack_flags   = AckFlags,
                                                   return_code = ReturnCode}, undefined) ->
     {<<AckFlags:8, ReturnCode:8>>, <<>>};
 
-serialise_variable(?SUBSCRIBE, #mqtt_packet_subscribe{packet_id = PacketId,
+serialize_variable(?SUBSCRIBE, #mqtt_packet_subscribe{packet_id = PacketId,
                                                       topic_table = Topics }, undefined) ->
-    {<<PacketId:16/big>>, serialise_topics(Topics)};
+    {<<PacketId:16/big>>, serialize_topics(Topics)};
 
-serialise_variable(?SUBACK, #mqtt_packet_suback{packet_id = PacketId,
+serialize_variable(?SUBACK, #mqtt_packet_suback{packet_id = PacketId,
                                                 qos_table = QosTable}, undefined) ->
     {<<PacketId:16/big>>, << <<Q:8>> || Q <- QosTable >>};
 
-serialise_variable(?UNSUBSCRIBE, #mqtt_packet_unsubscribe{packet_id  = PacketId,
+serialize_variable(?UNSUBSCRIBE, #mqtt_packet_unsubscribe{packet_id  = PacketId,
                                                           topics = Topics }, undefined) ->
-    {<<PacketId:16/big>>, serialise_topics(Topics)};
+    {<<PacketId:16/big>>, serialize_topics(Topics)};
 
-serialise_variable(?UNSUBACK, #mqtt_packet_unsuback{packet_id = PacketId}, undefined) ->
+serialize_variable(?UNSUBACK, #mqtt_packet_unsuback{packet_id = PacketId}, undefined) ->
     {<<PacketId:16/big>>, <<>>};
 
-serialise_variable(?PUBLISH, #mqtt_packet_publish{topic_name = TopicName,
+serialize_variable(?PUBLISH, #mqtt_packet_publish{topic_name = TopicName,
                                                   packet_id  = PacketId }, PayloadBin) ->
-    TopicBin = serialise_utf(TopicName),
+    TopicBin = serialize_utf(TopicName),
     PacketIdBin = if
                       PacketId =:= undefined -> <<>>;
                       true -> <<PacketId:16/big>>
                   end,
     {<<TopicBin/binary, PacketIdBin/binary>>, PayloadBin};
 
-serialise_variable(PubAck, #mqtt_packet_puback{packet_id = PacketId}, _Payload)
+serialize_variable(PubAck, #mqtt_packet_puback{packet_id = PacketId}, _Payload)
     when PubAck =:= ?PUBACK; PubAck =:= ?PUBREC; PubAck =:= ?PUBREL; PubAck =:= ?PUBCOMP ->
     {<<PacketId:16/big>>, <<>>};
 
-serialise_variable(?PINGREQ, undefined, undefined) ->
+serialize_variable(?PINGREQ, undefined, undefined) ->
     {<<>>, <<>>};
 
-serialise_variable(?PINGRESP, undefined, undefined) ->
+serialize_variable(?PINGRESP, undefined, undefined) ->
     {<<>>, <<>>};
 
-serialise_variable(?DISCONNECT, undefined, undefined) ->
+serialize_variable(?DISCONNECT, undefined, undefined) ->
     {<<>>, <<>>}.
 
-serialise_payload(undefined) ->
+serialize_payload(undefined) ->
     undefined;
-serialise_payload(Bin) when is_binary(Bin) ->
+serialize_payload(Bin) when is_binary(Bin) ->
     Bin.
 
-serialise_topics([{_Topic, _Qos}|_] = Topics) ->
-    << <<(serialise_utf(Topic))/binary, ?RESERVED:6, Qos:2>> || {Topic, Qos} <- Topics >>;
+serialize_topics([{_Topic, _Qos}|_] = Topics) ->
+    << <<(serialize_utf(Topic))/binary, ?RESERVED:6, Qos:2>> || {Topic, Qos} <- Topics >>;
 
-serialise_topics([H|_] = Topics) when is_binary(H) ->
-    << <<(serialise_utf(Topic))/binary>> || Topic <- Topics >>.
+serialize_topics([H|_] = Topics) when is_binary(H) ->
+    << <<(serialize_utf(Topic))/binary>> || Topic <- Topics >>.
 
-serialise_utf(String) ->
+serialize_utf(String) ->
     StringBin = unicode:characters_to_binary(String),
     Len = size(StringBin),
     true = (Len =< 16#ffff),
     <<Len:16/big, StringBin/binary>>.
 
-serialise_len(N) when N =< ?LOWBITS ->
+serialize_len(N) when N =< ?LOWBITS ->
     <<0:1, N:7>>;
-serialise_len(N) ->
-    <<1:1, (N rem ?HIGHBIT):7, (serialise_len(N div ?HIGHBIT))/binary>>.
+serialize_len(N) ->
+    <<1:1, (N rem ?HIGHBIT):7, (serialize_len(N div ?HIGHBIT))/binary>>.
 
 opt(undefined)            -> ?RESERVED;
 opt(false)                -> 0;

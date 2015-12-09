@@ -260,7 +260,7 @@ send(Packet, State = #proto_state{sendfun = SendFun})
     when is_record(Packet, mqtt_packet) ->
     trace(send, Packet, State),
     emqttd_metrics:sent(Packet),
-    Data = emqttd_serialiser:serialise(Packet),
+    Data = emqttd_serialiser:serialize(Packet),
     ?LOG(debug, "SEND ~p", [Data], State),
     emqttd_metrics:inc('bytes/sent', size(Data)),
     SendFun(Data),
