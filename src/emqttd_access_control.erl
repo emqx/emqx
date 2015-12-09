@@ -157,7 +157,8 @@ stop() ->
 %%%=============================================================================
 
 init([Opts]) ->
-	ets:new(?ACCESS_CONTROL_TAB, [set, named_table, protected]),
+	ets:new(?ACCESS_CONTROL_TAB, [set, named_table, protected, {read_concurrency, true}]),
+
     ets:insert(?ACCESS_CONTROL_TAB, {auth_modules, init_mods(auth, proplists:get_value(auth, Opts))}),
     ets:insert(?ACCESS_CONTROL_TAB, {acl_modules, init_mods(acl, proplists:get_value(acl, Opts))}),
 	{ok, state}.

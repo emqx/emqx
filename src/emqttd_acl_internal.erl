@@ -63,7 +63,7 @@ all_rules() ->
 %%------------------------------------------------------------------------------
 -spec init(AclOpts :: list()) -> {ok, State :: any()}.
 init(AclOpts) ->
-    ets:new(?ACL_RULE_TAB, [set, public, named_table]),
+    ets:new(?ACL_RULE_TAB, [set, public, named_table, {read_concurrency, true}]),
     AclFile = proplists:get_value(file, AclOpts),
     Default = proplists:get_value(nomatch, AclOpts, allow),
     State = #state{acl_file = AclFile, nomatch = Default},

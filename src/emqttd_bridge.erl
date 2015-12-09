@@ -116,10 +116,10 @@ handle_call(Req, _From, State) ->
 handle_cast(Msg, State) ->
     ?UNEXPECTED_MSG(Msg, State).
 
-handle_info({dispatch, Msg}, State = #state{mqueue = MQ, status = down}) ->
+handle_info({dispatch, _Topic, Msg}, State = #state{mqueue = MQ, status = down}) ->
     {noreply, State#state{mqueue = emqttd_mqueue:in(Msg, MQ)}};
 
-handle_info({dispatch, Msg}, State = #state{node = Node, status = up}) ->
+handle_info({dispatch, _Topic, Msg}, State = #state{node = Node, status = up}) ->
     rpc:cast(Node, emqttd_pubsub, publish, [transform(Msg, State)]),
     {noreply, State, hibernate};
 
