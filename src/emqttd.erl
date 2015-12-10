@@ -31,12 +31,11 @@
          is_running/1]).
 
 -define(MQTT_SOCKOPTS, [
-	binary,
-	{packet,    raw},
-	{reuseaddr, true},
-	{backlog,   512},
-	{nodelay,   true}
-]).
+        binary,
+        {packet,    raw},
+        {reuseaddr, true},
+        {backlog,   512},
+        {nodelay,   true}]).
 
 -define(APP, ?MODULE).
 
@@ -83,12 +82,12 @@ start_listener({mqtts, Port, Options}) ->
 %% Start http listener
 start_listener({http, Port, Options}) ->
     MFArgs = {emqttd_http, handle_request, []},
-	mochiweb:start_http(Port, Options, MFArgs);
+    mochiweb:start_http(Port, Options, MFArgs);
 
 %% Start https listener
 start_listener({https, Port, Options}) ->
     MFArgs = {emqttd_http, handle_request, []},
-	mochiweb:start_http(Port, Options, MFArgs).
+    mochiweb:start_http(Port, Options, MFArgs).
 
 start_listener(Protocol, Port, Options) ->
     MFArgs = {emqttd_client, start_link, [env(mqtt)]},

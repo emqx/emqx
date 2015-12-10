@@ -157,11 +157,11 @@ stop() ->
 %%%=============================================================================
 
 init([Opts]) ->
-	ets:new(?ACCESS_CONTROL_TAB, [set, named_table, protected, {read_concurrency, true}]),
+    ets:new(?ACCESS_CONTROL_TAB, [set, named_table, protected, {read_concurrency, true}]),
 
     ets:insert(?ACCESS_CONTROL_TAB, {auth_modules, init_mods(auth, proplists:get_value(auth, Opts))}),
     ets:insert(?ACCESS_CONTROL_TAB, {acl_modules, init_mods(acl, proplists:get_value(acl, Opts))}),
-	{ok, state}.
+    {ok, state}.
 
 init_mods(auth, AuthMods) ->
     [init_mod(fun authmod/1, Name, Opts) || {Name, Opts} <- AuthMods];
@@ -215,16 +215,16 @@ handle_call(Req, _From, State) ->
     {reply, {error, badreq}, State}.
 
 handle_cast(_Msg, State) ->
-	{noreply, State}.
+    {noreply, State}.
 
 handle_info(_Info, State) ->
-	{noreply, State}.
+    {noreply, State}.
 
 terminate(_Reason, _State) ->
-	ok.
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
-	{ok, State}.
+    {ok, State}.
 
 %%%=============================================================================
 %%% Internal functions

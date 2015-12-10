@@ -71,7 +71,7 @@ lookup(ClientId) when is_binary(ClientId) ->
     case ets:lookup(mqtt_client, ClientId) of
         [Client] -> Client;
         [] -> undefined
-	end.
+    end.
 
 %%------------------------------------------------------------------------------
 %% @doc Lookup client pid by clientId
@@ -136,10 +136,10 @@ handle_cast({register, Client = #mqtt_client{client_id  = ClientId,
         _ ->
             ets:insert(mqtt_client, Client),
             {noreply, setstats(monitor_client(ClientId, Pid, State))}
-	end;
+    end;
 
 handle_cast({unregister, ClientId, Pid}, State) ->
-	case lookup_proc(ClientId) of
+    case lookup_proc(ClientId) of
         Pid ->
             ets:delete(mqtt_client, ClientId),
             {noreply, setstats(State)};

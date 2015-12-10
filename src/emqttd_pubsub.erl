@@ -224,7 +224,7 @@ publish(Msg = #mqtt_message{from = From}) ->
      end.
 
 publish(To, Msg) ->
-	lists:foreach(fun(#mqtt_topic{topic = Topic, node = Node}) ->
+    lists:foreach(fun(#mqtt_topic{topic = Topic, node = Node}) ->
                     case Node =:= node() of
                         true  -> ?ROUTER:route(Topic, Msg);
                         false -> rpc:cast(Node, ?ROUTER, route, [Topic, Msg])
@@ -237,9 +237,9 @@ publish(To, Msg) ->
 %%------------------------------------------------------------------------------
 -spec match(binary()) -> [mqtt_topic()].
 match(To) ->
-	MatchedTopics = mnesia:async_dirty(fun emqttd_trie:match/1, [To]),
+    MatchedTopics = mnesia:async_dirty(fun emqttd_trie:match/1, [To]),
     %% ets:lookup for topic table will be replicated.
-	lists:append([ets:lookup(topic, Topic) || Topic <- MatchedTopics]).
+    lists:append([ets:lookup(topic, Topic) || Topic <- MatchedTopics]).
 
 %%%=============================================================================
 %%% gen_server callbacks

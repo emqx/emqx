@@ -49,7 +49,7 @@
 %%%-----------------------------------------------------------------------------
 -spec wildcard(binary()) -> true | false.
 wildcard(Topic) when is_binary(Topic) ->
-	wildcard(words(Topic));
+    wildcard(words(Topic));
 wildcard([]) -> 
     false;
 wildcard(['#'|_]) ->
@@ -67,25 +67,25 @@ wildcard([_H|T]) ->
     Name    :: binary() | words(),
     Filter  :: binary() | words().
 match(Name, Filter) when is_binary(Name) and is_binary(Filter) ->
-	match(words(Name), words(Filter));
+    match(words(Name), words(Filter));
 match([], []) ->
-	true;
+    true;
 match([H|T1], [H|T2]) ->
-	match(T1, T2);
+    match(T1, T2);
 match([<<$$, _/binary>>|_], ['+'|_]) ->
     false;
 match([_H|T1], ['+'|T2]) ->
-	match(T1, T2);
+    match(T1, T2);
 match([<<$$, _/binary>>|_], ['#']) ->
     false;
 match(_, ['#']) ->
-	true;
+    true;
 match([_H1|_], [_H2|_]) ->
-	false;
+    false;
 match([_H1|_], []) ->
-	false;
+    false;
 match([], [_H|_T2]) ->
-	false.
+    false.
 
 %%------------------------------------------------------------------------------
 %% @doc Validate Topic
@@ -93,14 +93,14 @@ match([], [_H|_T2]) ->
 %%------------------------------------------------------------------------------
 -spec validate({name | filter, binary()}) -> boolean().
 validate({_, <<>>}) ->
-	false;
+    false;
 validate({_, Topic}) when is_binary(Topic) and (size(Topic) > ?MAX_TOPIC_LEN) ->
-	false;
+    false;
 validate({filter, Topic}) when is_binary(Topic) ->
-	validate2(words(Topic));
+    validate2(words(Topic));
 validate({name, Topic}) when is_binary(Topic) ->
-	Words = words(Topic),
-	validate2(Words) and (not wildcard(Words)).
+    Words = words(Topic),
+    validate2(Words) and (not wildcard(Words)).
 
 validate2([]) ->
     true;
@@ -131,7 +131,7 @@ validate3(<<_/utf8, Rest/binary>>) ->
 %%%-----------------------------------------------------------------------------
 -spec triples(binary()) -> list(triple()).
 triples(Topic) when is_binary(Topic) ->
-	triples(words(Topic), root, []).
+    triples(words(Topic), root, []).
 
 triples([], _Parent, Acc) ->
     reverse(Acc);

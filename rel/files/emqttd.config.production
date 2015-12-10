@@ -1,11 +1,11 @@
 % -*- mode: erlang;erlang-indent-level: 4;indent-tabs-mode: nil -*-
 %% ex: ft=erlang ts=4 sw=4 et
-[{kernel, 
-	[{start_timer, true},
-	 {start_pg2, true}
+[{kernel,
+    [{start_timer, true},
+     {start_pg2, true}
  ]},
  {sasl, [
-	{sasl_error_logger, {file, "log/emqttd_sasl.log"}}
+    {sasl_error_logger, {file, "log/emqttd_sasl.log"}}
  ]},
  {ssl, [
     %{versions, ['tlsv1.2', 'tlsv1.1']}
@@ -13,21 +13,21 @@
  {lager, [
     {colored, true},
     {async_threshold, 5000},
-	{error_logger_redirect, false},
-	{crash_log, "log/emqttd_crash.log"},
-	{handlers, [
-		%%{lager_console_backend, info},
+    {error_logger_redirect, false},
+    {crash_log, "log/emqttd_crash.log"},
+    {handlers, [
+        %%{lager_console_backend, info},
         %%NOTICE: Level >= error
-		%%{lager_emqtt_backend, error},
-		{lager_file_backend, [
+        %%{lager_emqtt_backend, error},
+        {lager_file_backend, [
             {formatter_config, [time, " ", pid, " [",severity,"] ", message, "\n"]},
-			{file, "log/emqttd_error.log"},
-			{level, error},
-			{size, 104857600},
-			{date, "$D0"},
-			{count, 30}
-		]}
-	]}
+            {file, "log/emqttd_error.log"},
+            {level, error},
+            {size, 104857600},
+            {date, "$D0"},
+            {count, 30}
+        ]}
+    ]}
  ]},
  {esockd, [
     {logger, {lager, error}}
@@ -270,7 +270,6 @@
 
     %% Erlang System Monitor
     {sysmon, [
-
         %% Long GC, don't monitor in production mode for:
         %% https://github.com/erlang/otp/blob/feb45017da36be78d4c5784d758ede619fa7bfd3/erts/emulator/beam/erl_gc.c#L421
         {long_gc, false},

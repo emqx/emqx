@@ -156,17 +156,17 @@ tcp_name(Prefix, IPAddress, Port)
   when is_atom(Prefix) andalso is_number(Port) ->
     list_to_atom(
       lists:flatten(
-		io_lib:format(
-			"~w_~s:~w", [Prefix, inet_parse:ntoa(IPAddress), Port]))).
+        io_lib:format(
+            "~w_~s:~w", [Prefix, inet_parse:ntoa(IPAddress), Port]))).
 
 connection_string(Sock, Direction) ->
     case socket_ends(Sock, Direction) of
         {ok, {FromAddress, FromPort, ToAddress, ToPort}} ->
             {ok, lists:flatten(
-					io_lib:format(
-					   "~s:~p -> ~s:~p",
-					   [maybe_ntoab(FromAddress), FromPort,
-						maybe_ntoab(ToAddress),   ToPort]))};
+                    io_lib:format(
+                       "~s:~p -> ~s:~p",
+                       [maybe_ntoab(FromAddress), FromPort,
+                        maybe_ntoab(ToAddress),   ToPort]))};
         Error ->
             Error
     end.

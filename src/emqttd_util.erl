@@ -81,9 +81,9 @@ ignore_lib_apps(Apps) ->
 
 
 cancel_timer(undefined) -> 
-	undefined;
+    undefined;
 cancel_timer(Ref) -> 
-	catch erlang:cancel_timer(Ref).
+    catch erlang:cancel_timer(Ref).
 
 integer_to_binary(I) when is_integer(I) ->
     list_to_binary(integer_to_list(I)).

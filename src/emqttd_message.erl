@@ -118,7 +118,7 @@ to_packet(#mqtt_message{pktid   = PkgId,
                         topic   = Topic,
                         payload = Payload}) ->
 
-    #mqtt_packet{header = #mqtt_packet_header{type 	 = ?PUBLISH,
+    #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
                                               qos    = Qos,
                                               retain = Retain,
                                               dup    = Dup},

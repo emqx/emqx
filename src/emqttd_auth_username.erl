@@ -99,10 +99,10 @@ all_users() ->
 %%% emqttd_auth callbacks
 %%%=============================================================================
 init(Opts) ->
-	mnesia:create_table(?AUTH_USERNAME_TAB, [
-		{disc_copies, [node()]},
-		{attributes, record_info(fields, ?AUTH_USERNAME_TAB)}]),
-	mnesia:add_table_copy(?AUTH_USERNAME_TAB, node(), disc_copies),
+    mnesia:create_table(?AUTH_USERNAME_TAB, [
+            {disc_copies, [node()]},
+            {attributes, record_info(fields, ?AUTH_USERNAME_TAB)}]),
+    mnesia:add_table_copy(?AUTH_USERNAME_TAB, node(), disc_copies),
     emqttd_ctl:register_cmd(users, {?MODULE, cli}, []),
     {ok, Opts}.
 
@@ -111,7 +111,7 @@ check(#mqtt_client{username = undefined}, _Password, _Opts) ->
 check(_User, undefined, _Opts) ->
     {error, "Password undefined"};
 check(#mqtt_client{username = Username}, Password, _Opts) ->
-	case mnesia:dirty_read(?AUTH_USERNAME_TAB, Username) of
+    case mnesia:dirty_read(?AUTH_USERNAME_TAB, Username) of
         [] -> 
             {error, "Username Not Found"};
         [#?AUTH_USERNAME_TAB{password = <<Salt:4/binary, Hash/binary>>}] ->
@@ -119,8 +119,8 @@ check(#mqtt_client{username = Username}, Password, _Opts) ->
                 true -> ok;
                 false -> {error, "Password Not Right"}
             end
-	end.
-	
+    end.
+
 description() ->
     "Username password authentication module".
 

@@ -83,7 +83,7 @@
         old_client_pid :: pid(),
 
         %% Last packet id of the session
-		packet_id = 1,
+        packet_id = 1,
         
         %% Client’s subscriptions.
         subscriptions :: dict:dict(),
@@ -198,7 +198,7 @@ publish(_SessPid, Msg = #mqtt_message{qos = ?QOS_0}) ->
 
 publish(_SessPid, Msg = #mqtt_message{qos = ?QOS_1}) ->
     %% publish qos1 directly, and client will puback automatically
-	emqttd_pubsub:publish(Msg);
+    emqttd_pubsub:publish(Msg);
 
 publish(SessPid, Msg = #mqtt_message{qos = ?QOS_2}) ->
     %% publish qos2 by session 
@@ -701,9 +701,9 @@ timer(TimeoutSec, TimeoutMsg) ->
     erlang:send_after(timer:seconds(TimeoutSec), self(), TimeoutMsg).
 
 cancel_timer(undefined) -> 
-	undefined;
+    undefined;
 cancel_timer(Ref) -> 
-	catch erlang:cancel_timer(Ref).
+    catch erlang:cancel_timer(Ref).
 
 noreply(State) ->
     {noreply, State}.

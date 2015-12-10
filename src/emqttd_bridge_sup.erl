@@ -84,7 +84,7 @@ stop_bridge(Node, SubTopic) ->
             supervisor:delete_child(?MODULE, ChildId);
         {error, Reason} ->
             {error, Reason}
-	end.
+    end.
 
 %%%=============================================================================
 %%% Supervisor callbacks
