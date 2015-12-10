@@ -34,45 +34,45 @@
 
 -import(emqttd_serializer, [serialize/1]).
 
-serilize_connect_test() ->
-    serilize(?CONNECT_PACKET(#mqtt_packet_connect{})).
+serialize_connect_test() ->
+    serialize(?CONNECT_PACKET(#mqtt_packet_connect{})).
 
-serilize_connack_test() ->
+serialize_connack_test() ->
     ConnAck = #mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK}, 
                            variable = #mqtt_packet_connack{ack_flags = 0, return_code = 0}},
-    ?assertEqual(<<32,2,0,0>>, serilize(ConnAck)).
+    ?assertEqual(<<32,2,0,0>>, serialize(ConnAck)).
 
-serilize_publish_test() ->
-    serilize(?PUBLISH_PACKET(?QOS_0, <<"Topic">>, undefined, <<"Payload">>)),
-    serilize(?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 938, <<"Payload">>)).
+serialize_publish_test() ->
+    serialize(?PUBLISH_PACKET(?QOS_0, <<"Topic">>, undefined, <<"Payload">>)),
+    serialize(?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 938, <<"Payload">>)).
 
-serilize_puback_test() ->
-    serilize(?PUBACK_PACKET(?PUBACK, 10384)).
+serialize_puback_test() ->
+    serialize(?PUBACK_PACKET(?PUBACK, 10384)).
 
-serilize_pubrel_test() ->
-    serilize(?PUBREL_PACKET(10384)).
+serialize_pubrel_test() ->
+    serialize(?PUBREL_PACKET(10384)).
 
-serilize_subscribe_test() ->
+serialize_subscribe_test() ->
     TopicTable = [{<<"TopicQos0">>, ?QOS_0}, {<<"TopicQos1">>, ?QOS_1}, {<<"TopicQos2">>, ?QOS_2}],
-    serilize(?SUBSCRIBE_PACKET(10, TopicTable)).
+    serialize(?SUBSCRIBE_PACKET(10, TopicTable)).
 
-serilize_suback_test() ->
-    serilize(?SUBACK_PACKET(10, [?QOS_0, ?QOS_1, 128])).
+serialize_suback_test() ->
+    serialize(?SUBACK_PACKET(10, [?QOS_0, ?QOS_1, 128])).
 
-serilize_unsubscribe_test() ->
-    serilize(?UNSUBSCRIBE_PACKET(10, [<<"Topic1">>, <<"Topic2">>])).
+serialize_unsubscribe_test() ->
+    serialize(?UNSUBSCRIBE_PACKET(10, [<<"Topic1">>, <<"Topic2">>])).
 
-serilize_unsuback_test() ->
-    serilize(?UNSUBACK_PACKET(10)).
+serialize_unsuback_test() ->
+    serialize(?UNSUBACK_PACKET(10)).
 
-serilize_pingreq_test() ->
-    serilize(?PACKET(?PINGREQ)).
+serialize_pingreq_test() ->
+    serialize(?PACKET(?PINGREQ)).
 
-serilize_pingresp_test() ->
-    serilize(?PACKET(?PINGRESP)).
+serialize_pingresp_test() ->
+    serialize(?PACKET(?PINGRESP)).
 
-serilize_disconnect_test() ->
-    serilize(?PACKET(?DISCONNECT)).
+serialize_disconnect_test() ->
+    serialize(?PACKET(?DISCONNECT)).
 
 -endif.
 

@@ -1,4 +1,4 @@
--module(emqttd_retained_tests).
+-module(emqttd_retainer_tests).
 
 -include("emqttd.hrl").
 
@@ -8,7 +8,7 @@
 
 retain_test() ->
     mnesia:start(),
-    emqttd_retained:mnesia(boot),
+    emqttd_retainer:mnesia(boot),
     mnesia:stop().
 
 -endif.
