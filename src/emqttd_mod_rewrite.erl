@@ -46,7 +46,8 @@ load(Opts) ->
     emqttd_broker:hook('client.unsubscribe', {?MODULE, rewrite_unsubscribe},
                         {?MODULE, rewrite, [unsubscribe, Sections]}),
     emqttd_broker:hook('message.publish', {?MODULE, rewrite_publish},
-                        {?MODULE, rewrite, [publish, Sections]}).
+                        {?MODULE, rewrite, [publish, Sections]}),
+    {ok,  Sections}.
 
 rewrite(_ClientId, TopicTable, subscribe, Sections) ->
     lager:info("rewrite subscribe: ~p", [TopicTable]),
