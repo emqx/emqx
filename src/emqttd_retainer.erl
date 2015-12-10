@@ -19,18 +19,21 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% MQTT retained message storage.
+%%% @doc MQTT retained message storage.
 %%%
 %%% TODO: should match topic tree
-%%% 
+%%%
 %%% @end
+%%%
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
--module(emqttd_retained).
+-module(emqttd_retainer).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(gen_server).
 
 -include("emqttd.hrl").
+
+-include("emqttd_internal.hrl").
 
 -include_lib("stdlib/include/ms_transform.hrl").
 
@@ -45,8 +48,6 @@
 
 %% API Function Exports
 -export([start_link/0, expire/1]).
-
--behaviour(gen_server).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -66,7 +67,6 @@ mnesia(boot) ->
                 {ram_copies, [node()]},
                 {record_name, mqtt_retained},
                 {attributes, record_info(fields, mqtt_retained)}]);
-
 mnesia(copy) ->
     ok = emqttd_mnesia:copy_table(retained).
 
@@ -142,7 +142,7 @@ dispatch(Topic, CPid) when is_binary(Topic) ->
             end,
             mnesia:async_dirty(fun mnesia:foldl/3, [Fun, [], retained])
     end,
-    lists:foreach(fun(Msg) -> CPid ! {dispatch, Msg} end, lists:reverse(Msgs)).
+    lists:foreach(fun(Msg) -> CPid ! {dispatch, Topic, Msg} end, lists:reverse(Msgs)).
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -159,12 +159,11 @@ init([]) ->
                 stats_timer   = StatsTimer,
                 expire_timer  = ExpireTimer}}.
 
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+handle_call(Req, _From, State) ->
+    ?UNEXPECTED_REQ(Req, State).
 
 handle_cast(Msg, State) ->
-    lager:error("Unexpected Msg: ~p", [Msg]),
-    {noreply, State}.
+    ?UNEXPECTED_MSG(Msg, State).
 
 handle_info(stats, State = #state{stats_fun = StatsFun}) ->
     StatsFun(mnesia:table_info(retained, size)),
@@ -179,8 +178,7 @@ handle_info(expire, State = #state{expired_after = ExpiredAfter}) ->
     {noreply, State, hibernate};
 
 handle_info(Info, State) ->
-    lager:error("Unexpected Info: ~p", [Info]),
-    {noreply, State}.
+    ?UNEXPECTED_INFO(Info, State).
 
 terminate(_Reason, _State = #state{stats_timer = TRef1, expire_timer = TRef2}) ->
     timer:cancel(TRef1),

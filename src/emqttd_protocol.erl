@@ -19,14 +19,11 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd protocol.
+%%% @doc emqttd protocol.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_protocol).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -65,7 +62,7 @@
 init(Peername, SendFun, Opts) ->
     MaxLen = emqttd_opts:g(max_clientid_len, Opts, ?MAX_CLIENTID_LEN),
     WsInitialHeaders = emqttd_opts:g(ws_initial_headers, Opts),
-	#proto_state{peername           = Peername,
+    #proto_state{peername           = Peername,
                  sendfun            = SendFun,
                  max_clientid_len   = MaxLen,
                  client_pid         = self(),
@@ -121,12 +118,12 @@ received(_Packet, State = #proto_state{connected = false}) ->
 
 received(Packet = ?PACKET(_Type), State) ->
     trace(recv, Packet, State),
-	case validate_packet(Packet) of
+    case validate_packet(Packet) of
         ok ->
             process(Packet, State);
         {error, Reason} ->
             {error, Reason, State}
-	end.
+    end.
 
 process(Packet = ?CONNECT_PACKET(Var), State0) ->
 
@@ -188,7 +185,7 @@ process(Packet = ?PUBLISH_PACKET(_Qos, Topic, _PacketId, _Payload), State) ->
         deny ->
             ?LOG(error, "Cannot publish to ~s for ACL Deny", [Topic], State)
     end,
-	{ok, State};
+    {ok, State};
 
 process(?PUBACK_PACKET(?PUBACK, PacketId), State = #proto_state{session = Session}) ->
     emqttd_session:puback(Session, PacketId),
@@ -257,13 +254,13 @@ with_puback(Type, Packet = ?PUBLISH_PACKET(_Qos, PacketId),
 
 -spec send(mqtt_message() | mqtt_packet(), proto_state()) -> {ok, proto_state()}.
 send(Msg, State) when is_record(Msg, mqtt_message) ->
-	send(emqttd_message:to_packet(Msg), State);
+    send(emqttd_message:to_packet(Msg), State);
 
 send(Packet, State = #proto_state{sendfun = SendFun})
     when is_record(Packet, mqtt_packet) ->
     trace(send, Packet, State),
     emqttd_metrics:sent(Packet),
-    Data = emqttd_serialiser:serialise(Packet),
+    Data = emqttd_serializer:serialize(Packet),
     ?LOG(debug, "SEND ~p", [Data], State),
     emqttd_metrics:inc('bytes/sent', size(Data)),
     SendFun(Data),
@@ -355,10 +352,10 @@ validate_clientid(#mqtt_packet_connect{proto_ver  = ProtoVer,
     false.
 
 validate_packet(?PUBLISH_PACKET(_Qos, Topic, _PacketId, _Payload)) ->
-	case emqttd_topic:validate({name, Topic}) of
+    case emqttd_topic:validate({name, Topic}) of
         true  -> ok;
         false -> {error, badtopic}
-	end;
+    end;
 
 validate_packet(?SUBSCRIBE_PACKET(_PacketId, TopicTable)) ->
     validate_topics(filter, TopicTable);
@@ -377,16 +374,16 @@ validate_topics(Type, TopicTable = [{_Topic, _Qos}|_])
     Valid = fun(Topic, Qos) ->
               emqttd_topic:validate({Type, Topic}) and validate_qos(Qos)
             end,
-	case [Topic || {Topic, Qos} <- TopicTable, not Valid(Topic, Qos)] of
+    case [Topic || {Topic, Qos} <- TopicTable, not Valid(Topic, Qos)] of
         [] -> ok;
         _  -> {error, badtopic}
-	end;
+    end;
 
 validate_topics(Type, Topics = [Topic0|_]) when is_binary(Topic0) ->
-	case [Topic || Topic <- Topics, not emqttd_topic:validate({Type, Topic})] of
+    case [Topic || Topic <- Topics, not emqttd_topic:validate({Type, Topic})] of
         [] -> ok;
         _  -> {error, badtopic}
-	end.
+    end.
 
 validate_qos(undefined) ->
     true;

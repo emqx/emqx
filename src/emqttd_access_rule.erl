@@ -19,14 +19,11 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd ACL rule.
-%%%
-%%% @end
+%%% @doc emqttd ACL Rule
+%%% 
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_access_rule).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 

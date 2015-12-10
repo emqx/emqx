@@ -19,14 +19,11 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd utility functions. 
+%%% @doc emqttd utility functions
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_util).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -export([apply_module_attributes/1,
          all_module_attributes/1,
@@ -84,9 +81,9 @@ ignore_lib_apps(Apps) ->
 
 
 cancel_timer(undefined) -> 
-	undefined;
+    undefined;
 cancel_timer(Ref) -> 
-	catch erlang:cancel_timer(Ref).
+    catch erlang:cancel_timer(Ref).
 
 integer_to_binary(I) when is_integer(I) ->
     list_to_binary(integer_to_list(I)).

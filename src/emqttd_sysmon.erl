@@ -19,23 +19,30 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd system monitor.
+%%% @doc VM System Monitor
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_sysmon).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -behavior(gen_server).
+
+-include("emqttd_internal.hrl").
 
 -export([start_link/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {tick_tref, events = []}).
+-record(state, {tickref, events = [], tracelog}).
+
+-define(LOG_FMT, [{formatter_config, [time, " ", message, "\n"]}]).
+
+-define(LOG(Msg, ProcInfo),
+        lager:warning([{sysmon, true}], "~s~n~p", [WarnMsg, ProcInfo])).
+
+-define(LOG(Msg, ProcInfo, PortInfo),
+        lager:warning([{sysmon, true}], "~s~n~p~n~p", [WarnMsg, ProcInfo, PortInfo])).
 
 %%------------------------------------------------------------------------------
 %% @doc Start system monitor
@@ -53,7 +60,9 @@ start_link(Opts) ->
 init([Opts]) ->
     erlang:system_monitor(self(), parse_opt(Opts)),
     {ok, TRef} = timer:send_interval(timer:seconds(1), reset),
-    {ok, #state{tick_tref = TRef}}.
+    %%TODO: don't trace for performance issue.
+    %%{ok, TraceLog} = start_tracelog(proplists:get_value(logfile, Opts)),
+    {ok, #state{tickref = TRef}}.
 
 parse_opt(Opts) ->
     parse_opt(Opts, []).
@@ -63,6 +72,8 @@ parse_opt([{long_gc, false}|Opts], Acc) ->
     parse_opt(Opts, Acc);
 parse_opt([{long_gc, Ms}|Opts], Acc) when is_integer(Ms) ->
     parse_opt(Opts, [{long_gc, Ms}|Acc]);
+parse_opt([{long_schedule, false}|Opts], Acc) ->
+    parse_opt(Opts, Acc);
 parse_opt([{long_schedule, Ms}|Opts], Acc) when is_integer(Ms) ->
     parse_opt(Opts, [{long_schedule, Ms}|Acc]);
 parse_opt([{large_heap, Size}|Opts], Acc) when is_integer(Size) ->
@@ -74,55 +85,55 @@ parse_opt([{busy_port, false}|Opts], Acc) ->
 parse_opt([{busy_dist_port, true}|Opts], Acc) ->
     parse_opt(Opts, [busy_dist_port|Acc]);
 parse_opt([{busy_dist_port, false}|Opts], Acc) ->
+    parse_opt(Opts, Acc);
+parse_opt([_Opt|Opts], Acc) ->
     parse_opt(Opts, Acc).
 
-handle_call(Request, _From, State) ->
-    lager:error("Unexpected request: ~p", [Request]),
-    {reply, {error, unexpected_request}, State}.
+handle_call(Req, _From, State) ->
+    ?UNEXPECTED_REQ(Req, State).
 
 handle_cast(Msg, State) ->
-    lager:error("Unexpected msg: ~p", [Msg]),
-    {noreply, State}.
+    ?UNEXPECTED_MSG(Msg, State).
 
 handle_info({monitor, Pid, long_gc, Info}, State) ->
     suppress({long_gc, Pid}, fun() ->
-            WarnMsg = io_lib:format("long_gc: pid = ~p, info: ~p", [Pid, Info]),
-            lager:error("~s~n~p", [WarnMsg, procinfo(Pid)]),
+            WarnMsg = io_lib:format("long_gc warning: pid = ~p, info: ~p", [Pid, Info]),
+            ?LOG(WarnMsg, procinfo(Pid)),
             publish(long_gc, WarnMsg)
         end, State);
 
 handle_info({monitor, Pid, long_schedule, Info}, State) when is_pid(Pid) ->
     suppress({long_schedule, Pid}, fun() ->
             WarnMsg = io_lib:format("long_schedule warning: pid = ~p, info: ~p", [Pid, Info]),
-            lager:error("~s~n~p", [WarnMsg, procinfo(Pid)]),
+            ?LOG(WarnMsg, procinfo(Pid)),
             publish(long_schedule, WarnMsg)
         end, State);
 
 handle_info({monitor, Port, long_schedule, Info}, State) when is_port(Port) ->
     suppress({long_schedule, Port}, fun() ->
         WarnMsg  = io_lib:format("long_schedule warning: port = ~p, info: ~p", [Port, Info]),
-        lager:error("~s~n~p", [WarnMsg, erlang:port_info(Port)]),
+        ?LOG(WarnMsg, erlang:port_info(Port)),
         publish(long_schedule, WarnMsg)
     end, State);
 
 handle_info({monitor, Pid, large_heap, Info}, State) ->
     suppress({large_heap, Pid}, fun() ->
         WarnMsg = io_lib:format("large_heap warning: pid = ~p, info: ~p", [Pid, Info]),
-        lager:error("~s~n~p", [WarnMsg, procinfo(Pid)]),
+        ?LOG(WarnMsg, procinfo(Pid)),
         publish(large_heap, WarnMsg)
     end, State);
 
 handle_info({monitor, SusPid, busy_port, Port}, State) ->
     suppress({busy_port, Port}, fun() ->
         WarnMsg = io_lib:format("busy_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
-        lager:error("~s~n~p~n~p", [WarnMsg, procinfo(SusPid), erlang:port_info(Port)]),
+        ?LOG(WarnMsg, procinfo(SusPid), erlang:port_info(Port)),
         publish(busy_port, WarnMsg)
     end, State);
 
 handle_info({monitor, SusPid, busy_dist_port, Port}, State) ->
     suppress({busy_dist_port, Port}, fun() ->
         WarnMsg = io_lib:format("busy_dist_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
-        lager:error("~s~n~p~n~p", [WarnMsg, procinfo(SusPid), erlang:port_info(Port)]),
+        ?LOG(WarnMsg, procinfo(SusPid), erlang:port_info(Port)),
         publish(busy_dist_port, WarnMsg)
     end, State);
 
@@ -130,11 +141,11 @@ handle_info(reset, State) ->
     {noreply, State#state{events = []}};
 
 handle_info(Info, State) ->
-    lager:error("Unexpected info: ~p", [Info]),
-    {noreply, State}.
+    ?UNEXPECTED_INFO(Info, State).
 
-terminate(_Reason, #state{tick_tref = TRef}) ->
-    timer:cancel(TRef).
+terminate(_Reason, #state{tickref = TRef, tracelog = TraceLog}) ->
+    timer:cancel(TRef),
+    cancel_tracelog(TraceLog).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -161,4 +172,14 @@ publish(Sysmon, WarnMsg) ->
 
 topic(Sysmon) ->
     emqttd_topic:systop(list_to_binary(lists:concat(['sysmon/', Sysmon]))).
+
+start_tracelog(undefined) ->
+    {ok, undefined};
+start_tracelog(LogFile) ->
+    lager:trace_file(LogFile, [{sysmon, true}], info, ?LOG_FMT).
+
+cancel_tracelog(undefined) ->
+    ok;
+cancel_tracelog(TraceLog) ->
+    lager:stop_trace(TraceLog).
 

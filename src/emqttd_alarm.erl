@@ -19,14 +19,11 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% copy alarm_handler.
-%%%
-%%% @end
+%%% @doc Copy alarm_handler
+%%% 
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_alarm).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -108,10 +105,10 @@ handle_event({set_alarm, Alarm = #mqtt_alarm{id       = AlarmId,
     emqttd_pubsub:publish(alarm_msg(alert, AlarmId, Json)),
     {ok, [Alarm#mqtt_alarm{timestamp = Timestamp} | Alarms]};
 
-handle_event({clear_alarm, AlarmId}, Alarms)->
+handle_event({clear_alarm, AlarmId}, Alarms) ->
     Json = mochijson2:encode([{id, AlarmId}, {ts, emqttd_util:now_to_secs()}]),
     emqttd_pubsub:publish(alarm_msg(clear, AlarmId, Json)),
-    {ok, lists:keydelete(AlarmId, 2, Alarms)};
+    {ok, lists:keydelete(AlarmId, 2, Alarms), hibernate};
 
 handle_event(_, Alarms)->
     {ok, Alarms}.

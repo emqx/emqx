@@ -19,14 +19,11 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd bridge supervisor.
+%%% @doc Bridge Supervisor
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_bridge_sup).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -behavior(supervisor).
 
@@ -83,11 +80,11 @@ start_bridge(Node, SubTopic, Options) when is_atom(Node) and is_binary(SubTopic)
 stop_bridge(Node, SubTopic) ->
     ChildId = bridge_id(Node, SubTopic),
     case supervisor:terminate_child(?MODULE, ChildId) of
-        ok -> 
+        ok ->
             supervisor:delete_child(?MODULE, ChildId);
         {error, Reason} ->
             {error, Reason}
-	end.
+    end.
 
 %%%=============================================================================
 %%% Supervisor callbacks

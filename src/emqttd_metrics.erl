@@ -19,20 +19,17 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd metrics. responsible for collecting broker metrics.
+%%% @doc emqttd metrics. responsible for collecting broker metrics
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_metrics).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(gen_server).
 
 -include("emqttd.hrl").
 
 -include("emqttd_protocol.hrl").
-
--behaviour(gen_server).
 
 -define(SERVER, ?MODULE).
 
@@ -286,14 +283,14 @@ key(counter, Metric) ->
 %%%=============================================================================
 
 init([]) ->
-    random:seed(now()),
+    random:seed(os:timestamp()),
     Metrics = ?SYSTOP_BYTES ++ ?SYSTOP_PACKETS ++ ?SYSTOP_MESSAGES,
     % Create metrics table
     ets:new(?METRIC_TAB, [set, public, named_table, {write_concurrency, true}]),
     % Init metrics
     [create_metric(Metric) ||  Metric <- Metrics],
     % $SYS Topics for metrics
-    [ok = emqttd_pubsub:create(metric_topic(Topic)) || {_, Topic} <- Metrics],
+    [ok = emqttd_pubsub:create(topic, metric_topic(Topic)) || {_, Topic} <- Metrics],
     % Tick to publish metrics
     {ok, #state{tick_tref = emqttd_broker:start_tick(tick)}, hibernate}.
 

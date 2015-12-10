@@ -19,14 +19,11 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% LDAP Authentication Module
+%%% @doc LDAP Authentication Module
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_auth_ldap).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -84,6 +81,5 @@ ldap_bind(LDAP, UserDn, Password) ->
 fill(Username, UserDn) ->
     re:replace(UserDn, "\\$u", Username, [global, {return, list}]).
 
-description() -> 
-    "LDAP Authentication Module".
+description() -> "LDAP Authentication Module".
 

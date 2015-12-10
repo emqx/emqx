@@ -19,16 +19,15 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd session manager.
+%%% @doc Session Manager
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_sm).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -include("emqttd.hrl").
+
+-include("emqttd_internal.hrl").
 
 %% Mnesia Callbacks
 -export([mnesia/1]).
@@ -37,7 +36,7 @@
 -copy_mnesia({mnesia, [copy]}).
 
 %% API Function Exports
--export([start_link/1, pool/0]).
+-export([start_link/2]).
 
 -export([start_session/2, lookup_session/1]).
 
@@ -52,11 +51,11 @@
 %% gen_server2 priorities
 -export([prioritise_call/4, prioritise_cast/3, prioritise_info/3]).
 
--record(state, {id}).
+-record(state, {pool, id, monitors}).
 
--define(SM_POOL, ?MODULE).
+-define(POOL, ?MODULE).
 
--define(TIMEOUT, 60000).
+-define(TIMEOUT, 120000).
 
 -define(LOG(Level, Format, Args, Session),
             lager:Level("SM(~s): " ++ Format, [Session#mqtt_session.client_id | Args])).
@@ -66,13 +65,12 @@
 %%%=============================================================================
 
 mnesia(boot) ->
-    %% global session...
+    %% Global Session Table
     ok = emqttd_mnesia:create_table(session, [
-            {type, ordered_set},
-            {ram_copies, [node()]},
-            {record_name, mqtt_session},
-            {attributes, record_info(fields, mqtt_session)},
-            {index, [sess_pid]}]);
+                {type, set},
+                {ram_copies, [node()]},
+                {record_name, mqtt_session},
+                {attributes, record_info(fields, mqtt_session)}]);
 
 mnesia(copy) ->
     ok = emqttd_mnesia:copy_table(session).
@@ -85,18 +83,12 @@ mnesia(copy) ->
 %% @doc Start a session manager
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link(Id :: pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
-start_link(Id) ->
-    gen_server2:start_link({local, name(Id)}, ?MODULE, [Id], []).
+-spec start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
+start_link(Pool, Id) ->
+    gen_server2:start_link({local, name(Id)}, ?MODULE, [Pool, Id], []).
 
 name(Id) ->
     list_to_atom("emqttd_sm_" ++ integer_to_list(Id)).
-
-%%------------------------------------------------------------------------------
-%% @doc Pool name.
-%% @end
-%%------------------------------------------------------------------------------
-pool() -> ?SM_POOL.
 
 %%------------------------------------------------------------------------------
 %% @doc Start a session
@@ -104,7 +96,7 @@ pool() -> ?SM_POOL.
 %%------------------------------------------------------------------------------
 -spec start_session(CleanSess :: boolean(), binary()) -> {ok, pid(), boolean()} | {error, any()}.
 start_session(CleanSess, ClientId) ->
-    SM = gproc_pool:pick_worker(?SM_POOL, ClientId),
+    SM = gproc_pool:pick_worker(?POOL, ClientId),
     call(SM, {start_session, {CleanSess, ClientId, self()}}).
 
 %%------------------------------------------------------------------------------
@@ -149,9 +141,10 @@ call(SM, Req) ->
 %%% gen_server callbacks
 %%%=============================================================================
 
-init([Id]) ->
-    gproc_pool:connect_worker(?SM_POOL, {?MODULE, Id}),
-    {ok, #state{id = Id}}.
+init([Pool, Id]) ->
+    ?GPROC_POOL(join, Pool, Id),
+    {ok, #state{pool = Pool, id = Id,
+                monitors = dict:new()}}.
 
 prioritise_call(_Msg, _From, _Len, _State) ->
     1.
@@ -162,50 +155,63 @@ prioritise_cast(_Msg, _Len, _State) ->
 prioritise_info(_Msg, _Len, _State) ->
     2.
 
-%% persistent session
-handle_call({start_session, {false, ClientId, ClientPid}}, _From, State) ->
+%% Persistent Session
+handle_call({start_session, Client = {false, ClientId, ClientPid}}, _From, State) ->
     case lookup_session(ClientId) of
         undefined ->
-            %% create session locally
-            reply(create_session(false, ClientId, ClientPid), false, State);
+            %% Create session locally
+            create_session(Client, State);
         Session ->
-            reply(resume_session(Session, ClientPid), true, State)
+            case resume_session(Session, ClientPid) of
+                {ok, SessPid} ->
+                    {reply, {ok, SessPid, true}, State};
+                {error, Erorr} ->
+                    {reply, {error, Erorr}, State}
+             end
     end;
 
-%% transient session
-handle_call({start_session, {true, ClientId, ClientPid}}, _From, State) ->
+%% Transient Session
+handle_call({start_session, Client = {true, ClientId, _ClientPid}}, _From, State) ->
     case lookup_session(ClientId) of
         undefined ->
-            reply(create_session(true, ClientId, ClientPid), false, State);
+            create_session(Client, State);
         Session ->
             case destroy_session(Session) of
                 ok ->
-                    reply(create_session(true, ClientId, ClientPid), false, State);
+                    create_session(Client, State);
                 {error, Error} ->
                     {reply, {error, Error}, State}
             end
     end;
 
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+handle_call(Req, _From, State) ->
+    ?UNEXPECTED_REQ(Req, State).
 
 handle_cast(Msg, State) ->
-    lager:error("Unexpected Msg: ~p", [Msg]),
-    {noreply, State}.
+    ?UNEXPECTED_MSG(Msg, State).
 
-handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State) ->
-    mnesia:transaction(fun() ->
-                [mnesia:delete_object(session, Sess, write) || Sess 
-                    <- mnesia:index_read(session, DownPid, #mqtt_session.sess_pid)]
-        end),
-    {noreply, State};
+handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
+    case dict:find(MRef, State#state.monitors) of
+        {ok, ClientId} ->
+            mnesia:transaction(fun() ->
+                case mnesia:wread({session, ClientId}) of
+                    [] -> ok;
+                    [Sess = #mqtt_session{sess_pid = DownPid}] ->
+                        mnesia:delete_object(session, Sess, write);
+                    [_Sess] -> ok
+                    end
+                end),
+            {noreply, erase_monitor(MRef, State)};
+        error ->
+            lager:error("MRef of session ~p not found", [DownPid]),
+            {noreply, State}
+    end;
 
 handle_info(Info, State) ->
-    lager:error("Unexpected Info: ~p", [Info]),
-    {noreply, State}.
+    ?UNEXPECTED_INFO(Info, State).
 
-terminate(_Reason, #state{id = Id}) ->
-    gproc_pool:disconnect_worker(?SM_POOL, {?MODULE, Id}), ok.
+terminate(_Reason, #state{pool = Pool, id = Id}) ->
+    ?GPROC_POOL(leave, Pool, Id).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -213,6 +219,16 @@ code_change(_OldVsn, State, _Extra) ->
 %%%=============================================================================
 %%% Internal functions
 %%%=============================================================================
+
+%% Create Session Locally
+create_session({CleanSess, ClientId, ClientPid}, State) ->
+    case create_session(CleanSess, ClientId, ClientPid) of
+        {ok, SessPid} ->
+            {reply, {ok, SessPid, false},
+                monitor_session(ClientId, SessPid, State)};
+        {error, Error} ->
+            {reply, {error, Error}, State}
+    end.
 
 create_session(CleanSess, ClientId, ClientPid) ->
     case emqttd_session_sup:start_session(CleanSess, ClientId, ClientPid) of
@@ -226,7 +242,6 @@ create_session(CleanSess, ClientId, ClientPid) ->
                     lager:error("SM(~s): Conflict with ~p", [ClientId, ConflictPid]),
                     {error, mnesia_conflict};
                 {atomic, ok} ->
-                    erlang:monitor(process, SessPid),
                     {ok, SessPid}
             end;
         {error, Error} ->
@@ -301,8 +316,10 @@ remove_session(Session) ->
         {aborted, Error} -> {error, Error}
     end.
 
-reply({ok, SessPid}, SP, State) ->
-    {reply, {ok, SessPid, SP}, State};
-reply({error, Error}, _SP, State) ->
-    {reply, {error, Error}, State}.
+monitor_session(ClientId, SessPid, State = #state{monitors = Monitors}) ->
+    MRef = erlang:monitor(process, SessPid),
+    State#state{monitors = dict:store(MRef, ClientId, Monitors)}.
+
+erase_monitor(MRef, State = #state{monitors = Monitors}) ->
+    State#state{monitors = dict:erase(MRef, Monitors)}.
 

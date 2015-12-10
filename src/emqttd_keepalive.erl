@@ -21,11 +21,9 @@
 %%%-----------------------------------------------------------------------------
 %%% @doc client keepalive
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_keepalive).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -export([start/3, check/1, cancel/1]).
 
@@ -44,7 +42,7 @@ start(_, 0, _) ->
     undefined;
 start(StatFun, TimeoutSec, TimeoutMsg) ->
     {ok, StatVal} = StatFun(),
-	#keepalive{statfun = StatFun, statval = StatVal,
+    #keepalive{statfun = StatFun, statval = StatVal,
                tsec = TimeoutSec, tmsg = TimeoutMsg,
                tref = timer(TimeoutSec, TimeoutMsg)}.
 
@@ -78,9 +76,9 @@ resume(KeepAlive = #keepalive{tsec = TimeoutSec, tmsg = TimeoutMsg}) ->
 cancel(#keepalive{tref = TRef}) ->
     cancel(TRef);
 cancel(undefined) -> 
-	ok;
+    ok;
 cancel(TRef) ->
-	catch erlang:cancel_timer(TRef).
+    catch erlang:cancel_timer(TRef).
 
 timer(Sec, Msg) ->
     erlang:send_after(timer:seconds(Sec), self(), Msg).

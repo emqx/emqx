@@ -1,11 +1,11 @@
 % -*- mode: erlang;erlang-indent-level: 4;indent-tabs-mode: nil -*-
 %% ex: ft=erlang ts=4 sw=4 et
 [{kernel, 
-	[{start_timer, true},
-	 {start_pg2, true}
+    [{start_timer, true},
+     {start_pg2, true}
  ]},
  {sasl, [
-	{sasl_error_logger, {file, "log/emqttd_sasl.log"}}
+    {sasl_error_logger, {file, "log/emqttd_sasl.log"}}
  ]},
  {ssl, [
     %{versions, ['tlsv1.2', 'tlsv1.1']}
@@ -13,27 +13,29 @@
  {lager, [
     {colored, true},
     {async_threshold, 1000},
-	{error_logger_redirect, false},
-	{crash_log, "log/emqttd_crash.log"},
-	{handlers, [
-		{lager_console_backend, info},
-		{lager_file_backend, [
+    {error_logger_redirect, false},
+    {crash_log, "log/emqttd_crash.log"},
+    {handlers, [
+        {lager_console_backend, info},
+        %%NOTICE: Level >= error
+        %%{lager_emqtt_backend, error},
+        {lager_file_backend, [
             {formatter_config, [time, " ", pid, " [",severity,"] ", message, "\n"]},
-			{file, "log/emqttd_info.log"},
-			{level, info},
-			{size, 104857600},
-			{date, "$D0"},
-			{count, 30}
-		]},
-		{lager_file_backend, [
+            {file, "log/emqttd_info.log"},
+            {level, info},
+            {size, 104857600},
+            {date, "$D0"},
+            {count, 30}
+        ]},
+        {lager_file_backend, [
             {formatter_config, [time, " ", pid, " [",severity,"] ", message, "\n"]},
-			{file, "log/emqttd_error.log"},
-			{level, error},
-			{size, 104857600},
-			{date, "$D0"},
-			{count, 30}
-		]}
-	]}
+            {file, "log/emqttd_error.log"},
+            {level, error},
+            {size, 104857600},
+            {date, "$D0"},
+            {count, 30}
+        ]}
+    ]}
  ]},
  {esockd, [
     {logger, {lager, info}}
@@ -141,11 +143,25 @@
             %% Max Payload Size of retained message
             {max_playload_size, 65536}
         ]},
-        %% PubSub
+
+        %% PubSub and Router
         {pubsub, [
-            %% default should be scheduler numbers
-            %% {pool_size, 8}
+            %% Default should be scheduler numbers
+            %% {pool_size, 8},
+            
+            %% Subscription: disc | ram | false
+            {subscription, ram},
+
+            %% Route shard
+            {route_shard, false},
+
+            %% Route delay, false | integer
+            {route_delay, false},
+
+            %% Route aging time(seconds)
+            {route_aging, 5}
         ]},
+
         %% Bridge
         {bridge, [
             %%TODO: bridge queue size
@@ -262,12 +278,11 @@
 
     %% Erlang System Monitor
     {sysmon, [
-
         %% Long GC
         {long_gc, 100},
 
         %% Long Schedule(ms)
-        {long_schedule, 50},
+        {long_schedule, 100},
 
         %% 8M words. 32MB on 32-bit VM, 64MB on 64-bit VM.
         %% 8 * 1024 * 1024

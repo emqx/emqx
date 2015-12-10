@@ -19,14 +19,11 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd erlang vm.
+%%% @doc emqttd erlang vm.
 %%%
-%%% @end
+%%% @author huangdan
 %%%-----------------------------------------------------------------------------
 -module(emqttd_vm).
-
--author('huangdan').
 
 -export([schedulers/0]).
 
@@ -36,23 +33,15 @@
 
 -export([get_memory/0]).
 
--export([get_process_list/0,
-         get_process_info/0,
-         get_process_info/1,
-         get_process_gc/0,
-         get_process_gc/1,
+-export([get_process_list/0, get_process_info/0, get_process_info/1,
+         get_process_gc/0, get_process_gc/1,
          get_process_group_leader_info/1,
          get_process_limit/0]).
-	
--export([get_ets_list/0,
-         get_ets_info/0,
-         get_ets_info/1,
-         get_ets_object/0,
-         get_ets_object/1]).
 
--export([get_port_types/0,
-         get_port_info/0,
-         get_port_info/1]).
+-export([get_ets_list/0, get_ets_info/0, get_ets_info/1,
+         get_ets_object/0, get_ets_object/1]).
+
+-export([get_port_types/0, get_port_info/0, get_port_info/1]).
 
 -define(UTIL_ALLOCATORS, [temp_alloc,
                           eheap_alloc,
@@ -185,7 +174,7 @@ get_system_info() ->
 
 get_system_info(Key) ->
     try erlang:system_info(Key) catch
-	error:badarg->undefined
+    error:badarg->undefined
     end.
 %% conversion functions for erlang:system_info(Key)
 
@@ -195,9 +184,8 @@ format_system_info(allocator, {_,_,_,List}) ->
     List;
 format_system_info(dist_ctrl, List) ->
     lists:map(fun({Node, Socket}) ->
-	{ok, Stats} = inet:getstat(Socket),
-	{Node, Stats}
-	      end, List);
+                {ok, Stats} = inet:getstat(Socket), {Node, Stats}
+              end, List);
 format_system_info(driver_version, Value) ->
     list_to_binary(Value);
 format_system_info(machine, Value) ->
@@ -241,22 +229,21 @@ scheduler_usage(Interval) when is_integer(Interval) ->
     scheduler_usage_diff(First, Last).
 
 scheduler_usage_diff(First, Last) ->
-    lists:map(
-	    fun({{I, A0, T0},{I, A1, T1}}) ->{I, (A1 - A0)/(T1 - T0)}end,
-	    lists:zip(lists:sort(First), lists:sort(Last))
-    ).
+    lists:map(fun({{I, A0, T0},{I, A1, T1}}) ->
+                {I, (A1 - A0)/(T1 - T0)}
+              end, lists:zip(lists:sort(First), lists:sort(Last))).
 
 get_memory()->
     [{Key, get_memory(Key, current)} || Key <- [used, allocated, unused, usage]] ++ erlang:memory().
 
 get_memory(used, Keyword) ->
     lists:sum(lists:map(fun({_, Prop}) ->
-			        container_size(Prop, Keyword, blocks_size)
-			end, util_alloc()));
+                    container_size(Prop, Keyword, blocks_size)
+            end, util_alloc()));
 get_memory(allocated, Keyword) ->
     lists:sum(lists:map(fun({_, Prop})->
-		   		container_size(Prop, Keyword, carriers_size)
-	            	end, util_alloc()));
+                    container_size(Prop, Keyword, carriers_size)
+            end, util_alloc()));
 get_memory(unused, Keyword) ->
     get_memory(allocated, Keyword) - get_memory(used, Keyword);
 get_memory(usage, Keyword) ->
@@ -277,11 +264,9 @@ snapshot_int() ->
 allocators() ->
     UtilAllocators = erlang:system_info(alloc_util_allocators),
     Allocators = [sys_alloc, mseg_alloc|UtilAllocators],
-    [{{A, N},lists:sort(proplists:delete(versions, Props))} || 
-        A <- Allocators,
-	Allocs <- [erlang:system_info({allocator, A})],
-	Allocs =/= false,
-	{_, N, Props} <- Allocs].
+    [{{A, N},lists:sort(proplists:delete(versions, Props))} ||
+        A <- Allocators, Allocs <- [erlang:system_info({allocator, A})],
+            Allocs =/= false, {_, N, Props} <- Allocs].
 
 container_size(Prop, Keyword, Container) ->
     Sbcs = container_value(Prop, Keyword, sbcs, Container),
@@ -292,10 +277,11 @@ container_value(Prop, Keyword, Type, Container) when is_atom(Keyword)->
     container_value(Prop, 2, Type, Container);
 container_value(Props, Pos, mbcs = Type, Container) when is_integer(Pos)->
     Pool = case proplists:get_value(mbcs_pool, Props) of
-	    PoolProps when PoolProps =/= undefined ->
-		    element(Pos, lists:keyfind(Container, 1, PoolProps));
-	    _ -> 0
-	   end,
+        PoolProps when PoolProps =/= undefined ->
+            element(Pos, lists:keyfind(Container, 1, PoolProps));
+        _ ->
+            0
+       end,
     TypeProps = proplists:get_value(Type, Props),
     Pool + element(Pos, lists:keyfind(Container, 1, TypeProps));
 
@@ -333,11 +319,11 @@ get_ets_info() ->
 
 get_ets_info(Tab) ->
     case ets:info(Tab) of
-	undefined ->
-	    [];
-	Entries when is_list(Entries) ->
-	    mapping(Entries)
-    end.	
+    undefined ->
+        [];
+    Entries when is_list(Entries) ->
+        mapping(Entries)
+    end.
 
 get_ets_object() ->
     [{Tab, get_ets_object(Tab)} || Tab <- ets:all()].
@@ -346,15 +332,15 @@ get_ets_object(Tab) ->
     TabInfo = ets:info(Tab),
     Size = proplists:get_value(size, TabInfo),
     NameTab = proplists:get_value(named_table, TabInfo),
-    if  (Size == 0) or (NameTab == false) ->
-	[];
+    if (Size == 0) or (NameTab == false) ->
+        [];
     true ->
-	ets:tab2list(Tab)	
+        ets:tab2list(Tab)
     end.
 
 get_port_types() ->
     lists:usort(fun({KA, VA},{KB, VB})-> {VA, KB} >{VB, KA} end,
-	ports_type_count([Type || {_Port, Type} <- ports_type_list()])).
+    ports_type_count([Type || {_Port, Type} <- ports_type_list()])).
 
 get_port_info() ->
     [get_port_info(Port) ||Port <- erlang:ports()].
@@ -364,11 +350,11 @@ get_port_info(PortTerm) ->
     [port_info(Port, Type) || Type <- [meta, signals, io, memory_used, specific]].
 
 port_info(Port, meta) ->
-	{meta, List} = port_info_type(Port, meta, [id, name, os_pid]),
-	case port_info(Port, registered_name)  of
-		[] -> {meta, List};
-		Name -> {meta, [Name | List]}
-end;
+    {meta, List} = port_info_type(Port, meta, [id, name, os_pid]),
+    case port_info(Port, registered_name)  of
+        []   -> {meta, List};
+        Name -> {meta, [Name | List]}
+    end;
 
 port_info(PortTerm, signals) ->
     port_info_type(PortTerm, signals, [connected, links, monitors]);
@@ -380,43 +366,43 @@ port_info(PortTerm, memory_used) ->
     port_info_type(PortTerm, memory_used, [memory, queue_size]);
 
 port_info(PortTerm, specific) ->
-	Port = transform_port(PortTerm),
-	Props = case erlang:port_info(Port, name) of
-		{_, Type}  when Type =:= "udp_inet";
-				Type =:= "tcp_inet";
-				Type =:= "sctp_inet" ->
-					case catch inet:getstat(Port) of
-						{ok, Stats} -> [{statistics, Stats}];
-						_ ->[]
-
-		end ++
-		case catch inet:peername(Port) of
-			{ok, Peer} ->[{peername, Peer}];
-			{error, _} ->[]
-	end ++
-	case catch inet:sockname(Port) of
-		{ok, Local} ->[{sockname, Local}];
-		{error, _} -> []
-end ++
-case catch inet:getopts(Port, ?SOCKET_OPTS ) of
-	{ok, Opts} -> [{options, Opts}];
-	{error, _} -> []
-end;
-	{_, "efile"} ->
-		[];
-	_ ->[]
-end,
-	{specific, Props};
+    Port = transform_port(PortTerm),
+    Props = case erlang:port_info(Port, name) of
+        {_, Type} when Type =:= "udp_inet";
+                       Type =:= "tcp_inet";
+                       Type =:= "sctp_inet" ->
+                    case catch inet:getstat(Port) of
+                        {ok, Stats} -> [{statistics, Stats}];
+                        _           -> []
+                    end ++
+                    case catch inet:peername(Port) of
+                        {ok, Peer} -> [{peername, Peer}];
+                        {error, _} -> []
+                    end ++
+                    case catch inet:sockname(Port) of
+                        {ok, Local} -> [{sockname, Local}];
+                        {error, _}  -> []
+                    end ++
+                    case catch inet:getopts(Port, ?SOCKET_OPTS ) of
+                        {ok, Opts} -> [{options, Opts}];
+                        {error, _} -> []
+                    end;
+    {_, "efile"} ->
+        [];
+    _ ->
+        []
+    end,
+    {specific, Props};
 port_info(PortTerm, Keys) when is_list(Keys) ->
-	Port = transform_port(PortTerm),
-	[erlang:port_info(Port, Key) || Key <- Keys];
+    Port = transform_port(PortTerm),
+    [erlang:port_info(Port, Key) || Key <- Keys];
 port_info(PortTerm, Key) when is_atom(Key) ->
-	Port = transform_port(PortTerm),
-	erlang:port_info(Port, Key).
+    Port = transform_port(PortTerm),
+    erlang:port_info(Port, Key).
 
 port_info_type(PortTerm, Type, Keys) ->
-	Port = transform_port(PortTerm),
-	{Type, [erlang:port_info(Port, Key) || Key <- Keys]}.
+    Port = transform_port(PortTerm),
+    {Type, [erlang:port_info(Port, Key) || Key <- Keys]}.
 
 transform_port(Port) when is_port(Port)  -> Port;
 transform_port("#Port<0." ++ Id) ->
@@ -426,21 +412,17 @@ transform_port(N) when is_integer(N) ->
     Name = iolist_to_binary(atom_to_list(node())),
     NameLen = iolist_size(Name),
     Vsn = binary:last(term_to_binary(self())),
-    Bin = <<131, 102, 100,
-    	    NameLen:2/unit:8,
-	    Name:NameLen/binary,
-	    N:4/unit:8,
-	    Vsn:8>>,
+    Bin = <<131, 102, 100, NameLen:2/unit:8, Name:NameLen/binary, N:4/unit:8, Vsn:8>>,
     binary_to_term(Bin).
 
 ports_type_list() ->
     [{Port, PortType} || Port <- erlang:ports(),
-		{_, PortType} <- [erlang:port_info(Port, name)]].
+                         {_, PortType} <- [erlang:port_info(Port, name)]].
 
 ports_type_count(Types) ->
     DictTypes = lists:foldl(fun(Type, Acc)->
-			dict:update_counter(Type, 1, Acc)	       
-		end, dict:new(), Types),
+            dict:update_counter(Type, 1, Acc)
+        end, dict:new(), Types),
     dict:to_list(DictTypes).
 
 mapping(Entries) ->

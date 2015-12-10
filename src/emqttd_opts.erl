@@ -19,14 +19,11 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd options handler.
+%%% @doc emqttd options handler.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_opts).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -export([merge/2, g/2, g/3]).
 
@@ -38,14 +35,12 @@ merge(Defaults, Options) ->
     lists:foldl(
         fun({Opt, Val}, Acc) ->
                 case lists:keymember(Opt, 1, Acc) of
-                    true ->
-                        lists:keyreplace(Opt, 1, Acc, {Opt, Val});
-                    false ->
-                        [{Opt, Val}|Acc]
+                    true  -> lists:keyreplace(Opt, 1, Acc, {Opt, Val});
+                    false -> [{Opt, Val}|Acc]
                 end;
             (Opt, Acc) ->
                 case lists:member(Opt, Acc) of
-                    true -> Acc;
+                    true  -> Acc;
                     false -> [Opt | Acc]
                 end
         end, Defaults, Options).
