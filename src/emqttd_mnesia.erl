@@ -91,6 +91,7 @@ create_table(Table, Attrs) ->
     case mnesia:create_table(Table, Attrs) of
         {atomic, ok} -> ok;
         {aborted, {already_exists, Table}} -> ok;
+        {aborted, {already_exists, Table, _}} -> ok;
         Error -> Error
     end.
 
@@ -107,6 +108,7 @@ copy_tables() ->
 copy_table(Table) ->
     case mnesia:add_table_copy(Table, node(), ram_copies) of
         {atomic, ok} -> ok;
+        {aborted, {already_exists, Table}} -> ok;
         {aborted, {already_exists, Table, _Node}} -> ok;
         {aborted, Error} -> Error
     end.
