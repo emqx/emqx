@@ -19,18 +19,15 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd module supervisor.
+%%% @doc emqttd module supervisor.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_mod_sup).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(supervisor).
 
 -include("emqttd.hrl").
-
--behaviour(supervisor).
 
 %% API
 -export([start_link/0, start_child/1, start_child/2]).
@@ -49,14 +46,14 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 start_child(ChildSpec) when is_tuple(ChildSpec) ->
-	supervisor:start_child(?MODULE, ChildSpec).
+    supervisor:start_child(?MODULE, ChildSpec).
 
 %%
 %% start_child(Mod::atom(), Type::type()) -> {ok, pid()}
 %% @type type() = worker | supervisor
 %%
 start_child(Mod, Type) when is_atom(Mod) and is_atom(Type) ->
-	supervisor:start_child(?MODULE, ?CHILD(Mod, Type)).
+    supervisor:start_child(?MODULE, ?CHILD(Mod, Type)).
 
 %%%=============================================================================
 %%% Supervisor callbacks

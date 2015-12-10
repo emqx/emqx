@@ -19,14 +19,11 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd http publish API and websocket client.
+%%% @doc emqttd http publish API and websocket client.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_http).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -44,7 +41,7 @@ handle_request('GET', "/status", Req) ->
     AppStatus =
     case lists:keysearch(emqttd, 1, application:which_applications()) of
         false         -> not_running;
-        {value, _Ver} -> running
+        {value, _Val} -> running
     end,
     Status = io_lib:format("Node ~s is ~s~nemqttd is ~s",
                             [node(), InternalStatus, AppStatus]),
@@ -56,8 +53,8 @@ handle_request('GET', "/status", Req) ->
 handle_request('POST', "/mqtt/publish", Req) ->
     Params = mochiweb_request:parse_post(Req),
     lager:info("HTTP Publish: ~p", [Params]),
-	case authorized(Req) of
-	true ->
+    case authorized(Req) of
+    true ->
         ClientId = get_value("client", Params, http),
         Qos      = int(get_value("qos", Params, "0")),
         Retain   = bool(get_value("retain", Params,  "0")),
@@ -73,15 +70,15 @@ handle_request('POST', "/mqtt/publish", Req) ->
             {_, false} ->
                 Req:respond({400, [], <<"Bad Topic">>})
         end;
-	false ->
-		Req:respond({401, [], <<"Fobbiden">>})
-	end;
+    false ->
+        Req:respond({401, [], <<"Fobbiden">>})
+    end;
 
 %%------------------------------------------------------------------------------
 %% MQTT Over WebSocket
 %%------------------------------------------------------------------------------
 handle_request('GET', "/mqtt", Req) ->
-    lager:info("Websocket Connection from: ~s", [Req:get(peer)]),
+    lager:info("WebSocket Connection from: ~s", [Req:get(peer)]),
     Upgrade = Req:get_header_value("Upgrade"),
     Proto   = Req:get_header_value("Sec-WebSocket-Protocol"),
     case {is_websocket(Upgrade), Proto} of
@@ -104,16 +101,16 @@ handle_request('GET', "/" ++ File, Req) ->
 
 handle_request(Method, Path, Req) ->
     lager:error("Unexpected HTTP Request: ~s ~s", [Method, Path]),
-	Req:not_found().
+    Req:not_found().
 
 %%------------------------------------------------------------------------------
 %% basic authorization
 %%------------------------------------------------------------------------------
 authorized(Req) ->
     case Req:get_header_value("Authorization") of
-	undefined ->
-		false;
-	"Basic " ++ BasicAuth ->
+    undefined ->
+        false;
+    "Basic " ++ BasicAuth ->
         {Username, Password} = user_passwd(BasicAuth),
         case emqttd_access_control:auth(#mqtt_client{username = Username}, Password) of
             ok ->
@@ -122,10 +119,10 @@ authorized(Req) ->
                 lager:error("HTTP Auth failure: username=~s, reason=~p", [Username, Reason]),
                 false
         end
-	end.
+    end.
 
 user_passwd(BasicAuth) ->
-	list_to_tuple(binary:split(base64:decode(BasicAuth), <<":">>)). 
+    list_to_tuple(binary:split(base64:decode(BasicAuth), <<":">>)). 
 
 validate(qos, Qos) ->
     (Qos >= ?QOS_0) and (Qos =< ?QOS_2); 

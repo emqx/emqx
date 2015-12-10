@@ -1,11 +1,11 @@
 % -*- mode: erlang;erlang-indent-level: 4;indent-tabs-mode: nil -*-
 %% ex: ft=erlang ts=4 sw=4 et
-[{kernel, 
-	[{start_timer, true},
-	 {start_pg2, true}
+[{kernel,
+    [{start_timer, true},
+     {start_pg2, true}
  ]},
  {sasl, [
-	{sasl_error_logger, {file, "log/emqttd_sasl.log"}}
+    {sasl_error_logger, {file, "log/emqttd_sasl.log"}}
  ]},
  {ssl, [
     %{versions, ['tlsv1.2', 'tlsv1.1']}
@@ -13,19 +13,21 @@
  {lager, [
     {colored, true},
     {async_threshold, 5000},
-	{error_logger_redirect, false},
-	{crash_log, "log/emqttd_crash.log"},
-	{handlers, [
-		%%{lager_console_backend, info},
-		{lager_file_backend, [
+    {error_logger_redirect, false},
+    {crash_log, "log/emqttd_crash.log"},
+    {handlers, [
+        %%{lager_console_backend, info},
+        %%NOTICE: Level >= error
+        %%{lager_emqtt_backend, error},
+        {lager_file_backend, [
             {formatter_config, [time, " ", pid, " [",severity,"] ", message, "\n"]},
-			{file, "log/emqttd_error.log"},
-			{level, error},
-			{size, 104857600},
-			{date, "$D0"},
-			{count, 30}
-		]}
-	]}
+            {file, "log/emqttd_error.log"},
+            {level, error},
+            {size, 104857600},
+            {date, "$D0"},
+            {count, 30}
+        ]}
+    ]}
  ]},
  {esockd, [
     {logger, {lager, error}}
@@ -133,11 +135,25 @@
             %% Max Payload Size of retained message
             {max_playload_size, 65536}
         ]},
-        %% PubSub
+
+        %% PubSub and Router
         {pubsub, [
-            %% default should be scheduler numbers
-            %% {pool_size, 8}
+            %% Default should be scheduler numbers
+            %% {pool_size, 8},
+            
+            %% Subscription: disc | ram | false
+            {subscription, ram},
+
+            %% Route shard
+            {route_shard, false},
+
+            %% Route delay, false | integer
+            {route_delay, false},
+
+            %% Route aging time(seconds)
+            {route_aging, 5}
         ]},
+
         %% Bridge
         {bridge, [
             %%TODO: bridge queue size
@@ -254,20 +270,19 @@
 
     %% Erlang System Monitor
     {sysmon, [
-
         %% Long GC, don't monitor in production mode for:
         %% https://github.com/erlang/otp/blob/feb45017da36be78d4c5784d758ede619fa7bfd3/erts/emulator/beam/erl_gc.c#L421
         {long_gc, false},
 
         %% Long Schedule(ms)
-        {long_schedule, 100},
+        {long_schedule, 240},
 
         %% 8M words. 32MB on 32-bit VM, 64MB on 64-bit VM.
         %% 8 * 1024 * 1024
         {large_heap, 8388608},
 
         %% Busy Port
-        {busy_port, true},
+        {busy_port, false},
 
         %% Busy Dist Port
         {busy_dist_port, true}

@@ -19,40 +19,26 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd pooler supervisor.
+%%% @doc emqttd sysmon supervisor.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
--module(emqttd_pooler_sup).
-
--author("Feng Lee <feng@emqtt.io>").
-
--include("emqttd.hrl").
+-module(emqttd_sysmon_sup).
 
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, start_link/1]).
+-export([start_link/0]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
 start_link() ->
-    start_link(erlang:system_info(schedulers)).
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-start_link(PoolSize) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [PoolSize]).
-
-init([PoolSize]) ->
-    gproc_pool:new(pooler, random, [{size, PoolSize}]),
-    Children = lists:map(
-                 fun(I) ->
-                         gproc_pool:add_worker(pooler, {pooler, I}, I),
-                         {{emqttd_pooler, I},
-                            {emqttd_pooler, start_link, [I]},
-                                permanent, 5000, worker, [emqttd_pooler]}
-                 end, lists:seq(1, PoolSize)),
-    {ok, {{one_for_all, 10, 100}, Children}}.
-
+init([]) ->
+    Env = emqttd:env(sysmon),
+    {ok, {{one_for_one, 10, 100},
+          [{sysmon, {emqttd_sysmon, start_link, [Env]},
+             permanent, 5000, worker, [emqttd_sysmon]}]}}.
 

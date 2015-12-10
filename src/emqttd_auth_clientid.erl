@@ -19,14 +19,11 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% ClientId Authentication Module.
+%%% @doc ClientId Authentication Module
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_auth_clientid).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -71,7 +68,7 @@ add_clientid(ClientId, Password) ->
 %%------------------------------------------------------------------------------
 -spec lookup_clientid(binary()) -> list().
 lookup_clientid(ClientId) ->
-	mnesia:dirty_read(?AUTH_CLIENTID_TAB, ClientId).
+    mnesia:dirty_read(?AUTH_CLIENTID_TAB, ClientId).
 
 %%------------------------------------------------------------------------------
 %% @doc Lookup all clientids
@@ -79,7 +76,7 @@ lookup_clientid(ClientId) ->
 %%------------------------------------------------------------------------------
 -spec all_clientids() -> list(binary()).
 all_clientids() ->
-	mnesia:dirty_all_keys(?AUTH_CLIENTID_TAB).
+    mnesia:dirty_all_keys(?AUTH_CLIENTID_TAB).
 
 %%------------------------------------------------------------------------------
 %% @doc Remove clientid
@@ -94,15 +91,15 @@ remove_clientid(ClientId) ->
 %%%=============================================================================
 
 init(Opts) ->
-	mnesia:create_table(?AUTH_CLIENTID_TAB, [
-		{ram_copies, [node()]},
-		{attributes, record_info(fields, ?AUTH_CLIENTID_TAB)}]),
-	mnesia:add_table_copy(?AUTH_CLIENTID_TAB, node(), ram_copies),
+    mnesia:create_table(?AUTH_CLIENTID_TAB, [
+            {ram_copies, [node()]},
+            {attributes, record_info(fields, ?AUTH_CLIENTID_TAB)}]),
+    mnesia:add_table_copy(?AUTH_CLIENTID_TAB, node(), ram_copies),
     case proplists:get_value(file, Opts) of
         undefined -> ok;
         File      -> load(File)
     end,
-	{ok, Opts}.
+    {ok, Opts}.
 
 check(#mqtt_client{client_id = undefined}, _Password, []) ->
     {error, "ClientId undefined"};

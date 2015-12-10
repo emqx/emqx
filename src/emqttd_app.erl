@@ -19,14 +19,11 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd application.
+%%% @doc emqttd application.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_app).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd_cli.hrl").
 
@@ -52,7 +49,7 @@ start(_StartType, _StartArgs) ->
     emqttd_cli:load(),
     emqttd:load_all_mods(),
     emqttd_plugins:load(),
-    start_listeners(),
+    emqttd:start_listeners(),
     register(emqttd, self()),
     print_vsn(),
     {ok, Sup}.
@@ -65,18 +62,14 @@ print_vsn() ->
     {ok, Desc} = application:get_key(description),
     ?PRINT("~s ~s is running now~n", [Desc, Vsn]).
 
-start_listeners() ->
-    {ok, Listeners} = application:get_env(listeners),
-    emqttd:open_listeners(Listeners).
-
 start_servers(Sup) ->
     Servers = [{"emqttd ctl", emqttd_ctl},
-               {"emqttd trace", emqttd_trace},
+               {"emqttd trace", {supervisor, emqttd_trace_sup}},
                {"emqttd pubsub", {supervisor, emqttd_pubsub_sup}},
                {"emqttd stats", emqttd_stats},
                {"emqttd metrics", emqttd_metrics},
-               {"emqttd retained", emqttd_retained},
-               {"emqttd pooler", {supervisor, emqttd_pooler_sup}},
+               {"emqttd retainer", emqttd_retainer},
+               {"emqttd pooler", {supervisor, emqttd_pooler}},
                {"emqttd client manager", {supervisor, emqttd_cm_sup}},
                {"emqttd session manager", {supervisor, emqttd_sm_sup}},
                {"emqttd session supervisor", {supervisor, emqttd_session_sup}},
@@ -85,7 +78,7 @@ start_servers(Sup) ->
                {"emqttd mod supervisor", emqttd_mod_sup},
                {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}},
                {"emqttd access control", emqttd_access_control},
-               {"emqttd system monitor", emqttd_sysmon, emqttd:env(sysmon)}],
+               {"emqttd system monitor", {supervisor, emqttd_sysmon_sup}}],
     [start_server(Sup, Server) || Server <- Servers].
 
 start_server(_Sup, {Name, F}) when is_function(F) ->
@@ -135,15 +128,5 @@ worker_spec(M, F, A) ->
 
 -spec stop(State :: term()) -> term().
 stop(_State) ->
-    stop_listeners().
-
-stop_listeners() ->
-    %% ensure that esockd applications is started?
-    case lists:keyfind(esockd, 1, application:which_applications()) of
-        false  ->
-            ignore;
-        _Tuple ->
-            {ok, Listeners} = application:get_env(listeners),
-            emqttd:close_listeners(Listeners)
-    end.
+    catch emqttd:stop_listeners().
 

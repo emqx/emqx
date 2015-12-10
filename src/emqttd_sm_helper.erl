@@ -19,23 +19,22 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd session helper.
+%%% @doc Session Helper.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_sm_helper).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(gen_server).
 
 -include("emqttd.hrl").
+
+-include("emqttd_internal.hrl").
 
 -include_lib("stdlib/include/ms_transform.hrl").
 
 %% API Function Exports
--export([start_link/0]).
-
--behaviour(gen_server).
+-export([start_link/1]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -47,22 +46,20 @@
 %% @doc Start a session helper
 %% @end
 %%------------------------------------------------------------------------------
--spec start_link() -> {ok, pid()} | ignore | {error, any()}.
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+-spec start_link(fun()) -> {ok, pid()} | ignore | {error, any()}.
+start_link(StatsFun) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [StatsFun], []).
 
-init([]) ->
+init([StatsFun]) ->
     mnesia:subscribe(system),
     {ok, TRef} = timer:send_interval(timer:seconds(1), tick),
-    StatsFun = emqttd_stats:statsfun('sessions/count', 'sessions/max'),
     {ok, #state{stats_fun = StatsFun, tick_tref = TRef}}.
 
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
+handle_call(Req, _From, State) ->
+    ?UNEXPECTED_REQ(Req, State).
 
 handle_cast(Msg, State) ->
-    lager:error("Unexpected Msg: ~p", [Msg]),
-    {noreply, State}.
+    ?UNEXPECTED_MSG(Msg, State).
 
 handle_info({mnesia_system_event, {mnesia_down, Node}}, State) ->
     lager:error("!!!Mnesia node down: ~s", [Node]),
@@ -83,8 +80,7 @@ handle_info(tick, State) ->
     {noreply, setstats(State), hibernate};
 
 handle_info(Info, State) ->
-    lager:error("Unexpected Info: ~p", [Info]),
-    {noreply, State}.
+    ?UNEXPECTED_INFO(Info, State).
 
 terminate(_Reason, _State = #state{tick_tref = TRef}) ->
     timer:cancel(TRef),

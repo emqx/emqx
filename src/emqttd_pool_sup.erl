@@ -19,47 +19,59 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc emqttd top supervisor.
+%%% @doc Common Pool Supervisor
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
--module(emqttd_sup).
+-module(emqttd_pool_sup).
 
 -behaviour(supervisor).
 
--include("emqttd.hrl").
-
 %% API
--export([start_link/0, start_child/1, start_child/2]).
+-export([spec/1, spec/2, start_link/3, start_link/4]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
-%% Helper macro for declaring children of supervisor
--define(CHILD(Mod, Type), {Mod, {Mod, start_link, []},
-                                permanent, 5000, Type, [Mod]}).
+-spec spec(list()) -> supervisor:child_spec().
+spec(Args) ->
+    spec(pool_sup, Args).
 
-%%%=============================================================================
-%%% API
-%%%=============================================================================
+-spec spec(any(), list()) -> supervisor:child_spec().
+spec(ChildId, Args) ->
+    {ChildId, {?MODULE, start_link, Args},
+        transient, infinity, supervisor, [?MODULE]}.
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+-spec start_link(atom(), atom(), mfa()) -> {ok, pid()} | {error, any()}.
+start_link(Pool, Type, MFA) ->
+    Schedulers = erlang:system_info(schedulers),
+    start_link(Pool, Type, Schedulers, MFA).
 
-start_child(ChildSpec) when is_tuple(ChildSpec) ->
-    supervisor:start_child(?MODULE, ChildSpec).
+-spec start_link(atom(), atom(), pos_integer(), mfa()) -> {ok, pid()} | {error, any()}.
+start_link(Pool, Type, Size, MFA) ->
+    supervisor:start_link({local, sup_name(Pool)}, ?MODULE, [Pool, Type, Size, MFA]).
 
-%%
-%% start_child(Mod::atom(), Type::type()) -> {ok, pid()}
-%% @type type() = worker | supervisor
-%%
-start_child(Mod, Type) when is_atom(Mod) and is_atom(Type) ->
-    supervisor:start_child(?MODULE, ?CHILD(Mod, Type)).
+sup_name(Pool) when is_atom(Pool) ->
+    list_to_atom(atom_to_list(Pool) ++ "_pool_sup").
 
-%%%=============================================================================
-%%% Supervisor callbacks
-%%%=============================================================================
+init([Pool, Type, Size, {M, F, Args}]) ->
+    ensure_pool(Pool, Type, [{size, Size}]),
+    {ok, {{one_for_one, 10, 3600}, [
+        begin
+            ensure_pool_worker(Pool, {Pool, I}, I),
+            {{M, I}, {M, F, [Pool, I | Args]},
+                transient, 5000, worker, [M]}
+        end || I <- lists:seq(1, Size)]}}.
 
-init([]) ->
-    {ok, {{one_for_all, 10, 3600}, []}}.
+ensure_pool(Pool, Type, Opts) ->
+    try gproc_pool:new(Pool, Type, Opts)
+    catch
+        error:exists -> ok
+    end.
+
+ensure_pool_worker(Pool, Name, Slot) ->
+    try gproc_pool:add_worker(Pool, Name, Slot)
+    catch
+        error:exists -> ok
+    end.
 

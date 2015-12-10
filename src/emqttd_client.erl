@@ -19,14 +19,13 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% MQTT Client Connection.
+%%% @doc MQTT Client Connection
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_client).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(gen_server).
 
 -include("emqttd.hrl").
 
@@ -34,12 +33,10 @@
 
 -include("emqttd_internal.hrl").
 
--behaviour(gen_server).
-
 %% API Function Exports
 -export([start_link/2, session/1, info/1, kick/1]).
 
-%% SUB/UNSUB Asynchronously, called by plugins.
+%% SUB/UNSUB Asynchronously. Called by plugins.
 -export([subscribe/2, unsubscribe/2]).
 
 %% gen_server Function Exports
@@ -131,8 +128,7 @@ handle_call(kick, _From, State) ->
     {stop, {shutdown, kick}, ok, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(critical, "Unexpected request: ~p", [Req], State),
-    {reply, {error, unsupported_request}, State}.
+    ?UNEXPECTED_REQ(Req, State).
 
 handle_cast({subscribe, TopicTable}, State) ->
     with_session(fun(SessPid) ->
@@ -145,8 +141,7 @@ handle_cast({unsubscribe, Topics}, State) ->
                  end, State);
 
 handle_cast(Msg, State) ->
-    ?LOG(critical, "Unexpected msg: ~p", [Msg], State),
-    noreply(State).
+    ?UNEXPECTED_MSG(Msg, State).
 
 handle_info(timeout, State) ->
     shutdown(idle_timeout, State);
@@ -214,8 +209,7 @@ handle_info({keepalive, check}, State = #client_state{keepalive = KeepAlive}) ->
     end;
 
 handle_info(Info, State) ->
-    ?LOG(critical, "Unexpected info: ~p", [Info], State),
-    noreply(State).
+    ?UNEXPECTED_INFO(Info, State).
 
 terminate(Reason, #client_state{connection  = Connection,
                                 keepalive   = KeepAlive,
@@ -246,7 +240,7 @@ with_session(Fun, State = #client_state{proto_state = ProtoState}) ->
     Fun(emqttd_protocol:session(ProtoState)),
     hibernate(State).
 
-%% receive and parse tcp data
+%% Receive and parse tcp data
 received(<<>>, State) ->
     hibernate(State);
 

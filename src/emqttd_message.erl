@@ -19,14 +19,11 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% MQTT Message Functions
+%%% @doc MQTT Message Functions
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_message).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -121,7 +118,7 @@ to_packet(#mqtt_message{pktid   = PkgId,
                         topic   = Topic,
                         payload = Payload}) ->
 
-    #mqtt_packet{header = #mqtt_packet_header{type 	 = ?PUBLISH,
+    #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
                                               qos    = Qos,
                                               retain = Retain,
                                               dup    = Dup},

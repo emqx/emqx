@@ -19,14 +19,11 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd mnesia.
+%%% @doc emqttd mnesia
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_mnesia).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -38,7 +35,7 @@
 
 start() ->
     case init_schema() of
-        ok -> 
+        ok ->
             ok;
         {error, {_Node, {already_exists, _Node}}} ->
             ok;
@@ -122,8 +119,7 @@ copy_table(Table) ->
 %% @end
 %%------------------------------------------------------------------------------
 wait_for_tables() -> 
-    %%TODO: is not right?
-    %%lager:info("local_tables: ~p", [mnesia:system_info(local_tables)]),
+    %% io:format("mnesia wait_for_tables: ~p~n", [mnesia:system_info(local_tables)]),
     mnesia:wait_for_tables(mnesia:system_info(local_tables), infinity).
 
 %%------------------------------------------------------------------------------

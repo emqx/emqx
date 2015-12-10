@@ -19,18 +19,17 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd pubsub supervisor.
+%%% @doc PubSub Supervisor
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_pubsub_sup).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(supervisor).
 
 -include("emqttd.hrl").
 
--behaviour(supervisor).
+-define(HELPER, emqttd_pubsub_helper).
 
 %% API
 -export([start_link/0]).
@@ -39,19 +38,26 @@
 -export([init/1]).
 
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [emqttd_broker:env(pubsub)]).
 
-init([]) ->
-    Opts = emqttd_broker:env(pubsub),
+init([Opts]) ->
+    %% PubSub Helper
+    Helper = {helper, {?HELPER, start_link, [fun stats/1, Opts]},
+                permanent, infinity, worker, [?HELPER]},
+
+    %% PubSub Pool Sup
+    MFA = {emqttd_pubsub, start_link, [fun stats/1, Opts]},
+    PoolSup = emqttd_pool_sup:spec([pubsub, hash, pool_size(Opts), MFA]),
+    {ok, {{one_for_all, 10, 60}, [Helper, PoolSup]}}.
+
+pool_size(Opts) ->
     Schedulers = erlang:system_info(schedulers),
-    PoolSize = proplists:get_value(pool_size, Opts, Schedulers),
-    gproc_pool:new(pubsub, hash, [{size, PoolSize}]),
-    Children = lists:map(
-                 fun(I) ->
-                    Name = {emqttd_pubsub, I},
-                    gproc_pool:add_worker(pubsub, Name, I),
-                    {Name, {emqttd_pubsub, start_link, [I, Opts]},
-                        permanent, 10000, worker, [emqttd_pubsub]}
-                 end, lists:seq(1, PoolSize)),
-    {ok, {{one_for_all, 10, 100}, Children}}.
+    proplists:get_value(pool_size, Opts, Schedulers).
+
+stats(topic) ->
+    emqttd_stats:setstats('topics/count', 'topics/max',
+                          mnesia:table_info(topic, size));
+stats(subscription) ->
+    emqttd_stats:setstats('subscriptions/count', 'subscriptions/max',
+                          mnesia:table_info(subscription, size)).
 

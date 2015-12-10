@@ -19,18 +19,17 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% emqttd bridge.
+%%% @doc emqttd bridge
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_bridge).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
 -include("emqttd_protocol.hrl").
+
+-include("emqttd_internal.hrl").
 
 %% API Function Exports
 -export([start_link/3]).
@@ -85,7 +84,7 @@ init([Node, SubTopic, Options]) ->
             MQueue = emqttd_mqueue:new(qname(Node, SubTopic),
                                        [{max_len, State#state.max_queue_len}],
                                        emqttd_alarm:alarm_fun()),
-            emqttd_pubsub:subscribe(SubTopic, State#state.qos),
+            emqttd_pubsub:subscribe({SubTopic, State#state.qos}),
             {ok, State#state{mqueue = MQueue}};
         false -> 
             {stop, {cannot_connect, Node}}
@@ -111,23 +110,23 @@ qname(Node, SubTopic) when is_atom(Node) ->
 qname(Node, SubTopic) ->
     list_to_binary(["Bridge:", Node, ":", SubTopic]).
 
-handle_call(_Request, _From, State) ->
-    {reply, error, State}.
+handle_call(Req, _From, State) ->
+    ?UNEXPECTED_REQ(Req, State).
 
-handle_cast(_Msg, State) ->
-    {noreply, State}.
+handle_cast(Msg, State) ->
+    ?UNEXPECTED_MSG(Msg, State).
 
-handle_info({dispatch, Msg}, State = #state{mqueue = MQ, status = down}) ->
+handle_info({dispatch, _Topic, Msg}, State = #state{mqueue = MQ, status = down}) ->
     {noreply, State#state{mqueue = emqttd_mqueue:in(Msg, MQ)}};
 
-handle_info({dispatch, Msg}, State = #state{node = Node, status = up}) ->
+handle_info({dispatch, _Topic, Msg}, State = #state{node = Node, status = up}) ->
     rpc:cast(Node, emqttd_pubsub, publish, [transform(Msg, State)]),
-    {noreply, State};
+    {noreply, State, hibernate};
 
 handle_info({nodedown, Node}, State = #state{node = Node, ping_down_interval = Interval}) ->
     lager:warning("Bridge Node Down: ~p", [Node]),
     erlang:send_after(Interval, self(), ping_down_node),
-    {noreply, State#state{status = down}};
+    {noreply, State#state{status = down}, hibernate};
 
 handle_info({nodeup, Node}, State = #state{node = Node}) ->
     %% TODO: Really fast??
@@ -156,8 +155,7 @@ handle_info({'EXIT', _Pid, normal}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    lager:error("Unexpected Info: ~p", [Info]),
-    {noreply, State}.
+    ?UNEXPECTED_INFO(Info, State).
 
 terminate(_Reason, _State) ->
     ok.

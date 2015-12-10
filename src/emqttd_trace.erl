@@ -19,27 +19,26 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% Trace MQTT packets/messages by clientid or topic.
+%%% @doc Trace MQTT packets/messages by ClientID or Topic.
 %%%
-%%% @end
+%%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 -module(emqttd_trace).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(gen_server).
+
+-include("emqttd_internal.hrl").
 
 %% API Function Exports
 -export([start_link/0]).
 
 -export([start_trace/2, stop_trace/1, all_traces/0]).
 
--behaviour(gen_server).
-
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {level, trace_map}).
+-record(state, {level, traces}).
 
 -type trace_who() :: {client | topic, binary()}.
 
@@ -85,41 +84,42 @@ all_traces() ->
     gen_server:call(?MODULE, all_traces).
 
 init([]) ->
-    {ok, #state{level = info, trace_map = #{}}}.
+    {ok, #state{level = info, traces = #{}}}.
 
-handle_call({start_trace, Who, LogFile}, _From, State = #state{level = Level, trace_map = TraceMap}) ->
+handle_call({start_trace, Who, LogFile}, _From, State = #state{level = Level, traces = Traces}) ->
     case lager:trace_file(LogFile, [Who], Level, ?TRACE_OPTIONS) of
         {ok, exists} ->
             {reply, {error, existed}, State};
         {ok, Trace}  ->
-            {reply, ok, State#state{trace_map = maps:put(Who, {Trace, LogFile}, TraceMap)}};
+            {reply, ok, State#state{traces = maps:put(Who, {Trace, LogFile}, Traces)}};
         {error, Error} ->
             {reply, {error, Error}, State}
     end;
 
-handle_call({stop_trace, Who}, _From, State = #state{trace_map = TraceMap}) ->
-    case maps:find(Who, TraceMap) of
+handle_call({stop_trace, Who}, _From, State = #state{traces = Traces}) ->
+    case maps:find(Who, Traces) of
         {ok, {Trace, _LogFile}} ->
             case lager:stop_trace(Trace) of
                 ok -> ok;
                 {error, Error} -> lager:error("Stop trace ~p error: ~p", [Who, Error])
             end,
-            {reply, ok, State#state{trace_map = maps:remove(Who, TraceMap)}};
+            {reply, ok, State#state{traces = maps:remove(Who, Traces)}};
         error ->
             {reply, {error, not_found}, State}
     end;
 
-handle_call(all_traces, _From, State = #state{trace_map = TraceMap}) ->
-    {reply, [{Who, LogFile} || {Who, {_Trace, LogFile}} <- maps:to_list(TraceMap)], State};
+handle_call(all_traces, _From, State = #state{traces = Traces}) ->
+    {reply, [{Who, LogFile} || {Who, {_Trace, LogFile}}
+                               <- maps:to_list(Traces)], State};
 
-handle_call(_Req, _From, State) ->
-    {reply, error, State}.
+handle_call(Req, _From, State) ->
+    ?UNEXPECTED_REQ(Req, State).
 
-handle_cast(_Msg, State) ->
-    {noreply, State}.
+handle_cast(Msg, State) ->
+    ?UNEXPECTED_MSG(Msg, State).
 
-handle_info(_Info, State) ->
-    {noreply, State}.
+handle_info(Info, State) ->
+    ?UNEXPECTED_INFO(Info, State).
 
 terminate(_Reason, _State) ->
     ok.
