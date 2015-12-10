@@ -722,7 +722,6 @@ start_collector(Session = #session{collect_interval = Interval}) ->
     Session#session{collect_timer = TRef}.
 
 sess_info(#session{clean_sess      = CleanSess,
-                   subscriptions   = Subscriptions,
                    inflight_queue  = InflightQueue,
                    max_inflight    = MaxInflight,
                    message_queue   = MessageQueue,
@@ -732,7 +731,6 @@ sess_info(#session{clean_sess      = CleanSess,
                    timestamp       = CreatedAt}) ->
     Stats = emqttd_mqueue:stats(MessageQueue),
     [{clean_sess,     CleanSess},
-     {subscriptions,  dict:to_list(Subscriptions)},
      {max_inflight,   MaxInflight},
      {inflight_queue, length(InflightQueue)},
      {message_queue,  proplists:get_value(len, Stats)},
