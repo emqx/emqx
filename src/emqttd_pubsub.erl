@@ -186,6 +186,24 @@ init([Pool, Id, _Opts]) ->
     ?GPROC_POOL(join, Pool, Id),
     {ok, #state{pool = Pool, id = Id}}.
 
+prioritise_call(Msg, _From, _Len, _State) ->
+    case Msg of
+        {subscribe, _, _} -> 1;
+        _                 -> 0
+    end.
+
+prioritise_cast(Msg, _Len, _State) ->
+    case Msg of
+        {unsubscribe, _, _} -> 2;
+        _                   -> 0
+    end.
+
+prioritise_info(Msg, _Len, _State) ->
+    case Msg of
+        {'DOWN', _, _, _, _} -> 3;
+        _                    -> 0
+    end.
+
 %%TODO: clientId???
 handle_call({subscribe, _SubPid, TopicTable}, _From, State) ->
     Records = [#mqtt_topic{topic = Topic, node = node()} || {Topic, _Qos} <- TopicTable],

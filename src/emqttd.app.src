@@ -6,7 +6,9 @@
   {modules, []},
   {registered, []},
   {applications, [kernel,
-                  stdlib]},
+                  stdlib,
+                  gproc,
+                  esockd]},
   {mod, {emqttd_app, []}},
   {env, []}
  ]}.
