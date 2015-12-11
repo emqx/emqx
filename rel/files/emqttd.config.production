@@ -4,6 +4,7 @@
     [{start_timer, true},
      {start_pg2, true}
  ]},
+ {mnesia, [{dir, "${MNESIA_DIR}"}]},
  {sasl, [
     {sasl_error_logger, {file, "log/emqttd_sasl.log"}}
  ]},
@@ -179,7 +180,7 @@
     %% Plugins
     {plugins, [
         %% Plugin App Library Dir
-        {plugins_dir, "./plugins"},
+        {plugins_enable, [emqttd_dashboard]},
 
         %% File to store loaded plugin names.
         {loaded_file, "./data/loaded_plugins"}

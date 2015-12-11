@@ -1,0 +1,25 @@
+%% -*- mode: erlang;erlang-indent-level: 4;indent-tabs-mode: nil -*-
+%% ex: ts=4 sw=4 ft=erlang et
+
+% add all plugins to release
+PluginDir = "plugins",
+
+{ok, PluginsDir} = file:list_dir(PluginDir),
+
+Plugins = [{list_to_atom(Plugin), load} || Plugin <- PluginsDir],
+
+case lists:keyfind(relx, 1, CONFIG) of
+     false ->
+           CONFIG;
+     {relx, Relx} ->
+           
+           case lists:keyfind(release, 1, Relx) of
+                false ->
+                      CONFIG;
+                {release, T, Apps} ->
+                           AppsWithPlugins = lists:append(Apps, Plugins),
+                           NewRelease = {release, T, AppsWithPlugins},
+                           NewRelx = lists:keyreplace(release, 1, Relx, NewRelease),
+                           lists:keystore(relx, 1, CONFIG, {relx,NewRelx})
+           end
+end.

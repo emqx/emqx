@@ -11,6 +11,8 @@ rel/emqttd
 rel/emqttd*
 .concrete/DEV_MODE
 .rebar
+rebar.lock
+_build
 test/ebin/*.beam
 .exrc
 plugins/*/ebin

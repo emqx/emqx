@@ -1,8 +1,8 @@
-.PHONY: rel deps test plugins
+.PHONY: rel deps test
 
 APP      = emqttd
 BASE_DIR = $(shell pwd)
-REBAR    = $(BASE_DIR)/rebar
+REBAR 	?= $(shell which rebar3 || echo ./rebar3)
 DIST	 = $(BASE_DIR)/rel/$(APP)
 
 all: submods compile
@@ -10,14 +10,8 @@ all: submods compile
 submods:
 	@git submodule update --init
 
-compile: deps
+compile:
 	@$(REBAR) compile
-
-deps:
-	@$(REBAR) get-deps
-
-update-deps:
-	@$(REBAR) update-deps
 
 xref:
 	@$(REBAR) xref skip_deps=true
@@ -29,23 +23,12 @@ test:
 	@$(REBAR) skip_deps=true eunit
 
 edoc:
-	@$(REBAR) doc
+	@$(REBAR) edoc
 
-rel: compile
-	@cd rel && $(REBAR) generate -f
+rel:
+	@$(REBAR) as prod release tar
 
-plugins:
-	@for plugin in ./plugins/* ; do \
-	if [ -d $${plugin} ]; then \
-		mkdir -p $(DIST)/$${plugin}/ ; \
-		cp -R $${plugin}/ebin $(DIST)/$${plugin}/ ; \
-		[ -d "$${plugin}/priv" ] && cp -R $${plugin}/priv $(DIST)/$${plugin}/ ; \
-		[ -d "$${plugin}/etc" ] && cp -R $${plugin}/etc $(DIST)/$${plugin}/ ; \
-		echo "$${plugin} copied" ; \
-	fi \
-	done
-
-dist: rel plugins
+dist: rel
 
 PLT  = $(BASE_DIR)/.emqttd_dialyzer.plt
 APPS = erts kernel stdlib sasl crypto ssl os_mon syntax_tools \
