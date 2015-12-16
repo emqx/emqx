@@ -483,7 +483,7 @@ handle_cast(Msg, State) ->
 %% Dispatch Message
 handle_info({dispatch, Topic, Msg}, Session = #session{subscriptions = Subscriptions})
     when is_record(Msg, mqtt_message) ->
-    dispatch(fixqos(Topic, Msg, Subscriptions), Session);
+    dispatch(tune_qos(Topic, Msg, Subscriptions), Session);
 
 handle_info({timeout, awaiting_ack, PktId}, Session = #session{client_pid = undefined,
                                                                awaiting_ack = AwaitingAck}) ->
@@ -603,7 +603,7 @@ dispatch(Msg = #mqtt_message{qos = QoS}, Session = #session{message_queue = MsgQ
             hibernate(Session#session{message_queue = emqttd_mqueue:in(Msg, MsgQ)})
     end.
 
-fixqos(Topic, Msg = #mqtt_message{qos = PubQos}, Subscriptions) ->
+tune_qos(Topic, Msg = #mqtt_message{qos = PubQos}, Subscriptions) ->
     case dict:find(Topic, Subscriptions) of
         {ok, SubQos} when PubQos > SubQos ->
             Msg#mqtt_message{qos = SubQos};
