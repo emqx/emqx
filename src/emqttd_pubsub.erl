@@ -150,7 +150,7 @@ create(topic, Topic) when is_binary(Topic) ->
         {aborted, Error} -> {error, Error}
     end;
 
-create(subscription, {SubId, Topic, Qos}) ->
+create(subscription, {SubId, Topic, Qos}) when is_binary(SubId) andalso is_binary(Topic) ->
     case mnesia:transaction(fun add_subscription/2, [SubId, {Topic, Qos}]) of
         {atomic, ok}     -> ok;
         {aborted, Error} -> {error, Error}
