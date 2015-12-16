@@ -241,19 +241,26 @@ subscriptions(["list"]) ->
 
 subscriptions(["show", ClientId]) ->
     if_subscription(fun() ->
-            case emqttd_pubsub:lookup(subscription, ClientId) of
+            case emqttd_pubsub:lookup(subscription, bin(ClientId)) of
                 []      -> ?PRINT_MSG("Not Found.~n");
                 Records -> print(subscription, ClientId, Records)
             end
         end);
 
 subscriptions(["add", ClientId, Topic, QoS]) ->
-    Create = fun(IntQos) -> emqttd_pubsub:create(subscription, {ClientId, Topic, IntQos}) end,
+    Create = fun(IntQos) ->
+                Subscription = {bin(ClientId), bin(Topic), IntQos},
+                case emqttd_pubsub:create(subscription, Subscription) of
+                    ok             -> ?PRINT_MSG("ok~n");
+                    {error, Error} -> ?PRINT("Error: ~p~n", [Error])
+                end
+             end,
     if_subscription(fun() -> if_valid_qos(QoS, Create) end);
 
 subscriptions(["del", ClientId, Topic]) ->
     if_subscription(fun() ->
-            emqttd_pubsub:delete(subscription, {ClientId, Topic})
+            Ok = emqttd_pubsub:delete(subscription, {bin(ClientId), bin(Topic)}),
+            ?PRINT("~p~n", [Ok])
         end);
 
 subscriptions(_) ->
@@ -279,7 +286,8 @@ if_could_print(Tab, Fun) ->
 
 if_valid_qos(QoS, Fun) ->
     try list_to_integer(QoS) of
-        Int when ?IS_QOS(Int) -> Fun(Int)
+        Int when ?IS_QOS(Int) -> Fun(Int);
+        _ -> ?PRINT_MSG("QoS should be 0, 1, 2~n")
     catch _:_ ->
         ?PRINT_MSG("QoS should be 0, 1, 2~n")
     end.
