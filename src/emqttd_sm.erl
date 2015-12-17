@@ -103,7 +103,7 @@ start_session(CleanSess, ClientId) ->
 %% @doc Lookup a Session
 %% @end
 %%------------------------------------------------------------------------------
--spec lookup_session(binary()) -> pid() | undefined.
+-spec lookup_session(binary()) -> mqtt_session() | undefined.
 lookup_session(ClientId) ->
     case mnesia:dirty_read(session, ClientId) of
         [Session] -> Session;
