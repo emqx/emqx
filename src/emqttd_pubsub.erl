@@ -39,11 +39,13 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
-%% API Exports 
+%% API Exports
 -export([start_link/4]).
 
--export([create/2, subscribe/1, subscribe/2,
-         unsubscribe/1, unsubscribe/2, publish/1]).
+-export([create/2, lookup/2, subscribe/1, subscribe/2,
+         unsubscribe/1, unsubscribe/2, publish/1, delete/2]).
+
+%% Subscriptions API
 
 %% Local node
 -export([match/1]).
@@ -148,11 +150,35 @@ create(topic, Topic) when is_binary(Topic) ->
         {aborted, Error} -> {error, Error}
     end;
 
-create(subscription, {SubId, Topic, Qos}) ->
+create(subscription, {SubId, Topic, Qos}) when is_binary(SubId) andalso is_binary(Topic) ->
     case mnesia:transaction(fun add_subscription/2, [SubId, {Topic, Qos}]) of
         {atomic, ok}     -> ok;
         {aborted, Error} -> {error, Error}
     end.
+
+%%------------------------------------------------------------------------------
+%% @doc Lookup Topic or Subscription.
+%% @end
+%%------------------------------------------------------------------------------
+-spec lookup(topic | subscription, binary()) -> list().
+lookup(topic, Topic) ->
+    mnesia:dirty_read(topic, Topic);
+
+lookup(subscription, ClientId) ->
+    mnesia:dirty_read(subscription, ClientId).
+
+%%------------------------------------------------------------------------------
+%% @doc Delete Topic or Subscription.
+%% @end
+%%------------------------------------------------------------------------------
+delete(topic, _Topic) ->
+    {error, unsupported};
+
+delete(subscription, ClientId) when is_binary(ClientId) ->
+    mnesia:dirty_deleate({subscription, ClientId});
+
+delete(subscription, {ClientId, Topic}) when is_binary(ClientId) ->
+    mnesia:async_dirty(fun remove_subscriptions/2, [ClientId, [Topic]]).
 
 %%------------------------------------------------------------------------------
 %% @doc Subscribe Topics
@@ -363,7 +389,7 @@ remove_subscriptions(SubId, Topics) ->
     lists:foreach(fun(Topic) ->
          Pattern = #mqtt_subscription{subid = SubId, topic = Topic, qos = '_'},
          Records = mnesia:match_object(subscription, Pattern, write),
-         [delete_subscription(Record) || Record <- Records]
+         lists:foreach(fun delete_subscription/1, Records)
      end, Topics).
 
 delete_subscription(Record) ->
