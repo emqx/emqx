@@ -2,6 +2,50 @@
 emqttd ChangeLog
 ==================
 
+0.14.0-beta(2015-12-18)
+-------------------------
+
+#### Highlights
+
+Scaling to 1.3 Million Concurrent MQTT Connections on a 12 Core, 32G CentOS server.
+
+New PubSub, Router Design (#402). Prepare for scaling to 10 millions on one cluster.
+
+#### Enhancements
+
+Improve the gproc_pool usage with a general emqttd_pool_sup
+
+Improve the design of emqttd_pubsub, add a new emqttd_router module
+
+Improve the design of the whole supervisor tree
+
+Route aging mechanism to remove the topics that have no subscriptions
+
+Improve the dashboard, mysql, pgsql, stomp, sockjs plugins
+
+Add 'topics', 'subscriptions' admin commands
+
+Avoid using mnesia table index and mnesia:index_read API to lower CPU usage
+
+Subscribe timeout exception (#366)
+
+Long Delay on Multiple Topic Subscription (#365)
+
+Subscriptions persistence (#344)
+
+emqttd_ctl: 'subscriptions' command to force clients to subscribe some topics (#361)
+
+#### Bugfix
+
+emqttd_sm: spec of lookup_session/1 is not right BUG (#411)
+
+Observer application should be removed from reltool.config for 'wx' app is not available (#410)
+
+#### Benchmark
+
+1.3 million concurrent MQTT connections on a 12 Core, 32G CentOS Server, consume about 15G Memory and 200% CPU.
+
+
 0.13.1-beta(2015-11-28)
 -------------------------
 
