@@ -68,6 +68,12 @@ ensure_tab(Tab, Opts) ->
             ok
     end.
 
+-ifdef(TEST).
+destory() ->
+    ets:delete(route),
+    ets:delete(reverse_route).
+-endif.
+
 %%------------------------------------------------------------------------------
 %% @doc Add Routes.
 %% @end
