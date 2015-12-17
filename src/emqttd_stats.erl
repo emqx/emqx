@@ -31,7 +31,7 @@
 
 -define(SERVER, ?MODULE).
 
--export([start_link/0]).
+-export([start_link/0, stop/0]).
 
 %% statistics API.
 -export([statsfun/1, statsfun/2,
@@ -87,6 +87,9 @@
 -spec start_link() -> {ok, pid()} | ignore | {error, term()}.
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+stop() ->
+    gen_server:call(?SERVER, stop).
 
 %%------------------------------------------------------------------------------
 %% @doc Generate stats fun
@@ -148,6 +151,9 @@ init([]) ->
     [ok = emqttd_pubsub:create(topic, stats_topic(Topic)) || Topic <- Topics],
     % Tick to publish stats
     {ok, #state{tick_tref = emqttd_broker:start_tick(tick)}, hibernate}.
+
+handle_call(stop, _From, State) ->
+    {stop, normal, ok, State};
 
 handle_call(_Request, _From, State) ->
     {reply, error, State}.
