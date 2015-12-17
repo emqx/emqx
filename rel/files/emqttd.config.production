@@ -167,14 +167,22 @@
     {modules, [
         %% Client presence management module.
         %% Publish messages when client connected or disconnected
-        {presence, [{qos, 0}]}
+        %% {presence, [{qos, 0}]},
 
         %% Subscribe topics automatically when client connected
-        %% {autosub, [{"$Q/client/$c", 0}]}
+        %% {subscription, [
+        %%    %% Subscription from stored table
+        %%    stored,
+        %%
+        %%   %% $u will be replaced with username
+        %%    {"$Q/username/$u", 1},
+        %%
+        %%   %% $c will be replaced with clientid
+        %%    {"$Q/client/$c", 1}
+        %% ]}
 
         %% Rewrite rules
         %% {rewrite, [{file, "etc/rewrite.config"}]}
-        
     ]},
     %% Plugins
     {plugins, [
