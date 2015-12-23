@@ -123,7 +123,8 @@ reset_parser(State = #wsocket_state{packet_opts = PktOpts}) ->
 %%%=============================================================================
 
 init([WsPid, Req, ReplyChannel, PktOpts]) ->
-    process_flag(trap_exit, true),
+    %%issue#413: trap_exit is unnecessary
+    %%process_flag(trap_exit, true),
     {ok, Peername} = Req:get(peername),
     SendFun = fun(Payload) -> ReplyChannel({binary, Payload}) end,
     Headers = mochiweb_request:get(headers, Req),
@@ -220,11 +221,12 @@ handle_info({keepalive, check}, State = #wsclient_state{request   = Req,
             shutdown(keepalive_error, State)
     end;
 
-handle_info({'EXIT', WsPid, Reason}, State = #wsclient_state{ws_pid = WsPid}) ->
-    stop(Reason, State);
+%%issue#413: removed the trap_exit flag
+%%handle_info({'EXIT', WsPid, Reason}, State = #wsclient_state{ws_pid = WsPid}) ->
+%%    stop(Reason, State);
 
 handle_info(Info, State = #wsclient_state{request = Req}) ->
-    ?WSLOG(error, "Unexpected Info: ~p", [Info], Req),
+    ?WSLOG(critical, "Unexpected Info: ~p", [Info], Req),
     noreply(State).
 
 terminate(Reason, #wsclient_state{proto_state = ProtoState, keepalive = KeepAlive}) ->
