@@ -223,8 +223,18 @@ handle_info({keepalive, check}, State = #wsclient_state{request   = Req,
 handle_info({'EXIT', WsPid, Reason}, State = #wsclient_state{ws_pid = WsPid}) ->
     stop(Reason, State);
 
+handle_info({'EXIT', SessPid, Reason}, State = #wsclient_state{request     = Req,
+                                                               proto_state = ProtoState}) ->
+    case emqttd_protocol:session(ProtoState) of
+        SessPid ->
+            stop(Reason, State);
+        ExitPid ->
+            ?WSLOG(error, "Unexpected EXIT ~p for ~p", [ExitPid, Reason], Req),
+            noreply(State)
+     end;
+
 handle_info(Info, State = #wsclient_state{request = Req}) ->
-    ?WSLOG(error, "Unexpected Info: ~p", [Info], Req),
+    ?WSLOG(critical, "Unexpected Info: ~p", [Info], Req),
     noreply(State).
 
 terminate(Reason, #wsclient_state{proto_state = ProtoState, keepalive = KeepAlive}) ->
