@@ -175,7 +175,7 @@ delete(topic, _Topic) ->
     {error, unsupported};
 
 delete(subscription, ClientId) when is_binary(ClientId) ->
-    mnesia:dirty_deleate({subscription, ClientId});
+    mnesia:dirty_delete({subscription, ClientId});
 
 delete(subscription, {ClientId, Topic}) when is_binary(ClientId) ->
     mnesia:async_dirty(fun remove_subscriptions/2, [ClientId, [Topic]]).
