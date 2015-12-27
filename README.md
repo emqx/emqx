@@ -131,6 +131,7 @@ Benchmark Report: [benchmark for 0.12.0 release](https://github.com/emqtt/emqttd
 ## Contributors
 
 * [@callbay](https://github.com/callbay)
+* [@lsxredrain](https://github.com/lsxredrain)
 * [@hejin1026](https://github.com/hejin1026)
 * [@desoulter](https://github.com/desoulter)
 * [@turtleDeng](https://github.com/turtleDeng)
