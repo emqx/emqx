@@ -191,7 +191,7 @@ subscribe(SessPid, PacketId, TopicTable) ->
 %% @doc Publish message
 %% @end
 %%------------------------------------------------------------------------------
--spec publish(pid(), mqtt_message()) -> ok.
+-spec publish(pid(), mqtt_message()) -> ok | {error, any()}.
 publish(_SessPid, Msg = #mqtt_message{qos = ?QOS_0}) ->
     %% publish qos0 directly
     emqttd_pubsub:publish(Msg);

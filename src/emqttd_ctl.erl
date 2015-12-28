@@ -58,17 +58,20 @@ start_link() ->
 %% @doc Register a command
 %% @end
 %%------------------------------------------------------------------------------
--spec register_cmd(atom(), {module(), atom()}, list()) -> true.
+-spec register_cmd(atom(), {module(), atom()}, list()) -> ok.
 register_cmd(Cmd, MF, Opts) ->
-    gen_server:cast(?SERVER, {register_cmd, Cmd, MF, Opts}).
+    cast({register_cmd, Cmd, MF, Opts}).
 
 %%------------------------------------------------------------------------------
 %% @doc Unregister a command
 %% @end
 %%------------------------------------------------------------------------------
--spec unregister_cmd(atom()) -> true.
+-spec unregister_cmd(atom()) -> ok.
 unregister_cmd(Cmd) ->
-    gen_server:cast(?SERVER, {unregister_cmd, Cmd}).
+    cast({unregister_cmd, Cmd}).
+
+cast(Msg) ->
+    gen_server:cast(?SERVER, Msg).
 
 %%------------------------------------------------------------------------------
 %% @doc Run a command
