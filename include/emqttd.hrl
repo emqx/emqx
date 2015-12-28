@@ -130,8 +130,8 @@
 -record(mqtt_alarm, {
     id          :: binary(),
     severity    :: warning | error | critical,
-    title       :: binary(),
-    summary     :: binary(),
+    title       :: iolist() | binary(),
+    summary     :: iolist() | binary(),
     timestamp   :: erlang:timestamp() %% Timestamp
 }).
 
