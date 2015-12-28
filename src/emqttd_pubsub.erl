@@ -142,7 +142,7 @@ name(Id) ->
 %% @doc Create Topic or Subscription.
 %% @end
 %%------------------------------------------------------------------------------
--spec create(topic | subscription, binary()) -> ok | {error, any()}.
+-spec create(topic | subscription, binary() | {binary(), binary(), mqtt_qos()}) -> ok | {error, any()}.
 create(topic, Topic) when is_binary(Topic) ->
     Record = #mqtt_topic{topic = Topic, node = node()},
     case mnesia:transaction(fun add_topic/1, [Record]) of

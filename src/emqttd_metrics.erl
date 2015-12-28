@@ -226,12 +226,12 @@ inc(Metric) ->
 %% @doc Increase metric value
 %% @end
 %%------------------------------------------------------------------------------
--spec inc(counter | gauge, atom()) -> non_neg_integer().
-inc(gauge, Metric) ->
-    inc(gauge, Metric, 1);
-inc(counter, Metric) ->
-    inc(counter, Metric, 1);
-inc(Metric, Val) when is_atom(Metric) and is_integer(Val) ->
+-spec inc({counter | gauge, atom()} | atom(), pos_integer()) -> non_neg_integer().
+inc({gauge, Metric}, Val) ->
+    inc(gauge, Metric, Val);
+inc({counter, Metric}, Val) ->
+    inc(counter, Metric, Val);
+inc(Metric, Val) when is_atom(Metric) ->
     inc(counter, Metric, Val).
 
 %%------------------------------------------------------------------------------
