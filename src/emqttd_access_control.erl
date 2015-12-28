@@ -119,7 +119,7 @@ reload_acl() ->
 register_mod(Type, Mod, Opts) when Type =:= auth; Type =:= acl->
     register_mod(Type, Mod, Opts, 0).
 
--spec register_mod(auth | acl, atom(), list(), pos_integer()) -> ok | {error, any()}.
+-spec register_mod(auth | acl, atom(), list(), non_neg_integer()) -> ok | {error, any()}.
 register_mod(Type, Mod, Opts, Seq) when Type =:= auth; Type =:= acl->
     gen_server:call(?SERVER, {register_mod, Type, Mod, Opts, Seq}).
 
