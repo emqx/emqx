@@ -2,6 +2,14 @@
 emqttd ChangeLog
 ==================
 
+0.14.1-beta(2015-12-28)
+-------------------------
+
+Bugfix: emqttd_ws_client.erl: Unexpected Info: {'EXIT',<0.27792.18>,{shutdown,destroy}} (#413)
+
+Improve: fix spec error found by dialyzer
+
+
 0.14.0-beta(2015-12-18)
 -------------------------
 
