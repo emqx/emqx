@@ -26,7 +26,7 @@
 
 -module(ecpool).
 
--export([start_pool/3, start_sup_pool/3, stop_sup_pool/1,
+-export([pool_spec/4, start_pool/3, start_sup_pool/3, stop_sup_pool/1,
          with_client/2, with_client/3, name/1, workers/1]).
 
 -type pool_type() :: random | hash | round_robin.
@@ -35,6 +35,10 @@
                 | {pool_type, pool_type()}
                 | {auto_reconnect, false | pos_integer()}
                 | tuple().
+
+pool_spec(ChildId, Pool, Mod, Opts) ->
+    {ChildId, {?MODULE, start_pool, [Pool, Mod, Opts]},
+        permanent, 5000, supervisor, [ecpool_pool_sup]}.
 
 %% @doc Start the pool
 -spec start_pool(atom(), atom(), [option()]) -> {ok, pid()} | {error, any()}.

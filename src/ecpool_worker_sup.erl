@@ -36,7 +36,7 @@ start_link(Pool, Mod, Opts) when is_atom(Pool) ->
 init([Pool, Mod, Opts]) ->
     WorkerSpec = fun(Id) ->
         {{worker, Id}, {ecpool_worker, start_link, [Pool, Id, Mod, Opts]},
-            transient, 5000, worker, [ecpool_worker]}
+            transient, 5000, worker, [ecpool_worker, Mod]}
     end,
     Workers = [WorkerSpec(I) || I <- lists:seq(1, pool_size(Opts))],
     {ok, { {one_for_one, 10, 60}, Workers} }.
