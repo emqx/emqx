@@ -29,8 +29,15 @@
 -export([start_pool/3, start_sup_pool/3, stop_sup_pool/1,
          with_client/2, with_client/3, name/1, workers/1]).
 
+-type pool_type() :: random | hash | round_robin.
+
+-type option() :: {pool_size, pos_integer()}
+                | {pool_type, pool_type()}
+                | {auto_reconnect, false | pos_integer()}
+                | tuple().
+
 %% @doc Start the pool
--spec start_pool(atom(), atom(), list()) -> {ok, pid()} | {error, any()}.
+-spec start_pool(atom(), atom(), [option()]) -> {ok, pid()} | {error, any()}.
 start_pool(Pool, Mod, Opts) when is_atom(Pool) ->
     ecpool_pool_sup:start_link(Pool, Mod, Opts).
 
