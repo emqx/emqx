@@ -167,7 +167,7 @@ process(Packet = ?CONNECT_PACKET(Var), State0) ->
                             exit({shutdown, Error})
                     end;
                 {error, Reason}->
-                    ?LOG(error, "Username '~s' login failed for ~s", [Username, Reason], State1),
+                    ?LOG(error, "Username '~s' login failed for ~p", [Username, Reason], State1),
                     {?CONNACK_CREDENTIALS, false, State1}
             end;
         ReturnCode ->
