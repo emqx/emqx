@@ -35,7 +35,7 @@
 -export([init/1]).
 
 %% @doc Start supervisor.
--spec start_link() -> {ok, pid()}.
+-spec start_link() -> {ok, pid()} | {error, any()}.
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
@@ -46,10 +46,10 @@ start_pool(Pool, Mod, Opts) when is_atom(Pool) ->
 stop_pool(Pool) when is_atom(Pool) ->
     ChildId = child_id(Pool),
 	case supervisor:terminate_child(?MODULE, ChildId) of
-    ok ->
-        supervisor:delete_child(?MODULE, ChildId);
-    {error, Reason} ->
-        {error, Reason}
+        ok ->
+            supervisor:delete_child(?MODULE, ChildId);
+        {error, Reason} ->
+            {error, Reason}
 	end.
 
 %% @doc All Pools supervisored by ecpool_sup.

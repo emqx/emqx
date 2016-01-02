@@ -28,14 +28,10 @@
 
 -behaviour(supervisor).
 
--export([start_link/3, workers/1, init/1]).
+-export([start_link/3, init/1]).
 
 start_link(Pool, Mod, Opts) when is_atom(Pool) ->
     supervisor:start_link(?MODULE, [Pool, Mod, Opts]).
-
-workers(WorkerSup) ->
-    [{ChildId, Pid} || {ChildId, Pid, worker, _}
-                       <- supervisor:which_children(WorkerSup)].
 
 init([Pool, Mod, Opts]) ->
     WorkerSpec = fun(Id) ->

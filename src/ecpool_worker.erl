@@ -29,7 +29,7 @@
 -behaviour(gen_server).
 
 %% API Function Exports
--export([start_link/4, client/1]).
+-export([start_link/4, client/1, is_connected/1]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -69,7 +69,13 @@ start_link(Pool, Id, Mod, Opts) ->
 
 %% @doc Get client/connection.
 -spec client(pid()) -> undefined | pid().
-client(Pid) -> gen_server:call(Pid, client, infinity).
+client(Pid) ->
+    gen_server:call(Pid, client, infinity).
+
+%% @doc Is client connected?
+-spec is_connected(pid()) -> boolean().
+is_connected(Pid) ->
+    gen_server:call(Pid, is_connected).
 
 %%%=============================================================================
 %%% gen_server callbacks
@@ -86,6 +92,9 @@ init([Pool, Id, Mod, Opts]) ->
             {stop, Error}
     end.
 
+handle_call(is_connected, _From, State = #state{client = Client}) ->
+    {reply, Client =/= undefined andalso is_process_alive(Client), State};
+
 handle_call(client, _From, State = #state{client = undefined}) ->
     {reply, {error, disconnected}, State};
 
@@ -100,8 +109,7 @@ handle_info({'EXIT', Pid, Reason}, State = #state{client = Pid, opts = Opts}) ->
         false ->
             {stop, Reason, State};
         Secs ->
-            erlang:send_after(timer:seconds(Secs), self(), reconnect),
-            {noreply, State#state{client = undefined}}
+            reconnect(Secs, State)
     end;
 
 handle_info(reconnect, State = #state{opts = Opts}) ->
@@ -109,9 +117,7 @@ handle_info(reconnect, State = #state{opts = Opts}) ->
         {ok, Client} ->
             {noreply, State#state{client = Client}};
         {error, _Error} ->
-            Secs = proplists:get_value(auto_reconnect, Opts),
-            erlang:send_after(timer:seconds(Secs), self(), reconnect),
-            {noreply, State#state{client = undefined}}
+            reconnect(proplists:get_value(auto_reconnect, Opts), State)
     end;
 
 handle_info(_Info, State) ->
@@ -140,4 +146,8 @@ connopts([{auto_reconnect, _} | Opts], Acc) ->
     connopts(Opts, Acc);
 connopts([Opt | Opts], Acc) ->
     connopts(Opts, [Opt | Acc]).
+
+reconnect(Secs, State) ->
+    erlang:send_after(timer:seconds(Secs), self(), reconnect),
+    {noreply, State#state{client = undefined}}.
 

@@ -19,35 +19,48 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc ecpool API.
+%%% @doc ecpool Main API.
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
 
 -module(ecpool).
 
--export([name/1, start_pool/3, with_client/2, with_client/3, stop_pool/1]).
+-export([start_pool/3, start_sup_pool/3, stop_sup_pool/1,
+         with_client/2, with_client/3, name/1, workers/1]).
 
-name(Pool) ->
-    {?MODULE, Pool}.
-
+%% @doc Start the pool
+-spec start_pool(atom(), atom(), list()) -> {ok, pid()} | {error, any()}.
 start_pool(Pool, Mod, Opts) when is_atom(Pool) ->
     ecpool_pool_sup:start_link(Pool, Mod, Opts).
 
-stop_pool(Pool) when is_atom(Pool) ->
+%% @doc Start the pool supervised by ecpool_sup
+start_sup_pool(Pool, Mod, Opts) when is_atom(Pool) ->
+    ecpool_sup:start_pool(Pool, Mod, Opts).
+
+%% @doc Start the pool supervised by ecpool_sup
+stop_sup_pool(Pool) when is_atom(Pool) ->
     ecpool_sup:stop_pool(Pool).
 
+%% @doc Call the fun with client/connection
+-spec with_client(atom(), fun((Client :: pid()) -> any())) -> any().
 with_client(Pool, Fun) when is_atom(Pool) ->
-    Worker = gproc_pool:pick_worker({?MODULE, Pool}),
-    with_worker(Worker, Fun).
+    with_worker(gproc_pool:pick_worker(name(Pool)), Fun).
 
+%% @doc Call the fun with client/connection
+-spec with_client(atom(), any(), fun((Client :: pid()) -> any())) -> any().
 with_client(Pool, Key, Fun) when is_atom(Pool) ->
-    Worker = gproc_pool:pick_worker({?MODULE, Pool}, Key),
-    with_worker(Worker, Fun).
+    with_worker(gproc_pool:pick_worker(name(Pool), Key), Fun).
 
 with_worker(Worker, Fun) ->
     case ecpool_worker:client(Worker) of
         {ok, Client}    -> Fun(Client);
         {error, Reason} -> {error, Reason}
     end.
+
+%% @doc ecpool name
+name(Pool) -> {?MODULE, Pool}.
+
+%% @doc pool workers
+workers(Pool) -> gproc_pool:active_workers(name(Pool)).
 

@@ -78,11 +78,9 @@ ensure_pool_worker(Pool, Name, Slot) ->
         error:exists -> ok
     end.
 
-handle_call(info, _From, State = #state{name = Pool, size = Size,
-                                        type = Type}) ->
-    Workers = gproc_pool:active_workers(ecpool:name(Pool)),
+handle_call(info, _From, State = #state{name = Pool, size = Size, type = Type}) ->
     Info = [{pool_name, Pool}, {pool_size, Size},
-            {pool_type, Type}, {workers, Workers}],
+            {pool_type, Type}, {workers, ecpool:workers(Pool)}],
     {reply, Info, State};
 
 handle_call(_Request, _From, State) ->
