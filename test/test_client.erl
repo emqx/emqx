@@ -10,7 +10,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([connect/1]).
+-export([connect/1, stop/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -26,12 +26,18 @@
 connect(Opts) ->
     gen_server:start_link(?MODULE, [Opts], []).
 
+stop(Pid, Reason) ->
+    gen_server:call(Pid, {stop, Reason}).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
 init(Args) ->
     {ok, Args}.
+
+handle_call({stop, Reason}, _From, State) ->
+    {stop, Reason, ok, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
