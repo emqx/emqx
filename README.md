@@ -2,7 +2,7 @@
 
 ecpool is different with worker-pool libraries in that it is designed to pool connection/clients to server or database.
 
-ecpool tries to avoid the erlang application crash when the server or dabased going down.
+ecpool tries to avoid the erlang application crash when the server or database going down.
 
 
 ## Overview
