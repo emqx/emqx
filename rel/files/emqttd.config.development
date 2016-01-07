@@ -1,8 +1,8 @@
 % -*- mode: erlang;erlang-indent-level: 4;indent-tabs-mode: nil -*-
 %% ex: ft=erlang ts=4 sw=4 et
-[{kernel,
-    [{start_timer, true},
-     {start_pg2, true}
+[{kernel, [
+    {start_timer, true},
+    {start_pg2, true}
  ]},
  {sasl, [
     {sasl_error_logger, {file, "log/emqttd_sasl.log"}}
