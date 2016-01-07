@@ -27,7 +27,8 @@
 -module(ecpool).
 
 -export([pool_spec/4, start_pool/3, start_sup_pool/3, stop_sup_pool/1,
-         with_client/2, with_client/3, name/1, workers/1]).
+         get_client/1, get_client/2, with_client/2, with_client/3,
+         name/1, workers/1]).
 
 -type pool_type() :: random | hash | round_robin.
 
@@ -52,6 +53,16 @@ start_sup_pool(Pool, Mod, Opts) when is_atom(Pool) ->
 %% @doc Start the pool supervised by ecpool_sup
 stop_sup_pool(Pool) when is_atom(Pool) ->
     ecpool_sup:stop_pool(Pool).
+
+%% @doc Get client/connection
+-spec get_client(atom()) -> pid().
+get_client(Pool) ->
+    gproc_pool:pick_worker(name(Pool)).
+
+%% @doc Get client/connection with hash key.
+-spec get_client(atom(), any()) -> pid().
+get_client(Pool, Key) ->
+    gproc_pool:pick_worker(name(Pool), Key).
 
 %% @doc Call the fun with client/connection
 -spec with_client(atom(), fun((Client :: pid()) -> any())) -> any().
