@@ -147,7 +147,7 @@
         %% PubSub and Router
         {pubsub, [
             %% Default should be scheduler numbers
-            %% {pool_size, 8},
+            {pool_size, 8},
             
             %% Subscription: disc | ram | false
             {subscription, ram},
