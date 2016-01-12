@@ -192,7 +192,7 @@ handle_cast({delete_route, Topic, Pid}, State = #state{aging = Aging}) ->
     case has_route(Topic) of
         false ->
             {noreply, State#state{aging = store_aged(Topic, Aging)}};
-        true -> 
+        true ->
             {noreply, State}
     end;
 
