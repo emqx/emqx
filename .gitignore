@@ -18,3 +18,4 @@ log/
 *.swp
 *.so
 examples
+docs/build/*
