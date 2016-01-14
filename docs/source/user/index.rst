@@ -1,8 +1,8 @@
 User Guide
 ----------
 
-
 .. toctree::
+   :maxdepth: 2
 
    install
    configuration
@@ -11,5 +11,7 @@ User Guide
    http
    websocket
    admin
+   systopics
    logs
+   trace
 
