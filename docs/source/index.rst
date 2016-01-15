@@ -29,8 +29,11 @@ Contents
 
 .. toctree::
    :maxdepth: 2
+   :caption: Getting Started
 
-   intro/index
+   intro/overview
+   intro/quick_started
+   intro/getting_started
 
 .. _user-guide:
 

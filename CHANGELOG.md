@@ -2,6 +2,34 @@
 emqttd ChangeLog
 ==================
 
+0.15.0-beta(2016-01-20)
+-------------------------
+
+#### Highlights
+
+Optimization for Route ETS insertion (#427)
+
+ReadTheDocs
+
+
+#### Enhancements
+
+Join/Leave the Cluster
+
+
+#### BugFix
+
+
+#### Plugins
+
+emqttd_plubin_mysql: changed mysql driver to mysql-otp
+
+emqttd_plugin_pgsql: integrate with ecpool
+
+
+#### Benchmark
+
+
 0.14.1-beta(2015-12-28)
 -------------------------
 
