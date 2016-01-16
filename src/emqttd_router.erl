@@ -110,6 +110,8 @@ add_route(Topic, Pid) when is_pid(Pid) ->
 
 %% @doc Add Routes.
 -spec add_routes(list(topic()), pid()) -> ok.
+add_routes([], _Pid) ->
+    ok;
 add_routes([Topic], Pid) ->
     add_route(Topic, Pid);
 
