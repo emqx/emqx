@@ -85,10 +85,7 @@ mnesia(copy) ->
 %%------------------------------------------------------------------------------
 -spec start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
 start_link(Pool, Id) ->
-    gen_server2:start_link({local, name(Id)}, ?MODULE, [Pool, Id], []).
-
-name(Id) ->
-    list_to_atom("emqttd_sm_" ++ integer_to_list(Id)).
+    gen_server2:start_link({local, emqttd:reg_name(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
 
 %%------------------------------------------------------------------------------
 %% @doc Start a session
