@@ -30,6 +30,9 @@
          load_all_mods/0, is_mod_enabled/1,
          is_running/1]).
 
+%% Utility functions.
+-export([reg_name/2]).
+
 -define(MQTT_SOCKOPTS, [
         binary,
         {packet,    raw},
@@ -122,14 +125,16 @@ load_mod({Name, Opts}) ->
 is_mod_enabled(Name) ->
     env(modules, Name) =/= undefined.
 
-%%------------------------------------------------------------------------------
 %% @doc Is running?
-%% @end
-%%------------------------------------------------------------------------------
+-spec is_running(node()) -> boolean().
 is_running(Node) ->
     case rpc:call(Node, erlang, whereis, [?APP]) of
         {badrpc, _}          -> false;
         undefined            -> false;
         Pid when is_pid(Pid) -> true
     end.
+
+-spec reg_name(module(), pos_integer()) -> atom().
+reg_name(M, Id) when is_atom(M), is_integer(Id) ->
+    list_to_atom(lists:concat([M, "_", Id])).
 
