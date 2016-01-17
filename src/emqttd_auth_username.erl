@@ -71,6 +71,9 @@ add_user(Username, Password) ->
     User = #?AUTH_USERNAME_TAB{username = Username, password = hash(Password)},
     mnesia:transaction(fun mnesia:write/1, [User]).
 
+add_default_user(Username, Password) ->
+    add_user(bin(Username), bin(Password)).
+
 %%------------------------------------------------------------------------------
 %% @doc Lookup user by username
 %% @end
@@ -98,13 +101,16 @@ all_users() ->
 %%%=============================================================================
 %%% emqttd_auth callbacks
 %%%=============================================================================
-init(Opts) ->
+init(DefautUsers) ->
     mnesia:create_table(?AUTH_USERNAME_TAB, [
             {disc_copies, [node()]},
             {attributes, record_info(fields, ?AUTH_USERNAME_TAB)}]),
     mnesia:add_table_copy(?AUTH_USERNAME_TAB, node(), disc_copies),
+    lists:foreach(fun({Username, Password}) ->
+                add_default_user(Username, Password)
+        end, DefautUsers),
     emqttd_ctl:register_cmd(users, {?MODULE, cli}, []),
-    {ok, Opts}.
+    {ok, []}.
 
 check(#mqtt_client{username = undefined}, _Password, _Opts) ->
     {error, "Username undefined"};
@@ -140,4 +146,8 @@ salt() ->
     random:seed(A1, A2, A3),
     Salt = random:uniform(16#ffffffff),
     <<Salt:32>>.
+
+bin(A) when is_atom(A)   -> bin(atom_to_list(A));
+bin(L) when is_list(L)   -> list_to_binary(L);
+bin(B) when is_binary(B) -> B.
 
