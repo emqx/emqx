@@ -34,13 +34,16 @@
 -define(CONCURRENCY_OPTS, [{read_concurrency, true}, {write_concurrency, true}]).
 
 %% API
--export([start_link/0]).
+-export([start_link/0, pubsub_pool/0]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, [emqttd_broker:env(pubsub)]).
+
+pubsub_pool() ->
+    hd([Pid|| {pubsub_pool, Pid, _, _} <- supervisor:which_children(?MODULE)]).
 
 init([Env]) ->
     %% Create tabs
@@ -82,6 +85,9 @@ pool_size(Env) ->
 
 setstats(route) ->
     emqttd_stats:setstat('routes/count', ets:info(route, size));
+
+setstats(reverse_route) ->
+    emqttd_stats:setstat('routes/reverse', ets:info(reverse_route, size));
 
 setstats(topic) ->
     emqttd_stats:setstats('topics/count', 'topics/max', mnesia:table_info(topic, size));
