@@ -27,6 +27,10 @@
 
 -include("emqttd.hrl").
 
+-export([passwd_hash/2]).
+
+-type hash_type() :: plain | md5 | sha | sha256.
+
 %%%=============================================================================
 %%% Auth behavihour
 %%%=============================================================================
@@ -52,4 +56,22 @@ behaviour_info(_Other) ->
     undefined.
 
 -endif.
+
+%% @doc Password Hash
+-spec passwd_hash(hash_type(), binary()) -> binary().
+passwd_hash(plain,  Password)  ->
+    Password;
+passwd_hash(md5,    Password)  ->
+    hexstring(crypto:hash(md5, Password));
+passwd_hash(sha,    Password)  ->
+    hexstring(crypto:hash(sha, Password));
+passwd_hash(sha256, Password)  ->
+    hexstring(crypto:hash(sha256, Password)).
+
+hexstring(<<X:128/big-unsigned-integer>>) ->
+    iolist_to_binary(io_lib:format("~32.16.0b", [X]));
+hexstring(<<X:160/big-unsigned-integer>>) ->
+    iolist_to_binary(io_lib:format("~40.16.0b", [X]));
+hexstring(<<X:256/big-unsigned-integer>>) ->
+    iolist_to_binary(io_lib:format("~64.16.0b", [X])).
 
