@@ -172,7 +172,7 @@ dequeue(State = #state{mqueue = MQ}) ->
         {empty, MQ1} ->
             State#state{mqueue = MQ1};
         {{value, Msg}, MQ1} ->
-            handle_info({dispatch, Msg}, State),
+            handle_info({dispatch, Msg#mqtt_message.topic, Msg}, State),
             dequeue(State#state{mqueue = MQ1})
     end.
 
