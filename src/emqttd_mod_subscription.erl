@@ -40,7 +40,7 @@
 -endif.
 
 load(Opts) ->
-    Topics = [{bin(Topic), QoS} || {Topic, QoS} <- Opts, ?IS_QOS(QoS)],
+    Topics = [{iolist_to_binary(Topic), QoS} || {Topic, QoS} <- Opts, ?IS_QOS(QoS)],
     State = #state{topics = Topics, stored = lists:member(stored, Opts)},
     emqttd_broker:hook('client.connected', {?MODULE, client_connected},
                        {?MODULE, client_connected, [State]}),
@@ -69,9 +69,4 @@ rep(<<"$u">>, undefined, Topic) ->
     Topic;
 rep(<<"$u">>, Username, Topic) ->
     emqttd_topic:feed_var(<<"$u">>, Username, Topic).
-
-bin(B) when is_binary(B) ->
-    B;
-bin(S) when is_list(S) ->
-    list_to_binary(S).
 
