@@ -7,7 +7,7 @@ ecpool tries to avoid the erlang application crash when the server or database g
 
 ## Overview
 
-A pool worker to manage and monitor the client to server or database:
+A pool worker to manage/monitor the client to server or database:
 
 ```
 PoolWorker -> Client -> DB
@@ -33,10 +33,11 @@ For example:
 ```
 PgOpts = [%% Pool Size
           {pool_size, 10},
-          %% Pool Type: random | hash | round_robin
-          {pool_type, random},
+          %% Pool Type: round_robin | random | hash
+          {pool_type, round_robin},
           %% Auto reconnect
           {auto_reconnect, 3},
+
           %% epgsql opts
           {host, "localhost"},
           {port, 5432},
