@@ -52,7 +52,9 @@ client_connected(?CONNACK_ACCEPT, #mqtt_client{client_id  = ClientId,
                  #state{topics = Topics, stored = Stored}) ->
     Replace = fun(Topic) -> rep(<<"$u">>, Username, rep(<<"$c">>, ClientId, Topic)) end,
     TopicTable = with_stored(Stored, ClientId, [{Replace(Topic), Qos} || {Topic, Qos} <- Topics]),
-    emqttd_client:subscribe(ClientPid, TopicTable).
+    emqttd_client:subscribe(ClientPid, TopicTable);
+
+client_connected(_ConnAck, _Client, _State) -> ok.
 
 with_stored(false, _ClientId, TopicTable) ->
     TopicTable;
