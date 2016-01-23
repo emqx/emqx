@@ -20,7 +20,7 @@
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
 
--module(emqttd_router_tests).
+-module(priority_queue_tests).
 
 -include("emqttd.hrl").
 
@@ -28,33 +28,42 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(ROUTER, emqttd_router).
+-define(PQ, priority_queue).
 
-route_test_() ->
-    {setup,
-     fun()  -> ?ROUTER:init([]) end,
-     fun(_) -> ?ROUTER:destory() end,
-     [?_test(t_add_routes()),
-      ?_test(t_delete_routes()),
-      ?_test(t_has_route()),
-      ?_test(t_route())
-     ]}. 
+plen_test() ->
+    Q = ?PQ:new(),
+    ?assertEqual(0, ?PQ:plen(0, Q)),
+    Q0 = ?PQ:in(z, Q),
+    ?assertEqual(1, ?PQ:plen(0, Q0)),
+    Q1 = ?PQ:in(x, 1, Q),
+    ?assertEqual(1, ?PQ:plen(1, Q1)),
+    Q2 = ?PQ:in(y, 2, Q1),
+    ?assertEqual(1, ?PQ:plen(2, Q2)),
+    Q3 = ?PQ:in(z, 2, Q2),
+    ?assertEqual(2, ?PQ:plen(2, Q3)).
 
-t_add_routes() ->
-    Pid = self(),
-    ok.
-    %?ROUTER:add_routes([<<"a">>, <<"b">>], Pid),
-    %?assertEqual([{<<"a">>, Pid}, {<<"b">>, Pid}], lists:sort(ets:tab2list(route))),
-    %?assertEqual([{Pid, <<"a">>}, {Pid, <<"b">>}], lists:sort(ets:tab2list(reverse_route))).
-
-t_delete_routes() ->
-    ok.
-
-t_has_route() ->
-    ok.
-
-t_route() ->
-    ok.
+out2_test() ->
+    Els = [a, {b, 1}, {c, 1}, {d, 2}, {e, 2}, {f, 2}],
+    Q  = ?PQ:new(),
+    Q0 = lists:foldl(
+            fun({El, P}, Q) ->
+                    ?PQ:in(El, P, Q);
+                (El, Q) ->
+                    ?PQ:in(El, Q)
+            end, Q, Els),
+    {Val, Q1} = ?PQ:out(Q0),
+    ?assertEqual({value, d}, Val),
+    {Val1, Q2} = ?PQ:out(2, Q1),
+    ?assertEqual({value, e}, Val1),
+    {Val2, Q3} = ?PQ:out(1, Q2),
+    ?assertEqual({value, b}, Val2),
+    {Val3, Q4} = ?PQ:out(Q3),
+    ?assertEqual({value, f}, Val3),
+    {Val4, Q5} = ?PQ:out(Q4),
+    ?assertEqual({value, c}, Val4),
+    {Val5, Q6} = ?PQ:out(Q5),
+    ?assertEqual({value, a}, Val5),
+    {empty, _Q7} = ?PQ:out(Q6).
 
 -endif.
 

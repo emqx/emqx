@@ -42,7 +42,7 @@ in_test() ->
     Q3 = ?QM:in(#mqtt_message{qos = 2}, Q2),
     Q4 = ?QM:in(#mqtt_message{}, Q3),
     Q5 = ?QM:in(#mqtt_message{}, Q4),
-    ?assertEqual(true, ?QM:is_full(Q5)).
+    ?assertEqual(5, ?QM:len(Q5)).
     
 in_qos0_test() ->
     Opts = [{max_length, 5},
