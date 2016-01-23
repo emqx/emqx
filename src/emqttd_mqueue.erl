@@ -147,6 +147,8 @@ len(#mqueue{type = priority, q = Q})   -> priority_queue:len(Q).
 
 max_len(#mqueue{max_len= MaxLen}) -> MaxLen.
 
+%% @doc Stats of the mqueue
+-spec stats(mqueue()) -> [stat()].
 stats(#mqueue{type = Type, q = Q, max_len = MaxLen, len = Len, dropped = Dropped}) ->
     [{len, case Type of
                 simple   -> Len;
