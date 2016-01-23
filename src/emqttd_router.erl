@@ -19,7 +19,7 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc Message Router on Local Node.
+%%% @doc Message Router on local node.
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
@@ -52,8 +52,6 @@
 
 -record(state, {pool, id, statsfun, aging :: #aging{}}).
 
--type topic() :: binary().
-
 %% @doc Start a local router.
 -spec start_link(atom(), pos_integer(), fun((atom()) -> ok), list()) -> {ok, pid()} | {error, any()}.
 start_link(Pool, Id, StatsFun, Env) ->
@@ -61,7 +59,7 @@ start_link(Pool, Id, StatsFun, Env) ->
                            ?MODULE, [Pool, Id, StatsFun, Env], []).
 
 %% @doc Route Message on the local node.
--spec route(topic(), mqtt_message()) -> any().
+-spec route(emqttd_topic:topic(), mqtt_message()) -> any().
 route(Queue = <<"$Q/", _Q>>, Msg) ->
     case lookup_routes(Queue) of
         [] ->
@@ -87,12 +85,12 @@ route(Topic, Msg) ->
     end.
 
 %% @doc Has Route?
--spec has_route(topic()) -> boolean().
+-spec has_route(emqttd_topic:topic()) -> boolean().
 has_route(Topic) ->
     ets:member(route, Topic).
 
 %% @doc Lookup Routes
--spec lookup_routes(topic()) -> list(pid()).
+-spec lookup_routes(emqttd_topic:topic()) -> list(pid()).
 lookup_routes(Topic) when is_binary(Topic) ->
     case ets:member(route, Topic) of
         true  ->
@@ -102,12 +100,12 @@ lookup_routes(Topic) when is_binary(Topic) ->
     end.
 
 %% @doc Add Route.
--spec add_route(topic(), pid()) -> ok.
+-spec add_route(emqttd_topic:topic(), pid()) -> ok.
 add_route(Topic, Pid) when is_pid(Pid) ->
     call(pick(Topic), {add_route, Topic, Pid}).
 
 %% @doc Add Routes.
--spec add_routes(list(topic()), pid()) -> ok.
+-spec add_routes(list(emqttd_topic:topic()), pid()) -> ok.
 add_routes([], _Pid) ->
     ok;
 add_routes([Topic], Pid) ->
@@ -119,12 +117,12 @@ add_routes(Topics, Pid) ->
         end, slice(Topics)).
 
 %% @doc Delete Route.
--spec delete_route(topic(), pid()) -> ok.
+-spec delete_route(emqttd_topic:topic(), pid()) -> ok.
 delete_route(Topic, Pid) ->
     cast(pick(Topic), {delete_route, Topic, Pid}).
 
 %% @doc Delete Routes.
--spec delete_routes(list(topic()), pid()) -> ok.
+-spec delete_routes(list(emqttd_topic:topic()), pid()) -> ok.
 delete_routes([Topic], Pid) ->
     delete_route(Topic, Pid);
 
@@ -136,13 +134,7 @@ delete_routes(Topics, Pid) ->
 %% @private Slice topics.
 slice(Topics) ->
     dict:to_list(lists:foldl(fun(Topic, Dict) ->
-                    Router = pick(Topic),
-                    case dict:find(Router, Dict) of
-                        {ok, L} ->
-                            dict:store(Router, [Topic | L], Dict);
-                        error   ->
-                            dict:store(Router, [Topic], Dict)
-                    end
+                    dict:append(pick(Topic), Topic, Dict)
             end, dict:new(), Topics)).
 
 %% @private Pick a router.
@@ -162,7 +154,7 @@ init([Pool, Id, StatsFun, Opts]) ->
 
     ?GPROC_POOL(join, Pool, Id),
 
-    random:seed(os:timestamp()),
+    random:seed(erlang:now()),
 
     AgingSecs = proplists:get_value(route_aging, Opts, 5),
 
@@ -261,7 +253,7 @@ try_remove_topic(TopicR = #mqtt_topic{topic = Topic}) ->
     %% Lock topic first
     case mnesia:wread({topic, Topic}) of
         [] ->
-            mnesia:abort(not_found);
+            ok; %% mnesia:abort(not_found);
         [TopicR] ->
             %% Remove topic and trie
             delete_topic(TopicR),
