@@ -99,7 +99,8 @@
 new(Name, Opts, AlarmFun) ->
     Type = emqttd_opts:g(type, Opts, simple),
     MaxLen = emqttd_opts:g(max_length, Opts, infinity),
-    init_q(#mqueue{type = Type, name = Name, max_len = MaxLen,
+    init_q(#mqueue{type = Type, name = iolist_to_binary(Name),
+                   len = 0, max_len = MaxLen,
                    low_wm = low_wm(MaxLen, Opts),
                    high_wm = high_wm(MaxLen, Opts),
                    qos0 = emqttd_opts:g(queue_qos0, Opts, false),
