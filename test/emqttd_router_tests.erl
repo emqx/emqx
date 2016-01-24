@@ -87,7 +87,6 @@ t_delete_route() ->
     ?assert(?R:has_route(<<"t1">>)),
     ?R:delete_route(<<"t2">>, Self),
     erlang:yield(),
-    ?debugFmt("Routes: ~p~n", [ets:tab2list(route)]),
     ?assertNot(?R:has_route(<<"t2">>)),
     ?assert(?R:has_route(<<"t1">>)),
     ?R:delete_route(<<"t3">>, Self),
