@@ -143,7 +143,7 @@ setstats(Stat, MaxStat, Val) ->
 %%%=============================================================================
 
 init([]) ->
-    random:seed(os:timestamp()),
+    emqttd:seed_now(),
     ets:new(?STATS_TAB, [set, public, named_table, {write_concurrency, true}]),
     Topics = ?SYSTOP_CLIENTS ++ ?SYSTOP_SESSIONS ++ ?SYSTOP_PUBSUB ++ ?SYSTOP_RETAINED,
     ets:insert(?STATS_TAB, [{Topic, 0} || Topic <- Topics]),

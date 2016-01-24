@@ -283,7 +283,7 @@ key(counter, Metric) ->
 %%%=============================================================================
 
 init([]) ->
-    random:seed(os:timestamp()),
+    emqttd:seed_now(),
     Metrics = ?SYSTOP_BYTES ++ ?SYSTOP_PACKETS ++ ?SYSTOP_MESSAGES,
     % Create metrics table
     ets:new(?METRIC_TAB, [set, public, named_table, {write_concurrency, true}]),

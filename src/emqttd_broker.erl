@@ -218,7 +218,7 @@ stop_tick(TRef) ->
 %%%=============================================================================
 
 init([]) ->
-    random:seed(os:timestamp()),
+    emqttd:seed_now(),
     ets:new(?BROKER_TAB, [set, public, named_table]),
     % Create $SYS Topics
     emqttd_pubsub:create(topic, <<"$SYS/brokers">>),

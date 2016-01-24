@@ -29,7 +29,7 @@
 -export([start/0, env/1, env/2,
          start_listeners/0, stop_listeners/0,
          load_all_mods/0, is_mod_enabled/1,
-         is_running/1]).
+         is_running/1, seed_now/0]).
 
 %% Utility functions.
 -export([reg_name/2]).
@@ -138,4 +138,13 @@ is_running(Node) ->
 -spec reg_name(module(), pos_integer()) -> atom().
 reg_name(M, Id) when is_atom(M), is_integer(Id) ->
     list_to_atom(lists:concat([M, "_", Id])).
+
+seed_now() ->
+    case erlang:function_exported(erlang, timestamp, 0) of
+        true -> %% R18
+            random:seed(erlang:timestamp());
+        false ->
+            %% compress 'now()' warning...
+            random:seed(os:timestamp())
+    end.
 
