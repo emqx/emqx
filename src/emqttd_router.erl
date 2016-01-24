@@ -23,6 +23,7 @@
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd_router).
 
 -behaviour(gen_server2).
@@ -43,6 +44,9 @@
 
 %% Batch API
 -export([add_routes/2, delete_routes/2]).
+
+%% For Test
+-export([stop/1]).
 
 %% gen_server Callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -141,6 +145,9 @@ slice(Topics) ->
 pick(Topic) ->
     gproc_pool:pick_worker(router, Topic).
 
+stop(Id) when is_integer(Id) ->
+    gen_server2:call(emqttd:reg_name(?MODULE, Id), stop).
+
 call(Router, Request) ->
     gen_server2:call(Router, Request, infinity).
 
@@ -154,7 +161,7 @@ init([Pool, Id, StatsFun, Opts]) ->
 
     ?GPROC_POOL(join, Pool, Id),
 
-    random:seed(erlang:now()),
+    emqttd:seed_now(),
 
     AgingSecs = proplists:get_value(route_aging, Opts, 5),
 
@@ -167,6 +174,9 @@ init([Pool, Id, StatsFun, Opts]) ->
 
 start_tick(Secs) ->
     timer:send_interval(timer:seconds(Secs), {clean, aged}).
+
+handle_call(stop, _From, State) ->
+    {stop, normal, ok, State};
 
 handle_call({add_route, Topic, Pid}, _From, State) ->
     ets:insert(route, {Topic, Pid}),
