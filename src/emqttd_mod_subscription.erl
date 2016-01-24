@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2015 eMQTT.IO, All Rights Reserved.
+%%% Copyright (c) 2012-2016 eMQTT.IO, All Rights Reserved.
 %%%
 %%% Permission is hereby granted, free of charge, to any person obtaining a copy
 %%% of this software and associated documentation files (the "Software"), to deal
@@ -40,7 +40,7 @@
 -endif.
 
 load(Opts) ->
-    Topics = [{bin(Topic), QoS} || {Topic, QoS} <- Opts, ?IS_QOS(QoS)],
+    Topics = [{iolist_to_binary(Topic), QoS} || {Topic, QoS} <- Opts, ?IS_QOS(QoS)],
     State = #state{topics = Topics, stored = lists:member(stored, Opts)},
     emqttd_broker:hook('client.connected', {?MODULE, client_connected},
                        {?MODULE, client_connected, [State]}),
@@ -52,7 +52,9 @@ client_connected(?CONNACK_ACCEPT, #mqtt_client{client_id  = ClientId,
                  #state{topics = Topics, stored = Stored}) ->
     Replace = fun(Topic) -> rep(<<"$u">>, Username, rep(<<"$c">>, ClientId, Topic)) end,
     TopicTable = with_stored(Stored, ClientId, [{Replace(Topic), Qos} || {Topic, Qos} <- Topics]),
-    emqttd_client:subscribe(ClientPid, TopicTable).
+    emqttd_client:subscribe(ClientPid, TopicTable);
+
+client_connected(_ConnAck, _Client, _State) -> ok.
 
 with_stored(false, _ClientId, TopicTable) ->
     TopicTable;
@@ -69,9 +71,4 @@ rep(<<"$u">>, undefined, Topic) ->
     Topic;
 rep(<<"$u">>, Username, Topic) ->
     emqttd_topic:feed_var(<<"$u">>, Username, Topic).
-
-bin(B) when is_binary(B) ->
-    B;
-bin(S) when is_list(S) ->
-    list_to_binary(S).
 

@@ -37,11 +37,10 @@
 %% calls into the same function knowing that ordinary queues represent
 %% a base case.
 
-
 -module(priority_queue).
 
--export([new/0, is_queue/1, is_empty/1, len/1, to_list/1, from_list/1,
-         in/2, in/3, out/1, out_p/1, join/2, filter/2, fold/3, highest/1]).
+-export([new/0, is_queue/1, is_empty/1, len/1, plen/2, to_list/1, from_list/1,
+         in/2, in/3, out/1, out/2, out_p/1, join/2, filter/2, fold/3, highest/1]).
 
 %%----------------------------------------------------------------------------
 
@@ -58,6 +57,7 @@
 -spec(is_queue/1 :: (any()) -> boolean()).
 -spec(is_empty/1 :: (pqueue()) -> boolean()).
 -spec(len/1 :: (pqueue()) -> non_neg_integer()).
+-spec(plen/2 :: (priority(), pqueue()) -> non_neg_integer()).
 -spec(to_list/1 :: (pqueue()) -> [{priority(), any()}]).
 -spec(from_list/1 :: ([{priority(), any()}]) -> pqueue()).
 -spec(in/2 :: (any(), pqueue()) -> pqueue()).
@@ -95,6 +95,16 @@ len({queue, _R, _F, L}) ->
     L;
 len({pqueue, Queues}) ->
     lists:sum([len(Q) || {_, Q} <- Queues]).
+
+plen(0, {queue, _R, _F, L}) ->
+    L;
+plen(P, {queue, _R, _F, _}) ->
+    erlang:error(badarg, [P]);
+plen(P, {pqueue, Queues}) ->
+    case lists:keysearch(maybe_negate_priority(P), 1, Queues) of
+        {value, {_, Q}} -> len(Q);
+        false           -> 0
+    end.
 
 to_list({queue, In, Out, _Len}) when is_list(In), is_list(Out) ->
     [{0, V} || V <- Out ++ lists:reverse(In, [])];
@@ -158,6 +168,28 @@ out({pqueue, [{P, Q} | Queues]}) ->
 
 out_p({queue, _, _, _}       = Q) -> add_p(out(Q), 0);
 out_p({pqueue, [{P, _} | _]} = Q) -> add_p(out(Q), maybe_negate_priority(P)).
+
+out(0, {queue, _, _, _} = Q) ->
+    out(Q);
+out(Priority, {queue, _, _, _}) ->
+    erlang:error(badarg, [Priority]);
+out(Priority, {pqueue, Queues}) ->
+    P = maybe_negate_priority(Priority),
+    case lists:keysearch(P, 1, Queues) of
+        {value, {_, Q}} ->
+            {R, Q1} = out(Q),
+            Queues1 = case is_empty(Q1) of
+                true  -> lists:keydelete(P, 1, Queues);
+                false -> lists:keyreplace(P, 1, Queues, {P, Q1})
+            end,
+            {R, case Queues1 of
+                    []           -> {queue, [], [], 0};
+                    [{0, OnlyQ}] -> OnlyQ;
+                    [_|_]        -> {pqueue, Queues1}
+                end};
+        false ->
+            {empty, {pqueue, Queues}}
+    end.
 
 add_p(R, P) -> case R of
                    {empty, Q}      -> {empty, Q};

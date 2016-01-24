@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2015 eMQTT.IO, All Rights Reserved.
+%%% Copyright (c) 2012-2016 eMQTT.IO, All Rights Reserved.
 %%%
 %%% Permission is hereby granted, free of charge, to any person obtaining a copy
 %%% of this software and associated documentation files (the "Software"), to deal
@@ -101,7 +101,7 @@ broker(["metrics"]) ->
             end, lists:sort(emqttd_metrics:all()));
 
 broker(["pubsub"]) ->
-    Pubsubs = supervisor:which_children(emqttd_pubsub_sup),
+    Pubsubs = supervisor:which_children(emqttd_pubsub_sup:pubsub_pool()),
     foreach(fun({{_, Id}, Pid, _, _}) ->
                 ProcInfo = erlang:process_info(Pid, ?PROC_INFOKEYS),
                 ?PRINT("pubsub: ~w~n", [Id]),
@@ -323,7 +323,7 @@ plugins(_) ->
 
 bridges(["list"]) ->
     foreach(fun({{Node, Topic}, _Pid}) ->
-                ?PRINT("bridge: ~s ~s~n", [Node, Topic])
+                ?PRINT("bridge: ~s--~s-->~s~n", [node(), Topic, Node])
             end, emqttd_bridge_sup:bridges());
 
 bridges(["options"]) ->
@@ -449,7 +449,7 @@ trace(_) ->
             {"trace topic <Topic> off",          "stop to trace Topic"}]).
 
 trace_on(Who, Name, LogFile) ->
-    case emqttd_trace:start_trace({Who, bin(Name)}, LogFile) of
+    case emqttd_trace:start_trace({Who, iolist_to_binary(Name)}, LogFile) of
         ok ->
             ?PRINT("trace ~s ~s successfully.~n", [Who, Name]);
         {error, Error} ->
@@ -457,7 +457,7 @@ trace_on(Who, Name, LogFile) ->
     end.
 
 trace_off(Who, Name) ->
-    case emqttd_trace:stop_trace({Who, bin(Name)}) of
+    case emqttd_trace:stop_trace({Who, iolist_to_binary(Name)}) of
         ok -> 
             ?PRINT("stop to trace ~s ~s successfully.~n", [Who, Name]);
         {error, Error} ->
@@ -507,17 +507,16 @@ print({{ClientId, _ClientPid}, SessInfo}) ->
                 awaiting_rel,
                 awaiting_ack,
                 awaiting_comp,
-                created_at,
-                subscriptions],
+                created_at],
     ?PRINT("Session(~s, clean_sess=~s, max_inflight=~w, inflight_queue=~w, "
            "message_queue=~w, message_dropped=~w, "
            "awaiting_rel=~w, awaiting_ack=~w, awaiting_comp=~w, "
-           "created_at=~w, subscriptions=~s)~n",
+           "created_at=~w)~n",
             [ClientId | [format(Key, proplists:get_value(Key, SessInfo)) || Key <- InfoKeys]]).
 
 print(topic, Topic, Records) ->
     Nodes = [Node || #mqtt_topic{node = Node} <- Records],
-    ?PRINT("~s: on ~p~n", [Topic, Nodes]);
+    ?PRINT("~s: ~p~n", [Topic, Nodes]);
 
 print(subscription, ClientId, Subscriptions) ->
     TopicTable = [{Topic, Qos} || #mqtt_subscription{topic = Topic, qos = Qos} <- Subscriptions],

@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2015 eMQTT.IO, All Rights Reserved.
+%%% Copyright (c) 2012-2016 eMQTT.IO, All Rights Reserved.
 %%%
 %%% Permission is hereby granted, free of charge, to any person obtaining a copy
 %%% of this software and associated documentation files (the "Software"), to deal
@@ -23,12 +23,16 @@
 %%%
 %%% @author Feng Lee <feng@emqtt.io>
 %%%-----------------------------------------------------------------------------
+
 -module(emqttd).
 
 -export([start/0, env/1, env/2,
          start_listeners/0, stop_listeners/0,
          load_all_mods/0, is_mod_enabled/1,
-         is_running/1]).
+         is_running/1, seed_now/0]).
+
+%% Utility functions.
+-export([reg_name/2]).
 
 -define(MQTT_SOCKOPTS, [
         binary,
@@ -122,14 +126,25 @@ load_mod({Name, Opts}) ->
 is_mod_enabled(Name) ->
     env(modules, Name) =/= undefined.
 
-%%------------------------------------------------------------------------------
 %% @doc Is running?
-%% @end
-%%------------------------------------------------------------------------------
+-spec is_running(node()) -> boolean().
 is_running(Node) ->
     case rpc:call(Node, erlang, whereis, [?APP]) of
         {badrpc, _}          -> false;
         undefined            -> false;
         Pid when is_pid(Pid) -> true
+    end.
+
+-spec reg_name(module(), pos_integer()) -> atom().
+reg_name(M, Id) when is_atom(M), is_integer(Id) ->
+    list_to_atom(lists:concat([M, "_", Id])).
+
+seed_now() ->
+    case erlang:function_exported(erlang, timestamp, 0) of
+        true -> %% R18
+            random:seed(erlang:timestamp());
+        false ->
+            %% compress 'now()' warning...
+            random:seed(os:timestamp())
     end.
 

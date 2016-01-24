@@ -103,11 +103,17 @@
             {expired_after, 48}
 
         ]},
-        %% Session
+        %% Queue
         {queue, [
-            %% Max queue length. enqueued messages when persistent client disconnected, 
+            %% simple | priority
+            {type, simple},
+
+            %% Topic Priority: 0~255, Default is 0
+            %% {priority, [{"topic/1", 10}, {"topic/2", 8}]},
+
+            %% Max queue length. Enqueued messages when persistent client disconnected,
             %% or inflight window is full.
-            {max_length, 100},
+            {max_length, infinity},
 
             %% Low-water mark of queued messages
             {low_watermark, 0.2},
@@ -139,7 +145,7 @@
         %% PubSub and Router
         {pubsub, [
             %% Default should be scheduler numbers
-            %% {pool_size, 8},
+            {pool_size, 8},
             
             %% Subscription: disc | ram | false
             {subscription, ram},
