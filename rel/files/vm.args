@@ -46,6 +46,7 @@
 
 -env ERTS_MAX_PORTS 8192
 
+## Mnesia and SSL will create temporary ets tables.
 -env ERL_MAX_ETS_TABLES 1024
 
 ## Tweak GC to run more often

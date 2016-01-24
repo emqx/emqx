@@ -13,4 +13,3 @@
   {mod, {emqttd_app, []}},
   {env, []}
  ]}.
-

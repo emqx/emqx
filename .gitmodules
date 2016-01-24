@@ -19,3 +19,6 @@
 [submodule "plugins/emqttd_recon"]
 	path = plugins/emqttd_recon
 	url = https://github.com/emqtt/emqttd_recon.git
+[submodule "plugins/emqttd_plugin_redis"]
+	path = plugins/emqttd_plugin_redis
+	url = https://github.com/emqtt/emqttd_plugin_redis.git

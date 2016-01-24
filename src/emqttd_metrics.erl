@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2015 eMQTT.IO, All Rights Reserved.
+%%% Copyright (c) 2012-2016 eMQTT.IO, All Rights Reserved.
 %%%
 %%% Permission is hereby granted, free of charge, to any person obtaining a copy
 %%% of this software and associated documentation files (the "Software"), to deal
@@ -283,7 +283,7 @@ key(counter, Metric) ->
 %%%=============================================================================
 
 init([]) ->
-    random:seed(os:timestamp()),
+    emqttd:seed_now(),
     Metrics = ?SYSTOP_BYTES ++ ?SYSTOP_PACKETS ++ ?SYSTOP_MESSAGES,
     % Create metrics table
     ets:new(?METRIC_TAB, [set, public, named_table, {write_concurrency, true}]),

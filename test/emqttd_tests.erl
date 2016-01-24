@@ -19,21 +19,15 @@
 %%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 %%% SOFTWARE.
 %%%-----------------------------------------------------------------------------
-%%% @doc
-%%% Test ACL Module.
-%%%
-%%% @end
-%%%-----------------------------------------------------------------------------
--module(emqttd_auth_anonymous_test_mod).
 
-%% ACL callbacks
--export([init/1, check/3, description/0]).
+-module(emqttd_tests).
 
-init(AclOpts) ->
-    {ok, AclOpts}.
+-ifdef(TEST).
 
-check(_Client, _Password, _Opts) ->
-    allow.
+-include_lib("eunit/include/eunit.hrl").
 
-description() ->
-    "Test emqttd_auth_anonymous Mod".
+seed_now_test() ->
+    ?assertNotEqual(emqttd:seed_now(), emqttd:seed_now()).
+
+-endif.
+

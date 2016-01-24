@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2015 eMQTT.IO, All Rights Reserved.
+%%% Copyright (c) 2012-2016 eMQTT.IO, All Rights Reserved.
 %%%
 %%% Permission is hereby granted, free of charge, to any person obtaining a copy
 %%% of this software and associated documentation files (the "Software"), to deal
@@ -53,10 +53,7 @@ start_link() ->
 %%%=============================================================================
 -spec start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
 start_link(Pool, Id) ->
-    gen_server:start_link({local, name(Id)}, ?MODULE, [Pool, Id], []).
-
-name(Id) ->
-    list_to_atom(lists:concat([?MODULE, "_", integer_to_list(Id)])).
+    gen_server:start_link({local, emqttd:reg_name(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
 
 %%------------------------------------------------------------------------------
 %% @doc Submit work to pooler
