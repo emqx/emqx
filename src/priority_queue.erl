@@ -57,7 +57,7 @@
 -spec(is_queue/1 :: (any()) -> boolean()).
 -spec(is_empty/1 :: (pqueue()) -> boolean()).
 -spec(len/1 :: (pqueue()) -> non_neg_integer()).
--spec(len_p/2 :: (priority(), pqueue()) -> non_neg_integer()).
+-spec(plen/2 :: (priority(), pqueue()) -> non_neg_integer()).
 -spec(to_list/1 :: (pqueue()) -> [{priority(), any()}]).
 -spec(from_list/1 :: ([{priority(), any()}]) -> pqueue()).
 -spec(in/2 :: (any(), pqueue()) -> pqueue()).
