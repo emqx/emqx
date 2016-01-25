@@ -98,8 +98,8 @@ len({pqueue, Queues}) ->
 
 plen(0, {queue, _R, _F, L}) ->
     L;
-plen(P, {queue, _R, _F, _}) ->
-    erlang:error(badarg, [P]);
+plen(_, {queue, _R, _F, _}) ->
+    0;
 plen(P, {pqueue, Queues}) ->
     case lists:keysearch(maybe_negate_priority(P), 1, Queues) of
         {value, {_, Q}} -> len(Q);
