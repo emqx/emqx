@@ -40,7 +40,16 @@ plen_test() ->
     Q2 = ?PQ:in(y, 2, Q1),
     ?assertEqual(1, ?PQ:plen(2, Q2)),
     Q3 = ?PQ:in(z, 2, Q2),
-    ?assertEqual(2, ?PQ:plen(2, Q3)).
+    ?assertEqual(2, ?PQ:plen(2, Q3)),
+    {_, Q4} = ?PQ:out(1, Q3),
+    ?assertEqual(0, ?PQ:plen(1, Q4)),
+    {_, Q5} = ?PQ:out(Q4),
+    ?assertEqual(1, ?PQ:plen(2, Q5)),
+    {_, Q6} = ?PQ:out(Q5),
+    ?assertEqual(0, ?PQ:plen(2, Q6)),
+    ?assertEqual(1, ?PQ:len(Q6)),
+    {_, Q7} = ?PQ:out(Q6),
+    ?assertEqual(0, ?PQ:len(Q7)).
 
 out2_test() ->
     Els = [a, {b, 1}, {c, 1}, {d, 2}, {e, 2}, {f, 2}],

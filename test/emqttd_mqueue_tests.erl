@@ -140,6 +140,23 @@ infinity_priority_mqueue_test() ->
             end, Q, lists:seq(1, 255)),
     ?assertEqual(510, ?Q:len(Qx)),
     ?assertEqual([{len, 510}, {max_len, infinity}, {dropped, 0}], ?Q:stats(Qx)).
+
+priority_mqueue2_test() ->
+    Opts = [{type, priority},
+            {max_length, 2},
+            {low_watermark, 0.2},
+            {high_watermark, 0.6},
+            {queue_qos0, false}],
+    Q = ?Q:new("priority_queue2_test", Opts, alarm_fun()),
+    ?assertEqual(2, ?Q:max_len(Q)),
+    Q1 = ?Q:in(#mqtt_message{topic = <<"x">>, qos = 1, payload = <<1>>}, Q),
+    Q2 = ?Q:in(#mqtt_message{topic = <<"x">>, qos = 1, payload = <<2>>}, Q1),
+    Q3 = ?Q:in(#mqtt_message{topic = <<"y">>, qos = 1, payload = <<3>>}, Q2),
+    Q4 = ?Q:in(#mqtt_message{topic = <<"y">>, qos = 1, payload = <<4>>}, Q3),
+    ?assertEqual(4, ?Q:len(Q4)),
+    {{value, Val}, Q5} = ?Q:out(Q4),
+    ?debugFmt("Val: ~p~n", [Val]),
+    ?assertEqual(3, ?Q:len(Q5)).
  
 alarm_fun() -> fun(_, _) -> alarm_fun() end.
 
