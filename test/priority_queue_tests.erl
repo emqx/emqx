@@ -35,7 +35,7 @@ plen_test() ->
     ?assertEqual(0, ?PQ:plen(0, Q)),
     Q0 = ?PQ:in(z, Q),
     ?assertEqual(1, ?PQ:plen(0, Q0)),
-    Q1 = ?PQ:in(x, 1, Q),
+    Q1 = ?PQ:in(x, 1, Q0),
     ?assertEqual(1, ?PQ:plen(1, Q1)),
     Q2 = ?PQ:in(y, 2, Q1),
     ?assertEqual(1, ?PQ:plen(2, Q2)),
