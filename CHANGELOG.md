@@ -2,30 +2,30 @@
 emqttd ChangeLog
 ==================
 
-0.15.0-beta(2016-01-28)
--------------------------
+0.15.0-beta (2016-01-31)
+------------------------
 
 #### Highlights
 
+Optimize for Push Application, 500K+ Subscribers to a Topic.
+
 Optimization for Route ETS insertion (#427)
 
-Add Mongodb, Redis Plugins
+Priority Message Queue for Persistent Session (#432)
 
-Priority Message Queue Support
-
-ReadTheDocs
-
+Add Redis, MongoDB Plugins (#417)
 
 #### Enhancements
 
-Join/Leave the Cluster
+Username/Password Authentication: Support to configure default users (#428)
 
-Username Authentication: Default Users
-
-Improve Cli commands: pubsub, bridges, trace
+Improve CLI Commands: pubsub, bridges, trace (#429)
 
 emqttd_mod_subscription: fix client_connected/3
 
+emqttd_auth_mod: add passwd_hash/2 function
+
+priority_queue: add plen/2, out/2 functions
 
 #### BugFix
 
@@ -33,19 +33,15 @@ Fix dequeue/1 of emqttd_bridge...
 
 Add emqttd:seed_now/0 function
 
-
 #### Plugins
 
-emqttd_plubin_mysql: changed mysql driver to mysql-otp
+emqttd_plubin_mysql: Changed mysql driver to mysql-otp
 
-emqttd_plugin_pgsql: integrate with ecpool
+emqttd_plugin_pgsql: Integrate with ecpool
 
-emqttd_plugin_redis: first release
+emqttd_plugin_redis: First release
 
-emqttd_plugin_mongo: first release
-
-
-#### Benchmark
+emqttd_plugin_mongo: First release
 
 
 0.14.1-beta(2015-12-28)
