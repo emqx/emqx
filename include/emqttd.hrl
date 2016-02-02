@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 eMQTT.IO, All Rights Reserved.
+%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
 %%%
 %%% Permission is hereby granted, free of charge, to any person obtaining a copy
 %%% of this software and associated documentation files (the "Software"), to deal
@@ -63,9 +63,10 @@
 %% MQTT Subscription
 %%------------------------------------------------------------------------------
 -record(mqtt_subscription, {
-    subid   :: binary() | atom(),
-    topic   :: binary(),
-    qos = 0 :: 0 | 1 | 2
+    subid  :: binary() | atom(),
+    topic  :: binary(),
+    qos    = 0     :: 0 | 1 | 2,
+    static = false :: boolean()
 }).
 
 -type mqtt_subscription() :: #mqtt_subscription{}.
@@ -110,16 +111,18 @@
 -type mqtt_pktid() :: 1..16#ffff | undefined.
 
 -record(mqtt_message, {
-    msgid           :: mqtt_msgid(),      %% Global unique message ID
-    pktid           :: mqtt_pktid(),      %% PacketId
-    topic           :: binary(),          %% Topic that the message is published to
-    from            :: binary() | atom(), %% ClientId of publisher
-    qos    = 0      :: 0 | 1 | 2,         %% Message QoS
-    retain = false  :: boolean(),         %% Retain flag
-    dup    = false  :: boolean(),         %% Dup flag
-    sys    = false  :: boolean(),         %% $SYS flag
-    payload         :: binary(),          %% Payload
-    timestamp       :: erlang:timestamp() %% os:timestamp
+    msgid           :: mqtt_msgid(),          %% Global unique message ID
+    pktid           :: mqtt_pktid(),          %% PacketId
+    topic           :: binary(),              %% Topic that the message is published to
+    from            :: binary() | atom(),     %% ClientId of the publisher
+    sender          :: binary() | undefined,  %% Username of the publisher
+    qos    = 0      :: 0 | 1 | 2,             %% Message QoS
+    flags  = []     :: [retain | dup | sys],  %% Message Flags
+    retain = false  :: boolean(),             %% Retain flag
+    dup    = false  :: boolean(),             %% Dup flag
+    sys    = false  :: boolean(),             %% $SYS flag
+    payload         :: binary(),              %% Payload
+    timestamp       :: erlang:timestamp()     %% os:timestamp
 }).
 
 -type mqtt_message() :: #mqtt_message{}.
