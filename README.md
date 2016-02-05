@@ -145,5 +145,5 @@ Feng Lee <feng@emqtt.io>
 
 ## License
 
-The MIT License (MIT)
+Apache License Version 2.0
 

@@ -1,33 +1,25 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc
-%%% MQTT Topic Trie.
-%%%
-%%% [Trie](http://en.wikipedia.org/wiki/Trie)
-%%%
-%%% @end
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+%% @doc MQTT Topic Trie.
+%%
+%% [Trie](http://en.wikipedia.org/wiki/Trie)
+%%
+%% @end
+%%
+%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_trie).
 
 %% Mnesia Callbacks
@@ -57,14 +49,11 @@
     node_id       :: node_id()
 }).
 
-%%%=============================================================================
-%%% Mnesia Callbacks
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% Mnesia Callbacks
+%%--------------------------------------------------------------------
 
-%%------------------------------------------------------------------------------
-%% @doc Create Trie Tables
-%% @end
-%%------------------------------------------------------------------------------
+%% @doc Create Trie Tables.
 -spec mnesia(boot | copy) -> ok.
 mnesia(boot) ->
     %% Trie Table
@@ -78,24 +67,18 @@ mnesia(boot) ->
                 {record_name, trie_node},
                 {attributes, record_info(fields, trie_node)}]);
 
-%%------------------------------------------------------------------------------
-%% @doc Replicate trie tables
-%% @end
-%%------------------------------------------------------------------------------
+%% @doc Replicate trie tables.
 mnesia(copy) ->
     %% Copy Trie Table
     ok = emqttd_mnesia:copy_table(trie),
     %% Copy Trie Node Table
     ok = emqttd_mnesia:copy_table(trie_node).
 
-%%%=============================================================================
-%%% API
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
-%%------------------------------------------------------------------------------
-%% @doc Insert topic to trie tree
-%% @end
-%%------------------------------------------------------------------------------
+%% @doc Insert topic to trie tree.
 -spec insert(Topic :: binary()) -> ok.
 insert(Topic) when is_binary(Topic) ->
     case mnesia:read(trie_node, Topic) of
@@ -110,19 +93,13 @@ insert(Topic) when is_binary(Topic) ->
         mnesia:write(#trie_node{node_id=Topic, topic=Topic})
     end.
 
-%%------------------------------------------------------------------------------
 %% @doc Find trie nodes that match topic
-%% @end
-%%------------------------------------------------------------------------------
 -spec match(Topic :: binary()) -> list(MatchedTopic :: binary()).
 match(Topic) when is_binary(Topic) ->
     TrieNodes = match_node(root, emqttd_topic:words(Topic)),
     [Name || #trie_node{topic=Name} <- TrieNodes, Name =/= undefined].
 
-%%------------------------------------------------------------------------------
 %% @doc Delete topic from trie
-%% @end
-%%------------------------------------------------------------------------------
 -spec delete(Topic :: binary()) -> ok.
 delete(Topic) when is_binary(Topic) ->
     case mnesia:read(trie_node, Topic) of
@@ -135,17 +112,12 @@ delete(Topic) when is_binary(Topic) ->
         ok    
     end.
 
-%%%=============================================================================
-%%% Internal functions
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
-%%------------------------------------------------------------------------------
-%% @doc
 %% @private
-%% Add path to trie tree.
-%%
-%% @end
-%%------------------------------------------------------------------------------
+%% @doc Add path to trie tree.
 add_path({Node, Word, Child}) ->
     Edge = #trie_edge{node_id=Node, word=Word},
     case mnesia:read(trie_node, Node) of
@@ -162,14 +134,8 @@ add_path({Node, Word, Child}) ->
         mnesia:write(#trie{edge=Edge, node_id=Child})
     end.
 
-%%------------------------------------------------------------------------------
-%% @doc
 %% @private
-%% Match node with word or '+'.
-%%
-%% @end
-%%------------------------------------------------------------------------------
-
+%% @doc Match node with word or '+'.
 match_node(root, [<<"$SYS">>|Words]) ->
     match_node(<<"$SYS">>, Words, []);
 
@@ -187,13 +153,8 @@ match_node(NodeId, [W|Words], ResAcc) ->
         end
     end, 'match_#'(NodeId, ResAcc), [W, '+']).
 
-%%------------------------------------------------------------------------------
-%% @doc
 %% @private
-%% Match node with '#'.
-%%
-%% @end
-%%------------------------------------------------------------------------------
+%% @doc Match node with '#'.
 'match_#'(NodeId, ResAcc) ->
     case mnesia:read(trie, #trie_edge{node_id=NodeId, word = '#'}) of
     [#trie{node_id=ChildId}] ->
@@ -202,13 +163,8 @@ match_node(NodeId, [W|Words], ResAcc) ->
         ResAcc
     end.
 
-%%------------------------------------------------------------------------------
-%% @doc
 %% @private
-%% Delete paths from trie tree.
-%%
-%% @end
-%%------------------------------------------------------------------------------
+%% @doc Delete paths from trie tree.
 delete_path([]) ->
     ok;
 delete_path([{NodeId, Word, _} | RestPath]) ->

@@ -1,28 +1,21 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc emqttd cli
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc emqttd cli
+%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_cli).
 
 -include("emqttd.hrl").
@@ -60,14 +53,12 @@ load() ->
 is_cmd(Fun) ->
     not lists:member(Fun, [init, load, module_info]).
 
-%%%=============================================================================
-%%% Commands
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% Commands
+%%--------------------------------------------------------------------
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Node status
-%% @end
-%%------------------------------------------------------------------------------
 status([]) ->
     {InternalStatus, _ProvidedStatus} = init:get_status(),
     ?PRINT("Node ~p is ~p~n", [node(), InternalStatus]),
@@ -80,10 +71,8 @@ status([]) ->
 status(_) ->
      ?PRINT_CMD("status", "query broker status").
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Query broker
-%% @end
-%%------------------------------------------------------------------------------
 broker([]) ->
     Funs = [sysdescr, version, uptime, datetime],
     foreach(fun(Fun) ->
@@ -116,10 +105,8 @@ broker(_) ->
             {"broker stats",   "query broker statistics of clients, topics, subscribers"},
             {"broker metrics", "query broker metrics"}]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Cluster with other node
-%% @end
-%%------------------------------------------------------------------------------
 cluster([]) ->
     Nodes = emqttd_broker:running_nodes(),
     ?PRINT("cluster nodes: ~p~n", [Nodes]);
@@ -165,10 +152,8 @@ stop_apps() ->
 start_apps() ->
     [application:start(App) || App <- [gproc, esockd, emqttd]].
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Query clients
-%% @end
-%%------------------------------------------------------------------------------
 clients(["list"]) ->
     emqttd_mnesia:dump(ets, mqtt_client, fun print/1);
 
@@ -189,10 +174,8 @@ if_client(ClientId, Fun) ->
         Client    -> Fun(Client)
     end.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Sessions Command
-%% @end
-%%------------------------------------------------------------------------------
 sessions(["list"]) ->
     [sessions(["list", Type]) || Type <- ["persistent", "transient"]];
 
@@ -220,10 +203,8 @@ sessions(_) ->
             {"sessions list transient",  "list all transient sessions"},
             {"sessions show <ClientId>", "show a session"}]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Topics Command
-%% @end
-%%------------------------------------------------------------------------------
 topics(["list"]) ->
     Print = fun(Topic, Records) -> print(topic, Topic, Records) end,
     if_could_print(topic, Print);
@@ -316,11 +297,8 @@ plugins(_) ->
             {"plugins load <Plugin>",   "load plugin"},
             {"plugins unload <Plugin>", "unload plugin"}]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Bridges command
-%% @end
-%%------------------------------------------------------------------------------
-
 bridges(["list"]) ->
     foreach(fun({{Node, Topic}, _Pid}) ->
                 ?PRINT("bridge: ~s--~s-->~s~n", [node(), Topic, Node])
@@ -376,10 +354,8 @@ parse_opt(bridge, queue, Len) ->
 parse_opt(_Cmd, Opt, _Val) ->
     ?PRINT("Bad Option: ~s~n", [Opt]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc vm command
-%% @end
-%%------------------------------------------------------------------------------
 vm([]) ->
     vm(["all"]);
 
@@ -410,20 +386,16 @@ vm(_) ->
             {"vm process", "query process of erlang vm"},
             {"vm io",      "queue io of erlang vm"}]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc mnesia Command
-%% @end
-%%------------------------------------------------------------------------------
 mnesia([]) ->
     mnesia:system_info();
 
 mnesia(_) ->
     ?PRINT_CMD("mnesia", "mnesia system info").
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Trace Command
-%% @end
-%%------------------------------------------------------------------------------
 trace(["list"]) ->
     foreach(fun({{Who, Name}, LogFile}) ->
                 ?PRINT("trace ~s ~s -> ~s~n", [Who, Name, LogFile])
@@ -464,10 +436,8 @@ trace_off(Who, Name) ->
             ?PRINT("stop to trace ~s ~s error: ~p.~n", [Who, Name, Error])
     end.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Listeners Command
-%% @end
-%%------------------------------------------------------------------------------
 listeners([]) ->
     foreach(fun({{Protocol, Port}, Pid}) ->
                 Info = [{acceptors,      esockd:get_acceptors(Pid)},
@@ -531,6 +501,5 @@ format(subscriptions, List) ->
 format(_, Val) ->
     Val.
 
-bin(S) when is_list(S)   -> list_to_binary(S);
-bin(B) when is_binary(B) -> B.
+bin(S) -> iolist_to_binary(S).
 

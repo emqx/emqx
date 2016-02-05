@@ -1,28 +1,21 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc MQTT Packet Functions
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc MQTT Packet Functions
+%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_packet).
 
 -include("emqttd.hrl").
@@ -34,26 +27,17 @@
 
 -export([format/1]).
 
-%%------------------------------------------------------------------------------
 %% @doc Protocol name of version
-%% @end
-%%------------------------------------------------------------------------------
 -spec protocol_name(mqtt_vsn()) -> binary(). 
 protocol_name(Ver) when Ver =:= ?MQTT_PROTO_V31; Ver =:= ?MQTT_PROTO_V311->
     proplists:get_value(Ver, ?PROTOCOL_NAMES).
 
-%%------------------------------------------------------------------------------
 %% @doc Name of MQTT packet type
-%% @end
-%%------------------------------------------------------------------------------
 -spec type_name(mqtt_packet_type()) -> atom().
 type_name(Type) when Type > ?RESERVED andalso Type =< ?DISCONNECT ->
     lists:nth(Type, ?TYPE_NAMES).
 
-%%------------------------------------------------------------------------------
 %% @doc Connack Name
-%% @end
-%%------------------------------------------------------------------------------
 -spec connack_name(mqtt_connack()) -> atom().
 connack_name(?CONNACK_ACCEPT)       -> 'CONNACK_ACCEPT';
 connack_name(?CONNACK_PROTO_VER)    -> 'CONNACK_PROTO_VER';
@@ -62,10 +46,7 @@ connack_name(?CONNACK_SERVER)       -> 'CONNACK_SERVER';
 connack_name(?CONNACK_CREDENTIALS)  -> 'CONNACK_CREDENTIALS';
 connack_name(?CONNACK_AUTH)         -> 'CONNACK_AUTH'.
 
-%%------------------------------------------------------------------------------
 %% @doc Format packet
-%% @end
-%%------------------------------------------------------------------------------
 -spec format(mqtt_packet()) -> iolist().
 format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}) ->
     format_header(Header, format_variable(Variable, Payload)).
@@ -115,7 +96,7 @@ format_variable(#mqtt_packet_connack{ack_flags   = AckFlags,
 
 format_variable(#mqtt_packet_publish{topic_name = TopicName,
                                      packet_id  = PacketId}) ->
-    io_lib:format("TopicName=~s, PacketId=~p", [TopicName, PacketId]);
+    io_lib:format("Topic=~s, PacketId=~p", [TopicName, PacketId]);
 
 format_variable(#mqtt_packet_puback{packet_id = PacketId}) ->
     io_lib:format("PacketId=~p", [PacketId]);

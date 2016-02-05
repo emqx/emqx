@@ -1,28 +1,21 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc emqttd broker
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc emqttd broker
+%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_broker).
 
 -behaviour(gen_server).
@@ -67,78 +60,51 @@
     sysdescr      % Broker description
 ]).
 
-%%%=============================================================================
-%%% API
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
-%%------------------------------------------------------------------------------
 %% @doc Start emqttd broker
-%% @end
-%%------------------------------------------------------------------------------
 -spec start_link() -> {ok, pid()} | ignore | {error, any()}.
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-%%------------------------------------------------------------------------------
 %% @doc Get running nodes
-%% @end
-%%------------------------------------------------------------------------------
 -spec running_nodes() -> list(node()).
 running_nodes() ->
     mnesia:system_info(running_db_nodes).
 
-%%------------------------------------------------------------------------------
 %% @doc Subscribe broker event
-%% @end
-%%------------------------------------------------------------------------------
 -spec subscribe(EventType :: any()) -> ok.
 subscribe(EventType) ->
     gproc:reg({p, l, {broker, EventType}}).
     
-%%------------------------------------------------------------------------------
 %% @doc Notify broker event
-%% @end
-%%------------------------------------------------------------------------------
 -spec notify(EventType :: any(), Event :: any()) -> ok.
 notify(EventType, Event) ->
      Key = {broker, EventType},
      gproc:send({p, l, Key}, {self(), Key, Event}).
 
-%%------------------------------------------------------------------------------
 %% @doc Get broker env
-%% @end
-%%------------------------------------------------------------------------------
 env(Name) ->
     proplists:get_value(Name, emqttd:env(broker)).
 
-%%------------------------------------------------------------------------------
 %% @doc Get broker version
-%% @end
-%%------------------------------------------------------------------------------
 -spec version() -> string().
 version() ->
     {ok, Version} = application:get_key(emqttd, vsn), Version.
 
-%%------------------------------------------------------------------------------
 %% @doc Get broker description
-%% @end
-%%------------------------------------------------------------------------------
 -spec sysdescr() -> string().
 sysdescr() ->
     {ok, Descr} = application:get_key(emqttd, description), Descr.
 
-%%------------------------------------------------------------------------------
 %% @doc Get broker uptime
-%% @end
-%%------------------------------------------------------------------------------
 -spec uptime() -> string().
 uptime() ->
     gen_server:call(?SERVER, uptime).
 
-%%------------------------------------------------------------------------------
 %% @doc Get broker datetime
-%% @end
-%%------------------------------------------------------------------------------
 -spec datetime() -> string().
 datetime() ->
     {{Y, M, D}, {H, MM, S}} = calendar:local_time(),
@@ -146,26 +112,17 @@ datetime() ->
         io_lib:format(
             "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S])).
 
-%%------------------------------------------------------------------------------
 %% @doc Hook
-%% @end
-%%------------------------------------------------------------------------------
 -spec hook(Hook :: atom(), Name :: any(), MFA :: mfa()) -> ok | {error, any()}.
 hook(Hook, Name, MFA) ->
     gen_server:call(?SERVER, {hook, Hook, Name, MFA}).
 
-%%------------------------------------------------------------------------------
 %% @doc Unhook
-%% @end
-%%------------------------------------------------------------------------------
 -spec unhook(Hook :: atom(), Name :: any()) -> ok | {error, any()}.
 unhook(Hook, Name) ->
     gen_server:call(?SERVER, {unhook, Hook, Name}).
 
-%%------------------------------------------------------------------------------
 %% @doc Foreach hooks
-%% @end
-%%------------------------------------------------------------------------------
 -spec foreach_hooks(Hook :: atom(), Args :: list()) -> any().
 foreach_hooks(Hook, Args) ->
     case ets:lookup(?BROKER_TAB, {hook, Hook}) of
@@ -177,10 +134,7 @@ foreach_hooks(Hook, Args) ->
             ok
     end.
 
-%%------------------------------------------------------------------------------
 %% @doc Foldl hooks
-%% @end
-%%------------------------------------------------------------------------------
 -spec foldl_hooks(Hook :: atom(), Args :: list(), Acc0 :: any()) -> any().
 foldl_hooks(Hook, Args, Acc0) ->
     case ets:lookup(?BROKER_TAB, {hook, Hook}) of
@@ -192,10 +146,7 @@ foldl_hooks(Hook, Args, Acc0) ->
             Acc0
     end.
 
-%%------------------------------------------------------------------------------
 %% @doc Start a tick timer
-%% @end
-%%------------------------------------------------------------------------------
 start_tick(Msg) ->
     start_tick(timer:seconds(env(sys_interval)), Msg).
 
@@ -204,18 +155,15 @@ start_tick(0, _Msg) ->
 start_tick(Interval, Msg) when Interval > 0 ->
     {ok, TRef} = timer:send_interval(Interval, Msg), TRef.
 
-%%------------------------------------------------------------------------------
 %% @doc Start tick timer
-%% @end
-%%------------------------------------------------------------------------------
 stop_tick(undefined) ->
     ok;
 stop_tick(TRef) ->
     timer:cancel(TRef).
 
-%%%=============================================================================
-%%% gen_server callbacks
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% gen_server callbacks
+%%--------------------------------------------------------------------
 
 init([]) ->
     emqttd:seed_now(),
@@ -284,9 +232,9 @@ terminate(_Reason, #state{heartbeat = Hb, tick_tref = TRef}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%%=============================================================================
-%%% Internal functions
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
 create_topic(Topic) ->
     emqttd_pubsub:create(topic, emqttd_topic:systop(Topic)).

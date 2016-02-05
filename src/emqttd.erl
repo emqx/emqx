@@ -1,38 +1,28 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc emqttd main module.
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
 
+%% @doc emqttd main module.
+%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd).
 
--export([start/0, env/1, env/2,
-         start_listeners/0, stop_listeners/0,
-         load_all_mods/0, is_mod_enabled/1,
-         is_running/1, seed_now/0]).
+-export([start/0, env/1, env/2, start_listeners/0, stop_listeners/0,
+         load_all_mods/0, is_mod_enabled/1, is_running/1]).
 
 %% Utility functions.
--export([reg_name/2]).
+-export([reg_name/2, seed_now/0]).
 
 -define(MQTT_SOCKOPTS, [
         binary,
@@ -45,86 +35,66 @@
 
 -type listener() :: {atom(), inet:port_number(), [esockd:option()]}.
 
-%%------------------------------------------------------------------------------
 %% @doc Start emqttd application.
-%% @end
-%%------------------------------------------------------------------------------
 -spec start() -> ok | {error, any()}.
-start() ->
-    application:start(?APP).
+start() -> application:start(?APP).
 
-%%------------------------------------------------------------------------------
+%% @doc Group environment
+-spec env(Group :: atom()) -> list().
+env(Group) -> application:get_env(?APP, Group, []).
+
 %% @doc Get environment
-%% @end
-%%------------------------------------------------------------------------------
--spec env(atom()) -> list().
-env(Group) ->
-    application:get_env(?APP, Group, []).
+-spec env(Group :: atom(), Name :: atom()) -> undefined | any().
+env(Group, Name) -> proplists:get_value(Name, env(Group)).
 
--spec env(atom(), atom()) -> undefined | any().
-env(Group, Name) ->
-    proplists:get_value(Name, env(Group)).
-
-%%------------------------------------------------------------------------------
-%% @doc Start Listeners
-%% @end
-%%------------------------------------------------------------------------------
+%% @doc Start Listeners of the broker.
 -spec start_listeners() -> any().
-start_listeners() ->
-    {ok, Listeners} = application:get_env(?APP, listeners),
-    lists:foreach(fun start_listener/1, Listeners).
+start_listeners() -> lists:foreach(fun start_listener/1, env(listeners)).
 
 %% Start mqtt listener
 -spec start_listener(listener()) -> any().
-start_listener({mqtt, Port, Options}) ->
-    start_listener(mqtt, Port, Options);
+start_listener({mqtt, Port, Opts}) -> start_listener(mqtt, Port, Opts);
 
 %% Start mqtt(SSL) listener
-start_listener({mqtts, Port, Options}) ->
-    start_listener(mqtts, Port, Options);
+start_listener({mqtts, Port, Opts}) -> start_listener(mqtts, Port, Opts);
 
 %% Start http listener
-start_listener({http, Port, Options}) ->
-    MFArgs = {emqttd_http, handle_request, []},
-    mochiweb:start_http(Port, Options, MFArgs);
+start_listener({http, Port, Opts}) ->
+    mochiweb:start_http(Port, Opts, {emqttd_http, handle_request, []});
 
 %% Start https listener
-start_listener({https, Port, Options}) ->
-    MFArgs = {emqttd_http, handle_request, []},
-    mochiweb:start_http(Port, Options, MFArgs).
+start_listener({https, Port, Opts}) ->
+    mochiweb:start_http(Port, Opts, {emqttd_http, handle_request, []}).
 
-start_listener(Protocol, Port, Options) ->
+start_listener(Protocol, Port, Opts) ->
     MFArgs = {emqttd_client, start_link, [env(mqtt)]},
-    esockd:open(Protocol, Port, merge_sockopts(Options) , MFArgs).
+    esockd:open(Protocol, Port, merge_sockopts(Opts), MFArgs).
 
 merge_sockopts(Options) ->
     SockOpts = emqttd_opts:merge(?MQTT_SOCKOPTS,
                                  proplists:get_value(sockopts, Options, [])),
     emqttd_opts:merge(Options, [{sockopts, SockOpts}]).
 
-%%------------------------------------------------------------------------------
 %% @doc Stop Listeners
-%% @end
-%%------------------------------------------------------------------------------
-stop_listeners() ->
-    {ok, Listeners} = application:get_env(?APP, listeners),
-    lists:foreach(fun stop_listener/1, Listeners).
+stop_listeners() -> lists:foreach(fun stop_listener/1, env(listeners)).
 
-stop_listener({Protocol, Port, _Options}) ->
-    esockd:close({Protocol, Port}).
+stop_listener({Protocol, Port, _Opts}) -> esockd:close({Protocol, Port}).
 
+%% @doc load all modules
 load_all_mods() ->
     lists:foreach(fun load_mod/1, env(modules)).
 
 load_mod({Name, Opts}) ->
     Mod = list_to_atom("emqttd_mod_" ++ atom_to_list(Name)),
     case catch Mod:load(Opts) of
-        {ok, _State}     -> lager:info("load module ~s successfully", [Name]);
-        {'EXIT', Reason} -> lager:error("load module ~s error: ~p", [Name, Reason])
+        ok               -> lager:info("Load module ~s successfully", [Name]);
+        {error, Error}   -> lager:error("Load module ~s error: ~p", [Name, Error]);
+        {'EXIT', Reason} -> lager:error("Load module ~s error: ~p", [Name, Reason])
     end.
 
-is_mod_enabled(Name) ->
-    env(modules, Name) =/= undefined.
+%% @doc Is module enabled?
+-spec is_mod_enabled(Name :: atom()) -> boolean().
+is_mod_enabled(Name) -> env(modules, Name) =/= undefined.
 
 %% @doc Is running?
 -spec is_running(node()) -> boolean().
@@ -141,10 +111,7 @@ reg_name(M, Id) when is_atom(M), is_integer(Id) ->
 
 seed_now() ->
     case erlang:function_exported(erlang, timestamp, 0) of
-        true -> %% R18
-            random:seed(erlang:timestamp());
-        false ->
-            %% compress 'now()' warning...
-            random:seed(os:timestamp())
+        true  -> random:seed(erlang:timestamp()); %% R18
+        false -> random:seed(os:timestamp()) %% compress 'now()' warning...
     end.
 

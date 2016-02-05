@@ -1,28 +1,21 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc MQTT Message Functions
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc MQTT Message Functions
+%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_message).
 
 -include("emqttd.hrl").
@@ -35,10 +28,7 @@
 
 -export([format/1]).
 
-%%------------------------------------------------------------------------------
 %% @doc Make a message
-%% @end
-%%------------------------------------------------------------------------------
 -spec make(From, Topic, Payload) -> mqtt_message() when
     From    :: atom() | binary(),
     Topic   :: binary(),
@@ -62,10 +52,7 @@ make(From, Qos, Topic, Payload) ->
                   payload   = Payload,
                   timestamp = os:timestamp()}.
 
-%%------------------------------------------------------------------------------
 %% @doc Message from Packet
-%% @end
-%%------------------------------------------------------------------------------
 -spec from_packet(mqtt_packet()) -> mqtt_message().
 from_packet(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                                                         retain = Retain,
@@ -106,10 +93,7 @@ msgid(?QOS_0) ->
 msgid(Qos) when Qos =:= ?QOS_1 orelse Qos =:= ?QOS_2 ->
     emqttd_guid:gen().
 
-%%------------------------------------------------------------------------------
 %% @doc Message to packet
-%% @end
-%%------------------------------------------------------------------------------
 -spec to_packet(mqtt_message()) -> mqtt_packet().
 to_packet(#mqtt_message{pktid   = PkgId,
                         qos     = Qos,
@@ -130,10 +114,7 @@ to_packet(#mqtt_message{pktid   = PkgId,
                                                 },
                  payload = Payload}.
 
-%%------------------------------------------------------------------------------
 %% @doc set dup, retain flag
-%% @end
-%%------------------------------------------------------------------------------
 -spec set_flag(mqtt_message()) -> mqtt_message().
 set_flag(Msg) ->
     Msg#mqtt_message{dup = true, retain = true}.
@@ -147,10 +128,7 @@ set_flag(retain, Msg = #mqtt_message{retain = false}) ->
     Msg#mqtt_message{retain = true};
 set_flag(Flag, Msg) when Flag =:= dup orelse Flag =:= retain -> Msg.
 
-%%------------------------------------------------------------------------------
 %% @doc Unset dup, retain flag
-%% @end
-%%------------------------------------------------------------------------------
 -spec unset_flag(mqtt_message()) -> mqtt_message().
 unset_flag(Msg) ->
     Msg#mqtt_message{dup = false, retain = false}.
@@ -162,10 +140,7 @@ unset_flag(retain, Msg = #mqtt_message{retain = true}) ->
     Msg#mqtt_message{retain = false};
 unset_flag(Flag, Msg) when Flag =:= dup orelse Flag =:= retain -> Msg.
 
-%%------------------------------------------------------------------------------
 %% @doc Format MQTT Message
-%% @end
-%%------------------------------------------------------------------------------
 format(#mqtt_message{msgid = MsgId, pktid = PktId, from = From,
                      qos = Qos, retain = Retain, dup = Dup, topic =Topic}) ->
     io_lib:format("Message(Q~p, R~p, D~p, MsgId=~p, PktId=~p, From=~s, Topic=~s)",

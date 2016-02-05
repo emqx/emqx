@@ -1,28 +1,21 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc emqttd plugins.
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc emqttd plugins.
+%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_plugins).
 
 -include("emqttd.hrl").
@@ -33,10 +26,7 @@
 
 -export([list/0]).
 
-%%------------------------------------------------------------------------------
 %% @doc Load all plugins when the broker started.
-%% @end
-%%------------------------------------------------------------------------------
 -spec load() -> list() | {error, any()}.
 load() ->
     case env(loaded_file) of
@@ -65,10 +55,7 @@ load_plugins(Names, Persistent) ->
     NeedToLoad = Names -- NotFound -- names(started_app),
     [load_plugin(find_plugin(Name, Plugins), Persistent) || Name <- NeedToLoad].
 
-%%------------------------------------------------------------------------------
 %% @doc Unload all plugins before broker stopped.
-%% @end
-%%------------------------------------------------------------------------------
 -spec unload() -> list() | {error, any()}.
 unload() ->
     case env(loaded_file) of
@@ -82,10 +69,7 @@ unload() ->
 stop_plugins(Names) ->
     [stop_app(App) || App <- Names].
 
-%%------------------------------------------------------------------------------
 %% @doc List all available plugins
-%% @end
-%%------------------------------------------------------------------------------
 -spec list() -> [mqtt_plugin()].
 list() ->
     case env(plugins_dir) of
@@ -119,10 +103,7 @@ plugin(PluginsDir, AppFile0) ->
     Descr = proplists:get_value(description, Attrs, ""),
     #mqtt_plugin{name = Name, version = Ver, config = AppsEnv1, descr = Descr}.
 
-%%------------------------------------------------------------------------------
 %% @doc Load One Plugin
-%% @end
-%%------------------------------------------------------------------------------
 -spec load(atom()) -> ok | {error, any()}.
 load(PluginName) when is_atom(PluginName) ->
     case lists:member(PluginName, names(started_app)) of
@@ -182,10 +163,7 @@ find_plugin(Name) ->
 find_plugin(Name, Plugins) ->
     lists:keyfind(Name, 2, Plugins). 
 
-%%------------------------------------------------------------------------------
 %% @doc UnLoad One Plugin
-%% @end
-%%------------------------------------------------------------------------------
 -spec unload(atom()) -> ok | {error, any()}.
 unload(PluginName) when is_atom(PluginName) ->
     case {lists:member(PluginName, names(started_app)), lists:member(PluginName, names(plugin))} of
@@ -217,9 +195,9 @@ stop_app(App) ->
             lager:error("stop plugin ~p error: ~p", [App]), {error, Reason}
     end.
 
-%%%=============================================================================
-%%% Internal functions
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
 names(plugin) ->
     names(list());

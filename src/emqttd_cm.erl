@@ -1,28 +1,21 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc MQTT Client Manager
-%%%  
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc MQTT Client Manager
+%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_cm).
 
 -include("emqttd.hrl").
@@ -47,14 +40,11 @@
 
 -define(POOL, ?MODULE).
 
-%%%=============================================================================
-%%% API
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
-%%------------------------------------------------------------------------------
 %% @doc Start Client Manager
-%% @end
-%%------------------------------------------------------------------------------
 -spec start_link(Pool, Id, StatsFun) -> {ok, pid()} | ignore | {error, any()} when
         Pool :: atom(),
         Id   :: pos_integer(),
@@ -62,10 +52,7 @@
 start_link(Pool, Id, StatsFun) ->
     gen_server2:start_link(?MODULE, [Pool, Id, StatsFun], []).
 
-%%------------------------------------------------------------------------------
 %% @doc Lookup Client by ClientId
-%% @end
-%%------------------------------------------------------------------------------
 -spec lookup(ClientId :: binary()) -> mqtt_client() | undefined.
 lookup(ClientId) when is_binary(ClientId) ->
     case ets:lookup(mqtt_client, ClientId) of
@@ -73,10 +60,7 @@ lookup(ClientId) when is_binary(ClientId) ->
         [] -> undefined
     end.
 
-%%------------------------------------------------------------------------------
 %% @doc Lookup client pid by clientId
-%% @end
-%%------------------------------------------------------------------------------
 -spec lookup_proc(ClientId :: binary()) -> pid() | undefined.
 lookup_proc(ClientId) when is_binary(ClientId) ->
     try ets:lookup_element(mqtt_client, ClientId, #mqtt_client.client_pid)
@@ -84,27 +68,21 @@ lookup_proc(ClientId) when is_binary(ClientId) ->
         error:badarg -> undefined
     end.
 
-%%------------------------------------------------------------------------------
 %% @doc Register ClientId with Pid.
-%% @end
-%%------------------------------------------------------------------------------
 -spec register(Client :: mqtt_client()) -> ok.
 register(Client = #mqtt_client{client_id = ClientId}) ->
     CmPid = gproc_pool:pick_worker(?POOL, ClientId),
     gen_server2:cast(CmPid, {register, Client}).
 
-%%------------------------------------------------------------------------------
 %% @doc Unregister clientId with pid.
-%% @end
-%%------------------------------------------------------------------------------
 -spec unregister(ClientId :: binary()) -> ok.
 unregister(ClientId) when is_binary(ClientId) ->
     CmPid = gproc_pool:pick_worker(?POOL, ClientId),
     gen_server2:cast(CmPid, {unregister, ClientId, self()}).
 
-%%%=============================================================================
-%%% gen_server callbacks
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% gen_server callbacks
+%%--------------------------------------------------------------------
 
 init([Pool, Id, StatsFun]) ->
     ?GPROC_POOL(join, Pool, Id),
@@ -174,9 +152,9 @@ terminate(_Reason, #state{pool = Pool, id = Id}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%%=============================================================================
-%%% Internal functions
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
 monitor_client(ClientId, Pid, State = #state{monitors = Monitors}) ->
     MRef = erlang:monitor(process, Pid),

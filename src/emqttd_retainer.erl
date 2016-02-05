@@ -1,32 +1,22 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc MQTT retained message storage.
-%%%
-%%% TODO: should match topic tree
-%%%
-%%% @end
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% TODO: should match topic tree
+%% @doc MQTT retained message storage.
+%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_retainer).
 
 -behaviour(gen_server).
@@ -57,9 +47,9 @@
 
 -record(state, {stats_fun, expired_after, stats_timer, expire_timer}).
 
-%%%=============================================================================
-%%% Mnesia callbacks
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% Mnesia callbacks
+%%--------------------------------------------------------------------
 
 mnesia(boot) ->
     ok = emqttd_mnesia:create_table(retained, [
@@ -70,22 +60,16 @@ mnesia(boot) ->
 mnesia(copy) ->
     ok = emqttd_mnesia:copy_table(retained).
 
-%%%=============================================================================
-%%% API
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
-%%------------------------------------------------------------------------------
 %% @doc Start a retained server
-%% @end
-%%------------------------------------------------------------------------------
 -spec start_link() -> {ok, pid()} | ignore | {error, any()}.
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-%%%-----------------------------------------------------------------------------
 %% @doc Retain message
-%% @end
-%%%-----------------------------------------------------------------------------
 -spec retain(mqtt_message()) -> ok | ignore.
 retain(#mqtt_message{retain = false}) -> ignore;
 
@@ -121,10 +105,7 @@ env(Key) ->
             Val
     end.
 
-%%%-----------------------------------------------------------------------------
 %% @doc Deliver retained messages to subscribed client
-%% @end
-%%%-----------------------------------------------------------------------------
 -spec dispatch(Topic, CPid) -> any() when
         Topic  :: binary(),
         CPid   :: pid().
@@ -144,9 +125,9 @@ dispatch(Topic, CPid) when is_binary(Topic) ->
     end,
     lists:foreach(fun(Msg) -> CPid ! {dispatch, Topic, Msg} end, lists:reverse(Msgs)).
 
-%%%=============================================================================
-%%% gen_server callbacks
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% gen_server callbacks
+%%--------------------------------------------------------------------
 
 init([]) ->
     StatsFun = emqttd_stats:statsfun('retained/count', 'retained/max'),
@@ -187,9 +168,9 @@ terminate(_Reason, _State = #state{stats_timer = TRef1, expire_timer = TRef2}) -
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%%=============================================================================
-%%% Internal functions
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
 expire(Time) ->
     mnesia:async_dirty(

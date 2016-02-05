@@ -1,28 +1,21 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc emqttd control
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc emqttd control
+%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_ctl).
 
 -behaviour(gen_server).
@@ -47,36 +40,26 @@
 
 -define(CMD_TAB, mqttd_ctl_cmd).
 
-%%%=============================================================================
-%%% API
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-%%------------------------------------------------------------------------------
 %% @doc Register a command
-%% @end
-%%------------------------------------------------------------------------------
 -spec register_cmd(atom(), {module(), atom()}, list()) -> ok.
 register_cmd(Cmd, MF, Opts) ->
     cast({register_cmd, Cmd, MF, Opts}).
 
-%%------------------------------------------------------------------------------
 %% @doc Unregister a command
-%% @end
-%%------------------------------------------------------------------------------
 -spec unregister_cmd(atom()) -> ok.
 unregister_cmd(Cmd) ->
     cast({unregister_cmd, Cmd}).
 
-cast(Msg) ->
-    gen_server:cast(?SERVER, Msg).
+cast(Msg) -> gen_server:cast(?SERVER, Msg).
 
-%%------------------------------------------------------------------------------
 %% @doc Run a command
-%% @end
-%%------------------------------------------------------------------------------
 run([]) -> usage();
 
 run(["help"]) -> usage();
@@ -88,18 +71,15 @@ run([CmdS|Args]) ->
         [] -> usage() 
     end.
     
-%%------------------------------------------------------------------------------
 %% @doc Usage
-%% @end
-%%------------------------------------------------------------------------------
 usage() ->
     ?PRINT("Usage: ~s~n", [?MODULE]),
     [begin ?PRINT("~80..-s~n", [""]), Mod:Cmd(usage) end
         || {_, {Mod, Cmd}, _} <- ets:tab2list(?CMD_TAB)].
 
-%%%=============================================================================
-%%% gen_server callbacks
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% gen_server callbacks
+%%--------------------------------------------------------------------
 
 init([]) ->
     ets:new(?CMD_TAB, [ordered_set, named_table, protected]),
@@ -134,14 +114,13 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%%=============================================================================
-%%% Internal Function Definitions
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% Internal Function Definitions
+%%--------------------------------------------------------------------
 
 noreply(State) ->
     {noreply, State, hibernate}.
 
 next_seq(State = #state{seq = Seq}) ->
     State#state{seq = Seq + 1}.
-
 

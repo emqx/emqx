@@ -1,28 +1,21 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc emqttd metrics. responsible for collecting broker metrics
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc emqttd metrics. responsible for collecting broker metrics
+%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_metrics).
 
 -behaviour(gen_server).
@@ -97,22 +90,16 @@
     {counter, 'messages/dropped'}        % Messages dropped
 ]).
 
-%%%=============================================================================
-%%% API
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
-%%------------------------------------------------------------------------------
 %% @doc Start metrics server
-%% @end
-%%------------------------------------------------------------------------------
 -spec start_link() -> {ok, pid()} | ignore | {error, any()}.
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-%%------------------------------------------------------------------------------
 %% @doc Count packets received.
-%% @end
-%%------------------------------------------------------------------------------
 -spec received(mqtt_packet()) -> ok.
 received(Packet) ->
     inc('packets/received'),
@@ -150,10 +137,7 @@ qos_received(?QOS_1) ->
 qos_received(?QOS_2) ->
     inc('messages/qos2/received').
 
-%%------------------------------------------------------------------------------
 %% @doc Count packets received. Will not count $SYS PUBLISH.
-%% @end
-%%------------------------------------------------------------------------------
 -spec sent(mqtt_packet()) -> ok.
 sent(?PUBLISH_PACKET(_Qos, <<"$SYS/", _/binary>>, _, _)) ->
     ignore;
@@ -191,10 +175,7 @@ qos_sent(?QOS_1) ->
 qos_sent(?QOS_2) ->
     inc('messages/qos2/sent').
 
-%%------------------------------------------------------------------------------
 %% @doc Get all metrics
-%% @end
-%%------------------------------------------------------------------------------
 -spec all() -> [{atom(), non_neg_integer()}].
 all() ->
     maps:to_list(
@@ -206,26 +187,17 @@ all() ->
                     end
             end, #{}, ?METRIC_TAB)).
 
-%%------------------------------------------------------------------------------
 %% @doc Get metric value
-%% @end
-%%------------------------------------------------------------------------------
 -spec value(atom()) -> non_neg_integer().
 value(Metric) ->
     lists:sum(ets:select(?METRIC_TAB, [{{{Metric, '_'}, '$1'}, [], ['$1']}])).
 
-%%------------------------------------------------------------------------------
 %% @doc Increase counter
-%% @end
-%%------------------------------------------------------------------------------
 -spec inc(atom()) -> non_neg_integer().
 inc(Metric) ->
     inc(counter, Metric, 1).
 
-%%------------------------------------------------------------------------------
 %% @doc Increase metric value
-%% @end
-%%------------------------------------------------------------------------------
 -spec inc({counter | gauge, atom()} | atom(), pos_integer()) -> non_neg_integer().
 inc({gauge, Metric}, Val) ->
     inc(gauge, Metric, Val);
@@ -234,53 +206,38 @@ inc({counter, Metric}, Val) ->
 inc(Metric, Val) when is_atom(Metric) ->
     inc(counter, Metric, Val).
 
-%%------------------------------------------------------------------------------
 %% @doc Increase metric value
-%% @end
-%%------------------------------------------------------------------------------
 -spec inc(counter | gauge, atom(), pos_integer()) -> pos_integer().
 inc(gauge, Metric, Val) ->
     ets:update_counter(?METRIC_TAB, key(gauge, Metric), {2, Val});
 inc(counter, Metric, Val) ->
     ets:update_counter(?METRIC_TAB, key(counter, Metric), {2, Val}).
 
-%%------------------------------------------------------------------------------
 %% @doc Decrease metric value
-%% @end
-%%------------------------------------------------------------------------------
 -spec dec(gauge, atom()) -> integer().
 dec(gauge, Metric) ->
     dec(gauge, Metric, 1).
 
-%%------------------------------------------------------------------------------
 %% @doc Decrease metric value
-%% @end
-%%------------------------------------------------------------------------------
 -spec dec(gauge, atom(), pos_integer()) -> integer().
 dec(gauge, Metric, Val) ->
     ets:update_counter(?METRIC_TAB, key(gauge, Metric), {2, -Val}).
 
-%%------------------------------------------------------------------------------
 %% @doc Set metric value
-%% @end
-%%------------------------------------------------------------------------------
 set(Metric, Val) when is_atom(Metric) ->
     set(gauge, Metric, Val).
 set(gauge, Metric, Val) ->
     ets:insert(?METRIC_TAB, {key(gauge, Metric), Val}).
 
-%%------------------------------------------------------------------------------
 %% @doc Metric Key
-%% @end
-%%------------------------------------------------------------------------------
 key(gauge, Metric) ->
     {Metric, 0};
 key(counter, Metric) ->
     {Metric, erlang:system_info(scheduler_id)}.
 
-%%%=============================================================================
-%%% gen_server callbacks
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% gen_server callbacks
+%%--------------------------------------------------------------------
 
 init([]) ->
     emqttd:seed_now(),
@@ -314,9 +271,9 @@ terminate(_Reason, #state{tick_tref = TRef}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%%=============================================================================
-%%% Internal functions
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
 publish(Metric, Val) ->
     Payload = emqttd_util:integer_to_binary(Val),

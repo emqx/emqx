@@ -1,49 +1,43 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc Session for persistent MQTT client.
-%%%
-%%% Session State in the broker consists of:
-%%%
-%%% 1. The Client’s subscriptions.
-%%%
-%%% 2. inflight qos1/2 messages sent to the client but unacked, QoS 1 and QoS 2
-%%%    messages which have been sent to the Client, but have not been completely
-%%%    acknowledged.
-%%%
-%%% 3. inflight qos2 messages received from client and waiting for pubrel. QoS 2
-%%%    messages which have been received from the Client, but have not been
-%%%    completely acknowledged.
-%%%
-%%% 4. all qos1, qos2 messages published to when client is disconnected.
-%%%    QoS 1 and QoS 2 messages pending transmission to the Client.
-%%%
-%%% 5. Optionally, QoS 0 messages pending transmission to the Client.
-%%%
-%%% State of Message:  newcome, inflight, pending
-%%%
-%%% @end
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc Session for persistent MQTT client.
+%%
+%% Session State in the broker consists of:
+%%
+%% 1. The Client’s subscriptions.
+%%
+%% 2. inflight qos1/2 messages sent to the client but unacked, QoS 1 and QoS 2
+%%    messages which have been sent to the Client, but have not been completely
+%%    acknowledged.
+%%
+%% 3. inflight qos2 messages received from client and waiting for pubrel. QoS 2
+%%    messages which have been received from the Client, but have not been
+%%    completely acknowledged.
+%%
+%% 4. all qos1, qos2 messages published to when client is disconnected.
+%%    QoS 1 and QoS 2 messages pending transmission to the Client.
+%%
+%% 5. Optionally, QoS 0 messages pending transmission to the Client.
+%%
+%% State of Message:  newcome, inflight, pending
+%%
+%% @end
+%%
+%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_session).
 
 -include("emqttd.hrl").
@@ -140,41 +134,26 @@
             lager:Level([{client, State#session.client_id}],
                         "Session(~s): " ++ Format, [State#session.client_id | Args])).
 
-%%------------------------------------------------------------------------------
 %% @doc Start a session.
-%% @end
-%%------------------------------------------------------------------------------
 -spec start_link(boolean(), mqtt_client_id(), pid()) -> {ok, pid()} | {error, any()}.
 start_link(CleanSess, ClientId, ClientPid) ->
     gen_server2:start_link(?MODULE, [CleanSess, ClientId, ClientPid], []).
 
-%%------------------------------------------------------------------------------
 %% @doc Resume a session.
-%% @end
-%%------------------------------------------------------------------------------
 -spec resume(pid(), mqtt_client_id(), pid()) -> ok.
 resume(SessPid, ClientId, ClientPid) ->
     gen_server2:cast(SessPid, {resume, ClientId, ClientPid}).
 
-%%------------------------------------------------------------------------------
 %% @doc Session Info.
-%% @end
-%%------------------------------------------------------------------------------
 info(SessPid) ->
     gen_server2:call(SessPid, info).
 
-%%------------------------------------------------------------------------------
 %% @doc Destroy a session.
-%% @end
-%%------------------------------------------------------------------------------
 -spec destroy(pid(), mqtt_client_id()) -> ok.
 destroy(SessPid, ClientId) ->
     gen_server2:cast(SessPid, {destroy, ClientId}).
 
-%%------------------------------------------------------------------------------
 %% @doc Subscribe Topics
-%% @end
-%%------------------------------------------------------------------------------
 -spec subscribe(pid(), [{binary(), mqtt_qos()}]) -> ok.
 subscribe(SessPid, TopicTable) ->
     gen_server2:cast(SessPid, {subscribe, TopicTable, fun(_) -> ok end}).
@@ -187,10 +166,7 @@ subscribe(SessPid, PacketId, TopicTable) ->
              end,
     gen_server2:cast(SessPid, {subscribe, TopicTable, AckFun}).
 
-%%------------------------------------------------------------------------------
 %% @doc Publish message
-%% @end
-%%------------------------------------------------------------------------------
 -spec publish(pid(), mqtt_message()) -> ok | {error, any()}.
 publish(_SessPid, Msg = #mqtt_message{qos = ?QOS_0}) ->
     %% publish qos0 directly
@@ -204,10 +180,7 @@ publish(SessPid, Msg = #mqtt_message{qos = ?QOS_2}) ->
     %% publish qos2 by session 
     gen_server2:call(SessPid, {publish, Msg}, ?PUBSUB_TIMEOUT).
 
-%%------------------------------------------------------------------------------
 %% @doc PubAck message
-%% @end
-%%------------------------------------------------------------------------------
 -spec puback(pid(), mqtt_packet_id()) -> ok.
 puback(SessPid, PktId) ->
     gen_server2:cast(SessPid, {puback, PktId}).
@@ -224,17 +197,14 @@ pubrel(SessPid, PktId) ->
 pubcomp(SessPid, PktId) ->
     gen_server2:cast(SessPid, {pubcomp, PktId}).
 
-%%------------------------------------------------------------------------------
 %% @doc Unsubscribe Topics
-%% @end
-%%------------------------------------------------------------------------------
 -spec unsubscribe(pid(), [binary()]) -> ok.
 unsubscribe(SessPid, Topics) ->
     gen_server2:cast(SessPid, {unsubscribe, Topics}).
 
-%%%=============================================================================
-%%% gen_server callbacks
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% gen_server callbacks
+%%--------------------------------------------------------------------
 
 init([CleanSess, ClientId, ClientPid]) ->
     process_flag(trap_exit, true),
@@ -564,13 +534,9 @@ terminate(_Reason, #session{clean_sess = CleanSess, client_id = ClientId}) ->
 code_change(_OldVsn, Session, _Extra) ->
     {ok, Session}.
 
-%%%=============================================================================
-%%% Internal functions
-%%%=============================================================================
-
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Kick old client out
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 kick(_ClientId, undefined, _Pid) ->
     ignore;
 kick(_ClientId, Pid, Pid) ->
@@ -581,9 +547,9 @@ kick(ClientId, OldPid, Pid) ->
     %% Clean noproc
     receive {'EXIT', OldPid, _} -> ok after 0 -> ok end.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Dispatch Messages
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 %% Queue message if client disconnected
 dispatch(Msg, Session = #session{client_pid = undefined, message_queue = Q}) ->
@@ -613,9 +579,9 @@ tune_qos(Topic, Msg = #mqtt_message{qos = PubQos}, Subscriptions) ->
             Msg
     end.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Check inflight and awaiting_rel
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 check_inflight(#session{max_inflight = 0}) ->
      true;
@@ -628,9 +594,9 @@ check_awaiting_rel(#session{awaiting_rel     = AwaitingRel,
                             max_awaiting_rel = MaxLen}) ->
     maps:size(AwaitingRel) < MaxLen.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Dequeue and Deliver
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 dequeue(Session = #session{client_pid = undefined}) ->
     %% do nothing if client is disconnected
@@ -670,7 +636,7 @@ redeliver(Msg = #mqtt_message{qos = QoS}, Session = #session{client_pid = Client
     ClientPid ! {deliver, Msg#mqtt_message{dup = true}},
     await(Msg, Session).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Awaiting ack for qos1, qos2 message
 %%------------------------------------------------------------------------------
 await(#mqtt_message{pktid = PktId}, Session = #session{awaiting_ack   = Awaiting,

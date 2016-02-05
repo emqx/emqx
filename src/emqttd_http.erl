@@ -1,28 +1,21 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc emqttd http publish API and websocket client.
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc emqttd http publish API and websocket client.
+%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_http).
 
 -include("emqttd.hrl").
@@ -47,9 +40,10 @@ handle_request('GET', "/status", Req) ->
                             [node(), InternalStatus, AppStatus]),
     Req:ok({"text/plain", iolist_to_binary(Status)});
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% HTTP Publish API
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+
 handle_request('POST', "/mqtt/publish", Req) ->
     Params = mochiweb_request:parse_post(Req),
     lager:info("HTTP Publish: ~p", [Params]),
@@ -74,9 +68,9 @@ handle_request('POST', "/mqtt/publish", Req) ->
         Req:respond({401, [], <<"Fobbiden">>})
     end;
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% MQTT Over WebSocket
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 handle_request('GET', "/mqtt", Req) ->
     lager:info("WebSocket Connection from: ~s", [Req:get(peer)]),
     Upgrade = Req:get_header_value("Upgrade"),
@@ -92,9 +86,10 @@ handle_request('GET', "/mqtt", Req) ->
             Req:respond({400, [], <<"Bad WebSocket Protocol">>})
     end;
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Get static files
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+
 handle_request('GET', "/" ++ File, Req) ->
     lager:info("HTTP GET File: ~s", [File]),
     mochiweb_request:serve_file(File, docroot(), Req);
@@ -103,9 +98,9 @@ handle_request(Method, Path, Req) ->
     lager:error("Unexpected HTTP Request: ~s ~s", [Method, Path]),
     Req:not_found().
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% basic authorization
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 authorized(Req) ->
     case Req:get_header_value("Authorization") of
     undefined ->

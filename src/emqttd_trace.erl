@@ -1,28 +1,21 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc Trace MQTT packets/messages by ClientID or Topic.
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc Trace MQTT packets/messages by ClientID or Topic.
+%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_trace).
 
 -behaviour(gen_server).
@@ -44,17 +37,15 @@
 
 -define(TRACE_OPTIONS, [{formatter_config, [time, " [",severity,"] ", message, "\n"]}]).
 
-%%%=============================================================================
-%%% API
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
+
 -spec start_link() -> {ok, pid()}.
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-%%------------------------------------------------------------------------------
 %% @doc Start to trace client or topic.
-%% @end
-%%------------------------------------------------------------------------------
 -spec start_trace(trace_who(), string()) -> ok | {error, any()}.
 start_trace({client, ClientId}, LogFile) ->
     start_trace({start_trace, {client, ClientId}, LogFile});
@@ -62,26 +53,22 @@ start_trace({client, ClientId}, LogFile) ->
 start_trace({topic, Topic}, LogFile) ->
     start_trace({start_trace, {topic, Topic}, LogFile}).
 
-start_trace(Req) ->
-    gen_server:call(?MODULE, Req, infinity).
+start_trace(Req) -> gen_server:call(?MODULE, Req, infinity).
 
-%%------------------------------------------------------------------------------
 %% @doc Stop tracing client or topic.
-%% @end
-%%------------------------------------------------------------------------------
 -spec stop_trace(trace_who()) -> ok | {error, any()}.
 stop_trace({client, ClientId}) ->
     gen_server:call(?MODULE, {stop_trace, {client, ClientId}});
 stop_trace({topic, Topic}) ->
     gen_server:call(?MODULE, {stop_trace, {topic, Topic}}).
 
-%%------------------------------------------------------------------------------
 %% @doc Lookup all traces.
-%% @end
-%%------------------------------------------------------------------------------
 -spec all_traces() -> [{Who :: trace_who(), LogFile :: string()}].
-all_traces() ->
-    gen_server:call(?MODULE, all_traces).
+all_traces() -> gen_server:call(?MODULE, all_traces).
+
+%%--------------------------------------------------------------------
+%% gen_server callbacks
+%%--------------------------------------------------------------------
 
 init([]) ->
     {ok, #state{level = info, traces = #{}}}.

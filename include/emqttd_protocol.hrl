@@ -1,33 +1,24 @@
-%%%-----------------------------------------------------------------------------
-%%% @Copyright (C) 2012-2016, Feng Lee <feng@emqtt.io>
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc
-%%% MQTT Protocol Header.
-%%%
-%%% @end
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
 
-%%------------------------------------------------------------------------------
+%% @doc MQTT Protocol Header.
+
+%%--------------------------------------------------------------------
 %% MQTT Protocol Version and Levels
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 -define(MQTT_PROTO_V31,  3).
 -define(MQTT_PROTO_V311, 4).
 
@@ -37,9 +28,9 @@
 
 -type mqtt_vsn() :: ?MQTT_PROTO_V31 | ?MQTT_PROTO_V311.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% MQTT QoS
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 -define(QOS_0, 0). %% At most once
 -define(QOS_1, 1). %% At least once
 -define(QOS_2, 2). %% Exactly once
@@ -72,14 +63,14 @@
     end).
 
 
-%%------------------------------------------------------------------------------
-%% Max ClientId Length. Why 1024? NiDongDe!
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Max ClientId Length. Why 1024? NiDongDe...
+%%--------------------------------------------------------------------
 -define(MAX_CLIENTID_LEN, 1024).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% MQTT Control Packet Types
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 -define(RESERVED,     0).   %% Reserved
 -define(CONNECT,      1).   %% Client request to connect to Server
 -define(CONNACK,      2).   %% Server to Client: Connect acknowledgment
@@ -114,9 +105,9 @@
 
 -type mqtt_packet_type() :: ?RESERVED..?DISCONNECT.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% MQTT Connect Return Codes
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 -define(CONNACK_ACCEPT,      0).    %% Connection accepted
 -define(CONNACK_PROTO_VER,   1).    %% Unacceptable protocol version
 -define(CONNACK_INVALID_ID,  2).    %% Client Identifier is correct UTF-8 but not allowed by the Server
@@ -126,25 +117,25 @@
 
 -type mqtt_connack() :: ?CONNACK_ACCEPT..?CONNACK_AUTH.
 
-%%------------------------------------------------------------------------------
-%% MQTT Parser and Serialiser
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% MQTT Parser and Serializer
+%%--------------------------------------------------------------------
 -define(MAX_LEN, 16#fffffff).
 -define(HIGHBIT, 2#10000000).
 -define(LOWBITS, 2#01111111).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% MQTT Packet Fixed Header
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 -record(mqtt_packet_header, {
     type   = ?RESERVED  :: mqtt_packet_type(),
     dup    = false      :: boolean(),
     qos    = ?QOS_0     :: mqtt_qos(),
     retain = false      :: boolean()}).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% MQTT Packets
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 -type mqtt_client_id()  :: binary().
 -type mqtt_packet_id() :: 1..16#ffff | undefined.
 
@@ -188,9 +179,9 @@
 -record(mqtt_packet_unsuback, {
     packet_id   :: mqtt_packet_id() }).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% MQTT Control Packet
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 -record(mqtt_packet, {
     header    :: #mqtt_packet_header{},
     variable  :: #mqtt_packet_connect{} | #mqtt_packet_connack{}
@@ -202,9 +193,9 @@
 
 -type mqtt_packet() :: #mqtt_packet{}.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% MQTT Packet Match
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 -define(CONNECT_PACKET(Var),
     #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT}, variable = Var}).
 

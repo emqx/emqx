@@ -1,28 +1,22 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc emqttd mnesia
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% TODO: refactor this module
+%% @doc emqttd mnesia
+%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_mnesia).
 
 -include("emqttd.hrl").
@@ -46,13 +40,8 @@ start() ->
     init_tables(),
     wait_for_tables().
 
-%%------------------------------------------------------------------------------
-%% @doc
 %% @private
-%% init mnesia schema.
-%%
-%% @end
-%%------------------------------------------------------------------------------
+%% @doc Init mnesia schema.
 init_schema() ->
     case mnesia:system_info(extra_db_nodes) of
         [] ->
@@ -62,13 +51,8 @@ init_schema() ->
             ok
     end.
 
-%%------------------------------------------------------------------------------
-%% @doc
 %% @private
-%% init mnesia tables.
-%%
-%% @end
-%%------------------------------------------------------------------------------
+%% @doc Init mnesia tables.
 init_tables() ->
     case mnesia:system_info(extra_db_nodes) of
         [] ->
@@ -77,13 +61,8 @@ init_tables() ->
             copy_tables()
     end.
 
-%%------------------------------------------------------------------------------
-%% @doc
 %% @private
-%% create tables.
-%%
-%% @end
-%%------------------------------------------------------------------------------
+%% @doc create tables.
 create_tables() ->
     emqttd_util:apply_module_attributes(boot_mnesia).
 
@@ -95,13 +74,8 @@ create_table(Table, Attrs) ->
         Error -> Error
     end.
 
-%%------------------------------------------------------------------------------
-%% @doc
 %% @private
-%% copy tables.
-%%
-%% @end
-%%------------------------------------------------------------------------------
+%% @doc copy tables.
 copy_tables() ->
     emqttd_util:apply_module_attributes(copy_mnesia).
 
@@ -113,24 +87,15 @@ copy_table(Table) ->
         {aborted, Error} -> Error
     end.
 
-%%------------------------------------------------------------------------------
-%% @doc
 %% @private
-%% wait for tables.
-%%
-%% @end
-%%------------------------------------------------------------------------------
-wait_for_tables() -> 
+%% @doc wait for tables.
+wait_for_tables() ->
     %% io:format("mnesia wait_for_tables: ~p~n", [mnesia:system_info(local_tables)]),
     mnesia:wait_for_tables(mnesia:system_info(local_tables), infinity).
 
-%%------------------------------------------------------------------------------
-%% @doc
+%% TODO: should move to cluster.
 %% @private
-%% Simple cluster with another nodes.
-%%
-%% @end
-%%------------------------------------------------------------------------------
+%% @doc Simple cluster with another nodes.
 cluster(Node) ->
     %% stop mnesia 
     mnesia:stop(),

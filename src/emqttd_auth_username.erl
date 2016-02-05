@@ -1,29 +1,23 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>. All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc Authentication with username and password
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc Authentication with username and password
 -module(emqttd_auth_username).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -44,63 +38,54 @@
 
 -record(?AUTH_USERNAME_TAB, {username, password}).
 
-%%%=============================================================================
-%%% CLI
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% CLI
+%%--------------------------------------------------------------------
 
 cli(["add", Username, Password]) ->
-    ?PRINT("~p~n", [add_user(list_to_binary(Username), list_to_binary(Password))]);
+    ?PRINT("~p~n", [add_user(iolist_to_binary(Username), iolist_to_binary(Password))]);
 
 cli(["del", Username]) ->
-    ?PRINT("~p~n", [remove_user(list_to_binary(Username))]);
+    ?PRINT("~p~n", [remove_user(iolist_to_binary(Username))]);
 
 cli(_) ->
-    ?USAGE([{"users add <Username> <Password>", "add user"},
-            {"users del <Username>", "delete user"}]).
+    ?USAGE([{"users add <Username> <Password>", "Add User"},
+            {"users del <Username>", "Delete User"}]).
 
-%%%=============================================================================
-%%% API 
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
-%%------------------------------------------------------------------------------
-%% @doc Add user
-%% @end
-%%------------------------------------------------------------------------------
--spec add_user(binary(), binary()) -> {atomic, ok} | {aborted, any()}.
+%% @doc Add User
+-spec add_user(binary(), binary()) -> ok | {error, any()}.
 add_user(Username, Password) ->
     User = #?AUTH_USERNAME_TAB{username = Username, password = hash(Password)},
-    mnesia:transaction(fun mnesia:write/1, [User]).
+    ret(mnesia:transaction(fun mnesia:write/1, [User])).
 
 add_default_user(Username, Password) ->
-    add_user(bin(Username), bin(Password)).
+    add_user(iolist_to_binary(Username), iolist_to_binary(Password)).
 
-%%------------------------------------------------------------------------------
 %% @doc Lookup user by username
-%% @end
-%%------------------------------------------------------------------------------
 -spec lookup_user(binary()) -> list().
 lookup_user(Username) ->
     mnesia:dirty_read(?AUTH_USERNAME_TAB, Username).
 
-%%------------------------------------------------------------------------------
 %% @doc Remove user
-%% @end
-%%------------------------------------------------------------------------------
--spec remove_user(binary()) -> {atomic, ok} | {aborted, any()}.
+-spec remove_user(binary()) -> ok | {error, any()}.
 remove_user(Username) ->
-    mnesia:transaction(fun mnesia:delete/1, [{?AUTH_USERNAME_TAB, Username}]).
+    ret(mnesia:transaction(fun mnesia:delete/1, [{?AUTH_USERNAME_TAB, Username}])).
 
-%%------------------------------------------------------------------------------
+ret({atomic, ok})     -> ok;
+ret({aborted, Error}) -> {error, Error}.
+
 %% @doc All usernames
-%% @end
-%%------------------------------------------------------------------------------
 -spec all_users() -> list().
-all_users() ->
-    mnesia:dirty_all_keys(?AUTH_USERNAME_TAB).
+all_users() -> mnesia:dirty_all_keys(?AUTH_USERNAME_TAB).
 
-%%%=============================================================================
-%%% emqttd_auth callbacks
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% emqttd_auth_mod callbacks
+%%--------------------------------------------------------------------
+
 init(DefautUsers) ->
     mnesia:create_table(?AUTH_USERNAME_TAB, [
             {disc_copies, [node()]},
@@ -113,40 +98,33 @@ init(DefautUsers) ->
     {ok, []}.
 
 check(#mqtt_client{username = undefined}, _Password, _Opts) ->
-    {error, "Username undefined"};
+    {error, username_undefined};
 check(_User, undefined, _Opts) ->
-    {error, "Password undefined"};
+    {error, password_undefined};
 check(#mqtt_client{username = Username}, Password, _Opts) ->
     case mnesia:dirty_read(?AUTH_USERNAME_TAB, Username) of
         [] -> 
-            {error, "Username Not Found"};
+            {error, username_not_found};
         [#?AUTH_USERNAME_TAB{password = <<Salt:4/binary, Hash/binary>>}] ->
             case Hash =:= md5_hash(Salt, Password) of
                 true -> ok;
-                false -> {error, "Password Not Right"}
+                false -> {error, password_error}
             end
     end.
 
 description() ->
     "Username password authentication module".
 
-%%%=============================================================================
-%%% Internal functions
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
 hash(Password) ->
-    SaltBin = salt(),
-    <<SaltBin/binary, (md5_hash(SaltBin, Password))/binary>>.
+    SaltBin = salt(), <<SaltBin/binary, (md5_hash(SaltBin, Password))/binary>>.
 
 md5_hash(SaltBin, Password) ->
     erlang:md5(<<SaltBin/binary, Password/binary>>).
 
 salt() ->
-    emqttd:seed_now(),
-    Salt = random:uniform(16#ffffffff),
-    <<Salt:32>>.
-
-bin(A) when is_atom(A)   -> bin(atom_to_list(A));
-bin(L) when is_list(L)   -> list_to_binary(L);
-bin(B) when is_binary(B) -> B.
+    emqttd:seed_now(), Salt = random:uniform(16#ffffffff), <<Salt:32>>.
 
