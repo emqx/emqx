@@ -56,7 +56,7 @@ init([Env]) ->
     %% Router Pool Sup
     RouterMFA = {emqttd_router, start_link, [fun setstats/1, Env]},
     %% Pool_size / 2
-    RouterSup = emqttd_pool_sup:spec(router_pool, [router, hash, pool_size(Env) div 2, RouterMFA]),
+    RouterSup = emqttd_pool_sup:spec(router_pool, [router, hash, 1 + (pool_size(Env) div 2), RouterMFA]),
 
     %% PubSub Pool Sup
     PubSubMFA = {emqttd_pubsub, start_link, [fun setstats/1, Env]},
