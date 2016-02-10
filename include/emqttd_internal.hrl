@@ -50,3 +50,9 @@
             {noreply, State}
         end)).
 
+-define(IF(Cond, TrueFun,FalseFun),
+        (case (Cond) of
+            true ->(TrueCase);
+            false->(FalseCase)
+        end)).
+
