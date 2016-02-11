@@ -14,30 +14,29 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd distribution functions
-%% @author Feng Lee <feng@emqtt.io>
--module(emqttd_dist).
+-module(emqttd_node).
 
 -import(lists, [concat/1]).
 
--export([parse_node/1]).
+-export([is_aliving/1, parse_name/1]).
 
-parse_node(Name) when is_list(Name) ->
+%% @doc Is node aliving
+-spec is_aliving(node()) -> boolean().
+is_aliving(Node) ->
+    case net_adm:ping(Node) of
+        pong -> true;
+        pang -> false
+    end.
+
+%% @doc Parse node name
+-spec parse_name(string()) -> atom().
+parse_name(Name) when is_list(Name) ->
     case string:tokens(Name, "@") of
-        [_Node, _Server] ->
-            list_to_atom(Name);
-        _ ->
-            list_to_atom(with_domain(Name))
+        [_Node, _Host] -> list_to_atom(Name);
+        _              -> with_host(Name)
     end.
 
-with_domain(Name) ->
-    case net_kernel:longnames() of
-    true ->
-        concat([Name, "@", inet_db:gethostname(),
-                  ".", inet_db:res_option(domain)]);
-    false ->
-        concat([Name, "@", inet_db:gethostname()]);
-    _ ->
-        Name
-    end.
+with_host(Name) ->
+    [_, Host] = string:tokens(atom_to_list(node()), "@"),
+    list_to_atom(concat([Name, "@", Host])).
 
