@@ -17,8 +17,6 @@
 %% @doc Authentication Behaviour.
 -module(emqttd_auth_mod).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -include("emqttd.hrl").
 
 -export([passwd_hash/2]).

@@ -14,8 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd bridge
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_bridge).
 
 -behaviour(gen_server2).

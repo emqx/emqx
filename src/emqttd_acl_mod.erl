@@ -14,10 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc ACL module behaviour.
 -module(emqttd_acl_mod).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 

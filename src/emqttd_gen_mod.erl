@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 
 %% @doc emqttd gen_mod behaviour
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_gen_mod).
 
 -include("emqttd.hrl").

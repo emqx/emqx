@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 
 %% @doc MQTT Packet Serializer
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_serializer).
 
 -include("emqttd.hrl").

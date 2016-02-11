@@ -14,8 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Message Router on local node.
-%% @author Feng Lee <feng@emqtt.io>
+%% @doc MQTT Message Router
 -module(emqttd_router).
 
 -behaviour(gen_server2).
@@ -51,7 +50,7 @@
 %% @doc Start a local router.
 -spec start_link(atom(), pos_integer(), fun((atom()) -> ok), list()) -> {ok, pid()} | {error, any()}.
 start_link(Pool, Id, StatsFun, Env) ->
-    gen_server2:start_link({local, emqttd:reg_name(?MODULE,Id)},
+    gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)},
                            ?MODULE, [Pool, Id, StatsFun, Env], []).
 
 %% @doc Route Message on the local node.
@@ -138,7 +137,7 @@ pick(Topic) ->
     gproc_pool:pick_worker(router, Topic).
 
 stop(Id) when is_integer(Id) ->
-    gen_server2:call(emqttd:reg_name(?MODULE, Id), stop).
+    gen_server2:call(?PROC_NAME(?MODULE, Id), stop).
 
 call(Router, Request) ->
     gen_server2:call(Router, Request, infinity).
@@ -148,12 +147,12 @@ cast(Router, Msg) ->
 
 init([Pool, Id, StatsFun, Opts]) ->
 
+    emqttd_time:seed(),
+
     %% Calls from pubsub should be scheduled first?
     process_flag(priority, high),
 
     ?GPROC_POOL(join, Pool, Id),
-
-    emqttd:seed_now(),
 
     AgingSecs = proplists:get_value(route_aging, Opts, 5),
 
@@ -208,7 +207,7 @@ handle_info({clean, aged}, State = #state{aging = Aging}) ->
 
     #aging{topics = Dict, time = Time} = Aging,
 
-    ByTime  = emqttd_util:now_to_secs() - Time,
+    ByTime  = emqttd_time:now_to_secs() - Time,
 
     Dict1 = try_clean(ByTime, dict:to_list(Dict)),
 
@@ -269,7 +268,7 @@ delete_topic(TopicR) ->
     mnesia:delete_object(topic, TopicR, write).
 
 store_aged(Topic, Aging = #aging{topics = Dict}) ->
-    Now = emqttd_util:now_to_secs(),
+    Now = emqttd_time:now_to_secs(),
     Aging#aging{topics = dict:store(Topic, Now, Dict)}.
 
 setstats(State = #state{statsfun = StatsFun}) ->

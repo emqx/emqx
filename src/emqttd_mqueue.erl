@@ -40,8 +40,7 @@
 %%    otherwise dropped the oldest one.
 %%
 %% @end
-%%
-%% @author Feng Lee <feng@emqtt.io>
+
 -module(emqttd_mqueue).
 
 -include("emqttd.hrl").

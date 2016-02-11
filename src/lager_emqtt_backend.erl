@@ -14,8 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Lager logger backend.
-%% @author Feng Lee <feng@emqtt.io>
 -module(lager_emqtt_backend).
 
 -behaviour(gen_event).

@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 
 %% @doc Session Manager Supervisor.
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_sm_sup).
 
 -behaviour(supervisor).
@@ -26,8 +25,7 @@
 
 -define(HELPER, emqttd_sm_helper).
 
--define(TABS, [mqtt_transient_session,
-               mqtt_persistent_session]).
+-define(TABS, [mqtt_transient_session, mqtt_persistent_session]).
 
 %% API
 -export([start_link/0]).

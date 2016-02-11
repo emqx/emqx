@@ -14,10 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd application.
 -module(emqttd_app).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd_cli.hrl").
 

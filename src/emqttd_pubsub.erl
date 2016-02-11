@@ -14,8 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Core PubSub
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_pubsub).
 
 -behaviour(gen_server2).
@@ -119,7 +117,7 @@ cache_env(Key) ->
     StatsFun :: fun((atom()) -> any()),
     Opts     :: list(tuple()).
 start_link(Pool, Id, StatsFun, Opts) ->
-    gen_server2:start_link({local, emqttd:reg_name(?MODULE, Id)},
+    gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)},
                            ?MODULE, [Pool, Id, StatsFun, Opts], []).
 
 %% @doc Create Topic or Subscription.
@@ -356,7 +354,7 @@ add_subscription(SubId, {Topic, Qos}) ->
     Pattern = #mqtt_subscription{subid = SubId, topic = Topic, qos = '_'},
     Records = mnesia:match_object(subscription, Pattern, write),
     case lists:member(Subscription, Records) of
-        true  ->
+        true ->
             ok;
         false ->
             [delete_subscription(Record) || Record <- Records],

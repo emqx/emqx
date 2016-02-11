@@ -14,16 +14,13 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Internal ACL that load rules from etc/acl.config
 -module(emqttd_acl_internal).
 
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(emqttd_acl_mod).
 
 -include("emqttd.hrl").
 
 -export([all_rules/0]).
-
--behaviour(emqttd_acl_mod).
 
 %% ACL callbacks
 -export([init/1, check_acl/2, reload_acl/1, description/0]).
@@ -55,10 +52,8 @@ init(AclOpts) ->
     AclFile = proplists:get_value(file, AclOpts),
     Default = proplists:get_value(nomatch, AclOpts, allow),
     State = #state{acl_file = AclFile, nomatch = Default},
-    case load_rules_from_file(State) of
-        ok             -> {ok, State};
-        {error, Error} -> {error, Error}
-    end.
+    true = load_rules_from_file(State),
+    {ok, State}.
 
 load_rules_from_file(#state{acl_file = AclFile}) ->
     {ok, Terms} = file:consult(AclFile),

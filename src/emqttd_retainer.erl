@@ -16,7 +16,6 @@
 
 %% TODO: should match topic tree
 %% @doc MQTT retained message storage.
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_retainer).
 
 -behaviour(gen_server).
@@ -155,7 +154,7 @@ handle_info(expire, State = #state{expired_after = Never})
     {noreply, State, hibernate};
 
 handle_info(expire, State = #state{expired_after = ExpiredAfter}) ->
-    expire(emqttd_util:now_to_secs(os:timestamp()) - ExpiredAfter),
+    expire(emqttd_time:now_to_secs() - ExpiredAfter),
     {noreply, State, hibernate};
 
 handle_info(Info, State) ->

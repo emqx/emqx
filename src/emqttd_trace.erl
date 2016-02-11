@@ -14,8 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Trace MQTT packets/messages by ClientID or Topic.
-%% @author Feng Lee <feng@emqtt.io>
+%% @doc
+%% Trace MQTT packets/messages by ClientID or Topic.
+%% @end
 -module(emqttd_trace).
 
 -behaviour(gen_server).

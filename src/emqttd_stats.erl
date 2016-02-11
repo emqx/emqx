@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 
 %% @doc emqttd statistics
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_stats).
 
 -include("emqttd.hrl").
@@ -118,7 +117,7 @@ setstats(Stat, MaxStat, Val) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    emqttd:seed_now(),
+    emqttd_time:seed(),
     ets:new(?STATS_TAB, [set, public, named_table, {write_concurrency, true}]),
     Topics = ?SYSTOP_CLIENTS ++ ?SYSTOP_SESSIONS ++ ?SYSTOP_PUBSUB ++ ?SYSTOP_RETAINED,
     ets:insert(?STATS_TAB, [{Topic, 0} || Topic <- Topics]),
@@ -166,10 +165,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 publish(Stat, Val) ->
-    Msg = emqttd_message:make(stats, stats_topic(Stat),
-                              emqttd_util:integer_to_binary(Val)),
+    Msg = emqttd_message:make(stats, stats_topic(Stat), bin(Val)),
     emqttd_pubsub:publish(Msg).
 
 stats_topic(Stat) ->
     emqttd_topic:systop(list_to_binary(lists:concat(['stats/', Stat]))).
+
+bin(I) when is_integer(I) -> list_to_binary(integer_to_list(I)).
 

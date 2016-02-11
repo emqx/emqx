@@ -14,8 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd control
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_ctl).
 
 -behaviour(gen_server).
@@ -27,10 +25,7 @@
 -define(SERVER, ?MODULE).
 
 %% API Function Exports
--export([start_link/0,
-         register_cmd/3,
-         unregister_cmd/1,
-         run/1]).
+-export([start_link/0, register_cmd/3, unregister_cmd/1, run/1]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,

@@ -14,8 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd pooler.
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_pooler).
 
 -behaviour(gen_server).
@@ -43,7 +41,7 @@ start_link() ->
 %%--------------------------------------------------------------------
 -spec start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
 start_link(Pool, Id) ->
-    gen_server:start_link({local, emqttd:reg_name(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
+    gen_server:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
 
 %% @doc Submit work to pooler
 submit(Fun) -> gen_server:call(worker(), {submit, Fun}, infinity).

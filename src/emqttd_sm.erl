@@ -15,8 +15,9 @@
 %%--------------------------------------------------------------------
 
 %% @doc Session Manager
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_sm).
+
+-behaviour(gen_server2).
 
 -include("emqttd.hrl").
 
@@ -34,8 +35,6 @@
 -export([start_session/2, lookup_session/1]).
 
 -export([register_session/3, unregister_session/2]).
-
--behaviour(gen_server2).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -75,7 +74,7 @@ mnesia(copy) ->
 %% @doc Start a session manager
 -spec start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
 start_link(Pool, Id) ->
-    gen_server2:start_link({local, emqttd:reg_name(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
+    gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
 
 %% @doc Start a session
 -spec start_session(CleanSess :: boolean(), binary()) -> {ok, pid(), boolean()} | {error, any()}.

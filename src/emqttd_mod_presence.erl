@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 
 %% @doc emqttd presence management module
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_mod_presence).
 
 -behaviour(emqttd_gen_mod).
@@ -48,7 +47,7 @@ client_connected(ConnAck, #mqtt_client{client_id  = ClientId,
                               {session, Sess},
                               {protocol, ProtoVer},
                               {connack, ConnAck},
-                              {ts, emqttd_util:now_to_secs()}]),
+                              {ts, emqttd_time:now_to_secs()}]),
     Msg = emqttd_message:make(presence,
                               proplists:get_value(qos, Opts, 0),
                               topic(connected, ClientId),
@@ -58,7 +57,7 @@ client_connected(ConnAck, #mqtt_client{client_id  = ClientId,
 client_disconnected(Reason, ClientId, Opts) ->
     Json = mochijson2:encode([{clientid, ClientId},
                               {reason, reason(Reason)},
-                              {ts, emqttd_util:now_to_secs()}]),
+                              {ts, emqttd_time:now_to_secs()}]),
     Msg = emqttd_message:make(presence,
                               proplists:get_value(qos, Opts, 0),
                               topic(disconnected, ClientId),

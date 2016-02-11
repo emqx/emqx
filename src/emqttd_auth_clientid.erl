@@ -14,10 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc ClientId Authentication Module.
 -module(emqttd_auth_clientid).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 

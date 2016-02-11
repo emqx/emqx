@@ -17,8 +17,6 @@
 %% @doc LDAP Authentication Module
 -module(emqttd_auth_ldap).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -include("emqttd.hrl").
 
 -import(proplists, [get_value/2, get_value/3]).

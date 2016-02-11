@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 
 %% @doc VM System Monitor
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_sysmon).
 
 -behavior(gen_server).

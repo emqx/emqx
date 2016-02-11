@@ -15,8 +15,9 @@
 %%--------------------------------------------------------------------
 
 %% @doc MQTT Client Manager
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_cm).
+
+-behaviour(gen_server2).
 
 -include("emqttd.hrl").
 
@@ -26,8 +27,6 @@
 -export([start_link/3]).
 
 -export([lookup/1, lookup_proc/1, register/1, unregister/1]).
-
--behaviour(gen_server2).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,

@@ -14,8 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Bridge Supervisor
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_bridge_sup).
 
 -behavior(supervisor).
@@ -57,8 +55,8 @@ start_bridge(Node, Topic, Options) when is_atom(Node) andalso is_binary(Topic) -
 stop_bridge(Node, Topic) when is_atom(Node) andalso is_binary(Topic) ->
     ChildId = ?BRIDGE_ID(Node, Topic),
     case supervisor:terminate_child(?MODULE, ChildId) of
-        ok              -> supervisor:delete_child(?MODULE, ChildId);
-        {error, Reason} -> {error, Reason}
+        ok    -> supervisor:delete_child(?MODULE, ChildId);
+        Error -> Error
     end.
 
 %%--------------------------------------------------------------------

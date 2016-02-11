@@ -14,10 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd websocket client
 -module(emqttd_ws_client).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 

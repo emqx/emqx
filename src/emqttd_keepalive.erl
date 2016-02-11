@@ -14,8 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc client keepalive
-%% @author Feng Lee <feng@emqtt.io>
+%% @doc Client Keepalive
 -module(emqttd_keepalive).
 
 -export([start/3, check/1, cancel/1]).

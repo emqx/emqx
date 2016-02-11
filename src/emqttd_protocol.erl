@@ -14,8 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd protocol.
-%% @author Feng Lee <feng@emqtt.io>
+%% @doc MQTT Protocol Processor.
 -module(emqttd_protocol).
 
 -include("emqttd.hrl").

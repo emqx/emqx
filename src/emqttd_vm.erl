@@ -14,8 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd erlang vm.
-%% @author @huangdan
 -module(emqttd_vm).
 
 -export([schedulers/0]).

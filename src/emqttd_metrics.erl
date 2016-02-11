@@ -14,8 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd metrics. responsible for collecting broker metrics
-%% @author Feng Lee <feng@emqtt.io>
+%% @doc emqttd metrics. responsible for collecting broker metrics.
 -module(emqttd_metrics).
 
 -behaviour(gen_server).
@@ -32,10 +31,7 @@
 %% Received/Sent Metrics
 -export([received/1, sent/1]).
 
--export([all/0, value/1,
-         inc/1, inc/2, inc/3,
-         dec/2, dec/3,
-         set/2]).
+-export([all/0, value/1, inc/1, inc/2, inc/3, dec/2, dec/3, set/2]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -240,7 +236,7 @@ key(counter, Metric) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    emqttd:seed_now(),
+    emqttd_time:seed(),
     Metrics = ?SYSTOP_BYTES ++ ?SYSTOP_PACKETS ++ ?SYSTOP_MESSAGES,
     % Create metrics table
     ets:new(?METRIC_TAB, [set, public, named_table, {write_concurrency, true}]),
@@ -276,8 +272,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 publish(Metric, Val) ->
-    Payload = emqttd_util:integer_to_binary(Val),
-    Msg = emqttd_message:make(metrics, metric_topic(Metric), Payload),
+    Msg = emqttd_message:make(metrics, metric_topic(Metric), bin(Val)),
     emqttd_pubsub:publish(emqttd_message:set_flag(sys, Msg)).
 
 create_metric({gauge, Name}) ->
@@ -289,4 +284,6 @@ create_metric({counter, Name}) ->
 
 metric_topic(Metric) ->
     emqttd_topic:systop(list_to_binary(lists:concat(['metrics/', Metric]))).
+
+bin(I) when is_integer(I) -> list_to_binary(integer_to_list(I)).
 

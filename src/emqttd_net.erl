@@ -14,17 +14,16 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd net utility functions. some functions copied from rabbitmq.
-%% @author Feng Lee <feng@emqtt.io>
+%% @doc emqttd net utilities.
 -module(emqttd_net).
 
 -include_lib("kernel/include/inet.hrl").
 
--export([tcp_name/3, tcp_host/1, getopts/2, setopts/2,
-         getaddr/2, port_to_listeners/1]).
+-export([tcp_name/3, tcp_host/1, getopts/2, setopts/2, getaddr/2,
+         port_to_listeners/1]).
 
--export([peername/1, sockname/1, format/2, format/1,
-         connection_string/2, ntoa/1]).
+-export([peername/1, sockname/1, format/2, format/1, ntoa/1,
+         connection_string/2]).
 
 -define(FIRST_TEST_BIND_PORT, 10000).
 

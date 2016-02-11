@@ -14,8 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd module supervisor.
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_mod_sup).
 
 -behaviour(supervisor).
@@ -47,7 +45,6 @@ start_child(ChildSpec) when is_tuple(ChildSpec) ->
 %%
 start_child(Mod, Type) when is_atom(Mod) and is_atom(Type) ->
     supervisor:start_child(?MODULE, ?CHILD(Mod, Type)).
-
 
 %%--------------------------------------------------------------------
 %% Supervisor callbacks

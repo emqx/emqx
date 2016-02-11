@@ -14,8 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd trace supervisor.
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_trace_sup).
 
 -behaviour(supervisor).
@@ -30,7 +28,7 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    {ok, {{one_for_one, 10, 100},
-          [{trace, {emqttd_trace, start_link, []},
-              permanent, 5000, worker, [emqttd_trace]}]}}.
+    Trace = {trace, {emqttd_trace, start_link, []},
+              permanent, 5000, worker, [emqttd_trace]},
+    {ok, {{one_for_one, 10, 100}, [Trace]}}.
 

@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 
 %% @doc MQTT Packet Functions
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_packet).
 
 -include("emqttd.hrl").

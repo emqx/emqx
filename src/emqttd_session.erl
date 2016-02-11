@@ -36,8 +36,7 @@
 %% State of Message:  newcome, inflight, pending
 %%
 %% @end
-%%
-%% @author Feng Lee <feng@emqtt.io>
+
 -module(emqttd_session).
 
 -include("emqttd.hrl").

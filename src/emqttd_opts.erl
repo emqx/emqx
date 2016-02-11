@@ -14,8 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd options handler.
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_opts).
 
 -export([merge/2, g/2, g/3]).

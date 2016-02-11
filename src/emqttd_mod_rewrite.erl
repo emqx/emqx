@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 
 %% @doc emqttd rewrite module
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_mod_rewrite).
 
 -behaviour(emqttd_gen_mod).

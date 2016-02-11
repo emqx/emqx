@@ -14,8 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd sysmon supervisor.
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_sysmon_sup).
 
 -behaviour(supervisor).
@@ -30,8 +28,7 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Env = emqttd:env(sysmon),
-    {ok, {{one_for_one, 10, 100},
-          [{sysmon, {emqttd_sysmon, start_link, [Env]},
-             permanent, 5000, worker, [emqttd_sysmon]}]}}.
+    Sysmon = {sysmon, {emqttd_sysmon, start_link, [emqttd:env(sysmon)]},
+                permanent, 5000, worker, [emqttd_sysmon]} ,
+    {ok, {{one_for_one, 10, 100}, [Sysmon]}}.
 

@@ -14,8 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd plugins.
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_plugins).
 
 -include("emqttd.hrl").

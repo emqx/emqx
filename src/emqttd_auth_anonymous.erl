@@ -17,8 +17,6 @@
 %% @doc Anonymous Authentication Module
 -module(emqttd_auth_anonymous).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -behaviour(emqttd_auth_mod).
 
 -export([init/1, check/3, description/0]).

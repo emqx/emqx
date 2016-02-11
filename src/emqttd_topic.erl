@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 
 %% @doc MQTT Topic Functions
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_topic).
 
 -import(lists, [reverse/1]).
@@ -25,8 +24,6 @@
 -export([join/1, feed_var/3, is_queue/1, systop/1]).
 
 -type topic() :: binary().
-
-%-type type()   :: static | dynamic.
 
 -type word()   :: '' | '+' | '#' | binary().
 
@@ -38,10 +35,7 @@
 
 -define(MAX_TOPIC_LEN, 4096).
 
-%%%-----------------------------------------------------------------------------
 %% @doc Is wildcard topic?
-%% @end
-%%%-----------------------------------------------------------------------------
 -spec wildcard(topic()) -> true | false.
 wildcard(Topic) when is_binary(Topic) ->
     wildcard(words(Topic));
@@ -54,10 +48,7 @@ wildcard(['+'|_]) ->
 wildcard([_H|T]) ->
     wildcard(T).
 
-%%------------------------------------------------------------------------------
 %% @doc Match Topic name with filter
-%% @end
-%%------------------------------------------------------------------------------
 -spec match(Name, Filter) -> boolean() when
     Name    :: topic() | words(),
     Filter  :: topic() | words().
@@ -82,10 +73,7 @@ match([_H1|_], []) ->
 match([], [_H|_T2]) ->
     false.
 
-%%------------------------------------------------------------------------------
 %% @doc Validate Topic
-%% @end
-%%------------------------------------------------------------------------------
 -spec validate({name | filter, topic()}) -> boolean().
 validate({_, <<>>}) ->
     false;
@@ -120,10 +108,7 @@ validate3(<<C/utf8, _Rest/binary>>) when C == $#; C == $+; C == 0 ->
 validate3(<<_/utf8, Rest/binary>>) ->
     validate3(Rest).
 
-%%%-----------------------------------------------------------------------------
 %% @doc Topic to Triples
-%% @end
-%%%-----------------------------------------------------------------------------
 -spec triples(topic()) -> list(triple()).
 triples(Topic) when is_binary(Topic) ->
     triples(words(Topic), root, []).
@@ -145,10 +130,7 @@ bin('+') -> <<"+">>;
 bin('#') -> <<"#">>;
 bin(B) when is_binary(B) -> B.
 
-%%------------------------------------------------------------------------------
 %% @doc Split Topic Path to Words
-%% @end
-%%------------------------------------------------------------------------------
 -spec words(topic()) -> words().
 words(Topic) when is_binary(Topic) ->
     [word(W) || W <- binary:split(Topic, <<"/">>, [global])].
@@ -158,21 +140,14 @@ word(<<"+">>) -> '+';
 word(<<"#">>) -> '#';
 word(Bin)     -> Bin.
 
-%%------------------------------------------------------------------------------
 %% @doc Queue is a special topic name that starts with "$Q/"
-%% @end
-%%------------------------------------------------------------------------------
 -spec is_queue(topic()) -> boolean().
 is_queue(<<"$Q/", _Queue/binary>>) ->
     true;
 is_queue(_) ->
     false.
 
-%%------------------------------------------------------------------------------
 %% @doc '$SYS' Topic.
-%% @end
-%%------------------------------------------------------------------------------
-
 systop(Name) when is_atom(Name) ->
     list_to_binary(lists:concat(["$SYS/brokers/", node(), "/", Name]));
 

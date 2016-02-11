@@ -20,8 +20,5 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-seed_now_test() ->
-    ?assertNotEqual(emqttd:seed_now(), emqttd:seed_now()).
-
 -endif.
 

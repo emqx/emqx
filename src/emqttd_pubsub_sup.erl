@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 
 %% @doc PubSub Supervisor.
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_pubsub_sup).
 
 -behaviour(supervisor).

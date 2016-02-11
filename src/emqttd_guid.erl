@@ -27,8 +27,6 @@
 %% 4. Sequence:  2 bytes sequence in one process
 %%
 %% @end
-%%
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_guid).
 
 -export([gen/0, new/0, timestamp/1]).

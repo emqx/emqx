@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 
 %% @doc Client Manager Supervisor.
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_cm_sup).
 
 -behaviour(supervisor).

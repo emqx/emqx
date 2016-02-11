@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 
 %% @doc Subscription from Broker Side
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_mod_subscription).
 
 -behaviour(emqttd_gen_mod).

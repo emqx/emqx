@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 
 %% @doc emqttd top supervisor.
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd_sup).
 
 -behaviour(supervisor).
@@ -42,10 +41,7 @@ start_link() ->
 start_child(ChildSpec) when is_tuple(ChildSpec) ->
     supervisor:start_child(?MODULE, ChildSpec).
 
-%%
-%% start_child(Mod::atom(), Type::type()) -> {ok, pid()}
-%% @type type() = worker | supervisor
-%%
+-spec start_child(Mod::atom(), Type :: worker | supervisor) -> {ok, pid()}.
 start_child(Mod, Type) when is_atom(Mod) and is_atom(Type) ->
     supervisor:start_child(?MODULE, ?CHILD(Mod, Type)).
 

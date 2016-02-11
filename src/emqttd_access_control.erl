@@ -14,10 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Authentication and ACL Control.
 -module(emqttd_access_control).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -42,6 +39,8 @@
 -define(ACCESS_CONTROL_TAB, mqtt_access_control).
 
 -type password() :: undefined | binary().
+
+-record(state, {}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -128,10 +127,9 @@ stop() -> gen_server:call(?MODULE, stop).
 
 init([Opts]) ->
     ets:new(?ACCESS_CONTROL_TAB, [set, named_table, protected, {read_concurrency, true}]),
-
     ets:insert(?ACCESS_CONTROL_TAB, {auth_modules, init_mods(auth, proplists:get_value(auth, Opts))}),
     ets:insert(?ACCESS_CONTROL_TAB, {acl_modules, init_mods(acl, proplists:get_value(acl, Opts))}),
-    {ok, state}.
+    {ok, #state{}}.
 
 init_mods(auth, AuthMods) ->
     [init_mod(authmod(Name), Opts) || {Name, Opts} <- AuthMods];
@@ -151,7 +149,8 @@ handle_call({register_mod, Type, Mod, Opts, Seq}, _From, State) ->
                         NewMods = lists:sort(fun({_, _, Seq1}, {_, _, Seq2}) ->
                                             Seq1 >= Seq2
                                     end, [{Mod, ModState, Seq} | Mods]),
-                        ets:insert(?ACCESS_CONTROL_TAB, {tab_key(Type), NewMods});
+                        ets:insert(?ACCESS_CONTROL_TAB, {tab_key(Type), NewMods}),
+                        ok;
                     {error, Error} ->
                         lager:error("Access Control: register ~s error - ~p", [Mod, Error]),
                         {error, Error};
