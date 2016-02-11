@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Internal Header File
+%% Internal Header File
 
 -define(GPROC_POOL(JoinOrLeave, Pool, I),
         (begin
@@ -23,6 +23,8 @@
                 leave -> gproc_pool:disconnect_worker(Pool, {Pool, I})
             end
         end)).
+
+-define(PROC_NAME(M, I), (list_to_atom(lists:concat([M, "_", I])))).
 
 -define(record_to_proplist(Def, Rec),
         lists:zip(record_info(fields, Def),
@@ -52,7 +54,7 @@
 
 -define(IF(Cond, TrueFun,FalseFun),
         (case (Cond) of
-            true ->(TrueCase);
-            false->(FalseCase)
+            true -> (TrueFun);
+            false-> (FalseFun)
         end)).
 

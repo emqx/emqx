@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc MQTT Broker Header.
+%% MQTT Broker Header
 
 %%--------------------------------------------------------------------
 %% Banner
@@ -22,7 +22,7 @@
 
 -define(COPYRIGHT, "Copyright (C) 2012-2016, Feng Lee <feng@emqtt.io>").
 
--define(LICENSE_MESSAGE, "Licensed under MIT"). 
+-define(LICENSE_MESSAGE, "Licensed under the Apache License, Version 2.0").
 
 -define(PROTOCOL_VERSION, "MQTT/3.1.1").
 
@@ -56,9 +56,9 @@
 %% MQTT Subscription
 %%--------------------------------------------------------------------
 -record(mqtt_subscription, {
-    subid  :: binary() | atom(),
-    topic  :: binary(),
-    qos    = 0     :: 0 | 1 | 2
+    subid   :: binary() | atom(),
+    topic   :: binary(),
+    qos = 0 :: 0 | 1 | 2
 }).
 
 -type mqtt_subscription() :: #mqtt_subscription{}.

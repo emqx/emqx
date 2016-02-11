@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc MQTT Protocol Header.
+%% MQTT Protocol Header
 
 %%--------------------------------------------------------------------
 %% MQTT Protocol Version and Levels
@@ -61,7 +61,6 @@
             exactly_once  -> ?QOS_2
         end)
     end).
-
 
 %%--------------------------------------------------------------------
 %% Max ClientId Length. Why 1024? NiDongDe...
