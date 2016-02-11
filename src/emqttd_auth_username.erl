@@ -17,8 +17,6 @@
 %% @doc Authentication with username and password
 -module(emqttd_auth_username).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -include("emqttd.hrl").
 
 -include("emqttd_cli.hrl").
@@ -126,5 +124,5 @@ md5_hash(SaltBin, Password) ->
     erlang:md5(<<SaltBin/binary, Password/binary>>).
 
 salt() ->
-    emqttd:seed_now(), Salt = random:uniform(16#ffffffff), <<Salt:32>>.
+    emqttd_time:seed(), Salt = random:uniform(16#ffffffff), <<Salt:32>>.
 
