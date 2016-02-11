@@ -13,13 +13,8 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
-%% @doc MQTT Topic Trie.
-%%
-%% [Trie](http://en.wikipedia.org/wiki/Trie)
-%%
-%% @end
-%%
-%% @author Feng Lee <feng@emqtt.io>
+
+%% @doc MQTT Topic Trie: [Trie](http://en.wikipedia.org/wiki/Trie)
 -module(emqttd_trie).
 
 %% Mnesia Callbacks
@@ -29,7 +24,7 @@
 -copy_mnesia({mnesia, [copy]}).
 
 %% Trie API
--export([insert/1, match/1, delete/1]).
+-export([insert/1, match/1, delete/1, lookup/1]).
 
 -type node_id() :: binary() | atom().
 
@@ -53,7 +48,7 @@
 %% Mnesia Callbacks
 %%--------------------------------------------------------------------
 
-%% @doc Create Trie Tables.
+%% @doc Create or Replicate trie tables.
 -spec mnesia(boot | copy) -> ok.
 mnesia(boot) ->
     %% Trie Table
@@ -67,7 +62,6 @@ mnesia(boot) ->
                 {record_name, trie_node},
                 {attributes, record_info(fields, trie_node)}]);
 
-%% @doc Replicate trie tables.
 mnesia(copy) ->
     %% Copy Trie Table
     ok = emqttd_mnesia:copy_table(trie),
@@ -75,7 +69,7 @@ mnesia(copy) ->
     ok = emqttd_mnesia:copy_table(trie_node).
 
 %%--------------------------------------------------------------------
-%% API
+%% Trie API
 %%--------------------------------------------------------------------
 
 %% @doc Insert topic to trie tree.
@@ -99,6 +93,11 @@ match(Topic) when is_binary(Topic) ->
     TrieNodes = match_node(root, emqttd_topic:words(Topic)),
     [Name || #trie_node{topic=Name} <- TrieNodes, Name =/= undefined].
 
+%% @doc Lookup a Trie Node
+-spec lookup(NodeId :: binary()) -> [#trie_node{}].
+lookup(NodeId) ->
+    mnesia:read(trie_node, NodeId).
+
 %% @doc Delete topic from trie
 -spec delete(Topic :: binary()) -> ok.
 delete(Topic) when is_binary(Topic) ->
@@ -107,7 +106,7 @@ delete(Topic) when is_binary(Topic) ->
         mnesia:delete({trie_node, Topic}),
         delete_path(lists:reverse(emqttd_topic:triples(Topic)));
     [TrieNode] ->
-        mnesia:write(TrieNode#trie_node{topic=Topic});
+        mnesia:write(TrieNode#trie_node{topic = undefined});
     [] ->
         ok    
     end.
@@ -158,7 +157,7 @@ match_node(NodeId, [W|Words], ResAcc) ->
 'match_#'(NodeId, ResAcc) ->
     case mnesia:read(trie, #trie_edge{node_id=NodeId, word = '#'}) of
     [#trie{node_id=ChildId}] ->
-        mnesia:read(trie_node, ChildId) ++ ResAcc;    
+        mnesia:read(trie_node, ChildId) ++ ResAcc;
     [] ->
         ResAcc
     end.
