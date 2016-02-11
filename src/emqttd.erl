@@ -14,15 +14,10 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd main module.
-%% @author Feng Lee <feng@emqtt.io>
 -module(emqttd).
 
 -export([start/0, env/1, env/2, start_listeners/0, stop_listeners/0,
          load_all_mods/0, is_mod_enabled/1, is_running/1]).
-
-%% Utility functions.
--export([reg_name/2, seed_now/0]).
 
 -define(MQTT_SOCKOPTS, [
         binary,
@@ -103,15 +98,5 @@ is_running(Node) ->
         {badrpc, _}          -> false;
         undefined            -> false;
         Pid when is_pid(Pid) -> true
-    end.
-
--spec reg_name(module(), pos_integer()) -> atom().
-reg_name(M, Id) when is_atom(M), is_integer(Id) ->
-    list_to_atom(lists:concat([M, "_", Id])).
-
-seed_now() ->
-    case erlang:function_exported(erlang, timestamp, 0) of
-        true  -> random:seed(erlang:timestamp()); %% R18
-        false -> random:seed(os:timestamp()) %% compress 'now()' warning...
     end.
 
