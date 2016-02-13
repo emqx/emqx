@@ -39,7 +39,7 @@ setup() ->
         {auth, [{anonymous, []}]},
         {acl, [ %% ACL config
             %% Internal ACL module
-            {internal,  [{file, "./testdata/test_acl.config"}, {nomatch, allow}]}
+            {internal,  [{file, "../testdata/test_acl.config"}, {nomatch, allow}]}
         ]}
     ],
     ?AC:start_link(AclOpts).

@@ -228,9 +228,9 @@ publish(To, Msg) ->
 %% @doc Match Topic Name with Topic Filters
 -spec match(emqttd_topic:topic()) -> [mqtt_topic()].
 match(To) ->
-    MatchedTopics = mnesia:async_dirty(fun emqttd_trie:match/1, [To]),
+    Matched = mnesia:async_dirty(fun emqttd_trie:match/1, [To]),
     %% ets:lookup for topic table will be replicated to all nodes.
-    lists:append([ets:lookup(topic, Topic) || Topic <- MatchedTopics]).
+    lists:append([ets:lookup(topic, Topic) || Topic <- [To | Matched]]).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -333,7 +333,10 @@ add_topics(Records) ->
 add_topic(TopicR = #mqtt_topic{topic = Topic}) ->
     case mnesia:wread({topic, Topic}) of
         [] ->
-            ok = emqttd_trie:insert(Topic),
+            case emqttd_topic:wildcard(Topic) of
+                true  -> emqttd_trie:insert(Topic);
+                false -> ok
+            end,
             mnesia:write(topic, TopicR, write);
         Records ->
             case lists:member(TopicR, Records) of

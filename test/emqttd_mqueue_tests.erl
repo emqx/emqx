@@ -149,7 +149,6 @@ priority_mqueue2_test() ->
     Q4 = ?Q:in(#mqtt_message{topic = <<"y">>, qos = 1, payload = <<4>>}, Q3),
     ?assertEqual(4, ?Q:len(Q4)),
     {{value, Val}, Q5} = ?Q:out(Q4),
-    ?debugFmt("Val: ~p~n", [Val]),
     ?assertEqual(3, ?Q:len(Q5)).
  
 alarm_fun() -> fun(_, _) -> alarm_fun() end.
