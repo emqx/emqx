@@ -23,6 +23,8 @@
 
 -include("emqttd_internal.hrl").
 
+-import(proplists, [get_value/2, get_value/3]).
+
 %% API
 -export([init/3, info/1, clientid/1, client/1, session/1]).
 
@@ -49,8 +51,8 @@
 
 %% @doc Init protocol
 init(Peername, SendFun, Opts) ->
-    MaxLen = emqttd_opts:g(max_clientid_len, Opts, ?MAX_CLIENTID_LEN),
-    WsInitialHeaders = emqttd_opts:g(ws_initial_headers, Opts),
+    MaxLen = get_value(max_clientid_len, Opts, ?MAX_CLIENTID_LEN),
+    WsInitialHeaders = get_value(ws_initial_headers, Opts),
     #proto_state{peername           = Peername,
                  sendfun            = SendFun,
                  max_clientid_len   = MaxLen,
