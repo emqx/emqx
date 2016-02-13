@@ -47,6 +47,8 @@
 
 -include("emqttd_protocol.hrl").
 
+-import(proplists, [get_value/3]).
+
 -export([new/3, type/1, name/1, is_empty/1, len/1, max_len/1, in/2, out/1, stats/1]).
 
 -define(LOW_WM, 0.2).
@@ -88,19 +90,19 @@
 %% @doc New Queue.
 -spec new(iolist(), list(mqueue_option()), fun()) -> mqueue().
 new(Name, Opts, AlarmFun) ->
-    Type = emqttd_opts:g(type, Opts, simple),
-    MaxLen = emqttd_opts:g(max_length, Opts, infinity),
+    Type = get_value(type, Opts, simple),
+    MaxLen = get_value(max_length, Opts, infinity),
     init_q(#mqueue{type = Type, name = iolist_to_binary(Name),
                    len = 0, max_len = MaxLen,
                    low_wm = low_wm(MaxLen, Opts),
                    high_wm = high_wm(MaxLen, Opts),
-                   qos0 = emqttd_opts:g(queue_qos0, Opts, false),
+                   qos0 = get_value(queue_qos0, Opts, false),
                    alarm_fun = AlarmFun}, Opts).
 
 init_q(MQ = #mqueue{type = simple}, _Opts) ->
     MQ#mqueue{q = queue:new()};
 init_q(MQ = #mqueue{type = priority}, Opts) ->
-    Priorities = emqttd_opts:g(priority, Opts, []),
+    Priorities = get_value(priority, Opts, []),
     init_p(Priorities, MQ#mqueue{q = priority_queue:new()}).
 
 init_p([], MQ) ->
@@ -116,12 +118,12 @@ insert_p(Topic, P, MQ = #mqueue{priorities = Tab, pseq = Seq}) ->
 low_wm(infinity, _Opts) ->
     infinity;
 low_wm(MaxLen, Opts) ->
-    round(MaxLen * emqttd_opts:g(low_watermark, Opts, ?LOW_WM)).
+    round(MaxLen * get_value(low_watermark, Opts, ?LOW_WM)).
 
 high_wm(infinity, _Opts) ->
     infinity;
 high_wm(MaxLen, Opts) ->
-    round(MaxLen * emqttd_opts:g(high_watermark, Opts, ?HIGH_WM)).
+    round(MaxLen * get_value(high_watermark, Opts, ?HIGH_WM)).
 
 -spec name(mqueue()) -> iolist().
 name(#mqueue{name = Name}) ->

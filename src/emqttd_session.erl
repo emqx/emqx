@@ -47,6 +47,8 @@
 
 -behaviour(gen_server2).
 
+-import(proplists, [get_value/2, get_value/3]).
+
 %% Session API
 -export([start_link/3, resume/3, info/1, destroy/2]).
 
@@ -216,16 +218,16 @@ init([CleanSess, ClientId, ClientPid]) ->
             client_pid        = ClientPid,
             subscriptions     = dict:new(),
             inflight_queue    = [],
-            max_inflight      = emqttd_opts:g(max_inflight, SessEnv, 0),
+            max_inflight      = get_value(max_inflight, SessEnv, 0),
             message_queue     = emqttd_mqueue:new(ClientId, QEnv, emqttd_alarm:alarm_fun()),
             awaiting_rel      = #{},
             awaiting_ack      = #{},
             awaiting_comp     = #{},
-            retry_interval    = emqttd_opts:g(unack_retry_interval, SessEnv),
-            await_rel_timeout = emqttd_opts:g(await_rel_timeout, SessEnv),
-            max_awaiting_rel  = emqttd_opts:g(max_awaiting_rel, SessEnv),
-            expired_after     = emqttd_opts:g(expired_after, SessEnv) * 3600,
-            collect_interval  = emqttd_opts:g(collect_interval, SessEnv, 0),
+            retry_interval    = get_value(unack_retry_interval, SessEnv),
+            await_rel_timeout = get_value(await_rel_timeout, SessEnv),
+            max_awaiting_rel  = get_value(max_awaiting_rel, SessEnv),
+            expired_after     = get_value(expired_after, SessEnv) * 3600,
+            collect_interval  = get_value(collect_interval, SessEnv, 0),
             timestamp         = os:timestamp()},
     emqttd_sm:register_session(CleanSess, ClientId, sess_info(Session)),
     %% start statistics
