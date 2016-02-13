@@ -224,8 +224,9 @@ process(?PACKET(?DISCONNECT), State) ->
     {stop, normal, State#proto_state{will_msg = undefined}}.
 
 publish(Packet = ?PUBLISH_PACKET(?QOS_0, _PacketId),
-        #proto_state{client_id = ClientId, session = Session}) ->
-    emqttd_session:publish(Session, emqttd_message:from_packet(ClientId, Packet));
+        #proto_state{client_id = ClientId, username = Username, session = Session}) ->
+    Msg = emqttd_message:from_packet(Username, ClientId, Packet),
+    emqttd_session:publish(Session, Msg);
 
 publish(Packet = ?PUBLISH_PACKET(?QOS_1, _PacketId), State) ->
     with_puback(?PUBACK, Packet, State);
@@ -234,8 +235,10 @@ publish(Packet = ?PUBLISH_PACKET(?QOS_2, _PacketId), State) ->
     with_puback(?PUBREC, Packet, State).
 
 with_puback(Type, Packet = ?PUBLISH_PACKET(_Qos, PacketId),
-            State = #proto_state{client_id = ClientId, session = Session}) ->
-    Msg = emqttd_message:from_packet(ClientId, Packet),
+            State = #proto_state{client_id = ClientId,
+                                 username = Username,
+                                 session = Session}) ->
+    Msg = emqttd_message:from_packet(Username, ClientId, Packet),
     case emqttd_session:publish(Session, Msg) of
         ok ->
             send(?PUBACK_PACKET(Type, PacketId), State);
