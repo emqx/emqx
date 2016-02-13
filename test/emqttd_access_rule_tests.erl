@@ -16,18 +16,18 @@
 
 -module(emqttd_access_rule_tests).
 
--import(emqttd_access_rule, [compile/1, match/3]).
+-ifdef(TEST).
 
 -include("emqttd.hrl").
 
--ifdef(TEST).
-
 -include_lib("eunit/include/eunit.hrl").
+
+-import(emqttd_access_rule, [compile/1, match/3]).
 
 compile_test() ->
 
     ?assertMatch({allow, {'and', [{ipaddr, {"127.0.0.1", _I, _I}},
-                                      {user, <<"user">>}]}, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]},
+                                  {user, <<"user">>}]}, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]},
                  compile({allow, {'and', [{ipaddr, "127.0.0.1"}, {user, <<"user">>}]}, subscribe, ["$SYS/#", "#"]})),
     ?assertMatch({allow, {'or', [{ipaddr, {"127.0.0.1", _I, _I}},
                                  {user, <<"user">>}]}, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]},

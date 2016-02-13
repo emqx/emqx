@@ -30,10 +30,11 @@
 
 merge_test() ->
     Opts = emqttd_opts:merge(?SOCKOPTS, [raw,
-                                        {backlog, 1024},
-                                        {nodelay, false},
-                                        {max_clients, 1024},
-                                        {acceptors, 16}]),
+                                         binary,
+                                         {backlog, 1024},
+                                         {nodelay, false},
+                                         {max_clients, 1024},
+                                         {acceptors, 16}]),
     ?assertEqual(1024, proplists:get_value(backlog, Opts)),
     ?assertEqual(1024, proplists:get_value(max_clients, Opts)),
     ?assertEqual(lists:sort(Opts), [binary, raw,

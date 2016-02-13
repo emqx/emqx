@@ -16,13 +16,13 @@
 
 -module(emqttd_mqueue_tests).
 
--include("emqttd.hrl").
-
--define(Q, emqttd_mqueue).
-
 -ifdef(TEST).
 
+-include("emqttd.hrl").
+
 -include_lib("eunit/include/eunit.hrl").
+
+-define(Q, emqttd_mqueue).
 
 in_test() ->
     Opts = [{max_length, 5},

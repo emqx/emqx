@@ -20,9 +20,10 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--import(emqttd_topic, [validate/1, wildcard/1, match/2, triples/1, words/1]).
+-import(emqttd_topic, [validate/1, wildcard/1, match/2, triples/1, words/1,
+                       join/1, feed_var/3, is_queue/1, systop/1]).
 
--define(N, 100000).
+-define(N, 10000).
 
 validate_test() ->
 	?assert( validate({filter, <<"sport/tennis/#">>}) ),
@@ -30,6 +31,8 @@ validate_test() ->
 	?assert( validate({filter, <<"/a/b">>}) ),
 	?assert( validate({filter, <<"/+/x">>}) ),
 	?assert( validate({filter, <<"/a/b/c/#">>}) ),
+    ?assert( validate({filter, <<"x">>}) ),
+    ?assertNot( validate({name, <<>>}) ),
 	?assertNot( validate({filter, <<"a/#/c">>}) ),
 	?assertNot( validate({filter, <<"sport/tennis#">>}) ),
 	?assertNot( validate({filter, <<"sport/tennis/#/ranking">>}) ).
@@ -51,7 +54,16 @@ match_test() ->
     %% paho test
     ?assert( match(<<"Topic/C">>, <<"+/+">>) ),
     ?assert( match(<<"TopicA/B">>, <<"+/+">>) ),
-    ?assert( match(<<"TopicA/C">>, <<"+/+">>) ).
+    ?assert( match(<<"TopicA/C">>, <<"+/+">>) ),
+
+    ?assert( match(<<"abc">>, <<"+">>) ),
+    ?assert( match(<<"a/b/c">>, <<"a/b/c">>) ),
+    ?assertNot( match(<<"a/b/c">>, <<"a/c/d">>) ),
+    ?assertNot( match(<<"$shared/x/y">>, <<"+">>) ),
+    ?assertNot( match(<<"$shared/x/y">>, <<"+/x/y">>) ),
+    ?assertNot( match(<<"$shared/x/y">>, <<"#">>) ),
+    ?assertNot( match(<<"$shared/x/y">>, <<"+/+/#">>) ),
+    ?assertNot( match(<<"house/1/sensor/0">>, <<"house/+">>) ).
 
 sigle_level_match_test() ->
     ?assert( match(<<"sport/tennis/player1">>, <<"sport/tennis/+">>) ),
@@ -103,6 +115,7 @@ type_test() ->
 	?assertEqual(true, wildcard(<<"/a/b/#">>)).
 
 words_test() ->
+    ?assertEqual(['', <<"a">>, '+', '#'], words(<<"/a/+/#">>) ),
     ?assertMatch(['', <<"abkc">>, <<"19383">>, '+', <<"akakdkkdkak">>, '#'],  words(<<"/abkc/19383/+/akakdkkdkak/#">>)),
     {Time, _} = timer:tc(fun() ->
                 [words(<<"/abkc/19383/+/akakdkkdkak/#">>) || _I <- lists:seq(1, ?N)]
@@ -114,11 +127,32 @@ words_test() ->
     ?debugFmt("Time for binary:split: ~p(micro)", [Time2/?N]),
     ok.
 
+is_queue_test() ->
+    ?assert( is_queue(<<"$Q/queue">>) ),
+    ?assert( is_queue(<<"$q/queue">>) ),
+    ?assertNot( is_queue(<<"xyz/queue">>) ).
+
+systop_test() ->
+    ?assertEqual( iolist_to_binary(["$SYS/brokers/", atom_to_list(node()), "/xyz"]), systop('xyz') ),
+    ?assertEqual( iolist_to_binary(["$SYS/brokers/", atom_to_list(node()), "/abc"]), systop(<<"abc">>) ).
+
 feed_var_test() ->
-    ?assertEqual(<<"$Q/client/clientId">>, emqttd_topic:feed_var(<<"$c">>, <<"clientId">>, <<"$Q/client/$c">>)).
+    ?assertEqual(<<"$Q/client/clientId">>, feed_var(<<"$c">>, <<"clientId">>, <<"$Q/client/$c">>)),
+    ?assertEqual(<<"username/test/client/x">>,
+                 feed_var(<<"%u">>, <<"test">>, <<"username/%u/client/x">>)),
+    ?assertEqual(<<"username/test/client/clientId">>,
+                 feed_var(<<"%c">>, <<"clientId">>, <<"username/test/client/%c">>)).
 
 join_test() ->
-    ?assertEqual(<<"/ab/cd/ef/">>, emqttd_topic:join(words(<<"/ab/cd/ef/">>))),
-    ?assertEqual(<<"ab/+/#">>, emqttd_topic:join(words(<<"ab/+/#">>))).
+    ?assertEqual(<<"/ab/cd/ef/">>, join(words(<<"/ab/cd/ef/">>))),
+    ?assertEqual(<<"ab/+/#">>, join(words(<<"ab/+/#">>))),
+    ?assertEqual( <<"x/y/z/+">>, join([<<"x">>, <<"y">>, <<"z">>, '+']) ),
+    ?assertEqual( <<>>, join([]) ),
+    ?assertEqual( <<"x">>, join([<<"x">>]) ),
+    ?assertEqual( <<"#">>, join(['#']) ),
+    ?assertEqual( <<"+//#">>, join(['+', '', '#']) ).
+
+long_topic() ->
+    iolist_to_binary([[integer_to_list(I), "/"] || I <- lists:seq(0, 10000)]).
 
 -endif.

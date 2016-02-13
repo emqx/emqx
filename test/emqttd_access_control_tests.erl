@@ -22,79 +22,72 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-reload_acl_test() ->
-    with_acl(
-        fun() ->
-            ?assertEqual([ok], emqttd_access_control:reload_acl())
-        end).
+-define(AC, emqttd_access_control).
 
-register_mod_test() ->
-    with_acl(
-        fun() ->
-            emqttd_access_control:register_mod(acl, emqttd_acl_test_mod, []),
-            ?assertMatch([{emqttd_acl_test_mod, _, 0}, {emqttd_acl_internal, _, 0}],
-                          emqttd_access_control:lookup_mods(acl)),
-	    emqttd_access_control:register_mod(auth, emqttd_auth_anonymous_test_mod,[]),
-	    emqttd_access_control:register_mod(auth, emqttd_auth_dashboard, [], 99),
-	    ?assertMatch([{emqttd_auth_dashboard, _, 99},
-                      {emqttd_auth_anonymous_test_mod, _, 0},
-                      {emqttd_auth_anonymous, _, 0}],
-                     emqttd_access_control:lookup_mods(auth))
-        end).
+acl_test_() ->
+    {foreach,
+     fun setup/0,
+     fun teardown/1,
+     [?_test(t_reload_acl()),
+      ?_test(t_register_mod()),
+      ?_test(t_unregister_mod()),
+      ?_test(t_check_acl())
+     ]}.
 
-unregister_mod_test() ->
-    with_acl(
-        fun() ->
-            emqttd_access_control:register_mod(acl, emqttd_acl_test_mod, []),
-            ?assertMatch([{emqttd_acl_test_mod, _, 0}, {emqttd_acl_internal, _, 0}],
-                          emqttd_access_control:lookup_mods(acl)),
-            emqttd_access_control:unregister_mod(acl, emqttd_acl_test_mod),
-            timer:sleep(5),
-            ?assertMatch([{emqttd_acl_internal, _, 0}], emqttd_access_control:lookup_mods(acl)),
-	
-	    emqttd_access_control:register_mod(auth, emqttd_auth_anonymous_test_mod,[]),
-	    ?assertMatch([{emqttd_auth_anonymous_test_mod, _, 0}, {emqttd_auth_anonymous, _, 0}],
-                          emqttd_access_control:lookup_mods(auth)),
-		
-	    emqttd_access_control:unregister_mod(auth, emqttd_auth_anonymous_test_mod),
-            timer:sleep(5),
-            ?assertMatch([{emqttd_auth_anonymous, _, 0}], emqttd_access_control:lookup_mods(auth))
-        end).
-
-check_acl_test() ->
-    with_acl(
-        fun() ->
-            User1 = #mqtt_client{client_id = <<"client1">>, username = <<"testuser">>},
-            User2 = #mqtt_client{client_id = <<"client2">>, username = <<"xyz">>},
-            ?assertEqual(allow, emqttd_access_control:check_acl(User1, subscribe, <<"users/testuser/1">>)),
-	    ?assertEqual(allow, emqttd_access_control:check_acl(User1, subscribe, <<"clients/client1">>)),
-	    ?assertEqual(deny, emqttd_access_control:check_acl(User1, subscribe, <<"clients/client1/x/y">>)),
-            ?assertEqual(allow, emqttd_access_control:check_acl(User1, publish, <<"users/testuser/1">>)),
-            ?assertEqual(allow, emqttd_access_control:check_acl(User1, subscribe, <<"a/b/c">>)),
-            ?assertEqual(deny, emqttd_access_control:check_acl(User2, subscribe, <<"a/b/c">>))
-        end).
-
-with_acl(Fun) ->
-    process_flag(trap_exit, true),
+setup() ->
     AclOpts = [
-        {auth, [
-            %% Authentication with username, password
-            %{username, []},
-            %% Authentication with clientid
-            %{clientid, [{password, no}, {file, "etc/clients.config"}]},
-            %% Allow all
-            {anonymous, []}
-        ]},
-        %% ACL config
-        {acl, [
+        {auth, [{anonymous, []}]},
+        {acl, [ %% ACL config
             %% Internal ACL module
-            {internal,  [{file, "../test/test_acl.config"}, {nomatch, allow}]}
+            {internal,  [{file, "./testdata/test_acl.config"}, {nomatch, allow}]}
         ]}
     ],
-    %application:set_env(emqttd, access, AclOpts),
-    emqttd_access_control:start_link(AclOpts),
-    Fun(),
-    emqttd_access_control:stop().
+    ?AC:start_link(AclOpts).
+
+teardown({ok, _Pid}) ->
+    ?AC:stop().
+
+t_reload_acl() ->
+    ?assertEqual([ok], ?AC:reload_acl()).
+
+t_register_mod() ->
+    ?AC:register_mod(acl, emqttd_acl_test_mod, []),
+    ?assertMatch([{emqttd_acl_test_mod, _, 0},
+                  {emqttd_acl_internal, _, 0}],
+                 ?AC:lookup_mods(acl)),
+    ?AC:register_mod(auth, emqttd_auth_anonymous_test_mod,[]),
+    ?AC:register_mod(auth, emqttd_auth_dashboard, [], 99),
+    ?assertMatch([{emqttd_auth_dashboard, _, 99},
+                  {emqttd_auth_anonymous_test_mod, _, 0},
+                  {emqttd_auth_anonymous, _, 0}],
+                 ?AC:lookup_mods(auth)).
+
+t_unregister_mod() ->
+    ?AC:register_mod(acl, emqttd_acl_test_mod, []),
+    ?assertMatch([{emqttd_acl_test_mod, _, 0}, {emqttd_acl_internal, _, 0}],
+                 ?AC:lookup_mods(acl)),
+    ?AC:unregister_mod(acl, emqttd_acl_test_mod),
+    timer:sleep(5),
+    ?assertMatch([{emqttd_acl_internal, _, 0}], ?AC:lookup_mods(acl)),
+
+    ?AC:register_mod(auth, emqttd_auth_anonymous_test_mod,[]),
+    ?assertMatch([{emqttd_auth_anonymous_test_mod, _, 0},
+                  {emqttd_auth_anonymous, _, 0}],
+                 ?AC:lookup_mods(auth)),
+
+    ?AC:unregister_mod(auth, emqttd_auth_anonymous_test_mod),
+    timer:sleep(5),
+    ?assertMatch([{emqttd_auth_anonymous, _, 0}], ?AC:lookup_mods(auth)).
+
+t_check_acl() ->
+    User1 = #mqtt_client{client_id = <<"client1">>, username = <<"testuser">>},
+    User2 = #mqtt_client{client_id = <<"client2">>, username = <<"xyz">>},
+    ?assertEqual(allow, ?AC:check_acl(User1, subscribe, <<"users/testuser/1">>)),
+    ?assertEqual(allow, ?AC:check_acl(User1, subscribe, <<"clients/client1">>)),
+    ?assertEqual(deny, ?AC:check_acl(User1, subscribe, <<"clients/client1/x/y">>)),
+    ?assertEqual(allow, ?AC:check_acl(User1, publish, <<"users/testuser/1">>)),
+    ?assertEqual(allow, ?AC:check_acl(User1, subscribe, <<"a/b/c">>)),
+    ?assertEqual(deny, ?AC:check_acl(User2, subscribe, <<"a/b/c">>)).
 
 -endif.
 

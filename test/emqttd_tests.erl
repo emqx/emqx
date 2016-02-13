@@ -20,5 +20,12 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+start_stop_test() ->
+    application:start(lager),
+    application:ensure_all_started(emqttd),
+    application:stop(emqttd),
+    application:stop(esockd),
+    application:stop(gproc).
+
 -endif.
 

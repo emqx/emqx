@@ -25,7 +25,15 @@
 -import(emqttd_serializer, [serialize/1]).
 
 serialize_connect_test() ->
-    serialize(?CONNECT_PACKET(#mqtt_packet_connect{})).
+    serialize(?CONNECT_PACKET(#mqtt_packet_connect{})),
+    serialize(?CONNECT_PACKET(#mqtt_packet_connect{
+                client_id = <<"clientId">>,
+                will_qos = ?QOS1,
+                will_flag = true,
+                will_retain = true,
+                will_topic = <<"will">>,
+                will_msg = <<"haha">>,
+                clean_sess = true})).
 
 serialize_connack_test() ->
     ConnAck = #mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK}, 
@@ -34,7 +42,8 @@ serialize_connack_test() ->
 
 serialize_publish_test() ->
     serialize(?PUBLISH_PACKET(?QOS_0, <<"Topic">>, undefined, <<"Payload">>)),
-    serialize(?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 938, <<"Payload">>)).
+    serialize(?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 938, <<"Payload">>)),
+    serialize(?PUBLISH_PACKET(?QOS_2, <<"Topic">>, 99, long_payload())).
 
 serialize_puback_test() ->
     serialize(?PUBACK_PACKET(?PUBACK, 10384)).
@@ -63,6 +72,9 @@ serialize_pingresp_test() ->
 
 serialize_disconnect_test() ->
     serialize(?PACKET(?DISCONNECT)).
+
+long_payload() ->
+    iolist_to_binary(["payload." || _I <- lists:seq(1, 100)]).
 
 -endif.
 

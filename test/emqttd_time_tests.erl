@@ -20,7 +20,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-test_() ->
+all_test() ->
     emqttd_time:seed(),
     emqttd_time:now_to_secs(),
     emqttd_time:now_to_ms().

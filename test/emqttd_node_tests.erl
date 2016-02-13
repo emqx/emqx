@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2016 Feng Lee <feng@emqtt.io>.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,23 +14,22 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqttd_mod_subscription_tests).
+-module(emqttd_node_tests).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -ifdef(TEST).
 
--include("emqttd.hrl").
-
 -include_lib("eunit/include/eunit.hrl").
 
--define(M, emqttd_mod_subscription).
+is_aliving_test() ->
+    ?debugFmt("Node: ~p~n", [node()]),
+    ?assert(emqttd_node:is_aliving(node())),
+    ?assertNot(emqttd_node:is_aliving('x@127.0.0.1')).
 
-rep_test() ->
-    ?assertEqual(<<"topic/clientId">>,
-                    ?M:rep(<<"$c">>, <<"clientId">>, <<"topic/$c">>)),
-    ?assertEqual(<<"topic/username">>,
-                    ?M:rep(<<"$u">>, <<"username">>, <<"topic/$u">>)),
-    ?assertEqual(<<"topic/username/clientId">>,
-                 ?M:rep(<<"$c">>, <<"clientId">>,
-                       ?M:rep(<<"$u">>, <<"username">>, <<"topic/$u/$c">>))).
+parse_name_test() ->
+    ?assertEqual('a@127.0.0.1', emqttd_node:parse_name("a@127.0.0.1")),
+    ?assertEqual('b@127.0.0.1', emqttd_node:parse_name("b")).
 
 -endif.
+

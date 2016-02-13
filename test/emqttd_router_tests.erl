@@ -16,31 +16,35 @@
 
 -module(emqttd_router_tests).
 
--include("emqttd.hrl").
-
 -ifdef(TEST).
+
+-include("emqttd.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 
 -define(R, emqttd_router).
 
 route_test_() ->
-    {foreach,
-     fun setup/0, fun teardown/1,
-     [?_test(t_add_route()),
-      ?_test(t_add_routes()),
-      ?_test(t_delete_route()),
-      ?_test(t_delete_routes()),
-      ?_test(t_route())
-     ]}. 
+    {timeout, 60,
+     [{setup,
+       fun setup/0,
+       fun teardown/1,
+       [?_test(t_add_del_route()),
+        ?_test(t_add_del_routes()),
+        ?_test(t_route())
+       ]}
+     ]}.
 
 setup() ->
     application:start(gproc),
-    ensure_tab(route, [public, named_table, duplicate_bag]),
+    application:start(mnesia),
+    emqttd_pubsub:create_table(topic, ram_copies),
+    emqttd_trie:mnesia(boot),
+    emqttd_pubsub_sup:create_tab(route),
     gproc_pool:new(router, hash, [{size, 2}]),
     lists:foreach(fun(I) ->
                 gproc_pool:add_worker(router, {router, I}, I),
-                {ok, R} = ?R:start_link(router, I, fun(_) -> ok end, [])
+                {ok, R} = ?R:start_link(router, I, fun(_) -> ok end, [{route_aging, 2}])
         end, [1, 2]).
 
 ensure_tab(Tab, Opts) ->
@@ -54,18 +58,29 @@ teardown(_) ->
             ?R:stop(I), gproc_pool:remove_worker(router, {router, I})
         end, [1, 2]),
     gproc_pool:delete(router),
-    ets:delete(route).
+    ets:delete(route),
+    application:stop(gproc).
 
-t_add_route() ->
+t_add_del_route() ->
     Self = self(),
     ?R:add_route(<<"topic1">>, Self),
     ?assert(?R:has_route(<<"topic1">>)),
     ?R:add_route(<<"topic2">>, Self),
     ?assert(?R:has_route(<<"topic2">>)),
     ?assertEqual([Self], ?R:lookup_routes(<<"topic1">>)),
-    ?assertEqual([Self], ?R:lookup_routes(<<"topic2">>)).
+    ?assertEqual([Self], ?R:lookup_routes(<<"topic2">>)),
+    %% Del topic1
+    ?R:delete_route(<<"topic1">>, Self),
+    erlang:yield(),
+    timer:sleep(10),
+    ?assertNot(?R:has_route(<<"topic1">>)),
+    %% Del topic2
+    ?R:delete_route(<<"topic2">>, Self),
+    erlang:yield(),
+    timer:sleep(10),
+    ?assertNot(?R:has_route(<<"topic2">>)).
 
-t_add_routes() ->
+t_add_del_routes() ->
     Self = self(),
     ?R:add_routes([], Self),
     ?R:add_routes([<<"t0">>], Self),
@@ -73,29 +88,16 @@ t_add_routes() ->
     ?assert(?R:has_route(<<"t1">>)),
     ?assertEqual([Self], ?R:lookup_routes(<<"t1">>)),
     ?assertEqual([Self], ?R:lookup_routes(<<"t2">>)),
-    ?assertEqual([Self], ?R:lookup_routes(<<"t3">>)).
+    ?assertEqual([Self], ?R:lookup_routes(<<"t3">>)),
 
-t_delete_route() ->
-    Self = self(),
-    ?R:add_routes([<<"t1">>,<<"t2">>,<<"t3">>], Self),
-    ?assert(?R:has_route(<<"t1">>)),
-    ?R:delete_route(<<"t2">>, Self),
-    erlang:yield(),
-    ?assertNot(?R:has_route(<<"t2">>)),
-    ?assert(?R:has_route(<<"t1">>)),
-    ?R:delete_route(<<"t3">>, Self),
-    erlang:yield(),
-    ?assertNot(?R:has_route(<<"t3">>)).
-
-t_delete_routes() ->
-    Self = self(),
-    ?R:add_routes([<<"t1">>,<<"t2">>,<<"t3">>], Self),
     ?R:delete_routes([<<"t3">>], Self),
-    erlang:yield(), %% for delete_routes is cast
-    ?assertNot(?R:has_route(<<"t3">>)),
-    ?R:delete_routes([<<"t1">>, <<"t2">>], Self),
+    ?R:delete_routes([<<"t0">>, <<"t1">>], Self),
     erlang:yield(),
-    ?assertNot(?R:has_route(<<"t2">>)).
+    timer:sleep(10),
+    ?assertNot(?R:has_route(<<"t0">>)),
+    ?assertNot(?R:has_route(<<"t1">>)),
+    ?assert(?R:has_route(<<"t2">>)),
+    ?assertNot(?R:has_route(<<"t3">>)).
 
 t_route() ->
     Self = self(),
