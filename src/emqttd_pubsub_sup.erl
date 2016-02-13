@@ -31,6 +31,10 @@
 %% Supervisor callbacks
 -export([init/1]).
 
+-ifdef(TEST).
+-compile(export_all).
+-endif.
+
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, [emqttd_broker:env(pubsub)]).
 

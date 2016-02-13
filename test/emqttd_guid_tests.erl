@@ -25,7 +25,6 @@ gen_test() ->
     Guid2 = emqttd_guid:gen(),
     ?assertMatch(<<_:128>>, Guid1),
     ?assertEqual(true, Guid2 >= Guid1),
-    emqttd_guid:ts(r17),
     {Ts, _, 0} = Tup = emqttd_guid:new(),
     ?assertEqual(Ts, emqttd_guid:timestamp(emqttd_guid:bin(Tup))).
 

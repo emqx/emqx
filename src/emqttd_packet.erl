@@ -26,9 +26,13 @@
 
 -export([format/1]).
 
+-ifdef(TEST).
+-compile(export_all).
+-endif.
+
 %% @doc Protocol name of version
--spec protocol_name(mqtt_vsn()) -> binary(). 
-protocol_name(Ver) when Ver =:= ?MQTT_PROTO_V31; Ver =:= ?MQTT_PROTO_V311->
+-spec protocol_name(mqtt_vsn()) -> binary().
+protocol_name(Ver) when Ver =:= ?MQTT_PROTO_V31; Ver =:= ?MQTT_PROTO_V311 ->
     proplists:get_value(Ver, ?PROTOCOL_NAMES).
 
 %% @doc Name of MQTT packet type
@@ -38,12 +42,12 @@ type_name(Type) when Type > ?RESERVED andalso Type =< ?DISCONNECT ->
 
 %% @doc Connack Name
 -spec connack_name(mqtt_connack()) -> atom().
-connack_name(?CONNACK_ACCEPT)       -> 'CONNACK_ACCEPT';
-connack_name(?CONNACK_PROTO_VER)    -> 'CONNACK_PROTO_VER';
-connack_name(?CONNACK_INVALID_ID )  -> 'CONNACK_INVALID_ID';
-connack_name(?CONNACK_SERVER)       -> 'CONNACK_SERVER';
-connack_name(?CONNACK_CREDENTIALS)  -> 'CONNACK_CREDENTIALS';
-connack_name(?CONNACK_AUTH)         -> 'CONNACK_AUTH'.
+connack_name(?CONNACK_ACCEPT)      -> 'CONNACK_ACCEPT';
+connack_name(?CONNACK_PROTO_VER)   -> 'CONNACK_PROTO_VER';
+connack_name(?CONNACK_INVALID_ID)  -> 'CONNACK_INVALID_ID';
+connack_name(?CONNACK_SERVER)      -> 'CONNACK_SERVER';
+connack_name(?CONNACK_CREDENTIALS) -> 'CONNACK_CREDENTIALS';
+connack_name(?CONNACK_AUTH)        -> 'CONNACK_AUTH'.
 
 %% @doc Format packet
 -spec format(mqtt_packet()) -> iolist().
