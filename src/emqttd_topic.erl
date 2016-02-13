@@ -14,7 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc MQTT Topic Functions
 -module(emqttd_topic).
 
 -import(lists, [reverse/1]).
@@ -22,6 +21,10 @@
 -export([match/2, validate/1, triples/1, words/1, wildcard/1]).
 
 -export([join/1, feed_var/3, is_queue/1, systop/1]).
+
+-ifdef(TEST).
+-compile(export_all).
+-endif.
 
 -type topic() :: binary().
 
@@ -143,6 +146,8 @@ word(Bin)     -> Bin.
 %% @doc Queue is a special topic name that starts with "$Q/"
 -spec is_queue(topic()) -> boolean().
 is_queue(<<"$Q/", _Queue/binary>>) ->
+    true;
+is_queue(<<"$q/", _Queue/binary>>) ->
     true;
 is_queue(_) ->
     false.
