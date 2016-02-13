@@ -14,8 +14,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc MQTT Topic Trie: [Trie](http://en.wikipedia.org/wiki/Trie)
+%% @doc MQTT Topic Trie:
+%% [Trie](http://en.wikipedia.org/wiki/Trie)
+%% @end
 -module(emqttd_trie).
+
+-include("emqttd_trie.hrl").
 
 %% Mnesia Callbacks
 -export([mnesia/1]).
@@ -25,24 +29,6 @@
 
 %% Trie API
 -export([insert/1, match/1, delete/1, lookup/1]).
-
--type node_id() :: binary() | atom().
-
--record(trie_node, {
-    node_id         :: node_id(),
-    edge_count = 0  :: non_neg_integer(),
-    topic           :: binary() | undefined
-}).
-
--record(trie_edge, {
-    node_id        :: node_id(),
-    word           :: binary() | atom()
-}).
-
--record(trie, {
-    edge          :: #trie_edge{},
-    node_id       :: node_id()
-}).
 
 %%--------------------------------------------------------------------
 %% Mnesia Callbacks
@@ -72,7 +58,7 @@ mnesia(copy) ->
 %% Trie API
 %%--------------------------------------------------------------------
 
-%% @doc Insert topic to trie tree.
+%% @doc Insert topic to trie
 -spec insert(Topic :: binary()) -> ok.
 insert(Topic) when is_binary(Topic) ->
     case mnesia:read(trie_node, Topic) of
@@ -112,7 +98,7 @@ delete(Topic) when is_binary(Topic) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Internal functions
+%% Internal Functions
 %%--------------------------------------------------------------------
 
 %% @private

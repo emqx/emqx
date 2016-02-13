@@ -30,6 +30,9 @@
 %% Schema and tables
 -export([copy_schema/1, delete_schema/0, del_schema_copy/1,
          create_table/2, copy_table/1, copy_table/2]).
+-ifdef(TEST).
+-compile(export_all).
+-endif.
 
 %%--------------------------------------------------------------------
 %% Start and init mnesia
@@ -187,8 +190,8 @@ remove_from_cluster(Node) when Node =/= node() ->
             ensure_ok(del_schema_copy(Node)),
             ensure_ok(rpc:call(Node, ?MODULE, delete_schema, []));
         {true, false} ->
-            ensure_ok(zenmq_mnesia:del_schema_copy(Node)),
-            ensure_ok(rpc:call(Node, ?MODULE, delete_schema, [Node]));
+            ensure_ok(del_schema_copy(Node)),
+            ensure_ok(rpc:call(Node, ?MODULE, delete_schema, []));
         {false, _} ->
             {error, node_not_in_cluster}
     end.
@@ -228,14 +231,14 @@ ensure_tab({aborted, {already_exists, _Name}})       -> ok;
 ensure_tab({aborted, {already_exists, _Name, _Node}})-> ok;
 ensure_tab({aborted, Error})                         -> Error.
 
-%% @doc Wait for mnesia to start, stop or copy tables.
+%% @doc Wait for mnesia to start, stop or tables ready.
 -spec wait_for(start | stop | tables) -> ok | {error, Reason :: atom()}.
 wait_for(start) ->
     case mnesia:system_info(is_running) of
         yes      -> ok;
         no       -> {error, mnesia_unexpectedly_stopped};
         stopping -> {error, mnesia_unexpectedly_stopping};
-        starting -> timer:sleep(500), wait_for(start)
+        starting -> timer:sleep(1000), wait_for(start)
     end;
  
 wait_for(stop) ->
@@ -243,7 +246,7 @@ wait_for(stop) ->
         no       -> ok;
         yes      -> {error, mnesia_unexpectedly_running};
         starting -> {error, mnesia_unexpectedly_starting};
-        stopping -> timer:sleep(500), wait_for(stop)
+        stopping -> timer:sleep(1000), wait_for(stop)
     end;
 
 wait_for(tables) ->

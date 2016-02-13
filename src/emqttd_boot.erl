@@ -18,6 +18,10 @@
 
 -export([apply_module_attributes/1, all_module_attributes/1]).
 
+-ifdef(TEST).
+-compile(export_all).
+-endif.
+
 %% only {F, Args}...
 apply_module_attributes(Name) ->
     [{Module, [apply(Module, F, Args) || {F, Args} <- Attrs]} || 
@@ -43,7 +47,7 @@ all_module_attributes(Name) ->
 %% Copy from rabbit_misc.erl
 module_attributes(Module) ->
     case catch Module:module_info(attributes) of
-        {'EXIT', {undef, [{Module, module_info, _} | _]}} ->
+        {'EXIT', {undef, [{Module, module_info, [attributes], []} | _]}} ->
             [];
         {'EXIT', Reason} ->
             exit(Reason);
