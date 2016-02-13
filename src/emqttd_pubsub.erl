@@ -102,7 +102,7 @@ env(Key) ->
     end.
 
 cache_env(Key) ->
-    Val = emqttd_opts:g(Key, emqttd_broker:env(pubsub)),
+    Val = proplists:get_value(Key, emqttd_broker:env(pubsub)),
     put({pubsub, Key}, Val),
     Val.
 
