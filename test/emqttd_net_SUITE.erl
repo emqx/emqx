@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2016 Feng Lee <feng@emqtt.io>.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,25 +14,31 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqttd_keepalive_tests).
+-module(emqttd_net_SUITE).
 
--ifdef(TEST).
+%% CT
+-compile(export_all).
 
--include_lib("eunit/include/eunit.hrl").
+all() -> [{group, keepalive}].
 
-keepalive_test() ->
+groups() -> [{keepalive, [], [t_keepalive]}].
+
+%%--------------------------------------------------------------------
+%% Keepalive
+%%--------------------------------------------------------------------
+
+t_keepalive(_) ->
     KA = emqttd_keepalive:start(fun() -> {ok, 1} end, 1, {keepalive, timeout}),
-    ?assertEqual([resumed, timeout], lists:reverse(loop(KA, []))).
+    [resumed, timeout] = lists:reverse(keepalive_recv(KA, [])).
 
-loop(KA, Acc) ->
+keepalive_recv(KA, Acc) ->
     receive
         {keepalive, timeout} ->
             case emqttd_keepalive:check(KA) of
-                {ok, KA1} -> loop(KA1, [resumed | Acc]);
+                {ok, KA1} -> keepalive_recv(KA1, [resumed | Acc]);
                 {error, timeout} -> [timeout | Acc]
             end
         after 4000 ->
                 Acc
     end.
 
--endif.

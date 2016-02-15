@@ -14,23 +14,23 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqttd_mod_subscription_tests).
+-module(emqttd_backend_SUITE).
 
--ifdef(TEST).
+-compile(export_all).
 
--include("emqttd.hrl").
+all() -> [{group, retainer}].
 
--include_lib("eunit/include/eunit.hrl").
+groups() -> [{retainer, [], [t_retain]}].
 
--define(M, emqttd_mod_subscription).
+init_per_group(retainer, _Config) ->
+    ok = emqttd_mnesia:ensure_started(),
+    emqttd_retainer:mnesia(boot),
+    emqttd_retainer:mnesia(copy).
 
-rep_test() ->
-    ?assertEqual(<<"topic/clientId">>,
-                    ?M:rep(<<"$c">>, <<"clientId">>, <<"topic/$c">>)),
-    ?assertEqual(<<"topic/username">>,
-                    ?M:rep(<<"$u">>, <<"username">>, <<"topic/$u">>)),
-    ?assertEqual(<<"topic/username/clientId">>,
-                 ?M:rep(<<"$c">>, <<"clientId">>,
-                       ?M:rep(<<"$u">>, <<"username">>, <<"topic/$u/$c">>))).
+end_per_group(retainer, _Config) ->
+    ok;
+end_per_group(_Group, _Config) ->
+    ok.
 
--endif.
+t_retain(_) -> ok.
+

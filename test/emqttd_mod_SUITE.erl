@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2016 Feng Lee <feng@emqtt.io>.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,21 +14,22 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqttd_guid_tests).
+-module(emqttd_mod_SUITE).
 
--ifdef(TEST).
+-compile(export_all).
 
--include_lib("eunit/include/eunit.hrl").
+-include("emqttd.hrl").
 
-gen_test() ->
-    Guid1 = emqttd_guid:gen(),
-    Guid2 = emqttd_guid:gen(),
-    ?assertMatch(<<_:128>>, Guid1),
-    ?assertEqual(true, Guid2 >= Guid1),
-    {Ts, _, 0} = Tup = emqttd_guid:new(),
-    ?assertEqual(Ts, emqttd_guid:timestamp(emqttd_guid:bin(Tup))).
+all() -> [mod_subscription_rep].
 
--endif.
-
+mod_subscription_rep(_) -> ok.
+%%    <<"topic/clientId">> = emqttd_mod_subscription:rep(
+%%            <<"$c">>, <<"clientId">>, <<"topic/$c">>),
+%%   <<"topic/username">> = emqttd_mod_subscription:rep(
+%%           <<"$u">>, <<"username">>, <<"topic/$u">>),
+%%   <<"topic/username/clientId">> = emqttd_mod_subscription:rep(
+%%           <<"$c">>, <<"clientId">>, emqttd_mod_subscription:rep(
+%%               <<"$u">>, <<"username">>, <<"topic/$u/$c">>)).
+ 
 
 

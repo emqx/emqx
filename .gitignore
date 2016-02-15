@@ -19,3 +19,10 @@ log/
 *.so
 examples
 docs/build/*
+.erlang.mk/
+cover/
+emqttd.d
+eunit.coverdata
+test/ct.cover.spec
+logs
+ct.coverdata

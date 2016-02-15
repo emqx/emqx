@@ -26,7 +26,10 @@ clean:
 	@$(REBAR) clean
 
 test:
-	@ERL_FLAGS="-args_file rel/files/vm.args -config rel/files/test.config" $(REBAR) skip_deps=true eunit
+	$(REBAR) skip_deps=true eunit
+
+ct:
+	ERL_FLAGS="-config rel/files/test.config" $(REBAR) -v skip_deps=true ct
 
 edoc:
 	@$(REBAR) doc
