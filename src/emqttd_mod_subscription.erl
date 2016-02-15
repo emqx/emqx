@@ -27,10 +27,6 @@
 
 -record(state, {topics, stored = false}).
 
--ifdef(TEST).
--compile(export_all).
--endif.
-
 load(Opts) ->
     Topics = [{iolist_to_binary(Topic), QoS} || {Topic, QoS} <- Opts, ?IS_QOS(QoS)],
     State = #state{topics = Topics, stored = lists:member(stored, Opts)},

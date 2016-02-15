@@ -18,10 +18,6 @@
 
 -export([apply_module_attributes/1, all_module_attributes/1]).
 
--ifdef(TEST).
--compile(export_all).
--endif.
-
 %% only {F, Args}...
 apply_module_attributes(Name) ->
     [{Module, [apply(Module, F, Args) || {F, Args} <- Attrs]} || 

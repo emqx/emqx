@@ -26,10 +26,6 @@
 
 -export([format/1]).
 
--ifdef(TEST).
--compile(export_all).
--endif.
-
 %% @doc Protocol name of version
 -spec protocol_name(mqtt_vsn()) -> binary().
 protocol_name(Ver) when Ver =:= ?MQTT_PROTO_V31; Ver =:= ?MQTT_PROTO_V311 ->

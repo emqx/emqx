@@ -28,10 +28,6 @@
 
 -export([format/1]).
 
--ifdef(TEST).
--compile(export_all).
--endif.
-
 %% @doc Make a message
 -spec make(From, Topic, Payload) -> mqtt_message() when
     From    :: atom() | binary(),

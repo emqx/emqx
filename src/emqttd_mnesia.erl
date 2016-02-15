@@ -30,9 +30,6 @@
 %% Schema and tables
 -export([copy_schema/1, delete_schema/0, del_schema_copy/1,
          create_table/2, copy_table/1, copy_table/2]).
--ifdef(TEST).
--compile(export_all).
--endif.
 
 %%--------------------------------------------------------------------
 %% Start and init mnesia
