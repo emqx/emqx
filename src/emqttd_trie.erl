@@ -68,7 +68,7 @@ insert(Topic) when is_binary(Topic) ->
         mnesia:write(TrieNode#trie_node{topic=Topic});
     [] ->
         %add trie path
-        [add_path(Triple) || Triple <- emqttd_topic:triples(Topic)],
+        lists:foreach(fun add_path/1, emqttd_topic:triples(Topic)),
         %add last node
         mnesia:write(#trie_node{node_id=Topic, topic=Topic})
     end.
