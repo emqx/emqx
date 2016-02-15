@@ -47,8 +47,9 @@ init([Env]) ->
 
     %% Router Pool Sup
     RouterMFA = {emqttd_router, start_link, [fun setstats/1, Env]},
+
     %% Pool_size / 2
-    RouterSup = emqttd_pool_sup:spec(router_pool, [router, hash, 1 + (pool_size(Env) div 2), RouterMFA]),
+    RouterSup = emqttd_pool_sup:spec(router_pool, [router, hash, router_pool(Env), RouterMFA]),
 
     %% PubSub Pool Sup
     PubSubMFA = {emqttd_pubsub, start_link, [fun setstats/1, Env]},
@@ -69,6 +70,12 @@ ensure_tab(Tab, Opts) ->
     case ets:info(Tab, name) of
         undefined -> ets:new(Tab, Opts);
         _ -> ok
+    end.
+
+router_pool(Env) ->
+    case pool_size(Env) div 2 of
+        0 -> 1;
+        I -> I
     end.
 
 pool_size(Env) ->
