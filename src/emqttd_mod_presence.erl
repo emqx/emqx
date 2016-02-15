@@ -1,28 +1,20 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 eMQTT.IO, All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc emqttd presence management module
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc emqttd presence management module
 -module(emqttd_mod_presence).
 
 -behaviour(emqttd_gen_mod).
@@ -38,7 +30,7 @@ load(Opts) ->
                         {?MODULE, client_connected, [Opts]}),
     emqttd_broker:hook('client.disconnected', {?MODULE, client_disconnected},
                         {?MODULE, client_disconnected, [Opts]}),
-    {ok, Opts}.
+    ok.
 
 client_connected(ConnAck, #mqtt_client{client_id  = ClientId,
                                        username   = Username,
@@ -55,7 +47,7 @@ client_connected(ConnAck, #mqtt_client{client_id  = ClientId,
                               {session, Sess},
                               {protocol, ProtoVer},
                               {connack, ConnAck},
-                              {ts, emqttd_util:now_to_secs()}]),
+                              {ts, emqttd_time:now_to_secs()}]),
     Msg = emqttd_message:make(presence,
                               proplists:get_value(qos, Opts, 0),
                               topic(connected, ClientId),
@@ -65,7 +57,7 @@ client_connected(ConnAck, #mqtt_client{client_id  = ClientId,
 client_disconnected(Reason, ClientId, Opts) ->
     Json = mochijson2:encode([{clientid, ClientId},
                               {reason, reason(Reason)},
-                              {ts, emqttd_util:now_to_secs()}]),
+                              {ts, emqttd_time:now_to_secs()}]),
     Msg = emqttd_message:make(presence,
                               proplists:get_value(qos, Opts, 0),
                               topic(disconnected, ClientId),
@@ -84,5 +76,4 @@ topic(disconnected, ClientId) ->
 reason(Reason) when is_atom(Reason)    -> Reason;
 reason({Error, _}) when is_atom(Error) -> Error;
 reason(_) -> internal_error.
-
 

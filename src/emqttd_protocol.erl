@@ -1,28 +1,20 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 eMQTT.IO, All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc emqttd protocol.
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc MQTT Protocol Processor.
 -module(emqttd_protocol).
 
 -include("emqttd.hrl").
@@ -30,6 +22,8 @@
 -include("emqttd_protocol.hrl").
 
 -include("emqttd_internal.hrl").
+
+-import(proplists, [get_value/2, get_value/3]).
 
 %% API
 -export([init/3, info/1, clientid/1, client/1, session/1]).
@@ -55,13 +49,10 @@
             lager:Level([{client, State#proto_state.client_id}], "Client(~s@~s): " ++ Format,
                         [State#proto_state.client_id, esockd_net:format(State#proto_state.peername) | Args])).
 
-%%------------------------------------------------------------------------------
 %% @doc Init protocol
-%% @end
-%%------------------------------------------------------------------------------
 init(Peername, SendFun, Opts) ->
-    MaxLen = emqttd_opts:g(max_clientid_len, Opts, ?MAX_CLIENTID_LEN),
-    WsInitialHeaders = emqttd_opts:g(ws_initial_headers, Opts),
+    MaxLen = get_value(max_clientid_len, Opts, ?MAX_CLIENTID_LEN),
+    WsInitialHeaders = get_value(ws_initial_headers, Opts),
     #proto_state{peername           = Peername,
                  sendfun            = SendFun,
                  max_clientid_len   = MaxLen,
@@ -233,8 +224,9 @@ process(?PACKET(?DISCONNECT), State) ->
     {stop, normal, State#proto_state{will_msg = undefined}}.
 
 publish(Packet = ?PUBLISH_PACKET(?QOS_0, _PacketId),
-        #proto_state{client_id = ClientId, session = Session}) ->
-    emqttd_session:publish(Session, emqttd_message:from_packet(ClientId, Packet));
+        #proto_state{client_id = ClientId, username = Username, session = Session}) ->
+    Msg = emqttd_message:from_packet(Username, ClientId, Packet),
+    emqttd_session:publish(Session, Msg);
 
 publish(Packet = ?PUBLISH_PACKET(?QOS_1, _PacketId), State) ->
     with_puback(?PUBACK, Packet, State);
@@ -243,8 +235,10 @@ publish(Packet = ?PUBLISH_PACKET(?QOS_2, _PacketId), State) ->
     with_puback(?PUBREC, Packet, State).
 
 with_puback(Type, Packet = ?PUBLISH_PACKET(_Qos, PacketId),
-            State = #proto_state{client_id = ClientId, session = Session}) ->
-    Msg = emqttd_message:from_packet(ClientId, Packet),
+            State = #proto_state{client_id = ClientId,
+                                 username = Username,
+                                 session = Session}) ->
+    Msg = emqttd_message:from_packet(Username, ClientId, Packet),
     case emqttd_session:publish(Session, Msg) of
         ok ->
             send(?PUBACK_PACKET(Type, PacketId), State);
@@ -315,9 +309,10 @@ start_keepalive(0) -> ignore;
 start_keepalive(Sec) when Sec > 0 ->
     self() ! {keepalive, start, round(Sec * 1.2)}.
 
-%%----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Validate Packets
-%%----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+
 validate_connect(Connect = #mqtt_packet_connect{}, ProtoState) ->
     case validate_protocol(Connect) of
         true -> 

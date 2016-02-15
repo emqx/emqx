@@ -69,9 +69,9 @@
         %% Packet
         {packet, [
             %% Max ClientId Length Allowed
-            {max_clientid_len, 1024},
+            {max_clientid_len, 512},
             %% Max Packet Size Allowed, 64K default
-            {max_packet_size,  65536}
+            {max_packet_size, 65536}
         ]},
         %% Client
         {client, [
@@ -206,7 +206,7 @@
             {acceptors, 16},
 
             %% Maximum number of concurrent clients
-            {max_clients, 8192},
+            {max_clients, 512},
 
             %% Socket Access Control
             {access, [{allow, all}]},

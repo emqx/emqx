@@ -1,28 +1,19 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 eMQTT.IO, All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc emqttd cli
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
 -module(emqttd_cli).
 
 -include("emqttd.hrl").
@@ -60,14 +51,12 @@ load() ->
 is_cmd(Fun) ->
     not lists:member(Fun, [init, load, module_info]).
 
-%%%=============================================================================
-%%% Commands
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% Commands
+%%--------------------------------------------------------------------
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Node status
-%% @end
-%%------------------------------------------------------------------------------
 status([]) ->
     {InternalStatus, _ProvidedStatus} = init:get_status(),
     ?PRINT("Node ~p is ~p~n", [node(), InternalStatus]),
@@ -80,10 +69,8 @@ status([]) ->
 status(_) ->
      ?PRINT_CMD("status", "query broker status").
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Query broker
-%% @end
-%%------------------------------------------------------------------------------
 broker([]) ->
     Funs = [sysdescr, version, uptime, datetime],
     foreach(fun(Fun) ->
@@ -116,61 +103,48 @@ broker(_) ->
             {"broker stats",   "query broker statistics of clients, topics, subscribers"},
             {"broker metrics", "query broker metrics"}]).
 
-%%------------------------------------------------------------------------------
-%% @doc Cluster with other node
-%% @end
-%%------------------------------------------------------------------------------
-cluster([]) ->
-    Nodes = emqttd_broker:running_nodes(),
-    ?PRINT("cluster nodes: ~p~n", [Nodes]);
-
-cluster(usage) ->
-    ?PRINT_CMD("cluster [<Node>]", "cluster with node, query cluster info");
-
-cluster([SNode]) ->
-    Node = emqttd_dist:parse_node(SNode),
-    case lists:member(Node, emqttd_broker:running_nodes()) of
-        true ->
-            ?PRINT("~s is already clustered~n", [Node]);
-        false ->
-            cluster(Node, fun() ->
-                emqttd_plugins:unload(),
-                stop_apps(),
-                emqttd_mnesia:cluster(Node),
-                start_apps() 
-           end)
+%%--------------------------------------------------------------------
+%% @doc Cluster with other nodes
+cluster(["join", SNode]) ->
+    case emqttd_cluster:join(emqttd_node:parse_name(SNode)) of
+        ok ->
+            ?PRINT_MSG("Join the cluster successfully.~n"),
+            cluster(["status"]);
+        {error, Error} ->
+            ?PRINT("Failed to join the cluster: ~p~n", [Error])
     end;
+
+cluster(["leave"]) ->
+    case emqttd_cluster:leave() of
+        ok ->
+            ?PRINT_MSG("Leave the cluster successfully.~n"),
+            cluster(["status"]);
+        {error, Error} ->
+            ?PRINT("Failed to leave the cluster: ~p~n", [Error])
+    end;
+
+cluster(["remove", SNode]) ->
+    case emqttd_cluster:remove(emqttd_node:parse_name(SNode)) of
+        ok ->
+            ?PRINT_MSG("Remove the node from cluster successfully.~n"),
+            cluster(["status"]);
+        {error, Error} ->
+            ?PRINT("Failed to remove the node from cluster: ~p~n", [Error])
+    end;
+
+cluster(["status"]) ->
+    ?PRINT("Cluster status: ~p~n", [emqttd_cluster:status()]);
 
 cluster(_) ->
-    cluster(usage).
+    ?USAGE([{"cluster join <Node>",  "Join the cluster"},
+            {"cluster leave",        "Leave the cluster"},
+            {"cluster remove <Node>","Remove the node from cluster"},
+            {"cluster status",       "Cluster status"}]).
 
-cluster(Node, DoCluster) ->
-    cluster(net_adm:ping(Node), Node, DoCluster).
-
-cluster(pong, Node, DoCluster) ->
-    case emqttd:is_running(Node) of
-        true ->
-            DoCluster(),
-            ?PRINT("cluster with ~s successfully.~n", [Node]);
-        false ->
-            ?PRINT("emqttd is not running on ~s~n", [Node])
-    end;
-
-cluster(pang, Node, _DoCluster) ->
-    ?PRINT("Cannot connect to ~s~n", [Node]).
-
-stop_apps() ->
-    [application:stop(App) || App <- [emqttd, esockd, gproc]].
-
-start_apps() ->
-    [application:start(App) || App <- [gproc, esockd, emqttd]].
-
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Query clients
-%% @end
-%%------------------------------------------------------------------------------
 clients(["list"]) ->
-    emqttd_mnesia:dump(ets, mqtt_client, fun print/1);
+    dump(ets, mqtt_client, fun print/1);
 
 clients(["show", ClientId]) ->
     if_client(ClientId, fun print/1);
@@ -189,18 +163,16 @@ if_client(ClientId, Fun) ->
         Client    -> Fun(Client)
     end.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Sessions Command
-%% @end
-%%------------------------------------------------------------------------------
 sessions(["list"]) ->
     [sessions(["list", Type]) || Type <- ["persistent", "transient"]];
 
 sessions(["list", "persistent"]) ->
-    emqttd_mnesia:dump(ets, mqtt_persistent_session, fun print/1);
+    dump(ets, mqtt_persistent_session, fun print/1);
 
 sessions(["list", "transient"]) ->
-    emqttd_mnesia:dump(ets, mqtt_transient_session,  fun print/1);
+    dump(ets, mqtt_transient_session,  fun print/1);
 
 sessions(["show", ClientId]) ->
     MP = {{bin(ClientId), '_'}, '_'},
@@ -220,10 +192,8 @@ sessions(_) ->
             {"sessions list transient",  "list all transient sessions"},
             {"sessions show <ClientId>", "show a session"}]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Topics Command
-%% @end
-%%------------------------------------------------------------------------------
 topics(["list"]) ->
     Print = fun(Topic, Records) -> print(topic, Topic, Records) end,
     if_could_print(topic, Print);
@@ -316,11 +286,8 @@ plugins(_) ->
             {"plugins load <Plugin>",   "load plugin"},
             {"plugins unload <Plugin>", "unload plugin"}]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Bridges command
-%% @end
-%%------------------------------------------------------------------------------
-
 bridges(["list"]) ->
     foreach(fun({{Node, Topic}, _Pid}) ->
                 ?PRINT("bridge: ~s--~s-->~s~n", [node(), Topic, Node])
@@ -376,10 +343,8 @@ parse_opt(bridge, queue, Len) ->
 parse_opt(_Cmd, Opt, _Val) ->
     ?PRINT("Bad Option: ~s~n", [Opt]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc vm command
-%% @end
-%%------------------------------------------------------------------------------
 vm([]) ->
     vm(["all"]);
 
@@ -410,20 +375,16 @@ vm(_) ->
             {"vm process", "query process of erlang vm"},
             {"vm io",      "queue io of erlang vm"}]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc mnesia Command
-%% @end
-%%------------------------------------------------------------------------------
 mnesia([]) ->
     mnesia:system_info();
 
 mnesia(_) ->
     ?PRINT_CMD("mnesia", "mnesia system info").
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Trace Command
-%% @end
-%%------------------------------------------------------------------------------
 trace(["list"]) ->
     foreach(fun({{Who, Name}, LogFile}) ->
                 ?PRINT("trace ~s ~s -> ~s~n", [Who, Name, LogFile])
@@ -464,10 +425,8 @@ trace_off(Who, Name) ->
             ?PRINT("stop to trace ~s ~s error: ~p.~n", [Who, Name, Error])
     end.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% @doc Listeners Command
-%% @end
-%%------------------------------------------------------------------------------
 listeners([]) ->
     foreach(fun({{Protocol, Port}, Pid}) ->
                 Info = [{acceptors,      esockd:get_acceptors(Pid)},
@@ -493,7 +452,7 @@ print(#mqtt_client{client_id = ClientId, clean_sess = CleanSess,
     ?PRINT("Client(~s, clean_sess=~s, username=~s, peername=~s, connected_at=~p)~n",
             [ClientId, CleanSess, Username,
              emqttd_net:format(Peername),
-             emqttd_util:now_to_secs(ConnectedAt)]);
+             emqttd_time:now_to_secs(ConnectedAt)]);
 
 print(#mqtt_topic{topic = Topic, node = Node}) ->
     ?PRINT("~s on ~s~n", [Topic, Node]);
@@ -523,7 +482,7 @@ print(subscription, ClientId, Subscriptions) ->
     ?PRINT("~s: ~p~n", [ClientId, TopicTable]).
 
 format(created_at, Val) ->
-    emqttd_util:now_to_secs(Val);
+    emqttd_time:now_to_secs(Val);
 
 format(subscriptions, List) ->
     string:join([io_lib:format("~s:~w", [Topic, Qos]) || {Topic, Qos} <- List], ",");
@@ -531,6 +490,19 @@ format(subscriptions, List) ->
 format(_, Val) ->
     Val.
 
-bin(S) when is_list(S)   -> list_to_binary(S);
-bin(B) when is_binary(B) -> B.
+bin(S) -> iolist_to_binary(S).
+
+%%TODO: ...
+dump(ets, Table, Fun) ->
+    dump(ets, Table, ets:first(Table), Fun).
+
+dump(ets, _Table, '$end_of_table', _Fun) ->
+    ok;
+
+dump(ets, Table, Key, Fun) ->
+    case ets:lookup(Table, Key) of
+        [Record] -> Fun(Record);
+        [] -> ignore
+    end,
+    dump(ets, Table, ets:next(Table, Key), Fun).
 

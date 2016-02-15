@@ -1,29 +1,23 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 eMQTT.IO, All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc Session Manager
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc Session Manager
 -module(emqttd_sm).
+
+-behaviour(gen_server2).
 
 -include("emqttd.hrl").
 
@@ -42,8 +36,6 @@
 
 -export([register_session/3, unregister_session/2]).
 
--behaviour(gen_server2).
-
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -60,9 +52,9 @@
 -define(LOG(Level, Format, Args, Session),
             lager:Level("SM(~s): " ++ Format, [Session#mqtt_session.client_id | Args])).
 
-%%%=============================================================================
-%%% Mnesia callbacks
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% Mnesia callbacks
+%%--------------------------------------------------------------------
 
 mnesia(boot) ->
     %% Global Session Table
@@ -75,31 +67,22 @@ mnesia(boot) ->
 mnesia(copy) ->
     ok = emqttd_mnesia:copy_table(session).
 
-%%%=============================================================================
-%%% API
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
-%%------------------------------------------------------------------------------
 %% @doc Start a session manager
-%% @end
-%%------------------------------------------------------------------------------
 -spec start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
 start_link(Pool, Id) ->
-    gen_server2:start_link({local, emqttd:reg_name(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
+    gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
 
-%%------------------------------------------------------------------------------
 %% @doc Start a session
-%% @end
-%%------------------------------------------------------------------------------
 -spec start_session(CleanSess :: boolean(), binary()) -> {ok, pid(), boolean()} | {error, any()}.
 start_session(CleanSess, ClientId) ->
     SM = gproc_pool:pick_worker(?POOL, ClientId),
     call(SM, {start_session, {CleanSess, ClientId, self()}}).
 
-%%------------------------------------------------------------------------------
 %% @doc Lookup a Session
-%% @end
-%%------------------------------------------------------------------------------
 -spec lookup_session(binary()) -> mqtt_session() | undefined.
 lookup_session(ClientId) ->
     case mnesia:dirty_read(session, ClientId) of
@@ -107,10 +90,7 @@ lookup_session(ClientId) ->
         []        -> undefined
     end.
 
-%%------------------------------------------------------------------------------
 %% @doc Register a session with info.
-%% @end
-%%------------------------------------------------------------------------------
 -spec register_session(CleanSess, ClientId, Info) -> ok when
     CleanSess :: boolean(),
     ClientId  :: binary(),
@@ -118,10 +98,7 @@ lookup_session(ClientId) ->
 register_session(CleanSess, ClientId, Info) ->
     ets:insert(sesstab(CleanSess), {{ClientId, self()}, Info}).
 
-%%------------------------------------------------------------------------------
 %% @doc Unregister a session.
-%% @end
-%%------------------------------------------------------------------------------
 -spec unregister_session(CleanSess, ClientId) -> ok when
     CleanSess :: boolean(),
     ClientId  :: binary().
@@ -134,9 +111,9 @@ sesstab(false) -> mqtt_persistent_session.
 call(SM, Req) ->
     gen_server2:call(SM, Req, ?TIMEOUT). %%infinity).
 
-%%%=============================================================================
-%%% gen_server callbacks
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% gen_server callbacks
+%%--------------------------------------------------------------------
 
 init([Pool, Id]) ->
     ?GPROC_POOL(join, Pool, Id),
@@ -213,9 +190,9 @@ terminate(_Reason, #state{pool = Pool, id = Id}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%%=============================================================================
-%%% Internal functions
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
 %% Create Session Locally
 create_session({CleanSess, ClientId, ClientPid}, State) ->

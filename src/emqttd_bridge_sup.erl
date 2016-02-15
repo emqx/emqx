@@ -1,103 +1,73 @@
-%%%-----------------------------------------------------------------------------
-%%% Copyright (c) 2012-2016 eMQTT.IO, All Rights Reserved.
-%%%
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%-----------------------------------------------------------------------------
-%%% @doc Bridge Supervisor
-%%%
-%%% @author Feng Lee <feng@emqtt.io>
-%%%-----------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%--------------------------------------------------------------------
+
 -module(emqttd_bridge_sup).
 
 -behavior(supervisor).
 
--export([start_link/0,
-         bridges/0,
-         start_bridge/2, start_bridge/3,
-         stop_bridge/2]).
+-export([start_link/0, bridges/0, start_bridge/2, start_bridge/3, stop_bridge/2]).
 
 -export([init/1]).
 
-%%%=============================================================================
-%%% API
-%%%=============================================================================
+-define(BRIDGE_ID(Node, Topic), {bridge, Node, Topic}).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
+
 %% @doc Start bridge supervisor
-%% @end
-%%------------------------------------------------------------------------------
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-%%------------------------------------------------------------------------------
 %% @doc List all bridges
-%% @end
-%%------------------------------------------------------------------------------
 -spec bridges() -> [{tuple(), pid()}].
 bridges() ->
-    [{{Node, SubTopic}, Pid} || {{bridge, Node, SubTopic}, Pid, worker, _} 
-                                <- supervisor:which_children(?MODULE)].
+    [{{Node, Topic}, Pid} || {?BRIDGE_ID(Node, Topic), Pid, worker, _}
+                             <- supervisor:which_children(?MODULE)].
 
-%%------------------------------------------------------------------------------
 %% @doc Start a bridge
-%% @end
-%%------------------------------------------------------------------------------
 -spec start_bridge(atom(), binary()) -> {ok, pid()} | {error, any()}.
-start_bridge(Node, SubTopic) when is_atom(Node) and is_binary(SubTopic) ->
-    start_bridge(Node, SubTopic, []).
+start_bridge(Node, Topic) when is_atom(Node) andalso is_binary(Topic) ->
+    start_bridge(Node, Topic, []).
 
 -spec start_bridge(atom(), binary(), [emqttd_bridge:option()]) -> {ok, pid()} | {error, any()}.
-start_bridge(Node, SubTopic, Options) when is_atom(Node) and is_binary(SubTopic) ->
-    case Node =:= node() of
-        true  ->
-            {error, bridge_to_self};
-        false ->
-            Options1 = emqttd_opts:merge(emqttd_broker:env(bridge), Options),
-            supervisor:start_child(?MODULE, bridge_spec(Node, SubTopic, Options1))
-    end.
+start_bridge(Node, _Topic, _Options) when Node =:= node() ->
+    {error, bridge_to_self};
+start_bridge(Node, Topic, Options) when is_atom(Node) andalso is_binary(Topic) ->
+    Options1 = emqttd_opts:merge(emqttd_broker:env(bridge), Options),
+    supervisor:start_child(?MODULE, bridge_spec(Node, Topic, Options1)).
 
-%%------------------------------------------------------------------------------
 %% @doc Stop a bridge
-%% @end
-%%------------------------------------------------------------------------------
 -spec stop_bridge(atom(), binary()) -> {ok, pid()} | ok.
-stop_bridge(Node, SubTopic) ->
-    ChildId = bridge_id(Node, SubTopic),
+stop_bridge(Node, Topic) when is_atom(Node) andalso is_binary(Topic) ->
+    ChildId = ?BRIDGE_ID(Node, Topic),
     case supervisor:terminate_child(?MODULE, ChildId) of
-        ok ->
-            supervisor:delete_child(?MODULE, ChildId);
-        {error, Reason} ->
-            {error, Reason}
+        ok    -> supervisor:delete_child(?MODULE, ChildId);
+        Error -> Error
     end.
 
-%%%=============================================================================
-%%% Supervisor callbacks
-%%%=============================================================================
+%%--------------------------------------------------------------------
+%% Supervisor callbacks
+%%--------------------------------------------------------------------
 
 init([]) ->
     {ok, {{one_for_one, 10, 100}, []}}.
 
-bridge_id(Node, SubTopic) ->
-    {bridge, Node, SubTopic}.
-
-bridge_spec(Node, SubTopic, Options) ->
-    ChildId = bridge_id(Node, SubTopic),
-    {ChildId, {emqttd_bridge, start_link, [Node, SubTopic, Options]},
+bridge_spec(Node, Topic, Options) ->
+    ChildId = ?BRIDGE_ID(Node, Topic),
+    {ChildId, {emqttd_bridge, start_link, [Node, Topic, Options]},
         transient, 10000, worker, [emqttd_bridge]}.
 

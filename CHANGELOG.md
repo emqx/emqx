@@ -1,6 +1,42 @@
 
 emqttd ChangeLog
-==================
+=================
+
+0.16.0-beta(2016-02-16)
+------------------------
+
+#### Highlights
+
+Licensed under the Apache License, Version 2.0 Now.
+
+Improve the design of cluster, support to join or leave the cluster (#449):
+
+```
+$ ./bin/emqttd_ctl cluster
+cluster join <Node>                     #Join the cluster
+cluster leave                           #Leave the cluster
+cluster remove <Node>                   #Remove the node from cluster
+cluster status                          #Cluster status
+```
+
+Improve the design of Trie and Route, only the wildcard topics stored in Trie.
+
+Common Test to replace EUnit.
+
+#### Enhancements
+
+mqtt_message record: add 'sender' field (#440)
+
+refactor the emqttd, emqttd_time, emqttd_opts, emqttd_node modules.
+
+#### BugFix
+
+noproc error when call to gen_server2:call(false, {add_route,Topic,<0.685.0>}, infinity) (#446)
+
+#### Plugins
+
+Changed the license of all plugins.
+
 
 0.15.0-beta (2016-01-31)
 ------------------------
