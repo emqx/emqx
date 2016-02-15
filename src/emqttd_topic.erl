@@ -22,10 +22,6 @@
 
 -export([join/1, feed_var/3, is_queue/1, systop/1]).
 
--ifdef(TEST).
--compile(export_all).
--endif.
-
 -type topic() :: binary().
 
 -type word()   :: '' | '+' | '#' | binary().
@@ -39,7 +35,7 @@
 -define(MAX_TOPIC_LEN, 4096).
 
 %% @doc Is wildcard topic?
--spec wildcard(topic()) -> true | false.
+-spec wildcard(topic() | words()) -> true | false.
 wildcard(Topic) when is_binary(Topic) ->
     wildcard(words(Topic));
 wildcard([]) -> 
