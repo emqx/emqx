@@ -163,9 +163,6 @@ cast(Router, Msg) ->
 
 init([Pool, Id, StatsFun, Opts]) ->
 
-    %% Calls from pubsub should be scheduled first?
-    process_flag(priority, high),
-
     emqttd_time:seed(),
 
     ?GPROC_POOL(join, Pool, Id),
