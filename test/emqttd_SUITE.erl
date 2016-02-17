@@ -27,7 +27,8 @@ all() ->
      {group, retainer},
      {group, broker},
      {group, metrics},
-     {group, stats}].
+     {group, stats},
+     {group, cli}].
 
 groups() ->
     [{pubsub, [sequence],
@@ -48,7 +49,18 @@ groups() ->
      {metrics, [sequence],
       [inc_dec_metric]},
      {stats, [sequence],
-      [set_get_stat]}].
+      [set_get_stat]},
+     {cli, [sequence],
+      [ctl_register_cmd,
+       cli_status,
+       cli_broker,
+       cli_clients,
+       cli_sessions,
+       cli_topics,
+       cli_subscriptions,
+       cli_bridges,
+       cli_plugins,
+       cli_listeners]}].
 
 init_per_suite(Config) ->
     application:start(lager),
@@ -212,3 +224,65 @@ inc_dec_metric(_) ->
 set_get_stat(_) ->
     emqttd_stats:setstat('retained/max', 99),
     99 = emqttd_stats:getstat('retained/max').
+
+%%--------------------------------------------------------------------
+%% CLI Group
+%%--------------------------------------------------------------------
+
+ctl_register_cmd(_) ->
+    emqttd_ctl:register_cmd(test_cmd, {?MODULE, test_cmd}),
+    erlang:yield(),
+    timer:sleep(5),
+    [{?MODULE, test_cmd}] = emqttd_ctl:lookup(test_cmd),
+    emqttd_ctl:run(["test_cmd", "arg1", "arg2"]),
+    emqttd_ctl:unregister_cmd(test_cmd).
+
+test_cmd(["arg1", "arg2"]) ->
+    ct:print("test_cmd is called");
+
+test_cmd([]) ->
+    io:format("test command").
+
+cli_status(_) ->
+    emqttd_cli:status([]).
+
+cli_broker(_) ->
+    emqttd_cli:broker([]),
+    emqttd_cli:broker(["stats"]),
+    emqttd_cli:broker(["metrics"]),
+    emqttd_cli:broker(["pubsub"]).
+
+cli_clients(_) ->
+    emqttd_cli:clients(["list"]),
+    emqttd_cli:clients(["show", "clientId"]),
+    emqttd_cli:clients(["kick", "clientId"]).
+
+cli_sessions(_) ->
+    emqttd_cli:sessions(["list"]),
+    emqttd_cli:sessions(["list", "persistent"]),
+    emqttd_cli:sessions(["list", "transient"]),
+    emqttd_cli:sessions(["show", "clientId"]).
+
+cli_topics(_) ->
+    emqttd_cli:topics(["list"]),
+    emqttd_cli:topics(["show", "topic"]).
+
+cli_subscriptions(_) ->
+    emqttd_cli:subscriptions(["list"]),
+    emqttd_cli:subscriptions(["show", "clientId"]),
+    emqttd_cli:subscriptions(["add", "clientId", "topic", "2"]),
+    emqttd_cli:subscriptions(["del", "clientId", "topic"]).
+
+cli_plugins(_) ->
+    emqttd_cli:plugins(["list"]),
+    emqttd_cli:plugins(["load", "emqttd_plugin_template"]),
+    emqttd_cli:plugins(["unload", "emqttd_plugin_template"]).
+
+cli_bridges(_) ->
+    emqttd_cli:bridges(["list"]),
+    emqttd_cli:bridges(["start", "a@127.0.0.1", "topic"]),
+    emqttd_cli:bridges(["stop", "a@127.0.0.1", "topic"]).
+
+cli_listeners(_) ->
+    emqttd_cli:listeners([]).
+
