@@ -208,6 +208,7 @@ parse_msg(<<Len:16/big, Msg:Len/binary, Rest/binary>>, _) ->
 bool(0) -> false;
 bool(1) -> true.
 
+%% Fix mosquitto bridge: 0x83, 0x84
 protocol_name_approved(Ver, Name) ->
-    lists:member({Ver, Name}, ?PROTOCOL_NAMES).
+    lists:member({Ver band 16#0F, Name}, ?PROTOCOL_NAMES).
 

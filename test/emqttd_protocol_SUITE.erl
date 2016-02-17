@@ -33,6 +33,7 @@ all() ->
 groups() ->
     [{parser, [],
       [parse_connect,
+       parse_bridge,
        parse_publish,
        parse_puback,
        parse_subscribe,
@@ -121,6 +122,27 @@ parse_connect(_) ->
                                                       username = <<"test">>,
                                                       password = <<"public">>}}, <<>>} = Parser(ConnBinWithWill),
     ok.
+
+parse_bridge(_) ->
+    Parser = emqttd_parser:new([]),
+    Data = <<16,86,0,6,77,81,73,115,100,112,131,44,0,60,0,19,67,95,48,48,58,48,67,58,50,57,58,50,66,58,55,55,58,53,50,
+             0,48,36,83,89,83,47,98,114,111,107,101,114,47,99,111,110,110,101,99,116,105,111,110,47,67,95,48,48,58,48,
+             67,58,50,57,58,50,66,58,55,55,58,53,50,47,115,116,97,116,101,0,1,48>>,
+
+    %% CONNECT(Q0, R0, D0, ClientId=C_00:0C:29:2B:77:52, ProtoName=MQIsdp, ProtoVsn=131, CleanSess=false, KeepAlive=60,
+    %% Username=undefined, Password=undefined, Will(Q1, R1, Topic=$SYS/broker/connection/C_00:0C:29:2B:77:52/state, Msg=0))
+    {ok, #mqtt_packet{variable = Variable}, <<>>} = Parser(Data),
+    ct:print("~p", [Variable]),
+    #mqtt_packet_connect{client_id  = <<"C_00:0C:29:2B:77:52">>,
+                         proto_ver  = 16#83,
+                         proto_name = <<"MQIsdp">>,
+                         will_retain = true,
+                         will_qos   = 1,
+                         will_flag  = true,
+                         clean_sess = false,
+                         keep_alive = 60,
+                         will_topic = <<"$SYS/broker/connection/C_00:0C:29:2B:77:52/state">>,
+                         will_msg   = <<"0">>} = Variable.
 
 parse_publish(_) ->
     Parser = emqttd_parser:new([]),
