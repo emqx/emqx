@@ -2,7 +2,7 @@
 .. _commands::
 
 ===================
-Admin Command Line
+Command Line
 ===================
 
 
