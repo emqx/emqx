@@ -1,0 +1,78 @@
+
+.. _configuration:
+
+======================
+Configuration
+======================
+
+
+------------
+etc/vm.args
+------------
+
+.. code::
+
+    ##-------------------------------------------------------------------------
+    ## Name of the node
+    ##-------------------------------------------------------------------------
+    -name emqttd@127.0.0.1
+
+    ## Cookie for distributed erlang
+    -setcookie emqttdsecretcookie
+
+    ##-------------------------------------------------------------------------
+    ## Flags
+    ##-------------------------------------------------------------------------
+
+    ## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
+    ## (Disabled by default..use with caution!)
+    ##-heart
+    -smp true
+
+    ## Enable kernel poll and a few async threads
+    +K true
+
+    ## 12 threads/core.
+    +A 48
+
+    ## max process numbers
+    +P 8192
+
+    ## Sets the maximum number of simultaneously existing ports for this system
+    +Q 8192
+
+    ## max atom number
+    ## +t
+
+    ## Set the distribution buffer busy limit (dist_buf_busy_limit) in kilobytes.
+    ## Valid range is 1-2097151. Default is 1024.
+    ## +zdbbl 8192
+
+    ## CPU Schedulers
+    ## +sbt db
+
+    ##-------------------------------------------------------------------------
+    ## Env
+    ##-------------------------------------------------------------------------
+
+    ## Increase number of concurrent ports/sockets, deprecated in R17
+    -env ERL_MAX_PORTS 8192
+
+    -env ERTS_MAX_PORTS 8192
+
+    -env ERL_MAX_ETS_TABLES 1024
+
+    ## Tweak GC to run more often
+    -env ERL_FULLSWEEP_AFTER 1000
+
+------------------
+etc/emqttd.config
+------------------
+
+
+Log Level
+-------------
+
+Broker Parameters
+------------------
+
