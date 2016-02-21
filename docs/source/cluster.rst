@@ -104,7 +104,7 @@ Subscription and Message Dispatch
 
 
 -----------------------
-Cluster Configuration
+Cluster Setup
 -----------------------
 
 
