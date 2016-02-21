@@ -99,7 +99,7 @@ Plugins
 * [emqttd_recon](https://github.com/emqtt/emqttd_recon) - Recon Plugin
 
 ----------------------------------
-One million Connections Benchmark
+One million Connections
 ----------------------------------
 
 Linux Kernel Parameters
@@ -164,7 +164,7 @@ Test Client
     echo 1000000 > /proc/sys/fs/nr_open
 
 ----------------------------
-emqtt MQTT Client Libraries
+emqtt Client Libraries
 ----------------------------
 
 GitHub: https://github.com/emqtt

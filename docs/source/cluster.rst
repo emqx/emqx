@@ -6,7 +6,7 @@ Cluster Guide
 ====================
 
 -----------------------------------
-Erlang/OPT Distributed Programming
+Erlang/OPT Distributed
 -----------------------------------
 
 .. code::
