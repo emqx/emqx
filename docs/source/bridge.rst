@@ -9,7 +9,7 @@ Bridge Guide
 emqttd Bridge
 -------------
 
-Two or more emqttd brokers could be bridged together. Bridge forward PUBLISH message from one broker node to another::
+Two or more emqttd brokers could be bridged together. Bridge forward MQTT messages from one broker node to another::
 
                   ---------                     ---------                     ---------
     Publisher --> | node1 | --Bridge Forward--> | node2 | --Bridge Forward--> | node3 | --> Subscriber
@@ -18,7 +18,7 @@ Two or more emqttd brokers could be bridged together. Bridge forward PUBLISH mes
 Configure Bridge
 ----------------
 
-We create two emqttd brokers on localhost, for example:
+Suppose that We create two emqttd brokers on localhost::
 
 +---------+---------------------+----------+
 | Name    | Node                | MQTT Port |
@@ -28,7 +28,7 @@ We create two emqttd brokers on localhost, for example:
 | emqttd2 | emqttd2@127.0.0.1   | 2883     |
 +---------+---------------------+----------+
 
-And then create a bridge that forwards all the 'sensor/#' messages from emqttd1 to emqttd2.
+Create a bridge that forwards all the 'sensor/#' messages from emqttd1 to emqttd2.
 
 1. Start Brokers
 ................
@@ -69,7 +69,7 @@ And then create a bridge that forwards all the 'sensor/#' messages from emqttd1 
 
     ./bin/emqttd_ctl bridges stop emqttd2@127.0.0.1 sensor/#
 
-------------------
+-----------------
 emqttd Bridge CLI
 -----------------
 
