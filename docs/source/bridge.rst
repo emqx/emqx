@@ -9,7 +9,7 @@ Bridge Guide
 emqttd Bridge
 -------------
 
-Two or more emqttd brokers could be bridged together. Bridge forward MQTT messages from one broker node to another::
+Two or more emqttd brokers could be bridged together. Bridges forward MQTT messages from one broker node to another::
 
                   ---------                     ---------                     ---------
     Publisher --> | node1 | --Bridge Forward--> | node2 | --Bridge Forward--> | node3 | --> Subscriber
@@ -18,15 +18,15 @@ Two or more emqttd brokers could be bridged together. Bridge forward MQTT messag
 Configure Bridge
 ----------------
 
-Suppose that We create two emqttd brokers on localhost::
+Suppose that we create two emqttd brokers on localhost:
 
-+---------+---------------------+----------+
++---------+---------------------+-----------+
 | Name    | Node                | MQTT Port |
-+---------+---------------------+----------+
-| emqttd1 | emqttd1@127.0.0.1   | 1883     |
-+---------+---------------------+----------+
-| emqttd2 | emqttd2@127.0.0.1   | 2883     |
-+---------+---------------------+----------+
++---------+---------------------+-----------+
+| emqttd1 | emqttd1@127.0.0.1   | 1883      |
++---------+---------------------+-----------+
+| emqttd2 | emqttd2@127.0.0.1   | 2883      |
++---------+---------------------+-----------+
 
 Create a bridge that forwards all the 'sensor/#' messages from emqttd1 to emqttd2.
 
@@ -119,7 +119,7 @@ A bridge configured in mosquitto.conf::
 rsmb Bridge
 -------------
 
-Bridge a RSMB to emqttd broker, same settings as mosquitto.
+Bridge RSMB to emqttd broker, same settings as mosquitto.
 
 broker.cfg::
 

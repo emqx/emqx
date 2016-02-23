@@ -9,7 +9,7 @@ Cluster Guide
 Distributed Erlang/OPT
 ----------------------
 
-Erlang/OTP is a concurrent, fault-tolerant, distributed programming platform. A distributed Erlang/OTP system consists of a number of Erlang runtime systems called 'node'. Nodes connect each oother with TCP/IP sockets and communite by Message Passing.
+Erlang/OTP is a concurrent, fault-tolerant, distributed programming platform. A distributed Erlang/OTP system consists of a number of Erlang runtime systems called 'node'. Nodes connect to each other with TCP/IP sockets and communite by Message Passing.
 
 .. code::
 
@@ -27,7 +27,7 @@ Erlang/OTP is a concurrent, fault-tolerant, distributed programming platform. A 
 Node
 ----
 
-An distributed erlang runtime system called 'node' is identified by a unique name like email addreass. Erlang nodes communicate with each other by the name.
+An erlang runtime system called 'node' is identified by a unique name like email addreass. Erlang nodes communicate with each other by the name.
 
 Suppose we start four Erlang nodes on localhost:
 
@@ -96,11 +96,11 @@ Topic Trie and Route Table
 
 Every node in the cluster will store a topic trie and route table in mnesia database. 
 
-Suppose that we create subscriptions::
+Suppose that we create subscriptions:
 
 +----------------+-------------+----------------------------+
 | Client         | Node        |  Topics                    |
-+----------------+-------------+----------------------------+
++================+=============+============================+
 | client1        | node1       | t/+/x, t/+/y               |
 +----------------+-------------+----------------------------+
 | client2        | node2       | t/#                        |
@@ -108,14 +108,14 @@ Suppose that we create subscriptions::
 | client3        | node3       | t/+/x, t/a                 |
 +----------------+-------------+----------------------------+
 
-Finally the global topic trie and route table in the cluster::
+Finally the topic trie and route table in the cluster::
 
     --------------------------
-    |             t          |
-    |            / \         |
-    |           +   #        |
-    |         /  \           |
-    |       x      y         |
+    |          t             |
+    |         / \            |
+    |        +   #           |
+    |      /  \              |
+    |    x      y            |
     --------------------------
     | t/+/x -> node1, node3  |
     | t/+/y -> node1         |
@@ -206,15 +206,15 @@ Leave the cluster
 
 Two ways to leave the cluster:
 
-1. leave: this node leave the cluster
+1. leave: this node leaves the cluster
 
 2. remove: remove other nodes from the cluster
 
-emqttd@host2 node tried to leave the cluster::
+emqttd@host2 node tries to leave the cluster::
 
     $ ./bin/emqttd_ctl cluster leave
 
-Or remove the emqttd@host2 node from the cluster on emqttd@host1::
+Or remove emqttd@host2 node from the cluster on emqttd@host1::
 
     $ ./bin/emqttd_ctl cluster remove emqttd@host2
 
