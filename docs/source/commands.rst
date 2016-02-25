@@ -5,40 +5,40 @@
 Command Line
 ============
 
-emqttd消息服务器提供了'./bin/emqttd_ctl'的管理命令行。
+The './bin/emqttd_ctl' command line could be used to query and administrate emqttd broker.
 
-.. WARNING:: 限制: Windows平台无法使用。
+.. WARNING:: Cannot work on Windows
 
-----------
+------
 status
-----------
+------
 
-查询emqttd消息服务器运行状态::
-    
+Show running status of the broker::
+
     $ ./bin/emqttd_ctl status
 
     Node 'emqttd@127.0.0.1' is started
     emqttd 0.16.0 is running
 
-
-----------
+------
 broker
-----------
+------
 
-broker命令查询服务器基本信息，启动时间，统计数据与性能数据。
+Query basic information,  statistics and metrics of the broker.
 
-+----------------+-----------------------------------------------+
-| broker         | 查询emqttd消息服务器描述、版本、启动时间      |
-+----------------+-----------------------------------------------+
-| broker pubsub  | 查询核心的Erlang PubSub进程状态(调试)         |
-+----------------+-----------------------------------------------+
-| broker stats   | 查询连接(Client)、会话(Session)、主题(Topic)、|
-|                | 订阅(Subscription)、路由(Route)统计信息       |
-+----------------+-----------------------------------------------+
-| broker metrics | 查询MQTT报文(Packet)、消息(Message)收发统计   |
-+----------------+-----------------------------------------------+
++----------------+-------------------------------------------------+
+| broker         | Show version, description, uptime of the broker |
++----------------+-------------------------------------------------+
+| broker pubsub  | Show status of the core pubsub process          |
++----------------+-------------------------------------------------+
+| broker stats   | Show statistics of client, session, topic,      |
+|                | subscription and route of the broker            |
++----------------+-------------------------------------------------+
+| broker metrics | Show metrics of MQTT bytes, packets, messages   |
+|                | sent/received.                                  |
++----------------+-------------------------------------------------+
 
-查询emqttd消息服务器基本信息包括版本、启动时间等::
+Query version, description and uptime of the broker::
 
     $ ./bin/emqttd_ctl broker
 
@@ -47,7 +47,10 @@ broker命令查询服务器基本信息，启动时间，统计数据与性能�
     uptime    : 1 hours, 25 minutes, 24 seconds
     datetime  : 2016-01-16 13:17:32
 
-查询服务器客户端连接(Client)、会话(Session)、主题(Topic)、订阅(Subscription)、路由(Route)统计::
+broker stats
+------------
+
+Query statistics of MQTT Client, Session, Topic, Subscription and Route::
 
     $ ./bin/emqttd_ctl broker stats
 
@@ -66,7 +69,10 @@ broker命令查询服务器基本信息，启动时间，统计数据与性能�
     topics/count        : 54
     topics/max          : 54
 
-查询服务器流量(Bytes)、MQTT报文(Packets)、消息(Messages)收发统计::
+broker metrics
+--------------
+
+Query metrics of Bytes, MQTT Packets and Messages(sent/received)::
 
     $ ./bin/emqttd_ctl broker metrics
 
@@ -109,62 +115,62 @@ broker命令查询服务器基本信息，启动时间，统计数据与性能�
 cluster
 -------
 
-cluster命令集群多个emqttd消息服务器节点(进程):
+Cluster two or more emqttd brokers.
 
-+-----------------------+---------------------+
-| cluster join <Node>   | 加入集群            |
-+-----------------------+---------------------+
-| cluster leave         | 离开集群            |
-+-----------------------+---------------------+
-| cluster remove <Node> | 从集群删除节点      |
-+-----------------------+---------------------+
-| cluster status        | 查询集群状态        |
-+-----------------------+---------------------+
++-----------------------+--------------------------------+
+| cluster join <Node>   | Join the cluster               |
++-----------------------+--------------------------------+
+| cluster leave         | Leave the cluster              |
++-----------------------+--------------------------------+
+| cluster remove <Node> | Remove a node from the cluster |
++-----------------------+--------------------------------+
+| cluster status        | Query cluster status and nodes |
++-----------------------+--------------------------------+
 
-cluster命令集群本机两个emqttd节点示例:
+Suppose we create two emqttd nodes and cluster them on localhost:
 
 +-----------+---------------------+-------------+
-| 目录      | 节点名              | MQTT端口    |
+| Folder    | Node                | MQTT Port   |
 +-----------+---------------------+-------------+
 | emqttd1   | emqttd1@127.0.0.1   | 1883        |
 +-----------+---------------------+-------------+
 | emqttd2   | emqttd2@127.0.0.1   | 2883        |
 +-----------+---------------------+-------------+
 
-启动emqttd1::
+Start emqttd1 node::
 
     cd emqttd1 && ./bin/emqttd start
 
-启动emqttd2::
+Start emqttd2 node::
 
     cd emqttd2 && ./bin/emqttd start
 
-emqttd2节点与emqttd1集群，emqttd2目录下:: 
+Under emqttd2 folder:: 
 
     $ ./bin/emqttd_ctl cluster join emqttd1@127.0.0.1
 
     Join the cluster successfully.
     Cluster status: [{running_nodes,['emqttd1@127.0.0.1','emqttd2@127.0.0.1']}]
 
-任意节点目录下查询集群状态::
+Query cluster status::
 
     $ ./bin/emqttd_ctl cluster status
 
     Cluster status: [{running_nodes,['emqttd2@127.0.0.1','emqttd1@127.0.0.1']}]
 
-集群消息路由测试::
+Message Route between nodes::
 
-    # emqttd1节点上订阅x
+    # Subscribe topic 'x' on emqttd1 node
     mosquitto_sub -t x -q 1 -p 1883
 
-    # emqttd2节点上向x发布消息
+    # Publish to topic 'x' on emqttd2 node
     mosquitto_pub -t x -q 1 -p 2883 -m hello
 
-emqttd2节点离开集群::
+emqttd2 leaves the cluster::
 
     cd emqttd2 && ./bin/emqttd_ctl cluster leave
 
-emqttd1节点下删除emqttd2::
+Or remove emqttd2 from the cluster on emqttd1 node::
 
     cd emqttd1 && ./bin/emqttd_ctl cluster remove emqttd2@127.0.0.1
 
@@ -172,17 +178,20 @@ emqttd1节点下删除emqttd2::
 clients
 -------
 
-clients命令查询连接的MQTT客户端。
+Query MQTT clients connected to the broker:
 
-+-------------------------+-----------------------------+
-| clients list            | 查询全部客户端连接          |
-+-------------------------+-----------------------------+
-| clients show <ClientId> | 根据ClientId查询客户端      |
-+-------------------------+-----------------------------+
-| clients kick <ClientId> | 根据ClientId踢出客户端      |
-+-------------------------+-----------------------------+
++-------------------------+----------------------------------+
+| clients list            | Show all MQTT clients            |
++-------------------------+----------------------------------+
+| clients show <ClientId> | Show a MQTT Client               |
++-------------------------+----------------------------------+
+| clients kick <ClientId> | Kick out a MQTT client           |
++-------------------------+----------------------------------+
 
-查询全部客户端连接::
+clients lists
+-------------
+
+Query All MQTT clients connected to the broker::
 
     $ ./bin/emqttd_ctl clients list
 
@@ -190,169 +199,208 @@ clients命令查询连接的MQTT客户端。
     Client(mosqsub/44011-airlee.lo, clean_sess=true, username=test, peername=127.0.0.1:64961, connected_at=1452929275)
     ...
 
-根据ClientId查询客户端::
+Properties of the Client:
+
++--------------+---------------------------------------------------+
+| clean_sess   | Clean Session Flag                                |
++--------------+---------------------------------------------------+
+| username     | Username of the client                            |
++--------------+---------------------------------------------------+
+| peername     | Peername of the TCP connection                    |
++--------------+---------------------------------------------------+
+| connected_at | The timestamp when client connected to the broker |
++--------------+---------------------------------------------------+
+
+clients show <ClientId>
+-----------------------
+
+Show a specific MQTT Client::
 
     ./bin/emqttd_ctl clients show "mosqsub/43832-airlee.lo"
 
     Client(mosqsub/43832-airlee.lo, clean_sess=true, username=test, peername=127.0.0.1:64896, connected_at=1452929113)
+
+clients kick <ClientId>
+-----------------------
         
-根据ClientId踢出客户端::
+Kick out a MQTT Client::
 
     ./bin/emqttd_ctl clients kick "clientid"
 
-返回Client对象的属性:
-
-+--------------+-----------------------------+
-| clean_sess   | 清除会话标记                |
-+--------------+-----------------------------+
-| username     | 用户名                      |
-+--------------+-----------------------------+
-| peername     | 对端TCP地址                 |
-+--------------+-----------------------------+
-| connected_at | 客户端连接时间              |
-+--------------+-----------------------------+
 
 --------
 sessions
 --------
 
-sessions命令查询MQTT连接会话。emqttd消息服务器会为每个连接创建会话，clean_session标记true，创建临时(transient)会话；clean_session标记为false，创建持久会话(persistent)。
+Query all MQTT sessions. The broker will create a session for each MQTT client. Persistent Session if clean_session flag is true, transient session otherwise.
 
-+--------------------------+-----------------------------+
-| sessions list            | 查询全部会话                |
-+--------------------------+-----------------------------+
-| sessions list persistent | 查询全部持久会话            |
-+--------------------------+-----------------------------+
-| sessions list transient  | 查询全部临时会话            |
-+--------------------------+-----------------------------+
-| sessions show <ClientId> | 根据ClientID查询会话        |
-+--------------------------+-----------------------------+
++--------------------------+-------------------------------+
+| sessions list            | Query all Sessions            |
++--------------------------+-------------------------------+
+| sessions list persistent | Query all persistent Sessions |
++--------------------------+-------------------------------+
+| sessions list transient  | Query all transient Sessions  |
++--------------------------+-------------------------------+
+| sessions show <ClientId> | Show a session                |
++--------------------------+-------------------------------+
 
-查询全部会话::
+sessions list
+-------------
+
+Query all sessions::
 
     $ ./bin/emqttd_ctl sessions list
 
     Session(clientid, clean_sess=false, max_inflight=100, inflight_queue=0, message_queue=0, message_dropped=0, awaiting_rel=0, awaiting_ack=0, awaiting_comp=0, created_at=1452935508)
     Session(mosqsub/44101-airlee.lo, clean_sess=true, max_inflight=100, inflight_queue=0, message_queue=0, message_dropped=0, awaiting_rel=0, awaiting_ack=0, awaiting_comp=0, created_at=1452935401)
 
-查询全部持久会话::
+Properties of Session:
+
+TODO:??
+
++-------------------+----------------------------------------------------------------+
+| clean_sess        | clean sess flag. false: persistent, true: transient            |
++-------------------+----------------------------------------------------------------+
+| max_inflight      | Inflight window (Max number of messages delivering)            |
++-------------------+----------------------------------------------------------------+
+| inflight_queue    | Inflight Queue Size                                            |
++-------------------+----------------------------------------------------------------+
+| message_queue     | Message Queue Size                                             |
++-------------------+----------------------------------------------------------------+
+| message_dropped   | Number of Messages Dropped for queue is full                   |
++-------------------+----------------------------------------------------------------+
+| awaiting_rel      | The number of QoS2 messages received and waiting for PUBREL    |
++-------------------+----------------------------------------------------------------+
+| awaiting_ack      | The number of QoS1/2 messages delivered and waiting for PUBACK |
++-------------------+----------------------------------------------------------------+
+| awaiting_comp     | The number of QoS2 messages delivered and waiting for PUBCOMP  |
++-------------------+----------------------------------------------------------------+
+| created_at        | Timestamp when the session is created                          |
++-------------------+----------------------------------------------------------------+
+
+sessions list persistent
+------------------------
+
+Query all persistent sessions::
 
     $ ./bin/emqttd_ctl sessions list persistent
 
     Session(clientid, clean_sess=false, max_inflight=100, inflight_queue=0, message_queue=0, message_dropped=0, awaiting_rel=0, awaiting_ack=0, awaiting_comp=0, created_at=1452935508)
 
-查询全部临时会话::
+sessions list transient
+-----------------------
+
+Query all transient sessions::
 
     $ ./bin/emqttd_ctl sessions list transient
 
     Session(mosqsub/44101-airlee.lo, clean_sess=true, max_inflight=100, inflight_queue=0, message_queue=0, message_dropped=0, awaiting_rel=0, awaiting_ack=0, awaiting_comp=0, created_at=1452935401)
 
-根据ClientId查询会话::
+sessions show <ClientId>
+------------------------
+
+Show a session::
 
     $ ./bin/emqttd_ctl sessions show clientid
 
     Session(clientid, clean_sess=false, max_inflight=100, inflight_queue=0, message_queue=0, message_dropped=0, awaiting_rel=0, awaiting_ack=0, awaiting_comp=0, created_at=1452935508)
 
-返回Session对象属性:
-
-+-------------------+------------------------------------+
-| clean_sess        | false: 持久会话，true: 临时会话    |
-+-------------------+------------------------------------+
-| max_inflight      | 飞行窗口(最大允许同时下发消息数)   |
-+-------------------+------------------------------------+
-| inflight_queue    | 当前正在下发的消息数               |
-+-------------------+------------------------------------+
-| message_queue     | 当前缓存消息数                     |
-+-------------------+------------------------------------+
-| message_dropped   | 会话丢掉的消息数                   |
-+-------------------+------------------------------------+
-| awaiting_rel      | 等待客户端发送PUBREL的QoS2消息数   |
-+-------------------+------------------------------------+
-| awaiting_ack      | 等待客户端响应PUBACK的QoS1/2消息数 |
-+-------------------+------------------------------------+
-| awaiting_comp     | 等待客户端响应PUBCOMP的QoS2消息数  |
-+-------------------+------------------------------------+
-| created_at        | 会话创建时间戳                     |
-+-------------------+------------------------------------+
 
 ------
 topics
 ------
 
-topics命令查询emqttd消息服务器当前的主题(Topic)表。
+Query topic table of the broker.
 
-'topics list'查询全部主题(Topic)::
+topics list
+-----------
+
+Query all the topics::
 
     $ ./bin/emqttd_ctl topics list
 
-    y: ['emqttd2@127.0.0.1']
-    x: ['emqttd1@127.0.0.1','emqttd2@127.0.0.1']
+    topic1: ['emqttd2@127.0.0.1']
+    topic2: ['emqttd1@127.0.0.1','emqttd2@127.0.0.1']
 
-'topics show <Topic>'查询某个主题(Topic)::
+topics show <Topic>
+-------------------
 
-    $ ./bin/emqttd_ctl topics show x
+Show a topic::
 
-    x: ['emqttd1@127.0.0.1','emqttd2@127.0.0.1']
+    $ ./bin/emqttd_ctl topics show topic2
 
-返回结果显示主题(Topic)所在集群节点列表。
+    topic2: ['emqttd1@127.0.0.1','emqttd2@127.0.0.1']
+
+The result will show which nodes the topic is on.
 
 -------------
 subscriptions
 -------------
 
-subscriptions命令查询消息服务器的订阅(Subscription)表。
+Query the subscription table of the broker:
 
-+--------------------------------------------+-------------------------+
-| subscriptions list                         | 查询全部订阅            |
-+--------------------------------------------+-------------------------+
-| subscriptions show <ClientId>              | 查询某个ClientId的订阅  |
-+--------------------------------------------+-------------------------+
-| subscriptions add <ClientId> <Topic> <Qos> | 手工添加一条订阅        |
-+--------------------------------------------+-------------------------+
-| subscriptions del <ClientId> <Topic>       | 手工删除一条订阅        |
-+--------------------------------------------+-------------------------+
++--------------------------------------------+--------------------------------------+
+| subscriptions list                         | Query all subscriptions              |
++--------------------------------------------+--------------------------------------+
+| subscriptions show <ClientId>              | Show a subscription                  |
++--------------------------------------------+--------------------------------------+
+| subscriptions add <ClientId> <Topic> <Qos> | Add a static subscription manually   |
++--------------------------------------------+--------------------------------------+
+| subscriptions del <ClientId> <Topic>       | Remove a static subscription manually|
++--------------------------------------------+--------------------------------------+
 
-查询全部订阅::
+subscriptions list
+------------------
+
+Query all subscriptions::
 
     $ ./bin/emqttd_ctl subscriptions list
 
     mosqsub/45744-airlee.lo: [{<<"y">>,0},{<<"x">>,0}]
 
-.. todo:: 打印结果格式需修改。
+subscriptions show <ClientId>
+-----------------------------
 
-查询某个ClientId的订阅::
+Show the subscriptions of a MQTT client::
 
     $ ./bin/emqttd_ctl subscriptions show clientid
 
     clientid: [{<<"x">>,1},{<<"topic2">>,1},{<<"topic3">>,1}]
 
-手工添加一条订阅::
+subscriptions add <ClientId> <Topic> <QoS>
+------------------------------------------
+
+Add a static subscription manually::
 
     $ ./bin/emqttd_ctl subscriptions add clientid new_topic 1
     ok
 
-手工删除一条订阅::
+subscriptions del <ClientId> <Topic>
+------------------------------------
+
+Remove a static subscription manually::
 
     $ ./bin/emqttd_ctl subscriptions del clientid new_topic
     ok
-
 
 -------
 plugins
 -------
 
+List, load or unload plugins of emqttd broker.
 
-plugins命令用于加载、卸载、查询插件应用。emqttd消息服务器通过插件扩展认证、定制功能，插件置于plugins/目录下。
-
 +---------------------------+-------------------------+
-| plugins list              | 列出全部插件(Plugin)    |
+| plugins list              | List all plugins        |
 +---------------------------+-------------------------+
-| plugins load <Plugin>     | 加载插件(Plugin)        |
+| plugins load <Plugin>     | Load Plugin             |
 +---------------------------+-------------------------+
-| plugins unload <Plugin>   | 卸载插件(Plugin)        |
+| plugins unload <Plugin>   | Unload (Plugin)        |
 +---------------------------+-------------------------+
 
-列出插件::
+plugins list
+------------
+
+List all plugins::
 
     $ ./bin/emqttd_ctl plugins list
 
@@ -364,99 +412,70 @@ plugins命令用于加载、卸载、查询插件应用。emqttd消息服务器�
     Plugin(emqttd_recon, version=0.16.0, description=emqttd recon plugin, active=false)
     Plugin(emqttd_stomp, version=0.16.0, description=Stomp Protocol Plugin for emqttd broker, active=false)
 
-插件属性:
+Properties of a plugin:
 
-+-------------+-----------------+
-| version     | 插件版本        |
-+-------------+-----------------+
-| description | 插件描述        |
-+-------------+-----------------+
-| active      | 是否已加载      | 
-+-------------+-----------------+
++-------------+--------------------------+
+| version     | Plugin Version           |
++-------------+--------------------------+
+| description | Plugin Description       |
++-------------+--------------------------+
+| active      | If the plugin is Loaded  | 
++-------------+--------------------------+
 
-加载插件::
+load <Plugin>
+-------------
 
-    $ ./bin/emqttd_ctl plugins load emqttd_recon
-
-    Start apps: [recon,emqttd_recon]
-    Plugin emqttd_recon loaded successfully.
-
-卸载插件::
-
-    $ ./bin/emqttd_ctl plugins unload emqttd_recon
-
-    Plugin emqttd_recon unloaded successfully.
-
-
--------
-bridges
--------
-
-plugins命令用于加载、卸载、查询插件应用。emqttd消息服务器通过插件扩展认证、定制功能，插件置于plugins/目录下。
-
-+---------------------------+-------------------------+
-| plugins list              | 列出全部插件(Plugin)    |
-+---------------------------+-------------------------+
-| plugins load <Plugin>     | 加载插件(Plugin)        |
-+---------------------------+-------------------------+
-| plugins unload <Plugin>   | 卸载插件(Plugin)        |
-+---------------------------+-------------------------+
-
-列出插件::
-
-    $ ./bin/emqttd_ctl plugins list
-
-    Plugin(emqttd_dashboard, version=0.16.0, description=emqttd web dashboard, active=true)
-    Plugin(emqttd_plugin_mysql, version=0.16.0, description=emqttd Authentication/ACL with MySQL, active=false)
-    Plugin(emqttd_plugin_pgsql, version=0.16.0, description=emqttd PostgreSQL Plugin, active=false)
-    Plugin(emqttd_plugin_redis, version=0.16.0, description=emqttd Redis Plugin, active=false)
-    Plugin(emqttd_plugin_template, version=0.16.0, description=emqttd plugin template, active=false)
-    Plugin(emqttd_recon, version=0.16.0, description=emqttd recon plugin, active=false)
-    Plugin(emqttd_stomp, version=0.16.0, description=Stomp Protocol Plugin for emqttd broker, active=false)
-
-插件属性:
-
-+-------------+-----------------+
-| version     | 插件版本        |
-+-------------+-----------------+
-| description | 插件描述        |
-+-------------+-----------------+
-| active      | 是否已加载      | 
-+-------------+-----------------+
-
-加载插件::
+Load a Plugin::
 
     $ ./bin/emqttd_ctl plugins load emqttd_recon
 
     Start apps: [recon,emqttd_recon]
     Plugin emqttd_recon loaded successfully.
 
-卸载插件::
+unload <Plugin>
+---------------
+
+Unload a Plugin::
 
     $ ./bin/emqttd_ctl plugins unload emqttd_recon
 
     Plugin emqttd_recon unloaded successfully.
 
-
 -------
 bridges
 -------
 
-bridges命令用于在多台emqttd服务器节点间创建桥接。
+Bridge two or more emqttd brokers::
 
-+----------------------------------------+---------------------------+
-| bridges list                           | 查询全部桥接              |
-+----------------------------------------+---------------------------+
-| bridges options                        | 查询创建桥接选项          |
-+----------------------------------------+---------------------------+
-| bridges start <Node> <Topic>           | 创建桥接                  |
-+----------------------------------------+---------------------------+
-| bridges start <Node> <Topic> <Options> | 创建桥接并带选项设置      |
-+----------------------------------------+---------------------------+
-| bridges stop <Node> <Topic>            | 删除桥接                  |
-+----------------------------------------+---------------------------+
+                  ---------                     ---------
+    Publisher --> | node1 | --Bridge Forward--> | node2 | --> Subscriber
+                  ---------                     ---------
 
-创建一条emqttd1 -> emqttd2节点的桥接，转发传感器主题(Topic)消息到emqttd2::
+commands for bridge:
+
++----------------------------------------+------------------------------+
+| bridges list                           | List all bridges             |
++----------------------------------------+------------------------------+
+| bridges options                        | Show bridge options          |
++----------------------------------------+------------------------------+
+| bridges start <Node> <Topic>           | Create a bridge              |
++----------------------------------------+------------------------------+
+| bridges start <Node> <Topic> <Options> | Create a bridge with options |
++----------------------------------------+------------------------------+
+| bridges stop <Node> <Topic>            | Delete a bridge              |
++----------------------------------------+------------------------------+
+
+Suppose we create a bridge between emqttd1 and emqttd2 on localhost:
+
++---------+---------------------+-----------+
+| Name    | Node                | MQTT Port |
++---------+---------------------+-----------+
+| emqttd1 | emqttd1@127.0.0.1   | 1883      |
++---------+---------------------+-----------+
+| emqttd2 | emqttd2@127.0.0.1   | 2883      |
++---------+---------------------+-----------+
+
+The bridge will forward all the the 'sensor/#' messages from emqttd1 to emqttd2:: 
 
     $ ./bin/emqttd_ctl bridges start emqttd2@127.0.0.1 sensor/#
 
@@ -466,9 +485,9 @@ bridges命令用于在多台emqttd服务器节点间创建桥接。
 
     bridge: emqttd1@127.0.0.1--sensor/#-->emqttd2@127.0.0.1
 
-测试emqttd1--sensor/#-->emqttd2的桥接::
+The the 'emqttd1--sensor/#-->emqttd2' bridge:: 
 
-    #emqttd2节点上
+    #emqttd2 node
 
     mosquitto_sub -t sensor/# -p 2883 -d
 
@@ -476,7 +495,10 @@ bridges命令用于在多台emqttd服务器节点间创建桥接。
 
     mosquitto_pub -t sensor/1/temperature -m "37.5" -d 
 
-查询bridge创建选项设置::
+bridges options
+---------------
+
+Show bridge options::
 
     $ ./bin/emqttd_ctl bridges options
 
@@ -488,31 +510,37 @@ bridges命令用于在多台emqttd服务器节点间创建桥接。
     Example:
       qos=2,prefix=abc/,suffix=/yxz,queue=1000
 
-删除emqttd1--sensor/#-->emqttd2的桥接::
+bridges stop <Node> <Topic>
+---------------------------
+
+Delete the emqttd1--sensor/#-->emqttd2 bridge::
 
     $ ./bin/emqttd_ctl bridges stop emqttd2@127.0.0.1 sensor/#
 
     bridge is stopped.
-    
+
 --
 vm
 --
 
-vm命令用于查询Erlang虚拟机负载、内存、进程、IO信息。
+Query the load, cpu, memory, processes and IO information of the Erlang VM.
 
-+-------------+------------------------+
-| vm all      | 查询VM全部信息         |
-+-------------+------------------------+
-| vm load     | 查询VM负载             |
-+-------------+------------------------+
-| vm memory   | 查询VM内存             |
-+-------------+------------------------+
-| vm process  | 查询VM Erlang进程数量  |
-+-------------+------------------------+
-| vm io       | 查询VM io最大文件句柄  |
-+-------------+------------------------+
++-------------+-----------------------------------+
+| vm all      | Query all                         |
++-------------+-----------------------------------+
+| vm load     | Query VM Load                     |
++-------------+-----------------------------------+
+| vm memory   | Query Memory Usage                |
++-------------+-----------------------------------+
+| vm process  | Query Number of Erlang Processes  |
++-------------+-----------------------------------+
+| vm io       | Query Max Fds of VM               |
++-------------+-----------------------------------+
 
-查询VM负载::
+vm load
+-------
+
+Query load::
 
     $ ./bin/emqttd_ctl vm load
 
@@ -520,7 +548,10 @@ vm命令用于查询Erlang虚拟机负载、内存、进程、IO信息。
     cpu/load5               : 2.60
     cpu/load15              : 2.36
 
-查询VM内存::
+vm memory
+---------
+
+Query memory::
 
     $ ./bin/emqttd_ctl vm memory
 
@@ -534,14 +565,20 @@ vm命令用于查询Erlang虚拟机负载、内存、进程、IO信息。
     memory/code             : 13401565
     memory/ets              : 1082848
 
-查询Erlang进程数量::
+vm process
+----------
+
+Query number of erlang processes::
 
     $ ./bin/emqttd_ctl vm process
 
     process/limit           : 8192
     process/count           : 221
 
-查询IO最大句柄数::
+vm io
+-----
+
+Query max, active file descriptors of IO::
 
     $ ./bin/emqttd_ctl vm io
 
@@ -552,57 +589,71 @@ vm命令用于查询Erlang虚拟机负载、内存、进程、IO信息。
 trace
 -----
 
-trace命令用于追踪某个客户端或Topic，打印日志信息到文件。
+Trace MQTT packets, messages(sent/received) by ClientId or Topic.
 
 +-----------------------------------+-----------------------------------+
-| trace list                        | 查询全部开启的追踪                |
+| trace list                        | List all the traces               |
 +-----------------------------------+-----------------------------------+
-| trace client <ClientId> <LogFile> | 开启Client追踪，日志到文件        |
+| trace client <ClientId> <LogFile> | Trace a client                    |
 +-----------------------------------+-----------------------------------+
-| trace client <ClientId> off       | 关闭Client追踪                    |
+| trace client <ClientId> off       | Stop to trace the client          |
 +-----------------------------------+-----------------------------------+
-| trace topic <Topic> <LogFile>     | 开启Topic追踪，日志到文件         |
+| trace topic <Topic> <LogFile>     | Trace a topic                     |
 +-----------------------------------+-----------------------------------+
-| trace topic <Topic> off           | 关闭Topic追踪                     |
+| trace topic <Topic> off           | Stop to trace the topic           |
 +-----------------------------------+-----------------------------------+
 
-开启Client追踪::
+trace client <ClientId> <LogFile>
+---------------------------------
+
+Start to trace a client::
 
     $ ./bin/emqttd_ctl trace client clientid log/clientid_trace.log
 
     trace client clientid successfully.
 
-关闭Client追踪::
+trace client <ClientId> off
+---------------------------
+
+Stop to trace the client::
 
     $ ./bin/emqttd_ctl trace client clientid off
     
     stop to trace client clientid successfully.
 
-开启Topic追踪::
+trace topic <Topic> <LogFile>
+-----------------------------
+
+Start to trace a topic::
 
     $ ./bin/emqttd_ctl trace topic topic log/topic_trace.log
 
     trace topic topic successfully.
 
-关闭Topic追踪::
+trace topic <Topic> off
+-----------------------
+
+Stop to trace the topic::
 
     $ ./bin/emqttd_ctl trace topic topic off
 
     stop to trace topic topic successfully.
 
-查询全部开启的追踪::
+trace list
+----------
+
+List all traces::
 
     $ ./bin/emqttd_ctl trace list
 
     trace client clientid -> log/clientid_trace.log
     trace topic topic -> log/topic_trace.log
 
-
 ---------
 listeners
 ---------
 
-listeners命令用于查询开启的TCP服务监听器::
+Show all the TCP listeners::
 
     $ ./bin/emqttd_ctl listeners
 
@@ -627,21 +678,21 @@ listeners命令用于查询开启的TCP服务监听器::
       current_clients : 0
       shutdown_count  : []
 
-listener参数说明:
+listener parameters:
 
-+-----------------+-----------------------------------+
-| acceptors       | TCP Acceptor池                    |
-+-----------------+-----------------------------------+
-| max_clients     | 最大允许连接数                    |
-+-----------------+-----------------------------------+
-| current_clients | 当前连接数                        |
-+-----------------+-----------------------------------+
-| shutdown_count  | Socket关闭原因统计                |
-+-----------------+-----------------------------------+
++-----------------+--------------------------------------+
+| acceptors       | TCP Acceptor Pool                    |
++-----------------+--------------------------------------+
+| max_clients     | Max number of clients                |
++-----------------+--------------------------------------+
+| current_clients | Count of current clients             |
++-----------------+--------------------------------------+
+| shutdown_count  | Statistics of client shutdown reason |
++-----------------+---------------------------------------+
 
-----------
+------
 mnesia
-----------
+------
 
-查询mnesia数据库当前状态，用于调试。
+Query system_info of mnesia database.
 
