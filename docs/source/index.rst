@@ -15,7 +15,7 @@ Latest release of the emqttd broker is scaling to 1.3 million MQTT connections o
 
 .. image:: ./_static/images/emqtt.png
 
-emqttd provides a scalable, enterprise grade, extensible open-source MQTT broker for IoT, M2M, Smart Hardware, Mobile Messaging and HTML5 Web Messaging Applications.
+The emqttd project provides a scalable, enterprise grade, extensible open-source MQTT broker for IoT, M2M, Smart Hardware, Mobile Messaging and HTML5 Web Messaging Applications.
 
 Sensors, Mobiles, Web Browsers and Application Servers could be connected by emqttd brokers with asynchronous PUB/SUB MQTT messages.
 
