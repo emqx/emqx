@@ -127,7 +127,7 @@ Cluster two or more emqttd brokers.
 | cluster status        | Query cluster status and nodes |
 +-----------------------+--------------------------------+
 
-Suppose we create two emqttd nodes and cluster them on localhost:
+Suppose we create two emqttd nodes on localhost and cluster them:
 
 +-----------+---------------------+-------------+
 | Folder    | Node                | MQTT Port   |
@@ -181,7 +181,7 @@ clients
 Query MQTT clients connected to the broker:
 
 +-------------------------+----------------------------------+
-| clients list            | Show all MQTT clients            |
+| clients list            | List all MQTT clients            |
 +-------------------------+----------------------------------+
 | clients show <ClientId> | Show a MQTT Client               |
 +-------------------------+----------------------------------+
@@ -235,7 +235,7 @@ sessions
 Query all MQTT sessions. The broker will create a session for each MQTT client. Persistent Session if clean_session flag is true, transient session otherwise.
 
 +--------------------------+-------------------------------+
-| sessions list            | Query all Sessions            |
+| sessions list            | List all Sessions             |
 +--------------------------+-------------------------------+
 | sessions list persistent | Query all persistent Sessions |
 +--------------------------+-------------------------------+
@@ -340,7 +340,7 @@ subscriptions
 Query the subscription table of the broker:
 
 +--------------------------------------------+--------------------------------------+
-| subscriptions list                         | Query all subscriptions              |
+| subscriptions list                         | List all subscriptions               |
 +--------------------------------------------+--------------------------------------+
 | subscriptions show <ClientId>              | Show a subscription                  |
 +--------------------------------------------+--------------------------------------+

@@ -1,9 +1,9 @@
 
 .. _plugins:
 
-=======
-Plugins
-=======
+============
+Plugin Guide
+============
 
 The emqttd broker could be extended by plugins. Users could develop plugins to customize authentication, ACL and functions of the broker, or integrate the broker with other systems.
 
@@ -12,7 +12,7 @@ The plugins that emqtt project released:
 +---------------------------+---------------------------+
 | Plugin                    | Description               |
 +===========================+===========================+
-| `emqttd_plugin_template`_ | Plugin Template           |
+| `emqttd_plugin_template`_ | Template Plugin           |
 +---------------------------+---------------------------+
 | `emqttd_dashboard`_       | Web Dashboard             |
 +---------------------------+---------------------------+
@@ -22,20 +22,20 @@ The plugins that emqtt project released:
 +---------------------------+---------------------------+
 | `emqttd_plugin_redis`_    | Redis Auth/ACL Plugin     |
 +---------------------------+---------------------------+
-| `emqttd_stomp`_           | Stomp Protocol Plugin     |
+| `emqttd_stomp`_           | STOMP Protocol Plugin     |
 +---------------------------+---------------------------+
-| `emqttd_sockjs`_          | Stomp over SockJS Plugin  |
+| `emqttd_sockjs`_          | STOMP over SockJS Plugin  |
 +---------------------------+---------------------------+
 | `emqttd_recon`_           | Recon Plugin              |
 +---------------------------+---------------------------+
 
 ----------------------------------------
-emqttd_plugin_template - Plugin Template
+emqttd_plugin_template - Template Plugin
 ----------------------------------------
 
 A plugin is just a normal Erlang application under the 'emqttd/plugins' folder. Each plugin has e configuration file: 'etc/plugin.config'.
 
-plugins/emqttd_plugin_template is a demo plugin: 
+plugins/emqttd_plugin_template is a demo plugin. The folder structure:
 
 +------------------------+---------------------------+
 | File                   | Description               |
@@ -56,18 +56,26 @@ Use 'bin/emqttd_ctl plugins' CLI to load, unload a plugin::
 
     ./bin/emqttd_ctl plugins list
 
-----------------------------------
-emqttd_dashboard: Dashboard Plugin
-----------------------------------
+-----------------------------------
+emqttd_dashboard - Dashboard Plugin
+-----------------------------------
 
-The Web Dashboard of emqttd broker. Address: http://localhost:18083, Default User: admin, Password: public
+The Web Dashboard for emqttd broker. The plugin will be loaded automatically when the broker started successfully.
+
++------------------+---------------------------+
+| Address          | http://localhost:18083    |
++------------------+---------------------------+
+| Default User     | admin                     |
++------------------+---------------------------+
+| Default Password | public                    |
++------------------+---------------------------+
 
 .. image:: _static/images/dashboard.png
 
 Configure Dashboard
 -------------------
 
-plugins/emqttd_dashboard/etc/plugin.config::
+emqttd_dashboard/etc/plugin.config::
 
     [
       {emqttd_dashboard, [
@@ -121,8 +129,8 @@ MQTT ACL Table
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 
-emqttd_plugin_mysql/etc/plugin.config
--------------------------------------
+Configure emqttd_plugin_mysql/etc/plugin.config
+-----------------------------------------------
 
 Configure MySQL host, username, password and database::
 
@@ -336,7 +344,7 @@ Support STOMP 1.0/1.1/1.2 clients to connect to emqttd broker and communicate wi
 Configure emqttd_stomp/etc/plugin.config
 ----------------------------------------
 
-.. NOTE:: TCP Port for STOMP Protocol: 61613
+.. NOTE:: Default Port for STOMP Protocol: 61613
 
 .. code:: erlang
 
@@ -376,7 +384,7 @@ Load emqttd_stomp Plugin
 
 
 -----------------------------------
-emqttd_sockjs - Stomp/SockJS Plugin
+emqttd_sockjs - STOMP/SockJS Plugin
 -----------------------------------
 
 emqttd_sockjs plugin enables web browser to connect to emqttd broker and communicate with MQTT clients.
@@ -418,7 +426,7 @@ http://localhost:61616/index.html
 emqttd_recon - Recon Plugin
 ---------------------------
 
-The plugin will load `recon`_ library on a running emqttd broker. Recon libray helps to debug and optimize an Erlang application.
+The plugin loads `recon`_ library on a running emqttd broker. Recon libray helps to debug and optimize an Erlang application.
 
 Load emqttd_recon Plugin
 ------------------------
@@ -448,14 +456,153 @@ Plugin Development Guide
 Create a Plugin Project
 -----------------------
 
+Clone emqttd source from github.com::
+
+    git clone https://github.com/emqtt/emqttd.git
+
+Create a plugin project under 'plugins' folder::
+
+    cd plugins && mkdir emqttd_my_plugin
+
+    cd emqttd_my_plugin && rebar create-app appid=emqttd_my_plugin
+
+Template Plugin: https://github.com/emqtt/emqttd_plugin_template
+
 Register Auth/ACL Modules
 -------------------------
+
+emqttd_auth_demo.erl - demo authentication module:
+
+.. code:: erlang
+
+    -module(emqttd_auth_demo).
+
+    -behaviour(emqttd_auth_mod).
+
+    -include("../../../include/emqttd.hrl").
+
+    -export([init/1, check/3, description/0]).
+
+    init(Opts) -> {ok, Opts}.
+
+    check(#mqtt_client{client_id = ClientId, username = Username}, Password, _Opts) ->
+        io:format("Auth Demo: clientId=~p, username=~p, password=~p~n",
+                  [ClientId, Username, Password]),
+        ok.
+
+    description() -> "Demo Auth Module".
+
+emqttd_acl_demo.erl - demo ACL module:
+
+.. code:: erlang
+
+    -module(emqttd_acl_demo).
+
+    -include("../../../include/emqttd.hrl").
+
+    %% ACL callbacks
+    -export([init/1, check_acl/2, reload_acl/1, description/0]).
+
+    init(Opts) ->
+        {ok, Opts}.
+
+    check_acl({Client, PubSub, Topic}, Opts) ->
+        io:format("ACL Demo: ~p ~p ~p~n", [Client, PubSub, Topic]),
+        allow.
+
+    reload_acl(_Opts) ->
+        ok.
+
+    description() -> "ACL Module Demo".
+
+emqttd_plugin_template_app.erl - Register the auth/ACL modules:
+
+.. code:: erlang
+
+    ok = emqttd_access_control:register_mod(auth, emqttd_auth_demo, []),
+    ok = emqttd_access_control:register_mod(acl, emqttd_acl_demo, []),
+
 
 Register Handlers for Hooks
 ---------------------------
 
+The plugin could register handlers for hooks. The hooks will be called by the broker when a client connected/disconnected, a topic subscribed/unsubscribed or a message published/delivered.
+
+emqttd_plugin_template.erl for example::
+
+    %% Called when the plugin application start
+    load(Env) ->
+
+        emqttd_broker:hook('client.connected', {?MODULE, on_client_connected},
+                           {?MODULE, on_client_connected, [Env]}),
+
+        emqttd_broker:hook('client.disconnected', {?MODULE, on_client_disconnected},
+                           {?MODULE, on_client_disconnected, [Env]}),
+
+        emqttd_broker:hook('client.subscribe', {?MODULE, on_client_subscribe},
+                           {?MODULE, on_client_subscribe, [Env]}),
+
+        emqttd_broker:hook('client.subscribe.after', {?MODULE, on_client_subscribe_after},
+                           {?MODULE, on_client_subscribe_after, [Env]}),
+
+        emqttd_broker:hook('client.unsubscribe', {?MODULE, on_client_unsubscribe},
+                           {?MODULE, on_client_unsubscribe, [Env]}),
+
+        emqttd_broker:hook('message.publish', {?MODULE, on_message_publish},
+                           {?MODULE, on_message_publish, [Env]}),
+
+        emqttd_broker:hook('message.acked', {?MODULE, on_message_acked},
+                           {?MODULE, on_message_acked, [Env]}).
+
+Hook List:
+
++------------------------+-------------+---------------------------------------+
+| Name                   | Type        | Description                           |
++------------------------+-------------+---------------------------------------+
+| client.connected       | foreach     | Run when a client connected to the    |
+|                        |             | broker successfully                   |
++------------------------+-------------+---------------------------------------+
+| client.subscribe       | foldl       | Run before a client subscribes topics |
++------------------------+-------------+---------------------------------------+
+| client.subscribe.after | foreach     | Run after a client subscribed topics  |
++------------------------+-------------+---------------------------------------+
+| client.unsubscribe     | foldl       | Run when a client unsubscribes topics |
++------------------------+-------------+---------------------------------------+
+| message.publish        | foldl       | Run when a message is published       |
++------------------------+-------------+---------------------------------------+
+| message.acked          | foreach     | Run when a message is delivered       |
++------------------------+-------------+---------------------------------------+
+| client.disconnected    | foreach     | Run when a client is disconnnected    |
++----------------------- +-------------+---------------------------------------+
+
 Register CLI Modules
 --------------------
+
+emqttd_cli_demo.erl:
+
+.. code:: erlang
+
+    -module(emqttd_cli_demo).
+
+    -include("../../../include/emqttd_cli.hrl").
+
+    -export([cmd/1]).
+
+    cmd(["arg1", "arg2"]) ->
+        ?PRINT_MSG("ok");
+
+    cmd(_) ->
+        ?USAGE([{"cmd arg1 arg2", "cmd demo"}]).
+
+emqttd_plugin_template_app.erl - register the CLI module to emqttd broker:
+
+.. code:: erlang
+
+    emqttd_ctl:register_cmd(cmd, {emqttd_cli_demo, cmd}, []).
+
+There will be a new CLI after the plugin loaded::
+
+    ./bin/emqttd_ctl cmd arg1 arg2
 
 
 .. _emqttd_dashboard:       https://github.com/emqtt/emqttd_dashboard
