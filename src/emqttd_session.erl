@@ -45,7 +45,7 @@
 
 -include("emqttd_internal.hrl").
 
--behaviour(gen_server2).
+-behaviour(emqttd_gen_server2).
 
 -import(proplists, [get_value/2, get_value/3]).
 
@@ -138,26 +138,26 @@
 %% @doc Start a session.
 -spec start_link(boolean(), mqtt_client_id(), pid()) -> {ok, pid()} | {error, any()}.
 start_link(CleanSess, ClientId, ClientPid) ->
-    gen_server2:start_link(?MODULE, [CleanSess, ClientId, ClientPid], []).
+    emqttd_gen_server2:start_link(?MODULE, [CleanSess, ClientId, ClientPid], []).
 
 %% @doc Resume a session.
 -spec resume(pid(), mqtt_client_id(), pid()) -> ok.
 resume(SessPid, ClientId, ClientPid) ->
-    gen_server2:cast(SessPid, {resume, ClientId, ClientPid}).
+    emqttd_gen_server2:cast(SessPid, {resume, ClientId, ClientPid}).
 
 %% @doc Session Info.
 info(SessPid) ->
-    gen_server2:call(SessPid, info).
+    emqttd_gen_server2:call(SessPid, info).
 
 %% @doc Destroy a session.
 -spec destroy(pid(), mqtt_client_id()) -> ok.
 destroy(SessPid, ClientId) ->
-    gen_server2:cast(SessPid, {destroy, ClientId}).
+    emqttd_gen_server2:cast(SessPid, {destroy, ClientId}).
 
 %% @doc Subscribe Topics
 -spec subscribe(pid(), [{binary(), mqtt_qos()}]) -> ok.
 subscribe(SessPid, TopicTable) ->
-    gen_server2:cast(SessPid, {subscribe, TopicTable, fun(_) -> ok end}).
+    emqttd_gen_server2:cast(SessPid, {subscribe, TopicTable, fun(_) -> ok end}).
 
 -spec subscribe(pid(), mqtt_packet_id(), [{binary(), mqtt_qos()}]) -> ok.
 subscribe(SessPid, PacketId, TopicTable) ->
@@ -165,7 +165,7 @@ subscribe(SessPid, PacketId, TopicTable) ->
     AckFun = fun(GrantedQos) ->
                From ! {suback, PacketId, GrantedQos}
              end,
-    gen_server2:cast(SessPid, {subscribe, TopicTable, AckFun}).
+    emqttd_gen_server2:cast(SessPid, {subscribe, TopicTable, AckFun}).
 
 %% @doc Publish message
 -spec publish(pid(), mqtt_message()) -> ok | {error, any()}.
@@ -179,29 +179,29 @@ publish(_SessPid, Msg = #mqtt_message{qos = ?QOS_1}) ->
 
 publish(SessPid, Msg = #mqtt_message{qos = ?QOS_2}) ->
     %% publish qos2 by session 
-    gen_server2:call(SessPid, {publish, Msg}, ?PUBSUB_TIMEOUT).
+    emqttd_gen_server2:call(SessPid, {publish, Msg}, ?PUBSUB_TIMEOUT).
 
 %% @doc PubAck message
 -spec puback(pid(), mqtt_packet_id()) -> ok.
 puback(SessPid, PktId) ->
-    gen_server2:cast(SessPid, {puback, PktId}).
+    emqttd_gen_server2:cast(SessPid, {puback, PktId}).
 
 -spec pubrec(pid(), mqtt_packet_id()) -> ok.
 pubrec(SessPid, PktId) ->
-    gen_server2:cast(SessPid, {pubrec, PktId}).
+    emqttd_gen_server2:cast(SessPid, {pubrec, PktId}).
 
 -spec pubrel(pid(), mqtt_packet_id()) -> ok.
 pubrel(SessPid, PktId) ->
-    gen_server2:cast(SessPid, {pubrel, PktId}).
+    emqttd_gen_server2:cast(SessPid, {pubrel, PktId}).
 
 -spec pubcomp(pid(), mqtt_packet_id()) -> ok.
 pubcomp(SessPid, PktId) ->
-    gen_server2:cast(SessPid, {pubcomp, PktId}).
+    emqttd_gen_server2:cast(SessPid, {pubcomp, PktId}).
 
 %% @doc Unsubscribe Topics
 -spec unsubscribe(pid(), [binary()]) -> ok.
 unsubscribe(SessPid, Topics) ->
-    gen_server2:cast(SessPid, {unsubscribe, Topics}).
+    emqttd_gen_server2:cast(SessPid, {unsubscribe, Topics}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

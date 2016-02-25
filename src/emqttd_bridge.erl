@@ -16,7 +16,7 @@
 
 -module(emqttd_bridge).
 
--behaviour(gen_server2).
+-behaviour(emqttd_gen_server2).
 
 -include("emqttd.hrl").
 
@@ -57,7 +57,7 @@
 %% @doc Start a bridge
 -spec start_link(atom(), binary(), [option()]) -> {ok, pid()} | ignore | {error, term()}.
 start_link(Node, Topic, Options) ->
-    gen_server2:start_link(?MODULE, [Node, Topic, Options], []).
+    emqttd_gen_server2:start_link(?MODULE, [Node, Topic, Options], []).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

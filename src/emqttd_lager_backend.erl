@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(lager_emqtt_backend).
+-module(emqttd_lager_backend).
 
 -behaviour(gen_event).
 

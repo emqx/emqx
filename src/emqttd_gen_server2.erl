@@ -111,7 +111,7 @@
 %%
 %%     $Id$
 %%
--module(gen_server2).
+-module(emqttd_gen_server2).
 
 %%% ---------------------------------------------------
 %%%
@@ -526,7 +526,7 @@ enter_loop(Mod, Options, State, ServerName, Timeout, Backoff) ->
     Name = get_proc_name(ServerName),
     Parent = get_parent(),
     Debug = debug_options(Name, Options),
-    Queue = priority_queue:new(),
+    Queue = emqttd_priority_queue:new(),
     Backoff1 = extend_backoff(Backoff),
     loop(find_prioritisers(
            #gs2_state { parent = Parent, name = Name, state = State,
@@ -549,7 +549,7 @@ init_it(Starter, self, Name, Mod, Args, Options) ->
 init_it(Starter, Parent, Name0, Mod, Args, Options) ->
     Name = name(Name0),
     Debug = debug_options(Name, Options),
-    Queue = priority_queue:new(),
+    Queue = emqttd_priority_queue:new(),
     GS2State = find_prioritisers(
                  #gs2_state { parent  = Parent,
                               name    = Name,
@@ -635,7 +635,7 @@ extend_backoff({backoff, InitialTimeout, MinimumTimeout, DesiredHibPeriod}) ->
 loop(GS2State = #gs2_state { time          = hibernate,
                              timeout_state = undefined,
                              queue         = Queue }) ->
-    case priority_queue:is_empty(Queue) of
+    case emqttd_priority_queue:is_empty(Queue) of
         true  -> pre_hibernate(GS2State);
         false -> process_next_msg(GS2State)
     end;
@@ -652,7 +652,7 @@ drain(GS2State) ->
 process_next_msg(GS2State = #gs2_state { time          = Time,
                                          timeout_state = TimeoutState,
                                          queue         = Queue }) ->
-    case priority_queue:out(Queue) of
+    case emqttd_priority_queue:out(Queue) of
         {{value, Msg}, Queue1} ->
             process_msg(Msg, GS2State #gs2_state { queue = Queue1 });
         {empty, Queue1} ->
@@ -781,7 +781,7 @@ in(_Input, drop, GS2State) ->
     GS2State;
 
 in(Input, Priority, GS2State = #gs2_state { queue = Queue }) ->
-    GS2State # gs2_state { queue = priority_queue:in(Input, Priority, Queue) }.
+    GS2State # gs2_state { queue = emqttd_priority_queue:in(Input, Priority, Queue) }.
 
 process_msg({system, From, Req},
             GS2State = #gs2_state { parent = Parent, debug  = Debug }) ->
@@ -1296,7 +1296,7 @@ function_exported_or_default(Mod, Fun, Arity, Default) ->
         true -> case Arity of
                     3 -> fun (Msg, GS2State = #gs2_state { queue = Queue,
                                                            state = State }) ->
-                                 Length = priority_queue:len(Queue),
+                                 Length = emqttd_priority_queue:len(Queue),
                                  case catch Mod:Fun(Msg, Length, State) of
                                      drop ->
                                          drop;
@@ -1308,7 +1308,7 @@ function_exported_or_default(Mod, Fun, Arity, Default) ->
                          end;
                     4 -> fun (Msg, From, GS2State = #gs2_state { queue = Queue,
                                                                  state = State }) ->
-                                 Length = priority_queue:len(Queue),
+                                 Length = emqttd_priority_queue:len(Queue),
                                  case catch Mod:Fun(Msg, From, Length, State) of
                                      Res when is_integer(Res) ->
                                          Res;
@@ -1337,7 +1337,7 @@ format_status(Opt, StatusData) ->
     Specfic = callback(Mod, format_status, [Opt, [PDict, State]],
                        fun () -> [{data, [{"State", State}]}] end),
     Messages = callback(Mod, format_message_queue, [Opt, Queue],
-                        fun () -> priority_queue:to_list(Queue) end),
+                        fun () -> emqttd_priority_queue:to_list(Queue) end),
     [{header, Header},
      {data, [{"Status", SysState},
              {"Parent", Parent},

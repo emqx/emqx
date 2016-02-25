@@ -74,7 +74,7 @@
               | {dropped, non_neg_integer()}.
 
 -record(mqueue, {type :: simple | priority,
-                 name, q :: queue:queue() | priority_queue:q(),
+                 name, q :: queue:queue() | emqttd_priority_queue:q(),
                  %% priority table
                  pseq = 0, priorities = [],
                  %% len of simple queue
@@ -103,7 +103,7 @@ init_q(MQ = #mqueue{type = simple}, _Opts) ->
     MQ#mqueue{q = queue:new()};
 init_q(MQ = #mqueue{type = priority}, Opts) ->
     Priorities = get_value(priority, Opts, []),
-    init_p(Priorities, MQ#mqueue{q = priority_queue:new()}).
+    init_p(Priorities, MQ#mqueue{q = emqttd_priority_queue:new()}).
 
 init_p([], MQ) ->
     MQ;
@@ -134,10 +134,10 @@ type(#mqueue{type = Type}) ->
     Type.
 
 is_empty(#mqueue{type = simple, len = Len}) -> Len =:= 0;
-is_empty(#mqueue{type = priority, q = Q})   -> priority_queue:is_empty(Q).
+is_empty(#mqueue{type = priority, q = Q})   -> emqttd_priority_queue:is_empty(Q).
 
 len(#mqueue{type = simple, len = Len}) -> Len;
-len(#mqueue{type = priority, q = Q})   -> priority_queue:len(Q).
+len(#mqueue{type = priority, q = Q})   -> emqttd_priority_queue:len(Q).
 
 max_len(#mqueue{max_len= MaxLen}) -> MaxLen.
 
@@ -146,7 +146,7 @@ max_len(#mqueue{max_len= MaxLen}) -> MaxLen.
 stats(#mqueue{type = Type, q = Q, max_len = MaxLen, len = Len, dropped = Dropped}) ->
     [{len, case Type of
                 simple   -> Len;
-                priority -> priority_queue:len(Q)
+                priority -> emqttd_priority_queue:len(Q)
             end} | [{max_len, MaxLen}, {dropped, Dropped}]].
 
 %% @doc Enqueue a message.
@@ -167,26 +167,26 @@ in(Msg = #mqtt_message{topic = Topic}, MQ = #mqueue{type = priority, q = Q,
                                                     max_len = infinity}) ->
     case lists:keysearch(Topic, 1, Priorities) of
         {value, {_, Pri}} ->
-            MQ#mqueue{q = priority_queue:in(Msg, Pri, Q)};
+            MQ#mqueue{q = emqttd_priority_queue:in(Msg, Pri, Q)};
         false ->
             {Pri, MQ1} = insert_p(Topic, 0, MQ),
-            MQ1#mqueue{q = priority_queue:in(Msg, Pri, Q)}
+            MQ1#mqueue{q = emqttd_priority_queue:in(Msg, Pri, Q)}
     end;
 in(Msg = #mqtt_message{topic = Topic}, MQ = #mqueue{type = priority, q = Q,
                                                     priorities = Priorities,
                                                     max_len = MaxLen}) ->
     case lists:keysearch(Topic, 1, Priorities) of
         {value, {_, Pri}} ->
-            case priority_queue:plen(Pri, Q) >= MaxLen of
+            case emqttd_priority_queue:plen(Pri, Q) >= MaxLen of
                 true ->
-                    {_, Q1} = priority_queue:out(Pri, Q),
-                    MQ#mqueue{q = priority_queue:in(Msg, Pri, Q1)};
+                    {_, Q1} = emqttd_priority_queue:out(Pri, Q),
+                    MQ#mqueue{q = emqttd_priority_queue:in(Msg, Pri, Q1)};
                 false ->
-                    MQ#mqueue{q = priority_queue:in(Msg, Pri, Q)}
+                    MQ#mqueue{q = emqttd_priority_queue:in(Msg, Pri, Q)}
             end;
         false ->
             {Pri, MQ1} = insert_p(Topic, 0, MQ),
-            MQ1#mqueue{q = priority_queue:in(Msg, Pri, Q)}
+            MQ1#mqueue{q = emqttd_priority_queue:in(Msg, Pri, Q)}
     end.
 
 out(MQ = #mqueue{type = simple, len = 0}) ->
@@ -198,7 +198,7 @@ out(MQ = #mqueue{type = simple, q = Q, len = Len}) ->
     {R, Q2} = queue:out(Q),
     {R, maybe_clear_alarm(MQ#mqueue{q = Q2, len = Len - 1})};
 out(MQ = #mqueue{type = priority, q = Q}) ->
-    {R, Q2} = priority_queue:out(Q),
+    {R, Q2} = emqttd_priority_queue:out(Q),
     {R, MQ#mqueue{q = Q2}}.
 
 maybe_set_alarm(MQ = #mqueue{name = Name, len = Len, high_wm = HighWM, alarm_fun = AlarmFun})

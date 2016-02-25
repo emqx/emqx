@@ -16,7 +16,7 @@
 
 -module(emqttd_pubsub).
 
--behaviour(gen_server2).
+-behaviour(emqttd_gen_server2).
 
 -include("emqttd.hrl").
 
@@ -113,7 +113,7 @@ cache_env(Key) ->
     StatsFun :: fun((atom()) -> any()),
     Opts     :: list(tuple()).
 start_link(Pool, Id, StatsFun, Opts) ->
-    gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)},
+    emqttd_gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)},
                            ?MODULE, [Pool, Id, StatsFun, Opts], []).
 
 %% @doc Create Topic or Subscription.
@@ -190,10 +190,10 @@ unsubscribe(ClientId, Topics = [Topic|_]) when is_binary(Topic) ->
     cast({unsubscribe, {ClientId, self()}, Topics}).
 
 call(Request) ->
-    gen_server2:call(pick(self()), Request, infinity).
+    emqttd_gen_server2:call(pick(self()), Request, infinity).
 
 cast(Msg) ->
-    gen_server2:cast(pick(self()), Msg).
+    emqttd_gen_server2:cast(pick(self()), Msg).
 
 pick(Self) -> gproc_pool:pick_worker(pubsub, Self).
 
