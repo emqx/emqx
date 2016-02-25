@@ -1,9 +1,9 @@
 
 .. _cluster:
 
-=============
-Cluster Guide
-=============
+==========
+Clustering
+==========
 
 ----------------------
 Distributed Erlang/OPT

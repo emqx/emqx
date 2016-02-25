@@ -1,9 +1,9 @@
 
 .. _bridge::
 
-============
-Bridge Guide
-============
+======
+Bridge
+======
 
 -------------
 emqttd Bridge
