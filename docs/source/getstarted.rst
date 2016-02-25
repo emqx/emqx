@@ -5,21 +5,24 @@
 Get Started
 ===========
 
---------------------
+--------
 Overview
---------------------
+--------
 
---------------------
-Goals
---------------------
+emqttd is a massively scalable and clusterable MQTT V3.1/V3.1.1 broker written in Erlang/OTP.
 
---------------------
-MQTT Protocol
---------------------
+emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQTT broker for IoT, M2M and Mobile applications that need to support ten millions of concurrent MQTT clients.
 
---------------------------
+* Easy to install
+* Massively scalable
+* Easy to extend
+* Solid stable
+
+-----------
 Quick Start
---------------------------
+-----------
+
+Download binary packeges for Linux, Mac, FreeBSD and Windows from http://emqtt.io/downloads.
 
 .. code:: console
 
@@ -34,9 +37,9 @@ Quick Start
     # Stop emqttd
     ./bin/emqttd stop
 
---------------------
-Compile from Source
---------------------
+-----------------
+Build from Source
+-----------------
 
 .. code:: console
 
@@ -166,9 +169,9 @@ Test Client
     sysctl -w net.ipv4.ip_local_port_range="500 65535"
     echo 1000000 > /proc/sys/fs/nr_open
 
-----------------------------
+----------------------
 emqtt Client Libraries
-----------------------------
+----------------------
 
 GitHub: https://github.com/emqtt
 
@@ -182,8 +185,8 @@ GitHub: https://github.com/emqtt
 | `QMQTT`_           | QT MQTT Client       |
 +--------------------+----------------------+
 
-.. _emqttc: https://github.com/emqtt/emqttc
+.. _emqttc:          https://github.com/emqtt/emqttc
 .. _emqtt_benchmark: https://github.com/emqtt/emqtt_benchmark
-.. _CocoaMQTT: https://github.com/emqtt/CocoaMQTT
-.. _QMQTT: https://github.com/emqtt/qmqtt
+.. _CocoaMQTT:       https://github.com/emqtt/CocoaMQTT
+.. _QMQTT:           https://github.com/emqtt/qmqtt
 

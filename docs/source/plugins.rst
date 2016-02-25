@@ -1,9 +1,9 @@
 
 .. _plugins:
 
-============
-Plugin Guide
-============
+=======
+Plugins
+=======
 
 The emqttd broker could be extended by plugins. Users could develop plugins to customize authentication, ACL and functions of the broker, or integrate the broker with other systems.
 
@@ -526,7 +526,26 @@ emqttd_plugin_template_app.erl - Register the auth/ACL modules:
 Register Handlers for Hooks
 ---------------------------
 
-The plugin could register handlers for hooks. The hooks will be called by the broker when a client connected/disconnected, a topic subscribed/unsubscribed or a message published/delivered.
+The plugin could register handlers for hooks. The hooks will be called by the broker when a client connected/disconnected, a topic subscribed/unsubscribed or a message published/delivered:
+
++------------------------+-------------+---------------------------------------+
+| Name                   | Type        | Description                           |
++------------------------+-------------+---------------------------------------+
+| client.connected       | foreach     | Run when a client connected to the    |
+|                        |             | broker successfully                   |
++------------------------+-------------+---------------------------------------+
+| client.subscribe       | foldl       | Run before a client subscribes topics |
++------------------------+-------------+---------------------------------------+
+| client.subscribe.after | foreach     | Run after a client subscribed topics  |
++------------------------+-------------+---------------------------------------+
+| client.unsubscribe     | foldl       | Run when a client unsubscribes topics |
++------------------------+-------------+---------------------------------------+
+| message.publish        | foldl       | Run when a message is published       |
++------------------------+-------------+---------------------------------------+
+| message.acked          | foreach     | Run when a message is delivered       |
++------------------------+-------------+---------------------------------------+
+| client.disconnected    | foreach     | Run when a client is disconnnected    |
++----------------------- +-------------+---------------------------------------+
 
 emqttd_plugin_template.erl for example::
 
@@ -553,27 +572,6 @@ emqttd_plugin_template.erl for example::
 
         emqttd_broker:hook('message.acked', {?MODULE, on_message_acked},
                            {?MODULE, on_message_acked, [Env]}).
-
-Hook List:
-
-+------------------------+-------------+---------------------------------------+
-| Name                   | Type        | Description                           |
-+------------------------+-------------+---------------------------------------+
-| client.connected       | foreach     | Run when a client connected to the    |
-|                        |             | broker successfully                   |
-+------------------------+-------------+---------------------------------------+
-| client.subscribe       | foldl       | Run before a client subscribes topics |
-+------------------------+-------------+---------------------------------------+
-| client.subscribe.after | foreach     | Run after a client subscribed topics  |
-+------------------------+-------------+---------------------------------------+
-| client.unsubscribe     | foldl       | Run when a client unsubscribes topics |
-+------------------------+-------------+---------------------------------------+
-| message.publish        | foldl       | Run when a message is published       |
-+------------------------+-------------+---------------------------------------+
-| message.acked          | foreach     | Run when a message is delivered       |
-+------------------------+-------------+---------------------------------------+
-| client.disconnected    | foreach     | Run when a client is disconnnected    |
-+----------------------- +-------------+---------------------------------------+
 
 Register CLI Modules
 --------------------
