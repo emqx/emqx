@@ -19,7 +19,7 @@
 %% @end
 -module(emqttd_router).
 
--behaviour(gen_server2).
+-behaviour(emqttd_gen_server2).
 
 -include("emqttd.hrl").
 
@@ -52,7 +52,7 @@
 %% @doc Start a router.
 -spec start_link(atom(), pos_integer(), fun((atom()) -> ok), list()) -> {ok, pid()} | {error, any()}.
 start_link(Pool, Id, StatsFun, Env) ->
-    gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)},
+    emqttd_gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)},
                            ?MODULE, [Pool, Id, StatsFun, Env], []).
 
 %% @doc Route Message on this node.
@@ -147,15 +147,15 @@ pick(Topic) ->
 
 %% @doc For unit test.
 stop(Id) when is_integer(Id) ->
-    gen_server2:call(?PROC_NAME(?MODULE, Id), stop);
+    emqttd_gen_server2:call(?PROC_NAME(?MODULE, Id), stop);
 stop(Pid) when is_pid(Pid) ->
-    gen_server2:call(Pid, stop).
+    emqttd_gen_server2:call(Pid, stop).
 
 call(Router, Request) ->
-    gen_server2:call(Router, Request, infinity).
+    emqttd_gen_server2:call(Router, Request, infinity).
 
 cast(Router, Msg) ->
-    gen_server2:cast(Router, Msg).
+    emqttd_gen_server2:cast(Router, Msg).
 
 init([Pool, Id, StatsFun, Opts]) ->
 

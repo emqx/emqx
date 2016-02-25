@@ -17,7 +17,7 @@
 %% @doc Session Manager
 -module(emqttd_sm).
 
--behaviour(gen_server2).
+-behaviour(emqttd_gen_server2).
 
 -include("emqttd.hrl").
 
@@ -74,7 +74,7 @@ mnesia(copy) ->
 %% @doc Start a session manager
 -spec start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
 start_link(Pool, Id) ->
-    gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
+    emqttd_gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
 
 %% @doc Start a session
 -spec start_session(CleanSess :: boolean(), binary()) -> {ok, pid(), boolean()} | {error, any()}.
@@ -109,7 +109,7 @@ sesstab(true)  -> mqtt_transient_session;
 sesstab(false) -> mqtt_persistent_session.
 
 call(SM, Req) ->
-    gen_server2:call(SM, Req, ?TIMEOUT). %%infinity).
+    emqttd_gen_server2:call(SM, Req, ?TIMEOUT). %%infinity).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

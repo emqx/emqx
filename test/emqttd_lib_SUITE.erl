@@ -26,7 +26,7 @@
 	{nodelay,   true}
 ]).
 
--define(PQ, priority_queue).
+-define(PQ, emqttd_priority_queue).
 
 all() -> [{group, guid}, {group, opts},
           {group, ?PQ}, {group, time},

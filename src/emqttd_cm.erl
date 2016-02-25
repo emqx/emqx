@@ -17,7 +17,7 @@
 %% @doc MQTT Client Manager
 -module(emqttd_cm).
 
--behaviour(gen_server2).
+-behaviour(emqttd_gen_server2).
 
 -include("emqttd.hrl").
 
@@ -49,7 +49,7 @@
         Id   :: pos_integer(),
         StatsFun :: fun().
 start_link(Pool, Id, StatsFun) ->
-    gen_server2:start_link(?MODULE, [Pool, Id, StatsFun], []).
+    emqttd_gen_server2:start_link(?MODULE, [Pool, Id, StatsFun], []).
 
 %% @doc Lookup Client by ClientId
 -spec lookup(ClientId :: binary()) -> mqtt_client() | undefined.
@@ -71,13 +71,13 @@ lookup_proc(ClientId) when is_binary(ClientId) ->
 -spec register(Client :: mqtt_client()) -> ok.
 register(Client = #mqtt_client{client_id = ClientId}) ->
     CmPid = gproc_pool:pick_worker(?POOL, ClientId),
-    gen_server2:cast(CmPid, {register, Client}).
+    emqttd_gen_server2:cast(CmPid, {register, Client}).
 
 %% @doc Unregister clientId with pid.
 -spec unregister(ClientId :: binary()) -> ok.
 unregister(ClientId) when is_binary(ClientId) ->
     CmPid = gproc_pool:pick_worker(?POOL, ClientId),
-    gen_server2:cast(CmPid, {unregister, ClientId, self()}).
+    emqttd_gen_server2:cast(CmPid, {unregister, ClientId, self()}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
