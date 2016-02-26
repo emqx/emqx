@@ -18,9 +18,16 @@ emqttd is aimed to provide a solid, enterprise grade, extensible open-source MQT
 * Easy to extend
 * Solid stable
 
+--------
+Features
+--------
+
 -----------
 Quick Start
 -----------
+
+Download and Install
+--------------------
 
 Download binary packeges for Linux, Mac, FreeBSD and Windows from http://emqtt.io/downloads.
 
@@ -37,7 +44,6 @@ Download binary packeges for Linux, Mac, FreeBSD and Windows from http://emqtt.i
     # Stop emqttd
     ./bin/emqttd stop
 
------------------
 Build from Source
 -----------------
 

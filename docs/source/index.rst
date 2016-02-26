@@ -19,26 +19,6 @@ The emqttd project provides a scalable, enterprise grade, extensible open-source
 
 Sensors, Mobiles, Web Browsers and Application Servers could be connected by emqttd brokers with asynchronous PUB/SUB MQTT messages.
 
-.. NOTE:: MQTT-SN，CoAP Protocols are planned to 1.x release.
-
-Contents:
-
-.. toctree::
-   :maxdepth: 2
-
-   getstarted
-   install
-   config
-   cluster
-   bridge
-   guide
-   commands
-   plugins
-
----------------------
-Supports and Contacts
----------------------
-
 +---------------+-----------------------------------------+
 | Homepage:     | http://emqtt.io                         |
 +---------------+-----------------------------------------+
@@ -54,6 +34,22 @@ Supports and Contacts
 +---------------+-----------------------------------------+
 | Author:       | Feng Lee <feng@emqtt.io>                |
 +---------------+-----------------------------------------+
+
+.. NOTE:: MQTT-SN，CoAP Protocols are planned to 1.x release.
+
+Contents:
+
+.. toctree::
+   :maxdepth: 2
+
+   getstarted
+   install
+   config
+   cluster
+   bridge
+   guide
+   commands
+   plugins
 
 -------
 License
