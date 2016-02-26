@@ -203,10 +203,12 @@ The MQTT broker is implemented by erlang 'emqttd' application::
     ]}
  ]}
 
-Authentication
---------------
+Pluggable Authentication
+------------------------
 
-emqttd消息服务器认证由一系列认证模块(module)或插件(plugin)提供，系统默认支持用户名、ClientID、LDAP、匿名(anonymouse)认证模块::
+The emqttd broker supports pluggable authentication mechanism with a list of modules and plugins.
+
+The broker provides Username, ClientId, LDAP and anonymous authentication modules by default::
 
     %% Authetication. Anonymous Default
     {auth, [
@@ -233,18 +235,16 @@ emqttd消息服务器认证由一系列认证模块(module)或插件(plugin)提�
         {anonymous, []}
     ]},
 
-系统默认采用匿名认证(anonymous)，通过删除注释可开启其他认证方式。同时开启的多个认证模块组成认证链::
+The modules enabled in the same time compose an authentication chain:
 
-               ----------------           ----------------           ------------
-    Client --> | Username认证 | -ignore-> | ClientID认证 | -ignore-> | 匿名认证 |
-               ----------------           ----------------           ------------
+               ----------------           ----------------           -------------
+    Client --> |   Username   | -ignore-> |   ClientID   | -ignore-> | Anonymous |
+               ----------------           ----------------           -------------
                       |                         |                         |
                      \|/                       \|/                       \|/
                 allow | deny              allow | deny              allow | deny
  
-.. NOTE:: emqttd消息服务器还提供了MySQL、PostgreSQL、Redis、MongoDB认证插件，
-          认证插件加载后认证模块失效。
-
+.. NOTE:: There are also MySQL、PostgreSQL、Redis、MongoDB Authentication Plugins.
 
 Username Authentication
 .......................
