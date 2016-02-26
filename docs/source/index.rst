@@ -47,7 +47,6 @@ Contents:
    config
    cluster
    bridge
-   guide
    commands
    plugins
 

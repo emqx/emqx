@@ -18,6 +18,7 @@ Highlights of the emqttd broker:
 * Full MQTT V3.1/3.1.1 Protocol Specifications Support
 * Easy to Install - Quick Install on Linux, FreeBSD, Mac and Windows
 * Massively scalable - Scaling to 1 million connections on a single server
+* Cluster and Bridge Support
 * Easy to extend - Hooks and plugins to customize or extend the broker
 * Pluggable Authentication - LDAP, MySQL, PostgreSQL, Redis Authentication Plugins
 
@@ -76,7 +77,7 @@ Installing on Mac, For example:
 Installing from Source
 ----------------------
 
-.. NOTE:: emqttd requires Erlang R17+ to build.
+.. NOTE:: emqttd broker requires Erlang R17+ to build.
 
 .. code:: console
 
@@ -92,9 +93,7 @@ Web Dashboard
 
 A Web Dashboard will be loaded automatically when the emqttd broker is started successfully.
 
-The Dashboard helps to check running status of the broker, monitor statistics and metrics of MQTT packets,
-
-query clients, sessions, topics and subscriptions.
+The Dashboard helps to check running status of the broker, monitor statistics and metrics of MQTT packets, query clients, sessions, topics and subscriptions.
 
 +------------------+---------------------------+
 | Default Address  | http://localhost:18083    |
@@ -110,9 +109,7 @@ query clients, sessions, topics and subscriptions.
 Modules and Plugins
 -------------------
 
-The emqttd broker could be extended by Modules and Plugins.
-
-The authentication and ACL mechanism is usually implemented by a module or plugin.
+The Authentication and ACL mechanism is usually implemented by a Module or Plugin.
 
 Modules
 -------

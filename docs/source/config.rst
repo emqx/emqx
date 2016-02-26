@@ -5,31 +5,29 @@
 Configuration
 =============
 
-emqttd消息服务器通过etc/目录下配置文件进行设置，主要配置文件包括:
+Configuration files are under 'etc/' folder, including:
 
 +-------------------+-----------------------------------+
-| 配置文件          | 说明                              |
+| File              | Description                       |
 +-------------------+-----------------------------------+
-| etc/vm.args       | Erlang 虚拟机的参数设置           |
+| etc/vm.args       | Erlang VM Arguments               |
 +-------------------+-----------------------------------+
-| etc/emqttd.config | emqttd消息服务器参数设置          |
+| etc/emqttd.config | emqttd broker Config              |
 +-------------------+-----------------------------------+
-| etc/acl.config    | ACL(访问控制规则)设置             |
+| etc/acl.config    | ACL Config                        |
 +-------------------+-----------------------------------+
-| etc/clients.config| 基于ClientId认证设置              |
+| etc/clients.config| ClientId Authentication           |
 +-------------------+-----------------------------------+
-| etc/rewrite.config| Rewrite扩展模块规则配置           |
+| etc/rewrite.config| Rewrite Rules                     |
 +-------------------+-----------------------------------+
-| etc/ssl/*         | SSL证书设置                       |
+| etc/ssl/*         | SSL certificate and key files     |
 +-------------------+-----------------------------------+
 
 -----------
 etc/vm.args
 -----------
 
-Configure parameters of Erlang VM:
-
-.. code::
+Configure and Optimize Erlang VM::
 
     ##-------------------------------------------------------------------------
     ## Name of the node
@@ -84,35 +82,33 @@ Configure parameters of Erlang VM:
     ## Tweak GC to run more often
     -env ERL_FULLSWEEP_AFTER 1000
 
-etc/vm.args中两个最重要的参数:
+The two most important parameters in etc/vm.args:
 
-+-------+----------------------------------------------------------------------------------------------+
-| +P    | Erlang虚拟机允许的最大进程数，一个MQTT连接会消耗2个Erlang进程，所以参数值 > 最大连接数 * 2   | 
-+-------+----------------------------------------------------------------------------------------------+
-| +Q    | Erlang虚拟机允许的最大Port数量，一个MQTT连接消耗1个Port，所以参数值 > 最大连接数             |
-+-------+----------------------------------------------------------------------------------------------+
++-------+---------------------------------------------------------------------------+
+| +P    | Max number of Erlang proccesses. A MQTT client consumes two proccesses.   |
+|       | The value should be larger than max_clients * 2                           | 
++-------+---------------------------------------------------------------------------+
+| +Q    | Max number of Erlang Ports. A MQTT client consumes one port.              |
+|       | The value should be larger than max_clients.                              |
++-------+---------------------------------------------------------------------------+
 
-etc/vm.args设置Erlang节点名、节点间通信Cookie::
+The name and cookie of Erlang Node should be configured when clustering::
 
-    -name emqttd@127.0.0.1
+    -name emqttd@host_or_ip
 
     ## Cookie for distributed erlang
     -setcookie emqttdsecretcookie
-
-.. NOTE:: 
-    
-    Erlang/OTP平台应用多由分布的Erlang节点(进程)组成，每个Erlang节点(进程)需指配一个节点名，用于节点间通信互访。
-    所有互相通信的Erlang节点(进程)间通过一个共用的Cookie进行安全认证。
 
 -----------------
 etc/emqttd.config
 -----------------
 
-etc/emqttd.config是消息服务器的核心配置文件。Erlang程序由多个应用(application)组成，每个应用(application)有自身的环境参数，
+The main configuration file for emqttd broker.
 
-启动时候通过etc/emqttd.config文件加载。
+File Syntax
+-----------
 
-etc/emqttd.config文件采用的是Erlang数据格式，kernel, sasl, emqttd是Erlang应用(application)名称，'[]'内是应用的环境参数列表。
+The config consists of a list of Erlang Applications and their environments.
 
 .. code:: erlang
 
@@ -131,24 +127,22 @@ etc/emqttd.config文件采用的是Erlang数据格式，kernel, sasl, emqttd是E
      ]}
     ].
 
-emqttd.config格式简要说明:
+The file adopts Erlang Term Syntax:
 
-1. [ ] : 列表，逗号分隔元素
+1. [ ]: List, seperated by comma
+2. { }: Tuple, Usually {Env, Value}
+3. %  : comment
 
-2. { } : 元组，配置元组一般两个元素{Env, Value}
+Log Level and File
+------------------
 
-3. %   : 注释
-
-Log Level and Destination
--------------------------
-
-emqttd消息服务器日志由lager应用(application)提供，日志相关设置在lager应用段落::
+Logger of emqttd broker is implemented by 'lager' application::
 
   {lager, [
     ...
   ]},
 
-产品环境下默认只开启error日志，日志输出到logs/emqttd_error.log文件。'handlers'段落启用其他级别日志::
+Configure log handlers::
 
     {handlers, [
         {lager_console_backend, info},
@@ -172,47 +166,45 @@ emqttd消息服务器日志由lager应用(application)提供，日志相关设�
         ]}
     ]}
 
-.. WARNING:: 过多日志打印严重影响服务器性能，产品环境下建议开启error级别日志。
-
-Broker Parameters
+emqttd Application
 ------------------
 
-emqttd消息服务器参数设置在emqttd应用段落，包括用户认证与访问控制设置，MQTT协议、会话、队列设置，扩展模块设置，TCP服务监听器设置::
+The MQTT broker is implemented by erlang 'emqttd' application::
 
  {emqttd, [
-    %% 用户认证与访问控制设置
+    %% Authentication and Authorization
     {access, [
         ...
     ]},
-    %% MQTT连接、协议、会话、队列设置
+    %% MQTT Protocol Options
     {mqtt, [
         ...
     ]},
-    %% 消息服务器设置
+    %% Broker Options
     {broker, [
         ...
     ]},
-    %% 扩展模块设置
+    %% Modules
     {modules, [
         ...
     ]},
-    %% 插件目录设置
+    %% Plugins
     {plugins, [
         ...
     ]},
 
-    %% TCP监听器设置
+    %% Listeners
     {listeners, [
         ...
     ]},
 
-    %% Erlang虚拟机监控设置
+    %% Erlang System Monitor
     {sysmon, [
     ]}
  ]}
 
-access用户认证设置
-------------------
+Authentication
+--------------
 
 emqttd消息服务器认证由一系列认证模块(module)或插件(plugin)提供，系统默认支持用户名、ClientID、LDAP、匿名(anonymouse)认证模块::
 
