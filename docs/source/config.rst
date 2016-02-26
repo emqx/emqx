@@ -246,39 +246,38 @@ emqttd消息服务器认证由一系列认证模块(module)或插件(plugin)提�
           认证插件加载后认证模块失效。
 
 
-用户名密码认证
-..............
+Username and Password Authentication
+....................................
 
 .. code:: erlang
 
     {username, [{test1, "passwd1"}, {test2, "passwd2"}]},
 
-两种方式添加用户:
+Two ways to configure users:
 
-1. 直接在[]中明文配置默认用户::
+1. Configure username and plain password directly::
 
-    [{test1, "passwd1"}, {test2, "passwd2"}]
+    {username, [{test1, "passwd1"}, {test2, "passwd2"}]},
 
-2. 通过'./bin/emqttd_ctl'管理命令行添加用户::
+2. Add users by './bin/emqttd_ctl' command::
 
    $ ./bin/emqttd_ctl users add <Username> <Password>
 
-ClientID认证
-............
+ClientID Authentication
+.......................
 
 .. code:: erlang
 
     {clientid, [{password, no}, {file, "etc/clients.config"}]},
 
-etc/clients.config文件中添加ClientID::
+Configure ClientIDs in etc/clients.config::
 
     testclientid0
     testclientid1 127.0.0.1
     testclientid2 192.168.0.1/24
 
-
-LDAP认证
-........
+LDAP Authentication
+...................
 
 .. code:: erlang
 
@@ -294,85 +293,59 @@ LDAP认证
     ]},
 
 
-匿名认证
-........
+Anonymous Authentication
+........................
 
-默认开启。允许任意客户端登录::
+Allow any clients connect to the broker::
 
     {anonymous, []}
 
 
-access用户访问控制(ACL)
------------------------
+ACL Config
+----------
 
-emqttd消息服务器支持基于etc/acl.config文件或MySQL、PostgreSQL插件的访问控制规则。
+Enable the default ACL module::
 
-默认开启基于etc/acl.config文件的访问控制::
-
-    %% ACL config
     {acl, [
         %% Internal ACL module
         {internal,  [{file, "etc/acl.config"}, {nomatch, allow}]}
     ]}
 
-etc/acl.config访问控制规则定义::
+MQTT Packet and ClientID
+------------------------
 
-    允许|拒绝  用户|IP地址|ClientID  发布|订阅  主题列表
-
-etc/acl.config默认访问规则设置::
-
-    {allow, {user, "dashboard"}, subscribe, ["$SYS/#"]}.
-
-    {allow, {ipaddr, "127.0.0.1"}, pubsub, ["$SYS/#", "#"]}.
-
-    {deny, all, subscribe, ["$SYS/#", {eq, "#"}]}.
-
-    {allow, all}.
-
-.. NOTE:: 默认规则只允许本机用户订阅'$SYS/#'与'#'
-
-emqttd消息服务器接收到MQTT客户端发布(PUBLISH)或订阅(SUBSCRIBE)请求时，会逐条匹配ACL访问控制规则，
-
-直到匹配成功返回allow或deny。
-
-
-MQTT报文(Packet)尺寸与ClientID长度限制
---------------------------------------
-
-'packet'段落设置最大报文尺寸、最大客户端ID长度::
+.. code::
 
     {packet, [
 
-        %% ClientID长度, 默认1024
+        %% Max ClientId Length Allowed
         {max_clientid_len, 1024},
 
-        %% 最大报文长度，默认64K
+        %% Max Packet Size Allowed, 64K default
         {max_packet_size,  65536}
     ]},
 
+MQTT Client Idle Timeout
+------------------------
 
-MQTT客户端(Client)连接闲置时间
-------------------------------
-
-'client'段落设置客户端最大允许闲置时间(Socket连接建立，但未发送CONNECT报文)::
+.. code::
 
     {client, [
-        %% 单位: 秒
+        %% Socket is connected, but no 'CONNECT' packet received
         {idle_timeout, 10}
     ]},
 
+MQTT Session
+------------
 
-MQTT会话(Session)参数设置
--------------------------
-
-'session'段落设置MQTT会话参数::
+.. code::
 
     {session, [
         %% Max number of QoS 1 and 2 messages that can be “in flight” at one time.
         %% 0 means no limit
         {max_inflight, 100},
 
-        %% Retry interval for redelivering QoS1/2 messages.
+        %% Retry interval for unacked QoS1/2 messages.
         {unack_retry_interval, 20},
 
         %% Awaiting PUBREL Timeout
@@ -381,7 +354,7 @@ MQTT会话(Session)参数设置
         %% Max Packets that Awaiting PUBREL, 0 means no limit
         {max_awaiting_rel, 0},
 
-        %% Statistics Collection Interval(seconds)
+        %% Interval of Statistics Collection(seconds)
         {collect_interval, 20},
 
         %% Expired after 2 days
@@ -389,33 +362,33 @@ MQTT会话(Session)参数设置
 
     ]},
 
-会话参数详细说明:
+Session parameters:
 
 +----------------------+----------------------------------------------------------+
-| max_inflight         | 飞行窗口。最大允许同时下发的Qos1/2报文数，0表示没有限制。|
-|                      | 窗口值越大，吞吐越高；窗口值越小，消息顺序越严格         |
+| max_inflight         | Max number of QoS1/2 messages that can be delivered in   |
+|                      | the same time                                            |
 +----------------------+----------------------------------------------------------+
-| unack_retry_interval | 下发QoS1/2消息未收到PUBACK响应的重试间隔                 |
+| unack_retry_interval | Retry interval for unacked QoS1/2 messages.              |
 +----------------------+----------------------------------------------------------+
-| await_rel_timeout    | 收到QoS2消息，等待PUBREL报文超时时间                     |
+| await_rel_timeout    | Awaiting PUBREL Timeout                                  |
 +----------------------+----------------------------------------------------------+
-| max_awaiting_rel     | 最大等待PUBREL的QoS2报文数                               |
+| max_awaiting_rel     | Max number of Packets that Awaiting PUBREL               |
 +----------------------+----------------------------------------------------------+
-| collect_interval     | 采集会话统计数据间隔，默认0表示关闭统计                  |
+| collect_interval     | Interval of Statistics Collection                        |
 +----------------------+----------------------------------------------------------+
-| expired_after        | 持久会话到期时间，从客户端断开算起，单位：小时           |
+| expired_after        | Expired after                                            |
 +----------------------+----------------------------------------------------------+
 
-MQTT会话消息队列(MQueue)设置
-----------------------------
+Message Queue 
+-------------
 
-emqttd消息服务器会话通过队列缓存Qos1/Qos2消息:
+The message queue of session stores:
 
-1. 持久会话(Session)的离线消息
+1. Offline messages for persistent session.
 
-2. 飞行窗口满而延迟下发的消息
+2. Pending messages for inflight window is full
 
-队列参数设置::
+Queue parameters::
 
     {queue, [
         %% simple | priority
@@ -438,79 +411,70 @@ emqttd消息服务器会话通过队列缓存Qos1/Qos2消息:
         {queue_qos0, true}
     ]}
 
-队列参数说明:
-
 +----------------------+---------------------------------------------------+
-| type                 | 队列类型。simple: 简单队列，priority: 优先级队列  |
+| type                 | Queue type: simple or priority                    |
 +----------------------+---------------------------------------------------+
-| priority             | 主题(Topic)队列优先级设置                         |
+| priority             | Topic priority                                    |
 +----------------------+---------------------------------------------------+
-| max_length           | 队列长度, infinity表示不限制                      |
+| max_length           | Max Queue size, infinity means no limit           |
 +----------------------+---------------------------------------------------+
-| low_watermark        | 解除告警水位线                                    |
+| low_watermark        | Low watermark                                     |
 +----------------------+---------------------------------------------------+
-| high_watermark       | 队列满告警水位线                                  |
+| high_watermark       | High watermark                                    |
 +----------------------+---------------------------------------------------+
-| queue_qos0           | 是否缓存QoS0消息                                  |
+| queue_qos0           | If Qos0 message queued?                           |
 +----------------------+---------------------------------------------------+
 
-broker消息服务器参数
---------------------
-
-'broker'段落设置消息服务器内部模块参数。
-
-sys_interval设置系统发布$SYS消息周期::
-
-    {sys_interval, 60},
-
-broker retained消息设置
+Sys Interval of Broker
 -----------------------
 
-retained设置MQTT retain消息处理参数::
+.. code::
+
+    %% System interval of publishing $SYS messages
+    {sys_interval, 60},
+
+Retained messages
+-----------------
+
+.. code::
 
     {retained, [
-        %% retain消息过期时间，单位: 秒
+        %% Expired after seconds, never expired if 0
         {expired_after, 0},
 
-        %% 最大retain消息数量
+        %% Maximum number of retained messages
         {max_message_num, 100000},
 
-        %% retain消息payload最大尺寸
+        %% Max Payload Size of retained message
         {max_playload_size, 65536}
     ]},
 
-+-----------------+-------------------------------------+
-| expired_after   | Retained消息过期时间，0表示永不过期 |
-+-----------------+-------------------------------------+
-| max_message_num | 最大存储的Retained消息数量          |
-+-----------------+-------------------------------------+
-| max_packet_size | Retained消息payload最大允许尺寸     |
-+-----------------+-------------------------------------+
+PubSub and Router
+-----------------
 
-broker pubsub路由设置
------------------------
-
-发布/订阅(Pub/Sub)路由模块参数::
+.. code:: erlang
 
     {pubsub, [
-        %% PubSub Erlang进程池
+        %% PubSub Pool
         {pool_size, 8},
         
-        %% 订阅存储类型，ram: 内存, disc: 磁盘, false: 不保存
+        %% Subscription: disc | ram | false
         {subscription, ram},
 
-        %% 路由老化时间
+        %% Route aging time(seconds)
         {route_aging, 5}
     ]},
 
 Bridge Parameters
 -----------------
 
+.. code:: erlang
+
     {bridge, [
-        %% 最大缓存桥接消息数
+        %% Bridge Queue Size
         {max_queue_len, 10000},
 
-        %% 桥接节点宕机检测周期，单位: 秒
+        %% Ping Interval of bridge node
         {ping_down_interval, 1}
     ]}
 
@@ -541,7 +505,6 @@ Enable Modules
         %% Rewrite rules
         {rewrite, [{file, "etc/rewrite.config"}]}
 
-
 Plugins Folder
 --------------
 
@@ -559,7 +522,7 @@ Plugins Folder
 TCP Listeners
 -------------
 
-Congfigure the TCP listener for MQTT, MQTT(SSL) and HTTP Protocols.
+Congfigure the TCP listeners for MQTT, MQTT(SSL) and HTTP Protocols.
 
 The most important parameter is 'max_clients' - max concurrent clients allowed.
 
@@ -703,6 +666,23 @@ An ACL rule is an Erlang tuple. The Access control module of emqttd broker match
             allow | deny           allow | deny           allow | deny
                 
 .. _config_rewrite:
+
+------------------
+etc/clients.config
+------------------
+
+Enable ClientId Authentication in 'etc/emqttd.config'::
+
+    {auth, [
+        %% Authentication with clientid
+        {clientid, [{password, no}, {file, "etc/clients.config"}]}
+    ]},
+
+Configure all allowed ClientIDs, IP Addresses in etc/clients.config::
+
+    testclientid0
+    testclientid1 127.0.0.1
+    testclientid2 192.168.0.1/24
 
 ------------------
 etc/rewrite.config
