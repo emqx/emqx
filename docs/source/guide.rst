@@ -5,14 +5,32 @@
 User Guide
 ==========
 
+------------------------
+Pluggable Authentication
+------------------------
+
 ----------
 MQTT Basic
 ----------
 
-Understanding QoS
-------------------
+Publish/Subscribe
+-----------------
 
---------
-HTTP API
---------
+Understanding QoS
+-----------------
+
+Retained Message
+----------------
+
+Will Message
+------------
+
+----------------
+HTTP Publish API
+----------------
+
+-------------------
+MQTT Over WebSocket
+-------------------
+
 

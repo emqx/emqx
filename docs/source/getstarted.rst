@@ -81,9 +81,9 @@ Installing from Source
 
     cd emqttd && make && make dist
 
---------------------
+-------------
 Web Dashboard
---------------------
+-------------
 
 .. image:: ./_static/images/dashboard.png
 
@@ -240,9 +240,9 @@ Test Client
     sysctl -w net.ipv4.ip_local_port_range="500 65535"
     echo 1000000 > /proc/sys/fs/nr_open
 
-----------------------
-emqtt Client Libraries
-----------------------
+---------------------
+MQTT Client Libraries
+---------------------
 
 GitHub: https://github.com/emqtt
 
