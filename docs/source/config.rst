@@ -246,8 +246,8 @@ emqttd消息服务器认证由一系列认证模块(module)或插件(plugin)提�
           认证插件加载后认证模块失效。
 
 
-Username and Password Authentication
-....................................
+Username Authentication
+.......................
 
 .. code:: erlang
 
@@ -301,8 +301,8 @@ Allow any clients connect to the broker::
     {anonymous, []}
 
 
-ACL Config
-----------
+ACL
+---
 
 Enable the default ACL module::
 
@@ -379,8 +379,8 @@ Session parameters:
 | expired_after        | Expired after                                            |
 +----------------------+----------------------------------------------------------+
 
-Message Queue 
--------------
+MQTT Message Queue
+------------------
 
 The message queue of session stores:
 
