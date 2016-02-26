@@ -9,18 +9,18 @@ Get Started
 Overview
 --------
 
-emqttd(Erlang MQTT Broker) is an open source MQTT broker written in Erlang/OTP. Erlang/OTP is a concurrent, fault-tolerant, soft-realtime and distributed programming platform. MQTT is anextremely lightweight publish/subscribe messaging protocol powering IoT, M2M applications.
+emqttd(Erlang MQTT Broker) is an open source MQTT broker written in Erlang/OTP. Erlang/OTP is a concurrent, fault-tolerant, soft-realtime and distributed programming platform. MQTT is an extremely lightweight publish/subscribe messaging protocol powering IoT, M2M and Mobile applications.
 
 The emqttd project is aimed to implement a scalable, distributed, extensible open-source MQTT broker for IoT, M2M and Mobile applications that hope to handle ten millions of concurrent MQTT clients.
 
-The emqttd broker is:
+Highlights of the emqttd broker:
 
 * Full MQTT V3.1/3.1.1 Protocol Specifications Support
 * Easy to Install - Quick Install on Linux, FreeBSD, Mac and Windows
 * Massively scalable - Scaling to 1 million connections on a single server
+* Cluster and Bridge Support
 * Easy to extend - Hooks and plugins to customize or extend the broker
 * Pluggable Authentication - LDAP, MySQL, PostgreSQL, Redis Authentication Plugins
-
 
 --------
 Features
@@ -32,21 +32,21 @@ Features
 * Retained Message
 * Last Will Message
 * TCP/SSL Connection
-* MQTT Over Websocket(SSL)
+* MQTT Over WebSocket(SSL)
 * HTTP Publish API
 * STOMP protocol
 * STOMP over SockJS
 * $SYS/# Topics
-* Client Authentication with clientId, ipaddress
-* Client Authentication with username, password
-* Client ACL control with ipaddress, clientid, username
-* LDAP, Redis, MySQL, PostgreSQL authentication
-* Cluster brokers on several servers.
+* ClientID Authentication
+* IpAddress Authentication
+* Username and Password Authentication
+* Access control based on IpAddress, ClientID, Username
+* Authentication with LDAP, Redis, MySQL, PostgreSQL
+* Cluster brokers on several servers
 * Bridge brokers locally or remotely
 * mosquitto, RSMB bridge
 * Extensible architecture with Hooks, Modules and Plugins
 * Passed eclipse paho interoperability tests
-
 
 -----------
 Quick Start
@@ -55,7 +55,11 @@ Quick Start
 Download and Install
 --------------------
 
-Download binary package for Linux, Mac, FreeBSD and Windows platform from http://emqtt.io/downloads.
+The emqttd broker is cross-platform, could be deployed on Linux, Mac, FreeBSD, Windows and Raspberry Pi.
+
+Download binary package from: http://emqtt.io/downloads.
+
+Installing on Mac, For example:
 
 .. code:: console
 
@@ -71,9 +75,9 @@ Download binary package for Linux, Mac, FreeBSD and Windows platform from http:/
     ./bin/emqttd stop
 
 Installing from Source
------------------------
+----------------------
 
-.. NOTE:: emqttd requires Erlang R17+ to build.
+.. NOTE:: emqttd broker requires Erlang R17+ to build.
 
 .. code:: console
 
@@ -81,39 +85,54 @@ Installing from Source
 
     cd emqttd && make && make dist
 
+    cd rel/emqttd && ./bin/emqttd console
+
 -------------
 Web Dashboard
 -------------
 
-.. image:: ./_static/images/dashboard.png
+A Web Dashboard will be loaded automatically when the emqttd broker is started successfully.
 
+The Dashboard helps to check running status of the broker, monitor statistics and metrics of MQTT packets, query clients, sessions, topics and subscriptions.
+
++------------------+---------------------------+
+| Default Address  | http://localhost:18083    |
++------------------+---------------------------+
+| Default User     | admin                     |
++------------------+---------------------------+
+| Default Password | public                    |
++------------------+---------------------------+
+
+.. image:: ./_static/images/dashboard.png
 
 -------------------
 Modules and Plugins
 -------------------
 
-The emqttd broker could be extended by modules and plugins.
+The Authentication and ACL mechanism is usually implemented by a Module or Plugin.
 
 Modules
 -------
 
-+-------------------------+-----------------------------------+
-| emqttd_auth_clientid    | ClientId认证                      |
-+-------------------------+-----------------------------------+
-| emqttd_auth_username    | 用户名密码认证                    |
-+-------------------------+-----------------------------------+
-| emqttd_auth_ldap        | LDAP认证                          |
-+-------------------------+-----------------------------------+
-| emqttd_mod_presence     | 客户端上下线状态消息发布          |
-+-------------------------+-----------------------------------+
-| emqttd_mod_subscription | 客户端上线自动主题订阅            |
-+-------------------------+-----------------------------------+
-| emqttd_mod_rewrite      | 重写客户端订阅主题(Topic)         |
-+-------------------------+-----------------------------------+
++-------------------------+--------------------------------------------+
+| emqttd_auth_clientid    | Authentication with ClientId               |
++-------------------------+--------------------------------------------+
+| emqttd_auth_username    | Authentication with Username and Password  |
++-------------------------+--------------------------------------------+
+| emqttd_auth_ldap        | Authentication with LDAP                   |
++-------------------------+--------------------------------------------+
+| emqttd_mod_presence     | Publish presence message to $SYS topics    |
+|                         | when client connected or disconnected      |
++-------------------------+--------------------------------------------+
+| emqttd_mod_subscription | Subscribe topics automatically when client |
+|                         | connected                                  |
++-------------------------+--------------------------------------------+
+| emqttd_mod_rewrite      | Topics rewrite like HTTP rewrite module    |
++-------------------------+--------------------------------------------+
 
-扩展模块通过'etc/emqttd.config'配置文件的auth, modules段落启用。
+Configure the 'auth', 'module' paragraph in 'etc/emqttd.config' to enable a module.
 
-例如启用用户名密码认证::
+Enable 'emqttd_auth_username' module::
 
     {access, [
         %% Authetication. Anonymous Default
@@ -123,7 +142,7 @@ Modules
 
             ...
 
-启用客户端状态发布模块::
+Enable 'emqttd_mod_presence' module::
 
     {modules, [
         %% Client presence management module.
@@ -131,71 +150,70 @@ Modules
         {presence, [{qos, 0}]}
 
 Plugins
---------
+-------
 
-+-------------------------+-----------------------------------+
-| emqttd_plugin_template  | 插件模版与演示代码                |
-+-------------------------+-----------------------------------+
-| emqttd_dashboard        | Web管理控制台，默认加载           |
-+-------------------------+-----------------------------------+
-| emqttd_plugin_mysql     | MySQL认证插件                     |
-+-------------------------+-----------------------------------+
-| emqttd_plugin_pgsql     | PostgreSQL认证插件                |
-+-------------------------+-----------------------------------+
-| emqttd_plugin_redis     | Redis认证插件                     |
-+-------------------------+-----------------------------------+
-| emqttd_plugin_mongo     | MongoDB认证插件                   |
-+-------------------------+-----------------------------------+
-| emqttd_stomp            | Stomp协议插件                     |
-+-------------------------+-----------------------------------+
-| emqttd_sockjs           | SockJS插件                        |
-+-------------------------+-----------------------------------+
-| emqttd_recon            | Recon优化调测插件                 |
-+-------------------------+-----------------------------------+
+A plugin is an Erlang application to extend the emqttd broker.
 
-扩展插件通过'bin/emqttd_ctl'管理命令行，加载启动运行。
++----------------------------+-----------------------------------+
+| `emqttd_plugin_template`_  | Plugin template and demo          |
++----------------------------+-----------------------------------+
+| `emqttd_dashboard`_        | Web Dashboard                     |
++----------------------------+-----------------------------------+
+| `emqttd_plugin_mysql`_     | Authentication with MySQL         |
++----------------------------+-----------------------------------+
+| `emqttd_plugin_pgsql`_     | Authentication with PostgreSQL    |
++----------------------------+-----------------------------------+
+| `emqttd_plugin_redis`_     | Authentication with Redis         |
++----------------------------+-----------------------------------+
+| `emqttd_plugin_mongo`_     | Authentication with MongoDB       |
++----------------------------+-----------------------------------+
+| `emqttd_stomp`_            |  STOMP Protocol Plugin            |
++----------------------------+-----------------------------------+
+| `emqttd_sockjs`_           | SockJS(Stomp) Plugin              |
++----------------------------+-----------------------------------+
+| `emqttd_recon`_            | Recon Plugin                      |
++----------------------------+-----------------------------------+
 
-例如启用PostgreSQL认证插件::
+A plugin could be enabled by 'bin/emqttd_ctl plugins load' command.
+
+For example, enable 'emqttd_plugin_pgsql' plugin::
 
     ./bin/emqttd_ctl plugins load emqttd_plugin_pgsql
 
-----------------------------------
+-----------------------
 One million Connections
-----------------------------------
+-----------------------
+
+Latest release of the emqttd broker is scaling to 1.3 million MQTT connections on a 12 Core, 32G CentOS server.
 
 .. NOTE::
 
-    emqttd消息服务器默认设置，允许最大客户端连接是512，因为大部分操作系统'ulimit -n'限制为1024。
+    The emqttd broker only allows 512 concurrent connections by default, for 'ulimit -n' limit is 1024 on most platform.
 
-emqttd消息服务器当前版本，连接压力测试到130万线，8核心/32G内存的CentOS云服务器。
-
-操作系统内核参数、TCP协议栈参数、Erlang虚拟机参数、emqttd最大允许连接数设置简述如下：
+We need tune the OS Kernel, TCP Stack, Erlang VM and emqttd broker for one million connections benchmark.
 
 Linux Kernel Parameters
 -----------------------
 
-# 2M - 系统所有进程可打开的文件数量::
-
 .. code::
 
+    # 2M:
     sysctl -w fs.file-max=2097152
     sysctl -w fs.nr_open=2097152
 
-# 1M - 系统允许当前进程打开的文件数量::
-
+    # 1M:
     ulimit -n 1048576
 
 TCP Stack Parameters
------------------------
-
-# backlog - Socket监听队列长度::
+--------------------
 
 .. code::
 
+    # backlog
     sysctl -w net.core.somaxconn=65536
 
 Erlang VM
------------------
+---------
 
 emqttd/etc/vm.args::
 
@@ -210,8 +228,8 @@ emqttd/etc/vm.args::
 
     -env ERTS_MAX_PORTS 1048576
 
-emqttd.config
------------------
+emqttd broker
+-------------
 
 emqttd/etc/emqttd.config::
 
@@ -239,6 +257,7 @@ Test Client
 
     sysctl -w net.ipv4.ip_local_port_range="500 65535"
     echo 1000000 > /proc/sys/fs/nr_open
+    ulimit -n 100000
 
 ---------------------
 MQTT Client Libraries
@@ -260,4 +279,14 @@ GitHub: https://github.com/emqtt
 .. _emqtt_benchmark: https://github.com/emqtt/emqtt_benchmark
 .. _CocoaMQTT:       https://github.com/emqtt/CocoaMQTT
 .. _QMQTT:           https://github.com/emqtt/qmqtt
+
+.. _emqttd_plugin_template: https://github.com/emqtt/emqttd_plugin_template
+.. _emqttd_dashboard:       https://github.com/emqtt/emqttd_dashboard
+.. _emqttd_plugin_mysql:    https://github.com/emqtt/emqttd_plugin_mysql
+.. _emqttd_plugin_pgsql:    https://github.com/emqtt/emqttd_plugin_pgsql
+.. _emqttd_plugin_redis:    https://github.com/emqtt/emqttd_plugin_redis
+.. _emqttd_plugin_mongo:    https://github.com/emqtt/emqttd_plugin_mongo
+.. _emqttd_stomp:           https://github.com/emqtt/emqttd_stomp
+.. _emqttd_sockjs:          https://github.com/emqtt/emqttd_sockjs
+.. _emqttd_recon:           https://github.com/emqtt/emqttd_recon
 

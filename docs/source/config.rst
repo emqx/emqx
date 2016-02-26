@@ -5,31 +5,29 @@
 Configuration
 =============
 
-emqttd消息服务器通过etc/目录下配置文件进行设置，主要配置文件包括:
+Configuration files of the broker are under 'etc/' folder, including:
 
 +-------------------+-----------------------------------+
-| 配置文件          | 说明                              |
+| File              | Description                       |
 +-------------------+-----------------------------------+
-| etc/vm.args       | Erlang 虚拟机的参数设置           |
+| etc/vm.args       | Erlang VM Arguments               |
 +-------------------+-----------------------------------+
-| etc/emqttd.config | emqttd消息服务器参数设置          |
+| etc/emqttd.config | emqttd broker Config              |
 +-------------------+-----------------------------------+
-| etc/acl.config    | ACL(访问控制规则)设置             |
+| etc/acl.config    | ACL Config                        |
 +-------------------+-----------------------------------+
-| etc/clients.config| 基于ClientId认证设置              |
+| etc/clients.config| ClientId Authentication           |
 +-------------------+-----------------------------------+
-| etc/rewrite.config| Rewrite扩展模块规则配置           |
+| etc/rewrite.config| Rewrite Rules                     |
 +-------------------+-----------------------------------+
-| etc/ssl/*         | SSL证书设置                       |
+| etc/ssl/*         | SSL certificate and key files     |
 +-------------------+-----------------------------------+
 
 -----------
 etc/vm.args
 -----------
 
-Configure parameters of Erlang VM:
-
-.. code::
+Configure and Optimize Erlang VM::
 
     ##-------------------------------------------------------------------------
     ## Name of the node
@@ -84,35 +82,33 @@ Configure parameters of Erlang VM:
     ## Tweak GC to run more often
     -env ERL_FULLSWEEP_AFTER 1000
 
-etc/vm.args中两个最重要的参数:
+The two most important parameters in etc/vm.args:
 
-+-------+----------------------------------------------------------------------------------------------+
-| +P    | Erlang虚拟机允许的最大进程数，一个MQTT连接会消耗2个Erlang进程，所以参数值 > 最大连接数 * 2   | 
-+-------+----------------------------------------------------------------------------------------------+
-| +Q    | Erlang虚拟机允许的最大Port数量，一个MQTT连接消耗1个Port，所以参数值 > 最大连接数             |
-+-------+----------------------------------------------------------------------------------------------+
++-------+---------------------------------------------------------------------------+
+| +P    | Max number of Erlang proccesses. A MQTT client consumes two proccesses.   |
+|       | The value should be larger than max_clients * 2                           | 
++-------+---------------------------------------------------------------------------+
+| +Q    | Max number of Erlang Ports. A MQTT client consumes one port.              |
+|       | The value should be larger than max_clients.                              |
++-------+---------------------------------------------------------------------------+
 
-etc/vm.args设置Erlang节点名、节点间通信Cookie::
+The name and cookie of Erlang Node should be configured when clustering::
 
-    -name emqttd@127.0.0.1
+    -name emqttd@host_or_ip
 
     ## Cookie for distributed erlang
     -setcookie emqttdsecretcookie
-
-.. NOTE:: 
-    
-    Erlang/OTP平台应用多由分布的Erlang节点(进程)组成，每个Erlang节点(进程)需指配一个节点名，用于节点间通信互访。
-    所有互相通信的Erlang节点(进程)间通过一个共用的Cookie进行安全认证。
 
 -----------------
 etc/emqttd.config
 -----------------
 
-etc/emqttd.config是消息服务器的核心配置文件。Erlang程序由多个应用(application)组成，每个应用(application)有自身的环境参数，
+The main configuration file for emqttd broker.
 
-启动时候通过etc/emqttd.config文件加载。
+File Syntax
+-----------
 
-etc/emqttd.config文件采用的是Erlang数据格式，kernel, sasl, emqttd是Erlang应用(application)名称，'[]'内是应用的环境参数列表。
+The config consists of a list of Erlang Applications and their environments.
 
 .. code:: erlang
 
@@ -131,24 +127,22 @@ etc/emqttd.config文件采用的是Erlang数据格式，kernel, sasl, emqttd是E
      ]}
     ].
 
-emqttd.config格式简要说明:
+The file adopts Erlang Term Syntax:
 
-1. [ ] : 列表，逗号分隔元素
+1. [ ]: List, seperated by comma
+2. { }: Tuple, Usually {Env, Value}
+3. %  : comment
 
-2. { } : 元组，配置元组一般两个元素{Env, Value}
+Log Level and File
+------------------
 
-3. %   : 注释
-
-Log Level and Destination
--------------------------
-
-emqttd消息服务器日志由lager应用(application)提供，日志相关设置在lager应用段落::
+Logger of emqttd broker is implemented by 'lager' application::
 
   {lager, [
     ...
   ]},
 
-产品环境下默认只开启error日志，日志输出到logs/emqttd_error.log文件。'handlers'段落启用其他级别日志::
+Configure log handlers::
 
     {handlers, [
         {lager_console_backend, info},
@@ -172,47 +166,45 @@ emqttd消息服务器日志由lager应用(application)提供，日志相关设�
         ]}
     ]}
 
-.. WARNING:: 过多日志打印严重影响服务器性能，产品环境下建议开启error级别日志。
-
-Broker Parameters
+emqttd Application
 ------------------
 
-emqttd消息服务器参数设置在emqttd应用段落，包括用户认证与访问控制设置，MQTT协议、会话、队列设置，扩展模块设置，TCP服务监听器设置::
+The MQTT broker is implemented by erlang 'emqttd' application::
 
  {emqttd, [
-    %% 用户认证与访问控制设置
+    %% Authentication and Authorization
     {access, [
         ...
     ]},
-    %% MQTT连接、协议、会话、队列设置
+    %% MQTT Protocol Options
     {mqtt, [
         ...
     ]},
-    %% 消息服务器设置
+    %% Broker Options
     {broker, [
         ...
     ]},
-    %% 扩展模块设置
+    %% Modules
     {modules, [
         ...
     ]},
-    %% 插件目录设置
+    %% Plugins
     {plugins, [
         ...
     ]},
 
-    %% TCP监听器设置
+    %% Listeners
     {listeners, [
         ...
     ]},
 
-    %% Erlang虚拟机监控设置
+    %% Erlang System Monitor
     {sysmon, [
     ]}
  ]}
 
-access用户认证设置
-------------------
+Authentication
+--------------
 
 emqttd消息服务器认证由一系列认证模块(module)或插件(plugin)提供，系统默认支持用户名、ClientID、LDAP、匿名(anonymouse)认证模块::
 
@@ -511,10 +503,8 @@ broker pubsub路由设置
         {route_aging, 5}
     ]},
 
-broker bridge桥接参数
------------------------
-
-桥接参数设置::
+Bridge Parameters
+-----------------
 
     {bridge, [
         %% 最大缓存桥接消息数
@@ -525,16 +515,14 @@ broker bridge桥接参数
     ]}
 
 
-modules扩展模块设置
------------------------
+Enable Modules
+--------------
 
-emqtt消息服务器支持简单的扩展模块，用于定制服务器功能。默认支持presence、subscription、rewrite模块。
-
-'presence'扩展模块会向$SYS主题(Topic)发布客户端上下线消息::
+'presence' module will publish presence message to $SYS topic when a client connected or disconnected::
 
         {presence, [{qos, 0}]},
 
-'subscription'扩展模块支持客户端上线时，自动订阅或恢复订阅某些主题(Topic)::
+'subscription' module forces the client to subscribe some topics when connected to the broker::
 
         %% Subscribe topics automatically when client connected
         {subscription, [
@@ -548,15 +536,14 @@ emqtt消息服务器支持简单的扩展模块，用于定制服务器功能。
             {"$Q/client/$c", 1}
         ]}
 
-'rewrite'扩展模块支持重写主题(Topic)路径, 重写规则定义在etc/rewrite.config文件::
+'rewrite' module supports to rewrite the topic path::
 
         %% Rewrite rules
-        %% {rewrite, [{file, "etc/rewrite.config"}]}
+        {rewrite, [{file, "etc/rewrite.config"}]}
 
-关于扩展模块详细介绍，请参考<用户指南>文档。
 
-plugins插件目录设置
--------------------
+Plugins Folder
+--------------
 
 .. code:: erlang
 
@@ -569,19 +556,21 @@ plugins插件目录设置
     ]},
 
 
-listeners监听器设置
------------------------
+TCP Listeners
+-------------
 
-emqttd消息服务器开启的MQTT协议、HTTP协议服务端，可通过listener设置TCP服务端口、最大允许连接数等参数。
+Congfigure the TCP listener for MQTT, MQTT(SSL) and HTTP Protocols.
 
-emqttd消息服务器默认开启的TCP服务端口包括:
+The most important parameter is 'max_clients' - max concurrent clients allowed.
+
+The TCP Ports occupied by emqttd broker by default:
 
 +-----------+-----------------------------------+
-| 1883      | MQTT协议端口                      |
+| 1883      | MQTT Port                         |
 +-----------+-----------------------------------+
-| 8883      | MQTT(SSL)端口                     |
+| 8883      | MQTT(SSL) Port                    |
 +-----------+-----------------------------------+
-| 8083      | MQTT(WebSocket), HTTP API端口     |
+| 8083      | MQTT(WebSocket), HTTP API Port    |
 +-----------+-----------------------------------+
 
 .. code:: erlang
@@ -669,19 +658,19 @@ emqttd消息服务器默认开启的TCP服务端口包括:
         ]}
     ]},
 
-listener参数说明:
+Listener Parameters:
 
-+-------------+-----------------------------------------------------------+
-| acceptors   | TCP Acceptor池                                            |
-+-------------+-----------------------------------------------------------+
-| max_clients | 最大允许TCP连接数                                         |
-+-------------+-----------------------------------------------------------+
-| access      | 允许访问的IP地址段设置，例如: [{allow, "192.168.1.0/24"}] |
-+-------------+-----------------------------------------------------------+
-| connopts    | 连接限速配置，例如限速10KB/秒: {rate_limit, "100,10"}     |
-+-------------+-----------------------------------------------------------+
-| sockopts    | Socket参数设置                                            |
-+-------------+-----------------------------------------------------------+
++-------------+----------------------------------------------------------------+
+| acceptors   | TCP Acceptor Pool                                              |
++-------------+----------------------------------------------------------------+
+| max_clients | Maximum number of concurrent TCP connections allowed           |
++-------------+----------------------------------------------------------------+
+| access      | Access Control by IP, for example: [{allow, "192.168.1.0/24"}] |
++-------------+----------------------------------------------------------------+
+| connopts    | Rate Limit Control, for example: {rate_limit, "100,10"}        |
++-------------+----------------------------------------------------------------+
+| sockopts    | TCP Socket parameters                                          |
++-------------+----------------------------------------------------------------+
 
 .. _config_acl:
 
@@ -689,9 +678,21 @@ listener参数说明:
 etc/acl.config
 --------------
 
-emqttd消息服务器默认访问控制规则配置在etc/acl.config文件。
+The 'etc/acl.config' is the default ACL config for emqttd broker. The rules by default::
 
-访问控制规则采用Erlang元组格式，访问控制模块逐条匹配规则::
+    %% Allow 'dashboard' to subscribe '$SYS/#'
+    {allow, {user, "dashboard"}, subscribe, ["$SYS/#"]}.
+
+    %% Allow clients from localhost to subscribe any topics
+    {allow, {ipaddr, "127.0.0.1"}, pubsub, ["$SYS/#", "#"]}.
+
+    %% Deny clients to subscribe '$SYS#' and '#'
+    {deny, all, subscribe, ["$SYS/#", {eq, "#"}]}.
+
+    %% Allow all by default
+    {allow, all}.
+
+An ACL rule is an Erlang tuple. The Access control module of emqttd broker matches the rule one by one from top to bottom::
 
               ---------              ---------              ---------   
     Client -> | Rule1 | --nomatch--> | Rule2 | --nomatch--> | Rule3 | --> Default
@@ -701,27 +702,13 @@ emqttd消息服务器默认访问控制规则配置在etc/acl.config文件。
                  \|/                    \|/                    \|/
             allow | deny           allow | deny           allow | deny
                 
-etc/acl.config文件默认规则设置::
-
-    %% 允许'dashboard'用户订阅 '$SYS/#'
-    {allow, {user, "dashboard"}, subscribe, ["$SYS/#"]}.
-
-    %% 允许本机用户发布订阅全部主题
-    {allow, {ipaddr, "127.0.0.1"}, pubsub, ["$SYS/#", "#"]}.
-
-    %% 拒绝用户订阅'$SYS#'与'#'主题
-    {deny, all, subscribe, ["$SYS/#", {eq, "#"}]}.
-
-    %% 上述规则无匹配，允许
-    {allow, all}.
-
 .. _config_rewrite:
 
 ------------------
 etc/rewrite.config
 ------------------
 
-Rewrite扩展模块的规则配置文件，示例配置::
+The Rewrite Rules for emqttd_mod_rewrite::
 
     {topic, "x/#", [
         {rewrite, "^x/y/(.+)$", "z/y/$1"},
@@ -731,3 +718,4 @@ Rewrite扩展模块的规则配置文件，示例配置::
     {topic, "y/+/z/#", [
         {rewrite, "^y/(.+)/z/(.+)$", "y/z/$2"}
     ]}.
+
