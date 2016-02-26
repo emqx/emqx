@@ -9,7 +9,7 @@ Get Started
 Overview
 --------
 
-emqttd(Erlang MQTT Broker) is an open source MQTT broker written in Erlang/OTP. Erlang/OTP is a concurrent, fault-tolerant, soft-realtime and distributed programming platform. MQTT is anextremely lightweight publish/subscribe messaging protocol powering IoT, M2M applications.
+emqttd(Erlang MQTT Broker) is an open source MQTT broker written in Erlang/OTP. Erlang/OTP is a concurrent, fault-tolerant, soft-realtime and distributed programming platform. MQTT is an extremely lightweight publish/subscribe messaging protocol powering IoT, M2M and Mobile applications.
 
 The emqttd project is aimed to implement a scalable, distributed, extensible open-source MQTT broker for IoT, M2M and Mobile applications that hope to handle ten millions of concurrent MQTT clients.
 
@@ -31,16 +31,17 @@ Features
 * Retained Message
 * Last Will Message
 * TCP/SSL Connection
-* MQTT Over Websocket(SSL)
+* MQTT Over WebSocket(SSL)
 * HTTP Publish API
 * STOMP protocol
 * STOMP over SockJS
 * $SYS/# Topics
-* Client Authentication with clientId, ipaddress
-* Client Authentication with username, password
-* Client ACL control with ipaddress, clientid, username
-* LDAP, Redis, MySQL, PostgreSQL authentication
-* Cluster brokers on several servers.
+* ClientID Authentication
+* IpAddress Authentication
+* Username and Password Authentication
+* Access control based on IpAddress, ClientID, Username
+* Authentication with LDAP, Redis, MySQL, PostgreSQL
+* Cluster brokers on several servers
 * Bridge brokers locally or remotely
 * mosquitto, RSMB bridge
 * Extensible architecture with Hooks, Modules and Plugins
@@ -55,7 +56,9 @@ Download and Install
 
 The emqttd broker is cross-platform, could be deployed on Linux, Mac, FreeBSD, Windows and Raspberry Pi.
 
-Download binary package from: http://emqtt.io/downloads. Installing on Mac, For example:
+Download binary package from: http://emqtt.io/downloads.
+
+Installing on Mac, For example:
 
 .. code:: console
 
@@ -80,6 +83,8 @@ Installing from Source
     git clone https://github.com/emqtt/emqttd.git
 
     cd emqttd && make && make dist
+
+    cd rel/emqttd && ./bin/emqttd console
 
 -------------
 Web Dashboard
@@ -107,7 +112,7 @@ Modules and Plugins
 
 The emqttd broker could be extended by Modules and Plugins.
 
-The authentication and ACL mechanism is usally implemented by a module or plugin.
+The authentication and ACL mechanism is usually implemented by a module or plugin.
 
 Modules
 -------
