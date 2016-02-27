@@ -79,9 +79,9 @@ Timeout for FIN-WAIT-2 sockets::
 
     net.ipv4.tcp_fin_timeout = 15
 
----------
-Erlang VM
----------
+----------------
+Erlang VM Tuning
+----------------
 
 Tuning and optimize the Erlang VM in etc/vm.args file::
 
