@@ -49,6 +49,7 @@ Contents:
    bridge
    commands
    plugins
+   tune
 
 -------
 License
