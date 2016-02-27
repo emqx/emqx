@@ -103,12 +103,12 @@ The name and cookie of Erlang Node should be configured when clustering::
 etc/emqttd.config
 -----------------
 
-The main configuration file for emqttd broker.
+This is the main emqttd broker configuration file.
 
 File Syntax
 -----------
 
-The config consists of a list of Erlang Applications and their environments.
+The file users the standard Erlang config syntax, consists of a list of erlang applications and their environments.
 
 .. code:: erlang
 
