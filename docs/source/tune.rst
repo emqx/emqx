@@ -25,7 +25,7 @@ The limit on opened file handles for current session::
 /etc/sysctl.conf
 ----------------
 
-Add the 'fs.file-max' to /etc/sysctl.conf to make the changes permanent::
+Add the 'fs.file-max' to /etc/sysctl.conf, make the changes permanent::
 
     fs.file-max = 1048576
 
@@ -49,7 +49,7 @@ Increase number of incoming connections backlog::
 
 Local Port Range::
 
-    sysctl -w net.ipv4.ip_local_port_range=2000 65535
+    sysctl -w net.ipv4.ip_local_port_range=1000 65535
 
 Read/Write Buffer for TCP connections::
 
@@ -63,7 +63,7 @@ Read/Write Buffer for TCP connections::
     sysctl -w net.ipv4.tcp_rmem='1024 4096 16777216'
     sysctl -w net.ipv4.tcp_wmem='1024 4096 16777216'
 
-Connection tracking::
+Connection Tracking::
 
     sysctl -w net.nf_conntrack_max=1000000
     sysctl -w net.netfilter.nf_conntrack_max=1000000
@@ -85,7 +85,7 @@ Erlang VM
 
 Tuning and optimize the Erlang VM in etc/vm.args file::
 
-    ## max process numbers
+    ## max number of erlang processes
     +P 2097152
 
     ## Sets the maximum number of simultaneously existing ports for this system

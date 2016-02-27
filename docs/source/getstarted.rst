@@ -200,6 +200,7 @@ Linux Kernel Parameters
     # 2M:
     sysctl -w fs.file-max=2097152
     sysctl -w fs.nr_open=2097152
+    echo 2097152 > /proc/sys/fs/nr_open
 
     # 1M:
     ulimit -n 1048576
