@@ -226,7 +226,7 @@ ACL
 
 The ACL of emqttd broker is responsbile for authorizing MQTT clients to publish/subscribe topics.
 
-The ACL consists of a list rules that define::
+The ACL rules define::
 
     Allow|Deny Who Publish|Subscribe Topics
 
