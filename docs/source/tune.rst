@@ -13,7 +13,7 @@ Linux Kernel Tuning
 
 The system-wide limit on max opened file handles::
 
-    # 2 millions system-wide
+    # 2 million system-wide
     sysctl -w fs.file-max=2097152
     sysctl -w fs.nr_open=2097152
     echo 2097152 > /proc/sys/fs/nr_open

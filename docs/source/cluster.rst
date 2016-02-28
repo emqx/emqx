@@ -247,6 +247,6 @@ The emqttd cluster does not support deployment across IDC, and the cluster will 
 Consistent Hash and DHT
 -----------------------
 
-Consistent Hash and DHT are popular in the design of NoSQL databases. Cluster of emqttd broker could support 10 millions size of global routing table now. We could use the Consistent Hash or DHT to partition the routing table, and evolve the cluster to larger size.
+Consistent Hash and DHT are popular in the design of NoSQL databases. Cluster of emqttd broker could support 10 million size of global routing table now. We could use the Consistent Hash or DHT to partition the routing table, and evolve the cluster to larger size.
 
 
