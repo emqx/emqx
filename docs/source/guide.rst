@@ -527,10 +527,10 @@ For emqttd broker is clustered, the $SYS topic path is started with::
 
 .. NOTE:: The broker only allows clients from localhost to subscribe $SYS topics by default. 
 
-Sys Interval of publishing broker $SYS messages, could be configured in etc/emqttd.config::
+Sys Interval of publishing $SYS messages, could be configured in etc/emqttd.config::
 
     {broker, [
-        %% System interval of 
+        %% System interval of publishing broker $SYS messages
         {sys_interval, 60},
 
 
@@ -554,20 +554,20 @@ Broker Version, Uptime and Description
 Online/Offline Status of MQTT Client
 ------------------------------------
 
-The topic path is started with: $SYS/brokers/${node}/clients/
+The topic path started with: $SYS/brokers/${node}/clients/
 
-+-------------------------+-------------------------------------------+------------------------------------+
-| Topic                   | Payload(JSON)                             | Description                        |
-+=========================+===========================================+====================================+
-| ${clientid}/connected   | {ipaddress: "127.0.0.1", username: "test",| Publish when a client connected    |
-|                         |  session: false, version: 3, connack: 0,  |                                    |
-|                         |  ts: 1432648482}                          |                                    |
-+-------------------------+-------------------------------------------+------------------------------------+
-| ${clientid}/disconnected| {reason: "keepalive_timeout",             | Publish when a client disconnected |
-|                         |  ts: 1432749431}                          |                                    |
-+-------------------------+-------------------------------------------+------------------------------------+
++--------------------------+--------------------------------------------+------------------------------------+
+| Topic                    | Payload(JSON)                              | Description                        |
++==========================+============================================+====================================+
+| ${clientid}/connected    | {ipaddress: "127.0.0.1", username: "test", | Publish when a client connected    |
+|                          |  session: false, version: 3, connack: 0,   |                                    |
+|                          |  ts: 1432648482}                           |                                    |
++--------------------------+--------------------------------------------+------------------------------------+
+| ${clientid}/disconnected | {reason: "keepalive_timeout",              | Publish when a client disconnected |
+|                          |  ts: 1432749431}                           |                                    |
++--------------------------+--------------------------------------------+------------------------------------+
 
-Parameters of 'connected' Payload::
+Properties of 'connected' Payload::
 
     ipaddress: "127.0.0.1", 
     username:  "test", 
@@ -576,7 +576,7 @@ Parameters of 'connected' Payload::
     connack:   0, 
     ts:        1432648482
 
-Parameters of 'disconnected' Payload::
+Properties of 'disconnected' Payload::
 
     reason: normal,
     ts:     1432648486
@@ -699,7 +699,7 @@ Messages Sent/Received
 Broker Alarms
 -------------
 
-The topic path started with: $SYS/brokers/${node}/alarms/
+Topic path started with: $SYS/brokers/${node}/alarms/
 
 +------------------+------------------+
 | Topic            | Description      |
@@ -712,7 +712,7 @@ The topic path started with: $SYS/brokers/${node}/alarms/
 Broker Sysmon
 -------------
 
-Topic path: '$SYS/brokers/${node}/sysmon/'
+Topic path started with: '$SYS/brokers/${node}/sysmon/'
 
 +------------------+--------------------+
 | Topic            | Description        |
