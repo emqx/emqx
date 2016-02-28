@@ -9,7 +9,7 @@ User Guide
 Authentication
 --------------
 
-The emqttd broker supports to authenticate MQTT client with ClientID, Username/Password, IpAddress and even HTTP Cookies.
+The emqttd broker supports to authenticate MQTT clients with ClientID, Username/Password, IpAddress and even HTTP Cookies.
 
 The authentication is provided by a list of extended modules, or MySQL, PostgreSQL and Redis Plugins.
 
@@ -41,7 +41,7 @@ Enable an authentication module in etc/emqttd.config::
             {anonymous, []}
         ]},
 
-.. NOTE:: "%%" comments the line.
+.. NOTE:: "%" comments the line.
 
 If we enable several modules in the same time, the authentication process::
 
@@ -119,8 +119,8 @@ Allow any client to connect to the broker::
 
     {anonymous, []}
 
-MySQL Plugin
-------------
+MySQL
+-----
 
 Authenticate against MySQL database. Support we create a mqtt_user table::
 
@@ -158,8 +158,8 @@ Load the plugin::
     ./bin/emqttd_ctl plugins load emqttd_plugin_mysql
 
 
-PostgreSQL Plugin
------------------
+PostgreSQL
+----------
 
 Authenticate against PostgreSQL database. Create a mqtt_user table::
 
@@ -196,7 +196,7 @@ Load the plugin::
 Redis
 -----
 
-Authenticate against Redis. Support we store mqtt user in an redis HASH, the key is "mqtt_user:<Username>".
+Authenticate against Redis. MQTT users could be stored in redis HASH, the key is "mqtt_user:<Username>".
 
 Configure 'authcmd' and 'password_hash' in emqttd_plugin_redis/etc/plugin.config::
 
@@ -243,7 +243,7 @@ Access Control Module of emqttd broker will match the rules one by one::
 Internal
 --------
 
-ACL of emqttd broker is implemented by an 'internal' module by default.
+The default ACL of emqttd broker is implemented by an 'internal' module.
 
 Enable the 'internal' ACL module in etc/emqttd.config::
 
@@ -355,7 +355,7 @@ Configure 'aclquery' and 'acl_nomatch' in emqttd_plugin_pgsql/etc/plugin.config:
 Redis
 -----
 
-ACL against Redis. We store ACL rules for each MQTT client in Redis List by defualt. The key is "mqtt_acl:<Username>", the value is a list of "publish <Topic>", "subscribe <Topic>" or "pubsub <Topic>".
+ACL against Redis. We store ACL rules for each MQTT client in a Redis List by defualt. The key is "mqtt_acl:<Username>", the value is a list of "publish <Topic>", "subscribe <Topic>" or "pubsub <Topic>".
 
 Configure 'aclcmd' and 'acl_nomatch' in emqttd_plugin_redis/etc/plugin.config::
 
@@ -474,7 +474,7 @@ Parameters of the HTTP API:
 | message | Payload        |
 +---------+----------------+
 
-.. NOTE:: The API use HTTP Basic Authentication.
+.. NOTE:: The API uses HTTP Basic Authentication.
 
 -------------------
 MQTT Over WebSocket
@@ -509,245 +509,252 @@ Listener of WebSocket and HTTP Publish API is configured in etc/emqttd.config::
         ]}
     ]}
 
-## Overview
-
-emqttd could trace packets received/sent from/to specific client, or trace publish/subscribe to specific topic.
-
-emqttd use lager:trace_file api and write trace log to file.
-
-
-## Trace Commands
-
-### Trace client
-
-```
-./bin/emqttd_ctl trace client "ClientId" "trace_clientid.log"
-```
-
-### Trace topic
-
-```
-./bin/emqttd_ctl trace topic "Topic" "trace_topic.log"
-```
-
-### Stop Trace
-
-```
-./bin/emqttd_ctl trace client "ClientId" off
-./bin/emqttd_ctl trace topic "Topic" off
-```
-
-### Lookup Traces
-
-```
-./bin/emqttd_ctl trace list
-```
-
-
-
 -----------
 $SYS Topics
 -----------
 
-NOTICE: This is the design of 0.9.0 release
+The emqttd broker periodically publishes internal status, MQTT statistics, metrics and client online/offline status to $SYS/# topics.
 
-## Overview
+For emqttd broker is clustered, the $SYS topic path is started with::
 
-For emqttd is clustered, $SYS Topics of broker is started with:
+    $SYS/brokers/${node}/
 
-```
-$SYS/brokers/${node}
-```
+'${node}' is the erlang node name of emqttd broker. For example::
 
-${node} is erlang node of clustered brokers. For example:
+    $SYS/brokers/emqttd@127.0.0.1/version
 
-```
-$SYS/brokers/emqttd@host1/version
-$SYS/brokers/emqttd@host2/version
-```
+    $SYS/brokers/emqttd@host2/uptime
 
-## Broker $SYS Topics
+.. NOTE:: The broker only allows clients from localhost to subscribe $SYS topics by default. 
 
-Topic                          | Description
--------------------------------|------------
-$SYS/brokers                   | Broker nodes
-$SYS/brokers/${node}/version   | Broker Version
-$SYS/brokers/${node}/uptime    | Broker Uptime
-$SYS/brokers/${node}/datetime  | Broker DateTime
-$SYS/brokers/${node}/sysdescr  | Broker Description
- 
-## Client $SYS Topics
+Sys Interval of publishing broker $SYS messages, could be configured in etc/emqttd.config::
 
-Start with: $SYS/brokers/${node}/clients/
-
-Topic                 |   Payload(json)     | Description
-----------------------|---------------------|--------------- 
-${clientid}/connected | {ipaddress: "127.0.0.1", username: "test", session: false, version: 3, connack: 0, ts: 1432648482} | Publish when client connected 
-${clientid}/disconnected | {reason: "normal" | "keepalive_timeout" | "conn_closed"}
-
-Parameters of 'connected' Payload:
-
-```
-ipaddress: "127.0.0.1", 
-username: "test", 
-session: false, 
-protocol: 3, 
-connack: 0, 
-ts: 1432648482
-```
-
-Parameters of 'disconnected' Payload:
-
-```
-reason: normal,
-ts: 1432648486
-```
-
-## Statistics $SYS Topics
-
-Start with '$SYS/brokers/${node}/stats/'
-
-### Client Stats
-
-Topic                                | Description
--------------------------------------|------------
-clients/count   | count of current connected clients
-clients/max     | max connected clients in the same time
-
-### Session Stats
-
-Topic            | Description
------------------|------------
-sessions/count   | count of current sessions
-sessions/max     | max number of sessions
-
-### Subscriber Stats
-
-Topic             | Description
-------------------|------------
-subscriptions/count | count of current subscriptions
-subscriptions/max   | max number of subscriptions
-
-### Topic Stats
-
-Topic             | Description
-------------------|------------
-topics/count      | count of current topics
-topics/max        | max number of topics
-
-### Queue Stats
-
-Topic             | Description
-------------------|------------
-queues/count      | count of current queues
-queues/max        | max number of queues
+    {broker, [
+        %% System interval of 
+        {sys_interval, 60},
 
 
-## Metrics $SYS Topics
+Broker Version, Uptime and Description
+---------------------------------------
 
-Start with '$SYS/brokers/${node}/metrics/'
++--------------------------------+-----------------------+
+| Topic                          | Description           |
++================================+=======================+
+| $SYS/brokers                   | Broker nodes          |
++--------------------------------+-----------------------+
+| $SYS/brokers/${node}/version   | Broker Version        |
++--------------------------------+-----------------------+
+| $SYS/brokers/${node}/uptime    | Broker Uptime         |
++--------------------------------+-----------------------+
+| $SYS/brokers/${node}/datetime  | Broker DateTime       |
++--------------------------------+-----------------------+
+| $SYS/brokers/${node}/sysdescr  | Broker Description    |
++--------------------------------+-----------------------+
 
-### Bytes sent and received
+Online/Offline Status of MQTT Client
+------------------------------------
 
-Topic                               | Description
-------------------------------------|------------
-bytes/received | MQTT Bytes Received since broker started
-bytes/sent     | MQTT Bytes Sent since the broker started
+The topic path is started with: $SYS/brokers/${node}/clients/
 
-### Packets sent and received
- 
-Topic                    | Description
--------------------------|------------
-packets/received         | MQTT Packets received
-packets/sent             | MQTT Packets sent
-packets/connect          | MQTT CONNECT Packet received
-packets/connack          | MQTT CONNACK Packet sent
-packets/publish/received | MQTT PUBLISH packets received
-packets/publish/sent     | MQTT PUBLISH packets sent
-packets/subscribe        | MQTT SUBSCRIBE Packets received
-packets/suback           | MQTT SUBACK packets sent
-packets/unsubscribe      | MQTT UNSUBSCRIBE Packets received
-packets/unsuback         | MQTT UNSUBACK Packets sent
-packets/pingreq          | MQTT PINGREQ packets received
-packets/pingresp         | MQTT PINGRESP Packets sent
-packets/disconnect       | MQTT DISCONNECT Packets received
++-------------------------+-------------------------------------------+------------------------------------+
+| Topic                   | Payload(JSON)                             | Description                        |
++=========================+===========================================+====================================+
+| ${clientid}/connected   | {ipaddress: "127.0.0.1", username: "test",| Publish when a client connected    |
+|                         |  session: false, version: 3, connack: 0,  |                                    |
+|                         |  ts: 1432648482}                          |                                    |
++-------------------------+-------------------------------------------+------------------------------------+
+| ${clientid}/disconnected| {reason: "keepalive_timeout",             | Publish when a client disconnected |
+|                         |  ts: 1432749431}                          |                                    |
++-------------------------+-------------------------------------------+------------------------------------+
 
-### Messages sent and received
+Parameters of 'connected' Payload::
 
-Topic                                  | Description
----------------------------------------|-------------------
-messages/received | Messages Received
-messages/sent     | Messages Sent
-messages/retained | Messages Retained
-messages/stored   | TODO: Messages Stored
-messages/dropped  | Messages Dropped
+    ipaddress: "127.0.0.1", 
+    username:  "test", 
+    session:   false, 
+    protocol:  3, 
+    connack:   0, 
+    ts:        1432648482
 
-## Alarm Topics
+Parameters of 'disconnected' Payload::
 
-Start with '$SYS/brokers/${node}/alarms/'
+    reason: normal,
+    ts:     1432648486
 
-Topic            | Description
------------------|-------------------
-${alarmId}/alert | New Alarm
-${alarmId}/clear | Clear Alarm
+Broker Statistics
+-----------------
 
-## Log
+Topic path started with: $SYS/brokers/${node}/stats/
 
-'$SYS/brokers/${node}/logs/${severity}'
+Clients
+.......
 
-Severity   |  Description
------------|-------------------
-debug      | Debug Log
-info       | Info Log
-notice     | Notice Log
-warning    | Warning Log
-error      | Error Log
-critical   | Critical Log
++---------------------+---------------------------------------------+
+| Topic               | Description                                 |
++---------------------+---------------------------------------------+
+| clients/count       | Count of current connected clients          |
++---------------------+---------------------------------------------+
+| clients/max         | Max number of cocurrent connected clients   |
++---------------------+---------------------------------------------+
 
-## Sysmon
+Sessions
+........
 
-Start with '$SYS/brokers/${node}/sysmon/'
++---------------------+---------------------------------------------+
+| Topic               | Description                                 |
++---------------------+---------------------------------------------+
+| sessions/count      | Count of current sessions                   |
++---------------------+---------------------------------------------+
+| sessions/max        | Max number of sessions                      |
++---------------------+---------------------------------------------+
 
-Topic            | Description
------------------|-------------------
-long_gc          | Long GC Warning
-long_schedule    | Long Schedule
-large_heap       | Large Heap Warning
-busy_port        | Busy Port Warning
-busy_dist_port   | Busy Dist Port
+Subscriptions
+.............
 
-## Log
++---------------------+---------------------------------------------+
+| Topic               | Description                                 |
++---------------------+---------------------------------------------+
+| subscriptions/count | Count of current subscriptions              | 
++---------------------+---------------------------------------------+
+| subscriptions/max   | Max number of subscriptions                 |
++---------------------+---------------------------------------------+
 
-'$SYS/brokers/${node}/log/${severity}'
+Topics
+......
 
-Severity    | Description
-------------|-------------------
-debug       | Debug
-info        | Info Log
-notice      | Notice Log
-warning     | Warning Log
-error       | Error Log
-critical    | Critical Log
-alert       | Alert Log
++---------------------+---------------------------------------------+
+| Topic               | Description                                 |
++---------------------+---------------------------------------------+
+| topics/count        | Count of current topics                     |
++---------------------+---------------------------------------------+
+| topics/max          | Max number of topics                        |
++---------------------+---------------------------------------------+
 
-## VM Load Topics
+Broker Metrics
+--------------
 
-Start with '$SYS/brokers/${node}/vm/'
+Topic path started with: $SYS/brokers/${node}/metrics/
 
-Topic            | Description
------------------|-------------------
-memory/*         | TODO
-cpu/*            | TODO
-processes/*      | TODO
+Bytes Sent/Received
+...................
 
-## Sys Interval
++---------------------+---------------------------------------------+
+| Topic               | Description                                 |
++---------------------+---------------------------------------------+
+| bytes/received      | MQTT Bytes Received since broker started    |
++---------------------+---------------------------------------------+
+| bytes/sent          | MQTT Bytes Sent since the broker started    |
++---------------------+---------------------------------------------+
 
-sys_interval: 1 minute default
+Packets Sent/Received
+.....................
+
++--------------------------+---------------------------------------------+
+| Topic                    | Description                                 |
++--------------------------+---------------------------------------------+
+| packets/received         | MQTT Packets received                       |
++--------------------------+---------------------------------------------+
+| packets/sent             | MQTT Packets sent                           |
++--------------------------+---------------------------------------------+
+| packets/connect          | MQTT CONNECT Packet received                |
++--------------------------+---------------------------------------------+
+| packets/connack          | MQTT CONNACK Packet sent                    |
++--------------------------+---------------------------------------------+
+| packets/publish/received | MQTT PUBLISH packets received               |
++--------------------------+---------------------------------------------+
+| packets/publish/sent     | MQTT PUBLISH packets sent                   |
++--------------------------+---------------------------------------------+
+| packets/subscribe        | MQTT SUBSCRIBE Packets received             |
++--------------------------+---------------------------------------------+
+| packets/suback           | MQTT SUBACK packets sent                    |
++--------------------------+---------------------------------------------+
+| packets/unsubscribe      | MQTT UNSUBSCRIBE Packets received           |
++--------------------------+---------------------------------------------+
+| packets/unsuback         | MQTT UNSUBACK Packets sent                  |
++--------------------------+---------------------------------------------+
+| packets/pingreq          | MQTT PINGREQ packets received               |
++--------------------------+---------------------------------------------+
+| packets/pingresp         | MQTT PINGRESP Packets sent                  |
++--------------------------+---------------------------------------------+
+| packets/disconnect       | MQTT DISCONNECT Packets received            |
++--------------------------+---------------------------------------------+
+
+Messages Sent/Received
+......................
+
++--------------------------+---------------------------------------------+
+| Topic                    | Description                                 |
++--------------------------+---------------------------------------------+
+| messages/received        | Messages Received                           |
++--------------------------+---------------------------------------------+
+| messages/sent            | Messages Sent                               |
++--------------------------+---------------------------------------------+
+| messages/retained        | Messages Retained                           |
++--------------------------+---------------------------------------------+
+| messages/stored          | TODO: Messages Stored                       |
++--------------------------+---------------------------------------------+
+| messages/dropped         | Messages Dropped                            |
++--------------------------+---------------------------------------------+
+
+Broker Alarms
+-------------
+
+The topic path started with: $SYS/brokers/${node}/alarms/
+
++------------------+------------------+
+| Topic            | Description      |
++------------------+------------------+
+| ${alarmId}/alert | New Alarm        |
++------------------+------------------+
+| ${alarmId}/clear | Clear Alarm      |
++------------------+------------------+
+
+Broker Sysmon
+-------------
+
+Topic path: '$SYS/brokers/${node}/sysmon/'
+
++------------------+--------------------+
+| Topic            | Description        |
++------------------+--------------------+
+| long_gc          | Long GC Warning    |
++------------------+--------------------+
+| long_schedule    | Long Schedule      |
++------------------+--------------------+
+| large_heap       | Large Heap Warning |
++------------------+--------------------+
+| busy_port        | Busy Port Warning  |
++------------------+--------------------+
+| busy_dist_port   | Busy Dist Port     |
++------------------+--------------------+
+
 
 ---------------------
 Trace Topic or Client
 ---------------------
 
+The emqttd broker supports to trace MQTT packets received/sent from/to a client, or trace MQTT messages published to a topic.
+
+Trace a client::
+
+    ./bin/emqttd_ctl trace client "clientid" "trace_clientid.log"
+
+Trace a topic::
+
+    ./bin/emqttd_ctl trace topic "topic" "trace_topic.log"
+
+Lookup Traces::
+
+    ./bin/emqttd_ctl trace list
+
+Stop a Trace::
+
+    ./bin/emqttd_ctl trace client "clientid" off
+
+    ./bin/emqttd_ctl trace topic "topic" off
+
+
 .. _emqttd_plugin_mysql:    https://github.com/emqtt/emqttd_plugin_mysql
 .. _emqttd_plugin_pgsql:    https://github.com/emqtt/emqttd_plugin_pgsql
 .. _emqttd_plugin_redis:    https://github.com/emqtt/emqttd_plugin_redis
+
