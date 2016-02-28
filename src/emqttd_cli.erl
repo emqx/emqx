@@ -405,9 +405,9 @@ trace(["topic", Topic, LogFile]) ->
 trace(_) ->
     ?USAGE([{"trace list",                       "query all traces"},
             {"trace client <ClientId> <LogFile>","trace client with ClientId"},
-            {"trace client <ClientId> off",      "stop to trace client"},
+            {"trace client <ClientId> off",      "stop tracing client"},
             {"trace topic <Topic> <LogFile>",    "trace topic with Topic"},
-            {"trace topic <Topic> off",          "stop to trace Topic"}]).
+            {"trace topic <Topic> off",          "stop tracing Topic"}]).
 
 trace_on(Who, Name, LogFile) ->
     case emqttd_trace:start_trace({Who, iolist_to_binary(Name)}, LogFile) of
@@ -420,9 +420,9 @@ trace_on(Who, Name, LogFile) ->
 trace_off(Who, Name) ->
     case emqttd_trace:stop_trace({Who, iolist_to_binary(Name)}) of
         ok -> 
-            ?PRINT("stop to trace ~s ~s successfully.~n", [Who, Name]);
+            ?PRINT("stop tracing ~s ~s successfully.~n", [Who, Name]);
         {error, Error} ->
-            ?PRINT("stop to trace ~s ~s error: ~p.~n", [Who, Name, Error])
+            ?PRINT("stop tracing ~s ~s error: ~p.~n", [Who, Name, Error])
     end.
 
 %%--------------------------------------------------------------------

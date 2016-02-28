@@ -7,7 +7,7 @@
 emqttd - Erlang MQTT Broker
 ===========================
 
-emqttd(Erlang MQTT Broker) is a massively scalable, clusterable MQTT V3.1/V3.1.1 broker written in Erlang/OTP.
+emqttd(Erlang MQTT Broker) is a massively scalable and clusterable MQTT V3.1/V3.1.1 broker written in Erlang/OTP.
 
 emqttd is fully open source and licensed under the Apache Version 2.0. emqttd implements both MQTT V3.1 and V3.1.1 protocol specifications, and supports WebSocket, STOMP, SockJS, CoAP and MQTT-SN in the same time.
 

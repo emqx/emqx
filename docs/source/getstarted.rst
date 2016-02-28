@@ -11,7 +11,7 @@ Overview
 
 emqttd(Erlang MQTT Broker) is an open source MQTT broker written in Erlang/OTP. Erlang/OTP is a concurrent, fault-tolerant, soft-realtime and distributed programming platform. MQTT is an extremely lightweight publish/subscribe messaging protocol powering IoT, M2M and Mobile applications.
 
-The emqttd project is aimed to implement a scalable, distributed, extensible open-source MQTT broker for IoT, M2M and Mobile applications that hope to handle ten millions of concurrent MQTT clients.
+The emqttd project is aimed to implement a scalable, distributed, extensible open-source MQTT broker for IoT, M2M and Mobile applications that hope to handle millions of concurrent MQTT clients.
 
 Highlights of the emqttd broker:
 
@@ -93,7 +93,7 @@ Web Dashboard
 
 A Web Dashboard will be loaded automatically when the emqttd broker is started successfully.
 
-The Dashboard helps to check running status of the broker, monitor statistics and metrics of MQTT packets, query clients, sessions, topics and subscriptions.
+The Dashboard helps check running status of the broker, monitor statistics and metrics of MQTT packets, query clients, sessions, topics and subscriptions.
 
 +------------------+---------------------------+
 | Default Address  | http://localhost:18083    |
@@ -109,7 +109,7 @@ The Dashboard helps to check running status of the broker, monitor statistics an
 Modules and Plugins
 -------------------
 
-The Authentication and ACL mechanism is usually implemented by a Module or Plugin.
+The Authentication and Authorization(ACL) are usually implemented by a Module or Plugin.
 
 Modules
 -------

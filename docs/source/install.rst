@@ -120,7 +120,7 @@ We could install the broker on Mac OS X to develop and debug MQTT applications.
 
 Download Mac Package from: http://emqtt.io/downloads/macosx
 
-Configure 'lager' log level in 'etc/emqttd.config', all MQTT messages recevied/sent will be printd on console:
+Configure 'lager' log level in 'etc/emqttd.config', all MQTT messages recevied/sent will be printed on console:
 
 .. code:: erlang
 
@@ -132,7 +132,7 @@ Configure 'lager' log level in 'etc/emqttd.config', all MQTT messages recevied/s
         ]}
     ]},
 
-The install and boot process on Mac is same to Linux.
+The install and boot process on Mac are same to Linux.
 
 ---------------------
 Installing on Windows

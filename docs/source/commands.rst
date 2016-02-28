@@ -596,11 +596,11 @@ Trace MQTT packets, messages(sent/received) by ClientId or Topic.
 +-----------------------------------+-----------------------------------+
 | trace client <ClientId> <LogFile> | Trace a client                    |
 +-----------------------------------+-----------------------------------+
-| trace client <ClientId> off       | Stop to trace the client          |
+| trace client <ClientId> off       | Stop tracing the client           |
 +-----------------------------------+-----------------------------------+
 | trace topic <Topic> <LogFile>     | Trace a topic                     |
 +-----------------------------------+-----------------------------------+
-| trace topic <Topic> off           | Stop to trace the topic           |
+| trace topic <Topic> off           | Stop tracing the topic            |
 +-----------------------------------+-----------------------------------+
 
 trace client <ClientId> <LogFile>
@@ -615,11 +615,11 @@ Start to trace a client::
 trace client <ClientId> off
 ---------------------------
 
-Stop to trace the client::
+Stop tracing the client::
 
     $ ./bin/emqttd_ctl trace client clientid off
     
-    stop to trace client clientid successfully.
+    stop tracing client clientid successfully.
 
 trace topic <Topic> <LogFile>
 -----------------------------
@@ -633,11 +633,11 @@ Start to trace a topic::
 trace topic <Topic> off
 -----------------------
 
-Stop to trace the topic::
+Stop tracing the topic::
 
     $ ./bin/emqttd_ctl trace topic topic off
 
-    stop to trace topic topic successfully.
+    stop tracing topic topic successfully.
 
 trace list
 ----------
