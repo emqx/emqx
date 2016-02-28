@@ -725,7 +725,7 @@ Change: rename project from 'emqtt' to 'emqttd'
 
 Change: lager:debug to dump RECV/SENT packets
 
-Feature: emqttd_bridg, emqttd_bridge_sup to support broker bridge
+Feature: emqttd_bridge, emqttd_bridge_sup to support broker bridge
 
 Feature: emqtt_event to publish client connected/disconnected message to $SYS topics
 
@@ -890,7 +890,7 @@ Bugfix: fix "mosquitto_sub -q 2 ......" bug
 
 Bugfix: fix keep alive bug
 
-0.1.3 (2012-01-04)
+0.1.3 (2013-01-04)
 -------------------
 
 Feature: support QOS2 PUBREC, PUBREL,PUBCOMP messages
