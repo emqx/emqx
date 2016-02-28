@@ -251,15 +251,15 @@ Username Authentication
 
 .. code:: erlang
 
-    {username, [{test1, "passwd1"}, {test2, "passwd2"}]},
+    {username, [{client1, "passwd1"}, {client2, "passwd2"}]},
 
 Two ways to configure users:
 
 1. Configure username and plain password directly::
 
-    {username, [{test1, "passwd1"}, {test2, "passwd2"}]},
+    {username, [{client1, "passwd1"}, {client2, "passwd2"}]},
 
-2. Add users by './bin/emqttd_ctl' command::
+2. Add user by './bin/emqttd_ctl users' command::
 
    $ ./bin/emqttd_ctl users add <Username> <Password>
 
@@ -296,7 +296,7 @@ LDAP Authentication
 Anonymous Authentication
 ........................
 
-Allow any clients connect to the broker::
+Allow any client to connect to the broker::
 
     {anonymous, []}
 

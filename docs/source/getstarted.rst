@@ -181,7 +181,7 @@ For example, enable 'emqttd_plugin_pgsql' plugin::
     ./bin/emqttd_ctl plugins load emqttd_plugin_pgsql
 
 -----------------------
-One million Connections
+One Million Connections
 -----------------------
 
 Latest release of the emqttd broker is scaling to 1.3 million MQTT connections on a 12 Core, 32G CentOS server.
