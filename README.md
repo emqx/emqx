@@ -5,8 +5,6 @@ emqttd is a massively scalable and clusterable MQTT V3.1/V3.1.1 broker written i
 
 emqttd is fully open source and licensed under the Apache Version 2.0. emqttd implements both MQTT V3.1 and V3.1.1 protocol specifications, and supports WebSocket, STOMP, SockJS, CoAP and MQTT-SN in the same time.
 
-Latest release of the emqttd broker is scaling to 1.3 million MQTT connections on a 12 Core, 32G CentOS server.
-
 emqttd requires Erlang R17+ to build.
 
 Demo Server: tcp://t.emqtt.io:1883
@@ -73,14 +71,13 @@ Plugin                                                                    | Desc
 
 ## Dashboard
 
-A Web Dashboard will be loaded when the emqttd broker started successfully. The Dashboard helps monitor broker's running status, statistics and metrics of MQTT packets.
+A Web Dashboard will be loaded when the emqttd broker started successfully.
+
+The Dashboard helps monitor broker's running status, statistics and metrics of MQTT packets.
 
 Default Address    | http://localhost:18083 
--------------------|------------------------
- Default Login     | admin                     
--------------------|------------------------
- Default Password  | public                    
--------------------|------------------------
+Default Login      | admin                     
+Default Password   | public                    
 
 ## Design
 
@@ -123,6 +120,8 @@ cd rel/emqttd && ./bin/emqttd console
 Read Documents on [emqttd-docs.rtfd.org](http://emqttd-docs.rtfd.org) for installation and configuration guide.
 
 ## Benchmark
+
+Latest release of the emqttd broker is scaling to 1.3 million MQTT connections on a 12 Core, 32G CentOS server.
 
 Benchmark 0.12.0-beta on a CentOS6 server with 8 Core, 32G memory from QingCloud:
 
