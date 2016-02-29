@@ -729,9 +729,9 @@ Topic path started with: '$SYS/brokers/${node}/sysmon/'
 +------------------+--------------------+
 
 
----------------------
-Trace Topic or Client
----------------------
+-----
+Trace
+-----
 
 The emqttd broker supports to trace MQTT packets received/sent from/to a client, or trace MQTT messages published to a topic.
 
