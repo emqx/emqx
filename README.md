@@ -75,7 +75,8 @@ A Web Dashboard will be loaded when the emqttd broker started successfully.
 
 The Dashboard helps monitor broker's running status, statistics and metrics of MQTT packets.
 
-Default Address:        http://localhost:18083
+Default Address: http://localhost:18083
+
 Default Login/Password: admin/public
 
 ## Design
@@ -120,7 +121,7 @@ Read Documents on [emqttd-docs.rtfd.org](http://emqttd-docs.rtfd.org) for instal
 
 ## Benchmark
 
-Latest release of the emqttd broker is scaling to 1.3 million MQTT connections on a 12 Core, 32G CentOS server.
+Latest release of emqttd broker is scaling to 1.3 million MQTT connections on a 12 Core, 32G CentOS server.
 
 Benchmark 0.12.0-beta on a CentOS6 server with 8 Core, 32G memory from QingCloud:
 
