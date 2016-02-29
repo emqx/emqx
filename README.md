@@ -75,9 +75,8 @@ A Web Dashboard will be loaded when the emqttd broker started successfully.
 
 The Dashboard helps monitor broker's running status, statistics and metrics of MQTT packets.
 
-Default Address    | http://localhost:18083 
-Default Login      | admin                     
-Default Password   | public                    
+Default Address:        http://localhost:18083
+Default Login/Password: admin/public
 
 ## Design
 
