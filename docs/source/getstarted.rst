@@ -91,7 +91,7 @@ Installing from Source
 Web Dashboard
 -------------
 
-A Web Dashboard will be loaded automatically when the emqttd broker is started successfully.
+A Web Dashboard will be loaded when the emqttd broker is started successfully.
 
 The Dashboard helps check running status of the broker, monitor statistics and metrics of MQTT packets, query clients, sessions, topics and subscriptions.
 

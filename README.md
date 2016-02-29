@@ -27,50 +27,60 @@ The emqttd project is aimed to implement a scalable, distributed, extensible ope
 * Full MQTT V3.1/V3.1.1 protocol specification support
 * QoS0, QoS1, QoS2 Publish and Subscribe
 * Session Management and Offline Messages
-* Retained Messages Support
-* Last Will Message Support
-* TCP/SSL Connection Support
-* MQTT Over Websocket(SSL) Support
-* HTTP Publish API Support
-* [$SYS/brokers/#](https://github.com/emqtt/emqtt/wiki/$SYS-Topics-of-Broker) Support
-* Client Authentication with clientId, ipaddress
-* Client Authentication with username, password.
-* Client ACL control with ipaddress, clientid, username.
-* Cluster brokers on several servers.
-* [Bridge](https://github.com/emqtt/emqttd/wiki/Bridge) brokers locally or remotely
-* 500K+ concurrent clients connections per server
+* Retained Message
+* Last Will Message
+* TCP/SSL Connection
+* MQTT Over WebSocket(SSL)
+* HTTP Publish API
+* STOMP protocol
+* STOMP over SockJS
+* $SYS/# Topics
+* ClientID Authentication
+* IpAddress Authentication
+* Username and Password Authentication
+* Access control based on IpAddress, ClientID, Username
+* Authentication with LDAP, Redis, MySQL, PostgreSQL
+* Cluster brokers on several servers
+* Bridge brokers locally or remotely
+* mosquitto, RSMB bridge
 * Extensible architecture with Hooks, Modules and Plugins
 * Passed eclipse paho interoperability tests
 
 ## Modules
 
-* [emqttd_auth_clientid](https://github.com/emqtt/emqttd/wiki/Authentication) - Authentication with ClientIds
-* [emqttd_auth_username](https://github.com/emqtt/emqttd/wiki/Authentication) - Authentication with Username and Password
-* [emqttd_auth_ldap](https://github.com/emqtt/emqttd/wiki/Authentication) - Authentication with LDAP
-* [emqttd_mod_presence](https://github.com/emqtt/emqttd/wiki/Presence) - Publish presence message to $SYS topics when client connected or disconnected
-* emqttd_mod_autosub - Subscribe topics when client connected
-* [emqttd_mod_rewrite](https://github.com/emqtt/emqttd/wiki/Rewrite) - Topics rewrite like HTTP rewrite module
+Module                   | Description
+-------------------------|------------------------------
+emqttd_auth_clientid     | Authentication with ClientIds
+emqttd_auth_username     | Authentication with Username and Password
+emqttd_auth_ldap         | Authentication with LDAP
+emqttd_mod_presence      | Publish presence message to $SYS topics when client connected or disconnected
+emqttd_mod_subscription  | Subscribe topics when client connected
+emqttd_mod_rewrite       | Topic path rewrite like HTTP rewrite module
 
 ## Plugins
 
-* [emqttd_plugin_template](https://github.com/emqtt/emqttd_plugin_template) - Plugin template and demo
-* [emqttd_dashboard](https://github.com/emqtt/emqttd_dashboard) - Web Dashboard
-* [emqttd_plugin_mysql](https://github.com/emqtt/emqttd_plugin_mysql) - Authentication with MySQL
-* [emqttd_plugin_pgsql](https://github.com/emqtt/emqttd_plugin_pgsql) - Authentication with PostgreSQL
-* [emqttd_plugin_kafka](https://github.com/emqtt/emqtt_kafka) - Publish MQTT Messages to Kafka
-* [emqttd_plugin_redis](https://github.com/emqtt/emqttd_plugin_redis) - Redis Plugin
-* [emqttd_plugin_mongo](https://github.com/emqtt/emqttd_plugin_mongo) - MongoDB Plugin
-* [emqttd_stomp](https://github.com/emqtt/emqttd_stomp) - Stomp Protocol Plugin
-* [emqttd_sockjs](https://github.com/emqtt/emqttd_sockjs) - SockJS(Stomp) Plugin
-* [emqttd_recon](https://github.com/emqtt/emqttd_recon) - Recon Plugin
+Plugin                                                                    | Description
+--------------------------------------------------------------------------|--------------------------------------
+[emqttd_plugin_template](https://github.com/emqtt/emqttd_plugin_template) | Plugin template and demo
+[emqttd_dashboard](https://github.com/emqtt/emqttd_dashboard)             | Web Dashboard
+[emqttd_plugin_mysql](https://github.com/emqtt/emqttd_plugin_mysql)       | MySQL Authentication/ACL Plugin
+[emqttd_plugin_pgsql](https://github.com/emqtt/emqttd_plugin_pgsql)       | PostgreSQL Authentication/ACL Plugin
+[emqttd_plugin_redis](https://github.com/emqtt/emqttd_plugin_redis)       | Redis Authentication/ACL Plugin
+[emqttd_plugin_mongo](https://github.com/emqtt/emqttd_plugin_mongo)       | MongoDB Authentication/ACL Plugin
+[emqttd_stomp](https://github.com/emqtt/emqttd_stomp)                     | Stomp Protocol Plugin
+[emqttd_sockjs](https://github.com/emqtt/emqttd_sockjs)                   | SockJS(Stomp) Plugin
+[emqttd_recon](https://github.com/emqtt/emqttd_recon)                     | Recon Plugin
 
 ## Dashboard
 
-The broker released a simple web dashboard in 0.10.0 version.
+A Web Dashboard will be loaded when the emqttd broker started successfully. The Dashboard helps monitor broker's running status, statistics and metrics of MQTT packets.
 
-Address: http://localhost:18083
-Username: admin
-Password: public
+Default Address    | http://localhost:18083 
+-------------------|------------------------
+ Default Login     | admin                     
+-------------------|------------------------
+ Default Password  | public                    
+-------------------|------------------------
 
 ## Design
 
@@ -78,12 +88,12 @@ Password: public
 
 ## QuickStart
 
-Download binary packeges for linux, mac and freebsd from [http://emqtt.io/downloads](http://emqtt.io/downloads).
+Download binary package for Linux, Mac and Freebsd from [http://emqtt.io/downloads](http://emqtt.io/downloads).
 
-For example:
+Installing on Ubuntu64, for example:
 
 ```sh
-unzip emqttd-ubuntu64-0.12.0-beta-20151008.zip && cd emqttd
+unzip emqttd-macosx-0.16.0-beta-20160216.zip && cd emqttd
 
 # start console
 ./bin/emqttd console
@@ -98,21 +108,23 @@ unzip emqttd-ubuntu64-0.12.0-beta-20151008.zip && cd emqttd
 ./bin/emqttd stop
 ``` 
 
-Build from source:
+Installing from source:
 
 ```
 git clone https://github.com/emqtt/emqttd.git
 
 cd emqttd && make && make dist
+
+cd rel/emqttd && ./bin/emqttd console
 ```
 
-## GetStarted
+## Documents
 
-Read [emqtt wiki](https://github.com/emqtt/emqttd/wiki) for detailed installation and configuration guide.
+Read Documents on [emqttd-docs.rtfd.org](http://emqttd-docs.rtfd.org) for installation and configuration guide.
 
 ## Benchmark
 
-Benchmark 0.12.0-beta on a centos6 server with 8 Core, 32G memory from QingCloud:
+Benchmark 0.12.0-beta on a CentOS6 server with 8 Core, 32G memory from QingCloud:
 
 250K Connections, 250K Topics, 250K Subscriptions, 4K Qos1 Messages/Sec In, 20K Qos1 Messages/Sec Out, 8M+(bps) In, 40M+(bps) Out Traffic
 
