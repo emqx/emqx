@@ -43,7 +43,7 @@ Enable an authentication module in etc/emqttd.config::
 
 .. NOTE:: "%" comments the line.
 
-If we enable several modules in the same time, the authentication process::
+If we enable several modules at the same time, the authentication process::
 
                ----------------           ----------------           -------------
     Client --> |   Username   | -ignore-> |   ClientID   | -ignore-> | Anonymous |

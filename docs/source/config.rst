@@ -235,7 +235,7 @@ The broker provides Username, ClientId, LDAP and anonymous authentication module
         {anonymous, []}
     ]},
 
-The modules enabled in the same time compose an authentication chain:
+The modules enabled at the same time compose an authentication chain:
 
                ----------------           ----------------           -------------
     Client --> |   Username   | -ignore-> |   ClientID   | -ignore-> | Anonymous |

@@ -3,7 +3,7 @@
 
 emqttd is a massively scalable and clusterable MQTT V3.1/V3.1.1 broker written in Erlang/OTP.
 
-emqttd is fully open source and licensed under the Apache Version 2.0. emqttd implements both MQTT V3.1 and V3.1.1 protocol specifications, and supports WebSocket, STOMP, SockJS, CoAP and MQTT-SN in the same time.
+emqttd is fully open source and licensed under the Apache Version 2.0. emqttd implements both MQTT V3.1 and V3.1.1 protocol specifications, and supports WebSocket, STOMP, SockJS, CoAP and MQTT-SN at the same time.
 
 emqttd requires Erlang R17+ to build.
 
@@ -51,7 +51,7 @@ Module                   | Description
 emqttd_auth_clientid     | Authentication with ClientIds
 emqttd_auth_username     | Authentication with Username and Password
 emqttd_auth_ldap         | Authentication with LDAP
-emqttd_mod_presence      | Publish presence message to $SYS topics when client connected or disconnected
+emqttd_mod_presence      | Publish presence message when client connected or disconnected
 emqttd_mod_subscription  | Subscribe topics when client connected
 emqttd_mod_rewrite       | Topic path rewrite like HTTP rewrite module
 
