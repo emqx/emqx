@@ -6,7 +6,7 @@ Clustering
 ==========
 
 ----------------------
-Distributed Erlang/OPT
+Distributed Erlang/OTP
 ----------------------
 
 Erlang/OTP is a concurrent, fault-tolerant, distributed programming platform. A distributed Erlang/OTP system consists of a number of Erlang runtime systems called 'node'. Nodes connect to each other with TCP/IP sockets and communite by Message Passing.
