@@ -307,7 +307,7 @@ send_willmsg(ClientId, WillMsg) ->
 start_keepalive(0) -> ignore;
 
 start_keepalive(Sec) when Sec > 0 ->
-    self() ! {keepalive, start, round(Sec * 1.2)}.
+    self() ! {keepalive, start, round(Sec * 0.75)}.
 
 %%--------------------------------------------------------------------
 %% Validate Packets
