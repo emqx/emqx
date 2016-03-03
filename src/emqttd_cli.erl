@@ -28,7 +28,7 @@
 
 -export([load/0]).
 
--export([status/1, broker/1, cluster/1, bridges/1,
+-export([status/1, broker/1, cluster/1, users/1, bridges/1,
          clients/1, sessions/1, topics/1, subscriptions/1,
          plugins/1, listeners/1, vm/1, mnesia/1, trace/1]).
 
@@ -140,6 +140,10 @@ cluster(_) ->
             {"cluster leave",        "Leave the cluster"},
             {"cluster remove <Node>","Remove the node from cluster"},
             {"cluster status",       "Cluster status"}]).
+
+%%--------------------------------------------------------------------
+%% @doc Users usage
+users(Args) -> emqttd_auth_username:cli(Args).
 
 %%--------------------------------------------------------------------
 %% @doc Query clients

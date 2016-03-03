@@ -26,8 +26,9 @@
 
 -behaviour(emqttd_auth_mod).
 
--export([add_user/2, remove_user/1,
-         lookup_user/1, all_users/0]).
+-export([is_enabled/0]).
+
+-export([add_user/2, remove_user/1, lookup_user/1, all_users/0]).
 
 %% emqttd_auth callbacks
 -export([init/1, check/3, description/0]).
@@ -41,18 +42,34 @@
 %%--------------------------------------------------------------------
 
 cli(["add", Username, Password]) ->
-    ?PRINT("~p~n", [add_user(iolist_to_binary(Username), iolist_to_binary(Password))]);
+    if_enabled(fun() ->
+        ?PRINT("~p~n", [add_user(iolist_to_binary(Username), iolist_to_binary(Password))])
+    end);
 
 cli(["del", Username]) ->
-    ?PRINT("~p~n", [remove_user(iolist_to_binary(Username))]);
+    if_enabled(fun() ->
+        ?PRINT("~p~n", [remove_user(iolist_to_binary(Username))])
+    end);
 
 cli(_) ->
     ?USAGE([{"users add <Username> <Password>", "Add User"},
             {"users del <Username>", "Delete User"}]).
 
+if_enabled(Fun) ->
+    case is_enabled() of
+        true  -> Fun();
+        false -> hint()
+    end.
+
+hint() ->
+    ?PRINT_MSG("Please enable '{username, []}' authentication in etc/emqttd.config first.~n").
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
+
+is_enabled() ->
+    lists:member(?AUTH_USERNAME_TAB, mnesia:system_info(tables)).
 
 %% @doc Add User
 -spec add_user(binary(), binary()) -> ok | {error, any()}.
