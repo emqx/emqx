@@ -166,7 +166,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 publish(Stat, Val) ->
     Msg = emqttd_message:make(stats, stats_topic(Stat), bin(Val)),
-    emqttd_pubsub:publish(Msg).
+    emqttd_pubsub:publish(emqttd_message:set_flag(sys, Msg)).
 
 stats_topic(Stat) ->
     emqttd_topic:systop(list_to_binary(lists:concat(['stats/', Stat]))).

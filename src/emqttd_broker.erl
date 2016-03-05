@@ -238,11 +238,12 @@ retain(brokers) ->
 
 retain(Topic, Payload) when is_binary(Payload) ->
     Msg = emqttd_message:make(broker, emqttd_topic:systop(Topic), Payload),
-    emqttd_pubsub:publish(emqttd_message:set_flag(retain, Msg)).
+    Msg1 = emqttd_message:set_flag(sys, Msg),
+    emqttd_pubsub:publish(emqttd_message:set_flag(retain, Msg1)).
 
 publish(Topic, Payload) when is_binary(Payload) ->
     Msg = emqttd_message:make(broker, emqttd_topic:systop(Topic), Payload),
-    emqttd_pubsub:publish(Msg).
+    emqttd_pubsub:publish(emqttd_message:set_flag(sys, Msg)).
 
 uptime(#state{started_at = Ts}) ->
     Secs = timer:now_diff(os:timestamp(), Ts) div 1000000,
