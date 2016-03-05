@@ -16,8 +16,6 @@
 
 -module(emqttd_topic).
 
--import(lists, [reverse/1]).
- 
 -export([match/2, validate/1, triples/1, words/1, wildcard/1]).
 
 -export([join/1, feed_var/3, is_queue/1, systop/1]).
@@ -113,7 +111,7 @@ triples(Topic) when is_binary(Topic) ->
     triples(words(Topic), root, []).
 
 triples([], _Parent, Acc) ->
-    reverse(Acc);
+    lists:reverse(Acc);
 
 triples([W|Words], Parent, Acc) ->
     Node = join(Parent, W),
