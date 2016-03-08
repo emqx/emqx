@@ -228,7 +228,7 @@ subscriptions(["list"]) ->
 
 subscriptions(["list", "static"]) ->
     Print = fun(ClientId, Records) -> print(subscription, ClientId, Records) end,
-    if_could_print(static_subscription, Print);
+    if_could_print(backend_subscription, Print);
 
 subscriptions(["show", ClientId]) ->
     case mnesia:dirty_read(subscription, bin(ClientId)) of
@@ -241,7 +241,7 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
             Subscription = #mqtt_subscription{subid = bin(ClientId),
                                               topic = bin(Topic),
                                               qos   = IntQos},
-            case emqttd_backend:add_static_subscription(Subscription) of
+            case emqttd_backend:add_subscription(Subscription) of
                 {atomic, ok} ->
                     ?PRINT_MSG("ok~n");
                 {aborted, {error, existed}} ->
@@ -253,11 +253,11 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
     if_valid_qos(QoS, Add);
 
 subscriptions(["del", ClientId]) ->
-    Ok = emqttd_backend:del_static_subscriptions(bin(ClientId)),
+    Ok = emqttd_backend:del_subscriptions(bin(ClientId)),
     ?PRINT("~p~n", [Ok]);
 
 subscriptions(["del", ClientId, Topic]) ->
-    Ok = emqttd_backend:del_static_subscription(bin(ClientId), bin(Topic)),
+    Ok = emqttd_backend:del_subscription(bin(ClientId), bin(Topic)),
     ?PRINT("~p~n", [Ok]);
 
 subscriptions(_) ->

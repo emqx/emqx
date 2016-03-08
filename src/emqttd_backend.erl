@@ -25,15 +25,15 @@
 -copy_mnesia({mnesia, [copy]}).
 
 %% API.
--export([add_static_subscription/1, lookup_static_subscriptions/1,
-         del_static_subscriptions/1, del_static_subscription/2]).
+-export([add_subscription/1, lookup_subscriptions/1, del_subscriptions/1,
+         del_subscription/2]).
 
 %%--------------------------------------------------------------------
 %% Mnesia callbacks
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = emqttd_mnesia:create_table(static_subscription, [
+    ok = emqttd_mnesia:create_table(backend_subscription, [
                 {type, bag},
                 {disc_copies, [node()]},
                 {record_name, mqtt_subscription},
@@ -42,48 +42,48 @@ mnesia(boot) ->
                                       {dets, [{auto_save, 5000}]}]}]);
 
 mnesia(copy) ->
-    ok = emqttd_mnesia:copy_table(static_subscription).
+    ok = emqttd_mnesia:copy_table(backend_subscription).
 
 %%--------------------------------------------------------------------
 %% Static Subscriptions
 %%--------------------------------------------------------------------
 
 %% @doc Add a static subscription manually.
--spec add_static_subscription(mqtt_subscription()) -> {atom, ok}.
-add_static_subscription(Subscription = #mqtt_subscription{subid = SubId, topic = Topic}) ->
+-spec add_subscription(mqtt_subscription()) -> {atom, ok}.
+add_subscription(Subscription = #mqtt_subscription{subid = SubId, topic = Topic}) ->
     Pattern = match_pattern(SubId, Topic),
     mnesia:transaction(
         fun() ->
-            case mnesia:match_object(static_subscription, Pattern, write) of
+            case mnesia:match_object(backend_subscription, Pattern, write) of
                 [] ->
-                    mnesia:write(static_subscription, Subscription, write);
+                    mnesia:write(backend_subscription, Subscription, write);
                 [Subscription] ->
                     mnesia:abort({error, existed});
                 [Subscription1] -> %% QoS is different
-                    mnesia:delete_object(static_subscription, Subscription1, write),
-                    mnesia:write(static_subscription, Subscription, write)
+                    mnesia:delete_object(backend_subscription, Subscription1, write),
+                    mnesia:write(backend_subscription, Subscription, write)
             end
         end).
 
 %% @doc Lookup static subscriptions.
--spec lookup_static_subscriptions(binary()) -> list(mqtt_subscription()).
-lookup_static_subscriptions(ClientId) when is_binary(ClientId) ->
-    mnesia:dirty_read(static_subscription, ClientId).
+-spec lookup_subscriptions(binary()) -> list(mqtt_subscription()).
+lookup_subscriptions(ClientId) when is_binary(ClientId) ->
+    mnesia:dirty_read(backend_subscription, ClientId).
 
 %% @doc Delete static subscriptions by ClientId manually.
--spec del_static_subscriptions(binary()) -> ok.
-del_static_subscriptions(ClientId) when is_binary(ClientId) ->
-    mnesia:transaction(fun mnesia:delete/1, [{static_subscription, ClientId}]).
+-spec del_subscriptions(binary()) -> ok.
+del_subscriptions(ClientId) when is_binary(ClientId) ->
+    mnesia:transaction(fun mnesia:delete/1, [{backend_subscription, ClientId}]).
 
 %% @doc Delete a static subscription manually.
--spec del_static_subscription(binary(), binary()) -> ok.
-del_static_subscription(ClientId, Topic) when is_binary(ClientId) andalso is_binary(Topic) ->
-    mnesia:transaction(fun del_static_subscription_/1, [match_pattern(ClientId, Topic)]).
+-spec del_subscription(binary(), binary()) -> ok.
+del_subscription(ClientId, Topic) when is_binary(ClientId) andalso is_binary(Topic) ->
+    mnesia:transaction(fun del_subscription_/1, [match_pattern(ClientId, Topic)]).
 
-del_static_subscription_(Pattern) ->
+del_subscription_(Pattern) ->
     lists:foreach(fun(Subscription) ->
-                mnesia:delete_object(static_subscription, Subscription, write)
-        end, mnesia:match_object(static_subscription, Pattern, write)).
+                mnesia:delete_object(backend_subscription, Subscription, write)
+        end, mnesia:match_object(backend_subscription, Pattern, write)).
 
 match_pattern(SubId, Topic) ->
     #mqtt_subscription{subid = SubId, topic = Topic, qos = '_'}.
