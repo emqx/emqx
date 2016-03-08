@@ -302,7 +302,7 @@ maybe_set_clientid(State) ->
 send_willmsg(_ClientId, undefined) ->
     ignore;
 send_willmsg(ClientId, WillMsg) -> 
-    emqttd_pubsub:publish(WillMsg#mqtt_message{from = ClientId}).
+    emqttd:publish(WillMsg#mqtt_message{from = ClientId}).
 
 start_keepalive(0) -> ignore;
 

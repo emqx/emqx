@@ -52,7 +52,7 @@ client_connected(ConnAck, #mqtt_client{client_id  = ClientId,
                               proplists:get_value(qos, Opts, 0),
                               topic(connected, ClientId),
                               iolist_to_binary(Json)),
-    emqttd_pubsub:publish(Msg).
+    emqttd:publish(Msg).
 
 client_disconnected(Reason, ClientId, Opts) ->
     Json = mochijson2:encode([{clientid, ClientId},
@@ -62,7 +62,7 @@ client_disconnected(Reason, ClientId, Opts) ->
                               proplists:get_value(qos, Opts, 0),
                               topic(disconnected, ClientId),
                               iolist_to_binary(Json)),
-    emqttd_pubsub:publish(Msg).
+    emqttd:publish(Msg).
 
 unload(_Opts) ->
     emqttd_broker:unhook('client.connected', {?MODULE, client_connected}),
