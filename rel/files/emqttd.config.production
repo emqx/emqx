@@ -146,15 +146,6 @@
         {pubsub, [
             %% Default should be scheduler numbers
             {pool_size, 8},
-            
-            %% Subscription: disc | ram | false
-            {subscription, ram},
-
-            %% Route shard
-            {route_shard, false},
-
-            %% Route delay, false | integer
-            {route_delay, false},
 
             %% Route aging time(seconds)
             {route_aging, 5}
@@ -177,8 +168,8 @@
 
         %% Subscribe topics automatically when client connected
         %% {subscription, [
-        %%    %% Subscription from stored table
-        %%    stored,
+        %%    %% Static subscriptions from backend
+        %%    backend,
         %%
         %%   %% $u will be replaced with username
         %%    {"$Q/username/$u", 1},
