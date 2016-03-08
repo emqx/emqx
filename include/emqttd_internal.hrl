@@ -52,7 +52,7 @@
             {noreply, State}
         end)).
 
--define(IF(Cond, TrueFun,FalseFun),
+-define(IF(Cond, TrueFun, FalseFun),
         (case (Cond) of
             true -> (TrueFun);
             false-> (FalseFun)
