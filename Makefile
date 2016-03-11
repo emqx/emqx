@@ -5,7 +5,7 @@ BASE_DIR = $(shell pwd)
 REBAR    = $(BASE_DIR)/rebar
 DIST	 = $(BASE_DIR)/rel/$(APP)
 
-all: compile
+all: submods compile
 
 submods:
 	@git submodule update --init

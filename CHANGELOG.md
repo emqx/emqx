@@ -1,6 +1,14 @@
 
 emqttd ChangeLog
-=================
+================
+
+0.17.0-beta(2016-03-12)
+------------------------
+
+Full Documents released on https://docs.emqtt.com
+
+Improve the design of Hook, PubSub and Router
+
 
 0.16.0-beta(2016-02-16)
 ------------------------
