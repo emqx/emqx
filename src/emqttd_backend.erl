@@ -49,21 +49,20 @@ mnesia(copy) ->
 %%--------------------------------------------------------------------
 
 %% @doc Add a static subscription manually.
--spec add_subscription(mqtt_subscription()) -> {atom, ok}.
+-spec add_subscription(mqtt_subscription()) -> ok | {error, already_existed}.
 add_subscription(Subscription = #mqtt_subscription{subid = SubId, topic = Topic}) ->
     Pattern = match_pattern(SubId, Topic),
-    mnesia:transaction(
-        fun() ->
-            case mnesia:match_object(backend_subscription, Pattern, write) of
-                [] ->
-                    mnesia:write(backend_subscription, Subscription, write);
-                [Subscription] ->
-                    mnesia:abort({error, existed});
-                [Subscription1] -> %% QoS is different
-                    mnesia:delete_object(backend_subscription, Subscription1, write),
-                    mnesia:write(backend_subscription, Subscription, write)
-            end
-        end).
+    return(mnesia:transaction(fun() ->
+                    case mnesia:match_object(backend_subscription, Pattern, write) of
+                        [] ->
+                            mnesia:write(backend_subscription, Subscription, write);
+                        [Subscription] ->
+                            mnesia:abort(already_existed);
+                        [Subscription1] -> %% QoS is different
+                            mnesia:delete_object(backend_subscription, Subscription1, write),
+                            mnesia:write(backend_subscription, Subscription, write)
+                    end
+            end)).
 
 %% @doc Lookup static subscriptions.
 -spec lookup_subscriptions(binary()) -> list(mqtt_subscription()).
@@ -73,12 +72,12 @@ lookup_subscriptions(ClientId) when is_binary(ClientId) ->
 %% @doc Delete static subscriptions by ClientId manually.
 -spec del_subscriptions(binary()) -> ok.
 del_subscriptions(ClientId) when is_binary(ClientId) ->
-    mnesia:transaction(fun mnesia:delete/1, [{backend_subscription, ClientId}]).
+    return(mnesia:transaction(fun mnesia:delete/1, [{backend_subscription, ClientId}])).
 
 %% @doc Delete a static subscription manually.
 -spec del_subscription(binary(), binary()) -> ok.
 del_subscription(ClientId, Topic) when is_binary(ClientId) andalso is_binary(Topic) ->
-    mnesia:transaction(fun del_subscription_/1, [match_pattern(ClientId, Topic)]).
+    return(mnesia:transaction(fun del_subscription_/1, [match_pattern(ClientId, Topic)])).
 
 del_subscription_(Pattern) ->
     lists:foreach(fun(Subscription) ->
@@ -88,3 +87,5 @@ del_subscription_(Pattern) ->
 match_pattern(SubId, Topic) ->
     #mqtt_subscription{subid = SubId, topic = Topic, qos = '_'}.
 
+return({atomic, ok})      -> ok;
+return({aborted, Reason}) -> {error, Reason}.
