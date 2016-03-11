@@ -40,7 +40,7 @@
                         stack_size,
                         reductions]).
 
--define(MAX_LINES, 20000).
+-define(MAX_LINES, 10000).
 
 -define(APP, emqttd).
 
@@ -148,7 +148,7 @@ users(Args) -> emqttd_auth_username:cli(Args).
 %%--------------------------------------------------------------------
 %% @doc Query clients
 clients(["list"]) ->
-    dump(ets, mqtt_client, fun print/1);
+    dump(mqtt_client);
 
 clients(["show", ClientId]) ->
     if_client(ClientId, fun print/1);
@@ -173,10 +173,10 @@ sessions(["list"]) ->
     [sessions(["list", Type]) || Type <- ["persistent", "transient"]];
 
 sessions(["list", "persistent"]) ->
-    dump(ets, mqtt_persistent_session, fun print/1);
+    dump(mqtt_persistent_session);
 
 sessions(["list", "transient"]) ->
-    dump(ets, mqtt_transient_session,  fun print/1);
+    dump(mqtt_transient_session);
 
 sessions(["show", ClientId]) ->
     MP = {{bin(ClientId), '_'}, '_'},
@@ -199,11 +199,10 @@ sessions(_) ->
 %%--------------------------------------------------------------------
 %% @doc Routes Command
 routes(["list"]) ->
-    Print = fun(Topic, Records) -> print(route, Topic, Records) end,
-    if_could_print(route, Print);
+    if_could_print(route, fun print/1);
 
 routes(["show", Topic]) ->
-    print(route, Topic, mnesia:dirty_read(route, bin(Topic)));
+    print(mnesia:dirty_read(route, bin(Topic)));
 
 routes(_) ->
     ?USAGE([{"routes list",         "List all routes"},
@@ -212,28 +211,25 @@ routes(_) ->
 %%--------------------------------------------------------------------
 %% @doc Topics Command
 topics(["list"]) ->
-    Print = fun(Topic, Records) -> print(topic, Topic, Records) end,
-    if_could_print(topic, Print);
+    if_could_print(topic, fun print/1);
 
 topics(["show", Topic]) ->
-    print(topic, Topic, ets:lookup(topic, bin(Topic)));
+    print(mnesia:dirty_read(topic, bin(Topic)));
 
 topics(_) ->
     ?USAGE([{"topics list",         "List all topics"},
             {"topics show <Topic>", "Show a topic"}]).
 
 subscriptions(["list"]) ->
-    Print = fun(ClientId, Records) -> print(subscription, ClientId, Records) end,
-    if_could_print(subscription, Print);
+    if_could_print(subscription, fun print/1);
 
 subscriptions(["list", "static"]) ->
-    Print = fun(ClientId, Records) -> print(subscription, ClientId, Records) end,
-    if_could_print(backend_subscription, Print);
+    if_could_print(backend_subscription, fun print/1);
 
 subscriptions(["show", ClientId]) ->
     case mnesia:dirty_read(subscription, bin(ClientId)) of
         []      -> ?PRINT_MSG("Not Found.~n");
-        Records -> print(subscription, ClientId, Records)
+        Records -> print(Records)
     end;
 
 subscriptions(["add", ClientId, Topic, QoS]) ->
@@ -242,11 +238,11 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
                                               topic = bin(Topic),
                                               qos   = IntQos},
             case emqttd_backend:add_subscription(Subscription) of
-                {atomic, ok} ->
+                ok ->
                     ?PRINT_MSG("ok~n");
-                {aborted, {error, existed}} ->
+                {error, already_existed} ->
                     ?PRINT_MSG("Error: already existed~n");
-                {aborted, Reason} ->
+                {error, Reason} ->
                     ?PRINT("Error: ~p~n", [Reason])
             end
           end,
@@ -274,7 +270,7 @@ if_could_print(Tab, Fun) ->
             ?PRINT("Could not list, too many ~ss: ~p~n", [Tab, Size]);
         _Size ->
             Keys = mnesia:dirty_all_keys(Tab),
-            foreach(fun(Key) -> Fun(Key, ets:lookup(Tab, Key)) end, Keys)
+            foreach(fun(Key) -> Fun(ets:lookup(Tab, Key)) end, Keys)
     end.
 
 if_valid_qos(QoS, Fun) ->
@@ -465,23 +461,53 @@ listeners([]) ->
 listeners(_) ->
     ?PRINT_CMD("listeners", "List listeners").
 
+%%--------------------------------------------------------------------
+%% Dump ETS
+%%--------------------------------------------------------------------
+
+dump(Table) ->
+    dump(Table, ets:first(Table)).
+
+dump(_Table, '$end_of_table') ->
+    ok;
+
+dump(Table, Key) ->
+    case ets:lookup(Table, Key) of
+        [Record] -> print(Record);
+        [] -> ok
+    end,
+    dump(Table, ets:next(Table, Key)).
+
+print([]) ->
+    ok;
+
+print(Routes = [#mqtt_route{topic = Topic} | _]) ->
+    Nodes = [atom_to_list(Node) || #mqtt_route{node = Node} <- Routes],
+    ?PRINT("~s -> ~s~n", [Topic, string:join(Nodes, ",")]);
+
+print(Subscriptions = [#mqtt_subscription{subid = ClientId} | _]) ->
+    TopicTable = [io_lib:format("~s:~w", [Topic, Qos])
+                  || #mqtt_subscription{topic = Topic, qos = Qos} <- Subscriptions],
+    ?PRINT("~s -> ~s~n", [ClientId, string:join(TopicTable, ",")]);
+
+print(Topics = [#mqtt_topic{}|_]) ->
+    foreach(fun print/1, Topics);
+
 print(#mqtt_plugin{name = Name, version = Ver, descr = Descr, active = Active}) ->
     ?PRINT("Plugin(~s, version=~s, description=~s, active=~s)~n",
-               [Name, Ver, Descr, Active]);
+           [Name, Ver, Descr, Active]);
 
-print(#mqtt_client{client_id = ClientId, clean_sess = CleanSess,
-                   username = Username, peername = Peername,
-                   connected_at = ConnectedAt}) ->
+print(#mqtt_client{client_id = ClientId, clean_sess = CleanSess, username = Username,
+                   peername = Peername, connected_at = ConnectedAt}) ->
     ?PRINT("Client(~s, clean_sess=~s, username=~s, peername=~s, connected_at=~p)~n",
-            [ClientId, CleanSess, Username,
-             emqttd_net:format(Peername),
-             emqttd_time:now_to_secs(ConnectedAt)]);
+           [ClientId, CleanSess, Username, emqttd_net:format(Peername),
+            emqttd_time:now_to_secs(ConnectedAt)]);
 
 print(#mqtt_topic{topic = Topic, flags = Flags}) ->
-    ?PRINT("~s: ~p~n", [Topic, Flags]);
+    ?PRINT("~s: ~s~n", [Topic, string:join([atom_to_list(F) || F <- Flags], ",")]);
 
 print(#mqtt_route{topic = Topic, node = Node}) ->
-    ?PRINT("~s: ~s~n", [Topic, Node]);
+    ?PRINT("~s -> ~s~n", [Topic, Node]);
 
 print({{ClientId, _ClientPid}, SessInfo}) ->
     InfoKeys = [clean_sess, 
@@ -499,39 +525,11 @@ print({{ClientId, _ClientPid}, SessInfo}) ->
            "created_at=~w)~n",
             [ClientId | [format(Key, proplists:get_value(Key, SessInfo)) || Key <- InfoKeys]]).
 
-print(route, Topic, Routes) ->
-    Nodes = [Node || #mqtt_route{node = Node} <- Routes],
-    ?PRINT("~s: ~p~n", [Topic, Nodes]);
-
-print(topic, _Topic, Records) ->
-    [print(R) || R <- Records];
-
-print(subscription, ClientId, Subscriptions) ->
-    TopicTable = [{Topic, Qos} || #mqtt_subscription{topic = Topic, qos = Qos} <- Subscriptions],
-    ?PRINT("~s: ~p~n", [ClientId, TopicTable]).
-
 format(created_at, Val) ->
     emqttd_time:now_to_secs(Val);
-
-format(subscriptions, List) ->
-    string:join([io_lib:format("~s:~w", [Topic, Qos]) || {Topic, Qos} <- List], ",");
 
 format(_, Val) ->
     Val.
 
 bin(S) -> iolist_to_binary(S).
-
-%%TODO: ...
-dump(ets, Table, Fun) ->
-    dump(ets, Table, ets:first(Table), Fun).
-
-dump(ets, _Table, '$end_of_table', _Fun) ->
-    ok;
-
-dump(ets, Table, Key, Fun) ->
-    case ets:lookup(Table, Key) of
-        [Record] -> Fun(Record);
-        [] -> ignore
-    end,
-    dump(ets, Table, ets:next(Table, Key), Fun).
 

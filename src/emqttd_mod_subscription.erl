@@ -23,26 +23,27 @@
 
 -include("emqttd_protocol.hrl").
 
--export([load/1, client_connected/3, unload/1]).
+-export([load/1, on_client_connected/3, unload/1]).
 
 -record(state, {topics, backend = false}).
 
 load(Opts) ->
     Topics = [{iolist_to_binary(Topic), QoS} || {Topic, QoS} <- Opts, ?IS_QOS(QoS)],
     State = #state{topics = Topics, backend = lists:member(backend, Opts)},
-    emqttd_broker:hook('client.connected', {?MODULE, client_connected},
-                       {?MODULE, client_connected, [State]}),
-    ok.
+    emqttd:hook('client.connected', fun ?MODULE:on_client_connected/3, [State]).
 
-client_connected(?CONNACK_ACCEPT, #mqtt_client{client_id  = ClientId,
-                                               client_pid = ClientPid,
-                                               username   = Username},
-                 #state{topics = Topics, backend = Backend}) ->
+on_client_connected(?CONNACK_ACCEPT, Client = #mqtt_client{client_id  = ClientId,
+                                                           client_pid = ClientPid,
+                                                           username   = Username},
+                    #state{topics = Topics, backend = Backend}) ->
+
     Replace = fun(Topic) -> rep(<<"$u">>, Username, rep(<<"$c">>, ClientId, Topic)) end,
     TopicTable = [{Replace(Topic), Qos} || {Topic, Qos} <- with_backend(Backend, ClientId, Topics)],
-    emqttd_client:subscribe(ClientPid, TopicTable);
+    emqttd_client:subscribe(ClientPid, TopicTable),
+    {ok, Client};
 
-client_connected(_ConnAck, _Client, _State) -> ok.
+on_client_connected(_ConnAck, _Client, _State) ->
+    ok.
 
 with_backend(false, _ClientId, TopicTable) ->
     TopicTable;
@@ -51,7 +52,7 @@ with_backend(true, ClientId, TopicTable) ->
     emqttd_opts:merge([Fun(Sub) || Sub <- emqttd_backend:lookup_subscriptions(ClientId)], TopicTable).
 
 unload(_Opts) ->
-    emqttd_broker:unhook('client.connected', {?MODULE, client_connected}).
+    emqttd:unhook('client.connected', fun ?MODULE:on_client_connected/3).
 
 rep(<<"$c">>, ClientId, Topic) ->
     emqttd_topic:feed_var(<<"$c">>, ClientId, Topic);

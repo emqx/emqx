@@ -60,15 +60,15 @@ mnesia(copy) ->
 %%--------------------------------------------------------------------
 
 %% @doc Start one pubsub
--spec start_link(Pool, Id, Env) -> {ok, pid()} | ignore | {error, any()} when
-    Pool :: atom(),
-    Id   :: pos_integer(),
-    Env  :: list(tuple()).
+-spec(start_link(Pool, Id, Env) -> {ok, pid()} | ignore | {error, any()} when
+      Pool :: atom(),
+      Id   :: pos_integer(),
+      Env  :: list(tuple())).
 start_link(Pool, Id, Env) ->
     gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id, Env], []).
 
 %% @doc Create a Topic.
--spec create_topic(binary()) -> ok | {error, any()}.
+-spec(create_topic(binary()) -> ok | {error, any()}).
 create_topic(Topic) when is_binary(Topic) ->
     case mnesia:transaction(fun add_topic_/2, [Topic, [static]]) of
         {atomic, ok}     -> ok;
@@ -76,7 +76,7 @@ create_topic(Topic) when is_binary(Topic) ->
     end.
 
 %% @doc Lookup a Topic.
--spec lookup_topic(binary()) -> list(mqtt_topic()).
+-spec(lookup_topic(binary()) -> list(mqtt_topic())).
 lookup_topic(Topic) when is_binary(Topic) ->
     mnesia:dirty_read(topic, Topic).
 
@@ -85,17 +85,17 @@ lookup_topic(Topic) when is_binary(Topic) ->
 %%--------------------------------------------------------------------
 
 %% @doc Subscribe a Topic
--spec subscribe(binary(), pid()) -> ok.
+-spec(subscribe(binary(), pid()) -> ok).
 subscribe(Topic, SubPid) when is_binary(Topic) ->
     call(pick(Topic), {subscribe, Topic, SubPid}).
 
 %% @doc Asynchronous Subscribe
--spec async_subscribe(binary(), pid()) -> ok.
+-spec(async_subscribe(binary(), pid()) -> ok).
 async_subscribe(Topic, SubPid) when is_binary(Topic) ->
     cast(pick(Topic), {subscribe, Topic, SubPid}).
 
 %% @doc Publish message to Topic.
--spec publish(binary(), any()) -> ok.
+-spec(publish(binary(), any()) -> any()).
 publish(Topic, Msg) ->
     lists:foreach(
         fun(#mqtt_route{topic = To, node = Node}) when Node =:= node() ->
@@ -105,7 +105,7 @@ publish(Topic, Msg) ->
         end, emqttd_router:lookup(Topic)).
 
 %% @doc Dispatch Message to Subscribers
--spec dispatch(binary(), mqtt_message()) -> ok.
+-spec(dispatch(binary(), mqtt_message()) -> ok).
 dispatch(Queue = <<"$queue/", _T>>, Msg) ->
     case subscribers(Queue) of
         [] ->
@@ -148,12 +148,12 @@ dropped(_Topic) ->
     emqttd_metrics:inc('messages/dropped').
 
 %% @doc Unsubscribe
--spec unsubscribe(binary(), pid()) -> ok.
+-spec(unsubscribe(binary(), pid()) -> ok).
 unsubscribe(Topic, SubPid) when is_binary(Topic) ->
     call(pick(Topic), {unsubscribe, Topic, SubPid}).
 
 %% @doc Asynchronous Unsubscribe
--spec async_unsubscribe(binary(), pid()) -> ok.
+-spec(async_unsubscribe(binary(), pid()) -> ok).
 async_unsubscribe(Topic, SubPid)  when is_binary(Topic) ->
     cast(pick(Topic), {unsubscribe, Topic, SubPid}).
 

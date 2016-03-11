@@ -63,31 +63,31 @@ start_link() ->
 %%--------------------------------------------------------------------
 
 %% @doc Lookup Routes.
--spec lookup(Topic:: binary()) -> [mqtt_route()].
+-spec(lookup(Topic:: binary()) -> [mqtt_route()]).
 lookup(Topic) when is_binary(Topic) ->
     Matched = mnesia:async_dirty(fun emqttd_trie:match/1, [Topic]),
     %% Optimize: route table will be replicated to all nodes.
     lists:append([ets:lookup(route, To) || To <- [Topic | Matched]]).
 
 %% @doc Print Routes.
--spec print(Topic :: binary()) -> [ok].
+-spec(print(Topic :: binary()) -> [ok]).
 print(Topic) ->
     [io:format("~s -> ~s~n", [To, Node]) ||
         #mqtt_route{topic = To, node = Node} <- lookup(Topic)].
 
 %% @doc Add Route
--spec add_route(binary() | mqtt_route()) -> ok | {error, Reason :: any()}.
+-spec(add_route(binary() | mqtt_route()) -> ok | {error, Reason :: any()}).
 add_route(Topic) when is_binary(Topic) ->
     add_route(#mqtt_route{topic = Topic, node = node()});
 add_route(Route) when is_record(Route, mqtt_route) ->
     add_routes([Route]).
 
--spec add_route(Topic :: binary(), Node :: node()) -> ok | {error, Reason :: any()}.
+-spec(add_route(Topic :: binary(), Node :: node()) -> ok | {error, Reason :: any()}).
 add_route(Topic, Node) when is_binary(Topic), is_atom(Node) ->
     add_route(#mqtt_route{topic = Topic, node = Node}).
 
 %% @doc Add Routes
--spec add_routes([mqtt_route()]) -> ok | {errory, Reason :: any()}.
+-spec(add_routes([mqtt_route()]) -> ok | {errory, Reason :: any()}).
 add_routes(Routes) ->
     Add = fun() -> [add_route_(Route) || Route <- Routes] end,
     case mnesia:transaction(Add) of
@@ -112,18 +112,18 @@ add_route_(Route = #mqtt_route{topic = Topic}) ->
     end.
 
 %% @doc Delete Route
--spec del_route(binary() | mqtt_route()) -> ok | {error, Reason :: any()}.
+-spec(del_route(binary() | mqtt_route()) -> ok | {error, Reason :: any()}).
 del_route(Topic) when is_binary(Topic) ->
     del_route(#mqtt_route{topic = Topic, node = node()});
 del_route(Route) when is_record(Route, mqtt_route) ->
     del_routes([Route]).
 
--spec del_route(Topic :: binary(), Node :: node()) -> ok | {error, Reason :: any()}.
+-spec(del_route(Topic :: binary(), Node :: node()) -> ok | {error, Reason :: any()}).
 del_route(Topic, Node) when is_binary(Topic), is_atom(Node) ->
     del_route(#mqtt_route{topic = Topic, node = Node}).
 
 %% @doc Delete Routes
--spec del_routes([mqtt_route()]) -> ok | {error, any()}.
+-spec(del_routes([mqtt_route()]) -> ok | {error, any()}).
 del_routes(Routes) ->
     Del = fun() -> [del_route_(Route) || Route <- Routes] end,
     case mnesia:transaction(Del) of

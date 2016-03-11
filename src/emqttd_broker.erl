@@ -28,9 +28,6 @@
 %% Event API
 -export([subscribe/1, notify/2]).
 
-%% Hook API
--export([hook/3, unhook/2, foreach_hooks/2, foldl_hooks/3]).
-
 %% Broker API
 -export([env/1, version/0, uptime/0, datetime/0, sysdescr/0]).
 
@@ -100,40 +97,6 @@ datetime() ->
         io_lib:format(
             "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S])).
 
-%% @doc Hook
--spec hook(Hook :: atom(), Name :: any(), MFA :: mfa()) -> ok | {error, any()}.
-hook(Hook, Name, MFA) ->
-    gen_server:call(?SERVER, {hook, Hook, Name, MFA}).
-
-%% @doc Unhook
--spec unhook(Hook :: atom(), Name :: any()) -> ok | {error, any()}.
-unhook(Hook, Name) ->
-    gen_server:call(?SERVER, {unhook, Hook, Name}).
-
-%% @doc Foreach hooks
--spec foreach_hooks(Hook :: atom(), Args :: list()) -> any().
-foreach_hooks(Hook, Args) ->
-    case ets:lookup(?BROKER_TAB, {hook, Hook}) of
-        [{_, Hooks}] ->
-            lists:foreach(fun({_Name, {M, F, A}}) ->
-                    apply(M, F, Args++A)
-                end, Hooks);
-        [] ->
-            ok
-    end.
-
-%% @doc Foldl hooks
--spec foldl_hooks(Hook :: atom(), Args :: list(), Acc0 :: any()) -> any().
-foldl_hooks(Hook, Args, Acc0) ->
-    case ets:lookup(?BROKER_TAB, {hook, Hook}) of
-        [{_, Hooks}] -> 
-            lists:foldl(fun({_Name, {M, F, A}}, Acc) -> 
-                    apply(M, F, lists:append([Args, [Acc], A]))
-                end, Acc0, Hooks);
-        [] -> 
-            Acc0
-    end.
-
 %% @doc Start a tick timer
 start_tick(Msg) ->
     start_tick(timer:seconds(env(sys_interval)), Msg).
@@ -167,31 +130,6 @@ init([]) ->
 handle_call(uptime, _From, State) ->
     {reply, uptime(State), State};
 
-handle_call({hook, Hook, Name, MFArgs}, _From, State) ->
-    Key = {hook, Hook}, Reply =
-    case ets:lookup(?BROKER_TAB, Key) of
-        [{Key, Hooks}] ->
-            case lists:keyfind(Name, 1, Hooks) of
-                {Name, _MFArgs} ->
-                    {error, existed};
-                false ->
-                    insert_hooks(Key, Hooks ++ [{Name, MFArgs}])
-            end;
-        [] ->
-            insert_hooks(Key, [{Name, MFArgs}])
-    end,
-    {reply, Reply, State};
-
-handle_call({unhook, Hook, Name}, _From, State) ->
-    Key = {hook, Hook}, Reply =
-    case ets:lookup(?BROKER_TAB, Key) of
-        [{Key, Hooks}] ->
-            insert_hooks(Key, lists:keydelete(Name, 1, Hooks));
-        [] ->
-            {error, not_found}
-    end,
-    {reply, Reply, State};
-
 handle_call(Req, _From, State) ->
     ?UNEXPECTED_REQ(Req, State).
 
@@ -223,9 +161,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-insert_hooks(Key, Hooks) ->
-    ets:insert(?BROKER_TAB, {Key, Hooks}), ok.
 
 create_topic(Topic) ->
     emqttd:create(topic, emqttd_topic:systop(Topic)).

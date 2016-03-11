@@ -165,7 +165,7 @@ process(Packet = ?CONNECT_PACKET(Var), State0) ->
             {ReturnCode, false, State1}
     end,
     %% Run hooks
-    emqttd_broker:foreach_hooks('client.connected', [ReturnCode1, client(State3)]),
+    emqttd:run_hooks('client.connected', [ReturnCode1], client(State3)),
     %% Send connack
     send(?CONNACK_PACKET(ReturnCode1, sp(SessPresent)), State3);
 
@@ -247,7 +247,9 @@ with_puback(Type, Packet = ?PUBLISH_PACKET(_Qos, PacketId),
     end.
 
 -spec send(mqtt_message() | mqtt_packet(), proto_state()) -> {ok, proto_state()}.
-send(Msg, State) when is_record(Msg, mqtt_message) ->
+send(Msg, State = #proto_state{client_id = ClientId})
+        when is_record(Msg, mqtt_message) ->
+    emqttd:run_hooks('message.delivered', [ClientId], Msg),
     send(emqttd_message:to_packet(Msg), State);
 
 send(Packet, State = #proto_state{sendfun = SendFun})
@@ -281,7 +283,7 @@ shutdown(conflict, #proto_state{client_id = _ClientId}) ->
 shutdown(Error, State = #proto_state{client_id = ClientId, will_msg = WillMsg}) ->
     ?LOG(info, "Shutdown for ~p", [Error], State),
     send_willmsg(ClientId, WillMsg),
-    emqttd_broker:foreach_hooks('client.disconnected', [Error, ClientId]),
+    emqttd:run_hooks('client.disconnected', [Error], ClientId),
     %% let it down
     %% emqttd_cm:unregister(ClientId).
     ok.

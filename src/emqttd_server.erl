@@ -35,7 +35,7 @@
 
 %% PubSub API
 -export([subscribe/1, subscribe/3, publish/1, unsubscribe/1, unsubscribe/3,
-         update_subscription/4]).
+         lookup_subscription/1, update_subscription/4]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -63,10 +63,10 @@ mnesia(copy) ->
 %%--------------------------------------------------------------------
 
 %% @doc Start a Server
--spec start_link(Pool, Id, Env) -> {ok, pid()} | ignore | {error, any()} when
-    Pool :: atom(),
-    Id   :: pos_integer(),
-    Env  :: list(tuple()).
+-spec(start_link(Pool, Id, Env) -> {ok, pid()} | ignore | {error, any()} when
+      Pool :: atom(),
+      Id   :: pos_integer(),
+      Env  :: list(tuple())).
 start_link(Pool, Id, Env) ->
     gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id, Env], []).
 
@@ -75,40 +75,48 @@ start_link(Pool, Id, Env) ->
 %%--------------------------------------------------------------------
 
 %% @doc Subscribe a Topic
--spec subscribe(binary()) -> ok.
+-spec(subscribe(binary()) -> ok).
 subscribe(Topic) when is_binary(Topic) ->
     From = self(), call(server(From), {subscribe, From, Topic}).
 
 %% @doc Subscribe from a MQTT session.
--spec subscribe(binary(), binary(), mqtt_qos()) -> ok.
+-spec(subscribe(binary(), binary(), mqtt_qos()) -> ok).
 subscribe(ClientId, Topic, Qos) ->
     From = self(), call(server(From), {subscribe, From, ClientId, Topic, ?QOS_I(Qos)}).
 
+%% @doc Lookup subscriptions.
+-spec(lookup_subscription(binary()) -> [#mqtt_subscription{}]).
+lookup_subscription(ClientId) ->
+    mnesia:dirty_read(subscription, ClientId).
+
 %% @doc Update a subscription.
--spec update_subscription(binary(), binary(), mqtt_qos(), mqtt_qos()) -> ok.
+-spec(update_subscription(binary(), binary(), mqtt_qos(), mqtt_qos()) -> ok).
 update_subscription(ClientId, Topic, OldQos, NewQos) ->
     call(server(self()), {update_subscription, ClientId, Topic, ?QOS_I(OldQos), ?QOS_I(NewQos)}).
 
 %% @doc Publish a Message
--spec publish(Msg :: mqtt_message()) -> ok.
+-spec(publish(Msg :: mqtt_message()) -> any()).
 publish(Msg = #mqtt_message{from = From}) ->
     trace(publish, From, Msg),
-    Msg1 = #mqtt_message{topic = Topic}
-               = emqttd_broker:foldl_hooks('message.publish', [], Msg),
-    %% Retain message first. Don't create retained topic.
-    Msg2 = case emqttd_retainer:retain(Msg1) of
-               ok     -> emqttd_message:unset_flag(Msg1);
-               ignore -> Msg1
-           end,
-    emqttd_pubsub:publish(Topic, Msg2).
+    case emqttd:run_hooks('message.publish', [], Msg) of
+        {ok, Msg1 = #mqtt_message{topic = Topic}} ->
+            %% Retain message first. Don't create retained topic.
+            Msg2 = case emqttd_retainer:retain(Msg1) of
+                       ok     -> emqttd_message:unset_flag(Msg1);
+                       ignore -> Msg1
+                   end,
+            emqttd_pubsub:publish(Topic, Msg2);
+        {stop, Msg1} ->
+            lager:warning("Stop publishing: ~s", [emqttd_message:format(Msg1)])
+    end.
 
 %% @doc Unsubscribe a Topic
--spec unsubscribe(binary()) -> ok.
+-spec(unsubscribe(binary()) -> ok).
 unsubscribe(Topic) when is_binary(Topic) ->
     From = self(), call(server(From), {unsubscribe, From, Topic}).
 
 %% @doc Unsubscribe a Topic from a MQTT session
--spec unsubscribe(binary(), binary(), mqtt_qos()) -> ok.
+-spec(unsubscribe(binary(), binary(), mqtt_qos()) -> ok).
 unsubscribe(ClientId, Topic, Qos) ->
     From = self(), call(server(From), {unsubscribe, From, ClientId, Topic, Qos}).
 
@@ -188,11 +196,11 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% @private
 %% @doc Add a subscription.
--spec add_subscription_(binary(), binary(), mqtt_qos()) -> ok.
+-spec(add_subscription_(binary(), binary(), mqtt_qos()) -> ok).
 add_subscription_(ClientId, Topic, Qos) ->
     add_subscription_(#mqtt_subscription{subid = ClientId, topic = Topic, qos = Qos}).
 
--spec add_subscription_(mqtt_subscription()) -> ok.
+-spec(add_subscription_(mqtt_subscription()) -> ok).
 add_subscription_(Subscription) when is_record(Subscription, mqtt_subscription) ->
     mnesia:dirty_write(subscription, Subscription).
 
@@ -202,7 +210,7 @@ update_subscription_(OldSub, NewSub) ->
 
 %% @private
 %% @doc Delete a subscription
--spec del_subscription_(binary(), binary(), mqtt_qos()) -> ok.
+-spec(del_subscription_(binary(), binary(), mqtt_qos()) -> ok).
 del_subscription_(ClientId, Topic, Qos) ->
     del_subscription_(#mqtt_subscription{subid = ClientId, topic = Topic, qos = Qos}).
 
@@ -246,7 +254,8 @@ trace(publish, From, #mqtt_message{topic = Topic, payload = Payload}) ->
 %%--------------------------------------------------------------------
 
 set_subscription_stats() ->
-    emqttd_stats:setstats('subscriptions/count', 'subscriptions/max', mnesia:table_info(subscription, size)).
+    emqttd_stats:setstats('subscriptions/count', 'subscriptions/max',
+                          mnesia:table_info(subscription, size)).
 
 %%--------------------------------------------------------------------
 
