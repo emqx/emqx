@@ -156,8 +156,7 @@ t_join(_) ->
     <<"ab/+/#">> = join(words(<<"ab/+/#">>)).
 
 t_is_queue(_) ->
-    true  = is_queue(<<"$Q/queue">>),
-    true  = is_queue(<<"$q/queue">>),
+    true  = is_queue(<<"$queue/queue">>),
     false = is_queue(<<"xyz/queue">>).
 
 t_systop(_) ->
@@ -167,7 +166,7 @@ t_systop(_) ->
     SysTop2 = systop(<<"abc">>).
 
 t_feed_var(_) ->
-    <<"$Q/client/clientId">> = feed_var(<<"$c">>, <<"clientId">>, <<"$Q/client/$c">>),
+    <<"$queue/client/clientId">> = feed_var(<<"$c">>, <<"clientId">>, <<"$queue/client/$c">>),
     <<"username/test/client/x">> = feed_var(<<"%u">>, <<"test">>, <<"username/%u/client/x">>),
     <<"username/test/client/clientId">> = feed_var(<<"%c">>, <<"clientId">>, <<"username/test/client/%c">>).
 

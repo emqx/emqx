@@ -68,7 +68,7 @@ start_link(Pool, Id, Env) ->
     gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id, Env], []).
 
 %% @doc Create a Topic.
--spec create_topic(emqttd_topic:topic()) -> ok | {error, any()}.
+-spec create_topic(binary()) -> ok | {error, any()}.
 create_topic(Topic) when is_binary(Topic) ->
     case mnesia:transaction(fun add_topic_/2, [Topic, [static]]) of
         {atomic, ok}     -> ok;
@@ -76,7 +76,7 @@ create_topic(Topic) when is_binary(Topic) ->
     end.
 
 %% @doc Lookup a Topic.
--spec lookup_topic(emqttd_topic:topic()) -> list(mqtt_topic()).
+-spec lookup_topic(binary()) -> list(mqtt_topic()).
 lookup_topic(Topic) when is_binary(Topic) ->
     mnesia:dirty_read(topic, Topic).
 
@@ -106,7 +106,7 @@ publish(Topic, Msg) ->
 
 %% @doc Dispatch Message to Subscribers
 -spec dispatch(binary(), mqtt_message()) -> ok.
-dispatch(Queue = <<"$Q/", _Q>>, Msg) ->
+dispatch(Queue = <<"$queue/", _T>>, Msg) ->
     case subscribers(Queue) of
         [] ->
             dropped(Queue);
@@ -163,7 +163,8 @@ call(PubSub, Req) when is_pid(PubSub) ->
 cast(PubSub, Msg) when is_pid(PubSub) ->
     gen_server2:cast(PubSub, Msg).
 
-pick(Topic) -> gproc_pool:pick_worker(pubsub, Topic).
+pick(Topic) ->
+    gproc_pool:pick_worker(pubsub, Topic).
 
 %%--------------------------------------------------------------------
 %% gen_server Callbacks

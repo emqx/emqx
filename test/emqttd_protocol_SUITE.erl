@@ -132,9 +132,8 @@ parse_bridge(_) ->
     %% CONNECT(Q0, R0, D0, ClientId=C_00:0C:29:2B:77:52, ProtoName=MQIsdp, ProtoVsn=131, CleanSess=false, KeepAlive=60,
     %% Username=undefined, Password=undefined, Will(Q1, R1, Topic=$SYS/broker/connection/C_00:0C:29:2B:77:52/state, Msg=0))
     {ok, #mqtt_packet{variable = Variable}, <<>>} = Parser(Data),
-    ct:print("~p", [Variable]),
     #mqtt_packet_connect{client_id  = <<"C_00:0C:29:2B:77:52">>,
-                         proto_ver  = 16#83,
+                         proto_ver  = 16#03,
                          proto_name = <<"MQIsdp">>,
                          will_retain = true,
                          will_qos   = 1,

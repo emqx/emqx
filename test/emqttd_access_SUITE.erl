@@ -74,7 +74,6 @@ end_per_testcase(_TestCase, _Config) ->
 %%--------------------------------------------------------------------
 
 reload_acl(_) ->
-    ct:print("~p~n", [whereis(?AC)]),
     [ok] = ?AC:reload_acl().
 
 register_mod(_) ->
