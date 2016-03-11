@@ -5,7 +5,7 @@ BASE_DIR = $(shell pwd)
 REBAR    = $(BASE_DIR)/rebar
 DIST	 = $(BASE_DIR)/rel/$(APP)
 
-all: submods compile
+all: compile
 
 submods:
 	@git submodule update --init
@@ -26,7 +26,7 @@ clean:
 	@$(REBAR) clean
 
 test:
-	ERL_FLAGS="-config rel/files/test.config" $(REBAR) -v skip_deps=true ct
+	ERL_FLAGS="-config rel/files/emqttd.test.config" $(REBAR) -v skip_deps=true ct
 	#$(REBAR) skip_deps=true eunit
 
 edoc:
