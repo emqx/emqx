@@ -46,12 +46,12 @@
 
 -ifdef(use_specs).
 
--export_type([q/0]).
-
 -type(q() :: pqueue()).
 -type(priority() :: integer() | 'infinity').
 -type(squeue() :: {queue, [any()], [any()], non_neg_integer()}).
 -type(pqueue() ::  squeue() | {pqueue, [{priority(), squeue()}]}).
+
+-export_type([q/0]).
 
 -spec(new/0 :: () -> pqueue()).
 -spec(is_queue/1 :: (any()) -> boolean()).
