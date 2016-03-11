@@ -77,9 +77,6 @@
         {client, [
             %% Socket is connected, but no 'CONNECT' packet received
             {idle_timeout, 20} %% seconds
-            %TODO: Network ingoing limit
-            %{ingoing_rate_limit, '64KB/s'}
-            %TODO: Reconnet control
         ]},
         %% Session
         {session, [
@@ -164,19 +161,16 @@
     {modules, [
         %% Client presence management module.
         %% Publish messages when client connected or disconnected
-        {presence, [{qos, 0}]}
+        {presence, [{qos, 0}]},
 
         %% Subscribe topics automatically when client connected
-        %% {subscription, [
-        %%    %% Static subscriptions from backend
-        %%    backend,
-        %%
-        %%   %% $u will be replaced with username
-        %%    {"$Q/username/$u", 1},
-        %%
-        %%   %% $c will be replaced with clientid
-        %%    {"$Q/client/$c", 1}
-        %% ]}
+        {subscription, [
+            %% Static subscriptions from backend
+            backend,
+
+            %% $c will be replaced by clientid
+            {"$queue/clients/$c", 1}
+        ]}
 
         %% Rewrite rules
         %% {rewrite, [{file, "etc/rewrite.config"}]}
