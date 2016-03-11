@@ -154,6 +154,10 @@ info(SessPid) ->
 destroy(SessPid, ClientId) ->
     gen_server2:cast(SessPid, {destroy, ClientId}).
 
+%%--------------------------------------------------------------------
+%% PubSub
+%%--------------------------------------------------------------------
+
 %% @doc Subscribe Topics
 -spec subscribe(pid(), [{binary(), mqtt_qos()}]) -> ok.
 subscribe(SessPid, TopicTable) ->
@@ -171,11 +175,11 @@ subscribe(SessPid, PacketId, TopicTable) ->
 -spec publish(pid(), mqtt_message()) -> ok | {error, any()}.
 publish(_SessPid, Msg = #mqtt_message{qos = ?QOS_0}) ->
     %% publish qos0 directly
-    emqttd_pubsub:publish(Msg);
+    emqttd:publish(Msg);
 
 publish(_SessPid, Msg = #mqtt_message{qos = ?QOS_1}) ->
     %% publish qos1 directly, and client will puback automatically
-    emqttd_pubsub:publish(Msg);
+    emqttd:publish(Msg);
 
 publish(SessPid, Msg = #mqtt_message{qos = ?QOS_2}) ->
     %% publish qos2 by session 
@@ -281,63 +285,63 @@ handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, pktid = PktId}},
 handle_call(Req, _From, State) ->
     ?UNEXPECTED_REQ(Req, State).
 
-handle_cast({subscribe, TopicTable0, AckFun}, Session = #session{client_id = ClientId,
+handle_cast({subscribe, TopicTable0, AckFun}, Session = #session{client_id     = ClientId,
                                                                  subscriptions = Subscriptions}) ->
 
-    TopicTable = emqttd_broker:foldl_hooks('client.subscribe', [ClientId], TopicTable0),
+    case emqttd:run_hooks('client.subscribe', [ClientId], TopicTable0) of
+        {ok, TopicTable} ->
+            ?LOG(info, "Subscribe ~p", [TopicTable], Session),
+            Subscriptions1 = lists:foldl(
+                fun({Topic, Qos}, SubDict) ->
+                    case dict:find(Topic, SubDict) of
+                        {ok, Qos} ->
+                            ?LOG(warning, "duplicated subscribe: ~s, qos = ~w", [Topic, Qos], Session),
+                            SubDict;
+                        {ok, OldQos} ->
+                            emqttd_server:update_subscription(ClientId, Topic, OldQos, Qos),
+                            ?LOG(warning, "duplicated subscribe ~s, old_qos=~w, new_qos=~w", [Topic, OldQos, Qos], Session),
+                            dict:store(Topic, Qos, SubDict);
+                        error ->
+                            emqttd:subscribe(ClientId, Topic, Qos),
+                            %%TODO: the design is ugly...
+                            %% <MQTT V3.1.1>: 3.8.4
+                            %% Where the Topic Filter is not identical to any existing Subscription’s filter,
+                            %% a new Subscription is created and all matching retained messages are sent.
+                            emqttd_retainer:dispatch(Topic, self()),
 
-    case TopicTable -- dict:to_list(Subscriptions) of
-        [] ->
+                            dict:store(Topic, Qos, SubDict)
+                    end
+                end, Subscriptions, TopicTable),
             AckFun([Qos || {_, Qos} <- TopicTable]),
-            hibernate(Session);
-        _  ->
-            %% subscribe first and don't care if the subscriptions have been existed
-            {ok, GrantedQos} = emqttd_pubsub:subscribe(ClientId, TopicTable),
-
-            AckFun(GrantedQos),
-
-            emqttd_broker:foreach_hooks('client.subscribe.after', [ClientId, TopicTable]),
-
-            ?LOG(info, "Subscribe ~p, Granted QoS: ~p", [TopicTable, GrantedQos], Session),
-
-            Subscriptions1 =
-            lists:foldl(fun({Topic, Qos}, Dict) ->
-                            case dict:find(Topic, Dict) of
-                                {ok, Qos} ->
-                                    ?LOG(warning, "resubscribe ~s, qos = ~w", [Topic, Qos], Session),
-                                    Dict;
-                                {ok, OldQos} ->
-                                    ?LOG(warning, "resubscribe ~s, old qos=~w, new qos=~w", [Topic, OldQos, Qos], Session),
-                                    dict:store(Topic, Qos, Dict);
-                                error ->
-                                    %%TODO: the design is ugly, rewrite later...:(
-                                    %% <MQTT V3.1.1>: 3.8.4
-                                    %% Where the Topic Filter is not identical to any existing Subscription’s filter,
-                                    %% a new Subscription is created and all matching retained messages are sent.
-                                    emqttd_retainer:dispatch(Topic, self()),
-
-                                    dict:store(Topic, Qos, Dict)
-                            end
-                        end, Subscriptions, TopicTable),
-            hibernate(Session#session{subscriptions = Subscriptions1})
+            emqttd:run_hooks('client.subscribe.after', [ClientId], TopicTable),
+            hibernate(Session#session{subscriptions = Subscriptions1});
+        {stop, TopicTable} ->
+            ?LOG(error, "Cannot subscribe: ~p", [TopicTable], Session),
+            hibernate(Session)
     end;
+
 
 handle_cast({unsubscribe, Topics0}, Session = #session{client_id     = ClientId,
                                                        subscriptions = Subscriptions}) ->
 
-    Topics = emqttd_broker:foldl_hooks('client.unsubscribe', [ClientId], Topics0),
-
-    %% unsubscribe from topic tree
-    ok = emqttd_pubsub:unsubscribe(Topics),
-
-    ?LOG(info, "unsubscribe ~p", [Topics], Session),
-
-    Subscriptions1 =
-    lists:foldl(fun(Topic, Dict) ->
-                    dict:erase(Topic, Dict)
+    case emqttd:run_hooks('client.unsubscribe', [ClientId], Topics0) of
+        {ok, Topics} ->
+            ?LOG(info, "unsubscribe ~p", [Topics], Session),
+            Subscriptions1 = lists:foldl(
+                fun(Topic, SubDict) ->
+                    case dict:find(Topic, SubDict) of
+                        {ok, Qos} ->
+                            emqttd:unsubscribe(ClientId, Topic, Qos),
+                            dict:erase(Topic, SubDict);
+                        error ->
+                            SubDict
+                    end
                 end, Subscriptions, Topics),
-
-    hibernate(Session#session{subscriptions = Subscriptions1});
+            hibernate(Session#session{subscriptions = Subscriptions1});
+        {stop, Topics} ->
+            ?LOG(info, "Cannot unsubscribe: ~p", [Topics], Session),
+            hibernate(Session)
+    end;
 
 handle_cast({destroy, ClientId}, Session = #session{client_id = ClientId}) ->
     ?LOG(warning, "destroyed", [], Session),
@@ -430,7 +434,7 @@ handle_cast({pubrel, PktId}, Session = #session{awaiting_rel = AwaitingRel}) ->
     case maps:find(PktId, AwaitingRel) of
         {ok, {Msg, TRef}} ->
             cancel_timer(TRef),
-            emqttd_pubsub:publish(Msg),
+            emqttd:publish(Msg),
             hibernate(Session#session{awaiting_rel = maps:remove(PktId, AwaitingRel)});
         error ->
             ?LOG(error, "Cannot find PUBREL: ~p", [PktId], Session),
@@ -651,7 +655,7 @@ acked(PktId, Session = #session{client_id      = ClientId,
                                 awaiting_ack   = Awaiting}) ->
     case lists:keyfind(PktId, 1, InflightQ) of
         {_, Msg} ->
-            emqttd_broker:foreach_hooks('message.acked', [ClientId, Msg]);
+            emqttd:run_hooks('message.acked', [ClientId], Msg);
         false ->
             ?LOG(error, "Cannot find acked pktid: ~p", [PktId], Session)
     end,

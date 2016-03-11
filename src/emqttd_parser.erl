@@ -74,7 +74,8 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos  = Qos} = Header, Length) 
     case {Type, Bin} of
         {?CONNECT, <<FrameBin:Length/binary, Rest/binary>>} ->
             {ProtoName, Rest1} = parse_utf(FrameBin),
-            <<ProtoVersion : 8, Rest2/binary>> = Rest1,
+            %% Fix mosquitto bridge: 0x83, 0x84
+            <<_Bridge:4, ProtoVersion:4, Rest2/binary>> = Rest1,
             <<UsernameFlag : 1,
               PasswordFlag : 1,
               WillRetain   : 1,

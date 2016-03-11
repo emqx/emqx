@@ -14,8 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% TODO: should match topic tree
-%% @doc MQTT retained message storage.
+%% @doc MQTT retained message.
 -module(emqttd_retainer).
 
 -behaviour(gen_server).
@@ -53,7 +52,7 @@
 mnesia(boot) ->
     ok = emqttd_mnesia:create_table(retained, [
                 {type, ordered_set},
-                {ram_copies, [node()]},
+                {disc_copies, [node()]},
                 {record_name, mqtt_retained},
                 {attributes, record_info(fields, mqtt_retained)}]);
 mnesia(copy) ->

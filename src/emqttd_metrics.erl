@@ -243,7 +243,7 @@ init([]) ->
     % Init metrics
     [create_metric(Metric) ||  Metric <- Metrics],
     % $SYS Topics for metrics
-    [ok = emqttd_pubsub:create(topic, metric_topic(Topic)) || {_, Topic} <- Metrics],
+    [ok = emqttd:create(topic, metric_topic(Topic)) || {_, Topic} <- Metrics],
     % Tick to publish metrics
     {ok, #state{tick_tref = emqttd_broker:start_tick(tick)}, hibernate}.
 
@@ -273,7 +273,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 publish(Metric, Val) ->
     Msg = emqttd_message:make(metrics, metric_topic(Metric), bin(Val)),
-    emqttd_pubsub:publish(emqttd_message:set_flag(sys, Msg)).
+    emqttd:publish(emqttd_message:set_flag(sys, Msg)).
 
 create_metric({gauge, Name}) ->
     ets:insert(?METRIC_TAB, {{Name, 0}, 0});

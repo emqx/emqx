@@ -157,7 +157,7 @@ procinfo(Pid) ->
 
 publish(Sysmon, WarnMsg) ->
     Msg = emqttd_message:make(sysmon, topic(Sysmon), iolist_to_binary(WarnMsg)),
-    emqttd_pubsub:publish(emqttd_message:set_flag(sys, Msg)).
+    emqttd:publish(emqttd_message:set_flag(sys, Msg)).
 
 topic(Sysmon) ->
     emqttd_topic:systop(list_to_binary(lists:concat(['sysmon/', Sysmon]))).

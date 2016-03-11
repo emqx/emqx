@@ -23,7 +23,7 @@
 
 -export([load/1, reload/1, unload/1]).
 
--export([rewrite/3, rewrite/4]).
+-export([rewrite_subscribe/3, rewrite_unsubscribe/3, rewrite_publish/2]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -33,23 +33,19 @@ load(Opts) ->
     File = proplists:get_value(file, Opts),
     {ok, Terms} = file:consult(File),
     Sections = compile(Terms),
-    emqttd_broker:hook('client.subscribe', {?MODULE, rewrite_subscribe}, 
-                        {?MODULE, rewrite, [subscribe, Sections]}),
-    emqttd_broker:hook('client.unsubscribe', {?MODULE, rewrite_unsubscribe},
-                        {?MODULE, rewrite, [unsubscribe, Sections]}),
-    emqttd_broker:hook('message.publish', {?MODULE, rewrite_publish},
-                        {?MODULE, rewrite, [publish, Sections]}),
-    ok.
+    emqttd:hook('client.subscribe', fun ?MODULE:rewrite_subscribe/3, [Sections]),
+    emqttd:hook('client.unsubscribe', fun ?MODULE:rewrite_unsubscribe/3, [Sections]),
+    emqttd:hook('message.publish', fun ?MODULE:rewrite_publish/2, [Sections]).
 
-rewrite(_ClientId, TopicTable, subscribe, Sections) ->
-    lager:info("rewrite subscribe: ~p", [TopicTable]),
-    [{match_topic(Topic, Sections), Qos} || {Topic, Qos} <- TopicTable];
+rewrite_subscribe(_ClientId, TopicTable, Sections) ->
+    lager:info("Rewrite subscribe: ~p", [TopicTable]),
+    {ok, [{match_topic(Topic, Sections), Qos} || {Topic, Qos} <- TopicTable]}.
 
-rewrite(_ClientId, Topics, unsubscribe, Sections) ->
-    lager:info("rewrite unsubscribe: ~p", [Topics]),
-    [match_topic(Topic, Sections) || Topic <- Topics].
+rewrite_unsubscribe(_ClientId, Topics, Sections) ->
+    lager:info("Rewrite unsubscribe: ~p", [Topics]),
+    {ok, [match_topic(Topic, Sections) || Topic <- Topics]}.
 
-rewrite(Message=#mqtt_message{topic = Topic}, publish, Sections) ->
+rewrite_publish(Message=#mqtt_message{topic = Topic}, Sections) ->
     %%TODO: this will not work if the client is always online.
     RewriteTopic =
     case get({rewrite, Topic}) of
@@ -59,11 +55,11 @@ rewrite(Message=#mqtt_message{topic = Topic}, publish, Sections) ->
         DestTopic ->
             DestTopic
         end,
-    Message#mqtt_message{topic = RewriteTopic}.
+    {ok, Message#mqtt_message{topic = RewriteTopic}}.
 
 reload(File) ->
     %%TODO: The unload api is not right...
-    case emqttd:is_mod_enabled(rewrite) of
+    case emqttd_app:is_mod_enabled(rewrite) of
         true -> 
             unload(state),
             load([{file, File}]);
@@ -72,9 +68,9 @@ reload(File) ->
     end.
             
 unload(_) ->
-    emqttd_broker:unhook('client.subscribe',  {?MODULE, rewrite_subscribe}),
-    emqttd_broker:unhook('client.unsubscribe',{?MODULE, rewrite_unsubscribe}),
-    emqttd_broker:unhook('message.publish',   {?MODULE, rewrite_publish}).
+    emqttd:unhook('client.subscribe',  fun ?MODULE:rewrite_subscribe/3),
+    emqttd:unhook('client.unsubscribe',fun ?MODULE:rewrite_unsubscribe/3),
+    emqttd:unhook('message.publish',   fun ?MODULE:rewrite_publish/2).
 
 %%--------------------------------------------------------------------
 %% Internal functions

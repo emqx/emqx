@@ -25,7 +25,8 @@
 -define(SERVER, ?MODULE).
 
 %% API Function Exports
--export([start_link/0, register_cmd/3, unregister_cmd/1, run/1]).
+-export([start_link/0, register_cmd/2, register_cmd/3, unregister_cmd/1,
+         lookup/1, run/1]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -43,6 +44,11 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %% @doc Register a command
+-spec register_cmd(atom(), {module(), atom()}) -> ok.
+register_cmd(Cmd, MF) ->
+    register_cmd(Cmd, MF, []).
+
+%% @doc Register a command with opts
 -spec register_cmd(atom(), {module(), atom()}, list()) -> ok.
 register_cmd(Cmd, MF, Opts) ->
     cast({register_cmd, Cmd, MF, Opts}).
@@ -55,17 +61,25 @@ unregister_cmd(Cmd) ->
 cast(Msg) -> gen_server:cast(?SERVER, Msg).
 
 %% @doc Run a command
+-spec run([string()]) -> any().
 run([]) -> usage();
 
 run(["help"]) -> usage();
 
 run([CmdS|Args]) ->
-    Cmd = list_to_atom(CmdS),
-    case ets:match(?CMD_TAB, {{'_', Cmd}, '$1', '_'}) of
-        [[{Mod, Fun}]] -> Mod:Fun(Args);
+    case lookup(list_to_atom(CmdS)) of
+        [{Mod, Fun}] -> Mod:Fun(Args);
         [] -> usage() 
     end.
-    
+
+%% @doc Lookup a command
+-spec lookup(atom()) -> [{module(), atom()}].
+lookup(Cmd) ->
+    case ets:match(?CMD_TAB, {{'_', Cmd}, '$1', '_'}) of
+        [El] -> El;
+        []   -> []
+    end.
+
 %% @doc Usage
 usage() ->
     ?PRINT("Usage: ~s~n", [?MODULE]),

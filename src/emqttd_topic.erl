@@ -139,11 +139,9 @@ word(<<"+">>) -> '+';
 word(<<"#">>) -> '#';
 word(Bin)     -> Bin.
 
-%% @doc Queue is a special topic name that starts with "$Q/"
+%% @doc Queue is a special topic name that starts with "$queue/"
 -spec is_queue(topic()) -> boolean().
-is_queue(<<"$Q/", _Queue/binary>>) ->
-    true;
-is_queue(<<"$q/", _Queue/binary>>) ->
+is_queue(<<"$queue/", _Queue/binary>>) ->
     true;
 is_queue(_) ->
     false.

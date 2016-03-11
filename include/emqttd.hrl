@@ -47,7 +47,7 @@
 %%--------------------------------------------------------------------
 -record(mqtt_topic, {
     topic   :: binary(),
-    node    :: node()
+    flags   :: [retained | static]
 }).
 
 -type mqtt_topic() :: #mqtt_topic{}.
@@ -62,6 +62,16 @@
 }).
 
 -type mqtt_subscription() :: #mqtt_subscription{}.
+
+%%--------------------------------------------------------------------
+%% MQTT Route
+%%--------------------------------------------------------------------
+-record(mqtt_route, {
+    topic   :: binary(),
+    node    :: node()
+}).
+
+-type mqtt_route() :: #mqtt_route{}.
 
 %%--------------------------------------------------------------------
 %% MQTT Client

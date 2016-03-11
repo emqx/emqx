@@ -23,35 +23,36 @@
 
 -include("emqttd_protocol.hrl").
 
--export([load/1, client_connected/3, unload/1]).
+-export([load/1, on_client_connected/3, unload/1]).
 
--record(state, {topics, stored = false}).
+-record(state, {topics, backend = false}).
 
 load(Opts) ->
     Topics = [{iolist_to_binary(Topic), QoS} || {Topic, QoS} <- Opts, ?IS_QOS(QoS)],
-    State = #state{topics = Topics, stored = lists:member(stored, Opts)},
-    emqttd_broker:hook('client.connected', {?MODULE, client_connected},
-                       {?MODULE, client_connected, [State]}),
+    State = #state{topics = Topics, backend = lists:member(backend, Opts)},
+    emqttd:hook('client.connected', fun ?MODULE:on_client_connected/3, [State]).
+
+on_client_connected(?CONNACK_ACCEPT, Client = #mqtt_client{client_id  = ClientId,
+                                                           client_pid = ClientPid,
+                                                           username   = Username},
+                    #state{topics = Topics, backend = Backend}) ->
+
+    Replace = fun(Topic) -> rep(<<"$u">>, Username, rep(<<"$c">>, ClientId, Topic)) end,
+    TopicTable = [{Replace(Topic), Qos} || {Topic, Qos} <- with_backend(Backend, ClientId, Topics)],
+    emqttd_client:subscribe(ClientPid, TopicTable),
+    {ok, Client};
+
+on_client_connected(_ConnAck, _Client, _State) ->
     ok.
 
-client_connected(?CONNACK_ACCEPT, #mqtt_client{client_id  = ClientId,
-                                               client_pid = ClientPid,
-                                               username   = Username},
-                 #state{topics = Topics, stored = Stored}) ->
-    Replace = fun(Topic) -> rep(<<"$u">>, Username, rep(<<"$c">>, ClientId, Topic)) end,
-    TopicTable = with_stored(Stored, ClientId, [{Replace(Topic), Qos} || {Topic, Qos} <- Topics]),
-    emqttd_client:subscribe(ClientPid, TopicTable);
-
-client_connected(_ConnAck, _Client, _State) -> ok.
-
-with_stored(false, _ClientId, TopicTable) ->
+with_backend(false, _ClientId, TopicTable) ->
     TopicTable;
-with_stored(true, ClientId, TopicTable) ->
+with_backend(true, ClientId, TopicTable) ->
     Fun = fun(#mqtt_subscription{topic = Topic, qos = Qos}) -> {Topic, Qos} end,
-    emqttd_opts:merge([Fun(Sub) || Sub <- emqttd_pubsub:lookup(subscription, ClientId)], TopicTable).
+    emqttd_opts:merge([Fun(Sub) || Sub <- emqttd_backend:lookup_subscriptions(ClientId)], TopicTable).
 
 unload(_Opts) ->
-    emqttd_broker:unhook('client.connected', {?MODULE, client_connected}).
+    emqttd:unhook('client.connected', fun ?MODULE:on_client_connected/3).
 
 rep(<<"$c">>, ClientId, Topic) ->
     emqttd_topic:feed_var(<<"$c">>, ClientId, Topic);

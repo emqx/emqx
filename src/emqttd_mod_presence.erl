@@ -23,57 +23,51 @@
 
 -export([load/1, unload/1]).
 
--export([client_connected/3, client_disconnected/3]).
+-export([on_client_connected/3, on_client_disconnected/3]).
 
 load(Opts) ->
-    emqttd_broker:hook('client.connected', {?MODULE, client_connected},
-                        {?MODULE, client_connected, [Opts]}),
-    emqttd_broker:hook('client.disconnected', {?MODULE, client_disconnected},
-                        {?MODULE, client_disconnected, [Opts]}),
-    ok.
+    emqttd:hook('client.connected', fun ?MODULE:on_client_connected/3, [Opts]),
+    emqttd:hook('client.disconnected', fun ?MODULE:on_client_disconnected/3, [Opts]).
 
-client_connected(ConnAck, #mqtt_client{client_id  = ClientId,
-                                       username   = Username,
-                                       peername   = {IpAddress, _},
-                                       clean_sess = CleanSess,
-                                       proto_ver  = ProtoVer}, Opts) ->
-    Sess = case CleanSess of
-        true -> false;
-        false -> true
-    end,
+on_client_connected(ConnAck, Client = #mqtt_client{client_id  = ClientId,
+                                                   username   = Username,
+                                                   peername   = {IpAddr, _},
+                                                   clean_sess = CleanSess,
+                                                   proto_ver  = ProtoVer}, Opts) ->
     Json = mochijson2:encode([{clientid, ClientId},
                               {username, Username},
-                              {ipaddress, list_to_binary(emqttd_net:ntoa(IpAddress))},
-                              {session, Sess},
+                              {ipaddress, list_to_binary(emqttd_net:ntoa(IpAddr))},
+                              {session, sess(CleanSess)},
                               {protocol, ProtoVer},
                               {connack, ConnAck},
                               {ts, emqttd_time:now_to_secs()}]),
-    Msg = emqttd_message:make(presence,
-                              proplists:get_value(qos, Opts, 0),
-                              topic(connected, ClientId),
-                              iolist_to_binary(Json)),
-    emqttd_pubsub:publish(Msg).
+    emqttd:publish(message(qos(Opts), topic(connected, ClientId), Json)),
+    {ok, Client}.
 
-client_disconnected(Reason, ClientId, Opts) ->
+on_client_disconnected(Reason, ClientId, Opts) ->
     Json = mochijson2:encode([{clientid, ClientId},
                               {reason, reason(Reason)},
                               {ts, emqttd_time:now_to_secs()}]),
-    Msg = emqttd_message:make(presence,
-                              proplists:get_value(qos, Opts, 0),
-                              topic(disconnected, ClientId),
-                              iolist_to_binary(Json)),
-    emqttd_pubsub:publish(Msg).
+    emqttd:publish(message(qos(Opts), topic(disconnected, ClientId), Json)).
 
 unload(_Opts) ->
-    emqttd_broker:unhook('client.connected', {?MODULE, client_connected}),
-    emqttd_broker:unhook('client.disconnected', {?MODULE, client_disconnected}).
+    emqttd:unhook('client.connected', fun ?MODULE:on_client_connected/3),
+    emqttd:unhook('client.disconnected', fun ?MODULE:on_client_disconnected/3).
+
+sess(false) -> true;
+sess(true)  -> false.
+
+qos(Opts) -> proplists:get_value(qos, Opts, 0).
+
+message(Qos, Topic, Json) ->
+    emqttd_message:make(presence, Qos, Topic, iolist_to_binary(Json)).
 
 topic(connected, ClientId) ->
     emqttd_topic:systop(list_to_binary(["clients/", ClientId, "/connected"]));
 topic(disconnected, ClientId) ->
     emqttd_topic:systop(list_to_binary(["clients/", ClientId, "/disconnected"])).
 
-reason(Reason) when is_atom(Reason)    -> Reason;
+reason(Reason) when is_atom(Reason) -> Reason;
 reason({Error, _}) when is_atom(Error) -> Error;
 reason(_) -> internal_error.
 

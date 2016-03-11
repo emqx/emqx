@@ -77,9 +77,7 @@ publish_log(Message, State = #state{formatter = Formatter,
                                     format_config = FormatConfig}) ->
     Severity = lager_msg:severity(Message),
     Payload = Formatter:format(Message, FormatConfig),
-    emqttd_pubsub:publish(
-      emqttd_message:make(
-        log, topic(Severity), iolist_to_binary(Payload))),
+    emqttd:publish(emqttd_message:make(log, topic(Severity), iolist_to_binary(Payload))),
     {ok, State}.
 
 topic(Severity) ->
