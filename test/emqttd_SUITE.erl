@@ -29,6 +29,7 @@ all() ->
      {group, metrics},
      {group, stats},
      {group, hook},
+     {group, backend},
      {group, cli}].
 
 groups() ->
@@ -44,8 +45,6 @@ groups() ->
        router_unused]},
      {session, [sequence],
       [start_session]},
-     {retainer, [sequence],
-      [retain_message]},
      {broker, [sequence],
       [hook_unhook]},
      {metrics, [sequence],
@@ -55,6 +54,12 @@ groups() ->
      {hook, [sequence],
       [add_delete_hook,
        run_hooks]},
+     {retainer, [sequence],
+      [retain_messages,
+       dispatch_retained_messages,
+       expire_retained_messages]},
+     {backend, [sequence],
+      [backend_subscription]},
      {cli, [sequence],
       [ctl_register_cmd,
        cli_status,
@@ -208,19 +213,6 @@ start_session(_) ->
     emqttd_mock_client:stop(ClientPid).
 
 %%--------------------------------------------------------------------
-%% Retainer Group
-%%--------------------------------------------------------------------
-
-retain_message(_) ->
-    Msg = #mqtt_message{retain = true, topic = <<"a/b/c">>,
-                        payload = <<"payload">>},
-    emqttd_retainer:retain(Msg),
-    emqttd_retainer:dispatch(<<"a/b/+">>, self()),
-    true = receive {dispatch, <<"a/b/+">>, Msg} -> true after 10 -> false end,
-    emqttd_retainer:retain(#mqtt_message{retain = true, topic = <<"a/b/c">>, payload = <<>>}),
-    [] = mnesia:dirty_read({retained, <<"a/b/c">>}).
-
-%%--------------------------------------------------------------------
 %% Broker Group
 %%--------------------------------------------------------------------
 hook_unhook(_) ->
@@ -279,6 +271,51 @@ hook_fun2([]) -> {ok, []}.
 hook_fun3(arg1, arg2, _Acc, init) -> ok.
 hook_fun4(arg1, arg2, Acc, init)  -> {ok, [r2 | Acc]}.
 hook_fun5(arg1, arg2, Acc, init)  -> {stop, [r3 | Acc]}.
+
+%%--------------------------------------------------------------------
+%% Retainer Test
+%%--------------------------------------------------------------------
+
+retain_messages(_) ->
+    Msg = emqttd_message:make(<<"clientId">>, <<"topic">>, <<"payload">>),
+    emqttd_backend:retain_message(Msg),
+    [Msg] = emqttd_backend:read_messages(<<"topic">>),
+    [Msg] = emqttd_backend:match_messages(<<"topic/#">>),
+    emqttd_backend:delete_message(<<"topic">>),
+    0 = emqttd_backend:retained_count().
+
+dispatch_retained_messages(_) ->
+    Msg = #mqtt_message{retain = true, topic = <<"a/b/c">>,
+                        payload = <<"payload">>},
+    emqttd_retainer:retain(Msg),
+    emqttd_retainer:dispatch(<<"a/b/+">>, self()),
+    true = receive {dispatch, <<"a/b/+">>, Msg} -> true after 10 -> false end,
+    emqttd_retainer:retain(#mqtt_message{retain = true, topic = <<"a/b/c">>, payload = <<>>}),
+    [] = emqttd_backend:read_messages(<<"a/b/c">>).
+
+expire_retained_messages(_) ->
+    Msg1 = emqttd_message:make(<<"clientId1">>, qos1, <<"topic/1">>, <<"payload1">>),
+    Msg2 = emqttd_message:make(<<"clientId2">>, qos2, <<"topic/2">>, <<"payload2">>),
+    emqttd_backend:retain_message(Msg1),
+    emqttd_backend:retain_message(Msg2),
+    timer:sleep(2000),
+    emqttd_backend:expire_messages(emqttd_time:now_to_secs()),
+    0 = emqttd_backend:retained_count().
+
+%%--------------------------------------------------------------------
+%% Backend Test
+%%--------------------------------------------------------------------
+
+backend_subscription(_) ->
+    Sub1 = #mqtt_subscription{subid = <<"clientId">>, topic = <<"topic">>, qos = 2},
+    Sub2 = #mqtt_subscription{subid = <<"clientId">>, topic = <<"#">>, qos = 2},
+    emqttd_backend:add_subscription(Sub1),
+    emqttd_backend:add_subscription(Sub2),
+    [Sub1, Sub2] = emqttd_backend:lookup_subscriptions(<<"clientId">>),
+    emqttd_backend:del_subscription(<<"clientId">>, <<"topic">>),
+    [Sub2] = emqttd_backend:lookup_subscriptions(<<"clientId">>),
+    emqttd_backend:del_subscriptions(<<"clientId">>),
+    [] = emqttd_backend:lookup_subscriptions(<<"clientId">>).
 
 %%--------------------------------------------------------------------
 %% CLI Group

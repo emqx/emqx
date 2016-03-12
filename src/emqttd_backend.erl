@@ -18,13 +18,19 @@
 
 -include("emqttd.hrl").
 
+-include_lib("stdlib/include/ms_transform.hrl").
+
 %% Mnesia Callbacks
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
-%% API.
+%% Retained Message API
+-export([retain_message/1, read_messages/1, match_messages/1, delete_message/1,
+         expire_messages/1, retained_count/0]).
+
+%% Static Subscription API
 -export([add_subscription/1, lookup_subscriptions/1, del_subscriptions/1,
          del_subscription/2]).
 
@@ -33,6 +39,14 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
+    ok = emqttd_mnesia:create_table(retained_message, [
+                {type, ordered_set},
+                {disc_copies, [node()]},
+                {record_name, mqtt_message},
+                {index, [#mqtt_message.topic]},
+                {attributes, record_info(fields, mqtt_message)},
+                {storage_properties, [{ets, [compressed]},
+                                      {dets, [{auto_save, 1000}]}]}]),
     ok = emqttd_mnesia:create_table(backend_subscription, [
                 {type, bag},
                 {disc_copies, [node()]},
@@ -42,14 +56,59 @@ mnesia(boot) ->
                                       {dets, [{auto_save, 5000}]}]}]);
 
 mnesia(copy) ->
+    ok = emqttd_mnesia:copy_table(retained_message),
     ok = emqttd_mnesia:copy_table(backend_subscription).
+
+%%--------------------------------------------------------------------
+%% Retained Message
+%%--------------------------------------------------------------------
+
+-spec(retain_message(mqtt_message()) -> ok).
+retain_message(Msg) when is_record(Msg, mqtt_message) ->
+    mnesia:dirty_write(retained_message, Msg).
+
+-spec(read_messages(binary()) -> [mqtt_message()]).
+read_messages(Topic) ->
+    mnesia:dirty_index_read(retained_message, Topic, #mqtt_message.topic).
+
+-spec(match_messages(binary()) -> [mqtt_message()]).
+match_messages(Filter) ->
+    %% TODO: optimize later...
+    Fun = fun(Msg = #mqtt_message{topic = Name}, Acc) ->
+            case emqttd_topic:match(Name, Filter) of
+                true -> [Msg|Acc];
+                false -> Acc
+            end
+          end,
+    mnesia:async_dirty(fun mnesia:foldl/3, [Fun, [], retained_message]).
+
+-spec(delete_message(binary()) -> ok).
+delete_message(Topic) ->
+    %%TODO: no transaction???
+    [mnesia:dirty_delete_object(retained_message, Msg) || Msg <- read_messages(Topic)].
+
+-spec(expire_messages(pos_integer()) -> any()).
+expire_messages(Time) when is_integer(Time) ->
+    mnesia:transaction(
+        fun() ->
+            Match = ets:fun2ms(
+                        fun(#mqtt_message{msgid = MsgId, timestamp = {MegaSecs, Secs, _}})
+                            when Time > (MegaSecs * 1000000 + Secs) -> MsgId
+                        end),
+            MsgIds = mnesia:select(retained_message, Match, write),
+            lists:foreach(fun(MsgId) -> mnesia:delete({retained_message, MsgId}) end, MsgIds)
+        end).
+
+-spec(retained_count() -> non_neg_integer()).
+retained_count() ->
+    mnesia:table_info(retained_message, size).
 
 %%--------------------------------------------------------------------
 %% Static Subscriptions
 %%--------------------------------------------------------------------
 
 %% @doc Add a static subscription manually.
--spec add_subscription(mqtt_subscription()) -> ok | {error, already_existed}.
+-spec(add_subscription(mqtt_subscription()) -> ok | {error, already_existed}).
 add_subscription(Subscription = #mqtt_subscription{subid = SubId, topic = Topic}) ->
     Pattern = match_pattern(SubId, Topic),
     return(mnesia:transaction(fun() ->
@@ -89,3 +148,4 @@ match_pattern(SubId, Topic) ->
 
 return({atomic, ok})      -> ok;
 return({aborted, Reason}) -> {error, Reason}.
+
