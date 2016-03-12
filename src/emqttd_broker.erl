@@ -169,15 +169,17 @@ retain(brokers) ->
     Payload = list_to_binary(string:join([atom_to_list(N) ||
                     N <- emqttd_mnesia:running_nodes()], ",")),
     Msg = emqttd_message:make(broker, <<"$SYS/brokers">>, Payload),
-    emqttd:publish(emqttd_message:set_flag(sys, Msg)).
+    Msg1 = emqttd_message:set_flag(sys, emqttd_message:set_flag(retain, Msg)),
+    emqttd:publish(Msg1).
 
 retain(Topic, Payload) when is_binary(Payload) ->
     Msg = emqttd_message:make(broker, emqttd_topic:systop(Topic), Payload),
-    emqttd:publish(emqttd_message:set_flag(retain, Msg)).
+    Msg1 = emqttd_message:set_flag(sys, emqttd_message:set_flag(retain, Msg)),
+    emqttd:publish(Msg1).
 
 publish(Topic, Payload) when is_binary(Payload) ->
     Msg = emqttd_message:make(broker, emqttd_topic:systop(Topic), Payload),
-    emqttd:publish(Msg).
+    emqttd:publish(emqttd_message:set_flag(sys, Msg)).
 
 uptime(#state{started_at = Ts}) ->
     Secs = timer:now_diff(os:timestamp(), Ts) div 1000000,

@@ -523,7 +523,7 @@ print({{ClientId, _ClientPid}, SessInfo}) ->
            "message_queue=~w, message_dropped=~w, "
            "awaiting_rel=~w, awaiting_ack=~w, awaiting_comp=~w, "
            "created_at=~w)~n",
-            [ClientId | [format(Key, proplists:get_value(Key, SessInfo)) || Key <- InfoKeys]]).
+            [ClientId | [format(Key, get_value(Key, SessInfo)) || Key <- InfoKeys]]).
 
 format(created_at, Val) ->
     emqttd_time:now_to_secs(Val);

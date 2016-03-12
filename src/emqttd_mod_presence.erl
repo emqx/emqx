@@ -41,14 +41,16 @@ on_client_connected(ConnAck, Client = #mqtt_client{client_id  = ClientId,
                               {protocol, ProtoVer},
                               {connack, ConnAck},
                               {ts, emqttd_time:now_to_secs()}]),
-    emqttd:publish(message(qos(Opts), topic(connected, ClientId), Json)),
+    Msg = message(qos(Opts), topic(connected, ClientId), Json),
+    emqttd:publish(emqttd_message:set_flag(sys, Msg)),
     {ok, Client}.
 
 on_client_disconnected(Reason, ClientId, Opts) ->
     Json = mochijson2:encode([{clientid, ClientId},
                               {reason, reason(Reason)},
                               {ts, emqttd_time:now_to_secs()}]),
-    emqttd:publish(message(qos(Opts), topic(disconnected, ClientId), Json)).
+    Msg = message(qos(Opts), topic(disconnected, ClientId), Json),
+    emqttd:publish(emqttd_message:set_flag(sys, Msg)).
 
 unload(_Opts) ->
     emqttd:unhook('client.connected', fun ?MODULE:on_client_connected/3),
