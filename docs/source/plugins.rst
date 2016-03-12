@@ -523,55 +523,45 @@ emqttd_plugin_template_app.erl - Register the auth/ACL modules:
     ok = emqttd_access_control:register_mod(acl, emqttd_acl_demo, []),
 
 
-Register Handlers for Hooks
----------------------------
+Register Callbacks for Hooks
+-----------------------------
 
-The plugin could register handlers for hooks. The hooks will be called by the broker when a client connected/disconnected, a topic subscribed/unsubscribed or a message published/delivered:
+The plugin could register callbacks for hooks. The hooks will be run by the broker when a client connected/disconnected, a topic subscribed/unsubscribed or a message published/delivered:
 
-+------------------------+-------------+---------------------------------------+
-| Name                   | Type        | Description                           |
-+------------------------+-------------+---------------------------------------+
-| client.connected       | foreach     | Run when a client connected to the    |
-|                        |             | broker successfully                   |
-+------------------------+-------------+---------------------------------------+
-| client.subscribe       | foldl       | Run before a client subscribes topics |
-+------------------------+-------------+---------------------------------------+
-| client.subscribe.after | foreach     | Run after a client subscribed topics  |
-+------------------------+-------------+---------------------------------------+
-| client.unsubscribe     | foldl       | Run when a client unsubscribes topics |
-+------------------------+-------------+---------------------------------------+
-| message.publish        | foldl       | Run when a message is published       |
-+------------------------+-------------+---------------------------------------+
-| message.acked          | foreach     | Run when a message is delivered       |
-+------------------------+-------------+---------------------------------------+
-| client.disconnected    | foreach     | Run when a client is disconnnected    |
-+----------------------- +-------------+---------------------------------------+
++------------------------+---------------------------------------+
+| Name                   | Description                           |
++------------------------+---------------------------------------+
+| client.connected       | Run when a client connected to the    |
+|                        | broker successfully                   |
++------------------------+---------------------------------------+
+| client.subscribe       | Run before a client subscribes topics |
++------------------------+---------------------------------------+
+| client.subscribe.after | Run after a client subscribed topics  |
++------------------------+---------------------------------------+
+| client.unsubscribe     | Run when a client unsubscribes topics |
++------------------------+---------------------------------------+
+| message.publish        | Run when a message is published       |
++------------------------+---------------------------------------+
+| message.delivered      | Run when a message is delivered       |
++------------------------+---------------------------------------+
+| message.acked          | Run when a message(qos1/2) is acked   |
++------------------------+---------------------------------------+
+| client.disconnected    | Run when a client is disconnnected    |
++----------------------- +---------------------------------------+
 
 emqttd_plugin_template.erl for example::
 
     %% Called when the plugin application start
     load(Env) ->
+        emqttd:hook('client.connected', fun ?MODULE:on_client_connected/3, [Env]),
+        emqttd:hook('client.disconnected', fun ?MODULE:on_client_disconnected/3, [Env]),
+        emqttd:hook('client.subscribe', fun ?MODULE:on_client_subscribe/3, [Env]),
+        emqttd:hook('client.subscribe.after', fun ?MODULE:on_client_subscribe_after/3, [Env]),
+        emqttd:hook('client.unsubscribe', fun ?MODULE:on_client_unsubscribe/3, [Env]),
+        emqttd:hook('message.publish', fun ?MODULE:on_message_publish/2, [Env]),
+        emqttd:hook('message.delivered', fun ?MODULE:on_message_delivered/3, [Env]),
+        emqttd:hook('message.acked', fun ?MODULE:on_message_acked/3, [Env]).
 
-        emqttd_broker:hook('client.connected', {?MODULE, on_client_connected},
-                           {?MODULE, on_client_connected, [Env]}),
-
-        emqttd_broker:hook('client.disconnected', {?MODULE, on_client_disconnected},
-                           {?MODULE, on_client_disconnected, [Env]}),
-
-        emqttd_broker:hook('client.subscribe', {?MODULE, on_client_subscribe},
-                           {?MODULE, on_client_subscribe, [Env]}),
-
-        emqttd_broker:hook('client.subscribe.after', {?MODULE, on_client_subscribe_after},
-                           {?MODULE, on_client_subscribe_after, [Env]}),
-
-        emqttd_broker:hook('client.unsubscribe', {?MODULE, on_client_unsubscribe},
-                           {?MODULE, on_client_unsubscribe, [Env]}),
-
-        emqttd_broker:hook('message.publish', {?MODULE, on_message_publish},
-                           {?MODULE, on_message_publish, [Env]}),
-
-        emqttd_broker:hook('message.acked', {?MODULE, on_message_acked},
-                           {?MODULE, on_message_acked, [Env]}).
 
 Register CLI Modules
 --------------------
