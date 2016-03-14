@@ -458,8 +458,8 @@ PubSub and Router
         %% PubSub Pool
         {pool_size, 8},
         
-        %% Subscription: disc | ram | false
-        {subscription, ram},
+        %% Subscription: true | false
+        {subscription, true},
 
         %% Route aging time(seconds)
         {route_aging, 5}
