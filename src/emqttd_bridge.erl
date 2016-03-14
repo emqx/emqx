@@ -55,7 +55,7 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start a bridge
--spec start_link(atom(), binary(), [option()]) -> {ok, pid()} | ignore | {error, term()}.
+-spec(start_link(atom(), binary(), [option()]) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Node, Topic, Options) ->
     gen_server2:start_link(?MODULE, [Node, Topic, Options], []).
 

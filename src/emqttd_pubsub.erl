@@ -212,8 +212,7 @@ code_change(_OldVsn, State, _Extra) ->
 add_subscriber_(Topic, SubPid) ->
     case ets:member(subscriber, Topic) of
         false ->
-            mnesia:transaction(fun add_topic_/1, [Topic]),
-            emqttd_router:add_route(Topic, node()),
+            mnesia:transaction(fun add_topic_route_/2, [Topic, node()]),
             setstats(topic);
         true ->
             ok
@@ -224,12 +223,14 @@ del_subscriber_(Topic, SubPid) ->
     ets:delete_object(subscriber, {Topic, SubPid}),
     case ets:lookup(subscriber, Topic) of
         [] ->
-            emqttd_router:del_route(Topic, node()),
-            mnesia:transaction(fun del_topic_/1, [Topic]),
+            mnesia:transaction(fun del_topic_route_/2, [Topic, node()]),
             setstats(topic);
         [_|_] ->
             ok
     end.
+
+add_topic_route_(Topic, Node) ->
+    add_topic_(Topic), emqttd_router:add_route(Topic, Node).
 
 add_topic_(Topic) ->
     add_topic_(Topic, []).
@@ -240,6 +241,9 @@ add_topic_(Topic, Flags) ->
         []  -> mnesia:write(topic, Record, write);
         [_] -> ok
     end.
+
+del_topic_route_(Topic, Node) ->
+    emqttd_router:del_route(Topic, Node), del_topic_(Topic).
 
 del_topic_(Topic) ->
     case emqttd_router:has_route(Topic) of

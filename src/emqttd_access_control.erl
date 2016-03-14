@@ -47,15 +47,15 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start access control server.
--spec start_link() -> {ok, pid()} | ignore | {error, any()}.
+-spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
 start_link() -> start_link(emqttd:env(access)).
 
--spec start_link(Opts :: list()) -> {ok, pid()} | ignore | {error, any()}.
+-spec(start_link(Opts :: list()) -> {ok, pid()} | ignore | {error, any()}).
 start_link(Opts) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [Opts], []).
 
 %% @doc Authenticate MQTT Client.
--spec auth(Client :: mqtt_client(), Password :: password()) -> ok | {error, any()}.
+-spec(auth(Client :: mqtt_client(), Password :: password()) -> ok | {error, any()}).
 auth(Client, Password) when is_record(Client, mqtt_client) ->
     auth(Client, Password, lookup_mods(auth)).
 auth(_Client, _Password, []) ->
@@ -69,10 +69,10 @@ auth(Client, Password, [{Mod, State, _Seq} | Mods]) ->
     end.
 
 %% @doc Check ACL
--spec check_acl(Client, PubSub, Topic) -> allow | deny when
+-spec(check_acl(Client, PubSub, Topic) -> allow | deny when
       Client :: mqtt_client(),
       PubSub :: pubsub(),
-      Topic  :: binary().
+      Topic  :: binary()).
 check_acl(Client, PubSub, Topic) when ?IS_PUBSUB(PubSub) ->
     case lookup_mods(acl) of
         []      -> allow;
@@ -89,26 +89,26 @@ check_acl(Client, PubSub, Topic, [{Mod, State, _Seq}|AclMods]) ->
     end.
 
 %% @doc Reload ACL Rules.
--spec reload_acl() -> list(ok | {error, any()}).
+-spec(reload_acl() -> list(ok | {error, any()})).
 reload_acl() ->
     [Mod:reload_acl(State) || {Mod, State, _Seq} <- lookup_mods(acl)].
 
 %% @doc Register Authentication or ACL module.
--spec register_mod(auth | acl, atom(), list()) -> ok | {error, any()}.
+-spec(register_mod(auth | acl, atom(), list()) -> ok | {error, any()}).
 register_mod(Type, Mod, Opts) when Type =:= auth; Type =:= acl->
     register_mod(Type, Mod, Opts, 0).
 
--spec register_mod(auth | acl, atom(), list(), non_neg_integer()) -> ok | {error, any()}.
+-spec(register_mod(auth | acl, atom(), list(), non_neg_integer()) -> ok | {error, any()}).
 register_mod(Type, Mod, Opts, Seq) when Type =:= auth; Type =:= acl->
     gen_server:call(?SERVER, {register_mod, Type, Mod, Opts, Seq}).
 
 %% @doc Unregister authentication or ACL module
--spec unregister_mod(Type :: auth | acl, Mod :: atom()) -> ok | {error, any()}.
+-spec(unregister_mod(Type :: auth | acl, Mod :: atom()) -> ok | {error, any()}).
 unregister_mod(Type, Mod) when Type =:= auth; Type =:= acl ->
     gen_server:call(?SERVER, {unregister_mod, Type, Mod}).
 
 %% @doc Lookup authentication or ACL modules.
--spec lookup_mods(auth | acl) -> list().
+-spec(lookup_mods(auth | acl) -> list()).
 lookup_mods(Type) ->
     case ets:lookup(?ACCESS_CONTROL_TAB, tab_key(Type)) of
         []          -> [];

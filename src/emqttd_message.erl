@@ -29,21 +29,21 @@
 -export([format/1]).
 
 %% @doc Make a message
--spec make(From, Topic, Payload) -> mqtt_message() when
-    From    :: atom() | binary(),
-    Topic   :: binary(),
-    Payload :: binary().
+-spec(make(From, Topic, Payload) -> mqtt_message() when
+      From    :: atom() | binary(),
+      Topic   :: binary(),
+      Payload :: binary()).
 make(From, Topic, Payload) ->
     #mqtt_message{topic     = Topic,
                   from      = From,
                   payload   = Payload,
                   timestamp = os:timestamp()}.
 
--spec make(From, Qos, Topic, Payload) -> mqtt_message() when
-    From    :: atom() | binary(),
-    Qos     :: mqtt_qos() | mqtt_qos_name(),
-    Topic   :: binary(),
-    Payload :: binary().
+-spec(make(From, Qos, Topic, Payload) -> mqtt_message() when
+      From    :: atom() | binary(),
+      Qos     :: mqtt_qos() | mqtt_qos_name(),
+      Topic   :: binary(),
+      Payload :: binary()).
 make(From, Qos, Topic, Payload) ->
     #mqtt_message{msgid     = msgid(?QOS_I(Qos)),
                   topic     = Topic,
@@ -53,7 +53,7 @@ make(From, Qos, Topic, Payload) ->
                   timestamp = os:timestamp()}.
 
 %% @doc Message from Packet
--spec from_packet(mqtt_packet()) -> mqtt_message().
+-spec(from_packet(mqtt_packet()) -> mqtt_message()).
 from_packet(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                                                         retain = Retain,
                                                         qos    = Qos,
@@ -103,7 +103,7 @@ msgid(Qos) when Qos =:= ?QOS_1 orelse Qos =:= ?QOS_2 ->
     emqttd_guid:gen().
 
 %% @doc Message to packet
--spec to_packet(mqtt_message()) -> mqtt_packet().
+-spec(to_packet(mqtt_message()) -> mqtt_packet()).
 to_packet(#mqtt_message{pktid   = PkgId,
                         qos     = Qos,
                         retain  = Retain,
@@ -124,11 +124,11 @@ to_packet(#mqtt_message{pktid   = PkgId,
                  payload = Payload}.
 
 %% @doc set dup, retain flag
--spec set_flag(mqtt_message()) -> mqtt_message().
+-spec(set_flag(mqtt_message()) -> mqtt_message()).
 set_flag(Msg) ->
     Msg#mqtt_message{dup = true, retain = true}.
 
--spec set_flag(atom(), mqtt_message()) -> mqtt_message().
+-spec(set_flag(atom(), mqtt_message()) -> mqtt_message()).
 set_flag(dup, Msg = #mqtt_message{dup = false}) -> 
     Msg#mqtt_message{dup = true};
 set_flag(sys, Msg = #mqtt_message{sys = false}) -> 
@@ -138,11 +138,11 @@ set_flag(retain, Msg = #mqtt_message{retain = false}) ->
 set_flag(Flag, Msg) when Flag =:= dup orelse Flag =:= retain -> Msg.
 
 %% @doc Unset dup, retain flag
--spec unset_flag(mqtt_message()) -> mqtt_message().
+-spec(unset_flag(mqtt_message()) -> mqtt_message()).
 unset_flag(Msg) ->
     Msg#mqtt_message{dup = false, retain = false}.
 
--spec unset_flag(dup | retain | atom(), mqtt_message()) -> mqtt_message().
+-spec(unset_flag(dup | retain | atom(), mqtt_message()) -> mqtt_message()).
 unset_flag(dup, Msg = #mqtt_message{dup = true}) -> 
     Msg#mqtt_message{dup = false};
 unset_flag(retain, Msg = #mqtt_message{retain = true}) ->

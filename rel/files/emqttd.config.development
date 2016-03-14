@@ -152,6 +152,9 @@
             %% Default should be scheduler numbers
             {pool_size, 8},
 
+            %% Store Subscription: true | false
+            {subscription, true},
+
             %% Route aging time(seconds)
             {route_aging, 5}
         ]},

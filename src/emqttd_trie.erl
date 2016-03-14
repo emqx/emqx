@@ -35,7 +35,7 @@
 %%--------------------------------------------------------------------
 
 %% @doc Create or Replicate trie tables.
--spec mnesia(boot | copy) -> ok.
+-spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
     %% Trie Table
     ok = emqttd_mnesia:create_table(trie, [
@@ -59,7 +59,7 @@ mnesia(copy) ->
 %%--------------------------------------------------------------------
 
 %% @doc Insert topic to trie
--spec insert(Topic :: binary()) -> ok.
+-spec(insert(Topic :: binary()) -> ok).
 insert(Topic) when is_binary(Topic) ->
     case mnesia:read(trie_node, Topic) of
     [#trie_node{topic=Topic}] ->
@@ -74,18 +74,18 @@ insert(Topic) when is_binary(Topic) ->
     end.
 
 %% @doc Find trie nodes that match topic
--spec match(Topic :: binary()) -> list(MatchedTopic :: binary()).
+-spec(match(Topic :: binary()) -> list(MatchedTopic :: binary())).
 match(Topic) when is_binary(Topic) ->
     TrieNodes = match_node(root, emqttd_topic:words(Topic)),
     [Name || #trie_node{topic=Name} <- TrieNodes, Name =/= undefined].
 
 %% @doc Lookup a Trie Node
--spec lookup(NodeId :: binary()) -> [#trie_node{}].
+-spec(lookup(NodeId :: binary()) -> [#trie_node{}]).
 lookup(NodeId) ->
     mnesia:read(trie_node, NodeId).
 
 %% @doc Delete topic from trie
--spec delete(Topic :: binary()) -> ok.
+-spec(delete(Topic :: binary()) -> ok).
 delete(Topic) when is_binary(Topic) ->
     case mnesia:read(trie_node, Topic) of
     [#trie_node{edge_count=0}] -> 

@@ -753,7 +753,6 @@ Stop a Trace::
 
     ./bin/emqttd_ctl trace topic "topic" off
 
-
 .. _emqttd_plugin_mysql:    https://github.com/emqtt/emqttd_plugin_mysql
 .. _emqttd_plugin_pgsql:    https://github.com/emqtt/emqttd_plugin_pgsql
 .. _emqttd_plugin_redis:    https://github.com/emqtt/emqttd_plugin_redis

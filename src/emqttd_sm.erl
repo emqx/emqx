@@ -72,18 +72,18 @@ mnesia(copy) ->
 %%--------------------------------------------------------------------
 
 %% @doc Start a session manager
--spec start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, any()}.
+-spec(start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, any()}).
 start_link(Pool, Id) ->
     gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
 
 %% @doc Start a session
--spec start_session(CleanSess :: boolean(), binary()) -> {ok, pid(), boolean()} | {error, any()}.
+-spec(start_session(boolean(), binary()) -> {ok, pid(), boolean()} | {error, any()}).
 start_session(CleanSess, ClientId) ->
     SM = gproc_pool:pick_worker(?POOL, ClientId),
     call(SM, {start_session, {CleanSess, ClientId, self()}}).
 
 %% @doc Lookup a Session
--spec lookup_session(binary()) -> mqtt_session() | undefined.
+-spec(lookup_session(binary()) -> mqtt_session() | undefined).
 lookup_session(ClientId) ->
     case mnesia:dirty_read(session, ClientId) of
         [Session] -> Session;
@@ -91,17 +91,17 @@ lookup_session(ClientId) ->
     end.
 
 %% @doc Register a session with info.
--spec register_session(CleanSess, ClientId, Info) -> ok when
-    CleanSess :: boolean(),
-    ClientId  :: binary(),
-    Info      :: [tuple()].
+-spec(register_session(CleanSess, ClientId, Info) -> ok when
+      CleanSess :: boolean(),
+      ClientId  :: binary(),
+      Info      :: [tuple()]).
 register_session(CleanSess, ClientId, Info) ->
     ets:insert(sesstab(CleanSess), {{ClientId, self()}, Info}).
 
 %% @doc Unregister a session.
--spec unregister_session(CleanSess, ClientId) -> ok when
-    CleanSess :: boolean(),
-    ClientId  :: binary().
+-spec(unregister_session(CleanSess, ClientId) -> ok when
+      CleanSess :: boolean(),
+      ClientId  :: binary()).
 unregister_session(CleanSess, ClientId) ->
     ets:delete(sesstab(CleanSess), {ClientId, self()}).
 

@@ -25,7 +25,7 @@
 -export([prepare/0, reboot/0]).
 
 %% @doc Join cluster
--spec join(node()) -> ok | {error, any()}.
+-spec(join(node()) -> ok | {error, any()}).
 join(Node) when Node =:= node() ->
     {error, {cannot_join_with_self, Node}};
 
@@ -40,23 +40,23 @@ join(Node) when is_atom(Node) ->
     end.
 
 %% @doc Prepare to join or leave cluster.
--spec prepare() -> ok.
+-spec(prepare() -> ok).
 prepare() ->
     emqttd_plugins:unload(),
     lists:foreach(fun application:stop/1, [emqttd, mochiweb, esockd, gproc]).
 
 %% @doc Is node in cluster?
--spec is_clustered(node()) -> boolean().
+-spec(is_clustered(node()) -> boolean()).
 is_clustered(Node) ->
     lists:member(Node, emqttd_mnesia:running_nodes()).
 
 %% @doc Reboot after join or leave cluster.
--spec reboot() -> ok.
+-spec(reboot() -> ok).
 reboot() ->
     lists:foreach(fun application:start/1, [gproc, esockd, mochiweb, emqttd]).
 
 %% @doc Leave from Cluster.
--spec leave() -> ok | {error, any()}.
+-spec(leave() -> ok | {error, any()}).
 leave() ->
     case emqttd_mnesia:running_nodes() -- [node()] of
         [_|_] ->
@@ -66,7 +66,7 @@ leave() ->
     end.
 
 %% @doc Remove a node from cluster.
--spec remove(node()) -> ok | {error, any()}.
+-spec(remove(node()) -> ok | {error, any()}).
 remove(Node) when Node =:= node() ->
     {error, {cannot_remove_self, Node}};
 

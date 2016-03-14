@@ -72,7 +72,7 @@ is_enabled() ->
     lists:member(?AUTH_USERNAME_TAB, mnesia:system_info(tables)).
 
 %% @doc Add User
--spec add_user(binary(), binary()) -> ok | {error, any()}.
+-spec(add_user(binary(), binary()) -> ok | {error, any()}).
 add_user(Username, Password) ->
     User = #?AUTH_USERNAME_TAB{username = Username, password = hash(Password)},
     ret(mnesia:transaction(fun mnesia:write/1, [User])).
@@ -81,12 +81,12 @@ add_default_user(Username, Password) ->
     add_user(iolist_to_binary(Username), iolist_to_binary(Password)).
 
 %% @doc Lookup user by username
--spec lookup_user(binary()) -> list().
+-spec(lookup_user(binary()) -> list()).
 lookup_user(Username) ->
     mnesia:dirty_read(?AUTH_USERNAME_TAB, Username).
 
 %% @doc Remove user
--spec remove_user(binary()) -> ok | {error, any()}.
+-spec(remove_user(binary()) -> ok | {error, any()}).
 remove_user(Username) ->
     ret(mnesia:transaction(fun mnesia:delete/1, [{?AUTH_USERNAME_TAB, Username}])).
 
@@ -94,7 +94,7 @@ ret({atomic, ok})     -> ok;
 ret({aborted, Error}) -> {error, Error}.
 
 %% @doc All usernames
--spec all_users() -> list().
+-spec(all_users() -> list()).
 all_users() -> mnesia:dirty_all_keys(?AUTH_USERNAME_TAB).
 
 %%--------------------------------------------------------------------

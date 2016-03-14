@@ -41,7 +41,7 @@ start_link() ->
 start_child(ChildSpec) when is_tuple(ChildSpec) ->
     supervisor:start_child(?MODULE, ChildSpec).
 
--spec start_child(Mod::atom(), Type :: worker | supervisor) -> {ok, pid()}.
+-spec(start_child(Mod::atom(), Type :: worker | supervisor) -> {ok, pid()}).
 start_child(Mod, Type) when is_atom(Mod) and is_atom(Type) ->
     supervisor:start_child(?MODULE, ?CHILD(Mod, Type)).
 

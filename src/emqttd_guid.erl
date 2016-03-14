@@ -36,7 +36,7 @@
 -type guid() :: <<_:128>>.
 
 %% @doc Generate a global unique id.
--spec gen() -> guid().
+-spec(gen() -> guid()).
 gen() ->
     Guid = case get(guid) of
         undefined        -> new();
@@ -47,7 +47,7 @@ gen() ->
 new() ->
     {ts(), npid(), 0}.
 
--spec timestamp(guid()) -> integer().
+-spec(timestamp(guid()) -> integer()).
 timestamp(<<Ts:64, _/binary>>) ->
     Ts.
 

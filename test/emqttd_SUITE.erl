@@ -112,6 +112,7 @@ subscribe_unsubscribe(_) ->
 publish(_) ->
     Msg = emqttd_message:make(ct, <<"test/pubsub">>, <<"hello">>),
     ok = emqttd:subscribe(<<"test/+">>),
+    timer:sleep(10),
     emqttd:publish(Msg),
     true = receive {dispatch, <<"test/+">>, Msg} -> true after 5 -> false end.
 
@@ -119,6 +120,7 @@ pubsub(_) ->
     Self = self(),
     emqttd:subscribe({<<"clientId">>, <<"a/b/c">>, 1}),
     emqttd:subscribe({<<"clientId">>, <<"a/b/c">>, 2}),
+    timer:sleep(10),
     [{Self, <<"a/b/c">>}] = ets:lookup(subscribed, Self),
     [{<<"a/b/c">>, Self}] = ets:lookup(subscriber, <<"a/b/c">>),
     emqttd:publish(emqttd_message:make(ct, <<"a/b/c">>, <<"hello">>)),
@@ -134,12 +136,14 @@ pubsub(_) ->
 
 'pubsub#'(_) ->
     emqttd:subscribe(<<"a/#">>),
+    timer:sleep(10),
     emqttd:publish(emqttd_message:make(ct, <<"a/b/c">>, <<"hello">>)),
     true = receive {dispatch, <<"a/#">>, _} -> true after 2 -> false end,
     emqttd:unsubscribe(<<"a/#">>).
 
 'pubsub+'(_) ->
     emqttd:subscribe(<<"a/+/+">>),
+    timer:sleep(10),
     emqttd:publish(emqttd_message:make(ct, <<"a/b/c">>, <<"hello">>)),
     true = receive {dispatch, <<"a/+/+">>, _} -> true after 1 -> false end,
     emqttd:unsubscribe(<<"a/+/+">>).

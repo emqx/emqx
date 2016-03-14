@@ -34,7 +34,7 @@
 %%--------------------------------------------------------------------
 
 %% @doc Read all rules
--spec all_rules() -> list(emqttd_access_rule:rule()).
+-spec(all_rules() -> list(emqttd_access_rule:rule())).
 all_rules() ->
     case ets:lookup(?ACL_RULE_TAB, all_rules) of
         [] -> [];
@@ -46,7 +46,7 @@ all_rules() ->
 %%--------------------------------------------------------------------
 
 %% @doc Init internal ACL
--spec init(AclOpts :: list()) -> {ok, State :: any()}.
+-spec(init(AclOpts :: list()) -> {ok, State :: any()}).
 init(AclOpts) ->
     ets:new(?ACL_RULE_TAB, [set, public, named_table, {read_concurrency, true}]),
     AclFile = proplists:get_value(file, AclOpts),
@@ -78,11 +78,11 @@ filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
     false.
 
 %% @doc Check ACL
--spec check_acl({Client, PubSub, Topic}, State) -> allow | deny | ignore when
+-spec(check_acl({Client, PubSub, Topic}, State) -> allow | deny | ignore when
       Client :: mqtt_client(),
       PubSub :: pubsub(),
       Topic  :: binary(),
-      State  :: #state{}.
+      State  :: #state{}).
 check_acl({Client, PubSub, Topic}, #state{nomatch = Default}) ->
     case match(Client, Topic, lookup(PubSub)) of
         {matched, allow} -> allow;
@@ -106,7 +106,7 @@ match(Client, Topic, [Rule|Rules]) ->
     end.
 
 %% @doc Reload ACL
--spec reload_acl(State :: #state{}) -> ok | {error, Reason :: any()}.
+-spec(reload_acl(State :: #state{}) -> ok | {error, Reason :: any()}).
 reload_acl(State) ->
     case catch load_rules_from_file(State) of
         {'EXIT', Error} -> {error, Error};
@@ -114,6 +114,6 @@ reload_acl(State) ->
     end.
 
 %% @doc ACL Module Description
--spec description() -> string().
+-spec(description() -> string()).
 description() -> "Internal ACL with etc/acl.config".
 

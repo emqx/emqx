@@ -24,12 +24,12 @@
 -export([init/1]).
 
 %% @doc Start session supervisor
--spec start_link() -> {ok, pid()}.
+-spec(start_link() -> {ok, pid()}).
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% @doc Start a session
--spec start_session(boolean(), binary(), pid()) -> {ok, pid()}.
+-spec(start_session(boolean(), binary(), pid()) -> {ok, pid()}).
 start_session(CleanSess, ClientId, ClientPid) ->
     supervisor:start_child(?MODULE, [CleanSess, ClientId, ClientPid]).
 

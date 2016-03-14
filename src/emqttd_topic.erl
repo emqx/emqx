@@ -33,7 +33,7 @@
 -define(MAX_TOPIC_LEN, 4096).
 
 %% @doc Is wildcard topic?
--spec wildcard(topic() | words()) -> true | false.
+-spec(wildcard(topic() | words()) -> true | false).
 wildcard(Topic) when is_binary(Topic) ->
     wildcard(words(Topic));
 wildcard([]) -> 
@@ -46,9 +46,9 @@ wildcard([_H|T]) ->
     wildcard(T).
 
 %% @doc Match Topic name with filter
--spec match(Name, Filter) -> boolean() when
-    Name    :: topic() | words(),
-    Filter  :: topic() | words().
+-spec(match(Name, Filter) -> boolean() when
+      Name    :: topic() | words(),
+      Filter  :: topic() | words()).
 match(Name, Filter) when is_binary(Name) and is_binary(Filter) ->
     match(words(Name), words(Filter));
 match([], []) ->
@@ -71,7 +71,7 @@ match([], [_H|_T2]) ->
     false.
 
 %% @doc Validate Topic
--spec validate({name | filter, topic()}) -> boolean().
+-spec(validate({name | filter, topic()}) -> boolean()).
 validate({_, <<>>}) ->
     false;
 validate({_, Topic}) when is_binary(Topic) and (size(Topic) > ?MAX_TOPIC_LEN) ->
@@ -106,7 +106,7 @@ validate3(<<_/utf8, Rest/binary>>) ->
     validate3(Rest).
 
 %% @doc Topic to Triples
--spec triples(topic()) -> list(triple()).
+-spec(triples(topic()) -> list(triple())).
 triples(Topic) when is_binary(Topic) ->
     triples(words(Topic), root, []).
 
@@ -128,7 +128,7 @@ bin('#') -> <<"#">>;
 bin(B) when is_binary(B) -> B.
 
 %% @doc Split Topic Path to Words
--spec words(topic()) -> words().
+-spec(words(topic()) -> words()).
 words(Topic) when is_binary(Topic) ->
     [word(W) || W <- binary:split(Topic, <<"/">>, [global])].
 
@@ -138,7 +138,7 @@ word(<<"#">>) -> '#';
 word(Bin)     -> Bin.
 
 %% @doc Queue is a special topic name that starts with "$queue/"
--spec is_queue(topic()) -> boolean().
+-spec(is_queue(topic()) -> boolean()).
 is_queue(<<"$queue/", _Queue/binary>>) ->
     true;
 is_queue(_) ->
@@ -151,7 +151,7 @@ systop(Name) when is_atom(Name) ->
 systop(Name) when is_binary(Name) ->
     list_to_binary(["$SYS/brokers/", atom_to_list(node()), "/", Name]).
 
--spec feed_var(binary(), binary(), binary()) -> binary().
+-spec(feed_var(binary(), binary(), binary()) -> binary()).
 feed_var(Var, Val, Topic) ->
     feed_var(Var, Val, words(Topic), []).
 feed_var(_Var, _Val, [], Acc) ->
@@ -161,7 +161,7 @@ feed_var(Var, Val, [Var|Words], Acc) ->
 feed_var(Var, Val, [W|Words], Acc) ->
     feed_var(Var, Val, Words, [W|Acc]).
 
--spec join(list(binary())) -> binary().
+-spec(join(list(binary())) -> binary()).
 join([]) ->
     <<>>;
 join([W]) ->

@@ -42,12 +42,12 @@
 %% API
 %%--------------------------------------------------------------------
 
--spec start_link() -> {ok, pid()}.
+-spec(start_link() -> {ok, pid()}).
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 %% @doc Start to trace client or topic.
--spec start_trace(trace_who(), string()) -> ok | {error, any()}.
+-spec(start_trace(trace_who(), string()) -> ok | {error, any()}).
 start_trace({client, ClientId}, LogFile) ->
     start_trace({start_trace, {client, ClientId}, LogFile});
 
@@ -57,14 +57,14 @@ start_trace({topic, Topic}, LogFile) ->
 start_trace(Req) -> gen_server:call(?MODULE, Req, infinity).
 
 %% @doc Stop tracing client or topic.
--spec stop_trace(trace_who()) -> ok | {error, any()}.
+-spec(stop_trace(trace_who()) -> ok | {error, any()}).
 stop_trace({client, ClientId}) ->
     gen_server:call(?MODULE, {stop_trace, {client, ClientId}});
 stop_trace({topic, Topic}) ->
     gen_server:call(?MODULE, {stop_trace, {topic, Topic}}).
 
 %% @doc Lookup all traces.
--spec all_traces() -> [{Who :: trace_who(), LogFile :: string()}].
+-spec(all_traces() -> [{Who :: trace_who(), LogFile :: string()}]).
 all_traces() -> gen_server:call(?MODULE, all_traces).
 
 %%--------------------------------------------------------------------

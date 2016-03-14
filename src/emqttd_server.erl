@@ -135,30 +135,34 @@ init([Pool, Id, Env]) ->
     {ok, #state{pool = Pool, id = Id, env = Env, monitors = dict:new()}}.
 
 handle_call({subscribe, SubPid, ClientId, Topic, Qos}, _From, State) ->
-    add_subscription_(ClientId, Topic, Qos),
-    set_subscription_stats(),
-    do_subscribe_(SubPid, Topic),
+    pubsub_subscribe_(SubPid, Topic),
+    if_subsciption(State, fun() ->
+        add_subscription_(ClientId, Topic, Qos),
+        set_subscription_stats()
+    end),
     ok(monitor_subscriber_(ClientId, SubPid, State));
 
 handle_call({subscribe, SubPid, Topic}, _From, State) ->
-    do_subscribe_(SubPid, Topic),
+    pubsub_subscribe_(SubPid, Topic),
     ok(monitor_subscriber_(undefined, SubPid, State));
 
 handle_call({update_subscription, ClientId, Topic, OldQos, NewQos}, _From, State) ->
-    OldSub = #mqtt_subscription{subid = ClientId, topic = Topic, qos = OldQos},
-    NewSub = #mqtt_subscription{subid = ClientId, topic = Topic, qos = NewQos},
-    mnesia:transaction(fun update_subscription_/2, [OldSub, NewSub]),
-    set_subscription_stats(), ok(State);
+    if_subsciption(State, fun() ->
+        OldSub = #mqtt_subscription{subid = ClientId, topic = Topic, qos = OldQos},
+        NewSub = #mqtt_subscription{subid = ClientId, topic = Topic, qos = NewQos},
+        mnesia:transaction(fun update_subscription_/2, [OldSub, NewSub]),
+        set_subscription_stats()
+    end), ok(State);
 
-handle_call({unsubscribe, SubPid, ClientId, Topic, Qos}, From, State) ->
-    del_subscription_(ClientId, Topic, Qos),
-    set_subscription_stats(),
-    handle_call({unsubscribe, SubPid, Topic}, From, State);
+handle_call({unsubscribe, SubPid, ClientId, Topic, Qos}, _From, State) ->
+    pubsub_unsubscribe_(SubPid, Topic),
+    if_subsciption(State, fun() ->
+        del_subscription_(ClientId, Topic, Qos),
+        set_subscription_stats()
+    end), ok(State);
 
 handle_call({unsubscribe, SubPid, Topic}, _From, State) ->
-    emqttd_pubsub:unsubscribe(Topic, SubPid),
-    ets:delete_object(subscribed, {SubPid, Topic}),
-    ok(State);
+    pubsub_unsubscribe_(SubPid, Topic), ok(State);
 
 handle_call(Req, _From, State) ->
     ?UNEXPECTED_REQ(Req, State).
@@ -179,7 +183,7 @@ handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State = #state{monitors 
         {ok, {ClientId,  _}} -> mnesia:dirty_delete(subscription, ClientId);
         error                -> ok
     end,
-    {noreply, State#state{monitors = dict:erase(DownPid, Monitors)}};
+    {noreply, State#state{monitors = dict:erase(DownPid, Monitors)}, hibernate};
 
 handle_info(Info, State) ->
     ?UNEXPECTED_INFO(Info, State).
@@ -193,6 +197,12 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal Functions
 %%--------------------------------------------------------------------
+
+if_subsciption(#state{env = Env}, Fun) ->
+    case proplists:get_value(subscription, Env, true) of
+        false -> ok;
+        _true -> Fun()
+    end.
 
 %% @private
 %% @doc Add a subscription.
@@ -219,14 +229,19 @@ del_subscription_(Subscription) when is_record(Subscription, mqtt_subscription) 
 
 %% @private
 %% @doc Call pubsub to subscribe
-do_subscribe_(SubPid, Topic) ->
+pubsub_subscribe_(SubPid, Topic) ->
     case ets:match(subscribed, {SubPid, Topic}) of
         [] ->
-            emqttd_pubsub:subscribe(Topic, SubPid),
+            emqttd_pubsub:async_subscribe(Topic, SubPid),
             ets:insert(subscribed, {SubPid, Topic});
         [_] ->
             false
     end.
+
+%% @private
+pubsub_unsubscribe_(SubPid, Topic) ->
+    emqttd_pubsub:async_unsubscribe(Topic, SubPid),
+    ets:delete_object(subscribed, {SubPid, Topic}).
 
 monitor_subscriber_(ClientId, SubPid, State = #state{monitors = Monitors}) ->
     case dict:find(SubPid, Monitors) of

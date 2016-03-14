@@ -73,7 +73,7 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start stats server
--spec start_link() -> {ok, pid()} | ignore | {error, term()}.
+-spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
@@ -81,21 +81,21 @@ stop() ->
     gen_server:call(?SERVER, stop).
 
 %% @doc Generate stats fun
--spec statsfun(Stat :: atom()) -> fun().
+-spec(statsfun(Stat :: atom()) -> fun()).
 statsfun(Stat) ->
     fun(Val) -> setstat(Stat, Val) end.
     
--spec statsfun(Stat :: atom(), MaxStat :: atom()) -> fun().
+-spec(statsfun(Stat :: atom(), MaxStat :: atom()) -> fun()).
 statsfun(Stat, MaxStat) -> 
     fun(Val) -> setstats(Stat, MaxStat, Val) end.
 
 %% @doc Get broker statistics
--spec getstats() -> [{atom(), non_neg_integer()}].
+-spec(getstats() -> [{atom(), non_neg_integer()}]).
 getstats() ->
     lists:sort(ets:tab2list(?STATS_TAB)).
 
 %% @doc Get stats by name
--spec getstat(atom()) -> non_neg_integer() | undefined.
+-spec(getstat(atom()) -> non_neg_integer() | undefined).
 getstat(Name) ->
     case ets:lookup(?STATS_TAB, Name) of
         [{Name, Val}] -> Val;
@@ -103,12 +103,12 @@ getstat(Name) ->
     end.
 
 %% @doc Set broker stats
--spec setstat(Stat :: atom(), Val :: pos_integer()) -> boolean().
+-spec(setstat(Stat :: atom(), Val :: pos_integer()) -> boolean()).
 setstat(Stat, Val) ->
     ets:update_element(?STATS_TAB, Stat, {2, Val}).
 
 %% @doc Set stats with max
--spec setstats(Stat :: atom(), MaxStat :: atom(), Val :: pos_integer()) -> boolean().
+-spec(setstats(Stat :: atom(), MaxStat :: atom(), Val :: pos_integer()) -> boolean()).
 setstats(Stat, MaxStat, Val) ->
     gen_server:cast(?MODULE, {setstats, Stat, MaxStat, Val}).
 

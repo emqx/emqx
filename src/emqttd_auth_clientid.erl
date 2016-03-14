@@ -35,28 +35,28 @@
 %%--------------------------------------------------------------------
 
 %% @doc Add clientid
--spec add_clientid(binary()) -> {atomic, ok} | {aborted, any()}.
+-spec(add_clientid(binary()) -> {atomic, ok} | {aborted, any()}).
 add_clientid(ClientId) when is_binary(ClientId) ->
     R = #mqtt_auth_clientid{client_id = ClientId},
     mnesia:transaction(fun mnesia:write/1, [R]).
 
 %% @doc Add clientid with password
--spec add_clientid(binary(), binary()) -> {atomic, ok} | {aborted, any()}.
+-spec(add_clientid(binary(), binary()) -> {atomic, ok} | {aborted, any()}).
 add_clientid(ClientId, Password) ->
     R = #mqtt_auth_clientid{client_id = ClientId, password = Password},
     mnesia:transaction(fun mnesia:write/1, [R]).
 
 %% @doc Lookup clientid
--spec lookup_clientid(binary()) -> list(#mqtt_auth_clientid{}).
+-spec(lookup_clientid(binary()) -> list(#mqtt_auth_clientid{})).
 lookup_clientid(ClientId) ->
     mnesia:dirty_read(?AUTH_CLIENTID_TAB, ClientId).
 
 %% @doc Lookup all clientids
--spec all_clientids() -> list(binary()).
+-spec(all_clientids() -> list(binary())).
 all_clientids() -> mnesia:dirty_all_keys(?AUTH_CLIENTID_TAB).
 
 %% @doc Remove clientid
--spec remove_clientid(binary()) -> {atomic, ok} | {aborted, any()}.
+-spec(remove_clientid(binary()) -> {atomic, ok} | {aborted, any()}).
 remove_clientid(ClientId) ->
     mnesia:transaction(fun mnesia:delete/1, [{?AUTH_CLIENTID_TAB, ClientId}]).
 

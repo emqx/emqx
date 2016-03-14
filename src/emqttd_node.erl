@@ -21,7 +21,7 @@
 -export([is_aliving/1, parse_name/1]).
 
 %% @doc Is node aliving
--spec is_aliving(node()) -> boolean().
+-spec(is_aliving(node()) -> boolean()).
 is_aliving(Node) ->
     case net_adm:ping(Node) of
         pong -> true;
@@ -29,7 +29,7 @@ is_aliving(Node) ->
     end.
 
 %% @doc Parse node name
--spec parse_name(string()) -> atom().
+-spec(parse_name(string()) -> atom()).
 parse_name(Name) when is_list(Name) ->
     case string:tokens(Name, "@") of
         [_Node, _Host] -> list_to_atom(Name);

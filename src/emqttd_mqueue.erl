@@ -88,7 +88,7 @@
 -export_type([mqueue/0, priority/0, option/0]).
 
 %% @doc New Queue.
--spec new(iolist(), list(mqueue_option()), fun()) -> mqueue().
+-spec(new(iolist(), list(mqueue_option()), fun()) -> mqueue()).
 new(Name, Opts, AlarmFun) ->
     Type = get_value(type, Opts, simple),
     MaxLen = get_value(max_length, Opts, infinity),
@@ -125,11 +125,11 @@ high_wm(infinity, _Opts) ->
 high_wm(MaxLen, Opts) ->
     round(MaxLen * get_value(high_watermark, Opts, ?HIGH_WM)).
 
--spec name(mqueue()) -> iolist().
+-spec(name(mqueue()) -> iolist()).
 name(#mqueue{name = Name}) ->
     Name.
 
--spec type(mqueue()) -> atom().
+-spec(type(mqueue()) -> atom()).
 type(#mqueue{type = Type}) ->
     Type.
 
@@ -142,7 +142,7 @@ len(#mqueue{type = priority, q = Q})   -> priority_queue:len(Q).
 max_len(#mqueue{max_len= MaxLen}) -> MaxLen.
 
 %% @doc Stats of the mqueue
--spec stats(mqueue()) -> [stat()].
+-spec(stats(mqueue()) -> [stat()]).
 stats(#mqueue{type = Type, q = Q, max_len = MaxLen, len = Len, dropped = Dropped}) ->
     [{len, case Type of
                 simple   -> Len;
@@ -150,7 +150,7 @@ stats(#mqueue{type = Type, q = Q, max_len = MaxLen, len = Len, dropped = Dropped
             end} | [{max_len, MaxLen}, {dropped, Dropped}]].
 
 %% @doc Enqueue a message.
--spec in(mqtt_message(), mqueue()) -> mqueue().
+-spec(in(mqtt_message(), mqueue()) -> mqueue()).
 in(#mqtt_message{qos = ?QOS_0}, MQ = #mqueue{qos0 = false}) ->
     MQ;
 in(Msg, MQ = #mqueue{type = simple, q = Q, len = Len, max_len = infinity}) ->

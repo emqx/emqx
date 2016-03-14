@@ -76,7 +76,7 @@
         %% Client
         {client, [
             %% Socket is connected, but no 'CONNECT' packet received
-            {idle_timeout, 20} %% seconds
+            {idle_timeout, 30} %% seconds
         ]},
         %% Session
         {session, [
@@ -143,6 +143,9 @@
         {pubsub, [
             %% Default should be scheduler numbers
             {pool_size, 8},
+
+            %% Store Subscription: true | false
+            {subscription, true},
 
             %% Route aging time(seconds)
             {route_aging, 5}

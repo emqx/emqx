@@ -37,8 +37,8 @@
         lager:warning([{sysmon, true}], "~s~n~p~n~p", [WarnMsg, ProcInfo, PortInfo])).
 
 %% @doc Start system monitor
--spec start_link(Opts :: list(tuple())) ->
-    {ok, pid()} | ignore | {error, term()}.
+-spec(start_link(Opts :: list(tuple())) ->
+      {ok, pid()} | ignore | {error, term()}).
 start_link(Opts) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
 
