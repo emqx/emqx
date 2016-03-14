@@ -144,6 +144,9 @@
             %% Default should be scheduler numbers
             {pool_size, 8},
 
+            %% Subscription: ram | false
+            {subscription, ram},
+
             %% Route aging time(seconds)
             {route_aging, 5}
         ]},
