@@ -96,7 +96,7 @@ session(#proto_state{session = Session}) ->
 %% CONNECT – Client requests a connection to a Server
 
 %% A Client can only send the CONNECT Packet once over a Network Connection. 
--spec received(mqtt_packet(), proto_state()) -> {ok, proto_state()} | {error, any()}. 
+-spec(received(mqtt_packet(), proto_state()) -> {ok, proto_state()} | {error, any()}).
 received(Packet = ?PACKET(?CONNECT), State = #proto_state{connected = false}) ->
     process(Packet, State#proto_state{connected = true});
 
@@ -246,7 +246,7 @@ with_puback(Type, Packet = ?PUBLISH_PACKET(_Qos, PacketId),
             ?LOG(error, "PUBLISH ~p error: ~p", [PacketId, Error], State)
     end.
 
--spec send(mqtt_message() | mqtt_packet(), proto_state()) -> {ok, proto_state()}.
+-spec(send(mqtt_message() | mqtt_packet(), proto_state()) -> {ok, proto_state()}).
 send(Msg, State = #proto_state{client_id = ClientId})
         when is_record(Msg, mqtt_message) ->
     emqttd:run_hooks('message.delivered', [ClientId], Msg),
@@ -309,7 +309,7 @@ send_willmsg(ClientId, WillMsg) ->
 start_keepalive(0) -> ignore;
 
 start_keepalive(Sec) when Sec > 0 ->
-    self() ! {keepalive, start, round(Sec * 0.75)}.
+    self() ! {keepalive, start, Sec}.
 
 %%--------------------------------------------------------------------
 %% Validate Packets

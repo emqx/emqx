@@ -27,17 +27,17 @@
 -export([format/1]).
 
 %% @doc Protocol name of version
--spec protocol_name(mqtt_vsn()) -> binary().
+-spec(protocol_name(mqtt_vsn()) -> binary()).
 protocol_name(Ver) when Ver =:= ?MQTT_PROTO_V31; Ver =:= ?MQTT_PROTO_V311 ->
     proplists:get_value(Ver, ?PROTOCOL_NAMES).
 
 %% @doc Name of MQTT packet type
--spec type_name(mqtt_packet_type()) -> atom().
+-spec(type_name(mqtt_packet_type()) -> atom()).
 type_name(Type) when Type > ?RESERVED andalso Type =< ?DISCONNECT ->
     lists:nth(Type, ?TYPE_NAMES).
 
 %% @doc Connack Name
--spec connack_name(mqtt_connack()) -> atom().
+-spec(connack_name(mqtt_connack()) -> atom()).
 connack_name(?CONNACK_ACCEPT)      -> 'CONNACK_ACCEPT';
 connack_name(?CONNACK_PROTO_VER)   -> 'CONNACK_PROTO_VER';
 connack_name(?CONNACK_INVALID_ID)  -> 'CONNACK_INVALID_ID';
@@ -46,7 +46,7 @@ connack_name(?CONNACK_CREDENTIALS) -> 'CONNACK_CREDENTIALS';
 connack_name(?CONNACK_AUTH)        -> 'CONNACK_AUTH'.
 
 %% @doc Format packet
--spec format(mqtt_packet()) -> iolist().
+-spec(format(mqtt_packet()) -> iolist()).
 format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}) ->
     format_header(Header, format_variable(Variable, Payload)).
 

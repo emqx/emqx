@@ -148,7 +148,7 @@ del_route_(Route = #mqtt_route{topic = Topic}) ->
     end.
 
 %% @doc Has Route?
--spec has_route(binary()) -> boolean().
+-spec(has_route(binary()) -> boolean()).
 has_route(Topic) ->
     Routes = case mnesia:is_transaction() of
                  true  -> mnesia:read(route, Topic);

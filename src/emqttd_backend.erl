@@ -124,17 +124,17 @@ add_subscription(Subscription = #mqtt_subscription{subid = SubId, topic = Topic}
             end)).
 
 %% @doc Lookup static subscriptions.
--spec lookup_subscriptions(binary()) -> list(mqtt_subscription()).
+-spec(lookup_subscriptions(binary()) -> list(mqtt_subscription())).
 lookup_subscriptions(ClientId) when is_binary(ClientId) ->
     mnesia:dirty_read(backend_subscription, ClientId).
 
 %% @doc Delete static subscriptions by ClientId manually.
--spec del_subscriptions(binary()) -> ok.
+-spec(del_subscriptions(binary()) -> ok).
 del_subscriptions(ClientId) when is_binary(ClientId) ->
     return(mnesia:transaction(fun mnesia:delete/1, [{backend_subscription, ClientId}])).
 
 %% @doc Delete a static subscription manually.
--spec del_subscription(binary(), binary()) -> ok.
+-spec(del_subscription(binary(), binary()) -> ok).
 del_subscription(ClientId, Topic) when is_binary(ClientId) andalso is_binary(Topic) ->
     return(mnesia:transaction(fun del_subscription_/1, [match_pattern(ClientId, Topic)])).
 

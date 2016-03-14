@@ -44,24 +44,24 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %% @doc Register a command
--spec register_cmd(atom(), {module(), atom()}) -> ok.
+-spec(register_cmd(atom(), {module(), atom()}) -> ok).
 register_cmd(Cmd, MF) ->
     register_cmd(Cmd, MF, []).
 
 %% @doc Register a command with opts
--spec register_cmd(atom(), {module(), atom()}, list()) -> ok.
+-spec(register_cmd(atom(), {module(), atom()}, list()) -> ok).
 register_cmd(Cmd, MF, Opts) ->
     cast({register_cmd, Cmd, MF, Opts}).
 
 %% @doc Unregister a command
--spec unregister_cmd(atom()) -> ok.
+-spec(unregister_cmd(atom()) -> ok).
 unregister_cmd(Cmd) ->
     cast({unregister_cmd, Cmd}).
 
 cast(Msg) -> gen_server:cast(?SERVER, Msg).
 
 %% @doc Run a command
--spec run([string()]) -> any().
+-spec(run([string()]) -> any()).
 run([]) -> usage();
 
 run(["help"]) -> usage();
@@ -73,7 +73,7 @@ run([CmdS|Args]) ->
     end.
 
 %% @doc Lookup a command
--spec lookup(atom()) -> [{module(), atom()}].
+-spec(lookup(atom()) -> [{module(), atom()}]).
 lookup(Cmd) ->
     case ets:match(?CMD_TAB, {{'_', Cmd}, '$1', '_'}) of
         [El] -> El;

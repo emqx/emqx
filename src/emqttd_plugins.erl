@@ -25,7 +25,7 @@
 -export([list/0]).
 
 %% @doc Load all plugins when the broker started.
--spec load() -> list() | {error, any()}.
+-spec(load() -> list() | {error, any()}).
 load() ->
     case env(loaded_file) of
         {ok, File} ->
@@ -54,7 +54,7 @@ load_plugins(Names, Persistent) ->
     [load_plugin(find_plugin(Name, Plugins), Persistent) || Name <- NeedToLoad].
 
 %% @doc Unload all plugins before broker stopped.
--spec unload() -> list() | {error, any()}.
+-spec(unload() -> list() | {error, any()}).
 unload() ->
     case env(loaded_file) of
         {ok, File} ->
@@ -68,7 +68,7 @@ stop_plugins(Names) ->
     [stop_app(App) || App <- Names].
 
 %% @doc List all available plugins
--spec list() -> [mqtt_plugin()].
+-spec(list() -> [mqtt_plugin()]).
 list() ->
     case env(plugins_dir) of
         {ok, PluginsDir} -> 
@@ -102,7 +102,7 @@ plugin(PluginsDir, AppFile0) ->
     #mqtt_plugin{name = Name, version = Ver, config = AppsEnv1, descr = Descr}.
 
 %% @doc Load One Plugin
--spec load(atom()) -> ok | {error, any()}.
+-spec(load(atom()) -> ok | {error, any()}).
 load(PluginName) when is_atom(PluginName) ->
     case lists:member(PluginName, names(started_app)) of
         true ->
@@ -162,7 +162,7 @@ find_plugin(Name, Plugins) ->
     lists:keyfind(Name, 2, Plugins). 
 
 %% @doc UnLoad One Plugin
--spec unload(atom()) -> ok | {error, any()}.
+-spec(unload(atom()) -> ok | {error, any()}).
 unload(PluginName) when is_atom(PluginName) ->
     case {lists:member(PluginName, names(started_app)), lists:member(PluginName, names(plugin))} of
         {true, true} ->

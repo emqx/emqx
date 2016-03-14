@@ -31,7 +31,7 @@
 -type parser() :: fun( (binary()) -> any() ).
 
 %% @doc Initialize a parser
--spec new(Opts :: [option()]) -> parser().
+-spec(new(Opts :: [option()]) -> parser()).
 new(Opts) ->
     fun(Bin) -> parse(Bin, {none, limit(Opts)}) end.
 
@@ -40,8 +40,8 @@ limit(Opts) ->
                         proplists:get_value(max_packet_size, Opts, ?MAX_LEN)}.
 
 %% @doc Parse MQTT Packet
--spec parse(binary(), {none, [option()]} | fun()) ->
-                    {ok, mqtt_packet()} | {error, any()} | {more, fun()}.
+-spec(parse(binary(), {none, [option()]} | fun())
+            -> {ok, mqtt_packet()} | {error, any()} | {more, fun()}).
 parse(<<>>, {none, Limit}) ->
     {more, fun(Bin) -> parse(Bin, {none, Limit}) end};
 parse(<<PacketType:4, Dup:1, QoS:2, Retain:1, Rest/binary>>, {none, Limit}) ->

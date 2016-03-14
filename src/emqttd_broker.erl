@@ -57,17 +57,17 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start emqttd broker
--spec start_link() -> {ok, pid()} | ignore | {error, any()}.
+-spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %% @doc Subscribe broker event
--spec subscribe(EventType :: any()) -> ok.
+-spec(subscribe(EventType :: any()) -> ok).
 subscribe(EventType) ->
     gproc:reg({p, l, {broker, EventType}}).
     
 %% @doc Notify broker event
--spec notify(EventType :: any(), Event :: any()) -> ok.
+-spec(notify(EventType :: any(), Event :: any()) -> ok).
 notify(EventType, Event) ->
      gproc:send({p, l, {broker, EventType}}, {notify, EventType, self(), Event}).
 
@@ -76,21 +76,21 @@ env(Name) ->
     proplists:get_value(Name, emqttd:env(broker)).
 
 %% @doc Get broker version
--spec version() -> string().
+-spec(version() -> string()).
 version() ->
     {ok, Version} = application:get_key(emqttd, vsn), Version.
 
 %% @doc Get broker description
--spec sysdescr() -> string().
+-spec(sysdescr() -> string()).
 sysdescr() ->
     {ok, Descr} = application:get_key(emqttd, description), Descr.
 
 %% @doc Get broker uptime
--spec uptime() -> string().
+-spec(uptime() -> string()).
 uptime() -> gen_server:call(?SERVER, uptime).
 
 %% @doc Get broker datetime
--spec datetime() -> string().
+-spec(datetime() -> string()).
 datetime() ->
     {{Y, M, D}, {H, MM, S}} = calendar:local_time(),
     lists:flatten(

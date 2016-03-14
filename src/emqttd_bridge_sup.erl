@@ -33,17 +33,17 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% @doc List all bridges
--spec bridges() -> [{tuple(), pid()}].
+-spec(bridges() -> [{tuple(), pid()}]).
 bridges() ->
     [{{Node, Topic}, Pid} || {?BRIDGE_ID(Node, Topic), Pid, worker, _}
                              <- supervisor:which_children(?MODULE)].
 
 %% @doc Start a bridge
--spec start_bridge(atom(), binary()) -> {ok, pid()} | {error, any()}.
+-spec(start_bridge(atom(), binary()) -> {ok, pid()} | {error, any()}).
 start_bridge(Node, Topic) when is_atom(Node) andalso is_binary(Topic) ->
     start_bridge(Node, Topic, []).
 
--spec start_bridge(atom(), binary(), [emqttd_bridge:option()]) -> {ok, pid()} | {error, any()}.
+-spec(start_bridge(atom(), binary(), [emqttd_bridge:option()]) -> {ok, pid()} | {error, any()}).
 start_bridge(Node, _Topic, _Options) when Node =:= node() ->
     {error, bridge_to_self};
 start_bridge(Node, Topic, Options) when is_atom(Node) andalso is_binary(Topic) ->
@@ -51,7 +51,7 @@ start_bridge(Node, Topic, Options) when is_atom(Node) andalso is_binary(Topic) -
     supervisor:start_child(?MODULE, bridge_spec(Node, Topic, Options1)).
 
 %% @doc Stop a bridge
--spec stop_bridge(atom(), binary()) -> {ok, pid()} | ok.
+-spec(stop_bridge(atom(), binary()) -> {ok, pid()} | ok).
 stop_bridge(Node, Topic) when is_atom(Node) andalso is_binary(Topic) ->
     ChildId = ?BRIDGE_ID(Node, Topic),
     case supervisor:terminate_child(?MODULE, ChildId) of

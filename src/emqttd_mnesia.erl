@@ -36,7 +36,7 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start mnesia database.
--spec start() -> ok.
+-spec(start() -> ok).
 start() ->
     ensure_ok(ensure_data_dir()),
     ensure_ok(init_schema()),
@@ -53,12 +53,12 @@ ensure_data_dir() ->
     end.
 
 %% @doc ensure mnesia started.
--spec ensure_started() -> ok | {error, any()}.
+-spec(ensure_started() -> ok | {error, any()}).
 ensure_started() ->
     ok = mnesia:start(), wait_for(start).
 
 %% @doc ensure mnesia stopped.
--spec ensure_stopped() -> ok | {error, any()}.
+-spec(ensure_stopped() -> ok | {error, any()}).
 ensure_stopped() ->
     stopped = mnesia:stop(), wait_for(stop).
 
@@ -87,16 +87,16 @@ copy_tables() ->
     emqttd_boot:apply_module_attributes(copy_mnesia).
 
 %% @doc Create mnesia table.
--spec create_table(Name:: atom(), TabDef :: list()) -> ok | {error, any()}.
+-spec(create_table(Name:: atom(), TabDef :: list()) -> ok | {error, any()}).
 create_table(Name, TabDef) ->
     ensure_tab(mnesia:create_table(Name, TabDef)).
 
 %% @doc Copy mnesia table.
--spec copy_table(Name :: atom()) -> ok.
+-spec(copy_table(Name :: atom()) -> ok).
 copy_table(Name) ->
     copy_table(Name, ram_copies).
 
--spec copy_table(Name:: atom(), ram_copies | disc_copies) -> ok.
+-spec(copy_table(Name:: atom(), ram_copies | disc_copies) -> ok).
 copy_table(Name, RamOrDisc) ->
     ensure_tab(mnesia:add_table_copy(Name, node(), RamOrDisc)).
 
@@ -127,7 +127,7 @@ del_schema_copy(Node) ->
 %%--------------------------------------------------------------------
 
 %% @doc Join the mnesia cluster
--spec join_cluster(node()) -> ok.
+-spec(join_cluster(node()) -> ok).
 join_cluster(Node) when Node =/= node() ->
     %% Stop mnesia and delete schema first
     ensure_ok(ensure_stopped()),
@@ -141,7 +141,7 @@ join_cluster(Node) when Node =/= node() ->
     ensure_ok(wait_for(tables)).
 
 %% @doc Cluster status
--spec cluster_status() -> list().
+-spec(cluster_status() -> list()).
 cluster_status() ->
     Running = mnesia:system_info(running_db_nodes),
     Stopped = mnesia:system_info(db_nodes) -- Running,
@@ -149,7 +149,7 @@ cluster_status() ->
             [{running_nodes, Running}, {stopped_nodes, Stopped}]).
 
 %% @doc This node try leave the cluster
--spec leave_cluster() -> ok | {error, any()}.
+-spec(leave_cluster() -> ok | {error, any()}).
 leave_cluster() ->
     case running_nodes() -- [node()] of
         [] ->
@@ -166,7 +166,7 @@ leave_cluster() ->
             end
     end.
 
--spec leave_cluster(node()) -> ok | {error, any()}.
+-spec(leave_cluster(node()) -> ok | {error, any()}).
 leave_cluster(Node) when Node =/= node() ->
     case is_running_db_node(Node) of
         true ->
@@ -179,7 +179,7 @@ leave_cluster(Node) when Node =/= node() ->
     end.
 
 %% @doc Remove node from mnesia cluster.
--spec remove_from_cluster(node()) -> ok | {error, any()}.
+-spec(remove_from_cluster(node()) -> ok | {error, any()}).
 remove_from_cluster(Node) when Node =/= node() ->
     case {is_node_in_cluster(Node), is_running_db_node(Node)} of
         {true, true} ->
@@ -203,7 +203,7 @@ is_running_db_node(Node) ->
     lists:member(Node, running_nodes()).
 
 %% @doc Cluster with node.
--spec connect(node()) -> ok | {error, any()}.
+-spec(connect(node()) -> ok | {error, any()}).
 connect(Node) ->
     case mnesia:change_config(extra_db_nodes, [Node]) of
         {ok, [Node]} -> ok;
@@ -212,7 +212,7 @@ connect(Node) ->
     end.
 
 %% @doc Running nodes
--spec running_nodes() -> list(node()).
+-spec(running_nodes() -> list(node())).
 running_nodes() ->
     mnesia:system_info(running_db_nodes).
 
@@ -229,7 +229,7 @@ ensure_tab({aborted, {already_exists, _Name, _Node}})-> ok;
 ensure_tab({aborted, Error})                         -> Error.
 
 %% @doc Wait for mnesia to start, stop or tables ready.
--spec wait_for(start | stop | tables) -> ok | {error, Reason :: atom()}.
+-spec(wait_for(start | stop | tables) -> ok | {error, Reason :: atom()}).
 wait_for(start) ->
     case mnesia:system_info(is_running) of
         yes      -> ok;

@@ -25,7 +25,7 @@
 -export([serialize/1]).
 
 %% @doc Serialise MQTT Packet
--spec serialize(mqtt_packet()) -> binary().
+-spec(serialize(mqtt_packet()) -> binary()).
 serialize(#mqtt_packet{header = Header = #mqtt_packet_header{type = Type},
                        variable = Variable,
                        payload  = Payload}) ->

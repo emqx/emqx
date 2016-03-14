@@ -25,21 +25,21 @@
 %% Supervisor callbacks
 -export([init/1]).
 
--spec spec(list()) -> supervisor:child_spec().
+-spec(spec(list()) -> supervisor:child_spec()).
 spec(Args) ->
     spec(pool_sup, Args).
 
--spec spec(any(), list()) -> supervisor:child_spec().
+-spec(spec(any(), list()) -> supervisor:child_spec()).
 spec(ChildId, Args) ->
     {ChildId, {?MODULE, start_link, Args},
         transient, infinity, supervisor, [?MODULE]}.
 
--spec start_link(atom(), atom(), mfa()) -> {ok, pid()} | {error, any()}.
+-spec(start_link(atom(), atom(), mfa()) -> {ok, pid()} | {error, any()}).
 start_link(Pool, Type, MFA) ->
     Schedulers = erlang:system_info(schedulers),
     start_link(Pool, Type, Schedulers, MFA).
 
--spec start_link(atom(), atom(), pos_integer(), mfa()) -> {ok, pid()} | {error, any()}.
+-spec(start_link(atom(), atom(), pos_integer(), mfa()) -> {ok, pid()} | {error, any()}).
 start_link(Pool, Type, Size, MFA) ->
     supervisor:start_link({local, sup_name(Pool)}, ?MODULE, [Pool, Type, Size, MFA]).
 

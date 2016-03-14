@@ -39,11 +39,11 @@
 %% Application callbacks
 %%--------------------------------------------------------------------
 
--spec start(StartType, StartArgs) -> {ok, pid()} | {ok, pid(), State} | {error, Reason} when
-    StartType :: normal | {takeover, node()} | {failover, node()},
-    StartArgs :: term(),
-    State     :: term(),
-    Reason    :: term().
+-spec(start(StartType, StartArgs) -> {ok, pid()} | {ok, pid(), State} | {error, Reason} when
+      StartType :: normal | {takeover, node()} | {failover, node()},
+      StartArgs :: term(),
+      State     :: term(),
+      Reason    :: term()).
 start(_StartType, _StartArgs) ->
     print_banner(),
     emqttd_mnesia:start(),
@@ -57,7 +57,7 @@ start(_StartType, _StartArgs) ->
     print_vsn(),
     {ok, Sup}.
 
--spec stop(State :: term()) -> term().
+-spec(stop(State :: term()) -> term()).
 stop(_State) ->
     catch stop_listeners().
 
@@ -159,7 +159,7 @@ load_mod({Name, Opts}) ->
     end.
 
 %% @doc Is module enabled?
--spec is_mod_enabled(Name :: atom()) -> boolean().
+-spec(is_mod_enabled(Name :: atom()) -> boolean()).
 is_mod_enabled(Name) -> emqttd:env(modules, Name) =/= undefined.
 
 %%--------------------------------------------------------------------
@@ -167,11 +167,11 @@ is_mod_enabled(Name) -> emqttd:env(modules, Name) =/= undefined.
 %%--------------------------------------------------------------------
 
 %% @doc Start Listeners of the broker.
--spec start_listeners() -> any().
+-spec(start_listeners() -> any()).
 start_listeners() -> lists:foreach(fun start_listener/1, emqttd:env(listeners)).
 
 %% Start mqtt listener
--spec start_listener(listener()) -> any().
+-spec(start_listener(listener()) -> any()).
 start_listener({mqtt, Port, Opts}) -> start_listener(mqtt, Port, Opts);
 
 %% Start mqtt(SSL) listener

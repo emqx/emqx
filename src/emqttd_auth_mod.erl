@@ -50,7 +50,7 @@ behaviour_info(_Other) ->
 -endif.
 
 %% @doc Password Hash
--spec passwd_hash(hash_type(), binary()) -> binary().
+-spec(passwd_hash(hash_type(), binary()) -> binary()).
 passwd_hash(plain,  Password)  ->
     Password;
 passwd_hash(md5,    Password)  ->

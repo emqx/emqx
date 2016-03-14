@@ -91,12 +91,12 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start metrics server
--spec start_link() -> {ok, pid()} | ignore | {error, any()}.
+-spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %% @doc Count packets received.
--spec received(mqtt_packet()) -> ok.
+-spec(received(mqtt_packet()) -> ok).
 received(Packet) ->
     inc('packets/received'),
     received1(Packet).
@@ -134,7 +134,7 @@ qos_received(?QOS_2) ->
     inc('messages/qos2/received').
 
 %% @doc Count packets received. Will not count $SYS PUBLISH.
--spec sent(mqtt_packet()) -> ok.
+-spec(sent(mqtt_packet()) -> ok).
 sent(?PUBLISH_PACKET(_Qos, <<"$SYS/", _/binary>>, _, _)) ->
     ignore;
 sent(Packet) ->
@@ -172,7 +172,7 @@ qos_sent(?QOS_2) ->
     inc('messages/qos2/sent').
 
 %% @doc Get all metrics
--spec all() -> [{atom(), non_neg_integer()}].
+-spec(all() -> [{atom(), non_neg_integer()}]).
 all() ->
     maps:to_list(
         ets:foldl(
@@ -184,17 +184,17 @@ all() ->
             end, #{}, ?METRIC_TAB)).
 
 %% @doc Get metric value
--spec value(atom()) -> non_neg_integer().
+-spec(value(atom()) -> non_neg_integer()).
 value(Metric) ->
     lists:sum(ets:select(?METRIC_TAB, [{{{Metric, '_'}, '$1'}, [], ['$1']}])).
 
 %% @doc Increase counter
--spec inc(atom()) -> non_neg_integer().
+-spec(inc(atom()) -> non_neg_integer()).
 inc(Metric) ->
     inc(counter, Metric, 1).
 
 %% @doc Increase metric value
--spec inc({counter | gauge, atom()} | atom(), pos_integer()) -> non_neg_integer().
+-spec(inc({counter | gauge, atom()} | atom(), pos_integer()) -> non_neg_integer()).
 inc({gauge, Metric}, Val) ->
     inc(gauge, Metric, Val);
 inc({counter, Metric}, Val) ->
@@ -203,19 +203,19 @@ inc(Metric, Val) when is_atom(Metric) ->
     inc(counter, Metric, Val).
 
 %% @doc Increase metric value
--spec inc(counter | gauge, atom(), pos_integer()) -> pos_integer().
+-spec(inc(counter | gauge, atom(), pos_integer()) -> pos_integer()).
 inc(gauge, Metric, Val) ->
     ets:update_counter(?METRIC_TAB, key(gauge, Metric), {2, Val});
 inc(counter, Metric, Val) ->
     ets:update_counter(?METRIC_TAB, key(counter, Metric), {2, Val}).
 
 %% @doc Decrease metric value
--spec dec(gauge, atom()) -> integer().
+-spec(dec(gauge, atom()) -> integer()).
 dec(gauge, Metric) ->
     dec(gauge, Metric, 1).
 
 %% @doc Decrease metric value
--spec dec(gauge, atom(), pos_integer()) -> integer().
+-spec(dec(gauge, atom(), pos_integer()) -> integer()).
 dec(gauge, Metric, Val) ->
     ets:update_counter(?METRIC_TAB, key(gauge, Metric), {2, -Val}).
 

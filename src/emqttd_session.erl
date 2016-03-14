@@ -136,12 +136,12 @@
                         "Session(~s): " ++ Format, [State#session.client_id | Args])).
 
 %% @doc Start a session.
--spec start_link(boolean(), mqtt_client_id(), pid()) -> {ok, pid()} | {error, any()}.
+-spec(start_link(boolean(), mqtt_client_id(), pid()) -> {ok, pid()} | {error, any()}).
 start_link(CleanSess, ClientId, ClientPid) ->
     gen_server2:start_link(?MODULE, [CleanSess, ClientId, ClientPid], []).
 
 %% @doc Resume a session.
--spec resume(pid(), mqtt_client_id(), pid()) -> ok.
+-spec(resume(pid(), mqtt_client_id(), pid()) -> ok).
 resume(SessPid, ClientId, ClientPid) ->
     gen_server2:cast(SessPid, {resume, ClientId, ClientPid}).
 
@@ -150,7 +150,7 @@ info(SessPid) ->
     gen_server2:call(SessPid, info).
 
 %% @doc Destroy a session.
--spec destroy(pid(), mqtt_client_id()) -> ok.
+-spec(destroy(pid(), mqtt_client_id()) -> ok).
 destroy(SessPid, ClientId) ->
     gen_server2:cast(SessPid, {destroy, ClientId}).
 
@@ -159,11 +159,11 @@ destroy(SessPid, ClientId) ->
 %%--------------------------------------------------------------------
 
 %% @doc Subscribe Topics
--spec subscribe(pid(), [{binary(), mqtt_qos()}]) -> ok.
+-spec(subscribe(pid(), [{binary(), mqtt_qos()}]) -> ok).
 subscribe(SessPid, TopicTable) ->
     gen_server2:cast(SessPid, {subscribe, TopicTable, fun(_) -> ok end}).
 
--spec subscribe(pid(), mqtt_packet_id(), [{binary(), mqtt_qos()}]) -> ok.
+-spec(subscribe(pid(), mqtt_packet_id(), [{binary(), mqtt_qos()}]) -> ok).
 subscribe(SessPid, PacketId, TopicTable) ->
     From   = self(),
     AckFun = fun(GrantedQos) ->
@@ -172,7 +172,7 @@ subscribe(SessPid, PacketId, TopicTable) ->
     gen_server2:cast(SessPid, {subscribe, TopicTable, AckFun}).
 
 %% @doc Publish message
--spec publish(pid(), mqtt_message()) -> ok | {error, any()}.
+-spec(publish(pid(), mqtt_message()) -> ok | {error, any()}).
 publish(_SessPid, Msg = #mqtt_message{qos = ?QOS_0}) ->
     %% publish qos0 directly
     emqttd:publish(Msg);
@@ -186,24 +186,24 @@ publish(SessPid, Msg = #mqtt_message{qos = ?QOS_2}) ->
     gen_server2:call(SessPid, {publish, Msg}, ?PUBSUB_TIMEOUT).
 
 %% @doc PubAck message
--spec puback(pid(), mqtt_packet_id()) -> ok.
+-spec(puback(pid(), mqtt_packet_id()) -> ok).
 puback(SessPid, PktId) ->
     gen_server2:cast(SessPid, {puback, PktId}).
 
--spec pubrec(pid(), mqtt_packet_id()) -> ok.
+-spec(pubrec(pid(), mqtt_packet_id()) -> ok).
 pubrec(SessPid, PktId) ->
     gen_server2:cast(SessPid, {pubrec, PktId}).
 
--spec pubrel(pid(), mqtt_packet_id()) -> ok.
+-spec(pubrel(pid(), mqtt_packet_id()) -> ok).
 pubrel(SessPid, PktId) ->
     gen_server2:cast(SessPid, {pubrel, PktId}).
 
--spec pubcomp(pid(), mqtt_packet_id()) -> ok.
+-spec(pubcomp(pid(), mqtt_packet_id()) -> ok).
 pubcomp(SessPid, PktId) ->
     gen_server2:cast(SessPid, {pubcomp, PktId}).
 
 %% @doc Unsubscribe Topics
--spec unsubscribe(pid(), [binary()]) -> ok.
+-spec(unsubscribe(pid(), [binary()]) -> ok).
 unsubscribe(SessPid, Topics) ->
     gen_server2:cast(SessPid, {unsubscribe, Topics}).
 
@@ -319,7 +319,6 @@ handle_cast({subscribe, TopicTable0, AckFun}, Session = #session{client_id     =
             ?LOG(error, "Cannot subscribe: ~p", [TopicTable], Session),
             hibernate(Session)
     end;
-
 
 handle_cast({unsubscribe, Topics0}, Session = #session{client_id     = ClientId,
                                                        subscriptions = Subscriptions}) ->

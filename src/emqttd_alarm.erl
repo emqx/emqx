@@ -54,15 +54,15 @@ alarm_fun(Bool) ->
        (clear, _AlarmId) when Bool =:= false -> alarm_fun(false)
     end.
 
--spec set_alarm(mqtt_alarm()) -> ok.
+-spec(set_alarm(mqtt_alarm()) -> ok).
 set_alarm(Alarm) when is_record(Alarm, mqtt_alarm) ->
     gen_event:notify(?ALARM_MGR, {set_alarm, Alarm}).
 
--spec clear_alarm(any()) -> ok.
+-spec(clear_alarm(any()) -> ok).
 clear_alarm(AlarmId) when is_binary(AlarmId) ->
     gen_event:notify(?ALARM_MGR, {clear_alarm, AlarmId}).
 
--spec get_alarms() -> list(mqtt_alarm()).
+-spec(get_alarms() -> list(mqtt_alarm())).
 get_alarms() ->
     gen_event:call(?ALARM_MGR, ?MODULE, get_alarms).
 

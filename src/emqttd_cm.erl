@@ -44,15 +44,15 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start Client Manager
--spec start_link(Pool, Id, StatsFun) -> {ok, pid()} | ignore | {error, any()} when
-        Pool :: atom(),
-        Id   :: pos_integer(),
-        StatsFun :: fun().
+-spec(start_link(Pool, Id, StatsFun) -> {ok, pid()} | ignore | {error, any()} when
+      Pool :: atom(),
+      Id   :: pos_integer(),
+      StatsFun :: fun()).
 start_link(Pool, Id, StatsFun) ->
     gen_server2:start_link(?MODULE, [Pool, Id, StatsFun], []).
 
 %% @doc Lookup Client by ClientId
--spec lookup(ClientId :: binary()) -> mqtt_client() | undefined.
+-spec(lookup(ClientId :: binary()) -> mqtt_client() | undefined).
 lookup(ClientId) when is_binary(ClientId) ->
     case ets:lookup(mqtt_client, ClientId) of
         [Client] -> Client;
@@ -60,7 +60,7 @@ lookup(ClientId) when is_binary(ClientId) ->
     end.
 
 %% @doc Lookup client pid by clientId
--spec lookup_proc(ClientId :: binary()) -> pid() | undefined.
+-spec(lookup_proc(ClientId :: binary()) -> pid() | undefined).
 lookup_proc(ClientId) when is_binary(ClientId) ->
     try ets:lookup_element(mqtt_client, ClientId, #mqtt_client.client_pid)
     catch
@@ -68,13 +68,13 @@ lookup_proc(ClientId) when is_binary(ClientId) ->
     end.
 
 %% @doc Register ClientId with Pid.
--spec register(Client :: mqtt_client()) -> ok.
+-spec(register(Client :: mqtt_client()) -> ok).
 register(Client = #mqtt_client{client_id = ClientId}) ->
     CmPid = gproc_pool:pick_worker(?POOL, ClientId),
     gen_server2:cast(CmPid, {register, Client}).
 
 %% @doc Unregister clientId with pid.
--spec unregister(ClientId :: binary()) -> ok.
+-spec(unregister(ClientId :: binary()) -> ok).
 unregister(ClientId) when is_binary(ClientId) ->
     CmPid = gproc_pool:pick_worker(?POOL, ClientId),
     gen_server2:cast(CmPid, {unregister, ClientId, self()}).

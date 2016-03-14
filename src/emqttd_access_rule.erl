@@ -85,7 +85,7 @@ bin(B) when is_binary(B) ->
     B.
 
 %% @doc Match Access Rule
--spec match(mqtt_client(), topic(), rule()) -> {matched, allow} | {matched, deny} | nomatch.
+-spec(match(mqtt_client(), topic(), rule()) -> {matched, allow} | {matched, deny} | nomatch).
 match(_Client, _Topic, {AllowDeny, all}) when (AllowDeny =:= allow) orelse (AllowDeny =:= deny) ->
     {matched, AllowDeny};
 match(Client, Topic, {AllowDeny, Who, _PubSub, TopicFilters})
