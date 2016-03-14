@@ -303,13 +303,13 @@ maybe_set_clientid(State) ->
 
 send_willmsg(_ClientId, undefined) ->
     ignore;
-send_willmsg(ClientId, WillMsg) -> 
+send_willmsg(ClientId, WillMsg) ->
     emqttd:publish(WillMsg#mqtt_message{from = ClientId}).
 
 start_keepalive(0) -> ignore;
 
 start_keepalive(Sec) when Sec > 0 ->
-    self() ! {keepalive, start, Sec}.
+    self() ! {keepalive, start, round(Sec * 1.25)}.
 
 %%--------------------------------------------------------------------
 %% Validate Packets
