@@ -2,12 +2,49 @@
 emqttd ChangeLog
 ================
 
-0.17.0-beta(2016-03-12)
+0.17.0-beta(2016-03-15)
 ------------------------
 
-Full Documents released on https://docs.emqtt.com
+#### Highlights
 
-Improve the design of Hook, PubSub and Router
+Installation and Configuration Guide released on http://docs.emqtt.com
+
+Improve and Consolidate the design of Hook, Server, PubSub and Router
+
+Upgrade the [Web Dashboard](https://github.com/emqtt/emqttd_dashboard) to support pagination
+
+Bridge emqttd broker to another emqttd broker & emqttd to mosquitto bridge (#438)
+
+#### Enhancements
+
+emqttd_ctl: better error message (#450)
+
+./bin/emqttd_ctl: add 'routes' command
+
+```
+routes list             # List all routes
+routes show <Topic>     # Show a route
+```
+
+Add 'backend_subscription' table and support static subscriptions (emqttd_backend)
+
+Add 'retained_message' table and refactor emqttd_retainer module (emqttd_backend)
+
+A New Hook and Callback Design (emqttd_hook)
+
+Add PubSub, Hooks APIs to emqttd module (emqttd)
+
+Move start_listeners/0, stop_listeners/0 APIs to emqttd_app module (emqttd_app)
+
+#### BugFix
+
+#### Tests
+
+Add 100+ common test cases.
+
+#### Plugins
+
+Upgrade Dashboard, Redis, Stomp and Template Plugins
 
 
 0.16.0-beta(2016-02-16)
