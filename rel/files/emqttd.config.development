@@ -104,8 +104,8 @@
             %% Statistics Collection Interval(seconds)
             {collect_interval, 20},
 
-            %% Expired after 2 days
-            {expired_after, 48}
+            %% Expired after 2 day (unit: minute)
+            {expired_after, 2880}
 
         ]},
         %% Queue
@@ -176,11 +176,12 @@
 
         %% Subscribe topics automatically when client connected
         {subscription, [
-            %% Static subscriptions from backend
-            backend,
 
             %% $c will be replaced by clientid
-            {"$queue/clients/$c", 1}
+            %% {"$queue/clients/$c", 1},
+
+            %% Static subscriptions from backend
+            backend
         ]}
 
         %% Rewrite rules
