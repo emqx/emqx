@@ -2,6 +2,18 @@
 emqttd ChangeLog
 ================
 
+0.17.1-beta(2016-03-22)
+------------------------
+
+### Enhancements
+
+Time unit of session 'expired_after' changed to minute. (#479) 
+
+### Dashboard
+
+Code Review and improve the design of Dashboard.
+
+
 0.17.0-beta(2016-03-15)
 ------------------------
 
