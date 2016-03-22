@@ -7,7 +7,7 @@ emqttd ChangeLog
 
 ### Enhancements
 
-Time unit of session 'expired_after' changed to minute. (#479) 
+Time unit of session 'expired_after' changed to minute. (#479)
 
 ### Dashboard
 
