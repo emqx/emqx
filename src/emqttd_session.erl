@@ -230,7 +230,7 @@ init([CleanSess, ClientId, ClientPid]) ->
             retry_interval    = get_value(unack_retry_interval, SessEnv),
             await_rel_timeout = get_value(await_rel_timeout, SessEnv),
             max_awaiting_rel  = get_value(max_awaiting_rel, SessEnv),
-            expired_after     = get_value(expired_after, SessEnv) * 3600,
+            expired_after     = get_value(expired_after, SessEnv) * 60,
             collect_interval  = get_value(collect_interval, SessEnv, 0),
             timestamp         = os:timestamp()},
     emqttd_sm:register_session(CleanSess, ClientId, sess_info(Session)),

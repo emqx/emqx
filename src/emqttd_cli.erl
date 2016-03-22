@@ -40,7 +40,7 @@
                         stack_size,
                         reductions]).
 
--define(MAX_LINES, 10000).
+-define(MAX_LIMIT, 10000).
 
 -define(APP, emqttd).
 
@@ -266,7 +266,7 @@ subscriptions(_) ->
 
 if_could_print(Tab, Fun) ->
     case mnesia:table_info(Tab, size) of
-        Size when Size >= ?MAX_LINES ->
+        Size when Size >= ?MAX_LIMIT ->
             ?PRINT("Could not list, too many ~ss: ~p~n", [Tab, Size]);
         _Size ->
             Keys = mnesia:dirty_all_keys(Tab),
