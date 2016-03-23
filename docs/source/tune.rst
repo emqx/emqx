@@ -44,12 +44,12 @@ Network Tuning
 Increase number of incoming connections backlog::
 
     sysctl -w net.core.somaxconn=32768
-    net.ipv4.tcp_max_syn_backlog=16384
+    sysctl -w net.ipv4.tcp_max_syn_backlog=16384
     sysctl -w net.core.netdev_max_backlog=16384
 
 Local Port Range::
 
-    sysctl -w net.ipv4.ip_local_port_range=1000 65535
+    sysctl -w net.ipv4.ip_local_port_range="1000 65535"
 
 Read/Write Buffer for TCP connections::
 
