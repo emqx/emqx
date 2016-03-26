@@ -139,7 +139,7 @@ handle_cast(Msg, State) ->
 handle_info(heartbeat, State) ->
     publish(uptime, list_to_binary(uptime(State))),
     publish(datetime, list_to_binary(datetime())),
-    {noreply, State};
+    {noreply, State, hibernate};
 
 handle_info(tick, State) ->
     retain(brokers),

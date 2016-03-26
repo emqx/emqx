@@ -127,7 +127,7 @@ handle_info({monitor, SusPid, busy_dist_port, Port}, State) ->
     end, State);
 
 handle_info(reset, State) ->
-    {noreply, State#state{events = []}};
+    {noreply, State#state{events = []}, hibernate};
 
 handle_info(Info, State) ->
     ?UNEXPECTED_INFO(Info, State).
