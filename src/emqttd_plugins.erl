@@ -101,7 +101,7 @@ plugin(PluginsDir, AppFile0) ->
     Descr = proplists:get_value(description, Attrs, ""),
     #mqtt_plugin{name = Name, version = Ver, config = AppsEnv1, descr = Descr}.
 
-%% @doc Load One Plugin
+%% @doc Load a Plugin
 -spec(load(atom()) -> ok | {error, any()}).
 load(PluginName) when is_atom(PluginName) ->
     case lists:member(PluginName, names(started_app)) of
@@ -161,7 +161,7 @@ find_plugin(Name) ->
 find_plugin(Name, Plugins) ->
     lists:keyfind(Name, 2, Plugins). 
 
-%% @doc UnLoad One Plugin
+%% @doc UnLoad a Plugin
 -spec(unload(atom()) -> ok | {error, any()}).
 unload(PluginName) when is_atom(PluginName) ->
     case {lists:member(PluginName, names(started_app)), lists:member(PluginName, names(plugin))} of
