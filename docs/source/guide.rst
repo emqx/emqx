@@ -450,7 +450,7 @@ MQTT(SSL) Listener, Default Port is 8883::
 HTTP Publish API
 ----------------
 
-The emqttd broker provides a HTTP API to help application servers to publish messages to MQTT clients.
+The emqttd broker provides a HTTP API to help application servers publish messages to MQTT clients.
 
 HTTP API: POST http://host:8083/mqtt/publish
 

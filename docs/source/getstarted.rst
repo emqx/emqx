@@ -55,11 +55,11 @@ Quick Start
 Download and Install
 --------------------
 
-The emqttd broker is cross-platform, could be deployed on Linux, Mac, FreeBSD, Windows and Raspberry Pi.
+The emqttd broker is cross-platform, which could be deployed on Linux, FreeBSD, Mac, Windows and even Raspberry Pi.
 
 Download binary package from: http://emqtt.io/downloads.
 
-Installing on Mac, For example:
+Installing on Mac, for example:
 
 .. code:: console
 

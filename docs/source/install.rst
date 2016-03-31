@@ -1,17 +1,21 @@
 
-=======================
-Installation
-=======================
+.. _install:
 
-emqttd broker is cross-platform, could deploy on Linux, FreeBSD, Mac OS X and Windows.
+============
+Installation
+============
+
+The emqttd broker is cross-platform, which could be deployed on Linux, FreeBSD, Mac, Windows and even Raspberry Pi.
 
 .. NOTE::
 
     Linux, FreeBSD Recommended.
 
------------------
-Download  Package
------------------
+.. _install_download:
+
+----------------
+Download Package
+----------------
 
 Download binary package from: http://emqtt.io/downloads
 
@@ -31,6 +35,8 @@ The package name consists of platform, version and release time.
 
 For example: emqttd-centos64-0.16.0-beta-20160216.zip
 
+.. _install_on_linux:
+
 --------------------
 Installing on Linux
 --------------------
@@ -47,7 +53,7 @@ Start the broker in console mode::
 
     cd emqttd && ./bin/emqttd console
 
-If the broker started successfully, console will print:
+If the broker is started successfully, console will print:
 
 .. code:: console
 
@@ -102,6 +108,7 @@ Stop the broker::
 
     ./bin/emqttd stop
 
+.. _install_on_freebsd:
 
 ---------------------
 Installing on FreeBSD
@@ -111,6 +118,7 @@ Download FreeBSD Package from: http://emqtt.io/downloads/freebsd
 
 The installing process is same to Linux.
 
+.. _install_on_mac:
 
 ----------------------
 Installing on Mac OS X
@@ -133,6 +141,8 @@ Configure 'lager' log level in 'etc/emqttd.config', all MQTT messages recevied/s
     ]},
 
 The install and boot process on Mac are same to Linux.
+
+.. _install_on_windows:
 
 ---------------------
 Installing on Windows
@@ -168,6 +178,8 @@ Uninstall emqttd service::
 
 .. WARNING:: './bin/emqttd_ctl' command line cannot work on Windows.
 
+.. _build_from_source:
+
 ----------------------
 Installing From Source
 ----------------------
@@ -193,6 +205,8 @@ When all dependencies are ready, clone the emqttd project from github.com and bu
 The binary package output in folder::
 
     rel/emqttd
+
+.. _tcp_ports:
 
 ------------------
 TCP Ports Occupied
@@ -227,6 +241,8 @@ The TCP ports could be configured in etc/emqttd.config:
     ]},
 
 The 18083 port is used by Web Dashboard of the broker. Default login: admin, Password: public
+
+.. _quick_setup:
 
 -----------
 Quick Setup
@@ -272,6 +288,7 @@ etc/emqttd.config文件listeners段落设置最大允许连接数:
 
 emqttd消息服务器详细设置，请参见文档: :ref:`config`
 
+.. _init_d_emqttd:
 
 -------------------
 /etc/init.d/emqttd
