@@ -177,7 +177,11 @@ For example, if node1 subscribed 't/+/x' and 't/+/y', node2 subscribed 't/#' and
     | t/a   -> node3        |
     -------------------------
 
-The routing layer would route MQTT messages between clustered nodes by topic trie match and routing table lookup, and follow the rules below:
+The routing layer would route MQTT messages between clustered nodes by topic trie match and routing table lookup:
+
+.. image:: _static/images/route.png
+
+The routing design follows the two rules:
 
 1. A message only gets forwarded to other cluster nodes if a cluster node is interested in it. This reduces the network traffic tremendously, because it prevents nodes from forwarding unnecessary messages.
 
