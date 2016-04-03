@@ -48,6 +48,7 @@ Contents:
    cluster
    bridge
    guide
+   design
    commands
    plugins
    tune
