@@ -13,11 +13,11 @@ The emqttd broker is cross-platform, which could be deployed on Linux, FreeBSD, 
 
 .. _install_download:
 
-----------------
-Download Package
-----------------
+-----------------
+Download Packages
+-----------------
 
-Download binary package from: http://emqtt.io/downloads
+Download binary packages from: http://emqtt.io/downloads
 
 +-----------+-----------------------------------+
 | Ubuntu    | http://emqtt.io/downloads/ubuntu  |
