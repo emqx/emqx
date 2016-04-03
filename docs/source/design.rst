@@ -1,330 +1,471 @@
-==============
+
+.. _design:
+
+============
 Design Guide
-==============
+============
 
----------------
-Pubsub Sequence
----------------
+.. _design_architecture:
 
-## PubSub Sequence
+------------
+Architecture
+------------
 
-### Clean Session = 1
+The emqttd broker 1.0 is more like a network Switch or Router, not a traditional enterprise message queue. Compared to a network router that routes packets based on IP or MPLS label, the emqttd broker routes MQTT messages based on topic trie.
 
-```
+.. image:: _static/images/concept.png
 
-title PubSub Sequence(Clean Session = 1)
+Design Philosophy
+-----------------
 
-ClientA-->PubSub: Publish Message
-PubSub-->ClientB: Dispatch Message
-```
+1. Focus on handling millions of MQTT connections and routing MQTT messages between clustered nodes.
 
-![PubSub_CleanSess_1](http://emqtt.io/static/img/design/PubSub_CleanSess_1.png)
+2. Embrace Erlang/OTP, The Soft-Realtime, Low-Latency, Concurrent and Fault-Tolerant Platform.
 
-### Clean Session = 0
+3. Layered Design: Connection, Session, PubSub and Router Layers.
 
-```
-title PubSub Sequence(Clean Session = 0)
+4. Separate the Message Flow Plane and the Control/Management Plane.
 
-ClientA-->SessionA: Publish Message
-SessionA-->PubSub: Publish Message
-PubSub-->SessionB: Dispatch Message
-SessionB-->ClientB: Dispatch Message
+5. Stream MQTT messages to various backends including MQ or databases.
 
-```
-![PubSub_CleanSess_0](http://emqtt.io/static/img/design/PubSub_CleanSess_0.png)
+System Layers
+-------------
 
+1. Connection Layer
+   
+   Handle TCP and WebSocket connections, encode/decode MQTT packets.
 
-## Qos
+2. Session Layer
+   
+   Process MQTT PUBLISH/SUBSCRIBE Packets received from client, and deliver MQTT messages to client.
+   
+3. PubSub Layer
+   
+   Dispatch MQTT messages to subscribers in a node.
 
-PubQos | SubQos | In Message | Out Message
--------|--------|------------|-------------
-0   |   0    |   0        | 0
-0   |   1    |   0        | 0
-0   |   2    |   0        | 0
-1   |   0    |   1        | 0
-1   |   1    |   1        | 1
-1   |   2    |   1        | 1
-2   |   0    |   2        | 0
-2   |   1    |   2        | 1
-2   |   2    |   2        | 2
+4. Routing(Distributed) Layer
+   
+   Route MQTT messages among clustered nodes.
 
+----------------
+Connection Layer
+----------------
 
-## Topic Functions Benchmark
+This layer is built on the `eSockd`_ library which is a general Non-blocking TCP/SSL Socket Server:
 
-Mac Air(11):
+* Acceptor Pool and Asynchronous TCP Accept
+* Parameterized Connection Module
+* Max connections management
+* Allow/Deny by peer address or CIDR
+* Keepalive Support
+* Rate Limit based on The Leaky Bucket Algorithm
+* Fully Asynchronous TCP RECV/SEND
 
-Function     | Time(microseconds)
--------------|--------------------
-match        | 6.25086
-triples      | 13.86881
-words        | 3.41177
-binary:split | 3.03776
+This layer is also responsible for encoding/decoding MQTT frames:
 
-iMac:
+1. Parse MQTT frames received from client
+2. Serialize MQTT frames sent to client
+3. MQTT Connection Keepalive
 
-Function     | Time(microseconds)
--------------|--------------------
-match        | 3.2348
-triples      | 6.93524
-words        | 1.89616
-binary:split | 1.65243
+Main erlang modules of this layer:
 
-
---------------
-Cluster Design
---------------
-
-## Cluster Design
-
-1. One 'disc_copies' node and many 'ram_copies' nodes.
-
-   2. Topic trie tree will be copied to every clusterd node.
-
-   3. Subscribers to topic will be stored in each node and will not be copied.
-
-   ## Cluster Strategy
-
-   TODO:...
-
-   1. A message only gets forwarded to other cluster nodes if a cluster node is interested in it. this reduces the network traffic tremendously, because it prevents nodes from forwarding unnecessary messages.
-
-   2. As soon as a client on a node subscribes to a topic it becomes known within the cluster. If one of the clients somewhere in the cluster is publishing to this topic, the message will be delivered to its subscriber no matter to which cluster node it is connected.
-
-   ....
-
-## Cluster Architecture
-
-![Cluster Design](http://emqtt.io/static/img/Cluster.png)
-## Cluster Command
-
-```sh
-./bin/emqttd_ctl cluster DiscNode
-```
-
-## Mnesia Example
-
-```
-(emqttd3@127.0.0.1)3> mnesia:info().
----> Processes holding locks <---
----> Processes waiting for locks <---
----> Participant transactions <---
----> Coordinator transactions <---
----> Uncertain transactions <---
----> Active tables <---
-mqtt_retained : with 6 records occupying 221 words of mem
-topic_subscriber: with 0 records occupying 305 words of mem
-topic_trie_node: with 129 records occupying 3195 words of mem
-topic_trie : with 128 records occupying 3986 words of mem
-topic : with 93 records occupying 1797 words of mem
-schema : with 6 records occupying 1081 words of mem
-===> System info in version "4.12.4", debug level = none <===
-opt_disc. Directory "/Users/erylee/Projects/emqttd/rel/emqttd3/data/mnesia" is NOT used.
-use fallback at restart = false
-running db nodes = ['emqttd2@127.0.0.1','emqttd@127.0.0.1','emqttd3@127.0.0.1']
-stopped db nodes = []
-master node tables = []
-remote = []
-ram_copies = [mqtt_retained,schema,topic,topic_subscriber,topic_trie,
-topic_trie_node]
-disc_copies = []
-disc_only_copies = []
-[{'emqttd2@127.0.0.1',ram_copies},
-{'emqttd3@127.0.0.1',ram_copies},
-{'emqttd@127.0.0.1',disc_copies}] = [schema]
-[{'emqttd2@127.0.0.1',ram_copies},
-{'emqttd3@127.0.0.1',ram_copies},
-{'emqttd@127.0.0.1',ram_copies}] = [topic,topic_trie,topic_trie_node,
-mqtt_retained]
-[{'emqttd3@127.0.0.1',ram_copies}] = [topic_subscriber]
-44 transactions committed, 5 aborted, 0 restarted, 0 logged to disc
-   0 held locks, 0 in queue; 0 local transactions, 0 remote
-   0 transactions waits for other nodes: []
-   ```
-
-   ## Cluster vs Bridge
-
-   Cluster will copy topic trie tree between nodes, Bridge will not.
-
-
++------------------+--------------------------+
+| Module           | Description              |
++==================+==========================+
+| emqttd_client    | TCP Client               |
++------------------+--------------------------+
+| emqttd_ws_client | WebSocket Client         |
++------------------+--------------------------+
+| emqttd_protocol  | MQTT Protocol Handler    |
++------------------+--------------------------+
+| emqttd_parser    | MQTT Frame Parser        |
++------------------+--------------------------+
+| emqttd_serializer| MQTT Frame Serializer    |
++------------------+--------------------------+
 
 -------------
+Session Layer
+-------------
+
+The session layer processes MQTT packets received from client and delivers PUBLISH packets to client.
+
+A MQTT session will store the subscriptions and inflight messages in memory:
+
+1. The Client’s subscriptions.
+
+2. Inflight qos1/2 messages sent to the client but unacked, QoS 2 messages which 
+   have been sent to the Client, but have not been completely acknowledged.
+
+3. Inflight qos2 messages received from client and waiting for PUBREL. QoS 2
+   messages which have been received from the Client, but have not been
+   completely acknowledged.
+
+4. All qos1, qos2 messages published to when client is disconnected.
+
+MQueue and Inflight Window
+--------------------------
+
+Concept of Message Queue and Inflight Window::
+
+          |<----------------- Max Len ----------------->|
+          -----------------------------------------------
+    IN -> |     Messages Queue    |  Inflight Window    | -> Out
+          -----------------------------------------------
+                                  |<---   Win Size  --->|
+
+1. Inflight Window to store the messages delivered and await for PUBACK.
+
+2. Enqueue messages when the inflight window is full.
+
+3. If the queue is full, drop qos0 messages if store_qos0 is true, otherwise drop the oldest one.
+
+The larger the inflight window size is, the higher the throughput is. The smaller the window size is, the more strict the message order is.
+
+PacketId and MessageId
+----------------------
+
+The 16-bit PacketId is defined by MQTT Protocol Specification, used by client/server to PUBLISH/PUBACK packets. A GUID(128-bit globally unique Id) will be generated by the broker and assigned to a MQTT message.
+
+Format of the globally unique message id::
+
+    --------------------------------------------------------
+    |        Timestamp       |  NodeID + PID  |  Sequence  |
+    |<------- 64bits ------->|<--- 48bits --->|<- 16bits ->|
+    --------------------------------------------------------
+
+1. Timestamp: erlang:system_time if Erlang >= R18, otherwise os:timestamp
+2. NodeId:    encode node() to 2 bytes integer
+3. Pid:       encode pid to 4 bytes integer
+4. Sequence:  2 bytes sequence in one process
+
+The PacketId and MessageId in a End-to-End Message PubSub Sequence::
+
+    PktId <-- Session --> MsgId <-- Router --> MsgId <-- Session --> PktId
+
+------------
+PubSub Layer
+------------
+
+The PubSub layer maintains a subscription table and is responsible to dispatch MQTT messages to subscribers.
+
+.. image:: _static/images/dispatch.png
+
+MQTT messages will be dispatched to the subscriber's session, which finally delivers the messages to client.
+
+-------------
+Routing Layer
+-------------
+
+The routing(distributed) layer maintains and replicates the global Topic Trie and Routing Table. The topic tire is composed of wildcard topics created by subscribers. The Routing Table maps a topic to nodes in the cluster.
+
+For example, if node1 subscribed 't/+/x' and 't/+/y', node2 subscribed 't/#' and node3 subscribed 't/a', there will be a topic trie and route table::
+
+    -------------------------
+    |            t          |
+    |           / \         |
+    |          +   #        |
+    |        /  \           |
+    |      x      y         |
+    -------------------------
+    | t/+/x -> node1, node3 |
+    | t/+/y -> node1        |
+    | t/#   -> node2        |
+    | t/a   -> node3        |
+    -------------------------
+
+The routing layer would route MQTT messages among clustered nodes by topic trie match and routing table lookup:
+
+.. image:: _static/images/route.png
+
+The routing design follows two rules:
+
+1. A message only gets forwarded to other cluster nodes if a cluster node is interested in it. This reduces the network traffic tremendously, because it prevents nodes from forwarding unnecessary messages.
+
+2. As soon as a client on a node subscribes to a topic it becomes known within the cluster. If one of the clients somewhere in the cluster is publishing to this topic, the message will be delivered to its subscriber no matter to which cluster node it is connected.
+
+.. _design_auth_acl:
+
+----------------------
+Authentication and ACL
+----------------------
+
+The emqttd broker supports an extensible authentication/ACL mechanism, which is implemented by emqttd_access_control, emqttd_auth_mod and emqttd_acl_mod modules.
+
+emqttd_access_control module provides two APIs that help register/unregister auth or ACL module::
+
+    register_mod(auth | acl, atom(), list()) -> ok | {error, any()}.
+
+    register_mod(auth | acl, atom(), list(), non_neg_integer()) -> ok | {error, any()}.
+
+Authentication Bahaviour
+-------------------------
+
+The emqttd_auth_mod defines an Erlang behaviour for authentication module::
+
+    -module(emqttd_auth_mod).
+
+    -ifdef(use_specs).
+
+    -callback init(AuthOpts :: list()) -> {ok, State :: any()}.
+
+    -callback check(Client, Password, State) -> ok | ignore | {error, string()} when
+        Client    :: mqtt_client(),
+        Password  :: binary(),
+        State     :: any().
+
+    -callback description() -> string().
+
+    -else.
+
+    -export([behaviour_info/1]).
+
+    behaviour_info(callbacks) ->
+        [{init, 1}, {check, 3}, {description, 0}];
+    behaviour_info(_Other) ->
+        undefined.
+
+    -endif.
+
+The authentication modules implemented by default:
+
++-----------------------+--------------------------------+
+| Module                | Authentication                 |
++-----------------------+--------------------------------+
+| emqttd_auth_username  | Username and Password          |
++-----------------------+--------------------------------+
+| emqttd_auth_clientid  | ClientID                       |
++-----------------------+--------------------------------+
+| emqttd_auth_ldap      | LDAP                           |
++-----------------------+--------------------------------+
+| emqttd_auth_anonymous | Anonymous                      |
++-----------------------+--------------------------------+
+
+Authorization(ACL)
+------------------
+
+The emqttd_acl_mod defines an Erlang behavihour for ACL module::
+
+    -module(emqttd_acl_mod).
+
+    -include("emqttd.hrl").
+
+    -ifdef(use_specs).
+
+    -callback init(AclOpts :: list()) -> {ok, State :: any()}.
+
+    -callback check_acl({Client, PubSub, Topic}, State :: any()) -> allow | deny | ignore when
+        Client   :: mqtt_client(),
+        PubSub   :: pubsub(),
+        Topic    :: binary().
+
+    -callback reload_acl(State :: any()) -> ok | {error, any()}.
+
+    -callback description() -> string().
+
+    -else.
+
+    -export([behaviour_info/1]).
+
+    behaviour_info(callbacks) ->
+        [{init, 1}, {check_acl, 2}, {reload_acl, 1}, {description, 0}];
+    behaviour_info(_Other) ->
+        undefined.
+
+    -endif.
+
+emqttd_acl_internal implements the default ACL based on etc/acl.config file::
+
+    %%%-----------------------------------------------------------------------------
+    %%%
+    %%% -type who() :: all | binary() |
+    %%%                {ipaddr, esockd_access:cidr()} |
+    %%%                {client, binary()} |
+    %%%                {user, binary()}.
+    %%%
+    %%% -type access() :: subscribe | publish | pubsub.
+    %%%
+    %%% -type topic() :: binary().
+    %%%
+    %%% -type rule() :: {allow, all} |
+    %%%                 {allow, who(), access(), list(topic())} |
+    %%%                 {deny, all} |
+    %%%                 {deny, who(), access(), list(topic())}.
+    %%%
+    %%%-----------------------------------------------------------------------------
+
+    {allow, {user, "dashboard"}, subscribe, ["$SYS/#"]}.
+
+    {allow, {ipaddr, "127.0.0.1"}, pubsub, ["$SYS/#", "#"]}.
+
+    {deny, all, subscribe, ["$SYS/#", {eq, "#"}]}.
+
+    {allow, all}.
+
+.. _design_hook:
+
+------------
 Hooks Design
+------------
+
+The emqttd broker implements a simple but powerful hooks mechanism to help users develop plugin. The broker would run the hooks when a client is connected/disconnected, a topic is subscribed/unsubscribed or a MQTT message is published/delivered/acked.
+
+Hooks defined by the emqttd 1.0 broker:
+
++------------------------+------------------------------------------------------+
+| Hook                   | Description                                          |
++========================+======================================================+
+| client.connected       | Run when client connected to the broker successfully |
++------------------------+------------------------------------------------------+
+| client.subscribe       | Run before client subscribes topics                  |
++------------------------+------------------------------------------------------+
+| client.subscribe.after | Run After client subscribed topics                   |
++------------------------+------------------------------------------------------+
+| client.unsubscribe     | Run when client unsubscribes topics                  |
++------------------------+------------------------------------------------------+
+| message.publish        | Run when a MQTT message is published                 |
++------------------------+------------------------------------------------------+
+| message.delivered      | Run when a MQTT message is delivered                 |
++------------------------+------------------------------------------------------+
+| message.acked          | Run when a MQTT message is acked                     |
++------------------------+------------------------------------------------------+
+| client.disconnected    | Run when client disconnected from broker             |
++------------------------+------------------------------------------------------+
+
+The emqttd broker uses the `Chain-of-responsibility_pattern`_ to implement hook mechanism. The callback functions registered to hook will be executed one by one::
+
+                     --------  ok | {ok, NewAcc}   --------  ok | {ok, NewAcc}   --------
+     (Args, Acc) --> | Fun1 | -------------------> | Fun2 | -------------------> | Fun3 | --> {ok, Acc} | {stop, Acc}
+                     --------                      --------                      --------
+                        |                             |                             |
+                   stop | {stop, NewAcc}         stop | {stop, NewAcc}         stop | {stop, NewAcc}
+
+The callback function for a hook should return:
+
++-----------------+------------------------+
+| Return          | Description            |
++=================+========================+
+| ok              | Continue               |
++-----------------+------------------------+
+| {ok, NewAcc}    | Return Acc and Continue|
++-----------------+------------------------+
+| stop            | Break                  |
++-----------------+------------------------+
+| {stop, NewAcc}  | Return Acc and Break   |
++-----------------+------------------------+
+
+The input arguments for a callback function are depending on the types of hook. Clone the `emqttd_plugin_template`_ project to check the argument in detail.
+
+Hook Implementation
+-------------------
+
+The hook APIs defined in emqttd module:
+
+.. code:: erlang
+
+    -module(emqttd).
+
+    %% Hooks API
+    -export([hook/4, hook/3, unhook/2, run_hooks/3]).
+    hook(Hook :: atom(), Callback :: function(), InitArgs :: list(any())) -> ok | {error, any()}.
+
+    hook(Hook :: atom(), Callback :: function(), InitArgs :: list(any()), Priority :: integer()) -> ok | {error, any()}.
+
+    unhook(Hook :: atom(), Callback :: function()) -> ok | {error, any()}.
+
+    run_hooks(Hook :: atom(), Args :: list(any()), Acc :: any()) -> {ok | stop, any()}.
+
+And implemented in emqttd_hook module:
+
+.. code:: erlang
+
+    -module(emqttd_hook).
+
+    %% Hooks API
+    -export([add/3, add/4, delete/2, run/3, lookup/1]).
+
+    add(HookPoint :: atom(), Callback :: function(), InitArgs :: list(any())) -> ok.
+
+    add(HookPoint :: atom(), Callback :: function(), InitArgs :: list(any()), Priority :: integer()) -> ok.
+
+    delete(HookPoint :: atom(), Callback :: function()) -> ok.
+
+    run(HookPoint :: atom(), Args :: list(any()), Acc :: any()) -> any().
+
+    lookup(HookPoint :: atom()) -> [#callback{}].
+
+Hook Usage
+----------
+
+The `emqttd_plugin_template`_ project provides the examples for hook usage:
+
+.. code:: erlang
+
+    -module(emqttd_plugin_template).
+
+    -export([load/1, unload/0]).
+    
+    -export([on_message_publish/2, on_message_delivered/3, on_message_acked/3]).
+
+    load(Env) ->
+        emqttd:hook('message.publish', fun ?MODULE:on_message_publish/2, [Env]),
+        emqttd:hook('message.delivered', fun ?MODULE:on_message_delivered/3, [Env]),
+        emqttd:hook('message.acked', fun ?MODULE:on_message_acked/3, [Env]).
+
+    on_message_publish(Message, _Env) ->
+        io:format("publish ~s~n", [emqttd_message:format(Message)]),
+        {ok, Message}.
+
+    on_message_delivered(ClientId, Message, _Env) ->
+        io:format("delivered to client ~s: ~s~n", [ClientId, emqttd_message:format(Message)]),
+        {ok, Message}.
+
+    on_message_acked(ClientId, Message, _Env) ->
+        io:format("client ~s acked: ~s~n", [ClientId, emqttd_message:format(Message)]),
+        {ok, Message}.
+
+    unload() ->
+        emqttd:unhook('message.publish', fun ?MODULE:on_message_publish/2),
+        emqttd:unhook('message.acked', fun ?MODULE:on_message_acked/3),
+        emqttd:unhook('message.delivered', fun ?MODULE:on_message_delivered/3).
+
+.. _design_plugin:
+
+-------------
+Plugin Design
 -------------
 
-## Overview 
+Plugin is a normal erlang application that can be started/stopped dynamically by a running emqttd broker.
 
-emqttd supported a simple hooks mechanism in 0.8.0 release to extend the broker. The designed is improved in 0.9.0 release.
+emqttd_plugins Module
+---------------------
 
-## API
+The plugin mechanism is implemented by emqttd_plugins module::
 
-emqttd_broker Hook API:
+    -module(emqttd_plugins).
 
-```
--export([hook/3, unhook/2, foreach_hooks/2, foldl_hooks/3]).
-```
+    -export([load/1, unload/1]).
 
-### Hook 
+    %% @doc Load a Plugin
+    load(PluginName :: atom()) -> ok | {error, any()}.
 
-``` 
--spec hook(Hook :: atom(), Name :: any(), MFA :: mfa()) -> ok | {error, any()}.
-hook(Hook, Name, MFA) ->
-    ...
-    ```
+    %% @doc UnLoad a Plugin
+    unload(PluginName :: atom()) -> ok | {error, any()}.
 
- ### Unhook
+Load a Plugin
+-------------
 
- ```
- -spec unhook(Hook :: atom(), Name :: any()) -> ok | {error, any()}.
- unhook(Hook, Name) ->
-     ...
-     ```
+Use './bin/emqttd_ctl' CLI to load/unload a plugin::
 
-  ### Foreach Hooks
+    ./bin/emqttd_ctl plugins load emqttd_plugin_redis
 
-  ```
-  -spec foreach_hooks(Hook :: atom(), Args :: list()) -> any().
-  foreach_hooks(Hook, Args) ->
-      ...
-      ```
+    ./bin/emqttd_ctl plugins unload emqttd_plugin_redis
 
-   ### Foldl Hooks
+Plugin Template
+---------------
 
-   ```
-   -spec foldl_hooks(Hook :: atom(), Args :: list(), Acc0 :: any()) -> any().
-   foldl_hooks(Hook, Args, Acc0) ->
-       ...
-       ```
+http://github.com/emqtt/emqttd_plugin_template
 
-    ## Hooks 
-
-    Name             | Type      | Description
-    ---------------  | ----------| --------------
-    client.connected | foreach   | Run when client connected successfully
-    client.subscribe | foldl     | Run before client subscribe topics
-    client.subscribe.after | foreach | Run After client subscribe topics
-    client.unsubscribe | foldl   | Run when client unsubscribe topics
-    message.publish   | foldl     | Run when message is published
-    message.acked   | foreach     | Run when message is acked
-    client.disconnected | foreach | Run when client is disconnnected
-
-    ## End-to-End Message Pub/Ack
-
-    Could use 'message.publish', 'message.acked' hooks to implement end-to-end message pub/ack:
-
-    ```
-     PktId <-- --> MsgId <-- --> MsgId <-- --> PktId
-          |<--- Qos --->|<---PubSub--->|<-- Qos -->|
-          ```
-## Limit
-
-The design is experimental.
-
-
---------------
-Plugin Design
---------------
-
-## Overview
-
-**Notice that 0.11.0 release use rebar to manage plugin's deps.**
-
-A plugin is just an erlang application that extends emqttd broker.
-
-The plugin application should be put in "emqttd/plugins/" folder to build. 
-
-
-## Plugin Project
-
-You could create a standalone plugin project outside emqttd, and then add it to "emqttd/plugins/" folder by "git submodule". 
-
-Git submodule to compile emqttd_dashboard plugin with the broker, For example:
-
-```
-git submodule add https://github.com/emqtt/emqttd_dashboard.git plugins/emqttd_dashboard
-make && make dist
-```
-
-## plugin.config
-
-**Each plugin should have a 'etc/plugin.config' file**
-
-For example, project structure of emqttd_dashboard plugin:
-
-```
-LICENSE
-README.md
-ebin
-etc
-priv
-rebar.config
-src
-```
-
-etc/plugin.config for emqttd_dashboard plugin:
-
-```
-[
-{emqttd_dashboard, [
-{listener,
-{emqttd_dashboard, 18083, [
-{acceptors, 4},
-{max_clients, 512}]}}
-]}
-].
-```
-
-## rebar.config
-
-**Plugin should use 'rebar.config' to manage depencies**
-
-emqttd_plugin_pgsql plugin's rebar.config, for example:
-
-```
-%% -*- erlang -*-
-
-{deps, [
-{epgsql, ".*",{git, "https://github.com/epgsql/epgsql.git", {branch, "master"}}}
-]}.
-```
-
-## Build emqttd with plugins
-
-Put all the plugins you required in 'plugins/' folder of emqttd project, and then:
-
-```
-make && make dist
-```
-
-## Load Plugin
-
-'./bin/emqttd_ctl' to load/unload plugin, when emqttd broker started.
-
-```
-./bin/emqttd_ctl plugins load emqttd_plugin_demo
-
-./bin/emqttd_ctl plugins unload emqttd_plugin_demo
-```
-
-## List Plugins
-
-```
-./bin/emqttd_ctl plugins list
-```
-
-## API
-
-```
-%% Load all active plugins after broker started
-emqttd_plugins:load() 
-
-%% Load new plugin
-emqttd_plugins:load(Name)
-
-%% Unload all active plugins before broker stopped
-emqttd_plugins:unload()
-
-%% Unload a plugin
-emqttd_plugins:unload(Name)
-```
-
+.. _eSockd: https://github.com/emqtt/esockd
+.. _Chain-of-responsibility_pattern: https://en.wikipedia.org/wiki/Chain-of-responsibility_pattern
+.. _emqttd_plugin_template: https://github.com/emqtt/emqttd_plugin_template/blob/master/src/emqttd_plugin_template.erl
 

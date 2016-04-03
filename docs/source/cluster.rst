@@ -236,12 +236,32 @@ If a persistent MQTT client connected to node1 first, then disconnected and conn
      client-->| connection |<--|
               --------------
 
-----------------
-Notice: NetSplit
-----------------
+------------
+The Firewall
+------------
 
-The emqttd cluster does not support deployment across IDC, and the cluster will not handle NetSplit automatically. If NetSplit occures, nodes have to be rebooted manually.
+If there is a firewall between clustered nodes, the cluster requires to open 4369 port used by epmd daemon, and a port segment for nodes' communication.
 
+Configure the port segment in etc/emqttd.config, for example::
+
+    [{kernel, [
+        ...
+        {inet_dist_listen_min, 20000},
+        {inet_dist_listen_max, 21000}
+     ]},
+     ...
+
+------------------
+Network Partitions
+------------------
+
+The emqttd 1.0 cluster requires reliable network to avoid network partitions. The cluster will not recover from a network partition automatically.
+
+If a network partition occures, there will be critical logs in log/emqttd_error.log::
+
+    Mnesia inconsistent_database event: running_partitioned_network, emqttd@host
+
+To recover from a network partition, you have to stop the nodes in a partition, clean the 'data/mneisa' of these nodes and reboot to join the cluster again.
 
 -----------------------
 Consistent Hash and DHT

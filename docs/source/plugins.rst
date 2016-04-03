@@ -426,7 +426,7 @@ http://localhost:61616/index.html
 emqttd_recon - Recon Plugin
 ---------------------------
 
-The plugin loads `recon`_ library on a running emqttd broker. Recon libray helps to debug and optimize an Erlang application.
+The plugin loads `recon`_ library on a running emqttd broker. Recon libray helps debug and optimize an Erlang application.
 
 Load emqttd_recon Plugin
 ------------------------
