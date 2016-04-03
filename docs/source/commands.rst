@@ -1,13 +1,15 @@
 
 .. _commands::
 
-============
-Command Line
-============
+========
+Commands
+========
 
 The './bin/emqttd_ctl' command line could be used to query and administrate emqttd broker.
 
 .. WARNING:: Cannot work on Windows
+
+.. _command_status::
 
 ------
 status
@@ -19,6 +21,8 @@ Show running status of the broker::
 
     Node 'emqttd@127.0.0.1' is started
     emqttd 0.16.0 is running
+
+.. _command_broker::
 
 ------
 broker
@@ -110,6 +114,7 @@ Query metrics of Bytes, MQTT Packets and Messages(sent/received)::
     packets/unsuback        : 0
     packets/unsubscribe     : 0
 
+.. _command_cluster::
 
 -------
 cluster
@@ -174,6 +179,8 @@ Or remove emqttd2 from the cluster on emqttd1 node::
 
     cd emqttd1 && ./bin/emqttd_ctl cluster remove emqttd2@127.0.0.1
 
+.. _command_clients::
+
 -------
 clients
 -------
@@ -227,6 +234,7 @@ Kick out a MQTT Client::
 
     ./bin/emqttd_ctl clients kick "clientid"
 
+.. _command_sessions::
 
 --------
 sessions
@@ -305,6 +313,7 @@ Show a session::
 
     Session(clientid, clean_sess=false, max_inflight=100, inflight_queue=0, message_queue=0, message_dropped=0, awaiting_rel=0, awaiting_ack=0, awaiting_comp=0, created_at=1452935508)
 
+.. _command_topics::
 
 ------
 topics
@@ -332,6 +341,8 @@ Show a topic::
     topic2: ['emqttd1@127.0.0.1','emqttd2@127.0.0.1']
 
 The result will show which nodes the topic is on.
+
+.. _command_subscriptions::
 
 -------------
 subscriptions
@@ -382,6 +393,8 @@ Remove a static subscription manually::
 
     $ ./bin/emqttd_ctl subscriptions del clientid new_topic
     ok
+
+.. _command_plugins::
 
 -------
 plugins
@@ -440,6 +453,8 @@ Unload a Plugin::
     $ ./bin/emqttd_ctl plugins unload emqttd_recon
 
     Plugin emqttd_recon unloaded successfully.
+
+.. _command_bridges::
 
 -------
 bridges
@@ -519,6 +534,8 @@ Delete the emqttd1--sensor/#-->emqttd2 bridge::
 
     bridge is stopped.
 
+.. _command_vm::
+
 --
 vm
 --
@@ -585,6 +602,8 @@ Query max, active file descriptors of IO::
     io/max_fds              : 2560
     io/active_fds           : 1
 
+.. _command_trace::
+
 -----
 trace
 -----
@@ -649,6 +668,8 @@ List all traces::
     trace client clientid -> log/clientid_trace.log
     trace topic topic -> log/topic_trace.log
 
+.. _command_listeners::
+
 ---------
 listeners
 ---------
@@ -690,9 +711,11 @@ listener parameters:
 | shutdown_count  | Statistics of client shutdown reason |
 +-----------------+---------------------------------------+
 
+.. _command_mnesia::
+
 ------
 mnesia
 ------
 
-Query system_info of mnesia database.
+Show system_info of mnesia database.
 
