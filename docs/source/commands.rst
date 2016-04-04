@@ -313,6 +313,33 @@ Show a session::
 
     Session(clientid, clean_sess=false, max_inflight=100, inflight_queue=0, message_queue=0, message_dropped=0, awaiting_rel=0, awaiting_ack=0, awaiting_comp=0, created_at=1452935508)
 
+.. _command_routes::
+
+------
+routes
+------
+
+Show routing table of the broker.
+
+routes list
+-----------
+
+List all routes::
+
+    $ ./bin/emqttd_ctl routes list
+
+    t2/# -> emqttd2@127.0.0.1
+    t/+/x -> emqttd2@127.0.0.1,emqttd@127.0.0.1
+
+routes show <Topic>
+-------------------
+
+Show a route::
+
+    $ ./bin/emqttd_ctl routes show t/+/x
+
+    t/+/x -> emqttd2@127.0.0.1,emqttd@127.0.0.1
+
 .. _command_topics::
 
 ------
@@ -328,19 +355,19 @@ Query all the topics::
 
     $ ./bin/emqttd_ctl topics list
 
-    topic1: ['emqttd2@127.0.0.1']
-    topic2: ['emqttd1@127.0.0.1','emqttd2@127.0.0.1']
+    $SYS/brokers/emqttd@127.0.0.1/metrics/packets/subscribe: static
+    $SYS/brokers/emqttd@127.0.0.1/stats/subscriptions/max: static
+    $SYS/brokers/emqttd2@127.0.0.1/stats/subscriptions/count: static
+    ...
 
 topics show <Topic>
 -------------------
 
 Show a topic::
 
-    $ ./bin/emqttd_ctl topics show topic2
+    $ ./bin/emqttd_ctl topics show '$SYS/brokers'
 
-    topic2: ['emqttd1@127.0.0.1','emqttd2@127.0.0.1']
-
-The result will show which nodes the topic is on.
+    $SYS/brokers: static
 
 .. _command_subscriptions::
 
@@ -367,7 +394,17 @@ Query all subscriptions::
 
     $ ./bin/emqttd_ctl subscriptions list
 
-    mosqsub/45744-airlee.lo: [{<<"y">>,0},{<<"x">>,0}]
+    mosqsub/91042-airlee.lo -> t/y:1
+    mosqsub/90475-airlee.lo -> t/+/x:2
+
+subscriptions list static
+-------------------------
+
+List all static subscriptions::
+
+    $ ./bin/emqttd_ctl subscriptions list static
+
+    clientid -> new_topic:1
 
 subscriptions show <ClientId>
 -----------------------------
