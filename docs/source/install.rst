@@ -20,6 +20,8 @@ Download Packages
 Download binary packages from: http://emqtt.io/downloads
 
 +-----------+-----------------------------------+
+| Debian    | http://emqtt.io/downloads/debian  |
++-----------+-----------------------------------+
 | Ubuntu    | http://emqtt.io/downloads/ubuntu  |
 +-----------+-----------------------------------+
 | CentOS    | http://emqtt.io/downloads/centos  |
@@ -37,9 +39,9 @@ For example: emqttd-centos64-0.16.0-beta-20160216.zip
 
 .. _install_on_linux:
 
---------------------
+-------------------
 Installing on Linux
---------------------
+-------------------
 
 Download CentOS Package from: http://emqtt.io/downloads/centos, and then unzip:
 
@@ -208,9 +210,9 @@ The binary package output in folder::
 
 .. _tcp_ports:
 
-------------------
-TCP Ports Occupied
-------------------
+--------------
+TCP Ports Used
+--------------
 
 +-----------+-----------------------------------+
 | 1883      | MQTT Port                         |
@@ -222,7 +224,7 @@ TCP Ports Occupied
 | 18083     | Dashboard Port                    |
 +-----------+-----------------------------------+
 
-The TCP ports could be configured in etc/emqttd.config:
+The TCP ports used can be configured in etc/emqttd.config:
 
 .. code:: erlang
 
@@ -248,45 +250,44 @@ The 18083 port is used by Web Dashboard of the broker. Default login: admin, Pas
 Quick Setup
 -----------
 
-emqttd消息服务器主要配置文件:
+Two main configuration files of the emqttd broker:
 
 +-------------------+-----------------------------------+
-| etc/vm.args       | Erlang VM的启动参数设置           |
+| etc/vm.args       | Erlang VM Arguments               |
 +-------------------+-----------------------------------+
-| etc/emqttd.config | emqttd消息服务器参数设置          |
+| etc/emqttd.config | emqttd broker Config              |
 +-------------------+-----------------------------------+
 
-etc/vm.args中两个重要的启动参数:
+Two important parameters in etc/vm.args:
 
-+-------+------------------------------------------------------------------+
-| +P    | Erlang虚拟机允许的最大进程数，emqttd一个连接会消耗2个Erlang进程  |
-+-------+------------------------------------------------------------------+
-| +Q    | Erlang虚拟机允许的最大Port数量，emqttd一个连接消耗1个Port        |
-+-------+------------------------------------------------------------------+
++-------+---------------------------------------------------------------------------+
+| +P    | Max number of Erlang proccesses. A MQTT client consumes two proccesses.   |
+|       | The value should be larger than max_clients * 2                           | 
++-------+---------------------------------------------------------------------------+
+| +Q    | Max number of Erlang Ports. A MQTT client consumes one port.              |
+|       | The value should be larger than max_clients.                              |
++-------+---------------------------------------------------------------------------+
 
-+P 参数值 > 最大允许连接数 * 2
+.. NOTE::
 
-+Q 参数值 > 最大允许连接数
+    +Q > maximum number of allowed concurrent clients
+    +P > maximum number of allowed concurrent clients * 2
 
-.. WARNING:: 实际连接数量超过Erlang虚拟机参数设置，会引起emqttd消息服务器宕机!
-
-etc/emqttd.config文件listeners段落设置最大允许连接数:
+The maximum number of allowed MQTT clients:
 
 .. code:: erlang
 
     {listeners, [
         {mqtt, 1883, [
-            %% TCP Acceptor池设置
+            %% TCP Acceptor Pool
             {acceptors, 16},
 
-            %% 最大允许连接数设置
+            %% Maximum number of concurrent MQTT clients
             {max_clients, 8192},
 
             ...
 
         ]},
-
-emqttd消息服务器详细设置，请参见文档: :ref:`config`
 
 .. _init_d_emqttd:
 
@@ -353,7 +354,5 @@ boot test::
 
     ## erlexec: HOME must be set
     uncomment '# export HOME=/root' if "HOME must be set" error.
-
-
 
 
