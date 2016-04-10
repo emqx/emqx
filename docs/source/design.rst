@@ -1,9 +1,9 @@
 
 .. _design:
 
-============
-Design Guide
-============
+======
+Design
+======
 
 .. _design_architecture:
 
