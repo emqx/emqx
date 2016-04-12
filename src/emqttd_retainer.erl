@@ -95,12 +95,16 @@ init([]) ->
     StatsFun = emqttd_stats:statsfun('retained/count', 'retained/max'),
     %% One second
     {ok, StatsTimer}  = timer:send_interval(timer:seconds(1), stats),
-    %% Five minutes
-    {ok, ExpireTimer} = timer:send_interval(timer:minutes(5), expire),
-    {ok, #state{stats_fun     = StatsFun,
-                expired_after = env(expired_after),
-                stats_timer   = StatsTimer,
-                expire_timer  = ExpireTimer}}.
+    State = #state{stats_fun = StatsFun, stats_timer = StatsTimer},
+    {ok, init_expire_timer(env(expired_after), State)}.
+
+init_expire_timer(0, State) ->
+    State;
+init_expire_timer(undefined, State) ->
+    State;
+init_expire_timer(Secs, State) ->
+    {ok, Timer} = timer:send_interval(timer:seconds(Secs), expire),
+    State#state{expired_after = Secs, expire_timer = Timer}.
 
 handle_call(Req, _From, State) ->
     ?UNEXPECTED_REQ(Req, State).

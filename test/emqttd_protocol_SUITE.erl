@@ -36,7 +36,11 @@ groups() ->
        parse_bridge,
        parse_publish,
        parse_puback,
+       parse_pubrec,
+       parse_pubrel,
+       parse_pubcomp,
        parse_subscribe,
+       parse_unsubscribe,
        parse_pingreq,
        parse_disconnect]},
      {serializer, [],
@@ -173,25 +177,69 @@ parse_publish(_) ->
 parse_puback(_) ->
     Parser = emqttd_parser:new([]),
     %%PUBACK(Qos=0, Retain=false, Dup=false, PacketId=1)
-    PubAckBin = <<64,2,0,1>>,
     {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?PUBACK,
                                                    dup = false,
                                                    qos = 0,
-                                                   retain = false}}, <<>>} = Parser(PubAckBin).
+                                                   retain = false}}, <<>>} = Parser(<<64,2,0,1>>).
+parse_pubrec(_) ->
+    Parser = emqttd_parser:new([]),
+    %%PUBREC(Qos=0, Retain=false, Dup=false, PacketId=1)
+    {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?PUBREC,
+                                                   dup = false,
+                                                   qos = 0,
+                                                   retain = false}}, <<>>} = Parser(<<5:4,0:4,2,0,1>>).
+
+parse_pubrel(_) ->
+    Parser = emqttd_parser:new([]),
+    {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?PUBREL,
+                                                   dup = false,
+                                                   qos = 1,
+                                                   retain = false}}, <<>>} = Parser(<<6:4,2:4,2,0,1>>).
+
+parse_pubcomp(_) ->
+    Parser = emqttd_parser:new([]),
+    {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?PUBCOMP,
+                                                   dup = false,
+                                                   qos = 0,
+                                                   retain = false}}, <<>>} = Parser(<<7:4,0:4,2,0,1>>).
 
 parse_subscribe(_) ->
-    ok.
+    Parser = emqttd_parser:new([]),
+    %% SUBSCRIBE(Q1, R0, D0, PacketId=2, TopicTable=[{<<"TopicA">>,2}])
+    {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?SUBSCRIBE,
+                                                   dup  = false,
+                                                   qos  = 1,
+                                                   retain = false},
+                      variable = #mqtt_packet_subscribe{packet_id = 2,
+                                                        topic_table = [{<<"TopicA">>,2}]} }, <<>>}
+        = Parser(<<130,11,0,2,0,6,84,111,112,105,99,65,2>>).
+
+parse_unsubscribe(_) ->
+    Parser = emqttd_parser:new([]),
+    %% UNSUBSCRIBE(Q1, R0, D0, PacketId=2, TopicTable=[<<"TopicA">>])
+    {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?UNSUBSCRIBE,
+                                                   dup  = false,
+                                                   qos  = 1,
+                                                   retain = false},
+                      variable = #mqtt_packet_unsubscribe{packet_id = 2,
+                                                          topics = [<<"TopicA">>]}}, <<>>}
+        = Parser(<<162,10,0,2,0,6,84,111,112,105,99,65>>).
 
 parse_pingreq(_) ->
-    ok.
+    Parser = emqttd_parser:new([]),
+    {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?PINGREQ,
+                                                   dup = false,
+                                                   qos = 0,
+                                                   retain = false}}, <<>>}
+        = Parser(<<?PINGREQ:4, 0:4, 0:8>>).
 
 parse_disconnect(_) ->
     Parser = emqttd_parser:new([]),
     %DISCONNECT(Qos=0, Retain=false, Dup=false)
     Bin = <<224, 0>>,
     {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?DISCONNECT,
-                                                   dup = false,
-                                                   qos = 0,
+                                                   dup  = false,
+                                                   qos  = 0,
                                                    retain = false}}, <<>>} = Parser(Bin).
 
 %%--------------------------------------------------------------------

@@ -96,7 +96,9 @@ expire_messages(Time) when is_integer(Time) ->
                             when Time > (MegaSecs * 1000000 + Secs) -> Topic
                         end),
             Topics = mnesia:select(retained_message, Match, write),
-            lists:foreach(fun(Topic) -> mnesia:delete({retained_message, Topic}) end, Topics)
+            lists:foreach(fun(<<"$SYS/", _/binary>>) -> ok; %% ignore $SYS/# messages
+                             (Topic) -> mnesia:delete({retained_message, Topic})
+                           end, Topics)
         end).
 
 -spec(retained_count() -> non_neg_integer()).

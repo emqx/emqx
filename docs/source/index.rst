@@ -52,6 +52,7 @@ Contents:
    commands
    plugins
    tune
+   changes
 
 -------
 License
