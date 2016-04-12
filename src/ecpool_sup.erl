@@ -35,14 +35,14 @@
 -export([init/1]).
 
 %% @doc Start supervisor.
--spec start_link() -> {ok, pid()} | {error, any()}.
+-spec(start_link() -> {ok, pid()} | {error, any()}).
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 start_pool(Pool, Mod, Opts) when is_atom(Pool) ->
     supervisor:start_child(?MODULE, pool_spec(Pool, Mod, Opts)).
 
--spec stop_pool(Pool :: atom()) -> ok | {error, any()}.
+-spec(stop_pool(Pool :: atom()) -> ok | {error, any()}).
 stop_pool(Pool) when is_atom(Pool) ->
     ChildId = child_id(Pool),
 	case supervisor:terminate_child(?MODULE, ChildId) of
@@ -53,13 +53,13 @@ stop_pool(Pool) when is_atom(Pool) ->
 	end.
 
 %% @doc All Pools supervisored by ecpool_sup.
--spec pools() -> [{atom(), pid()}].
+-spec(pools() -> [{atom(), pid()}]).
 pools() ->
     [{Pool, Pid} || {{pool_sup, Pool}, Pid, supervisor, _}
                     <- supervisor:which_children(?MODULE)].
 
 %% @doc Find a pool.
--spec pool(atom()) -> undefined | pid().
+-spec(pool(atom()) -> undefined | pid()).
 pool(Pool) when is_atom(Pool) ->
     ChildId = child_id(Pool),
     case [Pid || {Id, Pid, supervisor, _} <- supervisor:which_children(?MODULE), Id =:= ChildId] of

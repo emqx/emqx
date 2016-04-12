@@ -61,19 +61,19 @@ behaviour_info(_Other) ->
 %%% API
 %%%=============================================================================
 
-%% @doc Start the pool worker.
--spec start_link(atom(), pos_integer(), module(), list()) ->
-    {ok, pid()} | ignore | {error, any()}.
+%% @doc Start a pool worker.
+-spec(start_link(atom(), pos_integer(), module(), list()) ->
+      {ok, pid()} | ignore | {error, any()}).
 start_link(Pool, Id, Mod, Opts) ->
     gen_server:start_link(?MODULE, [Pool, Id, Mod, Opts], []).
 
 %% @doc Get client/connection.
--spec client(pid()) -> undefined | pid().
+-spec(client(pid()) -> undefined | pid()).
 client(Pid) ->
     gen_server:call(Pid, client, infinity).
 
 %% @doc Is client connected?
--spec is_connected(pid()) -> boolean().
+-spec(is_connected(pid()) -> boolean()).
 is_connected(Pid) ->
     gen_server:call(Pid, is_connected).
 
@@ -113,10 +113,10 @@ handle_info({'EXIT', Pid, Reason}, State = #state{client = Pid, opts = Opts}) ->
     end;
 
 handle_info(reconnect, State = #state{opts = Opts}) ->
-    case connect(State) of
+    case catch connect(State) of
         {ok, Client} ->
             {noreply, State#state{client = Client}};
-        {error, _Error} ->
+        {Err, _Reason} when Err =:= error orelse Err =:= 'EXIT' ->
             reconnect(proplists:get_value(auto_reconnect, Opts), State)
     end;
 

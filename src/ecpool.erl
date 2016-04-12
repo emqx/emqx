@@ -42,7 +42,7 @@ pool_spec(ChildId, Pool, Mod, Opts) ->
         permanent, 5000, supervisor, [ecpool_pool_sup]}.
 
 %% @doc Start the pool
--spec start_pool(atom(), atom(), [option()]) -> {ok, pid()} | {error, any()}.
+-spec(start_pool(atom(), atom(), [option()]) -> {ok, pid()} | {error, any()}).
 start_pool(Pool, Mod, Opts) when is_atom(Pool) ->
     ecpool_pool_sup:start_link(Pool, Mod, Opts).
 
@@ -55,22 +55,22 @@ stop_sup_pool(Pool) when is_atom(Pool) ->
     ecpool_sup:stop_pool(Pool).
 
 %% @doc Get client/connection
--spec get_client(atom()) -> pid().
+-spec(get_client(atom()) -> pid()).
 get_client(Pool) ->
     gproc_pool:pick_worker(name(Pool)).
 
 %% @doc Get client/connection with hash key.
--spec get_client(atom(), any()) -> pid().
+-spec(get_client(atom(), any()) -> pid()).
 get_client(Pool, Key) ->
     gproc_pool:pick_worker(name(Pool), Key).
 
 %% @doc Call the fun with client/connection
--spec with_client(atom(), fun((Client :: pid()) -> any())) -> any().
+-spec(with_client(atom(), fun((Client :: pid()) -> any())) -> any()).
 with_client(Pool, Fun) when is_atom(Pool) ->
     with_worker(gproc_pool:pick_worker(name(Pool)), Fun).
 
 %% @doc Call the fun with client/connection
--spec with_client(atom(), any(), fun((Client :: pid()) -> any())) -> any().
+-spec(with_client(atom(), any(), fun((Client :: pid()) -> any())) -> any()).
 with_client(Pool, Key, Fun) when is_atom(Pool) ->
     with_worker(gproc_pool:pick_worker(name(Pool), Key), Fun).
 
