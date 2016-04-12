@@ -83,7 +83,7 @@ The cluster design could be summarized by the following two rules::
 
 1. When a MQTT client SUBSCRIBE a Topic on a node, the node will tell all the other nodes in the cluster: I subscribed a Topic.
 
-2. When a MQTT Client PUBLISH a message to a node, the node will lookup the Topic table and forard the message to nodes that subscribed the Topic.
+2. When a MQTT Client PUBLISH a message to a node, the node will lookup the Topic table and forward the message to nodes that subscribed the Topic.
 
 Finally there will be a global route table(Topic -> Node) that replicated to all nodes in the cluster::
 
