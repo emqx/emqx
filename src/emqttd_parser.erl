@@ -61,6 +61,10 @@ parse_remaining_len(_Bin, _Header, _Multiplier, Length, #mqtt_packet_limit{max_p
     {error, invalid_mqtt_frame_len};
 parse_remaining_len(<<>>, Header, Multiplier, Length, Limit) ->
     {more, fun(Bin) -> parse_remaining_len(Bin, Header, Multiplier, Length, Limit) end};
+parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, _Limit) ->
+    parse_frame(Rest, Header, 2);
+parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, _Limit) ->
+    parse_frame(Rest, Header, 0);
 parse_remaining_len(<<1:1, Len:7, Rest/binary>>, Header, Multiplier, Value, Limit) ->
     parse_remaining_len(Rest, Header, Multiplier * ?HIGHBIT, Value + Len * Multiplier, Limit);
 parse_remaining_len(<<0:1, Len:7, Rest/binary>>, Header,  Multiplier, Value, #mqtt_packet_limit{max_packet_size = MaxLen}) ->
