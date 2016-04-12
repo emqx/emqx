@@ -103,7 +103,8 @@ Bugfix
 
 noproc error when call to gen_server2:call(false, {add_route,Topic,<0.685.0>}, infinity) (#446)
 
-#### Plugins
+Plugins
+-------
 
 Changed the license of all plugins.
 
@@ -1079,7 +1080,7 @@ Version 0.1.3
 
 *Release Date: 2013-01-04*
 
-Feature: support QOS2 PUBREC, PUBREL,PUBCOMP messages
+Feature: Support QOS2 PUBREC, PUBREL, PUBCOMP messages
 
 Bugfix: fix emqtt_frame to encode/decoe PUBREC/PUBREL messages
 
