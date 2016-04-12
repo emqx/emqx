@@ -1,9 +1,12 @@
 
-0.2.1-beta (2016/04/12)
-------------------------
+0.2.1-beta (2016/04/13)
+-----------------------
 
 Update Copyright
 
+Spec Syntax
+
+Catch exceptions when reconnecting
 
 0.2-beta (2016/01/02)
 ---------------------
