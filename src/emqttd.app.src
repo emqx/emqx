@@ -1,15 +1,11 @@
 {application, emqttd,
  [
   {description, "Erlang MQTT Broker"},
-  {vsn, "0.17.1"},
+  {vsn, "1.0"},
   {id, "emqttd"},
   {modules, []},
   {registered, []},
-  {applications, [kernel,
-                  stdlib,
-                  gproc,
-                  esockd,
-                  mochiweb]},
+  {applications, [kernel, stdlib, gproc, esockd, mochiweb]},
   {mod, {emqttd_app, []}},
   {env, []}
  ]}.
