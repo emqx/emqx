@@ -25,7 +25,7 @@ The emqttd 1.0 implements a fully-featured, scalable, distributed and extensible
 
 3. Distributed - Route MQTT Messages among clustered or bridged broker nodes
 
-4  Extensible - LDAP, MySQL, PostgreSQL, Redis Authentication/ACL Plugins
+4. Extensible - LDAP, MySQL, PostgreSQL, Redis Authentication/ACL Plugins
 
 Bugfix and Enhancements
 -----------------------
@@ -34,7 +34,7 @@ Possible race condition using emqttd_cm (#486)
 
 Improve the design of retained message expiration (#503)
 
-Should not expire the retained messages from $SYS/# topics (#500)
+Do not expire the retained messages from $SYS/# topics (#500)
 
 Documentation
 --------------
