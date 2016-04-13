@@ -50,9 +50,9 @@ Thank Ericsson for the Great Erlang/OTP Platform (http://erlang.org/)!
 
 Contributors on GitHub: @callbay @lsxredrain @hejin1026 @desoulter @turtleDeng @Hades32 @huangdan @phanimahesh @dvliman @Prots @joaohf
 
-Partners: EACG(http://eacg.de/)
+Partners: EACG (http://eacg.de/)
 
-Favorite Band: The Seven Mile Journey(http://www.thesevenmilejourney.dk/)
+Favorite Band: The Seven Mile Journey (http://www.thesevenmilejourney.dk/)
 
 .. _release_0.17.1:
 
