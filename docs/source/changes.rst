@@ -5,6 +5,57 @@
 Changes
 =======
 
+.. _release_1.0:
+
+------------------------------------
+Version 1.0 (The Seven Mile Journey)
+------------------------------------
+
+*Release Date: 2016-04-13*
+
+*Release Name: The Seven Mile Journey*
+
+We finally released Version 1.0 (The Seven Mile Journey) with full documentation after two years' development and more than fifty iterations.
+
+The emqttd 1.0 implements a fully-featured, scalable, distributed and extensible open-source MQTT broker for IoT, M2M and Mobile applications:
+
+1. Full MQTT V3.1/3.1.1 Protocol Specifications Support
+
+2. Massively scalable - Scaling to 1 million connections on a single server
+
+3. Distributed - Route MQTT Messages among clustered or bridged broker nodes
+
+4. Extensible - LDAP, MySQL, PostgreSQL, Redis Authentication/ACL Plugins
+
+Bugfix and Enhancements
+-----------------------
+
+Possible race condition using emqttd_cm (#486)
+
+Improve the design of retained message expiration (#503)
+
+Do not expire the retained messages from $SYS/# topics (#500)
+
+Documentation
+--------------
+
+http://emqtt.io/docs
+
+http://docs.emqtt.com/
+
+Thanks
+------
+
+Thank Ericsson for the Great Erlang/OTP Platform (http://erlang.org/)!
+
+Contributors on GitHub: @callbay @lsxredrain @hejin1026 @desoulter @turtleDeng @Hades32 @huangdan @phanimahesh @dvliman @Prots @joaohf
+
+Partners: EACG(http://eacg.de/)
+
+Favorite Band: The Seven Mile Journey(http://www.thesevenmilejourney.dk/)
+
+.. _release_0.17.1:
+
 -------------------
 Version 0.17.1-beta
 -------------------
@@ -20,6 +71,8 @@ Dashboard
 ---------
 
 Code Review and improve the design of Dashboard.
+
+.. _release_0.17.0:
 
 -------------------
 Version 0.17.0-beta
@@ -68,6 +121,8 @@ Plugins
 
 Upgrade Dashboard, Redis, Stomp and Template Plugins
 
+.. _release_0.16.0:
+
 -------------------
 Version 0.16.0-beta
 -------------------
@@ -107,6 +162,8 @@ Plugins
 -------
 
 Changed the license of all plugins.
+
+.. _release_0.15.0:
 
 -------------------
 Version 0.15.0-beta
@@ -156,6 +213,8 @@ emqttd_plugin_redis: First release
 
 emqttd_plugin_mongo: First release
 
+.. _release_0.14.1:
+
 -------------------
 Version 0.14.1-beta
 -------------------
@@ -165,6 +224,8 @@ Version 0.14.1-beta
 Bugfix: emqttd_ws_client.erl: Unexpected Info: {'EXIT',<0.27792.18>,{shutdown,destroy}} (#413)
 
 Improve: fix spec errors found by dialyzer
+
+.. _release_0.14.0:
 
 -------------------
 Version 0.14.0-beta
@@ -216,6 +277,8 @@ Benchmark
 
 1.3 million concurrent MQTT connections on a 12 Core, 32G CentOS Server, consume about 15G Memory and 200% CPU.
 
+.. _release_0.13.1:
+
 -------------------
 Version 0.13.1-beta
 -------------------
@@ -231,6 +294,8 @@ Improve: Define QOS0/1/2, Pooler Error (PR#382)
 Improve: High CPU load when 400K unstable mobile connections (#377)
 
 BugFix: emqttd_plugin_pgsql - error using same query with latest update plugin (pgsql#5)
+
+.. _release_0.13.0:
 
 -------------------
 Version 0.13.0-beta
@@ -288,6 +353,8 @@ Benchmark
     Traffic In(bps):  12M+
     Traffic Out(bps): 56M+
 
+.. _release_0.12.3:
+
 -------------------
 Version 0.12.3-beta
 -------------------
@@ -298,6 +365,8 @@ Bugfix: emqttd_sysmon crasher for 'undefined' process_info (#350)
 
 Bugfix: emqttd_client: catch parser exception (#353)
 
+.. _release_0.12.2:
+
 -------------------
 Version 0.12.2-beta
 -------------------
@@ -305,6 +374,8 @@ Version 0.12.2-beta
 *Release Date: 2015-10-16*
 
 Bugfix: Retained messages should not be expired if 'broker.retained.expired_after = 0' (#346)
+
+.. _release_0.12.1:
 
 -------------------
 Version 0.12.1-beta
@@ -327,6 +398,8 @@ Improve: Refactor emqttd_sysmon and suppress 'monitor' messages (#328)
 Task: benchmark for 0.12.0 release (#225)
 
 Benchmark: About 900K concurrent connections established on a 20Core, 32G CentOS server.
+
+.. _release_0.12.0:
 
 -------------------
 Version 0.12.0-beta
@@ -376,6 +449,8 @@ Hw requirements - 5K users, 25-50 msgs/sec, QoS=1 (#209)
 
 Supported Number of Connections Greatly Reduced When Clients are Subscribing (#324)
 
+.. _release_0.11.0:
+
 -------------------
 Version 0.11.0-beta
 -------------------
@@ -404,6 +479,8 @@ Bugfix: issue#311 - './bin/emqttd_ctl sessions list' error
 
 Bugfix: issue#312 - unsubcribe will lead to crash if emqttd_plugin_template plugin loaded
 
+.. _release_0.10.4:
+
 -------------------
 Version 0.10.4-beta
 -------------------
@@ -422,6 +499,8 @@ Bugfix:  issue#291 - "./bin/emqttd attach ..." cannot work
 
 Bugfix:  issue#284 - Should not use erlang:list_to_atom/1 in emqttd_vm.erl
 
+.. _release_0.10.3:
+
 -------------------
 Version 0.10.3-beta
 -------------------
@@ -434,6 +513,8 @@ Bugfix:  issue#269 - bin/emqttd Syntax error on ubuntu
 
 Improve: issue#265 - client under unstable mobile network generate a lot of logs
 
+.. _release_0.10.2:
+
 -------------------
 Version 0.10.2-beta
 -------------------
@@ -441,6 +522,8 @@ Version 0.10.2-beta
 *Release Date: 2015-08-26*
 
 Improve: issue#257 - After the node name changed, the broker cannot restart for mnesia schema error.
+
+.. _release_0.10.1:
 
 -------------------
 Version 0.10.1-beta
@@ -451,6 +534,8 @@ Version 0.10.1-beta
 Bugfix: issue#259 - when clustered the emqttd_dashboard port is close, and the 'emqttd' application cannot stop normally.
 
 Feature: issue#262 - Add 'http://host:8083/mqtt/status' Page for health check
+
+.. _release_0.10.0:
 
 -------------------
 Version 0.10.0-beta
@@ -500,6 +585,8 @@ Bugfix: Too many 'Session ~s cannot find PUBACK' logs (#212)
 
 Bugfix: emqttd_pooler cannot work
 
+.. _release_0.9.3:
+
 -------------------
 Version 0.9.3-alpha
 -------------------
@@ -516,6 +603,8 @@ Improve: ./bin/emqttd_ctl to support new bridges command
 
 Bugfix: issue #206 - Cannot bridge two nodes
 
+.. _release_0.9.2:
+
 -------------------
 Version 0.9.2-alpha
 -------------------
@@ -523,6 +612,8 @@ Version 0.9.2-alpha
 *Release Date: 2015-07-18*
 
 Improve: issue #196 - Add New Hook 'client.subscribe.after' 
+
+.. _release_0.9.1:
 
 -------------------
 Version 0.9.1-alpha
@@ -533,6 +624,8 @@ Version 0.9.1-alpha
 Bugfix: issue #189 - MQTT over WebSocket(SSL) cannot work?
 
 Bugfix: issue #193 - 'client.ack' hook should be renamed to 'message.acked', and called by emqttd_broker:foreach_hooks 
+
+.. _release_0.9.0:
 
 -------------------
 Version 0.9.0-alpha
@@ -594,6 +687,8 @@ Bugfix: Closed issues #181, #119.
 
 Tests: fix the parser, acl test cases.
 
+.. _release_0.8.6:
+
 ------------------
 Version 0.8.6-beta
 ------------------
@@ -601,6 +696,8 @@ Version 0.8.6-beta
 *Release Date: 2015-06-17*
 
 Bugfix: issue #175 - publish Will message when websocket is closed without 'DISCONNECT' packet
+
+.. _release_0.8.5:
 
 ------------------
 Version 0.8.5-beta
@@ -610,6 +707,8 @@ Version 0.8.5-beta
 
 Bugfix: issue #53 - client will receive duplicate messages when overlapping subscription
 
+.. _release_0.8.4:
+
 ------------------
 Version 0.8.4-beta
 ------------------
@@ -617,6 +716,8 @@ Version 0.8.4-beta
 *Release Date: 2015-06-08*
 
 Bugfix: issue #165 - duplicated message when publish 'retained' message to persistent client
+
+.. _release_0.8.3:
 
 ------------------
 Version 0.8.3-beta
@@ -630,6 +731,8 @@ Bugfix: issue #155 - emqtt_parser.erl: parse_topics/3 should reverse topics
 
 Bugfix: issue #149 - Forget to merge plugins/emqttd_auth_mysql from 'dev' branch to 'master' in 0.8.x release
 
+.. _release_0.8.2:
+
 -------------------
 Version 0.8.2-alpha
 -------------------
@@ -639,6 +742,8 @@ Version 0.8.2-alpha
 Bugfix: issue #147 - WebSocket client cannot subscribe queue '$Q/queue/${clientId}'
 
 Bugfix: issue #146 - emqttd_auth_ldap: fill(Username, UserDn) is not right
+
+.. _release_0.8.1:
 
 -------------------
 Version 0.8.1-alpha
@@ -655,6 +760,8 @@ Bugfix: fix websocket url in emqttd/priv/www/websocket.html
 Improve: etc/emqttd.config to allow websocket connections from any hosts
 
 Improve: rel/reltool.config to exclude unnecessary apps.
+
+.. _release_0.8.0:
 
 -------------------
 Version 0.8.0-alpha
@@ -688,6 +795,8 @@ Improve: add emqttd_sm_sup module, and use 'hash' gproc_pool to manage sessions
 
 Tests: add more test cases for 'emqttd' app
 
+.. _release_0.7.1:
+
 -------------------
 Version 0.7.1-alpha
 -------------------
@@ -701,6 +810,8 @@ Bugfix: issue #121 - emqttd cluster issuse
 Bugfix: issue #123 - emqttd:unload_all_plugins/0 cannot unload any plugin
 
 Bugfix: fix errors found by dialyzer
+
+.. _release_0.7.0:
 
 -------------------
 Version 0.7.0-alpha
@@ -738,6 +849,8 @@ Bugfix: issue #112 - Makefile to support build plugins
 
 Bugfix: issue #96 - "make clean" cannot work
 
+.. _release_0.6.2:
+
 -------------------
 Version 0.6.2-alpha
 -------------------
@@ -751,6 +864,8 @@ Improve: add emqttd_cm_sup module, and use 'hash' gproc_pool to register/unregis
 Improve: kick old client out when session is duplicated.
 
 Improve: move mnesia dir config from etc/app.config to etc/vm.args
+
+.. _release_0.6.1:
 
 -------------------
 Version 0.6.1-alpha
@@ -767,6 +882,8 @@ Feature: issues#95 - Topic filters in ACL rule should support 'eq' tag
 Improve: issues#84 - emqttd_pubsub is redesigned again to protect mnesia transaction
 
 Improve: issues#74 - ACL Support and update [ACL Design Wiki](https://github.com/emqtt/emqttd/wiki/ACL-Design)
+
+.. _release_0.6.0:
 
 -------------------
 Version 0.6.0-alpha
@@ -812,6 +929,8 @@ Bugfix: issues#83 - emqttd_broker stats cannot work
 
 Bugfix: issues#75 - careless about function name when emqttd_pubsub handle getstats message
 
+.. _release_0.5.5:
+
 ------------------
 Version 0.5.5-beta
 ------------------
@@ -821,6 +940,8 @@ Version 0.5.5-beta
 Bugfix: issue #75 - careless about function name when emqttd_pubsub handle getstats message.
 
 Bugfix: issue #79 - cannot find topic_subscriber table after cluster with other nodes.
+
+.. _release_0.5.4:
 
 -------------------
 Version 0.5.4-alpha
@@ -846,6 +967,8 @@ Change: ./bin/emqttd_ctl add 'stats', 'metrics' commands.
 
 Bugfix: issue #71, #72
 
+.. _release_0.5.3:
+
 -------------------
 Version 0.5.3-alpha
 -------------------
@@ -853,6 +976,8 @@ Version 0.5.3-alpha
 *Release Date: 2015-03-19*
 
 Bugfix: issues#72 - emqttd_cm, emqtt_sm ets:match_delete/2 with wrong pattern
+
+.. _release_0.5.2:
 
 -------------------
 Version 0.5.2-alpha
@@ -862,6 +987,8 @@ Version 0.5.2-alpha
 
 Change: upgrade esockd to 2.1.0-alpha, do not tune socket buffer for mqtt connection.
 
+.. _release_0.5.1:
+
 -------------------
 Version 0.5.1-alpha
 -------------------
@@ -869,6 +996,8 @@ Version 0.5.1-alpha
 *Release Date: 2015-03-13*
 
 Change: upgrade esockd to v1.2.0-beta, rename 'acceptor_pool' to 'acceptors'
+
+.. _release_0.5.0:
 
 -------------------
 Version 0.5.0-alpha
@@ -899,6 +1028,8 @@ Bugfix: issue#67 - subscribe '#' to receive all messages
 Bugfix: issue#64 - emqtt_app start/2: should wait_for_databases
 
 Test: emqttd_topic_tests add more '_match_test'
+
+.. _release_0.4.0:
 
 -------------------
 Version 0.4.0-alpha
@@ -932,6 +1063,8 @@ Change: emqtt_opts to add merge/2 function
 
 Test: add emqtt_serialiser_tests.erl
 
+.. _release_0.3.4:
+
 ------------------
 Version 0.3.4-beta
 ------------------
@@ -940,6 +1073,8 @@ Version 0.3.4-beta
 
 Bugfix: emqtt_serialiser.erl cannot serialise UNSUBACK packets
 
+.. _release_0.3.3:
+
 ------------------
 Version 0.3.3-beta
 ------------------
@@ -947,6 +1082,8 @@ Version 0.3.3-beta
 *Release Date: 2015-03-07*
 
 Bugfix: emqtt_serialiser.erl cannot serialise PINGRESP issue#60
+
+.. _release_0.3.2:
 
 ------------------
 Version 0.3.2-beta
@@ -957,6 +1094,8 @@ Version 0.3.2-beta
 Improve: merge emqttc serialiser, parser, packet
 
 Add: emqtt_opts to merge socket options
+
+.. _release_0.3.1:
 
 ------------------
 Version 0.3.1-beta
@@ -975,6 +1114,8 @@ Bugfix: issue#53 sslsocket keepalive error
 Upgrade: esockd to v0.2.0
 
 Upgrade: mochiweb to v3.0.0
+
+.. _release_0.3.0:
 
 ------------------
 Version 0.3.0-beta
@@ -1024,6 +1165,8 @@ Test: simple cluster test
 
 Closed Issues: #22, #24, #27, #28, #29, #30, #31, #32, #33, #34, #36, #37, #38, #39, #41, #42, #43
 
+.. _release_0.2.1:
+
 ------------------
 Version 0.2.1-beta
 ------------------
@@ -1042,6 +1185,8 @@ tag emqtt release accoding to [Semantic Versioning](http://semver.org/)
 
 max clientId length is 1024 now.
 
+.. _release_0.2.0:
+
 -------------
 Version 0.2.0
 -------------
@@ -1054,6 +1199,8 @@ support MQTT 3.1.1
 
 support HTTP to publish message
 
+.. _release_0.1.5:
+
 -------------
 Version 0.1.5
 -------------
@@ -1063,6 +1210,8 @@ Version 0.1.5
 Bugfix: remove QOS_1 match when handle PUBREL request 
  
 Bugfix: reverse word in emqtt_topic:words/1 function
+
+.. _release_0.1.4:
 
 -------------
 Version 0.1.4
@@ -1074,6 +1223,8 @@ Bugfix: fix "mosquitto_sub -q 2 ......" bug
 
 Bugfix: fix keep alive bug
 
+.. _release_0.1.3:
+
 -------------
 Version 0.1.3
 -------------
@@ -1084,6 +1235,8 @@ Feature: Support QOS2 PUBREC, PUBREL, PUBCOMP messages
 
 Bugfix: fix emqtt_frame to encode/decoe PUBREC/PUBREL messages
 
+.. _release_0.1.2:
+
 -------------
 Version 0.1.2
 -------------
@@ -1093,6 +1246,8 @@ Version 0.1.2
 Feature: release support like riak
 
 Bugfix: use ?INFO/?ERROR to print log in tcp_listener.erl
+
+.. _release_0.1.1:
 
 -------------
 Version 0.1.1
@@ -1105,6 +1260,8 @@ Feature: use rebar to generate release
 Feature: support retained messages
 
 Bugfix: send will msg when network error
+
+.. _release_0.1.0:
 
 -------------
 Version 0.1.0
