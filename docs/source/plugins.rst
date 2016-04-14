@@ -547,7 +547,7 @@ The plugin could register callbacks for hooks. The hooks will be run by the brok
 | message.acked          | Run when a message(qos1/2) is acked   |
 +------------------------+---------------------------------------+
 | client.disconnected    | Run when a client is disconnnected    |
-+----------------------- +---------------------------------------+
++------------------------+---------------------------------------+
 
 emqttd_plugin_template.erl for example::
 
