@@ -49,7 +49,7 @@ Download CentOS Package from: http://emqtt.io/downloads/centos, and then unzip:
 
     unzip emqttd-centos64-0.16.0-beta-20160216.zip
 
-Start the broker in console mode::
+Start the broker in console mode:
 
 .. code:: console
 
