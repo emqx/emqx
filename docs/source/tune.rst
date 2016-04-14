@@ -106,7 +106,9 @@ Tuning and optimize the Erlang VM in etc/vm.args file::
 emqttd broker
 -------------
 
-Tune the acceptor pool, max_clients limit and sockopts for TCP listener in etc/emqttd.config::
+Tune the acceptor pool, max_clients limit and sockopts for TCP listener in etc/emqttd.config:
+
+.. code-block:: erlang
 
     {mqtt, 1883, [
         %% Size of acceptor pool
@@ -141,4 +143,3 @@ emqtt_benchmark
 ---------------
 
 Test tool for concurrent connections: http://github.com/emqtt/emqtt_benchmark
-

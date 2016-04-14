@@ -61,7 +61,7 @@ Download binary package from: http://emqtt.io/downloads.
 
 Installing on Mac, for example:
 
-.. code:: console
+.. code-block:: bash
 
     unzip emqttd-macosx-0.16.0-beta-20160216.zip && cd emqttd
 
@@ -79,7 +79,7 @@ Installing from Source
 
 .. NOTE:: emqttd broker requires Erlang R17+ to build.
 
-.. code:: console
+.. code-block:: bash
 
     git clone https://github.com/emqtt/emqttd.git
 
@@ -132,7 +132,9 @@ Modules
 
 Configure the 'auth', 'module' paragraph in 'etc/emqttd.config' to enable a module.
 
-Enable 'emqttd_auth_username' module::
+Enable 'emqttd_auth_username' module:
+
+.. code-block:: erlang
 
     {access, [
         %% Authetication. Anonymous Default
@@ -142,7 +144,9 @@ Enable 'emqttd_auth_username' module::
 
             ...
 
-Enable 'emqttd_mod_presence' module::
+Enable 'emqttd_mod_presence' module:
+
+.. code-block:: erlang
 
     {modules, [
         %% Client presence management module.
@@ -195,7 +199,7 @@ We need tune the OS Kernel, TCP Stack, Erlang VM and emqttd broker for one milli
 Linux Kernel Parameters
 -----------------------
 
-.. code::
+.. code-block:: bash
 
     # 2M:
     sysctl -w fs.file-max=2097152
@@ -208,7 +212,7 @@ Linux Kernel Parameters
 TCP Stack Parameters
 --------------------
 
-.. code::
+.. code-block:: bash
 
     # backlog
     sysctl -w net.core.somaxconn=65536
@@ -232,7 +236,9 @@ emqttd/etc/vm.args::
 emqttd broker
 -------------
 
-emqttd/etc/emqttd.config::
+emqttd/etc/emqttd.config:
+
+.. code-block:: erlang
 
         {mqtt, 1883, [
             %% Size of acceptor pool
@@ -254,7 +260,7 @@ emqttd/etc/emqttd.config::
 Test Client
 -----------
 
-.. code::
+.. code-block:: bash
 
     sysctl -w net.ipv4.ip_local_port_range="500 65535"
     echo 1000000 > /proc/sys/fs/nr_open
@@ -290,4 +296,3 @@ GitHub: https://github.com/emqtt
 .. _emqttd_stomp:           https://github.com/emqtt/emqttd_stomp
 .. _emqttd_sockjs:          https://github.com/emqtt/emqttd_sockjs
 .. _emqttd_recon:           https://github.com/emqtt/emqttd_recon
-
