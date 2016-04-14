@@ -31,7 +31,7 @@ An erlang runtime system called 'node' is identified by a unique name like email
 
 Suppose we start four Erlang nodes on localhost:
 
-.. code:: console
+.. code-block:: bash
 
     erl -name node1@127.0.0.1
     erl -name node2@127.0.0.1
@@ -54,7 +54,7 @@ epmd
 
 epmd(Erlang Port Mapper Daemon) is a daemon service that is responsible for mapping node names to machine addresses(TCP sockets). The daemon is started automatically on every host where an Erlang node started.
 
-.. code:: console
+.. code-block:: bash
 
     (node1@127.0.0.1)6> net_adm:names().
     {ok,[{"node1",62740},
@@ -79,7 +79,7 @@ Cluster Design
 
 The cluster architecture of emqttd broker is based on distrubuted Erlang/OTP and Mnesia database.
 
-The cluster design could be summarized by the following two rules::
+The cluster design could be summarized by the following two rules:
 
 1. When a MQTT client SUBSCRIBE a Topic on a node, the node will tell all the other nodes in the cluster: I subscribed a Topic.
 
@@ -94,7 +94,7 @@ Finally there will be a global route table(Topic -> Node) that replicated to all
 Topic Trie and Route Table
 --------------------------
 
-Every node in the cluster will store a topic trie and route table in mnesia database. 
+Every node in the cluster will store a topic trie and route table in mnesia database.
 
 Suppose that we create subscriptions:
 
@@ -242,7 +242,9 @@ The Firewall
 
 If there is a firewall between clustered nodes, the cluster requires to open 4369 port used by epmd daemon, and a port segment for nodes' communication.
 
-Configure the port segment in etc/emqttd.config, for example::
+Configure the port segment in etc/emqttd.config, for example:
+
+.. code-block:: erlang
 
     [{kernel, [
         ...
@@ -268,5 +270,3 @@ Consistent Hash and DHT
 -----------------------
 
 Consistent Hash and DHT are popular in the design of NoSQL databases. Cluster of emqttd broker could support 10 million size of global routing table now. We could use the Consistent Hash or DHT to partition the routing table, and evolve the cluster to larger size.
-
-

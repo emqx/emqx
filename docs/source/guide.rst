@@ -13,7 +13,9 @@ The emqttd broker supports to authenticate MQTT clients with ClientID, Username/
 
 The authentication is provided by a list of extended modules, or MySQL, PostgreSQL and Redis Plugins.
 
-Enable an authentication module in etc/emqttd.config::
+Enable an authentication module in etc/emqttd.config:
+
+.. code-block:: erlang
 
     %% Authentication and Authorization
     {access, [
@@ -21,7 +23,7 @@ Enable an authentication module in etc/emqttd.config::
         {auth, [
             %% Authentication with username, password
             %{username, []},
-            
+
             %% Authentication with clientid
             %{clientid, [{password, no}, {file, "etc/clients.config"}]},
 
@@ -86,7 +88,7 @@ Two ways to add users:
 ClientId
 --------
 
-.. code:: erlang
+.. code-block:: erlang
 
     {clientid, [{password, no}, {file, "etc/clients.config"}]},
 
@@ -99,7 +101,7 @@ Configure ClientIDs in etc/clients.config::
 LDAP
 ----
 
-.. code:: erlang
+.. code-block:: erlang
 
     {ldap, [
        {servers, ["localhost"]},
@@ -122,7 +124,9 @@ Allow any client to connect to the broker::
 MySQL
 -----
 
-Authenticate against MySQL database. Support we create a mqtt_user table::
+Authenticate against MySQL database. Support we create a mqtt_user table:
+
+.. code-block:: sql
 
     CREATE TABLE `mqtt_user` (
       `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
@@ -134,7 +138,9 @@ Authenticate against MySQL database. Support we create a mqtt_user table::
       UNIQUE KEY `mqtt_username` (`username`)
     ) ENGINE=MyISAM DEFAULT CHARSET=utf8;
 
-Configure the 'authquery' and 'password_hash' in emqttd_plugin_mysql/etc/plugin.config::
+Configure the 'authquery' and 'password_hash' in emqttd_plugin_mysql/etc/plugin.config:
+
+.. code-block:: erlang
 
     [
 
@@ -161,7 +167,9 @@ Load the plugin::
 PostgreSQL
 ----------
 
-Authenticate against PostgreSQL database. Create a mqtt_user table::
+Authenticate against PostgreSQL database. Create a mqtt_user table:
+
+.. code-block:: sql
 
     CREATE TABLE mqtt_user (
       id SERIAL primary key,
@@ -170,7 +178,9 @@ Authenticate against PostgreSQL database. Create a mqtt_user table::
       salt character varying(40)
     );
 
-Configure the 'authquery' and 'password_hash' in emqttd_plugin_pgsql/etc/plugin.config::
+Configure the 'authquery' and 'password_hash' in emqttd_plugin_pgsql/etc/plugin.config:
+
+.. code-block:: erlang
 
     [
 
@@ -183,7 +193,7 @@ Configure the 'authquery' and 'password_hash' in emqttd_plugin_pgsql/etc/plugin.
 
         %% hash algorithm: md5, sha, sha256, pbkdf2?
         {password_hash, sha256},
-        
+
         ...
 
       ]}
@@ -198,7 +208,9 @@ Redis
 
 Authenticate against Redis. MQTT users could be stored in redis HASH, the key is "mqtt_user:<Username>".
 
-Configure 'authcmd' and 'password_hash' in emqttd_plugin_redis/etc/plugin.config::
+Configure 'authcmd' and 'password_hash' in emqttd_plugin_redis/etc/plugin.config:
+
+.. code-block:: erlang
 
     [
       {emqttd_plugin_redis, [
@@ -232,7 +244,7 @@ The ACL rules define::
 
 Access Control Module of emqttd broker will match the rules one by one::
 
-              ---------              ---------              ---------   
+              ---------              ---------              ---------
     Client -> | Rule1 | --nomatch--> | Rule2 | --nomatch--> | Rule3 | --> Default
               ---------              ---------              ---------
                   |                      |                      |
@@ -245,14 +257,18 @@ Internal
 
 The default ACL of emqttd broker is implemented by an 'internal' module.
 
-Enable the 'internal' ACL module in etc/emqttd.config::
+Enable the 'internal' ACL module in etc/emqttd.config:
+
+.. code-block:: erlang
 
     {acl, [
         %% Internal ACL module
         {internal,  [{file, "etc/acl.config"}, {nomatch, allow}]}
     ]}
 
-The ACL rules of 'internal' module are defined in 'etc/acl.config' file::
+The ACL rules of 'internal' module are defined in 'etc/acl.config' file:
+
+.. code-block:: erlang
 
     %% Allow 'dashboard' to subscribe '$SYS/#'
     {allow, {user, "dashboard"}, subscribe, ["$SYS/#"]}.
@@ -269,7 +285,9 @@ The ACL rules of 'internal' module are defined in 'etc/acl.config' file::
 MySQL
 -----
 
-ACL against MySQL database. The mqtt_acl table and default data::
+ACL against MySQL database. The mqtt_acl table and default data:
+
+.. code-block:: sql
 
     CREATE TABLE `mqtt_acl` (
       `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
@@ -291,7 +309,9 @@ ACL against MySQL database. The mqtt_acl table and default data::
         (6,1,'127.0.0.1',NULL,NULL,2,'#'),
         (7,1,NULL,'dashboard',NULL,1,'$SYS/#');
 
-Configure 'aclquery' and 'acl_nomatch' in emqttd_plugin_mysql/etc/plugin.config::
+Configure 'aclquery' and 'acl_nomatch' in emqttd_plugin_mysql/etc/plugin.config:
+
+.. code-block:: erlang
 
     [
 
@@ -311,7 +331,9 @@ Configure 'aclquery' and 'acl_nomatch' in emqttd_plugin_mysql/etc/plugin.config:
 PostgreSQL
 ----------
 
-ACL against PostgreSQL database. The mqtt_acl table and default data::
+ACL against PostgreSQL database. The mqtt_acl table and default data:
+
+.. code-block:: sql
 
     CREATE TABLE mqtt_acl (
       id SERIAL primary key,
@@ -332,7 +354,9 @@ ACL against PostgreSQL database. The mqtt_acl table and default data::
         (6,1,'127.0.0.1',NULL,NULL,2,'#'),
         (7,1,NULL,'dashboard',NULL,1,'$SYS/#');
 
-Configure 'aclquery' and 'acl_nomatch' in emqttd_plugin_pgsql/etc/plugin.config::
+Configure 'aclquery' and 'acl_nomatch' in emqttd_plugin_pgsql/etc/plugin.config:
+
+.. code-block:: erlang
 
     [
 
@@ -357,7 +381,9 @@ Redis
 
 ACL against Redis. We store ACL rules for each MQTT client in a Redis List by defualt. The key is "mqtt_acl:<Username>", the value is a list of "publish <Topic>", "subscribe <Topic>" or "pubsub <Topic>".
 
-Configure 'aclcmd' and 'acl_nomatch' in emqttd_plugin_redis/etc/plugin.config::
+Configure 'aclcmd' and 'acl_nomatch' in emqttd_plugin_redis/etc/plugin.config:
+
+.. code-block:: erlang
 
     [
       {emqttd_plugin_redis, [
@@ -394,7 +420,9 @@ For example, we use mosquitto_sub/pub commands::
 
 MQTT V3.1.1 Protocol Specification: http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/mqtt-v3.1.1.html
 
-MQTT Listener of emqttd broker is configured in etc/emqttd.config::
+MQTT Listener of emqttd broker is configured in etc/emqttd.config:
+
+.. code-block:: erlang
 
         {mqtt, 1883, [
             %% Size of acceptor pool
@@ -423,7 +451,9 @@ MQTT Listener of emqttd broker is configured in etc/emqttd.config::
             ]}
         ]},
 
-MQTT(SSL) Listener, Default Port is 8883::
+MQTT(SSL) Listener, Default Port is 8883:
+
+.. code-block:: erlang
 
         {mqtts, 8883, [
             %% Size of acceptor pool
@@ -492,7 +522,9 @@ The Dashboard plugin provides a test page for WebSocket::
 
     http://127.0.0.1:18083/websocket.html
 
-Listener of WebSocket and HTTP Publish API is configured in etc/emqttd.config::
+Listener of WebSocket and HTTP Publish API is configured in etc/emqttd.config:
+
+.. code-block:: erlang
 
     %% HTTP and WebSocket Listener
     {http, 8083, [
@@ -525,7 +557,7 @@ For emqttd broker is clustered, the $SYS topic path is started with::
 
     $SYS/brokers/emqttd@host2/uptime
 
-.. NOTE:: The broker only allows clients from localhost to subscribe $SYS topics by default. 
+.. NOTE:: The broker only allows clients from localhost to subscribe $SYS topics by default.
 
 Sys Interval of publishing $SYS messages, could be configured in etc/emqttd.config::
 
@@ -569,11 +601,11 @@ The topic path started with: $SYS/brokers/${node}/clients/
 
 Properties of 'connected' Payload::
 
-    ipaddress: "127.0.0.1", 
-    username:  "test", 
-    session:   false, 
-    protocol:  3, 
-    connack:   0, 
+    ipaddress: "127.0.0.1",
+    username:  "test",
+    session:   false,
+    protocol:  3,
+    connack:   0,
     ts:        1432648482
 
 Properties of 'disconnected' Payload::
@@ -614,7 +646,7 @@ Subscriptions
 +---------------------+---------------------------------------------+
 | Topic               | Description                                 |
 +---------------------+---------------------------------------------+
-| subscriptions/count | Count of current subscriptions              | 
+| subscriptions/count | Count of current subscriptions              |
 +---------------------+---------------------------------------------+
 | subscriptions/max   | Max number of subscriptions                 |
 +---------------------+---------------------------------------------+
@@ -756,4 +788,3 @@ Stop a Trace::
 .. _emqttd_plugin_mysql:    https://github.com/emqtt/emqttd_plugin_mysql
 .. _emqttd_plugin_pgsql:    https://github.com/emqtt/emqttd_plugin_pgsql
 .. _emqttd_plugin_redis:    https://github.com/emqtt/emqttd_plugin_redis
-

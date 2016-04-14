@@ -45,19 +45,19 @@ Installing on Linux
 
 Download CentOS Package from: http://emqtt.io/downloads/centos, and then unzip:
 
-.. code:: console
+.. code-block:: bash
 
     unzip emqttd-centos64-0.16.0-beta-20160216.zip
 
 Start the broker in console mode:
 
-.. code:: console
+.. code-block:: bash
 
     cd emqttd && ./bin/emqttd console
 
 If the broker is started successfully, console will print:
 
-.. code:: console
+.. code-block:: bash
 
     starting emqttd on node 'emqttd@127.0.0.1'
     emqttd ctl is starting...[done]
@@ -88,7 +88,7 @@ CTRL+C to close the console and stop the broker.
 
 Start the broker in daemon mode:
 
-.. code:: console
+.. code-block:: bash
 
     ./bin/emqttd start
 
@@ -96,7 +96,7 @@ The boot logs in log/emqttd_sasl.log file.
 
 Check the running status of the broker:
 
-.. code:: console
+.. code-block:: bash
 
     $ ./bin/emqttd_ctl status
     Node 'emqttd@127.0.0.1' is started
@@ -132,7 +132,7 @@ Download Mac Package from: http://emqtt.io/downloads/macosx
 
 Configure 'lager' log level in 'etc/emqttd.config', all MQTT messages recevied/sent will be printed on console:
 
-.. code:: erlang
+.. code-block:: erlang
 
     {lager, [
         ...
@@ -196,7 +196,7 @@ Could use apt-get on Ubuntu, yum on CentOS/RedHat and brew on Mac to install Erl
 
 When all dependencies are ready, clone the emqttd project from github.com and build:
 
-.. code:: console
+.. code-block:: bash
 
     git clone https://github.com/emqtt/emqttd.git
 
@@ -226,7 +226,7 @@ TCP Ports Used
 
 The TCP ports used can be configured in etc/emqttd.config:
 
-.. code:: erlang
+.. code-block:: erlang
 
     {listeners, [
         {mqtt, 1883, [
@@ -275,7 +275,7 @@ Two important parameters in etc/vm.args:
 
 The maximum number of allowed MQTT clients:
 
-.. code:: erlang
+.. code-block:: erlang
 
     {listeners, [
         {mqtt, 1883, [
@@ -295,7 +295,7 @@ The maximum number of allowed MQTT clients:
 /etc/init.d/emqttd
 -------------------
 
-.. code:: shell
+.. code-block:: bash
 
     #!/bin/sh
     #

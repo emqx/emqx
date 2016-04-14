@@ -86,7 +86,7 @@ The two most important parameters in etc/vm.args:
 
 +-------+---------------------------------------------------------------------------+
 | +P    | Max number of Erlang proccesses. A MQTT client consumes two proccesses.   |
-|       | The value should be larger than max_clients * 2                           | 
+|       | The value should be larger than max_clients * 2                           |
 +-------+---------------------------------------------------------------------------+
 | +Q    | Max number of Erlang Ports. A MQTT client consumes one port.              |
 |       | The value should be larger than max_clients.                              |
@@ -110,7 +110,7 @@ File Syntax
 
 The file users the standard Erlang config syntax, consists of a list of erlang applications and their environments.
 
-.. code:: erlang
+.. code-block:: erlang
 
     [{kernel, [
         {start_timer, true},
@@ -136,13 +136,17 @@ The file adopts Erlang Term Syntax:
 Log Level and File
 ------------------
 
-Logger of emqttd broker is implemented by 'lager' application::
+Logger of emqttd broker is implemented by 'lager' application:
+
+.. code-block:: erlang
 
   {lager, [
     ...
   ]},
 
-Configure log handlers::
+Configure log handlers:
+
+.. code-block:: erlang
 
     {handlers, [
         {lager_console_backend, info},
@@ -169,7 +173,9 @@ Configure log handlers::
 emqttd Application
 ------------------
 
-The MQTT broker is implemented by erlang 'emqttd' application::
+The MQTT broker is implemented by erlang 'emqttd' application:
+
+.. code-block:: erlang
 
  {emqttd, [
     %% Authentication and Authorization
@@ -208,14 +214,16 @@ Pluggable Authentication
 
 The emqttd broker supports pluggable authentication mechanism with a list of modules and plugins.
 
-The broker provides Username, ClientId, LDAP and anonymous authentication modules by default::
+The broker provides Username, ClientId, LDAP and anonymous authentication modules by default:
+
+.. code-block:: erlang
 
     %% Authetication. Anonymous Default
     {auth, [
         %% Authentication with username, password
         %% Add users: ./bin/emqttd_ctl users add Username Password
         %% {username, [{"test", "public"}]},
-        
+
         %% Authentication with clientid
         % {clientid, [{password, no}, {file, "etc/clients.config"}]},
 
@@ -235,7 +243,7 @@ The broker provides Username, ClientId, LDAP and anonymous authentication module
         {anonymous, []}
     ]},
 
-The modules enabled at the same time compose an authentication chain:
+The modules enabled at the same time compose an authentication chain::
 
                ----------------           ----------------           -------------
     Client --> |   Username   | -ignore-> |   ClientID   | -ignore-> | Anonymous |
@@ -243,13 +251,13 @@ The modules enabled at the same time compose an authentication chain:
                       |                         |                         |
                      \|/                       \|/                       \|/
                 allow | deny              allow | deny              allow | deny
- 
+
 .. NOTE:: There are also MySQL、PostgreSQL、Redis、MongoDB Authentication Plugins.
 
 Username Authentication
 .......................
 
-.. code:: erlang
+.. code-block:: erlang
 
     {username, [{client1, "passwd1"}, {client2, "passwd2"}]},
 
@@ -266,7 +274,7 @@ Two ways to configure users:
 ClientID Authentication
 .......................
 
-.. code:: erlang
+.. code-block:: erlang
 
     {clientid, [{password, no}, {file, "etc/clients.config"}]},
 
@@ -279,7 +287,7 @@ Configure ClientIDs in etc/clients.config::
 LDAP Authentication
 ...................
 
-.. code:: erlang
+.. code-block:: erlang
 
     {ldap, [
        {servers, ["localhost"]},
@@ -304,7 +312,9 @@ Allow any client to connect to the broker::
 ACL
 ---
 
-Enable the default ACL module::
+Enable the default ACL module:
+
+.. code-block:: erlang
 
     {acl, [
         %% Internal ACL module
@@ -314,7 +324,7 @@ Enable the default ACL module::
 MQTT Packet and ClientID
 ------------------------
 
-.. code::
+.. code-block:: erlang
 
     {packet, [
 
@@ -328,7 +338,7 @@ MQTT Packet and ClientID
 MQTT Client Idle Timeout
 ------------------------
 
-.. code::
+.. code-block:: erlang
 
     {client, [
         %% Socket is connected, but no 'CONNECT' packet received
@@ -338,7 +348,7 @@ MQTT Client Idle Timeout
 MQTT Session
 ------------
 
-.. code::
+.. code-block:: erlang
 
     {session, [
         %% Max number of QoS 1 and 2 messages that can be “in flight” at one time.
@@ -388,7 +398,9 @@ The message queue of session stores:
 
 2. Pending messages for inflight window is full
 
-Queue parameters::
+Queue parameters:
+
+.. code-block:: erlang
 
     {queue, [
         %% simple | priority
@@ -428,7 +440,7 @@ Queue parameters::
 Sys Interval of Broker
 -----------------------
 
-.. code::
+.. code-block:: erlang
 
     %% System interval of publishing $SYS messages
     {sys_interval, 60},
@@ -436,7 +448,7 @@ Sys Interval of Broker
 Retained messages
 -----------------
 
-.. code::
+.. code-block:: erlang
 
     {retained, [
         %% Expired after seconds, never expired if 0
@@ -452,12 +464,12 @@ Retained messages
 PubSub and Router
 -----------------
 
-.. code:: erlang
+.. code-block:: erlang
 
     {pubsub, [
         %% PubSub Pool
         {pool_size, 8},
-        
+
         %% Subscription: true | false
         {subscription, true},
 
@@ -468,7 +480,7 @@ PubSub and Router
 Bridge Parameters
 -----------------
 
-.. code:: erlang
+.. code-block:: erlang
 
     {bridge, [
         %% Bridge Queue Size
@@ -484,9 +496,11 @@ Enable Modules
 
 'presence' module will publish presence message to $SYS topic when a client connected or disconnected::
 
-        {presence, [{qos, 0}]},
+    {presence, [{qos, 0}]},
 
-'subscription' module forces the client to subscribe some topics when connected to the broker::
+'subscription' module forces the client to subscribe some topics when connected to the broker:
+
+.. code-block:: erlang
 
         %% Subscribe topics automatically when client connected
         {subscription, [
@@ -500,7 +514,9 @@ Enable Modules
             {"$Q/client/$c", 1}
         ]}
 
-'rewrite' module supports to rewrite the topic path::
+'rewrite' module supports to rewrite the topic path:
+
+.. code-block:: erlang
 
         %% Rewrite rules
         {rewrite, [{file, "etc/rewrite.config"}]}
@@ -508,7 +524,7 @@ Enable Modules
 Plugins Folder
 --------------
 
-.. code:: erlang
+.. code-block:: erlang
 
     {plugins, [
         %% Plugin App Library Dir
@@ -536,7 +552,7 @@ The TCP Ports occupied by emqttd broker by default:
 | 8083      | MQTT(WebSocket), HTTP API Port    |
 +-----------+-----------------------------------+
 
-.. code:: erlang
+.. code-block:: erlang
 
     {listeners, [
 
@@ -641,7 +657,9 @@ Listener Parameters:
 etc/acl.config
 --------------
 
-The 'etc/acl.config' is the default ACL config for emqttd broker. The rules by default::
+The 'etc/acl.config' is the default ACL config for emqttd broker. The rules by default:
+
+.. code-block:: erlang
 
     %% Allow 'dashboard' to subscribe '$SYS/#'
     {allow, {user, "dashboard"}, subscribe, ["$SYS/#"]}.
@@ -657,21 +675,23 @@ The 'etc/acl.config' is the default ACL config for emqttd broker. The rules by d
 
 An ACL rule is an Erlang tuple. The Access control module of emqttd broker matches the rule one by one from top to bottom::
 
-              ---------              ---------              ---------   
+              ---------              ---------              ---------
     Client -> | Rule1 | --nomatch--> | Rule2 | --nomatch--> | Rule3 | --> Default
               ---------              ---------              ---------
                   |                      |                      |
                 match                  match                  match
                  \|/                    \|/                    \|/
             allow | deny           allow | deny           allow | deny
-                
+
 .. _config_rewrite:
 
 ------------------
 etc/clients.config
 ------------------
 
-Enable ClientId Authentication in 'etc/emqttd.config'::
+Enable ClientId Authentication in 'etc/emqttd.config':
+
+.. code-block:: erlang
 
     {auth, [
         %% Authentication with clientid
@@ -688,7 +708,9 @@ Configure all allowed ClientIDs, IP Addresses in etc/clients.config::
 etc/rewrite.config
 ------------------
 
-The Rewrite Rules for emqttd_mod_rewrite::
+The Rewrite Rules for emqttd_mod_rewrite:
+
+.. code-block:: erlang
 
     {topic, "x/#", [
         {rewrite, "^x/y/(.+)$", "z/y/$1"},
@@ -698,4 +720,3 @@ The Rewrite Rules for emqttd_mod_rewrite::
     {topic, "y/+/z/#", [
         {rewrite, "^y/(.+)/z/(.+)$", "y/z/$2"}
     ]}.
-
