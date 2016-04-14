@@ -106,7 +106,7 @@ publish(Topic, Msg) ->
 
 %% @doc Dispatch Message to Subscribers
 -spec(dispatch(binary(), mqtt_message()) -> ok).
-dispatch(Queue = <<"$queue/", _T>>, Msg) ->
+dispatch(Queue = <<"$queue/", _Q/binary>>, Msg) ->
     case subscribers(Queue) of
         [] ->
             dropped(Queue);
