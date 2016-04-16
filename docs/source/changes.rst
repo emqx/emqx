@@ -5,6 +5,16 @@
 Changes
 =======
 
+.. _release_1.0.1:
+
+-------------
+Version 1.0.1
+-------------
+
+*Release Date: 2016-04-16*
+
+PR#515 - Fix '$queue' pubsub, add 'pubsub_queue' test and update docs
+
 .. _release_1.0:
 
 ------------------------------------
