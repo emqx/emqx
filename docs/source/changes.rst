@@ -343,7 +343,7 @@ Benchmark
 
 3.1G memory and 50+ CPU/core:
 
-.. code:: console
+.. code-block:: bash
 
     Connections: 250K
     Subscribers: 250K

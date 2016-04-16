@@ -33,7 +33,7 @@ Create a bridge that forwards all the 'sensor/#' messages from emqttd1 to emqttd
 1. Start Brokers
 ................
 
-.. code:: console
+.. code-block:: bash
 
     cd emqttd1/ && ./bin/emqttd start
     cd emqttd2/ && ./bin/emqttd start
@@ -41,7 +41,7 @@ Create a bridge that forwards all the 'sensor/#' messages from emqttd1 to emqttd
 2. Create bridge: emqttd1--sensor/#-->emqttd2
 .............................................
 
-.. code:: console
+.. code-block:: bash
 
     $ cd emqttd1 && ./bin/emqttd_ctl bridges start emqttd2@127.0.0.1 sensor/#
 
@@ -54,7 +54,7 @@ Create a bridge that forwards all the 'sensor/#' messages from emqttd1 to emqttd
 3. Test the bridge
 ...................
 
-.. code:: console
+.. code-block:: bash
 
     #emqttd2
     mosquitto_sub -t sensor/# -p 2883 -d
@@ -65,7 +65,7 @@ Create a bridge that forwards all the 'sensor/#' messages from emqttd1 to emqttd
 4. Delete the bridge
 .....................
 
-.. code:: console
+.. code-block:: bash
 
     ./bin/emqttd_ctl bridges stop emqttd2@127.0.0.1 sensor/#
 
@@ -73,7 +73,7 @@ Create a bridge that forwards all the 'sensor/#' messages from emqttd1 to emqttd
 emqttd Bridge CLI
 -----------------
 
-.. code:: console
+.. code-block:: bash
 
     #query bridges
     ./bin/emqttd_ctl bridges list
