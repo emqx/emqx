@@ -30,9 +30,12 @@ etc/vm.args
 Configure and Optimize Erlang VM::
 
     ##-------------------------------------------------------------------------
-    ## Name of the node
+    ## Name of the node: Name@Host
     ##-------------------------------------------------------------------------
     -name emqttd@127.0.0.1
+
+    # or
+    #-name emqttd@localhost.
 
     ## Cookie for distributed erlang
     -setcookie emqttdsecretcookie
