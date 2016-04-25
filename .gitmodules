@@ -22,3 +22,18 @@
 [submodule "plugins/emqttd_plugin_redis"]
 	path = plugins/emqttd_plugin_redis
 	url = https://github.com/emqtt/emqttd_plugin_redis.git
+[submodule "plugins/emqplus_backend_redis"]
+	path = plugins/emqplus_backend_redis
+	url = git@github.com:emqplus/emqplus_backend_redis.git
+[submodule "plugins/emqplus_backend_mongo"]
+	path = plugins/emqplus_backend_mongo
+	url = git@github.com:emqplus/emqplus_backend_mongo.git
+[submodule "plugins/emqplus_backend_mysql"]
+	path = plugins/emqplus_backend_mysql
+	url = git@github.com:emqplus/emqplus_backend_mysql.git
+[submodule "plugins/emqplus_backend_pgsql"]
+	path = plugins/emqplus_backend_pgsql
+	url = git@github.com:emqplus/emqplus_backend_pgsql.git
+[submodule "plugins/emqplus_backend_cassa"]
+	path = plugins/emqplus_backend_cassa
+	url = git@github.com:emqplus/emqplus_backend_cassa.git
