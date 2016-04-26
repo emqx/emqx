@@ -67,12 +67,31 @@ unload() ->
 stop_plugins(Names) ->
     [stop_app(App) || App <- Names].
 
+% get the list of rebar3 applications
+projects_rebar3_get_list(PluginsDir) ->
+    lists:filtermap(
+        fun(Elem) ->
+            Project = PluginsDir ++ "/" ++ Elem ++ "/_build/prod/lib/" ++ Elem,
+            case filelib:wildcard("ebin/*.app", Project) of
+                [] -> false;
+                [Rest] ->
+                    AbsDir = filename:join(Project, Rest),
+                    {true, string:substr(
+                             AbsDir, string:len(PluginsDir ++ "/") + 1)}
+            end
+        end, filelib:wildcard("*/", PluginsDir)).
+
+project_other_get_list(PluginsDir) ->
+    filelib:wildcard("*/ebin/*.app", PluginsDir).
+
+
 %% @doc List all available plugins
 -spec(list() -> [mqtt_plugin()]).
 list() ->
     case env(plugins_dir) of
-        {ok, PluginsDir} -> 
-            AppFiles = filelib:wildcard("*/ebin/*.app", PluginsDir),
+        {ok, PluginsDir} ->
+            AppFiles = lists:merge(projects_rebar3_get_list(PluginsDir),
+                                   project_other_get_list(PluginsDir)),
             Plugins = [plugin(PluginsDir, AppFile) || AppFile <- AppFiles],
             StartedApps = names(started_app),
             lists:map(fun(Plugin = #mqtt_plugin{name = Name}) ->
@@ -119,22 +138,7 @@ load(PluginName) when is_atom(PluginName) ->
     end.
 
 load_plugin(#mqtt_plugin{name = Name, config = Config}, Persistent) ->
-    case load_app(Name, Config) of
-        ok ->
-            start_app(Name, fun(App) -> plugin_loaded(App, Persistent) end);
-        {error, Error} ->
-            {error, Error}
-    end.
-
-load_app(App, Config) ->
-    case application:load(App) of
-        ok ->
-            set_config(Config);
-        {error, {already_loaded, App}} ->
-            set_config(Config);
-        {error, Error} ->
-            {error, Error}
-    end.
+    start_app(Name, Config, fun(App) -> plugin_loaded(App, Persistent) end).
 
 %% This trick is awesome:)
 set_config([]) ->
@@ -143,15 +147,19 @@ set_config([{AppName, Envs} | Config]) ->
     [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs],
     set_config(Config).
 
-start_app(App, SuccFun) ->
+start_app(App, Config, SuccFun) ->
+    set_config(Config),
     case application:ensure_all_started(App) of
         {ok, Started} ->
             lager:info("started Apps: ~p", [Started]),
             lager:info("load plugin ~p successfully", [App]),
             SuccFun(App),
             {ok, Started};
+        {error, {already_loaded, App}} ->
+            lager:info("reload plugin ~p successfully", [App]);
         {error, {ErrApp, Reason}} ->
-            lager:error("load plugin ~p error, cannot start app ~s for ~p", [App, ErrApp, Reason]),
+            lager:error("load plugin ~p error, cannot start app ~s for ~p",
+                        [App, ErrApp, Reason]),
             {error, {ErrApp, Reason}}
     end.
 
@@ -159,7 +167,7 @@ find_plugin(Name) ->
     find_plugin(Name, list()).
 
 find_plugin(Name, Plugins) ->
-    lists:keyfind(Name, 2, Plugins). 
+    lists:keyfind(Name, 2, Plugins).
 
 %% @doc UnLoad a Plugin
 -spec(unload(atom()) -> ok | {error, any()}).
@@ -182,7 +190,7 @@ unload_plugin(App, Persistent) ->
         {error, Reason} ->
             {error, Reason}
     end.
-    
+
 stop_app(App) ->
     case application:stop(App) of
         ok ->
@@ -239,7 +247,7 @@ plugin_unloaded(Name, true) ->
 
 read_loaded() ->
     {ok, File} = env(loaded_file),
-    read_loaded(File). 
+    read_loaded(File).
 
 read_loaded(File) ->
     file:consult(File).

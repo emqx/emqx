@@ -121,6 +121,38 @@ get_pid() {
     return 0
 }
 
+rebar3_list_projects(){
+  ROOTDIR="$1/plugins"
+  OUTPUT=""
+  for i in `ls -1d ${ROOTDIR}/*`; do
+    if [ -d "$i/_build" ]; then
+      # rebar3 project
+      OUTPUT="${OUTPUT}`rebar3_get_libs_path $i`"
+    else
+      # else
+      OUTPUT="$i:${OUTPUT}"
+    fi
+  done
+  echo $OUTPUT
+}
+
+rebar3_get_libs_path(){
+  ROOTDIR=$1
+  LIST_PATHS=""
+  cd $ROOTDIR
+  PROJ_DEPS=`QUIET=1 rebar3 path`
+  if [ -n "$PROJ_DEPS" ]; then
+      for j in $PROJ_DEPS; do
+          LIST_PATHS="`dirname $j`:${LIST_PATHS}"
+      done
+  fi
+  cd -
+  # add also the project path
+  PROJ_NAME=`basename $ROOTDIR`
+  PROJ_PATH=`dirname $(dirname $(realpath $(find $ROOTDIR/_build/prod -name ${PROJ_NAME}.app | head -n1)))`
+  LIST_PATHS=":${PROJ_PATH}:${LIST_PATHS}"
+  echo $LIST_PATHS
+}
 
 # Scrape out SSL distribution config info from vm.args into $SSL_DIST_CONFIG
 rm -f $SSL_DIST_CONFIG
@@ -262,7 +294,7 @@ case "$1" in
         fi
         # Setup beam-required vars
         ROOTDIR=$RUNNER_BASE_DIR
-        ERL_LIBS=$ROOTDIR/plugins
+        ERL_LIBS=`rebar3_list_projects $ROOTDIR`
         BINDIR=$ROOTDIR/erts-$ERTS_VSN/bin
         EMU=beam
         PROGNAME=`echo $0 | sed 's/.*\///'`
