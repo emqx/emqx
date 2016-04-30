@@ -35,18 +35,7 @@ edoc:
 rel: compile
 	@cd rel && $(REBAR) generate -f
 
-plugins:
-	@for plugin in ./plugins/* ; do \
-	if [ -d $${plugin} ]; then \
-		mkdir -p $(DIST)/$${plugin}/ ; \
-		cp -R $${plugin}/ebin $(DIST)/$${plugin}/ ; \
-		[ -d "$${plugin}/priv" ] && cp -R $${plugin}/priv $(DIST)/$${plugin}/ ; \
-		[ -d "$${plugin}/etc" ] && cp -R $${plugin}/etc $(DIST)/$${plugin}/ ; \
-		echo "$${plugin} copied" ; \
-	fi \
-	done
-
-dist: rel plugins
+dist: rel
 
 PLT  = $(BASE_DIR)/.emqttd_dialyzer.plt
 APPS = erts kernel stdlib sasl crypto ssl os_mon syntax_tools \
@@ -62,5 +51,4 @@ build_plt: compile
 
 dialyzer: compile
 	dialyzer -Wno_return --plt $(PLT) deps/*/ebin ./ebin plugins/*/ebin
-
 
