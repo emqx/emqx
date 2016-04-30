@@ -124,7 +124,8 @@
     dup    = false  :: boolean(),             %% Dup flag
     sys    = false  :: boolean(),             %% $SYS flag
     payload         :: binary(),              %% Payload
-    timestamp       :: erlang:timestamp()     %% os:timestamp
+    timestamp       :: erlang:timestamp(),    %% os:timestamp
+    extra = []      :: list()
 }).
 
 -type mqtt_message() :: #mqtt_message{}.
