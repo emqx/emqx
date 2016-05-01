@@ -32,19 +32,19 @@ System Layers
 -------------
 
 1. Connection Layer
-   
+
    Handle TCP and WebSocket connections, encode/decode MQTT packets.
 
 2. Session Layer
-   
+
    Process MQTT PUBLISH/SUBSCRIBE Packets received from client, and deliver MQTT messages to client.
-   
+
 3. PubSub Layer
-   
+
    Dispatch MQTT messages to subscribers in a node.
 
 4. Routing(Distributed) Layer
-   
+
    Route MQTT messages among clustered nodes.
 
 ----------------
@@ -93,7 +93,7 @@ A MQTT session will store the subscriptions and inflight messages in memory:
 
 1. The Client’s subscriptions.
 
-2. Inflight qos1/2 messages sent to the client but unacked, QoS 2 messages which 
+2. Inflight qos1/2 messages sent to the client but unacked, QoS 2 messages which
    have been sent to the Client, but have not been completely acknowledged.
 
 3. Inflight qos2 messages received from client and waiting for PUBREL. QoS 2
@@ -191,7 +191,9 @@ Authentication and ACL
 
 The emqttd broker supports an extensible authentication/ACL mechanism, which is implemented by emqttd_access_control, emqttd_auth_mod and emqttd_acl_mod modules.
 
-emqttd_access_control module provides two APIs that help register/unregister auth or ACL module::
+emqttd_access_control module provides two APIs that help register/unregister auth or ACL module:
+
+.. code-block:: erlang
 
     register_mod(auth | acl, atom(), list()) -> ok | {error, any()}.
 
@@ -200,7 +202,9 @@ emqttd_access_control module provides two APIs that help register/unregister aut
 Authentication Bahaviour
 -------------------------
 
-The emqttd_auth_mod defines an Erlang behaviour for authentication module::
+The emqttd_auth_mod defines an Erlang behaviour for authentication module:
+
+.. code-block:: erlang
 
     -module(emqttd_auth_mod).
 
@@ -243,7 +247,9 @@ The authentication modules implemented by default:
 Authorization(ACL)
 ------------------
 
-The emqttd_acl_mod defines an Erlang behavihour for ACL module::
+The emqttd_acl_mod defines an Erlang behavihour for ACL module:
+
+.. code-block:: erlang
 
     -module(emqttd_acl_mod).
 
@@ -273,7 +279,9 @@ The emqttd_acl_mod defines an Erlang behavihour for ACL module::
 
     -endif.
 
-emqttd_acl_internal implements the default ACL based on etc/acl.config file::
+emqttd_acl_internal implements the default ACL based on etc/acl.config file:
+
+.. code-block:: erlang
 
     %%%-----------------------------------------------------------------------------
     %%%
@@ -360,7 +368,7 @@ Hook Implementation
 
 The hook APIs defined in emqttd module:
 
-.. code:: erlang
+.. code-block:: erlang
 
     -module(emqttd).
 
@@ -376,7 +384,7 @@ The hook APIs defined in emqttd module:
 
 And implemented in emqttd_hook module:
 
-.. code:: erlang
+.. code-block:: erlang
 
     -module(emqttd_hook).
 
@@ -398,12 +406,12 @@ Hook Usage
 
 The `emqttd_plugin_template`_ project provides the examples for hook usage:
 
-.. code:: erlang
+.. code-block:: erlang
 
     -module(emqttd_plugin_template).
 
     -export([load/1, unload/0]).
-    
+
     -export([on_message_publish/2, on_message_delivered/3, on_message_acked/3]).
 
     load(Env) ->
@@ -439,7 +447,9 @@ Plugin is a normal erlang application that can be started/stopped dynamically by
 emqttd_plugins Module
 ---------------------
 
-The plugin mechanism is implemented by emqttd_plugins module::
+The plugin mechanism is implemented by emqttd_plugins module:
+
+.. code-block:: erlang
 
     -module(emqttd_plugins).
 
@@ -468,4 +478,3 @@ http://github.com/emqtt/emqttd_plugin_template
 .. _eSockd: https://github.com/emqtt/esockd
 .. _Chain-of-responsibility_pattern: https://en.wikipedia.org/wiki/Chain-of-responsibility_pattern
 .. _emqttd_plugin_template: https://github.com/emqtt/emqttd_plugin_template/blob/master/src/emqttd_plugin_template.erl
-

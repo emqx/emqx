@@ -444,7 +444,7 @@ List, load or unload plugins of emqttd broker.
 +---------------------------+-------------------------+
 | plugins load <Plugin>     | Load Plugin             |
 +---------------------------+-------------------------+
-| plugins unload <Plugin>   | Unload (Plugin)        |
+| plugins unload <Plugin>   | Unload (Plugin)         |
 +---------------------------+-------------------------+
 
 plugins list
@@ -746,7 +746,7 @@ listener parameters:
 | current_clients | Count of current clients             |
 +-----------------+--------------------------------------+
 | shutdown_count  | Statistics of client shutdown reason |
-+-----------------+---------------------------------------+
++----------------+---------------------------------------+
 
 .. _command_mnesia::
 

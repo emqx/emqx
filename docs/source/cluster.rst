@@ -31,7 +31,7 @@ An erlang runtime system called 'node' is identified by a unique name like email
 
 Suppose we start four Erlang nodes on localhost:
 
-.. code:: console
+.. code-block:: bash
 
     erl -name node1@127.0.0.1
     erl -name node2@127.0.0.1
@@ -54,7 +54,7 @@ epmd
 
 epmd(Erlang Port Mapper Daemon) is a daemon service that is responsible for mapping node names to machine addresses(TCP sockets). The daemon is started automatically on every host where an Erlang node started.
 
-.. code:: console
+.. code-block:: bash
 
     (node1@127.0.0.1)6> net_adm:names().
     {ok,[{"node1",62740},
@@ -79,7 +79,7 @@ Cluster Design
 
 The cluster architecture of emqttd broker is based on distrubuted Erlang/OTP and Mnesia database.
 
-The cluster design could be summarized by the following two rules::
+The cluster design could be summarized by the following two rules:
 
 1. When a MQTT client SUBSCRIBE a Topic on a node, the node will tell all the other nodes in the cluster: I subscribed a Topic.
 
@@ -94,7 +94,7 @@ Finally there will be a global route table(Topic -> Node) that replicated to all
 Topic Trie and Route Table
 --------------------------
 
-Every node in the cluster will store a topic trie and route table in mnesia database. 
+Every node in the cluster will store a topic trie and route table in mnesia database.
 
 Suppose that we create subscriptions:
 
@@ -144,22 +144,26 @@ Suppose client1 PUBLISH a message to the topic 't/a', the message Route and Deli
 Cluster Setup
 -------------
 
-Suppose we deploy two nodes cluster on host1, host2:
+Suppose we deploy two nodes cluster on s1.emqtt.io, s2.emqtt.io:
 
-+----------------+-----------+---------------------+
-| Node           | Host      |  IP and Port        |
-+----------------+-----------+---------------------+
-| emqttd@host1   | host1     | 192.168.1.10:1883   |
-+----------------+-----------+---------------------+
-| emqttd@host2   | host2     | 192.168.1.20:1883   |
-+----------------+-----------+---------------------+
++--------------------------+-----------------+---------------------+
+| Node                     | Host(FQDN)      |  IP and Port        |
++--------------------------+-----------------+---------------------+
+| emqttd@s1.emqtt.io or    | s1.emqtt.io     | 192.168.0.10:1883   |
+| emqttd@192.168.0.10      |                 |                     |
++--------------------------+-----------------+---------------------+
+| emqttd@s2.emqtt.io or    | s2.emqtt.io     | 192.168.0.20:1883   |
+| emqttd@192.168.0.20      |                 |                     |
++--------------------------+-----------------+---------------------+
 
-emqttd@host1 setting
---------------------
+.. WARNING:: The node name is Name@Host, where Host is IP address or the fully qualified host name.
+
+emqttd@s1.emqtt.io setting
+--------------------------
 
 emqttd/etc/vm.args::
 
-    -name emqttd@host1
+    -name emqttd@s1.emqtt.io
 
     or
 
@@ -167,12 +171,12 @@ emqttd/etc/vm.args::
 
 .. WARNING:: The name cannot be changed after node joined the cluster.
 
-emqttd@host2 setting
---------------------
+emqttd@s2.emqtt.io setting
+--------------------------
 
 emqttd/etc/vm.args::
 
-    -name emqttd@host2
+    -name emqttd@s2.emqtt.io
 
     or
 
@@ -181,25 +185,25 @@ emqttd/etc/vm.args::
 Join the cluster
 ----------------
 
-Start the two broker nodes, and 'cluster join ' on emqttd@host2::
+Start the two broker nodes, and 'cluster join ' on emqttd@s2.emqtt.io::
 
-    $ ./bin/emqttd_ctl cluster join emqttd@host1
-
-    Join the cluster successfully.
-    Cluster status: [{running_nodes,['emqttd@host1','emqttd@host2']}]
-
-Or 'cluster join' on emqttd@host1::
-
-    $ ./bin/emqttd_ctl cluster join emqttd@host2
+    $ ./bin/emqttd_ctl cluster join emqttd@s1.emqtt.io
 
     Join the cluster successfully.
-    Cluster status: [{running_nodes,['emqttd@host1','emqttd@host2']}]
+    Cluster status: [{running_nodes,['emqttd@s1.emqtt.io','emqttd@s2.emqtt.io']}]
+
+Or 'cluster join' on emqttd@s1.emqtt.io::
+
+    $ ./bin/emqttd_ctl cluster join emqttd@s2.emqtt.io
+
+    Join the cluster successfully.
+    Cluster status: [{running_nodes,['emqttd@s1.emqtt.io','emqttd@s2.emqtt.io']}]
 
 Query the cluster status::
 
     $ ./bin/emqttd_ctl cluster status
 
-    Cluster status: [{running_nodes,['emqttd@host1','emqttd@host2']}]
+    Cluster status: [{running_nodes,['emqttd@s1.emqtt.io','emqttd@s2.emqtt.io']}]
 
 Leave the cluster
 -----------------
@@ -210,14 +214,13 @@ Two ways to leave the cluster:
 
 2. remove: remove other nodes from the cluster
 
-emqttd@host2 node tries to leave the cluster::
+emqttd@s2.emqtt.io node tries to leave the cluster::
 
     $ ./bin/emqttd_ctl cluster leave
 
-Or remove emqttd@host2 node from the cluster on emqttd@host1::
+Or remove emqttd@s2.emqtt.io node from the cluster on emqttd@s1.emqtt.io::
 
-    $ ./bin/emqttd_ctl cluster remove emqttd@host2
-
+    $ ./bin/emqttd_ctl cluster remove emqttd@s2.emqtt.io
 
 --------------------
 Session across Nodes
@@ -242,7 +245,9 @@ The Firewall
 
 If there is a firewall between clustered nodes, the cluster requires to open 4369 port used by epmd daemon, and a port segment for nodes' communication.
 
-Configure the port segment in etc/emqttd.config, for example::
+Configure the port segment in etc/emqttd.config, for example:
+
+.. code-block:: erlang
 
     [{kernel, [
         ...
@@ -268,5 +273,3 @@ Consistent Hash and DHT
 -----------------------
 
 Consistent Hash and DHT are popular in the design of NoSQL databases. Cluster of emqttd broker could support 10 million size of global routing table now. We could use the Consistent Hash or DHT to partition the routing table, and evolve the cluster to larger size.
-
-

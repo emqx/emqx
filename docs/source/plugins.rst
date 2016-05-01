@@ -75,7 +75,9 @@ The Web Dashboard for emqttd broker. The plugin will be loaded automatically whe
 Configure Dashboard
 -------------------
 
-emqttd_dashboard/etc/plugin.config::
+emqttd_dashboard/etc/plugin.config:
+
+.. code-block:: erlang
 
     [
       {emqttd_dashboard, [
@@ -100,7 +102,7 @@ MQTT Authentication, ACL with MySQL database.
 MQTT User Table
 ---------------
 
-.. code:: sql
+.. code-block:: sql
 
     CREATE TABLE `mqtt_user` (
       `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
@@ -115,7 +117,7 @@ MQTT User Table
 MQTT ACL Table
 --------------
 
-.. code:: sql
+.. code-block:: sql
 
     CREATE TABLE `mqtt_acl` (
       `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
@@ -132,7 +134,9 @@ MQTT ACL Table
 Configure emqttd_plugin_mysql/etc/plugin.config
 -----------------------------------------------
 
-Configure MySQL host, username, password and database::
+Configure MySQL host, username, password and database:
+
+.. code-block:: erlang
 
     [
 
@@ -178,7 +182,7 @@ Configure MySQL host, username, password and database::
 Load emqttd_plugin_mysql plugin
 -------------------------------
 
-.. code::
+.. code-block:: bash
 
     ./bin/emqttd_ctl plugins load emqttd_plugin_mysql
 
@@ -191,7 +195,7 @@ MQTT Authentication, ACL with PostgreSQL Database.
 MQTT User Table
 ---------------
 
-.. code:: sql
+.. code-block:: sql
 
     CREATE TABLE mqtt_user (
       id SERIAL primary key,
@@ -203,7 +207,7 @@ MQTT User Table
 MQTT ACL Table
 --------------
 
-.. code:: sql
+.. code-block:: sql
 
     CREATE TABLE mqtt_acl (
       id SERIAL primary key,
@@ -227,7 +231,9 @@ MQTT ACL Table
 Configure emqttd_plugin_pgsql/etc/plugin.config
 -----------------------------------------------
 
-Configure host, username, password and database of PostgreSQL::
+Configure host, username, password and database of PostgreSQL:
+
+.. code-block:: erlang
 
     [
 
@@ -274,7 +280,7 @@ Configure host, username, password and database of PostgreSQL::
 Load emqttd_plugin_pgsql Plugin
 -------------------------------
 
-.. code:: shell
+.. code-block:: bash
 
     ./bin/emqttd_ctl plugins load emqttd_plugin_pgsql
 
@@ -287,7 +293,7 @@ MQTT Authentication, ACL with Redis.
 Configure emqttd_plugin_redis/etc/plugin.config
 -----------------------------------------------
 
-.. code:: erlang
+.. code-block:: erlang
 
     [
       {emqttd_plugin_redis, [
@@ -331,7 +337,7 @@ Configure emqttd_plugin_redis/etc/plugin.config
 Load emqttd_plugin_redis Plugin
 -------------------------------
 
-.. code:: console
+.. code-block:: bash
 
     ./bin/emqttd_ctl plugins load emqttd_plugin_redis
 
@@ -346,7 +352,7 @@ Configure emqttd_stomp/etc/plugin.config
 
 .. NOTE:: Default Port for STOMP Protocol: 61613
 
-.. code:: erlang
+.. code-block:: erlang
 
     [
       {emqttd_stomp, [
@@ -378,7 +384,7 @@ Configure emqttd_stomp/etc/plugin.config
 Load emqttd_stomp Plugin
 ------------------------
 
-.. code::
+.. code-block:: bash
 
     ./bin/emqttd_ctl plugins load emqttd_stomp
 
@@ -394,7 +400,7 @@ emqttd_sockjs plugin enables web browser to connect to emqttd broker and communi
 Configure emqttd_sockjs
 -----------------------
 
-.. code:: erlang
+.. code-block:: erlang
 
     [
       {emqttd_sockjs, [
@@ -411,7 +417,7 @@ Load emqttd_sockjs Plugin
 
 .. NOTE:: emqttd_stomp Plugin required.
 
-.. code:: console
+.. code-block:: bash
 
     ./bin/emqttd_ctl plugins load emqttd_stomp
 
@@ -431,14 +437,14 @@ The plugin loads `recon`_ library on a running emqttd broker. Recon libray helps
 Load emqttd_recon Plugin
 ------------------------
 
-.. code:: console
+.. code-block:: bash
 
     ./bin/emqttd_ctl plugins load emqttd_recon
 
 Recon CLI
 ---------
 
-.. code:: console
+.. code-block:: bash
 
     ./bin/emqttd_ctl recon
 
@@ -473,7 +479,7 @@ Register Auth/ACL Modules
 
 emqttd_auth_demo.erl - demo authentication module:
 
-.. code:: erlang
+.. code-block:: erlang
 
     -module(emqttd_auth_demo).
 
@@ -494,7 +500,7 @@ emqttd_auth_demo.erl - demo authentication module:
 
 emqttd_acl_demo.erl - demo ACL module:
 
-.. code:: erlang
+.. code-block:: erlang
 
     -module(emqttd_acl_demo).
 
@@ -517,7 +523,7 @@ emqttd_acl_demo.erl - demo ACL module:
 
 emqttd_plugin_template_app.erl - Register the auth/ACL modules:
 
-.. code:: erlang
+.. code-block:: erlang
 
     ok = emqttd_access_control:register_mod(auth, emqttd_auth_demo, []),
     ok = emqttd_access_control:register_mod(acl, emqttd_acl_demo, []),
@@ -547,9 +553,11 @@ The plugin could register callbacks for hooks. The hooks will be run by the brok
 | message.acked          | Run when a message(qos1/2) is acked   |
 +------------------------+---------------------------------------+
 | client.disconnected    | Run when a client is disconnnected    |
-+----------------------- +---------------------------------------+
++------------------------+---------------------------------------+
 
-emqttd_plugin_template.erl for example::
+emqttd_plugin_template.erl for example:
+
+.. code-block:: erlang
 
     %% Called when the plugin application start
     load(Env) ->
@@ -568,7 +576,7 @@ Register CLI Modules
 
 emqttd_cli_demo.erl:
 
-.. code:: erlang
+.. code-block:: erlang
 
     -module(emqttd_cli_demo).
 
@@ -584,7 +592,7 @@ emqttd_cli_demo.erl:
 
 emqttd_plugin_template_app.erl - register the CLI module to emqttd broker:
 
-.. code:: erlang
+.. code-block:: erlang
 
     emqttd_ctl:register_cmd(cmd, {emqttd_cli_demo, cmd}, []).
 
@@ -602,4 +610,3 @@ There will be a new CLI after the plugin loaded::
 .. _emqttd_recon:           https://github.com/emqtt/emqttd_recon
 .. _emqttd_plugin_template: https://github.com/emqtt/emqttd_plugin_template
 .. _recon:                  http://ferd.github.io/recon/
-
