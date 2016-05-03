@@ -70,10 +70,10 @@ stop_plugins(Names) ->
 %% @doc List all available plugins
 -spec(list() -> [mqtt_plugin()]).
 list() ->
-    case env(plugins_dir) of
-        {ok, PluginsDir} -> 
-            AppFiles = filelib:wildcard("*/ebin/*.app", PluginsDir),
-            Plugins = [plugin(PluginsDir, AppFile) || AppFile <- AppFiles],
+    case env(plugins_etc) of
+        {ok, PluginsEtc} -> 
+            CfgFiles = filelib:wildcard("*.config", PluginsEtc),
+            Plugins = [plugin(PluginsEtc, CfgFile) || CfgFile <- CfgFiles],
             StartedApps = names(started_app),
             lists:map(fun(Plugin = #mqtt_plugin{name = Name}) ->
                           case lists:member(Name, StartedApps) of
@@ -85,21 +85,13 @@ list() ->
             []
     end.
 
-plugin(PluginsDir, AppFile0) ->
-    AppFile = filename:join(PluginsDir, AppFile0),
-    {ok, [{application, Name, Attrs}]} = file:consult(AppFile),
-    CfgFile = filename:join([PluginsDir, Name, "etc/plugin.config"]),
-    AppsEnv1 =
-    case filelib:is_file(CfgFile) of
-        true ->
-            {ok, [AppsEnv]} = file:consult(CfgFile),
-            AppsEnv;
-        false ->
-            []
-    end,
+plugin(PluginsEtc, CfgFile0) ->
+    CfgFile = filename:join(PluginsEtc, CfgFile0),
+    {ok, [[{AppName, AppEnv} | _]]} = file:consult(CfgFile),
+    {ok, Attrs} = application:get_all_key(AppName),
     Ver = proplists:get_value(vsn, Attrs, "0"),
     Descr = proplists:get_value(description, Attrs, ""),
-    #mqtt_plugin{name = Name, version = Ver, config = AppsEnv1, descr = Descr}.
+    #mqtt_plugin{name = AppName, version = Ver, config = AppEnv, descr = Descr}.
 
 %% @doc Load a Plugin
 -spec(load(atom()) -> ok | {error, any()}).
@@ -126,22 +118,15 @@ load_plugin(#mqtt_plugin{name = Name, config = Config}, Persistent) ->
             {error, Error}
     end.
 
-load_app(App, Config) ->
+load_app(App, _Config) ->
     case application:load(App) of
         ok ->
-            set_config(Config);
+            ok;
         {error, {already_loaded, App}} ->
-            set_config(Config);
+            ok;
         {error, Error} ->
             {error, Error}
     end.
-
-%% This trick is awesome:)
-set_config([]) ->
-    ok;
-set_config([{AppName, Envs} | Config]) ->
-    [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs],
-    set_config(Config).
 
 start_app(App, SuccFun) ->
     case application:ensure_all_started(App) of
