@@ -19,6 +19,8 @@ Issue#535 - emqttd_client should be terminated properly even if exception happen
 
 PR#519 - The erlang '-name' requires the fully qualified host name
 
+emqttd_reloader plugin - help reload modified modules during development.
+
 .. _release_l.0.1:
 
 -------------
