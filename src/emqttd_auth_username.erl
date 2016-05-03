@@ -77,6 +77,9 @@ add_user(Username, Password) ->
     User = #?AUTH_USERNAME_TAB{username = Username, password = hash(Password)},
     ret(mnesia:transaction(fun mnesia:write/1, [User])).
 
+add_default_user(Username, Password) when is_atom(Username) ->
+    add_default_user(atom_to_list(Username), Password);
+
 add_default_user(Username, Password) ->
     add_user(iolist_to_binary(Username), iolist_to_binary(Password)).
 
