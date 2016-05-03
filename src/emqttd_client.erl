@@ -79,11 +79,12 @@ init([OriginConn, MqttEnv]) ->
             exit({shutdown, Reason})
     end,
     ConnName = esockd_net:format(PeerName),
+    Self = self(),
     SendFun = fun(Data) ->
         try Connection:async_send(Data) of
             true -> ok
         catch
-            error:Error -> exit({shutdown, Error})
+            error:Error -> Self ! {shutdown, Error}
         end
     end,
     PktOpts = proplists:get_value(packet, MqttEnv),
@@ -137,6 +138,10 @@ handle_cast(Msg, State) ->
 
 handle_info(timeout, State) ->
     shutdown(idle_timeout, State);
+
+%% fix issue #535
+handle_info({shutdown, Error}, State) ->
+    shutdown(Error, State);
 
 %% Asynchronous SUBACK
 handle_info({suback, PacketId, GrantedQos}, State) ->
