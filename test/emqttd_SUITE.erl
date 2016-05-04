@@ -74,7 +74,8 @@ groups() ->
        cli_subscriptions,
        cli_bridges,
        cli_plugins,
-       cli_listeners]}].
+       cli_listeners,
+       cli_vm]}].
 
 init_per_suite(Config) ->
     application:start(lager),
@@ -418,4 +419,8 @@ cli_bridges(_) ->
 
 cli_listeners(_) ->
     emqttd_cli:listeners([]).
+
+cli_vm(_) ->
+    emqttd_cli:vm([]),
+    emqttd_cli:vm(["ports"]).
 
