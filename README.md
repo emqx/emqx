@@ -90,7 +90,7 @@ Download binary package for Linux, Mac and Freebsd from [http://emqtt.io/downloa
 Installing on Ubuntu64, for example:
 
 ```sh
-unzip emqttd-macosx-0.16.0-beta-20160216.zip && cd emqttd
+unzip emqttd-ubuntu64-0.16.0-beta-20160216.zip && cd emqttd
 
 # start console
 ./bin/emqttd console
