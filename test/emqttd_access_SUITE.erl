@@ -78,6 +78,7 @@ reload_acl(_) ->
 
 register_mod(_) ->
     ok = ?AC:register_mod(acl, emqttd_acl_test_mod, []),
+    {error, already_existed} = ?AC:register_mod(acl, emqttd_acl_test_mod, []),
     [{emqttd_acl_test_mod, _, 0},
      {emqttd_acl_internal, _, 0}] = ?AC:lookup_mods(acl),
     ok = ?AC:register_mod(auth, emqttd_auth_anonymous_test_mod,[]),

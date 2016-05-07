@@ -421,6 +421,6 @@ cli_listeners(_) ->
     emqttd_cli:listeners([]).
 
 cli_vm(_) ->
-    emqttd_cli:vm(),
+    emqttd_cli:vm([]),
     emqttd_cli:vm(["ports"]).
 

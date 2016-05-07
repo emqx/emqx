@@ -5,7 +5,23 @@
 Changes
 =======
 
-.. _release_1.0.1:
+.. _release_1.0.2:
+
+-------------
+Version 1.0.2
+-------------
+
+*Release Date: 2016-05-04*
+
+Issue#534 - './bin/emqttd_ctl vm' - add 'port/count', 'port/limit' statistics
+
+Issue#535 - emqttd_client should be terminated properly even if exception happened when sending data
+
+PR#519 - The erlang '-name' requires the fully qualified host name
+
+emqttd_reloader plugin - help reload modified modules during development.
+
+.. _release_l.0.1:
 
 -------------
 Version 1.0.1
