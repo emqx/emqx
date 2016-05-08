@@ -30,7 +30,7 @@
 
 -export([status/1, broker/1, cluster/1, users/1, clients/1, sessions/1,
          routes/1, topics/1, subscriptions/1, plugins/1, bridges/1,
-         listeners/1, vm/1, mnesia/1, trace/1, admins/1]).
+         listeners/1, vm/1, mnesia/1, trace/1]).
 
 -define(PROC_INFOKEYS, [status,
                         memory,
@@ -466,35 +466,6 @@ listeners([]) ->
 
 listeners(_) ->
     ?PRINT_CMD("listeners", "List listeners").
-
-%%--------------------------------------------------------------------
-%% @doc emqttd_dashboard user Command
-admins(["add", Username, Password]) ->
-    admins(["add", Username, Password, ""]);
-
-admins(["add", Username, Password, Tag]) ->
-    case emqttd_dashboard_admin:add_user(bin(Username), bin(Password), bin(Tag)) of
-        ok ->
-            ?PRINT_MSG("ok~n");
-        {error, already_existed} ->
-            ?PRINT_MSG("Error: already existed~n");
-        {error, Reason} ->
-            ?PRINT("Error: ~p~n", [Reason])
-    end;
-
-admins(["passwd", Username, Password]) ->
-    Status  = emqttd_dashboard_admin:change_password(bin(Username), bin(Password)),
-    ?PRINT("~p~n", [Status]);
-
-admins(["del", Username]) ->
-    Status  = emqttd_dashboard_admin:remove_user(bin(Username)),
-    ?PRINT("~p~n", [Status]);
-
-admins(_) ->
-    ?USAGE([{"admins add <Username> <Password> <Tags>",  "Add dashboard user"},
-            {"admins passwd <Username> <Password>",      "Reset dashboard user password"},
-            {"admins del <Username>",                    "Delete dashboard user" }]).
-
 
 %%--------------------------------------------------------------------
 %% Dump ETS
