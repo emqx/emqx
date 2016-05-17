@@ -16,7 +16,7 @@
     {error_logger_redirect, false},
     {crash_log, "log/emqttd_crash.log"},
     {handlers, [
-        %%{lager_console_backend, info},
+        {lager_console_backend, error},
         %%NOTICE: Level >= error
         %%{lager_emqtt_backend, error},
         {lager_file_backend, [
