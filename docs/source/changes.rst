@@ -15,6 +15,8 @@ Version 1.0.3
 
 eSockd 3.2
 
+MochiWeb 4.0.1
+
 .. _release_1.0.2:
 
 -------------
