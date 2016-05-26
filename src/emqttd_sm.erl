@@ -117,8 +117,7 @@ call(SM, Req) ->
 
 init([Pool, Id]) ->
     ?GPROC_POOL(join, Pool, Id),
-    {ok, #state{pool = Pool, id = Id,
-                monitors = dict:new()}}.
+    {ok, #state{pool = Pool, id = Id, monitors = dict:new()}}.
 
 prioritise_call(_Msg, _From, _Len, _State) ->
     1.
@@ -175,7 +174,7 @@ handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
                     [_Sess] -> ok
                     end
                 end),
-            {noreply, erase_monitor(MRef, State)};
+            {noreply, erase_monitor(MRef, State), hibernate};
         error ->
             lager:error("MRef of session ~p not found", [DownPid]),
             {noreply, State}
