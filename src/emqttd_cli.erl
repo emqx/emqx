@@ -453,12 +453,12 @@ trace_off(Who, Name) ->
 %%--------------------------------------------------------------------
 %% @doc Listeners Command
 listeners([]) ->
-    foreach(fun({{Protocol, Port}, Pid}) ->
+    foreach(fun({{Protocol, ListenOn}, Pid}) ->
                 Info = [{acceptors,      esockd:get_acceptors(Pid)},
                         {max_clients,    esockd:get_max_clients(Pid)},
                         {current_clients,esockd:get_current_clients(Pid)},
                         {shutdown_count, esockd:get_shutdown_count(Pid)}],
-                ?PRINT("listener on ~s:~w~n", [Protocol, Port]),
+                ?PRINT("listener on ~s:~s~n", [Protocol, esockd:to_string(ListenOn)]),
                 foreach(fun({Key, Val}) ->
                             ?PRINT("  ~-16s: ~w~n", [Key, Val])
                         end, Info)
