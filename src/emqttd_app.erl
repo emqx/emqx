@@ -33,7 +33,7 @@
         {backlog,   512},
         {nodelay,   true}]).
 
--type listener() :: {atom(), inet:port_number(), [esockd:option()]}.
+-type listener() :: {atom(), esockd:listen_on(), [esockd:option()]}.
 
 %%--------------------------------------------------------------------
 %% Application callbacks
@@ -172,22 +172,22 @@ start_listeners() -> lists:foreach(fun start_listener/1, emqttd:env(listeners)).
 
 %% Start mqtt listener
 -spec(start_listener(listener()) -> any()).
-start_listener({mqtt, Port, Opts}) -> start_listener(mqtt, Port, Opts);
+start_listener({mqtt, ListenOn, Opts}) -> start_listener(mqtt, ListenOn, Opts);
 
 %% Start mqtt(SSL) listener
-start_listener({mqtts, Port, Opts}) -> start_listener(mqtts, Port, Opts);
+start_listener({mqtts, ListenOn, Opts}) -> start_listener(mqtts, ListenOn, Opts);
 
 %% Start http listener
-start_listener({http, Port, Opts}) ->
-    mochiweb:start_http(Port, Opts, {emqttd_http, handle_request, []});
+start_listener({http, ListenOn, Opts}) ->
+    mochiweb:start_http(http, ListenOn, Opts, {emqttd_http, handle_request, []});
 
 %% Start https listener
-start_listener({https, Port, Opts}) ->
-    mochiweb:start_http(Port, Opts, {emqttd_http, handle_request, []}).
+start_listener({https, ListenOn, Opts}) ->
+    mochiweb:start_http(https, ListenOn, Opts, {emqttd_http, handle_request, []}).
 
-start_listener(Protocol, Port, Opts) ->
+start_listener(Protocol, ListenOn, Opts) ->
     MFArgs = {emqttd_client, start_link, [emqttd:env(mqtt)]},
-    esockd:open(Protocol, Port, merge_sockopts(Opts), MFArgs).
+    esockd:open(Protocol, ListenOn, merge_sockopts(Opts), MFArgs).
 
 merge_sockopts(Options) ->
     SockOpts = emqttd_opts:merge(?MQTT_SOCKOPTS,
@@ -201,5 +201,6 @@ merge_sockopts(Options) ->
 %% @doc Stop Listeners
 stop_listeners() -> lists:foreach(fun stop_listener/1, emqttd:env(listeners)).
 
-stop_listener({Protocol, Port, _Opts}) -> esockd:close({Protocol, Port}).
+%% @private
+stop_listener({Protocol, ListenOn, _Opts}) -> esockd:close(Protocol, ListenOn).
 

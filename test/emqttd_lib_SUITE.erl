@@ -28,9 +28,11 @@
 
 -define(PQ, priority_queue).
 
+-define(BASE62, emqttd_base62).
+
 all() -> [{group, guid}, {group, opts},
           {group, ?PQ}, {group, time},
-          {group, node}].
+          {group, node}, {group, base62}].
 
 groups() ->
     [{guid, [], [guid_gen]},
@@ -38,7 +40,8 @@ groups() ->
      {?PQ,  [], [priority_queue_plen,
                  priority_queue_out2]},
      {time, [], [time_now_to_]},
-     {node, [], [node_is_aliving, node_parse_name]}].
+     {node, [], [node_is_aliving, node_parse_name]},
+     {base62, [], [base62_encode]}].
 
 %%--------------------------------------------------------------------
 %% emqttd_guid
@@ -143,4 +146,18 @@ node_is_aliving(_) ->
 node_parse_name(_) ->
     'a@127.0.0.1' = emqttd_node:parse_name("a@127.0.0.1"),
     'b@127.0.0.1' = emqttd_node:parse_name("b").
+
+%%--------------------------------------------------------------------
+%% base62 encode decode
+%%--------------------------------------------------------------------
+
+base62_encode(_) ->
+    10 = ?BASE62:decode(?BASE62:encode(10)),
+    100 = ?BASE62:decode(?BASE62:encode(100)),
+    9999 = ?BASE62:decode(?BASE62:encode(9999)),
+    65535 = ?BASE62:decode(?BASE62:encode(65535)),
+    <<X:128/unsigned-big-integer>> = emqttd_guid:gen(),
+    <<Y:128/unsigned-big-integer>> = emqttd_guid:gen(),
+    X = ?BASE62:decode(?BASE62:encode(X)),
+    Y = ?BASE62:decode(?BASE62:encode(Y)).
 
