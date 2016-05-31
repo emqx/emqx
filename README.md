@@ -5,7 +5,7 @@ emqttd is a massively scalable and clusterable MQTT V3.1/V3.1.1 broker written i
 
 emqttd is fully open source and licensed under the Apache Version 2.0. emqttd implements both MQTT V3.1 and V3.1.1 protocol specifications, and supports WebSocket, STOMP, SockJS, CoAP and MQTT-SN at the same time.
 
-emqttd requires Erlang R17+ to build.
+emqttd requires Erlang R18+ to build since 1.1 release.
 
 Demo Server: tcp://t.emqtt.io:1883
 
