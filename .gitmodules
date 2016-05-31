@@ -25,3 +25,9 @@
 [submodule "plugins/emqttd_reloader"]
 	path = plugins/emqttd_reloader
 	url = https://github.com/emqtt/emqttd_reloader.git
+[submodule "plugins/emqttd_plugin_mongo"]
+	path = plugins/emqttd_plugin_mongo
+	url = https://github.com/emqtt/emqttd_plugin_mongo.git
+[submodule "plugins/emqttd_auth_http"]
+	path = plugins/emqttd_auth_http
+	url = https://github.com/emqtt/emqttd_auth_http.git
