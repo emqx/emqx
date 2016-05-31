@@ -37,7 +37,7 @@ The emqttd project is aimed to implement a scalable, distributed, extensible ope
 * IpAddress Authentication
 * Username and Password Authentication
 * Access control based on IpAddress, ClientID, Username
-* Authentication with LDAP, Redis, MySQL, PostgreSQL
+* Authentication with LDAP, Redis, MySQL, PostgreSQL and HTTP API
 * Cluster brokers on several servers
 * Bridge brokers locally or remotely
 * mosquitto, RSMB bridge
@@ -65,9 +65,11 @@ Plugin                                                                    | Desc
 [emqttd_plugin_pgsql](https://github.com/emqtt/emqttd_plugin_pgsql)       | PostgreSQL Authentication/ACL Plugin
 [emqttd_plugin_redis](https://github.com/emqtt/emqttd_plugin_redis)       | Redis Authentication/ACL Plugin
 [emqttd_plugin_mongo](https://github.com/emqtt/emqttd_plugin_mongo)       | MongoDB Authentication/ACL Plugin
+[emqttd_auth_http](https://github.com/emqtt/emqttd_auth_http)             | Authentication/ACL by HTTP API
 [emqttd_stomp](https://github.com/emqtt/emqttd_stomp)                     | Stomp Protocol Plugin
 [emqttd_sockjs](https://github.com/emqtt/emqttd_sockjs)                   | SockJS(Stomp) Plugin
 [emqttd_recon](https://github.com/emqtt/emqttd_recon)                     | Recon Plugin
+[emqttd_reloader](https://github.com/emqtt/emqttd_reloader)               | Reloader Plugin
 
 ## Dashboard
 
