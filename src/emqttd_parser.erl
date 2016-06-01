@@ -136,14 +136,14 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos  = Qos} = Header, Length) 
             <<PacketId:16/big>> = FrameBin,
             wrap(Header, #mqtt_packet_puback{packet_id = PacketId}, Rest);
         {?PUBREL, <<FrameBin:Length/binary, Rest/binary>>} ->
-            1 = Qos,
+            %% 1 = Qos,
             <<PacketId:16/big>> = FrameBin,
             wrap(Header, #mqtt_packet_puback{packet_id = PacketId}, Rest);
         {?PUBCOMP, <<FrameBin:Length/binary, Rest/binary>>} ->
             <<PacketId:16/big>> = FrameBin,
             wrap(Header, #mqtt_packet_puback{packet_id = PacketId}, Rest);
         {?SUBSCRIBE, <<FrameBin:Length/binary, Rest/binary>>} ->
-            1 = Qos,
+            %% 1 = Qos,
             <<PacketId:16/big, Rest1/binary>> = FrameBin,
             TopicTable = parse_topics(?SUBSCRIBE, Rest1, []),
             wrap(Header, #mqtt_packet_subscribe{packet_id   = PacketId,
@@ -153,7 +153,7 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos  = Qos} = Header, Length) 
         %    wrap(Header, #mqtt_packet_suback{packet_id = PacketId,
         %                                     qos_table = parse_qos(Rest1, []) }, Rest);
         {?UNSUBSCRIBE, <<FrameBin:Length/binary, Rest/binary>>} ->
-            1 = Qos,
+            %% 1 = Qos,
             <<PacketId:16/big, Rest1/binary>> = FrameBin,
             Topics = parse_topics(?UNSUBSCRIBE, Rest1, []),
             wrap(Header, #mqtt_packet_unsubscribe{packet_id = PacketId,
