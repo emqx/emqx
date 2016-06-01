@@ -35,7 +35,7 @@ Download binary packages from: http://emqtt.io/downloads
 
 The package name consists of platform, version and release time.
 
-For example: emqttd-centos64-0.16.0-beta-20160216.zip
+For example: emqttd-centos64-1.1-beta-20160601.zip
 
 .. _install_on_linux:
 
@@ -47,7 +47,7 @@ Download CentOS Package from: http://emqtt.io/downloads/centos, and then unzip:
 
 .. code-block:: bash
 
-    unzip emqttd-centos64-0.16.0-beta-20160216.zip
+    unzip emqttd-centos64-1.1-beta-20160601.zip
 
 Start the broker in console mode:
 
@@ -80,7 +80,7 @@ If the broker is started successfully, console will print:
     mqtt listen on 0.0.0.0:1883 with 16 acceptors.
     mqtts listen on 0.0.0.0:8883 with 4 acceptors.
     http listen on 0.0.0.0:8083 with 4 acceptors.
-    Erlang MQTT Broker 0.16.0 is running now
+    Erlang MQTT Broker 1.1 is running now
     Eshell V6.4  (abort with ^G)
     (emqttd@127.0.0.1)1>
 
@@ -100,7 +100,7 @@ Check the running status of the broker:
 
     $ ./bin/emqttd_ctl status
     Node 'emqttd@127.0.0.1' is started
-    emqttd 0.16.0 is running
+    emqttd 1.1 is running
 
 Or check the status by URL::
 
