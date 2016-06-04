@@ -44,10 +44,10 @@ limit(Opts) ->
             -> {ok, mqtt_packet()} | {error, any()} | {more, fun()}).
 parse(<<>>, {none, Limit}) ->
     {more, fun(Bin) -> parse(Bin, {none, Limit}) end};
-parse(<<PacketType:4, Dup:1, QoS:2, Retain:1, Rest/binary>>, {none, Limit}) ->
-    parse_remaining_len(Rest, #mqtt_packet_header{type   = PacketType,
+parse(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>, {none, Limit}) ->
+    parse_remaining_len(Rest, #mqtt_packet_header{type   = Type,
                                                   dup    = bool(Dup),
-                                                  qos    = QoS,
+                                                  qos    = fixqos(Type, QoS),
                                                   retain = bool(Retain)}, Limit);
 parse(Bin, Cont) -> Cont(Bin).
 
@@ -217,4 +217,10 @@ bool(1) -> true.
 
 protocol_name_approved(Ver, Name) ->
     lists:member({Ver, Name}, ?PROTOCOL_NAMES).
+
+%% Fix Issue#575
+fixqos(?PUBREL, 0)      -> 1;
+fixqos(?SUBSCRIBE, 0)   -> 1;
+fixqos(?UNSUBSCRIBE, 0) -> 1;
+fixqos(_Type, QoS)      -> QoS.
 
