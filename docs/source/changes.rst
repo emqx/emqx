@@ -5,6 +5,20 @@
 Changes
 =======
 
+.. _release_1.1.1:
+
+-------------
+Version 1.1.1
+-------------
+
+*Release Date: 2016-06-04*
+
+Compatible with the Qos0 PUBREL packet (#575)
+
+phpMqtt Client Compatibility (#572)
+
+java.io.EOFException using paho java client (#551)
+
 .. _release_1.1:
 
 -----------
