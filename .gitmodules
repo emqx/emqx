@@ -1,3 +1,0 @@
-[submodule "plugins/emqttd_sockjs"]
-	path = plugins/emqttd_sockjs
-	url = https://github.com/emqtt/emqttd_sockjs.git
