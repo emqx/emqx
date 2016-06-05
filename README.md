@@ -5,7 +5,7 @@ emqttd is a massively scalable and clusterable MQTT V3.1/V3.1.1 broker written i
 
 emqttd is fully open source and licensed under the Apache Version 2.0. emqttd implements both MQTT V3.1 and V3.1.1 protocol specifications, and supports WebSocket, STOMP, SockJS, CoAP and MQTT-SN at the same time.
 
-emqttd requires Erlang R17+ to build.
+emqttd requires Erlang R18+ to build since 1.1 release.
 
 Demo Server: tcp://t.emqtt.io:1883
 
@@ -37,7 +37,7 @@ The emqttd project is aimed to implement a scalable, distributed, extensible ope
 * IpAddress Authentication
 * Username and Password Authentication
 * Access control based on IpAddress, ClientID, Username
-* Authentication with LDAP, Redis, MySQL, PostgreSQL
+* Authentication with LDAP, Redis, MySQL, PostgreSQL and HTTP API
 * Cluster brokers on several servers
 * Bridge brokers locally or remotely
 * mosquitto, RSMB bridge
@@ -65,9 +65,11 @@ Plugin                                                                    | Desc
 [emqttd_plugin_pgsql](https://github.com/emqtt/emqttd_plugin_pgsql)       | PostgreSQL Authentication/ACL Plugin
 [emqttd_plugin_redis](https://github.com/emqtt/emqttd_plugin_redis)       | Redis Authentication/ACL Plugin
 [emqttd_plugin_mongo](https://github.com/emqtt/emqttd_plugin_mongo)       | MongoDB Authentication/ACL Plugin
+[emqttd_auth_http](https://github.com/emqtt/emqttd_auth_http)             | Authentication/ACL by HTTP API
 [emqttd_stomp](https://github.com/emqtt/emqttd_stomp)                     | Stomp Protocol Plugin
 [emqttd_sockjs](https://github.com/emqtt/emqttd_sockjs)                   | SockJS(Stomp) Plugin
 [emqttd_recon](https://github.com/emqtt/emqttd_recon)                     | Recon Plugin
+[emqttd_reloader](https://github.com/emqtt/emqttd_reloader)               | Reloader Plugin
 
 ## Dashboard
 
@@ -90,7 +92,7 @@ Download binary package for Linux, Mac and Freebsd from [http://emqtt.io/downloa
 Installing on Ubuntu64, for example:
 
 ```sh
-unzip emqttd-macosx-0.16.0-beta-20160216.zip && cd emqttd
+unzip emqttd-ubuntu64-0.16.0-beta-20160216.zip && cd emqttd
 
 # start console
 ./bin/emqttd console

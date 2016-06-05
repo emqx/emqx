@@ -20,7 +20,7 @@ Show running status of the broker::
     $ ./bin/emqttd_ctl status
 
     Node 'emqttd@127.0.0.1' is started
-    emqttd 0.16.0 is running
+    emqttd 1.1 is running
 
 .. _command_broker::
 
@@ -755,4 +755,42 @@ mnesia
 ------
 
 Show system_info of mnesia database.
+
+------
+admins
+------
+
+The 'admins' CLI is used to add/del admin account, which is registered by the dashboard plugin.
+
++------------------------------------+-----------------------------+
+| admins add <Username> <Password>   | Add admin account           |
++------------------------------------+-----------------------------+
+| admins passwd <Username> <Password>| Reset admin password        |
++------------------------------------+-----------------------------+
+| admins del <Username>              | Delete admin account        |
++------------------------------------+-----------------------------+
+
+admins add
+----------
+
+Add admin account::
+
+    $ ./bin/emqttd_ctl admins add root public
+    ok
+
+admins passwd
+-------------
+
+Reset password::
+
+    $ ./bin/emqttd_ctl admins passwd root private
+    ok
+
+admins del
+----------
+
+Delete admin account::
+
+    $ ./bin/emqttd_ctl admins del root
+    ok
 

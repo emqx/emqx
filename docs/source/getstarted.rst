@@ -41,7 +41,7 @@ Features
 * IpAddress Authentication
 * Username and Password Authentication
 * Access control based on IpAddress, ClientID, Username
-* Authentication with LDAP, Redis, MySQL, PostgreSQL
+* Authentication with LDAP, Redis, MySQL, PostgreSQL and HTTP API
 * Cluster brokers on several servers
 * Bridge brokers locally or remotely
 * mosquitto, RSMB bridge
@@ -63,7 +63,7 @@ Installing on Mac, for example:
 
 .. code-block:: bash
 
-    unzip emqttd-macosx-0.16.0-beta-20160216.zip && cd emqttd
+    unzip emqttd-macosx-1.1-beta-20160601.zip && cd emqttd
 
     # Start emqttd
     ./bin/emqttd start
@@ -77,7 +77,7 @@ Installing on Mac, for example:
 Installing from Source
 ----------------------
 
-.. NOTE:: emqttd broker requires Erlang R17+ to build.
+.. NOTE:: emqttd broker requires Erlang R18+ to build since 1.1 release.
 
 .. code-block:: bash
 
@@ -162,6 +162,8 @@ A plugin is an Erlang application to extend the emqttd broker.
 | `emqttd_plugin_template`_  | Plugin template and demo          |
 +----------------------------+-----------------------------------+
 | `emqttd_dashboard`_        | Web Dashboard                     |
++----------------------------+-----------------------------------+
+| `emqttd_auth_http`_        | Authentication/ACL with HTTP API  |
 +----------------------------+-----------------------------------+
 | `emqttd_plugin_mysql`_     | Authentication with MySQL         |
 +----------------------------+-----------------------------------+
@@ -289,6 +291,7 @@ GitHub: https://github.com/emqtt
 
 .. _emqttd_plugin_template: https://github.com/emqtt/emqttd_plugin_template
 .. _emqttd_dashboard:       https://github.com/emqtt/emqttd_dashboard
+.. _emqttd_auth_http:       https://github.com/emqtt/emqttd_auth_http
 .. _emqttd_plugin_mysql:    https://github.com/emqtt/emqttd_plugin_mysql
 .. _emqttd_plugin_pgsql:    https://github.com/emqtt/emqttd_plugin_pgsql
 .. _emqttd_plugin_redis:    https://github.com/emqtt/emqttd_plugin_redis
