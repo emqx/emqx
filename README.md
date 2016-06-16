@@ -83,7 +83,7 @@ Default Login/Password: admin/public
 
 ## Design
 
-![emqttd architecture](http://emqtt.io/static/img/Architecture.png)
+![emqttd architecture](http://emqtt.io/static/img/architecture.png)
 
 ## QuickStart
 
