@@ -26,3 +26,5 @@ eunit.coverdata
 test/ct.cover.spec
 logs
 ct.coverdata
+.idea/
+emqttd.iml
