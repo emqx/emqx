@@ -23,7 +23,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 all() ->
-    [{group, pubsub},
+    [{group, protocol},
+     {group, pubsub},
      {group, router},
      {group, session},
      {group, retainer},
@@ -35,7 +36,9 @@ all() ->
      {group, cli}].
 
 groups() ->
-    [{pubsub, [sequence],
+    [{protocol, [sequence],
+      [mqtt_connect]},
+     {pubsub, [sequence],
       [create_topic,
        create_subscription,
        subscribe_unsubscribe,
@@ -87,6 +90,24 @@ end_per_suite(_Config) ->
     application:stop(esockd),
     application:stop(gproc),
     emqttd_mnesia:ensure_stopped().
+
+%%--------------------------------------------------------------------
+%% Protocol Test
+%%--------------------------------------------------------------------
+
+mqtt_connect(_) ->
+    %% Issue #599
+    %% Empty clientId and clean_session = false
+    ?assertEqual(<<32,2,0,2>>, connect_broker_(<<16,12,0,4,77,81,84,84,4,0,0,90,0,0>>, 4)),
+    %% Empty clientId and clean_session = true
+    ?assertEqual(<<32,2,0,0>>, connect_broker_(<<16,12,0,4,77,81,84,84,4,2,0,90,0,0>>, 4)).
+
+connect_broker_(Packet, RecvSize) ->
+    {ok, Sock} = gen_tcp:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}]),
+    gen_tcp:send(Sock, Packet),
+    {ok, Data} = gen_tcp:recv(Sock, RecvSize, 3000),
+    gen_tcp:close(Sock),
+    Data.
 
 %%--------------------------------------------------------------------
 %% PubSub Test
@@ -156,6 +177,7 @@ pubsub_queue(_) ->
     Self = self(), Q = <<"$queue/abc">>,
     SubFun = fun() ->
                emqttd:subscribe(Q),
+               timer:sleep(1),
                {ok, Msgs} = loop_recv(Q, 10),
                Self ! {recv, self(), Msgs}
              end,
