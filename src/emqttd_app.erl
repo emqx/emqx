@@ -187,7 +187,7 @@ start_listener({https, ListenOn, Opts}) ->
 
 start_listener(Protocol, ListenOn, Opts) ->
     MFArgs = {emqttd_client, start_link, [emqttd:env(mqtt)]},
-    esockd:open(Protocol, ListenOn, merge_sockopts(Opts), MFArgs).
+    {ok, _} = esockd:open(Protocol, ListenOn, merge_sockopts(Opts), MFArgs).
 
 merge_sockopts(Options) ->
     SockOpts = emqttd_opts:merge(?MQTT_SOCKOPTS,
