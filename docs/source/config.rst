@@ -370,8 +370,8 @@ MQTT Session
         %% Interval of Statistics Collection(seconds)
         {collect_interval, 20},
 
-        %% Expired after 2 days
-        {expired_after, 48}
+        %% Expired after 2 day (unit: minute)
+        {expired_after, 2880}
 
     ]},
 
@@ -389,7 +389,7 @@ Session parameters:
 +----------------------+----------------------------------------------------------+
 | collect_interval     | Interval of Statistics Collection                        |
 +----------------------+----------------------------------------------------------+
-| expired_after        | Expired after                                            |
+| expired_after        | Expired after (unit: minute)                             |
 +----------------------+----------------------------------------------------------+
 
 MQTT Message Queue
