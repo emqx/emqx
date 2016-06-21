@@ -1,5 +1,5 @@
 
-## Overview [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)  [![Join the chat at https://gitter.im/emqtt/emqttd](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/emqtt/emqttd?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+## Overview [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
 
 emqttd is a massively scalable and clusterable MQTT V3.1/V3.1.1 broker written in Erlang/OTP.
 
@@ -83,7 +83,7 @@ Default Login/Password: admin/public
 
 ## Design
 
-![emqttd architecture](http://emqtt.io/static/img/Architecture.png)
+![emqttd architecture](http://emqtt.io/static/img/architecture.png)
 
 ## QuickStart
 
