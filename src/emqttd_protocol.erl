@@ -336,6 +336,12 @@ validate_clientid(#mqtt_packet_connect{client_id = ClientId},
     when (size(ClientId) >= 1) andalso (size(ClientId) =< MaxLen) ->
     true;
 
+%% Issue#599: Null clientId and clean_sess = false
+validate_clientid(#mqtt_packet_connect{client_id  = ClientId,
+                                       clean_sess = CleanSess}, _ProtoState)
+    when size(ClientId) == 0 andalso (not CleanSess) ->
+    false;
+
 %% MQTT3.1.1 allow null clientId.
 validate_clientid(#mqtt_packet_connect{proto_ver =?MQTT_PROTO_V311,
                                        client_id = ClientId}, _ProtoState)
