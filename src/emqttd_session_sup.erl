@@ -38,7 +38,7 @@ start_session(CleanSess, ClientId, ClientPid) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    {ok, {{simple_one_for_one, 10, 10},
+    {ok, {{simple_one_for_one, 0, 1},
           [{session, {emqttd_session, start_link, []},
-              temporary, 10000, worker, [emqttd_session]}]}}.
+              temporary, 5000, worker, [emqttd_session]}]}}.
 
