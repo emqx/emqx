@@ -108,7 +108,11 @@ init([WsPid, Req, ReplyChannel, PktOpts]) ->
     %%issue#413: trap_exit is unnecessary
     %%process_flag(trap_exit, true),
     {ok, Peername} = Req:get(peername),
-    SendFun = fun(Payload) -> ReplyChannel({binary, Payload}) end,
+    SendFun = fun(Packet) ->
+                  Data = emqttd_serializer:serialize(Packet),
+                  emqttd_metrics:inc('bytes/sent', size(Data)),
+                  ReplyChannel({binary, Data})
+              end,
     Headers = mochiweb_request:get(headers, Req),
     HeadersList = mochiweb_headers:to_list(Headers),
     ProtoState = emqttd_protocol:init(Peername, SendFun,
