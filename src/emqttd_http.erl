@@ -52,13 +52,14 @@ handle_request('POST', "/mqtt/publish", Req) ->
 %%--------------------------------------------------------------------
 %% MQTT Over WebSocket
 %%--------------------------------------------------------------------
+
 handle_request('GET', "/mqtt", Req) ->
     lager:info("WebSocket Connection from: ~s", [Req:get(peer)]),
     Upgrade = Req:get_header_value("Upgrade"),
     Proto   = Req:get_header_value("Sec-WebSocket-Protocol"),
     case {is_websocket(Upgrade), Proto} of
         {true, "mqtt" ++ _Vsn} ->
-            emqttd_ws_client:start_link(Req);
+            emqttd_ws:handle_request(Req);
         {false, _} ->
             lager:error("Not WebSocket: Upgrade = ~s", [Upgrade]),
             Req:respond({400, [], <<"Bad Request">>});
@@ -144,13 +145,12 @@ authorized(Req) ->
 user_passwd(BasicAuth) ->
     list_to_tuple(binary:split(base64:decode(BasicAuth), <<":">>)). 
 
-
 int(S) -> list_to_integer(S).
 
 bool("0") -> false;
 bool("1") -> true.
 
-is_websocket(Upgrade) -> 
+is_websocket(Upgrade) ->
     Upgrade =/= undefined andalso string:to_lower(Upgrade) =:= "websocket".
 
 docroot() ->
