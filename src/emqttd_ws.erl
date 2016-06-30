@@ -21,7 +21,7 @@
 %% WebSocket Loop State
 -record(wsocket_state, {peer, client_pid, packet_opts, parser_fun}).
 
--define(LOG(Level, Peer, Format, Args),
+-define(WSLOG(Level, Peer, Format, Args),
         lager:Level("WsClient(~s): " ++ Format, [Peer | Args])).
 
 %%--------------------------------------------------------------------
@@ -54,7 +54,7 @@ ws_loop([<<>>], State, _ReplyChannel) ->
     State;
 ws_loop(Data, State = #wsocket_state{peer = Peer, client_pid = ClientPid,
                                      parser_fun = ParserFun}, ReplyChannel) ->
-    ?LOG(debug, Peer, "RECV ~p", [Data]),
+    ?WSLOG(debug, Peer, "RECV ~p", [Data]),
     case catch ParserFun(iolist_to_binary(Data)) of
         {more, NewParser} ->
             State#wsocket_state{parser_fun = NewParser};
@@ -62,11 +62,11 @@ ws_loop(Data, State = #wsocket_state{peer = Peer, client_pid = ClientPid,
             gen_server:cast(ClientPid, {received, Packet}),
             ws_loop(Rest, reset_parser(State), ReplyChannel);
         {error, Error} ->
-            ?LOG(error, Peer, "Frame error: ~p", [Error]),
+            ?WSLOG(error, Peer, "Frame error: ~p", [Error]),
             exit({shutdown, Error});
         {'EXIT', Reason} ->
-            ?LOG(error, Peer, "Frame error: ~p", [Reason]),
-            ?LOG(error, Peer, "Error data: ~p", [Data]),
+            ?WSLOG(error, Peer, "Frame error: ~p", [Reason]),
+            ?WSLOG(error, Peer, "Error data: ~p", [Data]),
             exit({shutdown, parser_error})
     end.
 
