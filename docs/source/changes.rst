@@ -5,6 +5,28 @@
 Changes
 =======
 
+.. _release_1.1.2:
+
+-------------
+Version 1.1.2
+-------------
+
+*Release Date: 2016-06-30*
+
+Upgrade mysql-otp driver to 1.2.0 (#564, #523, #586, #596)
+
+Fix WebSocket Client Leak (PR #612)
+
+java.io.EOFException using paho java client (#551)
+
+Send message from paho java client to javascript client (#552)
+
+Compatible with the Qos0 PUBREL packet (#575)
+
+Empty clientId with non-clean session accepted (#599)
+
+Update docs to fix typos (#601, #607)
+
 .. _release_1.1.1:
 
 -------------
