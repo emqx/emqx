@@ -36,8 +36,7 @@ new(Opts) ->
     fun(Bin) -> parse(Bin, {none, limit(Opts)}) end.
 
 limit(Opts) ->
-    #mqtt_packet_limit{max_packet_size = 
-                        proplists:get_value(max_packet_size, Opts, ?MAX_LEN)}.
+    #mqtt_packet_limit{max_packet_size = proplists:get_value(max_packet_size, Opts, ?MAX_LEN)}.
 
 %% @doc Parse MQTT Packet
 -spec(parse(binary(), {none, [option()]} | fun())

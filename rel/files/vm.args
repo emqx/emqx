@@ -58,3 +58,4 @@
 ## Tweak GC to run more often
 -env ERL_FULLSWEEP_AFTER 1000
 
+-env ERL_CRASH_DUMP log/emqttd_crash.dump
