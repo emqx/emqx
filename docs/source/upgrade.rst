@@ -1,9 +1,9 @@
 
 .. _upgrade:
 
-=============
-Upgrade Guide
-=============
+=======
+Upgrade
+=======
 
 .. _upgrade_1.1.2:
 
