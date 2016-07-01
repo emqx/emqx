@@ -7,9 +7,13 @@ emqttd is fully open source and licensed under the Apache Version 2.0. emqttd im
 
 emqttd requires Erlang R18+ to build since 1.1 release.
 
-Demo Server: tcp://t.emqtt.io:1883
-
 Follow us on Twitter: [@emqtt](https://twitter.com/emqtt)
+
+## Cluster
+
+We deployed an open cluster on **q.emqtt.com:1883** with our partner - [QingCloud](https://qingcloud.com):
+
+![qing_cluster](http://emqtt.com/static/img/qing_cluster.png)
 
 ## Goals
 
@@ -156,6 +160,10 @@ Benchmark Report: [benchmark for 0.12.0 release](https://github.com/emqtt/emqttd
 * [@phanimahesh](https://github.com/phanimahesh)
 * [@dvliman](https://github.com/dvliman)
 
+## Partners
+
+[QingCloud](https://qingcloud.com)
+
 ## Author
 
 Feng Lee <feng@emqtt.io>
@@ -164,3 +172,4 @@ Feng Lee <feng@emqtt.io>
 
 Apache License Version 2.0
 
+kjkkkk
