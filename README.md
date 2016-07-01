@@ -13,7 +13,7 @@ Follow us on Twitter: [@emqtt](https://twitter.com/emqtt)
 
 We deployed an open cluster on **q.emqtt.com:1883** with our partner - [QingCloud](https://qingcloud.com):
 
-![qing_cluster](http://emqtt.com/static/img/qing_cluster.png)
+![qing_cluster](http://emqtt.io/static/img/qing_cluster.png)
 
 ## Goals
 
