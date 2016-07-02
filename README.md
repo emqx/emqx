@@ -162,7 +162,7 @@ Benchmark Report: [benchmark for 0.12.0 release](https://github.com/emqtt/emqttd
 
 ## Partners
 
-[QingCloud](https://qingcloud.com)
+[QingCloud](https://qingcloud.com) is the world’s first IaaS provider that can deliver any number of IT resources in seconds and adopts a second-based billing system. QingCloud is committed to providing a reliable, secure, on-demand and real-time IT resource platform with excellent performance, which includes all components of a complete IT infrastructure system: computing, storage, networking and security.
 
 ## Author
 
