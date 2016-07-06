@@ -72,8 +72,14 @@ Connection Tracking::
 The TIME-WAIT Buckets Pool, Recycling and Reuse::
 
     net.ipv4.tcp_max_tw_buckets=1048576
-    net.ipv4.tcp_tw_recycle = 1
-    net.ipv4.tcp_tw_reuse = 1
+
+    # Enable fast recycling of TIME_WAIT sockets.  Enabling this
+    # option is not recommended for devices communicating with the
+    # general Internet or using NAT (Network Address Translation).
+    # Since some NAT gateways pass through IP timestamp values, one
+    # IP can appear to have non-increasing timestamps.
+    # net.ipv4.tcp_tw_recycle = 1
+    # net.ipv4.tcp_tw_reuse = 1
 
 Timeout for FIN-WAIT-2 sockets::
 
