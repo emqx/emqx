@@ -14,31 +14,32 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd session supervisor.
--module(emqttd_session_sup).
+-module(emqttd_ws_client_sup).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -behavior(supervisor).
 
--export([start_link/0, start_session/3]).
+-export([start_link/0, start_client/3]).
 
 -export([init/1]).
 
-%% @doc Start session supervisor
+%% @doc Start websocket client supervisor
 -spec(start_link() -> {ok, pid()}).
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [emqttd:env(mqtt)]).
 
-%% @doc Start a session
--spec(start_session(boolean(), binary(), pid()) -> {ok, pid()}).
-start_session(CleanSess, ClientId, ClientPid) ->
-    supervisor:start_child(?MODULE, [CleanSess, ClientId, ClientPid]).
+%% @doc Start a WebSocket Client
+-spec(start_client(pid(), mochiweb_request:request(), fun()) -> {ok, pid()}).
+start_client(WsPid, Req, ReplyChannel) ->
+    supervisor:start_child(?MODULE, [WsPid, Req, ReplyChannel]).
 
 %%--------------------------------------------------------------------
 %% Supervisor callbacks
 %%--------------------------------------------------------------------
 
-init([]) ->
+init([Env]) ->
     {ok, {{simple_one_for_one, 0, 1},
-          [{session, {emqttd_session, start_link, []},
-              temporary, 5000, worker, [emqttd_session]}]}}.
+           [{ws_client, {emqttd_ws_client, start_link, [Env]},
+             temporary, 5000, worker, [emqttd_ws_client]}]}}.
 

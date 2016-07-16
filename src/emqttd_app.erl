@@ -89,6 +89,7 @@ start_servers(Sup) ->
                {"emqttd client manager", {supervisor, emqttd_cm_sup}},
                {"emqttd session manager", {supervisor, emqttd_sm_sup}},
                {"emqttd session supervisor", {supervisor, emqttd_session_sup}},
+               {"emqttd wsclient supervisor", {supervisor, emqttd_ws_client_sup}},
                {"emqttd broker", emqttd_broker},
                {"emqttd alarm", emqttd_alarm},
                {"emqttd mod supervisor", emqttd_mod_sup},
@@ -187,7 +188,7 @@ start_listener({https, ListenOn, Opts}) ->
 
 start_listener(Protocol, ListenOn, Opts) ->
     MFArgs = {emqttd_client, start_link, [emqttd:env(mqtt)]},
-    esockd:open(Protocol, ListenOn, merge_sockopts(Opts), MFArgs).
+    {ok, _} = esockd:open(Protocol, ListenOn, merge_sockopts(Opts), MFArgs).
 
 merge_sockopts(Options) ->
     SockOpts = emqttd_opts:merge(?MQTT_SOCKOPTS,

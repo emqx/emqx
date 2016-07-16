@@ -40,6 +40,11 @@
 %%--------------------------------------------------------------------
 %% CLI
 %%--------------------------------------------------------------------
+cli(["list"]) ->
+    if_enabled(fun() ->
+        Usernames = mnesia:dirty_all_keys(?AUTH_USERNAME_TAB),
+        [?PRINT("~s~n", [Username]) || Username <- Usernames]
+    end);
 
 cli(["add", Username, Password]) ->
     if_enabled(fun() ->
@@ -52,7 +57,8 @@ cli(["del", Username]) ->
     end);
 
 cli(_) ->
-    ?USAGE([{"users add <Username> <Password>", "Add User"},
+    ?USAGE([{"users list", "List users"},
+            {"users add <Username> <Password>", "Add User"},
             {"users del <Username>", "Delete User"}]).
 
 if_enabled(Fun) ->

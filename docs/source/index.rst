@@ -53,6 +53,7 @@ Contents:
    plugins
    tune
    changes
+   upgrade
 
 -------
 License
