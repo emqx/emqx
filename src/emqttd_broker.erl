@@ -38,7 +38,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {started_at, sys_interval, heartbeat, tick_tref}).
+-record(state, {started_at, sys_interval, heartbeat, tick_tref, version, sysdescr}).
 
 -define(SERVER, ?MODULE).
 
@@ -125,6 +125,8 @@ init([]) ->
     % Tick
     {ok, #state{started_at = os:timestamp(),
                 heartbeat  = start_tick(1000, heartbeat),
+                version = list_to_binary(version()),
+                sysdescr = list_to_binary(sysdescr()),
                 tick_tref  = start_tick(tick)}, hibernate}.
 
 handle_call(uptime, _From, State) ->
@@ -141,10 +143,10 @@ handle_info(heartbeat, State) ->
     publish(datetime, list_to_binary(datetime())),
     {noreply, State, hibernate};
 
-handle_info(tick, State) ->
+handle_info(tick, State = #state{version = Version, sysdescr = Descr}) ->
     retain(brokers),
-    retain(version,  list_to_binary(version())),
-    retain(sysdescr, list_to_binary(sysdescr())),
+    retain(version,  Version),
+    retain(sysdescr, Descr),
     {noreply, State, hibernate};
 
 handle_info(Info, State) ->
