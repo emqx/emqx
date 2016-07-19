@@ -28,7 +28,17 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Sysmon = {sysmon, {emqttd_sysmon, start_link, [emqttd:env(sysmon)]},
-                permanent, 5000, worker, [emqttd_sysmon]} ,
+    Sysmon = {sysmon, {emqttd_sysmon, start_link, [opts()]},
+                permanent, 5000, worker, [emqttd_sysmon]},
     {ok, {{one_for_one, 10, 100}, [Sysmon]}}.
+
+opts() ->
+    Opts = [{long_gc,        config(sysmon_long_gc)},
+            {long_schedule,  config(sysmon_long_schedule)},
+            {large_heap,     config(sysmon_large_heap)},
+            {busy_port,      config(busy_port)},
+            {busy_dist_port, config(sysmon_busy_dist_port)}],
+    [{Key, Val} || {Key, {ok, Val}} <- Opts].
+
+config(Key) -> gen_conf:value(emqttd, Key).
 

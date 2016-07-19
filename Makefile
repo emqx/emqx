@@ -1,54 +1,28 @@
-.PHONY: rel deps test plugins
+PROJECT = emqttd
+PROJECT_DESCRIPTION = Erlang MQTT Broker
+PROJECT_VERSION = 2.0
 
-APP      = emqttd
-BASE_DIR = $(shell pwd)
-REBAR    = $(BASE_DIR)/rebar
-DIST	 = $(BASE_DIR)/rel/$(APP)
+DEPS = gproc lager gen_logger gen_conf esockd mochiweb
 
-all: compile
+dep_gproc      = git https://github.com/uwiger/gproc.git
+dep_lager      = git https://github.com/basho/lager.git
+dep_gen_conf   = git https://github.com/emqtt/gen_conf.git
+dep_gen_logger = git https://github.com/emqtt/gen_logger.git
+dep_esockd     = git https://github.com/emqtt/esockd.git udp
+dep_mochiweb   = git https://github.com/emqtt/mochiweb.git
 
-# submods:
-#	@git submodule update --init
+ERLC_OPTS += +'{parse_transform, lager_transform}'
 
-compile: deps
-	@$(REBAR) compile
+EUNIT_OPTS = verbose
+EUNIT_ERL_OPTS = -args_file rel/vm.args -config rel/sys.config
 
-deps:
-	@$(REBAR) get-deps
+CT_SUITES = emqttd emqttd_access emqttd_backend emqttd_lib emqttd_mod emqttd_net \
+			emqttd_mqueue emqttd_protocol emqttd_topic emqttd_trie
+CT_OPTS = -cover test/ct.cover.spec -erl_args -name emqttd_ct@127.0.0.1 -config rel/sys.config
 
-update-deps:
-	@$(REBAR) update-deps
+COVER = true
 
-xref:
-	@$(REBAR) xref skip_deps=true
+include erlang.mk
 
-clean:
-	@$(REBAR) clean
-
-test:
-	ERL_FLAGS="-config rel/files/emqttd.test.config" $(REBAR) -v skip_deps=true ct
-	#$(REBAR) skip_deps=true eunit
-
-edoc:
-	@$(REBAR) doc
-
-rel: compile
-	@cd rel && $(REBAR) generate -f
-
-dist: rel
-
-PLT  = $(BASE_DIR)/.emqttd_dialyzer.plt
-APPS = erts kernel stdlib sasl crypto ssl os_mon syntax_tools \
-	   public_key mnesia inets compiler
-
-check_plt: compile
-	dialyzer --check_plt --plt $(PLT) --apps $(APPS) \
-		deps/*/ebin ./ebin plugins/*/ebin
-
-build_plt: compile
-	dialyzer --build_plt --output_plt $(PLT) --apps $(APPS) \
-		deps/*/ebin ./ebin plugins/*/ebin
-
-dialyzer: compile
-	dialyzer -Wno_return --plt $(PLT) deps/*/ebin ./ebin plugins/*/ebin
+app:: rebar.config
 
