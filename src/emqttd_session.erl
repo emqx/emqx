@@ -214,8 +214,7 @@ unsubscribe(SessPid, Topics) ->
 init([CleanSess, ClientId, ClientPid]) ->
     process_flag(trap_exit, true),
     true    = link(ClientPid),
-    QEnv    = emqttd:env(mqtt, queue),
-    SessEnv = emqttd:env(mqtt, session),
+    SessEnv = emqttd_conf:session(),
     Session = #session{
             clean_sess        = CleanSess,
             client_id         = ClientId,
@@ -223,7 +222,7 @@ init([CleanSess, ClientId, ClientPid]) ->
             subscriptions     = dict:new(),
             inflight_queue    = [],
             max_inflight      = get_value(max_inflight, SessEnv, 0),
-            message_queue     = emqttd_mqueue:new(ClientId, QEnv, emqttd_alarm:alarm_fun()),
+            message_queue     = emqttd_mqueue:new(ClientId, emqttd_conf:queue(), emqttd_alarm:alarm_fun()),
             awaiting_rel      = #{},
             awaiting_ack      = #{},
             awaiting_comp     = #{},
@@ -234,7 +233,7 @@ init([CleanSess, ClientId, ClientPid]) ->
             collect_interval  = get_value(collect_interval, SessEnv, 0),
             timestamp         = os:timestamp()},
     emqttd_sm:register_session(CleanSess, ClientId, sess_info(Session)),
-    %% start statistics
+    %% Start statistics
     {ok, start_collector(Session), hibernate}.
 
 prioritise_call(Msg, _From, _Len, _State) ->

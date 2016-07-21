@@ -29,7 +29,7 @@
 -export([subscribe/1, notify/2]).
 
 %% Broker API
--export([env/1, version/0, uptime/0, datetime/0, sysdescr/0]).
+-export([version/0, uptime/0, datetime/0, sysdescr/0]).
 
 %% Tick API
 -export([start_tick/1, stop_tick/1]).
@@ -71,10 +71,6 @@ subscribe(EventType) ->
 notify(EventType, Event) ->
      gproc:send({p, l, {broker, EventType}}, {notify, EventType, self(), Event}).
 
-%% @doc Get broker env
-env(Name) ->
-    proplists:get_value(Name, emqttd:env(broker)).
-
 %% @doc Get broker version
 -spec(version() -> string()).
 version() ->
@@ -99,7 +95,7 @@ datetime() ->
 
 %% @doc Start a tick timer
 start_tick(Msg) ->
-    start_tick(timer:seconds(env(sys_interval)), Msg).
+    start_tick(timer:seconds(emqttd:conf(broker_sys_interval, 60)), Msg).
 
 start_tick(0, _Msg) ->
     undefined;

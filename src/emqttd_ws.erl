@@ -31,7 +31,7 @@
 %% @doc Handle WebSocket Request.
 handle_request(Req) ->
     Peer = Req:get(peer),
-    PktOpts = emqttd:env(mqtt, packet),
+    PktOpts = emqttd_conf:mqtt(),
     ParserFun = emqttd_parser:new(PktOpts),
     {ReentryWs, ReplyChannel} = upgrade(Req),
     {ok, ClientPid} = emqttd_ws_client_sup:start_client(self(), Req, ReplyChannel),

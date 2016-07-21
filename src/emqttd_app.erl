@@ -1,4 +1,4 @@
-%%--------------------------------------------------------------------
+%--------------------------------------------------------------------
 %% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,12 +26,8 @@
 -export([start_listener/1, stop_listener/1, is_mod_enabled/1]).
 
 %% MQTT SockOpts
--define(MQTT_SOCKOPTS, [
-        binary,
-        {packet,    raw},
-        {reuseaddr, true},
-        {backlog,   512},
-        {nodelay,   true}]).
+-define(MQTT_SOCKOPTS, [binary, {packet, raw}, {reuseaddr, true},
+                        {backlog, 512}, {nodelay, true}]).
 
 -type listener() :: {atom(), esockd:listen_on(), [esockd:option()]}.
 
@@ -102,17 +98,17 @@ start_servers(Sup) ->
 start_server(_Sup, {Name, F}) when is_function(F) ->
     ?PRINT("~s is starting...", [Name]),
     F(),
-    ?PRINT_MSG("[done]~n");
+    ?PRINT_MSG("[ok]~n");
 
 start_server(Sup, {Name, Server}) ->
     ?PRINT("~s is starting...", [Name]),
     start_child(Sup, Server),
-    ?PRINT_MSG("[done]~n");
+    ?PRINT_MSG("[ok]~n");
 
 start_server(Sup, {Name, Server, Opts}) ->
     ?PRINT("~s is starting...", [ Name]),
     start_child(Sup, Server, Opts),
-    ?PRINT_MSG("[done]~n").
+    ?PRINT_MSG("[ok]~n").
 
 start_child(Sup, {supervisor, Module}) ->
     supervisor:start_child(Sup, supervisor_spec(Module));
@@ -150,9 +146,9 @@ worker_spec(M, F, A) ->
 
 %% @doc load all modules
 load_all_mods() ->
-    lists:foreach(fun load_mod/1, emqttd:env(modules)).
+    lists:foreach(fun load_mod/1, gen_conf:list(emqttd, module)).
 
-load_mod({Name, Opts}) ->
+load_mod({module, Name, Opts}) ->
     Mod = list_to_atom("emqttd_mod_" ++ atom_to_list(Name)),
     case catch Mod:load(Opts) of
         ok               -> lager:info("Load module ~s successfully", [Name]);
@@ -162,7 +158,8 @@ load_mod({Name, Opts}) ->
 
 %% @doc Is module enabled?
 -spec(is_mod_enabled(Name :: atom()) -> boolean()).
-is_mod_enabled(Name) -> emqttd:env(modules, Name) =/= undefined.
+is_mod_enabled(Name) ->
+    lists:keyfind(Name, 2, gen_conf:list(emqttd, module)).
 
 %%--------------------------------------------------------------------
 %% Start Listeners
@@ -170,25 +167,27 @@ is_mod_enabled(Name) -> emqttd:env(modules, Name) =/= undefined.
 
 %% @doc Start Listeners of the broker.
 -spec(start_listeners() -> any()).
-start_listeners() -> lists:foreach(fun start_listener/1, emqttd:env(listeners)).
+start_listeners() -> lists:foreach(fun start_listener/1, gen_conf:list(emqttd, listener)).
 
 %% Start mqtt listener
 -spec(start_listener(listener()) -> any()).
-start_listener({mqtt, ListenOn, Opts}) -> start_listener(mqtt, ListenOn, Opts);
+start_listener({listener, mqtt, ListenOn, Opts}) ->
+    start_listener(mqtt, ListenOn, Opts);
 
 %% Start mqtt(SSL) listener
-start_listener({mqtts, ListenOn, Opts}) -> start_listener(mqtts, ListenOn, Opts);
+start_listener({listener, mqtts, ListenOn, Opts}) ->
+    start_listener(mqtts, ListenOn, Opts);
 
 %% Start http listener
-start_listener({http, ListenOn, Opts}) ->
+start_listener({listener, http, ListenOn, Opts}) ->
     mochiweb:start_http(http, ListenOn, Opts, {emqttd_http, handle_request, []});
 
 %% Start https listener
-start_listener({https, ListenOn, Opts}) ->
+start_listener({listener, https, ListenOn, Opts}) ->
     mochiweb:start_http(https, ListenOn, Opts, {emqttd_http, handle_request, []}).
 
 start_listener(Protocol, ListenOn, Opts) ->
-    MFArgs = {emqttd_client, start_link, [emqttd:env(mqtt)]},
+    MFArgs = {emqttd_client, start_link, [emqttd_conf:mqtt()]},
     {ok, _} = esockd:open(Protocol, ListenOn, merge_sockopts(Opts), MFArgs).
 
 merge_sockopts(Options) ->
@@ -201,8 +200,8 @@ merge_sockopts(Options) ->
 %%--------------------------------------------------------------------
 
 %% @doc Stop Listeners
-stop_listeners() -> lists:foreach(fun stop_listener/1, emqttd:env(listeners)).
+stop_listeners() -> lists:foreach(fun stop_listener/1, gen_conf:list(listener)).
 
 %% @private
-stop_listener({Protocol, ListenOn, _Opts}) -> esockd:close(Protocol, ListenOn).
+stop_listener({listener, Protocol, ListenOn, _Opts}) -> esockd:close(Protocol, ListenOn).
 

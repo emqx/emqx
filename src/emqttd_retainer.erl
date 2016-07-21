@@ -71,7 +71,7 @@ limit(payload) -> env(max_playload_size).
 env(Key) ->
     case get({retained, Key}) of
         undefined ->
-            Env = emqttd_broker:env(retained),
+            Env = emqttd_conf:retained(),
             Val = proplists:get_value(Key, Env),
             put({retained, Key}, Val), Val;
         Val ->

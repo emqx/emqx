@@ -69,7 +69,8 @@ init(Opts) ->
             {ram_copies, [node()]},
             {attributes, record_info(fields, ?AUTH_CLIENTID_TAB)}]),
     mnesia:add_table_copy(?AUTH_CLIENTID_TAB, node(), ram_copies),
-    load(proplists:get_value(file, Opts)),
+    Clients = load_client_from(proplists:get_value(config, Opts)),
+    mnesia:transaction(fun() -> [mnesia:write(C) || C<- Clients] end),
     {ok, Opts}.
 
 check(#mqtt_client{client_id = undefined}, _Password, _Opts) ->
@@ -93,32 +94,19 @@ description() -> "ClientId authentication module".
 %% Internal functions
 %%--------------------------------------------------------------------
 
-load(undefined) ->
+load_client_from(undefined) ->
     ok;
 
-load(File) ->
-    {ok, Fd} = file:open(File, [read]),
-    load(Fd, file:read_line(Fd), []).
+load_client_from(File) ->
+    {ok, Clients} = file:consult(File),
+    [client(Client) || Client <- Clients].
 
-load(Fd, {ok, Line}, Clients) when is_list(Line) ->
-    Clients1 =
-    case string:tokens(Line, " ") of
-        [ClientIdS] ->
-            ClientId = list_to_binary(string:strip(ClientIdS, right, $\n)),
-            [#mqtt_auth_clientid{client_id = ClientId} | Clients];
-        [ClientId, IpAddr0] ->
-            IpAddr = string:strip(IpAddr0, right, $\n),
-            [#mqtt_auth_clientid{client_id = list_to_binary(ClientId),
-                                 ipaddr = esockd_cidr:parse(IpAddr, true)} | Clients];
-        BadLine ->
-            lager:error("BadLine in clients.config: ~s", [BadLine]),
-            Clients
-    end,
-    load(Fd, file:read_line(Fd), Clients1);
+client(ClientId) when is_list(ClientId) ->
+    #mqtt_auth_clientid{client_id = list_to_binary(ClientId)};
 
-load(Fd, eof, Clients) -> 
-    mnesia:transaction(fun() -> [mnesia:write(C) || C<- Clients] end),
-    file:close(Fd).
+client({ClientId, IpAddr}) when is_list(ClientId) ->
+    #mqtt_auth_clientid{client_id = iolist_to_binary(ClientId),
+                        ipaddr    = esockd_cidr:parse(IpAddr, true)}.
 
 check_clientid_only(ClientId, IpAddr) ->
     case mnesia:dirty_read(?AUTH_CLIENTID_TAB, ClientId) of

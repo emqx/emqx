@@ -30,10 +30,10 @@
 -export([init/1]).
 
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [emqttd_broker:env(pubsub)]).
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [emqttd_conf:pubsub()]).
 
 pubsub_pool() ->
-    hd([Pid|| {pubsub_pool, Pid, _, _} <- supervisor:which_children(?MODULE)]).
+    hd([Pid || {pubsub_pool, Pid, _, _} <- supervisor:which_children(?MODULE)]).
 
 init([Env]) ->
 

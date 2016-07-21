@@ -23,7 +23,7 @@
 -define(SERVER, ?MODULE).
 
 %% API Function Exports
--export([start_link/0, start_link/1,
+-export([start_link/0,
          auth/2,       % authentication
          check_acl/3,  % acl check
          reload_acl/0, % reload acl
@@ -48,11 +48,8 @@
 
 %% @doc Start access control server.
 -spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
-start_link() -> start_link(emqttd:env(access)).
-
--spec(start_link(Opts :: list()) -> {ok, pid()} | ignore | {error, any()}).
-start_link(Opts) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [Opts], []).
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %% @doc Authenticate MQTT Client.
 -spec(auth(Client :: mqtt_client(), Password :: password()) -> ok | {error, any()}).
@@ -125,17 +122,14 @@ stop() -> gen_server:call(?MODULE, stop).
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Opts]) ->
+init([]) ->
     ets:new(?ACCESS_CONTROL_TAB, [set, named_table, protected, {read_concurrency, true}]),
-    ets:insert(?ACCESS_CONTROL_TAB, {auth_modules, init_mods(auth, proplists:get_value(auth, Opts))}),
-    ets:insert(?ACCESS_CONTROL_TAB, {acl_modules, init_mods(acl, proplists:get_value(acl, Opts))}),
+    ets:insert(?ACCESS_CONTROL_TAB, {auth_modules, init_mods(gen_conf:list(emqttd, auth))}),
+    ets:insert(?ACCESS_CONTROL_TAB, {acl_modules,  init_mods(gen_conf:list(emqttd, acl))}),
     {ok, #state{}}.
 
-init_mods(auth, AuthMods) ->
-    [init_mod(authmod(Name), Opts) || {Name, Opts} <- AuthMods];
-
-init_mods(acl, AclMods) ->
-    [init_mod(aclmod(Name), Opts) || {Name, Opts} <- AclMods].
+init_mods(Mods) ->
+    [init_mod(mod_name(Type, Name), Opts) || {Type, Name, Opts} <- Mods].
 
 init_mod(Mod, Opts) ->
     {ok, State} = Mod:init(Opts), {Mod, State, 0}.
@@ -191,15 +185,14 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-authmod(Name) when is_atom(Name) ->
-    mod(emqttd_auth_, Name).
+mod_name(auth, Name) -> mod(emqttd_auth_, Name);
 
-aclmod(Name) when is_atom(Name) ->
-    mod(emqttd_acl_, Name).
-
+mod_name(acl, Name)  -> mod(emqttd_acl_, Name).
+    
 mod(Prefix, Name) ->
     list_to_atom(lists:concat([Prefix, Name])).
 
 if_existed(false, Fun) -> Fun();
+
 if_existed(_Mod, _Fun) -> {error, already_existed}.
 

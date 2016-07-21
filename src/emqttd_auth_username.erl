@@ -68,7 +68,7 @@ if_enabled(Fun) ->
     end.
 
 hint() ->
-    ?PRINT_MSG("Please enable '{username, []}' authentication in etc/emqttd.config first.~n").
+    ?PRINT_MSG("Please enable '{auth, username, []}' in etc/emqttd.conf first.~n").
 
 %%--------------------------------------------------------------------
 %% API
@@ -81,7 +81,13 @@ is_enabled() ->
 -spec(add_user(binary(), binary()) -> ok | {error, any()}).
 add_user(Username, Password) ->
     User = #?AUTH_USERNAME_TAB{username = Username, password = hash(Password)},
-    ret(mnesia:transaction(fun mnesia:write/1, [User])).
+    ret(mnesia:transaction(fun insert_user/1, [User])).
+
+insert_user(User = #?AUTH_USERNAME_TAB{username = Username}) ->
+    case mnesia:read(?AUTH_USERNAME_TAB, Username) of
+        []    -> mnesia:write(User);
+        [_|_] -> mnesia:abort(existed)
+    end.
 
 add_default_user(Username, Password) when is_atom(Username) ->
     add_default_user(atom_to_list(Username), Password);
@@ -110,16 +116,20 @@ all_users() -> mnesia:dirty_all_keys(?AUTH_USERNAME_TAB).
 %% emqttd_auth_mod callbacks
 %%--------------------------------------------------------------------
 
-init(DefautUsers) ->
+init(Opts) ->
     mnesia:create_table(?AUTH_USERNAME_TAB, [
             {disc_copies, [node()]},
             {attributes, record_info(fields, ?AUTH_USERNAME_TAB)}]),
     mnesia:add_table_copy(?AUTH_USERNAME_TAB, node(), disc_copies),
-    lists:foreach(fun({Username, Password}) ->
-                add_default_user(Username, Password)
-        end, DefautUsers),
+    case proplists:get_value(passwd, Opts) of
+        undefined -> ok;
+        File -> {ok, DefaultUsers} = file:consult(File),
+                lists:foreach(fun({Username, Password}) ->
+                        add_default_user(Username, Password)
+                end, DefaultUsers)
+    end,
     emqttd_ctl:register_cmd(users, {?MODULE, cli}, []),
-    {ok, []}.
+    {ok, Opts}.
 
 check(#mqtt_client{username = undefined}, _Password, _Opts) ->
     {error, username_undefined};
@@ -127,7 +137,7 @@ check(_User, undefined, _Opts) ->
     {error, password_undefined};
 check(#mqtt_client{username = Username}, Password, _Opts) ->
     case mnesia:dirty_read(?AUTH_USERNAME_TAB, Username) of
-        [] -> 
+        [] ->
             {error, username_not_found};
         [#?AUTH_USERNAME_TAB{password = <<Salt:4/binary, Hash/binary>>}] ->
             case Hash =:= md5_hash(Salt, Password) of

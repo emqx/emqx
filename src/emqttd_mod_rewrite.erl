@@ -30,12 +30,15 @@
 %%--------------------------------------------------------------------
 
 load(Opts) ->
-    File = proplists:get_value(file, Opts),
-    {ok, Terms} = file:consult(File),
-    Sections = compile(Terms),
-    emqttd:hook('client.subscribe', fun ?MODULE:rewrite_subscribe/3, [Sections]),
-    emqttd:hook('client.unsubscribe', fun ?MODULE:rewrite_unsubscribe/3, [Sections]),
-    emqttd:hook('message.publish', fun ?MODULE:rewrite_publish/2, [Sections]).
+    case proplists:get_value(config, Opts) of
+        undefined ->
+            ok;
+        File ->
+            {ok, Terms} = file:consult(File), Sections = compile(Terms),
+            emqttd:hook('client.subscribe', fun ?MODULE:rewrite_subscribe/3, [Sections]),
+            emqttd:hook('client.unsubscribe', fun ?MODULE:rewrite_unsubscribe/3, [Sections]),
+            emqttd:hook('message.publish', fun ?MODULE:rewrite_publish/2, [Sections])
+    end.
 
 rewrite_subscribe(_ClientId, TopicTable, Sections) ->
     lager:info("Rewrite subscribe: ~p", [TopicTable]),

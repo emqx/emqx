@@ -94,9 +94,8 @@ init([OriginConn, MqttEnv]) ->
             error:Error -> Self ! {shutdown, Error}
         end
     end,
-    PktOpts = proplists:get_value(packet, MqttEnv),
-    ParserFun = emqttd_parser:new(PktOpts),
-    ProtoState = emqttd_protocol:init(PeerName, SendFun, PktOpts),
+    ParserFun = emqttd_parser:new(MqttEnv),
+    ProtoState = emqttd_protocol:init(PeerName, SendFun, MqttEnv),
     RateLimit = proplists:get_value(rate_limit, Connection:opts()),
     State = run_socket(#client_state{connection   = Connection,
                                      connname     = ConnName,
@@ -108,9 +107,8 @@ init([OriginConn, MqttEnv]) ->
                                      rate_limit   = RateLimit,
                                      parser_fun   = ParserFun,
                                      proto_state  = ProtoState,
-                                     packet_opts  = PktOpts}),
-    ClientOpts = proplists:get_value(client, MqttEnv),
-    IdleTimout = proplists:get_value(idle_timeout, ClientOpts, 10),
+                                     packet_opts  = MqttEnv}),
+    IdleTimout = proplists:get_value(client_idle_timeout, MqttEnv, 30),
     gen_server:enter_loop(?MODULE, [], State, timer:seconds(IdleTimout)).
 
 handle_call(session, _From, State = #client_state{proto_state = ProtoState}) -> 

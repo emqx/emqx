@@ -47,7 +47,7 @@ start_bridge(Node, Topic) when is_atom(Node) andalso is_binary(Topic) ->
 start_bridge(Node, _Topic, _Options) when Node =:= node() ->
     {error, bridge_to_self};
 start_bridge(Node, Topic, Options) when is_atom(Node) andalso is_binary(Topic) ->
-    Options1 = emqttd_opts:merge(emqttd_broker:env(bridge), Options),
+    Options1 = emqttd_opts:merge(emqttd_conf:bridge(), Options),
     supervisor:start_child(?MODULE, bridge_spec(Node, Topic, Options1)).
 
 %% @doc Stop a bridge

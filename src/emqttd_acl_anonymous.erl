@@ -14,29 +14,22 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqttd_sysmon_sup).
+-module(emqttd_acl_anonymous).
 
--behaviour(supervisor).
+-behaviour(emqttd_acl_mod).
 
-%% API
--export([start_link/0]).
+%% ACL callbacks
+-export([init/1, check_acl/2, reload_acl/1, description/0]).
 
-%% Supervisor callbacks
--export([init/1]).
+init(Opts) ->
+    {ok, Opts}.
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+check_acl(_Who, _State) ->
+    allow.
 
-init([]) ->
-    Sysmon = {sysmon, {emqttd_sysmon, start_link, [opts()]},
-                permanent, 5000, worker, [emqttd_sysmon]},
-    {ok, {{one_for_one, 10, 100}, [Sysmon]}}.
+reload_acl(_State) ->
+    ok.
 
-opts() ->
-    Opts = [{long_gc,        emqttd:conf(sysmon_long_gc)},
-            {long_schedule,  emqttd:conf(sysmon_long_schedule)},
-            {large_heap,     emqttd:conf(sysmon_large_heap)},
-            {busy_port,      emqttd:conf(busy_port)},
-            {busy_dist_port, emqttd:conf(sysmon_busy_dist_port)}],
-    [{Key, Val} || {Key, {ok, Val}} <- Opts].
+description() ->
+    "Anonymous ACL".
 
