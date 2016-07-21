@@ -162,10 +162,10 @@ publish(Sysmon, WarnMsg) ->
 topic(Sysmon) ->
     emqttd_topic:systop(list_to_binary(lists:concat(['sysmon/', Sysmon]))).
 
-start_tracelog(undefined) ->
-    {ok, undefined};
-start_tracelog(LogFile) ->
-    lager:trace_file(LogFile, [{sysmon, true}], info, ?LOG_FMT).
+%% start_tracelog(undefined) ->
+%%    {ok, undefined};
+%% start_tracelog(LogFile) ->
+%%    lager:trace_file(LogFile, [{sysmon, true}], info, ?LOG_FMT).
 
 cancel_tracelog(undefined) ->
     ok;
