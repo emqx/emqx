@@ -397,13 +397,16 @@ validate_qos(_) ->
 
 %% PUBLISH ACL is cached in process dictionary.
 check_acl(publish, Topic, Client) ->
-    case get({acl, publish, Topic}) of
-        undefined ->
+    IfCache = emqttd:conf(cache_acl, true),
+    case {IfCache, get({acl, publish, Topic})} of
+        {true, undefined} ->
             AllowDeny = emqttd_access_control:check_acl(Client, publish, Topic),
             put({acl, publish, Topic}, AllowDeny),
             AllowDeny;
-        AllowDeny ->
-            AllowDeny
+        {true, AllowDeny} ->
+            AllowDeny;
+        {false, _} ->
+            emqttd_access_control:check_acl(Client, publish, Topic)
     end;
 
 check_acl(subscribe, Topic, Client) ->
