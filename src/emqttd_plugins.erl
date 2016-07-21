@@ -27,13 +27,17 @@
 %% @doc Load all plugins when the broker started.
 -spec(load() -> list() | {error, any()}).
 load() ->
-    case env(loaded_file) of
+    case emqttd:conf(plugins_loaded_file) of
         {ok, File} ->
+            ensure_file(File),
             with_loaded_file(File, fun(Names) -> load_plugins(Names, false) end);
         undefined ->
             %% No plugins available
             ignore
     end.
+
+ensure_file(File) ->
+    case filelib:is_file(File) of false -> write_loaded([]); true -> ok end.
 
 with_loaded_file(File, SuccFun) ->
     case read_loaded(File) of
@@ -56,7 +60,7 @@ load_plugins(Names, Persistent) ->
 %% @doc Unload all plugins before broker stopped.
 -spec(unload() -> list() | {error, any()}).
 unload() ->
-    case env(loaded_file) of
+    case emqttd:conf(plugins_loaded_file) of
         {ok, File} ->
             with_loaded_file(File, fun stop_plugins/1);
         undefined ->
@@ -70,9 +74,9 @@ stop_plugins(Names) ->
 %% @doc List all available plugins
 -spec(list() -> [mqtt_plugin()]).
 list() ->
-    case env(plugins_etc) of
+    case emqttd:conf(plugins_etc_dir) of
         {ok, PluginsEtc} -> 
-            CfgFiles = filelib:wildcard("*.config", PluginsEtc),
+            CfgFiles = filelib:wildcard("*.conf", PluginsEtc),
             Plugins = [plugin(PluginsEtc, CfgFile) || CfgFile <- CfgFiles],
             StartedApps = names(started_app),
             lists:map(fun(Plugin = #mqtt_plugin{name = Name}) ->
@@ -223,14 +227,15 @@ plugin_unloaded(Name, true) ->
     end.
 
 read_loaded() ->
-    {ok, File} = env(loaded_file),
-    read_loaded(File). 
+    case emqttd:conf(plugins_loaded_file) of
+        {ok, File} -> read_loaded(File);
+        undefined  -> {error, not_found}
+    end.
 
-read_loaded(File) ->
-    file:consult(File).
+read_loaded(File) -> file:consult(File).
 
 write_loaded(AppNames) ->
-    {ok, File} = env(loaded_file),
+    {ok, File} = emqttd:conf(plugins_loaded_file),
     case file:open(File, [binary, write]) of
         {ok, Fd} ->
             lists:foreach(fun(Name) ->
@@ -239,18 +244,5 @@ write_loaded(AppNames) ->
         {error, Error} ->
             lager:error("Open File ~p Error: ~p", [File, Error]),
             {error, Error}
-    end.
-
-env(Name) ->
-    case application:get_env(emqttd, plugins) of
-        {ok, PluginsEnv} ->
-            case proplists:get_value(Name, PluginsEnv) of
-                undefined ->
-                    undefined;
-                Val ->
-                    {ok, Val}
-            end;
-        undefined ->
-            undefined
     end.
 
