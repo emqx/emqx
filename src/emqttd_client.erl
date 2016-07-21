@@ -39,7 +39,7 @@
 %% Client State
 -record(client_state, {connection, connname, peername, peerhost, peerport,
                        await_recv, conn_state, rate_limit, parser_fun,
-                       proto_state, packet_opts, keepalive}).
+                       proto_state, packet_opts, keepalive, mountpoint}).
 
 -define(INFO_KEYS, [peername, peerhost, peerport, await_recv, conn_state]).
 

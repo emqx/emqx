@@ -2,46 +2,21 @@
 # -*- tab-width:4;indent-tabs-mode:nil -*-
 # ex: ts=4 sw=4 et
 
-# /bin/sh on Solaris is not a POSIX compatible shell, but /usr/bin/ksh is.
-if [ `uname -s` = 'SunOS' -a "${POSIX_SHELL}" != "true" ]; then
-    POSIX_SHELL="true"
-    export POSIX_SHELL
-    # To support 'whoami' add /usr/ucb to path
-    PATH=/usr/ucb:$PATH
-    export PATH
-    exec /usr/bin/ksh $0 "$@"
-fi
-unset POSIX_SHELL # clear it so if we invoke other scripts, they run as ksh as well
+set -e
 
-RUNNER_SCRIPT_DIR={{runner_script_dir}}
-RUNNER_SCRIPT=${0##*/}
-
-RUNNER_BASE_DIR={{runner_base_dir}}
-RUNNER_ETC_DIR={{runner_etc_dir}}
-RUNNER_LIB_DIR={{platform_lib_dir}}
-RUNNER_LOG_DIR={{runner_log_dir}}
-RUNNER_DATA_DIR=$RUNNER_BASE_DIR/data
-RUNNER_PLUGINS_DIR=$RUNNER_BASE_DIR/plugins
-
-# Note the trailing slash on $PIPE_DIR/
-PIPE_DIR={{pipe_dir}}
-RUNNER_USER={{runner_user}}
-PLATFORM_DATA_DIR={{platform_data_dir}}
-SSL_DIST_CONFIG=$PLATFORM_DATA_DIR/ssl_distribution.args_file
-RIAK_VERSION="git"
-
-WHOAMI=$(whoami)
-
-# Make sure this script is running as the appropriate user
-if ([ "$RUNNER_USER" ] && [ "x$WHOAMI" != "x$RUNNER_USER" ]); then
-    type sudo > /dev/null 2>&1
-    if [ $? -ne 0 ]; then
-        echo "sudo doesn't appear to be installed and your EUID isn't $RUNNER_USER" 1>&2
-        exit 1
-    fi
-    echo "Attempting to restart script through sudo -H -u $RUNNER_USER" >&2
-    exec sudo -H -u $RUNNER_USER -i $RUNNER_SCRIPT_DIR/$RUNNER_SCRIPT $@
-fi
+SCRIPT=$(readlink $0 || true)
+if [ -z $SCRIPT ]; then
+    SCRIPT=$0
+fi;
+SCRIPT_DIR="$(cd `dirname "$SCRIPT"` && pwd -P)"
+RELEASE_ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
+REL_NAME="emqttd"
+REL_VSN="{{ rel_vsn }}"
+ERTS_VSN="{{ erts_vsn }}"
+CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
+REL_DIR="$RELEASE_ROOT_DIR/releases/$REL_VSN"
+ERL_OPTS="{{ erl_opts }}"
+RUNNER_LOG_DIR="${RUNNER_LOG_DIR:-$RELEASE_ROOT_DIR/log}"
 
 # Warn the user if ulimit -n is less than 1024
 ULIMIT_F=`ulimit -n`
@@ -51,153 +26,231 @@ if [ "$ULIMIT_F" -lt 1024 ]; then
     echo "!!!!"
 fi
 
-# Make sure CWD is set to runner base dir
-cd $RUNNER_BASE_DIR
+find_erts_dir() {
+    __erts_dir="$RELEASE_ROOT_DIR/erts-$ERTS_VSN"
+    if [ -d "$__erts_dir" ]; then
+        ERTS_DIR="$__erts_dir";
+        ROOTDIR="$RELEASE_ROOT_DIR"
+    else
+        __erl="$(which erl)"
+        code="io:format(\"~s\", [code:root_dir()]), halt()."
+        __erl_root="$("$__erl" -noshell -eval "$code")"
+        ERTS_DIR="$__erl_root/erts-$ERTS_VSN"
+        ROOTDIR="$__erl_root"
+    fi
+}
+
+# Get node pid
+relx_get_pid() {
+    if output="$(relx_nodetool rpcterms os getpid)"
+    then
+        echo "$output" | sed -e 's/"//g'
+        return 0
+    else
+        echo "$output"
+        return 1
+    fi
+}
+
+relx_get_nodename() {
+    id="longname$(relx_gen_id)-${NAME}"
+    "$BINDIR/erl" -boot start_clean -eval '[Host] = tl(string:tokens(atom_to_list(node()),"@")), io:format("~s~n", [Host]), halt()' -noshell ${NAME_TYPE} $id
+}
+
+# Connect to a remote node
+relx_rem_sh() {
+    # Generate a unique id used to allow multiple remsh to the same node
+    # transparently
+    id="remsh$(relx_gen_id)-${NAME}"
+
+    # Get the node's ticktime so that we use the same thing.
+    TICKTIME="$(relx_nodetool rpcterms net_kernel get_net_ticktime)"
+
+    # Setup remote shell command to control node
+    exec "$BINDIR/erl" "$NAME_TYPE" "$id" -remsh "$NAME" -boot start_clean \
+         -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
+         -setcookie "$COOKIE" -hidden -kernel net_ticktime $TICKTIME
+}
+
+# Generate a random id
+relx_gen_id() {
+    od -t x -N 4 /dev/urandom | head -n1 | awk '{print $2}'
+}
+
+# Control a node
+relx_nodetool() {
+    command="$1"; shift
+
+    "$ERTS_DIR/bin/escript" "$ROOTDIR/bin/nodetool" "$NAME_TYPE" "$NAME" \
+                                -setcookie "$COOKIE" "$command" $@
+}
+
+# Run an escript in the node's environment
+relx_escript() {
+    shift; scriptpath="$1"; shift
+    export RELEASE_ROOT_DIR
+
+    "$ERTS_DIR/bin/escript" "$ROOTDIR/$scriptpath" $@
+}
+
+# Output a start command for the last argument of run_erl
+relx_start_command() {
+    printf "exec \"%s\" \"%s\"" "$RELEASE_ROOT_DIR/bin/$REL_NAME" \
+           "$START_OPTION"
+}
+
+# Use $CWD/vm.args if exists, otherwise releases/VSN/vm.args
+if [ -z "$VMARGS_PATH" ]; then
+    if [ -f "$RELEASE_ROOT_DIR/vm.args" ]; then
+        VMARGS_PATH="$RELEASE_ROOT_DIR/vm.args"
+    else
+        VMARGS_PATH="$REL_DIR/vm.args"
+    fi
+fi
+
+orig_vmargs_path="$VMARGS_PATH.orig"
+if [ $RELX_REPLACE_OS_VARS ]; then
+    #Make sure we don't break dev mode by keeping the symbolic link to 
+    #the user's vm.args
+    if [ ! -L "$orig_vmargs_path" ]; then
+       #we're in copy mode, rename the vm.args file to vm.args.orig
+       mv "$VMARGS_PATH" "$orig_vmargs_path"
+    fi
+
+    awk '{while(match($0,"[$]{[^}]*}")) {var=substr($0,RSTART+2,RLENGTH -3);gsub("[$]{"var"}",ENVIRON[var])}}1' < "$orig_vmargs_path" > "$VMARGS_PATH"
+ else
+    #We don't need to replace env. vars, just rename the
+    #symlink vm.args.orig to vm.args, and keep it as a
+    #symlink.
+    if [ -L "$orig_vmargs_path" ]; then
+       mv "$orig_vmargs_path" "$VMARGS_PATH" 
+    fi
+fi
 
 # Make sure log directory exists
-mkdir -p $RUNNER_LOG_DIR
+mkdir -p "$RUNNER_LOG_DIR"
 
-# Make sure the data directory exists
-mkdir -p $PLATFORM_DATA_DIR
+# Use $CWD/sys.config if exists, otherwise releases/VSN/sys.config
+if [ -z "$RELX_CONFIG_PATH" ]; then
+    if [ -f "$RELEASE_ROOT_DIR/sys.config" ]; then
+        RELX_CONFIG_PATH="$RELEASE_ROOT_DIR/sys.config"
+    else
+        RELX_CONFIG_PATH="$REL_DIR/sys.config"
+    fi
+fi
 
-# Warn the user if they don't have write permissions on the log dir
-if [ ! -w $RUNNER_LOG_DIR ]; then
-    echo "!!!!"
-    echo "!!!! WARNING: $RUNNER_LOG_DIR not writable; logs and crash dumps unavailable."
-    echo "!!!!"
+orig_relx_config_path="$RELX_CONFIG_PATH.orig"
+if [ $RELX_REPLACE_OS_VARS ]; then
+    #Make sure we don't break dev mode by keeping the symbolic link to 
+    #the user's sys.config
+    if [ ! -L "$orig_relx_config_path" ]; then
+       #We're in copy mode, rename sys.config to sys.config.orig
+       mv "$RELX_CONFIG_PATH" "$orig_relx_config_path"
+    fi
+
+    awk '{while(match($0,"[$]{[^}]*}")) {var=substr($0,RSTART+2,RLENGTH -3);gsub("[$]{"var"}",ENVIRON[var])}}1' < "$orig_relx_config_path" > "$RELX_CONFIG_PATH"
+ else
+    #We don't need to replace env. vars, just rename the
+    #symlink sys.config.orig to sys.config. Keep it as 
+    #a symlink.
+    if [ -L "$orig_relx_config_path" ]; then
+       mv "$orig_relx_config_path"  "$RELX_CONFIG_PATH"
+    fi
 fi
 
 # Extract the target node name from node.args
-NAME_ARG=`egrep '^\-s?name' $RUNNER_ETC_DIR/vm.args`
+NAME_ARG=$(egrep '^-s?name' "$VMARGS_PATH" || true)
 if [ -z "$NAME_ARG" ]; then
     echo "vm.args needs to have either -name or -sname parameter."
     exit 1
 fi
-NODE_NAME=${NAME_ARG##* }
+
+# Extract the name type and name from the NAME_ARG for REMSH
+NAME_TYPE="$(echo "$NAME_ARG" | awk '{print $1}')"
+NAME="$(echo "$NAME_ARG" | awk '{print $2}')"
+
+PIPE_DIR="${PIPE_DIR:-/tmp/erl_pipes/$NAME/}"
 
 # Extract the target cookie
-COOKIE_ARG=`grep '^\-setcookie' $RUNNER_ETC_DIR/vm.args`
+COOKIE_ARG="$(grep '^-setcookie' "$VMARGS_PATH" || true)"
 if [ -z "$COOKIE_ARG" ]; then
     echo "vm.args needs to have a -setcookie parameter."
     exit 1
 fi
 
-# Identify the script name
-SCRIPT=`basename $0`
+# Extract cookie name from COOKIE_ARG
+COOKIE="$(echo "$COOKIE_ARG" | awk '{print $2}')"
 
-# Parse out release and erts info
-START_ERL=`cat $RUNNER_BASE_DIR/releases/start_erl.data`
-ERTS_VSN=${START_ERL% *}
-APP_VSN=${START_ERL#* }
+find_erts_dir
+export ROOTDIR="$RELEASE_ROOT_DIR"
+export BINDIR="$ERTS_DIR/bin"
+export EMU="beam"
+export PROGNAME="erl"
+export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
+ERTS_LIB_DIR="$ERTS_DIR/../lib"
+MNESIA_DATA_DIR="$ROOTDIR/data/mnesia/$NAME"
 
-# Add ERTS bin dir to our path
-ERTS_PATH=$RUNNER_BASE_DIR/erts-$ERTS_VSN/bin
+cd "$ROOTDIR"
 
-# Setup command to control the node
-NODETOOL="$ERTS_PATH/escript $ERTS_PATH/nodetool $NAME_ARG $COOKIE_ARG"
-NODETOOL_LITE="$ERTS_PATH/escript $ERTS_PATH/nodetool"
-
-# Common functions
-
-# Ping node without allowing nodetool to take stdin
-ping_node() {
-    $NODETOOL ping < /dev/null
-}
-
-# Set the PID global variable, return 1 on error
-get_pid() {
-    PID=`$NODETOOL getpid < /dev/null`
-    ES=$?
-    if [ "$ES" -ne 0 ]; then
-        echo "Node is not running!"
-        return 1
-    fi
-
-    # don't allow empty or init pid's
-    if [ -z $PID ] || [ "$PID" -le 1 ]; then
-        return 1
-    fi
-
-    return 0
-}
-
-
-# Scrape out SSL distribution config info from vm.args into $SSL_DIST_CONFIG
-rm -f $SSL_DIST_CONFIG
-sed -n '/Begin SSL distribution items/,/End SSL distribution items/p' \
-    $RUNNER_ETC_DIR/vm.args > $SSL_DIST_CONFIG
+# User can specify an sname without @hostname
+# This will fail when creating remote shell
+# So here we check for @ and add @hostname if missing
+case $NAME in
+    *@*)
+        # Nothing to do
+        ;;
+    *)
+        NAME=$NAME@$(relx_get_nodename)
+        ;;
+esac
 
 # Check the first argument for instructions
 case "$1" in
-    start)
-        # Make sure there is not already a node running
-        RES=`ping_node`
-        if [ "$RES" = "pong" ]; then
-            echo "Node is already running!"
-            exit 1
-        fi
-        # Sanity check the emqttd.config file
-        RES=`$NODETOOL_LITE chkconfig $RUNNER_ETC_DIR/emqttd.config`
-        if [ $? != 0 ]; then
-            echo "Error reading $RUNNER_ETC_DIR/emqttd.config"
-            echo $RES
-            exit 1
-        fi
-        HEART_COMMAND="$RUNNER_SCRIPT_DIR/$SCRIPT start"
-        export HEART_COMMAND
-        mkdir -p $PIPE_DIR
-        $ERTS_PATH/run_erl -daemon $PIPE_DIR $RUNNER_LOG_DIR \
-            "exec $RUNNER_SCRIPT_DIR/$SCRIPT console" 2>&1
+    start|start_boot)
 
-        # Wait for the node to come up. We can't just ping it because
-        # distributed erlang comes up for a second before emqttd crashes
-        # (eg. in the case of an unwriteable disk). Once the node comes
-        # up we check for the node watcher process. If that's running
-        # then we assume things are good enough. This will at least let
-        # the user know when emqttd is crashing right after startup.
-        WAIT=${WAIT_FOR_ERLANG:-15}
-        while [ $WAIT -gt 0 ]; do
-            WAIT=`expr $WAIT - 1`
-            sleep 1
-            RES=`ping_node`
-            if [ "$?" -ne 0 ]; then
-                continue
-            fi
-	    echo "emqttd is started successfully!"
-            exit 0
-        done
-        echo "emqttd failed to start within ${WAIT_FOR_ERLANG:-15} seconds,"
-        echo "see the output of 'emqttd console' for more information."
-        echo "If you want to wait longer, set the environment variable"
-        echo "WAIT_FOR_ERLANG to the number of seconds to wait."
-        exit 1
+        # Make sure there is not already a node running
+        #RES=`$NODETOOL ping`
+        #if [ "$RES" = "pong" ]; then
+        #    echo "Node is already running!"
+        #    exit 1
+        #fi
+        # Save this for later.
+        CMD=$1
+        case "$1" in
+            start)
+                shift
+                START_OPTION="console"
+                HEART_OPTION="start"
+                ;;
+            start_boot)
+                shift
+                START_OPTION="console_boot"
+                HEART_OPTION="start_boot"
+                ;;
+        esac
+        RUN_PARAM="$@"
+
+        # Set arguments for the heart command
+        set -- "$SCRIPT_DIR/$REL_NAME" "$HEART_OPTION"
+        [ "$RUN_PARAM" ] && set -- "$@" "$RUN_PARAM"
+
+        # Export the HEART_COMMAND
+        HEART_COMMAND="$RELEASE_ROOT_DIR/bin/$REL_NAME $CMD"
+        export HEART_COMMAND
+
+        mkdir -p "$PIPE_DIR"
+
+        "$BINDIR/run_erl" -daemon "$PIPE_DIR" "$RUNNER_LOG_DIR" \
+                          "$(relx_start_command)"
         ;;
 
     stop)
-        UNAME_S=`uname -s`
-        case $UNAME_S in
-            Darwin)
-                # Make sure we explicitly set this because iTerm.app doesn't for
-                # some reason.
-                COMMAND_MODE=unix2003
-        esac
-
-        # Get the PID from nodetool
-        get_pid
-        GPR=$?
-        if [ "$GPR" -ne 0 ] || [ -z $PID ]; then
-            exit $GPR
-        fi
-
-        # Tell nodetool to initiate a stop
-        $NODETOOL stop
-        ES=$?
-        if [ "$ES" -ne 0 ]; then
-            exit $ES
-        fi
-
         # Wait for the node to completely stop...
-        while `kill -s 0 $PID 2>/dev/null`;
+        PID="$(relx_get_pid)"
+        if ! relx_nodetool "stop"; then
+            exit 1
+        fi
+        while $(kill -s 0 "$PID" 2>/dev/null);
         do
             sleep 1
         done
@@ -205,117 +258,214 @@ case "$1" in
 
     restart)
         ## Restart the VM without exiting the process
-        $NODETOOL restart
-        ES=$?
-        if [ "$ES" -ne 0 ]; then
-            exit $ES
+        if ! relx_nodetool "restart"; then
+            exit 1
         fi
         ;;
 
     reboot)
         ## Restart the VM completely (uses heart to restart it)
-        $NODETOOL reboot
-        ES=$?
-        if [ "$ES" -ne 0 ]; then
-            exit $ES
+        if ! relx_nodetool "reboot"; then
+            exit 1
+        fi
+        ;;
+
+    pid)
+        ## Get the VM's pid
+        if ! relx_get_pid; then
+            exit 1
         fi
         ;;
 
     ping)
         ## See if the VM is alive
-        ping_node
-        ES=$?
-        if [ "$ES" -ne 0 ]; then
-            exit $ES
+        if ! relx_nodetool "ping"; then
+            exit 1
+        fi
+        ;;
+
+    escript)
+        ## Run an escript under the node's environment
+        if ! relx_escript $@; then
+            exit 1
         fi
         ;;
 
     attach)
-        if [ "$2" = "-f" ]; then
-          echo "Forcing connection..."
-        else
-          # Make sure a node is running
-          RES=`ping_node`
-          ES=$?
-          if [ "$ES" -ne 0 ]; then
-              echo "Node is not running!"
-              exit $ES
-          fi
+        # Make sure a node IS running
+        if ! relx_nodetool "ping" > /dev/null; then
+            echo "Node is not running!"
+            exit 1
         fi
 
         shift
-        exec $ERTS_PATH/to_erl $PIPE_DIR
+        exec "$BINDIR/to_erl" "$PIPE_DIR"
         ;;
 
-    console)
-        RES=`ping_node`
-        if [ "$RES" = "pong" ]; then
-            echo "Node is already running - use '$SCRIPT attach' instead"
+    remote_console)
+        # Make sure a node IS running
+        if ! relx_nodetool "ping" > /dev/null; then
+            echo "Node is not running!"
             exit 1
         fi
-        # Sanity check the emqttd.config file
-        RES=`$NODETOOL_LITE chkconfig $RUNNER_ETC_DIR/emqttd.config`
-        if [ $? != 0 ]; then
-            echo "Error reading $RUNNER_ETC_DIR/emqttd.config"
-            echo $RES
+
+        shift
+        relx_rem_sh
+        ;;
+
+    upgrade|downgrade|install)
+        if [ -z "$2" ]; then
+            echo "Missing package argument"
+            echo "Usage: $REL_NAME $1 {package base name}"
+            echo "NOTE {package base name} MUST NOT include the .tar.gz suffix"
             exit 1
         fi
+
+        # Make sure a node IS running
+        if ! relx_nodetool "ping" > /dev/null; then
+            echo "Node is not running!"
+            exit 1
+        fi
+
+        exec "$BINDIR/escript" "$ROOTDIR/bin/install_upgrade.escript" \
+             "install" "$REL_NAME" "$NAME_TYPE" "$NAME" "$COOKIE" "$2"
+        ;;
+
+    unpack)
+        if [ -z "$2" ]; then
+            echo "Missing package argument"
+            echo "Usage: $REL_NAME $1 {package base name}"
+            echo "NOTE {package base name} MUST NOT include the .tar.gz suffix"
+            exit 1
+        fi
+
+        # Make sure a node IS running
+        if ! relx_nodetool "ping" > /dev/null; then
+            echo "Node is not running!"
+            exit 1
+        fi
+
+        exec "$BINDIR/escript" "$ROOTDIR/bin/install_upgrade.escript" \
+             "unpack" "$REL_NAME" "$NAME_TYPE" "$NAME" "$COOKIE" "$2"
+        ;;
+
+    console|console_clean|console_boot)
+        # .boot file typically just $REL_NAME (ie, the app name)
+        # however, for debugging, sometimes start_clean.boot is useful.
+        # For e.g. 'setup', one may even want to name another boot script.
+        case "$1" in
+            console)
+                if [ -f "$REL_DIR/$REL_NAME.boot" ]; then
+                  BOOTFILE="$REL_DIR/$REL_NAME"
+                else
+                  BOOTFILE="$REL_DIR/start"
+                fi
+                ;;
+            console_clean)
+                BOOTFILE="$ROOTDIR/bin/start_clean"
+                ;;
+            console_boot)
+                shift
+                BOOTFILE="$1"
+                shift
+                ;;
+        esac
         # Setup beam-required vars
-        ROOTDIR=$RUNNER_BASE_DIR
-        ERL_LIBS=$ROOTDIR/plugins
-        BINDIR=$ROOTDIR/erts-$ERTS_VSN/bin
-        EMU=beam
-        PROGNAME=`echo $0 | sed 's/.*\///'`
-        # Setup Mnesia Dir
-        MNESIA_DIR="$RUNNER_DATA_DIR/mnesia/$NODE_NAME"
-        CMD="$BINDIR/erlexec -boot $RUNNER_BASE_DIR/releases/$APP_VSN/$SCRIPT \
-            -embedded -config $RUNNER_ETC_DIR/emqttd.config \
-            -pa $RUNNER_LIB_DIR/basho-patches \
-            -mnesia dir "\"${MNESIA_DIR}\"" \
-            -args_file $RUNNER_ETC_DIR/vm.args -- ${1+"$@"}"
+        EMU="beam"
+        PROGNAME="${0#*/}"
+
         export EMU
-        export ROOTDIR
-        export ERL_LIBS
-        export BINDIR
         export PROGNAME
 
+        # Store passed arguments since they will be erased by `set`
+        ARGS="$@"
+
+        # Build an array of arguments to pass to exec later on
+        # Build it here because this command will be used for logging.
+        set -- "$BINDIR/erlexec" -boot "$BOOTFILE" -mode "$CODE_LOADING_MODE" \
+            -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
+            -config "$RELX_CONFIG_PATH" \
+            -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
+            -args_file "$VMARGS_PATH"
+
         # Dump environment info for logging purposes
-        echo "Exec: $CMD"
+        echo "Exec: $@" -- ${1+$ARGS}
         echo "Root: $ROOTDIR"
 
         # Log the startup
-        logger -t "$SCRIPT[$$]" "Starting up"
+        echo "$RELEASE_ROOT_DIR"
+        logger -t "$REL_NAME[$$]" "Starting up"
 
         # Start the VM
-        exec $CMD
+        exec "$@" -- ${1+$ARGS}
         ;;
-    chkconfig)
-        RES=`$NODETOOL_LITE chkconfig $RUNNER_ETC_DIR/emqttd.config`
-        if [ $? != 0 ]; then
-            echo "Error reading $RUNNER_ETC_DIR/emqttd.config"
-            echo $RES
+
+    foreground)
+        # start up the release in the foreground for use by runit
+        # or other supervision services
+
+        [ -f "$REL_DIR/$REL_NAME.boot" ] && BOOTFILE="$REL_NAME" || BOOTFILE=start
+        FOREGROUNDOPTIONS="-noshell -noinput +Bd"
+
+        # Setup beam-required vars
+        EMU=beam
+        PROGNAME="${0#*/}"
+
+        export EMU
+        export PROGNAME
+
+        # Store passed arguments since they will be erased by `set`
+        ARGS="$@"
+
+        # Build an array of arguments to pass to exec later on
+        # Build it here because this command will be used for logging.
+        set -- "$BINDIR/erlexec" $FOREGROUNDOPTIONS \
+            -boot "$REL_DIR/$BOOTFILE" -mode "$CODE_LOADING_MODE" -config "$RELX_CONFIG_PATH" \
+            -boot_var ERTS_LIB_DIR "$ERTS_LIB_DIR" \
+            -mnesia dir "\"${MNESIA_DATA_DIR}\"" \
+            -args_file "$VMARGS_PATH"
+
+        # Dump environment info for logging purposes
+        echo "Exec: $@" -- ${1+$ARGS}
+        echo "Root: $ROOTDIR"
+
+        # Start the VM
+        exec "$@" -- ${1+$ARGS}
+        ;;
+    rpc)
+        # Make sure a node IS running
+        if ! relx_nodetool "ping" > /dev/null; then
+            echo "Node is not running!"
             exit 1
         fi
-        echo "config is OK"
-        ;;
-    escript)
+
         shift
-        $ERTS_PATH/escript "$@"
+
+        relx_nodetool rpc $@
         ;;
-    version)
-        echo $RIAK_VERSION
-        ;;
-    getpid)
-        # Get the PID from nodetool
-        get_pid
-        ES=$?
-        if [ "$ES" -ne 0 ] || [ -z $PID ]; then
-            exit $ES
+    rpcterms)
+        # Make sure a node IS running
+        if ! relx_nodetool "ping" > /dev/null; then
+            echo "Node is not running!"
+            exit 1
         fi
-        echo $PID
+
+        shift
+
+        relx_nodetool rpcterms $@
+        ;;
+    eval)
+        # Make sure a node IS running
+        if ! relx_nodetool "ping" > /dev/null; then
+            echo "Node is not running!"
+            exit 1
+        fi
+
+        shift
+        relx_nodetool "eval" $@
         ;;
     *)
-        echo "Usage: $SCRIPT {start|stop|restart|reboot|ping|console|attach|chkconfig|escript|version|getpid}"
+        echo "Usage: $REL_NAME {start|start_boot <file>|foreground|stop|restart|reboot|pid|ping|console|console_clean|console_boot <file>|attach|remote_console|upgrade|escript|rpc|rpcterms|eval}"
         exit 1
         ;;
 esac

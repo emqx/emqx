@@ -1,5 +1,4 @@
 #!/usr/bin/env escript
-
 %% -*- mode: erlang;erlang-indent-level: 4;indent-tabs-mode: nil -*-
 %% ex: ft=erlang ts=4 sw=4 et
 %% -------------------------------------------------------------------
@@ -38,8 +37,8 @@ main(Args) ->
                 {error, {Line, Mod, Term}} ->
                     io:format(standard_error, ["Error on line ", file:format_error({Line, Mod, Term}), "\n"], []),
                     halt(1);
-                {error, R} ->
-                    io:format(standard_error, ["Error reading config file: ", file:format_error(R), "\n"], []),
+                {error, Error} ->
+                    io:format(standard_error, ["Error reading config file: ", file:format_error(Error), "\n"], []),
                     halt(1)
             end;
         _ ->
@@ -94,19 +93,47 @@ main(Args) ->
             end;
         ["rpcterms", Module, Function, ArgsAsString] ->
             case rpc:call(TargetNode, list_to_atom(Module), list_to_atom(Function),
-                          consult(ArgsAsString), 60000) of
+                          consult(lists:flatten(ArgsAsString)), 60000) of
                 {badrpc, Reason} ->
                     io:format("RPC to ~p failed: ~p\n", [TargetNode, Reason]),
                     halt(1);
                 Other ->
                     io:format("~p\n", [Other])
             end;
+        ["eval" | ListOfArgs] ->
+            % shells may process args into more than one, and end up stripping
+            % spaces, so this converts all of that to a single string to parse
+            String = binary_to_list(
+                      list_to_binary(
+                        string:join(ListOfArgs," ")
+                      )
+                    ),
+
+            % then just as a convenience to users, if they forgot a trailing
+            % '.' add it for them.
+            Normalized =
+              case lists:reverse(String) of
+                [$. | _] -> String;
+                R -> lists:reverse([$. | R])
+              end,
+
+            % then scan and parse the string
+            {ok, Scanned, _} = erl_scan:string(Normalized),
+            {ok, Parsed } = erl_parse:parse_exprs(Scanned),
+
+            % and evaluate it on the remote node
+            case rpc:call(TargetNode, erl_eval, exprs, [Parsed, [] ]) of
+                {value, Value, _} ->
+                    io:format ("~p\n",[Value]);
+                {badrpc, Reason} ->
+                    io:format("RPC to ~p failed: ~p\n", [TargetNode, Reason]),
+                    halt(1)
+            end;
         Other ->
             io:format("Other: ~p\n", [Other]),
-            io:format("Usage: nodetool {chkconfig|getpid|ping|stop|restart|reboot|rpc|rpc_infinity|rpcterms}\n")
+            io:format("Usage: nodetool {chkconfig|getpid|ping|stop|restart|reboot|rpc|rpc_infinity|rpcterms|eval [Terms]} [RPC]\n")
     end,
     net_kernel:stop().
-
 
 process_args([], Acc, TargetNode) ->
     {lists:reverse(Acc), TargetNode};
@@ -126,7 +153,7 @@ process_args([Arg | Rest], Acc, Opts) ->
 
 
 start_epmd() ->
-    [] = os:cmd(epmd_path() ++ " -daemon"),
+    [] = os:cmd("\"" ++ epmd_path() ++ "\" -daemon"),
     ok.
 
 epmd_path() ->
@@ -163,7 +190,6 @@ append_node_suffix(Name, Suffix) ->
             list_to_atom(lists:concat([Node, Suffix, os:getpid()]))
     end.
 
-
 %%
 %% Given a string or binary, parse it into a list of terms, ala file:consult/0
 %%
@@ -188,7 +214,6 @@ consult(Cont, Str, Acc) ->
             consult(Cont1, eof, Acc)
     end.
 
-
 %%
 %% Validation functions for checking the emqttd.config
 %%
@@ -210,5 +235,4 @@ print_issue({warning, Warning}) ->
     io:format(standard_error, "Warning in emqttd.config: ~s~n", [Warning]);
 print_issue({error, Error}) ->
     io:format(standard_error, "Error in emqttd.config: ~s~n", [Error]).
-
 
