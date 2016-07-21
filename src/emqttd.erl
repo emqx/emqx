@@ -20,7 +20,7 @@
 
 -include("emqttd_protocol.hrl").
 
--export([start/0, env/1, env/2, is_running/1]).
+-export([start/0, conf/1, conf/2, env/1, env/2, is_running/1]).
 
 %% PubSub API
 -export([create/2, lookup/2, publish/1, subscribe/1, subscribe/3,
@@ -39,13 +39,20 @@
 -spec(start() -> ok | {error, any()}).
 start() -> application:start(?APP).
 
-%% @doc Group environment
--spec(env(Group :: atom()) -> list()).
-env(Group) -> application:get_env(?APP, Group, []).
+%% @doc Get Config
+-spec(conf(Key :: atom()) -> any()).
+conf(Key) -> gen_conf:value(?APP, Key).
+
+-spec(conf(Key :: atom(), Default :: any()) -> any()).
+conf(Key, Default) -> gen_conf:value(?APP, Key, Default).
+
+%% @doc Environment
+-spec(env(Key:: atom()) -> any()).
+env(Key) -> application:get_env(?APP, Key).
 
 %% @doc Get environment
--spec(env(Group :: atom(), Name :: atom()) -> undefined | any()).
-env(Group, Name) -> proplists:get_value(Name, env(Group)).
+-spec(env(Key:: atom(), Default:: any()) -> undefined | any()).
+env(Key, Default) -> application:get_env(?APP, Key, Default).
 
 %% @doc Is running?
 -spec(is_running(node()) -> boolean()).
