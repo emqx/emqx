@@ -90,7 +90,7 @@ list() ->
     end.
 
 plugin(CfgFile) ->
-    [AppName | _] = sting:tokens(CfgFile, "."),
+    [AppName | _] = string:tokens(CfgFile, "."),
     {ok, Attrs} = application:get_all_key(AppName),
     Ver = proplists:get_value(vsn, Attrs, "0"),
     Descr = proplists:get_value(description, Attrs, ""),
