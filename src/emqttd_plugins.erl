@@ -91,10 +91,10 @@ list() ->
 
 plugin(CfgFile) ->
     [AppName | _] = string:tokens(CfgFile, "."),
-    {ok, Attrs} = application:get_all_key(AppName),
+    {ok, Attrs} = application:get_all_key(list_to_atom(AppName)),
     Ver = proplists:get_value(vsn, Attrs, "0"),
     Descr = proplists:get_value(description, Attrs, ""),
-    #mqtt_plugin{name = AppName, version = Ver, descr = Descr}.
+    #mqtt_plugin{name = list_to_atom(AppName), version = Ver, descr = Descr}.
 
 %% @doc Load a Plugin
 -spec(load(atom()) -> ok | {error, any()}).
