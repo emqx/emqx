@@ -150,7 +150,6 @@
     name,
     version,
     descr,
-    config,
     active = false
 }).
 

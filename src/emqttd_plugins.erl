@@ -77,7 +77,7 @@ list() ->
     case emqttd:conf(plugins_etc_dir) of
         {ok, PluginsEtc} -> 
             CfgFiles = filelib:wildcard("*.conf", PluginsEtc),
-            Plugins = [plugin(PluginsEtc, CfgFile) || CfgFile <- CfgFiles],
+            Plugins = [plugin(CfgFile) || CfgFile <- CfgFiles],
             StartedApps = names(started_app),
             lists:map(fun(Plugin = #mqtt_plugin{name = Name}) ->
                           case lists:member(Name, StartedApps) of
@@ -89,13 +89,12 @@ list() ->
             []
     end.
 
-plugin(PluginsEtc, CfgFile0) ->
-    CfgFile = filename:join(PluginsEtc, CfgFile0),
-    {ok, [[{AppName, AppEnv} | _]]} = file:consult(CfgFile),
+plugin(CfgFile) ->
+    [AppName | _] = sting:tokens(CfgFile, "."),
     {ok, Attrs} = application:get_all_key(AppName),
     Ver = proplists:get_value(vsn, Attrs, "0"),
     Descr = proplists:get_value(description, Attrs, ""),
-    #mqtt_plugin{name = AppName, version = Ver, config = AppEnv, descr = Descr}.
+    #mqtt_plugin{name = AppName, version = Ver, descr = Descr}.
 
 %% @doc Load a Plugin
 -spec(load(atom()) -> ok | {error, any()}).
@@ -114,15 +113,15 @@ load(PluginName) when is_atom(PluginName) ->
             end
     end.
 
-load_plugin(#mqtt_plugin{name = Name, config = Config}, Persistent) ->
-    case load_app(Name, Config) of
+load_plugin(#mqtt_plugin{name = Name}, Persistent) ->
+    case load_app(Name) of
         ok ->
             start_app(Name, fun(App) -> plugin_loaded(App, Persistent) end);
         {error, Error} ->
             {error, Error}
     end.
 
-load_app(App, _Config) ->
+load_app(App) ->
     case application:load(App) of
         ok ->
             ok;
