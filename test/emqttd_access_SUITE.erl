@@ -38,8 +38,33 @@ groups() ->
       [compile_rule,
        match_rule]}].
 
+init_per_group(access_control, Config) ->
+    application:load(emqttd),
+    prepare_config(),
+    gen_conf:init(emqttd),
+    Config;
+
 init_per_group(_Group, Config) ->
     Config.
+
+prepare_config() ->
+    Rules = [{allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]},
+             {allow, {user, "testuser"}, subscribe, ["a/b/c", "d/e/f/#"]},
+             {allow, {user, "admin"}, pubsub, ["a/b/c", "d/e/f/#"]},
+             {allow, {client, "testClient"}, subscribe, ["testTopics/testClient"]},
+             {allow, all, subscribe, ["clients/$c"]},
+             {allow, all, pubsub, ["users/$u/#"]},
+             {deny, all, subscribe, ["$SYS/#", "#"]},
+             {deny, all}],
+    write_config("access_SUITE_acl.conf", Rules),
+    Config = [{auth, anonymous, []},
+              {acl, internal, [{config, "access_SUITE_acl.conf"},
+                               {nomatch, allow}]}],
+    write_config("access_SUITE_emqttd.conf", Config),
+    application:set_env(emqttd, conf, "access_SUITE_emqttd.conf").
+
+write_config(Filename, Terms) ->
+    file:write_file(Filename, [io_lib:format("~tp.~n", [Term]) || Term <- Terms]).
 
 end_per_group(_Group, Config) ->
     Config.
@@ -48,14 +73,7 @@ init_per_testcase(TestCase, Config) when TestCase =:= reload_acl;
                                          TestCase =:= register_mod;
                                          TestCase =:= unregister_mod;
                                          TestCase =:= check_acl ->
-    DataDir = proplists:get_value(data_dir, Config),
-    AclOpts = [
-        {auth, [{anonymous, []}]},
-        {acl,  [{internal, [{file, filename:join([DataDir, "test_acl.config"])},
-                            {nomatch, allow}]}]}
-    ],
-    {ok, _Pid} = ?AC:start_link(AclOpts),
-    Config;
+    {ok, _Pid} = ?AC:start_link(), Config;
 
 init_per_testcase(_TestCase, Config) ->
     Config.

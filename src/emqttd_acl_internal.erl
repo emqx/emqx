@@ -113,6 +113,8 @@ match(Client, Topic, [Rule|Rules]) ->
 
 %% @doc Reload ACL
 -spec(reload_acl(State :: #state{}) -> ok | {error, Reason :: any()}).
+reload_acl(#state{config = undefined}) ->
+    ok;
 reload_acl(State) ->
     case catch load_rules_from_file(State) of
         {'EXIT', Error} -> {error, Error};
