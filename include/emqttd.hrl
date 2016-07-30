@@ -26,13 +26,11 @@
 
 -define(PROTOCOL_VERSION, "MQTT/3.1.1").
 
--define(ERTS_MINIMUM, "6.0").
+-define(ERTS_MINIMUM, "7.0").
 
-%% System Topics.
--define(SYSTOP, <<"$SYS">>).
-
-%% Queue Topics.
--define(QTop, <<"$Q">>).
+-define(SYSTOP, <<"$SYS">>).   %% System Topic
+-define(QUEUE,  <<"$queue">>). %% Queue
+-define(SHARE,  <<"$share">>). %% Shared
 
 %%--------------------------------------------------------------------
 %% PubSub
@@ -50,7 +48,17 @@
     flags   :: [retained | static]
 }).
 
--type mqtt_topic() :: #mqtt_topic{}.
+-type(mqtt_topic() :: #mqtt_topic{}).
+
+%%--------------------------------------------------------------------
+%% MQTT Route
+%%--------------------------------------------------------------------
+-record(mqtt_route, {
+    topic   :: binary(),
+    node    :: node()
+}).
+
+-type(mqtt_route() :: #mqtt_route{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Subscription
@@ -63,15 +71,22 @@
 
 -type mqtt_subscription() :: #mqtt_subscription{}.
 
+%% {<<"a/b/c">>, '$queue', <<"client1">>}
+%% {<<"a/b/c">>, undefined, <0.31.0>}
+%% {<<"a/b/c">>, <<"group1">>, <<"client2">>}
+-record(mqtt_subscription, {topic, share, destination :: pid() | binary()}).
+
 %%--------------------------------------------------------------------
-%% MQTT Route
+%<<"group1">>, <<"client2">>}% MQTT Credential
 %%--------------------------------------------------------------------
--record(mqtt_route, {
-    topic   :: binary(),
-    node    :: node()
+-record(mqtt_credential, {
+    clientid :: binary() | undefined, %% ClientId
+    username :: binary() | undefined, %% Username
+    cookie   :: binary() | undefined,
+    token    :: binary() | undefined
 }).
 
--type mqtt_route() :: #mqtt_route{}.
+-type(mqtt_credential() || #mqtt_credential{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Client
@@ -116,8 +131,6 @@
     msgid           :: mqtt_msgid(),          %% Global unique message ID
     pktid           :: mqtt_pktid(),          %% PacketId
     topic           :: binary(),              %% Topic that the message is published to
-    from            :: binary() | atom(),     %% ClientId of the publisher
-    sender          :: binary() | undefined,  %% Username of the publisher
     qos    = 0      :: 0 | 1 | 2,             %% Message QoS
     flags  = []     :: [retain | dup | sys],  %% Message Flags
     retain = false  :: boolean(),             %% Retain flag
@@ -128,7 +141,17 @@
     extra = []      :: list()
 }).
 
--type mqtt_message() :: #mqtt_message{}.
+-type(mqtt_message() :: #mqtt_message{}).
+
+%%--------------------------------------------------------------------
+%% MQTT Delivery
+%%--------------------------------------------------------------------
+-record(mqtt_delivery, {
+    sender       :: pid(),              %% Pid of the sender/publisher
+    credential   :: mqtt_credential(),  %% Credential of the sender/publisher
+    message      :: mqtt_message(),     %% Message
+    flow_through :: [node()]
+}).
 
 %%--------------------------------------------------------------------
 %% MQTT Alarm
