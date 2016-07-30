@@ -82,6 +82,8 @@ groups() ->
 
 init_per_suite(Config) ->
     application:start(lager),
+    DataDir = proplists:get_value(data_dir, Config),
+    application:set_env(emqttd, conf, filename:join([DataDir, "emqttd.conf"])),
     application:ensure_all_started(emqttd),
     Config.
 
@@ -177,7 +179,7 @@ pubsub_queue(_) ->
     Self = self(), Q = <<"$queue/abc">>,
     SubFun = fun() ->
                emqttd:subscribe(Q),
-               timer:sleep(1),
+               timer:sleep(10),
                {ok, Msgs} = loop_recv(Q, 10),
                Self ! {recv, self(), Msgs}
              end,
