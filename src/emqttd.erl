@@ -26,6 +26,9 @@
 -export([create/2, lookup/2, publish/1, subscribe/1, subscribe/3,
          unsubscribe/1, unsubscribe/3]).
 
+%% Route and Forward API
+%% -export([route/2, forward/2]).
+
 %% Hooks API
 -export([hook/4, hook/3, unhook/2, run_hooks/3]).
 

@@ -70,7 +70,7 @@ auth(Client, Password, [{Mod, State, _Seq} | Mods]) ->
       Client :: mqtt_client(),
       PubSub :: pubsub(),
       Topic  :: binary()).
-check_acl(Client, PubSub, Topic) when ?IS_PUBSUB(PubSub) ->
+check_acl(Client, PubSub, Topic) when ?PUBSUB(PubSub) ->
     case lookup_mods(acl) of
         []      -> allow;
         AclMods -> check_acl(Client, PubSub, Topic, AclMods)

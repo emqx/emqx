@@ -28,9 +28,15 @@
 
 -define(ERTS_MINIMUM, "7.0").
 
--define(SYSTOP, <<"$SYS">>).   %% System Topic
--define(QUEUE,  <<"$queue">>). %% Queue
--define(SHARE,  <<"$share">>). %% Shared
+%%--------------------------------------------------------------------
+%% Sys/Queue/Share Topics' Prefix
+%%--------------------------------------------------------------------
+
+-define(SYSTOP, <<"$SYS/">>).   %% System Topic
+
+-define(QUEUE,  <<"$queue/">>). %% Queue Topic
+
+-define(SHARE,  <<"$share/">>). %% Shared Topic
 
 %%--------------------------------------------------------------------
 %% PubSub
@@ -38,7 +44,7 @@
 
 -type pubsub() :: publish | subscribe.
 
--define(IS_PUBSUB(PS), (PS =:= publish orelse PS =:= subscribe)).
+-define(PUBSUB(PS), (PS =:= publish orelse PS =:= subscribe)).
 
 %%--------------------------------------------------------------------
 %% MQTT Topic
@@ -69,24 +75,24 @@
     qos = 0 :: 0 | 1 | 2
 }).
 
--type mqtt_subscription() :: #mqtt_subscription{}.
+-type(mqtt_subscription() :: #mqtt_subscription{}).
 
 %% {<<"a/b/c">>, '$queue', <<"client1">>}
 %% {<<"a/b/c">>, undefined, <0.31.0>}
 %% {<<"a/b/c">>, <<"group1">>, <<"client2">>}
--record(mqtt_subscription, {topic, share, destination :: pid() | binary()}).
+%% -record(mqtt_subscription, {topic, share, destination :: pid() | binary()}).
 
 %%--------------------------------------------------------------------
-%<<"group1">>, <<"client2">>}% MQTT Credential
+%% MQTT Credential
 %%--------------------------------------------------------------------
 -record(mqtt_credential, {
     clientid :: binary() | undefined, %% ClientId
     username :: binary() | undefined, %% Username
-    cookie   :: binary() | undefined,
-    token    :: binary() | undefined
+    token    :: binary() | undefined,
+    cookie   :: binary() | undefined
 }).
 
--type(mqtt_credential() || #mqtt_credential{}).
+-type(mqtt_credential() :: #mqtt_credential{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Client
@@ -108,7 +114,7 @@
     connected_at  :: erlang:timestamp()
 }).
 
--type mqtt_client() :: #mqtt_client{}.
+-type(mqtt_client() :: #mqtt_client{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Session
@@ -119,26 +125,29 @@
     persistent  :: boolean()
 }).
 
--type mqtt_session() :: #mqtt_session{}.
+-type(mqtt_session() :: #mqtt_session{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Message
 %%--------------------------------------------------------------------
--type mqtt_msgid() :: binary() | undefined.
--type mqtt_pktid() :: 1..16#ffff | undefined.
+-type(mqtt_msgid() :: binary() | undefined).
+-type(mqtt_pktid() :: 1..16#ffff | undefined).
 
 -record(mqtt_message, {
-    msgid           :: mqtt_msgid(),          %% Global unique message ID
-    pktid           :: mqtt_pktid(),          %% PacketId
-    topic           :: binary(),              %% Topic that the message is published to
-    qos    = 0      :: 0 | 1 | 2,             %% Message QoS
-    flags  = []     :: [retain | dup | sys],  %% Message Flags
-    retain = false  :: boolean(),             %% Retain flag
-    dup    = false  :: boolean(),             %% Dup flag
-    sys    = false  :: boolean(),             %% $SYS flag
-    payload         :: binary(),              %% Payload
-    timestamp       :: erlang:timestamp(),    %% os:timestamp
-    extra = []      :: list()
+    msgid          :: mqtt_msgid(),         %% Global unique message ID
+    pktid          :: mqtt_pktid(),         %% PacketId
+    topic          :: binary(),             %% Topic that the message is published to
+    sender         :: pid(),                %% Pid of the sender/publisher
+    from,
+    credential     :: mqtt_credential(),    %% Credential of the sender/publisher
+    qos    = 0     :: 0 | 1 | 2,            %% Message QoS
+    flags  = []    :: [retain | dup | sys], %% Message Flags
+    retain = false :: boolean(),            %% Retain flag
+    dup    = false :: boolean(),            %% Dup flag
+    sys    = false :: boolean(),            %% $SYS flag
+    payload        :: binary(),             %% Payload
+    timestamp      :: erlang:timestamp(),   %% os:timestamp
+    extra = []     :: list()
 }).
 
 -type(mqtt_message() :: #mqtt_message{}).
@@ -147,10 +156,9 @@
 %% MQTT Delivery
 %%--------------------------------------------------------------------
 -record(mqtt_delivery, {
-    sender       :: pid(),              %% Pid of the sender/publisher
-    credential   :: mqtt_credential(),  %% Credential of the sender/publisher
-    message      :: mqtt_message(),     %% Message
-    flow_through :: [node()]
+    message         :: mqtt_message(), %% Message
+    dispatched = [] :: list(),
+    flow_through    :: [node()]
 }).
 
 %%--------------------------------------------------------------------
@@ -164,7 +172,7 @@
     timestamp   :: erlang:timestamp() %% Timestamp
 }).
 
--type mqtt_alarm() :: #mqtt_alarm{}.
+-type(mqtt_alarm() :: #mqtt_alarm{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Plugin
@@ -176,7 +184,7 @@
     active = false
 }).
 
--type mqtt_plugin() :: #mqtt_plugin{}.
+-type(mqtt_plugin() :: #mqtt_plugin{}).
 
 %%--------------------------------------------------------------------
 %% MQTT CLI Command
@@ -191,5 +199,5 @@
     descr
 }).
 
--type mqtt_cli() :: #mqtt_cli{}.
+-type(mqtt_cli() :: #mqtt_cli{}).
 
