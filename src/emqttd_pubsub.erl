@@ -102,7 +102,7 @@ publish(Topic, Msg) ->
             ?MODULE:dispatch(To, Msg);
            (#mqtt_route{topic = To, node = Node}) ->
             rpc:cast(Node, ?MODULE, dispatch, [To, Msg])
-        end, emqttd_router:lookup(Topic)).
+        end, emqttd_router:match(Topic)).
 
 %% @doc Dispatch Message to Subscribers
 -spec(dispatch(binary(), mqtt_message()) -> ok).
