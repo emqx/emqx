@@ -36,6 +36,8 @@
 
 -export([register_session/3, unregister_session/2]).
 
+-export([dispatch/3]).
+
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -104,6 +106,15 @@ register_session(CleanSess, ClientId, Info) ->
       ClientId  :: binary()).
 unregister_session(CleanSess, ClientId) ->
     ets:delete(sesstab(CleanSess), {ClientId, self()}).
+
+%%TODO: FIXME...
+dispatch(Id, Topic, Msg) ->
+    case lookup_session(Id) of
+        #mqtt_session{sess_pid = Pid} ->
+            Pid ! {dispatch, Topic, Msg};
+        undefined ->
+            ok
+    end.
 
 sesstab(true)  -> mqtt_transient_session;
 sesstab(false) -> mqtt_persistent_session.
