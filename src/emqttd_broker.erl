@@ -115,9 +115,6 @@ stop_tick(TRef) ->
 init([]) ->
     emqttd_time:seed(),
     ets:new(?BROKER_TAB, [set, public, named_table]),
-    % Create $SYS Topics
-    emqttd:create(topic, <<"$SYS/brokers">>),
-    [ok = create_topic(Topic) || Topic <- ?SYSTOP_BROKERS],
     % Tick
     {ok, #state{started_at = os:timestamp(),
                 heartbeat  = start_tick(1000, heartbeat),
@@ -159,9 +156,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-create_topic(Topic) ->
-    emqttd:create(topic, emqttd_topic:systop(Topic)).
 
 retain(brokers) ->
     Payload = list_to_binary(string:join([atom_to_list(N) ||
