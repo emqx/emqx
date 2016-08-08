@@ -175,11 +175,11 @@ subscribe(SessPid, PacketId, TopicTable) ->
 -spec(publish(pid(), mqtt_message()) -> ok | {error, any()}).
 publish(_SessPid, Msg = #mqtt_message{qos = ?QOS_0}) ->
     %% publish qos0 directly
-    emqttd:publish(Msg);
+    emqttd:publish(Msg), ok;
 
 publish(_SessPid, Msg = #mqtt_message{qos = ?QOS_1}) ->
     %% publish qos1 directly, and client will puback automatically
-    emqttd:publish(Msg);
+    emqttd:publish(Msg), ok;
 
 publish(SessPid, Msg = #mqtt_message{qos = ?QOS_2}) ->
     %% publish qos2 by session 
