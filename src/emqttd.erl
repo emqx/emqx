@@ -136,7 +136,7 @@ subscriptions(Subscriber) ->
 
 with_pubsub(Fun) -> {ok, PubSub} = conf(pubsub_adapter), Fun(PubSub).
 
-dump() -> with_pubsub(fun(PubSub) -> lists:append(PubSub:dump(), zenmq_router:dump()) end).
+dump() -> with_pubsub(fun(PubSub) -> lists:append(PubSub:dump(), emqttd_router:dump()) end).
 
 %%--------------------------------------------------------------------
 %% Hooks API
