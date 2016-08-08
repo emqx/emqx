@@ -5,6 +5,18 @@
 Changes
 =======
 
+.. _release_2.0:
+
+-------------------------------
+Version 2.0 (West of West Lake)
+-------------------------------
+
+*Release Date: 2016-08-12*
+
+Improve the design of PubSub and Router:
+
+.. images:: _static/images/publish.png
+
 .. _release_1.1.2:
 
 -------------
