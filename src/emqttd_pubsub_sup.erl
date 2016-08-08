@@ -32,11 +32,10 @@ pubsub_pool() ->
     hd([Pid || {pubsub_pool, Pid, _, _} <- supervisor:which_children(?MODULE)]).
 
 init([Env]) ->
-    {ok, PubSub} = emqttd:conf(pubsub_adapter),
-    PubSubMFA = {PubSub, start_link, [Env]},
-    PoolArgs = [pubsub, hash, pool_size(Env), PubSubMFA],
-    PubSubPoolSup = emqttd_pool_sup:spec(pubsub_pool, PoolArgs),
-    {ok, { {one_for_all, 10, 3600}, [PubSubPoolSup]} }.
+    {ok, PubSub} = emqttd:conf(pubsub_adapter), PubSub:init_tabs(),
+    PoolArgs = [pubsub, hash, pool_size(Env), {PubSub, start_link, [Env]}],
+    PoolSup = emqttd_pool_sup:spec(pubsub_pool, PoolArgs),
+    {ok, { {one_for_all, 10, 3600}, [PoolSup]} }.
 
 pool_size(Env) ->
     Schedulers = erlang:system_info(schedulers),
