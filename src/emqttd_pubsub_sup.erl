@@ -32,7 +32,7 @@ pubsub_pool() ->
     hd([Pid || {pubsub_pool, Pid, _, _} <- supervisor:which_children(?MODULE)]).
 
 init([Env]) ->
-    PubSub = emqttd:conf(pubsub_adapter),
+    {ok, PubSub} = emqttd:conf(pubsub_adapter),
     PubSubMFA = {PubSub, start_link, [Env]},
     PoolArgs = [pubsub, hash, pool_size(Env), PubSubMFA],
     PubSubPoolSup = emqttd_pool_sup:spec(pubsub_pool, PoolArgs),

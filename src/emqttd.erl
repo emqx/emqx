@@ -134,7 +134,7 @@ subscribers(Topic) ->
 subscriptions(Subscriber) ->
     with_pubsub(fun(PubSub) -> PubSub:subscriptions(Subscriber) end).
 
-with_pubsub(Fun) -> Fun(conf(pubsub_adapter)).
+with_pubsub(Fun) -> {ok, PubSub} = conf(pubsub_adapter), Fun(PubSub).
 
 dump() -> with_pubsub(fun(PubSub) -> lists:append(PubSub:dump(), zenmq_router:dump()) end).
 
