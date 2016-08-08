@@ -16,6 +16,8 @@
 
 -module(emqttd).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -include("emqttd.hrl").
 
 -include("emqttd_protocol.hrl").
@@ -23,19 +25,31 @@
 -export([start/0, conf/1, conf/2, env/1, env/2, is_running/1]).
 
 %% PubSub API
--export([create/2, lookup/2, publish/1, subscribe/1, subscribe/3,
-         unsubscribe/1, unsubscribe/3]).
+-export([subscribe/1, subscribe/2, subscribe/3, publish/1,
+         unsubscribe/1, unsubscribe/2]).
 
-%% Route and Forward API
-%% -export([route/2, forward/2]).
+%% PubSub Management API
+-export([topics/0, subscribers/1, subscriptions/1]).
 
 %% Hooks API
 -export([hook/4, hook/3, unhook/2, run_hooks/3]).
 
+%% Debug API
+-export([dump/0]).
+
+-type(subscriber() :: pid() | binary() | function()).
+
+-type(suboption() :: local | {qos, non_neg_integer()} | {share, {'$queue' | binary()}}).
+
+-type(pubsub_error() :: {error, {already_subscribed, binary()}
+                              | {subscription_not_found, binary()}}).
+
+-export_type([subscriber/0, suboption/0, pubsub_error/0]).
+
 -define(APP, ?MODULE).
 
 %%--------------------------------------------------------------------
-%% Bootstrap, environment, is_running...
+%% Bootstrap, environment, configuration, is_running...
 %%--------------------------------------------------------------------
 
 %% @doc Start emqttd application.
@@ -67,52 +81,62 @@ is_running(Node) ->
     end.
 
 %%--------------------------------------------------------------------
-%% PubSub APIs that wrap emqttd_server, emqttd_pubsub
+%% PubSub APIs that wrap emqttd_pubsub
 %%--------------------------------------------------------------------
 
-%% @doc Lookup Topic or Subscription
--spec(lookup(topic, binary()) -> [mqtt_topic()];
-            (subscription, binary()) -> [mqtt_subscription()]).
-lookup(topic, Topic) when is_binary(Topic) ->
-    emqttd_pubsub:lookup_topic(Topic);
+%% @doc Subscribe
+-spec(subscribe(iodata()) -> ok | {error, any()}).
+subscribe(Topic) ->
+    subscribe(Topic, self()).
 
-lookup(subscription, ClientId) when is_binary(ClientId) ->
-    emqttd_server:lookup_subscription(ClientId).
+-spec(subscribe(iodata(), subscriber()) -> ok | {error, any()}).
+subscribe(Topic, Subscriber) ->
+    subscribe(Topic, Subscriber, []).
 
-%% @doc Create a Topic or Subscription
--spec(create(topic | subscription, binary()) -> ok | {error, any()}).
-create(topic, Topic) when is_binary(Topic) ->
-    emqttd_pubsub:create_topic(Topic);
-
-create(subscription, {ClientId, Topic, Qos}) ->
-    Subscription = #mqtt_subscription{subid = ClientId, topic = Topic, qos = ?QOS_I(Qos)},
-    emqttd_backend:add_subscription(Subscription).
+-spec(subscribe(iodata(), subscriber(), [suboption()]) -> ok | pubsub_error()).
+subscribe(Topic, Subscriber, Options) ->
+    with_pubsub(fun(PubSub) -> PubSub:subscribe(iolist_to_binary(Topic), Subscriber, Options) end).
 
 %% @doc Publish MQTT Message
--spec(publish(mqtt_message()) -> ok).
-publish(Msg) when is_record(Msg, mqtt_message) ->
-    emqttd_server:publish(Msg), ok.
-
-%% @doc Subscribe
--spec(subscribe(binary()) -> ok;
-               ({binary(), binary(), mqtt_qos()}) -> ok).
-subscribe(Topic) when is_binary(Topic) ->
-    emqttd_server:subscribe(Topic);
-subscribe({ClientId, Topic, Qos}) ->
-    subscribe(ClientId, Topic, Qos).
-
--spec(subscribe(binary(), binary(), mqtt_qos()) -> {ok, mqtt_qos()}).
-subscribe(ClientId, Topic, Qos) ->
-    emqttd_server:subscribe(ClientId, Topic, Qos).
+-spec(publish(mqtt_message()) -> {ok, mqtt_delivery()} | ignore).
+publish(Msg = #mqtt_message{from = From}) ->
+    trace(publish, From, Msg),
+    case run_hooks('message.publish', [], Msg) of
+        {ok, Msg1 = #mqtt_message{topic = Topic}} ->
+            %% Retain message first. Don't create retained topic.
+            Msg2 = case emqttd_retainer:retain(Msg1) of
+                       ok     -> emqttd_message:unset_flag(Msg1);
+                       ignore -> Msg1
+                   end,
+            with_pubsub(fun(PubSub) -> PubSub:publish(Topic, Msg2) end);
+        {stop, Msg1} ->
+            lager:warning("Stop publishing: ~s", [emqttd_message:format(Msg1)]),
+            ignore
+    end.
 
 %% @doc Unsubscribe
--spec(unsubscribe(binary()) -> ok).
-unsubscribe(Topic) when is_binary(Topic) ->
-    emqttd_server:unsubscribe(Topic).
+-spec(unsubscribe(iodata()) -> ok | pubsub_error()).
+unsubscribe(Topic) ->
+    unsubscribe(Topic, self()).
 
--spec(unsubscribe(binary(), binary(), mqtt_qos()) -> ok).
-unsubscribe(ClientId, Topic, Qos) ->
-    emqttd_server:unsubscribe(ClientId, Topic, Qos).
+-spec(unsubscribe(iodata(), subscriber()) -> ok | pubsub_error()).
+unsubscribe(Topic, Subscriber) ->
+    with_pubsub(fun(PubSub) -> PubSub:unsubscribe(iolist_to_binary(Topic), Subscriber) end).
+
+-spec(topics() -> [binary()]).
+topics() -> with_pubsub(fun(PubSub) -> PubSub:topics() end).
+
+-spec(subscribers(iodata()) -> list(subscriber())).
+subscribers(Topic) ->
+    with_pubsub(fun(PubSub) -> PubSub:subscribers(iolist_to_binary(Topic)) end).
+
+-spec(subscriptions(subscriber()) -> [{binary(), suboption()}]).
+subscriptions(Subscriber) ->
+    with_pubsub(fun(PubSub) -> PubSub:subscriptions(Subscriber) end).
+
+with_pubsub(Fun) -> Fun(conf(pubsub_adapter)).
+
+dump() -> with_pubsub(fun(PubSub) -> lists:append(PubSub:dump(), zenmq_router:dump()) end).
 
 %%--------------------------------------------------------------------
 %% Hooks API
@@ -133,4 +157,16 @@ unhook(Hook, Function) ->
 -spec(run_hooks(atom(), list(any()), any()) -> {ok | stop, any()}).
 run_hooks(Hook, Args, Acc) ->
     emqttd_hook:run(Hook, Args, Acc).
+
+%%--------------------------------------------------------------------
+%% Trace Functions
+%%--------------------------------------------------------------------
+
+trace(publish, From, _Msg) when is_atom(From) ->
+    %% Dont' trace '$SYS' publish
+    ignore;
+
+trace(publish, From, #mqtt_message{topic = Topic, payload = Payload}) ->
+    lager:info([{client, From}, {topic, Topic}],
+               "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
 

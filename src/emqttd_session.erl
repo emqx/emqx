@@ -297,11 +297,11 @@ handle_cast({subscribe, TopicTable0, AckFun}, Session = #session{client_id     =
                             ?LOG(warning, "duplicated subscribe: ~s, qos = ~w", [Topic, Qos], Session),
                             SubDict;
                         {ok, OldQos} ->
-                            emqttd_server:update_subscription(ClientId, Topic, OldQos, Qos),
+                            emqttd_pubsub:setqos(Topic, ClientId, Qos),
                             ?LOG(warning, "duplicated subscribe ~s, old_qos=~w, new_qos=~w", [Topic, OldQos, Qos], Session),
                             dict:store(Topic, Qos, SubDict);
                         error ->
-                            emqttd:subscribe(ClientId, Topic, Qos),
+                            emqttd:subscribe(Topic, ClientId, [{qos, Qos}]),
                             %%TODO: the design is ugly...
                             %% <MQTT V3.1.1>: 3.8.4
                             %% Where the Topic Filter is not identical to any existing Subscription’s filter,

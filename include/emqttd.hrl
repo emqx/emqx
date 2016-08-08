@@ -156,10 +156,11 @@
 %% MQTT Delivery
 %%--------------------------------------------------------------------
 -record(mqtt_delivery, {
-    message         :: mqtt_message(), %% Message
-    dispatched = [] :: list(),
-    flow_through    :: [node()]
+    message :: mqtt_message(), %% Message
+    flows   :: list()
 }).
+
+-type(mqtt_delivery() :: #mqtt_delivery{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Alarm

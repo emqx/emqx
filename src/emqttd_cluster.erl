@@ -82,6 +82,5 @@ remove(Node) ->
     end.
 
 %% @doc Cluster status
-status() ->
-    emqttd_mnesia:cluster_status().
+status() -> emqttd_mnesia:cluster_status().
 
