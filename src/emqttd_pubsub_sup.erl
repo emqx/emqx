@@ -25,6 +25,8 @@
 %% Supervisor callbacks
 -export([init/1]).
 
+-define(CONCURRENCY_OPTS, [{read_concurrency, true}, {write_concurrency, true}]).
+
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, [emqttd_conf:pubsub()]).
 
@@ -32,7 +34,11 @@ pubsub_pool() ->
     hd([Pid || {pubsub_pool, Pid, _, _} <- supervisor:which_children(?MODULE)]).
 
 init([Env]) ->
-    {ok, PubSub} = emqttd:conf(pubsub_adapter), PubSub:init_tabs(),
+    %% Create ETS Tables
+    [create_tab(Tab) || Tab <- [subscriber, subscription, subproperty]],
+
+    %% PubSub Pool
+    {ok, PubSub} = emqttd:conf(pubsub_adapter),
     PoolArgs = [pubsub, hash, pool_size(Env), {PubSub, start_link, [Env]}],
     PoolSup = emqttd_pool_sup:spec(pubsub_pool, PoolArgs),
     {ok, { {one_for_all, 10, 3600}, [PoolSup]} }.
@@ -40,4 +46,25 @@ init([Env]) ->
 pool_size(Env) ->
     Schedulers = erlang:system_info(schedulers),
     proplists:get_value(pool_size, Env, Schedulers).
+
+%%--------------------------------------------------------------------
+%% Create PubSub Tables
+%%--------------------------------------------------------------------
+
+create_tab(subscriber) ->
+    %% Subscriber: Topic -> Sub1, Sub2, Sub3, ..., SubN
+    %% duplicate_bag: o(1) insert
+    ensure_tab(subscriber, [public, named_table, duplicate_bag | ?CONCURRENCY_OPTS]);
+
+create_tab(subscription) ->
+    %% Subscription: Sub -> Topic1, Topic2, Topic3, ..., TopicN
+    %% bag: o(n) insert
+    ensure_tab(subscription, [public, named_table, bag | ?CONCURRENCY_OPTS]);
+
+create_tab(subproperty) ->
+    %% Subproperty: {Topic, Sub} -> [{qos, 1}]
+    ensure_tab(subproperty, [public, named_table, ordered_set | ?CONCURRENCY_OPTS]).
+
+ensure_tab(Tab, Opts) ->
+    case ets:info(Tab, name) of undefined -> ets:new(Tab, Opts); _ -> ok end.
 
