@@ -84,7 +84,7 @@ unsubscribe(Topic, Subscriber) ->
 
 -spec(async_unsubscribe(binary(), emqttd:subscriber()) -> ok).
 async_unsubscribe(Topic, Subscriber) ->
-    cast(pick(Topic), {async_unsubscribe, Topic, Subscriber}).
+    cast(pick(Topic), {unsubscribe, Topic, Subscriber}).
 
 call(Server, Req) ->
     gen_server2:call(Server, Req, infinity).
