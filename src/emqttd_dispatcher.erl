@@ -112,11 +112,11 @@ handle_call(Req, _From, State) ->
 
 handle_cast({subscribe, Topic, Subscriber}, State) ->
     add_subscriber_(Topic, Subscriber),
-    {reply, ok, State};
+    {noreply, State};
 
 handle_cast({unsubscribe, Topic, Subscriber}, State) ->
     del_subscriber_(Topic, Subscriber),
-    {reply, ok, State};
+    {noreply, State};
 
 handle_cast(Msg, State) ->
     ?UNEXPECTED_MSG(Msg, State).
