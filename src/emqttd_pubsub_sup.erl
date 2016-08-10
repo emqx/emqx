@@ -43,7 +43,7 @@ pubsub_pool() ->
 
 init([Env]) ->
     %% Create ETS Tables
-    [create_tab(Tab) || Tab <- [subscriber, subscription, subproperty]],
+    [create_tab(Tab) || Tab <- [mqtt_pubsub, mqtt_subscriber, mqtt_subscription]],
 
     %% Dispatcher Pool
     DispatcherMFA = {emqttd_dispatcher, start_link, [Env]},
@@ -68,19 +68,19 @@ pool_sup(Name, Env, MFA) ->
 %% Create PubSub Tables
 %%--------------------------------------------------------------------
 
-create_tab(subscriber) ->
+create_tab(mqtt_pubsub) ->
+    %% Subproperty: {Topic, Sub} -> [{qos, 1}]
+    ensure_tab(mqtt_pubsub, [public, named_table, set | ?CONCURRENCY_OPTS]);
+
+create_tab(mqtt_subscriber) ->
     %% Subscriber: Topic -> Sub1, Sub2, Sub3, ..., SubN
     %% duplicate_bag: o(1) insert
-    ensure_tab(subscriber, [public, named_table, duplicate_bag | ?CONCURRENCY_OPTS]);
+    ensure_tab(mqtt_subscriber, [public, named_table, duplicate_bag | ?CONCURRENCY_OPTS]);
 
-create_tab(subscription) ->
+create_tab(mqtt_subscription) ->
     %% Subscription: Sub -> Topic1, Topic2, Topic3, ..., TopicN
     %% bag: o(n) insert
-    ensure_tab(subscription, [public, named_table, bag | ?CONCURRENCY_OPTS]);
-
-create_tab(subproperty) ->
-    %% Subproperty: {Topic, Sub} -> [{qos, 1}]
-    ensure_tab(subproperty, [public, named_table, ordered_set | ?CONCURRENCY_OPTS]).
+    ensure_tab(mqtt_subscription, [public, named_table, bag | ?CONCURRENCY_OPTS]).
 
 ensure_tab(Tab, Opts) ->
     case ets:info(Tab, name) of undefined -> ets:new(Tab, Opts); _ -> ok end.

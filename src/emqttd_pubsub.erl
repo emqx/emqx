@@ -122,21 +122,19 @@ forward(Node, To, Delivery) ->
 subscriptions(Subscriber) ->
     lists:map(fun({_, Topic}) ->
                 subscription(Topic, Subscriber)
-        end, ets:lookup(subscription, Subscriber)).
+        end, ets:lookup(mqtt_subscription, Subscriber)).
 
 subscription(Topic, Subscriber) ->
-    {Topic, ets:lookup_element(subproperty, {Topic, Subscriber}, 2)}.
+    {Topic, ets:lookup_element(mqtt_pubsub, {Topic, Subscriber}, 2)}.
 
 is_subscribed(Topic, Subscriber) when is_binary(Topic) ->
-    ets:member(subproperty, {Topic, Subscriber}).
+    ets:member(mqtt_pubsub, {Topic, Subscriber}).
 
 setqos(Topic, Subscriber, Qos) when is_binary(Topic) ->
     call(pick(Subscriber), {setqos, Topic, Subscriber, Qos}).
 
 dump() ->
-    [{subscriber,   ets:tab2list(subscriber)},
-     {subscription, ets:tab2list(subscription)},
-     {subproperty,  ets:tab2list(subproperty)}].
+    [{Tab, ets:tab2list(Tab)} || Tab <- [mqtt_pubsub, mqtt_subscription, mqtt_subscriber]].
 
 %% @doc Unsubscribe
 -spec(unsubscribe(binary()) -> ok | emqttd:pubsub_error()).
@@ -188,10 +186,10 @@ handle_call({unsubscribe, Topic, Subscriber}, _From, State) ->
 
 handle_call({setqos, Topic, Subscriber, Qos}, _From, State) ->
     Key = {Topic, Subscriber},
-    case ets:lookup(subproperty, Key) of
+    case ets:lookup(mqtt_pubsub, Key) of
         [{_, Opts}] ->
             Opts1 = lists:ukeymerge(1, [{qos, Qos}], Opts),
-            ets:insert(subproperty, {Key, Opts1}),
+            ets:insert(mqtt_pubsub, {Key, Opts1}),
             {reply, ok, State};
         [] ->
             {reply, {error, {subscription_not_found, Topic}}, State}
@@ -237,26 +235,26 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 do_subscribe(Topic, Subscriber, Options, State) ->
-    case ets:lookup(subproperty, {Topic, Subscriber}) of
+    case ets:lookup(mqtt_pubsub, {Topic, Subscriber}) of
         [] ->
             ?Dispatcher:async_subscribe(Topic, Subscriber),
             add_subscription(Subscriber, Topic),
-            ets:insert(subproperty, {{Topic, Subscriber}, Options}),
+            ets:insert(mqtt_pubsub, {{Topic, Subscriber}, Options}),
             {ok, monitor_subpid(Subscriber, State)};
         [_] ->
             {error, {already_subscribed, Topic}}
     end.
 
 add_subscription(Subscriber, Topic) ->
-    ets:insert(subscription, {Subscriber, Topic}).
+    ets:insert(mqtt_subscription, {Subscriber, Topic}).
 
 do_unsubscribe(Topic, Subscriber, State) ->
-    case ets:lookup(subproperty, {Topic, Subscriber}) of
+    case ets:lookup(mqtt_pubsub, {Topic, Subscriber}) of
         [_] ->
             ?Dispatcher:async_unsubscribe(Topic, Subscriber),
             del_subscription(Subscriber, Topic),
-            ets:delete(subproperty, {Topic, Subscriber}),
-            {ok, case ets:member(subscription, Subscriber) of
+            ets:delete(mqtt_pubsub, {Topic, Subscriber}),
+            {ok, case ets:member(mqtt_subscription, Subscriber) of
                 true  -> State;
                 false -> demonitor_subpid(Subscriber, State)
             end};
@@ -265,22 +263,22 @@ do_unsubscribe(Topic, Subscriber, State) ->
     end.
 
 del_subscription(Subscriber, Topic) ->
-    ets:delete_object(subscription, {Subscriber, Topic}).
+    ets:delete_object(mqtt_subscription, {Subscriber, Topic}).
 
 subscriber_down_(Subscriber) ->
     lists:foreach(fun({_, Topic}) ->
                 subscriber_down_(Subscriber, Topic)
-        end, ets:lookup(subscription, Subscriber)),
-    ets:delete(subscription, Subscriber).
+        end, ets:lookup(mqtt_subscription, Subscriber)),
+    ets:delete(mqtt_subscription, Subscriber).
 
 subscriber_down_(DownPid, Topic) ->
-    case ets:lookup(subproperty, {Topic, DownPid}) of
+    case ets:lookup(mqtt_pubsub, {Topic, DownPid}) of
         []  ->
             %% here?
             ?Dispatcher:async_unsubscribe(Topic, DownPid);
         [_] ->
             ?Dispatcher:async_unsubscribe(Topic, DownPid),
-            ets:delete(subproperty, {Topic, DownPid})
+            ets:delete(mqtt_pubsub, {Topic, DownPid})
     end.
 
 monitor_subpid(SubPid, State = #state{submon = PMon}) when is_pid(SubPid) ->
@@ -294,7 +292,7 @@ demonitor_subpid(_SubPid, State) ->
     State.
 
 setstats(State) when is_record(State, state) ->
-    emqttd_stats:setstats('subscribers/count', 'subscribers/max', ets:info(subscriber, size)),
-    emqttd_stats:setstats('subscriptions/count', 'subscriptions/max', ets:info(subscription, size)),
+    emqttd_stats:setstats('subscribers/count', 'subscribers/max', ets:info(mqtt_subscriber, size)),
+    emqttd_stats:setstats('subscriptions/count', 'subscriptions/max', ets:info(mqtt_subscription, size)),
     State.
 

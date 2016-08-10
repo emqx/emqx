@@ -53,14 +53,14 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = emqttd_mnesia:create_table(route, [
+    ok = emqttd_mnesia:create_table(mqtt_route, [
                 {type, bag},
                 {ram_copies, [node()]},
                 {record_name, mqtt_route},
                 {attributes, record_info(fields, mqtt_route)}]);
 
 mnesia(copy) ->
-    ok = emqttd_mnesia:copy_table(route, ram_copies).
+    ok = emqttd_mnesia:copy_table(mqtt_route, ram_copies).
 
 %%--------------------------------------------------------------------
 %% Start the Router
@@ -74,17 +74,17 @@ start_link() ->
 %%--------------------------------------------------------------------
 
 topics() ->
-    mnesia:dirty_all_keys(route).
+    mnesia:dirty_all_keys(mqtt_route).
 
 local_topics() ->
-    ets:select(local_route, [{{'$1', '_'}, [], ['$1']}]).
+    ets:select(mqtt_local_route, [{{'$1', '_'}, [], ['$1']}]).
 
 %% @doc Match Routes.
 -spec(match(Topic:: binary()) -> [mqtt_route()]).
 match(Topic) when is_binary(Topic) ->
     Matched = mnesia:async_dirty(fun emqttd_trie:match/1, [Topic]),
     %% Optimize: route table will be replicated to all nodes.
-    lists:append([ets:lookup(route, To) || To <- [Topic | Matched]]).
+    lists:append([ets:lookup(mqtt_route, To) || To <- [Topic | Matched]]).
 
 %% @doc Print Routes.
 -spec(print(Topic :: binary()) -> [ok]).
@@ -114,17 +114,17 @@ add_routes(Routes) ->
 
 %% @private
 add_route_(Route = #mqtt_route{topic = Topic}) ->
-    case mnesia:wread({route, Topic}) of
+    case mnesia:wread({mqtt_route, Topic}) of
         [] ->
             case emqttd_topic:wildcard(Topic) of
                 true  -> emqttd_trie:insert(Topic);
                 false -> ok
             end,
-            mnesia:write(route, Route, write);
+            mnesia:write(Route);
         Records ->
             case lists:member(Route, Records) of
                 true  -> ok;
-                false -> mnesia:write(route, Route, write)
+                false -> mnesia:write(Route)
             end
     end.
 
@@ -149,27 +149,27 @@ del_routes(Routes) ->
     end.
 
 del_route_(Route = #mqtt_route{topic = Topic}) ->
-    case mnesia:wread({route, Topic}) of
+    case mnesia:wread({mqtt_route, Topic}) of
         [] ->
             ok;
         [Route] ->
             %% Remove route and trie
-            mnesia:delete_object(route, Route, write),
+            mnesia:delete_object(Route),
             case emqttd_topic:wildcard(Topic) of
                 true  -> emqttd_trie:delete(Topic);
                 false -> ok
             end;
         _More ->
             %% Remove route only
-            mnesia:delete_object(route, Route, write)
+            mnesia:delete_object(Route)
     end.
 
 %% @doc Has Route?
 -spec(has_route(binary()) -> boolean()).
 has_route(Topic) ->
     Routes = case mnesia:is_transaction() of
-                 true  -> mnesia:read(route, Topic);
-                 false -> mnesia:dirty_read(route, Topic)
+                 true  -> mnesia:read(mqtt_route, Topic);
+                 false -> mnesia:dirty_read(mqtt_route, Topic)
              end,
     length(Routes) > 0.
 
@@ -196,11 +196,11 @@ del_local_route(Topic) ->
 -spec(match_local(binary()) -> [mqtt_route()]).
 match_local(Name) ->
     [#mqtt_route{topic = {local, Filter}, node = Node}
-        || {Filter, Node} <- ets:tab2list(local_route),
+        || {Filter, Node} <- ets:tab2list(mqtt_local_route),
            emqttd_topic:match(Name, Filter)].
 
 dump() ->
-    [{route, ets:tab2list(route)}, {local_route, ets:tab2list(local_route)}].
+    [{route, ets:tab2list(mqtt_route)}, {local_route, ets:tab2list(mqtt_local_route)}].
 
 stop() -> gen_server:call(?ROUTER, stop).
 
@@ -209,8 +209,8 @@ stop() -> gen_server:call(?ROUTER, stop).
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ets:new(local_route, [set, named_table, protected]),
     mnesia:subscribe(system),
+    ets:new(mqtt_local_route, [set, named_table, protected]),
     {ok, TRef}  = timer:send_interval(timer:seconds(1), stats),
     {ok, #state{stats_timer = TRef}}.
 
@@ -222,11 +222,11 @@ handle_call(_Req, _From, State) ->
 
 handle_cast({add_local_route, Topic}, State) ->
     %% why node()...?
-    ets:insert(local_route, {Topic, node()}),
+    ets:insert(mqtt_local_route, {Topic, node()}),
     {noreply, State};
     
 handle_cast({del_local_route, Topic}, State) ->
-    ets:delete(local_route, Topic),
+    ets:delete(mqtt_local_route, Topic),
     {noreply, State};
 
 handle_cast(_Msg, State) ->
