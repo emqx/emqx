@@ -70,7 +70,7 @@
 %% MQTT Subscription
 %%--------------------------------------------------------------------
 -record(mqtt_subscription, {
-    subid   :: binary() | atom(),
+    subid   :: binary() | atom() | pid(),
     topic   :: binary(),
     qos = 0 :: 0 | 1 | 2
 }).
@@ -119,10 +119,11 @@
 %%--------------------------------------------------------------------
 %% MQTT Session
 %%--------------------------------------------------------------------
+
 -record(mqtt_session, {
-    client_id   :: binary(),
-    sess_pid    :: pid(),
-    persistent  :: boolean()
+    client_id  :: binary(),
+    sess_pid   :: pid(),
+    persistent :: boolean()
 }).
 
 -type(mqtt_session() :: #mqtt_session{}).

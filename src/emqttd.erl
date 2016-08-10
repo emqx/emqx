@@ -95,24 +95,12 @@ subscribe(Topic, Subscriber) ->
 
 -spec(subscribe(iodata(), subscriber(), [suboption()]) -> ok | pubsub_error()).
 subscribe(Topic, Subscriber, Options) ->
-    with_pubsub(fun(PubSub) -> PubSub:subscribe(iolist_to_binary(Topic), Subscriber, Options) end).
+    emqttd_server:subscribe(iolist_to_binary(Topic), Subscriber, Options).
 
 %% @doc Publish MQTT Message
 -spec(publish(mqtt_message()) -> {ok, mqtt_delivery()} | ignore).
-publish(Msg = #mqtt_message{from = From}) ->
-    trace(publish, From, Msg),
-    case run_hooks('message.publish', [], Msg) of
-        {ok, Msg1 = #mqtt_message{topic = Topic}} ->
-            %% Retain message first. Don't create retained topic.
-            Msg2 = case emqttd_retainer:retain(Msg1) of
-                       ok     -> emqttd_message:unset_flag(Msg1);
-                       ignore -> Msg1
-                   end,
-            with_pubsub(fun(PubSub) -> PubSub:publish(Topic, Msg2) end);
-        {stop, Msg1} ->
-            lager:warning("Stop publishing: ~s", [emqttd_message:format(Msg1)]),
-            ignore
-    end.
+publish(Msg = #mqtt_message{topic = Topic}) ->
+    emqttd_server:publish(Topic, Msg).
 
 %% @doc Unsubscribe
 -spec(unsubscribe(iodata()) -> ok | pubsub_error()).
@@ -121,22 +109,18 @@ unsubscribe(Topic) ->
 
 -spec(unsubscribe(iodata(), subscriber()) -> ok | pubsub_error()).
 unsubscribe(Topic, Subscriber) ->
-    with_pubsub(fun(PubSub) -> PubSub:unsubscribe(iolist_to_binary(Topic), Subscriber) end).
+    emqttd_server:unsubscribe(iolist_to_binary(Topic), Subscriber).
 
 -spec(topics() -> [binary()]).
 topics() -> emqttd_router:topics().
 
 -spec(subscribers(iodata()) -> list(subscriber())).
 subscribers(Topic) ->
-    emqttd_dispatcher:subscribers(Topic).
+    emqttd_pubsub:subscribers(iolist_to_binary(Topic)).
 
 -spec(subscriptions(subscriber()) -> [{binary(), suboption()}]).
 subscriptions(Subscriber) ->
-    with_pubsub(fun(PubSub) -> PubSub:subscriptions(Subscriber) end).
-
-with_pubsub(Fun) -> {ok, PubSub} = conf(pubsub_adapter), Fun(PubSub).
-
-dump() -> with_pubsub(fun(PubSub) -> lists:append(PubSub:dump(), emqttd_router:dump()) end).
+    emqttd_server:get_subscriptions(Subscriber).
 
 %%--------------------------------------------------------------------
 %% Hooks API
@@ -158,15 +142,9 @@ unhook(Hook, Function) ->
 run_hooks(Hook, Args, Acc) ->
     emqttd_hook:run(Hook, Args, Acc).
 
+
 %%--------------------------------------------------------------------
-%% Trace Functions
+%% Debug
 %%--------------------------------------------------------------------
 
-trace(publish, From, _Msg) when is_atom(From) ->
-    %% Dont' trace '$SYS' publish
-    ignore;
-
-trace(publish, From, #mqtt_message{topic = Topic, payload = Payload}) ->
-    lager:info([{client, From}, {topic, Topic}],
-               "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
-
+dump() -> lists:append([emqttd_server:dump(), emqttd_router:dump()]).

@@ -91,8 +91,8 @@ lookup_session(ClientId) ->
     end.
 
 %% @doc Register a session with info.
--spec(register_session(boolean(), binary(), [tuple()]) -> true). 
-register_session(CleanSess, ClientId, Properties) ->
+-spec(register_session(binary(), boolean(), [tuple()]) -> true). 
+register_session(ClientId, CleanSess, Properties) ->
     ets:insert(mqtt_local_session, {ClientId, self(), CleanSess, Properties}).
 
 %% @doc Unregister a session.

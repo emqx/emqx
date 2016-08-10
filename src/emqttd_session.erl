@@ -232,7 +232,7 @@ init([CleanSess, ClientId, ClientPid]) ->
             expired_after     = get_value(expired_after, SessEnv) * 60,
             collect_interval  = get_value(collect_interval, SessEnv, 0),
             timestamp         = os:timestamp()},
-    emqttd_sm:register_session(CleanSess, ClientId, sess_info(Session)),
+    emqttd_sm:register_session(ClientId, CleanSess, sess_info(Session)),
     %% Start statistics
     {ok, start_collector(Session), hibernate}.
 
@@ -297,7 +297,7 @@ handle_cast({subscribe, TopicTable0, AckFun}, Session = #session{client_id     =
                             ?LOG(warning, "duplicated subscribe: ~s, qos = ~w", [Topic, Qos], Session),
                             SubDict;
                         {ok, OldQos} ->
-                            emqttd_pubsub:setqos(Topic, ClientId, Qos),
+                            emqttd_server:setqos(Topic, ClientId, Qos),
                             ?LOG(warning, "duplicated subscribe ~s, old_qos=~w, new_qos=~w", [Topic, OldQos, Qos], Session),
                             dict:store(Topic, Qos, SubDict);
                         error ->
@@ -385,8 +385,8 @@ handle_cast({resume, ClientId, ClientPid}, Session = #session{client_id      = C
     if
         CleanSess =:= true  ->
             ?LOG(warning, "CleanSess changed to false.", [], Session),
-            emqttd_sm:unregister_session(CleanSess, ClientId),
-            emqttd_sm:register_session(false, ClientId, sess_info(Session1));
+            %% emqttd_sm:unregister_session(CleanSess, ClientId),
+            emqttd_sm:register_session(ClientId, false, sess_info(Session1));
         CleanSess =:= false ->
             ok
     end,
@@ -500,7 +500,7 @@ handle_info({timeout, awaiting_comp, PktId}, Session = #session{awaiting_comp = 
     end;
 
 handle_info(collect_info, Session = #session{clean_sess = CleanSess, client_id = ClientId}) ->
-    emqttd_sm:register_session(CleanSess, ClientId, sess_info(Session)),
+    emqttd_sm:register_session(ClientId, CleanSess, sess_info(Session)),
     hibernate(start_collector(Session));
 
 handle_info({'EXIT', ClientPid, _Reason}, Session = #session{clean_sess = true,
@@ -531,10 +531,10 @@ handle_info(expired, Session) ->
 handle_info(Info, Session) ->
     ?UNEXPECTED_INFO(Info, Session).
 
-terminate(_Reason, #session{clean_sess = CleanSess, client_id = ClientId}) ->
+terminate(_Reason, #session{client_id = ClientId}) ->
     %%TODO: ...
-    emqttd_pubsub:subscriber_down(ClientId),
-    emqttd_sm:unregister_session(CleanSess, ClientId).
+    emqttd_server:subscriber_down(ClientId),
+    emqttd_sm:unregister_session(ClientId).
 
 code_change(_OldVsn, Session, _Extra) ->
     {ok, Session}.

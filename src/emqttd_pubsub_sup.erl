@@ -43,18 +43,17 @@ pubsub_pool() ->
 
 init([Env]) ->
     %% Create ETS Tables
-    [create_tab(Tab) || Tab <- [mqtt_pubsub, mqtt_subscriber, mqtt_subscription]],
-
-    %% Dispatcher Pool
-    DispatcherMFA = {emqttd_dispatcher, start_link, [Env]},
-    DispatcherPool = pool_sup(dispatcher, Env, DispatcherMFA),
+    [create_tab(Tab) || Tab <- [mqtt_subpropery, mqtt_subscriber, mqtt_subscription]],
 
     %% PubSub Pool
-    {ok, PubSub} = emqttd:conf(pubsub_adapter),
-    PubSubMFA = {PubSub, start_link, [Env]},
+    PubSubMFA = {emqttd_pubsub, start_link, [Env]},
     PubSubPool = pool_sup(pubsub, Env, PubSubMFA),
 
-    {ok, { {one_for_all, 10, 3600}, [DispatcherPool, PubSubPool]} }.
+    %% Server Pool
+    ServerMFA = {emqttd_server, start_link, [Env]},
+    ServerPool = pool_sup(server, Env, ServerMFA),
+
+    {ok, { {one_for_all, 10, 3600}, [PubSubPool, ServerPool]} }.
 
 pool_size(Env) ->
     Schedulers = erlang:system_info(schedulers),
@@ -68,9 +67,9 @@ pool_sup(Name, Env, MFA) ->
 %% Create PubSub Tables
 %%--------------------------------------------------------------------
 
-create_tab(mqtt_pubsub) ->
+create_tab(mqtt_subproperty) ->
     %% Subproperty: {Topic, Sub} -> [{qos, 1}]
-    ensure_tab(mqtt_pubsub, [public, named_table, set | ?CONCURRENCY_OPTS]);
+    ensure_tab(mqtt_subproperty, [public, named_table, set | ?CONCURRENCY_OPTS]);
 
 create_tab(mqtt_subscriber) ->
     %% Subscriber: Topic -> Sub1, Sub2, Sub3, ..., SubN
