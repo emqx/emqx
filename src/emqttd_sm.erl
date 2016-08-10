@@ -104,7 +104,7 @@ dispatch(ClientId, Topic, Msg) ->
     try ets:lookup_element(mqtt_local_session, ClientId, 2) of
         Pid -> Pid ! {dispatch, Topic, Msg}
     catch
-        error:badarg -> ok %%TODO: How??
+        error:badarg -> io:format("Session Not Found: ~p~n", [ClientId]), ok %%TODO: How??
     end.
 
 call(SM, Req) ->

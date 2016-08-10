@@ -52,6 +52,9 @@ async_subscribe(Topic, Subscriber) ->
 publish(Topic, Msg) ->
     route(emqttd_router:match(Topic), delivery(Msg)).
 
+route([], _Delivery) ->
+    ignore;
+
 %% Dispatch on the local node
 route([#mqtt_route{topic = To, node = Node}],
       Delivery = #mqtt_delivery{flows = Flows}) when Node =:= node() ->

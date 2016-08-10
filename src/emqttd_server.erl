@@ -29,7 +29,7 @@
 -export([start_link/3]).
 
 %% PubSub API.
--export([subscribe/1, subscribe/2, subscribe/3, publish/2,
+-export([subscribe/1, subscribe/2, subscribe/3, publish/1,
          unsubscribe/1, unsubscribe/2]).
 
 %% Async PubSub API.
@@ -85,8 +85,8 @@ async_subscribe(Topic, Subscriber, Options) when is_binary(Topic) ->
     cast(pick(Subscriber), {subscribe, Topic, Subscriber, Options}).
 
 %% @doc Publish message to Topic.
--spec(publish(binary(), any()) -> {ok, mqtt_delivery()} | ignore).
-publish(Topic, Msg = #mqtt_message{from = From}) ->
+-spec(publish(mqtt_message()) -> {ok, mqtt_delivery()} | ignore).
+publish(Msg = #mqtt_message{from = From}) ->
     trace(publish, From, Msg),
     case emqttd_hook:run('message.publish', [], Msg) of
         {ok, Msg1 = #mqtt_message{topic = Topic}} ->
