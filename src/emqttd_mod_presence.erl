@@ -50,7 +50,8 @@ on_client_disconnected(Reason, ClientId, Opts) ->
                               {reason, reason(Reason)},
                               {ts, emqttd_time:now_to_secs()}]),
     Msg = message(qos(Opts), topic(disconnected, ClientId), Json),
-    emqttd:publish(emqttd_message:set_flag(sys, Msg)).
+    emqttd:publish(emqttd_message:set_flag(sys, Msg)),
+    ok.
 
 unload(_Opts) ->
     emqttd:unhook('client.connected', fun ?MODULE:on_client_connected/3),
