@@ -149,7 +149,7 @@ process(Packet = ?CONNECT_PACKET(Var), State0) ->
                     case emqttd_sm:start_session(CleanSess, clientid(State2)) of
                         {ok, Session, SP} ->
                             %% Register the client
-                            emqttd_cm:register(client(State2)),
+                            emqttd_cm:reg(client(State2)),
                             %% Start keepalive
                             start_keepalive(KeepAlive),
                             %% ACCEPT
@@ -277,7 +277,7 @@ shutdown(_Error, #proto_state{client_id = undefined}) ->
 
 shutdown(conflict, #proto_state{client_id = _ClientId}) ->
     %% let it down
-    %% emqttd_cm:unregister(ClientId);
+    %% emqttd_cm:unreg(ClientId);
     ignore;
 
 shutdown(Error, State = #proto_state{client_id = ClientId, will_msg = WillMsg}) ->
@@ -285,7 +285,7 @@ shutdown(Error, State = #proto_state{client_id = ClientId, will_msg = WillMsg}) 
     send_willmsg(ClientId, WillMsg),
     emqttd:run_hooks('client.disconnected', [Error], ClientId),
     %% let it down
-    %% emqttd_cm:unregister(ClientId).
+    %% emqttd_cm:unreg(ClientId).
     ok.
 
 willmsg(Packet) when is_record(Packet, mqtt_packet_connect) ->
