@@ -43,7 +43,7 @@ pubsub_pool() ->
 
 init([Env]) ->
     %% Create ETS Tables
-    [create_tab(Tab) || Tab <- [mqtt_subpropery, mqtt_subscriber, mqtt_subscription]],
+    [create_tab(Tab) || Tab <- [mqtt_subproperty, mqtt_subscriber, mqtt_subscription]],
 
     %% PubSub Pool
     PubSubMFA = {emqttd_pubsub, start_link, [Env]},
