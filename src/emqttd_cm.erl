@@ -26,7 +26,7 @@
 %% API Exports 
 -export([start_link/3]).
 
--export([lookup/1, lookup_proc/1, register/1, unregister/1]).
+-export([lookup/1, lookup_proc/1, reg/1, unreg/1]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -44,23 +44,17 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start Client Manager
--spec(start_link(Pool, Id, StatsFun) -> {ok, pid()} | ignore | {error, any()} when
-      Pool :: atom(),
-      Id   :: pos_integer(),
-      StatsFun :: fun()).
+-spec(start_link(atom(), pos_integer(), fun()) -> {ok, pid()} | ignore | {error, any()}).
 start_link(Pool, Id, StatsFun) ->
     gen_server2:start_link(?MODULE, [Pool, Id, StatsFun], []).
 
 %% @doc Lookup Client by ClientId
--spec(lookup(ClientId :: binary()) -> mqtt_client() | undefined).
+-spec(lookup(binary()) -> mqtt_client() | undefined).
 lookup(ClientId) when is_binary(ClientId) ->
-    case ets:lookup(mqtt_client, ClientId) of
-        [Client] -> Client;
-        [] -> undefined
-    end.
+    case ets:lookup(mqtt_client, ClientId) of [Client] -> Client; [] -> undefined end.
 
 %% @doc Lookup client pid by clientId
--spec(lookup_proc(ClientId :: binary()) -> pid() | undefined).
+-spec(lookup_proc(binary()) -> pid() | undefined).
 lookup_proc(ClientId) when is_binary(ClientId) ->
     try ets:lookup_element(mqtt_client, ClientId, #mqtt_client.client_pid)
     catch
@@ -68,14 +62,14 @@ lookup_proc(ClientId) when is_binary(ClientId) ->
     end.
 
 %% @doc Register ClientId with Pid.
--spec(register(Client :: mqtt_client()) -> ok).
-register(Client = #mqtt_client{client_id = ClientId}) ->
-    gen_server2:call(pick(ClientId), {register, Client}, 120000).
+-spec(reg(mqtt_client()) -> ok).
+reg(Client = #mqtt_client{client_id = ClientId}) ->
+    gen_server2:call(pick(ClientId), {reg, Client}, 120000).
 
 %% @doc Unregister clientId with pid.
--spec(unregister(ClientId :: binary()) -> ok).
-unregister(ClientId) when is_binary(ClientId) ->
-    gen_server2:cast(pick(ClientId), {unregister, ClientId, self()}).
+-spec(unreg(binary()) -> ok).
+unreg(ClientId) when is_binary(ClientId) ->
+    gen_server2:cast(pick(ClientId), {unreg, ClientId, self()}).
 
 pick(ClientId) -> gproc_pool:pick_worker(?POOL, ClientId).
 
@@ -88,22 +82,16 @@ init([Pool, Id, StatsFun]) ->
     {ok, #state{pool = Pool, id = Id, statsfun = StatsFun, monitors = dict:new()}}.
 
 prioritise_call(Req, _From, _Len, _State) ->
-    case Req of
-        {register,   _Client} -> 2;
-        _                     -> 1
-    end.
+    case Req of {reg, _Client} -> 2; _ -> 1 end.
 
 prioritise_cast(Msg, _Len, _State) ->
-    case Msg of
-        {unregister, _ClientId, _Pid} -> 9;
-        _                             -> 1
-    end.
+    case Msg of {unreg, _ClientId, _Pid} -> 9; _ -> 1 end.
 
 prioritise_info(_Msg, _Len, _State) ->
     3.
 
-handle_call({register, Client = #mqtt_client{client_id  = ClientId,
-                                             client_pid = Pid}}, _From, State) ->
+handle_call({reg, Client = #mqtt_client{client_id  = ClientId,
+                                        client_pid = Pid}}, _From, State) ->
     case lookup_proc(ClientId) of
         Pid ->
             {reply, ok, State};
@@ -115,7 +103,7 @@ handle_call({register, Client = #mqtt_client{client_id  = ClientId,
 handle_call(Req, _From, State) ->
     ?UNEXPECTED_REQ(Req, State).
 
-handle_cast({unregister, ClientId, Pid}, State) ->
+handle_cast({unreg, ClientId, Pid}, State) ->
     case lookup_proc(ClientId) of
         Pid ->
             ets:delete(mqtt_client, ClientId),

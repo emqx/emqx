@@ -83,5 +83,5 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 setstats(State = #state{stats_fun = StatsFun}) ->
-    StatsFun(ets:info(mqtt_persistent_session, size)), State.
+    StatsFun(ets:info(mqtt_local_session, size)), State.
 

@@ -32,9 +32,7 @@
 %% API Function Exports
 -export([start_link/2]).
 
--export([start_session/2, lookup_session/1]).
-
--export([register_session/3, unregister_session/2]).
+-export([start_session/2, lookup_session/1, register_session/3, unregister_session/1]).
 
 -export([dispatch/3]).
 
@@ -60,14 +58,14 @@
 
 mnesia(boot) ->
     %% Global Session Table
-    ok = emqttd_mnesia:create_table(session, [
+    ok = emqttd_mnesia:create_table(mqtt_session, [
                 {type, set},
                 {ram_copies, [node()]},
                 {record_name, mqtt_session},
                 {attributes, record_info(fields, mqtt_session)}]);
 
 mnesia(copy) ->
-    ok = emqttd_mnesia:copy_table(session).
+    ok = emqttd_mnesia:copy_table(mqtt_session).
 
 %%--------------------------------------------------------------------
 %% API
@@ -93,31 +91,21 @@ lookup_session(ClientId) ->
     end.
 
 %% @doc Register a session with info.
--spec(register_session(CleanSess, ClientId, Info) -> ok when
-      CleanSess :: boolean(),
-      ClientId  :: binary(),
-      Info      :: [tuple()]).
-register_session(CleanSess, ClientId, Info) ->
-    ets:insert(sesstab(CleanSess), {{ClientId, self()}, Info}).
+-spec(register_session(boolean(), binary(), [tuple()]) -> true). 
+register_session(CleanSess, ClientId, Properties) ->
+    ets:insert(mqtt_local_session, {ClientId, self(), CleanSess, Properties}).
 
 %% @doc Unregister a session.
--spec(unregister_session(CleanSess, ClientId) -> ok when
-      CleanSess :: boolean(),
-      ClientId  :: binary()).
-unregister_session(CleanSess, ClientId) ->
-    ets:delete(sesstab(CleanSess), {ClientId, self()}).
+-spec(unregister_session(binary()) -> true).
+unregister_session(ClientId) ->
+    ets:delete(mqtt_local_session, ClientId).
 
-%%TODO: FIXME...
-dispatch(Id, Topic, Msg) ->
-    case lookup_session(Id) of
-        #mqtt_session{sess_pid = Pid} ->
-            Pid ! {dispatch, Topic, Msg};
-        undefined ->
-            ok
+dispatch(ClientId, Topic, Msg) ->
+    try ets:lookup_element(mqtt_local_session, ClientId, 2) of
+        Pid -> Pid ! {dispatch, Topic, Msg}
+    catch
+        error:badarg -> ok %%TODO: How??
     end.
-
-sesstab(true)  -> mqtt_transient_session;
-sesstab(false) -> mqtt_persistent_session.
 
 call(SM, Req) ->
     gen_server2:call(SM, Req, ?TIMEOUT). %%infinity).
@@ -217,9 +205,7 @@ create_session({CleanSess, ClientId, ClientPid}, State) ->
 create_session(CleanSess, ClientId, ClientPid) ->
     case emqttd_session_sup:start_session(CleanSess, ClientId, ClientPid) of
         {ok, SessPid} ->
-            Session = #mqtt_session{client_id  = ClientId,
-                                    sess_pid   = SessPid,
-                                    persistent = not CleanSess},
+            Session = #mqtt_session{client_id = ClientId, sess_pid = SessPid, persistent = not CleanSess},
             case insert_session(Session) of
                 {aborted, {conflict, ConflictPid}} ->
                     %% Conflict with othe node?
@@ -244,8 +230,7 @@ insert_session(Session = #mqtt_session{client_id = ClientId}) ->
       end).
 
 %% Local node
-resume_session(Session = #mqtt_session{client_id = ClientId,
-                                       sess_pid  = SessPid}, ClientPid)
+resume_session(Session = #mqtt_session{client_id = ClientId, sess_pid = SessPid}, ClientPid)
     when node(SessPid) =:= node() ->
 
     case is_process_alive(SessPid) of
