@@ -96,7 +96,7 @@ dispatch(SubId, Topic, Msg) when is_binary(SubId) ->
     emqttd_sm:dispatch(SubId, Topic, Msg).
 
 subscribers(Topic) ->
-    try ets:lookup_element(subscriber, Topic, 2) catch error:badarg -> [] end.
+    try ets:lookup_element(mqtt_subscriber, Topic, 2) catch error:badarg -> [] end.
 
 %% @private
 %% @doc Ingore $SYS Messages.
