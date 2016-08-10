@@ -172,7 +172,7 @@ del_subscriber_(Topic, Subscriber) ->
         true  -> ok
     end.
 
-setstats(State) when is_record(State, state) ->
+setstats(State) ->
     emqttd_stats:setstats('subscribers/count', 'subscribers/max',
-                          ets:info(mqtt_subscriber, size)).
+                          ets:info(mqtt_subscriber, size)), State.
 
