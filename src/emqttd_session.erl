@@ -532,6 +532,8 @@ handle_info(Info, Session) ->
     ?UNEXPECTED_INFO(Info, Session).
 
 terminate(_Reason, #session{clean_sess = CleanSess, client_id = ClientId}) ->
+    %%TODO: ...
+    emqttd_pubsub:subscriber_down(ClientId),
     emqttd_sm:unregister_session(CleanSess, ClientId).
 
 code_change(_OldVsn, Session, _Extra) ->

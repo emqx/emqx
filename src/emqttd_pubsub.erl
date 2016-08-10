@@ -37,6 +37,8 @@
 -export([async_subscribe/1, async_subscribe/2, async_subscribe/3,
          async_unsubscribe/1, async_unsubscribe/2]).
 
+-export([subscriber_down/1]).
+
 %% Management API.
 -export([setqos/3, is_subscribed/2, subscriptions/1]).
 
@@ -88,6 +90,9 @@ async_subscribe(Topic, Subscriber) when is_binary(Topic) ->
 -spec(async_subscribe(binary(), emqttd:subscriber(), [emqttd:suboption()]) -> ok).
 async_subscribe(Topic, Subscriber, Options) when is_binary(Topic) ->
     cast(pick(Subscriber), {subscribe, Topic, Subscriber, Options}).
+
+subscriber_down(Subscriber) ->
+    cast(pick(Subscriber), {down, Subscriber}).
 
 %% @doc Publish message to Topic.
 -spec(publish(binary(), any()) -> {ok, mqtt_delivery()} | ignore).
@@ -207,14 +212,15 @@ handle_cast({unsubscribe, Topic, Subscriber}, State) ->
         {error, _Error} -> {noreply, State}
     end;
 
+handle_cast({down, Subscriber}, State) ->
+    subscriber_down_(Subscriber),
+    {noreply, State};
+
 handle_cast(Msg, State) ->
     ?UNEXPECTED_MSG(Msg, State).
 
 handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State = #state{submon = PM}) ->
-    lists:foreach(fun({_, Topic}) ->
-                subscriber_down(DownPid, Topic)
-        end, ets:lookup(subscription, DownPid)),
-    ets:delete(subscription, DownPid),
+    subscriber_down_(DownPid),
     {noreply, setstats(State#state{submon = PM:erase(DownPid)}), hibernate};
 
 handle_info(Info, State) ->
@@ -261,7 +267,13 @@ do_unsubscribe(Topic, Subscriber, State) ->
 del_subscription(Subscriber, Topic) ->
     ets:delete_object(subscription, {Subscriber, Topic}).
 
-subscriber_down(DownPid, Topic) ->
+subscriber_down_(Subscriber) ->
+    lists:foreach(fun({_, Topic}) ->
+                subscriber_down_(Subscriber, Topic)
+        end, ets:lookup(subscription, Subscriber)),
+    ets:delete(subscription, Subscriber).
+
+subscriber_down_(DownPid, Topic) ->
     case ets:lookup(subproperty, {Topic, DownPid}) of
         []  ->
             %% here?
