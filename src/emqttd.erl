@@ -124,11 +124,11 @@ unsubscribe(Topic, Subscriber) ->
     with_pubsub(fun(PubSub) -> PubSub:unsubscribe(iolist_to_binary(Topic), Subscriber) end).
 
 -spec(topics() -> [binary()]).
-topics() -> with_pubsub(fun(PubSub) -> PubSub:topics() end).
+topics() -> emqttd_router:topics().
 
 -spec(subscribers(iodata()) -> list(subscriber())).
 subscribers(Topic) ->
-    with_pubsub(fun(PubSub) -> PubSub:subscribers(iolist_to_binary(Topic)) end).
+    emqttd_dispatcher:subscribers(Topic).
 
 -spec(subscriptions(subscriber()) -> [{binary(), suboption()}]).
 subscriptions(Subscriber) ->

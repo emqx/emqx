@@ -38,10 +38,7 @@
          async_unsubscribe/1, async_unsubscribe/2]).
 
 %% Management API.
--export([setqos/3, topics/0, subscribers/1, is_subscribed/2, subscriptions/1]).
-
-%% Route API
--export([forward/3, dispatch/2]).
+-export([setqos/3, is_subscribed/2, subscriptions/1]).
 
 %% Debug API
 -export([dump/0]).
@@ -98,7 +95,7 @@ publish(Topic, Msg) when is_binary(Topic) ->
 %% Dispatch on the local node
 route([#mqtt_route{topic = To, node = Node}],
       Delivery = #mqtt_delivery{flows = Flows}) when Node =:= node() ->
-    dispatch(To, Delivery#mqtt_delivery{flows = [{route, Node, To} | Flows]});
+    emqttd_dispatch:dispatch(To, Delivery#mqtt_delivery{flows = [{route, Node, To} | Flows]});
 
 %% Forward to other nodes
 route([#mqtt_route{topic = To, node = Node}], Delivery = #mqtt_delivery{flows = Flows}) ->
@@ -113,32 +110,7 @@ delivery(Msg) -> #mqtt_delivery{message = Msg, flows = []}.
 
 %% @doc Forward message to another node...
 forward(Node, To, Delivery) ->
-    rpc:cast(Node, ?PUBSUB, dispatch, [To, Delivery]), {ok, Delivery}.
-
-%% @doc Dispatch Message to Subscribers
--spec(dispatch(binary(), mqtt_delivery()) -> mqtt_delivery()).
-dispatch(Topic, Delivery = #mqtt_delivery{message = Msg, flows = Flows}) ->
-    case subscribers(Topic) of
-        [] ->
-            dropped(Topic), {ok, Delivery};
-        [Sub] -> %% optimize?
-            dispatch(Sub, Topic, Msg),
-            {ok, Delivery#mqtt_delivery{flows = [{dispatch, Topic, 1} | Flows]}};
-        Subscribers ->
-            Flows1 = [{dispatch, Topic, length(Subscribers)} | Flows],
-            lists:foreach(fun(Sub) -> dispatch(Sub, Topic, Msg) end, Subscribers),
-            {ok, Delivery#mqtt_delivery{flows = Flows1}}
-    end.
-
-dispatch(Pid, Topic, Msg) when is_pid(Pid) ->
-    Pid ! {dispatch, Topic, Msg};
-dispatch(SubId, Topic, Msg) when is_binary(SubId) ->
-    emqttd_sm:dispatch(SubId, Topic, Msg).
-
-topics() -> emqttd_router:topics().
-
-subscribers(Topic) ->
-    try ets:lookup_element(subscriber, Topic, 2) catch error:badarg -> [] end.
+    rpc:cast(Node, emqttd_dispatch, dispatch, [To, Delivery]), {ok, Delivery}.
 
 subscriptions(Subscriber) ->
     lists:map(fun({_, Topic}) ->
@@ -158,13 +130,6 @@ dump() ->
     [{subscriber,   ets:tab2list(subscriber)},
      {subscription, ets:tab2list(subscription)},
      {subproperty,  ets:tab2list(subproperty)}].
-
-%% @private
-%% @doc Ingore $SYS Messages.
-dropped(<<"$SYS/", _/binary>>) ->
-    ok;
-dropped(_Topic) ->
-    emqttd_metrics:inc('messages/dropped').
 
 %% @doc Unsubscribe
 -spec(unsubscribe(binary()) -> ok | emqttd:pubsub_error()).
@@ -267,7 +232,7 @@ do_subscribe(Topic, Subscriber, Options, State) ->
     case ets:lookup(subproperty, {Topic, Subscriber}) of
         [] ->
             add_subscription(Subscriber, Topic),
-            emqttd_dispatcher:async_add_subscriber(Topic, Subscriber),
+            emqttd_dispatch:async_subscribe(Topic, Subscriber),
             ets:insert(subproperty, {{Topic, Subscriber}, Options}),
             {ok, monitor_subpid(Subscriber, State)};
         [_] ->
@@ -280,7 +245,7 @@ add_subscription(Subscriber, Topic) ->
 do_unsubscribe(Topic, Subscriber, State) ->
     case ets:lookup(subproperty, {Topic, Subscriber}) of
         [_] ->
-            emqttd_dispatcher:async_del_subscriber(Topic, Subscriber),
+            emqttd_dispatch:async_subscribe(Topic, Subscriber),
             del_subscription(Subscriber, Topic),
             ets:delete(subproperty, {Topic, Subscriber}),
             {ok, case ets:member(subscription, Subscriber) of
@@ -296,8 +261,8 @@ del_subscription(Subscriber, Topic) ->
 
 subscriber_down(DownPid, Topic) ->
     case ets:lookup(subproperty, {Topic, DownPid}) of
-        []  -> emqttd_dispatcher:async_del_subscriber(Topic, DownPid); %% warning???
-        [_] -> emqttd_dispatcher:async_del_subscriber(Topic, DownPid),
+        []  -> emqttd_dispatch:async_subscribe(Topic, DownPid); %% warning???
+        [_] -> emqttd_dispatch:async_subscribe(Topic, DownPid),
                ets:delete(subproperty, {Topic, DownPid})
     end.
 

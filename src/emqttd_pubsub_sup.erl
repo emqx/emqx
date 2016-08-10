@@ -27,25 +27,42 @@
 
 -define(CONCURRENCY_OPTS, [{read_concurrency, true}, {write_concurrency, true}]).
 
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
+
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, [emqttd_conf:pubsub()]).
 
 pubsub_pool() ->
     hd([Pid || {pubsub_pool, Pid, _, _} <- supervisor:which_children(?MODULE)]).
 
+%%--------------------------------------------------------------------
+%% Supervisor callbacks
+%%--------------------------------------------------------------------
+
 init([Env]) ->
     %% Create ETS Tables
     [create_tab(Tab) || Tab <- [subscriber, subscription, subproperty]],
 
+    %% Dispatcher Pool
+    DispatcherMFA = {emqttd_dispatcher, start_link, [Env]},
+    DispatcherPool = pool_sup(dispatcher, Env, DispatcherMFA),
+
     %% PubSub Pool
     {ok, PubSub} = emqttd:conf(pubsub_adapter),
-    PoolArgs = [pubsub, hash, pool_size(Env), {PubSub, start_link, [Env]}],
-    PoolSup = emqttd_pool_sup:spec(pubsub_pool, PoolArgs),
-    {ok, { {one_for_all, 10, 3600}, [PoolSup]} }.
+    PubSubMFA = {PubSub, start_link, [Env]},
+    PubSubPool = pool_sup(pubsub, Env, PubSubMFA),
+
+    {ok, { {one_for_all, 10, 3600}, [DispatcherPool, PubSubPool]} }.
 
 pool_size(Env) ->
     Schedulers = erlang:system_info(schedulers),
     proplists:get_value(pool_size, Env, Schedulers).
+
+pool_sup(Name, Env, MFA) ->
+    Pool = list_to_atom(atom_to_list(Name) ++ "_pool"),
+    emqttd_pool_sup:spec(Pool, [Name, hash, pool_size(Env), MFA]).
 
 %%--------------------------------------------------------------------
 %% Create PubSub Tables
