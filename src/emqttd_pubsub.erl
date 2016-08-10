@@ -163,7 +163,7 @@ add_subscriber_(Topic, Subscriber) ->
         false -> emqttd_router:add_route(Topic, node());
         true  -> ok
     end,
-    ets:insert(subscriber, {Topic, Subscriber}).
+    ets:insert(mqtt_subscriber, {Topic, Subscriber}).
 
 del_subscriber_(Topic, Subscriber) ->
     ets:delete_object(mqtt_subscriber, {Topic, Subscriber}),
