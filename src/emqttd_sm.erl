@@ -85,7 +85,7 @@ start_session(CleanSess, ClientId) ->
 %% @doc Lookup a Session
 -spec(lookup_session(binary()) -> mqtt_session() | undefined).
 lookup_session(ClientId) ->
-    case mnesia:dirty_read(session, ClientId) of
+    case mnesia:dirty_read(mqtt_session, ClientId) of
         [Session] -> Session;
         []        -> undefined
     end.
@@ -166,11 +166,13 @@ handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
     case dict:find(MRef, State#state.monitors) of
         {ok, ClientId} ->
             mnesia:transaction(fun() ->
-                case mnesia:wread({session, ClientId}) of
-                    [] -> ok;
+                case mnesia:wread({mqtt_session, ClientId}) of
+                    [] ->
+                        ok;
                     [Sess = #mqtt_session{sess_pid = DownPid}] ->
-                        mnesia:delete_object(session, Sess, write);
-                    [_Sess] -> ok
+                        mnesia:delete_object(mqtt_session, Sess, write);
+                    [_Sess] ->
+                        ok
                     end
                 end),
             {noreply, erase_monitor(MRef, State), hibernate};
@@ -221,9 +223,9 @@ create_session(CleanSess, ClientId, ClientPid) ->
 insert_session(Session = #mqtt_session{client_id = ClientId}) ->
     mnesia:transaction(
       fun() ->
-        case mnesia:wread({session, ClientId}) of
+        case mnesia:wread({mqtt_session, ClientId}) of
             [] ->
-                mnesia:write(session, Session, write);
+                mnesia:write(mqtt_session, Session, write);
             [#mqtt_session{sess_pid = SessPid}] ->
                 mnesia:abort({conflict, SessPid})
         end
@@ -280,7 +282,7 @@ destroy_session(Session = #mqtt_session{client_id = ClientId,
      end.
 
 remove_session(Session) ->
-    case mnesia:transaction(fun mnesia:delete_object/3, [session, Session, write]) of
+    case mnesia:transaction(fun mnesia:delete_object/1, [Session]) of
         {atomic, ok}     -> ok;
         {aborted, Error} -> {error, Error}
     end.
