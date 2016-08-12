@@ -315,7 +315,7 @@ handle_cast({subscribe, RawTopicTable, AckFun}, Session = #session{client_id    
                             dict:store(Topic, Qos, SubDict)
                     end
                 end, Subscriptions, TopicTable),
-            AckFun([Qos || {_, Qos} <- TopicTable]),
+            AckFun([Qos || {_, Qos} <- RawTopicTable]),
             emqttd:run_hooks('client.subscribe.after', [ClientId], TopicTable),
             hibernate(Session#session{subscriptions = Subscriptions1});
         {stop, TopicTable} ->
