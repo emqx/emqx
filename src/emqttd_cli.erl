@@ -217,41 +217,45 @@ topics(_) ->
             {"topics show <Topic>", "Show a topic"}]).
 
 subscriptions(["list"]) ->
-    lists:foreach(fun({Sub, Topic, Opts}) when is_pid(Sub) ->
-                ?PRINT("~p -> ~s: ~p~n", [Sub, Topic, Opts]);
-                 ({Sub, Topic, Opts}) ->
-                ?PRINT("~s -> ~s: ~p~n", [Sub, Topic, Opts])
-        end, emqttd:subscriptions());
+    lists:foreach(fun(Subscription) ->
+                      print(subscription, Subscription)
+                  end, []); %%emqttd:subscriptions());
 
 subscriptions(["show", ClientId]) ->
-    case mnesia:dirty_read(mqtt_subscription, bin(ClientId)) of
+    case ets:lookup(mqtt_subscription, bin(ClientId)) of
         []      -> ?PRINT_MSG("Not Found.~n");
-        Records -> print(Records)
+        Records -> [print(subscription, Subscription) || Subscription <- Records]
     end;
 
-subscriptions(["add", ClientId, Topic, QoS]) ->
-    Add = fun(IntQos) ->
-            Subscription = #mqtt_subscription{subid = bin(ClientId),
-                                              topic = bin(Topic),
-                                              qos   = IntQos},
-            case emqttd_backend:add_subscription(Subscription) of
-                ok ->
-                    ?PRINT_MSG("ok~n");
-                {error, already_existed} ->
-                    ?PRINT_MSG("Error: already existed~n");
-                {error, Reason} ->
-                    ?PRINT("Error: ~p~n", [Reason])
-            end
-          end,
-    if_valid_qos(QoS, Add);
+%%
+%% subscriptions(["add", ClientId, Topic, QoS]) ->
+%%    Add = fun(IntQos) ->
+%%            Subscription = #mqtt_subscription{subid = bin(ClientId),
+%%                                              topic = bin(Topic),
+%%                                              qos   = IntQos},
+%%            case emqttd_backend:add_subscription(Subscription) of
+%%                ok ->
+%%                    ?PRINT_MSG("ok~n");
+%%                {error, already_existed} ->
+%%                    ?PRINT_MSG("Error: already existed~n");
+%%                {error, Reason} ->
+%%                    ?PRINT("Error: ~p~n", [Reason])
+%%            end
+%%          end,
+%%    if_valid_qos(QoS, Add);
+%%
 
-subscriptions(["del", ClientId]) ->
-    Ok = emqttd_backend:del_subscriptions(bin(ClientId)),
-    ?PRINT("~p~n", [Ok]);
+%%
+%% subscriptions(["del", ClientId]) ->
+%%    Ok = emqttd_backend:del_subscriptions(bin(ClientId)),
+%%    ?PRINT("~p~n", [Ok]);
+%%
 
-subscriptions(["del", ClientId, Topic]) ->
-    Ok = emqttd_backend:del_subscription(bin(ClientId), bin(Topic)),
-    ?PRINT("~p~n", [Ok]);
+%%
+%% subscriptions(["del", ClientId, Topic]) ->
+%%    Ok = emqttd_backend:del_subscription(bin(ClientId), bin(Topic)),
+%%    ?PRINT("~p~n", [Ok]);
+%%
 
 subscriptions(_) ->
     ?USAGE([{"subscriptions list",                         "List all subscriptions"},
@@ -525,6 +529,11 @@ print({ClientId, _ClientPid, CleanSess, SessInfo}) ->
            "awaiting_rel=~w, awaiting_ack=~w, awaiting_comp=~w, "
            "created_at=~w)~n",
             [ClientId, CleanSess | [format(Key, get_value(Key, SessInfo)) || Key <- InfoKeys]]).
+
+print(subscription, {Sub, Topic, Opts}) when is_pid(Sub) ->
+    ?PRINT("~p -> ~s: ~p~n", [Sub, Topic, Opts]);
+print(subscription, {Sub, Topic, Opts}) ->
+    ?PRINT("~s -> ~s: ~p~n", [Sub, Topic, Opts]).
 
 format(created_at, Val) ->
     emqttd_time:now_to_secs(Val);
