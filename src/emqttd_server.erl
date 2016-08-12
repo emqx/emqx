@@ -139,7 +139,7 @@ subscriptions(Subscriber) ->
         end, ets:lookup(mqtt_subscription, Subscriber)).
 
 subscription(Topic, Subscriber) ->
-    {Topic, ets:lookup_element(mqtt_subproperty, {Topic, Subscriber}, 2)}.
+    {Topic, Subscriber, ets:lookup_element(mqtt_subproperty, {Topic, Subscriber}, 2)}.
 
 subscribers(Topic) -> emqttd_pubsub:subscribers(Topic).
 
