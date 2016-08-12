@@ -172,13 +172,13 @@ init([Pool, Id, Env]) ->
     {ok, #state{pool = Pool, id = Id, env = Env, submon = emqttd_pmon:new()}}.
 
 handle_call({subscribe, Topic, Subscriber, Options}, _From, State) ->
-    case subscribe_(Topic, Subscriber, Options, State) of
+    case do_subscribe_(Topic, Subscriber, Options, State) of
         {ok, NewState} -> {reply, ok, setstats(NewState)};
         {error, Error} -> {reply, {error, Error}, State}
     end;
 
 handle_call({unsubscribe, Topic, Subscriber}, _From, State) ->
-    case unsubscribe_(Topic, Subscriber, State) of
+    case do_unsubscribe_(Topic, Subscriber, State) of
         {ok, NewState} -> {reply, ok, setstats(NewState), hibernate};
         {error, Error} -> {reply, {error, Error}, State}
     end;
@@ -198,13 +198,13 @@ handle_call(Req, _From, State) ->
     ?UNEXPECTED_REQ(Req, State).
 
 handle_cast({subscribe, Topic, Subscriber, Options}, State) ->
-    case subscribe_(Topic, Subscriber, Options, State) of
+    case do_subscribe_(Topic, Subscriber, Options, State) of
         {ok, NewState}  -> {noreply, setstats(NewState)};
         {error, _Error} -> {noreply, State}
     end;
 
 handle_cast({unsubscribe, Topic, Subscriber}, State) ->
-    case unsubscribe_(Topic, Subscriber, State) of
+    case do_unsubscribe_(Topic, Subscriber, State) of
         {ok, NewState}  -> {noreply, setstats(NewState), hibernate};
         {error, _Error} -> {noreply, State}
     end;
@@ -233,7 +233,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Functions
 %%--------------------------------------------------------------------
 
-subscribe_(Topic, Subscriber, Options, State) ->
+do_subscribe_(Topic, Subscriber, Options, State) ->
     case ets:lookup(mqtt_subproperty, {Topic, Subscriber}) of
         [] ->
             emqttd_pubsub:async_subscribe(Topic, Subscriber),
@@ -244,7 +244,12 @@ subscribe_(Topic, Subscriber, Options, State) ->
             {error, {already_subscribed, Topic}}
     end.
 
-unsubscribe_(Topic, Subscriber, State) ->
+monitor_subpid(SubPid, State = #state{submon = PMon}) when is_pid(SubPid) ->
+    State#state{submon = PMon:monitor(SubPid)};
+monitor_subpid(_SubPid, State) ->
+    State.
+
+do_unsubscribe_(Topic, Subscriber, State) ->
     case ets:lookup(mqtt_subproperty, {Topic, Subscriber}) of
         [_] ->
             emqttd_pubsub:async_unsubscribe(Topic, Subscriber),
@@ -257,11 +262,6 @@ unsubscribe_(Topic, Subscriber, State) ->
         [] ->
             {error, {subscription_not_found, Topic}}
     end.
-
-monitor_subpid(SubPid, State = #state{submon = PMon}) when is_pid(SubPid) ->
-    State#state{submon = PMon:monitor(SubPid)};
-monitor_subpid(_SubPid, State) ->
-    State.
 
 demonitor_subpid(SubPid, State = #state{submon = PMon}) when is_pid(SubPid) ->
     State#state{submon = PMon:demonitor(SubPid)};
