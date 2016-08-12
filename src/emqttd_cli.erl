@@ -170,7 +170,7 @@ if_client(ClientId, Fun) ->
 %%--------------------------------------------------------------------
 %% @doc Sessions Command
 sessions(["list"]) ->
-    [sessions(["list", Type]) || Type <- ["persistent", "transient"]];
+    dump(mqtt_local_session);
 
 sessions(["list", "persistent"]) ->
     dump(mqtt_persistent_session);
@@ -179,15 +179,9 @@ sessions(["list", "transient"]) ->
     dump(mqtt_transient_session);
 
 sessions(["show", ClientId]) ->
-    MP = {{bin(ClientId), '_'}, '_'},
-    case {ets:match_object(mqtt_transient_session,  MP),
-          ets:match_object(mqtt_persistent_session, MP)} of
-        {[], []} ->
-            ?PRINT_MSG("Not Found.~n");
-        {[SessInfo], _} ->
-            print(SessInfo);
-        {_, [SessInfo]} ->
-            print(SessInfo)
+    case ets:lookup(mqtt_local_session, bin(ClientId)) of
+        []         -> ?PRINT_MSG("Not Found.~n");
+        [SessInfo] -> print(SessInfo)
     end;
 
 sessions(_) ->

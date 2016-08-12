@@ -16,18 +16,20 @@
 
 -module(emqttd_topic_SUITE).
 
+-include_lib("eunit/include/eunit.hrl").
+
 %% CT
 -compile(export_all).
 
 -import(emqttd_topic, [wildcard/1, match/2, validate/1, triples/1, join/1,
-                       words/1, systop/1, is_queue/1, feed_var/3]).
+                       words/1, systop/1, feed_var/3, strip/1, strip/2]).
 
 -define(N, 10000).
 
 all() -> [t_wildcard, t_match, t_match2, t_validate, t_triples, t_join,
-          t_words, t_systop, t_is_queue, t_feed_var, t_sys_match, 't_#_match',
+          t_words, t_systop, t_feed_var, t_sys_match, 't_#_match',
           t_sigle_level_validate, t_sigle_level_match, t_match_perf,
-          t_triples_perf].
+          t_triples_perf, t_strip].
 
 t_wildcard(_) ->
     true  = wildcard(<<"a/b/#">>),
@@ -155,21 +157,25 @@ t_join(_) ->
     <<"/ab/cd/ef/">> = join(words(<<"/ab/cd/ef/">>)),
     <<"ab/+/#">> = join(words(<<"ab/+/#">>)).
 
-t_is_queue(_) ->
-    true  = is_queue(<<"$queue/queue">>),
-    false = is_queue(<<"xyz/queue">>).
-
 t_systop(_) ->
     SysTop1 = iolist_to_binary(["$SYS/brokers/", atom_to_list(node()), "/xyz"]),
-    SysTop1 = systop('xyz'),
+    ?assertEqual(SysTop1, systop('xyz')),
     SysTop2 = iolist_to_binary(["$SYS/brokers/", atom_to_list(node()), "/abc"]),
-    SysTop2 = systop(<<"abc">>).
+    ?assertEqual(SysTop2,systop(<<"abc">>)).
 
 t_feed_var(_) ->
-    <<"$queue/client/clientId">> = feed_var(<<"$c">>, <<"clientId">>, <<"$queue/client/$c">>),
-    <<"username/test/client/x">> = feed_var(<<"%u">>, <<"test">>, <<"username/%u/client/x">>),
-    <<"username/test/client/clientId">> = feed_var(<<"%c">>, <<"clientId">>, <<"username/test/client/%c">>).
+    ?assertEqual(<<"$queue/client/clientId">>, feed_var(<<"$c">>, <<"clientId">>, <<"$queue/client/$c">>)),
+    ?assertEqual(<<"username/test/client/x">>, feed_var(<<"%u">>, <<"test">>, <<"username/%u/client/x">>)),
+    ?assertEqual(<<"username/test/client/clientId">>, feed_var(<<"%c">>, <<"clientId">>, <<"username/test/client/%c">>)).
 
 long_topic() ->
     iolist_to_binary([[integer_to_list(I), "/"] || I <- lists:seq(0, 10000)]).
+
+t_strip(_) ->
+    ?assertEqual({<<"a/b/+/#">>, []}, strip(<<"a/b/+/#">>)),
+    ?assertEqual({<<"topic">>, [{share, '$queue'}]}, strip(<<"$queue/topic">>)),
+    ?assertEqual({<<"topic">>, [{share, <<"group">>}]}, strip(<<"$share/group/topic">>)),
+    ?assertEqual({<<"topic">>, [local]}, strip(<<"$local/topic">>)),
+    ?assertEqual({<<"topic">>, [{share, '$queue'}, local]}, strip(<<"$local/$queue/topic">>)),
+    ?assertEqual({<<"/a/b/c">>, [{share, <<"group">>}, local]}, strip(<<"$local/$share/group//a/b/c">>)).
 

@@ -37,7 +37,8 @@
          async_unsubscribe/1, async_unsubscribe/2]).
 
 %% Management API.
--export([setqos/3, is_subscribed/2, get_subscriptions/1, subscriber_down/1]).
+-export([setqos/3, subscriptions/1, subscribers/1, is_subscribed/2,
+         subscriber_down/1]).
 
 %% Debug API
 -export([dump/0]).
@@ -131,12 +132,8 @@ async_unsubscribe(Topic, Subscriber) when is_binary(Topic) ->
 setqos(Topic, Subscriber, Qos) when is_binary(Topic) ->
     call(pick(Subscriber), {setqos, Topic, Subscriber, Qos}).
 
--spec(is_subscribed(binary(), emqttd:subscriber()) -> boolean()).
-is_subscribed(Topic, Subscriber) when is_binary(Topic) ->
-    ets:member(mqtt_subproperty, {Topic, Subscriber}).
-
--spec(get_subscriptions(emqttd:subscriber()) -> [{binary(), list()}]).
-get_subscriptions(Subscriber) ->
+-spec(subscriptions(emqttd:subscriber()) -> [{binary(), list(emqttd:suboption())}]).
+subscriptions(Subscriber) ->
     lists:map(fun({_, Topic}) ->
                 subscription(Topic, Subscriber)
         end, ets:lookup(mqtt_subscription, Subscriber)).
@@ -144,6 +141,13 @@ get_subscriptions(Subscriber) ->
 subscription(Topic, Subscriber) ->
     {Topic, ets:lookup_element(mqtt_subproperty, {Topic, Subscriber}, 2)}.
 
+subscribers(Topic) -> emqttd_pubsub:subscribers(Topic).
+
+-spec(is_subscribed(binary(), emqttd:subscriber()) -> boolean()).
+is_subscribed(Topic, Subscriber) when is_binary(Topic) ->
+    ets:member(mqtt_subproperty, {Topic, Subscriber}).
+
+-spec(subscriber_down(emqttd:subscriber()) -> ok).
 subscriber_down(Subscriber) ->
     cast(pick(Subscriber), {subscriber_down, Subscriber}).
 

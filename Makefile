@@ -19,7 +19,7 @@ TEST_ERLC_OPTS += +'{parse_transform, lager_transform}'
 EUNIT_OPTS = verbose
 # EUNIT_ERL_OPTS =
 
-CT_SUITES = emqttd emqttd_access emqttd_backend emqttd_lib emqttd_mod emqttd_net \
+CT_SUITES = emqttd emqttd_access emqttd_lib emqttd_mod emqttd_net \
 			emqttd_mqueue emqttd_protocol emqttd_topic emqttd_trie
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name emqttd_ct@127.0.0.1
 

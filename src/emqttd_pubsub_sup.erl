@@ -45,23 +45,29 @@ init([Env]) ->
     %% Create ETS Tables
     [create_tab(Tab) || Tab <- [mqtt_subproperty, mqtt_subscriber, mqtt_subscription]],
 
-    %% PubSub Pool
-    PubSubMFA = {emqttd_pubsub, start_link, [Env]},
-    PubSubPool = pool_sup(pubsub, Env, PubSubMFA),
+    {ok, { {one_for_all, 10, 3600}, [pool_sup(pubsub, Env), pool_sup(server, Env)]} }.
 
-    %% Server Pool
-    ServerMFA = {emqttd_server, start_link, [Env]},
-    ServerPool = pool_sup(server, Env, ServerMFA),
-
-    {ok, { {one_for_all, 10, 3600}, [PubSubPool, ServerPool]} }.
+%%--------------------------------------------------------------------
+%% Pool
+%%--------------------------------------------------------------------
 
 pool_size(Env) ->
     Schedulers = erlang:system_info(schedulers),
     proplists:get_value(pool_size, Env, Schedulers).
 
-pool_sup(Name, Env, MFA) ->
+pool_sup(Name, Env) ->
     Pool = list_to_atom(atom_to_list(Name) ++ "_pool"),
+    MFA = {adapter(Name), start_link, [Env]},
     emqttd_pool_sup:spec(Pool, [Name, hash, pool_size(Env), MFA]).
+
+%%--------------------------------------------------------------------
+%% Adapter
+%%--------------------------------------------------------------------
+
+adapter(server) ->
+    emqttd:env(pubsub_server, emqttd_server);
+adapter(pubsub) ->
+    emqttd:env(pubsub_adapter, emqttd_pubsub).
 
 %%--------------------------------------------------------------------
 %% Create PubSub Tables

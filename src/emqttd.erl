@@ -14,9 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqttd).
+%% Facade Module for The EMQTT Broker
 
--author("Feng Lee <feng@emqtt.io>").
+-module(emqttd).
 
 -include("emqttd.hrl").
 
@@ -29,7 +29,8 @@
          unsubscribe/1, unsubscribe/2]).
 
 %% PubSub Management API
--export([topics/0, subscribers/1, subscriptions/1]).
+-export([setqos/3, topics/0, subscriptions/1, subscribers/1,
+         is_subscribed/2, subscriber_down/1]).
 
 %% Hooks API
 -export([hook/4, hook/3, unhook/2, run_hooks/3]).
@@ -37,7 +38,7 @@
 %% Debug API
 -export([dump/0]).
 
--type(subscriber() :: pid() | binary() | function()).
+-type(subscriber() :: pid() | binary()).
 
 -type(suboption() :: local | {qos, non_neg_integer()} | {share, {'$queue' | binary()}}).
 
@@ -81,7 +82,7 @@ is_running(Node) ->
     end.
 
 %%--------------------------------------------------------------------
-%% PubSub APIs that wrap emqttd_pubsub
+%% PubSub APIs
 %%--------------------------------------------------------------------
 
 %% @doc Subscribe
@@ -95,11 +96,12 @@ subscribe(Topic, Subscriber) ->
 
 -spec(subscribe(iodata(), subscriber(), [suboption()]) -> ok | pubsub_error()).
 subscribe(Topic, Subscriber, Options) ->
-    emqttd_server:subscribe(iolist_to_binary(Topic), Subscriber, Options).
+    with_pubsub(fun(PS) -> PS:subscribe(iolist_to_binary(Topic), Subscriber, Options) end).
 
 %% @doc Publish MQTT Message
 -spec(publish(mqtt_message()) -> {ok, mqtt_delivery()} | ignore).
-publish(Msg) -> emqttd_server:publish(Msg).
+publish(Msg) ->
+    with_pubsub(fun(PS) -> PS:publish(Msg) end).
 
 %% @doc Unsubscribe
 -spec(unsubscribe(iodata()) -> ok | pubsub_error()).
@@ -108,18 +110,32 @@ unsubscribe(Topic) ->
 
 -spec(unsubscribe(iodata(), subscriber()) -> ok | pubsub_error()).
 unsubscribe(Topic, Subscriber) ->
-    emqttd_server:unsubscribe(iolist_to_binary(Topic), Subscriber).
+    with_pubsub(fun(PS) -> PS:unsubscribe(iolist_to_binary(Topic), Subscriber) end).
+
+-spec(setqos(binary(), subscriber(), mqtt_qos()) -> ok).
+setqos(Topic, Subscriber, Qos) ->
+    with_pubsub(fun(PS) -> PS:setqos(iolist_to_binary(Topic), Subscriber, Qos) end).
 
 -spec(topics() -> [binary()]).
 topics() -> emqttd_router:topics().
 
 -spec(subscribers(iodata()) -> list(subscriber())).
 subscribers(Topic) ->
-    emqttd_pubsub:subscribers(iolist_to_binary(Topic)).
+    with_pubsub(fun(PS) -> PS:subscribers(iolist_to_binary(Topic)) end).
 
 -spec(subscriptions(subscriber()) -> [{binary(), suboption()}]).
 subscriptions(Subscriber) ->
-    emqttd_server:get_subscriptions(Subscriber).
+    with_pubsub(fun(PS) -> PS:subscriptions(Subscriber) end).
+
+-spec(is_subscribed(iodata(), subscriber()) -> boolean()).
+is_subscribed(Topic, Subscriber) ->
+    with_pubsub(fun(PS) -> PS:is_subscribed(iolist_to_binary(Topic), Subscriber) end).
+
+-spec(subscriber_down(subscriber()) -> ok).
+subscriber_down(Subscriber) ->
+    with_pubsub(fun(PS) -> PS:subscriber_down(Subscriber) end).
+
+with_pubsub(Fun) -> Fun(env(pubsub_server, emqttd_server)).
 
 %%--------------------------------------------------------------------
 %% Hooks API
@@ -141,9 +157,9 @@ unhook(Hook, Function) ->
 run_hooks(Hook, Args, Acc) ->
     emqttd_hook:run(Hook, Args, Acc).
 
-
 %%--------------------------------------------------------------------
 %% Debug
 %%--------------------------------------------------------------------
 
-dump() -> lists:append([emqttd_server:dump(), emqttd_router:dump()]).
+dump() -> with_pubsub(fun(PS) -> lists:append([PS:dump(), emqttd_router:dump()]) end).
+

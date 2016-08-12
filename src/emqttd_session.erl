@@ -297,7 +297,7 @@ handle_cast({subscribe, TopicTable0, AckFun}, Session = #session{client_id     =
                             ?LOG(warning, "duplicated subscribe: ~s, qos = ~w", [Topic, Qos], Session),
                             SubDict;
                         {ok, OldQos} ->
-                            emqttd_server:setqos(Topic, ClientId, Qos),
+                            emqttd:setqos(Topic, ClientId, Qos),
                             ?LOG(warning, "duplicated subscribe ~s, old_qos=~w, new_qos=~w", [Topic, OldQos, Qos], Session),
                             dict:store(Topic, Qos, SubDict);
                         error ->
@@ -328,8 +328,8 @@ handle_cast({unsubscribe, Topics0}, Session = #session{client_id     = ClientId,
             Subscriptions1 = lists:foldl(
                 fun(Topic, SubDict) ->
                     case dict:find(Topic, SubDict) of
-                        {ok, Qos} ->
-                            emqttd:unsubscribe(ClientId, Topic, Qos),
+                        {ok, _Qos} ->
+                            emqttd:unsubscribe(ClientId, Topic),
                             dict:erase(Topic, SubDict);
                         error ->
                             SubDict
@@ -532,8 +532,7 @@ handle_info(Info, Session) ->
     ?UNEXPECTED_INFO(Info, Session).
 
 terminate(_Reason, #session{client_id = ClientId}) ->
-    %%TODO: ...
-    emqttd_server:subscriber_down(ClientId),
+    emqttd:subscriber_down(ClientId),
     emqttd_sm:unregister_session(ClientId).
 
 code_change(_OldVsn, Session, _Extra) ->

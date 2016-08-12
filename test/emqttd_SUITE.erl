@@ -32,19 +32,16 @@ all() ->
      {group, metrics},
      {group, stats},
      {group, hook},
-     {group, backend},
+     %%{group, backend},
      {group, cli}].
 
 groups() ->
     [{protocol, [sequence],
       [mqtt_connect]},
      {pubsub, [sequence],
-      [create_topic,
-       create_subscription,
-       subscribe_unsubscribe,
+      [subscribe_unsubscribe,
        publish, pubsub,
-       'pubsub#', 'pubsub+',
-       pubsub_queue]},
+       'pubsub#', 'pubsub+']},
      {router, [sequence],
       [router_add_del,
        router_print,
@@ -65,7 +62,7 @@ groups() ->
        dispatch_retained_messages,
        expire_retained_messages]},
      {backend, [sequence],
-      [backend_subscription]},
+      []},
      {cli, [sequence],
       [ctl_register_cmd,
        cli_status,
@@ -115,26 +112,13 @@ connect_broker_(Packet, RecvSize) ->
 %% PubSub Test
 %%--------------------------------------------------------------------
 
-create_topic(_) ->
-    ok = emqttd:create(topic, <<"topic/create">>),
-    ok = emqttd:create(topic, <<"topic/create2">>),
-    [#mqtt_topic{topic = <<"topic/create">>, flags = [static]}]
-        = emqttd:lookup(topic, <<"topic/create">>).
-
-create_subscription(_) ->
-    ok = emqttd:create(subscription, {<<"clientId">>, <<"topic/sub">>, qos2}),
-    [#mqtt_subscription{subid = <<"clientId">>, topic = <<"topic/sub">>, qos = 2}]
-        = emqttd_backend:lookup_subscriptions(<<"clientId">>),
-    ok = emqttd_backend:del_subscriptions(<<"clientId">>),
-    ?assertEqual([], emqttd_backend:lookup_subscriptions(<<"clientId">>)).
-
 subscribe_unsubscribe(_) ->
-    ok = emqttd:subscribe(<<"topic/subunsub">>),
-    ok = emqttd:subscribe(<<"clientId">>, <<"topic/subunsub1">>, 1),
-    ok = emqttd:subscribe(<<"clientId">>, <<"topic/subunsub2">>, 2),
-    ok = emqttd:unsubscribe(<<"topic/subunsub">>),
-    ok = emqttd:unsubscribe(<<"clientId">>, <<"topic/subunsub1">>, 1),
-    ok = emqttd:unsubscribe(<<"clientId">>, <<"topic/subunsub2">>, 2).
+    ok = emqttd:subscribe(<<"topic">>, <<"clientId">>),
+    ok = emqttd:subscribe(<<"topic/1">>, <<"clientId">>, [{qos, 1}]),
+    ok = emqttd:subscribe(<<"topic/2">>, <<"clientId">>, [{qos, 2}]),
+    ok = emqttd:unsubscribe(<<"topic">>, <<"clientId">>),
+    ok = emqttd:unsubscribe(<<"topic/1">>, <<"clientId">>),
+    ok = emqttd:unsubscribe(<<"topic/2">>, <<"clientId">>).
 
 publish(_) ->
     Msg = emqttd_message:make(ct, <<"test/pubsub">>, <<"hello">>),
@@ -145,11 +129,11 @@ publish(_) ->
 
 pubsub(_) ->
     Self = self(),
-    emqttd:subscribe({<<"clientId">>, <<"a/b/c">>, 1}),
-    emqttd:subscribe({<<"clientId">>, <<"a/b/c">>, 2}),
+    ok = emqttd:subscribe(<<"a/b/c">>, Self, [{qos, 1}]),
+    ?assertMatch({error, _}, emqttd:subscribe(<<"a/b/c">>, Self, [{qos, 2}])),
     timer:sleep(10),
-    [{Self, <<"a/b/c">>}] = ets:lookup(subscribed, Self),
-    [{<<"a/b/c">>, Self}] = ets:lookup(subscriber, <<"a/b/c">>),
+    [{Self, <<"a/b/c">>}] = ets:lookup(mqtt_subscription, Self),
+    [{<<"a/b/c">>, Self}] = ets:lookup(mqtt_subscriber, <<"a/b/c">>),
     emqttd:publish(emqttd_message:make(ct, <<"a/b/c">>, <<"hello">>)),
     ?assert(receive {dispatch, <<"a/b/c">>, _} -> true after 2 -> false end),
     spawn(fun() ->
@@ -175,22 +159,6 @@ pubsub(_) ->
     ?assert(receive {dispatch, <<"a/+/+">>, _} -> true after 1 -> false end),
     emqttd:unsubscribe(<<"a/+/+">>).
 
-pubsub_queue(_) ->
-    Self = self(), Q = <<"$queue/abc">>,
-    SubFun = fun() ->
-               emqttd:subscribe(Q),
-               timer:sleep(10),
-               {ok, Msgs} = loop_recv(Q, 10),
-               Self ! {recv, self(), Msgs}
-             end,
-    Sub1 = spawn(SubFun), Sub2 = spawn(SubFun),
-    timer:sleep(5),
-    emqttd:publish(emqttd_message:make(ct, Q, <<"1", Q/binary>>)),
-    emqttd:publish(emqttd_message:make(ct, Q, <<"2", Q/binary>>)),
-    emqttd:publish(emqttd_message:make(ct, Q, <<"3", Q/binary>>)),
-    ?assert(receive {recv, Sub1, Msgs1} -> length(Msgs1) < 3 end),
-    ?assert(receive {recv, Sub2, Msgs2} -> length(Msgs2) < 3 end).
-
 loop_recv(Topic, Timeout) ->
     loop_recv(Topic, Timeout, []).
 
@@ -215,15 +183,15 @@ router_add_del(_) ->
             #mqtt_route{topic = <<"#">>,     node = node()},
             #mqtt_route{topic = <<"+/#">>,   node = node()},
             #mqtt_route{topic = <<"a/b/c">>, node = node()}],
-    Routes = lists:sort(emqttd_router:lookup(<<"a/b/c">>)),
+    Routes = lists:sort(emqttd_router:match(<<"a/b/c">>)),
 
     %% Batch Add
     emqttd_router:add_routes(Routes),
-    Routes = lists:sort(emqttd_router:lookup(<<"a/b/c">>)),
+    Routes = lists:sort(emqttd_router:match(<<"a/b/c">>)),
 
     %% Del
     emqttd_router:del_route(<<"a/b/c">>),
-    [R1, R2] = lists:sort(emqttd_router:lookup(<<"a/b/c">>)),
+    [R1, R2] = lists:sort(emqttd_router:match(<<"a/b/c">>)),
     {atomic, []} = mnesia:transaction(fun emqttd_trie:lookup/1, [<<"a/b/c">>]),
 
     %% Batch Del
@@ -231,7 +199,7 @@ router_add_del(_) ->
     emqttd_router:add_route(R3),
     emqttd_router:del_routes([R1, R2]),
     emqttd_router:del_route(R3),
-    [] = lists:sort(emqttd_router:lookup(<<"a/b/c">>)).
+    [] = lists:sort(emqttd_router:match(<<"a/b/c">>)).
 
 router_print(_) ->
     Routes = [#mqtt_route{topic = <<"a/b/c">>, node = node()},
@@ -360,20 +328,6 @@ expire_retained_messages(_) ->
     emqttd_backend:expire_messages(emqttd_time:now_to_secs()),
     0 = emqttd_backend:retained_count().
 
-%%--------------------------------------------------------------------
-%% Backend Test
-%%--------------------------------------------------------------------
-
-backend_subscription(_) ->
-    Sub1 = #mqtt_subscription{subid = <<"clientId">>, topic = <<"topic">>, qos = 2},
-    Sub2 = #mqtt_subscription{subid = <<"clientId">>, topic = <<"#">>, qos = 2},
-    emqttd_backend:add_subscription(Sub1),
-    emqttd_backend:add_subscription(Sub2),
-    [Sub1, Sub2] = emqttd_backend:lookup_subscriptions(<<"clientId">>),
-    emqttd_backend:del_subscription(<<"clientId">>, <<"topic">>),
-    [Sub2] = emqttd_backend:lookup_subscriptions(<<"clientId">>),
-    emqttd_backend:del_subscriptions(<<"clientId">>),
-    [] = emqttd_backend:lookup_subscriptions(<<"clientId">>).
 
 %%--------------------------------------------------------------------
 %% CLI Group
