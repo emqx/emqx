@@ -91,7 +91,7 @@ start_servers(Sup) ->
                {"emqttd broker", emqttd_broker},
                {"emqttd alarm", emqttd_alarm},
                {"emqttd mod supervisor", emqttd_mod_sup},
-               {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup}},
+               {"emqttd bridge supervisor", {supervisor, emqttd_bridge_sup_sup}},
                {"emqttd access control", emqttd_access_control},
                {"emqttd system monitor", {supervisor, emqttd_sysmon_sup}}],
     [start_server(Sup, Server) || Server <- Servers].

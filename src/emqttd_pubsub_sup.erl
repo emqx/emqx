@@ -57,17 +57,9 @@ pool_size(Env) ->
 
 pool_sup(Name, Env) ->
     Pool = list_to_atom(atom_to_list(Name) ++ "_pool"),
-    MFA = {adapter(Name), start_link, [Env]},
+    MFA = {emqttd:adapter(Name), start_link, [Env]},
     emqttd_pool_sup:spec(Pool, [Name, hash, pool_size(Env), MFA]).
 
-%%--------------------------------------------------------------------
-%% Adapter
-%%--------------------------------------------------------------------
-
-adapter(server) ->
-    emqttd:env(pubsub_server, emqttd_server);
-adapter(pubsub) ->
-    emqttd:env(pubsub_adapter, emqttd_pubsub).
 
 %%--------------------------------------------------------------------
 %% Create PubSub Tables

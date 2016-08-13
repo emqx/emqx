@@ -35,6 +35,9 @@
 %% Hooks API
 -export([hook/4, hook/3, unhook/2, run_hooks/3]).
 
+%% Adapter
+-export([adapter/1]).
+
 %% Debug API
 -export([dump/0]).
 
@@ -156,6 +159,14 @@ unhook(Hook, Function) ->
 -spec(run_hooks(atom(), list(any()), any()) -> {ok | stop, any()}).
 run_hooks(Hook, Args, Acc) ->
     emqttd_hook:run(Hook, Args, Acc).
+
+%%--------------------------------------------------------------------
+%% Adapter
+%%--------------------------------------------------------------------
+
+adapter(server) -> env(pubsub_server,  emqttd_server);
+adapter(pubsub) -> env(pubsub_adapter, emqttd_pubsub);
+adapter(bridge) -> env(bridge_adapter, emqttd_bridge).
 
 %%--------------------------------------------------------------------
 %% Debug

@@ -18,56 +18,25 @@
 
 -behavior(supervisor).
 
--export([start_link/0, bridges/0, start_bridge/2, start_bridge/3, stop_bridge/2]).
+-export([start_link/3]).
 
 -export([init/1]).
-
--define(BRIDGE_ID(Node, Topic), {bridge, Node, Topic}).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
 %% @doc Start bridge supervisor
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-%% @doc List all bridges
--spec(bridges() -> [{tuple(), pid()}]).
-bridges() ->
-    [{{Node, Topic}, Pid} || {?BRIDGE_ID(Node, Topic), Pid, worker, _}
-                             <- supervisor:which_children(?MODULE)].
-
-%% @doc Start a bridge
--spec(start_bridge(atom(), binary()) -> {ok, pid()} | {error, any()}).
-start_bridge(Node, Topic) when is_atom(Node) andalso is_binary(Topic) ->
-    start_bridge(Node, Topic, []).
-
--spec(start_bridge(atom(), binary(), [emqttd_bridge:option()]) -> {ok, pid()} | {error, any()}).
-start_bridge(Node, _Topic, _Options) when Node =:= node() ->
-    {error, bridge_to_self};
-start_bridge(Node, Topic, Options) when is_atom(Node) andalso is_binary(Topic) ->
-    Options1 = emqttd_opts:merge(emqttd_conf:bridge(), Options),
-    supervisor:start_child(?MODULE, bridge_spec(Node, Topic, Options1)).
-
-%% @doc Stop a bridge
--spec(stop_bridge(atom(), binary()) -> {ok, pid()} | ok).
-stop_bridge(Node, Topic) when is_atom(Node) andalso is_binary(Topic) ->
-    ChildId = ?BRIDGE_ID(Node, Topic),
-    case supervisor:terminate_child(?MODULE, ChildId) of
-        ok    -> supervisor:delete_child(?MODULE, ChildId);
-        Error -> Error
-    end.
+-spec(start_link(atom(), binary(), [emqttd_bridge:option()]) -> {ok, pid()} | {error, any()}).
+start_link(Node, Topic, Options) ->
+    supervisor:start_link(?MODULE, [Node, Topic, Options]).
 
 %%--------------------------------------------------------------------
 %% Supervisor callbacks
 %%--------------------------------------------------------------------
 
-init([]) ->
-    {ok, {{one_for_one, 10, 100}, []}}.
-
-bridge_spec(Node, Topic, Options) ->
-    ChildId = ?BRIDGE_ID(Node, Topic),
-    {ChildId, {emqttd_bridge, start_link, [Node, Topic, Options]},
-        transient, 10000, worker, [emqttd_bridge]}.
+init([Node, Topic, Options]) ->
+    {ok, {{one_for_all, 10, 100},
+          [{bridge, {emqttd_bridge, start_link, [Node, Topic, Options]},
+            transient, 10000, worker, [emqttd_bridge]}]}}.
 
