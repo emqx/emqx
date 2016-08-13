@@ -41,10 +41,10 @@ start_link(Pool, Type, MFA) ->
 
 -spec(start_link(atom(), atom(), pos_integer(), mfa()) -> {ok, pid()} | {error, any()}).
 start_link(Pool, Type, Size, MFA) ->
-    supervisor:start_link({local, sup_name(Pool)}, ?MODULE, [Pool, Type, Size, MFA]).
+    supervisor:start_link(?MODULE, [Pool, Type, Size, MFA]).
 
-sup_name(Pool) when is_atom(Pool) ->
-    list_to_atom(atom_to_list(Pool) ++ "_pool_sup").
+%% sup_name(Pool) when is_atom(Pool) ->
+%%    list_to_atom(atom_to_list(Pool) ++ "_pool_sup").
 
 init([Pool, Type, Size, {M, F, Args}]) ->
     ensure_pool(Pool, Type, [{size, Size}]),
