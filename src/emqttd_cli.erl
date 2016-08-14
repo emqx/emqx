@@ -224,7 +224,7 @@ subscriptions(["list"]) ->
         end, emqttd:subscriptions());
 
 subscriptions(["show", ClientId]) ->
-    case mnesia:dirty_read(mqtt_subscription, bin(ClientId)) of
+    case ets:dirty_read(mqtt_subscription, bin(ClientId)) of
         []      -> ?PRINT_MSG("Not Found.~n");
         Records -> print(Records)
     end;
