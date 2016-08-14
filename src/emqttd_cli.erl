@@ -217,41 +217,45 @@ topics(_) ->
             {"topics show <Topic>", "Show a topic"}]).
 
 subscriptions(["list"]) ->
-    lists:foreach(fun({Sub, Topic, Opts}) when is_pid(Sub) ->
-                ?PRINT("~p -> ~s: ~p~n", [Sub, Topic, Opts]);
-                 ({Sub, Topic, Opts}) ->
-                ?PRINT("~s -> ~s: ~p~n", [Sub, Topic, Opts])
-        end, emqttd:subscriptions());
+    lists:foreach(fun(Subscription) ->
+                      print(subscription, Subscription)
+                  end, []); %%emqttd:subscriptions());
 
 subscriptions(["show", ClientId]) ->
-    case ets:dirty_read(mqtt_subscription, bin(ClientId)) of
+    case ets:lookup(mqtt_subscription, bin(ClientId)) of
         []      -> ?PRINT_MSG("Not Found.~n");
-        Records -> print(Records)
+        Records -> [print(subscription, Subscription) || Subscription <- Records]
     end;
 
-subscriptions(["add", ClientId, Topic, QoS]) ->
-    Add = fun(IntQos) ->
-            Subscription = #mqtt_subscription{subid = bin(ClientId),
-                                              topic = bin(Topic),
-                                              qos   = IntQos},
-            case emqttd_backend:add_subscription(Subscription) of
-                ok ->
-                    ?PRINT_MSG("ok~n");
-                {error, already_existed} ->
-                    ?PRINT_MSG("Error: already existed~n");
-                {error, Reason} ->
-                    ?PRINT("Error: ~p~n", [Reason])
-            end
-          end,
-    if_valid_qos(QoS, Add);
+%%
+%% subscriptions(["add", ClientId, Topic, QoS]) ->
+%%    Add = fun(IntQos) ->
+%%            Subscription = #mqtt_subscription{subid = bin(ClientId),
+%%                                              topic = bin(Topic),
+%%                                              qos   = IntQos},
+%%            case emqttd_backend:add_subscription(Subscription) of
+%%                ok ->
+%%                    ?PRINT_MSG("ok~n");
+%%                {error, already_existed} ->
+%%                    ?PRINT_MSG("Error: already existed~n");
+%%                {error, Reason} ->
+%%                    ?PRINT("Error: ~p~n", [Reason])
+%%            end
+%%          end,
+%%    if_valid_qos(QoS, Add);
+%%
 
-subscriptions(["del", ClientId]) ->
-    Ok = emqttd_backend:del_subscriptions(bin(ClientId)),
-    ?PRINT("~p~n", [Ok]);
+%%
+%% subscriptions(["del", ClientId]) ->
+%%    Ok = emqttd_backend:del_subscriptions(bin(ClientId)),
+%%    ?PRINT("~p~n", [Ok]);
+%%
 
-subscriptions(["del", ClientId, Topic]) ->
-    Ok = emqttd_backend:del_subscription(bin(ClientId), bin(Topic)),
-    ?PRINT("~p~n", [Ok]);
+%%
+%% subscriptions(["del", ClientId, Topic]) ->
+%%    Ok = emqttd_backend:del_subscription(bin(ClientId), bin(Topic)),
+%%    ?PRINT("~p~n", [Ok]);
+%%
 
 subscriptions(_) ->
     ?USAGE([{"subscriptions list",                         "List all subscriptions"},
@@ -306,7 +310,7 @@ plugins(_) ->
 bridges(["list"]) ->
     foreach(fun({{Node, Topic}, _Pid}) ->
                 ?PRINT("bridge: ~s--~s-->~s~n", [node(), Topic, Node])
-            end, emqttd_bridge_sup:bridges());
+            end, emqttd_bridge_sup_sup:bridges());
 
 bridges(["options"]) ->
     ?PRINT_MSG("Options:~n"),
@@ -318,20 +322,20 @@ bridges(["options"]) ->
     ?PRINT_MSG("  qos=2,prefix=abc/,suffix=/yxz,queue=1000~n");
 
 bridges(["start", SNode, Topic]) ->
-    case emqttd_bridge_sup:start_bridge(list_to_atom(SNode), list_to_binary(Topic)) of
+    case emqttd_bridge_sup_sup:start_bridge(list_to_atom(SNode), list_to_binary(Topic)) of
         {ok, _}        -> ?PRINT_MSG("bridge is started.~n");
         {error, Error} -> ?PRINT("error: ~p~n", [Error])
     end;
 
 bridges(["start", SNode, Topic, OptStr]) ->
     Opts = parse_opts(bridge, OptStr),
-    case emqttd_bridge_sup:start_bridge(list_to_atom(SNode), list_to_binary(Topic), Opts) of
+    case emqttd_bridge_sup_sup:start_bridge(list_to_atom(SNode), list_to_binary(Topic), Opts) of
         {ok, _}        -> ?PRINT_MSG("bridge is started.~n");
         {error, Error} -> ?PRINT("error: ~p~n", [Error])
     end;
 
 bridges(["stop", SNode, Topic]) ->
-    case emqttd_bridge_sup:stop_bridge(list_to_atom(SNode), list_to_binary(Topic)) of
+    case emqttd_bridge_sup_sup:stop_bridge(list_to_atom(SNode), list_to_binary(Topic)) of
         ok             -> ?PRINT_MSG("bridge is stopped.~n");
         {error, Error} -> ?PRINT("error: ~p~n", [Error])
     end;
@@ -525,6 +529,11 @@ print({ClientId, _ClientPid, CleanSess, SessInfo}) ->
            "awaiting_rel=~w, awaiting_ack=~w, awaiting_comp=~w, "
            "created_at=~w)~n",
             [ClientId, CleanSess | [format(Key, get_value(Key, SessInfo)) || Key <- InfoKeys]]).
+
+print(subscription, {Sub, Topic, Opts}) when is_pid(Sub) ->
+    ?PRINT("~p -> ~s: ~p~n", [Sub, Topic, Opts]);
+print(subscription, {Sub, Topic, Opts}) ->
+    ?PRINT("~s -> ~s: ~p~n", [Sub, Topic, Opts]).
 
 format(created_at, Val) ->
     emqttd_time:now_to_secs(Val);

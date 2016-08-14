@@ -162,18 +162,14 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 add_subscriber_(Topic, Subscriber) ->
-    case ets:member(mqtt_subscriber, Topic) of
-        false -> emqttd_router:add_route(Topic, node());
-        true  -> ok
-    end,
+    (not ets:member(mqtt_subscriber, Topic))
+        andalso emqttd_router:add_route(Topic),
     ets:insert(mqtt_subscriber, {Topic, Subscriber}).
 
 del_subscriber_(Topic, Subscriber) ->
     ets:delete_object(mqtt_subscriber, {Topic, Subscriber}),
-    case ets:member(mqtt_subscriber, Topic) of
-        false -> emqttd_router:del_route(Topic, node());
-        true  -> ok
-    end.
+    (not ets:member(mqtt_subscriber, Topic))
+        andalso emqttd_router:del_route(Topic).
 
 setstats(State) ->
     emqttd_stats:setstats('subscribers/count', 'subscribers/max',
