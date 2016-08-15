@@ -14,8 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% MQTT Broker Header
-
 %%--------------------------------------------------------------------
 %% Banner
 %%--------------------------------------------------------------------
@@ -77,29 +75,9 @@
 
 -type(mqtt_subscription() :: #mqtt_subscription{}).
 
-%% {<<"a/b/c">>, '$queue', <<"client1">>}
-%% {<<"a/b/c">>, undefined, <0.31.0>}
-%% {<<"a/b/c">>, <<"group1">>, <<"client2">>}
-%% -record(mqtt_subscription, {topic, share, destination :: pid() | binary()}).
-
-%%--------------------------------------------------------------------
-%% MQTT Credential
-%%--------------------------------------------------------------------
--record(mqtt_credential, {
-    clientid :: binary() | undefined, %% ClientId
-    username :: binary() | undefined, %% Username
-    token    :: binary() | undefined,
-    cookie   :: binary() | undefined
-}).
-
--type(mqtt_credential() :: #mqtt_credential{}).
-
 %%--------------------------------------------------------------------
 %% MQTT Client
 %%--------------------------------------------------------------------
-
--type ws_header_key() :: atom() | binary() | string().
--type ws_header_val() :: atom() | binary() | string() | integer().
 
 -record(mqtt_client, {
     client_id     :: binary() | undefined,
@@ -110,7 +88,9 @@
     proto_ver     :: 3 | 4,
     keepalive = 0,
     will_topic    :: undefined | binary(),
-    ws_initial_headers :: list({ws_header_key(), ws_header_val()}),
+    token         :: binary() | undefined, %% auth token
+    cookie        :: binary() | undefined, %% auth cookie
+    %%ws_initial_headers :: list({ws_header_key(), ws_header_val()}),
     connected_at  :: erlang:timestamp()
 }).
 
@@ -135,20 +115,17 @@
 -type(mqtt_pktid() :: 1..16#ffff | undefined).
 
 -record(mqtt_message, {
-    msgid          :: mqtt_msgid(),         %% Global unique message ID
-    pktid          :: mqtt_pktid(),         %% PacketId
-    topic          :: binary(),             %% Topic that the message is published to
-    sender         :: pid(),                %% Pid of the sender/publisher
-    from,
-    credential     :: mqtt_credential(),    %% Credential of the sender/publisher
-    qos    = 0     :: 0 | 1 | 2,            %% Message QoS
-    flags  = []    :: [retain | dup | sys], %% Message Flags
-    retain = false :: boolean(),            %% Retain flag
-    dup    = false :: boolean(),            %% Dup flag
-    sys    = false :: boolean(),            %% $SYS flag
-    payload        :: binary(),             %% Payload
-    timestamp      :: erlang:timestamp(),   %% os:timestamp
-    extra = []     :: list()
+    msgid           :: mqtt_msgid(),         %% Global unique message ID
+    pktid           :: mqtt_pktid(),         %% PacketId
+    topic           :: binary(),             %% Topic that the message is published to
+    qos     = 0     :: 0 | 1 | 2,            %% Message QoS
+    flags   = []    :: [retain | dup | sys], %% Message Flags
+    retain  = false :: boolean(),            %% Retain flag
+    dup     = false :: boolean(),            %% Dup flag
+    sys     = false :: boolean(),            %% $SYS flag
+    headers = []    :: list(),
+    payload         :: binary(),             %% Payload
+    timestamp       :: erlang:timestamp()    %% os:timestamp
 }).
 
 -type(mqtt_message() :: #mqtt_message{}).
@@ -157,7 +134,9 @@
 %% MQTT Delivery
 %%--------------------------------------------------------------------
 -record(mqtt_delivery, {
-    message :: mqtt_message(), %% Message
+    sender  :: pid(),          %% Pid of the sender/publisher
+    from    :: binary(),
+    message :: mqtt_message(),  %% Message
     flows   :: list()
 }).
 

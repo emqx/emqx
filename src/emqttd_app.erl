@@ -159,8 +159,7 @@ load_mod({module, Name, Opts}) ->
 
 %% @doc Is module enabled?
 -spec(is_mod_enabled(Name :: atom()) -> boolean()).
-is_mod_enabled(Name) ->
-    lists:keyfind(Name, 2, gen_conf:list(emqttd, module)).
+is_mod_enabled(Name) -> lists:keyfind(Name, 2, gen_conf:list(emqttd, module)).
 
 %%--------------------------------------------------------------------
 %% Start Listeners
@@ -206,3 +205,18 @@ stop_listeners() -> lists:foreach(fun stop_listener/1, gen_conf:list(listener)).
 %% @private
 stop_listener({listener, Protocol, ListenOn, _Opts}) -> esockd:close(Protocol, ListenOn).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+merge_sockopts_test_() ->
+    Opts =  [{acceptors, 16}, {max_clients, 512}],
+    ?_assert(merge_sockopts(Opts) == [{sockopts, [binary, {packet, raw}, {reuseaddr, true},
+                    {backlog, 512}, {nodelay, true}]}, {acceptors, 16}, {max_clients, 512}]).
+
+load_all_mods_test_() ->
+    ?_assert(load_all_mods() == ok).
+
+is_mod_enabled_test_() ->
+    ?_assert(is_mod_enabled(presence) == {module, presence, [{qos, 0}]}),
+    ?_assert(is_mod_enabled(test) == false).
+
+-endif.
