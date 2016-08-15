@@ -133,3 +133,20 @@ noreply(State) ->
 next_seq(State = #state{seq = Seq}) ->
     State#state{seq = Seq + 1}.
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+register_cmd_test_() ->
+    {setup, 
+        fun() ->
+            {ok, InitState} = emqttd_ctl:init([]),
+            InitState
+        end,
+        fun(State) ->
+            ok = emqttd_ctl:terminate(shutdown, State)
+        end,
+        fun(State = #state{seq = Seq}) -> 
+                emqttd_ctl:handle_cast({register_cmd, test0, {?MODULE, test0}, []}, State),
+                [?_assertMatch([{{0,test0},{?MODULE, test0}, []}], ets:lookup(?CMD_TAB, {Seq,test0}))]
+        end
+    }.
+-endif.
