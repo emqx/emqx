@@ -77,6 +77,9 @@
         %% Old Client Pid that has been kickout
         old_client_pid :: pid(),
 
+        %% Username
+        username       :: binary() | undefined,
+
         %% Last packet id of the session
         packet_id = 1,
         
@@ -136,9 +139,9 @@
                         "Session(~s): " ++ Format, [State#session.client_id | Args])).
 
 %% @doc Start a session.
--spec(start_link(boolean(), mqtt_client_id(), pid()) -> {ok, pid()} | {error, any()}).
-start_link(CleanSess, ClientId, ClientPid) ->
-    gen_server2:start_link(?MODULE, [CleanSess, ClientId, ClientPid], []).
+-spec(start_link(boolean(), {mqtt_client_id(), mqtt_username()}, pid()) -> {ok, pid()} | {error, any()}).
+start_link(CleanSess, {ClientId, Username}, ClientPid) ->
+    gen_server2:start_link(?MODULE, [CleanSess, {ClientId, Username}, ClientPid], []).
 
 %% @doc Resume a session.
 -spec(resume(pid(), mqtt_client_id(), pid()) -> ok).
@@ -208,10 +211,10 @@ unsubscribe(SessPid, Topics) ->
     gen_server2:cast(SessPid, {unsubscribe, Topics}).
 
 %%--------------------------------------------------------------------
-%% gen_server callbacks
+%% gen_server Callbacks
 %%--------------------------------------------------------------------
 
-init([CleanSess, ClientId, ClientPid]) ->
+init([CleanSess, {ClientId, Username}, ClientPid]) ->
     process_flag(trap_exit, true),
     true    = link(ClientPid),
     SessEnv = emqttd_conf:session(),
@@ -219,6 +222,7 @@ init([CleanSess, ClientId, ClientPid]) ->
             clean_sess        = CleanSess,
             client_id         = ClientId,
             client_pid        = ClientPid,
+            username          = Username,
             subscriptions     = dict:new(),
             inflight_queue    = [],
             max_inflight      = get_value(max_inflight, SessEnv, 0),
@@ -284,68 +288,67 @@ handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, pktid = PktId}},
 handle_call(Req, _From, State) ->
     ?UNEXPECTED_REQ(Req, State).
 
-handle_cast({subscribe, RawTopicTable, AckFun}, Session = #session{client_id     = ClientId,
-                                                                   subscriptions = Subscriptions}) ->
-    %% TODO: Ugly...
-    TopicTable0 = lists:map(fun({T, Q}) ->
-                                {T1, Opts} = emqttd_topic:strip(T),
-                                {T1, [{qos, Q} | Opts]}
-                            end, RawTopicTable),
-    case emqttd:run_hooks('client.subscribe', [ClientId], TopicTable0) of
-        {ok, TopicTable} ->
-            ?LOG(info, "Subscribe ~p", [TopicTable], Session),
-            Subscriptions1 = lists:foldl(
-                fun({Topic, Opts = [{qos, Qos}|_]}, SubDict) ->
-                    case dict:find(Topic, SubDict) of
-                        {ok, Qos} ->
-                            ?LOG(warning, "duplicated subscribe: ~s, qos = ~w", [Topic, Qos], Session),
-                            SubDict;
-                        {ok, OldQos} ->
-                            emqttd:setqos(Topic, ClientId, Qos),
-                            ?LOG(warning, "duplicated subscribe ~s, old_qos=~w, new_qos=~w", [Topic, OldQos, Qos], Session),
-                            dict:store(Topic, Qos, SubDict);
-                        error ->
-                            emqttd:subscribe(Topic, ClientId, Opts),
-                            %%TODO: the design is ugly...
-                            %% <MQTT V3.1.1>: 3.8.4
-                            %% Where the Topic Filter is not identical to any existing Subscription’s filter,
-                            %% a new Subscription is created and all matching retained messages are sent.
-                            emqttd_retainer:dispatch(Topic, self()),
+%%TODO: 2.0 FIX
 
-                            dict:store(Topic, Qos, SubDict)
-                    end
-                end, Subscriptions, TopicTable),
-            AckFun([Qos || {_, Qos} <- RawTopicTable]),
-            emqttd:run_hooks('client.subscribe.after', [ClientId], TopicTable),
-            hibernate(Session#session{subscriptions = Subscriptions1});
-        {stop, TopicTable} ->
-            ?LOG(error, "Cannot subscribe: ~p", [TopicTable], Session),
-            hibernate(Session)
-    end;
+handle_cast({subscribe, TopicTable, AckFun}, Session = #session{client_id     = ClientId,
+                                                                username      = Username,
+                                                                subscriptions = Subscriptions}) ->
+    ?LOG(info, "Subscribe ~p", [TopicTable], Session),
+    {GrantedQos, Subscriptions1} =
+    lists:foldl(fun({RawTopic, Qos}, {QosAcc, SubDict}) ->
+              {Topic, Opts} = emqttd_topic:strip(RawTopic),
+              case emqttd:run_hooks('client.subscribe', [{ClientId, Username}], {Topic, Opts}) of
+                    {ok, {Topic1, Opts1}} ->
+                        NewQos = proplists:get_value(qos, Opts1, Qos),
+                        {[NewQos | QosAcc], case dict:find(Topic, SubDict) of
+                                                {ok, NewQos} ->
+                                                    ?LOG(warning, "duplicated subscribe: ~s, qos = ~w", [Topic, NewQos], Session),
+                                                    SubDict;
+                                                {ok, OldQos} ->
+                                                    emqttd:setqos(Topic, ClientId, NewQos),
+                                                    ?LOG(warning, "duplicated subscribe ~s, old_qos=~w, new_qos=~w", [Topic, OldQos, NewQos], Session),
+                                                    dict:store(Topic, NewQos, SubDict);
+                                                error ->
+                                                    emqttd:subscribe(Topic1, ClientId, Opts1),
+                                                    %%TODO: the design is ugly...
+                                                    %% <MQTT V3.1.1>: 3.8.4
+                                                    %% Where the Topic Filter is not identical to any existing Subscription’s filter,
+                                                    %% a new Subscription is created and all matching retained messages are sent.
+                                                    emqttd_retainer:dispatch(Topic1, self()),
+                                                    dict:store(Topic1, NewQos, SubDict)
+                                            end};
+                    {stop, _} ->
+                        ?LOG(error, "Cannot subscribe: ~p", [Topic], Session),
+                        {[128 | QosAcc], SubDict}
+                end
+            end, {[], Subscriptions}, TopicTable),
+    AckFun(lists:reverse(GrantedQos)),
+    %%emqttd:run_hooks('client.subscribe.after', [ClientId], TopicTable),
+    hibernate(Session#session{subscriptions = Subscriptions1});
 
-handle_cast({unsubscribe, RawTopics}, Session = #session{client_id     = ClientId,
-                                                         subscriptions = Subscriptions}) ->
-    Topics0 = lists:map(fun(Topic) ->
-                            {T, _Opts} = emqttd_topic:strip(Topic), T
-                        end, RawTopics),
-    case emqttd:run_hooks('client.unsubscribe', [ClientId], Topics0) of
-        {ok, Topics} ->
-            ?LOG(info, "unsubscribe ~p", [Topics], Session),
-            Subscriptions1 = lists:foldl(
-                fun(Topic, SubDict) ->
-                    case dict:find(Topic, SubDict) of
-                        {ok, _Qos} ->
-                            emqttd:unsubscribe(Topic, ClientId),
-                            dict:erase(Topic, SubDict);
-                        error ->
+%%TODO: 2.0 FIX
+
+handle_cast({unsubscribe, Topics}, Session = #session{client_id     = ClientId,
+                                                      username      = Username,
+                                                      subscriptions = Subscriptions}) ->
+    ?LOG(info, "unsubscribe ~p", [Topics], Session),
+    Subscriptions1 =
+    lists:foldl(fun(RawTopic, SubDict) ->
+                    {Topic0, _Opts} = emqttd_topic:strip(RawTopic),
+                    case emqttd:run_hooks('client.unsubscribe', [ClientId, Username], Topic0) of
+                        {ok, Topic1} ->
+                            case dict:find(Topic1, SubDict) of
+                                {ok, _Qos} ->
+                                    emqttd:unsubscribe(Topic1, ClientId),
+                                    dict:erase(Topic1, SubDict);
+                                error ->
+                                    SubDict
+                            end;
+                        {stop, _} ->
                             SubDict
                     end
                 end, Subscriptions, Topics),
-            hibernate(Session#session{subscriptions = Subscriptions1});
-        {stop, Topics} ->
-            ?LOG(info, "Cannot unsubscribe: ~p", [Topics], Session),
-            hibernate(Session)
-    end;
+    hibernate(Session#session{subscriptions = Subscriptions1});
 
 handle_cast({destroy, ClientId}, Session = #session{client_id = ClientId}) ->
     ?LOG(warning, "destroyed", [], Session),

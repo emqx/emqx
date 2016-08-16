@@ -17,6 +17,7 @@
 -module(emqttd_topic).
 
 -import(lists, [reverse/1]).
+
 -export([match/2, validate/1, triples/1, words/1, wildcard/1]).
 
 -export([join/1, feed_var/3, systop/1]).

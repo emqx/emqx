@@ -491,13 +491,13 @@ print(Routes = [#mqtt_route{topic = Topic} | _]) ->
     Nodes = [atom_to_list(Node) || #mqtt_route{node = Node} <- Routes],
     ?PRINT("~s -> ~s~n", [Topic, string:join(Nodes, ",")]);
 
-print(Subscriptions = [#mqtt_subscription{subid = ClientId} | _]) ->
-    TopicTable = [io_lib:format("~s:~w", [Topic, Qos])
-                  || #mqtt_subscription{topic = Topic, qos = Qos} <- Subscriptions],
-    ?PRINT("~s -> ~s~n", [ClientId, string:join(TopicTable, ",")]);
+%% print(Subscriptions = [#mqtt_subscription{subid = ClientId} | _]) ->
+%%    TopicTable = [io_lib:format("~s:~w", [Topic, Qos])
+%%                  || #mqtt_subscription{topic = Topic, qos = Qos} <- Subscriptions],
+%%    ?PRINT("~s -> ~s~n", [ClientId, string:join(TopicTable, ",")]);
 
-print(Topics = [#mqtt_topic{}|_]) ->
-    foreach(fun print/1, Topics);
+%% print(Topics = [#mqtt_topic{}|_]) ->
+%%    foreach(fun print/1, Topics);
 
 print(#mqtt_plugin{name = Name, version = Ver, descr = Descr, active = Active}) ->
     ?PRINT("Plugin(~s, version=~s, description=~s, active=~s)~n",
@@ -509,8 +509,8 @@ print(#mqtt_client{client_id = ClientId, clean_sess = CleanSess, username = User
            [ClientId, CleanSess, Username, emqttd_net:format(Peername),
             emqttd_time:now_to_secs(ConnectedAt)]);
 
-print(#mqtt_topic{topic = Topic, flags = Flags}) ->
-    ?PRINT("~s: ~s~n", [Topic, string:join([atom_to_list(F) || F <- Flags], ",")]);
+%% print(#mqtt_topic{topic = Topic, flags = Flags}) ->
+%%    ?PRINT("~s: ~s~n", [Topic, string:join([atom_to_list(F) || F <- Flags], ",")]);
 
 print(#mqtt_route{topic = Topic, node = Node}) ->
     ?PRINT("~s -> ~s~n", [Topic, Node]);
