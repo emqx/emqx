@@ -26,7 +26,7 @@
     {?MQTT_PROTO_V31,  <<"MQIsdp">>},
     {?MQTT_PROTO_V311, <<"MQTT">>}]).
 
--type mqtt_vsn() :: ?MQTT_PROTO_V31 | ?MQTT_PROTO_V311.
+-type(mqtt_vsn() :: ?MQTT_PROTO_V31 | ?MQTT_PROTO_V311).
 
 %%--------------------------------------------------------------------
 %% MQTT QoS
@@ -41,11 +41,11 @@
 
 -define(IS_QOS(I), (I >= ?QOS0 andalso I =< ?QOS2)).
 
--type mqtt_qos() :: ?QOS0 | ?QOS1 | ?QOS2.
+-type(mqtt_qos() :: ?QOS0 | ?QOS1 | ?QOS2).
 
--type mqtt_qos_name() :: qos0 | at_most_once  |
+-type(mqtt_qos_name() :: qos0 | at_most_once  |
                          qos1 | at_least_once |
-                         qos2 | exactly_once.
+                         qos2 | exactly_once).
 
 -define(QOS_I(Name),
     begin
@@ -102,7 +102,7 @@
     'PINGRESP',
     'DISCONNECT']).
 
--type mqtt_packet_type() :: ?RESERVED..?DISCONNECT.
+-type(mqtt_packet_type() :: ?RESERVED..?DISCONNECT).
 
 %%--------------------------------------------------------------------
 %% MQTT Connect Return Codes
@@ -114,7 +114,7 @@
 -define(CONNACK_CREDENTIALS, 4).    %% Username or password is malformed
 -define(CONNACK_AUTH,        5).    %% Client is not authorized to connect
 
--type mqtt_connack() :: ?CONNACK_ACCEPT..?CONNACK_AUTH.
+-type(mqtt_connack() :: ?CONNACK_ACCEPT..?CONNACK_AUTH).
 
 %%--------------------------------------------------------------------
 %% MQTT Parser and Serializer
@@ -135,8 +135,9 @@
 %%--------------------------------------------------------------------
 %% MQTT Packets
 %%--------------------------------------------------------------------
--type mqtt_client_id()  :: binary().
--type mqtt_packet_id() :: 1..16#ffff | undefined.
+-type(mqtt_client_id()  :: binary()).
+-type(mqtt_username()   :: binary() | undefined).
+-type(mqtt_packet_id()  :: 1..16#ffff | undefined).
 
 -record(mqtt_packet_connect,  {
     client_id   = <<>>              :: mqtt_client_id(),
