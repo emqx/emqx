@@ -40,7 +40,7 @@
 %% PubSub
 %%--------------------------------------------------------------------
 
--type pubsub() :: publish | subscribe.
+-type(pubsub() :: publish | subscribe).
 
 -define(PUBSUB(PS), (PS =:= publish orelse PS =:= subscribe)).
 
