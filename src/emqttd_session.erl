@@ -236,7 +236,7 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
             expired_after     = get_value(expired_after, SessEnv) * 60,
             collect_interval  = get_value(collect_interval, SessEnv, 0),
             timestamp         = os:timestamp()},
-    emqttd_sm:register_session(ClientId, CleanSess, sess_info(Session)),
+    emqttd_sm:reg_session(ClientId, CleanSess, sess_info(Session)),
     %% Start statistics
     {ok, start_collector(Session), hibernate}.
 
@@ -394,8 +394,7 @@ handle_cast({resume, ClientId, ClientPid}, Session = #session{client_id      = C
     if
         CleanSess =:= true  ->
             ?LOG(warning, "CleanSess changed to false.", [], Session),
-            %% emqttd_sm:unregister_session(CleanSess, ClientId),
-            emqttd_sm:register_session(ClientId, false, sess_info(Session1));
+            emqttd_sm:reg_session(ClientId, false, sess_info(Session1));
         CleanSess =:= false ->
             ok
     end,
@@ -509,7 +508,7 @@ handle_info({timeout, awaiting_comp, PktId}, Session = #session{awaiting_comp = 
     end;
 
 handle_info(collect_info, Session = #session{clean_sess = CleanSess, client_id = ClientId}) ->
-    emqttd_sm:register_session(ClientId, CleanSess, sess_info(Session)),
+    emqttd_sm:reg_session(ClientId, CleanSess, sess_info(Session)),
     hibernate(start_collector(Session));
 
 handle_info({'EXIT', ClientPid, _Reason}, Session = #session{clean_sess = true,
@@ -542,7 +541,7 @@ handle_info(Info, Session) ->
 
 terminate(_Reason, #session{client_id = ClientId}) ->
     emqttd:subscriber_down(ClientId),
-    emqttd_sm:unregister_session(ClientId).
+    emqttd_sm:unreg_session(ClientId).
 
 code_change(_OldVsn, Session, _Extra) ->
     {ok, Session}.
