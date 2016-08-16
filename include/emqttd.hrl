@@ -45,39 +45,11 @@
 -define(PUBSUB(PS), (PS =:= publish orelse PS =:= subscribe)).
 
 %%--------------------------------------------------------------------
-%% MQTT Topic
-%%--------------------------------------------------------------------
--record(mqtt_topic, {
-    topic   :: binary(),
-    flags   :: [retained | static]
-}).
-
--type(mqtt_topic() :: #mqtt_topic{}).
-
-%%--------------------------------------------------------------------
-%% MQTT Route
-%%--------------------------------------------------------------------
--record(mqtt_route, {
-    topic   :: binary(),
-    node    :: node()
-}).
-
--type(mqtt_route() :: #mqtt_route{}).
-
-%%--------------------------------------------------------------------
-%% MQTT Subscription
-%%--------------------------------------------------------------------
--record(mqtt_subscription, {
-    subid   :: binary() | atom() | pid(),
-    topic   :: binary(),
-    qos = 0 :: 0 | 1 | 2
-}).
-
--type(mqtt_subscription() :: #mqtt_subscription{}).
-
-%%--------------------------------------------------------------------
 %% MQTT Client
 %%--------------------------------------------------------------------
+
+-type(ws_header_key() :: atom() | binary() | string()).
+-type(ws_header_val() :: atom() | binary() | string() | integer()).
 
 -record(mqtt_client, {
     client_id     :: binary() | undefined,
@@ -88,9 +60,7 @@
     proto_ver     :: 3 | 4,
     keepalive = 0,
     will_topic    :: undefined | binary(),
-    token         :: binary() | undefined, %% auth token
-    cookie        :: binary() | undefined, %% auth cookie
-    %%ws_initial_headers :: list({ws_header_key(), ws_header_val()}),
+    ws_initial_headers :: list({ws_header_key(), ws_header_val()}),
     connected_at  :: erlang:timestamp()
 }).
 
@@ -117,6 +87,7 @@
 -record(mqtt_message, {
     msgid           :: mqtt_msgid(),         %% Global unique message ID
     pktid           :: mqtt_pktid(),         %% PacketId
+    from            :: {binary(), undefined | binary()}, %% ClientId and Username
     topic           :: binary(),             %% Topic that the message is published to
     qos     = 0     :: 0 | 1 | 2,            %% Message QoS
     flags   = []    :: [retain | dup | sys], %% Message Flags
@@ -135,12 +106,21 @@
 %%--------------------------------------------------------------------
 -record(mqtt_delivery, {
     sender  :: pid(),          %% Pid of the sender/publisher
-    from    :: binary(),
-    message :: mqtt_message(),  %% Message
+    message :: mqtt_message(), %% Message
     flows   :: list()
 }).
 
 -type(mqtt_delivery() :: #mqtt_delivery{}).
+
+%%--------------------------------------------------------------------
+%% MQTT Route
+%%--------------------------------------------------------------------
+-record(mqtt_route, {
+    topic   :: binary(),
+    node    :: node()
+}).
+
+-type(mqtt_route() :: #mqtt_route{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Alarm

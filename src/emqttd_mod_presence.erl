@@ -45,7 +45,7 @@ on_client_connected(ConnAck, Client = #mqtt_client{client_id  = ClientId,
     emqttd:publish(emqttd_message:set_flag(sys, Msg)),
     {ok, Client}.
 
-on_client_disconnected(Reason, ClientId, Opts) ->
+on_client_disconnected(Reason, #mqtt_client{client_id = ClientId}, Opts) ->
     Json = mochijson2:encode([{clientid, ClientId},
                               {reason, reason(Reason)},
                               {ts, emqttd_time:now_to_secs()}]),

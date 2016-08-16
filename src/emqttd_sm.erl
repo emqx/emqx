@@ -32,7 +32,7 @@
 %% API Function Exports
 -export([start_link/2]).
 
--export([start_session/2, lookup_session/1, register_session/3, unregister_session/1]).
+-export([start_session/2, lookup_session/1, reg_session/3, unreg_session/1]).
 
 -export([dispatch/3]).
 
@@ -77,10 +77,10 @@ start_link(Pool, Id) ->
     gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
 
 %% @doc Start a session
--spec(start_session(boolean(), binary()) -> {ok, pid(), boolean()} | {error, any()}).
-start_session(CleanSess, ClientId) ->
+-spec(start_session(boolean(), {binary(), binary() | undefined}) -> {ok, pid(), boolean()} | {error, any()}).
+start_session(CleanSess, {ClientId, Username}) ->
     SM = gproc_pool:pick_worker(?POOL, ClientId),
-    call(SM, {start_session, {CleanSess, ClientId, self()}}).
+    call(SM, {start_session, CleanSess, {ClientId, Username}, self()}).
 
 %% @doc Lookup a Session
 -spec(lookup_session(binary()) -> mqtt_session() | undefined).
@@ -91,13 +91,13 @@ lookup_session(ClientId) ->
     end.
 
 %% @doc Register a session with info.
--spec(register_session(binary(), boolean(), [tuple()]) -> true). 
-register_session(ClientId, CleanSess, Properties) ->
+-spec(reg_session(binary(), boolean(), [tuple()]) -> true).
+reg_session(ClientId, CleanSess, Properties) ->
     ets:insert(mqtt_local_session, {ClientId, self(), CleanSess, Properties}).
 
 %% @doc Unregister a session.
--spec(unregister_session(binary()) -> true).
-unregister_session(ClientId) ->
+-spec(unreg_session(binary()) -> true).
+unreg_session(ClientId) ->
     ets:delete(mqtt_local_session, ClientId).
 
 dispatch(ClientId, Topic, Msg) ->
@@ -128,11 +128,11 @@ prioritise_info(_Msg, _Len, _State) ->
     2.
 
 %% Persistent Session
-handle_call({start_session, Client = {false, ClientId, ClientPid}}, _From, State) ->
+handle_call({start_session, false, {ClientId, Username}, ClientPid}, _From, State) ->
     case lookup_session(ClientId) of
         undefined ->
             %% Create session locally
-            create_session(Client, State);
+            create_session({false, {ClientId, Username}, ClientPid}, State);
         Session ->
             case resume_session(Session, ClientPid) of
                 {ok, SessPid} ->
@@ -143,7 +143,8 @@ handle_call({start_session, Client = {false, ClientId, ClientPid}}, _From, State
     end;
 
 %% Transient Session
-handle_call({start_session, Client = {true, ClientId, _ClientPid}}, _From, State) ->
+handle_call({start_session, true, {ClientId, Username}, ClientPid}, _From, State) ->
+    Client = {true, {ClientId, Username}, ClientPid},
     case lookup_session(ClientId) of
         undefined ->
             create_session(Client, State);
@@ -195,8 +196,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 %% Create Session Locally
-create_session({CleanSess, ClientId, ClientPid}, State) ->
-    case create_session(CleanSess, ClientId, ClientPid) of
+create_session({CleanSess, {ClientId, Username}, ClientPid}, State) ->
+    case create_session(CleanSess, {ClientId, Username}, ClientPid) of
         {ok, SessPid} ->
             {reply, {ok, SessPid, false},
                 monitor_session(ClientId, SessPid, State)};
@@ -204,8 +205,8 @@ create_session({CleanSess, ClientId, ClientPid}, State) ->
             {reply, {error, Error}, State}
     end.
 
-create_session(CleanSess, ClientId, ClientPid) ->
-    case emqttd_session_sup:start_session(CleanSess, ClientId, ClientPid) of
+create_session(CleanSess, {ClientId, Username}, ClientPid) ->
+    case emqttd_session_sup:start_session(CleanSess, {ClientId, Username}, ClientPid) of
         {ok, SessPid} ->
             Session = #mqtt_session{client_id = ClientId, sess_pid = SessPid, persistent = not CleanSess},
             case insert_session(Session) of

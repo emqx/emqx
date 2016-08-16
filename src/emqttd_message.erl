@@ -81,8 +81,7 @@ from_packet(#mqtt_packet_connect{client_id   = ClientId,
                                  will_msg    = Msg}) ->
     #mqtt_message{msgid     = msgid(Qos),
                   topic     = Topic,
-                  from      = ClientId,
-                  sender    = Username,
+                  from      = {ClientId, Username},
                   retain    = Retain,
                   qos       = Qos,
                   dup       = false,
@@ -95,7 +94,7 @@ from_packet(ClientId, Packet) ->
 
 from_packet(Username, ClientId, Packet) ->
     Msg = from_packet(Packet),
-    Msg#mqtt_message{from = ClientId, sender = Username}.
+    Msg#mqtt_message{from = {ClientId, Username}}.
 
 msgid(?QOS_0) ->
     undefined;
@@ -150,10 +149,10 @@ unset_flag(retain, Msg = #mqtt_message{retain = true}) ->
 unset_flag(Flag, Msg) when Flag =:= dup orelse Flag =:= retain -> Msg.
 
 %% @doc Format MQTT Message
-format(#mqtt_message{msgid = MsgId, pktid = PktId, from = From, sender = Sender,
+format(#mqtt_message{msgid = MsgId, pktid = PktId, from = {ClientId, Username},
                      qos = Qos, retain = Retain, dup = Dup, topic =Topic}) ->
-    io_lib:format("Message(Q~p, R~p, D~p, MsgId=~p, PktId=~p, From=~s, Sender=~s, Topic=~s)",
-                  [i(Qos), i(Retain), i(Dup), MsgId, PktId, From, Sender, Topic]).
+    io_lib:format("Message(Q~p, R~p, D~p, MsgId=~p, PktId=~p, From=~s/~s, Topic=~s)",
+                  [i(Qos), i(Retain), i(Dup), MsgId, PktId, Username, ClientId, Topic]).
 
 i(true)  -> 1;
 i(false) -> 0;

@@ -146,7 +146,7 @@ process(Packet = ?CONNECT_PACKET(Var), State0) ->
                     State2 = maybe_set_clientid(State1),
 
                     %% Start session
-                    case emqttd_sm:start_session(CleanSess, clientid(State2)) of
+                    case emqttd_sm:start_session(CleanSess, {clientid(State2), Username}) of
                         {ok, Session, SP} ->
                             %% Register the client
                             emqttd_cm:reg(client(State2)),
@@ -247,9 +247,9 @@ with_puback(Type, Packet = ?PUBLISH_PACKET(_Qos, PacketId),
     end.
 
 -spec(send(mqtt_message() | mqtt_packet(), proto_state()) -> {ok, proto_state()}).
-send(Msg, State = #proto_state{client_id = ClientId})
+send(Msg, State = #proto_state{client_id = ClientId, username = Username})
         when is_record(Msg, mqtt_message) ->
-    emqttd:run_hooks('message.delivered', [ClientId], Msg),
+    emqttd:run_hooks('message.delivered', [{ClientId, Username}], Msg),
     send(emqttd_message:to_packet(Msg), State);
 
 send(Packet, State = #proto_state{sendfun = SendFun})
@@ -280,10 +280,11 @@ shutdown(conflict, #proto_state{client_id = _ClientId}) ->
     %% emqttd_cm:unreg(ClientId);
     ignore;
 
-shutdown(Error, State = #proto_state{client_id = ClientId, will_msg = WillMsg}) ->
+shutdown(Error, State = #proto_state{will_msg = WillMsg}) ->
     ?LOG(info, "Shutdown for ~p", [Error], State),
-    send_willmsg(ClientId, WillMsg),
-    emqttd:run_hooks('client.disconnected', [Error], ClientId),
+    Client = client(State),
+    send_willmsg(Client, WillMsg),
+    emqttd:run_hooks('client.disconnected', [Error], Client),
     %% let it down
     %% emqttd_cm:unreg(ClientId).
     ok.
@@ -301,10 +302,10 @@ maybe_set_clientid(State = #proto_state{client_id = NullId})
 maybe_set_clientid(State) ->
     State.
 
-send_willmsg(_ClientId, undefined) ->
+send_willmsg(_Client, undefined) ->
     ignore;
-send_willmsg(ClientId, WillMsg) ->
-    emqttd:publish(WillMsg#mqtt_message{from = ClientId}).
+send_willmsg(#mqtt_client{client_id = ClientId, username = Username}, WillMsg) ->
+    emqttd:publish(WillMsg#mqtt_message{from = {ClientId, Username}}).
 
 start_keepalive(0) -> ignore;
 
