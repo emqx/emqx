@@ -658,11 +658,12 @@ await(#mqtt_message{pktid = PktId}, Session = #session{awaiting_ack   = Awaiting
     Session#session{awaiting_ack = Awaiting1}.
 
 acked(PktId, Session = #session{client_id      = ClientId,
+                                username       = Username,
                                 inflight_queue = InflightQ,
                                 awaiting_ack   = Awaiting}) ->
     case lists:keyfind(PktId, 1, InflightQ) of
         {_, Msg} ->
-            emqttd:run_hooks('message.acked', [ClientId], Msg);
+            emqttd:run_hooks('message.acked', [{ClientId, Username}], Msg);
         false ->
             ?LOG(error, "Cannot find acked pktid: ~p", [PktId], Session)
     end,

@@ -247,9 +247,9 @@ with_puback(Type, Packet = ?PUBLISH_PACKET(_Qos, PacketId),
     end.
 
 -spec(send(mqtt_message() | mqtt_packet(), proto_state()) -> {ok, proto_state()}).
-send(Msg, State = #proto_state{client_id = ClientId})
+send(Msg, State = #proto_state{client_id = ClientId, username = Username})
         when is_record(Msg, mqtt_message) ->
-    emqttd:run_hooks('message.delivered', [ClientId], Msg),
+    emqttd:run_hooks('message.delivered', [{ClientId, Username}], Msg),
     send(emqttd_message:to_packet(Msg), State);
 
 send(Packet, State = #proto_state{sendfun = SendFun})
