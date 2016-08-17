@@ -69,7 +69,7 @@ route(Routes, Delivery) ->
                     {ok, DelAcc1} = route([Route], DelAcc), DelAcc1
             end, Delivery, Routes)}.
 
-delivery(Msg) -> #mqtt_delivery{message = Msg, flows = []}.
+delivery(Msg) -> #mqtt_delivery{sender = self(), message = Msg, flows = []}.
 
 %% @doc Forward message to another node...
 forward(Node, To, Delivery) ->
