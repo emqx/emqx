@@ -152,7 +152,13 @@ unset_flag(Flag, Msg) when Flag =:= dup orelse Flag =:= retain -> Msg.
 format(#mqtt_message{msgid = MsgId, pktid = PktId, from = {ClientId, Username},
                      qos = Qos, retain = Retain, dup = Dup, topic =Topic}) ->
     io_lib:format("Message(Q~p, R~p, D~p, MsgId=~p, PktId=~p, From=~s/~s, Topic=~s)",
-                  [i(Qos), i(Retain), i(Dup), MsgId, PktId, Username, ClientId, Topic]).
+                  [i(Qos), i(Retain), i(Dup), MsgId, PktId, Username, ClientId, Topic]);
+
+%% TODO:...
+format(#mqtt_message{msgid = MsgId, pktid = PktId, from = From,
+                     qos = Qos, retain = Retain, dup = Dup, topic =Topic}) ->
+    io_lib:format("Message(Q~p, R~p, D~p, MsgId=~p, PktId=~p, From=~s, Topic=~s)",
+                  [i(Qos), i(Retain), i(Dup), MsgId, PktId, From, Topic]).
 
 i(true)  -> 1;
 i(false) -> 0;
