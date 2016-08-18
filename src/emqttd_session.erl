@@ -315,6 +315,8 @@ handle_cast({subscribe, TopicTable, AckFun}, Session = #session{client_id     = 
                                                     %% Where the Topic Filter is not identical to any existing Subscription’s filter,
                                                     %% a new Subscription is created and all matching retained messages are sent.
                                                     emqttd_retainer:dispatch(Topic1, self()),
+                                                    emqttd:run_hooks('client.subscribe.after', [{ClientId, Username}], {Topic1, Opts1}),
+
                                                     dict:store(Topic1, NewQos, SubDict)
                                             end};
                     {stop, _} ->
@@ -323,7 +325,6 @@ handle_cast({subscribe, TopicTable, AckFun}, Session = #session{client_id     = 
                 end
             end, {[], Subscriptions}, TopicTable),
     AckFun(lists:reverse(GrantedQos)),
-    %%emqttd:run_hooks('client.subscribe.after', [ClientId], TopicTable),
     hibernate(Session#session{subscriptions = Subscriptions1});
 
 %%TODO: 2.0 FIX
