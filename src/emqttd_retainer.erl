@@ -192,8 +192,8 @@ expire_messages(Time) when is_integer(Time) ->
     mnesia:transaction(
         fun() ->
             Match = ets:fun2ms(
-                        fun(#retained_message{topic = Topic, msg = #mqtt_message{timestamp = {MegaSecs, Secs, _}}})
-                            when Time > (MegaSecs * 1000000 + Secs) -> Topic
+                        fun(#retained_message{topic = Topic, msg = #mqtt_message{timestamp = Ts}})
+                            when Time > Ts -> Topic
                         end),
             Topics = mnesia:select(retained_message, Match, write),
             lists:foreach(fun(<<"$SYS/", _/binary>>) -> ok; %% ignore $SYS/# messages

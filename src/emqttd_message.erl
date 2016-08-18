@@ -42,7 +42,7 @@ make(From, Qos, Topic, Payload) ->
                   qos       = ?QOS_I(Qos),
                   topic     = Topic,
                   payload   = Payload,
-                  timestamp = os:timestamp()}.
+                  timestamp = emqttd_time:now_to_secs()}.
 
 %% @doc Message from Packet
 -spec(from_packet(mqtt_packet()) -> mqtt_message()).
@@ -60,7 +60,7 @@ from_packet(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                   dup       = Dup,
                   topic     = Topic,
                   payload   = Payload,
-                  timestamp = os:timestamp()};
+                  timestamp = emqttd_time:now_to_secs()};
 
 from_packet(#mqtt_packet_connect{will_flag  = false}) ->
     undefined;
@@ -78,7 +78,7 @@ from_packet(#mqtt_packet_connect{client_id   = ClientId,
                   qos       = Qos,
                   dup       = false,
                   payload   = Msg, 
-                  timestamp = os:timestamp()}.
+                  timestamp = emqttd_time:now_to_secs()}.
 
 from_packet(ClientId, Packet) ->
     Msg = from_packet(Packet),
