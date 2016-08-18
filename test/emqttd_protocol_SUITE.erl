@@ -337,9 +337,9 @@ packet_format(_) ->
 message_make(_) ->
     Msg = emqttd_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
     0 = Msg#mqtt_message.qos,
-    undefined = Msg#mqtt_message.msgid,
+    undefined = Msg#mqtt_message.id,
     Msg1 = emqttd_message:make(<<"clientid">>, qos2, <<"topic">>, <<"payload">>),
-    true = is_binary(Msg1#mqtt_message.msgid),
+    true = is_binary(Msg1#mqtt_message.id),
     2 = Msg1#mqtt_message.qos.
 
 message_from_packet(_) ->

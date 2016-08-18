@@ -85,7 +85,7 @@
 -type(mqtt_pktid() :: 1..16#ffff | undefined).
 
 -record(mqtt_message, {
-    msgid           :: mqtt_msgid(),         %% Global unique message ID
+    id              :: mqtt_msgid(),         %% Global unique message ID
     pktid           :: mqtt_pktid(),         %% PacketId
     from            :: {binary(), undefined | binary()}, %% ClientId and Username
     topic           :: binary(),             %% Topic that the message is published to
@@ -96,7 +96,7 @@
     sys     = false :: boolean(),            %% $SYS flag
     headers = []    :: list(),
     payload         :: binary(),             %% Payload
-    timestamp       :: erlang:timestamp()    %% os:timestamp
+    timestamp       :: pos_integer()         %% os:timestamp to seconds
 }).
 
 -type(mqtt_message() :: #mqtt_message{}).

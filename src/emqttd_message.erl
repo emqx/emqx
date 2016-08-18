@@ -37,7 +37,7 @@ make(From, Topic, Payload) ->
 
 -spec(make(msg_from(), mqtt_qos(), binary(), binary()) -> mqtt_message()).
 make(From, Qos, Topic, Payload) ->
-    #mqtt_message{msgid     = msgid(),
+    #mqtt_message{id        = msgid(),
                   from      = From,
                   qos       = ?QOS_I(Qos),
                   topic     = Topic,
@@ -53,7 +53,7 @@ from_packet(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                          variable = #mqtt_packet_publish{topic_name = Topic,
                                                          packet_id  = PacketId},
                          payload  = Payload}) ->
-    #mqtt_message{msgid     = msgid(),
+    #mqtt_message{id        = msgid(),
                   pktid     = PacketId,
                   qos       = Qos,
                   retain    = Retain,
@@ -71,7 +71,7 @@ from_packet(#mqtt_packet_connect{client_id   = ClientId,
                                  will_qos    = Qos,
                                  will_topic  = Topic,
                                  will_msg    = Msg}) ->
-    #mqtt_message{msgid     = msgid(),
+    #mqtt_message{id        = msgid(),
                   topic     = Topic,
                   from      = {ClientId, Username},
                   retain    = Retain,
@@ -138,13 +138,13 @@ unset_flag(retain, Msg = #mqtt_message{retain = true}) ->
 unset_flag(Flag, Msg) when Flag =:= dup orelse Flag =:= retain -> Msg.
 
 %% @doc Format MQTT Message
-format(#mqtt_message{msgid = MsgId, pktid = PktId, from = {ClientId, Username},
+format(#mqtt_message{id = MsgId, pktid = PktId, from = {ClientId, Username},
                      qos = Qos, retain = Retain, dup = Dup, topic =Topic}) ->
     io_lib:format("Message(Q~p, R~p, D~p, MsgId=~p, PktId=~p, From=~s/~s, Topic=~s)",
                   [i(Qos), i(Retain), i(Dup), MsgId, PktId, Username, ClientId, Topic]);
 
 %% TODO:...
-format(#mqtt_message{msgid = MsgId, pktid = PktId, from = From,
+format(#mqtt_message{id = MsgId, pktid = PktId, from = From,
                      qos = Qos, retain = Retain, dup = Dup, topic =Topic}) ->
     io_lib:format("Message(Q~p, R~p, D~p, MsgId=~p, PktId=~p, From=~s, Topic=~s)",
                   [i(Qos), i(Retain), i(Dup), MsgId, PktId, From, Topic]).
