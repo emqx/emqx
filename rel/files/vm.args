@@ -1,7 +1,13 @@
 ##-------------------------------------------------------------------------
-## Name of the node
+## Name of the emqttd node: Name@Host
+##
+## NOTICE: The Host should be IP address or the fully qualified host name.
+##         The short hostname cannot work!
 ##-------------------------------------------------------------------------
+
 -name emqttd@127.0.0.1
+# or
+#-name emqttd@localhost.
 
 ## Cookie for distributed erlang
 -setcookie emqttdsecretcookie
@@ -34,7 +40,7 @@
 ## Valid range is 1-2097151. Default is 1024.
 ## +zdbbl 8192
 
-## CPU Schedulers
+## Set scheduler bind type.
 ## +sbt db
 
 ##-------------------------------------------------------------------------
@@ -52,3 +58,4 @@
 ## Tweak GC to run more often
 -env ERL_FULLSWEEP_AFTER 1000
 
+-env ERL_CRASH_DUMP log/emqttd_crash.dump

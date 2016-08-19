@@ -26,7 +26,8 @@
 -include("emqttd_internal.hrl").
 
 %% API Function Exports
--export([start_link/2, session/1, info/1, kick/1]).
+-export([start_link/2, session/1, info/1, kick/1,
+         set_rate_limit/2, get_rate_limit/1]).
 
 %% SUB/UNSUB Asynchronously. Called by plugins.
 -export([subscribe/2, unsubscribe/2]).
@@ -59,6 +60,12 @@ info(CPid) ->
 kick(CPid) ->
     gen_server:call(CPid, kick).
 
+set_rate_limit(Cpid, Rl) ->
+    gen_server:call(Cpid, {set_rate_limit, Rl}).
+
+get_rate_limit(Cpid) ->
+    gen_server:call(Cpid, get_rate_limit).
+
 subscribe(CPid, TopicTable) ->
     gen_server:cast(CPid, {subscribe, TopicTable}).
 
@@ -79,11 +86,12 @@ init([OriginConn, MqttEnv]) ->
             exit({shutdown, Reason})
     end,
     ConnName = esockd_net:format(PeerName),
+    Self = self(),
     SendFun = fun(Data) ->
         try Connection:async_send(Data) of
             true -> ok
         catch
-            error:Error -> exit({shutdown, Error})
+            error:Error -> Self ! {shutdown, Error}
         end
     end,
     PktOpts = proplists:get_value(packet, MqttEnv),
@@ -119,6 +127,12 @@ handle_call(info, _From, State = #client_state{connection  = Connection,
 handle_call(kick, _From, State) ->
     {stop, {shutdown, kick}, ok, State};
 
+handle_call({set_rate_limit, Rl}, _From, State) ->
+    {reply, ok, State#client_state{rate_limit = Rl}};
+
+handle_call(get_rate_limit, _From, State = #client_state{rate_limit = Rl}) ->
+    {reply, Rl, State};
+
 handle_call(Req, _From, State) ->
     ?UNEXPECTED_REQ(Req, State).
 
@@ -137,6 +151,10 @@ handle_cast(Msg, State) ->
 
 handle_info(timeout, State) ->
     shutdown(idle_timeout, State);
+
+%% fix issue #535
+handle_info({shutdown, Error}, State) ->
+    shutdown(Error, State);
 
 %% Asynchronous SUBACK
 handle_info({suback, PacketId, GrantedQos}, State) ->

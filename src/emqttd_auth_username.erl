@@ -40,6 +40,11 @@
 %%--------------------------------------------------------------------
 %% CLI
 %%--------------------------------------------------------------------
+cli(["list"]) ->
+    if_enabled(fun() ->
+        Usernames = mnesia:dirty_all_keys(?AUTH_USERNAME_TAB),
+        [?PRINT("~s~n", [Username]) || Username <- Usernames]
+    end);
 
 cli(["add", Username, Password]) ->
     if_enabled(fun() ->
@@ -52,7 +57,8 @@ cli(["del", Username]) ->
     end);
 
 cli(_) ->
-    ?USAGE([{"users add <Username> <Password>", "Add User"},
+    ?USAGE([{"users list", "List users"},
+            {"users add <Username> <Password>", "Add User"},
             {"users del <Username>", "Delete User"}]).
 
 if_enabled(Fun) ->
@@ -76,6 +82,9 @@ is_enabled() ->
 add_user(Username, Password) ->
     User = #?AUTH_USERNAME_TAB{username = Username, password = hash(Password)},
     ret(mnesia:transaction(fun mnesia:write/1, [User])).
+
+add_default_user(Username, Password) when is_atom(Username) ->
+    add_default_user(atom_to_list(Username), Password);
 
 add_default_user(Username, Password) ->
     add_user(iolist_to_binary(Username), iolist_to_binary(Password)).

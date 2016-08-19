@@ -78,6 +78,7 @@ reload_acl(_) ->
 
 register_mod(_) ->
     ok = ?AC:register_mod(acl, emqttd_acl_test_mod, []),
+    {error, already_existed} = ?AC:register_mod(acl, emqttd_acl_test_mod, []),
     [{emqttd_acl_test_mod, _, 0},
      {emqttd_acl_internal, _, 0}] = ?AC:lookup_mods(acl),
     ok = ?AC:register_mod(auth, emqttd_auth_anonymous_test_mod,[]),
@@ -117,14 +118,14 @@ check_acl(_) ->
 
 compile_rule(_) ->
 
-    {allow, {'and', [{ipaddr, {"127.0.0.1", _I, _I}},
+    {allow, {'and', [{ipaddr, {{127,0,0,1}, {127,0,0,1}, 32}},
                      {user, <<"user">>}]}, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]} =
         compile({allow, {'and', [{ipaddr, "127.0.0.1"}, {user, <<"user">>}]}, subscribe, ["$SYS/#", "#"]}),
-    {allow, {'or', [{ipaddr, {"127.0.0.1", _I, _I}},
+    {allow, {'or', [{ipaddr, {{127,0,0,1}, {127,0,0,1}, 32}},
                     {user, <<"user">>}]}, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]} =
         compile({allow, {'or', [{ipaddr, "127.0.0.1"}, {user, <<"user">>}]}, subscribe, ["$SYS/#", "#"]}),
 
-    {allow, {ipaddr, {"127.0.0.1", _I, _I}}, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]} =
+    {allow, {ipaddr, {{127,0,0,1}, {127,0,0,1}, 32}}, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]} =
         compile({allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]}),
     {allow, {user, <<"testuser">>}, subscribe, [ [<<"a">>, <<"b">>, <<"c">>], [<<"d">>, <<"e">>, <<"f">>, '#'] ]} =
         compile({allow, {user, "testuser"}, subscribe, ["a/b/c", "d/e/f/#"]}),

@@ -19,23 +19,23 @@ Download Packages
 
 Download binary packages from: http://emqtt.io/downloads
 
-+-----------+-----------------------------------+
-| Debian    | http://emqtt.io/downloads/debian  |
-+-----------+-----------------------------------+
-| Ubuntu    | http://emqtt.io/downloads/ubuntu  |
-+-----------+-----------------------------------+
-| CentOS    | http://emqtt.io/downloads/centos  |
-+-----------+-----------------------------------+
-| FreeBSD   | http://emqtt.io/downloads/freebsd |
-+-----------+-----------------------------------+
-| Mac OS X  | http://emqtt.io/downloads/macosx  |
-+-----------+-----------------------------------+
-| Windows   | http://emqtt.io/downloads/windows |
-+-----------+-----------------------------------+
++-----------+------------------------------------------+
+| Debian    | http://emqtt.io/downloads/latest/debian  |
++-----------+------------------------------------------+
+| Ubuntu    | http://emqtt.io/downloads/latest/ubuntu  |
++-----------+------------------------------------------+
+| CentOS    | http://emqtt.io/downloads/latest/centos  |
++-----------+------------------------------------------+
+| FreeBSD   | http://emqtt.io/downloads/latest/freebsd |
++-----------+------------------------------------------+
+| Mac OS X  | http://emqtt.io/downloads/latest/macosx  |
++-----------+------------------------------------------+
+| Windows   | http://emqtt.io/downloads/latest/windows |
++-----------+------------------------------------------+
 
 The package name consists of platform, version and release time.
 
-For example: emqttd-centos64-0.16.0-beta-20160216.zip
+For example: emqttd-centos64-1.1-beta-20160601.zip
 
 .. _install_on_linux:
 
@@ -43,11 +43,11 @@ For example: emqttd-centos64-0.16.0-beta-20160216.zip
 Installing on Linux
 -------------------
 
-Download CentOS Package from: http://emqtt.io/downloads/centos, and then unzip:
+Download CentOS Package from: http://emqtt.io/downloads/latest/centos, and then unzip:
 
 .. code-block:: bash
 
-    unzip emqttd-centos64-0.16.0-beta-20160216.zip
+    unzip emqttd-centos64-1.1-beta-20160601.zip
 
 Start the broker in console mode:
 
@@ -80,7 +80,7 @@ If the broker is started successfully, console will print:
     mqtt listen on 0.0.0.0:1883 with 16 acceptors.
     mqtts listen on 0.0.0.0:8883 with 4 acceptors.
     http listen on 0.0.0.0:8083 with 4 acceptors.
-    Erlang MQTT Broker 0.16.0 is running now
+    Erlang MQTT Broker 1.1 is running now
     Eshell V6.4  (abort with ^G)
     (emqttd@127.0.0.1)1>
 
@@ -100,7 +100,7 @@ Check the running status of the broker:
 
     $ ./bin/emqttd_ctl status
     Node 'emqttd@127.0.0.1' is started
-    emqttd 0.16.0 is running
+    emqttd 1.1 is running
 
 Or check the status by URL::
 
@@ -116,7 +116,7 @@ Stop the broker::
 Installing on FreeBSD
 ---------------------
 
-Download FreeBSD Package from: http://emqtt.io/downloads/freebsd
+Download FreeBSD Package from: http://emqtt.io/downloads/latest/freebsd
 
 The installing process is same to Linux.
 
@@ -128,7 +128,7 @@ Installing on Mac OS X
 
 We could install the broker on Mac OS X to develop and debug MQTT applications.
 
-Download Mac Package from: http://emqtt.io/downloads/macosx
+Download Mac Package from: http://emqtt.io/downloads/latest/macosx
 
 Configure 'lager' log level in 'etc/emqttd.config', all MQTT messages recevied/sent will be printed on console:
 
@@ -150,7 +150,7 @@ The install and boot process on Mac are same to Linux.
 Installing on Windows
 ---------------------
 
-Download Package from: http://emqtt.io/downloads/windows.
+Download Package from: http://emqtt.io/downloads/latest/windows.
 
 Unzip the package to install folder. Open the command line window and 'cd' to the folder.
 

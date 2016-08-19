@@ -1,15 +1,19 @@
 
-## Overview [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)  [![Join the chat at https://gitter.im/emqtt/emqttd](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/emqtt/emqttd?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+## Overview [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
 
 emqttd is a massively scalable and clusterable MQTT V3.1/V3.1.1 broker written in Erlang/OTP.
 
 emqttd is fully open source and licensed under the Apache Version 2.0. emqttd implements both MQTT V3.1 and V3.1.1 protocol specifications, and supports WebSocket, STOMP, SockJS, CoAP and MQTT-SN at the same time.
 
-emqttd requires Erlang R17+ to build.
-
-Demo Server: tcp://t.emqtt.io:1883
+emqttd requires Erlang R18+ to build since 1.1 release.
 
 Follow us on Twitter: [@emqtt](https://twitter.com/emqtt)
+
+## Cluster
+
+The **q.emqtt.com** hosts a public emqttd cluster on [QingCloud](https://qingcloud.com):
+
+![qing_cluster](http://emqtt.io/static/img/public_cluster.png)
 
 ## Goals
 
@@ -37,7 +41,7 @@ The emqttd project is aimed to implement a scalable, distributed, extensible ope
 * IpAddress Authentication
 * Username and Password Authentication
 * Access control based on IpAddress, ClientID, Username
-* Authentication with LDAP, Redis, MySQL, PostgreSQL
+* Authentication with LDAP, Redis, MySQL, PostgreSQL and HTTP API
 * Cluster brokers on several servers
 * Bridge brokers locally or remotely
 * mosquitto, RSMB bridge
@@ -65,9 +69,11 @@ Plugin                                                                    | Desc
 [emqttd_plugin_pgsql](https://github.com/emqtt/emqttd_plugin_pgsql)       | PostgreSQL Authentication/ACL Plugin
 [emqttd_plugin_redis](https://github.com/emqtt/emqttd_plugin_redis)       | Redis Authentication/ACL Plugin
 [emqttd_plugin_mongo](https://github.com/emqtt/emqttd_plugin_mongo)       | MongoDB Authentication/ACL Plugin
+[emqttd_auth_http](https://github.com/emqtt/emqttd_auth_http)             | Authentication/ACL by HTTP API
 [emqttd_stomp](https://github.com/emqtt/emqttd_stomp)                     | Stomp Protocol Plugin
 [emqttd_sockjs](https://github.com/emqtt/emqttd_sockjs)                   | SockJS(Stomp) Plugin
 [emqttd_recon](https://github.com/emqtt/emqttd_recon)                     | Recon Plugin
+[emqttd_reloader](https://github.com/emqtt/emqttd_reloader)               | Reloader Plugin
 
 ## Dashboard
 
@@ -81,7 +87,7 @@ Default Login/Password: admin/public
 
 ## Design
 
-![emqttd architecture](http://emqtt.io/static/img/Architecture.png)
+![emqttd architecture](http://emqtt.io/static/img/architecture.png)
 
 ## QuickStart
 
@@ -90,7 +96,7 @@ Download binary package for Linux, Mac and Freebsd from [http://emqtt.io/downloa
 Installing on Ubuntu64, for example:
 
 ```sh
-unzip emqttd-macosx-0.16.0-beta-20160216.zip && cd emqttd
+unzip emqttd-ubuntu64-0.16.0-beta-20160216.zip && cd emqttd
 
 # start console
 ./bin/emqttd console
@@ -153,6 +159,10 @@ Benchmark Report: [benchmark for 0.12.0 release](https://github.com/emqtt/emqttd
 * [@huangdan](https://github.com/huangdan)
 * [@phanimahesh](https://github.com/phanimahesh)
 * [@dvliman](https://github.com/dvliman)
+
+## Partners
+
+[QingCloud](https://qingcloud.com) is the world’s first IaaS provider that can deliver any number of IT resources in seconds and adopts a second-based billing system. QingCloud is committed to providing a reliable, secure, on-demand and real-time IT resource platform with excellent performance, which includes all components of a complete IT infrastructure system: computing, storage, networking and security.
 
 ## Author
 

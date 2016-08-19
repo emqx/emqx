@@ -5,7 +5,192 @@
 Changes
 =======
 
-.. _release_1.0.1:
+.. _release_1.1.3:
+
+-------------
+Version 1.1.3
+-------------
+
+*Release Date: 2016-08-19*
+
+Support './bin/emqttd_ctl users list' CLI (#621)
+
+Cannot publish payloads with a size of the order 64K using WebSockets (#643)
+
+Optimize the procedures that retrieve the Broker version and Borker description in the tick timer (PR#627)
+
+Fix SSL certfile, keyfile config (#651)
+
+-------------
+Version 1.1.2
+-------------
+
+.. _release_1.1.2:
+
+-------------
+Version 1.1.2
+-------------
+
+*Release Date: 2016-06-30*
+
+Upgrade mysql-otp driver to 1.2.0 (#564, #523, #586, #596)
+
+Fix WebSocket Client Leak (PR #612)
+
+java.io.EOFException using paho java client (#551)
+
+Send message from paho java client to javascript client (#552)
+
+Compatible with the Qos0 PUBREL packet (#575)
+
+Empty clientId with non-clean session accepted (#599)
+
+Update docs to fix typos (#601, #607)
+
+.. _release_1.1.1:
+
+-------------
+Version 1.1.1
+-------------
+
+*Release Date: 2016-06-04*
+
+Compatible with the Qos0 PUBREL packet (#575)
+
+phpMqtt Client Compatibility (#572)
+
+java.io.EOFException using paho java client (#551)
+
+.. _release_1.1:
+
+-----------
+Version 1.1
+-----------
+
+*Release Date: 2016-06-01*
+
+Highlights
+----------
+
+Upgrade eSockd library to 4.0 and Support IPv6
+
+Support to listen on specific IP Address::
+
+    {mqtt, {"192.168.1.20", 1883}, [
+        ...
+    ]},
+
+Add MongoDB, HTTP Authentication/ACL Plugins
+
+Upgrade MySQL, PostgreSQL, Redis Plugins to support superuser authentication and avoid SQL Injection
+
+Enhancements
+------------
+
+Allow human-friendly IP addresses (PR#395)
+
+File operation error: emfile (#445)
+
+emqttd_plugin_mongo not found in emqttd (#489)
+
+emqttd_plugin_mongo Error While Loading in emqttd (#505)
+
+Feature request: HTTP Authentication (#541)
+
+Compatible with the Qos0 PUBREL packet (#575)
+
+Bugfix
+------
+
+Bugfix: function_clause exception occurs when registering a duplicated authentication module (#542)
+
+Bugfix: ./emqttd_top msg_q result: {"init terminating in do_boot",{undef,[{etop,start,[],[]},{init,start_it,1,[]},{init,start_em,1,[]}]}} (#557)
+
+Tests
+-----
+
+111 common test cases.
+
+Dashboard Plugin
+----------------
+
+WebSocket Page: Support 'Clean Session', Qos, Retained parameters (emqttd_dashboard#52)
+
+Upgrade eSockd library to 4.0, Show OTP Release on Overview Page (emqttd_dashboard#61)
+
+Changing dashboard credentials for username authentication (emqttd_dashboard#56)
+
+Add './bin/emqttd_ctl admins' CLI，support to add/delete admins
+
+HTTP Auth Plugin
+----------------
+
+Authentication/ACL by HTTP API: https://github.com/emqtt/emqttd_auth_http
+
+MongoDB Plugin
+--------------
+
+Upgrade Erlang MongoDB driver to v1.0.0
+
+Support superuser authentication
+
+Support ACL (emqttd_plugin_mongo#3)
+
+MySQL Plugin
+------------
+
+Support superuser authentication
+
+Use parameterized query to avoid SQL Injection
+
+Postgre Plugin
+--------------
+
+Support superuser authentication
+
+Use parameterized query to avoid SQL Injection
+
+Redis Plugin
+------------
+
+Support superuser authentication
+
+Support ClientId authentication by '%c' variable
+
+Reloader Plugin
+---------------
+
+Reload modified modules during development automatically.
+
+.. _release_1.0.3:
+
+-------------
+Version 1.0.3
+-------------
+
+*Release Date: 2016-05-23*
+
+eSockd 3.2
+
+MochiWeb 4.0.1
+
+.. _release_1.0.2:
+
+-------------
+Version 1.0.2
+-------------
+
+*Release Date: 2016-05-04*
+
+Issue#534 - './bin/emqttd_ctl vm' - add 'port/count', 'port/limit' statistics
+
+Issue#535 - emqttd_client should be terminated properly even if exception happened when sending data
+
+PR#519 - The erlang '-name' requires the fully qualified host name
+
+emqttd_reloader plugin - help reload modified modules during development.
+
+.. _release_l.0.1:
 
 -------------
 Version 1.0.1

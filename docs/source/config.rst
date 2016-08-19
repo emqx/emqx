@@ -30,9 +30,12 @@ etc/vm.args
 Configure and Optimize Erlang VM::
 
     ##-------------------------------------------------------------------------
-    ## Name of the node
+    ## Name of the node: Name@Host
     ##-------------------------------------------------------------------------
     -name emqttd@127.0.0.1
+
+    # or
+    #-name emqttd@localhost.
 
     ## Cookie for distributed erlang
     -setcookie emqttdsecretcookie
@@ -108,7 +111,7 @@ This is the main emqttd broker configuration file.
 File Syntax
 -----------
 
-The file users the standard Erlang config syntax, consists of a list of erlang applications and their environments.
+The file use the standard Erlang config syntax and consists of a list of erlang applications and their environments.
 
 .. code-block:: erlang
 
@@ -367,8 +370,8 @@ MQTT Session
         %% Interval of Statistics Collection(seconds)
         {collect_interval, 20},
 
-        %% Expired after 2 days
-        {expired_after, 48}
+        %% Expired after 2 day (unit: minute)
+        {expired_after, 2880}
 
     ]},
 
@@ -386,7 +389,7 @@ Session parameters:
 +----------------------+----------------------------------------------------------+
 | collect_interval     | Interval of Statistics Collection                        |
 +----------------------+----------------------------------------------------------+
-| expired_after        | Expired after                                            |
+| expired_after        | Expired after (unit: minute)                             |
 +----------------------+----------------------------------------------------------+
 
 MQTT Message Queue
@@ -538,7 +541,7 @@ Plugins Folder
 TCP Listeners
 -------------
 
-Congfigure the TCP listeners for MQTT, MQTT(SSL) and HTTP Protocols.
+Configure the TCP listeners for MQTT, MQTT(SSL) and HTTP Protocols.
 
 The most important parameter is 'max_clients' - max concurrent clients allowed.
 

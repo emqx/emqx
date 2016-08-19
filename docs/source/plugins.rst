@@ -16,17 +16,23 @@ The plugins that emqtt project released:
 +---------------------------+---------------------------+
 | `emqttd_dashboard`_       | Web Dashboard             |
 +---------------------------+---------------------------+
+| `emqttd_auth_http`_       | HTTP Auth/ACL Plugin      |
++---------------------------+---------------------------+
 | `emqttd_plugin_mysql`_    | MySQL Auth/ACL Plugin     |
 +---------------------------+---------------------------+
 | `emqttd_plugin_pgsql`_    | PostgreSQL Auth/ACL Plugin|
 +---------------------------+---------------------------+
 | `emqttd_plugin_redis`_    | Redis Auth/ACL Plugin     |
 +---------------------------+---------------------------+
+| `emqttd_plugin_mongo`_    | MongoDB Auth/ACL Plugin   |
++---------------------------+---------------------------+
 | `emqttd_stomp`_           | STOMP Protocol Plugin     |
 +---------------------------+---------------------------+
 | `emqttd_sockjs`_          | STOMP over SockJS Plugin  |
 +---------------------------+---------------------------+
 | `emqttd_recon`_           | Recon Plugin              |
++---------------------------+---------------------------+
+| `emqttd_reloader`_        | Reloader Plugin           |
 +---------------------------+---------------------------+
 
 ----------------------------------------
@@ -81,10 +87,6 @@ emqttd_dashboard/etc/plugin.config:
 
     [
       {emqttd_dashboard, [
-        {default_admin, [
-          {login, "admin"},
-          {password, "public"}
-        ]},
         {listener,
           {emqttd_dashboard, 18083, [
             {acceptors, 4},
@@ -92,6 +94,75 @@ emqttd_dashboard/etc/plugin.config:
         }
       ]}
     ].
+
+---------------------------------------
+emqttd_auth_http - HTTP Auth/ACL Plugin
+---------------------------------------
+
+MQTT Authentication/ACL with HTTP API: https://github.com/emqtt/emqttd_auth_http
+
+.. NOTE:: Supported in 1.1 release
+
+Configure emqttd_auth_http/etc/plugin.config
+--------------------------------------------
+
+.. code:: erlang
+
+    [
+
+      {emqttd_auth_http, [
+
+        %% Variables: %u = username, %c = clientid, %a = ipaddress, %t = topic
+
+        {super_req, [
+          {method, post},
+          {url, "http://localhost:8080/mqtt/superuser"},
+          {params, [
+            {username, "%u"},
+            {clientid, "%c"}
+          ]}
+        ]},
+
+        {auth_req, [
+          {method, post},
+          {url, "http://localhost:8080/mqtt/auth"},
+          {params, [
+            {clientid, "%c"},
+            {username, "%u"},
+            {password, "%P"}
+          ]}
+        ]},
+
+        %% 'access' parameter: sub = 1, pub = 2
+
+        {acl_req, [
+          {method, post},
+          {url, "http://localhost:8080/mqtt/acl"},
+          {params, [
+            {access,   "%A"},
+            {username, "%u"},
+            {clientid, "%c"},
+            {ipaddr,   "%a"},
+            {topic,    "%t"}
+          ]}
+        ]}
+      ]}
+
+    ].
+
+HTTP API
+--------
+
+Return 200 if ok
+
+Return 4xx if unauthorized
+
+Load emqttd_auth_http plugin
+----------------------------
+
+.. code:: bash
+
+    ./bin/emqttd_ctl plugins load emqttd_auth_http
 
 -------------------------------------------
 emqttd_plugin_mysql - MySQL Auth/ACL Plugin
@@ -109,6 +180,7 @@ MQTT User Table
       `username` varchar(100) DEFAULT NULL,
       `password` varchar(100) DEFAULT NULL,
       `salt` varchar(20) DEFAULT NULL,
+      `is_superuser` tinyint(1) DEFAULT 0,
       `created` datetime DEFAULT NULL,
       PRIMARY KEY (`id`),
       UNIQUE KEY `mqtt_username` (`username`)
@@ -130,6 +202,14 @@ MQTT ACL Table
       PRIMARY KEY (`id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
+    INSERT INTO `mqtt_acl` (`id`, `allow`, `ipaddr`, `username`, `clientid`, `access`, `topic`)
+    VALUES
+        (1,1,NULL,'$all',NULL,2,'#'),
+        (2,0,NULL,'$all',NULL,1,'$SYS/#'),
+        (3,0,NULL,'$all',NULL,1,'eq #'),
+        (5,1,'127.0.0.1',NULL,NULL,2,'$SYS/#'),
+        (6,1,'127.0.0.1',NULL,NULL,2,'#'),
+        (7,1,NULL,'dashboard',NULL,1,'$SYS/#');
 
 Configure emqttd_plugin_mysql/etc/plugin.config
 -----------------------------------------------
@@ -140,11 +220,11 @@ Configure MySQL host, username, password and database:
 
     [
 
-    {emqttd_plugin_mysql, [
+      {emqttd_plugin_mysql, [
 
         {mysql_pool, [
             %% ecpool options
-            {pool_size, 4},
+            {pool_size, 8},
             {auto_reconnect, 3},
 
             %% mysql options
@@ -156,10 +236,15 @@ Configure MySQL host, username, password and database:
             {encoding, utf8}
         ]},
 
-        %% select password only
+        %% Variables: %u = username, %c = clientid, %a = ipaddress
+
+        %% Superuser Query
+        {superquery, "select is_superuser from mqtt_user where username = '%u' limit 1"},
+
+        %% Authentication Query: select password only
         {authquery, "select password from mqtt_user where username = '%u' limit 1"},
 
-        %% hash algorithm: md5, sha, sha256, pbkdf2?
+        %% hash algorithm: plain, md5, sha, sha256, pbkdf2?
         {password_hash, sha256},
 
         %% select password with salt
@@ -171,12 +256,15 @@ Configure MySQL host, username, password and database:
         %% sha256 with salt suffix
         %% {password_hash, {sha256, salt}},
 
-        %% comment this query, the acl will be disabled
-        {aclquery, "select * from mqtt_acl where ipaddr = '%a' or username = '%u' or username = '$all' or clientid = '%c'"},
+        %% '%a' = ipaddress, '%u' = username, '%c' = clientid
+        %% Comment this query, the acl will be disabled
+        {aclquery, "select allow, ipaddr, username, clientid, access, topic from mqtt_acl where ipaddr = '%a' or username = '%u' or username = '$all' or clientid = '%c'"},
 
-        %% If no rules matched, return...
+        %% If no ACL rules matched, return...
         {acl_nomatch, allow}
-    ]}
+
+      ]}
+
     ].
 
 Load emqttd_plugin_mysql plugin
@@ -199,6 +287,7 @@ MQTT User Table
 
     CREATE TABLE mqtt_user (
       id SERIAL primary key,
+      is_superuser boolean,
       username character varying(100),
       password character varying(100),
       salt character varying(40)
@@ -240,23 +329,29 @@ Configure host, username, password and database of PostgreSQL:
       {emqttd_plugin_pgsql, [
 
         {pgsql_pool, [
-          %% ecpool options
-          {pool_size, 4},
-          {auto_reconnect, 3},
+            %% ecpool options
+            {pool_size, 8},
+            {auto_reconnect, 3},
 
-          %% pgsql options
-          {host, "localhost"},
-          {port, 5432},
-          {username, "feng"},
-          {password, ""},
-          {database, "mqtt"},
-          {encoding,  utf8}
+            %% pgsql options
+            {host, "localhost"},
+            {port, 5432},
+            {ssl, false},
+            {username, "feng"},
+            {password, ""},
+            {database, "mqtt"},
+            {encoding,  utf8}
         ]},
 
-        %% select password only
+        %% Variables: %u = username, %c = clientid, %a = ipaddress
+
+        %% Superuser Query
+        {superquery, "select is_superuser from mqtt_user where username = '%u' limit 1"},
+
+        %% Authentication Query: select password only
         {authquery, "select password from mqtt_user where username = '%u' limit 1"},
 
-        %% hash algorithm: md5, sha, sha256, pbkdf2?
+        %% hash algorithm: plain, md5, sha, sha256, pbkdf2?
         {password_hash, sha256},
 
         %% select password with salt
@@ -288,7 +383,7 @@ Load emqttd_plugin_pgsql Plugin
 emqttd_plugin_redis - Redis Auth/ACL Plugin
 -------------------------------------------
 
-MQTT Authentication, ACL with Redis.
+MQTT Authentication, ACL with Redis: https://github.com/emqtt/emqttd_plugin_redis
 
 Configure emqttd_plugin_redis/etc/plugin.config
 -----------------------------------------------
@@ -310,6 +405,11 @@ Configure emqttd_plugin_redis/etc/plugin.config
           {password, ""}
         ]},
 
+        %% Variables: %u = username, %c = clientid
+
+        %% HMGET mqtt_user:%u is_superuser
+        {supercmd, ["HGET", "mqtt_user:%u", "is_superuser"]},
+
         %% HMGET mqtt_user:%u password
         {authcmd, ["HGET", "mqtt_user:%u", "password"]},
 
@@ -322,17 +422,36 @@ Configure emqttd_plugin_redis/etc/plugin.config
         %% If no rules matched, return...
         {acl_nomatch, deny},
 
-        %% Store subscriptions to redis when SUBSCRIBE packets received.
-        {subcmd, ["HMSET", "mqtt_subs:%u"]},
-
         %% Load Subscriptions form Redis when client connected.
-        {loadsub, ["HGETALL", "mqtt_subs:%u"]},
-
-        %% Remove subscriptions from redis when UNSUBSCRIBE packets received.
-        {unsubcmd, ["HDEL", "mqtt_subs:%u"]}
-
+        {subcmd, ["HGETALL", "mqtt_subs:%u"]}
       ]}
     ].
+
+User HASH
+---------
+
+Set a 'user' hash with 'password' field, for example::
+
+    HSET mqtt_user:<username> is_superuser 1
+    HSET mqtt_user:<username> password "passwd"
+
+ACL Rule SET
+------------
+
+The plugin uses a redis SET to store ACL rules::
+
+    SADD mqtt_acl:<username> "publish topic1"
+    SADD mqtt_acl:<username> "subscribe topic2"
+    SADD mqtt_acl:<username> "pubsub topic3"
+
+Subscription HASH
+-----------------
+
+The plugin can store static subscriptions in a redis Hash::
+
+    HSET mqtt_subs:<username> topic1 0
+    HSET mqtt_subs:<username> topic2 1
+    HSET mqtt_subs:<username> topic3 2
 
 Load emqttd_plugin_redis Plugin
 -------------------------------
@@ -340,6 +459,114 @@ Load emqttd_plugin_redis Plugin
 .. code-block:: bash
 
     ./bin/emqttd_ctl plugins load emqttd_plugin_redis
+
+---------------------------------------------
+emqttd_plugin_mongo - MongoDB Auth/ACL Plugin
+---------------------------------------------
+
+MQTT Authentication, ACL with MongoDB: https://github.com/emqtt/emqttd_plugin_mongo
+
+Configure emqttd_plugin_mongo/etc/plugin.config
+-----------------------------------------------
+
+.. code-block:: erlang
+
+    [
+      {emqttd_plugin_mongo, [
+
+        {mongo_pool, [
+          {pool_size, 8},
+          {auto_reconnect, 3},
+
+          %% Mongodb Driver Opts
+          {host, "localhost"},
+          {port, 27017},
+          %% {login, ""},
+          %% {password, ""},
+          {database, "mqtt"}
+        ]},
+
+        %% Variables: %u = username, %c = clientid
+
+        %% Superuser Query
+        {superquery, [
+          {collection, "mqtt_user"},
+          {super_field, "is_superuser"},
+          {selector, {"username", "%u"}}
+        ]},
+
+        %% Authentication Query
+        {authquery, [
+          {collection, "mqtt_user"},
+          {password_field, "password"},
+          %% Hash Algorithm: plain, md5, sha, sha256, pbkdf2?
+          {password_hash, sha256},
+          {selector, {"username", "%u"}}
+        ]},
+
+        %% ACL Query: "%u" = username, "%c" = clientid
+        {aclquery, [
+          {collection, "mqtt_acl"},
+          {selector, {"username", "%u"}}
+        ]},
+
+        %% If no ACL rules matched, return...
+        {acl_nomatch, deny}
+
+      ]}
+    ].
+
+MongoDB Database
+----------------
+
+.. code-block::
+
+    use mqtt
+    db.createCollection("mqtt_user")
+    db.createCollection("mqtt_acl")
+    db.mqtt_user.ensureIndex({"username":1})
+
+User Collection
+---------------
+
+.. code-block:: json
+
+    {
+        username: "user",
+        password: "password hash",
+        is_superuser: boolean (true, false),
+        created: "datetime"
+    }
+
+For example::
+
+    db.mqtt_user.insert({username: "test", password: "password hash", is_superuser: false})
+    db.mqtt_user:insert({username: "root", is_superuser: true})
+
+ACL Collection
+--------------
+
+.. code-block:: json
+
+    {
+        username: "username",
+        clientid: "clientid",
+        publish: ["topic1", "topic2", ...],
+        subscribe: ["subtop1", "subtop2", ...],
+        pubsub: ["topic/#", "topic1", ...]
+    }
+
+For example::
+
+    db.mqtt_acl.insert({username: "test", publish: ["t/1", "t/2"], subscribe: ["user/%u", "client/%c"]})
+    db.mqtt_acl.insert({username: "admin", pubsub: ["#"]})
+
+Load emqttd_plugin_mongo Plugin
+-------------------------------
+
+.. code-block:: bash
+
+    ./bin/emqttd_ctl plugins load emqttd_plugin_mongo
 
 -----------------------------
 emqttd_stomp - STOMP Protocol
@@ -454,6 +681,29 @@ Recon CLI
     recon node_stats             #recon:node_stats(10, 1000)
     recon remote_load Mod        #recon:remote_load(Mod)
 
+---------------------------------
+emqttd_reloader - Reloader Plugin
+---------------------------------
+
+Erlang Module Reloader for Development
+
+.. NOTE:: Don't load the plugin in production!
+
+Load emqttd_reloader Plugin
+---------------------------
+
+.. code-block:: bash
+
+    ./bin/emqttd_ctl plugins load emqttd_reloader
+
+reload CLI
+----------
+
+.. code-block:: bash
+
+    ./bin/emqttd_ctl reload
+
+    reload <Module>             # Reload a Module
 
 ------------------------
 Plugin Development Guide
@@ -602,11 +852,15 @@ There will be a new CLI after the plugin loaded::
 
 
 .. _emqttd_dashboard:       https://github.com/emqtt/emqttd_dashboard
+.. _emqttd_auth_http:       https://github.com/emqtt/emqttd_auth_http
 .. _emqttd_plugin_mysql:    https://github.com/emqtt/emqttd_plugin_mysql
 .. _emqttd_plugin_pgsql:    https://github.com/emqtt/emqttd_plugin_pgsql
 .. _emqttd_plugin_redis:    https://github.com/emqtt/emqttd_plugin_redis
+.. _emqttd_plugin_mongo:    https://github.com/emqtt/emqttd_plugin_mongo
 .. _emqttd_stomp:           https://github.com/emqtt/emqttd_stomp
 .. _emqttd_sockjs:          https://github.com/emqtt/emqttd_sockjs
 .. _emqttd_recon:           https://github.com/emqtt/emqttd_recon
+.. _emqttd_reloader:        https://github.com/emqtt/emqttd_reloader
 .. _emqttd_plugin_template: https://github.com/emqtt/emqttd_plugin_template
 .. _recon:                  http://ferd.github.io/recon/
+

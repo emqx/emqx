@@ -368,7 +368,7 @@ vm([]) ->
     vm(["all"]);
 
 vm(["all"]) ->
-    [vm([Name]) || Name <- ["load", "memory", "process", "io"]];
+    [vm([Name]) || Name <- ["load", "memory", "process", "io", "ports"]];
 
 vm(["load"]) ->
     [?PRINT("cpu/~-20s: ~s~n", [L, V]) || {L, V} <- emqttd_vm:loads()];
@@ -387,12 +387,18 @@ vm(["io"]) ->
                 ?PRINT("io/~-21s: ~w~n", [Key, get_value(Key, IoInfo)])
             end, [max_fds, active_fds]);
 
+vm(["ports"]) ->
+    foreach(fun({Name, Key}) ->
+                ?PRINT("ports/~-16s: ~w~n", [Name, erlang:system_info(Key)])
+            end, [{count, port_count}, {limit, port_limit}]);
+
 vm(_) ->
-    ?USAGE([{"vm all",     "Show info of erlang vm"},
-            {"vm load",    "Show load of erlang vm"},
-            {"vm memory",  "Show memory of erlang vm"},
-            {"vm process", "Show process of erlang vm"},
-            {"vm io",      "Show IO of erlang vm"}]).
+    ?USAGE([{"vm all",     "Show info of Erlang VM"},
+            {"vm load",    "Show load of Erlang VM"},
+            {"vm memory",  "Show memory of Erlang VM"},
+            {"vm process", "Show process of Erlang VM"},
+            {"vm io",      "Show IO of Erlang VM"},
+            {"vm ports",   "Show Ports of Erlang VM"}]).
 
 %%--------------------------------------------------------------------
 %% @doc mnesia Command
@@ -447,12 +453,12 @@ trace_off(Who, Name) ->
 %%--------------------------------------------------------------------
 %% @doc Listeners Command
 listeners([]) ->
-    foreach(fun({{Protocol, Port}, Pid}) ->
+    foreach(fun({{Protocol, ListenOn}, Pid}) ->
                 Info = [{acceptors,      esockd:get_acceptors(Pid)},
                         {max_clients,    esockd:get_max_clients(Pid)},
                         {current_clients,esockd:get_current_clients(Pid)},
                         {shutdown_count, esockd:get_shutdown_count(Pid)}],
-                ?PRINT("listener on ~s:~w~n", [Protocol, Port]),
+                ?PRINT("listener on ~s:~s~n", [Protocol, esockd:to_string(ListenOn)]),
                 foreach(fun({Key, Val}) ->
                             ?PRINT("  ~-16s: ~w~n", [Key, Val])
                         end, Info)
