@@ -53,20 +53,19 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
+    ok = emqttd_mnesia:create_table(mqtt_topic, [
+                {ram_copies, [node()]},
+                {record_name, mqtt_topic},
+                {attributes, record_info(fields, mqtt_topic)}]),
     ok = emqttd_mnesia:create_table(mqtt_route, [
                 {type, bag},
                 {ram_copies, [node()]},
                 {record_name, mqtt_route},
-                {attributes, record_info(fields, mqtt_route)}]),
-
-    ok = emqttd_mnesia:create_table(topic, [
-                {ram_copies, [node()]},
-                {record_name, mqtt_topic},
-                {attributes, record_info(fields, mqtt_topic)}]);
+                {attributes, record_info(fields, mqtt_route)}]);
 
 mnesia(copy) ->
-    ok = emqttd_mnesia:copy_table(mqtt_route, ram_copies),
-    ok = emqttd_mnesia:copy_table(topic).
+    ok = emqttd_mnesia:copy_table(topic),
+    ok = emqttd_mnesia:copy_table(mqtt_route, ram_copies).
 
 %%--------------------------------------------------------------------
 %% Start the Router
@@ -126,7 +125,8 @@ add_route_(Route = #mqtt_route{topic = Topic}) ->
                 true  -> emqttd_trie:insert(Topic);
                 false -> ok
             end,
-            mnesia:write(Route);
+            mnesia:write(Route),
+            mnesia:write(#mqtt_topic{topic = Topic});
         Records ->
             case lists:member(Route, Records) of
                 true  -> ok;
@@ -164,7 +164,8 @@ del_route_(Route = #mqtt_route{topic = Topic}) ->
             case emqttd_topic:wildcard(Topic) of
                 true  -> emqttd_trie:delete(Topic);
                 false -> ok
-            end;
+            end,
+            mnesia:delete({mqtt_topic, Topic});
         _More ->
             %% Remove route only
             mnesia:delete_object(Route)
