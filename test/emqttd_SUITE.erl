@@ -32,6 +32,7 @@ all() ->
      {group, metrics},
      {group, stats},
      {group, hook},
+     {group, http},
      %%{group, backend},
      {group, cli}].
 
@@ -61,6 +62,7 @@ groups() ->
       [dispatch_retained_messages]},
      {backend, [sequence],
       []},
+    {http, [sequence], [request_status]},
      {cli, [sequence],
       [ctl_register_cmd,
        cli_status,
@@ -310,7 +312,26 @@ dispatch_retained_messages(_) ->
     [] = emqttd_retainer:read_messages(<<"a/b/c">>).
 
 
-%% CLI Group
+%%--------------------------------------------------------------------
+%%http  request Test
+%%--------------------------------------------------------------------
+
+request_status(_) ->
+    {InternalStatus, _ProvidedStatus} = init:get_status(),
+    AppStatus =
+    case lists:keysearch(emqttd, 1, application:which_applications()) of
+        false         -> not_running;
+        {value, _Val} -> running
+    end,
+    Status = iolist_to_binary(io_lib:format("Node ~s is ~s~nemqttd is ~s",
+            [node(), InternalStatus, AppStatus])),
+    Url = "http://127.0.0.1:8083/status",
+    {ok, {{"HTTP/1.1", 200, "OK"}, _, Return}} =
+    httpc:request(get, {Url, []}, [], []),
+    ?assertEqual(binary_to_list(Status), Return).
+
+
+%% cli group
 %%--------------------------------------------------------------------
 
 ctl_register_cmd(_) ->
