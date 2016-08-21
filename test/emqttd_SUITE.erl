@@ -58,9 +58,7 @@ groups() ->
       [add_delete_hook,
        run_hooks]},
      {retainer, [sequence],
-      [retain_messages,
-       dispatch_retained_messages,
-       expire_retained_messages]},
+      [dispatch_retained_messages]},
      {backend, [sequence],
       []},
      {cli, [sequence],
@@ -302,14 +300,6 @@ hook_fun5(arg1, arg2, Acc, init)  -> {stop, [r3 | Acc]}.
 %% Retainer Test
 %%--------------------------------------------------------------------
 
-retain_messages(_) ->
-    Msg = emqttd_message:make(<<"clientId">>, <<"topic">>, <<"payload">>),
-    emqttd_backend:retain_message(Msg),
-    [Msg] = emqttd_backend:read_messages(<<"topic">>),
-    [Msg] = emqttd_backend:match_messages(<<"topic/#">>),
-    emqttd_backend:delete_message(<<"topic">>),
-    0 = emqttd_backend:retained_count().
-
 dispatch_retained_messages(_) ->
     Msg = #mqtt_message{retain = true, topic = <<"a/b/c">>,
                         payload = <<"payload">>},
@@ -317,19 +307,9 @@ dispatch_retained_messages(_) ->
     emqttd_retainer:dispatch(<<"a/b/+">>, self()),
     ?assert(receive {dispatch, <<"a/b/+">>, Msg} -> true after 10 -> false end),
     emqttd_retainer:retain(#mqtt_message{retain = true, topic = <<"a/b/c">>, payload = <<>>}),
-    [] = emqttd_backend:read_messages(<<"a/b/c">>).
-
-expire_retained_messages(_) ->
-    Msg1 = emqttd_message:make(<<"clientId1">>, qos1, <<"topic/1">>, <<"payload1">>),
-    Msg2 = emqttd_message:make(<<"clientId2">>, qos2, <<"topic/2">>, <<"payload2">>),
-    emqttd_backend:retain_message(Msg1),
-    emqttd_backend:retain_message(Msg2),
-    timer:sleep(2000),
-    emqttd_backend:expire_messages(emqttd_time:now_to_secs()),
-    0 = emqttd_backend:retained_count().
+    [] = emqttd_retainer:read_messages(<<"a/b/c">>).
 
 
-%%--------------------------------------------------------------------
 %% CLI Group
 %%--------------------------------------------------------------------
 
