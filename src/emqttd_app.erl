@@ -209,8 +209,7 @@ stop_listener({listener, Protocol, ListenOn, _Opts}) -> esockd:close(Protocol, L
 -include_lib("eunit/include/eunit.hrl").
 merge_sockopts_test_() ->
     Opts =  [{acceptors, 16}, {max_clients, 512}],
-    ?_assert(merge_sockopts(Opts) == [{sockopts, [binary, {packet, raw}, {reuseaddr, true},
-                    {backlog, 512}, {nodelay, true}]}, {acceptors, 16}, {max_clients, 512}]).
+    ?_assert(merge_sockopts(Opts) == [{sockopts, ?MQTT_SOCKOPTS} | Opts]).
 
 load_all_mods_test_() ->
     ?_assert(load_all_mods() == ok).
