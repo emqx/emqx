@@ -64,8 +64,6 @@ mnesia(boot) ->
                 {record_name, mqtt_topic},
                 {attributes, record_info(fields, mqtt_topic)}]);
 
-m
-
 mnesia(copy) ->
     ok = emqttd_mnesia:copy_table(mqtt_route, ram_copies),
     ok = emqttd_mnesia:copy_table(topic).
