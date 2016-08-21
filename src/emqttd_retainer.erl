@@ -32,7 +32,7 @@
 -copy_mnesia({mnesia, [copy]}).
 
 %% API Function Exports
--export([retain/1, dispatch/2]).
+-export([retain/1, read_messages/1, dispatch/2]).
 
 %% API Function Exports
 -export([start_link/0]).
