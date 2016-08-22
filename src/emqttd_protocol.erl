@@ -236,8 +236,8 @@ publish(Packet = ?PUBLISH_PACKET(?QOS_2, _PacketId), State) ->
 
 with_puback(Type, Packet = ?PUBLISH_PACKET(_Qos, PacketId),
             State = #proto_state{client_id = ClientId,
-                                 username = Username,
-                                 session = Session}) ->
+                                 username  = Username,
+                                 session   = Session}) ->
     Msg = emqttd_message:from_packet(Username, ClientId, Packet),
     case emqttd_session:publish(Session, Msg) of
         ok ->
@@ -256,10 +256,7 @@ send(Packet, State = #proto_state{sendfun = SendFun})
     when is_record(Packet, mqtt_packet) ->
     trace(send, Packet, State),
     emqttd_metrics:sent(Packet),
-    Data = emqttd_serializer:serialize(Packet),
-    ?LOG(debug, "SEND ~p", [Data], State),
-    emqttd_metrics:inc('bytes/sent', size(Data)),
-    SendFun(Data),
+    SendFun(Packet),
     {ok, State}.
 
 trace(recv, Packet, ProtoState) ->
