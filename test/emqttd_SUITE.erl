@@ -22,6 +22,8 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(CONTENT_TYPE, "application/x-www-form-urlencoded").
+
 all() ->
     [{group, protocol},
      {group, pubsub},
@@ -62,7 +64,10 @@ groups() ->
       [dispatch_retained_messages]},
      {backend, [sequence],
       []},
-    {http, [sequence], [request_status]},
+    {http, [sequence], 
+     [request_status,
+      request_publish
+     ]},
      {cli, [sequence],
       [ctl_register_cmd,
        cli_status,
@@ -329,6 +334,32 @@ request_status(_) ->
     {ok, {{"HTTP/1.1", 200, "OK"}, _, Return}} =
     httpc:request(get, {Url, []}, [], []),
     ?assertEqual(binary_to_list(Status), Return).
+
+request_publish(_) ->
+    ok = emqttd:subscribe(<<"a/b/c">>, self(), [{qos, 1}]),
+    Params = "qos=1&retain=0&topic=a/b/c&message=hello",
+    ?assert(connect_emqttd_publish_(post, "mqtt/publish", Params, auth_header_("", ""))),
+    ?assert(receive {dispatch, <<"a/b/c">>, _} -> true after 2 -> false end),
+    emqttd:unsubscribe(<<"a/b/c">>).
+
+connect_emqttd_publish_(Method, Api, Params, Auth) ->
+    Url = "http://127.0.0.1:8083/" ++ Api,
+    case httpc:request(Method, {Url, [Auth], ?CONTENT_TYPE, Params}, [], []) of
+    {error, socket_closed_remotely} ->
+        false;
+    {ok, {{"HTTP/1.1", 200, "OK"}, _, _Return} }  ->
+        true;
+    {ok, {{"HTTP/1.1", 400, _}, _, []}} ->
+        false;
+    {ok, {{"HTTP/1.1", 404, _}, _, []}} ->
+        false
+    end.
+	
+auth_header_(User, Pass) ->
+    Encoded = base64:encode_to_string(lists:append([User,":",Pass])),
+    {"Authorization","Basic " ++ Encoded}.
+
+
 
 
 %% cli group

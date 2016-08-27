@@ -66,7 +66,12 @@ init([MqttEnv, WsPid, Req, ReplyChannel]) ->
     {ok, Peername} = Req:get(peername),
     Headers = mochiweb_headers:to_list(
                 mochiweb_request:get(headers, Req)),
-    SendFun = fun(Payload) -> ReplyChannel({binary, Payload}) end,
+    %% SendFun = fun(Payload) -> ReplyChannel({binary, Payload}) end,
+    SendFun = fun(Packet) ->
+                  Data = emqttd_serializer:serialize(Packet),
+                  emqttd_metrics:inc('bytes/sent', size(Data)),
+                  ReplyChannel({binary, Data})
+              end,
     ProtoState = emqttd_protocol:init(Peername, SendFun,
                                       [{ws_initial_headers, Headers} | MqttEnv]),
     {ok, #wsclient_state{ws_pid = WsPid, peer = Req:get(peer),
