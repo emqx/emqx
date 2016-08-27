@@ -16,6 +16,8 @@
 
 -module(emqttd_lib_SUITE).
 
+-include_lib("eunit/include/eunit.hrl").
+
 -compile(export_all).
 
 -define(SOCKOPTS, [
@@ -35,7 +37,7 @@ all() -> [{group, guid}, {group, opts},
           {group, node}, {group, base62}].
 
 groups() ->
-    [{guid, [], [guid_gen]},
+    [{guid, [], [guid_gen, guid_hexstr, guid_base62]},
      {opts, [], [opts_merge]},
      {?PQ,  [], [priority_queue_plen,
                  priority_queue_out2]},
@@ -55,6 +57,14 @@ guid_gen(_) ->
     {Ts1, _, 0} = emqttd_guid:new(),
     Ts2 = emqttd_guid:timestamp(emqttd_guid:gen()),
     true = Ts2 > Ts1.
+
+guid_hexstr(_) ->
+    Guid = emqttd_guid:gen(),
+    ?assertEqual(Guid, emqttd_guid:from_hexstr(emqttd_guid:to_hexstr(Guid))).
+
+guid_base62(_) ->
+    Guid = emqttd_guid:gen(),
+    ?assertEqual(Guid, emqttd_guid:from_base62(emqttd_guid:to_base62(Guid))).
 
 %%--------------------------------------------------------------------
 %% emqttd_opts
