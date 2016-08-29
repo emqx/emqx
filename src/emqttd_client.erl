@@ -88,10 +88,9 @@ init([OriginConn, MqttEnv]) ->
     ConnName = esockd_net:format(PeerName),
     Self = self(),
 
-    %%TODO: Send packet...
+    %% Send Packet...
     SendFun = fun(Packet) ->
         Data = emqttd_serializer:serialize(Packet),
-        %%TODO: How to Log???
         ?LOG(debug, "SEND ~p", [Data], #client_state{connname = ConnName}),
         emqttd_metrics:inc('bytes/sent', size(Data)),
         try Connection:async_send(Data) of
