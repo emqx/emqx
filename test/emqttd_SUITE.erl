@@ -318,7 +318,7 @@ dispatch_retained_messages(_) ->
 
 
 %%--------------------------------------------------------------------
-%%http  request Test
+%% HTTP Request Test
 %%--------------------------------------------------------------------
 
 request_status(_) ->
@@ -359,10 +359,8 @@ auth_header_(User, Pass) ->
     Encoded = base64:encode_to_string(lists:append([User,":",Pass])),
     {"Authorization","Basic " ++ Encoded}.
 
-
-
-
-%% cli group
+%%--------------------------------------------------------------------
+%% Cli group
 %%--------------------------------------------------------------------
 
 ctl_register_cmd(_) ->
