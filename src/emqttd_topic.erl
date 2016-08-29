@@ -22,7 +22,7 @@
 
 -type topic() :: binary().
 
--type word()   :: '' | '+' | '#' | binary().
+-type word()   :: '' | '+' | '#' | '?' | binary().
 
 -type words()  :: list(word()).
 
@@ -54,6 +54,12 @@ match(Name, Filter) when is_binary(Name) and is_binary(Filter) ->
 match([], []) ->
     true;
 match([H|T1], [H|T2]) ->
+    match(T1, T2);
+match(['+'|_], ['?'|_]) ->
+    false;
+match(['#'], ['?'|_]) ->
+    false;
+match([_H|T1], ['?'|T2]) ->
     match(T1, T2);
 match([<<$$, _/binary>>|_], ['+'|_]) ->
     false;
@@ -92,6 +98,8 @@ validate2([''|Words]) ->
     validate2(Words);
 validate2(['+'|Words]) ->
     validate2(Words);
+validate2(['?'|Words]) ->
+    validate2(Words);
 validate2([W|Words]) ->
     case validate3(W) of
         true -> validate2(Words);
@@ -100,7 +108,7 @@ validate2([W|Words]) ->
 
 validate3(<<>>) ->
     true;
-validate3(<<C/utf8, _Rest/binary>>) when C == $#; C == $+; C == 0 ->
+validate3(<<C/utf8, _Rest/binary>>) when C == $#; C == $+; C == $?; C == 0 ->
     false;
 validate3(<<_/utf8, Rest/binary>>) ->
     validate3(Rest).
@@ -124,6 +132,7 @@ join(Parent, W) ->
 
 bin('')  -> <<>>;
 bin('+') -> <<"+">>;
+bin('?') -> <<"?">>;
 bin('#') -> <<"#">>;
 bin(B) when is_binary(B) -> B.
 
@@ -134,6 +143,7 @@ words(Topic) when is_binary(Topic) ->
 
 word(<<>>)    -> '';
 word(<<"+">>) -> '+';
+word(<<"?">>) -> '?';
 word(<<"#">>) -> '#';
 word(Bin)     -> Bin.
 
