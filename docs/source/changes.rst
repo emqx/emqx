@@ -11,11 +11,31 @@ Changes
 Version 2.0 (West of West Lake)
 -------------------------------
 
-*Release Date: 2016-08-12*
+*Release Date: 2016-08-29*
 
 Improve the design of PubSub and Router:
 
 .. images:: _static/images/publish.png
+
+.. _release_1.1.3:
+
+-------------
+Version 1.1.3
+-------------
+
+*Release Date: 2016-08-19*
+
+Support './bin/emqttd_ctl users list' CLI (#621)
+
+Cannot publish payloads with a size of the order 64K using WebSockets (#643)
+
+Optimize the procedures that retrieve the Broker version and Borker description in the tick timer (PR#627)
+
+Fix SSL certfile, keyfile config (#651)
+
+-------------
+Version 1.1.2
+-------------
 
 .. _release_1.1.2:
 
