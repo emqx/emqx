@@ -39,7 +39,7 @@
 %% Client State
 -record(client_state, {connection, connname, peername, peerhost, peerport,
                        await_recv, conn_state, rate_limit, parser_fun,
-                       proto_state, packet_opts, keepalive}).
+                       proto_state, packet_opts, keepalive, mountpoint}).
 
 -define(INFO_KEYS, [peername, peerhost, peerport, await_recv, conn_state]).
 
@@ -87,16 +87,20 @@ init([OriginConn, MqttEnv]) ->
     end,
     ConnName = esockd_net:format(PeerName),
     Self = self(),
-    SendFun = fun(Data) ->
+
+    %% Send Packet...
+    SendFun = fun(Packet) ->
+        Data = emqttd_serializer:serialize(Packet),
+        ?LOG(debug, "SEND ~p", [Data], #client_state{connname = ConnName}),
+        emqttd_metrics:inc('bytes/sent', size(Data)),
         try Connection:async_send(Data) of
             true -> ok
         catch
             error:Error -> Self ! {shutdown, Error}
         end
     end,
-    PktOpts = proplists:get_value(packet, MqttEnv),
-    ParserFun = emqttd_parser:new(PktOpts),
-    ProtoState = emqttd_protocol:init(PeerName, SendFun, PktOpts),
+    ParserFun = emqttd_parser:new(MqttEnv),
+    ProtoState = emqttd_protocol:init(PeerName, SendFun, MqttEnv),
     RateLimit = proplists:get_value(rate_limit, Connection:opts()),
     State = run_socket(#client_state{connection   = Connection,
                                      connname     = ConnName,
@@ -108,9 +112,8 @@ init([OriginConn, MqttEnv]) ->
                                      rate_limit   = RateLimit,
                                      parser_fun   = ParserFun,
                                      proto_state  = ProtoState,
-                                     packet_opts  = PktOpts}),
-    ClientOpts = proplists:get_value(client, MqttEnv),
-    IdleTimout = proplists:get_value(idle_timeout, ClientOpts, 10),
+                                     packet_opts  = MqttEnv}),
+    IdleTimout = proplists:get_value(client_idle_timeout, MqttEnv, 30),
     gen_server:enter_loop(?MODULE, [], State, timer:seconds(IdleTimout)).
 
 handle_call(session, _From, State = #client_state{proto_state = ProtoState}) -> 

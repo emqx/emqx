@@ -337,9 +337,8 @@ packet_format(_) ->
 message_make(_) ->
     Msg = emqttd_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
     0 = Msg#mqtt_message.qos,
-    undefined = Msg#mqtt_message.msgid,
     Msg1 = emqttd_message:make(<<"clientid">>, qos2, <<"topic">>, <<"payload">>),
-    true = is_binary(Msg1#mqtt_message.msgid),
+    true = is_binary(Msg1#mqtt_message.id),
     2 = Msg1#mqtt_message.qos.
 
 message_from_packet(_) ->
@@ -356,8 +355,7 @@ message_from_packet(_) ->
 
     Msg2 = emqttd_message:from_packet(<<"username">>, <<"clientid">>,
                                       ?PUBLISH_PACKET(1, <<"topic">>, 20, <<"payload">>)),
-    <<"clientid">> = Msg2#mqtt_message.from,
-    <<"username">> = Msg2#mqtt_message.sender,
+    {<<"clientid">>, <<"username">>} = Msg2#mqtt_message.from,
     io:format("~s", [emqttd_message:format(Msg2)]).
 
 message_flag(_) ->

@@ -152,7 +152,7 @@ schedulers() ->
     erlang:system_info(schedulers).
 
 microsecs() ->
-    {Mega, Sec, Micro} = erlang:now(),
+    {Mega, Sec, Micro} = os:timestamp(),
     (Mega * 1000000 + Sec) * 1000000 + Micro.
 
 loads() ->

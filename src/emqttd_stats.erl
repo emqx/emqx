@@ -122,7 +122,7 @@ init([]) ->
     Topics = ?SYSTOP_CLIENTS ++ ?SYSTOP_SESSIONS ++ ?SYSTOP_PUBSUB ++ ?SYSTOP_RETAINED,
     ets:insert(?STATS_TAB, [{Topic, 0} || Topic <- Topics]),
     % Create $SYS Topics
-    [ok = emqttd:create(topic, stats_topic(Topic)) || Topic <- Topics],
+    % [ok = emqttd:create(topic, stats_topic(Topic)) || Topic <- Topics],
     % Tick to publish stats
     {ok, #state{tick_tref = emqttd_broker:start_tick(tick)}, hibernate}.
 

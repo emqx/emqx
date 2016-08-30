@@ -16,6 +16,8 @@
 
 -module(emqttd_router).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -behaviour(gen_server).
 
 -include("emqttd.hrl").
@@ -27,55 +29,73 @@
 -copy_mnesia({mnesia, [copy]}).
 
 %% Start/Stop
--export([start_link/0, stop/0]).
+-export([start_link/0, topics/0, local_topics/0, stop/0]).
 
 %% Route APIs
--export([add_route/1, add_route/2, add_routes/1, lookup/1, print/1,
+-export([add_route/1, add_route/2, add_routes/1, match/1, print/1,
          del_route/1, del_route/2, del_routes/1, has_route/1]).
+
+%% Local Route API
+-export([add_local_route/1, del_local_route/1, match_local/1]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+-export([dump/0]).
+
 -record(state, {stats_timer}).
+
+-define(ROUTER, ?MODULE).
 
 %%--------------------------------------------------------------------
 %% Mnesia Bootstrap
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = emqttd_mnesia:create_table(route, [
+    ok = emqttd_mnesia:create_table(mqtt_topic, [
+                {ram_copies, [node()]},
+                {record_name, mqtt_topic},
+                {attributes, record_info(fields, mqtt_topic)}]),
+    ok = emqttd_mnesia:create_table(mqtt_route, [
                 {type, bag},
                 {ram_copies, [node()]},
                 {record_name, mqtt_route},
                 {attributes, record_info(fields, mqtt_route)}]);
 
 mnesia(copy) ->
-    ok = emqttd_mnesia:copy_table(route, ram_copies).
+    ok = emqttd_mnesia:copy_table(topic),
+    ok = emqttd_mnesia:copy_table(mqtt_route, ram_copies).
 
 %%--------------------------------------------------------------------
 %% Start the Router
 %%--------------------------------------------------------------------
 
 start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+    gen_server:start_link({local, ?ROUTER}, ?MODULE, [], []).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
-%% @doc Lookup Routes.
--spec(lookup(Topic:: binary()) -> [mqtt_route()]).
-lookup(Topic) when is_binary(Topic) ->
+topics() ->
+    mnesia:dirty_all_keys(mqtt_route).
+
+local_topics() ->
+    ets:select(mqtt_local_route, [{{'$1', '_'}, [], ['$1']}]).
+
+%% @doc Match Routes.
+-spec(match(Topic:: binary()) -> [mqtt_route()]).
+match(Topic) when is_binary(Topic) ->
     Matched = mnesia:async_dirty(fun emqttd_trie:match/1, [Topic]),
     %% Optimize: route table will be replicated to all nodes.
-    lists:append([ets:lookup(route, To) || To <- [Topic | Matched]]).
+    lists:append([ets:lookup(mqtt_route, To) || To <- [Topic | Matched]]).
 
 %% @doc Print Routes.
 -spec(print(Topic :: binary()) -> [ok]).
 print(Topic) ->
     [io:format("~s -> ~s~n", [To, Node]) ||
-        #mqtt_route{topic = To, node = Node} <- lookup(Topic)].
+        #mqtt_route{topic = To, node = Node} <- match(Topic)].
 
 %% @doc Add Route
 -spec(add_route(binary() | mqtt_route()) -> ok | {error, Reason :: any()}).
@@ -99,17 +119,18 @@ add_routes(Routes) ->
 
 %% @private
 add_route_(Route = #mqtt_route{topic = Topic}) ->
-    case mnesia:wread({route, Topic}) of
+    case mnesia:wread({mqtt_route, Topic}) of
         [] ->
             case emqttd_topic:wildcard(Topic) of
                 true  -> emqttd_trie:insert(Topic);
                 false -> ok
             end,
-            mnesia:write(route, Route, write);
+            mnesia:write(Route),
+            mnesia:write(#mqtt_topic{topic = Topic});
         Records ->
             case lists:member(Route, Records) of
                 true  -> ok;
-                false -> mnesia:write(route, Route, write)
+                false -> mnesia:write(Route)
             end
     end.
 
@@ -134,27 +155,28 @@ del_routes(Routes) ->
     end.
 
 del_route_(Route = #mqtt_route{topic = Topic}) ->
-    case mnesia:wread({route, Topic}) of
+    case mnesia:wread({mqtt_route, Topic}) of
         [] ->
             ok;
         [Route] ->
             %% Remove route and trie
-            mnesia:delete_object(route, Route, write),
+            mnesia:delete_object(Route),
             case emqttd_topic:wildcard(Topic) of
                 true  -> emqttd_trie:delete(Topic);
                 false -> ok
-            end;
+            end,
+            mnesia:delete({mqtt_topic, Topic});
         _More ->
             %% Remove route only
-            mnesia:delete_object(route, Route, write)
+            mnesia:delete_object(Route)
     end.
 
 %% @doc Has Route?
 -spec(has_route(binary()) -> boolean()).
 has_route(Topic) ->
     Routes = case mnesia:is_transaction() of
-                 true  -> mnesia:read(route, Topic);
-                 false -> mnesia:dirty_read(route, Topic)
+                 true  -> mnesia:read(mqtt_route, Topic);
+                 false -> mnesia:dirty_read(mqtt_route, Topic)
              end,
     length(Routes) > 0.
 
@@ -166,7 +188,28 @@ trans(Fun) ->
         {aborted, Error} -> {error, Error}
     end.
 
-stop() -> gen_server:call(?MODULE, stop).
+%%--------------------------------------------------------------------
+%% Local Route API
+%%--------------------------------------------------------------------
+
+-spec(add_local_route(binary()) -> ok).
+add_local_route(Topic) ->
+    gen_server:cast(?ROUTER, {add_local_route, Topic}).
+    
+-spec(del_local_route(binary()) -> ok).
+del_local_route(Topic) ->
+    gen_server:cast(?ROUTER, {del_local_route, Topic}).
+    
+-spec(match_local(binary()) -> [mqtt_route()]).
+match_local(Name) ->
+    [#mqtt_route{topic = {local, Filter}, node = Node}
+        || {Filter, Node} <- ets:tab2list(mqtt_local_route),
+           emqttd_topic:match(Name, Filter)].
+
+dump() ->
+    [{route, ets:tab2list(mqtt_route)}, {local_route, ets:tab2list(mqtt_local_route)}].
+
+stop() -> gen_server:call(?ROUTER, stop).
 
 %%--------------------------------------------------------------------
 %% gen_server Callbacks
@@ -174,6 +217,7 @@ stop() -> gen_server:call(?MODULE, stop).
 
 init([]) ->
     mnesia:subscribe(system),
+    ets:new(mqtt_local_route, [set, named_table, protected]),
     {ok, TRef}  = timer:send_interval(timer:seconds(1), stats),
     {ok, #state{stats_timer = TRef}}.
 
@@ -182,6 +226,15 @@ handle_call(stop, _From, State) ->
 
 handle_call(_Req, _From, State) ->
     {reply, ignore, State}.
+
+handle_cast({add_local_route, Topic}, State) ->
+    %% why node()...?
+    ets:insert(mqtt_local_route, {Topic, node()}),
+    {noreply, State};
+    
+handle_cast({del_local_route, Topic}, State) ->
+    ets:delete(mqtt_local_route, Topic),
+    {noreply, State};
 
 handle_cast(_Msg, State) ->
     {noreply, State}.

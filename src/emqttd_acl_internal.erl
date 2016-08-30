@@ -27,7 +27,7 @@
 
 -define(ACL_RULE_TAB, mqtt_acl_rule).
 
--record(state, {acl_file, nomatch = allow}).
+-record(state, {config, nomatch = allow}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -46,16 +46,20 @@ all_rules() ->
 %%--------------------------------------------------------------------
 
 %% @doc Init internal ACL
--spec(init(AclOpts :: list()) -> {ok, State :: any()}).
-init(AclOpts) ->
+-spec(init(Opts :: list()) -> {ok, State :: any()}).
+init(Opts) ->
     ets:new(?ACL_RULE_TAB, [set, public, named_table, {read_concurrency, true}]),
-    AclFile = proplists:get_value(file, AclOpts),
-    Default = proplists:get_value(nomatch, AclOpts, allow),
-    State = #state{acl_file = AclFile, nomatch = Default},
-    true = load_rules_from_file(State),
-    {ok, State}.
+    case proplists:get_value(config, Opts) of
+        undefined ->
+            {ok, #state{}};
+        File ->
+            Default = proplists:get_value(nomatch, Opts, allow),
+            State = #state{config = File, nomatch = Default},
+            true = load_rules_from_file(State),
+            {ok, State}
+    end.
 
-load_rules_from_file(#state{acl_file = AclFile}) ->
+load_rules_from_file(#state{config = AclFile}) ->
     {ok, Terms} = file:consult(AclFile),
     Rules = [emqttd_access_rule:compile(Term) || Term <- Terms],
     lists:foreach(fun(PubSub) ->
@@ -83,6 +87,8 @@ filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
       PubSub :: pubsub(),
       Topic  :: binary(),
       State  :: #state{}).
+check_acl(_Who, #state{config = undefined}) ->
+    allow;
 check_acl({Client, PubSub, Topic}, #state{nomatch = Default}) ->
     case match(Client, Topic, lookup(PubSub)) of
         {matched, allow} -> allow;
@@ -107,6 +113,8 @@ match(Client, Topic, [Rule|Rules]) ->
 
 %% @doc Reload ACL
 -spec(reload_acl(State :: #state{}) -> ok | {error, Reason :: any()}).
+reload_acl(#state{config = undefined}) ->
+    ok;
 reload_acl(State) ->
     case catch load_rules_from_file(State) of
         {'EXIT', Error} -> {error, Error};
@@ -115,5 +123,6 @@ reload_acl(State) ->
 
 %% @doc ACL Module Description
 -spec(description() -> string()).
-description() -> "Internal ACL with etc/acl.config".
+description() ->
+    "Internal ACL with etc/acl.conf".
 

@@ -54,10 +54,9 @@ handle_info({mnesia_system_event, {mnesia_down, Node}}, State) ->
     lager:error("!!!Mnesia node down: ~s", [Node]),
     Fun = fun() ->
             ClientIds =
-            mnesia:select(session, [{#mqtt_session{client_id = '$1', sess_pid = '$2', _ = '_'},
-                                    [{'==', {node, '$2'}, Node}],
-                                    ['$1']}]),
-            lists:foreach(fun(ClientId) -> mnesia:delete({session, ClientId}) end, ClientIds)
+            mnesia:select(mqtt_session, [{#mqtt_session{client_id = '$1', sess_pid = '$2', _ = '_'},
+                                         [{'==', {node, '$2'}, Node}], ['$1']}]),
+            lists:foreach(fun(ClientId) -> mnesia:delete({mqtt_session, ClientId}) end, ClientIds)
           end,
     mnesia:async_dirty(Fun),
     {noreply, State};
@@ -83,5 +82,5 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 setstats(State = #state{stats_fun = StatsFun}) ->
-    StatsFun(ets:info(mqtt_persistent_session, size)), State.
+    StatsFun(ets:info(mqtt_local_session, size)), State.
 

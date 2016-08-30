@@ -32,9 +32,9 @@
 %% API Function Exports
 -export([start_link/2]).
 
--export([start_session/2, lookup_session/1]).
+-export([start_session/2, lookup_session/1, reg_session/3, unreg_session/1]).
 
--export([register_session/3, unregister_session/2]).
+-export([dispatch/3]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -58,14 +58,14 @@
 
 mnesia(boot) ->
     %% Global Session Table
-    ok = emqttd_mnesia:create_table(session, [
+    ok = emqttd_mnesia:create_table(mqtt_session, [
                 {type, set},
                 {ram_copies, [node()]},
                 {record_name, mqtt_session},
                 {attributes, record_info(fields, mqtt_session)}]);
 
 mnesia(copy) ->
-    ok = emqttd_mnesia:copy_table(session).
+    ok = emqttd_mnesia:copy_table(mqtt_session).
 
 %%--------------------------------------------------------------------
 %% API
@@ -77,36 +77,35 @@ start_link(Pool, Id) ->
     gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
 
 %% @doc Start a session
--spec(start_session(boolean(), binary()) -> {ok, pid(), boolean()} | {error, any()}).
-start_session(CleanSess, ClientId) ->
+-spec(start_session(boolean(), {binary(), binary() | undefined}) -> {ok, pid(), boolean()} | {error, any()}).
+start_session(CleanSess, {ClientId, Username}) ->
     SM = gproc_pool:pick_worker(?POOL, ClientId),
-    call(SM, {start_session, {CleanSess, ClientId, self()}}).
+    call(SM, {start_session, CleanSess, {ClientId, Username}, self()}).
 
 %% @doc Lookup a Session
 -spec(lookup_session(binary()) -> mqtt_session() | undefined).
 lookup_session(ClientId) ->
-    case mnesia:dirty_read(session, ClientId) of
+    case mnesia:dirty_read(mqtt_session, ClientId) of
         [Session] -> Session;
         []        -> undefined
     end.
 
 %% @doc Register a session with info.
--spec(register_session(CleanSess, ClientId, Info) -> ok when
-      CleanSess :: boolean(),
-      ClientId  :: binary(),
-      Info      :: [tuple()]).
-register_session(CleanSess, ClientId, Info) ->
-    ets:insert(sesstab(CleanSess), {{ClientId, self()}, Info}).
+-spec(reg_session(binary(), boolean(), [tuple()]) -> true).
+reg_session(ClientId, CleanSess, Properties) ->
+    ets:insert(mqtt_local_session, {ClientId, self(), CleanSess, Properties}).
 
 %% @doc Unregister a session.
--spec(unregister_session(CleanSess, ClientId) -> ok when
-      CleanSess :: boolean(),
-      ClientId  :: binary()).
-unregister_session(CleanSess, ClientId) ->
-    ets:delete(sesstab(CleanSess), {ClientId, self()}).
+-spec(unreg_session(binary()) -> true).
+unreg_session(ClientId) ->
+    ets:delete(mqtt_local_session, ClientId).
 
-sesstab(true)  -> mqtt_transient_session;
-sesstab(false) -> mqtt_persistent_session.
+dispatch(ClientId, Topic, Msg) ->
+    try ets:lookup_element(mqtt_local_session, ClientId, 2) of
+        Pid -> Pid ! {dispatch, Topic, Msg}
+    catch
+        error:badarg -> io:format("Session Not Found: ~p~n", [ClientId]), ok %%TODO: How??
+    end.
 
 call(SM, Req) ->
     gen_server2:call(SM, Req, ?TIMEOUT). %%infinity).
@@ -129,11 +128,11 @@ prioritise_info(_Msg, _Len, _State) ->
     2.
 
 %% Persistent Session
-handle_call({start_session, Client = {false, ClientId, ClientPid}}, _From, State) ->
+handle_call({start_session, false, {ClientId, Username}, ClientPid}, _From, State) ->
     case lookup_session(ClientId) of
         undefined ->
             %% Create session locally
-            create_session(Client, State);
+            create_session({false, {ClientId, Username}, ClientPid}, State);
         Session ->
             case resume_session(Session, ClientPid) of
                 {ok, SessPid} ->
@@ -144,7 +143,8 @@ handle_call({start_session, Client = {false, ClientId, ClientPid}}, _From, State
     end;
 
 %% Transient Session
-handle_call({start_session, Client = {true, ClientId, _ClientPid}}, _From, State) ->
+handle_call({start_session, true, {ClientId, Username}, ClientPid}, _From, State) ->
+    Client = {true, {ClientId, Username}, ClientPid},
     case lookup_session(ClientId) of
         undefined ->
             create_session(Client, State);
@@ -167,11 +167,13 @@ handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
     case dict:find(MRef, State#state.monitors) of
         {ok, ClientId} ->
             mnesia:transaction(fun() ->
-                case mnesia:wread({session, ClientId}) of
-                    [] -> ok;
+                case mnesia:wread({mqtt_session, ClientId}) of
+                    [] ->
+                        ok;
                     [Sess = #mqtt_session{sess_pid = DownPid}] ->
-                        mnesia:delete_object(session, Sess, write);
-                    [_Sess] -> ok
+                        mnesia:delete_object(mqtt_session, Sess, write);
+                    [_Sess] ->
+                        ok
                     end
                 end),
             {noreply, erase_monitor(MRef, State), hibernate};
@@ -194,8 +196,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 %% Create Session Locally
-create_session({CleanSess, ClientId, ClientPid}, State) ->
-    case create_session(CleanSess, ClientId, ClientPid) of
+create_session({CleanSess, {ClientId, Username}, ClientPid}, State) ->
+    case create_session(CleanSess, {ClientId, Username}, ClientPid) of
         {ok, SessPid} ->
             {reply, {ok, SessPid, false},
                 monitor_session(ClientId, SessPid, State)};
@@ -203,12 +205,10 @@ create_session({CleanSess, ClientId, ClientPid}, State) ->
             {reply, {error, Error}, State}
     end.
 
-create_session(CleanSess, ClientId, ClientPid) ->
-    case emqttd_session_sup:start_session(CleanSess, ClientId, ClientPid) of
+create_session(CleanSess, {ClientId, Username}, ClientPid) ->
+    case emqttd_session_sup:start_session(CleanSess, {ClientId, Username}, ClientPid) of
         {ok, SessPid} ->
-            Session = #mqtt_session{client_id  = ClientId,
-                                    sess_pid   = SessPid,
-                                    persistent = not CleanSess},
+            Session = #mqtt_session{client_id = ClientId, sess_pid = SessPid, persistent = not CleanSess},
             case insert_session(Session) of
                 {aborted, {conflict, ConflictPid}} ->
                     %% Conflict with othe node?
@@ -224,17 +224,16 @@ create_session(CleanSess, ClientId, ClientPid) ->
 insert_session(Session = #mqtt_session{client_id = ClientId}) ->
     mnesia:transaction(
       fun() ->
-        case mnesia:wread({session, ClientId}) of
+        case mnesia:wread({mqtt_session, ClientId}) of
             [] ->
-                mnesia:write(session, Session, write);
+                mnesia:write(mqtt_session, Session, write);
             [#mqtt_session{sess_pid = SessPid}] ->
                 mnesia:abort({conflict, SessPid})
         end
       end).
 
 %% Local node
-resume_session(Session = #mqtt_session{client_id = ClientId,
-                                       sess_pid  = SessPid}, ClientPid)
+resume_session(Session = #mqtt_session{client_id = ClientId, sess_pid = SessPid}, ClientPid)
     when node(SessPid) =:= node() ->
 
     case is_process_alive(SessPid) of
@@ -284,7 +283,7 @@ destroy_session(Session = #mqtt_session{client_id = ClientId,
      end.
 
 remove_session(Session) ->
-    case mnesia:transaction(fun mnesia:delete_object/3, [session, Session, write]) of
+    case mnesia:transaction(fun mnesia:delete_object/1, [Session]) of
         {atomic, ok}     -> ok;
         {aborted, Error} -> {error, Error}
     end.

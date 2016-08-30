@@ -5,6 +5,124 @@
 Changes
 =======
 
+.. _release_2.0:
+
+-------------------------------------
+Version 2.0-beta1 (West of West Lake)
+-------------------------------------
+
+*Release Date: 2016-08-30*
+
+*Release Name: West of West Lake*
+
+EMQ - Shortened Project Name
+----------------------------
+
+Adopt a shortened project name: EMQ(Erlang/Enterprise/Elastic MQTT Broker)，E means Erlang/OTP, Enterprise and Elastic.
+
+Improve the Release Management
+------------------------------
+
+In order to iterate the project fast, we will adopt a new release management strategy since 2.0. There will be two or three 'Preview Release' named beta1, beta2 or beta3, and then one or two 'Release Candidate' named rc1, rc2 before a Major version is production ready.
+
+Seperate Rel from Application
+-----------------------------
+
+We split the emqttd 1.x project into two projects since 2.0-beta1 release to resolve the plugins' dependency issue.
+
+A new project named `emqttd-relx`_ is created and responsible for buiding the emqttd application and the plugins::
+
+    git clone https://github.com/emqtt/emqttd-relx.git
+
+    cd emqttd-relx && make
+
+    cd _rel/emqttd && ./bin/emqttd console
+
+erlang.mk and relx
+------------------
+
+The rebar which is used in 1.x release is replaced by `erlang.mk`_ and `relx`_ tools since 2.0-beta1 release.
+
+You can check the 'Makefile' and 'relx.config' in the release project of the borker: `emqttd-relx`_ .
+
+Improve Git Branch Management
+-----------------------------
+
++------------+-------------------------------------------+
+| stable     | 1.x Stable Branch                         |
++------------+-------------------------------------------+
+| master     | 2.x Master Branch                         |
++------------+-------------------------------------------+
+| emq10      | 1.x Developement Branch                   |
++------------+-------------------------------------------+
+| emq20      | 2.x Development Branch                    |
++------------+-------------------------------------------+
+| emq30      | 3.x Development Branch                    |
++------------+-------------------------------------------+
+| issue#{id} | BugFix Branch                             |
++------------+-------------------------------------------+
+
+New Config Syntax
+-----------------
+
+Since 2.0-beta1 release the configuration file of the broker and plugins adopt a new syntax like rebar.config and relx.config:
+
+etc/emqttd.conf for example::
+
+    %% Max ClientId Length Allowed.
+    {mqtt_max_clientid_len, 512}.
+
+    %% Max Packet Size Allowed, 64K by default.
+    {mqtt_max_packet_size, 65536}.
+
+    %% Client Idle Timeout.
+    {mqtt_client_idle_timeout, 30}. % Second
+
+MQTT-SN Protocol Plugin
+-----------------------
+
+The MQTT-SN Protocol Plugin `emqttd_sn`_ has been ready in 2.0-beta1 release. The default UDP port of MQTT-SN is 1884.
+
+Load the plugin::
+
+    ./bin/emqttd_ctl plugins load emqttd_sn
+
+Improve the PubSub Design
+-------------------------
+
+.. image:: _static/images/publish.png
+
+Improve the Plugin Management
+-----------------------------
+
+The plugin of EMQ 2.0 broker is a normal erlang application which depends on and extends 'emqttd'. You can create a standalone plugin application project, and add it to `emqttd-relx`_ Makefile as a DEP.
+
+All the plugins' config files will be copied to emqttd/etc/plugins/ folder when making emqttd brinary packages in `emqttd-relx`_ project::
+
+    ▾ emqttd/
+      ▾ etc/
+        ▸ modules/
+        ▾ plugins/
+            emqtt_coap.conf
+            emqttd.conf
+            emqttd_auth_http.conf
+            emqttd_auth_mongo.conf
+            emqttd_auth_mysql.conf
+            emqttd_auth_pgsql.conf
+            emqttd_auth_redis.conf
+            emqttd_coap.conf
+            emqttd_dashboard.conf
+            emqttd_plugin_template.conf
+            emqttd_recon.conf
+            emqttd_reloader.conf
+            emqttd_sn.conf
+            emqttd_stomp.conf
+
+EMQ 2.0 Documentation
+---------------------
+
+http://emqtt.io/docs/v2/index.html
+
 .. _release_1.1.3:
 
 -------------

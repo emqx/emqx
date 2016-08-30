@@ -25,8 +25,6 @@
 
 -define(HELPER, emqttd_sm_helper).
 
--define(TABS, [mqtt_transient_session, mqtt_persistent_session]).
-
 %% API
 -export([start_link/0]).
 
@@ -38,7 +36,7 @@ start_link() ->
 
 init([]) ->
     %% Create session tables
-    create_session_tabs(),
+    ets:new(mqtt_local_session, [public, ordered_set, named_table, {write_concurrency, true}]),
 
     %% Helper
     StatsFun = emqttd_stats:statsfun('sessions/count', 'sessions/max'),
@@ -50,9 +48,4 @@ init([]) ->
     PoolSup = emqttd_pool_sup:spec([?SM, hash, erlang:system_info(schedulers), MFA]),
 
     {ok, {{one_for_all, 10, 3600}, [Helper, PoolSup]}}.
-    
-create_session_tabs() ->
-    Opts = [ordered_set, named_table, public,
-               {write_concurrency, true}],
-    [ets:new(Tab, Opts) || Tab <- ?TABS].
 

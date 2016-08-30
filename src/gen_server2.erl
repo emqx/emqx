@@ -624,7 +624,7 @@ unregister_name(_Name) -> ok.
 extend_backoff(undefined) ->
     undefined;
 extend_backoff({backoff, InitialTimeout, MinimumTimeout, DesiredHibPeriod}) ->
-    {backoff, InitialTimeout, MinimumTimeout, DesiredHibPeriod, now()}.
+    {backoff, InitialTimeout, MinimumTimeout, DesiredHibPeriod, rand:seed(exsplus)}.
 
 %%%========================================================================
 %%% Internal functions
@@ -636,8 +636,10 @@ loop(GS2State = #gs2_state { time          = hibernate,
                              timeout_state = undefined,
                              queue         = Queue }) ->
     case priority_queue:is_empty(Queue) of
-        true  -> pre_hibernate(GS2State);
-        false -> process_next_msg(GS2State)
+        true  ->
+            pre_hibernate(GS2State);
+        false ->
+            process_next_msg(GS2State)
     end;
 
 loop(GS2State) ->
@@ -693,7 +695,9 @@ wake_hib(GS2State = #gs2_state { timeout_state = TS }) ->
                         undefined ->
                             undefined;
                         {SleptAt, TimeoutState} ->
-                            adjust_timeout_state(SleptAt, now(), TimeoutState)
+                            adjust_timeout_state(SleptAt,
+                                                 erlang:monotonic_time(),
+                                                 TimeoutState)
                     end,
     post_hibernate(
       drain(GS2State #gs2_state { timeout_state = TimeoutState1 })).
@@ -701,7 +705,8 @@ wake_hib(GS2State = #gs2_state { timeout_state = TS }) ->
 hibernate(GS2State = #gs2_state { timeout_state = TimeoutState }) ->
     TS = case TimeoutState of
              undefined             -> undefined;
-             {backoff, _, _, _, _} -> {now(), TimeoutState}
+             {backoff, _, _, _, _} -> {erlang:monotonic_time(),
+                                       TimeoutState}
          end,
     proc_lib:hibernate(?MODULE, wake_hib,
                        [GS2State #gs2_state { timeout_state = TS }]).
@@ -746,7 +751,8 @@ post_hibernate(GS2State = #gs2_state { state = State,
 
 adjust_timeout_state(SleptAt, AwokeAt, {backoff, CurrentTO, MinimumTO,
                                         DesiredHibPeriod, RandomState}) ->
-    NapLengthMicros = timer:now_diff(AwokeAt, SleptAt),
+    NapLengthMicros = erlang:convert_time_unit(AwokeAt - SleptAt,
+                                               native, micro_seconds),
     CurrentMicros = CurrentTO * 1000,
     MinimumMicros = MinimumTO * 1000,
     DesiredHibMicros = DesiredHibPeriod * 1000,
@@ -758,7 +764,7 @@ adjust_timeout_state(SleptAt, AwokeAt, {backoff, CurrentTO, MinimumTO,
             true -> lists:max([MinimumTO, CurrentTO div 2]);
             false -> CurrentTO
         end,
-    {Extra, RandomState1} = random:uniform_s(Base, RandomState),
+    {Extra, RandomState1} = rand:uniform_s(Base, RandomState),
     CurrentTO1 = Base + Extra,
     {backoff, CurrentTO1, MinimumTO, DesiredHibPeriod, RandomState1}.
 

@@ -245,7 +245,7 @@ The Firewall
 
 If there is a firewall between clustered nodes, the cluster requires to open 4369 port used by epmd daemon, and a port segment for nodes' communication.
 
-Configure the port segment in etc/emqttd.config, for example:
+Configure the port segment in releases/2.0/sys.config, for example:
 
 .. code-block:: erlang
 

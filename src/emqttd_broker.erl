@@ -29,7 +29,7 @@
 -export([subscribe/1, notify/2]).
 
 %% Broker API
--export([env/1, version/0, uptime/0, datetime/0, sysdescr/0]).
+-export([version/0, uptime/0, datetime/0, sysdescr/0]).
 
 %% Tick API
 -export([start_tick/1, stop_tick/1]).
@@ -71,10 +71,6 @@ subscribe(EventType) ->
 notify(EventType, Event) ->
      gproc:send({p, l, {broker, EventType}}, {notify, EventType, self(), Event}).
 
-%% @doc Get broker env
-env(Name) ->
-    proplists:get_value(Name, emqttd:env(broker)).
-
 %% @doc Get broker version
 -spec(version() -> string()).
 version() ->
@@ -99,7 +95,7 @@ datetime() ->
 
 %% @doc Start a tick timer
 start_tick(Msg) ->
-    start_tick(timer:seconds(env(sys_interval)), Msg).
+    start_tick(timer:seconds(emqttd:conf(broker_sys_interval, 60)), Msg).
 
 start_tick(0, _Msg) ->
     undefined;
@@ -119,9 +115,6 @@ stop_tick(TRef) ->
 init([]) ->
     emqttd_time:seed(),
     ets:new(?BROKER_TAB, [set, public, named_table]),
-    % Create $SYS Topics
-    emqttd:create(topic, <<"$SYS/brokers">>),
-    [ok = create_topic(Topic) || Topic <- ?SYSTOP_BROKERS],
     % Tick
     {ok, #state{started_at = os:timestamp(),
                 heartbeat  = start_tick(1000, heartbeat),
@@ -163,9 +156,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-create_topic(Topic) ->
-    emqttd:create(topic, emqttd_topic:systop(Topic)).
 
 retain(brokers) ->
     Payload = list_to_binary(string:join([atom_to_list(N) ||

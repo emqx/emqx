@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--type trie_node_id() :: binary() | atom().
+-type(trie_node_id() :: binary() | atom()).
 
 -record(trie_node, {
     node_id         :: trie_node_id(),
@@ -24,12 +24,12 @@
 }).
 
 -record(trie_edge, {
-    node_id        :: trie_node_id(),
-    word           :: binary() | atom()
+    node_id :: trie_node_id(),
+    word    :: binary() | atom()
 }).
 
 -record(trie, {
-    edge          :: #trie_edge{},
-    node_id       :: trie_node_id()
+    edge    :: #trie_edge{},
+    node_id :: trie_node_id()
 }).
 

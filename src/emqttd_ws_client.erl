@@ -66,17 +66,20 @@ init([MqttEnv, WsPid, Req, ReplyChannel]) ->
     {ok, Peername} = Req:get(peername),
     Headers = mochiweb_headers:to_list(
                 mochiweb_request:get(headers, Req)),
-    PktOpts = proplists:get_value(packet, MqttEnv),
-    SendFun = fun(Payload) -> ReplyChannel({binary, Payload}) end,
+    %% SendFun = fun(Payload) -> ReplyChannel({binary, Payload}) end,
+    SendFun = fun(Packet) ->
+                  Data = emqttd_serializer:serialize(Packet),
+                  emqttd_metrics:inc('bytes/sent', size(Data)),
+                  ReplyChannel({binary, Data})
+              end,
     ProtoState = emqttd_protocol:init(Peername, SendFun,
-                                      [{ws_initial_headers, Headers} | PktOpts]),
+                                      [{ws_initial_headers, Headers} | MqttEnv]),
     {ok, #wsclient_state{ws_pid = WsPid, peer = Req:get(peer),
                          connection = Req:get(connection),
                          proto_state = ProtoState}, idle_timeout(MqttEnv)}.
 
 idle_timeout(MqttEnv) ->
-    ClientOpts = proplists:get_value(client, MqttEnv),
-    timer:seconds(proplists:get_value(idle_timeout, ClientOpts, 10)).
+    timer:seconds(proplists:get_value(client_idle_timeout, MqttEnv, 10)).
 
 handle_call(session, _From, State = #wsclient_state{proto_state = ProtoState}) ->
     {reply, emqttd_protocol:session(ProtoState), State};

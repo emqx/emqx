@@ -39,7 +39,7 @@ init([ClientId]) ->
     {ok, #state{clientid = ClientId}}.
 
 handle_call(start_session, _From, State = #state{clientid = ClientId}) ->
-    {ok, SessPid, _} = emqttd_sm:start_session(true, ClientId),
+    {ok, SessPid, _} = emqttd_sm:start_session(true, {ClientId, undefined}),
     {reply, {ok, SessPid}, State#state{session = SessPid}};
 
 handle_call(stop, _From, State) ->
