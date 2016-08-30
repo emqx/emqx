@@ -34,6 +34,7 @@ The emqttd project is aimed to implement a scalable, distributed, extensible ope
 * TCP/SSL Connection
 * MQTT Over WebSocket(SSL)
 * HTTP Publish API
+* MQTT-SN Protocol
 * STOMP protocol
 * STOMP over SockJS
 * $SYS/# Topics
@@ -54,7 +55,6 @@ Module                   | Description
 -------------------------|------------------------------
 emqttd_auth_clientid     | Authentication with ClientIds
 emqttd_auth_username     | Authentication with Username and Password
-emqttd_auth_ldap         | Authentication with LDAP
 emqttd_mod_presence      | Publish presence message when client connected or disconnected
 emqttd_mod_subscription  | Subscribe topics when client connected
 emqttd_mod_rewrite       | Topic path rewrite like HTTP rewrite module
@@ -65,11 +65,13 @@ Plugin                                                                    | Desc
 --------------------------------------------------------------------------|--------------------------------------
 [emqttd_plugin_template](https://github.com/emqtt/emqttd_plugin_template) | Plugin template and demo
 [emqttd_dashboard](https://github.com/emqtt/emqttd_dashboard)             | Web Dashboard
-[emqttd_plugin_mysql](https://github.com/emqtt/emqttd_plugin_mysql)       | MySQL Authentication/ACL Plugin
-[emqttd_plugin_pgsql](https://github.com/emqtt/emqttd_plugin_pgsql)       | PostgreSQL Authentication/ACL Plugin
-[emqttd_plugin_redis](https://github.com/emqtt/emqttd_plugin_redis)       | Redis Authentication/ACL Plugin
-[emqttd_plugin_mongo](https://github.com/emqtt/emqttd_plugin_mongo)       | MongoDB Authentication/ACL Plugin
+[emqttd_auth_mysql](https://github.com/emqtt/emqttd_plugin_mysql)         | MySQL Authentication/ACL Plugin
+[emqttd_auth_pgsql](https://github.com/emqtt/emqttd_plugin_pgsql)         | PostgreSQL Authentication/ACL Plugin
+[emqttd_auth_redis](https://github.com/emqtt/emqttd_plugin_redis)         | Redis Authentication/ACL Plugin
+[emqttd_auth_mongo](https://github.com/emqtt/emqttd_plugin_mongo)         | MongoDB Authentication/ACL Plugin
 [emqttd_auth_http](https://github.com/emqtt/emqttd_auth_http)             | Authentication/ACL by HTTP API
+[emqttd_auth_ldap](https://github.com/emqtt/emqttd_auth_ldap)             | LDAP Authentication Plugin
+[emqttd_sn](https://github.com/emqtt/emqttd_sn)                           | MQTT-SN Protocol Plugin
 [emqttd_stomp](https://github.com/emqtt/emqttd_stomp)                     | Stomp Protocol Plugin
 [emqttd_sockjs](https://github.com/emqtt/emqttd_sockjs)                   | SockJS(Stomp) Plugin
 [emqttd_recon](https://github.com/emqtt/emqttd_recon)                     | Recon Plugin
@@ -96,7 +98,7 @@ Download binary package for Linux, Mac and Freebsd from [http://emqtt.io/downloa
 Installing on Ubuntu64, for example:
 
 ```sh
-unzip emqttd-ubuntu64-0.16.0-beta-20160216.zip && cd emqttd
+unzip emqttd-ubuntu64-2.0-beta1-20160830.zip && cd emqttd
 
 # start console
 ./bin/emqttd console
