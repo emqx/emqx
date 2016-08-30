@@ -26,3 +26,4 @@ eunit.coverdata
 test/ct.cover.spec
 logs
 ct.coverdata
+.DS*

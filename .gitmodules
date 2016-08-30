@@ -41,3 +41,6 @@
 	path = plugins/emqttd_auth_http
 	url = https://github.com/emqtt/emqttd_auth_http.git
     branch = stable
+[submodule "plugins/emqttd_geoip"]
+	path = plugins/emqttd_geoip
+	url = git@repo.readyforsky.com:gateway/EmqttdGeoIPPlugin.git
