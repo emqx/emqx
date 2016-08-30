@@ -35,8 +35,6 @@ Sensors, Mobiles, Web Browsers and Application Servers could be connected by emq
 | Author:       | Feng Lee <feng@emqtt.io>                |
 +---------------+-----------------------------------------+
 
-.. NOTE:: MQTT-SN，CoAP Protocols are planned to 1.x release.
-
 Contents:
 
 .. toctree::

@@ -20,7 +20,7 @@ Show running status of the broker::
     $ ./bin/emqttd_ctl status
 
     Node 'emqttd@127.0.0.1' is started
-    emqttd 1.1 is running
+    emqttd 2.0 is running
 
 .. _command_broker::
 
@@ -382,10 +382,6 @@ Query the subscription table of the broker:
 +--------------------------------------------+--------------------------------------+
 | subscriptions show <ClientId>              | Show a subscription                  |
 +--------------------------------------------+--------------------------------------+
-| subscriptions add <ClientId> <Topic> <Qos> | Add a static subscription manually   |
-+--------------------------------------------+--------------------------------------+
-| subscriptions del <ClientId> <Topic>       | Remove a static subscription manually|
-+--------------------------------------------+--------------------------------------+
 
 subscriptions list
 ------------------
@@ -414,22 +410,6 @@ Show the subscriptions of a MQTT client::
     $ ./bin/emqttd_ctl subscriptions show clientid
 
     clientid: [{<<"x">>,1},{<<"topic2">>,1},{<<"topic3">>,1}]
-
-subscriptions add <ClientId> <Topic> <QoS>
-------------------------------------------
-
-Add a static subscription manually::
-
-    $ ./bin/emqttd_ctl subscriptions add clientid new_topic 1
-    ok
-
-subscriptions del <ClientId> <Topic>
-------------------------------------
-
-Remove a static subscription manually::
-
-    $ ./bin/emqttd_ctl subscriptions del clientid new_topic
-    ok
 
 .. _command_plugins::
 

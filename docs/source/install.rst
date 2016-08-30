@@ -35,7 +35,7 @@ Download binary packages from: http://emqtt.io/downloads
 
 The package name consists of platform, version and release time.
 
-For example: emqttd-centos64-1.1-beta-20160601.zip
+For example: emqttd-centos64-2.0-beta1-20160830.zip
 
 .. _install_on_linux:
 
@@ -47,7 +47,7 @@ Download CentOS Package from: http://emqtt.io/downloads/latest/centos, and then 
 
 .. code-block:: bash
 
-    unzip emqttd-centos64-1.1-beta-20160601.zip
+    unzip emqttd-centos64-2.0-beta-20160830.zip
 
 Start the broker in console mode:
 
@@ -80,7 +80,7 @@ If the broker is started successfully, console will print:
     mqtt listen on 0.0.0.0:1883 with 16 acceptors.
     mqtts listen on 0.0.0.0:8883 with 4 acceptors.
     http listen on 0.0.0.0:8083 with 4 acceptors.
-    Erlang MQTT Broker 1.1 is running now
+    Erlang MQTT Broker 2.0 is running now
     Eshell V6.4  (abort with ^G)
     (emqttd@127.0.0.1)1>
 
@@ -100,7 +100,7 @@ Check the running status of the broker:
 
     $ ./bin/emqttd_ctl status
     Node 'emqttd@127.0.0.1' is started
-    emqttd 1.1 is running
+    emqttd 2.0 is running
 
 Or check the status by URL::
 
@@ -130,7 +130,7 @@ We could install the broker on Mac OS X to develop and debug MQTT applications.
 
 Download Mac Package from: http://emqtt.io/downloads/latest/macosx
 
-Configure 'lager' log level in 'etc/emqttd.config', all MQTT messages recevied/sent will be printed on console:
+Configure 'lager' log level in 'releases/2.0/sys.config', all MQTT messages recevied/sent will be printed on console:
 
 .. code-block:: erlang
 
@@ -198,15 +198,15 @@ When all dependencies are ready, clone the emqttd project from github.com and bu
 
 .. code-block:: bash
 
-    git clone https://github.com/emqtt/emqttd.git
+    git clone https://github.com/emqtt/emqttd-relx.git
 
-    cd emqttd
+    cd emqttd-relx && make
 
-    make && make dist
+    cd _rel/emqttd && ./bin/emqttd console
 
 The binary package output in folder::
 
-    rel/emqttd
+    _rel/emqttd
 
 .. _tcp_ports:
 
@@ -228,19 +228,20 @@ The TCP ports used can be configured in etc/emqttd.config:
 
 .. code-block:: erlang
 
-    {listeners, [
-        {mqtt, 1883, [
-            ...
-        ]},
+    %% Plain MQTT
+    {listener, mqtt, 1883, [
+        ...
+    ]}.
 
-        {mqtts, 8883, [
-            ...
-        ]},
-        %% HTTP and WebSocket Listener
-        {http, 8083, [
-            ...
-        ]}
-    ]},
+    %% MQTT/SSL
+    {listener, mqtts, 8883, [
+        ...
+    ]}.
+    
+    %% HTTP and WebSocket Listener
+    {listener, http, 8083, [
+        ...
+    ]}.
 
 The 18083 port is used by Web Dashboard of the broker. Default login: admin, Password: public
 
@@ -255,7 +256,7 @@ Two main configuration files of the emqttd broker:
 +-------------------+-----------------------------------+
 | etc/vm.args       | Erlang VM Arguments               |
 +-------------------+-----------------------------------+
-| etc/emqttd.config | emqttd broker Config              |
+| etc/emqttd.conf   | emqttd broker Config              |
 +-------------------+-----------------------------------+
 
 Two important parameters in etc/vm.args:
@@ -277,17 +278,18 @@ The maximum number of allowed MQTT clients:
 
 .. code-block:: erlang
 
-    {listeners, [
-        {mqtt, 1883, [
-            %% TCP Acceptor Pool
-            {acceptors, 16},
+    %% Plain MQTT
+    {listener, mqtt, 1883, [
 
-            %% Maximum number of concurrent MQTT clients
-            {max_clients, 8192},
+        %% Size of acceptor pool
+        {acceptors, 16},
 
-            ...
+        %% Maximum number of concurrent clients
+        {max_clients, 8192},
 
-        ]},
+        ...
+
+    ]}.
 
 .. _init_d_emqttd:
 

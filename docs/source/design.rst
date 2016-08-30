@@ -15,6 +15,17 @@ The emqttd broker 1.0 is more like a network Switch or Router, not a traditional
 
 .. image:: _static/images/concept.png
 
+The EMQ 2.0 seperated the Message Flow Plane and Monitor/Control Plane, the Architecture is something like::
+
+              Control Plane
+           --------------------
+              |            |
+  FrontEnd -> | Flow Plane | -> BackEnd
+              |            |
+            Session      Router
+           ---------------------
+               Monitor Plane
+
 Design Philosophy
 -----------------
 
@@ -478,3 +489,32 @@ http://github.com/emqtt/emqttd_plugin_template
 .. _eSockd: https://github.com/emqtt/esockd
 .. _Chain-of-responsibility_pattern: https://en.wikipedia.org/wiki/Chain-of-responsibility_pattern
 .. _emqttd_plugin_template: https://github.com/emqtt/emqttd_plugin_template/blob/master/src/emqttd_plugin_template.erl
+
+-----------------
+Mnesia/ETS Tables
+-----------------
+
++--------------------+--------+----------------------------------------+
+| Table              | Type   | Description                            |
++====================+========+========================================+
+| mqtt_trie          | mnesia | Trie Table                             |
++--------------------+--------+----------------------------------------+
+| mqtt_trie_node     | mnesia | Trie Node Table                        |
++--------------------+--------+----------------------------------------+
+| mqtt_route         | mnesia | Global Route Table                     |
++--------------------+--------+----------------------------------------+
+| mqtt_local_route   | mnesia | Local Route Table                      |
++--------------------+--------+----------------------------------------+
+| mqtt_pubsub        | ets    | PubSub Tab                             |
++--------------------+--------+----------------------------------------+
+| mqtt_subscriber    | ets    | Subscriber Tab                         |
++--------------------+--------+----------------------------------------+
+| mqtt_subscription  | ets    | Subscription Tab                       |
++--------------------+--------+----------------------------------------+
+| mqtt_session       | mnesia | Global Session Table                   |
++--------------------+--------+----------------------------------------+
+| mqtt_local_session | ets    | Local Session Table                    |
++--------------------+--------+----------------------------------------+
+| mqtt_client        | ets    | Client Table                           |
++--------------------+--------+----------------------------------------+
+
