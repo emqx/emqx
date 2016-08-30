@@ -45,8 +45,8 @@ The rebar which is used in 1.x release is replaced by `erlang.mk`_ and `relx`_ t
 
 You can check the 'Makefile' and 'relx.config' in the release project of the borker: `emqttd-relx`_ .
 
-Improve Git Branches Management
--------------------------------
+Improve Git Branch Management
+-----------------------------
 
 +------------+-------------------------------------------+
 | stable     | 1.x Stable Branch                         |
