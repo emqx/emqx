@@ -7,20 +7,18 @@ Changes
 
 .. _release_2.0:
 
--------------------------------
-Version 2.0 (West of West Lake)
--------------------------------
+-------------------------------------
+Version 2.0-beta1 (West of West Lake)
+-------------------------------------
 
 *Release Date: 2016-08-30*
 
 *Release Name: West of West Lake*
 
-.. NOTE:: Dont' upgrade 1.x production deployment to 2.0-beta1 release.
-
 EMQ - Shortened Project Name
 ----------------------------
 
-Adopt a shortened projectname: EMQ(Erlang/Enterprise/Elastic MQTT Broker)，E means Erlang/OTP, Enterprise and Elastic.
+Adopt a shortened project name: EMQ(Erlang/Enterprise/Elastic MQTT Broker)，E means Erlang/OTP, Enterprise and Elastic.
 
 Improve the Release Management
 ------------------------------
@@ -85,19 +83,19 @@ MQTT-SN Protocol Plugin
 
 The MQTT-SN Protocol Plugin `emqttd_sn`_ has been ready in 2.0-beta1 release. The default UDP port of MQTT-SN is 1884.
 
-Load the plugin:: 
+Load the plugin::
 
     ./bin/emqttd_ctl plugins load emqttd_sn
 
-Improve Design of PubSub and Router
------------------------------------
+Improve The PubSub Design
+-------------------------
 
 .. image:: _static/images/publish.png
 
-Improve Plugin Management
--------------------------
+Improve The Plugin Management
+-----------------------------
 
-The plugin of EMQ 2.0 broker is a normal erlang application which depends on and extends 'emqttd'. User can create a standalone plugin application project, and add it to `emqttd-relx`_ Makefiel as a dependency.
+The plugin of EMQ 2.0 broker is a normal erlang application which depends on and extends 'emqttd'. You can create a standalone plugin application project, and add it to `emqttd-relx`_ Makefile as a DEP.
 
 All the plugins' config files will be copied to emqttd/etc/plugins/ folder when making emqttd brinary packages in `emqttd-relx`_ project::
 
