@@ -87,12 +87,12 @@ Load the plugin::
 
     ./bin/emqttd_ctl plugins load emqttd_sn
 
-Improve The PubSub Design
+Improve the PubSub Design
 -------------------------
 
 .. image:: _static/images/publish.png
 
-Improve The Plugin Management
+Improve the Plugin Management
 -----------------------------
 
 The plugin of EMQ 2.0 broker is a normal erlang application which depends on and extends 'emqttd'. You can create a standalone plugin application project, and add it to `emqttd-relx`_ Makefile as a DEP.
