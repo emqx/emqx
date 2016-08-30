@@ -65,7 +65,7 @@ Improve Git Branches Management
 New Config Syntax
 -----------------
 
-Since 2.0-beta1 release the configuration file of the broker and plugins adopt a new syntax like rebar.config or relx.config:
+Since 2.0-beta1 release the configuration file of the broker and plugins adopt a new syntax like rebar.config and relx.config:
 
 etc/emqttd.conf for example::
 
@@ -121,7 +121,7 @@ All the plugins' config files will be copied to emqttd/etc/plugins/ folder when 
 EMQ 2.0 Documentation
 ---------------------
 
-http://emqtt.io/docs/v2/index.html or http://docs.emqtt.com/emq20/
+http://emqtt.io/docs/v2/index.html
 
 .. _release_1.1.3:
 
