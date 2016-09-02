@@ -108,7 +108,7 @@ trace(publish, From, _Msg) when is_atom(From) ->
 
 trace(publish, From, #mqtt_message{topic = Topic, payload = Payload}) ->
     lager:info([{client, From}, {topic, Topic}],
-               "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
+               "~p PUBLISH to ~s: ~p", [From, Topic, Payload]).
 
 %% @doc Unsubscribe
 -spec(unsubscribe(binary()) -> ok | emqttd:pubsub_error()).
