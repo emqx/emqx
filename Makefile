@@ -8,7 +8,7 @@ dep_gproc      = git https://github.com/uwiger/gproc.git
 dep_lager      = git https://github.com/basho/lager.git
 dep_gen_conf   = git https://github.com/emqtt/gen_conf.git
 dep_gen_logger = git https://github.com/emqtt/gen_logger.git
-dep_esockd     = git https://github.com/emqtt/esockd.git udp
+dep_esockd     = git https://github.com/emqtt/esockd.git emq20
 dep_mochiweb   = git https://github.com/emqtt/mochiweb.git
 
 ERLC_OPTS += +'{parse_transform, lager_transform}'
