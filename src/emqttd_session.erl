@@ -336,7 +336,7 @@ handle_cast({unsubscribe, Topics}, Session = #session{client_id     = ClientId,
     Subscriptions1 =
     lists:foldl(fun(RawTopic, SubDict) ->
                     {Topic0, _Opts} = emqttd_topic:strip(RawTopic),
-                    case emqttd:run_hooks('client.unsubscribe', [ClientId, Username], Topic0) of
+                    case emqttd:run_hooks('client.unsubscribe', [{ClientId, Username}], Topic0) of
                         {ok, Topic1} ->
                             case dict:find(Topic1, SubDict) of
                                 {ok, _Qos} ->

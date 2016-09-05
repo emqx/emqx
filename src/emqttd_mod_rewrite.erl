@@ -44,9 +44,9 @@ rewrite_subscribe({_ClientId, _Username}, {Topic, Opts}, Sections) ->
     lager:info("Rewrite subscribe: ~p", [{Topic, Opts}]),
     {ok, {match_topic(Topic, Sections), Opts}}.
 
-rewrite_unsubscribe({_ClientId, _Username}, {Topic, Opts}, Sections) ->
-    lager:info("Rewrite unsubscribe: ~p", [{Topic, Opts}]),
-    {ok, {match_topic(Topic, Sections), Opts}}.
+rewrite_unsubscribe({_ClientId, _Username}, Topic, Sections) ->
+    lager:info("Rewrite unsubscribe: ~p", [Topic]),
+    {ok, match_topic(Topic, Sections)}.
 
 rewrite_publish(Message=#mqtt_message{topic = Topic}, Sections) ->
     %%TODO: this will not work if the client is always online.
