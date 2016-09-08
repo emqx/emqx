@@ -21,7 +21,7 @@
 -include("emqttd.hrl").
 
 %% API
--export([start_link/0, start_child/1, start_child/2]).
+-export([start_link/0, start_child/1, start_child/2, stop_child/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -45,6 +45,13 @@ start_child(ChildSpec) when is_tuple(ChildSpec) ->
 %%
 start_child(Mod, Type) when is_atom(Mod) and is_atom(Type) ->
     supervisor:start_child(?MODULE, ?CHILD(Mod, Type)).
+
+-spec(stop_child(any()) -> ok | {error, any()}).
+stop_child(ChildId) ->
+    case supervisor:terminate_child(?MODULE, ChildId) of
+        ok    -> supervisor:delete_child(?MODULE, ChildId);
+        Error -> Error
+    end.
 
 %%--------------------------------------------------------------------
 %% Supervisor callbacks

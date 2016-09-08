@@ -61,7 +61,7 @@ groups() ->
       [add_delete_hook,
        run_hooks]},
      {retainer, [sequence],
-      [dispatch_retained_messages]},
+      [t_retained_messages]},
      {backend, [sequence],
       []},
     {http, [sequence], 
@@ -307,7 +307,7 @@ hook_fun5(arg1, arg2, Acc, init)  -> {stop, [r3 | Acc]}.
 %% Retainer Test
 %%--------------------------------------------------------------------
 
-dispatch_retained_messages(_) ->
+t_retained_messages(_) ->
     Msg = #mqtt_message{retain = true, topic = <<"a/b/c">>,
                         payload = <<"payload">>},
     emqttd_retainer:retain(Msg),

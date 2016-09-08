@@ -14,10 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc MQTT retained message.
--module(emqttd_retainer).
+-module(emqttd_mod_retainer).
 
 -behaviour(gen_server).
+
+-behaviour(emqttd_gen_mod).
 
 -include("emqttd.hrl").
 
@@ -25,17 +26,14 @@
 
 -include_lib("stdlib/include/ms_transform.hrl").
 
-%% Mnesia Callbacks
--export([mnesia/1]).
+%% gen_mod Callbacks
+-export([load/1, unload/1]).
 
--boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
-
-%% API Function Exports
--export([retain/1, read_messages/1, dispatch/2]).
+%% Hook Callbacks
+-export([on_session_subscribed/4, on_message_publish/2]).
 
 %% API Function Exports
--export([start_link/0]).
+-export([start_link/1]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -46,83 +44,90 @@
 -record(state, {stats_fun, expired_after, stats_timer, expire_timer}).
 
 %%--------------------------------------------------------------------
-%% Mnesia callbacks
+%% Load/Unload
 %%--------------------------------------------------------------------
 
-mnesia(boot) ->
-    ok = emqttd_mnesia:create_table(retained_message, [
-                {type, ordered_set},
-                {disc_copies, [node()]},
-                {record_name, retained_message},
-                {attributes, record_info(fields, retained_message)},
-                {storage_properties, [{ets, [compressed]},
-                                      {dets, [{auto_save, 1000}]}]}]);
+load(Env) ->
+    emqttd_mod_sup:start_child(spec(Env)),
+    emqttd:hook('session.subscribed', fun ?MODULE:on_session_subscribed/4, [Env]),
+    emqttd:hook('message.publish', fun ?MODULE:on_message_publish/2, [Env]).
 
-mnesia(copy) ->
-    ok = emqttd_mnesia:copy_table(retained_message).
+on_session_subscribed(_ClientId, _Username, {Topic, _Opts}, _Env) ->
+    SessPid = self(),
+    Msgs = case emqttd_topic:wildcard(Topic) of
+               false -> read_messages(Topic);
+               true  -> match_messages(Topic)
+           end,
+    lists:foreach(fun(Msg) -> SessPid ! {dispatch, Topic, Msg} end, lists:reverse(Msgs)).
+
+on_message_publish(Msg = #mqtt_message{retain = false}, _Env) ->
+    {ok, Msg};
+
+%% RETAIN flag set to 1 and payload containing zero bytes
+on_message_publish(Msg = #mqtt_message{retain = true, topic = Topic, payload = <<>>}, _Env) ->
+    mnesia:dirty_delete(retained_message, Topic),
+    {stop, Msg};
+
+on_message_publish(Msg = #mqtt_message{topic = Topic, retain = true, payload = Payload}, Env) ->
+    case {is_table_full(Env), is_too_big(size(Payload), Env)} of
+        {false, false} ->
+            mnesia:dirty_write(#retained_message{topic = Topic, msg = Msg}),
+            emqttd_metrics:set('messages/retained', retained_count());
+       {true, _}->
+            lager:error("Cannot retain message(topic=~s) for table is full!", [Topic]);
+       {_, true}->
+            lager:error("Cannot retain message(topic=~s, payload_size=~p)"
+                            " for payload is too big!", [Topic, size(Payload)])
+    end,
+    {ok, Msg#mqtt_message{retain = false}}.
+
+is_table_full(Env) ->
+    Limit = proplists:get_value(max_message_num, Env, 0),
+    Limit > 0 andalso (retained_count() > Limit).
+
+is_too_big(Size, Env) ->
+    Limit = proplists:get_value(max_payload_size, Env, 0),
+    Limit > 0 andalso (Size > Limit).
+
+unload(_Env) ->
+    emqttd:unhook('session.subscribed', fun ?MODULE:on_session_subscribed/4),
+    emqttd:unhook('message.publish', fun ?MODULE:on_message_publish/2),
+    emqttd_mod_sup:stop_child(?MODULE).
+
+spec(Env) ->
+    {?MODULE, {?MODULE, start_link, [Env]}, permanent, 5000, worker, [?MODULE]}.
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
 %% @doc Start the retainer
--spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+-spec(start_link(Env :: list()) -> {ok, pid()} | ignore | {error, any()}).
+start_link(Env) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [Env], []).
 
-%% @doc Retain a message
--spec(retain(mqtt_message()) -> ok | ignore).
-retain(#mqtt_message{retain = false}) -> ignore;
+%%--------------------------------------------------------------------
+%% gen_server Callbacks
+%%--------------------------------------------------------------------
 
-%% RETAIN flag set to 1 and payload containing zero bytes
-retain(#mqtt_message{retain = true, topic = Topic, payload = <<>>}) ->
-    delete_message(Topic);
-
-retain(Msg = #mqtt_message{topic = Topic, retain = true, payload = Payload}) ->
-    TabSize = retained_count(),
-    case {TabSize < limit(table), size(Payload) < limit(payload)} of
-        {true, true} ->
-            retain_message(Msg),
-            emqttd_metrics:set('messages/retained', retained_count());
-       {false, _}->
-            lager:error("Cannot retain message(topic=~s) for table is full!", [Topic]);
-       {_, false}->
-            lager:error("Cannot retain message(topic=~s, payload_size=~p)"
-                            " for payload is too big!", [Topic, size(Payload)])
-    end, ok.
-
-limit(table)   -> env(max_message_num);
-limit(payload) -> env(max_playload_size).
-
-env(Key) ->
-    case get({retained, Key}) of
-        undefined ->
-            Env = emqttd_conf:retained(),
-            Val = proplists:get_value(Key, Env),
-            put({retained, Key}, Val), Val;
-        Val ->
-            Val
-    end.
-
-%% @doc Deliver retained messages to the subscriber
--spec(dispatch(Topic :: binary(), CPid :: pid()) -> any()).
-dispatch(Topic, CPid) when is_binary(Topic) ->
-    Msgs = case emqttd_topic:wildcard(Topic) of
-             false -> read_messages(Topic);
-             true  -> match_messages(Topic)
+init([Env]) ->
+    Copy = case proplists:get_value(storage, Env, disc) of
+               disc -> disc_copies;
+               ram  -> ram_copies
            end,
-    lists:foreach(fun(Msg) -> CPid ! {dispatch, Topic, Msg} end, lists:reverse(Msgs)).
-
-%%--------------------------------------------------------------------
-%% gen_server callbacks
-%%--------------------------------------------------------------------
-
-init([]) ->
+    ok = emqttd_mnesia:create_table(retained_message, [
+                {type, ordered_set},
+                {Copy, [node()]},
+                {record_name, retained_message},
+                {attributes, record_info(fields, retained_message)},
+                {storage_properties, [{ets, [compressed]},
+                                      {dets, [{auto_save, 1000}]}]}]),
+    ok = emqttd_mnesia:copy_table(retained_message),
     StatsFun = emqttd_stats:statsfun('retained/count', 'retained/max'),
     %% One second
     {ok, StatsTimer}  = timer:send_interval(timer:seconds(1), stats),
     State = #state{stats_fun = StatsFun, stats_timer = StatsTimer},
-    {ok, init_expire_timer(env(expired_after), State)}.
+    {ok, init_expire_timer(proplists:get_value(expired_after, Env, 0), State)}.
 
 init_expire_timer(0, State) ->
     State;
@@ -164,10 +169,6 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Functions
 %%--------------------------------------------------------------------
 
--spec(retain_message(mqtt_message()) -> ok).
-retain_message(Msg = #mqtt_message{topic = Topic}) ->
-    mnesia:dirty_write(#retained_message{topic = Topic, msg = Msg}).
-
 -spec(read_messages(binary()) -> [mqtt_message()]).
 read_messages(Topic) ->
     [Msg || #retained_message{msg = Msg} <- mnesia:dirty_read(retained_message, Topic)].
@@ -182,10 +183,6 @@ match_messages(Filter) ->
             end
           end,
     mnesia:async_dirty(fun mnesia:foldl/3, [Fun, [], retained_message]).
-
--spec(delete_message(binary()) -> ok).
-delete_message(Topic) ->
-    mnesia:dirty_delete(retained_message, Topic).
 
 -spec(expire_messages(pos_integer()) -> any()).
 expire_messages(Time) when is_integer(Time) ->

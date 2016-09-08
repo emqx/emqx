@@ -91,12 +91,7 @@ publish(Msg = #mqtt_message{from = From}) ->
     trace(publish, From, Msg),
     case emqttd_hook:run('message.publish', [], Msg) of
         {ok, Msg1 = #mqtt_message{topic = Topic}} ->
-            %% Retain message first. Don't create retained topic.
-            Msg2 = case emqttd_retainer:retain(Msg1) of
-                       ok     -> emqttd_message:unset_flag(Msg1);
-                       ignore -> Msg1
-                   end,
-            emqttd_pubsub:publish(Topic, Msg2);
+            emqttd_pubsub:publish(Topic, Msg1);
         {stop, Msg1} ->
             lager:warning("Stop publishing: ~s", [emqttd_message:format(Msg1)]),
             ignore

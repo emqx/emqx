@@ -16,15 +16,19 @@
 
 -module(emqttd_topic).
 
+-include("emqttd_protocol.hrl").
+
 -import(lists, [reverse/1]).
 
 -export([match/2, validate/1, triples/1, words/1, wildcard/1]).
 
 -export([join/1, feed_var/3, systop/1]).
 
--export([strip/1, strip/2]).
+-export([parse/1, parse/2]).
 
 -type(topic() :: binary()).
+
+-type(option() :: local | {qos, mqtt_qos()} | {share, '$queue' | binary()}).
 
 -type(word()   :: '' | '+' | '#' | binary()).
 
@@ -32,7 +36,7 @@
 
 -type(triple() :: {root | binary(), word(), binary()}).
 
--export_type([topic/0, word/0, triple/0]).
+-export_type([topic/0, option/0, word/0, triple/0]).
 
 -define(MAX_TOPIC_LEN, 4096).
 
@@ -172,28 +176,28 @@ join(Words) ->
                 end, {true, <<>>}, [bin(W) || W <- Words]),
     Bin.
 
--spec(strip(topic()) -> {topic(), [local | {share, binary()}]}).
-strip(Topic) when is_binary(Topic) ->
-    strip(Topic, []).
+-spec(parse(topic()) -> {topic(), [option()]}).
+parse(Topic) when is_binary(Topic) ->
+    parse(Topic, []).
 
-strip(Topic = <<"$local/", Topic1/binary>>, Options) ->
+parse(Topic = <<"$local/", Topic1/binary>>, Options) ->
     case lists:member(local, Options) of
         true  -> error({invalid_topic, Topic});
-        false -> strip(Topic1, [local | Options])
+        false -> parse(Topic1, [local | Options])
     end;
 
-strip(Topic = <<"$queue/", Topic1/binary>>, Options) ->
+parse(Topic = <<"$queue/", Topic1/binary>>, Options) ->
     case lists:keyfind(share, 1, Options) of
         {share, _} -> error({invalid_topic, Topic});
-        false      -> strip(Topic1, [{share, '$queue'} | Options])
+        false      -> parse(Topic1, [{share, '$queue'} | Options])
     end;
 
-strip(Topic = <<"$share/", Topic1/binary>>, Options) ->
+parse(Topic = <<"$share/", Topic1/binary>>, Options) ->
     case lists:keyfind(share, 1, Options) of
         {share, _} -> error({invalid_topic, Topic});
         false      -> [Share, Topic2] = binary:split(Topic1, <<"/">>),
                       {Topic2, [{share, Share} | Options]}
     end;
 
-strip(Topic, Options) -> {Topic, Options}.
+parse(Topic, Options) -> {Topic, Options}.
 

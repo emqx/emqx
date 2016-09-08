@@ -14,7 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd presence management module
 -module(emqttd_mod_presence).
 
 -behaviour(emqttd_gen_mod).
