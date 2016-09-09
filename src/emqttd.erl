@@ -53,7 +53,7 @@
 -define(APP, ?MODULE).
 
 %%--------------------------------------------------------------------
-%% Bootstrap, environment, configuration, is_running...
+%% Bootstrap, environment, is_running...
 %%--------------------------------------------------------------------
 
 %% @doc Start emqttd application.
