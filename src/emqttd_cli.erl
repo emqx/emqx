@@ -308,7 +308,7 @@ plugins(_) ->
 %%--------------------------------------------------------------------
 %% @doc Bridges command
 bridges(["list"]) ->
-    foreach(fun({{Node, Topic}, _Pid}) ->
+    foreach(fun({Node, Topic, _Pid}) ->
                 ?PRINT("bridge: ~s--~s-->~s~n", [node(), Topic, Node])
             end, emqttd_bridge_sup_sup:bridges());
 
