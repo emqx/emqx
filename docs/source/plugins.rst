@@ -883,10 +883,10 @@ There will be a new CLI after the plugin loaded::
 .. _emqttd_dashboard:       https://github.com/emqtt/emqttd_dashboard
 .. _emqttd_auth_ldap:       https://github.com/emqtt/emqttd_auth_ldap
 .. _emqttd_auth_http:       https://github.com/emqtt/emqttd_auth_http
-.. _emqttd_auth_mysql:      https://github.com/emqtt/emqttd_plugin_mysql
-.. _emqttd_auth_pgsql:      https://github.com/emqtt/emqttd_plugin_pgsql
-.. _emqttd_auth_redis:      https://github.com/emqtt/emqttd_plugin_redis
-.. _emqttd_auth_mongo:      https://github.com/emqtt/emqttd_plugin_mongo
+.. _emqttd_auth_mysql:      https://github.com/emqtt/emqttd_auth_mysql
+.. _emqttd_auth_pgsql:      https://github.com/emqtt/emqttd_auth_pgsql
+.. _emqttd_auth_redis:      https://github.com/emqtt/emqttd_auth_redis
+.. _emqttd_auth_mongo:      https://github.com/emqtt/emqttd_auth_mongo
 .. _emqttd_sn:              https://github.com/emqtt/emqttd_sn
 .. _emqttd_stomp:           https://github.com/emqtt/emqttd_stomp
 .. _emqttd_sockjs:          https://github.com/emqtt/emqttd_sockjs
