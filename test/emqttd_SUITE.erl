@@ -29,7 +29,7 @@ all() ->
      {group, pubsub},
      {group, router},
      {group, session},
-     {group, retainer},
+     %%{group, retainer},
      {group, broker},
      {group, metrics},
      {group, stats},
@@ -60,8 +60,6 @@ groups() ->
      {hook, [sequence],
       [add_delete_hook,
        run_hooks]},
-     {retainer, [sequence],
-      [t_retained_messages]},
      {backend, [sequence],
       []},
     {http, [sequence], 
@@ -237,10 +235,10 @@ start_session(_) ->
     Message1 = Message#mqtt_message{pktid = 1},
     emqttd_session:publish(SessPid, Message1),
     emqttd_session:pubrel(SessPid, 1),
-    emqttd_session:subscribe(SessPid, [{<<"topic/session">>, 2}]),
+    emqttd_session:subscribe(SessPid, [{<<"topic/session">>, [{qos, 2}]}]),
     Message2 = emqttd_message:make(<<"clientId">>, 1, <<"topic/session">>, <<"test">>),
     emqttd_session:publish(SessPid, Message2),
-    emqttd_session:unsubscribe(SessPid, [<<"topic/session">>]),
+    emqttd_session:unsubscribe(SessPid, [{<<"topic/session">>, []}]),
     emqttd_mock_client:stop(ClientPid).
 
 %%--------------------------------------------------------------------
@@ -302,20 +300,6 @@ hook_fun2([]) -> {ok, []}.
 hook_fun3(arg1, arg2, _Acc, init) -> ok.
 hook_fun4(arg1, arg2, Acc, init)  -> {ok, [r2 | Acc]}.
 hook_fun5(arg1, arg2, Acc, init)  -> {stop, [r3 | Acc]}.
-
-%%--------------------------------------------------------------------
-%% Retainer Test
-%%--------------------------------------------------------------------
-
-t_retained_messages(_) ->
-    Msg = #mqtt_message{retain = true, topic = <<"a/b/c">>,
-                        payload = <<"payload">>},
-    emqttd_retainer:retain(Msg),
-    emqttd_retainer:dispatch(<<"a/b/+">>, self()),
-    ?assert(receive {dispatch, <<"a/b/+">>, Msg} -> true after 10 -> false end),
-    emqttd_retainer:retain(#mqtt_message{retain = true, topic = <<"a/b/c">>, payload = <<>>}),
-    [] = emqttd_retainer:read_messages(<<"a/b/c">>).
-
 
 %%--------------------------------------------------------------------
 %% HTTP Request Test
