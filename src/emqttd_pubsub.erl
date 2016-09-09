@@ -26,7 +26,7 @@
 -export([start_link/3, subscribe/2, unsubscribe/2, publish/2,
          async_subscribe/2, async_unsubscribe/2]).
 
--export([subscribers/1]).
+-export([subscribers/1, dispatch/2]).
 
 %% gen_server.
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,

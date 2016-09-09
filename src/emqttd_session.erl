@@ -84,7 +84,7 @@
         packet_id = 1,
         
         %% Client’s subscriptions.
-        subscriptions :: dict:dict(),
+        subscriptions :: map(),
 
         %% Inflight qos1, qos2 messages sent to the client but unacked,
         %% QoS 1 and QoS 2 messages which have been sent to the Client,
@@ -323,7 +323,7 @@ handle_cast({unsubscribe, TopicTable}, Session = #session{client_id     = Client
                     {ok, _Qos} ->
                         emqttd:unsubscribe(Topic, ClientId),
                         emqttd:run_hooks('session.unsubscribed', [ClientId, Username], {Topic, Opts}),
-                        dict:erase(Topic, SubMap);
+                        maps:remove(Topic, SubMap);
                     error ->
                         SubMap
                 end
@@ -561,8 +561,8 @@ dispatch(Msg = #mqtt_message{qos = QoS}, Session = #session{message_queue = MsgQ
             hibernate(Session#session{message_queue = emqttd_mqueue:in(Msg, MsgQ)})
     end.
 
-tune_qos(Topic, Msg = #mqtt_message{qos = PubQos}, Subscriptions) ->
-    case dict:find(Topic, Subscriptions) of
+tune_qos(Topic, Msg = #mqtt_message{qos = PubQos}, SubMap) ->
+    case maps:find(Topic, SubMap) of
         {ok, SubQos} when PubQos > SubQos ->
             Msg#mqtt_message{qos = SubQos};
         {ok, _SubQos} ->
