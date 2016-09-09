@@ -812,26 +812,28 @@ Register Callbacks for Hooks
 
 The plugin could register callbacks for hooks. The hooks will be run by the broker when a client connected/disconnected, a topic subscribed/unsubscribed or a message published/delivered:
 
-+------------------------+---------------------------------------+
-| Name                   | Description                           |
-+------------------------+---------------------------------------+
-| client.connected       | Run when a client connected to the    |
-|                        | broker successfully                   |
-+------------------------+---------------------------------------+
-| client.subscribe       | Run before a client subscribes topics |
-+------------------------+---------------------------------------+
-| client.subscribe.after | Run after a client subscribed topics  |
-+------------------------+---------------------------------------+
-| client.unsubscribe     | Run when a client unsubscribes topics |
-+------------------------+---------------------------------------+
-| message.publish        | Run when a message is published       |
-+------------------------+---------------------------------------+
-| message.delivered      | Run when a message is delivered       |
-+------------------------+---------------------------------------+
-| message.acked          | Run when a message(qos1/2) is acked   |
-+------------------------+---------------------------------------+
-| client.disconnected    | Run when a client is disconnnected    |
-+------------------------+---------------------------------------+
++------------------------+-----------------------------------------+
+| Name                   | Description                             |
++------------------------+-----------------------------------------+
+| client.connected       | Run when a client connected to the      |
+|                        | broker successfully                     |
++------------------------+-----------------------------------------+
+| client.subscribe       | Run before a client subscribes topics   |
++------------------------+-----------------------------------------+
+| session.subscribed     | Run after a client subscribed a topic   |
++------------------------+-----------------------------------------+
+| client.unsubscribe     | Run when a client unsubscribes topics   |
++------------------------+-----------------------------------------+
+| session.unsubscribed   | Run after a client unsubscribed a topic |
++------------------------+-----------------------------------------+
+| message.publish        | Run when a message is published         |
++------------------------+-----------------------------------------+
+| message.delivered      | Run when a message is delivered         |
++------------------------+-----------------------------------------+
+| message.acked          | Run when a message(qos1/2) is acked     |
++------------------------+-----------------------------------------+
+| client.disconnected    | Run when a client is disconnnected      |
++------------------------+-----------------------------------------+
 
 emqttd_plugin_template.erl for example:
 
@@ -841,13 +843,13 @@ emqttd_plugin_template.erl for example:
     load(Env) ->
         emqttd:hook('client.connected', fun ?MODULE:on_client_connected/3, [Env]),
         emqttd:hook('client.disconnected', fun ?MODULE:on_client_disconnected/3, [Env]),
-        emqttd:hook('client.subscribe', fun ?MODULE:on_client_subscribe/3, [Env]),
-        emqttd:hook('client.subscribe.after', fun ?MODULE:on_client_subscribe_after/3, [Env]),
-        emqttd:hook('client.unsubscribe', fun ?MODULE:on_client_unsubscribe/3, [Env]),
+        emqttd:hook('client.subscribe', fun ?MODULE:on_client_subscribe/4, [Env]),
+        emqttd:hook('session.subscribed', fun ?MODULE:on_session_subscribed/4, [Env]),
+        emqttd:hook('client.unsubscribe', fun ?MODULE:on_client_unsubscribe/4, [Env]),
+        emqttd:hook('session.unsubscribed', fun ?MODULE:on_session_unsubscribed/4, [Env]),
         emqttd:hook('message.publish', fun ?MODULE:on_message_publish/2, [Env]),
-        emqttd:hook('message.delivered', fun ?MODULE:on_message_delivered/3, [Env]),
-        emqttd:hook('message.acked', fun ?MODULE:on_message_acked/3, [Env]).
-
+        emqttd:hook('message.delivered', fun ?MODULE:on_message_delivered/4, [Env]),
+        emqttd:hook('message.acked', fun ?MODULE:on_message_acked/4, [Env]).
 
 Register CLI Modules
 --------------------
