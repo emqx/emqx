@@ -14,7 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Subscription from Broker Side
 -module(emqttd_mod_subscription).
 
 -behaviour(emqttd_gen_mod).

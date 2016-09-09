@@ -14,7 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc MQTT Protocol Processor.
 -module(emqttd_protocol).
 
 -include("emqttd.hrl").
@@ -28,7 +27,7 @@
 %% API
 -export([init/3, info/1, clientid/1, client/1, session/1]).
 
--export([received/2, send/2, redeliver/2, shutdown/2]).
+-export([received/2, handle/2, send/2, redeliver/2, shutdown/2]).
 
 -export([process/2]).
 
@@ -115,6 +114,26 @@ received(Packet = ?PACKET(_Type), State) ->
         {error, Reason} ->
             {error, Reason, State}
     end.
+
+handle({subscribe, RawTopicTable}, ProtoState = #proto_state{client_id = ClientId,
+                                                             username  = Username,
+                                                             session   = Session}) ->
+    TopicTable = parse_topic_table(RawTopicTable),
+    case emqttd:run_hooks('client.subscribe', [ClientId, Username], TopicTable) of
+        {ok, TopicTable1} ->
+            emqttd_session:subscribe(Session, TopicTable1);
+        {stop, _} ->
+            ok
+    end,
+    {ok, ProtoState};
+
+handle({unsubscribe, RawTopics}, ProtoState = #proto_state{client_id = ClientId,
+                                                           username  = Username,
+                                                           session   = Session}) ->
+    {ok, TopicTable} = emqttd:run_hooks('client.unsubscribe',
+                                        [ClientId, Username], parse_topics(RawTopics)),
+    emqttd_session:unsubscribe(Session, TopicTable),
+    {ok, ProtoState}.
 
 process(Packet = ?CONNECT_PACKET(Var), State0) ->
 
