@@ -53,7 +53,7 @@
 -define(APP, ?MODULE).
 
 %%--------------------------------------------------------------------
-%% Bootstrap, environment, is_running...
+%% Bootstrap, environment, configuration, is_running...
 %%--------------------------------------------------------------------
 
 %% @doc Start emqttd application.
@@ -62,10 +62,10 @@ start() -> application:start(?APP).
 
 %% @doc Get Config
 -spec(conf(Key :: atom()) -> any()).
-conf(Key) -> gen_conf:value(?APP, Key).
+conf(Key) -> emqttd_conf:value(Key).
 
 -spec(conf(Key :: atom(), Default :: any()) -> any()).
-conf(Key, Default) -> gen_conf:value(?APP, Key, Default).
+conf(Key, Default) -> emqttd_conf:value(Key, Default).
 
 %% @doc Environment
 -spec(env(Key:: atom()) -> any()).

@@ -42,7 +42,7 @@
       Reason    :: term()).
 start(_StartType, _StartArgs) ->
     print_banner(),
-    gen_conf:init(emqttd),
+    emqttd_conf:init(),
     emqttd_mnesia:start(),
     {ok, Sup} = emqttd_sup:start_link(),
     start_servers(Sup),
