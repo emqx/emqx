@@ -820,9 +820,9 @@ The plugin could register callbacks for hooks. The hooks will be run by the brok
 +------------------------+-----------------------------------------+
 | client.subscribe       | Run before a client subscribes topics   |
 +------------------------+-----------------------------------------+
-| session.subscribed     | Run after a client subscribed a topic   |
-+------------------------+-----------------------------------------+
 | client.unsubscribe     | Run when a client unsubscribes topics   |
++------------------------+-----------------------------------------+
+| session.subscribed     | Run after a client subscribed a topic   |
 +------------------------+-----------------------------------------+
 | session.unsubscribed   | Run after a client unsubscribed a topic |
 +------------------------+-----------------------------------------+

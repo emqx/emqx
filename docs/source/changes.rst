@@ -5,23 +5,18 @@
 Changes
 =======
 
-.. _release_2.0:
+.. _release_2.0_beta.2:
 
--------------------------------
-Version 2.0 (West of West Lake)
--------------------------------
-
-*Release Date: 2016-09-30*
-
-*Release Name: West of West Lake*
-
-TODO: ...
-
------------------
-Version 2.0-beta2
------------------
+------------------
+Version 2.0-beta.2
+------------------
 
 *Release Date: 2016-09-10*
+
+CoAP Support
+------------
+
+Release an experimental CoAP Gateway: https://github.com/emqtt/emqttd_coap
 
 API Breaking Changes
 --------------------
@@ -37,10 +32,17 @@ Tab 'retained_message' -> 'mqtt_retained'
 Bugfix
 ------
 
+[2.0 beta1] FORMAT ERROR: "~s PUBLISH to ~s: ~p" (PR #671)
 
------------------
-Version 2.0-beta1
------------------
+Fixing issues in cluster mode. (PR #681)
+
+Fixing issues with unsubscribe hook (PR #673)
+
+.. _release_2.0_beta.1:
+
+------------------
+Version 2.0-beta.1
+------------------
 
 *Release Date: 2016-08-30*
 
