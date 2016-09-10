@@ -65,10 +65,10 @@ Plugin                                                                    | Desc
 --------------------------------------------------------------------------|--------------------------------------
 [emqttd_plugin_template](https://github.com/emqtt/emqttd_plugin_template) | Plugin template and demo
 [emqttd_dashboard](https://github.com/emqtt/emqttd_dashboard)             | Web Dashboard
-[emqttd_auth_mysql](https://github.com/emqtt/emqttd_plugin_mysql)         | MySQL Authentication/ACL Plugin
-[emqttd_auth_pgsql](https://github.com/emqtt/emqttd_plugin_pgsql)         | PostgreSQL Authentication/ACL Plugin
-[emqttd_auth_redis](https://github.com/emqtt/emqttd_plugin_redis)         | Redis Authentication/ACL Plugin
-[emqttd_auth_mongo](https://github.com/emqtt/emqttd_plugin_mongo)         | MongoDB Authentication/ACL Plugin
+[emqttd_auth_mysql](https://github.com/emqtt/emqttd_auth_mysql)         | MySQL Authentication/ACL Plugin
+[emqttd_auth_pgsql](https://github.com/emqtt/emqttd_auth_pgsql)         | PostgreSQL Authentication/ACL Plugin
+[emqttd_auth_redis](https://github.com/emqtt/emqttd_auth_redis)         | Redis Authentication/ACL Plugin
+[emqttd_auth_mongo](https://github.com/emqtt/emqttd_auth_mongo)         | MongoDB Authentication/ACL Plugin
 [emqttd_auth_http](https://github.com/emqtt/emqttd_auth_http)             | Authentication/ACL by HTTP API
 [emqttd_auth_ldap](https://github.com/emqtt/emqttd_auth_ldap)             | LDAP Authentication Plugin
 [emqttd_sn](https://github.com/emqtt/emqttd_sn)                           | MQTT-SN Protocol Plugin
