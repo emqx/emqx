@@ -65,7 +65,7 @@ Installing on Mac, for example:
 
 .. code-block:: bash
 
-    unzip emqttd-macosx-2.0-beta1-20160830.zip && cd emqttd
+    unzip emqttd-macosx-v2.0-beta.2-20160910.zip && cd emqttd
 
     # Start emqttd
     ./bin/emqttd start
