@@ -161,7 +161,7 @@ Suppose we deploy two nodes cluster on s1.emqtt.io, s2.emqtt.io:
 emqttd@s1.emqtt.io setting
 --------------------------
 
-emqttd/etc/vm.args::
+emqttd/releases/2.0/vm.args::
 
     -name emqttd@s1.emqtt.io
 
@@ -174,7 +174,7 @@ emqttd/etc/vm.args::
 emqttd@s2.emqtt.io setting
 --------------------------
 
-emqttd/etc/vm.args::
+emqttd/releases/2.0/vm.args::
 
     -name emqttd@s2.emqtt.io
 

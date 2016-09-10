@@ -7,13 +7,13 @@ Configuration
 
 The two main configuration files of the broker are under 'etc/' folder:
 
-+-------------------+-----------------------------------+
-| File              | Description                       |
-+-------------------+-----------------------------------+
-| etc/vm.args       | Erlang VM Arguments               |
-+-------------------+-----------------------------------+
-| etc/emqttd.conf   | emqttd broker Config              |
-+-------------------+-----------------------------------+
++----------------------+-----------------------------------+
+| File                 | Description                       |
++----------------------+-----------------------------------+
+| releases/2.0/vm.args | Erlang VM Arguments               |
++----------------------+-----------------------------------+
+| etc/emqttd.conf      | emqttd broker Config              |
++----------------------+-----------------------------------+
 
 ----------------------------
 Plugins' Configuration Files
@@ -65,9 +65,9 @@ The modules' configuration files are in etc/modules/ folder, and referrenced by 
 | etc/ssl/*                  | SSL Certfile and Keyfile          |
 +-----------------------------+----------------------------------+
 
------------
-etc/vm.args
------------
+--------------------
+releases/2.0/vm.args
+--------------------
 
 Configure and Optimize Erlang VM::
 
@@ -127,7 +127,7 @@ Configure and Optimize Erlang VM::
     ## Tweak GC to run more often
     -env ERL_FULLSWEEP_AFTER 1000
 
-The two most important parameters in etc/vm.args:
+The two most important parameters in releases/2.0/vm.args:
 
 +-------+---------------------------------------------------------------------------+
 | +P    | Max number of Erlang proccesses. A MQTT client consumes two proccesses.   |
