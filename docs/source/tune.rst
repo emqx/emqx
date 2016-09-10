@@ -89,7 +89,7 @@ Timeout for FIN-WAIT-2 sockets::
 Erlang VM Tuning
 ----------------
 
-Tuning and optimize the Erlang VM in etc/vm.args file::
+Tuning and optimize the Erlang VM in releases/2.0/vm.args file::
 
     ## max number of erlang processes
     +P 2097152
@@ -149,3 +149,4 @@ emqtt_benchmark
 ---------------
 
 Test tool for concurrent connections: http://github.com/emqtt/emqtt_benchmark
+

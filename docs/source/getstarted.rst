@@ -220,7 +220,7 @@ TCP Stack Parameters
 Erlang VM
 ---------
 
-emqttd/etc/vm.args::
+emqttd/release/2.0/vm.args::
 
     ## max process numbers
     +P 2097152

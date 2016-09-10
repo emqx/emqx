@@ -253,13 +253,13 @@ Quick Setup
 
 Two main configuration files of the emqttd broker:
 
-+-------------------+-----------------------------------+
-| etc/vm.args       | Erlang VM Arguments               |
-+-------------------+-----------------------------------+
-| etc/emqttd.conf   | emqttd broker Config              |
-+-------------------+-----------------------------------+
++-----------------------+-----------------------------------+
+| releases/2.0/vm.args  | Erlang VM Arguments               |
++-----------------------+-----------------------------------+
+| etc/emqttd.conf       | emqttd broker Config              |
++-----------------------+-----------------------------------+
 
-Two important parameters in etc/vm.args:
+Two important parameters in releases/2.0/vm.args:
 
 +-------+---------------------------------------------------------------------------+
 | +P    | Max number of Erlang proccesses. A MQTT client consumes two proccesses.   |
