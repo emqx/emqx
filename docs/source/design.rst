@@ -341,7 +341,7 @@ Hooks defined by the emqttd 1.0 broker:
 +------------------------+------------------------------------------------------+
 | session.subscribed     | Run After client(session) subscribed a topic         |
 +------------------------+------------------------------------------------------+
-| session.unsubscribed     | Run After client(session) unsubscribed a topic     |
+| session.unsubscribed   | Run After client(session) unsubscribed a topic       |
 +------------------------+------------------------------------------------------+
 | message.publish        | Run when a MQTT message is published                 |
 +------------------------+------------------------------------------------------+
