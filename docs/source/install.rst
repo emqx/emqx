@@ -35,7 +35,7 @@ Download binary packages from: http://emqtt.io/downloads
 
 The package name consists of platform, version and release time.
 
-For example: emqttd-centos64-2.0-beta1-20160830.zip
+For example: emqttd-centos64-v2.0-beta.2-20160910.zip
 
 .. _install_on_linux:
 
@@ -47,7 +47,7 @@ Download CentOS Package from: http://emqtt.io/downloads/latest/centos, and then 
 
 .. code-block:: bash
 
-    unzip emqttd-centos64-2.0-beta-20160830.zip
+    unzip emqttd-centos64-v2.0-beta.2-20160910.zip
 
 Start the broker in console mode:
 
