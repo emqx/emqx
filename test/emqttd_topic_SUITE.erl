@@ -22,14 +22,14 @@
 -compile(export_all).
 
 -import(emqttd_topic, [wildcard/1, match/2, validate/1, triples/1, join/1,
-                       words/1, systop/1, feed_var/3, strip/1, strip/2]).
+                       words/1, systop/1, feed_var/3, parse/1, parse/2]).
 
 -define(N, 10000).
 
 all() -> [t_wildcard, t_match, t_match2, t_validate, t_triples, t_join,
           t_words, t_systop, t_feed_var, t_sys_match, 't_#_match',
           t_sigle_level_validate, t_sigle_level_match, t_match_perf,
-          t_triples_perf, t_strip].
+          t_triples_perf, t_parse].
 
 t_wildcard(_) ->
     true  = wildcard(<<"a/b/#">>),
@@ -171,11 +171,11 @@ t_feed_var(_) ->
 long_topic() ->
     iolist_to_binary([[integer_to_list(I), "/"] || I <- lists:seq(0, 10000)]).
 
-t_strip(_) ->
-    ?assertEqual({<<"a/b/+/#">>, []}, strip(<<"a/b/+/#">>)),
-    ?assertEqual({<<"topic">>, [{share, '$queue'}]}, strip(<<"$queue/topic">>)),
-    ?assertEqual({<<"topic">>, [{share, <<"group">>}]}, strip(<<"$share/group/topic">>)),
-    ?assertEqual({<<"topic">>, [local]}, strip(<<"$local/topic">>)),
-    ?assertEqual({<<"topic">>, [{share, '$queue'}, local]}, strip(<<"$local/$queue/topic">>)),
-    ?assertEqual({<<"/a/b/c">>, [{share, <<"group">>}, local]}, strip(<<"$local/$share/group//a/b/c">>)).
+t_parse(_) ->
+    ?assertEqual({<<"a/b/+/#">>, []}, parse(<<"a/b/+/#">>)),
+    ?assertEqual({<<"topic">>, [{share, '$queue'}]}, parse(<<"$queue/topic">>)),
+    ?assertEqual({<<"topic">>, [{share, <<"group">>}]}, parse(<<"$share/group/topic">>)),
+    ?assertEqual({<<"topic">>, [local]}, parse(<<"$local/topic">>)),
+    ?assertEqual({<<"topic">>, [{share, '$queue'}, local]}, parse(<<"$local/$queue/topic">>)),
+    ?assertEqual({<<"/a/b/c">>, [{share, <<"group">>}, local]}, parse(<<"$local/$share/group//a/b/c">>)).
 

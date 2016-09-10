@@ -97,14 +97,14 @@ handle_call(Req, _From, State = #wsclient_state{peer = Peer}) ->
     {reply, {error, unsupported_request}, State}.
 
 handle_cast({subscribe, TopicTable}, State) ->
-    with_session(fun(SessPid) ->
-                   emqttd_session:subscribe(SessPid, TopicTable)
-                 end, State);
+    with_proto_state(fun(ProtoState) ->
+                emqttd_protocol:handle({subscribe, TopicTable}, ProtoState)
+        end, State);
 
 handle_cast({unsubscribe, Topics}, State) ->
-    with_session(fun(SessPid) ->
-                   emqttd_session:unsubscribe(SessPid, Topics)
-                 end, State);
+    with_proto_state(fun(ProtoState) ->
+                emqttd_protocol:handle({unsubscribe, Topics}, ProtoState)
+        end, State);
 
 handle_cast({received, Packet}, State = #wsclient_state{peer = Peer, proto_state = ProtoState}) ->
     case emqttd_protocol:received(Packet, ProtoState) of
@@ -193,9 +193,6 @@ code_change(_OldVsn, State, _Extra) ->
 with_proto_state(Fun, State = #wsclient_state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = Fun(ProtoState),
     noreply(State#wsclient_state{proto_state = ProtoState1}).
-
-with_session(Fun, State = #wsclient_state{proto_state = ProtoState}) ->
-    Fun(emqttd_protocol:session(ProtoState)), noreply(State).
 
 noreply(State) ->
     {noreply, State, hibernate}.

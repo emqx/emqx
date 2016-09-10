@@ -5,11 +5,44 @@
 Changes
 =======
 
-.. _release_2.0:
+.. _release_2.0_beta.2:
 
--------------------------------------
-Version 2.0-beta1 (West of West Lake)
--------------------------------------
+------------------
+Version 2.0-beta.2
+------------------
+
+*Release Date: 2016-09-10*
+
+CoAP Support
+------------
+
+Release an experimental CoAP Gateway: https://github.com/emqtt/emqttd_coap
+
+API Breaking Changes
+--------------------
+
+'$u', '$c' variables in emqttd.conf and modules/acl.conf changed to '%u', '%c'
+
+Improve the design of mqtt retained message, replace emqttd_retainer with emqttd_mod_retainer.
+
+Add 'session.subscribed', 'session.unsubscribed' hooks, remove 'client.subscribe.after' hook
+
+Tab 'retained_message' -> 'mqtt_retained'
+
+Bugfix
+------
+
+[2.0 beta1] FORMAT ERROR: "~s PUBLISH to ~s: ~p" (PR #671)
+
+Fixing issues in cluster mode. (PR #681)
+
+Fixing issues with unsubscribe hook (PR #673)
+
+.. _release_2.0_beta.1:
+
+------------------
+Version 2.0-beta.1
+------------------
 
 *Release Date: 2016-08-30*
 

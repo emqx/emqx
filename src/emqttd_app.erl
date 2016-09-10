@@ -42,7 +42,7 @@
       Reason    :: term()).
 start(_StartType, _StartArgs) ->
     print_banner(),
-    gen_conf:init(emqttd),
+    emqttd_conf:init(),
     emqttd_mnesia:start(),
     {ok, Sup} = emqttd_sup:start_link(),
     start_servers(Sup),
@@ -81,7 +81,6 @@ start_servers(Sup) ->
                {"emqttd pubsub", {supervisor, emqttd_pubsub_sup}},
                {"emqttd stats", emqttd_stats},
                {"emqttd metrics", emqttd_metrics},
-               {"emqttd retainer", emqttd_retainer},
                {"emqttd pooler", {supervisor, emqttd_pooler}},
                {"emqttd trace", {supervisor, emqttd_trace_sup}},
                {"emqttd client manager", {supervisor, emqttd_cm_sup}},

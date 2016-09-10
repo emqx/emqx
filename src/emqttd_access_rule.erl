@@ -75,8 +75,8 @@ compile(topic, Topic) ->
     end.
 
 'pattern?'(Words) ->
-    lists:member(<<"$u">>, Words)
-        orelse lists:member(<<"$c">>, Words).
+    lists:member(<<"%u">>, Words)
+        orelse lists:member(<<"%c">>, Words).
 
 bin(L) when is_list(L) ->
     list_to_binary(L);
@@ -142,13 +142,13 @@ feed_var(Client, Pattern) ->
     feed_var(Client, Pattern, []).
 feed_var(_Client, [], Acc) ->
     lists:reverse(Acc);
-feed_var(Client = #mqtt_client{client_id = undefined}, [<<"$c">>|Words], Acc) ->
-    feed_var(Client, Words, [<<"$c">>|Acc]);
-feed_var(Client = #mqtt_client{client_id = ClientId}, [<<"$c">>|Words], Acc) ->
+feed_var(Client = #mqtt_client{client_id = undefined}, [<<"%c">>|Words], Acc) ->
+    feed_var(Client, Words, [<<"%c">>|Acc]);
+feed_var(Client = #mqtt_client{client_id = ClientId}, [<<"%c">>|Words], Acc) ->
     feed_var(Client, Words, [ClientId |Acc]);
-feed_var(Client = #mqtt_client{username = undefined}, [<<"$u">>|Words], Acc) ->
-    feed_var(Client, Words, [<<"$u">>|Acc]);
-feed_var(Client = #mqtt_client{username = Username}, [<<"$u">>|Words], Acc) ->
+feed_var(Client = #mqtt_client{username = undefined}, [<<"%u">>|Words], Acc) ->
+    feed_var(Client, Words, [<<"%u">>|Acc]);
+feed_var(Client = #mqtt_client{username = Username}, [<<"%u">>|Words], Acc) ->
     feed_var(Client, Words, [Username|Acc]);
 feed_var(Client, [W|Words], Acc) ->
     feed_var(Client, Words, [W|Acc]).
