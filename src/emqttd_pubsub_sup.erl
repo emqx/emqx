@@ -38,7 +38,7 @@ pubsub_pool() ->
     hd([Pid || {pubsub_pool, Pid, _, _} <- supervisor:which_children(?MODULE)]).
 
 %%--------------------------------------------------------------------
-%% Supervisor callbacks
+%% Supervisor Callbacks
 %%--------------------------------------------------------------------
 
 init([Env]) ->
@@ -57,9 +57,9 @@ pool_size(Env) ->
 
 pool_sup(Name, Env) ->
     Pool = list_to_atom(atom_to_list(Name) ++ "_pool"),
-    MFA = {emqttd:adapter(Name), start_link, [Env]},
+    Mod = list_to_atom("emqttd_" ++ atom_to_list(Name)),
+    MFA = {Mod, start_link, [Env]},
     emqttd_pool_sup:spec(Pool, [Name, hash, pool_size(Env), MFA]).
-
 
 %%--------------------------------------------------------------------
 %% Create PubSub Tables

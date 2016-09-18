@@ -133,7 +133,9 @@ setqos(Topic, Subscriber, Qos) when is_binary(Topic) ->
 
 -spec(subscriptions(emqttd:subscriber()) -> [{binary(), list(emqttd:suboption())}]).
 subscriptions(Subscriber) ->
-    lists:map(fun({_, Topic}) ->
+    lists:map(fun({_, {_Share, Topic}}) ->
+                subscription(Topic, Subscriber);
+                 ({_, Topic}) ->
                 subscription(Topic, Subscriber)
         end, ets:lookup(mqtt_subscription, Subscriber)).
 
@@ -235,13 +237,19 @@ code_change(_OldVsn, State, _Extra) ->
 do_subscribe_(Topic, Subscriber, Options, State) ->
     case ets:lookup(mqtt_subproperty, {Topic, Subscriber}) of
         [] ->
-            emqttd_pubsub:async_subscribe(Topic, Subscriber),
-            ets:insert(mqtt_subscription, {Subscriber, Topic}),
+            emqttd_pubsub:async_subscribe(Topic, Subscriber, Options),
+            Share = proplists:get_value(share, Options),
+            add_subscription_(Share, Subscriber, Topic),
             ets:insert(mqtt_subproperty, {{Topic, Subscriber}, Options}),
             {ok, monitor_subpid(Subscriber, State)};
         [_] ->
             {error, {already_subscribed, Topic}}
     end.
+
+add_subscription_(undefined, Subscriber, Topic) ->
+    ets:insert(mqtt_subscription, {Subscriber, Topic});
+add_subscription_(Share, Subscriber, Topic) ->
+    ets:insert(mqtt_subscription, {Subscriber, {Share, Topic}}).
 
 monitor_subpid(SubPid, State = #state{submon = PMon}) when is_pid(SubPid) ->
     State#state{submon = PMon:monitor(SubPid)};
@@ -250,9 +258,10 @@ monitor_subpid(_SubPid, State) ->
 
 do_unsubscribe_(Topic, Subscriber, State) ->
     case ets:lookup(mqtt_subproperty, {Topic, Subscriber}) of
-        [_] ->
-            emqttd_pubsub:async_unsubscribe(Topic, Subscriber),
-            ets:delete_object(mqtt_subscription, {Subscriber, Topic}),
+        [{_, Options}] ->
+            emqttd_pubsub:async_unsubscribe(Topic, Subscriber, Options),
+            Share = proplists:get_value(share, Options),
+            del_subscription_(Share, Subscriber, Topic),
             ets:delete(mqtt_subproperty, {Topic, Subscriber}),
             {ok, case ets:member(mqtt_subscription, Subscriber) of
                 true  -> State;
@@ -262,24 +271,32 @@ do_unsubscribe_(Topic, Subscriber, State) ->
             {error, {subscription_not_found, Topic}}
     end.
 
+del_subscription_(undefined, Subscriber, Topic) ->
+    ets:delete_object(mqtt_subscription, {Subscriber, Topic});
+del_subscription_(Share, Subscriber, Topic) ->
+    ets:delete_object(mqtt_subscription, {Subscriber, {Share, Topic}}).
+
 demonitor_subpid(SubPid, State = #state{submon = PMon}) when is_pid(SubPid) ->
     State#state{submon = PMon:demonitor(SubPid)};
 demonitor_subpid(_SubPid, State) ->
     State.
 
 subscriber_down_(Subscriber) ->
-    lists:foreach(fun({_, Topic}) ->
-                subscriber_down_(Subscriber, Topic)
+    lists:foreach(fun({_, {Share, Topic}}) ->
+                        subscriber_down_(Share, Subscriber, Topic);
+                     ({_, Topic}) ->
+                        subscriber_down_(undefined, Subscriber, Topic)
         end, ets:lookup(mqtt_subscription, Subscriber)),
     ets:delete(mqtt_subscription, Subscriber).
 
-subscriber_down_(Subscriber, Topic) ->
+subscriber_down_(Share, Subscriber, Topic) ->
     case ets:lookup(mqtt_subproperty, {Topic, Subscriber}) of
-        []  ->
-            %% here?
-            emqttd_pubsub:async_unsubscribe(Topic, Subscriber);
-        [_] ->
-            emqttd_pubsub:async_unsubscribe(Topic, Subscriber),
+        [] ->
+            %% TODO:....???
+            Options = if Share == undefined -> []; true -> [{share, Share}] end,
+            emqttd_pubsub:async_unsubscribe(Topic, Subscriber, Options);
+        [{_, Options}] ->
+            emqttd_pubsub:async_unsubscribe(Topic, Subscriber, Options),
             ets:delete(mqtt_subproperty, {Topic, Subscriber})
     end.
 

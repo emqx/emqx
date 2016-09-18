@@ -66,11 +66,7 @@ init([]) ->
     {ok, {{one_for_one, 10, 100}, []}}.
 
 bridge_spec(Node, Topic, Options) ->
-    SupMod = sup_mod(emqttd:adapter(bridge)),
     {?CHILD_ID(Node, Topic),
-      {SupMod, start_link, [Node, Topic, Options]},
-        permanent, infinity, supervisor, [SupMod]}.
-
-sup_mod(Adaper) ->
-    list_to_atom(atom_to_list(Adaper) ++ "_sup").
+      {emqttd_bridge_sup, start_link, [Node, Topic, Options]},
+        permanent, infinity, supervisor, [emqttd_bridge_sup]}.
 
