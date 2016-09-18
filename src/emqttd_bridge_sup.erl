@@ -16,27 +16,15 @@
 
 -module(emqttd_bridge_sup).
 
--behavior(supervisor).
-
 -export([start_link/3]).
-
--export([init/1]).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
-%% @doc Start bridge supervisor
+%% @doc Start bridge pool supervisor
 -spec(start_link(atom(), binary(), [emqttd_bridge:option()]) -> {ok, pid()} | {error, any()}).
 start_link(Node, Topic, Options) ->
-    supervisor:start_link(?MODULE, [Node, Topic, Options]).
-
-%%--------------------------------------------------------------------
-%% Supervisor callbacks
-%%--------------------------------------------------------------------
-
-init([Node, Topic, Options]) ->
-    {ok, {{one_for_all, 10, 100},
-          [{bridge, {emqttd_bridge, start_link, [Node, Topic, Options]},
-            transient, 10000, worker, [emqttd_bridge]}]}}.
+    MFA = {emqttd_bridge, start_link, [Node, Topic, Options]},
+    emqttd_pool_sup:start_link({bridge, Node, Topic}, random, MFA).
 

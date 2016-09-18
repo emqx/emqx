@@ -25,7 +25,7 @@
 -include("emqttd_internal.hrl").
 
 %% API Function Exports
--export([start_link/3]).
+-export([start_link/5]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -33,7 +33,8 @@
 
 -define(PING_DOWN_INTERVAL, 1000).
 
--record(state, {node, subtopic,
+-record(state, {pool, id,
+                node, subtopic,
                 qos                = ?QOS_2,
                 topic_suffix       = <<>>,
                 topic_prefix       = <<>>,
@@ -55,25 +56,28 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start a bridge
--spec(start_link(atom(), binary(), [option()]) -> {ok, pid()} | ignore | {error, term()}).
-start_link(Node, Topic, Options) ->
-    gen_server2:start_link(?MODULE, [Node, Topic, Options], []).
+-spec(start_link(any(), pos_integer(), atom(), binary(), [option()]) ->
+    {ok, pid()} | ignore | {error, term()}).
+start_link(Pool, Id, Node, Topic, Options) ->
+    gen_server2:start_link(?MODULE, [Pool, Id, Node, Topic, Options], []).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Node, Topic, Options]) ->
+init([Pool, Id, Node, Topic, Options]) ->
+    ?GPROC_POOL(join, Pool, Id),
     process_flag(trap_exit, true),
     case net_kernel:connect_node(Node) of
         true -> 
             true = erlang:monitor_node(Node, true),
+            Share = iolist_to_binary(["$bridge:", atom_to_list(Node), ":", Topic]),
+            emqttd:subscribe(Topic, self(), [local, {share, Share}]),
             State = parse_opts(Options, #state{node = Node, subtopic = Topic}),
             MQueue = emqttd_mqueue:new(qname(Node, Topic),
                                        [{max_len, State#state.max_queue_len}],
                                        emqttd_alarm:alarm_fun()),
-            emqttd:subscribe(Topic),
-            {ok, State#state{mqueue = MQueue}};
+            {ok, State#state{pool = Pool, id = Id, mqueue = MQueue}};
         false -> 
             {stop, {cannot_connect, Node}}
     end.
@@ -119,7 +123,7 @@ handle_info({nodedown, Node}, State = #state{node = Node, ping_down_interval = I
 handle_info({nodeup, Node}, State = #state{node = Node}) ->
     %% TODO: Really fast??
     case emqttd:is_running(Node) of
-        true -> 
+        true ->
             lager:warning("Bridge Node Up: ~p", [Node]),
             {noreply, dequeue(State#state{status = up})};
         false ->
@@ -145,7 +149,8 @@ handle_info({'EXIT', _Pid, normal}, State) ->
 handle_info(Info, State) ->
     ?UNEXPECTED_INFO(Info, State).
 
-terminate(_Reason, _State) ->
+terminate(_Reason, #state{pool = Pool, id = Id}) ->
+    ?GPROC_POOL(leave, Pool, Id),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
