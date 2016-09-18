@@ -5,6 +5,33 @@
 Changes
 =======
 
+.. _release_2.0_beta.3:
+
+------------------
+Version 2.0-beta.3
+------------------
+
+*Release Date: 2016-09-18*
+
+New Features
+------------
+
+Shared Suscriptions (#639, #416)::
+
+    mosquitto_sub -t '$queue/topic'
+    mosquitto_sub -t '$share/group/topic'
+
+Local Subscriptions that will not create global routes::
+
+    mosquitto_sub -t '$local/topic'
+
+Bugfix
+------
+
+Error on Loading `emqttd_auth_http` (#691)
+
+Remove 'emqttd' application from dependencies (emqttd_coap PR#3)
+
 .. _release_2.0_beta.2:
 
 ------------------
