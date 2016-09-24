@@ -39,6 +39,7 @@ all() ->
      {group, http},
      {group, cluster},
      %%{group, backend},
+     {group, alarms},
      {group, cli}].
 
 groups() ->
@@ -70,6 +71,7 @@ groups() ->
     {http, [sequence], 
      [request_status,
       request_publish
+     % websocket_test
      ]},
     {cluster, [sequence],
      [cluster_test,
@@ -79,6 +81,9 @@ groups() ->
       cluster_remove2,
       cluster_node_down
      ]},
+     {alarms, [sequence], 
+     [set_alarms]
+     },
      {cli, [sequence],
       [ctl_register_cmd,
        cli_status,
@@ -387,6 +392,18 @@ auth_header_(User, Pass) ->
     Encoded = base64:encode_to_string(lists:append([User,":",Pass])),
     {"Authorization","Basic " ++ Encoded}.
 
+websocket_test(_) ->
+%    Conn = esockd_connection:new(esockd_transport, nil, []),
+%    Req = mochiweb_request:new(Conn, 'GET', "/mqtt", {1, 1}, 
+%                                mochiweb_headers:make([{"Sec-WebSocket-Protocol","mqtt"},
+%                                                       {"Upgrade","websocket"}
+%                                                      ])),
+    Req = "GET " ++ "/mqtt" ++" HTTP/1.1\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\n" ++ 
+	"Host: " ++ "127.0.0.1"++ "\r\n" ++
+	"Origin: http://" ++ "127.0.0.1" ++ "/\r\n\r\n",
+
+    ct:log("Req:~p", [Req]),
+    emqttd_http:handle_request(Req).
 %%--------------------------------------------------------------------
 %% cluster group
 %%--------------------------------------------------------------------
@@ -461,7 +478,16 @@ cluster_node_down(_) ->
     timer:sleep(1000),
     Routes = lists:sort(emqttd_router:match(<<"a/b/c">>)).
 
- 
+set_alarms(_) ->
+    AlarmTest = #mqtt_alarm{id = <<"1">>, severity = error, title="alarm title", summary="alarm summary"},
+    emqttd_alarm:set_alarm(AlarmTest),
+    Alarms = emqttd_alarm:get_alarms(),
+    ?assertEqual(1, length(Alarms)),
+    emqttd_alarm:clear_alarm(<<"1">>),
+    [] = emqttd_alarm:get_alarms().
+
+
+
 %%--------------------------------------------------------------------
 %% Cli group
 %%--------------------------------------------------------------------
