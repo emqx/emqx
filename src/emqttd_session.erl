@@ -235,6 +235,7 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
             collect_interval  = get_value(collect_interval, SessEnv, 0),
             timestamp         = os:timestamp()},
     emqttd_sm:reg_session(ClientId, CleanSess, sess_info(Session)),
+    emqttd:run_hooks('session.created', [ClientId, Username]),
     %% Start statistics
     {ok, start_collector(Session), hibernate}.
 
@@ -519,7 +520,8 @@ handle_info(expired, Session) ->
 handle_info(Info, Session) ->
     ?UNEXPECTED_INFO(Info, Session).
 
-terminate(_Reason, #session{client_id = ClientId}) ->
+terminate(Reason, #session{client_id = ClientId, username = Username}) ->
+    emqttd:run_hooks('session.terminated', [ClientId, Username, Reason]),
     emqttd:subscriber_down(ClientId),
     emqttd_sm:unreg_session(ClientId).
 
