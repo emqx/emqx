@@ -337,11 +337,16 @@ add_delete_hook(_) ->
     [] = emqttd_hook:lookup(emqttd_hook).
 
 run_hooks(_) ->
-    emqttd:hook(test_hook, fun ?MODULE:hook_fun3/4, [init]),
-    emqttd:hook(test_hook, fun ?MODULE:hook_fun4/4, [init]),
-    emqttd:hook(test_hook, fun ?MODULE:hook_fun5/4, [init]),
-    {stop, [r3, r2]} = emqttd:run_hooks(test_hook, [arg1, arg2], []),
-    {ok, []} = emqttd:run_hooks(unknown_hook, [], []).
+    emqttd:hook(foldl_hook, fun ?MODULE:hook_fun3/4, [init]),
+    emqttd:hook(foldl_hook, fun ?MODULE:hook_fun4/4, [init]),
+    emqttd:hook(foldl_hook, fun ?MODULE:hook_fun5/4, [init]),
+    {stop, [r3, r2]} = emqttd:run_hooks(foldl_hook, [arg1, arg2], []),
+    {ok, []} = emqttd:run_hooks(unknown_hook, [], []),
+
+    emqttd:hook(foreach_hook, fun ?MODULE:hook_fun6/2, [initArg]),
+    emqttd:hook(foreach_hook, fun ?MODULE:hook_fun7/2, [initArg]),
+    emqttd:hook(foreach_hook, fun ?MODULE:hook_fun8/2, [initArg]),
+    stop = emqttd:run_hooks(foreach_hook, [arg]).
 
 hook_fun1([]) -> ok.
 hook_fun2([]) -> {ok, []}.
@@ -349,6 +354,10 @@ hook_fun2([]) -> {ok, []}.
 hook_fun3(arg1, arg2, _Acc, init) -> ok.
 hook_fun4(arg1, arg2, Acc, init)  -> {ok, [r2 | Acc]}.
 hook_fun5(arg1, arg2, Acc, init)  -> {stop, [r3 | Acc]}.
+
+hook_fun6(arg, initArg) -> ok.
+hook_fun7(arg, initArg) -> any.
+hook_fun8(arg, initArg) -> stop.
 
 %%--------------------------------------------------------------------
 %% HTTP Request Test

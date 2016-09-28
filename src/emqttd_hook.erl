@@ -24,7 +24,7 @@
 -export([start_link/0]).
 
 %% Hooks API
--export([add/3, add/4, delete/2, run/3, lookup/1]).
+-export([add/3, add/4, delete/2, run/2, run/3, lookup/1]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -63,9 +63,25 @@ add(HookPoint, Function, InitArgs, Priority) ->
 delete(HookPoint, Function) ->
     gen_server:call(?MODULE, {delete, HookPoint, Function}).
 
--spec(run(atom(), list(any()), any()) -> any()).
+%% @doc Run hooks without Acc.
+-spec(run(atom(), list(Arg :: any())) -> ok | stop).
+run(HookPoint, Args) ->
+    run_(lookup(HookPoint), Args).
+
+-spec(run(atom(), list(Arg :: any()), any()) -> any()).
 run(HookPoint, Args, Acc) ->
     run_(lookup(HookPoint), Args, Acc).
+
+%% @private
+run_([#callback{function = Fun, init_args = InitArgs} | Callbacks], Args) ->
+    case apply(Fun, lists:append([Args, InitArgs])) of
+        ok   -> run_(Callbacks, Args);
+        stop -> stop;
+        _Any -> run_(Callbacks, Args)
+    end;
+
+run_([], _Args) ->
+    ok.
 
 %% @private
 run_([#callback{function = Fun, init_args = InitArgs} | Callbacks], Args, Acc) ->

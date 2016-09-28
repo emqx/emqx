@@ -33,7 +33,7 @@
          is_subscribed/2, subscriber_down/1]).
 
 %% Hooks API
--export([hook/4, hook/3, unhook/2, run_hooks/3]).
+-export([hook/4, hook/3, unhook/2, run_hooks/2, run_hooks/3]).
 
 %% Debug API
 -export([dump/0]).
@@ -150,6 +150,10 @@ hook(Hook, Function, InitArgs, Priority) ->
 -spec(unhook(atom(), function()) -> ok | {error, any()}).
 unhook(Hook, Function) ->
     emqttd_hook:delete(Hook, Function).
+
+-spec(run_hooks(atom(), list(any())) -> ok | stop).
+run_hooks(Hook, Args) ->
+    emqttd_hook:run(Hook, Args).
 
 -spec(run_hooks(atom(), list(any()), any()) -> {ok | stop, any()}).
 run_hooks(Hook, Args, Acc) ->
