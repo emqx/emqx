@@ -31,7 +31,7 @@
 -export([add_user/2, remove_user/1, lookup_user/1, all_users/0]).
 
 %% emqttd_auth callbacks
--export([init/1, check/3, description/0]).
+-export([init/1, check/3, is_superuser/2, description/0]).
 
 -define(AUTH_USERNAME_TAB, mqtt_auth_username).
 
@@ -145,6 +145,8 @@ check(#mqtt_client{username = Username}, Password, _Opts) ->
                 false -> {error, password_error}
             end
     end.
+
+is_superuser(_Client, _Opts) -> false.
 
 description() ->
     "Username password authentication module".

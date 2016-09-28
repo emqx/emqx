@@ -14,14 +14,13 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Authentication Behaviour.
 -module(emqttd_auth_mod).
 
 -include("emqttd.hrl").
 
 -export([passwd_hash/2]).
 
--type hash_type() :: plain | md5 | sha | sha256.
+-type(hash_type() :: plain | md5 | sha | sha256).
 
 %%--------------------------------------------------------------------
 %% Authentication behavihour
@@ -29,21 +28,23 @@
 
 -ifdef(use_specs).
 
--callback init(AuthOpts :: list()) -> {ok, State :: any()}.
+-callback(init(AuthOpts :: list()) -> {ok, State :: any()}).
 
--callback check(Client, Password, State) -> ok | ignore | {error, string()} when
-    Client    :: mqtt_client(),
-    Password  :: binary(),
-    State     :: any().
+-callback(check(Client, Password, State) -> ok | ignore | {error, string()} when
+        Client   :: mqtt_client(),
+        Password :: binary(),
+        State    :: any()).
 
--callback description() -> string().
+-callback(is_superuser(Client :: mqtt_client(), State :: any()) -> boolean()).
+
+-callback(description() -> string()).
 
 -else.
 
 -export([behaviour_info/1]).
 
 behaviour_info(callbacks) ->
-    [{init, 1}, {check, 3}, {description, 0}];
+    [{init, 1}, {check, 3}, {is_superuser, 2}, {description, 0}];
 behaviour_info(_Other) ->
     undefined.
 

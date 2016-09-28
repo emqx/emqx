@@ -24,7 +24,7 @@
 -behaviour(emqttd_auth_mod).
 
 %% emqttd_auth_mod callbacks
--export([init/1, check/3, description/0]).
+-export([init/1, check/3, is_superuser/2, description/0]).
 
 -define(AUTH_CLIENTID_TAB, mqtt_auth_clientid).
 
@@ -87,6 +87,8 @@ check(#mqtt_client{client_id = ClientId}, Password, [{password, yes}|_]) ->
         [#?AUTH_CLIENTID_TAB{password = Password}]  -> ok; %% TODO: plaintext??
         _ -> {error, password_error}
     end.
+
+is_superuser(_Client, _Opts) -> false.
 
 description() -> "ClientId authentication module".
 
