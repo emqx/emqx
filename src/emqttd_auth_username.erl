@@ -31,7 +31,7 @@
 -export([add_user/2, remove_user/1, lookup_user/1, all_users/0]).
 
 %% emqttd_auth callbacks
--export([init/1, check/3, is_superuser/2, description/0]).
+-export([init/1, check/3, description/0]).
 
 -define(AUTH_USERNAME_TAB, mqtt_auth_username).
 
@@ -146,8 +146,6 @@ check(#mqtt_client{username = Username}, Password, _Opts) ->
             end
     end.
 
-is_superuser(_Client, _Opts) -> false.
-
 description() ->
     "Username password authentication module".
 
@@ -162,5 +160,5 @@ md5_hash(SaltBin, Password) ->
     erlang:md5(<<SaltBin/binary, Password/binary>>).
 
 salt() ->
-    emqttd_time:seed(), Salt = random:uniform(16#ffffffff), <<Salt:32>>.
+    emqttd_time:seed(), Salt = rand:uniform(16#ffffffff), <<Salt:32>>.
 

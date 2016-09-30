@@ -60,6 +60,7 @@ auth(_Client, _Password, []) ->
 auth(Client, Password, [{Mod, State, _Seq} | Mods]) ->
     case catch Mod:check(Client, Password, State) of
         ok              -> ok;
+        {ok, IsSuper}   -> {ok, IsSuper};
         ignore          -> auth(Client, Password, Mods);
         {error, Reason} -> {error, Reason};
         {'EXIT', Error} -> {error, Error}

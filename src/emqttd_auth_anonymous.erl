@@ -19,13 +19,11 @@
 
 -behaviour(emqttd_auth_mod).
 
--export([init/1, check/3, is_superuser/2, description/0]).
+-export([init/1, check/3, description/0]).
 
 init(Opts) -> {ok, Opts}.
 
 check(_Client, _Password, _Opts) -> ok.
-
-is_superuser(_Client, _Opts) -> false.
 
 description() -> "Anonymous Authentication Module".
 

@@ -30,12 +30,10 @@
 
 -callback(init(AuthOpts :: list()) -> {ok, State :: any()}).
 
--callback(check(Client, Password, State) -> ok | ignore | {error, string()} when
+-callback(check(Client, Password, State) -> ok | | {ok, boolean()} | ignore | {error, string()} when
         Client   :: mqtt_client(),
         Password :: binary(),
         State    :: any()).
-
--callback(is_superuser(Client :: mqtt_client(), State :: any()) -> boolean()).
 
 -callback(description() -> string()).
 
@@ -44,7 +42,7 @@
 -export([behaviour_info/1]).
 
 behaviour_info(callbacks) ->
-    [{init, 1}, {check, 3}, {is_superuser, 2}, {description, 0}];
+    [{init, 1}, {check, 3}, {description, 0}];
 behaviour_info(_Other) ->
     undefined.
 
