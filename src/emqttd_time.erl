@@ -20,8 +20,8 @@
 
 seed() ->
     case erlang:function_exported(erlang, timestamp, 0) of
-        true  -> random:seed(erlang:timestamp()); %% R18
-        false -> random:seed(os:timestamp()) %% Compress now() deprecated warning...
+        true  -> rand:seed(erlang:timestamp()); %% R18
+        false -> rand:seed(os:timestamp()) %% Compress now() deprecated warning...
     end.
 
 now_to_secs() -> now_to_secs(os:timestamp()).
