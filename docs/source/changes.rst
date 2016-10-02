@@ -5,6 +5,27 @@
 Changes
 =======
 
+.. _release_2.0_rc.1:
+
+----------------
+Version 2.0-rc.1
+----------------
+
+*Release Date: 2016-10-03*
+
+1. `mqtt/superuser` POST called two times in `emqtt_auth_http` (#696)
+
+2. Close MQTT TCP connection if authentication failed (#707)
+
+3. Improve the plugin management. Developer don't need to add plugin's config to rel/sys.config
+
+4. Add `BUILD_DEPS` in the plugin's Makefile::
+
+    BUILD_DEPS = emqttd
+    dep_emqttd = git https://github.com/emqtt/emqttd emq20
+
+5. Improve the design of Redis ACL.
+
 .. _release_2.0_beta.3:
 
 ------------------
