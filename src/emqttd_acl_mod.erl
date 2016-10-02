@@ -24,16 +24,16 @@
 
 -ifdef(use_specs).
 
--callback init(AclOpts :: list()) -> {ok, State :: any()}.
+-callback(init(AclOpts :: list()) -> {ok, State :: any()}).
 
--callback check_acl({Client, PubSub, Topic}, State :: any()) -> allow | deny | ignore when
-    Client   :: mqtt_client(),
-    PubSub   :: pubsub(),
-    Topic    :: binary().
+-callback(check_acl({Client, PubSub, Topic}, State :: any()) -> allow | deny | ignore when
+        Client   :: mqtt_client(),
+        PubSub   :: pubsub(),
+        Topic    :: binary()).
 
--callback reload_acl(State :: any()) -> ok | {error, any()}.
+-callback(reload_acl(State :: any()) -> ok | {error, any()}).
 
--callback description() -> string().
+-callback(description() -> string()).
 
 -else.
 

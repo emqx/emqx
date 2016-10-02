@@ -18,11 +18,26 @@
 
 -include("emqttd.hrl").
 
+-export([init/0]).
+
 -export([load/0, unload/0]).
 
 -export([load/1, unload/1]).
 
 -export([list/0]).
+
+init() ->
+    case emqttd:conf(plugins_etc_dir) of
+        {ok, PluginsEtc} ->
+            CfgFiles = filelib:wildcard("*.conf", PluginsEtc),
+            lists:foreach(fun(CfgFile) ->
+                App = app_name(CfgFile),
+                application:set_env(App, conf, filename:join(PluginsEtc, CfgFile)),
+                gen_conf:init(App)
+            end, CfgFiles);
+        undefined ->
+            ok
+    end.
 
 %% @doc Load all plugins when the broker started.
 -spec(load() -> list() | {error, any()}).
@@ -90,11 +105,11 @@ list() ->
     end.
 
 plugin(CfgFile) ->
-    [AppName | _] = string:tokens(CfgFile, "."),
-    {ok, Attrs} = application:get_all_key(list_to_atom(AppName)),
+    AppName = app_name(CfgFile),
+    {ok, Attrs} = application:get_all_key(AppName),
     Ver = proplists:get_value(vsn, Attrs, "0"),
     Descr = proplists:get_value(description, Attrs, ""),
-    #mqtt_plugin{name = list_to_atom(AppName), version = Ver, descr = Descr}.
+    #mqtt_plugin{name = AppName, version = Ver, descr = Descr}.
 
 %% @doc Load a Plugin
 -spec(load(atom()) -> ok | {error, any()}).
@@ -185,6 +200,9 @@ stop_app(App) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+app_name(File) ->
+    [AppName | _] = string:tokens(File, "."), list_to_atom(AppName).
+
 names(plugin) ->
     names(list());
 
@@ -244,4 +262,3 @@ write_loaded(AppNames) ->
             lager:error("Open File ~p Error: ~p", [File, Error]),
             {error, Error}
     end.
-

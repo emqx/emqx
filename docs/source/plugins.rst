@@ -415,26 +415,25 @@ etc/plugins/emqttd_auth_redis.conf:
 
     %% Variables: %u = username, %c = clientid
 
-    %% HMGET mqtt_user:%u is_superuser
-    {supercmd, ["HGET", "mqtt_user:%u", "is_superuser"]}.
-
     %% HMGET mqtt_user:%u password
-    {authcmd, ["HGET", "mqtt_user:%u", "password"]}.
+    {authcmd, "HGET mqtt_user:%u password"}.
 
     %% Password hash algorithm: plain, md5, sha, sha256, pbkdf2?
     {password_hash, sha256}.
 
-    %% SMEMBERS mqtt_acl:%u
-    {aclcmd, ["SMEMBERS", "mqtt_acl:%u"]}.
+    %% HMGET mqtt_user:%u is_superuser
+    {supercmd, "HGET mqtt_user:%u is_superuser"}.
+
+    %% HGETALL mqtt_acl:%u
+    {aclcmd, "HGETALL mqtt_acl:%u"}.
 
     %% If no rules matched, return...
     {acl_nomatch, deny}.
 
     %% Load Subscriptions form Redis when client connected.
-    {subcmd, ["HGETALL", "mqtt_subs:%u"]}.
+    {subcmd, "HGETALL mqtt_sub:%u"}.
 
-
-Redis User HASH
+Redis User Hash
 ---------------
 
 Set a 'user' hash with 'password' field, for example::
@@ -442,16 +441,18 @@ Set a 'user' hash with 'password' field, for example::
     HSET mqtt_user:<username> is_superuser 1
     HSET mqtt_user:<username> password "passwd"
 
-Redis ACL Rule SET
-------------------
+Redis ACL Rule Hash
+-------------------
 
-The plugin uses a redis SET to store ACL rules::
+The plugin uses a redis Hash to store ACL rules::
 
-    SADD mqtt_acl:<username> "publish topic1"
-    SADD mqtt_acl:<username> "subscribe topic2"
-    SADD mqtt_acl:<username> "pubsub topic3"
+    HSET mqtt_acl:<username> topic1 1
+    HSET mqtt_acl:<username> topic2 2
+    HSET mqtt_acl:<username> topic3 3
 
-Redis Subscription HASH
+.. NOTE:: 1: subscribe, 2: publish, 3: pubsub
+
+Redis Subscription Hash
 -----------------------
 
 The plugin can store static subscriptions in a redis Hash::
@@ -495,14 +496,14 @@ etc/plugins/emqttd_plugin_mongo.conf:
     %% Variables: %u = username, %c = clientid
 
     %% Superuser Query
-    {superquery, pool, [
+    {superquery, [
       {collection, "mqtt_user"},
       {super_field, "is_superuser"},
       {selector, {"username", "%u"}}
     ]}.
 
     %% Authentication Query
-    {authquery, pool, [
+    {authquery, [
       {collection, "mqtt_user"},
       {password_field, "password"},
       %% Hash Algorithm: plain, md5, sha, sha256, pbkdf2?
@@ -511,7 +512,7 @@ etc/plugins/emqttd_plugin_mongo.conf:
     ]}.
 
     %% ACL Query: "%u" = username, "%c" = clientid
-    {aclquery, pool, [
+    {aclquery, [
       {collection, "mqtt_acl"},
       {selector, {"username", "%u"}}
     ]}.

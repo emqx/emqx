@@ -34,7 +34,7 @@
 %% Protocol State
 -record(proto_state, {peername, sendfun, connected = false,
                       client_id, client_pid, clean_sess,
-                      proto_ver, proto_name, username,
+                      proto_ver, proto_name, username, is_superuser = false,
                       will_msg, keepalive, max_clientid_len = ?MAX_CLIENTID_LEN,
                       session, ws_initial_headers, %% Headers from first HTTP request for websocket client
                       connected_at}).
@@ -159,8 +159,8 @@ process(Packet = ?CONNECT_PACKET(Var), State0) ->
     {ReturnCode1, SessPresent, State3} =
     case validate_connect(Var, State1) of
         ?CONNACK_ACCEPT ->
-            case emqttd_access_control:auth(client(State1), Password) of
-                ok ->
+            case authenticate(client(State1), Password) of
+                {ok, IsSuperuser} ->
                     %% Generate clientId if null
                     State2 = maybe_set_clientid(State1),
 
@@ -172,7 +172,7 @@ process(Packet = ?CONNECT_PACKET(Var), State0) ->
                             %% Start keepalive
                             start_keepalive(KeepAlive),
                             %% ACCEPT
-                            {?CONNACK_ACCEPT, SP, State2#proto_state{session = Session}};
+                            {?CONNACK_ACCEPT, SP, State2#proto_state{session = Session, is_superuser = IsSuperuser}};
                         {error, Error} ->
                             exit({shutdown, Error})
                     end;
@@ -186,14 +186,14 @@ process(Packet = ?CONNECT_PACKET(Var), State0) ->
     %% Run hooks
     emqttd:run_hooks('client.connected', [ReturnCode1], client(State3)),
     %% Send connack
-    send(?CONNACK_PACKET(ReturnCode1, sp(SessPresent)), State3);
+    send(?CONNACK_PACKET(ReturnCode1, sp(SessPresent)), State3),
+    %% stop if authentication failure
+    stop_if_auth_failure(ReturnCode1, State3);
 
-process(Packet = ?PUBLISH_PACKET(_Qos, Topic, _PacketId, _Payload), State) ->
-    case check_acl(publish, Topic, client(State)) of
-        allow ->
-            publish(Packet, State);
-        deny ->
-            ?LOG(error, "Cannot publish to ~s for ACL Deny", [Topic], State)
+process(Packet = ?PUBLISH_PACKET(_Qos, Topic, _PacketId, _Payload), State = #proto_state{is_superuser = IsSuper}) ->
+    case IsSuper orelse allow == check_acl(publish, Topic, client(State)) of
+        true  -> publish(Packet, State);
+        false -> ?LOG(error, "Cannot publish to ~s for ACL Deny", [Topic], State)
     end,
     {ok, State};
 
@@ -216,11 +216,14 @@ process(?PUBACK_PACKET(?PUBCOMP, PacketId), State = #proto_state{session = Sessi
 process(?SUBSCRIBE_PACKET(PacketId, []), State) ->
     send(?SUBACK_PACKET(PacketId, []), State);
 
-process(?SUBSCRIBE_PACKET(PacketId, RawTopicTable), State = #proto_state{
-        client_id = ClientId, username = Username, session = Session}) ->
-    Client = client(State),
-    TopicTable = parse_topic_table(RawTopicTable),
-    AllowDenies = [check_acl(subscribe, Topic, Client) || {Topic, _Opts} <- TopicTable],
+%% TODO: refactor later...
+process(?SUBSCRIBE_PACKET(PacketId, RawTopicTable), State = #proto_state{session = Session,
+        client_id = ClientId, username = Username, is_superuser = IsSuperuser}) ->
+    Client = client(State), TopicTable = parse_topic_table(RawTopicTable),
+    AllowDenies = if
+                    IsSuperuser -> [];
+                    true -> [check_acl(subscribe, Topic, Client) || {Topic, _Opts} <- TopicTable]
+                  end,
     case lists:member(deny, AllowDenies) of
         true ->
             ?LOG(error, "Cannot SUBSCRIBE ~p for ACL Deny", [TopicTable], State),
@@ -296,6 +299,12 @@ trace(send, Packet, ProtoState) ->
 %% @doc redeliver PUBREL PacketId
 redeliver({?PUBREL, PacketId}, State) ->
     send(?PUBREL_PACKET(PacketId), State).
+
+stop_if_auth_failure(RC, State) when RC == ?CONNACK_CREDENTIALS; RC == ?CONNACK_AUTH ->
+    {stop, {shutdown, auth_failure}, State};
+
+stop_if_auth_failure(_RC, State) ->
+    {ok, State}.
 
 shutdown(_Error, #proto_state{client_id = undefined}) ->
     ignore;
@@ -429,6 +438,13 @@ parse_topic_table(TopicTable) ->
 
 parse_topics(Topics) ->
     [emqttd_topic:parse(Topic) || Topic <- Topics].
+
+authenticate(Client, Password) ->
+    case emqttd_access_control:auth(Client, Password) of
+        ok             -> {ok, false};
+        {ok, IsSuper}  -> {ok, IsSuper};
+        {error, Error} -> {error, Error}
+    end.
 
 %% PUBLISH ACL is cached in process dictionary.
 check_acl(publish, Topic, Client) ->

@@ -37,7 +37,9 @@ all() ->
      {group, stats},
      {group, hook},
      {group, http},
+     {group, cluster},
      %%{group, backend},
+     {group, alarms},
      {group, cli}].
 
 groups() ->
@@ -69,7 +71,19 @@ groups() ->
     {http, [sequence], 
      [request_status,
       request_publish
+     % websocket_test
      ]},
+    {cluster, [sequence],
+     [cluster_test,
+      cluster_join,
+      cluster_leave,
+      cluster_remove,
+      cluster_remove2,
+      cluster_node_down
+     ]},
+     {alarms, [sequence], 
+     [set_alarms]
+     },
      {cli, [sequence],
       [ctl_register_cmd,
        cli_status,
@@ -323,11 +337,16 @@ add_delete_hook(_) ->
     [] = emqttd_hook:lookup(emqttd_hook).
 
 run_hooks(_) ->
-    emqttd:hook(test_hook, fun ?MODULE:hook_fun3/4, [init]),
-    emqttd:hook(test_hook, fun ?MODULE:hook_fun4/4, [init]),
-    emqttd:hook(test_hook, fun ?MODULE:hook_fun5/4, [init]),
-    {stop, [r3, r2]} = emqttd:run_hooks(test_hook, [arg1, arg2], []),
-    {ok, []} = emqttd:run_hooks(unknown_hook, [], []).
+    emqttd:hook(foldl_hook, fun ?MODULE:hook_fun3/4, [init]),
+    emqttd:hook(foldl_hook, fun ?MODULE:hook_fun4/4, [init]),
+    emqttd:hook(foldl_hook, fun ?MODULE:hook_fun5/4, [init]),
+    {stop, [r3, r2]} = emqttd:run_hooks(foldl_hook, [arg1, arg2], []),
+    {ok, []} = emqttd:run_hooks(unknown_hook, [], []),
+
+    emqttd:hook(foreach_hook, fun ?MODULE:hook_fun6/2, [initArg]),
+    emqttd:hook(foreach_hook, fun ?MODULE:hook_fun7/2, [initArg]),
+    emqttd:hook(foreach_hook, fun ?MODULE:hook_fun8/2, [initArg]),
+    stop = emqttd:run_hooks(foreach_hook, [arg]).
 
 hook_fun1([]) -> ok.
 hook_fun2([]) -> {ok, []}.
@@ -335,6 +354,10 @@ hook_fun2([]) -> {ok, []}.
 hook_fun3(arg1, arg2, _Acc, init) -> ok.
 hook_fun4(arg1, arg2, Acc, init)  -> {ok, [r2 | Acc]}.
 hook_fun5(arg1, arg2, Acc, init)  -> {stop, [r3 | Acc]}.
+
+hook_fun6(arg, initArg) -> ok.
+hook_fun7(arg, initArg) -> any.
+hook_fun8(arg, initArg) -> stop.
 
 %%--------------------------------------------------------------------
 %% HTTP Request Test
@@ -377,6 +400,102 @@ connect_emqttd_publish_(Method, Api, Params, Auth) ->
 auth_header_(User, Pass) ->
     Encoded = base64:encode_to_string(lists:append([User,":",Pass])),
     {"Authorization","Basic " ++ Encoded}.
+
+websocket_test(_) ->
+%    Conn = esockd_connection:new(esockd_transport, nil, []),
+%    Req = mochiweb_request:new(Conn, 'GET', "/mqtt", {1, 1}, 
+%                                mochiweb_headers:make([{"Sec-WebSocket-Protocol","mqtt"},
+%                                                       {"Upgrade","websocket"}
+%                                                      ])),
+    Req = "GET " ++ "/mqtt" ++" HTTP/1.1\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\n" ++ 
+	"Host: " ++ "127.0.0.1"++ "\r\n" ++
+	"Origin: http://" ++ "127.0.0.1" ++ "/\r\n\r\n",
+
+    ct:log("Req:~p", [Req]),
+    emqttd_http:handle_request(Req).
+%%--------------------------------------------------------------------
+%% cluster group
+%%--------------------------------------------------------------------
+cluster_test(_Config) ->
+    Z = slave(emqttd, cluster_test_z),
+    wait_running(Z),
+    true = emqttd:is_running(Z),
+    Node = node(),
+    ok = rpc:call(Z, emqttd_cluster, join, [Node]),
+    [Z, Node] = lists:sort(mnesia:system_info(running_db_nodes)),
+    ct:log("Z:~p, Node:~p", [Z, Node]),
+    ok = rpc:call(Z, emqttd_cluster, leave, []),
+    [Node] = lists:sort(mnesia:system_info(running_db_nodes)),
+    ok = slave:stop(Z).
+
+cluster_join(_) ->
+    Z = slave(emqttd, cluster_join_z),
+    N = slave(node, cluster_join_n),
+    wait_running(Z),
+    true = emqttd:is_running(Z),
+    Node = node(),
+    {error, {cannot_join_with_self, Node}} = emqttd_cluster:join(Node),
+    {error, {node_not_running, N}} = emqttd_cluster:join(N),
+    ok = emqttd_cluster:join(Z),
+    slave:stop(Z),
+    slave:stop(N).
+ 
+cluster_leave(_) ->
+    Z = slave(emqttd, cluster_leave_z),
+    wait_running(Z),
+    {error, node_not_in_cluster} = emqttd_cluster:leave(),
+    ok = emqttd_cluster:join(Z),
+    Node = node(),
+    [Z, Node] = emqttd_mnesia:running_nodes(),
+    ok = emqttd_cluster:leave(),
+    [Node] = emqttd_mnesia:running_nodes(),
+    slave:stop(Z).
+
+cluster_remove(_) ->
+    Z = slave(emqttd, cluster_remove_z),
+    wait_running(Z),
+    Node = node(),
+    {error, {cannot_remove_self, Node}} = emqttd_cluster:remove(Node),
+    ok = emqttd_cluster:join(Z),
+    [Z, Node] = emqttd_mnesia:running_nodes(),
+    ok = emqttd_cluster:remove(Z),
+    [Node] = emqttd_mnesia:running_nodes(),
+    slave:stop(Z).
+
+cluster_remove2(_) ->
+    Z = slave(emqttd, cluster_remove2_z),
+    wait_running(Z),
+    ok = emqttd_cluster:join(Z),
+    Node = node(),
+    [Z, Node] = emqttd_mnesia:running_nodes(),
+    ok = rpc:call(Z, emqttd_mnesia, ensure_stopped, []),
+    ok = emqttd_cluster:remove(Z),
+    [Node] = emqttd_mnesia:running_nodes(),
+    slave:stop(Z).
+
+cluster_node_down(_) ->
+    Z = slave(emqttd, cluster_node_down),
+    timer:sleep(1000),
+    wait_running(Z),
+    ok = emqttd_cluster:join(Z),
+    ok = rpc:call(Z, emqttd_router, add_route, [<<"a/b/c">>]),
+    ok = rpc:call(Z, emqttd_router, add_route, [<<"#">>]),
+    Routes = lists:sort(emqttd_router:match(<<"a/b/c">>)),
+    ct:log("Routes: ~p~n", [Routes]),
+    [<<"#">>, <<"a/b/c">>] = [Topic || #mqtt_route{topic = Topic} <- Routes],
+    slave:stop(Z),
+    timer:sleep(1000),
+    Routes = lists:sort(emqttd_router:match(<<"a/b/c">>)).
+
+set_alarms(_) ->
+    AlarmTest = #mqtt_alarm{id = <<"1">>, severity = error, title="alarm title", summary="alarm summary"},
+    emqttd_alarm:set_alarm(AlarmTest),
+    Alarms = emqttd_alarm:get_alarms(),
+    ?assertEqual(1, length(Alarms)),
+    emqttd_alarm:clear_alarm(<<"1">>),
+    [] = emqttd_alarm:get_alarms().
+
+
 
 %%--------------------------------------------------------------------
 %% Cli group
@@ -450,4 +569,33 @@ cli_listeners(_) ->
 cli_vm(_) ->
     emqttd_cli:vm([]),
     emqttd_cli:vm(["ports"]).
+
+
+ensure_ok(ok) -> ok;
+ensure_ok({error, {already_started, _}}) -> ok.
+
+host() -> [_, Host] = string:tokens(atom_to_list(node()), "@"), Host.
+
+wait_running(Node) ->
+    wait_running(Node, 30000).
+
+wait_running(Node, Timeout) when Timeout < 0 ->
+    throw({wait_timeout, Node});
+
+wait_running(Node, Timeout) ->
+    case rpc:call(Node, emqttd, is_running, [Node]) of
+        true  -> ok;
+        false -> timer:sleep(100),
+                 wait_running(Node, Timeout - 100)
+    end.
+
+slave(emqttd, Node) ->
+    {ok, Emq} = slave:start(host(), Node, "-pa ../../ebin -pa ../../deps/*/ebin"),
+    rpc:call(Emq, application, ensure_all_started, [emqttd]),
+    Emq;
+
+slave(node, Node) ->
+    {ok, N} = slave:start(host(), Node, "-pa ../../ebin -pa ../../deps/*/ebin"),
+    N.
+
 
