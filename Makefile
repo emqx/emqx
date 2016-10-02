@@ -4,12 +4,12 @@ PROJECT_VERSION = 2.0
 
 DEPS = gproc lager gen_logger gen_conf esockd mochiweb
 
-dep_gproc      = git https://github.com/uwiger/gproc.git
-dep_lager      = git https://github.com/basho/lager.git
-dep_gen_conf   = git https://github.com/emqtt/gen_conf.git
-dep_gen_logger = git https://github.com/emqtt/gen_logger.git
-dep_esockd     = git https://github.com/emqtt/esockd.git emq20
-dep_mochiweb   = git https://github.com/emqtt/mochiweb.git
+dep_gproc      = git https://github.com/uwiger/gproc
+dep_lager      = git https://github.com/basho/lager
+dep_gen_conf   = git https://github.com/emqtt/gen_conf
+dep_gen_logger = git https://github.com/emqtt/gen_logger
+dep_esockd     = git https://github.com/emqtt/esockd emq20
+dep_mochiweb   = git https://github.com/emqtt/mochiweb
 
 ERLC_OPTS += +'{parse_transform, lager_transform}'
 
