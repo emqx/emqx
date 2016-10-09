@@ -5,8 +5,7 @@
   {id, "emqttd"},
   {modules, []},
   {registered, []},
-  {applications, [kernel, stdlib, gproc, esockd, mochiweb,
-                  gen_logger, gen_conf]},
+  {applications, [kernel, stdlib, gproc, esockd, mochiweb, gen_logger]},
   {mod, {emqttd_app, []}},
   {env, []}
  ]}.
