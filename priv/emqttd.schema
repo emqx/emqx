@@ -1,31 +1,35 @@
 %%-*- mode: erlang -*-
-%% EMQ 3.0 Config Mapping
+%% EMQ 3.0 config mapping
 
 %%--------------------------------------------------------------------
 %% Erlang VM Args
 %%--------------------------------------------------------------------
 
+%% @doc Erlang node name
 {mapping, "vm.nodename", "vm_args.-name", [
-  {default, "{{node}}"}
+  {default, "emqttd@127.0.0.1"}
 ]}.
 
+%% @doc Secret cookie for distributed erlang node
 {mapping, "vm.setcookie", "vm_args.-setcookie", [
-  {default, "emqttd"}
+  {default, "emqsecretcookie"}
 ]}.
 
+%% @doc SMP Support
 {mapping, "vm.smp", "vm_args.-smp", [
-  {default, enable},
+  {default, auto},
   {datatype, {enum, [enable, auto, disable]}},
   hidden
 ]}.
 
+%% @doc Enable Kernel Poll
 {mapping, "vm.kernel_poll", "vm_args.+K", [
   {default, on},
   {datatype, flag},
   hidden
 ]}.
 
-%% More information at: http://erlang.org/doc/man/erl.html
+%% @doc More information at: http://erlang.org/doc/man/erl.html
 {mapping, "vm.async_threads", "vm_args.+A", [
   {default, 64},
   {datatype, integer},
@@ -52,12 +56,7 @@
 {validator, "range4ports", "must be 1024 to 134217727",
  fun(X) -> X >= 1024 andalso X =< 134217727 end}.
 
-%% @doc For nodes with many busy_dist_port events, Basho recommends
-%% raising the sender-side network distribution buffer size.
-%% 32MB may not be sufficient for some workloads and is a suggested
-%% starting point. Erlangers may know this as +zdbbl.
-%% The Erlang/OTP default is 1024 (1 megabyte).
-%% See: http://www.erlang.org/doc/man/erl.html#%2bzdbbl
+%% @doc http://www.erlang.org/doc/man/erl.html#%2bzdbbl
 {mapping, "vm.dist_buffer_size", "vm_args.+zdbbl", [
   {datatype, bytesize},
   {commented, "32MB"},
@@ -83,14 +82,7 @@
  end
 }.
 
-%% @doc A non-negative integer which indicates how many times
-%% generational garbage collections can be done without forcing a
-%% fullsweep collection. In low-memory systems (especially without
-%% virtual memory), setting the value to 0 can help to conserve
-%% memory.
-%%
-%% More information at:
-%% http://www.erlang.org/doc/man/erlang.html#system_flag-2
+%% @doc http://www.erlang.org/doc/man/erlang.html#system_flag-2
 {mapping, "vm.fullsweep_after", "vm_args.-env ERL_FULLSWEEP_AFTER", [
   {default, 1000},
   {datatype, integer},
@@ -103,7 +95,7 @@
 
 %% Note: OTP R15 and earlier uses -env ERL_MAX_ETS_TABLES,
 %% R16+ uses +e
-%% @doc Raise the ETS table limit
+%% @doc The ETS table limit
 {mapping, "vm.max_ets_tables",
   cuttlefish:otp("R16", "vm_args.+e", "vm_args.-env ERL_MAX_ETS_TABLES"), [
   {default, 256000},
@@ -118,38 +110,232 @@
   hidden
 ]}.
 
-{mapping, "mqtt.max_clientid_len", "emqttd.mqtt_max_clientid_len", [
+%%--------------------------------------------------------------------
+%% MQTT Protocol
+%%--------------------------------------------------------------------
+
+%% @doc Set the Max ClientId Length Allowed.
+{mapping, "mqtt.max_clientid_len", "emqttd.mqtt_protocol", [
   {default, 1024},
   {datatype, integer}
 ]}.
 
-{mapping, "mqtt.max_packet_size", "emqttd.mqtt_max_packet_size", [
+%% @doc Max Packet Size Allowed, 64K by default.
+{mapping, "mqtt.max_packet_size", "emqttd.mqtt_protocol", [
+  {default, "64KB"},
   {datatype, bytesize}
 ]}.
 
-{mapping, "mqtt.client_idle_timeout", "emqttd.mqtt_client_idle_timeout", [
+%% @doc Client Idle Timeout.
+{mapping, "mqtt.client_idle_timeout", "emqttd.mqtt_protocol", [
+  {default, 30},
   {datatype, integer}
 ]}.
 
+{translation, "emqttd.mqtt_protocol", fun(Conf) ->
+  [{max_clientid_len,    cuttlefish:conf_get("mqtt.max_clientid_len", Conf)},
+   {max_packet_size,     cuttlefish:conf_get("mqtt.max_packet_size", Conf)},
+   {client_idle_timeout, cuttlefish:conf_get("mqtt.client_idle_timeout", Conf)}]
+end}.
+
+%%--------------------------------------------------------------------
+%% MQTT Session
+%%--------------------------------------------------------------------
+
+%% @doc Max number of QoS 1 and 2 messages that can be “inflight” at one time.
+%% 0 means no limit
+{mapping, "mqtt.session.max_inflight", "emqttd.mqtt_session", [
+  {default, 100},
+  {datatype, integer}
+]}.
+
+
+%% @doc Retry interval for redelivering QoS1/2 messages.
+{mapping, "mqtt.session.unack_retry_interval", "emqttd.mqtt_session", [
+  {default, 60},
+  {datatype, integer}
+]}.
+
+%% @doc Awaiting PUBREL Timeout
+{mapping, "mqtt.session.await_rel_timeout", "emqttd.mqtt_session", [
+  {default, 30},
+  {datatype, integer}
+]}.
+
+%% @doc Max Packets that Awaiting PUBREL, 0 means no limit
+{mapping, "mqtt.session.max_awaiting_rel", "emqttd.mqtt_session", [
+  {default, 0},
+  {datatype, integer}
+]}.
+
+%% @doc Statistics Collection Interval(seconds)
+{mapping, "mqtt.session.collect_interval", "emqttd.mqtt_session", [
+  {default, 0},
+  {datatype, integer}
+]}.
+
+%% @doc Session expired after...
+{mapping, "mqtt.session.expired_after", "emqttd.mqtt_session", [
+  {default, "2d"},
+  {datatype, {duration, s}}
+]}.
+
+{translation, "emqttd.mqtt_session", fun(Conf) ->
+  [{max_inflight, cuttlefish:conf_get("mqtt.session.max_inflight", Conf)},
+   {unack_retry_interval, cuttlefish:conf_get("mqtt.session.unack_retry_interval", Conf)},
+   {await_rel_timeout, cuttlefish:conf_get("mqtt.session.await_rel_timeout", Conf)},
+   {max_awaiting_rel, cuttlefish:conf_get("mqtt.session.max_awaiting_rel", Conf)},
+   {collect_interval, cuttlefish:conf_get("mqtt.session.collect_interval", Conf)},
+   {expired_after, cuttlefish:conf_get("mqtt.session.expired_after", Conf)}]
+end}.
+
+%%--------------------------------------------------------------------
+%% MQTT Queue
+%%--------------------------------------------------------------------
+
+%% @doc Type: simple | priority
+{mapping, "mqtt.queue.type", "emqttd.mqtt_queue", [
+  {default, simple},
+  {datatype, atom}
+]}.
+
+%% @doc Topic Priority: 0~255, Default is 0
+{mapping, "mqtt.queue.priority", "emqttd.mqtt_queue", [
+  {default, ""},
+  {datatype, string},
+  hidden
+]}.
+
+%% @doc Max queue length. Enqueued messages when persistent client disconnected, or inflight window is full.
+{mapping, "mqtt.queue.max_length", "emqttd.mqtt_queue", [
+  {default, infinity},
+  {datatype, [atom, integer]}
+]}.
+
+%% @doc Low-water mark of queued messages
+{mapping, "mqtt.queue.low_watermark", "emqttd.mqtt_queue", [
+  {default, "20%"},
+  {datatype, string},
+  hidden
+]}.
+
+%% @doc High-water mark of queued messages
+{mapping, "mqtt.queue.high_watermark", "emqttd.mqtt_queue", [
+  {default, "60%"},
+  {datatype, string},
+  hidden
+]}.
+
+%% @doc Queue Qos0 messages?
+{mapping, "mqtt.queue.qos0", "emqttd.mqtt_queue", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{translation, "emqttd.mqtt_queue", fun(Conf) ->
+  Parse = fun(S) ->
+			{match, [N]} = re:run(S, "^([0-9]+)%$", [{capture, all_but_first, list}]),
+			list_to_integer(N) / 100
+	      end,
+  Opts = [{type, cuttlefish:conf_get("mqtt.queue.type", Conf, simple)},
+          {max_length, cuttlefish:conf_get("mqtt.queue.max_length", Conf)},
+          {low_watermark, Parse(cuttlefish:conf_get("mqtt.queue.low_watermark", Conf))},
+          {high_watermark, Parse(cuttlefish:conf_get("mqtt.queue.high_watermark", Conf))},
+          {queue_qos0, cuttlefish:conf_get("mqtt.queue.qos0", Conf)}],
+  case cuttlefish:conf_get("mqtt.queue.priority", Conf) of
+    undefined -> Opts;
+    V -> [{priority,
+			 [begin [T, P] = string:tokens(S, "="),
+					{T, list_to_integer(P)}
+		      end || S <- string:tokens(V, ",")]}|Opts]
+  end
+end}.
+
+%%--------------------------------------------------------------------
+%% MQTT Broker
+%%--------------------------------------------------------------------
+{mapping, "mqtt.broker.sys_interval", "emqttd.mqtt_broker", [
+  {default, 60},
+  {datatype, integer}
+]}.
+
+{translation, "emqttd.mqtt_broker", fun(Conf) ->
+  [{sys_interval, cuttlefish:conf_get("mqtt.broker.sys_interval", Conf)}]
+end}.
+
+%%--------------------------------------------------------------------
+%% MQTT PubSub
+%%--------------------------------------------------------------------
+{mapping, "mqtt.pubsub.pool_size", "emqttd.mqtt_pubsub", [
+  {default, 8},
+  {datatype, integer}
+]}.
+
+{mapping, "mqtt.pubsub.by_clientid", "emqttd.mqtt_pubsub", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "mqtt.pubsub.async", "emqttd.mqtt_pubsub", [
+  {default, true},
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
+{translation, "emqttd.mqtt_pubsub", fun(Conf) ->
+  [{pool_size, cuttlefish:conf_get("mqtt.pubsub.pool_size", Conf)},
+   {by_clientid, cuttlefish:conf_get("mqtt.pubsub.by_clientid", Conf)},
+   {async, cuttlefish:conf_get("mqtt.pubsub.async", Conf)}]
+end}.
+
+%%--------------------------------------------------------------------
+%% MQTT Bridge
+%%--------------------------------------------------------------------
+{mapping, "mqtt.bridge.max_queue_len", "emqttd.mqtt_bridge", [
+  {default, 10000},
+  {datatype, integer}
+]}.
+
+{mapping, "mqtt.bridge.ping_down_interval", "emqttd.mqtt_bridge", [
+  {default, 1},
+  {datatype, integer}
+]}.
+
+{translation, "emqttd.mqtt_bridge", fun(Conf) ->
+  [{max_queue_len, cuttlefish:conf_get("mqtt.bridge.max_queue_len", Conf)},
+   {ping_down_interval, cuttlefish:conf_get("mqtt.bridge.ping_down_interval", Conf)}]
+end}.
+
+%%--------------------------------------------------------------------
+%% System Monitor
+%%--------------------------------------------------------------------
+
+%% @doc Long GC, don't monitor in production mode for:
+%% https://github.com/erlang/otp/blob/feb45017da36be78d4c5784d758ede619fa7bfd3/erts/emulator/beam/erl_gc.c#L421
 {mapping, "sysmon.long_gc", "emqttd.sysmon", [
   {default, false},
   {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc Long Schedule(ms)
 {mapping, "sysmon.long_schedule", "emqttd.sysmon", [
   {default, 1000},
   {datatype, integer}
 ]}.
 
+%% @doc Large Heap
 {mapping, "sysmon.large_heap", "emqttd.sysmon", [
-  {datatype, integer}
+  {default, "8MB"},
+  {datatype, bytesize}
 ]}.
 
+%% @doc Monitor Busy Port
 {mapping, "sysmon.busy_port", "emqttd.sysmon", [
   {default, false},
   {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc Monitor Busy Dist Port
 {mapping, "sysmon.busy_dist_port", "emqttd.sysmon", [
   {default, true},
   {datatype, {enum, [true, false]}}
