@@ -12,7 +12,7 @@ dep_gen_logger  = git https://github.com/emqtt/gen_logger
 dep_esockd      = git https://github.com/emqtt/esockd emq20
 dep_mochiweb    = git https://github.com/emqtt/mochiweb
 dep_clique      = git https://github.com/basho/clique
-dep_pbkdf2	= git https://github.com/basho/erlang-pbkdf2 2.0.0
+dep_pbkdf2	    = git https://github.com/basho/erlang-pbkdf2 2.0.0
 dep_time_compat = git https://github.com/lasp-lang/time_compat
 dep_rand_compat = git https://github.com/lasp-lang/rand_compat
 
@@ -36,7 +36,4 @@ COVER = true
 include erlang.mk
 
 app:: rebar.config
-
-app.config::
-	cuttlefish -l info -e etc/ -c etc/emqttd.conf -i priv/emqttd.schema -d data
 
