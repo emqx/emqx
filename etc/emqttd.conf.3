@@ -28,19 +28,6 @@
 %% Cache ACL result for PUBLISH
 {cache_acl, true}.
 
-##--------------------------------------------------------------------
-## Broker
-##--------------------------------------------------------------------
-
-## System interval of publishing broker $SYS messages
-broker.sys_interval = 60.
-
-##--------------------------------------------------------------------
-## Session
-##--------------------------------------------------------------------
-
-
-
 %%--------------------------------------------------------------------
 %% Listener
 %%--------------------------------------------------------------------
@@ -189,22 +176,4 @@ broker.sys_interval = 60.
 %%-------------------------------------------------------------------
 %% Erlang System Monitor
 %%-------------------------------------------------------------------
-
-%% Long GC, don't monitor in production mode for:
-%% https://github.com/erlang/otp/blob/feb45017da36be78d4c5784d758ede619fa7bfd3/erts/emulator/beam/erl_gc.c#L421
-
-sysmon.long_gc = false
-
-%% Long Schedule(ms)
-sysmon.long_schedule = 240
-
-%% 8M words. 32MB on 32-bit VM, 64MB on 64-bit VM.
-%% 8 * 1024 * 1024
-sysmon.large_heap = 8388608
-
-%% Busy Port
-sysmon.busy_port = false
-
-%% Busy Dist Port
-sysmon.busy_dist_port = true
 

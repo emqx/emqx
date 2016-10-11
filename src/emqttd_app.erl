@@ -42,7 +42,6 @@
       Reason    :: term()).
 start(_StartType, _StartArgs) ->
     print_banner(),
-    emqttd_conf:init(),
     emqttd_mnesia:start(),
     {ok, Sup} = emqttd_sup:start_link(),
     start_servers(Sup),
@@ -187,7 +186,8 @@ start_listener({listener, https, ListenOn, Opts}) ->
     mochiweb:start_http(https, ListenOn, Opts, {emqttd_http, handle_request, []}).
 
 start_listener(Protocol, ListenOn, Opts) ->
-    MFArgs = {emqttd_client, start_link, [emqttd_conf:mqtt()]},
+    {ok, Env} = emqttd:env(protocol),
+    MFArgs = {emqttd_client, start_link, [Env]},
     {ok, _} = esockd:open(Protocol, ListenOn, merge_sockopts(Opts), MFArgs).
 
 merge_sockopts(Options) ->

@@ -125,8 +125,8 @@ stop() -> gen_server:call(?MODULE, stop).
 
 init([]) ->
     ets:new(?ACCESS_CONTROL_TAB, [set, named_table, protected, {read_concurrency, true}]),
-    ets:insert(?ACCESS_CONTROL_TAB, {auth_modules, init_mods(gen_conf:list(emqttd, auth))}),
-    ets:insert(?ACCESS_CONTROL_TAB, {acl_modules,  init_mods(gen_conf:list(emqttd, acl))}),
+    %%ets:insert(?ACCESS_CONTROL_TAB, {auth_modules, init_mods(gen_conf:list(emqttd, auth))}),
+    %%ets:insert(?ACCESS_CONTROL_TAB, {acl_modules,  init_mods(gen_conf:list(emqttd, acl))}),
     {ok, #state{}}.
 
 init_mods(Mods) ->
