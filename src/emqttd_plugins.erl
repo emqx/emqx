@@ -27,7 +27,7 @@
 -export([list/0]).
 
 init() ->
-    case emqttd:conf(plugins_etc_dir) of
+    case emqttd:env(plugins_etc_dir) of
         {ok, PluginsEtc} ->
             CfgFiles = filelib:wildcard("*.conf", PluginsEtc),
             lists:foreach(fun(CfgFile) ->
@@ -42,7 +42,7 @@ init() ->
 %% @doc Load all plugins when the broker started.
 -spec(load() -> list() | {error, any()}).
 load() ->
-    case emqttd:conf(plugins_loaded_file) of
+    case emqttd:env(plugins_loaded_file) of
         {ok, File} ->
             ensure_file(File),
             with_loaded_file(File, fun(Names) -> load_plugins(Names, false) end);
@@ -75,7 +75,7 @@ load_plugins(Names, Persistent) ->
 %% @doc Unload all plugins before broker stopped.
 -spec(unload() -> list() | {error, any()}).
 unload() ->
-    case emqttd:conf(plugins_loaded_file) of
+    case emqttd:env(plugins_loaded_file) of
         {ok, File} ->
             with_loaded_file(File, fun stop_plugins/1);
         undefined ->
@@ -89,7 +89,7 @@ stop_plugins(Names) ->
 %% @doc List all available plugins
 -spec(list() -> [mqtt_plugin()]).
 list() ->
-    case emqttd:conf(plugins_etc_dir) of
+    case emqttd:env(plugins_etc_dir) of
         {ok, PluginsEtc} -> 
             CfgFiles = filelib:wildcard("*.conf", PluginsEtc),
             Plugins = [plugin(CfgFile) || CfgFile <- CfgFiles],
@@ -244,7 +244,7 @@ plugin_unloaded(Name, true) ->
     end.
 
 read_loaded() ->
-    case emqttd:conf(plugins_loaded_file) of
+    case emqttd:env(plugins_loaded_file) of
         {ok, File} -> read_loaded(File);
         undefined  -> {error, not_found}
     end.
@@ -252,7 +252,7 @@ read_loaded() ->
 read_loaded(File) -> file:consult(File).
 
 write_loaded(AppNames) ->
-    {ok, File} = emqttd:conf(plugins_loaded_file),
+    {ok, File} = emqttd:env(plugins_loaded_file),
     case file:open(File, [binary, write]) of
         {ok, Fd} ->
             lists:foreach(fun(Name) ->
