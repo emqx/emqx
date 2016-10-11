@@ -146,7 +146,8 @@ worker_spec(M, F, A) ->
 
 %% @doc load all modules
 load_all_mods() ->
-    lists:foreach(fun load_mod/1, gen_conf:list(emqttd, module)).
+	ok.
+    %%lists:foreach(fun load_mod/1, gen_conf:list(emqttd, module)).
 
 load_mod({module, Name, Opts}) ->
     Mod = list_to_atom("emqttd_mod_" ++ atom_to_list(Name)),
@@ -166,24 +167,24 @@ is_mod_enabled(Name) -> lists:keyfind(Name, 2, gen_conf:list(emqttd, module)).
 
 %% @doc Start Listeners of the broker.
 -spec(start_listeners() -> any()).
-start_listeners() -> lists:foreach(fun start_listener/1, gen_conf:list(emqttd, listener)).
+start_listeners() -> lists:foreach(fun start_listener/1, env(listeners, [])).
 
 %% Start mqtt listener
 -spec(start_listener(listener()) -> any()).
-start_listener({listener, mqtt, ListenOn, Opts}) ->
-    start_listener(mqtt, ListenOn, Opts);
+start_listener({listener, tcp, ListenOn, Opts}) ->
+    start_listener('mqtt/tcp', ListenOn, Opts);
 
 %% Start mqtt(SSL) listener
-start_listener({listener, mqtts, ListenOn, Opts}) ->
-    start_listener(mqtts, ListenOn, Opts);
+start_listener({listener, ssl, ListenOn, Opts}) ->
+    start_listener('mqtt/ssl', ListenOn, Opts);
 
 %% Start http listener
-start_listener({listener, http, ListenOn, Opts}) ->
-    mochiweb:start_http(http, ListenOn, Opts, {emqttd_http, handle_request, []});
+start_listener({listener, ws, ListenOn, Opts}) ->
+    mochiweb:start_http('mqtt/ws', ListenOn, Opts, {emqttd_http, handle_request, []});
 
 %% Start https listener
-start_listener({listener, https, ListenOn, Opts}) ->
-    mochiweb:start_http(https, ListenOn, Opts, {emqttd_http, handle_request, []}).
+start_listener({listener, wss, ListenOn, Opts}) ->
+    mochiweb:start_http('mqtt/wss', ListenOn, Opts, {emqttd_http, handle_request, []}).
 
 start_listener(Protocol, ListenOn, Opts) ->
     {ok, Env} = emqttd:env(protocol),
@@ -200,9 +201,11 @@ merge_sockopts(Options) ->
 %%--------------------------------------------------------------------
 
 %% @doc Stop Listeners
-stop_listeners() -> lists:foreach(fun stop_listener/1, gen_conf:list(listener)).
+stop_listeners() -> lists:foreach(fun stop_listener/1, env(listeners, [])).
 
 %% @private
+stop_listener({listener, tcp, ListenOn, _Opts}) -> esockd:close('mqtt/tcp', ListenOn);
+stop_listener({listener, ssl, ListenOn, _Opts}) -> esockd:close('mqtt/ssl', ListenOn);
 stop_listener({listener, Protocol, ListenOn, _Opts}) -> esockd:close(Protocol, ListenOn).
 
 -ifdef(TEST).
