@@ -357,14 +357,10 @@ end}.
 %% MQTT Broker
 %%--------------------------------------------------------------------
 
-{mapping, "mqtt.broker.sys_interval", "emqttd.broker", [
+{mapping, "mqtt.broker.sys_interval", "emqttd.broker_sys_interval", [
   {default, 60},
   {datatype, integer}
 ]}.
-
-{translation, "emqttd.broker", fun(Conf) ->
-  [{sys_interval, cuttlefish:conf_get("mqtt.broker.sys_interval", Conf)}]
-end}.
 
 %%--------------------------------------------------------------------
 %% MQTT PubSub
