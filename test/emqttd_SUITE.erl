@@ -402,14 +402,9 @@ auth_header_(User, Pass) ->
     {"Authorization","Basic " ++ Encoded}.
 
 websocket_test(_) ->
-%    Conn = esockd_connection:new(esockd_transport, nil, []),
-%    Req = mochiweb_request:new(Conn, 'GET', "/mqtt", {1, 1}, 
-%                                mochiweb_headers:make([{"Sec-WebSocket-Protocol","mqtt"},
-%                                                       {"Upgrade","websocket"}
-%                                                      ])),
-    Req = "GET " ++ "/mqtt" ++" HTTP/1.1\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\n" ++ 
-	"Host: " ++ "127.0.0.1"++ "\r\n" ++
-	"Origin: http://" ++ "127.0.0.1" ++ "/\r\n\r\n",
+    Conn = esockd_connection:new(esockd_transport, nil, []),
+    Req = mochiweb_request:new(Conn, 'GET', "/mqtt", {1, 1}, 
+                                mochiweb_headers:make([{"Sec-WebSocket-Key","Xn3fdKyc3qEXPuj2A3O+ZA=="}])),
 
     ct:log("Req:~p", [Req]),
     emqttd_http:handle_request(Req).
