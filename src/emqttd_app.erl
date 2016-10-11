@@ -167,7 +167,7 @@ is_mod_enabled(Name) -> lists:keyfind(Name, 2, gen_conf:list(emqttd, module)).
 
 %% @doc Start Listeners of the broker.
 -spec(start_listeners() -> any()).
-start_listeners() -> lists:foreach(fun start_listener/1, env(listeners, [])).
+start_listeners() -> lists:foreach(fun start_listener/1, emqttd:env(listeners, [])).
 
 %% Start mqtt listener
 -spec(start_listener(listener()) -> any()).
@@ -201,7 +201,7 @@ merge_sockopts(Options) ->
 %%--------------------------------------------------------------------
 
 %% @doc Stop Listeners
-stop_listeners() -> lists:foreach(fun stop_listener/1, env(listeners, [])).
+stop_listeners() -> lists:foreach(fun stop_listener/1, emqttd:env(listeners, [])).
 
 %% @private
 stop_listener({listener, tcp, ListenOn, _Opts}) -> esockd:close('mqtt/tcp', ListenOn);
