@@ -95,7 +95,7 @@ datetime() ->
 
 %% @doc Start a tick timer
 start_tick(Msg) ->
-    start_tick(timer:seconds(emqttd:conf(broker_sys_interval, 60)), Msg).
+    start_tick(timer:seconds(emqttd:env(broker_sys_interval, 60)), Msg).
 
 start_tick(0, _Msg) ->
     undefined;
