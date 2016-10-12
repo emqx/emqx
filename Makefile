@@ -37,3 +37,5 @@ include erlang.mk
 
 app:: rebar.config
 
+app.config::
+	cuttlefish -l info -e etc/ -c etc/emqttd.conf -i priv/emqttd.schema -d data/
