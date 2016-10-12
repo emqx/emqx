@@ -132,12 +132,12 @@
 ]}.
 
 {mapping, "log.console.file", "lager.handlers", [
-  {default, "$(platform_log_dir)/console.log"},
+  {default, "log/console.log"},
   {datatype, file}
 ]}.
 
 {mapping, "log.error.file", "lager.handlers", [
-  {default, "$(platform_log_dir)/error.log"},
+  {default, "log/error.log"},
   {datatype, file}
 ]}.
 
@@ -192,7 +192,7 @@
 ]}.
 
 {mapping, "log.crash.file", "lager.crash_log", [
-  {default, "$(platform_log_dir)/crash.log"},
+  {default, "log/crash.log"},
   {datatype, file}
 ]}.
 
@@ -538,19 +538,4 @@ end}.
      {busy_port, cuttlefish:conf_get("sysmon.busy_port", Conf)},
      {busy_dist_port, cuttlefish:conf_get("sysmon.busy_dist_port", Conf)}]
 end}.
-
-{mapping, "platform_etc_dir", "emqttd.platform_etc_dir", [
-  {datatype, directory},
-  {default, "./etc"}
-]}.
-
-{mapping, "platform_log_dir", "emqttd.platform_log_dir", [
-  {datatype, directory},
-  {default, "./log"}
-]}.
-
-{mapping, "platform_data_dir", "emqttd.platform_data_dir", [
-  {datatype, directory},
-  {default, "./data"}
-]}.
 
