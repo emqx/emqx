@@ -47,7 +47,6 @@ start(_StartType, _StartArgs) ->
     start_servers(Sup),
     emqttd_cli:load(),
     load_all_mods(),
-    emqttd_plugins:init(),
     emqttd_plugins:load(),
     start_listeners(),
     register(emqttd, self()),

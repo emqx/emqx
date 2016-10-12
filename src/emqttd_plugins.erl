@@ -18,26 +18,11 @@
 
 -include("emqttd.hrl").
 
--export([init/0]).
-
 -export([load/0, unload/0]).
 
 -export([load/1, unload/1]).
 
 -export([list/0]).
-
-init() ->
-    case emqttd:env(plugins_etc_dir) of
-        {ok, PluginsEtc} ->
-            CfgFiles = filelib:wildcard("*.conf", PluginsEtc),
-            lists:foreach(fun(CfgFile) ->
-                App = app_name(CfgFile),
-                application:set_env(App, conf, filename:join(PluginsEtc, CfgFile)),
-                gen_conf:init(App)
-            end, CfgFiles);
-        undefined ->
-            ok
-    end.
 
 %% @doc Load all plugins when the broker started.
 -spec(load() -> list() | {error, any()}).
