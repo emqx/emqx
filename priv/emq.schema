@@ -254,6 +254,13 @@
    {client_idle_timeout, cuttlefish:conf_get("mqtt.client_idle_timeout", Conf)}]
 end}.
 
+%% @doc Allow Anonymous
+{mapping, "mqtt.allow_anonymous", "emqttd.allow_anonymous", [
+  {default, false},
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT Session
 %%--------------------------------------------------------------------

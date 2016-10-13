@@ -56,7 +56,10 @@ start_link() ->
 auth(Client, Password) when is_record(Client, mqtt_client) ->
     auth(Client, Password, lookup_mods(auth)).
 auth(_Client, _Password, []) ->
-    {error, "No auth module to check!"};
+    case emqttd:env(allow_anonymous, false) of
+        true  -> ok;
+        false -> {error, "No auth module to check!"}
+    end;
 auth(Client, Password, [{Mod, State, _Seq} | Mods]) ->
     case catch Mod:check(Client, Password, State) of
         ok              -> ok;
@@ -73,7 +76,10 @@ auth(Client, Password, [{Mod, State, _Seq} | Mods]) ->
       Topic  :: binary()).
 check_acl(Client, PubSub, Topic) when ?PUBSUB(PubSub) ->
     case lookup_mods(acl) of
-        []      -> allow;
+        []      -> case emqttd:env(allow_anonymous, false) of
+                       true  -> allow;
+                       false -> deny
+                   end;
         AclMods -> check_acl(Client, PubSub, Topic, AclMods)
     end.
 check_acl(#mqtt_client{client_id = ClientId}, PubSub, Topic, []) ->
@@ -120,20 +126,12 @@ tab_key(acl)  -> acl_modules.
 stop() -> gen_server:call(?MODULE, stop).
 
 %%--------------------------------------------------------------------
-%% gen_server callbacks
+%% gen_server Callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
     ets:new(?ACCESS_CONTROL_TAB, [set, named_table, protected, {read_concurrency, true}]),
-    %%ets:insert(?ACCESS_CONTROL_TAB, {auth_modules, init_mods(gen_conf:list(emqttd, auth))}),
-    %%ets:insert(?ACCESS_CONTROL_TAB, {acl_modules,  init_mods(gen_conf:list(emqttd, acl))}),
     {ok, #state{}}.
-
-init_mods(Mods) ->
-    [init_mod(mod_name(Type, Name), Opts) || {Type, Name, Opts} <- Mods].
-
-init_mod(Mod, Opts) ->
-    {ok, State} = Mod:init(Opts), {Mod, State, 0}.
 
 handle_call({register_mod, Type, Mod, Opts, Seq}, _From, State) ->
     Mods = lookup_mods(Type),
@@ -185,13 +183,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-mod_name(auth, Name) -> mod(emqttd_auth_, Name);
-
-mod_name(acl, Name)  -> mod(emqttd_acl_, Name).
-    
-mod(Prefix, Name) ->
-    list_to_atom(lists:concat([Prefix, Name])).
 
 if_existed(false, Fun) -> Fun();
 
