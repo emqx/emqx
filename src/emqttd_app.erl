@@ -170,20 +170,20 @@ start_listeners() -> lists:foreach(fun start_listener/1, emqttd:env(listeners, [
 
 %% Start mqtt listener
 -spec(start_listener(listener()) -> any()).
-start_listener({listener, tcp, ListenOn, Opts}) ->
-    start_listener('mqtt/tcp', ListenOn, Opts);
+start_listener({tcp, ListenOn, Opts}) ->
+    start_listener('mqtt:tcp', ListenOn, Opts);
 
 %% Start mqtt(SSL) listener
-start_listener({listener, ssl, ListenOn, Opts}) ->
-    start_listener('mqtt/ssl', ListenOn, Opts);
+start_listener({ssl, ListenOn, Opts}) ->
+    start_listener('mqtt:ssl', ListenOn, Opts);
 
 %% Start http listener
-start_listener({listener, ws, ListenOn, Opts}) ->
-    mochiweb:start_http('mqtt/ws', ListenOn, Opts, {emqttd_http, handle_request, []});
+start_listener({http, ListenOn, Opts}) ->
+    mochiweb:start_http('mqtt:http', ListenOn, Opts, {emqttd_http, handle_request, []});
 
 %% Start https listener
-start_listener({listener, wss, ListenOn, Opts}) ->
-    mochiweb:start_http('mqtt/wss', ListenOn, Opts, {emqttd_http, handle_request, []}).
+start_listener({listener, https, ListenOn, Opts}) ->
+    mochiweb:start_http('mqtt:https', ListenOn, Opts, {emqttd_http, handle_request, []}).
 
 start_listener(Protocol, ListenOn, Opts) ->
     {ok, Env} = emqttd:env(protocol),

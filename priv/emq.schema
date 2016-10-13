@@ -1,16 +1,9 @@
 %%-*- mode: erlang -*-
-%% EMQ 3.0 config mapping
+%% EMQ config mapping
 
 %%--------------------------------------------------------------------
 %% Erlang Node
 %%--------------------------------------------------------------------
-
-%% @doc Node Id 
-{mapping, "node.id", "emqttd.node_id", [
-  {default, 1},
-  {datatype, integer},
-  {validators, ["range:0-255"]}
-]}.
 
 %% @doc Erlang node name
 {mapping, "node.name", "vm_args.-name", [
@@ -114,6 +107,27 @@
 {mapping, "node.crash_dump", "vm_args.-env ERL_CRASH_DUMP", [
   {default, "{{crash_dump}}"},
   {datatype, file},
+  hidden
+]}.
+
+%% @doc http://www.erlang.org/doc/man/kernel_app.html#net_ticktime
+{mapping, "node.dist_net_ticktime", "vm_args.-kernel net_ticktime", [
+  {commented, 60},
+  {datatype, integer},
+  hidden
+]}.
+
+%% @doc http://www.erlang.org/doc/man/kernel_app.html
+{mapping, "node.dist_listen_min", "kernel.inet_dist_listen_min", [
+  {commented, 6000},
+  {datatype, integer},
+  hidden
+]}.
+
+%% @see node.dist_listen_min
+{mapping, "node.dist_listen_max", "kernel.inet_dist_listen_max", [
+  {commented, 6999},
+  {datatype, integer},
   hidden
 ]}.
 
@@ -389,83 +403,6 @@ end}.
 end}.
 
 %%--------------------------------------------------------------------
-%% MQTT Listeners
-%%--------------------------------------------------------------------
-
-{mapping, "mqtt.listener.tcp", "emqttd.listeners", [
-  {default, 1883},
-  {datatype, [integer, ip]}
-]}.
-
-{mapping, "mqtt.listener.tcp.acceptors", "emqttd.listeners", [
-  {default, 8},
-  {datatype, integer}
-]}.
-
-{mapping, "mqtt.listener.tcp.max_clients", "emqttd.listeners", [
-  {default, 1024},
-  {datatype, integer}
-]}.
-
-{mapping, "mqtt.listener.ssl", "emqttd.listeners", [
-  {default, 8883},
-  {datatype, [integer, ip]}
-]}.
-
-{mapping, "mqtt.listener.ssl.acceptors", "emqttd.listeners", [
-  {default, 8},
-  {datatype, integer}
-]}.
-
-{mapping, "mqtt.listener.ssl.max_clients", "emqttd.listeners", [
-  {default, 512},
-  {datatype, integer}
-]}.
-
-{mapping, "mqtt.listener.http", "emqttd.listeners", [
-  {default, 8883},
-  {datatype, [integer, ip]}
-]}.
-
-{mapping, "mqtt.listener.http.acceptors", "emqttd.listeners", [
-  {default, 8},
-  {datatype, integer}
-]}.
-
-{mapping, "mqtt.listener.http.max_clients", "emqttd.listeners", [
-  {default, 64},
-  {datatype, integer}
-]}.
-
-{translation, "emqttd.listeners", fun(Conf) ->
-    TcpListeners = case cuttlefish:conf_get("mqtt.listener.tcp", Conf) of
-        undefined ->
-            [];
-        TcpPort ->
-            TcpOpts = [{acceptors, cuttlefish:conf_get("mqtt.listener.tcp.acceptors", Conf)},
-                       {max_clients, cuttlefish:conf_get("mqtt.listener.tcp.max_clients", Conf)}],
-            [{tcp, TcpPort, TcpOpts}]
-        end,
-    SslListeners = case cuttlefish:conf_get("mqtt.listener.ssl", Conf) of
-        undefined ->
-            [];
-        SslPort ->
-            SslOpts = [{acceptors, cuttlefish:conf_get("mqtt.listener.ssl.acceptors", Conf)},
-                       {max_clients, cuttlefish:conf_get("mqtt.listener.ssl.max_clients", Conf)}],
-            [{ssl, SslPort, SslOpts}]
-    end,
-    HttpListeners = case cuttlefish:conf_get("mqtt.listener.http", Conf) of
-        undefined ->
-            [];
-        HttPort ->
-            HttpOpts = [{acceptors, cuttlefish:conf_get("mqtt.listener.http.acceptors", Conf)},
-                        {max_clients, cuttlefish:conf_get("mqtt.listener.http.max_clients", Conf)}],
-            [{http, HttPort, HttpOpts}]
-    end,
-    TcpListeners ++ SslListeners ++ HttpListeners
-end}.
-
-%%--------------------------------------------------------------------
 %% MQTT Bridge
 %%--------------------------------------------------------------------
 
@@ -495,6 +432,169 @@ end}.
 {mapping, "mqtt.plugins.loaded_file", "emqttd.plugins_loaded_file", [
   {datatype, string}
 ]}.
+
+%%--------------------------------------------------------------------
+%% MQTT Listeners
+%%--------------------------------------------------------------------
+
+{mapping, "mqtt.listener.tcp", "emqttd.listeners", [
+  {default, 1883},
+  {datatype, [integer, ip]}
+]}.
+
+{mapping, "mqtt.listener.tcp.acceptors", "emqttd.listeners", [
+  {default, 8},
+  {datatype, integer}
+]}.
+
+{mapping, "mqtt.listener.tcp.max_clients", "emqttd.listeners", [
+  {default, 1024},
+  {datatype, integer}
+]}.
+
+{mapping, "mqtt.listener.tcp.rate_limit", "emqttd.listeners", [
+  {default, undefined},
+  {datatype, string},
+  hidden
+]}.
+
+{mapping, "mqtt.listener.tcp.backlog", "emqttd.listeners", [
+  {default, 1024},
+  {datatype, integer}
+]}.
+
+{mapping, "mqtt.listener.tcp.recbuf", "emqttd.listeners", [
+  {datatype, integer},
+  hidden
+]}.
+
+{mapping, "mqtt.listener.tcp.sndbuf", "emqttd.listeners", [
+  {datatype, integer},
+  hidden
+]}.
+
+{mapping, "mqtt.listener.tcp.buffer", "emqttd.listeners", [
+  {datatype, integer},
+  hidden
+]}.
+
+{mapping, "mqtt.listener.tcp.nodelay", "emqttd.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
+{mapping, "mqtt.listener.ssl", "emqttd.listeners", [
+  {default, 8883},
+  {datatype, [integer, ip]}
+]}.
+
+{mapping, "mqtt.listener.ssl.acceptors", "emqttd.listeners", [
+  {default, 8},
+  {datatype, integer}
+]}.
+
+{mapping, "mqtt.listener.ssl.max_clients", "emqttd.listeners", [
+  {default, 512},
+  {datatype, integer}
+]}.
+
+{mapping, "mqtt.listener.ssl.rate_limit", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "mqtt.listener.ssl.handshake_timeout", "emqttd.listeners", [
+  {default, 10},
+  {datatype, integer}
+]}.
+
+{mapping, "mqtt.listener.ssl.keyfile", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "mqtt.listener.ssl.certfile", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "mqtt.listener.ssl.cacertfile", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "mqtt.listener.ssl.verify", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "mqtt.listener.ssl.failed_if_no_peer_cert", "emqttd.listeners", [
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "mqtt.listener.http", "emqttd.listeners", [
+  {default, 8883},
+  {datatype, [integer, ip]}
+]}.
+
+{mapping, "mqtt.listener.http.acceptors", "emqttd.listeners", [
+  {default, 8},
+  {datatype, integer}
+]}.
+
+{mapping, "mqtt.listener.http.max_clients", "emqttd.listeners", [
+  {default, 64},
+  {datatype, integer}
+]}.
+
+{mapping, "mqtt.listener.https", "emqttd.listeners", [
+  {default, undefined},
+  {datatype, [integer, ip]},
+  hidden
+]}.
+
+{mapping, "mqtt.listener.https.acceptors", "emqttd.listeners", [
+  {default, 8},
+  {datatype, integer}
+]}.
+
+{mapping, "mqtt.listener.https.max_clients", "emqttd.listeners", [
+  {default, 64},
+  {datatype, integer}
+]}.
+
+{translation, "emqttd.listeners", fun(Conf) ->
+    Filter = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
+    TcpListeners = case cuttlefish:conf_get("mqtt.listener.tcp", Conf) of
+        undefined ->
+            [];
+        TcpPort ->
+            TcpOpts = [{acceptors, cuttlefish:conf_get("mqtt.listener.tcp.acceptors", Conf)},
+                       {max_clients, cuttlefish:conf_get("mqtt.listener.tcp.max_clients", Conf)},
+                       {rate_limt, cuttlefish:conf_get("mqtt.listener.tcp.rate_limit", Conf, undefined)}],
+            [{tcp, TcpPort, Filter(TcpOpts)}]
+        end,
+    SslListeners = case cuttlefish:conf_get("mqtt.listener.ssl", Conf) of
+        undefined ->
+            [];
+        SslPort ->
+            SslOpts = [{acceptors, cuttlefish:conf_get("mqtt.listener.ssl.acceptors", Conf)},
+                       {max_clients, cuttlefish:conf_get("mqtt.listener.ssl.max_clients", Conf)}],
+            [{ssl, SslPort, Filter(SslOpts)}]
+    end,
+    HttpListeners = case cuttlefish:conf_get("mqtt.listener.http", Conf) of
+        undefined ->
+            [];
+        HttPort ->
+            HttpOpts = [{acceptors, cuttlefish:conf_get("mqtt.listener.http.acceptors", Conf)},
+                        {max_clients, cuttlefish:conf_get("mqtt.listener.http.max_clients", Conf)}],
+            [{http, HttPort, Filter(HttpOpts)}]
+    end,
+    HttpsListeners = case cuttlefish:conf_get("mqtt.listener.https", Conf, undefined) of
+        undefined ->
+            [];
+        HttsPort ->
+            HttpsOpts = [{acceptors, cuttlefish:conf_get("mqtt.listener.https.acceptors", Conf)},
+                         {max_clients, cuttlefish:conf_get("mqtt.listener.https.max_clients", Conf)}],
+            [{https, HttsPort, Filter(HttpsOpts)}]
+    end,
+    TcpListeners ++ SslListeners ++ HttpListeners ++ HttpsListeners
+end}.
 
 %%--------------------------------------------------------------------
 %% System Monitor
