@@ -181,7 +181,7 @@ start_listener({http, ListenOn, Opts}) ->
     mochiweb:start_http('mqtt:http', ListenOn, Opts, {emqttd_http, handle_request, []});
 
 %% Start https listener
-start_listener({listener, https, ListenOn, Opts}) ->
+start_listener({https, ListenOn, Opts}) ->
     mochiweb:start_http('mqtt:https', ListenOn, Opts, {emqttd_http, handle_request, []}).
 
 start_listener(Protocol, ListenOn, Opts) ->
