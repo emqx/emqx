@@ -18,11 +18,31 @@
 
 -include("emqttd.hrl").
 
+-export([init/0]).
+
 -export([load/0, unload/0]).
 
 -export([load/1, unload/1]).
 
 -export([list/0]).
+
+%% @doc Init plugins' config
+-spec(init() -> ok).
+init() ->
+    case emqttd:env(plugins_etc_dir) of
+        {ok, PluginsEtc} ->
+            CfgFiles = [filename:join(PluginsEtc, File) ||
+                          File <- filelib:wildcard("*.config", PluginsEtc)],
+            lists:foreach(fun init_config/1, CfgFiles);
+        undefined ->
+            ok
+    end.
+
+init_config(CfgFile) ->
+    {ok, [AppsEnv]} = file:consult(CfgFile),
+    lists:foreach(fun({AppName, Envs}) ->
+                      [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
+                  end, AppsEnv).
 
 %% @doc Load all plugins when the broker started.
 -spec(load() -> list() | {error, any()}).
@@ -75,8 +95,8 @@ stop_plugins(Names) ->
 -spec(list() -> [mqtt_plugin()]).
 list() ->
     case emqttd:env(plugins_etc_dir) of
-        {ok, PluginsEtc} -> 
-            CfgFiles = filelib:wildcard("*.conf", PluginsEtc),
+        {ok, PluginsEtc} ->
+            CfgFiles = filelib:wildcard("*.{conf,config}", PluginsEtc),
             Plugins = [plugin(CfgFile) || CfgFile <- CfgFiles],
             StartedApps = names(started_app),
             lists:map(fun(Plugin = #mqtt_plugin{name = Name}) ->
@@ -247,3 +267,4 @@ write_loaded(AppNames) ->
             lager:error("Open File ~p Error: ~p", [File, Error]),
             {error, Error}
     end.
+
