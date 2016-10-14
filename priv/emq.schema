@@ -565,6 +565,31 @@ end}.
   {datatype, integer}
 ]}.
 
+{mapping, "mqtt.listener.https.handshake_timeout", "emqttd.listeners", [
+  {default, 15},
+  {datatype, integer}
+]}.
+
+{mapping, "mqtt.listener.https.keyfile", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "mqtt.listener.https.certfile", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "mqtt.listener.https.cacertfile", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "mqtt.listener.https.verify", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "mqtt.listener.https.failed_if_no_peer_cert", "emqttd.listeners", [
+  {datatype, {enum, [true, false]}}
+]}.
+
 {translation, "emqttd.listeners", fun(Conf) ->
     Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
     LisOpts = fun(Prefix) ->
