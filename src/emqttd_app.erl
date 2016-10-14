@@ -143,12 +143,11 @@ worker_spec(M, F, A) ->
 %% Load Modules
 %%--------------------------------------------------------------------
 
-%% @doc load all modules
+%% @doc Load all modules
 load_all_mods() ->
-	ok.
-    %%lists:foreach(fun load_mod/1, gen_conf:list(emqttd, module)).
+    lists:foreach(fun load_mod/1, emqttd:env(modules, [])).
 
-load_mod({module, Name, Opts}) ->
+load_mod({Name, Opts}) ->
     Mod = list_to_atom("emqttd_mod_" ++ atom_to_list(Name)),
     case catch Mod:load(Opts) of
         ok               -> lager:info("Load module ~s successfully", [Name]);
@@ -158,7 +157,7 @@ load_mod({module, Name, Opts}) ->
 
 %% @doc Is module enabled?
 -spec(is_mod_enabled(Name :: atom()) -> boolean()).
-is_mod_enabled(Name) -> lists:keyfind(Name, 2, gen_conf:list(emqttd, module)).
+is_mod_enabled(Name) -> lists:keyfind(Name, 1, emqttd:env(modules, [])).
 
 %%--------------------------------------------------------------------
 %% Start Listeners
