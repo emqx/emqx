@@ -510,7 +510,7 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.ssl.handshake_timeout", "emqttd.listeners", [
-  {default, 10},
+  {default, 15},
   {datatype, integer}
 ]}.
 
@@ -566,41 +566,43 @@ end}.
 ]}.
 
 {translation, "emqttd.listeners", fun(Conf) ->
-    Filter = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
-    TcpListeners = case cuttlefish:conf_get("mqtt.listener.tcp", Conf) of
-        undefined ->
-            [];
-        TcpPort ->
-            TcpOpts = [{acceptors, cuttlefish:conf_get("mqtt.listener.tcp.acceptors", Conf)},
-                       {max_clients, cuttlefish:conf_get("mqtt.listener.tcp.max_clients", Conf)},
-                       {rate_limt, cuttlefish:conf_get("mqtt.listener.tcp.rate_limit", Conf, undefined)}],
-            [{tcp, TcpPort, Filter(TcpOpts)}]
-        end,
-    SslListeners = case cuttlefish:conf_get("mqtt.listener.ssl", Conf) of
-        undefined ->
-            [];
-        SslPort ->
-            SslOpts = [{acceptors, cuttlefish:conf_get("mqtt.listener.ssl.acceptors", Conf)},
-                       {max_clients, cuttlefish:conf_get("mqtt.listener.ssl.max_clients", Conf)}],
-            [{ssl, SslPort, Filter(SslOpts)}]
-    end,
-    HttpListeners = case cuttlefish:conf_get("mqtt.listener.http", Conf) of
-        undefined ->
-            [];
-        HttPort ->
-            HttpOpts = [{acceptors, cuttlefish:conf_get("mqtt.listener.http.acceptors", Conf)},
-                        {max_clients, cuttlefish:conf_get("mqtt.listener.http.max_clients", Conf)}],
-            [{http, HttPort, Filter(HttpOpts)}]
-    end,
-    HttpsListeners = case cuttlefish:conf_get("mqtt.listener.https", Conf, undefined) of
-        undefined ->
-            [];
-        HttsPort ->
-            HttpsOpts = [{acceptors, cuttlefish:conf_get("mqtt.listener.https.acceptors", Conf)},
-                         {max_clients, cuttlefish:conf_get("mqtt.listener.https.max_clients", Conf)}],
-            [{https, HttsPort, Filter(HttpsOpts)}]
-    end,
-    TcpListeners ++ SslListeners ++ HttpListeners ++ HttpsListeners
+    Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
+    LisOpts = fun(Prefix) ->
+                  Filter([{acceptors,   cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
+                          {max_clients, cuttlefish:conf_get(Prefix ++ ".max_clients", Conf)},
+                          {rate_limt,   cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined)}])
+ end,
+    TcpOpts = fun(Prefix) ->
+                   Filter([{backlog, cuttlefish:conf_get(Prefix ++ ".backlog", Conf, undefined)},
+                           {recbuf,  cuttlefish:conf_get(Prefix ++ ".recbuf", Conf, undefined)},
+                           {sndbuf,  cuttlefish:conf_get(Prefix ++ ".sndbuf", Conf, undefined)},
+                           {buffer,  cuttlefish:conf_get(Prefix ++ ".buffer", Conf, undefined)},
+                           {nodelay, cuttlefish:conf_get(Prefix ++ ".nodelay", Conf, true)}])
+              end,
+    SslOpts = fun(Prefix) ->
+                  Filter([{handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf)},
+                          {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
+                          {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
+                          {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)},
+                          {verify,     cuttlefish:conf_get(Prefix ++ ".verify_peer", Conf, undefined)},
+                          {failed_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ "failed_if_no_peer_cert", Conf, undefined)}])
+              end,
+
+    Listeners = fun(Name) when is_atom(Name) ->
+                    Key = "mqtt.listener." ++ atom_to_list(Name),
+                    case cuttlefish:conf_get(Key, Conf, undefined) of
+                        undefined ->
+                            [];
+                        Port ->
+                            ConnOpts = Filter([{rate_limit, cuttlefish:conf_get(Key ++ ".rate_limit", Conf, undefined)}]),
+                            Opts = [{connopts, ConnOpts}, {sockopts, TcpOpts(Key)} | LisOpts(Key)],
+                            [{Name, Port, case Name =:= ssl orelse Name =:= https of
+                                              true  -> [{ssl, SslOpts(Key)} | Opts];
+                                              false -> Opts
+                                          end}]
+                   end
+                end,
+    [Listeners(tcp), Listeners(ssl), Listeners(http), Listeners(https)]
 end}.
 
 %%--------------------------------------------------------------------
