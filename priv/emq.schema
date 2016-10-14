@@ -602,7 +602,7 @@ end}.
                                           end}]
                    end
                 end,
-    [Listeners(tcp), Listeners(ssl), Listeners(http), Listeners(https)]
+    lists:append([Listeners(tcp), Listeners(ssl), Listeners(http), Listeners(https)])
 end}.
 
 %%--------------------------------------------------------------------
