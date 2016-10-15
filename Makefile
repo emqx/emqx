@@ -17,7 +17,7 @@ dep_time_compat = git https://github.com/lasp-lang/time_compat
 dep_rand_compat = git https://github.com/lasp-lang/rand_compat
 
 TEST_DEPS = cuttlefish
-dep_cuttlefish = git https://github.com/basho/cuttlefish master
+dep_cuttlefish = git https://github.com/emqtt/cuttlefish
 
 ERLC_OPTS += +'{parse_transform, lager_transform}'
 
