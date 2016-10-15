@@ -101,8 +101,7 @@ groups() ->
 init_per_suite(Config) ->
     application:start(lager),
     DataDir = proplists:get_value(data_dir, Config),
-    application:set_env(emqttd, conf, filename:join([DataDir, "emqttd.conf"])),
-    application:ensure_all_started(emqttd),
+    start_apps(emqttd, DataDir),
     Config.
 
 end_per_suite(_Config) ->
@@ -598,4 +597,12 @@ slave(node, Node) ->
     {ok, N} = slave:start(host(), Node, "-pa ../../ebin -pa ../../deps/*/ebin"),
     N.
 
+start_apps(App, DataDir) ->
+    application:start(lager),
+    Schema = cuttlefish_schema:files([filename:join([DataDir, atom_to_list(App) ++ ".schema"])]),
+    Conf = conf_parse:file(filename:join([DataDir, atom_to_list(App) ++ ".conf"])),
+    NewConfig = cuttlefish_generator:map(Schema, Conf),
+    Vals = proplists:get_value(App, NewConfig),
+    [application:set_env(App, Par, Value) || {Par, Value} <- Vals],
+    application:ensure_all_started(App).
 

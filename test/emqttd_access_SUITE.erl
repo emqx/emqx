@@ -41,7 +41,6 @@ groups() ->
 init_per_group(access_control, Config) ->
     application:load(emqttd),
     prepare_config(),
-    gen_conf:init(emqttd),
     Config;
 
 init_per_group(_Group, Config) ->
