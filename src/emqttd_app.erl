@@ -46,6 +46,7 @@ start(_StartType, _StartArgs) ->
     {ok, Sup} = emqttd_sup:start_link(),
     start_servers(Sup),
     emqttd_cli:load(),
+    register_acl_mod(),
     load_all_mods(),
     emqttd_plugins:init(),
     emqttd_plugins:load(),
@@ -139,6 +140,16 @@ worker_spec(Module, Opts) when is_atom(Module) ->
 
 worker_spec(M, F, A) ->
     {M, {M, F, A}, permanent, 10000, worker, [M]}.
+
+%%--------------------------------------------------------------------
+%% Register default ACL File
+%%--------------------------------------------------------------------
+
+register_acl_mod() ->
+    case emqttd:env(acl_file) of
+        {ok, File} -> emqttd_access_control:register_mod(acl, emqttd_acl_internal, [File]);
+        undefined  -> ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Load Modules
