@@ -27,7 +27,7 @@
 %% @doc Start websocket client supervisor
 -spec(start_link() -> {ok, pid()}).
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [emqttd_conf:mqtt()]).
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% @doc Start a WebSocket Client
 -spec(start_client(pid(), mochiweb_request:request(), fun()) -> {ok, pid()}).
@@ -37,8 +37,8 @@ start_client(WsPid, Req, ReplyChannel) ->
 %%--------------------------------------------------------------------
 %% Supervisor callbacks
 %%--------------------------------------------------------------------
-
-init([Env]) ->
+init([]) ->
+    {ok, Env} = emqttd:env(protocol),
     {ok, {{simple_one_for_one, 0, 1},
            [{ws_client, {emqttd_ws_client, start_link, [Env]},
              temporary, 5000, worker, [emqttd_ws_client]}]}}.

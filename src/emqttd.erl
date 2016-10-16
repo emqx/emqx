@@ -22,7 +22,7 @@
 
 -include("emqttd_protocol.hrl").
 
--export([start/0, conf/1, conf/2, env/1, env/2, is_running/1]).
+-export([start/0, env/1, env/2, is_running/1]).
 
 %% PubSub API
 -export([subscribe/1, subscribe/2, subscribe/3, publish/1,
@@ -57,15 +57,8 @@
 -spec(start() -> ok | {error, any()}).
 start() -> application:start(?APP).
 
-%% @doc Get Config
--spec(conf(Key :: atom()) -> any()).
-conf(Key) -> emqttd_conf:value(Key).
-
--spec(conf(Key :: atom(), Default :: any()) -> any()).
-conf(Key, Default) -> emqttd_conf:value(Key, Default).
-
 %% @doc Environment
--spec(env(Key:: atom()) -> any()).
+-spec(env(Key:: atom()) -> {ok, any()} | undefined).
 env(Key) -> application:get_env(?APP, Key).
 
 %% @doc Get environment

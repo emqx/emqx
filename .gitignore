@@ -27,3 +27,4 @@ ct.coverdata
 .idea/
 emqttd.iml
 _rel/
+data/

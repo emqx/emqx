@@ -41,7 +41,6 @@ groups() ->
 init_per_group(access_control, Config) ->
     application:load(emqttd),
     prepare_config(),
-    gen_conf:init(emqttd),
     Config;
 
 init_per_group(_Group, Config) ->
@@ -92,43 +91,39 @@ end_per_testcase(_TestCase, _Config) ->
 %%--------------------------------------------------------------------
 
 reload_acl(_) ->
-    [ok] = ?AC:reload_acl().
+    [] = ?AC:reload_acl().
 
 register_mod(_) ->
     ok = ?AC:register_mod(acl, emqttd_acl_test_mod, []),
     {error, already_existed} = ?AC:register_mod(acl, emqttd_acl_test_mod, []),
-    [{emqttd_acl_test_mod, _, 0},
-     {emqttd_acl_internal, _, 0}] = ?AC:lookup_mods(acl),
+    [{emqttd_acl_test_mod, _, 0}] = ?AC:lookup_mods(acl),
     ok = ?AC:register_mod(auth, emqttd_auth_anonymous_test_mod,[]),
     ok = ?AC:register_mod(auth, emqttd_auth_dashboard, [], 99),
     [{emqttd_auth_dashboard, _, 99},
-     {emqttd_auth_anonymous_test_mod, _, 0},
-     {emqttd_auth_anonymous, _, 0}] = ?AC:lookup_mods(auth).
+     {emqttd_auth_anonymous_test_mod, _, 0}] = ?AC:lookup_mods(auth).
 
 unregister_mod(_) ->
     ok = ?AC:register_mod(acl, emqttd_acl_test_mod, []),
-    [{emqttd_acl_test_mod, _, 0},
-     {emqttd_acl_internal, _, 0}] = ?AC:lookup_mods(acl),
+    [{emqttd_acl_test_mod, _, 0}] = ?AC:lookup_mods(acl),
     ok = ?AC:unregister_mod(acl, emqttd_acl_test_mod),
     timer:sleep(5),
-    [{emqttd_acl_internal, _, 0}] = ?AC:lookup_mods(acl),
+    [] = ?AC:lookup_mods(acl),
     ok = ?AC:register_mod(auth, emqttd_auth_anonymous_test_mod,[]),
-    [{emqttd_auth_anonymous_test_mod, _, 0},
-     {emqttd_auth_anonymous, _, 0}] = ?AC:lookup_mods(auth),
+    [{emqttd_auth_anonymous_test_mod, _, 0}] = ?AC:lookup_mods(auth),
 
     ok = ?AC:unregister_mod(auth, emqttd_auth_anonymous_test_mod),
     timer:sleep(5),
-    [{emqttd_auth_anonymous, _, 0}] = ?AC:lookup_mods(auth).
+    [] = ?AC:lookup_mods(auth).
 
 check_acl(_) ->
     User1 = #mqtt_client{client_id = <<"client1">>, username = <<"testuser">>},
     User2 = #mqtt_client{client_id = <<"client2">>, username = <<"xyz">>},
     allow = ?AC:check_acl(User1, subscribe, <<"users/testuser/1">>),
     allow = ?AC:check_acl(User1, subscribe, <<"clients/client1">>),
-    deny  = ?AC:check_acl(User1, subscribe, <<"clients/client1/x/y">>),
+    allow = ?AC:check_acl(User1, subscribe, <<"clients/client1/x/y">>),
     allow = ?AC:check_acl(User1, publish, <<"users/testuser/1">>),
     allow = ?AC:check_acl(User1, subscribe, <<"a/b/c">>),
-    deny  = ?AC:check_acl(User2, subscribe, <<"a/b/c">>).
+    allow = ?AC:check_acl(User2, subscribe, <<"a/b/c">>).
 
 %%--------------------------------------------------------------------
 %% emqttd_access_rule

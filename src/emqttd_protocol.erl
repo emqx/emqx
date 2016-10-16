@@ -448,7 +448,7 @@ authenticate(Client, Password) ->
 
 %% PUBLISH ACL is cached in process dictionary.
 check_acl(publish, Topic, Client) ->
-    IfCache = emqttd:conf(cache_acl, true),
+    IfCache = emqttd:env(cache_acl, true),
     case {IfCache, get({acl, publish, Topic})} of
         {true, undefined} ->
             AllowDeny = emqttd_access_control:check_acl(Client, publish, Topic),

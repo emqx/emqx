@@ -124,13 +124,13 @@ process_list(_Config) ->
 process_info(_Config) ->
     ProcessInfos = emqttd_vm:get_process_info(), 
     ProcessInfo = lists:last(ProcessInfos),
-    Keys = [K || {K, V}<- ProcessInfo],
+    Keys = [K || {K, _V}<- ProcessInfo],
     ?PROCESS_INFO = Keys.
 
 process_gc(_Config) ->
     ProcessGcs = emqttd_vm:get_process_gc(), 
     ProcessGc = lists:last(ProcessGcs),
-    Keys = [K || {K, V}<- ProcessGc],
+    Keys = [K || {K, _V}<- ProcessGc],
     ?PROCESS_GC = Keys.
    
 get_ets_list(_Config) ->

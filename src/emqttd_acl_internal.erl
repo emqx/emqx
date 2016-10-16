@@ -46,18 +46,12 @@ all_rules() ->
 %%--------------------------------------------------------------------
 
 %% @doc Init internal ACL
--spec(init(Opts :: list()) -> {ok, State :: any()}).
-init(Opts) ->
+-spec(init([File :: string()]) -> {ok, State :: any()}).
+init([File]) ->
     ets:new(?ACL_RULE_TAB, [set, public, named_table, {read_concurrency, true}]),
-    case proplists:get_value(config, Opts) of
-        undefined ->
-            {ok, #state{}};
-        File ->
-            Default = proplists:get_value(nomatch, Opts, allow),
-            State = #state{config = File, nomatch = Default},
-            true = load_rules_from_file(State),
-            {ok, State}
-    end.
+    State = #state{config = File},
+    true = load_rules_from_file(State),
+    {ok, State}.
 
 load_rules_from_file(#state{config = AclFile}) ->
     {ok, Terms} = file:consult(AclFile),
@@ -118,7 +112,7 @@ reload_acl(#state{config = undefined}) ->
 reload_acl(State) ->
     case catch load_rules_from_file(State) of
         {'EXIT', Error} -> {error, Error};
-        _ -> ok
+        true -> ok
     end.
 
 %% @doc ACL Module Description
