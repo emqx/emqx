@@ -1,4 +1,4 @@
-%--------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -189,17 +189,17 @@ start_listener({ssl, ListenOn, Opts}) ->
     start_listener('mqtt:ssl', ListenOn, Opts);
 
 %% Start http listener
-start_listener({http, ListenOn, Opts}) ->
-    mochiweb:start_http('mqtt:http', ListenOn, Opts, {emqttd_http, handle_request, []});
+start_listener({Proto, ListenOn, Opts}) when Proto == http; Proto == ws ->
+    mochiweb:start_http('mqtt:ws', ListenOn, Opts, {emqttd_http, handle_request, []});
 
 %% Start https listener
-start_listener({https, ListenOn, Opts}) ->
-    mochiweb:start_http('mqtt:https', ListenOn, Opts, {emqttd_http, handle_request, []}).
+start_listener({Proto, ListenOn, Opts}) when Proto == https; Proto == wss ->
+    mochiweb:start_http('mqtt:wss', ListenOn, Opts, {emqttd_http, handle_request, []}).
 
-start_listener(Protocol, ListenOn, Opts) ->
+start_listener(Proto, ListenOn, Opts) ->
     {ok, Env} = emqttd:env(protocol),
     MFArgs = {emqttd_client, start_link, [Env]},
-    {ok, _} = esockd:open(Protocol, ListenOn, merge_sockopts(Opts), MFArgs).
+    {ok, _} = esockd:open(Proto, ListenOn, merge_sockopts(Opts), MFArgs).
 
 merge_sockopts(Options) ->
     SockOpts = emqttd_opts:merge(?MQTT_SOCKOPTS,
@@ -214,9 +214,16 @@ merge_sockopts(Options) ->
 stop_listeners() -> lists:foreach(fun stop_listener/1, emqttd:env(listeners, [])).
 
 %% @private
-stop_listener({listener, tcp, ListenOn, _Opts}) -> esockd:close('mqtt/tcp', ListenOn);
-stop_listener({listener, ssl, ListenOn, _Opts}) -> esockd:close('mqtt/ssl', ListenOn);
-stop_listener({listener, Protocol, ListenOn, _Opts}) -> esockd:close(Protocol, ListenOn).
+stop_listener({tcp, ListenOn, _Opts}) ->
+    esockd:close('mqtt:tcp', ListenOn);
+stop_listener({ssl, ListenOn, _Opts}) ->
+    esockd:close('mqtt:ssl', ListenOn);
+stop_listener({Proto, ListenOn, _Opts}) when Proto == http; Proto == ws ->
+    mochiweb:stop_http('mqtt:ws', ListenOn);
+stop_listener({Proto, ListenOn, _Opts}) when Proto == https; Proto == wss ->
+    mochiweb:stop_http('mqtt:wss', ListenOn);
+stop_listener({Proto, ListenOn, _Opts}) ->
+    esockd:close(Proto, ListenOn).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
