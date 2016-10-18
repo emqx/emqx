@@ -32,7 +32,7 @@
 %%--------------------------------------------------------------------
 
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [emqttd_conf:pubsub()]).
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 pubsub_pool() ->
     hd([Pid || {pubsub_pool, Pid, _, _} <- supervisor:which_children(?MODULE)]).
@@ -41,10 +41,10 @@ pubsub_pool() ->
 %% Supervisor Callbacks
 %%--------------------------------------------------------------------
 
-init([Env]) ->
+init([]) ->
+    {ok, Env} = emqttd:env(pubsub),
     %% Create ETS Tables
     [create_tab(Tab) || Tab <- [mqtt_subproperty, mqtt_subscriber, mqtt_subscription]],
-
     {ok, { {one_for_all, 10, 3600}, [pool_sup(pubsub, Env), pool_sup(server, Env)]} }.
 
 %%--------------------------------------------------------------------

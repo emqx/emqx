@@ -143,7 +143,7 @@ cluster(_) ->
 
 %%--------------------------------------------------------------------
 %% @doc Users usage
-users(Args) -> emqttd_auth_username:cli(Args).
+users(Args) -> emq_auth_username:cli(Args).
 
 %%--------------------------------------------------------------------
 %% @doc Query clients
@@ -174,11 +174,11 @@ sessions(["list"]) ->
 
 %% performance issue?
 sessions(["list", "persistent"]) ->
-    lists:foreach(fun print/1, ets:match_object(mqtt_local_session, {'_', false, '_', '_'}));
+    lists:foreach(fun print/1, ets:match_object(mqtt_local_session, {'_', '_', false, '_'}));
 
 %% performance issue?
 sessions(["list", "transient"]) ->
-    lists:foreach(fun print/1, ets:match_object(mqtt_local_session, {'_', true, '_', '_'}));
+    lists:foreach(fun print/1, ets:match_object(mqtt_local_session, {'_', '_', true, '_'}));
 
 sessions(["show", ClientId]) ->
     case ets:lookup(mqtt_local_session, bin(ClientId)) of
@@ -219,7 +219,7 @@ topics(_) ->
 subscriptions(["list"]) ->
     lists:foreach(fun(Subscription) ->
                       print(subscription, Subscription)
-                  end, []); %%emqttd:subscriptions());
+                  end, ets:tab2list(mqtt_subscription));
 
 subscriptions(["show", ClientId]) ->
     case ets:lookup(mqtt_subscription, bin(ClientId)) of
@@ -227,35 +227,30 @@ subscriptions(["show", ClientId]) ->
         Records -> [print(subscription, Subscription) || Subscription <- Records]
     end;
 
-%%
-%% subscriptions(["add", ClientId, Topic, QoS]) ->
-%%    Add = fun(IntQos) ->
-%%            Subscription = #mqtt_subscription{subid = bin(ClientId),
-%%                                              topic = bin(Topic),
-%%                                              qos   = IntQos},
-%%            case emqttd_backend:add_subscription(Subscription) of
-%%                ok ->
-%%                    ?PRINT_MSG("ok~n");
-%%                {error, already_existed} ->
-%%                    ?PRINT_MSG("Error: already existed~n");
-%%                {error, Reason} ->
-%%                    ?PRINT("Error: ~p~n", [Reason])
-%%            end
-%%          end,
-%%    if_valid_qos(QoS, Add);
-%%
 
-%%
-%% subscriptions(["del", ClientId]) ->
-%%    Ok = emqttd_backend:del_subscriptions(bin(ClientId)),
-%%    ?PRINT("~p~n", [Ok]);
-%%
+subscriptions(["add", ClientId, Topic, QoS]) ->
+   Add = fun(IntQos) ->
+           case emqttd:subscribe(bin(Topic), bin(ClientId), [{qos, IntQos}]) of
+               ok ->
+                   ?PRINT_MSG("ok~n");
+               {error, already_existed} ->
+                   ?PRINT_MSG("Error: already existed~n");
+               {error, Reason} ->
+                   ?PRINT("Error: ~p~n", [Reason])
+           end
+         end,
+   if_valid_qos(QoS, Add);
 
-%%
-%% subscriptions(["del", ClientId, Topic]) ->
-%%    Ok = emqttd_backend:del_subscription(bin(ClientId), bin(Topic)),
-%%    ?PRINT("~p~n", [Ok]);
-%%
+
+
+subscriptions(["del", ClientId]) ->
+   Ok = emqttd:subscriber_down(bin(ClientId)),
+   ?PRINT("~p~n", [Ok]);
+
+subscriptions(["del", ClientId, Topic]) ->
+   Ok = emqttd:unsubscribe(bin(Topic), bin(ClientId)),
+   ?PRINT("~p~n", [Ok]);
+
 
 subscriptions(_) ->
     ?USAGE([{"subscriptions list",                         "List all subscriptions"},
@@ -515,8 +510,9 @@ print(#mqtt_client{client_id = ClientId, clean_sess = CleanSess, username = User
 print(#mqtt_route{topic = Topic, node = Node}) ->
     ?PRINT("~s -> ~s~n", [Topic, Node]);
 
-print({ClientId, _ClientPid, CleanSess, SessInfo}) ->
-    InfoKeys = [max_inflight,
+print({ClientId, _ClientPid, _Persistent, SessInfo}) ->
+    InfoKeys = [clean_sess,
+                max_inflight,
                 inflight_queue,
                 message_queue,
                 message_dropped,
@@ -528,12 +524,12 @@ print({ClientId, _ClientPid, CleanSess, SessInfo}) ->
            "message_queue=~w, message_dropped=~w, "
            "awaiting_rel=~w, awaiting_ack=~w, awaiting_comp=~w, "
            "created_at=~w)~n",
-            [ClientId, CleanSess | [format(Key, get_value(Key, SessInfo)) || Key <- InfoKeys]]).
+            [ClientId | [format(Key, get_value(Key, SessInfo)) || Key <- InfoKeys]]).
 
-print(subscription, {Sub, Topic, Opts}) when is_pid(Sub) ->
-    ?PRINT("~p -> ~s: ~p~n", [Sub, Topic, Opts]);
-print(subscription, {Sub, Topic, Opts}) ->
-    ?PRINT("~s -> ~s: ~p~n", [Sub, Topic, Opts]).
+print(subscription, {Sub, Topic}) when is_pid(Sub) ->
+    ?PRINT("~p -> ~s~n", [Sub, Topic]);
+print(subscription, {Sub, Topic}) ->
+    ?PRINT("~s -> ~s~n", [Sub, Topic]).
 
 format(created_at, Val) ->
     emqttd_time:now_to_secs(Val);

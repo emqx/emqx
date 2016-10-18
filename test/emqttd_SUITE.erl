@@ -101,8 +101,8 @@ groups() ->
 init_per_suite(Config) ->
     application:start(lager),
     DataDir = proplists:get_value(data_dir, Config),
-    application:set_env(emqttd, conf, filename:join([DataDir, "emqttd.conf"])),
-    application:ensure_all_started(emqttd),
+    peg_com(DataDir),
+    start_apps(emqttd, DataDir),
     Config.
 
 end_per_suite(_Config) ->
@@ -402,14 +402,9 @@ auth_header_(User, Pass) ->
     {"Authorization","Basic " ++ Encoded}.
 
 websocket_test(_) ->
-%    Conn = esockd_connection:new(esockd_transport, nil, []),
-%    Req = mochiweb_request:new(Conn, 'GET', "/mqtt", {1, 1}, 
-%                                mochiweb_headers:make([{"Sec-WebSocket-Protocol","mqtt"},
-%                                                       {"Upgrade","websocket"}
-%                                                      ])),
-    Req = "GET " ++ "/mqtt" ++" HTTP/1.1\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\n" ++ 
-	"Host: " ++ "127.0.0.1"++ "\r\n" ++
-	"Origin: http://" ++ "127.0.0.1" ++ "/\r\n\r\n",
+    Conn = esockd_connection:new(esockd_transport, nil, []),
+    Req = mochiweb_request:new(Conn, 'GET', "/mqtt", {1, 1},
+                                mochiweb_headers:make([{"Sec-WebSocket-Key","Xn3fdKyc3qEXPuj2A3O+ZA=="}])),
 
     ct:log("Req:~p", [Req]),
     emqttd_http:handle_request(Req).
@@ -597,5 +592,32 @@ slave(emqttd, Node) ->
 slave(node, Node) ->
     {ok, N} = slave:start(host(), Node, "-pa ../../ebin -pa ../../deps/*/ebin"),
     N.
+
+start_apps(App, DataDir) ->
+    Schema = cuttlefish_schema:files([filename:join([DataDir, atom_to_list(App) ++ ".schema"])]),
+    Conf = conf_parse:file(filename:join([DataDir, atom_to_list(App) ++ ".conf"])),
+    NewConfig = cuttlefish_generator:map(Schema, Conf),
+    Vals = proplists:get_value(App, NewConfig),
+    [application:set_env(App, Par, Value) || {Par, Value} <- Vals],
+    application:ensure_all_started(App).
+
+peg_com(DataDir) ->
+    ParsePeg = file2(3, DataDir, "conf_parse.peg"),
+    neotoma:file(ParsePeg),
+    ParseErl = file2(3, DataDir, "conf_parse.erl"),
+    compile:file(ParseErl, []),
+
+    DurationPeg = file2(3, DataDir, "cuttlefish_duration_parse.peg"),
+    neotoma:file(DurationPeg),
+    DurationErl = file2(3, DataDir, "cuttlefish_duration_parse.erl"),
+    compile:file(DurationErl, []).
+    
+
+file2(Times, Dir, FileName) when Times < 1 ->
+    filename:join([Dir, "deps", "cuttlefish","src", FileName]);
+
+file2(Times, Dir, FileName) ->
+    Dir1 = filename:dirname(Dir),
+    file2(Times - 1, Dir1, FileName).
 
 

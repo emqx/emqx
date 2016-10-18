@@ -1,4 +1,4 @@
-%--------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,11 +42,11 @@
       Reason    :: term()).
 start(_StartType, _StartArgs) ->
     print_banner(),
-    emqttd_conf:init(),
     emqttd_mnesia:start(),
     {ok, Sup} = emqttd_sup:start_link(),
     start_servers(Sup),
     emqttd_cli:load(),
+    register_acl_mod(),
     load_all_mods(),
     emqttd_plugins:init(),
     emqttd_plugins:load(),
@@ -142,14 +142,24 @@ worker_spec(M, F, A) ->
     {M, {M, F, A}, permanent, 10000, worker, [M]}.
 
 %%--------------------------------------------------------------------
+%% Register default ACL File
+%%--------------------------------------------------------------------
+
+register_acl_mod() ->
+    case emqttd:env(acl_file) of
+        {ok, File} -> emqttd_access_control:register_mod(acl, emqttd_acl_internal, [File]);
+        undefined  -> ok
+    end.
+
+%%--------------------------------------------------------------------
 %% Load Modules
 %%--------------------------------------------------------------------
 
-%% @doc load all modules
+%% @doc Load all modules
 load_all_mods() ->
-    lists:foreach(fun load_mod/1, gen_conf:list(emqttd, module)).
+    lists:foreach(fun load_mod/1, emqttd:env(modules, [])).
 
-load_mod({module, Name, Opts}) ->
+load_mod({Name, Opts}) ->
     Mod = list_to_atom("emqttd_mod_" ++ atom_to_list(Name)),
     case catch Mod:load(Opts) of
         ok               -> lager:info("Load module ~s successfully", [Name]);
@@ -159,7 +169,7 @@ load_mod({module, Name, Opts}) ->
 
 %% @doc Is module enabled?
 -spec(is_mod_enabled(Name :: atom()) -> boolean()).
-is_mod_enabled(Name) -> lists:keyfind(Name, 2, gen_conf:list(emqttd, module)).
+is_mod_enabled(Name) -> lists:keyfind(Name, 1, emqttd:env(modules, [])).
 
 %%--------------------------------------------------------------------
 %% Start Listeners
@@ -167,28 +177,29 @@ is_mod_enabled(Name) -> lists:keyfind(Name, 2, gen_conf:list(emqttd, module)).
 
 %% @doc Start Listeners of the broker.
 -spec(start_listeners() -> any()).
-start_listeners() -> lists:foreach(fun start_listener/1, gen_conf:list(emqttd, listener)).
+start_listeners() -> lists:foreach(fun start_listener/1, emqttd:env(listeners, [])).
 
 %% Start mqtt listener
 -spec(start_listener(listener()) -> any()).
-start_listener({listener, mqtt, ListenOn, Opts}) ->
-    start_listener(mqtt, ListenOn, Opts);
+start_listener({tcp, ListenOn, Opts}) ->
+    start_listener('mqtt:tcp', ListenOn, Opts);
 
 %% Start mqtt(SSL) listener
-start_listener({listener, mqtts, ListenOn, Opts}) ->
-    start_listener(mqtts, ListenOn, Opts);
+start_listener({ssl, ListenOn, Opts}) ->
+    start_listener('mqtt:ssl', ListenOn, Opts);
 
 %% Start http listener
-start_listener({listener, http, ListenOn, Opts}) ->
-    mochiweb:start_http(http, ListenOn, Opts, {emqttd_http, handle_request, []});
+start_listener({Proto, ListenOn, Opts}) when Proto == http; Proto == ws ->
+    mochiweb:start_http('mqtt:ws', ListenOn, Opts, {emqttd_http, handle_request, []});
 
 %% Start https listener
-start_listener({listener, https, ListenOn, Opts}) ->
-    mochiweb:start_http(https, ListenOn, Opts, {emqttd_http, handle_request, []}).
+start_listener({Proto, ListenOn, Opts}) when Proto == https; Proto == wss ->
+    mochiweb:start_http('mqtt:wss', ListenOn, Opts, {emqttd_http, handle_request, []}).
 
-start_listener(Protocol, ListenOn, Opts) ->
-    MFArgs = {emqttd_client, start_link, [emqttd_conf:mqtt()]},
-    {ok, _} = esockd:open(Protocol, ListenOn, merge_sockopts(Opts), MFArgs).
+start_listener(Proto, ListenOn, Opts) ->
+    {ok, Env} = emqttd:env(protocol),
+    MFArgs = {emqttd_client, start_link, [Env]},
+    {ok, _} = esockd:open(Proto, ListenOn, merge_sockopts(Opts), MFArgs).
 
 merge_sockopts(Options) ->
     SockOpts = emqttd_opts:merge(?MQTT_SOCKOPTS,
@@ -200,10 +211,19 @@ merge_sockopts(Options) ->
 %%--------------------------------------------------------------------
 
 %% @doc Stop Listeners
-stop_listeners() -> lists:foreach(fun stop_listener/1, gen_conf:list(listener)).
+stop_listeners() -> lists:foreach(fun stop_listener/1, emqttd:env(listeners, [])).
 
 %% @private
-stop_listener({listener, Protocol, ListenOn, _Opts}) -> esockd:close(Protocol, ListenOn).
+stop_listener({tcp, ListenOn, _Opts}) ->
+    esockd:close('mqtt:tcp', ListenOn);
+stop_listener({ssl, ListenOn, _Opts}) ->
+    esockd:close('mqtt:ssl', ListenOn);
+stop_listener({Proto, ListenOn, _Opts}) when Proto == http; Proto == ws ->
+    mochiweb:stop_http('mqtt:ws', ListenOn);
+stop_listener({Proto, ListenOn, _Opts}) when Proto == https; Proto == wss ->
+    mochiweb:stop_http('mqtt:wss', ListenOn);
+stop_listener({Proto, ListenOn, _Opts}) ->
+    esockd:close(Proto, ListenOn).
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
