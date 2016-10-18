@@ -227,35 +227,30 @@ subscriptions(["show", ClientId]) ->
         Records -> [print(subscription, Subscription) || Subscription <- Records]
     end;
 
-%%
-%% subscriptions(["add", ClientId, Topic, QoS]) ->
-%%    Add = fun(IntQos) ->
-%%            Subscription = #mqtt_subscription{subid = bin(ClientId),
-%%                                              topic = bin(Topic),
-%%                                              qos   = IntQos},
-%%            case emqttd_backend:add_subscription(Subscription) of
-%%                ok ->
-%%                    ?PRINT_MSG("ok~n");
-%%                {error, already_existed} ->
-%%                    ?PRINT_MSG("Error: already existed~n");
-%%                {error, Reason} ->
-%%                    ?PRINT("Error: ~p~n", [Reason])
-%%            end
-%%          end,
-%%    if_valid_qos(QoS, Add);
-%%
 
-%%
-%% subscriptions(["del", ClientId]) ->
-%%    Ok = emqttd_backend:del_subscriptions(bin(ClientId)),
-%%    ?PRINT("~p~n", [Ok]);
-%%
+subscriptions(["add", ClientId, Topic, QoS]) ->
+   Add = fun(IntQos) ->
+           case emqttd:subscribe(bin(Topic), bin(ClientId), [{qos, IntQos}]) of
+               ok ->
+                   ?PRINT_MSG("ok~n");
+               {error, already_existed} ->
+                   ?PRINT_MSG("Error: already existed~n");
+               {error, Reason} ->
+                   ?PRINT("Error: ~p~n", [Reason])
+           end
+         end,
+   if_valid_qos(QoS, Add);
 
-%%
-%% subscriptions(["del", ClientId, Topic]) ->
-%%    Ok = emqttd_backend:del_subscription(bin(ClientId), bin(Topic)),
-%%    ?PRINT("~p~n", [Ok]);
-%%
+
+
+subscriptions(["del", ClientId]) ->
+   Ok = emqttd:subscriber_down(bin(ClientId)),
+   ?PRINT("~p~n", [Ok]);
+
+subscriptions(["del", ClientId, Topic]) ->
+   Ok = emqttd:unsubscribe(bin(Topic), bin(ClientId)),
+   ?PRINT("~p~n", [Ok]);
+
 
 subscriptions(_) ->
     ?USAGE([{"subscriptions list",                         "List all subscriptions"},
