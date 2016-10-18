@@ -219,7 +219,7 @@ topics(_) ->
 subscriptions(["list"]) ->
     lists:foreach(fun(Subscription) ->
                       print(subscription, Subscription)
-                  end, []); %%emqttd:subscriptions());
+                  end, ets:tab2list(mqtt_subscription));
 
 subscriptions(["show", ClientId]) ->
     case ets:lookup(mqtt_subscription, bin(ClientId)) of
