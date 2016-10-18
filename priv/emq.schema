@@ -709,7 +709,7 @@ end}.
                                       {list_to_binary(Topic), list_to_integer(Qos)}
                                   end || S <- string:tokens(Topics, ",")]
                end,
-    SubOpts = fun(Prefix) -> [{topics, ParseFun(cuttlefish:conf_get(Prefix ++ ".topics", Conf))}] end,
+    SubOpts = fun(Prefix) -> ParseFun(cuttlefish:conf_get(Prefix ++ ".topics", Conf)) end,
     lists:append([WithMod(retainer, RetainOpts), WithMod(presence, PresOpts), WithMod(subscription, SubOpts)])
 end}.
 
