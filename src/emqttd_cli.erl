@@ -530,10 +530,10 @@ print({ClientId, _ClientPid, CleanSess, SessInfo}) ->
            "created_at=~w)~n",
             [ClientId, CleanSess | [format(Key, get_value(Key, SessInfo)) || Key <- InfoKeys]]).
 
-print(subscription, {Sub, Topic, Opts}) when is_pid(Sub) ->
-    ?PRINT("~p -> ~s: ~p~n", [Sub, Topic, Opts]);
-print(subscription, {Sub, Topic, Opts}) ->
-    ?PRINT("~s -> ~s: ~p~n", [Sub, Topic, Opts]).
+print(subscription, {Sub, Topic}) when is_pid(Sub) ->
+    ?PRINT("~p -> ~s~n", [Sub, Topic]);
+print(subscription, {Sub, Topic}) ->
+    ?PRINT("~s -> ~s~n", [Sub, Topic]).
 
 format(created_at, Val) ->
     emqttd_time:now_to_secs(Val);
