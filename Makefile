@@ -28,8 +28,8 @@ EUNIT_OPTS = verbose
 # EUNIT_ERL_OPTS =
 
 CT_SUITES = emqttd emqttd_access emqttd_lib emqttd_mod emqttd_net \
-			emqttd_mqueue emqttd_protocol emqttd_topic emqttd_trie \
-			emqttd_vm
+            emqttd_mqueue emqttd_protocol emqttd_topic emqttd_trie \
+            emqttd_vm
 
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name emqttd_ct@127.0.0.1
 
@@ -41,3 +41,4 @@ app:: rebar.config
 
 app.config::
 	cuttlefish -l info -e etc/ -c etc/emq.conf -i priv/emq.schema -d data/
+
