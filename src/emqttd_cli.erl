@@ -174,11 +174,11 @@ sessions(["list"]) ->
 
 %% performance issue?
 sessions(["list", "persistent"]) ->
-    lists:foreach(fun print/1, ets:match_object(mqtt_local_session, {'_', false, '_', '_'}));
+    lists:foreach(fun print/1, ets:match_object(mqtt_local_session, {'_', '_', false, '_'}));
 
 %% performance issue?
 sessions(["list", "transient"]) ->
-    lists:foreach(fun print/1, ets:match_object(mqtt_local_session, {'_', true, '_', '_'}));
+    lists:foreach(fun print/1, ets:match_object(mqtt_local_session, {'_', '_', true, '_'}));
 
 sessions(["show", ClientId]) ->
     case ets:lookup(mqtt_local_session, bin(ClientId)) of
@@ -515,8 +515,9 @@ print(#mqtt_client{client_id = ClientId, clean_sess = CleanSess, username = User
 print(#mqtt_route{topic = Topic, node = Node}) ->
     ?PRINT("~s -> ~s~n", [Topic, Node]);
 
-print({ClientId, _ClientPid, CleanSess, SessInfo}) ->
-    InfoKeys = [max_inflight,
+print({ClientId, _ClientPid, _Persistent, SessInfo}) ->
+    InfoKeys = [clean_sess,
+                max_inflight,
                 inflight_queue,
                 message_queue,
                 message_dropped,
@@ -528,7 +529,7 @@ print({ClientId, _ClientPid, CleanSess, SessInfo}) ->
            "message_queue=~w, message_dropped=~w, "
            "awaiting_rel=~w, awaiting_ack=~w, awaiting_comp=~w, "
            "created_at=~w)~n",
-            [ClientId, CleanSess | [format(Key, get_value(Key, SessInfo)) || Key <- InfoKeys]]).
+            [ClientId | [format(Key, get_value(Key, SessInfo)) || Key <- InfoKeys]]).
 
 print(subscription, {Sub, Topic}) when is_pid(Sub) ->
     ?PRINT("~p -> ~s~n", [Sub, Topic]);
