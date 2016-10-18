@@ -143,7 +143,7 @@ cluster(_) ->
 
 %%--------------------------------------------------------------------
 %% @doc Users usage
-users(Args) -> emqttd_auth_username:cli(Args).
+users(Args) -> emq_auth_username:cli(Args).
 
 %%--------------------------------------------------------------------
 %% @doc Query clients
