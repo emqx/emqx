@@ -167,7 +167,7 @@ etc/plugins/emq_dashboard.conf:
 emq_auth_ldap: LDAP Auth Plugin
 -------------------------------
 
-LDAP Auth Plugin: https://github.com/emqtt/emqttd_auth_ldap
+LDAP Auth Plugin: https://github.com/emqtt/emq_auth_ldap
 
 .. NOTE:: Released in 2.0-beta.1
 
@@ -510,7 +510,7 @@ Load Redis Auth/ACL Plugin
 emq_auth_mongo - MongoDB Auth/ACL Plugin
 ----------------------------------------
 
-MQTT Authentication, ACL with MongoDB: https://github.com/emqtt/emqttd_auth_mongo
+MQTT Authentication/ACL with MongoDB: https://github.com/emqtt/emq_auth_mongo
 
 Configure MongoDB Auth/ACL Plugin
 ---------------------------------
@@ -1036,19 +1036,19 @@ Build and Release the Plugin
 .. _emq_dashboard:       https://github.com/emqtt/emqttd_dashboard
 .. _emq_auth_clientid:   https://github.com/emqtt/emq_auth_clientid
 .. _emq_auth_username:   https://github.com/emqtt/emq_auth_username
-.. _emq_auth_ldap:       https://github.com/emqtt/emqttd_auth_ldap
-.. _emq_auth_http:       https://github.com/emqtt/emqttd_auth_http
-.. _emq_auth_mysql:      https://github.com/emqtt/emqttd_auth_mysql
-.. _emq_auth_pgsql:      https://github.com/emqtt/emqttd_auth_pgsql
-.. _emq_auth_redis:      https://github.com/emqtt/emqttd_auth_redis
-.. _emq_auth_mongo:      https://github.com/emqtt/emqttd_auth_mongo
+.. _emq_auth_ldap:       https://github.com/emqtt/emq_auth_ldap
+.. _emq_auth_http:       https://github.com/emqtt/emq_auth_http
+.. _emq_auth_mysql:      https://github.com/emqtt/emq_auth_mysql
+.. _emq_auth_pgsql:      https://github.com/emqtt/emq_auth_pgsql
+.. _emq_auth_redis:      https://github.com/emqtt/emq_auth_redis
+.. _emq_auth_mongo:      https://github.com/emqtt/emq_auth_mongo
 .. _emq_mod_rewrite:     https://github.com/emqtt/emq_mod_rewrite
-.. _emq_sn:              https://github.com/emqtt/emqttd_sn
-.. _emq_coap:            https://github.com/emqtt/emqttd_coap
-.. _emq_stomp:           https://github.com/emqtt/emqttd_stomp
-.. _emq_sockjs:          https://github.com/emqtt/emqttd_sockjs
-.. _emq_recon:           https://github.com/emqtt/emqttd_recon
-.. _emq_reloader:        https://github.com/emqtt/emqttd_reloader
-.. _emq_plugin_template: https://github.com/emqtt/emqttd_plugin_template
+.. _emq_sn:              https://github.com/emqtt/emq_sn
+.. _emq_coap:            https://github.com/emqtt/emq_coap
+.. _emq_stomp:           https://github.com/emqtt/emq_stomp
+.. _emq_sockjs:          https://github.com/emqtt/emq_sockjs
+.. _emq_recon:           https://github.com/emqtt/emq_recon
+.. _emq_reloader:        https://github.com/emqtt/emq_reloader
+.. _emq_plugin_template: https://github.com/emqtt/emq_plugin_template
 .. _recon:               http://ferd.github.io/recon/
 
