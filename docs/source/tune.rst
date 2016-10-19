@@ -5,7 +5,7 @@
 Tuning Guide
 ============
 
-Tuning the Linux Kernel, Networking, Erlang VM and emqttd broker for one million concurrent MQTT connections.
+Tuning the Linux Kernel, Networking, Erlang VM and the *EMQ* broker for one million concurrent MQTT connections.
 
 -------------------
 Linux Kernel Tuning
@@ -89,55 +89,36 @@ Timeout for FIN-WAIT-2 sockets::
 Erlang VM Tuning
 ----------------
 
-Tuning and optimize the Erlang VM in releases/2.0/vm.args file::
+Tuning and optimize the Erlang VM in etc/emq.conf file:
 
-    ## max number of erlang processes
-    +P 2097152
+.. code-block:: properties
+
+    ## Erlang Process Limit
+    node.process_limit = 2097152
 
     ## Sets the maximum number of simultaneously existing ports for this system
-    +Q 1048576
+    node.max_ports = 1048576
 
-    ## Increase number of concurrent ports/sockets, deprecated in R17
-    -env ERL_MAX_PORTS 1048576
-
-    -env ERTS_MAX_PORTS 1048576
-
-    ## Mnesia and SSL will create temporary ets tables.
-    -env ERL_MAX_ETS_TABLES 1024
-
-    ## Tweak GC to run more often
-    -env ERL_FULLSWEEP_AFTER 1000
-
--------------
-emqttd broker
--------------
+--------------
+The EMQ Broker
+--------------
 
 Tune the acceptor pool, max_clients limit and sockopts for TCP listener in etc/emqttd.config:
 
-.. code-block:: erlang
+.. code-block:: properties
 
-    {mqtt, 1883, [
-        %% Size of acceptor pool
-        {acceptors, 64},
-
-        %% Maximum number of concurrent clients
-        {max_clients, 1000000},
-
-        %% Socket Access Control
-        {access, [{allow, all}]},
-
-        %% Connection Options
-        {connopts, [
-            %% Rate Limit. Format is 'burst, rate', Unit is KB/Sec
-            %% {rate_limit, "100,10"} %% 100K burst, 10K rate
-        ]},
-        ...
+    ## TCP Listener
+    mqtt.listener.tcp = 1883
+    mqtt.listener.tcp.acceptors = 64
+    mqtt.listener.tcp.max_clients = 1000000
 
 --------------
 Client Machine
 --------------
 
-Tune the client machine to benchmark emqttd broker::
+Tune the client machine to benchmark emqttd broker:
+
+.. code-block:: bash
 
     sysctl -w net.ipv4.ip_local_port_range="500 65535"
     sysctl -w fs.file-max=1000000

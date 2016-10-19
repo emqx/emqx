@@ -11,11 +11,11 @@ Design
 Architecture
 ------------
 
-The emqttd broker 1.0 is more like a network Switch or Router, not a traditional enterprise message queue. Compared to a network router that routes packets based on IP or MPLS label, the emqttd broker routes MQTT messages based on topic trie.
+The *EMQ* broker 1.0 is more like a network Switch or Router, not a traditional enterprise message queue. Compared to a network router that routes packets based on IP or MPLS label, the *EMQ* broker routes MQTT messages based on topic trie.
 
 .. image:: _static/images/concept.png
 
-The EMQ 2.0 seperated the Message Flow Plane and Monitor/Control Plane, the Architecture is something like::
+The *EMQ* 2.0 seperated the Message Flow Plane and Monitor/Control Plane, the Architecture is something like::
 
               Control Plane
            --------------------
@@ -200,7 +200,7 @@ The routing design follows two rules:
 Authentication and ACL
 ----------------------
 
-The emqttd broker supports an extensible authentication/ACL mechanism, which is implemented by emqttd_access_control, emqttd_auth_mod and emqttd_acl_mod modules.
+The *EMQ* broker supports an extensible authentication/ACL mechanism, which is implemented by emqttd_access_control, emqttd_auth_mod and emqttd_acl_mod modules.
 
 emqttd_access_control module provides two APIs that help register/unregister auth or ACL module:
 
@@ -241,18 +241,26 @@ The emqttd_auth_mod defines an Erlang behaviour for authentication module:
 
     -endif.
 
-The authentication modules implemented by default:
+The authentication modules implemented by plugins:
 
 +-----------------------+--------------------------------+
-| Module                | Authentication                 |
+| Plugin                | Authentication                 |
 +-----------------------+--------------------------------+
-| emqttd_auth_username  | Username and Password          |
+| emq_auth_username     | Username and Password          |
 +-----------------------+--------------------------------+
-| emqttd_auth_clientid  | ClientID                       |
+| emq_auth_clientid     | ClientID and Password         |
 +-----------------------+--------------------------------+
-| emqttd_auth_ldap      | LDAP                           |
+| emq_auth_ldap         | LDAP                           |
 +-----------------------+--------------------------------+
-| emqttd_auth_anonymous | Anonymous                      |
+| emq_auth_http         | HTTP API                       |
++-----------------------+--------------------------------+
+| emq_auth_mysql        | MySQL                          |
++-----------------------+--------------------------------+
+| emq_auth_pgsql        | PostgreSQL                     |
++-----------------------+--------------------------------+
+| emq_auth_redis        | Redis                          |
++-----------------------+--------------------------------+
+| emq_auth_mongo        |  MongoDB                       |
 +-----------------------+--------------------------------+
 
 Authorization(ACL)
@@ -290,7 +298,7 @@ The emqttd_acl_mod defines an Erlang behavihour for ACL module:
 
     -endif.
 
-emqttd_acl_internal implements the default ACL based on etc/acl.config file:
+emqttd_acl_internal implements the default ACL based on etc/acl.conf file:
 
 .. code-block:: erlang
 
@@ -326,9 +334,9 @@ emqttd_acl_internal implements the default ACL based on etc/acl.config file:
 Hooks Design
 ------------
 
-The emqttd broker implements a simple but powerful hooks mechanism to help users develop plugin. The broker would run the hooks when a client is connected/disconnected, a topic is subscribed/unsubscribed or a MQTT message is published/delivered/acked.
+The *EMQ* broker implements a simple but powerful hooks mechanism to help users develop plugin. The broker would run the hooks when a client is connected/disconnected, a topic is subscribed/unsubscribed or a MQTT message is published/delivered/acked.
 
-Hooks defined by the emqttd 1.0 broker:
+Hooks defined by the *EMQ* 2.0 broker:
 
 +------------------------+------------------------------------------------------+
 | Hook                   | Description                                          |
@@ -352,7 +360,7 @@ Hooks defined by the emqttd 1.0 broker:
 | client.disconnected    | Run when client disconnected from broker             |
 +------------------------+------------------------------------------------------+
 
-The emqttd broker uses the `Chain-of-responsibility_pattern`_ to implement hook mechanism. The callback functions registered to hook will be executed one by one::
+The *EMQ* broker uses the `Chain-of-responsibility_pattern`_ to implement hook mechanism. The callback functions registered to hook will be executed one by one::
 
                      --------  ok | {ok, NewAcc}   --------  ok | {ok, NewAcc}   --------
      (Args, Acc) --> | Fun1 | -------------------> | Fun2 | -------------------> | Fun3 | --> {ok, Acc} | {stop, Acc}
@@ -455,7 +463,7 @@ The `emqttd_plugin_template`_ project provides the examples for hook usage:
 Plugin Design
 -------------
 
-Plugin is a normal erlang application that can be started/stopped dynamically by a running emqttd broker.
+Plugin is a normal erlang application that can be started/stopped dynamically by a running *EMQ* broker.
 
 emqttd_plugins Module
 ---------------------

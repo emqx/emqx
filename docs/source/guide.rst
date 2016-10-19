@@ -9,43 +9,11 @@ User Guide
 Authentication
 --------------
 
-The emqttd broker supports to authenticate MQTT clients with ClientID, Username/Password, IpAddress and even HTTP Cookies.
+The *EMQ* broker supports to authenticate MQTT clients with ClientID, Username/Password, IpAddress and even HTTP Cookies.
 
-The authentication is provided by a list of extended modules, or MySQL, PostgreSQL and Redis Plugins.
+The authentication is provided by a list of plugins such as MySQL, PostgreSQL and Redis...
 
-Enable an authentication module in etc/emqttd.config:
-
-.. code-block:: erlang
-
-    %% Authentication and Authorization
-    {access, [
-        %% Authetication. Anonymous Default
-        {auth, [
-            %% Authentication with username, password
-            %{username, []},
-
-            %% Authentication with clientid
-            %{clientid, [{password, no}, {file, "etc/clients.config"}]},
-
-            %% Authentication with LDAP
-            % {ldap, [
-            %    {servers, ["localhost"]},
-            %    {port, 389},
-            %    {timeout, 30},
-            %    {user_dn, "uid=$u,ou=People,dc=example,dc=com"},
-            %    {ssl, fasle},
-            %    {sslopts, [
-            %        {"certfile", "ssl.crt"},
-            %        {"keyfile", "ssl.key"}]}
-            % ]},
-
-            %% Allow all
-            {anonymous, []}
-        ]},
-
-.. NOTE:: "%" comments the line.
-
-If we enable several modules at the same time, the authentication process::
+If we enable several authentication plugins at the same time, the authentication process::
 
                ----------------           ----------------           -------------
     Client --> |   Username   | -ignore-> |   ClientID   | -ignore-> | Anonymous |
@@ -54,77 +22,123 @@ If we enable several modules at the same time, the authentication process::
                      \|/                       \|/                       \|/
                 allow | deny              allow | deny              allow | deny
 
-The authentication plugins developed by emqttd:
+The authentication plugins implemented by default:
 
 +---------------------------+---------------------------+
 | Plugin                    | Description               |
 +===========================+===========================+
-| `emqttd_plugin_mysql`_    | MySQL Auth/ACL Plugin     |
+| `emq_auth_clientid`_      | ClientId Auth Plugin      |
 +---------------------------+---------------------------+
-| `emqttd_plugin_pgsql`_    | PostgreSQL Auth/ACL Plugin|
+| `emq_auth_username`_      | Username Auth Plugin      |
 +---------------------------+---------------------------+
-| `emqttd_plugin_redis`_    | Redis Auth/ACL Plugin     |
+| `emq_auth_ldap`_          | LDAP Auth Plugin          |
++---------------------------+---------------------------+
+| `emq_auth_http`_          | HTTP Auth/ACL Plugin      |
++---------------------------+---------------------------+
+| `emq_auth_mysql`_         | MySQL Auth/ACL Plugin     |
++---------------------------+---------------------------+
+| `emq_auth_pgsql`_         | Postgre Auth/ACL Plugin   |
++---------------------------+---------------------------+
+| `emq_auth_redis`_         | Redis Auth/ACL Plugin     |
++---------------------------+---------------------------+
+| `emq_auth_mongo`_         | MongoDB Auth/ACL Plugin   |
 +---------------------------+---------------------------+
 
-.. NOTE:: If we load an authentication plugin, the authentication modules will be disabled.
+---------------
+Allow Anonymous
+---------------
 
-Username
---------
+Configure etc/emq.conf to allow anonymous authentication:
+
+.. code-block:: properties
+
+    ## Allow Anonymous authentication
+    mqtt.allow_anonymous = true
+
+Username/Password
+-----------------
 
 Authenticate MQTT client with Username/Password::
 
-    {username, [{client1, "passwd1"}, {client1, "passwd2"}]},
+Configure default users in etc/plugins/emq_auth_username.conf:
 
-Two ways to add users:
+.. code-block:: properties
 
-1. Configure username and plain password directly::
+    auth.username.$name=$password
 
-    {username, [{client1, "passwd1"}, {client1, "passwd2"}]},
+Enable `emq_auth_username`_ plugin:
 
-2. Add user by './bin/emqttd_ctl users' command::
+.. code-block:: bash
+
+    ./bin/emqttd_ctl plugins load emq_auth_username
+
+Add user by './bin/emqttd_ctl users' command::
 
    $ ./bin/emqttd_ctl users add <Username> <Password>
 
 ClientId
 --------
 
-.. code-block:: erlang
+Authentication with MQTT ClientId.
 
-    {clientid, [{password, no}, {file, "etc/clients.config"}]},
+Configure Client Ids in etc/plugins/emq_auth_clientid.conf:
 
-Configure ClientIDs in etc/clients.config::
+.. code-block:: properties
 
-    testclientid0
-    testclientid1 127.0.0.1
-    testclientid2 192.168.0.1/24
+    auth.clientid.$id=$password
+
+Enable `emq_auth_clientid`_ plugin:
+
+.. code-block:: bash
+
+    ./bin/emqttd_ctl plugins load emq_auth_clientid
 
 LDAP
 ----
 
-.. code-block:: erlang
+etc/plugins/emq_auth_ldap.conf:
 
-    {ldap, [
-       {servers, ["localhost"]},
-       {port, 389},
-       {timeout, 30},
-       {user_dn, "uid=$u,ou=People,dc=example,dc=com"},
-       {ssl, fasle},
-       {sslopts, [
-           {"certfile", "ssl.crt"},
-           {"keyfile", "ssl.key"}]}
-    ]},
+.. code-block:: properties
 
-Anonymous
----------
+    auth.ldap.servers = 127.0.0.1
 
-Allow any client to connect to the broker::
+    auth.ldap.port = 389
 
-    {anonymous, []}
+    auth.ldap.timeout = 30
+
+    auth.ldap.user_dn = uid=%u,ou=People,dc=example,dc=com
+
+    auth.ldap.ssl = false
+
+Enable LDAP plugin::
+
+    ./bin/emqttd_ctl plugins load emq_auth_ldap
+
+HTTP
+----
+
+etc/plugins/emq_auth_http.conf:
+
+.. code-block:: properties
+
+    ## Variables: %u = username, %c = clientid, %a = ipaddress, %P = password, %t = topic
+
+    auth.http.auth_req = http://127.0.0.1:8080/mqtt/auth
+    auth.http.auth_req.method = post
+    auth.http.auth_req.params = clientid=%c,username=%u,password=%P
+
+    auth.http.super_req = http://127.0.0.1:8080/mqtt/superuser
+    auth.http.super_req.method = post
+    auth.http.super_req.params = clientid=%c,username=%u
+
+Enable HTTP Plugin::
+
+    ./bin/emqttd_ctl plugins load emq_auth_http
 
 MySQL
 -----
 
-Authenticate against MySQL database. Support we create a mqtt_user table:
+Authenticate with MySQL database. Suppose that we create a mqtt_user table:
 
 .. code-block:: sql
 
@@ -138,36 +152,46 @@ Authenticate against MySQL database. Support we create a mqtt_user table:
       UNIQUE KEY `mqtt_username` (`username`)
     ) ENGINE=MyISAM DEFAULT CHARSET=utf8;
 
-Configure the 'authquery' and 'password_hash' in emqttd_plugin_mysql/etc/plugin.config:
+Configure the 'auth_query' and 'password_hash' in etc/plugins/emq_auth_mysql.conf:
 
-.. code-block:: erlang
+.. code-block:: properties
 
-    [
+    ## Mysql Server
+    auth.mysql.server = 127.0.0.1:3306
 
-    {emqttd_plugin_mysql, [
+    ## Mysql Pool Size
+    auth.mysql.pool = 8
 
-        ...
+    ## Mysql Username
+    ## auth.mysql.username = 
 
-        %% select password only
-        {authquery, "select password from mqtt_user where username = '%u' limit 1"},
+    ## Mysql Password
+    ## auth.mysql.password = 
 
-        %% hash algorithm: md5, sha, sha256, pbkdf2?
-        {password_hash, sha256},
+    ## Mysql Database
+    auth.mysql.database = mqtt
 
-        ...
+    ## Variables: %u = username, %c = clientid
 
-    ]}
-    ].
+    ## Authentication Query: select password only
+    auth.mysql.auth_query = select password from mqtt_user where username = '%u' limit 1
 
-Load the plugin::
+    ## Password hash: plain, md5, sha, sha256, pbkdf2
+    auth.mysql.password_hash = sha256
 
-    ./bin/emqttd_ctl plugins load emqttd_plugin_mysql
+    ## %% Superuser Query
+    auth.mysql.super_query = select is_superuser from mqtt_user where username = '%u' limit 1
 
+Enable MySQL plugin:
+
+.. code-block:: bash
+
+    ./bin/emqttd_ctl plugins load emq_plugin_mysql
 
 PostgreSQL
 ----------
 
-Authenticate against PostgreSQL database. Create a mqtt_user table:
+Authenticate with PostgreSQL database. Create a mqtt_user table:
 
 .. code-block:: sql
 
@@ -178,71 +202,152 @@ Authenticate against PostgreSQL database. Create a mqtt_user table:
       salt character varying(40)
     );
 
-Configure the 'authquery' and 'password_hash' in emqttd_plugin_pgsql/etc/plugin.config:
+Configure the 'auth_query' and 'password_hash' in etc/plugins/emq_auth_pgsql.conf:
 
-.. code-block:: erlang
+.. code-block:: properties
 
-    [
+    ## Postgre Server
+    auth.pgsql.server = 127.0.0.1:5432
 
-      {emqttd_plugin_pgsql, [
+    auth.pgsql.pool = 8
 
-        ...
+    auth.pgsql.username = root
 
-        %% select password only
-        {authquery, "select password from mqtt_user where username = '%u' limit 1"},
+    #auth.pgsql.password = 
 
-        %% hash algorithm: md5, sha, sha256, pbkdf2?
-        {password_hash, sha256},
+    auth.pgsql.database = mqtt
 
-        ...
+    auth.pgsql.encoding = utf8
 
-      ]}
-    ].
+    auth.pgsql.ssl = false
 
-Load the plugin::
+    ## Variables: %u = username, %c = clientid, %a = ipaddress
 
-    ./bin/emqttd_ctl plugins load emqttd_plugin_pgsql
+    ## Authentication Query: select password only
+    auth.pgsql.auth_query = select password from mqtt_user where username = '%u' limit 1
+
+    ## Password hash: plain, md5, sha, sha256, pbkdf2
+    auth.pgsql.password_hash = sha256
+
+    ## sha256 with salt prefix
+    ## auth.pgsql.password_hash = salt sha256
+
+    ## sha256 with salt suffix
+    ## auth.pgsql.password_hash = sha256 salt
+
+    ## Superuser Query
+    auth.pgsql.super_query = select is_superuser from mqtt_user where username = '%u' limit 1
+
+Enable the plugin:
+
+.. code-block:: bash
+
+    ./bin/emqttd_ctl plugins load emq_plugin_pgsql
 
 Redis
 -----
 
-Authenticate against Redis. MQTT users could be stored in redis HASH, the key is "mqtt_user:<Username>".
+Authenticate with Redis. MQTT users could be stored in redis HASH, the key is "mqtt_user:<Username>".
 
-Configure 'authcmd' and 'password_hash' in emqttd_plugin_redis/etc/plugin.config:
+Configure 'auth_cmd' and 'password_hash' in etc/plugins/emq_auth_redis.conf:
 
-.. code-block:: erlang
+.. code-block:: properties
 
-    [
-      {emqttd_plugin_redis, [
+    ## Redis Server
+    auth.redis.server = 127.0.0.1:6379
 
-        ...
+    ## Redis Pool Size
+    auth.redis.pool = 8
 
-        %% HMGET mqtt_user:%u password
-        {authcmd, ["HGET", "mqtt_user:%u", "password"]},
+    ## Redis Database
+    auth.redis.database = 0
 
-        %% Password hash algorithm: plain, md5, sha, sha256, pbkdf2?
-        {password_hash, sha256},
+    ## Redis Password
+    ## auth.redis.password =
 
-        ...
+    ## Variables: %u = username, %c = clientid
 
-      ]}
-    ].
+    ## Authentication Query Command
+    auth.redis.auth_cmd = HGET mqtt_user:%u password
 
-Load the plugin::
+    ## Password hash: plain, md5, sha, sha256, pbkdf2
+    auth.redis.password_hash = sha256
 
-    ./bin/emqttd_ctl plugins load emqttd_plugin_redis
+    ## Superuser Query Command
+    auth.redis.super_cmd = HGET mqtt_user:%u is_superuser
+
+Enable the plugin:
+
+.. code-block:: bash
+
+    ./bin/emqttd_ctl plugins load emq_auth_redis
+
+MongoDB
+-------
+
+Create a `mqtt_user` collection::
+
+    {
+        username: "user",
+        password: "password hash",
+        is_superuser: boolean (true, false),
+        created: "datetime"
+    }
+
+Configure `super_query`, `auth_query` in etc/plugins/emq_auth_mongo.conf:
+
+.. code-block:: properties
+
+    ## Mongo Server
+    auth.mongo.server = 127.0.0.1:27017
+
+    ## Mongo Pool Size
+    auth.mongo.pool = 8
+
+    ## Mongo User
+    ## auth.mongo.user = 
+
+    ## Mongo Password
+    ## auth.mongo.password = 
+
+    ## Mongo Database
+    auth.mongo.database = mqtt
+
+    ## auth_query
+    auth.mongo.auth_query.collection = mqtt_user
+
+    auth.mongo.auth_query.password_field = password
+
+    auth.mongo.auth_query.password_hash = sha256
+
+    auth.mongo.auth_query.selector = username=%u
+
+    ## super_query
+    auth.mongo.super_query.collection = mqtt_user
+
+    auth.mongo.super_query.super_field = is_superuser
+
+    auth.mongo.super_query.selector = username=%u
+
+Enable the plugin:
+
+.. code-block:: bash
+
+    ./bin/emqttd_ctl plugins load emq_auth_mongo
+
+.. _acl:
 
 ---
 ACL
 ---
 
-The ACL of emqttd broker is responsbile for authorizing MQTT clients to publish/subscribe topics.
+The ACL of *EMQ* broker is responsbile for authorizing MQTT clients to publish/subscribe topics.
 
 The ACL rules define::
 
     Allow|Deny Who Publish|Subscribe Topics
 
-Access Control Module of emqttd broker will match the rules one by one::
+Access Control Module of *EMQ* broker will match the rules one by one::
 
               ---------              ---------              ---------
     Client -> | Rule1 | --nomatch--> | Rule2 | --nomatch--> | Rule3 | --> Default
@@ -255,18 +360,16 @@ Access Control Module of emqttd broker will match the rules one by one::
 Internal
 --------
 
-The default ACL of emqttd broker is implemented by an 'internal' module.
+The default ACL of *EMQ* broker is implemented by an 'internal' module.
 
-Enable the 'internal' ACL module in etc/emqttd.config:
+Enable the 'internal' ACL module in etc/emq.conf:
 
-.. code-block:: erlang
+.. code-block:: properties
 
-    {acl, [
-        %% Internal ACL module
-        {internal,  [{file, "etc/acl.config"}, {nomatch, allow}]}
-    ]}
+    ## Default ACL File
+    mqtt.acl_file = etc/acl.conf
 
-The ACL rules of 'internal' module are defined in 'etc/acl.config' file:
+The ACL rules of 'internal' module are defined in 'etc/acl.conf' file:
 
 .. code-block:: erlang
 
@@ -282,10 +385,26 @@ The ACL rules of 'internal' module are defined in 'etc/acl.config' file:
     %% Allow all by default
     {allow, all}.
 
+HTTP API
+--------
+
+ACL by HTTP API: https://github.com/emqtt/emq_auth_http
+
+Configure etc/plugins/emq_auth_http.conf and enable the plugin:
+
+.. code-block:: properties
+
+    ## 'access' parameter: sub = 1, pub = 2
+    auth.http.acl_req = http://127.0.0.1:8080/mqtt/acl
+    auth.http.acl_req.method = get
+    auth.http.acl_req.params = access=%A,username=%u,clientid=%c,ipaddr=%a,topic=%t
+
+    auth.http.acl_nomatch = deny
+
 MySQL
 -----
 
-ACL against MySQL database. The mqtt_acl table and default data:
+ACL with MySQL database. The `mqtt_acl` table and default data:
 
 .. code-block:: sql
 
@@ -309,29 +428,20 @@ ACL against MySQL database. The mqtt_acl table and default data:
         (6,1,'127.0.0.1',NULL,NULL,2,'#'),
         (7,1,NULL,'dashboard',NULL,1,'$SYS/#');
 
-Configure 'aclquery' and 'acl_nomatch' in emqttd_plugin_mysql/etc/plugin.config:
+Configure 'acl-query' and 'acl_nomatch' in etc/plugins/emq_auth_mysql.conf:
 
-.. code-block:: erlang
+.. code-block:: properties
 
-    [
+    ## ACL Query Command
+    auth.mysql.acl_query = select allow, ipaddr, username, clientid, access, topic from mqtt_acl where ipaddr = '%a' or username = '%u' or username = '$all' or clientid = '%c'
 
-      {emqttd_plugin_mysql, [
-
-        ...
-
-        %% comment this query, the acl will be disabled
-        {aclquery, "select allow, ipaddr, username, clientid, access, topic from mqtt_acl where ipaddr = '%a' or username = '%u' or username = '$all' or clientid = '%c'"},
-
-        %% If no rules matched, return...
-        {acl_nomatch, allow}
-
-      ]}
-    ].
+    ## ACL nomatch
+    auth.mysql.acl_nomatch = deny
 
 PostgreSQL
 ----------
 
-ACL against PostgreSQL database. The mqtt_acl table and default data:
+ACL with PostgreSQL database. The mqtt_acl table and default data:
 
 .. code-block:: sql
 
@@ -354,52 +464,66 @@ ACL against PostgreSQL database. The mqtt_acl table and default data:
         (6,1,'127.0.0.1',NULL,NULL,2,'#'),
         (7,1,NULL,'dashboard',NULL,1,'$SYS/#');
 
-Configure 'aclquery' and 'acl_nomatch' in emqttd_plugin_pgsql/etc/plugin.config:
+Configure 'acl_query' and 'acl_nomatch' in etc/plugins/emq_auth_pgsql.conf:
 
-.. code-block:: erlang
+.. code-block:: properties
 
-    [
+    ## ACL Query. Comment this query, the acl will be disabled.
+    auth.pgsql.acl_query = select allow, ipaddr, username, clientid, access, topic from mqtt_acl where ipaddr = '%a' or username = '%u' or username = '$all' or clientid = '%c'
 
-      {emqttd_plugin_pgsql, [
-
-        ...
-
-        %% Comment this query, the acl will be disabled. Notice: don't edit this query!
-        {aclquery, "select allow, ipaddr, username, clientid, access, topic from mqtt_acl
-                     where ipaddr = '%a' or username = '%u' or username = '$all' or clientid = '%c'"},
-
-        %% If no rules matched, return...
-        {acl_nomatch, allow}
-
-        ...
-
-      ]}
-    ].
+    ## If no rules matched, return...
+    auth.pgsql.acl_nomatch = deny
 
 Redis
 -----
 
-ACL against Redis. We store ACL rules for each MQTT client in a Redis List by defualt. The key is "mqtt_acl:<Username>", the value is a list of "publish <Topic>", "subscribe <Topic>" or "pubsub <Topic>".
+ACL with Redis. The ACL rules are stored in a Redis HashSet::
 
-Configure 'aclcmd' and 'acl_nomatch' in emqttd_plugin_redis/etc/plugin.config:
+    HSET mqtt_acl:<username> topic1 1
+    HSET mqtt_acl:<username> topic2 2
+    HSET mqtt_acl:<username> topic3 3
 
-.. code-block:: erlang
+Configure `acl_cmd` and `acl_nomatch` in etc/plugins/emq_auth_redis.conf:
 
-    [
-      {emqttd_plugin_redis, [
+.. code-block:: properties
 
-        ...
+    ## ACL Query Command
+    auth.redis.acl_cmd = HGETALL mqtt_acl:%u
 
-        %% SMEMBERS mqtt_acl:%u
-        {aclcmd, ["SMEMBERS", "mqtt_acl:%u"]},
+    ## ACL nomatch
+    auth.redis.acl_nomatch = deny
 
-        %% If no rules matched, return...
-        {acl_nomatch, deny},
+MongoDB
+-------
 
-        ...
+Store ACL Rules in a `mqtt_acl` collection:
 
-      ]}
-    ].
+.. code-block:: json
+
+    {
+        username: "username",
+        clientid: "clientid",
+        publish: ["topic1", "topic2", ...],
+        subscribe: ["subtop1", "subtop2", ...],
+        pubsub: ["topic/#", "topic1", ...]
+    }
+
+For example, insert rules into `mqtt_acl` collection::
+
+    db.mqtt_acl.insert({username: "test", publish: ["t/1", "t/2"], subscribe: ["user/%u", "client/%c"]})
+    db.mqtt_acl.insert({username: "admin", pubsub: ["#"]})
+
+Configure `acl_query` and `acl_nomatch` in etc/plugins/emq_auth_mongo.conf:
+
+.. code-block:: properties
+
+    ## acl_query
+    auth.mongo.acl_query.collection = mqtt_user
+
+    auth.mongo.acl_query.selector = username=%u
+
+    ## acl_nomatch
+    auth.mongo.acl_nomatch = deny
 
 ----------------------
 MQTT Publish/Subscribe
@@ -409,7 +533,7 @@ MQTT is a an extremely lightweight publish/subscribe messaging protocol desgined
 
 .. image:: _static/images/pubsub_concept.png
 
-Install and start the emqttd broker, and then any MQTT client could connect to the broker, subscribe topics and publish messages.
+Install and start the *EMQ* broker, and then any MQTT client could connect to the broker, subscribe topics and publish messages.
 
 MQTT Client Libraries: https://github.com/mqtt/mqtt.github.io/wiki/libraries
 
@@ -420,67 +544,39 @@ For example, we use mosquitto_sub/pub commands::
 
 MQTT V3.1.1 Protocol Specification: http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/mqtt-v3.1.1.html
 
-MQTT Listener of emqttd broker is configured in etc/emqttd.config:
+MQTT Listener of emqttd broker is configured in etc/emq.conf:
 
 .. code-block:: erlang
 
-        {mqtt, 1883, [
-            %% Size of acceptor pool
-            {acceptors, 16},
+.. code-block:: properties
 
-            %% Maximum number of concurrent clients
-            {max_clients, 512},
+    ## TCP Listener: 1883, 127.0.0.1:1883, ::1:1883
+    mqtt.listener.tcp = 1883
 
-            %% Socket Access Control
-            {access, [{allow, all}]},
+    ## Size of acceptor pool
+    mqtt.listener.tcp.acceptors = 8
 
-            %% Connection Options
-            {connopts, [
-                %% Rate Limit. Format is 'burst, rate', Unit is KB/Sec
-                %% {rate_limit, "100,10"} %% 100K burst, 10K rate
-            ]},
-
-            %% Socket Options
-            {sockopts, [
-                %Set buffer if hight thoughtput
-                %{recbuf, 4096},
-                %{sndbuf, 4096},
-                %{buffer, 4096},
-                %{nodelay, true},
-                {backlog, 512}
-            ]}
-        ]},
+    ## Maximum number of concurrent clients
+    mqtt.listener.tcp.max_clients = 1024
 
 MQTT(SSL) Listener, Default Port is 8883:
 
-.. code-block:: erlang
+.. code-block:: properties
 
-        {mqtts, 8883, [
-            %% Size of acceptor pool
-            {acceptors, 4},
+    ## SSL Listener: 8883, 127.0.0.1:8883, ::1:8883
+    mqtt.listener.ssl = 8883
 
-            %% Maximum number of concurrent clients
-            {max_clients, 512},
+    ## Size of acceptor pool
+    mqtt.listener.ssl.acceptors = 4
 
-            %% Socket Access Control
-            {access, [{allow, all}]},
-
-            %% SSL certificate and key files
-            {ssl, [{certfile, "etc/ssl/ssl.crt"},
-                   {keyfile,  "etc/ssl/ssl.key"}]},
-
-            %% Socket Options
-            {sockopts, [
-                {backlog, 1024}
-                %{buffer, 4096},
-            ]}
-        ]},
+    ## Maximum number of concurrent clients
+    mqtt.listener.ssl.max_clients = 512
 
 ----------------
 HTTP Publish API
 ----------------
 
-The emqttd broker provides a HTTP API to help application servers publish messages to MQTT clients.
+The *EMQ* broker provides a HTTP API to help application servers publish messages to MQTT clients.
 
 HTTP API: POST http://host:8083/mqtt/publish
 
@@ -524,30 +620,20 @@ The Dashboard plugin provides a test page for WebSocket::
 
 Listener of WebSocket and HTTP Publish API is configured in etc/emqttd.config:
 
-.. code-block:: erlang
+.. code-block:: properties
 
-    %% HTTP and WebSocket Listener
-    {http, 8083, [
-        %% Size of acceptor pool
-        {acceptors, 4},
-        %% Maximum number of concurrent clients
-        {max_clients, 64},
-        %% Socket Access Control
-        {access, [{allow, all}]},
-        %% Socket Options
-        {sockopts, [
-            {backlog, 1024}
-            %{buffer, 4096},
-        ]}
-    ]}
+    ## HTTP and WebSocket Listener
+    mqtt.listener.http = 8083
+    mqtt.listener.http.acceptors = 4
+    mqtt.listener.http.max_clients = 64
 
 -----------
 $SYS Topics
 -----------
 
-The emqttd broker periodically publishes internal status, MQTT statistics, metrics and client online/offline status to $SYS/# topics.
+The *EMQ* broker periodically publishes internal status, MQTT statistics, metrics and client online/offline status to $SYS/# topics.
 
-For emqttd broker is clustered, the $SYS topic path is started with::
+For the *EMQ* broker could be clustered, the $SYS topic path is started with::
 
     $SYS/brokers/${node}/
 
@@ -760,7 +846,6 @@ Topic path started with: '$SYS/brokers/${node}/sysmon/'
 | busy_dist_port   | Busy Dist Port     |
 +------------------+--------------------+
 
-
 -----
 Trace
 -----
@@ -785,6 +870,12 @@ Stop a Trace::
 
     ./bin/emqttd_ctl trace topic "topic" off
 
-.. _emqttd_plugin_mysql:    https://github.com/emqtt/emqttd_plugin_mysql
-.. _emqttd_plugin_pgsql:    https://github.com/emqtt/emqttd_plugin_pgsql
-.. _emqttd_plugin_redis:    https://github.com/emqtt/emqttd_plugin_redis
+.. _emq_auth_clientid: https://github.com/emqtt/emq_auth_clientid
+.. _emq_auth_username: https://github.com/emqtt/emq_auth_username
+.. _emq_auth_ldap:     https://github.com/emqtt/emqttd_auth_ldap
+.. _emq_auth_http:     https://github.com/emqtt/emqttd_auth_http
+.. _emq_auth_mysql:    https://github.com/emqtt/emqttd_plugin_mysql
+.. _emq_auth_pgsql:    https://github.com/emqtt/emqttd_plugin_pgsql
+.. _emq_auth_redis:    https://github.com/emqtt/emqttd_plugin_redis
+.. _emq_auth_mongo:    https://github.com/emqtt/emqttd_plugin_mongo
+

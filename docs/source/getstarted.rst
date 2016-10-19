@@ -9,11 +9,11 @@ Get Started
 Overview
 --------
 
-emqttd(Erlang MQTT Broker) is an open source MQTT broker written in Erlang/OTP. Erlang/OTP is a concurrent, fault-tolerant, soft-realtime and distributed programming platform. MQTT is an extremely lightweight publish/subscribe messaging protocol powering IoT, M2M and Mobile applications.
+*EMQ* (Erlang MQTT Broker) is an open source MQTT broker written in Erlang/OTP. Erlang/OTP is a concurrent, fault-tolerant, soft-realtime and distributed programming platform. MQTT is an extremely lightweight publish/subscribe messaging protocol powering IoT, M2M and Mobile applications.
 
-The emqttd project is aimed to implement a scalable, distributed, extensible open-source MQTT broker for IoT, M2M and Mobile applications that hope to handle millions of concurrent MQTT clients.
+The *EMQ* project is aimed to implement a scalable, distributed, extensible open-source MQTT broker for IoT, M2M and Mobile applications that hope to handle millions of concurrent MQTT clients.
 
-Highlights of the emqttd broker:
+Highlights of the *EMQ* broker:
 
 * Full MQTT V3.1/3.1.1 Protocol Specifications Support
 * Easy to Install - Quick Install on Linux, FreeBSD, Mac and Windows
@@ -49,6 +49,8 @@ Features
 * mosquitto, RSMB bridge
 * Extensible architecture with Hooks, Modules and Plugins
 * Passed eclipse paho interoperability tests
+* Local subscription
+* Shared subscription
 
 -----------
 Quick Start
@@ -57,7 +59,7 @@ Quick Start
 Download and Install
 --------------------
 
-The emqttd broker is cross-platform, which could be deployed on Linux, FreeBSD, Mac, Windows and even Raspberry Pi.
+The *EMQ* broker is cross-platform, which could be deployed on Linux, FreeBSD, Mac, Windows and even Raspberry Pi.
 
 Download binary package from: http://emqtt.io/downloads.
 
@@ -65,7 +67,7 @@ Installing on Mac, for example:
 
 .. code-block:: bash
 
-    unzip emqttd-macosx-v2.0-rc.2-20160910.zip && cd emqttd
+    unzip emqttd-macosx-v2.0-rc.2-20161019.zip && cd emqttd
 
     # Start emqttd
     ./bin/emqttd start
@@ -93,7 +95,7 @@ Installing from Source
 Web Dashboard
 -------------
 
-A Web Dashboard will be loaded when the emqttd broker is started successfully.
+A Web Dashboard will be loaded when the *EMQ* broker is started successfully.
 
 The Dashboard helps check running status of the broker, monitor statistics and metrics of MQTT packets, query clients, sessions, topics and subscriptions.
 
@@ -111,15 +113,13 @@ The Dashboard helps check running status of the broker, monitor statistics and m
 Modules and Plugins
 -------------------
 
-The Authentication and Authorization(ACL) are usually implemented by a Module or Plugin.
+The *EMQ* broker could be extended by Modules ofr Plugins.
 
 Modules
 -------
 
 +-------------------------+--------------------------------------------+
-| emqttd_auth_clientid    | Authentication with ClientId               |
-+-------------------------+--------------------------------------------+
-| emqttd_auth_username    | Authentication with Username and Password  |
+| emqttd_mod_retainer     | Retained Messages Storage                  |
 +-------------------------+--------------------------------------------+
 | emqttd_mod_presence     | Publish presence message to $SYS topics    |
 |                         | when client connected or disconnected      |
@@ -127,68 +127,77 @@ Modules
 | emqttd_mod_subscription | Subscribe topics automatically when client |
 |                         | connected                                  |
 +-------------------------+--------------------------------------------+
-| emqttd_mod_rewrite      | Topics rewrite like HTTP rewrite module    |
-+-------------------------+--------------------------------------------+
 
-Configure the 'auth', 'module' paragraph in 'etc/emqttd.config' to enable a module.
+Modules could enabled by configuring 'etc/emq.conf':
 
-Enable 'emqttd_auth_username' module:
+.. code-block:: properties
 
-.. code-block:: erlang
+    ##-------------------------------------------------------------------
+    ## MQTT Modules
+    ##-------------------------------------------------------------------
 
-    %% Authentication with username, password
-    {auth, username, [{passwd, "etc/modules/passwd.conf"}]}.
+    ## Enable presence module
+    mqtt.module.presence = on
 
-Enable 'emqttd_mod_presence' module:
+    mqtt.module.presence.qos = 0
 
-.. code-block:: erlang
+    ## Enable subscription module
+    mqtt.module.subscription = on
 
-    %% Client presence management module. Publish presence messages when 
-    %% client connected or disconnected.
-    {module, presence, [{qos, 0}]}.
+    mqtt.module.subscription.topics = $client/%c=1,$user/%u=1
 
 Plugins
 -------
 
-A plugin is an Erlang application to extend the emqttd broker.
+A plugin is an Erlang application to extend the *EMQ* broker.
 
-+----------------------------+-----------------------------------+
-| `emqttd_plugin_template`_  | Plugin template and demo          |
-+----------------------------+-----------------------------------+
-| `emqttd_dashboard`_        | Web Dashboard                     |
-+----------------------------+-----------------------------------+
-| `emqttd_auth_ldap`_        | LDAP Auth Plugin                  |
-+----------------------------+-----------------------------------+
-| `emqttd_auth_http`_        | Authentication/ACL with HTTP API  |
-+----------------------------+-----------------------------------+
-| `emqttd_auth_mysql`  _     | Authentication with MySQL         |
-+----------------------------+-----------------------------------+
-| `emqttd_auth_pgsql`_       | Authentication with PostgreSQL    |
-+----------------------------+-----------------------------------+
-| `emqttd_auth_redis`_       | Authentication with Redis         |
-+----------------------------+-----------------------------------+
-| `emqttd_plugin_mongo`_     | Authentication with MongoDB       |
-+----------------------------+-----------------------------------+
-| `emqttd_sn`_               | MQTT-SN Protocol Plugin            |
-+----------------------------+-----------------------------------+
-| `emqttd_stomp`_            | STOMP Protocol Plugin            |
-+----------------------------+-----------------------------------+
-| `emqttd_sockjs`_           | SockJS(Stomp) Plugin              |
-+----------------------------+-----------------------------------+
-| `emqttd_recon`_            | Recon Plugin                      |
-+----------------------------+-----------------------------------+
++----------------------------+--------------------------------------------+
+| `emq_auth_clientid`_       | Authentication with ClientId               |
++----------------------------+--------------------------------------------+
+| `emq_auth_username`_       | Authentication with Username and Password  |
++----------------------------+--------------------------------------------+
+| `emq_plugin_template`_     | Plugin template and demo                   |
++----------------------------+--------------------------------------------+
+| `emq_dashboard`_           | Web Dashboard                              |
++----------------------------+--------------------------------------------+
+| `emq_auth_ldap`_           | LDAP Auth Plugin                           |
++----------------------------+--------------------------------------------+
+| `emq_auth_http`_           | Authentication/ACL with HTTP API           |
++----------------------------+--------------------------------------------+
+| `emq_auth_mysql`  _        | Authentication with MySQL                  |
++----------------------------+--------------------------------------------+
+| `emq_auth_pgsql`_          | Authentication with PostgreSQL             |
++----------------------------+--------------------------------------------+
+| `emq_auth_redis`_          | Authentication with Redis                  |
++----------------------------+--------------------------------------------+
+| `emq_mod_rewrite`_         | Topics rewrite like HTTP rewrite module    |
++----------------------------+--------------------------------------------+
+| `emq_plugin_mongo`_        | Authentication with MongoDB                |
++----------------------------+--------------------------------------------+
+| `emq_sn`_                  | MQTT-SN Protocol Plugin                    |
++----------------------------+--------------------------------------------+
+| `emq_coap`_                | CoAP Protocol Plugin                       |
++----------------------------+--------------------------------------------+
+| `emq_stomp`_               | STOMP Protocol Plugin                      |
++----------------------------+--------------------------------------------+
+| `emq_sockjs`_              | SockJS(Stomp) Plugin                       |
++----------------------------+--------------------------------------------+
+| `emq_recon`_               | Recon Plugin                               |
++----------------------------+--------------------------------------------+
+| `emq_reloader`_            | Reloader Plugin                            |
++----------------------------+--------------------------------------------+
 
 A plugin could be enabled by 'bin/emqttd_ctl plugins load' command.
 
 For example, enable 'emqttd_auth_pgsql' plugin::
 
-    ./bin/emqttd_ctl plugins load emqttd_auth_pgsql
+    ./bin/emqttd_ctl plugins load emq_auth_pgsql
 
 -----------------------
 One Million Connections
 -----------------------
 
-Latest release of emqttd broker is scaling to 1.3 million MQTT connections on a 12 Core, 32G CentOS server.
+Latest release of the *EMQ* broker is scaling to 1.3 million MQTT connections on a 12 Core, 32G CentOS server.
 
 .. NOTE::
 
@@ -220,43 +229,28 @@ TCP Stack Parameters
 Erlang VM
 ---------
 
-emqttd/release/2.0/vm.args::
+emqttd/etc/emq.conf:
 
-    ## max process numbers
-    +P 2097152
+.. code-block:: properties
+
+    ## Erlang Process Limit
+    node.process_limit = 2097152
 
     ## Sets the maximum number of simultaneously existing ports for this system
-    +Q 1048576
+    node.max_ports = 1048576
 
-    ## Increase number of concurrent ports/sockets
-    -env ERL_MAX_PORTS 1048576
+Max Allowed Connections
+-----------------------
 
-    -env ERTS_MAX_PORTS 1048576
+emqttd/etc/emq.conf 'listeners':
 
-emqttd broker
--------------
+.. code-block:: properties
 
-emqttd/etc/emqttd.conf:
+    ## Size of acceptor pool
+    mqtt.listener.tcp.acceptors = 64
 
-.. code-block:: erlang
-
-    {listener, mqtt, 1883, [
-        %% Size of acceptor pool
-        {acceptors, 64},
-
-        %% Maximum number of concurrent clients
-        {max_clients, 1000000},
-
-        %% Socket Access Control
-        {access, [{allow, all}]},
-
-        %% Connection Options
-        {connopts, [
-            %% Rate Limit. Format is 'burst, rate', Unit is KB/Sec
-            %% {rate_limit, "100,10"} %% 100K burst, 10K rate
-        ]},
-        ...
-    ]}.
+    ## Maximum number of concurrent clients
+    mqtt.listener.tcp.max_clients = 1000000
 
 Test Client
 -----------
@@ -283,22 +277,30 @@ GitHub: https://github.com/emqtt
 | `QMQTT`_           | QT MQTT Client       |
 +--------------------+----------------------+
 
-.. _emqttc:          https://github.com/emqtt/emqttc
-.. _emqtt_benchmark: https://github.com/emqtt/emqtt_benchmark
-.. _CocoaMQTT:       https://github.com/emqtt/CocoaMQTT
-.. _QMQTT:           https://github.com/emqtt/qmqtt
+Eclipse Paho: https://www.eclipse.org/paho/
 
-.. _emqttd_plugin_template: https://github.com/emqtt/emqttd_plugin_template
-.. _emqttd_dashboard:       https://github.com/emqtt/emqttd_dashboard
-.. _emqttd_auth_ldap:       https://github.com/emqtt/emqttd_auth_ldap
-.. _emqttd_auth_http:       https://github.com/emqtt/emqttd_auth_http
-.. _emqttd_auth_mysql:      https://github.com/emqtt/emqttd_plugin_mysql
-.. _emqttd_auth_pgsql:      https://github.com/emqtt/emqttd_plugin_pgsql
-.. _emqttd_auth_redis:      https://github.com/emqtt/emqttd_plugin_redis
-.. _emqttd_auth_mongo:      https://github.com/emqtt/emqttd_plugin_mongo
-.. _emqttd_reloader:        https://github.com/emqtt/emqttd_reloader
-.. _emqttd_stomp:           https://github.com/emqtt/emqttd_stomp
-.. _emqttd_sockjs:          https://github.com/emqtt/emqttd_sockjs
-.. _emqttd_recon:           https://github.com/emqtt/emqttd_recon
-.. _emqttd_sn:              https://github.com/emqtt/emqttd_sn
+MQTT.org: https://github.com/mqtt/mqtt.github.io/wiki/libraries
+
+.. _emqttc: https://github.com/emqtt/emqttc
+.. _emqtt_benchmark: https://github.com/emqtt/emqtt_benchmark
+.. _CocoaMQTT: https://github.com/emqtt/CocoaMQTT
+.. _QMQTT: https://github.com/emqtt/qmqtt
+
+.. _emq_plugin_template: https://github.com/emqtt/emqttd_plugin_template
+.. _emq_dashboard:       https://github.com/emqtt/emqttd_dashboard
+.. _emq_mod_rewrite:     https://github.com/emqtt/emq_mod_rewrite
+.. _emq_auth_clientid:   https://github.com/emqtt/emq_auth_clientid
+.. _emq_auth_username:   https://github.com/emqtt/emq_auth_username
+.. _emq_auth_ldap:       https://github.com/emqtt/emqttd_auth_ldap
+.. _emq_auth_http:       https://github.com/emqtt/emqttd_auth_http
+.. _emq_auth_mysql:      https://github.com/emqtt/emqttd_plugin_mysql
+.. _emq_auth_pgsql:      https://github.com/emqtt/emqttd_plugin_pgsql
+.. _emq_auth_redis:      https://github.com/emqtt/emqttd_plugin_redis
+.. _emq_auth_mongo:      https://github.com/emqtt/emqttd_plugin_mongo
+.. _emq_reloader:        https://github.com/emqtt/emqttd_reloader
+.. _emq_stomp:           https://github.com/emqtt/emqttd_stomp
+.. _emq_sockjs:          https://github.com/emqtt/emqttd_sockjs
+.. _emq_recon:           https://github.com/emqtt/emqttd_recon
+.. _emq_sn:              https://github.com/emqtt/emqttd_sn
+.. _emq_coap:            https://github.com/emqtt/emqttd_coap
 

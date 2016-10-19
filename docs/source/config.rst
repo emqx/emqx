@@ -21,7 +21,7 @@ The main configuration files of the EMQ broker are under 'etc/' folder:
 EMQ 2.0 Config Syntax
 ---------------------
 
-The EMQ 2.0-rc.2 release integrated with `cuttlefish` library, and adopt a more user-friendly '`k = v` syntax for configuration file:
+The *EMQ* 2.0-rc.2 release integrated with `cuttlefish` library, and adopt a more user-friendly `k = v` syntax for configuration file:
 
 .. code-block:: properties
 
@@ -64,7 +64,7 @@ OS Environment Variables
 EMQ Node and Cookie
 -------------------
 
-The node name and cookie of *EMQ* should be configured when clustering::
+The node name and cookie of *EMQ* should be configured when clustering:
 
 .. code-block:: properties
 
@@ -117,7 +117,7 @@ Configure and Optimize Erlang VM:
     ## node.dist_listen_min = 6000
     ## node.dist_listen_max = 6999
 
-The two most important parameters in releases/2.0/vm.args:
+The two most important parameters for Erlang VM:
 
 +--------------------------+---------------------------------------------------------------------------+
 | node.process_limit       | Max number of Erlang proccesses. A MQTT client consumes two proccesses.   |
@@ -229,7 +229,7 @@ Define ACL rules in etc/acl.conf. The rules by default:
     %% Allow all by default
     {allow, all}.
 
-An ACL rule is an Erlang tuple. The Access control module of emqttd broker matches the rule one by one from top to bottom::
+An ACL rule is an Erlang tuple. The Access control module of *EMQ* broker matches the rule one by one from top to bottom::
 
               ---------              ---------              ---------
     Client -> | Rule1 | --nomatch--> | Rule2 | --nomatch--> | Rule3 | --> Default
@@ -433,7 +433,7 @@ MQTT Listeners
 
 Configure the TCP listeners for MQTT, MQTT(SSL), HTTP and HTTPS Protocols.
 
-The most important parameter is 'max_clients' - max concurrent clients allowed.
+The most important parameter for MQTT listener is `max_clients`: max concurrent clients allowed.
 
 The TCP Ports occupied by the *EMQ* broker by default:
 
@@ -552,9 +552,9 @@ System Monitor
     ## Busy Dist Port
     sysmon.busy_dist_port = true
 
-----------------------------
-Plugins' Configuration Files
-----------------------------
+--------------------------
+Plugin Configuration Files
+--------------------------
 
 +----------------------------------------+-----------------------------------+
 | File                                   | Description                       |
