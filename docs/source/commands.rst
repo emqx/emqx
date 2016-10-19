@@ -5,7 +5,7 @@
 Commands
 ========
 
-The './bin/emqttd_ctl' command line could be used to query and administrate emqttd broker.
+The './bin/emqttd_ctl' command line could be used to query and administrate the *EMQ* broker.
 
 .. WARNING:: Cannot work on Windows
 
@@ -434,13 +434,22 @@ List all plugins::
 
     $ ./bin/emqttd_ctl plugins list
 
-    Plugin(emqttd_dashboard, version=0.16.0, description=emqttd web dashboard, active=true)
-    Plugin(emqttd_plugin_mysql, version=0.16.0, description=emqttd Authentication/ACL with MySQL, active=false)
-    Plugin(emqttd_plugin_pgsql, version=0.16.0, description=emqttd PostgreSQL Plugin, active=false)
-    Plugin(emqttd_plugin_redis, version=0.16.0, description=emqttd Redis Plugin, active=false)
-    Plugin(emqttd_plugin_template, version=0.16.0, description=emqttd plugin template, active=false)
-    Plugin(emqttd_recon, version=0.16.0, description=emqttd recon plugin, active=false)
-    Plugin(emqttd_stomp, version=0.16.0, description=Stomp Protocol Plugin for emqttd broker, active=false)
+    Plugin(emq_auth_clientid, version=2.0, description=Authentication with ClientId/Password, active=false)
+    Plugin(emq_auth_http, version=2.0, description=Authentication/ACL with HTTP API, active=false)
+    Plugin(emq_auth_ldap, version=2.0, description=Authentication/ACL with LDAP, active=false)
+    Plugin(emq_auth_mongo, version=2.0, description=Authentication/ACL with MongoDB, active=false)
+    Plugin(emq_auth_mysql, version=2.0, description=Authentication/ACL with MySQL, active=false)
+    Plugin(emq_auth_pgsql, version=2.0, description=Authentication/ACL with PostgreSQL, active=false)
+    Plugin(emq_auth_redis, version=2.0, description=Authentication/ACL with Redis, active=false)
+    Plugin(emq_auth_username, version=2.0, description=Authentication with Username/Password, active=false)
+    Plugin(emq_coap, version=0.2, description=CoAP Gateway, active=false)
+    Plugin(emq_dashboard, version=2.0, description=Dashboard, active=true)
+    Plugin(emq_mod_rewrite, version=2.0, description=EMQ Rewrite Module, active=false)
+    Plugin(emq_plugin_template, version=2.0, description=EMQ Plugin Template, active=false)
+    Plugin(emq_recon, version=2.0, description=Recon Plugin, active=false)
+    Plugin(emq_reloader, version=3.0, description=Reloader Plugin, active=false)
+    Plugin(emq_sn, version=0.2, description=MQTT-SN Gateway, active=false)
+    Plugin(emq_stomp, version=2.0, description=Stomp Protocol Plugin, active=false)
 
 Properties of a plugin:
 
@@ -452,24 +461,24 @@ Properties of a plugin:
 | active      | If the plugin is Loaded  | 
 +-------------+--------------------------+
 
-load <Plugin>
+Load <Plugin>
 -------------
 
 Load a Plugin::
 
-    $ ./bin/emqttd_ctl plugins load emqttd_recon
+    $ ./bin/emqttd_ctl plugins load emq_recon
 
-    Start apps: [recon,emqttd_recon]
-    Plugin emqttd_recon loaded successfully.
+    Start apps: [recon,emq_recon]
+    Plugin emq_recon loaded successfully.
 
-unload <Plugin>
+Unload <Plugin>
 ---------------
 
 Unload a Plugin::
 
-    $ ./bin/emqttd_ctl plugins unload emqttd_recon
+    $ ./bin/emqttd_ctl plugins unload emq_recon
 
-    Plugin emqttd_recon unloaded successfully.
+    Plugin emq_recon unloaded successfully.
 
 .. _command_bridges::
 
@@ -477,7 +486,7 @@ Unload a Plugin::
 bridges
 -------
 
-Bridge two or more emqttd brokers::
+Bridge two or more *EMQ* brokers::
 
                   ---------                     ---------
     Publisher --> | node1 | --Bridge Forward--> | node2 | --> Subscriber
@@ -695,23 +704,23 @@ Show all the TCP listeners::
 
     $ ./bin/emqttd_ctl listeners
 
-    listener on http:8083
+    listener on mqtt:ws:8083
       acceptors       : 4
       max_clients     : 64
       current_clients : 0
       shutdown_count  : []
-    listener on mqtts:8883
+    listener on mqtt:ssl:8883
       acceptors       : 4
       max_clients     : 512
       current_clients : 0
       shutdown_count  : []
-    listener on mqtt:1883
-      acceptors       : 16
-      max_clients     : 8192
-      current_clients : 1
-      shutdown_count  : [{closed,1}]
-    listener on http:18083
-      acceptors       : 4
+    listener on mqtt:tcp:1883
+      acceptors       : 8
+      max_clients     : 1024
+      current_clients : 0
+      shutdown_count  : []
+    listener on dashboard:http:18083
+      acceptors       : 2
       max_clients     : 512
       current_clients : 0
       shutdown_count  : []

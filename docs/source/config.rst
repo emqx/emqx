@@ -5,14 +5,16 @@
 Configuration
 =============
 
-The two main configuration files of the broker are under 'etc/' folder:
+The main configuration files of the EMQ broker are under 'etc/' folder:
 
 +----------------------+-----------------------------------+
 | File                 | Description                       |
 +----------------------+-----------------------------------+
-| releases/2.0/vm.args | Erlang VM Arguments               |
+| etc/emq.conf         | EMQ 2.0 Configuration File        |
 +----------------------+-----------------------------------+
-| etc/emqttd.conf      | emqttd broker Config              |
+| etc/acl.conf         | The default ACL File              |
++----------------------+-----------------------------------+
+| etc/plugins/\*.conf  | Config Files of Plugins           |
 +----------------------+-----------------------------------+
 
 ----------------------------
@@ -22,293 +24,232 @@ Plugins' Configuration Files
 +----------------------------------------+-----------------------------------+
 | File                                   | Description                       |
 +----------------------------------------+-----------------------------------+
-| etc/plugins/emqttd_auth_http.conf      | HTTP Auth/ACL Plugin Config       |
+| etc/plugins/emq_auth_username.conf     | Username/Password Auth Plugin     |
 +----------------------------------------+-----------------------------------+
-| etc/plugins/emqttd_auth_mongo.conf     | MongoDB Auth/ACL Plugin Config    |
+| etc/plugins/emq_auth_clientid.conf     | ClientId Auth Plugin              |
 +----------------------------------------+-----------------------------------+
-| etc/plugins/emqttd_auth_mysql.conf     | MySQL Auth/ACL Plugin Config      |
+| etc/plugins/emq_auth_http.conf         | HTTP Auth/ACL Plugin Config       |
 +----------------------------------------+-----------------------------------+
-| etc/plugins/emqttd_auth_pgsql.conf     | Postgre Auth/ACL Plugin Config    |
+| etc/plugins/emq_auth_mongo.conf        | MongoDB Auth/ACL Plugin Config    |
 +----------------------------------------+-----------------------------------+
-| etc/plugins/emqttd_auth_redis.conf     | Redis Auth/ACL Plugin Config      |
+| etc/plugins/emq_auth_mysql.conf        | MySQL Auth/ACL Plugin Config      |
 +----------------------------------------+-----------------------------------+
-| etc/plugins/emqttd_coap.conf           | CoAP Protocol Plugin Config       |
+| etc/plugins/emq_auth_pgsql.conf        | Postgre Auth/ACL Plugin Config    |
 +----------------------------------------+-----------------------------------+
-| etc/plugins/emqttd_dashboard.conf      | Dashboard Plugin Config           |
+| etc/plugins/emq_auth_redis.conf        | Redis Auth/ACL Plugin Config      |
 +----------------------------------------+-----------------------------------+
-| etc/plugins/emqttd_plugin_template.conf| Template Plugin Config            |
+| etc/plugins/emq_coap.conf              | CoAP Protocol Plugin Config       |
 +----------------------------------------+-----------------------------------+
-| etc/plugins/emqttd_recon.conf          | Recon Plugin Config               |
+| etc/plugins/emq_dashboard.conf         | Dashboard Plugin Config           |
 +----------------------------------------+-----------------------------------+
-| etc/plugins/emqttd_reloader.conf       | Reloader Plugin Config            |
+| etc/plugins/emq_plugin_template.conf   | Template Plugin Config            |
 +----------------------------------------+-----------------------------------+
-| etc/plugins/emqttd_sn.conf             | MQTT-SN Protocal Plugin Config    |
+| etc/plugins/emq_recon.conf             | Recon Plugin Config               |
 +----------------------------------------+-----------------------------------+
-| etc/plugins/emqttd_stomp.conf          | Stomp Protocl Plugin Config       |
+| etc/plugins/emq_reloader.conf          | Reloader Plugin Config            |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_sn.conf                | MQTT-SN Protocal Plugin Config    |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_stomp.conf             | Stomp Protocl Plugin Config       |
 +----------------------------------------+-----------------------------------+
 
-----------------------------
-Modules' Configuration Files
-----------------------------
+---------------------
+EMQ 2.0 Config Syntax
+---------------------
 
-The modules' configuration files are in etc/modules/ folder, and referrenced by etc/emqttd.conf:
+The EMQ 2.0-rc.2 release integrated with `cuttlefish` library, and adopt a more user-friendly '`k = v` syntax for configuration file:
 
-+----------------------------+-----------------------------------+
-| File                       | Description                       |
-+----------------------------+-----------------------------------+
-| etc/modules/acl.config     | Internal ACL Rules                |
-+----------------------------+-----------------------------------+
-| etc/modules/client.config  | Config for ClientId Auth Module   |
-+----------------------------+-----------------------------------+
-| etc/modules/rewrite.config | Config for Rewrite Module         |
-+----------------------------+-----------------------------------+
-| etc/ssl/*                  | SSL Certfile and Keyfile          |
-+-----------------------------+----------------------------------+
+.. code-block:: properties
 
---------------------
-releases/2.0/vm.args
---------------------
+    ## Node name
+    node.name = emqttd@127.0.0.1
+    ...
+    ## Max ClientId Length Allowed.
+    mqtt.max_clientid_len = 1024
+    ...
 
-Configure and Optimize Erlang VM::
+The configuration files will be preprocessed and translated to Erlang `app.config` before the EMQ broker started::
 
-    ##-------------------------------------------------------------------------
-    ## Name of the node: Name@Host
-    ##-------------------------------------------------------------------------
-    -name emqttd@127.0.0.1
+    ----------------------                                          2.0/schema/*.schema      -------------------
+    | etc/emq.conf       |                   -----------------              \|/              | data/app.config |
+    |       +            | --> mergeconf --> | data/app.conf | -->  cuttlefish generate  --> |                 |
+    | etc/plugins/*.conf |                   -----------------                               | data/vm.args    |
+    ----------------------                                                                   -------------------
 
-    # or
-    #-name emqttd@localhost.
+------------------------
+OS Environment Variables
+------------------------
 
-    ## Cookie for distributed erlang
-    -setcookie emqttdsecretcookie
++-------------------+----------------------------------------+
+| EMQ_NODE_NAME     | Erlang node name                       |
++-------------------+----------------------------------------+
+| EMQ_NODE_COOKIE   | Cookie for distributed erlang node     |
++-------------------+----------------------------------------+
+| EMQ_MAX_PORTS     | Maximum number of opened sockets       |
++-------------------+----------------------------------------+
+| EMQ_TCP_PORT      | MQTT TCP Listener Port, Default: 1883  |
++-------------------+----------------------------------------+
+| EMQ_SSL_PORT      | MQTT SSL Listener Port, Default: 8883  |
++-------------------+----------------------------------------+
+| EMQ_HTTP_PORT     | HTTP/WebSocket Port, Default: 8083     |
++-------------------+----------------------------------------+
+| EMQ_HTTPS_PORT    | HTTPS/WebSocket Port, Default: 8084    |
++-------------------+----------------------------------------+
 
-    ##-------------------------------------------------------------------------
-    ## Flags
-    ##-------------------------------------------------------------------------
+-------------------
+EMQ Node and Cookie
+-------------------
 
-    ## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
-    ## (Disabled by default..use with caution!)
-    ##-heart
-    -smp true
+The node name and cookie of *EMQ* should be configured when clustering::
 
-    ## Enable kernel poll and a few async threads
-    +K true
+.. code-block:: properties
 
-    ## 12 threads/core.
-    +A 48
+    ## Node name
+    node.name = emqttd@127.0.0.1
 
-    ## max process numbers
-    +P 8192
+    ## Cookie for distributed node
+    node.cookie = emq_dist_cookie
+
+-------------------
+Erlang VM Arguments
+-------------------
+
+Configure and Optimize Erlang VM:
+
+.. code-block:: properties
+
+    ## SMP support: enable, auto, disable
+    node.smp = auto
+
+    ## Enable kernel poll
+    node.kernel_poll = on
+
+    ## async thread pool
+    node.async_threads = 32
+
+    ## Erlang Process Limit
+    node.process_limit = 256000
 
     ## Sets the maximum number of simultaneously existing ports for this system
-    +Q 8192
+    node.max_ports = 65536
 
-    ## max atom number
-    ## +t
+    ## Set the distribution buffer busy limit (dist_buf_busy_limit)
+    node.dist_buffer_size = 32MB
 
-    ## Set the distribution buffer busy limit (dist_buf_busy_limit) in kilobytes.
-    ## Valid range is 1-2097151. Default is 1024.
-    ## +zdbbl 8192
-
-    ## CPU Schedulers
-    ## +sbt db
-
-    ##-------------------------------------------------------------------------
-    ## Env
-    ##-------------------------------------------------------------------------
-
-    ## Increase number of concurrent ports/sockets, deprecated in R17
-    -env ERL_MAX_PORTS 8192
-
-    -env ERTS_MAX_PORTS 8192
-
-    -env ERL_MAX_ETS_TABLES 1024
+    ## Max ETS Tables.
+    ## Note that mnesia and SSL will create temporary ets tables.
+    node.max_ets_tables = 256000
 
     ## Tweak GC to run more often
-    -env ERL_FULLSWEEP_AFTER 1000
+    node.fullsweep_after = 1000
+
+    ## Crash dump
+    node.crash_dump = log/crash.dump
+
+    ## Distributed node ticktime
+    node.dist_net_ticktime = 60
+
+    ## Distributed node port range
+    ## node.dist_listen_min = 6000
+    ## node.dist_listen_max = 6999
 
 The two most important parameters in releases/2.0/vm.args:
 
-+-------+---------------------------------------------------------------------------+
-| +P    | Max number of Erlang proccesses. A MQTT client consumes two proccesses.   |
-|       | The value should be larger than max_clients * 2                           |
-+-------+---------------------------------------------------------------------------+
-| +Q    | Max number of Erlang Ports. A MQTT client consumes one port.              |
-|       | The value should be larger than max_clients.                              |
-+-------+---------------------------------------------------------------------------+
-
-The name and cookie of Erlang Node should be configured when clustering::
-
-    -name emqttd@host_or_ip
-
-    ## Cookie for distributed erlang
-    -setcookie emqttdsecretcookie
++--------------------------+---------------------------------------------------------------------------+
+| node.process_limit       | Max number of Erlang proccesses. A MQTT client consumes two proccesses.   |
+|                          | The value should be larger than max_clients * 2                           |
++--------------------------+---------------------------------------------------------------------------+
+| node.max_ports           | Max number of Erlang Ports. A MQTT client consumes one port.              |
+|                          | The value should be larger than max_clients.                              |
++--------------------------+---------------------------------------------------------------------------+
 
 ------------------
 Log Level and File
 ------------------
 
-Logger of emqttd broker is implemented by 'lager' application, which is configured in releases/2.0/sys.config:
-
-.. code-block:: erlang
-
-  {lager, [
-    ...
-  ]},
-
-Configure log handlers:
-
-.. code-block:: erlang
-
-    {handlers, [
-        {lager_console_backend, info},
-
-        {lager_file_backend, [
-            {formatter_config, [time, " ", pid, " [",severity,"] ", message, "\n"]},
-            {file, "log/emqttd_info.log"},
-            {level, info},
-            {size, 104857600},
-            {date, "$D0"},
-            {count, 30}
-        ]},
-
-        {lager_file_backend, [
-            {formatter_config, [time, " ", pid, " [",severity,"] ", message, "\n"]},
-            {file, "log/emqttd_error.log"},
-            {level, error},
-            {size, 104857600},
-            {date, "$D0"},
-            {count, 30}
-        ]}
-    ]}
-
----------------
-etc/emqttd.conf
----------------
-
-This is the main configuration file for emqttd broker.
-
-File Syntax
+Console Log
 -----------
 
-The file uses the Erlang term syntax which is like rebar.config or relx.config:
+.. code-block:: properties
 
-1. [ ]: List, seperated by comma
-2. { }: Tuple, Usually {Env, Value}
-3. %  : comment
+    ## Console log. Enum: off, file, console, both
+    log.console = console
 
+    ## Console log level. Enum: debug, info, notice, warning, error, critical, alert, emergency
+    log.console.level = error
+
+    ## Console log file
+    ## log.console.file = log/console.log
+
+Error Log
+---------
+
+.. code-block:: properties
+
+    ## Error log file
+    log.error.file = log/error.log
+
+Crash Log
+---------
+
+.. code-block:: properties
+
+    ## Enable the crash log. Enum: on, off
+    log.crash = on
+
+    log.crash.file = log/crash.log
+
+------------------------
 MQTT Protocol Parameters
 ------------------------
 
 Maximum ClientId Length
-.......................
+-----------------------
 
-.. code-block:: erlang
+.. code-block:: properties
 
-    %% Max ClientId Length Allowed.
-    {mqtt_max_clientid_len, 512}.
+    ## Max ClientId Length Allowed.
+    mqtt.max_clientid_len = 1024
 
 Maximum Packet Size
-...................
+-------------------
 
-.. code-block:: erlang
+.. code-block:: properties
 
-    %% Max Packet Size Allowed, 64K by default.
-    {mqtt_max_packet_size, 65536}.
+    ## Max Packet Size Allowed, 64K by default.
+    mqtt.max_packet_size = 64KB
 
 MQTT Client Idle Timeout
-........................
-
-.. code-block:: erlang
-
-    %% Client Idle Timeout.
-    {mqtt_client_idle_timeout, 30}. % Second
-
-Pluggable Authentication
 ------------------------
 
-The emqttd broker supports pluggable authentication mechanism with a list of modules and plugins.
+.. code-block:: properties
 
-The broker provides Username, ClientId, LDAP and anonymous authentication modules by default:
+    ## Client Idle Timeout (Second)
+    mqtt.client_idle_timeout = 30
 
-.. code-block:: erlang
+----------------------------
+Allow Anonymous and ACL File
+----------------------------
 
-    %%--------------------------------------------------------------------
-    %% Authentication
-    %%--------------------------------------------------------------------
+Allow Anonymous 
+---------------
 
-    %% Anonymous: Allow all
-    {auth, anonymous, []}.
+.. code-block:: properties
 
-    %% Authentication with username, password
-    {auth, username, [{passwd, "etc/modules/passwd.conf"}]}.
+    ## Allow Anonymous authentication
+    mqtt.allow_anonymous = true
 
-    %% Authentication with clientId
-    {auth, clientid, [{config, "etc/modules/client.conf"}, {password, no}]}.
-
-The modules enabled at the same time compose an authentication chain::
-
-               ----------------           ----------------           --------------
-    Client --> |   Anonymous  | -ignore-> |  Username    | -ignore-> |  ClientID  |
-               ----------------           ----------------           --------------
-                      |                         |                         |
-                     \|/                       \|/                       \|/
-                allow | deny              allow | deny              allow | deny
-
-.. NOTE:: There are also MySQL, Postgre, Redis, MongoDB and HTTP Authentication Plugins.
-
-Username Authentication
-.......................
-
-.. code-block:: erlang
-
-    %% Authentication with username, password
-    {auth, username, [{passwd, "etc/modules/passwd.conf"}]}.
-
-Two ways to configure users:
-
-1. Configure username and plain password in etc/modules/passwd.conf::
-
-    {"user1", "passwd1"}.
-    {"user2", "passwd2"}.
-
-2. Add user by './bin/emqttd_ctl users' command::
-
-   $ ./bin/emqttd_ctl users add <Username> <Password>
-
-ClientID Authentication
-.......................
-
-.. code-block:: erlang
-
-    %% Authentication with clientId
-    {auth, clientid, [{config, "etc/modules/client.conf"}, {password, no}]}.
-
-Configure ClientIDs in etc/clients.config::
-
-    "testclientid0".
-    {"testclientid1", "127.0.0.1"}.
-    {"testclientid2", "192.168.0.1/24"}.
-
-Anonymous Authentication
-........................
-
-Allow any client to connect to the broker::
-
-    %% Anonymous: Allow all
-    {auth, anonymous, []}.
-
-ACL(Authorization)
-------------------
+Default ACL File
+----------------
 
 Enable the default ACL module:
 
-.. code-block:: erlang
+.. code-block:: properties
 
-    %% Internal ACL config
-    {acl, internal, [{config, "etc/modules/acl.conf"}, {nomatch, allow}]}.
+    ## Default ACL File
+    mqtt.acl_file = etc/acl.conf
 
-Define ACL rules in etc/modules/acl.conf. The rules by default:
+Define ACL rules in etc/acl.conf. The rules by default:
 
 .. code-block:: erlang
 
@@ -334,82 +275,52 @@ An ACL rule is an Erlang tuple. The Access control module of emqttd broker match
                  \|/                    \|/                    \|/
             allow | deny           allow | deny           allow | deny
 
-Sys Interval of Broker
-----------------------
+-----------------------
+MQTT Session Parameters
+-----------------------
 
-.. code-block:: erlang
+.. code-block:: properties
 
-    %% System interval of publishing $SYS messages
-    {broker_sys_interval, 60}.
+    ## Max number of QoS 1 and 2 messages that can be “inflight” at one time.
+    ## 0 means no limit
+    mqtt.session.max_inflight = 100
 
-Retained Message Configuration
-------------------------------
+    ## Retry interval for redelivering QoS1/2 messages.
+    mqtt.session.retry_interval = 60
 
-Expiration of Retained Message
-...............................
+    ## Awaiting PUBREL Timeout
+    mqtt.session.await_rel_timeout = 20
 
-.. code:: erlang
+    ## Max Packets that Awaiting PUBREL, 0 means no limit
+    mqtt.session.max_awaiting_rel = 0
 
-    %% Expired after seconds, never expired if 0
-    {retained_expired_after, 0}.
+    ## Statistics Collection Interval(seconds)
+    mqtt.session.collect_interval = 0
 
-Maximum Number of Retained Message
-...................................
-
-.. code:: erlang
-
-    %% Max number of retained messages
-    {retained_max_message_num, 100000}.
-
-Maximum Size of Retained Message
-................................
-
-.. code:: erlang
-
-    %% Max Payload Size of retained message
-    {retained_max_playload_size, 65536}.
-
-MQTT Session
-------------
-
-.. code-block:: erlang
-
-    %% Max number of QoS 1 and 2 messages that can be “inflight” at one time.
-    %% 0 means no limit
-    {session_max_inflight, 100}.
-
-    %% Retry interval for redelivering QoS1/2 messages.
-    {session_unack_retry_interval, 60}.
-
-    %% Awaiting PUBREL Timeout
-    {session_await_rel_timeout, 20}.
-
-    %% Max Packets that Awaiting PUBREL, 0 means no limit
-    {session_max_awaiting_rel, 0}.
-
-    %% Statistics Collection Interval(seconds)
-    {session_collect_interval, 0}.
-
-    %% Expired after 2 day (unit: minute)
-    {session_expired_after, 2880}.
-
-Session parameters:
+    ## Expired after 1 day:
+    ## w - week
+    ## d - day
+    ## h - hour
+    ## m - minute
+    ## s - second
+    mqtt.session.expired_after = 1d
 
 +------------------------------+----------------------------------------------------------+
-| session_max_inflight         | Max number of QoS1/2 messages that can be delivered in   |
+| session.max_inflight         | Max number of QoS1/2 messages that can be delivered in   |
 |                              | the same time                                            |
 +------------------------------+----------------------------------------------------------+
-| session_unack_retry_interval | Retry interval for unacked QoS1/2 messages.              |
+| session.retry_interval       | Retry interval for unacked QoS1/2 messages.              |
 +------------------------------+----------------------------------------------------------+
-| session_await_rel_timeout    | Awaiting PUBREL Timeout                                  |
+| session.await_rel_timeout    | Awaiting PUBREL Timeout                                  |
 +------------------------------+----------------------------------------------------------+
-| session_max_awaiting_rel     | Max number of Packets that Awaiting PUBREL               |
+| session.max_awaiting_rel     | Max number of Packets that Awaiting PUBREL               |
 +------------------------------+----------------------------------------------------------+
-| session_collect_interval     | Interval of Statistics Collection                        |
+| session.collect_interval     | Interval of Statistics Collection                        |
 +------------------------------+----------------------------------------------------------+
-| session_expired_after        | Expired after (unit: minute)                             |
+| session.expired_after        | Expired after (unit: minute)                             |
 +------------------------------+----------------------------------------------------------+
 
+------------------
 MQTT Message Queue
 ------------------
 
@@ -421,136 +332,146 @@ The message queue of session stores:
 
 Queue parameters:
 
-.. code-block:: erlang
+.. code-block:: properties
 
-    %% Type: simple | priority
-    {queue_type, simple}.
+    ## Type: simple | priority
+    mqtt.queue.type = simple
 
-    %% Topic Priority: 0~255, Default is 0
-    %% {queue_priority, [{"topic/1", 10}, {"topic/2", 8}]}.
+    ## Topic Priority: 0~255, Default is 0
+    ## mqtt.queue.priority = topic/1=10,topic/2=8
 
-    %% Max queue length. Enqueued messages when persistent client disconnected,
-    %% or inflight window is full.
-    {queue_max_length, infinity}.
+    ## Max queue length. Enqueued messages when persistent client disconnected,
+    ## or inflight window is full.
+    mqtt.queue.max_length = infinity
 
-    %% Low-water mark of queued messages
-    {queue_low_watermark, 0.2}.
+    ## Low-water mark of queued messages
+    mqtt.queue.low_watermark = 20%
 
-    %% High-water mark of queued messages
-    {queue_high_watermark, 0.6}.
+    ## High-water mark of queued messages
+    mqtt.queue.high_watermark = 60%
 
-    %% Queue Qos0 messages?
-    {queue_qos0, true}.
+    ## Queue Qos0 messages?
+    mqtt.queue.qos0 = true
 
 +----------------------+---------------------------------------------------+
-| queue_type           | Queue type: simple or priority                    |
+| queue.type           | Queue type: simple or priority                    |
 +----------------------+---------------------------------------------------+
-| queue_priority       | Topic priority                                    |
+| queue.priority       | Topic priority                                    |
 +----------------------+---------------------------------------------------+
-| queue_max_length     | Max Queue size, infinity means no limit           |
+| queue.max_length     | Max Queue size, infinity means no limit           |
 +----------------------+---------------------------------------------------+
-| queue_low_watermark  | Low watermark                                     |
+| queue.low_watermark  | Low watermark                                     |
 +----------------------+---------------------------------------------------+
-| queue_high_watermark | High watermark                                    |
+| queue.high_watermark | High watermark                                    |
 +----------------------+---------------------------------------------------+
-| queue_qos0           | If Qos0 message queued?                           |
+| queue.qos0           | If Qos0 message queued?                           |
 +----------------------+---------------------------------------------------+
 
-PubSub and Router
+----------------------
+Sys Interval of Broker
+----------------------
+
+.. code-block:: properties
+
+    ## System Interval of publishing broker $SYS Messages
+    mqtt.broker.sys_interval = 60
+
+-----------------
+PubSub Parameters
 -----------------
 
-PubSub Pool Size
-................
+.. code-block:: properties
 
-.. code-block:: erlang
+    ## PubSub Pool Size. Default should be scheduler numbers.
+    mqtt.pubsub.pool_size = 8
 
-    %% PubSub Pool Size. Default should be scheduler numbers.
-    {pubsub_pool_size, 8}.
+    mqtt.pubsub.by_clientid = true
 
+    ##TODO: Subscribe Asynchronously
+    mqtt.pubsub.async = true
+
+----------------------
 MQTT Bridge Parameters
 ----------------------
 
-Max MQueue Size of Bridge
-.........................
+.. code-block:: properties
 
-.. code:: erlang
+    ## Bridge Queue Size
+    mqtt.bridge.max_queue_len = 10000
 
-    %% TODO: Bridge Queue Size
-    {bridge_max_queue_len, 10000}.
+    ## Ping Interval of bridge node. Unit: Second
+    mqtt.bridge.ping_down_interval = 1
 
-Ping Interval of Bridge
-.......................
+-------------------
+Plugins' Etc Folder
+-------------------
 
-.. code:: erlang
+.. code-block:: properties
 
-    %% Ping Interval of bridge node
-    {bridge_ping_down_interval, 1}. % second
+    ## Dir of plugins' config
+    mqtt.plugins.etc_dir = etc/plugins/
 
+    ## File to store loaded plugin names.
+    mqtt.plugins.loaded_file = data/loaded_plugins
+
+----------------
 Extended Modules
 ----------------
 
-Presence Module
-...............
+Enable `Retainer` Module
+------------------------
 
-'presence' module will publish presence message to $SYS topic when a client connected or disconnected:
+.. code-block:: properties
 
-.. code:: erlang
+    ## Enable retainer module
+    mqtt.module.retainer = on
 
-    %% Client presence management module. Publish presence messages when 
-    %% client connected or disconnected.
-    {module, presence, [{qos, 0}]}.
+    ## disc: disc_copies, ram: ram_copies
+    mqtt.module.retainer.storage_type = ram
 
-Subscription Module
-...................
+    ## Max number of retained messages
+    mqtt.module.retainer.max_message_num = 100000
 
-'subscription' module forces the client to subscribe some topics when connected to the broker:
+    ## Max Payload Size of retained message
+    mqtt.module.retainer.max_payload_size = 64KB
 
-.. code:: erlang
+    ## Expired after seconds, never expired if 0
+    mqtt.module.retainer.expired_after = 0
 
-    %% Subscribe topics automatically when client connected
-    {module, subscription, [{"$client/$c", 1}]}.
+Enable `Presence` Module
+------------------------
 
-Rewrite Module
-..............
+`Presence` module will publish presence message to $SYS topic when a client connected or disconnected:
 
-'rewrite' module supports to rewrite the topic path:
+.. code-block:: properties
 
-.. code:: erlang
+    ## Enable presence module
+    ## Publish presence messages when client connected or disconnected.
+    mqtt.module.presence = on
 
-    %% [Rewrite](https://github.com/emqtt/emqttd/wiki/Rewrite)
-    {module, rewrite, [{config, "etc/modules/rewrite.conf"}]}.
+    mqtt.module.presence.qos = 0
 
-Configure rewrite rules in etc/modules/rewrite.conf::
+Enable `Subscription` Module
+----------------------------
 
-    {topic, "x/#", [
-        {rewrite, "^x/y/(.+)$", "z/y/$1"},
-        {rewrite, "^x/(.+)$", "y/$1"}
-    ]}.
+`Subscription` module forces the client to subscribe some topics when connected to the broker:
 
-    {topic, "y/+/z/#", [
-        {rewrite, "^y/(.+)/z/(.+)$", "y/z/$2"}
-    ]}.
+.. code-block:: properties
 
-Plugins Folder
+    # Enable subscription module
+    mqtt.module.subscription = on
+
+    mqtt.module.subscription.topics = $client/%c=1,$user/%u=1
+
+--------------
+MQTT Listeners
 --------------
 
-.. code:: erlang
-
-    %% Dir of plugins' config
-    {plugins_etc_dir, "etc/plugins/"}.
-
-    %% File to store loaded plugin names.
-    {plugins_loaded_file, "data/loaded_plugins"}.
-
-
-TCP Listeners
--------------
-
-Configure the TCP listeners for MQTT, MQTT(SSL) and HTTP Protocols.
+Configure the TCP listeners for MQTT, MQTT(SSL), HTTP and HTTPS Protocols.
 
 The most important parameter is 'max_clients' - max concurrent clients allowed.
 
-The TCP Ports occupied by emqttd broker by default:
+The TCP Ports occupied by the *EMQ* broker by default:
 
 +-----------+-----------------------------------+
 | 1883      | MQTT Port                         |
@@ -560,131 +481,110 @@ The TCP Ports occupied by emqttd broker by default:
 | 8083      | MQTT(WebSocket), HTTP API Port    |
 +-----------+-----------------------------------+
 
-.. code-block:: erlang
-
 Listener Parameters:
 
-+-------------+----------------------------------------------------------------+
-| acceptors   | TCP Acceptor Pool                                              |
-+-------------+----------------------------------------------------------------+
-| max_clients | Maximum number of concurrent TCP connections allowed           |
-+-------------+----------------------------------------------------------------+
-| access      | Access Control by IP, for example: [{allow, "192.168.1.0/24"}] |
-+-------------+----------------------------------------------------------------+
-| connopts    | Rate Limit Control, for example: {rate_limit, "100,10"}        |
-+-------------+----------------------------------------------------------------+
-| sockopts    | TCP Socket parameters                                          |
-+-------------+----------------------------------------------------------------+
++-----------------------------+-------------------------------------------------------+
+| mqtt.listener.*.acceptors   | TCP Acceptor Pool                                     |
++-----------------------------+-------------------------------------------------------+
+| mqtt.listener.*.max_clients | Maximum number of concurrent TCP connections allowed  |
++-----------------------------+-------------------------------------------------------+
+| mqtt.listener.*.rate_limit  | Maximum number of concurrent TCP connections allowed  |
++-----------------------------+-------------------------------------------------------+
 
-1883 - Plain MQTT
-.................
+TCP Listener - 1883
+-------------------
 
-.. code-block:: erlang
+.. code-block:: properties
 
-    %% Plain MQTT
-    {listener, mqtt, 1883, [
-        %% Size of acceptor pool
-        {acceptors, 16},
+    ## TCP Listener: 1883, 127.0.0.1:1883, ::1:1883
+    mqtt.listener.tcp = 1883
 
-        %% Maximum number of concurrent clients
-        {max_clients, 512},
+    ## Size of acceptor pool
+    mqtt.listener.tcp.acceptors = 8
 
-        %% Mount point prefix
-        %% {mount_point, "prefix/"},
+    ## Maximum number of concurrent clients
+    mqtt.listener.tcp.max_clients = 1024
 
-        %% Socket Access Control
-        {access, [{allow, all}]},
+    ## Rate Limit. Format is 'burst,rate', Unit is KB/Sec
+    ## mqtt.listener.tcp.rate_limit = 100,10
 
-        %% Connection Options
-        {connopts, [
-            %% Rate Limit. Format is 'burst, rate', Unit is KB/Sec
-            %% {rate_limit, "100,10"} %% 100K burst, 10K rate
-        ]},
+    ## TCP Socket Options
+    mqtt.listener.tcp.backlog = 1024
+    ## mqtt.listener.tcp.recbuf = 4096
+    ## mqtt.listener.tcp.sndbuf = 4096
+    ## mqtt.listener.tcp.buffer = 4096
+    ## mqtt.listener.tcp.nodelay = true
 
-        %% Socket Options
-        {sockopts, [
-            %Set buffer if hight thoughtput
-            %{recbuf, 4096},
-            %{sndbuf, 4096},
-            %{buffer, 4096},
-            %{nodelay, true},
-            {backlog, 1024}
-        ]}
-    ]}.
+SSL Listener - 8883
+-------------------
 
-8883 - MQTT(SSL) 
-................
+.. code-block:: properties
 
-.. code-block:: erlang
+    ## SSL Listener: 8883, 127.0.0.1:8883, ::1:8883
+    mqtt.listener.ssl = 8883
 
-    %% MQTT/SSL
-    {listener, mqtts, 8883, [
-        %% Size of acceptor pool
-        {acceptors, 4},
+    ## Size of acceptor pool
+    mqtt.listener.ssl.acceptors = 4
 
-        %% Maximum number of concurrent clients
-        {max_clients, 512},
+    ## Maximum number of concurrent clients
+    mqtt.listener.ssl.max_clients = 512
 
-        %% Mount point prefix
-        %% {mount_point, "secure/"},
+    ## Rate Limit. Format is 'burst,rate', Unit is KB/Sec
+    ## mqtt.listener.ssl.rate_limit = 100,10
 
-        %% Socket Access Control
-        {access, [{allow, all}]},
+    ## SSL Options
+    mqtt.listener.ssl.handshake_timeout = 15
+    mqtt.listener.ssl.keyfile = etc/certs/key.pem
+    mqtt.listener.ssl.certfile = etc/certs/cert.pem
+    mqtt.listener.ssl.cacertfile = etc/certs/cacert.pem
+    ## mqtt.listener.ssl.verify = verify_peer
+    ## mqtt.listener.ssl.failed_if_no_peer_cert = true
 
-        %% SSL certificate and key files
-        {ssl, [{certfile, "etc/ssl/ssl.crt"},
-               {keyfile,  "etc/ssl/ssl.key"}]},
+HTTP/WS Listener - 8083
+-----------------------
 
-        %% Socket Options
-        {sockopts, [
-            {backlog, 1024}
-            %{buffer, 4096},
-        ]}
-    ]}.
+.. code-block:: properties
 
-8083 - MQTT(WebSocket)
-......................
+    ## HTTP and WebSocket Listener
+    mqtt.listener.http = 8083
+    mqtt.listener.http.acceptors = 4
+    mqtt.listener.http.max_clients = 64
 
-.. code-block:: erlang
+HTTPS/WSS Listener - 8084
+-------------------------
 
-    %% HTTP and WebSocket Listener
-    {listener, http, 8083, [
-        %% Size of acceptor pool
-        {acceptors, 4},
+.. code-block:: properties
 
-        %% Maximum number of concurrent clients
-        {max_clients, 64},
+    ## HTTP(SSL) Listener
+    mqtt.listener.https = 8084
+    mqtt.listener.https.acceptors = 4
+    mqtt.listener.https.max_clients = 64
+    mqtt.listener.https.handshake_timeout = 10
+    mqtt.listener.https.certfile = etc/certs/cert.pem
+    mqtt.listener.https.keyfile = etc/certs/key.pem
+    mqtt.listener.https.cacertfile = etc/certs/cacert.pem
+    ## 开启双向认证
+    ## mqtt.listener.https.verify = verify_peer
+    ## mqtt.listener.https.failed_if_no_peer_cert = true
 
-        %% Socket Access Control
-        {access, [{allow, all}]},
+--------------
+System Monitor
+--------------
 
-        %% Socket Options
-        {sockopts, [
-            {backlog, 1024}
-            %{buffer, 4096},
-        ]}
-    ]}.
+.. code-block:: properties
 
-Erlang VM Monitor
------------------
+    ## Long GC, don't monitor in production mode for:
+    sysmon.long_gc = false
 
-.. code:: erlang
+    ## Long Schedule(ms)
+    sysmon.long_schedule = 240
 
-    %% Long GC, don't monitor in production mode for:
-    %% https://github.com/erlang/otp/blob/feb45017da36be78d4c5784d758ede619fa7bfd3/erts/emulator/beam/erl_gc.c#L421
+    ## 8M words. 32MB on 32-bit VM, 64MB on 64-bit VM.
+    sysmon.large_heap = 8MB
 
-    {sysmon_long_gc, false}.
+    ## Busy Port
+    sysmon.busy_port = false
 
-    %% Long Schedule(ms)
-    {sysmon_long_schedule, 240}.
-
-    %% 8M words. 32MB on 32-bit VM, 64MB on 64-bit VM.
-    %% 8 * 1024 * 1024
-    {sysmon_large_heap, 8388608}.
-
-    %% Busy Port
-    {sysmon_busy_port, false}.
-
-    %% Busy Dist Port
-    {sysmon_busy_dist_port, true}.
+    ## Busy Dist Port
+    sysmon.busy_dist_port = true
 

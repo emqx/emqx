@@ -5,6 +5,38 @@
 Changes
 =======
 
+.. _release_2.0_rc.2:
+
+----------------
+Version 2.0-rc.2
+----------------
+
+*Release Date: 2016-10-19*
+
+1. A more user-friendly configuration for the EMQ broker. Integrate with `cuttlefish` library and adopt `K = V` syntax::
+
+    node.name = emqttd@127.0.0.1
+
+    ...
+
+    mqtt.listener.tcp = 1883
+
+    ...
+
+2. Support OS Environments::
+
+    EMQ_NODE_NAME
+    EMQ_NODE_COOKIE
+    EMQ_MAX_PORTS
+    EMQ_TCP_PORT
+    EMQ_SSL_PORT
+    EMQ_HTTP_PORT
+    EMQ_HTTPS_PORT
+
+3. Refactor all the modules and plugins, and adopt new configuration syntax.
+
+TODO: issues closed.
+
 .. _release_2.0_rc.1:
 
 ----------------

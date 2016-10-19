@@ -5,11 +5,11 @@
 Bridge
 ======
 
--------------
-emqttd Bridge
--------------
+---------------
+EMQ Node Bridge
+---------------
 
-Two or more emqttd brokers could be bridged together. Bridges forward MQTT messages from one broker node to another::
+Two or more *EMQ* brokers could be bridged together. Bridges forward MQTT messages from one broker node to another::
 
                   ---------                     ---------                     ---------
     Publisher --> | node1 | --Bridge Forward--> | node2 | --Bridge Forward--> | node3 | --> Subscriber
@@ -18,7 +18,7 @@ Two or more emqttd brokers could be bridged together. Bridges forward MQTT messa
 Configure Bridge
 ----------------
 
-Suppose that we create two emqttd brokers on localhost:
+Suppose that we create two *EMQ* brokers on localhost:
 
 +---------+---------------------+-----------+
 | Name    | Node                | MQTT Port |
@@ -69,9 +69,9 @@ Create a bridge that forwards all the 'sensor/#' messages from emqttd1 to emqttd
 
     ./bin/emqttd_ctl bridges stop emqttd2@127.0.0.1 sensor/#
 
------------------
-emqttd Bridge CLI
------------------
+--------------
+EMQ Bridge CLI
+--------------
 
 .. code-block:: bash
 
@@ -95,7 +95,7 @@ Bridge mosquitto to emqttd broker::
 
                  -------------             -----------------
     Sensor ----> | mosquitto | --Bridge--> |               |
-                 -------------             |    emqttd     |
+                 -------------             |      EMQ      |
                  -------------             |    Cluster    |
     Sensor ----> | mosquitto | --Bridge--> |               |
                  -------------             -----------------
@@ -115,11 +115,11 @@ A bridge configured in mosquitto.conf::
     # of mqttv31 or mqttv311. Defaults to mqttv31.
     bridge_protocol_version mqttv311
 
--------------
+-----------
 rsmb Bridge
--------------
+-----------
 
-Bridge RSMB to emqttd broker, same settings as mosquitto.
+Bridge RSMB to EMQ broker, same settings as mosquitto.
 
 broker.cfg::
 
