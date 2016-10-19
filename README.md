@@ -55,9 +55,9 @@ The emqttd project is aimed to implement a scalable, distributed, extensible ope
 
 Module                   | Description
 -------------------------|------------------------------
+emqttd_mod_retainer      | Store MQTT Retained Messages
 emqttd_mod_presence      | Publish presence message when client connected or disconnected
 emqttd_mod_subscription  | Subscribe topics when client connected
-emqttd_mod_rewrite       | Topic path rewrite like HTTP rewrite module
 
 ## Plugins
 
