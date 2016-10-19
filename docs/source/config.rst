@@ -17,42 +17,6 @@ The main configuration files of the EMQ broker are under 'etc/' folder:
 | etc/plugins/\*.conf  | Config Files of Plugins           |
 +----------------------+-----------------------------------+
 
-----------------------------
-Plugins' Configuration Files
-----------------------------
-
-+----------------------------------------+-----------------------------------+
-| File                                   | Description                       |
-+----------------------------------------+-----------------------------------+
-| etc/plugins/emq_auth_username.conf     | Username/Password Auth Plugin     |
-+----------------------------------------+-----------------------------------+
-| etc/plugins/emq_auth_clientid.conf     | ClientId Auth Plugin              |
-+----------------------------------------+-----------------------------------+
-| etc/plugins/emq_auth_http.conf         | HTTP Auth/ACL Plugin Config       |
-+----------------------------------------+-----------------------------------+
-| etc/plugins/emq_auth_mongo.conf        | MongoDB Auth/ACL Plugin Config    |
-+----------------------------------------+-----------------------------------+
-| etc/plugins/emq_auth_mysql.conf        | MySQL Auth/ACL Plugin Config      |
-+----------------------------------------+-----------------------------------+
-| etc/plugins/emq_auth_pgsql.conf        | Postgre Auth/ACL Plugin Config    |
-+----------------------------------------+-----------------------------------+
-| etc/plugins/emq_auth_redis.conf        | Redis Auth/ACL Plugin Config      |
-+----------------------------------------+-----------------------------------+
-| etc/plugins/emq_coap.conf              | CoAP Protocol Plugin Config       |
-+----------------------------------------+-----------------------------------+
-| etc/plugins/emq_dashboard.conf         | Dashboard Plugin Config           |
-+----------------------------------------+-----------------------------------+
-| etc/plugins/emq_plugin_template.conf   | Template Plugin Config            |
-+----------------------------------------+-----------------------------------+
-| etc/plugins/emq_recon.conf             | Recon Plugin Config               |
-+----------------------------------------+-----------------------------------+
-| etc/plugins/emq_reloader.conf          | Reloader Plugin Config            |
-+----------------------------------------+-----------------------------------+
-| etc/plugins/emq_sn.conf                | MQTT-SN Protocal Plugin Config    |
-+----------------------------------------+-----------------------------------+
-| etc/plugins/emq_stomp.conf             | Stomp Protocl Plugin Config       |
-+----------------------------------------+-----------------------------------+
-
 ---------------------
 EMQ 2.0 Config Syntax
 ---------------------
@@ -587,4 +551,40 @@ System Monitor
 
     ## Busy Dist Port
     sysmon.busy_dist_port = true
+
+----------------------------
+Plugins' Configuration Files
+----------------------------
+
++----------------------------------------+-----------------------------------+
+| File                                   | Description                       |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_auth_username.conf     | Username/Password Auth Plugin     |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_auth_clientid.conf     | ClientId Auth Plugin              |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_auth_http.conf         | HTTP Auth/ACL Plugin Config       |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_auth_mongo.conf        | MongoDB Auth/ACL Plugin Config    |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_auth_mysql.conf        | MySQL Auth/ACL Plugin Config      |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_auth_pgsql.conf        | Postgre Auth/ACL Plugin Config    |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_auth_redis.conf        | Redis Auth/ACL Plugin Config      |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_coap.conf              | CoAP Protocol Plugin Config       |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_dashboard.conf         | Dashboard Plugin Config           |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_plugin_template.conf   | Template Plugin Config            |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_recon.conf             | Recon Plugin Config               |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_reloader.conf          | Reloader Plugin Config            |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_sn.conf                | MQTT-SN Protocal Plugin Config    |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_stomp.conf             | Stomp Protocl Plugin Config       |
++----------------------------------------+-----------------------------------+
 
