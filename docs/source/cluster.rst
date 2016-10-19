@@ -161,26 +161,26 @@ Suppose we deploy two nodes cluster on s1.emqtt.io, s2.emqtt.io:
 emqttd@s1.emqtt.io setting
 --------------------------
 
-emqttd/releases/2.0/vm.args::
+emqttd/etc/emq.conf::
 
-    -name emqttd@s1.emqtt.io
+    node.name = emqttd@s1.emqtt.io
 
-    or
+    或
 
-    -name emqttd@192.168.0.10
+    node.name = emqttd@192.168.0.10
 
 .. WARNING:: The name cannot be changed after node joined the cluster.
 
 emqttd@s2.emqtt.io setting
 --------------------------
 
-emqttd/releases/2.0/vm.args::
+emqttd/etc/emq.conf::
 
-    -name emqttd@s2.emqtt.io
+    node.name = emqttd@s2.emqtt.io
 
-    or
+    或
 
-    -name emqttd@192.168.0.20
+    node.name = emqttd@192.168.0.20
 
 Join the cluster
 ----------------
