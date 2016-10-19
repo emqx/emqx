@@ -846,7 +846,7 @@ Create a Plugin Project
 
 Clone emq_plugin_template source from github.com::
 
-    git clone https://github.com/emqtt/emqttd_plugin_template.git
+    git clone https://github.com/emqtt/emq_plugin_template.git
 
 Create a plugin project with erlang.mk and depends on 'emqttd' application, the 'Makefile'::
 
@@ -861,7 +861,7 @@ Create a plugin project with erlang.mk and depends on 'emqttd' application, the 
 
     include erlang.mk
 
-Template Plugin: https://github.com/emqtt/emqttd_plugin_template
+Template Plugin: https://github.com/emqtt/emq_plugin_template
 
 Register Auth/ACL Modules
 -------------------------

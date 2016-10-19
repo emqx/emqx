@@ -382,7 +382,7 @@ The callback function for a hook should return:
 | {stop, NewAcc}  | Return Acc and Break   |
 +-----------------+------------------------+
 
-The input arguments for a callback function are depending on the types of hook. Clone the `emqttd_plugin_template`_ project to check the argument in detail.
+The input arguments for a callback function are depending on the types of hook. Clone the `emq_plugin_template`_ project to check the argument in detail.
 
 Hook Implementation
 -------------------
@@ -425,11 +425,11 @@ And implemented in emqttd_hook module:
 Hook Usage
 ----------
 
-The `emqttd_plugin_template`_ project provides the examples for hook usage:
+The `emq_plugin_template`_ project provides the examples for hook usage:
 
 .. code-block:: erlang
 
-    -module(emqttd_plugin_template).
+    -module(emq_plugin_template).
 
     -export([load/1, unload/0]).
 
@@ -498,7 +498,7 @@ http://github.com/emqtt/emqttd_plugin_template
 
 .. _eSockd: https://github.com/emqtt/esockd
 .. _Chain-of-responsibility_pattern: https://en.wikipedia.org/wiki/Chain-of-responsibility_pattern
-.. _emqttd_plugin_template: https://github.com/emqtt/emqttd_plugin_template/blob/master/src/emqttd_plugin_template.erl
+.. _emq_plugin_template: https://github.com/emqtt/emq_plugin_template/blob/master/src/emq_plugin_template.erl
 
 -----------------
 Mnesia/ETS Tables
