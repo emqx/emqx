@@ -63,23 +63,23 @@ emqttd_mod_subscription  | Subscribe topics when client connected
 
 Plugin                                                                    | Description
 --------------------------------------------------------------------------|--------------------------------------
-[emq_plugin_template](https://github.com/emqtt/emqttd_plugin_template)    | Plugin template and demo
-[emq_dashboard](https://github.com/emqtt/emqttd_dashboard)                | Web Dashboard
+[emq_plugin_template](https://github.com/emqtt/emq_plugin_template)    | Plugin template and demo
+[emq_dashboard](https://github.com/emqtt/emq_dashboard)                | Web Dashboard
 [emq_auth_username](https://github.com/emqtt/emq_auth_username)           | Username/Password Authentication Plugin
 [emq_auth_clientid](https://github.com/emqtt/emq_auth_clientid)           | ClientId Authentication Plugin
-[emq_auth_mysql](https://github.com/emqtt/emqttd_auth_mysql)              | MySQL Authentication/ACL Plugin
-[emq_auth_pgsql](https://github.com/emqtt/emqttd_auth_pgsql)              | PostgreSQL Authentication/ACL Plugin
-[emq_auth_redis](https://github.com/emqtt/emqttd_auth_redis)              | Redis Authentication/ACL Plugin
-[emq_auth_mongo](https://github.com/emqtt/emqttd_auth_mongo)              | MongoDB Authentication/ACL Plugin
-[emq_auth_http](https://github.com/emqtt/emqttd_auth_http)                | Authentication/ACL by HTTP API
-[emq_auth_ldap](https://github.com/emqtt/emqttd_auth_ldap)                | LDAP Authentication Plugin
+[emq_auth_mysql](https://github.com/emqtt/emq_auth_mysql)              | MySQL Authentication/ACL Plugin
+[emq_auth_pgsql](https://github.com/emqtt/emq_auth_pgsql)              | PostgreSQL Authentication/ACL Plugin
+[emq_auth_redis](https://github.com/emqtt/emq_auth_redis)              | Redis Authentication/ACL Plugin
+[emq_auth_mongo](https://github.com/emqtt/emq_auth_mongo)              | MongoDB Authentication/ACL Plugin
+[emq_auth_http](https://github.com/emqtt/emq_auth_http)                | Authentication/ACL by HTTP API
+[emq_auth_ldap](https://github.com/emqtt/emq_auth_ldap)                | LDAP Authentication Plugin
 [emq_mod_rewrite](https://github.com/emqtt/emq_mod_rewrite)               | Rewrite Module
-[emq_sn](https://github.com/emqtt/emqttd_sn)                              | MQTT-SN Protocol Plugin
-[emq_coap](https://github.com/emqtt/emqttd_coap)                          | CoAP Protocol Plugin
-[emq_stomp](https://github.com/emqtt/emqttd_stomp)                        | Stomp Protocol Plugin
-[emq_recon](https://github.com/emqtt/emqttd_recon)                        | Recon Plugin
-[emq_reloader](https://github.com/emqtt/emqttd_reloader)                  | Reloader Plugin
-[emq_sockjs](https://github.com/emqtt/emqttd_sockjs)                      | SockJS(Stomp) Plugin
+[emq_sn](https://github.com/emqtt/emq_sn)                              | MQTT-SN Protocol Plugin
+[emq_coap](https://github.com/emqtt/emq_coap)                          | CoAP Protocol Plugin
+[emq_stomp](https://github.com/emqtt/emq_stomp)                        | Stomp Protocol Plugin
+[emq_recon](https://github.com/emqtt/emq_recon)                        | Recon Plugin
+[emq_reloader](https://github.com/emqtt/emq_reloader)                  | Reloader Plugin
+[emq_sockjs](https://github.com/emqtt/emq_sockjs)                      | SockJS(Stomp) Plugin
 
 ## Dashboard
 
