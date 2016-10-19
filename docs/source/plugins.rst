@@ -844,13 +844,13 @@ Plugin Development Guide
 Create a Plugin Project
 -----------------------
 
-Clone emqttd_plugin_template source from github.com::
+Clone emq_plugin_template source from github.com::
 
     git clone https://github.com/emqtt/emqttd_plugin_template.git
 
 Create a plugin project with erlang.mk and depends on 'emqttd' application, the 'Makefile'::
 
-    PROJECT = emqttd_plugin_abc
+    PROJECT = emq_plugin_abc
     PROJECT_DESCRIPTION = emqttd abc plugin
     PROJECT_VERSION = 1.0
 

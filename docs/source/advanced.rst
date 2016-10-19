@@ -11,7 +11,7 @@ Advanced
 Local Subscription
 ------------------
 
-The EMQ broker will not create global routes for `Local Subscription`, and only dispatch MQTT messages on local node.
+The *EMQ* broker will not create global routes for `Local Subscription`, and only dispatch MQTT messages on local node.
 
 .. code-block:: shell
 
