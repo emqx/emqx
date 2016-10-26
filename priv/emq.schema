@@ -533,7 +533,7 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.ssl.verify", "emqttd.listeners", [
-  {datatype, string}
+  {datatype, atom}
 ]}.
 
 {mapping, "mqtt.listener.ssl.failed_if_no_peer_cert", "emqttd.listeners", [
@@ -589,7 +589,7 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.https.verify", "emqttd.listeners", [
-  {datatype, string}
+  {datatype, atom}
 ]}.
 
 {mapping, "mqtt.listener.https.failed_if_no_peer_cert", "emqttd.listeners", [
@@ -615,8 +615,8 @@ end}.
                           {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
                           {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
                           {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)},
-                          {verify,     cuttlefish:conf_get(Prefix ++ ".verify_peer", Conf, undefined)},
-                          {failed_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ "failed_if_no_peer_cert", Conf, undefined)}])
+                          {verify,     cuttlefish:conf_get(Prefix ++ ".verify", Conf, undefined)},
+                          {failed_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ ".failed_if_no_peer_cert", Conf, undefined)}])
               end,
 
     Listeners = fun(Name) when is_atom(Name) ->
