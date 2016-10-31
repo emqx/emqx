@@ -23,7 +23,7 @@
 %% Application callbacks
 -export([start/2, stop/1]).
 
--export([start_listener/1, stop_listener/1, is_mod_enabled/1]).
+-export([start_listener/1, stop_listener/1]).
 
 %% MQTT SockOpts
 -define(MQTT_SOCKOPTS, [binary, {packet, raw}, {reuseaddr, true},
@@ -47,7 +47,6 @@ start(_StartType, _StartArgs) ->
     start_servers(Sup),
     emqttd_cli:load(),
     register_acl_mod(),
-    load_all_mods(),
     emqttd_plugins:init(),
     emqttd_plugins:load(),
     start_listeners(),
@@ -152,26 +151,6 @@ register_acl_mod() ->
     end.
 
 %%--------------------------------------------------------------------
-%% Load Modules
-%%--------------------------------------------------------------------
-
-%% @doc Load all modules
-load_all_mods() ->
-    lists:foreach(fun load_mod/1, emqttd:env(modules, [])).
-
-load_mod({Name, Opts}) ->
-    Mod = list_to_atom("emqttd_mod_" ++ atom_to_list(Name)),
-    case catch Mod:load(Opts) of
-        ok               -> lager:info("Load module ~s successfully", [Name]);
-        {error, Error}   -> lager:error("Load module ~s error: ~p", [Name, Error]);
-        {'EXIT', Reason} -> lager:error("Load module ~s error: ~p", [Name, Reason])
-    end.
-
-%% @doc Is module enabled?
--spec(is_mod_enabled(Name :: atom()) -> boolean()).
-is_mod_enabled(Name) -> lists:keyfind(Name, 1, emqttd:env(modules, [])).
-
-%%--------------------------------------------------------------------
 %% Start Listeners
 %%--------------------------------------------------------------------
 
@@ -230,12 +209,5 @@ stop_listener({Proto, ListenOn, _Opts}) ->
 merge_sockopts_test_() ->
     Opts =  [{acceptors, 16}, {max_clients, 512}],
     ?_assert(merge_sockopts(Opts) == [{sockopts, ?MQTT_SOCKOPTS} | Opts]).
-
-load_all_mods_test_() ->
-    ?_assert(load_all_mods() == ok).
-
-is_mod_enabled_test_() ->
-    ?_assert(is_mod_enabled(presence) == {module, presence, [{qos, 0}]}),
-    ?_assert(is_mod_enabled(test) == false).
 
 -endif.
