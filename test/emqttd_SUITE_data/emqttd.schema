@@ -261,6 +261,12 @@ end}.
   hidden
 ]}.
 
+%% @doc Default ACL File
+{mapping, "mqtt.acl_file", "emqttd.acl_file", [
+  {datatype, string},
+  hidden
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT Session
 %%--------------------------------------------------------------------
@@ -527,7 +533,7 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.ssl.verify", "emqttd.listeners", [
-  {datatype, string}
+  {datatype, atom}
 ]}.
 
 {mapping, "mqtt.listener.ssl.failed_if_no_peer_cert", "emqttd.listeners", [
@@ -583,7 +589,7 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.https.verify", "emqttd.listeners", [
-  {datatype, string}
+  {datatype, atom}
 ]}.
 
 {mapping, "mqtt.listener.https.failed_if_no_peer_cert", "emqttd.listeners", [
@@ -609,8 +615,8 @@ end}.
                           {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
                           {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
                           {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)},
-                          {verify,     cuttlefish:conf_get(Prefix ++ ".verify_peer", Conf, undefined)},
-                          {failed_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ "failed_if_no_peer_cert", Conf, undefined)}])
+                          {verify,     cuttlefish:conf_get(Prefix ++ ".verify", Conf, undefined)},
+                          {failed_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ ".failed_if_no_peer_cert", Conf, undefined)}])
               end,
 
     Listeners = fun(Name) when is_atom(Name) ->
@@ -703,7 +709,7 @@ end}.
                                       {list_to_binary(Topic), list_to_integer(Qos)}
                                   end || S <- string:tokens(Topics, ",")]
                end,
-    SubOpts = fun(Prefix) -> [{topics, ParseFun(cuttlefish:conf_get(Prefix ++ ".topics", Conf))}] end,
+    SubOpts = fun(Prefix) -> ParseFun(cuttlefish:conf_get(Prefix ++ ".topics", Conf)) end,
     lists:append([WithMod(retainer, RetainOpts), WithMod(presence, PresOpts), WithMod(subscription, SubOpts)])
 end}.
 
