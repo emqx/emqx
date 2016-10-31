@@ -133,7 +133,8 @@ authorized(Req) ->
         false;
     "Basic " ++ BasicAuth ->
         {Username, Password} = user_passwd(BasicAuth),
-        case emqttd_access_control:auth(#mqtt_client{username = Username}, Password) of
+        {ok, Peer} = Req:get(peername),
+        case emqttd_access_control:auth(#mqtt_client{username = Username, peername = Peer}, Password) of
             ok ->
                 true;
             {error, Reason} ->
