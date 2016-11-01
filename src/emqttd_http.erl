@@ -137,6 +137,9 @@ authorized(Req) ->
         case emqttd_access_control:auth(#mqtt_client{username = Username, peername = Peer}, Password) of
             ok ->
                 true;
+            %% http publish is_super to true?
+            {ok, IsSuper} ->
+                true;
             {error, Reason} ->
                 lager:error("HTTP Auth failure: username=~s, reason=~p", [Username, Reason]),
                 false
