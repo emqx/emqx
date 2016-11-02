@@ -5,6 +5,36 @@
 Changes
 =======
 
+.. _release_2.0_rc.3:
+
+----------------
+Version 2.0-rc.3
+----------------
+
+*Release Date: 2016-11-01*
+
+1. Change the three modules(Presence, Retainer, Subscription) to standalone plugins:
+
++----------------------------+--------------------------------------------+
+| `emq_mod_retainer`_        | Retained Message Storage                   |
++----------------------------+--------------------------------------------+
+| `emq_mod_presence`_        | Publish presence message to $SYS topics    |
+|                            | when client connected or disconnected      |
++----------------------------+--------------------------------------------+
+| `emq_mod_subscription`_    | Subscribe topics automatically when client |
+|                            | connected                                  |
++----------------------------+--------------------------------------------+
+
+2. Update the SSL certificates under the etc/certs/ folder.
+
+3. Bugfix: Fixed a typo (#716)
+
+4. Bugfix: emqttd_http can not use emq_auth_http? #739
+
+5. Bugfix: emq_auth_redis cannot use hostname as server address (#741)
+
+6. Upgrade Redis, MySQL, Postgre and MongoDB plugins to support hostname.
+
 .. _release_2.0_rc.2:
 
 ----------------
@@ -1696,4 +1726,14 @@ Version 0.1.0
 *Release Date: 2012-09-21*
 
 The first public release.
+
+.. _erlang.mk_:     https://erlang.mk
+.. _relx_:          https://github.com/erlware/relx
+.. _emqttd_:        https://github.com/emqtt/emqttd
+.. _emqttd_relx:    https://github.com/emqtt/emqttd-relx
+.. _emqttd_sn:      http://github.com/emqtt/emqttd_sn
+
+.. _emq_mod_retainer:     https://github.com/emqtt/emq_mod_retainer
+.. _emq_mod_presence:     https://github.com/emqtt/emq_mod_presence
+.. _emq_mod_subscription: https://github.com/emqtt/emq_mod_subscription
 

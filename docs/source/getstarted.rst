@@ -109,47 +109,11 @@ The Dashboard helps check running status of the broker, monitor statistics and m
 
 .. image:: ./_static/images/dashboard.png
 
--------------------
-Modules and Plugins
--------------------
-
-The *EMQ* broker could be extended by Modules ofr Plugins.
-
-Modules
 -------
-
-+-------------------------+--------------------------------------------+
-| emqttd_mod_retainer     | Retained Messages Storage                  |
-+-------------------------+--------------------------------------------+
-| emqttd_mod_presence     | Publish presence message to $SYS topics    |
-|                         | when client connected or disconnected      |
-+-------------------------+--------------------------------------------+
-| emqttd_mod_subscription | Subscribe topics automatically when client |
-|                         | connected                                  |
-+-------------------------+--------------------------------------------+
-
-Modules could enabled by configuring 'etc/emq.conf':
-
-.. code-block:: properties
-
-    ##-------------------------------------------------------------------
-    ## MQTT Modules
-    ##-------------------------------------------------------------------
-
-    ## Enable presence module
-    mqtt.module.presence = on
-
-    mqtt.module.presence.qos = 0
-
-    ## Enable subscription module
-    mqtt.module.subscription = on
-
-    mqtt.module.subscription.topics = $client/%c=1,$user/%u=1
-
 Plugins
 -------
 
-A plugin is an Erlang application to extend the *EMQ* broker.
+The *EMQ* broker could be extended by Plugins.  A plugin is an Erlang application to extend the *EMQ* broker:
 
 +-------------------------+--------------------------------------------+
 | `emq_auth_clientid`_    | Authentication with ClientId               |
@@ -171,6 +135,12 @@ A plugin is an Erlang application to extend the *EMQ* broker.
 | `emq_auth_redis`_       | Authentication with Redis                  |
 +-------------------------+--------------------------------------------+
 | `emq_mod_rewrite`_      | Topics rewrite like HTTP rewrite module    |
++-------------------------+--------------------------------------------+
+| `emq_mod_retainer`_     | Retainer Module                            |
++-------------------------+--------------------------------------------+
+| `emq_mod_presence`_     | Presence Module                            |
++-------------------------+--------------------------------------------+
+| `emq_mod_subscription`_ | Subscription Module                        |
 +-------------------------+--------------------------------------------+
 | `emq_mod_mongo`_        | Authentication with MongoDB                |
 +-------------------------+--------------------------------------------+
@@ -303,4 +273,7 @@ MQTT.org: https://github.com/mqtt/mqtt.github.io/wiki/libraries
 .. _emq_recon:           https://github.com/emqtt/emq_recon
 .. _emq_sn:              https://github.com/emqtt/emq_sn
 .. _emq_coap:            https://github.com/emqtt/emq_coap
+.. _emq_mod_retainer:     https://github.com/emqtt/emq_mod_retainer
+.. _emq_mod_presence:     https://github.com/emqtt/emq_mod_presence
+.. _emq_mod_subscription: https://github.com/emqtt/emq_mod_subscription
 
