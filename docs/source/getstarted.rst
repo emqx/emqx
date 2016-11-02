@@ -81,7 +81,7 @@ Installing on Mac, for example:
 Installing from Source
 ----------------------
 
-.. NOTE:: emqttd broker requires Erlang R18+ to build since 1.1 release.
+.. NOTE:: The *EMQ* broker requires Erlang R18+ to build since 1.1 release.
 
 .. code-block:: bash
 
@@ -128,7 +128,7 @@ The *EMQ* broker could be extended by Plugins.  A plugin is an Erlang applicatio
 +-------------------------+--------------------------------------------+
 | `emq_auth_http`_        | Authentication/ACL with HTTP API           |
 +-------------------------+--------------------------------------------+
-| `emq_auth_mysql` _      | Authentication with MySQL                  |
+| `emq_auth_mysql`_       | Authentication with MySQL                  |
 +-------------------------+--------------------------------------------+
 | `emq_auth_pgsql`_       | Authentication with PostgreSQL             |
 +-------------------------+--------------------------------------------+
