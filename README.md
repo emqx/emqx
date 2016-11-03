@@ -51,29 +51,24 @@ The emqttd project is aimed to implement a scalable, distributed, extensible ope
 * Local Subscription
 * Shared Subscription
 
-## Modules
-
-Module                   | Description
--------------------------|------------------------------
-emqttd_mod_retainer      | Store MQTT Retained Messages
-emqttd_mod_presence      | Publish presence message when client connected or disconnected
-emqttd_mod_subscription  | Subscribe topics when client connected
-
 ## Plugins
 
-Plugin                                                                    | Description
---------------------------------------------------------------------------|--------------------------------------
+Plugin                                                                 | Description
+-----------------------------------------------------------------------|--------------------------------------
 [emq_plugin_template](https://github.com/emqtt/emq_plugin_template)    | Plugin template and demo
 [emq_dashboard](https://github.com/emqtt/emq_dashboard)                | Web Dashboard
-[emq_auth_username](https://github.com/emqtt/emq_auth_username)           | Username/Password Authentication Plugin
-[emq_auth_clientid](https://github.com/emqtt/emq_auth_clientid)           | ClientId Authentication Plugin
+[emq_auth_username](https://github.com/emqtt/emq_auth_username)        | Username/Password Authentication Plugin
+[emq_auth_clientid](https://github.com/emqtt/emq_auth_clientid)        | ClientId Authentication Plugin
 [emq_auth_mysql](https://github.com/emqtt/emq_auth_mysql)              | MySQL Authentication/ACL Plugin
 [emq_auth_pgsql](https://github.com/emqtt/emq_auth_pgsql)              | PostgreSQL Authentication/ACL Plugin
 [emq_auth_redis](https://github.com/emqtt/emq_auth_redis)              | Redis Authentication/ACL Plugin
 [emq_auth_mongo](https://github.com/emqtt/emq_auth_mongo)              | MongoDB Authentication/ACL Plugin
 [emq_auth_http](https://github.com/emqtt/emq_auth_http)                | Authentication/ACL by HTTP API
 [emq_auth_ldap](https://github.com/emqtt/emq_auth_ldap)                | LDAP Authentication Plugin
-[emq_mod_rewrite](https://github.com/emqtt/emq_mod_rewrite)               | Rewrite Module
+[emq_mod_presence](https://github.com/emqtt/emq_mod_presence)          | Presence Module
+[emq_mod_rewrite](https://github.com/emqtt/emq_mod_rewrite)            | Rewrite Module
+[emq_mod_retainer](https://github.com/emqtt/emq_mod_retainer)          | Store MQTT Retained Messages
+[emq_mod_subscription](https://github.com/emqtt/emq_mod_subscription)  | Subscribe topics when client connected
 [emq_sn](https://github.com/emqtt/emq_sn)                              | MQTT-SN Protocol Plugin
 [emq_coap](https://github.com/emqtt/emq_coap)                          | CoAP Protocol Plugin
 [emq_stomp](https://github.com/emqtt/emq_stomp)                        | Stomp Protocol Plugin
