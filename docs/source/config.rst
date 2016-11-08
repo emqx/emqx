@@ -453,7 +453,7 @@ SSL Listener - 8883
     mqtt.listener.ssl.certfile = etc/certs/cert.pem
     mqtt.listener.ssl.cacertfile = etc/certs/cacert.pem
     ## mqtt.listener.ssl.verify = verify_peer
-    ## mqtt.listener.ssl.failed_if_no_peer_cert = true
+    ## mqtt.listener.ssl.fail_if_no_peer_cert = true
 
 HTTP/WS Listener - 8083
 -----------------------
@@ -480,7 +480,7 @@ HTTPS/WSS Listener - 8084
     mqtt.listener.https.cacertfile = etc/certs/cacert.pem
     ## 开启双向认证
     ## mqtt.listener.https.verify = verify_peer
-    ## mqtt.listener.https.failed_if_no_peer_cert = true
+    ## mqtt.listener.https.fail_if_no_peer_cert = true
 
 --------------
 System Monitor

@@ -536,7 +536,7 @@ end}.
   {datatype, atom}
 ]}.
 
-{mapping, "mqtt.listener.ssl.failed_if_no_peer_cert", "emqttd.listeners", [
+{mapping, "mqtt.listener.ssl.fail_if_no_peer_cert", "emqttd.listeners", [
   {datatype, {enum, [true, false]}}
 ]}.
 
@@ -592,7 +592,7 @@ end}.
   {datatype, atom}
 ]}.
 
-{mapping, "mqtt.listener.https.failed_if_no_peer_cert", "emqttd.listeners", [
+{mapping, "mqtt.listener.https.fail_if_no_peer_cert", "emqttd.listeners", [
   {datatype, {enum, [true, false]}}
 ]}.
 
@@ -611,12 +611,12 @@ end}.
                            {nodelay, cuttlefish:conf_get(Prefix ++ ".nodelay", Conf, true)}])
               end,
     SslOpts = fun(Prefix) ->
-                  Filter([{handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf)},
+                  Filter([{handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf) * 1000},
                           {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
                           {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
                           {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)},
                           {verify,     cuttlefish:conf_get(Prefix ++ ".verify", Conf, undefined)},
-                          {failed_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ ".failed_if_no_peer_cert", Conf, undefined)}])
+                          {fail_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ ".fail_if_no_peer_cert", Conf, undefined)}])
               end,
 
     Listeners = fun(Name) when is_atom(Name) ->
