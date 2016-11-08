@@ -338,7 +338,7 @@ end}.
 %% @doc Max queue length. Enqueued messages when persistent client disconnected, or inflight window is full.
 {mapping, "mqtt.queue.max_length", "emqttd.queue", [
   {default, infinity},
-  {datatype, [atom, integer]}
+  {datatype, [integer, atom]}
 ]}.
 
 %% @doc Low-water mark of queued messages
