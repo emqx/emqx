@@ -22,6 +22,12 @@
   hidden
 ]}.
 
+%% @doc http://erlang.org/doc/man/heart.html
+{mapping, "node.heartbeat", "vm_args.-heart", [
+  {datatype, {enum, [enable, auto, disable]}},
+  hidden
+]}.
+
 %% @doc Enable Kernel Poll
 {mapping, "node.kernel_poll", "vm_args.+K", [
   {default, on},
@@ -338,7 +344,7 @@ end}.
 %% @doc Max queue length. Enqueued messages when persistent client disconnected, or inflight window is full.
 {mapping, "mqtt.queue.max_length", "emqttd.queue", [
   {default, infinity},
-  {datatype, [integer, atom]}
+  {datatype, [integer, {atom, infinity}]}
 ]}.
 
 %% @doc Low-water mark of queued messages
