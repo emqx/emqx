@@ -24,9 +24,16 @@
 
 %% @doc http://erlang.org/doc/man/heart.html
 {mapping, "node.heartbeat", "vm_args.-heart", [
-  {datatype, {enum, [enable, auto, disable]}},
+  {datatype, flag},
   hidden
 ]}.
+
+{translation, "vm_args.-heart", fun(Conf) ->
+    case cuttlefish:conf_get("node.heartbeat", Conf) of
+        true  -> "";
+        false -> cuttlefish:invalid("should be 'on' or comment the line!")
+    end
+end}.
 
 %% @doc Enable Kernel Poll
 {mapping, "node.kernel_poll", "vm_args.+K", [
