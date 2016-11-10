@@ -181,6 +181,40 @@ Uninstall emqttd service::
 
 .. WARNING:: './bin/emqttd_ctl' command line cannot work on Windows.
 
+.. _install_via_docker_image:
+
+------------------------
+Install via Docker Image
+------------------------
+
+Download *EMQ* 2.0 Docker Image:
+
+    http://emqtt.com/downloads/latest/docker
+
+unzip emqttd-docker image::
+
+    unzip emqttd-docker-v2.0.zip
+
+Load Docker Image::
+
+    docker load < emqttd-docker-v2.0
+
+Run the Container::
+
+    docker run -itd --net='host' --name emq20 emqttd-docker-v2.0
+
+Stop the broker::
+
+    docker stop emq20
+
+Start the broker::
+
+    docker start emq20
+
+Enter the running container::
+
+    docker exec -it emq20 /bin/bash
+
 .. _build_from_source:
 
 ----------------------
@@ -218,11 +252,13 @@ TCP Ports Used
 +-----------+-----------------------------------+
 | 1883      | MQTT Port                         |
 +-----------+-----------------------------------+
-| 8883      | MQTT Over SSL Port                |
+| 8883      | MQTT/SSL  Port                    |
 +-----------+-----------------------------------+
 | 8083      | MQTT(WebSocket), HTTP API Port    |
 +-----------+-----------------------------------+
-| 18083     | Dashboard Port                    |
+| 8084      | MQTT(WebSocket/SSL), HTTP API Port|
++-----------+-----------------------------------+
+| 18083     | Web Dashboard Port                |
 +-----------+-----------------------------------+
 
 The TCP ports used can be configured in etc/emqttd.config:
