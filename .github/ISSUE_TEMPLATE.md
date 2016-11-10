@@ -1,5 +1,10 @@
 #### Environment
-- OS version: 
-- Erlang version: 
-- emqttd version: 
+
+- OS: 
+- Erlang/OTP: 
+- EMQ: 
+
+#### Description
+
+*A description of the issue*
 
