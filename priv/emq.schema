@@ -280,6 +280,13 @@ end}.
   hidden
 ]}.
 
+%% @doc Cache ACL for PUBLISH
+{mapping, "mqtt.cache_acl", "emqttd.cache_acl", [
+  {default, true},
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT Session
 %%--------------------------------------------------------------------
