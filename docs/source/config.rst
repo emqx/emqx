@@ -378,55 +378,6 @@ Plugins' Etc Folder
     ## File to store loaded plugin names.
     mqtt.plugins.loaded_file = data/loaded_plugins
 
-----------------
-Extended Modules
-----------------
-
-Enable `Retainer` Module
-------------------------
-
-.. code-block:: properties
-
-    ## Enable retainer module
-    mqtt.module.retainer = on
-
-    ## disc: disc_copies, ram: ram_copies
-    mqtt.module.retainer.storage_type = ram
-
-    ## Max number of retained messages
-    mqtt.module.retainer.max_message_num = 100000
-
-    ## Max Payload Size of retained message
-    mqtt.module.retainer.max_payload_size = 64KB
-
-    ## Expired after seconds, never expired if 0
-    mqtt.module.retainer.expired_after = 0
-
-Enable `Presence` Module
-------------------------
-
-`Presence` module will publish presence message to $SYS topic when a client connected or disconnected:
-
-.. code-block:: properties
-
-    ## Enable presence module
-    ## Publish presence messages when client connected or disconnected.
-    mqtt.module.presence = on
-
-    mqtt.module.presence.qos = 0
-
-Enable `Subscription` Module
-----------------------------
-
-`Subscription` module forces the client to subscribe some topics when connected to the broker:
-
-.. code-block:: properties
-
-    # Enable subscription module
-    mqtt.module.subscription = on
-
-    mqtt.module.subscription.topics = $client/%c=1,$user/%u=1
-
 --------------
 MQTT Listeners
 --------------
@@ -496,13 +447,13 @@ SSL Listener - 8883
     ## Rate Limit. Format is 'burst,rate', Unit is KB/Sec
     ## mqtt.listener.ssl.rate_limit = 100,10
 
-    ## SSL Options
+    ## Configuring SSL Options
     mqtt.listener.ssl.handshake_timeout = 15
     mqtt.listener.ssl.keyfile = etc/certs/key.pem
     mqtt.listener.ssl.certfile = etc/certs/cert.pem
-    mqtt.listener.ssl.cacertfile = etc/certs/cacert.pem
+    ## mqtt.listener.ssl.cacertfile = etc/certs/cacert.pem
     ## mqtt.listener.ssl.verify = verify_peer
-    ## mqtt.listener.ssl.failed_if_no_peer_cert = true
+    ## mqtt.listener.ssl.fail_if_no_peer_cert = true
 
 HTTP/WS Listener - 8083
 -----------------------
@@ -523,13 +474,12 @@ HTTPS/WSS Listener - 8084
     mqtt.listener.https = 8084
     mqtt.listener.https.acceptors = 4
     mqtt.listener.https.max_clients = 64
-    mqtt.listener.https.handshake_timeout = 10
+    mqtt.listener.https.handshake_timeout = 15
     mqtt.listener.https.certfile = etc/certs/cert.pem
     mqtt.listener.https.keyfile = etc/certs/key.pem
-    mqtt.listener.https.cacertfile = etc/certs/cacert.pem
-    ## 开启双向认证
+    ## mqtt.listener.https.cacertfile = etc/certs/cacert.pem
     ## mqtt.listener.https.verify = verify_peer
-    ## mqtt.listener.https.failed_if_no_peer_cert = true
+    ## mqtt.listener.https.fail_if_no_peer_cert = true
 
 --------------
 System Monitor
@@ -574,6 +524,14 @@ Plugin Configuration Files
 | etc/plugins/emq_auth_redis.conf        | Redis Auth/ACL Plugin Config      |
 +----------------------------------------+-----------------------------------+
 | etc/plugins/emq_coap.conf              | CoAP Protocol Plugin Config       |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_mod_presence.conf      | Presence Module Config            |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_mod_retainer.conf      | Retainer Module Config            |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_mod_rewrite.config     | Rewrite Module Config             |
++----------------------------------------+-----------------------------------+
+| etc/plugins/emq_mod_subscription.conf  | Subscription Module Config        |
 +----------------------------------------+-----------------------------------+
 | etc/plugins/emq_dashboard.conf         | Dashboard Plugin Config           |
 +----------------------------------------+-----------------------------------+

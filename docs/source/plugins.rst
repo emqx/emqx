@@ -30,7 +30,13 @@ The plugins that *EMQ* 2.0-rc.2 released:
 +------------------------+-------------------------------+
 | `emq_auth_mongo`_      | MongoDB Auth/ACL Plugin       |
 +------------------------+-------------------------------+
-| `emq_mod_rewrite`_     | Topic Rewrite Plugin          |
+| `emq_mod_presence`_    | Presence Module               |
++------------------------+-------------------------------+
+| `emq_mod_retainer`_    | Retainer Module               |
++------------------------+-------------------------------+
+| `emq_mod_rewrite`_     | Topic Rewrite Module          |
++------------------------+-------------------------------+
+| `emq_mod_subscription`_| Subscription Module           |
 +------------------------+-------------------------------+
 | `emq_coap`_            | CoAP Protocol Plugin          |
 +------------------------+-------------------------------+
@@ -161,7 +167,7 @@ etc/plugins/emq_dashboard.conf:
     ## dashboard.listener.https.keyfile = etc/certs/key.pem
     ## dashboard.listener.https.cacertfile = etc/certs/cacert.pem
     ## dashboard.listener.https.verify = verify_peer
-    ## dashboard.listener.https.failed_if_no_peer_cert = true
+    ## dashboard.listener.https.fail_if_no_peer_cert = true
 
 -------------------------------
 emq_auth_ldap: LDAP Auth Plugin
@@ -610,16 +616,118 @@ Load MongoDB Auth/ACL Plugin
 
     ./bin/emqttd_ctl plugins load emq_auth_mongo
 
+----------------------------------
+emq_mod_presence - Presence Module
+----------------------------------
+
+`Presence` module will publish presence message to $SYS topic when a client connected or disconnected:
+
+.. NOTE:: Released in 2.0-rc.3: https://github.com/emqtt/emq_mod_presence
+
+Configure Presence Module
+-------------------------
+
+etc/plugins/emq_mod_presence.conf:
+
+.. code-block:: properties
+
+    ## Enable presence module
+    ## Values: on | off
+    module.presence = on
+
+    module.presence.qos = 0
+
+Load Presence Module
+--------------------
+
+.. NOTE:: This module will be loaded by default.
+
+.. code:: bash
+
+    ./bin/emqttd_ctl plugins load emq_mod_presence
+
+----------------------------------
+emq_mod_retainer - Retainer Module
+----------------------------------
+
+`Retainer` module is responsbile for storing MQTT retained messages.
+
+.. NOTE:: Released in 2.0-rc.3: https://github.com/emqtt/emq_mod_retainer
+
+Configure Retainer Module
+-------------------------
+
+etc/plugins/emq_mod_retainer.conf:
+
+.. code-block:: properties
+
+    ## disc: disc_copies, ram: ram_copies
+    module.retainer.storage_type = ram
+
+    ## Max number of retained messages
+    module.retainer.max_message_num = 100000
+
+    ## Max Payload Size of retained message
+    module.retainer.max_payload_size = 64KB
+
+    ## Expired after seconds, never expired if 0
+    module.retainer.expired_after = 0
+
+Load Retainer Module
+--------------------
+
+.. NOTE:: This module will be loaded by default.
+
+.. code:: bash
+
+    ./bin/emqttd_ctl plugins load emq_mod_retainer
+
+------------------------------------------
+emq_mod_subscription - Subscription Module
+------------------------------------------
+
+`Subscription` module forces the client to subscribe some topics when connected to the broker:
+
+.. NOTE:: Released in 2.0-rc.3: https://github.com/emqtt/emq_mod_subscription
+
+Configure Subscription Module
+-----------------------------
+
+etc/plugins/emq_mod_subscription.conf:
+
+.. code-block:: properties
+
+    ## Subscribe the Topics automatically when client connected
+    module.subscription.1.topic = $client/%c
+    ## Qos of the subscription: 0 | 1 | 2
+    module.subscription.1.qos = 1
+
+    ##module.subscription.2.topic = $user/%u
+    ##module.subscription.2.qos = 1
+
+    ## Load static subscriptions from backend storage
+    ## Values: on | off
+    module.subscription.backend = on
+
+Load Subscription Module
+------------------------
+
+.. NOTE:: This module will be loaded by default.
+
+.. code:: bash
+
+    ./bin/emqttd_ctl plugins load emq_mod_subscription
+
 --------------------------------------
-emq_mod_rewrite - Topic Rewrite Plugin
+emq_mod_rewrite - Topic Rewrite Module
 --------------------------------------
 
 Released in 2.0-rc.2: https://github.com/emqtt/emq_mod_rewrite
 
-Configure Rewrite Plugin
+Configure Rewrite Module
 ------------------------
 
-etc/plugins/emq_mod_rewrite.conf:
+etc/plugins/emq_mod_rewrite.config:
 
 .. code-block:: erlang
 
@@ -636,7 +744,7 @@ etc/plugins/emq_mod_rewrite.conf:
     ]}
   ].
 
-Load Rewrite Plugin
+Load Rewrite Module
 -------------------
 
 .. code:: bash
@@ -1052,3 +1160,6 @@ Build and Release the Plugin
 .. _emq_plugin_template: https://github.com/emqtt/emq_plugin_template
 .. _recon:               http://ferd.github.io/recon/
 
+.. _emq_mod_retainer:     https://github.com/emqtt/emq_mod_retainer
+.. _emq_mod_presence:     https://github.com/emqtt/emq_mod_presence
+.. _emq_mod_subscription: https://github.com/emqtt/emq_mod_subscription

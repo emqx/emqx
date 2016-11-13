@@ -228,7 +228,7 @@ del_subscriber_(Share, Topic, Subscriber) ->
 
 del_local_subscriber_(Share, Topic, Subscriber) ->
     ets:delete_object(mqtt_subscriber, {{local, Topic}, shared(Share, Subscriber)}),
-    (not ets:member(subscriber, {local, Topic})) andalso emqttd_router:del_local_route(Topic).
+    (not ets:member(mqtt_subscriber, {local, Topic})) andalso emqttd_router:del_local_route(Topic).
 
 shared(undefined, Subscriber) ->
     Subscriber;

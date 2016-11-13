@@ -261,6 +261,12 @@ end}.
   hidden
 ]}.
 
+%% @doc Default ACL File
+{mapping, "mqtt.acl_file", "emqttd.acl_file", [
+  {datatype, string},
+  hidden
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT Session
 %%--------------------------------------------------------------------
@@ -527,10 +533,10 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.ssl.verify", "emqttd.listeners", [
-  {datatype, string}
+  {datatype, atom}
 ]}.
 
-{mapping, "mqtt.listener.ssl.failed_if_no_peer_cert", "emqttd.listeners", [
+{mapping, "mqtt.listener.ssl.fail_if_no_peer_cert", "emqttd.listeners", [
   {datatype, {enum, [true, false]}}
 ]}.
 
@@ -583,10 +589,10 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.https.verify", "emqttd.listeners", [
-  {datatype, string}
+  {datatype, atom}
 ]}.
 
-{mapping, "mqtt.listener.https.failed_if_no_peer_cert", "emqttd.listeners", [
+{mapping, "mqtt.listener.https.fail_if_no_peer_cert", "emqttd.listeners", [
   {datatype, {enum, [true, false]}}
 ]}.
 
@@ -605,12 +611,12 @@ end}.
                            {nodelay, cuttlefish:conf_get(Prefix ++ ".nodelay", Conf, true)}])
               end,
     SslOpts = fun(Prefix) ->
-                  Filter([{handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf)},
+                  Filter([{handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf) * 1000},
                           {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
                           {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
                           {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)},
-                          {verify,     cuttlefish:conf_get(Prefix ++ ".verify_peer", Conf, undefined)},
-                          {failed_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ "failed_if_no_peer_cert", Conf, undefined)}])
+                          {verify,     cuttlefish:conf_get(Prefix ++ ".verify", Conf, undefined)},
+                          {fail_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ ".fail_if_no_peer_cert", Conf, undefined)}])
               end,
 
     Listeners = fun(Name) when is_atom(Name) ->
@@ -628,83 +634,6 @@ end}.
                    end
                 end,
     lists:append([Listeners(tcp), Listeners(ssl), Listeners(http), Listeners(https)])
-end}.
-
-%%--------------------------------------------------------------------
-%% MQTT Modules
-%%--------------------------------------------------------------------
-
-{mapping, "mqtt.module.retainer", "emqttd.modules", [
-  {default, on},
-  {datatype, flag}
-]}.
-
-{mapping, "mqtt.module.retainer.storage_type", "emqttd.modules", [
-  {default, ram},
-  {datatype, {enum, [disc, ram]}}
-]}.
-
-{mapping, "mqtt.module.retainer.max_message_num", "emqttd.modules", [
-  {default, 100000},
-  {datatype, integer}
-]}.
-
-{mapping, "mqtt.module.retainer.max_payload_size", "emqttd.modules", [
-  {default, "64KB"},
-  {datatype, bytesize}
-]}.
-
-{mapping, "mqtt.module.retainer.expired_after", "emqttd.modules", [
-  {default, 0},
-  {datatype, integer}
-]}.
-
-{mapping, "mqtt.module.presence", "emqttd.modules", [
-  {default, on},
-  {datatype, flag}
-]}.
-
-{mapping, "mqtt.module.presence.qos", "emqttd.modules", [
-  {default, 0},
-  {datatype, integer},
-  {validators, ["range:0-2"]}
-]}.
-
-{mapping, "mqtt.module.subscription", "emqttd.modules", [
-  {default, off},
-  {datatype, flag}
-]}.
-
-{mapping, "mqtt.module.subscription.topics", "emqttd.modules", [
-  {default, undefined},
-  {datatype, string}
-]}.
-
-{translation, "emqttd.modules", fun(Conf) ->
-    WithMod = fun(Name, OptsF) ->
-                  Key = "mqtt.module." ++ atom_to_list(Name),
-                  case cuttlefish:conf_get(Key, Conf, false) of
-                      true  -> [{Name, OptsF(Key)}];
-                      false -> []
-                  end
-              end,
-    RetainOpts = fun(Prefix) ->
-                     [{storage_type, cuttlefish:conf_get(Prefix ++ ".storage_type", Conf, ram)},
-                      {max_message_num, cuttlefish:conf_get(Prefix ++ ".max_message_num", Conf, undefined)},
-                      {max_payload_size, cuttlefish:conf_get(Prefix ++ ".max_payload_size", Conf, undefined)},
-                      {expired_after, cuttlefish:conf_get(Prefix ++ ".expired_after", Conf, 0)}]
-                 end,
-    PresOpts = fun(Prefix) ->
-                   [{qos, cuttlefish:conf_get(Prefix ++ ".qos", Conf, 0)}]
-               end,
-    ParseFun = fun(undefined) -> [];
-                  (Topics)    -> [begin
-                                      [Topic, Qos] = string:tokens(S, "="),
-                                      {list_to_binary(Topic), list_to_integer(Qos)}
-                                  end || S <- string:tokens(Topics, ",")]
-               end,
-    SubOpts = fun(Prefix) -> [{topics, ParseFun(cuttlefish:conf_get(Prefix ++ ".topics", Conf))}] end,
-    lists:append([WithMod(retainer, RetainOpts), WithMod(presence, PresOpts), WithMod(subscription, SubOpts)])
 end}.
 
 %%--------------------------------------------------------------------
