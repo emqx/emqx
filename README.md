@@ -115,9 +115,9 @@ unzip emqttd-ubuntu64-2.0-rc.2-20161019.zip && cd emqttd
 Installing from source:
 
 ```
-git clone https://github.com/emqtt/emqttd-relx.git
+git clone https://github.com/emqtt/emq-relx.git
 
-cd emqttd-relx && make
+cd emq-relx && make
 
 cd _rel/emqttd && ./bin/emqttd console
 ```
