@@ -491,6 +491,19 @@ end}.
   hidden
 ]}.
 
+{mapping, "mqtt.listener.tcp.proxy_protocol", "emqttd.listeners", [
+  {default, 1},
+  {datatype, integer},
+  {validators, ["range:1-2"]},
+  hidden
+]}.
+
+{mapping, "mqtt.listener.tcp.proxy_protocol_timeout", "emqttd.listeners", [
+  {default, 10},
+  {datatype, integer},
+  hidden
+]}.
+
 {mapping, "mqtt.listener.tcp.backlog", "emqttd.listeners", [
   {default, 1024},
   {datatype, integer}
@@ -535,6 +548,19 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "mqtt.listener.ssl.proxy_protocol", "emqttd.listeners", [
+  {default, 1},
+  {datatype, integer},
+  {validators, ["range:1-2"]},
+  hidden
+]}.
+
+{mapping, "mqtt.listener.ssl.proxy_protocol_timeout", "emqttd.listeners", [
+  {default, 10},
+  {datatype, integer},
+  hidden
+]}.
+
 {mapping, "mqtt.listener.ssl.handshake_timeout", "emqttd.listeners", [
   {default, 15},
   {datatype, integer}
@@ -575,6 +601,19 @@ end}.
   {datatype, integer}
 ]}.
 
+{mapping, "mqtt.listener.http.proxy_protocol", "emqttd.listeners", [
+  {default, 1},
+  {datatype, integer},
+  {validators, ["range:1-2"]},
+  hidden
+]}.
+
+{mapping, "mqtt.listener.http.proxy_protocol_timeout", "emqttd.listeners", [
+  {default, 10},
+  {datatype, integer},
+  hidden
+]}.
+
 {mapping, "mqtt.listener.https", "emqttd.listeners", [
   {default, undefined},
   {datatype, [integer, ip]},
@@ -589,6 +628,18 @@ end}.
 {mapping, "mqtt.listener.https.max_clients", "emqttd.listeners", [
   {default, 64},
   {datatype, integer}
+]}.
+
+{mapping, "mqtt.listener.https.proxy_protocol", "emqttd.listeners", [
+  {default, 1},
+  {datatype, integer},
+  {validators, ["range:1-2"]},
+  hidden
+]}.
+
+{mapping, "mqtt.listener.https.proxy_protocol_timeout", "emqttd.listeners", [
+  {datatype, integer},
+  hidden
 ]}.
 
 {mapping, "mqtt.listener.https.handshake_timeout", "emqttd.listeners", [
@@ -620,9 +671,8 @@ end}.
     Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
     LisOpts = fun(Prefix) ->
                   Filter([{acceptors,   cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
-                          {max_clients, cuttlefish:conf_get(Prefix ++ ".max_clients", Conf)},
-                          {rate_limt,   cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined)}])
- end,
+                          {max_clients, cuttlefish:conf_get(Prefix ++ ".max_clients", Conf)}])
+              end,
     TcpOpts = fun(Prefix) ->
                    Filter([{backlog, cuttlefish:conf_get(Prefix ++ ".backlog", Conf, undefined)},
                            {recbuf,  cuttlefish:conf_get(Prefix ++ ".recbuf", Conf, undefined)},
@@ -645,7 +695,12 @@ end}.
                         undefined ->
                             [];
                         Port ->
-                            ConnOpts = Filter([{rate_limit, cuttlefish:conf_get(Key ++ ".rate_limit", Conf, undefined)}]),
+                            ConnOpts = Filter([{rate_limit, cuttlefish:conf_get(Key ++ ".rate_limit", Conf, undefined)},
+                                               {proxy_protocol, cuttlefish:conf_get(Key ++ ".proxy_protocol", Conf, undefined)},
+                                               {proxy_protocol_timeout, case cuttlefish:conf_get(Key ++ ".proxy_protocol_timeout", Conf, undefined) of
+                                                                            undefined -> undefined;
+                                                                            I -> I * 1000
+                                                                        end}]),
                             Opts = [{connopts, ConnOpts}, {sockopts, TcpOpts(Key)} | LisOpts(Key)],
                             [{Name, Port, case Name =:= ssl orelse Name =:= https of
                                               true  -> [{ssl, SslOpts(Key)} | Opts];
