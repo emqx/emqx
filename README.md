@@ -1,7 +1,7 @@
 
-## Overview [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
+# *EMQ* - Erlang MQTT Broker [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
 
-emqttd is a massively scalable and clusterable MQTT V3.1/V3.1.1 broker written in Erlang/OTP.
+*EMQ* is a distributed, massively scalable, highly extensible MQTT message broker written in Erlang/OTP.
 
 emqttd is fully open source and licensed under the Apache Version 2.0. emqttd implements both MQTT V3.1 and V3.1.1 protocol specifications, and supports WebSocket, STOMP, SockJS, CoAP and MQTT-SN at the same time.
 
