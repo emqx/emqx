@@ -45,11 +45,11 @@ The Company behind the open source *EMQ* broker: [emqtt.io](http://emqtt.io). Fo
 
 ## Installation
 
-The *EMQ* broker is cross-platform, which could be deployed on Linux, FreeBSD, Mac, Windows and even Raspberry Pi.
+The *EMQ* broker is cross-platform, which can be deployed on Linux, Unix, Mac, Windows and even Raspberry Pi.
 
 Download the binary package for your platform from http://emqtt.io/downloads.
 
-Documentation on [emqtt.io/docs/v2/](http://emqtt.io/docs/v2/), [docs.emqtt.com](http://docs.emqtt.com/en/latest/) for installation and configuration guide.
+Documentation on [emqtt.io/docs/v2/](http://emqtt.io/docs/v2/install.html), [docs.emqtt.com](http://docs.emqtt.com/en/latest/install.html) for installation and configuration guide.
 
 ## Build From Source
 
