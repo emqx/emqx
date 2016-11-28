@@ -1,33 +1,20 @@
 
-## Overview [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
+# *EMQ* - Erlang MQTT Broker [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
 
-emqttd is a massively scalable and clusterable MQTT V3.1/V3.1.1 broker written in Erlang/OTP.
+*EMQ (Erlang MQTT Broker)* is a distributed, massively scalable, highly extensible MQTT message broker written in Erlang/OTP.
 
-emqttd is fully open source and licensed under the Apache Version 2.0. emqttd implements both MQTT V3.1 and V3.1.1 protocol specifications, and supports WebSocket, STOMP, SockJS, CoAP and MQTT-SN at the same time.
+*EMQ* is fully open source and licensed under the Apache Version 2.0. *EMQ* implements both MQTT V3.1 and V3.1.1 protocol specifications, and supports MQTT-SN, CoAP, WebSocket, STOMP and SockJS at the same time.
 
-emqttd requires Erlang R18+ to build since 1.1 release.
+*EMQ* provides a scalable, reliable, enterprise-grade MQTT message Hub for IoT, M2M, Smart Hardware and Mobile Messaging Applications.
 
-Follow us on Twitter: [@emqtt](https://twitter.com/emqtt)
+The 1.0 release of the EMQ broker has scaled to 1.3 million concurrent MQTT connections on a 12 Core, 32G CentOS server.
 
-## Cluster
-
-The **q.emqtt.com** hosts a public emqttd cluster on [QingCloud](https://qingcloud.com):
-
-![qing_cluster](http://emqtt.io/static/img/public_cluster.png)
-
-## Goals
-
-The emqttd project is aimed to implement a scalable, distributed, extensible open-source MQTT broker for IoT, M2M and Mobile applications that hope to handle millions of concurrent MQTT clients.
-
-* Easy to install
-* Massively scalable
-* Easy to extend
-* Solid stable
+Please visit [emqtt.io](http://emqtt.io) for more service. Follow us on Twitter: [@emqtt](https://twitter.com/emqtt)
 
 ## Features
 
-* Full MQTT V3.1/V3.1.1 protocol specification support
-* QoS0, QoS1, QoS2 Publish and Subscribe
+* Full MQTT V3.1/V3.1.1 support
+* QoS0, QoS1, QoS2 Publish/Subscribe
 * Session Management and Offline Messages
 * Retained Message
 * Last Will Message
@@ -42,16 +29,43 @@ The emqttd project is aimed to implement a scalable, distributed, extensible ope
 * IpAddress Authentication
 * Username and Password Authentication
 * Access control based on IpAddress, ClientID, Username
-* Authentication with LDAP, Redis, MySQL, PostgreSQL and HTTP API
-* Cluster brokers on several servers
+* LDAP Authentication/ACL
+* HTTP Authentication/ACL
+* MySQL Authentication/ACL
+* Redis Authentication/ACL
+* PostgreSQL Authentication/ACL
+* MongoDB Authentication/ACL
+* Cluster brokers on several nodes 
 * Bridge brokers locally or remotely
 * mosquitto, RSMB bridge
-* Extensible architecture with Hooks, Modules and Plugins
+* Extensible architecture with Hooks and Plugins
 * Passed eclipse paho interoperability tests
 * Local Subscription
 * Shared Subscription
 
+## Installation
+
+The *EMQ* broker is cross-platform, which can be deployed on Linux, Unix, Mac, Windows and even Raspberry Pi.
+
+Download the binary package for your platform from http://emqtt.io/downloads.
+
+Documentation on [emqtt.io/docs/v2/](http://emqtt.io/docs/v2/install.html), [docs.emqtt.com](http://docs.emqtt.com/en/latest/install.html) for installation and configuration guide.
+
+## Build From Source
+
+The *EMQ* broker requires Erlang/OTP R18+ to build.
+
+```
+git clone https://github.com/emqtt/emq-relx.git
+
+cd emq-relx && make
+
+cd _rel/emqttd && ./bin/emqttd console
+```
+
 ## Plugins
+
+The *EMQ* broker is highly extensible, with many hooks and plugins for customizing the authentication/ACL and integrating with other systems:
 
 Plugin                                                                 | Description
 -----------------------------------------------------------------------|--------------------------------------
@@ -76,98 +90,24 @@ Plugin                                                                 | Descrip
 [emq_reloader](https://github.com/emqtt/emq_reloader)                  | Reloader Plugin
 [emq_sockjs](https://github.com/emqtt/emq_sockjs)                      | SockJS(Stomp) Plugin
 
-## Dashboard
-
-A Web Dashboard will be loaded when the emqttd broker started successfully.
-
-The Dashboard helps monitor broker's running status, statistics and metrics of MQTT packets.
-
-Default Address: http://localhost:18083
-
-Default Login/Password: admin/public
-
-## Design
-
-![emqttd architecture](http://emqtt.io/static/img/architecture.png)
-
-## QuickStart
-
-Download binary package for Linux, Mac and Freebsd from [http://emqtt.io/downloads](http://emqtt.io/downloads).
-
-Installing on Ubuntu64, for example:
-
-```sh
-unzip emqttd-ubuntu64-2.0-rc.2-20161019.zip && cd emqttd
-
-# start console
-./bin/emqttd console
-
-# start as daemon
-./bin/emqttd start
-
-# check status
-./bin/emqttd_ctl status
-
-# stop
-./bin/emqttd stop
-``` 
-
-Installing from source:
-
-```
-git clone https://github.com/emqtt/emq-relx.git
-
-cd emq-relx && make
-
-cd _rel/emqttd && ./bin/emqttd console
-```
-
-## Documents
-
-Read Documents on [emqttd-docs.rtfd.org](http://emqttd-docs.rtfd.org) for installation and configuration guide.
-
-## Benchmark
-
-Latest release of emqttd broker is scaling to 1.3 million MQTT connections on a 12 Core, 32G CentOS server.
-
-Benchmark 0.12.0-beta on a CentOS6 server with 8 Core, 32G memory from QingCloud:
-
-250K Connections, 250K Topics, 250K Subscriptions, 4K Qos1 Messages/Sec In, 20K Qos1 Messages/Sec Out, 8M+(bps) In, 40M+(bps) Out Traffic
-
-Consumed  about 3.6G memory and 400+% CPU.
-
-Benchmark Report: [benchmark for 0.12.0 release](https://github.com/emqtt/emqttd/wiki/benchmark-for-0.12.0-release)
-
 ## Supports
 
 * Twitter: [@emqtt](https://twitter.com/emqtt)
 * Homepage: http://emqtt.io
 * Downloads: http://emqtt.io/downloads
-* Wiki: https://github.com/emqtt/emqttd/wiki
+* Documentation: http://emqtt.io/docs/v2/
 * Forum: https://groups.google.com/d/forum/emqtt
 * Mailing List: <emqtt@googlegroups.com>
 * Issues: https://github.com/emqtt/emqttd/issues
 * QQ Group: 12222225
 
-## Contributors
-
-* [@callbay](https://github.com/callbay)
-* [@lsxredrain](https://github.com/lsxredrain)
-* [@hejin1026](https://github.com/hejin1026)
-* [@desoulter](https://github.com/desoulter)
-* [@turtleDeng](https://github.com/turtleDeng)
-* [@Hades32](https://github.com/Hades32)
-* [@huangdan](https://github.com/huangdan)
-* [@phanimahesh](https://github.com/phanimahesh)
-* [@dvliman](https://github.com/dvliman)
-
 ## Partners
 
 [QingCloud](https://qingcloud.com) is the world’s first IaaS provider that can deliver any number of IT resources in seconds and adopts a second-based billing system. QingCloud is committed to providing a reliable, secure, on-demand and real-time IT resource platform with excellent performance, which includes all components of a complete IT infrastructure system: computing, storage, networking and security.
 
-## Author
+The **q.emqtt.com** hosts a public Four-Node *EMQ* cluster on [QingCloud](https://qingcloud.com):
 
-Feng Lee <feng@emqtt.io>
+![qing_cluster](http://emqtt.io/static/img/public_cluster.png)
 
 ## License
 
