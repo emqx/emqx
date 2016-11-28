@@ -5,11 +5,11 @@
 
 *EMQ* is fully open source and licensed under the Apache Version 2.0. *EMQ* implements both MQTT V3.1 and V3.1.1 protocol specifications, and supports MQTT-SN, CoAP, WebSocket, STOMP and SockJS at the same time.
 
-The *EMQ* project provides a scalable, reliable, enterprise-grade MQTT message Hub for IoT, M2M, Smart Hardware and Mobile Messaging Applications.
+*EMQ* provides a scalable, reliable, enterprise-grade MQTT message Hub for IoT, M2M, Smart Hardware and Mobile Messaging Applications.
 
-The 1.0 release of the *EMQ* broker is scaling to 1.3 million concurrent MQTT connections on a 12 Core, 32G CentOS server.
+The 1.0 release of the EMQ broker has scaled to 1.3 million concurrent MQTT connections on a 12 Core, 32G CentOS server.
 
-The Company behind the open source *EMQ* broker: [emqtt.io](http://emqtt.io). Follow us on Twitter: [@emqtt](https://twitter.com/emqtt)
+Please visit [emqtt.io](http://emqtt.io) for more service. Follow us on Twitter: [@emqtt](https://twitter.com/emqtt)
 
 ## Features
 
