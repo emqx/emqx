@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% Facade Module for The EMQTT Broker
+%% Facade Module for The EMQ Broker
 
 -module(emqttd).
 
@@ -59,9 +59,7 @@ start() -> application:start(?APP).
 
 %% @doc Stop emqttd application.
 -spec(stop() -> ok | {error, any()}).
-stop() ->
-    emqttd_plugins:unload(),
-    init:stop().
+stop() -> application:stop(?APP).
 
 %% @doc Environment
 -spec(env(Key:: atom()) -> {ok, any()} | undefined).
