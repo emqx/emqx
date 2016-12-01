@@ -22,7 +22,7 @@
 
 -include("emqttd_protocol.hrl").
 
--export([start/0, env/1, env/2, is_running/1]).
+-export([start/0, env/1, env/2, is_running/1, stop/0]).
 
 %% PubSub API
 -export([subscribe/1, subscribe/2, subscribe/3, publish/1,
@@ -56,6 +56,12 @@
 %% @doc Start emqttd application.
 -spec(start() -> ok | {error, any()}).
 start() -> application:start(?APP).
+
+%% @doc Stop emqttd application.
+-spec(stop() -> ok | {error, any()}).
+stop() ->
+    emqttd_plugins:unload(),
+    init:stop().
 
 %% @doc Environment
 -spec(env(Key:: atom()) -> {ok, any()} | undefined).
