@@ -284,11 +284,11 @@ code_change(_OldVsn, State, _Extra) ->
 clean_routes_(Node) ->
     Pattern = #mqtt_route{_ = '_', node = Node},
     Clean = fun() ->
-                [mnesia:delete_object(route, R, write) ||
-                    R <- mnesia:match_object(route, Pattern, write)]
+                [mnesia:delete_object(mqtt_route, R, write) ||
+                    R <- mnesia:match_object(mqtt_route, Pattern, write)]
             end,
     mnesia:transaction(Clean).
 
 update_stats_() ->
-    emqttd_stats:setstats('routes/count', 'routes/max', mnesia:table_info(route, size)).
+    emqttd_stats:setstats('routes/count', 'routes/max', mnesia:table_info(mqtt_route, size)).
 
