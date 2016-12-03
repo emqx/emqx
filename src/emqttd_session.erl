@@ -332,9 +332,13 @@ handle_cast({unsubscribe, TopicTable}, Session = #session{client_id     = Client
         end, Subscriptions, TopicTable),
     hibernate(Session#session{subscriptions = Subscriptions1});
 
-handle_cast({destroy, ClientId}, Session = #session{client_id = ClientId}) ->
+handle_cast({destroy, ClientId}, Session = #session{client_id = ClientId, client_pid = undefined}) ->
     ?LOG(warning, "destroyed", [], Session),
     shutdown(destroy, Session);
+
+handle_cast({destroy, ClientId}, Session = #session{client_id = ClientId, client_pid = OldClientPid}) ->
+    ?LOG(warning, "kickout ~p", [OldClientPid], Session),
+    shutdown(conflict, Session);
 
 handle_cast({resume, ClientId, ClientPid}, Session = #session{client_id      = ClientId,
                                                               client_pid     = OldClientPid,
