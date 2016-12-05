@@ -336,11 +336,9 @@ handle_cast({destroy, ClientId}, Session = #session{client_id = ClientId, client
     ?LOG(warning, "destroyed", [], Session),
     shutdown(destroy, Session);
 
-%% 
 handle_cast({destroy, ClientId}, Session = #session{client_id = ClientId, client_pid = OldClientPid}) ->
-    ?LOG(warning, "kicked out~p", [OldClientPid], Session),
+    ?LOG(warning, "kickout ~p", [OldClientPid], Session),
     shutdown(conflict, Session);
-
 
 handle_cast({resume, ClientId, ClientPid}, Session = #session{client_id      = ClientId,
                                                               client_pid     = OldClientPid,
