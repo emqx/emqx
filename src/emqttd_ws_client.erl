@@ -107,6 +107,7 @@ handle_cast({unsubscribe, Topics}, State) ->
         end, State);
 
 handle_cast({received, Packet}, State = #wsclient_state{peer = Peer, proto_state = ProtoState}) ->
+    emqttd_metrics:received(Packet),
     case emqttd_protocol:received(Packet, ProtoState) of
         {ok, ProtoState1} ->
             noreply(State#wsclient_state{proto_state = ProtoState1});
