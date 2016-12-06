@@ -471,7 +471,7 @@ end}.
 %%--------------------------------------------------------------------
 
 {mapping, "mqtt.listener.tcp", "emqttd.listeners", [
-  {default, 1883},
+  %% {default, 1883},
   {datatype, [integer, ip]}
 ]}.
 
@@ -517,7 +517,7 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.ssl", "emqttd.listeners", [
-  {default, 8883},
+  %% {default, 8883},
   {datatype, [integer, ip]}
 ]}.
 
@@ -561,7 +561,7 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.http", "emqttd.listeners", [
-  {default, 8883},
+  %% {default, 8083},
   {datatype, [integer, ip]}
 ]}.
 
@@ -576,9 +576,8 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.https", "emqttd.listeners", [
-  {default, undefined},
+  %%{default, 8084},
   {datatype, [integer, ip]},
-  hidden
 ]}.
 
 {mapping, "mqtt.listener.https.acceptors", "emqttd.listeners", [
