@@ -92,7 +92,7 @@ init([OriginConn, MqttEnv]) ->
     SendFun = fun(Packet) ->
         Data = emqttd_serializer:serialize(Packet),
         ?LOG(debug, "SEND ~p", [Data], #client_state{connname = ConnName}),
-        emqttd_metrics:inc('bytes/sent', size(Data)),
+        emqttd_metrics:inc('bytes/sent', iolist_size(Data)),
         try Connection:async_send(Data) of
             true -> ok
         catch
@@ -184,7 +184,7 @@ handle_info(activate_sock, State) ->
     hibernate(run_socket(State#client_state{conn_state = running}));
 
 handle_info({inet_async, _Sock, _Ref, {ok, Data}}, State) ->
-    Size = size(Data),
+    Size = iolist_size(Data),
     ?LOG(debug, "RECV ~p", [Data], State),
     emqttd_metrics:inc('bytes/received', Size),
     received(Data, rate_limit(Size, State#client_state{await_recv = false}));
