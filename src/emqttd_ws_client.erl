@@ -69,7 +69,7 @@ init([MqttEnv, WsPid, Req, ReplyChannel]) ->
     %% SendFun = fun(Payload) -> ReplyChannel({binary, Payload}) end,
     SendFun = fun(Packet) ->
                   Data = emqttd_serializer:serialize(Packet),
-                  emqttd_metrics:inc('bytes/sent', size(Data)),
+                  emqttd_metrics:inc('bytes/sent', iolist_size(Data)),
                   ReplyChannel({binary, Data})
               end,
     ProtoState = emqttd_protocol:init(Peername, SendFun,
