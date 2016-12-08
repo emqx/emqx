@@ -528,6 +528,10 @@ print({ClientId, _ClientPid, _Persistent, SessInfo}) ->
 
 print(subscription, {Sub, Topic}) when is_pid(Sub) ->
     ?PRINT("~p -> ~s~n", [Sub, Topic]);
+print(subscription, {Sub, {_Share, Topic}}) when is_pid(Sub) ->
+    ?PRINT("~p -> ~s~n", [Sub, Topic]);
+print(subscription, {Sub, {_Share, Topic}}) ->
+    ?PRINT("~s -> ~s~n", [Sub, Topic]);
 print(subscription, {Sub, Topic}) ->
     ?PRINT("~s -> ~s~n", [Sub, Topic]).
 
