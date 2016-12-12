@@ -77,8 +77,10 @@ remove(Node) ->
                 ok    -> rpc:call(Node, ?MODULE, reboot, []);
                 Error -> Error
             end;
-        Error ->
-            {error, Error}
+        {badrpc, nodedown} ->
+            emqttd_mnesia:remove_from_cluster(Node);
+        {badrpc, Reason} ->
+            {error, Reason}
     end.
 
 %% @doc Cluster status
