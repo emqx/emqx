@@ -62,6 +62,7 @@ unsubscribe(CPid, Topics) ->
 %%--------------------------------------------------------------------
 
 init([MqttEnv, WsPid, Req, ReplyChannel]) ->
+    process_flag(trap_exit, true),
     true = link(WsPid),
     {ok, Peername} = Req:get(peername),
     Headers = mochiweb_headers:to_list(
@@ -170,6 +171,13 @@ handle_info({keepalive, check}, State = #wsclient_state{peer      = Peer,
             ?WSLOG(warning, Peer, "Keepalive error - ~p", [Error]),
             shutdown(keepalive_error, State)
     end;
+
+handle_info({'EXIT', WsPid, normal}, State = #wsclient_state{ws_pid = WsPid}) ->
+    stop(normal, State);
+
+handle_info({'EXIT', WsPid, Reason}, State = #wsclient_state{peer = Peer, ws_pid = WsPid}) ->
+    ?WSLOG(error, Peer, "shutdown: ~p",[Reason]),
+    shutdown(Reason, State);
 
 handle_info(Info, State = #wsclient_state{peer = Peer}) ->
     ?WSLOG(critical, Peer, "Unexpected Info: ~p", [Info]),
