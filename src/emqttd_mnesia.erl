@@ -187,8 +187,8 @@ remove_from_cluster(Node) when Node =/= node() ->
             ensure_ok(del_schema_copy(Node)),
             ensure_ok(rpc:call(Node, ?MODULE, delete_schema, []));
         {true, false} ->
-            ensure_ok(del_schema_copy(Node)),
-            ensure_ok(rpc:call(Node, ?MODULE, delete_schema, []));
+            ensure_ok(del_schema_copy(Node));
+            %ensure_ok(rpc:call(Node, ?MODULE, delete_schema, []));
         {false, _} ->
             {error, node_not_in_cluster}
     end.

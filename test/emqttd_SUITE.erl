@@ -480,7 +480,7 @@ cluster_node_down(_) ->
     [<<"#">>, <<"a/b/c">>] = [Topic || #mqtt_route{topic = Topic} <- Routes],
     slave:stop(Z),
     timer:sleep(1000),
-    Routes = lists:sort(emqttd_router:match(<<"a/b/c">>)).
+    [] = lists:sort(emqttd_router:match(<<"a/b/c">>)).
 
 set_alarms(_) ->
     AlarmTest = #mqtt_alarm{id = <<"1">>, severity = error, title="alarm title", summary="alarm summary"},

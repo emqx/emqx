@@ -55,6 +55,7 @@ ws_loop([<<>>], State, _ReplyChannel) ->
 ws_loop(Data, State = #wsocket_state{peer = Peer, client_pid = ClientPid,
                                      parser_fun = ParserFun}, ReplyChannel) ->
     ?WSLOG(debug, Peer, "RECV ~p", [Data]),
+    emqttd_metrics:inc('bytes/received', iolist_size(Data)),
     case catch ParserFun(iolist_to_binary(Data)) of
         {more, NewParser} ->
             State#wsocket_state{parser_fun = NewParser};

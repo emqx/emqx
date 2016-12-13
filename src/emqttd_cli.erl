@@ -195,7 +195,8 @@ sessions(_) ->
 %%--------------------------------------------------------------------
 %% @doc Routes Command
 routes(["list"]) ->
-    if_could_print(mqtt_route, fun print/1);
+    Routes = emqttd_router:dump(),
+    foreach(fun print/1, Routes);
 
 routes(["show", Topic]) ->
     print(mnesia:dirty_read(mqtt_route, bin(Topic)));
@@ -506,8 +507,13 @@ print(#mqtt_client{client_id = ClientId, clean_sess = CleanSess, username = User
 
 %% print(#mqtt_topic{topic = Topic, flags = Flags}) ->
 %%    ?PRINT("~s: ~s~n", [Topic, string:join([atom_to_list(F) || F <- Flags], ",")]);
-
+print({route, Routes}) ->
+    foreach(fun print/1, Routes);
+print({local_route, Routes}) ->
+    foreach(fun print/1, Routes);
 print(#mqtt_route{topic = Topic, node = Node}) ->
+    ?PRINT("~s -> ~s~n", [Topic, Node]);
+print({Topic, Node}) ->
     ?PRINT("~s -> ~s~n", [Topic, Node]);
 
 print({ClientId, _ClientPid, _Persistent, SessInfo}) ->
@@ -528,6 +534,10 @@ print({ClientId, _ClientPid, _Persistent, SessInfo}) ->
 
 print(subscription, {Sub, Topic}) when is_pid(Sub) ->
     ?PRINT("~p -> ~s~n", [Sub, Topic]);
+print(subscription, {Sub, {_Share, Topic}}) when is_pid(Sub) ->
+    ?PRINT("~p -> ~s~n", [Sub, Topic]);
+print(subscription, {Sub, {_Share, Topic}}) ->
+    ?PRINT("~s -> ~s~n", [Sub, Topic]);
 print(subscription, {Sub, Topic}) ->
     ?PRINT("~s -> ~s~n", [Sub, Topic]).
 
