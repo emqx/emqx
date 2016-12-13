@@ -46,7 +46,7 @@ handle_request('GET', "/status", Req) ->
 handle_request('POST', "/mqtt/publish", Req) ->
     case authorized(Req) of
         true  -> http_publish(Req);
-        false -> Req:respond({401, [], <<"Fobbiden">>})
+        false -> Req:respond({401, [], <<"Unauthorized">>})
     end;
 
 %%--------------------------------------------------------------------
