@@ -30,12 +30,12 @@ join(Node) when Node =:= node() ->
     {error, {cannot_join_with_self, Node}};
 
 join(Node) when is_atom(Node) ->
-    case {is_clustered(Node), emqttd:is_running(Node)} of
-        {false, true} ->
+    case {net_adm:ping(Node), is_clustered(Node), emqttd:is_running(Node)} of
+        {pong, false, true} ->
             prepare(), ok = emqttd_mnesia:join_cluster(Node), reboot();
-        {false, false} ->
+        {_, false, false} ->
             {error, {node_not_running, Node}};
-        {true, _} ->
+        {_, true, _} ->
             {error, {already_clustered, Node}}
     end.
 
