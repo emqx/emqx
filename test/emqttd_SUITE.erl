@@ -26,25 +26,34 @@
 
 -define(CONTENT_TYPE, "application/x-www-form-urlencoded").
 
+-define(MQTT_SSL_MUTWAY, [{cacertfile, "certs/cacert.pem"},
+				 		 {verify, verify_peer},
+						 {fail_if_no_peer_cert, true}]).
+
+-define(MQTT_SSL_CLIENT, [{keyfile, "certs/client-key.pem"},
+						  {cacertfile, "certs/cacert.pem"},
+						  {certfile, "certs/client-cert.pem"}]).
+
+
 all() ->
     [{group, protocol},
      {group, pubsub},
      {group, router},
      {group, session},
-     %%{group, retainer},
      {group, broker},
      {group, metrics},
      {group, stats},
      {group, hook},
      {group, http},
      {group, cluster},
-     %%{group, backend},
      {group, alarms},
      {group, cli}].
 
 groups() ->
     [{protocol, [sequence],
-      [mqtt_connect]},
+      [mqtt_connect,
+	   mqtt_ssl_oneway,
+	   mqtt_ssl_mutway]},
      {pubsub, [sequence],
       [subscribe_unsubscribe,
        publish, pubsub,
@@ -66,8 +75,6 @@ groups() ->
      {hook, [sequence],
       [add_delete_hook,
        run_hooks]},
-     {backend, [sequence],
-      []},
     {http, [sequence], 
      [request_status,
       request_publish
@@ -101,9 +108,11 @@ groups() ->
 init_per_suite(Config) ->
     application:start(lager),
     DataDir = proplists:get_value(data_dir, Config),
-    peg_com(DataDir),
-    start_apps(emqttd, DataDir),
-    Config.
+	NewConfig = emqttd_config(DataDir),
+    Vals = change_opts(ssl_oneway, DataDir, proplists:get_value(emqttd, NewConfig)), 
+    [application:set_env(emqttd, Par, Value) || {Par, Value} <- Vals],
+    application:ensure_all_started(emqttd),
+	[{config, NewConfig} | Config].
 
 end_per_suite(_Config) ->
     application:stop(emqttd),
@@ -128,6 +137,48 @@ connect_broker_(Packet, RecvSize) ->
     {ok, Data} = gen_tcp:recv(Sock, RecvSize, 3000),
     gen_tcp:close(Sock),
     Data.
+
+mqtt_ssl_oneway(_) ->
+	{ok, SslOneWay} = emqttc:start_link([{host, "localhost"},
+										 {port, 8883},
+										 {client_id, <<"ssloneway">>}, ssl]),
+    timer:sleep(100),
+    emqttc:subscribe(SslOneWay, <<"topic">>, qos1),
+
+	{ok, Pub} = emqttc:start_link([{host, "localhost"},
+						 		   {client_id, <<"pub">>}]),
+	receive {publish, _Topic, RM} ->
+        ?assertEqual(<<"SSL oneWay test">>, RM)
+    after 1000 -> false
+    end,
+    emqttc:disconnect(SslOneWay),
+    emqttc:disconnect(Pub).
+
+mqtt_ssl_mutway(Config) ->
+	emqttd_cluster:prepare(),
+    DataDir = proplists:get_value(data_dir, Config),
+	EmqConfig = proplists:get_value(config, Config), 
+	Vals = change_opts(ssl_mut, DataDir, proplists:get_value(emqttd, EmqConfig)),
+    [application:set_env(emqttd, Par, Value) || {Par, Value} <- Vals],
+	emqttd_cluster:reboot(),
+	
+	ClientSSl = [{Key, filename:join([DataDir, File])} || 
+					 {Key, File} <- ?MQTT_SSL_CLIENT ],	   
+	{ok, SslMutWay} = emqttc:start_link([{host, "localhost"},
+										 {port, 8883},
+										 {client_id, <<"sslmut">>}, 
+										 {ssl, ClientSSl}]),
+	{ok, Sub} = emqttc:start_link([{host, "localhost"},
+						 		   {client_id, <<"sub">>}]),
+    emqttc:subscribe(Sub, <<"topic">>, qos1),
+    emqttc:publish(SslMutWay, <<"topic">>, <<"ssl client pub message">>, [{qos, 1}]),
+	timer:sleep(10),
+	receive {publish, _Topic, RM} ->
+        ?assertEqual(<<"ssl client pub message">>, RM)
+    after 1000 -> false
+    end,
+    emqttc:disconnect(SslMutWay),
+    emqttc:disconnect(Sub).
 
 %%--------------------------------------------------------------------
 %% PubSub Test
@@ -592,32 +643,34 @@ slave(emqttd, Node) ->
 slave(node, Node) ->
     {ok, N} = slave:start(host(), Node, "-pa ../../ebin -pa ../../deps/*/ebin"),
     N.
+emqttd_config(DataDir) ->
+	Schema = cuttlefish_schema:files([filename:join([DataDir, "emqttd.schema"])]),
+    Conf = conf_parse:file(filename:join([DataDir, "emqttd.conf"])),
+    cuttlefish_generator:map(Schema, Conf).
 
-start_apps(App, DataDir) ->
-    Schema = cuttlefish_schema:files([filename:join([DataDir, atom_to_list(App) ++ ".schema"])]),
-    Conf = conf_parse:file(filename:join([DataDir, atom_to_list(App) ++ ".conf"])),
-    NewConfig = cuttlefish_generator:map(Schema, Conf),
-    Vals = proplists:get_value(App, NewConfig),
-    [application:set_env(App, Par, Value) || {Par, Value} <- Vals],
-    application:ensure_all_started(App).
-
-peg_com(DataDir) ->
-    ParsePeg = file2(3, DataDir, "conf_parse.peg"),
-    neotoma:file(ParsePeg),
-    ParseErl = file2(3, DataDir, "conf_parse.erl"),
-    compile:file(ParseErl, []),
-
-    DurationPeg = file2(3, DataDir, "cuttlefish_duration_parse.peg"),
-    neotoma:file(DurationPeg),
-    DurationErl = file2(3, DataDir, "cuttlefish_duration_parse.erl"),
-    compile:file(DurationErl, []).
-    
-
-file2(Times, Dir, FileName) when Times < 1 ->
-    filename:join([Dir, "deps", "cuttlefish","src", FileName]);
-
-file2(Times, Dir, FileName) ->
-    Dir1 = filename:dirname(Dir),
-    file2(Times - 1, Dir1, FileName).
-
+change_opts(SslType, DataDir, Vals) ->
+	Listeners = proplists:get_value(listeners, Vals),
+	NewListeners = lists:foldl(fun({Protocol, Port, Opts} = Listener, Acc) -> 
+					case Protocol of
+						ssl ->
+							SslOpts = proplists:get_value(ssl, Opts),
+							Keyfile = filename:join([DataDir, proplists:get_value(keyfile, SslOpts)]),
+							Certfile = filename:join([DataDir, proplists:get_value(certfile, SslOpts)]),
+							TupleList1 = lists:keyreplace(keyfile, 1, SslOpts, {keyfile, Keyfile}),
+							TupleList2 = lists:keyreplace(certfile, 1, TupleList1, {certfile, Certfile}),
+							TupleList3 = 							
+							case SslType of
+								ssl_mut ->
+									CAfile = filename:join([DataDir, proplists:get_value(cacertfile, ?MQTT_SSL_MUTWAY)]),
+									MutSslList = lists:keyreplace(cacertfile, 1, ?MQTT_SSL_MUTWAY, {cacertfile, CAfile}),
+									lists:merge(TupleList2, MutSslList);
+								_ ->
+									TupleList2
+							end,
+							[{Protocol, Port, [{ssl, TupleList3}]} | Acc];
+						_ ->
+							[Listener | Acc]
+					end
+				end, [], Listeners),
+	lists:keyreplace(listeners, 1, Vals, {listeners, NewListeners}).
 
