@@ -108,11 +108,11 @@ groups() ->
 init_per_suite(Config) ->
     application:start(lager),
     DataDir = proplists:get_value(data_dir, Config),
-	NewConfig = emqttd_config(DataDir),
+    NewConfig = emqttd_config(DataDir),
     Vals = change_opts(ssl_oneway, DataDir, proplists:get_value(emqttd, NewConfig)), 
     [application:set_env(emqttd, Par, Value) || {Par, Value} <- Vals],
     application:ensure_all_started(emqttd),
-	[{config, NewConfig} | Config].
+    [{config, NewConfig} | Config].
 
 end_per_suite(_Config) ->
     application:stop(emqttd),
@@ -664,7 +664,7 @@ change_opts(SslType, DataDir, Vals) ->
                 CAfile = filename:join([DataDir, proplists:get_value(cacertfile, ?MQTT_SSL_MUTWAY)]),
                 MutSslList = lists:keyreplace(cacertfile, 1, ?MQTT_SSL_MUTWAY, {cacertfile, CAfile}),
 		        lists:merge(TupleList2, MutSslList);
-		    _ ->
+            _ ->
                 TupleList2
 			end,
             [{Protocol, Port, [{ssl, TupleList3}]} | Acc];
