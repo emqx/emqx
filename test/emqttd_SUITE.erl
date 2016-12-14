@@ -668,7 +668,7 @@ change_opts(SslType, DataDir, Vals) ->
                 TupleList2
 			end,
             [{Protocol, Port, [{ssl, TupleList3}]} | Acc];
-		_ ->
+        _ ->
             [Listener | Acc]
     end
     end, [], Listeners),
