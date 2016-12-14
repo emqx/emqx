@@ -26,7 +26,7 @@
 
 -define(CONTENT_TYPE, "application/x-www-form-urlencoded").
 
--define(MQTT_SSL_MUTWAY, [{cacertfile, "certs/cacert.pem"},
+-define(MQTT_SSL_TWOWAY, [{cacertfile, "certs/cacert.pem"},
                           {verify, verify_peer},
                           {fail_if_no_peer_cert, true}]).
 
@@ -142,10 +142,12 @@ mqtt_ssl_oneway(_) ->
     {ok, SslOneWay} = emqttc:start_link([{host, "localhost"},
                                          {port, 8883},
                                          {client_id, <<"ssloneway">>}, ssl]),
-    timer:sleep(100),
+    timer:sleep(10),
     emqttc:subscribe(SslOneWay, <<"topic">>, qos1),
     {ok, Pub} = emqttc:start_link([{host, "localhost"},
                                    {client_id, <<"pub">>}]),
+    emqttc:publish(Pub, <<"topic">>, <<"SSL oneWay test">>, [{qos, 1}]),
+    timer:sleep(10),
     receive {publish, _Topic, RM} ->
         ?assertEqual(<<"SSL oneWay test">>, RM)
     after 1000 -> false
@@ -156,26 +158,26 @@ mqtt_ssl_oneway(_) ->
 mqtt_ssl_twoway(Config) ->
     emqttd_cluster:prepare(),
     DataDir = proplists:get_value(data_dir, Config),
-    EmqConfig = proplists:get_value(config, Config), 
-    Vals = change_opts(ssl_mut, DataDir, proplists:get_value(emqttd, EmqConfig)),
+    EmqConfig = proplists:get_value(config, Config),
+    Vals = change_opts(ssl_twoway, DataDir, proplists:get_value(emqttd, EmqConfig)),
     [application:set_env(emqttd, Par, Value) || {Par, Value} <- Vals],
     emqttd_cluster:reboot(),
     ClientSSl = [{Key, filename:join([DataDir, File])} || 
-                 {Key, File} <- ?MQTT_SSL_CLIENT ],	   
-    {ok, SslMutWay} = emqttc:start_link([{host, "localhost"},
+                 {Key, File} <- ?MQTT_SSL_CLIENT ],
+    {ok, SslTwoWay} = emqttc:start_link([{host, "localhost"},
                                          {port, 8883},
-                                         {client_id, <<"sslmut">>}, 
+                                         {client_id, <<"ssltwoway">>},
                                          {ssl, ClientSSl}]),
     {ok, Sub} = emqttc:start_link([{host, "localhost"},
                                    {client_id, <<"sub">>}]),
     emqttc:subscribe(Sub, <<"topic">>, qos1),
-    emqttc:publish(SslMutWay, <<"topic">>, <<"ssl client pub message">>, [{qos, 1}]),
+    emqttc:publish(SslTwoWay, <<"topic">>, <<"ssl client pub message">>, [{qos, 1}]),
     timer:sleep(10),
     receive {publish, _Topic, RM} ->
         ?assertEqual(<<"ssl client pub message">>, RM)
     after 1000 -> false
     end,
-    emqttc:disconnect(SslMutWay),
+    emqttc:disconnect(SslTwoWay),
     emqttc:disconnect(Sub).
 
 %%--------------------------------------------------------------------
@@ -651,8 +653,8 @@ change_opts(SslType, DataDir, Vals) ->
     Listeners = proplists:get_value(listeners, Vals),
     NewListeners =
     lists:foldl(fun({Protocol, Port, Opts} = Listener, Acc) ->
-	case Protocol of
-	    ssl ->
+    case Protocol of
+    ssl ->
             SslOpts = proplists:get_value(ssl, Opts),
             Keyfile = filename:join([DataDir, proplists:get_value(keyfile, SslOpts)]),
             Certfile = filename:join([DataDir, proplists:get_value(certfile, SslOpts)]),
@@ -660,17 +662,16 @@ change_opts(SslType, DataDir, Vals) ->
             TupleList2 = lists:keyreplace(certfile, 1, TupleList1, {certfile, Certfile}),
             TupleList3 =
             case SslType of
-            ssl_mut ->
-                CAfile = filename:join([DataDir, proplists:get_value(cacertfile, ?MQTT_SSL_MUTWAY)]),
-                MutSslList = lists:keyreplace(cacertfile, 1, ?MQTT_SSL_MUTWAY, {cacertfile, CAfile}),
-		        lists:merge(TupleList2, MutSslList);
+            ssl_twoway->
+                CAfile = filename:join([DataDir, proplists:get_value(cacertfile, ?MQTT_SSL_TWOWAY)]),
+                MutSslList = lists:keyreplace(cacertfile, 1, ?MQTT_SSL_TWOWAY, {cacertfile, CAfile}),
+                lists:merge(TupleList2, MutSslList);
             _ ->
                 TupleList2
-			end,
+            end,
             [{Protocol, Port, [{ssl, TupleList3}]} | Acc];
         _ ->
             [Listener | Acc]
     end
     end, [], Listeners),
     lists:keyreplace(listeners, 1, Vals, {listeners, NewListeners}).
-
