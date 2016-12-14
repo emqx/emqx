@@ -11,10 +11,13 @@ dep_gen_logger  = git https://github.com/emqtt/gen_logger
 dep_esockd      = git https://github.com/emqtt/esockd master
 dep_mochiweb    = git https://github.com/emqtt/mochiweb
 
-TEST_DEPS = cuttlefish
-dep_cuttlefish = git https://github.com/emqtt/cuttlefish
-
 ERLC_OPTS += +'{parse_transform, lager_transform}'
+
+TEST_DEPS = cuttlefish emqttc
+dep_cuttlefish = git https://github.com/emqtt/cuttlefish
+dep_emqttc = git https://github.com/emqtt/emqttc
+
+NO_AUTOPATCH = cuttlefish
 
 TEST_ERLC_OPTS += +debug_info
 TEST_ERLC_OPTS += +'{parse_transform, lager_transform}'

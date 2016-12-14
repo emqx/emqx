@@ -31,20 +31,19 @@ all() ->
      {group, pubsub},
      {group, router},
      {group, session},
-     %%{group, retainer},
      {group, broker},
      {group, metrics},
      {group, stats},
      {group, hook},
      {group, http},
      {group, cluster},
-     %%{group, backend},
      {group, alarms},
      {group, cli}].
 
 groups() ->
     [{protocol, [sequence],
-      [mqtt_connect]},
+      [mqtt_connect,
+	   mqtt_ssl_oneway]},
      {pubsub, [sequence],
       [subscribe_unsubscribe,
        publish, pubsub,
@@ -66,8 +65,6 @@ groups() ->
      {hook, [sequence],
       [add_delete_hook,
        run_hooks]},
-     {backend, [sequence],
-      []},
     {http, [sequence], 
      [request_status,
       request_publish
@@ -101,7 +98,6 @@ groups() ->
 init_per_suite(Config) ->
     application:start(lager),
     DataDir = proplists:get_value(data_dir, Config),
-    peg_com(DataDir),
     start_apps(emqttd, DataDir),
     Config.
 
@@ -128,6 +124,25 @@ connect_broker_(Packet, RecvSize) ->
     {ok, Data} = gen_tcp:recv(Sock, RecvSize, 3000),
     gen_tcp:close(Sock),
     Data.
+
+mqtt_ssl_oneway(_) ->
+	{ok, SslOneWay} = emqttc:start_link([{host, "localhost"},
+										 {port, 8883},
+										 {client_id, <<"ssloneway">>}, ssl]),
+    timer:sleep(100),
+    emqttc:subscribe(SslOneWay, <<"topic">>, qos1),
+
+	{ok, Pub} = emqttc:start_link([{host, "localhost"},
+						 		   {client_id, <<"pub">>}]),
+    timer:sleep(10),
+	emqttc:publish(Pub, <<"topic">>, <<"SSL oneWay test">>, [{qos, 1}]),
+    timer:sleep(10),
+	receive {publish, _Topic, RM} ->
+        ?assertEqual(<<"SSL oneWay test">>, RM)
+    after 1000 -> false
+    end,
+    emqttc:disconnect(SslOneWay),
+    emqttc:disconnect(Pub).
 
 %%--------------------------------------------------------------------
 %% PubSub Test
@@ -597,27 +612,27 @@ start_apps(App, DataDir) ->
     Schema = cuttlefish_schema:files([filename:join([DataDir, atom_to_list(App) ++ ".schema"])]),
     Conf = conf_parse:file(filename:join([DataDir, atom_to_list(App) ++ ".conf"])),
     NewConfig = cuttlefish_generator:map(Schema, Conf),
-    Vals = proplists:get_value(App, NewConfig),
+    Vals = merge_opts(App, DataDir, proplists:get_value(App, NewConfig)), 
     [application:set_env(App, Par, Value) || {Par, Value} <- Vals],
     application:ensure_all_started(App).
 
-peg_com(DataDir) ->
-    ParsePeg = file2(3, DataDir, "conf_parse.peg"),
-    neotoma:file(ParsePeg),
-    ParseErl = file2(3, DataDir, "conf_parse.erl"),
-    compile:file(ParseErl, []),
+merge_opts(emqttd, DataDir, Vals) ->
+	Listeners = proplists:get_value(listeners, Vals),
+	NewListeners = lists:foldl(fun({Protocol, Port, Opts} = Listener, Acc) -> 
+					case Protocol of
+						ssl ->
+							SslOpts = proplists:get_value(ssl, Opts),
+							Keyfile = filename:join([DataDir, proplists:get_value(keyfile, SslOpts)]),
+							Certfile = filename:join([DataDir, proplists:get_value(certfile, SslOpts)]),
+							TupleList2 = lists:keyreplace(keyfile, 1, SslOpts, {keyfile, Keyfile}),
+							TupleList3 = lists:keyreplace(certfile, 1, TupleList2, {certfile, Certfile}),
+							[{Protocol, Port, [{ssl, TupleList3}]} | Acc];
+						_ ->
+							[Listener | Acc]
+					end
+				end, [], Listeners),
+	lists:keyreplace(listeners, 1, Vals, {listeners, NewListeners});
 
-    DurationPeg = file2(3, DataDir, "cuttlefish_duration_parse.peg"),
-    neotoma:file(DurationPeg),
-    DurationErl = file2(3, DataDir, "cuttlefish_duration_parse.erl"),
-    compile:file(DurationErl, []).
-    
-
-file2(Times, Dir, FileName) when Times < 1 ->
-    filename:join([Dir, "deps", "cuttlefish","src", FileName]);
-
-file2(Times, Dir, FileName) ->
-    Dir1 = filename:dirname(Dir),
-    file2(Times - 1, Dir1, FileName).
-
+merge_opts(_, _, Vals) ->
+		Vals.
 
