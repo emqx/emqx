@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -46,7 +46,7 @@ handle_request('GET', "/status", Req) ->
 handle_request('POST', "/mqtt/publish", Req) ->
     case authorized(Req) of
         true  -> http_publish(Req);
-        false -> Req:respond({401, [], <<"Fobbiden">>})
+        false -> Req:respond({401, [], <<"Unauthorized">>})
     end;
 
 %%--------------------------------------------------------------------

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -55,6 +55,7 @@ ws_loop([<<>>], State, _ReplyChannel) ->
 ws_loop(Data, State = #wsocket_state{peer = Peer, client_pid = ClientPid,
                                      parser_fun = ParserFun}, ReplyChannel) ->
     ?WSLOG(debug, Peer, "RECV ~p", [Data]),
+    emqttd_metrics:inc('bytes/received', iolist_size(Data)),
     case catch ParserFun(iolist_to_binary(Data)) of
         {more, NewParser} ->
             State#wsocket_state{parser_fun = NewParser};
