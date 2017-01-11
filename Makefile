@@ -1,6 +1,6 @@
 PROJECT = emqttd
 PROJECT_DESCRIPTION = Erlang MQTT Broker
-PROJECT_VERSION = 2.0.6
+PROJECT_VERSION = 2.0.7
 
 DEPS = gproc lager gen_logger esockd mochiweb
 
