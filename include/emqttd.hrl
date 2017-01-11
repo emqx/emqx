@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 %% Banner
 %%--------------------------------------------------------------------
 
--define(COPYRIGHT, "Copyright (C) 2012-2016, Feng Lee <feng@emqtt.io>").
+-define(COPYRIGHT, "Copyright (C) 2012-2017, Feng Lee <feng@emqtt.io>").
 
 -define(LICENSE_MESSAGE, "Licensed under the Apache License, Version 2.0").
 
