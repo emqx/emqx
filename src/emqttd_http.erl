@@ -98,7 +98,7 @@ http_publish(Req) ->
                 Msg = emqttd_message:make(ClientId, Qos, Topic, Payload),
                 emqttd:publish(Msg#mqtt_message{retain  = Retain})
             end, Topics),
-            Req:ok({"text/plain", <<"ok">>});
+            Req:ok({"text/plain", <<"OK">>});
        {false, _} ->
             Req:respond({400, [], <<"Bad QoS">>});
         {_, false} ->
