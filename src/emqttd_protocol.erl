@@ -252,7 +252,6 @@ process(?UNSUBSCRIBE_PACKET(PacketId, RawTopics), State = #proto_state{
         {stop, _} ->
             ok
     end,
-    ,
     send(?UNSUBACK_PACKET(PacketId), State);
 
 process(?PACKET(?PINGREQ), State) ->
