@@ -58,6 +58,6 @@ ignore_lib_apps(Apps) ->
                snmp, otp_mibs, public_key, asn1, ssh, hipe,
                common_test, observer, webtool, xmerl, tools,
                test_server, compiler, debugger, eunit, et,
-               gen_logger, wx],
+               wx],
     [App || App = {Name, _, _} <- Apps, not lists:member(Name, LibApps)].
 
