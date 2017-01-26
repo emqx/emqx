@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -332,9 +332,13 @@ handle_cast({unsubscribe, TopicTable}, Session = #session{client_id     = Client
         end, Subscriptions, TopicTable),
     hibernate(Session#session{subscriptions = Subscriptions1});
 
-handle_cast({destroy, ClientId}, Session = #session{client_id = ClientId}) ->
+handle_cast({destroy, ClientId}, Session = #session{client_id = ClientId, client_pid = undefined}) ->
     ?LOG(warning, "destroyed", [], Session),
     shutdown(destroy, Session);
+
+handle_cast({destroy, ClientId}, Session = #session{client_id = ClientId, client_pid = OldClientPid}) ->
+    ?LOG(warning, "kickout ~p", [OldClientPid], Session),
+    shutdown(conflict, Session);
 
 handle_cast({resume, ClientId, ClientPid}, Session = #session{client_id      = ClientId,
                                                               client_pid     = OldClientPid,

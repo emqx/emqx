@@ -270,8 +270,7 @@ end}.
 %% @doc Allow Anonymous
 {mapping, "mqtt.allow_anonymous", "emqttd.allow_anonymous", [
   {default, false},
-  {datatype, {enum, [true, false]}},
-  hidden
+  {datatype, {enum, [true, false]}}
 ]}.
 
 %% @doc Default ACL File
@@ -283,8 +282,7 @@ end}.
 %% @doc Cache ACL for PUBLISH
 {mapping, "mqtt.cache_acl", "emqttd.cache_acl", [
   {default, true},
-  {datatype, {enum, [true, false]}},
-  hidden
+  {datatype, {enum, [true, false]}}
 ]}.
 
 %%--------------------------------------------------------------------
@@ -351,8 +349,7 @@ end}.
 %% @doc Topic Priority: 0~255, Default is 0
 {mapping, "mqtt.queue.priority", "emqttd.queue", [
   {default, ""},
-  {datatype, string},
-  hidden
+  {datatype, string}
 ]}.
 
 %% @doc Max queue length. Enqueued messages when persistent client disconnected, or inflight window is full.
@@ -364,15 +361,13 @@ end}.
 %% @doc Low-water mark of queued messages
 {mapping, "mqtt.queue.low_watermark", "emqttd.queue", [
   {default, "20%"},
-  {datatype, string},
-  hidden
+  {datatype, string}
 ]}.
 
 %% @doc High-water mark of queued messages
 {mapping, "mqtt.queue.high_watermark", "emqttd.queue", [
   {default, "60%"},
-  {datatype, string},
-  hidden
+  {datatype, string}
 ]}.
 
 %% @doc Queue Qos0 messages?
@@ -425,8 +420,7 @@ end}.
 
 {mapping, "mqtt.pubsub.async", "emqttd.pubsub", [
   {default, true},
-  {datatype, {enum, [true, false]}},
-  hidden
+  {datatype, {enum, [true, false]}}
 ]}.
 
 {translation, "emqttd.pubsub", fun(Conf) ->
@@ -471,7 +465,7 @@ end}.
 %%--------------------------------------------------------------------
 
 {mapping, "mqtt.listener.tcp", "emqttd.listeners", [
-  {default, 1883},
+  %% {default, 1883},
   {datatype, [integer, ip]}
 ]}.
 
@@ -487,8 +481,7 @@ end}.
 
 {mapping, "mqtt.listener.tcp.rate_limit", "emqttd.listeners", [
   {default, undefined},
-  {datatype, string},
-  hidden
+  {datatype, string}
 ]}.
 
 {mapping, "mqtt.listener.tcp.backlog", "emqttd.listeners", [
@@ -517,7 +510,7 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.ssl", "emqttd.listeners", [
-  {default, 8883},
+  %% {default, 8883},
   {datatype, [integer, ip]}
 ]}.
 
@@ -561,7 +554,7 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.http", "emqttd.listeners", [
-  {default, 8883},
+  %% {default, 8083},
   {datatype, [integer, ip]}
 ]}.
 
@@ -576,9 +569,8 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.https", "emqttd.listeners", [
-  {default, undefined},
-  {datatype, [integer, ip]},
-  hidden
+  %%{default, 8084},
+  {datatype, [integer, ip]}
 ]}.
 
 {mapping, "mqtt.listener.https.acceptors", "emqttd.listeners", [

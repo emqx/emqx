@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -77,8 +77,10 @@ remove(Node) ->
                 ok    -> rpc:call(Node, ?MODULE, reboot, []);
                 Error -> Error
             end;
-        Error ->
-            {error, Error}
+        {badrpc, nodedown} ->
+            emqttd_mnesia:remove_from_cluster(Node);
+        {badrpc, Reason} ->
+            {error, Reason}
     end.
 
 %% @doc Cluster status

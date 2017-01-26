@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -62,6 +62,7 @@ unsubscribe(CPid, Topics) ->
 %%--------------------------------------------------------------------
 
 init([MqttEnv, WsPid, Req, ReplyChannel]) ->
+    process_flag(trap_exit, true),
     true = link(WsPid),
     {ok, Peername} = Req:get(peername),
     Headers = mochiweb_headers:to_list(
@@ -69,7 +70,7 @@ init([MqttEnv, WsPid, Req, ReplyChannel]) ->
     %% SendFun = fun(Payload) -> ReplyChannel({binary, Payload}) end,
     SendFun = fun(Packet) ->
                   Data = emqttd_serializer:serialize(Packet),
-                  emqttd_metrics:inc('bytes/sent', size(Data)),
+                  emqttd_metrics:inc('bytes/sent', iolist_size(Data)),
                   ReplyChannel({binary, Data})
               end,
     ProtoState = emqttd_protocol:init(Peername, SendFun,
@@ -107,6 +108,7 @@ handle_cast({unsubscribe, Topics}, State) ->
         end, State);
 
 handle_cast({received, Packet}, State = #wsclient_state{peer = Peer, proto_state = ProtoState}) ->
+    emqttd_metrics:received(Packet),
     case emqttd_protocol:received(Packet, ProtoState) of
         {ok, ProtoState1} ->
             noreply(State#wsclient_state{proto_state = ProtoState1});
@@ -169,6 +171,13 @@ handle_info({keepalive, check}, State = #wsclient_state{peer      = Peer,
             ?WSLOG(warning, Peer, "Keepalive error - ~p", [Error]),
             shutdown(keepalive_error, State)
     end;
+
+handle_info({'EXIT', WsPid, normal}, State = #wsclient_state{ws_pid = WsPid}) ->
+    stop(normal, State);
+
+handle_info({'EXIT', WsPid, Reason}, State = #wsclient_state{peer = Peer, ws_pid = WsPid}) ->
+    ?WSLOG(error, Peer, "shutdown: ~p",[Reason]),
+    shutdown(Reason, State);
 
 handle_info(Info, State = #wsclient_state{peer = Peer}) ->
     ?WSLOG(critical, Peer, "Unexpected Info: ~p", [Info]),
