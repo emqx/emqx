@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -130,9 +130,12 @@ handle({subscribe, RawTopicTable}, ProtoState = #proto_state{client_id = ClientI
 handle({unsubscribe, RawTopics}, ProtoState = #proto_state{client_id = ClientId,
                                                            username  = Username,
                                                            session   = Session}) ->
-    {ok, TopicTable} = emqttd:run_hooks('client.unsubscribe',
-                                        [ClientId, Username], parse_topics(RawTopics)),
-    emqttd_session:unsubscribe(Session, TopicTable),
+    case emqttd:run_hooks('client.unsubscribe', [ClientId, Username], parse_topics(RawTopics)) of
+        {ok, TopicTable} ->
+            emqttd_session:unsubscribe(Session, TopicTable);
+        {stop, _} ->
+            ok
+    end,
     {ok, ProtoState}.
 
 process(Packet = ?CONNECT_PACKET(Var), State0) ->
@@ -243,8 +246,12 @@ process(?UNSUBSCRIBE_PACKET(PacketId, []), State) ->
 
 process(?UNSUBSCRIBE_PACKET(PacketId, RawTopics), State = #proto_state{
         client_id = ClientId, username = Username, session = Session}) ->
-    {ok, TopicTable} = emqttd:run_hooks('client.unsubscribe', [ClientId, Username], parse_topics(RawTopics)),
-    emqttd_session:unsubscribe(Session, TopicTable),
+    case emqttd:run_hooks('client.unsubscribe', [ClientId, Username], parse_topics(RawTopics)) of
+        {ok, TopicTable} ->
+            emqttd_session:unsubscribe(Session, TopicTable);
+        {stop, _} ->
+            ok
+    end,
     send(?UNSUBACK_PACKET(PacketId), State);
 
 process(?PACKET(?PINGREQ), State) ->

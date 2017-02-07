@@ -1,13 +1,12 @@
 PROJECT = emqttd
 PROJECT_DESCRIPTION = Erlang MQTT Broker
-PROJECT_VERSION = 2.0.5
+PROJECT_VERSION = 2.0.7
 
-DEPS = gproc lager gen_logger esockd mochiweb
+DEPS = gproc lager esockd mochiweb
 
 dep_gproc       = git https://github.com/uwiger/gproc
 dep_getopt      = git https://github.com/jcomellas/getopt v0.8.2
 dep_lager       = git https://github.com/basho/lager master
-dep_gen_logger  = git https://github.com/emqtt/gen_logger
 dep_esockd      = git https://github.com/emqtt/esockd master
 dep_mochiweb    = git https://github.com/emqtt/mochiweb
 

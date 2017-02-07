@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2016 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -58,6 +58,6 @@ ignore_lib_apps(Apps) ->
                snmp, otp_mibs, public_key, asn1, ssh, hipe,
                common_test, observer, webtool, xmerl, tools,
                test_server, compiler, debugger, eunit, et,
-               gen_logger, wx],
+               wx],
     [App || App = {Name, _, _} <- Apps, not lists:member(Name, LibApps)].
 
