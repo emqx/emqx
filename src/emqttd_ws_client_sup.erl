@@ -39,7 +39,7 @@ start_client(WsPid, Req, ReplyChannel) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    Env = lists:append(emqttd:env(client), emqttd:env(protocol)),
+    Env = lists:append(emqttd:env(client, []), emqttd:env(protocol, [])),
     {ok, {{simple_one_for_one, 0, 1},
            [{ws_client, {emqttd_ws_client, start_link, [Env]},
              temporary, 5000, worker, [emqttd_ws_client]}]}}.
