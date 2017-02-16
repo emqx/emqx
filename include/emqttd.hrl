@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 %% Banner
 %%--------------------------------------------------------------------
 
--define(COPYRIGHT, "Copyright (C) 2012-2017, Feng Lee <feng@emqtt.io>").
+-define(COPYRIGHT, "Copyright (c) 2013-2017 EMQ Enterprise, Inc.").
 
 -define(LICENSE_MESSAGE, "Licensed under the Apache License, Version 2.0").
 
@@ -48,21 +48,21 @@
 %% MQTT Topic
 %%--------------------------------------------------------------------
 
--record(mqtt_topic, {
-    topic      :: binary(),
-    flags = [] :: [retained | static]
-}).
+-record(mqtt_topic,
+        { topic      :: binary(),
+          flags = [] :: [retained | static]
+        }).
 
 -type(mqtt_topic() :: #mqtt_topic{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Subscription
 %%--------------------------------------------------------------------
--record(mqtt_subscription, {
-    subid :: binary() | atom(),
-    topic :: binary(),
-    qos   :: 0 | 1 | 2
-}).
+-record(mqtt_subscription,
+        { subid :: binary() | atom(),
+          topic :: binary(),
+          qos   :: 0 | 1 | 2
+        }).
 
 -type(mqtt_subscription() :: #mqtt_subscription{}).
 
@@ -73,18 +73,18 @@
 -type(ws_header_key() :: atom() | binary() | string()).
 -type(ws_header_val() :: atom() | binary() | string() | integer()).
 
--record(mqtt_client, {
-    client_id     :: binary() | undefined,
-    client_pid    :: pid(),
-    username      :: binary() | undefined,
-    peername      :: {inet:ip_address(), integer()},
-    clean_sess    :: boolean(),
-    proto_ver     :: 3 | 4,
-    keepalive = 0,
-    will_topic    :: undefined | binary(),
-    ws_initial_headers :: list({ws_header_key(), ws_header_val()}),
-    connected_at  :: erlang:timestamp()
-}).
+-record(mqtt_client,
+        { client_id     :: binary() | undefined,
+          client_pid    :: pid(),
+          username      :: binary() | undefined,
+          peername      :: {inet:ip_address(), inet:port_number()},
+          clean_sess    :: boolean(),
+          proto_ver     :: 3 | 4,
+          keepalive = 0,
+          will_topic    :: undefined | binary(),
+          ws_initial_headers :: list({ws_header_key(), ws_header_val()}),
+          connected_at  :: erlang:timestamp()
+        }).
 
 -type(mqtt_client() :: #mqtt_client{}).
 
@@ -92,33 +92,46 @@
 %% MQTT Session
 %%--------------------------------------------------------------------
 
--record(mqtt_session, {
-    client_id  :: binary(),
-    sess_pid   :: pid(),
-    persistent :: boolean()
-}).
+-record(mqtt_session,
+        { client_id  :: binary(),
+          sess_pid   :: pid(),
+          clean_sess :: boolean()
+        }).
 
 -type(mqtt_session() :: #mqtt_session{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Message
 %%--------------------------------------------------------------------
+
 -type(mqtt_msgid() :: binary() | undefined).
+
 -type(mqtt_pktid() :: 1..16#ffff | undefined).
 
--record(mqtt_message, {
-    id              :: mqtt_msgid(),         %% Global unique message ID
-    pktid           :: mqtt_pktid(),         %% PacketId
-    from            :: {binary(), undefined | binary()}, %% ClientId and Username
-    topic           :: binary(),             %% Topic that the message is published to
-    qos     = 0     :: 0 | 1 | 2,            %% Message QoS
-    flags   = []    :: [retain | dup | sys], %% Message Flags
-    retain  = false :: boolean(),            %% Retain flag
-    dup     = false :: boolean(),            %% Dup flag
-    sys     = false :: boolean(),            %% $SYS flag
-    headers = []    :: list(),
-    payload         :: binary(),             %% Payload
-    timestamp       :: pos_integer()         %% os:timestamp to seconds
+-record(mqtt_message,
+        { %% Global unique message ID
+          id              :: mqtt_msgid(),
+          %% PacketId
+          pktid           :: mqtt_pktid(),
+          %% ClientId and Username
+          from            :: {binary(), undefined | binary()},
+          %% Topic that the message is published to
+          topic           :: binary(),
+          %% Message QoS
+          qos     = 0     :: 0 | 1 | 2,
+          %% Message Flags
+          flags   = []    :: [retain | dup | sys],
+          %% Retain flag
+          retain  = false :: boolean(),
+          %% Dup flag
+          dup     = false :: boolean(),
+          %% $SYS flag
+          sys     = false :: boolean(),
+          headers = []    :: list(),
+          %% Payload
+          payload         :: binary(),
+          %% Timestamp
+          timestamp       :: erlang:timestamp()
 }).
 
 -type(mqtt_message() :: #mqtt_message{}).
@@ -126,46 +139,45 @@
 %%--------------------------------------------------------------------
 %% MQTT Delivery
 %%--------------------------------------------------------------------
--record(mqtt_delivery, {
-    sender  :: pid(),          %% Pid of the sender/publisher
-    message :: mqtt_message(), %% Message
-    flows   :: list()
-}).
+
+-record(mqtt_delivery,
+        { sender  :: pid(),          %% Pid of the sender/publisher
+          message :: mqtt_message(), %% Message
+          flows   :: list()
+        }).
 
 -type(mqtt_delivery() :: #mqtt_delivery{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Route
 %%--------------------------------------------------------------------
--record(mqtt_route, {
-    topic   :: binary(),
-    node    :: node()
-}).
+
+-record(mqtt_route,
+        { topic   :: binary(),
+          node    :: node()
+        }).
 
 -type(mqtt_route() :: #mqtt_route{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Alarm
 %%--------------------------------------------------------------------
--record(mqtt_alarm, {
-    id          :: binary(),
-    severity    :: warning | error | critical,
-    title       :: iolist() | binary(),
-    summary     :: iolist() | binary(),
-    timestamp   :: erlang:timestamp() %% Timestamp
-}).
+
+-record(mqtt_alarm,
+        { id          :: binary(),
+          severity    :: warning | error | critical,
+          title       :: iolist() | binary(),
+          summary     :: iolist() | binary(),
+          timestamp   :: erlang:timestamp() %% Timestamp
+        }).
 
 -type(mqtt_alarm() :: #mqtt_alarm{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Plugin
 %%--------------------------------------------------------------------
--record(mqtt_plugin, {
-    name,
-    version,
-    descr,
-    active = false
-}).
+
+-record(mqtt_plugin, { name, version, descr, active = false }).
 
 -type(mqtt_plugin() :: #mqtt_plugin{}).
 
@@ -173,14 +185,8 @@
 %% MQTT CLI Command
 %% For example: 'broker metrics'
 %%--------------------------------------------------------------------
--record(mqtt_cli, {
-    name,
-    action,
-    args = [],
-    opts = [],
-    usage,
-    descr
-}).
+
+-record(mqtt_cli, { name, action, args = [], opts = [], usage, descr }).
 
 -type(mqtt_cli() :: #mqtt_cli{}).
 
