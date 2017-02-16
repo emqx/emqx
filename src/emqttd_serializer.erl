@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -17,6 +17,8 @@
 %% @doc MQTT Packet Serializer
 -module(emqttd_serializer).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -include("emqttd.hrl").
 
 -include("emqttd_protocol.hrl").
@@ -25,7 +27,7 @@
 -export([serialize/1]).
 
 %% @doc Serialise MQTT Packet
--spec(serialize(mqtt_packet()) -> binary()).
+-spec(serialize(mqtt_packet()) -> iolist()).
 serialize(#mqtt_packet{header = Header = #mqtt_packet_header{type = Type},
                        variable = Variable,
                        payload  = Payload}) ->
@@ -37,14 +39,12 @@ serialize_header(#mqtt_packet_header{type   = Type,
                                      dup    = Dup,
                                      qos    = Qos,
                                      retain = Retain},
-                 {VariableBin, PayloadBin}) when ?CONNECT =< Type andalso Type =< ?DISCONNECT ->
-    Len = size(VariableBin) + size(PayloadBin),
+                 {VariableBin, PayloadBin})
+    when ?CONNECT =< Type andalso Type =< ?DISCONNECT ->
+    Len = byte_size(VariableBin) + byte_size(PayloadBin),
     true = (Len =< ?MAX_LEN),
-    LenBin = serialize_len(Len),
-    <<Type:4, (opt(Dup)):1, (opt(Qos)):2, (opt(Retain)):1,
-      LenBin/binary,
-      VariableBin/binary,
-      PayloadBin/binary>>.
+    [<<Type:4, (opt(Dup)):1, (opt(Qos)):2, (opt(Retain)):1>>,
+     serialize_len(Len), VariableBin, PayloadBin].
 
 serialize_variable(?CONNECT, #mqtt_packet_connect{client_id   =  ClientId,
                                                   proto_ver   =  ProtoVer,
@@ -58,7 +58,7 @@ serialize_variable(?CONNECT, #mqtt_packet_connect{client_id   =  ClientId,
                                                   will_msg    =  WillMsg,
                                                   username    =  Username,
                                                   password    =  Password}, undefined) ->
-    VariableBin = <<(size(ProtoName)):16/big-unsigned-integer,
+    VariableBin = <<(byte_size(ProtoName)):16/big-unsigned-integer,
                     ProtoName/binary,
                     ProtoVer:8,
                     (opt(Username)):1,
@@ -73,7 +73,7 @@ serialize_variable(?CONNECT, #mqtt_packet_connect{client_id   =  ClientId,
     PayloadBin1 = case WillFlag of
                       true -> <<PayloadBin/binary,
                                 (serialize_utf(WillTopic))/binary,
-                                (size(WillMsg)):16/big-unsigned-integer,
+                                (byte_size(WillMsg)):16/big-unsigned-integer,
                                 WillMsg/binary>>;
                       false -> PayloadBin
                   end,
@@ -93,7 +93,7 @@ serialize_variable(?SUBACK, #mqtt_packet_suback{packet_id = PacketId,
     {<<PacketId:16/big>>, << <<Q:8>> || Q <- QosTable >>};
 
 serialize_variable(?UNSUBSCRIBE, #mqtt_packet_unsubscribe{packet_id  = PacketId,
-                                                          topics = Topics }, undefined) ->
+                                                          topics     = Topics }, undefined) ->
     {<<PacketId:16/big>>, serialize_topics(Topics)};
 
 serialize_variable(?UNSUBACK, #mqtt_packet_unsuback{packet_id = PacketId}, undefined) ->
@@ -134,7 +134,7 @@ serialize_topics([H|_] = Topics) when is_binary(H) ->
 
 serialize_utf(String) ->
     StringBin = unicode:characters_to_binary(String),
-    Len = size(StringBin),
+    Len = byte_size(StringBin),
     true = (Len =< 16#ffff),
     <<Len:16/big, StringBin/binary>>.
 
@@ -148,4 +148,3 @@ opt(false)                -> 0;
 opt(true)                 -> 1;
 opt(X) when is_integer(X) -> X;
 opt(B) when is_binary(B)  -> 1.
-
