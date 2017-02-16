@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,7 +16,11 @@
 
 -module(emqttd_topic).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -include("emqttd_protocol.hrl").
+
+-include("emqttd_internal.hrl").
 
 -import(lists, [reverse/1]).
 
@@ -55,8 +59,8 @@ wildcard([_H|T]) ->
 
 %% @doc Match Topic name with filter
 -spec(match(Name, Filter) -> boolean() when
-      Name    :: topic() | words(),
-      Filter  :: topic() | words()).
+      Name   :: topic() | words(),
+      Filter :: topic() | words()).
 match(Name, Filter) when is_binary(Name) and is_binary(Filter) ->
     match(words(Name), words(Filter));
 match([], []) ->
@@ -94,17 +98,14 @@ validate2([]) ->
     true;
 validate2(['#']) -> % end with '#'
     true;
-validate2(['#'|Words]) when length(Words) > 0 -> 
-    false; 
+validate2(['#'|Words]) when length(Words) > 0 ->
+    false;
 validate2([''|Words]) ->
     validate2(Words);
 validate2(['+'|Words]) ->
     validate2(Words);
 validate2([W|Words]) ->
-    case validate3(W) of
-        true -> validate2(Words);
-        false -> false
-    end.
+    case validate3(W) of true -> validate2(Words); false -> false end.
 
 validate3(<<>>) ->
     true;
@@ -180,24 +181,28 @@ join(Words) ->
 parse(Topic) when is_binary(Topic) ->
     parse(Topic, []).
 
-parse(Topic = <<"$local/", Topic1/binary>>, Options) ->
-    case lists:member(local, Options) of
-        true  -> error({invalid_topic, Topic});
-        false -> parse(Topic1, [local | Options])
-    end;
+parse(<<"$local/", Topic1/binary>>, Options) ->
+    if_not_contain(local, Options, fun() ->
+                       parse(Topic1, [local | Options])
+                   end);
 
-parse(Topic = <<"$queue/", Topic1/binary>>, Options) ->
-    case lists:keyfind(share, 1, Options) of
-        {share, _} -> error({invalid_topic, Topic});
-        false      -> parse(Topic1, [{share, '$queue'} | Options])
-    end;
+parse(<<"$queue/", Topic1/binary>>, Options) ->
+    if_not_contain(share, Options,fun() ->
+                       parse(Topic1, [{share, '$queue'} | Options])
+                   end);
 
-parse(Topic = <<"$share/", Topic1/binary>>, Options) ->
-    case lists:keyfind(share, 1, Options) of
-        {share, _} -> error({invalid_topic, Topic});
-        false      -> [Share, Topic2] = binary:split(Topic1, <<"/">>),
-                      {Topic2, [{share, Share} | Options]}
-    end;
+parse(<<"$share/", Topic1/binary>>, Options) ->
+    if_not_contain(share, Options, fun() ->
+                       [Share, Topic2] = binary:split(Topic1, <<"/">>),
+                       {Topic2, [{share, Share} | Options]}
+                   end);
 
-parse(Topic, Options) -> {Topic, Options}.
+parse(Topic, Options) ->
+    {Topic, Options}.
+
+if_not_contain(local, Options, Fun) ->
+    ?IF(lists:member(local, Options), error(invalid_topic), Fun());
+
+if_not_contain(share, Options, Fun) ->
+    ?IF(lists:keyfind(share, 1, Options), error(invalid_topic), Fun()).
 
