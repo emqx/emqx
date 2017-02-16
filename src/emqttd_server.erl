@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,9 +16,9 @@
 
 -module(emqttd_server).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -behaviour(gen_server2).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -43,7 +43,7 @@
 %% Debug API
 -export([dump/0]).
 
-%% gen_server.
+%% gen_server Callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
@@ -89,7 +89,7 @@ async_subscribe(Topic, Subscriber, Options) when is_binary(Topic) ->
 -spec(publish(mqtt_message()) -> {ok, mqtt_delivery()} | ignore).
 publish(Msg = #mqtt_message{from = From}) ->
     trace(publish, From, Msg),
-    case emqttd_hook:run('message.publish', [], Msg) of
+    case emqttd_hooks:run('message.publish', [], Msg) of
         {ok, Msg1 = #mqtt_message{topic = Topic}} ->
             emqttd_pubsub:publish(Topic, Msg1);
         {stop, Msg1} ->
@@ -97,14 +97,13 @@ publish(Msg = #mqtt_message{from = From}) ->
             ignore
     end.
 
+%% @private
 trace(publish, From, _Msg) when is_atom(From) ->
     %% Dont' trace '$SYS' publish
     ignore;
-
 trace(publish, {ClientId, Username}, #mqtt_message{topic = Topic, payload = Payload}) ->
     lager:info([{client, ClientId}, {topic, Topic}],
                "~s/~s PUBLISH to ~s: ~p", [ClientId, Username, Topic, Payload]);
-
 trace(publish, From, #mqtt_message{topic = Topic, payload = Payload}) when is_binary(From); is_list(From) ->
     lager:info([{client, From}, {topic, Topic}],
                "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
@@ -142,7 +141,8 @@ subscriptions(Subscriber) ->
 subscription(Topic, Subscriber) ->
     {Topic, Subscriber, ets:lookup_element(mqtt_subproperty, {Topic, Subscriber}, 2)}.
 
-subscribers(Topic) -> emqttd_pubsub:subscribers(Topic).
+subscribers(Topic) ->
+    emqttd_pubsub:subscribers(Topic).
 
 -spec(is_subscribed(binary(), emqttd:subscriber()) -> boolean()).
 is_subscribed(Topic, Subscriber) when is_binary(Topic) ->
