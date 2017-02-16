@@ -520,7 +520,7 @@ print(#mqtt_client{client_id = ClientId, clean_sess = CleanSess, username = User
                    peername = Peername, connected_at = ConnectedAt}) ->
     ?PRINT("Client(~s, clean_sess=~s, username=~s, peername=~s, connected_at=~p)~n",
            [ClientId, CleanSess, Username, emqttd_net:format(Peername),
-            emqttd_time:now_to_secs(ConnectedAt)]);
+            emqttd_time:now_secs(ConnectedAt)]);
 
 %% print(#mqtt_topic{topic = Topic, flags = Flags}) ->
 %%    ?PRINT("~s: ~s~n", [Topic, string:join([atom_to_list(F) || F <- Flags], ",")]);
@@ -559,7 +559,7 @@ print(subscription, {Sub, Topic}) ->
     ?PRINT("~s -> ~s~n", [Sub, Topic]).
 
 format(created_at, Val) ->
-    emqttd_time:now_to_secs(Val);
+    emqttd_time:now_secs(Val);
 
 format(_, Val) ->
     Val.
