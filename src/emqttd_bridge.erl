@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -17,6 +17,8 @@
 -module(emqttd_bridge).
 
 -behaviour(gen_server2).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -43,11 +45,11 @@
                 ping_down_interval = ?PING_DOWN_INTERVAL,
                 status             = up}).
 
--type option()  :: {qos, mqtt_qos()} |
+-type(option()  :: {qos, mqtt_qos()} |
                    {topic_suffix, binary()} |
                    {topic_prefix, binary()} |
                    {max_queue_len, pos_integer()} |
-                   {ping_down_interval, pos_integer()}.
+                   {ping_down_interval, pos_integer()}).
 
 -export_type([option/0]).
 
