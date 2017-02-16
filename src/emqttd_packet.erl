@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,8 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc MQTT Packet Functions
 -module(emqttd_packet).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -28,12 +29,13 @@
 
 %% @doc Protocol name of version
 -spec(protocol_name(mqtt_vsn()) -> binary()).
-protocol_name(Ver) when Ver =:= ?MQTT_PROTO_V31; Ver =:= ?MQTT_PROTO_V311 ->
-    proplists:get_value(Ver, ?PROTOCOL_NAMES).
+protocol_name(?MQTT_PROTO_V3) -> <<"MQIsdp">>;
+protocol_name(?MQTT_PROTO_V4) -> <<"MQTT">>;
+protocol_name(?MQTT_PROTO_V5) -> <<"MQTT">>.
 
 %% @doc Name of MQTT packet type
 -spec(type_name(mqtt_packet_type()) -> atom()).
-type_name(Type) when Type > ?RESERVED andalso Type =< ?DISCONNECT ->
+type_name(Type) when Type > ?RESERVED andalso Type =< ?AUTH ->
     lists:nth(Type, ?TYPE_NAMES).
 
 %% @doc Connack Name
