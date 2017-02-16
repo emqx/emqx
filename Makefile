@@ -2,13 +2,14 @@ PROJECT = emqttd
 PROJECT_DESCRIPTION = Erlang MQTT Broker
 PROJECT_VERSION = 2.1
 
-DEPS = gproc lager esockd mochiweb
+DEPS = gproc lager esockd mochiweb lager_syslog
 
 dep_gproc       = git https://github.com/uwiger/gproc
 dep_getopt      = git https://github.com/jcomellas/getopt v0.8.2
 dep_lager       = git https://github.com/basho/lager master
 dep_esockd      = git https://github.com/emqtt/esockd master
 dep_mochiweb    = git https://github.com/emqtt/mochiweb
+dep_lager_syslog  = git https://github.com/basho/lager_syslog
 
 ERLC_OPTS += +'{parse_transform, lager_transform}'
 

@@ -72,7 +72,7 @@ print_vsn() ->
 
 start_servers(Sup) ->
     Servers = [{"emqttd ctl", emqttd_ctl},
-               {"emqttd hook", emqttd_hook},
+               {"emqttd hook", emqttd_hooks},
                {"emqttd router", emqttd_router},
                {"emqttd pubsub", {supervisor, emqttd_pubsub_sup}},
                {"emqttd stats", emqttd_stats},
