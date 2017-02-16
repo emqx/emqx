@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,9 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% Facade Module for The EMQ Broker
+%% @doc EMQ Main Module.
 
 -module(emqttd).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -138,23 +140,23 @@ subscriber_down(Subscriber) ->
 
 -spec(hook(atom(), function(), list(any())) -> ok | {error, any()}).
 hook(Hook, Function, InitArgs) ->
-    emqttd_hook:add(Hook, Function, InitArgs).
+    emqttd_hooks:add(Hook, Function, InitArgs).
 
 -spec(hook(atom(), function(), list(any()), integer()) -> ok | {error, any()}).
 hook(Hook, Function, InitArgs, Priority) ->
-    emqttd_hook:add(Hook, Function, InitArgs, Priority).
+    emqttd_hooks:add(Hook, Function, InitArgs, Priority).
 
 -spec(unhook(atom(), function()) -> ok | {error, any()}).
 unhook(Hook, Function) ->
-    emqttd_hook:delete(Hook, Function).
+    emqttd_hooks:delete(Hook, Function).
 
 -spec(run_hooks(atom(), list(any())) -> ok | stop).
 run_hooks(Hook, Args) ->
-    emqttd_hook:run(Hook, Args).
+    emqttd_hooks:run(Hook, Args).
 
 -spec(run_hooks(atom(), list(any()), any()) -> {ok | stop, any()}).
 run_hooks(Hook, Args, Acc) ->
-    emqttd_hook:run(Hook, Args, Acc).
+    emqttd_hooks:run(Hook, Args, Acc).
 
 %%--------------------------------------------------------------------
 %% Debug

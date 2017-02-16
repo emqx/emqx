@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,12 +14,12 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc
-%% Trace MQTT packets/messages by ClientID or Topic.
-%% @end
+%% @docTrace MQTT packets/messages by ClientID or Topic.
 -module(emqttd_trace).
 
 -behaviour(gen_server).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd_internal.hrl").
 
@@ -34,7 +34,7 @@
 
 -record(state, {level, traces}).
 
--type trace_who() :: {client | topic, binary()}.
+-type(trace_who() :: {client | topic, binary()}).
 
 -define(TRACE_OPTIONS, [{formatter_config, [time, " [",severity,"] ", message, "\n"]}]).
 

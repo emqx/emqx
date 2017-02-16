@@ -1,6 +1,6 @@
 PROJECT = emqttd
 PROJECT_DESCRIPTION = Erlang MQTT Broker
-PROJECT_VERSION = 2.0.7
+PROJECT_VERSION = 2.1
 
 DEPS = gproc lager esockd mochiweb
 
@@ -24,9 +24,9 @@ TEST_ERLC_OPTS += +'{parse_transform, lager_transform}'
 EUNIT_OPTS = verbose
 # EUNIT_ERL_OPTS =
 
-CT_SUITES = emqttd emqttd_access emqttd_lib emqttd_mod emqttd_net \
-            emqttd_mqueue emqttd_protocol emqttd_topic emqttd_trie \
-            emqttd_vm
+CT_SUITES = emqttd emqttd_access emqttd_lib emqttd_inflight emqttd_mod \
+            emqttd_net emqttd_mqueue emqttd_protocol emqttd_topic \
+            emqttd_trie emqttd_vm
 
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name emqttd_ct@127.0.0.1
 

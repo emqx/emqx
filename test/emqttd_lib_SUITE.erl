@@ -141,8 +141,8 @@ priority_queue_out2(_) ->
 
 time_now_to_(_) ->
     emqttd_time:seed(),
-    emqttd_time:now_to_secs(),
-    emqttd_time:now_to_ms().
+    emqttd_time:now_secs(),
+    emqttd_time:now_ms().
 
 %%--------------------------------------------------------------------
 %% emqttd_node

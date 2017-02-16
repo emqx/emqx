@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,29 +16,25 @@
 
 -module(emqttd_access_control).
 
--include("emqttd.hrl").
-
 -behaviour(gen_server).
 
--define(SERVER, ?MODULE).
+-author("Feng Lee <feng@emqtt.io>").
+
+-include("emqttd.hrl").
 
 %% API Function Exports
--export([start_link/0,
-         auth/2,       % authentication
-         check_acl/3,  % acl check
-         reload_acl/0, % reload acl
-         lookup_mods/1,
-         register_mod/3, register_mod/4,
-         unregister_mod/2,
-         stop/0]).
+-export([start_link/0, auth/2, check_acl/3, reload_acl/0, lookup_mods/1,
+         register_mod/3, register_mod/4, unregister_mod/2, stop/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+-define(SERVER, ?MODULE).
+
 -define(ACCESS_CONTROL_TAB, mqtt_access_control).
 
--type password() :: undefined | binary().
+-type(password() :: undefined | binary()).
 
 -record(state, {}).
 

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -17,6 +17,8 @@
 -module(emqttd_broker).
 
 -behaviour(gen_server).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -40,16 +42,18 @@
 
 -record(state, {started_at, sys_interval, heartbeat, tick_tref, version, sysdescr}).
 
+-define(APP, emqttd).
+
 -define(SERVER, ?MODULE).
 
 -define(BROKER_TAB, mqtt_broker).
 
 %% $SYS Topics of Broker
 -define(SYSTOP_BROKERS, [
-    version,      % Broker version
-    uptime,       % Broker uptime
-    datetime,     % Broker local datetime
-    sysdescr      % Broker description
+    version,  % Broker version
+    uptime,   % Broker uptime
+    datetime, % Broker local datetime
+    sysdescr  % Broker description
 ]).
 
 %%--------------------------------------------------------------------
@@ -74,12 +78,12 @@ notify(EventType, Event) ->
 %% @doc Get broker version
 -spec(version() -> string()).
 version() ->
-    {ok, Version} = application:get_key(emqttd, vsn), Version.
+    {ok, Version} = application:get_key(?APP, vsn), Version.
 
 %% @doc Get broker description
 -spec(sysdescr() -> string()).
 sysdescr() ->
-    {ok, Descr} = application:get_key(emqttd, description), Descr.
+    {ok, Descr} = application:get_key(?APP, description), Descr.
 
 %% @doc Get broker uptime
 -spec(uptime() -> string()).
@@ -161,13 +165,11 @@ retain(brokers) ->
     Payload = list_to_binary(string:join([atom_to_list(N) ||
                     N <- emqttd_mnesia:running_nodes()], ",")),
     Msg = emqttd_message:make(broker, <<"$SYS/brokers">>, Payload),
-    Msg1 = emqttd_message:set_flag(sys, emqttd_message:set_flag(retain, Msg)),
-    emqttd:publish(Msg1).
+    emqttd:publish(emqttd_message:set_flag(sys, emqttd_message:set_flag(retain, Msg))).
 
 retain(Topic, Payload) when is_binary(Payload) ->
     Msg = emqttd_message:make(broker, emqttd_topic:systop(Topic), Payload),
-    Msg1 = emqttd_message:set_flag(sys, emqttd_message:set_flag(retain, Msg)),
-    emqttd:publish(Msg1).
+    emqttd:publish(emqttd_message:set_flag(sys, emqttd_message:set_flag(retain, Msg))).
 
 publish(Topic, Payload) when is_binary(Payload) ->
     Msg = emqttd_message:make(broker, emqttd_topic:systop(Topic), Payload),
