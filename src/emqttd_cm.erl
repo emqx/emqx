@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,9 +15,12 @@
 %%--------------------------------------------------------------------
 
 %% @doc MQTT Client Manager
+
 -module(emqttd_cm).
 
 -behaviour(gen_server2).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -120,6 +123,7 @@ handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
         {ok, {ClientId, DownPid}} ->
             case lookup_proc(ClientId) of
                 DownPid ->
+                    emqttd_stats:del_client_stats(ClientId),
                     ets:delete(mqtt_client, ClientId);
                 _ ->
                     ignore
