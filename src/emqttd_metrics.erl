@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,10 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc emqttd metrics. responsible for collecting broker metrics.
 -module(emqttd_metrics).
 
 -behaviour(gen_server).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -37,7 +38,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {tick_tref}).
+-record(state, {tick}).
 
 -define(METRIC_TAB, mqtt_metric).
 
@@ -57,12 +58,16 @@
     {counter, 'packets/publish/sent'},     % PUBLISH packets sent
     {counter, 'packets/puback/received'},  % PUBACK packets received
     {counter, 'packets/puback/sent'},      % PUBACK packets sent
+    {counter, 'packets/puback/missed'},    % PUBACK packets missed
     {counter, 'packets/pubrec/received'},  % PUBREC packets received
     {counter, 'packets/pubrec/sent'},      % PUBREC packets sent
+    {counter, 'packets/pubrec/missed'},    % PUBREC packets missed
     {counter, 'packets/pubrel/received'},  % PUBREL packets received
     {counter, 'packets/pubrel/sent'},      % PUBREL packets sent
+    {counter, 'packets/pubrel/missed'},    % PUBREL packets missed
     {counter, 'packets/pubcomp/received'}, % PUBCOMP packets received
     {counter, 'packets/pubcomp/sent'},     % PUBCOMP packets sent
+    {counter, 'packets/pubcomp/missed'},   % PUBCOMP packets missed
     {counter, 'packets/subscribe'},        % SUBSCRIBE Packets received 
     {counter, 'packets/suback'},           % SUBACK packets sent 
     {counter, 'packets/unsubscribe'},      % UNSUBSCRIBE Packets received
@@ -74,14 +79,15 @@
 
 %% Messages sent and received of broker
 -define(SYSTOP_MESSAGES, [
-    {counter, 'messages/received'},      % Messages received
-    {counter, 'messages/sent'},          % Messages sent
-    {counter, 'messages/qos0/received'}, % Messages received
-    {counter, 'messages/qos0/sent'},     % Messages sent
-    {counter, 'messages/qos1/received'}, % Messages received
-    {counter, 'messages/qos1/sent'},     % Messages sent
-    {counter, 'messages/qos2/received'}, % Messages received
-    {counter, 'messages/qos2/sent'},     % Messages sent
+    {counter, 'messages/received'},      % All Messages received
+    {counter, 'messages/sent'},          % All Messages sent
+    {counter, 'messages/qos0/received'}, % QoS0 Messages received
+    {counter, 'messages/qos0/sent'},     % QoS0 Messages sent
+    {counter, 'messages/qos1/received'}, % QoS1 Messages received
+    {counter, 'messages/qos1/sent'},     % QoS1 Messages sent
+    {counter, 'messages/qos2/received'}, % QoS2 Messages received
+    {counter, 'messages/qos2/sent'},     % QoS2 Messages sent
+    {counter, 'messages/qos2/dropped'},  % QoS2 Messages dropped
     {gauge,   'messages/retained'},      % Messagea retained
     {counter, 'messages/dropped'}        % Messages dropped
 ]).
@@ -138,7 +144,7 @@ qos_received(?QOS_2) ->
 sent(?PUBLISH_PACKET(_Qos, <<"$SYS/", _/binary>>, _, _)) ->
     ignore;
 sent(Packet) ->
-    emqttd_metrics:inc('packets/sent'),
+    inc('packets/sent'),
     sent1(Packet).
 sent1(?PUBLISH_PACKET(Qos, _PktId)) ->
     inc('packets/publish/sent'),
@@ -245,7 +251,7 @@ init([]) ->
     % $SYS Topics for metrics
     % [ok = emqttd:create(topic, metric_topic(Topic)) || {_, Topic} <- Metrics],
     % Tick to publish metrics
-    {ok, #state{tick_tref = emqttd_broker:start_tick(tick)}, hibernate}.
+    {ok, #state{tick = emqttd_broker:start_tick(tick)}, hibernate}.
 
 handle_call(_Req, _From, State) ->
     {reply, error, State}.
@@ -261,7 +267,7 @@ handle_info(tick, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, #state{tick_tref = TRef}) ->
+terminate(_Reason, #state{tick = TRef}) ->
     emqttd_broker:stop_tick(TRef).
 
 code_change(_OldVsn, State, _Extra) ->

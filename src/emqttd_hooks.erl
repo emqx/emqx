@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2016 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,11 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqttd_hook).
-
--author("Feng Lee <feng@emqtt.io>").
+-module(emqttd_hooks).
 
 -behaviour(gen_server).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 %% Start
 -export([start_link/0]).
@@ -39,10 +39,6 @@
 -record(hook, {name :: atom(), callbacks = [] :: list(#callback{})}).
 
 -define(HOOK_TAB, mqtt_hook).
-
-%%--------------------------------------------------------------------
-%% Start API
-%%--------------------------------------------------------------------
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).

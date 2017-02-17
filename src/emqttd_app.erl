@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,29 +18,26 @@
 
 -behaviour(application).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -include("emqttd_cli.hrl").
+
+-include("emqttd_protocol.hrl").
 
 %% Application callbacks
 -export([start/2, stop/1]).
 
 -export([start_listener/1, stop_listener/1]).
 
-%% MQTT SockOpts
--define(MQTT_SOCKOPTS, [binary, {packet, raw}, {reuseaddr, true},
-                        {backlog, 512}, {nodelay, true}]).
+-type(listener() :: {atom(), esockd:listen_on(), [esockd:option()]}).
 
--type listener() :: {atom(), esockd:listen_on(), [esockd:option()]}.
+-define(APP, emqttd).
 
 %%--------------------------------------------------------------------
 %% Application callbacks
 %%--------------------------------------------------------------------
 
--spec(start(StartType, StartArgs) -> {ok, pid()} | {ok, pid(), State} | {error, Reason} when
-      StartType :: normal | {takeover, node()} | {failover, node()},
-      StartArgs :: term(),
-      State     :: term(),
-      Reason    :: term()).
-start(_StartType, _StartArgs) ->
+start(_Type, _Args) ->
     print_banner(),
     emqttd_mnesia:start(),
     {ok, Sup} = emqttd_sup:start_link(),
@@ -63,12 +60,11 @@ stop(_State) ->
 %%--------------------------------------------------------------------
 
 print_banner() ->
-    ?PRINT("starting emqttd on node '~s'~n", [node()]).
+    ?PRINT("starting ~s on node '~s'~n", [?APP, node()]).
 
 print_vsn() ->
     {ok, Vsn} = application:get_key(vsn),
-    {ok, Desc} = application:get_key(description),
-    ?PRINT("~s ~s is running now~n", [Desc, Vsn]).
+    ?PRINT("~s ~s is running now~n", [?APP, Vsn]).
 
 %%--------------------------------------------------------------------
 %% Start Servers
@@ -76,7 +72,7 @@ print_vsn() ->
 
 start_servers(Sup) ->
     Servers = [{"emqttd ctl", emqttd_ctl},
-               {"emqttd hook", emqttd_hook},
+               {"emqttd hook", emqttd_hooks},
                {"emqttd router", emqttd_router},
                {"emqttd pubsub", {supervisor, emqttd_pubsub_sup}},
                {"emqttd stats", emqttd_stats},
@@ -176,14 +172,14 @@ start_listener({Proto, ListenOn, Opts}) when Proto == https; Proto == wss ->
     mochiweb:start_http('mqtt:wss', ListenOn, Opts, {emqttd_http, handle_request, []}).
 
 start_listener(Proto, ListenOn, Opts) ->
-    {ok, Env} = emqttd:env(protocol),
+    Env = lists:append(emqttd:env(client, []), emqttd:env(protocol, [])),
     MFArgs = {emqttd_client, start_link, [Env]},
     {ok, _} = esockd:open(Proto, ListenOn, merge_sockopts(Opts), MFArgs).
 
 merge_sockopts(Options) ->
-    SockOpts = emqttd_opts:merge(?MQTT_SOCKOPTS,
-                                 proplists:get_value(sockopts, Options, [])),
-    emqttd_opts:merge(Options, [{sockopts, SockOpts}]).
+    SockOpts = emqttd_misc:merge_opts(
+                 ?MQTT_SOCKOPTS, proplists:get_value(sockopts, Options, [])),
+    emqttd_misc:merge_opts(Options, [{sockopts, SockOpts}]).
 
 %%--------------------------------------------------------------------
 %% Stop Listeners
@@ -211,3 +207,4 @@ merge_sockopts_test_() ->
     ?_assert(merge_sockopts(Opts) == [{sockopts, ?MQTT_SOCKOPTS} | Opts]).
 
 -endif.
+

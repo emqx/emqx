@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,21 +16,24 @@
 
 -module(emqttd_access_rule).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -include("emqttd.hrl").
 
--type who() :: all | binary() |
+
+-type(who() :: all | binary() |
                {ipaddr, esockd_cidr:cidr_string()} |
                {client, binary()} |
-               {user, binary()}.
+               {user, binary()}).
 
--type access() :: subscribe | publish | pubsub.
+-type(access() :: subscribe | publish | pubsub).
 
--type topic() :: binary().
+-type(topic() :: binary()).
 
--type rule() :: {allow, all} |
+-type(rule() :: {allow, all} |
                 {allow, who(), access(), list(topic())} |
                 {deny, all} |
-                {deny, who(), access(), list(topic())}.
+                {deny, who(), access(), list(topic())}).
 
 -export_type([rule/0]).
 

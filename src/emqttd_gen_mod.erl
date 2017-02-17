@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,15 +15,18 @@
 %%--------------------------------------------------------------------
 
 %% @doc emqttd gen_mod behaviour
+
 -module(emqttd_gen_mod).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
 -ifdef(use_specs).
 
--callback load(Opts :: any()) -> ok | {error, any()}.
+-callback(load(Opts :: any()) -> ok | {error, any()}).
 
--callback unload(State :: any()) -> any().
+-callback(unload(State :: any()) -> any()).
 
 -else.
 
@@ -35,4 +38,3 @@ behaviour_info(_Other) ->
     undefined.
 
 -endif.
-
