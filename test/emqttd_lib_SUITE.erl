@@ -71,7 +71,7 @@ guid_base62(_) ->
 %%--------------------------------------------------------------------
 
 opts_merge(_) ->
-    Opts = emqttd_opts:merge(?SOCKOPTS, [raw,
+    Opts = emqttd_misc:merge_opts(?SOCKOPTS, [raw,
                                          binary,
                                          {backlog, 1024},
                                          {nodelay, false},

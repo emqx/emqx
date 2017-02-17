@@ -371,21 +371,21 @@ add_delete_hook(_) ->
     {error, already_hooked} = emqttd:hook(test_hook, fun ?MODULE:hook_fun2/1, []),
     Callbacks = [{callback, fun ?MODULE:hook_fun1/1, [], 0},
                  {callback, fun ?MODULE:hook_fun2/1, [], 0}],
-    Callbacks = emqttd_hook:lookup(test_hook),
+    Callbacks = emqttd_hooks:lookup(test_hook),
     emqttd:unhook(test_hook, fun ?MODULE:hook_fun1/1),
     emqttd:unhook(test_hook, fun ?MODULE:hook_fun2/1),
     ok = emqttd:unhook(test_hook, fun ?MODULE:hook_fun2/1),
     {error, not_found} = emqttd:unhook(test_hook1, fun ?MODULE:hook_fun2/1),
-    [] = emqttd_hook:lookup(test_hook),
+    [] = emqttd_hooks:lookup(test_hook),
 
     emqttd:hook(emqttd_hook, fun ?MODULE:hook_fun1/1, [], 9),
     emqttd:hook(emqttd_hook, fun ?MODULE:hook_fun2/1, [], 8),
     Callbacks2 = [{callback, fun ?MODULE:hook_fun2/1, [], 8},
                   {callback, fun ?MODULE:hook_fun1/1, [], 9}],
-    Callbacks2 = emqttd_hook:lookup(emqttd_hook),
+    Callbacks2 = emqttd_hooks:lookup(emqttd_hook),
     emqttd:unhook(emqttd_hook, fun ?MODULE:hook_fun1/1),
     emqttd:unhook(emqttd_hook, fun ?MODULE:hook_fun2/1),
-    [] = emqttd_hook:lookup(emqttd_hook).
+    [] = emqttd_hooks:lookup(emqttd_hook).
 
 run_hooks(_) ->
     emqttd:hook(foldl_hook, fun ?MODULE:hook_fun3/4, [init]),
@@ -514,8 +514,8 @@ cluster_remove2(_) ->
     ok = emqttd_cluster:join(Z),
     Node = node(),
     [Z, Node] = emqttd_mnesia:running_nodes(),
-    ok = rpc:call(Z, emqttd_mnesia, ensure_stopped, []),
     ok = emqttd_cluster:remove(Z),
+    ok = rpc:call(Z, emqttd_mnesia, ensure_stopped, []),
     [Node] = emqttd_mnesia:running_nodes(),
     slave:stop(Z).
 
