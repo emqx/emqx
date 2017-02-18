@@ -65,7 +65,7 @@ start_link(Conn, Env) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[Conn, Env]])}.
 
 info(CPid) ->
-    gen_server:call(CPid, info, infinity).
+    gen_server:call(CPid, info).
 
 stats(CPid) ->
     gen_server:call(CPid, stats).
