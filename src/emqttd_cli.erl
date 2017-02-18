@@ -32,7 +32,7 @@
 
 -export([status/1, broker/1, cluster/1, users/1, clients/1, sessions/1,
          routes/1, topics/1, subscriptions/1, plugins/1, bridges/1,
-         listeners/1, vm/1, mnesia/1, trace/1]).
+         listeners/1, vm/1, mnesia/1, trace/1, acl/1]).
 
 -define(PROC_INFOKEYS, [status,
                         memory,
@@ -150,6 +150,9 @@ cluster(_) ->
 %% @doc Users usage
 
 users(Args) -> emq_auth_username:cli(Args).
+
+acl(["reload"]) -> emqttd_access_control:reload_acl();
+acl(_) -> ?USAGE([{"acl reload", "reload etc/acl.conf"}]).
 
 %%--------------------------------------------------------------------
 %% @doc Query clients
