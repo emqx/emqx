@@ -173,26 +173,6 @@ end}.
   {datatype, file}
 ]}.
 
-{mapping, "log.syslog", "lager.handlers", [
-  {default,  off},
-  {datatype, flag}
-]}.
-
-{mapping, "log.syslog.identity", "lager.handlers", [
-  {default, "emq"},
-  {datatype, string}
-]}.
-
-{mapping, "log.syslog.facility", "lager.handlers", [
-  {default, local0},
-  {datatype, {enum, [daemon, local0, local1, local2, local3, local4, local5, local6, local7]}}
-]}.
-
-{mapping, "log.syslog.level", "lager.handlers", [
-  {default, err},
-  {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency]}}
-]}.
-
 {mapping, "log.error.redirect", "lager.error_logger_redirect", [
   {default, on},
   {datatype, flag},
@@ -235,15 +215,7 @@ end}.
       _ -> []
     end,
 
-    SyslogHandler = case cuttlefish:conf_get("log.syslog", Conf) of
-      false -> [];
-      true  -> [{lager_syslog_backend,
-                  [cuttlefish:conf_get("log.syslog.identity", Conf),
-                   cuttlefish:conf_get("log.syslog.facility", Conf),
-                   cuttlefish:conf_get("log.syslog.level", Conf)]}]
-    end,
-
-    ConsoleHandlers ++ ErrorHandler ++ SyslogHandler
+    ConsoleHandlers ++ ErrorHandler
   end
 }.
 
