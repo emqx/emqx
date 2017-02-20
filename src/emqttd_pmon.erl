@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2016-2017 Feng Lee <feng@emqtt.io>. All Rights Reserved.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,11 +18,14 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--type(pmon() :: {?MODULE, map()}).
-
 -export([new/0, monitor/2, demonitor/2, erase/2]).
 
-new() -> {?MODULE, [maps:new()]}.
+-type(pmon() :: {?MODULE, map()}).
+
+-export_type([pmon/0]).
+
+new() ->
+    {?MODULE, [maps:new()]}.
 
 -spec(monitor(pid(), pmon()) -> pmon()).
 monitor(Pid, PM = {?MODULE, [M]}) ->

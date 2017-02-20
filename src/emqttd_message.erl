@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,7 +15,10 @@
 %%--------------------------------------------------------------------
 
 %% @doc MQTT Message Functions
+
 -module(emqttd_message).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -include("emqttd.hrl").
 
@@ -42,7 +45,7 @@ make(From, Qos, Topic, Payload) ->
                   qos       = ?QOS_I(Qos),
                   topic     = Topic,
                   payload   = Payload,
-                  timestamp = emqttd_time:now_to_secs()}.
+                  timestamp = os:timestamp()}.
 
 %% @doc Message from Packet
 -spec(from_packet(mqtt_packet()) -> mqtt_message()).
@@ -60,7 +63,7 @@ from_packet(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                   dup       = Dup,
                   topic     = Topic,
                   payload   = Payload,
-                  timestamp = emqttd_time:now_to_secs()};
+                  timestamp = os:timestamp()};
 
 from_packet(#mqtt_packet_connect{will_flag  = false}) ->
     undefined;
@@ -78,7 +81,7 @@ from_packet(#mqtt_packet_connect{client_id   = ClientId,
                   qos       = Qos,
                   dup       = false,
                   payload   = Msg, 
-                  timestamp = emqttd_time:now_to_secs()}.
+                  timestamp = os:timestamp()}.
 
 from_packet(ClientId, Packet) ->
     Msg = from_packet(Packet),

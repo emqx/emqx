@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
 
 -module(emqttd_acl_mod).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -include("emqttd.hrl").
 
 %%--------------------------------------------------------------------
@@ -26,10 +28,9 @@
 
 -callback(init(AclOpts :: list()) -> {ok, State :: any()}).
 
--callback(check_acl({Client, PubSub, Topic}, State :: any()) -> allow | deny | ignore when
-        Client   :: mqtt_client(),
-        PubSub   :: pubsub(),
-        Topic    :: binary()).
+-callback(check_acl({Client :: mqtt_client(),
+                     PubSub :: pubsub(),
+                     Topic  :: binary()}, State :: any()) -> allow | deny | ignore).
 
 -callback(reload_acl(State :: any()) -> ok | {error, any()}).
 

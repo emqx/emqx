@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -17,6 +17,8 @@
 %% @doc MQTT Packet Parser
 -module(emqttd_parser).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -include("emqttd.hrl").
 
 -include("emqttd_protocol.hrl").
@@ -26,9 +28,9 @@
 
 -record(mqtt_packet_limit, {max_packet_size}).
 
--type option() :: {atom(),  any()}.
+-type(option() :: {atom(),  any()}).
 
--type parser() :: fun( (binary()) -> any() ).
+-type(parser() :: fun( (binary()) -> any() )).
 
 %% @doc Initialize a parser
 -spec(new(Opts :: [option()]) -> parser()).
@@ -86,7 +88,7 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos  = Qos} = Header, Length) 
               WillRetain   : 1,
               WillQos      : 2,
               WillFlag     : 1,
-              CleanSession : 1,
+              CleanSess    : 1,
               _Reserved    : 1,
               KeepAlive    : 16/big,
               Rest3/binary>>   = Rest2,
@@ -104,7 +106,7 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos  = Qos} = Header, Length) 
                            will_retain = bool(WillRetain),
                            will_qos    = WillQos,
                            will_flag   = bool(WillFlag),
-                           clean_sess  = bool(CleanSession),
+                           clean_sess  = bool(CleanSess),
                            keep_alive  = KeepAlive,
                            client_id   = ClientId,
                            will_topic  = WillTopic,

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,15 +15,18 @@
 %%--------------------------------------------------------------------
 
 %% @doc Client Keepalive
+
 -module(emqttd_keepalive).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -export([start/3, check/1, cancel/1]).
 
--record(keepalive, {statfun, statval,
-                    tsec, tmsg, tref,
-                    repeat = 0}).
+-record(keepalive, {statfun, statval, tsec, tmsg, tref, repeat = 0}).
 
--type keepalive() :: #keepalive{}.
+-type(keepalive() :: #keepalive{}).
+
+-export_type([keepalive/0]).
 
 %% @doc Start a keepalive
 -spec(start(fun(), integer(), any()) -> undefined | keepalive()).

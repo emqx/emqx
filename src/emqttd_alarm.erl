@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 
 -module(emqttd_alarm).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -behaviour(gen_event).
 
@@ -90,12 +92,12 @@ handle_event({set_alarm, Alarm = #mqtt_alarm{id       = AlarmId,
                               {severity, Severity},
                               {title, iolist_to_binary(Title)},
                               {summary, iolist_to_binary(Summary)},
-                              {ts, emqttd_time:now_to_secs(Timestamp)}]),
+                              {ts, emqttd_time:now_secs(Timestamp)}]),
     emqttd:publish(alarm_msg(alert, AlarmId, Json)),
     {ok, [Alarm#mqtt_alarm{timestamp = Timestamp} | Alarms]};
 
 handle_event({clear_alarm, AlarmId}, Alarms) ->
-    Json = mochijson2:encode([{id, AlarmId}, {ts, emqttd_time:now_to_secs()}]),
+    Json = mochijson2:encode([{id, AlarmId}, {ts, emqttd_time:now_secs()}]),
     emqttd:publish(alarm_msg(clear, AlarmId, Json)),
     {ok, lists:keydelete(AlarmId, 2, Alarms), hibernate};
 
