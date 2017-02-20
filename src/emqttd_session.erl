@@ -391,7 +391,7 @@ handle_cast({subscribe, _From, TopicTable, AckFun},
                 {[NewQos|QosAcc], SubMap1}
         end, {[], Subscriptions}, TopicTable),
     AckFun(lists:reverse(GrantedQos)),
-    noreply(emit_stats(State#state{subscriptions = Subscriptions1}));
+    hibernate(emit_stats(State#state{subscriptions = Subscriptions1}));
 
 handle_cast({unsubscribe, _From, TopicTable},
             State = #state{client_id     = ClientId,
@@ -409,7 +409,7 @@ handle_cast({unsubscribe, _From, TopicTable},
                         SubMap
                 end
         end, Subscriptions, TopicTable),
-    noreply(emit_stats(State#state{subscriptions = Subscriptions1}));
+    hibernate(emit_stats(State#state{subscriptions = Subscriptions1}));
 
 %% PUBACK:
 handle_cast({puback, PacketId}, State = #state{inflight = Inflight}) ->
@@ -501,7 +501,7 @@ handle_cast({resume, ClientId, ClientPid},
     end,
 
     %% Replay delivery and Dequeue pending messages
-    noreply(emit_stats(dequeue(retry_delivery(true, State1))));
+    hibernate(emit_stats(dequeue(retry_delivery(true, State1))));
 
 handle_cast({destroy, ClientId}, State = #state{client_id  = ClientId,
                                                 client_pid = undefined}) ->
