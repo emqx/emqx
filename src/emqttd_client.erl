@@ -52,9 +52,9 @@
 -export([prioritise_call/4, prioritise_info/3, handle_pre_hibernate/1]).
 
 %% Client State
--record(client_state, {connection, connname, peername, peerhost, peerport,
-                       await_recv, conn_state, rate_limit, parser_fun,
-                       proto_state, packet_opts, keepalive, enable_stats}).
+-record(client_state, {connection, connname, peername, peerhost, peerport, await_recv,
+                       conn_state, rate_limit, packet_limit, parse_state, proto_state,
+                       keepalive, enable_stats}).
 
 -define(INFO_KEYS, [connname, peername, peerhost, peerport, await_recv, conn_state]).
 
@@ -120,9 +120,10 @@ init([Conn0, Env]) ->
             error:Error -> Self ! {shutdown, Error}
         end
     end,
-    ParserFun = emqttd_parser:new(Env),
-    ProtoState = emqttd_protocol:init(PeerName, SendFun, Env),
     RateLimit = get_value(rate_limit, Conn:opts()),
+    PacketLimit = proplists:get_value(max_packet_size, Env, ?MAX_PACKET_LEN),
+    ParseState = emqttd_parser:initial_state(PacketLimit),
+    ProtoState = emqttd_protocol:init(PeerName, SendFun, Env),
     EnableStats = get_value(client_enable_stats, Env, false),
     State = run_socket(#client_state{connection   = Conn,
                                      connname     = ConnName,
@@ -132,9 +133,9 @@ init([Conn0, Env]) ->
                                      await_recv   = false,
                                      conn_state   = running,
                                      rate_limit   = RateLimit,
-                                     parser_fun   = ParserFun,
+                                     packet_limit = PacketLimit,
+                                     parse_state  = ParseState,
                                      proto_state  = ProtoState,
-                                     packet_opts  = Env,
                                      enable_stats = EnableStats}),
     IdleTimout = get_value(client_idle_timeout, Env, 30000),
     gen_server2:enter_loop(?MODULE, [], State, self(), IdleTimout,
@@ -294,17 +295,17 @@ code_change(_OldVsn, State, _Extra) ->
 received(<<>>, State) ->
     {noreply, State, hibernate};
 
-received(Bytes, State = #client_state{parser_fun  = ParserFun,
-                                      packet_opts = PacketOpts,
+received(Bytes, State = #client_state{parse_state  = ParseState,
+                                      packet_limit = PacketLimit,
                                       proto_state = ProtoState}) ->
-    case catch ParserFun(Bytes) of
-        {more, NewParser}  ->
-            {noreply, run_socket(State#client_state{parser_fun = NewParser}), hibernate};
+    case catch emqttd_parser:parse(Bytes, ParseState) of
+        {more, NewParseState} ->
+            {noreply, run_socket(State#client_state{parse_state = NewParseState}), hibernate};
         {ok, Packet, Rest} ->
             emqttd_metrics:received(Packet),
             case emqttd_protocol:received(Packet, ProtoState) of
                 {ok, ProtoState1} ->
-                    received(Rest, State#client_state{parser_fun = emqttd_parser:new(PacketOpts),
+                    received(Rest, State#client_state{parse_state = emqttd_parser:initial_state(PacketLimit),
                                                       proto_state = ProtoState1});
                 {error, Error} ->
                     ?LOG(error, "Protocol error - ~p", [Error], State),
