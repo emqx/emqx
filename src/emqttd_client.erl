@@ -18,7 +18,7 @@
 
 -module(emqttd_client).
 
--behaviour(gen_server).
+-behaviour(gen_server2).
 
 -author("Feng Lee <feng@emqtt.io>").
 
@@ -48,11 +48,13 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          code_change/3, terminate/2]).
 
+%% gen_server2 Callbacks
+-export([prioritise_call/4, prioritise_info/3, handle_pre_hibernate/1]).
+
 %% Client State
 -record(client_state, {connection, connname, peername, peerhost, peerport,
                        await_recv, conn_state, rate_limit, parser_fun,
-                       proto_state, packet_opts, keepalive, enable_stats,
-                       stats_timer}).
+                       proto_state, packet_opts, keepalive, enable_stats}).
 
 -define(INFO_KEYS, [connname, peername, peerhost, peerport, await_recv, conn_state]).
 
@@ -65,19 +67,19 @@ start_link(Conn, Env) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[Conn, Env]])}.
 
 info(CPid) ->
-    gen_server:call(CPid, info).
+    gen_server2:call(CPid, info).
 
 stats(CPid) ->
-    gen_server:call(CPid, stats).
+    gen_server2:call(CPid, stats).
 
 kick(CPid) ->
-    gen_server:call(CPid, kick).
+    gen_server2:call(CPid, kick).
 
 set_rate_limit(Cpid, Rl) ->
-    gen_server:call(Cpid, {set_rate_limit, Rl}).
+    gen_server2:call(Cpid, {set_rate_limit, Rl}).
 
 get_rate_limit(Cpid) ->
-    gen_server:call(Cpid, get_rate_limit).
+    gen_server2:call(Cpid, get_rate_limit).
 
 subscribe(CPid, TopicTable) ->
     CPid ! {subscribe, TopicTable}.
@@ -135,30 +137,41 @@ init([Conn0, Env]) ->
                                      packet_opts  = Env,
                                      enable_stats = EnableStats}),
     IdleTimout = get_value(client_idle_timeout, Env, 30000),
-    gen_server:enter_loop(?MODULE, [], maybe_enable_stats(State), IdleTimout).
+    gen_server2:enter_loop(?MODULE, [], State, self(), IdleTimout,
+                           {backoff, 1000, 1000, 5000}).
+
+prioritise_call(Msg, _From, _Len, _State) ->
+    case Msg of info -> 10; stats -> 10; state -> 10; _ -> 5 end.
+
+prioritise_info(Msg, _Len, _State) ->
+    case Msg of {redeliver, _} -> 5; _ -> 0 end.
+
+handle_pre_hibernate(State = #client_state{connname = Connname}) ->
+    io:format("Client(~s) will hibernate!~n", [Connname]),
+    {hibernate, emit_stats(State)}.
 
 handle_call(info, From, State = #client_state{proto_state = ProtoState}) ->
     ProtoInfo  = emqttd_protocol:info(ProtoState),
     ClientInfo = ?record_to_proplist(client_state, State, ?INFO_KEYS),
-    {reply, Stats, _} = handle_call(stats, From, State),
-    {reply, lists:append([ClientInfo, ProtoInfo, Stats]), State};
+    {reply, Stats, _, _} = handle_call(stats, From, State),
+    reply(lists:append([ClientInfo, ProtoInfo, Stats]), State);
 
 handle_call(stats, _From, State = #client_state{proto_state = ProtoState}) ->
-    {reply, lists:append([emqttd_misc:proc_stats(),
-                          emqttd_protocol:stats(ProtoState),
-                          sock_stats(State)]), State};
+    reply(lists:append([emqttd_misc:proc_stats(),
+                        emqttd_protocol:stats(ProtoState),
+                        sock_stats(State)]), State);
 
 handle_call(kick, _From, State) ->
     {stop, {shutdown, kick}, ok, State};
 
 handle_call({set_rate_limit, Rl}, _From, State) ->
-    {reply, ok, State#client_state{rate_limit = Rl}};
+    reply(ok, State#client_state{rate_limit = Rl});
 
 handle_call(get_rate_limit, _From, State = #client_state{rate_limit = Rl}) ->
-    {reply, Rl, State};
+    reply(Rl, State);
 
 handle_call(session, _From, State = #client_state{proto_state = ProtoState}) ->
-    {reply, emqttd_protocol:session(ProtoState), State};
+    reply(emqttd_protocol:session(ProtoState), State);
 
 handle_call(Req, _From, State) ->
     ?UNEXPECTED_REQ(Req, State).
@@ -198,11 +211,11 @@ handle_info({redeliver, {?PUBREL, PacketId}}, State) ->
           emqttd_protocol:pubrel(PacketId, ProtoState)
       end, State);
 
+handle_info(emit_stats, State) ->
+    {noreply, emit_stats(State), hibernate};
+
 handle_info(timeout, State) ->
     shutdown(idle_timeout, State);
-
-handle_info({timeout, _Timer, emit_stats}, State) ->
-    hibernate(maybe_enable_stats(emit_stats(State)));
 
 %% Fix issue #535
 handle_info({shutdown, Error}, State) ->
@@ -213,7 +226,7 @@ handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
     shutdown(conflict, State);
 
 handle_info(activate_sock, State) ->
-    hibernate(run_socket(State#client_state{conn_state = running}));
+    {noreply, run_socket(State#client_state{conn_state = running}), hibernate};
 
 handle_info({inet_async, _Sock, _Ref, {ok, Data}}, State) ->
     Size = iolist_size(Data),
@@ -239,12 +252,12 @@ handle_info({keepalive, start, Interval}, State = #client_state{connection = Con
                 end
              end,
     KeepAlive = emqttd_keepalive:start(StatFun, Interval, {keepalive, check}),
-    {noreply, stats_by_keepalive(State#client_state{keepalive = KeepAlive})};
+    {noreply, State#client_state{keepalive = KeepAlive}, hibernate};
 
 handle_info({keepalive, check}, State = #client_state{keepalive = KeepAlive}) ->
     case emqttd_keepalive:check(KeepAlive) of
         {ok, KeepAlive1} ->
-            hibernate(emit_stats(State#client_state{keepalive = KeepAlive1}));
+            {noreply, State#client_state{keepalive = KeepAlive1}, hibernate};
         {error, timeout} ->
             ?LOG(debug, "Keepalive timeout", [], State),
             shutdown(keepalive_timeout, State);
@@ -279,7 +292,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% Receive and parse tcp data
 received(<<>>, State) ->
-    hibernate(State);
+    {noreply, State, hibernate};
 
 received(Bytes, State = #client_state{parser_fun  = ParserFun,
                                       packet_opts = PacketOpts,
@@ -332,33 +345,25 @@ run_socket(State = #client_state{connection = Conn}) ->
 
 with_proto(Fun, State = #client_state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = Fun(ProtoState),
-    {noreply, State#client_state{proto_state = ProtoState1}}.
+    {noreply, State#client_state{proto_state = ProtoState1}, hibernate}.
 
-maybe_enable_stats(State = #client_state{enable_stats = false}) ->
-    State;
-maybe_enable_stats(State = #client_state{enable_stats = keepalive}) ->
-    State;
-maybe_enable_stats(State = #client_state{enable_stats = Interval}) ->
-    State#client_state{stats_timer = emqttd_misc:start_timer(Interval, self(), emit_stats)}.
-
-stats_by_keepalive(State) ->
-    State#client_state{enable_stats = keepalive}.
-
-emit_stats(State = #client_state{enable_stats = false}) ->
-    State;
 emit_stats(State = #client_state{proto_state = ProtoState}) ->
-    {reply, Stats, _} = handle_call(stats, undefined, State),
-    emqttd_stats:set_client_stats(emqttd_protocol:clientid(ProtoState), Stats),
+    emit_stats(emqttd_protocol:clientid(ProtoState), State).
+
+emit_stats(_ClientId, State = #client_state{enable_stats = false}) ->
+    State;
+emit_stats(undefined, State) ->
+    State;
+emit_stats(ClientId, State) ->
+    {reply, Stats, _, _} = handle_call(stats, undefined, State),
+    emqttd_stats:set_client_stats(ClientId, Stats),
     State.
 
 sock_stats(#client_state{connection = Conn}) ->
-    case Conn:getstat(?SOCK_STATS) of
-        {ok,   Ss} -> Ss;
-        {error, _} -> []
-    end.
+    case Conn:getstat(?SOCK_STATS) of {ok, Ss} -> Ss; {error, _} -> [] end.
 
-hibernate(State) ->
-    {noreply, State, hibernate}.
+reply(Reply, State) ->
+    {reply, Reply, State, hibernate}.
 
 shutdown(Reason, State) ->
     stop({shutdown, Reason}, State).

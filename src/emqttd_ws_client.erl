@@ -16,7 +16,7 @@
 
 -module(emqttd_ws_client).
 
--behaviour(gen_server).
+-behaviour(gen_server2).
 
 -author("Feng Lee <feng@emqtt.io>").
 
@@ -40,9 +40,12 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+%% gen_server2 Callbacks
+-export([prioritise_call/4, prioritise_info/3, handle_pre_hibernate/1]).
+
 %% WebSocket Client State
 -record(wsclient_state, {ws_pid, peer, connection, proto_state, keepalive,
-                         enable_stats, stats_timer}).
+                         enable_stats}).
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
@@ -54,13 +57,13 @@ start_link(Env, WsPid, Req, ReplyChannel) ->
     gen_server:start_link(?MODULE, [Env, WsPid, Req, ReplyChannel], []).
 
 info(CPid) ->
-    gen_server:call(CPid, info).
+    gen_server2:call(CPid, info).
 
 stats(CPid) ->
-    gen_server:call(CPid, stats).
+    gen_server2:call(CPid, stats).
 
 kick(CPid) ->
-    gen_server:call(CPid, kick).
+    gen_server2:call(CPid, kick).
 
 subscribe(CPid, TopicTable) ->
     CPid ! {subscribe, TopicTable}.
@@ -69,7 +72,7 @@ unsubscribe(CPid, Topics) ->
     CPid ! {unsubscribe, Topics}.
 
 session(CPid) ->
-    gen_server:call(CPid, session).
+    gen_server2:call(CPid, session).
 
 %%--------------------------------------------------------------------
 %% gen_server Callbacks
@@ -90,28 +93,39 @@ init([Env, WsPid, Req, ReplyChannel]) ->
     EnableStats = proplists:get_value(client_enable_stats, Env, false),
     ProtoState = emqttd_protocol:init(Peername, SendFun,
                                       [{ws_initial_headers, Headers} | Env]),
-    {ok, maybe_enable_stats(#wsclient_state{ws_pid       = WsPid,
-                                            peer         = Req:get(peer),
-                                            connection   = Req:get(connection),
-                                            proto_state  = ProtoState,
-                                            enable_stats = EnableStats}),
-     proplists:get_value(client_idle_timeout, Env, 30000)}.
+    IdleTimeout = proplists:get_value(client_idle_timeout, Env, 30000),
+    {ok, #wsclient_state{ws_pid       = WsPid,
+                         peer         = Req:get(peer),
+                         connection   = Req:get(connection),
+                         proto_state  = ProtoState,
+                         enable_stats = EnableStats},
+     IdleTimeout, {backoff, 1000, 1000, 5000}, ?MODULE}.
+
+prioritise_call(Msg, _From, _Len, _State) ->
+    case Msg of info -> 10; stats -> 10; state -> 10; _ -> 5 end.
+
+prioritise_info(Msg, _Len, _State) ->
+    case Msg of {redeliver, _} -> 5; _ -> 0 end.
+
+handle_pre_hibernate(State = #wsclient_state{peer = Peer}) ->
+    io:format("WsClient(~s) will hibernate!~n", [Peer]),
+    {hibernate, emit_stats(State)}.
 
 handle_call(info, From, State = #wsclient_state{peer = Peer, proto_state = ProtoState}) ->
     Info = [{websocket, true}, {peer, Peer} | emqttd_protocol:info(ProtoState)],
-    {reply, Stats, _} = handle_call(stats, From, State),
-    {reply, lists:append(Info, Stats), State};
+    {reply, Stats, _, _} = handle_call(stats, From, State),
+    reply(lists:append(Info, Stats), State);
 
 handle_call(stats, _From, State = #wsclient_state{proto_state = ProtoState}) ->
-    {reply, lists:append([emqttd_misc:proc_stats(),
-                          wsock_stats(State),
-                          emqttd_protocol:stats(ProtoState)]), State};
+    reply(lists:append([emqttd_misc:proc_stats(),
+                        wsock_stats(State),
+                        emqttd_protocol:stats(ProtoState)]), State);
 
 handle_call(kick, _From, State) ->
     {stop, {shutdown, kick}, ok, State};
 
 handle_call(session, _From, State = #wsclient_state{proto_state = ProtoState}) ->
-    {reply, emqttd_protocol:session(ProtoState), State};
+    reply(emqttd_protocol:session(ProtoState), State);
 
 handle_call(Req, _From, State = #wsclient_state{peer = Peer}) ->
     ?WSLOG(error, Peer, "Unexpected request: ~p", [Req]),
@@ -166,8 +180,8 @@ handle_info({redeliver, {?PUBREL, PacketId}}, State) ->
           emqttd_protocol:pubrel(PacketId, ProtoState)
       end, State);
 
-handle_info({timeout, _Timer, emit_stats}, State) ->
-    {noreply, maybe_enable_stats(emit_stats(State)), hibernate};
+handle_info(emit_stats, State) ->
+    {noreply, emit_stats(State), hibernate};
 
 handle_info(timeout, State) ->
     shutdown(idle_timeout, State);
@@ -185,7 +199,7 @@ handle_info({keepalive, start, Interval}, State = #wsclient_state{peer = Peer, c
         end
     end,
     KeepAlive = emqttd_keepalive:start(StatFun, Interval, {keepalive, check}),
-    {noreply, stats_by_keepalive(State#wsclient_state{keepalive = KeepAlive})};
+    {noreply, State#wsclient_state{keepalive = KeepAlive}, hibernate};
 
 handle_info({keepalive, check}, State = #wsclient_state{peer      = Peer,
                                                         keepalive = KeepAlive}) ->
@@ -209,7 +223,7 @@ handle_info({'EXIT', WsPid, Reason}, State = #wsclient_state{peer = Peer, ws_pid
 
 handle_info(Info, State = #wsclient_state{peer = Peer}) ->
     ?WSLOG(error, Peer, "Unexpected Info: ~p", [Info]),
-    {noreply, State}.
+    {noreply, State, hibernate}.
 
 terminate(Reason, #wsclient_state{proto_state = ProtoState, keepalive = KeepAlive}) ->
     emqttd_keepalive:cancel(KeepAlive),
@@ -227,21 +241,16 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-maybe_enable_stats(State = #wsclient_state{enable_stats = false}) ->
-    State;
-maybe_enable_stats(State = #wsclient_state{enable_stats = keepalive}) ->
-    State;
-maybe_enable_stats(State = #wsclient_state{enable_stats = Interval}) ->
-    State#wsclient_state{stats_timer = emqttd_misc:start_timer(Interval, self(), emit_stats)}.
-
-stats_by_keepalive(State) ->
-    State#wsclient_state{enable_stats = keepalive}.
-
-emit_stats(State = #wsclient_state{enable_stats = false}) ->
-    State;
 emit_stats(State = #wsclient_state{proto_state = ProtoState}) ->
-    {reply, Stats, _} = handle_call(stats, undefined, State),
-    emqttd_stats:set_client_stats(emqttd_protocol:clientid(ProtoState), Stats),
+    emit_stats(emqttd_protocol:clientid(ProtoState), State).
+
+emit_stats(_ClientId, State = #wsclient_state{enable_stats = false}) ->
+    State;
+emit_stats(undefined, State) ->
+    State;
+emit_stats(ClientId, State) ->
+    {reply, Stats, _, _} = handle_call(stats, undefined, State),
+    emqttd_stats:set_client_stats(ClientId, Stats),
     State.
 
 wsock_stats(#wsclient_state{connection = Conn}) ->
@@ -252,7 +261,10 @@ wsock_stats(#wsclient_state{connection = Conn}) ->
 
 with_proto(Fun, State = #wsclient_state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = Fun(ProtoState),
-    {noreply, State#wsclient_state{proto_state = ProtoState1}}.
+    {noreply, State#wsclient_state{proto_state = ProtoState1}, hibernate}.
+
+reply(Reply, State) ->
+    {reply, Reply, State, hibernate}.
 
 shutdown(Reason, State) ->
     stop({shutdown, Reason}, State).

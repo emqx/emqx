@@ -187,6 +187,8 @@ process(Packet = ?CONNECT_PACKET(Var), State0) ->
                             emqttd_cm:reg(client(State2)),
                             %% Start keepalive
                             start_keepalive(KeepAlive),
+                            %% Emit Stats
+                            self() ! emit_stats,
                             %% ACCEPT
                             {?CONNACK_ACCEPT, SP, State2#proto_state{session = Session, is_superuser = IsSuperuser}};
                         {error, Error} ->
