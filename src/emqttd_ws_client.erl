@@ -129,7 +129,7 @@ handle_call(session, _From, State = #wsclient_state{proto_state = ProtoState}) -
 
 handle_call(Req, _From, State = #wsclient_state{peer = Peer}) ->
     ?WSLOG(error, Peer, "Unexpected request: ~p", [Req]),
-    {reply, {error, unsupported_request}, State}.
+    reply({error, unsupported_request}, State).
 
 handle_cast({received, Packet}, State = #wsclient_state{peer = Peer, proto_state = ProtoState}) ->
     emqttd_metrics:received(Packet),
@@ -147,7 +147,7 @@ handle_cast({received, Packet}, State = #wsclient_state{peer = Peer, proto_state
 
 handle_cast(Msg, State = #wsclient_state{peer = Peer}) ->
     ?WSLOG(error, Peer, "Unexpected msg: ~p", [Msg]),
-    {noreply, State}.
+    {noreply, State, hibernate}.
 
 handle_info({subscribe, TopicTable}, State) ->
     with_proto(

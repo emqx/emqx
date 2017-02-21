@@ -238,7 +238,7 @@ handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
     shutdown(Reason, State);
 
 handle_info({inet_reply, _Sock, ok}, State) ->
-    {noreply, State};
+    {noreply, State, hibernate};
 
 handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
     shutdown(Reason, State);
@@ -299,7 +299,7 @@ received(Bytes, State = #client_state{parser_fun  = ParserFun,
                                       proto_state = ProtoState}) ->
     case catch ParserFun(Bytes) of
         {more, NewParser}  ->
-            {noreply, run_socket(State#client_state{parser_fun = NewParser})};
+            {noreply, run_socket(State#client_state{parser_fun = NewParser}), hibernate};
         {ok, Packet, Rest} ->
             emqttd_metrics:received(Packet),
             case emqttd_protocol:received(Packet, ProtoState) of
