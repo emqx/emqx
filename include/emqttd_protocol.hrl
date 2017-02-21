@@ -133,7 +133,7 @@
 %% Max MQTT Packet Length
 %%--------------------------------------------------------------------
 
--define(MAX_PACKET_LEN, 16#fffffff).
+-define(MAX_PACKET_SIZE, 16#fffffff).
 
 %%--------------------------------------------------------------------
 %% MQTT Parser and Serializer
