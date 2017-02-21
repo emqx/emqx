@@ -26,14 +26,16 @@
 %% API
 -export([initial_state/0, initial_state/1, parse/2]).
 
--spec(initial_state() -> {none, pos_integer()}).
+-type(max_packet_size() :: 1..?MAX_PACKET_SIZE).
+
+-spec(initial_state() -> {none, max_packet_size()}).
 initial_state() ->
-    initial_state(?MAX_PACKET_LEN).
+    initial_state(?MAX_PACKET_SIZE).
 
 %% @doc Initialize a parser
--spec(initial_state(pos_integer()) -> {none, pos_integer()}).
-initial_state(MaxLen) ->
-    {none, MaxLen}.
+-spec(initial_state(max_packet_size()) -> {none, max_packet_size()}).
+initial_state(MaxSize) ->
+    {none, MaxSize}.
 
 %% @doc Parse MQTT Packet
 -spec(parse(binary(), {none, pos_integer()} | fun())
