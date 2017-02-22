@@ -57,7 +57,7 @@
                        rate_limit, packet_size, parser, proto_state,
                        keepalive, enable_stats}).
 
--define(INFO_KEYS, [peername, conn_state, await_recv, enable_stats]).
+-define(INFO_KEYS, [peername, conn_state, await_recv]).
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
@@ -146,8 +146,7 @@ prioritise_call(Msg, _From, _Len, _State) ->
 prioritise_info(Msg, _Len, _State) ->
     case Msg of {redeliver, _} -> 5; _ -> 0 end.
 
-handle_pre_hibernate(State = #client_state{peername = Peername}) ->
-    io:format("Client(~s) will hibernate!~n", [esockd_net:format(Peername)]),
+handle_pre_hibernate(State) ->
     {hibernate, emit_stats(State)}.
 
 handle_call(info, From, State = #client_state{proto_state = ProtoState}) ->
