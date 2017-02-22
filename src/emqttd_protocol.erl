@@ -35,15 +35,15 @@
 
 -export([process/2]).
 
--record(proto_stats, {recv_pkt = 0, recv_msg = 0, send_pkt = 0, send_msg = 0}).
+-record(proto_stats, {enable_stats = false, recv_pkt = 0, recv_msg = 0,
+                      send_pkt = 0, send_msg = 0}).
 
 %% Protocol State
--record(proto_state, {peername, sendfun, connected = false,
-                      client_id, client_pid, clean_sess,
-                      proto_ver, proto_name, username, is_superuser = false,
-                      will_msg, keepalive, max_clientid_len = ?MAX_CLIENTID_LEN,
-                      session, stats, ws_initial_headers, %% Headers from first HTTP request for websocket client
-                      connected_at}).
+%% ws_initial_headers: Headers from first HTTP request for WebSocket Client.
+-record(proto_state, {peername, sendfun, connected = false, client_id, client_pid,
+                      clean_sess, proto_ver, proto_name, username, is_superuser,
+                      will_msg, keepalive, max_clientid_len, session, stats_data,
+                      ws_initial_headers, connected_at}).
 
 -type(proto_state() :: #proto_state{}).
 
@@ -58,20 +58,22 @@
 
 %% @doc Init protocol
 init(Peername, SendFun, Opts) ->
+    EnableStats = get_value(client_enable_stats, Opts, false),
     MaxLen = get_value(max_clientid_len, Opts, ?MAX_CLIENTID_LEN),
     WsInitialHeaders = get_value(ws_initial_headers, Opts),
     #proto_state{peername           = Peername,
                  sendfun            = SendFun,
-                 max_clientid_len   = MaxLen,
                  client_pid         = self(),
-                 stats              = #proto_stats{},
-                 ws_initial_headers = WsInitialHeaders}.
+                 max_clientid_len   = MaxLen,
+                 is_superuser       = false,
+                 ws_initial_headers = WsInitialHeaders,
+                 stats_data         = #proto_stats{enable_stats = EnableStats}}.
 
 info(ProtoState) ->
     ?record_to_proplist(proto_state, ProtoState, ?INFO_KEYS).
 
-stats(#proto_state{stats = Stats}) ->
-    ?record_to_proplist(proto_stats, Stats).
+stats(#proto_state{stats_data = Stats}) ->
+    tl(?record_to_proplist(proto_stats, Stats)).
 
 clientid(#proto_state{client_id = ClientId}) ->
     ClientId.
@@ -109,9 +111,9 @@ session(#proto_state{session = Session}) ->
 %% A Client can only send the CONNECT Packet once over a Network Connection. 
 -spec(received(mqtt_packet(), proto_state()) -> {ok, proto_state()} | {error, any()}).
 received(Packet = ?PACKET(?CONNECT),
-         State = #proto_state{connected = false, stats = Stats}) ->
+         State = #proto_state{connected = false, stats_data = Stats}) ->
     trace(recv, Packet, State), Stats1 = inc_stats(recv, ?CONNECT, Stats),
-    process(Packet, State#proto_state{connected = true, stats = Stats1});
+    process(Packet, State#proto_state{connected = true, stats_data = Stats1});
 
 received(?PACKET(?CONNECT), State = #proto_state{connected = true}) ->
     {error, protocol_bad_connect, State};
@@ -120,11 +122,11 @@ received(?PACKET(?CONNECT), State = #proto_state{connected = true}) ->
 received(_Packet, State = #proto_state{connected = false}) ->
     {error, protocol_not_connected, State};
 
-received(Packet = ?PACKET(Type), State = #proto_state{stats = Stats}) ->
+received(Packet = ?PACKET(Type), State = #proto_state{stats_data = Stats}) ->
     trace(recv, Packet, State), Stats1 = inc_stats(recv, Type, Stats),
     case validate_packet(Packet) of
         ok ->
-            process(Packet, State#proto_state{stats = Stats1});
+            process(Packet, State#proto_state{stats_data = Stats1});
         {error, Reason} ->
             {error, Reason, State}
     end.
@@ -315,18 +317,21 @@ send(Msg, State = #proto_state{client_id = ClientId, username = Username})
     send(emqttd_message:to_packet(Msg), State);
 
 send(Packet = ?PACKET(Type),
-     State = #proto_state{sendfun = SendFun, stats = Stats}) ->
+     State = #proto_state{sendfun = SendFun, stats_data = Stats}) ->
     trace(send, Packet, State),
     emqttd_metrics:sent(Packet),
     SendFun(Packet),
     Stats1 = inc_stats(send, Type, Stats),
-    {ok, State#proto_state{stats = Stats1}}.
+    {ok, State#proto_state{stats_data = Stats1}}.
 
 trace(recv, Packet, ProtoState) ->
     ?LOG(info, "RECV ~s", [emqttd_packet:format(Packet)], ProtoState);
 
 trace(send, Packet, ProtoState) ->
     ?LOG(info, "SEND ~s", [emqttd_packet:format(Packet)], ProtoState).
+
+inc_stats(_Direct, _Type, Stats = #proto_stats{enable_stats = false}) ->
+    Stats;
 
 inc_stats(recv, Type, Stats) ->
     #proto_stats{recv_pkt = Pkt, recv_msg = Msg} = Stats,

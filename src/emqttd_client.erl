@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc MQTT/TCP Connection
+%% @doc MQTT/TCP Connection.
 
 -module(emqttd_client).
 
@@ -57,7 +57,7 @@
                        rate_limit, packet_size, parser, proto_state,
                        keepalive, enable_stats}).
 
--define(INFO_KEYS, [peername, conn_state, await_recv]).
+-define(INFO_KEYS, [peername, conn_state, await_recv, enable_stats]).
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
@@ -125,7 +125,7 @@ do_init(Conn, Env, Peername) ->
                                      enable_stats = EnableStats}),
     IdleTimout = get_value(client_idle_timeout, Env, 30000),
     gen_server2:enter_loop(?MODULE, [], State, self(), IdleTimout,
-                           {backoff, 1000, 1000, 5000}).
+                           {backoff, 1000, 1000, 10000}).
 
 send_fun(Conn, Peername) ->
     Self = self(),
