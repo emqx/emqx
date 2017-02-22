@@ -59,7 +59,7 @@
 
 %% @doc Start WebSocket Client.
 start_link(Env, WsPid, Req, ReplyChannel) ->
-    gen_server:start_link(?MODULE, [Env, WsPid, Req, ReplyChannel], []).
+    gen_server2:start_link(?MODULE, [Env, WsPid, Req, ReplyChannel], []).
 
 info(CPid) ->
     gen_server2:call(CPid, info).
