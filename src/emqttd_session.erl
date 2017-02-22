@@ -301,7 +301,7 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
                    created_at        = os:timestamp()},
     emqttd_sm:register_session(ClientId, CleanSess, info(State)),
     emqttd_hooks:run('session.created', [ClientId, Username]),
-    {ok, emit_stats(State), hibernate, {backoff, 1000, 1000, 10000}, ?MODULE}.
+    {ok, emit_stats(State), hibernate, {backoff, 1000, 1000, 10000}}.
 
 init_stats(Keys) ->
     lists:foreach(fun(K) -> put(K, 0) end, Keys).
@@ -690,7 +690,7 @@ dispatch(Msg = #mqtt_message{qos = QoS},
     end.
 
 enqueue_msg(Msg, State = #state{mqueue = Q}) ->
-    emqttd_misc:inc_stats(enqueue_msg),
+    inc_stats(enqueue_msg),
     State#state{mqueue = emqttd_mqueue:in(Msg, Q)}.
 
 %%--------------------------------------------------------------------
@@ -701,7 +701,7 @@ redeliver(Msg = #mqtt_message{qos = QoS}, State) ->
     deliver(Msg#mqtt_message{dup = if QoS =:= ?QOS2 -> false; true -> true end}, State).
 
 deliver(Msg, #state{client_pid = Pid}) ->
-    emqttd_misc:inc_stats(deliver_msg),
+    inc_stats(deliver_msg),
     Pid ! {deliver, Msg}.
 
 %%--------------------------------------------------------------------
@@ -792,6 +792,8 @@ emit_stats(State = #state{enable_stats = false}) ->
 emit_stats(State = #state{client_id = ClientId}) ->
     emqttd_stats:set_session_stats(ClientId, stats(State)),
     State.
+
+inc_stats(Key) -> put(Key, get(Key) + 1).
 
 %%--------------------------------------------------------------------
 %% Helper functions
