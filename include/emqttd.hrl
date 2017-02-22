@@ -108,13 +108,15 @@
 
 -type(mqtt_pktid() :: 1..16#ffff | undefined).
 
+-type(mqtt_msg_from() :: atom() | {binary(), undefined | binary()}).
+
 -record(mqtt_message,
         { %% Global unique message ID
           id              :: mqtt_msgid(),
           %% PacketId
           pktid           :: mqtt_pktid(),
           %% ClientId and Username
-          from            :: {binary(), undefined | binary()},
+          from            :: mqtt_msg_from(),
           %% Topic that the message is published to
           topic           :: binary(),
           %% Message QoS
@@ -127,12 +129,13 @@
           dup     = false :: boolean(),
           %% $SYS flag
           sys     = false :: boolean(),
+          %% Headers
           headers = []    :: list(),
           %% Payload
           payload         :: binary(),
           %% Timestamp
           timestamp       :: erlang:timestamp()
-}).
+        }).
 
 -type(mqtt_message() :: #mqtt_message{}).
 
