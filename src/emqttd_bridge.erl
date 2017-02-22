@@ -40,16 +40,16 @@
                 qos                = ?QOS_2,
                 topic_suffix       = <<>>,
                 topic_prefix       = <<>>,
-                mqueue            :: emqttd_mqueue:mqueue(),
+                mqueue             :: emqttd_mqueue:mqueue(),
                 max_queue_len      = 10000,
                 ping_down_interval = ?PING_DOWN_INTERVAL,
                 status             = up}).
 
--type(option()  :: {qos, mqtt_qos()} |
-                   {topic_suffix, binary()} |
-                   {topic_prefix, binary()} |
-                   {max_queue_len, pos_integer()} |
-                   {ping_down_interval, pos_integer()}).
+-type(option() :: {qos, mqtt_qos()} |
+                  {topic_suffix, binary()} |
+                  {topic_prefix, binary()} |
+                  {max_queue_len, pos_integer()} |
+                  {ping_down_interval, pos_integer()}).
 
 -export_type([option/0]).
 
@@ -79,9 +79,10 @@ init([Pool, Id, Node, Topic, Options]) ->
             MQueue = emqttd_mqueue:new(qname(Node, Topic),
                                        [{max_len, State#state.max_queue_len}],
                                        emqttd_alarm:alarm_fun()),
-            {ok, State#state{pool = Pool, id = Id, mqueue = MQueue}};
+            {ok, State#state{pool = Pool, id = Id, mqueue = MQueue}, hibernate,
+             {backoff, 1000, 1000, 10000}};
         false -> 
-            {stop, {cannot_connect, Node}}
+            {stop, {cannot_connect_node, Node}}
     end.
 
 parse_opts([], State) ->
