@@ -2,6 +2,8 @@ PROJECT = emqttd
 PROJECT_DESCRIPTION = Erlang MQTT Broker
 PROJECT_VERSION = 2.1
 
+NO_AUTOPATCH = cuttlefish
+
 DEPS = gproc lager esockd mochiweb lager_syslog
 
 dep_gproc       = git https://github.com/uwiger/gproc
@@ -13,11 +15,11 @@ dep_lager_syslog  = git https://github.com/basho/lager_syslog
 
 ERLC_OPTS += +'{parse_transform, lager_transform}'
 
-TEST_DEPS = cuttlefish emqttc
+BUILD_DEPS = cuttlefish
 dep_cuttlefish = git https://github.com/emqtt/cuttlefish
-dep_emqttc = git https://github.com/emqtt/emqttc
 
-NO_AUTOPATCH = cuttlefish
+TEST_DEPS = emqttc
+dep_emqttc = git https://github.com/emqtt/emqttc
 
 TEST_ERLC_OPTS += +debug_info
 TEST_ERLC_OPTS += +'{parse_transform, lager_transform}'
@@ -38,5 +40,5 @@ include erlang.mk
 app:: rebar.config
 
 app.config::
-	cuttlefish -l info -e etc/ -c etc/emq.conf -i priv/emq.schema -d data/
+	./deps/cuttlefish/cuttlefish -l info -e etc/ -c etc/emq.conf -i priv/emq.schema -d data/
 
