@@ -19,7 +19,7 @@
 -author("Feng Lee <feng@emqtt.io>").
 
 -export([merge_opts/2, start_timer/2, start_timer/3, cancel_timer/1,
-         proc_stats/0, proc_stats/1, inc_stats/1]).
+         proc_stats/0, proc_stats/1]).
 
 %% @doc Merge Options
 merge_opts(Defaults, Options) ->
@@ -53,13 +53,13 @@ cancel_timer(Timer) ->
         _ -> ok
     end.
 
+-spec(proc_stats() -> list()).
 proc_stats() ->
     proc_stats(self()).
 
+-spec(proc_stats(pid()) -> list()).
 proc_stats(Pid) ->
     Stats = process_info(Pid, [message_queue_len, heap_size, reductions]),
     {value, {_, V}, Stats1} = lists:keytake(message_queue_len, 1, Stats),
     [{mailbox_len, V} | Stats1].
-
-inc_stats(Key) -> put(Key, get(Key) + 1).
 
