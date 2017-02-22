@@ -333,8 +333,7 @@ prioritise_info(Msg, _Len, _State) ->
         _                -> 0
     end.
 
-handle_pre_hibernate(State = #state{client_id = ClientId}) ->
-    io:format("Session(~s) will hibernate!~n", [ClientId]),
+handle_pre_hibernate(State) ->
     {hibernate, emit_stats(State)}.
 
 handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, pktid = PacketId}}, _From,
@@ -539,8 +538,7 @@ handle_info({timeout, _Timer, expired}, State) ->
     shutdown(expired, State);
 
 handle_info({'EXIT', ClientPid, _Reason},
-            State = #state{clean_sess = true,
-                           client_pid = ClientPid}) ->
+            State = #state{clean_sess = true, client_pid = ClientPid}) ->
     {stop, normal, State};
 
 handle_info({'EXIT', ClientPid, Reason},
