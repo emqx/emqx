@@ -79,8 +79,8 @@ init([Pool, Id, Node, Topic, Options]) ->
             MQueue = emqttd_mqueue:new(qname(Node, Topic),
                                        [{max_len, State#state.max_queue_len}],
                                        emqttd_alarm:alarm_fun()),
-            {ok, State#state{pool = Pool, id = Id, mqueue = MQueue}, hibernate,
-             {backoff, 1000, 1000, 10000}};
+            {ok, State#state{pool = Pool, id = Id, mqueue = MQueue},
+             hibernate, {backoff, 1000, 1000, 10000}};
         false -> 
             {stop, {cannot_connect_node, Node}}
     end.
