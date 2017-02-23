@@ -334,12 +334,12 @@ inc_stats(_Direct, _Type, Stats = #proto_stats{enable_stats = false}) ->
     Stats;
 
 inc_stats(recv, Type, Stats) ->
-    #proto_stats{recv_pkt = Pkt, recv_msg = Msg} = Stats,
-    inc_stats(Type, #proto_stats.recv_pkt, Pkt, #proto_stats.recv_msg, Msg, Stats);
+    #proto_stats{recv_pkt = PktCnt, recv_msg = MsgCnt} = Stats,
+    inc_stats(Type, #proto_stats.recv_pkt, PktCnt, #proto_stats.recv_msg, MsgCnt, Stats);
 
 inc_stats(send, Type, Stats) ->
-    #proto_stats{send_pkt = Pkt, send_msg = Msg} = Stats,
-    inc_stats(Type, #proto_stats.send_pkt, Pkt, #proto_stats.send_msg, Msg, Stats).
+    #proto_stats{send_pkt = PktCnt, send_msg = MsgCnt} = Stats,
+    inc_stats(Type, #proto_stats.send_pkt, PktCnt, #proto_stats.send_msg, MsgCnt, Stats).
 
 inc_stats(Type, PktPos, PktCnt, MsgPos, MsgCnt, Stats) ->
     Stats1 = setelement(PktPos, Stats, PktCnt + 1),
