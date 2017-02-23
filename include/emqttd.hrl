@@ -58,6 +58,7 @@
 %%--------------------------------------------------------------------
 %% MQTT Subscription
 %%--------------------------------------------------------------------
+
 -record(mqtt_subscription,
         { subid :: binary() | atom(),
           topic :: binary(),
@@ -104,7 +105,7 @@
 %% MQTT Message
 %%--------------------------------------------------------------------
 
--type(mqtt_msgid() :: binary() | undefined).
+-type(mqtt_msg_id() :: binary() | undefined).
 
 -type(mqtt_pktid() :: 1..16#ffff | undefined).
 
@@ -112,7 +113,7 @@
 
 -record(mqtt_message,
         { %% Global unique message ID
-          id              :: mqtt_msgid(),
+          id              :: mqtt_msg_id(),
           %% PacketId
           pktid           :: mqtt_pktid(),
           %% ClientId and Username
