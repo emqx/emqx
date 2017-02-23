@@ -26,6 +26,8 @@
 
 -include("emqttd_protocol.hrl").
 
+-include("emqttd_internal.hrl").
+
 -import(proplists, [get_value/3]).
 
 %% API Exports
@@ -60,7 +62,7 @@
 %% @doc Start WebSocket Client.
 start_link(Env, WsPid, Req, ReplyChannel) ->
     gen_server2:start_link(?MODULE, [Env, WsPid, Req, ReplyChannel],
-                           [{fullsweep_after, 10}]). %% Tune GC.
+                           [{spawn_opt, ?FULLSWEEP_OPTS}]). %% Tune GC.
 
 info(CPid) ->
     gen_server2:call(CPid, info).

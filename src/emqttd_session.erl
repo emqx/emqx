@@ -171,7 +171,7 @@
 -spec(start_link(boolean(), {mqtt_client_id(), mqtt_username()}, pid()) -> {ok, pid()} | {error, any()}).
 start_link(CleanSess, {ClientId, Username}, ClientPid) ->
     gen_server2:start_link(?MODULE, [CleanSess, {ClientId, Username}, ClientPid],
-                           [{fullsweep_after, 10}]). %% Tune GC.
+                           [{spawn_opt, ?FULLSWEEP_OPTS}]). %% Tune GC.
 
 %%--------------------------------------------------------------------
 %% PubSub API
