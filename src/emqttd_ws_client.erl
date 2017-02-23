@@ -49,7 +49,7 @@
 
 %% WebSocket Client State
 -record(wsclient_state, {ws_pid, peername, connection, proto_state, keepalive,
-                         enable_stats}).
+                         enable_stats, force_gc_count}).
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
@@ -59,7 +59,8 @@
 
 %% @doc Start WebSocket Client.
 start_link(Env, WsPid, Req, ReplyChannel) ->
-    gen_server2:start_link(?MODULE, [Env, WsPid, Req, ReplyChannel], []).
+    gen_server2:start_link(?MODULE, [Env, WsPid, Req, ReplyChannel],
+                           [{fullsweep_after, 10}]). %% Tune GC.
 
 info(CPid) ->
     gen_server2:call(CPid, info).
@@ -93,11 +94,13 @@ init([Env, WsPid, Req, ReplyChannel]) ->
                                       [{ws_initial_headers, Headers} | Env]),
     IdleTimeout = get_value(client_idle_timeout, Env, 30000),
     EnableStats = get_value(client_enable_stats, Env, false),
-    {ok, #wsclient_state{ws_pid       = WsPid,
-                         peername     = Peername,
-                         connection   = Req:get(connection),
-                         proto_state  = ProtoState,
-                         enable_stats = EnableStats},
+    ForceGcCount = emqttd_gc:conn_max_gc_count(),
+    {ok, #wsclient_state{ws_pid         = WsPid,
+                         peername       = Peername,
+                         connection     = Req:get(connection),
+                         proto_state    = ProtoState,
+                         enable_stats   = EnableStats,
+                         force_gc_count = ForceGcCount},
      IdleTimeout, {backoff, 1000, 1000, 10000}, ?MODULE}.
 
 prioritise_call(Msg, _From, _Len, _State) ->
@@ -108,7 +111,7 @@ prioritise_info(Msg, _Len, _State) ->
 
 handle_pre_hibernate(State = #wsclient_state{ws_pid = WsPid}) ->
     erlang:garbage_collect(WsPid),%%TODO: [{async, RequestId}]??
-    {hibernate, emit_stats(State)}.
+    {hibernate, emqttd_gc:reset_conn_gc_count(emit_stats(State))}.
 
 handle_call(info, From, State = #wsclient_state{peername    = Peername,
                                                 proto_state = ProtoState}) ->
@@ -135,7 +138,7 @@ handle_cast({received, Packet}, State = #wsclient_state{proto_state = ProtoState
     emqttd_metrics:received(Packet),
     case emqttd_protocol:received(Packet, ProtoState) of
         {ok, ProtoState1} ->
-            {noreply, State#wsclient_state{proto_state = ProtoState1}, hibernate};
+            {noreply, gc(State#wsclient_state{proto_state = ProtoState1}), hibernate};
         {error, Error} ->
             ?WSLOG(error, "Protocol error - ~p", [Error], State),
             shutdown(Error, State);
@@ -172,7 +175,7 @@ handle_info({deliver, Message}, State) ->
     with_proto(
       fun(ProtoState) ->
           emqttd_protocol:send(Message, ProtoState)
-      end, State);
+      end, gc(State));
 
 handle_info({redeliver, {?PUBREL, PacketId}}, State) ->
     with_proto(
@@ -277,6 +280,9 @@ reply(Reply, State) ->
 shutdown(Reason, State) ->
     stop({shutdown, Reason}, State).
 
-stop(Reason, State ) ->
+stop(Reason, State) ->
     {stop, Reason, State}.
+
+gc(State) ->
+    emqttd_gc:maybe_force_gc(#wsclient_state.force_gc_count, State).
 

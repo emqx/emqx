@@ -147,6 +147,9 @@
          %% Enable Stats
          enable_stats :: boolean(),
 
+         %% Force GC Count
+         force_gc_count :: undefined | integer(),
+
          created_at :: erlang:timestamp()
         }).
 
@@ -157,7 +160,8 @@
 -define(STATE_KEYS, [clean_sess, client_id, username, binding, client_pid, old_client_pid,
                      next_msg_id, max_subscriptions, subscriptions, upgrade_qos, inflight,
                      max_inflight, retry_interval, mqueue, awaiting_rel, max_awaiting_rel,
-                     await_rel_timeout, expiry_interval, enable_stats, created_at]).
+                     await_rel_timeout, expiry_interval, enable_stats, force_gc_count,
+                     created_at]).
 
 -define(LOG(Level, Format, Args, State),
             lager:Level([{client, State#state.client_id}],
@@ -166,7 +170,8 @@
 %% @doc Start a Session
 -spec(start_link(boolean(), {mqtt_client_id(), mqtt_username()}, pid()) -> {ok, pid()} | {error, any()}).
 start_link(CleanSess, {ClientId, Username}, ClientPid) ->
-    gen_server2:start_link(?MODULE, [CleanSess, {ClientId, Username}, ClientPid], []).
+    gen_server2:start_link(?MODULE, [CleanSess, {ClientId, Username}, ClientPid],
+                           [{fullsweep_after, 10}]). %% Tune GC.
 
 %%--------------------------------------------------------------------
 %% PubSub API
@@ -280,6 +285,7 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
     {ok, QEnv} = emqttd:env(queue),
     MaxInflight = get_value(max_inflight, Env, 0),
     EnableStats = get_value(enable_stats, Env, false),
+    ForceGcCount = emqttd_gc:conn_max_gc_count(),
     MQueue = emqttd_mqueue:new(ClientId, QEnv, emqttd_alarm:alarm_fun()),
     State = #state{clean_sess        = CleanSess,
                    binding           = binding(ClientPid),
@@ -298,6 +304,7 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
                    max_awaiting_rel  = get_value(max_awaiting_rel, Env),
                    expiry_interval   = get_value(expiry_interval, Env),
                    enable_stats      = EnableStats,
+                   force_gc_count    = ForceGcCount,
                    created_at        = os:timestamp()},
     emqttd_sm:register_session(ClientId, CleanSess, info(State)),
     emqttd_hooks:run('session.created', [ClientId, Username]),
@@ -334,7 +341,7 @@ prioritise_info(Msg, _Len, _State) ->
     end.
 
 handle_pre_hibernate(State) ->
-    {hibernate, emit_stats(State)}.
+    {hibernate, emit_stats(emqttd_gc:reset_conn_gc_count(State))}.
 
 handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, pktid = PacketId}}, _From,
             State = #state{awaiting_rel      = AwaitingRel,
@@ -443,7 +450,7 @@ handle_cast({pubrel, PacketId}, State = #state{awaiting_rel = AwaitingRel}) ->
      case maps:take(PacketId, AwaitingRel) of
          {Msg, AwaitingRel1} ->
              spawn(emqttd_server, publish, [Msg]), %%:)
-             State#state{awaiting_rel = AwaitingRel1};
+             gc(State#state{awaiting_rel = AwaitingRel1});
          error ->
              ?LOG(warning, "Cannot find PUBREL: ~p", [PacketId], State),
              emqttd_metrics:inc('packets/pubrel/missed'),
@@ -521,7 +528,7 @@ handle_cast(Msg, State) ->
 
 %% Dispatch Message
 handle_info({dispatch, Topic, Msg}, State) when is_record(Msg, mqtt_message) ->
-    {noreply, dispatch(tune_qos(Topic, Msg, State), State), hibernate};
+    {noreply, gc(dispatch(tune_qos(Topic, Msg, State), State)), hibernate};
 
 %% Do nothing if the client has been disconnected.
 handle_info({timeout, _Timer, retry_delivery}, State = #state{client_pid = undefined}) ->
@@ -807,4 +814,7 @@ hibernate(State) ->
 
 shutdown(Reason, State) ->
     {stop, {shutdown, Reason}, State}.
+
+gc(State) ->
+    emqttd_gc:maybe_force_gc(#state.force_gc_count, State).
 

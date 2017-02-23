@@ -55,7 +55,7 @@
 %% Unused fields: connname, peerhost, peerport
 -record(client_state, {connection, peername, conn_state, await_recv,
                        rate_limit, packet_size, parser, proto_state,
-                       keepalive, enable_stats}).
+                       keepalive, enable_stats, force_gc_count}).
 
 -define(INFO_KEYS, [peername, conn_state, await_recv]).
 
@@ -66,7 +66,7 @@
                         [esockd_net:format(State#client_state.peername) | Args])).
 
 start_link(Conn, Env) ->
-    {ok, proc_lib:spawn_link(?MODULE, init, [[Conn, Env]])}.
+    {ok, proc_lib:spawn_link(?MODULE, init, [[Conn, Env]], [{fullsweep_after, 10}])}.
 
 info(CPid) ->
     gen_server2:call(CPid, info).
@@ -114,15 +114,17 @@ do_init(Conn, Env, Peername) ->
     Parser = emqttd_parser:initial_state(PacketSize),
     ProtoState = emqttd_protocol:init(Peername, SendFun, Env),
     EnableStats = get_value(client_enable_stats, Env, false),
-    State = run_socket(#client_state{connection   = Conn,
-                                     peername     = Peername,
-                                     await_recv   = false,
-                                     conn_state   = running,
-                                     rate_limit   = RateLimit,
-                                     packet_size  = PacketSize,
-                                     parser       = Parser,
-                                     proto_state  = ProtoState,
-                                     enable_stats = EnableStats}),
+    ForceGcCount = emqttd_gc:conn_max_gc_count(),
+    State = run_socket(#client_state{connection     = Conn,
+                                     peername       = Peername,
+                                     await_recv     = false,
+                                     conn_state     = running,
+                                     rate_limit     = RateLimit,
+                                     packet_size    = PacketSize,
+                                     parser         = Parser,
+                                     proto_state    = ProtoState,
+                                     enable_stats   = EnableStats,
+                                     force_gc_count = ForceGcCount}),
     IdleTimout = get_value(client_idle_timeout, Env, 30000),
     gen_server2:enter_loop(?MODULE, [], State, self(), IdleTimout,
                            {backoff, 1000, 1000, 10000}).
@@ -147,7 +149,7 @@ prioritise_info(Msg, _Len, _State) ->
     case Msg of {redeliver, _} -> 5; _ -> 0 end.
 
 handle_pre_hibernate(State) ->
-    {hibernate, emit_stats(State)}.
+    {hibernate, emit_stats(emqttd_gc:reset_conn_gc_count(State))}.
 
 handle_call(info, From, State = #client_state{proto_state = ProtoState}) ->
     ProtoInfo  = emqttd_protocol:info(ProtoState),
@@ -237,7 +239,7 @@ handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
     shutdown(Reason, State);
 
 handle_info({inet_reply, _Sock, ok}, State) ->
-    {noreply, State, hibernate};
+    {noreply, gc(State), hibernate}; %% Tune GC
 
 handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
     shutdown(Reason, State);
@@ -291,7 +293,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% Receive and parse tcp data
 received(<<>>, State) ->
-    {noreply, State, hibernate};
+    {noreply, gc(State), hibernate};
 
 received(Bytes, State = #client_state{parser      = Parser,
                                       packet_size = PacketSize,
@@ -370,3 +372,5 @@ shutdown(Reason, State) ->
 stop(Reason, State) ->
     {stop, Reason, State}.
 
+gc(State) ->
+    emqttd_gc:maybe_force_gc(#client_state.force_gc_count, State).
