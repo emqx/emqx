@@ -71,7 +71,7 @@ groups() ->
 %%--------------------------------------------------------------------
 
 parse_connect(_) ->
-    Parser = emqttd_parser:new([]),
+    Parser = emqttd_parser:initial_state(),
     %% CONNECT(Q0, R0, D0, ClientId=mosqpub/10451-iMac.loca, ProtoName=MQIsdp, ProtoVsn=3, CleanSess=true, KeepAlive=60, Username=undefined, Password=undefined)
     V31ConnBin = <<16,37,0,6,77,81,73,115,100,112,3,2,0,60,0,23,109,111,115,113,112,117,98,47,49,48,52,53,49,45,105,77,97,99,46,108,111,99,97>>,
     {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT,
@@ -82,7 +82,7 @@ parse_connect(_) ->
                                                       proto_name = <<"MQIsdp">>,
                                                       client_id  = <<"mosqpub/10451-iMac.loca">>,
                                                       clean_sess = true,
-                                                      keep_alive = 60}}, <<>>} = Parser(V31ConnBin),
+                                                      keep_alive = 60}}, <<>>} = emqttd_parser:parse(V31ConnBin, Parser),
     %% CONNECT(Q0, R0, D0, ClientId=mosqpub/10451-iMac.loca, ProtoName=MQTT, ProtoVsn=4, CleanSess=true, KeepAlive=60, Username=undefined, Password=undefined)
     V311ConnBin = <<16,35,0,4,77,81,84,84,4,2,0,60,0,23,109,111,115,113,112,117,98,47,49,48,52,53,49,45,105,77,97,99,46,108,111,99,97>>,
     {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT, 
@@ -93,7 +93,7 @@ parse_connect(_) ->
                                                       proto_name = <<"MQTT">>,
                                                       client_id  = <<"mosqpub/10451-iMac.loca">>,
                                                       clean_sess = true,
-                                                      keep_alive = 60 } }, <<>>} = Parser(V311ConnBin),
+                                                      keep_alive = 60 } }, <<>>} = emqttd_parser:parse(V311ConnBin, Parser),
 
     %% CONNECT(Qos=0, Retain=false, Dup=false, ClientId="", ProtoName=MQTT, ProtoVsn=4, CleanSess=true, KeepAlive=60)
     V311ConnWithoutClientId = <<16,12,0,4,77,81,84,84,4,2,0,60,0,0>>,
@@ -105,7 +105,7 @@ parse_connect(_) ->
                                                       proto_name = <<"MQTT">>,
                                                       client_id  = <<>>,
                                                       clean_sess = true,
-                                                      keep_alive = 60 } }, <<>>} = Parser(V311ConnWithoutClientId),
+                                                      keep_alive = 60 } }, <<>>} = emqttd_parser:parse(V311ConnWithoutClientId, Parser),
     %%CONNECT(Q0, R0, D0, ClientId=mosqpub/10452-iMac.loca, ProtoName=MQIsdp, ProtoVsn=3, CleanSess=true, KeepAlive=60,
     %% Username=test, Password=******, Will(Qos=1, Retain=false, Topic=/will, Msg=willmsg))
     ConnBinWithWill = <<16,67,0,6,77,81,73,115,100,112,3,206,0,60,0,23,109,111,115,113,112,117,98,47,49,48,52,53,50,45,105,77,97,99,46,108,111,99,97,0,5,47,119,105,108,108,0,7,119,105,108,108,109,115,103,0,4,116,101,115,116,0,6,112,117,98,108,105,99>>,
@@ -124,18 +124,18 @@ parse_connect(_) ->
                                                       will_topic = <<"/will">>,
                                                       will_msg = <<"willmsg">>,
                                                       username = <<"test">>,
-                                                      password = <<"public">>}}, <<>>} = Parser(ConnBinWithWill),
+                                                      password = <<"public">>}}, <<>>} = emqttd_parser:parse(ConnBinWithWill, Parser),
     ok.
 
 parse_bridge(_) ->
-    Parser = emqttd_parser:new([]),
+    Parser = emqttd_parser:initial_state(),
     Data = <<16,86,0,6,77,81,73,115,100,112,131,44,0,60,0,19,67,95,48,48,58,48,67,58,50,57,58,50,66,58,55,55,58,53,50,
              0,48,36,83,89,83,47,98,114,111,107,101,114,47,99,111,110,110,101,99,116,105,111,110,47,67,95,48,48,58,48,
              67,58,50,57,58,50,66,58,55,55,58,53,50,47,115,116,97,116,101,0,1,48>>,
 
     %% CONNECT(Q0, R0, D0, ClientId=C_00:0C:29:2B:77:52, ProtoName=MQIsdp, ProtoVsn=131, CleanSess=false, KeepAlive=60,
     %% Username=undefined, Password=undefined, Will(Q1, R1, Topic=$SYS/broker/connection/C_00:0C:29:2B:77:52/state, Msg=0))
-    {ok, #mqtt_packet{variable = Variable}, <<>>} = Parser(Data),
+    {ok, #mqtt_packet{variable = Variable}, <<>>} = emqttd_parser:parse(Data, Parser),
     #mqtt_packet_connect{client_id  = <<"C_00:0C:29:2B:77:52">>,
                          proto_ver  = 16#03,
                          proto_name = <<"MQIsdp">>,
@@ -148,7 +148,7 @@ parse_bridge(_) ->
                          will_msg   = <<"0">>} = Variable.
 
 parse_publish(_) ->
-    Parser = emqttd_parser:new([]),
+    Parser = emqttd_parser:initial_state(),
     %%PUBLISH(Qos=1, Retain=false, Dup=false, TopicName=a/b/c, PacketId=1, Payload=<<"hahah">>)
     PubBin = <<50,14,0,5,97,47,98,47,99,0,1,104,97,104,97,104>>,
     {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?PUBLISH,
@@ -157,7 +157,7 @@ parse_publish(_) ->
                                                    retain = false},
                       variable = #mqtt_packet_publish{topic_name = <<"a/b/c">>,
                                                       packet_id = 1},
-                      payload = <<"hahah">> }, <<>>} = Parser(PubBin),
+                      payload = <<"hahah">> }, <<>>} = emqttd_parser:parse(PubBin, Parser),
     
     %PUBLISH(Qos=0, Retain=false, Dup=false, TopicName=xxx/yyy, PacketId=undefined, Payload=<<"hello">>)
     %DISCONNECT(Qos=0, Retain=false, Dup=false)
@@ -168,43 +168,43 @@ parse_publish(_) ->
                                                    retain = false},
                       variable = #mqtt_packet_publish{topic_name = <<"xxx/yyy">>,
                                                       packet_id = undefined},
-                      payload = <<"hello">> }, <<224,0>>} = Parser(PubBin1),
+                      payload = <<"hello">> }, <<224,0>>} = emqttd_parser:parse(PubBin1, Parser),
     {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?DISCONNECT,
                                                    dup = false,
                                                    qos = 0,
-                                                   retain = false}}, <<>>} = Parser(<<224, 0>>).
+                                                   retain = false}}, <<>>} = emqttd_parser:parse(<<224, 0>>, Parser).
 
 parse_puback(_) ->
-    Parser = emqttd_parser:new([]),
+    Parser = emqttd_parser:initial_state(),
     %%PUBACK(Qos=0, Retain=false, Dup=false, PacketId=1)
     {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?PUBACK,
                                                    dup = false,
                                                    qos = 0,
-                                                   retain = false}}, <<>>} = Parser(<<64,2,0,1>>).
+                                                   retain = false}}, <<>>} = emqttd_parser:parse(<<64,2,0,1>>, Parser).
 parse_pubrec(_) ->
-    Parser = emqttd_parser:new([]),
+    Parser = emqttd_parser:initial_state(),
     %%PUBREC(Qos=0, Retain=false, Dup=false, PacketId=1)
     {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?PUBREC,
                                                    dup = false,
                                                    qos = 0,
-                                                   retain = false}}, <<>>} = Parser(<<5:4,0:4,2,0,1>>).
+                                                   retain = false}}, <<>>} = emqttd_parser:parse(<<5:4,0:4,2,0,1>>, Parser).
 
 parse_pubrel(_) ->
-    Parser = emqttd_parser:new([]),
+    Parser = emqttd_parser:initial_state(),
     {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?PUBREL,
                                                    dup = false,
                                                    qos = 1,
-                                                   retain = false}}, <<>>} = Parser(<<6:4,2:4,2,0,1>>).
+                                                   retain = false}}, <<>>} = emqttd_parser:parse(<<6:4,2:4,2,0,1>>, Parser).
 
 parse_pubcomp(_) ->
-    Parser = emqttd_parser:new([]),
+    Parser = emqttd_parser:initial_state(),
     {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?PUBCOMP,
                                                    dup = false,
                                                    qos = 0,
-                                                   retain = false}}, <<>>} = Parser(<<7:4,0:4,2,0,1>>).
+                                                   retain = false}}, <<>>} = emqttd_parser:parse(<<7:4,0:4,2,0,1>>, Parser).
 
 parse_subscribe(_) ->
-    Parser = emqttd_parser:new([]),
+    Parser = emqttd_parser:initial_state(),
     %% SUBSCRIBE(Q1, R0, D0, PacketId=2, TopicTable=[{<<"TopicA">>,2}])
     {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?SUBSCRIBE,
                                                    dup  = false,
@@ -212,10 +212,10 @@ parse_subscribe(_) ->
                                                    retain = false},
                       variable = #mqtt_packet_subscribe{packet_id = 2,
                                                         topic_table = [{<<"TopicA">>,2}]} }, <<>>}
-        = Parser(<<130,11,0,2,0,6,84,111,112,105,99,65,2>>).
+        = emqttd_parser:parse(<<130,11,0,2,0,6,84,111,112,105,99,65,2>>, Parser).
 
 parse_unsubscribe(_) ->
-    Parser = emqttd_parser:new([]),
+    Parser = emqttd_parser:initial_state(),
     %% UNSUBSCRIBE(Q1, R0, D0, PacketId=2, TopicTable=[<<"TopicA">>])
     {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?UNSUBSCRIBE,
                                                    dup  = false,
@@ -223,24 +223,24 @@ parse_unsubscribe(_) ->
                                                    retain = false},
                       variable = #mqtt_packet_unsubscribe{packet_id = 2,
                                                           topics = [<<"TopicA">>]}}, <<>>}
-        = Parser(<<162,10,0,2,0,6,84,111,112,105,99,65>>).
+        = emqttd_parser:parse(<<162,10,0,2,0,6,84,111,112,105,99,65>>, Parser).
 
 parse_pingreq(_) ->
-    Parser = emqttd_parser:new([]),
+    Parser = emqttd_parser:initial_state(),
     {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?PINGREQ,
                                                    dup = false,
                                                    qos = 0,
                                                    retain = false}}, <<>>}
-        = Parser(<<?PINGREQ:4, 0:4, 0:8>>).
+        = emqttd_parser:parse(<<?PINGREQ:4, 0:4, 0:8>>, Parser).
 
 parse_disconnect(_) ->
-    Parser = emqttd_parser:new([]),
+    Parser = emqttd_parser:initial_state(),
     %DISCONNECT(Qos=0, Retain=false, Dup=false)
     Bin = <<224, 0>>,
     {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?DISCONNECT,
                                                    dup  = false,
                                                    qos  = 0,
-                                                   retain = false}}, <<>>} = Parser(Bin).
+                                                   retain = false}}, <<>>} = emqttd_parser:parse(Bin, Parser).
 
 %%--------------------------------------------------------------------
 %% Serialize Cases
@@ -260,7 +260,7 @@ serialize_connect(_) ->
 serialize_connack(_) ->
     ConnAck = #mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK}, 
                            variable = #mqtt_packet_connack{ack_flags = 0, return_code = 0}},
-    <<32,2,0,0>> = serialize(ConnAck).
+    <<32,2,0,0>> = iolist_to_binary(serialize(ConnAck)).
 
 serialize_publish(_) ->
     serialize(?PUBLISH_PACKET(?QOS_0, <<"Topic">>, undefined, <<"Payload">>)),

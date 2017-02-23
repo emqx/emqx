@@ -317,6 +317,15 @@ end}.
 end}.
 
 %%--------------------------------------------------------------------
+%% MQTT Connection
+%%--------------------------------------------------------------------
+
+%% @doc Force the client to GC: integer
+{mapping, "mqtt.conn.force_gc_count", "emqttd.conn_force_gc_count", [
+  {datatype, integer}
+]}.
+
+%%--------------------------------------------------------------------
 %% MQTT Client
 %%--------------------------------------------------------------------
 
@@ -329,7 +338,7 @@ end}.
 %% @doc Enable Stats of Client.
 {mapping, "mqtt.client.enable_stats", "emqttd.client", [
   {default, off},
-  {datatype, [{duration, ms}, flag]}
+  {datatype, flag}
 ]}.
 
 %% @doc Client
@@ -375,7 +384,7 @@ end}.
 %% @doc Enable Stats
 {mapping, "mqtt.session.enable_stats", "emqttd.session", [
   {default, off},
-  {datatype, [{duration, ms}, flag]}
+  {datatype, flag}
 ]}.
 
 %% @doc Session Expiry Interval

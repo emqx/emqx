@@ -53,9 +53,11 @@ cancel_timer(Timer) ->
         _ -> ok
     end.
 
+-spec(proc_stats() -> list()).
 proc_stats() ->
     proc_stats(self()).
 
+-spec(proc_stats(pid()) -> list()).
 proc_stats(Pid) ->
     Stats = process_info(Pid, [message_queue_len, heap_size, reductions]),
     {value, {_, V}, Stats1} = lists:keytake(message_queue_len, 1, Stats),

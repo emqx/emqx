@@ -76,7 +76,7 @@
                  %% priority table
                  pseq = 0, priorities = [],
                  %% len of simple queue
-                 len = 0, max_len = ?MAX_LEN,
+                 len = 0, max_len = infinity,
                  low_wm = ?LOW_WM, high_wm = ?HIGH_WM,
                  qos0 = false, dropped = 0,
                  alarm_fun}).

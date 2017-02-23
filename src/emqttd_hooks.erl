@@ -32,7 +32,12 @@
 
 -record(state, {}).
 
--record(callback, {function       :: function(),
+-type(hooktag() :: atom() | string() | binary()).
+
+-export_type([hooktag/0]).
+
+-record(callback, {tag            :: hooktag(),
+                   function       :: function(),
                    init_args = [] :: list(any()),
                    priority  = 0  :: integer()}).
 
@@ -47,17 +52,24 @@ start_link() ->
 %% Hooks API
 %%--------------------------------------------------------------------
 
--spec(add(atom(), function(), list(any())) -> ok).
-add(HookPoint, Function, InitArgs) ->
-    add(HookPoint, Function, InitArgs, 0).
+-spec(add(atom(), function() | {hooktag(), function()}, list(any())) -> ok).
+add(HookPoint, Function, InitArgs) when is_function(Function) ->
+    add(HookPoint, {undefined, Function}, InitArgs, 0);
 
--spec(add(atom(), function(), list(any()), integer()) -> ok).
-add(HookPoint, Function, InitArgs, Priority) ->
-    gen_server:call(?MODULE, {add, HookPoint, Function, InitArgs, Priority}).
+add(HookPoint, {Tag, Function}, InitArgs) when is_function(Function) ->
+    add(HookPoint, {Tag, Function}, InitArgs, 0).
 
--spec(delete(atom(), function()) -> ok).
-delete(HookPoint, Function) ->
-    gen_server:call(?MODULE, {delete, HookPoint, Function}).
+-spec(add(atom(), function() | {hooktag(), function()}, list(any()), integer()) -> ok).
+add(HookPoint, Function, InitArgs, Priority) when is_function(Function) ->
+    add(HookPoint, {undefined, Function}, InitArgs, Priority);
+add(HookPoint, {Tag, Function}, InitArgs, Priority) when is_function(Function) ->
+    gen_server:call(?MODULE, {add, HookPoint, {Tag, Function}, InitArgs, Priority}).
+
+-spec(delete(atom(), function() | {hooktag(), function()}) -> ok).
+delete(HookPoint, Function) when is_function(Function) ->
+    delete(HookPoint, {undefined, Function});
+delete(HookPoint, {Tag, Function}) when is_function(Function) ->
+    gen_server:call(?MODULE, {delete, HookPoint, {Tag, Function}}).
 
 %% @doc Run hooks without Acc.
 -spec(run(atom(), list(Arg :: any())) -> ok | stop).
@@ -85,7 +97,8 @@ run_([#callback{function = Fun, init_args = InitArgs} | Callbacks], Args, Acc) -
         ok             -> run_(Callbacks, Args, Acc);
         {ok, NewAcc}   -> run_(Callbacks, Args, NewAcc);
         stop           -> {stop, Acc};
-        {stop, NewAcc} -> {stop, NewAcc}
+        {stop, NewAcc} -> {stop, NewAcc};
+        _Any           -> run_(Callbacks, Args, Acc)
     end;
 
 run_([], _Args, Acc) ->
@@ -94,8 +107,8 @@ run_([], _Args, Acc) ->
 -spec(lookup(atom()) -> [#callback{}]).
 lookup(HookPoint) ->
     case ets:lookup(?HOOK_TAB, HookPoint) of
-        [] -> [];
-        [#hook{callbacks = Callbacks}] -> Callbacks
+        [#hook{callbacks = Callbacks}] -> Callbacks;
+        [] -> []
     end.
 
 %%--------------------------------------------------------------------
@@ -106,39 +119,38 @@ init([]) ->
     ets:new(?HOOK_TAB, [set, protected, named_table, {keypos, #hook.name}]),
     {ok, #state{}}.
 
-handle_call({add, HookPoint, Function, InitArgs, Priority}, _From, State) ->
-    Reply =
-    case ets:lookup(?HOOK_TAB, HookPoint) of
-        [#hook{callbacks = Callbacks}] ->
-            case lists:keyfind(Function, #callback.function, Callbacks) of
-                false ->
-                    Callback = #callback{function  = Function,
-                                         init_args = InitArgs,
-                                         priority  = Priority},
-                    insert_hook_(HookPoint, add_callback_(Callback, Callbacks));
-                _Callback ->
-                    {error, already_hooked}
-            end;
-        [] ->
-            Callback = #callback{function  = Function,
-                                 init_args = InitArgs,
-                                 priority  = Priority},
-            insert_hook_(HookPoint, [Callback])
-    end,
-    {reply, Reply, State};
+handle_call({add, HookPoint, {Tag, Function}, InitArgs, Priority}, _From, State) ->
+    Callback = #callback{tag = Tag, function = Function,
+                         init_args = InitArgs, priority = Priority},
+    {reply,
+     case ets:lookup(?HOOK_TAB, HookPoint) of
+         [#hook{callbacks = Callbacks}] ->
+             case contain_(Tag, Function, Callbacks) of
+                 false ->
+                     insert_hook_(HookPoint, add_callback_(Callback, Callbacks));
+                 true  ->
+                     {error, already_hooked}
+             end;
+         [] ->
+             insert_hook_(HookPoint, [Callback])
+     end, State};
 
-handle_call({delete, HookPoint, Function}, _From, State) ->
-    Reply =
-    case ets:lookup(?HOOK_TAB, HookPoint) of
-        [#hook{callbacks = Callbacks}] ->
-            insert_hook_(HookPoint, del_callback_(Function, Callbacks));
-        [] ->
-            {error, not_found}
-    end,
-    {reply, Reply, State};
+handle_call({delete, HookPoint, {Tag, Function}}, _From, State) ->
+    {reply,
+     case ets:lookup(?HOOK_TAB, HookPoint) of
+         [#hook{callbacks = Callbacks}] ->
+             case contain_(Tag, Function, Callbacks) of
+                 true  ->
+                     insert_hook_(HookPoint, del_callback_(Tag, Function, Callbacks));
+                 false ->
+                     {error, not_found}
+             end;
+         [] ->
+             {error, not_found}
+     end, State};
 
-handle_call(_Req, _From, State) ->
-    {reply, ignore, State}.
+handle_call(Req, _From, State) ->
+    {reply, {error, {unexpected_request, Req}}, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -162,6 +174,16 @@ insert_hook_(HookPoint, Callbacks) ->
 add_callback_(Callback, Callbacks) ->
     lists:keymerge(#callback.priority, Callbacks, [Callback]).
 
-del_callback_(Function, Callbacks) ->
-    lists:keydelete(Function, #callback.function, Callbacks).
+del_callback_(Tag, Function, Callbacks) ->
+    lists:filter(
+      fun(#callback{tag = Tag1, function = Func1}) ->
+        not ((Tag =:= Tag1) andalso (Function =:= Func1))
+      end, Callbacks).
+
+contain_(_Tag, _Function, []) ->
+    false;
+contain_(Tag, Function, [#callback{tag = Tag, function = Function}|_Callbacks]) ->
+    true;
+contain_(Tag, Function, [_Callback | Callbacks]) ->
+    contain_(Tag, Function, Callbacks).
 

@@ -58,3 +58,5 @@
             false-> (FalseFun)
         end)).
 
+-define(FULLSWEEP_OPTS, [{fullsweep_after, 10}]).
+

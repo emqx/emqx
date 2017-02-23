@@ -53,7 +53,7 @@ Documentation on [emqtt.io/docs/v2/](http://emqtt.io/docs/v2/install.html), [doc
 
 ## Build From Source
 
-The *EMQ* broker requires Erlang/OTP R18+ to build.
+The *EMQ* broker requires Erlang/OTP R19+ to build since 2.1 release.
 
 ```
 git clone https://github.com/emqtt/emq-relx.git
