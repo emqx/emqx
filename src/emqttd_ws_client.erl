@@ -112,8 +112,8 @@ prioritise_info(Msg, _Len, _State) ->
     case Msg of {redeliver, _} -> 5; _ -> 0 end.
 
 handle_pre_hibernate(State = #wsclient_state{ws_pid = WsPid}) ->
-    erlang:garbage_collect(WsPid),%%TODO: [{async, RequestId}]??
-    {hibernate, emqttd_gc:reset_conn_gc_count(emit_stats(State))}.
+    erlang:garbage_collect(WsPid),
+    {hibernate, emqttd_gc:reset_conn_gc_count(#wsclient_state.force_gc_count, emit_stats(State))}.
 
 handle_call(info, From, State = #wsclient_state{peername    = Peername,
                                                 proto_state = ProtoState}) ->

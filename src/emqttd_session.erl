@@ -341,7 +341,7 @@ prioritise_info(Msg, _Len, _State) ->
     end.
 
 handle_pre_hibernate(State) ->
-    {hibernate, emit_stats(emqttd_gc:reset_conn_gc_count(State))}.
+    {hibernate, emqttd_gc:reset_conn_gc_count(#state.force_gc_count, emit_stats(State))}.
 
 handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, pktid = PacketId}}, _From,
             State = #state{awaiting_rel      = AwaitingRel,

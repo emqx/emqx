@@ -149,7 +149,7 @@ prioritise_info(Msg, _Len, _State) ->
     case Msg of {redeliver, _} -> 5; _ -> 0 end.
 
 handle_pre_hibernate(State) ->
-    {hibernate, emit_stats(emqttd_gc:reset_conn_gc_count(State))}.
+    {hibernate, emqttd_gc:reset_conn_gc_count(#client_state.force_gc_count, emit_stats(State))}.
 
 handle_call(info, From, State = #client_state{proto_state = ProtoState}) ->
     ProtoInfo  = emqttd_protocol:info(ProtoState),
