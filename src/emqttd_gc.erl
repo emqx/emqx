@@ -26,6 +26,7 @@
 conn_max_gc_count() ->
     case emqttd:env(conn_force_gc_count) of
         {ok, I} when I > 0 -> I + rand:uniform(I);
+        {ok, I} when I =< 0 -> undefined;
         undefined -> undefined
     end.
 
