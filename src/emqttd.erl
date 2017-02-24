@@ -138,17 +138,20 @@ subscriber_down(Subscriber) ->
 %% Hooks API
 %%--------------------------------------------------------------------
 
--spec(hook(atom(), function(), list(any())) -> ok | {error, any()}).
-hook(Hook, Function, InitArgs) ->
-    emqttd_hooks:add(Hook, Function, InitArgs).
+-spec(hook(atom(), function() | {emqttd_hooks:hooktag(), function()}, list(any()))
+      -> ok | {error, any()}).
+hook(Hook, TagFunction, InitArgs) ->
+    emqttd_hooks:add(Hook, TagFunction, InitArgs).
 
--spec(hook(atom(), function(), list(any()), integer()) -> ok | {error, any()}).
-hook(Hook, Function, InitArgs, Priority) ->
-    emqttd_hooks:add(Hook, Function, InitArgs, Priority).
+-spec(hook(atom(), function() | {emqttd_hooks:hooktag(), function()}, list(any()), integer())
+      -> ok | {error, any()}).
+hook(Hook, TagFunction, InitArgs, Priority) ->
+    emqttd_hooks:add(Hook, TagFunction, InitArgs, Priority).
 
--spec(unhook(atom(), function()) -> ok | {error, any()}).
-unhook(Hook, Function) ->
-    emqttd_hooks:delete(Hook, Function).
+-spec(unhook(atom(), function() | {emqttd_hooks:hooktag(), function()})
+      -> ok | {error, any()}).
+unhook(Hook, TagFunction) ->
+    emqttd_hooks:delete(Hook, TagFunction).
 
 -spec(run_hooks(atom(), list(any())) -> ok | stop).
 run_hooks(Hook, Args) ->
