@@ -164,11 +164,12 @@ pick(Subscriber) ->
 
 init([Pool, Id, Env]) ->
     ?GPROC_POOL(join, Pool, Id),
-    {ok, #state{pool = Pool, id = Id, env = Env}}.
+    {ok, #state{pool = Pool, id = Id, env = Env},
+     hibernate, {backoff, 2000, 2000, 20000}}.
 
 handle_call({subscribe, Topic, Subscriber, Options}, _From, State) ->
     add_subscriber(Topic, Subscriber, Options),
-    {reply, ok, setstats(State)};
+    {reply, ok, setstats(State), hibernate};
 
 handle_call({unsubscribe, Topic, Subscriber, Options}, _From, State) ->
     del_subscriber(Topic, Subscriber, Options),
@@ -179,7 +180,7 @@ handle_call(Req, _From, State) ->
 
 handle_cast({subscribe, Topic, Subscriber, Options}, State) ->
     add_subscriber(Topic, Subscriber, Options),
-    {noreply, setstats(State)};
+    {noreply, setstats(State), hibernate};
 
 handle_cast({unsubscribe, Topic, Subscriber, Options}, State) ->
     del_subscriber(Topic, Subscriber, Options),
