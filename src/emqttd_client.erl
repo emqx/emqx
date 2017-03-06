@@ -291,7 +291,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-%% Receive and parse tcp data
+%% Receive and Parse TCP Data
 received(<<>>, State) ->
     {noreply, gc(State), hibernate};
 

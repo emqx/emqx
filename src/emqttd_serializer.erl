@@ -28,7 +28,7 @@
 
 %% @doc Serialise MQTT Packet
 -spec(serialize(mqtt_packet()) -> iolist()).
-serialize(#mqtt_packet{header = Header = #mqtt_packet_header{type = Type},
+serialize(#mqtt_packet{header   = Header = #mqtt_packet_header{type = Type},
                        variable = Variable,
                        payload  = Payload}) ->
     serialize_header(Header,
