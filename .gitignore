@@ -28,3 +28,6 @@ ct.coverdata
 emqttd.iml
 _rel/
 data/
+_build
+.rebar3
+rebar3.crashdump

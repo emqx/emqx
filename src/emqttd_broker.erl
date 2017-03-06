@@ -106,7 +106,7 @@ start_tick(0, _Msg) ->
 start_tick(Interval, Msg) when Interval > 0 ->
     {ok, TRef} = timer:send_interval(Interval, Msg), TRef.
 
-%% @doc Start tick timer
+%% @doc Stop tick timer
 stop_tick(undefined) ->
     ok;
 stop_tick(TRef) ->
