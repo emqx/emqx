@@ -70,7 +70,7 @@ auth(Client, Password, [{Mod, State, _Seq} | Mods]) ->
       Client :: mqtt_client(),
       PubSub :: pubsub(),
       Topic  :: binary()).
-check_acl(Client, PubSub, Topic) when ?PUBSUB(PubSub) ->
+check_acl(Client, PubSub, Topic) when ?PS(PubSub) ->
     case lookup_mods(acl) of
         []      -> case emqttd:env(allow_anonymous, false) of
                        true  -> allow;
