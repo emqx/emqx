@@ -537,20 +537,21 @@ print({Topic, Node}) ->
     ?PRINT("~s -> ~s~n", [Topic, Node]);
 
 print({ClientId, _ClientPid, _Persistent, SessInfo}) ->
+    Data = lists:append(SessInfo, emqttd_stats:get_session_stats(ClientId)),
     InfoKeys = [clean_sess,
+                subscriptions,
                 max_inflight,
-                inflight_queue,
-                message_queue,
-                message_dropped,
-                awaiting_rel,
-                awaiting_ack,
-                awaiting_comp,
+                inflight_len,
+                mqueue_len,
+                mqueue_dropped,
+                awaiting_rel_len,
+                deliver_msg,
+                enqueue_msg,
                 created_at],
-    ?PRINT("Session(~s, clean_sess=~s, max_inflight=~w, inflight_queue=~w, "
-           "message_queue=~w, message_dropped=~w, "
-           "awaiting_rel=~w, awaiting_ack=~w, awaiting_comp=~w, "
-           "created_at=~w)~n",
-            [ClientId | [format(Key, get_value(Key, SessInfo)) || Key <- InfoKeys]]).
+    ?PRINT("Session(~s, clean_sess=~s, max_inflight=~w, inflight=~w, "
+           "mqueue_len=~w, mqueue_dropped=~w, awaiting_rel=~w, "
+           "deliver_msg=~w, enqueue_msg=~w, created_at=~w)~n",
+            [ClientId | [format(Key, get_value(Key, Data)) || Key <- InfoKeys]]).
 
 print(subscription, {Sub, Topic}) when is_pid(Sub) ->
     ?PRINT("~p -> ~s~n", [Sub, Topic]);
