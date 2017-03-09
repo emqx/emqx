@@ -62,8 +62,7 @@ passwd_hash(sha256, Password)  ->
     hexstring(crypto:hash(sha256, Password));
 passwd_hash(pbkdf2,{Salt,Password,Macfun,Iterations,Dklen}) ->
     {ok,Hexstring} = pbkdf2:pbkdf2(Macfun, Password, Salt, Iterations, Dklen),
-    hexstring(Hexstring).
-
+    pbkdf2:to_hex(Hexstring).
 
 hexstring(<<X:128/big-unsigned-integer>>) ->
     iolist_to_binary(io_lib:format("~32.16.0b", [X]));
