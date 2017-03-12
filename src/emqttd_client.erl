@@ -252,8 +252,13 @@ handle_info({keepalive, start, Interval}, State = #client_state{connection = Con
                     {error, Error}              -> {error, Error}
                 end
              end,
-    KeepAlive = emqttd_keepalive:start(StatFun, Interval, {keepalive, check}),
-    {noreply, State#client_state{keepalive = KeepAlive}, hibernate};
+    case emqttd_keepalive:start(StatFun, Interval, {keepalive, check}) of
+        {ok, KeepAlive} ->
+            {noreply, State#client_state{keepalive = KeepAlive}, hibernate};
+        {error, Error} ->
+            ?LOG(warning, "Keepalive error - ~p", [Error], State),
+            shutdown(Error, State)
+    end;
 
 handle_info({keepalive, check}, State = #client_state{keepalive = KeepAlive}) ->
     case emqttd_keepalive:check(KeepAlive) of
