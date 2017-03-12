@@ -60,7 +60,7 @@ passwd_hash(sha,    Password)  ->
     hexstring(crypto:hash(sha, Password));
 passwd_hash(sha256, Password)  ->
     hexstring(crypto:hash(sha256, Password));
-passwd_hash(pbkdf2,{Salt,Password,Macfun,Iterations,Dklen}) ->
+passwd_hash(pbkdf2,{Salt, Password, Macfun, Iterations, Dklen}) ->
     {ok,Hexstring} = pbkdf2:pbkdf2(Macfun, Password, Salt, Iterations, Dklen),
     pbkdf2:to_hex(Hexstring).
 
