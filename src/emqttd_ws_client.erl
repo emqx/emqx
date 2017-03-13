@@ -104,7 +104,7 @@ init([Env, WsPid, Req, ReplyChannel]) ->
                          proto_state    = ProtoState,
                          enable_stats   = EnableStats,
                          force_gc_count = ForceGcCount},
-     IdleTimeout, {backoff, 1000, 1000, 10000}, ?MODULE}.
+     IdleTimeout, {backoff, 2000, 2000, 20000}, ?MODULE}.
 
 prioritise_call(Msg, _From, _Len, _State) ->
     case Msg of info -> 10; stats -> 10; state -> 10; _ -> 5 end.
