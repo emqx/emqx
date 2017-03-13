@@ -74,7 +74,8 @@
          terminate/2, code_change/3]).
 
 %% gen_server2 Message Priorities
--export([prioritise_call/4, prioritise_cast/3, prioritise_info/3]).
+-export([prioritise_call/4, prioritise_cast/3, prioritise_info/3,
+         handle_pre_hibernate/1]).
 
 -record(state,
         {
@@ -114,7 +115,7 @@
          max_inflight = 32 :: non_neg_integer(),
 
          %% Retry interval for redelivering QoS1/2 messages
-         retry_interval = 20000 :: pos_integer(),
+         retry_interval = 20000 :: timeout(),
 
          %% Retry Timer
          retry_timer :: reference(),
@@ -128,26 +129,26 @@
          %% Client -> Broker: Inflight QoS2 messages received from client and waiting for pubrel.
          awaiting_rel :: map(),
 
-         %% Awaiting PUBREL timeout
-         await_rel_timeout = 20000 :: pos_integer(),
-
          %% Max Packets that Awaiting PUBREL
          max_awaiting_rel = 100 :: non_neg_integer(),
+
+         %% Awaiting PUBREL timeout
+         await_rel_timeout = 20000 :: timeout(),
 
          %% Awaiting PUBREL timer
          await_rel_timer :: reference(),
 
          %% Session Expiry Interval
-         expiry_interval = 7200000 :: pos_integer(),
+         expiry_interval = 7200000 :: timeout(),
 
          %% Expired Timer
          expiry_timer :: reference(),
 
          %% Enable Stats
-         enable_stats :: false | pos_integer(),
+         enable_stats :: boolean(),
 
-         %% Stats Timer
-         stats_timer :: reference(),
+         %% Force GC Count
+         force_gc_count :: undefined | integer(),
 
          created_at :: erlang:timestamp()
         }).
@@ -159,7 +160,8 @@
 -define(STATE_KEYS, [clean_sess, client_id, username, binding, client_pid, old_client_pid,
                      next_msg_id, max_subscriptions, subscriptions, upgrade_qos, inflight,
                      max_inflight, retry_interval, mqueue, awaiting_rel, max_awaiting_rel,
-                     await_rel_timeout, expiry_interval, enable_stats, created_at]).
+                     await_rel_timeout, expiry_interval, enable_stats, force_gc_count,
+                     created_at]).
 
 -define(LOG(Level, Format, Args, State),
             lager:Level([{client, State#state.client_id}],
@@ -168,7 +170,8 @@
 %% @doc Start a Session
 -spec(start_link(boolean(), {mqtt_client_id(), mqtt_username()}, pid()) -> {ok, pid()} | {error, any()}).
 start_link(CleanSess, {ClientId, Username}, ClientPid) ->
-    gen_server2:start_link(?MODULE, [CleanSess, {ClientId, Username}, ClientPid], []).
+    gen_server2:start_link(?MODULE, [CleanSess, {ClientId, Username}, ClientPid],
+                           [{spawn_opt, ?FULLSWEEP_OPTS}]). %% Tune GC.
 
 %%--------------------------------------------------------------------
 %% PubSub API
@@ -282,6 +285,7 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
     {ok, QEnv} = emqttd:env(queue),
     MaxInflight = get_value(max_inflight, Env, 0),
     EnableStats = get_value(enable_stats, Env, false),
+    ForceGcCount = emqttd_gc:conn_max_gc_count(),
     MQueue = emqttd_mqueue:new(ClientId, QEnv, emqttd_alarm:alarm_fun()),
     State = #state{clean_sess        = CleanSess,
                    binding           = binding(ClientPid),
@@ -300,11 +304,11 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
                    max_awaiting_rel  = get_value(max_awaiting_rel, Env),
                    expiry_interval   = get_value(expiry_interval, Env),
                    enable_stats      = EnableStats,
+                   force_gc_count    = ForceGcCount,
                    created_at        = os:timestamp()},
-    emqttd_stats:set_session_stats(ClientId, stats(State)),
     emqttd_sm:register_session(ClientId, CleanSess, info(State)),
     emqttd_hooks:run('session.created', [ClientId, Username]),
-    {ok, State, hibernate, {backoff, 1000, 1000, 5000}, ?MODULE}.
+    {ok, emit_stats(State), hibernate, {backoff, 1000, 1000, 10000}}.
 
 init_stats(Keys) ->
     lists:foreach(fun(K) -> put(K, 0) end, Keys).
@@ -336,10 +340,13 @@ prioritise_info(Msg, _Len, _State) ->
         _                -> 0
     end.
 
-handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, pktid = PacketId}},
-            _From, State = #state{awaiting_rel      = AwaitingRel,
-                                  await_rel_timer   = Timer,
-                                  await_rel_timeout = Timeout}) ->
+handle_pre_hibernate(State) ->
+    {hibernate, emqttd_gc:reset_conn_gc_count(#state.force_gc_count, emit_stats(State))}.
+
+handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, pktid = PacketId}}, _From,
+            State = #state{awaiting_rel      = AwaitingRel,
+                           await_rel_timer   = Timer,
+                           await_rel_timeout = Timeout}) ->
     case is_awaiting_full(State) of
         false ->
             State1 = case Timer == undefined of
@@ -391,7 +398,7 @@ handle_cast({subscribe, _From, TopicTable, AckFun},
                 {[NewQos|QosAcc], SubMap1}
         end, {[], Subscriptions}, TopicTable),
     AckFun(lists:reverse(GrantedQos)),
-    noreply(emit_stats(State#state{subscriptions = Subscriptions1}));
+    hibernate(emit_stats(State#state{subscriptions = Subscriptions1}));
 
 handle_cast({unsubscribe, _From, TopicTable},
             State = #state{client_id     = ClientId,
@@ -409,55 +416,59 @@ handle_cast({unsubscribe, _From, TopicTable},
                         SubMap
                 end
         end, Subscriptions, TopicTable),
-    noreply(emit_stats(State#state{subscriptions = Subscriptions1}));
+    hibernate(emit_stats(State#state{subscriptions = Subscriptions1}));
 
 %% PUBACK:
 handle_cast({puback, PacketId}, State = #state{inflight = Inflight}) ->
-    case Inflight:contain(PacketId) of
-        true ->
-            noreply(dequeue(acked(puback, PacketId, State)));
-        false ->
-            ?LOG(warning, "The PUBACK ~p is not inflight: ~p",
-                 [PacketId, Inflight:window()], State),
-            emqttd_metrics:inc('packets/puback/missed'),
-            noreply(State)
-    end;
+    {noreply,
+     case Inflight:contain(PacketId) of
+         true ->
+             dequeue(acked(puback, PacketId, State));
+         false ->
+             ?LOG(warning, "PUBACK ~p missed inflight: ~p",
+                  [PacketId, Inflight:window()], State),
+             emqttd_metrics:inc('packets/puback/missed'),
+             State
+     end, hibernate};
 
 %% PUBREC:
 handle_cast({pubrec, PacketId}, State = #state{inflight = Inflight}) ->
-    case Inflight:contain(PacketId) of
-        true ->
-            noreply(acked(pubrec, PacketId, State));
-        false ->
-            ?LOG(warning, "The PUBREC ~p is not inflight: ~p",
-                 [PacketId, Inflight:window()], State),
-            emqttd_metrics:inc('packets/pubrec/missed'),
-            noreply(State)
-    end;
+    {noreply,
+     case Inflight:contain(PacketId) of
+         true ->
+             acked(pubrec, PacketId, State);
+         false ->
+             ?LOG(warning, "PUBREC ~p missed inflight: ~p",
+                  [PacketId, Inflight:window()], State),
+             emqttd_metrics:inc('packets/pubrec/missed'),
+             State
+     end, hibernate};
 
 %% PUBREL:
 handle_cast({pubrel, PacketId}, State = #state{awaiting_rel = AwaitingRel}) ->
-    case maps:take(PacketId, AwaitingRel) of
-        {Msg, AwaitingRel1} ->
-            spawn(emqttd_server, publish, [Msg]),%%:)
-            noreply(State#state{awaiting_rel = AwaitingRel1});
-        error ->
-            ?LOG(warning, "Cannot find PUBREL: ~p", [PacketId], State),
-            emqttd_metrics:inc('packets/pubrel/missed'),
-            noreply(State)
-    end;
+    {noreply,
+     case maps:take(PacketId, AwaitingRel) of
+         {Msg, AwaitingRel1} ->
+             spawn(emqttd_server, publish, [Msg]), %%:)
+             gc(State#state{awaiting_rel = AwaitingRel1});
+         error ->
+             ?LOG(warning, "Cannot find PUBREL: ~p", [PacketId], State),
+             emqttd_metrics:inc('packets/pubrel/missed'),
+             State
+     end, hibernate};
 
 %% PUBCOMP:
 handle_cast({pubcomp, PacketId}, State = #state{inflight = Inflight}) ->
-    case Inflight:contain(PacketId) of
-        true ->
-            noreply(dequeue(acked(pubcomp, PacketId, State)));
-        false ->
-            ?LOG(warning, "The PUBCOMP ~p is not inflight: ~p",
-                 [PacketId, Inflight:window()], State),
-            emqttd_metrics:inc('packets/pubcomp/missed'),
-            noreply(State)
-    end;
+    {noreply,
+     case Inflight:contain(PacketId) of
+         true ->
+             dequeue(acked(pubcomp, PacketId, State));
+         false ->
+             ?LOG(warning, "The PUBCOMP ~p is not inflight: ~p",
+                  [PacketId, Inflight:window()], State),
+             emqttd_metrics:inc('packets/pubcomp/missed'),
+             State
+     end, hibernate};
 
 %% RESUME:
 handle_cast({resume, ClientId, ClientPid},
@@ -466,14 +477,13 @@ handle_cast({resume, ClientId, ClientPid},
                            clean_sess      = CleanSess,
                            retry_timer     = RetryTimer,
                            await_rel_timer = AwaitTimer,
-                           stats_timer     = StatsTimer,
                            expiry_timer    = ExpireTimer}) ->
 
     ?LOG(info, "Resumed by ~p", [ClientPid], State),
 
     %% Cancel Timers
     lists:foreach(fun emqttd_misc:cancel_timer/1,
-                  [RetryTimer, AwaitTimer, StatsTimer, ExpireTimer]),
+                  [RetryTimer, AwaitTimer, ExpireTimer]),
 
     case kick(ClientId, OldClientPid, ClientPid) of
         ok -> ?LOG(warning, "~p kickout ~p", [ClientPid, OldClientPid], State);
@@ -501,15 +511,15 @@ handle_cast({resume, ClientId, ClientPid},
     end,
 
     %% Replay delivery and Dequeue pending messages
-    noreply(emit_stats(dequeue(retry_delivery(true, State1))));
+    hibernate(emit_stats(dequeue(retry_delivery(true, State1))));
 
-handle_cast({destroy, ClientId}, State = #state{client_id  = ClientId,
-                                                client_pid = undefined}) ->
+handle_cast({destroy, ClientId},
+            State = #state{client_id = ClientId, client_pid = undefined}) ->
     ?LOG(warning, "Destroyed", [], State),
     shutdown(destroy, State);
 
-handle_cast({destroy, ClientId}, State = #state{client_id  = ClientId,
-                                                client_pid = OldClientPid}) ->
+handle_cast({destroy, ClientId},
+            State = #state{client_id = ClientId, client_pid = OldClientPid}) ->
     ?LOG(warning, "kickout ~p", [OldClientPid], State),
     shutdown(conflict, State);
 
@@ -518,20 +528,17 @@ handle_cast(Msg, State) ->
 
 %% Dispatch Message
 handle_info({dispatch, Topic, Msg}, State) when is_record(Msg, mqtt_message) ->
-    noreply(dispatch(tune_qos(Topic, Msg, State), State));
+    {noreply, gc(dispatch(tune_qos(Topic, Msg, State), State)), hibernate};
 
 %% Do nothing if the client has been disconnected.
 handle_info({timeout, _Timer, retry_delivery}, State = #state{client_pid = undefined}) ->
     hibernate(emit_stats(State#state{retry_timer = undefined}));
 
 handle_info({timeout, _Timer, retry_delivery}, State) ->
-    noreply(emit_stats(retry_delivery(false, State#state{retry_timer = undefined})));
+    hibernate(emit_stats(retry_delivery(false, State#state{retry_timer = undefined})));
 
 handle_info({timeout, _Timer, check_awaiting_rel}, State) ->
-    noreply(expire_awaiting_rel(emit_stats(State#state{await_rel_timer = undefined})));
-
-handle_info({timeout, _Timer, emit_stats}, State) ->
-    hibernate(maybe_enable_stats(emit_stats(State)));
+    hibernate(expire_awaiting_rel(emit_stats(State#state{await_rel_timer = undefined})));
 
 handle_info({timeout, _Timer, expired}, State) ->
     ?LOG(info, "Expired, shutdown now.", [], State),
@@ -548,7 +555,7 @@ handle_info({'EXIT', ClientPid, Reason},
     ?LOG(info, "Client ~p EXIT for ~p", [ClientPid, Reason], State),
     ExpireTimer = start_timer(Interval, expired),
     State1 = State#state{client_pid = undefined, expiry_timer = ExpireTimer},
-    hibernate(maybe_enable_stats(emit_stats(State1)));
+    hibernate(emit_stats(State1));
 
 handle_info({'EXIT', Pid, _Reason}, State = #state{old_client_pid = Pid}) ->
     %%ignore
@@ -573,7 +580,7 @@ code_change(_OldVsn, Session, _Extra) ->
     {ok, Session}.
 
 %%--------------------------------------------------------------------
-%% Kick old client
+%% Kickout old client
 %%--------------------------------------------------------------------
 kick(_ClientId, undefined, _Pid) ->
     ignore;
@@ -690,7 +697,8 @@ dispatch(Msg = #mqtt_message{qos = QoS},
     end.
 
 enqueue_msg(Msg, State = #state{mqueue = Q}) ->
-    inc(enqueue_msg), State#state{mqueue = emqttd_mqueue:in(Msg, Q)}.
+    inc_stats(enqueue_msg),
+    State#state{mqueue = emqttd_mqueue:in(Msg, Q)}.
 
 %%--------------------------------------------------------------------
 %% Deliver
@@ -700,7 +708,8 @@ redeliver(Msg = #mqtt_message{qos = QoS}, State) ->
     deliver(Msg#mqtt_message{dup = if QoS =:= ?QOS2 -> false; true -> true end}, State).
 
 deliver(Msg, #state{client_pid = Pid}) ->
-    inc(deliver_msg), Pid ! {deliver, Msg}.
+    inc_stats(deliver_msg),
+    Pid ! {deliver, Msg}.
 
 %%--------------------------------------------------------------------
 %% Awaiting ACK for QoS1/QoS2 Messages
@@ -785,35 +794,27 @@ next_msg_id(State = #state{next_msg_id = Id}) ->
 %% Emit session stats
 %%--------------------------------------------------------------------
 
-maybe_enable_stats(State = #state{enable_stats = false}) ->
-    State;
-maybe_enable_stats(State = #state{client_pid = Pid}) when is_pid(Pid) ->
-    State;
-maybe_enable_stats(State = #state{enable_stats = Interval}) ->
-    StatsTimer = start_timer(Interval, emit_stats),
-    State#state{stats_timer = StatsTimer}.
-
 emit_stats(State = #state{enable_stats = false}) ->
     State;
 emit_stats(State = #state{client_id = ClientId}) ->
     emqttd_stats:set_session_stats(ClientId, stats(State)),
     State.
 
+inc_stats(Key) -> put(Key, get(Key) + 1).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
 
-inc(Key) -> put(Key, get(Key) + 1).
-
 reply(Reply, State) ->
-    {reply, Reply, State}.
-
-noreply(State) ->
-    {noreply, State}.
+    {reply, Reply, State, hibernate}.
 
 hibernate(State) ->
     {noreply, State, hibernate}.
 
 shutdown(Reason, State) ->
     {stop, {shutdown, Reason}, State}.
+
+gc(State) ->
+    emqttd_gc:maybe_force_gc(#state.force_gc_count, State).
 

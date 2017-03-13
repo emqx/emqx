@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -371,37 +371,39 @@ set_get_stat(_) ->
 %%--------------------------------------------------------------------
 
 add_delete_hook(_) ->
-    emqttd:hook(test_hook, fun ?MODULE:hook_fun1/1, []),
-    emqttd:hook(test_hook, fun ?MODULE:hook_fun2/1, []),
-    {error, already_hooked} = emqttd:hook(test_hook, fun ?MODULE:hook_fun2/1, []),
-    Callbacks = [{callback, fun ?MODULE:hook_fun1/1, [], 0},
-                 {callback, fun ?MODULE:hook_fun2/1, [], 0}],
+    ok = emqttd:hook(test_hook, fun ?MODULE:hook_fun1/1, []),
+    ok = emqttd:hook(test_hook, {tag, fun ?MODULE:hook_fun2/1}, []),
+    {error, already_hooked} = emqttd:hook(test_hook, {tag, fun ?MODULE:hook_fun2/1}, []),
+    Callbacks = [{callback, undefined, fun ?MODULE:hook_fun1/1, [], 0},
+                 {callback, tag, fun ?MODULE:hook_fun2/1, [], 0}],
     Callbacks = emqttd_hooks:lookup(test_hook),
-    emqttd:unhook(test_hook, fun ?MODULE:hook_fun1/1),
-    emqttd:unhook(test_hook, fun ?MODULE:hook_fun2/1),
-    ok = emqttd:unhook(test_hook, fun ?MODULE:hook_fun2/1),
-    {error, not_found} = emqttd:unhook(test_hook1, fun ?MODULE:hook_fun2/1),
+    ok = emqttd:unhook(test_hook, fun ?MODULE:hook_fun1/1),
+    ct:print("Callbacks: ~p~n", [emqttd_hooks:lookup(test_hook)]),
+    ok = emqttd:unhook(test_hook, {tag, fun ?MODULE:hook_fun2/1}),
+    {error, not_found} = emqttd:unhook(test_hook1, {tag, fun ?MODULE:hook_fun2/1}),
     [] = emqttd_hooks:lookup(test_hook),
 
-    emqttd:hook(emqttd_hook, fun ?MODULE:hook_fun1/1, [], 9),
-    emqttd:hook(emqttd_hook, fun ?MODULE:hook_fun2/1, [], 8),
-    Callbacks2 = [{callback, fun ?MODULE:hook_fun2/1, [], 8},
-                  {callback, fun ?MODULE:hook_fun1/1, [], 9}],
+    ok = emqttd:hook(emqttd_hook, fun ?MODULE:hook_fun1/1, [], 9),
+    ok = emqttd:hook(emqttd_hook, {"tag", fun ?MODULE:hook_fun2/1}, [], 8),
+    Callbacks2 = [{callback, "tag", fun ?MODULE:hook_fun2/1, [], 8},
+                  {callback, undefined, fun ?MODULE:hook_fun1/1, [], 9}],
     Callbacks2 = emqttd_hooks:lookup(emqttd_hook),
-    emqttd:unhook(emqttd_hook, fun ?MODULE:hook_fun1/1),
-    emqttd:unhook(emqttd_hook, fun ?MODULE:hook_fun2/1),
+    ok = emqttd:unhook(emqttd_hook, fun ?MODULE:hook_fun1/1),
+    ok = emqttd:unhook(emqttd_hook, {"tag", fun ?MODULE:hook_fun2/1}),
     [] = emqttd_hooks:lookup(emqttd_hook).
 
 run_hooks(_) ->
-    emqttd:hook(foldl_hook, fun ?MODULE:hook_fun3/4, [init]),
-    emqttd:hook(foldl_hook, fun ?MODULE:hook_fun4/4, [init]),
-    emqttd:hook(foldl_hook, fun ?MODULE:hook_fun5/4, [init]),
+    ok = emqttd:hook(foldl_hook, fun ?MODULE:hook_fun3/4, [init]),
+    ok = emqttd:hook(foldl_hook, {tag, fun ?MODULE:hook_fun3/4}, [init]),
+    ok = emqttd:hook(foldl_hook, fun ?MODULE:hook_fun4/4, [init]),
+    ok = emqttd:hook(foldl_hook, fun ?MODULE:hook_fun5/4, [init]),
     {stop, [r3, r2]} = emqttd:run_hooks(foldl_hook, [arg1, arg2], []),
     {ok, []} = emqttd:run_hooks(unknown_hook, [], []),
 
-    emqttd:hook(foreach_hook, fun ?MODULE:hook_fun6/2, [initArg]),
-    emqttd:hook(foreach_hook, fun ?MODULE:hook_fun7/2, [initArg]),
-    emqttd:hook(foreach_hook, fun ?MODULE:hook_fun8/2, [initArg]),
+    ok = emqttd:hook(foreach_hook, fun ?MODULE:hook_fun6/2, [initArg]),
+    ok = emqttd:hook(foreach_hook, {tag, fun ?MODULE:hook_fun6/2}, [initArg]),
+    ok = emqttd:hook(foreach_hook, fun ?MODULE:hook_fun7/2, [initArg]),
+    ok = emqttd:hook(foreach_hook, fun ?MODULE:hook_fun8/2, [initArg]),
     stop = emqttd:run_hooks(foreach_hook, [arg]).
 
 hook_fun1([]) -> ok.

@@ -22,9 +22,9 @@
 
 -define(LICENSE_MESSAGE, "Licensed under the Apache License, Version 2.0").
 
--define(PROTOCOL_VERSION, "MQTT/3.1.1").
+-define(PROTOCOL_VERSION, "MQTT/5.0").
 
--define(ERTS_MINIMUM, "7.0").
+-define(ERTS_MINIMUM, "8.0").
 
 %%--------------------------------------------------------------------
 %% Sys/Queue/Share Topics' Prefix
@@ -42,7 +42,7 @@
 
 -type(pubsub() :: publish | subscribe).
 
--define(PUBSUB(PS), (PS =:= publish orelse PS =:= subscribe)).
+-define(PS(PS), (PS =:= publish orelse PS =:= subscribe)).
 
 %%--------------------------------------------------------------------
 %% MQTT Topic
@@ -58,6 +58,7 @@
 %%--------------------------------------------------------------------
 %% MQTT Subscription
 %%--------------------------------------------------------------------
+
 -record(mqtt_subscription,
         { subid :: binary() | atom(),
           topic :: binary(),
@@ -104,17 +105,19 @@
 %% MQTT Message
 %%--------------------------------------------------------------------
 
--type(mqtt_msgid() :: binary() | undefined).
+-type(mqtt_msg_id() :: binary() | undefined).
 
 -type(mqtt_pktid() :: 1..16#ffff | undefined).
 
+-type(mqtt_msg_from() :: atom() | {binary(), undefined | binary()}).
+
 -record(mqtt_message,
         { %% Global unique message ID
-          id              :: mqtt_msgid(),
+          id              :: mqtt_msg_id(),
           %% PacketId
           pktid           :: mqtt_pktid(),
           %% ClientId and Username
-          from            :: {binary(), undefined | binary()},
+          from            :: mqtt_msg_from(),
           %% Topic that the message is published to
           topic           :: binary(),
           %% Message QoS
@@ -127,12 +130,13 @@
           dup     = false :: boolean(),
           %% $SYS flag
           sys     = false :: boolean(),
+          %% Headers
           headers = []    :: list(),
           %% Payload
           payload         :: binary(),
           %% Timestamp
           timestamp       :: erlang:timestamp()
-}).
+        }).
 
 -type(mqtt_message() :: #mqtt_message{}).
 
@@ -168,7 +172,7 @@
           severity    :: warning | error | critical,
           title       :: iolist() | binary(),
           summary     :: iolist() | binary(),
-          timestamp   :: erlang:timestamp() %% Timestamp
+          timestamp   :: erlang:timestamp()
         }).
 
 -type(mqtt_alarm() :: #mqtt_alarm{}).
@@ -182,8 +186,7 @@
 -type(mqtt_plugin() :: #mqtt_plugin{}).
 
 %%--------------------------------------------------------------------
-%% MQTT CLI Command
-%% For example: 'broker metrics'
+%% MQTT CLI Command. For example: 'broker metrics'
 %%--------------------------------------------------------------------
 
 -record(mqtt_cli, { name, action, args = [], opts = [], usage, descr }).

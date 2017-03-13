@@ -80,6 +80,7 @@
 %%--------------------------------------------------------------------
 %% MQTT Control Packet Types
 %%--------------------------------------------------------------------
+
 -define(RESERVED,     0). %% Reserved
 -define(CONNECT,      1). %% Client request to connect to Server
 -define(CONNACK,      2). %% Server to Client: Connect acknowledgment
@@ -94,7 +95,7 @@
 -define(UNSUBACK,    11). %% Unsubscribe acknowledgment
 -define(PINGREQ,     12). %% PING request
 -define(PINGRESP,    13). %% PING response
--define(DISCONNECT,  14). %% Client is disconnecting
+-define(DISCONNECT,  14). %% Client or Server is disconnecting
 -define(AUTH,        15). %% Authentication exchange
 
 -define(TYPE_NAMES, [
@@ -130,10 +131,15 @@
 -type(mqtt_connack() :: ?CONNACK_ACCEPT..?CONNACK_AUTH).
 
 %%--------------------------------------------------------------------
+%% Max MQTT Packet Length
+%%--------------------------------------------------------------------
+
+-define(MAX_PACKET_SIZE, 16#fffffff).
+
+%%--------------------------------------------------------------------
 %% MQTT Parser and Serializer
 %%--------------------------------------------------------------------
 
--define(MAX_LEN, 16#fffffff).
 -define(HIGHBIT, 2#10000000).
 -define(LOWBITS, 2#01111111).
 
@@ -141,11 +147,12 @@
 %% MQTT Packet Fixed Header
 %%--------------------------------------------------------------------
 
--record(mqtt_packet_header, {
-    type   = ?RESERVED :: mqtt_packet_type(),
-    dup    = false     :: boolean(),
-    qos    = ?QOS_0    :: mqtt_qos(),
-    retain = false     :: boolean()}).
+-record(mqtt_packet_header,
+        { type   = ?RESERVED :: mqtt_packet_type(),
+          dup    = false     :: boolean(),
+          qos    = ?QOS_0    :: mqtt_qos(),
+          retain = false     :: boolean()
+        }).
 
 %%--------------------------------------------------------------------
 %% MQTT Packets
@@ -160,7 +167,7 @@
           proto_ver   = ?MQTT_PROTO_V4 :: mqtt_vsn(),
           proto_name  = <<"MQTT">>     :: binary(),
           will_retain = false          :: boolean(),
-          will_qos    = ?QOS_0         :: mqtt_qos(),
+          will_qos    = ?QOS_1         :: mqtt_qos(),
           will_flag   = false          :: boolean(),
           clean_sess  = false          :: boolean(),
           keep_alive  = 60             :: non_neg_integer(),
@@ -194,25 +201,25 @@
         }).
 
 -record(mqtt_packet_suback,
-        { packet_id   :: mqtt_packet_id(),
-          qos_table   :: list(mqtt_qos() | 128)
+        { packet_id :: mqtt_packet_id(),
+          qos_table :: list(mqtt_qos() | 128)
         }).
 
 -record(mqtt_packet_unsuback,
-        { packet_id   :: mqtt_packet_id() }).
+        { packet_id :: mqtt_packet_id() }).
 
 %%--------------------------------------------------------------------
 %% MQTT Control Packet
 %%--------------------------------------------------------------------
 
 -record(mqtt_packet,
-        { header    :: #mqtt_packet_header{},
-          variable  :: #mqtt_packet_connect{} | #mqtt_packet_connack{}
-                     | #mqtt_packet_publish{} | #mqtt_packet_puback{}
-                     | #mqtt_packet_subscribe{} | #mqtt_packet_suback{}
-                     | #mqtt_packet_unsubscribe{} | #mqtt_packet_unsuback{}
-                     | mqtt_packet_id() | undefined,
-          payload   :: binary() | undefined
+        { header   :: #mqtt_packet_header{},
+          variable :: #mqtt_packet_connect{} | #mqtt_packet_connack{}
+                    | #mqtt_packet_publish{} | #mqtt_packet_puback{}
+                    | #mqtt_packet_subscribe{} | #mqtt_packet_suback{}
+                    | #mqtt_packet_unsubscribe{} | #mqtt_packet_unsuback{}
+                    | mqtt_packet_id() | undefined,
+          payload  :: binary() | undefined
         }).
 
 -type(mqtt_packet() :: #mqtt_packet{}).

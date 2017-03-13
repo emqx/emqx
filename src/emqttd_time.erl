@@ -21,10 +21,7 @@
 -export([seed/0, now_secs/0, now_secs/1, now_ms/0, now_ms/1, ts_from_ms/1]).
 
 seed() ->
-    case erlang:function_exported(erlang, timestamp, 0) of
-        true  -> rand:seed(exsplus, erlang:timestamp()); %% R18
-        false -> random:seed(os:timestamp()) %% Compress now() deprecated warning...
-    end.
+    rand:seed(exsplus, erlang:timestamp()).
 
 now_ms() ->
     now_ms(os:timestamp()).
@@ -40,3 +37,4 @@ now_secs({MegaSecs, Secs, _MicroSecs}) ->
 
 ts_from_ms(Ms) ->
     {Ms div 1000000, Ms rem 1000000, 0}.
+

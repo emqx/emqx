@@ -28,7 +28,7 @@
 
 %% @doc Serialise MQTT Packet
 -spec(serialize(mqtt_packet()) -> iolist()).
-serialize(#mqtt_packet{header = Header = #mqtt_packet_header{type = Type},
+serialize(#mqtt_packet{header   = Header = #mqtt_packet_header{type = Type},
                        variable = Variable,
                        payload  = Payload}) ->
     serialize_header(Header,
@@ -42,7 +42,7 @@ serialize_header(#mqtt_packet_header{type   = Type,
                  {VariableBin, PayloadBin})
     when ?CONNECT =< Type andalso Type =< ?DISCONNECT ->
     Len = byte_size(VariableBin) + byte_size(PayloadBin),
-    true = (Len =< ?MAX_LEN),
+    true = (Len =< ?MAX_PACKET_SIZE),
     [<<Type:4, (opt(Dup)):1, (opt(Qos)):2, (opt(Retain)):1>>,
      serialize_len(Len), VariableBin, PayloadBin].
 

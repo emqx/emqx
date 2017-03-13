@@ -132,14 +132,14 @@ end}.
 
 %% @doc http://www.erlang.org/doc/man/kernel_app.html
 {mapping, "node.dist_listen_min", "kernel.inet_dist_listen_min", [
-  {commented, 6000},
+  {commented, 6369},
   {datatype, integer},
   hidden
 ]}.
 
 %% @see node.dist_listen_min
 {mapping, "node.dist_listen_max", "kernel.inet_dist_listen_max", [
-  {commented, 6999},
+  {commented, 6369},
   {datatype, integer},
   hidden
 ]}.
@@ -317,6 +317,15 @@ end}.
 end}.
 
 %%--------------------------------------------------------------------
+%% MQTT Connection
+%%--------------------------------------------------------------------
+
+%% @doc Force the client to GC: integer
+{mapping, "mqtt.conn.force_gc_count", "emqttd.conn_force_gc_count", [
+  {datatype, integer}
+]}.
+
+%%--------------------------------------------------------------------
 %% MQTT Client
 %%--------------------------------------------------------------------
 
@@ -329,7 +338,7 @@ end}.
 %% @doc Enable Stats of Client.
 {mapping, "mqtt.client.enable_stats", "emqttd.client", [
   {default, off},
-  {datatype, [{duration, ms}, flag]}
+  {datatype, flag}
 ]}.
 
 %% @doc Client
@@ -347,6 +356,7 @@ end}.
   {default, off},
   {datatype, flag}
 ]}.
+
 %% @doc Max number of QoS 1 and 2 messages that can be “inflight” at one time.
 %% 0 means no limit
 {mapping, "mqtt.session.max_inflight", "emqttd.session", [
@@ -375,7 +385,7 @@ end}.
 %% @doc Enable Stats
 {mapping, "mqtt.session.enable_stats", "emqttd.session", [
   {default, off},
-  {datatype, [{duration, ms}, flag]}
+  {datatype, flag}
 ]}.
 
 %% @doc Session Expiry Interval
@@ -562,6 +572,11 @@ end}.
   hidden
 ]}.
 
+{mapping, "mqtt.listener.tcp.tune_buffer", "emqttd.listeners", [
+  {default, off},
+  {datatype, flag}
+]}.
+
 {mapping, "mqtt.listener.tcp.nodelay", "emqttd.listeners", [
   {datatype, {enum, [true, false]}},
   hidden
@@ -675,8 +690,8 @@ end}.
     LisOpts = fun(Prefix) ->
                   Filter([{acceptors,   cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
                           {max_clients, cuttlefish:conf_get(Prefix ++ ".max_clients", Conf)},
-                          {rate_limt,   cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined)}])
- end,
+                          {tune_buffer, cuttlefish:conf_get(Prefix ++ ".tune_buffer", Conf, undefined)}])
+              end,
     TcpOpts = fun(Prefix) ->
                    Filter([{backlog, cuttlefish:conf_get(Prefix ++ ".backlog", Conf, undefined)},
                            {recbuf,  cuttlefish:conf_get(Prefix ++ ".recbuf", Conf, undefined)},
@@ -710,7 +725,7 @@ end}.
                             ConnOpts = Filter([{rate_limit, cuttlefish:conf_get(Key ++ ".rate_limit", Conf, undefined)}]),
                             Opts = [{connopts, ConnOpts}, {sockopts, TcpOpts(Key)} | LisOpts(Key)],
                             [{Name, Port, case Name =:= ssl orelse Name =:= https of
-                                              true  -> [{ssl, SslOpts(Key)} | Opts];
+                                              true  -> [{sslopts, SslOpts(Key)} | Opts];
                                               false -> Opts
                                           end}]
                    end
