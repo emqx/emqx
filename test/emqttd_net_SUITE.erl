@@ -28,7 +28,7 @@ groups() -> [{keepalive, [], [t_keepalive]}].
 %%--------------------------------------------------------------------
 
 t_keepalive(_) ->
-    KA = emqttd_keepalive:start(fun() -> {ok, 1} end, 1, {keepalive, timeout}),
+    {ok, KA} = emqttd_keepalive:start(fun() -> {ok, 1} end, 1, {keepalive, timeout}),
     [resumed, timeout] = lists:reverse(keepalive_recv(KA, [])).
 
 keepalive_recv(KA, Acc) ->

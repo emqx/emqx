@@ -22,6 +22,8 @@
 
 -include("emqttd.hrl").
 
+-include_lib("eunit/include/eunit.hrl").
+
 -include("emqttd_protocol.hrl").
 
 all() ->
@@ -344,7 +346,7 @@ message_make(_) ->
 message_from_packet(_) ->
     Msg = emqttd_message:from_packet(?PUBLISH_PACKET(1, <<"topic">>, 10, <<"payload">>)),
     ?assertEqual(1, Msg#mqtt_message.qos),
-    ?assertEqual(10, Msg#mqtt_message.packet_id),
+    ?assertEqual(10, Msg#mqtt_message.pktid),
     ?assertEqual(<<"topic">>, Msg#mqtt_message.topic),
     WillMsg = emqttd_message:from_packet(#mqtt_packet_connect{will_flag  = true,
                                                               will_topic = <<"WillTopic">>,

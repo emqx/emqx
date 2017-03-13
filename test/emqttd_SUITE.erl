@@ -47,7 +47,8 @@ all() ->
      {group, http},
      {group, cluster},
      {group, alarms},
-     {group, cli}].
+     {group, cli},
+     {group, cleanSession}].
 
 groups() ->
     [{protocol, [sequence],
@@ -103,7 +104,11 @@ groups() ->
        cli_bridges,
        cli_plugins,
        cli_listeners,
-       cli_vm]}].
+       cli_vm]},
+    {cleanSession, [sequence],
+      [cleanSession_validate,
+       cleanSession_validate1,
+       cleanSession_validate2]}].
 
 init_per_suite(Config) ->
     application:start(lager),
@@ -617,6 +622,59 @@ cli_listeners(_) ->
 cli_vm(_) ->
     emqttd_cli:vm([]),
     emqttd_cli:vm(["ports"]).
+
+cleanSession_validate(_) ->
+    {ok, C1} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"c1">>},
+                                         {clean_sess, false}]),
+    timer:sleep(10),
+    emqttc:subscribe(C1, <<"topic">>, qos0),
+    ok = emqttd_cli:sessions(["list", "persistent"]),
+    emqttc:disconnect(C1),
+    {ok, Pub} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"pub">>}]),
+
+    emqttc:publish(Pub, <<"topic">>, <<"m1">>, [{qos, 0}]),
+    timer:sleep(10),
+    {ok, C11} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"c1">>},
+                                         {clean_sess, false}]),
+    timer:sleep(100),
+    Metrics = emqttd_metrics:all(),
+    ct:log("Metrics:~p~n", [Metrics]),
+    ?assertEqual(1, proplists:get_value('messages/qos0/sent', Metrics)),
+    ?assertEqual(1, proplists:get_value('messages/qos0/received', Metrics)),
+    emqttc:disconnect(Pub),
+    emqttc:disconnect(C11).
+
+cleanSession_validate1(_) ->
+    {ok, C1} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"c1">>},
+                                         {clean_sess, true}]),
+    timer:sleep(10),
+    emqttc:subscribe(C1, <<"topic">>, qos1),
+    ok = emqttd_cli:sessions(["list", "transient"]),
+    emqttc:disconnect(C1),
+    {ok, Pub} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"pub">>}]),
+
+    emqttc:publish(Pub, <<"topic">>, <<"m1">>, [{qos, 1}]),
+    timer:sleep(10),
+    {ok, C11} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"c1">>},
+                                         {clean_sess, false}]),
+    timer:sleep(100),
+    Metrics = emqttd_metrics:all(),
+    ?assertEqual(0, proplists:get_value('messages/qos1/sent', Metrics)),
+    ?assertEqual(1, proplists:get_value('messages/qos1/received', Metrics)),
+    emqttc:disconnect(Pub),
+    emqttc:disconnect(C11).
 
 
 ensure_ok(ok) -> ok;
