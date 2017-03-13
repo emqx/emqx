@@ -36,8 +36,8 @@ start(StatFun, TimeoutSec, TimeoutMsg) ->
     case StatFun() of
         {ok, StatVal} ->
             {ok, #keepalive{statfun = StatFun, statval = StatVal,
-                       tsec = TimeoutSec, tmsg = TimeoutMsg,
-                       tref = timer(TimeoutSec, TimeoutMsg)}};
+                            tsec = TimeoutSec, tmsg = TimeoutMsg,
+                            tref = timer(TimeoutSec, TimeoutMsg)}};
         {error, Error} ->
             {error, Error}
     end.
@@ -64,8 +64,7 @@ resume(KeepAlive = #keepalive{tsec = TimeoutSec, tmsg = TimeoutMsg}) ->
 %% @doc Cancel Keepalive
 -spec(cancel(keepalive()) -> ok).
 cancel(#keepalive{tref = TRef}) when is_reference(TRef) ->
-    erlang:cancel_timer(TRef),
-    ok;
+    catch erlang:cancel_timer(TRef), ok;
 cancel(_) ->
     ok.
 

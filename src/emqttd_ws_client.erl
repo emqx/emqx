@@ -198,8 +198,13 @@ handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
 
 handle_info({keepalive, start, Interval}, State = #wsclient_state{connection = Conn}) ->
     ?WSLOG(debug, "Keepalive at the interval of ~p", [Interval], State),
-    KeepAlive = emqttd_keepalive:start(stat_fun(Conn), Interval, {keepalive, check}),
-    {noreply, State#wsclient_state{keepalive = KeepAlive}, hibernate};
+    case emqttd_keepalive:start(stat_fun(Conn), Interval, {keepalive, check}) of
+        {ok, KeepAlive} ->
+            {noreply, State#wsclient_state{keepalive = KeepAlive}, hibernate};
+        {error, Error} ->
+            ?LOG(warning, "Keepalive error - ~p", [Error], State),
+            shutdown(Error, State)
+    end;
 
 handle_info({keepalive, check}, State = #wsclient_state{keepalive = KeepAlive}) ->
     case emqttd_keepalive:check(KeepAlive) of
