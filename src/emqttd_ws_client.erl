@@ -104,7 +104,7 @@ init([Env, WsPid, Req, ReplyChannel]) ->
                          proto_state    = ProtoState,
                          enable_stats   = EnableStats,
                          force_gc_count = ForceGcCount},
-     IdleTimeout, {backoff, 1000, 1000, 10000}, ?MODULE}.
+     IdleTimeout, {backoff, 2000, 2000, 20000}, ?MODULE}.
 
 prioritise_call(Msg, _From, _Len, _State) ->
     case Msg of info -> 10; stats -> 10; state -> 10; _ -> 5 end.
@@ -198,8 +198,13 @@ handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
 
 handle_info({keepalive, start, Interval}, State = #wsclient_state{connection = Conn}) ->
     ?WSLOG(debug, "Keepalive at the interval of ~p", [Interval], State),
-    KeepAlive = emqttd_keepalive:start(stat_fun(Conn), Interval, {keepalive, check}),
-    {noreply, State#wsclient_state{keepalive = KeepAlive}, hibernate};
+    case emqttd_keepalive:start(stat_fun(Conn), Interval, {keepalive, check}) of
+        {ok, KeepAlive} ->
+            {noreply, State#wsclient_state{keepalive = KeepAlive}, hibernate};
+        {error, Error} ->
+            ?WSLOG(warning, "Keepalive error - ~p", [Error], State),
+            shutdown(Error, State)
+    end;
 
 handle_info({keepalive, check}, State = #wsclient_state{keepalive = KeepAlive}) ->
     case emqttd_keepalive:check(KeepAlive) of
