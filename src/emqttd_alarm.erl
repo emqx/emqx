@@ -87,14 +87,14 @@ handle_event({set_alarm, Alarm = #mqtt_alarm{id       = AlarmId,
                                              severity = Severity,
                                              title    = Title,
                                              summary  = Summary}}, Alarms)->
-    Timestamp = os:timestamp(),
+    TS = os:timestamp(),
     Json = mochijson2:encode([{id, AlarmId},
                               {severity, Severity},
                               {title, iolist_to_binary(Title)},
                               {summary, iolist_to_binary(Summary)},
-                              {ts, emqttd_time:now_secs(Timestamp)}]),
+                              {ts, emqttd_time:now_secs(TS)}]),
     emqttd:publish(alarm_msg(alert, AlarmId, Json)),
-    {ok, [Alarm#mqtt_alarm{timestamp = Timestamp} | Alarms]};
+    {ok, [Alarm#mqtt_alarm{timestamp = TS} | Alarms]};
 
 handle_event({clear_alarm, AlarmId}, Alarms) ->
     Json = mochijson2:encode([{id, AlarmId}, {ts, emqttd_time:now_secs()}]),

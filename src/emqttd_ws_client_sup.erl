@@ -29,7 +29,7 @@
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-%% @doc Start a WebSocket Client
+%% @doc Start a WebSocket Connection.
 -spec(start_client(pid(), mochiweb_request:request(), fun()) -> {ok, pid()}).
 start_client(WsPid, Req, ReplyChannel) ->
     supervisor:start_child(?MODULE, [WsPid, Req, ReplyChannel]).

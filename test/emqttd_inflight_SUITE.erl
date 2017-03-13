@@ -48,3 +48,4 @@ t_is_full(_) ->
 t_is_empty(_) ->
     Inflight = ((emqttd_inflight:new(1)):insert(k, v1)),
     ?assertNot(Inflight:is_empty()).
+
