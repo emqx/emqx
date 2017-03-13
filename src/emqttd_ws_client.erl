@@ -202,7 +202,7 @@ handle_info({keepalive, start, Interval}, State = #wsclient_state{connection = C
         {ok, KeepAlive} ->
             {noreply, State#wsclient_state{keepalive = KeepAlive}, hibernate};
         {error, Error} ->
-            ?LOG(warning, "Keepalive error - ~p", [Error], State),
+            ?WSLOG(warning, "Keepalive error - ~p", [Error], State),
             shutdown(Error, State)
     end;
 
