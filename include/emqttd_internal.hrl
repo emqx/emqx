@@ -19,7 +19,7 @@
 -define(GPROC_POOL(JoinOrLeave, Pool, I),
         (begin
             case JoinOrLeave of
-                join  -> gproc_pool:connect_worker(Pool, {Pool, Id});
+                join  -> gproc_pool:connect_worker(Pool, {Pool, I});
                 leave -> gproc_pool:disconnect_worker(Pool, {Pool, I})
             end
         end)).
