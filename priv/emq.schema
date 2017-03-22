@@ -552,6 +552,19 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "mqtt.listener.tcp.proxy_protocol", "emqttd.listeners", [
+  {default, 1},
+  {datatype, integer},
+  {validators, ["range:1-2"]},
+  hidden
+]}.
+
+{mapping, "mqtt.listener.tcp.proxy_protocol_timeout", "emqttd.listeners", [
+  {default, 10},
+  {datatype, integer},
+  hidden
+]}.
+
 {mapping, "mqtt.listener.tcp.backlog", "emqttd.listeners", [
   {default, 1024},
   {datatype, integer}
@@ -601,6 +614,16 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "mqtt.listener.ssl.proxy_protocol", "emqttd.listeners", [
+  {default, off},
+  {datatype, flag}
+]}.
+
+{mapping, "mqtt.listener.ssl.proxy_protocol_timeout", "emqttd.listeners", [
+  {default, 5s},
+  {datatype, {duration, ms}}
+]}.
+
 {mapping, "mqtt.listener.ssl.tls_versions", "emqttd.listeners", [
   {datatype, string}
 ]}.
@@ -645,6 +668,19 @@ end}.
   {datatype, integer}
 ]}.
 
+{mapping, "mqtt.listener.http.proxy_protocol", "emqttd.listeners", [
+  {default, 1},
+  {datatype, integer},
+  {validators, ["range:1-2"]},
+  hidden
+]}.
+
+{mapping, "mqtt.listener.http.proxy_protocol_timeout", "emqttd.listeners", [
+  {default, 10},
+  {datatype, integer},
+  hidden
+]}.
+
 {mapping, "mqtt.listener.https", "emqttd.listeners", [
   %%{default, 8084},
   {datatype, [integer, ip]}
@@ -658,6 +694,18 @@ end}.
 {mapping, "mqtt.listener.https.max_clients", "emqttd.listeners", [
   {default, 64},
   {datatype, integer}
+]}.
+
+{mapping, "mqtt.listener.https.proxy_protocol", "emqttd.listeners", [
+  {default, 1},
+  {datatype, integer},
+  {validators, ["range:1-2"]},
+  hidden
+]}.
+
+{mapping, "mqtt.listener.https.proxy_protocol_timeout", "emqttd.listeners", [
+  {datatype, integer},
+  hidden
 ]}.
 
 {mapping, "mqtt.listener.https.handshake_timeout", "emqttd.listeners", [
@@ -722,7 +770,9 @@ end}.
                         undefined ->
                             [];
                         Port ->
-                            ConnOpts = Filter([{rate_limit, cuttlefish:conf_get(Key ++ ".rate_limit", Conf, undefined)}]),
+                            ConnOpts = Filter([{rate_limit, cuttlefish:conf_get(Key ++ ".rate_limit", Conf, undefined)},
+                                               {proxy_protocol, cuttlefish:conf_get(Key ++ ".proxy_protocol", Conf, undefined)},
+                                               {proxy_protocol_timeout, cuttlefish:conf_get(Key ++ ".proxy_protocol_timeout", Conf, undefined)}]),
                             Opts = [{connopts, ConnOpts}, {sockopts, TcpOpts(Key)} | LisOpts(Key)],
                             [{Name, Port, case Name =:= ssl orelse Name =:= https of
                                               true  -> [{sslopts, SslOpts(Key)} | Opts];
