@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -17,6 +17,8 @@
 -module(emqttd_bridge_sup_sup).
 
 -behavior(supervisor).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -export([start_link/0, bridges/0, start_bridge/2, start_bridge/3, stop_bridge/2]).
 
@@ -47,7 +49,7 @@ start_bridge(Node, _Topic, _Options) when Node =:= node() ->
     {error, bridge_to_self};
 start_bridge(Node, Topic, Options) when is_atom(Node) andalso is_binary(Topic) ->
     {ok, BridgeEnv} = emqttd:env(bridge),
-    Options1 = emqttd_opts:merge(BridgeEnv, Options),
+    Options1 = emqttd_misc:merge_opts(BridgeEnv, Options),
     supervisor:start_child(?MODULE, bridge_spec(Node, Topic, Options1)).
 
 %% @doc Stop a bridge

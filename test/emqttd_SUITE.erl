@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -47,7 +47,8 @@ all() ->
      {group, http},
      {group, cluster},
      {group, alarms},
-     {group, cli}].
+     {group, cli},
+     {group, cleanSession}].
 
 groups() ->
     [{protocol, [sequence],
@@ -103,7 +104,11 @@ groups() ->
        cli_bridges,
        cli_plugins,
        cli_listeners,
-       cli_vm]}].
+       cli_vm]},
+    {cleanSession, [sequence],
+      [cleanSession_validate,
+       cleanSession_validate1,
+       cleanSession_validate2]}].
 
 init_per_suite(Config) ->
     application:start(lager),
@@ -366,37 +371,39 @@ set_get_stat(_) ->
 %%--------------------------------------------------------------------
 
 add_delete_hook(_) ->
-    emqttd:hook(test_hook, fun ?MODULE:hook_fun1/1, []),
-    emqttd:hook(test_hook, fun ?MODULE:hook_fun2/1, []),
-    {error, already_hooked} = emqttd:hook(test_hook, fun ?MODULE:hook_fun2/1, []),
-    Callbacks = [{callback, fun ?MODULE:hook_fun1/1, [], 0},
-                 {callback, fun ?MODULE:hook_fun2/1, [], 0}],
-    Callbacks = emqttd_hook:lookup(test_hook),
-    emqttd:unhook(test_hook, fun ?MODULE:hook_fun1/1),
-    emqttd:unhook(test_hook, fun ?MODULE:hook_fun2/1),
-    ok = emqttd:unhook(test_hook, fun ?MODULE:hook_fun2/1),
-    {error, not_found} = emqttd:unhook(test_hook1, fun ?MODULE:hook_fun2/1),
-    [] = emqttd_hook:lookup(test_hook),
+    ok = emqttd:hook(test_hook, fun ?MODULE:hook_fun1/1, []),
+    ok = emqttd:hook(test_hook, {tag, fun ?MODULE:hook_fun2/1}, []),
+    {error, already_hooked} = emqttd:hook(test_hook, {tag, fun ?MODULE:hook_fun2/1}, []),
+    Callbacks = [{callback, undefined, fun ?MODULE:hook_fun1/1, [], 0},
+                 {callback, tag, fun ?MODULE:hook_fun2/1, [], 0}],
+    Callbacks = emqttd_hooks:lookup(test_hook),
+    ok = emqttd:unhook(test_hook, fun ?MODULE:hook_fun1/1),
+    ct:print("Callbacks: ~p~n", [emqttd_hooks:lookup(test_hook)]),
+    ok = emqttd:unhook(test_hook, {tag, fun ?MODULE:hook_fun2/1}),
+    {error, not_found} = emqttd:unhook(test_hook1, {tag, fun ?MODULE:hook_fun2/1}),
+    [] = emqttd_hooks:lookup(test_hook),
 
-    emqttd:hook(emqttd_hook, fun ?MODULE:hook_fun1/1, [], 9),
-    emqttd:hook(emqttd_hook, fun ?MODULE:hook_fun2/1, [], 8),
-    Callbacks2 = [{callback, fun ?MODULE:hook_fun2/1, [], 8},
-                  {callback, fun ?MODULE:hook_fun1/1, [], 9}],
-    Callbacks2 = emqttd_hook:lookup(emqttd_hook),
-    emqttd:unhook(emqttd_hook, fun ?MODULE:hook_fun1/1),
-    emqttd:unhook(emqttd_hook, fun ?MODULE:hook_fun2/1),
-    [] = emqttd_hook:lookup(emqttd_hook).
+    ok = emqttd:hook(emqttd_hook, fun ?MODULE:hook_fun1/1, [], 9),
+    ok = emqttd:hook(emqttd_hook, {"tag", fun ?MODULE:hook_fun2/1}, [], 8),
+    Callbacks2 = [{callback, "tag", fun ?MODULE:hook_fun2/1, [], 8},
+                  {callback, undefined, fun ?MODULE:hook_fun1/1, [], 9}],
+    Callbacks2 = emqttd_hooks:lookup(emqttd_hook),
+    ok = emqttd:unhook(emqttd_hook, fun ?MODULE:hook_fun1/1),
+    ok = emqttd:unhook(emqttd_hook, {"tag", fun ?MODULE:hook_fun2/1}),
+    [] = emqttd_hooks:lookup(emqttd_hook).
 
 run_hooks(_) ->
-    emqttd:hook(foldl_hook, fun ?MODULE:hook_fun3/4, [init]),
-    emqttd:hook(foldl_hook, fun ?MODULE:hook_fun4/4, [init]),
-    emqttd:hook(foldl_hook, fun ?MODULE:hook_fun5/4, [init]),
+    ok = emqttd:hook(foldl_hook, fun ?MODULE:hook_fun3/4, [init]),
+    ok = emqttd:hook(foldl_hook, {tag, fun ?MODULE:hook_fun3/4}, [init]),
+    ok = emqttd:hook(foldl_hook, fun ?MODULE:hook_fun4/4, [init]),
+    ok = emqttd:hook(foldl_hook, fun ?MODULE:hook_fun5/4, [init]),
     {stop, [r3, r2]} = emqttd:run_hooks(foldl_hook, [arg1, arg2], []),
     {ok, []} = emqttd:run_hooks(unknown_hook, [], []),
 
-    emqttd:hook(foreach_hook, fun ?MODULE:hook_fun6/2, [initArg]),
-    emqttd:hook(foreach_hook, fun ?MODULE:hook_fun7/2, [initArg]),
-    emqttd:hook(foreach_hook, fun ?MODULE:hook_fun8/2, [initArg]),
+    ok = emqttd:hook(foreach_hook, fun ?MODULE:hook_fun6/2, [initArg]),
+    ok = emqttd:hook(foreach_hook, {tag, fun ?MODULE:hook_fun6/2}, [initArg]),
+    ok = emqttd:hook(foreach_hook, fun ?MODULE:hook_fun7/2, [initArg]),
+    ok = emqttd:hook(foreach_hook, fun ?MODULE:hook_fun8/2, [initArg]),
     stop = emqttd:run_hooks(foreach_hook, [arg]).
 
 hook_fun1([]) -> ok.
@@ -514,8 +521,8 @@ cluster_remove2(_) ->
     ok = emqttd_cluster:join(Z),
     Node = node(),
     [Z, Node] = emqttd_mnesia:running_nodes(),
-    ok = rpc:call(Z, emqttd_mnesia, ensure_stopped, []),
     ok = emqttd_cluster:remove(Z),
+    ok = rpc:call(Z, emqttd_mnesia, ensure_stopped, []),
     [Node] = emqttd_mnesia:running_nodes(),
     slave:stop(Z).
 
@@ -615,6 +622,59 @@ cli_listeners(_) ->
 cli_vm(_) ->
     emqttd_cli:vm([]),
     emqttd_cli:vm(["ports"]).
+
+cleanSession_validate(_) ->
+    {ok, C1} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"c1">>},
+                                         {clean_sess, false}]),
+    timer:sleep(10),
+    emqttc:subscribe(C1, <<"topic">>, qos0),
+    ok = emqttd_cli:sessions(["list", "persistent"]),
+    emqttc:disconnect(C1),
+    {ok, Pub} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"pub">>}]),
+
+    emqttc:publish(Pub, <<"topic">>, <<"m1">>, [{qos, 0}]),
+    timer:sleep(10),
+    {ok, C11} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"c1">>},
+                                         {clean_sess, false}]),
+    timer:sleep(100),
+    Metrics = emqttd_metrics:all(),
+    ct:log("Metrics:~p~n", [Metrics]),
+    ?assertEqual(1, proplists:get_value('messages/qos0/sent', Metrics)),
+    ?assertEqual(1, proplists:get_value('messages/qos0/received', Metrics)),
+    emqttc:disconnect(Pub),
+    emqttc:disconnect(C11).
+
+cleanSession_validate1(_) ->
+    {ok, C1} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"c1">>},
+                                         {clean_sess, true}]),
+    timer:sleep(10),
+    emqttc:subscribe(C1, <<"topic">>, qos1),
+    ok = emqttd_cli:sessions(["list", "transient"]),
+    emqttc:disconnect(C1),
+    {ok, Pub} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"pub">>}]),
+
+    emqttc:publish(Pub, <<"topic">>, <<"m1">>, [{qos, 1}]),
+    timer:sleep(10),
+    {ok, C11} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"c1">>},
+                                         {clean_sess, false}]),
+    timer:sleep(100),
+    Metrics = emqttd_metrics:all(),
+    ?assertEqual(0, proplists:get_value('messages/qos1/sent', Metrics)),
+    ?assertEqual(1, proplists:get_value('messages/qos1/received', Metrics)),
+    emqttc:disconnect(Pub),
+    emqttc:disconnect(C11).
 
 
 ensure_ok(ok) -> ok;

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -27,13 +27,14 @@
 %% 4. Sequence:  2 bytes sequence in one process
 %%
 %% @end
+
 -module(emqttd_guid).
 
 -export([gen/0, new/0, timestamp/1, to_hexstr/1, from_hexstr/1, to_base62/1, from_base62/1]).
 
 -define(MAX_SEQ, 16#FFFF).
 
--type guid() :: <<_:128>>.
+-type(guid() :: <<_:128>>).
 
 %% @doc Generate a global unique id.
 -spec(gen() -> guid()).

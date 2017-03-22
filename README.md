@@ -53,7 +53,7 @@ Documentation on [emqtt.io/docs/v2/](http://emqtt.io/docs/v2/install.html), [doc
 
 ## Build From Source
 
-The *EMQ* broker requires Erlang/OTP R18+ to build.
+The *EMQ* broker requires Erlang/OTP R19+ to build since 2.1 release.
 
 ```
 git clone https://github.com/emqtt/emq-relx.git
@@ -71,6 +71,8 @@ Plugin                                                                 | Descrip
 -----------------------------------------------------------------------|--------------------------------------
 [emq_plugin_template](https://github.com/emqtt/emq_plugin_template)    | Plugin template and demo
 [emq_dashboard](https://github.com/emqtt/emq_dashboard)                | Web Dashboard
+[emq_retainer](https://github.com/emqtt/emq_retainer)                  | Store MQTT Retained Messages
+[emq_modules](https://github.com/emqtt/emq_modules)                    | Presence, Subscription and Rewrite Modules
 [emq_auth_username](https://github.com/emqtt/emq_auth_username)        | Username/Password Authentication Plugin
 [emq_auth_clientid](https://github.com/emqtt/emq_auth_clientid)        | ClientId Authentication Plugin
 [emq_auth_mysql](https://github.com/emqtt/emq_auth_mysql)              | MySQL Authentication/ACL Plugin
@@ -79,10 +81,6 @@ Plugin                                                                 | Descrip
 [emq_auth_mongo](https://github.com/emqtt/emq_auth_mongo)              | MongoDB Authentication/ACL Plugin
 [emq_auth_http](https://github.com/emqtt/emq_auth_http)                | Authentication/ACL by HTTP API
 [emq_auth_ldap](https://github.com/emqtt/emq_auth_ldap)                | LDAP Authentication Plugin
-[emq_mod_presence](https://github.com/emqtt/emq_mod_presence)          | Presence Module
-[emq_mod_rewrite](https://github.com/emqtt/emq_mod_rewrite)            | Rewrite Module
-[emq_mod_retainer](https://github.com/emqtt/emq_mod_retainer)          | Store MQTT Retained Messages
-[emq_mod_subscription](https://github.com/emqtt/emq_mod_subscription)  | Subscribe topics when client connected
 [emq_sn](https://github.com/emqtt/emq_sn)                              | MQTT-SN Protocol Plugin
 [emq_coap](https://github.com/emqtt/emq_coap)                          | CoAP Protocol Plugin
 [emq_stomp](https://github.com/emqtt/emq_stomp)                        | Stomp Protocol Plugin

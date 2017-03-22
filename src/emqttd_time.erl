@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,21 +16,25 @@
 
 -module(emqttd_time).
 
--export([seed/0, now_to_secs/0, now_to_secs/1, now_to_ms/0, now_to_ms/1]).
+-author("Feng Lee <feng@emqtt.io>").
+
+-export([seed/0, now_secs/0, now_secs/1, now_ms/0, now_ms/1, ts_from_ms/1]).
 
 seed() ->
-    case erlang:function_exported(erlang, timestamp, 0) of
-        true  -> random:seed(erlang:timestamp()); %% R18
-        false -> random:seed(os:timestamp()) %% Compress now() deprecated warning...
-    end.
+    rand:seed(exsplus, erlang:timestamp()).
 
-now_to_secs() -> now_to_secs(os:timestamp()).
+now_ms() ->
+    now_ms(os:timestamp()).
 
-now_to_secs({MegaSecs, Secs, _MicroSecs}) ->
+now_ms({MegaSecs, Secs, MicroSecs}) ->
+    (MegaSecs * 1000000 + Secs) * 1000 + round(MicroSecs/1000).
+
+now_secs() ->
+    now_secs(os:timestamp()).
+
+now_secs({MegaSecs, Secs, _MicroSecs}) ->
     MegaSecs * 1000000 + Secs.
 
-now_to_ms() -> now_to_ms(os:timestamp()).
-
-now_to_ms({MegaSecs, Secs, MicroSecs}) ->
-    (MegaSecs * 1000000 + Secs) * 1000 + round(MicroSecs/1000).
+ts_from_ms(Ms) ->
+    {Ms div 1000000, Ms rem 1000000, 0}.
 

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,11 +18,12 @@
 
 -behaviour(gen_server2).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -include("emqttd.hrl").
 
 -include("emqttd_internal.hrl").
 
-%% Start API.
 -export([start_link/3]).
 
 %% PubSub API.
@@ -31,7 +32,7 @@
 
 -export([dispatch/2]).
 
-%% gen_server.
+%% gen_server Callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
@@ -45,7 +46,6 @@
 %% Start PubSub
 %%--------------------------------------------------------------------
 
-%% @doc Start one Pubsub
 -spec(start_link(atom(), pos_integer(), list()) -> {ok, pid()} | ignore | {error, any()}).
 start_link(Pool, Id, Env) ->
     gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id, Env], []).
@@ -115,6 +115,7 @@ dispatch({_Share, [Sub]}, Topic, Msg) ->
     dispatch(Sub, Topic, Msg);
 dispatch({_Share, []}, _Topic, _Msg) ->
     ok;
+%%TODO: round-robbin
 dispatch({_Share, Subs}, Topic, Msg) ->
     dispatch(lists:nth(rand:uniform(length(Subs)), Subs), Topic, Msg).
 
@@ -163,11 +164,12 @@ pick(Subscriber) ->
 
 init([Pool, Id, Env]) ->
     ?GPROC_POOL(join, Pool, Id),
-    {ok, #state{pool = Pool, id = Id, env = Env}}.
+    {ok, #state{pool = Pool, id = Id, env = Env},
+     hibernate, {backoff, 2000, 2000, 20000}}.
 
 handle_call({subscribe, Topic, Subscriber, Options}, _From, State) ->
     add_subscriber(Topic, Subscriber, Options),
-    {reply, ok, setstats(State)};
+    {reply, ok, setstats(State), hibernate};
 
 handle_call({unsubscribe, Topic, Subscriber, Options}, _From, State) ->
     del_subscriber(Topic, Subscriber, Options),
@@ -178,7 +180,7 @@ handle_call(Req, _From, State) ->
 
 handle_cast({subscribe, Topic, Subscriber, Options}, State) ->
     add_subscriber(Topic, Subscriber, Options),
-    {noreply, setstats(State)};
+    {noreply, setstats(State), hibernate};
 
 handle_cast({unsubscribe, Topic, Subscriber, Options}, State) ->
     del_subscriber(Topic, Subscriber, Options),

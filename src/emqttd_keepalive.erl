@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,25 +15,32 @@
 %%--------------------------------------------------------------------
 
 %% @doc Client Keepalive
+
 -module(emqttd_keepalive).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -export([start/3, check/1, cancel/1]).
 
--record(keepalive, {statfun, statval,
-                    tsec, tmsg, tref,
-                    repeat = 0}).
+-record(keepalive, {statfun, statval, tsec, tmsg, tref, repeat = 0}).
 
--type keepalive() :: #keepalive{}.
+-type(keepalive() :: #keepalive{}).
+
+-export_type([keepalive/0]).
 
 %% @doc Start a keepalive
--spec(start(fun(), integer(), any()) -> undefined | keepalive()).
+-spec(start(fun(), integer(), any()) -> {ok, keepalive()} | {error, any()}).
 start(_, 0, _) ->
-    undefined;
+    {ok, #keepalive{}};
 start(StatFun, TimeoutSec, TimeoutMsg) ->
-    {ok, StatVal} = StatFun(),
-    #keepalive{statfun = StatFun, statval = StatVal,
-               tsec = TimeoutSec, tmsg = TimeoutMsg,
-               tref = timer(TimeoutSec, TimeoutMsg)}.
+    case StatFun() of
+        {ok, StatVal} ->
+            {ok, #keepalive{statfun = StatFun, statval = StatVal,
+                            tsec = TimeoutSec, tmsg = TimeoutMsg,
+                            tref = timer(TimeoutSec, TimeoutMsg)}};
+        {error, Error} ->
+            {error, Error}
+    end.
 
 %% @doc Check keepalive, called when timeout.
 -spec(check(keepalive()) -> {ok, keepalive()} | {error, any()}).
@@ -56,12 +63,10 @@ resume(KeepAlive = #keepalive{tsec = TimeoutSec, tmsg = TimeoutMsg}) ->
 
 %% @doc Cancel Keepalive
 -spec(cancel(keepalive()) -> ok).
-cancel(#keepalive{tref = TRef}) ->
-    cancel(TRef);
-cancel(undefined) -> 
-    ok;
-cancel(TRef) ->
-    catch erlang:cancel_timer(TRef).
+cancel(#keepalive{tref = TRef}) when is_reference(TRef) ->
+    catch erlang:cancel_timer(TRef), ok;
+cancel(_) ->
+    ok.
 
 timer(Sec, Msg) ->
     erlang:send_after(timer:seconds(Sec), self(), Msg).

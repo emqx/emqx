@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -17,32 +17,31 @@
 %% @doc MQTT Packet Parser
 -module(emqttd_parser).
 
+-author("Feng Lee <feng@emqtt.io>").
+
 -include("emqttd.hrl").
 
 -include("emqttd_protocol.hrl").
 
 %% API
--export([new/1, parse/2]).
+-export([initial_state/0, initial_state/1, parse/2]).
 
--record(mqtt_packet_limit, {max_packet_size}).
+-type(max_packet_size() :: 1..?MAX_PACKET_SIZE).
 
--type option() :: {atom(),  any()}.
-
--type parser() :: fun( (binary()) -> any() ).
+-spec(initial_state() -> {none, max_packet_size()}).
+initial_state() ->
+    initial_state(?MAX_PACKET_SIZE).
 
 %% @doc Initialize a parser
--spec(new(Opts :: [option()]) -> parser()).
-new(Opts) ->
-    fun(Bin) -> parse(Bin, {none, limit(Opts)}) end.
-
-limit(Opts) ->
-    #mqtt_packet_limit{max_packet_size = proplists:get_value(max_packet_size, Opts, ?MAX_LEN)}.
+-spec(initial_state(max_packet_size()) -> {none, max_packet_size()}).
+initial_state(MaxSize) ->
+    {none, MaxSize}.
 
 %% @doc Parse MQTT Packet
--spec(parse(binary(), {none, [option()]} | fun())
+-spec(parse(binary(), {none, pos_integer()} | fun())
             -> {ok, mqtt_packet()} | {error, any()} | {more, fun()}).
-parse(<<>>, {none, Limit}) ->
-    {more, fun(Bin) -> parse(Bin, {none, Limit}) end};
+parse(<<>>, {none, MaxLen}) ->
+    {more, fun(Bin) -> parse(Bin, {none, MaxLen}) end};
 parse(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>, {none, Limit}) ->
     parse_remaining_len(Rest, #mqtt_packet_header{type   = Type,
                                                   dup    = bool(Dup),
@@ -55,7 +54,7 @@ parse_remaining_len(<<>>, Header, Limit) ->
 parse_remaining_len(Rest, Header, Limit) ->
     parse_remaining_len(Rest, Header, 1, 0, Limit).
 
-parse_remaining_len(_Bin, _Header, _Multiplier, Length, #mqtt_packet_limit{max_packet_size = MaxLen})
+parse_remaining_len(_Bin, _Header, _Multiplier, Length, MaxLen)
     when Length > MaxLen ->
     {error, invalid_mqtt_frame_len};
 parse_remaining_len(<<>>, Header, Multiplier, Length, Limit) ->
@@ -68,7 +67,7 @@ parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, _Limit) ->
     parse_frame(Rest, Header, 0);
 parse_remaining_len(<<1:1, Len:7, Rest/binary>>, Header, Multiplier, Value, Limit) ->
     parse_remaining_len(Rest, Header, Multiplier * ?HIGHBIT, Value + Len * Multiplier, Limit);
-parse_remaining_len(<<0:1, Len:7, Rest/binary>>, Header,  Multiplier, Value, #mqtt_packet_limit{max_packet_size = MaxLen}) ->
+parse_remaining_len(<<0:1, Len:7, Rest/binary>>, Header,  Multiplier, Value, MaxLen) ->
     FrameLen = Value + Len * Multiplier,
     if
         FrameLen > MaxLen -> {error, invalid_mqtt_frame_len};
@@ -86,7 +85,7 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos  = Qos} = Header, Length) 
               WillRetain   : 1,
               WillQos      : 2,
               WillFlag     : 1,
-              CleanSession : 1,
+              CleanSess    : 1,
               _Reserved    : 1,
               KeepAlive    : 16/big,
               Rest3/binary>>   = Rest2,
@@ -104,7 +103,7 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos  = Qos} = Header, Length) 
                            will_retain = bool(WillRetain),
                            will_qos    = WillQos,
                            will_flag   = bool(WillFlag),
-                           clean_sess  = bool(CleanSession),
+                           clean_sess  = bool(CleanSess),
                            keep_alive  = KeepAlive,
                            client_id   = ClientId,
                            will_topic  = WillTopic,

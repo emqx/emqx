@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
 %%--------------------------------------------------------------------
 
 -module(emqttd_boot).
+
+-author("Feng Lee <feng@emqtt.io>").
 
 -export([apply_module_attributes/1, all_module_attributes/1]).
 
@@ -58,6 +60,6 @@ ignore_lib_apps(Apps) ->
                snmp, otp_mibs, public_key, asn1, ssh, hipe,
                common_test, observer, webtool, xmerl, tools,
                test_server, compiler, debugger, eunit, et,
-               gen_logger, wx],
+               wx],
     [App || App = {Name, _, _} <- Apps, not lists:member(Name, LibApps)].
 
