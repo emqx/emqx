@@ -553,16 +553,13 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.tcp.proxy_protocol", "emqttd.listeners", [
-  {default, 1},
-  {datatype, integer},
-  {validators, ["range:1-2"]},
-  hidden
+  %%{default, off},
+  {datatype, flag}
 ]}.
 
 {mapping, "mqtt.listener.tcp.proxy_protocol_timeout", "emqttd.listeners", [
-  {default, 10},
-  {datatype, integer},
-  hidden
+  %%{default, "5s"},
+  {datatype, {duration, ms}}
 ]}.
 
 {mapping, "mqtt.listener.tcp.backlog", "emqttd.listeners", [
@@ -615,12 +612,12 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.ssl.proxy_protocol", "emqttd.listeners", [
-  {default, off},
+  %%{default, off},
   {datatype, flag}
 ]}.
 
 {mapping, "mqtt.listener.ssl.proxy_protocol_timeout", "emqttd.listeners", [
-  {default, 5s},
+  %%{default, "5s"},
   {datatype, {duration, ms}}
 ]}.
 
@@ -668,19 +665,6 @@ end}.
   {datatype, integer}
 ]}.
 
-{mapping, "mqtt.listener.http.proxy_protocol", "emqttd.listeners", [
-  {default, 1},
-  {datatype, integer},
-  {validators, ["range:1-2"]},
-  hidden
-]}.
-
-{mapping, "mqtt.listener.http.proxy_protocol_timeout", "emqttd.listeners", [
-  {default, 10},
-  {datatype, integer},
-  hidden
-]}.
-
 {mapping, "mqtt.listener.https", "emqttd.listeners", [
   %%{default, 8084},
   {datatype, [integer, ip]}
@@ -694,18 +678,6 @@ end}.
 {mapping, "mqtt.listener.https.max_clients", "emqttd.listeners", [
   {default, 64},
   {datatype, integer}
-]}.
-
-{mapping, "mqtt.listener.https.proxy_protocol", "emqttd.listeners", [
-  {default, 1},
-  {datatype, integer},
-  {validators, ["range:1-2"]},
-  hidden
-]}.
-
-{mapping, "mqtt.listener.https.proxy_protocol_timeout", "emqttd.listeners", [
-  {datatype, integer},
-  hidden
 ]}.
 
 {mapping, "mqtt.listener.https.handshake_timeout", "emqttd.listeners", [
