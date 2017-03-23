@@ -93,7 +93,7 @@ init([Env, WsPid, Req, ReplyChannel]) ->
     Headers = mochiweb_headers:to_list(
                 mochiweb_request:get(headers, Req)),
     Conn = Req:get(connection),
-    ProtoState = emqttd_protocol:init(Peername, send_fun(ReplyChannel),
+    ProtoState = emqttd_protocol:init(Conn, Peername, send_fun(ReplyChannel),
                                       [{ws_initial_headers, Headers} | Env]),
     IdleTimeout = get_value(client_idle_timeout, Env, 30000),
     EnableStats = get_value(client_enable_stats, Env, false),

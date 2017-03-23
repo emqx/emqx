@@ -112,7 +112,7 @@ do_init(Conn, Env, Peername) ->
     RateLimit = get_value(rate_limit, Conn:opts()),
     PacketSize = get_value(max_packet_size, Env, ?MAX_PACKET_SIZE),
     Parser = emqttd_parser:initial_state(PacketSize),
-    ProtoState = emqttd_protocol:init(Peername, SendFun, Env),
+    ProtoState = emqttd_protocol:init(Conn, Peername, SendFun, Env),
     EnableStats = get_value(client_enable_stats, Env, false),
     ForceGcCount = emqttd_gc:conn_max_gc_count(),
     State = run_socket(#client_state{connection     = Conn,
