@@ -281,7 +281,7 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
     true = link(ClientPid),
     init_stats([deliver_msg, enqueue_msg]),
     {ok, Env} = emqttd:env(session),
-    {ok, QEnv} = emqttd:env(queue),
+    {ok, QEnv} = emqttd:env(mqueue),
     MaxInflight = get_value(max_inflight, Env, 0),
     EnableStats = get_value(enable_stats, Env, false),
     ForceGcCount = emqttd_gc:conn_max_gc_count(),
