@@ -2,10 +2,9 @@ PROJECT = emqttd
 PROJECT_DESCRIPTION = Erlang MQTT Broker
 PROJECT_VERSION = 2.1.0
 
-NO_AUTOPATCH = cuttlefish
+DEPS = goldrush gproc lager esockd mochiweb lager_syslog pbkdf2
 
-DEPS = gproc lager esockd mochiweb lager_syslog pbkdf2
-
+dep_goldrush    = git https://github.com/basho/goldrush 0.1.9
 dep_gproc       = git https://github.com/uwiger/gproc
 dep_getopt      = git https://github.com/jcomellas/getopt v0.8.2
 dep_lager       = git https://github.com/basho/lager master
@@ -15,6 +14,8 @@ dep_lager_syslog  = git https://github.com/basho/lager_syslog
 dep_pbkdf2 	 = git https://github.com/comtihon/erlang-pbkdf2.git 2.0.0
 
 ERLC_OPTS += +'{parse_transform, lager_transform}'
+
+NO_AUTOPATCH = cuttlefish
 
 BUILD_DEPS = cuttlefish
 dep_cuttlefish = git https://github.com/emqtt/cuttlefish
