@@ -7,6 +7,6 @@
     {env, []},
     {mod, {emqttd_app, []}},
     {maintainers, ["Feng Lee <feng@emqtt.io>"]},
-    {licenses, ["MIT"]},
+    {licenses, ["Apache-2.0"]},
     {links, [{"Github", "https://github.com/emqtt/emqttd"}]}
 ]}.
