@@ -4,6 +4,7 @@ PROJECT_VERSION = 2.1.0
 
 DEPS = goldrush gproc lager esockd mochiweb pbkdf2 lager_syslog
 
+
 dep_goldrush     = git https://github.com/basho/goldrush 0.1.9
 dep_gproc        = git https://github.com/uwiger/gproc
 dep_getopt       = git https://github.com/jcomellas/getopt v0.8.2
