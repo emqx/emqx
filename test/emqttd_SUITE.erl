@@ -715,7 +715,7 @@ change_opts(SslType, DataDir, Vals) ->
     lists:foldl(fun({Protocol, Port, Opts} = Listener, Acc) ->
     case Protocol of
     ssl ->
-            SslOpts = proplists:get_value(ssl, Opts),
+            SslOpts = proplists:get_value(sslopts, Opts),
             Keyfile = filename:join([DataDir, proplists:get_value(keyfile, SslOpts)]),
             Certfile = filename:join([DataDir, proplists:get_value(certfile, SslOpts)]),
             TupleList1 = lists:keyreplace(keyfile, 1, SslOpts, {keyfile, Keyfile}),
