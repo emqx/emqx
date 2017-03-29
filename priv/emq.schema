@@ -307,6 +307,12 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc ACL nomatch
+{mapping, "mqtt.acl_nomatch", "emqttd.acl_nomatch", [
+  {default, allow},
+  {datatype, {enum, [allow, deny]}}
+]}.
+
 %% @doc Default ACL File
 {mapping, "mqtt.acl_file", "emqttd.acl_file", [
   {datatype, string},
