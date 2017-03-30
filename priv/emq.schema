@@ -179,7 +179,7 @@ end}.
 ]}.
 
 {mapping, "log.syslog.identity", "lager.handlers", [
-  {default, "emq"},
+  {default, "emqttd"},
   {datatype, string}
 ]}.
 
