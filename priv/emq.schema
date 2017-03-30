@@ -436,6 +436,12 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
+%% @doc Ignore message from self publish
+{mapping, "mqtt.session.ignore_loop_deliver", "emqttd.session", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
 {translation, "emqttd.session", fun(Conf) ->
   [{max_subscriptions, cuttlefish:conf_get("mqtt.session.max_subscriptions", Conf)},
    {upgrade_qos,       cuttlefish:conf_get("mqtt.session.upgrade_qos", Conf)},
@@ -444,7 +450,8 @@ end}.
    {max_awaiting_rel,  cuttlefish:conf_get("mqtt.session.max_awaiting_rel", Conf)},
    {await_rel_timeout, cuttlefish:conf_get("mqtt.session.await_rel_timeout", Conf)},
    {enable_stats,      cuttlefish:conf_get("mqtt.session.enable_stats", Conf)},
-   {expiry_interval,   cuttlefish:conf_get("mqtt.session.expiry_interval", Conf)}]
+   {expiry_interval,   cuttlefish:conf_get("mqtt.session.expiry_interval", Conf)},
+   {ignore_loop_deliver, cuttlefish:conf_get("mqtt.session.ignore_loop_deliver", Conf)}]
 end}.
 
 %%--------------------------------------------------------------------

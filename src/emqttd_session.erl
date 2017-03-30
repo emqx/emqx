@@ -152,7 +152,9 @@
          %% Force GC Count
          force_gc_count :: undefined | integer(),
 
-         created_at :: erlang:timestamp()
+         created_at :: erlang:timestamp(),
+
+         ignore_loop_deliver = false :: boolean()
         }).
 
 -define(TIMEOUT, 60000).
@@ -284,6 +286,7 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
     {ok, QEnv} = emqttd:env(mqueue),
     MaxInflight = get_value(max_inflight, Env, 0),
     EnableStats = get_value(enable_stats, Env, false),
+    IgnoreLoopDeliver = get_value(ignore_loop_deliver, Env, false),
     ForceGcCount = emqttd_gc:conn_max_gc_count(),
     MQueue = ?MQueue:new(ClientId, QEnv, emqttd_alarm:alarm_fun()),
     State = #state{clean_sess        = CleanSess,
@@ -304,7 +307,8 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
                    expiry_interval   = get_value(expiry_interval, Env),
                    enable_stats      = EnableStats,
                    force_gc_count    = ForceGcCount,
-                   created_at        = os:timestamp()},
+                   created_at        = os:timestamp(),
+                   ignore_loop_deliver = IgnoreLoopDeliver},
     emqttd_sm:register_session(ClientId, CleanSess, info(State)),
     emqttd_hooks:run('session.created', [ClientId, Username]),
     {ok, emit_stats(State), hibernate, {backoff, 1000, 1000, 10000}}.
@@ -525,6 +529,14 @@ handle_cast({destroy, ClientId},
 handle_cast(Msg, State) ->
     ?UNEXPECTED_MSG(Msg, State).
 
+%% Dispatch message from self publish
+handle_info({dispatch, Topic, Msg = #mqtt_message{from = {ClientId, _}}}, 
+             State = #state{client_id = ClientId, 
+                            ignore_loop_deliver = IgnoreLoopDeliver}) when is_record(Msg, mqtt_message) ->
+    case IgnoreLoopDeliver of
+        true  -> {noreply, State, hibernate};
+        false -> {noreply, gc(dispatch(tune_qos(Topic, Msg, State), State)), hibernate}
+    end;
 %% Dispatch Message
 handle_info({dispatch, Topic, Msg}, State) when is_record(Msg, mqtt_message) ->
     {noreply, gc(dispatch(tune_qos(Topic, Msg, State), State)), hibernate};
