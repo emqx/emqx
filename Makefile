@@ -2,8 +2,7 @@ PROJECT = emqttd
 PROJECT_DESCRIPTION = Erlang MQTT Broker
 PROJECT_VERSION = 2.1.0
 
-DEPS = goldrush gproc lager esockd mochiweb pbkdf2 lager_syslog
-
+DEPS = goldrush gproc lager esockd mochiweb pbkdf2
 
 dep_goldrush     = git https://github.com/basho/goldrush 0.1.9
 dep_gproc        = git https://github.com/uwiger/gproc
@@ -12,7 +11,6 @@ dep_lager        = git https://github.com/basho/lager master
 dep_esockd       = git https://github.com/emqtt/esockd v4.2
 dep_mochiweb     = git https://github.com/emqtt/mochiweb
 dep_pbkdf2       = git https://github.com/emqtt/pbkdf2 2.0.1
-dep_lager_syslog = git https://github.com/basho/lager_syslog
 
 ERLC_OPTS += +'{parse_transform, lager_transform}'
 
