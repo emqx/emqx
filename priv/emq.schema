@@ -132,14 +132,14 @@ end}.
 
 %% @doc http://www.erlang.org/doc/man/kernel_app.html
 {mapping, "node.dist_listen_min", "kernel.inet_dist_listen_min", [
-  {commented, 6000},
+  {commented, 6369},
   {datatype, integer},
   hidden
 ]}.
 
 %% @see node.dist_listen_min
 {mapping, "node.dist_listen_max", "kernel.inet_dist_listen_max", [
-  {commented, 6999},
+  {commented, 6369},
   {datatype, integer},
   hidden
 ]}.
@@ -171,6 +171,26 @@ end}.
 {mapping, "log.error.file", "lager.handlers", [
   {default, "log/error.log"},
   {datatype, file}
+]}.
+
+{mapping, "log.syslog", "lager.handlers", [
+  {default,  off},
+  {datatype, flag}
+]}.
+
+{mapping, "log.syslog.identity", "lager.handlers", [
+  {default, "emqttd"},
+  {datatype, string}
+]}.
+
+{mapping, "log.syslog.facility", "lager.handlers", [
+  {default, local0},
+  {datatype, {enum, [daemon, local0, local1, local2, local3, local4, local5, local6, local7]}}
+]}.
+
+{mapping, "log.syslog.level", "lager.handlers", [
+  {default, err},
+  {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency]}}
 ]}.
 
 {mapping, "log.error.redirect", "lager.error_logger_redirect", [
@@ -214,8 +234,16 @@ end}.
       both -> [ConsoleHandler, ConsoleFileHandler];
       _ -> []
     end,
+   
+    SyslogHandler = case cuttlefish:conf_get("log.syslog", Conf) of
+      false -> [];
+      true  -> [{lager_syslog_backend,
+                  [cuttlefish:conf_get("log.syslog.identity", Conf),
+                   cuttlefish:conf_get("log.syslog.facility", Conf),
+                   cuttlefish:conf_get("log.syslog.level", Conf)]}]
+    end,
 
-    ConsoleHandlers ++ ErrorHandler
+    ConsoleHandlers ++ ErrorHandler ++ SyslogHandler
   end
 }.
 
@@ -328,6 +356,7 @@ end}.
   {default, off},
   {datatype, flag}
 ]}.
+
 %% @doc Max number of QoS 1 and 2 messages that can be “inflight” at one time.
 %% 0 means no limit
 {mapping, "mqtt.session.max_inflight", "emqttd.session", [
@@ -543,6 +572,11 @@ end}.
   hidden
 ]}.
 
+{mapping, "mqtt.listener.tcp.tune_buffer", "emqttd.listeners", [
+  {default, off},
+  {datatype, flag}
+]}.
+
 {mapping, "mqtt.listener.tcp.nodelay", "emqttd.listeners", [
   {datatype, {enum, [true, false]}},
   hidden
@@ -656,8 +690,8 @@ end}.
     LisOpts = fun(Prefix) ->
                   Filter([{acceptors,   cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
                           {max_clients, cuttlefish:conf_get(Prefix ++ ".max_clients", Conf)},
-                          {rate_limt,   cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined)}])
- end,
+                          {tune_buffer, cuttlefish:conf_get(Prefix ++ ".tune_buffer", Conf, undefined)}])
+              end,
     TcpOpts = fun(Prefix) ->
                    Filter([{backlog, cuttlefish:conf_get(Prefix ++ ".backlog", Conf, undefined)},
                            {recbuf,  cuttlefish:conf_get(Prefix ++ ".recbuf", Conf, undefined)},
@@ -691,7 +725,7 @@ end}.
                             ConnOpts = Filter([{rate_limit, cuttlefish:conf_get(Key ++ ".rate_limit", Conf, undefined)}]),
                             Opts = [{connopts, ConnOpts}, {sockopts, TcpOpts(Key)} | LisOpts(Key)],
                             [{Name, Port, case Name =:= ssl orelse Name =:= https of
-                                              true  -> [{ssl, SslOpts(Key)} | Opts];
+                                              true  -> [{sslopts, SslOpts(Key)} | Opts];
                                               false -> Opts
                                           end}]
                    end

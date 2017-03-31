@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -47,7 +47,8 @@ all() ->
      {group, http},
      {group, cluster},
      {group, alarms},
-     {group, cli}].
+     {group, cli},
+     {group, cleanSession}].
 
 groups() ->
     [{protocol, [sequence],
@@ -102,8 +103,15 @@ groups() ->
        cli_subscriptions,
        cli_bridges,
        cli_plugins,
-       cli_listeners,
-       cli_vm]}].
+       {listeners, [sequence],
+        [cli_listeners,
+         conflict_listeners
+         ]},
+       cli_vm]},
+    {cleanSession, [sequence],
+      [cleanSession_validate,
+       cleanSession_validate1
+       ]}].
 
 init_per_suite(Config) ->
     application:start(lager),
@@ -614,9 +622,88 @@ cli_bridges(_) ->
 cli_listeners(_) ->
     emqttd_cli:listeners([]).
 
+conflict_listeners(_) ->
+    F =
+    fun() ->
+    process_flag(trap_exit, true),
+    emqttc:start_link([{host, "localhost"},
+                       {port, 1883},
+                       {client_id, <<"c1">>},
+                       {clean_sess, false}])
+    end,
+    spawn_link(F),
+
+    {ok, C2} = emqttc:start_link([{host, "localhost"},
+                                  {port, 1883},
+                                  {client_id, <<"c1">>},
+                                  {clean_sess, false}]),
+    timer:sleep(100),
+
+    Listeners =
+    lists:map(fun({{Protocol, ListenOn}, Pid}) ->
+        Key = atom_to_list(Protocol) ++ ":" ++ esockd:to_string(ListenOn),
+        {Key, [{acceptors, esockd:get_acceptors(Pid)},
+               {max_clients, esockd:get_max_clients(Pid)},
+               {current_clients, esockd:get_current_clients(Pid)},
+               {shutdown_count, esockd:get_shutdown_count(Pid)}]}
+              end, esockd:listeners()),
+    ?assertEqual(1, proplists:get_value(current_clients, proplists:get_value("mqtt:tcp:1883", Listeners))),
+    ?assertEqual([{conflict,1}], proplists:get_value(shutdown_count, proplists:get_value("mqtt:tcp:1883", Listeners))),
+    emqttc:disconnect(C2).
+
 cli_vm(_) ->
     emqttd_cli:vm([]),
     emqttd_cli:vm(["ports"]).
+
+cleanSession_validate(_) ->
+    {ok, C1} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"c1">>},
+                                         {clean_sess, false}]),
+    timer:sleep(10),
+    emqttc:subscribe(C1, <<"topic">>, qos0),
+    emqttc:disconnect(C1),
+    {ok, Pub} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"pub">>}]),
+
+    emqttc:publish(Pub, <<"topic">>, <<"m1">>, [{qos, 0}]),
+    timer:sleep(10),
+    {ok, C11} = emqttc:start_link([{host, "localhost"},
+                                   {port, 1883},
+                                   {client_id, <<"c1">>},
+                                   {clean_sess, false}]),
+    timer:sleep(100),
+    Metrics = emqttd_metrics:all(),
+    ?assertEqual(1, proplists:get_value('messages/qos0/sent', Metrics)),
+    ?assertEqual(1, proplists:get_value('messages/qos0/received', Metrics)),
+    emqttc:disconnect(Pub),
+    emqttc:disconnect(C11).
+
+cleanSession_validate1(_) ->
+    {ok, C1} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"c1">>},
+                                         {clean_sess, true}]),
+    timer:sleep(10),
+    emqttc:subscribe(C1, <<"topic">>, qos1),
+    emqttc:disconnect(C1),
+    {ok, Pub} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"pub">>}]),
+
+    emqttc:publish(Pub, <<"topic">>, <<"m1">>, [{qos, 1}]),
+    timer:sleep(10),
+    {ok, C11} = emqttc:start_link([{host, "localhost"},
+                                         {port, 1883},
+                                         {client_id, <<"c1">>},
+                                         {clean_sess, false}]),
+    timer:sleep(100),
+    Metrics = emqttd_metrics:all(),
+    ?assertEqual(0, proplists:get_value('messages/qos1/sent', Metrics)),
+    ?assertEqual(1, proplists:get_value('messages/qos1/received', Metrics)),
+    emqttc:disconnect(Pub),
+    emqttc:disconnect(C11).
 
 
 ensure_ok(ok) -> ok;
@@ -657,7 +744,7 @@ change_opts(SslType, DataDir, Vals) ->
     lists:foldl(fun({Protocol, Port, Opts} = Listener, Acc) ->
     case Protocol of
     ssl ->
-            SslOpts = proplists:get_value(ssl, Opts),
+            SslOpts = proplists:get_value(sslopts, Opts),
             Keyfile = filename:join([DataDir, proplists:get_value(keyfile, SslOpts)]),
             Certfile = filename:join([DataDir, proplists:get_value(certfile, SslOpts)]),
             TupleList1 = lists:keyreplace(keyfile, 1, SslOpts, {keyfile, Keyfile}),

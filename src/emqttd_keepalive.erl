@@ -29,14 +29,18 @@
 -export_type([keepalive/0]).
 
 %% @doc Start a keepalive
--spec(start(fun(), integer(), any()) -> undefined | keepalive()).
+-spec(start(fun(), integer(), any()) -> {ok, keepalive()} | {error, any()}).
 start(_, 0, _) ->
-    undefined;
+    {ok, #keepalive{}};
 start(StatFun, TimeoutSec, TimeoutMsg) ->
-    {ok, StatVal} = StatFun(),
-    #keepalive{statfun = StatFun, statval = StatVal,
-               tsec = TimeoutSec, tmsg = TimeoutMsg,
-               tref = timer(TimeoutSec, TimeoutMsg)}.
+    case StatFun() of
+        {ok, StatVal} ->
+            {ok, #keepalive{statfun = StatFun, statval = StatVal,
+                            tsec = TimeoutSec, tmsg = TimeoutMsg,
+                            tref = timer(TimeoutSec, TimeoutMsg)}};
+        {error, Error} ->
+            {error, Error}
+    end.
 
 %% @doc Check keepalive, called when timeout.
 -spec(check(keepalive()) -> {ok, keepalive()} | {error, any()}).
@@ -59,12 +63,10 @@ resume(KeepAlive = #keepalive{tsec = TimeoutSec, tmsg = TimeoutMsg}) ->
 
 %% @doc Cancel Keepalive
 -spec(cancel(keepalive()) -> ok).
-cancel(#keepalive{tref = TRef}) ->
-    cancel(TRef);
-cancel(undefined) -> 
-    ok;
-cancel(TRef) ->
-    catch erlang:cancel_timer(TRef).
+cancel(#keepalive{tref = TRef}) when is_reference(TRef) ->
+    catch erlang:cancel_timer(TRef), ok;
+cancel(_) ->
+    ok.
 
 timer(Sec, Msg) ->
     erlang:send_after(timer:seconds(Sec), self(), Msg).
