@@ -234,7 +234,6 @@ end}.
       both -> [ConsoleHandler, ConsoleFileHandler];
       _ -> []
     end,
-   
     SyslogHandler = case cuttlefish:conf_get("log.syslog", Conf) of
       false -> [];
       true  -> [{lager_syslog_backend,
