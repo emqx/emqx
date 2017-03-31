@@ -189,7 +189,7 @@ end}.
 ]}.
 
 {mapping, "log.syslog.level", "lager.handlers", [
-  {default, err},
+  {default, error},
   {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency]}}
 ]}.
 
