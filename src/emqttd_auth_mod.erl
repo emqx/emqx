@@ -22,7 +22,7 @@
 
 -export([passwd_hash/2]).
 
--type(hash_type() :: plain | md5 | sha | sha256).
+-type(hash_type() :: plain | md5 | sha | sha256 | pbkdf2).
 
 %%--------------------------------------------------------------------
 %% Authentication behavihour
@@ -51,7 +51,7 @@ behaviour_info(_Other) ->
 -endif.
 
 %% @doc Password Hash
--spec(passwd_hash(hash_type(), binary()) -> binary()).
+-spec(passwd_hash(hash_type(), binary() | tuple()) -> binary()).
 passwd_hash(plain,  Password)  ->
     Password;
 passwd_hash(md5,    Password)  ->
@@ -59,7 +59,10 @@ passwd_hash(md5,    Password)  ->
 passwd_hash(sha,    Password)  ->
     hexstring(crypto:hash(sha, Password));
 passwd_hash(sha256, Password)  ->
-    hexstring(crypto:hash(sha256, Password)).
+    hexstring(crypto:hash(sha256, Password));
+passwd_hash(pbkdf2,{Salt, Password, Macfun, Iterations, Dklen}) ->
+    {ok,Hexstring} = pbkdf2:pbkdf2(Macfun, Password, Salt, Iterations, Dklen),
+    pbkdf2:to_hex(Hexstring).
 
 hexstring(<<X:128/big-unsigned-integer>>) ->
     iolist_to_binary(io_lib:format("~32.16.0b", [X]));

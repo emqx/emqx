@@ -20,7 +20,8 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--export([conn_max_gc_count/0, reset_conn_gc_count/2, maybe_force_gc/2]).
+-export([conn_max_gc_count/0, reset_conn_gc_count/2, maybe_force_gc/2,
+         maybe_force_gc/3]).
 
 -spec(conn_max_gc_count() -> integer()).
 conn_max_gc_count() ->
@@ -38,9 +39,11 @@ reset_conn_gc_count(Pos, State) ->
     end.
 
 maybe_force_gc(Pos, State) ->
+    maybe_force_gc(Pos, State, fun() -> ok end).
+maybe_force_gc(Pos, State, Cb) ->
     case element(Pos, State) of
         undefined     -> State;
-        I when I =< 0 -> garbage_collect(),
+        I when I =< 0 -> Cb(), garbage_collect(),
                          reset_conn_gc_count(Pos, State);
         I             -> setelement(Pos, State, I - 1)
     end.

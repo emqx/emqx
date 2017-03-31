@@ -127,7 +127,7 @@ do_init(Conn, Env, Peername) ->
                                      force_gc_count = ForceGcCount}),
     IdleTimout = get_value(client_idle_timeout, Env, 30000),
     gen_server2:enter_loop(?MODULE, [], State, self(), IdleTimout,
-                           {backoff, 1000, 1000, 10000}).
+                           {backoff, 2000, 2000, 20000}).
 
 send_fun(Conn, Peername) ->
     Self = self(),
@@ -252,8 +252,13 @@ handle_info({keepalive, start, Interval}, State = #client_state{connection = Con
                     {error, Error}              -> {error, Error}
                 end
              end,
-    KeepAlive = emqttd_keepalive:start(StatFun, Interval, {keepalive, check}),
-    {noreply, State#client_state{keepalive = KeepAlive}, hibernate};
+    case emqttd_keepalive:start(StatFun, Interval, {keepalive, check}) of
+        {ok, KeepAlive} ->
+            {noreply, State#client_state{keepalive = KeepAlive}, hibernate};
+        {error, Error} ->
+            ?LOG(warning, "Keepalive error - ~p", [Error], State),
+            shutdown(Error, State)
+    end;
 
 handle_info({keepalive, check}, State = #client_state{keepalive = KeepAlive}) ->
     case emqttd_keepalive:check(KeepAlive) of
@@ -291,7 +296,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-%% Receive and parse tcp data
+%% Receive and Parse TCP Data
 received(<<>>, State) ->
     {noreply, gc(State), hibernate};
 
@@ -372,5 +377,7 @@ shutdown(Reason, State) ->
 stop(Reason, State) ->
     {stop, Reason, State}.
 
-gc(State) ->
-    emqttd_gc:maybe_force_gc(#client_state.force_gc_count, State).
+gc(State = #client_state{connection = Conn}) ->
+    Cb = fun() -> Conn:gc() end,
+    emqttd_gc:maybe_force_gc(#client_state.force_gc_count, State, Cb).
+

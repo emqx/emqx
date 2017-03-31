@@ -92,18 +92,19 @@ init([Env, WsPid, Req, ReplyChannel]) ->
     {ok, Peername} = Req:get(peername),
     Headers = mochiweb_headers:to_list(
                 mochiweb_request:get(headers, Req)),
+    Conn = Req:get(connection),
     ProtoState = emqttd_protocol:init(Peername, send_fun(ReplyChannel),
                                       [{ws_initial_headers, Headers} | Env]),
     IdleTimeout = get_value(client_idle_timeout, Env, 30000),
     EnableStats = get_value(client_enable_stats, Env, false),
     ForceGcCount = emqttd_gc:conn_max_gc_count(),
-    {ok, #wsclient_state{ws_pid         = WsPid,
+    {ok, #wsclient_state{connection     = Conn,
+                         ws_pid         = WsPid,
                          peername       = Peername,
-                         connection     = Req:get(connection),
                          proto_state    = ProtoState,
                          enable_stats   = EnableStats,
                          force_gc_count = ForceGcCount},
-     IdleTimeout, {backoff, 1000, 1000, 10000}, ?MODULE}.
+     IdleTimeout, {backoff, 2000, 2000, 20000}, ?MODULE}.
 
 prioritise_call(Msg, _From, _Len, _State) ->
     case Msg of info -> 10; stats -> 10; state -> 10; _ -> 5 end.
@@ -197,8 +198,13 @@ handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
 
 handle_info({keepalive, start, Interval}, State = #wsclient_state{connection = Conn}) ->
     ?WSLOG(debug, "Keepalive at the interval of ~p", [Interval], State),
-    KeepAlive = emqttd_keepalive:start(stat_fun(Conn), Interval, {keepalive, check}),
-    {noreply, State#wsclient_state{keepalive = KeepAlive}, hibernate};
+    case emqttd_keepalive:start(stat_fun(Conn), Interval, {keepalive, check}) of
+        {ok, KeepAlive} ->
+            {noreply, State#wsclient_state{keepalive = KeepAlive}, hibernate};
+        {error, Error} ->
+            ?WSLOG(warning, "Keepalive error - ~p", [Error], State),
+            shutdown(Error, State)
+    end;
 
 handle_info({keepalive, check}, State = #wsclient_state{keepalive = KeepAlive}) ->
     case emqttd_keepalive:check(KeepAlive) of
@@ -218,6 +224,14 @@ handle_info({'EXIT', WsPid, normal}, State = #wsclient_state{ws_pid = WsPid}) ->
 handle_info({'EXIT', WsPid, Reason}, State = #wsclient_state{ws_pid = WsPid}) ->
     ?WSLOG(error, "shutdown: ~p",[Reason], State),
     shutdown(Reason, State);
+
+%% The session process exited unexpectedly.
+handle_info({'EXIT', Pid, Reason}, State = #wsclient_state{proto_state = ProtoState}) ->
+    case emqttd_protocol:session(ProtoState) of
+        Pid -> stop(Reason, State);
+        _   -> ?WSLOG(error, "Unexpected EXIT: ~p, Reason: ~p", [Pid, Reason], State),
+               {noreply, State, hibernate}
+    end;
 
 handle_info(Info, State) ->
     ?WSLOG(error, "Unexpected Info: ~p", [Info], State),

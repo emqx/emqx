@@ -22,6 +22,19 @@
   hidden
 ]}.
 
+%% @doc http://erlang.org/doc/man/heart.html
+{mapping, "node.heartbeat", "vm_args.-heart", [
+  {datatype, flag},
+  hidden
+]}.
+
+{translation, "vm_args.-heart", fun(Conf) ->
+    case cuttlefish:conf_get("node.heartbeat", Conf) of
+        true  -> "";
+        false -> cuttlefish:invalid("should be 'on' or comment the line!")
+    end
+end}.
+
 %% @doc Enable Kernel Poll
 {mapping, "node.kernel_poll", "vm_args.+K", [
   {default, on},
@@ -135,8 +148,13 @@
 %% Log
 %%--------------------------------------------------------------------
 
+{mapping, "log.dir", "lager.log_dir", [
+  {default, "log"},
+  {datatype, string}
+]}.
+
 {mapping, "log.console", "lager.handlers", [
-  {default, file },
+  {default, file},
   {datatype, {enum, [off, file, console, both]}}
 ]}.
 
@@ -153,6 +171,26 @@
 {mapping, "log.error.file", "lager.handlers", [
   {default, "log/error.log"},
   {datatype, file}
+]}.
+
+{mapping, "log.syslog", "lager.handlers", [
+  {default,  off},
+  {datatype, flag}
+]}.
+
+{mapping, "log.syslog.identity", "lager.handlers", [
+  {default, "emq"},
+  {datatype, string}
+]}.
+
+{mapping, "log.syslog.facility", "lager.handlers", [
+  {default, local0},
+  {datatype, {enum, [daemon, local0, local1, local2, local3, local4, local5, local6, local7]}}
+]}.
+
+{mapping, "log.syslog.level", "lager.handlers", [
+  {default, err},
+  {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency]}}
 ]}.
 
 {mapping, "log.error.redirect", "lager.error_logger_redirect", [
@@ -196,7 +234,16 @@
       both -> [ConsoleHandler, ConsoleFileHandler];
       _ -> []
     end,
-    ConsoleHandlers ++ ErrorHandler
+
+    SyslogHandler = case cuttlefish:conf_get("log.syslog", Conf) of
+      false -> [];
+      true  -> [{lager_syslog_backend,
+                  [cuttlefish:conf_get("log.syslog.identity", Conf),
+                   cuttlefish:conf_get("log.syslog.facility", Conf),
+                   cuttlefish:conf_get("log.syslog.level", Conf)]}]
+    end,
+
+    ConsoleHandlers ++ ErrorHandler ++ SyslogHandler
   end
 }.
 
@@ -227,6 +274,28 @@
 ]}.
 
 %%--------------------------------------------------------------------
+%% Allow Anonymous and Default ACL
+%%--------------------------------------------------------------------
+
+%% @doc Allow Anonymous
+{mapping, "mqtt.allow_anonymous", "emqttd.allow_anonymous", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
+%% @doc Default ACL File
+{mapping, "mqtt.acl_file", "emqttd.acl_file", [
+  {datatype, string},
+  hidden
+]}.
+
+%% @doc Cache ACL for PUBLISH
+{mapping, "mqtt.cache_acl", "emqttd.cache_acl", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+%%--------------------------------------------------------------------
 %% MQTT Protocol
 %%--------------------------------------------------------------------
 
@@ -242,35 +311,42 @@
   {datatype, bytesize}
 ]}.
 
-%% @doc Client Idle Timeout.
-{mapping, "mqtt.client_idle_timeout", "emqttd.protocol", [
-  {default, 30},
-  {datatype, integer}
-]}.
-
 {translation, "emqttd.protocol", fun(Conf) ->
-  [{max_clientid_len,    cuttlefish:conf_get("mqtt.max_clientid_len", Conf)},
-   {max_packet_size,     cuttlefish:conf_get("mqtt.max_packet_size", Conf)},
-   {client_idle_timeout, cuttlefish:conf_get("mqtt.client_idle_timeout", Conf)}]
+  [{max_clientid_len, cuttlefish:conf_get("mqtt.max_clientid_len", Conf)},
+   {max_packet_size,  cuttlefish:conf_get("mqtt.max_packet_size", Conf)}]
 end}.
 
-%% @doc Allow Anonymous
-{mapping, "mqtt.allow_anonymous", "emqttd.allow_anonymous", [
-  {default, false},
-  {datatype, {enum, [true, false]}},
-  hidden
+%%--------------------------------------------------------------------
+%% MQTT Client
+%%--------------------------------------------------------------------
+
+%% @doc Client Idle Timeout.
+{mapping, "mqtt.client.idle_timeout", "emqttd.client", [
+  {default, "30s"},
+  {datatype, {duration, ms}}
 ]}.
 
-%% @doc Default ACL File
-{mapping, "mqtt.acl_file", "emqttd.acl_file", [
-  {datatype, string},
-  hidden
+%% @doc Enable Stats of Client.
+{mapping, "mqtt.client.enable_stats", "emqttd.client", [
+  {default, off},
+  {datatype, [{duration, ms}, flag]}
 ]}.
+
+%% @doc Client
+{translation, "emqttd.client", fun(Conf) ->
+  [{client_idle_timeout, cuttlefish:conf_get("mqtt.client.idle_timeout", Conf)},
+   {client_enable_stats, cuttlefish:conf_get("mqtt.client.enable_stats", Conf)}]
+end}.
 
 %%--------------------------------------------------------------------
 %% MQTT Session
 %%--------------------------------------------------------------------
 
+%% @doc Upgrade QoS?
+{mapping, "mqtt.session.upgrade_qos", "emqttd.session", [
+  {default, off},
+  {datatype, flag}
+]}.
 %% @doc Max number of QoS 1 and 2 messages that can be “inflight” at one time.
 %% 0 means no limit
 {mapping, "mqtt.session.max_inflight", "emqttd.session", [
@@ -278,17 +354,10 @@ end}.
   {datatype, integer}
 ]}.
 
-
 %% @doc Retry interval for redelivering QoS1/2 messages.
 {mapping, "mqtt.session.retry_interval", "emqttd.session", [
-  {default, 60},
-  {datatype, integer}
-]}.
-
-%% @doc Awaiting PUBREL Timeout
-{mapping, "mqtt.session.await_rel_timeout", "emqttd.session", [
-  {default, 30},
-  {datatype, integer}
+  {default, "20s"},
+  {datatype, {duration, ms}}
 ]}.
 
 %% @doc Max Packets that Awaiting PUBREL, 0 means no limit
@@ -297,25 +366,32 @@ end}.
   {datatype, integer}
 ]}.
 
-%% @doc Statistics Collection Interval(seconds)
-{mapping, "mqtt.session.collect_interval", "emqttd.session", [
-  {default, 0},
-  {datatype, integer}
+%% @doc Awaiting PUBREL Timeout
+{mapping, "mqtt.session.await_rel_timeout", "emqttd.session", [
+  {default, "20s"},
+  {datatype, {duration, ms}}
 ]}.
 
-%% @doc Session expired after...
-{mapping, "mqtt.session.expired_after", "emqttd.session", [
-  {default, "2d"},
-  {datatype, {duration, s}}
+%% @doc Enable Stats
+{mapping, "mqtt.session.enable_stats", "emqttd.session", [
+  {default, off},
+  {datatype, [{duration, ms}, flag]}
+]}.
+
+%% @doc Session Expiry Interval
+{mapping, "mqtt.session.expiry_interval", "emqttd.session", [
+  {default, "2h"},
+  {datatype, {duration, ms}}
 ]}.
 
 {translation, "emqttd.session", fun(Conf) ->
-  [{max_inflight, cuttlefish:conf_get("mqtt.session.max_inflight", Conf)},
-   {retry_interval, cuttlefish:conf_get("mqtt.session.retry_interval", Conf)},
+  [{upgrade_qos,       cuttlefish:conf_get("mqtt.session.upgrade_qos", Conf)},
+   {max_inflight,      cuttlefish:conf_get("mqtt.session.max_inflight", Conf)},
+   {retry_interval,    cuttlefish:conf_get("mqtt.session.retry_interval", Conf)},
+   {max_awaiting_rel,  cuttlefish:conf_get("mqtt.session.max_awaiting_rel", Conf)},
    {await_rel_timeout, cuttlefish:conf_get("mqtt.session.await_rel_timeout", Conf)},
-   {max_awaiting_rel, cuttlefish:conf_get("mqtt.session.max_awaiting_rel", Conf)},
-   {collect_interval, cuttlefish:conf_get("mqtt.session.collect_interval", Conf)},
-   {expired_after, cuttlefish:conf_get("mqtt.session.expired_after", Conf)}]
+   {enable_stats,      cuttlefish:conf_get("mqtt.session.enable_stats", Conf)},
+   {expiry_interval,   cuttlefish:conf_get("mqtt.session.expiry_interval", Conf)}]
 end}.
 
 %%--------------------------------------------------------------------
@@ -331,28 +407,25 @@ end}.
 %% @doc Topic Priority: 0~255, Default is 0
 {mapping, "mqtt.queue.priority", "emqttd.queue", [
   {default, ""},
-  {datatype, string},
-  hidden
+  {datatype, string}
 ]}.
 
 %% @doc Max queue length. Enqueued messages when persistent client disconnected, or inflight window is full.
 {mapping, "mqtt.queue.max_length", "emqttd.queue", [
   {default, infinity},
-  {datatype, [atom, integer]}
+  {datatype, [integer, {atom, infinity}]}
 ]}.
 
 %% @doc Low-water mark of queued messages
 {mapping, "mqtt.queue.low_watermark", "emqttd.queue", [
   {default, "20%"},
-  {datatype, string},
-  hidden
+  {datatype, string}
 ]}.
 
 %% @doc High-water mark of queued messages
 {mapping, "mqtt.queue.high_watermark", "emqttd.queue", [
   {default, "60%"},
-  {datatype, string},
-  hidden
+  {datatype, string}
 ]}.
 
 %% @doc Queue Qos0 messages?
@@ -405,8 +478,7 @@ end}.
 
 {mapping, "mqtt.pubsub.async", "emqttd.pubsub", [
   {default, true},
-  {datatype, {enum, [true, false]}},
-  hidden
+  {datatype, {enum, [true, false]}}
 ]}.
 
 {translation, "emqttd.pubsub", fun(Conf) ->
@@ -451,7 +523,7 @@ end}.
 %%--------------------------------------------------------------------
 
 {mapping, "mqtt.listener.tcp", "emqttd.listeners", [
-  {default, 1883},
+  %% {default, 1883},
   {datatype, [integer, ip]}
 ]}.
 
@@ -467,8 +539,7 @@ end}.
 
 {mapping, "mqtt.listener.tcp.rate_limit", "emqttd.listeners", [
   {default, undefined},
-  {datatype, string},
-  hidden
+  {datatype, string}
 ]}.
 
 {mapping, "mqtt.listener.tcp.backlog", "emqttd.listeners", [
@@ -497,7 +568,7 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.ssl", "emqttd.listeners", [
-  {default, 8883},
+  %% {default, 8883},
   {datatype, [integer, ip]}
 ]}.
 
@@ -515,9 +586,13 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "mqtt.listener.ssl.tls_versions", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
 {mapping, "mqtt.listener.ssl.handshake_timeout", "emqttd.listeners", [
-  {default, 15},
-  {datatype, integer}
+  {default, "15s"},
+  {datatype, {duration, ms}}
 ]}.
 
 {mapping, "mqtt.listener.ssl.keyfile", "emqttd.listeners", [
@@ -541,7 +616,7 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.http", "emqttd.listeners", [
-  {default, 8883},
+  %% {default, 8083},
   {datatype, [integer, ip]}
 ]}.
 
@@ -556,9 +631,8 @@ end}.
 ]}.
 
 {mapping, "mqtt.listener.https", "emqttd.listeners", [
-  {default, undefined},
-  {datatype, [integer, ip]},
-  hidden
+  %%{default, 8084},
+  {datatype, [integer, ip]}
 ]}.
 
 {mapping, "mqtt.listener.https.acceptors", "emqttd.listeners", [
@@ -610,8 +684,16 @@ end}.
                            {buffer,  cuttlefish:conf_get(Prefix ++ ".buffer", Conf, undefined)},
                            {nodelay, cuttlefish:conf_get(Prefix ++ ".nodelay", Conf, true)}])
               end,
+
+    SplitFun = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
+
     SslOpts = fun(Prefix) ->
-                  Filter([{handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf) * 1000},
+                 Versions = case SplitFun(cuttlefish:conf_get(Prefix ++ ".tls_versions", Conf, undefined)) of
+                                undefined -> undefined;
+                                L -> [list_to_atom(V) || V <- L]
+                            end,
+                  Filter([{versions, Versions},
+                          {handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf), undefined},
                           {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
                           {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
                           {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)},
@@ -628,7 +710,7 @@ end}.
                             ConnOpts = Filter([{rate_limit, cuttlefish:conf_get(Key ++ ".rate_limit", Conf, undefined)}]),
                             Opts = [{connopts, ConnOpts}, {sockopts, TcpOpts(Key)} | LisOpts(Key)],
                             [{Name, Port, case Name =:= ssl orelse Name =:= https of
-                                              true  -> [{ssl, SslOpts(Key)} | Opts];
+                                              true  -> [{sslopts, SslOpts(Key)} | Opts];
                                               false -> Opts
                                           end}]
                    end
