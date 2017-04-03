@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2012-2017 Feng Lee <feng@emqtt.io>.
+%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -21,6 +21,8 @@
 -import(emqttd_serializer, [serialize/1]).
 
 -include("emqttd.hrl").
+
+-include_lib("eunit/include/eunit.hrl").
 
 -include("emqttd_protocol.hrl").
 
@@ -260,7 +262,7 @@ serialize_connect(_) ->
 serialize_connack(_) ->
     ConnAck = #mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK}, 
                            variable = #mqtt_packet_connack{ack_flags = 0, return_code = 0}},
-    <<32,2,0,0>> = iolist_to_binary(serialize(ConnAck)).
+    ?assertEqual(<<32,2,0,0>>, iolist_to_binary(serialize(ConnAck))).
 
 serialize_publish(_) ->
     serialize(?PUBLISH_PACKET(?QOS_0, <<"Topic">>, undefined, <<"Payload">>)),
@@ -303,20 +305,20 @@ long_payload() ->
 %%--------------------------------------------------------------------
 
 packet_proto_name(_) ->
-    <<"MQIsdp">> = emqttd_packet:protocol_name(3),
-    <<"MQTT">> = emqttd_packet:protocol_name(4).
+    ?assertEqual(<<"MQIsdp">>, emqttd_packet:protocol_name(3)),
+    ?assertEqual(<<"MQTT">>, emqttd_packet:protocol_name(4)).
 
 packet_type_name(_) ->
-    'CONNECT' = emqttd_packet:type_name(?CONNECT),
-    'UNSUBSCRIBE' = emqttd_packet:type_name(?UNSUBSCRIBE).
+    ?assertEqual('CONNECT',     emqttd_packet:type_name(?CONNECT)),
+    ?assertEqual('UNSUBSCRIBE', emqttd_packet:type_name(?UNSUBSCRIBE)).
 
 packet_connack_name(_) ->
-    'CONNACK_ACCEPT'      = emqttd_packet:connack_name(?CONNACK_ACCEPT),
-    'CONNACK_PROTO_VER'   = emqttd_packet:connack_name(?CONNACK_PROTO_VER),
-    'CONNACK_INVALID_ID'  = emqttd_packet:connack_name(?CONNACK_INVALID_ID),
-    'CONNACK_SERVER'      = emqttd_packet:connack_name(?CONNACK_SERVER),
-    'CONNACK_CREDENTIALS' = emqttd_packet:connack_name(?CONNACK_CREDENTIALS),
-    'CONNACK_AUTH'        = emqttd_packet:connack_name(?CONNACK_AUTH).
+    ?assertEqual('CONNACK_ACCEPT',      emqttd_packet:connack_name(?CONNACK_ACCEPT)),
+    ?assertEqual('CONNACK_PROTO_VER',   emqttd_packet:connack_name(?CONNACK_PROTO_VER)),
+    ?assertEqual('CONNACK_INVALID_ID',  emqttd_packet:connack_name(?CONNACK_INVALID_ID)),
+    ?assertEqual('CONNACK_SERVER',      emqttd_packet:connack_name(?CONNACK_SERVER)),
+    ?assertEqual('CONNACK_CREDENTIALS', emqttd_packet:connack_name(?CONNACK_CREDENTIALS)),
+    ?assertEqual('CONNACK_AUTH',        emqttd_packet:connack_name(?CONNACK_AUTH)).
 
 packet_format(_) ->
     io:format("~s", [emqttd_packet:format(?CONNECT_PACKET(#mqtt_packet_connect{}))]),
@@ -336,26 +338,25 @@ packet_format(_) ->
 
 message_make(_) ->
     Msg = emqttd_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
-    0 = Msg#mqtt_message.qos,
+    ?assertEqual(0, Msg#mqtt_message.qos),
     Msg1 = emqttd_message:make(<<"clientid">>, qos2, <<"topic">>, <<"payload">>),
-    true = is_binary(Msg1#mqtt_message.id),
-    2 = Msg1#mqtt_message.qos.
+    ?assert(is_binary(Msg1#mqtt_message.id)),
+    ?assertEqual(2, Msg1#mqtt_message.qos).
 
 message_from_packet(_) ->
     Msg = emqttd_message:from_packet(?PUBLISH_PACKET(1, <<"topic">>, 10, <<"payload">>)),
-    1 = Msg#mqtt_message.qos,
-    10 = Msg#mqtt_message.pktid,
-    <<"topic">> = Msg#mqtt_message.topic,
-
+    ?assertEqual(1, Msg#mqtt_message.qos),
+    ?assertEqual(10, Msg#mqtt_message.pktid),
+    ?assertEqual(<<"topic">>, Msg#mqtt_message.topic),
     WillMsg = emqttd_message:from_packet(#mqtt_packet_connect{will_flag  = true,
                                                               will_topic = <<"WillTopic">>,
                                                               will_msg   = <<"WillMsg">>}),
-    <<"WillTopic">> = WillMsg#mqtt_message.topic,
-    <<"WillMsg">> = WillMsg#mqtt_message.payload,
+    ?assertEqual(<<"WillTopic">>, WillMsg#mqtt_message.topic),
+    ?assertEqual(<<"WillMsg">>, WillMsg#mqtt_message.payload),
 
     Msg2 = emqttd_message:from_packet(<<"username">>, <<"clientid">>,
                                       ?PUBLISH_PACKET(1, <<"topic">>, 20, <<"payload">>)),
-    {<<"clientid">>, <<"username">>} = Msg2#mqtt_message.from,
+    ?assertEqual({<<"clientid">>, <<"username">>}, Msg2#mqtt_message.from),
     io:format("~s", [emqttd_message:format(Msg2)]).
 
 message_flag(_) ->
@@ -363,13 +364,13 @@ message_flag(_) ->
     Msg2 = emqttd_message:from_packet(<<"clientid">>, Pkt),
     Msg3 = emqttd_message:set_flag(retain, Msg2),
     Msg4 = emqttd_message:set_flag(dup, Msg3),
-    true = Msg4#mqtt_message.dup,
-    true = Msg4#mqtt_message.retain,
+    ?assert(Msg4#mqtt_message.dup),
+    ?assert(Msg4#mqtt_message.retain),
     Msg5 = emqttd_message:set_flag(Msg4),
     Msg6 = emqttd_message:unset_flag(dup, Msg5),
     Msg7 = emqttd_message:unset_flag(retain, Msg6),
-    false = Msg7#mqtt_message.dup,
-    false = Msg7#mqtt_message.retain,
+    ?assertNot(Msg7#mqtt_message.dup),
+    ?assertNot(Msg7#mqtt_message.retain),
     emqttd_message:unset_flag(Msg7),
     emqttd_message:to_packet(Msg7).
 

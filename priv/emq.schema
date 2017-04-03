@@ -132,14 +132,14 @@ end}.
 
 %% @doc http://www.erlang.org/doc/man/kernel_app.html
 {mapping, "node.dist_listen_min", "kernel.inet_dist_listen_min", [
-  {commented, 6000},
+  {commented, 6369},
   {datatype, integer},
   hidden
 ]}.
 
 %% @see node.dist_listen_min
 {mapping, "node.dist_listen_max", "kernel.inet_dist_listen_max", [
-  {commented, 6999},
+  {commented, 6369},
   {datatype, integer},
   hidden
 ]}.
@@ -179,7 +179,7 @@ end}.
 ]}.
 
 {mapping, "log.syslog.identity", "lager.handlers", [
-  {default, "emq"},
+  {default, "emqttd"},
   {datatype, string}
 ]}.
 
@@ -189,7 +189,7 @@ end}.
 ]}.
 
 {mapping, "log.syslog.level", "lager.handlers", [
-  {default, err},
+  {default, error},
   {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency]}}
 ]}.
 
@@ -234,7 +234,6 @@ end}.
       both -> [ConsoleHandler, ConsoleFileHandler];
       _ -> []
     end,
-
     SyslogHandler = case cuttlefish:conf_get("log.syslog", Conf) of
       false -> [];
       true  -> [{lager_syslog_backend,
@@ -356,6 +355,7 @@ end}.
   {default, off},
   {datatype, flag}
 ]}.
+
 %% @doc Max number of QoS 1 and 2 messages that can be “inflight” at one time.
 %% 0 means no limit
 {mapping, "mqtt.session.max_inflight", "emqttd.session", [
@@ -571,6 +571,11 @@ end}.
   hidden
 ]}.
 
+{mapping, "mqtt.listener.tcp.tune_buffer", "emqttd.listeners", [
+  {default, off},
+  {datatype, flag}
+]}.
+
 {mapping, "mqtt.listener.tcp.nodelay", "emqttd.listeners", [
   {datatype, {enum, [true, false]}},
   hidden
@@ -684,8 +689,8 @@ end}.
     LisOpts = fun(Prefix) ->
                   Filter([{acceptors,   cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
                           {max_clients, cuttlefish:conf_get(Prefix ++ ".max_clients", Conf)},
-                          {rate_limt,   cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined)}])
- end,
+                          {tune_buffer, cuttlefish:conf_get(Prefix ++ ".tune_buffer", Conf, undefined)}])
+              end,
     TcpOpts = fun(Prefix) ->
                    Filter([{backlog, cuttlefish:conf_get(Prefix ++ ".backlog", Conf, undefined)},
                            {recbuf,  cuttlefish:conf_get(Prefix ++ ".recbuf", Conf, undefined)},
@@ -719,7 +724,7 @@ end}.
                             ConnOpts = Filter([{rate_limit, cuttlefish:conf_get(Key ++ ".rate_limit", Conf, undefined)}]),
                             Opts = [{connopts, ConnOpts}, {sockopts, TcpOpts(Key)} | LisOpts(Key)],
                             [{Name, Port, case Name =:= ssl orelse Name =:= https of
-                                              true  -> [{ssl, SslOpts(Key)} | Opts];
+                                              true  -> [{sslopts, SslOpts(Key)} | Opts];
                                               false -> Opts
                                           end}]
                    end

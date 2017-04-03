@@ -129,11 +129,11 @@
          %% Client -> Broker: Inflight QoS2 messages received from client and waiting for pubrel.
          awaiting_rel :: map(),
 
-         %% Awaiting PUBREL timeout
-         await_rel_timeout = 20000 :: timeout(),
-
          %% Max Packets that Awaiting PUBREL
          max_awaiting_rel = 100 :: non_neg_integer(),
+
+         %% Awaiting PUBREL timeout
+         await_rel_timeout = 20000 :: timeout(),
 
          %% Awaiting PUBREL timer
          await_rel_timer :: reference(),
@@ -580,7 +580,7 @@ code_change(_OldVsn, Session, _Extra) ->
     {ok, Session}.
 
 %%--------------------------------------------------------------------
-%% Kick old client
+%% Kickout old client
 %%--------------------------------------------------------------------
 kick(_ClientId, undefined, _Pid) ->
     ignore;
