@@ -1,5 +1,8 @@
 
-# *EMQ* - Erlang MQTT Broker [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
+# *EMQ* - Erlang MQTT Broker
+
+[![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
+[<img src="http://slack.emqtt.io/badge.svg">](http://slack.emqtt.io)
 
 *EMQ* (Erlang MQTT Broker) is a distributed, massively scalable, highly extensible MQTT message broker written in Erlang/OTP.
 

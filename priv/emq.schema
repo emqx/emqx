@@ -203,7 +203,7 @@ end}.
 ]}.
 
 {mapping, "log.syslog.identity", "lager.handlers", [
-  {default, "emq"},
+  {default, "emqttd"},
   {datatype, string}
 ]}.
 
@@ -213,7 +213,7 @@ end}.
 ]}.
 
 {mapping, "log.syslog.level", "lager.handlers", [
-  {default, err},
+  {default, error},
   {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency]}}
 ]}.
 

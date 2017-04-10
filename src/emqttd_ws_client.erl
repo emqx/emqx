@@ -225,6 +225,14 @@ handle_info({'EXIT', WsPid, Reason}, State = #wsclient_state{ws_pid = WsPid}) ->
     ?WSLOG(error, "shutdown: ~p",[Reason], State),
     shutdown(Reason, State);
 
+%% The session process exited unexpectedly.
+handle_info({'EXIT', Pid, Reason}, State = #wsclient_state{proto_state = ProtoState}) ->
+    case emqttd_protocol:session(ProtoState) of
+        Pid -> stop(Reason, State);
+        _   -> ?WSLOG(error, "Unexpected EXIT: ~p, Reason: ~p", [Pid, Reason], State),
+               {noreply, State, hibernate}
+    end;
+
 handle_info(Info, State) ->
     ?WSLOG(error, "Unexpected Info: ~p", [Info], State),
     {noreply, State, hibernate}.
