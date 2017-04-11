@@ -66,7 +66,7 @@ passwd_hash(pbkdf2,{Salt, Password, Macfun, Iterations, Dklen}) ->
         {error, Error} -> lager:error("PasswdHash with pbkdf2 error:~p", [Error]), error
     end;
 passwd_hash(bcrypt, {Salt, Password}) ->
-    case bcrypt:hashpw(Salt, Password) of
+    case bcrypt:hashpw(Password, Salt) of
         {ok, HashPassword} -> list_to_binary(HashPassword);
         {error, Error}-> lager:error("PasswdHash with bcrypt error:~p", [Error]), error
     end.
