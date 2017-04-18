@@ -726,9 +726,14 @@ await(Msg = #mqtt_message{pktid = PacketId},
 acked(puback, PacketId, State = #state{client_id = ClientId,
                                        username  = Username,
                                        inflight  = Inflight}) ->
-    {publish, Msg, _Ts} = Inflight:lookup(PacketId),
-    emqttd_hooks:run('message.acked', [ClientId, Username], Msg),
-    State#state{inflight = Inflight:delete(PacketId)};
+    case Inflight:lookup(PacketId) of
+        {publish, Msg, _Ts} ->
+            emqttd_hooks:run('message.acked', [ClientId, Username], Msg),
+            State#state{inflight = Inflight:delete(PacketId)};
+        _ ->
+            ?LOG(warning, "Duplicated PUBACK Packet: ~p", [PacketId], State),
+            State
+    end;
 
 acked(pubrec, PacketId, State = #state{client_id = ClientId,
                                        username  = Username,
