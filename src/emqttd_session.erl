@@ -738,7 +738,7 @@ acked(pubrec, PacketId, State = #state{client_id = ClientId,
             emqttd_hooks:run('message.acked', [ClientId, Username], Msg),
             State#state{inflight = Inflight:update(PacketId, {pubrel, PacketId, os:timestamp()})}; 
         {pubrel, PacketId, _Ts} ->
-            ?LOG(error, "~p packet_id:~p, duplicate send pubrec packet", [ClientId, PacketId], State),
+            ?LOG(warning, "Duplicated PUBREC Packet: ~p", [PacketId], State),
             State
     end;
 
