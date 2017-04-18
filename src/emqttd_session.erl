@@ -733,9 +733,14 @@ acked(puback, PacketId, State = #state{client_id = ClientId,
 acked(pubrec, PacketId, State = #state{client_id = ClientId,
                                        username  = Username,
                                        inflight  = Inflight}) ->
-    {publish, Msg, _Ts} = Inflight:lookup(PacketId),
-    emqttd_hooks:run('message.acked', [ClientId, Username], Msg),
-    State#state{inflight = Inflight:update(PacketId, {pubrel, PacketId, os:timestamp()})};
+    case Inflight:lookup(PacketId) of
+        {publish, Msg, _Ts} ->
+            emqttd_hooks:run('message.acked', [ClientId, Username], Msg),
+            State#state{inflight = Inflight:update(PacketId, {pubrel, PacketId, os:timestamp()})}; 
+        {pubrel, PacketId, _Ts} ->
+            ?LOG(error, "~p packet_id:~p, duplicate send pubrec packet", [ClientId, PacketId], State),
+            State
+    end;
 
 acked(pubcomp, PacketId, State = #state{inflight = Inflight}) ->
     State#state{inflight = Inflight:delete(PacketId)}.
