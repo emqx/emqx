@@ -1,6 +1,6 @@
 PROJECT = emqttd
 PROJECT_DESCRIPTION = Erlang MQTT Broker
-PROJECT_VERSION = 2.1.1
+PROJECT_VERSION = 2.1.2
 
 DEPS = goldrush gproc lager esockd mochiweb pbkdf2 lager_syslog
 
