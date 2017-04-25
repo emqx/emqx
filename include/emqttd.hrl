@@ -84,6 +84,7 @@
           keepalive = 0,
           will_topic    :: undefined | binary(),
           ws_initial_headers :: list({ws_header_key(), ws_header_val()}),
+          mountpoint    :: undefined | binary(),
           connected_at  :: erlang:timestamp()
         }).
 
@@ -157,8 +158,8 @@
 %%--------------------------------------------------------------------
 
 -record(mqtt_route,
-        { topic   :: binary(),
-          node    :: node()
+        { topic :: binary(),
+          node  :: node()
         }).
 
 -type(mqtt_route() :: #mqtt_route{}).
@@ -168,11 +169,11 @@
 %%--------------------------------------------------------------------
 
 -record(mqtt_alarm,
-        { id          :: binary(),
-          severity    :: warning | error | critical,
-          title       :: iolist() | binary(),
-          summary     :: iolist() | binary(),
-          timestamp   :: erlang:timestamp()
+        { id        :: binary(),
+          severity  :: warning | error | critical,
+          title     :: iolist() | binary(),
+          summary   :: iolist() | binary(),
+          timestamp :: erlang:timestamp()
         }).
 
 -type(mqtt_alarm() :: #mqtt_alarm{}).

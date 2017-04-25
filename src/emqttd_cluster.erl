@@ -73,12 +73,14 @@ remove(Node) when Node =:= node() ->
     {error, {cannot_remove_self, Node}};
 
 remove(Node) ->
-    case rpc:call(Node, ?MODULE, prepare, []) of
+    case is_clustered(Node) andalso rpc:call(Node, ?MODULE, prepare, []) of
         ok ->
             case emqttd_mnesia:remove_from_cluster(Node) of
                 ok    -> rpc:call(Node, ?MODULE, reboot, []);
                 Error -> Error
             end;
+        false ->
+            {error, node_not_in_cluster};
         {badrpc, nodedown} ->
             emqttd_mnesia:remove_from_cluster(Node);
         {badrpc, Reason} ->
