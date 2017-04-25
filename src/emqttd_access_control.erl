@@ -71,16 +71,10 @@ auth(Client, Password, [{Mod, State, _Seq} | Mods]) ->
       PubSub :: pubsub(),
       Topic  :: binary()).
 check_acl(Client, PubSub, Topic) when ?PS(PubSub) ->
-    case lookup_mods(acl) of
-        []      -> case emqttd:env(allow_anonymous, false) of
-                       true  -> allow;
-                       false -> deny
-                   end;
-        AclMods -> check_acl(Client, PubSub, Topic, AclMods)
-    end.
-check_acl(#mqtt_client{client_id = ClientId}, PubSub, Topic, []) ->
-    lager:error("ACL: nomatch for ~s ~s ~s", [ClientId, PubSub, Topic]),
-    allow;
+    check_acl(Client, PubSub, Topic, lookup_mods(acl)).
+
+check_acl(_Client, _PubSub, _Topic, []) ->
+    emqttd:env(acl_nomatch, allow);
 check_acl(Client, PubSub, Topic, [{Mod, State, _Seq}|AclMods]) ->
     case Mod:check_acl({Client, PubSub, Topic}, State) of
         allow  -> allow;
