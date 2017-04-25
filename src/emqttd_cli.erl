@@ -548,14 +548,14 @@ print({ClientId, _ClientPid, _Persistent, SessInfo}) ->
                 deliver_msg,
                 enqueue_msg,
                 created_at],
-    ?PRINT("Session(~s, clean_sess=~s, max_inflight=~w, inflight=~w, "
+    ?PRINT("Session(~s, clean_sess=~s, subscriptions=~w, max_inflight=~w, inflight=~w, "
            "mqueue_len=~w, mqueue_dropped=~w, awaiting_rel=~w, "
            "deliver_msg=~w, enqueue_msg=~w, created_at=~w)~n",
             [ClientId | [format(Key, get_value(Key, Data)) || Key <- InfoKeys]]).
 
-print(subscription, {Sub, Topic}) when is_pid(Sub) ->
-    ?PRINT("~p -> ~s~n", [Sub, Topic]);
 print(subscription, {Sub, {_Share, Topic}}) when is_pid(Sub) ->
+    ?PRINT("~p -> ~s~n", [Sub, Topic]);
+print(subscription, {Sub, Topic}) when is_pid(Sub) ->
     ?PRINT("~p -> ~s~n", [Sub, Topic]);
 print(subscription, {Sub, {_Share, Topic}}) ->
     ?PRINT("~s -> ~s~n", [Sub, Topic]);

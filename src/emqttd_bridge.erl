@@ -37,7 +37,7 @@
 
 -record(state, {pool, id,
                 node, subtopic,
-                qos                = ?QOS_2,
+                qos                = ?QOS_0,
                 topic_suffix       = <<>>,
                 topic_prefix       = <<>>,
                 mqueue             :: emqttd_mqueue:mqueue(),
@@ -74,7 +74,7 @@ init([Pool, Id, Node, Topic, Options]) ->
         true -> 
             true = erlang:monitor_node(Node, true),
             Share = iolist_to_binary(["$bridge:", atom_to_list(Node), ":", Topic]),
-            emqttd:subscribe(Topic, self(), [local, {share, Share}]),
+            emqttd:subscribe(Topic, self(), [local, {share, Share}, {qos, ?QOS_0}]),
             State = parse_opts(Options, #state{node = Node, subtopic = Topic}),
             MQueue = emqttd_mqueue:new(qname(Node, Topic),
                                        [{max_len, State#state.max_queue_len}],
