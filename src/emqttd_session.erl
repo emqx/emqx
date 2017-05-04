@@ -77,6 +77,8 @@
 -export([prioritise_call/4, prioritise_cast/3, prioritise_info/3,
          handle_pre_hibernate/1]).
 
+-define(MQueue, emqttd_mqueue).
+
 -record(state,
         {
          %% Clean Session Flag
@@ -124,7 +126,7 @@
          %% QoS 1 and QoS 2 messages pending transmission to the Client.
          %%
          %% Optionally, QoS 0 messages pending transmission to the Client.
-         mqueue :: emqttd_mqueue:mqueue(),
+         mqueue :: ?MQueue:mqueue(),
 
          %% Client -> Broker: Inflight QoS2 messages received from client and waiting for pubrel.
          awaiting_rel :: map(),
@@ -150,7 +152,9 @@
          %% Force GC Count
          force_gc_count :: undefined | integer(),
 
-         created_at :: erlang:timestamp()
+         created_at :: erlang:timestamp(),
+
+         ignore_loop_deliver = false :: boolean()
         }).
 
 -define(TIMEOUT, 60000).
@@ -257,12 +261,9 @@ stats(#state{max_subscriptions = MaxSubscriptions,
                   {subscriptions,     maps:size(Subscriptions)},
                   {max_inflight,      MaxInflight},
                   {inflight_len,      Inflight:size()},
-                  {max_mqueue,        case emqttd_mqueue:max_len(MQueue) of
-                                        infinity -> 0;
-                                        Len -> Len
-                                      end},
-                  {mqueue_len,        emqttd_mqueue:len(MQueue)},
-                  {mqueue_dropped,    emqttd_mqueue:dropped(MQueue)},
+                  {max_mqueue,        ?MQueue:max_len(MQueue)},
+                  {mqueue_len,        ?MQueue:len(MQueue)},
+                  {mqueue_dropped,    ?MQueue:dropped(MQueue)},
                   {max_awaiting_rel,  MaxAwaitingRel},
                   {awaiting_rel_len,  maps:size(AwaitingRel)},
                   {deliver_msg,       get(deliver_msg)},
@@ -282,11 +283,12 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
     true = link(ClientPid),
     init_stats([deliver_msg, enqueue_msg]),
     {ok, Env} = emqttd:env(session),
-    {ok, QEnv} = emqttd:env(queue),
+    {ok, QEnv} = emqttd:env(mqueue),
     MaxInflight = get_value(max_inflight, Env, 0),
     EnableStats = get_value(enable_stats, Env, false),
+    IgnoreLoopDeliver = get_value(ignore_loop_deliver, Env, false),
     ForceGcCount = emqttd_gc:conn_max_gc_count(),
-    MQueue = emqttd_mqueue:new(ClientId, QEnv, emqttd_alarm:alarm_fun()),
+    MQueue = ?MQueue:new(ClientId, QEnv, emqttd_alarm:alarm_fun()),
     State = #state{clean_sess        = CleanSess,
                    binding           = binding(ClientPid),
                    client_id         = ClientId,
@@ -305,7 +307,8 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
                    expiry_interval   = get_value(expiry_interval, Env),
                    enable_stats      = EnableStats,
                    force_gc_count    = ForceGcCount,
-                   created_at        = os:timestamp()},
+                   created_at        = os:timestamp(),
+                   ignore_loop_deliver = IgnoreLoopDeliver},
     emqttd_sm:register_session(ClientId, CleanSess, info(State)),
     emqttd_hooks:run('session.created', [ClientId, Username]),
     {ok, emit_stats(State), hibernate, {backoff, 1000, 1000, 10000}}.
@@ -526,6 +529,14 @@ handle_cast({destroy, ClientId},
 handle_cast(Msg, State) ->
     ?UNEXPECTED_MSG(Msg, State).
 
+%% Dispatch message from self publish
+handle_info({dispatch, Topic, Msg = #mqtt_message{from = {ClientId, _}}}, 
+             State = #state{client_id = ClientId, 
+                            ignore_loop_deliver = IgnoreLoopDeliver}) when is_record(Msg, mqtt_message) ->
+    case IgnoreLoopDeliver of
+        true  -> {noreply, State, hibernate};
+        false -> {noreply, gc(dispatch(tune_qos(Topic, Msg, State), State)), hibernate}
+    end;
 %% Dispatch Message
 handle_info({dispatch, Topic, Msg}, State) when is_record(Msg, mqtt_message) ->
     {noreply, gc(dispatch(tune_qos(Topic, Msg, State), State)), hibernate};
@@ -698,7 +709,7 @@ dispatch(Msg = #mqtt_message{qos = QoS},
 
 enqueue_msg(Msg, State = #state{mqueue = Q}) ->
     inc_stats(enqueue_msg),
-    State#state{mqueue = emqttd_mqueue:in(Msg, Q)}.
+    State#state{mqueue = ?MQueue:in(Msg, Q)}.
 
 %%--------------------------------------------------------------------
 %% Deliver
@@ -765,7 +776,7 @@ dequeue(State = #state{inflight = Inflight}) ->
     end.
 
 dequeue2(State = #state{mqueue = Q}) ->
-    case emqttd_mqueue:out(Q) of
+    case ?MQueue:out(Q) of
         {empty, _Q} ->
             State;
         {{value, Msg}, Q1} ->
