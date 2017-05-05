@@ -2,12 +2,36 @@
 %% EMQ config mapping
 
 %%--------------------------------------------------------------------
+%% Cluster
+%%--------------------------------------------------------------------
+
+%% Cluster ID
+{mapping, "cluster.id", "emqttd.cluster", [
+  {default, "emq"},
+  {datatype, string}
+]}.
+
+%% Cluster Multicast Addr
+{mapping, "cluster.multicast", "emqttd.cluster", [
+  {default, "239.192.0.1:44369"},
+  {datatype, string}
+]}.
+
+{translation, "emqttd.cluster", fun(Conf) ->
+    Multicast = cuttlefish:conf_get("cluster.multicast", Conf),
+    [Addr, Port] = string:tokens(Multicast, ":"),
+    {ok, Ip} = inet_parse:address(Addr),
+    [{id, cuttlefish:conf_get("cluster.id", Conf)},
+     {multicast, {Ip, list_to_integer(Port)}}]
+end}.
+
+%%--------------------------------------------------------------------
 %% Erlang Node
 %%--------------------------------------------------------------------
 
 %% @doc Erlang node name
 {mapping, "node.name", "vm_args.-name", [
-  {default, "emqttd@127.0.0.1"}
+  {default, "emq@127.0.0.1"}
 ]}.
 
 %% @doc Secret cookie for distributed erlang node
@@ -132,14 +156,14 @@ end}.
 
 %% @doc http://www.erlang.org/doc/man/kernel_app.html
 {mapping, "node.dist_listen_min", "kernel.inet_dist_listen_min", [
-  {commented, 6000},
+  {commented, 6369},
   {datatype, integer},
   hidden
 ]}.
 
 %% @see node.dist_listen_min
 {mapping, "node.dist_listen_max", "kernel.inet_dist_listen_max", [
-  {commented, 6999},
+  {commented, 6369},
   {datatype, integer},
   hidden
 ]}.
@@ -179,7 +203,7 @@ end}.
 ]}.
 
 {mapping, "log.syslog.identity", "lager.handlers", [
-  {default, "emq"},
+  {default, "emqttd"},
   {datatype, string}
 ]}.
 
@@ -189,7 +213,7 @@ end}.
 ]}.
 
 {mapping, "log.syslog.level", "lager.handlers", [
-  {default, err},
+  {default, error},
   {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency]}}
 ]}.
 
@@ -283,6 +307,12 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc ACL nomatch
+{mapping, "mqtt.acl_nomatch", "emqttd.acl_nomatch", [
+  {default, allow},
+  {datatype, {enum, [allow, deny]}}
+]}.
+
 %% @doc Default ACL File
 {mapping, "mqtt.acl_file", "emqttd.acl_file", [
   {datatype, string},
@@ -317,8 +347,23 @@ end}.
 end}.
 
 %%--------------------------------------------------------------------
+%% MQTT Connection
+%%--------------------------------------------------------------------
+
+%% @doc Force the client to GC: integer
+{mapping, "mqtt.conn.force_gc_count", "emqttd.conn_force_gc_count", [
+  {datatype, integer}
+]}.
+
+%%--------------------------------------------------------------------
 %% MQTT Client
 %%--------------------------------------------------------------------
+
+%% @doc Max Publish Rate of Message
+{mapping, "mqtt.client.max_publish_rate", "emqttd.client", [
+  {default, 0},
+  {datatype, integer}
+]}.
 
 %% @doc Client Idle Timeout.
 {mapping, "mqtt.client.idle_timeout", "emqttd.client", [
@@ -329,12 +374,12 @@ end}.
 %% @doc Enable Stats of Client.
 {mapping, "mqtt.client.enable_stats", "emqttd.client", [
   {default, off},
-  {datatype, [{duration, ms}, flag]}
+  {datatype, flag}
 ]}.
 
-%% @doc Client
 {translation, "emqttd.client", fun(Conf) ->
-  [{client_idle_timeout, cuttlefish:conf_get("mqtt.client.idle_timeout", Conf)},
+  [{max_publish_rate, cuttlefish:conf_get("mqtt.client.max_publish_rate", Conf)},
+   {client_idle_timeout, cuttlefish:conf_get("mqtt.client.idle_timeout", Conf)},
    {client_enable_stats, cuttlefish:conf_get("mqtt.client.enable_stats", Conf)}]
 end}.
 
@@ -342,11 +387,18 @@ end}.
 %% MQTT Session
 %%--------------------------------------------------------------------
 
+%% @doc Max Number of Subscriptions Allowed
+{mapping, "mqtt.session.max_subscriptions", "emqttd.session", [
+  {default, 0},
+  {datatype, integer}
+]}.
+
 %% @doc Upgrade QoS?
 {mapping, "mqtt.session.upgrade_qos", "emqttd.session", [
   {default, off},
   {datatype, flag}
 ]}.
+
 %% @doc Max number of QoS 1 and 2 messages that can be “inflight” at one time.
 %% 0 means no limit
 {mapping, "mqtt.session.max_inflight", "emqttd.session", [
@@ -375,7 +427,7 @@ end}.
 %% @doc Enable Stats
 {mapping, "mqtt.session.enable_stats", "emqttd.session", [
   {default, off},
-  {datatype, [{duration, ms}, flag]}
+  {datatype, flag}
 ]}.
 
 %% @doc Session Expiry Interval
@@ -384,72 +436,80 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
+%% @doc Ignore message from self publish
+{mapping, "mqtt.session.ignore_loop_deliver", "emqttd.session", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
 {translation, "emqttd.session", fun(Conf) ->
-  [{upgrade_qos,       cuttlefish:conf_get("mqtt.session.upgrade_qos", Conf)},
+  [{max_subscriptions, cuttlefish:conf_get("mqtt.session.max_subscriptions", Conf)},
+   {upgrade_qos,       cuttlefish:conf_get("mqtt.session.upgrade_qos", Conf)},
    {max_inflight,      cuttlefish:conf_get("mqtt.session.max_inflight", Conf)},
    {retry_interval,    cuttlefish:conf_get("mqtt.session.retry_interval", Conf)},
    {max_awaiting_rel,  cuttlefish:conf_get("mqtt.session.max_awaiting_rel", Conf)},
    {await_rel_timeout, cuttlefish:conf_get("mqtt.session.await_rel_timeout", Conf)},
    {enable_stats,      cuttlefish:conf_get("mqtt.session.enable_stats", Conf)},
-   {expiry_interval,   cuttlefish:conf_get("mqtt.session.expiry_interval", Conf)}]
+   {expiry_interval,   cuttlefish:conf_get("mqtt.session.expiry_interval", Conf)},
+   {ignore_loop_deliver, cuttlefish:conf_get("mqtt.session.ignore_loop_deliver", Conf)}]
 end}.
 
 %%--------------------------------------------------------------------
-%% MQTT Queue
+%% MQTT MQueue
 %%--------------------------------------------------------------------
 
 %% @doc Type: simple | priority
-{mapping, "mqtt.queue.type", "emqttd.queue", [
+{mapping, "mqtt.mqueue.type", "emqttd.mqueue", [
   {default, simple},
   {datatype, atom}
 ]}.
 
 %% @doc Topic Priority: 0~255, Default is 0
-{mapping, "mqtt.queue.priority", "emqttd.queue", [
+{mapping, "mqtt.mqueue.priority", "emqttd.mqueue", [
   {default, ""},
   {datatype, string}
 ]}.
 
-%% @doc Max queue length. Enqueued messages when persistent client disconnected, or inflight window is full.
-{mapping, "mqtt.queue.max_length", "emqttd.queue", [
-  {default, infinity},
-  {datatype, [integer, {atom, infinity}]}
+%% @doc Max queue length. Enqueued messages when persistent client disconnected, or inflight window is full. 0 means no limit.
+{mapping, "mqtt.mqueue.max_length", "emqttd.mqueue", [
+  {default, 0},
+  {datatype, integer}
 ]}.
 
 %% @doc Low-water mark of queued messages
-{mapping, "mqtt.queue.low_watermark", "emqttd.queue", [
+{mapping, "mqtt.mqueue.low_watermark", "emqttd.mqueue", [
   {default, "20%"},
   {datatype, string}
 ]}.
 
 %% @doc High-water mark of queued messages
-{mapping, "mqtt.queue.high_watermark", "emqttd.queue", [
+{mapping, "mqtt.mqueue.high_watermark", "emqttd.mqueue", [
   {default, "60%"},
   {datatype, string}
 ]}.
 
 %% @doc Queue Qos0 messages?
-{mapping, "mqtt.queue.qos0", "emqttd.queue", [
+{mapping, "mqtt.mqueue.store_qos0", "emqttd.mqueue", [
   {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
 
-{translation, "emqttd.queue", fun(Conf) ->
+{translation, "emqttd.mqueue", fun(Conf) ->
   Parse = fun(S) ->
 			{match, [N]} = re:run(S, "^([0-9]+)%$", [{capture, all_but_first, list}]),
 			list_to_integer(N) / 100
 	      end,
-  Opts = [{type, cuttlefish:conf_get("mqtt.queue.type", Conf, simple)},
-          {max_length, cuttlefish:conf_get("mqtt.queue.max_length", Conf)},
-          {low_watermark, Parse(cuttlefish:conf_get("mqtt.queue.low_watermark", Conf))},
-          {high_watermark, Parse(cuttlefish:conf_get("mqtt.queue.high_watermark", Conf))},
-          {queue_qos0, cuttlefish:conf_get("mqtt.queue.qos0", Conf)}],
-  case cuttlefish:conf_get("mqtt.queue.priority", Conf) of
+  Opts = [{type, cuttlefish:conf_get("mqtt.mqueue.type", Conf, simple)},
+          {max_length, cuttlefish:conf_get("mqtt.mqueue.max_length", Conf)},
+          {low_watermark, Parse(cuttlefish:conf_get("mqtt.mqueue.low_watermark", Conf))},
+          {high_watermark, Parse(cuttlefish:conf_get("mqtt.mqueue.high_watermark", Conf))},
+          {store_qos0, cuttlefish:conf_get("mqtt.mqueue.store_qos0", Conf)}],
+  case cuttlefish:conf_get("mqtt.mqueue.priority", Conf) of
     undefined -> Opts;
-    V -> [{priority,
-			 [begin [T, P] = string:tokens(S, "="),
-					{T, list_to_integer(P)}
-		      end || S <- string:tokens(V, ",")]}|Opts]
+    V         -> [{priority,
+                   [begin [T, P] = string:tokens(S, "="),
+                          {T, list_to_integer(P)}
+                    end || S <- string:tokens(V, ",")]} | Opts]
   end
 end}.
 
@@ -522,161 +582,389 @@ end}.
 %% MQTT Listeners
 %%--------------------------------------------------------------------
 
-{mapping, "mqtt.listener.tcp", "emqttd.listeners", [
-  %% {default, 1883},
+%%--------------------------------------------------------------------
+%% TCP Listeners
+
+{mapping, "listener.tcp.$name", "emqttd.listeners", [
   {datatype, [integer, ip]}
 ]}.
 
-{mapping, "mqtt.listener.tcp.acceptors", "emqttd.listeners", [
+{mapping, "listener.tcp.$name.acceptors", "emqttd.listeners", [
   {default, 8},
   {datatype, integer}
 ]}.
 
-{mapping, "mqtt.listener.tcp.max_clients", "emqttd.listeners", [
+{mapping, "listener.tcp.$name.max_clients", "emqttd.listeners", [
   {default, 1024},
   {datatype, integer}
 ]}.
 
-{mapping, "mqtt.listener.tcp.rate_limit", "emqttd.listeners", [
+{mapping, "listener.tcp.$name.zone", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.tcp.$name.mountpoint", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.tcp.$name.rate_limit", "emqttd.listeners", [
   {default, undefined},
   {datatype, string}
 ]}.
 
-{mapping, "mqtt.listener.tcp.backlog", "emqttd.listeners", [
+{mapping, "listener.tcp.$name.access.$id", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.tcp.$name.proxy_protocol", "emqttd.listeners", [
+  %%{default, off},
+  {datatype, flag}
+]}.
+
+{mapping, "listener.tcp.$name.proxy_protocol_timeout", "emqttd.listeners", [
+  %%{default, "5s"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "listener.tcp.$name.backlog", "emqttd.listeners", [
   {default, 1024},
   {datatype, integer}
 ]}.
 
-{mapping, "mqtt.listener.tcp.recbuf", "emqttd.listeners", [
-  {datatype, integer},
+{mapping, "listener.tcp.$name.recbuf", "emqttd.listeners", [
+  {datatype, bytesize},
   hidden
 ]}.
 
-{mapping, "mqtt.listener.tcp.sndbuf", "emqttd.listeners", [
-  {datatype, integer},
+{mapping, "listener.tcp.$name.sndbuf", "emqttd.listeners", [
+  {datatype, bytesize},
   hidden
 ]}.
 
-{mapping, "mqtt.listener.tcp.buffer", "emqttd.listeners", [
-  {datatype, integer},
+{mapping, "listener.tcp.$name.buffer", "emqttd.listeners", [
+  {datatype, bytesize},
   hidden
 ]}.
 
-{mapping, "mqtt.listener.tcp.nodelay", "emqttd.listeners", [
+{mapping, "listener.tcp.$name.tune_buffer", "emqttd.listeners", [
+  {datatype, flag},
+  hidden
+]}.
+
+{mapping, "listener.tcp.$name.nodelay", "emqttd.listeners", [
   {datatype, {enum, [true, false]}},
   hidden
 ]}.
 
-{mapping, "mqtt.listener.ssl", "emqttd.listeners", [
-  %% {default, 8883},
+%%--------------------------------------------------------------------
+%% SSL Listeners
+
+{mapping, "listener.ssl.$name", "emqttd.listeners", [
   {datatype, [integer, ip]}
 ]}.
 
-{mapping, "mqtt.listener.ssl.acceptors", "emqttd.listeners", [
+{mapping, "listener.ssl.$name.acceptors", "emqttd.listeners", [
   {default, 8},
   {datatype, integer}
 ]}.
 
-{mapping, "mqtt.listener.ssl.max_clients", "emqttd.listeners", [
-  {default, 512},
+{mapping, "listener.ssl.$name.max_clients", "emqttd.listeners", [
+  {default, 1024},
   {datatype, integer}
 ]}.
 
-{mapping, "mqtt.listener.ssl.rate_limit", "emqttd.listeners", [
+{mapping, "listener.ssl.$name.zone", "emqttd.listeners", [
   {datatype, string}
 ]}.
 
-{mapping, "mqtt.listener.ssl.tls_versions", "emqttd.listeners", [
+{mapping, "listener.ssl.$name.mountpoint", "emqttd.listeners", [
   {datatype, string}
 ]}.
 
-{mapping, "mqtt.listener.ssl.handshake_timeout", "emqttd.listeners", [
+{mapping, "listener.ssl.$name.rate_limit", "emqttd.listeners", [
+  {default, undefined},
+  {datatype, string}
+]}.
+
+{mapping, "listener.ssl.$name.access.$id", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.ssl.$name.proxy_protocol", "emqttd.listeners", [
+  %%{default, off},
+  {datatype, flag}
+]}.
+
+{mapping, "listener.ssl.$name.proxy_protocol_timeout", "emqttd.listeners", [
+  %%{default, "5s"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "listener.ssl.$name.backlog", "emqttd.listeners", [
+  {default, 1024},
+  {datatype, integer}
+]}.
+
+{mapping, "listener.ssl.$name.recbuf", "emqttd.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "listener.ssl.$name.sndbuf", "emqttd.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "listener.ssl.$name.buffer", "emqttd.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "listener.ssl.$name.tune_buffer", "emqttd.listeners", [
+  {datatype, flag},
+  hidden
+]}.
+
+{mapping, "listener.ssl.$name.nodelay", "emqttd.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
+{mapping, "listener.ssl.$name.tls_versions", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.ssl.$name.ciphers", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.ssl.$name.handshake_timeout", "emqttd.listeners", [
   {default, "15s"},
   {datatype, {duration, ms}}
 ]}.
 
-{mapping, "mqtt.listener.ssl.keyfile", "emqttd.listeners", [
+{mapping, "listener.ssl.$name.dhfile", "emqttd.listeners", [
   {datatype, string}
 ]}.
 
-{mapping, "mqtt.listener.ssl.certfile", "emqttd.listeners", [
+{mapping, "listener.ssl.$name.keyfile", "emqttd.listeners", [
   {datatype, string}
 ]}.
 
-{mapping, "mqtt.listener.ssl.cacertfile", "emqttd.listeners", [
+{mapping, "listener.ssl.$name.certfile", "emqttd.listeners", [
   {datatype, string}
 ]}.
 
-{mapping, "mqtt.listener.ssl.verify", "emqttd.listeners", [
+{mapping, "listener.ssl.$name.cacertfile", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.ssl.$name.verify", "emqttd.listeners", [
   {datatype, atom}
 ]}.
 
-{mapping, "mqtt.listener.ssl.fail_if_no_peer_cert", "emqttd.listeners", [
+{mapping, "listener.ssl.$name.fail_if_no_peer_cert", "emqttd.listeners", [
   {datatype, {enum, [true, false]}}
 ]}.
 
-{mapping, "mqtt.listener.http", "emqttd.listeners", [
-  %% {default, 8083},
+{mapping, "listener.ssl.$name.secure_renegotiate", "emqttd.listeners", [
+  {datatype, flag}
+]}.
+
+{mapping, "listener.ssl.$name.reuse_sessions", "emqttd.listeners", [
+  {default, on},
+  {datatype, flag}
+]}.
+
+{mapping, "listener.ssl.$name.honor_cipher_order", "emqttd.listeners", [
+  {datatype, flag}
+]}.
+
+{mapping, "listener.ssl.$name.peer_cert_as_username", "emqttd.listeners", [
+  {datatype, {enum, [cn, dn]}}
+]}.
+
+%%--------------------------------------------------------------------
+%% MQTT/WebSocket Listeners
+
+{mapping, "listener.ws.$name", "emqttd.listeners", [
   {datatype, [integer, ip]}
 ]}.
 
-{mapping, "mqtt.listener.http.acceptors", "emqttd.listeners", [
+{mapping, "listener.ws.$name.acceptors", "emqttd.listeners", [
   {default, 8},
   {datatype, integer}
 ]}.
 
-{mapping, "mqtt.listener.http.max_clients", "emqttd.listeners", [
-  {default, 64},
+{mapping, "listener.ws.$name.max_clients", "emqttd.listeners", [
+  {default, 1024},
   {datatype, integer}
 ]}.
 
-{mapping, "mqtt.listener.https", "emqttd.listeners", [
-  %%{default, 8084},
+{mapping, "listener.ws.$name.rate_limit", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.ws.$name.zone", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.ws.$name.access.$id", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.ws.$name.backlog", "emqttd.listeners", [
+  {default, 1024},
+  {datatype, integer}
+]}.
+
+{mapping, "listener.ws.$name.recbuf", "emqttd.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.sndbuf", "emqttd.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.buffer", "emqttd.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.tune_buffer", "emqttd.listeners", [
+  {datatype, flag},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.nodelay", "emqttd.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
+%%--------------------------------------------------------------------
+%% MQTT/WebSocket/SSL Listeners
+
+{mapping, "listener.wss.$name", "emqttd.listeners", [
   {datatype, [integer, ip]}
 ]}.
 
-{mapping, "mqtt.listener.https.acceptors", "emqttd.listeners", [
+{mapping, "listener.wss.$name.acceptors", "emqttd.listeners", [
   {default, 8},
   {datatype, integer}
 ]}.
 
-{mapping, "mqtt.listener.https.max_clients", "emqttd.listeners", [
-  {default, 64},
+{mapping, "listener.wss.$name.max_clients", "emqttd.listeners", [
+  {default, 1024},
   {datatype, integer}
 ]}.
 
-{mapping, "mqtt.listener.https.handshake_timeout", "emqttd.listeners", [
-  {default, 15},
+{mapping, "listener.wss.$name.zone", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.wss.$name.mountpoint", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.wss.$name.rate_limit", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.wss.$name.access.$id", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.wss.$name.backlog", "emqttd.listeners", [
+  {default, 1024},
   {datatype, integer}
 ]}.
 
-{mapping, "mqtt.listener.https.keyfile", "emqttd.listeners", [
+{mapping, "listener.wss.$name.recbuf", "emqttd.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.sndbuf", "emqttd.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.buffer", "emqttd.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.tune_buffer", "emqttd.listeners", [
+  {datatype, flag},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.nodelay", "emqttd.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.handshake_timeout", "emqttd.listeners", [
+  {default, "15s"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "listener.wss.$name.keyfile", "emqttd.listeners", [
   {datatype, string}
 ]}.
 
-{mapping, "mqtt.listener.https.certfile", "emqttd.listeners", [
+{mapping, "listener.wss.$name.certfile", "emqttd.listeners", [
   {datatype, string}
 ]}.
 
-{mapping, "mqtt.listener.https.cacertfile", "emqttd.listeners", [
+{mapping, "listener.wss.$name.cacertfile", "emqttd.listeners", [
   {datatype, string}
 ]}.
 
-{mapping, "mqtt.listener.https.verify", "emqttd.listeners", [
+{mapping, "listener.wss.$name.verify", "emqttd.listeners", [
   {datatype, atom}
 ]}.
 
-{mapping, "mqtt.listener.https.fail_if_no_peer_cert", "emqttd.listeners", [
+{mapping, "listener.wss.$name.fail_if_no_peer_cert", "emqttd.listeners", [
   {datatype, {enum, [true, false]}}
 ]}.
 
 {translation, "emqttd.listeners", fun(Conf) ->
+
     Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
+
+    Atom = fun(undefined) -> undefined; (S) -> list_to_atom(S) end,
+
+    Access = fun(S) ->
+                 [A, CIDR] = string:tokens(S, " "),
+                 {list_to_atom(A), case CIDR of "all" -> all; _ -> CIDR end}
+             end,
+
+    AccOpts = fun(Prefix) ->
+                  case cuttlefish_variable:filter_by_prefix(Prefix ++ ".access", Conf) of
+                      [] -> [];
+                      Rules -> [{access, [Access(Rule) || {_, Rule} <- Rules]}]
+                  end
+              end,
+
+    MountPoint = fun(undefined) -> undefined; (S) -> list_to_binary(S) end,
+
+    ConnOpts = fun(Prefix) ->
+                   Filter([{zone, Atom(cuttlefish:conf_get(Prefix ++ ".zone", Conf, undefined))},
+                           {rate_limit, cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined)},
+                           {proxy_protocol, cuttlefish:conf_get(Prefix ++ ".proxy_protocol", Conf, undefined)},
+                           {proxy_protocol_timeout, cuttlefish:conf_get(Prefix ++ ".proxy_protocol_timeout", Conf, undefined)},
+                           {mountpoint, MountPoint(cuttlefish:conf_get(Prefix ++ ".mountpoint", Conf, undefined))},
+                           {peer_cert_as_username, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_username", Conf, undefined)}])
+               end,
+
     LisOpts = fun(Prefix) ->
                   Filter([{acceptors,   cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
                           {max_clients, cuttlefish:conf_get(Prefix ++ ".max_clients", Conf)},
-                          {rate_limt,   cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined)}])
- end,
+                          {tune_buffer, cuttlefish:conf_get(Prefix ++ ".tune_buffer", Conf, undefined)} | AccOpts(Prefix)])
+              end,
     TcpOpts = fun(Prefix) ->
                    Filter([{backlog, cuttlefish:conf_get(Prefix ++ ".backlog", Conf, undefined)},
                            {recbuf,  cuttlefish:conf_get(Prefix ++ ".recbuf", Conf, undefined)},
@@ -693,29 +981,48 @@ end}.
                                 L -> [list_to_atom(V) || V <- L]
                             end,
                   Filter([{versions, Versions},
-                          {handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf), undefined},
+                          {ciphers, SplitFun(cuttlefish:conf_get(Prefix ++ ".ciphers", Conf, undefined))},
+                          {handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf, undefined)},
+                          {dhfile, cuttlefish:conf_get(Prefix ++ ".dhfile", Conf, undefined)},
                           {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
                           {certfile,   cuttlefish:conf_get(Prefix ++ ".certfile", Conf, undefined)},
                           {cacertfile, cuttlefish:conf_get(Prefix ++ ".cacertfile", Conf, undefined)},
                           {verify,     cuttlefish:conf_get(Prefix ++ ".verify", Conf, undefined)},
-                          {fail_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ ".fail_if_no_peer_cert", Conf, undefined)}])
+                          {fail_if_no_peer_cert, cuttlefish:conf_get(Prefix ++ ".fail_if_no_peer_cert", Conf, undefined)},
+                          {secure_renegotiate, cuttlefish:conf_get(Prefix ++ ".secure_renegotiate", Conf, undefined)},
+                          {reuse_sessions, cuttlefish:conf_get(Prefix ++ ".reuse_sessions", Conf, undefined)},
+                          {honor_cipher_order, cuttlefish:conf_get(Prefix ++ ".honor_cipher_order", Conf, undefined)}])
               end,
 
-    Listeners = fun(Name) when is_atom(Name) ->
-                    Key = "mqtt.listener." ++ atom_to_list(Name),
-                    case cuttlefish:conf_get(Key, Conf, undefined) of
-                        undefined ->
-                            [];
-                        Port ->
-                            ConnOpts = Filter([{rate_limit, cuttlefish:conf_get(Key ++ ".rate_limit", Conf, undefined)}]),
-                            Opts = [{connopts, ConnOpts}, {sockopts, TcpOpts(Key)} | LisOpts(Key)],
-                            [{Name, Port, case Name =:= ssl orelse Name =:= https of
-                                              true  -> [{sslopts, SslOpts(Key)} | Opts];
-                                              false -> Opts
-                                          end}]
-                   end
-                end,
-    lists:append([Listeners(tcp), Listeners(ssl), Listeners(http), Listeners(https)])
+    TcpListeners = fun(Type, Name) ->
+                       Prefix = string:join(["listener", Type, Name], "."),
+                       case cuttlefish:conf_get(Prefix, Conf, undefined) of
+                           undefined ->
+                               [];
+                           ListenOn ->
+                               [{Atom(Type), ListenOn, [{connopts, ConnOpts(Prefix)}, {sockopts, TcpOpts(Prefix)} | LisOpts(Prefix)]}]
+                       end
+                   end,
+
+    SslListeners = fun(Type, Name) ->
+                       Prefix = string:join(["listener", Type, Name], "."),
+                       case cuttlefish:conf_get(Prefix, Conf, undefined) of
+                           undefined ->
+                               [];
+                           ListenOn ->
+                               [{Atom(Type), ListenOn, [{connopts, ConnOpts(Prefix)},
+                                                        {sockopts, TcpOpts(Prefix)},
+                                                        {sslopts, SslOpts(Prefix)} | LisOpts(Prefix)]}]
+                       end
+                   end,
+
+    lists:flatten([TcpListeners(Type, Name) || {["listener", Type, Name], ListenOn}
+                                               <- cuttlefish_variable:filter_by_prefix("listener.tcp", Conf)
+                                               ++ cuttlefish_variable:filter_by_prefix("listener.ws", Conf)]
+                  ++
+                  [SslListeners(Type, Name) || {["listener", Type, Name], ListenOn}
+                                               <- cuttlefish_variable:filter_by_prefix("listener.ssl", Conf)
+                                               ++ cuttlefish_variable:filter_by_prefix("listener.wss", Conf)])
 end}.
 
 %%--------------------------------------------------------------------
