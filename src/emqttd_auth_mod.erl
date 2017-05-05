@@ -60,9 +60,9 @@ passwd_hash(sha,    Password)  ->
     hexstring(crypto:hash(sha, Password));
 passwd_hash(sha256, Password)  ->
     hexstring(crypto:hash(sha256, Password));
-passwd_hash(pbkdf2,{Salt, Password, Macfun, Iterations, Dklen}) ->
+passwd_hash(pbkdf2, {Salt, Password, Macfun, Iterations, Dklen}) ->
     case pbkdf2:pbkdf2(Macfun, Password, Salt, Iterations, Dklen) of
-        {ok,Hexstring} -> pbkdf2:to_hex(Hexstring);
+        {ok, Hexstring} -> pbkdf2:to_hex(Hexstring);
         {error, Error} -> lager:error("PasswdHash with pbkdf2 error:~p", [Error]), error
     end;
 passwd_hash(bcrypt, {Salt, Password}) ->
