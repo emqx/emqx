@@ -88,7 +88,7 @@ handle_request(Method, Path, Req) ->
 %%--------------------------------------------------------------------
 
 http_publish(Req) ->
-    Params = mochiweb_request:parse_post(Req),
+    Params = Req:recv_body(),
     lager:info("HTTP Publish: ~p", [Params]),
     Topics   = topics(Params),
     ClientId = get_value("client", Params, http),
