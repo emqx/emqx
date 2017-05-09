@@ -45,6 +45,8 @@ Please visit [emqtt.io](http://emqtt.io) for more service. Follow us on Twitter:
 * Passed eclipse paho interoperability tests
 * Local Subscription
 * Shared Subscription
+* Proxy Protocol V1/2
+* Lua Hook and Web Hook
 
 ## Installation
 
@@ -84,6 +86,8 @@ Plugin                                                                 | Descrip
 [emq_auth_mongo](https://github.com/emqtt/emq_auth_mongo)              | MongoDB Authentication/ACL Plugin
 [emq_auth_http](https://github.com/emqtt/emq_auth_http)                | Authentication/ACL by HTTP API
 [emq_auth_ldap](https://github.com/emqtt/emq_auth_ldap)                | LDAP Authentication Plugin
+[emq_web_hook](https://github.com/emqtt/emq-web-hook)                  | Web Hook Plugin
+[emq_lua_hook](https://github.com/emqtt/emq-lua-hook)                  | Lua Hook Plugin
 [emq_sn](https://github.com/emqtt/emq_sn)                              | MQTT-SN Protocol Plugin
 [emq_coap](https://github.com/emqtt/emq_coap)                          | CoAP Protocol Plugin
 [emq_stomp](https://github.com/emqtt/emq_stomp)                        | Stomp Protocol Plugin
