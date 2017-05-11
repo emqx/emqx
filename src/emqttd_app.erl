@@ -43,6 +43,7 @@ start(_Type, _Args) ->
     {ok, Sup} = emqttd_sup:start_link(),
     start_servers(Sup),
     emqttd_cli:load(),
+    emqttd_cli2:register_cli(),
     register_acl_mod(),
     emqttd_plugins:init(),
     emqttd_plugins:load(),

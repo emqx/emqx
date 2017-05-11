@@ -2,7 +2,7 @@ PROJECT = emqttd
 PROJECT_DESCRIPTION = Erlang MQTT Broker
 PROJECT_VERSION = 2.2
 
-DEPS = goldrush gproc lager esockd mochiweb pbkdf2 lager_syslog bcrypt
+DEPS = goldrush gproc lager esockd mochiweb pbkdf2 lager_syslog bcrypt clique
 
 dep_goldrush     = git https://github.com/basho/goldrush 0.1.9
 dep_gproc        = git https://github.com/uwiger/gproc
@@ -13,7 +13,7 @@ dep_mochiweb     = git https://github.com/emqtt/mochiweb emq22
 dep_pbkdf2       = git https://github.com/emqtt/pbkdf2 2.0.1
 dep_lager_syslog = git https://github.com/basho/lager_syslog
 dep_bcrypt       = git https://github.com/smarkets/erlang-bcrypt master
-
+dep_clique       = git https://github.com/turtleDeng/clique
 ERLC_OPTS += +'{parse_transform, lager_transform}'
 
 NO_AUTOPATCH = cuttlefish
