@@ -60,9 +60,16 @@ passwd_hash(sha,    Password)  ->
     hexstring(crypto:hash(sha, Password));
 passwd_hash(sha256, Password)  ->
     hexstring(crypto:hash(sha256, Password));
-passwd_hash(pbkdf2,{Salt, Password, Macfun, Iterations, Dklen}) ->
-    {ok,Hexstring} = pbkdf2:pbkdf2(Macfun, Password, Salt, Iterations, Dklen),
-    pbkdf2:to_hex(Hexstring).
+passwd_hash(pbkdf2, {Salt, Password, Macfun, Iterations, Dklen}) ->
+    case pbkdf2:pbkdf2(Macfun, Password, Salt, Iterations, Dklen) of
+        {ok, Hexstring} -> pbkdf2:to_hex(Hexstring);
+        {error, Error} -> lager:error("PasswdHash with pbkdf2 error:~p", [Error]), error
+    end;
+passwd_hash(bcrypt, {Salt, Password}) ->
+    case bcrypt:hashpw(Password, Salt) of
+        {ok, HashPassword} -> list_to_binary(HashPassword);
+        {error, Error}-> lager:error("PasswdHash with bcrypt error:~p", [Error]), error
+    end.
 
 hexstring(<<X:128/big-unsigned-integer>>) ->
     iolist_to_binary(io_lib:format("~32.16.0b", [X]));
