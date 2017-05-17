@@ -197,12 +197,17 @@ cluster_join() ->
     KeySpecs = [{'node', [{typecast, fun(Node) -> list_to_atom(Node) end}]}],
     FlagSpecs = [],
     Callback =
-        fun (_, [{_, Node}], _) ->
-            Text = case emqttd_cluster:join(Node) of
-                ok ->
-                    ["Join the cluster successfully.\n", cluster(["status"])];
-                {error, Error} ->
-                    io_lib:format("Failed to join the cluster: ~p~n", [Error])
+        fun (_, Params, _) ->
+            Text = case get_value('node', Params) of
+                undefined -> 
+                    io_lib:format("Invalid params node is undefined~n", []);
+                Node ->
+                    case emqttd_cluster:join(Node) of
+                        ok ->
+                            ["Join the cluster successfully.\n", cluster(["status"])];
+                        {error, Error} ->
+                            io_lib:format("Failed to join the cluster: ~p~n", [Error])
+                    end
             end,
             [clique_status:text(Text)]
         end,
@@ -227,12 +232,17 @@ cluster_remove() ->
     KeySpecs = [{'node', [{typecast, fun(Node) -> list_to_atom(Node) end}]}],
     FlagSpecs = [],
     Callback =
-        fun (_, [{_, Node}], _) ->
-            Text = case emqttd_cluster:remove(Node) of
-                ok ->
-                    ["Remove the cluster successfully.\n", cluster(["status"])];
-                {error, Error} ->
-                    io_lib:format("Failed to remove the cluster: ~p~n", [Error])
+        fun (_, Params, _) ->
+            Text = case get_value('node', Params) of
+                undefined -> 
+                    io_lib:format("Invalid params node is undefined~n", []);
+                Node ->
+                    case emqttd_cluster:remove(Node) of
+                        ok ->
+                            ["Remove the cluster successfully.\n", cluster(["status"])];
+                        {error, Error} ->
+                            io_lib:format("Failed to remove the cluster: ~p~n", [Error])
+                    end
             end,
             [clique_status:text(Text)]
         end,
@@ -279,11 +289,16 @@ clients_kick() ->
     KeySpecs = [{'client_id', [{typecast, fun(ClientId) -> list_to_binary(ClientId) end}]}],
     FlagSpecs = [],
     Callback =
-        fun (_, [{_, ClientId}], _) ->
-            Result = if_client(ClientId, fun(#mqtt_client{client_pid = Pid}) -> emqttd_client:kick(Pid) end),
-            case Result of
-                [ok] -> [clique_status:text(io_lib:format("Kick client_id: ~p successfully~n", [ClientId]))];
-                _ -> [clique_status:text("")]
+        fun (_, Params, _) ->
+            case get_value('client_id', Params) of
+                undefined -> 
+                    [clique_status:text(io_lib:format("Invalid params client_id is undefined~n", []))];
+                ClientId ->
+                    Result = if_client(ClientId, fun(#mqtt_client{client_pid = Pid}) -> emqttd_client:kick(Pid) end),
+                    case Result of
+                        [ok] -> [clique_status:text(io_lib:format("Kick client_id: ~p successfully~n", [ClientId]))];
+                        _ -> [clique_status:text("")]
+                    end
             end
         end,
     clique:register_command(Cmd, KeySpecs, FlagSpecs, Callback).
@@ -332,14 +347,18 @@ sessions_show() ->
     KeySpecs = [{'client_id', [{typecast, fun(ClientId) -> list_to_binary(ClientId) end}]}],
     FlagSpecs = [],
     Callback =
-        fun (_, [{_, ClientId}], _) ->
-            
-            case ets:lookup(mqtt_local_session, ClientId) of
-                []         -> 
-                    ?PRINT_MSG("Not Found.~n"),
-                    [clique_status:table([])]; 
-                [SessInfo] -> 
-                    [clique_status:table([print(SessInfo)])]
+        fun (_, Params, _) ->
+            case get_value('client_id', Params) of
+                undefined -> 
+                    [clique_status:text(io_lib:format("Invalid params client_id is undefined~n", []))];
+                ClientId ->
+                    case ets:lookup(mqtt_local_session, ClientId) of
+                        []         -> 
+                            ?PRINT_MSG("Not Found.~n"),
+                            [clique_status:table([])]; 
+                        [SessInfo] -> 
+                            [clique_status:table([print(SessInfo)])]
+                    end
             end
         end,
     clique:register_command(Cmd, KeySpecs, FlagSpecs, Callback).
@@ -361,8 +380,13 @@ routes_show() ->
     KeySpecs = [{'topic', [{typecast, fun(Topic) -> list_to_binary(Topic) end}]}],
     FlagSpecs = [],
     Callback =
-        fun (_, [{_, Topic}], _) ->
-            [clique_status:table([print(mnesia:dirty_read(mqtt_route, Topic))])]
+        fun (_, Params, _) ->
+            case get_value('topic', Params) of
+                undefined -> 
+                    [clique_status:text(io_lib:format("Invalid params topic is undefined~n", []))];
+                Topic ->
+                    [clique_status:table([print(mnesia:dirty_read(mqtt_route, Topic))])]
+            end
         end,
     clique:register_command(Cmd, KeySpecs, FlagSpecs, Callback).
     
@@ -383,9 +407,14 @@ topics_show() ->
     KeySpecs = [{'topic', [{typecast, fun(Topic) -> list_to_binary(Topic) end}]}],
     FlagSpecs = [],
     Callback =
-        fun (_, [{_, Topic}], _) ->
-            Table = print(mnesia:dirty_read(mqtt_route, Topic)),
-            [clique_status:table([Table])]
+        fun (_, Params, _) ->
+            case get_value('client_id', Params) of
+                undefined -> 
+                    [clique_status:text(io_lib:format("Invalid params topic is undefined~n", []))];
+                Topic ->
+                    Table = print(mnesia:dirty_read(mqtt_route, Topic)),
+                    [clique_status:table([Table])]
+            end
         end,
     clique:register_command(Cmd, KeySpecs, FlagSpecs, Callback).
 
@@ -407,14 +436,19 @@ subscriptions_show() ->
     KeySpecs = [{'client_id', [{typecast, fun(Topic) -> list_to_binary(Topic) end}]}],
     FlagSpecs = [],
     Callback =
-        fun (_, [{_, ClientId}], _) ->
-            case ets:lookup(mqtt_subscription, ClientId) of
-                []      -> 
-                    ?PRINT_MSG("Not Found.~n"),
-                    [clique_status:table([])];
-                Records -> 
-                    Table = [print(subscription, Subscription) || Subscription <- Records],
-                    [clique_status:table(Table)]
+        fun (_, Params, _) ->
+            case get_value('client_id', Params) of
+                undefined -> 
+                    [clique_status:text(io_lib:format("Invalid params client_id is undefined~n", []))];
+                ClientId ->
+                    case ets:lookup(mqtt_subscription, ClientId) of
+                        []      -> 
+                            ?PRINT_MSG("Not Found.~n"),
+                            [clique_status:table([])];
+                        Records -> 
+                            Table = [print(subscription, Subscription) || Subscription <- Records],
+                            [clique_status:table(Table)]
+                    end
             end
         end,
     clique:register_command(Cmd, KeySpecs, FlagSpecs, Callback).
@@ -432,11 +466,11 @@ subscriptions_subscribe() ->
             QoS = get_value('qos', Params),
             Text = case {Topic, ClientId, QoS} of
                 {undefined, _, _} ->
-                    io_lib:format("Invalid topic is undefined~n", []);
+                    io_lib:format("Invalid params topic is undefined~n", []);
                 {_, undefined, _} ->
-                    io_lib:format("Invalid client_id is undefined~n", []);
+                    io_lib:format("Invalid params client_id is undefined~n", []);
                 {_, _, undefined} ->
-                    io_lib:format("Invalid qos is undefined~n", []);
+                    io_lib:format("Invalid params qos is undefined~n", []);
                 {_, _, _} ->
                     case emqttd:subscribe(Topic, ClientId, [{qos, QoS}]) of
                         ok ->
@@ -456,10 +490,15 @@ subscriptions_del() ->
     KeySpecs = [{'client_id', [{typecast, fun(ClientId) -> list_to_binary(ClientId) end}]}],
     FlagSpecs = [],
     Callback =
-        fun (_, [{_, ClientId}], _) ->
-            emqttd:subscriber_down(ClientId),
-            Text = io_lib:format("Client_id del subscriptions:~p successfully~n", [ClientId]),
-            [clique_status:text(Text)]
+        fun (_, Params, _) ->
+            case get_value('client_id', Params) of
+                undefined -> 
+                    [clique_status:text(io_lib:format("Invalid params client_id is undefined~n", []))];
+                ClientId ->
+                    emqttd:subscriber_down(ClientId),
+                    Text = io_lib:format("Client_id del subscriptions:~p successfully~n", [ClientId]),
+                    [clique_status:text(Text)]
+            end
         end,
     clique:register_command(Cmd, KeySpecs, FlagSpecs, Callback).
 
@@ -475,11 +514,11 @@ subscriptions_unsubscribe() ->
             QoS = get_value('qos', Params),
             Text = case {Topic, ClientId, QoS} of
                 {undefined, _, _} ->
-                    io_lib:format("Invalid topic is undefined~n", []);
+                    io_lib:format("Invalid params topic is undefined~n", []);
                 {_, undefined, _} ->
-                    io_lib:format("Invalid client_id is undefined~n", []);
+                    io_lib:format("Invalid params client_id is undefined~n", []);
                 {_, _, undefined} ->
-                    io_lib:format("Invalid qos is undefined~n", []);
+                    io_lib:format("Invalid params qos is undefined~n", []);
                     
                 {_, _, _} ->
                     emqttd:unsubscribe(Topic, ClientId),
@@ -505,12 +544,17 @@ plugins_load() ->
     KeySpecs = [{'plugin_name', [{typecast, fun(PluginName) -> list_to_atom(PluginName) end}]}],
     FlagSpecs = [],
     Callback =
-        fun (_, [{_, PluginName}], _) ->
-            Text = case emqttd_plugins:load(PluginName) of
-                {ok, StartedApps} ->
-                    io_lib:format("Start apps: ~p~nPlugin ~s loaded successfully.~n", [StartedApps, PluginName]);
-                {error, Reason}   ->
-                    io_lib:format("load plugin error: ~p~n", [Reason])
+        fun (_, Params, _) ->
+            Text = case get_value('plugin_name', Params) of
+                undefined -> 
+                    io_lib:format("Invalid params plugin_name is undefined~n", []);
+                PluginName ->
+                    case emqttd_plugins:load(PluginName) of
+                        {ok, StartedApps} ->
+                            io_lib:format("Start apps: ~p~nPlugin ~s loaded successfully.~n", [StartedApps, PluginName]);
+                        {error, Reason}   ->
+                            io_lib:format("load plugin error: ~p~n", [Reason])
+                    end
             end,
             [clique_status:text(Text)]
         end,
@@ -521,12 +565,17 @@ plugins_unload() ->
     KeySpecs = [{'plugin_name', [{typecast, fun(PluginName) -> list_to_atom(PluginName) end}]}],
     FlagSpecs = [],
     Callback =
-        fun (_, [{_, PluginName}], _) ->
-            Text = case emqttd_plugins:unload(PluginName) of
-                ok ->
-                    io_lib:format("Plugin ~s unloaded successfully.~n", [PluginName]);
-                {error, Reason} ->
-                    io_lib:format("unload plugin error: ~p~n", [Reason])
+        fun (_, Params, _) ->
+            Text = case get_value('plugin_name', Params) of
+                undefined -> 
+                    io_lib:format("Invalid params plugin_name is undefined~n", []);
+                PluginName ->
+                    case emqttd_plugins:unload(PluginName) of
+                        ok ->
+                            io_lib:format("Plugin ~s unloaded successfully.~n", [PluginName]);
+                        {error, Reason} ->
+                            io_lib:format("unload plugin error: ~p~n", [Reason])
+                    end
             end,
             [clique_status:text(Text)]
         end,
@@ -561,9 +610,9 @@ bridges_start() ->
         fun (_, Params, _) ->
             Text = case {get_value('snode', Params), get_value('topic', Params)} of
                 {undefined, _} ->
-                    io_lib:format("Invalid snode is undefined~n", []);
+                    io_lib:format("Invalid params snode is undefined~n", []);
                 {_, undefined} ->
-                    io_lib:format("Invalid topic is undefined~n", []);
+                    io_lib:format("Invalid params topic is undefined~n", []);
                 {SNode, Topic} ->
                     Opts = Params -- [{'snode', SNode}, {'topic', Topic}],
                     case emqttd_bridge_sup_sup:start_bridge(SNode, Topic, Opts) of
@@ -586,9 +635,9 @@ bridges_stop() ->
         fun (_, Params, _) ->
             Text = case {get_value('snode', Params), get_value('topic', Params)} of
                 {undefined, _} ->
-                    io_lib:format("Invalid snode is undefined~n", []);
+                    io_lib:format("Invalid params snode is undefined~n", []);
                 {_, undefined} ->
-                    io_lib:format("Invalid topic is undefined~n", []);
+                    io_lib:format("Invalid params topic is undefined~n", []);
                 {SNode, Topic} ->
                     case emqttd_bridge_sup_sup:stop_bridge(SNode, Topic) of
                         ok             -> io_lib:format("bridge is stopped.~n", []);
@@ -724,7 +773,7 @@ trace_on() ->
                 topic  -> 
                     trace_on(topic, get_value('topic', Params), get_value('log_file', Params));
                 Type   ->
-                    io_lib:format("Invalid type: ~p error~n", [Type])
+                    io_lib:format("Invalid params type: ~p error~n", [Type])
             end,
             [clique_status:text(Text)]
         end,
@@ -744,7 +793,7 @@ trace_off() ->
                 topic  -> 
                     trace_off(topic, get_value('topic', Params));
                 Type   ->
-                    io_lib:format("Invalid type: ~p error~n", [Type])
+                    io_lib:format("Invalid params type: ~p error~n", [Type])
             end,
             [clique_status:text(Text)]
         end,
@@ -862,7 +911,11 @@ status_usage() ->
     ["\n  status info   Show broker status\n"].
 
 listeners_usage() ->
-    ["\n  listeners info     List listeners\n"].
+    ["\n  listeners info     List listeners\n",
+     "  listeners start    Create and start a listener\n",
+     "  listeners stop     Stop accepting new connections for a running listener\n",
+     "  listeners restart  Restart accepting new connections for a stopped listener\n",
+     "  listeners delete   Delete a stopped listener"].
 
 mnesia_usage() ->
     ["\n  mnesia info   Mnesia system info\n"].
