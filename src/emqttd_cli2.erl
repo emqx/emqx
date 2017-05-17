@@ -27,8 +27,31 @@
 register_cli() ->
     F = fun() -> emqttd_mnesia:running_nodes() end,
     clique:register_node_finder(F),
+    clique:register_writer("json", emqttd_cli_format),
     register_usage(),
     register_cmd().
+
+run([]) ->
+    AllUsage = [["broker"], 
+                ["cluster"], 
+                ["acl"], 
+                ["clients"], 
+                ["sessions"],
+                ["routes"], 
+                ["topics"], 
+                ["subscriptions"], 
+                ["plugins"],
+                ["bridges"], 
+                ["vm"], 
+                ["trace"], 
+                ["status"], 
+                ["listeners"], 
+                ["mnesia"]],
+    io:format("--------------------------------------------------------------------------------~n"),
+    lists:foreach(fun(Item) -> 
+        io:format("~ts", [clique_usage:find(Item)]),
+        io:format("--------------------------------------------------------------------------------~n")
+    end, AllUsage);
 
 run(Cmd) ->
     clique:run(Cmd).
@@ -127,11 +150,10 @@ broker_stats() ->
     Cmd = ["broker", "stats"],
     Callback =
         fun (_, _, _) ->
-            Table = lists:map(
+            lists:map(
                 fun({Key, Val}) ->
-                io_lib:format("~-20s: ~w~n", [Key, Val])
-                end, emqttd_stats:getstats()),
-            [clique_status:list(Table)]
+                clique_status:list(Key, io_lib:format("~p", [Val]))
+                end, emqttd_stats:getstats())
         end,
     clique:register_command(Cmd, [], [], Callback).
 
@@ -139,11 +161,10 @@ broker_metrics() ->
     Cmd = ["broker", "metrics"],
     Callback =
         fun (_, _, _) ->
-            Table = lists:map(
+            lists:map(
                 fun({Key, Val}) ->
-                    io_lib:format("~-24s: ~w~n", [Key, Val])
-                end, lists:sort(emqttd_metrics:all())),
-            [clique_status:list(Table)]
+                clique_status:list(Key, io_lib:format("~p", [Val]))
+                end, lists:sort(emqttd_metrics:all()))
         end,
     clique:register_command(Cmd, [], [], Callback).
 
@@ -447,11 +468,14 @@ subscriptions_unsubscribe() ->
             ClientId = get_value('client_id', Params),
             QoS = get_value('qos', Params),
             Text = case {Topic, ClientId, QoS} of
-                {undefined, _} ->
+                {undefined, _, _} ->
                     io_lib:format("Invalid topic is undefined~n", []);
-                {_, undefined} ->
+                {_, undefined, _} ->
                     io_lib:format("Invalid client_id is undefined~n", []);
-                {_, _} ->
+                {_, _, undefined} ->
+                    io_lib:format("Invalid qos is undefined~n", []);
+                    
+                {_, _, _} ->
                     emqttd:unsubscribe(Topic, ClientId),
                     io_lib:format("Client_id: ~p unsubscribe topic: ~p successfully~n", [ClientId, Topic])
             end,
@@ -576,26 +600,21 @@ vm_all() ->
     Cmd = ["vm","info"],
     Callback =
         fun (_, _, _) ->
-
-            Load = [io_lib:format("cpu/~-20s: ~s~n", [L, V]) || {L, V} <- emqttd_vm:loads()],
-            
-            Memory = [io_lib:format("memory/~-17s: ~w~n", [Cat, Val]) || {Cat, Val} <- erlang:memory()],
-            
-            Process = lists:map(fun({Name, Key}) ->
-                io_lib:format("process/~-16s: ~w~n", [Name, erlang:system_info(Key)])
-            end, [{limit, process_limit}, {count, process_count}]),
-
+            Cpu = [vm_info("cpu", K, list_to_float(V)) || {K, V} <- emqttd_vm:loads()],
+            Memory = [vm_info("memory", K, V) || {K, V} <- erlang:memory()],
+            Process = [vm_info("process", K, erlang:system_info(V)) || {K, V} <- [{limit, process_limit}, {count, process_count}]],
             IoInfo = erlang:system_info(check_io),
-            IO = lists:map(fun(Key) ->
-                io_lib:format("io/~-21s: ~w~n", [Key, get_value(Key, IoInfo)])
-            end, [max_fds, active_fds]),
-
-            Ports = lists:map(fun({Name, Key}) ->
-                io_lib:format("ports/~-18s: ~w~n", [Name, erlang:system_info(Key)])
-            end, [{count, port_count}, {limit, port_limit}]),
-            [clique_status:text([Load, Memory, Process, IO, Ports])]
+            Io = [vm_info("io", K, get_value(K, IoInfo)) || K <- [max_fds, active_fds]],
+            Ports = [vm_info("ports", K, erlang:system_info(V)) || {K, V} <- [{count, port_count}, {limit, port_limit}]],
+            lists:flatten([Cpu, Memory, Process, Io, Ports])
         end,
     clique:register_command(Cmd, [], [], Callback).
+
+vm_info(Item, K, V) ->
+    clique_status:list(format_key(Item, K), io_lib:format("~p", [V])).
+
+format_key(Item, K) ->
+    list_to_atom(lists:concat([Item, "/", K])).
 
 vm_load() ->
     Cmd = ["vm","load"],
