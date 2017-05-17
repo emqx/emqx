@@ -95,7 +95,7 @@ register_cmd() ->
     listeners().
 
 node_status() ->
-    Cmd = ["status"],
+    Cmd = ["status", "info"],
     Callback =
         fun (_, _, _) ->
             {Status, Vsn} = case lists:keysearch(?APP, 1, application:which_applications()) of
@@ -399,14 +399,26 @@ subscriptions_subscribe() ->
                 {'qos',       [{typecast, fun(QoS) -> list_to_integer(QoS) end}]}],
     FlagSpecs = [],
     Callback =
-        fun (_, [{_, ClientId}, {_, Topic}, {_, QoS}], _) ->
-            Text = case emqttd:subscribe(Topic, ClientId, [{qos, QoS}]) of
-                ok ->
-                    io_lib:format("Client_id: ~p subscribe topic: ~p qos: ~p successfully~n", [ClientId, Topic, QoS]);
-                {error, already_existed} ->
-                    io_lib:format("Error: client_id: ~p subscribe topic: ~p already existed~n", [ClientId, Topic]);
-                {error, Reason} ->
-                    io_lib:format("Error: ~p~n", [Reason])
+        fun (_, Params, _) ->
+            Topic = get_value('topic', Params),
+            ClientId = get_value('client_id', Params),
+            QoS = get_value('qos', Params),
+            Text = case {Topic, ClientId, QoS} of
+                {undefined, _, _} ->
+                    io_lib:format("Invalid topic is undefined~n", []);
+                {_, undefined, _} ->
+                    io_lib:format("Invalid client_id is undefined~n", []);
+                {_, _, undefined} ->
+                    io_lib:format("Invalid qos is undefined~n", []);
+                {_, _, _} ->
+                    case emqttd:subscribe(Topic, ClientId, [{qos, QoS}]) of
+                        ok ->
+                            io_lib:format("Client_id: ~p subscribe topic: ~p qos: ~p successfully~n", [ClientId, Topic, QoS]);
+                        {error, already_existed} ->
+                            io_lib:format("Error: client_id: ~p subscribe topic: ~p already existed~n", [ClientId, Topic]);
+                        {error, Reason} ->
+                            io_lib:format("Error: ~p~n", [Reason])
+                    end
             end,
             [clique_status:text(Text)]
         end,
@@ -430,9 +442,19 @@ subscriptions_unsubscribe() ->
                 {'topic',     [{typecast, fun(Topic) -> list_to_binary(Topic) end}]}],
     FlagSpecs = [],
     Callback =
-        fun (_, [{_, ClientId}, {_, Topic}], _) ->
-            emqttd:unsubscribe(Topic, ClientId),
-            Text = io_lib:format("Client_id: ~p unsubscribe topic: ~p successfully~n", [ClientId, Topic]),
+        fun (_, Params, _) ->
+            Topic = get_value('topic', Params),
+            ClientId = get_value('client_id', Params),
+            QoS = get_value('qos', Params),
+            Text = case {Topic, ClientId, QoS} of
+                {undefined, _} ->
+                    io_lib:format("Invalid topic is undefined~n", []);
+                {_, undefined} ->
+                    io_lib:format("Invalid client_id is undefined~n", []);
+                {_, _} ->
+                    emqttd:unsubscribe(Topic, ClientId),
+                    io_lib:format("Client_id: ~p unsubscribe topic: ~p successfully~n", [ClientId, Topic])
+            end,
             [clique_status:text(Text)]
         end,
     clique:register_command(Cmd, KeySpecs, FlagSpecs, Callback).
@@ -508,12 +530,10 @@ bridges_start() ->
     Callback =
         fun (_, Params, _) ->
             Text = case {get_value('snode', Params), get_value('topic', Params)} of
-                {undefined, undefined} ->
-                    io_lib:format("Invalid snode and topic error~n", []);
                 {undefined, _} ->
-                    io_lib:format("Invalid snode error~n", []);
+                    io_lib:format("Invalid snode is undefined~n", []);
                 {_, undefined} ->
-                    io_lib:format("Invalid topic error~n", []);
+                    io_lib:format("Invalid topic is undefined~n", []);
                 {SNode, Topic} ->
                     Opts = Params -- [{'snode', SNode}, {'topic', Topic}],
                     case emqttd_bridge_sup_sup:start_bridge(SNode, Topic, Opts) of
@@ -533,10 +553,17 @@ bridges_stop() ->
                 {'topic',  [{typecast, fun(Topic) -> list_to_binary(Topic) end}]}],
     FlagSpecs = [],
     Callback =
-        fun (_, [{_, SNode},{_, Topic}], _) ->
-            Text = case emqttd_bridge_sup_sup:stop_bridge(SNode, Topic) of
-                ok             -> io_lib:format("bridge is stopped.~n", []);
-                {error, Error} -> io_lib:format("error: ~p~n", [Error])
+        fun (_, Params, _) ->
+            Text = case {get_value('snode', Params), get_value('topic', Params)} of
+                {undefined, _} ->
+                    io_lib:format("Invalid snode is undefined~n", []);
+                {_, undefined} ->
+                    io_lib:format("Invalid topic is undefined~n", []);
+                {SNode, Topic} ->
+                    case emqttd_bridge_sup_sup:stop_bridge(SNode, Topic) of
+                        ok             -> io_lib:format("bridge is stopped.~n", []);
+                        {error, Error} -> io_lib:format("error: ~p~n", [Error])
+                    end
             end,
             [clique_status:text(Text)]
         end,
@@ -718,7 +745,7 @@ trace_off(Who, Name) ->
 %% @doc Listeners Command
 
 listeners() ->
-    Cmd = ["listeners"],
+    Cmd = ["listeners", "info"],
     Callback =
         fun (_, _, _) ->
             Table = 
@@ -807,10 +834,10 @@ trace_usage() ->
      "  trace off type=client|topic client_id=<ClientId> topic=<Topic>                  Stop tracing\n"].
 
 status_usage() ->
-    ["\n  status    Show broker status\n"].
+    ["\n  status info   Show broker status\n"].
 
 listeners_usage() ->
-    ["\n  listeners     List listeners\n"].
+    ["\n  listeners info     List listeners\n"].
 
 mnesia_usage() ->
     ["\n  mnesia info   Mnesia system info\n"].
