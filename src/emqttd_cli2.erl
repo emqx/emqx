@@ -74,28 +74,34 @@ register_usage() ->
     clique:register_usage(["mnesia"],        mnesia_usage()).
 
 register_cmd() ->
+
     node_status(),
+
     broker_status(),
     broker_stats(),
     broker_metrics(),
     broker_pubsub(),
+
     cluster_join(),
     cluster_leave(),
     cluster_remove(),
+
     acl_reload(),
+
     clients_list(),
     clients_show(),
     clients_kick(),
+
     sessions_list(),
     sessions_list_persistent(),
     sessions_list_transient(),
-    sessions_query(),
+    sessions_show(),
     routes_list(),
-    routes_query(),
+    routes_show(),
     topics_list(),
-    topics_query(),
+    topics_show(),
     subscriptions_list(),
-    subscriptions_query(),
+    subscriptions_show(),
     subscriptions_subscribe(),
     subscriptions_del(),
     subscriptions_unsubscribe(),
@@ -259,7 +265,7 @@ clients_list() ->
     clique:register_command(Cmd, [], [], Callback).
 
 clients_show() ->
-    Cmd = ["clients", "query"],
+    Cmd = ["clients", "show"],
     KeySpecs = [{'client_id', [{typecast, fun(ClientId) -> list_to_binary(ClientId) end}]}],
     FlagSpecs = [],
     Callback =
@@ -321,8 +327,8 @@ sessions_list_transient() ->
         end,
     clique:register_command(Cmd, [], [], Callback).
 
-sessions_query() ->
-    Cmd = ["sessions", "query"],
+sessions_show() ->
+    Cmd = ["sessions", "show"],
     KeySpecs = [{'client_id', [{typecast, fun(ClientId) -> list_to_binary(ClientId) end}]}],
     FlagSpecs = [],
     Callback =
@@ -350,8 +356,8 @@ routes_list() ->
             end,
         clique:register_command(Cmd, [], [], Callback).
 
-routes_query() ->
-    Cmd = ["routes", "query"],
+routes_show() ->
+    Cmd = ["routes", "show"],
     KeySpecs = [{'topic', [{typecast, fun(Topic) -> list_to_binary(Topic) end}]}],
     FlagSpecs = [],
     Callback =
@@ -372,8 +378,8 @@ topics_list() ->
         end,
     clique:register_command(Cmd, [], [], Callback).
 
-topics_query() ->
-    Cmd = ["topics", "query"],
+topics_show() ->
+    Cmd = ["topics", "show"],
     KeySpecs = [{'topic', [{typecast, fun(Topic) -> list_to_binary(Topic) end}]}],
     FlagSpecs = [],
     Callback =
@@ -396,8 +402,8 @@ subscriptions_list() ->
         end,
     clique:register_command(Cmd, [], [], Callback).
 
-subscriptions_query() ->
-    Cmd = ["subscriptions", "query"],
+subscriptions_show() ->
+    Cmd = ["subscriptions", "show"],
     KeySpecs = [{'client_id', [{typecast, fun(Topic) -> list_to_binary(Topic) end}]}],
     FlagSpecs = [],
     Callback =
