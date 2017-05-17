@@ -279,8 +279,13 @@ clients_show() ->
     KeySpecs = [{'client_id', [{typecast, fun(ClientId) -> list_to_binary(ClientId) end}]}],
     FlagSpecs = [],
     Callback =
-        fun (_, [{_, ClientId}], _) ->
-            [clique_status:table(if_client(ClientId, fun print/1))]
+        fun (_, Params, _) ->
+            case get_value('client_id', Params) of
+                undefined -> 
+                    [clique_status:text(io_lib:format("Invalid params client_id is undefined~n", []))];
+                ClientId ->
+                    [clique_status:table(if_client(ClientId, fun print/1))]
+            end
         end,
     clique:register_command(Cmd, KeySpecs, FlagSpecs, Callback).
 
