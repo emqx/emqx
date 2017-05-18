@@ -32,27 +32,14 @@ register_cli() ->
     register_cmd().
 
 run([]) ->
-    AllUsage = [["broker"], 
-                ["cluster"], 
-                ["acl"], 
-                ["clients"], 
-                ["sessions"],
-                ["routes"], 
-                ["topics"], 
-                ["subscriptions"], 
-                ["plugins"],
-                ["bridges"], 
-                ["vm"], 
-                ["trace"], 
-                ["status"], 
-                ["listeners"], 
-                ["mnesia"]],
+    All = clique_usage:find_all(),
     io:format("--------------------------------------------------------------------------------~n"),
-    lists:foreach(fun(Item) -> 
-        io:format("~ts", [clique_usage:find(Item)]),
+    lists:foreach(fun({Cmd, Usage}) -> 
+        io:format("~p usage:", [Cmd]),
+        io:format("~ts", [Usage]),
         io:format("--------------------------------------------------------------------------------~n")
-    end, AllUsage);
-
+    end, lists:sort(All));
+    
 run(Cmd) ->
     clique:run(Cmd).
 
@@ -71,6 +58,7 @@ register_usage() ->
     clique:register_usage(["trace"],         trace_usage()),
     clique:register_usage(["status"],        status_usage()),
     clique:register_usage(["listeners"],     listeners_usage()),
+    clique:register_usage(["listeners", "stop"],listener_stop_usage()),
     clique:register_usage(["mnesia"],        mnesia_usage()).
 
 register_cmd() ->
@@ -96,32 +84,41 @@ register_cmd() ->
     sessions_list_persistent(),
     sessions_list_transient(),
     sessions_show(),
+
     routes_list(),
     routes_show(),
     topics_list(),
     topics_show(),
+
     subscriptions_list(),
     subscriptions_show(),
     subscriptions_subscribe(),
     subscriptions_del(),
     subscriptions_unsubscribe(),
+
     plugins_list(),
     plugins_load(),
     plugins_unload(),
+
     bridges_list(),
     bridges_start(),
     bridges_stop(),
+
     vm_all(),
     vm_load(),
     vm_memory(),
     vm_process(),
     vm_io(),
     vm_ports(),
+
     mnesia_info(),
+
     trace_list(),
     trace_on(),
     trace_off(),
-    listeners().
+
+    listeners(),
+    listeners_stop().
 
 node_status() ->
     Cmd = ["status", "info"],
@@ -840,6 +837,51 @@ listeners() ->
         end,
     clique:register_command(Cmd, [], [], Callback).
 
+listeners_stop() ->
+    Cmd = ["listeners", "stop"],
+    KeySpecs = [{'address',  [{typecast, fun parse_addr/1}]},
+                {'port',  [{typecast, fun parse_port/1}]},
+                {'type',  [{typecast, fun parse_type/1}]}],
+    FlagSpecs = [{kill, [{shortname, "k"},
+                         {longname, "kill_sessions"}]}],
+    Callback =
+        fun (_, Params, Flag) ->
+            Address = get_value('address', Params),
+            Port  = get_value('port', Params),
+            Type = get_value('type', Params),
+            case Address of
+                undefined -> emqttd_app:stop_listener({Type, Port, []});
+                Address -> emqttd_app:stop_listener({Type, {Address, Port}, []})
+            end,
+            [clique_status:text("aaa")]  
+        end,
+    clique:register_command(Cmd, KeySpecs, FlagSpecs, Callback).
+
+parse_port(Port) ->
+    case catch list_to_integer(Port) of
+        P when (P >= 0) and (P=<65535) -> P;
+        _ -> {error, {invalid_args,[{port, Port}]}}
+    end.
+
+parse_addr(Addr) ->
+    case inet:parse_address(Addr) of
+        {ok, Ip} -> Ip;
+        {error, einval} ->
+            {error, {invalid_args,[{address, Addr}]}}
+    end.
+
+parse_type(Type) ->
+    case catch list_to_atom(Type) of
+        T when (T=:=tcp) orelse 
+               (T=:=ssl) orelse 
+               (T=:=ws) orelse 
+               (T=:=wss) orelse 
+               (T=:=http) orelse 
+               (T=:=https) -> T;
+        _ -> {error, {invalid_args,[{type, Type}]}}
+    end.
+
+
 %%-------------------------------------------------------------
 %% usage
 %%-------------------------------------------------------------
@@ -920,7 +962,14 @@ listeners_usage() ->
      "  listeners start    Create and start a listener\n",
      "  listeners stop     Stop accepting new connections for a running listener\n",
      "  listeners restart  Restart accepting new connections for a stopped listener\n",
-     "  listeners delete   Delete a stopped listener"].
+     "  listeners delete   Delete a stopped listener\n"].
+
+listener_stop_usage() ->
+    ["\n  listeners stop address=IpAddr port=Port\n",
+     "  Stops accepting new connections on a running listener.\n",
+     "Options\n",
+     "  -k, --kill_sessions\n"
+     "      kills all sessions accepted with this listener.\n"].
 
 mnesia_usage() ->
     ["\n  mnesia info   Mnesia system info\n"].
