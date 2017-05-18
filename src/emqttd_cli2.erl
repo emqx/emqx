@@ -848,6 +848,8 @@ listeners_start() ->
                                          {typecast, fun(Acceptors) -> list_to_integer(Acceptors) end}]},
                  {max_clients,          [{longname, "max_clients"},
                                          {typecast, fun(MaxClients) -> list_to_integer(MaxClients) end}]},
+                 {backlog,              [{longname, "backlog"},
+                                         {typecast, fun(Backlog) -> list_to_integer(Backlog) end}]},
                  {buffer,               [{longname, "buffer"},
                                          {typecast, fun(Buffer) -> list_to_integer(Buffer) end}]},
                  {tls_versions,         [{longname, "tls_versions"},
@@ -949,7 +951,10 @@ parse_opts(_Type, Opts) ->
     Acceptors = get_value(acceptors, Opts, 4),
     MaxClients = get_value(max_clients, Opts, 1024),
     Buffer = get_value(buffer, Opts, 4096),
-    [{acceptors, Acceptors}, {max_clients, MaxClients}, {sockopts, [{buffer, Buffer}]}].
+    Backlog = get_value(backlog, Opts, 1024),
+    [{acceptors, Acceptors}, 
+     {max_clients, MaxClients}, 
+     {sockopts, [{buffer, Buffer}, {backlog, Backlog}]}].
 
 
 parse_port(Port) ->
@@ -1063,9 +1068,10 @@ listener_start_usage() ->
      "Options:\n",
      "  --acceptors=<integer>                   Size of acceptor pool\n",
      "  --max_clients=<integer>                 Maximum number of concurrent clients\n",
+     "  --backlog=<integer>                     TCP Socket Options\n",
      "  --buffer=<integer>                      TCP Socket Options\n",
      "  --tls_versions=<tlsv1.2|tlsv1.1|tlsv1>  TLS protocol versions\n",
-     "  --handshake_timeout=<integer>           TLS handshake timeout\n",
+     "  --handshake_timeout=<integer>           TLS handshake timeout(ms)\n",
      "  --reuse_sessions=<true|false>           TLS allows clients to reuse pre-existing sessions\n",
      "  --keyfile=<path>                        Path to the file containing the user's private PEM-encoded key\n",
      "  --certfile=<path>                       Path to a file containing the user certificate\n",
