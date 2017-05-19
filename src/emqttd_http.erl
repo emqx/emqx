@@ -110,8 +110,8 @@ http_publish(Req) ->
     end.
 
 topics(Params) ->
-    Tokens = [get_value("topic", Params) | string:tokens(get_value("topics", Params, ""), ",")],
-    [list_to_binary(Token) || Token <- Tokens, Token =/= undefined].
+    Tokens = [get_value(<<"topic">>, Params) | string:tokens(get_value(<<"topics">>, Params, ""), ",")],
+    [iolist_to_binary(Token) || Token <- Tokens, Token =/= undefined].
 
 validate(qos, Qos) ->
     (Qos >= ?QOS_0) and (Qos =< ?QOS_2);
