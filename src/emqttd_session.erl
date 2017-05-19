@@ -559,11 +559,6 @@ handle_info({'EXIT', ClientPid, _Reason},
             State = #state{clean_sess = true, client_pid = ClientPid}) ->
     {stop, normal, State};
 
-%% ClientPid was killed
-handle_info({'EXIT', ClientPid, killed}, State) ->
-    ?LOG(info, "Client ~p EXIT for ~p", [ClientPid, killed], State),
-    shutdown(killed, State);
-
 handle_info({'EXIT', ClientPid, Reason},
             State = #state{clean_sess      = false,
                            client_pid      = ClientPid,
