@@ -152,6 +152,7 @@ user_passwd(BasicAuth) ->
     list_to_tuple(binary:split(base64:decode(BasicAuth), <<":">>)). 
 
 int(I) when is_integer(I)-> I;
+int(B) when is_binary(B)-> binary_to_integer(B);
 int(S) -> list_to_integer(S).
 
 bool(0)   -> false;
