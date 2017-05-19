@@ -88,8 +88,7 @@ handle_request(Method, Path, Req) ->
 %%--------------------------------------------------------------------
 
 http_publish(Req) ->
-    Params0 = mochiweb_request:parse_post(Req),
-    Params = [{iolist_to_binary(Key), Val} || {Key, Val} <- Params0],
+    Params = [{iolist_to_binary(Key), Val} || {Key, Val} <- mochiweb_request:parse_post(Req)],
     lager:info("HTTP Publish: ~p", [Params]),
     Topics   = topics(Params),
     ClientId = get_value(<<"client">>, Params, http),
@@ -152,13 +151,15 @@ authorized(Req) ->
 user_passwd(BasicAuth) ->
     list_to_tuple(binary:split(base64:decode(BasicAuth), <<":">>)). 
 
-int(S) when is_integer(S)-> S;
+int(I) when is_integer(I)-> I;
 int(S) -> list_to_integer(S).
 
 bool(0)   -> false;
 bool(1)   -> true;
 bool("0") -> false;
-bool("1") -> true.
+bool("1") -> true;
+bool(<<"0">>) -> false;
+bool(<<"1">>) -> true.
 
 is_websocket(Upgrade) ->
     Upgrade =/= undefined andalso string:to_lower(Upgrade) =:= "websocket".
