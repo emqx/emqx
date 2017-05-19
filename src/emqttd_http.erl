@@ -88,13 +88,14 @@ handle_request(Method, Path, Req) ->
 %%--------------------------------------------------------------------
 
 http_publish(Req) ->
-    Params = Req:recv_body(),
+    Params0 = mochiweb_request:parse_post(Req),
+    Params = [{iolist_to_binary(Key), Val} || {Key, Val} <- Params0],
     lager:info("HTTP Publish: ~p", [Params]),
     Topics   = topics(Params),
-    ClientId = get_value("client", Params, http),
-    Qos      = int(get_value("qos", Params, "0")),
-    Retain   = bool(get_value("retain", Params, "0")),
-    Payload  = list_to_binary(get_value("message", Params)),
+    ClientId = get_value(<<"client">>, Params, http),
+    Qos      = int(get_value(<<"qos">>, Params, "0")),
+    Retain   = bool(get_value(<<"retain">>, Params, "0")),
+    Payload  = iolist_to_binary(get_value(<<"message">>, Params)),
     case {validate(qos, Qos), validate(topics, Topics)} of
         {true, true} ->
             lists:foreach(fun(Topic) ->
@@ -151,8 +152,11 @@ authorized(Req) ->
 user_passwd(BasicAuth) ->
     list_to_tuple(binary:split(base64:decode(BasicAuth), <<":">>)). 
 
+int(S) when is_integer(S)-> S;
 int(S) -> list_to_integer(S).
 
+bool(0)   -> false;
+bool(1)   -> true;
 bool("0") -> false;
 bool("1") -> true.
 
