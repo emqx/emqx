@@ -90,7 +90,7 @@ check_protocol_header(Req) ->
     end.
 
 get_protocol_header(Req) ->
-    case Req:get_header_value("Emq-WebSocket-Protocol") of
+    case Req:get_header_value("EMQ-WebSocket-Protocol") of
         undefined -> Req:get_header_value("Sec-WebSocket-Protocol");
         Proto     -> Proto
     end.
