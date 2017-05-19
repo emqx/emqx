@@ -59,7 +59,7 @@ handle_request('POST', "/mqtt/publish", Req) ->
 handle_request('GET', "/mqtt", Req) ->
     lager:info("WebSocket Connection from: ~s", [Req:get(peer)]),
     Upgrade = Req:get_header_value("Upgrade"),
-    Proto   = Req:get_header_value("Sec-WebSocket-Protocol"),
+    Proto   = check_protocol_header(Req),
     case {is_websocket(Upgrade), Proto} of
         {true, "mqtt" ++ _Vsn} ->
             emqttd_ws:handle_request(Req);
@@ -82,6 +82,18 @@ handle_request('GET', "/" ++ File, Req) ->
 handle_request(Method, Path, Req) ->
     lager:error("Unexpected HTTP Request: ~s ~s", [Method, Path]),
     Req:not_found().
+
+check_protocol_header(Req) ->
+    case emqttd:env(websocket_protocol_header, false) of
+        true  -> get_protocol_header(Req);
+        false -> "mqtt-v3.1.1"
+    end.
+
+get_protocol_header(Req) ->
+    case Req:get_header_value("EMQ-WebSocket-Protocol") of
+        undefined -> Req:get_header_value("Sec-WebSocket-Protocol");
+        Proto     -> Proto
+    end.
 
 %%--------------------------------------------------------------------
 %% HTTP Publish
