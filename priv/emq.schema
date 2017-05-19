@@ -346,6 +346,11 @@ end}.
    {max_packet_size,  cuttlefish:conf_get("mqtt.max_packet_size", Conf)}]
 end}.
 
+{mapping, "mqtt.websocket_protocol_header", "emqttd.websocket_protocol_header", [
+  {default, on},
+  {datatype, flag}
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT Connection
 %%--------------------------------------------------------------------
