@@ -22,7 +22,7 @@
 
 -export([passwd_hash/2]).
 
--type(hash_type() :: plain | md5 | sha | sha256 | pbkdf2).
+-type(hash_type() :: plain | md5 | sha | sha256 | pbkdf2 | bcrypt).
 
 %%--------------------------------------------------------------------
 %% Authentication behavihour

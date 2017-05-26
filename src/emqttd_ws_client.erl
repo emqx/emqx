@@ -300,5 +300,6 @@ stop(Reason, State) ->
     {stop, Reason, State}.
 
 gc(State) ->
-    emqttd_gc:maybe_force_gc(#wsclient_state.force_gc_count, State).
+    Cb = fun() -> emit_stats(State) end,
+    emqttd_gc:maybe_force_gc(#wsclient_state.force_gc_count, State, Cb).
 
