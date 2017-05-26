@@ -382,6 +382,6 @@ stop(Reason, State) ->
     {stop, Reason, State}.
 
 gc(State = #client_state{connection = Conn}) ->
-    Cb = fun() -> Conn:gc() end,
+    Cb = fun() -> Conn:gc(), emit_stats(State) end,
     emqttd_gc:maybe_force_gc(#client_state.force_gc_count, State, Cb).
 
