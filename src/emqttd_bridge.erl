@@ -37,7 +37,6 @@
 
 -record(state, {pool, id,
                 node, subtopic,
-                qos                = ?QOS_0,
                 topic_suffix       = <<>>,
                 topic_prefix       = <<>>,
                 mqueue             :: emqttd_mqueue:mqueue(),
@@ -45,8 +44,7 @@
                 ping_down_interval = ?PING_DOWN_INTERVAL,
                 status             = up}).
 
--type(option() :: {qos, mqtt_qos()} |
-                  {topic_suffix, binary()} |
+-type(option() :: {topic_suffix, binary()} |
                   {topic_prefix, binary()} |
                   {max_queue_len, pos_integer()} |
                   {ping_down_interval, pos_integer()}).
@@ -87,8 +85,6 @@ init([Pool, Id, Node, Topic, Options]) ->
 
 parse_opts([], State) ->
     State;
-parse_opts([{qos, Qos} | Opts], State) ->
-    parse_opts(Opts, State#state{qos = Qos});
 parse_opts([{topic_suffix, Suffix} | Opts], State) ->
     parse_opts(Opts, State#state{topic_suffix= Suffix});
 parse_opts([{topic_prefix, Prefix} | Opts], State) ->
