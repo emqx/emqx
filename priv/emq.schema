@@ -1048,14 +1048,6 @@ end}.
   {datatype, integer}
 ]}.
 
-{mapping, "listener.api.$name.zone", "emqttd.listeners", [
-  {datatype, string}
-]}.
-
-{mapping, "listener.api.$name.mountpoint", "emqttd.listeners", [
-  {datatype, string}
-]}.
-
 {mapping, "listener.api.$name.rate_limit", "emqttd.listeners", [
   {datatype, string}
 ]}.
