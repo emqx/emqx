@@ -330,7 +330,7 @@ bridges(["options"]) ->
     ?PRINT_MSG("  suffix  = string~n"),
     ?PRINT_MSG("  queue   = integer~n"),
     ?PRINT_MSG("Example:~n"),
-    ?PRINT_MSG("  qos=2,prefix=abc/,suffix=/yxz,queue=1000~n");
+    ?PRINT_MSG("  prefix=abc/,suffix=/yxz,queue=1000~n");
 
 bridges(["start", SNode, Topic]) ->
     case emqttd_bridge_sup_sup:start_bridge(list_to_atom(SNode), list_to_binary(Topic)) of
