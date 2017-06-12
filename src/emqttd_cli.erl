@@ -326,7 +326,6 @@ bridges(["list"]) ->
 
 bridges(["options"]) ->
     ?PRINT_MSG("Options:~n"),
-    ?PRINT_MSG("  qos     = 0 | 1 | 2~n"),
     ?PRINT_MSG("  prefix  = string~n"),
     ?PRINT_MSG("  suffix  = string~n"),
     ?PRINT_MSG("  queue   = integer~n"),
@@ -363,8 +362,6 @@ parse_opts(Cmd, OptStr) ->
     Tokens = string:tokens(OptStr, ","),
     [parse_opt(Cmd, list_to_atom(Opt), Val)
         || [Opt, Val] <- [string:tokens(S, "=") || S <- Tokens]].
-parse_opt(bridge, qos, Qos) ->
-    {qos, list_to_integer(Qos)};
 parse_opt(bridge, suffix, Suffix) ->
     {topic_suffix, bin(Suffix)};
 parse_opt(bridge, prefix, Prefix) ->
