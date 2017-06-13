@@ -433,7 +433,7 @@ request_status(_) ->
     end,
     Status = iolist_to_binary(io_lib:format("Node ~s is ~s~nemqttd is ~s",
             [node(), InternalStatus, AppStatus])),
-    Url = "http://127.0.0.1:8083/status",
+    Url = "http://127.0.0.1:8080/status",
     {ok, {{"HTTP/1.1", 200, "OK"}, _, Return}} =
     httpc:request(get, {Url, []}, [], []),
     ?assertEqual(binary_to_list(Status), Return).
@@ -446,7 +446,7 @@ request_publish(_) ->
     emqttd:unsubscribe(<<"a/b/c">>).
 
 connect_emqttd_publish_(Method, Api, Params, Auth) ->
-    Url = "http://127.0.0.1:8083/" ++ Api,
+    Url = "http://127.0.0.1:8080/" ++ Api,
     case httpc:request(Method, {Url, [Auth], ?CONTENT_TYPE, Params}, [], []) of
     {error, socket_closed_remotely} ->
         false;
@@ -647,8 +647,8 @@ conflict_listeners(_) ->
                {current_clients, esockd:get_current_clients(Pid)},
                {shutdown_count, esockd:get_shutdown_count(Pid)}]}
               end, esockd:listeners()),
-    ?assertEqual(1, proplists:get_value(current_clients, proplists:get_value("mqtt:tcp:1883", Listeners))),
-    ?assertEqual([{conflict,1}], proplists:get_value(shutdown_count, proplists:get_value("mqtt:tcp:1883", Listeners))),
+    ?assertEqual(1, proplists:get_value(current_clients, proplists:get_value("mqtt:tcp:0.0.0.0:1883", Listeners))),
+    ?assertEqual([{conflict,1}], proplists:get_value(shutdown_count, proplists:get_value("mqtt:tcp:0.0.0.0:1883", Listeners))),
     emqttc:disconnect(C2).
 
 cli_vm(_) ->

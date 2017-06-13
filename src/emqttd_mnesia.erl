@@ -27,7 +27,7 @@
 
 %% Cluster mnesia
 -export([join_cluster/1, cluster_status/0, leave_cluster/0,
-         remove_from_cluster/1, running_nodes/0]).
+         remove_from_cluster/1, cluster_nodes/1, running_nodes/0]).
 
 %% Schema and tables
 -export([copy_schema/1, delete_schema/0, del_schema_copy/1,
@@ -186,9 +186,11 @@ remove_from_cluster(Node) when Node =/= node() ->
     case {is_node_in_cluster(Node), is_running_db_node(Node)} of
         {true, true} ->
             ensure_ok(rpc:call(Node, ?MODULE, ensure_stopped, [])),
+            mnesia_lib:del(extra_db_nodes, Node),
             ensure_ok(del_schema_copy(Node)),
             ensure_ok(rpc:call(Node, ?MODULE, delete_schema, []));
         {true, false} ->
+            mnesia_lib:del(extra_db_nodes, Node),
             ensure_ok(del_schema_copy(Node));
             %ensure_ok(rpc:call(Node, ?MODULE, delete_schema, []));
         {false, _} ->
@@ -213,10 +215,18 @@ connect(Node) ->
         Error        -> Error
     end.
 
-%% @doc Running nodes
+%% @doc Running nodes.
 -spec(running_nodes() -> list(node())).
-running_nodes() ->
-    mnesia:system_info(running_db_nodes).
+running_nodes() -> cluster_nodes(running).
+
+%% @doc Cluster nodes.
+-spec(cluster_nodes(all | running | stopped) -> [node()]).
+cluster_nodes(all) ->
+    mnesia:system_info(db_nodes);
+cluster_nodes(running) ->
+    mnesia:system_info(running_db_nodes);
+cluster_nodes(stopped) ->
+    cluster_nodes(all) -- cluster_nodes(running).
 
 %% @private
 ensure_ok(ok) -> ok;

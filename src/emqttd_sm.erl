@@ -33,7 +33,8 @@
 %% API Function Exports
 -export([start_link/2]).
 
--export([start_session/2, lookup_session/1, register_session/3, unregister_session/1]).
+-export([start_session/2, lookup_session/1, register_session/3,
+         unregister_session/1, unregister_session/2]).
 
 -export([dispatch/3]).
 
@@ -99,9 +100,17 @@ register_session(ClientId, CleanSess, Properties) ->
     ets:insert(mqtt_local_session, {ClientId, self(), CleanSess, Properties}).
 
 %% @doc Unregister a session.
--spec(unregister_session(binary()) -> true).
+-spec(unregister_session(binary()) -> boolean()).
 unregister_session(ClientId) ->
-    ets:delete(mqtt_local_session, ClientId).
+    unregister_session(ClientId, self()).
+
+unregister_session(ClientId, Pid) ->
+    case ets:lookup(mqtt_local_session, ClientId) of
+        [LocalSess = {_, Pid, _, _}] ->
+            ets:delete_object(mqtt_local_session, LocalSess);
+        _ ->
+            false
+    end.
 
 dispatch(ClientId, Topic, Msg) ->
     try ets:lookup_element(mqtt_local_session, ClientId, 2) of

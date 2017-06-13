@@ -165,11 +165,14 @@ start_listener({ssl, ListenOn, Opts}) ->
 
 %% Start http listener
 start_listener({Proto, ListenOn, Opts}) when Proto == http; Proto == ws ->
-    mochiweb:start_http('mqtt:ws', ListenOn, Opts, {emqttd_http, handle_request, []});
+    mochiweb:start_http('mqtt:ws', ListenOn, Opts, {emqttd_ws, handle_request, []});
 
 %% Start https listener
 start_listener({Proto, ListenOn, Opts}) when Proto == https; Proto == wss ->
-    mochiweb:start_http('mqtt:wss', ListenOn, Opts, {emqttd_http, handle_request, []}).
+    mochiweb:start_http('mqtt:wss', ListenOn, Opts, {emqttd_ws, handle_request, []});
+
+start_listener({Proto, ListenOn, Opts}) when Proto == api ->
+    mochiweb:start_http('mqtt:api', ListenOn, Opts, {emqttd_http, handle_request, []}).
 
 start_listener(Proto, ListenOn, Opts) ->
     Env = lists:append(emqttd:env(client, []), emqttd:env(protocol, [])),
@@ -197,6 +200,8 @@ stop_listener({Proto, ListenOn, _Opts}) when Proto == http; Proto == ws ->
     mochiweb:stop_http('mqtt:ws', ListenOn);
 stop_listener({Proto, ListenOn, _Opts}) when Proto == https; Proto == wss ->
     mochiweb:stop_http('mqtt:wss', ListenOn);
+stop_listener({Proto, ListenOn, _Opts}) when Proto == api ->
+    mochiweb:stop_http('mqtt:api', ListenOn);
 stop_listener({Proto, ListenOn, _Opts}) ->
     esockd:close(Proto, ListenOn).
 
