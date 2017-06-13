@@ -27,7 +27,7 @@
 
 %% Cluster mnesia
 -export([join_cluster/1, cluster_status/0, leave_cluster/0,
-         remove_from_cluster/1, running_nodes/0]).
+         remove_from_cluster/1, cluster_nodes/1, running_nodes/0]).
 
 %% Schema and tables
 -export([copy_schema/1, delete_schema/0, del_schema_copy/1,
@@ -213,10 +213,18 @@ connect(Node) ->
         Error        -> Error
     end.
 
-%% @doc Running nodes
+%% @doc Running nodes.
 -spec(running_nodes() -> list(node())).
-running_nodes() ->
-    mnesia:system_info(running_db_nodes).
+running_nodes() -> cluster_nodes(running).
+
+%% @doc Cluster nodes.
+-spec(cluster_nodes(all | running | stopped) -> [node()]).
+cluster_nodes(all) ->
+    mnesia:system_info(db_nodes);
+cluster_nodes(running) ->
+    mnesia:system_info(running_db_nodes);
+cluster_nodes(stopped) ->
+    cluster_nodes(all) -- cluster_nodes(running).
 
 %% @private
 ensure_ok(ok) -> ok;

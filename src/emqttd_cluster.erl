@@ -50,7 +50,7 @@ prepare() ->
 %% @doc Is node in cluster?
 -spec(is_clustered(node()) -> boolean()).
 is_clustered(Node) ->
-    lists:member(Node, emqttd_mnesia:running_nodes()).
+    lists:member(Node, emqttd_mnesia:cluster_nodes(all)).
 
 %% @doc Reboot after join or leave cluster.
 -spec(reboot() -> ok).
