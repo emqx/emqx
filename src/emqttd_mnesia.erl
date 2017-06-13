@@ -186,12 +186,12 @@ remove_from_cluster(Node) when Node =/= node() ->
     case {is_node_in_cluster(Node), is_running_db_node(Node)} of
         {true, true} ->
             ensure_ok(rpc:call(Node, ?MODULE, ensure_stopped, [])),
+            mnesia_lib:del(extra_db_nodes, Node),
             ensure_ok(del_schema_copy(Node)),
-            ensure_ok(rpc:call(Node, ?MODULE, delete_schema, [])),
-            mnesia_lib:del(extra_db_nodes, Node);
+            ensure_ok(rpc:call(Node, ?MODULE, delete_schema, []));
         {true, false} ->
-            ensure_ok(del_schema_copy(Node)),
-            mnesia_lib:del(extra_db_nodes, Node);
+            mnesia_lib:del(extra_db_nodes, Node),
+            ensure_ok(del_schema_copy(Node));
             %ensure_ok(rpc:call(Node, ?MODULE, delete_schema, []));
         {false, _} ->
             {error, node_not_in_cluster}
