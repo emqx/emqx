@@ -200,7 +200,9 @@ stop_listener({Proto, ListenOn, _Opts}) when Proto == http; Proto == ws ->
     mochiweb:stop_http('mqtt:ws', ListenOn);
 stop_listener({Proto, ListenOn, _Opts}) when Proto == https; Proto == wss ->
     mochiweb:stop_http('mqtt:wss', ListenOn);
-stop_listener({Proto, ListenOn, _Opts}) ->
+sstop_listener({Proto, ListenOn, _Opts}) when Proto == api ->
+    mochiweb:stop_http('mqtt:api', ListenOn);
+top_listener({Proto, ListenOn, _Opts}) ->
     esockd:close(Proto, ListenOn).
 
 -ifdef(TEST).
