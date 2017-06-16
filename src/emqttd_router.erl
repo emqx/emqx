@@ -216,7 +216,7 @@ stop() -> gen_server:call(?ROUTER, stop).
 %%--------------------------------------------------------------------
 
 init([]) ->
-    mnesia:subscribe(system),
+    ekka:subscribe(membership),
     ets:new(mqtt_local_route, [set, named_table, protected]),
     {ok, TRef}  = timer:send_interval(timer:seconds(1), stats),
     {ok, #state{stats_timer = TRef}}.
@@ -239,12 +239,10 @@ handle_cast({del_local_route, Topic}, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({mnesia_system_event, {mnesia_up, Node}}, State) ->
-    lager:error("Mnesia up: ~p~n", [Node]),
+handle_info({member_up, _Node}, State) ->
     {noreply, State};
 
-handle_info({mnesia_system_event, {mnesia_down, Node}}, State) ->
-    lager:error("Mnesia down: ~p~n", [Node]),
+handle_info({member_down, Node}, State) ->
     clean_routes_(Node),
     update_stats_(),
     {noreply, State, hibernate};
@@ -271,7 +269,7 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, #state{stats_timer = TRef}) ->
     timer:cancel(TRef),
-    mnesia:unsubscribe(system).
+    ekka:unsubscribe(membership).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
