@@ -111,7 +111,7 @@ broker(_) ->
 %% @doc Cluster with other nodes
 
 cluster(["join", SNode]) ->
-    case emqttd_cluster:join(emqttd_node:parse_name(SNode)) of
+    case ekka:join(ekka_node:parse_name(SNode)) of
         ok ->
             ?PRINT_MSG("Join the cluster successfully.~n"),
             cluster(["status"]);
@@ -120,7 +120,7 @@ cluster(["join", SNode]) ->
     end;
 
 cluster(["leave"]) ->
-    case emqttd_cluster:leave() of
+    case ekka:leave() of
         ok ->
             ?PRINT_MSG("Leave the cluster successfully.~n"),
             cluster(["status"]);
@@ -128,8 +128,8 @@ cluster(["leave"]) ->
             ?PRINT("Failed to leave the cluster: ~p~n", [Error])
     end;
 
-cluster(["remove", SNode]) ->
-    case emqttd_cluster:remove(emqttd_node:parse_name(SNode)) of
+cluster(["force-leave", SNode]) ->
+    case ekka:force_leave(ekka_node:parse_name(SNode)) of
         ok ->
             ?PRINT_MSG("Remove the node from cluster successfully.~n"),
             cluster(["status"]);
@@ -138,13 +138,13 @@ cluster(["remove", SNode]) ->
     end;
 
 cluster(["status"]) ->
-    ?PRINT("Cluster status: ~p~n", [emqttd_cluster:status()]);
+    ?PRINT("Cluster status: ~p~n", [ekka_cluster:status()]);
 
 cluster(_) ->
-    ?USAGE([{"cluster join <Node>",  "Join the cluster"},
-            {"cluster leave",        "Leave the cluster"},
-            {"cluster remove <Node>","Remove the node from cluster"},
-            {"cluster status",       "Cluster status"}]).
+    ?USAGE([{"cluster join <Node>",       "Join the cluster"},
+            {"cluster leave",             "Leave the cluster"},
+            {"cluster force-leave <Node>","Force the node leave from cluster"},
+            {"cluster status",            "Cluster status"}]).
 
 %%--------------------------------------------------------------------
 %% @doc Users usage

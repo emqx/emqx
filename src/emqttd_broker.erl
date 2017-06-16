@@ -163,7 +163,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 retain(brokers) ->
     Payload = list_to_binary(string:join([atom_to_list(N) ||
-                    N <- emqttd_mnesia:running_nodes()], ",")),
+                    N <- ekka_mnesia:running_nodes()], ",")),
     Msg = emqttd_message:make(broker, <<"$SYS/brokers">>, Payload),
     emqttd:publish(emqttd_message:set_flag(sys, emqttd_message:set_flag(retain, Msg))).
 

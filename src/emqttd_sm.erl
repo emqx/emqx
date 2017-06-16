@@ -62,14 +62,14 @@
 
 mnesia(boot) ->
     %% Global Session Table
-    ok = emqttd_mnesia:create_table(mqtt_session, [
+    ok = ekka_mnesia:create_table(mqtt_session, [
                 {type, set},
                 {ram_copies, [node()]},
                 {record_name, mqtt_session},
                 {attributes, record_info(fields, mqtt_session)}]);
 
 mnesia(copy) ->
-    ok = emqttd_mnesia:copy_table(mqtt_session).
+    ok = ekka_mnesia:copy_table(mqtt_session).
 
 %%--------------------------------------------------------------------
 %% API
