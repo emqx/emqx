@@ -346,6 +346,11 @@ end}.
    {max_packet_size,  cuttlefish:conf_get("mqtt.max_packet_size", Conf)}]
 end}.
 
+{mapping, "mqtt.websocket_protocol_header", "emqttd.websocket_protocol_header", [
+  {default, on},
+  {datatype, flag}
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT Connection
 %%--------------------------------------------------------------------
@@ -1016,14 +1021,112 @@ end}.
                        end
                    end,
 
+    ApiListeners = fun(Type, Name) ->
+                       Prefix = string:join(["listener", Type, Name], "."),
+                       case cuttlefish:conf_get(Prefix, Conf, undefined) of
+                           undefined ->
+                               [];
+                           ListenOn ->
+                               SslOpts1 = case SslOpts(Prefix) of
+                                        [] -> [];
+                                        SslOpts0 -> [{sslopts, SslOpts0}]
+                                      end,
+                               [{Atom(Type), ListenOn, [{connopts, ConnOpts(Prefix)},
+                                                        {sockopts, TcpOpts(Prefix)}| LisOpts(Prefix)] ++ SslOpts1}]
+                       end
+                   end,
+
+
     lists:flatten([TcpListeners(Type, Name) || {["listener", Type, Name], ListenOn}
                                                <- cuttlefish_variable:filter_by_prefix("listener.tcp", Conf)
                                                ++ cuttlefish_variable:filter_by_prefix("listener.ws", Conf)]
                   ++
                   [SslListeners(Type, Name) || {["listener", Type, Name], ListenOn}
                                                <- cuttlefish_variable:filter_by_prefix("listener.ssl", Conf)
-                                               ++ cuttlefish_variable:filter_by_prefix("listener.wss", Conf)])
+                                               ++ cuttlefish_variable:filter_by_prefix("listener.wss", Conf)]
+                  ++
+                  [ApiListeners(Type, Name) || {["listener", Type, Name], ListenOn}
+                                               <- cuttlefish_variable:filter_by_prefix("listener.api", Conf)])
 end}.
+
+%%--------------------------------------------------------------------
+%% MQTT REST API Listeners
+
+{mapping, "listener.api.$name", "emqttd.listeners", [
+  {datatype, [integer, ip]}
+]}.
+
+{mapping, "listener.api.$name.acceptors", "emqttd.listeners", [
+  {default, 8},
+  {datatype, integer}
+]}.
+
+{mapping, "listener.api.$name.max_clients", "emqttd.listeners", [
+  {default, 1024},
+  {datatype, integer}
+]}.
+
+{mapping, "listener.api.$name.rate_limit", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.api.$name.access.$id", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.api.$name.backlog", "emqttd.listeners", [
+  {default, 1024},
+  {datatype, integer}
+]}.
+
+{mapping, "listener.api.$name.recbuf", "emqttd.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "listener.api.$name.sndbuf", "emqttd.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "listener.api.$name.buffer", "emqttd.listeners", [
+  {datatype, bytesize},
+  hidden
+]}.
+
+{mapping, "listener.api.$name.tune_buffer", "emqttd.listeners", [
+  {datatype, flag},
+  hidden
+]}.
+
+{mapping, "listener.api.$name.nodelay", "emqttd.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
+{mapping, "listener.api.$name.handshake_timeout", "emqttd.listeners", [
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "listener.api.$name.keyfile", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.api.$name.certfile", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.api.$name.cacertfile", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.api.$name.verify", "emqttd.listeners", [
+  {datatype, atom}
+]}.
+
+{mapping, "listener.api.$name.fail_if_no_peer_cert", "emqttd.listeners", [
+  {datatype, {enum, [true, false]}}
+]}.
 
 %%--------------------------------------------------------------------
 %% System Monitor

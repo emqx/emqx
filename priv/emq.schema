@@ -1020,14 +1020,32 @@ end}.
                        end
                    end,
 
+    ApiListeners = fun(Type, Name) ->
+                       Prefix = string:join(["listener", Type, Name], "."),
+                       case cuttlefish:conf_get(Prefix, Conf, undefined) of
+                           undefined ->
+                               [];
+                           ListenOn ->
+                               SslOpts1 = case SslOpts(Prefix) of
+                                        [] -> [];
+                                        SslOpts0 -> [{sslopts, SslOpts0}]
+                                      end,
+                               [{Atom(Type), ListenOn, [{connopts, ConnOpts(Prefix)},
+                                                        {sockopts, TcpOpts(Prefix)}| LisOpts(Prefix)] ++ SslOpts1}]
+                       end
+                   end,
+
+
     lists:flatten([TcpListeners(Type, Name) || {["listener", Type, Name], ListenOn}
                                                <- cuttlefish_variable:filter_by_prefix("listener.tcp", Conf)
                                                ++ cuttlefish_variable:filter_by_prefix("listener.ws", Conf)]
                   ++
                   [SslListeners(Type, Name) || {["listener", Type, Name], ListenOn}
                                                <- cuttlefish_variable:filter_by_prefix("listener.ssl", Conf)
-                                               ++ cuttlefish_variable:filter_by_prefix("listener.wss", Conf)
-                                               ++ cuttlefish_variable:filter_by_prefix("listener.api", Conf)])
+                                               ++ cuttlefish_variable:filter_by_prefix("listener.wss", Conf)]
+                  ++
+                  [ApiListeners(Type, Name) || {["listener", Type, Name], ListenOn}
+                                               <- cuttlefish_variable:filter_by_prefix("listener.api", Conf)])
 end}.
 
 %%--------------------------------------------------------------------
@@ -1045,14 +1063,6 @@ end}.
 {mapping, "listener.api.$name.max_clients", "emqttd.listeners", [
   {default, 1024},
   {datatype, integer}
-]}.
-
-{mapping, "listener.api.$name.zone", "emqttd.listeners", [
-  {datatype, string}
-]}.
-
-{mapping, "listener.api.$name.mountpoint", "emqttd.listeners", [
-  {datatype, string}
 ]}.
 
 {mapping, "listener.api.$name.rate_limit", "emqttd.listeners", [
