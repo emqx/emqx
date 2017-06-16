@@ -153,7 +153,7 @@ register_acl_mod() ->
 
 init_cluster() ->
     ekka:callback(prepare, fun emqttd:shutdown/1),
-    ekka:callback(reboot,  fun emqttd:reboot/1).
+    ekka:callback(reboot,  fun emqttd:reboot/0).
 
 %%--------------------------------------------------------------------
 %% Start Listeners
