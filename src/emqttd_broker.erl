@@ -40,7 +40,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {started_at, sys_interval, heartbeat, tick_tref, version, sysdescr}).
+-record(state, {started_at, sys_interval, heartbeat, ticker, version, sysdescr}).
 
 -define(APP, emqttd).
 
@@ -122,9 +122,9 @@ init([]) ->
     % Tick
     {ok, #state{started_at = os:timestamp(),
                 heartbeat  = start_tick(1000, heartbeat),
-                version = list_to_binary(version()),
-                sysdescr = list_to_binary(sysdescr()),
-                tick_tref  = start_tick(tick)}, hibernate}.
+                version    = list_to_binary(version()),
+                sysdescr   = list_to_binary(sysdescr()),
+                ticker     = start_tick(tick)}, hibernate}.
 
 handle_call(uptime, _From, State) ->
     {reply, uptime(State), State};
@@ -149,7 +149,7 @@ handle_info(tick, State = #state{version = Version, sysdescr = Descr}) ->
 handle_info(Info, State) ->
     ?UNEXPECTED_INFO(Info, State).
 
-terminate(_Reason, #state{heartbeat = Hb, tick_tref = TRef}) ->
+terminate(_Reason, #state{heartbeat = Hb, ticker = TRef}) ->
     stop_tick(Hb),
     stop_tick(TRef),
     ok.
