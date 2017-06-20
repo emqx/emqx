@@ -109,7 +109,7 @@ add_route(Topic, Node) when is_binary(Topic), is_atom(Node) ->
     add_route(#mqtt_route{topic = Topic, node = Node}).
 
 %% @doc Add Routes
--spec(add_routes([mqtt_route()]) -> ok | {errory, Reason :: any()}).
+-spec(add_routes([mqtt_route()]) -> ok | {error, Reason :: any()}).
 add_routes(Routes) ->
     AddFun = fun() -> [add_route_(Route) || Route <- Routes] end,
     case mnesia:is_transaction() of
