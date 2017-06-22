@@ -52,7 +52,7 @@ handle_call(Req, _From, State) ->
 handle_cast(Msg, State) ->
     ?UNEXPECTED_MSG(Msg, State).
 
-handle_info({member_down, Node}, State) ->
+handle_info({membership, {mnesia_down, Node}}, State) ->
     Fun = fun() ->
             ClientIds =
             mnesia:select(mqtt_session, [{#mqtt_session{client_id = '$1', sess_pid = '$2', _ = '_'},
@@ -62,7 +62,10 @@ handle_info({member_down, Node}, State) ->
     mnesia:async_dirty(Fun),
     {noreply, State};
 
-handle_info({member_up, _Node}, State) ->
+handle_info({membership, {mnesia_up, _Node}}, State) ->
+    {noreply, State};
+
+handle_info({membership, _Event}, State) ->
     {noreply, State};
 
 handle_info(tick, State) ->

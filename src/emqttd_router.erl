@@ -239,26 +239,13 @@ handle_cast({del_local_route, Topic}, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({member_up, _Node}, State) ->
+handle_info({membership, {member_up, _Node}}, State) ->
     {noreply, State};
 
-handle_info({member_down, Node}, State) ->
+handle_info({membership, {member_down, Node}}, State) ->
     clean_routes_(Node),
     update_stats_(),
     {noreply, State, hibernate};
-
-handle_info({mnesia_system_event, {inconsistent_database, Context, Node}}, State) ->
-    %% 1. Backup and restart
-    %% 2. Set master nodes
-    lager:critical("Mnesia inconsistent_database event: ~p, ~p~n", [Context, Node]),
-    {noreply, State};
-
-handle_info({mnesia_system_event, {mnesia_overload, Details}}, State) ->
-    lager:critical("Mnesia overload: ~p~n", [Details]),
-    {noreply, State};
-
-handle_info({mnesia_system_event, _Event}, State) ->
-    {noreply, State};
 
 handle_info(stats, State) ->
     update_stats_(),
