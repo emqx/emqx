@@ -379,7 +379,7 @@ handle_cast({subscribe, _From, TopicTable, AckFun},
             State = #state{client_id     = ClientId,
                            username      = Username,
                            subscriptions = Subscriptions}) ->
-    ?LOG(info, "Subscribe ~p", [TopicTable], State),
+    ?LOG(debug, "Subscribe ~p", [TopicTable], State),
     {GrantedQos, Subscriptions1} =
     lists:foldl(fun({Topic, Opts}, {QosAcc, SubMap}) ->
                 NewQos = proplists:get_value(qos, Opts),
@@ -407,7 +407,7 @@ handle_cast({unsubscribe, _From, TopicTable},
             State = #state{client_id     = ClientId,
                            username      = Username,
                            subscriptions = Subscriptions}) ->
-    ?LOG(info, "Unsubscribe ~p", [TopicTable], State),
+    ?LOG(debug, "Unsubscribe ~p", [TopicTable], State),
     Subscriptions1 =
     lists:foldl(fun({Topic, Opts}, SubMap) ->
                 case maps:find(Topic, SubMap) of
@@ -482,7 +482,7 @@ handle_cast({resume, ClientId, ClientPid},
                            await_rel_timer = AwaitTimer,
                            expiry_timer    = ExpireTimer}) ->
 
-    ?LOG(info, "Resumed by ~p", [ClientPid], State),
+    ?LOG(debug, "Resumed by ~p", [ClientPid], State),
 
     %% Cancel Timers
     lists:foreach(fun emqttd_misc:cancel_timer/1,
@@ -552,7 +552,7 @@ handle_info({timeout, _Timer, check_awaiting_rel}, State) ->
     hibernate(expire_awaiting_rel(emit_stats(State#state{await_rel_timer = undefined})));
 
 handle_info({timeout, _Timer, expired}, State) ->
-    ?LOG(info, "Expired, shutdown now.", [], State),
+    ?LOG(debug, "Expired, shutdown now.", [], State),
     shutdown(expired, State);
 
 handle_info({'EXIT', ClientPid, _Reason},
@@ -563,7 +563,7 @@ handle_info({'EXIT', ClientPid, Reason},
             State = #state{clean_sess      = false,
                            client_pid      = ClientPid,
                            expiry_interval = Interval}) ->
-    ?LOG(info, "Client ~p EXIT for ~p", [ClientPid, Reason], State),
+    ?LOG(debug, "Client ~p EXIT for ~p", [ClientPid, Reason], State),
     ExpireTimer = start_timer(Interval, expired),
     State1 = State#state{client_pid = undefined, expiry_timer = ExpireTimer},
     hibernate(emit_stats(State1));
