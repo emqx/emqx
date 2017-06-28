@@ -11,6 +11,11 @@
   {datatype, string}
 ]}.
 
+%% @doc Secret cookie for distributed erlang node
+{mapping, "cluster.cookie", "vm_args.-setcookie", [
+  {default, "emqsecretcookie"}
+]}.
+
 %% Cluster Multicast Addr
 {mapping, "cluster.multicast", "emqttd.cluster", [
   {default, "239.192.0.1:44369"},
