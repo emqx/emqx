@@ -42,7 +42,7 @@ start_link(StatsFun) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [StatsFun], []).
 
 init([StatsFun]) ->
-    ekka:subscribe(membership),
+    ekka:monitor(membership),
     {ok, TRef} = timer:send_interval(timer:seconds(1), tick),
     {ok, #state{stats_fun = StatsFun, ticker = TRef}}.
 
@@ -52,7 +52,7 @@ handle_call(Req, _From, State) ->
 handle_cast(Msg, State) ->
     ?UNEXPECTED_MSG(Msg, State).
 
-handle_info({membership, {mnesia_down, Node}}, State) ->
+handle_info({membership, {mnesia, down, Node}}, State) ->
     Fun = fun() ->
             ClientIds =
             mnesia:select(mqtt_session, [{#mqtt_session{client_id = '$1', sess_pid = '$2', _ = '_'},
@@ -60,9 +60,6 @@ handle_info({membership, {mnesia_down, Node}}, State) ->
             lists:foreach(fun(ClientId) -> mnesia:delete({mqtt_session, ClientId}) end, ClientIds)
           end,
     mnesia:async_dirty(Fun),
-    {noreply, State};
-
-handle_info({membership, {mnesia_up, _Node}}, State) ->
     {noreply, State};
 
 handle_info({membership, _Event}, State) ->
@@ -76,7 +73,7 @@ handle_info(Info, State) ->
 
 terminate(_Reason, _State = #state{ticker = TRef}) ->
     timer:cancel(TRef),
-    ekka:unsubscribe(membership).
+    ekka:unmonitor(membership).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

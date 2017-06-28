@@ -216,7 +216,7 @@ stop() -> gen_server:call(?ROUTER, stop).
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ekka:subscribe(membership),
+    ekka:monitor(membership),
     ets:new(mqtt_local_route, [set, named_table, protected]),
     {ok, TRef}  = timer:send_interval(timer:seconds(1), stats),
     {ok, #state{stats_timer = TRef}}.
@@ -239,13 +239,14 @@ handle_cast({del_local_route, Topic}, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({membership, {member_up, _Node}}, State) ->
-    {noreply, State};
-
-handle_info({membership, {member_down, Node}}, State) ->
+handle_info({membership, {mnesia, down, Node}}, State) ->
     clean_routes_(Node),
     update_stats_(),
     {noreply, State, hibernate};
+
+handle_info({membership, _Event}, State) ->
+    %% ignore
+    {noreply, State};
 
 handle_info(stats, State) ->
     update_stats_(),
@@ -256,7 +257,7 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, #state{stats_timer = TRef}) ->
     timer:cancel(TRef),
-    ekka:unsubscribe(membership).
+    ekka:unmonitor(membership).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
