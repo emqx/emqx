@@ -27,7 +27,7 @@
 %% Application callbacks
 -export([start/2, stop/1]).
 
--export([start_listener/1, stop_listener/1]).
+-export([start_listener/1, stop_listener/1, restart_listener/1]).
 
 -type(listener() :: {atom(), esockd:listen_on(), [esockd:option()]}).
 
@@ -204,6 +204,21 @@ stop_listener({Proto, ListenOn, _Opts}) when Proto == api ->
     mochiweb:stop_http('mqtt:api', ListenOn);
 stop_listener({Proto, ListenOn, _Opts}) ->
     esockd:close(Proto, ListenOn).
+
+%% @doc Restart Listeners
+restart_listener({tcp, ListenOn, _Opts}) ->
+    esockd:reopen('mqtt:tcp', ListenOn);
+restart_listener({ssl, ListenOn, _Opts}) ->
+    esockd:reopen('mqtt:ssl', ListenOn);
+restart_listener({Proto, ListenOn, _Opts}) when Proto == http; Proto == ws ->
+    mochiweb:restart_http('mqtt:ws', ListenOn);
+restart_listener({Proto, ListenOn, _Opts}) when Proto == https; Proto == wss ->
+    mochiweb:restart_http('mqtt:wss', ListenOn);
+restart_listener({Proto, ListenOn, _Opts}) when Proto == api ->
+    mochiweb:restart_http('mqtt:api', ListenOn);
+restart_listener({Proto, ListenOn, _Opts}) ->
+    esockd:reopen(Proto, ListenOn).
+
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
