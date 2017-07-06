@@ -70,7 +70,7 @@ run(["help"]) -> usage();
 
 run([CmdS|Args]) ->
     case lookup(list_to_atom(CmdS)) of
-        [{Mod, Fun}] -> Mod:Fun(Args);
+        [{Mod, Fun}] -> Mod:Fun(Args), ok;
         [] -> usage() 
     end.
 
@@ -86,7 +86,8 @@ lookup(Cmd) ->
 usage() ->
     ?PRINT("Usage: ~s~n", [?MODULE]),
     [begin ?PRINT("~80..-s~n", [""]), Mod:Cmd(usage) end
-        || {_, {Mod, Cmd}, _} <- ets:tab2list(?CMD_TAB)].
+        || {_, {Mod, Cmd}, _} <- ets:tab2list(?CMD_TAB)],
+    ok.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
