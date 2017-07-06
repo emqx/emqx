@@ -64,14 +64,22 @@ cast(Msg) -> gen_server:cast(?SERVER, Msg).
 
 %% @doc Run a command
 -spec(run([string()]) -> any()).
-run([]) -> usage();
+run([]) -> usage(), ok;
 
-run(["help"]) -> usage();
+run(["help"]) -> usage(), ok;
 
 run([CmdS|Args]) ->
     case lookup(list_to_atom(CmdS)) of
-        [{Mod, Fun}] -> Mod:Fun(Args);
-        [] -> usage() 
+        [{Mod, Fun}] ->
+            try Mod:Fun(Args) of
+               _ -> ok
+            catch
+                _:Reason ->
+                    {error, Reason}
+            end;
+        [] ->
+            usage(),
+            {error, cmd_not_found}
     end.
 
 %% @doc Lookup a command
