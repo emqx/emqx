@@ -486,7 +486,7 @@ listeners(["restart", Proto, ListenOn]) ->
                       [list_to_atom(Proto), list_to_atom(ListenOn)]);
         {error, Error} ->
             io:format("Failed to restart ~s listen on ~s, error:~p~n",
-                      [list_to_atom(Proto), list_to_atom(ListenOn) ,Error])
+                      [list_to_atom(Proto), list_to_atom(ListenOn), Error])
     end;
 
 listeners(["stop", Proto, ListenOn]) ->
@@ -500,13 +500,13 @@ listeners(["stop", Proto, ListenOn]) ->
                       [list_to_atom(Proto), list_to_atom(ListenOn)]);
         {error, Error} ->
             io:format("Failed to stop ~s on ~s, error:~p~n",
-                      [list_to_atom(Proto), list_to_atom(ListenOn) ,Error])
+                      [list_to_atom(Proto), list_to_atom(ListenOn), Error])
     end;
 
 listeners(_) ->
     ?USAGE([{"listeners",                        "List listeners"},
             {"listeners restart <Proto> <Port>", "Restart a listener port"},
-            {"listeners stop    <Proto> <Port>", "Stop  a listener port"}]).
+            {"listeners stop    <Proto> <Port>", "Stop a listener port"}]).
 
 %%--------------------------------------------------------------------
 %% Dump ETS
