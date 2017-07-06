@@ -122,7 +122,7 @@ topics() -> emqttd_router:topics().
 subscribers(Topic) ->
     emqttd_server:subscribers(iolist_to_binary(Topic)).
 
--spec(subscriptions(subscriber()) -> [{binary(), suboption()}]).
+-spec(subscriptions(subscriber()) -> [{binary(), binary(), list(suboption())}]).
 subscriptions(Subscriber) ->
     emqttd_server:subscriptions(Subscriber).
 

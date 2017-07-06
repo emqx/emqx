@@ -130,7 +130,7 @@ async_unsubscribe(Topic, Subscriber) when is_binary(Topic) ->
 setqos(Topic, Subscriber, Qos) when is_binary(Topic) ->
     call(pick(Subscriber), {setqos, Topic, Subscriber, Qos}).
 
--spec(subscriptions(emqttd:subscriber()) -> [{binary(), list(emqttd:suboption())}]).
+-spec(subscriptions(emqttd:subscriber()) -> [{binary(), binary(), list(emqttd:suboption())}]).
 subscriptions(Subscriber) ->
     lists:map(fun({_, {_Share, Topic}}) ->
                 subscription(Topic, Subscriber);

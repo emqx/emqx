@@ -249,8 +249,6 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
            case emqttd:subscribe(bin(Topic), bin(ClientId), [{qos, IntQos}]) of
                ok ->
                    ?PRINT_MSG("ok~n");
-               {error, already_existed} ->
-                   ?PRINT_MSG("Error: already existed~n");
                {error, Reason} ->
                    ?PRINT("Error: ~p~n", [Reason])
            end
