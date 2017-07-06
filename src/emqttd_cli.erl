@@ -477,8 +477,38 @@ listeners([]) ->
                         end, Info)
             end, esockd:listeners());
 
+listeners(["restart", Proto, ListenOn]) ->
+    ListenOn1 = case string:tokens(ListenOn, ":") of
+        [Port]     -> list_to_integer(Port);
+        [IP, Port] -> {IP, list_to_integer(Port)}
+    end,
+    case emqttd_app:restart_listener({list_to_atom(Proto), ListenOn1, []}) of
+        {ok, _Pid} ->
+            io:format("Restart ~s listen on ~s successfully.~n",
+                      [list_to_atom(Proto), list_to_atom(ListenOn)]);
+        {error, Error} ->
+            io:format("Failed to restart ~s listen on ~s, error:~p~n",
+                      [list_to_atom(Proto), list_to_atom(ListenOn) ,Error])
+    end;
+
+listeners(["stop", Proto, ListenOn]) ->
+    ListenOn1 = case string:tokens(ListenOn, ":") of
+        [Port]     -> list_to_integer(Port);
+        [IP, Port] -> {IP, list_to_integer(Port)}
+    end,
+    case emqttd_app:stop_listener({list_to_atom(Proto), ListenOn1, []}) of
+        ok ->
+            io:format("Stop ~s on ~s successfully.~n",
+                      [list_to_atom(Proto), list_to_atom(ListenOn)]);
+        {error, Error} ->
+            io:format("Failed to stop ~s on ~s, error:~p~n",
+                      [list_to_atom(Proto), list_to_atom(ListenOn) ,Error])
+    end;
+
 listeners(_) ->
-    ?PRINT_CMD("listeners", "List listeners").
+    ?USAGE([{"listeners",                        "List listeners"},
+            {"listeners restart <Proto> <Port>", "Restart a listener port"},
+            {"listeners stop    <Proto> <Port>", "Stop  a listener port"}]).
 
 %%--------------------------------------------------------------------
 %% Dump ETS

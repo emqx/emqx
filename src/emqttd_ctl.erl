@@ -75,6 +75,8 @@ run([CmdS|Args]) ->
                _ -> ok
             catch
                 _:Reason ->
+                    io:format("Reason:~p, get_stacktrace:~p~n",
+                              [Reason, erlang:get_stacktrace()]),
                     {error, Reason}
             end;
         [] ->
