@@ -477,38 +477,38 @@ listeners([]) ->
                         end, Info)
             end, esockd:listeners());
 
-listeners(["reopen", Proto, ListenOn1]) ->
+listeners(["restart", Proto, ListenOn1]) ->
     ListenOn = case string:tokens(ListenOn1, ":") of
         [Port]     -> list_to_integer(Port);
         [IP, Port] -> {IP, list_to_integer(Port)}
     end,
     case emqttd_app:restart_listener({list_to_atom(Proto), ListenOn, []}) of
         {ok, _Pid} ->
-            io:format("Reopen ~p listen on ~p successfully.~n",
+            io:format("Restart ~p listen on ~p successfully.~n",
                       [list_to_atom(Proto), list_to_atom(ListenOn1)]);
         {error, Error} ->
-            io:format("Failed to reopen ~p listen on ~p, error:~p~n",
+            io:format("Failed to restart ~p listen on ~p, error:~p~n",
                       [list_to_atom(Proto), list_to_atom(ListenOn1) ,Error])
     end;
 
-listeners(["close", Proto, ListenOn1]) ->
+listeners(["stop", Proto, ListenOn1]) ->
     ListenOn = case string:tokens(ListenOn1, ":") of
         [Port]     -> list_to_integer(Port);
         [IP, Port] -> {IP, list_to_integer(Port)}
     end,
     case emqttd_app:stop_listener({list_to_atom(Proto), ListenOn, []}) of
         ok ->
-            io:format("Close ~p on ~p successfully.~n",
+            io:format("Stop ~p on ~p successfully.~n",
                       [list_to_atom(Proto), list_to_atom(ListenOn1)]);
         {error, Error} ->
-            io:format("Failed to close ~p on ~p, error:~p~n",
+            io:format("Failed to stop ~p on ~p, error:~p~n",
                       [list_to_atom(Proto), list_to_atom(ListenOn1) ,Error])
     end;
 
 listeners(_) ->
-    ?USAGE([{"listeners",                       "List listeners"},
-            {"listeners reopen <Proto> <Port>", "Reopen a listener port"},
-            {"listeners close  <Proto> <Port>", "Close  a listener port"}]).
+    ?USAGE([{"listeners",                        "List listeners"},
+            {"listeners restart <Proto> <Port>", "Restart a listener port"},
+            {"listeners stop    <Proto> <Port>", "Stop  a listener port"}]).
 
 %%--------------------------------------------------------------------
 %% Dump ETS
