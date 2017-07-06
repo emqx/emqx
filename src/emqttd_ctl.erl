@@ -64,14 +64,22 @@ cast(Msg) -> gen_server:cast(?SERVER, Msg).
 
 %% @doc Run a command
 -spec(run([string()]) -> any()).
-run([]) -> usage();
+run([]) -> usage(), ok;
 
-run(["help"]) -> usage();
+run(["help"]) -> usage(), ok;
 
 run([CmdS|Args]) ->
     case lookup(list_to_atom(CmdS)) of
-        [{Mod, Fun}] -> Mod:Fun(Args), ok;
-        [] -> usage() 
+        [{Mod, Fun}] ->
+            try Mod:Fun(Args) of
+               _ -> ok
+            catch
+                _:Reason ->
+                    {error, Reason}
+            end;
+        [] ->
+            usage(),
+            {error, cmd_not_found}
     end.
 
 %% @doc Lookup a command
@@ -86,8 +94,7 @@ lookup(Cmd) ->
 usage() ->
     ?PRINT("Usage: ~s~n", [?MODULE]),
     [begin ?PRINT("~80..-s~n", [""]), Mod:Cmd(usage) end
-        || {_, {Mod, Cmd}, _} <- ets:tab2list(?CMD_TAB)],
-    ok.
+        || {_, {Mod, Cmd}, _} <- ets:tab2list(?CMD_TAB)].
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
