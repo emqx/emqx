@@ -475,38 +475,38 @@ listeners([]) ->
                         end, Info)
             end, esockd:listeners());
 
-listeners(["reopen", Proto, ListenOn1]) ->
-    ListenOn = case string:tokens(ListenOn1, ":") of
+listeners(["restart", Proto, ListenOn]) ->
+    ListenOn1 = case string:tokens(ListenOn, ":") of
         [Port]     -> list_to_integer(Port);
         [IP, Port] -> {IP, list_to_integer(Port)}
     end,
-    case emqttd_app:restart_listener({list_to_atom(Proto), ListenOn, []}) of
+    case emqttd_app:restart_listener({list_to_atom(Proto), ListenOn1, []}) of
         {ok, _Pid} ->
-            io:format("Reopen ~p listen on ~p successfully.~n",
-                      [list_to_atom(Proto), list_to_atom(ListenOn1)]);
+            io:format("Restart ~s listen on ~s successfully.~n",
+                      [list_to_atom(Proto), list_to_atom(ListenOn)]);
         {error, Error} ->
-            io:format("Failed to reopen ~p listen on ~p, error:~p~n",
-                      [list_to_atom(Proto), list_to_atom(ListenOn1) ,Error])
+            io:format("Failed to restart ~s listen on ~s, error:~p~n",
+                      [list_to_atom(Proto), list_to_atom(ListenOn) ,Error])
     end;
 
-listeners(["close", Proto, ListenOn1]) ->
-    ListenOn = case string:tokens(ListenOn1, ":") of
+listeners(["stop", Proto, ListenOn]) ->
+    ListenOn1 = case string:tokens(ListenOn, ":") of
         [Port]     -> list_to_integer(Port);
         [IP, Port] -> {IP, list_to_integer(Port)}
     end,
-    case emqttd_app:stop_listener({list_to_atom(Proto), ListenOn, []}) of
+    case emqttd_app:stop_listener({list_to_atom(Proto), ListenOn1, []}) of
         ok ->
-            io:format("Close ~p on ~p successfully.~n",
-                      [list_to_atom(Proto), list_to_atom(ListenOn1)]);
+            io:format("Stop ~s on ~s successfully.~n",
+                      [list_to_atom(Proto), list_to_atom(ListenOn)]);
         {error, Error} ->
-            io:format("Failed to close ~p on ~p, error:~p~n",
-                      [list_to_atom(Proto), list_to_atom(ListenOn1) ,Error])
+            io:format("Failed to stop ~s on ~s, error:~p~n",
+                      [list_to_atom(Proto), list_to_atom(ListenOn) ,Error])
     end;
 
 listeners(_) ->
-    ?USAGE([{"listeners",                       "List listeners"},
-            {"listeners reopen <Proto> <Port>", "Reopen a listener port"},
-            {"listeners close  <Proto> <Port>", "Close  a listener port"}]).
+    ?USAGE([{"listeners",                        "List listeners"},
+            {"listeners restart <Proto> <Port>", "Restart a listener port"},
+            {"listeners stop    <Proto> <Port>", "Stop  a listener port"}]).
 
 %%--------------------------------------------------------------------
 %% Dump ETS
