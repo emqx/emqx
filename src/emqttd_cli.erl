@@ -501,8 +501,8 @@ listeners(["stop", Proto, ListenOn]) ->
 
 listeners(_) ->
     ?USAGE([{"listeners",                        "List listeners"},
-            {"listeners restart <Proto> <Port>", "Restart a listener port"},
-            {"listeners stop    <Proto> <Port>", "Stop a listener port"}]).
+            {"listeners restart <Proto> <Port>", "Restart a listener"},
+            {"listeners stop    <Proto> <Port>", "Stop a listener"}]).
 
 %%--------------------------------------------------------------------
 %% Dump ETS
