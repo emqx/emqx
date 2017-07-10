@@ -40,6 +40,11 @@ CT_OPTS = -cover test/ct.cover.spec -erl_args -name emqttd_ct@127.0.0.1
 
 COVER = true
 
+PLT_APPS = sasl asn1 ssl syntax_tools runtime_tools crypto xmerl os_mon inets public_key ssl lager compiler mnesia
+DIALYZER_DIRS := ebin/
+DIALYZER_OPTS := --verbose --statistics -Werror_handling \
+                 -Wrace_conditions #-Wunmatched_returns
+
 include erlang.mk
 
 app:: rebar.config

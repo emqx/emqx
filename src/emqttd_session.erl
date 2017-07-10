@@ -120,7 +120,7 @@
          retry_interval = 20000 :: timeout(),
 
          %% Retry Timer
-         retry_timer :: reference(),
+         retry_timer :: reference() | undefined,
 
          %% All QoS1, QoS2 messages published to when client is disconnected.
          %% QoS 1 and QoS 2 messages pending transmission to the Client.
@@ -138,13 +138,13 @@
          await_rel_timeout = 20000 :: timeout(),
 
          %% Awaiting PUBREL timer
-         await_rel_timer :: reference(),
+         await_rel_timer :: reference() | undefined,
 
          %% Session Expiry Interval
          expiry_interval = 7200000 :: timeout(),
 
          %% Expired Timer
-         expiry_timer :: reference(),
+         expiry_timer :: reference() | undefined,
 
          %% Enable Stats
          enable_stats :: boolean(),

@@ -249,8 +249,6 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
            case emqttd:subscribe(bin(Topic), bin(ClientId), [{qos, IntQos}]) of
                ok ->
                    ?PRINT_MSG("ok~n");
-               {error, already_existed} ->
-                   ?PRINT_MSG("Error: already existed~n");
                {error, Reason} ->
                    ?PRINT("Error: ~p~n", [Reason])
            end
@@ -477,8 +475,34 @@ listeners([]) ->
                         end, Info)
             end, esockd:listeners());
 
+listeners(["restart", Proto, ListenOn]) ->
+    ListenOn1 = case string:tokens(ListenOn, ":") of
+        [Port]     -> list_to_integer(Port);
+        [IP, Port] -> {IP, list_to_integer(Port)}
+    end,
+    case emqttd_app:restart_listener({list_to_atom(Proto), ListenOn1, []}) of
+        {ok, _Pid} ->
+            io:format("Restart ~s listener on ~s successfully.~n", [Proto, ListenOn]);
+        {error, Error} ->
+            io:format("Failed to restart ~s listener on ~s, error:~p~n", [Proto, ListenOn, Error])
+    end;
+
+listeners(["stop", Proto, ListenOn]) ->
+    ListenOn1 = case string:tokens(ListenOn, ":") of
+        [Port]     -> list_to_integer(Port);
+        [IP, Port] -> {IP, list_to_integer(Port)}
+    end,
+    case emqttd_app:stop_listener({list_to_atom(Proto), ListenOn1, []}) of
+        ok ->
+            io:format("Stop ~s listener on ~s successfully.~n", [Proto, ListenOn]);
+        {error, Error} ->
+            io:format("Failed to stop ~s listener on ~s, error:~p~n", [Proto, ListenOn, Error])
+    end;
+
 listeners(_) ->
-    ?PRINT_CMD("listeners", "List listeners").
+    ?USAGE([{"listeners",                        "List listeners"},
+            {"listeners restart <Proto> <Port>", "Restart a listener"},
+            {"listeners stop    <Proto> <Port>", "Stop a listener"}]).
 
 %%--------------------------------------------------------------------
 %% Dump ETS
