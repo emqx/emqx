@@ -102,11 +102,11 @@ trace(publish, From, _Msg) when is_atom(From) ->
     %% Dont' trace '$SYS' publish
     ignore;
 trace(publish, {ClientId, Username}, #mqtt_message{topic = Topic, payload = Payload}) ->
-    lager:info([{client, ClientId}, {topic, Topic}],
-               "~s/~s PUBLISH to ~s: ~p", [ClientId, Username, Topic, Payload]);
-trace(publish, From, #mqtt_message{topic = Topic, payload = Payload}) when is_binary(From); is_list(From) ->
-    lager:info([{client, From}, {topic, Topic}],
-               "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
+    lager:debug([{client, ClientId}, {topic, Topic}],
+                "~s/~s PUBLISH to ~s: ~p", [ClientId, Username, Topic, Payload]);
+trace(publish, From, #mqtt_message{topic = Topic, payload = Payload}) ->
+    lager:debug([{client, From}, {topic, Topic}],
+                "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
 
 %% @doc Unsubscribe
 -spec(unsubscribe(binary()) -> ok | emqttd:pubsub_error()).
