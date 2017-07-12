@@ -34,7 +34,7 @@
 
 all() -> [{group, guid}, {group, opts},
           {group, ?PQ}, {group, time},
-          {group, node}, {group, base62}].
+          {group, base62}].
 
 groups() ->
     [{guid, [], [guid_gen, guid_hexstr, guid_base62]},
@@ -42,7 +42,6 @@ groups() ->
      {?PQ,  [], [priority_queue_plen,
                  priority_queue_out2]},
      {time, [], [time_now_to_]},
-     {node, [], [node_is_aliving, node_parse_name]},
      {base62, [], [base62_encode]}].
 
 %%--------------------------------------------------------------------
@@ -143,19 +142,6 @@ time_now_to_(_) ->
     emqttd_time:seed(),
     emqttd_time:now_secs(),
     emqttd_time:now_ms().
-
-%%--------------------------------------------------------------------
-%% emqttd_node
-%%--------------------------------------------------------------------
-
-node_is_aliving(_) ->
-    io:format("Node: ~p~n", [node()]),
-    true = emqttd_node:is_aliving(node()),
-    false = emqttd_node:is_aliving('x@127.0.0.1').
-
-node_parse_name(_) ->
-    'a@127.0.0.1' = emqttd_node:parse_name("a@127.0.0.1"),
-    'b@127.0.0.1' = emqttd_node:parse_name("b").
 
 %%--------------------------------------------------------------------
 %% base62 encode decode
