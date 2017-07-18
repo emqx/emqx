@@ -39,7 +39,7 @@
 
 start(_Type, _Args) ->
     print_banner(),
-    %%ekka:start(),
+    ekka:start(),
     {ok, Sup} = emqttd_sup:start_link(),
     start_servers(Sup),
     emqttd_cli:load(),
