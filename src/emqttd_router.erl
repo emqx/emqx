@@ -218,7 +218,7 @@ stop() -> gen_server:call(?ROUTER, stop).
 init([]) ->
     ekka:monitor(membership),
     ets:new(mqtt_local_route, [set, named_table, protected]),
-    {ok, TRef}  = timer:send_interval(timer:seconds(1), stats),
+    {ok, TRef} = timer:send_interval(timer:seconds(1), stats),
     {ok, #state{stats_timer = TRef}}.
 
 handle_call(stop, _From, State) ->
