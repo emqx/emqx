@@ -1,5 +1,5 @@
 %%-*- mode: erlang -*-
-%% EMQ config mapping
+%% EMQ R2.3 config mapping
 
 %%--------------------------------------------------------------------
 %% Cluster
@@ -7,13 +7,8 @@
 
 %% @doc Cluster name
 {mapping, "cluster.name", "ekka.cluster_name", [
-  {default, emqcl},
+  {default, emqcluster},
   {datatype, atom}
-]}.
-
-%% @doc Secret cookie for the cluster
-{mapping, "cluster.cookie", "vm_args.-setcookie", [
-  {default, "emqclustercookie"}
 ]}.
 
 %% @doc Cluster discovery
@@ -28,7 +23,6 @@
   {default, on}
 ]}.
 
-
 %% @doc Clean down node from the cluster
 {mapping, "cluster.clean_down", "ekka.cluster_clean_down", [
   {datatype, {duration, ms}},
@@ -36,9 +30,9 @@
 ]}.
 
 %%--------------------------------------------------------------------
-%% Cluster with epmd
+%% Cluster with static node list
 
-{mapping, "cluster.epmd.seeds", "ekka.cluster_discovery", [
+{mapping, "cluster.static.seeds", "ekka.cluster_discovery", [
   {datatype, string}
 ]}.
 
@@ -46,12 +40,13 @@
 %% Cluster with IP Multicast
 
 {mapping, "cluster.mcast.addr", "ekka.cluster_discovery", [
-  {datatype, ip}
+  {default, "239.192.0.1"},
+  {datatype, string}
 ]}.
 
-{mapping, "cluster.mcast.period", "ekka.cluster_discovery", [
-  {datatype, {duration, ms}},
-  {default, "1s"}
+{mapping, "cluster.mcast.ports", "ekka.cluster_discovery", [
+  {default, "4369"},
+  {datatype, string}
 ]}.
 
 {mapping, "cluster.mcast.iface", "ekka.cluster_discovery", [
@@ -84,22 +79,19 @@
   {default, "32KB"}
 ]}.
 
-{mapping, "cluster.gossip.seeds", "ekka.cluster_discovery", [
+%%--------------------------------------------------------------------
+%% Cluster with DNS
+
+{mapping, "cluster.dns.name", "ekka.cluster_discovery", [
   {datatype, string}
 ]}.
 
-{mapping, "cluster.gossip.protocol_period", "ekka.cluster_discovery", [
-  {datatype, {duration, ms}},
-  {default, "1s"}
-]}.
-
-{mapping, "cluster.gossip.suspicion_factor", "ekka.cluster_discovery", [
-  {datatype, integer},
-  {default, 3}
+{mapping, "cluster.dns.app", "ekka.cluster_discovery", [
+  {datatype, string}
 ]}.
 
 %%--------------------------------------------------------------------
-%% Cluster with Etcd
+%% Cluster with etcd
 
 {mapping, "cluster.etcd.addr", "ekka.cluster_discovery", [
   {datatype, string}
@@ -114,17 +106,6 @@
   {default, "1m"}
 ]}.
 
-%%--------------------------------------------------------------------
-%% Cluster with Consul
-
-{mapping, "cluster.consul.addr", "ekka.cluster_discovery", [
-  {datatype, ip}
-]}.
-
-{mapping, "cluster.consul.acl_token", "ekka.cluster_discovery", [
-  {datatype, string}
-]}.
-
 {translation, "ekka.cluster_discovery", fun(Conf) ->
   Strategy = cuttlefish:conf_get("cluster.discovery", Conf),
   Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
@@ -134,38 +115,26 @@
              {Ip, Port}
            end,
   Options = fun(static) ->
-                 [{seeds, cuttlefish:conf_get("cluster.epmd.seeds", Conf)}];
+                 [{seeds, [list_to_atom(S) || S <- string:tokens(cuttlefish:conf_get("cluster.static.seeds", Conf, ""), ",")]}];
                (mcast) ->
-                 {Addr, Port} = cuttlefish:conf_get("cluster.mcast.addr", Conf),
-                 {ok, Ip} = inet:parse_address(Addr),
+                 {ok, Addr} = inet:parse_address(cuttlefish:conf_get("cluster.mcast.addr", Conf)),
                  {ok, Iface} = inet:parse_address(cuttlefish:conf_get("cluster.mcast.iface", Conf)),
-                 [{addr, Ip}, {port, Port}, {iface, Iface},
-                  {period, cuttlefish:conf_get("cluster.mcast.period", Conf)},
+                 Ports = [list_to_integer(S) || S <- string:tokens(cuttlefish:conf_get("cluster.mcast.ports", Conf), ",")],
+                 [{addr, Addr}, {ports, Ports}, {iface, Iface},
                   {ttl, cuttlefish:conf_get("cluster.mcast.ttl", Conf, 1)},
                   {loop, cuttlefish:conf_get("cluster.mcast.loop", Conf, true)}];
+               (dns) ->
+                 [{name, cuttlefish:conf_get("cluster.dns.name", Conf)},
+                  {app, cuttlefish:conf_get("cluster.dns.app", Conf)}];
                (etcd) ->
-                 [{seeds, cuttlefish:conf_get("cluster.epmd.seeds", Conf)},
-                  {clean_down, cuttlefish:conf_get("cluster.epmd.clean_down", Conf, undefined)}];
-               (gossip) ->
-                 [{seeds, [IpPort(S) || S <- string:tokens(",", cuttlefish:conf_get("cluster.gossip.seeds", Conf))]},
-                  {protocol_period, cuttlefish:conf_get("cluster.gossip.protocol_period", Conf)},
-                  {suspicion_factor, cuttlefish:conf_get("cluster.gossip.suspicion_factor", Conf, 3)}];
-               (etcd) ->
-                 [{addr, cuttlefish:conf_get("cluster.etcd.addr", Conf)},
+                 [{addr, string:tokens(cuttlefish:conf_get("cluster.etcd.addr", Conf), ",")},
                   {prefix, cuttlefish:conf_get("cluster.etcd.prefix", Conf, "emq")},
                   {node_ttl, cuttlefish:conf_get("cluster.etcd.node_ttl", Conf, 60)}];
-               (consul) ->
-                 [{addr, cuttlefish:conf_get("cluster.consul.addr", Conf)},
-                  {acl_token, cuttlefish:conf_get("cluster.consul.acl_token", Conf)}];
-               (k8s) ->
-                 [{host, cuttlefish:conf_get("cluster.k8s.selector", Conf)},
-                  {acl_token, cuttlefish:conf_get("cluster.k8s.node_basename", Conf)}];
                (manual) ->
                  [ ]
             end,
   {Strategy, Filter(Options(Strategy))}
 end}.
-
 
 %%--------------------------------------------------------------------
 %% Erlang Node
@@ -177,9 +146,9 @@ end}.
 ]}.
 
 %% @doc Secret cookie for distributed erlang node
-%% {mapping, "node.cookie", "vm_args.-setcookie", [
-%%  {default, "emqsecretcookie"}
-%%]}.
+{mapping, "node.cookie", "vm_args.-setcookie", [
+  {default, "emqsecretcookie"}
+]}.
 
 %% @doc SMP Support
 {mapping, "node.smp", "vm_args.-smp", [
