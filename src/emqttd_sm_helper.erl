@@ -36,6 +36,8 @@
 
 -record(state, {stats_fun, ticker}).
 
+-define(LOCK, {?MODULE, clean_sessions}).
+
 %% @doc Start a session helper
 -spec(start_link(fun()) -> {ok, pid()} | ignore | {error, any()}).
 start_link(StatsFun) ->
@@ -59,8 +61,8 @@ handle_info({membership, {mnesia, down, Node}}, State) ->
                                          [{'==', {node, '$2'}, Node}], ['$1']}]),
             lists:foreach(fun(ClientId) -> mnesia:delete({mqtt_session, ClientId}) end, ClientIds)
           end,
-    mnesia:async_dirty(Fun),
-    {noreply, State};
+    global:trans({?LOCK, self()}, fun() -> mnesia:async_dirty(Fun) end),
+    {noreply, State, hibernate};
 
 handle_info({membership, _Event}, State) ->
     {noreply, State};

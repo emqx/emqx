@@ -48,6 +48,8 @@
 
 -define(ROUTER, ?MODULE).
 
+-define(LOCK, {?ROUTER, clean_routes}).
+
 %%--------------------------------------------------------------------
 %% Mnesia Bootstrap
 %%--------------------------------------------------------------------
@@ -231,7 +233,7 @@ handle_cast({add_local_route, Topic}, State) ->
     %% why node()...?
     ets:insert(mqtt_local_route, {Topic, node()}),
     {noreply, State};
-    
+
 handle_cast({del_local_route, Topic}, State) ->
     ets:delete(mqtt_local_route, Topic),
     {noreply, State};
@@ -240,8 +242,11 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({membership, {mnesia, down, Node}}, State) ->
-    clean_routes_(Node),
-    update_stats_(),
+    global:trans({?LOCK, self()},
+                 fun() ->
+                     clean_routes_(Node),
+                     update_stats_()
+                 end),
     {noreply, State, hibernate};
 
 handle_info({membership, _Event}, State) ->
