@@ -7,7 +7,7 @@
 
 %% @doc Cluster name
 {mapping, "cluster.name", "ekka.cluster_name", [
-  {default, emqcluster},
+  {default, ekka},
   {datatype, atom}
 ]}.
 
@@ -17,16 +17,15 @@
   {datatype, atom}
 ]}.
 
+%% @doc Clean down node from the cluster
+{mapping, "cluster.autoclean", "ekka.cluster_autoclean", [
+  {datatype, {duration, ms}}
+]}.
+
 %% @doc Cluster autoheal
 {mapping, "cluster.autoheal", "ekka.cluster_autoheal", [
   {datatype, flag},
-  {default, on}
-]}.
-
-%% @doc Clean down node from the cluster
-{mapping, "cluster.clean_down", "ekka.cluster_clean_down", [
-  {datatype, {duration, ms}},
-  {default, "1h"}
+  {default, off}
 ]}.
 
 %%--------------------------------------------------------------------
@@ -81,7 +80,6 @@
 
 %%--------------------------------------------------------------------
 %% Cluster with DNS
-
 {mapping, "cluster.dns.name", "ekka.cluster_discovery", [
   {datatype, string}
 ]}.
@@ -93,7 +91,7 @@
 %%--------------------------------------------------------------------
 %% Cluster with etcd
 
-{mapping, "cluster.etcd.addr", "ekka.cluster_discovery", [
+{mapping, "cluster.etcd.server", "ekka.cluster_discovery", [
   {datatype, string}
 ]}.
 
@@ -104,6 +102,25 @@
 {mapping, "cluster.etcd.node_ttl", "ekka.cluster_discovery", [
   {datatype, {duration, ms}},
   {default, "1m"}
+]}.
+
+%%--------------------------------------------------------------------
+%% Cluster with K8s
+
+{mapping, "cluster.k8s.apiserver", "ekka.cluster_discovery", [
+  {datatype, string}
+]}.
+
+{mapping, "cluster.k8s.service_name", "ekka.cluster_discovery", [
+  {datatype, string}
+]}.
+
+{mapping, "cluster.k8s.address_type", "ekka.cluster_discovery", [
+  {datatype, {enum, [ip, dns]}}
+]}.
+
+{mapping, "cluster.k8s.app_name", "ekka.cluster_discovery", [
+  {datatype, string}
 ]}.
 
 {translation, "ekka.cluster_discovery", fun(Conf) ->
@@ -127,9 +144,14 @@
                  [{name, cuttlefish:conf_get("cluster.dns.name", Conf)},
                   {app, cuttlefish:conf_get("cluster.dns.app", Conf)}];
                (etcd) ->
-                 [{addr, string:tokens(cuttlefish:conf_get("cluster.etcd.addr", Conf), ",")},
+                 [{server, string:tokens(cuttlefish:conf_get("cluster.etcd.server", Conf), ",")},
                   {prefix, cuttlefish:conf_get("cluster.etcd.prefix", Conf, "emq")},
                   {node_ttl, cuttlefish:conf_get("cluster.etcd.node_ttl", Conf, 60)}];
+               (k8s) ->
+                 [{apiserver, cuttlefish:conf_get("cluster.k8s.apiserver", Conf)},
+                  {service_name, cuttlefish:conf_get("cluster.k8s.service_name", Conf)},
+                  {address_type, cuttlefish:conf_get("cluster.k8s.address_type", Conf, ip)},
+                  {app_name, cuttlefish:conf_get("cluster.k8s.app_name", Conf)}];
                (manual) ->
                  [ ]
             end,
