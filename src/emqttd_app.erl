@@ -47,7 +47,6 @@ start(_Type, _Args) ->
     emqttd_plugins:init(),
     emqttd_plugins:load(),
     cluster_bootstrap(),
-    start_listeners(),
     register(emqttd, self()),
     print_vsn(),
     {ok, Sup}.
@@ -154,10 +153,15 @@ register_acl_mod() ->
 cluster_bootstrap() ->
     ekka:callback(prepare, fun emqttd:shutdown/1),
     ekka:callback(reboot,  fun emqttd:reboot/0),
-    run_outside_application(5000, fun ekka_autocluster:bootstrap/0).
+    Callback = fun() -> ekka_autocluster:start(fun start_listeners/0) end,
+    run_outside_application(5000, Callback).
 
-run_outside_application(Delay, Fun) ->
-    spawn(fun() -> group_leader(whereis(init), self()), timer:sleep(Delay), Fun() end).
+run_outside_application(Delay, Callback) ->
+    spawn(fun() ->
+            group_leader(whereis(init), self()),
+            timer:sleep(Delay),
+            Callback()
+          end).
 
 %%--------------------------------------------------------------------
 %% Start Listeners
