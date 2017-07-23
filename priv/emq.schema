@@ -7,7 +7,7 @@
 
 %% @doc Cluster name
 {mapping, "cluster.name", "ekka.cluster_name", [
-  {default, ekka},
+  {default, emqcl},
   {datatype, atom}
 ]}.
 
@@ -29,14 +29,14 @@
 ]}.
 
 %%--------------------------------------------------------------------
-%% Cluster with static node list
+%% Cluster by static node list
 
 {mapping, "cluster.static.seeds", "ekka.cluster_discovery", [
   {datatype, string}
 ]}.
 
 %%--------------------------------------------------------------------
-%% Cluster with IP Multicast
+%% Cluster by UDP Multicast
 
 {mapping, "cluster.mcast.addr", "ekka.cluster_discovery", [
   {default, "239.192.0.1"},
@@ -55,7 +55,7 @@
 
 {mapping, "cluster.mcast.ttl", "ekka.cluster_discovery", [
   {datatype, integer},
-  {default, 1}
+  {default, 255}
 ]}.
 
 {mapping, "cluster.mcast.loop", "ekka.cluster_discovery", [
@@ -79,7 +79,8 @@
 ]}.
 
 %%--------------------------------------------------------------------
-%% Cluster with DNS
+%% Cluster by DNS A Record
+
 {mapping, "cluster.dns.name", "ekka.cluster_discovery", [
   {datatype, string}
 ]}.
@@ -89,7 +90,7 @@
 ]}.
 
 %%--------------------------------------------------------------------
-%% Cluster with etcd
+%% Cluster using etcd
 
 {mapping, "cluster.etcd.server", "ekka.cluster_discovery", [
   {datatype, string}
@@ -105,7 +106,7 @@
 ]}.
 
 %%--------------------------------------------------------------------
-%% Cluster with K8s
+%% Cluster on K8s
 
 {mapping, "cluster.k8s.apiserver", "ekka.cluster_discovery", [
   {datatype, string}
@@ -145,7 +146,7 @@
                   {app, cuttlefish:conf_get("cluster.dns.app", Conf)}];
                (etcd) ->
                  [{server, string:tokens(cuttlefish:conf_get("cluster.etcd.server", Conf), ",")},
-                  {prefix, cuttlefish:conf_get("cluster.etcd.prefix", Conf, "emq")},
+                  {prefix, cuttlefish:conf_get("cluster.etcd.prefix", Conf, "emqcl")},
                   {node_ttl, cuttlefish:conf_get("cluster.etcd.node_ttl", Conf, 60)}];
                (k8s) ->
                  [{apiserver, cuttlefish:conf_get("cluster.k8s.apiserver", Conf)},
