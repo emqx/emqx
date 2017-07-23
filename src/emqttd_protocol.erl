@@ -344,10 +344,10 @@ send(Packet = ?PACKET(Type),
     {ok, State#proto_state{stats_data = Stats1}}.
 
 trace(recv, Packet, ProtoState) ->
-    ?LOG(info, "RECV ~s", [emqttd_packet:format(Packet)], ProtoState);
+    ?LOG(debug, "RECV ~s", [emqttd_packet:format(Packet)], ProtoState);
 
 trace(send, Packet, ProtoState) ->
-    ?LOG(info, "SEND ~s", [emqttd_packet:format(Packet)], ProtoState).
+    ?LOG(debug, "SEND ~s", [emqttd_packet:format(Packet)], ProtoState).
 
 inc_stats(_Direct, _Type, Stats = #proto_stats{enable_stats = false}) ->
     Stats;
@@ -382,7 +382,7 @@ shutdown(conflict, #proto_state{client_id = _ClientId}) ->
     ignore;
 
 shutdown(Error, State = #proto_state{will_msg = WillMsg}) ->
-    ?LOG(info, "Shutdown for ~p", [Error], State),
+    ?LOG(debug, "Shutdown for ~p", [Error], State),
     Client = client(State),
     send_willmsg(Client, WillMsg),
     emqttd_hooks:run('client.disconnected', [Error], Client),

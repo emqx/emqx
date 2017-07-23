@@ -48,24 +48,26 @@
 
 -define(ROUTER, ?MODULE).
 
+-define(LOCK, {?ROUTER, clean_routes}).
+
 %%--------------------------------------------------------------------
 %% Mnesia Bootstrap
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = emqttd_mnesia:create_table(mqtt_topic, [
+    ok = ekka_mnesia:create_table(mqtt_topic, [
                 {ram_copies, [node()]},
                 {record_name, mqtt_topic},
                 {attributes, record_info(fields, mqtt_topic)}]),
-    ok = emqttd_mnesia:create_table(mqtt_route, [
+    ok = ekka_mnesia:create_table(mqtt_route, [
                 {type, bag},
                 {ram_copies, [node()]},
                 {record_name, mqtt_route},
                 {attributes, record_info(fields, mqtt_route)}]);
 
 mnesia(copy) ->
-    ok = emqttd_mnesia:copy_table(mqtt_topic),
-    ok = emqttd_mnesia:copy_table(mqtt_route, ram_copies).
+    ok = ekka_mnesia:copy_table(mqtt_topic),
+    ok = ekka_mnesia:copy_table(mqtt_route, ram_copies).
 
 %%--------------------------------------------------------------------
 %% Start the Router
@@ -216,9 +218,9 @@ stop() -> gen_server:call(?ROUTER, stop).
 %%--------------------------------------------------------------------
 
 init([]) ->
-    mnesia:subscribe(system),
+    ekka:monitor(membership),
     ets:new(mqtt_local_route, [set, named_table, protected]),
-    {ok, TRef}  = timer:send_interval(timer:seconds(1), stats),
+    {ok, TRef} = timer:send_interval(timer:seconds(1), stats),
     {ok, #state{stats_timer = TRef}}.
 
 handle_call(stop, _From, State) ->
@@ -231,7 +233,7 @@ handle_cast({add_local_route, Topic}, State) ->
     %% why node()...?
     ets:insert(mqtt_local_route, {Topic, node()}),
     {noreply, State};
-    
+
 handle_cast({del_local_route, Topic}, State) ->
     ets:delete(mqtt_local_route, Topic),
     {noreply, State};
@@ -239,27 +241,16 @@ handle_cast({del_local_route, Topic}, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({mnesia_system_event, {mnesia_up, Node}}, State) ->
-    lager:error("Mnesia up: ~p~n", [Node]),
-    {noreply, State};
-
-handle_info({mnesia_system_event, {mnesia_down, Node}}, State) ->
-    lager:error("Mnesia down: ~p~n", [Node]),
-    clean_routes_(Node),
-    update_stats_(),
+handle_info({membership, {mnesia, down, Node}}, State) ->
+    global:trans({?LOCK, self()},
+                 fun() ->
+                     clean_routes_(Node),
+                     update_stats_()
+                 end),
     {noreply, State, hibernate};
 
-handle_info({mnesia_system_event, {inconsistent_database, Context, Node}}, State) ->
-    %% 1. Backup and restart
-    %% 2. Set master nodes
-    lager:critical("Mnesia inconsistent_database event: ~p, ~p~n", [Context, Node]),
-    {noreply, State};
-
-handle_info({mnesia_system_event, {mnesia_overload, Details}}, State) ->
-    lager:critical("Mnesia overload: ~p~n", [Details]),
-    {noreply, State};
-
-handle_info({mnesia_system_event, _Event}, State) ->
+handle_info({membership, _Event}, State) ->
+    %% ignore
     {noreply, State};
 
 handle_info(stats, State) ->
@@ -271,7 +262,7 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, #state{stats_timer = TRef}) ->
     timer:cancel(TRef),
-    mnesia:unsubscribe(system).
+    ekka:unmonitor(membership).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

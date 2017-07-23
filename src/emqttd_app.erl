@@ -34,19 +34,17 @@
 -define(APP, emqttd).
 
 %%--------------------------------------------------------------------
-%% Application callbacks
+%% Application Callbacks
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
     print_banner(),
-    emqttd_mnesia:start(),
+    ekka:start(),
     {ok, Sup} = emqttd_sup:start_link(),
     start_servers(Sup),
     emqttd_cli:load(),
     register_acl_mod(),
-    emqttd_plugins:init(),
-    emqttd_plugins:load(),
-    start_listeners(),
+    start_autocluster(),
     register(emqttd, self()),
     print_vsn(),
     {ok, Sup}.
@@ -145,6 +143,20 @@ register_acl_mod() ->
         {ok, File} -> emqttd_access_control:register_mod(acl, emqttd_acl_internal, [File]);
         undefined  -> ok
     end.
+
+%%--------------------------------------------------------------------
+%% Autocluster
+%%--------------------------------------------------------------------
+
+start_autocluster() ->
+    ekka:callback(prepare, fun emqttd:shutdown/1),
+    ekka:callback(reboot,  fun emqttd:reboot/0),
+    ekka:autocluster(fun after_autocluster/0).
+
+after_autocluster() ->
+    emqttd_plugins:init(),
+    emqttd_plugins:load(),
+    start_listeners().
 
 %%--------------------------------------------------------------------
 %% Start Listeners

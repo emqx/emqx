@@ -28,7 +28,7 @@ all() -> [t_in, t_in_qos0, t_out, t_simple_mqueue, t_priority_mqueue,
 
 t_in(_) ->
     Opts = [{max_length, 5},
-            {queue_qos0, true}],
+            {store_qos0, true}],
     Q = ?Q:new(<<"testQ">>, Opts, alarm_fun()),
     true = ?Q:is_empty(Q),
     Q1 = ?Q:in(#mqtt_message{}, Q),
@@ -42,7 +42,7 @@ t_in(_) ->
 
 t_in_qos0(_) ->
     Opts = [{max_length, 5},
-            {queue_qos0, false}],
+            {store_qos0, false}],
     Q = ?Q:new(<<"testQ">>, Opts, alarm_fun()),
     Q1 = ?Q:in(#mqtt_message{}, Q),
     true = ?Q:is_empty(Q1),
@@ -51,7 +51,7 @@ t_in_qos0(_) ->
 
 t_out(_) ->
     Opts = [{max_length, 5},
-            {queue_qos0, true}],
+            {store_qos0, true}],
     Q = ?Q:new(<<"testQ">>, Opts, alarm_fun()),
     {empty, Q} = ?Q:out(Q),
     Q1 = ?Q:in(#mqtt_message{}, Q),
@@ -64,7 +64,7 @@ t_simple_mqueue(_) ->
             {max_length, 3},
             {low_watermark, 0.2},
             {high_watermark, 0.6},
-            {queue_qos0, false}],
+            {store_qos0, false}],
     Q = ?Q:new("simple_queue", Opts, alarm_fun()),
     simple = ?Q:type(Q),
     3 = ?Q:max_len(Q),
@@ -81,18 +81,18 @@ t_simple_mqueue(_) ->
 
 t_infinity_simple_mqueue(_) ->
     Opts = [{type, simple},
-            {max_length, infinity},
+            {max_length, 0},
             {low_watermark, 0.2},
             {high_watermark, 0.6},
-            {queue_qos0, false}],
+            {store_qos0, false}],
     Q = ?Q:new("infinity_simple_queue", Opts, alarm_fun()),
     true = ?Q:is_empty(Q),
-    infinity = ?Q:max_len(Q),
+    0 = ?Q:max_len(Q),
     Qx = lists:foldl(fun(I, AccQ) ->
                     ?Q:in(#mqtt_message{qos = 1, payload = iolist_to_binary([I])}, AccQ)
             end, Q, lists:seq(1, 255)),
     255 = ?Q:len(Qx),
-    [{len, 255}, {max_len, infinity}, {dropped, 0}] = ?Q:stats(Qx),
+    [{len, 255}, {max_len, 0}, {dropped, 0}] = ?Q:stats(Qx),
     {{value, V}, _Qy} = ?Q:out(Qx),
     <<1>> = V#mqtt_message.payload.
 
@@ -102,7 +102,7 @@ t_priority_mqueue(_) ->
             {max_length, 3},
             {low_watermark, 0.2},
             {high_watermark, 0.6},
-            {queue_qos0, false}],
+            {store_qos0, false}],
     Q = ?Q:new("priority_queue", Opts, alarm_fun()),
     priority = ?Q:type(Q),
     3 = ?Q:max_len(Q),
@@ -125,24 +125,24 @@ t_priority_mqueue(_) ->
 t_infinity_priority_mqueue(_) ->
     Opts = [{type, priority},
             {priority, [{<<"t1">>, 10}, {<<"t2">>, 8}]},
-            {max_length, infinity},
-            {queue_qos0, false}],
+            {max_length, 0},
+            {store_qos0, false}],
     Q = ?Q:new("infinity_priority_queue", Opts, alarm_fun()),
-    infinity = ?Q:max_len(Q),
+    0 = ?Q:max_len(Q),
     Qx = lists:foldl(fun(I, AccQ) ->
                     AccQ1 =
                     ?Q:in(#mqtt_message{topic = <<"t1">>, qos = 1, payload = iolist_to_binary([I])}, AccQ),
                     ?Q:in(#mqtt_message{topic = <<"t">>, qos = 1, payload = iolist_to_binary([I])}, AccQ1)
             end, Q, lists:seq(1, 255)),
     510 = ?Q:len(Qx),
-    [{len, 510}, {max_len, infinity}, {dropped, 0}] = ?Q:stats(Qx).
+    [{len, 510}, {max_len, 0}, {dropped, 0}] = ?Q:stats(Qx).
 
 t_priority_mqueue2(_) ->
     Opts = [{type, priority},
             {max_length, 2},
             {low_watermark, 0.2},
             {high_watermark, 0.6},
-            {queue_qos0, false}],
+            {store_qos0, false}],
     Q = ?Q:new("priority_queue2_test", Opts, alarm_fun()),
     2 = ?Q:max_len(Q),
     Q1 = ?Q:in(#mqtt_message{topic = <<"x">>, qos = 1, payload = <<1>>}, Q),
