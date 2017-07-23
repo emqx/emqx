@@ -145,44 +145,18 @@ register_acl_mod() ->
     end.
 
 %%--------------------------------------------------------------------
-%% AutoCluster
+%% Autocluster
 %%--------------------------------------------------------------------
 
 start_autocluster() ->
-    case application:get_env(?APP, autocluster_lock) of
-        undefined ->
-            application:set_env(?APP, autocluster_lock, true),
-            ekka:callback(prepare, fun emqttd:shutdown/1),
-            ekka:callback(reboot,  fun emqttd:reboot/0),
-            run_outside_application({ekka_autocluster, start, [fun after_autocluster/0]});
-        {ok, _Lock} ->
-            ignore
-    end.
+    ekka:callback(prepare, fun emqttd:shutdown/1),
+    ekka:callback(reboot,  fun emqttd:reboot/0),
+    ekka:autocluster(fun after_autocluster/0).
 
 after_autocluster() ->
     emqttd_plugins:init(),
     emqttd_plugins:load(),
     start_listeners().
-
-run_outside_application({M, F, Args}) ->
-    spawn(fun() ->
-            group_leader(whereis(init), self()),
-            wait_app_ready(5),
-            try erlang:apply(M, F, Args)
-            catch
-                _:Error -> lager:error("Autocluster exception: ~p", [Error])
-            end,
-            application:unset_env(?APP, autocluster_lock)
-          end).
-
-wait_app_ready(0) ->
-    timeout;
-wait_app_ready(Retries) ->
-    case lists:keymember(?APP, 1, application:which_applications()) of
-        true  -> ok;
-        false -> timer:sleep(1000),
-                 wait_app_ready(Retries - 1)
-    end.
 
 %%--------------------------------------------------------------------
 %% Start Listeners
