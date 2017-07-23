@@ -28,14 +28,14 @@ all() ->
     [t_insert, t_match, t_match2, t_match3, t_delete, t_delete2, t_delete3].
 
 init_per_suite(Config) ->
-    emqttd_mnesia:ensure_started(),
+    ekka_mnesia:ensure_started(),
     ?TRIE:mnesia(boot),
     ?TRIE:mnesia(copy),
     Config.
 
 end_per_suite(_Config) ->
-    emqttd_mnesia:ensure_stopped(),
-    emqttd_mnesia:delete_schema().
+    ekka_mnesia:ensure_stopped(),
+    ekka_mnesia:delete_schema().
 
 init_per_testcase(_TestCase, Config) ->
     Config.
