@@ -115,6 +115,8 @@ cluster(["join", SNode]) ->
         ok ->
             ?PRINT_MSG("Join the cluster successfully.~n"),
             cluster(["status"]);
+        ignore ->
+            ?PRINT_MSG("Ignore.~n");
         {error, Error} ->
             ?PRINT("Failed to join the cluster: ~p~n", [Error])
     end;
@@ -133,6 +135,8 @@ cluster(["force-leave", SNode]) ->
         ok ->
             ?PRINT_MSG("Remove the node from cluster successfully.~n"),
             cluster(["status"]);
+        ignore ->
+            ?PRINT_MSG("Ignore.~n");
         {error, Error} ->
             ?PRINT("Failed to remove the node from cluster: ~p~n", [Error])
     end;
