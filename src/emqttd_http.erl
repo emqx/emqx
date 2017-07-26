@@ -112,13 +112,15 @@ validate(topic, Topic) ->
 %%--------------------------------------------------------------------
 
 authorized(Req) ->
+    Params = mochiweb_request:parse_post(Req),
+    ClientId = get_value("client", Params, http),
     case Req:get_header_value("Authorization") of
     undefined ->
         false;
     "Basic " ++ BasicAuth ->
         {Username, Password} = user_passwd(BasicAuth),
         {ok, Peer} = Req:get(peername),
-        case emqttd_access_control:auth(#mqtt_client{username = Username, peername = Peer}, Password) of
+        case emqttd_access_control:auth(#mqtt_client{client_id = ClientId, username = Username, peername = Peer}, Password) of
             ok ->
                 true;
             {ok, _IsSuper} -> 
