@@ -47,8 +47,9 @@ handle_request(Method, "/status", Req) when Method =:= 'HEAD'; Method =:= 'GET' 
 %%--------------------------------------------------------------------
 
 handle_request('POST', "/mqtt/publish", Req) ->
-    case authorized(Req) of
-        true  -> http_publish(Req);
+    Params = parse_params(Req),
+    case authorized(Req, Params) of
+        true  -> http_publish(Req, Params);
         false -> Req:respond({401, [], <<"Unauthorized">>})
     end;
 
@@ -68,8 +69,7 @@ handle_request(Method, Path, Req) ->
 %% HTTP Publish
 %%--------------------------------------------------------------------
 
-http_publish(Req) ->
-    Params = [{iolist_to_binary(Key), Val} || {Key, Val} <- mochiweb_request:parse_post(Req)],
+http_publish(Req, Params) ->
     lager:debug("HTTP Publish: ~p", [Params]),
     Topics   = topics(Params),
     ClientId = get_value(<<"client">>, Params, http),
@@ -88,6 +88,9 @@ http_publish(Req) ->
         {_, false} ->
             Req:respond({400, [], <<"Bad Topics">>})
     end.
+
+parse_params(Req) ->
+    [{iolist_to_binary(K), V} || {K, V} <- mochiweb_request:parse_post(Req)].
 
 topics(Params) ->
     Tokens = [get_value(<<"topic">>, Params) | string:tokens(get_value(<<"topics">>, Params, ""), ",")],
@@ -111,24 +114,22 @@ validate(topic, Topic) ->
 %% basic authorization
 %%--------------------------------------------------------------------
 
-authorized(Req) ->
-    Params = mochiweb_request:parse_post(Req),
-    ClientId = get_value("client", Params, http),
+authorized(Req, Params) ->
+    ClientId = get_value(<<"client">>, Params, http),
     case Req:get_header_value("Authorization") of
-    undefined ->
-        false;
-    "Basic " ++ BasicAuth ->
-        {Username, Password} = user_passwd(BasicAuth),
-        {ok, Peer} = Req:get(peername),
-        case emqttd_access_control:auth(#mqtt_client{client_id = ClientId, username = Username, peername = Peer}, Password) of
-            ok ->
-                true;
-            {ok, _IsSuper} -> 
-                true;
-            {error, Reason} ->
-                lager:error("HTTP Auth failure: username=~s, reason=~p", [Username, Reason]),
-                false
-        end
+        undefined ->
+            false;
+        "Basic " ++ BasicAuth ->
+            {Username, Password} = user_passwd(BasicAuth),
+            {ok, Peer} = Req:get(peername),
+            case emqttd_access_control:auth(#mqtt_client{client_id = ClientId, username = Username, peername = Peer}, Password) of
+                ok -> true;
+                {ok, _IsSuper} -> 
+                    true;
+                {error, Reason} ->
+                    lager:error("HTTP Auth failure: username=~s, reason=~p", [Username, Reason]),
+                    false
+            end
     end.
 
 user_passwd(BasicAuth) ->
