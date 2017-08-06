@@ -102,11 +102,11 @@ trace(publish, From, _Msg) when is_atom(From) ->
     %% Dont' trace '$SYS' publish
     ignore;
 trace(publish, {ClientId, Username}, #mqtt_message{topic = Topic, payload = Payload}) ->
-    lager:info([{client, ClientId}, {topic, Topic}],
-               "~s/~s PUBLISH to ~s: ~p", [ClientId, Username, Topic, Payload]);
-trace(publish, From, #mqtt_message{topic = Topic, payload = Payload}) when is_binary(From); is_list(From) ->
-    lager:info([{client, From}, {topic, Topic}],
-               "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
+    lager:debug([{client, ClientId}, {topic, Topic}],
+                "~s/~s PUBLISH to ~s: ~p", [ClientId, Username, Topic, Payload]);
+trace(publish, From, #mqtt_message{topic = Topic, payload = Payload}) ->
+    lager:debug([{client, From}, {topic, Topic}],
+                "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
 
 %% @doc Unsubscribe
 -spec(unsubscribe(binary()) -> ok | emqttd:pubsub_error()).
@@ -130,7 +130,7 @@ async_unsubscribe(Topic, Subscriber) when is_binary(Topic) ->
 setqos(Topic, Subscriber, Qos) when is_binary(Topic) ->
     call(pick(Subscriber), {setqos, Topic, Subscriber, Qos}).
 
--spec(subscriptions(emqttd:subscriber()) -> [{binary(), list(emqttd:suboption())}]).
+-spec(subscriptions(emqttd:subscriber()) -> [{binary(), binary(), list(emqttd:suboption())}]).
 subscriptions(Subscriber) ->
     lists:map(fun({_, {_Share, Topic}}) ->
                 subscription(Topic, Subscriber);

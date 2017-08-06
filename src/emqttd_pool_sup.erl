@@ -36,7 +36,7 @@ spec(ChildId, Args) ->
     {ChildId, {?MODULE, start_link, Args},
         transient, infinity, supervisor, [?MODULE]}.
 
--spec(start_link(atom(), atom(), mfa()) -> {ok, pid()} | {error, any()}).
+-spec(start_link(atom() | tuple(), atom(), mfa()) -> {ok, pid()} | {error, any()}).
 start_link(Pool, Type, MFA) ->
     Schedulers = erlang:system_info(schedulers),
     start_link(Pool, Type, Schedulers, MFA).

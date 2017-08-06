@@ -2,7 +2,6 @@
 # *EMQ* - Erlang MQTT Broker
 
 [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
-[<img src="http://slack.emqtt.io/badge.svg">](http://slack.emqtt.io)
 
 *EMQ* (Erlang MQTT Broker) is a distributed, massively scalable, highly extensible MQTT message broker written in Erlang/OTP.
 
@@ -32,6 +31,7 @@ Please visit [emqtt.io](http://emqtt.io) for more service. Follow us on Twitter:
 * IpAddress Authentication
 * Username and Password Authentication
 * Access control based on IpAddress, ClientID, Username
+* JWT Authentication
 * LDAP Authentication/ACL
 * HTTP Authentication/ACL
 * MySQL Authentication/ACL
@@ -47,6 +47,7 @@ Please visit [emqtt.io](http://emqtt.io) for more service. Follow us on Twitter:
 * Shared Subscription
 * Proxy Protocol V1/2
 * Lua Hook and Web Hook
+* LWM2M Prototol Support
 
 ## Installation
 
@@ -86,11 +87,13 @@ Plugin                                                                 | Descrip
 [emq_auth_mongo](https://github.com/emqtt/emq_auth_mongo)              | MongoDB Authentication/ACL Plugin
 [emq_auth_http](https://github.com/emqtt/emq_auth_http)                | Authentication/ACL by HTTP API
 [emq_auth_ldap](https://github.com/emqtt/emq_auth_ldap)                | LDAP Authentication Plugin
+[emq_auth_jwt](https://github.com/emqtt/emq-auth-jwt)                  | JWT Authentication Plugin
 [emq_web_hook](https://github.com/emqtt/emq-web-hook)                  | Web Hook Plugin
 [emq_lua_hook](https://github.com/emqtt/emq-lua-hook)                  | Lua Hook Plugin
 [emq_sn](https://github.com/emqtt/emq_sn)                              | MQTT-SN Protocol Plugin
 [emq_coap](https://github.com/emqtt/emq_coap)                          | CoAP Protocol Plugin
 [emq_stomp](https://github.com/emqtt/emq_stomp)                        | Stomp Protocol Plugin
+[emq_lwm2m](https://github.com/emqtt/emq-lwm2m)                        | LWM2M Prototol Plugin
 [emq_recon](https://github.com/emqtt/emq_recon)                        | Recon Plugin
 [emq_reloader](https://github.com/emqtt/emq_reloader)                  | Reloader Plugin
 [emq_sockjs](https://github.com/emqtt/emq_sockjs)                      | SockJS(Stomp) Plugin

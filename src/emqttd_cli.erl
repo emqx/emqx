@@ -111,16 +111,18 @@ broker(_) ->
 %% @doc Cluster with other nodes
 
 cluster(["join", SNode]) ->
-    case emqttd_cluster:join(emqttd_node:parse_name(SNode)) of
+    case ekka:join(ekka_node:parse_name(SNode)) of
         ok ->
             ?PRINT_MSG("Join the cluster successfully.~n"),
             cluster(["status"]);
+        ignore ->
+            ?PRINT_MSG("Ignore.~n");
         {error, Error} ->
             ?PRINT("Failed to join the cluster: ~p~n", [Error])
     end;
 
 cluster(["leave"]) ->
-    case emqttd_cluster:leave() of
+    case ekka:leave() of
         ok ->
             ?PRINT_MSG("Leave the cluster successfully.~n"),
             cluster(["status"]);
@@ -128,23 +130,25 @@ cluster(["leave"]) ->
             ?PRINT("Failed to leave the cluster: ~p~n", [Error])
     end;
 
-cluster(["remove", SNode]) ->
-    case emqttd_cluster:remove(emqttd_node:parse_name(SNode)) of
+cluster(["force-leave", SNode]) ->
+    case ekka:force_leave(ekka_node:parse_name(SNode)) of
         ok ->
             ?PRINT_MSG("Remove the node from cluster successfully.~n"),
             cluster(["status"]);
+        ignore ->
+            ?PRINT_MSG("Ignore.~n");
         {error, Error} ->
             ?PRINT("Failed to remove the node from cluster: ~p~n", [Error])
     end;
 
 cluster(["status"]) ->
-    ?PRINT("Cluster status: ~p~n", [emqttd_cluster:status()]);
+    ?PRINT("Cluster status: ~p~n", [ekka_cluster:status()]);
 
 cluster(_) ->
-    ?USAGE([{"cluster join <Node>",  "Join the cluster"},
-            {"cluster leave",        "Leave the cluster"},
-            {"cluster remove <Node>","Remove the node from cluster"},
-            {"cluster status",       "Cluster status"}]).
+    ?USAGE([{"cluster join <Node>",       "Join the cluster"},
+            {"cluster leave",             "Leave the cluster"},
+            {"cluster force-leave <Node>","Force the node leave from cluster"},
+            {"cluster status",            "Cluster status"}]).
 
 %%--------------------------------------------------------------------
 %% @doc Users usage
@@ -249,8 +253,6 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
            case emqttd:subscribe(bin(Topic), bin(ClientId), [{qos, IntQos}]) of
                ok ->
                    ?PRINT_MSG("ok~n");
-               {error, already_existed} ->
-                   ?PRINT_MSG("Error: already existed~n");
                {error, Reason} ->
                    ?PRINT("Error: ~p~n", [Reason])
            end
@@ -477,8 +479,34 @@ listeners([]) ->
                         end, Info)
             end, esockd:listeners());
 
+listeners(["restart", Proto, ListenOn]) ->
+    ListenOn1 = case string:tokens(ListenOn, ":") of
+        [Port]     -> list_to_integer(Port);
+        [IP, Port] -> {IP, list_to_integer(Port)}
+    end,
+    case emqttd_app:restart_listener({list_to_atom(Proto), ListenOn1, []}) of
+        {ok, _Pid} ->
+            io:format("Restart ~s listener on ~s successfully.~n", [Proto, ListenOn]);
+        {error, Error} ->
+            io:format("Failed to restart ~s listener on ~s, error:~p~n", [Proto, ListenOn, Error])
+    end;
+
+listeners(["stop", Proto, ListenOn]) ->
+    ListenOn1 = case string:tokens(ListenOn, ":") of
+        [Port]     -> list_to_integer(Port);
+        [IP, Port] -> {IP, list_to_integer(Port)}
+    end,
+    case emqttd_app:stop_listener({list_to_atom(Proto), ListenOn1, []}) of
+        ok ->
+            io:format("Stop ~s listener on ~s successfully.~n", [Proto, ListenOn]);
+        {error, Error} ->
+            io:format("Failed to stop ~s listener on ~s, error:~p~n", [Proto, ListenOn, Error])
+    end;
+
 listeners(_) ->
-    ?PRINT_CMD("listeners", "List listeners").
+    ?USAGE([{"listeners",                        "List listeners"},
+            {"listeners restart <Proto> <Port>", "Restart a listener"},
+            {"listeners stop    <Proto> <Port>", "Stop a listener"}]).
 
 %%--------------------------------------------------------------------
 %% Dump ETS

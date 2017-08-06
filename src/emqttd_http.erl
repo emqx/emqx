@@ -70,7 +70,7 @@ handle_request(Method, Path, Req) ->
 
 http_publish(Req) ->
     Params = [{iolist_to_binary(Key), Val} || {Key, Val} <- mochiweb_request:parse_post(Req)],
-    lager:info("HTTP Publish: ~p", [Params]),
+    lager:debug("HTTP Publish: ~p", [Params]),
     Topics   = topics(Params),
     ClientId = get_value(<<"client">>, Params, http),
     Qos      = int(get_value(<<"qos">>, Params, "0")),

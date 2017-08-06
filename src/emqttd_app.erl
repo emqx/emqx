@@ -27,26 +27,24 @@
 %% Application callbacks
 -export([start/2, stop/1]).
 
--export([start_listener/1, stop_listener/1]).
+-export([start_listener/1, stop_listener/1, restart_listener/1]).
 
 -type(listener() :: {atom(), esockd:listen_on(), [esockd:option()]}).
 
 -define(APP, emqttd).
 
 %%--------------------------------------------------------------------
-%% Application callbacks
+%% Application Callbacks
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
     print_banner(),
-    emqttd_mnesia:start(),
+    ekka:start(),
     {ok, Sup} = emqttd_sup:start_link(),
     start_servers(Sup),
     emqttd_cli:load(),
     register_acl_mod(),
-    emqttd_plugins:init(),
-    emqttd_plugins:load(),
-    start_listeners(),
+    start_autocluster(),
     register(emqttd, self()),
     print_vsn(),
     {ok, Sup}.
@@ -147,6 +145,20 @@ register_acl_mod() ->
     end.
 
 %%--------------------------------------------------------------------
+%% Autocluster
+%%--------------------------------------------------------------------
+
+start_autocluster() ->
+    ekka:callback(prepare, fun emqttd:shutdown/1),
+    ekka:callback(reboot,  fun emqttd:reboot/0),
+    ekka:autocluster(?APP, fun after_autocluster/0).
+
+after_autocluster() ->
+    emqttd_plugins:init(),
+    emqttd_plugins:load(),
+    start_listeners().
+
+%%--------------------------------------------------------------------
 %% Start Listeners
 %%--------------------------------------------------------------------
 
@@ -204,6 +216,21 @@ stop_listener({Proto, ListenOn, _Opts}) when Proto == api ->
     mochiweb:stop_http('mqtt:api', ListenOn);
 stop_listener({Proto, ListenOn, _Opts}) ->
     esockd:close(Proto, ListenOn).
+
+%% @doc Restart Listeners
+restart_listener({tcp, ListenOn, _Opts}) ->
+    esockd:reopen('mqtt:tcp', ListenOn);
+restart_listener({ssl, ListenOn, _Opts}) ->
+    esockd:reopen('mqtt:ssl', ListenOn);
+restart_listener({Proto, ListenOn, _Opts}) when Proto == http; Proto == ws ->
+    mochiweb:restart_http('mqtt:ws', ListenOn);
+restart_listener({Proto, ListenOn, _Opts}) when Proto == https; Proto == wss ->
+    mochiweb:restart_http('mqtt:wss', ListenOn);
+restart_listener({Proto, ListenOn, _Opts}) when Proto == api ->
+    mochiweb:restart_http('mqtt:api', ListenOn);
+restart_listener({Proto, ListenOn, _Opts}) ->
+    esockd:reopen(Proto, ListenOn).
+
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

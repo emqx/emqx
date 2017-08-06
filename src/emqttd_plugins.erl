@@ -156,8 +156,8 @@ load_app(App) ->
 start_app(App, SuccFun) ->
     case application:ensure_all_started(App) of
         {ok, Started} ->
-            lager:info("started Apps: ~p", [Started]),
-            lager:info("load plugin ~p successfully", [App]),
+            lager:info("Started Apps: ~p", [Started]),
+            lager:info("Load plugin ~p successfully", [App]),
             SuccFun(App),
             {ok, Started};
         {error, {ErrApp, Reason}} ->
@@ -196,11 +196,11 @@ unload_plugin(App, Persistent) ->
 stop_app(App) ->
     case application:stop(App) of
         ok ->
-            lager:info("stop plugin ~p successfully~n", [App]), ok;
+            lager:info("Stop plugin ~p successfully~n", [App]), ok;
         {error, {not_started, App}} ->
-            lager:error("plugin ~p is not started~n", [App]), ok;
+            lager:error("Plugin ~p is not started~n", [App]), ok;
         {error, Reason} ->
-            lager:error("stop plugin ~p error: ~p", [App]), {error, Reason}
+            lager:error("Stop plugin ~p error: ~p", [App]), {error, Reason}
     end.
 
 %%--------------------------------------------------------------------
