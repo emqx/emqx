@@ -474,9 +474,16 @@ end}.
   {datatype, bytesize}
 ]}.
 
+%% @doc Keepalive backoff
+{mapping, "mqtt.keepalive_backoff", "emqttd.protocol", [
+  {default, 1.25},
+  {datatype, float}
+]}.
+
 {translation, "emqttd.protocol", fun(Conf) ->
   [{max_clientid_len, cuttlefish:conf_get("mqtt.max_clientid_len", Conf)},
-   {max_packet_size,  cuttlefish:conf_get("mqtt.max_packet_size", Conf)}]
+   {max_packet_size, cuttlefish:conf_get("mqtt.max_packet_size", Conf)},
+   {keepalive_backoff, cuttlefish:conf_get("mqtt.keepalive_backoff", Conf)}]
 end}.
 
 {mapping, "mqtt.websocket_protocol_header", "emqttd.websocket_protocol_header", [
