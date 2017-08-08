@@ -155,6 +155,13 @@ handle_cast(Msg, State) ->
     ?WSLOG(error, "Unexpected Msg: ~p", [Msg], State),
     {noreply, State, hibernate}.
 
+
+handle_info({inet_reply, _Sock, ok}, State) ->
+    {noreply, gc(State)}; %% Tune GC
+
+handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
+    shutdown(Reason, State);
+
 handle_info({subscribe, TopicTable}, State) ->
     with_proto(
       fun(ProtoState) ->
@@ -195,6 +202,10 @@ handle_info(timeout, State) ->
 handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
     ?WSLOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid], State),
     shutdown(conflict, State);
+
+handle_info({shutdown, client_tcp_window_full}, State) ->
+    ?WSLOG(warning, "ws client's tcp windows is full and unable to handle data", [], State),
+    shutdown(client_tcp_window_full, State);
 
 handle_info({keepalive, start, Interval}, State = #wsclient_state{connection = Conn}) ->
     ?WSLOG(debug, "Keepalive at the interval of ~p", [Interval], State),
@@ -257,7 +268,7 @@ send_fun(ReplyChannel) ->
     fun(Packet) ->
         Data = emqttd_serializer:serialize(Packet),
         emqttd_metrics:inc('bytes/sent', iolist_size(Data)),
-        ReplyChannel({binary, Data})
+        (ReplyChannel({binary, Data}) =:= false) andalso (self() ! {shutdown, client_tcp_window_full})
     end.
 
 stat_fun(Conn) ->
