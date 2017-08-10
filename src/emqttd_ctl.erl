@@ -68,6 +68,12 @@ run([]) -> usage(), ok;
 
 run(["help"]) -> usage(), ok;
 
+run(["set" | _] = CmdS) ->
+    emqttd_cli_config:run(["config" | CmdS]), ok;
+
+run(["show" | _] = CmdS) ->
+    emqttd_cli_config:run(["config" | CmdS]), ok;
+
 run([CmdS|Args]) ->
     case lookup(list_to_atom(CmdS)) of
         [{Mod, Fun}] ->
