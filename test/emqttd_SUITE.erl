@@ -36,6 +36,24 @@
                           {cacertfile, "certs/cacert.pem"},
                           {certfile, "certs/client-cert.pem"}]).
 
+-define(URL, "http://localhost:8080/api/v2/").
+
+-define(APPL_JSON, "application/json").
+
+-define(PRINT(PATH), lists:flatten(io_lib:format(PATH, [atom_to_list(node())]))).
+
+-define(GET_API, ["management/nodes",
+                  ?PRINT("management/nodes/~s"),
+                  "monitoring/nodes",
+                  ?PRINT("monitoring/nodes/~s"),
+                  "monitoring/listeners",
+                  ?PRINT("monitoring/listeners/~s"),
+                  "monitoring/metrics",
+                  ?PRINT("monitoring/metrics/~s"),
+                  "monitoring/stats",
+                  ?PRINT("monitoring/stats/~s"),
+                  ?PRINT("nodes/~s/clients"),
+                  "routes"]).
 
 all() ->
     [{group, protocol},
@@ -49,6 +67,7 @@ all() ->
      {group, http},
      {group, alarms},
      {group, cli},
+     {group, get_api},
      {group, cleanSession}].
 
 groups() ->
@@ -103,13 +122,14 @@ groups() ->
          ]},
        cli_vm]},
     {cleanSession, [sequence],
-      [cleanSession_validate
-       ]}].
+      [cleanSession_validate]},
+    {get_api, [sequence], [get_api_lists]}].
 
 init_per_suite(Config) ->
     NewConfig = generate_config(),
     lists:foreach(fun set_app_env/1, NewConfig),
     application:ensure_all_started(?APP),
+    timer:sleep(6000),
     Config.
 
 end_per_suite(_Config) ->
@@ -137,6 +157,7 @@ mqtt_ssl_oneway(_) ->
     emqttd:stop(),
     change_opts(ssl_oneway),
     emqttd:start(),
+    timer:sleep(6000),
     {ok, SslOneWay} = emqttc:start_link([{host, "localhost"},
                                          {port, 8883},
                                          {client_id, <<"ssloneway">>}, ssl]),
@@ -158,6 +179,7 @@ mqtt_ssl_twoway(_) ->
     emqttd:stop(),
     change_opts(ssl_twoway),
     emqttd:start(),
+    timer:sleep(6000),
     ClientSSl = [{Key, local_path(["etc", File])} ||
                  {Key, File} <- ?MQTT_SSL_CLIENT],
     {ok, SslTwoWay} = emqttc:start_link([{host, "localhost"},
@@ -593,6 +615,9 @@ cleanSession_validate(_) ->
     emqttc:disconnect(Pub),
     emqttc:disconnect(C11).
 
+get_api_lists(_Config) ->
+    lists:foreach(fun request/1, ?GET_API).
+
 change_opts(SslType) ->
     {ok, Listeners} = application:get_env(?APP, listeners),
     NewListeners =
@@ -646,3 +671,34 @@ set_app_env({App, Lists}) ->
     lists:foreach(fun({Par, Var}) ->
                   application:set_env(App, Par, Var)
                   end, Lists).
+
+request(Path) ->
+    http_get(get, Path).
+
+http_get(Method, Path) ->
+    req(Method, Path, []).
+
+http_put(Method, Path, Params) ->
+    req(Method, Path, format_for_upload(Params)).
+
+http_post(Method, Path, Params) ->
+    req(Method, Path, format_for_upload(Params)).
+
+req(Method, Path, Body) ->
+   Url = ?URL ++ Path,
+   Headers = auth_header_("", ""),
+   case httpc:request(Method, {Url, [Headers]}, [], []) of
+   {error, socket_closed_remotely} ->
+       false;
+   {ok, {{"HTTP/1.1", 200, "OK"}, _, _Return} }  ->
+       true;
+   {ok, {{"HTTP/1.1", 400, _}, _, []}} ->
+       false;
+    {ok, {{"HTTP/1.1", 404, _}, _, []}} ->
+        false
+    end.
+
+format_for_upload(none) ->
+    <<"">>;
+format_for_upload(List) ->
+    iolist_to_binary(mochijson2:encode(List)).
