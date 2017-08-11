@@ -26,7 +26,7 @@
 
 -define(APP, emqttd).
 
--define(CONTENT_TYPE, "application/x-www-form-urlencoded").
+-define(CONTENT_TYPE, "application/json").
 
 -define(MQTT_SSL_TWOWAY, [{cacertfile, "certs/cacert.pem"},
                           {verify, verify_peer},
@@ -449,13 +449,21 @@ request_status(_) ->
     ?assertEqual(binary_to_list(Status), Return).
 
 request_publish(_) ->
+    emqttc:start_link([{host, "localhost"},
+                       {port, 1883},
+                       {client_id, <<"random">>},
+                       {clean_sess, false}]),
+    SubParams = "{\"qos\":1, \"topic\" : \"a\/b\/c\", \"client_id\" :\"random\"}",
+    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/subscribe", SubParams, auth_header_("", ""))),
     ok = emqttd:subscribe(<<"a/b/c">>, self(), [{qos, 1}]),
-    Params = "qos=1&retain=0&topic=a/b/c&message=hello",
-    ?assert(connect_emqttd_publish_(post, "mqtt/publish", Params, auth_header_("", ""))),
+    Params = "{\"qos\":1, \"retain\":false, \"topic\" : \"a\/b\/c\", \"messages\" :\"hello\"}",
+    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/publish", Params, auth_header_("", ""))),
     ?assert(receive {dispatch, <<"a/b/c">>, _} -> true after 2 -> false end),
-    emqttd:unsubscribe(<<"a/b/c">>).
 
-connect_emqttd_publish_(Method, Api, Params, Auth) ->
+    UnSubParams = "{\"topic\" : \"a\/b\/c\", \"client_id\" :\"random\"}",
+    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/unsubscribe", UnSubParams, auth_header_("", ""))).
+
+connect_emqttd_pubsub_(Method, Api, Params, Auth) ->
     Url = "http://127.0.0.1:8080/" ++ Api,
     case httpc:request(Method, {Url, [Auth], ?CONTENT_TYPE, Params}, [], []) of
     {error, socket_closed_remotely} ->
