@@ -21,9 +21,10 @@
 -define(APP, emqttd).
 
 register_config() ->
-  F = fun() -> ekka_mnesia:running_nodes() end,
-  clique:register_node_finder(F),
-  emqttd_cli_config:register_config_cli().
+    application:start(clique),
+    F = fun() -> ekka_mnesia:running_nodes() end,
+    clique:register_node_finder(F),
+    register_config_cli().
 
 run(Cmd) ->
     clique:run(Cmd).
