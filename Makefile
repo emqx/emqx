@@ -14,7 +14,7 @@ dep_mochiweb     = git https://github.com/emqtt/mochiweb master
 dep_pbkdf2       = git https://github.com/emqtt/pbkdf2 2.0.1
 dep_lager_syslog = git https://github.com/basho/lager_syslog
 dep_bcrypt       = git https://github.com/smarkets/erlang-bcrypt master
-dep_clique       = git https://github.com/turtleDeng/clique
+dep_clique       = git https://github.com/emqtt/clique
 dep_jsx           = git https://github.com/talentdeficit/jsx
 
 ERLC_OPTS += +debug_info
