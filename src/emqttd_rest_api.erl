@@ -217,11 +217,11 @@ subscription_row({{Topic, ClientId}, Option}) ->
 %%--------------------------------------------------------------------------
 nodes('GET', _Params) ->
     Data = emqttd_mgmt:nodes_info(),
-    {ok, format_broker(Data)}.
+    {ok, Data}.
 
 node('GET', _Params, Node) ->
     Data = emqttd_mgmt:node_info(l2a(Node)),
-    {ok, format_broker(Data)}.
+    {ok, Data}.
 
 brokers('GET', _Params) ->
     Data = emqttd_mgmt:brokers(),
