@@ -66,7 +66,7 @@
                         [esockd_net:format(State#client_state.peername) | Args])).
 
 start_link(Conn, Env) ->
-    {ok, proc_lib:spawn_opt(?MODULE, init, [[Conn, Env]], [link | ?FULLSWEEP_OPTS])}.
+    {ok, proc_lib:spawn_link(?MODULE, init, [[Conn, Env]])}.
 
 info(CPid) ->
     gen_server2:call(CPid, info).

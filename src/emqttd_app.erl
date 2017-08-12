@@ -184,7 +184,7 @@ start_listener({Proto, ListenOn, Opts}) when Proto == https; Proto == wss ->
     mochiweb:start_http('mqtt:wss', ListenOn, Opts, {emqttd_ws, handle_request, []});
 
 start_listener({Proto, ListenOn, Opts}) when Proto == api ->
-    mochiweb:start_http('mqtt:api', ListenOn, Opts, {emqttd_http, handle_request, []}).
+    mochiweb:start_http('mqtt:api', ListenOn, Opts, emqttd_http:http_handler()).
 
 start_listener(Proto, ListenOn, Opts) ->
     Env = lists:append(emqttd:env(client, []), emqttd:env(protocol, [])),

@@ -174,8 +174,7 @@
 %% @doc Start a Session
 -spec(start_link(boolean(), {mqtt_client_id(), mqtt_username()}, pid()) -> {ok, pid()} | {error, any()}).
 start_link(CleanSess, {ClientId, Username}, ClientPid) ->
-    gen_server2:start_link(?MODULE, [CleanSess, {ClientId, Username}, ClientPid],
-                           [{spawn_opt, ?FULLSWEEP_OPTS}]). %% Tune GC.
+    gen_server2:start_link(?MODULE, [CleanSess, {ClientId, Username}, ClientPid], []).
 
 %%--------------------------------------------------------------------
 %% PubSub API
@@ -183,7 +182,7 @@ start_link(CleanSess, {ClientId, Username}, ClientPid) ->
 
 %% @doc Subscribe topics
 -spec(subscribe(pid(), [{binary(), [emqttd_topic:option()]}]) -> ok).
-subscribe(Session, TopicTable) ->%%TODO: the ack function??...
+subscribe(Session, TopicTable) -> %%TODO: the ack function??...
     gen_server2:cast(Session, {subscribe, self(), TopicTable, fun(_) -> ok end}).
 
 -spec(subscribe(pid(), mqtt_packet_id(), [{binary(), [emqttd_topic:option()]}]) -> ok).
