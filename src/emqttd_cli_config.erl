@@ -49,6 +49,7 @@ register_config_cli() ->
 %%--------------------------------------------------------------------
 %% Auth/Acl
 %%--------------------------------------------------------------------
+
 register_auth_config() ->
     ConfigKeys = ["mqtt.allow_anonymous",
                   "mqtt.acl_nomatch",
@@ -58,17 +59,17 @@ register_auth_config() ->
     ok = register_config_whitelist(ConfigKeys).
 
 auth_config_callback([_, KeyStr], Value) ->
-    application:set_env(?APP, l2a(KeyStr), Value),
-    " successfully\n".
+    application:set_env(?APP, l2a(KeyStr), Value), " successfully\n".
     
 %%--------------------------------------------------------------------
 %% MQTT Protocol
 %%--------------------------------------------------------------------
+
 register_protocol_formatter() ->
     ConfigKeys = ["max_clientid_len", 
-                   "max_packet_size",
-                   "websocket_protocol_header",
-                   "keepalive_backoff"],
+                  "max_packet_size",
+                  "websocket_protocol_header",
+                  "keepalive_backoff"],
     [clique:register_formatter(["mqtt", Key], fun protocol_formatter_callback/2) || Key <- ConfigKeys].
 
 protocol_formatter_callback([_, Key], Params) ->
@@ -92,6 +93,7 @@ protocol_config_callback(App, Key, Value) ->
 %%--------------------------------------------------------------------
 %% MQTT Connection
 %%--------------------------------------------------------------------
+
 register_connection_config() ->
     ConfigKeys = ["mqtt.conn.force_gc_count"],
     [clique:register_config(Key , fun connection_config_callback/2) || Key <- ConfigKeys],
@@ -105,10 +107,11 @@ connection_config_callback([_, KeyStr0, KeyStr1], Value) ->
 %%--------------------------------------------------------------------
 %% MQTT Client
 %%--------------------------------------------------------------------
+
 register_client_formatter() ->
     ConfigKeys = ["max_publish_rate", 
-                   "idle_timeout",
-                   "enable_stats"],
+                  "idle_timeout",
+                  "enable_stats"],
     [clique:register_formatter(["mqtt", "client", Key], fun client_formatter_callback/2) || Key <- ConfigKeys].
 
 client_formatter_callback([_, _, Key], Params) ->
@@ -131,16 +134,17 @@ client_config_callback(App, Key, Value) ->
 %%--------------------------------------------------------------------
 %% session
 %%--------------------------------------------------------------------
+
 register_session_formatter() ->
     ConfigKeys = ["max_subscriptions", 
-                   "upgrade_qos",
-                   "max_inflight",
-                   "retry_interval",
-                   "max_awaiting_rel",
-                   "await_rel_timeout",
-                   "enable_stats",
-                   "expiry_interval",
-                   "ignore_loop_deliver"],
+                  "upgrade_qos",
+                  "max_inflight",
+                  "retry_interval",
+                  "max_awaiting_rel",
+                  "await_rel_timeout",
+                  "enable_stats",
+                  "expiry_interval",
+                  "ignore_loop_deliver"],
     [clique:register_formatter(["mqtt", "session", Key], fun session_formatter_callback/2) || Key <- ConfigKeys].
 
 session_formatter_callback([_, _, Key], Params) ->
@@ -171,13 +175,14 @@ l2a(List) -> list_to_atom(List).
 %%--------------------------------------------------------------------
 %% MQTT MQueue
 %%--------------------------------------------------------------------
+
 register_queue_formatter() ->
     ConfigKeys = ["type", 
-                   "priority",
-                   "max_length",
-                   "low_watermark",
-                   "high_watermark",
-                   "store_qos0"],
+                  "priority",
+                  "max_length",
+                  "low_watermark",
+                  "high_watermark",
+                  "store_qos0"],
     [clique:register_formatter(["mqtt", "mqueue", Key], fun queue_formatter_callback/2) || Key <- ConfigKeys].
 
 queue_formatter_callback([_, _, Key], Params) ->
@@ -203,6 +208,7 @@ queue_config_callback(App, Key, Value) ->
 %%--------------------------------------------------------------------
 %% MQTT Broker
 %%--------------------------------------------------------------------
+
 register_broker_config() ->
     ConfigKeys = ["mqtt.broker.sys_interval"],
     [clique:register_config(Key , fun broker_config_callback/2) || Key <- ConfigKeys],
@@ -216,6 +222,7 @@ broker_config_callback([_, KeyStr0, KeyStr1], Value) ->
 %%--------------------------------------------------------------------
 %% MQTT Lager
 %%--------------------------------------------------------------------
+
 register_lager_formatter() ->
     ConfigKeys = ["level"],
     [clique:register_formatter(["log", "console", Key], fun lager_formatter_callback/2) || Key <- ConfigKeys].
@@ -234,3 +241,4 @@ lager_config_callback(_, Value) ->
 
 register_config_whitelist(ConfigKeys) ->
   clique:register_config_whitelist(ConfigKeys, ?APP).
+
