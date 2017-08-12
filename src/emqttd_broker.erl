@@ -31,7 +31,7 @@
 -export([subscribe/1, notify/2]).
 
 %% Broker API
--export([version/0, uptime/0, datetime/0, sysdescr/0]).
+-export([version/0, uptime/0, datetime/0, sysdescr/0, info/0]).
 
 %% Tick API
 -export([start_tick/1, stop_tick/1]).
@@ -74,6 +74,14 @@ subscribe(EventType) ->
 -spec(notify(EventType :: any(), Event :: any()) -> ok).
 notify(EventType, Event) ->
      gproc:send({p, l, {broker, EventType}}, {notify, EventType, self(), Event}).
+
+%% @doc Get broker info
+-spec(info() -> list(tuple())).
+info() ->
+    [{version,  version()},
+     {sysdescr, sysdescr()},
+     {uptime,   uptime()},
+     {datetime, datetime()}].
 
 %% @doc Get broker version
 -spec(version() -> string()).

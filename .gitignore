@@ -31,3 +31,4 @@ data/
 _build
 .rebar3
 rebar3.crashdump
+.DS_Store
