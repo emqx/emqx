@@ -15,8 +15,6 @@ plugins/*/ebin
 log/
 *.swp
 *.so
-examples
-docs/build/*
 .erlang.mk/
 cover/
 emqttd.d
