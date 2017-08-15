@@ -25,6 +25,7 @@
 -http_api({"^nodes/(.+?)/clients/(.+?)/?$", 'GET',client_list, []}).
 -http_api({"^clients/(.+?)/?$", 'GET', client, []}).
 -http_api({"^kick_client/(.+?)/?$", 'PUT', kick_client, []}).
+-http_api({"^clean_acl_cache/(.+?)/?$", 'PUT', clean_acl_cache, [{<<"topic">>, binary}]}).
 
 -http_api({"^routes?$", 'GET', route_list, []}).
 -http_api({"^routes/(.+?)/?$", 'GET', route, []}).
@@ -56,7 +57,7 @@
 -http_api({"^nodes/(.+?)/plugins/(.+?)/?$", 'PUT', enabled, [{<<"active">>, bool}]}).
 
 -export([alarm_list/3]).
--export([client/3, client_list/3, client_list/4, kick_client/3]).
+-export([client/3, client_list/3, client_list/4, kick_client/3, clean_acl_cache/3]).
 -export([route/3, route_list/2]).
 -export([session/3, session_list/3, session_list/4]).
 -export([subscription/3, subscription_list/3, subscription_list/4]).
@@ -108,8 +109,15 @@ client_list('GET', Params, Node, Key) ->
 
 kick_client('PUT', _Params, Key) ->
     case emqttd_mgmt:kick_client(l2b(Key)) of
-        ok -> {ok, []};
-        error -> {error, [{code, ?ERROR12}]}
+        true  -> {ok, []};
+        false -> {error, [{code, ?ERROR12}]}
+    end.
+
+clean_acl_cache('PUT', Params, Key) ->
+    Topic = proplists:get_value(<<"topic">>, Params),
+    case emqttd_mgmt:clean_acl_cache(l2b(Key), Topic) of
+        true  -> {ok, []};
+        false -> {error, [{code, ?ERROR12}]}
     end.
 
 client_row(#mqtt_client{client_id = ClientId,

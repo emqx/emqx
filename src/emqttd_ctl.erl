@@ -71,6 +71,11 @@ run(["help"]) -> usage(), ok;
 run(["set" | _] = CmdS) ->
     emqttd_cli_config:run(["config" | CmdS]), ok;
 
+run(["showall"] = CmdS) ->
+    Cfgs = ets:tab2list(clique_config),
+    ?USAGE(),
+    ok;
+
 run(["show" | _] = CmdS) ->
     emqttd_cli_config:run(["config" | CmdS]), ok;
 

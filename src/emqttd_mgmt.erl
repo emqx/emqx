@@ -41,7 +41,7 @@
 
 -export([publish/1, subscribe/1, unsubscribe/1]).
 
--export([kick_client/1]).
+-export([kick_client/1, clean_acl_cache/2]).
 
 -define(KB, 1024).
 -define(MB, (1024*1024)).
@@ -289,10 +289,7 @@ unsubscribe({ClientId, Topic})->
 %%--------------------------------------------------------------------
 kick_client(ClientId) ->
     Result = [kick_client(Node, ClientId) || Node <- ekka_mnesia:running_nodes()],
-    case lists:any(fun(Item) -> Item =:= ok end, Result) of
-        true  -> {ok, [{status, success}]};
-        false -> {ok, [{status, failure}]}
-    end.
+    lists:any(fun(Item) -> Item =:= ok end, Result).
 
 kick_client(Node, ClientId) when Node =:= node() ->
     case emqttd_cm:lookup(ClientId) of
@@ -301,6 +298,19 @@ kick_client(Node, ClientId) when Node =:= node() ->
     end;
 kick_client(Node, ClientId) ->
     rpc_call(Node, kick_client, [Node, ClientId]).
+
+
+clean_acl_cache(ClientId, Topic) ->
+    Result = [clean_acl_cache(Node, ClientId, Topic) || Node <- ekka_mnesia:running_nodes()],
+    lists:any(fun(Item) -> Item =:= ok end, Result).
+
+clean_acl_cache(Node, ClientId, Topic) when Node =:= node() ->
+    case emqttd_cm:lookup(ClientId) of
+        undefined -> error;
+        #mqtt_client{client_pid = Pid}-> emqttd_client:clean_acl_cache(Pid, Topic)
+    end;
+clean_acl_cache(Node, ClientId, Topic) ->
+    rpc_call(Node, clean_acl_cache, [Node, ClientId, Topic]).
 
 %%--------------------------------------------------------------------
 %% Internel Functions.
