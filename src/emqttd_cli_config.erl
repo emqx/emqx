@@ -86,7 +86,6 @@ register_protocol_config() ->
 protocol_config_callback([_AppStr, KeyStr], Value) ->
     protocol_config_callback(protocol, l2a(KeyStr), Value).
 protocol_config_callback(App, websocket_protocol_header, Value) ->
-    {ok, Env} = emqttd:env(App),
     application:set_env(?APP, websocket_protocol_header, Value),
     " successfully\n";
 protocol_config_callback(App, Key, Value) ->
