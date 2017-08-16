@@ -85,6 +85,10 @@ register_protocol_config() ->
 
 protocol_config_callback([_AppStr, KeyStr], Value) ->
     protocol_config_callback(protocol, l2a(KeyStr), Value).
+protocol_config_callback(App, websocket_protocol_header, Value) ->
+    {ok, Env} = emqttd:env(App),
+    application:set_env(?APP, websocket_protocol_header, Value),
+    " successfully\n";
 protocol_config_callback(App, Key, Value) ->
     {ok, Env} = emqttd:env(App),
     application:set_env(?APP, App, lists:keyreplace(Key, 1, Env, {Key, Value})),
@@ -126,6 +130,15 @@ register_client_config() ->
 
 client_config_callback([_, AppStr, KeyStr], Value) ->
     client_config_callback(l2a(AppStr), l2a(KeyStr), Value).
+
+client_config_callback(App, idle_timeout, Value) ->
+    {ok, Env} = emqttd:env(App),
+    application:set_env(?APP, App, lists:keyreplace(client_idle_timeout, 1, Env, {client_idle_timeout, Value})),
+    " successfully\n";
+client_config_callback(App, enable_stats, Value) ->
+    {ok, Env} = emqttd:env(App),
+    application:set_env(?APP, App, lists:keyreplace(client_enable_stats, 1, Env, {client_enable_stats, Value})),
+    " successfully\n";
 client_config_callback(App, Key, Value) ->
     {ok, Env} = emqttd:env(App),
     application:set_env(?APP, App, lists:keyreplace(Key, 1, Env, {Key, Value})),
@@ -200,6 +213,23 @@ register_queue_config() ->
 
 queue_config_callback([_, AppStr, KeyStr], Value) ->
     queue_config_callback(l2a(AppStr), l2a(KeyStr), Value).
+
+queue_config_callback(App, low_watermark, Value) ->
+    {ok, Env} = emqttd:env(App),
+    Parse = fun(S) ->
+        {match, [N]} = re:run(S, "^([0-9]+)%$", [{capture, all_but_first, list}]),
+        list_to_integer(N) / 100
+    end,
+    application:set_env(?APP, App, lists:keyreplace(low_watermark, 1, Env, {low_watermark, Parse(Value)})),
+    " successfully\n";
+queue_config_callback(App, high_watermark, Value) ->
+    {ok, Env} = emqttd:env(App),
+    Parse = fun(S) ->
+        {match, [N]} = re:run(S, "^([0-9]+)%$", [{capture, all_but_first, list}]),
+        list_to_integer(N) / 100
+    end,
+    application:set_env(?APP, App, lists:keyreplace(high_watermark, 1, Env, {high_watermark, Parse(Value)})),
+    " successfully\n";
 queue_config_callback(App, Key, Value) ->
     {ok, Env} = emqttd:env(App),
     application:set_env(?APP, App, lists:keyreplace(Key, 1, Env, {Key, Value})),
