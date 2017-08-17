@@ -60,10 +60,10 @@ run_protocol_cmd(_Config) ->
 
 run_client_cmd(_Config) ->
     SetConfigKeys = [{"max_publish_rate=100", int},
-                     {"idle_timeout=300", int},
+                     {"idle_timeout=60s", date},
                      {"enable_stats=on", atom}],
     lists:foreach(fun(Key) -> set_cmd("client", Key) end, SetConfigKeys),
-    R = lists:sort(lists:map(fun env_value/1, SetConfigKeys)),
+    R = lists:sort(lists:map(fun(Key) -> env_value("client", Key) end, SetConfigKeys)),
     {ok, E} =  application:get_env(emqttd, client),
     ?assertEqual(R, lists:sort(E)).
 
@@ -71,11 +71,11 @@ run_session_cmd(_Config) ->
     SetConfigKeys = [{"max_subscriptions=5", int},
                      {"upgrade_qos=on", atom},
                      {"max_inflight=64", int},
-                     {"retry_interval=40000", int},
+                     {"retry_interval=60s", date},
                      {"max_awaiting_rel=200", int},
-                     {"await_rel_timeout=400000",int},
+                     {"await_rel_timeout=60s",date},
                      {"enable_stats=on", atom},
-                     {"expiry_interval=2", date},
+                     {"expiry_interval=60s", date},
                      {"ignore_loop_deliver=true", atom}],
     lists:foreach(fun(Key) -> set_cmd("session", Key) end, SetConfigKeys),
     R = lists:sort(lists:map(fun env_value/1, SetConfigKeys)),
@@ -84,7 +84,7 @@ run_session_cmd(_Config) ->
 
 run_queue_cmd(_Config) ->
     SetConfigKeys = [{"type=priority", atom},
-                     {"priority=hah", atom},
+                     {"priority=hah", string},
                      {"max_length=2000", int},
                      {"low_watermark=40%",percent},
                      {"high_watermark=80%", percent},
@@ -116,12 +116,20 @@ run_connection_cmd(_Config) ->
 
 run_broker_config(_Config) ->
     emqttd_cli_config:run(["config", "set", "mqtt.broker.sys_interval=10", "--app=emqttd"]),
-    {ok, E} =  application:get_env(emqttd, sys_interval),
+    {ok, E} =  application:get_env(emqttd, broker_sys_interval),
     ?assertEqual(10, E).
 
+env_value("client", {Key, Type}) ->
+    case string:split(Key, "=") of
+    ["max_publish_rate", V] ->
+        {list_to_atom("max_publish_rate"), format(Type, V)};
+    [K, V] ->
+        {list_to_atom(string:join(["client", K], "_")), format(Type, V)}
+    end.
+
 env_value({Key, Type}) ->
-     [K, V] = string:split(Key, "="),
-     {list_to_atom(K), format(Type, V)}.
+    [K, V] = string:split(Key, "="),
+    {list_to_atom(K), format(Type, V)}.
 
 format(string, S) -> S;
 format(atom, "on") -> true;
@@ -131,7 +139,8 @@ format(float, F) -> list_to_float(F);
 format(percent, P) ->
     {match, [N]} = re:run(P, "^([0-9]+)%$", [{capture, all_but_first, list}]),
     list_to_integer(N) / 100;
-format(int, I)    -> list_to_integer(I).
+format(int, I)    -> list_to_integer(I);
+format(date, _I)    -> 60000.
 
 set_cmd({Key, _Type}) ->
     emqttd_cli_config:run(["config", "set", string:join(["mqtt", Key], "."), "--app=emqttd"]).
