@@ -52,15 +52,21 @@ dump(_App, _Terms) ->
     %% TODO
     ok.
 
--spec(set(atom(), atom(), term()) -> ok).
+-spec(set(atom(), list(), list()) -> ok).
 set(App, Par, Val) ->
-    application:set_env(App, Par, Val).
+    emqttd_cli_config:run(["config",
+                            "set",
+                            lists:concat([Par, "=", Val]),
+                            lists:concat(["--app=", App])]).
 
--spec(get(atom(), atom()) -> undefined | {ok, term()}).
+-spec(get(atom(), list()) -> undefined | {ok, term()}).
 get(App, Par) ->
-    application:get_env(App, Par).
+    case emqttd_cli_config:get_cfg(App, Par) of
+        undefined -> undefined;
+        Val -> {ok, Val}
+    end.
 
--spec(get(atom(), atom(), atom()) -> term()).
+-spec(get(atom(), list(), atom()) -> term()).
 get(App, Par, Def) ->
-    application:get_env(App, Par, Def).
+    emqttd_cli_config:get_cfg(App, Par, Def).
 

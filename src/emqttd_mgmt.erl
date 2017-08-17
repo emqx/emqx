@@ -43,6 +43,8 @@
 
 -export([kick_client/1, clean_acl_cache/2]).
 
+-export([modify_config/3, modify_config/4, get_configs/0, get_config/1]).
+
 -define(KB, 1024).
 -define(MB, (1024*1024)).
 -define(GB, (1024*1024*1024)).
@@ -311,6 +313,26 @@ clean_acl_cache(Node, ClientId, Topic) when Node =:= node() ->
     end;
 clean_acl_cache(Node, ClientId, Topic) ->
     rpc_call(Node, clean_acl_cache, [Node, ClientId, Topic]).
+
+%%--------------------------------------------------------------------
+%% Config ENV
+%%--------------------------------------------------------------------
+modify_config(App, Key, Value) ->
+    Result = [modify_config(Node, App, Key, Value) || Node <- ekka_mnesia:running_nodes()],
+    lists:any(fun(Item) -> Item =:= ok end, Result).
+
+modify_config(Node, App, Key, Value) when Node =:= node() ->
+    emqttd_config:set(App, Key, Value);
+modify_config(Node, App, Key, Value) ->
+    rpc_call(Node, modify_config, [Node, App, Key, Value]).
+
+get_configs() ->
+    [{Node, get_config(Node)} || Node <- ekka_mnesia:running_nodes()].
+
+get_config(Node) when Node =:= node()->
+    emqttd_cli_config:all_cfgs();
+get_config(Node) ->
+    rpc_call(Node, get_config, [Node]).
 
 %%--------------------------------------------------------------------
 %% Internel Functions.
