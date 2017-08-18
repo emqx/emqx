@@ -340,5 +340,3 @@ any_to_string(B) when is_binary(B) ->
     binary_to_list(B);
 any_to_string(L)  when is_list(L) ->
     L.
-
-

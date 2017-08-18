@@ -24,7 +24,7 @@
 -http_api({"^nodes/(.+?)/clients/?$", 'GET', client_list, []}).
 -http_api({"^nodes/(.+?)/clients/(.+?)/?$", 'GET',client_list, []}).
 -http_api({"^clients/(.+?)/?$", 'GET', client, []}).
--http_api({"^kick_client/(.+?)/?$", 'PUT', kick_client, []}).
+-http_api({"^clients/(.+?)/?$", 'DELETE', kick_client, []}).
 -http_api({"^clean_acl_cache/(.+?)/?$", 'PUT', clean_acl_cache, [{<<"topic">>, binary}]}).
 
 -http_api({"^routes?$", 'GET', route_list, []}).
@@ -112,7 +112,7 @@ client_list('GET', Params, Node, Key) ->
     Data = emqttd_mgmt:client_list(l2a(Node), l2b(Key), PageNo, PageSize),
     {ok, [{objects, [client_row(Row) || Row <- Data]}]}.
 
-kick_client('PUT', _Params, Key) ->
+kick_client('DELETE', _Params, Key) ->
     case emqttd_mgmt:kick_client(l2b(Key)) of
         true  -> {ok, []};
         false -> {error, [{code, ?ERROR12}]}
