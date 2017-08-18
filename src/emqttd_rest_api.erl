@@ -56,10 +56,10 @@
 -http_api({"^nodes/(.+?)/plugins/?$", 'GET', plugin_list, []}).
 -http_api({"^nodes/(.+?)/plugins/(.+?)/?$", 'PUT', enabled, [{<<"active">>, bool}]}).
 
--http_api({"^config/(.+?)/?$", 'PUT', modify_config, [{<<"key">>, binary}, {<<"value">>, binary}]}).
--http_api({"^config/?$", 'GET', config_list, []}).
--http_api({"^nodes/(.+?)/config/(.+?)/?$", 'PUT', modify_config, [{<<"key">>, binary}, {<<"value">>, binary}]}).
--http_api({"^nodes/(.+?)/config/?$", 'GET', config_list, []}).
+-http_api({"^configs/(.+?)/?$", 'PUT', modify_config, [{<<"key">>, binary}, {<<"value">>, binary}]}).
+-http_api({"^configs/?$", 'GET', config_list, []}).
+-http_api({"^nodes/(.+?)/configs/(.+?)/?$", 'PUT', modify_config, [{<<"key">>, binary}, {<<"value">>, binary}]}).
+-http_api({"^nodes/(.+?)/configs/?$", 'GET', config_list, []}).
 -export([alarm_list/3]).
 -export([client/3, client_list/3, client_list/4, kick_client/3, clean_acl_cache/3]).
 -export([route/3, route_list/2]).
@@ -393,7 +393,7 @@ config_list('GET', _Params) ->
 
 config_list('GET', _Params, Node) ->
     Data = emqttd_mgmt:get_config(l2a(Node)),
-    {ok, [format_config(Config) || Config <- Data]}.
+    {ok, [format_config(Config) || Config <- lists:reverse(Data)]}.
 
 format_config([], Acc) ->
     Acc;
