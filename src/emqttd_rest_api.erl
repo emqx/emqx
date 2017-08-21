@@ -24,7 +24,8 @@
 -http_api({"^nodes/(.+?)/clients/?$", 'GET', client_list, []}).
 -http_api({"^nodes/(.+?)/clients/(.+?)/?$", 'GET',client_list, []}).
 -http_api({"^clients/(.+?)/?$", 'GET', client, []}).
--http_api({"^kick_client/(.+?)/?$", 'PUT', kick_client, []}).
+-http_api({"^clients/(.+?)/?$", 'DELETE', kick_client, []}).
+-http_api({"^clean_acl_cache/(.+?)/?$", 'DELETE', clean_acl_cache, [{<<"topic">>, binary}]}).
 
 -http_api({"^routes?$", 'GET', route_list, []}).
 -http_api({"^routes/(.+?)/?$", 'GET', route, []}).
@@ -55,14 +56,19 @@
 -http_api({"^nodes/(.+?)/plugins/?$", 'GET', plugin_list, []}).
 -http_api({"^nodes/(.+?)/plugins/(.+?)/?$", 'PUT', enabled, [{<<"active">>, bool}]}).
 
+-http_api({"^configs/(.+?)/?$", 'PUT', modify_config, [{<<"key">>, binary}, {<<"value">>, binary}]}).
+-http_api({"^configs/?$", 'GET', config_list, []}).
+-http_api({"^nodes/(.+?)/configs/(.+?)/?$", 'PUT', modify_config, [{<<"key">>, binary}, {<<"value">>, binary}]}).
+-http_api({"^nodes/(.+?)/configs/?$", 'GET', config_list, []}).
 -export([alarm_list/3]).
--export([client/3, client_list/3, client_list/4, kick_client/3]).
+-export([client/3, client_list/3, client_list/4, kick_client/3, clean_acl_cache/3]).
 -export([route/3, route_list/2]).
 -export([session/3, session_list/3, session_list/4]).
 -export([subscription/3, subscription_list/3, subscription_list/4]).
 -export([nodes/2, node/3, brokers/2, broker/3, listeners/2, listener/3, metrics/2, metric/3, stats/2, stat/3]).
 -export([publish/2, subscribe/2, unsubscribe/2]).
 -export([plugin_list/3, enabled/4]).
+-export([modify_config/3, modify_config/4, config_list/2, config_list/3]).
 
 %%--------------------------------------------------------------------------
 %% alarm
@@ -106,10 +112,17 @@ client_list('GET', Params, Node, Key) ->
     Data = emqttd_mgmt:client_list(l2a(Node), l2b(Key), PageNo, PageSize),
     {ok, [{objects, [client_row(Row) || Row <- Data]}]}.
 
-kick_client('PUT', _Params, Key) ->
+kick_client('DELETE', _Params, Key) ->
     case emqttd_mgmt:kick_client(l2b(Key)) of
-        ok -> {ok, []};
-        error -> {error, [{code, ?ERROR12}]}
+        true  -> {ok, []};
+        false -> {error, [{code, ?ERROR12}]}
+    end.
+
+clean_acl_cache('PUT', Params, Key) ->
+    Topic = proplists:get_value(<<"topic">>, Params),
+    case emqttd_mgmt:clean_acl_cache(l2b(Key), Topic) of
+        true  -> {ok, []};
+        false -> {error, [{code, ?ERROR12}]}
     end.
 
 client_row(#mqtt_client{client_id = ClientId,
@@ -356,6 +369,44 @@ plugin(#mqtt_plugin{name = Name, version = Ver, descr = Descr,
      {active, Active}].
 
 %%--------------------------------------------------------------------------
+%% modify config
+%%--------------------------------------------------------------------------
+modify_config('PUT', Params, App) ->
+    Key   = proplists:get_value(<<"key">>, Params, <<"">>),
+    Value = proplists:get_value(<<"value">>, Params, <<"">>),
+    case emqttd_mgmt:modify_config(l2a(App), b2l(Key), b2l(Value)) of
+        true  -> {ok, []};
+        false -> {error, [{code, ?ERROR13}]}
+    end.
+
+modify_config('PUT', Params, Node, App) ->
+    Key   = proplists:get_value(<<"key">>, Params, <<"">>),
+    Value = proplists:get_value(<<"value">>, Params, <<"">>),
+    case emqttd_mgmt:modify_config(l2a(Node), l2a(App), b2l(Key), b2l(Value)) of
+        ok  -> {ok, []};
+        _ -> {error, [{code, ?ERROR13}]}
+    end.
+
+config_list('GET', _Params) ->
+    Data = emqttd_mgmt:get_configs(),
+    {ok, [{Node, format_config(Config, [])} || {Node, Config} <- Data]}.
+
+config_list('GET', _Params, Node) ->
+    Data = emqttd_mgmt:get_config(l2a(Node)),
+    {ok, [format_config(Config) || Config <- lists:reverse(Data)]}.
+
+format_config([], Acc) ->
+    Acc;
+format_config([{Key, Value, Datatpye, App}| Configs], Acc) ->
+    format_config(Configs, [format_config({Key, Value, Datatpye, App}) | Acc]).
+
+format_config({Key, Value, Datatpye, App}) ->
+    [{<<"key">>, l2b(Key)},
+     {<<"value">>, l2b(Value)},
+     {<<"datatpye">>, l2b(Datatpye)},
+     {<<"app">>, App}].
+
+%%--------------------------------------------------------------------------
 %% Inner function
 %%--------------------------------------------------------------------------
 format(created_at, Val) ->
@@ -391,6 +442,7 @@ bin(undefined) -> <<>>.
 int(L) -> list_to_integer(L).
 l2a(L) -> list_to_atom(L).
 l2b(L) -> list_to_binary(L).
+b2l(B) -> binary_to_list(B).
 
 
 page_params(Params) ->

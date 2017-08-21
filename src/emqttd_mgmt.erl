@@ -41,7 +41,9 @@
 
 -export([publish/1, subscribe/1, unsubscribe/1]).
 
--export([kick_client/1]).
+-export([kick_client/1, clean_acl_cache/2]).
+
+-export([modify_config/3, modify_config/4, get_configs/0, get_config/1]).
 
 -define(KB, 1024).
 -define(MB, (1024*1024)).
@@ -289,10 +291,7 @@ unsubscribe({ClientId, Topic})->
 %%--------------------------------------------------------------------
 kick_client(ClientId) ->
     Result = [kick_client(Node, ClientId) || Node <- ekka_mnesia:running_nodes()],
-    case lists:any(fun(Item) -> Item =:= ok end, Result) of
-        true  -> {ok, [{status, success}]};
-        false -> {ok, [{status, failure}]}
-    end.
+    lists:any(fun(Item) -> Item =:= ok end, Result).
 
 kick_client(Node, ClientId) when Node =:= node() ->
     case emqttd_cm:lookup(ClientId) of
@@ -301,6 +300,39 @@ kick_client(Node, ClientId) when Node =:= node() ->
     end;
 kick_client(Node, ClientId) ->
     rpc_call(Node, kick_client, [Node, ClientId]).
+
+
+clean_acl_cache(ClientId, Topic) ->
+    Result = [clean_acl_cache(Node, ClientId, Topic) || Node <- ekka_mnesia:running_nodes()],
+    lists:any(fun(Item) -> Item =:= ok end, Result).
+
+clean_acl_cache(Node, ClientId, Topic) when Node =:= node() ->
+    case emqttd_cm:lookup(ClientId) of
+        undefined -> error;
+        #mqtt_client{client_pid = Pid}-> emqttd_client:clean_acl_cache(Pid, Topic)
+    end;
+clean_acl_cache(Node, ClientId, Topic) ->
+    rpc_call(Node, clean_acl_cache, [Node, ClientId, Topic]).
+
+%%--------------------------------------------------------------------
+%% Config ENV
+%%--------------------------------------------------------------------
+modify_config(App, Key, Value) ->
+    Result = [modify_config(Node, App, Key, Value) || Node <- ekka_mnesia:running_nodes()],
+    lists:any(fun(Item) -> Item =:= ok end, Result).
+
+modify_config(Node, App, Key, Value) when Node =:= node() ->
+    emqttd_config:set(App, Key, Value);
+modify_config(Node, App, Key, Value) ->
+    rpc_call(Node, modify_config, [Node, App, Key, Value]).
+
+get_configs() ->
+    [{Node, get_config(Node)} || Node <- ekka_mnesia:running_nodes()].
+
+get_config(Node) when Node =:= node()->
+    emqttd_cli_config:all_cfgs();
+get_config(Node) ->
+    rpc_call(Node, get_config, [Node]).
 
 %%--------------------------------------------------------------------
 %% Internel Functions.
