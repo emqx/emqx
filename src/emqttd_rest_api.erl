@@ -25,7 +25,7 @@
 -http_api({"^nodes/(.+?)/clients/(.+?)/?$", 'GET',client_list, []}).
 -http_api({"^clients/(.+?)/?$", 'GET', client, []}).
 -http_api({"^clients/(.+?)/?$", 'DELETE', kick_client, []}).
--http_api({"^clean_acl_cache/(.+?)/?$", 'PUT', clean_acl_cache, [{<<"topic">>, binary}]}).
+-http_api({"^clean_acl_cache/(.+?)/?$", 'DELETE', clean_acl_cache, [{<<"topic">>, binary}]}).
 
 -http_api({"^routes?$", 'GET', route_list, []}).
 -http_api({"^routes/(.+?)/?$", 'GET', route, []}).
