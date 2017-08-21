@@ -68,6 +68,9 @@ run([]) -> usage(), ok;
 
 run(["help"]) -> usage(), ok;
 
+run(["set"] = CmdS) when length(CmdS) =:= 1 ->
+    emqttd_cli_config:set_usage(), ok;
+
 run(["set" | _] = CmdS) ->
     emqttd_cli_config:run(["config" | CmdS]), ok;
 

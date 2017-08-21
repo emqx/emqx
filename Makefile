@@ -36,7 +36,7 @@ EUNIT_OPTS = verbose
 
 CT_SUITES = emqttd emqttd_access emqttd_lib emqttd_inflight emqttd_mod \
             emqttd_net emqttd_mqueue emqttd_protocol emqttd_topic \
-            emqttd_trie emqttd_vm
+            emqttd_trie emqttd_vm emqttd_config
 
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name emqttd_ct@127.0.0.1
 
