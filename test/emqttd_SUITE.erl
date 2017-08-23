@@ -129,7 +129,6 @@ init_per_suite(Config) ->
     NewConfig = generate_config(),
     lists:foreach(fun set_app_env/1, NewConfig),
     application:ensure_all_started(?APP),
-    timer:sleep(6000),
     Config.
 
 end_per_suite(_Config) ->
@@ -590,8 +589,9 @@ conflict_listeners(_) ->
                {current_clients, esockd:get_current_clients(Pid)},
                {shutdown_count, esockd:get_shutdown_count(Pid)}]}
               end, esockd:listeners()),
-    ?assertEqual(1, proplists:get_value(current_clients, proplists:get_value("mqtt:tcp:0.0.0.0:1883", Listeners))),
-    ?assertEqual([{conflict,1}], proplists:get_value(shutdown_count, proplists:get_value("mqtt:tcp:0.0.0.0:1883", Listeners))),
+    L =proplists:get_value("mqtt:tcp:0.0.0.0:1883", Listeners),
+    ?assertEqual(1, proplists:get_value(current_clients, L)),
+    ?assertEqual(1, proplists:get_value(conflict, L)),
     emqttc:disconnect(C2).
 
 cli_vm(_) ->
