@@ -49,9 +49,6 @@ DIALYZER_OPTS := --verbose --statistics -Werror_handling \
 
 include erlang.mk
 
-autopatch::
-	$(call dep_autopatch,goldrush)
-
 app:: rebar.config
 
 app.config::

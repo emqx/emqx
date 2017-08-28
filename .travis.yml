@@ -3,10 +3,7 @@ language: erlang
 otp_release:
    - 20.0
 
-before_script:
-  - make autopatch
-
-script: 
+script:
   - make
 
 sudo: false
