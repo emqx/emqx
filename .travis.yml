@@ -5,6 +5,9 @@ otp_release:
    - 19.1
    - 19.2
 
+before_script:
+  - make deps
+
 script: 
   - make
 
