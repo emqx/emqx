@@ -2,7 +2,7 @@ PROJECT = emqttd
 PROJECT_DESCRIPTION = Erlang MQTT Broker
 PROJECT_VERSION = 2.3
 
-DEPS = goldrush gproc lager esockd ekka mochiweb pbkdf2 lager_syslog bcrypt
+DEPS = goldrush gproc lager esockd ekka mochiweb pbkdf2 lager_syslog bcrypt clique jsx
 
 dep_goldrush     = git https://github.com/basho/goldrush 0.1.9
 dep_gproc        = git https://github.com/uwiger/gproc
@@ -14,6 +14,8 @@ dep_mochiweb     = git https://github.com/emqtt/mochiweb master
 dep_pbkdf2       = git https://github.com/emqtt/pbkdf2 2.0.1
 dep_lager_syslog = git https://github.com/basho/lager_syslog
 dep_bcrypt       = git https://github.com/smarkets/erlang-bcrypt master
+dep_clique       = git https://github.com/emqtt/clique
+dep_jsx          = git https://github.com/talentdeficit/jsx
 
 ERLC_OPTS += +debug_info
 ERLC_OPTS += +'{parse_transform, lager_transform}'
@@ -34,7 +36,7 @@ EUNIT_OPTS = verbose
 
 CT_SUITES = emqttd emqttd_access emqttd_lib emqttd_inflight emqttd_mod \
             emqttd_net emqttd_mqueue emqttd_protocol emqttd_topic \
-            emqttd_trie emqttd_vm
+            emqttd_trie emqttd_vm emqttd_config
 
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name emqttd_ct@127.0.0.1
 

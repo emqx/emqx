@@ -34,7 +34,7 @@
 -export([start_link/2]).
 
 %% Management and Monitor API
--export([info/1, stats/1, kick/1]).
+-export([info/1, stats/1, kick/1, clean_acl_cache/2]).
 
 -export([set_rate_limit/2, get_rate_limit/1]).
 
@@ -66,7 +66,7 @@
                         [esockd_net:format(State#client_state.peername) | Args])).
 
 start_link(Conn, Env) ->
-    {ok, proc_lib:spawn_opt(?MODULE, init, [[Conn, Env]], [link | ?FULLSWEEP_OPTS])}.
+    {ok, proc_lib:spawn_link(?MODULE, init, [[Conn, Env]])}.
 
 info(CPid) ->
     gen_server2:call(CPid, info).
@@ -91,6 +91,9 @@ unsubscribe(CPid, Topics) ->
 
 session(CPid) ->
     gen_server2:call(CPid, session, infinity).
+
+clean_acl_cache(CPid, Topic) ->
+    gen_server2:call(CPid, {clean_acl_cache, Topic}).
 
 %%--------------------------------------------------------------------
 %% gen_server Callbacks
@@ -174,6 +177,10 @@ handle_call(get_rate_limit, _From, State = #client_state{rate_limit = Rl}) ->
 
 handle_call(session, _From, State = #client_state{proto_state = ProtoState}) ->
     reply(emqttd_protocol:session(ProtoState), State);
+
+handle_call({clean_acl_cache, Topic}, _From, State) ->
+    erase({acl, publish, Topic}),
+    reply(ok, State);
 
 handle_call(Req, _From, State) ->
     ?UNEXPECTED_REQ(Req, State).

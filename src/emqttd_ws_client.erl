@@ -34,7 +34,7 @@
 -export([start_link/4]).
 
 %% Management and Monitor API
--export([info/1, stats/1, kick/1]).
+-export([info/1, stats/1, kick/1, clean_acl_cache/2]).
 
 %% SUB/UNSUB Asynchronously
 -export([subscribe/2, unsubscribe/2]).
@@ -81,6 +81,9 @@ unsubscribe(CPid, Topics) ->
 
 session(CPid) ->
     gen_server2:call(CPid, session).
+
+clean_acl_cache(CPid, Topic) ->
+    gen_server2:call(CPid, {clean_acl_cache, Topic}).
 
 %%--------------------------------------------------------------------
 %% gen_server Callbacks
@@ -132,6 +135,10 @@ handle_call(kick, _From, State) ->
 
 handle_call(session, _From, State = #wsclient_state{proto_state = ProtoState}) ->
     reply(emqttd_protocol:session(ProtoState), State);
+
+handle_call({clean_acl_cache, Topic}, _From, State) ->
+    erase({acl, publish, Topic}),
+    reply(ok, State);
 
 handle_call(Req, _From, State) ->
     ?WSLOG(error, "Unexpected request: ~p", [Req], State),

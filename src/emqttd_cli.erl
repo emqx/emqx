@@ -48,7 +48,8 @@
 
 load() ->
     Cmds = [Fun || {Fun, _} <- ?MODULE:module_info(exports), is_cmd(Fun)],
-    [emqttd_ctl:register_cmd(Cmd, {?MODULE, Cmd}, []) || Cmd <- Cmds].
+    [emqttd_ctl:register_cmd(Cmd, {?MODULE, Cmd}, []) || Cmd <- Cmds],
+    emqttd_cli_config:register_config().
 
 is_cmd(Fun) ->
     not lists:member(Fun, [init, load, module_info]).

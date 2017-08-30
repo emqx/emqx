@@ -15,8 +15,6 @@ plugins/*/ebin
 log/
 *.swp
 *.so
-examples
-docs/build/*
 .erlang.mk/
 cover/
 emqttd.d
@@ -31,3 +29,5 @@ data/
 _build
 .rebar3
 rebar3.crashdump
+.DS_Store
+rebar.config

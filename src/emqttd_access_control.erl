@@ -48,7 +48,7 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %% @doc Authenticate MQTT Client.
--spec(auth(Client :: mqtt_client(), Password :: password()) -> ok | {error, any()}).
+-spec(auth(Client :: mqtt_client(), Password :: password()) -> ok | {ok, boolean()} | {error, any()}).
 auth(Client, Password) when is_record(Client, mqtt_client) ->
     auth(Client, Password, lookup_mods(auth)).
 auth(_Client, _Password, []) ->
