@@ -72,5 +72,6 @@
 -define(ERROR10, 110). %% Plugin has been loaded
 -define(ERROR11, 111). %% Plugin has been loaded
 -define(ERROR12, 112). %% Client not online
--define(ERROR13, 113). %% Modify config fail
+-define(ERROR13, 113). %% User already exist
+-define(ERROR14, 114). %% OldPassword error
 
