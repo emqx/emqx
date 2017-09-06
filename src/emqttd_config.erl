@@ -57,6 +57,7 @@ write(App, Terms) ->
     Schema = cuttlefish_schema:files([Path]),
     case cuttlefish_generator:map(Schema, Configs) of
         [{App, Configs1}] ->
+            emqttd_cli_config:write_config(App, Configs),
             lists:foreach(fun({Key, Val}) -> application:set_env(App, Key, Val) end, Configs1);
         _ ->
             error
@@ -87,9 +88,8 @@ get(App, Par, Def) ->
 
 
 read_(App) ->
-    {ok, PluginsEtcDir} = emqttd:env(plugins_etc_dir),
-    Configs = cuttlefish_conf:file(lists:concat([PluginsEtcDir, App, ".conf"])),
-    Path= lists:concat([code:priv_dir(App), "/", App, ".schema"]),
+    Configs = emqttd_cli_config:read_config(App),
+    Path = lists:concat([code:priv_dir(App), "/", App, ".schema"]),
     {_, Mappings, _} = cuttlefish_schema:files([Path]),
     OptionalCfg = lists:foldl(fun(Map, Acc) ->
         Key = cuttlefish_mapping:variable(Map),

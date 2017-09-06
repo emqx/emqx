@@ -22,15 +22,43 @@
           set_usage/0,
           all_cfgs/0,
           get_cfg/2,
-          get_cfg/3]).
+          get_cfg/3,
+          read_config/1,
+          write_config/2]).
 
 -define(APP, emqttd).
+-define(TAB, emqttd_config).
 
 register_config() ->
     application:start(clique),
     F = fun() -> ekka_mnesia:running_nodes() end,
     clique:register_node_finder(F),
-    register_config_cli().
+    register_config_cli(),
+    create_config_tab().
+
+create_config_tab() ->
+    case ets:info(?TAB, name) of
+        undefined ->
+            ets:new(?TAB, [named_table, public]),
+            {ok, PluginsEtcDir} = emqttd:env(plugins_etc_dir),
+            Files = filelib:wildcard("*.conf", PluginsEtcDir),
+            lists:foreach(fun(File) ->
+                [FileName, _] = string:split(File, "."),
+                Configs = cuttlefish_conf:file(lists:concat([PluginsEtcDir, File])),
+                ets:insert(?TAB, {list_to_atom(FileName), Configs})
+            end, Files);
+        _ ->
+            ok
+    end.
+
+read_config(App) ->
+    case ets:lookup(?TAB, App) of
+        [] -> [];
+        [{_, Value}] -> Value
+    end.
+
+write_config(App, Terms) ->
+    ets:insert(?TAB, {App, Terms}).
 
 run(Cmd) ->
     clique:run(Cmd).
