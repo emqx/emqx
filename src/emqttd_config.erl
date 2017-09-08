@@ -90,20 +90,25 @@ get(App, Par, Def) ->
 read_(App) ->
     Configs = emqttd_cli_config:read_config(App),
     Path = lists:concat([code:priv_dir(App), "/", App, ".schema"]),
-    {_, Mappings, _} = cuttlefish_schema:files([Path]),
-    OptionalCfg = lists:foldl(fun(Map, Acc) ->
-        Key = cuttlefish_mapping:variable(Map),
-        case proplists:get_value(Key, Configs) of
-            undefined ->
-                [{cuttlefish_variable:format(Key), "", cuttlefish_mapping:doc(Map), false} | Acc];
-            _ -> Acc
-        end
-    end, [], Mappings),
-    RequiredCfg = lists:foldl(fun({Key, Val}, Acc) ->
-        case lists:keyfind(Key, 2, Mappings) of
-            false -> Acc;
-            Map ->
-                [{cuttlefish_variable:format(Key), Val, cuttlefish_mapping:doc(Map), true} | Acc]
-        end
-    end, [], Configs),
-    RequiredCfg ++ OptionalCfg.
+    case filelib:is_file(Path) of
+        false ->
+            [];
+        true ->
+            {_, Mappings, _} = cuttlefish_schema:files([Path]),
+            OptionalCfg = lists:foldl(fun(Map, Acc) ->
+                Key = cuttlefish_mapping:variable(Map),
+                case proplists:get_value(Key, Configs) of
+                    undefined ->
+                        [{cuttlefish_variable:format(Key), "", cuttlefish_mapping:doc(Map), false} | Acc];
+                    _ -> Acc
+                end
+            end, [], Mappings),
+            RequiredCfg = lists:foldl(fun({Key, Val}, Acc) ->
+                case lists:keyfind(Key, 2, Mappings) of
+                    false -> Acc;
+                    Map ->
+                        [{cuttlefish_variable:format(Key), Val, cuttlefish_mapping:doc(Map), true} | Acc]
+                end
+            end, [], Configs),
+            RequiredCfg ++ OptionalCfg
+    end.
