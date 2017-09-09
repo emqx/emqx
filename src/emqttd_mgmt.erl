@@ -26,7 +26,9 @@
 
 -include_lib("stdlib/include/qlc.hrl").
 
--include_lib("emq_dashboard/include/emq_dashboard.hrl").
+-record(mqtt_admin, {username, password, tags}).
+
+-define(EMPTY_KEY(Key), ((Key == undefined) orelse (Key == <<>>))).
 
 -import(proplists, [get_value/2]).
 
