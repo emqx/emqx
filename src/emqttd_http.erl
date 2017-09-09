@@ -214,7 +214,7 @@ api_list() ->
               <<"api/v2/nodes/{node_name}/clients">>,
               <<"api/v2/nodes/{node_name}/clients/{clientid}">>,
               <<"api/v2/clients/{clientid}">>,
-              <<"api/v2/clean_acl_cache/{clientid}">>,
+              <<"api/v2/clients/{clientid}/clean_acl_cache">>,
               <<"api/v2/nodes/{node_name}/sessions">>,
               <<"api/v2/nodes/{node_name}/sessions/{clientid}">>,
               <<"api/v2/sessions/{clientid}">>,
