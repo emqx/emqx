@@ -299,19 +299,11 @@ queue_config_callback([_, AppStr, KeyStr], Value) ->
 
 queue_config_callback(App, low_watermark, Value) ->
     {ok, Env} = emqttd:env(App),
-    Parse = fun(S) ->
-        {match, [N]} = re:run(S, "^([0-9]+)%$", [{capture, all_but_first, list}]),
-        list_to_integer(N) / 100
-    end,
-    application:set_env(?APP, App, lists:keyreplace(low_watermark, 1, Env, {low_watermark, Parse(Value)})),
+    application:set_env(?APP, App, lists:keyreplace(low_watermark, 1, Env, {low_watermark, Value})),
     " successfully\n";
 queue_config_callback(App, high_watermark, Value) ->
     {ok, Env} = emqttd:env(App),
-    Parse = fun(S) ->
-        {match, [N]} = re:run(S, "^([0-9]+)%$", [{capture, all_but_first, list}]),
-        list_to_integer(N) / 100
-    end,
-    application:set_env(?APP, App, lists:keyreplace(high_watermark, 1, Env, {high_watermark, Parse(Value)})),
+    application:set_env(?APP, App, lists:keyreplace(high_watermark, 1, Env, {high_watermark, Value})),
     " successfully\n";
 queue_config_callback(App, Key, Value) ->
     {ok, Env} = emqttd:env(App),
