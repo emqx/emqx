@@ -25,7 +25,7 @@
 -http_api({"^nodes/(.+?)/clients/(.+?)/?$", 'GET',client_list, []}).
 -http_api({"^clients/(.+?)/?$", 'GET', client, []}).
 -http_api({"^clients/(.+?)/?$", 'DELETE', kick_client, []}).
--http_api({"^clean_acl_cache/(.+?)/?$", 'DELETE', clean_acl_cache, [{<<"topic">>, binary}]}).
+-http_api({"^clients/(.+?)/clean_acl_cache?$", 'DELETE', clean_acl_cache, [{<<"topic">>, binary}]}).
 
 -http_api({"^routes?$", 'GET', route_list, []}).
 -http_api({"^routes/(.+?)/?$", 'GET', route, []}).
@@ -60,6 +60,23 @@
 -http_api({"^configs/?$", 'GET', config_list, []}).
 -http_api({"^nodes/(.+?)/configs/(.+?)/?$", 'PUT', modify_config, [{<<"key">>, binary}, {<<"value">>, binary}]}).
 -http_api({"^nodes/(.+?)/configs/?$", 'GET', config_list, []}).
+-http_api({"^nodes/(.+?)/plugin_configs/(.+?)/?$", 'GET', plugin_config_list, []}).
+-http_api({"^nodes/(.+?)/plugin_configs/(.+?)/?$", 'PUT', modify_plugin_config, []}).
+
+-http_api({"^users/?$", 'GET', users, []}).
+-http_api({"^users/?$", 'POST', users, [{<<"username">>, binary},
+                                        {<<"password">>, binary},
+                                        {<<"tag">>, binary}]}).
+-http_api({"^users/(.+?)/?$", 'GET', users, []}).
+-http_api({"^users/(.+?)/?$", 'PUT', users, []}).
+-http_api({"^users/(.+?)/?$", 'DELETE', users, []}).
+
+-http_api({"^auth/?$", 'POST', auth, [{<<"username">>, binary}, {<<"password">>, binary}]}).
+-http_api({"^change_pwd/(.+?)/?$", 'PUT', change_pwd, [{<<"old_pwd">>, binary},
+                                                       {<<"new_pwd">>, binary}]}).
+
+-import(proplists, [get_value/2, get_value/3]).
+
 -export([alarm_list/3]).
 -export([client/3, client_list/3, client_list/4, kick_client/3, clean_acl_cache/3]).
 -export([route/3, route_list/2]).
@@ -68,7 +85,10 @@
 -export([nodes/2, node/3, brokers/2, broker/3, listeners/2, listener/3, metrics/2, metric/3, stats/2, stat/3]).
 -export([publish/2, subscribe/2, unsubscribe/2]).
 -export([plugin_list/3, enabled/4]).
--export([modify_config/3, modify_config/4, config_list/2, config_list/3]).
+-export([modify_config/3, modify_config/4, config_list/2, config_list/3,
+         plugin_config_list/4, modify_plugin_config/4]).
+
+-export([users/2,users/3, auth/2, change_pwd/3]).
 
 %%--------------------------------------------------------------------------
 %% alarm
@@ -98,9 +118,9 @@ client('GET', _Params, Key) ->
 client_list('GET', Params, Node) ->
     {PageNo, PageSize} = page_params(Params),
     Data = emqttd_mgmt:client_list(l2a(Node), undefined, PageNo, PageSize),
-    Rows = proplists:get_value(result, Data),
-            TotalPage = proplists:get_value(totalPage, Data),
-            TotalNum  = proplists:get_value(totalNum, Data),
+    Rows = get_value(result, Data),
+            TotalPage = get_value(totalPage, Data),
+            TotalNum  = get_value(totalNum, Data),
             {ok, [{current_page, PageNo}, 
                   {page_size, PageSize},
                   {total_num, TotalNum},
@@ -119,7 +139,7 @@ kick_client('DELETE', _Params, Key) ->
     end.
 
 clean_acl_cache('PUT', Params, Key) ->
-    Topic = proplists:get_value(<<"topic">>, Params),
+    Topic = get_value(<<"topic">>, Params),
     case emqttd_mgmt:clean_acl_cache(l2b(Key), Topic) of
         true  -> {ok, []};
         false -> {error, [{code, ?ERROR12}]}
@@ -151,9 +171,9 @@ route('GET', _Params, Key) ->
 route_list('GET', Params) ->
     {PageNo, PageSize} = page_params(Params),
     Data = emqttd_mgmt:route_list(undefined, PageNo, PageSize),
-    Rows = proplists:get_value(result, Data),
-    TotalPage = proplists:get_value(totalPage, Data),
-    TotalNum  = proplists:get_value(totalNum, Data),
+    Rows = get_value(result, Data),
+    TotalPage = get_value(totalPage, Data),
+    TotalNum  = get_value(totalNum, Data),
     {ok, [{current_page, PageNo}, 
           {page_size, PageSize},
           {total_num, TotalNum},
@@ -176,9 +196,9 @@ session('GET', _Params, Key) ->
 session_list('GET', Params, Node) ->
     {PageNo, PageSize} = page_params(Params),
     Data = emqttd_mgmt:session_list(l2a(Node), undefined, PageNo, PageSize),
-    Rows = proplists:get_value(result, Data),
-    TotalPage = proplists:get_value(totalPage, Data),
-    TotalNum  = proplists:get_value(totalNum, Data),
+    Rows = get_value(result, Data),
+    TotalPage = get_value(totalPage, Data),
+    TotalNum  = get_value(totalNum, Data),
     {ok, [{current_page, PageNo}, 
           {page_size, PageSize},
           {total_num, TotalNum},
@@ -193,7 +213,7 @@ session_list('GET', Params, Node, ClientId) ->
 session_row({ClientId, _Pid, _Persistent, Session}) ->
     InfoKeys = [clean_sess, max_inflight, inflight_queue, message_queue,
                 message_dropped, awaiting_rel, awaiting_ack, awaiting_comp, created_at],
-     [{client_id, ClientId} | [{Key, format(Key, proplists:get_value(Key, Session))} || Key <- InfoKeys]].
+     [{client_id, ClientId} | [{Key, format(Key, get_value(Key, Session))} || Key <- InfoKeys]].
 
 %%--------------------------------------------------------------------------
 %% subscription
@@ -205,9 +225,9 @@ subscription('GET', _Params, Key) ->
 subscription_list('GET', Params, Node) ->
     {PageNo, PageSize} = page_params(Params),
     Data = emqttd_mgmt:subscription_list(l2a(Node), undefined, PageNo, PageSize),
-    Rows = proplists:get_value(result, Data),
-    TotalPage = proplists:get_value(totalPage, Data),
-    TotalNum  = proplists:get_value(totalNum, Data),
+    Rows = get_value(result, Data),
+    TotalPage = get_value(totalPage, Data),
+    TotalNum  = get_value(totalNum, Data),
     {ok, [{current_page, PageNo}, 
           {page_size, PageSize},
           {total_num, TotalNum},
@@ -222,7 +242,7 @@ subscription_list('GET', Params, Node, Key) ->
 subscription_row({{Topic, ClientId}, Option}) when is_pid(ClientId) ->
     subscription_row({{Topic, l2b(pid_to_list(ClientId))}, Option});    
 subscription_row({{Topic, ClientId}, Option}) ->
-    Qos = proplists:get_value(qos, Option),
+    Qos = get_value(qos, Option),
     [{client_id, ClientId}, {topic, Topic}, {qos, Qos}].
 
 %%--------------------------------------------------------------------------
@@ -246,7 +266,7 @@ broker('GET', _Params, Node) ->
 
 listeners('GET', _Params) ->
     Data = emqttd_mgmt:listeners(),
-    {ok, [{Node, format_listeners(Listeners, [])} || {Node, Listeners} <- Data]}.
+    {ok, [[{Node, format_listeners(Listeners, [])} || {Node, Listeners} <- Data]]}.
 
 listener('GET', _Params, Node) ->
     Data = emqttd_mgmt:listener(l2a(Node)),
@@ -254,7 +274,7 @@ listener('GET', _Params, Node) ->
 
 metrics('GET', _Params) ->
     Data = emqttd_mgmt:metrics(),
-    {ok, Data}.
+    {ok, [Data]}.
 
 metric('GET', _Params, Node) ->
     Data = emqttd_mgmt:metrics(l2a(Node)),
@@ -262,7 +282,7 @@ metric('GET', _Params, Node) ->
 
 stats('GET', _Params) ->
     Data = emqttd_mgmt:stats(),
-    {ok, Data}.
+    {ok, [Data]}.
 
 stat('GET', _Params, Node) ->
     Data = emqttd_mgmt:stats(l2a(Node)),
@@ -271,19 +291,19 @@ stat('GET', _Params, Node) ->
 format_broker(Node, Broker) ->
     OtpRel  = "R" ++ erlang:system_info(otp_release) ++ "/" ++ erlang:system_info(version),
     [{name,     Node},
-     {version,  bin(proplists:get_value(version, Broker))},
-     {sysdescr, bin(proplists:get_value(sysdescr, Broker))},
-     {uptime,   bin(proplists:get_value(uptime, Broker))},
-     {datetime, bin(proplists:get_value(datetime, Broker))},
+     {version,  bin(get_value(version, Broker))},
+     {sysdescr, bin(get_value(sysdescr, Broker))},
+     {uptime,   bin(get_value(uptime, Broker))},
+     {datetime, bin(get_value(datetime, Broker))},
      {otp_release, l2b(OtpRel)},
      {node_status, 'Running'}].
 
 format_broker(Broker) ->
     OtpRel  = "R" ++ erlang:system_info(otp_release) ++ "/" ++ erlang:system_info(version),
-    [{version,  bin(proplists:get_value(version, Broker))},
-     {sysdescr, bin(proplists:get_value(sysdescr, Broker))},
-     {uptime,   bin(proplists:get_value(uptime, Broker))},
-     {datetime, bin(proplists:get_value(datetime, Broker))},
+    [{version,  bin(get_value(version, Broker))},
+     {sysdescr, bin(get_value(sysdescr, Broker))},
+     {uptime,   bin(get_value(uptime, Broker))},
+     {datetime, bin(get_value(datetime, Broker))},
      {otp_release, l2b(OtpRel)},
      {node_status, 'Running'}].
 
@@ -300,11 +320,11 @@ format_listener({Protocol, ListenOn, Info}) ->
 %% mqtt
 %%--------------------------------------------------------------------------
 publish('POST', Params) ->
-    Topic = proplists:get_value(<<"topic">>, Params),
-    ClientId = proplists:get_value(<<"client_id">>, Params, http),
-    Payload = proplists:get_value(<<"payload">>, Params, <<>>),
-    Qos     = proplists:get_value(<<"qos">>, Params, 0),
-    Retain  = proplists:get_value(<<"retain">>, Params, false),
+    Topic = get_value(<<"topic">>, Params),
+    ClientId = get_value(<<"client_id">>, Params, http),
+    Payload = get_value(<<"payload">>, Params, <<>>),
+    Qos     = get_value(<<"qos">>, Params, 0),
+    Retain  = get_value(<<"retain">>, Params, false),
     case emqttd_mgmt:publish({ClientId, Topic, Payload, Qos, Retain}) of
         ok ->
             {ok, []};
@@ -313,9 +333,9 @@ publish('POST', Params) ->
     end.
 
 subscribe('POST', Params) ->
-    ClientId = proplists:get_value(<<"client_id">>, Params),
-    Topic    = proplists:get_value(<<"topic">>, Params),
-    Qos      = proplists:get_value(<<"qos">>, Params, 0),
+    ClientId = get_value(<<"client_id">>, Params),
+    Topic    = get_value(<<"topic">>, Params),
+    Qos      = get_value(<<"qos">>, Params, 0),
     case emqttd_mgmt:subscribe({ClientId, Topic, Qos}) of
         ok ->
             {ok, []};
@@ -324,8 +344,8 @@ subscribe('POST', Params) ->
     end.
 
 unsubscribe('POST', Params) ->
-    ClientId = proplists:get_value(<<"client_id">>, Params),
-    Topic    = proplists:get_value(<<"topic">>, Params),
+    ClientId = get_value(<<"client_id">>, Params),
+    Topic    = get_value(<<"topic">>, Params),
     case emqttd_mgmt:unsubscribe({ClientId, Topic})of
         ok ->
             {ok, []};
@@ -341,7 +361,7 @@ plugin_list('GET', _Params, Node) ->
     {ok, Plugins}.
 
 enabled('PUT', Params, Node, PluginName) ->
-    Active = proplists:get_value(<<"active">>, Params),
+    Active = get_value(<<"active">>, Params),
     case Active of
         true ->
             return(emqttd_mgmt:plugin_load(l2a(Node), l2a(PluginName)));
@@ -351,6 +371,8 @@ enabled('PUT', Params, Node, PluginName) ->
 
 return(Result) ->
     case Result of
+        ok ->
+            {ok, []};
         {ok, _} ->
             {ok, []};
         {error, already_started} ->
@@ -372,19 +394,19 @@ plugin(#mqtt_plugin{name = Name, version = Ver, descr = Descr,
 %% modify config
 %%--------------------------------------------------------------------------
 modify_config('PUT', Params, App) ->
-    Key   = proplists:get_value(<<"key">>, Params, <<"">>),
-    Value = proplists:get_value(<<"value">>, Params, <<"">>),
+    Key   = get_value(<<"key">>, Params, <<"">>),
+    Value = get_value(<<"value">>, Params, <<"">>),
     case emqttd_mgmt:modify_config(l2a(App), b2l(Key), b2l(Value)) of
         true  -> {ok, []};
-        false -> {error, [{code, ?ERROR13}]}
+        false -> {error, [{code, ?ERROR2}]}
     end.
 
 modify_config('PUT', Params, Node, App) ->
-    Key   = proplists:get_value(<<"key">>, Params, <<"">>),
-    Value = proplists:get_value(<<"value">>, Params, <<"">>),
+    Key   = get_value(<<"key">>, Params, <<"">>),
+    Value = get_value(<<"value">>, Params, <<"">>),
     case emqttd_mgmt:modify_config(l2a(Node), l2a(App), b2l(Key), b2l(Value)) of
         ok  -> {ok, []};
-        _ -> {error, [{code, ?ERROR13}]}
+        _ -> {error, [{code, ?ERROR2}]}
     end.
 
 config_list('GET', _Params) ->
@@ -394,6 +416,30 @@ config_list('GET', _Params) ->
 config_list('GET', _Params, Node) ->
     Data = emqttd_mgmt:get_config(l2a(Node)),
     {ok, [format_config(Config) || Config <- lists:reverse(Data)]}.
+
+plugin_config_list('GET', _Params, Node, App) ->
+    {ok, Data} = emqttd_mgmt:get_plugin_config(l2a(Node), l2a(App)),
+    {ok, [format_plugin_config(Config) || Config <- lists:reverse(Data)]}.
+
+modify_plugin_config('PUT', Params, Node, App) ->
+    PluginName = l2a(App),
+    case emqttd_mgmt:modify_plugin_config(l2a(Node), PluginName, Params) of
+        ok  ->
+            Plugins = emqttd_plugins:list(),
+            {_, _, _, _, Status} = lists:keyfind(PluginName, 2, Plugins),
+            case Status of
+                true  ->
+                    emqttd_plugins:unload(PluginName),
+                    timer:sleep(500),
+                    emqttd_plugins:load(PluginName),
+                    {ok, []};
+                false ->
+                    {ok, []}
+            end;
+        _ ->
+            {error, [{code, ?ERROR2}]}
+    end.
+
 
 format_config([], Acc) ->
     Acc;
@@ -406,6 +452,53 @@ format_config({Key, Value, Datatpye, App}) ->
      {<<"datatpye">>, l2b(Datatpye)},
      {<<"app">>, App}].
 
+format_plugin_config({Key, Value, Desc, Required}) ->
+    [{<<"key">>, l2b(Key)},
+     {<<"value">>, l2b(Value)},
+     {<<"desc">>, l2b(Desc)},
+     {<<"required">>, Required}].
+
+%%--------------------------------------------------------------------------
+%% Admin
+%%--------------------------------------------------------------------------
+auth('POST', Params) ->
+    Username = get_value(<<"username">>, Params),
+    Password = get_value(<<"password">>, Params),
+    case emqttd_mgmt:check_user(Username, Password) of
+        ok ->
+            {ok, []};
+        {error, Reason} ->
+            {error, [{code, ?ERROR3}, {message, list_to_binary(Reason)}]}
+    end.
+
+users('POST', Params) ->
+    Username = get_value(<<"username">>, Params),
+    Password = get_value(<<"password">>, Params),
+    Tag = get_value(<<"tags">>, Params),
+    code(emqttd_mgmt:add_user(Username, Password, Tag));
+
+users('GET', _Params) ->
+    {ok, [Admin || Admin <- emqttd_mgmt:user_list()]}.
+
+users('GET', _Params, Username) ->
+    {ok, emqttd_mgmt:lookup_user(list_to_binary(Username))};
+
+users('PUT', Params, Username) ->
+    code(emqttd_mgmt:update_user(list_to_binary(Username), Params));
+
+users('DELETE', _Params, "admin") ->
+    {error, [{code, ?ERROR6}, {message, <<"admin cannot be deleted">>}]};
+users('DELETE', _Params, Username) ->
+    code(emqttd_mgmt:remove_user(list_to_binary(Username))).
+
+change_pwd('PUT', Params, Username) ->
+    OldPwd = get_value(<<"old_pwd">>, Params),
+    NewPwd = get_value(<<"new_pwd">>, Params),
+    code(emqttd_mgmt:change_password(list_to_binary(Username), OldPwd, NewPwd)).
+
+code(ok)             -> {ok, []};
+code(error)          -> {error, [{code, ?ERROR2}]};
+code({error, Error}) -> {error, Error}.
 %%--------------------------------------------------------------------------
 %% Inner function
 %%--------------------------------------------------------------------------
@@ -446,6 +539,6 @@ b2l(B) -> binary_to_list(B).
 
 
 page_params(Params) ->
-    PageNo = int(proplists:get_value("curr_page", Params, "1")),
-    PageSize = int(proplists:get_value("page_size", Params, "20")),
+    PageNo = int(get_value("curr_page", Params, "1")),
+    PageSize = int(get_value("page_size", Params, "20")),
     {PageNo, PageSize}.
