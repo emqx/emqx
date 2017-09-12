@@ -138,8 +138,9 @@ kick_client('DELETE', _Params, Key) ->
         false -> {error, [{code, ?ERROR12}]}
     end.
 
-clean_acl_cache('PUT', Params, Key) ->
+clean_acl_cache('PUT', Params, Key0) ->
     Topic = get_value(<<"topic">>, Params),
+    [Key | _] = string:tokens(Key0, "/"),
     case emqttd_mgmt:clean_acl_cache(l2b(Key), Topic) of
         true  -> {ok, []};
         false -> {error, [{code, ?ERROR12}]}
