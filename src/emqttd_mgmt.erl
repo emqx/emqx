@@ -26,6 +26,10 @@
 
 -include_lib("stdlib/include/qlc.hrl").
 
+-record(mqtt_admin, {username, password, tags}).
+
+-define(EMPTY_KEY(Key), ((Key == undefined) orelse (Key == <<>>))).
+
 -import(proplists, [get_value/2]).
 
 -export([brokers/0, broker/1, metrics/0, metrics/1, stats/1, stats/0,
@@ -43,13 +47,15 @@
 
 -export([kick_client/1, clean_acl_cache/2]).
 
--export([modify_config/3, modify_config/4, get_configs/0, get_config/1]).
+-export([modify_config/2, modify_config/3, modify_config/4, get_configs/0, get_config/1,
+         get_plugin_config/1, get_plugin_config/2, modify_plugin_config/2, modify_plugin_config/3]).
+
+-export([add_user/3, check_user/2, user_list/0, lookup_user/1,
+         update_user/2, change_password/3, remove_user/1]).
 
 -define(KB, 1024).
 -define(MB, (1024*1024)).
 -define(GB, (1024*1024*1024)).
-
--define(EMPTY_KEY(Key), ((Key == undefined) orelse (Key == <<>>))).
 
 brokers() ->
     [{Node, broker(Node)} || Node <- ekka_mnesia:running_nodes()].
@@ -235,7 +241,7 @@ subscribe({ClientId, Topic, Qos}) ->
             {error, format_error(Topic, "validate topic: ${0} fail")}
     end.
 
-unsubscribe({ClientId, Topic})-> 
+unsubscribe({ClientId, Topic}) ->
     case validate(topic, Topic) of
         true ->
             case emqttd_sm:lookup_session(ClientId) of
@@ -248,43 +254,6 @@ unsubscribe({ClientId, Topic})->
         false ->
             {error, format_error(Topic, "validate topic: ${0} fail")}
     end.
-    
-% publish(Messages) ->
-%     lists:foldl(
-%         fun({ClientId, Topic, Payload, Qos, Retain}, {Success, Failed}) -> 
-%             case validate(topic, Topic) of
-%                 true ->
-%                     Msg = emqttd_message:make(ClientId, Qos, Topic, Payload),
-%                     emqttd:publish(Msg#mqtt_message{retain  = Retain}),
-%                     {[[{topic, Topic}]| Success], Failed};
-%                 false ->
-%                     {Success, [[{topic, Topic}]| Failed]}
-%             end
-%         end, {[], []}, Messages).
-
-% subscribers(Subscribers) ->
-%     lists:foldl(
-%         fun({ClientId, Topic, Qos}, {Success, Failed}) ->
-%             case emqttd_sm:lookup_session(ClientId) of
-%                 undefined ->
-%                     {Success, [[{client_id, ClientId}]|Failed]};
-%                 #mqtt_session{sess_pid = SessPid} ->  
-%                     emqttd_session:subscribe(SessPid, [{Topic, [{qos, Qos}]}]),
-%                     {[[{client_id, ClientId}]| Success], Failed}
-%             end
-%         end,{[], []}, Subscribers).
-
-% unsubscribers(UnSubscribers)-> 
-%     lists:foldl(
-%         fun({ClientId, Topic}, {Success, Failed}) ->
-%             case emqttd_sm:lookup_session(ClientId) of
-%                 undefined ->
-%                     {Success, [[{client_id, ClientId}]|Failed]};
-%                 #mqtt_session{sess_pid = SessPid} ->   
-%                     emqttd_session:unsubscriber(SessPid, [{Topic, []}]),
-%                     {[[{client_id, ClientId}]| Success], Failed}
-%             end
-%         end, {[], []}, UnSubscribers).
 
 %%--------------------------------------------------------------------
 %% manager API
@@ -317,6 +286,9 @@ clean_acl_cache(Node, ClientId, Topic) ->
 %%--------------------------------------------------------------------
 %% Config ENV
 %%--------------------------------------------------------------------
+modify_config(App, Terms) ->
+    emqttd_config:write(App, Terms).
+
 modify_config(App, Key, Value) ->
     Result = [modify_config(Node, App, Key, Value) || Node <- ekka_mnesia:running_nodes()],
     lists:any(fun(Item) -> Item =:= ok end, Result).
@@ -334,6 +306,103 @@ get_config(Node) when Node =:= node()->
 get_config(Node) ->
     rpc_call(Node, get_config, [Node]).
 
+get_plugin_config(PluginName) ->
+    emqttd_config:read(PluginName).
+get_plugin_config(Node, PluginName) ->
+    rpc_call(Node, get_plugin_config, [PluginName]).
+
+modify_plugin_config(PluginName, Terms) ->
+    emqttd_config:write(PluginName, Terms).
+modify_plugin_config(Node, PluginName, Terms) ->
+    rpc_call(Node, modify_plugin_config, [PluginName, Terms]).
+
+%%--------------------------------------------------------------------
+%% manager user API
+%%--------------------------------------------------------------------
+check_user(undefined, _) ->
+    {error, "Username undefined"};
+check_user(_, undefined) ->
+    {error, "Password undefined"};
+check_user(Username, Password) ->
+    case mnesia:dirty_read(mqtt_admin, Username) of
+        [#mqtt_admin{password = <<Salt:4/binary, Hash/binary>>}] ->
+            case Hash =:= md5_hash(Salt, Password) of
+                true  -> ok;
+                false -> {error, "Password error"}
+            end;
+        [] ->
+            {error, "User not found"}
+    end.
+
+add_user(Username, Password, Tag) ->
+    Admin = #mqtt_admin{username = Username,
+                        password = hash(Password),
+                        tags     = Tag},
+    return(mnesia:transaction(fun add_user_/1, [Admin])).
+
+add_user_(Admin = #mqtt_admin{username = Username}) ->
+    case mnesia:wread({mqtt_admin, Username}) of
+        []  -> mnesia:write(Admin);
+        [_] -> {error, [{code, ?ERROR13}, {message, <<"User already exist">>}]}
+    end.
+
+user_list() ->
+    [row(Admin) || Admin <- ets:tab2list(mqtt_admin)].
+
+lookup_user(Username) ->
+    Admin = mnesia:dirty_read(mqtt_admin, Username),
+    row(Admin).
+
+update_user(Username, Params) ->
+    case mnesia:dirty_read({mqtt_admin, Username}) of
+        [] ->
+            {error, [{code, ?ERROR5}, {message, <<"User not found">>}]};
+        [User] ->
+            Admin = case proplists:get_value(<<"tags">>, Params) of
+                undefined -> User;
+                Tag -> User#mqtt_admin{tags = Tag}
+            end,
+            return(mnesia:transaction(fun() -> mnesia:write(Admin) end))
+    end.
+
+remove_user(Username) ->
+    Trans = fun() ->
+        case lookup_user(Username) of
+            [] -> {error, [{code, ?ERROR5}, {message, <<"User not found">>}]};
+            _  -> mnesia:delete({mqtt_admin, Username})
+        end
+    end,
+    return(mnesia:transaction(Trans)).
+
+change_password(Username, OldPwd, NewPwd) ->
+    Trans = fun() ->
+        case mnesia:wread({mqtt_admin, Username}) of
+            [Admin = #mqtt_admin{password = <<Salt:4/binary, Hash/binary>>}] ->
+                case Hash =:= md5_hash(Salt, OldPwd) of
+                    true  ->
+                        mnesia:write(Admin#mqtt_admin{password = hash(NewPwd)});
+                    false ->
+                        {error, [{code, ?ERROR14}, {message, <<"OldPassword error">>}]}
+                end;
+            [] ->
+                {error, [{code, ?ERROR5}, {message, <<"User not found">>}]}
+        end
+    end,
+    return(mnesia:transaction(Trans)).
+
+return({atomic, ok}) ->
+    ok;
+return({atomic, Error}) ->
+    Error;
+return({aborted, Reason}) ->
+    lager:error("Mnesia Transaction error:~p~n", [Reason]),
+    error.
+
+row(#mqtt_admin{username = Username, tags = Tags}) ->
+    [{username, Username}, {tags, Tags}];
+row([#mqtt_admin{username = Username, tags = Tags}]) ->
+    [{username, Username}, {tags, Tags}];
+row([]) ->[].
 %%--------------------------------------------------------------------
 %% Internel Functions.
 %%--------------------------------------------------------------------
@@ -413,3 +482,17 @@ tables() ->
 format_error(Val, Msg) ->
     re:replace(Msg, <<"\\$\\{[^}]+\\}">>, Val, [global, {return, binary}]).
 
+hash(Password) ->
+    SaltBin = salt(),
+    <<SaltBin/binary, (md5_hash(SaltBin, Password))/binary>>.
+
+md5_hash(SaltBin, Password) ->
+    erlang:md5(<<SaltBin/binary, Password/binary>>).
+
+salt() ->
+    seed(),
+    Salt = rand:uniform(16#ffffffff),
+    <<Salt:32>>.
+
+seed() ->
+    rand:seed(exsplus, erlang:timestamp()).

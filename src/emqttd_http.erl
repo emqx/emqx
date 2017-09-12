@@ -51,8 +51,15 @@ handle_request(Req, State) ->
             handle_request("/status", Req, Req:get(method));
         "/" ->
             handle_request("/", Req, Req:get(method));
+        "/api/v2/auth" ->
+            handle_request(Path, Req, State);
         _ ->
-            if_authorized(Req, fun() -> handle_request(Path, Req, State) end)
+            Host = Req:get_header_value("Host"),
+            [_, Port] = string:tokens(Host, ":"),
+            case Port of
+                "18083" -> handle_request(Path, Req, State);
+                _ -> if_authorized(Req, fun() -> handle_request(Path, Req, State) end)
+            end
     end.
 
 handle_request("/api/v2/" ++ Url, Req, #state{dispatch = Dispatch}) ->
@@ -125,14 +132,8 @@ authorized(Req) ->
             false;
         "Basic " ++ BasicAuth ->
             {Username, Password} = user_passwd(BasicAuth),
-            {ok, Peer} = Req:get(peername),
-            Params = params(Req),
-            ClientId = get_value(<<"client">>, Params, http),
-            case emqttd_access_control:auth(#mqtt_client{client_id = ClientId,
-                                                         username = Username,
-                                                         peername = Peer}, Password) of
-                ok -> true;
-                {ok, _IsSuper} -> 
+            case emqttd_mgmt:check_user(Username, Password) of
+                ok ->
                     true;
                 {error, Reason} ->
                     lager:error("HTTP Auth failure: username=~s, reason=~p", [Username, Reason]),
@@ -213,7 +214,7 @@ api_list() ->
               <<"api/v2/nodes/{node_name}/clients">>,
               <<"api/v2/nodes/{node_name}/clients/{clientid}">>,
               <<"api/v2/clients/{clientid}">>,
-              <<"api/v2/clean_acl_cache/{clientid}">>,
+              <<"api/v2/clients/{clientid}/clean_acl_cache">>,
               <<"api/v2/nodes/{node_name}/sessions">>,
               <<"api/v2/nodes/{node_name}/sessions/{clientid}">>,
               <<"api/v2/sessions/{clientid}">>,
