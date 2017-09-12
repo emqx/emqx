@@ -43,7 +43,7 @@ create_config_tab() ->
             {ok, PluginsEtcDir} = emqttd:env(plugins_etc_dir),
             Files = filelib:wildcard("*.conf", PluginsEtcDir),
             lists:foreach(fun(File) ->
-                [FileName, _] = string:split(File, "."),
+                [FileName | _] = string:tokens(File, "."),
                 Configs = cuttlefish_conf:file(lists:concat([PluginsEtcDir, File])),
                 ets:insert(?TAB, {list_to_atom(FileName), Configs})
             end, Files);
