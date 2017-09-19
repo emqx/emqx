@@ -624,13 +624,13 @@ end}.
 %% @doc Low-water mark of queued messages
 {mapping, "mqtt.mqueue.low_watermark", "emqttd.mqueue", [
   {default, "20%"},
-  {datatype, string}
+  {datatype, {percent, float}}
 ]}.
 
 %% @doc High-water mark of queued messages
 {mapping, "mqtt.mqueue.high_watermark", "emqttd.mqueue", [
   {default, "60%"},
-  {datatype, string}
+  {datatype, {percent, float}}
 ]}.
 
 %% @doc Queue Qos0 messages?
@@ -640,14 +640,10 @@ end}.
 ]}.
 
 {translation, "emqttd.mqueue", fun(Conf) ->
-  Parse = fun(S) ->
-			{match, [N]} = re:run(S, "^([0-9]+)%$", [{capture, all_but_first, list}]),
-			list_to_integer(N) / 100
-	      end,
   Opts = [{type, cuttlefish:conf_get("mqtt.mqueue.type", Conf, simple)},
           {max_length, cuttlefish:conf_get("mqtt.mqueue.max_length", Conf)},
-          {low_watermark, Parse(cuttlefish:conf_get("mqtt.mqueue.low_watermark", Conf))},
-          {high_watermark, Parse(cuttlefish:conf_get("mqtt.mqueue.high_watermark", Conf))},
+          {low_watermark, cuttlefish:conf_get("mqtt.mqueue.low_watermark", Conf)},
+          {high_watermark, cuttlefish:conf_get("mqtt.mqueue.high_watermark", Conf)},
           {store_qos0, cuttlefish:conf_get("mqtt.mqueue.store_qos0", Conf)}],
   case cuttlefish:conf_get("mqtt.mqueue.priority", Conf) of
     undefined -> Opts;

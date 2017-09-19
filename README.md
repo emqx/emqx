@@ -78,7 +78,7 @@ Plugin                                                                 | Descrip
 [emq_plugin_template](https://github.com/emqtt/emq_plugin_template)    | Plugin template and demo
 [emq_dashboard](https://github.com/emqtt/emq_dashboard)                | Web Dashboard
 [emq_retainer](https://github.com/emqtt/emq_retainer)                  | Store MQTT Retained Messages
-[emq_modules](https://github.com/emqtt/emq_modules)                    | Presence, Subscription and Rewrite Modules
+[emq_modules](https://github.com/emqtt/emq-modules)                    | Presence, Subscription and Rewrite Modules
 [emq_auth_username](https://github.com/emqtt/emq_auth_username)        | Username/Password Authentication Plugin
 [emq_auth_clientid](https://github.com/emqtt/emq_auth_clientid)        | ClientId Authentication Plugin
 [emq_auth_mysql](https://github.com/emqtt/emq_auth_mysql)              | MySQL Authentication/ACL Plugin

@@ -25,18 +25,19 @@
 
 -module(emqttd_config).
 
--export([read/1, dump/2, reload/1, get/2, get/3, set/3]).
+-export([read/1, write/2, dump/2, reload/1, get/2, get/3, set/3]).
 
 -type(env() :: {atom(), term()}).
 
 %% @doc Read the configuration of an application.
 -spec(read(atom()) -> {ok, list(env())} | {error, term()}).
-read(_App) ->
+read(App) ->
     %% TODO: 
     %% 1. Read the app.conf from etc folder
     %% 2. Cuttlefish to read the conf
     %% 3. Return the terms and schema
-    {error, unsupported}.
+    % {error, unsupported}.
+    {ok, read_(App)}.
 
 %% @doc Reload configuration of an application.
 -spec(reload(atom()) -> ok | {error, term()}).
@@ -46,6 +47,21 @@ reload(_App) ->
     %% 2. Cuttlefish to generate config terms.
     %% 3. set/3 to apply the config
     ok.
+
+-spec(write(atom(), list(env())) -> ok | {error, term()}).
+write(App, Terms) ->
+    Configs = lists:map(fun({Key, Val}) ->
+        {cuttlefish_variable:tokenize(binary_to_list(Key)), binary_to_list(Val)}
+    end, Terms),
+    Path = lists:concat([code:priv_dir(App), "/", App, ".schema"]),
+    Schema = cuttlefish_schema:files([Path]),
+    case cuttlefish_generator:map(Schema, Configs) of
+        [{App, Configs1}] ->
+            emqttd_cli_config:write_config(App, Configs),
+            lists:foreach(fun({Key, Val}) -> application:set_env(App, Key, Val) end, Configs1);
+        _ ->
+            error
+    end.
 
 -spec(dump(atom(), list(env())) -> ok | {error, term()}).
 dump(_App, _Terms) ->
@@ -70,3 +86,29 @@ get(App, Par) ->
 get(App, Par, Def) ->
     emqttd_cli_config:get_cfg(App, Par, Def).
 
+
+read_(App) ->
+    Configs = emqttd_cli_config:read_config(App),
+    Path = lists:concat([code:priv_dir(App), "/", App, ".schema"]),
+    case filelib:is_file(Path) of
+        false ->
+            [];
+        true ->
+            {_, Mappings, _} = cuttlefish_schema:files([Path]),
+            OptionalCfg = lists:foldl(fun(Map, Acc) ->
+                Key = cuttlefish_mapping:variable(Map),
+                case proplists:get_value(Key, Configs) of
+                    undefined ->
+                        [{cuttlefish_variable:format(Key), "", cuttlefish_mapping:doc(Map), false} | Acc];
+                    _ -> Acc
+                end
+            end, [], Mappings),
+            RequiredCfg = lists:foldl(fun({Key, Val}, Acc) ->
+                case lists:keyfind(Key, 2, Mappings) of
+                    false -> Acc;
+                    Map ->
+                        [{cuttlefish_variable:format(Key), Val, cuttlefish_mapping:doc(Map), true} | Acc]
+                end
+            end, [], Configs),
+            RequiredCfg ++ OptionalCfg
+    end.
