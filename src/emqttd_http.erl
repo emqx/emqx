@@ -26,7 +26,7 @@
 
 -import(proplists, [get_value/2, get_value/3]).
 
--export([http_handler/0, handle_request/2, http_api/0]).
+-export([http_handler/0, handle_request/2, http_api/0, inner_handle_request/2]).
 
 -include("emqttd_internal.hrl").
 
@@ -54,13 +54,13 @@ handle_request(Req, State) ->
         "/api/v2/auth" ->
             handle_request(Path, Req, State);
         _ ->
-            Host = Req:get_header_value("Host"),
-            [_, Port] = string:tokens(Host, ":"),
-            case Port of
-                "18083" -> handle_request(Path, Req, State);
-                _ -> if_authorized(Req, fun() -> handle_request(Path, Req, State) end)
-            end
+            if_authorized(Req, fun() -> handle_request(Path, Req, State) end)
     end.
+
+inner_handle_request(Req, State) ->
+    Path = Req:get(path),
+    handle_request(Path, Req, State).
+
 
 handle_request("/api/v2/" ++ Url, Req, #state{dispatch = Dispatch}) ->
     Dispatch(Req, Url);
