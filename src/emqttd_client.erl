@@ -137,7 +137,8 @@ send_fun(Conn, Peername) ->
         ?LOG(debug, "SEND ~p", [Data], #client_state{peername = Peername}),
         emqttd_metrics:inc('bytes/sent', iolist_size(Data)),
         try Conn:async_send(Data) of
-            true -> ok
+            true  -> ok;
+            false -> ok  % discard packet since peer's tcp window is full
         catch
             error:Error -> Self ! {shutdown, Error}
         end
