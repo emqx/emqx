@@ -18,7 +18,7 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include("emqx_protocol.hrl").
+-include("emqx_mqtt.hrl").
 
 -import(proplists, [get_value/3]).
 

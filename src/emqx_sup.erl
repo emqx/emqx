@@ -36,17 +36,14 @@
 start_link() ->
     supervisor:start_link({local, ?SUPERVISOR}, ?MODULE, []).
 
--spec(start_child(atom(), worker | supervisor) -> startchild_ret()).
-start_child(Mod, Type) when Type == worker orelse Type == supervisor ->
-    start_child(?CHILD(Mod, Type)).
 
 -spec(start_child(supervisor:child_spec()) -> startchild_ret()).
 start_child(ChildSpec) when is_tuple(ChildSpec) ->
     supervisor:start_child(?SUPERVISOR, ChildSpec).
 
--spec(start_child(Mod::atom(), Type :: worker | supervisor) -> {ok, pid()}).
-start_child(Mod, Type) when is_atom(Mod) and is_atom(Type) ->
-    supervisor:start_child(?MODULE, ?CHILD(Mod, Type)).
+-spec(start_child(atom(), worker | supervisor) -> startchild_ret()).
+start_child(Mod, Type) when Type == worker orelse Type == supervisor ->
+    start_child(?CHILD(Mod, Type)).
 
 -spec(stop_child(supervisor:child_id()) -> ok | {error, any()}).
 stop_child(ChildId) ->
