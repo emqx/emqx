@@ -17,13 +17,13 @@ log/
 *.so
 .erlang.mk/
 cover/
-emqttd.d
+emqx.d
 eunit.coverdata
 test/ct.cover.spec
 logs
 ct.coverdata
 .idea/
-emqttd.iml
+emqx.iml
 _rel/
 data/
 _build
