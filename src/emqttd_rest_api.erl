@@ -212,9 +212,10 @@ session_list('GET', Params, Node, ClientId) ->
     {ok, [{objects, [session_row(Row) || Row <- Data]}]}.
 
 session_row({ClientId, _Pid, _Persistent, Session}) ->
-    InfoKeys = [clean_sess, max_inflight, inflight_queue, message_queue,
-                message_dropped, awaiting_rel, awaiting_ack, awaiting_comp, created_at],
-     [{client_id, ClientId} | [{Key, format(Key, get_value(Key, Session))} || Key <- InfoKeys]].
+    Data = lists:append(Session, emqttd_stats:get_session_stats(ClientId)),
+    InfoKeys = [clean_sess, subscriptions, max_inflight, inflight_len, mqueue_len,
+                mqueue_dropped, awaiting_rel_len, deliver_msg,enqueue_msg, created_at],
+    [{client_id, ClientId} | [{Key, format(Key, get_value(Key, Data))} || Key <- InfoKeys]].
 
 %%--------------------------------------------------------------------------
 %% subscription
