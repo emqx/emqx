@@ -1,0 +1,11 @@
+{application,emqx,
+             [{description,"EMQ X Broker"},
+              {vsn,"2.4"},
+              {modules,[]},
+              {registered,[emqx_sup]},
+              {applications,[kernel,stdlib,gproc,gen_rpc,lager,esockd,mochiweb, lager_syslog,pbkdf2,bcrypt,clique,jsx]},
+              {env,[]},
+              {mod,{emqx_app,[]}},
+              {maintainers,["Feng Lee <feng@emqtt.io>"]},
+              {licenses,["Apache-2.0"]},
+              {links,[{"Github","https://github.com/emqtt/emqttd"}]}]}.
