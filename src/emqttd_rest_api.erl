@@ -66,9 +66,9 @@
 -http_api({"^users/?$", 'GET', users, []}).
 -http_api({"^users/?$", 'POST', users, [{<<"username">>, binary},
                                         {<<"password">>, binary},
-                                        {<<"tag">>, binary}]}).
+                                        {<<"tags">>, binary}]}).
 -http_api({"^users/(.+?)/?$", 'GET', users, []}).
--http_api({"^users/(.+?)/?$", 'PUT', users, []}).
+-http_api({"^users/(.+?)/?$", 'PUT', users, [{<<"tags">>, binary}]}).
 -http_api({"^users/(.+?)/?$", 'DELETE', users, []}).
 
 -http_api({"^auth/?$", 'POST', auth, [{<<"username">>, binary}, {<<"password">>, binary}]}).
