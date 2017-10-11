@@ -326,9 +326,43 @@ end}.
   {datatype, file}
 ]}.
 
+{mapping, "log.console.size", "lager.handlers", [
+  {default, 10485760},
+  {datatype, integer}
+]}.
+
+{mapping, "log.console.count", "lager.handlers", [
+  {default, 5},
+  {datatype, integer}
+]}.
+
+{mapping, "log.info.file", "lager.handlers", [
+  {datatype, file}
+]}.
+
+{mapping, "log.info.size", "lager.handlers", [
+  {default, 10485760},
+  {datatype, integer}
+]}.
+
+{mapping, "log.info.count", "lager.handlers", [
+  {default, 5},
+  {datatype, integer}
+]}.
+
 {mapping, "log.error.file", "lager.handlers", [
   {default, "log/error.log"},
   {datatype, file}
+]}.
+
+{mapping, "log.error.size", "lager.handlers", [
+  {default, 10485760},
+  {datatype, integer}
+]}.
+
+{mapping, "log.error.count", "lager.handlers", [
+  {default, 5},
+  {datatype, integer}
 ]}.
 
 {mapping, "log.syslog", "lager.handlers", [
@@ -370,9 +404,18 @@ end}.
       undefined -> [];
       ErrorFilename -> [{lager_file_backend, [{file, ErrorFilename},
                                               {level, error},
-                                              {size, 10485760},
+                                              {size, cuttlefish:conf_get("log.error.size", Conf)},
                                               {date, "$D0"},
-                                              {count, 5}]}]
+                                              {count, cuttlefish:conf_get("log.error.count", Conf)}]}]
+    end,
+
+    InfoHandler = case cuttlefish:conf_get("log.info.file", Conf, undefined) of
+      undefined -> [];
+      InfoFilename -> [{lager_file_backend, [{file, InfoFilename},
+                                             {level, info},
+                                             {size, cuttlefish:conf_get("log.info.size", Conf)},
+                                             {date, "$D0"},
+                                             {count, cuttlefish:conf_get("log.info.count", Conf)}]}]
     end,
 
     ConsoleLogLevel = cuttlefish:conf_get("log.console.level", Conf),
@@ -381,9 +424,9 @@ end}.
     ConsoleHandler = {lager_console_backend, ConsoleLogLevel},
     ConsoleFileHandler = {lager_file_backend, [{file, ConsoleLogFile},
                                                {level, ConsoleLogLevel},
-                                               {size, 10485760},
+                                               {size, cuttlefish:conf_get("log.console.size", Conf)},
                                                {date, "$D0"},
-                                               {count, 5}]},
+                                               {count, cuttlefish:conf_get("log.console.count", Conf)}]},
 
     ConsoleHandlers = case cuttlefish:conf_get("log.console", Conf) of
       off -> [];
@@ -400,7 +443,7 @@ end}.
                    cuttlefish:conf_get("log.syslog.level", Conf)]}]
     end,
 
-    ConsoleHandlers ++ ErrorHandler ++ SyslogHandler
+    ConsoleHandlers ++ ErrorHandler ++ InfoHandler ++ SyslogHandler
   end
 }.
 
