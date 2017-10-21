@@ -72,7 +72,7 @@ all_traces() -> gen_server:call(?MODULE, all_traces).
 %%--------------------------------------------------------------------
 
 init([]) ->
-    {ok, #state{level = info, traces = #{}}}.
+    {ok, #state{level = debug, traces = #{}}}.
 
 handle_call({start_trace, Who, LogFile}, _From, State = #state{level = Level, traces = Traces}) ->
     case lager:trace_file(LogFile, [Who], Level, ?TRACE_OPTIONS) of
