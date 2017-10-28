@@ -394,9 +394,9 @@ handle_cast({subscribe, _From, TopicTable, AckFun},
                         maps:put(Topic, NewQos, SubMap);
                     error ->
                         emqttd:subscribe(Topic, ClientId, Opts),
-                        emqttd_hooks:run('session.subscribed', [ClientId, Username], {Topic, Opts}),
                         maps:put(Topic, NewQos, SubMap)
                 end,
+                emqttd_hooks:run('session.subscribed', [ClientId, Username], {Topic, Opts}),
                 {[NewQos|QosAcc], SubMap1}
         end, {[], Subscriptions}, TopicTable),
     AckFun(lists:reverse(GrantedQos)),
