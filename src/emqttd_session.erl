@@ -389,14 +389,15 @@ handle_cast({subscribe, _From, TopicTable, AckFun},
                         SubMap;
                     {ok, OldQos} ->
                         emqttd:setqos(Topic, ClientId, NewQos),
+                        emqttd_hooks:run('session.subscribed', [ClientId, Username], {Topic, Opts}),
                         ?LOG(warning, "Duplicated subscribe ~s, old_qos=~w, new_qos=~w",
                             [Topic, OldQos, NewQos], State),
                         maps:put(Topic, NewQos, SubMap);
                     error ->
                         emqttd:subscribe(Topic, ClientId, Opts),
+                        emqttd_hooks:run('session.subscribed', [ClientId, Username], {Topic, Opts}),
                         maps:put(Topic, NewQos, SubMap)
                 end,
-                emqttd_hooks:run('session.subscribed', [ClientId, Username], {Topic, Opts}),
                 {[NewQos|QosAcc], SubMap1}
         end, {[], Subscriptions}, TopicTable),
     AckFun(lists:reverse(GrantedQos)),
