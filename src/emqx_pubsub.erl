@@ -70,7 +70,7 @@ publish(Topic, Msg) ->
                        emqx_router:match_local(Topic)), delivery(Msg)).
 
 route([], #mqtt_delivery{message = Msg}) ->
-    emqx_hooks:run('message.offline', [undefined, Msg]), 
+    emqx_hooks:run('message.dropped', [undefined, Msg]),
     dropped(Msg#mqtt_message.topic), ignore;
 
 %% Dispatch on the local node
@@ -98,7 +98,7 @@ forward(Node, To, Delivery) ->
 dispatch(Topic, Delivery = #mqtt_delivery{message = Msg, flows = Flows}) ->
     case subscribers(Topic) of
         [] ->
-            emqx_hooks:run('message.offline', [undefined, Msg]),
+            emqx_hooks:run('message.dropped', [undefined, Msg]),
             dropped(Topic), {ok, Delivery};
         [Sub] -> %% optimize?
             dispatch(Sub, Topic, Msg),

@@ -117,7 +117,7 @@ dispatch(ClientId, Topic, Msg) ->
         Pid -> Pid ! {dispatch, Topic, Msg}
     catch
         error:badarg -> 
-            emqx_hooks:run('message.offline', [ClientId, Msg]),
+            emqx_hooks:run('message.dropped', [ClientId, Msg]),
             ok %%TODO: How??
     end.
 

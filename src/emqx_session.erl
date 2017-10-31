@@ -695,7 +695,7 @@ is_awaiting_full(#state{awaiting_rel = AwaitingRel, max_awaiting_rel = MaxLen}) 
 
 %% Enqueue message if the client has been disconnected
 dispatch(Msg, State = #state{client_id = ClientId, client_pid = undefined}) ->
-    case emqx_hooks:run('message.offline', [ClientId, Msg]) of
+    case emqx_hooks:run('message.dropped', [ClientId, Msg]) of
         ok   -> enqueue_msg(Msg, State);
         stop -> State
     end;
