@@ -308,9 +308,7 @@ publish(Packet = ?PUBLISH_PACKET(?QOS_0, _PacketId),
                      username   = Username,
                      mountpoint = MountPoint,
                      session    = Session}) ->
-    Msg0 = emqttd_message:from_packet(Username, ClientId, Packet),
-    % MQTT 3.3.1-3: Need reset DUP flag when recv publish message 
-    Msg  = emqttd_message:unset_flag(dup, Msg0),
+    Msg = emqttd_message:from_packet(Username, ClientId, Packet),
     emqttd_session:publish(Session, mount(MountPoint, Msg));
 
 publish(Packet = ?PUBLISH_PACKET(?QOS_1, _PacketId), State) ->
@@ -324,9 +322,7 @@ with_puback(Type, Packet = ?PUBLISH_PACKET(_Qos, PacketId),
                                  username   = Username,
                                  mountpoint = MountPoint,
                                  session    = Session}) ->
-    Msg0 = emqttd_message:from_packet(Username, ClientId, Packet),
-    % MQTT 3.3.1-3: Need reset DUP flag when recv publish message 
-    Msg  = emqttd_message:unset_flag(dup, Msg0),
+    Msg = emqttd_message:from_packet(Username, ClientId, Packet),
     case emqttd_session:publish(Session, mount(MountPoint, Msg)) of
         ok ->
             send(?PUBACK_PACKET(Type, PacketId), State);

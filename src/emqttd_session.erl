@@ -535,11 +535,11 @@ handle_info({dispatch, Topic, Msg = #mqtt_message{from = {ClientId, _}}},
                             ignore_loop_deliver = IgnoreLoopDeliver}) when is_record(Msg, mqtt_message) ->
     case IgnoreLoopDeliver of
         true  -> {noreply, State, hibernate};
-        false -> {noreply, gc(dispatch(tune_qos(Topic, Msg, State), State)), hibernate}
+        false -> {noreply, handle_dispatch(Topic, Msg, State), hibernate}
     end;
 %% Dispatch Message
 handle_info({dispatch, Topic, Msg}, State) when is_record(Msg, mqtt_message) ->
-    {noreply, gc(dispatch(tune_qos(Topic, Msg, State), State)), hibernate};
+    {noreply, handle_dispatch(Topic, Msg, State), hibernate};
 
 %% Do nothing if the client has been disconnected.
 handle_info({timeout, _Timer, retry_delivery}, State = #state{client_pid = undefined}) ->
@@ -687,6 +687,9 @@ is_awaiting_full(#state{awaiting_rel = AwaitingRel, max_awaiting_rel = MaxLen}) 
 %% Dispatch Messages
 %%--------------------------------------------------------------------
 
+handle_dispatch(Topic, Msg, State) ->
+    gc(dispatch(tune_qos(Topic, reset_dup(Msg), State), State)).
+
 %% Enqueue message if the client has been disconnected
 dispatch(Msg, State = #state{client_pid = undefined}) ->
     enqueue_msg(Msg, State);
@@ -800,6 +803,14 @@ tune_qos(Topic, Msg = #mqtt_message{qos = PubQoS},
         error ->
             Msg
     end.
+
+%%--------------------------------------------------------------------
+%% Reset Dup
+%%--------------------------------------------------------------------
+
+reset_dup(Msg = #mqtt_message{dup = true}) ->
+    Msg#mqtt_message{dup = false};
+reset_dup(Msg) -> Msg.
 
 %%--------------------------------------------------------------------
 %% Next Msg Id
