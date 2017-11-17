@@ -36,12 +36,12 @@ spec(ChildId, Args) ->
     {ChildId, {?MODULE, start_link, Args},
         transient, infinity, supervisor, [?MODULE]}.
 
--spec(start_link(atom() | tuple(), atom(), mfa()) -> {ok, pid()} | {error, any()}).
+-spec(start_link(atom() | tuple(), atom(), mfa()) -> {ok, pid()} | {error, term()}).
 start_link(Pool, Type, MFA) ->
     Schedulers = erlang:system_info(schedulers),
     start_link(Pool, Type, Schedulers, MFA).
 
--spec(start_link(atom(), atom(), pos_integer(), mfa()) -> {ok, pid()} | {error, any()}).
+-spec(start_link(atom(), atom(), pos_integer(), mfa()) -> {ok, pid()} | {error, term()}).
 start_link(Pool, Type, Size, MFA) ->
     supervisor:start_link(?MODULE, [Pool, Type, Size, MFA]).
 

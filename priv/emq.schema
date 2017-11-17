@@ -715,11 +715,6 @@ end}.
   {datatype, integer}
 ]}.
 
-{mapping, "mqtt.pubsub.by_clientid", "emqttd.pubsub", [
-  {default, true},
-  {datatype, {enum, [true, false]}}
-]}.
-
 {mapping, "mqtt.pubsub.async", "emqttd.pubsub", [
   {default, true},
   {datatype, {enum, [true, false]}}

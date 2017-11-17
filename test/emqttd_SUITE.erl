@@ -240,8 +240,10 @@ t_local_subscribe(_) ->
     emqttd:subscribe("$local/topic2", <<"x">>, [{qos, 2}]),
     timer:sleep(10),
     ?assertEqual([self()], emqttd:subscribers("$local/topic0")),
-    ?assertEqual([<<"x">>], emqttd:subscribers("$local/topic1")),
-    ?assertEqual([{<<"$local/topic1">>,<<"x">>,[]},{<<"$local/topic2">>,<<"x">>,[{qos,2}]}], emqttd:subscriptions(<<"x">>)),
+    ?assertEqual([{<<"x">>, self()}], emqttd:subscribers("$local/topic1")),
+    ?assertEqual([{{<<"x">>, self()}, <<"$local/topic1">>, []},
+                  {{<<"x">>, self()}, <<"$local/topic2">>, [{qos,2}]}],
+                 emqttd:subscriptions(<<"x">>)),
     
     ?assertEqual(ok, emqttd:unsubscribe("$local/topic0")),
     ?assertMatch({error, {subscription_not_found, _}}, emqttd:unsubscribe("$local/topic0")),
@@ -256,9 +258,9 @@ t_shared_subscribe(_) ->
     emqttd:subscribe("$queue/topic3"),
     timer:sleep(10),
     ?assertEqual([self()], emqttd:subscribers(<<"$local/$share/group1/topic1">>)),
-    ?assertEqual([{<<"$local/$share/group1/topic1">>, self(), []},
-                  {<<"$queue/topic3">>, self(), []},
-                  {<<"$share/group2/topic2">>, self(), []}],
+    ?assertEqual([{self(), <<"$local/$share/group1/topic1">>, []},
+                  {self(), <<"$queue/topic3">>, []},
+                  {self(), <<"$share/group2/topic2">>, []}],
                  lists:sort(emqttd:subscriptions(self()))),
     emqttd:unsubscribe("$local/$share/group1/topic1"),
     emqttd:unsubscribe("$share/group2/topic2"),
@@ -298,7 +300,7 @@ router_add_del(_) ->
     %% Add
     emqttd_router:add_route(<<"#">>),
     emqttd_router:add_route(<<"a/b/c">>),
-    emqttd_router:add_route(<<"+/#">>, node()),
+    emqttd_router:add_route(<<"+/#">>),
     Routes = [R1, R2 | _] = [
             #mqtt_route{topic = <<"#">>,     node = node()},
             #mqtt_route{topic = <<"+/#">>,   node = node()},
@@ -306,7 +308,7 @@ router_add_del(_) ->
     Routes = lists:sort(emqttd_router:match(<<"a/b/c">>)),
 
     %% Batch Add
-    emqttd_router:add_routes(Routes),
+    lists:foreach(fun(R) -> emqttd_router:add_route(R) end, Routes),
     Routes = lists:sort(emqttd_router:match(<<"a/b/c">>)),
 
     %% Del
@@ -317,7 +319,8 @@ router_add_del(_) ->
     %% Batch Del
     R3 = #mqtt_route{topic = <<"#">>, node = 'a@127.0.0.1'},
     emqttd_router:add_route(R3),
-    emqttd_router:del_routes([R1, R2]),
+    emqttd_router:del_route(R1),
+    emqttd_router:del_route(R2),
     emqttd_router:del_route(R3),
     [] = lists:sort(emqttd_router:match(<<"a/b/c">>)).
 
@@ -325,7 +328,7 @@ router_print(_) ->
     Routes = [#mqtt_route{topic = <<"a/b/c">>, node = node()},
               #mqtt_route{topic = <<"#">>,     node = node()},
               #mqtt_route{topic = <<"+/#">>,   node = node()}],
-    emqttd_router:add_routes(Routes),
+    lists:foreach(fun(R) -> emqttd_router:add_route(R) end, Routes),
     emqttd_router:print(<<"a/b/c">>).
 
 router_unused(_) ->
@@ -589,9 +592,9 @@ conflict_listeners(_) ->
                {current_clients, esockd:get_current_clients(Pid)},
                {shutdown_count, esockd:get_shutdown_count(Pid)}]}
               end, esockd:listeners()),
-    L =proplists:get_value("mqtt:tcp:0.0.0.0:1883", Listeners),
+    L = proplists:get_value("mqtt:tcp:0.0.0.0:1883", Listeners),
     ?assertEqual(1, proplists:get_value(current_clients, L)),
-    ?assertEqual(1, proplists:get_value(conflict, L)),
+    ?assertEqual(1, proplists:get_value(conflict, proplists:get_value(shutdown_count, L))),
     emqttc:disconnect(C2).
 
 cli_vm(_) ->

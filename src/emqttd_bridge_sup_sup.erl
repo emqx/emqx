@@ -40,11 +40,11 @@ bridges() ->
                              <- supervisor:which_children(?MODULE)].
 
 %% @doc Start a bridge
--spec(start_bridge(atom(), binary()) -> {ok, pid()} | {error, any()}).
+-spec(start_bridge(atom(), binary()) -> {ok, pid()} | {error, term()}).
 start_bridge(Node, Topic) when is_atom(Node) andalso is_binary(Topic) ->
     start_bridge(Node, Topic, []).
 
--spec(start_bridge(atom(), binary(), [emqttd_bridge:option()]) -> {ok, pid()} | {error, any()}).
+-spec(start_bridge(atom(), binary(), [emqttd_bridge:option()]) -> {ok, pid()} | {error, term()}).
 start_bridge(Node, _Topic, _Options) when Node =:= node() ->
     {error, bridge_to_self};
 start_bridge(Node, Topic, Options) when is_atom(Node) andalso is_binary(Topic) ->

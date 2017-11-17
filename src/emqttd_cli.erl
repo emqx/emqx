@@ -248,7 +248,6 @@ subscriptions(["show", ClientId]) ->
         Records -> [print(subscription, Subscription) || Subscription <- Records]
     end;
 
-
 subscriptions(["add", ClientId, Topic, QoS]) ->
    Add = fun(IntQos) ->
            case emqttd:subscribe(bin(Topic), bin(ClientId), [{qos, IntQos}]) of
@@ -260,22 +259,14 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
          end,
    if_valid_qos(QoS, Add);
 
-
-
-subscriptions(["del", ClientId]) ->
-   Ok = emqttd:subscriber_down(bin(ClientId)),
-   ?PRINT("~p~n", [Ok]);
-
 subscriptions(["del", ClientId, Topic]) ->
    Ok = emqttd:unsubscribe(bin(Topic), bin(ClientId)),
    ?PRINT("~p~n", [Ok]);
-
 
 subscriptions(_) ->
     ?USAGE([{"subscriptions list",                         "List all subscriptions"},
             {"subscriptions show <ClientId>",              "Show subscriptions of a client"},
             {"subscriptions add <ClientId> <Topic> <QoS>", "Add a static subscription manually"},
-            {"subscriptions del <ClientId>",               "Delete static subscriptions manually"},
             {"subscriptions del <ClientId> <Topic>",       "Delete a static subscription manually"}]).
 
 % if_could_print(Tab, Fun) ->

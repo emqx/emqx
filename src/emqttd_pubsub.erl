@@ -46,7 +46,7 @@
 %% Start PubSub
 %%--------------------------------------------------------------------
 
--spec(start_link(atom(), pos_integer(), list()) -> {ok, pid()} | ignore | {error, any()}).
+-spec(start_link(atom(), pos_integer(), list()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id, Env) ->
     gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id, Env], []).
 
@@ -54,7 +54,7 @@ start_link(Pool, Id, Env) ->
 %% PubSub API
 %%--------------------------------------------------------------------
 
-%% @doc Subscribe a Topic
+%% @doc Subscribe to a Topic
 -spec(subscribe(binary(), emqttd:subscriber(), [emqttd:suboption()]) -> ok).
 subscribe(Topic, Subscriber, Options) ->
     call(pick(Topic), {subscribe, Topic, Subscriber, Options}).
@@ -63,8 +63,8 @@ subscribe(Topic, Subscriber, Options) ->
 async_subscribe(Topic, Subscriber, Options) ->
     cast(pick(Topic), {subscribe, Topic, Subscriber, Options}).
 
-%% @doc Publish MQTT Message to Topic
--spec(publish(binary(), any()) -> {ok, mqtt_delivery()} | ignore).
+%% @doc Publish MQTT Message to Topic.
+-spec(publish(binary(), mqtt_message()) -> {ok, mqtt_delivery()} | ignore).
 publish(Topic, Msg) ->
     route(lists:append(emqttd_router:match(Topic),
                        emqttd_router:match_local(Topic)), delivery(Msg)).
@@ -72,7 +72,7 @@ publish(Topic, Msg) ->
 route([], #mqtt_delivery{message = #mqtt_message{topic = Topic}}) ->
     dropped(Topic), ignore;
 
-%% Dispatch on the local node
+%% Dispatch on the local node.
 route([#mqtt_route{topic = To, node = Node}],
       Delivery = #mqtt_delivery{flows = Flows}) when Node =:= node() ->
     dispatch(To, Delivery#mqtt_delivery{flows = [{route, Node, To} | Flows]});
@@ -82,8 +82,8 @@ route([#mqtt_route{topic = To, node = Node}], Delivery = #mqtt_delivery{flows = 
     forward(Node, To, Delivery#mqtt_delivery{flows = [{route, Node, To}|Flows]});
 
 route(Routes, Delivery) ->
-    {ok, lists:foldl(fun(Route, DelAcc) ->
-                    {ok, DelAcc1} = route([Route], DelAcc), DelAcc1
+    {ok, lists:foldl(fun(Route, Acc) ->
+                    {ok, Acc1} = route([Route], Acc), Acc1
             end, Delivery, Routes)}.
 
 delivery(Msg) -> #mqtt_delivery{sender = self(), message = Msg, flows = []}.
@@ -92,7 +92,7 @@ delivery(Msg) -> #mqtt_delivery{sender = self(), message = Msg, flows = []}.
 forward(Node, To, Delivery) ->
     rpc:cast(Node, ?PUBSUB, dispatch, [To, Delivery]), {ok, Delivery}.
 
-%% @doc Dispatch Message to Subscribers
+%% @doc Dispatch Message to Subscribers.
 -spec(dispatch(binary(), mqtt_delivery()) -> mqtt_delivery()).
 dispatch(Topic, Delivery = #mqtt_delivery{message = Msg, flows = Flows}) ->
     case subscribers(Topic) of
@@ -107,16 +107,16 @@ dispatch(Topic, Delivery = #mqtt_delivery{message = Msg, flows = Flows}) ->
             {ok, Delivery#mqtt_delivery{flows = Flows1}}
     end.
 
-dispatch(Pid, Topic, Msg) when is_pid(Pid) ->
-    Pid ! {dispatch, Topic, Msg};
-dispatch(SubId, Topic, Msg) when is_binary(SubId) ->
-    emqttd_sm:dispatch(SubId, Topic, Msg);
-dispatch({_Share, [Sub]}, Topic, Msg) ->
+%%TODO: Is SubPid aliving???
+dispatch(SubPid, Topic, Msg) when is_pid(SubPid) ->
+    SubPid ! {dispatch, Topic, Msg};
+dispatch({SubId, SubPid}, Topic, Msg) when is_binary(SubId), is_pid(SubPid) ->
+    SubPid ! {dispatch, Topic, Msg};
+dispatch({{share, _Share}, [Sub]}, Topic, Msg) ->
     dispatch(Sub, Topic, Msg);
-dispatch({_Share, []}, _Topic, _Msg) ->
+dispatch({{share, _Share}, []}, _Topic, _Msg) ->
     ok;
-%%TODO: round-robbin
-dispatch({_Share, Subs}, Topic, Msg) ->
+dispatch({{share, _Share}, Subs}, Topic, Msg) -> %% round-robbin?
     dispatch(lists:nth(rand:uniform(length(Subs)), Subs), Topic, Msg).
 
 subscribers(Topic) ->
@@ -126,8 +126,8 @@ group_by_share([]) -> [];
 
 group_by_share(Subscribers) ->
     {Subs1, Shares1} =
-    lists:foldl(fun({Share, Sub}, {Subs, Shares}) ->
-                    {Subs, dict:append(Share, Sub, Shares)};
+    lists:foldl(fun({share, Share, Sub}, {Subs, Shares}) ->
+                    {Subs, dict:append({share, Share}, Sub, Shares)};
                    (Sub, {Subs, Shares}) ->
                     {[Sub|Subs], Shares}
                 end, {[], dict:new()}, Subscribers),
@@ -155,8 +155,8 @@ call(PubSub, Req) when is_pid(PubSub) ->
 cast(PubSub, Msg) when is_pid(PubSub) ->
     gen_server2:cast(PubSub, Msg).
 
-pick(Subscriber) ->
-    gproc_pool:pick_worker(pubsub, Subscriber).
+pick(Topic) ->
+    gproc_pool:pick_worker(pubsub, Topic).
 
 %%--------------------------------------------------------------------
 %% gen_server Callbacks
@@ -169,22 +169,22 @@ init([Pool, Id, Env]) ->
 
 handle_call({subscribe, Topic, Subscriber, Options}, _From, State) ->
     add_subscriber(Topic, Subscriber, Options),
-    {reply, ok, setstats(State), hibernate};
+    reply(ok, setstats(State));
 
 handle_call({unsubscribe, Topic, Subscriber, Options}, _From, State) ->
     del_subscriber(Topic, Subscriber, Options),
-    {reply, ok, setstats(State), hibernate};
+    reply(ok, setstats(State));
 
 handle_call(Req, _From, State) ->
     ?UNEXPECTED_REQ(Req, State).
 
 handle_cast({subscribe, Topic, Subscriber, Options}, State) ->
     add_subscriber(Topic, Subscriber, Options),
-    {noreply, setstats(State), hibernate};
+    noreply(setstats(State));
 
 handle_cast({unsubscribe, Topic, Subscriber, Options}, State) ->
     del_subscriber(Topic, Subscriber, Options),
-    {noreply, setstats(State), hibernate};
+    noreply(setstats(State));
 
 handle_cast(Msg, State) ->
     ?UNEXPECTED_MSG(Msg, State).
@@ -205,39 +205,48 @@ code_change(_OldVsn, State, _Extra) ->
 add_subscriber(Topic, Subscriber, Options) ->
     Share = proplists:get_value(share, Options),
     case ?is_local(Options) of
-        false -> add_subscriber_(Share, Topic, Subscriber);
-        true  -> add_local_subscriber_(Share, Topic, Subscriber)
+        false -> add_global_subscriber(Share, Topic, Subscriber);
+        true  -> add_local_subscriber(Share, Topic, Subscriber)
     end.
 
-add_subscriber_(Share, Topic, Subscriber) ->
-    (not ets:member(mqtt_subscriber, Topic)) andalso emqttd_router:add_route(Topic),
+add_global_subscriber(Share, Topic, Subscriber) ->
+    case ets:member(mqtt_subscriber, Topic) and emqttd_router:has_route(Topic) of
+        true  -> ok;
+        false -> emqttd_router:add_route(Topic)
+    end,
     ets:insert(mqtt_subscriber, {Topic, shared(Share, Subscriber)}).
 
-add_local_subscriber_(Share, Topic, Subscriber) ->
+add_local_subscriber(Share, Topic, Subscriber) ->
     (not ets:member(mqtt_subscriber, {local, Topic})) andalso emqttd_router:add_local_route(Topic),
     ets:insert(mqtt_subscriber, {{local, Topic}, shared(Share, Subscriber)}).
 
 del_subscriber(Topic, Subscriber, Options) ->
     Share = proplists:get_value(share, Options),
     case ?is_local(Options) of
-        false -> del_subscriber_(Share, Topic, Subscriber);
-        true  -> del_local_subscriber_(Share, Topic, Subscriber)
+        false -> del_global_subscriber(Share, Topic, Subscriber);
+        true  -> del_local_subscriber(Share, Topic, Subscriber)
     end.
 
-del_subscriber_(Share, Topic, Subscriber) ->
+del_global_subscriber(Share, Topic, Subscriber) ->
     ets:delete_object(mqtt_subscriber, {Topic, shared(Share, Subscriber)}),
     (not ets:member(mqtt_subscriber, Topic)) andalso emqttd_router:del_route(Topic).
 
-del_local_subscriber_(Share, Topic, Subscriber) ->
+del_local_subscriber(Share, Topic, Subscriber) ->
     ets:delete_object(mqtt_subscriber, {{local, Topic}, shared(Share, Subscriber)}),
     (not ets:member(mqtt_subscriber, {local, Topic})) andalso emqttd_router:del_local_route(Topic).
 
 shared(undefined, Subscriber) ->
     Subscriber;
 shared(Share, Subscriber) ->
-    {Share, Subscriber}.
+    {share, Share, Subscriber}.
 
 setstats(State) ->
     emqttd_stats:setstats('subscribers/count', 'subscribers/max', ets:info(mqtt_subscriber, size)),
     State.
+
+reply(Reply, State) ->
+    {reply, Reply, State, hibernate}.
+
+noreply(State) ->
+    {noreply, State, hibernate}.
 

@@ -47,7 +47,7 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start Client Manager
--spec(start_link(atom(), pos_integer(), fun()) -> {ok, pid()} | ignore | {error, any()}).
+-spec(start_link(atom(), pos_integer(), fun()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id, StatsFun) ->
     gen_server2:start_link(?MODULE, [Pool, Id, StatsFun], []).
 

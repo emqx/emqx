@@ -1,6 +1,6 @@
 PROJECT = emqttd
 PROJECT_DESCRIPTION = Erlang MQTT Broker
-PROJECT_VERSION = 2.3
+PROJECT_VERSION = 2.3.0
 
 DEPS = goldrush gproc lager esockd ekka mochiweb pbkdf2 lager_syslog bcrypt clique jsx
 
@@ -36,7 +36,7 @@ EUNIT_OPTS = verbose
 
 CT_SUITES = emqttd emqttd_access emqttd_lib emqttd_inflight emqttd_mod \
             emqttd_net emqttd_mqueue emqttd_protocol emqttd_topic \
-            emqttd_trie emqttd_vm emqttd_config
+            emqttd_router emqttd_trie emqttd_vm emqttd_config
 
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name emqttd_ct@127.0.0.1
 
