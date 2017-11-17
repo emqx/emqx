@@ -136,17 +136,17 @@ subscribed(Topic, Subscriber) ->
 %%--------------------------------------------------------------------
 
 -spec(hook(atom(), function() | {emqttd_hooks:hooktag(), function()}, list(any()))
-      -> ok | {error, any()}).
+      -> ok | {error, term()}).
 hook(Hook, TagFunction, InitArgs) ->
     emqttd_hooks:add(Hook, TagFunction, InitArgs).
 
 -spec(hook(atom(), function() | {emqttd_hooks:hooktag(), function()}, list(any()), integer())
-      -> ok | {error, any()}).
+      -> ok | {error, term()}).
 hook(Hook, TagFunction, InitArgs, Priority) ->
     emqttd_hooks:add(Hook, TagFunction, InitArgs, Priority).
 
 -spec(unhook(atom(), function() | {emqttd_hooks:hooktag(), function()})
-      -> ok | {error, any()}).
+      -> ok | {error, term()}).
 unhook(Hook, TagFunction) ->
     emqttd_hooks:delete(Hook, TagFunction).
 

@@ -23,7 +23,7 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start bridge pool supervisor
--spec(start_link(atom(), binary(), [emqttd_bridge:option()]) -> {ok, pid()} | {error, any()}).
+-spec(start_link(atom(), binary(), [emqttd_bridge:option()]) -> {ok, pid()} | {error, term()}).
 start_link(Node, Topic, Options) ->
     MFA = {emqttd_bridge, start_link, [Node, Topic, Options]},
     emqttd_pool_sup:start_link({bridge, Node, Topic}, random, MFA).

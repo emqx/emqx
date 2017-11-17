@@ -39,7 +39,7 @@ initial_state(MaxSize) ->
 
 %% @doc Parse MQTT Packet
 -spec(parse(binary(), {none, pos_integer()} | fun())
-            -> {ok, mqtt_packet()} | {error, any()} | {more, fun()}).
+            -> {ok, mqtt_packet()} | {error, term()} | {more, fun()}).
 parse(<<>>, {none, MaxLen}) ->
     {more, fun(Bin) -> parse(Bin, {none, MaxLen}) end};
 parse(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>, {none, Limit}) ->
