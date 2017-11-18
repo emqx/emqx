@@ -455,15 +455,7 @@ subscription_list(Key, PageNo, PageSize) when ?EMPTY_KEY(Key) ->
     query_table(Qh, PageNo, PageSize, TotalNum);
 
 subscription_list(Key, PageNo, PageSize) ->
-    Keys = ets:lookup(mqtt_subscription, Key),
-    Fun = case length(Keys) == 0 of
-        true ->
-            fun() -> ets:match_object(mqtt_subproperty, {{Key, '_'}, '_'}) end;
-        false ->
-            fun() ->
-                lists:map(fun({S, T}) ->[R] = ets:lookup(mqtt_subproperty, {T, S}), R end, Keys)
-            end
-    end,
+    Fun = fun() -> ets:match_object(mqtt_subproperty, {{'_', {Key, '_'}}, '_'}) end,
     lookup_table(Fun, PageNo, PageSize).
 
 route_list(Topic, PageNo, PageSize) when ?EMPTY_KEY(Topic) ->
