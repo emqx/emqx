@@ -256,7 +256,7 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
                             undefined ->
                                 ?PRINT_MSG("Error: Session not found!");
                             #mqtt_session{sess_pid = SessPid} ->
-                                emqttd_session:subscribe(SessPid, [{bin(Topic), IntQos}]),
+                                emqttd_session:subscribe(SessPid, [{bin(Topic), [{qos, IntQos}]}]),
                                 ?PRINT_MSG("ok~n")
                         end
                      end);
