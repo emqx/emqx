@@ -467,16 +467,32 @@ subscription_list(Key, PageNo, PageSize) ->
     lookup_table(Fun, PageNo, PageSize).
 
 route_list(Topic, PageNo, PageSize) when ?EMPTY_KEY(Topic) ->
-    TotalNum = lists:sum([ets:info(Tab, size) || Tab <- tables()]),
-    Qh = qlc:append([qlc:q([E || E <- ets:table(Tab)]) || Tab <- tables()]),
-    query_table(Qh, PageNo, PageSize, TotalNum);
+    Tables = [mqtt_route],
+    TotalNum = lists:sum([ets:info(Tab, size) || Tab <- [mqtt_route, mqtt_local_route]]),
+    Qh = qlc:append([qlc:q([E || E <- ets:table(Tab)]) || Tab <- Tables]),
+    Data = query_table(Qh, PageNo, PageSize, TotalNum),
+    Route = get_value(result, Data),
+    LocalRoute = local_route_list(Topic, PageNo, PageSize),
+    lists:keyreplace(result, 1, Data, {result, lists:append(Route, LocalRoute)});
 
 route_list(Topic, PageNo, PageSize) ->
-    Fun = fun() -> lists:append([ets:lookup(Tab, Topic) || Tab <- tables()]) end,
-    lookup_table(Fun, PageNo, PageSize).
+    Tables = [mqtt_route],
+    Fun = fun() -> lists:append([ets:lookup(Tab, Topic) || Tab <- Tables]) end,
+    Route = lookup_table(Fun, PageNo, PageSize),
+    LocalRoute = local_route_list(Topic, PageNo, PageSize),
+    lists:append(Route, LocalRoute).
 
-tables() ->
-    [mqtt_route, mqtt_local_route].
+local_route_list(Topic, PageNo, PageSize) when ?EMPTY_KEY(Topic) ->
+    TotalNum = lists:sum([ets:info(Tab, size) || Tab <- [mqtt_local_route]]),
+    Qh = qlc:append([qlc:q([E || E <- ets:table(Tab)]) || Tab <- [mqtt_local_route]]),
+    Data = query_table(Qh, PageNo, PageSize, TotalNum),
+    lists:map(fun({Topic1, Node}) -> {<<"$local/", Topic1/binary>>, Node} end, get_value(result, Data));
+
+local_route_list(Topic, PageNo, PageSize) ->
+    Fun = fun() -> lists:append([ets:lookup(Tab, Topic) || Tab <- [mqtt_local_route]]) end,
+    Data = lookup_table(Fun, PageNo, PageSize),
+    lists:map(fun({Topic1, Node}) -> {<<"$local/", Topic1/binary>>, Node} end, Data).
+
 
 format_error(Val, Msg) ->
     re:replace(Msg, <<"\\$\\{[^}]+\\}">>, Val, [global, {return, binary}]).
