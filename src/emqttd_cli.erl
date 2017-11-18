@@ -247,7 +247,7 @@ subscriptions(["show", ClientId]) ->
         [] ->
             ?PRINT_MSG("Not Found.~n");
         Subscriptions ->
-            [print(subscription, Sub) || Sub<- Subscriptions]
+            [print(subscription, Sub) || Sub <- Subscriptions]
     end;
 
 subscriptions(["add", ClientId, Topic, QoS]) ->
@@ -256,7 +256,8 @@ subscriptions(["add", ClientId, Topic, QoS]) ->
                             undefined ->
                                 ?PRINT_MSG("Error: Session not found!");
                             #mqtt_session{sess_pid = SessPid} ->
-                                emqttd_session:subscribe(SessPid, [{bin(Topic), [{qos, IntQos}]}]),
+                                {Topic1, Options} = emqttd_topic:parse(bin(Topic)),
+                                emqttd_session:subscribe(SessPid, [{Topic1, [{qos, IntQos}|Options]}]),
                                 ?PRINT_MSG("ok~n")
                         end
                      end);
@@ -266,7 +267,7 @@ subscriptions(["del", ClientId, Topic]) ->
         undefined ->
             ?PRINT_MSG("Error: Session not found!");
         #mqtt_session{sess_pid = SessPid} ->
-            emqttd_session:unsubscribe(SessPid, [bin(Topic)]),
+            emqttd_session:unsubscribe(SessPid, [emqttd_topic:parse(bin(Topic))]),
             ?PRINT_MSG("ok~n")
     end;
 
@@ -586,7 +587,16 @@ print(subscription, {{SubId, SubPid}, {share, _Share, Topic}})
     ?PRINT("~s~p -> ~s~n", [SubId, SubPid, Topic]);
 print(subscription, {{SubId, SubPid}, Topic})
     when is_binary(SubId), is_pid(SubPid) ->
-    ?PRINT("~s~p -> ~s~n", [SubId, SubPid, Topic]).
+    ?PRINT("~s~p -> ~s~n", [SubId, SubPid, Topic]);
+print(subscription, {Sub, Topic, Props}) ->
+    print(subscription, {Sub, Topic}),
+    lists:foreach(fun({K, V}) when is_binary(V) ->
+                      ?PRINT("  ~-8s: ~s~n", [K, V]);
+                     ({K, V}) ->
+                      ?PRINT("  ~-8s: ~w~n", [K, V]);
+                     (K) ->
+                      ?PRINT("  ~-8s: true~n", [K])
+                  end, Props).
 
 format(created_at, Val) ->
     emqttd_time:now_secs(Val);
