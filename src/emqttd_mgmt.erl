@@ -458,8 +458,7 @@ subscription_list(Key, PageNo, PageSize) ->
     Keys = ets:lookup(mqtt_subscription, Key),
     Fun = case length(Keys) == 0 of
         true ->
-            MP = {{Key, '_'}, '_'},
-            fun() -> ets:match_object(mqtt_subproperty, MP) end;
+            fun() -> ets:match_object(mqtt_subproperty, {{Key, '_'}, '_'}) end;
         false ->
             fun() ->
                 lists:map(fun({S, T}) ->[R] = ets:lookup(mqtt_subproperty, {T, S}), R end, Keys)
