@@ -124,7 +124,7 @@ session(#proto_state{session = Session}) ->
 %% CONNECT – Client requests a connection to a Server
 
 %% A Client can only send the CONNECT Packet once over a Network Connection. 
--spec(received(mqtt_packet(), proto_state()) -> {ok, proto_state()} | {error, any()}).
+-spec(received(mqtt_packet(), proto_state()) -> {ok, proto_state()} | {error, term()}).
 received(Packet = ?PACKET(?CONNECT),
          State = #proto_state{connected = false, stats_data = Stats}) ->
     trace(recv, Packet, State), Stats1 = inc_stats(recv, ?CONNECT, Stats),

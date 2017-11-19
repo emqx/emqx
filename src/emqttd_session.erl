@@ -172,7 +172,7 @@
                         "Session(~s): " ++ Format, [State#state.client_id | Args])).
 
 %% @doc Start a Session
--spec(start_link(boolean(), {mqtt_client_id(), mqtt_username()}, pid()) -> {ok, pid()} | {error, any()}).
+-spec(start_link(boolean(), {mqtt_client_id(), mqtt_username()}, pid()) -> {ok, pid()} | {error, term()}).
 start_link(CleanSess, {ClientId, Username}, ClientPid) ->
     gen_server2:start_link(?MODULE, [CleanSess, {ClientId, Username}, ClientPid], []).
 
@@ -192,7 +192,7 @@ subscribe(Session, PacketId, TopicTable) -> %%TODO: the ack function??...
     gen_server2:cast(Session, {subscribe, From, TopicTable, AckFun}).
 
 %% @doc Publish Message
--spec(publish(pid(), mqtt_message()) -> ok | {error, any()}).
+-spec(publish(pid(), mqtt_message()) -> ok | {error, term()}).
 publish(_Session, Msg = #mqtt_message{qos = ?QOS_0}) ->
     %% Publish QoS0 Directly
     emqttd_server:publish(Msg), ok;
@@ -389,6 +389,7 @@ handle_cast({subscribe, _From, TopicTable, AckFun},
                         SubMap;
                     {ok, OldQos} ->
                         emqttd:setqos(Topic, ClientId, NewQos),
+                        emqttd_hooks:run('session.subscribed', [ClientId, Username], {Topic, Opts}),
                         ?LOG(warning, "Duplicated subscribe ~s, old_qos=~w, new_qos=~w",
                             [Topic, OldQos, NewQos], State),
                         maps:put(Topic, NewQos, SubMap);
@@ -534,11 +535,11 @@ handle_info({dispatch, Topic, Msg = #mqtt_message{from = {ClientId, _}}},
                             ignore_loop_deliver = IgnoreLoopDeliver}) when is_record(Msg, mqtt_message) ->
     case IgnoreLoopDeliver of
         true  -> {noreply, State, hibernate};
-        false -> {noreply, gc(dispatch(tune_qos(Topic, Msg, State), State)), hibernate}
+        false -> {noreply, handle_dispatch(Topic, Msg, State), hibernate}
     end;
 %% Dispatch Message
 handle_info({dispatch, Topic, Msg}, State) when is_record(Msg, mqtt_message) ->
-    {noreply, gc(dispatch(tune_qos(Topic, Msg, State), State)), hibernate};
+    {noreply, handle_dispatch(Topic, Msg, State), hibernate};
 
 %% Do nothing if the client has been disconnected.
 handle_info({timeout, _Timer, retry_delivery}, State = #state{client_pid = undefined}) ->
@@ -581,9 +582,9 @@ handle_info(Info, Session) ->
     ?UNEXPECTED_INFO(Info, Session).
 
 terminate(Reason, #state{client_id = ClientId, username = Username}) ->
-    emqttd_stats:del_session_stats(ClientId),
+    %% Move to emqttd_sm to avoid race condition
+    %%emqttd_stats:del_session_stats(ClientId),
     emqttd_hooks:run('session.terminated', [ClientId, Username, Reason]),
-    emqttd_server:subscriber_down(ClientId),
     emqttd_sm:unregister_session(ClientId).
 
 code_change(_OldVsn, Session, _Extra) ->
@@ -685,6 +686,9 @@ is_awaiting_full(#state{awaiting_rel = AwaitingRel, max_awaiting_rel = MaxLen}) 
 %%--------------------------------------------------------------------
 %% Dispatch Messages
 %%--------------------------------------------------------------------
+
+handle_dispatch(Topic, Msg, State) ->
+    gc(dispatch(tune_qos(Topic, reset_dup(Msg), State), State)).
 
 %% Enqueue message if the client has been disconnected
 dispatch(Msg, State = #state{client_pid = undefined}) ->
@@ -799,6 +803,14 @@ tune_qos(Topic, Msg = #mqtt_message{qos = PubQoS},
         error ->
             Msg
     end.
+
+%%--------------------------------------------------------------------
+%% Reset Dup
+%%--------------------------------------------------------------------
+
+reset_dup(Msg = #mqtt_message{dup = true}) ->
+    Msg#mqtt_message{dup = false};
+reset_dup(Msg) -> Msg.
 
 %%--------------------------------------------------------------------
 %% Next Msg Id

@@ -61,7 +61,7 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start emqttd broker
--spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
+-spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 

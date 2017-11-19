@@ -715,11 +715,6 @@ end}.
   {datatype, integer}
 ]}.
 
-{mapping, "mqtt.pubsub.by_clientid", "emqttd.pubsub", [
-  {default, true},
-  {datatype, {enum, [true, false]}}
-]}.
-
 {mapping, "mqtt.pubsub.async", "emqttd.pubsub", [
   {default, true},
   {datatype, {enum, [true, false]}}
@@ -727,7 +722,6 @@ end}.
 
 {translation, "emqttd.pubsub", fun(Conf) ->
   [{pool_size, cuttlefish:conf_get("mqtt.pubsub.pool_size", Conf)},
-   {by_clientid, cuttlefish:conf_get("mqtt.pubsub.by_clientid", Conf)},
    {async, cuttlefish:conf_get("mqtt.pubsub.async", Conf)}]
 end}.
 

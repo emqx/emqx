@@ -39,7 +39,7 @@ initial_state(MaxSize) ->
 
 %% @doc Parse MQTT Packet
 -spec(parse(binary(), {none, pos_integer()} | fun())
-            -> {ok, mqtt_packet()} | {error, any()} | {more, fun()}).
+            -> {ok, mqtt_packet()} | {error, term()} | {more, fun()}).
 parse(<<>>, {none, MaxLen}) ->
     {more, fun(Bin) -> parse(Bin, {none, MaxLen}) end};
 parse(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>, {none, Limit}) ->
@@ -124,7 +124,7 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos  = Qos} = Header, Length) 
                                       _ -> <<Id:16/big, R/binary>> = Rest1,
                                           {Id, R}
                                   end,
-            wrap(Header, #mqtt_packet_publish{topic_name = TopicName,
+            wrap(fixdup(Header), #mqtt_packet_publish{topic_name = TopicName,
                                               packet_id = PacketId},
                  Payload, Rest);
         {?PUBACK, <<FrameBin:Length/binary, Rest/binary>>} ->
@@ -222,3 +222,9 @@ fixqos(?SUBSCRIBE, 0)   -> 1;
 fixqos(?UNSUBSCRIBE, 0) -> 1;
 fixqos(_Type, QoS)      -> QoS.
 
+%% Fix Issue#1319
+fixdup(Header = #mqtt_packet_header{qos = ?QOS0, dup = true}) ->
+    Header#mqtt_packet_header{dup = false};
+fixdup(Header = #mqtt_packet_header{qos = ?QOS2, dup = true}) ->
+    Header#mqtt_packet_header{dup = false};
+fixdup(Header) -> Header.

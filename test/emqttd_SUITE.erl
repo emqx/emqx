@@ -67,7 +67,6 @@ all() ->
      {group, http},
      {group, alarms},
      {group, cli},
-     {group, get_api},
      {group, cleanSession}].
 
 groups() ->
@@ -99,7 +98,8 @@ groups() ->
        run_hooks]},
     {http, [sequence], 
      [request_status,
-      request_publish
+      request_publish,
+      get_api_lists
      % websocket_test
      ]},
      {alarms, [sequence], 
@@ -122,8 +122,7 @@ groups() ->
          ]},
        cli_vm]},
     {cleanSession, [sequence],
-      [cleanSession_validate]},
-    {get_api, [sequence], [get_api_lists]}].
+      [cleanSession_validate]}].
 
 init_per_suite(Config) ->
     NewConfig = generate_config(),
@@ -235,13 +234,15 @@ pubsub(_) ->
     emqttd:unsubscribe(<<"a/b/c">>).
 
 t_local_subscribe(_) ->
-    emqttd:subscribe("$local/topic0"),
-    emqttd:subscribe("$local/topic1", <<"x">>),
-    emqttd:subscribe("$local/topic2", <<"x">>, [{qos, 2}]),
+    ok = emqttd:subscribe("$local/topic0"),
+    ok = emqttd:subscribe("$local/topic1", <<"x">>),
+    ok = emqttd:subscribe("$local/topic2", <<"x">>, [{qos, 2}]),
     timer:sleep(10),
     ?assertEqual([self()], emqttd:subscribers("$local/topic0")),
-    ?assertEqual([<<"x">>], emqttd:subscribers("$local/topic1")),
-    ?assertEqual([{<<"$local/topic1">>,<<"x">>,[]},{<<"$local/topic2">>,<<"x">>,[{qos,2}]}], emqttd:subscriptions(<<"x">>)),
+    ?assertEqual([{<<"x">>, self()}], emqttd:subscribers("$local/topic1")),
+    ?assertEqual([{{<<"x">>, self()}, <<"$local/topic1">>, []},
+                  {{<<"x">>, self()}, <<"$local/topic2">>, [{qos,2}]}],
+                 emqttd:subscriptions(<<"x">>)),
     
     ?assertEqual(ok, emqttd:unsubscribe("$local/topic0")),
     ?assertMatch({error, {subscription_not_found, _}}, emqttd:unsubscribe("$local/topic0")),
@@ -256,9 +257,9 @@ t_shared_subscribe(_) ->
     emqttd:subscribe("$queue/topic3"),
     timer:sleep(10),
     ?assertEqual([self()], emqttd:subscribers(<<"$local/$share/group1/topic1">>)),
-    ?assertEqual([{<<"$local/$share/group1/topic1">>, self(), []},
-                  {<<"$queue/topic3">>, self(), []},
-                  {<<"$share/group2/topic2">>, self(), []}],
+    ?assertEqual([{self(), <<"$local/$share/group1/topic1">>, []},
+                  {self(), <<"$queue/topic3">>, []},
+                  {self(), <<"$share/group2/topic2">>, []}],
                  lists:sort(emqttd:subscriptions(self()))),
     emqttd:unsubscribe("$local/$share/group1/topic1"),
     emqttd:unsubscribe("$share/group2/topic2"),
@@ -298,7 +299,7 @@ router_add_del(_) ->
     %% Add
     emqttd_router:add_route(<<"#">>),
     emqttd_router:add_route(<<"a/b/c">>),
-    emqttd_router:add_route(<<"+/#">>, node()),
+    emqttd_router:add_route(<<"+/#">>),
     Routes = [R1, R2 | _] = [
             #mqtt_route{topic = <<"#">>,     node = node()},
             #mqtt_route{topic = <<"+/#">>,   node = node()},
@@ -306,7 +307,7 @@ router_add_del(_) ->
     Routes = lists:sort(emqttd_router:match(<<"a/b/c">>)),
 
     %% Batch Add
-    emqttd_router:add_routes(Routes),
+    lists:foreach(fun(R) -> emqttd_router:add_route(R) end, Routes),
     Routes = lists:sort(emqttd_router:match(<<"a/b/c">>)),
 
     %% Del
@@ -317,7 +318,8 @@ router_add_del(_) ->
     %% Batch Del
     R3 = #mqtt_route{topic = <<"#">>, node = 'a@127.0.0.1'},
     emqttd_router:add_route(R3),
-    emqttd_router:del_routes([R1, R2]),
+    emqttd_router:del_route(R1),
+    emqttd_router:del_route(R2),
     emqttd_router:del_route(R3),
     [] = lists:sort(emqttd_router:match(<<"a/b/c">>)).
 
@@ -325,7 +327,7 @@ router_print(_) ->
     Routes = [#mqtt_route{topic = <<"a/b/c">>, node = node()},
               #mqtt_route{topic = <<"#">>,     node = node()},
               #mqtt_route{topic = <<"+/#">>,   node = node()}],
-    emqttd_router:add_routes(Routes),
+    lists:foreach(fun(R) -> emqttd_router:add_route(R) end, Routes),
     emqttd_router:print(<<"a/b/c">>).
 
 router_unused(_) ->
@@ -448,19 +450,20 @@ request_status(_) ->
     ?assertEqual(binary_to_list(Status), Return).
 
 request_publish(_) ->
+    application:start(emq_dashboard),
     emqttc:start_link([{host, "localhost"},
                        {port, 1883},
                        {client_id, <<"random">>},
                        {clean_sess, false}]),
     SubParams = "{\"qos\":1, \"topic\" : \"a\/b\/c\", \"client_id\" :\"random\"}",
-    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/subscribe", SubParams, auth_header_("", ""))),
+    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/subscribe", SubParams, auth_header_("admin", "public"))),
     ok = emqttd:subscribe(<<"a/b/c">>, self(), [{qos, 1}]),
     Params = "{\"qos\":1, \"retain\":false, \"topic\" : \"a\/b\/c\", \"messages\" :\"hello\"}",
-    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/publish", Params, auth_header_("", ""))),
+    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/publish", Params, auth_header_("admin", "public"))),
     ?assert(receive {dispatch, <<"a/b/c">>, _} -> true after 2 -> false end),
 
     UnSubParams = "{\"topic\" : \"a\/b\/c\", \"client_id\" :\"random\"}",
-    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/unsubscribe", UnSubParams, auth_header_("", ""))).
+    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/unsubscribe", UnSubParams, auth_header_("admin", "public"))).
 
 connect_emqttd_pubsub_(Method, Api, Params, Auth) ->
     Url = "http://127.0.0.1:8080/" ++ Api,
@@ -478,6 +481,9 @@ connect_emqttd_pubsub_(Method, Api, Params, Auth) ->
 auth_header_(User, Pass) ->
     Encoded = base64:encode_to_string(lists:append([User,":",Pass])),
     {"Authorization","Basic " ++ Encoded}.
+
+get_api_lists(_Config) ->
+    lists:foreach(fun request/1, ?GET_API).
 
 websocket_test(_) ->
     Conn = esockd_connection:new(esockd_transport, nil, []),
@@ -589,9 +595,9 @@ conflict_listeners(_) ->
                {current_clients, esockd:get_current_clients(Pid)},
                {shutdown_count, esockd:get_shutdown_count(Pid)}]}
               end, esockd:listeners()),
-    L =proplists:get_value("mqtt:tcp:0.0.0.0:1883", Listeners),
+    L = proplists:get_value("mqtt:tcp:0.0.0.0:1883", Listeners),
     ?assertEqual(1, proplists:get_value(current_clients, L)),
-    ?assertEqual(1, proplists:get_value(conflict, L)),
+    ?assertEqual(1, proplists:get_value(conflict, proplists:get_value(shutdown_count, L))),
     emqttc:disconnect(C2).
 
 cli_vm(_) ->
@@ -622,9 +628,6 @@ cleanSession_validate(_) ->
     ?assertEqual(1, proplists:get_value('messages/qos0/received', Metrics)),
     emqttc:disconnect(Pub),
     emqttc:disconnect(C11).
-
-get_api_lists(_Config) ->
-    lists:foreach(fun request/1, ?GET_API).
 
 change_opts(SslType) ->
     {ok, Listeners} = application:get_env(?APP, listeners),
@@ -694,7 +697,7 @@ http_post(Method, Path, Params) ->
 
 req(Method, Path, Body) ->
    Url = ?URL ++ Path,
-   Headers = auth_header_("", ""),
+   Headers = auth_header_("admin", "public"),
    case httpc:request(Method, {Url, [Headers]}, [], []) of
    {error, socket_closed_remotely} ->
        false;

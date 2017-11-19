@@ -31,8 +31,7 @@
          unsubscribe/1, unsubscribe/2]).
 
 %% PubSub Management API
--export([setqos/3, topics/0, subscriptions/1, subscribers/1,
-         is_subscribed/2, subscriber_down/1]).
+-export([setqos/3, topics/0, subscriptions/1, subscribers/1, subscribed/2]).
 
 %% Hooks API
 -export([hook/4, hook/3, unhook/2, run_hooks/2, run_hooks/3]).
@@ -43,14 +42,13 @@
 %% Shutdown and reboot
 -export([shutdown/0, shutdown/1, reboot/0]).
 
--type(subscriber() :: pid() | binary()).
+-type(subid() :: binary()).
+
+-type(subscriber() :: pid() | subid() | {subid(), pid()}).
 
 -type(suboption() :: local | {qos, non_neg_integer()} | {share, {'$queue' | binary()}}).
 
--type(pubsub_error() :: {error, {already_subscribed, binary()}
-                              | {subscription_not_found, binary()}}).
-
--export_type([subscriber/0, suboption/0, pubsub_error/0]).
+-export_type([subscriber/0, suboption/0]).
 
 -define(APP, ?MODULE).
 
@@ -59,19 +57,19 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start emqttd application.
--spec(start() -> ok | {error, any()}).
+-spec(start() -> ok | {error, term()}).
 start() -> application:start(?APP).
 
 %% @doc Stop emqttd application.
--spec(stop() -> ok | {error, any()}).
+-spec(stop() -> ok | {error, term()}).
 stop() -> application:stop(?APP).
 
 %% @doc Environment
--spec(env(Key:: atom()) -> {ok, any()} | undefined).
+-spec(env(Key :: atom()) -> {ok, any()} | undefined).
 env(Key) -> application:get_env(?APP, Key).
 
 %% @doc Get environment
--spec(env(Key:: atom(), Default:: any()) -> undefined | any()).
+-spec(env(Key :: atom(), Default :: any()) -> undefined | any()).
 env(Key, Default) -> application:get_env(?APP, Key, Default).
 
 %% @doc Is running?
@@ -88,15 +86,15 @@ is_running(Node) ->
 %%--------------------------------------------------------------------
 
 %% @doc Subscribe
--spec(subscribe(iodata()) -> ok | {error, any()}).
+-spec(subscribe(iodata()) -> ok | {error, term()}).
 subscribe(Topic) ->
-    subscribe(Topic, self()).
+    emqttd_server:subscribe(iolist_to_binary(Topic)).
 
--spec(subscribe(iodata(), subscriber()) -> ok | {error, any()}).
+-spec(subscribe(iodata(), subscriber()) -> ok | {error, term()}).
 subscribe(Topic, Subscriber) ->
-    subscribe(Topic, Subscriber, []).
+    emqttd_server:subscribe(iolist_to_binary(Topic), Subscriber).
 
--spec(subscribe(iodata(), subscriber(), [suboption()]) -> ok | pubsub_error()).
+-spec(subscribe(iodata(), subscriber(), [suboption()]) -> ok | {error, term()}).
 subscribe(Topic, Subscriber, Options) ->
     emqttd_server:subscribe(iolist_to_binary(Topic), Subscriber, Options).
 
@@ -106,11 +104,11 @@ publish(Msg) ->
     emqttd_server:publish(Msg).
 
 %% @doc Unsubscribe
--spec(unsubscribe(iodata()) -> ok | pubsub_error()).
+-spec(unsubscribe(iodata()) -> ok | {error, term()}).
 unsubscribe(Topic) ->
-    unsubscribe(Topic, self()).
+    emqttd_server:unsubscribe(iolist_to_binary(Topic)).
 
--spec(unsubscribe(iodata(), subscriber()) -> ok | pubsub_error()).
+-spec(unsubscribe(iodata(), subscriber()) -> ok | {error, term()}).
 unsubscribe(Topic, Subscriber) ->
     emqttd_server:unsubscribe(iolist_to_binary(Topic), Subscriber).
 
@@ -125,34 +123,30 @@ topics() -> emqttd_router:topics().
 subscribers(Topic) ->
     emqttd_server:subscribers(iolist_to_binary(Topic)).
 
--spec(subscriptions(subscriber()) -> [{binary(), binary(), list(suboption())}]).
+-spec(subscriptions(subscriber()) -> [{emqttd:subscriber(), binary(), list(emqttd:suboption())}]).
 subscriptions(Subscriber) ->
     emqttd_server:subscriptions(Subscriber).
 
--spec(is_subscribed(iodata(), subscriber()) -> boolean()).
-is_subscribed(Topic, Subscriber) ->
-    emqttd_server:is_subscribed(iolist_to_binary(Topic), Subscriber).
-
--spec(subscriber_down(subscriber()) -> ok).
-subscriber_down(Subscriber) ->
-    emqttd_server:subscriber_down(Subscriber).
+-spec(subscribed(iodata(), subscriber()) -> boolean()).
+subscribed(Topic, Subscriber) ->
+    emqttd_server:subscribed(iolist_to_binary(Topic), Subscriber).
 
 %%--------------------------------------------------------------------
 %% Hooks API
 %%--------------------------------------------------------------------
 
 -spec(hook(atom(), function() | {emqttd_hooks:hooktag(), function()}, list(any()))
-      -> ok | {error, any()}).
+      -> ok | {error, term()}).
 hook(Hook, TagFunction, InitArgs) ->
     emqttd_hooks:add(Hook, TagFunction, InitArgs).
 
 -spec(hook(atom(), function() | {emqttd_hooks:hooktag(), function()}, list(any()), integer())
-      -> ok | {error, any()}).
+      -> ok | {error, term()}).
 hook(Hook, TagFunction, InitArgs, Priority) ->
     emqttd_hooks:add(Hook, TagFunction, InitArgs, Priority).
 
 -spec(unhook(atom(), function() | {emqttd_hooks:hooktag(), function()})
-      -> ok | {error, any()}).
+      -> ok | {error, term()}).
 unhook(Hook, TagFunction) ->
     emqttd_hooks:delete(Hook, TagFunction).
 
