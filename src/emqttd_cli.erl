@@ -218,7 +218,9 @@ routes(["list"]) ->
     foreach(fun print/1, Routes);
 
 routes(["show", Topic]) ->
-    print(mnesia:dirty_read(mqtt_route, bin(Topic)));
+    Routes = lists:append(ets:lookup(mqtt_route, bin(Topic)),
+                          ets:lookup(mqtt_local_route, bin(Topic))),
+    foreach(fun print/1, Routes);
 
 routes(_) ->
     ?USAGE([{"routes list",         "List all routes"},
@@ -243,39 +245,38 @@ subscriptions(["list"]) ->
                   end, ets:tab2list(mqtt_subscription));
 
 subscriptions(["show", ClientId]) ->
-    case ets:lookup(mqtt_subscription, bin(ClientId)) of
-        []      -> ?PRINT_MSG("Not Found.~n");
-        Records -> [print(subscription, Subscription) || Subscription <- Records]
+    case emqttd:subscriptions(bin(ClientId)) of
+        [] ->
+            ?PRINT_MSG("Not Found.~n");
+        Subscriptions ->
+            [print(subscription, Sub) || Sub <- Subscriptions]
     end;
 
-
 subscriptions(["add", ClientId, Topic, QoS]) ->
-   Add = fun(IntQos) ->
-           case emqttd:subscribe(bin(Topic), bin(ClientId), [{qos, IntQos}]) of
-               ok ->
-                   ?PRINT_MSG("ok~n");
-               {error, Reason} ->
-                   ?PRINT("Error: ~p~n", [Reason])
-           end
-         end,
-   if_valid_qos(QoS, Add);
-
-
-
-subscriptions(["del", ClientId]) ->
-   Ok = emqttd:subscriber_down(bin(ClientId)),
-   ?PRINT("~p~n", [Ok]);
+   if_valid_qos(QoS, fun(IntQos) ->
+                        case emqttd_sm:lookup_session(bin(ClientId)) of
+                            undefined ->
+                                ?PRINT_MSG("Error: Session not found!");
+                            #mqtt_session{sess_pid = SessPid} ->
+                                {Topic1, Options} = emqttd_topic:parse(bin(Topic)),
+                                emqttd_session:subscribe(SessPid, [{Topic1, [{qos, IntQos}|Options]}]),
+                                ?PRINT_MSG("ok~n")
+                        end
+                     end);
 
 subscriptions(["del", ClientId, Topic]) ->
-   Ok = emqttd:unsubscribe(bin(Topic), bin(ClientId)),
-   ?PRINT("~p~n", [Ok]);
-
+    case emqttd_sm:lookup_session(bin(ClientId)) of
+        undefined ->
+            ?PRINT_MSG("Error: Session not found!");
+        #mqtt_session{sess_pid = SessPid} ->
+            emqttd_session:unsubscribe(SessPid, [emqttd_topic:parse(bin(Topic))]),
+            ?PRINT_MSG("ok~n")
+    end;
 
 subscriptions(_) ->
     ?USAGE([{"subscriptions list",                         "List all subscriptions"},
             {"subscriptions show <ClientId>",              "Show subscriptions of a client"},
             {"subscriptions add <ClientId> <Topic> <QoS>", "Add a static subscription manually"},
-            {"subscriptions del <ClientId>",               "Delete static subscriptions manually"},
             {"subscriptions del <ClientId> <Topic>",       "Delete a static subscription manually"}]).
 
 % if_could_print(Tab, Fun) ->
@@ -579,14 +580,25 @@ print({ClientId, _ClientPid, _Persistent, SessInfo}) ->
            "deliver_msg=~w, enqueue_msg=~w, created_at=~w)~n",
             [ClientId | [format(Key, get_value(Key, Data)) || Key <- InfoKeys]]).
 
-print(subscription, {Sub, {_Share, Topic}}) when is_pid(Sub) ->
+print(subscription, {Sub, {share, _Share, Topic}}) when is_pid(Sub) ->
     ?PRINT("~p -> ~s~n", [Sub, Topic]);
 print(subscription, {Sub, Topic}) when is_pid(Sub) ->
     ?PRINT("~p -> ~s~n", [Sub, Topic]);
-print(subscription, {Sub, {_Share, Topic}}) ->
-    ?PRINT("~s -> ~s~n", [Sub, Topic]);
-print(subscription, {Sub, Topic}) ->
-    ?PRINT("~s -> ~s~n", [Sub, Topic]).
+print(subscription, {{SubId, SubPid}, {share, _Share, Topic}})
+    when is_binary(SubId), is_pid(SubPid) ->
+    ?PRINT("~s~p -> ~s~n", [SubId, SubPid, Topic]);
+print(subscription, {{SubId, SubPid}, Topic})
+    when is_binary(SubId), is_pid(SubPid) ->
+    ?PRINT("~s~p -> ~s~n", [SubId, SubPid, Topic]);
+print(subscription, {Sub, Topic, Props}) ->
+    print(subscription, {Sub, Topic}),
+    lists:foreach(fun({K, V}) when is_binary(V) ->
+                      ?PRINT("  ~-8s: ~s~n", [K, V]);
+                     ({K, V}) ->
+                      ?PRINT("  ~-8s: ~w~n", [K, V]);
+                     (K) ->
+                      ?PRINT("  ~-8s: true~n", [K])
+                  end, Props).
 
 format(created_at, Val) ->
     emqttd_time:now_secs(Val);

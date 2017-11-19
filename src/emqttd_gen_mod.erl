@@ -24,9 +24,9 @@
 
 -ifdef(use_specs).
 
--callback(load(Opts :: any()) -> ok | {error, any()}).
+-callback(load(Opts :: any()) -> ok | {error, term()}).
 
--callback(unload(State :: any()) -> any()).
+-callback(unload(State :: term()) -> term()).
 
 -else.
 

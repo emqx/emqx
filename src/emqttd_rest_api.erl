@@ -241,10 +241,14 @@ subscription_list('GET', Params, Node, Key) ->
     Data = emqttd_mgmt:subscription_list(l2a(Node), l2b(Key), PageNo, PageSize),
     {ok, [{objects, [subscription_row(Row) || Row <- Data]}]}.
 
-subscription_row({{Topic, ClientId}, Option}) when is_pid(ClientId) ->
-    subscription_row({{Topic, l2b(pid_to_list(ClientId))}, Option});    
-subscription_row({{Topic, ClientId}, Option}) ->
-    Qos = get_value(qos, Option),
+subscription_row({{Topic, SubPid}, Options}) when is_pid(SubPid) ->
+    subscription_row({{Topic, {undefined, SubPid}}, Options});
+subscription_row({{Topic, {SubId, SubPid}}, Options}) ->
+    Qos = proplists:get_value(qos, Options),
+    ClientId = case SubId of
+                   undefined -> list_to_binary(pid_to_list(SubPid));
+                   SubId     -> SubId
+               end,
     [{client_id, ClientId}, {topic, Topic}, {qos, Qos}].
 
 %%--------------------------------------------------------------------------

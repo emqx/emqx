@@ -14,36 +14,39 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqttd_acl_mod).
+-module(emqttd_cli_SUITE).
 
--author("Feng Lee <feng@emqtt.io>").
+-compile(export_all).
 
 -include("emqttd.hrl").
 
-%%--------------------------------------------------------------------
-%% ACL behavihour
-%%--------------------------------------------------------------------
+-include_lib("eunit/include/eunit.hrl").
 
--ifdef(use_specs).
+all() ->
+    [{group, subscriptions}].
 
--callback(init(AclOpts :: list()) -> {ok, State :: any()}).
+groups() ->
+    [{subscriptions, [sequence],
+      [t_subsciptions_list,
+       t_subsciptions_show,
+       t_subsciptions_add,
+       t_subsciptions_del]}].
 
--callback(check_acl({Client :: mqtt_client(),
-                     PubSub :: pubsub(),
-                     Topic  :: binary()}, State :: any()) -> allow | deny | ignore).
+init_per_suite(Config) ->
+    Config.
 
--callback(reload_acl(State :: any()) -> ok | {error, term()}).
+end_per_suite(_Config) ->
+    todo.
 
--callback(description() -> string()).
+t_subsciptions_list(_) ->
+    todo.
 
--else.
+t_subsciptions_show(_) ->
+    todo.
 
--export([behaviour_info/1]).
+t_subsciptions_add(_) ->
+    todo.
 
-behaviour_info(callbacks) ->
-    [{init, 1}, {check_acl, 2}, {reload_acl, 1}, {description, 0}];
-behaviour_info(_Other) ->
-    undefined.
-
--endif.
+t_subsciptions_del(_) ->
+    todo.
 

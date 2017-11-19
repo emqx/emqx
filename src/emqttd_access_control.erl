@@ -43,12 +43,12 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start access control server.
--spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
+-spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %% @doc Authenticate MQTT Client.
--spec(auth(Client :: mqtt_client(), Password :: password()) -> ok | {ok, boolean()} | {error, any()}).
+-spec(auth(Client :: mqtt_client(), Password :: password()) -> ok | {ok, boolean()} | {error, term()}).
 auth(Client, Password) when is_record(Client, mqtt_client) ->
     auth(Client, Password, lookup_mods(auth)).
 auth(_Client, _Password, []) ->
@@ -88,16 +88,16 @@ reload_acl() ->
     [Mod:reload_acl(State) || {Mod, State, _Seq} <- lookup_mods(acl)].
 
 %% @doc Register Authentication or ACL module.
--spec(register_mod(auth | acl, atom(), list()) -> ok | {error, any()}).
+-spec(register_mod(auth | acl, atom(), list()) -> ok | {error, term()}).
 register_mod(Type, Mod, Opts) when Type =:= auth; Type =:= acl->
     register_mod(Type, Mod, Opts, 0).
 
--spec(register_mod(auth | acl, atom(), list(), non_neg_integer()) -> ok | {error, any()}).
+-spec(register_mod(auth | acl, atom(), list(), non_neg_integer()) -> ok | {error, term()}).
 register_mod(Type, Mod, Opts, Seq) when Type =:= auth; Type =:= acl->
     gen_server:call(?SERVER, {register_mod, Type, Mod, Opts, Seq}).
 
 %% @doc Unregister authentication or ACL module
--spec(unregister_mod(Type :: auth | acl, Mod :: atom()) -> ok | {error, any()}).
+-spec(unregister_mod(Type :: auth | acl, Mod :: atom()) -> ok | {error, not_found | term()}).
 unregister_mod(Type, Mod) when Type =:= auth; Type =:= acl ->
     gen_server:call(?SERVER, {unregister_mod, Type, Mod}).
 
