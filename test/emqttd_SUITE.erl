@@ -67,7 +67,6 @@ all() ->
      {group, http},
      {group, alarms},
      {group, cli},
-     {group, get_api},
      {group, cleanSession}].
 
 groups() ->
@@ -99,7 +98,8 @@ groups() ->
        run_hooks]},
     {http, [sequence], 
      [request_status,
-      request_publish
+      request_publish,
+      get_api_lists
      % websocket_test
      ]},
      {alarms, [sequence], 
@@ -122,8 +122,7 @@ groups() ->
          ]},
        cli_vm]},
     {cleanSession, [sequence],
-      [cleanSession_validate]},
-    {get_api, [sequence], [get_api_lists]}].
+      [cleanSession_validate]}].
 
 init_per_suite(Config) ->
     NewConfig = generate_config(),
@@ -235,9 +234,9 @@ pubsub(_) ->
     emqttd:unsubscribe(<<"a/b/c">>).
 
 t_local_subscribe(_) ->
-    emqttd:subscribe("$local/topic0"),
-    emqttd:subscribe("$local/topic1", <<"x">>),
-    emqttd:subscribe("$local/topic2", <<"x">>, [{qos, 2}]),
+    ok = emqttd:subscribe("$local/topic0"),
+    ok = emqttd:subscribe("$local/topic1", <<"x">>),
+    ok = emqttd:subscribe("$local/topic2", <<"x">>, [{qos, 2}]),
     timer:sleep(10),
     ?assertEqual([self()], emqttd:subscribers("$local/topic0")),
     ?assertEqual([{<<"x">>, self()}], emqttd:subscribers("$local/topic1")),
@@ -451,19 +450,20 @@ request_status(_) ->
     ?assertEqual(binary_to_list(Status), Return).
 
 request_publish(_) ->
+    application:start(emq_dashboard),
     emqttc:start_link([{host, "localhost"},
                        {port, 1883},
                        {client_id, <<"random">>},
                        {clean_sess, false}]),
     SubParams = "{\"qos\":1, \"topic\" : \"a\/b\/c\", \"client_id\" :\"random\"}",
-    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/subscribe", SubParams, auth_header_("", ""))),
+    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/subscribe", SubParams, auth_header_("admin", "public"))),
     ok = emqttd:subscribe(<<"a/b/c">>, self(), [{qos, 1}]),
     Params = "{\"qos\":1, \"retain\":false, \"topic\" : \"a\/b\/c\", \"messages\" :\"hello\"}",
-    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/publish", Params, auth_header_("", ""))),
+    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/publish", Params, auth_header_("admin", "public"))),
     ?assert(receive {dispatch, <<"a/b/c">>, _} -> true after 2 -> false end),
 
     UnSubParams = "{\"topic\" : \"a\/b\/c\", \"client_id\" :\"random\"}",
-    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/unsubscribe", UnSubParams, auth_header_("", ""))).
+    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/unsubscribe", UnSubParams, auth_header_("admin", "public"))).
 
 connect_emqttd_pubsub_(Method, Api, Params, Auth) ->
     Url = "http://127.0.0.1:8080/" ++ Api,
@@ -481,6 +481,9 @@ connect_emqttd_pubsub_(Method, Api, Params, Auth) ->
 auth_header_(User, Pass) ->
     Encoded = base64:encode_to_string(lists:append([User,":",Pass])),
     {"Authorization","Basic " ++ Encoded}.
+
+get_api_lists(_Config) ->
+    lists:foreach(fun request/1, ?GET_API).
 
 websocket_test(_) ->
     Conn = esockd_connection:new(esockd_transport, nil, []),
@@ -626,9 +629,6 @@ cleanSession_validate(_) ->
     emqttc:disconnect(Pub),
     emqttc:disconnect(C11).
 
-get_api_lists(_Config) ->
-    lists:foreach(fun request/1, ?GET_API).
-
 change_opts(SslType) ->
     {ok, Listeners} = application:get_env(?APP, listeners),
     NewListeners =
@@ -697,7 +697,7 @@ http_post(Method, Path, Params) ->
 
 req(Method, Path, Body) ->
    Url = ?URL ++ Path,
-   Headers = auth_header_("", ""),
+   Headers = auth_header_("admin", "public"),
    case httpc:request(Method, {Url, [Headers]}, [], []) of
    {error, socket_closed_remotely} ->
        false;
