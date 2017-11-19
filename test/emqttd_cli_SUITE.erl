@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqttd_router_SUITE).
+-module(emqttd_cli_SUITE).
 
 -compile(export_all).
 
