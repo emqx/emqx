@@ -218,7 +218,9 @@ routes(["list"]) ->
     foreach(fun print/1, Routes);
 
 routes(["show", Topic]) ->
-    print(mnesia:dirty_read(mqtt_route, bin(Topic)));
+    Routes = lists:append(ets:lookup(mqtt_route, bin(Topic)),
+                          ets:lookup(mqtt_local_route, bin(Topic))),
+    foreach(fun print/1, Routes);
 
 routes(_) ->
     ?USAGE([{"routes list",         "List all routes"},
