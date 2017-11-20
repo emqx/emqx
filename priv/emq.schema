@@ -1344,3 +1344,13 @@ end}.
      {busy_dist_port, cuttlefish:conf_get("sysmon.busy_dist_port", Conf)}]
 end}.
 
+
+%%--------------------------------------------------------------------
+%% Mochiweb
+%%--------------------------------------------------------------------
+{mapping, "websocket.async_send", "mochiweb.ws_async_send", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+
