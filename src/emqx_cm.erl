@@ -152,6 +152,7 @@ monitor_client(ClientId, Pid, State = #state{monitors = Monitors}) ->
     State#state{monitors = dict:store(MRef, {ClientId, Pid}, Monitors)}.
 
 erase_monitor(MRef, State = #state{monitors = Monitors}) ->
+    erlang:demonitor(MRef, [flush]),
     State#state{monitors = dict:erase(MRef, Monitors)}.
 
 setstats(State = #state{statsfun = StatsFun}) ->

@@ -311,5 +311,6 @@ monitor_session(ClientId, SessPid, State = #state{monitors = Monitors}) ->
     State#state{monitors = dict:store(MRef, ClientId, Monitors)}.
 
 erase_monitor(MRef, State = #state{monitors = Monitors}) ->
+    erlang:demonitor(MRef, [flush]),
     State#state{monitors = dict:erase(MRef, Monitors)}.
 
