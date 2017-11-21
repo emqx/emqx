@@ -37,8 +37,7 @@
          unsubscribe/1, unsubscribe/2]).
 
 %% PubSub Management API
--export([setqos/3, topics/0, subscriptions/1, subscribers/1,
-         is_subscribed/2, subscriber_down/1]).
+-export([setqos/3, topics/0, subscriptions/1, subscribers/1, subscribed/2]).
 
 %% Hooks API
 -export([hook/4, hook/3, unhook/2, run_hooks/2, run_hooks/3]).
@@ -51,7 +50,9 @@
 
 -type(listener() :: {atom(), esockd:listen_on(), [esockd:option()]}).
 
--type(subscriber() :: pid() | binary()).
+-type(subid() :: binary()).
+
+-type(subscriber() :: pid() | subid() | {subid(), pid()}).
 
 -type(suboption() :: local | {qos, non_neg_integer()} | {share, {'$queue' | binary()}}).
 
@@ -64,19 +65,19 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start emqx application.
--spec(start() -> ok | {error, any()}).
+-spec(start() -> ok | {error, term()}).
 start() -> application:start(?APP).
 
 %% @doc Stop emqx application.
--spec(stop() -> ok | {error, any()}).
+-spec(stop() -> ok | {error, term()}).
 stop() -> application:stop(?APP).
 
 %% @doc Get Environment
--spec(env(Key:: atom()) -> {ok, any()} | undefined).
+-spec(env(Key :: atom()) -> {ok, any()} | undefined).
 env(Key) -> application:get_env(?APP, Key).
 
 %% @doc Get environment with default
--spec(env(Key:: atom(), Default:: any()) -> undefined | any()).
+-spec(env(Key :: atom(), Default :: any()) -> undefined | any()).
 env(Key, Default) -> application:get_env(?APP, Key, Default).
 
 %% @doc Is running?
@@ -176,13 +177,13 @@ merge_sockopts(Options) ->
 %%--------------------------------------------------------------------
 
 %% @doc Subscribe
--spec(subscribe(iodata()) -> ok | {error, any()}).
+-spec(subscribe(iodata()) -> ok | {error, term()}).
 subscribe(Topic) ->
-    subscribe(Topic, self()).
+    emqx_server:subscribe(iolist_to_binary(Topic)).
 
--spec(subscribe(iodata(), subscriber()) -> ok | {error, any()}).
+-spec(subscribe(iodata(), subscriber()) -> ok | {error, term()}).
 subscribe(Topic, Subscriber) ->
-    subscribe(Topic, Subscriber, []).
+    emqx_server:subscribe(iolist_to_binary(Topic), Subscriber).
 
 -spec(subscribe(iodata(), subscriber(), [suboption()]) -> ok | {error, term()}).
 subscribe(Topic, Subscriber, Options) ->
@@ -196,7 +197,7 @@ publish(Msg) ->
 %% @doc Unsubscribe
 -spec(unsubscribe(iodata()) -> ok | {error, term()}).
 unsubscribe(Topic) ->
-    unsubscribe(Topic, self()).
+    emqx_server:unsubscribe(iolist_to_binary(Topic)).
 
 -spec(unsubscribe(iodata(), subscriber()) -> ok | {error, term()}).
 unsubscribe(Topic, Subscriber) ->
@@ -217,34 +218,30 @@ topics() -> emqx_router:topics().
 subscribers(Topic) ->
     emqx_server:subscribers(iolist_to_binary(Topic)).
 
--spec(subscriptions(subscriber()) -> [{binary(), binary(), list(suboption())}]).
+-spec(subscriptions(subscriber()) -> [{subscriber(), binary(), list(suboption())}]).
 subscriptions(Subscriber) ->
     emqx_server:subscriptions(Subscriber).
 
--spec(is_subscribed(iodata(), subscriber()) -> boolean()).
-is_subscribed(Topic, Subscriber) ->
-    emqx_server:is_subscribed(iolist_to_binary(Topic), Subscriber).
-
--spec(subscriber_down(subscriber()) -> ok).
-subscriber_down(Subscriber) ->
-    emqx_server:subscriber_down(Subscriber).
+-spec(subscribed(iodata(), subscriber()) -> boolean()).
+subscribed(Topic, Subscriber) ->
+    emqx_server:subscribed(iolist_to_binary(Topic), Subscriber).
 
 %%--------------------------------------------------------------------
 %% Hooks API
 %%--------------------------------------------------------------------
 
 -spec(hook(atom(), function() | {emqx_hooks:hooktag(), function()}, list(any()))
-      -> ok | {error, any()}).
+      -> ok | {error, term()}).
 hook(Hook, TagFunction, InitArgs) ->
     emqx_hooks:add(Hook, TagFunction, InitArgs).
 
 -spec(hook(atom(), function() | {emqx_hooks:hooktag(), function()}, list(any()), integer())
-      -> ok | {error, any()}).
+      -> ok | {error, term()}).
 hook(Hook, TagFunction, InitArgs, Priority) ->
     emqx_hooks:add(Hook, TagFunction, InitArgs, Priority).
 
 -spec(unhook(atom(), function() | {emqx_hooks:hooktag(), function()})
-      -> ok | {error, any()}).
+      -> ok | {error, term()}).
 unhook(Hook, TagFunction) ->
     emqx_hooks:delete(Hook, TagFunction).
 

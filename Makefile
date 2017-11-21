@@ -1,6 +1,6 @@
 PROJECT = emqx
 PROJECT_DESCRIPTION = EMQ X Broker
-PROJECT_VERSION = 2.4
+PROJECT_VERSION = 2.3.0
 
 NO_AUTOPATCH = gen_rpc cuttlefish
 
@@ -8,11 +8,11 @@ DEPS = goldrush gproc gen_rpc lager esockd ekka mochiweb pbkdf2 lager_syslog bcr
 
 dep_goldrush     = git https://github.com/basho/goldrush 0.1.9
 dep_gproc        = git https://github.com/uwiger/gproc
-dep_gen_rpc       = git https://github.com/priestjim/gen_rpc
+dep_gen_rpc      = git https://github.com/priestjim/gen_rpc
 dep_getopt       = git https://github.com/jcomellas/getopt v0.8.2
 dep_lager        = git https://github.com/basho/lager master
 dep_lager_syslog = git https://github.com/basho/lager_syslog
-dep_jsx           = git https://github.com/talentdeficit/jsx
+dep_jsx          = git https://github.com/talentdeficit/jsx
 dep_esockd       = git https://github.com/emqtt/esockd master
 dep_ekka         = git https://github.com/emqtt/ekka master
 dep_mochiweb     = git https://github.com/emqtt/mochiweb master
@@ -26,9 +26,9 @@ ERLC_OPTS += +'{parse_transform, lager_transform}'
 BUILD_DEPS = cuttlefish
 dep_cuttlefish = git https://github.com/emqtt/cuttlefish
 
-TEST_DEPS = websocket_client emqttc
+TEST_DEPS = emqttc emq_dashboard
 dep_emqttc = git https://github.com/emqtt/emqttc
-dep_websocket_client = git https://github.com/jeremyong/websocket_client
+dep_emq_dashboard = git https://github.com/emqtt/emq_dashboard
 
 TEST_ERLC_OPTS += +debug_info
 TEST_ERLC_OPTS += +'{parse_transform, lager_transform}'
@@ -36,8 +36,8 @@ TEST_ERLC_OPTS += +'{parse_transform, lager_transform}'
 EUNIT_OPTS = verbose
 # EUNIT_ERL_OPTS =
 
-CT_SUITES = emqx emqx_lib emqx_topic emqx_trie emqx_mqueue emqx_inflight \
-emqx_vm emqx_net emqx_protocol emqx_access emqx_config
+CT_SUITES = emqx emqx_mod emqx_lib emqx_topic emqx_trie emqx_mqueue emqx_inflight \
+			emqx_vm emqx_net emqx_protocol emqx_access emqx_config emqx_router
 
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name emqxct@127.0.0.1
 

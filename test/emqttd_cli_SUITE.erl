@@ -13,19 +13,40 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
-%%
-%% @doc EMQ X Distributed RPC.
-%%
-%%--------------------------------------------------------------------
 
--module(emqx_rpc).
+-module(emqttd_cli_SUITE).
 
--author("Feng Lee <feng@emqtt.io>").
+-compile(export_all).
 
--export([cast/4]).
+-include("emqttd.hrl").
 
-%% @doc Wraps gen_rpc first.
-cast(Node, Mod, Fun, Args) ->
-    emqx_metrics:inc('messages/forward'),
-    gen_rpc:cast({Node, erlang:system_info(scheduler_id)}, Mod, Fun, Args).
+-include_lib("eunit/include/eunit.hrl").
+
+all() ->
+    [{group, subscriptions}].
+
+groups() ->
+    [{subscriptions, [sequence],
+      [t_subsciptions_list,
+       t_subsciptions_show,
+       t_subsciptions_add,
+       t_subsciptions_del]}].
+
+init_per_suite(Config) ->
+    Config.
+
+end_per_suite(_Config) ->
+    todo.
+
+t_subsciptions_list(_) ->
+    todo.
+
+t_subsciptions_show(_) ->
+    todo.
+
+t_subsciptions_add(_) ->
+    todo.
+
+t_subsciptions_del(_) ->
+    todo.
 

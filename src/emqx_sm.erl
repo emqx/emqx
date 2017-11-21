@@ -76,12 +76,12 @@ mnesia(copy) ->
 %%--------------------------------------------------------------------
 
 %% @doc Start a session manager
--spec(start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, any()}).
+-spec(start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id) ->
     gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
 
 %% @doc Start a session
--spec(start_session(boolean(), {binary(), binary() | undefined}) -> {ok, pid(), boolean()} | {error, any()}).
+-spec(start_session(boolean(), {binary(), binary() | undefined}) -> {ok, pid(), boolean()} | {error, term()}).
 start_session(CleanSess, {ClientId, Username}) ->
     SM = gproc_pool:pick_worker(?POOL, ClientId),
     call(SM, {start_session, CleanSess, {ClientId, Username}, self()}).
@@ -107,6 +107,7 @@ unregister_session(ClientId) ->
 unregister_session(ClientId, Pid) ->
     case ets:lookup(mqtt_local_session, ClientId) of
         [LocalSess = {_, Pid, _, _}] ->
+            emqttd_stats:del_session_stats(ClientId),
             ets:delete_object(mqtt_local_session, LocalSess);
         _ ->
             false
@@ -184,17 +185,15 @@ handle_cast(Msg, State) ->
 handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
     case dict:find(MRef, State#state.monitors) of
         {ok, ClientId} ->
-            mnesia:transaction(fun() ->
+            mnesia:transaction(
+              fun() ->
                 case mnesia:wread({mqtt_session, ClientId}) of
-                    [] ->
-                        ok;
                     [Sess = #mqtt_session{sess_pid = DownPid}] ->
-                        emqx_stats:del_session_stats(ClientId),
                         mnesia:delete_object(mqtt_session, Sess, write);
-                    [_Sess] ->
-                        ok
-                    end
-                end),
+                    [_Sess] -> ok;
+                    []      -> ok
+                end
+              end),
             {noreply, erase_monitor(MRef, State), hibernate};
         error ->
             lager:error("MRef of session ~p not found", [DownPid]),

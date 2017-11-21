@@ -4,7 +4,7 @@ otp_release:
    - 20.0
    - 20.1
 
-script: 
+script:
   - make
 
 sudo: false

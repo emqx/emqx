@@ -29,7 +29,7 @@
 -export_type([keepalive/0]).
 
 %% @doc Start a keepalive
--spec(start(fun(), integer(), any()) -> {ok, keepalive()} | {error, any()}).
+-spec(start(fun(), integer(), any()) -> {ok, keepalive()} | {error, term()}).
 start(_, 0, _) ->
     {ok, #keepalive{}};
 start(StatFun, TimeoutSec, TimeoutMsg) ->
@@ -43,7 +43,7 @@ start(StatFun, TimeoutSec, TimeoutMsg) ->
     end.
 
 %% @doc Check keepalive, called when timeout.
--spec(check(keepalive()) -> {ok, keepalive()} | {error, any()}).
+-spec(check(keepalive()) -> {ok, keepalive()} | {error, term()}).
 check(KeepAlive = #keepalive{statfun = StatFun, statval = LastVal, repeat = Repeat}) ->
     case StatFun() of
         {ok, NewVal} ->

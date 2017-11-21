@@ -39,7 +39,7 @@
 -define(LOCK, {?MODULE, clean_sessions}).
 
 %% @doc Start a session helper
--spec(start_link(fun()) -> {ok, pid()} | ignore | {error, any()}).
+-spec(start_link(fun()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(StatsFun) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [StatsFun], []).
 

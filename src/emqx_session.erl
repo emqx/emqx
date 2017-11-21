@@ -173,7 +173,7 @@
                         "Session(~s): " ++ Format, [State#state.client_id | Args])).
 
 %% @doc Start a Session
--spec(start_link(boolean(), {mqtt_client_id(), mqtt_username()}, pid()) -> {ok, pid()} | {error, any()}).
+-spec(start_link(boolean(), {mqtt_client_id(), mqtt_username()}, pid()) -> {ok, pid()} | {error, term()}).
 start_link(CleanSess, {ClientId, Username}, ClientPid) ->
     gen_server2:start_link(?MODULE, [CleanSess, {ClientId, Username}, ClientPid], []).
 
@@ -193,7 +193,7 @@ subscribe(Session, PacketId, TopicTable) -> %%TODO: the ack function??...
     gen_server2:cast(Session, {subscribe, From, TopicTable, AckFun}).
 
 %% @doc Publish Message
--spec(publish(pid(), mqtt_message()) -> ok | {error, any()}).
+-spec(publish(pid(), mqtt_message()) -> ok | {error, term()}).
 publish(_Session, Msg = #mqtt_message{qos = ?QOS_0}) ->
     %% Publish QoS0 Directly
     emqx_server:publish(Msg), ok;
@@ -391,6 +391,7 @@ handle_cast({subscribe, From, TopicTable, AckFun},
                         SubMap;
                     {ok, OldQos} ->
                         emqx_server:setqos(Topic, ClientId, NewQos),
+                        emqx_hooks:run('session.subscribed', [ClientId, Username], {Topic, Opts}),
                         ?LOG(warning, "Duplicated subscribe ~s, old_qos=~w, new_qos=~w",
                             [Topic, OldQos, NewQos], State),
                         maps:put(Topic, NewQos, SubMap);
@@ -545,7 +546,7 @@ handle_info({dispatch, _Topic, #mqtt_message{from = {ClientId, _}}},
 
 %% Dispatch Message
 handle_info({dispatch, Topic, Msg}, State) when is_record(Msg, mqtt_message) ->
-    hibernate(gc(dispatch(tune_qos(Topic, Msg, State), State)));
+    hibernate(gc(dispatch(tune_qos(Topic, reset_dup(Msg), State), State)));
 
 %% Do nothing if the client has been disconnected.
 handle_info({timeout, _Timer, retry_delivery}, State = #state{client_pid = undefined}) ->
@@ -588,9 +589,9 @@ handle_info(Info, Session) ->
     ?UNEXPECTED_INFO(Info, Session).
 
 terminate(Reason, #state{client_id = ClientId, username = Username}) ->
-    emqx_stats:del_session_stats(ClientId),
+    %% Move to emqx_sm to avoid race condition
+    %% emqx_stats:del_session_stats(ClientId),
     emqx_hooks:run('session.terminated', [ClientId, Username, Reason]),
-    emqx_server:subscriber_down(ClientId),
     emqx_sm:unregister_session(ClientId).
 
 code_change(_OldVsn, Session, _Extra) ->
@@ -810,6 +811,14 @@ tune_qos(Topic, Msg = #mqtt_message{qos = PubQoS},
         error ->
             Msg
     end.
+
+%%--------------------------------------------------------------------
+%% Reset Dup
+%%--------------------------------------------------------------------
+
+reset_dup(Msg = #mqtt_message{dup = true}) ->
+    Msg#mqtt_message{dup = false};
+reset_dup(Msg) -> Msg.
 
 %%--------------------------------------------------------------------
 %% Next Msg Id

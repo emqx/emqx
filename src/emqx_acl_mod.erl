@@ -32,7 +32,7 @@
                      PubSub :: pubsub(),
                      Topic  :: binary()}, State :: any()) -> allow | deny | ignore).
 
--callback(reload_acl(State :: any()) -> ok | {error, any()}).
+-callback(reload_acl(State :: any()) -> ok | {error, term()}).
 
 -callback(description() -> string()).
 

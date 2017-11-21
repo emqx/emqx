@@ -61,8 +61,10 @@ handle_request(Req, State) ->
 
 inner_handle_request(Req, State) ->
     Path = Req:get(path),
-    handle_request(Path, Req, State).
-
+    case Path of
+        "/api/v2/auth" -> handle_request(Path, Req, State);
+        _ -> if_authorized(Req, fun() -> handle_request(Path, Req, State) end)
+    end.
 
 handle_request("/api/v2/" ++ Url, Req, #state{dispatch = Dispatch}) ->
     Dispatch(Req, Url);
