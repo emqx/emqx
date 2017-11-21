@@ -107,7 +107,7 @@ unregister_session(ClientId) ->
 unregister_session(ClientId, Pid) ->
     case ets:lookup(mqtt_local_session, ClientId) of
         [LocalSess = {_, Pid, _, _}] ->
-            emqttd_stats:del_session_stats(ClientId),
+            emqx_stats:del_session_stats(ClientId),
             ets:delete_object(mqtt_local_session, LocalSess);
         _ ->
             false

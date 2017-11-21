@@ -62,11 +62,11 @@ start_link(Pool, Id, Env) ->
 subscribe(Topic) when is_binary(Topic) ->
     subscribe(Topic, self()).
 
--spec(subscribe(binary(), emqttd:subscriber()) -> ok | {error, term()}).
+-spec(subscribe(binary(), emqx:subscriber()) -> ok | {error, term()}).
 subscribe(Topic, Subscriber) when is_binary(Topic) ->
     subscribe(Topic, Subscriber, []).
 
--spec(subscribe(binary(), emqttd:subscriber(), [emqttd:suboption()]) ->
+-spec(subscribe(binary(), emqx:subscriber(), [emqx:suboption()]) ->
       ok | {error, term()}).
 subscribe(Topic, Subscriber, Options) when is_binary(Topic) ->
     call(pick(Subscriber), {subscribe, Topic, with_subpid(Subscriber), Options}).
@@ -158,7 +158,7 @@ with_subproperty(Subscriptions) when is_list(Subscriptions) ->
 subscribers(Topic) when is_binary(Topic) ->
     emqx_pubsub:subscribers(Topic).
 
--spec(subscribed(binary(), emqttd:subscriber()) -> boolean()).
+-spec(subscribed(binary(), emqx:subscriber()) -> boolean()).
 subscribed(Topic, SubPid) when is_binary(Topic), is_pid(SubPid) ->
     ets:member(mqtt_subproperty, {Topic, SubPid});
 subscribed(Topic, SubId) when is_binary(Topic), is_binary(SubId) ->

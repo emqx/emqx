@@ -112,7 +112,7 @@ print(Topic) ->
 add_route(Topic) when is_binary(Topic) ->
     add_route(#mqtt_route{topic = Topic, node = node()});
 add_route(Route = #mqtt_route{topic = Topic}) ->
-    case emqttd_topic:wildcard(Topic) of
+    case emqx_topic:wildcard(Topic) of
         true  -> case mnesia:is_transaction() of
                      true  -> add_trie_route(Route);
                      false -> trans(fun add_trie_route/1, [Route])
@@ -125,7 +125,7 @@ add_direct_route(Route) ->
 
 add_trie_route(Route = #mqtt_route{topic = Topic}) ->
     case mnesia:wread({mqtt_route, Topic}) of
-        [] -> emqttd_trie:insert(Topic);
+        [] -> emqx_trie:insert(Topic);
         _  -> ok
     end,
     mnesia:write(Route).
@@ -135,7 +135,7 @@ add_trie_route(Route = #mqtt_route{topic = Topic}) ->
 del_route(Topic) when is_binary(Topic) ->
     del_route(#mqtt_route{topic = Topic, node = node()});
 del_route(Route = #mqtt_route{topic = Topic}) ->
-    case emqttd_topic:wildcard(Topic) of
+    case emqx_topic:wildcard(Topic) of
         true  -> case mnesia:is_transaction() of
                      true  -> del_trie_route(Route);
                      false -> trans(fun del_trie_route/1, [Route])
@@ -150,7 +150,7 @@ del_trie_route(Route = #mqtt_route{topic = Topic}) ->
     case mnesia:wread({mqtt_route, Topic}) of
         [Route] -> %% Remove route and trie
                    mnesia:delete_object(Route),
-                   emqttd_trie:delete(Topic);
+                   emqx_trie:delete(Topic);
         [_|_]   -> %% Remove route only
                    mnesia:delete_object(Route);
         []      -> ok

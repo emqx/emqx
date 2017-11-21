@@ -55,7 +55,7 @@ start_link(Pool, Id, Env) ->
 %%--------------------------------------------------------------------
 
 %% @doc Subscribe to a Topic
--spec(subscribe(binary(), emqttd:subscriber(), [emqttd:suboption()]) -> ok).
+-spec(subscribe(binary(), emqx:subscriber(), [emqx:suboption()]) -> ok).
 subscribe(Topic, Subscriber, Options) ->
     call(pick(Topic), {subscribe, Topic, Subscriber, Options}).
 

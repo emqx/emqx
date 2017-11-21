@@ -249,8 +249,6 @@ init([]) ->
     ets:new(?METRIC_TAB, [set, public, named_table, {write_concurrency, true}]),
     % Init metrics
     [create_metric(Metric) ||  Metric <- Metrics],
-    % $SYS Topics for metrics
-    % [ok = emqttd:create(topic, metric_topic(Topic)) || {_, Topic} <- Metrics],
     % Tick to publish metrics
     {ok, #state{tick = emqx_broker:start_tick(tick)}, hibernate}.
 

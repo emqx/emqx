@@ -34,7 +34,6 @@ TEST_ERLC_OPTS += +debug_info
 TEST_ERLC_OPTS += +'{parse_transform, lager_transform}'
 
 EUNIT_OPTS = verbose
-# EUNIT_ERL_OPTS =
 
 CT_SUITES = emqx emqx_mod emqx_lib emqx_topic emqx_trie emqx_mqueue emqx_inflight \
 			emqx_vm emqx_net emqx_protocol emqx_access emqx_config emqx_router
