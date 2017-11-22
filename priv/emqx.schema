@@ -1,5 +1,5 @@
 %%-*- mode: erlang -*-
-%% EMQ X config mapping
+%% EMQ X R2.3 config mapping
 
 %%--------------------------------------------------------------------
 %% Cluster
@@ -416,14 +416,6 @@ end}.
                                              {size, cuttlefish:conf_get("log.info.size", Conf)},
                                              {date, "$D0"},
                                              {count, cuttlefish:conf_get("log.info.count", Conf)}]}]
-    end,
-    InfoHandler = case cuttlefish:conf_get("log.info.file", Conf, undefined) of
-      undefined -> [];
-      InfoFilename -> [{lager_file_backend, [{file, InfoFilename},
-                                              {level, info},
-                                              {size, 10485760},
-                                              {date, "$D0"},
-                                              {count, 5}]}]
     end,
 
     ConsoleLogLevel = cuttlefish:conf_get("log.console.level", Conf),
