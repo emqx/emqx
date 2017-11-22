@@ -26,6 +26,5 @@
 
 %% @doc Wraps gen_rpc first.
 cast(Node, Mod, Fun, Args) ->
-    emqx_metrics:inc('messages/forward'),
-    gen_rpc:cast({Node, erlang:system_info(scheduler_id)}, Mod, Fun, Args).
+    emqx_metrics:inc('messages/forward'), rpc:cast(Node, Mod, Fun, Args).
 

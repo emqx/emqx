@@ -137,7 +137,7 @@ with_subpid(SubId) when is_binary(SubId) ->
 with_subpid({SubId, SubPid}) when is_binary(SubId), is_pid(SubPid) ->
     {SubId, SubPid}.
 
--spec(subscriptions(subscriber()) -> [{subscriber(), binary(), list(suboption())}]).
+-spec(subscriptions(emqx:subscriber()) -> [{emqx:subscriber(), binary(), list(emqx:suboption())}]).
 subscriptions(SubPid) when is_pid(SubPid) ->
     with_subproperty(ets:lookup(mqtt_subscription, SubPid));
 
