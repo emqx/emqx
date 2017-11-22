@@ -303,64 +303,6 @@ end}.
 ]}.
 
 %%--------------------------------------------------------------------
-%% RPC Args
-%%--------------------------------------------------------------------
-
-%% RPC server port.
-{mapping, "rpc.tcp_server_port", "gen_rpc.tcp_server_port", [
-  {default, 5369},
-  {datatype, integer}
-]}.
-
-%% Default TCP port for outgoing connections
-{mapping, "rpc.tcp_client_port", "gen_rpc.tcp_client_port", [
-  {default, 5369},
-  {datatype, integer}
-]}.
-
-%% Client connect timeout
-{mapping, "rpc.connect_timeout", "gen_rpc.connect_timeout", [
-  {default, 5000},
-  {datatype, integer}
-]}.
-
-%% Client and Server send timeout
-{mapping, "rpc.send_timeout", "gen_rpc.send_timeout", [
-  {default, 5000},
-  {datatype, integer}
-]}.
-
-%% Authentication timeout
-{mapping, "rpc.authentication_timeout", "gen_rpc.authentication_timeout", [
-  {default, 5000},
-  {datatype, integer}
-]}.
-
-%% Default receive timeout for call() functions
-{mapping, "rpc.call_receive_timeout", "gen_rpc.call_receive_timeout", [
-  {default, 15000},
-  {datatype, integer}
-]}.
-
-%% Socket keepalive configuration
-{mapping, "rpc.socket_keepalive_idle", "gen_rpc.socket_keepalive_idle", [
-  {default, 7200},
-  {datatype, integer}
-]}.
-
-%% Seconds between probes
-{mapping, "rpc.socket_keepalive_interval", "gen_rpc.socket_keepalive_interval", [
-  {default, 75},
-  {datatype, integer}
-]}.
-
-%% Probes lost to close the connection
-{mapping, "rpc.socket_keepalive_count", "gen_rpc.socket_keepalive_count", [
-  {default, 9},
-  {datatype, integer}
-]}.
-
-%%--------------------------------------------------------------------
 %% Log
 %%--------------------------------------------------------------------
 
