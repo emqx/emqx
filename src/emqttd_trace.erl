@@ -47,7 +47,7 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 %% @doc Start to trace client or topic.
--spec(start_trace(trace_who(), string()) -> ok | {error, any()}).
+-spec(start_trace(trace_who(), string()) -> ok | {error, term()}).
 start_trace({client, ClientId}, LogFile) ->
     start_trace({start_trace, {client, ClientId}, LogFile});
 
@@ -57,7 +57,7 @@ start_trace({topic, Topic}, LogFile) ->
 start_trace(Req) -> gen_server:call(?MODULE, Req, infinity).
 
 %% @doc Stop tracing client or topic.
--spec(stop_trace(trace_who()) -> ok | {error, any()}).
+-spec(stop_trace(trace_who()) -> ok | {error, term()}).
 stop_trace({client, ClientId}) ->
     gen_server:call(?MODULE, {stop_trace, {client, ClientId}});
 stop_trace({topic, Topic}) ->
@@ -72,7 +72,7 @@ all_traces() -> gen_server:call(?MODULE, all_traces).
 %%--------------------------------------------------------------------
 
 init([]) ->
-    {ok, #state{level = info, traces = #{}}}.
+    {ok, #state{level = debug, traces = #{}}}.
 
 handle_call({start_trace, Who, LogFile}, _From, State = #state{level = Level, traces = Traces}) ->
     case lager:trace_file(LogFile, [Who], Level, ?TRACE_OPTIONS) of

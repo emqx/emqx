@@ -96,8 +96,8 @@
 %% API
 %%--------------------------------------------------------------------
 
-%% @doc Start metrics server
--spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
+%% @doc Start the metrics server
+-spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 

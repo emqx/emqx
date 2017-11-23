@@ -25,7 +25,7 @@
 -http_api({"^nodes/(.+?)/clients/(.+?)/?$", 'GET',client_list, []}).
 -http_api({"^clients/(.+?)/?$", 'GET', client, []}).
 -http_api({"^clients/(.+?)/?$", 'DELETE', kick_client, []}).
--http_api({"^clients/(.+?)/clean_acl_cache?$", 'DELETE', clean_acl_cache, [{<<"topic">>, binary}]}).
+-http_api({"^clients/(.+?)/clean_acl_cache?$", 'PUT', clean_acl_cache, [{<<"topic">>, binary}]}).
 
 -http_api({"^routes?$", 'GET', route_list, []}).
 -http_api({"^routes/(.+?)/?$", 'GET', route, []}).
@@ -66,9 +66,9 @@
 -http_api({"^users/?$", 'GET', users, []}).
 -http_api({"^users/?$", 'POST', users, [{<<"username">>, binary},
                                         {<<"password">>, binary},
-                                        {<<"tag">>, binary}]}).
+                                        {<<"tags">>, binary}]}).
 -http_api({"^users/(.+?)/?$", 'GET', users, []}).
--http_api({"^users/(.+?)/?$", 'PUT', users, []}).
+-http_api({"^users/(.+?)/?$", 'PUT', users, [{<<"tags">>, binary}]}).
 -http_api({"^users/(.+?)/?$", 'DELETE', users, []}).
 
 -http_api({"^auth/?$", 'POST', auth, [{<<"username">>, binary}, {<<"password">>, binary}]}).
@@ -212,9 +212,10 @@ session_list('GET', Params, Node, ClientId) ->
     {ok, [{objects, [session_row(Row) || Row <- Data]}]}.
 
 session_row({ClientId, _Pid, _Persistent, Session}) ->
-    InfoKeys = [clean_sess, max_inflight, inflight_queue, message_queue,
-                message_dropped, awaiting_rel, awaiting_ack, awaiting_comp, created_at],
-     [{client_id, ClientId} | [{Key, format(Key, get_value(Key, Session))} || Key <- InfoKeys]].
+    Data = lists:append(Session, emqttd_stats:get_session_stats(ClientId)),
+    InfoKeys = [clean_sess, subscriptions, max_inflight, inflight_len, mqueue_len,
+                mqueue_dropped, awaiting_rel_len, deliver_msg,enqueue_msg, created_at],
+    [{client_id, ClientId} | [{Key, format(Key, get_value(Key, Data))} || Key <- InfoKeys]].
 
 %%--------------------------------------------------------------------------
 %% subscription
@@ -240,10 +241,14 @@ subscription_list('GET', Params, Node, Key) ->
     Data = emqttd_mgmt:subscription_list(l2a(Node), l2b(Key), PageNo, PageSize),
     {ok, [{objects, [subscription_row(Row) || Row <- Data]}]}.
 
-subscription_row({{Topic, ClientId}, Option}) when is_pid(ClientId) ->
-    subscription_row({{Topic, l2b(pid_to_list(ClientId))}, Option});    
-subscription_row({{Topic, ClientId}, Option}) ->
-    Qos = get_value(qos, Option),
+subscription_row({{Topic, SubPid}, Options}) when is_pid(SubPid) ->
+    subscription_row({{Topic, {undefined, SubPid}}, Options});
+subscription_row({{Topic, {SubId, SubPid}}, Options}) ->
+    Qos = proplists:get_value(qos, Options),
+    ClientId = case SubId of
+                   undefined -> list_to_binary(pid_to_list(SubPid));
+                   SubId     -> SubId
+               end,
     [{client_id, ClientId}, {topic, Topic}, {qos, Qos}].
 
 %%--------------------------------------------------------------------------
