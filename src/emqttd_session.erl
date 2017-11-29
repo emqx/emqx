@@ -719,7 +719,8 @@ enqueue_msg(Msg, State = #state{mqueue = Q}) ->
 %%--------------------------------------------------------------------
 
 redeliver(Msg = #mqtt_message{qos = QoS}, State) ->
-    deliver(Msg#mqtt_message{dup = if QoS =:= ?QOS2 -> false; true -> true end}, State).
+    %% QoS2 should have DUP set on retransmissions as well
+    deliver(Msg#mqtt_message{dup = if QoS =:= ?QOS1 -> true; true -> false end}, State).
 
 deliver(Msg, #state{client_pid = Pid}) ->
     inc_stats(deliver_msg),
