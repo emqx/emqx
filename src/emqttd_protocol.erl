@@ -44,7 +44,7 @@
                       clean_sess, proto_ver, proto_name, username, is_superuser,
                       will_msg, keepalive, keepalive_backoff, max_clientid_len,
                       session, stats_data, mountpoint, ws_initial_headers,
-                      connected_at}).
+                      is_bridge, connected_at}).
 
 -type(proto_state() :: #proto_state{}).
 
@@ -180,7 +180,8 @@ process(?CONNECT_PACKET(Var), State0) ->
                          password   = Password,
                          clean_sess = CleanSess,
                          keep_alive = KeepAlive,
-                         client_id  = ClientId} = Var,
+                         client_id  = ClientId,
+                         is_bridge  = IsBridge} = Var,
 
     State1 = State0#proto_state{proto_ver    = ProtoVer,
                                 proto_name   = ProtoName,
@@ -189,6 +190,7 @@ process(?CONNECT_PACKET(Var), State0) ->
                                 clean_sess   = CleanSess,
                                 keepalive    = KeepAlive,
                                 will_msg     = willmsg(Var, State0),
+                                is_bridge    = IsBridge,
                                 connected_at = os:timestamp()},
 
     {ReturnCode1, SessPresent, State3} =
@@ -333,10 +335,11 @@ with_puback(Type, Packet = ?PUBLISH_PACKET(_Qos, PacketId),
 -spec(send(mqtt_message() | mqtt_packet(), proto_state()) -> {ok, proto_state()}).
 send(Msg, State = #proto_state{client_id  = ClientId,
                                username   = Username,
-                               mountpoint = MountPoint})
+                               mountpoint = MountPoint,
+                               is_bridge  = IsBridge})
         when is_record(Msg, mqtt_message) ->
     emqttd_hooks:run('message.delivered', [ClientId, Username], Msg),
-    send(emqttd_message:to_packet(unmount(MountPoint, Msg)), State);
+    send(emqttd_message:to_packet(unmount(MountPoint, clean_retain(IsBridge, Msg))), State);
 
 send(Packet = ?PACKET(Type),
      State = #proto_state{sendfun = SendFun, stats_data = Stats}) ->
@@ -542,6 +545,15 @@ check_acl(subscribe, Topic, Client) ->
 
 sp(true)  -> 1;
 sp(false) -> 0.
+
+%%--------------------------------------------------------------------
+%% The retained flag should be propagated for bridge.
+%%--------------------------------------------------------------------
+
+clean_retain(false, Msg = #mqtt_message{retain = true}) ->
+    Msg#mqtt_message{retain = false};
+clean_retain(true, Msg) ->
+    Msg.
 
 %%--------------------------------------------------------------------
 %% Mount Point

@@ -174,7 +174,8 @@
           will_topic  = undefined      :: undefined | binary(),
           will_msg    = undefined      :: undefined | binary(),
           username    = undefined      :: undefined | binary(),
-          password    = undefined      :: undefined | binary()
+          password    = undefined      :: undefined | binary(),
+          is_bridge   = false          :: boolean()
         }).
 
 -record(mqtt_packet_connack,
