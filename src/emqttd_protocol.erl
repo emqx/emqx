@@ -552,7 +552,7 @@ sp(false) -> 0.
 
 clean_retain(false, Msg = #mqtt_message{retain = true}) ->
     Msg#mqtt_message{retain = false};
-clean_retain(true, Msg) ->
+clean_retain(_IsBridge, Msg) ->
     Msg.
 
 %%--------------------------------------------------------------------
