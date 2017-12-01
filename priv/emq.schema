@@ -987,6 +987,16 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "listener.ws.$name.proxy_port_header", "emqttd.listeners", [
+  {datatype, string},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.proxy_ipaddress_header", "emqttd.listeners", [
+  {datatype, string},
+  hidden
+]}.
+
 {mapping, "listener.ws.$name.access.$id", "emqttd.listeners", [
   {datatype, string}
 ]}.
@@ -1048,6 +1058,16 @@ end}.
 
 {mapping, "listener.wss.$name.rate_limit", "emqttd.listeners", [
   {datatype, string}
+]}.
+
+{mapping, "listener.wss.$name.proxy_port_header", "emqttd.listeners", [
+  {datatype, string},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.proxy_ipaddress_header", "emqttd.listeners", [
+  {datatype, string},
+  hidden
 ]}.
 
 {mapping, "listener.wss.$name.access.$id", "emqttd.listeners", [
@@ -1127,6 +1147,13 @@ end}.
                   end
               end,
 
+    WsProxyOpts = fun(Prefix) when Prefix =:= "listener.ws.external" orelse
+                                   Prefix =:= "listener.wss.external" ->
+                    Filter([{proxy_port_header, cuttlefish:conf_get(Prefix ++ ".proxy_port_header", Conf, undefined)},
+                            {proxy_ipaddress_header, cuttlefish:conf_get(Prefix ++ ".proxy_ipaddress_header", Conf, undefined)}]);
+                     (_) -> []
+                  end,
+
     MountPoint = fun(undefined) -> undefined; (S) -> list_to_binary(S) end,
 
     ConnOpts = fun(Prefix) ->
@@ -1178,7 +1205,8 @@ end}.
                            undefined ->
                                [];
                            ListenOn ->
-                               [{Atom(Type), ListenOn, [{connopts, ConnOpts(Prefix)}, {sockopts, TcpOpts(Prefix)} | LisOpts(Prefix)]}]
+                               [{Atom(Type), ListenOn, [{connopts, ConnOpts(Prefix)},
+                                                        {sockopts, TcpOpts(Prefix)} | LisOpts(Prefix) ++ WsProxyOpts(Prefix)]}]
                        end
                    end,
 
@@ -1190,7 +1218,7 @@ end}.
                            ListenOn ->
                                [{Atom(Type), ListenOn, [{connopts, ConnOpts(Prefix)},
                                                         {sockopts, TcpOpts(Prefix)},
-                                                        {sslopts, SslOpts(Prefix)} | LisOpts(Prefix)]}]
+                                                        {sslopts, SslOpts(Prefix)} | LisOpts(Prefix) ++ WsProxyOpts(Prefix)]}]
                        end
                    end,
 
