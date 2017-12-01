@@ -213,7 +213,7 @@ process(?CONNECT_PACKET(Var), State0) ->
                             %% ACCEPT
                             {?CONNACK_ACCEPT, SP, State2#proto_state{session = Session, is_superuser = IsSuperuser}};
                         {error, Error} ->
-                            exit({shutdown, Error})
+                            {stop, {shutdown, Error}, State2}
                     end;
                 {error, Reason}->
                     ?LOG(error, "Username '~s' login failed for ~p", [Username, Reason], State1),
@@ -381,12 +381,12 @@ stop_if_auth_failure(_RC, State) ->
 
 shutdown(_Error, #proto_state{client_id = undefined}) ->
     ignore;
-
-shutdown(conflict, #proto_state{client_id = _ClientId}) ->
+shutdown(conflict, _State) ->
     %% let it down
-    %% emqttd_cm:unreg(ClientId);
     ignore;
-
+shutdown(mnesia_conflict, _State) ->
+    %% let it down
+    ignore;
 shutdown(Error, State = #proto_state{will_msg = WillMsg}) ->
     ?LOG(debug, "Shutdown for ~p", [Error], State),
     Client = client(State),
@@ -552,7 +552,7 @@ sp(false) -> 0.
 
 clean_retain(false, Msg = #mqtt_message{retain = true}) ->
     Msg#mqtt_message{retain = false};
-clean_retain(true, Msg) ->
+clean_retain(_IsBridge, Msg) ->
     Msg.
 
 %%--------------------------------------------------------------------
