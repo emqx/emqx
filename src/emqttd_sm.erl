@@ -216,8 +216,7 @@ code_change(_OldVsn, State, _Extra) ->
 create_session({CleanSess, {ClientId, Username}, ClientPid}, State) ->
     case create_session(CleanSess, {ClientId, Username}, ClientPid) of
         {ok, SessPid} ->
-            {reply, {ok, SessPid, false},
-                monitor_session(ClientId, SessPid, State)};
+            {reply, {ok, SessPid, false}, monitor_session(ClientId, SessPid, State)};
         {error, Error} ->
             {reply, {error, Error}, State}
     end.
