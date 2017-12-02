@@ -152,9 +152,10 @@
          %% Force GC Count
          force_gc_count :: undefined | integer(),
 
-         created_at :: erlang:timestamp(),
+         %% Ignore loop deliver?
+         ignore_loop_deliver = false :: boolean(),
 
-         ignore_loop_deliver = false :: boolean()
+         created_at :: erlang:timestamp()
         }).
 
 -define(TIMEOUT, 60000).
@@ -529,17 +530,14 @@ handle_cast({destroy, ClientId},
 handle_cast(Msg, State) ->
     ?UNEXPECTED_MSG(Msg, State).
 
-%% Dispatch message from self publish
-handle_info({dispatch, Topic, Msg = #mqtt_message{from = {ClientId, _}}}, 
-             State = #state{client_id = ClientId, 
-                            ignore_loop_deliver = IgnoreLoopDeliver}) when is_record(Msg, mqtt_message) ->
-    case IgnoreLoopDeliver of
-        true  -> {noreply, State, hibernate};
-        false -> {noreply, handle_dispatch(Topic, Msg, State), hibernate}
-    end;
+%% Ignore Messages delivered by self
+handle_info({dispatch, _Topic, #mqtt_message{from = {ClientId, _}}},
+             State = #state{client_id = ClientId, ignore_loop_deliver = true}) ->
+    hibernate(State);
+
 %% Dispatch Message
 handle_info({dispatch, Topic, Msg}, State) when is_record(Msg, mqtt_message) ->
-    {noreply, handle_dispatch(Topic, Msg, State), hibernate};
+    hibernate(gc(dispatch(tune_qos(Topic, reset_dup(Msg), State), State)));
 
 %% Do nothing if the client has been disconnected.
 handle_info({timeout, _Timer, retry_delivery}, State = #state{client_pid = undefined}) ->
@@ -552,7 +550,7 @@ handle_info({timeout, _Timer, check_awaiting_rel}, State) ->
     hibernate(expire_awaiting_rel(emit_stats(State#state{await_rel_timer = undefined})));
 
 handle_info({timeout, _Timer, expired}, State) ->
-    ?LOG(debug, "Expired, shutdown now.", [], State),
+    ?LOG(info, "Expired, shutdown now.", [], State),
     shutdown(expired, State);
 
 handle_info({'EXIT', ClientPid, _Reason},
@@ -563,7 +561,7 @@ handle_info({'EXIT', ClientPid, Reason},
             State = #state{clean_sess      = false,
                            client_pid      = ClientPid,
                            expiry_interval = Interval}) ->
-    ?LOG(debug, "Client ~p EXIT for ~p", [ClientPid, Reason], State),
+    ?LOG(info, "Client ~p EXIT for ~p", [ClientPid, Reason], State),
     ExpireTimer = start_timer(Interval, expired),
     State1 = State#state{client_pid = undefined, expiry_timer = ExpireTimer},
     hibernate(emit_stats(State1));
@@ -686,9 +684,6 @@ is_awaiting_full(#state{awaiting_rel = AwaitingRel, max_awaiting_rel = MaxLen}) 
 %%--------------------------------------------------------------------
 %% Dispatch Messages
 %%--------------------------------------------------------------------
-
-handle_dispatch(Topic, Msg, State) ->
-    gc(dispatch(tune_qos(Topic, reset_dup(Msg), State), State)).
 
 %% Enqueue message if the client has been disconnected
 dispatch(Msg, State = #state{client_pid = undefined}) ->

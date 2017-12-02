@@ -79,7 +79,7 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos  = Qos} = Header, Length) 
         {?CONNECT, <<FrameBin:Length/binary, Rest/binary>>} ->
             {ProtoName, Rest1} = parse_utf(FrameBin),
             %% Fix mosquitto bridge: 0x83, 0x84
-            <<_Bridge:4, ProtoVersion:4, Rest2/binary>> = Rest1,
+            <<BridgeTag:4, ProtoVersion:4, Rest2/binary>> = Rest1,
             <<UsernameFlag : 1,
               PasswordFlag : 1,
               WillRetain   : 1,
@@ -109,7 +109,8 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos  = Qos} = Header, Length) 
                            will_topic  = WillTopic,
                            will_msg    = WillMsg,
                            username    = UserName,
-                           password    = PasssWord}, Rest);
+                           password    = PasssWord,
+                           is_bridge   = (BridgeTag =:= 8)}, Rest);
                false ->
                     {error, protocol_header_corrupt}
             end;
