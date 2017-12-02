@@ -28,7 +28,7 @@
 
 -include("emqttd_internal.hrl").
 
--import(proplists, [get_value/3]).
+-import(proplists, [get_value/3, get_value/2]).
 
 %% API Exports
 -export([start_link/4]).
@@ -93,7 +93,7 @@ init([Env, WsPid, Req, ReplyChannel]) ->
     process_flag(trap_exit, true),
     Conn = Req:get(connection),
     true = link(WsPid),
-    case Req:get(peername) of
+    case peername(Env, Req) of
         {ok, Peername} ->
             Headers = mochiweb_headers:to_list(
                         mochiweb_request:get(headers, Req)),
@@ -320,4 +320,33 @@ stop(Reason, State) ->
 gc(State) ->
     Cb = fun() -> emit_stats(State) end,
     emqttd_gc:maybe_force_gc(#wsclient_state.force_gc_count, State, Cb).
+
+peername(Env, Req) ->
+    Conn = Req:get(connection),
+    case Conn:peername() of
+        {ok, Peername} ->
+            % return original address, if existed
+            case last_forwarded(get_value(Conn:type(), Env, []), Req) of
+                undefined -> {ok, Peername};
+                Forwarded -> {ok, Forwarded}
+            end;
+        {error, Reason} -> {error, Reason}
+    end.
+
+last_forwarded([], _) -> undefined;
+last_forwarded(Conf, Req) ->
+    HostHeader = get_value(proxy_ipaddress_header, Conf),
+    PortHeader = get_value(proxy_port_header, Conf),
+    case tune_host(Req:get_header_value(HostHeader)) of
+        undefined -> undefined;
+        Host -> {Host, tune_port(Req:get_header_value(PortHeader))}
+    end.
+
+tune_host(undefined) -> undefined;
+tune_host(Hosts) ->
+    {ok, Last} = inet:parse_address(string:strip(lists:last(string:tokens(Hosts, ",")))),
+    Last.
+
+tune_port(undefined) -> undefined;
+tune_port(Port) -> list_to_integer(Port).
 
