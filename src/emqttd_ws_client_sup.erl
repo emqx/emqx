@@ -39,25 +39,8 @@ start_client(WsPid, Req, ReplyChannel) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    Env = lists:append(emqttd:env(client, []),
-                       emqttd:env(protocol, []) ++ forwarded_header()),
+    Env = lists:append(emqttd:env(client, []), emqttd:env(protocol, [])),
     {ok, {{simple_one_for_one, 0, 1},
            [{ws_client, {emqttd_ws_client, start_link, [Env]},
              temporary, 5000, worker, [emqttd_ws_client]}]}}.
-
-forwarded_header() ->
-    Env = [{Proto, Opts} || {Proto, _, Opts} <- emqttd:env(listeners, []), Proto == ws orelse Proto == wss],
-    lists:foldl(fun({Proto, Opts}, Acc) ->
-                  Proto1 = case Proto of
-                               ws  -> tcp;
-                               wss -> ssl
-                           end,
-                  case {proplists:get_value(proxy_ipaddress_header, Opts),
-                          proplists:get_value(proxy_port_header, Opts)} of
-                      {undefined, _}           -> Acc;
-                      {AddrHeader, undefined}  -> [{Proto1, [{proxy_ipaddress_header, AddrHeader}]} | Acc];
-                      {AddrHeader, PortHeader} -> [{Proto1, [{proxy_ipaddress_header, AddrHeader},
-                                                             {proxy_port_header, PortHeader}]} | Acc]
-                  end
-              end, [], Env).
 
