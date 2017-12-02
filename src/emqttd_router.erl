@@ -284,5 +284,7 @@ clean_routes_(Node) ->
     mnesia:transaction(Clean).
 
 update_stats_() ->
-    emqttd_stats:setstats('routes/count', 'routes/max', mnesia:table_info(mqtt_route, size)).
+    Size = mnesia:table_info(mqtt_route, size),
+    emqttd_stats:setstats('routes/count', 'routes/max', Size),
+    emqttd_stats:setstats('topics/count', 'topics/max', Size).
 
