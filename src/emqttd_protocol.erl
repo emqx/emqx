@@ -341,13 +341,11 @@ send(Msg, State = #proto_state{client_id  = ClientId,
     emqttd_hooks:run('message.delivered', [ClientId, Username], Msg),
     send(emqttd_message:to_packet(unmount(MountPoint, clean_retain(IsBridge, Msg))), State);
 
-send(Packet = ?PACKET(Type),
-     State = #proto_state{sendfun = SendFun, stats_data = Stats}) ->
+send(Packet = ?PACKET(Type), State = #proto_state{sendfun = SendFun, stats_data = Stats}) ->
     trace(send, Packet, State),
     emqttd_metrics:sent(Packet),
     SendFun(Packet),
-    Stats1 = inc_stats(send, Type, Stats),
-    {ok, State#proto_state{stats_data = Stats1}}.
+    {ok, State#proto_state{stats_data = inc_stats(send, Type, Stats)}}.
 
 trace(recv, Packet, ProtoState) ->
     ?LOG(debug, "RECV ~s", [emqttd_packet:format(Packet)], ProtoState);

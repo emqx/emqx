@@ -272,10 +272,14 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 send_fun(ReplyChannel) ->
+    Self = self(),
     fun(Packet) ->
         Data = emqttd_serializer:serialize(Packet),
         emqttd_metrics:inc('bytes/sent', iolist_size(Data)),
-        ReplyChannel({binary, Data})
+        case ReplyChannel({binary, Data}) of
+            ok -> ok;
+            {error, Reason} -> Self ! {shutdown, Reason}
+        end
     end.
 
 stat_fun(Conn) ->
