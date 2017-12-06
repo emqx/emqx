@@ -27,7 +27,7 @@ dep_cuttlefish = git https://github.com/emqtt/cuttlefish
 
 TEST_DEPS = emqttc emq_dashboard
 dep_emqttc = git https://github.com/emqtt/emqttc
-dep_emq_dashboard = git https://github.com/emqtt/emq_dashboard
+dep_emq_dashboard = git https://github.com/emqtt/emq_dashboard develop
 
 TEST_ERLC_OPTS += +debug_info
 TEST_ERLC_OPTS += +'{parse_transform, lager_transform}'
