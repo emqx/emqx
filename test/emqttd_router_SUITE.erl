@@ -34,7 +34,8 @@ groups() ->
        t_add_del_route,
        t_match_route,
        t_print,
-       t_has_route]},
+       t_has_route,
+       router_unused]},
      {local_route, [sequence],
       [t_get_local_topics,
        t_add_del_local_route,
@@ -86,11 +87,6 @@ t_match_route(_) ->
                   #mqtt_route{topic = <<"a/b/c">>, node = Node}],
                  lists:sort(?R:match(<<"a/b/c">>))).
 
-t_print(_) ->
-    ?R:add_route(<<"topic">>),
-    ?R:add_route(<<"topic/#">>),
-    ?R:print(<<"topic">>).
-
 t_has_route(_) ->
     ?R:add_route(<<"devices/+/messages">>),
     ?assert(?R:has_route(<<"devices/+/messages">>)).
@@ -130,3 +126,49 @@ clear_tables() ->
     ?R:clean_local_routes(),
     lists:foreach(fun mnesia:clear_table/1, [mqtt_route, mqtt_trie, mqtt_trie_node]).
 
+%%--------------------------------------------------------------------
+%% Router Test
+%%--------------------------------------------------------------------
+
+router_add_del(_) ->
+    %% Add
+    ?R:add_route(<<"#">>),
+    ?R:add_route(<<"a/b/c">>),
+    ?R:add_route(<<"+/#">>),
+    Routes = [R1, R2 | _] = [
+            #mqtt_route{topic = <<"#">>,     node = node()},
+            #mqtt_route{topic = <<"+/#">>,   node = node()},
+            #mqtt_route{topic = <<"a/b/c">>, node = node()}],
+    Routes = lists:sort(?R:match(<<"a/b/c">>)),
+
+    %% Batch Add
+    lists:foreach(fun(R) -> ?R:add_route(R) end, Routes),
+    Routes = lists:sort(?R:match(<<"a/b/c">>)),
+
+    %% Del
+    ?R:del_route(<<"a/b/c">>),
+    [R1, R2] = lists:sort(?R:match(<<"a/b/c">>)),
+    {atomic, []} = mnesia:transaction(fun emqttd_trie:lookup/1, [<<"a/b/c">>]),
+
+    %% Batch Del
+    R3 = #mqtt_route{topic = <<"#">>, node = 'a@127.0.0.1'},
+    ?R:add_route(R3),
+    ?R:del_route(R1),
+    ?R:del_route(R2),
+    ?R:del_route(R3),
+    [] = lists:sort(?R:match(<<"a/b/c">>)).
+
+t_print(_) ->
+    Routes = [#mqtt_route{topic = <<"a/b/c">>, node = node()},
+              #mqtt_route{topic = <<"#">>,     node = node()},
+              #mqtt_route{topic = <<"+/#">>,   node = node()}],
+    lists:foreach(fun(R) -> ?R:add_route(R) end, Routes),
+    ?R:print(<<"a/b/c">>),
+    ?R:del_route(<<"+/#">>),
+    ?R:del_route(<<"a/b/c">>),
+    ?R:del_route(<<"#">>).
+
+router_unused(_) ->
+    gen_server:call(emqttd_router, bad_call),
+    gen_server:cast(emqttd_router, bad_msg),
+    emqttd_router ! bad_info.

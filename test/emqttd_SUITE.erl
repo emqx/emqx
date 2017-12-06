@@ -58,7 +58,6 @@
 all() ->
     [{group, protocol},
      {group, pubsub},
-     {group, router},
      {group, session},
      {group, broker},
      {group, metrics},
@@ -81,10 +80,6 @@ groups() ->
        t_local_subscribe,
        t_shared_subscribe,
        'pubsub#', 'pubsub+']},
-     {router, [sequence],
-      [router_add_del,
-       router_print,
-       router_unused]},
      {session, [sequence],
       [start_session]},
      {broker, [sequence],
@@ -290,53 +285,6 @@ loop_recv(Topic, Timeout, Acc) ->
     after
         Timeout -> {ok, Acc}
     end.
-
-%%--------------------------------------------------------------------
-%% Router Test
-%%--------------------------------------------------------------------
-
-router_add_del(_) ->
-    %% Add
-    emqttd_router:add_route(<<"#">>),
-    emqttd_router:add_route(<<"a/b/c">>),
-    emqttd_router:add_route(<<"+/#">>),
-    Routes = [R1, R2 | _] = [
-            #mqtt_route{topic = <<"#">>,     node = node()},
-            #mqtt_route{topic = <<"+/#">>,   node = node()},
-            #mqtt_route{topic = <<"a/b/c">>, node = node()}],
-    Routes = lists:sort(emqttd_router:match(<<"a/b/c">>)),
-
-    %% Batch Add
-    lists:foreach(fun(R) -> emqttd_router:add_route(R) end, Routes),
-    Routes = lists:sort(emqttd_router:match(<<"a/b/c">>)),
-
-    %% Del
-    emqttd_router:del_route(<<"a/b/c">>),
-    [R1, R2] = lists:sort(emqttd_router:match(<<"a/b/c">>)),
-    {atomic, []} = mnesia:transaction(fun emqttd_trie:lookup/1, [<<"a/b/c">>]),
-
-    %% Batch Del
-    R3 = #mqtt_route{topic = <<"#">>, node = 'a@127.0.0.1'},
-    emqttd_router:add_route(R3),
-    emqttd_router:del_route(R1),
-    emqttd_router:del_route(R2),
-    emqttd_router:del_route(R3),
-    [] = lists:sort(emqttd_router:match(<<"a/b/c">>)).
-
-router_print(_) ->
-    Routes = [#mqtt_route{topic = <<"a/b/c">>, node = node()},
-              #mqtt_route{topic = <<"#">>,     node = node()},
-              #mqtt_route{topic = <<"+/#">>,   node = node()}],
-    lists:foreach(fun(R) -> emqttd_router:add_route(R) end, Routes),
-    emqttd_router:print(<<"a/b/c">>),
-    emqttd_router:del_route(<<"+/#">>),
-    emqttd_router:del_route(<<"a/b/c">>),
-    emqttd_router:del_route(<<"#">>).
-
-router_unused(_) ->
-    gen_server:call(emqttd_router, bad_call),
-    gen_server:cast(emqttd_router, bad_msg),
-    emqttd_router ! bad_info.
 
 recv_loop(Msgs) ->
     receive
