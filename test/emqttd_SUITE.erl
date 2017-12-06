@@ -328,7 +328,10 @@ router_print(_) ->
               #mqtt_route{topic = <<"#">>,     node = node()},
               #mqtt_route{topic = <<"+/#">>,   node = node()}],
     lists:foreach(fun(R) -> emqttd_router:add_route(R) end, Routes),
-    emqttd_router:print(<<"a/b/c">>).
+    emqttd_router:print(<<"a/b/c">>),
+    emqttd_router:del_route(<<"+/#">>),
+    emqttd_router:del_route(<<"a/b/c">>),
+    emqttd_router:del_route(<<"#">>).
 
 router_unused(_) ->
     gen_server:call(emqttd_router, bad_call),
@@ -598,6 +601,7 @@ conflict_listeners(_) ->
     L = proplists:get_value("mqtt:tcp:0.0.0.0:1883", Listeners),
     ?assertEqual(1, proplists:get_value(current_clients, L)),
     ?assertEqual(1, proplists:get_value(conflict, proplists:get_value(shutdown_count, L))),
+    timer:sleep(100),
     emqttc:disconnect(C2).
 
 cli_vm(_) ->
