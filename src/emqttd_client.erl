@@ -141,6 +141,7 @@ send_fun(Conn, Peername) ->
         emqttd_metrics:inc('bytes/sent', iolist_size(Data)),
         try Conn:async_send(Data) of
             ok -> ok;
+            true -> ok; %% Compatible with esockd 4.x
             {error, Reason} -> Self ! {shutdown, Reason}
         catch
             error:Error -> Self ! {shutdown, Error}
