@@ -805,8 +805,18 @@ end}.
 ]}.
 
 {mapping, "listener.tcp.$name.backlog", "emqttd.listeners", [
-  {default, 1024},
-  {datatype, integer}
+  {datatype, integer},
+  {default, 1024}
+]}.
+
+{mapping, "listener.tcp.$name.send_timeout", "emqttd.listeners", [
+  {datatype, {duration, ms}},
+  {default, "15s"}
+]}.
+
+{mapping, "listener.tcp.$name.send_timeout_close", "emqttd.listeners", [
+  {datatype, flag},
+  {default, on}
 ]}.
 
 {mapping, "listener.tcp.$name.recbuf", "emqttd.listeners", [
@@ -881,6 +891,16 @@ end}.
 {mapping, "listener.ssl.$name.backlog", "emqttd.listeners", [
   {default, 1024},
   {datatype, integer}
+]}.
+
+{mapping, "listener.ssl.$name.send_timeout", "emqttd.listeners", [
+  {datatype, {duration, ms}},
+  {default, "15s"}
+]}.
+
+{mapping, "listener.ssl.$name.send_timeout_close", "emqttd.listeners", [
+  {datatype, flag},
+  {default, on}
 ]}.
 
 {mapping, "listener.ssl.$name.recbuf", "emqttd.listeners", [
@@ -996,6 +1016,16 @@ end}.
   {datatype, integer}
 ]}.
 
+{mapping, "listener.ws.$name.send_timeout", "emqttd.listeners", [
+  {datatype, {duration, ms}},
+  {default, "15s"}
+]}.
+
+{mapping, "listener.ws.$name.send_timeout_close", "emqttd.listeners", [
+  {datatype, flag},
+  {default, on}
+]}.
+
 {mapping, "listener.ws.$name.recbuf", "emqttd.listeners", [
   {datatype, bytesize},
   hidden
@@ -1057,6 +1087,16 @@ end}.
 {mapping, "listener.wss.$name.backlog", "emqttd.listeners", [
   {default, 1024},
   {datatype, integer}
+]}.
+
+{mapping, "listener.wss.$name.send_timeout", "emqttd.listeners", [
+  {datatype, {duration, ms}},
+  {default, "15s"}
+]}.
+
+{mapping, "listener.wss.$name.send_timeout_close", "emqttd.listeners", [
+  {datatype, flag},
+  {default, on}
 ]}.
 
 {mapping, "listener.wss.$name.recbuf", "emqttd.listeners", [
@@ -1145,6 +1185,8 @@ end}.
               end,
     TcpOpts = fun(Prefix) ->
                    Filter([{backlog, cuttlefish:conf_get(Prefix ++ ".backlog", Conf, undefined)},
+                           {send_timeout, cuttlefish:conf_get(Prefix ++ ".send_timeout", Conf, undefined)},
+                           {send_timeout_close, cuttlefish:conf_get(Prefix ++ ".send_timeout_close", Conf, undefined)},
                            {recbuf,  cuttlefish:conf_get(Prefix ++ ".recbuf", Conf, undefined)},
                            {sndbuf,  cuttlefish:conf_get(Prefix ++ ".sndbuf", Conf, undefined)},
                            {buffer,  cuttlefish:conf_get(Prefix ++ ".buffer", Conf, undefined)},
@@ -1250,6 +1292,16 @@ end}.
 {mapping, "listener.api.$name.backlog", "emqttd.listeners", [
   {default, 1024},
   {datatype, integer}
+]}.
+
+{mapping, "listener.api.$name.send_timeout", "emqttd.listeners", [
+  {datatype, {duration, ms}},
+  {default, "15s"}
+]}.
+
+{mapping, "listener.api.$name.send_timeout_close", "emqttd.listeners", [
+  {datatype, flag},
+  {default, on}
 ]}.
 
 {mapping, "listener.api.$name.recbuf", "emqttd.listeners", [
