@@ -44,7 +44,7 @@
                       clean_sess, proto_ver, proto_name, username, is_superuser,
                       will_msg, keepalive, keepalive_backoff, max_clientid_len,
                       session, stats_data, mountpoint, ws_initial_headers,
-                      is_bridge, connected_at}).
+                      peercert_username, is_bridge, connected_at}).
 
 -type(proto_state() :: #proto_state{}).
 
@@ -362,13 +362,11 @@ send(Msg, State = #proto_state{client_id  = ClientId,
     emqx_hooks:run('message.delivered', [ClientId, Username], Msg),
     send(emqx_message:to_packet(unmount(MountPoint, clean_retain(IsBridge, Msg))), State);
 
-send(Packet = ?PACKET(Type),
-     State = #proto_state{sendfun = SendFun, stats_data = Stats}) ->
+send(Packet = ?PACKET(Type), State = #proto_state{sendfun = SendFun, stats_data = Stats}) ->
     trace(send, Packet, State),
     emqx_metrics:sent(Packet),
     SendFun(Packet),
-    Stats1 = inc_stats(send, Type, Stats),
-    {ok, State#proto_state{stats_data = Stats1}}.
+    {ok, State#proto_state{stats_data = inc_stats(send, Type, Stats)}}.
 
 trace(recv, Packet, ProtoState) ->
     ?LOG(info, "RECV ~s", [emqx_packet:format(Packet)], ProtoState);
