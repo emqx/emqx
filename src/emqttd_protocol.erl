@@ -44,12 +44,13 @@
                       clean_sess, proto_ver, proto_name, username, is_superuser,
                       will_msg, keepalive, keepalive_backoff, max_clientid_len,
                       session, stats_data, mountpoint, ws_initial_headers,
-                      is_bridge, connected_at}).
+                      peercert_username, is_bridge, connected_at}).
 
 -type(proto_state() :: #proto_state{}).
 
 -define(INFO_KEYS, [client_id, username, clean_sess, proto_ver, proto_name,
-                    keepalive, will_msg, ws_initial_headers, mountpoint, connected_at]).
+                    keepalive, will_msg, ws_initial_headers, mountpoint,
+                    peercert_username, connected_at]).
 
 -define(STATS_KEYS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 
@@ -68,6 +69,7 @@ init(Peername, SendFun, Opts) ->
                  max_clientid_len   = MaxLen,
                  is_superuser       = false,
                  client_pid         = self(),
+                 peercert_username  = false,
                  ws_initial_headers = WsInitialHeaders,
                  keepalive_backoff  = Backoff,
                  stats_data         = #proto_stats{enable_stats = EnableStats}}.
@@ -79,8 +81,27 @@ enrich_opt([], _Conn, State) ->
     State;
 enrich_opt([{mountpoint, MountPoint} | ConnOpts], Conn, State) ->
     enrich_opt(ConnOpts, Conn, State#proto_state{mountpoint = MountPoint});
+enrich_opt([{peer_cert_as_username, N} | ConnOpts], Conn, State) ->
+    case Conn:type() of
+        ssl -> enrich_opt(ConnOpts, Conn, State#proto_state{
+                                            peercert_username = peercert_username(N, Conn:peercert())});
+        _   -> enrich_opt(ConnOpts, Conn, State)
+    end;
 enrich_opt([_ | ConnOpts], Conn, State) ->
     enrich_opt(ConnOpts, Conn, State).
+
+peercert_username(cn, Cert) ->
+    case emqttd_ssl:peer_cert_common_name(Cert) of
+        not_found -> undefined;
+        CN -> iolist_to_binary(CN)
+    end;
+peercert_username(dn, Cert) ->
+    iolist_to_binary(emqttd_ssl:peer_cert_subject(Cert)).
+
+repl_username_with_peercert(State = #proto_state{peercert_username = false}) ->
+    State;
+repl_username_with_peercert(State = #proto_state{peercert_username = PeerCert}) ->
+    State#proto_state{username = PeerCert}.
 
 info(ProtoState) ->
     ?record_to_proplist(proto_state, ProtoState, ?INFO_KEYS).
@@ -183,15 +204,16 @@ process(?CONNECT_PACKET(Var), State0) ->
                          client_id  = ClientId,
                          is_bridge  = IsBridge} = Var,
 
-    State1 = State0#proto_state{proto_ver    = ProtoVer,
-                                proto_name   = ProtoName,
-                                username     = Username,
-                                client_id    = ClientId,
-                                clean_sess   = CleanSess,
-                                keepalive    = KeepAlive,
-                                will_msg     = willmsg(Var, State0),
-                                is_bridge    = IsBridge,
-                                connected_at = os:timestamp()},
+    State1 = repl_username_with_peercert(
+               State0#proto_state{proto_ver    = ProtoVer,
+                                  proto_name   = ProtoName,
+                                  username     = Username,
+                                  client_id    = ClientId,
+                                  clean_sess   = CleanSess,
+                                  keepalive    = KeepAlive,
+                                  will_msg     = willmsg(Var, State0),
+                                  is_bridge    = IsBridge,
+                                  connected_at = os:timestamp()}),
 
     {ReturnCode1, SessPresent, State3} =
     case validate_connect(Var, State1) of
