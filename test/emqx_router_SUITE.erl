@@ -14,15 +14,15 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqttd_router_SUITE).
+-module(emqx_router_SUITE).
 
 -compile(export_all).
 
--include("emqttd.hrl").
+-include("emqx.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(R, emqttd_router).
+-define(R, emqx_router).
 
 all() ->
     [{group, route},
@@ -44,11 +44,11 @@ groups() ->
 init_per_suite(Config) ->
     ekka:start(),
     ekka_mnesia:ensure_started(),
-    {ok, _R} = emqttd_router:start(),
+    {ok, _R} = emqx_router:start(),
     Config.
 
 end_per_suite(_Config) ->
-    emqttd_router:stop(),
+    emqx_router:stop(),
     ekka:stop(),
     ekka_mnesia:ensure_stopped(),
     ekka_mnesia:delete_schema().
@@ -148,7 +148,7 @@ router_add_del(_) ->
     %% Del
     ?R:del_route(<<"a/b/c">>),
     [R1, R2] = lists:sort(?R:match(<<"a/b/c">>)),
-    {atomic, []} = mnesia:transaction(fun emqttd_trie:lookup/1, [<<"a/b/c">>]),
+    {atomic, []} = mnesia:transaction(fun emqx_trie:lookup/1, [<<"a/b/c">>]),
 
     %% Batch Del
     R3 = #mqtt_route{topic = <<"#">>, node = 'a@127.0.0.1'},
@@ -169,6 +169,6 @@ t_print(_) ->
     ?R:del_route(<<"#">>).
 
 router_unused(_) ->
-    gen_server:call(emqttd_router, bad_call),
-    gen_server:cast(emqttd_router, bad_msg),
-    emqttd_router ! bad_info.
+    gen_server:call(emqx_router, bad_call),
+    gen_server:cast(emqx_router, bad_msg),
+    emqx_router ! bad_info.

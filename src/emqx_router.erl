@@ -34,7 +34,10 @@
 -export([start/0, stop/0]).
 
 %% Route APIs
--export([add_route/1, del_route/1, match/1, print/1, has_route/1]).
+-export([add_route/1, get_routes/1, del_route/1, has_route/1]).
+
+%% Match and print
+-export([match/1, print/1]).
 
 %% Local Route API
 -export([get_local_routes/0, add_local_route/1, match_local/1,
@@ -129,6 +132,11 @@ add_trie_route(Route = #mqtt_route{topic = Topic}) ->
         _  -> ok
     end,
     mnesia:write(Route).
+
+%% @doc Lookup Routes
+-spec(get_routes(binary()) -> [mqtt_route()]).
+get_routes(Topic) ->
+    ets:lookup(mqtt_route, Topic).
 
 %% @doc Delete Route
 -spec(del_route(binary() | mqtt_route()) -> ok | {error, Reason :: term()}).
@@ -284,7 +292,5 @@ clean_routes_(Node) ->
     mnesia:transaction(Clean).
 
 update_stats_() ->
-    Size = mnesia:table_info(mqtt_route, size),
-    emqx_stats:setstats('routes/count', 'routes/max', Size),
-    emqx_stats:setstats('topics/count', 'topics/max', Size).
+    emqx_stats:setstats('routes/count', 'routes/max', mnesia:table_info(mqtt_route, size)).
 

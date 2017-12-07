@@ -37,7 +37,6 @@ start(_Type, _Args) ->
     print_banner(),
     ekka:start(),
     {ok, Sup} = emqx_sup:start_link(),
-    ok = emqx_cli:load(),
     ok = register_acl_mod(),
     start_autocluster(),
     register(emqx, self()),

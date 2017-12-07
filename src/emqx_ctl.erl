@@ -68,15 +68,6 @@ run([]) -> usage(), ok;
 
 run(["help"]) -> usage(), ok;
 
-run(["set"] = CmdS) when length(CmdS) =:= 1 ->
-    emqx_cli_config:set_usage(), ok;
-
-run(["set" | _] = CmdS) ->
-    emqx_cli_config:run(["config" | CmdS]), ok;
-
-run(["show" | _] = CmdS) ->
-    emqx_cli_config:run(["config" | CmdS]), ok;
-
 run([CmdS|Args]) ->
     case lookup(list_to_atom(CmdS)) of
         [{Mod, Fun}] ->

@@ -14,11 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqttd_mod_SUITE).
+-module(emqx_mod_SUITE).
 
 -compile(export_all).
 
--include("emqttd.hrl").
+-include("emqx.hrl").
 
 all() -> [mod_subscription_rep].
 

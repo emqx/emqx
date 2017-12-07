@@ -68,7 +68,6 @@ all() ->
      {group, http},
      {group, alarms},
      {group, cli},
-     {group, rest_api},
      {group, cleanSession}].
 
 groups() ->
@@ -121,9 +120,7 @@ groups() ->
      {cleanSession, [sequence],
       [cleanSession_validate,
        cleanSession_validate1]
-     },
-     {rest_api, [sequence],
-      [get_api_lists]}
+     }
     ].
 
 init_per_suite(Config) ->
@@ -413,14 +410,59 @@ request_publish(_) ->
                        {client_id, <<"random">>},
                        {clean_sess, false}]),
     SubParams = "{\"qos\":1, \"topic\" : \"a\/b\/c\", \"client_id\" :\"random\"}",
-    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/subscribe", SubParams, auth_header_("admin", "public"))),
-    ok = emqttd:subscribe(<<"a/b/c">>, self(), [{qos, 1}]),
+    ?assert(connect_emqx_pubsub_(post, "api/v2/mqtt/subscribe", SubParams, auth_header_("admin", "public"))),
+    ok = emqx:subscribe(<<"a/b/c">>, self(), [{qos, 1}]),
     Params = "{\"qos\":1, \"retain\":false, \"topic\" : \"a\/b\/c\", \"messages\" :\"hello\"}",
-    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/publish", Params, auth_header_("admin", "public"))),
+    ?assert(connect_emqx_pubsub_(post, "api/v2/mqtt/publish", Params, auth_header_("admin", "public"))),
     ?assert(receive {dispatch, <<"a/b/c">>, _} -> true after 2 -> false end),
 
     UnSubParams = "{\"topic\" : \"a\/b\/c\", \"client_id\" :\"random\"}",
-    ?assert(connect_emqttd_pubsub_(post, "api/v2/mqtt/unsubscribe", UnSubParams, auth_header_("admin", "public"))).
+    ?assert(connect_emqx_pubsub_(post, "api/v2/mqtt/unsubscribe", UnSubParams, auth_header_("admin", "public"))).
+
+connect_emqx_pubsub_(Method, Api, Params, Auth) ->
+    Url = "http://127.0.0.1:8080/" ++ Api,
+    case httpc:request(Method, {Url, [Auth], ?CONTENT_TYPE, Params}, [], []) of
+    {error, socket_closed_remotely} ->
+        false;
+    {ok, {{"HTTP/1.1", 200, "OK"}, _, _Return} }  ->
+        true;
+    {ok, {{"HTTP/1.1", 400, _}, _, []}} ->
+        false;
+    {ok, {{"HTTP/1.1", 404, _}, _, []}} ->
+        false
+    end.
+
+request(Path) ->
+    http_get(get, Path).
+
+http_get(Method, Path) ->
+    req(Method, Path, []).
+
+http_put(Method, Path, Params) ->
+    req(Method, Path, format_for_upload(Params)).
+
+http_post(Method, Path, Params) ->
+    req(Method, Path, format_for_upload(Params)).
+
+req(Method, Path, Body) ->
+   Url = ?URL ++ Path,
+   Headers = auth_header_("", ""),
+   case httpc:request(Method, {Url, [Headers]}, [], []) of
+   {error, R} ->
+       ct:log("R:~p~n", [R]),
+       false;
+   {ok, {{"HTTP/1.1", 200, "OK"}, _, _Return} }  ->
+       true;
+   {ok, {{"HTTP/1.1", 400, _}, _, []}} ->
+       false;
+    {ok, {{"HTTP/1.1", 404, _}, _, []}} ->
+        false
+    end.
+
+format_for_upload(none) ->
+    <<"">>;
+format_for_upload(List) ->
+    iolist_to_binary(mochijson2:encode(List)).
 
 connect_emqx_publish_(Method, Api, Params, Auth) ->
     Url = "http://127.0.0.1:8080/" ++ Api,
@@ -615,69 +657,6 @@ cleanSession_validate1(_) ->
     emqttc:disconnect(Pub),
     emqttc:disconnect(C11).
 
-get_api_lists(_Config) ->
-    lists:foreach(fun request/1, ?GET_API).
-
-request_publish(_) ->
-    emqttc:start_link([{host, "localhost"},
-                       {port, 1883},
-                       {client_id, <<"random">>},
-                       {clean_sess, false}]),
-    SubParams = "{\"qos\":1, \"topic\" : \"a\/b\/c\", \"client_id\" :\"random\"}",
-    ?assert(connect_emqx_pubsub_(post, "api/v2/mqtt/subscribe", SubParams, auth_header_("", ""))),
-    ok = emqx:subscribe(<<"a/b/c">>, self(), [{qos, 1}]),
-    Params = "{\"qos\":1, \"retain\":false, \"topic\" : \"a\/b\/c\", \"messages\" :\"hello\"}",
-    ?assert(connect_emqx_pubsub_(post, "api/v2/mqtt/publish", Params, auth_header_("", ""))),
-    ?assert(receive {dispatch, <<"a/b/c">>, _} -> true after 2 -> false end),
-
-    UnSubParams = "{\"topic\" : \"a\/b\/c\", \"client_id\" :\"random\"}",
-    ?assert(connect_emqx_pubsub_(post, "api/v2/mqtt/unsubscribe", UnSubParams, auth_header_("", ""))).
-
-connect_emqx_pubsub_(Method, Api, Params, Auth) ->
-    Url = "http://127.0.0.1:8080/" ++ Api,
-    case httpc:request(Method, {Url, [Auth], ?CONTENT_TYPE, Params}, [], []) of
-    {error, socket_closed_remotely} ->
-        false;
-    {ok, {{"HTTP/1.1", 200, "OK"}, _, _Return} }  ->
-        true;
-    {ok, {{"HTTP/1.1", 400, _}, _, []}} ->
-        false;
-    {ok, {{"HTTP/1.1", 404, _}, _, []}} ->
-        false
-    end.
-
-request(Path) ->
-    http_get(get, Path).
-
-http_get(Method, Path) ->
-    req(Method, Path, []).
-
-http_put(Method, Path, Params) ->
-    req(Method, Path, format_for_upload(Params)).
-
-http_post(Method, Path, Params) ->
-    req(Method, Path, format_for_upload(Params)).
-
-req(Method, Path, Body) ->
-   Url = ?URL ++ Path,
-   Headers = auth_header_("", ""),
-   case httpc:request(Method, {Url, [Headers]}, [], []) of
-   {error, R} ->
-       ct:log("R:~p~n", [R]),
-       false;
-   {ok, {{"HTTP/1.1", 200, "OK"}, _, _Return} }  ->
-       true;
-   {ok, {{"HTTP/1.1", 400, _}, _, []}} ->
-       false;
-    {ok, {{"HTTP/1.1", 404, _}, _, []}} ->
-        false
-    end.
-
-format_for_upload(none) ->
-    <<"">>;
-format_for_upload(List) ->
-    iolist_to_binary(mochijson2:encode(List)).
-
 ensure_ok(ok) -> ok;
 ensure_ok({error, {already_started, _}}) -> ok.
 
@@ -765,35 +744,4 @@ set_app_env({App, Lists}) ->
     lists:foreach(fun({Par, Var}) ->
                   application:set_env(App, Par, Var)
                   end, Lists).
-
-request(Path) ->
-    http_get(get, Path).
-
-http_get(Method, Path) ->
-    req(Method, Path, []).
-
-http_put(Method, Path, Params) ->
-    req(Method, Path, format_for_upload(Params)).
-
-http_post(Method, Path, Params) ->
-    req(Method, Path, format_for_upload(Params)).
-
-req(Method, Path, Body) ->
-   Url = ?URL ++ Path,
-   Headers = auth_header_("admin", "public"),
-   case httpc:request(Method, {Url, [Headers]}, [], []) of
-   {error, socket_closed_remotely} ->
-       false;
-   {ok, {{"HTTP/1.1", 200, "OK"}, _, _Return} }  ->
-       true;
-   {ok, {{"HTTP/1.1", 400, _}, _, []}} ->
-       false;
-    {ok, {{"HTTP/1.1", 404, _}, _, []}} ->
-        false
-    end.
-
-format_for_upload(none) ->
-    <<"">>;
-format_for_upload(List) ->
-    iolist_to_binary(mochijson2:encode(List)).
 

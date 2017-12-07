@@ -204,15 +204,16 @@ process(?CONNECT_PACKET(Var), State0) ->
                          client_id  = ClientId,
                          is_bridge  = IsBridge} = Var,
 
-    State1 = State0#proto_state{proto_ver    = ProtoVer,
-                                proto_name   = ProtoName,
-                                username     = Username,
-                                client_id    = ClientId,
-                                clean_sess   = CleanSess,
-                                keepalive    = KeepAlive,
-                                will_msg     = willmsg(Var, State0),
-                                is_bridge    = IsBridge,
-                                connected_at = os:timestamp()},
+    State1 = repl_username_with_peercert(
+               State0#proto_state{proto_ver    = ProtoVer,
+                                  proto_name   = ProtoName,
+                                  username     = Username,
+                                  client_id    = ClientId,
+                                  clean_sess   = CleanSess,
+                                  keepalive    = KeepAlive,
+                                  will_msg     = willmsg(Var, State0),
+                                  is_bridge    = IsBridge,
+                                  connected_at = os:timestamp()}),
 
     {ReturnCode1, SessPresent, State3} =
     case validate_connect(Var, State1) of
@@ -407,6 +408,7 @@ shutdown(mnesia_conflict, _State) ->
     %% let it down
     %% emqx_cm:unreg(ClientId);
     ignore;
+
 shutdown(Error, State = #proto_state{will_msg = WillMsg}) ->
     ?LOG(info, "Shutdown for ~p", [Error], State),
     Client = client(State),
