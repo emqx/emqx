@@ -24,7 +24,7 @@
 
 -define(PROTOCOL_VERSION, "MQTT/5.0").
 
--define(ERTS_MINIMUM, "9.0").
+%%-define(ERTS_MINIMUM, "9.0").
 
 %%--------------------------------------------------------------------
 %% Sys/Queue/Share Topics' Prefix
