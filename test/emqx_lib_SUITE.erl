@@ -152,12 +152,12 @@ time_now_to_(_) ->
 
 node_is_aliving(_) ->
     io:format("Node: ~p~n", [node()]),
-    true = emqx_node:is_aliving(node()),
-    false = emqx_node:is_aliving('x@127.0.0.1').
+    true = ekka_node:is_aliving(node()),
+    false = ekka_node:is_aliving('x@127.0.0.1').
 
 node_parse_name(_) ->
-    'a@127.0.0.1' = emqx_node:parse_name("a@127.0.0.1"),
-    'b@127.0.0.1' = emqx_node:parse_name("b").
+    'a@127.0.0.1' = ekka_node:parse_name("a@127.0.0.1"),
+    'b@127.0.0.1' = ekka_node:parse_name("b").
 
 %%--------------------------------------------------------------------
 %% base62 encode decode

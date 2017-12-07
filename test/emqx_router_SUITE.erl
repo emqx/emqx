@@ -126,10 +126,6 @@ clear_tables() ->
     ?R:clean_local_routes(),
     lists:foreach(fun mnesia:clear_table/1, [mqtt_route, mqtt_trie, mqtt_trie_node]).
 
-%%--------------------------------------------------------------------
-%% Router Test
-%%--------------------------------------------------------------------
-
 router_add_del(_) ->
     %% Add
     ?R:add_route(<<"#">>),
