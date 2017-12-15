@@ -804,6 +804,10 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
+{mapping, "listener.tcp.$name.peer_cert_as_username", "emqttd.listeners", [
+  {datatype, {enum, [cn, dn]}}
+]}.
+
 {mapping, "listener.tcp.$name.backlog", "emqttd.listeners", [
   {datatype, integer},
   {default, 1024}
