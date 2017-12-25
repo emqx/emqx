@@ -69,7 +69,7 @@ init(Peername, SendFun, Opts) ->
                  max_clientid_len   = MaxLen,
                  is_superuser       = false,
                  client_pid         = self(),
-                 peercert_username  = false,
+                 peercert_username  = undefined,
                  ws_initial_headers = WsInitialHeaders,
                  keepalive_backoff  = Backoff,
                  stats_data         = #proto_stats{enable_stats = EnableStats}}.
@@ -82,23 +82,16 @@ enrich_opt([], _Conn, State) ->
 enrich_opt([{mountpoint, MountPoint} | ConnOpts], Conn, State) ->
     enrich_opt(ConnOpts, Conn, State#proto_state{mountpoint = MountPoint});
 enrich_opt([{peer_cert_as_username, N} | ConnOpts], Conn, State) ->
-    case Conn:type() of
-        ssl -> enrich_opt(ConnOpts, Conn, State#proto_state{
-                                            peercert_username = peercert_username(N, Conn:peercert())});
-        _   -> enrich_opt(ConnOpts, Conn, State)
-    end;
+    enrich_opt(ConnOpts, Conn, State#proto_state{peercert_username = peercert_username(N, Conn)});
 enrich_opt([_ | ConnOpts], Conn, State) ->
     enrich_opt(ConnOpts, Conn, State).
 
-peercert_username(cn, Cert) ->
-    case emqttd_ssl:peer_cert_common_name(Cert) of
-        not_found -> undefined;
-        CN -> iolist_to_binary(CN)
-    end;
-peercert_username(dn, Cert) ->
-    iolist_to_binary(emqttd_ssl:peer_cert_subject(Cert)).
+peercert_username(cn, Conn) ->
+    Conn:peer_cert_common_name();
+peercert_username(dn, Conn) ->
+    Conn:peer_cert_subject().
 
-repl_username_with_peercert(State = #proto_state{peercert_username = false}) ->
+repl_username_with_peercert(State = #proto_state{peercert_username = undefined}) ->
     State;
 repl_username_with_peercert(State = #proto_state{peercert_username = PeerCert}) ->
     State#proto_state{username = PeerCert}.
