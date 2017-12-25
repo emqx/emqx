@@ -795,12 +795,10 @@ end}.
 ]}.
 
 {mapping, "listener.tcp.$name.proxy_protocol", "emqttd.listeners", [
-  %%{default, off},
   {datatype, flag}
 ]}.
 
 {mapping, "listener.tcp.$name.proxy_protocol_timeout", "emqttd.listeners", [
-  %%{default, "5s"},
   {datatype, {duration, ms}}
 ]}.
 
@@ -883,12 +881,10 @@ end}.
 ]}.
 
 {mapping, "listener.ssl.$name.proxy_protocol", "emqttd.listeners", [
-  %%{default, off},
   {datatype, flag}
 ]}.
 
 {mapping, "listener.ssl.$name.proxy_protocol_timeout", "emqttd.listeners", [
-  %%{default, "5s"},
   {datatype, {duration, ms}}
 ]}.
 
@@ -1015,6 +1011,14 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "listener.ws.$name.proxy_protocol", "emqttd.listeners", [
+  {datatype, flag}
+]}.
+
+{mapping, "listener.ws.$name.proxy_protocol_timeout", "emqttd.listeners", [
+  {datatype, {duration, ms}}
+]}.
+
 {mapping, "listener.ws.$name.backlog", "emqttd.listeners", [
   {default, 1024},
   {datatype, integer}
@@ -1086,6 +1090,14 @@ end}.
 
 {mapping, "listener.wss.$name.access.$id", "emqttd.listeners", [
   {datatype, string}
+]}.
+
+{mapping, "listener.wss.$name.proxy_protocol", "emqttd.listeners", [
+  {datatype, flag}
+]}.
+
+{mapping, "listener.wss.$name.proxy_protocol_timeout", "emqttd.listeners", [
+  {datatype, {duration, ms}}
 ]}.
 
 {mapping, "listener.wss.$name.backlog", "emqttd.listeners", [
