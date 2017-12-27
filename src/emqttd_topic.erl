@@ -61,9 +61,9 @@ wildcard([_H|T]) ->
 -spec(match(Name, Filter) -> boolean() when
       Name   :: topic() | words(),
       Filter :: topic() | words()).
-match(<<"$", _/binary>>, <<"+", _/binary>>) ->
+match(<<$$, _/binary>>, <<$+, _/binary>>) ->
     false;
-match(<<"$", _/binary>>, <<"#", _/binary>>) ->
+match(<<$$, _/binary>>, <<$#, _/binary>>) ->
     false;
 match(Name, Filter) when is_binary(Name) and is_binary(Filter) ->
     match(words(Name), words(Filter));
