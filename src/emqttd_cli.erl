@@ -417,11 +417,15 @@ vm(_) ->
 %%--------------------------------------------------------------------
 %% @doc mnesia Command
 
-mnesia([]) ->
+mnesia(["info"]) ->
     mnesia:system_info();
 
+mnesia(["dump", filename]) ->
+	mnesia:dump_to_textfile(filename);
+
 mnesia(_) ->
-    ?PRINT_CMD("mnesia", "Mnesia system info").
+	?USAGE([{"mnesia info",            "Mnesia system info"},
+			{"mnesia dump <filename>", "Dump Mnesia local tables in given text file"}]).
 
 %%--------------------------------------------------------------------
 %% @doc Trace Command
