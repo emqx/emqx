@@ -702,8 +702,8 @@ end}.
 %%--------------------------------------------------------------------
 
 {mapping, "mqtt.broker.sys_interval", "emqttd.broker_sys_interval", [
-  {default, 60},
-  {datatype, integer}
+  {datatype, {duration, ms}},
+  {default, "1m"}
 ]}.
 
 %%--------------------------------------------------------------------
@@ -735,8 +735,8 @@ end}.
 ]}.
 
 {mapping, "mqtt.bridge.ping_down_interval", "emqttd.bridge", [
-  {default, 1},
-  {datatype, integer}
+  {datatype, {duration, ms}},
+  {default, "1s"}
 ]}.
 
 {translation, "emqttd.bridge", fun(Conf) ->
