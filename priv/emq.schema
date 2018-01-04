@@ -1007,6 +1007,10 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "listener.ws.$name.mountpoint", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
 {mapping, "listener.ws.$name.access.$id", "emqttd.listeners", [
   {datatype, string}
 ]}.
@@ -1140,6 +1144,14 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.wss.$name.tls_versions", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.wss.$name.ciphers", "emqttd.listeners", [
+  {datatype, string}
+]}.
+
 {mapping, "listener.wss.$name.handshake_timeout", "emqttd.listeners", [
   {default, "15s"},
   {datatype, {duration, ms}}
@@ -1163,6 +1175,23 @@ end}.
 
 {mapping, "listener.wss.$name.fail_if_no_peer_cert", "emqttd.listeners", [
   {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "listener.wss.$name.secure_renegotiate", "emqttd.listeners", [
+  {datatype, flag}
+]}.
+
+{mapping, "listener.wss.$name.reuse_sessions", "emqttd.listeners", [
+  {default, on},
+  {datatype, flag}
+]}.
+
+{mapping, "listener.wss.$name.honor_cipher_order", "emqttd.listeners", [
+  {datatype, flag}
+]}.
+
+{mapping, "listener.wss.$name.peer_cert_as_username", "emqttd.listeners", [
+  {datatype, {enum, [cn, dn]}}
 ]}.
 
 {translation, "emqttd.listeners", fun(Conf) ->
