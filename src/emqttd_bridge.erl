@@ -92,7 +92,7 @@ parse_opts([{topic_prefix, Prefix} | Opts], State) ->
 parse_opts([{max_queue_len, Len} | Opts], State) ->
     parse_opts(Opts, State#state{max_queue_len = Len});
 parse_opts([{ping_down_interval, Interval} | Opts], State) ->
-    parse_opts(Opts, State#state{ping_down_interval = Interval*1000});
+    parse_opts(Opts, State#state{ping_down_interval = Interval});
 parse_opts([_Opt | Opts], State) ->
     parse_opts(Opts, State).
 
