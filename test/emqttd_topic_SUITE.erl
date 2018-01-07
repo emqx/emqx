@@ -73,10 +73,10 @@ t_match2(_) ->
 
 t_match3(_) ->
     true = match(<<"device/60019423a83c/fw">>, <<"device/60019423a83c/#">>),
-    false = match(<<"device/60019423a83c/$fw">>, <<"device/60019423a83c/#">>),
+    true = match(<<"device/60019423a83c/$fw">>, <<"device/60019423a83c/#">>),
     true = match(<<"device/60019423a83c/$fw/fw">>, <<"device/60019423a83c/$fw/#">>),
     true = match(<<"device/60019423a83c/fw/checksum">>, <<"device/60019423a83c/#">>),
-    false = match(<<"device/60019423a83c/$fw/checksum">>, <<"device/60019423a83c/#">>),
+    true = match(<<"device/60019423a83c/$fw/checksum">>, <<"device/60019423a83c/#">>),
     true = match(<<"device/60019423a83c/dust/type">>, <<"device/60019423a83c/#">>).
 
 t_sigle_level_match(_) ->
@@ -86,7 +86,9 @@ t_sigle_level_match(_) ->
     true  = match(<<"sport/">>, <<"sport/+">>),
     true  = match(<<"/finance">>, <<"+/+">>),
     true  = match(<<"/finance">>, <<"/+">>),
-    false = match(<<"/finance">>, <<"+">>).
+    false = match(<<"/finance">>, <<"+">>),
+    true  = match(<<"/devices/$dev1">>, <<"/devices/+">>),
+    true  = match(<<"/devices/$dev1/online">>, <<"/devices/+/online">>).
 
 t_sys_match(_) ->
     true  = match(<<"$SYS/broker/clients/testclient">>, <<"$SYS/#">>),
@@ -95,9 +97,11 @@ t_sys_match(_) ->
     false = match(<<"$SYS/broker">>, <<"#">>).
 
 't_#_match'(_) ->
-    true = match(<<"a/b/c">>, <<"#">>),
-    true = match(<<"a/b/c">>, <<"+/#">>),
-    false = match(<<"$SYS/brokers">>, <<"#">>).
+    true  = match(<<"a/b/c">>, <<"#">>),
+    true  = match(<<"a/b/c">>, <<"+/#">>),
+    false = match(<<"$SYS/brokers">>, <<"#">>),
+    true  = match(<<"a/b/$c">>, <<"a/b/#">>),
+    true  = match(<<"a/b/$c">>, <<"a/#">>).
 
 t_match_perf(_) ->
     true = match(<<"a/b/ccc">>, <<"a/#">>),
