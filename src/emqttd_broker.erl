@@ -105,9 +105,9 @@ datetime() ->
         io_lib:format(
             "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S])).
 
-%% @doc Start a tick timer
+%% @doc Start a tick timer.
 start_tick(Msg) ->
-    start_tick(timer:seconds(emqttd:env(broker_sys_interval, 60)), Msg).
+    start_tick(emqttd:env(broker_sys_interval, 60000), Msg).
 
 start_tick(0, _Msg) ->
     undefined;
