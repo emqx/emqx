@@ -115,9 +115,9 @@ run_connection_cmd(_Config) ->
     ?assertEqual(1000, E).
 
 run_broker_config(_Config) ->
-    emqttd_cli_config:run(["config", "set", "mqtt.broker.sys_interval=10", "--app=emqttd"]),
+    emqttd_cli_config:run(["config", "set", "mqtt.broker.sys_interval=6000ms", "--app=emqttd"]),
     {ok, E} =  application:get_env(emqttd, broker_sys_interval),
-    ?assertEqual(10, E).
+    ?assertEqual(6000, E).
 
 env_value("client", {Key, Type}) ->
     case string:split(Key, "=") of
