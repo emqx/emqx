@@ -400,7 +400,7 @@ end}.
 {translation,
  "lager.handlers",
  fun(Conf) ->
-    ErrorHandler = case cuttlefish:conf_get("log.error.file", Conf) of
+    ErrorHandler = case cuttlefish:conf_get("log.error.file", Conf, undefined) of
       undefined -> [];
       ErrorFilename -> [{lager_file_backend, [{file, ErrorFilename},
                                               {level, error},
@@ -442,7 +442,6 @@ end}.
                    cuttlefish:conf_get("log.syslog.facility", Conf),
                    cuttlefish:conf_get("log.syslog.level", Conf)]}]
     end,
-
     ConsoleHandlers ++ ErrorHandler ++ InfoHandler ++ SyslogHandler
   end
 }.
