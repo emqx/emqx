@@ -168,6 +168,11 @@ end}.
   {default, "emq@127.0.0.1"}
 ]}.
 
+%% @doc The erlang distributed protocol
+{mapping, "node.proto_dist", "vm_args.-proto_dist", [
+  %%{default, "inet_tcp"}
+]}.
+
 %% @doc Secret cookie for distributed erlang node
 {mapping, "node.cookie", "vm_args.-setcookie", [
   {default, "emqsecretcookie"}
