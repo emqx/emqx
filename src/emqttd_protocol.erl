@@ -563,8 +563,11 @@ sp(false) -> 0.
 %% The retained flag should be propagated for bridge.
 %%--------------------------------------------------------------------
 
-clean_retain(false, Msg = #mqtt_message{retain = true}) ->
-    Msg#mqtt_message{retain = false};
+clean_retain(false, Msg = #mqtt_message{retain = true, headers = Headers}) ->
+    case lists:member(retained, Headers) of
+        true  -> Msg;
+        false -> Msg#mqtt_message{retain = false}
+    end;
 clean_retain(_IsBridge, Msg) ->
     Msg.
 
