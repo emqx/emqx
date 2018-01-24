@@ -850,6 +850,11 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.tcp.$name.reuseaddr", "emqttd.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
 %%--------------------------------------------------------------------
 %% SSL Listeners
 
@@ -928,6 +933,11 @@ end}.
 ]}.
 
 {mapping, "listener.ssl.$name.nodelay", "emqttd.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
+{mapping, "listener.ssl.$name.reuseaddr", "emqttd.listeners", [
   {datatype, {enum, [true, false]}},
   hidden
 ]}.
@@ -1067,6 +1077,11 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.ws.$name.reuseaddr", "emqttd.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT/WebSocket/SSL Listeners
 
@@ -1144,6 +1159,11 @@ end}.
 ]}.
 
 {mapping, "listener.wss.$name.nodelay", "emqttd.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.reuseaddr", "emqttd.listeners", [
   {datatype, {enum, [true, false]}},
   hidden
 ]}.
@@ -1239,7 +1259,8 @@ end}.
                            {recbuf,  cuttlefish:conf_get(Prefix ++ ".recbuf", Conf, undefined)},
                            {sndbuf,  cuttlefish:conf_get(Prefix ++ ".sndbuf", Conf, undefined)},
                            {buffer,  cuttlefish:conf_get(Prefix ++ ".buffer", Conf, undefined)},
-                           {nodelay, cuttlefish:conf_get(Prefix ++ ".nodelay", Conf, true)}])
+                           {nodelay, cuttlefish:conf_get(Prefix ++ ".nodelay", Conf, true)},
+                           {reuseaddr, cuttlefish:conf_get(Prefix ++ ".reuseaddr", Conf, true)}])
               end,
 
     SplitFun = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
@@ -1374,6 +1395,11 @@ end}.
 ]}.
 
 {mapping, "listener.api.$name.nodelay", "emqttd.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
+{mapping, "listener.api.$name.reuseaddr", "emqttd.listeners", [
   {datatype, {enum, [true, false]}},
   hidden
 ]}.
