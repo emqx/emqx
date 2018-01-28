@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -44,12 +44,13 @@
                       clean_sess, proto_ver, proto_name, username, is_superuser,
                       will_msg, keepalive, keepalive_backoff, max_clientid_len,
                       session, stats_data, mountpoint, ws_initial_headers,
-                      is_bridge, connected_at}).
+                      peercert_username, is_bridge, connected_at}).
 
 -type(proto_state() :: #proto_state{}).
 
 -define(INFO_KEYS, [client_id, username, clean_sess, proto_ver, proto_name,
-                    keepalive, will_msg, ws_initial_headers, mountpoint, connected_at]).
+                    keepalive, will_msg, ws_initial_headers, mountpoint,
+                    peercert_username, connected_at]).
 
 -define(STATS_KEYS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 
@@ -68,6 +69,7 @@ init(Peername, SendFun, Opts) ->
                  max_clientid_len   = MaxLen,
                  is_superuser       = false,
                  client_pid         = self(),
+                 peercert_username  = undefined,
                  ws_initial_headers = WsInitialHeaders,
                  keepalive_backoff  = Backoff,
                  stats_data         = #proto_stats{enable_stats = EnableStats}}.
@@ -79,8 +81,20 @@ enrich_opt([], _Conn, State) ->
     State;
 enrich_opt([{mountpoint, MountPoint} | ConnOpts], Conn, State) ->
     enrich_opt(ConnOpts, Conn, State#proto_state{mountpoint = MountPoint});
+enrich_opt([{peer_cert_as_username, N} | ConnOpts], Conn, State) ->
+    enrich_opt(ConnOpts, Conn, State#proto_state{peercert_username = peercert_username(N, Conn)});
 enrich_opt([_ | ConnOpts], Conn, State) ->
     enrich_opt(ConnOpts, Conn, State).
+
+peercert_username(cn, Conn) ->
+    Conn:peer_cert_common_name();
+peercert_username(dn, Conn) ->
+    Conn:peer_cert_subject().
+
+repl_username_with_peercert(State = #proto_state{peercert_username = undefined}) ->
+    State;
+repl_username_with_peercert(State = #proto_state{peercert_username = PeerCert}) ->
+    State#proto_state{username = PeerCert}.
 
 info(ProtoState) ->
     ?record_to_proplist(proto_state, ProtoState, ?INFO_KEYS).
@@ -183,15 +197,16 @@ process(?CONNECT_PACKET(Var), State0) ->
                          client_id  = ClientId,
                          is_bridge  = IsBridge} = Var,
 
-    State1 = State0#proto_state{proto_ver    = ProtoVer,
-                                proto_name   = ProtoName,
-                                username     = Username,
-                                client_id    = ClientId,
-                                clean_sess   = CleanSess,
-                                keepalive    = KeepAlive,
-                                will_msg     = willmsg(Var, State0),
-                                is_bridge    = IsBridge,
-                                connected_at = os:timestamp()},
+    State1 = repl_username_with_peercert(
+               State0#proto_state{proto_ver    = ProtoVer,
+                                  proto_name   = ProtoName,
+                                  username     = Username,
+                                  client_id    = ClientId,
+                                  clean_sess   = CleanSess,
+                                  keepalive    = KeepAlive,
+                                  will_msg     = willmsg(Var, State0),
+                                  is_bridge    = IsBridge,
+                                  connected_at = os:timestamp()}),
 
     {ReturnCode1, SessPresent, State3} =
     case validate_connect(Var, State1) of
@@ -341,13 +356,11 @@ send(Msg, State = #proto_state{client_id  = ClientId,
     emqttd_hooks:run('message.delivered', [ClientId, Username], Msg),
     send(emqttd_message:to_packet(unmount(MountPoint, clean_retain(IsBridge, Msg))), State);
 
-send(Packet = ?PACKET(Type),
-     State = #proto_state{sendfun = SendFun, stats_data = Stats}) ->
+send(Packet = ?PACKET(Type), State = #proto_state{sendfun = SendFun, stats_data = Stats}) ->
     trace(send, Packet, State),
     emqttd_metrics:sent(Packet),
     SendFun(Packet),
-    Stats1 = inc_stats(send, Type, Stats),
-    {ok, State#proto_state{stats_data = Stats1}}.
+    {ok, State#proto_state{stats_data = inc_stats(send, Type, Stats)}}.
 
 trace(recv, Packet, ProtoState) ->
     ?LOG(debug, "RECV ~s", [emqttd_packet:format(Packet)], ProtoState);
@@ -550,8 +563,11 @@ sp(false) -> 0.
 %% The retained flag should be propagated for bridge.
 %%--------------------------------------------------------------------
 
-clean_retain(false, Msg = #mqtt_message{retain = true}) ->
-    Msg#mqtt_message{retain = false};
+clean_retain(false, Msg = #mqtt_message{retain = true, headers = Headers}) ->
+    case lists:member(retained, Headers) of
+        true  -> Msg;
+        false -> Msg#mqtt_message{retain = false}
+    end;
 clean_retain(_IsBridge, Msg) ->
     Msg.
 

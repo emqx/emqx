@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -45,7 +45,7 @@
 
 -export([publish/1, subscribe/1, unsubscribe/1]).
 
--export([kick_client/1, clean_acl_cache/2]).
+-export([kick_client/1, kick_client/2, clean_acl_cache/2, clean_acl_cache/3]).
 
 -export([modify_config/2, modify_config/3, modify_config/4, get_configs/0, get_config/1,
          get_plugin_config/1, get_plugin_config/2, modify_plugin_config/2, modify_plugin_config/3]).

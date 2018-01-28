@@ -77,7 +77,7 @@ Plugin                                                                 | Descrip
 -----------------------------------------------------------------------|--------------------------------------
 [emq_plugin_template](https://github.com/emqtt/emq_plugin_template)    | Plugin template and demo
 [emq_dashboard](https://github.com/emqtt/emq_dashboard)                | Web Dashboard
-[emq_retainer](https://github.com/emqtt/emq_retainer)                  | Store MQTT Retained Messages
+[emq_retainer](https://github.com/emqtt/emq-retainer)                  | Store MQTT Retained Messages
 [emq_modules](https://github.com/emqtt/emq-modules)                    | Presence, Subscription and Rewrite Modules
 [emq_auth_username](https://github.com/emqtt/emq_auth_username)        | Username/Password Authentication Plugin
 [emq_auth_clientid](https://github.com/emqtt/emq_auth_clientid)        | ClientId Authentication Plugin
@@ -93,7 +93,7 @@ Plugin                                                                 | Descrip
 [emq_sn](https://github.com/emqtt/emq_sn)                              | MQTT-SN Protocol Plugin
 [emq_coap](https://github.com/emqtt/emq_coap)                          | CoAP Protocol Plugin
 [emq_stomp](https://github.com/emqtt/emq_stomp)                        | Stomp Protocol Plugin
-[emq_lwm2m](https://github.com/emqtt/emq-lwm2m)                        | LWM2M Prototol Plugin
+[emq_lwm2m](https://github.com/emqx/emqx-lwm2m)                        | LWM2M Prototol Plugin
 [emq_recon](https://github.com/emqtt/emq_recon)                        | Recon Plugin
 [emq_reloader](https://github.com/emqtt/emq_reloader)                  | Reloader Plugin
 [emq_sockjs](https://github.com/emqtt/emq_sockjs)                      | SockJS(Stomp) Plugin
@@ -109,9 +109,7 @@ Plugin                                                                 | Descrip
 * Issues: https://github.com/emqtt/emqttd/issues
 * QQ Group: 12222225
 
-## Partners
-
-[QingCloud](https://qingcloud.com) is the world’s first IaaS provider that can deliver any number of IT resources in seconds and adopts a second-based billing system. QingCloud is committed to providing a reliable, secure, on-demand and real-time IT resource platform with excellent performance, which includes all components of a complete IT infrastructure system: computing, storage, networking and security.
+## Test Servers
 
 The **q.emqtt.com** hosts a public Four-Node *EMQ* cluster on [QingCloud](https://qingcloud.com):
 

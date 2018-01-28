@@ -3,7 +3,7 @@ language: erlang
 otp_release:
    - 20.0
 
-script: 
+script:
   - make
 
 sudo: false
