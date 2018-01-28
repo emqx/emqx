@@ -1029,6 +1029,16 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "listener.ws.$name.proxy_port_header", "emqttd.listeners", [
+  {datatype, string},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.proxy_address_header", "emqttd.listeners", [
+  {datatype, string},
+  hidden
+]}.
+
 {mapping, "listener.ws.$name.proxy_protocol", "emqttd.listeners", [
   {datatype, flag}
 ]}.
@@ -1113,6 +1123,16 @@ end}.
 
 {mapping, "listener.wss.$name.access.$id", "emqttd.listeners", [
   {datatype, string}
+]}.
+
+{mapping, "listener.wss.$name.proxy_port_header", "emqttd.listeners", [
+  {datatype, string},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.proxy_address_header", "emqttd.listeners", [
+  {datatype, string},
+  hidden
 ]}.
 
 {mapping, "listener.wss.$name.proxy_protocol", "emqttd.listeners", [
@@ -1244,7 +1264,9 @@ end}.
                            {proxy_protocol, cuttlefish:conf_get(Prefix ++ ".proxy_protocol", Conf, undefined)},
                            {proxy_protocol_timeout, cuttlefish:conf_get(Prefix ++ ".proxy_protocol_timeout", Conf, undefined)},
                            {mountpoint, MountPoint(cuttlefish:conf_get(Prefix ++ ".mountpoint", Conf, undefined))},
-                           {peer_cert_as_username, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_username", Conf, undefined)}])
+                           {peer_cert_as_username, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_username", Conf, undefined)},
+                           {proxy_port_header, cuttlefish:conf_get(Prefix ++ ".proxy_port_header", Conf, undefined)},
+                           {proxy_address_header, cuttlefish:conf_get(Prefix ++ ".proxy_address_header", Conf, undefined)}])
                end,
 
     LisOpts = fun(Prefix) ->
@@ -1290,7 +1312,8 @@ end}.
                            undefined ->
                                [];
                            ListenOn ->
-                               [{Atom(Type), ListenOn, [{connopts, ConnOpts(Prefix)}, {sockopts, TcpOpts(Prefix)} | LisOpts(Prefix)]}]
+                               [{Atom(Type), ListenOn, [{connopts, ConnOpts(Prefix)},
+                                                        {sockopts, TcpOpts(Prefix)} | LisOpts(Prefix)]}]
                        end
                    end,
 
