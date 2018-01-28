@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -45,7 +45,7 @@ http_api() ->
 %% Handle HTTP Request
 %%--------------------------------------------------------------------
 handle_request(Req, State) ->
-    Path = Req:get(path),
+    {Path, _, _} = mochiweb_util:urlsplit_path(Req:get(raw_path)),
     case Path of
         "/status" ->
             handle_request("/status", Req, Req:get(method));
@@ -58,7 +58,7 @@ handle_request(Req, State) ->
     end.
 
 inner_handle_request(Req, State) ->
-    Path = Req:get(path),
+    {Path, _, _} = mochiweb_util:urlsplit_path(Req:get(raw_path)),
     case Path of
         "/api/v2/auth" -> handle_request(Path, Req, State);
         _ -> if_authorized(Req, fun() -> handle_request(Path, Req, State) end)
@@ -95,7 +95,8 @@ dispatcher(APIs) ->
                         case {check_params(Params, FilterArgs),
                               check_params_type(Params, FilterArgs)} of
                             {true, true} ->
-                                {match, [MatchList]} = re:run(Url, Regexp, [global, {capture, all_but_first, list}]),
+                                {match, [MatchList0]} = re:run(Url, Regexp, [global, {capture, all_but_first, list}]),
+                                MatchList = lists:map(fun mochiweb_util:unquote/1, MatchList0),
                                 Args = lists:append([[Method, Params], MatchList]),
                                 lager:debug("Mod:~p, Fun:~p, Args:~p", [emqttd_rest_api, Function, Args]),
                                 case catch apply(emqttd_rest_api, Function, Args) of
