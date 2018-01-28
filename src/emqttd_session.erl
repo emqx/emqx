@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -286,8 +286,8 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
     {ok, QEnv} = emqttd:env(mqueue),
     MaxInflight = get_value(max_inflight, Env, 0),
     EnableStats = get_value(enable_stats, Env, false),
-    IgnoreLoopDeliver = get_value(ignore_loop_deliver, Env, false),
     ForceGcCount = emqttd_gc:conn_max_gc_count(),
+    IgnoreLoopDeliver = get_value(ignore_loop_deliver, Env, false),
     MQueue = ?MQueue:new(ClientId, QEnv, emqttd_alarm:alarm_fun()),
     State = #state{clean_sess        = CleanSess,
                    binding           = binding(ClientPid),

@@ -1,5 +1,5 @@
 %%
-%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 
 -module(emqttd_inflight_SUITE).
