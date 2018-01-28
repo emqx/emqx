@@ -1029,12 +1029,12 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "listener.ws.$name.proxy_port_header", "emqttd.listeners", [
+{mapping, "listener.ws.$name.proxy_address_header", "emqttd.listeners", [
   {datatype, string},
   hidden
 ]}.
 
-{mapping, "listener.ws.$name.proxy_address_header", "emqttd.listeners", [
+{mapping, "listener.ws.$name.proxy_port_header", "emqttd.listeners", [
   {datatype, string},
   hidden
 ]}.
@@ -1125,12 +1125,12 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "listener.wss.$name.proxy_port_header", "emqttd.listeners", [
+{mapping, "listener.wss.$name.proxy_address_header", "emqttd.listeners", [
   {datatype, string},
   hidden
 ]}.
 
-{mapping, "listener.wss.$name.proxy_address_header", "emqttd.listeners", [
+{mapping, "listener.wss.$name.proxy_port_header", "emqttd.listeners", [
   {datatype, string},
   hidden
 ]}.
