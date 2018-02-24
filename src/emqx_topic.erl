@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -61,18 +61,18 @@ wildcard([_H|T]) ->
 -spec(match(Name, Filter) -> boolean() when
       Name   :: topic() | words(),
       Filter :: topic() | words()).
+match(<<$$, _/binary>>, <<$+, _/binary>>) ->
+    false;
+match(<<$$, _/binary>>, <<$#, _/binary>>) ->
+    false;
 match(Name, Filter) when is_binary(Name) and is_binary(Filter) ->
     match(words(Name), words(Filter));
 match([], []) ->
     true;
 match([H|T1], [H|T2]) ->
     match(T1, T2);
-match([<<$$, _/binary>>|_], ['+'|_]) ->
-    false;
 match([_H|T1], ['+'|T2]) ->
     match(T1, T2);
-match([<<$$, _/binary>>|_], ['#']) ->
-    false;
 match(_, ['#']) ->
     true;
 match([_H1|_], [_H2|_]) ->

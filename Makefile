@@ -1,6 +1,6 @@
 PROJECT = emqx
 PROJECT_DESCRIPTION = EMQ X Broker
-PROJECT_VERSION = 2.3.2
+PROJECT_VERSION = 3.0
 
 NO_AUTOPATCH = cuttlefish
 
@@ -12,9 +12,9 @@ dep_getopt       = git https://github.com/jcomellas/getopt v0.8.2
 dep_lager        = git https://github.com/basho/lager master
 dep_lager_syslog = git https://github.com/basho/lager_syslog
 dep_jsx          = git https://github.com/talentdeficit/jsx
-dep_esockd       = git https://github.com/emqtt/esockd v5.2
-dep_ekka         = git https://github.com/emqtt/ekka master
-dep_mochiweb     = git https://github.com/emqtt/mochiweb v4.2.0
+dep_esockd       = git https://github.com/emqtt/esockd v5.2.1
+dep_ekka         = git https://github.com/emqtt/ekka v0.2.2
+dep_mochiweb     = git https://github.com/emqtt/mochiweb v4.2.2
 dep_pbkdf2       = git https://github.com/emqtt/pbkdf2 2.0.1
 dep_bcrypt       = git https://github.com/smarkets/erlang-bcrypt master
 dep_clique       = git https://github.com/emqtt/clique

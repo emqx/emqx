@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -105,9 +105,9 @@ datetime() ->
         io_lib:format(
             "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S])).
 
-%% @doc Start a tick timer
+%% @doc Start a tick timer.
 start_tick(Msg) ->
-    start_tick(timer:seconds(emqx:env(broker_sys_interval, 60)), Msg).
+    start_tick(emqx:env(broker_sys_interval, 60000), Msg).
 
 start_tick(0, _Msg) ->
     undefined;

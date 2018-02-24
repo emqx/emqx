@@ -1,6 +1,6 @@
 {application,emqx,
              [{description,"EMQ X Broker"},
-              {vsn,"2.3.2"},
+              {vsn,"3.0"},
               {modules,[]},
               {registered,[emqx_sup]},
               {applications,[kernel,stdlib,gproc,gen_rpc,lager,esockd,mochiweb,lager_syslog,pbkdf2,bcrypt,clique,jsx]},

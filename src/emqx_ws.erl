@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -45,14 +45,22 @@ handle_request('GET', "/mqtt", Req) ->
     Proto   = check_protocol_header(Req),
     case {is_websocket(Upgrade), Proto} of
         {true, "mqtt" ++ _Vsn} ->
-            {ok, ProtoEnv} = emqx:env(protocol),
-            PacketSize = get_value(max_packet_size, ProtoEnv, ?MAX_PACKET_SIZE),
-            Parser = emqx_parser:initial_state(PacketSize),
-            %% Upgrade WebSocket.
-            {ReentryWs, ReplyChannel} = mochiweb_websocket:upgrade_connection(Req, fun ?MODULE:ws_loop/3),
-            {ok, ClientPid} = emqx_ws_client_sup:start_client(self(), Req, ReplyChannel),
-            ReentryWs(#wsocket_state{peername = Req:get(peername), parser = Parser,
-                                     max_packet_size = PacketSize, client_pid = ClientPid});
+            case Req:get(peername) of
+                {ok, Peername} ->
+                    {ok, ProtoEnv} = emqx:env(protocol),
+                    PacketSize = get_value(max_packet_size, ProtoEnv, ?MAX_PACKET_SIZE),
+                    Parser = emqx_parser:initial_state(PacketSize),
+                    %% Upgrade WebSocket.
+                    {ReentryWs, ReplyChannel} = mochiweb_websocket:upgrade_connection(Req, fun ?MODULE:ws_loop/3),
+                    {ok, ClientPid} = emqx_ws_client_sup:start_client(self(), Req, ReplyChannel),
+                    ReentryWs(#wsocket_state{peername = Peername,
+                                             parser = Parser,
+                                             max_packet_size = PacketSize,
+                                             client_pid = ClientPid});
+                {error, Reason} ->
+                    lager:error("Get peername with error ~s", [Reason]),
+                    Req:respond({400, [], <<"Bad Request">>})
+            end;
         {false, _} ->
             lager:error("Not WebSocket: Upgrade = ~s", [Upgrade]),
             Req:respond({400, [], <<"Bad Request">>});

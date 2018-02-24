@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -461,7 +461,8 @@ handle_cast({pubrel, PacketId}, State = #state{awaiting_rel = AwaitingRel}) ->
     {noreply,
      case maps:take(PacketId, AwaitingRel) of
          {Msg, AwaitingRel1} ->
-	     %% TODO: woker pool to publish the qos2 messages?
+             %% Implement Qos2 by method A [MQTT 4.33]
+             %% Dispatch to subscriber when received PUBREL
              spawn(emqx_server, publish, [Msg]), %%:)
              gc(State#state{awaiting_rel = AwaitingRel1});
          error ->
@@ -637,8 +638,10 @@ retry_delivery(Force, [{Type, Msg, Ts} | Msgs], Now,
                     redeliver(Msg, State),
                     Inflight1 = Inflight:update(PacketId, {publish, Msg, Now}),
                     retry_delivery(Force, Msgs, Now, State#state{inflight = Inflight1});
-                {pubrel, PacketId} -> %% remove 'pubrel' directly?
-                    retry_delivery(Force, Msgs, Now, State#state{inflight = Inflight:delete(PacketId)})
+                {pubrel, PacketId} ->
+                    redeliver({pubrel, PacketId}, State),
+                    Inflight1 = Inflight:update(PacketId, {pubrel, PacketId, Now}),
+                    retry_delivery(Force, Msgs, Now, State#state{inflight = Inflight1})
             end;
         true ->
             State#state{retry_timer = start_timer(Interval - Diff, retry_delivery)}
@@ -658,11 +661,13 @@ expire_awaiting_rel(State = #state{awaiting_rel = AwaitingRel}) ->
 expire_awaiting_rel([], _Now, State) ->
     State#state{await_rel_timer = undefined};
 
-expire_awaiting_rel([{PacketId, #mqtt_message{timestamp = TS}} | Msgs],
+expire_awaiting_rel([{PacketId, Msg = #mqtt_message{timestamp = TS}} | Msgs],
                     Now, State = #state{awaiting_rel      = AwaitingRel,
                                         await_rel_timeout = Timeout}) ->
     case (timer:now_diff(Now, TS) div 1000) of
         Diff when Diff >= Timeout ->
+            ?LOG(warning, "Dropped Qos2 Message for await_rel_timeout: ~p", [Msg], State),
+            emqttd_metrics:inc('messages/qos2/dropped'),
             expire_awaiting_rel(Msgs, Now, State#state{awaiting_rel = maps:remove(PacketId, AwaitingRel)});
         Diff ->
             State#state{await_rel_timer = start_timer(Timeout - Diff, check_awaiting_rel)}
@@ -726,7 +731,10 @@ enqueue_msg(Msg, State = #state{mqueue = Q}) ->
 %%--------------------------------------------------------------------
 
 redeliver(Msg = #mqtt_message{qos = QoS}, State) ->
-    deliver(Msg#mqtt_message{dup = if QoS =:= ?QOS2 -> false; true -> true end}, State).
+    deliver(Msg#mqtt_message{dup = if QoS =:= ?QOS2 -> false; true -> true end}, State);
+
+redeliver({pubrel, PacketId}, #state{client_pid = Pid}) ->
+    Pid ! {redeliver, {?PUBREL, PacketId}}.
 
 deliver(Msg, #state{client_pid = Pid, binding = local}) ->
     inc_stats(deliver_msg), Pid ! {deliver, Msg};
