@@ -538,6 +538,11 @@ end}.
   {datatype, flag}
 ]}.
 
+{mapping, "mqtt.websocket_check_upgrade_header", "emqx.websocket_check_upgrade_header", [
+  {default, on},
+  {datatype, flag}
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT Connection
 %%--------------------------------------------------------------------
@@ -757,6 +762,10 @@ end}.
 ]}.
 
 {mapping, "mqtt.plugins.loaded_file", "emqx.plugins_loaded_file", [
+  {datatype, string}
+]}.
+
+{mapping, "mqtt.plugins.expand_plugins_dir", "emqx.expand_plugins_dir", [
   {datatype, string}
 ]}.
 

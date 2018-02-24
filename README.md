@@ -1,5 +1,5 @@
 
-# *EMQ* - Erlang MQTT Broker
+# *EMQ X* - EMQ X Broker
 
 [![Build Status](https://travis-ci.org/emqtt/emqttd.svg?branch=master)](https://travis-ci.org/emqtt/emqttd)
 

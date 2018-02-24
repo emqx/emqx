@@ -85,7 +85,9 @@
           will_topic    :: undefined | binary(),
           ws_initial_headers :: list({ws_header_key(), ws_header_val()}),
           mountpoint    :: undefined | binary(),
-          connected_at  :: erlang:timestamp()
+          connected_at  :: erlang:timestamp(),
+          %%TODO: Headers
+          headers = []  :: list()
         }).
 
 -type(mqtt_client() :: #mqtt_client{}).

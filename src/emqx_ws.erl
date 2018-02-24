@@ -74,7 +74,8 @@ handle_request(Method, Path, Req) ->
     Req:not_found().
 
 is_websocket(Upgrade) ->
-    Upgrade =/= undefined andalso string:to_lower(Upgrade) =:= "websocket".
+    (not emqx:env(websocket_check_upgrade_header, true)) orelse
+        (Upgrade =/= undefined andalso string:to_lower(Upgrade) =:= "websocket").
 
 check_protocol_header(Req) ->
     case emqx:env(websocket_protocol_header, false) of

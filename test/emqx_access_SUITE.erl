@@ -20,6 +20,8 @@
 
 -include("emqx.hrl").
 
+-include_lib("common_test/include/ct.hrl").
+
 -define(AC, emqx_access_control).
 
 -import(emqx_access_rule, [compile/1, match/3]).

@@ -667,7 +667,7 @@ expire_awaiting_rel([{PacketId, Msg = #mqtt_message{timestamp = TS}} | Msgs],
     case (timer:now_diff(Now, TS) div 1000) of
         Diff when Diff >= Timeout ->
             ?LOG(warning, "Dropped Qos2 Message for await_rel_timeout: ~p", [Msg], State),
-            emqttd_metrics:inc('messages/qos2/dropped'),
+            emqx_metrics:inc('messages/qos2/dropped'),
             expire_awaiting_rel(Msgs, Now, State#state{awaiting_rel = maps:remove(PacketId, AwaitingRel)});
         Diff ->
             State#state{await_rel_timer = start_timer(Timeout - Diff, check_awaiting_rel)}

@@ -23,13 +23,4 @@
 all() -> [mod_subscription_rep].
 
 mod_subscription_rep(_) -> ok.
-%%    <<"topic/clientId">> = emqttd_mod_subscription:rep(
-%%            <<"$c">>, <<"clientId">>, <<"topic/$c">>),
-%%   <<"topic/username">> = emqttd_mod_subscription:rep(
-%%           <<"$u">>, <<"username">>, <<"topic/$u">>),
-%%   <<"topic/username/clientId">> = emqttd_mod_subscription:rep(
-%%           <<"$c">>, <<"clientId">>, emqttd_mod_subscription:rep(
-%%               <<"$u">>, <<"username">>, <<"topic/$u/$c">>)).
  
-
-

@@ -28,6 +28,8 @@
 
 -export([list/0]).
 
+-export([load_expand_plugin/1]).
+
 %% @doc Init plugins' config
 -spec(init() -> ok).
 init() ->
@@ -49,6 +51,7 @@ init_config(CfgFile) ->
 %% @doc Load all plugins when the broker started.
 -spec(load() -> list() | {error, term()}).
 load() ->
+    load_expand_plugins(),
     case emqx:env(plugins_loaded_file) of
         {ok, File} ->
             ensure_file(File),
@@ -57,6 +60,66 @@ load() ->
             %% No plugins available
             ignore
     end.
+
+load_expand_plugins() ->
+    case emqx:env(expand_plugins_dir) of
+        {ok, Dir} ->
+            PluginsDir = filelib:wildcard("*", Dir),
+            lists:foreach(fun(PluginDir) ->
+                case filelib:is_dir(Dir ++ PluginDir) of
+                    true  -> load_expand_plugin(Dir ++ PluginDir);
+                    false -> ok
+                end
+            end, PluginsDir);
+        _ -> ok
+    end.
+
+load_expand_plugin(PluginDir) ->
+    init_expand_plugin_config(PluginDir),
+    Ebin = PluginDir ++ "/ebin",
+    code:add_patha(Ebin),
+    Modules = filelib:wildcard(Ebin ++ "/*.beam"),
+    lists:foreach(fun(Mod) ->
+        Module = list_to_atom(filename:basename(Mod, ".beam")),
+        code:load_file(Module)
+    end, Modules),
+    case filelib:wildcard(Ebin ++ "/*.app") of
+        [App|_] -> application:load(list_to_atom(filename:basename(App, ".app")));
+        _ -> lager:error("load application fail"), {error, load_app_fail}
+    end.
+
+init_expand_plugin_config(PluginDir) ->
+    Priv = PluginDir ++ "/priv",
+    Etc  = PluginDir ++ "/etc",
+    Schema = filelib:wildcard(Priv ++ "/*.schema"),
+    Conf = case filelib:wildcard(Etc ++ "/*.conf") of
+        [] -> [];
+        [Conf1] -> cuttlefish_conf:file(Conf1)
+    end,
+    AppsEnv = cuttlefish_generator:map(cuttlefish_schema:files(Schema), Conf),
+    lists:foreach(fun({AppName, Envs}) ->
+        [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
+    end, AppsEnv).
+
+get_expand_plugin_config() ->
+    case emqx:env(expand_plugins_dir) of
+        {ok, Dir} ->
+            PluginsDir = filelib:wildcard("*", Dir),
+            lists:foldl(fun(PluginDir, Acc) ->
+                case filelib:is_dir(Dir ++ PluginDir) of
+                    true  ->
+                        Etc  = Dir ++ PluginDir ++ "/etc",
+                        case filelib:wildcard("*.{conf,config}", Etc) of
+                            [] -> Acc;
+                            [Conf] -> [Conf | Acc]
+                        end;
+                    false ->
+                        Acc
+                end
+            end, [], PluginsDir);
+        _ -> ok
+    end.
+
 
 ensure_file(File) ->
     case filelib:is_file(File) of false -> write_loaded([]); true -> ok end.
@@ -98,7 +161,7 @@ stop_plugins(Names) ->
 list() ->
     case emqx:env(plugins_etc_dir) of
         {ok, PluginsEtc} ->
-            CfgFiles = filelib:wildcard("*.{conf,config}", PluginsEtc),
+            CfgFiles = filelib:wildcard("*.{conf,config}", PluginsEtc) ++ get_expand_plugin_config(),
             Plugins = [plugin(CfgFile) || CfgFile <- CfgFiles],
             StartedApps = names(started_app),
             lists:map(fun(Plugin = #mqtt_plugin{name = Name}) ->

@@ -35,6 +35,10 @@
 
 -export([process/2]).
 
+-ifdef(TEST).
+-compile(export_all).
+-endif.
+
 -record(proto_stats, {enable_stats = false, recv_pkt = 0, recv_msg = 0,
                       send_pkt = 0, send_msg = 0}).
 
@@ -289,7 +293,7 @@ process(?SUBSCRIBE_PACKET(PacketId, RawTopicTable),
         false ->
             case emqx_hooks:run('client.subscribe', [ClientId, Username], TopicTable) of
                 {ok, TopicTable1} ->
-                    emqx_session:subscribe(Session, PacketId, mount(MountPoint, TopicTable1)),
+                    emqx_session:subscribe(Session, PacketId, mount(replvar(MountPoint, State), TopicTable1)),
                     {ok, State};
                 {stop, _} ->
                     {ok, State}
@@ -307,7 +311,7 @@ process(?UNSUBSCRIBE_PACKET(PacketId, RawTopics),
                              session    = Session}) ->
     case emqx_hooks:run('client.unsubscribe', [ClientId, Username], parse_topics(RawTopics)) of
         {ok, TopicTable} ->
-            emqx_session:unsubscribe(Session, mount(MountPoint, TopicTable));
+            emqx_session:unsubscribe(Session, mount(replvar(MountPoint, State), TopicTable));
         {stop, _} ->
             ok
     end,
@@ -321,12 +325,12 @@ process(?PACKET(?DISCONNECT), State) ->
     {stop, normal, State#proto_state{will_msg = undefined}}.
 
 publish(Packet = ?PUBLISH_PACKET(?QOS_0, _PacketId),
-        #proto_state{client_id  = ClientId,
-                     username   = Username,
-                     mountpoint = MountPoint,
-                     session    = Session}) ->
+        State = #proto_state{client_id  = ClientId,
+                             username   = Username,
+                             mountpoint = MountPoint,
+                             session    = Session}) ->
     Msg = emqx_message:from_packet(Username, ClientId, Packet),
-    emqx_session:publish(Session, mount(MountPoint, Msg));
+    emqx_session:publish(Session, mount(replvar(MountPoint, State), Msg));
 
 publish(Packet = ?PUBLISH_PACKET(?QOS_1, _PacketId), State) ->
     with_puback(?PUBACK, Packet, State);
@@ -340,7 +344,7 @@ with_puback(Type, Packet = ?PUBLISH_PACKET(_Qos, PacketId),
                                  mountpoint = MountPoint,
                                  session    = Session}) ->
     Msg = emqx_message:from_packet(Username, ClientId, Packet),
-    case emqx_session:publish(Session, mount(MountPoint, Msg)) of
+    case emqx_session:publish(Session, mount(replvar(MountPoint, State), Msg)) of
         ok ->
             send(?PUBACK_PACKET(Type, PacketId), State);
         {error, Error} ->
@@ -415,10 +419,10 @@ shutdown(Error, State = #proto_state{will_msg = WillMsg}) ->
     %% emqx_cm:unreg(ClientId).
     ok.
 
-willmsg(Packet, #proto_state{mountpoint = MountPoint}) when is_record(Packet, mqtt_packet_connect) ->
+willmsg(Packet, State = #proto_state{mountpoint = MountPoint}) when is_record(Packet, mqtt_packet_connect) ->
     case emqx_message:from_packet(Packet) of
         undefined -> undefined;
-        Msg -> mount(MountPoint, Msg)
+        Msg -> mount(replvar(MountPoint, State), Msg)
     end.
 
 %% Generate a client if if nulll
@@ -576,6 +580,18 @@ clean_retain(_IsBridge, Msg) ->
 %%--------------------------------------------------------------------
 %% Mount Point
 %%--------------------------------------------------------------------
+
+replvar(undefined, _State) ->
+    undefined;
+replvar(MountPoint, #proto_state{client_id = ClientId, username = Username}) ->
+    lists:foldl(fun feed_var/2, MountPoint, [{<<"%c">>, ClientId}, {<<"%u">>, Username}]).
+
+feed_var({<<"%c">>, ClientId}, MountPoint) ->
+    emqx_topic:feed_var(<<"%c">>, ClientId, MountPoint);
+feed_var({<<"%u">>, undefined}, MountPoint) ->
+    MountPoint;
+feed_var({<<"%u">>, Username}, MountPoint) ->
+    emqx_topic:feed_var(<<"%u">>, Username, MountPoint).
 
 mount(undefined, Any) ->
     Any;
