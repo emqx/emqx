@@ -170,7 +170,15 @@ end}.
 
 %% @doc The erlang distributed protocol
 {mapping, "node.proto_dist", "vm_args.-proto_dist", [
-  %%{default, "inet_tcp"}
+  {default, "inet_tcp"},
+  {datatype, {enum, [inet_tcp, inet6_tcp, inet_tls]}},
+  hidden
+]}.
+
+%% @doc Specify SSL Options in the file if using SSL for erlang distribution
+{mapping, "node.ssl_dist_optfile", "vm_args.-ssl_dist_optfile", [
+  {datatype, string},
+  hidden
 ]}.
 
 %% @doc Secret cookie for distributed erlang node
