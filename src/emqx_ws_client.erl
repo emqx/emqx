@@ -18,7 +18,7 @@
 
 -module(emqx_ws_client).
 
--behaviour(gen_server2).
+-behaviour(gen_server).
 
 -author("Feng Lee <feng@emqtt.io>").
 
@@ -46,8 +46,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
-%% gen_server2 Callbacks
--export([prioritise_call/4, prioritise_info/3, handle_pre_hibernate/1]).
+%% TODO: remove ...
+-export([handle_pre_hibernate/1]).
 
 %% WebSocket Client State
 -record(wsclient_state, {ws_pid, peername, connection, proto_state, keepalive,
@@ -61,17 +61,17 @@
 
 %% @doc Start WebSocket Client.
 start_link(Env, WsPid, Req, ReplyChannel) ->
-    gen_server2:start_link(?MODULE, [Env, WsPid, Req, ReplyChannel],
-                           [{spawn_opt, ?FULLSWEEP_OPTS}]). %% Tune GC.
+    gen_server:start_link(?MODULE, [Env, WsPid, Req, ReplyChannel],
+                          [[{hibernate_after, 10000}]]).
 
 info(CPid) ->
-    gen_server2:call(CPid, info).
+    gen_server:call(CPid, info).
 
 stats(CPid) ->
-    gen_server2:call(CPid, stats).
+    gen_server:call(CPid, stats).
 
 kick(CPid) ->
-    gen_server2:call(CPid, kick).
+    gen_server:call(CPid, kick).
 
 subscribe(CPid, TopicTable) ->
     CPid ! {subscribe, TopicTable}.
@@ -80,10 +80,10 @@ unsubscribe(CPid, Topics) ->
     CPid ! {unsubscribe, Topics}.
 
 session(CPid) ->
-    gen_server2:call(CPid, session).
+    gen_server:call(CPid, session).
 
 clean_acl_cache(CPid, Topic) ->
-    gen_server2:call(CPid, {clean_acl_cache, Topic}).
+    gen_server:call(CPid, {clean_acl_cache, Topic}).
 
 %%--------------------------------------------------------------------
 %% gen_server Callbacks
@@ -115,12 +115,6 @@ init([Env, WsPid, Req, ReplyChannel]) ->
                              exit(WsPid, normal),
                              exit({shutdown, Reason})
     end.
-
-prioritise_call(Msg, _From, _Len, _State) ->
-    case Msg of info -> 10; stats -> 10; state -> 10; _ -> 5 end.
-
-prioritise_info(Msg, _Len, _State) ->
-    case Msg of {redeliver, _} -> 5; _ -> 0 end.
 
 handle_pre_hibernate(State = #wsclient_state{ws_pid = WsPid}) ->
     erlang:garbage_collect(WsPid),

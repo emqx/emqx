@@ -16,9 +16,7 @@
 
 -module(emqx_pubsub).
 
--behaviour(gen_server2).
-
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(gen_server).
 
 -include("emqx.hrl").
 
@@ -48,7 +46,8 @@
 
 -spec(start_link(atom(), pos_integer(), list()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id, Env) ->
-    gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id, Env], []).
+    gen_server:start_link({local, ?PROC_NAME(?MODULE, Id)},
+                          ?MODULE, [Pool, Id, Env], [{hibernate_after, 10000}]).
 
 %%--------------------------------------------------------------------
 %% PubSub API
@@ -152,10 +151,10 @@ async_unsubscribe(Topic, Subscriber, Options) ->
     cast(pick(Topic), {unsubscribe, Topic, Subscriber, Options}).
 
 call(PubSub, Req) when is_pid(PubSub) ->
-    gen_server2:call(PubSub, Req, infinity).
+    gen_server:call(PubSub, Req, infinity).
 
 cast(PubSub, Msg) when is_pid(PubSub) ->
-    gen_server2:cast(PubSub, Msg).
+    gen_server:cast(PubSub, Msg).
 
 pick(Topic) ->
     gproc_pool:pick_worker(pubsub, Topic).
@@ -166,8 +165,7 @@ pick(Topic) ->
 
 init([Pool, Id, Env]) ->
     ?GPROC_POOL(join, Pool, Id),
-    {ok, #state{pool = Pool, id = Id, env = Env},
-     hibernate, {backoff, 2000, 2000, 20000}}.
+    {ok, #state{pool = Pool, id = Id, env = Env}, hibernate}.
 
 handle_call({subscribe, Topic, Subscriber, Options}, _From, State) ->
     add_subscriber(Topic, Subscriber, Options),
@@ -247,8 +245,8 @@ setstats(State) ->
     State.
 
 reply(Reply, State) ->
-    {reply, Reply, State, hibernate}.
+    {reply, Reply, State}.
 
 noreply(State) ->
-    {noreply, State, hibernate}.
+    {noreply, State}.
 

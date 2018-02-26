@@ -45,7 +45,7 @@
 
 -module(emqx_session).
 
--behaviour(gen_server2).
+-behaviour(gen_server).
 
 -author("Feng Lee <feng@emqtt.io>").
 
@@ -73,9 +73,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
-%% gen_server2 Message Priorities
--export([prioritise_call/4, prioritise_cast/3, prioritise_info/3,
-         handle_pre_hibernate/1]).
+%% TODO: gen_server Message Priorities
+-export([handle_pre_hibernate/1]).
 
 -define(MQueue, emqx_mqueue).
 
@@ -175,7 +174,8 @@
 %% @doc Start a Session
 -spec(start_link(boolean(), {mqtt_client_id(), mqtt_username()}, pid()) -> {ok, pid()} | {error, term()}).
 start_link(CleanSess, {ClientId, Username}, ClientPid) ->
-    gen_server2:start_link(?MODULE, [CleanSess, {ClientId, Username}, ClientPid], []).
+    gen_server:start_link(?MODULE, [CleanSess, {ClientId, Username}, ClientPid],
+                          [{hibernate_after, 10000}]).
 
 %%--------------------------------------------------------------------
 %% PubSub API
@@ -183,14 +183,14 @@ start_link(CleanSess, {ClientId, Username}, ClientPid) ->
 
 %% @doc Subscribe topics
 -spec(subscribe(pid(), [{binary(), [emqx_topic:option()]}]) -> ok).
-subscribe(Session, TopicTable) ->%%TODO: the ack function??...
-    gen_server2:cast(Session, {subscribe, self(), TopicTable, fun(_) -> ok end}).
+subscribe(Session, TopicTable) -> %%TODO: the ack function??...
+    gen_server:cast(Session, {subscribe, self(), TopicTable, fun(_) -> ok end}).
 
 -spec(subscribe(pid(), mqtt_packet_id(), [{binary(), [emqx_topic:option()]}]) -> ok).
 subscribe(Session, PacketId, TopicTable) -> %%TODO: the ack function??...
     From = self(),
     AckFun = fun(GrantedQos) -> From ! {suback, PacketId, GrantedQos} end,
-    gen_server2:cast(Session, {subscribe, From, TopicTable, AckFun}).
+    gen_server:cast(Session, {subscribe, From, TopicTable, AckFun}).
 
 %% @doc Publish Message
 -spec(publish(pid(), mqtt_message()) -> ok | {error, term()}).
@@ -204,50 +204,50 @@ publish(_Session, Msg = #mqtt_message{qos = ?QOS_1}) ->
 
 publish(Session, Msg = #mqtt_message{qos = ?QOS_2}) ->
     %% Publish QoS2 to Session
-    gen_server2:call(Session, {publish, Msg}, ?TIMEOUT).
+    gen_server:call(Session, {publish, Msg}, ?TIMEOUT).
 
 %% @doc PubAck Message
 -spec(puback(pid(), mqtt_packet_id()) -> ok).
 puback(Session, PacketId) ->
-    gen_server2:cast(Session, {puback, PacketId}).
+    gen_server:cast(Session, {puback, PacketId}).
 
 -spec(pubrec(pid(), mqtt_packet_id()) -> ok).
 pubrec(Session, PacketId) ->
-    gen_server2:cast(Session, {pubrec, PacketId}).
+    gen_server:cast(Session, {pubrec, PacketId}).
 
 -spec(pubrel(pid(), mqtt_packet_id()) -> ok).
 pubrel(Session, PacketId) ->
-    gen_server2:cast(Session, {pubrel, PacketId}).
+    gen_server:cast(Session, {pubrel, PacketId}).
 
 -spec(pubcomp(pid(), mqtt_packet_id()) -> ok).
 pubcomp(Session, PacketId) ->
-    gen_server2:cast(Session, {pubcomp, PacketId}).
+    gen_server:cast(Session, {pubcomp, PacketId}).
 
 %% @doc Unsubscribe the topics
 -spec(unsubscribe(pid(), [{binary(), [emqx_topic:option()]}]) -> ok).
 unsubscribe(Session, TopicTable) ->
-    gen_server2:cast(Session, {unsubscribe, self(), TopicTable}).
+    gen_server:cast(Session, {unsubscribe, self(), TopicTable}).
 
 %% @doc Resume the session
 -spec(resume(pid(), mqtt_client_id(), pid()) -> ok).
 resume(Session, ClientId, ClientPid) ->
-    gen_server2:cast(Session, {resume, ClientId, ClientPid}).
+    gen_server:cast(Session, {resume, ClientId, ClientPid}).
 
 %% @doc Get session state
 state(Session) when is_pid(Session) ->
-    gen_server2:call(Session, state).
+    gen_server:call(Session, state).
 
 %% @doc Get session info
 -spec(info(pid() | #state{}) -> list(tuple())).
 info(Session) when is_pid(Session) ->
-    gen_server2:call(Session, info);
+    gen_server:call(Session, info);
 
 info(State) when is_record(State, state) ->
     ?record_to_proplist(state, State, ?INFO_KEYS).
 
 -spec(stats(pid() | #state{}) -> list({atom(), non_neg_integer()})).
 stats(Session) when is_pid(Session) ->
-    gen_server2:call(Session, stats);
+    gen_server:call(Session, stats);
 
 stats(#state{max_subscriptions = MaxSubscriptions,
              subscriptions     = Subscriptions,
@@ -272,7 +272,7 @@ stats(#state{max_subscriptions = MaxSubscriptions,
 %% @doc Destroy the session
 -spec(destroy(pid(), mqtt_client_id()) -> ok).
 destroy(Session, ClientId) ->
-    gen_server2:cast(Session, {destroy, ClientId}).
+    gen_server:cast(Session, {destroy, ClientId}).
 
 %%--------------------------------------------------------------------
 %% gen_server Callbacks
@@ -311,37 +311,13 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
                    created_at        = os:timestamp()},
     emqx_sm:register_session(ClientId, CleanSess, info(State)),
     emqx_hooks:run('session.created', [ClientId, Username]),
-    {ok, emit_stats(State), hibernate, {backoff, 1000, 1000, 10000}}.
+    {ok, emit_stats(State), hibernate}.
 
 init_stats(Keys) ->
     lists:foreach(fun(K) -> put(K, 0) end, Keys).
 
 binding(ClientPid) ->
     case node(ClientPid) =:= node() of true -> local; false -> remote end.
-
-prioritise_call(Msg, _From, _Len, _State) ->
-    case Msg of info -> 10; stats -> 10; state -> 10; _ -> 5 end.
-
-prioritise_cast(Msg, _Len, _State) ->
-    case Msg of
-        {destroy, _}        -> 10;
-        {resume, _, _}      -> 9;
-        {pubrel,  _}        -> 8;
-        {pubcomp, _}        -> 8;
-        {pubrec,  _}        -> 8;
-        {puback,  _}        -> 7;
-        {unsubscribe, _, _} -> 6;
-        {subscribe, _, _}   -> 5;
-        _                   -> 0
-    end.
-
-prioritise_info(Msg, _Len, _State) ->
-    case Msg of
-        {'EXIT', _, _}   -> 10;
-        {timeout, _, _}  -> 5;
-        {dispatch, _, _} -> 1;
-        _                -> 0
-    end.
 
 handle_pre_hibernate(State) ->
     {hibernate, emqx_gc:reset_conn_gc_count(#state.force_gc_count, emit_stats(State))}.
@@ -406,7 +382,7 @@ handle_cast({subscribe, From, TopicTable, AckFun},
                 {[NewQos|QosAcc], SubMap1}
         end, {[], Subscriptions}, TopicTable),
     AckFun(lists:reverse(GrantedQos)),
-    hibernate(emit_stats(State#state{subscriptions = Subscriptions1}));
+    {noreply, emit_stats(State#state{subscriptions = Subscriptions1}), hibernate};
 
 handle_cast({unsubscribe, From, TopicTable},
             State = #state{client_id     = ClientId,
@@ -428,7 +404,7 @@ handle_cast({unsubscribe, From, TopicTable},
                         SubMap
                 end
         end, Subscriptions, TopicTable),
-    hibernate(emit_stats(State#state{subscriptions = Subscriptions1}));
+    {noreply, emit_stats(State#state{subscriptions = Subscriptions1}), hibernate};
 
 %% PUBACK:
 handle_cast({puback, PacketId}, State = #state{inflight = Inflight}) ->
@@ -525,7 +501,7 @@ handle_cast({resume, ClientId, ClientPid},
     end,
 
     %% Replay delivery and Dequeue pending messages
-    hibernate(emit_stats(dequeue(retry_delivery(true, State1))));
+    {noreply, emit_stats(dequeue(retry_delivery(true, State1)))};
 
 handle_cast({destroy, ClientId},
             State = #state{client_id = ClientId, client_pid = undefined}) ->
@@ -543,21 +519,21 @@ handle_cast(Msg, State) ->
 %% Ignore Messages delivered by self
 handle_info({dispatch, _Topic, #mqtt_message{from = {ClientId, _}}},
              State = #state{client_id = ClientId, ignore_loop_deliver = true}) ->
-    hibernate(State);
+    {noreply, State};
 
 %% Dispatch Message
 handle_info({dispatch, Topic, Msg}, State) when is_record(Msg, mqtt_message) ->
-    hibernate(gc(dispatch(tune_qos(Topic, reset_dup(Msg), State), State)));
+    {noreply, gc(dispatch(tune_qos(Topic, reset_dup(Msg), State), State))};
 
 %% Do nothing if the client has been disconnected.
 handle_info({timeout, _Timer, retry_delivery}, State = #state{client_pid = undefined}) ->
-    hibernate(emit_stats(State#state{retry_timer = undefined}));
+    {noreply, emit_stats(State#state{retry_timer = undefined})};
 
 handle_info({timeout, _Timer, retry_delivery}, State) ->
-    hibernate(emit_stats(retry_delivery(false, State#state{retry_timer = undefined})));
+    {noreply, emit_stats(retry_delivery(false, State#state{retry_timer = undefined}))};
 
 handle_info({timeout, _Timer, check_awaiting_rel}, State) ->
-    hibernate(expire_awaiting_rel(emit_stats(State#state{await_rel_timer = undefined})));
+    {noreply, expire_awaiting_rel(emit_stats(State#state{await_rel_timer = undefined}))};
 
 handle_info({timeout, _Timer, expired}, State) ->
     ?LOG(info, "Expired, shutdown now.", [], State),
@@ -574,17 +550,17 @@ handle_info({'EXIT', ClientPid, Reason},
     ?LOG(info, "Client ~p EXIT for ~p", [ClientPid, Reason], State),
     ExpireTimer = start_timer(Interval, expired),
     State1 = State#state{client_pid = undefined, expiry_timer = ExpireTimer},
-    hibernate(emit_stats(State1));
+    {noreply, emit_stats(State1), hibernate};
 
 handle_info({'EXIT', Pid, _Reason}, State = #state{old_client_pid = Pid}) ->
     %%ignore
-    hibernate(State);
+    {noreply, State, hibernate};
 
 handle_info({'EXIT', Pid, Reason}, State = #state{client_pid = ClientPid}) ->
 
     ?LOG(error, "Unexpected EXIT: client_pid=~p, exit_pid=~p, reason=~p",
          [ClientPid, Pid, Reason], State),
-    hibernate(State);
+    {noreply, State, hibernate};
 
 handle_info(Info, Session) ->
     ?UNEXPECTED_INFO(Info, Session).
@@ -856,9 +832,6 @@ inc_stats(Key) -> put(Key, get(Key) + 1).
 
 reply(Reply, State) ->
     {reply, Reply, State, hibernate}.
-
-hibernate(State) ->
-    {noreply, State, hibernate}.
 
 shutdown(Reason, State) ->
     {stop, {shutdown, Reason}, State}.

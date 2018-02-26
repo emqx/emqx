@@ -18,9 +18,7 @@
 
 -module(emqx_client).
 
--behaviour(gen_server2).
-
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(gen_server).
 
 -include("emqx.hrl").
 
@@ -48,8 +46,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          code_change/3, terminate/2]).
 
-%% gen_server2 Callbacks
--export([prioritise_call/4, prioritise_info/3, handle_pre_hibernate/1]).
+%% TODO: How to emit stats?
+-export([handle_pre_hibernate/1]).
 
 %% Client State
 %% Unused fields: connname, peerhost, peerport
@@ -69,19 +67,19 @@ start_link(Conn, Env) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[Conn, Env]])}.
 
 info(CPid) ->
-    gen_server2:call(CPid, info).
+    gen_server:call(CPid, info).
 
 stats(CPid) ->
-    gen_server2:call(CPid, stats).
+    gen_server:call(CPid, stats).
 
 kick(CPid) ->
-    gen_server2:call(CPid, kick).
+    gen_server:call(CPid, kick).
 
 set_rate_limit(Cpid, Rl) ->
-    gen_server2:call(Cpid, {set_rate_limit, Rl}).
+    gen_server:call(Cpid, {set_rate_limit, Rl}).
 
 get_rate_limit(Cpid) ->
-    gen_server2:call(Cpid, get_rate_limit).
+    gen_server:call(Cpid, get_rate_limit).
 
 subscribe(CPid, TopicTable) ->
     CPid ! {subscribe, TopicTable}.
@@ -90,10 +88,10 @@ unsubscribe(CPid, Topics) ->
     CPid ! {unsubscribe, Topics}.
 
 session(CPid) ->
-    gen_server2:call(CPid, session, infinity).
+    gen_server:call(CPid, session, infinity).
 
 clean_acl_cache(CPid, Topic) ->
-    gen_server2:call(CPid, {clean_acl_cache, Topic}).
+    gen_server:call(CPid, {clean_acl_cache, Topic}).
 
 %%--------------------------------------------------------------------
 %% gen_server Callbacks
@@ -130,8 +128,8 @@ do_init(Conn, Env, Peername) ->
                                      enable_stats   = EnableStats,
                                      idle_timeout   = IdleTimout,
                                      force_gc_count = ForceGcCount}),
-    gen_server2:enter_loop(?MODULE, [], State, self(), IdleTimout,
-                           {backoff, 2000, 2000, 20000}).
+    gen_server:enter_loop(?MODULE, [{hibernate_after, 10000}],
+                          State, self(), IdleTimout).
 
 send_fun(Conn, Peername) ->
     Self = self(),
@@ -147,12 +145,6 @@ send_fun(Conn, Peername) ->
             error:Error -> Self ! {shutdown, Error}
         end
     end.
-
-prioritise_call(Msg, _From, _Len, _State) ->
-    case Msg of info -> 10; stats -> 10; state -> 10; _ -> 5 end.
-
-prioritise_info(Msg, _Len, _State) ->
-    case Msg of {redeliver, _} -> 5; _ -> 0 end.
 
 handle_pre_hibernate(State) ->
     {hibernate, emqx_gc:reset_conn_gc_count(#client_state.force_gc_count, emit_stats(State))}.
@@ -241,7 +233,7 @@ handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
     shutdown(conflict, State);
 
 handle_info(activate_sock, State) ->
-    {noreply, run_socket(State#client_state{conn_state = running}), hibernate};
+    {noreply, run_socket(State#client_state{conn_state = running})};
 
 handle_info({inet_async, _Sock, _Ref, {ok, Data}}, State) ->
     Size = iolist_size(Data),
@@ -253,7 +245,7 @@ handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
     shutdown(Reason, State);
 
 handle_info({inet_reply, _Sock, ok}, State) ->
-    {noreply, gc(State), hibernate}; %% Tune GC
+    {noreply, gc(State)}; %% Tune GC
 
 handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
     shutdown(Reason, State);
@@ -268,7 +260,7 @@ handle_info({keepalive, start, Interval}, State = #client_state{connection = Con
              end,
     case emqx_keepalive:start(StatFun, Interval, {keepalive, check}) of
         {ok, KeepAlive} ->
-            {noreply, State#client_state{keepalive = KeepAlive}, hibernate};
+            {noreply, State#client_state{keepalive = KeepAlive}};
         {error, Error} ->
             ?LOG(warning, "Keepalive error - ~p", [Error], State),
             shutdown(Error, State)
@@ -277,7 +269,7 @@ handle_info({keepalive, start, Interval}, State = #client_state{connection = Con
 handle_info({keepalive, check}, State = #client_state{keepalive = KeepAlive}) ->
     case emqx_keepalive:check(KeepAlive) of
         {ok, KeepAlive1} ->
-            {noreply, State#client_state{keepalive = KeepAlive1}, hibernate};
+            {noreply, State#client_state{keepalive = KeepAlive1}};
         {error, timeout} ->
             ?LOG(debug, "Keepalive timeout", [], State),
             shutdown(keepalive_timeout, State);
@@ -314,7 +306,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% Receive and Parse TCP Data
 received(<<>>, State) ->
-    {noreply, gc(State), hibernate};
+    {noreply, gc(State)};
 
 received(Bytes, State = #client_state{parser       = Parser,
                                       packet_size  = PacketSize,
@@ -368,7 +360,7 @@ run_socket(State = #client_state{connection = Conn}) ->
 
 with_proto(Fun, State = #client_state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = Fun(ProtoState),
-    {noreply, State#client_state{proto_state = ProtoState1}, hibernate}.
+    {noreply, State#client_state{proto_state = ProtoState1}}.
 
 emit_stats(State = #client_state{proto_state = ProtoState}) ->
     emit_stats(emqx_protocol:clientid(ProtoState), State).

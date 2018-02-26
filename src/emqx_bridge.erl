@@ -16,9 +16,7 @@
 
 -module(emqx_bridge).
 
--author("Feng Lee <feng@emqtt.io>").
-
--behaviour(gen_server2).
+-behaviour(gen_server).
 
 -include("emqx.hrl").
 
@@ -61,7 +59,7 @@
 -spec(start_link(any(), pos_integer(), atom(), binary(), [option()]) ->
     {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id, Node, Topic, Options) ->
-    gen_server2:start_link(?MODULE, [Pool, Id, Node, Topic, Options], []).
+    gen_server:start_link(?MODULE, [Pool, Id, Node, Topic, Options], []).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

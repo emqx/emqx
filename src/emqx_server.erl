@@ -16,9 +16,7 @@
 
 -module(emqx_server).
 
--behaviour(gen_server2).
-
--author("Feng Lee <feng@emqtt.io>").
+-behaviour(gen_server).
 
 -include("emqx.hrl").
 
@@ -51,7 +49,8 @@
 %% @doc Start the server
 -spec(start_link(atom(), pos_integer(), list()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id, Env) ->
-    gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id, Env], []).
+    gen_server:start_link({local, ?PROC_NAME(?MODULE, Id)},
+                          ?MODULE, [Pool, Id, Env], [{hibernate_after, 10000}]).
 
 %%--------------------------------------------------------------------
 %% PubSub API
@@ -167,10 +166,10 @@ subscribed(Topic, {SubId, SubPid}) when is_binary(Topic), is_binary(SubId), is_p
     ets:member(mqtt_subproperty, {Topic, {SubId, SubPid}}).
 
 call(Server, Req) ->
-    gen_server2:call(Server, Req, infinity).
+    gen_server:call(Server, Req, infinity).
 
 cast(Server, Msg) when is_pid(Server) ->
-    gen_server2:cast(Server, Msg).
+    gen_server:cast(Server, Msg).
 
 pick(SubPid) when is_pid(SubPid) ->
     gproc_pool:pick_worker(server, SubPid);
@@ -190,7 +189,7 @@ init([Pool, Id, Env]) ->
     ?GPROC_POOL(join, Pool, Id),
     State = #state{pool = Pool, id = Id, env = Env,
                    subids = #{}, submon = emqx_pmon:new()},
-    {ok, State, hibernate, {backoff, 2000, 2000, 20000}}.
+    {ok, State, hibernate}.
 
 handle_call({subscribe, Topic, Subscriber, Options}, _From, State) ->
     case do_subscribe(Topic, Subscriber, Options, State) of
@@ -321,8 +320,8 @@ setstats(State) ->
                         ets:info(mqtt_subscription, size)), State.
 
 reply(Reply, State) ->
-    {reply, Reply, State, hibernate}.
+    {reply, Reply, State}.
 
 noreply(State) ->
-    {noreply, State, hibernate}.
+    {noreply, State}.
 

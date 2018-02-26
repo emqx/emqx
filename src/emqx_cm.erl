@@ -18,7 +18,7 @@
 
 -module(emqx_cm).
 
--behaviour(gen_server2).
+-behaviour(gen_server).
 
 -author("Feng Lee <feng@emqtt.io>").
 
@@ -35,9 +35,6 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
-%% gen_server2 priorities
--export([prioritise_call/4, prioritise_cast/3, prioritise_info/3]).
-
 -record(state, {pool, id, statsfun, monitors}).
 
 -define(POOL, ?MODULE).
@@ -49,7 +46,7 @@
 %% @doc Start Client Manager
 -spec(start_link(atom(), pos_integer(), fun()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id, StatsFun) ->
-    gen_server2:start_link(?MODULE, [Pool, Id, StatsFun], []).
+    gen_server:start_link(?MODULE, [Pool, Id, StatsFun], []).
 
 %% @doc Lookup Client by ClientId
 -spec(lookup(binary()) -> mqtt_client() | undefined).
@@ -67,12 +64,12 @@ lookup_proc(ClientId) when is_binary(ClientId) ->
 %% @doc Register ClientId with Pid.
 -spec(reg(mqtt_client()) -> ok).
 reg(Client = #mqtt_client{client_id = ClientId}) ->
-    gen_server2:call(pick(ClientId), {reg, Client}, 120000).
+    gen_server:call(pick(ClientId), {reg, Client}, 120000).
 
 %% @doc Unregister clientId with pid.
 -spec(unreg(binary()) -> ok).
 unreg(ClientId) when is_binary(ClientId) ->
-    gen_server2:cast(pick(ClientId), {unreg, ClientId, self()}).
+    gen_server:cast(pick(ClientId), {unreg, ClientId, self()}).
 
 pick(ClientId) -> gproc_pool:pick_worker(?POOL, ClientId).
 
@@ -83,15 +80,6 @@ pick(ClientId) -> gproc_pool:pick_worker(?POOL, ClientId).
 init([Pool, Id, StatsFun]) ->
     ?GPROC_POOL(join, Pool, Id),
     {ok, #state{pool = Pool, id = Id, statsfun = StatsFun, monitors = dict:new()}}.
-
-prioritise_call(Req, _From, _Len, _State) ->
-    case Req of {reg, _Client} -> 2; _ -> 1 end.
-
-prioritise_cast(Msg, _Len, _State) ->
-    case Msg of {unreg, _ClientId, _Pid} -> 9; _ -> 1 end.
-
-prioritise_info(_Msg, _Len, _State) ->
-    3.
 
 handle_call({reg, Client = #mqtt_client{client_id  = ClientId,
                                         client_pid = Pid}}, _From, State) ->

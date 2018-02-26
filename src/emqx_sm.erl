@@ -16,9 +16,7 @@
 
 -module(emqx_sm).
 
--author("Feng Lee <feng@emqtt.io>").
-
--behaviour(gen_server2).
+-behaviour(gen_server).
 
 -include("emqx.hrl").
 
@@ -43,9 +41,6 @@
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
-
-%% gen_server2 priorities
--export([prioritise_call/4, prioritise_cast/3, prioritise_info/3]).
 
 -record(state, {pool, id, monitors}).
 
@@ -78,7 +73,7 @@ mnesia(copy) ->
 %% @doc Start a session manager
 -spec(start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id) ->
-    gen_server2:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
+    gen_server:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
 
 %% @doc Start a session
 -spec(start_session(boolean(), {binary(), binary() | undefined}) -> {ok, pid(), boolean()} | {error, term()}).
@@ -123,7 +118,7 @@ dispatch(ClientId, Topic, Msg) ->
     end.
 
 call(SM, Req) ->
-    gen_server2:call(SM, Req, ?TIMEOUT). %%infinity).
+    gen_server:call(SM, Req, ?TIMEOUT). %%infinity).
 
 %% @doc for debug.
 local_sessions() ->
@@ -136,15 +131,6 @@ local_sessions() ->
 init([Pool, Id]) ->
     ?GPROC_POOL(join, Pool, Id),
     {ok, #state{pool = Pool, id = Id, monitors = dict:new()}}.
-
-prioritise_call(_Msg, _From, _Len, _State) ->
-    1.
-
-prioritise_cast(_Msg, _Len, _State) ->
-    0.
-
-prioritise_info(_Msg, _Len, _State) ->
-    2.
 
 %% Persistent Session
 handle_call({start_session, false, {ClientId, Username}, ClientPid}, _From, State) ->
