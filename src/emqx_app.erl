@@ -38,6 +38,7 @@ start(_Type, _Args) ->
     ekka:start(),
     {ok, Sup} = emqx_sup:start_link(),
     ok = register_acl_mod(),
+    emqx_modules:load(),
     start_autocluster(),
     register(emqx, self()),
     print_vsn(),
@@ -45,6 +46,7 @@ start(_Type, _Args) ->
 
 -spec(stop(State :: term()) -> term()).
 stop(_State) ->
+    emqx_modules:unload(),
     catch emqx:stop_listeners().
 
 %%--------------------------------------------------------------------

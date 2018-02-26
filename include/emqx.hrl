@@ -156,15 +156,12 @@
 -type(mqtt_delivery() :: #mqtt_delivery{}).
 
 %%--------------------------------------------------------------------
-%% MQTT Route
+%% Route
 %%--------------------------------------------------------------------
 
--record(mqtt_route,
-        { topic :: binary(),
-          node  :: node()
-        }).
+-record(route, { topic :: binary(), node :: node() }).
 
--type(mqtt_route() :: #mqtt_route{}).
+-type(route() :: #route{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Alarm

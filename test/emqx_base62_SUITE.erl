@@ -14,22 +14,22 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--type(trie_node_id() :: binary() | atom()).
+-module(emqx_base62_SUITE).
 
--record(trie_node,
-        { node_id        :: trie_node_id(),
-          edge_count = 0 :: non_neg_integer(),
-          topic          :: binary() | undefined,
-          flags          :: list(atom())
-        }).
+-include_lib("eunit/include/eunit.hrl").
 
--record(trie_edge,
-        { node_id :: trie_node_id(),
-          word    :: binary() | atom()
-        }).
+-define(BASE62, emqx_base62).
 
--record(trie,
-        { edge    :: #trie_edge{},
-          node_id :: trie_node_id()
-        }).
+-compile(export_all).
 
+all() -> [t_base62_encode].
+
+t_base62_encode(_) ->
+    10 = ?BASE62:decode(?BASE62:encode(10)),
+    100 = ?BASE62:decode(?BASE62:encode(100)),
+    9999 = ?BASE62:decode(?BASE62:encode(9999)),
+    65535 = ?BASE62:decode(?BASE62:encode(65535)),
+    <<X:128/unsigned-big-integer>> = emqx_guid:gen(),
+    <<Y:128/unsigned-big-integer>> = emqx_guid:gen(),
+    X = ?BASE62:decode(?BASE62:encode(X)),
+    Y = ?BASE62:decode(?BASE62:encode(Y)).

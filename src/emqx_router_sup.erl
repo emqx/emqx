@@ -14,22 +14,25 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--type(trie_node_id() :: binary() | atom()).
+-module(emqx_router_sup).
 
--record(trie_node,
-        { node_id        :: trie_node_id(),
-          edge_count = 0 :: non_neg_integer(),
-          topic          :: binary() | undefined,
-          flags          :: list(atom())
-        }).
+-behaviour(supervisor).
 
--record(trie_edge,
-        { node_id :: trie_node_id(),
-          word    :: binary() | atom()
-        }).
+-export([start_link/0]).
 
--record(trie,
-        { edge    :: #trie_edge{},
-          node_id :: trie_node_id()
-        }).
+-export([init/1]).
+
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+init([]) ->
+    StatsFun = emqx_stats:statsfun('routes/count', 'routes/max'),
+    SupFlags = #{strategy => one_for_all, intensity => 1, period => 5},
+    Router = #{id => emqx_router,
+               start => {emqx_router, start_link, [StatsFun]},
+               restart => permanent,
+               shutdown => 30000,
+               type => worker,
+               modules => [emqx_router]},
+    {ok, {SupFlags, [Router]}}.
 

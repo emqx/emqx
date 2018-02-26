@@ -762,7 +762,7 @@ end}.
 end}.
 
 %%-------------------------------------------------------------------
-%% MQTT Plugins
+%% Plugins
 %%-------------------------------------------------------------------
 
 {mapping, "mqtt.plugins.etc_dir", "emqx.plugins_etc_dir", [
@@ -778,7 +778,78 @@ end}.
 ]}.
 
 %%--------------------------------------------------------------------
-%% MQTT Listeners
+%% Modules
+%%--------------------------------------------------------------------
+
+{mapping, "module.presence", "emqx.modules", [
+  {default, off},
+  {datatype, flag}
+]}.
+
+{mapping, "module.presence.qos", "emqx.modules", [
+  {default, 1},
+  {datatype, integer},
+  {validators, ["range:0-2"]}
+]}.
+
+{mapping, "module.subscription", "emqx.modules", [
+  {default, off},
+  {datatype, flag}
+]}.
+
+{mapping, "module.subscription.$id.topic", "emqx.modules", [
+  {datatype, string}
+]}.
+
+{mapping, "module.subscription.$id.qos", "emqx.modules", [
+  {default, 1},
+  {datatype, integer},
+  {validators, ["range:0-2"]}
+]}.
+
+{mapping, "module.rewrite", "emqx.modules", [
+  {default, off},
+  {datatype, flag}
+]}.
+
+{mapping, "module.rewrite.rule.$id", "emqx.modules", [
+  {datatype, string}
+]}.
+
+{translation, "emqx.modules", fun(Conf) ->
+  Subscriptions = fun() ->
+      List = cuttlefish_variable:filter_by_prefix("module.subscription", Conf),
+      QosList = [Qos || {_, Qos} <- lists:sort([{I, Qos} || {[_,"subscription", I,"qos"], Qos} <- List])],
+      TopicList = [iolist_to_binary(Topic) || {_, Topic} <-
+        lists:sort([{I, Topic} || {[_,"subscription", I, "topic"], Topic} <- List])],
+      lists:zip(TopicList, QosList)
+  end,
+  Rewrites = fun() ->
+      Rules = cuttlefish_variable:filter_by_prefix("module.rewrite.rule", Conf),
+      lists:map(fun({[_, "rewrite", "rule", I], Rule}) ->
+                    [Topic, Re, Dest] = string:tokens(Rule, " "),
+                    {rewrite, list_to_binary(Topic), list_to_binary(Re), list_to_binary(Dest)}
+                end, Rules)
+  end,
+  lists:append([
+    case cuttlefish:conf_get("module.presence", Conf) of %% Presence
+        true  -> [{emqx_mod_presence, [{qos, cuttlefish:conf_get("module.presence.qos", Conf, 1)}]}];
+        false -> []
+    end,
+    case cuttlefish:conf_get("module.subscription", Conf) of %% Subscription
+        true  -> [{emqx_mod_subscription, Subscriptions()}];
+        false -> []
+    end,
+    case cuttlefish:conf_get("module.rewrite", Conf) of %% Rewrite
+        true  -> [{emqx_mod_rewrite, Rewrites()}];
+        false -> []
+    end
+  ])
+end}.
+
+
+%%--------------------------------------------------------------------
+%% Listeners
 %%--------------------------------------------------------------------
 
 %%--------------------------------------------------------------------

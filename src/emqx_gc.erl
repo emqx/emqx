@@ -18,8 +18,6 @@
 
 -module(emqx_gc).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -export([conn_max_gc_count/0, reset_conn_gc_count/2, maybe_force_gc/2,
          maybe_force_gc/3]).
 

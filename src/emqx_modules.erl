@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc.
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,22 +14,20 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--type(trie_node_id() :: binary() | atom()).
+-module(emqx_modules).
 
--record(trie_node,
-        { node_id        :: trie_node_id(),
-          edge_count = 0 :: non_neg_integer(),
-          topic          :: binary() | undefined,
-          flags          :: list(atom())
-        }).
+-export([load/0, unload/0]).
 
--record(trie_edge,
-        { node_id :: trie_node_id(),
-          word    :: binary() | atom()
-        }).
+load() ->
+    lists:foreach(
+      fun({Mod, Env}) ->
+        ok = Mod:load(Env),
+        io:format("Load ~s module successfully.~n", [Mod])
+      end, emqx:env(modules, [])).
 
--record(trie,
-        { edge    :: #trie_edge{},
-          node_id :: trie_node_id()
-        }).
+unload() ->
+    lists:foreach(
+      fun({Mod, Env}) ->
+          Mod:unload(Env) end,
+      emqx:env(modules, [])).
 

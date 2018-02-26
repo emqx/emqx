@@ -16,8 +16,6 @@
 
 -module(emqx_net).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -include_lib("kernel/include/inet.hrl").
 
 -export([tcp_name/3, tcp_host/1, getopts/2, setopts/2, getaddr/2,

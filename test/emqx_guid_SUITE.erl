@@ -14,22 +14,28 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--type(trie_node_id() :: binary() | atom()).
+-module(emqx_guid_SUITE).
 
--record(trie_node,
-        { node_id        :: trie_node_id(),
-          edge_count = 0 :: non_neg_integer(),
-          topic          :: binary() | undefined,
-          flags          :: list(atom())
-        }).
+-include_lib("eunit/include/eunit.hrl").
 
--record(trie_edge,
-        { node_id :: trie_node_id(),
-          word    :: binary() | atom()
-        }).
+-compile(export_all).
 
--record(trie,
-        { edge    :: #trie_edge{},
-          node_id :: trie_node_id()
-        }).
+all() -> [t_guid_gen, t_guid_hexstr, t_guid_base62].
+
+t_guid_gen(_) ->
+    Guid1 = emqx_guid:gen(),
+    Guid2 = emqx_guid:gen(),
+    <<_:128>> = Guid1,
+    true = (Guid2 >= Guid1),
+    {Ts1, _, 0} = emqx_guid:new(),
+    Ts2 = emqx_guid:timestamp(emqx_guid:gen()),
+    true = Ts2 > Ts1.
+
+t_guid_hexstr(_) ->
+    Guid = emqx_guid:gen(),
+    ?assertEqual(Guid, emqx_guid:from_hexstr(emqx_guid:to_hexstr(Guid))).
+
+t_guid_base62(_) ->
+    Guid = emqx_guid:gen(),
+    ?assertEqual(Guid, emqx_guid:from_base62(emqx_guid:to_base62(Guid))).
 

@@ -16,11 +16,11 @@
 
 -module(emqx_router_SUITE).
 
--compile(export_all).
-
 -include("emqx.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
+
+-compile(export_all).
 
 -define(R, emqx_router).
 
@@ -35,7 +35,7 @@ groups() ->
        t_match_route,
        t_print,
        t_has_route,
-       router_unused]},
+       t_unused]},
      {local_route, [sequence],
       [t_get_local_topics,
        t_add_del_local_route,
@@ -44,7 +44,7 @@ groups() ->
 init_per_suite(Config) ->
     ekka:start(),
     ekka_mnesia:ensure_started(),
-    {ok, _R} = emqx_router:start(),
+    {ok, _} = emqx_router_sup:start_link(),
     Config.
 
 end_per_suite(_Config) ->
@@ -81,10 +81,10 @@ t_match_route(_) ->
     ?R:add_route(<<"a/+/c">>),
     ?R:add_route(<<"a/b/#">>),
     ?R:add_route(<<"#">>),
-    ?assertEqual([#mqtt_route{topic = <<"#">>, node = Node},
-                  #mqtt_route{topic = <<"a/+/c">>, node = Node},
-                  #mqtt_route{topic = <<"a/b/#">>, node = Node},
-                  #mqtt_route{topic = <<"a/b/c">>, node = Node}],
+    ?assertEqual([#route{topic = <<"#">>, node = Node},
+                  #route{topic = <<"a/+/c">>, node = Node},
+                  #route{topic = <<"a/b/#">>, node = Node},
+                  #route{topic = <<"a/b/c">>, node = Node}],
                  lists:sort(?R:match(<<"a/b/c">>))).
 
 t_has_route(_) ->
@@ -119,12 +119,12 @@ t_match_local_route(_) ->
     ?R:add_local_route(<<"a/+/c">>),
     ?R:add_local_route(<<"a/b/#">>),
     ?R:add_local_route(<<"#">>),
-    Matched = [Topic || #mqtt_route{topic = {local, Topic}} <- ?R:match_local(<<"a/b/c">>)],
+    Matched = [Topic || #route{topic = {local, Topic}} <- ?R:match_local(<<"a/b/c">>)],
     ?assertEqual([<<"#">>, <<"a/+/c">>, <<"a/b/#">>, <<"a/b/c">>], lists:sort(Matched)).
 
 clear_tables() ->
     ?R:clean_local_routes(),
-    lists:foreach(fun mnesia:clear_table/1, [mqtt_route, mqtt_trie, mqtt_trie_node]).
+    lists:foreach(fun mnesia:clear_table/1, [route, trie, trie_node]).
 
 router_add_del(_) ->
     %% Add
@@ -132,9 +132,9 @@ router_add_del(_) ->
     ?R:add_route(<<"a/b/c">>),
     ?R:add_route(<<"+/#">>),
     Routes = [R1, R2 | _] = [
-            #mqtt_route{topic = <<"#">>,     node = node()},
-            #mqtt_route{topic = <<"+/#">>,   node = node()},
-            #mqtt_route{topic = <<"a/b/c">>, node = node()}],
+            #route{topic = <<"#">>,     node = node()},
+            #route{topic = <<"+/#">>,   node = node()},
+            #route{topic = <<"a/b/c">>, node = node()}],
     Routes = lists:sort(?R:match(<<"a/b/c">>)),
 
     %% Batch Add
@@ -147,7 +147,7 @@ router_add_del(_) ->
     {atomic, []} = mnesia:transaction(fun emqx_trie:lookup/1, [<<"a/b/c">>]),
 
     %% Batch Del
-    R3 = #mqtt_route{topic = <<"#">>, node = 'a@127.0.0.1'},
+    R3 = #route{topic = <<"#">>, node = 'a@127.0.0.1'},
     ?R:add_route(R3),
     ?R:del_route(R1),
     ?R:del_route(R2),
@@ -155,16 +155,17 @@ router_add_del(_) ->
     [] = lists:sort(?R:match(<<"a/b/c">>)).
 
 t_print(_) ->
-    Routes = [#mqtt_route{topic = <<"a/b/c">>, node = node()},
-              #mqtt_route{topic = <<"#">>,     node = node()},
-              #mqtt_route{topic = <<"+/#">>,   node = node()}],
+    Routes = [#route{topic = <<"a/b/c">>, node = node()},
+              #route{topic = <<"#">>,     node = node()},
+              #route{topic = <<"+/#">>,   node = node()}],
     lists:foreach(fun(R) -> ?R:add_route(R) end, Routes),
     ?R:print(<<"a/b/c">>),
     ?R:del_route(<<"+/#">>),
     ?R:del_route(<<"a/b/c">>),
     ?R:del_route(<<"#">>).
 
-router_unused(_) ->
-    gen_server:call(emqx_router, bad_call),
-    gen_server:cast(emqx_router, bad_msg),
-    emqx_router ! bad_info.
+t_unused(_) ->
+    gen_server:call(?R, bad_call),
+    gen_server:cast(?R, bad_msg),
+    ?R ! bad_info.
+

@@ -16,11 +16,7 @@
 
 -module(emqx_topic).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -include("emqx_mqtt.hrl").
-
--include("emqx_internal.hrl").
 
 -import(lists, [reverse/1]).
 
@@ -206,8 +202,14 @@ parse(Topic, Options) ->
     {Topic, Options}.
 
 if_not_contain(Key, Options, Fun) when Key == local; Key == fastlane ->
-    ?IF(lists:member(Key, Options), error(invalid_topic), Fun());
+    case lists:member(Key, Options) of
+       true  -> error(invalid_topic);
+       false -> Fun()
+    end;
 
 if_not_contain(share, Options, Fun) ->
-    ?IF(lists:keyfind(share, 1, Options), error(invalid_topic), Fun()).
+    case lists:keyfind(share, 1, Options) of
+        true  -> error(invalid_topic);
+        false -> Fun()
+    end.
 

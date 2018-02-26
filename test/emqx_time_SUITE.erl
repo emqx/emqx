@@ -14,22 +14,15 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--type(trie_node_id() :: binary() | atom()).
+-module(emqx_time_SUITE).
 
--record(trie_node,
-        { node_id        :: trie_node_id(),
-          edge_count = 0 :: non_neg_integer(),
-          topic          :: binary() | undefined,
-          flags          :: list(atom())
-        }).
+-include_lib("eunit/include/eunit.hrl").
 
--record(trie_edge,
-        { node_id :: trie_node_id(),
-          word    :: binary() | atom()
-        }).
+-compile(export_all).
 
--record(trie,
-        { edge    :: #trie_edge{},
-          node_id :: trie_node_id()
-        }).
+all() -> [t_time_now_to].
 
+t_time_now_to(_) ->
+    emqx_time:seed(),
+    emqx_time:now_secs(),
+    emqx_time:now_ms().

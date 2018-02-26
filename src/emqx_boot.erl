@@ -16,8 +16,6 @@
 
 -module(emqx_boot).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -export([apply_module_attributes/1, all_module_attributes/1]).
 
 %% only {F, Args}...

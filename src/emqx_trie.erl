@@ -41,21 +41,21 @@
 -spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
     %% Trie Table
-    ok = ekka_mnesia:create_table(mqtt_trie, [
+    ok = ekka_mnesia:create_table(trie, [
                 {ram_copies, [node()]},
                 {record_name, trie},
                 {attributes, record_info(fields, trie)}]),
     %% Trie Node Table
-    ok = ekka_mnesia:create_table(mqtt_trie_node, [
+    ok = ekka_mnesia:create_table(trie_node, [
                 {ram_copies, [node()]},
                 {record_name, trie_node},
                 {attributes, record_info(fields, trie_node)}]);
 
 mnesia(copy) ->
     %% Copy Trie Table
-    ok = ekka_mnesia:copy_table(mqtt_trie),
+    ok = ekka_mnesia:copy_table(trie),
     %% Copy Trie Node Table
-    ok = ekka_mnesia:copy_table(mqtt_trie_node).
+    ok = ekka_mnesia:copy_table(trie_node).
 
 %%--------------------------------------------------------------------
 %% Trie API
@@ -64,7 +64,7 @@ mnesia(copy) ->
 %% @doc Insert topic to trie
 -spec(insert(Topic :: binary()) -> ok).
 insert(Topic) when is_binary(Topic) ->
-    case mnesia:read(mqtt_trie_node, Topic) of
+    case mnesia:read(trie_node, Topic) of
         [#trie_node{topic = Topic}] ->
             ok;
         [TrieNode = #trie_node{topic = undefined}] ->
@@ -85,14 +85,14 @@ match(Topic) when is_binary(Topic) ->
 %% @doc Lookup a Trie Node
 -spec(lookup(NodeId :: binary()) -> [#trie_node{}]).
 lookup(NodeId) ->
-    mnesia:read(mqtt_trie_node, NodeId).
+    mnesia:read(trie_node, NodeId).
 
 %% @doc Delete topic from trie
 -spec(delete(Topic :: binary()) -> ok).
 delete(Topic) when is_binary(Topic) ->
-    case mnesia:read(mqtt_trie_node, Topic) of
+    case mnesia:read(trie_node, Topic) of
         [#trie_node{edge_count = 0}] ->
-            mnesia:delete({mqtt_trie_node, Topic}),
+            mnesia:delete({trie_node, Topic}),
             delete_path(lists:reverse(emqx_topic:triples(Topic)));
         [TrieNode] ->
             write_trie_node(TrieNode#trie_node{topic = undefined});
@@ -108,9 +108,9 @@ delete(Topic) when is_binary(Topic) ->
 %% @doc Add path to trie tree.
 add_path({Node, Word, Child}) ->
     Edge = #trie_edge{node_id = Node, word = Word},
-    case mnesia:read(mqtt_trie_node, Node) of
+    case mnesia:read(trie_node, Node) of
         [TrieNode = #trie_node{edge_count = Count}] ->
-            case mnesia:wread({mqtt_trie, Edge}) of
+            case mnesia:wread({trie, Edge}) of
                 [] ->
                     write_trie_node(TrieNode#trie_node{edge_count = Count+1}),
                     write_trie(#trie{edge = Edge, node_id = Child});
@@ -131,11 +131,11 @@ match_node(NodeId, Words) ->
     match_node(NodeId, Words, []).
 
 match_node(NodeId, [], ResAcc) ->
-    mnesia:read(mqtt_trie_node, NodeId) ++ 'match_#'(NodeId, ResAcc);
+    mnesia:read(trie_node, NodeId) ++ 'match_#'(NodeId, ResAcc);
 
 match_node(NodeId, [W|Words], ResAcc) ->
     lists:foldl(fun(WArg, Acc) ->
-        case mnesia:read(mqtt_trie, #trie_edge{node_id = NodeId, word = WArg}) of
+        case mnesia:read(trie, #trie_edge{node_id = NodeId, word = WArg}) of
             [#trie{node_id = ChildId}] -> match_node(ChildId, Words, Acc);
             [] -> Acc
         end
@@ -144,9 +144,9 @@ match_node(NodeId, [W|Words], ResAcc) ->
 %% @private
 %% @doc Match node with '#'.
 'match_#'(NodeId, ResAcc) ->
-    case mnesia:read(mqtt_trie, #trie_edge{node_id = NodeId, word = '#'}) of
+    case mnesia:read(trie, #trie_edge{node_id = NodeId, word = '#'}) of
         [#trie{node_id = ChildId}] ->
-            mnesia:read(mqtt_trie_node, ChildId) ++ ResAcc;
+            mnesia:read(trie_node, ChildId) ++ ResAcc;
         [] ->
             ResAcc
     end.
@@ -156,10 +156,10 @@ match_node(NodeId, [W|Words], ResAcc) ->
 delete_path([]) ->
     ok;
 delete_path([{NodeId, Word, _} | RestPath]) ->
-    mnesia:delete({mqtt_trie, #trie_edge{node_id = NodeId, word = Word}}),
-    case mnesia:read(mqtt_trie_node, NodeId) of
+    mnesia:delete({trie, #trie_edge{node_id = NodeId, word = Word}}),
+    case mnesia:read(trie_node, NodeId) of
         [#trie_node{edge_count = 1, topic = undefined}] ->
-            mnesia:delete({mqtt_trie_node, NodeId}),
+            mnesia:delete({trie_node, NodeId}),
             delete_path(RestPath);
         [TrieNode = #trie_node{edge_count = 1, topic = _}] ->
             write_trie_node(TrieNode#trie_node{edge_count = 0});
@@ -171,9 +171,9 @@ delete_path([{NodeId, Word, _} | RestPath]) ->
 
 %% @private
 write_trie(Trie) ->
-    mnesia:write(mqtt_trie, Trie, write).
+    mnesia:write(trie, Trie, write).
 
 %% @private
 write_trie_node(TrieNode) ->
-    mnesia:write(mqtt_trie_node, TrieNode, write).
+    mnesia:write(trie_node, TrieNode, write).
 
