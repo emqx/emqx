@@ -73,12 +73,12 @@ route([], #mqtt_delivery{message = Msg}) ->
     dropped(Msg#mqtt_message.topic), ignore;
 
 %% Dispatch on the local node.
-route([#mqtt_route{topic = To, node = Node}],
+route([#route{topic = To, node = Node}],
       Delivery = #mqtt_delivery{flows = Flows}) when Node =:= node() ->
     dispatch(To, Delivery#mqtt_delivery{flows = [{route, Node, To} | Flows]});
 
 %% Forward to other nodes
-route([#mqtt_route{topic = To, node = Node}], Delivery = #mqtt_delivery{flows = Flows}) ->
+route([#route{topic = To, node = Node}], Delivery = #mqtt_delivery{flows = Flows}) ->
     forward(Node, To, Delivery#mqtt_delivery{flows = [{route, Node, To}|Flows]});
 
 route(Routes, Delivery) ->

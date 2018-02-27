@@ -196,7 +196,7 @@ add_local_route(Topic) ->
 del_local_route(Topic) ->
     gen_server:call(?ROUTER, {del_local_route, Topic}).
     
--spec(match_local(binary()) -> [mqtt_route()]).
+-spec(match_local(binary()) -> [route()]).
 match_local(Name) ->
     case ets:info(local_route, size) of
         0 -> [];
