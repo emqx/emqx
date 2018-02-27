@@ -43,8 +43,8 @@
 
 -module(emqx_mqueue).
 
--author("Feng Lee <feng@emqtt.io>").
-
+%% TODO: XYZ
+%%
 -include("emqx.hrl").
 
 -include("emqx_mqtt.hrl").
@@ -209,10 +209,10 @@ maybe_set_alarm(MQ = #mqueue{high_wm = undefined}) ->
     MQ;
 maybe_set_alarm(MQ = #mqueue{name = Name, len = Len, high_wm = HighWM, alarm_fun = AlarmFun})
     when Len > HighWM ->
-    Alarm = #mqtt_alarm{id = iolist_to_binary(["queue_high_watermark.", Name]),
-                        severity = warning,
-                        title = io_lib:format("Queue ~s high-water mark", [Name]),
-                        summary = io_lib:format("queue len ~p > high_watermark ~p", [Len, HighWM])},
+    Alarm = #alarm{id = iolist_to_binary(["queue_high_watermark.", Name]),
+                   severity = warning,
+                   title = io_lib:format("Queue ~s high-water mark", [Name]),
+                   summary = io_lib:format("queue len ~p > high_watermark ~p", [Len, HighWM])},
     MQ#mqueue{alarm_fun = AlarmFun(alert, Alarm)};
 maybe_set_alarm(MQ) ->
     MQ.

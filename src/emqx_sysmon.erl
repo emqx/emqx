@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,11 +16,7 @@
 
 -module(emqx_sysmon).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -behavior(gen_server).
-
--include("emqx_internal.hrl").
 
 -export([start_link/1]).
 
@@ -29,22 +25,21 @@
 
 -record(state, {tickref, events = [], tracelog}).
 
--define(LOG_FMT, [{formatter_config, [time, " ", message, "\n"]}]).
+%%-define(LOG_FMT, [{formatter_config, [time, " ", message, "\n"]}]).
 
 -define(LOG(Msg, ProcInfo),
-        lager:warning([{sysmon, true}], "~s~n~p", [WarnMsg, ProcInfo])).
+        lager:warning([{sysmon, true}], "[SYSMON] ~s~n~p", [WarnMsg, ProcInfo])).
 
 -define(LOG(Msg, ProcInfo, PortInfo),
-        lager:warning([{sysmon, true}], "~s~n~p~n~p", [WarnMsg, ProcInfo, PortInfo])).
+        lager:warning([{sysmon, true}], "[SYSMON] ~s~n~p~n~p", [WarnMsg, ProcInfo, PortInfo])).
 
 %% @doc Start system monitor
--spec(start_link(Opts :: list(tuple())) ->
-      {ok, pid()} | ignore | {error, term()}).
+-spec(start_link(Opts :: list(tuple())) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Opts) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
 
 %%--------------------------------------------------------------------
-%% gen_server callbacks
+%% gen_server Callbacks
 %%--------------------------------------------------------------------
 
 init([Opts]) ->
@@ -80,10 +75,12 @@ parse_opt([_Opt|Opts], Acc) ->
     parse_opt(Opts, Acc).
 
 handle_call(Req, _From, State) ->
-    ?UNEXPECTED_REQ(Req, State).
+    lager:error("[SYSMON] Unexpected Call: ~p", [Req]),
+    {reply, ignore, State}.
 
 handle_cast(Msg, State) ->
-    ?UNEXPECTED_MSG(Msg, State).
+    lager:error("[SYSMON] Unexpected Cast: ~p", [Msg]),
+    {noreply, State}.
 
 handle_info({monitor, Pid, long_gc, Info}, State) ->
     suppress({long_gc, Pid}, fun() ->
@@ -131,7 +128,8 @@ handle_info(reset, State) ->
     {noreply, State#state{events = []}, hibernate};
 
 handle_info(Info, State) ->
-    ?UNEXPECTED_INFO(Info, State).
+    lager:error("[SYSMON] Unexpected Info: ~p", [Info]),
+    {noreply, State}.
 
 terminate(_Reason, #state{tickref = TRef, tracelog = TraceLog}) ->
     timer:cancel(TRef),

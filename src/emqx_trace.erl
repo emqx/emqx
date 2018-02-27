@@ -20,8 +20,6 @@
 
 -author("Feng Lee <feng@emqtt.io>").
 
--include("emqx_internal.hrl").
-
 %% API Function Exports
 -export([start_link/0]).
 
@@ -100,13 +98,16 @@ handle_call(all_traces, _From, State = #state{traces = Traces}) ->
                                <- maps:to_list(Traces)], State};
 
 handle_call(Req, _From, State) ->
-    ?UNEXPECTED_REQ(Req, State).
+    lager:error("[TRACE] Unexpected Call: ~p", [Req]),
+    {reply, ignore, State}.
 
 handle_cast(Msg, State) ->
-    ?UNEXPECTED_MSG(Msg, State).
+    lager:error("[TRACE] Unexpected Cast: ~p", [Msg]),
+    {noreply, State}.
 
 handle_info(Info, State) ->
-    ?UNEXPECTED_INFO(Info, State).
+    lager:error("[TRACE] Unexpected Info: ~p", [Info]),
+    {noreply, State}.
 
 terminate(_Reason, _State) ->
     ok.

@@ -56,15 +56,15 @@ alarm_fun(Bool) ->
        (clear, _AlarmId) when Bool =:= false -> alarm_fun(false)
     end.
 
--spec(set_alarm(mqtt_alarm()) -> ok).
-set_alarm(Alarm) when is_record(Alarm, mqtt_alarm) ->
+-spec(set_alarm(alarm()) -> ok).
+set_alarm(Alarm) when is_record(Alarm, alarm) ->
     gen_event:notify(?ALARM_MGR, {set_alarm, Alarm}).
 
 -spec(clear_alarm(any()) -> ok).
 clear_alarm(AlarmId) when is_binary(AlarmId) ->
     gen_event:notify(?ALARM_MGR, {clear_alarm, AlarmId}).
 
--spec(get_alarms() -> list(mqtt_alarm())).
+-spec(get_alarms() -> list(alarm())).
 get_alarms() ->
     gen_event:call(?ALARM_MGR, ?MODULE, get_alarms).
 
@@ -83,10 +83,10 @@ delete_alarm_handler(Module) when is_atom(Module) ->
 
 init(_) -> {ok, []}.
 
-handle_event({set_alarm, Alarm = #mqtt_alarm{id       = AlarmId,
-                                             severity = Severity,
-                                             title    = Title,
-                                             summary  = Summary}}, Alarms)->
+handle_event({set_alarm, Alarm = #alarm{id       = AlarmId,
+                                        severity = Severity,
+                                        title    = Title,
+                                        summary  = Summary}}, Alarms)->
     TS = os:timestamp(),
     Json = mochijson2:encode([{id, AlarmId},
                               {severity, Severity},
@@ -94,7 +94,7 @@ handle_event({set_alarm, Alarm = #mqtt_alarm{id       = AlarmId,
                               {summary, iolist_to_binary(Summary)},
                               {ts, emqx_time:now_secs(TS)}]),
     emqx:publish(alarm_msg(alert, AlarmId, Json)),
-    {ok, [Alarm#mqtt_alarm{timestamp = TS} | Alarms]};
+    {ok, [Alarm#alarm{timestamp = TS} | Alarms]};
 
 handle_event({clear_alarm, AlarmId}, Alarms) ->
     Json = mochijson2:encode([{id, AlarmId}, {ts, emqx_time:now_secs()}]),

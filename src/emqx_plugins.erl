@@ -157,16 +157,16 @@ stop_plugins(Names) ->
     [stop_app(App) || App <- Names].
 
 %% @doc List all available plugins
--spec(list() -> [mqtt_plugin()]).
+-spec(list() -> [plugin()]).
 list() ->
     case emqx:env(plugins_etc_dir) of
         {ok, PluginsEtc} ->
             CfgFiles = filelib:wildcard("*.{conf,config}", PluginsEtc) ++ get_expand_plugin_config(),
             Plugins = [plugin(CfgFile) || CfgFile <- CfgFiles],
             StartedApps = names(started_app),
-            lists:map(fun(Plugin = #mqtt_plugin{name = Name}) ->
+            lists:map(fun(Plugin = #plugin{name = Name}) ->
                           case lists:member(Name, StartedApps) of
-                              true  -> Plugin#mqtt_plugin{active = true};
+                              true  -> Plugin#plugin{active = true};
                               false -> Plugin
                           end
                       end, Plugins);
@@ -179,7 +179,7 @@ plugin(CfgFile) ->
     {ok, Attrs} = application:get_all_key(AppName),
     Ver = proplists:get_value(vsn, Attrs, "0"),
     Descr = proplists:get_value(description, Attrs, ""),
-    #mqtt_plugin{name = AppName, version = Ver, descr = Descr}.
+    #plugin{name = AppName, version = Ver, descr = Descr}.
 
 %% @doc Load a Plugin
 -spec(load(atom()) -> ok | {error, term()}).
@@ -198,7 +198,7 @@ load(PluginName) when is_atom(PluginName) ->
             end
     end.
 
-load_plugin(#mqtt_plugin{name = Name}, Persistent) ->
+load_plugin(#plugin{name = Name}, Persistent) ->
     case load_app(Name) of
         ok ->
             start_app(Name, fun(App) -> plugin_loaded(App, Persistent) end);
@@ -280,7 +280,7 @@ names(started_app) ->
     [Name || {Name, _Descr, _Ver} <- application:which_applications()];
 
 names(Plugins) ->
-    [Name || #mqtt_plugin{name = Name} <- Plugins].
+    [Name || #plugin{name = Name} <- Plugins].
 
 plugin_loaded(_Name, false) ->
     ok;

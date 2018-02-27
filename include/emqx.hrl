@@ -164,26 +164,26 @@
 -type(route() :: #route{}).
 
 %%--------------------------------------------------------------------
-%% MQTT Alarm
+%% Alarm
 %%--------------------------------------------------------------------
 
--record(mqtt_alarm,
+-record(alarm,
         { id        :: binary(),
-          severity  :: warning | error | critical,
+          severity  :: notice | warning | error | critical,
           title     :: iolist() | binary(),
           summary   :: iolist() | binary(),
           timestamp :: erlang:timestamp()
         }).
 
--type(mqtt_alarm() :: #mqtt_alarm{}).
+-type(alarm() :: #alarm{}).
 
 %%--------------------------------------------------------------------
-%% MQTT Plugin
+%% Plugin
 %%--------------------------------------------------------------------
 
--record(mqtt_plugin, { name, version, descr, active = false }).
+-record(plugin, { name, version, descr, active = false }).
 
--type(mqtt_plugin() :: #mqtt_plugin{}).
+-type(plugin() :: #plugin{}).
 
 %%--------------------------------------------------------------------
 %% MQTT CLI Command. For example: 'broker metrics'

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,14 +18,6 @@
 
 -behaviour(gen_server).
 
--author("Feng Lee <feng@emqtt.io>").
-
--include("emqx.hrl").
-
--include("emqx_cli.hrl").
-
--define(SERVER, ?MODULE).
-
 %% API Function Exports
 -export([start_link/0, register_cmd/2, register_cmd/3, unregister_cmd/1,
          lookup/1, run/1]).
@@ -36,7 +28,9 @@
 
 -record(state, {seq = 0}).
 
--define(CMD_TAB, mqttd_ctl_cmd).
+-define(SERVER, ?MODULE).
+
+-define(TAB, ?MODULE).
 
 %%--------------------------------------------------------------------
 %% API
@@ -87,40 +81,40 @@ run([CmdS|Args]) ->
 %% @doc Lookup a command
 -spec(lookup(atom()) -> [{module(), atom()}]).
 lookup(Cmd) ->
-    case ets:match(?CMD_TAB, {{'_', Cmd}, '$1', '_'}) of
+    case ets:match(?TAB, {{'_', Cmd}, '$1', '_'}) of
         [El] -> El;
         []   -> []
     end.
 
 %% @doc Usage
 usage() ->
-    ?PRINT("Usage: ~s~n", [?MODULE]),
-    [begin ?PRINT("~80..-s~n", [""]), Mod:Cmd(usage) end
-        || {_, {Mod, Cmd}, _} <- ets:tab2list(?CMD_TAB)].
+    io:format("Usage: ~s~n", [?MODULE]),
+    [begin io:format("~80..-s~n", [""]), Mod:Cmd(usage) end
+        || {_, {Mod, Cmd}, _} <- ets:tab2list(?TAB)].
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ets:new(?CMD_TAB, [ordered_set, named_table, protected]),
+    ets:new(?TAB, [ordered_set, named_table, protected]),
     {ok, #state{seq = 0}}.
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({register_cmd, Cmd, MF, Opts}, State = #state{seq = Seq}) ->
-    case ets:match(?CMD_TAB, {{'$1', Cmd}, '_', '_'}) of
+    case ets:match(?TAB, {{'$1', Cmd}, '_', '_'}) of
         [] ->
-            ets:insert(?CMD_TAB, {{Seq, Cmd}, MF, Opts});
+            ets:insert(?TAB, {{Seq, Cmd}, MF, Opts});
         [[OriginSeq] | _] ->
             lager:warning("CLI: ~s is overidden by ~p", [Cmd, MF]),
-            ets:insert(?CMD_TAB, {{OriginSeq, Cmd}, MF, Opts})
+            ets:insert(?TAB, {{OriginSeq, Cmd}, MF, Opts})
     end,
     noreply(next_seq(State));
 
 handle_cast({unregister_cmd, Cmd}, State) ->
-    ets:match_delete(?CMD_TAB, {{'_', Cmd}, '_', '_'}),
+    ets:match_delete(?TAB, {{'_', Cmd}, '_', '_'}),
     noreply(State);
 
 handle_cast(_Msg, State) ->
@@ -136,7 +130,7 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%--------------------------------------------------------------------
-%% Internal Function Definitions
+%% Internal Function
 %%--------------------------------------------------------------------
 
 noreply(State) ->
@@ -159,9 +153,10 @@ register_cmd_test_() ->
             ok = emqx_ctl:terminate(shutdown, State)
         end,
         fun(State = #state{seq = Seq}) -> 
-                emqx_ctl:handle_cast({register_cmd, test0, {?MODULE, test0}, []}, State),
-                [?_assertMatch([{{0,test0},{?MODULE, test0}, []}], ets:lookup(?CMD_TAB, {Seq,test0}))]
+            emqx_ctl:handle_cast({register_cmd, test0, {?MODULE, test0}, []}, State),
+            [?_assertMatch([{{0,test0},{?MODULE, test0}, []}], ets:lookup(?TAB, {Seq,test0}))]
         end
     }.
 
 -endif.
+

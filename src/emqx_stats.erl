@@ -18,11 +18,12 @@
 
 -behaviour(gen_server).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -include("emqx.hrl").
 
 -export([start_link/0, stop/0]).
+
+%% Get all Stats
+-export([all/0]).
 
 %% Client and Session Stats
 -export([set_client_stats/2, get_client_stats/1, del_client_stats/1,
@@ -114,6 +115,8 @@ get_session_stats(ClientId) ->
 -spec(del_session_stats(binary()) -> true).
 del_session_stats(ClientId) ->
     ets:delete(?SESSION_STATS_TAB, ClientId).
+
+all() -> ets:tab2list(?STATS_TAB).
 
 %% @doc Generate stats fun
 -spec(statsfun(Stat :: atom()) -> fun()).

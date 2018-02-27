@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc.
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -19,8 +19,6 @@
 -author("Feng Lee <feng@emqtt.io>").
 
 -behaviour(gen_server).
-
--include("emqx_internal.hrl").
 
 %% Start the pool supervisor
 -export([start_link/0]).
@@ -44,7 +42,9 @@ start_link() ->
 
 -spec(start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id) ->
-    gen_server:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
+    gen_server:start_link({local, name(Id)}, ?MODULE, [Pool, Id], []).
+
+name(Id) -> list_to_atom(lists:concat([?MODULE, "_", Id])).
 
 %% @doc Submit work to pooler
 submit(Fun) -> gen_server:call(worker(), {submit, Fun}, infinity).
@@ -61,20 +61,17 @@ worker() ->
 %%--------------------------------------------------------------------
 
 init([Pool, Id]) ->
-    ?GPROC_POOL(join, Pool, Id),
+    gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #state{pool = Pool, id = Id}}.
 
 handle_call({submit, Fun}, _From, State) ->
-    {reply, run(Fun), State};
+    {reply, catch run(Fun), State};
 
 handle_call(_Req, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({async_submit, Fun}, State) ->
-    try run(Fun)
-    catch _:Error ->
-        lager:error("Pooler Error: ~p, ~p", [Error, erlang:get_stacktrace()])
-    end,
+    try run(Fun) catch _:Error -> lager:error("Pooler Error: ~p, ~p", [Error, erlang:get_stacktrace()]) end,
     {noreply, State};
 
 handle_cast(_Msg, State) ->
@@ -84,7 +81,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
-    ?GPROC_POOL(leave, Pool, Id), ok.
+    gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
