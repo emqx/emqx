@@ -14,23 +14,15 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Client Manager Supervisor.
-
 -module(emqx_cm_sup).
 
 -behaviour(supervisor).
-
--author("Feng Lee <feng@emqtt.io>").
-
--include("emqx.hrl").
 
 %% API
 -export([start_link/0]).
 
 %% Supervisor callbacks
 -export([init/1]).
-
--define(CM, emqx_cm).
 
 -define(TAB, mqtt_client).
 
@@ -42,8 +34,8 @@ init([]) ->
     create_client_tab(),
 
     %% CM Pool Sup
-    MFA = {?CM, start_link, [emqx_stats:statsfun('clients/count', 'clients/max')]},
-    PoolSup = emqx_pool_sup:spec([?CM, hash, erlang:system_info(schedulers), MFA]),
+    MFA = {emqx_cm, start_link, [emqx_stats:statsfun('clients/count', 'clients/max')]},
+    PoolSup = emqx_pool_sup:spec([emqx_cm, hash, erlang:system_info(schedulers), MFA]),
 
     {ok, {{one_for_all, 10, 3600}, [PoolSup]}}.
 

@@ -14,10 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Session Supervisor.
 -module(emqx_session_sup).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -behavior(supervisor).
 

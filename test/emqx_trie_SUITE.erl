@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,11 +16,9 @@
 
 -module(emqx_trie_SUITE).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -compile(export_all).
 
--include("emqx_trie.hrl").
+-include("emqx.hrl").
 
 -define(TRIE, emqx_trie).
 

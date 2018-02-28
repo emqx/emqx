@@ -20,8 +20,6 @@
 
 -include("emqx.hrl").
 
--include("emqx_internal.hrl").
-
 %% Mnesia Callbacks
 -export([mnesia/1]).
 
@@ -73,7 +71,7 @@ mnesia(copy) ->
 %% @doc Start a session manager
 -spec(start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id) ->
-    gen_server:start_link({local, ?PROC_NAME(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
+    gen_server:start_link(?MODULE, [Pool, Id], []).
 
 %% @doc Start a session
 -spec(start_session(boolean(), {binary(), binary() | undefined}) -> {ok, pid(), boolean()} | {error, term()}).
@@ -129,7 +127,7 @@ local_sessions() ->
 %%--------------------------------------------------------------------
 
 init([Pool, Id]) ->
-    ?GPROC_POOL(join, Pool, Id),
+    gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #state{pool = Pool, id = Id, monitors = dict:new()}}.
 
 %% Persistent Session
@@ -163,10 +161,12 @@ handle_call({start_session, true, {ClientId, Username}, ClientPid}, _From, State
     end;
 
 handle_call(Req, _From, State) ->
-    ?UNEXPECTED_REQ(Req, State).
+    lager:error("[MQTT-SM] Unexpected Request: ~p", [Req]),
+    {reply, ignore, State}.
 
 handle_cast(Msg, State) ->
-    ?UNEXPECTED_MSG(Msg, State).
+    lager:error("[MQTT-SM] Unexpected Message: ~p", [Msg]),
+    {noreply, State}.
 
 handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
     case dict:find(MRef, State#state.monitors) of
@@ -186,10 +186,11 @@ handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
     end;
 
 handle_info(Info, State) ->
-    ?UNEXPECTED_INFO(Info, State).
+    lager:error("[MQTT-SM] Unexpected Info: ~p", [Info]),
+    {noreply, State}.
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
-    ?GPROC_POOL(leave, Pool, Id).
+    gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -202,7 +203,8 @@ code_change(_OldVsn, State, _Extra) ->
 create_session({CleanSess, {ClientId, Username}, ClientPid}, State) ->
     case create_session(CleanSess, {ClientId, Username}, ClientPid) of
         {ok, SessPid} ->
-            {reply, {ok, SessPid, false}, monitor_session(ClientId, SessPid, State)};
+            {reply, {ok, SessPid, false},
+                monitor_session(ClientId, SessPid, State)};
         {error, Error} ->
             {reply, {error, Error}, State}
     end.

@@ -48,13 +48,6 @@
 %% MQTT Topic
 %%--------------------------------------------------------------------
 
--record(mqtt_topic,
-        { topic      :: binary(),
-          flags = [] :: [retained | static]
-        }).
-
--type(mqtt_topic() :: #mqtt_topic{}).
-
 %%--------------------------------------------------------------------
 %% MQTT Subscription
 %%--------------------------------------------------------------------
@@ -162,6 +155,29 @@
 -record(route, { topic :: binary(), node :: node() }).
 
 -type(route() :: #route{}).
+
+%%--------------------------------------------------------------------
+%% Trie
+%%--------------------------------------------------------------------
+
+-type(trie_node_id() :: binary() | atom()).
+
+-record(trie_node,
+        { node_id        :: trie_node_id(),
+          edge_count = 0 :: non_neg_integer(),
+          topic          :: binary() | undefined,
+          flags          :: list(atom())
+        }).
+
+-record(trie_edge,
+        { node_id :: trie_node_id(),
+          word    :: binary() | atom()
+        }).
+
+-record(trie,
+        { edge    :: #trie_edge{},
+          node_id :: trie_node_id()
+        }).
 
 %%--------------------------------------------------------------------
 %% Alarm

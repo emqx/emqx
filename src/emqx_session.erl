@@ -53,8 +53,6 @@
 
 -include("emqx_mqtt.hrl").
 
--include("emqx_internal.hrl").
-
 -import(emqx_misc, [start_timer/2]).
 
 -import(proplists, [get_value/2, get_value/3]).
@@ -193,16 +191,16 @@ subscribe(Session, PacketId, TopicTable) -> %%TODO: the ack function??...
     gen_server:cast(Session, {subscribe, From, TopicTable, AckFun}).
 
 %% @doc Publish Message
--spec(publish(pid(), mqtt_message()) -> ok | {error, term()}).
-publish(_Session, Msg = #mqtt_message{qos = ?QOS_0}) ->
+-spec(publish(pid(), message()) -> ok | {error, term()}).
+publish(_Session, Msg = #message{qos = ?QOS_0}) ->
     %% Publish QoS0 Directly
     emqx_server:publish(Msg), ok;
 
-publish(_Session, Msg = #mqtt_message{qos = ?QOS_1}) ->
+publish(_Session, Msg = #message{qos = ?QOS_1}) ->
     %% Publish QoS1 message directly for client will PubAck automatically
     emqx_server:publish(Msg), ok;
 
-publish(Session, Msg = #mqtt_message{qos = ?QOS_2}) ->
+publish(Session, Msg = #message{qos = ?QOS_2}) ->
     %% Publish QoS2 to Session
     gen_server:call(Session, {publish, Msg}, ?TIMEOUT).
 
@@ -517,7 +515,7 @@ handle_cast(Msg, State) ->
     ?UNEXPECTED_MSG(Msg, State).
 
 %% Ignore Messages delivered by self
-handle_info({dispatch, _Topic, #mqtt_message{from = {ClientId, _}}},
+handle_info({dispatch, _Topic, #message{from = {ClientId, _}}},
              State = #state{client_id = ClientId, ignore_loop_deliver = true}) ->
     {noreply, State};
 
@@ -637,7 +635,7 @@ expire_awaiting_rel(State = #state{awaiting_rel = AwaitingRel}) ->
 expire_awaiting_rel([], _Now, State) ->
     State#state{await_rel_timer = undefined};
 
-expire_awaiting_rel([{PacketId, Msg = #mqtt_message{timestamp = TS}} | Msgs],
+expire_awaiting_rel([{PacketId, Msg = #message{timestamp = TS}} | Msgs],
                     Now, State = #state{awaiting_rel      = AwaitingRel,
                                         await_rel_timeout = Timeout}) ->
     case (timer:now_diff(Now, TS) div 1000) of

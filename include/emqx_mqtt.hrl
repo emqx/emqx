@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -115,7 +115,7 @@
     'DISCONNECT',
     'AUTH']).
 
--type(mqtt_packet_type() :: ?RESERVED..?DISCONNECT).
+-type(mqtt_packet_type() :: ?RESERVED..?AUTH).
 
 %%--------------------------------------------------------------------
 %% MQTT Connect Return Codes
@@ -158,9 +158,22 @@
 %% MQTT Packets
 %%--------------------------------------------------------------------
 
+-type(mqtt_topic() :: binary()).
+
 -type(mqtt_client_id() :: binary()).
+
 -type(mqtt_username()  :: binary() | undefined).
+
 -type(mqtt_packet_id() :: 1..16#ffff | undefined).
+
+-type(mqtt_reason_code() :: 1..16#ff | undefined).
+
+-type(mqtt_properties() :: undefined | map()).
+
+-type(mqtt_subopt() :: list({qos, mqtt_qos()}
+                          | {retain_handling, boolean()}
+                          | {keep_retain, boolean()}
+                          | {no_local, boolean()})).
 
 -record(mqtt_packet_connect,
         { client_id   = <<>>           :: mqtt_client_id(),
@@ -170,44 +183,68 @@
           will_qos    = ?QOS_1         :: mqtt_qos(),
           will_flag   = false          :: boolean(),
           clean_sess  = false          :: boolean(),
+          clean_start = true           :: boolean(),
           keep_alive  = 60             :: non_neg_integer(),
+          will_props  = undefined      :: undefined | map(),
           will_topic  = undefined      :: undefined | binary(),
           will_msg    = undefined      :: undefined | binary(),
           username    = undefined      :: undefined | binary(),
           password    = undefined      :: undefined | binary(),
-          is_bridge   = false          :: boolean()
+          is_bridge   = false          :: boolean(),
+          properties  = undefined      :: mqtt_properties() %% MQTT Version 5.0
         }).
 
 -record(mqtt_packet_connack,
         { ack_flags = ?RESERVED :: 0 | 1,
-          return_code           :: mqtt_connack()
+          reason_code           :: mqtt_connack(),
+          properties            :: map()
         }).
 
 -record(mqtt_packet_publish,
         { topic_name :: binary(),
-          packet_id  :: mqtt_packet_id()
+          packet_id  :: mqtt_packet_id(),
+          properties :: mqtt_properties()
         }).
 
 -record(mqtt_packet_puback,
-        { packet_id :: mqtt_packet_id() }).
+        { packet_id   :: mqtt_packet_id(),
+          reason_code :: mqtt_reason_code(),
+          properties  :: mqtt_properties()
+        }).
 
 -record(mqtt_packet_subscribe,
-        { packet_id   :: mqtt_packet_id(),
-          topic_table :: list({binary(), mqtt_qos()})
+        { packet_id     :: mqtt_packet_id(),
+          properties    :: mqtt_properties(),
+          topic_filters :: list({binary(), mqtt_subopt()})
         }).
 
 -record(mqtt_packet_unsubscribe,
-        { packet_id :: mqtt_packet_id(),
-          topics    :: list(binary())
+        { packet_id  :: mqtt_packet_id(),
+          properties :: mqtt_properties(),
+          topics     :: list(binary())
         }).
 
 -record(mqtt_packet_suback,
-        { packet_id :: mqtt_packet_id(),
-          qos_table :: list(mqtt_qos() | 128)
+        { packet_id    :: mqtt_packet_id(),
+          properties   :: mqtt_properties(),
+          reason_codes :: list(mqtt_reason_code())
         }).
 
 -record(mqtt_packet_unsuback,
-        { packet_id :: mqtt_packet_id() }).
+        { packet_id  :: mqtt_packet_id(),
+          properties :: mqtt_properties(),
+          reason_codes :: list(mqtt_reason_code())
+        }).
+
+-record(mqtt_packet_disconnect,
+        { reason_code :: mqtt_reason_code(),
+          properties  :: mqtt_properties()
+        }).
+
+-record(mqtt_packet_auth,
+        { reason_code :: mqtt_reason_code(),
+          properties  :: mqtt_properties()
+        }).
 
 %%--------------------------------------------------------------------
 %% MQTT Control Packet
@@ -215,11 +252,18 @@
 
 -record(mqtt_packet,
         { header   :: #mqtt_packet_header{},
-          variable :: #mqtt_packet_connect{} | #mqtt_packet_connack{}
-                    | #mqtt_packet_publish{} | #mqtt_packet_puback{}
-                    | #mqtt_packet_subscribe{} | #mqtt_packet_suback{}
-                    | #mqtt_packet_unsubscribe{} | #mqtt_packet_unsuback{}
-                    | mqtt_packet_id() | undefined,
+          variable :: #mqtt_packet_connect{}
+                    | #mqtt_packet_connack{}
+                    | #mqtt_packet_publish{}
+                    | #mqtt_packet_puback{}
+                    | #mqtt_packet_subscribe{}
+                    | #mqtt_packet_suback{}
+                    | #mqtt_packet_unsubscribe{}
+                    | #mqtt_packet_unsuback{}
+                    | #mqtt_packet_disconnect{}
+                    | #mqtt_packet_auth{}
+                    | mqtt_packet_id()
+                    | undefined,
           payload  :: binary() | undefined
         }).
 
@@ -232,14 +276,20 @@
 -define(CONNECT_PACKET(Var),
     #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT}, variable = Var}).
 
--define(CONNACK_PACKET(ReturnCode),
+-define(CONNACK_PACKET(ReasonCode),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},
-                 variable = #mqtt_packet_connack{return_code = ReturnCode}}).
+                 variable = #mqtt_packet_connack{reason_code = ReturnCode}}).
 
--define(CONNACK_PACKET(ReturnCode, SessPresent),
+-define(CONNACK_PACKET(ReasonCode, SessPresent),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},
                  variable = #mqtt_packet_connack{ack_flags = SessPresent,
-                                                 return_code = ReturnCode}}).
+                                                 reason_code = ReturnCode}}).
+
+-define(CONNACK_PACKET(ReasonCode, SessPresent, Properties),
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},
+                 variable = #mqtt_packet_connack{ack_flags = SessPresent,
+                                                 reason_code = ReasonCode,
+                                                 properties = Properties}}).
 
 -define(PUBLISH_PACKET(Qos, PacketId),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBLISH,
@@ -265,11 +315,18 @@
     #mqtt_packet{header = #mqtt_packet_header{type = ?SUBSCRIBE, qos = ?QOS_1},
                  variable = #mqtt_packet_subscribe{packet_id   = PacketId,
                                                    topic_table = TopicTable}}).
--define(SUBACK_PACKET(PacketId, QosTable),
+
+-define(SUBACK_PACKET(PacketId, ReasonCodes),
     #mqtt_packet{header = #mqtt_packet_header{type = ?SUBACK},
-                 variable = #mqtt_packet_suback{packet_id = PacketId,
-                                                qos_table = QosTable}}).
--define(UNSUBSCRIBE_PACKET(PacketId, Topics), 
+                 variable = #mqtt_packet_suback{packet_id    = PacketId,
+                                                reason_codes = ReasonCodes}}).
+
+-define(SUBACK_PACKET(PacketId, Properties, ReasonCodes),
+    #mqtt_packet{header = #mqtt_packet_header{type = ?SUBACK},
+                 variable = #mqtt_packet_suback{packet_id    = PacketId,
+                                                properties   = Properties,
+                                                reason_codes = ReasonCodes}}).
+-define(UNSUBSCRIBE_PACKET(PacketId, Topics),
     #mqtt_packet{header = #mqtt_packet_header{type = ?UNSUBSCRIBE, qos = ?QOS_1},
                  variable = #mqtt_packet_unsubscribe{packet_id = PacketId,
                                                      topics    = Topics}}).

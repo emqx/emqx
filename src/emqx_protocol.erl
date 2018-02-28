@@ -22,8 +22,6 @@
 
 -include("emqx_mqtt.hrl").
 
--include("emqx_internal.hrl").
-
 -import(proplists, [get_value/2, get_value/3]).
 
 %% API
@@ -64,7 +62,7 @@
 
 %% @doc Init protocol
 init(Peername, SendFun, Opts) ->
-    Backoff = get_value(keepalive_backoff, Opts, 1.25),
+    Backoff = get_value(keepalive_backoff, Opts, 0.75),
     EnableStats = get_value(client_enable_stats, Opts, false),
     MaxLen = get_value(max_clientid_len, Opts, ?MAX_CLIENTID_LEN),
     WsInitialHeaders = get_value(ws_initial_headers, Opts),
@@ -569,10 +567,10 @@ sp(false) -> 0.
 %% The retained flag should be propagated for bridge.
 %%--------------------------------------------------------------------
 
-clean_retain(false, Msg = #mqtt_message{retain = true, headers = Headers}) ->
+clean_retain(false, Msg = #message{retain = true, headers = Headers}) ->
     case lists:member(retained, Headers) of
         true  -> Msg;
-        false -> Msg#mqtt_message{retain = false}
+        false -> Msg#message{retain = false}
     end;
 clean_retain(_IsBridge, Msg) ->
     Msg.

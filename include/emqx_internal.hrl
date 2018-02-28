@@ -26,13 +26,6 @@
 
 -define(PROC_NAME(M, I), (list_to_atom(lists:concat([M, "_", I])))).
 
--define(record_to_proplist(Def, Rec),
-        lists:zip(record_info(fields, Def), tl(tuple_to_list(Rec)))).
-
--define(record_to_proplist(Def, Rec, Fields),
-    [{K, V} || {K, V} <- ?record_to_proplist(Def, Rec),
-                         lists:member(K, Fields)]).
-
 -define(UNEXPECTED_REQ(Req, State),
         (begin
             lager:error("[~s] Unexpected Request: ~p", [?MODULE, Req]),

@@ -14,7 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Session Helper.
 -module(emqx_sm_helper).
 
 -author("Feng Lee <feng@emqtt.io>").
@@ -22,8 +21,6 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
-
--include("emqx_internal.hrl").
 
 -include_lib("stdlib/include/ms_transform.hrl").
 
@@ -49,10 +46,12 @@ init([StatsFun]) ->
     {ok, #state{stats_fun = StatsFun, ticker = TRef}}.
 
 handle_call(Req, _From, State) ->
-    ?UNEXPECTED_REQ(Req, State).
+    lager:error("[SM-HELPER] Unexpected Call: ~p", [Req]),
+    {reply, ignore, State}.
 
 handle_cast(Msg, State) ->
-    ?UNEXPECTED_MSG(Msg, State).
+    lager:error("[SM-HELPER] Unexpected Cast: ~p", [Msg]),
+    {noreply, State}.
 
 handle_info({membership, {mnesia, down, Node}}, State) ->
     Fun = fun() ->
@@ -71,7 +70,8 @@ handle_info(tick, State) ->
     {noreply, setstats(State), hibernate};
 
 handle_info(Info, State) ->
-    ?UNEXPECTED_INFO(Info, State).
+    lager:error("[SM-HELPER] Unexpected Info: ~p", [Info]),
+    {noreply, State}.
 
 terminate(_Reason, _State = #state{ticker = TRef}) ->
     timer:cancel(TRef),

@@ -16,8 +16,6 @@
 
 -module(emqx_pooler).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -behaviour(gen_server).
 
 %% Start the pool supervisor

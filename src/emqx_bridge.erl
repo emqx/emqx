@@ -66,7 +66,7 @@ start_link(Pool, Id, Node, Topic, Options) ->
 %%--------------------------------------------------------------------
 
 init([Pool, Id, Node, Topic, Options]) ->
-    ?GPROC_POOL(join, Pool, Id),
+    gproc_pool:connect_worker(Pool, {Pool, Id}),
     process_flag(trap_exit, true),
     case net_kernel:connect_node(Node) of
         true -> 
@@ -151,8 +151,7 @@ handle_info(Info, State) ->
     ?UNEXPECTED_INFO(Info, State).
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
-    ?GPROC_POOL(leave, Pool, Id),
-    ok.
+    gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

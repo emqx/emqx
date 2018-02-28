@@ -14,15 +14,10 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Session Manager Supervisor.
-
 -module(emqx_sm_sup).
 
 -behaviour(supervisor).
 
--author("Feng Lee <feng@emqtt.io>").
-
--include("emqx.hrl").
 
 -define(SM, emqx_sm).
 
@@ -39,7 +34,7 @@ start_link() ->
 
 init([]) ->
     %% Create session tables
-    ets:new(mqtt_local_session, [public, ordered_set, named_table, {write_concurrency, true}]),
+    _ = ets:new(mqtt_local_session, [public, ordered_set, named_table, {write_concurrency, true}]),
 
     %% Helper
     StatsFun = emqx_stats:statsfun('sessions/count', 'sessions/max'),

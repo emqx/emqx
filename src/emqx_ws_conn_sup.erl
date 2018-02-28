@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,24 +14,21 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_ws_client_sup).
-
--author("Feng Lee <feng@emqtt.io>").
+-module(emqx_ws_conn_sup).
 
 -behavior(supervisor).
 
--export([start_link/0, start_client/3]).
+-export([start_link/0, start_connection/3]).
 
 -export([init/1]).
 
-%% @doc Start websocket client supervisor
 -spec(start_link() -> {ok, pid()}).
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-%% @doc Start a WebSocket Connection.
--spec(start_client(pid(), mochiweb_request:request(), fun()) -> {ok, pid()}).
-start_client(WsPid, Req, ReplyChannel) ->
+%% @doc Start a MQTT/WebSocket Connection.
+-spec(start_connection(pid(), mochiweb_request:request(), fun()) -> {ok, pid()}).
+start_connection(WsPid, Req, ReplyChannel) ->
     supervisor:start_child(?MODULE, [WsPid, Req, ReplyChannel]).
 
 %%--------------------------------------------------------------------
@@ -39,8 +36,9 @@ start_client(WsPid, Req, ReplyChannel) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
+    %%TODO: Cannot upgrade the environments, Use zone?
     Env = lists:append(emqx:env(client, []), emqx:env(protocol, [])),
     {ok, {{simple_one_for_one, 0, 1},
-           [{ws_client, {emqx_ws_client, start_link, [Env]},
-             temporary, 5000, worker, [emqx_ws_client]}]}}.
+           [{ws_conn, {emqx_ws_conn, start_link, [Env]},
+             temporary, 5000, worker, [emqx_ws_conn]}]}}.
 

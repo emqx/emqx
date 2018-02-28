@@ -49,8 +49,7 @@
 %% @doc Start the server
 -spec(start_link(atom(), pos_integer(), list()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id, Env) ->
-    gen_server:start_link({local, ?PROC_NAME(?MODULE, Id)},
-                          ?MODULE, [Pool, Id, Env], [{hibernate_after, 10000}]).
+    gen_server:start_link(?MODULE, [Pool, Id, Env], [{hibernate_after, 10000}]).
 
 %%--------------------------------------------------------------------
 %% PubSub API
@@ -186,7 +185,7 @@ dump() ->
 %%--------------------------------------------------------------------
 
 init([Pool, Id, Env]) ->
-    ?GPROC_POOL(join, Pool, Id),
+    gproc_pool:connect_worker(Pool, {Pool, Id}),
     State = #state{pool = Pool, id = Id, env = Env,
                    subids = #{}, submon = emqx_pmon:new()},
     {ok, State, hibernate}.
@@ -245,7 +244,7 @@ handle_info(Info, State) ->
     ?UNEXPECTED_INFO(Info, State).
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
-    ?GPROC_POOL(leave, Pool, Id).
+    gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
 code_change(_OldVsn, State, _Extra) ->
 	{ok, State}.

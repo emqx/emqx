@@ -14,17 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc MQTT Client Manager
-
 -module(emqx_cm).
 
 -behaviour(gen_server).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -include("emqx.hrl").
-
--include("emqx_internal.hrl").
 
 %% API Exports 
 -export([start_link/3]).
@@ -78,7 +72,7 @@ pick(ClientId) -> gproc_pool:pick_worker(?POOL, ClientId).
 %%--------------------------------------------------------------------
 
 init([Pool, Id, StatsFun]) ->
-    ?GPROC_POOL(join, Pool, Id),
+    gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #state{pool = Pool, id = Id, statsfun = StatsFun, monitors = dict:new()}}.
 
 handle_call({reg, Client = #mqtt_client{client_id  = ClientId,
@@ -92,7 +86,8 @@ handle_call({reg, Client = #mqtt_client{client_id  = ClientId,
     end;
 
 handle_call(Req, _From, State) ->
-    ?UNEXPECTED_REQ(Req, State).
+    lager:error("[MQTT-CM] Unexpected Call: ~p", [Req]),
+    {reply, ignore, State}.
 
 handle_cast({unreg, ClientId, Pid}, State) ->
     case lookup_proc(ClientId) of
@@ -104,7 +99,8 @@ handle_cast({unreg, ClientId, Pid}, State) ->
     end;
 
 handle_cast(Msg, State) ->
-    ?UNEXPECTED_MSG(Msg, State).
+    lager:error("[MQTT-CM] Unexpected Cast: ~p", [Msg]),
+    {noreply, State}.
 
 handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
     case dict:find(MRef, State#state.monitors) of
@@ -123,10 +119,11 @@ handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
     end;
 
 handle_info(Info, State) ->
-    ?UNEXPECTED_INFO(Info, State).
+    lager:error("[CM] Unexpected Info: ~p", [Info]),
+    {noreply, State}.
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
-    ?GPROC_POOL(leave, Pool, Id), ok.
+    gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

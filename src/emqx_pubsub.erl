@@ -20,8 +20,6 @@
 
 -include("emqx.hrl").
 
--include("emqx_internal.hrl").
-
 -export([start_link/3]).
 
 %% PubSub API.
@@ -46,8 +44,7 @@
 
 -spec(start_link(atom(), pos_integer(), list()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id, Env) ->
-    gen_server:start_link({local, ?PROC_NAME(?MODULE, Id)},
-                          ?MODULE, [Pool, Id, Env], [{hibernate_after, 10000}]).
+    gen_server:start_link(?MODULE, [Pool, Id, Env], [{hibernate_after, 10000}]).
 
 %%--------------------------------------------------------------------
 %% PubSub API
@@ -164,7 +161,7 @@ pick(Topic) ->
 %%--------------------------------------------------------------------
 
 init([Pool, Id, Env]) ->
-    ?GPROC_POOL(join, Pool, Id),
+    gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #state{pool = Pool, id = Id, env = Env}, hibernate}.
 
 handle_call({subscribe, Topic, Subscriber, Options}, _From, State) ->
@@ -193,7 +190,7 @@ handle_info(Info, State) ->
     ?UNEXPECTED_INFO(Info, State).
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
-    ?GPROC_POOL(leave, Pool, Id).
+    gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

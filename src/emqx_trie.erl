@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,15 +14,9 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc MQTT Topic Trie:
-%% [Trie](http://en.wikipedia.org/wiki/Trie)
-%% @end
-
 -module(emqx_trie).
 
--author("Feng Lee <feng@emqtt.io>").
-
--include("emqx_trie.hrl").
+-include("emqx.hrl").
 
 %% Mnesia Callbacks
 -export([mnesia/1]).

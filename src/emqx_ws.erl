@@ -52,7 +52,7 @@ handle_request('GET', "/mqtt", Req) ->
                     Parser = emqx_parser:initial_state(PacketSize),
                     %% Upgrade WebSocket.
                     {ReentryWs, ReplyChannel} = mochiweb_websocket:upgrade_connection(Req, fun ?MODULE:ws_loop/3),
-                    {ok, ClientPid} = emqx_ws_client_sup:start_client(self(), Req, ReplyChannel),
+                    {ok, ClientPid} = emqx_ws_conn_sup:start_connection(self(), Req, ReplyChannel),
                     ReentryWs(#wsocket_state{peername = Peername,
                                              parser = Parser,
                                              max_packet_size = PacketSize,
