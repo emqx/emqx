@@ -27,6 +27,58 @@
 %%-define(ERTS_MINIMUM, "9.0").
 
 %%--------------------------------------------------------------------
+%% Message and Delivery
+%%--------------------------------------------------------------------
+
+-type(message_id() :: binary() | undefined).
+
+-type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | atom()).
+
+-type(message_from() :: #{node      := atom(),
+                          clientid  := binary(),
+                          protocol  := protocol(),
+                          connector => atom(),
+                          peername  => {inet:ip_address(), inet:port_number()},
+                          username  => binary(),
+                          atom()    => term()}).
+
+-type(message_flags() :: #{dup     => boolean(), %% Dup flag
+                           qos     => 0 | 1 | 2, %% QoS
+                           sys     => boolean(), %% $SYS flag
+                           retain  => boolean(), %% Retain flag
+                           durable => boolean(), %% Durable flag
+                           atom()  => boolean()}).
+
+-type(message_headers() :: #{packet_id => pos_integer(),
+                             priority  => pos_integer(),
+                             expiry    => integer(), %% Time to live
+                             atom()    => term()}).
+
+%% See 'Application Message' in MQTT Version 5.0
+-record(message,
+        { id         :: message_id(),      %% Global unique id
+          from       :: message_from(),    %% Message from
+          sender     :: pid(),             %% The pid of the sender/publisher
+          flags      :: message_flags(),   %% Message flags
+          headers    :: message_headers()  %% Message headers
+          topic      :: binary(),          %% Message topic
+          properties :: map(),             %% Message user properties
+          payload    :: binary(),          %% Message payload
+          timestamp  :: erlang:timestamp() %% Timestamp
+        }).
+
+-type(message() :: #message{}).
+
+-record(delivery,
+        { %sender  :: pid(),    %% The pid of the sender/publisher
+          message :: message(), %% Message
+          flows   :: list()
+        }).
+
+-type(delivery() :: #delivery{}).
+
+
+%%--------------------------------------------------------------------
 %% Sys/Queue/Share Topics' Prefix
 %%--------------------------------------------------------------------
 
