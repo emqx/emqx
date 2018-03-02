@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,8 +15,6 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_packet).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqx.hrl").
 
@@ -92,8 +90,8 @@ format_variable(#mqtt_packet_connect{
     io_lib:format(Format1, Args1);
 
 format_variable(#mqtt_packet_connack{ack_flags   = AckFlags,
-                                     return_code = ReturnCode}) ->
-    io_lib:format("AckFlags=~p, RetainCode=~p", [AckFlags, ReturnCode]);
+                                     reason_code = ReasonCode}) ->
+    io_lib:format("AckFlags=~p, RetainCode=~p", [AckFlags, ReasonCode]);
 
 format_variable(#mqtt_packet_publish{topic_name = TopicName,
                                      packet_id  = PacketId}) ->
@@ -102,17 +100,17 @@ format_variable(#mqtt_packet_publish{topic_name = TopicName,
 format_variable(#mqtt_packet_puback{packet_id = PacketId}) ->
     io_lib:format("PacketId=~p", [PacketId]);
 
-format_variable(#mqtt_packet_subscribe{packet_id   = PacketId,
-                                       topic_table = TopicTable}) ->
-    io_lib:format("PacketId=~p, TopicTable=~p", [PacketId, TopicTable]);
+format_variable(#mqtt_packet_subscribe{packet_id     = PacketId,
+                                       topic_filters = TopicFilters}) ->
+    io_lib:format("PacketId=~p, TopicFilters=~p", [PacketId, TopicFilters]);
 
 format_variable(#mqtt_packet_unsubscribe{packet_id = PacketId,
                                          topics    = Topics}) ->
     io_lib:format("PacketId=~p, Topics=~p", [PacketId, Topics]);
 
 format_variable(#mqtt_packet_suback{packet_id = PacketId,
-                                    qos_table = QosTable}) ->
-    io_lib:format("PacketId=~p, QosTable=~p", [PacketId, QosTable]);
+                                    reason_codes = ReasonCodes}) ->
+    io_lib:format("PacketId=~p, ReasonCodes=~p", [PacketId, ReasonCodes]);
 
 format_variable(#mqtt_packet_unsuback{packet_id = PacketId}) ->
     io_lib:format("PacketId=~p", [PacketId]);

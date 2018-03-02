@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -21,8 +21,6 @@
 -include("emqx.hrl").
 
 -include("emqx_mqtt.hrl").
-
--include("emqx_internal.hrl").
 
 %% API Function Exports
 -export([start_link/5]).
@@ -104,10 +102,12 @@ qname(Node, Topic) ->
     iolist_to_binary(["Bridge:", Node, ":", Topic]).
 
 handle_call(Req, _From, State) ->
-    ?UNEXPECTED_REQ(Req, State).
+    lager:error("[~s] Unexpected Call: ~p", [?MODULE, Req]),
+    {reply, ignore, State}.
 
 handle_cast(Msg, State) ->
-    ?UNEXPECTED_MSG(Msg, State).
+    lager:error("[~s] Unexpected Cast: ~p", [?MODULE, Msg]),
+    {noreply, State}.
 
 handle_info({dispatch, _Topic, Msg}, State = #state{mqueue = MQ, status = down}) ->
     {noreply, State#state{mqueue = emqx_mqueue:in(Msg, MQ)}};
@@ -148,7 +148,8 @@ handle_info({'EXIT', _Pid, normal}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    ?UNEXPECTED_INFO(Info, State).
+    lager:error("[~s] Unexpected Info: ~p", [?MODULE, Info]),
+    {noreply, State}.
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
     gproc_pool:disconnect_worker(Pool, {Pool, Id}).

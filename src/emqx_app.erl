@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -17,10 +17,6 @@
 -module(emqx_app).
 
 -behaviour(application).
-
--author("Feng Lee <feng@emqtt.io>").
-
--include("emqx_cli.hrl").
 
 -include("emqx_mqtt.hrl").
 
@@ -54,11 +50,11 @@ stop(_State) ->
 %%--------------------------------------------------------------------
 
 print_banner() ->
-    ?PRINT("Starting ~s on node ~s~n", [?APP, node()]).
+    io:format("Starting ~s on node ~s~n", [?APP, node()]).
 
 print_vsn() ->
     {ok, Vsn} = application:get_key(vsn),
-    ?PRINT("~s ~s is running now!~n", [?APP, Vsn]).
+    io:format("~s ~s is running now!~n", [?APP, Vsn]).
 
 %%--------------------------------------------------------------------
 %% Register default ACL File

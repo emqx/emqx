@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,11 +18,7 @@
 
 -behaviour(emqx_acl_mod).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -include("emqx.hrl").
-
--include("emqx_cli.hrl").
 
 -export([all_rules/0]).
 
@@ -116,7 +112,7 @@ reload_acl(#state{config = undefined}) ->
 reload_acl(State) ->
     case catch load_rules_from_file(State) of
         {'EXIT', Error} -> {error, Error};
-        true -> ?PRINT("~s~n", ["reload acl_internal successfully"]), ok
+        true -> io:format("~s~n", ["reload acl_internal successfully"]), ok
     end.
 
 %% @doc ACL Module Description

@@ -18,8 +18,6 @@
 
 -behaviour(gen_server).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -include("emqx.hrl").
 
 %% API Function Exports

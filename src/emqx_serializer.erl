@@ -16,8 +16,6 @@
 
 -module(emqx_serializer).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -include("emqx.hrl").
 
 -include("emqx_mqtt.hrl").
@@ -83,11 +81,11 @@ serialize_variable(?CONNACK, #mqtt_packet_connack{ack_flags   = AckFlags,
                                                   reason_code = ReasonCode,
                                                   properties  = Properties}, undefined) ->
     PropsBin = serialize_properties(Properties),
-    {<<AckFlags:8, ReturnCode:8, PropsBin/binary>>, <<>>};
+    {<<AckFlags:8, ReasonCode:8, PropsBin/binary>>, <<>>};
 
 serialize_variable(?SUBSCRIBE, #mqtt_packet_subscribe{packet_id = PacketId,
-                                                      topic_table = Topics }, undefined) ->
-    {<<PacketId:16/big>>, serialize_topics(Topics)};
+                                                      topic_filters = TopicFilters}, undefined) ->
+    {<<PacketId:16/big>>, serialize_topics(TopicFilters)};
 
 serialize_variable(?SUBACK, #mqtt_packet_suback{packet_id = PacketId,
                                                 properties = Properties,
@@ -124,7 +122,7 @@ serialize_variable(?PINGRESP, undefined, undefined) ->
 
 serialize_variable(?DISCONNECT, #mqtt_packet_disconnect{reason_code = ReasonCode,
                                                         properties  = Properties}, undefined) ->
-    {<<ReasonCode, (serialize_properties(Properties))/binary>>, <<>>}.
+    {<<ReasonCode, (serialize_properties(Properties))/binary>>, <<>>};
 
 serialize_variable(?AUTH, #mqtt_packet_auth{reason_code = ReasonCode,
                                             properties  = Properties}, undefined) ->
@@ -138,7 +136,7 @@ serialize_payload(Bin) when is_binary(Bin) ->
 serialize_properties(undefined) ->
     <<>>;
 serialize_properties(Props) ->
-    << serialize_property(Prop, Val) || {Prop, Val} <= (maps:to_list(Props)) >>.
+    << <<(serialize_property(Prop, Val))/binary>> || {Prop, Val} <- maps:to_list(Props) >>.
 
 %% 01: Byte;
 serialize_property('Payload-Format-Indicator', Val) ->

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,11 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc Inflight Window that wraps the gb_trees.
-
 -module(emqx_inflight).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -export([new/1, contain/2, lookup/2, insert/3, update/3, delete/2, values/1,
          to_list/1, size/1, max_size/1, is_full/1, is_empty/1, window/1]).

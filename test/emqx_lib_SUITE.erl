@@ -16,8 +16,6 @@
 
 -module(emqx_lib_SUITE).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -include_lib("eunit/include/eunit.hrl").
 
 -compile(export_all).

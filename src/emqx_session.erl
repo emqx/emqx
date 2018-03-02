@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -47,11 +47,11 @@
 
 -behaviour(gen_server).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -include("emqx.hrl").
 
 -include("emqx_mqtt.hrl").
+
+-include("emqx_misc.hrl").
 
 -import(emqx_misc, [start_timer/2]).
 
@@ -192,15 +192,15 @@ subscribe(Session, PacketId, TopicTable) -> %%TODO: the ack function??...
 
 %% @doc Publish Message
 -spec(publish(pid(), message()) -> ok | {error, term()}).
-publish(_Session, Msg = #message{qos = ?QOS_0}) ->
+publish(_Session, Msg = #mqtt_message{qos = ?QOS_0}) ->
     %% Publish QoS0 Directly
     emqx_server:publish(Msg), ok;
 
-publish(_Session, Msg = #message{qos = ?QOS_1}) ->
+publish(_Session, Msg = #mqtt_message{qos = ?QOS_1}) ->
     %% Publish QoS1 message directly for client will PubAck automatically
     emqx_server:publish(Msg), ok;
 
-publish(Session, Msg = #message{qos = ?QOS_2}) ->
+publish(Session, Msg = #mqtt_message{qos = ?QOS_2}) ->
     %% Publish QoS2 to Session
     gen_server:call(Session, {publish, Msg}, ?TIMEOUT).
 
@@ -320,7 +320,7 @@ binding(ClientPid) ->
 handle_pre_hibernate(State) ->
     {hibernate, emqx_gc:reset_conn_gc_count(#state.force_gc_count, emit_stats(State))}.
 
-handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, pktid = PacketId}}, _From,
+handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, packet_id = PacketId}}, _From,
             State = #state{awaiting_rel      = AwaitingRel,
                            await_rel_timer   = Timer,
                            await_rel_timeout = Timeout}) ->
@@ -347,7 +347,8 @@ handle_call(state, _From, State) ->
     reply(?record_to_proplist(state, State, ?STATE_KEYS), State);
 
 handle_call(Req, _From, State) ->
-    ?UNEXPECTED_REQ(Req, State).
+    lager:error("[~s] Unexpected Call: ~p", [?MODULE, Req]),
+    {reply, ignore, State}.
 
 handle_cast({subscribe, From, TopicTable, AckFun},
             State = #state{client_id     = ClientId,
@@ -512,10 +513,11 @@ handle_cast({destroy, ClientId},
     shutdown(conflict, State);
 
 handle_cast(Msg, State) ->
-    ?UNEXPECTED_MSG(Msg, State).
+    lager:error("[~s] Unexpected Cast: ~p", [?MODULE, Msg]),
+    {noreply, State}.
 
 %% Ignore Messages delivered by self
-handle_info({dispatch, _Topic, #message{from = {ClientId, _}}},
+handle_info({dispatch, _Topic, #mqtt_message{from = {ClientId, _}}},
              State = #state{client_id = ClientId, ignore_loop_deliver = true}) ->
     {noreply, State};
 
@@ -560,8 +562,9 @@ handle_info({'EXIT', Pid, Reason}, State = #state{client_pid = ClientPid}) ->
          [ClientPid, Pid, Reason], State),
     {noreply, State, hibernate};
 
-handle_info(Info, Session) ->
-    ?UNEXPECTED_INFO(Info, Session).
+handle_info(Info, State) ->
+    lager:error("[~s] Unexpected Info: ~p", [?MODULE, Info]),
+    {noreply, State}.
 
 terminate(Reason, #state{client_id = ClientId, username = Username}) ->
     %% Move to emqx_sm to avoid race condition
@@ -608,7 +611,7 @@ retry_delivery(Force, [{Type, Msg, Ts} | Msgs], Now,
     if
         Force orelse (Diff >= Interval) ->
             case {Type, Msg} of
-                {publish, Msg = #mqtt_message{pktid = PacketId}} ->
+                {publish, Msg = #mqtt_message{packet_id = PacketId}} ->
                     redeliver(Msg, State),
                     Inflight1 = Inflight:update(PacketId, {publish, Msg, Now}),
                     retry_delivery(Force, Msgs, Now, State#state{inflight = Inflight1});
@@ -635,7 +638,7 @@ expire_awaiting_rel(State = #state{awaiting_rel = AwaitingRel}) ->
 expire_awaiting_rel([], _Now, State) ->
     State#state{await_rel_timer = undefined};
 
-expire_awaiting_rel([{PacketId, Msg = #message{timestamp = TS}} | Msgs],
+expire_awaiting_rel([{PacketId, Msg = #mqtt_message{timestamp = TS}} | Msgs],
                     Now, State = #state{awaiting_rel      = AwaitingRel,
                                         await_rel_timeout = Timeout}) ->
     case (timer:now_diff(Now, TS) div 1000) of
@@ -691,7 +694,7 @@ dispatch(Msg = #mqtt_message{qos = QoS},
         true  ->
             enqueue_msg(Msg, State);
         false ->
-            Msg1 = Msg#mqtt_message{pktid = MsgId},
+            Msg1 = Msg#mqtt_message{packet_id = MsgId},
             deliver(Msg1, State),
             await(Msg1, next_msg_id(State))
     end.
@@ -719,12 +722,15 @@ deliver(Msg, #state{client_pid = Pid, binding = remote}) ->
 %% Awaiting ACK for QoS1/QoS2 Messages
 %%--------------------------------------------------------------------
 
-await(Msg = #mqtt_message{pktid = PacketId},
+await(Msg = #mqtt_message{packet_id = PacketId},
       State = #state{inflight       = Inflight,
                      retry_timer    = RetryTimer,
                      retry_interval = Interval}) ->
     %% Start retry timer if the Inflight is still empty
-    State1 = ?IF(RetryTimer == undefined, State#state{retry_timer = start_timer(Interval, retry_delivery)}, State),
+    State1 = case RetryTimer == undefined of
+                 true  -> State#state{retry_timer = start_timer(Interval, retry_delivery)};
+                 false -> State
+             end,
     State1#state{inflight = Inflight:insert(PacketId, {publish, Msg, os:timestamp()})}.
 
 acked(puback, PacketId, State = #state{client_id = ClientId,

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,11 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc MQTT Message Functions
-
 -module(emqx_message).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqx.hrl").
 
@@ -57,7 +53,7 @@ from_packet(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                                                          packet_id  = PacketId},
                          payload  = Payload}) ->
     #mqtt_message{id        = msgid(),
-                  pktid     = PacketId,
+                  packet_id = PacketId,
                   qos       = Qos,
                   retain    = Retain,
                   dup       = Dup,
@@ -95,7 +91,7 @@ msgid() -> emqx_guid:gen().
 
 %% @doc Message to Packet
 -spec(to_packet(mqtt_message()) -> mqtt_packet()).
-to_packet(#mqtt_message{pktid   = PkgId,
+to_packet(#mqtt_message{packet_id  = PkgId,
                         qos     = Qos,
                         retain  = Retain,
                         dup     = Dup,
@@ -141,13 +137,13 @@ unset_flag(retain, Msg = #mqtt_message{retain = true}) ->
 unset_flag(Flag, Msg) when Flag =:= dup orelse Flag =:= retain -> Msg.
 
 %% @doc Format MQTT Message
-format(#mqtt_message{id = MsgId, pktid = PktId, from = {ClientId, Username},
+format(#mqtt_message{id = MsgId, packet_id = PktId, from = {ClientId, Username},
                      qos = Qos, retain = Retain, dup = Dup, topic =Topic}) ->
     io_lib:format("Message(Q~p, R~p, D~p, MsgId=~p, PktId=~p, From=~s/~s, Topic=~s)",
                   [i(Qos), i(Retain), i(Dup), MsgId, PktId, Username, ClientId, Topic]);
 
 %% TODO:...
-format(#mqtt_message{id = MsgId, pktid = PktId, from = From,
+format(#mqtt_message{id = MsgId, packet_id = PktId, from = From,
                      qos = Qos, retain = Retain, dup = Dup, topic =Topic}) ->
     io_lib:format("Message(Q~p, R~p, D~p, MsgId=~p, PktId=~p, From=~s, Topic=~s)",
                   [i(Qos), i(Retain), i(Dup), MsgId, PktId, From, Topic]).

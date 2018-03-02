@@ -16,8 +16,6 @@
 
 -module(emqx_parser).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -include("emqx.hrl").
 
 -include("emqx_mqtt.hrl").
@@ -27,53 +25,55 @@
 
 -type(max_packet_size() :: 1..?MAX_PACKET_SIZE).
 
--spec(initial_state() -> {none, max_packet_size()}).
+-type(state() :: #{maxlen := max_packet_size(), vsn := mqtt_vsn()}).
+
+-spec(initial_state() -> {none, state()}).
 initial_state() ->
     initial_state(?MAX_PACKET_SIZE).
 
 %% @doc Initialize a parser
--spec(initial_state(max_packet_size()) -> {none, max_packet_size()}).
+-spec(initial_state(max_packet_size()) -> {none, state()}).
 initial_state(MaxSize) ->
-    {none, MaxSize}.
+    {none, #{maxlen => MaxSize, vsn => ?MQTT_PROTO_V4}}.
 
 %% @doc Parse MQTT Packet
--spec(parse(binary(), {none, pos_integer()} | fun())
+-spec(parse(binary(), {none, state()} | fun())
             -> {ok, mqtt_packet()} | {error, term()} | {more, fun()}).
-parse(<<>>, {none, MaxLen}) ->
-    {more, fun(Bin) -> parse(Bin, {none, MaxLen}) end};
-parse(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>, {none, Limit}) ->
+parse(<<>>, {none, State}) ->
+    {more, fun(Bin) -> parse(Bin, {none, State}) end};
+parse(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>, {none, State}) ->
     parse_remaining_len(Rest, #mqtt_packet_header{type   = Type,
                                                   dup    = bool(Dup),
                                                   qos    = fixqos(Type, QoS),
-                                                  retain = bool(Retain)}, Limit);
+                                                  retain = bool(Retain)}, State);
 parse(Bin, Cont) -> Cont(Bin).
 
-parse_remaining_len(<<>>, Header, Limit) ->
-    {more, fun(Bin) -> parse_remaining_len(Bin, Header, Limit) end};
-parse_remaining_len(Rest, Header, Limit) ->
-    parse_remaining_len(Rest, Header, 1, 0, Limit).
+parse_remaining_len(<<>>, Header, State) ->
+    {more, fun(Bin) -> parse_remaining_len(Bin, Header, State) end};
+parse_remaining_len(Rest, Header, State) ->
+    parse_remaining_len(Rest, Header, 1, 0, State).
 
-parse_remaining_len(_Bin, _Header, _Multiplier, Length, MaxLen)
+parse_remaining_len(_Bin, _Header, _Multiplier, Length, #{maxlen := MaxLen})
     when Length > MaxLen ->
     {error, invalid_mqtt_frame_len};
-parse_remaining_len(<<>>, Header, Multiplier, Length, Limit) ->
-    {more, fun(Bin) -> parse_remaining_len(Bin, Header, Multiplier, Length, Limit) end};
-%% optimize: match PUBACK, PUBREC, PUBREL, PUBCOMP, UNSUBACK...
-parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, _Limit) ->
-    parse_frame(Rest, Header, 2);
+parse_remaining_len(<<>>, Header, Multiplier, Length, State) ->
+    {more, fun(Bin) -> parse_remaining_len(Bin, Header, Multiplier, Length, State) end};
+%% Optimize: match PUBACK, PUBREC, PUBREL, PUBCOMP, UNSUBACK...
+parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, State) ->
+    parse_frame(Rest, Header, 2, State);
 %% optimize: match PINGREQ...
-parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, _Limit) ->
-    parse_frame(Rest, Header, 0);
-parse_remaining_len(<<1:1, Len:7, Rest/binary>>, Header, Multiplier, Value, Limit) ->
-    parse_remaining_len(Rest, Header, Multiplier * ?HIGHBIT, Value + Len * Multiplier, Limit);
-parse_remaining_len(<<0:1, Len:7, Rest/binary>>, Header,  Multiplier, Value, MaxLen) ->
+parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, State) ->
+    parse_frame(Rest, Header, 0, State);
+parse_remaining_len(<<1:1, Len:7, Rest/binary>>, Header, Multiplier, Value, State) ->
+    parse_remaining_len(Rest, Header, Multiplier * ?HIGHBIT, Value + Len * Multiplier, State);
+parse_remaining_len(<<0:1, Len:7, Rest/binary>>, Header,  Multiplier, Value, State = #{maxlen := MaxLen}) ->
     FrameLen = Value + Len * Multiplier,
     if
         FrameLen > MaxLen -> {error, invalid_mqtt_frame_len};
-        true -> parse_frame(Rest, Header, FrameLen)
+        true -> parse_frame(Rest, Header, FrameLen, State)
     end.
 
-parse_frame(Bin, #mqtt_packet_header{type = Type, qos = Qos} = Header, Length) ->
+parse_frame(Bin, #mqtt_packet_header{type = Type, qos = Qos} = Header, Length, State = #{vsn := Vsn}) ->
     case {Type, Bin} of
         {?CONNECT, <<FrameBin:Length/binary, Rest/binary>>} ->
             {ProtoName, Rest1} = parse_utf(FrameBin),
@@ -95,7 +95,7 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos = Qos} = Header, Length) -
             {WillMsg,   Rest8} = parse_msg(Rest7, WillFlag),
             {UserName,  Rest9} = parse_utf(Rest8, UsernameFlag),
             {PasssWord, <<>>}  = parse_utf(Rest9, PasswordFlag),
-            case protocol_name_approved(ProtoVersion, ProtoName) of
+            case protocol_name_approved(ProtoVer, ProtoName) of
                 true ->
                     wrap(Header,
                          #mqtt_packet_connect{
@@ -128,7 +128,7 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos = Qos} = Header, Length) -
                                     _ -> <<Id:16/big, R/binary>> = Rest1,
                                          {Id, R}
                                 end,
-            {Properties, Payload} = parse_properties(ProtoVer, Rest),
+            {Properties, Payload} = parse_properties(Vsn, Rest2),
             wrap(fixdup(Header), #mqtt_packet_publish{topic_name = TopicName,
                                                       packet_id  = PacketId,
                                                       properties = Properties},
@@ -136,10 +136,10 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos = Qos} = Header, Length) -
         {PubAck, <<FrameBin:Length/binary, Rest/binary>>}
           when PubAck == ?PUBACK; PubAck == ?PUBREC; PubAck == ?PUBREL; PubAck == ?PUBCOMP ->
             <<PacketId:16/big, Rest1/binary>> = FrameBin,
-            case ProtoVer == ?MQTT_PROTO_V5 of
+            case Vsn == ?MQTT_PROTO_V5 of
                 true ->
                     <<ReasonCode, Rest2/binary>> = Rest1,
-                    {Properties, Rest3} = parse_properties(ProtoVer, Rest2),
+                    {Properties, Rest3} = parse_properties(Vsn, Rest2),
                     wrap(Header, #mqtt_packet_puback{packet_id   = PacketId,
                                                      reason_code = ReasonCode,
                                                      properties  = Properties}, Rest3);
@@ -149,11 +149,11 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos = Qos} = Header, Length) -
         {?SUBSCRIBE, <<FrameBin:Length/binary, Rest/binary>>} ->
             %% 1 = Qos,
             <<PacketId:16/big, Rest1/binary>> = FrameBin,
-            {Properties, Rest2} = parse_properties(ProtoVer, Rest1),
-            TopicTable = parse_topics(?SUBSCRIBE, Rest1, []),
-            wrap(Header, #mqtt_packet_subscribe{packet_id   = PacketId,
-                                                properties  = Properties,
-                                                topic_table = TopicTable}, Rest);
+            {Properties, Rest2} = parse_properties(Vsn, Rest1),
+            TopicFilters = parse_topics(?SUBSCRIBE, Rest2, []),
+            wrap(Header, #mqtt_packet_subscribe{packet_id     = PacketId,
+                                                properties    = Properties,
+                                                topic_filters = TopicFilters}, Rest);
         %{?SUBACK, <<FrameBin:Length/binary, Rest/binary>>} ->
         %    <<PacketId:16/big, Rest1/binary>> = FrameBin,
         %    {Properties, Rest2/binary>> = parse_properties(ProtoVer, Rest1),
@@ -162,7 +162,7 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos = Qos} = Header, Length) -
         {?UNSUBSCRIBE, <<FrameBin:Length/binary, Rest/binary>>} ->
             %% 1 = Qos,
             <<PacketId:16/big, Rest1/binary>> = FrameBin,
-            {Properties, Rest2} = parse_properties(ProtoVer, Rest1),
+            {Properties, Rest2} = parse_properties(Vsn, Rest1),
             Topics = parse_topics(?UNSUBSCRIBE, Rest2, []),
             wrap(Header, #mqtt_packet_unsubscribe{packet_id  = PacketId,
                                                   properties = Properties,
@@ -180,20 +180,19 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos = Qos} = Header, Length) -
         %    Length = 0,
         %    wrap(Header, Rest);
         {?DISCONNECT, <<FrameBin:Length/binary, Rest/binary>>} ->
-            case ProtoVer == ?MQTT_PROTO_V5 of
+            if
+                Vsn == ?MQTT_PROTO_V5 ->
+                    <<ReasonCode, Rest1/binary>> = FrameBin,
+                    {Properties, Rest2} = parse_properties(Vsn, Rest1),
+                    wrap(Header, #mqtt_packet_disconnect{reason_code = ReasonCode,
+                                                         properties  = Properties}, Rest2);
                 true ->
-                    <<ReasonCode, Rest1/binary>> = Rest,
-                    {Properties, Rest2} = parse_properties(ProtoVer, Rest1),
-                    wrap(Header, #mqtt_packet_disconnect{reason_code = Reason,
-                                                         properties = Properties}, Rest2);
-                false ->
-                    Lenght = 0, wrap(Header, Rest)
+                    Length = 0, wrap(Header, Rest)
             end;
         {_, TooShortBin} ->
             {more, fun(BinMore) ->
-                parse_frame(<<TooShortBin/binary, BinMore/binary>>,
-                    Header, Length)
-            end}
+                       parse_frame(<<TooShortBin/binary, BinMore/binary>>, Header, Length, State)
+                   end}
     end.
 
 wrap(Header, Variable, Payload, Rest) ->
@@ -205,12 +204,12 @@ wrap(Header, Rest) ->
 
 parse_will_props(Bin, ProtoVer = ?MQTT_PROTO_V5, 1) ->
     parse_properties(ProtoVer, Bin);
-parse_will_props(Bin, _ProtoVer, _WillFlag),
+parse_will_props(Bin, _ProtoVer, _WillFlag) ->
     {#{}, Bin}.
 
 parse_properties(?MQTT_PROTO_V5, Bin) ->
     {Len, Rest} = parse_variable_byte_integer(Bin),
-    <<PropsBin:Len/binary, Rest1} = Rest,
+    <<PropsBin:Len/binary, Rest1/binary>> = Rest,
     {parse_property(PropsBin, #{}), Rest1};
 parse_properties(_MQTT_PROTO_V3, Bin) ->
     {#{}, Bin}. %% No properties.
@@ -228,11 +227,11 @@ parse_property(<<16#03, Bin/binary>>, Props) ->
     {Val, Rest} = parse_utf(Bin),
     parse_property(Rest, Props#{'Content-Type' => Val});
 %% 08: 'Response-Topic', UTF-8 Encoded String;
-parse_property(<<16#08, Bin/binary>>) ->
+parse_property(<<16#08, Bin/binary>>, Props) ->
     {Val, Rest} = parse_utf(Bin),
     parse_property(Rest, Props#{'Response-Topic' => Val});
 %% 09: 'Correlation-Data', Binary Data;
-parse_property(<<16#09, Len:16/big, Val:Len/binary, Bin/binary>>) ->
+parse_property(<<16#09, Len:16/big, Val:Len/binary, Bin/binary>>, Props) ->
     parse_property(Bin, Props#{'Correlation-Data' => Val});
 %% 11: 'Subscription-Identifier', Variable Byte Integer;
 parse_property(<<16#0B, Bin/binary>>, Props) ->
@@ -242,18 +241,18 @@ parse_property(<<16#0B, Bin/binary>>, Props) ->
 parse_property(<<16#11, Val:32/big, Bin/binary>>, Props) ->
     parse_property(Bin, Props#{'Session-Expiry-Interval' => Val});
 %% 18: 'Assigned-Client-Identifier', UTF-8 Encoded String;
-parse_property(<<16#12, Bin/binary>>) ->
+parse_property(<<16#12, Bin/binary>>, Props) ->
     {Val, Rest} = parse_utf(Bin),
     parse_property(Rest, Props#{'Assigned-Client-Identifier' => Val});
 %% 19: 'Server-Keep-Alive', Two Byte Integer;
-parse_property(<<16#13, Val:16, Bin/binary>>) ->
+parse_property(<<16#13, Val:16, Bin/binary>>, Props) ->
     parse_property(Bin, Props#{'Server-Keep-Alive' => Val});
 %% 21: 'Authentication-Method', UTF-8 Encoded String;
 parse_property(<<16#15, Bin/binary>>, Props) ->
     {Val, Rest} = parse_utf(Bin),
-    parse_property(Rest, Props#{'Authentication-Method' => Val})
+    parse_property(Rest, Props#{'Authentication-Method' => Val});
 %% 22: 'Authentication-Data', Binary Data;
-parse_property(<<16#16, Len:16/big, Val:Len/binary, Bin/binary>>) ->
+parse_property(<<16#16, Len:16/big, Val:Len/binary, Bin/binary>>, Props) ->
     parse_property(Bin, Props#{'Authentication-Data' => Val});
 %% 23: 'Request-Problem-Information', Byte;
 parse_property(<<16#17, Val, Bin/binary>>, Props) ->
@@ -273,7 +272,7 @@ parse_property(<<16#1C, Bin/binary>>, Props) ->
     {Val, Rest} = parse_utf(Bin),
     parse_property(Rest, Props#{'Server-Reference' => Val});
 %% 31: 'Reason-String', UTF-8 Encoded String;
-parse_property(<<16#1F, Bin/binary, Props) ->
+parse_property(<<16#1F, Bin/binary>>, Props) ->
     {Val, Rest} = parse_utf(Bin),
     parse_property(Rest, Props#{'Reason-String' => Val});
 %% 33: 'Receive-Maximum', Two Byte Integer;
@@ -300,7 +299,7 @@ parse_property(<<16#26, Bin/binary>>, Props) ->
                          end);
 %% 39: 'Maximum-Packet-Size', Four Byte Integer;
 parse_property(<<16#27, Val:32, Bin/binary>>, Props) ->
-    parse_property(Rest, Props#{'Maximum-Packet-Size' => Val});
+    parse_property(Bin, Props#{'Maximum-Packet-Size' => Val});
 %% 40: 'Wildcard-Subscription-Available', Byte;
 parse_property(<<16#28, Val, Bin/binary>>, Props) ->
     parse_property(Bin, Props#{'Wildcard-Subscription-Available' => Val});
@@ -321,8 +320,8 @@ parse_variable_byte_integer(<<0:1, Len:7, Rest/binary>>, Multiplier, Value) ->
 parse_topics(_Packet, <<>>, Topics) ->
     lists:reverse(Topics);
 parse_topics(?SUBSCRIBE = Sub, Bin, Topics) ->
-    {Name, <<<<_Reserved:2, RetainHandling:2, KeepRetain:1, NoLocal:1, QoS:2>>, Rest/binary>>} = parse_utf(Bin),
-    SubOpts = [{qos, Qos}, {retain_handling, RetainHandling}, {keep_retain, KeepRetain}, {no_local, NoLocal}],
+    {Name, <<_Reserved:2, RetainHandling:2, KeepRetain:1, NoLocal:1, QoS:2, Rest/binary>>} = parse_utf(Bin),
+    SubOpts = [{qos, QoS}, {retain_handling, RetainHandling}, {keep_retain, KeepRetain}, {no_local, NoLocal}],
     parse_topics(Sub, Rest, [{Name, SubOpts}| Topics]);
 parse_topics(?UNSUBSCRIBE = Sub, Bin, Topics) ->
     {Name, <<Rest/binary>>} = parse_utf(Bin),

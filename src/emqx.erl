@@ -14,11 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc EMQ X Main Module.
-
 -module(emqx).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -include("emqx.hrl").
 

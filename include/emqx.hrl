@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -27,6 +27,16 @@
 %%-define(ERTS_MINIMUM, "9.0").
 
 %%--------------------------------------------------------------------
+%% Sys/Queue/Share Topics' Prefix
+%%--------------------------------------------------------------------
+
+-define(SYSTOP, <<"$SYS/">>).   %% System Topic
+
+-define(QUEUE,  <<"$queue/">>). %% Queue Topic
+
+-define(SHARE,  <<"$share/">>). %% Shared Topic
+
+%%--------------------------------------------------------------------
 %% Message and Delivery
 %%--------------------------------------------------------------------
 
@@ -34,7 +44,8 @@
 
 -type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | atom()).
 
--type(message_from() :: #{node      := atom(),
+-type(message_from() :: #{zone      := atom(),
+                          node      := atom(),
                           clientid  := binary(),
                           protocol  := protocol(),
                           connector => atom(),
@@ -60,7 +71,7 @@
           from       :: message_from(),    %% Message from
           sender     :: pid(),             %% The pid of the sender/publisher
           flags      :: message_flags(),   %% Message flags
-          headers    :: message_headers()  %% Message headers
+          headers    :: message_headers(), %% Message headers
           topic      :: binary(),          %% Message topic
           properties :: map(),             %% Message user properties
           payload    :: binary(),          %% Message payload
@@ -70,23 +81,11 @@
 -type(message() :: #message{}).
 
 -record(delivery,
-        { %sender  :: pid(),    %% The pid of the sender/publisher
-          message :: message(), %% Message
+        { message :: message(),
           flows   :: list()
         }).
 
 -type(delivery() :: #delivery{}).
-
-
-%%--------------------------------------------------------------------
-%% Sys/Queue/Share Topics' Prefix
-%%--------------------------------------------------------------------
-
--define(SYSTOP, <<"$SYS/">>).   %% System Topic
-
--define(QUEUE,  <<"$queue/">>). %% Queue Topic
-
--define(SHARE,  <<"$share/">>). %% Shared Topic
 
 %%--------------------------------------------------------------------
 %% PubSub
@@ -97,20 +96,16 @@
 -define(PS(PS), (PS =:= publish orelse PS =:= subscribe)).
 
 %%--------------------------------------------------------------------
-%% MQTT Topic
+%% Subscription
 %%--------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% MQTT Subscription
-%%--------------------------------------------------------------------
-
--record(mqtt_subscription,
-        { subid :: binary() | atom(),
-          topic :: binary(),
-          qos   :: 0 | 1 | 2
+-record(subscription,
+        { subid   :: binary() | atom(),
+          topic   :: binary(),
+          subopts :: list()
         }).
 
--type(mqtt_subscription() :: #mqtt_subscription{}).
+-type(subscription() :: #subscription{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Client
@@ -148,57 +143,6 @@
         }).
 
 -type(mqtt_session() :: #mqtt_session{}).
-
-%%--------------------------------------------------------------------
-%% MQTT Message
-%%--------------------------------------------------------------------
-
--type(mqtt_msg_id() :: binary() | undefined).
-
--type(mqtt_pktid() :: 1..16#ffff | undefined).
-
--type(mqtt_msg_from() :: atom() | {binary(), undefined | binary()}).
-
--record(mqtt_message,
-        { %% Global unique message ID
-          id              :: mqtt_msg_id(),
-          %% PacketId
-          pktid           :: mqtt_pktid(),
-          %% ClientId and Username
-          from            :: mqtt_msg_from(),
-          %% Topic that the message is published to
-          topic           :: binary(),
-          %% Message QoS
-          qos     = 0     :: 0 | 1 | 2,
-          %% Message Flags
-          flags   = []    :: [retain | dup | sys],
-          %% Retain flag
-          retain  = false :: boolean(),
-          %% Dup flag
-          dup     = false :: boolean(),
-          %% $SYS flag
-          sys     = false :: boolean(),
-          %% Headers
-          headers = []    :: list(),
-          %% Payload
-          payload         :: binary(),
-          %% Timestamp
-          timestamp       :: erlang:timestamp()
-        }).
-
--type(mqtt_message() :: #mqtt_message{}).
-
-%%--------------------------------------------------------------------
-%% MQTT Delivery
-%%--------------------------------------------------------------------
-
--record(mqtt_delivery,
-        { sender  :: pid(),          %% Pid of the sender/publisher
-          message :: mqtt_message(), %% Message
-          flows   :: list()
-        }).
-
--type(mqtt_delivery() :: #mqtt_delivery{}).
 
 %%--------------------------------------------------------------------
 %% Route
@@ -254,10 +198,10 @@
 -type(plugin() :: #plugin{}).
 
 %%--------------------------------------------------------------------
-%% MQTT CLI Command. For example: 'broker metrics'
+%% Command
 %%--------------------------------------------------------------------
 
--record(mqtt_cli, { name, action, args = [], opts = [], usage, descr }).
+-record(command, { name, action, args = [], opts = [], usage, descr }).
 
--type(mqtt_cli() :: #mqtt_cli{}).
+-type(command() :: #command{}).
 

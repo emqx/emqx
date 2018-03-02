@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 -module(emqx_sup).
 
 -behaviour(supervisor).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -export([start_link/0, start_child/1, start_child/2, stop_child/1]).
 

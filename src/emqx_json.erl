@@ -14,17 +14,23 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_sup).
+-module(emqx_json).
 
--export([start_link/3]).
+-export([encode/1, encode/2, decode/1, decode/2]).
 
-%%--------------------------------------------------------------------
-%% API
-%%--------------------------------------------------------------------
+-spec(encode(jsx:json_term()) -> jsx:json_text()).
+encode(Term) ->
+    jsx:encode(Term).
 
-%% @doc Start bridge pool supervisor
--spec(start_link(atom(), binary(), [emqx_bridge:option()]) -> {ok, pid()} | {error, term()}).
-start_link(Node, Topic, Options) ->
-    MFA = {emqx_bridge, start_link, [Node, Topic, Options]},
-    emqx_pool_sup:start_link({bridge, Node, Topic}, random, MFA).
+-spec(encode(jsx:json_term(), jsx_to_json:config()) -> jsx:json_text()).
+encode(Term, Opts) ->
+    jsx:encode(Term, Opts).
+
+-spec(decode(jsx:json_text()) -> jsx:json_term()).
+decode(JSON) ->
+    jsx:decode(JSON).
+
+-spec(decode(jsx:json_text(), jsx_to_json:config()) -> jsx:json_term()).
+decode(JSON, Opts) ->
+    jsx:decode(JSON, Opts).
 

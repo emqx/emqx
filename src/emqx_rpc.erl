@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -13,18 +13,12 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
-%%
-%% @doc EMQ X Distributed RPC.
-%%
-%%--------------------------------------------------------------------
 
 -module(emqx_rpc).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -export([cast/4]).
 
-%% @doc Wraps gen_rpc first.
 cast(Node, Mod, Fun, Args) ->
-    emqx_metrics:inc('messages/forward'), rpc:cast(Node, Mod, Fun, Args).
+    emqx_metrics:inc('messages/forward'),
+    rpc:cast(Node, Mod, Fun, Args).
 

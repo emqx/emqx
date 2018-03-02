@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -203,7 +203,7 @@ handle_info({suback, PacketId, GrantedQos}, State) ->
 
 %% Fastlane
 handle_info({dispatch, _Topic, Message}, State) ->
-    handle_info({deliver, Message#message{qos = ?QOS_0}}, State);
+    handle_info({deliver, Message#mqtt_message{qos = ?QOS_0}}, State);
 
 handle_info({deliver, Message}, State) ->
     with_proto(
@@ -259,16 +259,16 @@ handle_info({keepalive, start, Interval}, State = #state{connection = Conn}) ->
              end,
     case emqx_keepalive:start(StatFun, Interval, {keepalive, check}) of
         {ok, KeepAlive} ->
-            {noreply, State#client_state{keepalive = KeepAlive}};
+            {noreply, State#state{keepalive = KeepAlive}};
         {error, Error} ->
             ?LOG(warning, "Keepalive error - ~p", [Error], State),
             shutdown(Error, State)
     end;
 
-handle_info({keepalive, check}, State = #client_state{keepalive = KeepAlive}) ->
+handle_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
     case emqx_keepalive:check(KeepAlive) of
         {ok, KeepAlive1} ->
-            {noreply, State#client_state{keepalive = KeepAlive1}};
+            {noreply, State#state{keepalive = KeepAlive1}};
         {error, timeout} ->
             ?LOG(debug, "Keepalive timeout", [], State),
             shutdown(keepalive_timeout, State);

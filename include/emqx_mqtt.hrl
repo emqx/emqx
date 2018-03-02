@@ -311,10 +311,10 @@
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREL, qos = ?QOS_1},
                  variable = #mqtt_packet_puback{packet_id = PacketId}}).
 
--define(SUBSCRIBE_PACKET(PacketId, TopicTable), 
+-define(SUBSCRIBE_PACKET(PacketId, TopicFilters), 
     #mqtt_packet{header = #mqtt_packet_header{type = ?SUBSCRIBE, qos = ?QOS_1},
-                 variable = #mqtt_packet_subscribe{packet_id   = PacketId,
-                                                   topic_table = TopicTable}}).
+                 variable = #mqtt_packet_subscribe{packet_id     = PacketId,
+                                                   topic_filters = TopicFilters}}).
 
 -define(SUBACK_PACKET(PacketId, ReasonCodes),
     #mqtt_packet{header = #mqtt_packet_header{type = ?SUBACK},
@@ -336,4 +336,53 @@
 
 -define(PACKET(Type),
     #mqtt_packet{header = #mqtt_packet_header{type = Type}}).
+
+%%--------------------------------------------------------------------
+%% MQTT Message
+%%--------------------------------------------------------------------
+
+-type(mqtt_msg_id() :: binary() | undefined).
+
+-type(mqtt_msg_from() :: atom() | {binary(), undefined | binary()}).
+
+-record(mqtt_message,
+        { %% Global unique message ID
+          id              :: mqtt_msg_id(),
+          %% PacketId
+          packet_id       :: mqtt_packet_id(),
+          %% ClientId and Username
+          from            :: mqtt_msg_from(),
+          %% Topic that the message is published to
+          topic           :: binary(),
+          %% Message QoS
+          qos     = 0     :: mqtt_qos(),
+          %% Message Flags
+          flags   = []    :: [retain | dup | sys],
+          %% Retain flag
+          retain  = false :: boolean(),
+          %% Dup flag
+          dup     = false :: boolean(),
+          %% $SYS flag
+          sys     = false :: boolean(),
+          %% Headers
+          headers = []    :: list(),
+          %% Payload
+          payload         :: binary(),
+          %% Timestamp
+          timestamp       :: erlang:timestamp()
+        }).
+
+-type(mqtt_message() :: #mqtt_message{}).
+
+%%--------------------------------------------------------------------
+%% MQTT Delivery
+%%--------------------------------------------------------------------
+
+-record(mqtt_delivery,
+        { sender  :: pid(),
+          message :: mqtt_message(),
+          flows   :: list()
+        }).
+
+-type(mqtt_delivery() :: #mqtt_delivery{}).
 

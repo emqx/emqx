@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,11 +16,11 @@
 
 -module(emqx_protocol).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -include("emqx.hrl").
 
 -include("emqx_mqtt.hrl").
+
+-include("emqx_misc.hrl").
 
 -import(proplists, [get_value/2, get_value/3]).
 
@@ -241,8 +241,8 @@ process(?CONNECT_PACKET(Var), State0) ->
     end,
     %% Run hooks
     emqx_hooks:run('client.connected', [ReturnCode1], client(State3)),
-    %% Send connack
-    send(?CONNACK_PACKET(ReturnCode1, sp(SessPresent)), State3),
+    %%TODO: Send Connack
+    %% send(?CONNACK_PACKET(ReturnCode1, sp(SessPresent)), State3),
     %% stop if authentication failure
     stop_if_auth_failure(ReturnCode1, State3);
 
@@ -567,10 +567,10 @@ sp(false) -> 0.
 %% The retained flag should be propagated for bridge.
 %%--------------------------------------------------------------------
 
-clean_retain(false, Msg = #message{retain = true, headers = Headers}) ->
+clean_retain(false, Msg = #mqtt_message{retain = true, headers = Headers}) ->
     case lists:member(retained, Headers) of
         true  -> Msg;
-        false -> Msg#message{retain = false}
+        false -> Msg#mqtt_message{retain = false}
     end;
 clean_retain(_IsBridge, Msg) ->
     Msg.

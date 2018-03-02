@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -19,6 +19,8 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+
+-include("emqx_mqtt.hrl").
 
 -export([start_link/3]).
 
@@ -173,7 +175,8 @@ handle_call({unsubscribe, Topic, Subscriber, Options}, _From, State) ->
     reply(ok, setstats(State));
 
 handle_call(Req, _From, State) ->
-    ?UNEXPECTED_REQ(Req, State).
+    lager:error("[~s] Unexpected Call: ~p", [?MODULE, Req]),
+    {reply, ignore, State}.
 
 handle_cast({subscribe, Topic, Subscriber, Options}, State) ->
     add_subscriber(Topic, Subscriber, Options),
@@ -184,10 +187,12 @@ handle_cast({unsubscribe, Topic, Subscriber, Options}, State) ->
     noreply(setstats(State));
 
 handle_cast(Msg, State) ->
-    ?UNEXPECTED_MSG(Msg, State).
+    lager:error("[~s] Unexpected Cast: ~p", [?MODULE, Msg]),
+    {noreply, State}.
 
 handle_info(Info, State) ->
-    ?UNEXPECTED_INFO(Info, State).
+    lager:error("[~s] Unexpected Info: ~p", [?MODULE, Info]),
+    {noreply, State}.
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
     gproc_pool:disconnect_worker(Pool, {Pool, Id}).

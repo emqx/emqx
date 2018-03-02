@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,8 +15,6 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_alarm).
-
--author("Feng Lee <feng@emqtt.io>").
 
 -behaviour(gen_event).
 
@@ -88,17 +86,25 @@ handle_event({set_alarm, Alarm = #alarm{id       = AlarmId,
                                         title    = Title,
                                         summary  = Summary}}, Alarms)->
     TS = os:timestamp(),
-    Json = mochijson2:encode([{id, AlarmId},
-                              {severity, Severity},
-                              {title, iolist_to_binary(Title)},
-                              {summary, iolist_to_binary(Summary)},
-                              {ts, emqx_time:now_secs(TS)}]),
-    emqx:publish(alarm_msg(alert, AlarmId, Json)),
+    case catch emqx_json:encode([{id, AlarmId},
+                                 {severity, Severity},
+                                 {title, iolist_to_binary(Title)},
+                                 {summary, iolist_to_binary(Summary)},
+                                 {ts, emqx_time:now_secs(TS)}]) of
+        {'EXIT', Reason} ->
+            lager:error("Failed to encode set_alarm: ~p", [Reason]);
+        JSON ->
+            emqx_broker:publish(alarm_msg(alert, AlarmId, JSON))
+    end,
     {ok, [Alarm#alarm{timestamp = TS} | Alarms]};
 
 handle_event({clear_alarm, AlarmId}, Alarms) ->
-    Json = mochijson2:encode([{id, AlarmId}, {ts, emqx_time:now_secs()}]),
-    emqx:publish(alarm_msg(clear, AlarmId, Json)),
+    case catch emqx_json:encode([{id, AlarmId}, {ts, emqx_time:now_secs()}]) of
+        {'EXIT', Reason} ->
+            lager:error("Failed to encode clear_alarm: ~p", [Reason]);
+        JSON -> 
+            emqx_broker:publish(alarm_msg(clear, AlarmId, JSON))
+    end,
     {ok, lists:keydelete(AlarmId, 2, Alarms), hibernate};
 
 handle_event(_, Alarms)->
