@@ -9,8 +9,8 @@ NO_AUTOPATCH = gen_rpc cuttlefish
 DEPS = goldrush gproc lager esockd ekka mochiweb pbkdf2 lager_syslog bcrypt clique jsx
 
 dep_goldrush     = git https://github.com/basho/goldrush 0.1.9
-dep_gproc        = git https://github.com/uwiger/gproc
-dep_jsx          = git https://github.com/talentdeficit/jsx
+dep_gproc        = git https://github.com/uwiger/gproc 0.7.0
+dep_jsx          = git https://github.com/talentdeficit/jsx 2.9.0
 dep_getopt       = git https://github.com/jcomellas/getopt v0.8.2
 dep_lager        = git https://github.com/basho/lager master
 dep_lager_syslog = git https://github.com/basho/lager_syslog
