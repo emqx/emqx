@@ -6,7 +6,7 @@ PROJECT_VERSION = 3.0
 
 NO_AUTOPATCH = gen_rpc cuttlefish
 
-DEPS = goldrush gproc lager esockd ekka mochiweb pbkdf2 lager_syslog bcrypt clique jsx
+DEPS = goldrush gproc lager esockd ekka mochiweb pbkdf2 lager_syslog bcrypt clique jsx canal_lock
 
 dep_goldrush     = git https://github.com/basho/goldrush 0.1.9
 dep_gproc        = git https://github.com/uwiger/gproc 0.7.0
@@ -20,6 +20,8 @@ dep_mochiweb     = git https://github.com/emqtt/mochiweb v4.2.2
 dep_pbkdf2       = git https://github.com/emqtt/pbkdf2 2.0.1
 dep_bcrypt       = git https://github.com/smarkets/erlang-bcrypt master
 dep_clique       = git https://github.com/emqtt/clique
+dep_clique       = git https://github.com/emqtt/clique
+dep_canal_lock   = git https://github.com/emqx/canal-lock
 
 ERLC_OPTS += +debug_info
 ERLC_OPTS += +'{parse_transform, lager_transform}'
