@@ -569,11 +569,11 @@ sp(false) -> 0.
 
 clean_retain(false, Msg = #mqtt_message{retain = true, flags = Flags}) ->
     case Flags -- [new_sub_retain] of
-      Flags -> Msg#mqtt_message{retain = false};
+      Flags -> Msg#mqtt_message{retain = false}; % clean retain flag for existing subscription
       RetainFlags -> Msg#mqtt_message{flags = RetainFlags}
     end;
-clean_retain(_IsBridge, Msg) ->
-    Msg.
+clean_retain(_IsBridge, Msg = #mqtt_message{flags = Flags}) ->
+    Msg#mqtt_message{flags = Flags -- [new_sub_retain]}.
 
 %%--------------------------------------------------------------------
 %% Mount Point
