@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
+%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
 
 -module(emqx_topic).
 
+-include("emqx.hrl").
+
 -include("emqx_mqtt.hrl").
 
 -import(lists, [reverse/1]).
@@ -26,9 +28,7 @@
 
 -export([parse/1, parse/2]).
 
--type(topic() :: binary()).
-
--type(option() :: local | {qos, mqtt_qos()} | {share, '$queue' | binary()}).
+-type(option() :: {qos, mqtt_qos()} | {share, '$queue' | binary()}).
 
 -type(word()   :: '' | '+' | '#' | binary()).
 
@@ -36,7 +36,7 @@
 
 -type(triple() :: {root | binary(), word(), binary()}).
 
--export_type([topic/0, option/0, word/0, triple/0]).
+-export_type([option/0, word/0, triple/0]).
 
 -define(MAX_TOPIC_LEN, 4096).
 
@@ -101,7 +101,7 @@ validate2([''|Words]) ->
 validate2(['+'|Words]) ->
     validate2(Words);
 validate2([W|Words]) ->
-    case validate3(W) of true -> validate2(Words); false -> false end.
+    validate3(W) andalso validate2(Words).
 
 validate3(<<>>) ->
     true;
@@ -177,39 +177,24 @@ join(Words) ->
 parse(Topic) when is_binary(Topic) ->
     parse(Topic, []).
 
-parse(<<"$local/", Topic1/binary>>, Options) ->
-    if_not_contain(local, Options, fun() ->
-                       parse(Topic1, [local | Options])
-                   end);
-
-parse(<<"$fastlane/", Topic1/binary>>, Options) ->
-    if_not_contain(fastlane, Options, fun() ->
-                       parse(Topic1, [fastlane | Options])
-                   end);
-
-parse(<<"$queue/", Topic1/binary>>, Options) ->
-    if_not_contain(share, Options,fun() ->
-                       parse(Topic1, [{share, '$queue'} | Options])
-                   end);
-
-parse(<<"$share/", Topic1/binary>>, Options) ->
-    if_not_contain(share, Options, fun() ->
-                       [Share, Topic2] = binary:split(Topic1, <<"/">>),
-                       {Topic2, [{share, Share} | Options]}
-                   end);
-
-parse(Topic, Options) ->
-    {Topic, Options}.
-
-if_not_contain(Key, Options, Fun) when Key == local; Key == fastlane ->
-    case lists:member(Key, Options) of
-       true  -> error(invalid_topic);
-       false -> Fun()
+parse(Topic = <<"$fastlane/", Topic1/binary>>, Options) ->
+    case lists:member(fastlane, Options) of
+        true  -> error({invalid_topic, Topic});
+        false -> parse(Topic1, [fastlane | Options])
     end;
 
-if_not_contain(share, Options, Fun) ->
+parse(Topic = <<"$queue/", Topic1/binary>>, Options) ->
     case lists:keyfind(share, 1, Options) of
-        true  -> error(invalid_topic);
-        false -> Fun()
-    end.
+        {share, _} -> error({invalid_topic, Topic});
+        false      -> parse(Topic1, [{share, '$queue'} | Options])
+    end;
+
+parse(Topic = <<"$share/", Topic1/binary>>, Options) ->
+    case lists:keyfind(share, 1, Options) of
+        {share, _} -> error({invalid_topic, Topic});
+        false      -> [Group, Topic2] = binary:split(Topic1, <<"/">>),
+                      {Topic2, [{share, Group} | Options]}
+    end;
+
+parse(Topic, Options) -> {Topic, Options}.
 

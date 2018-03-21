@@ -37,12 +37,40 @@
 -define(SHARE,  <<"$share/">>). %% Shared Topic
 
 %%--------------------------------------------------------------------
+%% Client and Session
+%%--------------------------------------------------------------------
+
+-type(topic() :: binary()).
+
+-type(subscriber() :: pid() | binary() | {binary(), pid()}).
+
+-type(suboption() :: {qos, non_neg_integer()} | {share, {'$queue' | binary()}}).
+
+-type(client_id() :: binary() | atom()).
+
+-type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | atom()).
+
+-type(client() :: #{zone      := atom(),
+                    node      := atom(),
+                    clientid  := client_id(),
+                    protocol  := protocol(),
+                    connector => atom(),
+                    peername  => {inet:ip_address(), inet:port_number()},
+                    username  => binary(),
+                    atom()    => term()}).
+
+-type(session() :: #{client_id       := client_id(),
+                     clean_start     := boolean(),
+                     expiry_interval := non_neg_integer()}).
+
+
+%%--------------------------------------------------------------------
 %% Message and Delivery
 %%--------------------------------------------------------------------
 
 -type(message_id() :: binary() | undefined).
 
--type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | atom()).
+%% -type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | atom()).
 
 -type(message_from() :: #{zone      := atom(),
                           node      := atom(),
@@ -148,7 +176,7 @@
 %% Route
 %%--------------------------------------------------------------------
 
--record(route, { topic :: binary(), node :: node() }).
+-record(route, { topic :: binary(), dest :: {binary(), node()} | node() }).
 
 -type(route() :: #route{}).
 

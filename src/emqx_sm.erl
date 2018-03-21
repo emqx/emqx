@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
+%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@
 %% API Function Exports
 -export([start_link/2]).
 
--export([start_session/2, lookup_session/1, register_session/3,
+-export([open_session/1, start_session/2, lookup_session/1, register_session/3,
          unregister_session/1, unregister_session/2]).
 
 -export([dispatch/3]).
@@ -47,7 +47,7 @@
 -define(TIMEOUT, 120000).
 
 -define(LOG(Level, Format, Args, Session),
-            lager:Level("SM(~s): " ++ Format, [Session#mqtt_session.client_id | Args])).
+            lager:Level("SM(~s): " ++ Format, [Session#session.client_id | Args])).
 
 %%--------------------------------------------------------------------
 %% Mnesia callbacks
@@ -55,7 +55,7 @@
 
 mnesia(boot) ->
     %% Global Session Table
-    ok = ekka_mnesia:create_table(mqtt_session, [
+    ok = ekka_mnesia:create_table(session, [
                 {type, set},
                 {ram_copies, [node()]},
                 {record_name, mqtt_session},
@@ -67,6 +67,49 @@ mnesia(copy) ->
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
+
+%% Open a clean start session.
+open_session(Session = #{client_id := ClientId, clean_start := true, expiry_interval := Interval}) ->
+    with_lock(ClientId,
+              fun() ->
+                  {ResL, BadNodes} = emqx_rpc:multicall(ekka:nodelist(), ?MODULE, discard_session, [ClientId]),
+                  io:format("ResL: ~p, BadNodes: ~p~n", [ResL, BadNodes]),
+                  case Interval > 0 of
+                      true ->
+                          {ok, emqx_session_sup:start_session_process(Session)};
+                      false ->
+                          {ok, emqx_session:init_state(Session)}
+                  end
+              end).
+
+open_session(Session = #{client_id := ClientId, clean_start := false, expiry_interval := Interval}) ->
+    with_lock(ClientId,
+              fun() ->
+                  {ResL, BadNodes} = emqx_rpc:multicall(ekka:nodelist(), ?MODULE, lookup_session, [ClientId]),
+                  [SessionPid | _] = lists:flatten(ResL),
+
+                  
+                
+              end).
+
+lookup_session(ClientId) ->
+    ets:lookup(session, ClientId). 
+
+
+lookup_session(ClientId) ->
+    ets:lookup(session, ClientId).
+
+with_lock(undefined, Fun) ->
+    Fun();
+
+
+with_lock(ClientId, Fun) ->
+    case emqx_sm_locker:lock(ClientId) of
+        true  -> Result = Fun(),
+                 ok = emqx_sm_locker:unlock(ClientId),
+                 Result;
+        false -> {error, client_id_unavailable}
+    end.
 
 %% @doc Start a session manager
 -spec(start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, term()}).
@@ -92,7 +135,7 @@ lookup_session(ClientId) ->
 register_session(ClientId, CleanSess, Properties) ->
     ets:insert(mqtt_local_session, {ClientId, self(), CleanSess, Properties}).
 
-%% @doc Unregister a session.
+%% @doc Unregister a Session.
 -spec(unregister_session(binary()) -> boolean()).
 unregister_session(ClientId) ->
     unregister_session(ClientId, self()).

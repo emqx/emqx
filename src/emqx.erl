@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
+%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -32,8 +32,11 @@
 -export([subscribe/1, subscribe/2, subscribe/3, publish/1,
          unsubscribe/1, unsubscribe/2]).
 
-%% PubSub Management API
--export([setqos/3, topics/0, subscriptions/1, subscribers/1, subscribed/2]).
+%% PubSub management API
+-export([topics/0, subscriptions/1, subscribers/1, subscribed/2]).
+
+%% Get/Set suboptions
+-export([getopts/2, setopts/3]).
 
 %% Hooks API
 -export([hook/4, hook/3, unhook/2, run_hooks/2, run_hooks/3]).
@@ -46,21 +49,13 @@
 
 -type(listener() :: {atom(), esockd:listen_on(), [esockd:option()]}).
 
--type(subid() :: binary()).
-
--type(subscriber() :: pid() | subid() | {subid(), pid()}).
-
--type(suboption() :: local | {qos, non_neg_integer()} | {share, {'$queue' | binary()}}).
-
--export_type([subscriber/0, suboption/0]).
-
 -define(APP, ?MODULE).
 
 %%--------------------------------------------------------------------
 %% Bootstrap, environment, configuration, is_running...
 %%--------------------------------------------------------------------
 
-%% @doc Start emqx application.
+%% @doc Start emqx application
 -spec(start() -> ok | {error, term()}).
 start() -> application:start(?APP).
 
@@ -68,7 +63,7 @@ start() -> application:start(?APP).
 -spec(stop() -> ok | {error, term()}).
 stop() -> application:stop(?APP).
 
-%% @doc Get Environment
+%% @doc Get environment
 -spec(env(Key :: atom()) -> {ok, any()} | undefined).
 env(Key) -> application:get_env(?APP, Key).
 
@@ -76,7 +71,7 @@ env(Key) -> application:get_env(?APP, Key).
 -spec(env(Key :: atom(), Default :: any()) -> undefined | any()).
 env(Key, Default) -> application:get_env(?APP, Key, Default).
 
-%% @doc Is running?
+%% @doc Is emqx running?
 -spec(is_running(node()) -> boolean()).
 is_running(Node) ->
     case rpc:call(Node, erlang, whereis, [?APP]) of
@@ -110,12 +105,9 @@ start_listener({Proto, ListenOn, Opts}) when Proto == http; Proto == ws ->
 start_listener({Proto, ListenOn, Opts}) when Proto == https; Proto == wss ->
     {ok, _} = mochiweb:start_http('mqtt:wss', ListenOn, Opts, {emqx_ws, handle_request, []}).
 
-% start_listener({Proto, ListenOn, Opts}) when Proto == api ->
-%     {ok, _} = mochiweb:start_http('mqtt:api', ListenOn, Opts, emqx_http:http_handler()).
-
 start_listener(Proto, ListenOn, Opts) ->
     Env = lists:append(emqx:env(client, []), emqx:env(protocol, [])),
-    MFArgs = {emqx_client, start_link, [Env]},
+    MFArgs = {emqx_connection, start_link, [Env]},
     {ok, _} = esockd:open(Proto, ListenOn, merge_sockopts(Opts), MFArgs).
 
 listeners() ->
@@ -169,58 +161,71 @@ merge_sockopts(Options) ->
     emqx_misc:merge_opts(Options, [{sockopts, SockOpts}]).
 
 %%--------------------------------------------------------------------
-%% PubSub APIs
+%% PubSub API
 %%--------------------------------------------------------------------
 
-%% @doc Subscribe
--spec(subscribe(iodata()) -> ok | {error, term()}).
+-spec(subscribe(topic() | string()) -> ok | {error, term()}).
 subscribe(Topic) ->
-    emqx_server:subscribe(iolist_to_binary(Topic)).
+    emqx_broker:subscribe(iolist_to_binary(Topic)).
 
--spec(subscribe(iodata(), subscriber()) -> ok | {error, term()}).
+-spec(subscribe(topic() | iodata(), subscriber() | string()) -> ok | {error, term()}).
 subscribe(Topic, Subscriber) ->
-    emqx_server:subscribe(iolist_to_binary(Topic), Subscriber).
+    emqx_broker:subscribe(iolist_to_binary(Topic), list_to_subid(Subscriber)).
 
--spec(subscribe(iodata(), subscriber(), [suboption()]) -> ok | {error, term()}).
+-spec(subscribe(topic() | iodata(), subscriber() | string(), [suboption()]) -> ok | {error, term()}).
 subscribe(Topic, Subscriber, Options) ->
-    emqx_server:subscribe(iolist_to_binary(Topic), Subscriber, Options).
+    emqx_broker:subscribe(iolist_to_binary(Topic), list_to_subid(Subscriber), Options).
 
-%% @doc Publish MQTT Message
--spec(publish(mqtt_message()) -> {ok, mqtt_delivery()} | ignore).
+%% @doc Publish Message
+-spec(publish(message()) -> {ok, delivery()} | ignore).
 publish(Msg) ->
-    emqx_server:publish(Msg).
+    emqx_broker:publish(Msg).
 
-%% @doc Unsubscribe
--spec(unsubscribe(iodata()) -> ok | {error, term()}).
+-spec(unsubscribe(topic() | string()) -> ok | {error, term()}).
 unsubscribe(Topic) ->
-    emqx_server:unsubscribe(iolist_to_binary(Topic)).
+    emqx_broker:unsubscribe(iolist_to_binary(Topic)).
 
--spec(unsubscribe(iodata(), subscriber()) -> ok | {error, term()}).
+-spec(unsubscribe(topic() | string(), subscriber() | string()) -> ok | {error, term()}).
 unsubscribe(Topic, Subscriber) ->
-    emqx_server:unsubscribe(iolist_to_binary(Topic), Subscriber).
+    emqx_broker:unsubscribe(iolist_to_binary(Topic), list_to_subid(Subscriber)).
 
 %%--------------------------------------------------------------------
-%% PubSub Management API
+%% PubSub management API
 %%--------------------------------------------------------------------
 
--spec(setqos(binary(), subscriber(), mqtt_qos()) -> ok).
-setqos(Topic, Subscriber, Qos) ->
-    emqx_server:setqos(iolist_to_binary(Topic), Subscriber, Qos).
+-spec(getopts(topic() | string(), subscriber()) -> [suboption()]).
+getopts(Topic, Subscriber) ->
+    emqx_broker:getopts(iolist_to_binary(Topic), list_to_subid(Subscriber)).
 
--spec(topics() -> [binary()]).
+-spec(setopts(topic() | string(), subscriber(), [suboption()]) -> ok).
+setopts(Topic, Subscriber, Options) when is_list(Options) ->
+    emqx_broker:setopts(iolist_to_binary(Topic), list_to_subid(Subscriber), Options).
+
+-spec(topics() -> list(topic())).
 topics() -> emqx_router:topics().
 
--spec(subscribers(iodata()) -> list(subscriber())).
+-spec(subscribers(topic() | string()) -> list(subscriber())).
 subscribers(Topic) ->
-    emqx_server:subscribers(iolist_to_binary(Topic)).
+    emqx_broker:subscribers(iolist_to_binary(Topic)).
 
--spec(subscriptions(subscriber()) -> [{subscriber(), binary(), list(suboption())}]).
+-spec(subscriptions(subscriber() | string()) -> [{topic(), list(suboption())}]).
 subscriptions(Subscriber) ->
-    emqx_server:subscriptions(Subscriber).
+    emqx_broker:subscriptions(Subscriber).
 
--spec(subscribed(iodata(), subscriber()) -> boolean()).
+-spec(subscribed(topic() | string(), subscriber()) -> boolean()).
 subscribed(Topic, Subscriber) ->
-    emqx_server:subscribed(iolist_to_binary(Topic), Subscriber).
+    emqx_broker:subscribed(iolist_to_binary(Topic), list_to_subid(Subscriber)).
+
+list_to_subid(SubId) when is_binary(SubId) ->
+    SubId;
+list_to_subid(SubId) when is_list(SubId) ->
+    iolist_to_binary(SubId);
+list_to_subid(SubPid) when is_pid(SubPid) ->
+    SubPid;
+list_to_subid({SubId, SubPid}) when is_binary(SubId), is_pid(SubPid) ->
+    {SubId, SubPid};
+list_to_subid({SubId, SubPid}) when is_list(SubId), is_pid(SubPid) ->
+    {iolist_to_binary(SubId), SubPid}.
 
 %%--------------------------------------------------------------------
 %% Hooks API
@@ -257,7 +262,7 @@ shutdown() ->
     shutdown(normal).
 
 shutdown(Reason) ->
-    lager:error("EMQ shutdown for ~s", [Reason]),
+    emqx_log:error("EMQ shutdown for ~s", [Reason]),
     emqx_plugins:unload(),
     lists:foreach(fun application:stop/1, [emqx, ekka, mochiweb, esockd, gproc]).
 
@@ -268,5 +273,5 @@ reboot() ->
 %% Debug
 %%--------------------------------------------------------------------
 
-dump() -> lists:append([emqx_server:dump(), emqx_router:dump()]).
+dump() -> lists:append([emqx_broker:dump(), emqx_router:dump()]).
 

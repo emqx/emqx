@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
+%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -25,8 +25,6 @@
 
 -type(access() :: subscribe | publish | pubsub).
 
--type(topic() :: binary()).
-
 -type(rule() :: {allow, all} |
                 {allow, who(), access(), list(topic())} |
                 {deny, all} |
@@ -42,7 +40,7 @@
 compile({A, all}) when ?ALLOW_DENY(A) ->
     {A, all};
 
-compile({A, Who, Access, Topic}) when ?ALLOW_DENY(A) andalso is_binary(Topic) ->
+compile({A, Who, Access, Topic}) when ?ALLOW_DENY(A), is_binary(Topic) ->
     {A, compile(who, Who), Access, [compile(topic, Topic)]};
 
 compile({A, Who, Access, TopicFilters}) when ?ALLOW_DENY(A) ->
@@ -70,7 +68,7 @@ compile(topic, {eq, Topic}) ->
 compile(topic, Topic) ->
     Words = emqx_topic:words(bin(Topic)),
     case 'pattern?'(Words) of
-        true -> {pattern, Words};
+        true  -> {pattern, Words};
         false -> Words
     end.
 
@@ -83,13 +81,14 @@ bin(L) when is_list(L) ->
 bin(B) when is_binary(B) ->
     B.
 
-%% @doc Match Access Rule
+%% @doc Match access rule
 -spec(match(mqtt_client(), topic(), rule()) -> {matched, allow} | {matched, deny} | nomatch).
 match(_Client, _Topic, {AllowDeny, all}) when (AllowDeny =:= allow) orelse (AllowDeny =:= deny) ->
     {matched, AllowDeny};
 match(Client, Topic, {AllowDeny, Who, _PubSub, TopicFilters})
         when (AllowDeny =:= allow) orelse (AllowDeny =:= deny) ->
-    case match_who(Client, Who) andalso match_topics(Client, Topic, TopicFilters) of
+    case match_who(Client, Who)
+         andalso match_topics(Client, Topic, TopicFilters) of
         true  -> {matched, AllowDeny};
         false -> nomatch
     end.
@@ -123,15 +122,11 @@ match_topics(_Client, _Topic, []) ->
     false;
 match_topics(Client, Topic, [{pattern, PatternFilter}|Filters]) ->
     TopicFilter = feed_var(Client, PatternFilter),
-    case match_topic(emqx_topic:words(Topic), TopicFilter) of
-        true -> true;
-        false -> match_topics(Client, Topic, Filters)
-    end;
+    match_topic(emqx_topic:words(Topic), TopicFilter)
+      orelse match_topics(Client, Topic, Filters);
 match_topics(Client, Topic, [TopicFilter|Filters]) ->
-   case match_topic(emqx_topic:words(Topic), TopicFilter) of
-    true -> true;
-    false -> match_topics(Client, Topic, Filters)
-    end.
+   match_topic(emqx_topic:words(Topic), TopicFilter)
+     orelse match_topics(Client, Topic, Filters).
 
 match_topic(Topic, {eq, TopicFilter}) ->
     Topic =:= TopicFilter;

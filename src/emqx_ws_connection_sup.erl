@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
+%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_ws_conn_sup).
+-module(emqx_ws_connection_sup).
 
 -behavior(supervisor).
 
@@ -39,6 +39,6 @@ init([]) ->
     %%TODO: Cannot upgrade the environments, Use zone?
     Env = lists:append(emqx:env(client, []), emqx:env(protocol, [])),
     {ok, {{simple_one_for_one, 0, 1},
-           [{ws_conn, {emqx_ws_conn, start_link, [Env]},
-             temporary, 5000, worker, [emqx_ws_conn]}]}}.
+           [{ws_connection, {emqx_ws_connection, start_link, [Env]},
+             temporary, 5000, worker, [emqx_ws_connection]}]}}.
 

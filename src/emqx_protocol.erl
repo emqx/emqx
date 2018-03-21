@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
+%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -436,7 +436,7 @@ maybe_set_clientid(State) ->
 send_willmsg(_Client, undefined) ->
     ignore;
 send_willmsg(#mqtt_client{client_id = ClientId, username = Username}, WillMsg) ->
-    emqx_server:publish(WillMsg#mqtt_message{from = {ClientId, Username}}).
+    emqx_broker:publish(WillMsg#mqtt_message{from = {ClientId, Username}}).
 
 start_keepalive(0, _State) -> ignore;
 

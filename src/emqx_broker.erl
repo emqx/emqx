@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
+%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -20,183 +20,328 @@
 
 -include("emqx.hrl").
 
--include("emqx_internal.hrl").
+-export([start_link/2]).
 
-%% API Function Exports
--export([start_link/0]).
+-export([subscribe/1, subscribe/2, subscribe/3, unsubscribe/1, unsubscribe/2]).
 
-%% Event API
--export([subscribe/1, notify/2]).
+-export([publish/1, publish/2]).
 
-%% Broker API
--export([version/0, uptime/0, datetime/0, sysdescr/0, info/0]).
+-export([subscriptions/1, subscribers/1, subscribed/2]).
 
-%% Tick API
--export([start_tick/1, stop_tick/1]).
+-export([topics/0]).
+
+-export([getopts/2, setopts/3]).
+
+-export([dump/0]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {started_at, sys_interval, heartbeat, ticker, version, sysdescr}).
+-record(state, {pool, id, subids :: map(), submon :: emqx_pmon:pmon()}).
 
--define(APP, emqx).
+-define(BROKER, ?MODULE).
 
--define(SERVER, ?MODULE).
-
--define(BROKER_TAB, mqtt_broker).
-
-%% $SYS Topics of Broker
--define(SYSTOP_BROKERS, [
-    version,  % Broker version
-    uptime,   % Broker uptime
-    datetime, % Broker local datetime
-    sysdescr  % Broker description
-]).
+-define(TIMEOUT, 120000).
 
 %%--------------------------------------------------------------------
-%% API
+%% Start a broker
 %%--------------------------------------------------------------------
 
-%% @doc Start the broker
--spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+-spec(start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, term()}).
+start_link(Pool, Id) ->
+    gen_server:start_link(?MODULE, [Pool, Id], [{hibernate_after, 1000}]).
 
-%% @doc Subscribe broker event
--spec(subscribe(EventType :: any()) -> ok).
-subscribe(EventType) ->
-    gproc:reg({p, l, {broker, EventType}}).
-    
-%% @doc Notify broker event
--spec(notify(EventType :: any(), Event :: any()) -> ok).
-notify(EventType, Event) ->
-     gproc:send({p, l, {broker, EventType}}, {notify, EventType, self(), Event}).
+%%--------------------------------------------------------------------
+%% Sub/Unsub
+%%--------------------------------------------------------------------
 
-%% @doc Get broker info
--spec(info() -> list(tuple())).
-info() ->
-    [{version,  version()},
-     {sysdescr, sysdescr()},
-     {uptime,   uptime()},
-     {datetime, datetime()}].
+-spec(subscribe(topic()) -> ok | {error, term()}).
+subscribe(Topic) when is_binary(Topic) ->
+    subscribe(Topic, self()).
 
-%% @doc Get broker version
--spec(version() -> string()).
-version() ->
-    {ok, Version} = application:get_key(?APP, vsn), Version.
+-spec(subscribe(topic(), subscriber()) -> ok | {error, term()}).
+subscribe(Topic, Subscriber) when is_binary(Topic) ->
+    subscribe(Topic, Subscriber, []).
 
-%% @doc Get broker description
--spec(sysdescr() -> string()).
-sysdescr() ->
-    {ok, Descr} = application:get_key(?APP, description), Descr.
+-spec(subscribe(topic(), subscriber(), [suboption()]) -> ok | {error, term()}).
+subscribe(Topic, Subscriber, Options) when is_binary(Topic) ->
+    subscribe(Topic, Subscriber, Options, ?TIMEOUT).
 
-%% @doc Get broker uptime
--spec(uptime() -> string()).
-uptime() -> gen_server:call(?SERVER, uptime).
+-spec(subscribe(topic(), subscriber(), [suboption()], timeout())
+      -> ok | {error, term()}).
+subscribe(Topic, Subscriber, Options, Timeout) ->
+    {Topic1, Options1} = emqx_topic:parse(Topic, Options),
+    SubReq = {subscribe, Topic1, with_subpid(Subscriber), Options1},
+    async_call(pick(Subscriber), SubReq, Timeout).
 
-%% @doc Get broker datetime
--spec(datetime() -> string()).
-datetime() ->
-    {{Y, M, D}, {H, MM, S}} = calendar:local_time(),
-    lists:flatten(
-        io_lib:format(
-            "~4..0w-~2..0w-~2..0w ~2..0w:~2..0w:~2..0w", [Y, M, D, H, MM, S])).
+-spec(unsubscribe(topic()) -> ok | {error, term()}).
+unsubscribe(Topic) when is_binary(Topic) ->
+    unsubscribe(Topic, self()).
 
-%% @doc Start a tick timer.
-start_tick(Msg) ->
-    start_tick(emqx:env(broker_sys_interval, 60000), Msg).
+-spec(unsubscribe(topic(), subscriber()) -> ok | {error, term()}).
+unsubscribe(Topic, Subscriber) when is_binary(Topic) ->
+    unsubscribe(Topic, Subscriber, ?TIMEOUT).
 
-start_tick(0, _Msg) ->
-    undefined;
-start_tick(Interval, Msg) when Interval > 0 ->
-    {ok, TRef} = timer:send_interval(Interval, Msg), TRef.
+-spec(unsubscribe(topic(), subscriber(), timeout())
+      -> ok | {error, term()}).
+unsubscribe(Topic, Subscriber, Timeout) ->
+    {Topic1, _} = emqx_topic:parse(Topic),
+    UnsubReq = {unsubscribe, Topic1, with_subpid(Subscriber)},
+    async_call(pick(Subscriber), UnsubReq, Timeout).
 
-%% @doc Stop tick timer
-stop_tick(undefined) ->
+%%--------------------------------------------------------------------
+%% Publish
+%%--------------------------------------------------------------------
+
+-spec(publish(message()) -> delivery() | stopped).
+publish(Msg = #message{from = From}) ->
+    emqx_tracer:trace(publish, From, Msg),
+    case emqx_hooks:run('message.publish', [], Msg) of
+        {ok, Msg1 = #message{topic = Topic}} ->
+            publish(Topic, Msg1);
+        {stop, Msg1} ->
+            emqx_log:warning("Stop publishing: ~s", [emqx_message:format(Msg1)]),
+            stopped
+    end.
+
+publish(Topic, Msg) ->
+    route(emqx_router:match_routes(Topic), delivery(Msg)).
+
+route([], Delivery = #delivery{message = Msg}) ->
+    emqx_hooks:run('message.dropped', [undefined, Msg]),
+    dropped(Msg#message.topic), Delivery;
+
+route([{To, Node}], Delivery) when Node =:= node() ->
+    dispatch(To, Delivery);
+
+route([{To, Node}], Delivery = #delivery{flows = Flows}) when is_atom(Node) ->
+    forward(Node, To, Delivery#delivery{flows = [{route, Node, To}|Flows]});
+
+route([{To, Group}], Delivery) when is_binary(Group) ->
+    emqx_shared_pubsub:dispatch(Group, To, Delivery);
+
+route(Routes, Delivery) ->
+    lists:foldl(fun(Route, Acc) -> route([Route], Acc) end, Delivery, Routes).
+
+%% @doc Forward message to another node.
+forward(Node, To, Delivery) ->
+    case emqx_rpc:call(Node, ?BROKER, dispatch, [To, Delivery]) of
+        {badrpc, Reason} ->
+            emqx_log:error("[Broker] Failed to forward msg to ~s: ~s", [Node, Reason]),
+            Delivery;
+        Delivery1 -> Delivery1
+    end.
+
+-spec(dispatch(topic(), delivery()) -> delivery()).
+dispatch(Topic, Delivery = #delivery{message = Msg, flows = Flows}) ->
+    case subscribers(Topic) of
+        [] ->
+            emqx_hooks:run('message.dropped', [undefined, Msg]),
+            dropped(Topic), Delivery;
+        [Sub] -> %% optimize?
+            dispatch(Sub, Topic, Msg),
+            Delivery#delivery{flows = [{dispatch, Topic, 1}|Flows]};
+        Subscribers ->
+            Count = lists:foldl(fun(Sub, Acc) ->
+                                    dispatch(Sub, Topic, Msg), Acc + 1
+                                end, 0, Subscribers),
+            Delivery#delivery{flows = [{dispatch, Topic, Count}|Flows]}
+    end.
+
+dispatch(SubPid, Topic, Msg) when is_pid(SubPid) ->
+    SubPid ! {dispatch, Topic, Msg};
+dispatch({SubId, SubPid}, Topic, Msg) when is_binary(SubId), is_pid(SubPid) ->
+    SubPid ! {dispatch, Topic, Msg};
+dispatch(SubId, Topic, Msg) when is_binary(SubId) ->
+   emqx_sm:dispatch(SubId, Topic, Msg);
+dispatch({share, _Group, _Sub}, _Topic, _Msg) ->
+    ignore.
+
+dropped(<<"$SYS/", _/binary>>) ->
     ok;
-stop_tick(TRef) ->
-    timer:cancel(TRef).
+dropped(_Topic) ->
+    emqx_metrics:inc('messages/dropped').
+
+delivery(Msg) ->
+    #delivery{message = Msg, flows = []}.
+
+subscribers(Topic) ->
+    try ets:lookup_element(subscriber, Topic, 2) catch error:badarg -> [] end.
+
+subscriptions(Subscriber) ->
+    lists:map(fun({_, {share, _Group, Topic}}) ->
+                subscription(Topic, Subscriber);
+                 ({_, Topic}) ->
+                subscription(Topic, Subscriber)
+        end, ets:lookup(subscription, Subscriber)).
+
+subscription(Topic, Subscriber) ->
+    {Topic, ets:lookup_element(suboption, {Topic, Subscriber}, 2)}.
+
+-spec(subscribed(topic(), subscriber()) -> boolean()).
+subscribed(Topic, SubPid) when is_binary(Topic), is_pid(SubPid) ->
+    ets:member(suboption, {Topic, SubPid});
+subscribed(Topic, SubId) when is_binary(Topic), is_binary(SubId) ->
+    length(ets:match_object(suboption, {{Topic, {SubId, '_'}}, '_'}, 1)) == 1;
+subscribed(Topic, {SubId, SubPid}) when is_binary(Topic), is_binary(SubId), is_pid(SubPid) ->
+    ets:member(suboption, {Topic, {SubId, SubPid}}).
+
+topics() -> emqx_router:topics().
+
+getopts(Topic, Subscriber) when is_binary(Topic) ->
+    try ets:lookup_element(suboption, {Topic, Subscriber}, 2) catch error:badarg ->[] end.
+
+setopts(Topic, Subscriber, Opts) when is_binary(Topic), is_list(Opts) ->
+    gen_server:call(pick(Subscriber), {setopts, Topic, Subscriber, Opts}). 
+
+with_subpid(SubPid) when is_pid(SubPid) ->
+    SubPid;
+with_subpid(SubId) when is_binary(SubId) ->
+    {SubId, self()};
+with_subpid({SubId, SubPid}) when is_binary(SubId), is_pid(SubPid) ->
+    {SubId, SubPid}.
+
+async_call(Broker, Msg, Timeout) ->
+    From = {self(), Tag = make_ref()},
+    ok = gen_server:cast(Broker, {From, Msg}),
+    receive
+        {Tag, Reply} -> Reply
+    after Timeout ->
+        {error, timeout}
+    end.
+
+pick(SubPid) when is_pid(SubPid) ->
+    gproc_pool:pick_worker(broker, SubPid);
+pick(SubId) when is_binary(SubId) ->
+    gproc_pool:pick_worker(broker, SubId);
+pick({SubId, SubPid}) when is_binary(SubId), is_pid(SubPid) ->
+    pick(SubId).
+
+dump() ->
+    [{Tab, ets:tab2list(Tab)} || Tab <- [subscription, subscriber, suboption]].
 
 %%--------------------------------------------------------------------
-%% gen_server Callbacks
+%% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([]) ->
-    emqx_time:seed(),
-    ets:new(?BROKER_TAB, [set, public, named_table]),
-    % Tick
-    {ok, #state{started_at = os:timestamp(),
-                heartbeat  = start_tick(1000, heartbeat),
-                version    = list_to_binary(version()),
-                sysdescr   = list_to_binary(sysdescr()),
-                ticker     = start_tick(tick)}, hibernate}.
+init([Pool, Id]) ->
+    gproc_pool:connect_worker(Pool, {Pool, Id}),
+    {ok, #state{pool = Pool, id = Id, subids = #{}, submon = emqx_pmon:new()}}.
 
-handle_call(uptime, _From, State) ->
-    {reply, uptime(State), State};
+handle_call({setopts, Topic, Subscriber, Opts}, _From, State) ->
+    case ets:lookup(suboption, {Topic, Subscriber}) of
+        [{_, OldOpts}] ->
+            Opts1 = lists:usort(lists:umerge(Opts, OldOpts)),
+            ets:insert(suboption, {{Topic, Subscriber}, Opts1}),
+            {reply, ok, State};
+        [] ->
+            {reply, {error, not_found}, State}
+    end;
 
-handle_call(Req, _From, State) ->
-    ?UNEXPECTED_REQ(Req, State).
+handle_call(Request, _From, State) ->
+    emqx_log:error("[Broker] Unexpected request: ~p", [Request]),
+    {reply, ignore, State}.
+
+handle_cast({From, {subscribe, Topic, Subscriber, Options}}, State) ->
+    case ets:lookup(suboption, {Topic, Subscriber}) of
+        []  ->
+            Group = proplists:get_value(share, Options),
+            true = do_subscribe(Group, Topic, Subscriber, Options),
+            emqx_shared_pubsub:subscribe(Group, Topic, subpid(Subscriber)),
+            emqx_router:add_route(From, Topic, dest(Options)),
+            {noreply, monitor_subscriber(Subscriber, State)};
+        [_] ->
+            gen_server:reply(From, ok),
+            {noreply, State}
+    end;
+
+handle_cast({From, {unsubscribe, Topic, Subscriber}}, State) ->
+    case ets:lookup(suboption, {Topic, Subscriber}) of
+        [{_, Options}] ->
+            Group = proplists:get_value(share, Options),
+            true = do_unsubscribe(Group, Topic, Subscriber),
+            emqx_shared_pubsub:unsubscribe(Group, Topic, subpid(Subscriber)),
+            case ets:member(subscriber, Topic) of
+                false -> emqx_router:del_route(From, Topic, dest(Options));
+                true  -> gen_server:reply(From, ok)
+            end;
+        [] -> gen_server:reply(From, ok)
+    end,
+    {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?UNEXPECTED_MSG(Msg, State).
+    emqx_log:error("[Broker] Unexpected msg: ~p", [Msg]),
+    {noreply, State}.
 
-handle_info(heartbeat, State) ->
-    publish(uptime, list_to_binary(uptime(State))),
-    publish(datetime, list_to_binary(datetime())),
-    {noreply, State, hibernate};
-
-handle_info(tick, State = #state{version = Version, sysdescr = Descr}) ->
-    retain(brokers),
-    retain(version,  Version),
-    retain(sysdescr, Descr),
-    {noreply, State, hibernate};
+handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{subids = SubIds}) ->
+    Subscriber = case maps:find(SubPid, SubIds) of
+                     {ok, SubId} -> {SubId, SubPid};
+                     error -> SubPid
+                 end,
+    Topics = lists:map(fun({_, {share, _, Topic}}) ->
+                           Topic;
+                          ({_, Topic}) ->
+                           Topic
+                       end, ets:lookup(subscription, Subscriber)),
+    lists:foreach(fun(Topic) ->
+        case ets:lookup(suboption, {Topic, Subscriber}) of
+            [{_, Options}] ->
+                Group = proplists:get_value(share, Options),
+                true = do_unsubscribe(Group, Topic, Subscriber),
+                case ets:member(subscriber, Topic) of
+                    false -> emqx_router:del_route(Topic, dest(Options));
+                    true  -> ok
+                end;
+            [] -> ok
+        end
+    end, Topics),
+    {noreply, demonitor_subscriber(SubPid, State)};
 
 handle_info(Info, State) ->
-    ?UNEXPECTED_INFO(Info, State).
+    emqx_log:error("[Broker] Unexpected info: ~p", [Info]),
+    {noreply, State}.
 
-terminate(_Reason, #state{heartbeat = Hb, ticker = TRef}) ->
-    stop_tick(Hb),
-    stop_tick(TRef),
-    ok.
+terminate(_Reason, #state{pool = Pool, id = Id}) ->
+    gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%--------------------------------------------------------------------
-%% Internal functions
+%% Internal Functions
 %%--------------------------------------------------------------------
 
-retain(brokers) ->
-    Payload = list_to_binary(string:join([atom_to_list(N) ||
-                    N <- ekka_mnesia:running_nodes()], ",")),
-    Msg = emqx_message:make(broker, <<"$SYS/brokers">>, Payload),
-    emqx:publish(emqx_message:set_flag(sys, emqx_message:set_flag(retain, Msg))).
+do_subscribe(Group, Topic, Subscriber, Options) ->
+    ets:insert(subscription, {Subscriber, shared(Group, Topic)}),
+    ets:insert(subscriber, {Topic, shared(Group, Subscriber)}),
+    ets:insert(suboption, {{Topic, Subscriber}, Options}).
 
-retain(Topic, Payload) when is_binary(Payload) ->
-    Msg = emqx_message:make(broker, emqx_topic:systop(Topic), Payload),
-    emqx:publish(emqx_message:set_flag(sys, emqx_message:set_flag(retain, Msg))).
+do_unsubscribe(Group, Topic, Subscriber) ->
+    ets:delete_object(subscription, {Subscriber, shared(Group, Topic)}),
+    ets:delete_object(subscriber, {Topic, shared(Group, Subscriber)}),
+    ets:delete(suboption, {Topic, Subscriber}).
 
-publish(Topic, Payload) when is_binary(Payload) ->
-    Msg = emqx_message:make(broker, emqx_topic:systop(Topic), Payload),
-    emqx:publish(emqx_message:set_flag(sys, Msg)).
+monitor_subscriber(SubPid, State = #state{submon = SubMon}) when is_pid(SubPid) ->
+    State#state{submon = SubMon:monitor(SubPid)};
 
-uptime(#state{started_at = Ts}) ->
-    Secs = timer:now_diff(os:timestamp(), Ts) div 1000000,
-    lists:flatten(uptime(seconds, Secs)).
+monitor_subscriber({SubId, SubPid}, State = #state{subids = SubIds, submon = SubMon}) ->
+    State#state{subids = maps:put(SubPid, SubId, SubIds), submon = SubMon:monitor(SubPid)}.
 
-uptime(seconds, Secs) when Secs < 60 ->
-    [integer_to_list(Secs), " seconds"];
-uptime(seconds, Secs) ->
-    [uptime(minutes, Secs div 60), integer_to_list(Secs rem 60), " seconds"];
-uptime(minutes, M) when M < 60 ->
-    [integer_to_list(M), " minutes, "];
-uptime(minutes, M) ->
-    [uptime(hours, M div 60), integer_to_list(M rem 60), " minutes, "];
-uptime(hours, H) when H < 24 ->
-    [integer_to_list(H), " hours, "];
-uptime(hours, H) ->
-    [uptime(days, H div 24), integer_to_list(H rem 24), " hours, "];
-uptime(days, D) ->
-    [integer_to_list(D), " days,"].
+demonitor_subscriber(SubPid, State = #state{subids = SubIds, submon = SubMon}) ->
+    State#state{subids = maps:remove(SubPid, SubIds), submon = SubMon:demonitor(SubPid)}.
+
+dest(Options) ->
+    case proplists:get_value(share, Options) of
+       undefined -> node();
+       Group     -> {Group, node()}
+    end.
+
+subpid(SubPid) when is_pid(SubPid) ->
+    SubPid;
+subpid({_SubId, SubPid}) when is_pid(SubPid) ->
+    SubPid.
+
+shared(undefined, Name) -> Name;
+shared(Group, Name)     -> {share, Group, Name}.
 

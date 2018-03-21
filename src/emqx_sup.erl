@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
+%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -34,7 +34,6 @@
 start_link() ->
     supervisor:start_link({local, ?SUPERVISOR}, ?MODULE, []).
 
-
 -spec(start_child(supervisor:child_spec()) -> startchild_ret()).
 start_child(ChildSpec) when is_tuple(ChildSpec) ->
     supervisor:start_child(?SUPERVISOR, ChildSpec).
@@ -58,17 +57,16 @@ init([]) ->
     {ok, {{one_for_all, 0, 1},
           [?CHILD(emqx_ctl, worker),
            ?CHILD(emqx_hooks, worker),
-           ?CHILD(emqx_router, worker),
-           ?CHILD(emqx_pubsub_sup, supervisor),
            ?CHILD(emqx_stats, worker),
            ?CHILD(emqx_metrics, worker),
+           ?CHILD(emqx_router_sup, supervisor),
+           ?CHILD(emqx_broker_sup, supervisor),
            ?CHILD(emqx_pooler, supervisor),
            ?CHILD(emqx_trace_sup, supervisor),
            ?CHILD(emqx_cm_sup, supervisor),
            ?CHILD(emqx_sm_sup, supervisor),
            ?CHILD(emqx_session_sup, supervisor),
-           ?CHILD(emqx_ws_client_sup, supervisor),
-           ?CHILD(emqx_broker, worker),
+           ?CHILD(emqx_ws_connection_sup, supervisor),
            ?CHILD(emqx_alarm, worker),
            ?CHILD(emqx_mod_sup, supervisor),
            ?CHILD(emqx_bridge_sup_sup, supervisor),

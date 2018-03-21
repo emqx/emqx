@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
+%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,7 +18,9 @@
 
 -behavior(supervisor).
 
--export([start_link/0, start_session/3]).
+-include("emqx.hrl").
+
+-export([start_link/0, start_session_process/1]).
 
 -export([init/1]).
 
@@ -27,10 +29,10 @@
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-%% @doc Start a session
--spec(start_session(boolean(), {binary(), binary() | undefined} , pid()) -> {ok, pid()}).
-start_session(CleanSess, {ClientId, Username}, ClientPid) ->
-    supervisor:start_child(?MODULE, [CleanSess, {ClientId, Username}, ClientPid]).
+%% @doc Start a session process
+-spec(start_session_process(session()) -> {ok, pid()}).
+start_session_process(Session) ->
+    supervisor:start_child(?MODULE, [Session]).
 
 %%--------------------------------------------------------------------
 %% Supervisor callbacks

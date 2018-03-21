@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
+%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -194,11 +194,11 @@ subscribe(Session, PacketId, TopicTable) -> %%TODO: the ack function??...
 -spec(publish(pid(), message()) -> ok | {error, term()}).
 publish(_Session, Msg = #mqtt_message{qos = ?QOS_0}) ->
     %% Publish QoS0 Directly
-    emqx_server:publish(Msg), ok;
+    emqx_broker:publish(Msg), ok;
 
 publish(_Session, Msg = #mqtt_message{qos = ?QOS_1}) ->
     %% Publish QoS1 message directly for client will PubAck automatically
-    emqx_server:publish(Msg), ok;
+    emqx_broker:publish(Msg), ok;
 
 publish(Session, Msg = #mqtt_message{qos = ?QOS_2}) ->
     %% Publish QoS2 to Session
@@ -365,7 +365,7 @@ handle_cast({subscribe, From, TopicTable, AckFun},
                         ?LOG(warning, "Duplicated subscribe: ~s, qos = ~w", [Topic, NewQos], State),
                         SubMap;
                     {ok, OldQos} ->
-                        emqx_server:setqos(Topic, ClientId, NewQos),
+                        emqx_broker:setopts(Topic, ClientId, [{qos, NewQos}]),
                         emqx_hooks:run('session.subscribed', [ClientId, Username], {Topic, Opts}),
                         ?LOG(warning, "Duplicated subscribe ~s, old_qos=~w, new_qos=~w",
                             [Topic, OldQos, NewQos], State),
@@ -438,7 +438,7 @@ handle_cast({pubrel, PacketId}, State = #state{awaiting_rel = AwaitingRel}) ->
          {Msg, AwaitingRel1} ->
              %% Implement Qos2 by method A [MQTT 4.33]
              %% Dispatch to subscriber when received PUBREL
-             spawn(emqx_server, publish, [Msg]), %%:)
+             emqx_broker:publish(Msg), %% FIXME:
              gc(State#state{awaiting_rel = AwaitingRel1});
          error ->
              ?LOG(warning, "Cannot find PUBREL: ~p", [PacketId], State),

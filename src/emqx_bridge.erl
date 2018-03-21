@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
+%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -70,7 +70,8 @@ init([Pool, Id, Node, Topic, Options]) ->
         true -> 
             true = erlang:monitor_node(Node, true),
             Share = iolist_to_binary(["$bridge:", atom_to_list(Node), ":", Topic]),
-            emqx_server:subscribe(Topic, self(), [local, {share, Share}, {qos, ?QOS_0}]),
+            %% TODO:: local???
+            emqx_broker:subscribe(Topic, self(), [local, {share, Share}, {qos, ?QOS_0}]),
             State = parse_opts(Options, #state{node = Node, subtopic = Topic}),
             MQueue = emqx_mqueue:new(qname(Node, Topic),
                                      [{max_len, State#state.max_queue_len}],

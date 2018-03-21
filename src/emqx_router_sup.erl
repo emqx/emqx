@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc.
+%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -27,12 +27,15 @@ start_link() ->
 
 init([]) ->
     StatsFun = emqx_stats:statsfun('routes/count', 'routes/max'),
-    SupFlags = #{strategy => one_for_all, intensity => 1, period => 5},
-    Router = #{id => emqx_router,
-               start => {emqx_router, start_link, [StatsFun]},
-               restart => permanent,
-               shutdown => 30000,
-               type => worker,
-               modules => [emqx_router]},
-    {ok, {SupFlags, [Router]}}.
+
+    %% Router helper
+    Helper = {router_helper, {emqx_router_helper, start_link, [StatsFun]},
+              permanent, 5000, worker, [emqx_router_helper]},
+
+    %% Router pool
+    PoolSup = emqx_pool_sup:spec(router_pool,
+                                  [router, hash, emqx_sys:schedulers(),
+                                   {emqx_router, start_link, []}]),
+
+    {ok, {{one_for_all, 0, 3600}, [Helper, PoolSup]}}.
 

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
+%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 
 -include("emqx.hrl").
 
-%% Mnesia Callbacks
+%% Mnesia bootstrap
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
@@ -28,10 +28,10 @@
 -export([insert/1, match/1, lookup/1, delete/1]).
 
 %%--------------------------------------------------------------------
-%% Mnesia Callbacks
+%% Mnesia Bootstrap
 %%--------------------------------------------------------------------
 
-%% @doc Create or Replicate trie tables.
+%% @doc Create or replicate trie tables.
 -spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
     %% Trie Table
@@ -55,8 +55,8 @@ mnesia(copy) ->
 %% Trie API
 %%--------------------------------------------------------------------
 
-%% @doc Insert topic to trie
--spec(insert(Topic :: binary()) -> ok).
+%% @doc Insert a topic into the trie
+-spec(insert(Topic :: topic()) -> ok).
 insert(Topic) when is_binary(Topic) ->
     case mnesia:read(trie_node, Topic) of
         [#trie_node{topic = Topic}] ->
@@ -64,25 +64,25 @@ insert(Topic) when is_binary(Topic) ->
         [TrieNode = #trie_node{topic = undefined}] ->
             write_trie_node(TrieNode#trie_node{topic = Topic});
         [] ->
-            % Add trie path
+            %% Add trie path
             lists:foreach(fun add_path/1, emqx_topic:triples(Topic)),
-            % Add last node
+            %% Add last node
             write_trie_node(#trie_node{node_id = Topic, topic = Topic})
     end.
 
-%% @doc Find trie nodes that match topic
--spec(match(Topic :: binary()) -> list(MatchedTopic :: binary())).
+%% @doc Find trie nodes that match the topic
+-spec(match(Topic :: topic()) -> list(MatchedTopic :: topic())).
 match(Topic) when is_binary(Topic) ->
     TrieNodes = match_node(root, emqx_topic:words(Topic)),
     [Name || #trie_node{topic = Name} <- TrieNodes, Name =/= undefined].
 
-%% @doc Lookup a Trie Node
+%% @doc Lookup a trie node
 -spec(lookup(NodeId :: binary()) -> [#trie_node{}]).
 lookup(NodeId) ->
     mnesia:read(trie_node, NodeId).
 
-%% @doc Delete topic from trie
--spec(delete(Topic :: binary()) -> ok).
+%% @doc Delete a topic from the trie
+-spec(delete(Topic :: topic()) -> ok).
 delete(Topic) when is_binary(Topic) ->
     case mnesia:read(trie_node, Topic) of
         [#trie_node{edge_count = 0}] ->
@@ -95,11 +95,11 @@ delete(Topic) when is_binary(Topic) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Internal Functions
+%% Internal functions
 %%--------------------------------------------------------------------
 
 %% @private
-%% @doc Add path to trie tree.
+%% @doc Add a path to the trie.
 add_path({Node, Word, Child}) ->
     Edge = #trie_edge{node_id = Node, word = Word},
     case mnesia:read(trie_node, Node) of
@@ -146,7 +146,7 @@ match_node(NodeId, [W|Words], ResAcc) ->
     end.
 
 %% @private
-%% @doc Delete paths from trie tree.
+%% @doc Delete paths from the trie.
 delete_path([]) ->
     ok;
 delete_path([{NodeId, Word, _} | RestPath]) ->

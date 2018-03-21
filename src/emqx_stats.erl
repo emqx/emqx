@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
+%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@
          set_session_stats/2, get_session_stats/1, del_session_stats/1]).
 
 %% Statistics API.
--export([statsfun/1, statsfun/2, getstats/0, getstat/1, setstat/2, setstats/3]).
+-export([statsfun/1, statsfun/2, getstats/0, getstat/1, setstat/2, setstat/3]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -124,10 +124,10 @@ statsfun(Stat) ->
     fun(Val) -> setstat(Stat, Val) end.
     
 -spec(statsfun(Stat :: atom(), MaxStat :: atom()) -> fun()).
-statsfun(Stat, MaxStat) -> 
-    fun(Val) -> setstats(Stat, MaxStat, Val) end.
+statsfun(Stat, MaxStat) ->
+    fun(Val) -> setstat(Stat, MaxStat, Val) end.
 
-%% @doc Get broker statistics
+%% @doc Get all statistics
 -spec(getstats() -> [{atom(), non_neg_integer()}]).
 getstats() ->
     lists:sort(ets:tab2list(?STATS_TAB)).
@@ -146,9 +146,9 @@ setstat(Stat, Val) ->
     ets:update_element(?STATS_TAB, Stat, {2, Val}).
 
 %% @doc Set stats with max
--spec(setstats(Stat :: atom(), MaxStat :: atom(), Val :: pos_integer()) -> boolean()).
-setstats(Stat, MaxStat, Val) ->
-    gen_server:cast(?MODULE, {setstats, Stat, MaxStat, Val}).
+-spec(setstat(Stat :: atom(), MaxStat :: atom(), Val :: pos_integer()) -> boolean()).
+setstat(Stat, MaxStat, Val) ->
+    gen_server:cast(?MODULE, {setstat, Stat, MaxStat, Val}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -172,7 +172,7 @@ handle_call(_Request, _From, State) ->
     {reply, error, State}.
 
 %% atomic
-handle_cast({setstats, Stat, MaxStat, Val}, State) ->
+handle_cast({setstat, Stat, MaxStat, Val}, State) ->
     MaxVal = ets:lookup_element(?STATS_TAB, MaxStat, 2),
     if
         Val > MaxVal ->

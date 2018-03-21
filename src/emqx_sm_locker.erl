@@ -14,17 +14,30 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_bridge_sup).
+-module(emqx_sm_locker).
 
--export([start_link/3]).
+-include("emqx.hrl").
 
-%%--------------------------------------------------------------------
-%% API
-%%--------------------------------------------------------------------
+-export([start_link/0]).
 
-%% @doc Start bridge pool supervisor
--spec(start_link(atom(), binary(), [emqx_bridge:option()]) -> {ok, pid()} | {error, term()}).
-start_link(Node, Topic, Options) ->
-    MFA = {emqx_bridge, start_link, [Node, Topic, Options]},
-    emqx_pool_sup:start_link({bridge, Node, Topic}, random, MFA).
+%% Lock/Unlock API based on canal-lock.
+-export([lock/1, unlock/1]).
+
+%% @doc Starts the lock server
+-spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
+start_link() ->
+    canal_lock:start_link(?MODULE, 1).
+
+%% @doc Lock a clientid
+-spec(lock(client_id()) -> boolean()).
+lock(ClientId) ->
+    case canal_lock:acquire(?MODULE, ClientId, 1, 1) of
+        {acquired, 1} -> true;
+        full -> false
+    end.
+
+%% @doc Unlock a clientid
+-spec(unlock(client_id()) -> ok).
+unlock(ClientId) ->
+    canal_lock:release(?MODULE, ClientId, 1, 1).
 
