@@ -406,7 +406,7 @@ shutdown(Error, State = #proto_state{will_msg = WillMsg}) ->
     %% Auth failure not publish the will message
     case Error =:= auth_failure of
         true -> ok;
-        false -> send_willmsg(Client, WillMsg)
+        false -> send_willmsg(State, WillMsg)
     end,
     emqttd_hooks:run('client.disconnected', [Error], Client),
     %% let it down
@@ -429,10 +429,14 @@ maybe_set_clientid(State = #proto_state{client_id = NullId})
 maybe_set_clientid(State) ->
     State.
 
-send_willmsg(_Client, undefined) ->
+send_willmsg(_State, undefined) ->
     ignore;
-send_willmsg(#mqtt_client{client_id = ClientId, username = Username}, WillMsg) ->
-    emqttd:publish(WillMsg#mqtt_message{from = {ClientId, Username}}).
+send_willmsg(State = #proto_state{client_id = ClientId, username = Username, is_superuser = IsSuper},
+             WillMsg = #mqtt_message{topic = Topic}) ->
+    case IsSuper orelse allow == check_acl(publish, Topic, client(State)) of
+        true  -> emqttd:publish(WillMsg#mqtt_message{from = {ClientId, Username}});
+        false -> ?LOG(error, "Cannot publish LWT message to ~s for ACL Deny", [Topic], State)
+    end.
 
 start_keepalive(0, _State) -> ignore;
 
