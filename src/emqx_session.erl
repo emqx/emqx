@@ -14,35 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%%
-%% @doc MQTT Session
-%%
-%% A stateful interaction between a Client and a Server. Some Sessions
-%% last only as long as the Network Connection, others can span multiple
-%% consecutive Network Connections between a Client and a Server.
-%%
-%% The Session state in the Server consists of:
-%%
-%% The existence of a Session, even if the rest of the Session state is empty.
-%%
-%% The Client’s subscriptions.
-%%
-%% QoS 1 and QoS 2 messages which have been sent to the Client, but have not
-%% been completely acknowledged.
-%%
-%% QoS 1 and QoS 2 messages pending transmission to the Client.
-%%
-%% QoS 2 messages which have been received from the Client, but have not 
-%% been completely acknowledged.
-%%
-%% Optionally, QoS 0 messages pending transmission to the Client.
-%%
-%% If the session is currently disconnected, the time at which the Session state
-%% will be deleted.
-%%
-%% @end
-%%
-
 -module(emqx_session).
 
 -behaviour(gen_server).
@@ -76,6 +47,28 @@
 
 -define(MQueue, emqx_mqueue).
 
+%% A stateful interaction between a Client and a Server. Some Sessions
+%% last only as long as the Network Connection, others can span multiple
+%% consecutive Network Connections between a Client and a Server.
+%%
+%% The Session state in the Server consists of:
+%%
+%% The existence of a Session, even if the rest of the Session state is empty.
+%%
+%% The Client’s subscriptions.
+%%
+%% QoS 1 and QoS 2 messages which have been sent to the Client, but have not
+%% been completely acknowledged.
+%%
+%% QoS 1 and QoS 2 messages pending transmission to the Client.
+%%
+%% QoS 2 messages which have been received from the Client, but have not 
+%% been completely acknowledged.
+%%
+%% Optionally, QoS 0 messages pending transmission to the Client.
+%%
+%% If the session is currently disconnected, the time at which the Session state
+%% will be deleted.
 -record(state,
         {
          %% Clean Session Flag

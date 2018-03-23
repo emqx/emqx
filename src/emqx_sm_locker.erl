@@ -18,26 +18,16 @@
 
 -include("emqx.hrl").
 
--export([start_link/0]).
-
 %% Lock/Unlock API based on canal-lock.
 -export([lock/1, unlock/1]).
 
-%% @doc Starts the lock server
--spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
-start_link() ->
-    canal_lock:start_link(?MODULE, 1).
-
 %% @doc Lock a clientid
--spec(lock(client_id()) -> boolean()).
+-spec(lock(client_id()) -> boolean() | {error, term()}).
 lock(ClientId) ->
-    case canal_lock:acquire(?MODULE, ClientId, 1, 1) of
-        {acquired, 1} -> true;
-        full -> false
-    end.
+    emqx_rpc:call(ekka:leader(), emqx_sm_locker, lock, [ClientId]).
 
 %% @doc Unlock a clientid
 -spec(unlock(client_id()) -> ok).
 unlock(ClientId) ->
-    canal_lock:release(?MODULE, ClientId, 1, 1).
+    emqx_rpc:call(ekka:leader(), emqx_locker, unlock, [ClientId]).
 

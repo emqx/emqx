@@ -14,30 +14,14 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_session_sup).
+-module(emqx_tables).
 
--behavior(supervisor).
+-export([create/2]).
 
--include("emqx.hrl").
-
--export([start_link/0, start_session/1]).
-
--export([init/1]).
-
--spec(start_link() -> {ok, pid()}).
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
--spec(start_session(session()) -> {ok, pid()}).
-start_session(Session) ->
-    supervisor:start_child(?MODULE, [Session]).
-
-%%--------------------------------------------------------------------
-%% Supervisor callbacks
-%%--------------------------------------------------------------------
-
-init([]) ->
-    {ok, {{simple_one_for_one, 0, 1},
-          [{session, {emqx_session, start_link, []},
-              temporary, 5000, worker, [emqx_session]}]}}.
+create(Tab, Opts) ->
+    case ets:info(Tab, name) of
+        undefined ->
+            ets:new(Tab, lists:usort([named_table|Opts]));
+        Tab -> Tab
+    end.
 

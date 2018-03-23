@@ -14,21 +14,19 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_trace_sup).
+-module(emqx_tracer_sup).
 
 -behaviour(supervisor).
 
-%% API
 -export([start_link/0]).
 
-%% Supervisor callbacks
 -export([init/1]).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Trace = {trace, {emqx_trace, start_link, []},
-             permanent, 5000, worker, [emqx_trace]},
-    {ok, {{one_for_one, 10, 3600}, [Trace]}}.
+    Tracer = {tracer, {emqx_tracer, start_link, []},
+              permanent, 5000, worker, [emqx_tracer]},
+    {ok, {{one_for_one, 10, 3600}, [Tracer]}}.
 

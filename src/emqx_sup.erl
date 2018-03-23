@@ -57,6 +57,7 @@ init([]) ->
     {ok, {{one_for_all, 0, 1},
           [?CHILD(emqx_ctl, worker),
            ?CHILD(emqx_hooks, worker),
+           ?CHILD(emqx_locker, worker),
            ?CHILD(emqx_stats, worker),
            ?CHILD(emqx_metrics, worker),
            ?CHILD(emqx_router_sup, supervisor),

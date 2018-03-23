@@ -219,8 +219,11 @@ process(?CONNECT_PACKET(Var), State0) ->
                     State2 = maybe_set_clientid(State1),
 
                     %% Start session
-                    case emqx_sm:start_session(CleanSess, {clientid(State2), Username}) of
-                        {ok, Session, SP} ->
+                    case emqx_sm:open_session(#{clean_start => CleanSess,
+                                                client_id => clientid(State2),
+                                                username => Username}) of
+                        {ok, Session} -> %% TODO:...
+                            SP = true, %% TODO:...
                             %% Register the client
                             emqx_cm:reg(client(State2)),
                             %% Start keepalive

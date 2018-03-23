@@ -18,31 +18,28 @@
 
 -behaviour(supervisor).
 
-
--define(SM, emqx_sm).
-
--define(HELPER, emqx_sm_helper).
-
-%% API
 -export([start_link/0]).
 
-%% Supervisor callbacks
 -export([init/1]).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    %% Create session tables
-    _ = ets:new(mqtt_local_session, [public, ordered_set, named_table, {write_concurrency, true}]),
+    %% Create tables
+    create_tabs(),
 
-    %% Helper
     StatsFun = emqx_stats:statsfun('sessions/count', 'sessions/max'),
-    Helper = {?HELPER, {?HELPER, start_link, [StatsFun]},
-              permanent, 5000, worker, [?HELPER]},
 
-    %% SM Pool Sup
-    MFA = {?SM, start_link, []},
-    PoolSup = emqx_pool_sup:spec([?SM, hash, erlang:system_info(schedulers), MFA]),
-    {ok, {{one_for_all, 10, 3600}, [Helper, PoolSup]}}.
+    SM = {emqx_sm, {emqx_sm, start_link, [StatsFun]},
+          permanent, 5000, worker, [emqx_sm]},
+
+    {ok, {{one_for_all, 0, 3600}, [SM]}}.
+
+create_tabs() ->
+    lists:foreach(fun create_tab/1, [session, session_stats, session_attrs]).
+
+create_tab(Tab) ->
+    emqx_tables:create(Tab, [public, ordered_set, named_table,
+                             {write_concurrency, true}]).
 

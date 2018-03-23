@@ -63,6 +63,7 @@
                      clean_start     := boolean(),
                      expiry_interval := non_neg_integer()}).
 
+-record(session, {client_id, sess_pid}).
 
 %%--------------------------------------------------------------------
 %% Message and Delivery
