@@ -76,7 +76,6 @@
 -type(message_from() :: #{zone      := atom(),
                           node      := atom(),
                           clientid  := binary(),
-                          protocol  := protocol(),
                           connector => atom(),
                           peername  => {inet:ip_address(), inet:port_number()},
                           username  => binary(),
@@ -99,8 +98,14 @@
         { id         :: message_id(),      %% Global unique id
           from       :: message_from(),    %% Message from
           sender     :: pid(),             %% The pid of the sender/publisher
-          flags      :: message_flags(),   %% Message flags
+          packet_id,
+          dup        :: boolean(), %% Dup flag
+          qos        :: 0 | 1 | 2, %% QoS
+          sys        :: boolean(), %% $SYS flag
+          retain     :: boolean(), %% Retain flag
+          flags = [], %% :: message_flags(),   %% Message flags
           headers    :: message_headers(), %% Message headers
+          protocol   :: protocol(),
           topic      :: binary(),          %% Message topic
           properties :: map(),             %% Message user properties
           payload    :: binary(),          %% Message payload

@@ -42,7 +42,7 @@ rewrite_unsubscribe(_ClientId, _Username, TopicTable, Rules) ->
     lager:info("Rewrite unsubscribe: ~p", [TopicTable]),
     {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicTable]}.
 
-rewrite_publish(Message=#mqtt_message{topic = Topic}, Rules) ->
+rewrite_publish(Message = #message{topic = Topic}, Rules) ->
     %%TODO: this will not work if the client is always online.
     RewriteTopic =
     case get({rewrite, Topic}) of
@@ -52,7 +52,7 @@ rewrite_publish(Message=#mqtt_message{topic = Topic}, Rules) ->
         DestTopic ->
             DestTopic
         end,
-    {ok, Message#mqtt_message{topic = RewriteTopic}}.
+    {ok, Message#message{topic = RewriteTopic}}.
 
 unload(_) ->
     emqx:unhook('client.subscribe',  fun ?MODULE:rewrite_subscribe/4),

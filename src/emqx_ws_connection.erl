@@ -140,7 +140,7 @@ handle_call(Req, _From, State) ->
     reply({error, unexpected_request}, State).
 
 handle_cast({received, Packet}, State = #wsclient_state{proto_state = ProtoState}) ->
-    emqx_metrics:received(Packet),
+    emqx_mqtt_metrics:received(Packet),
     case emqx_protocol:received(Packet, ProtoState) of
         {ok, ProtoState1} ->
             {noreply, gc(State#wsclient_state{proto_state = ProtoState1}), hibernate};
@@ -178,7 +178,7 @@ handle_info({suback, PacketId, GrantedQos}, State) ->
 
 %% Fastlane
 handle_info({dispatch, _Topic, Message}, State) ->
-    handle_info({deliver, Message#mqtt_message{qos = ?QOS_0}}, State);
+    handle_info({deliver, Message#message{qos = ?QOS_0}}, State);
 
 handle_info({deliver, Message}, State) ->
     with_proto(

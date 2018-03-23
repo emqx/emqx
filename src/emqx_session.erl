@@ -185,15 +185,15 @@ subscribe(Session, PacketId, TopicTable) -> %%TODO: the ack function??...
 
 %% @doc Publish Message
 -spec(publish(pid(), message()) -> ok | {error, term()}).
-publish(_Session, Msg = #mqtt_message{qos = ?QOS_0}) ->
+publish(_Session, Msg = #message{qos = ?QOS_0}) ->
     %% Publish QoS0 Directly
     emqx_broker:publish(Msg), ok;
 
-publish(_Session, Msg = #mqtt_message{qos = ?QOS_1}) ->
+publish(_Session, Msg = #message{qos = ?QOS_1}) ->
     %% Publish QoS1 message directly for client will PubAck automatically
     emqx_broker:publish(Msg), ok;
 
-publish(Session, Msg = #mqtt_message{qos = ?QOS_2}) ->
+publish(Session, Msg = #message{qos = ?QOS_2}) ->
     %% Publish QoS2 to Session
     gen_server:call(Session, {publish, Msg}, ?TIMEOUT).
 
@@ -313,7 +313,7 @@ binding(ClientPid) ->
 handle_pre_hibernate(State) ->
     {hibernate, emqx_gc:reset_conn_gc_count(#state.force_gc_count, emit_stats(State))}.
 
-handle_call({publish, Msg = #mqtt_message{qos = ?QOS_2, packet_id = PacketId}}, _From,
+handle_call({publish, Msg = #message{qos = ?QOS_2, packet_id = PacketId}}, _From,
             State = #state{awaiting_rel      = AwaitingRel,
                            await_rel_timer   = Timer,
                            await_rel_timeout = Timeout}) ->
@@ -510,12 +510,12 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 %% Ignore Messages delivered by self
-handle_info({dispatch, _Topic, #mqtt_message{from = {ClientId, _}}},
+handle_info({dispatch, _Topic, #message{from = {ClientId, _}}},
              State = #state{client_id = ClientId, ignore_loop_deliver = true}) ->
     {noreply, State};
 
 %% Dispatch Message
-handle_info({dispatch, Topic, Msg}, State) when is_record(Msg, mqtt_message) ->
+handle_info({dispatch, Topic, Msg}, State) when is_record(Msg, message) ->
     {noreply, gc(dispatch(tune_qos(Topic, reset_dup(Msg), State), State))};
 
 %% Do nothing if the client has been disconnected.
@@ -604,7 +604,7 @@ retry_delivery(Force, [{Type, Msg, Ts} | Msgs], Now,
     if
         Force orelse (Diff >= Interval) ->
             case {Type, Msg} of
-                {publish, Msg = #mqtt_message{packet_id = PacketId}} ->
+                {publish, Msg = #message{packet_id = PacketId}} ->
                     redeliver(Msg, State),
                     Inflight1 = Inflight:update(PacketId, {publish, Msg, Now}),
                     retry_delivery(Force, Msgs, Now, State#state{inflight = Inflight1});
@@ -631,7 +631,7 @@ expire_awaiting_rel(State = #state{awaiting_rel = AwaitingRel}) ->
 expire_awaiting_rel([], _Now, State) ->
     State#state{await_rel_timer = undefined};
 
-expire_awaiting_rel([{PacketId, Msg = #mqtt_message{timestamp = TS}} | Msgs],
+expire_awaiting_rel([{PacketId, Msg = #message{timestamp = TS}} | Msgs],
                     Now, State = #state{awaiting_rel      = AwaitingRel,
                                         await_rel_timeout = Timeout}) ->
     case (timer:now_diff(Now, TS) div 1000) of
@@ -651,8 +651,8 @@ sortfun(inflight) ->
     fun({_, _, Ts1}, {_, _, Ts2}) -> Ts1 < Ts2 end;
 
 sortfun(awaiting_rel) ->
-    fun({_, #mqtt_message{timestamp = Ts1}},
-        {_, #mqtt_message{timestamp = Ts2}}) ->
+    fun({_, #message{timestamp = Ts1}},
+        {_, #message{timestamp = Ts2}}) ->
         Ts1 < Ts2
     end.
 
@@ -677,17 +677,17 @@ dispatch(Msg, State = #state{client_id = ClientId, client_pid = undefined}) ->
     end;
 
 %% Deliver qos0 message directly to client
-dispatch(Msg = #mqtt_message{qos = ?QOS0}, State) ->
+dispatch(Msg = #message{qos = ?QOS0}, State) ->
     deliver(Msg, State), State;
 
-dispatch(Msg = #mqtt_message{qos = QoS},
+dispatch(Msg = #message{qos = QoS},
          State = #state{next_msg_id = MsgId, inflight = Inflight})
     when QoS =:= ?QOS1 orelse QoS =:= ?QOS2 ->
     case Inflight:is_full() of
         true  ->
             enqueue_msg(Msg, State);
         false ->
-            Msg1 = Msg#mqtt_message{packet_id = MsgId},
+            Msg1 = Msg#message{packet_id = MsgId},
             deliver(Msg1, State),
             await(Msg1, next_msg_id(State))
     end.
@@ -700,8 +700,8 @@ enqueue_msg(Msg, State = #state{mqueue = Q}) ->
 %% Deliver
 %%--------------------------------------------------------------------
 
-redeliver(Msg = #mqtt_message{qos = QoS}, State) ->
-    deliver(Msg#mqtt_message{dup = if QoS =:= ?QOS2 -> false; true -> true end}, State);
+redeliver(Msg = #message{qos = QoS}, State) ->
+    deliver(Msg#message{dup = if QoS =:= ?QOS2 -> false; true -> true end}, State);
 
 redeliver({pubrel, PacketId}, #state{client_pid = Pid}) ->
     Pid ! {redeliver, {?PUBREL, PacketId}}.
@@ -715,7 +715,7 @@ deliver(Msg, #state{client_pid = Pid, binding = remote}) ->
 %% Awaiting ACK for QoS1/QoS2 Messages
 %%--------------------------------------------------------------------
 
-await(Msg = #mqtt_message{packet_id = PacketId},
+await(Msg = #message{packet_id = PacketId},
       State = #state{inflight       = Inflight,
                      retry_timer    = RetryTimer,
                      retry_interval = Interval}) ->
@@ -780,13 +780,13 @@ dequeue2(State = #state{mqueue = Q}) ->
 %% Tune QoS
 %%--------------------------------------------------------------------
 
-tune_qos(Topic, Msg = #mqtt_message{qos = PubQoS},
+tune_qos(Topic, Msg = #message{qos = PubQoS},
          #state{subscriptions = SubMap, upgrade_qos = UpgradeQoS}) ->
     case maps:find(Topic, SubMap) of
         {ok, SubQoS} when UpgradeQoS andalso (SubQoS > PubQoS) ->
-            Msg#mqtt_message{qos = SubQoS};
+            Msg#message{qos = SubQoS};
         {ok, SubQoS} when (not UpgradeQoS) andalso (SubQoS < PubQoS) ->
-            Msg#mqtt_message{qos = SubQoS};
+            Msg#message{qos = SubQoS};
         {ok, _} ->
             Msg;
         error ->
@@ -797,8 +797,8 @@ tune_qos(Topic, Msg = #mqtt_message{qos = PubQoS},
 %% Reset Dup
 %%--------------------------------------------------------------------
 
-reset_dup(Msg = #mqtt_message{dup = true}) ->
-    Msg#mqtt_message{dup = false};
+reset_dup(Msg = #message{dup = true}) ->
+    Msg#message{dup = false};
 reset_dup(Msg) -> Msg.
 
 %%--------------------------------------------------------------------

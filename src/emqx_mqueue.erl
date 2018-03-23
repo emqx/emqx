@@ -154,8 +154,8 @@ stats(#mqueue{type = Type, q = Q, max_len = MaxLen, len = Len, dropped = Dropped
             end} | [{max_len, MaxLen}, {dropped, Dropped}]].
 
 %% @doc Enqueue a message.
--spec(in(mqtt_message(), mqueue()) -> mqueue()).
-in(#mqtt_message{qos = ?QOS_0}, MQ = #mqueue{qos0 = false}) ->
+-spec(in(message(), mqueue()) -> mqueue()).
+in(#message{qos = ?QOS_0}, MQ = #mqueue{qos0 = false}) ->
     MQ;
 in(Msg, MQ = #mqueue{type = simple, q = Q, len = Len, max_len = 0}) ->
     MQ#mqueue{q = queue:in(Msg, Q), len = Len + 1};
@@ -166,7 +166,7 @@ in(Msg, MQ = #mqueue{type = simple, q = Q, len = Len, max_len = MaxLen, dropped 
 in(Msg, MQ = #mqueue{type = simple, q = Q, len = Len}) ->
     maybe_set_alarm(MQ#mqueue{q = queue:in(Msg, Q), len = Len + 1});
 
-in(Msg = #mqtt_message{topic = Topic}, MQ = #mqueue{type = priority, q = Q,
+in(Msg = #message{topic = Topic}, MQ = #mqueue{type = priority, q = Q,
                                                     priorities = Priorities,
                                                     max_len = 0}) ->
     case lists:keysearch(Topic, 1, Priorities) of
@@ -176,7 +176,7 @@ in(Msg = #mqtt_message{topic = Topic}, MQ = #mqueue{type = priority, q = Q,
             {Pri, MQ1} = insert_p(Topic, 0, MQ),
             MQ1#mqueue{q = ?PQUEUE:in(Msg, Pri, Q)}
     end;
-in(Msg = #mqtt_message{topic = Topic}, MQ = #mqueue{type = priority, q = Q,
+in(Msg = #message{topic = Topic}, MQ = #mqueue{type = priority, q = Q,
                                                     priorities = Priorities,
                                                     max_len = MaxLen}) ->
     case lists:keysearch(Topic, 1, Priorities) of

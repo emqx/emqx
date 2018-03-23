@@ -120,7 +120,7 @@ client(#proto_state{client_id          = ClientId,
                     connected_at       = Time}) ->
     WillTopic = if
                     WillMsg =:= undefined -> undefined;
-                    true -> WillMsg#mqtt_message.topic
+                    true -> WillMsg#message.topic
                 end,
     #mqtt_client{client_id          = ClientId,
                  client_pid         = ClientPid,
@@ -352,18 +352,18 @@ with_puback(Type, Packet = ?PUBLISH_PACKET(_Qos, PacketId),
             ?LOG(error, "PUBLISH ~p error: ~p", [PacketId, Error], State)
     end.
 
--spec(send(mqtt_message() | mqtt_packet(), proto_state()) -> {ok, proto_state()}).
+-spec(send(message() | mqtt_packet(), proto_state()) -> {ok, proto_state()}).
 send(Msg, State = #proto_state{client_id  = ClientId,
                                username   = Username,
                                mountpoint = MountPoint,
                                is_bridge  = IsBridge})
-        when is_record(Msg, mqtt_message) ->
+        when is_record(Msg, message) ->
     emqx_hooks:run('message.delivered', [ClientId, Username], Msg),
     send(emqx_message:to_packet(unmount(MountPoint, clean_retain(IsBridge, Msg))), State);
 
 send(Packet = ?PACKET(Type), State = #proto_state{sendfun = SendFun, stats_data = Stats}) ->
     trace(send, Packet, State),
-    emqx_metrics:sent(Packet),
+    emqx_mqtt_metrics:sent(Packet),
     SendFun(Packet),
     {ok, State#proto_state{stats_data = inc_stats(send, Type, Stats)}}.
 
@@ -439,7 +439,7 @@ maybe_set_clientid(State) ->
 send_willmsg(_Client, undefined) ->
     ignore;
 send_willmsg(#mqtt_client{client_id = ClientId, username = Username}, WillMsg) ->
-    emqx_broker:publish(WillMsg#mqtt_message{from = {ClientId, Username}}).
+    emqx_broker:publish(WillMsg#message{from = {ClientId, Username}}).
 
 start_keepalive(0, _State) -> ignore;
 
@@ -570,10 +570,10 @@ sp(false) -> 0.
 %% The retained flag should be propagated for bridge.
 %%--------------------------------------------------------------------
 
-clean_retain(false, Msg = #mqtt_message{retain = true, headers = Headers}) ->
+clean_retain(false, Msg = #message{retain = true, headers = Headers}) ->
     case lists:member(retained, Headers) of
         true  -> Msg;
-        false -> Msg#mqtt_message{retain = false}
+        false -> Msg#message{retain = false}
     end;
 clean_retain(_IsBridge, Msg) ->
     Msg.
@@ -596,16 +596,16 @@ feed_var({<<"%u">>, Username}, MountPoint) ->
 
 mount(undefined, Any) ->
     Any;
-mount(MountPoint, Msg = #mqtt_message{topic = Topic}) ->
-    Msg#mqtt_message{topic = <<MountPoint/binary, Topic/binary>>};
+mount(MountPoint, Msg = #message{topic = Topic}) ->
+    Msg#message{topic = <<MountPoint/binary, Topic/binary>>};
 mount(MountPoint, TopicTable) when is_list(TopicTable) ->
     [{<<MountPoint/binary, Topic/binary>>, Opts} || {Topic, Opts} <- TopicTable].
 
 unmount(undefined, Any) ->
     Any;
-unmount(MountPoint, Msg = #mqtt_message{topic = Topic}) ->
+unmount(MountPoint, Msg = #message{topic = Topic}) ->
     case catch split_binary(Topic, byte_size(MountPoint)) of
-        {MountPoint, Topic0} -> Msg#mqtt_message{topic = Topic0};
+        {MountPoint, Topic0} -> Msg#message{topic = Topic0};
         _ -> Msg
     end.
 

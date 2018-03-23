@@ -26,13 +26,15 @@
 -define(APP, emqx).
 
 %%--------------------------------------------------------------------
-%% Application Callbacks
+%% Application callbacks
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
     print_banner(),
     ekka:start(),
     {ok, Sup} = emqx_sup:start_link(),
+    %%TODO: fixme later
+    emqx_mqtt_metrics:init(),
     ok = register_acl_mod(),
     emqx_modules:load(),
     start_autocluster(),
@@ -43,7 +45,7 @@ start(_Type, _Args) ->
 -spec(stop(State :: term()) -> term()).
 stop(_State) ->
     emqx_modules:unload(),
-    catch emqx:stop_listeners().
+    catch emqx_mqtt:shutdown().
 
 %%--------------------------------------------------------------------
 %% Print Banner
@@ -78,5 +80,5 @@ start_autocluster() ->
 after_autocluster() ->
     emqx_plugins:init(),
     emqx_plugins:load(),
-    emqx:start_listeners().
+    emqx_mqtt:bootstrap().
 

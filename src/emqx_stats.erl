@@ -163,7 +163,8 @@ init([]) ->
     Topics = ?SYSTOP_CLIENTS ++ ?SYSTOP_SESSIONS ++ ?SYSTOP_PUBSUB ++ ?SYSTOP_RETAINED,
     ets:insert(?STATS_TAB, [{Topic, 0} || Topic <- Topics]),
     % Tick to publish stats
-    {ok, #state{tick = emqx_broker:start_tick(tick)}, hibernate}.
+    {ok, TRef} = timer:send_after(emqx_sys:sys_interval(), tick),
+    {ok, #state{tick = TRef}, hibernate}.
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
@@ -194,7 +195,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{tick = TRef}) ->
-    emqx_broker:stop_tick(TRef).
+    timer:cancel(TRef).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

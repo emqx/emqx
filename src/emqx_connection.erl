@@ -203,7 +203,7 @@ handle_info({suback, PacketId, GrantedQos}, State) ->
 
 %% Fastlane
 handle_info({dispatch, _Topic, Message}, State) ->
-    handle_info({deliver, Message#mqtt_message{qos = ?QOS_0}}, State);
+    handle_info({deliver, Message#message{qos = ?QOS_0}}, State);
 
 handle_info({deliver, Message}, State) ->
     with_proto(
@@ -316,7 +316,7 @@ received(Bytes, State = #state{parser       = Parser,
         {more, NewParser} ->
             {noreply, run_socket(State#state{parser = NewParser}), IdleTimeout};
         {ok, Packet, Rest} ->
-            emqx_metrics:received(Packet),
+            emqx_mqtt_metrics:received(Packet),
             case emqx_protocol:received(Packet, ProtoState) of
                 {ok, ProtoState1} ->
                     received(Rest, State#state{parser = emqx_parser:initial_state(PacketSize),

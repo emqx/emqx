@@ -167,11 +167,11 @@ dequeue(State = #state{mqueue = MQ}) ->
         {empty, MQ1} ->
             State#state{mqueue = MQ1};
         {{value, Msg}, MQ1} ->
-            handle_info({dispatch, Msg#mqtt_message.topic, Msg}, State),
+            handle_info({dispatch, Msg#message.topic, Msg}, State),
             dequeue(State#state{mqueue = MQ1})
     end.
 
-transform(Msg = #mqtt_message{topic = Topic}, #state{topic_prefix = Prefix,
-                                                     topic_suffix = Suffix}) ->
-    Msg#mqtt_message{topic = <<Prefix/binary, Topic/binary, Suffix/binary>>}.
+transform(Msg = #message{topic = Topic}, #state{topic_prefix = Prefix,
+                                                topic_suffix = Suffix}) ->
+    Msg#message{topic = <<Prefix/binary, Topic/binary, Suffix/binary>>}.
 

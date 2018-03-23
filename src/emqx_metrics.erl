@@ -29,7 +29,7 @@
 
 -record(state, {tick}).
 
--define(TAB, ?MODULE).
+-define(TAB, metrics).
 
 -define(SERVER, ?MODULE).
 
@@ -117,9 +117,10 @@ key(counter, Metric) ->
 init([]) ->
     emqx_time:seed(),
     % Create metrics table
-    ets:new(?TAB, [set, public, named_table, {write_concurrency, true}]),
+    _ = ets:new(?TAB, [set, public, named_table, {write_concurrency, true}]),
     % Tick to publish metrics
-    {ok, #state{tick = emqx_broker:start_tick(tick)}, hibernate}.
+    {ok, TRef} = timer:send_after(emqx_sys:sys_interval(), tick),
+    {ok, #state{tick = TRef}, hibernate}.
 
 handle_call(_Req, _From, State) ->
     {reply, error, State}.
@@ -136,7 +137,8 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{tick = TRef}) ->
-    emqx_broker:stop_tick(TRef).
+    %%TODO: 
+    timer:cancel(TRef).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -144,6 +146,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+%% TODO: the depencies are not right
 
 publish(Metric, Val) ->
     Msg = emqx_message:make(metrics, metric_topic(Metric), bin(Val)),
