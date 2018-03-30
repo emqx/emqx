@@ -51,14 +51,14 @@ start_link() ->
 trace(publish, From, _Msg) when is_atom(From) ->
     %% Dont' trace '$SYS' publish
     ignore;
-trace(publish, {ClientId, Username}, #message{topic = Topic, payload = Payload}) ->
+trace(publish, #client{id = ClientId, username = Username},
+      #message{topic = Topic, payload = Payload}) ->
     lager:info([{client, ClientId}, {topic, Topic}],
                "~s/~s PUBLISH to ~s: ~p", [ClientId, Username, Topic, Payload]);
 trace(publish, From, #message{topic = Topic, payload = Payload})
     when is_binary(From); is_list(From) ->
     lager:info([{client, From}, {topic, Topic}],
                "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
-
 
 %%--------------------------------------------------------------------
 %% Start/Stop Trace

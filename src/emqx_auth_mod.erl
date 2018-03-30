@@ -30,7 +30,7 @@
 
 -callback(init(AuthOpts :: list()) -> {ok, State :: any()}).
 
--callback(check(Client   :: mqtt_client(),
+-callback(check(Client   :: client(),
                 Password :: binary(),
                 State    :: any())
           -> ok | {ok, boolean()} | ignore | {error, string()}).

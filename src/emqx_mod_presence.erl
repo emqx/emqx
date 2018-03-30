@@ -28,44 +28,55 @@ load(Env) ->
     emqx:hook('client.connected',    fun ?MODULE:on_client_connected/3, [Env]),
     emqx:hook('client.disconnected', fun ?MODULE:on_client_disconnected/3, [Env]).
 
-on_client_connected(ConnAck, Client = #mqtt_client{client_id  = ClientId,
-                                                   username   = Username,
-                                                   peername   = {IpAddr, _},
-                                                   clean_sess = CleanSess,
-                                                   proto_ver  = ProtoVer}, Env) ->
-    Payload = mochijson2:encode([{clientid, ClientId},
+on_client_connected(ConnAck, Client = #client{id       = ClientId,
+                                              username = Username,
+                                              peername = {IpAddr, _}
+                                              %%clean_sess = CleanSess,
+                                              %%proto_ver = ProtoVer
+                                             }, Env) ->
+    case catch emqx_json:encode([{clientid, ClientId},
                                  {username, Username},
                                  {ipaddress, iolist_to_binary(emqx_net:ntoa(IpAddr))},
-                                 {clean_sess, CleanSess},
-                                 {protocol, ProtoVer},
+                                 %%{clean_sess, CleanSess}, %%TODO:: fixme later
+                                 %%{protocol, ProtoVer},
                                  {connack, ConnAck},
-                                 {ts, emqx_time:now_secs()}]),
-    Msg = message(qos(Env), topic(connected, ClientId), Payload),
-    emqx:publish(emqx_message:set_flag(sys, Msg)),
+                                 {ts, emqx_time:now_secs()}]) of
+        Payload when is_binary(Payload) ->
+            Msg = message(qos(Env), topic(connected, ClientId), Payload),
+            emqx:publish(emqx_message:set_flag(sys, Msg));
+        {'EXIT', Reason} ->
+            emqx_log:error("[Presence Module] json error: ~p", [Reason])
+    end,
     {ok, Client}.
 
-on_client_disconnected(Reason, #mqtt_client{client_id = ClientId,
-                                            username = Username}, Env) ->
-    Payload = mochijson2:encode([{clientid, ClientId},
+on_client_disconnected(Reason, #client{id       = ClientId,
+                                       username = Username}, Env) ->
+    case catch emqx_json:encode([{clientid, ClientId},
                                  {username, Username},
                                  {reason, reason(Reason)},
-                                 {ts, emqx_time:now_secs()}]),
-    Msg = message(qos(Env), topic(disconnected, ClientId), Payload),
-    emqx:publish(emqx_message:set_flag(sys, Msg)), ok.
+                                 {ts, emqx_time:now_secs()}]) of
+        Payload when is_binary(Payload) -> 
+            Msg = message(qos(Env), topic(disconnected, ClientId), Payload),
+            emqx:publish(emqx_message:set_flag(sys, Msg));
+        {'EXIT', Reason} ->
+            emqx_log:error("[Presence Module] json error: ~p", [Reason])
+    end, ok.
 
 unload(_Env) ->
     emqx:unhook('client.connected',    fun ?MODULE:on_client_connected/3),
     emqx:unhook('client.disconnected', fun ?MODULE:on_client_disconnected/3).
 
 message(Qos, Topic, Payload) ->
-    emqx_message:make(presence, Qos, Topic, iolist_to_binary(Payload)).
+    Msg = emqx_message:make(presence, Topic, iolist_to_binary(Payload)),
+    emqx_message:set_header(qos, Qos, Msg).
 
 topic(connected, ClientId) ->
     emqx_topic:systop(list_to_binary(["clients/", ClientId, "/connected"]));
 topic(disconnected, ClientId) ->
     emqx_topic:systop(list_to_binary(["clients/", ClientId, "/disconnected"])).
 
-qos(Env) -> proplists:get_value(qos, Env, 0).
+qos(Env) ->
+    proplists:get_value(qos, Env, 0).
 
 reason(Reason) when is_atom(Reason) -> Reason;
 reason({Error, _}) when is_atom(Error) -> Error;

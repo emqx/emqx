@@ -24,10 +24,10 @@
 %% @doc Lock a clientid
 -spec(lock(client_id()) -> boolean() | {error, term()}).
 lock(ClientId) ->
-    emqx_rpc:call(ekka:leader(), emqx_sm_locker, lock, [ClientId]).
+    rpc:call(ekka_membership:leader(), emqx_locker, lock, [ClientId]).
 
 %% @doc Unlock a clientid
 -spec(unlock(client_id()) -> ok).
 unlock(ClientId) ->
-    emqx_rpc:call(ekka:leader(), emqx_locker, unlock, [ClientId]).
+    rpc:call(ekka_membership:leader(), emqx_locker, unlock, [ClientId]).
 

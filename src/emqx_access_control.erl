@@ -30,7 +30,7 @@
 
 -define(SERVER, ?MODULE).
 
--define(ACCESS_CONTROL_TAB, mqtt_access_control).
+-define(TAB, access_control).
 
 -type(password() :: undefined | binary()).
 
@@ -45,9 +45,10 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-%% @doc Authenticate MQTT Client.
--spec(auth(Client :: mqtt_client(), Password :: password()) -> ok | {ok, boolean()} | {error, term()}).
-auth(Client, Password) when is_record(Client, mqtt_client) ->
+%% @doc Authenticate Client.
+-spec(auth(Client :: client(), Password :: password())
+      -> ok | {ok, boolean()} | {error, term()}).
+auth(Client, Password) when is_record(Client, client) ->
     auth(Client, Password, lookup_mods(auth)).
 auth(_Client, _Password, []) ->
     case emqx:env(allow_anonymous, false) of
@@ -65,7 +66,7 @@ auth(Client, Password, [{Mod, State, _Seq} | Mods]) ->
 
 %% @doc Check ACL
 -spec(check_acl(Client, PubSub, Topic) -> allow | deny when
-      Client :: mqtt_client(),
+      Client :: client(),
       PubSub :: pubsub(),
       Topic  :: binary()).
 check_acl(Client, PubSub, Topic) when ?PS(PubSub) ->
@@ -102,7 +103,7 @@ unregister_mod(Type, Mod) when Type =:= auth; Type =:= acl ->
 %% @doc Lookup authentication or ACL modules.
 -spec(lookup_mods(auth | acl) -> list()).
 lookup_mods(Type) ->
-    case ets:lookup(?ACCESS_CONTROL_TAB, tab_key(Type)) of
+    case ets:lookup(?TAB, tab_key(Type)) of
         []          -> [];
         [{_, Mods}] -> Mods
     end.
@@ -111,14 +112,15 @@ tab_key(auth) -> auth_modules;
 tab_key(acl)  -> acl_modules.
 
 %% @doc Stop access control server.
-stop() -> gen_server:call(?MODULE, stop).
+stop() ->
+    gen_server:call(?MODULE, stop).
 
 %%--------------------------------------------------------------------
 %% gen_server Callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ets:new(?ACCESS_CONTROL_TAB, [set, named_table, protected, {read_concurrency, true}]),
+    _ = ets:new(?TAB, [set, named_table, protected, {read_concurrency, true}]),
     {ok, #state{}}.
 
 handle_call({register_mod, Type, Mod, Opts, Seq}, _From, State) ->
@@ -130,7 +132,7 @@ handle_call({register_mod, Type, Mod, Opts, Seq}, _From, State) ->
                         NewMods = lists:sort(fun({_, _, Seq1}, {_, _, Seq2}) ->
                                             Seq1 >= Seq2
                                     end, [{Mod, ModState, Seq} | Mods]),
-                        ets:insert(?ACCESS_CONTROL_TAB, {tab_key(Type), NewMods}),
+                        ets:insert(?TAB, {tab_key(Type), NewMods}),
                         ok;
                     {error, Error} ->
                         {error, Error};
@@ -145,7 +147,7 @@ handle_call({unregister_mod, Type, Mod}, _From, State) ->
         false ->
             {reply, {error, not_found}, State};
         _ ->
-            ets:insert(?ACCESS_CONTROL_TAB, {tab_key(Type), lists:keydelete(Mod, 1, Mods)}),
+            _ = ets:insert(?TAB, {tab_key(Type), lists:keydelete(Mod, 1, Mods)}),
             {reply, ok, State}
     end;
 
@@ -172,7 +174,8 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-if_existed(false, Fun) -> Fun();
-
-if_existed(_Mod, _Fun) -> {error, already_existed}.
+if_existed(false, Fun) ->
+    Fun();
+if_existed(_Mod, _Fun) ->
+    {error, already_existed}.
 

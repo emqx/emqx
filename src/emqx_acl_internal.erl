@@ -77,7 +77,7 @@ filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
 
 %% @doc Check ACL
 -spec(check_acl({Client, PubSub, Topic}, State) -> allow | deny | ignore when
-      Client :: mqtt_client(),
+      Client :: client(),
       PubSub :: pubsub(),
       Topic  :: binary(),
       State  :: #state{}).

@@ -20,110 +20,93 @@
 
 -include("emqx.hrl").
 
-%% API Exports 
--export([start_link/3]).
+-export([start_link/1]).
 
--export([lookup/1, lookup_proc/1, reg/1, unreg/1]).
+-export([lookup/1, reg/1, unreg/1]).
 
-%% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {pool, id, statsfun, monitors}).
+-record(state, {stats_fun, stats_timer, monitors}).
 
--define(POOL, ?MODULE).
+-define(SERVER, ?MODULE).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
-%% @doc Start Client Manager
--spec(start_link(atom(), pos_integer(), fun()) -> {ok, pid()} | ignore | {error, term()}).
-start_link(Pool, Id, StatsFun) ->
-    gen_server:start_link(?MODULE, [Pool, Id, StatsFun], []).
+%% @doc Start the client manager
+-spec(start_link(fun()) -> {ok, pid()} | ignore | {error, term()}).
+start_link(StatsFun) ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [StatsFun], []).
 
-%% @doc Lookup Client by ClientId
--spec(lookup(binary()) -> mqtt_client() | undefined).
+%% @doc Lookup ClientPid by ClientId
+-spec(lookup(client_id()) -> pid() | undefined).
 lookup(ClientId) when is_binary(ClientId) ->
-    case ets:lookup(mqtt_client, ClientId) of [Client] -> Client; [] -> undefined end.
-
-%% @doc Lookup client pid by clientId
--spec(lookup_proc(binary()) -> pid() | undefined).
-lookup_proc(ClientId) when is_binary(ClientId) ->
-    try ets:lookup_element(mqtt_client, ClientId, #mqtt_client.client_pid)
+    try ets:lookup_element(client, ClientId, 2)
     catch
         error:badarg -> undefined
     end.
 
-%% @doc Register ClientId with Pid.
--spec(reg(mqtt_client()) -> ok).
-reg(Client = #mqtt_client{client_id = ClientId}) ->
-    gen_server:call(pick(ClientId), {reg, Client}, 120000).
+%% @doc Register a clientId 
+-spec(reg(client_id()) -> ok).
+reg(ClientId) ->
+    gen_server:cast(?SERVER, {reg, ClientId, self()}).
 
 %% @doc Unregister clientId with pid.
--spec(unreg(binary()) -> ok).
-unreg(ClientId) when is_binary(ClientId) ->
-    gen_server:cast(pick(ClientId), {unreg, ClientId, self()}).
-
-pick(ClientId) -> gproc_pool:pick_worker(?POOL, ClientId).
+-spec(unreg(client_id()) -> ok).
+unreg(ClientId) ->
+    gen_server:cast(?SERVER, {unreg, ClientId, self()}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([Pool, Id, StatsFun]) ->
-    gproc_pool:connect_worker(Pool, {Pool, Id}),
-    {ok, #state{pool = Pool, id = Id, statsfun = StatsFun, monitors = dict:new()}}.
-
-handle_call({reg, Client = #mqtt_client{client_id  = ClientId,
-                                        client_pid = Pid}}, _From, State) ->
-    case lookup_proc(ClientId) of
-        Pid ->
-            {reply, ok, State};
-        _ ->
-            ets:insert(mqtt_client, Client),
-            {reply, ok, setstats(monitor_client(ClientId, Pid, State))}
-    end;
+init([StatsFun]) ->
+    {ok, Ref} = timer:send_interval(timer:seconds(1), stats),
+    {ok, #state{stats_fun = StatsFun, stats_timer = Ref, monitors = dict:new()}}.
 
 handle_call(Req, _From, State) ->
-    lager:error("[MQTT-CM] Unexpected Call: ~p", [Req]),
+    emqx_log:error("[CM] Unexpected request: ~p", [Req]),
     {reply, ignore, State}.
 
+handle_cast({reg, ClientId, Pid}, State) ->
+    _ = ets:insert(client, {ClientId, Pid}),
+    {noreply, monitor_client(ClientId, Pid, State)};
+
 handle_cast({unreg, ClientId, Pid}, State) ->
-    case lookup_proc(ClientId) of
-        Pid ->
-            ets:delete(mqtt_client, ClientId),
-            {noreply, setstats(State)};
-        _ ->
-            {noreply, State}
-    end;
+    case lookup(ClientId) of
+        Pid -> remove_client({ClientId, Pid});
+        _   -> ok
+    end,
+    {noreply, State};
 
 handle_cast(Msg, State) ->
-    lager:error("[MQTT-CM] Unexpected Cast: ~p", [Msg]),
+    emqx_log:error("[CM] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
     case dict:find(MRef, State#state.monitors) of
-        {ok, {ClientId, DownPid}} ->
-            case lookup_proc(ClientId) of
-                DownPid ->
-                    emqx_stats:del_client_stats(ClientId),
-                    ets:delete(mqtt_client, ClientId);
-                _ ->
-                    ignore
+        {ok, ClientId} ->
+            case lookup(ClientId) of
+                DownPid -> remove_client({ClientId, DownPid});
+                _       -> ok
             end,
-            {noreply, setstats(erase_monitor(MRef, State))};
+            {noreply, erase_monitor(MRef, State)};
         error ->
-            lager:error("MRef of client ~p not found", [DownPid]),
+            emqx_log:error("[CM] down client ~p not found", [DownPid]),
             {noreply, State}
     end;
+
+handle_info(stats, State) ->
+    {noreply, setstats(State), hibernate};
 
 handle_info(Info, State) ->
     lager:error("[CM] Unexpected Info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #state{pool = Pool, id = Id}) ->
-    gproc_pool:disconnect_worker(Pool, {Pool, Id}).
+terminate(_Reason, _State = #state{stats_timer = TRef}) ->
+    timer:cancel(TRef).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -132,14 +115,19 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+remove_client(Client) ->
+    ets:delete_object(client, Client),
+    ets:delete(client_stats, Client),
+    ets:delete(client_attrs, Client).
+
 monitor_client(ClientId, Pid, State = #state{monitors = Monitors}) ->
     MRef = erlang:monitor(process, Pid),
-    State#state{monitors = dict:store(MRef, {ClientId, Pid}, Monitors)}.
+    State#state{monitors = dict:store(MRef, ClientId, Monitors)}.
 
 erase_monitor(MRef, State = #state{monitors = Monitors}) ->
-    erlang:demonitor(MRef, [flush]),
+    erlang:demonitor(MRef),
     State#state{monitors = dict:erase(MRef, Monitors)}.
 
-setstats(State = #state{statsfun = StatsFun}) ->
-    StatsFun(ets:info(mqtt_client, size)), State.
+setstats(State = #state{stats_fun = StatsFun}) ->
+    StatsFun(ets:info(client, size)), State.
 

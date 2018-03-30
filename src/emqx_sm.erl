@@ -24,7 +24,7 @@
 
 -export([open_session/1, lookup_session/1, close_session/1]).
 -export([resume_session/1, discard_session/1]).
--export([register_session/1, unregister_session/2]).
+-export([register_session/1, unregister_session/1, unregister_session/2]).
 
 %% lock_session/1, create_session/1, unlock_session/1,
 
@@ -42,17 +42,19 @@ start_link(StatsFun) ->
 open_session(Session = #{client_id := ClientId, clean_start := true}) ->
     with_lock(ClientId,
               fun() ->
-                  case rpc:multicall(ekka:nodelist(), ?MODULE, discard_session, [ClientId]) of
+                  io:format("Nodelist: ~p~n", [ekka_membership:nodelist()]),
+                  case rpc:multicall(ekka_membership:nodelist(), ?MODULE, discard_session, [ClientId]) of
                       {_Res, []} -> ok;
                       {_Res, BadNodes} -> emqx_log:error("[SM] Bad nodes found when lock a session: ~p", [BadNodes])
                   end,
-                  {ok, emqx_session_sup:start_session(Session)}
+                  io:format("Begin to start session: ~p~n", [Session]),
+                  emqx_session_sup:start_session(Session)
               end);
 
 open_session(Session = #{client_id := ClientId, clean_start := false}) ->
     with_lock(ClientId,
               fun() ->
-                  {ResL, _BadNodes} = emqx_rpc:multicall(ekka:nodelist(), ?MODULE, lookup_session, [ClientId]),
+                  {ResL, _BadNodes} = rpc:multicall(ekka_membership:nodelist(), ?MODULE, lookup_session, [ClientId]),
                   case lists:flatten([Pid || Pid <- ResL, Pid =/= undefined]) of
                       [] ->
                           {ok, emqx_session_sup:start_session(Session)};
@@ -61,7 +63,7 @@ open_session(Session = #{client_id := ClientId, clean_start := false}) ->
                               ok -> {ok, SessPid};
                               {error, Reason} ->
                                   emqx_log:error("[SM] Failed to resume session: ~p, ~p", [Session, Reason]),
-                                  {ok, emqx_session_sup:start_session(Session)}
+                                  emqx_session_sup:start_session(Session)
                           end
                   end
               end).
@@ -108,6 +110,9 @@ with_lock(ClientId, Fun) ->
 -spec(register_session(client_id()) -> true).
 register_session(ClientId) ->
     ets:insert(session, {ClientId, self()}).
+
+unregister_session(ClientId) ->
+    unregister_session(ClientId, self()).
 
 unregister_session(ClientId, Pid) ->
     case ets:lookup(session, ClientId) of

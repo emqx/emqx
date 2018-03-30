@@ -202,8 +202,8 @@ handle_info({suback, PacketId, GrantedQos}, State) ->
       end, State);
 
 %% Fastlane
-handle_info({dispatch, _Topic, Message}, State) ->
-    handle_info({deliver, Message#message{qos = ?QOS_0}}, State);
+handle_info({dispatch, _Topic, Msg}, State) ->
+    handle_info({deliver, emqx_message:set_flag(qos, ?QOS_0, Msg)}, State);
 
 handle_info({deliver, Message}, State) ->
     with_proto(

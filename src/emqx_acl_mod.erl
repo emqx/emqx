@@ -26,9 +26,10 @@
 
 -callback(init(AclOpts :: list()) -> {ok, State :: any()}).
 
--callback(check_acl({Client :: mqtt_client(),
+-callback(check_acl({Client :: client(),
                      PubSub :: pubsub(),
-                     Topic  :: binary()}, State :: any()) -> allow | deny | ignore).
+                     Topic  :: topic()}, State :: any())
+          -> allow | deny | ignore).
 
 -callback(reload_acl(State :: any()) -> ok | {error, term()}).
 

@@ -29,7 +29,7 @@
 -import(proplists, [get_value/2, get_value/3]).
 
 %% Session API
--export([start_link/3, resume/3, destroy/2]).
+-export([start_link/1, resume/3, discard/2]).
 
 %% Management and Monitor API
 -export([state/1, info/1, stats/1]).
@@ -41,9 +41,6 @@
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
-
-%% TODO: gen_server Message Priorities
--export([handle_pre_hibernate/1]).
 
 -define(MQueue, emqx_mqueue).
 
@@ -71,8 +68,8 @@
 %% will be deleted.
 -record(state,
         {
-         %% Clean Session Flag
-         clean_sess = false :: boolean(),
+         %% Clean Start Flag
+         clean_start = false :: boolean(),
 
          %% Client Binding: local | remote
          binding = local :: local | remote,
@@ -150,9 +147,9 @@
 
 -define(TIMEOUT, 60000).
 
--define(INFO_KEYS, [clean_sess, client_id, username, client_pid, binding, created_at]).
+-define(INFO_KEYS, [clean_start, client_id, username, client_pid, binding, created_at]).
 
--define(STATE_KEYS, [clean_sess, client_id, username, binding, client_pid, old_client_pid,
+-define(STATE_KEYS, [clean_start, client_id, username, binding, client_pid, old_client_pid,
                      next_msg_id, max_subscriptions, subscriptions, upgrade_qos, inflight,
                      max_inflight, retry_interval, mqueue, awaiting_rel, max_awaiting_rel,
                      await_rel_timeout, expiry_interval, enable_stats, force_gc_count,
@@ -163,10 +160,9 @@
                         "Session(~s): " ++ Format, [State#state.client_id | Args])).
 
 %% @doc Start a Session
--spec(start_link(boolean(), {mqtt_client_id(), mqtt_username()}, pid()) -> {ok, pid()} | {error, term()}).
-start_link(CleanSess, {ClientId, Username}, ClientPid) ->
-    gen_server:start_link(?MODULE, [CleanSess, {ClientId, Username}, ClientPid],
-                          [{hibernate_after, 10000}]).
+-spec(start_link(map()) -> {ok, pid()} | {error, term()}).
+start_link(ClientAttrs) ->
+    gen_server:start_link(?MODULE, ClientAttrs, [{hibernate_after, 10000}]).
 
 %%--------------------------------------------------------------------
 %% PubSub API
@@ -215,12 +211,12 @@ pubcomp(Session, PacketId) ->
     gen_server:cast(Session, {pubcomp, PacketId}).
 
 %% @doc Unsubscribe the topics
--spec(unsubscribe(pid(), [{binary(), [emqx_topic:option()]}]) -> ok).
+-spec(unsubscribe(pid(), [{binary(), [suboption()]}]) -> ok).
 unsubscribe(Session, TopicTable) ->
     gen_server:cast(Session, {unsubscribe, self(), TopicTable}).
 
 %% @doc Resume the session
--spec(resume(pid(), mqtt_client_id(), pid()) -> ok).
+-spec(resume(pid(), client_id(), pid()) -> ok).
 resume(Session, ClientId, ClientPid) ->
     gen_server:cast(Session, {resume, ClientId, ClientPid}).
 
@@ -260,16 +256,19 @@ stats(#state{max_subscriptions = MaxSubscriptions,
                   {deliver_msg,       get(deliver_msg)},
                   {enqueue_msg,       get(enqueue_msg)}]).
 
-%% @doc Destroy the session
--spec(destroy(pid(), mqtt_client_id()) -> ok).
-destroy(Session, ClientId) ->
-    gen_server:cast(Session, {destroy, ClientId}).
+%% @doc Discard the session
+-spec(discard(pid(), client_id()) -> ok).
+discard(Session, ClientId) ->
+    gen_server:cast(Session, {discard, ClientId}).
 
 %%--------------------------------------------------------------------
 %% gen_server Callbacks
 %%--------------------------------------------------------------------
 
-init([CleanSess, {ClientId, Username}, ClientPid]) ->
+init(#{clean_start := CleanStart,
+       client_id   := ClientId,
+       username    := Username,
+       client_pid  := ClientPid}) ->
     process_flag(trap_exit, true),
     true = link(ClientPid),
     init_stats([deliver_msg, enqueue_msg]),
@@ -280,7 +279,7 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
     ForceGcCount = emqx_gc:conn_max_gc_count(),
     IgnoreLoopDeliver = get_value(ignore_loop_deliver, Env, false),
     MQueue = ?MQueue:new(ClientId, QEnv, emqx_alarm:alarm_fun()),
-    State = #state{clean_sess        = CleanSess,
+    State = #state{clean_start       = CleanStart,
                    binding           = binding(ClientPid),
                    client_id         = ClientId,
                    client_pid        = ClientPid,
@@ -300,8 +299,9 @@ init([CleanSess, {ClientId, Username}, ClientPid]) ->
                    force_gc_count    = ForceGcCount,
                    ignore_loop_deliver = IgnoreLoopDeliver,
                    created_at        = os:timestamp()},
-    emqx_sm:register_session(ClientId, CleanSess, info(State)),
+    %%emqx_sm:register_session(ClientId, info(State)),
     emqx_hooks:run('session.created', [ClientId, Username]),
+    io:format("Session started: ~p~n", [self()]),
     {ok, emit_stats(State), hibernate}.
 
 init_stats(Keys) ->
@@ -313,7 +313,7 @@ binding(ClientPid) ->
 handle_pre_hibernate(State) ->
     {hibernate, emqx_gc:reset_conn_gc_count(#state.force_gc_count, emit_stats(State))}.
 
-handle_call({publish, Msg = #message{qos = ?QOS_2, packet_id = PacketId}}, _From,
+handle_call({publish, Msg = #message{qos = ?QOS_2, headers = #{packet_id := PacketId}}}, _From,
             State = #state{awaiting_rel      = AwaitingRel,
                            await_rel_timer   = Timer,
                            await_rel_timeout = Timeout}) ->
@@ -350,6 +350,7 @@ handle_cast({subscribe, From, TopicTable, AckFun},
     ?LOG(info, "Subscribe ~p", [TopicTable], State),
     {GrantedQos, Subscriptions1} =
     lists:foldl(fun({Topic, Opts}, {QosAcc, SubMap}) ->
+                io:format("SubOpts: ~p~n", [Opts]),
                 Fastlane = lists:member(fastlane, Opts),
                 NewQos = if Fastlane == true -> ?QOS_0; true -> get_value(qos, Opts) end,
                 SubMap1 =
@@ -373,6 +374,7 @@ handle_cast({subscribe, From, TopicTable, AckFun},
                 end,
                 {[NewQos|QosAcc], SubMap1}
         end, {[], Subscriptions}, TopicTable),
+    io:format("GrantedQos: ~p~n", [GrantedQos]),
     AckFun(lists:reverse(GrantedQos)),
     {noreply, emit_stats(State#state{subscriptions = Subscriptions1}), hibernate};
 
@@ -456,7 +458,7 @@ handle_cast({pubcomp, PacketId}, State = #state{inflight = Inflight}) ->
 handle_cast({resume, ClientId, ClientPid},
             State = #state{client_id       = ClientId,
                            client_pid      = OldClientPid,
-                           clean_sess      = CleanSess,
+                           clean_start     = CleanStart,
                            retry_timer     = RetryTimer,
                            await_rel_timer = AwaitTimer,
                            expiry_timer    = ExpireTimer}) ->
@@ -477,7 +479,7 @@ handle_cast({resume, ClientId, ClientPid},
     State1 = State#state{client_pid      = ClientPid,
                          binding         = binding(ClientPid),
                          old_client_pid  = OldClientPid,
-                         clean_sess      = false,
+                         clean_start     = false,
                          retry_timer     = undefined,
                          awaiting_rel    = #{},
                          await_rel_timer = undefined,
@@ -485,22 +487,23 @@ handle_cast({resume, ClientId, ClientPid},
 
     %% Clean Session: true -> false?
     if
-        CleanSess =:= true ->
-            ?LOG(error, "CleanSess changed to false.", [], State1),
-            emqx_sm:register_session(ClientId, false, info(State1));
-        CleanSess =:= false ->
+        CleanStart =:= true ->
+            ?LOG(error, "CleanSess changed to false.", [], State1);
+            %%TODO::
+            %%emqx_sm:register_session(ClientId, info(State1));
+        CleanStart =:= false ->
             ok
     end,
 
     %% Replay delivery and Dequeue pending messages
     {noreply, emit_stats(dequeue(retry_delivery(true, State1)))};
 
-handle_cast({destroy, ClientId},
+handle_cast({discard, ClientId},
             State = #state{client_id = ClientId, client_pid = undefined}) ->
     ?LOG(warning, "Destroyed", [], State),
-    shutdown(destroy, State);
+    shutdown(discard, State);
 
-handle_cast({destroy, ClientId},
+handle_cast({discard, ClientId},
             State = #state{client_id = ClientId, client_pid = OldClientPid}) ->
     ?LOG(warning, "kickout ~p", [OldClientPid], State),
     shutdown(conflict, State);
@@ -533,11 +536,11 @@ handle_info({timeout, _Timer, expired}, State) ->
     shutdown(expired, State);
 
 handle_info({'EXIT', ClientPid, _Reason},
-            State = #state{clean_sess = true, client_pid = ClientPid}) ->
+            State = #state{clean_start= true, client_pid = ClientPid}) ->
     {stop, normal, State};
 
 handle_info({'EXIT', ClientPid, Reason},
-            State = #state{clean_sess      = false,
+            State = #state{clean_start     = false,
                            client_pid      = ClientPid,
                            expiry_interval = Interval}) ->
     ?LOG(info, "Client ~p EXIT for ~p", [ClientPid, Reason], State),
@@ -604,7 +607,7 @@ retry_delivery(Force, [{Type, Msg, Ts} | Msgs], Now,
     if
         Force orelse (Diff >= Interval) ->
             case {Type, Msg} of
-                {publish, Msg = #message{packet_id = PacketId}} ->
+                {publish, Msg = #message{headers = #{packet_id := PacketId}}} ->
                     redeliver(Msg, State),
                     Inflight1 = Inflight:update(PacketId, {publish, Msg, Now}),
                     retry_delivery(Force, Msgs, Now, State#state{inflight = Inflight1});
@@ -687,7 +690,7 @@ dispatch(Msg = #message{qos = QoS},
         true  ->
             enqueue_msg(Msg, State);
         false ->
-            Msg1 = Msg#message{packet_id = MsgId},
+            Msg1 = emqx_message:set_header(packet_id, MsgId, Msg),
             deliver(Msg1, State),
             await(Msg1, next_msg_id(State))
     end.
@@ -701,7 +704,7 @@ enqueue_msg(Msg, State = #state{mqueue = Q}) ->
 %%--------------------------------------------------------------------
 
 redeliver(Msg = #message{qos = QoS}, State) ->
-    deliver(Msg#message{dup = if QoS =:= ?QOS2 -> false; true -> true end}, State);
+    deliver(if QoS =:= ?QOS2 -> Msg; true -> emqx_message:set_flag(dup, Msg) end, State);
 
 redeliver({pubrel, PacketId}, #state{client_pid = Pid}) ->
     Pid ! {redeliver, {?PUBREL, PacketId}}.
@@ -715,7 +718,7 @@ deliver(Msg, #state{client_pid = Pid, binding = remote}) ->
 %% Awaiting ACK for QoS1/QoS2 Messages
 %%--------------------------------------------------------------------
 
-await(Msg = #message{packet_id = PacketId},
+await(Msg = #message{headers = #{packet_id := PacketId}},
       State = #state{inflight       = Inflight,
                      retry_timer    = RetryTimer,
                      retry_interval = Interval}) ->
@@ -797,9 +800,8 @@ tune_qos(Topic, Msg = #message{qos = PubQoS},
 %% Reset Dup
 %%--------------------------------------------------------------------
 
-reset_dup(Msg = #message{dup = true}) ->
-    Msg#message{dup = false};
-reset_dup(Msg) -> Msg.
+reset_dup(Msg) ->
+    emqx_message:unset_flag(dup, Msg).
 
 %%--------------------------------------------------------------------
 %% Next Msg Id

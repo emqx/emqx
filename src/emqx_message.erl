@@ -18,139 +18,62 @@
 
 -include("emqx.hrl").
 
--include("emqx_mqtt.hrl").
+-export([make/3]).
 
--export([make/3, make/4, from_packet/1, from_packet/2, from_packet/3,
-         to_packet/1]).
+-export([get_flag/2, get_flag/3, set_flag/2, unset_flag/2]).
 
--export([set_flag/1, set_flag/2, unset_flag/1, unset_flag/2]).
+-export([get_header/2, get_header/3, set_header/3]).
 
--export([format/1]).
+-export([get_user_property/2, get_user_property/3, set_user_property/3]).
 
--type(msg_from() :: atom() | {binary(), undefined | binary()}).
-
-%% @doc Make a message
--spec(make(msg_from(), binary(), binary()) -> message()).
-make(From, Topic, Payload) ->
-    make(From, ?QOS_0, Topic, Payload).
-
--spec(make(msg_from(), mqtt_qos(), binary(), binary()) -> message()).
-make(From, Qos, Topic, Payload) ->
-    #message{id        = msgid(),
-             from      = From,
-             qos       = ?QOS_I(Qos),
-             topic     = Topic,
-             payload   = Payload,
-             timestamp = os:timestamp()}.
-
-%% @doc Message from Packet
--spec(from_packet(mqtt_packet()) -> message()).
-from_packet(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
-                                                        retain = Retain,
-                                                        qos    = Qos,
-                                                        dup    = Dup}, 
-                         variable = #mqtt_packet_publish{topic_name = Topic,
-                                                         packet_id  = PacketId},
-                         payload  = Payload}) ->
-    #message{id        = msgid(),
-             packet_id = PacketId,
-             qos       = Qos,
-             retain    = Retain,
-             dup       = Dup,
-             topic     = Topic,
-             payload   = Payload,
-             timestamp = os:timestamp()};
-
-from_packet(#mqtt_packet_connect{will_flag  = false}) ->
-    undefined;
-
-from_packet(#mqtt_packet_connect{client_id   = ClientId,
-                                 username    = Username,
-                                 will_retain = Retain,
-                                 will_qos    = Qos,
-                                 will_topic  = Topic,
-                                 will_msg    = Msg}) ->
-    #message{id        = msgid(),
-             topic     = Topic,
-             from      = {ClientId, Username},
-             retain    = Retain,
-             qos       = Qos,
-             dup       = false,
-             payload   = Msg, 
-             timestamp = os:timestamp()}.
-
-from_packet(ClientId, Packet) ->
-    Msg = from_packet(Packet),
-    Msg#message{from = ClientId}.
-
-from_packet(Username, ClientId, Packet) ->
-    Msg = from_packet(Packet),
-    Msg#message{from = {ClientId, Username}}.
+%% Create a default message
+-spec(make(atom() | client(), topic(), payload()) -> message()).
+make(From, Topic, Payload) when is_atom(From); is_record(From, client) ->
+    #message{id         = msgid(),
+             qos        = 0,
+             from       = From,
+             sender     = self(),
+             flags      = #{},
+             headers    = #{},
+             topic      = Topic,
+             properties = #{},
+             payload    = Payload,
+             timestamp  = os:timestamp()}.
 
 msgid() -> emqx_guid:gen().
 
-%% @doc Message to Packet
--spec(to_packet(message()) -> mqtt_packet()).
-to_packet(#message{packet_id  = PkgId,
-                   qos     = Qos,
-                   retain  = Retain,
-                   dup     = Dup,
-                   topic   = Topic,
-                   payload = Payload}) ->
+%% @doc Get flag
+get_flag(Flag, Msg) ->
+    get_flag(Flag, Msg, false).
+get_flag(Flag, #message{flags = Flags}, Default) ->
+    maps:get(Flag, Flags, Default).
 
-    #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
-                                              qos    = Qos,
-                                              retain = Retain,
-                                              dup    = Dup},
-                 variable = #mqtt_packet_publish{topic_name = Topic,
-                                                 packet_id  = if 
-                                                                  Qos =:= ?QOS_0 -> undefined;
-                                                                  true -> PkgId
-                                                              end  
-                                                },
-                 payload = Payload}.
+%% @doc Set flag
+-spec(set_flag(message_flag(), message()) -> message()).
+set_flag(Flag, Msg = #message{flags = Flags}) ->
+    Msg#message{flags = maps:put(Flag, true, Flags)}.
 
-%% @doc set dup, retain flag
--spec(set_flag(message()) -> message()).
-set_flag(Msg) ->
-    Msg#message{dup = true, retain = true}.
+%% @doc Unset flag
+-spec(unset_flag(message_flag(), message()) -> message()).
+unset_flag(Flag, Msg = #message{flags = Flags}) -> 
+    Msg#message{flags = maps:remove(Flag, Flags)}.
 
--spec(set_flag(atom(), message()) -> message()).
-set_flag(dup, Msg = #message{dup = false}) -> 
-    Msg#message{dup = true};
-set_flag(sys, Msg = #message{sys = false}) -> 
-    Msg#message{sys = true};
-set_flag(retain, Msg = #message{retain = false}) ->
-    Msg#message{retain = true};
-set_flag(Flag, Msg) when Flag =:= dup;
-                         Flag =:= retain;
-                         Flag =:= sys -> Msg.
+%% @doc Get header
+get_header(Hdr, Msg) ->
+    get_header(Hdr, Msg, undefined).
+get_header(Hdr, #message{headers = Headers}, Default) ->
+    maps:get(Hdr, Headers, Default).
 
-%% @doc Unset dup, retain flag
--spec(unset_flag(message()) -> message()).
-unset_flag(Msg) ->
-    Msg#message{dup = false, retain = false}.
+%% @doc Set header
+set_header(Hdr, Val, Msg = #message{headers = Headers}) ->
+    Msg#message{headers = maps:put(Hdr, Val, Headers)}.
 
--spec(unset_flag(dup | retain | atom(), message()) -> message()).
-unset_flag(dup, Msg = #message{dup = true}) -> 
-    Msg#message{dup = false};
-unset_flag(retain, Msg = #message{retain = true}) ->
-    Msg#message{retain = false};
-unset_flag(Flag, Msg) when Flag =:= dup orelse Flag =:= retain -> Msg.
+%% @doc Get user property
+get_user_property(Key, Msg) ->
+    get_user_property(Key, Msg, undefined).
+get_user_property(Key, #message{properties = Props}, Default) ->
+    maps:get(Key, Props, Default).
 
-%% @doc Format MQTT Message
-format(#message{id = MsgId, packet_id = PktId, from = {ClientId, Username},
-                qos = Qos, retain = Retain, dup = Dup, topic =Topic}) ->
-    io_lib:format("Message(Q~p, R~p, D~p, MsgId=~p, PktId=~p, From=~s/~s, Topic=~s)",
-                  [i(Qos), i(Retain), i(Dup), MsgId, PktId, Username, ClientId, Topic]);
-
-%% TODO:...
-format(#message{id = MsgId, packet_id = PktId, from = From,
-                qos = Qos, retain = Retain, dup = Dup, topic =Topic}) ->
-    io_lib:format("Message(Q~p, R~p, D~p, MsgId=~p, PktId=~p, From=~s, Topic=~s)",
-                  [i(Qos), i(Retain), i(Dup), MsgId, PktId, From, Topic]).
-
-i(true)  -> 1;
-i(false) -> 0;
-i(I) when is_integer(I) -> I.
+set_user_property(Key, Val, Msg = #message{properties = Props}) ->
+    Msg#message{properties = maps:put(Key, Val, Props)}.
 

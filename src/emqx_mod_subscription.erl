@@ -33,9 +33,9 @@
 load(Topics) ->
     emqx:hook('client.connected', fun ?MODULE:on_client_connected/3, [Topics]).
 
-on_client_connected(?CONNACK_ACCEPT, Client = #mqtt_client{client_id  = ClientId,
-                                                           client_pid = ClientPid,
-                                                           username   = Username}, Topics) ->
+on_client_connected(?CONNACK_ACCEPT, Client = #client{id       = ClientId,
+                                                      pid      = ClientPid,
+                                                      username = Username}, Topics) ->
 
     Replace = fun(Topic) -> rep(<<"%u">>, Username, rep(<<"%c">>, ClientId, Topic)) end,
     TopicTable = [{Replace(Topic), Qos} || {Topic, Qos} <- Topics],
@@ -49,7 +49,7 @@ unload(_) ->
     emqx:unhook('client.connected', fun ?MODULE:on_client_connected/3).
 
 %%--------------------------------------------------------------------
-%% Internal Functions
+%% Internal functions
 %%--------------------------------------------------------------------
 
 rep(<<"%c">>, ClientId, Topic) ->

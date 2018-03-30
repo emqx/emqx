@@ -78,6 +78,26 @@
 -define(MAX_CLIENTID_LEN, 1024).
 
 %%--------------------------------------------------------------------
+%% MQTT Client
+%%--------------------------------------------------------------------
+
+-record(mqtt_client,
+        { client_id     :: binary() | undefined,
+          client_pid    :: pid(),
+          username      :: binary() | undefined,
+          peername      :: {inet:ip_address(), inet:port_number()},
+          clean_sess    :: boolean(),
+          proto_ver     :: 3 | 4,
+          keepalive = 0,
+          will_topic    :: undefined | binary(),
+          mountpoint    :: undefined | binary(),
+          connected_at  :: erlang:timestamp(),
+          attributes    :: map()
+        }).
+
+-type(mqtt_client() :: #mqtt_client{}).
+
+%%--------------------------------------------------------------------
 %% MQTT Control Packet Types
 %%--------------------------------------------------------------------
 
@@ -278,12 +298,12 @@
 
 -define(CONNACK_PACKET(ReasonCode),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},
-                 variable = #mqtt_packet_connack{reason_code = ReturnCode}}).
+                 variable = #mqtt_packet_connack{reason_code = ReasonCode}}).
 
 -define(CONNACK_PACKET(ReasonCode, SessPresent),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},
-                 variable = #mqtt_packet_connack{ack_flags = SessPresent,
-                                                 reason_code = ReturnCode}}).
+                 variable = #mqtt_packet_connack{ack_flags   = SessPresent,
+                                                 reason_code = ReasonCode}}).
 
 -define(CONNACK_PACKET(ReasonCode, SessPresent, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},

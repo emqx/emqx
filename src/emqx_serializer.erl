@@ -90,6 +90,7 @@ serialize_variable(?SUBSCRIBE, #mqtt_packet_subscribe{packet_id = PacketId,
 serialize_variable(?SUBACK, #mqtt_packet_suback{packet_id = PacketId,
                                                 properties = Properties,
                                                 reason_codes = ReasonCodes}, undefined) ->
+    io:format("SubAck ReasonCodes: ~p~n", [ReasonCodes]),
     {<<PacketId:16/big, (serialize_properties(Properties))/binary>>, << <<Code>> || Code <- ReasonCodes >>};
 
 serialize_variable(?UNSUBSCRIBE, #mqtt_packet_unsubscribe{packet_id  = PacketId,

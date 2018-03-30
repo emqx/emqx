@@ -122,17 +122,11 @@ client(#proto_state{client_id          = ClientId,
                     WillMsg =:= undefined -> undefined;
                     true -> WillMsg#message.topic
                 end,
-    #mqtt_client{client_id          = ClientId,
-                 client_pid         = ClientPid,
-                 username           = Username,
-                 peername           = Peername,
-                 clean_sess         = CleanSess,
-                 proto_ver          = ProtoVer,
-                 keepalive          = Keepalive,
-                 will_topic         = WillTopic,
-                 ws_initial_headers = WsInitialHeaders,
-                 mountpoint         = MountPoint,
-                 connected_at       = Time}.
+    #client{id          = ClientId,
+            pid         = ClientPid,
+            username    = Username,
+            peername    = Peername,
+            mountpoint  = MountPoint}.
 
 session(#proto_state{session = Session}) ->
     Session.
@@ -220,12 +214,14 @@ process(?CONNECT_PACKET(Var), State0) ->
 
                     %% Start session
                     case emqx_sm:open_session(#{clean_start => CleanSess,
-                                                client_id => clientid(State2),
-                                                username => Username}) of
+                                                client_id   => clientid(State2),
+                                                username    => Username,
+                                                client_pid  => self()}) of
                         {ok, Session} -> %% TODO:...
                             SP = true, %% TODO:...
-                            %% Register the client
-                            emqx_cm:reg(client(State2)),
+                            %% TODO: Register the client
+                            emqx_cm:reg(clientid(State2)),
+                            %%emqx_cm:reg(client(State2)),
                             %% Start keepalive
                             start_keepalive(KeepAlive, State2),
                             %% Emit Stats
@@ -245,7 +241,7 @@ process(?CONNECT_PACKET(Var), State0) ->
     %% Run hooks
     emqx_hooks:run('client.connected', [ReturnCode1], client(State3)),
     %%TODO: Send Connack
-    %% send(?CONNACK_PACKET(ReturnCode1, sp(SessPresent)), State3),
+    send(?CONNACK_PACKET(ReturnCode1, sp(SessPresent)), State3),
     %% stop if authentication failure
     stop_if_auth_failure(ReturnCode1, State3);
 
@@ -330,8 +326,9 @@ publish(Packet = ?PUBLISH_PACKET(?QOS_0, _PacketId),
                              username   = Username,
                              mountpoint = MountPoint,
                              session    = Session}) ->
-    Msg = emqx_message:from_packet(Username, ClientId, Packet),
-    emqx_session:publish(Session, mount(replvar(MountPoint, State), Msg));
+    Msg = emqx_packet:to_message(Packet),
+    Msg1 = Msg#message{from = #client{id = ClientId, username = Username}},
+    emqx_session:publish(Session, mount(replvar(MountPoint, State), Msg1));
 
 publish(Packet = ?PUBLISH_PACKET(?QOS_1, _PacketId), State) ->
     with_puback(?PUBACK, Packet, State);
@@ -344,8 +341,10 @@ with_puback(Type, Packet = ?PUBLISH_PACKET(_Qos, PacketId),
                                  username   = Username,
                                  mountpoint = MountPoint,
                                  session    = Session}) ->
-    Msg = emqx_message:from_packet(Username, ClientId, Packet),
-    case emqx_session:publish(Session, mount(replvar(MountPoint, State), Msg)) of
+    %% TODO: ...
+    Msg = emqx_packet:to_message(Packet),
+    Msg1 = Msg#message{from = #client{id = ClientId, username = Username}},
+    case emqx_session:publish(Session, mount(replvar(MountPoint, State), Msg1)) of
         ok ->
             send(?PUBACK_PACKET(Type, PacketId), State);
         {error, Error} ->
@@ -359,7 +358,7 @@ send(Msg, State = #proto_state{client_id  = ClientId,
                                is_bridge  = IsBridge})
         when is_record(Msg, message) ->
     emqx_hooks:run('message.delivered', [ClientId, Username], Msg),
-    send(emqx_message:to_packet(unmount(MountPoint, clean_retain(IsBridge, Msg))), State);
+    send(emqx_packet:from_message(unmount(MountPoint, clean_retain(IsBridge, Msg))), State);
 
 send(Packet = ?PACKET(Type), State = #proto_state{sendfun = SendFun, stats_data = Stats}) ->
     trace(send, Packet, State),
@@ -421,7 +420,7 @@ shutdown(Error, State = #proto_state{will_msg = WillMsg}) ->
     ok.
 
 willmsg(Packet, State = #proto_state{mountpoint = MountPoint}) when is_record(Packet, mqtt_packet_connect) ->
-    case emqx_message:from_packet(Packet) of
+    case emqx_packet:to_message(Packet) of
         undefined -> undefined;
         Msg -> mount(replvar(MountPoint, State), Msg)
     end.
@@ -438,8 +437,8 @@ maybe_set_clientid(State) ->
 
 send_willmsg(_Client, undefined) ->
     ignore;
-send_willmsg(#mqtt_client{client_id = ClientId, username = Username}, WillMsg) ->
-    emqx_broker:publish(WillMsg#message{from = {ClientId, Username}}).
+send_willmsg(Client, WillMsg) ->
+    emqx_broker:publish(WillMsg#message{from = Client}).
 
 start_keepalive(0, _State) -> ignore;
 
@@ -507,12 +506,13 @@ validate_packet(_Packet) ->
 validate_topics(_Type, []) ->
     {error, empty_topics};
 
-validate_topics(Type, TopicTable = [{_Topic, _Qos}|_])
+validate_topics(Type, TopicTable = [{_Topic, _SubOpts}|_])
     when Type =:= name orelse Type =:= filter ->
     Valid = fun(Topic, Qos) ->
               emqx_topic:validate({Type, Topic}) and validate_qos(Qos)
             end,
-    case [Topic || {Topic, Qos} <- TopicTable, not Valid(Topic, Qos)] of
+    case [Topic || {Topic, SubOpts} <- TopicTable,
+                   not Valid(Topic, proplists:get_value(qos, SubOpts))] of
         [] -> ok;
         _  -> {error, badtopic}
     end;
@@ -531,9 +531,10 @@ validate_qos(_) ->
     false.
 
 parse_topic_table(TopicTable) ->
-    lists:map(fun({Topic0, Qos}) ->
+    lists:map(fun({Topic0, SubOpts}) ->
                 {Topic, Opts} = emqx_topic:parse(Topic0),
-                {Topic, [{qos, Qos}|Opts]}
+                %%TODO:
+                {Topic, lists:usort(lists:umerge(Opts, SubOpts))}
         end, TopicTable).
 
 parse_topics(Topics) ->
@@ -570,10 +571,10 @@ sp(false) -> 0.
 %% The retained flag should be propagated for bridge.
 %%--------------------------------------------------------------------
 
-clean_retain(false, Msg = #message{retain = true, headers = Headers}) ->
+clean_retain(false, Msg = #message{flags = #{retain := true}, headers = Headers}) ->
     case lists:member(retained, Headers) of
         true  -> Msg;
-        false -> Msg#message{retain = false}
+        false -> emqx_message:set_flag(retain, false, Msg)
     end;
 clean_retain(_IsBridge, Msg) ->
     Msg.

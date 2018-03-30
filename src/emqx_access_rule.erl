@@ -82,7 +82,7 @@ bin(B) when is_binary(B) ->
     B.
 
 %% @doc Match access rule
--spec(match(mqtt_client(), topic(), rule()) -> {matched, allow} | {matched, deny} | nomatch).
+-spec(match(client(), topic(), rule()) -> {matched, allow} | {matched, deny} | nomatch).
 match(_Client, _Topic, {AllowDeny, all}) when (AllowDeny =:= allow) orelse (AllowDeny =:= deny) ->
     {matched, AllowDeny};
 match(Client, Topic, {AllowDeny, Who, _PubSub, TopicFilters})
@@ -99,13 +99,13 @@ match_who(_Client, {user, all}) ->
     true;
 match_who(_Client, {client, all}) ->
     true;
-match_who(#mqtt_client{client_id = ClientId}, {client, ClientId}) ->
+match_who(#client{id = ClientId}, {client, ClientId}) ->
     true;
-match_who(#mqtt_client{username = Username}, {user, Username}) ->
+match_who(#client{username = Username}, {user, Username}) ->
     true;
-match_who(#mqtt_client{peername = undefined}, {ipaddr, _Tup}) ->
+match_who(#client{peername = undefined}, {ipaddr, _Tup}) ->
     false;
-match_who(#mqtt_client{peername = {IP, _}}, {ipaddr, CIDR}) ->
+match_who(#client{peername = {IP, _}}, {ipaddr, CIDR}) ->
     esockd_cidr:match(IP, CIDR);
 match_who(Client, {'and', Conds}) when is_list(Conds) ->
     lists:foldl(fun(Who, Allow) ->
@@ -137,13 +137,13 @@ feed_var(Client, Pattern) ->
     feed_var(Client, Pattern, []).
 feed_var(_Client, [], Acc) ->
     lists:reverse(Acc);
-feed_var(Client = #mqtt_client{client_id = undefined}, [<<"%c">>|Words], Acc) ->
+feed_var(Client = #client{id = undefined}, [<<"%c">>|Words], Acc) ->
     feed_var(Client, Words, [<<"%c">>|Acc]);
-feed_var(Client = #mqtt_client{client_id = ClientId}, [<<"%c">>|Words], Acc) ->
+feed_var(Client = #client{id = ClientId}, [<<"%c">>|Words], Acc) ->
     feed_var(Client, Words, [ClientId |Acc]);
-feed_var(Client = #mqtt_client{username = undefined}, [<<"%u">>|Words], Acc) ->
+feed_var(Client = #client{username = undefined}, [<<"%u">>|Words], Acc) ->
     feed_var(Client, Words, [<<"%u">>|Acc]);
-feed_var(Client = #mqtt_client{username = Username}, [<<"%u">>|Words], Acc) ->
+feed_var(Client = #client{username = Username}, [<<"%u">>|Words], Acc) ->
     feed_var(Client, Words, [Username|Acc]);
 feed_var(Client, [W|Words], Acc) ->
     feed_var(Client, Words, [W|Acc]).

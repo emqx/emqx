@@ -26,20 +26,15 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    %% Create tables
-    create_tabs(),
+    lists:foreach(fun create_tab/1, [session, session_stats, session_attrs]),
 
     StatsFun = emqx_stats:statsfun('sessions/count', 'sessions/max'),
 
     SM = {emqx_sm, {emqx_sm, start_link, [StatsFun]},
           permanent, 5000, worker, [emqx_sm]},
 
-    {ok, {{one_for_all, 0, 3600}, [SM]}}.
-
-create_tabs() ->
-    lists:foreach(fun create_tab/1, [session, session_stats, session_attrs]).
+    {ok, {{one_for_all, 10, 3600}, [SM]}}.
 
 create_tab(Tab) ->
-    emqx_tables:create(Tab, [public, ordered_set, named_table,
-                             {write_concurrency, true}]).
+    emqx_tables:create(Tab, [public, ordered_set, named_table, {write_concurrency, true}]).
 

@@ -18,33 +18,24 @@
 
 -behaviour(supervisor).
 
-%% API
 -export([start_link/0]).
 
-%% Supervisor callbacks
 -export([init/1]).
-
--define(TAB, mqtt_client).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    %% Create client table
-    create_client_tab(),
+    %% Create table
+    lists:foreach(fun create_tab/1, [client, client_stats, client_attrs]),
 
-    %% CM Pool Sup
-    MFA = {emqx_cm, start_link, [emqx_stats:statsfun('clients/count', 'clients/max')]},
-    PoolSup = emqx_pool_sup:spec([emqx_cm, hash, erlang:system_info(schedulers), MFA]),
+    StatsFun = emqx_stats:statsfun('clients/count', 'clients/max'),
+    
+    CM = {emqx_cm, {emqx_cm, start_link, [StatsFun]},
+          permanent, 5000, worker, [emqx_cm]},
 
-    {ok, {{one_for_all, 10, 3600}, [PoolSup]}}.
+    {ok, {{one_for_all, 10, 3600}, [CM]}}.
 
-create_client_tab() ->
-    case ets:info(?TAB, name) of
-        undefined ->
-            ets:new(?TAB, [ordered_set, named_table, public,
-                           {keypos, 2}, {write_concurrency, true}]);
-        _ ->
-            ok
-    end.
+create_tab(Tab) ->
+    emqx_tables:create(Tab, [public, ordered_set, named_table, {write_concurrency, true}]).
 
