@@ -18,10 +18,14 @@
 
 -export([call/4, cast/4]).
 
+-export([multicall/4]).
+
 call(Node, Mod, Fun, Args) ->
     rpc:call(Node, Mod, Fun, Args).
 
+multicall(Nodes, Mod, Fun, Args) ->
+    rpc:multicall(Nodes, Mod, Fun, Args).
+
 cast(Node, Mod, Fun, Args) ->
-    %%TODO: not right
-    emqx_metrics:inc('messages/forward'),
     rpc:cast(Node, Mod, Fun, Args).
+
