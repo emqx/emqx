@@ -153,9 +153,8 @@ cast(Router, Msg) ->
 pick(Topic) ->
     gproc_pool:pick_worker(router, Topic).
 
-%%FIXME: OOM?
 dump() ->
-    [{route, [{To, Dest} || #route{topic = To, dest = Dest} <- ets:tab2list(route)]}].
+    ets:tab2list(route).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

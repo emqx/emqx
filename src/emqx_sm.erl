@@ -24,128 +24,134 @@
 
 -export([open_session/1, lookup_session/1, close_session/1]).
 -export([resume_session/1, discard_session/1]).
--export([register_session/1, unregister_session/1, unregister_session/2]).
+-export([register_session/1, register_session/2]).
+-export([unregister_session/1, unregister_session/2]).
 
-%% lock_session/1, create_session/1, unlock_session/1,
-
--export([dispatch/3]).
+%% Internal functions for rpc
+-export([lookup/1, dispatch/3]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {stats_fun, stats_timer, monitors = #{}}).
+-record(state, {stats, pids = #{}}).
 
--spec(start_link(StatsFun :: fun()) -> {ok, pid()} | ignore | {error, term()}).
+-spec(start_link(fun()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(StatsFun) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [StatsFun], []).
 
-open_session(Session = #{client_id := ClientId, clean_start := true}) ->
-    with_lock(ClientId,
-              fun() ->
-                  io:format("Nodelist: ~p~n", [ekka_membership:nodelist()]),
-                  case rpc:multicall(ekka_membership:nodelist(), ?MODULE, discard_session, [ClientId]) of
-                      {_Res, []} -> ok;
-                      {_Res, BadNodes} -> emqx_log:error("[SM] Bad nodes found when lock a session: ~p", [BadNodes])
+open_session(Attrs = #{clean_start := true,
+                       client_id := ClientId, client_pid := ClientPid}) ->
+    CleanStart = fun(_) ->
+                     discard_session(ClientId, ClientPid),
+                     emqx_session_sup:start_session(Attrs)
+                 end,
+    emqx_sm_locker:trans(ClientId, CleanStart);
+
+open_session(Attrs = #{clean_start := false,
+                       client_id := ClientId, client_pid := ClientPid}) ->
+    ResumeStart = fun(_) ->
+                      case resume_session(ClientId, ClientPid) of
+                          {ok, SessionPid} ->
+                              {ok, SessionPid};
+                          {error, not_found} ->
+                              emqx_session_sup:start_session(Attrs);
+                          {error, Reason} ->
+                              {error, Reason}
+                      end
                   end,
-                  io:format("Begin to start session: ~p~n", [Session]),
-                  emqx_session_sup:start_session(Session)
-              end);
-
-open_session(Session = #{client_id := ClientId, clean_start := false}) ->
-    with_lock(ClientId,
-              fun() ->
-                  {ResL, _BadNodes} = rpc:multicall(ekka_membership:nodelist(), ?MODULE, lookup_session, [ClientId]),
-                  case lists:flatten([Pid || Pid <- ResL, Pid =/= undefined]) of
-                      [] ->
-                          {ok, emqx_session_sup:start_session(Session)};
-                      [SessPid|_] ->
-                          case resume_session(SessPid) of
-                              ok -> {ok, SessPid};
-                              {error, Reason} ->
-                                  emqx_log:error("[SM] Failed to resume session: ~p, ~p", [Session, Reason]),
-                                  emqx_session_sup:start_session(Session)
-                          end
-                  end
-              end).
-
-resume_session(SessPid) when node(SessPid) == node() ->
-    case is_process_alive(SessPid) of
-        true ->
-            emqx_session:resume(SessPid, self());
-        false ->
-            emqx_log:error("Cannot resume ~p which seems already dead!", [SessPid]),
-            {error, session_died}
-    end;
-    
-resume_session(SessPid) ->
-    case rpc:call(node(SessPid), emqx_session, resume, [SessPid]) of
-        ok -> {ok, SessPid};
-        {badrpc, Reason} ->
-            {error, Reason};
-        {error, Reason} ->
-            {error, Reason}
-    end.
+    emqx_sm_locker:trans(ClientId, ResumeStart).
 
 discard_session(ClientId) ->
+    discard_session(ClientId, self()).
+
+discard_session(ClientId, ClientPid) ->
+    lists:foreach(fun({_, SessionPid}) ->
+                      catch emqx_session:discard(SessionPid, ClientPid)
+                  end, lookup_session(ClientId)).
+
+resume_session(ClientId) ->
+    resume_session(ClientId, self()).
+
+resume_session(ClientId, ClientPid) ->
     case lookup_session(ClientId) of
-        undefined -> ok;
-        Pid -> emqx_session:discard(Pid)
+        [] -> {error, not_found};
+        [{_, SessionPid}] ->
+            ok = emqx_session:resume(SessionPid, ClientPid),
+            {ok, SessionPid};
+        [{_, SessionPid}|_More] = Sessions ->
+            emqx_log:error("[SM] More than one session found: ~p", [Sessions]),
+            ok = emqx_session:resume(SessionPid, ClientPid),
+            {ok, SessionPid}
     end.
 
 lookup_session(ClientId) ->
-    try ets:lookup_element(session, ClientId, 2) catch error:badarg -> undefined end.
+    {ResL, _} = multicall(?MODULE, lookup, [ClientId]),
+    lists:append(ResL).
 
-close_session(SessPid) ->
-    emqx_session:close(SessPid).    
+close_session(ClientId) ->
+    lists:foreach(fun(#session{pid = SessionPid}) ->
+                      emqx_session:close(SessionPid)
+                  end, lookup_session(ClientId)).
 
-with_lock(ClientId, Fun) ->
-    case emqx_sm_locker:lock(ClientId) of
-        true -> Result = Fun(),
-                emqx_sm_locker:unlock(ClientId),
-                Result;
-        false -> {error, client_id_unavailable};
-        {error, Reason} -> {error, Reason}
-    end.
-
--spec(register_session(client_id()) -> true).
 register_session(ClientId) ->
-    ets:insert(session, {ClientId, self()}).
+    register_session(ClientId, self()).
+
+register_session(ClientId, SessionPid) ->
+    ets:insert(session, {ClientId, SessionPid}).
 
 unregister_session(ClientId) ->
     unregister_session(ClientId, self()).
 
-unregister_session(ClientId, Pid) ->
+unregister_session(ClientId, SessionPid) ->
     case ets:lookup(session, ClientId) of
-        [{_, Pid}] ->
-            ets:delete_object(session, {ClientId, Pid});
+        [Session = {ClientId, SessionPid}] ->
+            ets:delete(session_attrs, Session),
+            ets:delete(session_stats, Session),
+            ets:delete_object(session, Session);
         _ ->
             false
     end.
 
 dispatch(ClientId, Topic, Msg) ->
-    case lookup_session(ClientId) of
-        Pid when is_pid(Pid) ->
+    case lookup(ClientId) of
+        [{_, Pid}] ->
             Pid ! {dispatch, Topic, Msg};
-        undefined ->
+        [] ->
             emqx_hooks:run('message.dropped', [ClientId, Msg])
     end.
+
+lookup(ClientId) ->
+    ets:lookup(session, ClientId).
+
+multicall(Mod, Fun, Args) ->
+    multicall(ekka:nodelist(up), Mod, Fun, Args).
+
+multicall([Node], Mod, Fun, Args) when Node == node() ->
+    Res = erlang:apply(Mod, Fun, Args), [Res];
+
+multicall(Nodes, Mod, Fun, Args) ->
+    {ResL, _} = emqx_rpc:multicall(Nodes, Mod, Fun, Args),
+    ResL.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([StatsFun]) ->
+    {ok, sched_stats(StatsFun, #state{pids = #{}})}.
+
+sched_stats(Fun, State) ->
     {ok, TRef} = timer:send_interval(timer:seconds(1), stats),
-    {ok, #state{stats_fun = StatsFun, stats_timer = TRef}}.
+    State#state{stats = #{func => Fun, timer => TRef}}.
 
 handle_call(Req, _From, State) ->
     emqx_log:error("[SM] Unexpected request: ~p", [Req]),
     {reply, ignore, State}.
 
-handle_cast({monitor_session, SessionPid, ClientId},
-            State = #state{monitors = Monitors}) ->
-    MRef = erlang:monitor(process, SessionPid),
-    {noreply, State#state{monitors = maps:put(MRef, ClientId, Monitors)}};
+handle_cast({registered, ClientId, SessionPid},
+            State = #state{pids = Pids}) ->
+    _ = erlang:monitor(process, SessionPid),
+    {noreply, State#state{pids = maps:put(SessionPid, ClientId, Pids)}};
 
 handle_cast(Msg, State) ->
     emqx_log:error("[SM] Unexpected msg: ~p", [Msg]),
@@ -154,14 +160,14 @@ handle_cast(Msg, State) ->
 handle_info(stats, State) ->
     {noreply, setstats(State), hibernate};
 
-handle_info({'DOWN', MRef, process, DownPid, _Reason},
-            State = #state{monitors = Monitors}) ->
-    case maps:find(MRef, Monitors) of
-        {ok, {ClientId, Pid}} ->
-            ets:delete_object(session, {ClientId, Pid}),
-            {noreply, setstats(State#state{monitors = maps:remove(MRef, Monitors)})};
+handle_info({'DOWN', _MRef, process, DownPid, _Reason},
+            State = #state{pids = Pids}) ->
+    case maps:find(DownPid, Pids) of
+        {ok, ClientId} ->
+            unregister_session(ClientId, DownPid),
+            {noreply, State#state{pids = maps:remove(DownPid, Pids)}};
         error ->
-            emqx_log:error("session ~p not found", [DownPid]),
+            emqx_log:error("[SM] Session ~p not found", [DownPid]),
             {noreply, State}
     end;
 
@@ -169,7 +175,7 @@ handle_info(Info, State) ->
     emqx_log:error("[SM] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, _State = #state{stats_timer = TRef}) ->
+terminate(_Reason, _State = #state{stats = #{timer := TRef}}) ->
     timer:cancel(TRef).
 
 code_change(_OldVsn, State, _Extra) ->
@@ -179,6 +185,6 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-setstats(State = #state{stats_fun = StatsFun}) ->
-    StatsFun(ets:info(session, size)), State.
+setstats(State = #state{stats = #{func := Fun}}) ->
+    Fun(ets:info(session, size)), State.
 

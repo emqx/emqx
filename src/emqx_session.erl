@@ -299,7 +299,7 @@ init(#{clean_start := CleanStart,
                    force_gc_count    = ForceGcCount,
                    ignore_loop_deliver = IgnoreLoopDeliver,
                    created_at        = os:timestamp()},
-    %%emqx_sm:register_session(ClientId, info(State)),
+    emqx_sm:register_session(ClientId, self()),
     emqx_hooks:run('session.created', [ClientId, Username]),
     io:format("Session started: ~p~n", [self()]),
     {ok, emit_stats(State), hibernate}.

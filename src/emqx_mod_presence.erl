@@ -28,9 +28,9 @@ load(Env) ->
     emqx:hook('client.connected',    fun ?MODULE:on_client_connected/3, [Env]),
     emqx:hook('client.disconnected', fun ?MODULE:on_client_disconnected/3, [Env]).
 
-on_client_connected(ConnAck, Client = #client{id       = ClientId,
-                                              username = Username,
-                                              peername = {IpAddr, _}
+on_client_connected(ConnAck, Client = #client{client_id = ClientId,
+                                              username  = Username,
+                                              peername  = {IpAddr, _}
                                               %%clean_sess = CleanSess,
                                               %%proto_ver = ProtoVer
                                              }, Env) ->
@@ -49,7 +49,7 @@ on_client_connected(ConnAck, Client = #client{id       = ClientId,
     end,
     {ok, Client}.
 
-on_client_disconnected(Reason, #client{id       = ClientId,
+on_client_disconnected(Reason, #client{client_id = ClientId,
                                        username = Username}, Env) ->
     case catch emqx_json:encode([{clientid, ClientId},
                                  {username, Username},

@@ -81,8 +81,8 @@
 -type(zone() :: atom()).
 
 -record(client,
-        { id         :: client_id(),
-          pid        :: pid(),
+        { client_id  :: client_id(),
+          client_pid :: pid(),
           zone       :: zone(),
           node       :: node(),
           username   :: username(),

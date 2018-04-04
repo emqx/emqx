@@ -51,7 +51,7 @@ start_link() ->
 trace(publish, From, _Msg) when is_atom(From) ->
     %% Dont' trace '$SYS' publish
     ignore;
-trace(publish, #client{id = ClientId, username = Username},
+trace(publish, #client{client_id = ClientId, username = Username},
       #message{topic = Topic, payload = Payload}) ->
     lager:info([{client, ClientId}, {topic, Topic}],
                "~s/~s PUBLISH to ~s: ~p", [ClientId, Username, Topic, Payload]);

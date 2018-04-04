@@ -122,8 +122,8 @@ client(#proto_state{client_id          = ClientId,
                     WillMsg =:= undefined -> undefined;
                     true -> WillMsg#message.topic
                 end,
-    #client{id          = ClientId,
-            pid         = ClientPid,
+    #client{client_id  = ClientId,
+            client_pid = ClientPid,
             username    = Username,
             peername    = Peername,
             mountpoint  = MountPoint}.
@@ -327,7 +327,7 @@ publish(Packet = ?PUBLISH_PACKET(?QOS_0, _PacketId),
                              mountpoint = MountPoint,
                              session    = Session}) ->
     Msg = emqx_packet:to_message(Packet),
-    Msg1 = Msg#message{from = #client{id = ClientId, username = Username}},
+    Msg1 = Msg#message{from = #client{client_id = ClientId, username = Username}},
     emqx_session:publish(Session, mount(replvar(MountPoint, State), Msg1));
 
 publish(Packet = ?PUBLISH_PACKET(?QOS_1, _PacketId), State) ->
@@ -343,7 +343,7 @@ with_puback(Type, Packet = ?PUBLISH_PACKET(_Qos, PacketId),
                                  session    = Session}) ->
     %% TODO: ...
     Msg = emqx_packet:to_message(Packet),
-    Msg1 = Msg#message{from = #client{id = ClientId, username = Username}},
+    Msg1 = Msg#message{from = #client{client_id = ClientId, username = Username}},
     case emqx_session:publish(Session, mount(replvar(MountPoint, State), Msg1)) of
         ok ->
             send(?PUBACK_PACKET(Type, PacketId), State);

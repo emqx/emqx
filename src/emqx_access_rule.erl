@@ -99,7 +99,7 @@ match_who(_Client, {user, all}) ->
     true;
 match_who(_Client, {client, all}) ->
     true;
-match_who(#client{id = ClientId}, {client, ClientId}) ->
+match_who(#client{client_id = ClientId}, {client, ClientId}) ->
     true;
 match_who(#client{username = Username}, {user, Username}) ->
     true;
@@ -137,9 +137,9 @@ feed_var(Client, Pattern) ->
     feed_var(Client, Pattern, []).
 feed_var(_Client, [], Acc) ->
     lists:reverse(Acc);
-feed_var(Client = #client{id = undefined}, [<<"%c">>|Words], Acc) ->
+feed_var(Client = #client{client_id = undefined}, [<<"%c">>|Words], Acc) ->
     feed_var(Client, Words, [<<"%c">>|Acc]);
-feed_var(Client = #client{id = ClientId}, [<<"%c">>|Words], Acc) ->
+feed_var(Client = #client{client_id = ClientId}, [<<"%c">>|Words], Acc) ->
     feed_var(Client, Words, [ClientId |Acc]);
 feed_var(Client = #client{username = undefined}, [<<"%u">>|Words], Acc) ->
     feed_var(Client, Words, [<<"%u">>|Acc]);

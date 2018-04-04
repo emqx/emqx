@@ -18,16 +18,44 @@
 
 -include("emqx.hrl").
 
-%% Lock/Unlock API based on canal-lock.
--export([lock/1, unlock/1]).
+-export([start_link/0]).
 
-%% @doc Lock a clientid
--spec(lock(client_id()) -> boolean() | {error, term()}).
+-export([trans/2, trans/3]).
+
+-export([lock/1, lock/2, unlock/1]).
+
+-spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
+start_link() ->
+    ekka_locker:start_link(?MODULE).
+
+-spec(trans(client_id(), fun(([node()]) -> any())) -> any()).
+trans(ClientId, Fun) ->
+    trans(ClientId, Fun, undefined).
+
+-spec(trans(client_id(), fun(([node()]) -> any()),
+            ekka_locker:piggyback()) -> any()).
+trans(ClientId, Fun, Piggyback) ->
+    case lock(ClientId, Piggyback) of
+        {true, Nodes} ->
+            try Fun(Nodes) after unlock(ClientId) end;
+        {false, _Nodes} ->
+            {error, client_id_unavailable}
+    end.
+
+-spec(lock(client_id()) -> ekka_locker:lock_result()).
 lock(ClientId) ->
-    rpc:call(ekka_membership:leader(), emqx_locker, lock, [ClientId]).
+    ekka_locker:aquire(?MODULE, ClientId, strategy()).
 
-%% @doc Unlock a clientid
--spec(unlock(client_id()) -> ok).
+-spec(lock(client_id(), ekka_locker:piggyback())
+      -> ekka_locker:lock_result()).
+lock(ClientId, Piggyback) ->
+    ekka_locker:aquire(?MODULE, ClientId, strategy(), Piggyback).
+
+-spec(unlock(client_id()) -> {boolean(), [node()]}).
 unlock(ClientId) ->
-    rpc:call(ekka_membership:leader(), emqx_locker, unlock, [ClientId]).
+    ekka_locker:release(?MODULE, ClientId, strategy()).
+
+-spec(strategy() -> local | one | quorum | all).
+strategy() ->
+    application:get_env(emqx, session_locking_strategy, quorum).
 
