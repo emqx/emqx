@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -26,15 +26,12 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    lists:foreach(fun create_tab/1, [session, session_stats, session_attrs]),
+    Childs = [child(M) || M <- [emqx_sm_locker,
+                                emqx_sm_registry,
+                                emqx_sm_stats,
+                                emqx_sm]],
+    {ok, {{one_for_all, 10, 3600}, Childs}}.
 
-    StatsFun = emqx_stats:statsfun('sessions/count', 'sessions/max'),
-
-    SM = {emqx_sm, {emqx_sm, start_link, [StatsFun]},
-          permanent, 5000, worker, [emqx_sm]},
-
-    {ok, {{one_for_all, 10, 3600}, [SM]}}.
-
-create_tab(Tab) ->
-    emqx_tables:create(Tab, [public, ordered_set, named_table, {write_concurrency, true}]).
+child(M) ->
+    {M, {M, start_link, []}, permanent, 5000, worker, [M]}.
 

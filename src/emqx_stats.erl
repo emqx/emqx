@@ -26,8 +26,7 @@
 -export([all/0]).
 
 %% Client and Session Stats
--export([set_client_stats/2, get_client_stats/1, del_client_stats/1,
-         set_session_stats/2, get_session_stats/1, del_session_stats/1]).
+-export([set_client_stats/2, get_client_stats/1, del_client_stats/1]).
 
 %% Statistics API.
 -export([statsfun/1, statsfun/2, getstats/0, getstat/1, setstat/2, setstat/3]).
@@ -39,6 +38,8 @@
 -record(state, {tick}).
 
 -type(stats() :: list({atom(), non_neg_integer()})).
+
+-export_type([stats/0]).
 
 -define(STATS_TAB, mqtt_stats).
 -define(CLIENT_STATS_TAB, mqtt_client_stats).
@@ -101,20 +102,6 @@ get_client_stats(ClientId) ->
 del_client_stats(ClientId) ->
     ets:delete(?CLIENT_STATS_TAB, ClientId).
 
--spec(set_session_stats(binary(), stats()) -> true).
-set_session_stats(ClientId, Stats) ->
-    ets:insert(?SESSION_STATS_TAB, {ClientId, [{'$ts', emqx_time:now_secs()}|Stats]}).
-
--spec(get_session_stats(binary()) -> stats()).
-get_session_stats(ClientId) ->
-    case ets:lookup(?SESSION_STATS_TAB, ClientId) of
-        [{_, Stats}] -> Stats;
-        [] -> []
-    end.
-
--spec(del_session_stats(binary()) -> true).
-del_session_stats(ClientId) ->
-    ets:delete(?SESSION_STATS_TAB, ClientId).
 
 all() -> ets:tab2list(?STATS_TAB).
 

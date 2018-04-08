@@ -67,82 +67,81 @@
 %% If the session is currently disconnected, the time at which the Session state
 %% will be deleted.
 -record(state,
-        {
-         %% Clean Start Flag
-         clean_start = false :: boolean(),
+        { %% Clean Start Flag
+          clean_start = false :: boolean(),
 
-         %% Client Binding: local | remote
-         binding = local :: local | remote,
+          %% Client Binding: local | remote
+          binding = local :: local | remote,
 
-         %% ClientId: Identifier of Session
-         client_id :: binary(),
+          %% ClientId: Identifier of Session
+          client_id :: binary(),
 
-         %% Username
-         username :: binary() | undefined,
+          %% Username
+          username :: binary() | undefined,
 
-         %% Client Pid binding with session
-         client_pid :: pid(),
+          %% Client Pid binding with session
+          client_pid :: pid(),
 
-         %% Old Client Pid that has been kickout
-         old_client_pid :: pid(),
+          %% Old Client Pid that has been kickout
+          old_client_pid :: pid(),
 
-         %% Next message id of the session
-         next_msg_id = 1 :: mqtt_packet_id(),
+          %% Next message id of the session
+          next_msg_id = 1 :: mqtt_packet_id(),
 
-         max_subscriptions :: non_neg_integer(),
+          max_subscriptions :: non_neg_integer(),
 
-         %% Client’s subscriptions.
-         subscriptions :: map(),
+          %% Client’s subscriptions.
+          subscriptions :: map(),
 
-         %% Upgrade Qos?
-         upgrade_qos = false :: boolean(),
+          %% Upgrade Qos?
+          upgrade_qos = false :: boolean(),
 
-         %% Client <- Broker: Inflight QoS1, QoS2 messages sent to the client but unacked.
-         inflight :: emqx_inflight:inflight(),
+          %% Client <- Broker: Inflight QoS1, QoS2 messages sent to the client but unacked.
+          inflight :: emqx_inflight:inflight(),
 
-         %% Max Inflight Size
-         max_inflight = 32 :: non_neg_integer(),
+          %% Max Inflight Size
+          max_inflight = 32 :: non_neg_integer(),
 
-         %% Retry interval for redelivering QoS1/2 messages
-         retry_interval = 20000 :: timeout(),
+          %% Retry interval for redelivering QoS1/2 messages
+          retry_interval = 20000 :: timeout(),
 
-         %% Retry Timer
-         retry_timer :: reference() | undefined,
+          %% Retry Timer
+          retry_timer :: reference() | undefined,
 
-         %% All QoS1, QoS2 messages published to when client is disconnected.
-         %% QoS 1 and QoS 2 messages pending transmission to the Client.
-         %%
-         %% Optionally, QoS 0 messages pending transmission to the Client.
-         mqueue :: ?MQueue:mqueue(),
+          %% All QoS1, QoS2 messages published to when client is disconnected.
+          %% QoS 1 and QoS 2 messages pending transmission to the Client.
+          %%
+          %% Optionally, QoS 0 messages pending transmission to the Client.
+          mqueue :: ?MQueue:mqueue(),
 
-         %% Client -> Broker: Inflight QoS2 messages received from client and waiting for pubrel.
-         awaiting_rel :: map(),
+          %% Client -> Broker: Inflight QoS2 messages received from client and waiting for pubrel.
+          awaiting_rel :: map(),
 
-         %% Max Packets that Awaiting PUBREL
-         max_awaiting_rel = 100 :: non_neg_integer(),
+          %% Max Packets that Awaiting PUBREL
+          max_awaiting_rel = 100 :: non_neg_integer(),
 
-         %% Awaiting PUBREL timeout
-         await_rel_timeout = 20000 :: timeout(),
+          %% Awaiting PUBREL timeout
+          await_rel_timeout = 20000 :: timeout(),
 
-         %% Awaiting PUBREL timer
-         await_rel_timer :: reference() | undefined,
+          %% Awaiting PUBREL timer
+          await_rel_timer :: reference() | undefined,
 
-         %% Session Expiry Interval
-         expiry_interval = 7200000 :: timeout(),
+          %% Session Expiry Interval
+          expiry_interval = 7200000 :: timeout(),
 
-         %% Expired Timer
-         expiry_timer :: reference() | undefined,
+          %% Expired Timer
+          expiry_timer :: reference() | undefined,
 
-         %% Enable Stats
-         enable_stats :: boolean(),
+          %% Enable Stats
+          enable_stats :: boolean(),
 
-         %% Force GC Count
-         force_gc_count :: undefined | integer(),
+          %% Force GC reductions
+          reductions = 0 :: non_neg_integer(),
 
-         %% Ignore loop deliver?
-         ignore_loop_deliver = false :: boolean(),
+          %% Ignore loop deliver?
+          ignore_loop_deliver = false :: boolean(),
 
-         created_at :: erlang:timestamp()
+          created_at :: erlang:timestamp()
         }).
 
 -define(TIMEOUT, 60000).
@@ -161,8 +160,8 @@
 
 %% @doc Start a Session
 -spec(start_link(map()) -> {ok, pid()} | {error, term()}).
-start_link(ClientAttrs) ->
-    gen_server:start_link(?MODULE, ClientAttrs, [{hibernate_after, 10000}]).
+start_link(Attrs) ->
+    gen_server:start_link(?MODULE, Attrs, [{hibernate_after, 10000}]).
 
 %%--------------------------------------------------------------------
 %% PubSub API
@@ -170,71 +169,71 @@ start_link(ClientAttrs) ->
 
 %% @doc Subscribe topics
 -spec(subscribe(pid(), [{binary(), [emqx_topic:option()]}]) -> ok).
-subscribe(Session, TopicTable) -> %%TODO: the ack function??...
-    gen_server:cast(Session, {subscribe, self(), TopicTable, fun(_) -> ok end}).
+subscribe(SessionPid, TopicTable) -> %%TODO: the ack function??...
+    gen_server:cast(SessionPid, {subscribe, self(), TopicTable, fun(_) -> ok end}).
 
 -spec(subscribe(pid(), mqtt_packet_id(), [{binary(), [emqx_topic:option()]}]) -> ok).
-subscribe(Session, PacketId, TopicTable) -> %%TODO: the ack function??...
+subscribe(SessionPid, PacketId, TopicTable) -> %%TODO: the ack function??...
     From = self(),
     AckFun = fun(GrantedQos) -> From ! {suback, PacketId, GrantedQos} end,
-    gen_server:cast(Session, {subscribe, From, TopicTable, AckFun}).
+    gen_server:cast(SessionPid, {subscribe, From, TopicTable, AckFun}).
 
 %% @doc Publish Message
 -spec(publish(pid(), message()) -> ok | {error, term()}).
-publish(_Session, Msg = #message{qos = ?QOS_0}) ->
+publish(_SessionPid, Msg = #message{qos = ?QOS_0}) ->
     %% Publish QoS0 Directly
     emqx_broker:publish(Msg), ok;
 
-publish(_Session, Msg = #message{qos = ?QOS_1}) ->
+publish(_SessionPid, Msg = #message{qos = ?QOS_1}) ->
     %% Publish QoS1 message directly for client will PubAck automatically
     emqx_broker:publish(Msg), ok;
 
-publish(Session, Msg = #message{qos = ?QOS_2}) ->
+publish(SessionPid, Msg = #message{qos = ?QOS_2}) ->
     %% Publish QoS2 to Session
-    gen_server:call(Session, {publish, Msg}, ?TIMEOUT).
+    gen_server:call(SessionPid, {publish, Msg}, ?TIMEOUT).
 
 %% @doc PubAck Message
 -spec(puback(pid(), mqtt_packet_id()) -> ok).
-puback(Session, PacketId) ->
-    gen_server:cast(Session, {puback, PacketId}).
+puback(SessionPid, PacketId) ->
+    gen_server:cast(SessionPid, {puback, PacketId}).
 
 -spec(pubrec(pid(), mqtt_packet_id()) -> ok).
-pubrec(Session, PacketId) ->
-    gen_server:cast(Session, {pubrec, PacketId}).
+pubrec(SessionPid, PacketId) ->
+    gen_server:cast(SessionPid, {pubrec, PacketId}).
 
 -spec(pubrel(pid(), mqtt_packet_id()) -> ok).
-pubrel(Session, PacketId) ->
-    gen_server:cast(Session, {pubrel, PacketId}).
+pubrel(SessionPid, PacketId) ->
+    gen_server:cast(SessionPid, {pubrel, PacketId}).
 
 -spec(pubcomp(pid(), mqtt_packet_id()) -> ok).
-pubcomp(Session, PacketId) ->
-    gen_server:cast(Session, {pubcomp, PacketId}).
+pubcomp(SessionPid, PacketId) ->
+    gen_server:cast(SessionPid, {pubcomp, PacketId}).
 
 %% @doc Unsubscribe the topics
 -spec(unsubscribe(pid(), [{binary(), [suboption()]}]) -> ok).
-unsubscribe(Session, TopicTable) ->
-    gen_server:cast(Session, {unsubscribe, self(), TopicTable}).
+unsubscribe(SessionPid, TopicTable) ->
+    gen_server:cast(SessionPid, {unsubscribe, self(), TopicTable}).
 
 %% @doc Resume the session
 -spec(resume(pid(), client_id(), pid()) -> ok).
-resume(Session, ClientId, ClientPid) ->
-    gen_server:cast(Session, {resume, ClientId, ClientPid}).
+resume(SessionPid, ClientId, ClientPid) ->
+    gen_server:cast(SessionPid, {resume, ClientId, ClientPid}).
 
 %% @doc Get session state
-state(Session) when is_pid(Session) ->
-    gen_server:call(Session, state).
+state(SessionPid) when is_pid(SessionPid) ->
+    gen_server:call(SessionPid, state).
 
 %% @doc Get session info
 -spec(info(pid() | #state{}) -> list(tuple())).
-info(Session) when is_pid(Session) ->
-    gen_server:call(Session, info);
+info(SessionPid) when is_pid(SessionPid) ->
+    gen_server:call(SessionPid, info);
 
 info(State) when is_record(State, state) ->
     ?record_to_proplist(state, State, ?INFO_KEYS).
 
 -spec(stats(pid() | #state{}) -> list({atom(), non_neg_integer()})).
-stats(Session) when is_pid(Session) ->
-    gen_server:call(Session, stats);
+stats(SessionPid) when is_pid(SessionPid) ->
+    gen_server:call(SessionPid, stats);
 
 stats(#state{max_subscriptions = MaxSubscriptions,
              subscriptions     = Subscriptions,
@@ -258,8 +257,8 @@ stats(#state{max_subscriptions = MaxSubscriptions,
 
 %% @doc Discard the session
 -spec(discard(pid(), client_id()) -> ok).
-discard(Session, ClientId) ->
-    gen_server:cast(Session, {discard, ClientId}).
+discard(SessionPid, ClientId) ->
+    gen_server:call(SessionPid, {discard, ClientId}).
 
 %%--------------------------------------------------------------------
 %% gen_server Callbacks
@@ -276,7 +275,6 @@ init(#{clean_start := CleanStart,
     {ok, QEnv} = emqx:env(mqueue),
     MaxInflight = get_value(max_inflight, Env, 0),
     EnableStats = get_value(enable_stats, Env, false),
-    ForceGcCount = emqx_gc:conn_max_gc_count(),
     IgnoreLoopDeliver = get_value(ignore_loop_deliver, Env, false),
     MQueue = ?MQueue:new(ClientId, QEnv, emqx_alarm:alarm_fun()),
     State = #state{clean_start       = CleanStart,
@@ -296,10 +294,9 @@ init(#{clean_start := CleanStart,
                    max_awaiting_rel  = get_value(max_awaiting_rel, Env),
                    expiry_interval   = get_value(expiry_interval, Env),
                    enable_stats      = EnableStats,
-                   force_gc_count    = ForceGcCount,
                    ignore_loop_deliver = IgnoreLoopDeliver,
                    created_at        = os:timestamp()},
-    emqx_sm:register_session(ClientId, self()),
+    emqx_sm:register_session(#session{sid = ClientId, pid = self()}, info(State)),
     emqx_hooks:run('session.created', [ClientId, Username]),
     io:format("Session started: ~p~n", [self()]),
     {ok, emit_stats(State), hibernate}.
@@ -310,8 +307,13 @@ init_stats(Keys) ->
 binding(ClientPid) ->
     case node(ClientPid) =:= node() of true -> local; false -> remote end.
 
-handle_pre_hibernate(State) ->
-    {hibernate, emqx_gc:reset_conn_gc_count(#state.force_gc_count, emit_stats(State))}.
+handle_call({discard, ClientPid}, _From, State = #state{client_pid = undefined}) ->
+    ?LOG(warning, "Discarded by ~p", [ClientPid], State),
+    {stop, {shutdown, discard}, ok, State};
+
+handle_call({discard, ClientPid}, _From, State = #state{client_pid = OldClientPid}) ->
+    ?LOG(warning, " ~p kickout ~p", [ClientPid, OldClientPid], State),
+    {stop, {shutdown, conflict}, ok, State};
 
 handle_call({publish, Msg = #message{qos = ?QOS_2, headers = #{packet_id := PacketId}}}, _From,
             State = #state{awaiting_rel      = AwaitingRel,
@@ -498,16 +500,6 @@ handle_cast({resume, ClientId, ClientPid},
     %% Replay delivery and Dequeue pending messages
     {noreply, emit_stats(dequeue(retry_delivery(true, State1)))};
 
-handle_cast({discard, ClientId},
-            State = #state{client_id = ClientId, client_pid = undefined}) ->
-    ?LOG(warning, "Destroyed", [], State),
-    shutdown(discard, State);
-
-handle_cast({discard, ClientId},
-            State = #state{client_id = ClientId, client_pid = OldClientPid}) ->
-    ?LOG(warning, "kickout ~p", [OldClientPid], State),
-    shutdown(conflict, State);
-
 handle_cast(Msg, State) ->
     lager:error("[~s] Unexpected Cast: ~p", [?MODULE, Msg]),
     {noreply, State}.
@@ -563,10 +555,9 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(Reason, #state{client_id = ClientId, username = Username}) ->
-    %% Move to emqx_sm to avoid race condition
-    %% emqx_stats:del_session_stats(ClientId),
+
     emqx_hooks:run('session.terminated', [ClientId, Username, Reason]),
-    emqx_sm:unregister_session(ClientId).
+    emqx_sm:unregister_session(#session{sid = ClientId, pid = self()}).
 
 code_change(_OldVsn, Session, _Extra) ->
     {ok, Session}.
@@ -574,6 +565,7 @@ code_change(_OldVsn, Session, _Extra) ->
 %%--------------------------------------------------------------------
 %% Kickout old client
 %%--------------------------------------------------------------------
+
 kick(_ClientId, undefined, _Pid) ->
     ignore;
 kick(_ClientId, Pid, Pid) ->
@@ -820,7 +812,8 @@ next_msg_id(State = #state{next_msg_id = Id}) ->
 emit_stats(State = #state{enable_stats = false}) ->
     State;
 emit_stats(State = #state{client_id = ClientId}) ->
-    emqx_stats:set_session_stats(ClientId, stats(State)),
+    Session = #session{sid = ClientId, pid = self()},
+    emqx_sm_stats:set_session_stats(Session, stats(State)),
     State.
 
 inc_stats(Key) -> put(Key, get(Key) + 1).
@@ -836,5 +829,6 @@ shutdown(Reason, State) ->
     {stop, {shutdown, Reason}, State}.
 
 gc(State) ->
-    emqx_gc:maybe_force_gc(#state.force_gc_count, State).
+    State.
+    %%emqx_gc:maybe_force_gc(#state.force_gc_count, State).
 

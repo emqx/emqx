@@ -96,8 +96,8 @@
 -type(client() :: #client{}).
 
 -record(session,
-        { client_id :: client_id(),
-          pid       :: pid()
+        { sid :: client_id(),
+          pid :: pid()
         }).
 
 -type(session() :: #session{}).

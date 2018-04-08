@@ -29,6 +29,11 @@
 
 -type(env() :: {atom(), term()}).
 
+-define(APP, emqx).
+
+get_env(Key) ->
+    application:get_env(?APP, Key).
+
 %% @doc Read the configuration of an application.
 -spec(read(atom()) -> {ok, list(env())} | {error, term()}).
 read(App) ->

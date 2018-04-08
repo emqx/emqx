@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,7 +16,9 @@
 
 -module(emqx_pmon).
 
--export([new/0, monitor/2, demonitor/2, erase/2]).
+-export([new/0, monitor/2, monitor/3, demonitor/2, find/2, erase/2]).
+
+-compile({no_auto_import,[monitor/3]}).
 
 -type(pmon() :: {?MODULE, map()}).
 
@@ -26,23 +28,33 @@ new() ->
     {?MODULE, [maps:new()]}.
 
 -spec(monitor(pid(), pmon()) -> pmon()).
-monitor(Pid, PM = {?MODULE, [M]}) ->
+monitor(Pid, PM) ->
+    monitor(Pid, undefined, PM).
+
+monitor(Pid, Val, PM = {?MODULE, [M]}) ->
     case maps:is_key(Pid, M) of
-        true ->
-            PM;
+        true -> PM;
         false ->
             Ref = erlang:monitor(process, Pid),
-            {?MODULE, [maps:put(Pid, Ref, M)]}
+            {?MODULE, [maps:put(Pid, {Ref, Val}, M)]}
     end.
 
 -spec(demonitor(pid(), pmon()) -> pmon()).
 demonitor(Pid, PM = {?MODULE, [M]}) ->
     case maps:find(Pid, M) of
-        {ok, Ref} ->
+        {ok, {Ref, _Val}} ->
             erlang:demonitor(Ref, [flush]),
             {?MODULE, [maps:remove(Pid, M)]};
         error ->
             PM
+    end.
+
+-spec(find(pid(), pmon()) -> undefined | term()).
+find(Pid, {?MODULE, [M]}) ->
+    case maps:find(Pid, M) of
+        {ok, {_Ref, Val}} ->
+            Val;
+        error -> undefined
     end.
 
 -spec(erase(pid(), pmon()) -> pmon()).

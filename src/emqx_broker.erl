@@ -119,7 +119,7 @@ route([{To, Node}], Delivery = #delivery{flows = Flows}) when is_atom(Node) ->
     forward(Node, To, Delivery#delivery{flows = [{route, Node, To}|Flows]});
 
 route([{To, Group}], Delivery) when is_binary(Group) ->
-    emqx_shared_pubsub:dispatch(Group, To, Delivery);
+    emqx_shared_sub:dispatch(Group, To, Delivery);
 
 route(Routes, Delivery) ->
     lists:foldl(fun(Route, Acc) -> route([Route], Acc) end, Delivery, Routes).
@@ -248,7 +248,7 @@ handle_cast({From, {subscribe, Topic, Subscriber, Options}}, State) ->
         []  ->
             Group = proplists:get_value(share, Options),
             true = do_subscribe(Group, Topic, Subscriber, Options),
-            emqx_shared_pubsub:subscribe(Group, Topic, subpid(Subscriber)),
+            emqx_shared_sub:subscribe(Group, Topic, subpid(Subscriber)),
             emqx_router:add_route(From, Topic, dest(Options)),
             {noreply, monitor_subscriber(Subscriber, State)};
         [_] ->
@@ -261,7 +261,7 @@ handle_cast({From, {unsubscribe, Topic, Subscriber}}, State) ->
         [{_, Options}] ->
             Group = proplists:get_value(share, Options),
             true = do_unsubscribe(Group, Topic, Subscriber),
-            emqx_shared_pubsub:unsubscribe(Group, Topic, subpid(Subscriber)),
+            emqx_shared_sub:unsubscribe(Group, Topic, subpid(Subscriber)),
             case ets:member(subscriber, Topic) of
                 false -> emqx_router:del_route(From, Topic, dest(Options));
                 true  -> gen_server:reply(From, ok)

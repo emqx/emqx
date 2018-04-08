@@ -35,9 +35,9 @@ init([]) ->
     %% Create the pubsub tables
     create_tabs(),
 
-    %% Shared pubsub
-    Shared = {shared_pubsub, {emqx_shared_pubsub, start_link, []},
-              permanent, 5000, worker, [emqx_shared_pubsub]},
+    %% Shared subscription
+    Shared = {shared_sub, {emqx_shared_sub, start_link, []},
+              permanent, 5000, worker, [emqx_shared_sub]},
 
     %% Broker helper
     Helper = {broker_helper, {emqx_broker_helper, start_link, [stats_fun()]},

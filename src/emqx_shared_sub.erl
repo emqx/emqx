@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,17 +14,11 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_shared_pubsub).
+-module(emqx_shared_sub).
 
 -behaviour(gen_server).
 
 -include("emqx.hrl").
-
-%% Mnesia bootstrap
--export([mnesia/1]).
-
--boot_mnesia({mnesia, [boot]}).
--copy_mnesia({mnesia, [copy]}).
 
 %% API
 -export([start_link/0]).
@@ -41,25 +35,11 @@
 
 -define(SERVER, ?MODULE).
 
--define(TABLE, shared_subscription).
+-define(TAB, shared_subscription).
 
 -record(state, {pmon}).
 
 -record(shared_subscription, {group, topic, subpid}).
-
-%%--------------------------------------------------------------------
-%% Mnesia bootstrap
-%%--------------------------------------------------------------------
-
-mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?TABLE, [
-                {type, bag},
-                {ram_copies, [node()]},
-                {record_name, shared_subscription},
-                {attributes, record_info(fields, shared_subscription)}]);
-
-mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TABLE).
 
 %%--------------------------------------------------------------------
 %% API
@@ -67,6 +47,12 @@ mnesia(copy) ->
 
 -spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
 start_link() ->
+    ok = ekka_mnesia:create_table(?TAB, [
+                {type, bag},
+                {ram_copies, [node()]},
+                {record_name, shared_subscription},
+                {attributes, record_info(fields, shared_subscription)}]),
+    ok = ekka_mnesia:copy_table(?TAB),
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 -spec(strategy() -> random | hash).
@@ -113,14 +99,14 @@ subscribers(Group, Topic) ->
 
 init([]) ->
     {atomic, PMon} = mnesia:transaction(fun init_monitors/0),
-    mnesia:subscribe({table, ?TABLE, simple}),
+    mnesia:subscribe({table, ?TAB, simple}),
     {ok, #state{pmon = PMon}}.
 
 init_monitors() ->
     mnesia:foldl(
       fun(#shared_subscription{subpid = SubPid}, Mon) ->
           Mon:monitor(SubPid)
-      end, emqx_pmon:new(), ?TABLE).
+      end, emqx_pmon:new(), ?TAB).
 
 handle_call(Req, _From, State) ->
     emqx_log:error("[Shared] Unexpected request: ~p", [Req]),
@@ -156,7 +142,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    mnesia:unsubscribe({table, ?TABLE, simple}).
+    mnesia:unsubscribe({table, ?TAB, simple}).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
