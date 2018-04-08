@@ -29,7 +29,7 @@
 -import(proplists, [get_value/2, get_value/3]).
 
 %% Session API
--export([start_link/1, resume/3, discard/2]).
+-export([start_link/1, resume/2, discard/2]).
 
 %% Management and Monitor API
 -export([state/1, info/1, stats/1]).
@@ -215,9 +215,9 @@ unsubscribe(SessionPid, TopicTable) ->
     gen_server:cast(SessionPid, {unsubscribe, self(), TopicTable}).
 
 %% @doc Resume the session
--spec(resume(pid(), client_id(), pid()) -> ok).
-resume(SessionPid, ClientId, ClientPid) ->
-    gen_server:cast(SessionPid, {resume, ClientId, ClientPid}).
+-spec(resume(pid(), pid()) -> ok).
+resume(SessionPid, ClientPid) ->
+    gen_server:cast(SessionPid, {resume, ClientPid}).
 
 %% @doc Get session state
 state(SessionPid) when is_pid(SessionPid) ->
@@ -457,7 +457,7 @@ handle_cast({pubcomp, PacketId}, State = #state{inflight = Inflight}) ->
      end, hibernate};
 
 %% RESUME:
-handle_cast({resume, ClientId, ClientPid},
+handle_cast({resume, ClientPid},
             State = #state{client_id       = ClientId,
                            client_pid      = OldClientPid,
                            clean_start     = CleanStart,

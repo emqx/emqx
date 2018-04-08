@@ -572,7 +572,7 @@ sp(false) -> 0.
 %%--------------------------------------------------------------------
 
 clean_retain(false, Msg = #message{flags = #{retain := true}, headers = Headers}) ->
-    case lists:member(retained, Headers) of
+    case maps:get(retained, Headers, false) of
         true  -> Msg;
         false -> emqx_message:set_flag(retain, false, Msg)
     end;
