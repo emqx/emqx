@@ -26,6 +26,8 @@
 
 -export([publish/1, publish/2]).
 
+-export([dispatch/2, dispatch/3]).
+
 -export([subscriptions/1, subscribers/1, subscribed/2]).
 
 -export([topics/0]).
@@ -128,7 +130,7 @@ route(Routes, Delivery) ->
 forward(Node, To, Delivery) ->
     case emqx_rpc:call(Node, ?BROKER, dispatch, [To, Delivery]) of
         {badrpc, Reason} ->
-            emqx_log:error("[Broker] Failed to forward msg to ~s: ~s", [Node, Reason]),
+            emqx_log:error("[Broker] Failed to forward msg to ~s: ~p", [Node, Reason]),
             Delivery;
         Delivery1 -> Delivery1
     end.
