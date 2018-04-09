@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ start_link() ->
 
 init([]) ->
     %% Create the pubsub tables
-    create_tabs(),
+    lists:foreach(fun create_tab/1, [subscription, subscriber, suboption]),
 
     %% Shared subscription
     Shared = {shared_sub, {emqx_shared_sub, start_link, []},
@@ -54,9 +54,6 @@ init([]) ->
 %%--------------------------------------------------------------------
 %% Create tables
 %%--------------------------------------------------------------------
-
-create_tabs() ->
-    lists:foreach(fun create_tab/1, [subscription, subscriber, suboption]).
 
 create_tab(suboption) ->
     %% Suboption: {Topic, Sub} -> [{qos, 1}]

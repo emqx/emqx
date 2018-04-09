@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ start_link(StatsFun) ->
 %%--------------------------------------------------------------------
 
 init([StatsFun]) ->
-    {ok, TRef} = timer:send_interval(1000, stats),
+    {ok, TRef} = timer:send_interval(timer:seconds(1), stats),
     {ok, #state{stats_fun = StatsFun, stats_timer = TRef}}.
 
 handle_call(Req, _From, State) ->

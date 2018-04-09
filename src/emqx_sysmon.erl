@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -28,10 +28,10 @@
 %%-define(LOG_FMT, [{formatter_config, [time, " ", message, "\n"]}]).
 
 -define(LOG(Msg, ProcInfo),
-        lager:warning([{sysmon, true}], "[SYSMON] ~s~n~p", [WarnMsg, ProcInfo])).
+        emqx_log:warning([{sysmon, true}], "[SYSMON] ~s~n~p", [WarnMsg, ProcInfo])).
 
 -define(LOG(Msg, ProcInfo, PortInfo),
-        lager:warning([{sysmon, true}], "[SYSMON] ~s~n~p~n~p", [WarnMsg, ProcInfo, PortInfo])).
+        emqx_log:warning([{sysmon, true}], "[SYSMON] ~s~n~p~n~p", [WarnMsg, ProcInfo, PortInfo])).
 
 %% @doc Start system monitor
 -spec(start_link(Opts :: list(tuple())) -> {ok, pid()} | ignore | {error, term()}).
@@ -75,11 +75,11 @@ parse_opt([_Opt|Opts], Acc) ->
     parse_opt(Opts, Acc).
 
 handle_call(Req, _From, State) ->
-    lager:error("[SYSMON] Unexpected Call: ~p", [Req]),
+    emqx_log:error("[SYSMON] Unexpected request: ~p", [Req]),
     {reply, ignore, State}.
 
 handle_cast(Msg, State) ->
-    lager:error("[SYSMON] Unexpected Cast: ~p", [Msg]),
+    emqx_log:error("[SYSMON] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({monitor, Pid, long_gc, Info}, State) ->

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    {ok, Env} = emqx:env(sysmon),
+    {ok, Env} = emqx_conf:get_env(sysmon),
     Sysmon = {sysmon, {emqx_sysmon, start_link, [Env]},
               permanent, 5000, worker, [emqx_sysmon]},
     {ok, {{one_for_one, 10, 100}, [Sysmon]}}.

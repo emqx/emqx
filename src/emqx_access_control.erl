@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -51,7 +51,7 @@ start_link() ->
 auth(Client, Password) when is_record(Client, client) ->
     auth(Client, Password, lookup_mods(auth)).
 auth(_Client, _Password, []) ->
-    case emqx:env(allow_anonymous, false) of
+    case emqx_conf:get_env(allow_anonymous, false) of
         true  -> ok;
         false -> {error, "No auth module to check!"}
     end;
@@ -68,12 +68,12 @@ auth(Client, Password, [{Mod, State, _Seq} | Mods]) ->
 -spec(check_acl(Client, PubSub, Topic) -> allow | deny when
       Client :: client(),
       PubSub :: pubsub(),
-      Topic  :: binary()).
+      Topic  :: topic()).
 check_acl(Client, PubSub, Topic) when ?PS(PubSub) ->
     check_acl(Client, PubSub, Topic, lookup_mods(acl)).
 
 check_acl(_Client, _PubSub, _Topic, []) ->
-    emqx:env(acl_nomatch, allow);
+    emqx_conf:get_env(acl_nomatch, allow);
 check_acl(Client, PubSub, Topic, [{Mod, State, _Seq}|AclMods]) ->
     case Mod:check_acl({Client, PubSub, Topic}, State) of
         allow  -> allow;
@@ -88,15 +88,17 @@ reload_acl() ->
 
 %% @doc Register Authentication or ACL module.
 -spec(register_mod(auth | acl, atom(), list()) -> ok | {error, term()}).
-register_mod(Type, Mod, Opts) when Type =:= auth; Type =:= acl->
+register_mod(Type, Mod, Opts) when Type =:= auth; Type =:= acl ->
     register_mod(Type, Mod, Opts, 0).
 
--spec(register_mod(auth | acl, atom(), list(), non_neg_integer()) -> ok | {error, term()}).
+-spec(register_mod(auth | acl, atom(), list(), non_neg_integer())
+      -> ok | {error, term()}).
 register_mod(Type, Mod, Opts, Seq) when Type =:= auth; Type =:= acl->
     gen_server:call(?SERVER, {register_mod, Type, Mod, Opts, Seq}).
 
 %% @doc Unregister authentication or ACL module
--spec(unregister_mod(Type :: auth | acl, Mod :: atom()) -> ok | {error, not_found | term()}).
+-spec(unregister_mod(Type :: auth | acl, Mod :: atom())
+      -> ok | {error, not_found | term()}).
 unregister_mod(Type, Mod) when Type =:= auth; Type =:= acl ->
     gen_server:call(?SERVER, {unregister_mod, Type, Mod}).
 
@@ -104,7 +106,7 @@ unregister_mod(Type, Mod) when Type =:= auth; Type =:= acl ->
 -spec(lookup_mods(auth | acl) -> list()).
 lookup_mods(Type) ->
     case ets:lookup(?TAB, tab_key(Type)) of
-        []          -> [];
+        [] -> [];
         [{_, Mods}] -> Mods
     end.
 
@@ -116,11 +118,11 @@ stop() ->
     gen_server:call(?MODULE, stop).
 
 %%--------------------------------------------------------------------
-%% gen_server Callbacks
+%% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    _ = ets:new(?TAB, [set, named_table, protected, {read_concurrency, true}]),
+    _ = emqx_tables:create(?TAB, [set, protected, {read_concurrency, true}]),
     {ok, #state{}}.
 
 handle_call({register_mod, Type, Mod, Opts, Seq}, _From, State) ->
@@ -155,13 +157,15 @@ handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
 
 handle_call(Req, _From, State) ->
-    lager:error("Bad Request: ~p", [Req]),
-    {reply, {error, badreq}, State}.
+    emqx_log:error("[AccessControl] Unexpected request: ~p", [Req]),
+    {reply, ignore, State}.
 
-handle_cast(_Msg, State) ->
+handle_cast(Msg, State) ->
+    emqx_log:error("[AccessControl] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    emqx_log:error("[AccessControl] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

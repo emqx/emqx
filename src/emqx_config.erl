@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -25,12 +25,20 @@
 
 -module(emqx_config).
 
+-export([get_env/1, get_env/2]).
+
 -export([read/1, write/2, dump/2, reload/1, get/2, get/3, set/3]).
 
 -type(env() :: {atom(), term()}).
 
 -define(APP, emqx).
 
+-spec(get_env(Key :: atom(), Default :: any()) -> undefined | any()).
+get_env(Key, Default) ->
+    application:get_env(?APP, Key, Default).
+
+%% @doc Get environment
+-spec(get_env(Key :: atom()) -> {ok, any()} | undefined).
 get_env(Key) ->
     application:get_env(?APP, Key).
 

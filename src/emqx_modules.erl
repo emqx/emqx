@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -23,11 +23,11 @@ load() ->
       fun({Mod, Env}) ->
         ok = Mod:load(Env),
         io:format("Load ~s module successfully.~n", [Mod])
-      end, emqx:env(modules, [])).
+      end, emqx_conf:get_env(modules, [])).
 
 unload() ->
     lists:foreach(
       fun({Mod, Env}) ->
           Mod:unload(Env) end,
-      emqx:env(modules, [])).
+      emqx_conf:get_env(modules, [])).
 

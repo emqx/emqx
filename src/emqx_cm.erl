@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -62,9 +62,13 @@ unreg(ClientId) ->
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
-init([StatsFun]) ->
-    {ok, Ref} = timer:send_interval(timer:seconds(1), stats),
-    {ok, #state{stats_fun = StatsFun, stats_timer = Ref, monitors = dict:new()}}.
+init([]) ->
+    _ = emqx_tables:create(client, [public, set, {keypos, 2},
+                                    {read_concurrency, true},
+                                    {write_concurrency, true}]),
+    _ = emqx_tables:create(client_attrs, [public, set,
+                                          {write_concurrency, true}]),
+    {ok, #state{monitors = dict:new()}}.
 
 handle_call(Req, _From, State) ->
     emqx_log:error("[CM] Unexpected request: ~p", [Req]),
@@ -102,7 +106,7 @@ handle_info(stats, State) ->
     {noreply, setstats(State), hibernate};
 
 handle_info(Info, State) ->
-    lager:error("[CM] Unexpected Info: ~p", [Info]),
+    emqx_log:error("[CM] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State = #state{stats_timer = TRef}) ->

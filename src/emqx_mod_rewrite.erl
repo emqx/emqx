@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -35,11 +35,11 @@ load(Rules0) ->
     emqx:hook('message.publish',   fun ?MODULE:rewrite_publish/2, [Rules]).
 
 rewrite_subscribe(_ClientId, _Username, TopicTable, Rules) ->
-    lager:info("Rewrite subscribe: ~p", [TopicTable]),
+    emqx_log:info("Rewrite subscribe: ~p", [TopicTable]),
     {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicTable]}.
 
 rewrite_unsubscribe(_ClientId, _Username, TopicTable, Rules) ->
-    lager:info("Rewrite unsubscribe: ~p", [TopicTable]),
+    emqx_log:info("Rewrite unsubscribe: ~p", [TopicTable]),
     {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicTable]}.
 
 rewrite_publish(Message = #message{topic = Topic}, Rules) ->

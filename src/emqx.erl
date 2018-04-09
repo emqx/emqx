@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (C) 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@
 -include("emqx.hrl").
 
 %% Start/Stop Application
--export([start/0, env/1, env/2, is_running/1, stop/0]).
+-export([start/0, is_running/1, stop/0]).
 
 %% PubSub API
 -export([subscribe/1, subscribe/2, subscribe/3, publish/1,
@@ -43,7 +43,7 @@
 -define(APP, ?MODULE).
 
 %%--------------------------------------------------------------------
-%% Bootstrap, environment, configuration, is_running...
+%% Bootstrap, is_running...
 %%--------------------------------------------------------------------
 
 %% @doc Start emqx application
@@ -54,14 +54,6 @@ start() -> application:start(?APP).
 -spec(stop() -> ok | {error, term()}).
 stop() -> application:stop(?APP).
 
-%% @doc Get environment
--spec(env(Key :: atom()) -> {ok, any()} | undefined).
-env(Key) -> application:get_env(?APP, Key).
-
-%% @doc Get environment with default
--spec(env(Key :: atom(), Default :: any()) -> undefined | any()).
-env(Key, Default) -> application:get_env(?APP, Key, Default).
-
 %% @doc Is emqx running?
 -spec(is_running(node()) -> boolean()).
 is_running(Node) ->
@@ -70,7 +62,6 @@ is_running(Node) ->
         undefined            -> false;
         Pid when is_pid(Pid) -> true
     end.
-
 
 %%--------------------------------------------------------------------
 %% PubSub API

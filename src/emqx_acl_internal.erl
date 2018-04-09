@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -48,19 +48,18 @@ all_rules() ->
 %% @doc Init internal ACL
 -spec(init([File :: string()]) -> {ok, State :: any()}).
 init([File]) ->
-    ets:new(?ACL_RULE_TAB, [set, public, named_table, {read_concurrency, true}]),
-    State = #state{config = File},
-    true = load_rules_from_file(State),
-    {ok, State}.
+    _ = emqx_tables:create(?ACL_RULE_TAB, [set, public, {read_concurrency, true}]),
+    {ok, load_rules_from_file(#state{config = File})}.
 
-load_rules_from_file(#state{config = AclFile}) ->
+load_rules_from_file(State = #state{config = AclFile}) ->
     {ok, Terms} = file:consult(AclFile),
     Rules = [emqx_access_rule:compile(Term) || Term <- Terms],
     lists:foreach(fun(PubSub) ->
         ets:insert(?ACL_RULE_TAB, {PubSub,
             lists:filter(fun(Rule) -> filter(PubSub, Rule) end, Rules)})
         end, [publish, subscribe]),
-    ets:insert(?ACL_RULE_TAB, {all_rules, Terms}).
+    ets:insert(?ACL_RULE_TAB, {all_rules, Terms}),
+    State.
 
 filter(_PubSub, {allow, all}) ->
     true;
@@ -79,7 +78,7 @@ filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
 -spec(check_acl({Client, PubSub, Topic}, State) -> allow | deny | ignore when
       Client :: client(),
       PubSub :: pubsub(),
-      Topic  :: binary(),
+      Topic  :: topic(),
       State  :: #state{}).
 check_acl(_Who, #state{config = undefined}) ->
     allow;

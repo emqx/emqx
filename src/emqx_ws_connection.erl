@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -50,8 +50,8 @@
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
 -define(WSLOG(Level, Format, Args, State),
-              lager:Level("WsClient(~s): " ++ Format,
-                          [esockd_net:format(State#wsclient_state.peername) | Args])).
+              emqx_log:Level("WsClient(~s): " ++ Format,
+                             [esockd_net:format(State#wsclient_state.peername) | Args])).
 
 %% @doc Start WebSocket Client.
 start_link(Env, WsPid, Req, ReplyChannel) ->

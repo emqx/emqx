@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -53,12 +53,12 @@ trace(publish, From, _Msg) when is_atom(From) ->
     ignore;
 trace(publish, #client{client_id = ClientId, username = Username},
       #message{topic = Topic, payload = Payload}) ->
-    lager:info([{client, ClientId}, {topic, Topic}],
-               "~s/~s PUBLISH to ~s: ~p", [ClientId, Username, Topic, Payload]);
+    emqx_log:info([{client, ClientId}, {topic, Topic}],
+                  "~s/~s PUBLISH to ~s: ~p", [ClientId, Username, Topic, Payload]);
 trace(publish, From, #message{topic = Topic, payload = Payload})
     when is_binary(From); is_list(From) ->
-    lager:info([{client, From}, {topic, Topic}],
-               "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
+    emqx_log:info([{client, From}, {topic, Topic}],
+                  "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
 
 %%--------------------------------------------------------------------
 %% Start/Stop Trace
@@ -83,14 +83,15 @@ stop_trace({topic, Topic}) ->
 
 %% @doc Lookup all traces.
 -spec(all_traces() -> [{Who :: trace_who(), LogFile :: string()}]).
-all_traces() -> gen_server:call(?MODULE, all_traces).
+all_traces() ->
+    gen_server:call(?MODULE, all_traces).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    {ok, #state{level = emqx:env(trace_level, debug), traces = #{}}}.
+    {ok, #state{level = emqx_conf:get_env(trace_level, debug), traces = #{}}}.
 
 handle_call({start_trace, Who, LogFile}, _From, State = #state{level = Level, traces = Traces}) ->
     case lager:trace_file(LogFile, [Who], Level, ?OPTIONS) of

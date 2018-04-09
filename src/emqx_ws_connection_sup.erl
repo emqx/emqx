@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -37,7 +37,7 @@ start_connection(WsPid, Req, ReplyChannel) ->
 
 init([]) ->
     %%TODO: Cannot upgrade the environments, Use zone?
-    Env = lists:append(emqx:env(client, []), emqx:env(protocol, [])),
+    Env = lists:append(emqx_conf:get_env(client, []), emqx_conf:get_env(protocol, [])),
     {ok, {{simple_one_for_one, 0, 1},
            [{ws_connection, {emqx_ws_connection, start_link, [Env]},
              temporary, 5000, worker, [emqx_ws_connection]}]}}.

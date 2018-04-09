@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@
 %% @doc Init plugins' config
 -spec(init() -> ok).
 init() ->
-    case emqx:env(plugins_etc_dir) of
+    case emqx_conf:get_env(plugins_etc_dir) of
         {ok, PluginsEtc} ->
             CfgFiles = [filename:join(PluginsEtc, File) ||
                           File <- filelib:wildcard("*.config", PluginsEtc)],
@@ -50,7 +50,7 @@ init_config(CfgFile) ->
 -spec(load() -> list() | {error, term()}).
 load() ->
     load_expand_plugins(),
-    case emqx:env(plugins_loaded_file) of
+    case emqx_conf:get_env(plugins_loaded_file) of
         {ok, File} ->
             ensure_file(File),
             with_loaded_file(File, fun(Names) -> load_plugins(Names, false) end);
@@ -60,7 +60,7 @@ load() ->
     end.
 
 load_expand_plugins() ->
-    case emqx:env(expand_plugins_dir) of
+    case emqx_conf:get_env(expand_plugins_dir) of
         {ok, Dir} ->
             PluginsDir = filelib:wildcard("*", Dir),
             lists:foreach(fun(PluginDir) ->
@@ -83,7 +83,8 @@ load_expand_plugin(PluginDir) ->
     end, Modules),
     case filelib:wildcard(Ebin ++ "/*.app") of
         [App|_] -> application:load(list_to_atom(filename:basename(App, ".app")));
-        _ -> lager:error("load application fail"), {error, load_app_fail}
+        _ -> emqx_log:error("App file cannot be found."),
+             {error, load_app_fail}
     end.
 
 init_expand_plugin_config(PluginDir) ->
@@ -100,7 +101,7 @@ init_expand_plugin_config(PluginDir) ->
     end, AppsEnv).
 
 get_expand_plugin_config() ->
-    case emqx:env(expand_plugins_dir) of
+    case emqx_conf:get_env(expand_plugins_dir) of
         {ok, Dir} ->
             PluginsDir = filelib:wildcard("*", Dir),
             lists:foldl(fun(PluginDir, Acc) ->
@@ -127,7 +128,7 @@ with_loaded_file(File, SuccFun) ->
         {ok, Names} ->
             SuccFun(Names);
         {error, Error} ->
-            lager:error("Failed to read: ~p, error: ~p", [File, Error]),
+            emqx_log:error("[Plugins] Failed to read: ~p, error: ~p", [File, Error]),
             {error, Error}
     end.
 
@@ -135,7 +136,7 @@ load_plugins(Names, Persistent) ->
     Plugins = list(), NotFound = Names -- names(Plugins),
     case NotFound of
         []       -> ok;
-        NotFound -> lager:error("Cannot find plugins: ~p", [NotFound])
+        NotFound -> emqx_log:error("[Plugins] Cannot find plugins: ~p", [NotFound])
     end,
     NeedToLoad = Names -- NotFound -- names(started_app),
     [load_plugin(find_plugin(Name, Plugins), Persistent) || Name <- NeedToLoad].
@@ -143,7 +144,7 @@ load_plugins(Names, Persistent) ->
 %% @doc Unload all plugins before broker stopped.
 -spec(unload() -> list() | {error, term()}).
 unload() ->
-    case emqx:env(plugins_loaded_file) of
+    case emqx_conf:get_env(plugins_loaded_file) of
         {ok, File} ->
             with_loaded_file(File, fun stop_plugins/1);
         undefined ->
@@ -157,7 +158,7 @@ stop_plugins(Names) ->
 %% @doc List all available plugins
 -spec(list() -> [plugin()]).
 list() ->
-    case emqx:env(plugins_etc_dir) of
+    case emqx_conf:get_env(plugins_etc_dir) of
         {ok, PluginsEtc} ->
             CfgFiles = filelib:wildcard("*.{conf,config}", PluginsEtc) ++ get_expand_plugin_config(),
             Plugins = [plugin(CfgFile) || CfgFile <- CfgFiles],
@@ -184,12 +185,12 @@ plugin(CfgFile) ->
 load(PluginName) when is_atom(PluginName) ->
     case lists:member(PluginName, names(started_app)) of
         true ->
-            lager:error("Plugin ~p is already started", [PluginName]),
+            emqx_log:error("[Plugins] Plugin ~s is already started", [PluginName]),
             {error, already_started};
         false ->
             case find_plugin(PluginName) of
                 false ->
-                    lager:error("Plugin ~s not found", [PluginName]),
+                    emqx_log:error("[Plugins] Plugin ~s not found", [PluginName]),
                     {error, not_found};
                 Plugin ->
                     load_plugin(Plugin, true)
@@ -217,12 +218,12 @@ load_app(App) ->
 start_app(App, SuccFun) ->
     case application:ensure_all_started(App) of
         {ok, Started} ->
-            lager:info("Started Apps: ~p", [Started]),
-            lager:info("Load plugin ~p successfully", [App]),
+            emqx_log:info("Started Apps: ~p", [Started]),
+            emqx_log:info("Load plugin ~s successfully", [App]),
             SuccFun(App),
             {ok, Started};
         {error, {ErrApp, Reason}} ->
-            lager:error("load plugin ~p error, cannot start app ~s for ~p", [App, ErrApp, Reason]),
+            emqx_log:error("Load plugin ~s error, cannot start app ~s for ~p", [App, ErrApp, Reason]),
             {error, {ErrApp, Reason}}
     end.
 
@@ -239,10 +240,10 @@ unload(PluginName) when is_atom(PluginName) ->
         {true, true} ->
             unload_plugin(PluginName, true);
         {false, _} ->
-            lager:error("Plugin ~p is not started", [PluginName]),
+            emqx_log:error("Plugin ~s is not started", [PluginName]),
             {error, not_started};
         {true, false} ->
-            lager:error("~s is not a plugin, cannot unload it", [PluginName]),
+            emqx_log:error("~s is not a plugin, cannot unload it", [PluginName]),
             {error, not_found}
     end.
 
@@ -257,11 +258,11 @@ unload_plugin(App, Persistent) ->
 stop_app(App) ->
     case application:stop(App) of
         ok ->
-            lager:info("Stop plugin ~p successfully~n", [App]), ok;
+            emqx_log:info("Stop plugin ~s successfully", [App]), ok;
         {error, {not_started, App}} ->
-            lager:error("Plugin ~p is not started~n", [App]), ok;
+            emqx_log:error("Plugin ~s is not started", [App]), ok;
         {error, Reason} ->
-            lager:error("Stop plugin ~p error: ~p", [App]), {error, Reason}
+            emqx_log:error("Stop plugin ~s error: ~p", [App]), {error, Reason}
     end.
 
 %%--------------------------------------------------------------------
@@ -293,7 +294,7 @@ plugin_loaded(Name, true) ->
                     ignore
             end;
         {error, Error} ->
-            lager:error("Cannot read loaded plugins: ~p", [Error])
+            emqx_log:error("Cannot read loaded plugins: ~p", [Error])
     end.
 
 plugin_unloaded(_Name, false) ->
@@ -305,14 +306,14 @@ plugin_unloaded(Name, true) ->
                 true ->
                     write_loaded(lists:delete(Name, Names));
                 false ->
-                    lager:error("Cannot find ~s in loaded_file", [Name])
+                    emqx_log:error("Cannot find ~s in loaded_file", [Name])
             end;
         {error, Error} ->
-            lager:error("Cannot read loaded_plugins: ~p", [Error])
+            emqx_log:error("Cannot read loaded_plugins: ~p", [Error])
     end.
 
 read_loaded() ->
-    case emqx:env(plugins_loaded_file) of
+    case emqx_conf:get_env(plugins_loaded_file) of
         {ok, File} -> read_loaded(File);
         undefined  -> {error, not_found}
     end.
@@ -320,14 +321,14 @@ read_loaded() ->
 read_loaded(File) -> file:consult(File).
 
 write_loaded(AppNames) ->
-    {ok, File} = emqx:env(plugins_loaded_file),
+    {ok, File} = emqx_conf:get_env(plugins_loaded_file),
     case file:open(File, [binary, write]) of
         {ok, Fd} ->
             lists:foreach(fun(Name) ->
                 file:write(Fd, iolist_to_binary(io_lib:format("~s.~n", [Name])))
             end, AppNames);
         {error, Error} ->
-            lager:error("Open File ~p Error: ~p", [File, Error]),
+            emqx_log:error("Open File ~p Error: ~p", [File, Error]),
             {error, Error}
     end.
 

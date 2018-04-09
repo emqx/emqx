@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -155,8 +155,8 @@
                      created_at]).
 
 -define(LOG(Level, Format, Args, State),
-            lager:Level([{client, State#state.client_id}],
-                        "Session(~s): " ++ Format, [State#state.client_id | Args])).
+            emqx_log:Level([{client, State#state.client_id}],
+                           "Session(~s): " ++ Format, [State#state.client_id | Args])).
 
 %% @doc Start a Session
 -spec(start_link(map()) -> {ok, pid()} | {error, term()}).
@@ -271,8 +271,8 @@ init(#{clean_start := CleanStart,
     process_flag(trap_exit, true),
     true = link(ClientPid),
     init_stats([deliver_msg, enqueue_msg]),
-    {ok, Env} = emqx:env(session),
-    {ok, QEnv} = emqx:env(mqueue),
+    {ok, Env} = emqx_conf:get_env(session),
+    {ok, QEnv} = emqx_conf:get_env(mqueue),
     MaxInflight = get_value(max_inflight, Env, 0),
     EnableStats = get_value(enable_stats, Env, false),
     IgnoreLoopDeliver = get_value(ignore_loop_deliver, Env, false),
@@ -342,7 +342,7 @@ handle_call(state, _From, State) ->
     reply(?record_to_proplist(state, State, ?STATE_KEYS), State);
 
 handle_call(Req, _From, State) ->
-    lager:error("[~s] Unexpected Call: ~p", [?MODULE, Req]),
+    emqx_log:error("[Session] Unexpected request: ~p", [Req]),
     {reply, ignore, State}.
 
 handle_cast({subscribe, From, TopicTable, AckFun},
@@ -501,7 +501,7 @@ handle_cast({resume, ClientPid},
     {noreply, emit_stats(dequeue(retry_delivery(true, State1)))};
 
 handle_cast(Msg, State) ->
-    lager:error("[~s] Unexpected Cast: ~p", [?MODULE, Msg]),
+    emqx_log:error("[Session] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 %% Ignore Messages delivered by self
@@ -551,7 +551,7 @@ handle_info({'EXIT', Pid, Reason}, State = #state{client_pid = ClientPid}) ->
     {noreply, State, hibernate};
 
 handle_info(Info, State) ->
-    lager:error("[~s] Unexpected Info: ~p", [?MODULE, Info]),
+    emqx_log:error("[Session] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(Reason, #state{client_id = ClientId, username = Username}) ->

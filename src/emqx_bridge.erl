@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All Rights Reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -64,8 +64,8 @@ start_link(Pool, Id, Node, Topic, Options) ->
 %%--------------------------------------------------------------------
 
 init([Pool, Id, Node, Topic, Options]) ->
-    gproc_pool:connect_worker(Pool, {Pool, Id}),
     process_flag(trap_exit, true),
+    gproc_pool:connect_worker(Pool, {Pool, Id}),
     case net_kernel:connect_node(Node) of
         true -> 
             true = erlang:monitor_node(Node, true),
@@ -103,11 +103,11 @@ qname(Node, Topic) ->
     iolist_to_binary(["Bridge:", Node, ":", Topic]).
 
 handle_call(Req, _From, State) ->
-    lager:error("[~s] Unexpected Call: ~p", [?MODULE, Req]),
+    emqx_log:error("[Bridge] Unexpected request: ~p", [Req]),
     {reply, ignore, State}.
 
 handle_cast(Msg, State) ->
-    lager:error("[~s] Unexpected Cast: ~p", [?MODULE, Msg]),
+    emqx_log:error("[Bridge] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({dispatch, _Topic, Msg}, State = #state{mqueue = MQ, status = down}) ->
@@ -118,7 +118,7 @@ handle_info({dispatch, _Topic, Msg}, State = #state{node = Node, status = up}) -
     {noreply, State, hibernate};
 
 handle_info({nodedown, Node}, State = #state{node = Node, ping_down_interval = Interval}) ->
-    lager:warning("Bridge Node Down: ~p", [Node]),
+    emqx_log:warning("[Bridge] Node Down: ~s", [Node]),
     erlang:send_after(Interval, self(), ping_down_node),
     {noreply, State#state{status = down}, hibernate};
 
@@ -126,7 +126,7 @@ handle_info({nodeup, Node}, State = #state{node = Node}) ->
     %% TODO: Really fast??
     case emqx:is_running(Node) of
         true ->
-            lager:warning("Bridge Node Up: ~p", [Node]),
+            emqx_log:warning("[Bridge] Node up: ~s", [Node]),
             {noreply, dequeue(State#state{status = up})};
         false ->
             self() ! {nodedown, Node},
@@ -149,7 +149,7 @@ handle_info({'EXIT', _Pid, normal}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    lager:error("[~s] Unexpected Info: ~p", [?MODULE, Info]),
+    emqx_log:error("[Bridge] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->

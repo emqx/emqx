@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -25,9 +25,6 @@
 %% Get all Stats
 -export([all/0]).
 
-%% Client and Session Stats
--export([set_client_stats/2, get_client_stats/1, del_client_stats/1]).
-
 %% Statistics API.
 -export([statsfun/1, statsfun/2, getstats/0, getstat/1, setstat/2, setstat/3]).
 
@@ -41,9 +38,7 @@
 
 -export_type([stats/0]).
 
--define(STATS_TAB, mqtt_stats).
--define(CLIENT_STATS_TAB, mqtt_client_stats).
--define(SESSION_STATS_TAB, mqtt_session_stats).
+-define(STATS_TAB, stats).
 
 %% $SYS Topics for Clients
 -define(SYSTOP_CLIENTS, [
@@ -87,22 +82,6 @@ start_link() ->
 stop() ->
     gen_server:call(?MODULE, stop).
 
--spec(set_client_stats(binary(), stats()) -> true).
-set_client_stats(ClientId, Stats) ->
-    ets:insert(?CLIENT_STATS_TAB, {ClientId, [{'$ts', emqx_time:now_secs()}|Stats]}).
-
--spec(get_client_stats(binary()) -> stats()).
-get_client_stats(ClientId) ->
-    case ets:lookup(?CLIENT_STATS_TAB, ClientId) of
-        [{_, Stats}] -> Stats;
-        [] -> []
-    end.
-
--spec(del_client_stats(binary()) -> true).
-del_client_stats(ClientId) ->
-    ets:delete(?CLIENT_STATS_TAB, ClientId).
-
-
 all() -> ets:tab2list(?STATS_TAB).
 
 %% @doc Generate stats fun
@@ -143,10 +122,8 @@ setstat(Stat, MaxStat, Val) ->
 
 init([]) ->
     emqx_time:seed(),
-    lists:foreach(
-      fun(Tab) ->
-        Tab = ets:new(Tab, [set, public, named_table, {write_concurrency, true}])
-      end, [?STATS_TAB, ?CLIENT_STATS_TAB, ?SESSION_STATS_TAB]),
+    _ = emqx_tables:create(?STATS_TAB, [set, public, named_table,
+                                        {write_concurrency, true}]),
     Topics = ?SYSTOP_CLIENTS ++ ?SYSTOP_SESSIONS ++ ?SYSTOP_PUBSUB ++ ?SYSTOP_RETAINED,
     ets:insert(?STATS_TAB, [{Topic, 0} || Topic <- Topics]),
     % Tick to publish stats

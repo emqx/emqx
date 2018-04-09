@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -69,7 +69,10 @@ handle_call(_Req, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({async_submit, Fun}, State) ->
-    try run(Fun) catch _:Error -> lager:error("Pooler Error: ~p, ~p", [Error, erlang:get_stacktrace()]) end,
+    try run(Fun)
+    catch _:Error ->
+        emqx_log:error("Pooler Error: ~p, ~p", [Error, erlang:get_stacktrace()])
+    end,
     {noreply, State};
 
 handle_cast(_Msg, State) ->

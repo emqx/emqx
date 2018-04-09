@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -57,8 +57,8 @@
 -define(STATS_KEYS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 
 -define(LOG(Level, Format, Args, State),
-            lager:Level([{client, State#proto_state.client_id}], "Client(~s@~s): " ++ Format,
-                        [State#proto_state.client_id, esockd_net:format(State#proto_state.peername) | Args])).
+            emqx_log:Level([{client, State#proto_state.client_id}], "Client(~s@~s): " ++ Format,
+                           [State#proto_state.client_id, esockd_net:format(State#proto_state.peername) | Args])).
 
 %% @doc Init protocol
 init(Peername, SendFun, Opts) ->
@@ -549,7 +549,7 @@ authenticate(Client, Password) ->
 
 %% PUBLISH ACL is cached in process dictionary.
 check_acl(publish, Topic, Client) ->
-    IfCache = emqx:env(cache_acl, true),
+    IfCache = emqx_conf:get_env(cache_acl, true),
     case {IfCache, get({acl, publish, Topic})} of
         {true, undefined} ->
             AllowDeny = emqx_access_control:check_acl(Client, publish, Topic),

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -57,8 +57,8 @@
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
 -define(LOG(Level, Format, Args, State),
-            lager:Level("Client(~s): " ++ Format,
-                        [esockd_net:format(State#state.peername) | Args])).
+            emqx_log:Level("Client(~s): " ++ Format,
+                           [esockd_net:format(State#state.peername) | Args])).
 
 start_link(Conn, Env) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[Conn, Env]])}.

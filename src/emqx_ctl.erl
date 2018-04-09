@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -108,7 +108,7 @@ handle_cast({register_cmd, Cmd, MF, Opts}, State = #state{seq = Seq}) ->
         [] ->
             ets:insert(?TAB, {{Seq, Cmd}, MF, Opts});
         [[OriginSeq] | _] ->
-            lager:warning("CLI: ~s is overidden by ~p", [Cmd, MF]),
+            emqx_log:warning("[CLI] ~s is overidden by ~p", [Cmd, MF]),
             ets:insert(?TAB, {{OriginSeq, Cmd}, MF, Opts})
     end,
     noreply(next_seq(State));

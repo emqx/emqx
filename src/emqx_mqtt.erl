@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ shutdown() ->
 %% @doc Start Listeners.
 -spec(start_listeners() -> ok).
 start_listeners() ->
-    lists:foreach(fun start_listener/1, emqx:env(listeners, [])).
+    lists:foreach(fun start_listener/1, emqx_conf:get_env(listeners, [])).
 
 %% Start mqtt listener
 -spec(start_listener(listener()) -> {ok, pid()} | {error, any()}).
@@ -60,7 +60,7 @@ start_listener({Proto, ListenOn, Opts}) when Proto == https; Proto == wss ->
     {ok, _} = mochiweb:start_http('mqtt:wss', ListenOn, Opts, {emqx_ws, handle_request, []}).
 
 start_listener(Proto, ListenOn, Opts) ->
-    Env = lists:append(emqx:env(client, []), emqx:env(protocol, [])),
+    Env = lists:append(emqx_conf:get_env(client, []), emqx_conf:get_env(protocol, [])),
     MFArgs = {emqx_connection, start_link, [Env]},
     {ok, _} = esockd:open(Proto, ListenOn, merge_sockopts(Opts), MFArgs).
 
@@ -75,7 +75,8 @@ is_mqtt(_Proto)     -> false.
 
 %% @doc Stop Listeners
 -spec(stop_listeners() -> ok).
-stop_listeners() -> lists:foreach(fun stop_listener/1, emqx:env(listeners, [])).
+stop_listeners() ->
+    lists:foreach(fun stop_listener/1, emqx_conf:get_env(listeners, [])).
 
 -spec(stop_listener(listener()) -> ok | {error, any()}).
 stop_listener({tcp, ListenOn, _Opts}) ->
@@ -93,7 +94,9 @@ stop_listener({Proto, ListenOn, _Opts}) ->
 
 %% @doc Restart Listeners
 -spec(restart_listeners() -> ok).
-restart_listeners() -> lists:foreach(fun restart_listener/1, emqx:env(listeners, [])).
+restart_listeners() ->
+    lists:foreach(fun restart_listener/1,
+                  emqx_conf:get_env(listeners, [])).
 
 -spec(restart_listener(listener()) -> any()).
 restart_listener({tcp, ListenOn, _Opts}) ->
@@ -113,3 +116,4 @@ merge_sockopts(Options) ->
     SockOpts = emqx_misc:merge_opts(
                  ?MQTT_SOCKOPTS, proplists:get_value(sockopts, Options, [])),
     emqx_misc:merge_opts(Options, [{sockopts, SockOpts}]).
+

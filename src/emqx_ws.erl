@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright © 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -26,8 +26,8 @@
 -record(wsocket_state, {peername, client_pid, max_packet_size, parser}).
 
 -define(WSLOG(Level, Format, Args, State),
-              lager:Level("WsClient(~s): " ++ Format,
-                          [esockd_net:format(State#wsocket_state.peername) | Args])).
+              emqx_log:Level("WsClient(~s): " ++ Format,
+                             [esockd_net:format(State#wsocket_state.peername) | Args])).
 
 
 handle_request(Req) ->
@@ -38,14 +38,14 @@ handle_request(Req) ->
 %%--------------------------------------------------------------------
 
 handle_request('GET', "/mqtt", Req) ->
-    lager:debug("WebSocket Connection from: ~s", [Req:get(peer)]),
+    emqx_log:debug("WebSocket Connection from: ~s", [Req:get(peer)]),
     Upgrade = Req:get_header_value("Upgrade"),
     Proto   = check_protocol_header(Req),
     case {is_websocket(Upgrade), Proto} of
         {true, "mqtt" ++ _Vsn} ->
             case Req:get(peername) of
                 {ok, Peername} ->
-                    {ok, ProtoEnv} = emqx:env(protocol),
+                    {ok, ProtoEnv} = emqx_conf:get_env(protocol),
                     PacketSize = get_value(max_packet_size, ProtoEnv, ?MAX_PACKET_SIZE),
                     Parser = emqx_parser:initial_state(PacketSize),
                     %% Upgrade WebSocket.
@@ -56,27 +56,27 @@ handle_request('GET', "/mqtt", Req) ->
                                              max_packet_size = PacketSize,
                                              client_pid = ClientPid});
                 {error, Reason} ->
-                    lager:error("Get peername with error ~s", [Reason]),
+                    emqx_log:error("Get peername with error ~s", [Reason]),
                     Req:respond({400, [], <<"Bad Request">>})
             end;
         {false, _} ->
-            lager:error("Not WebSocket: Upgrade = ~s", [Upgrade]),
+            emqx_log:error("Not WebSocket: Upgrade = ~s", [Upgrade]),
             Req:respond({400, [], <<"Bad Request">>});
         {_, Proto} ->
-            lager:error("WebSocket with error Protocol: ~s", [Proto]),
+            emqx_log:error("WebSocket with error Protocol: ~s", [Proto]),
             Req:respond({400, [], <<"Bad WebSocket Protocol">>})
     end;
 
 handle_request(Method, Path, Req) ->
-    lager:error("Unexpected WS Request: ~s ~s", [Method, Path]),
+    emqx_log:error("Unexpected WS Request: ~s ~s", [Method, Path]),
     Req:not_found().
 
 is_websocket(Upgrade) ->
-    (not emqx:env(websocket_check_upgrade_header, true)) orelse
+    (not emqx_conf:get_env(websocket_check_upgrade_header, true)) orelse
         (Upgrade =/= undefined andalso string:to_lower(Upgrade) =:= "websocket").
 
 check_protocol_header(Req) ->
-    case emqx:env(websocket_protocol_header, false) of
+    case emqx_conf:get_env(websocket_protocol_header, false) of
         true  -> get_protocol_header(Req);
         false -> "mqtt-v3.1.1"
     end.
