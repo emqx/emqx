@@ -40,7 +40,7 @@ shutdown() ->
 %% @doc Start Listeners.
 -spec(start_listeners() -> ok).
 start_listeners() ->
-    lists:foreach(fun start_listener/1, emqx_conf:get_env(listeners, [])).
+    lists:foreach(fun start_listener/1, emqx_config:get_env(listeners, [])).
 
 %% Start mqtt listener
 -spec(start_listener(listener()) -> {ok, pid()} | {error, any()}).
@@ -60,7 +60,8 @@ start_listener({Proto, ListenOn, Opts}) when Proto == https; Proto == wss ->
     {ok, _} = mochiweb:start_http('mqtt:wss', ListenOn, Opts, {emqx_ws, handle_request, []}).
 
 start_listener(Proto, ListenOn, Opts) ->
-    Env = lists:append(emqx_conf:get_env(client, []), emqx_conf:get_env(protocol, [])),
+    Env = lists:append(emqx_config:get_env(client, []),
+                       emqx_config:get_env(protocol, [])),
     MFArgs = {emqx_connection, start_link, [Env]},
     {ok, _} = esockd:open(Proto, ListenOn, merge_sockopts(Opts), MFArgs).
 
@@ -76,7 +77,7 @@ is_mqtt(_Proto)     -> false.
 %% @doc Stop Listeners
 -spec(stop_listeners() -> ok).
 stop_listeners() ->
-    lists:foreach(fun stop_listener/1, emqx_conf:get_env(listeners, [])).
+    lists:foreach(fun stop_listener/1, emqx_config:get_env(listeners, [])).
 
 -spec(stop_listener(listener()) -> ok | {error, any()}).
 stop_listener({tcp, ListenOn, _Opts}) ->
@@ -96,7 +97,7 @@ stop_listener({Proto, ListenOn, _Opts}) ->
 -spec(restart_listeners() -> ok).
 restart_listeners() ->
     lists:foreach(fun restart_listener/1,
-                  emqx_conf:get_env(listeners, [])).
+                  emqx_config:get_env(listeners, [])).
 
 -spec(restart_listener(listener()) -> any()).
 restart_listener({tcp, ListenOn, _Opts}) ->

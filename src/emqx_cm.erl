@@ -20,7 +20,7 @@
 
 -include("emqx.hrl").
 
--export([start_link/1]).
+-export([start_link/0]).
 
 -export([lookup/1, reg/1, unreg/1]).
 
@@ -36,9 +36,9 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start the client manager
--spec(start_link(fun()) -> {ok, pid()} | ignore | {error, term()}).
-start_link(StatsFun) ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [StatsFun], []).
+-spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %% @doc Lookup ClientPid by ClientId
 -spec(lookup(client_id()) -> pid() | undefined).
@@ -102,9 +102,6 @@ handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
             {noreply, State}
     end;
 
-handle_info(stats, State) ->
-    {noreply, setstats(State), hibernate};
-
 handle_info(Info, State) ->
     emqx_log:error("[CM] Unexpected info: ~p", [Info]),
     {noreply, State}.
@@ -131,7 +128,4 @@ monitor_client(ClientId, Pid, State = #state{monitors = Monitors}) ->
 erase_monitor(MRef, State = #state{monitors = Monitors}) ->
     erlang:demonitor(MRef),
     State#state{monitors = dict:erase(MRef, Monitors)}.
-
-setstats(State = #state{stats_fun = StatsFun}) ->
-    StatsFun(ets:info(client, size)), State.
 

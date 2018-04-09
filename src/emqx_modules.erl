@@ -23,11 +23,11 @@ load() ->
       fun({Mod, Env}) ->
         ok = Mod:load(Env),
         io:format("Load ~s module successfully.~n", [Mod])
-      end, emqx_conf:get_env(modules, [])).
+      end, emqx_config:get_env(modules, [])).
 
 unload() ->
     lists:foreach(
       fun({Mod, Env}) ->
           Mod:unload(Env) end,
-      emqx_conf:get_env(modules, [])).
+      emqx_config:get_env(modules, [])).
 

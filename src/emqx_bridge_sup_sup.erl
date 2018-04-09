@@ -46,7 +46,7 @@ start_bridge(Node, Topic) when is_atom(Node) andalso is_binary(Topic) ->
 start_bridge(Node, _Topic, _Options) when Node =:= node() ->
     {error, bridge_to_self};
 start_bridge(Node, Topic, Options) when is_atom(Node) andalso is_binary(Topic) ->
-    {ok, BridgeEnv} = emqx_conf:get_env(bridge),
+    {ok, BridgeEnv} = emqx_config:get_env(bridge),
     Options1 = emqx_misc:merge_opts(BridgeEnv, Options),
     supervisor:start_child(?MODULE, bridge_spec(Node, Topic, Options1)).
 

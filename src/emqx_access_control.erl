@@ -51,7 +51,7 @@ start_link() ->
 auth(Client, Password) when is_record(Client, client) ->
     auth(Client, Password, lookup_mods(auth)).
 auth(_Client, _Password, []) ->
-    case emqx_conf:get_env(allow_anonymous, false) of
+    case emqx_config:get_env(allow_anonymous, false) of
         true  -> ok;
         false -> {error, "No auth module to check!"}
     end;
@@ -73,7 +73,7 @@ check_acl(Client, PubSub, Topic) when ?PS(PubSub) ->
     check_acl(Client, PubSub, Topic, lookup_mods(acl)).
 
 check_acl(_Client, _PubSub, _Topic, []) ->
-    emqx_conf:get_env(acl_nomatch, allow);
+    emqx_config:get_env(acl_nomatch, allow);
 check_acl(Client, PubSub, Topic, [{Mod, State, _Seq}|AclMods]) ->
     case Mod:check_acl({Client, PubSub, Topic}, State) of
         allow  -> allow;

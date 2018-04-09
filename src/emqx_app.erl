@@ -63,7 +63,7 @@ print_vsn() ->
 %%--------------------------------------------------------------------
 
 register_acl_mod() ->
-    case emqx_conf:get_env(acl_file) of
+    case emqx_config:get_env(acl_file) of
         {ok, File} -> emqx_access_control:register_mod(acl, emqx_acl_internal, [File]);
         undefined  -> ok
     end.

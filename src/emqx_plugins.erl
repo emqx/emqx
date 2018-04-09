@@ -31,7 +31,7 @@
 %% @doc Init plugins' config
 -spec(init() -> ok).
 init() ->
-    case emqx_conf:get_env(plugins_etc_dir) of
+    case emqx_config:get_env(plugins_etc_dir) of
         {ok, PluginsEtc} ->
             CfgFiles = [filename:join(PluginsEtc, File) ||
                           File <- filelib:wildcard("*.config", PluginsEtc)],
@@ -50,7 +50,7 @@ init_config(CfgFile) ->
 -spec(load() -> list() | {error, term()}).
 load() ->
     load_expand_plugins(),
-    case emqx_conf:get_env(plugins_loaded_file) of
+    case emqx_config:get_env(plugins_loaded_file) of
         {ok, File} ->
             ensure_file(File),
             with_loaded_file(File, fun(Names) -> load_plugins(Names, false) end);
@@ -60,7 +60,7 @@ load() ->
     end.
 
 load_expand_plugins() ->
-    case emqx_conf:get_env(expand_plugins_dir) of
+    case emqx_config:get_env(expand_plugins_dir) of
         {ok, Dir} ->
             PluginsDir = filelib:wildcard("*", Dir),
             lists:foreach(fun(PluginDir) ->
@@ -101,7 +101,7 @@ init_expand_plugin_config(PluginDir) ->
     end, AppsEnv).
 
 get_expand_plugin_config() ->
-    case emqx_conf:get_env(expand_plugins_dir) of
+    case emqx_config:get_env(expand_plugins_dir) of
         {ok, Dir} ->
             PluginsDir = filelib:wildcard("*", Dir),
             lists:foldl(fun(PluginDir, Acc) ->
@@ -144,7 +144,7 @@ load_plugins(Names, Persistent) ->
 %% @doc Unload all plugins before broker stopped.
 -spec(unload() -> list() | {error, term()}).
 unload() ->
-    case emqx_conf:get_env(plugins_loaded_file) of
+    case emqx_config:get_env(plugins_loaded_file) of
         {ok, File} ->
             with_loaded_file(File, fun stop_plugins/1);
         undefined ->
@@ -158,7 +158,7 @@ stop_plugins(Names) ->
 %% @doc List all available plugins
 -spec(list() -> [plugin()]).
 list() ->
-    case emqx_conf:get_env(plugins_etc_dir) of
+    case emqx_config:get_env(plugins_etc_dir) of
         {ok, PluginsEtc} ->
             CfgFiles = filelib:wildcard("*.{conf,config}", PluginsEtc) ++ get_expand_plugin_config(),
             Plugins = [plugin(CfgFile) || CfgFile <- CfgFiles],
@@ -313,7 +313,7 @@ plugin_unloaded(Name, true) ->
     end.
 
 read_loaded() ->
-    case emqx_conf:get_env(plugins_loaded_file) of
+    case emqx_config:get_env(plugins_loaded_file) of
         {ok, File} -> read_loaded(File);
         undefined  -> {error, not_found}
     end.
@@ -321,7 +321,7 @@ read_loaded() ->
 read_loaded(File) -> file:consult(File).
 
 write_loaded(AppNames) ->
-    {ok, File} = emqx_conf:get_env(plugins_loaded_file),
+    {ok, File} = emqx_config:get_env(plugins_loaded_file),
     case file:open(File, [binary, write]) of
         {ok, Fd} ->
             lists:foreach(fun(Name) ->

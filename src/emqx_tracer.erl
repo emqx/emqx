@@ -91,7 +91,7 @@ all_traces() ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    {ok, #state{level = emqx_conf:get_env(trace_level, debug), traces = #{}}}.
+    {ok, #state{level = emqx_config:get_env(trace_level, debug), traces = #{}}}.
 
 handle_call({start_trace, Who, LogFile}, _From, State = #state{level = Level, traces = Traces}) ->
     case lager:trace_file(LogFile, [Who], Level, ?OPTIONS) of

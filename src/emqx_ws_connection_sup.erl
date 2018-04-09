@@ -37,7 +37,7 @@ start_connection(WsPid, Req, ReplyChannel) ->
 
 init([]) ->
     %%TODO: Cannot upgrade the environments, Use zone?
-    Env = lists:append(emqx_conf:get_env(client, []), emqx_conf:get_env(protocol, [])),
+    Env = lists:append(emqx_config:get_env(client, []), emqx_config:get_env(protocol, [])),
     {ok, {{simple_one_for_one, 0, 1},
            [{ws_connection, {emqx_ws_connection, start_link, [Env]},
              temporary, 5000, worker, [emqx_ws_connection]}]}}.

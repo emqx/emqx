@@ -28,7 +28,7 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    {ok, Env} = emqx_conf:get_env(sysmon),
+    {ok, Env} = emqx_config:get_env(sysmon),
     Sysmon = {sysmon, {emqx_sysmon, start_link, [Env]},
               permanent, 5000, worker, [emqx_sysmon]},
     {ok, {{one_for_one, 10, 100}, [Sysmon]}}.

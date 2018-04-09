@@ -45,7 +45,7 @@ handle_request('GET', "/mqtt", Req) ->
         {true, "mqtt" ++ _Vsn} ->
             case Req:get(peername) of
                 {ok, Peername} ->
-                    {ok, ProtoEnv} = emqx_conf:get_env(protocol),
+                    {ok, ProtoEnv} = emqx_config:get_env(protocol),
                     PacketSize = get_value(max_packet_size, ProtoEnv, ?MAX_PACKET_SIZE),
                     Parser = emqx_parser:initial_state(PacketSize),
                     %% Upgrade WebSocket.
@@ -72,11 +72,11 @@ handle_request(Method, Path, Req) ->
     Req:not_found().
 
 is_websocket(Upgrade) ->
-    (not emqx_conf:get_env(websocket_check_upgrade_header, true)) orelse
+    (not emqx_config:get_env(websocket_check_upgrade_header, true)) orelse
         (Upgrade =/= undefined andalso string:to_lower(Upgrade) =:= "websocket").
 
 check_protocol_header(Req) ->
-    case emqx_conf:get_env(websocket_protocol_header, false) of
+    case emqx_config:get_env(websocket_protocol_header, false) of
         true  -> get_protocol_header(Req);
         false -> "mqtt-v3.1.1"
     end.
