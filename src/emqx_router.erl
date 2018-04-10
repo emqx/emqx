@@ -20,6 +20,8 @@
 
 -include("emqx.hrl").
 
+-include_lib("ekka/include/ekka.hrl").
+
 %% Mnesia Bootstrap
 -export([mnesia/1]).
 
@@ -32,42 +34,44 @@
 %% Topics
 -export([topics/0]).
 
-%% Route Management APIs
+%% Route management APIs
 -export([add_route/2, add_route/3, get_routes/1, del_route/2, del_route/3]).
 
-%% Match, print routes
 -export([has_routes/1, match_routes/1, print_routes/1]).
-
--export([dump/0]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+-type(group() :: binary()).
+
+-type(destination() :: node() | {group(), node()}
+                    | {cluster(), group(), node()}).
+
 -record(state, {pool, id}).
 
--type(destination() :: node() | {binary(), node()}).
+-define(ROUTE, emqx_route).
 
 %%--------------------------------------------------------------------
 %% Mnesia Bootstrap
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(route, [
+    ok = ekka_mnesia:create_table(?ROUTE, [
                 {type, bag},
                 {ram_copies, [node()]},
                 {record_name, route},
                 {attributes, record_info(fields, route)}]);
 
 mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(route).
+    ok = ekka_mnesia:copy_table(?ROUTE).
 
 %%--------------------------------------------------------------------
 %% Start a router
 %%--------------------------------------------------------------------
 
 start_link(Pool, Id) ->
-    gen_server:start_link(?MODULE, [Pool, Id], [{hibernate_after, 1000}]).
+    gen_server:start_link(?MODULE, [Pool, Id], [{hibernate_after, 10000}]).
 
 %%--------------------------------------------------------------------
 %% Add/Del Routes
@@ -85,7 +89,7 @@ add_route(From, Topic, Dest) when is_binary(Topic) ->
 %% @doc Get routes
 -spec(get_routes(topic()) -> [route()]).
 get_routes(Topic) ->
-    ets:lookup(route, Topic).
+    ets:lookup(?ROUTE, Topic).
 
 %% @doc Delete a route
 -spec(del_route(topic(), destination()) -> ok).
@@ -99,45 +103,29 @@ del_route(From, Topic, Dest) when is_binary(Topic) ->
 %% @doc Has routes?
 -spec(has_routes(topic()) -> boolean()).
 has_routes(Topic) when is_binary(Topic) ->
-    ets:member(route, Topic).
+    ets:member(?ROUTE, Topic).
 
 %%--------------------------------------------------------------------
 %% Topics
 %%--------------------------------------------------------------------
 
 -spec(topics() -> list(binary())).
-topics() ->
-    mnesia:dirty_all_keys(route).
+topics() -> mnesia:dirty_all_keys(?ROUTE).
 
 %%--------------------------------------------------------------------
-%% Match Routes
+%% Match routes
 %%--------------------------------------------------------------------
 
 %% @doc Match routes
+%% Optimize: routing table will be replicated to all router nodes.
 -spec(match_routes(Topic:: topic()) -> [{topic(), binary() | node()}]).
 match_routes(Topic) when is_binary(Topic) ->
-    %% Optimize: ets???
     Matched = mnesia:ets(fun emqx_trie:match/1, [Topic]),
-    %% Optimize: route table will be replicated to all nodes.
-    aggre(lists:append([ets:lookup(route, To) || To <- [Topic | Matched]])).
-
-%% Aggregate routes
-aggre([]) ->
-    [];
-aggre([#route{topic = To, dest = Node}]) when is_atom(Node) ->
-    [{To, Node}];
-aggre([#route{topic = To, dest = {Group, _Node}}]) ->
-    [{To, Group}];
-aggre(Routes) ->
-    lists:foldl(
-      fun(#route{topic = To, dest = Node}, Acc) when is_atom(Node) ->
-        [{To, Node} | Acc];
-        (#route{topic = To, dest = {Group, _}}, Acc) ->
-        lists:usort([{To, Group} | Acc])
-      end, [], Routes).
+    Routes = [ets:lookup(?ROUTE, To) || To <- [Topic | Matched]],
+    [{To, Dest} || #route{topic = To, dest = Dest} <- lists:append(Routes)].
 
 %%--------------------------------------------------------------------
-%% Print Routes
+%% Print routes
 %%--------------------------------------------------------------------
 
 %% @doc Print routes to a topic
@@ -147,14 +135,15 @@ print_routes(Topic) ->
                       io:format("~s -> ~s~n", [To, Dest])
                   end, match_routes(Topic)).
 
+%%--------------------------------------------------------------------
+%% Utility functions
+%%--------------------------------------------------------------------
+
 cast(Router, Msg) ->
     gen_server:cast(Router, Msg).
 
 pick(Topic) ->
     gproc_pool:pick_worker(router, Topic).
-
-dump() ->
-    ets:tab2list(route).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -174,7 +163,7 @@ handle_cast({add_route, From, Route}, State) ->
     {noreply, State};
 
 handle_cast({add_route, Route = #route{topic = Topic, dest = Dest}}, State) ->
-    case lists:member(Route, ets:lookup(route, Topic)) of
+    case lists:member(Route, ets:lookup(?ROUTE, Topic)) of
         true  -> ok;
         false ->
             ok = emqx_router_helper:monitor(Dest),
@@ -192,7 +181,7 @@ handle_cast({del_route, From, Route}, State) ->
 
 handle_cast({del_route, Route = #route{topic = Topic}}, State) ->
     %% Confirm if there are still subscribers...
-    case ets:member(subscriber, Topic) of
+    case ets:member(emqx_subscriber, Topic) of
         true  -> ok;
         false ->
             case emqx_topic:wildcard(Topic) of
@@ -206,7 +195,8 @@ handle_cast(Msg, State) ->
     emqx_log:error("[Router] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    emqx_log:error("[Router] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
@@ -216,29 +206,29 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%--------------------------------------------------------------------
-%% Internal Functions
+%% Internal functions
 %%--------------------------------------------------------------------
 
 add_direct_route(Route) ->
-    mnesia:async_dirty(fun mnesia:write/1, [Route]).
+    mnesia:async_dirty(fun mnesia:write/3, [?ROUTE, Route, sticky_write]).
 
 add_trie_route(Route = #route{topic = Topic}) ->
-    case mnesia:wread({route, Topic}) of
+    case mnesia:wread({?ROUTE, Topic}) of
         [] -> emqx_trie:insert(Topic);
         _  -> ok
     end,
-    mnesia:write(Route).
+    mnesia:write(?ROUTE, Route, sticky_write).
 
 del_direct_route(Route) ->
-    mnesia:async_dirty(fun mnesia:delete_object/1, [Route]).
+    mnesia:async_dirty(fun mnesia:delete_object/3, [?ROUTE, Route, sticky_write]).
 
 del_trie_route(Route = #route{topic = Topic}) ->
-    case mnesia:wread({route, Topic}) of
+    case mnesia:wread({?ROUTE, Topic}) of
         [Route] -> %% Remove route and trie
-                   mnesia:delete_object(Route),
+                   mnesia:delete_object(?ROUTE, Route, sticky_write),
                    emqx_trie:delete(Topic);
         [_|_]   -> %% Remove route only
-                   mnesia:delete_object(Route);
+                   mnesia:delete_object(?ROUTE, Route, sticky_write);
         []      -> ok
     end.
 

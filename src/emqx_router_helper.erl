@@ -41,7 +41,7 @@
 
 -define(SERVER, ?MODULE).
 
--define(TABLE, routing_node).
+-define(TAB, emqx_routing_node).
 
 -define(LOCK, {?MODULE, clean_routes}).
 
@@ -50,14 +50,14 @@
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?TABLE, [
+    ok = ekka_mnesia:create_table(?TAB, [
                 {type, set},
                 {ram_copies, [node()]},
                 {record_name, routing_node},
                 {attributes, record_info(fields, routing_node)}]);
 
 mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TABLE).
+    ok = ekka_mnesia:copy_table(?TAB).
 
 %%--------------------------------------------------------------------
 %% API
@@ -73,9 +73,10 @@ start_link(StatsFun) ->
 monitor({_Group,  Node}) ->
     monitor(Node);
 monitor(Node) when is_atom(Node) ->
-    case ekka:is_member(Node) orelse ets:member(?TABLE, Node) of
+    case ekka:is_member(Node) orelse ets:member(?TAB, Node) of
         true  -> ok;
-        false -> mnesia:dirty_write(#routing_node{name = Node, ts = os:timestamp()})
+        false ->
+            mnesia:dirty_write(?TAB, #routing_node{name = Node, ts = os:timestamp()})
     end.
 
 %%--------------------------------------------------------------------
@@ -84,7 +85,7 @@ monitor(Node) when is_atom(Node) ->
 
 init([StatsFun]) ->
     ekka:monitor(membership),
-    mnesia:subscribe({table, ?TABLE, simple}),
+    mnesia:subscribe({table, ?TAB, simple}),
     Nodes = lists:foldl(
               fun(Node, Acc) ->
                   case ekka:is_member(Node) of
@@ -92,7 +93,7 @@ init([StatsFun]) ->
                       false -> _ = erlang:monitor_node(Node, true),
                                [Node | Acc]
                   end
-              end, [], mnesia:dirty_all_keys(?TABLE)),
+              end, [], mnesia:dirty_all_keys(?TAB)),
     {ok, TRef} = timer:send_interval(timer:seconds(1), stats),
     {ok, #state{nodes = Nodes, stats_fun = StatsFun, stats_timer = TRef}}.
 
@@ -119,9 +120,9 @@ handle_info({mnesia_table_event, _Event}, State) ->
 handle_info({nodedown, Node}, State = #state{nodes = Nodes}) ->
     global:trans({?LOCK, self()},
                  fun() ->
-                     mnesia:transaction(fun clean_routes/1, [Node])
+                     mnesia:transaction(fun cleanup_routes/1, [Node])
                  end),
-    mnesia:dirty_delete(routing_node, Node),
+    mnesia:dirty_delete(?TAB, Node),
     handle_info(stats, State#state{nodes = lists:delete(Node, Nodes)});
 
 handle_info({membership, {mnesia, down, Node}}, State) ->
@@ -131,7 +132,7 @@ handle_info({membership, _Event}, State) ->
     {noreply, State};
 
 handle_info(stats, State = #state{stats_fun = StatsFun}) ->
-    ok = StatsFun(mnesia:table_info(route, size)),
+    ok = StatsFun(mnesia:table_info(emqx_route, size)),
     {noreply, State, hibernate};
 
 handle_info(Info, State) ->
@@ -141,7 +142,7 @@ handle_info(Info, State) ->
 terminate(_Reason, #state{stats_timer = TRef}) ->
     timer:cancel(TRef),
     ekka:unmonitor(membership),
-    mnesia:unsubscribe({table, ?TABLE, simple}).
+    mnesia:unsubscribe({table, ?TAB, simple}).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -150,9 +151,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-clean_routes(Node) ->
+cleanup_routes(Node) ->
     Patterns = [#route{_ = '_', dest = Node},
                 #route{_ = '_', dest = {'_', Node}}],
-    [mnesia:delete_object(R) || P <- Patterns,
-                                R <- mnesia:match_object(P)].
+    [mnesia:delete_object(?TAB, R, write)
+     || Pat <- Patterns, R <- mnesia:match_object(?TAB, Pat, write)].
 

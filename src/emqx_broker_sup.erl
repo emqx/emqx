@@ -33,7 +33,8 @@ start_link() ->
 
 init([]) ->
     %% Create the pubsub tables
-    lists:foreach(fun create_tab/1, [subscription, subscriber, suboption]),
+    lists:foreach(fun create_tab/1,
+                  [subscription, subscriber, suboption]),
 
     %% Shared subscription
     Shared = {shared_sub, {emqx_shared_sub, start_link, []},
@@ -57,24 +58,17 @@ init([]) ->
 
 create_tab(suboption) ->
     %% Suboption: {Topic, Sub} -> [{qos, 1}]
-    ensure_tab(suboption, [set | ?CONCURRENCY_OPTS]);
+    emqx_tables:create(emqx_suboption, [public, set | ?CONCURRENCY_OPTS]);
 
 create_tab(subscriber) ->
     %% Subscriber: Topic -> Sub1, Sub2, Sub3, ..., SubN
     %% duplicate_bag: o(1) insert
-    ensure_tab(subscriber, [duplicate_bag | ?CONCURRENCY_OPTS]);
+    emqx_tables:create(emqx_subscriber, [public, duplicate_bag | ?CONCURRENCY_OPTS]);
 
 create_tab(subscription) ->
     %% Subscription: Sub -> Topic1, Topic2, Topic3, ..., TopicN
     %% bag: o(n) insert
-    ensure_tab(subscription, [bag | ?CONCURRENCY_OPTS]).
-
-ensure_tab(Tab, Opts) ->
-    case ets:info(Tab, name) of
-        undefined ->
-            ets:new(Tab, lists:usort([public, named_table | Opts]));
-        Tab -> Tab
-    end.
+    emqx_tables:create(emqx_subscription, [public, bag | ?CONCURRENCY_OPTS]).
 
 %%--------------------------------------------------------------------
 %% Stats function
@@ -83,8 +77,8 @@ ensure_tab(Tab, Opts) ->
 stats_fun() ->
     fun() ->
         emqx_stats:setstat('subscribers/count', 'subscribers/max',
-                           ets:info(subscriber, size)),
+                           ets:info(emqx_subscriber, size)),
         emqx_stats:setstat('subscriptions/count', 'subscriptions/max',
-                           ets:info(subscription, size))
+                           ets:info(emqx_subscription, size))
     end.
 

@@ -131,5 +131,5 @@ t_delete3(_) ->
             end).
 
 clear_tables() ->
-    lists:foreach(fun mnesia:clear_table/1, [trie, trie_node]).
+    lists:foreach(fun mnesia:clear_table/1, [emqx_trie, emqx_trie_node]).
 

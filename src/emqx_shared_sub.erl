@@ -35,7 +35,7 @@
 
 -define(SERVER, ?MODULE).
 
--define(TAB, shared_subscription).
+-define(TAB, emqx_shared_subscription).
 
 -record(state, {pmon}).
 
@@ -57,22 +57,30 @@ start_link() ->
 
 -spec(strategy() -> random | hash).
 strategy() ->
-    application:get_env(emqx, load_balancing_strategy, random).
+    emqx_config:get_env(shared_subscription_strategy, random).
 
 subscribe(undefined, _Topic, _SubPid) ->
     ok;
 subscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
-    mnesia:dirty_write(r(Group, Topic, SubPid)),
+    mnesia:dirty_write(?TAB, r(Group, Topic, SubPid)),
     gen_server:cast(?SERVER, {monitor, SubPid}).
 
 unsubscribe(undefined, _Topic, _SubPid) ->
     ok;
 unsubscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
-    mnesia:dirty_delete_object(r(Group, Topic, SubPid)).
+    mnesia:dirty_delete_object(?TAB, r(Group, Topic, SubPid)).
 
 r(Group, Topic, SubPid) ->
     #shared_subscription{group = Group, topic = Topic, subpid = SubPid}.
 
+dispatch({Cluster, Group}, Topic, Delivery) ->
+    case ekka:cluster_name() of
+        Cluster ->
+            dispatch(Group, Topic, Delivery);
+        _ -> Delivery
+    end;
+
+%% TODO: ensure the delivery...
 dispatch(Group, Topic, Delivery = #delivery{message = Msg, flows = Flows}) ->
     case pick(subscribers(Group, Topic)) of
         false  -> Delivery;
@@ -90,8 +98,7 @@ pick(SubPids) ->
     lists:nth((X rem length(SubPids)) + 1, SubPids).
 
 subscribers(Group, Topic) ->
-    MP = {shared_subscription, Group, Topic, '$1'},
-    ets:select(shared_subscription, [{MP, [], ['$1']}]).
+    ets:select(?TAB, [{{shared_subscription, Group, Topic, '$1'}, [], ['$1']}]).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -134,7 +141,7 @@ handle_info({mnesia_table_event, _Event}, State) ->
 
 handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{pmon = PMon}) ->
     emqx_log:info("Shared subscription down: ~p", [SubPid]),
-    mnesia:transaction(fun clean_down/1, [SubPid]),
+    mnesia:async_dirty(fun cleanup_down/1, [SubPid]),
     {noreply, State#state{pmon = PMon:erase(SubPid)}};
 
 handle_info(Info, State) ->
@@ -151,7 +158,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-clean_down(SubPid) ->
-    MP = #shared_subscription{_ = '_', subpid = SubPid},
-    lists:foreach(fun mnesia:delete_object/1, mnesia:match_object(MP)).
+cleanup_down(SubPid) ->
+    Pat = #shared_subscription{_ = '_', subpid = SubPid},
+    lists:foreach(fun(Record) ->
+                      mnesia:delete_object(?TAB, Record)
+                  end, mnesia:match_object(Pat)).
 

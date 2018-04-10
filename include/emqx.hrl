@@ -154,10 +154,7 @@
 %% Route
 %%--------------------------------------------------------------------
 
--record(route,
-        { topic :: topic(),
-          dest  :: {binary(), node()} | node()
-        }).
+-record(route, { topic :: topic(), dest }).
 
 -type(route() :: #route{}).
 
@@ -170,7 +167,7 @@
 -record(trie_node,
         { node_id        :: trie_node_id(),
           edge_count = 0 :: non_neg_integer(),
-          topic          :: binary() | undefined,
+          topic          :: topic() | undefined,
           flags          :: list(atom())
         }).
 

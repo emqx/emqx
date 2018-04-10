@@ -27,6 +27,10 @@
 %% Trie API
 -export([insert/1, match/1, lookup/1, delete/1]).
 
+%% Tables
+-define(TRIE, emqx_trie).
+-define(TRIE_NODE, emqx_trie_node).
+
 %%--------------------------------------------------------------------
 %% Mnesia Bootstrap
 %%--------------------------------------------------------------------
@@ -35,21 +39,21 @@
 -spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
     %% Trie Table
-    ok = ekka_mnesia:create_table(trie, [
+    ok = ekka_mnesia:create_table(?TRIE, [
                 {ram_copies, [node()]},
                 {record_name, trie},
                 {attributes, record_info(fields, trie)}]),
     %% Trie Node Table
-    ok = ekka_mnesia:create_table(trie_node, [
+    ok = ekka_mnesia:create_table(?TRIE_NODE, [
                 {ram_copies, [node()]},
                 {record_name, trie_node},
                 {attributes, record_info(fields, trie_node)}]);
 
 mnesia(copy) ->
     %% Copy Trie Table
-    ok = ekka_mnesia:copy_table(trie),
+    ok = ekka_mnesia:copy_table(?TRIE),
     %% Copy Trie Node Table
-    ok = ekka_mnesia:copy_table(trie_node).
+    ok = ekka_mnesia:copy_table(?TRIE_NODE).
 
 %%--------------------------------------------------------------------
 %% Trie API
@@ -58,7 +62,7 @@ mnesia(copy) ->
 %% @doc Insert a topic into the trie
 -spec(insert(Topic :: topic()) -> ok).
 insert(Topic) when is_binary(Topic) ->
-    case mnesia:read(trie_node, Topic) of
+    case mnesia:read(?TRIE_NODE, Topic) of
         [#trie_node{topic = Topic}] ->
             ok;
         [TrieNode = #trie_node{topic = undefined}] ->
@@ -79,14 +83,14 @@ match(Topic) when is_binary(Topic) ->
 %% @doc Lookup a trie node
 -spec(lookup(NodeId :: binary()) -> [#trie_node{}]).
 lookup(NodeId) ->
-    mnesia:read(trie_node, NodeId).
+    mnesia:read(?TRIE_NODE, NodeId).
 
 %% @doc Delete a topic from the trie
 -spec(delete(Topic :: topic()) -> ok).
 delete(Topic) when is_binary(Topic) ->
-    case mnesia:read(trie_node, Topic) of
+    case mnesia:read(?TRIE_NODE, Topic) of
         [#trie_node{edge_count = 0}] ->
-            mnesia:delete({trie_node, Topic}),
+            mnesia:delete({?TRIE_NODE, Topic}),
             delete_path(lists:reverse(emqx_topic:triples(Topic)));
         [TrieNode] ->
             write_trie_node(TrieNode#trie_node{topic = undefined});
@@ -102,9 +106,9 @@ delete(Topic) when is_binary(Topic) ->
 %% @doc Add a path to the trie.
 add_path({Node, Word, Child}) ->
     Edge = #trie_edge{node_id = Node, word = Word},
-    case mnesia:read(trie_node, Node) of
+    case mnesia:read(?TRIE_NODE, Node) of
         [TrieNode = #trie_node{edge_count = Count}] ->
-            case mnesia:wread({trie, Edge}) of
+            case mnesia:wread({?TRIE, Edge}) of
                 [] ->
                     write_trie_node(TrieNode#trie_node{edge_count = Count+1}),
                     write_trie(#trie{edge = Edge, node_id = Child});
@@ -125,11 +129,11 @@ match_node(NodeId, Words) ->
     match_node(NodeId, Words, []).
 
 match_node(NodeId, [], ResAcc) ->
-    mnesia:read(trie_node, NodeId) ++ 'match_#'(NodeId, ResAcc);
+    mnesia:read(?TRIE_NODE, NodeId) ++ 'match_#'(NodeId, ResAcc);
 
 match_node(NodeId, [W|Words], ResAcc) ->
     lists:foldl(fun(WArg, Acc) ->
-        case mnesia:read(trie, #trie_edge{node_id = NodeId, word = WArg}) of
+        case mnesia:read(?TRIE, #trie_edge{node_id = NodeId, word = WArg}) of
             [#trie{node_id = ChildId}] -> match_node(ChildId, Words, Acc);
             [] -> Acc
         end
@@ -138,9 +142,9 @@ match_node(NodeId, [W|Words], ResAcc) ->
 %% @private
 %% @doc Match node with '#'.
 'match_#'(NodeId, ResAcc) ->
-    case mnesia:read(trie, #trie_edge{node_id = NodeId, word = '#'}) of
+    case mnesia:read(?TRIE, #trie_edge{node_id = NodeId, word = '#'}) of
         [#trie{node_id = ChildId}] ->
-            mnesia:read(trie_node, ChildId) ++ ResAcc;
+            mnesia:read(?TRIE_NODE, ChildId) ++ ResAcc;
         [] ->
             ResAcc
     end.
@@ -150,10 +154,10 @@ match_node(NodeId, [W|Words], ResAcc) ->
 delete_path([]) ->
     ok;
 delete_path([{NodeId, Word, _} | RestPath]) ->
-    mnesia:delete({trie, #trie_edge{node_id = NodeId, word = Word}}),
-    case mnesia:read(trie_node, NodeId) of
+    mnesia:delete({?TRIE, #trie_edge{node_id = NodeId, word = Word}}),
+    case mnesia:read(?TRIE_NODE, NodeId) of
         [#trie_node{edge_count = 1, topic = undefined}] ->
-            mnesia:delete({trie_node, NodeId}),
+            mnesia:delete({?TRIE_NODE, NodeId}),
             delete_path(RestPath);
         [TrieNode = #trie_node{edge_count = 1, topic = _}] ->
             write_trie_node(TrieNode#trie_node{edge_count = 0});
@@ -163,11 +167,9 @@ delete_path([{NodeId, Word, _} | RestPath]) ->
             mnesia:abort({node_not_found, NodeId})
     end.
 
-%% @private
 write_trie(Trie) ->
-    mnesia:write(trie, Trie, write).
+    mnesia:write(?TRIE, Trie, write).
 
-%% @private
 write_trie_node(TrieNode) ->
-    mnesia:write(trie_node, TrieNode, write).
+    mnesia:write(?TRIE_NODE, TrieNode, write).
 

@@ -32,19 +32,22 @@
 
 -export([topics/0]).
 
--export([getopts/2, setopts/3]).
-
--export([dump/0]).
+-export([get_subopts/2, set_subopts/3]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {pool, id, subids :: map(), submon :: emqx_pmon:pmon()}).
+-record(state, {pool, id, submon}).
 
 -define(BROKER, ?MODULE).
 
 -define(TIMEOUT, 120000).
+
+%% ETS tables
+-define(SUBOPTION, emqx_suboption).
+-define(SUBSCRIBER, emqx_subscriber).
+-define(SUBSCRIPTION, emqx_subscription).
 
 %%--------------------------------------------------------------------
 %% Start a broker
@@ -52,10 +55,10 @@
 
 -spec(start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id) ->
-    gen_server:start_link(?MODULE, [Pool, Id], [{hibernate_after, 1000}]).
+    gen_server:start_link(?MODULE, [Pool, Id], [{hibernate_after, 2000}]).
 
 %%--------------------------------------------------------------------
-%% Sub/Unsub
+%% Subscriber/Unsubscribe
 %%--------------------------------------------------------------------
 
 -spec(subscribe(topic()) -> ok | {error, term()}).
@@ -108,7 +111,7 @@ publish(Msg = #message{from = From}) ->
     end.
 
 publish(Topic, Msg) ->
-    route(emqx_router:match_routes(Topic), delivery(Msg)).
+    route(aggre(emqx_router:match_routes(Topic)), delivery(Msg)).
 
 route([], Delivery = #delivery{message = Msg}) ->
     emqx_hooks:run('message.dropped', [undefined, Msg]),
@@ -120,14 +123,29 @@ route([{To, Node}], Delivery) when Node =:= node() ->
 route([{To, Node}], Delivery = #delivery{flows = Flows}) when is_atom(Node) ->
     forward(Node, To, Delivery#delivery{flows = [{route, Node, To}|Flows]});
 
-route([{To, Group}], Delivery) when is_binary(Group) ->
-    emqx_shared_sub:dispatch(Group, To, Delivery);
+route([{To, Shared}], Delivery) when is_tuple(Shared); is_binary(Shared) ->
+    emqx_shared_sub:dispatch(Shared, To, Delivery);
 
 route(Routes, Delivery) ->
     lists:foldl(fun(Route, Acc) -> route([Route], Acc) end, Delivery, Routes).
 
+aggre([]) ->
+    [];
+aggre([{To, Dest}]) ->
+    [{To, Dest}];
+aggre(Routes) ->
+    lists:foldl(
+      fun({To, Node}, Acc) when is_atom(Node) ->
+          [{To, Node} | Acc];
+        ({To, {Group, _Node}}, Acc) ->
+          lists:usort([{To, Group} | Acc]);
+        ({To, {Cluster, Group, _Node}}, Acc) ->
+          lists:usort([{To, {Cluster, Group}} | Acc])
+      end, [], Routes).
+
 %% @doc Forward message to another node.
 forward(Node, To, Delivery) ->
+    %% rpc:call to ensure the delivery, but the latency:(
     case emqx_rpc:call(Node, ?BROKER, dispatch, [To, Delivery]) of
         {badrpc, Reason} ->
             emqx_log:error("[Broker] Failed to forward msg to ~s: ~p", [Node, Reason]),
@@ -169,33 +187,37 @@ delivery(Msg) ->
     #delivery{message = Msg, flows = []}.
 
 subscribers(Topic) ->
-    try ets:lookup_element(subscriber, Topic, 2) catch error:badarg -> [] end.
+    try ets:lookup_element(?SUBSCRIBER, Topic, 2) catch error:badarg -> [] end.
 
 subscriptions(Subscriber) ->
     lists:map(fun({_, {share, _Group, Topic}}) ->
                 subscription(Topic, Subscriber);
                  ({_, Topic}) ->
                 subscription(Topic, Subscriber)
-        end, ets:lookup(subscription, Subscriber)).
+        end, ets:lookup(?SUBSCRIPTION, Subscriber)).
 
 subscription(Topic, Subscriber) ->
-    {Topic, ets:lookup_element(suboption, {Topic, Subscriber}, 2)}.
+    {Topic, ets:lookup_element(?SUBOPTION, {Topic, Subscriber}, 2)}.
 
 -spec(subscribed(topic(), subscriber()) -> boolean()).
 subscribed(Topic, SubPid) when is_binary(Topic), is_pid(SubPid) ->
-    ets:member(suboption, {Topic, SubPid});
+    ets:member(?SUBOPTION, {Topic, SubPid});
 subscribed(Topic, SubId) when is_binary(Topic), is_binary(SubId) ->
-    length(ets:match_object(suboption, {{Topic, {SubId, '_'}}, '_'}, 1)) == 1;
-subscribed(Topic, {SubId, SubPid}) when is_binary(Topic), is_binary(SubId), is_pid(SubPid) ->
-    ets:member(suboption, {Topic, {SubId, SubPid}}).
+    length(ets:match_object(?SUBOPTION, {{Topic, {SubId, '_'}}, '_'}, 1)) == 1;
+subscribed(Topic, {SubId, SubPid}) when is_binary(Topic),
+                                        is_binary(SubId),
+                                        is_pid(SubPid) ->
+    ets:member(?SUBOPTION, {Topic, {SubId, SubPid}}).
 
 topics() -> emqx_router:topics().
 
-getopts(Topic, Subscriber) when is_binary(Topic) ->
-    try ets:lookup_element(suboption, {Topic, Subscriber}, 2) catch error:badarg ->[] end.
+get_subopts(Topic, Subscriber) when is_binary(Topic) ->
+    try ets:lookup_element(?SUBOPTION, {Topic, Subscriber}, 2)
+    catch error:badarg -> []
+    end.
 
-setopts(Topic, Subscriber, Opts) when is_binary(Topic), is_list(Opts) ->
-    gen_server:call(pick(Subscriber), {setopts, Topic, Subscriber, Opts}). 
+set_subopts(Topic, Subscriber, Opts) when is_binary(Topic), is_list(Opts) ->
+    gen_server:call(pick(Subscriber), {set_subopts, Topic, Subscriber, Opts}).
 
 with_subpid(SubPid) when is_pid(SubPid) ->
     SubPid;
@@ -220,22 +242,19 @@ pick(SubId) when is_binary(SubId) ->
 pick({SubId, SubPid}) when is_binary(SubId), is_pid(SubPid) ->
     pick(SubId).
 
-dump() ->
-    [{Tab, ets:tab2list(Tab)} || Tab <- [subscription, subscriber, suboption]].
-
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([Pool, Id]) ->
     gproc_pool:connect_worker(Pool, {Pool, Id}),
-    {ok, #state{pool = Pool, id = Id, subids = #{}, submon = emqx_pmon:new()}}.
+    {ok, #state{pool = Pool, id = Id, submon = emqx_pmon:new()}}.
 
-handle_call({setopts, Topic, Subscriber, Opts}, _From, State) ->
-    case ets:lookup(suboption, {Topic, Subscriber}) of
+handle_call({set_subopts, Topic, Subscriber, Opts}, _From, State) ->
+    case ets:lookup(?SUBOPTION, {Topic, Subscriber}) of
         [{_, OldOpts}] ->
             Opts1 = lists:usort(lists:umerge(Opts, OldOpts)),
-            ets:insert(suboption, {{Topic, Subscriber}, Opts1}),
+            ets:insert(?SUBOPTION, {{Topic, Subscriber}, Opts1}),
             {reply, ok, State};
         [] ->
             {reply, {error, not_found}, State}
@@ -246,12 +265,12 @@ handle_call(Request, _From, State) ->
     {reply, ignore, State}.
 
 handle_cast({From, {subscribe, Topic, Subscriber, Options}}, State) ->
-    case ets:lookup(suboption, {Topic, Subscriber}) of
+    case ets:lookup(?SUBOPTION, {Topic, Subscriber}) of
         []  ->
             Group = proplists:get_value(share, Options),
             true = do_subscribe(Group, Topic, Subscriber, Options),
             emqx_shared_sub:subscribe(Group, Topic, subpid(Subscriber)),
-            emqx_router:add_route(From, Topic, dest(Options)),
+            emqx_router:add_route(From, Topic, destination(Options)),
             {noreply, monitor_subscriber(Subscriber, State)};
         [_] ->
             gen_server:reply(From, ok),
@@ -259,13 +278,13 @@ handle_cast({From, {subscribe, Topic, Subscriber, Options}}, State) ->
     end;
 
 handle_cast({From, {unsubscribe, Topic, Subscriber}}, State) ->
-    case ets:lookup(suboption, {Topic, Subscriber}) of
+    case ets:lookup(?SUBOPTION, {Topic, Subscriber}) of
         [{_, Options}] ->
             Group = proplists:get_value(share, Options),
             true = do_unsubscribe(Group, Topic, Subscriber),
             emqx_shared_sub:unsubscribe(Group, Topic, subpid(Subscriber)),
-            case ets:member(subscriber, Topic) of
-                false -> emqx_router:del_route(From, Topic, dest(Options));
+            case ets:member(?SUBSCRIBER, Topic) of
+                false -> emqx_router:del_route(From, Topic, destination(Options));
                 true  -> gen_server:reply(From, ok)
             end;
         [] -> gen_server:reply(From, ok)
@@ -276,23 +295,24 @@ handle_cast(Msg, State) ->
     emqx_log:error("[Broker] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{subids = SubIds}) ->
-    Subscriber = case maps:find(SubPid, SubIds) of
-                     {ok, SubId} -> {SubId, SubPid};
-                     error -> SubPid
+handle_info({'DOWN', _MRef, process, SubPid, _Reason},
+            State = #state{submon = SubMon}) ->
+    Subscriber = case SubMon:find(SubPid) of
+                     undefined -> SubPid;
+                     SubId -> {SubId, SubPid}
                  end,
     Topics = lists:map(fun({_, {share, _, Topic}}) ->
                            Topic;
                           ({_, Topic}) ->
                            Topic
-                       end, ets:lookup(subscription, Subscriber)),
+                       end, ets:lookup(?SUBSCRIPTION, Subscriber)),
     lists:foreach(fun(Topic) ->
-        case ets:lookup(suboption, {Topic, Subscriber}) of
+        case ets:lookup(?SUBOPTION, {Topic, Subscriber}) of
             [{_, Options}] ->
                 Group = proplists:get_value(share, Options),
                 true = do_unsubscribe(Group, Topic, Subscriber),
-                case ets:member(subscriber, Topic) of
-                    false -> emqx_router:del_route(Topic, dest(Options));
+                case ets:member(?SUBSCRIBER, Topic) of
+                    false -> emqx_router:del_route(Topic, destination(Options));
                     true  -> ok
                 end;
             [] -> ok
@@ -315,25 +335,25 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 do_subscribe(Group, Topic, Subscriber, Options) ->
-    ets:insert(subscription, {Subscriber, shared(Group, Topic)}),
-    ets:insert(subscriber, {Topic, shared(Group, Subscriber)}),
-    ets:insert(suboption, {{Topic, Subscriber}, Options}).
+    ets:insert(?SUBSCRIPTION, {Subscriber, shared(Group, Topic)}),
+    ets:insert(?SUBSCRIBER, {Topic, shared(Group, Subscriber)}),
+    ets:insert(?SUBOPTION, {{Topic, Subscriber}, Options}).
 
 do_unsubscribe(Group, Topic, Subscriber) ->
-    ets:delete_object(subscription, {Subscriber, shared(Group, Topic)}),
-    ets:delete_object(subscriber, {Topic, shared(Group, Subscriber)}),
-    ets:delete(suboption, {Topic, Subscriber}).
+    ets:delete_object(?SUBSCRIPTION, {Subscriber, shared(Group, Topic)}),
+    ets:delete_object(?SUBSCRIBER, {Topic, shared(Group, Subscriber)}),
+    ets:delete(?SUBOPTION, {Topic, Subscriber}).
 
 monitor_subscriber(SubPid, State = #state{submon = SubMon}) when is_pid(SubPid) ->
     State#state{submon = SubMon:monitor(SubPid)};
 
-monitor_subscriber({SubId, SubPid}, State = #state{subids = SubIds, submon = SubMon}) ->
-    State#state{subids = maps:put(SubPid, SubId, SubIds), submon = SubMon:monitor(SubPid)}.
+monitor_subscriber({SubId, SubPid}, State = #state{submon = SubMon}) ->
+    State#state{submon = SubMon:monitor(SubPid, SubId)}.
 
-demonitor_subscriber(SubPid, State = #state{subids = SubIds, submon = SubMon}) ->
-    State#state{subids = maps:remove(SubPid, SubIds), submon = SubMon:demonitor(SubPid)}.
+demonitor_subscriber(SubPid, State = #state{submon = SubMon}) ->
+    State#state{submon = SubMon:demonitor(SubPid)}.
 
-dest(Options) ->
+destination(Options) ->
     case proplists:get_value(share, Options) of
        undefined -> node();
        Group     -> {Group, node()}
