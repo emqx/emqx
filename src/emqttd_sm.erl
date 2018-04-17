@@ -183,15 +183,16 @@ handle_cast(Msg, State) ->
 handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
     case dict:find(MRef, State#state.monitors) of
         {ok, ClientId} ->
-            case mnesia:dirty_read({mqtt_session, ClientId}) of
-                [] ->
-                    ok;
-                [Sess = #mqtt_session{sess_pid = DownPid}] ->
-                    mnesia:dirty_delete_object(Sess);
-                [_Sess] ->
-                    ok
-            end,
-            {noreply, erase_monitor(MRef, State), hibernate};
+            NewState =
+              case mnesia:dirty_read({mqtt_session, ClientId}) of
+                  [] -> State;
+                  [Sess = #mqtt_session{sess_pid = DownPid}] ->
+                      mnesia:dirty_delete_object(Sess),
+                      erase_monitor(MRef, State);
+                  [_Sess] ->
+                      State
+              end,
+            {noreply, NewState, hibernate};
         error ->
             lager:error("MRef of session ~p not found", [DownPid]),
             {noreply, State}
@@ -256,6 +257,7 @@ resume_session(Session = #mqtt_session{client_id = ClientId, sess_pid = SessPid}
             {ok, SessPid};
         false ->
             ?LOG(error, "Cannot resume ~p which seems already dead!", [SessPid], Session),
+            remove_session(Session),
             {error, session_died}
     end;
 
@@ -305,4 +307,3 @@ monitor_session(ClientId, SessPid, State = #state{monitors = Monitors}) ->
 erase_monitor(MRef, State = #state{monitors = Monitors}) ->
     erlang:demonitor(MRef, [flush]),
     State#state{monitors = dict:erase(MRef, Monitors)}.
-
