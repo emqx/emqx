@@ -34,7 +34,6 @@ start(_Type, _Args) ->
     ekka:start(),
     {ok, Sup} = emqx_sup:start_link(),
     %%TODO: fixme later
-    emqx_mqtt_metrics:init(),
     ok = register_acl_mod(),
     emqx_modules:load(),
     start_autocluster(),

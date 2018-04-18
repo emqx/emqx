@@ -14,7 +14,7 @@
 %%% limitations under the License.
 %%%===================================================================
 
--module(emqx_sm_sup).
+-module(emqx_sys_sup).
 
 -behaviour(supervisor).
 
@@ -26,17 +26,11 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    %% Session Locker
-    Locker = {locker, {emqx_sm_locker, start_link, []},
-              permanent, 5000, worker, [emqx_sm_locker]},
+    Sys = {sys, {emqx_sys, start_link, []},
+           permanent, 5000, worker, [emqx_sys]},
 
-    %% Session Registry
-    Registry = {registry, {emqx_sm_registry, start_link, []},
-                permanent, 5000, worker, [emqx_sm_registry]},
-
-    %% Session Manager
-    Manager = {manager, {emqx_sm, start_link, []},
-               permanent, 5000, worker, [emqx_sm]},
-
-    {ok, {{one_for_rest, 10, 3600}, [Locker, Registry, Manager]}}.
+    {ok, Env} = emqx_config:get_env(sysmon),
+    Sysmon = {sys_mon, {emqx_sysmon, start_link, [Env]},
+              permanent, 5000, worker, [emqx_sys_mon]},
+    {ok, {{one_for_one, 10, 100}, [Sys, Sysmon]}}.
 

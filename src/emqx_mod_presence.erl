@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_mod_presence).
 
@@ -34,32 +34,32 @@ on_client_connected(ConnAck, Client = #client{client_id = ClientId,
                                               %%clean_sess = CleanSess,
                                               %%proto_ver = ProtoVer
                                              }, Env) ->
-    case catch emqx_json:encode([{clientid, ClientId},
-                                 {username, Username},
-                                 {ipaddress, iolist_to_binary(emqx_net:ntoa(IpAddr))},
-                                 %%{clean_sess, CleanSess}, %%TODO:: fixme later
-                                 %%{protocol, ProtoVer},
-                                 {connack, ConnAck},
-                                 {ts, emqx_time:now_secs()}]) of
-        Payload when is_binary(Payload) ->
+    case emqx_json:safe_encode([{clientid, ClientId},
+                                {username, Username},
+                                {ipaddress, iolist_to_binary(emqx_net:ntoa(IpAddr))},
+                                %%{clean_sess, CleanSess}, %%TODO:: fixme later
+                                %%{protocol, ProtoVer},
+                                {connack, ConnAck},
+                                {ts, emqx_time:now_secs()}]) of
+        {ok, Payload} ->
             Msg = message(qos(Env), topic(connected, ClientId), Payload),
             emqx:publish(emqx_message:set_flag(sys, Msg));
-        {'EXIT', Reason} ->
-            emqx_log:error("[Presence Module] json error: ~p", [Reason])
+        {error, Reason} ->
+            emqx_logger:error("[Presence Module] Json error: ~p", [Reason])
     end,
     {ok, Client}.
 
 on_client_disconnected(Reason, #client{client_id = ClientId,
                                        username = Username}, Env) ->
-    case catch emqx_json:encode([{clientid, ClientId},
-                                 {username, Username},
-                                 {reason, reason(Reason)},
-                                 {ts, emqx_time:now_secs()}]) of
-        Payload when is_binary(Payload) -> 
+    case emqx_json:safe_encode([{clientid, ClientId},
+                                {username, Username},
+                                {reason, reason(Reason)},
+                                {ts, emqx_time:now_secs()}]) of
+        {ok, Payload} ->
             Msg = message(qos(Env), topic(disconnected, ClientId), Payload),
             emqx:publish(emqx_message:set_flag(sys, Msg));
-        {'EXIT', Reason} ->
-            emqx_log:error("[Presence Module] json error: ~p", [Reason])
+        {error, Reason} ->
+            emqx_logger:error("[Presence Module] Json error: ~p", [Reason])
     end, ok.
 
 unload(_Env) ->
@@ -67,13 +67,13 @@ unload(_Env) ->
     emqx:unhook('client.disconnected', fun ?MODULE:on_client_disconnected/3).
 
 message(Qos, Topic, Payload) ->
-    Msg = emqx_message:make(presence, Topic, iolist_to_binary(Payload)),
+    Msg = emqx_message:make(?MODULE, Topic, iolist_to_binary(Payload)),
     emqx_message:set_header(qos, Qos, Msg).
 
 topic(connected, ClientId) ->
-    emqx_topic:systop(list_to_binary(["clients/", ClientId, "/connected"]));
+    emqx_topic:systop(iolist_to_binary(["clients/", ClientId, "/connected"]));
 topic(disconnected, ClientId) ->
-    emqx_topic:systop(list_to_binary(["clients/", ClientId, "/disconnected"])).
+    emqx_topic:systop(iolist_to_binary(["clients/", ClientId, "/disconnected"])).
 
 qos(Env) ->
     proplists:get_value(qos, Env, 0).

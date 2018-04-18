@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_keepalive).
 
@@ -29,19 +29,21 @@
 start(_, 0, _) ->
     {ok, #keepalive{}};
 start(StatFun, TimeoutSec, TimeoutMsg) ->
-    case StatFun() of
+    case catch StatFun() of
         {ok, StatVal} ->
             {ok, #keepalive{statfun = StatFun, statval = StatVal,
                             tsec = TimeoutSec, tmsg = TimeoutMsg,
                             tref = timer(TimeoutSec, TimeoutMsg)}};
         {error, Error} ->
-            {error, Error}
+            {error, Error};
+        {'EXIT', Reason} ->
+            {error, Reason}
     end.
 
-%% @doc Check keepalive, called when timeout.
+%% @doc Check keepalive, called when timeout...
 -spec(check(keepalive()) -> {ok, keepalive()} | {error, term()}).
 check(KeepAlive = #keepalive{statfun = StatFun, statval = LastVal, repeat = Repeat}) ->
-    case StatFun() of
+    case catch StatFun() of
         {ok, NewVal} ->
             if NewVal =/= LastVal ->
                     {ok, resume(KeepAlive#keepalive{statval = NewVal, repeat = 0})};
@@ -51,9 +53,12 @@ check(KeepAlive = #keepalive{statfun = StatFun, statval = LastVal, repeat = Repe
                     {error, timeout}
             end;
         {error, Error} ->
-            {error, Error}
+            {error, Error};
+        {'EXIT', Reason} ->
+            {error, Reason}
     end.
 
+-spec(resume(keepalive()) -> keepalive()).
 resume(KeepAlive = #keepalive{tsec = TimeoutSec, tmsg = TimeoutMsg}) ->
     KeepAlive#keepalive{tref = timer(TimeoutSec, TimeoutMsg)}.
 
@@ -64,6 +69,6 @@ cancel(#keepalive{tref = TRef}) when is_reference(TRef) ->
 cancel(_) ->
     ok.
 
-timer(Sec, Msg) ->
-    erlang:send_after(timer:seconds(Sec), self(), Msg).
+timer(Secs, Msg) ->
+    erlang:send_after(timer:seconds(Secs), self(), Msg).
 

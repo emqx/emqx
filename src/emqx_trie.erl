@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_trie).
 
@@ -24,39 +24,39 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
-%% Trie API
+%% Trie APIs
 -export([insert/1, match/1, lookup/1, delete/1]).
 
-%% Tables
+%% Mnesia tables
 -define(TRIE, emqx_trie).
 -define(TRIE_NODE, emqx_trie_node).
 
 %%--------------------------------------------------------------------
-%% Mnesia Bootstrap
+%% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
 %% @doc Create or replicate trie tables.
 -spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
-    %% Trie Table
+    %% Trie table
     ok = ekka_mnesia:create_table(?TRIE, [
                 {ram_copies, [node()]},
                 {record_name, trie},
                 {attributes, record_info(fields, trie)}]),
-    %% Trie Node Table
+    %% Trie node table
     ok = ekka_mnesia:create_table(?TRIE_NODE, [
                 {ram_copies, [node()]},
                 {record_name, trie_node},
                 {attributes, record_info(fields, trie_node)}]);
 
 mnesia(copy) ->
-    %% Copy Trie Table
+    %% Copy trie table
     ok = ekka_mnesia:copy_table(?TRIE),
-    %% Copy Trie Node Table
+    %% Copy trie_node table
     ok = ekka_mnesia:copy_table(?TRIE_NODE).
 
 %%--------------------------------------------------------------------
-%% Trie API
+%% Trie APIs
 %%--------------------------------------------------------------------
 
 %% @doc Insert a topic into the trie
@@ -110,7 +110,7 @@ add_path({Node, Word, Child}) ->
         [TrieNode = #trie_node{edge_count = Count}] ->
             case mnesia:wread({?TRIE, Edge}) of
                 [] ->
-                    write_trie_node(TrieNode#trie_node{edge_count = Count+1}),
+                    write_trie_node(TrieNode#trie_node{edge_count = Count + 1}),
                     write_trie(#trie{edge = Edge, node_id = Child});
                 [_] ->
                     ok

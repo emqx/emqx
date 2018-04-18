@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_acl_internal).
 
@@ -25,7 +25,7 @@
 %% ACL callbacks
 -export([init/1, check_acl/2, reload_acl/1, description/0]).
 
--define(ACL_RULE_TAB, mqtt_acl_rule).
+-define(ACL_RULE_TAB, emqx_acl_rule).
 
 -record(state, {config}).
 
@@ -48,7 +48,7 @@ all_rules() ->
 %% @doc Init internal ACL
 -spec(init([File :: string()]) -> {ok, State :: any()}).
 init([File]) ->
-    _ = emqx_tables:create(?ACL_RULE_TAB, [set, public, {read_concurrency, true}]),
+    _ = emqx_tables:new(?ACL_RULE_TAB, [set, public, {read_concurrency, true}]),
     {ok, load_rules_from_file(#state{config = File})}.
 
 load_rules_from_file(State = #state{config = AclFile}) ->

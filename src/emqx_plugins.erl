@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_plugins).
 
@@ -83,7 +83,7 @@ load_expand_plugin(PluginDir) ->
     end, Modules),
     case filelib:wildcard(Ebin ++ "/*.app") of
         [App|_] -> application:load(list_to_atom(filename:basename(App, ".app")));
-        _ -> emqx_log:error("App file cannot be found."),
+        _ -> emqx_logger:error("App file cannot be found."),
              {error, load_app_fail}
     end.
 
@@ -128,7 +128,7 @@ with_loaded_file(File, SuccFun) ->
         {ok, Names} ->
             SuccFun(Names);
         {error, Error} ->
-            emqx_log:error("[Plugins] Failed to read: ~p, error: ~p", [File, Error]),
+            emqx_logger:error("[Plugins] Failed to read: ~p, error: ~p", [File, Error]),
             {error, Error}
     end.
 
@@ -136,7 +136,7 @@ load_plugins(Names, Persistent) ->
     Plugins = list(), NotFound = Names -- names(Plugins),
     case NotFound of
         []       -> ok;
-        NotFound -> emqx_log:error("[Plugins] Cannot find plugins: ~p", [NotFound])
+        NotFound -> emqx_logger:error("[Plugins] Cannot find plugins: ~p", [NotFound])
     end,
     NeedToLoad = Names -- NotFound -- names(started_app),
     [load_plugin(find_plugin(Name, Plugins), Persistent) || Name <- NeedToLoad].
@@ -185,12 +185,12 @@ plugin(CfgFile) ->
 load(PluginName) when is_atom(PluginName) ->
     case lists:member(PluginName, names(started_app)) of
         true ->
-            emqx_log:error("[Plugins] Plugin ~s is already started", [PluginName]),
+            emqx_logger:error("[Plugins] Plugin ~s is already started", [PluginName]),
             {error, already_started};
         false ->
             case find_plugin(PluginName) of
                 false ->
-                    emqx_log:error("[Plugins] Plugin ~s not found", [PluginName]),
+                    emqx_logger:error("[Plugins] Plugin ~s not found", [PluginName]),
                     {error, not_found};
                 Plugin ->
                     load_plugin(Plugin, true)
@@ -218,12 +218,12 @@ load_app(App) ->
 start_app(App, SuccFun) ->
     case application:ensure_all_started(App) of
         {ok, Started} ->
-            emqx_log:info("Started Apps: ~p", [Started]),
-            emqx_log:info("Load plugin ~s successfully", [App]),
+            emqx_logger:info("Started Apps: ~p", [Started]),
+            emqx_logger:info("Load plugin ~s successfully", [App]),
             SuccFun(App),
             {ok, Started};
         {error, {ErrApp, Reason}} ->
-            emqx_log:error("Load plugin ~s error, cannot start app ~s for ~p", [App, ErrApp, Reason]),
+            emqx_logger:error("Load plugin ~s error, cannot start app ~s for ~p", [App, ErrApp, Reason]),
             {error, {ErrApp, Reason}}
     end.
 
@@ -240,10 +240,10 @@ unload(PluginName) when is_atom(PluginName) ->
         {true, true} ->
             unload_plugin(PluginName, true);
         {false, _} ->
-            emqx_log:error("Plugin ~s is not started", [PluginName]),
+            emqx_logger:error("Plugin ~s is not started", [PluginName]),
             {error, not_started};
         {true, false} ->
-            emqx_log:error("~s is not a plugin, cannot unload it", [PluginName]),
+            emqx_logger:error("~s is not a plugin, cannot unload it", [PluginName]),
             {error, not_found}
     end.
 
@@ -258,11 +258,11 @@ unload_plugin(App, Persistent) ->
 stop_app(App) ->
     case application:stop(App) of
         ok ->
-            emqx_log:info("Stop plugin ~s successfully", [App]), ok;
+            emqx_logger:info("Stop plugin ~s successfully", [App]), ok;
         {error, {not_started, App}} ->
-            emqx_log:error("Plugin ~s is not started", [App]), ok;
+            emqx_logger:error("Plugin ~s is not started", [App]), ok;
         {error, Reason} ->
-            emqx_log:error("Stop plugin ~s error: ~p", [App]), {error, Reason}
+            emqx_logger:error("Stop plugin ~s error: ~p", [App]), {error, Reason}
     end.
 
 %%--------------------------------------------------------------------
@@ -294,7 +294,7 @@ plugin_loaded(Name, true) ->
                     ignore
             end;
         {error, Error} ->
-            emqx_log:error("Cannot read loaded plugins: ~p", [Error])
+            emqx_logger:error("Cannot read loaded plugins: ~p", [Error])
     end.
 
 plugin_unloaded(_Name, false) ->
@@ -306,10 +306,10 @@ plugin_unloaded(Name, true) ->
                 true ->
                     write_loaded(lists:delete(Name, Names));
                 false ->
-                    emqx_log:error("Cannot find ~s in loaded_file", [Name])
+                    emqx_logger:error("Cannot find ~s in loaded_file", [Name])
             end;
         {error, Error} ->
-            emqx_log:error("Cannot read loaded_plugins: ~p", [Error])
+            emqx_logger:error("Cannot read loaded_plugins: ~p", [Error])
     end.
 
 read_loaded() ->
@@ -328,7 +328,7 @@ write_loaded(AppNames) ->
                 file:write(Fd, iolist_to_binary(io_lib:format("~s.~n", [Name])))
             end, AppNames);
         {error, Error} ->
-            emqx_log:error("Open File ~p Error: ~p", [File, Error]),
+            emqx_logger:error("Open File ~p Error: ~p", [File, Error]),
             {error, Error}
     end.
 

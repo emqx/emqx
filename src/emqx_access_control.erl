@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_access_control).
 
@@ -28,9 +28,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+-define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
-
--define(TAB, access_control).
 
 -type(password() :: undefined | binary()).
 
@@ -122,7 +121,7 @@ stop() ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    _ = emqx_tables:create(?TAB, [set, protected, {read_concurrency, true}]),
+    _ = emqx_tables:new(?TAB, [set, protected, {read_concurrency, true}]),
     {ok, #state{}}.
 
 handle_call({register_mod, Type, Mod, Opts, Seq}, _From, State) ->
@@ -157,15 +156,15 @@ handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
 
 handle_call(Req, _From, State) ->
-    emqx_log:error("[AccessControl] Unexpected request: ~p", [Req]),
+    emqx_logger:error("[AccessControl] Unexpected request: ~p", [Req]),
     {reply, ignore, State}.
 
 handle_cast(Msg, State) ->
-    emqx_log:error("[AccessControl] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[AccessControl] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    emqx_log:error("[AccessControl] Unexpected info: ~p", [Info]),
+    emqx_logger:error("[AccessControl] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

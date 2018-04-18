@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_cm).
 
@@ -22,92 +22,145 @@
 
 -export([start_link/0]).
 
--export([lookup/1, reg/1, unreg/1]).
+-export([lookup_client/1, register_client/1, register_client/2,
+         unregister_client/1]).
+
+-export([get_client_attrs/1, lookup_client_pid/1]).
+
+-export([get_client_stats/1, set_client_stats/2]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {stats_fun, stats_timer, monitors}).
+-record(state, {client_pmon}).
 
--define(SERVER, ?MODULE).
+-define(CM, ?MODULE).
 
-%%--------------------------------------------------------------------
-%% API
-%%--------------------------------------------------------------------
+%% ETS Tables.
+-define(CLIENT,       emqx_client).
+-define(CLIENT_ATTRS, emqx_client_attrs).
+-define(CLIENT_STATS, emqx_client_stats).
 
-%% @doc Start the client manager
+%% @doc Start the client manager.
 -spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+    gen_server:start_link({local, ?CM}, ?MODULE, [], []).
 
-%% @doc Lookup ClientPid by ClientId
--spec(lookup(client_id()) -> pid() | undefined).
-lookup(ClientId) when is_binary(ClientId) ->
-    try ets:lookup_element(client, ClientId, 2)
+%% @doc Lookup a client.
+-spec(lookup_client(client_id()) -> list({client_id(), pid()})).
+lookup_client(ClientId) when is_binary(ClientId) ->
+    ets:lookup(?CLIENT, ClientId).
+
+%% @doc Register a client.
+-spec(register_client(client_id() | {client_id(), pid()}) -> ok).
+register_client(ClientId) when is_binary(ClientId) ->
+    register_client({ClientId, self()});
+
+register_client({ClientId, ClientPid}) when is_binary(ClientId),
+                                            is_pid(ClientPid) ->
+    register_client({ClientId, ClientPid}, []).
+
+-spec(register_client({client_id(), pid()}, list()) -> ok).
+register_client({ClientId, ClientPid}, Attrs) when is_binary(ClientId),
+                                                   is_pid(ClientPid) ->
+    ets:insert(?CLIENT, {ClientId, ClientPid}),
+    ets:insert(?CLIENT_ATTRS, {{ClientId, ClientPid}, Attrs}),
+    notify({registered, ClientId, ClientPid}).
+
+%% @doc Get client attrs
+-spec(get_client_attrs({client_id(), pid()}) -> list()).
+get_client_attrs({ClientId, ClientPid}) when is_binary(ClientId),
+                                             is_pid(ClientPid) ->
+    try ets:lookup_element(?CLIENT_ATTRS, {ClientId, ClientPid}, 2)
     catch
-        error:badarg -> undefined
+        error:badarg -> []
     end.
 
-%% @doc Register a clientId 
--spec(reg(client_id()) -> ok).
-reg(ClientId) ->
-    gen_server:cast(?SERVER, {reg, ClientId, self()}).
+%% @doc Unregister a client.
+-spec(unregister_client(client_id() | {client_id(), pid()}) -> ok).
+unregister_client(ClientId) when is_binary(ClientId) ->
+    unregister_client({ClientId, self()});
 
-%% @doc Unregister clientId with pid.
--spec(unreg(client_id()) -> ok).
-unreg(ClientId) ->
-    gen_server:cast(?SERVER, {unreg, ClientId, self()}).
+unregister_client({ClientId, ClientPid}) when is_binary(ClientId),
+                                              is_pid(ClientPid) ->
+    ets:delete(?CLIENT_STATS, {ClientId, ClientPid}),
+    ets:delete(?CLIENT_ATTRS, {ClientId, ClientPid}),
+    ets:delete_object(?CLIENT, {ClientId, ClientPid}),
+    notify({unregistered, ClientId, ClientPid}).
+
+%% @doc Lookup client pid
+-spec(lookup_client_pid(client_id()) -> pid() | undefined).
+lookup_client_pid(ClientId) when is_binary(ClientId) ->
+    case lookup_client_pid(ClientId) of
+        [] -> undefined;
+        [{_, Pid}] -> Pid
+    end.
+
+%% @doc Get client stats
+-spec(get_client_stats({client_id(), pid()}) -> list(emqx_stats:stats())).
+get_client_stats({ClientId, ClientPid}) when is_binary(ClientId),
+                                             is_pid(ClientPid) ->
+    try ets:lookup_element(?CLIENT_STATS, {ClientId, ClientPid}, 2)
+    catch
+        error:badarg -> []
+    end.
+
+%% @doc Set client stats.
+-spec(set_client_stats(client_id(), list(emqx_stats:stats())) -> boolean()).
+set_client_stats(ClientId, Stats) when is_binary(ClientId) ->
+    set_client_stats({ClientId, self()}, Stats);
+
+set_client_stats({ClientId, ClientPid}, Stats) when is_binary(ClientId),
+                                                    is_pid(ClientPid) ->
+    ets:insert(?CLIENT_STATS, {{ClientId, ClientPid}, Stats}).
+
+notify(Msg) ->
+    gen_server:cast(?CM, {notify, Msg}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    _ = emqx_tables:create(client, [public, set, {keypos, 2},
-                                    {read_concurrency, true},
-                                    {write_concurrency, true}]),
-    _ = emqx_tables:create(client_attrs, [public, set,
-                                          {write_concurrency, true}]),
-    {ok, #state{monitors = dict:new()}}.
+    TabOpts = [public, set, {write_concurrency, true}],
+    _ = emqx_tables:new(?CLIENT, [{read_concurrency, true} | TabOpts]),
+    _ = emqx_tables:new(?CLIENT_ATTRS, TabOpts),
+    _ = emqx_tables:new(?CLIENT_STATS, TabOpts),
+    ok = emqx_stats:update_interval(cm_stats, fun update_client_stats/0),
+    {ok, #state{client_pmon = emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
-    emqx_log:error("[CM] Unexpected request: ~p", [Req]),
+    emqx_logger:error("[CM] Unexpected request: ~p", [Req]),
     {reply, ignore, State}.
 
-handle_cast({reg, ClientId, Pid}, State) ->
-    _ = ets:insert(client, {ClientId, Pid}),
-    {noreply, monitor_client(ClientId, Pid, State)};
+handle_cast({notify, {registered, ClientId, Pid}},
+            State = #state{client_pmon = PMon}) ->
+    {noreply, State#state{client_pmon = PMon:monitor(Pid, ClientId)}};
 
-handle_cast({unreg, ClientId, Pid}, State) ->
-    case lookup(ClientId) of
-        Pid -> remove_client({ClientId, Pid});
-        _   -> ok
-    end,
-    {noreply, State};
+handle_cast({notify, {unregistered, _ClientId, Pid}},
+            State = #state{client_pmon = PMon}) ->
+    {noreply, State#state{client_pmon = PMon:demonitor(Pid)}};
 
 handle_cast(Msg, State) ->
-    emqx_log:error("[CM] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[CM] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({'DOWN', MRef, process, DownPid, _Reason}, State) ->
-    case dict:find(MRef, State#state.monitors) of
-        {ok, ClientId} ->
-            case lookup(ClientId) of
-                DownPid -> remove_client({ClientId, DownPid});
-                _       -> ok
-            end,
-            {noreply, erase_monitor(MRef, State)};
-        error ->
-            emqx_log:error("[CM] down client ~p not found", [DownPid]),
-            {noreply, State}
+handle_info({'DOWN', _MRef, process, DownPid, _Reason},
+            State = #state{client_pmon = PMon}) ->
+    case PMon:find(DownPid) of
+        undefined ->
+            {noreply, State};
+        ClientId ->
+            unregister_client({ClientId, DownPid}),
+            {noreply, State#state{client_pmon = PMon:erase(DownPid)}}
     end;
 
 handle_info(Info, State) ->
-    emqx_log:error("[CM] Unexpected info: ~p", [Info]),
+    emqx_logger:error("[CM] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, _State = #state{stats_timer = TRef}) ->
-    timer:cancel(TRef).
+terminate(_Reason, _State = #state{}) ->
+    emqx_stats:cancel_update(cm_stats).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -116,16 +169,10 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-remove_client(Client) ->
-    ets:delete_object(client, Client),
-    ets:delete(client_stats, Client),
-    ets:delete(client_attrs, Client).
-
-monitor_client(ClientId, Pid, State = #state{monitors = Monitors}) ->
-    MRef = erlang:monitor(process, Pid),
-    State#state{monitors = dict:store(MRef, ClientId, Monitors)}.
-
-erase_monitor(MRef, State = #state{monitors = Monitors}) ->
-    erlang:demonitor(MRef),
-    State#state{monitors = dict:erase(MRef, Monitors)}.
+update_client_stats() ->
+    case ets:info(?CLIENT, size) of
+        undefined -> ok;
+        Size ->
+            emqx_stats:setstat('clients/count', 'clients/max', Size)
+    end.
 

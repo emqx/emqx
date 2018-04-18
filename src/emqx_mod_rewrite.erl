@@ -35,11 +35,11 @@ load(Rules0) ->
     emqx:hook('message.publish',   fun ?MODULE:rewrite_publish/2, [Rules]).
 
 rewrite_subscribe(_ClientId, _Username, TopicTable, Rules) ->
-    emqx_log:info("Rewrite subscribe: ~p", [TopicTable]),
+    emqx_logger:info("Rewrite subscribe: ~p", [TopicTable]),
     {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicTable]}.
 
 rewrite_unsubscribe(_ClientId, _Username, TopicTable, Rules) ->
-    emqx_log:info("Rewrite unsubscribe: ~p", [TopicTable]),
+    emqx_logger:info("Rewrite unsubscribe: ~p", [TopicTable]),
     {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicTable]}.
 
 rewrite_publish(Message = #message{topic = Topic}, Rules) ->

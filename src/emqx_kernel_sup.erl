@@ -14,7 +14,7 @@
 %%% limitations under the License.
 %%%===================================================================
 
--module(emqx_sm_sup).
+-module(emqx_kernel_sup).
 
 -behaviour(supervisor).
 
@@ -26,17 +26,18 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    %% Session Locker
-    Locker = {locker, {emqx_sm_locker, start_link, []},
-              permanent, 5000, worker, [emqx_sm_locker]},
+    {ok, {{one_for_one, 10, 100},
+          [child_spec(emqx_pool, supervisor),
+           child_spec(emqx_alarm, worker),
+           child_spec(emqx_hooks, worker),
+           child_spec(emqx_stats, worker),
+           child_spec(emqx_metrics, worker),
+           child_spec(emqx_ctl, worker),
+           child_spec(emqx_tracer, worker)]}}.
 
-    %% Session Registry
-    Registry = {registry, {emqx_sm_registry, start_link, []},
-                permanent, 5000, worker, [emqx_sm_registry]},
-
-    %% Session Manager
-    Manager = {manager, {emqx_sm, start_link, []},
-               permanent, 5000, worker, [emqx_sm]},
-
-    {ok, {{one_for_rest, 10, 3600}, [Locker, Registry, Manager]}}.
+child_spec(M, worker) ->
+    {M, {M, start_link, []}, permanent, 5000, worker, [M]};
+child_spec(M, supervisor) ->
+    {M, {M, start_link, []},
+     permanent, infinity, supervisor, [M]}.
 

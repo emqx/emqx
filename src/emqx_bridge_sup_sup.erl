@@ -1,24 +1,27 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_bridge_sup_sup).
 
 -behavior(supervisor).
 
--export([start_link/0, bridges/0, start_bridge/2, start_bridge/3, stop_bridge/2]).
+-include("emqx.hrl").
+
+-export([start_link/0, bridges/0]).
+-export([start_bridge/2, start_bridge/3, stop_bridge/2]).
 
 -export([init/1]).
 
@@ -32,27 +35,28 @@ start_link() ->
 %%--------------------------------------------------------------------
 
 %% @doc List all bridges
--spec(bridges() -> [{node(), binary(), pid()}]).
+-spec(bridges() -> [{node(), topic(), pid()}]).
 bridges() ->
     [{Node, Topic, Pid} || {?CHILD_ID(Node, Topic), Pid, supervisor, _}
-                             <- supervisor:which_children(?MODULE)].
+                           <- supervisor:which_children(?MODULE)].
 
 %% @doc Start a bridge
--spec(start_bridge(atom(), binary()) -> {ok, pid()} | {error, term()}).
-start_bridge(Node, Topic) when is_atom(Node) andalso is_binary(Topic) ->
+-spec(start_bridge(node(), topic()) -> {ok, pid()} | {error, term()}).
+start_bridge(Node, Topic) when is_atom(Node), is_binary(Topic) ->
     start_bridge(Node, Topic, []).
 
--spec(start_bridge(atom(), binary(), [emqx_bridge:option()]) -> {ok, pid()} | {error, term()}).
+-spec(start_bridge(node(), topic(), [emqx_bridge:option()])
+      -> {ok, pid()} | {error, term()}).
 start_bridge(Node, _Topic, _Options) when Node =:= node() ->
     {error, bridge_to_self};
-start_bridge(Node, Topic, Options) when is_atom(Node) andalso is_binary(Topic) ->
+start_bridge(Node, Topic, Options) when is_atom(Node), is_binary(Topic) ->
     {ok, BridgeEnv} = emqx_config:get_env(bridge),
     Options1 = emqx_misc:merge_opts(BridgeEnv, Options),
     supervisor:start_child(?MODULE, bridge_spec(Node, Topic, Options1)).
 
 %% @doc Stop a bridge
--spec(stop_bridge(atom(), binary()) -> {ok, pid()} | ok).
-stop_bridge(Node, Topic) when is_atom(Node) andalso is_binary(Topic) ->
+-spec(stop_bridge(node(), topic()) -> ok | {error, term()}).
+stop_bridge(Node, Topic) when is_atom(Node), is_binary(Topic) ->
     ChildId = ?CHILD_ID(Node, Topic),
     case supervisor:terminate_child(?MODULE, ChildId) of
         ok    -> supervisor:delete_child(?MODULE, ChildId);
@@ -68,6 +72,6 @@ init([]) ->
 
 bridge_spec(Node, Topic, Options) ->
     {?CHILD_ID(Node, Topic),
-      {emqx_bridge_sup, start_link, [Node, Topic, Options]},
-        permanent, infinity, supervisor, [emqx_bridge_sup]}.
+     {emqx_bridge_sup, start_link, [Node, Topic, Options]},
+     permanent, infinity, supervisor, [emqx_bridge_sup]}.
 

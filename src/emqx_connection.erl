@@ -57,8 +57,8 @@
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
 -define(LOG(Level, Format, Args, State),
-            emqx_log:Level("Client(~s): " ++ Format,
-                           [esockd_net:format(State#state.peername) | Args])).
+            emqx_logger:Level("Client(~s): " ++ Format,
+                              [esockd_net:format(State#state.peername) | Args])).
 
 start_link(Conn, Env) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[Conn, Env]])}.
@@ -316,7 +316,7 @@ received(Bytes, State = #state{parser       = Parser,
         {more, NewParser} ->
             {noreply, run_socket(State#state{parser = NewParser}), IdleTimeout};
         {ok, Packet, Rest} ->
-            emqx_mqtt_metrics:received(Packet),
+            emqx_metrics:received(Packet),
             case emqx_protocol:received(Packet, ProtoState) of
                 {ok, ProtoState1} ->
                     received(Rest, State#state{parser = emqx_parser:initial_state(PacketSize),
@@ -371,7 +371,7 @@ emit_stats(undefined, State) ->
     State;
 emit_stats(ClientId, State) ->
     {reply, Stats, _, _} = handle_call(stats, undefined, State),
-    emqx_stats:set_client_stats(ClientId, Stats),
+    emqx_cm:set_client_stats(ClientId, Stats),
     State.
 
 sock_stats(#state{connection = Conn}) ->

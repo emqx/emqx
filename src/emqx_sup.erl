@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_sup).
 
@@ -20,7 +20,6 @@
 
 -export([start_link/0, start_child/1, start_child/2, stop_child/1]).
 
-%% Supervisor callbacks
 -export([init/1]).
 
 -type(startchild_ret() :: {ok, supervisor:child()}
@@ -29,20 +28,24 @@
 
 -define(SUPERVISOR, ?MODULE).
 
--define(CHILD(I, Type), {I, {I, start_link, []}, permanent, 5000, Type, [I]}).
-
 start_link() ->
     supervisor:start_link({local, ?SUPERVISOR}, ?MODULE, []).
+
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
 -spec(start_child(supervisor:child_spec()) -> startchild_ret()).
 start_child(ChildSpec) when is_tuple(ChildSpec) ->
     supervisor:start_child(?SUPERVISOR, ChildSpec).
 
--spec(start_child(atom(), worker | supervisor) -> startchild_ret()).
-start_child(Mod, Type) when Type == worker orelse Type == supervisor ->
-    start_child(?CHILD(Mod, Type)).
+-spec(start_child(module(), worker | supervisor) -> startchild_ret()).
+start_child(Mod, worker) ->
+    start_child(worker_spec(Mod));
+start_child(Mod, supervisor) ->
+    start_child(supervisor_spec(Mod)).
 
--spec(stop_child(supervisor:child_id()) -> ok | {error, any()}).
+-spec(stop_child(supervisor:child_id()) -> ok | {error, term()}).
 stop_child(ChildId) ->
     case supervisor:terminate_child(?SUPERVISOR, ChildId) of
         ok    -> supervisor:delete_child(?SUPERVISOR, ChildId);
@@ -54,24 +57,44 @@ stop_child(ChildId) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    {ok, {{one_for_all, 10, 3600},
-          [?CHILD(emqx_ctl, worker),
-           ?CHILD(emqx_hooks, worker),
-           ?CHILD(emqx_stats, worker),
-           ?CHILD(emqx_metrics, worker),
-           ?CHILD(emqx_sys, worker),
-           ?CHILD(emqx_router_sup, supervisor),
-           ?CHILD(emqx_broker_sup, supervisor),
-           ?CHILD(emqx_pooler, supervisor),
-           ?CHILD(emqx_tracer_sup, supervisor),
-           ?CHILD(emqx_cm_sup, supervisor),
-           ?CHILD(emqx_sm_sup, supervisor),
-           ?CHILD(emqx_session_sup, supervisor),
-           ?CHILD(emqx_ws_connection_sup, supervisor),
-           ?CHILD(emqx_alarm, worker),
-           ?CHILD(emqx_mod_sup, supervisor),
-           ?CHILD(emqx_bridge_sup_sup, supervisor),
-           ?CHILD(emqx_access_control, worker),
-           ?CHILD(emqx_sysmon_sup, supervisor)]
-         }}.
+    %% Kernel Sup
+    KernelSup = supervisor_spec(emqx_kernel_sup),
+    %% Router Sup
+    RouterSup = supervisor_spec(emqx_router_sup),
+    %% Broker Sup
+    BrokerSup = supervisor_spec(emqx_broker_sup),
+    %% BridgeSup
+    BridgeSup = supervisor_spec(emqx_bridge_sup_sup),
+    %% AccessControl
+    AccessControl = worker_spec(emqx_access_control),
+    %% Session Manager
+    SMSup = supervisor_spec(emqx_sm_sup),
+    %% Session Sup
+    SessionSup = supervisor_spec(emqx_session_sup),
+    %% Connection Manager
+    CMSup = supervisor_spec(emqx_cm_sup),
+    %% WebSocket Connection Sup
+    WSConnSup = supervisor_spec(emqx_ws_connection_sup),
+    %% Sys Sup
+    SysSup = supervisor_spec(emqx_sys_sup),
+    {ok, {{one_for_all, 0, 1},
+          [KernelSup,
+           RouterSup,
+           BrokerSup,
+           BridgeSup,
+           AccessControl,
+           SMSup,
+           SessionSup,
+           CMSup,
+           WSConnSup,
+           SysSup]}}.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+worker_spec(M) ->
+    {M, {M, start_link, []}, permanent, 30000, worker, [M]}.
+supervisor_spec(M) ->
+    {M, {M, start_link, []}, permanent, infinity, supervisor, [M]}.
 

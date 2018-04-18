@@ -50,8 +50,8 @@
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
 -define(WSLOG(Level, Format, Args, State),
-              emqx_log:Level("WsClient(~s): " ++ Format,
-                             [esockd_net:format(State#wsclient_state.peername) | Args])).
+              emqx_logger:Level("WsClient(~s): " ++ Format,
+                                [esockd_net:format(State#wsclient_state.peername) | Args])).
 
 %% @doc Start WebSocket Client.
 start_link(Env, WsPid, Req, ReplyChannel) ->
@@ -140,7 +140,7 @@ handle_call(Req, _From, State) ->
     reply({error, unexpected_request}, State).
 
 handle_cast({received, Packet}, State = #wsclient_state{proto_state = ProtoState}) ->
-    emqx_mqtt_metrics:received(Packet),
+    emqx_metrics:received(Packet),
     case emqx_protocol:received(Packet, ProtoState) of
         {ok, ProtoState1} ->
             {noreply, gc(State#wsclient_state{proto_state = ProtoState1}), hibernate};
@@ -290,7 +290,7 @@ emit_stats(undefined, State) ->
     State;
 emit_stats(ClientId, State) ->
     {reply, Stats, _, _} = handle_call(stats, undefined, State),
-    emqx_stats:set_client_stats(ClientId, Stats),
+    emqx_cm:set_client_stats(ClientId, Stats),
     State.
 
 wsock_stats(#wsclient_state{connection = Conn}) ->

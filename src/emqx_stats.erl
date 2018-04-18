@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_stats).
 
@@ -20,69 +20,78 @@
 
 -include("emqx.hrl").
 
--export([start_link/0, stop/0]).
+-export([start_link/0]).
 
-%% Get all Stats
+%% Get all stats
 -export([all/0]).
 
-%% Statistics API.
+%% Stats API.
 -export([statsfun/1, statsfun/2, getstats/0, getstat/1, setstat/2, setstat/3]).
+
+-export([update_interval/2, update_interval/3, cancel_update/1]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {tick}).
+-record(update, {name, countdown, interval, func}).
+
+-record(state, {timer, updates :: #update{}}).
 
 -type(stats() :: list({atom(), non_neg_integer()})).
 
 -export_type([stats/0]).
 
--define(STATS_TAB, stats).
-
-%% $SYS Topics for Clients
--define(SYSTOP_CLIENTS, [
+%% Client stats
+-define(CLIENT_STATS, [
     'clients/count', % clients connected current
-    'clients/max'    % max clients connected
+    'clients/max'    % maximum clients connected
 ]).
 
-%% $SYS Topics for Sessions
--define(SYSTOP_SESSIONS, [
+%% Session stats
+-define(SESSION_STATS, [
     'sessions/count',
-    'sessions/max'
+    'sessions/max',
+    'sessions/persistent/count',
+    'sessions/persistent/max'
 ]).
 
-%% $SYS Topics for Subscribers
--define(SYSTOP_PUBSUB, [
-    'topics/count',        % ...
-    'topics/max',          % ...
-    'subscribers/count',   % ...
-    'subscribers/max',     % ...
-    'subscriptions/count', % ...
-    'subscriptions/max',   % ...
-    'routes/count',        % ...
-    'routes/max'           % ...
+%% Subscribers, Subscriptions stats
+-define(PUBSUB_STATS, [
+    'topics/count',
+    'topics/max',
+    'subscribers/count',
+    'subscribers/max',
+    'subscriptions/count',
+    'subscriptions/max'
 ]).
 
-%% $SYS Topic for retained
--define(SYSTOP_RETAINED, [
+-define(ROUTE_STATS, [
+    'routes/count',
+    'routes/max'
+]).
+
+%% Retained stats
+-define(RETAINED_STATS, [
     'retained/count',
     'retained/max'
 ]).
+
+-define(TAB, ?MODULE).
+-define(SERVER, ?MODULE).
+
+%% @doc Start stats server
+-spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
-%% @doc Start stats server
--spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
-
-stop() ->
-    gen_server:call(?MODULE, stop).
-
-all() -> ets:tab2list(?STATS_TAB).
+%% Get all stats.
+-spec(all() -> stats()).
+all() -> getstats().
 
 %% @doc Generate stats fun
 -spec(statsfun(Stat :: atom()) -> fun()).
@@ -94,71 +103,117 @@ statsfun(Stat, MaxStat) ->
     fun(Val) -> setstat(Stat, MaxStat, Val) end.
 
 %% @doc Get all statistics
--spec(getstats() -> [{atom(), non_neg_integer()}]).
+-spec(getstats() -> stats()).
 getstats() ->
-    lists:sort(ets:tab2list(?STATS_TAB)).
+    case ets:info(?TAB, name) of
+        undefined -> [];
+        _ -> ets:tab2list(?TAB)
+    end.
 
 %% @doc Get stats by name
 -spec(getstat(atom()) -> non_neg_integer() | undefined).
 getstat(Name) ->
-    case ets:lookup(?STATS_TAB, Name) of
+    case ets:lookup(?TAB, Name) of
         [{Name, Val}] -> Val;
         [] -> undefined
     end.
 
-%% @doc Set broker stats
+%% @doc Set stats
 -spec(setstat(Stat :: atom(), Val :: pos_integer()) -> boolean()).
-setstat(Stat, Val) ->
-    ets:update_element(?STATS_TAB, Stat, {2, Val}).
+setstat(Stat, Val) when is_integer(Val) ->
+    safe_update_element(Stat, Val).
 
-%% @doc Set stats with max
--spec(setstat(Stat :: atom(), MaxStat :: atom(), Val :: pos_integer()) -> boolean()).
-setstat(Stat, MaxStat, Val) ->
-    gen_server:cast(?MODULE, {setstat, Stat, MaxStat, Val}).
+%% @doc Set stats with max value.
+-spec(setstat(Stat :: atom(), MaxStat :: atom(),
+              Val :: pos_integer()) -> boolean()).
+setstat(Stat, MaxStat, Val) when is_integer(Val) ->
+    cast({setstat, Stat, MaxStat, Val}).
+
+-spec(update_interval(atom(), fun()) -> ok).
+update_interval(Name, UpFun) ->
+    update_interval(Name, 1, UpFun).
+
+-spec(update_interval(atom(), pos_integer(), fun()) -> ok).
+update_interval(Name, Secs, UpFun) when is_integer(Secs), Secs >= 1 ->
+    cast({update_interval, rec(Name, Secs, UpFun)}).
+
+-spec(cancel_update(atom()) -> ok).
+cancel_update(Name) ->
+    cast({cancel_update, Name}).
+
+rec(Name, Secs, UpFun) ->
+    #update{name = Name, countdown = Secs, interval = Secs, func = UpFun}.
+
+cast(Msg) ->
+    gen_server:cast(?SERVER, Msg).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    emqx_time:seed(),
-    _ = emqx_tables:create(?STATS_TAB, [set, public, named_table,
-                                        {write_concurrency, true}]),
-    Topics = ?SYSTOP_CLIENTS ++ ?SYSTOP_SESSIONS ++ ?SYSTOP_PUBSUB ++ ?SYSTOP_RETAINED,
-    ets:insert(?STATS_TAB, [{Topic, 0} || Topic <- Topics]),
-    % Tick to publish stats
-    {ok, TRef} = timer:send_after(emqx_sys:sys_interval(), tick),
-    {ok, #state{tick = TRef}, hibernate}.
+    _ = emqx_tables:new(?TAB, [set, public, {write_concurrency, true}]),
+    Stats = lists:append([?CLIENT_STATS, ?SESSION_STATS, ?PUBSUB_STATS,
+                          ?ROUTE_STATS, ?RETAINED_STATS]),
+    ets:insert(?TAB, [{Name, 0} || Name <- Stats]),
+    {ok, start_timer(#state{updates = []}), hibernate}.
 
-handle_call(stop, _From, State) ->
-    {stop, normal, ok, State};
+start_timer(State) ->
+    State#state{timer = emqx_misc:start_timer(timer:seconds(1), tick)}.
 
-handle_call(_Request, _From, State) ->
-    {reply, error, State}.
+handle_call(Req, _From, State) ->
+    emqx_logger:error("[STATS] Unexpected request: ~p", [Req]),
+    {reply, ignore, State}.
 
-%% atomic
 handle_cast({setstat, Stat, MaxStat, Val}, State) ->
-    MaxVal = ets:lookup_element(?STATS_TAB, MaxStat, 2),
-    if
-        Val > MaxVal ->
-            ets:update_element(?STATS_TAB, MaxStat, {2, Val});
-        true -> ok
+    try ets:lookup_element(?TAB, MaxStat, 2) of
+        MaxVal when Val > MaxVal ->
+            ets:update_element(?TAB, MaxStat, {2, Val});
+        _ -> ok
+    catch
+        error:badarg ->
+            ets:insert(?TAB, {MaxStat, Val})
     end,
-    ets:update_element(?STATS_TAB, Stat, {2, Val}),
+    safe_update_element(Stat, Val),
     {noreply, State};
 
-handle_cast(_Msg, State) ->
+handle_cast({update_interval, Update = #update{name = Name}},
+            State = #state{updates = Updates}) ->
+    case lists:keyfind(Name, #update.name, Updates) of
+        #update{} ->
+            emqx_logger:error("[STATS]: Duplicated update: ~s", [Name]),
+            {noreply, State};
+        false ->
+            {noreply, State#state{updates = [Update | Updates]}}
+    end;
+
+handle_cast({cancel_update, Name}, State = #state{updates = Updates}) ->
+    {noreply, State#state{updates = lists:keydelete(Name, #update.name, Updates)}};
+
+handle_cast(Msg, State) ->
+    emqx_logger:error("[STATS] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
-%% Interval Tick.
-handle_info(tick, State) ->
-    [publish(Stat, Val) || {Stat, Val} <- ets:tab2list(?STATS_TAB)],
-    {noreply, State, hibernate};
+handle_info({timeout, TRef, tick}, State = #state{timer   = TRef,
+                                                  updates = Updates}) ->
+    lists:foldl(
+      fun(Update = #update{name = Name, countdown = C, interval = I,
+                           func = UpFun}, Acc) when C =< 0 ->
+              try UpFun()
+              catch _:Error ->
+                  emqx_logger:error("[STATS] Update ~s error: ~p", [Name, Error])
+              end,
+              [Update#update{countdown = I} | Acc];
+         (Update = #update{countdown = C}, Acc) ->
+              [Update#update{countdown = C - 1} | Acc]
+      end, [], Updates),
+    {noreply, start_timer(State), hibernate};
 
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    emqx_logger:error("[STATS] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #state{tick = TRef}) ->
+terminate(_Reason, #state{timer = TRef}) ->
     timer:cancel(TRef).
 
 code_change(_OldVsn, State, _Extra) ->
@@ -168,12 +223,10 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-publish(Stat, Val) ->
-    Msg = emqx_message:make(stats, stats_topic(Stat), bin(Val)),
-    emqx:publish(emqx_message:set_flag(sys, Msg)).
-
-stats_topic(Stat) ->
-    emqx_topic:systop(list_to_binary(lists:concat(['stats/', Stat]))).
-
-bin(I) when is_integer(I) -> list_to_binary(integer_to_list(I)).
+safe_update_element(Key, Val) ->
+    try ets:update_element(?TAB, Key, {2, Val})
+    catch
+        error:badarg ->
+            ets:insert_new(?TAB, {Key, Val})
+    end.
 

@@ -50,7 +50,7 @@ get_flag(Flag, #message{flags = Flags}, Default) ->
 
 %% @doc Set flag
 -spec(set_flag(message_flag(), message()) -> message()).
-set_flag(Flag, Msg = #message{flags = Flags}) ->
+set_flag(Flag, Msg = #message{flags = Flags}) when is_atom(Flag) ->
     Msg#message{flags = maps:put(Flag, true, Flags)}.
 
 %% @doc Unset flag

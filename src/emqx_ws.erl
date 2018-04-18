@@ -26,8 +26,8 @@
 -record(wsocket_state, {peername, client_pid, max_packet_size, parser}).
 
 -define(WSLOG(Level, Format, Args, State),
-              emqx_log:Level("WsClient(~s): " ++ Format,
-                             [esockd_net:format(State#wsocket_state.peername) | Args])).
+              emqx_logger:Level("WsClient(~s): " ++ Format,
+                                [esockd_net:format(State#wsocket_state.peername) | Args])).
 
 
 handle_request(Req) ->
@@ -38,7 +38,7 @@ handle_request(Req) ->
 %%--------------------------------------------------------------------
 
 handle_request('GET', "/mqtt", Req) ->
-    emqx_log:debug("WebSocket Connection from: ~s", [Req:get(peer)]),
+    emqx_logger:debug("WebSocket Connection from: ~s", [Req:get(peer)]),
     Upgrade = Req:get_header_value("Upgrade"),
     Proto   = check_protocol_header(Req),
     case {is_websocket(Upgrade), Proto} of
@@ -56,19 +56,19 @@ handle_request('GET', "/mqtt", Req) ->
                                              max_packet_size = PacketSize,
                                              client_pid = ClientPid});
                 {error, Reason} ->
-                    emqx_log:error("Get peername with error ~s", [Reason]),
+                    emqx_logger:error("Get peername with error ~s", [Reason]),
                     Req:respond({400, [], <<"Bad Request">>})
             end;
         {false, _} ->
-            emqx_log:error("Not WebSocket: Upgrade = ~s", [Upgrade]),
+            emqx_logger:error("Not WebSocket: Upgrade = ~s", [Upgrade]),
             Req:respond({400, [], <<"Bad Request">>});
         {_, Proto} ->
-            emqx_log:error("WebSocket with error Protocol: ~s", [Proto]),
+            emqx_logger:error("WebSocket with error Protocol: ~s", [Proto]),
             Req:respond({400, [], <<"Bad WebSocket Protocol">>})
     end;
 
 handle_request(Method, Path, Req) ->
-    emqx_log:error("Unexpected WS Request: ~s ~s", [Method, Path]),
+    emqx_logger:error("Unexpected WS Request: ~s ~s", [Method, Path]),
     Req:not_found().
 
 is_websocket(Upgrade) ->

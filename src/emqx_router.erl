@@ -1,59 +1,53 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_router).
 
 -behaviour(gen_server).
 
 -include("emqx.hrl").
-
 -include_lib("ekka/include/ekka.hrl").
 
-%% Mnesia Bootstrap
+%% Mnesia bootstrap
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
-%% Start
 -export([start_link/2]).
+
+%% Route APIs
+-export([add_route/2, add_route/3, get_routes/1, del_route/2, del_route/3]).
+-export([has_routes/1, match_routes/1, print_routes/1]).
 
 %% Topics
 -export([topics/0]).
-
-%% Route management APIs
--export([add_route/2, add_route/3, get_routes/1, del_route/2, del_route/3]).
-
--export([has_routes/1, match_routes/1, print_routes/1]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--type(group() :: binary()).
-
--type(destination() :: node() | {group(), node()}
-                    | {cluster(), group(), node()}).
+-type(destination() :: node() | {binary(), node()}).
 
 -record(state, {pool, id}).
 
 -define(ROUTE, emqx_route).
 
 %%--------------------------------------------------------------------
-%% Mnesia Bootstrap
+%% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
@@ -67,14 +61,17 @@ mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?ROUTE).
 
 %%--------------------------------------------------------------------
-%% Start a router
+%% Strat a Router
 %%--------------------------------------------------------------------
 
+-spec(start_link(atom(), pos_integer())
+      -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id) ->
-    gen_server:start_link(?MODULE, [Pool, Id], [{hibernate_after, 10000}]).
+    gen_server:start_link(emqx_misc:proc_name(?MODULE, Id),
+                          ?MODULE, [Pool, Id], [{hibernate_after, 10000}]).
 
 %%--------------------------------------------------------------------
-%% Add/Del Routes
+%% Route APIs
 %%--------------------------------------------------------------------
 
 %% @doc Add a route
@@ -105,39 +102,23 @@ del_route(From, Topic, Dest) when is_binary(Topic) ->
 has_routes(Topic) when is_binary(Topic) ->
     ets:member(?ROUTE, Topic).
 
-%%--------------------------------------------------------------------
-%% Topics
-%%--------------------------------------------------------------------
-
--spec(topics() -> list(binary())).
+%% @doc Get topics
+-spec(topics() -> list(topic())).
 topics() -> mnesia:dirty_all_keys(?ROUTE).
-
-%%--------------------------------------------------------------------
-%% Match routes
-%%--------------------------------------------------------------------
 
 %% @doc Match routes
 %% Optimize: routing table will be replicated to all router nodes.
--spec(match_routes(Topic:: topic()) -> [{topic(), binary() | node()}]).
+-spec(match_routes(topic()) -> [route()]).
 match_routes(Topic) when is_binary(Topic) ->
     Matched = mnesia:ets(fun emqx_trie:match/1, [Topic]),
-    Routes = [ets:lookup(?ROUTE, To) || To <- [Topic | Matched]],
-    [{To, Dest} || #route{topic = To, dest = Dest} <- lists:append(Routes)].
-
-%%--------------------------------------------------------------------
-%% Print routes
-%%--------------------------------------------------------------------
+    lists:append([get_routes(To) || To <- [Topic | Matched]]).
 
 %% @doc Print routes to a topic
 -spec(print_routes(topic()) -> ok).
 print_routes(Topic) ->
-    lists:foreach(fun({To, Dest}) ->
+    lists:foreach(fun(#route{topic = To, dest = Dest}) ->
                       io:format("~s -> ~s~n", [To, Dest])
                   end, match_routes(Topic)).
-
-%%--------------------------------------------------------------------
-%% Utility functions
-%%--------------------------------------------------------------------
 
 cast(Router, Msg) ->
     gen_server:cast(Router, Msg).
@@ -154,7 +135,7 @@ init([Pool, Id]) ->
     {ok, #state{pool = Pool, id = Id}}.
 
 handle_call(Req, _From, State) ->
-    emqx_log:error("[Router] Unexpected request: ~p", [Req]),
+    emqx_logger:error("[Router] Unexpected request: ~p", [Req]),
     {reply, ignore, State}.
 
 handle_cast({add_route, From, Route}, State) ->
@@ -163,12 +144,12 @@ handle_cast({add_route, From, Route}, State) ->
     {noreply, State};
 
 handle_cast({add_route, Route = #route{topic = Topic, dest = Dest}}, State) ->
-    case lists:member(Route, ets:lookup(?ROUTE, Topic)) of
+    case lists:member(Route, get_routes(Topic)) of
         true  -> ok;
         false ->
             ok = emqx_router_helper:monitor(Dest),
             case emqx_topic:wildcard(Topic) of
-                true  -> trans(fun add_trie_route/1, [Route]);
+                true  -> log(trans(fun add_trie_route/1, [Route]));
                 false -> add_direct_route(Route)
             end
     end,
@@ -185,18 +166,18 @@ handle_cast({del_route, Route = #route{topic = Topic}}, State) ->
         true  -> ok;
         false ->
             case emqx_topic:wildcard(Topic) of
-                true  -> trans(fun del_trie_route/1, [Route]);
+                true  -> log(trans(fun del_trie_route/1, [Route]));
                 false -> del_direct_route(Route)
             end
     end,
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    emqx_log:error("[Router] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[Router] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    emqx_log:error("[Router] Unexpected info: ~p", [Info]),
+    emqx_logger:error("[Router] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
@@ -237,8 +218,10 @@ del_trie_route(Route = #route{topic = Topic}) ->
 trans(Fun, Args) ->
     case mnesia:transaction(Fun, Args) of
         {atomic, _}      -> ok;
-        {aborted, Error} ->
-            emqx_log:error("[Router] Mnesia aborted: ~p", [Error]),
-            {error, Error}
+        {aborted, Error} -> {error, Error}
     end.
+
+log(ok) -> ok;
+log({error, Error}) ->
+    emqx_logger:error("[Router] Mnesia aborted: ~p", [Error]).
 

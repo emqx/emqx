@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx).
 
@@ -29,7 +29,7 @@
 -export([topics/0, subscriptions/1, subscribers/1, subscribed/2]).
 
 %% Get/Set suboptions
--export([getopts/2, setopts/3]).
+-export([get_subopts/2, set_subopts/3]).
 
 %% Hooks API
 -export([hook/4, hook/3, unhook/2, run_hooks/2, run_hooks/3]).
@@ -47,12 +47,17 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start emqx application
--spec(start() -> ok | {error, term()}).
-start() -> application:start(?APP).
+-spec(start() -> {ok, list(atom())} | {error, term()}).
+start() ->
+    %% Check OS
+    %% Check VM
+    %% Check Mnesia
+    application:ensure_all_started(?APP).
 
 %% @doc Stop emqx application.
 -spec(stop() -> ok | {error, term()}).
-stop() -> application:stop(?APP).
+stop() ->
+    application:stop(?APP).
 
 %% @doc Is emqx running?
 -spec(is_running(node()) -> boolean()).
@@ -96,13 +101,13 @@ unsubscribe(Topic, Subscriber) ->
 %% PubSub management API
 %%--------------------------------------------------------------------
 
--spec(getopts(topic() | string(), subscriber()) -> [suboption()]).
-getopts(Topic, Subscriber) ->
-    emqx_broker:getopts(iolist_to_binary(Topic), list_to_subid(Subscriber)).
+-spec(get_subopts(topic() | string(), subscriber()) -> [suboption()]).
+get_subopts(Topic, Subscriber) ->
+    emqx_broker:get_subopts(iolist_to_binary(Topic), list_to_subid(Subscriber)).
 
--spec(setopts(topic() | string(), subscriber(), [suboption()]) -> ok).
-setopts(Topic, Subscriber, Options) when is_list(Options) ->
-    emqx_broker:setopts(iolist_to_binary(Topic), list_to_subid(Subscriber), Options).
+-spec(set_subopts(topic() | string(), subscriber(), [suboption()]) -> ok).
+set_subopts(Topic, Subscriber, Options) when is_list(Options) ->
+    emqx_broker:set_subopts(iolist_to_binary(Topic), list_to_subid(Subscriber), Options).
 
 -spec(topics() -> list(topic())).
 topics() -> emqx_router:topics().
@@ -165,7 +170,7 @@ shutdown() ->
     shutdown(normal).
 
 shutdown(Reason) ->
-    emqx_log:error("EMQ shutdown for ~s", [Reason]),
+    emqx_logger:error("EMQ shutdown for ~s", [Reason]),
     emqx_plugins:unload(),
     lists:foreach(fun application:stop/1, [emqx, ekka, mochiweb, esockd, gproc]).
 

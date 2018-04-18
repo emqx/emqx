@@ -1,24 +1,23 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_hooks).
 
 -behaviour(gen_server).
 
-%% Start
 -export([start_link/0]).
 
 %% Hooks API
@@ -41,7 +40,7 @@
 
 -record(hook, {name :: atom(), callbacks = [] :: list(#callback{})}).
 
--define(HOOK_TAB, mqtt_hook).
+-define(TAB, ?MODULE).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -104,24 +103,25 @@ run_([], _Args, Acc) ->
 
 -spec(lookup(atom()) -> [#callback{}]).
 lookup(HookPoint) ->
-    case ets:lookup(?HOOK_TAB, HookPoint) of
+    case ets:lookup(?TAB, HookPoint) of
         [#hook{callbacks = Callbacks}] -> Callbacks;
         [] -> []
     end.
 
 %%--------------------------------------------------------------------
-%% gen_server Callbacks
+%% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ets:new(?HOOK_TAB, [set, protected, named_table, {keypos, #hook.name}]),
+    _ = emqx_tables:new(?TAB, [set, protected, {keypos, #hook.name},
+                               {read_concurrency, true}]),
     {ok, #state{}}.
 
 handle_call({add, HookPoint, {Tag, Function}, InitArgs, Priority}, _From, State) ->
     Callback = #callback{tag = Tag, function = Function,
                          init_args = InitArgs, priority = Priority},
     {reply,
-     case ets:lookup(?HOOK_TAB, HookPoint) of
+     case ets:lookup(?TAB, HookPoint) of
          [#hook{callbacks = Callbacks}] ->
              case contain_(Tag, Function, Callbacks) of
                  false ->
@@ -135,7 +135,7 @@ handle_call({add, HookPoint, {Tag, Function}, InitArgs, Priority}, _From, State)
 
 handle_call({delete, HookPoint, {Tag, Function}}, _From, State) ->
     {reply,
-     case ets:lookup(?HOOK_TAB, HookPoint) of
+     case ets:lookup(?TAB, HookPoint) of
          [#hook{callbacks = Callbacks}] ->
              case contain_(Tag, Function, Callbacks) of
                  true  ->
@@ -167,7 +167,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 insert_hook_(HookPoint, Callbacks) ->
-    ets:insert(?HOOK_TAB, #hook{name = HookPoint, callbacks = Callbacks}), ok.
+    ets:insert(?TAB, #hook{name = HookPoint, callbacks = Callbacks}), ok.
 
 add_callback_(Callback, Callbacks) ->
     lists:keymerge(#callback.priority, Callbacks, [Callback]).

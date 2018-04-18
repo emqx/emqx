@@ -103,11 +103,11 @@ qname(Node, Topic) ->
     iolist_to_binary(["Bridge:", Node, ":", Topic]).
 
 handle_call(Req, _From, State) ->
-    emqx_log:error("[Bridge] Unexpected request: ~p", [Req]),
+    emqx_logger:error("[Bridge] Unexpected request: ~p", [Req]),
     {reply, ignore, State}.
 
 handle_cast(Msg, State) ->
-    emqx_log:error("[Bridge] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[Bridge] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({dispatch, _Topic, Msg}, State = #state{mqueue = MQ, status = down}) ->
@@ -118,7 +118,7 @@ handle_info({dispatch, _Topic, Msg}, State = #state{node = Node, status = up}) -
     {noreply, State, hibernate};
 
 handle_info({nodedown, Node}, State = #state{node = Node, ping_down_interval = Interval}) ->
-    emqx_log:warning("[Bridge] Node Down: ~s", [Node]),
+    emqx_logger:warning("[Bridge] Node Down: ~s", [Node]),
     erlang:send_after(Interval, self(), ping_down_node),
     {noreply, State#state{status = down}, hibernate};
 
@@ -126,7 +126,7 @@ handle_info({nodeup, Node}, State = #state{node = Node}) ->
     %% TODO: Really fast??
     case emqx:is_running(Node) of
         true ->
-            emqx_log:warning("[Bridge] Node up: ~s", [Node]),
+            emqx_logger:warning("[Bridge] Node up: ~s", [Node]),
             {noreply, dequeue(State#state{status = up})};
         false ->
             self() ! {nodedown, Node},
@@ -149,7 +149,7 @@ handle_info({'EXIT', _Pid, normal}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    emqx_log:error("[Bridge] Unexpected info: ~p", [Info]),
+    emqx_logger:error("[Bridge] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->

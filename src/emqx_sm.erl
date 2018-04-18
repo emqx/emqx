@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_sm).
 
@@ -24,7 +24,8 @@
 
 -export([open_session/1, lookup_session/1, close_session/1]).
 -export([resume_session/1, resume_session/2, discard_session/1, discard_session/2]).
--export([register_session/2, unregister_session/1]).
+-export([register_session/2, get_session_attrs/1, unregister_session/1]).
+-export([get_session_stats/1, set_session_stats/2]).
 
 %% Internal functions for rpc
 -export([dispatch/3]).
@@ -32,18 +33,22 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {pmon}).
+-record(state, {session_pmon}).
 
 -define(SM, ?MODULE).
 
+%% ETS Tables
+-define(SESSION,       emqx_session).
+-define(SESSION_P,     emqx_persistent_session).
+-define(SESSION_ATTRS, emqx_session_attrs).
+-define(SESSION_STATS, emqx_session_stats).
+
 -spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
 start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+    gen_server:start_link({local, ?SM}, ?MODULE, [], []).
 
-%%--------------------------------------------------------------------
-%% Open Session
-%%--------------------------------------------------------------------
-
+%% @doc Open a session.
+-spec(open_session(map()) -> {ok, pid()} | {error, term()}).
 open_session(Attrs = #{clean_start := true,
                        client_id := ClientId, client_pid := ClientPid}) ->
     CleanStart = fun(_) ->
@@ -66,81 +71,113 @@ open_session(Attrs = #{clean_start := false,
                   end,
     emqx_sm_locker:trans(ClientId, ResumeStart).
 
-%%--------------------------------------------------------------------
-%% Discard Session
-%%--------------------------------------------------------------------
-
+%% @doc Discard all the sessions identified by the ClientId.
+-spec(discard_session(map()) -> ok).
 discard_session(ClientId) when is_binary(ClientId) ->
     discard_session(ClientId, self()).
 
 discard_session(ClientId, ClientPid) when is_binary(ClientId) ->
     lists:foreach(
-      fun(#session{pid = SessionPid}) ->
+      fun({_ClientId, SessionPid}) ->
           case catch emqx_session:discard(SessionPid, ClientPid) of
               {'EXIT', Error} ->
-                  emqx_log:error("[SM] Failed to discard ~p: ~p", [SessionPid, Error]);
+                  emqx_logger:error("[SM] Failed to discard ~p: ~p", [SessionPid, Error]);
               ok -> ok
           end
       end, lookup_session(ClientId)).
 
-%%--------------------------------------------------------------------
-%% Resume Session
-%%--------------------------------------------------------------------
-
+%% @doc Try to resume a session.
+-spec(resume_session(client_id()) -> {ok, pid()} | {error, term()}).
 resume_session(ClientId) ->
     resume_session(ClientId, self()).
 
 resume_session(ClientId, ClientPid) ->
     case lookup_session(ClientId) of
         [] -> {error, not_found};
-        [#session{pid = SessionPid}] ->
+        [{_ClientId, SessionPid}] ->
             ok = emqx_session:resume(SessionPid, ClientPid),
             {ok, SessionPid};
         Sessions ->
-            [#session{pid = SessionPid}|StaleSessions] = lists:reverse(Sessions),
-            emqx_log:error("[SM] More than one session found: ~p", [Sessions]),
-            lists:foreach(fun(#session{pid = Pid}) ->
-                              catch emqx_session:discard(Pid, ClientPid)
+            [{_, SessionPid}|StaleSessions] = lists:reverse(Sessions),
+            emqx_logger:error("[SM] More than one session found: ~p", [Sessions]),
+            lists:foreach(fun({_, StalePid}) ->
+                              catch emqx_session:discard(StalePid, ClientPid)
                           end, StaleSessions),
             ok = emqx_session:resume(SessionPid, ClientPid),
             {ok, SessionPid}
     end.
 
-%%--------------------------------------------------------------------
-%% Close a session
-%%--------------------------------------------------------------------
-
-close_session(#session{pid = SessionPid}) ->
+%% @doc Close a session.
+-spec(close_session({client_id(), pid()} | pid()) -> ok).
+close_session({_ClientId, SessionPid}) ->
+    emqx_session:close(SessionPid);
+close_session(SessionPid) when is_pid(SessionPid) ->
     emqx_session:close(SessionPid).
 
-%%--------------------------------------------------------------------
-%% Create/Delete a session
-%%--------------------------------------------------------------------
+%% @doc Register a session with attributes.
+-spec(register_session(client_id() | {client_id(), pid()},
+                       list(emqx_session:attribute())) -> ok).
+register_session(ClientId, Attrs) when is_binary(ClientId) ->
+    register_session({ClientId, self()}, Attrs);
 
-register_session(Session, Attrs) when is_record(Session, session) ->
-    ets:insert(session, Session),
-    ets:insert(session_attrs, {Session, Attrs}),
+register_session(Session = {ClientId, SessionPid}, Attrs)
+    when is_binary(ClientId), is_pid(SessionPid) ->
+    ets:insert(?SESSION, Session),
+    ets:insert(?SESSION_ATTRS, {Session, Attrs}),
+    case proplists:get_value(clean_start, Attrs, true) of
+        true  -> ok;
+        false -> ets:insert(?SESSION_P, Session)
+    end,
     emqx_sm_registry:register_session(Session),
-    gen_server:cast(?MODULE, {registered, Session}).
+    notify({registered, ClientId, SessionPid}).
 
-unregister_session(Session) when is_record(Session, session) ->
+%% @doc Get session attrs
+-spec(get_session_attrs({client_id(), pid()})
+      -> list(emqx_session:attribute())).
+get_session_attrs(Session = {ClientId, SessionPid})
+    when is_binary(ClientId), is_pid(SessionPid) ->
+    safe_lookup_element(?SESSION_ATTRS, Session, []).
+
+%% @doc Unregister a session
+-spec(unregister_session(client_id() | {client_id(), pid()}) -> ok).
+unregister_session(ClientId) when is_binary(ClientId) ->
+    unregister_session({ClientId, self()});
+
+unregister_session(Session = {ClientId, SessionPid})
+    when is_binary(ClientId), is_pid(SessionPid) ->
     emqx_sm_registry:unregister_session(Session),
-    emqx_sm_stats:del_session_stats(Session),
-    ets:delete(session_attrs, Session),
-    ets:delete_object(session, Session),
-    gen_server:cast(?MODULE, {unregistered, Session}).
+    ets:delete(?SESSION_STATS, Session),
+    ets:delete(?SESSION_ATTRS, Session),
+    ets:delete_object(?SESSION_P, Session),
+    ets:delete_object(?SESSION, Session),
+    notify({unregistered, ClientId, SessionPid}).
 
-%%--------------------------------------------------------------------
-%% Lookup a session from registry
-%%--------------------------------------------------------------------
-    
+%% @doc Get session stats
+-spec(get_session_stats({client_id(), pid()}) -> list(emqx_stats:stats())).
+get_session_stats(Session = {ClientId, SessionPid})
+    when is_binary(ClientId), is_pid(SessionPid) ->
+    safe_lookup_element(?SESSION_STATS, Session, []).
+
+%% @doc Set session stats
+-spec(set_session_stats(client_id() | {client_id(), pid()},
+                        emqx_stats:stats()) -> ok).
+set_session_stats(ClientId, Stats) when is_binary(ClientId) ->
+    set_session_stats({ClientId, self()}, Stats);
+
+set_session_stats(Session = {ClientId, SessionPid}, Stats)
+    when is_binary(ClientId), is_pid(SessionPid) ->
+    ets:insert(?SESSION_STATS, {Session, Stats}).
+
+%% @doc Lookup a session from registry
+-spec(lookup_session(client_id()) -> list({client_id(), pid()})).
 lookup_session(ClientId) ->
-    emqx_sm_registry:lookup_session(ClientId).
+    case emqx_sm_registry:is_enabled() of
+        true  -> emqx_sm_registry:lookup_session(ClientId);
+        false -> ets:lookup(?SESSION, ClientId)
+    end.
 
-%%--------------------------------------------------------------------
-%% Dispatch by client Id
-%%--------------------------------------------------------------------
-
+%% @doc Dispatch a message to the session.
+-spec(dispatch(client_id(), topic(), message()) -> any()).
 dispatch(ClientId, Topic, Msg) ->
     case lookup_session_pid(ClientId) of
         Pid when is_pid(Pid) ->
@@ -149,60 +186,82 @@ dispatch(ClientId, Topic, Msg) ->
             emqx_hooks:run('message.dropped', [ClientId, Msg])
     end.
 
+%% @doc Lookup session pid.
+-spec(lookup_session_pid(client_id()) -> pid() | undefined).
 lookup_session_pid(ClientId) ->
-    try ets:lookup_element(session, ClientId, #session.pid)
-    catch error:badarg ->
-        undefined
+    safe_lookup_element(?SESSION, ClientId, undefined).
+
+safe_lookup_element(Tab, Key, Default) ->
+    try ets:lookup_element(Tab, Key, 2)
+    catch
+        error:badarg -> Default
     end.
+
+notify(Event) -> gen_server:cast(?SM, {notify, Event}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    _ = emqx_tables:create(session, [public, set, {keypos, 2},
-                                     {read_concurrency, true},
-                                     {write_concurrency, true}]),
-    _ = emqx_tables:create(session_attrs, [public, set,
-                                           {write_concurrency, true}]),
-    {ok, #state{pmon = emqx_pmon:new()}}.
+    TabOpts = [public, set, {write_concurrency, true}],
+    _ = emqx_tables:new(?SESSION, [{read_concurrency, true} | TabOpts]),
+    _ = emqx_tables:new(?SESSION_P, TabOpts),
+    _ = emqx_tables:new(?SESSION_ATTRS, TabOpts),
+    _ = emqx_tables:new(?SESSION_STATS, TabOpts),
+    emqx_stats:update_interval(sm_stats, stats_fun()),
+    {ok, #state{session_pmon = emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
-    emqx_log:error("[SM] Unexpected request: ~p", [Req]),
+    emqx_logger:error("[SM] Unexpected request: ~p", [Req]),
     {reply, ignore, State}.
 
-handle_cast({registered, #session{sid = ClientId, pid = SessionPid}},
-            State = #state{pmon = PMon}) ->
-    {noreply, State#state{pmon = PMon:monitor(SessionPid, ClientId)}};
+handle_cast({notify, {registered, ClientId, SessionPid}},
+            State = #state{session_pmon = PMon}) ->
+    {noreply, State#state{session_pmon = PMon:monitor(SessionPid, ClientId)}};
 
-handle_cast({unregistered, #session{sid = _ClientId, pid = SessionPid}},
-            State = #state{pmon = PMon}) ->
-    {noreply, State#state{pmon = PMon:erase(SessionPid)}};
+handle_cast({notify, {unregistered, _ClientId, SessionPid}},
+            State = #state{session_pmon = PMon}) ->
+    {noreply, State#state{session_pmon = PMon:demonitor(SessionPid)}};
 
 handle_cast(Msg, State) ->
-    emqx_log:error("[SM] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[SM] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({'DOWN', _MRef, process, DownPid, _Reason},
-            State = #state{pmon = PMon}) ->
+            State = #state{session_pmon = PMon}) ->
     case PMon:find(DownPid) of
-        {ok, ClientId} ->
-            case ets:lookup(session, ClientId) of
-                [] -> ok;
-                _  -> unregister_session(#session{sid = ClientId, pid = DownPid})
-            end,
-            {noreply, State};
         undefined ->
-            {noreply, State}
+            {noreply, State};
+        ClientId ->
+            unregister_session({ClientId, DownPid}),
+            {noreply, State#state{session_pmon = PMon:erase(DownPid)}}
     end;
 
 handle_info(Info, State) ->
-    emqx_log:error("[SM] Unexpected info: ~p", [Info]),
+    emqx_logger:error("[SM] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    ok.
+    emqx_stats:cancel_update(cm_stats).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+stats_fun() ->
+    fun () ->
+        safe_update_stats(?SESSION, 'sessions/count', 'sessions/max'),
+        safe_update_stats(?SESSION_P, 'sessions/persistent/count',
+                          'sessions/persistent/max')
+    end.
+
+safe_update_stats(Tab, Stat, MaxStat) ->
+    case ets:info(Tab, size) of
+        undefined -> ok;
+        Size -> emqx_stats:setstat(Stat, MaxStat, Size)
+    end.
 

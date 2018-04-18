@@ -62,13 +62,13 @@ passwd_hash(pbkdf2, {Salt, Password, Macfun, Iterations, Dklen}) ->
     case pbkdf2:pbkdf2(Macfun, Password, Salt, Iterations, Dklen) of
         {ok, Hexstring} -> pbkdf2:to_hex(Hexstring);
         {error, Error} ->
-            emqx_log:error("[AuthMod] PasswdHash with pbkdf2 error:~p", [Error]), <<>>
+            emqx_logger:error("[AuthMod] PasswdHash with pbkdf2 error:~p", [Error]), <<>>
     end;
 passwd_hash(bcrypt, {Salt, Password}) ->
     case bcrypt:hashpw(Password, Salt) of
         {ok, HashPassword} -> list_to_binary(HashPassword);
         {error, Error}->
-            emqx_log:error("[AuthMod] PasswdHash with bcrypt error:~p", [Error]), <<>>
+            emqx_logger:error("[AuthMod] PasswdHash with bcrypt error:~p", [Error]), <<>>
     end.
 
 hexstring(<<X:128/big-unsigned-integer>>) ->

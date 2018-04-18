@@ -14,45 +14,49 @@
 %%% limitations under the License.
 %%%===================================================================
 
--module(emqx_broker_helper).
+-module(emqx_flow_control).
 
 -behaviour(gen_server).
 
+%% API
 -export([start_link/0]).
 
+%% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--define(HELPER, ?MODULE).
+-define(SERVER, ?MODULE).
 
 -record(state, {}).
 
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
+
+%% @doc Starts the server
 -spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
 start_link() ->
-    gen_server:start_link({local, ?HELPER}, ?MODULE, [], []).
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 init([]) ->
-    emqx_stats:update_interval(broker_stats, stats_fun()),
-    {ok, #state{}, hibernate}.
+    {ok, #state{}}.
 
-handle_call(Req, _From, State) ->
-    emqx_logger:error("[BrokerHelper] Unexpected request: ~p", [Req]),
-    {reply, ignore, State}.
+handle_call(_Request, _From, State) ->
+    Reply = ok,
+    {reply, Reply, State}.
 
-handle_cast(Msg, State) ->
-    emqx_logger:error("[BrokerHelper] Unexpected msg: ~p", [Msg]),
+handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info(Info, State) ->
-    emqx_logger:error("[BrokerHelper] Unexpected info: ~p", [Info]),
+handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, #state{}) ->
-    emqx_stats:cancel_update(broker_stats).
+terminate(_Reason, _State) ->
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -61,19 +65,6 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-stats_fun() ->
-    fun() ->
-        safe_update_stats(emqx_subscriber,
-                          'subscribers/count', 'subscribers/max'),
-        safe_update_stats(emqx_subscription,
-                          'subscriptions/count', 'subscriptions/max'),
-        safe_update_stats(emqx_suboptions,
-                          'suboptions/count', 'suboptions/max')
-    end.
 
-safe_update_stats(Tab, Stat, MaxStat) ->
-    case ets:info(Tab, size) of
-        undefined -> ok;
-        Size -> emqx_stats:setstat(Stat, MaxStat, Size)
-    end.
+
 

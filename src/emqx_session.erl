@@ -155,8 +155,8 @@
                      created_at]).
 
 -define(LOG(Level, Format, Args, State),
-            emqx_log:Level([{client, State#state.client_id}],
-                           "Session(~s): " ++ Format, [State#state.client_id | Args])).
+            emqx_logger:Level([{client, State#state.client_id}],
+                              "Session(~s): " ++ Format, [State#state.client_id | Args])).
 
 %% @doc Start a Session
 -spec(start_link(map()) -> {ok, pid()} | {error, term()}).
@@ -296,7 +296,7 @@ init(#{clean_start := CleanStart,
                    enable_stats      = EnableStats,
                    ignore_loop_deliver = IgnoreLoopDeliver,
                    created_at        = os:timestamp()},
-    emqx_sm:register_session(#session{sid = ClientId, pid = self()}, info(State)),
+    emqx_sm:register_session(ClientId, info(State)),
     emqx_hooks:run('session.created', [ClientId, Username]),
     io:format("Session started: ~p~n", [self()]),
     {ok, emit_stats(State), hibernate}.
@@ -342,7 +342,7 @@ handle_call(state, _From, State) ->
     reply(?record_to_proplist(state, State, ?STATE_KEYS), State);
 
 handle_call(Req, _From, State) ->
-    emqx_log:error("[Session] Unexpected request: ~p", [Req]),
+    emqx_logger:error("[Session] Unexpected request: ~p", [Req]),
     {reply, ignore, State}.
 
 handle_cast({subscribe, From, TopicTable, AckFun},
@@ -501,7 +501,7 @@ handle_cast({resume, ClientPid},
     {noreply, emit_stats(dequeue(retry_delivery(true, State1)))};
 
 handle_cast(Msg, State) ->
-    emqx_log:error("[Session] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[Session] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 %% Ignore Messages delivered by self
@@ -551,13 +551,13 @@ handle_info({'EXIT', Pid, Reason}, State = #state{client_pid = ClientPid}) ->
     {noreply, State, hibernate};
 
 handle_info(Info, State) ->
-    emqx_log:error("[Session] Unexpected info: ~p", [Info]),
+    emqx_logger:error("[Session] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(Reason, #state{client_id = ClientId, username = Username}) ->
 
     emqx_hooks:run('session.terminated', [ClientId, Username, Reason]),
-    emqx_sm:unregister_session(#session{sid = ClientId, pid = self()}).
+    emqx_sm:unregister_session(ClientId).
 
 code_change(_OldVsn, Session, _Extra) ->
     {ok, Session}.
@@ -812,8 +812,7 @@ next_msg_id(State = #state{next_msg_id = Id}) ->
 emit_stats(State = #state{enable_stats = false}) ->
     State;
 emit_stats(State = #state{client_id = ClientId}) ->
-    Session = #session{sid = ClientId, pid = self()},
-    emqx_sm_stats:set_session_stats(Session, stats(State)),
+    emqx_sm:set_session_stats(ClientId, stats(State)),
     State.
 
 inc_stats(Key) -> put(Key, get(Key) + 1).

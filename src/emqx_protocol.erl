@@ -57,8 +57,8 @@
 -define(STATS_KEYS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 
 -define(LOG(Level, Format, Args, State),
-            emqx_log:Level([{client, State#proto_state.client_id}], "Client(~s@~s): " ++ Format,
-                           [State#proto_state.client_id, esockd_net:format(State#proto_state.peername) | Args])).
+            emqx_logger:Level([{client, State#proto_state.client_id}], "Client(~s@~s): " ++ Format,
+                              [State#proto_state.client_id, esockd_net:format(State#proto_state.peername) | Args])).
 
 %% @doc Init protocol
 init(Peername, SendFun, Opts) ->
@@ -220,7 +220,7 @@ process(?CONNECT_PACKET(Var), State0) ->
                         {ok, Session} -> %% TODO:...
                             SP = true, %% TODO:...
                             %% TODO: Register the client
-                            emqx_cm:reg(clientid(State2)),
+                            emqx_cm:register_client(clientid(State2)),
                             %%emqx_cm:reg(client(State2)),
                             %% Start keepalive
                             start_keepalive(KeepAlive, State2),
@@ -362,7 +362,7 @@ send(Msg, State = #proto_state{client_id  = ClientId,
 
 send(Packet = ?PACKET(Type), State = #proto_state{sendfun = SendFun, stats_data = Stats}) ->
     trace(send, Packet, State),
-    emqx_mqtt_metrics:sent(Packet),
+    emqx_metrics:sent(Packet),
     SendFun(Packet),
     {ok, State#proto_state{stats_data = inc_stats(send, Type, Stats)}}.
 
@@ -398,15 +398,14 @@ stop_if_auth_failure(_RC, State) ->
 
 shutdown(_Error, #proto_state{client_id = undefined}) ->
     ignore;
-shutdown(conflict, _State) ->
-    %% let it down
+shutdown(conflict, _State = #proto_state{client_id = ClientId}) ->
+    emqx_cm:unregister_client(ClientId),
     ignore;
-shutdown(mnesia_conflict, _State) ->
-    %% let it down
-    %% emqx_cm:unreg(ClientId);
+shutdown(mnesia_conflict, _State = #proto_state{client_id = ClientId}) ->
+    emqx_cm:unregister_client(ClientId),
     ignore;
-
-shutdown(Error, State = #proto_state{will_msg = WillMsg}) ->
+shutdown(Error, State = #proto_state{client_id = ClientId,
+                                     will_msg  = WillMsg}) ->
     ?LOG(info, "Shutdown for ~p", [Error], State),
     Client = client(State),
     %% Auth failure not publish the will message
@@ -415,11 +414,11 @@ shutdown(Error, State = #proto_state{will_msg = WillMsg}) ->
         false -> send_willmsg(Client, WillMsg)
     end,
     emqx_hooks:run('client.disconnected', [Error], Client),
-    %% let it down
-    %% emqx_cm:unreg(ClientId).
+    emqx_cm:unregister_client(ClientId),
     ok.
 
-willmsg(Packet, State = #proto_state{mountpoint = MountPoint}) when is_record(Packet, mqtt_packet_connect) ->
+willmsg(Packet, State = #proto_state{mountpoint = MountPoint})
+    when is_record(Packet, mqtt_packet_connect) ->
     case emqx_packet:to_message(Packet) of
         undefined -> undefined;
         Msg -> mount(replvar(MountPoint, State), Msg)

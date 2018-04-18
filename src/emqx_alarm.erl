@@ -92,7 +92,7 @@ handle_event({set_alarm, Alarm = #alarm{id       = AlarmId,
                                  {summary, iolist_to_binary(Summary)},
                                  {ts, emqx_time:now_secs(TS)}]) of
         {'EXIT', Reason} ->
-            emqx_log:error("[Alarm] Failed to encode set_alarm: ~p", [Reason]);
+            emqx_logger:error("[Alarm] Failed to encode set_alarm: ~p", [Reason]);
         JSON ->
             emqx_broker:publish(alarm_msg(alert, AlarmId, JSON))
     end,
@@ -101,7 +101,7 @@ handle_event({set_alarm, Alarm = #alarm{id       = AlarmId,
 handle_event({clear_alarm, AlarmId}, Alarms) ->
     case catch emqx_json:encode([{id, AlarmId}, {ts, emqx_time:now_secs()}]) of
         {'EXIT', Reason} ->
-            emqx_log:error("[Alarm] Failed to encode clear_alarm: ~p", [Reason]);
+            emqx_logger:error("[Alarm] Failed to encode clear_alarm: ~p", [Reason]);
         JSON -> 
             emqx_broker:publish(alarm_msg(clear, AlarmId, JSON))
     end,
