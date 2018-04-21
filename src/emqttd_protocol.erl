@@ -162,11 +162,12 @@ received(Packet = ?PACKET(Type), State = #proto_state{stats_data = Stats}) ->
 
 subscribe(RawTopicTable, ProtoState = #proto_state{client_id = ClientId,
                                                    username  = Username,
-                                                   session   = Session}) ->
+                                                   session   = Session,
+                                                   mountpoint = MountPoint}) ->
     TopicTable = parse_topic_table(RawTopicTable),
     case emqttd_hooks:run('client.subscribe', [ClientId, Username], TopicTable) of
         {ok, TopicTable1} ->
-            emqttd_session:subscribe(Session, TopicTable1);
+            emqttd_session:subscribe(Session, mount(MountPoint, TopicTable1));
         {stop, _} ->
             ok
     end,
@@ -174,10 +175,11 @@ subscribe(RawTopicTable, ProtoState = #proto_state{client_id = ClientId,
 
 unsubscribe(RawTopics, ProtoState = #proto_state{client_id = ClientId,
                                                  username  = Username,
-                                                 session   = Session}) ->
+                                                 session   = Session,
+                                                 mountpoint = MountPoint}) ->
     case emqttd_hooks:run('client.unsubscribe', [ClientId, Username], parse_topics(RawTopics)) of
         {ok, TopicTable} ->
-            emqttd_session:unsubscribe(Session, TopicTable);
+            emqttd_session:unsubscribe(Session, mount(MountPoint, TopicTable));
         {stop, _} ->
             ok
     end,
