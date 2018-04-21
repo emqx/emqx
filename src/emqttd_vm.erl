@@ -157,8 +157,8 @@ microsecs() ->
 
 loads() ->
     [{load1,  ftos(avg1()/256)},
-        {load5,  ftos(avg5()/256)},
-        {load15, ftos(avg15()/256)}].
+     {load5,  ftos(avg5()/256)},
+     {load15, ftos(avg15()/256)}].
 
 get_system_info() ->
     [{Key, format_system_info(Key, get_system_info(Key))} || Key <- ?SYSTEM_INFO].
