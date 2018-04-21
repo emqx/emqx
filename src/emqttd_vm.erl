@@ -156,9 +156,9 @@ microsecs() ->
     (Mega * 1000000 + Sec) * 1000000 + Micro.
 
 loads() ->
-    [{load1,  ftos(cpu_sup:avg1()/256)},
-     {load5,  ftos(cpu_sup:avg5()/256)},
-     {load15, ftos(cpu_sup:avg15()/256)}].
+    [{load1,  ftos(avg1()/256)},
+     {load5,  ftos(avg5()/256)},
+     {load15, ftos(avg15()/256)}].
 
 get_system_info() ->
     [{Key, format_system_info(Key, get_system_info(Key))} || Key <- ?SYSTEM_INFO].
@@ -427,3 +427,27 @@ mapping([{owner, V}|Entries], Acc) when is_pid(V) ->
 mapping([{Key, Value}|Entries], Acc) ->
     mapping(Entries, [{Key, Value}|Acc]).
 
+avg1() ->
+   case cpu_sup:avg1() of
+        SystemLoad when is_integer(SystemLoad) ->
+            SystemLoad;
+        {error, Reason} ->
+            lager:error("Get the average system load in the last minute fail for ~p~n", [Reason]),
+            0.00
+    end.
+avg5() ->
+    case cpu_sup:avg5() of
+        SystemLoad when is_integer(SystemLoad) ->
+            SystemLoad;
+        {error, Reason} ->
+            lager:error("Get the average system load in the last 5 minutes fail for ~p~n", [Reason]),
+            0.00
+    end.
+avg15() ->
+    case cpu_sup:avg15() of
+        SystemLoad when is_integer(SystemLoad) ->
+            SystemLoad;
+        {error, Reason} ->
+            lager:error("Get the average system load in the last 15 minutes fail for ~p~n", [Reason]),
+            0.00
+    end.

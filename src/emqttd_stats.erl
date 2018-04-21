@@ -143,7 +143,7 @@ setstat(Stat, Val) ->
     ets:update_element(?STATS_TAB, Stat, {2, Val}).
 
 %% @doc Set stats with max
--spec(setstats(Stat :: atom(), MaxStat :: atom(), Val :: pos_integer()) -> boolean()).
+-spec(setstats(Stat :: atom(), MaxStat :: atom(), Val :: pos_integer()) -> ok).
 setstats(Stat, MaxStat, Val) ->
     gen_server:cast(?MODULE, {setstats, Stat, MaxStat, Val}).
 
