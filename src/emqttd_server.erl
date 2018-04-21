@@ -92,7 +92,7 @@ publish(Msg = #mqtt_message{from = From}) ->
         {ok, Msg1 = #mqtt_message{topic = Topic}} ->
             emqttd_pubsub:publish(Topic, Msg1);
         {stop, Msg1} ->
-            lager:warning("Stop publishing: ~s", [emqttd_message:format(Msg1)]),
+            lager:info("Stop publishing: ~s", [emqttd_message:format(Msg1)]),
             ignore
     end.
 

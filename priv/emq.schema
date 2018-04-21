@@ -124,6 +124,10 @@
   {datatype, string}
 ]}.
 
+{mapping, "cluster.k8s.namespace", "ekka.cluster_discovery", [
+  {datatype, string}
+]}.
+
 {translation, "ekka.cluster_discovery", fun(Conf) ->
   Strategy = cuttlefish:conf_get("cluster.discovery", Conf),
   Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
@@ -152,7 +156,8 @@
                  [{apiserver, cuttlefish:conf_get("cluster.k8s.apiserver", Conf)},
                   {service_name, cuttlefish:conf_get("cluster.k8s.service_name", Conf)},
                   {address_type, cuttlefish:conf_get("cluster.k8s.address_type", Conf, ip)},
-                  {app_name, cuttlefish:conf_get("cluster.k8s.app_name", Conf)}];
+                  {app_name, cuttlefish:conf_get("cluster.k8s.app_name", Conf)},
+                  {namespace, cuttlefish:conf_get("cluster.k8s.namespace", Conf)}];
                (manual) ->
                  [ ]
             end,
@@ -434,7 +439,7 @@ end}.
     ConsoleLogLevel = cuttlefish:conf_get("log.console.level", Conf),
     ConsoleLogFile = cuttlefish:conf_get("log.console.file", Conf),
 
-    ConsoleHandler = {lager_console_backend, ConsoleLogLevel},
+    ConsoleHandler = {lager_console_backend, [ConsoleLogLevel]},
     ConsoleFileHandler = {lager_file_backend, [{file, ConsoleLogFile},
                                                {level, ConsoleLogLevel},
                                                {size, cuttlefish:conf_get("log.console.size", Conf)},

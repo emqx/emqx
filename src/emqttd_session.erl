@@ -32,7 +32,7 @@
 %%
 %% QoS 1 and QoS 2 messages pending transmission to the Client.
 %%
-%% QoS 2 messages which have been received from the Client, but have not 
+%% QoS 2 messages which have been received from the Client, but have not
 %% been completely acknowledged.
 %%
 %% Optionally, QoS 0 messages pending transmission to the Client.
@@ -720,7 +720,7 @@ enqueue_msg(Msg, State = #state{mqueue = Q}) ->
 %%--------------------------------------------------------------------
 
 redeliver(Msg = #mqtt_message{qos = QoS}, State) ->
-    deliver(Msg#mqtt_message{dup = if QoS =:= ?QOS2 -> false; true -> true end}, State);
+    deliver(Msg#mqtt_message{dup = if QoS =:= ?QOS0 -> false; true -> true end}, State);
 
 redeliver({pubrel, PacketId}, #state{client_pid = Pid}) ->
     Pid ! {redeliver, {?PUBREL, PacketId}}.
@@ -759,7 +759,7 @@ acked(pubrec, PacketId, State = #state{client_id = ClientId,
     case Inflight:lookup(PacketId) of
         {publish, Msg, _Ts} ->
             emqttd_hooks:run('message.acked', [ClientId, Username], Msg),
-            State#state{inflight = Inflight:update(PacketId, {pubrel, PacketId, os:timestamp()})}; 
+            State#state{inflight = Inflight:update(PacketId, {pubrel, PacketId, os:timestamp()})};
         {pubrel, PacketId, _Ts} ->
             ?LOG(warning, "Duplicated PUBREC Packet: ~p", [PacketId], State),
             State
@@ -853,4 +853,3 @@ shutdown(Reason, State) ->
 
 gc(State) ->
     emqttd_gc:maybe_force_gc(#state.force_gc_count, State).
-
