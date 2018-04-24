@@ -59,7 +59,7 @@
 %%
 %% QoS 1 and QoS 2 messages pending transmission to the Client.
 %%
-%% QoS 2 messages which have been received from the Client, but have not 
+%% QoS 2 messages which have been received from the Client, but have not
 %% been completely acknowledged.
 %%
 %% Optionally, QoS 0 messages pending transmission to the Client.
@@ -739,7 +739,7 @@ acked(pubrec, PacketId, State = #state{client_id = ClientId,
     case Inflight:lookup(PacketId) of
         {publish, Msg, _Ts} ->
             emqx_hooks:run('message.acked', [ClientId, Username], Msg),
-            State#state{inflight = Inflight:update(PacketId, {pubrel, PacketId, os:timestamp()})}; 
+            State#state{inflight = Inflight:update(PacketId, {pubrel, PacketId, os:timestamp()})};
         {pubrel, PacketId, _Ts} ->
             ?LOG(warning, "Duplicated PUBREC Packet: ~p", [PacketId], State),
             State
