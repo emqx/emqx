@@ -117,10 +117,10 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos = Qos} = Header, Length, S
                false ->
                     {error, protocol_header_corrupt}
             end;
-        %{?CONNACK, <<FrameBin:Length/binary, Rest/binary>>} ->
-        %    <<_Reserved:7, SP:1, ReturnCode:8>> = FrameBin,
-        %    wrap(Header, #mqtt_packet_connack{ack_flags = SP,
-        %                                      return_code = ReturnCode }, Rest);
+        {?CONNACK, <<FrameBin:Length/binary, Rest/binary>>} ->
+            <<_Reserved:7, SP:1, ReasonCode:8>> = FrameBin,
+            wrap(Header, #mqtt_packet_connack{ack_flags = SP,
+                                              reason_code = ReasonCode}, Rest);
         {?PUBLISH, <<FrameBin:Length/binary, Rest/binary>>} ->
             {TopicName, Rest1} = parse_utf(FrameBin),
             {PacketId, Rest2} = case Qos of
@@ -154,11 +154,11 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos = Qos} = Header, Length, S
             wrap(Header, #mqtt_packet_subscribe{packet_id     = PacketId,
                                                 properties    = Properties,
                                                 topic_filters = TopicFilters}, Rest);
-        %{?SUBACK, <<FrameBin:Length/binary, Rest/binary>>} ->
-        %    <<PacketId:16/big, Rest1/binary>> = FrameBin,
-        %    {Properties, Rest2/binary>> = parse_properties(ProtoVer, Rest1),
-        %    wrap(Header, #mqtt_packet_suback{packet_id = PacketId, properties = Properties,
-        %                                     reason_codes = parse_qos(Rest1, [])}, Rest);
+        {?SUBACK, <<FrameBin:Length/binary, Rest/binary>>} ->
+            <<PacketId:16/big, Rest1/binary>> = FrameBin,
+            {Properties, Rest2} = parse_properties(Vsn, Rest1),
+            wrap(Header, #mqtt_packet_suback{packet_id = PacketId, properties = Properties,
+                                             reason_codes = parse_qos(Rest2, [])}, Rest);
         {?UNSUBSCRIBE, <<FrameBin:Length/binary, Rest/binary>>} ->
             %% 1 = Qos,
             <<PacketId:16/big, Rest1/binary>> = FrameBin,
@@ -167,18 +167,17 @@ parse_frame(Bin, #mqtt_packet_header{type = Type, qos = Qos} = Header, Length, S
             wrap(Header, #mqtt_packet_unsubscribe{packet_id  = PacketId,
                                                   properties = Properties,
                                                   topics     = Topics}, Rest);
-        %{?UNSUBACK, <<FrameBin:Length/binary, Rest/binary>>} ->
-        %    <<PacketId:16/big, Rest1/binary>> = FrameBin,
-        %    {Properties, Rest2} = parse_properties(ProtoVer, Rest1),
-        %    wrap(Header, #mqtt_packet_unsuback {
-        %       packet_id = PacketId,
-        %       properties = Properties }, Rest);
+        {?UNSUBACK, <<FrameBin:Length/binary, Rest/binary>>} ->
+            <<PacketId:16/big, Rest1/binary>> = FrameBin,
+            {Properties, _Rest2} = parse_properties(Vsn, Rest1),
+            wrap(Header, #mqtt_packet_unsuback{packet_id = PacketId,
+                                               properties = Properties}, Rest);
         {?PINGREQ, Rest} ->
             Length = 0,
             wrap(Header, Rest);
-        %{?PINGRESP, Rest} ->
-        %    Length = 0,
-        %    wrap(Header, Rest);
+        {?PINGRESP, Rest} ->
+            Length = 0,
+            wrap(Header, Rest);
         {?DISCONNECT, <<FrameBin:Length/binary, Rest/binary>>} ->
             if
                 Vsn == ?MQTT_PROTO_V5 ->
@@ -258,7 +257,7 @@ parse_property(<<16#16, Len:16/big, Val:Len/binary, Bin/binary>>, Props) ->
 parse_property(<<16#17, Val, Bin/binary>>, Props) ->
     parse_property(Bin, Props#{'Request-Problem-Information' => Val});
 %% 24: 'Will-Delay-Interval', Four Byte Integer;
-parse_property(<<16#18, Val:32, Bin/binary>>, Props) -> 
+parse_property(<<16#18, Val:32, Bin/binary>>, Props) ->
     parse_property(Bin, Props#{'Will-Delay-Interval' => Val});
 %% 25: 'Request-Response-Information', Byte;
 parse_property(<<16#19, Val, Bin/binary>>, Props) ->
@@ -326,6 +325,11 @@ parse_topics(?SUBSCRIBE = Sub, Bin, Topics) ->
 parse_topics(?UNSUBSCRIBE = Sub, Bin, Topics) ->
     {Name, <<Rest/binary>>} = parse_utf(Bin),
     parse_topics(Sub, Rest, [Name | Topics]).
+
+parse_qos(<<>>, Acc) ->
+    lists:reverse(Acc);
+parse_qos(<<QoS:8/unsigned, Rest/binary>>, Acc) ->
+    parse_qos(Rest, [QoS | Acc]).
 
 parse_utf_pair(Bin) ->
     [{Name, Value} || <<Len:16/big, Name:Len/binary, Len2:16/big, Value:Len2/binary>> <= Bin].

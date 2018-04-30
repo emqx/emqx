@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 %%--------------------------------------------------------------------
 %% MQTT SockOpts
@@ -190,10 +190,10 @@
 
 -type(mqtt_properties() :: undefined | map()).
 
--type(mqtt_subopt() :: list({qos, mqtt_qos()}
-                          | {retain_handling, boolean()}
-                          | {keep_retain, boolean()}
-                          | {no_local, boolean()})).
+-type(mqtt_subopt() :: {qos, mqtt_qos()}
+                     | {retain_handling, boolean()}
+                     | {keep_retain, boolean()}
+                     | {no_local, boolean()}).
 
 -record(mqtt_packet_connect,
         { client_id   = <<>>           :: mqtt_client_id(),
@@ -323,15 +323,27 @@
                                                  packet_id  = PacketId},
                  payload  = Payload}).
 
+-define(PUBACK_PACKET(PacketId),
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBACK},
+                 variable = #mqtt_packet_puback{packet_id = PacketId}}).
+
 -define(PUBACK_PACKET(Type, PacketId),
     #mqtt_packet{header   = #mqtt_packet_header{type = Type},
+                 variable = #mqtt_packet_puback{packet_id = PacketId}}).
+
+-define(PUBREC_PACKET(PacketId),
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREC},
                  variable = #mqtt_packet_puback{packet_id = PacketId}}).
 
 -define(PUBREL_PACKET(PacketId),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREL, qos = ?QOS_1},
                  variable = #mqtt_packet_puback{packet_id = PacketId}}).
 
--define(SUBSCRIBE_PACKET(PacketId, TopicFilters), 
+-define(PUBCOMP_PACKET(PacketId),
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBCOMP},
+                 variable = #mqtt_packet_puback{packet_id = PacketId}}).
+
+-define(SUBSCRIBE_PACKET(PacketId, TopicFilters),
     #mqtt_packet{header = #mqtt_packet_header{type = ?SUBSCRIBE, qos = ?QOS_1},
                  variable = #mqtt_packet_subscribe{packet_id     = PacketId,
                                                    topic_filters = TopicFilters}}).
@@ -375,7 +387,7 @@
           %% Topic that the message is published to
           topic           :: binary(),
           %% Message QoS
-          qos     = 0     :: mqtt_qos(),
+          qos     = ?QOS0 :: mqtt_qos(),
           %% Message Flags
           flags   = []    :: [retain | dup | sys],
           %% Retain flag
@@ -384,8 +396,8 @@
           dup     = false :: boolean(),
           %% $SYS flag
           sys     = false :: boolean(),
-          %% Headers
-          headers = []    :: list(),
+          %% Properties
+          properties = [] :: list(),
           %% Payload
           payload         :: binary(),
           %% Timestamp

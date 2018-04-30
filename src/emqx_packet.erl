@@ -20,7 +20,7 @@
 
 -include("emqx_mqtt.hrl").
 
--export([protocol_name/1, type_name/1, connack_name/1]).
+-export([protocol_name/1, type_name/1, connack_error/1]).
 
 -export([format/1]).
 
@@ -37,14 +37,15 @@ protocol_name(?MQTT_PROTO_V5) -> <<"MQTT">>.
 type_name(Type) when Type > ?RESERVED andalso Type =< ?AUTH ->
     lists:nth(Type, ?TYPE_NAMES).
 
-%% @doc Connack Name
--spec(connack_name(mqtt_connack()) -> atom()).
-connack_name(?CONNACK_ACCEPT)      -> 'CONNACK_ACCEPT';
-connack_name(?CONNACK_PROTO_VER)   -> 'CONNACK_PROTO_VER';
-connack_name(?CONNACK_INVALID_ID)  -> 'CONNACK_INVALID_ID';
-connack_name(?CONNACK_SERVER)      -> 'CONNACK_SERVER';
-connack_name(?CONNACK_CREDENTIALS) -> 'CONNACK_CREDENTIALS';
-connack_name(?CONNACK_AUTH)        -> 'CONNACK_AUTH'.
+%% @doc Connack Error
+-spec(connack_error(mqtt_connack()) -> atom()).
+connack_error(?CONNACK_ACCEPT)      -> 'CONNACK_ACCEPT';
+connack_error(?CONNACK_PROTO_VER)   -> 'CONNACK_PROTO_VER';
+connack_error(?CONNACK_INVALID_ID)  -> 'CONNACK_INVALID_ID';
+connack_error(?CONNACK_SERVER)      -> 'CONNACK_SERVER';
+connack_error(?CONNACK_CREDENTIALS) -> 'CONNACK_CREDENTIALS';
+connack_error(?CONNACK_AUTH)        -> 'CONNACK_AUTH';
+connack_error(_ReasonCode)          -> 'CONNACK_UNKNOWN_ERR'.
 
 %% @doc From Message to Packet
 -spec(from_message(message()) -> mqtt_packet()).

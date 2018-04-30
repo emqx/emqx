@@ -31,9 +31,9 @@ new(MaxSize) when MaxSize >= 0 ->
 contain(Key, {?MODULE, [_MaxSize, Tree]}) ->
     gb_trees:is_defined(Key, Tree).
 
--spec(lookup(Key :: any(), inflight()) -> any()).
+-spec(lookup(Key :: any(), inflight()) -> {value, any()} | none).
 lookup(Key, {?MODULE, [_MaxSize, Tree]}) ->
-    gb_trees:get(Key, Tree).
+    gb_trees:lookup(Key, Tree).
 
 -spec(insert(Key :: any(), Value :: any(), inflight()) -> inflight()).
 insert(Key, Value, {?MODULE, [MaxSize, Tree]}) ->
