@@ -23,17 +23,11 @@
 -spec(merge_opts(list(), list()) -> list()).
 merge_opts(Defaults, Options) ->
     lists:foldl(
-        fun({Opt, Val}, Acc) ->
-                case lists:keymember(Opt, 1, Acc) of
-                    true  -> lists:keyreplace(Opt, 1, Acc, {Opt, Val});
-                    false -> [{Opt, Val}|Acc]
-                end;
-            (Opt, Acc) ->
-                case lists:member(Opt, Acc) of
-                    true  -> Acc;
-                    false -> [Opt | Acc]
-                end
-        end, Defaults, Options).
+      fun({Opt, Val}, Acc) ->
+          lists:keystore(Opt, 1, Acc, {Opt, Val});
+         (Opt, Acc) ->
+          lists:usort([Opt | Acc])
+      end, Defaults, Options).
 
 -spec(start_timer(integer(), term()) -> reference()).
 start_timer(Interval, Msg) ->
