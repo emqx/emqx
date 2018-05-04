@@ -30,7 +30,7 @@
 
 -export([load/0]).
 
--export([status/1, broker/1, cluster/1, users/1, clients/1, sessions/1,
+-export([status/1, broker/1, cluster/1, clients/1, sessions/1,
          routes/1, topics/1, subscriptions/1, plugins/1, bridges/1,
          listeners/1, vm/1, mnesia/1, trace/1, acl/1]).
 
@@ -152,9 +152,7 @@ cluster(_) ->
             {"cluster status",            "Cluster status"}]).
 
 %%--------------------------------------------------------------------
-%% @doc Users usage
-
-users(Args) -> emq_auth_username:cli(Args).
+%% @doc ACL reload
 
 acl(["reload"]) -> emqttd_access_control:reload_acl();
 acl(_) -> ?USAGE([{"acl reload", "reload etc/acl.conf"}]).
@@ -460,7 +458,7 @@ trace_on(Who, Name, LogFile) ->
 
 trace_off(Who, Name) ->
     case emqttd_trace:stop_trace({Who, iolist_to_binary(Name)}) of
-        ok -> 
+        ok ->
             ?PRINT("stop tracing ~s ~s successfully.~n", [Who, Name]);
         {error, Error} ->
             ?PRINT("stop tracing ~s ~s error: ~p.~n", [Who, Name, Error])
@@ -607,4 +605,3 @@ format(_, Val) ->
     Val.
 
 bin(S) -> iolist_to_binary(S).
-
