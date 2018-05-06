@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_connection).
 
@@ -49,7 +49,7 @@
 
 %% Unused fields: connname, peerhost, peerport
 -record(state, {connection, peername, conn_state, await_recv,
-                rate_limit, packet_size, parser, proto_state,
+                rate_limit, max_packet_size, proto_state, parse_state,
                 keepalive, enable_stats, idle_timeout, force_gc_count}).
 
 -define(INFO_KEYS, [peername, conn_state, await_recv]).
@@ -109,24 +109,22 @@ do_init(Conn, Env, Peername) ->
     SendFun = send_fun(Conn, Peername),
     RateLimit = get_value(rate_limit, Conn:opts()),
     PacketSize = get_value(max_packet_size, Env, ?MAX_PACKET_SIZE),
-    Parser = emqx_parser:initial_state(PacketSize),
     ProtoState = emqx_protocol:init(Conn, Peername, SendFun, Env),
     EnableStats = get_value(client_enable_stats, Env, false),
     IdleTimout = get_value(client_idle_timeout, Env, 30000),
     ForceGcCount = emqx_gc:conn_max_gc_count(),
-    State = run_socket(#state{connection     = Conn,
-                              peername       = Peername,
-                              await_recv     = false,
-                              conn_state     = running,
-                              rate_limit     = RateLimit,
-                              packet_size    = PacketSize,
-                              parser         = Parser,
-                              proto_state    = ProtoState,
-                              enable_stats   = EnableStats,
-                              idle_timeout   = IdleTimout,
-                              force_gc_count = ForceGcCount}),
+    State = run_socket(#state{connection      = Conn,
+                              peername        = Peername,
+                              await_recv      = false,
+                              conn_state      = running,
+                              rate_limit      = RateLimit,
+                              max_packet_size = PacketSize,
+                              proto_state     = ProtoState,
+                              enable_stats    = EnableStats,
+                              idle_timeout    = IdleTimout,
+                              force_gc_count  = ForceGcCount}),
     gen_server:enter_loop(?MODULE, [{hibernate_after, 10000}],
-                          State, self(), IdleTimout).
+                          init_parse_state(State), self(), IdleTimout).
 
 send_fun(Conn, Peername) ->
     Self = self(),
@@ -142,6 +140,11 @@ send_fun(Conn, Peername) ->
             error:Error -> Self ! {shutdown, Error}
         end
     end.
+
+init_parse_state(State = #state{max_packet_size = Size, proto_state = ProtoState}) ->
+    emqx_parser:initial_state([{max_len, Size},
+                               {ver, emqx_protocol:get(proto_ver, ProtoState)}]),
+    State.
 
 handle_pre_hibernate(State) ->
     {hibernate, emqx_gc:reset_conn_gc_count(#state.force_gc_count, emit_stats(State))}.
@@ -308,19 +311,17 @@ code_change(_OldVsn, State, _Extra) ->
 received(<<>>, State) ->
     {noreply, gc(State)};
 
-received(Bytes, State = #state{parser       = Parser,
-                               packet_size  = PacketSize,
+received(Bytes, State = #state{parse_state  = ParseState,
                                proto_state  = ProtoState,
                                idle_timeout = IdleTimeout}) ->
-    case catch emqx_parser:parse(Bytes, Parser) of
-        {more, NewParser} ->
-            {noreply, run_socket(State#state{parser = NewParser}), IdleTimeout};
+    case catch emqx_parser:parse(Bytes, ParseState) of
+        {more, NewParseState} ->
+            {noreply, State#state{parse_state = NewParseState}, IdleTimeout};
         {ok, Packet, Rest} ->
             emqx_metrics:received(Packet),
             case emqx_protocol:received(Packet, ProtoState) of
                 {ok, ProtoState1} ->
-                    received(Rest, State#state{parser = emqx_parser:initial_state(PacketSize),
-	    	                               proto_state = ProtoState1});
+                    received(Rest, init_parse_state(State#state{proto_state = ProtoState1}));
                 {error, Error} ->
                     ?LOG(error, "Protocol error - ~p", [Error], State),
                     shutdown(Error, State);

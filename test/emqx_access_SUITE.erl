@@ -118,8 +118,8 @@ unregister_mod(_) ->
     [] = ?AC:lookup_mods(auth).
 
 check_acl(_) ->
-    User1 = #mqtt_client{client_id = <<"client1">>, username = <<"testuser">>},
-    User2 = #mqtt_client{client_id = <<"client2">>, username = <<"xyz">>},
+    User1 = #client{client_id = <<"client1">>, username = <<"testuser">>},
+    User2 = #client{client_id = <<"client2">>, username = <<"xyz">>},
     allow = ?AC:check_acl(User1, subscribe, <<"users/testuser/1">>),
     allow = ?AC:check_acl(User1, subscribe, <<"clients/client1">>),
     allow = ?AC:check_acl(User1, subscribe, <<"clients/client1/x/y">>),
@@ -158,8 +158,8 @@ compile_rule(_) ->
     {deny, all} = compile({deny, all}).
 
 match_rule(_) ->
-    User = #mqtt_client{peername = {{127,0,0,1}, 2948}, client_id = <<"testClient">>, username = <<"TestUser">>},
-    User2 = #mqtt_client{peername = {{192,168,0,10}, 3028}, client_id = <<"testClient">>, username = <<"TestUser">>},
+    User = #client{peername = {{127,0,0,1}, 2948}, client_id = <<"testClient">>, username = <<"TestUser">>},
+    User2 = #client{peername = {{192,168,0,10}, 3028}, client_id = <<"testClient">>, username = <<"TestUser">>},
     
     {matched, allow} = match(User, <<"Test/Topic">>, {allow, all}),
     {matched, deny} = match(User, <<"Test/Topic">>, {deny, all}),
@@ -169,7 +169,7 @@ match_rule(_) ->
     nomatch = match(User, <<"d/e/f/x">>, compile({allow, {user, "admin"}, pubsub, ["d/e/f/#"]})),
     {matched, allow} = match(User, <<"testTopics/testClient">>, compile({allow, {client, "testClient"}, publish, ["testTopics/testClient"]})),
     {matched, allow} = match(User, <<"clients/testClient">>, compile({allow, all, pubsub, ["clients/%c"]})),
-    {matched, allow} = match(#mqtt_client{username = <<"user2">>}, <<"users/user2/abc/def">>,
+    {matched, allow} = match(#client{username = <<"user2">>}, <<"users/user2/abc/def">>,
                              compile({allow, all, subscribe, ["users/%u/#"]})),
     {matched, deny} = match(User, <<"d/e/f">>, compile({deny, all, subscribe, ["$SYS/#", "#"]})),
     Rule = compile({allow, {'and', [{ipaddr, "127.0.0.1"}, {user, <<"WrongUser">>}]}, publish, <<"Topic">>}),

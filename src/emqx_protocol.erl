@@ -25,7 +25,7 @@
 -import(proplists, [get_value/2, get_value/3]).
 
 %% API
--export([init/3, init/4, info/1, stats/1, clientid/1, client/1, session/1]).
+-export([init/3, init/4, get/2, info/1, stats/1, clientid/1, client/1, session/1]).
 
 -export([subscribe/2, unsubscribe/2, pubrel/2, shutdown/2]).
 
@@ -43,14 +43,14 @@
 %% Protocol State
 %% ws_initial_headers: Headers from first HTTP request for WebSocket Client.
 -record(proto_state, {peername, sendfun, connected = false, client_id, client_pid,
-                      clean_sess, proto_ver, proto_name, username, is_superuser,
+                      clean_start, proto_ver, proto_name, username, is_superuser,
                       will_msg, keepalive, keepalive_backoff, max_clientid_len,
                       session, stats_data, mountpoint, ws_initial_headers,
                       peercert_username, is_bridge, connected_at}).
 
 -type(proto_state() :: #proto_state{}).
 
--define(INFO_KEYS, [client_id, username, clean_sess, proto_ver, proto_name,
+-define(INFO_KEYS, [client_id, username, clean_start, proto_ver, proto_name,
                     keepalive, will_msg, ws_initial_headers, mountpoint,
                     peercert_username, connected_at]).
 
@@ -98,6 +98,12 @@ repl_username_with_peercert(State = #proto_state{peercert_username = undefined})
 repl_username_with_peercert(State = #proto_state{peercert_username = PeerCert}) ->
     State#proto_state{username = PeerCert}.
 
+%%TODO::
+get(proto_ver, #proto_state{proto_ver = Ver}) ->
+    Ver;
+get(_, _ProtoState) ->
+    undefined.
+
 info(ProtoState) ->
     ?record_to_proplist(proto_state, ProtoState, ?INFO_KEYS).
 
@@ -111,7 +117,7 @@ client(#proto_state{client_id          = ClientId,
                     client_pid         = ClientPid,
                     peername           = Peername,
                     username           = Username,
-                    clean_sess         = CleanSess,
+                    clean_start        = CleanStart,
                     proto_ver          = ProtoVer,
                     keepalive          = Keepalive,
                     will_msg           = WillMsg,
@@ -133,7 +139,7 @@ session(#proto_state{session = Session}) ->
 
 %% CONNECT – Client requests a connection to a Server
 
-%% A Client can only send the CONNECT Packet once over a Network Connection. 
+%% A Client can only send the CONNECT Packet once over a Network Connection.
 -spec(received(mqtt_packet(), proto_state()) -> {ok, proto_state()} | {error, term()}).
 received(Packet = ?PACKET(?CONNECT),
          State = #proto_state{connected = false, stats_data = Stats}) ->
@@ -188,8 +194,8 @@ process(?CONNECT_PACKET(Var), State0) ->
                          proto_name = ProtoName,
                          username   = Username,
                          password   = Password,
-                         clean_sess = CleanSess,
-                         keep_alive = KeepAlive,
+                         clean_start= CleanStart,
+                         keepalive  = KeepAlive,
                          client_id  = ClientId,
                          is_bridge  = IsBridge} = Var,
 
@@ -198,7 +204,7 @@ process(?CONNECT_PACKET(Var), State0) ->
                                   proto_name   = ProtoName,
                                   username     = Username,
                                   client_id    = ClientId,
-                                  clean_sess   = CleanSess,
+                                  clean_start  = CleanStart,
                                   keepalive    = KeepAlive,
                                   will_msg     = willmsg(Var, State0),
                                   is_bridge    = IsBridge,
@@ -206,14 +212,14 @@ process(?CONNECT_PACKET(Var), State0) ->
 
     {ReturnCode1, SessPresent, State3} =
     case validate_connect(Var, State1) of
-        ?CONNACK_ACCEPT ->
+        ?RC_SUCCESS ->
             case authenticate(client(State1), Password) of
                 {ok, IsSuperuser} ->
                     %% Generate clientId if null
                     State2 = maybe_set_clientid(State1),
 
                     %% Start session
-                    case emqx_sm:open_session(#{clean_start => CleanSess,
+                    case emqx_sm:open_session(#{clean_start => CleanStart,
                                                 client_id   => clientid(State2),
                                                 username    => Username,
                                                 client_pid  => self()}) of
@@ -227,13 +233,13 @@ process(?CONNECT_PACKET(Var), State0) ->
                             %% Emit Stats
                             self() ! emit_stats,
                             %% ACCEPT
-                            {?CONNACK_ACCEPT, SP, State2#proto_state{session = Session, is_superuser = IsSuperuser}};
+                            {?RC_SUCCESS, SP, State2#proto_state{session = Session, is_superuser = IsSuperuser}};
                         {error, Error} ->
                             {stop, {shutdown, Error}, State2}
                     end;
                 {error, Reason}->
                     ?LOG(error, "Username '~s' login failed for ~p", [Username, Reason], State1),
-                    {?CONNACK_CREDENTIALS, false, State1}
+                    {?RC_BAD_USER_NAME_OR_PASSWORD, false, State1}
             end;
         ReturnCode ->
             {ReturnCode, false, State1}
@@ -252,19 +258,19 @@ process(Packet = ?PUBLISH_PACKET(_Qos, Topic, _PacketId, _Payload), State = #pro
     end,
     {ok, State};
 
-process(?PUBACK_PACKET(?PUBACK, PacketId), State = #proto_state{session = Session}) ->
+process(?PUBACK_PACKET(PacketId), State = #proto_state{session = Session}) ->
     emqx_session:puback(Session, PacketId),
     {ok, State};
 
-process(?PUBACK_PACKET(?PUBREC, PacketId), State = #proto_state{session = Session}) ->
+process(?PUBREC_PACKET(PacketId), State = #proto_state{session = Session}) ->
     emqx_session:pubrec(Session, PacketId),
     send(?PUBREL_PACKET(PacketId), State);
 
-process(?PUBACK_PACKET(?PUBREL, PacketId), State = #proto_state{session = Session}) ->
+process(?PUBREL_PACKET(PacketId), State = #proto_state{session = Session}) ->
     emqx_session:pubrel(Session, PacketId),
-    send(?PUBACK_PACKET(?PUBCOMP, PacketId), State);
+    send(?PUBCOMP_PACKET(PacketId), State);
 
-process(?PUBACK_PACKET(?PUBCOMP, PacketId), State = #proto_state{session = Session})->
+process(?PUBCOMP_PACKET(PacketId), State = #proto_state{session = Session})->
     emqx_session:pubcomp(Session, PacketId), {ok, State};
 
 %% Protect from empty topic table
@@ -346,7 +352,10 @@ with_puback(Type, Packet = ?PUBLISH_PACKET(_Qos, PacketId),
     Msg1 = Msg#message{from = #client{client_id = ClientId, username = Username}},
     case emqx_session:publish(Session, mount(replvar(MountPoint, State), Msg1)) of
         ok ->
-            send(?PUBACK_PACKET(Type, PacketId), State);
+            case Type of
+                ?PUBACK -> send(?PUBACK_PACKET(PacketId), State);
+                ?PUBREC -> send(?PUBREC_PACKET(PacketId), State)
+            end;
         {error, Error} ->
             ?LOG(error, "PUBLISH ~p error: ~p", [PacketId, Error], State)
     end.
@@ -390,11 +399,10 @@ inc_stats(Type, PktPos, PktCnt, MsgPos, MsgCnt, Stats) ->
         false -> Stats1
     end.
 
-stop_if_auth_failure(RC, State) when RC == ?CONNACK_CREDENTIALS; RC == ?CONNACK_AUTH ->
-    {stop, {shutdown, auth_failure}, State};
-
-stop_if_auth_failure(_RC, State) ->
-    {ok, State}.
+stop_if_auth_failure(?RC_SUCCESS, State) ->
+    {ok, State};
+stop_if_auth_failure(RC, State) when RC =/= ?RC_SUCCESS ->
+    {stop, {shutdown, auth_failure}, State}.
 
 shutdown(_Error, #proto_state{client_id = undefined}) ->
     ignore;
@@ -450,15 +458,13 @@ start_keepalive(Sec, #proto_state{keepalive_backoff = Backoff}) when Sec > 0 ->
 
 validate_connect(Connect = #mqtt_packet_connect{}, ProtoState) ->
     case validate_protocol(Connect) of
-        true -> 
+        true ->
             case validate_clientid(Connect, ProtoState) of
-                true -> 
-                    ?CONNACK_ACCEPT;
-                false -> 
-                    ?CONNACK_INVALID_ID
+                true  -> ?RC_SUCCESS;
+                false -> ?RC_CLIENT_IDENTIFIER_NOT_VALID
             end;
-        false -> 
-            ?CONNACK_PROTO_VER
+        false ->
+            ?RC_UNSUPPORTED_PROTOCOL_VERSION
     end.
 
 validate_protocol(#mqtt_packet_connect{proto_ver = Ver, proto_name = Name}) ->
@@ -469,10 +475,10 @@ validate_clientid(#mqtt_packet_connect{client_id = ClientId},
     when (byte_size(ClientId) >= 1) andalso (byte_size(ClientId) =< MaxLen) ->
     true;
 
-%% Issue#599: Null clientId and clean_sess = false
-validate_clientid(#mqtt_packet_connect{client_id  = ClientId,
-                                       clean_sess = CleanSess}, _ProtoState)
-    when byte_size(ClientId) == 0 andalso (not CleanSess) ->
+%% Issue#599: Null clientId and clean_start = false
+validate_clientid(#mqtt_packet_connect{client_id   = ClientId,
+                                       clean_start = CleanStart}, _ProtoState)
+    when byte_size(ClientId) == 0 andalso (not CleanStart) ->
     false;
 
 %% MQTT3.1.1 allow null clientId.
@@ -481,10 +487,10 @@ validate_clientid(#mqtt_packet_connect{proto_ver =?MQTT_PROTO_V4,
     when byte_size(ClientId) =:= 0 ->
     true;
 
-validate_clientid(#mqtt_packet_connect{proto_ver  = ProtoVer,
-                                       clean_sess = CleanSess}, ProtoState) ->
-    ?LOG(warning, "Invalid clientId. ProtoVer: ~p, CleanSess: ~s",
-         [ProtoVer, CleanSess], ProtoState),
+validate_clientid(#mqtt_packet_connect{proto_ver   = ProtoVer,
+                                       clean_start = CleanStart}, ProtoState) ->
+    ?LOG(warning, "Invalid clientId. ProtoVer: ~p, CleanStart: ~s",
+         [ProtoVer, CleanStart], ProtoState),
     false.
 
 validate_packet(?PUBLISH_PACKET(_Qos, Topic, _PacketId, _Payload)) ->
@@ -499,7 +505,7 @@ validate_packet(?SUBSCRIBE_PACKET(_PacketId, TopicTable)) ->
 validate_packet(?UNSUBSCRIBE_PACKET(_PacketId, Topics)) ->
     validate_topics(filter, Topics);
 
-validate_packet(_Packet) -> 
+validate_packet(_Packet) ->
     ok.
 
 validate_topics(_Type, []) ->

@@ -20,14 +20,14 @@
 
 -include("emqx_mqtt.hrl").
 
--export([protocol_name/1, type_name/1, connack_error/1]).
+-export([protocol_name/1, type_name/1]).
 
 -export([format/1]).
 
 -export([to_message/1, from_message/1]).
 
 %% @doc Protocol name of version
--spec(protocol_name(mqtt_vsn()) -> binary()).
+-spec(protocol_name(mqtt_version()) -> binary()).
 protocol_name(?MQTT_PROTO_V3) -> <<"MQIsdp">>;
 protocol_name(?MQTT_PROTO_V4) -> <<"MQTT">>;
 protocol_name(?MQTT_PROTO_V5) -> <<"MQTT">>.
@@ -36,16 +36,6 @@ protocol_name(?MQTT_PROTO_V5) -> <<"MQTT">>.
 -spec(type_name(mqtt_packet_type()) -> atom()).
 type_name(Type) when Type > ?RESERVED andalso Type =< ?AUTH ->
     lists:nth(Type, ?TYPE_NAMES).
-
-%% @doc Connack Error
--spec(connack_error(mqtt_connack()) -> atom()).
-connack_error(?CONNACK_ACCEPT)      -> 'CONNACK_ACCEPT';
-connack_error(?CONNACK_PROTO_VER)   -> 'CONNACK_PROTO_VER';
-connack_error(?CONNACK_INVALID_ID)  -> 'CONNACK_INVALID_ID';
-connack_error(?CONNACK_SERVER)      -> 'CONNACK_SERVER';
-connack_error(?CONNACK_CREDENTIALS) -> 'CONNACK_CREDENTIALS';
-connack_error(?CONNACK_AUTH)        -> 'CONNACK_AUTH';
-connack_error(_ReasonCode)          -> 'CONNACK_UNKNOWN_ERR'.
 
 %% @doc From Message to Packet
 -spec(from_message(message()) -> mqtt_packet()).
@@ -68,7 +58,7 @@ from_message(Msg = #message{qos     = Qos,
 to_message(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                                                        retain = Retain,
                                                        qos    = Qos,
-                                                       dup    = Dup}, 
+                                                       dup    = Dup},
                         variable = #mqtt_packet_publish{topic_name = Topic,
                                                         packet_id  = PacketId,
                                                         properties = Props},
@@ -80,11 +70,11 @@ to_message(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                 properties = Props};
 to_message(#mqtt_packet_connect{will_flag = false}) ->
     undefined;
-to_message(#mqtt_packet_connect{will_retain = Retain,
-                                will_qos    = Qos,
-                                will_topic  = Topic,
-                                will_props  = Props,
-                                will_msg    = Payload}) ->
+to_message(#mqtt_packet_connect{will_retain  = Retain,
+                                will_qos     = Qos,
+                                will_topic   = Topic,
+                                will_props   = Props,
+                                will_payload = Payload}) ->
     Msg = emqx_message:make(undefined, Topic, Payload),
     Msg#message{flags      = #{retain => Retain},
                 headers    = #{qos => Qos},
@@ -99,7 +89,7 @@ format_header(#mqtt_packet_header{type = Type,
                                   dup = Dup,
                                   qos = QoS,
                                   retain = Retain}, S) ->
-    S1 = if 
+    S1 = if
              S == undefined -> <<>>;
              true           -> [", ", S]
          end,
@@ -113,23 +103,23 @@ format_variable(Variable, Payload) ->
     io_lib:format("~s, Payload=~p", [format_variable(Variable), Payload]).
 
 format_variable(#mqtt_packet_connect{
-                 proto_ver   = ProtoVer,
-                 proto_name  = ProtoName,
-                 will_retain = WillRetain,
-                 will_qos    = WillQoS,
-                 will_flag   = WillFlag,
-                 clean_sess  = CleanSess,
-                 keep_alive  = KeepAlive,
-                 client_id   = ClientId,
-                 will_topic  = WillTopic, 
-                 will_msg    = WillMsg, 
-                 username    = Username, 
-                 password    = Password}) ->
-    Format = "ClientId=~s, ProtoName=~s, ProtoVsn=~p, CleanSess=~s, KeepAlive=~p, Username=~s, Password=~s",
-    Args = [ClientId, ProtoName, ProtoVer, CleanSess, KeepAlive, Username, format_password(Password)],
-    {Format1, Args1} = if 
-                        WillFlag -> { Format ++ ", Will(Q~p, R~p, Topic=~s, Msg=~s)",
-                                      Args ++ [WillQoS, i(WillRetain), WillTopic, WillMsg] };
+                 proto_ver    = ProtoVer,
+                 proto_name   = ProtoName,
+                 will_retain  = WillRetain,
+                 will_qos     = WillQoS,
+                 will_flag    = WillFlag,
+                 clean_start  = CleanStart,
+                 keepalive    = KeepAlive,
+                 client_id    = ClientId,
+                 will_topic   = WillTopic,
+                 will_payload = WillPayload,
+                 username     = Username,
+                 password     = Password}) ->
+    Format = "ClientId=~s, ProtoName=~s, ProtoVsn=~p, CleanStart=~s, KeepAlive=~p, Username=~s, Password=~s",
+    Args = [ClientId, ProtoName, ProtoVer, CleanStart, KeepAlive, Username, format_password(Password)],
+    {Format1, Args1} = if
+                        WillFlag -> { Format ++ ", Will(Q~p, R~p, Topic=~s, Payload=~p)",
+                                      Args ++ [WillQoS, i(WillRetain), WillTopic, WillPayload] };
                         true -> {Format, Args}
                        end,
     io_lib:format(Format1, Args1);
@@ -149,9 +139,9 @@ format_variable(#mqtt_packet_subscribe{packet_id     = PacketId,
                                        topic_filters = TopicFilters}) ->
     io_lib:format("PacketId=~p, TopicFilters=~p", [PacketId, TopicFilters]);
 
-format_variable(#mqtt_packet_unsubscribe{packet_id = PacketId,
-                                         topics    = Topics}) ->
-    io_lib:format("PacketId=~p, Topics=~p", [PacketId, Topics]);
+format_variable(#mqtt_packet_unsubscribe{packet_id     = PacketId,
+                                         topic_filters = Topics}) ->
+    io_lib:format("PacketId=~p, TopicFilters=~p", [PacketId, Topics]);
 
 format_variable(#mqtt_packet_suback{packet_id = PacketId,
                                     reason_codes = ReasonCodes}) ->

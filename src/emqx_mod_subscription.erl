@@ -33,10 +33,10 @@
 load(Topics) ->
     emqx:hook('client.connected', fun ?MODULE:on_client_connected/3, [Topics]).
 
-on_client_connected(?CONNACK_ACCEPT, Client = #client{client_id  = ClientId,
-                                                      client_pid = ClientPid,
-                                                      username   = Username}, Topics) ->
-
+on_client_connected(RC, Client = #client{client_id  = ClientId,
+                                         client_pid = ClientPid,
+                                         username   = Username}, Topics)
+    when RC < 16#80 ->
     Replace = fun(Topic) -> rep(<<"%u">>, Username, rep(<<"%c">>, ClientId, Topic)) end,
     TopicTable = [{Replace(Topic), Qos} || {Topic, Qos} <- Topics],
     ClientPid ! {subscribe, TopicTable},

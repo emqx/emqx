@@ -87,7 +87,7 @@ parse_connect(_) ->
                                                       keep_alive = 60}}, <<>>} = emqx_parser:parse(V31ConnBin, Parser),
     %% CONNECT(Q0, R0, D0, ClientId=mosqpub/10451-iMac.loca, ProtoName=MQTT, ProtoVsn=4, CleanSess=true, KeepAlive=60, Username=undefined, Password=undefined)
     V311ConnBin = <<16,35,0,4,77,81,84,84,4,2,0,60,0,23,109,111,115,113,112,117,98,47,49,48,52,53,49,45,105,77,97,99,46,108,111,99,97>>,
-    {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT, 
+    {ok, #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT,
                                                    dup = false,
                                                    qos = 0,
                                                    retain = false},
@@ -160,7 +160,7 @@ parse_publish(_) ->
                       variable = #mqtt_packet_publish{topic_name = <<"a/b/c">>,
                                                       packet_id = 1},
                       payload = <<"hahah">> }, <<>>} = emqx_parser:parse(PubBin, Parser),
-    
+
     %PUBLISH(Qos=0, Retain=false, Dup=false, TopicName=xxx/yyy, PacketId=undefined, Payload=<<"hello">>)
     %DISCONNECT(Qos=0, Retain=false, Dup=false)
     PubBin1 = <<48,14,0,7,120,120,120,47,121,121,121,104,101,108,108,111,224,0>>,
@@ -243,62 +243,6 @@ parse_disconnect(_) ->
                                                    dup  = false,
                                                    qos  = 0,
                                                    retain = false}}, <<>>} = emqx_parser:parse(Bin, Parser).
-
-%%--------------------------------------------------------------------
-%% Serialize Cases
-%%--------------------------------------------------------------------
-
-serialize_connect(_) ->
-    serialize(?CONNECT_PACKET(#mqtt_packet_connect{})),
-    serialize(?CONNECT_PACKET(#mqtt_packet_connect{
-                client_id = <<"clientId">>,
-                will_qos = ?QOS1,
-                will_flag = true,
-                will_retain = true,
-                will_topic = <<"will">>,
-                will_msg = <<"haha">>,
-                clean_sess = true})).
-
-serialize_connack(_) ->
-    ConnAck = #mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK}, 
-                           variable = #mqtt_packet_connack{ack_flags = 0, return_code = 0}},
-    ?assertEqual(<<32,2,0,0>>, iolist_to_binary(serialize(ConnAck))).
-
-serialize_publish(_) ->
-    serialize(?PUBLISH_PACKET(?QOS_0, <<"Topic">>, undefined, <<"Payload">>)),
-    serialize(?PUBLISH_PACKET(?QOS_1, <<"Topic">>, 938, <<"Payload">>)),
-    serialize(?PUBLISH_PACKET(?QOS_2, <<"Topic">>, 99, long_payload())).
-
-serialize_puback(_) ->
-    serialize(?PUBACK_PACKET(?PUBACK, 10384)).
-
-serialize_pubrel(_) ->
-    serialize(?PUBREL_PACKET(10384)).
-
-serialize_subscribe(_) ->
-    TopicTable = [{<<"TopicQos0">>, ?QOS_0}, {<<"TopicQos1">>, ?QOS_1}, {<<"TopicQos2">>, ?QOS_2}],
-    serialize(?SUBSCRIBE_PACKET(10, TopicTable)).
-
-serialize_suback(_) ->
-    serialize(?SUBACK_PACKET(10, [?QOS_0, ?QOS_1, 128])).
-
-serialize_unsubscribe(_) ->
-    serialize(?UNSUBSCRIBE_PACKET(10, [<<"Topic1">>, <<"Topic2">>])).
-
-serialize_unsuback(_) ->
-    serialize(?UNSUBACK_PACKET(10)).
-
-serialize_pingreq(_) ->
-    serialize(?PACKET(?PINGREQ)).
-
-serialize_pingresp(_) ->
-    serialize(?PACKET(?PINGRESP)).
-
-serialize_disconnect(_) ->
-    serialize(?PACKET(?DISCONNECT)).
-
-long_payload() ->
-    iolist_to_binary(["payload." || _I <- lists:seq(1, 100)]).
 
 %%--------------------------------------------------------------------
 %% Packet Cases

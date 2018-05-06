@@ -38,5 +38,5 @@ init([]) ->
     Manager = {manager, {emqx_sm, start_link, []},
                permanent, 5000, worker, [emqx_sm]},
 
-    {ok, {{one_for_rest, 10, 3600}, [Locker, Registry, Manager]}}.
+    {ok, {{rest_for_one, 10, 3600}, [Locker, Registry, Manager]}}.
 

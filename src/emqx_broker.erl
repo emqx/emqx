@@ -56,7 +56,7 @@
 -spec(start_link(atom(), pos_integer())
       -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id) ->
-    gen_server:start_link(emqx_misc:proc_name(?MODULE, Id),
+    gen_server:start_link({local, emqx_misc:proc_name(?MODULE, Id)},
                           ?MODULE, [Pool, Id], [{hibernate_after, 2000}]).
 
 %%--------------------------------------------------------------------

@@ -1,0 +1,110 @@
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
+
+-module(emqx_reason_codes).
+
+-export([name/1, text/1]).
+
+name(16#00) -> success;
+name(16#01) -> granted_qos1;
+name(16#02) -> granted_qos2;
+name(16#04) -> disconnect_with_will_message;
+name(16#10) -> no_matching_subscribers;
+name(16#11) -> no_subscription_existed;
+name(16#18) -> continue_authentication;
+name(16#19) -> re_authenticate;
+name(16#80) -> unspecified_error;
+name(16#81) -> malformed_Packet;
+name(16#82) -> protocol_error;
+name(16#83) -> implementation_specific_error;
+name(16#84) -> unsupported_protocol_version;
+name(16#85) -> client_identifier_not_valid;
+name(16#86) -> bad_username_or_password;
+name(16#87) -> not_authorized;
+name(16#88) -> server_unavailable;
+name(16#89) -> server_busy;
+name(16#8A) -> banned;
+name(16#8B) -> server_shutting_down;
+name(16#8C) -> bad_authentication_method;
+name(16#8D) -> keepalive_timeout;
+name(16#8E) -> session_taken_over;
+name(16#8F) -> topic_filter_invalid;
+name(16#90) -> topic_name_invalid;
+name(16#91) -> packet_identifier_inuse;
+name(16#92) -> packet_identifier_not_found;
+name(16#93) -> receive_maximum_exceeded;
+name(16#94) -> topic_alias_invalid;
+name(16#95) -> packet_too_large;
+name(16#96) -> message_rate_too_high;
+name(16#97) -> quota_exceeded;
+name(16#98) -> administrative_action;
+name(16#99) -> payload_format_invalid;
+name(16#9A) -> retain_not_supported;
+name(16#9B) -> qos_not_supported;
+name(16#9C) -> use_another_server;
+name(16#9D) -> server_moved;
+name(16#9E) -> shared_subscriptions_not_supported;
+name(16#9F) -> connection_rate_exceeded;
+name(16#A0) -> maximum_connect_time;
+name(16#A1) -> subscription_identifiers_not_supported;
+name(16#A2) -> wildcard_subscriptions_not_supported;
+name(Code)  -> list_to_atom("unkown_" ++ integer_to_list(Code)).
+
+text(16#00) -> <<"Success">>;
+text(16#01) -> <<"Granted QoS 1">>;
+text(16#02) -> <<"Granted QoS 2">>;
+text(16#04) -> <<"Disconnect with Will Message">>;
+text(16#10) -> <<"No matching subscribers">>;
+text(16#11) -> <<"No subscription existed">>;
+text(16#18) -> <<"Continue authentication">>;
+text(16#19) -> <<"Re-authenticate">>;
+text(16#80) -> <<"Unspecified error">>;
+text(16#81) -> <<"Malformed Packet">>;
+text(16#82) -> <<"Protocol Error">>;
+text(16#83) -> <<"Implementation specific error">>;
+text(16#84) -> <<"Unsupported Protocol Version">>;
+text(16#85) -> <<"Client Identifier not valid">>;
+text(16#86) -> <<"Bad User Name or Password">>;
+text(16#87) -> <<"Not authorized">>;
+text(16#88) -> <<"Server unavailable">>;
+text(16#89) -> <<"Server busy">>;
+text(16#8A) -> <<"Banned">>;
+text(16#8B) -> <<"Server shutting down">>;
+text(16#8C) -> <<"Bad authentication method">>;
+text(16#8D) -> <<"Keep Alive timeout">>;
+text(16#8E) -> <<"Session taken over">>;
+text(16#8F) -> <<"Topic Filter invalid">>;
+text(16#90) -> <<"Topic Name invalid">>;
+text(16#91) -> <<"Packet Identifier in use">>;
+text(16#92) -> <<"Packet Identifier not found">>;
+text(16#93) -> <<"Receive Maximum exceeded">>;
+text(16#94) -> <<"Topic Alias invalid">>;
+text(16#95) -> <<"Packet too large">>;
+text(16#96) -> <<"Message rate too high">>;
+text(16#97) -> <<"Quota exceeded">>;
+text(16#98) -> <<"Administrative action">>;
+text(16#99) -> <<"Payload format invalid">>;
+text(16#9A) -> <<"Retain not supported">>;
+text(16#9B) -> <<"QoS not supported">>;
+text(16#9C) -> <<"Use another server">>;
+text(16#9D) -> <<"Server moved">>;
+text(16#9E) -> <<"Shared Subscriptions not supported">>;
+text(16#9F) -> <<"Connection rate exceeded">>;
+text(16#A0) -> <<"Maximum connect time">>;
+text(16#A1) -> <<"Subscription Identifiers not supported">>;
+text(16#A2) -> <<"Wildcard Subscriptions not supported">>;
+text(Code)  -> iolist_to_binary(["Unkown", integer_to_list(Code)]).
+

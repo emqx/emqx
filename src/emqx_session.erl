@@ -725,10 +725,10 @@ acked(puback, PacketId, State = #state{client_id = ClientId,
                                        username  = Username,
                                        inflight  = Inflight}) ->
     case Inflight:lookup(PacketId) of
-        {publish, Msg, _Ts} ->
+        {value, {publish, Msg, _Ts}} ->
             emqx_hooks:run('message.acked', [ClientId, Username], Msg),
             State#state{inflight = Inflight:delete(PacketId)};
-        _ ->
+        none ->
             ?LOG(warning, "Duplicated PUBACK Packet: ~p", [PacketId], State),
             State
     end;
@@ -737,11 +737,14 @@ acked(pubrec, PacketId, State = #state{client_id = ClientId,
                                        username  = Username,
                                        inflight  = Inflight}) ->
     case Inflight:lookup(PacketId) of
-        {publish, Msg, _Ts} ->
+        {value, {publish, Msg, _Ts}} ->
             emqx_hooks:run('message.acked', [ClientId, Username], Msg),
             State#state{inflight = Inflight:update(PacketId, {pubrel, PacketId, os:timestamp()})};
-        {pubrel, PacketId, _Ts} ->
+        {value, {pubrel, PacketId, _Ts}} ->
             ?LOG(warning, "Duplicated PUBREC Packet: ~p", [PacketId], State),
+            State;
+        none ->
+            ?LOG(warning, "Unexpected PUBREC Packet: ~p", [PacketId], State),
             State
     end;
 
