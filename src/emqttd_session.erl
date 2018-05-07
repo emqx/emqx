@@ -510,7 +510,7 @@ handle_cast({resume, ClientId, ClientPid},
     %% Clean Session: true -> false?
     if
         CleanSess =:= true ->
-            ?LOG(error, "CleanSess changed to false.", [], State1),
+            ?LOG(info, "CleanSess changed to false.", [], State1),
             emqttd_sm:register_session(ClientId, false, info(State1));
         CleanSess =:= false ->
             ok
