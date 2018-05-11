@@ -99,7 +99,7 @@ list() ->
     case emqttd:env(plugins_etc_dir) of
         {ok, PluginsEtc} ->
             CfgFiles = filelib:wildcard("*.{conf,config}", PluginsEtc),
-            Plugins = [plugin(CfgFile) || CfgFile <- CfgFiles],
+            Plugins = all_plugin_attrs(CfgFiles),
             StartedApps = names(started_app),
             lists:map(fun(Plugin = #mqtt_plugin{name = Name}) ->
                           case lists:member(Name, StartedApps) of
@@ -111,12 +111,24 @@ list() ->
             []
     end.
 
+all_plugin_attrs(CfgFiles) ->
+    lists:foldl(
+      fun(CfgFile, Acc) ->
+          case plugin(CfgFile) of
+              not_found -> Acc;
+              Attr -> Acc ++ [Attr]
+          end
+      end, [], CfgFiles).
+
 plugin(CfgFile) ->
     AppName = app_name(CfgFile),
-    {ok, Attrs} = application:get_all_key(AppName),
-    Ver = proplists:get_value(vsn, Attrs, "0"),
-    Descr = proplists:get_value(description, Attrs, ""),
-    #mqtt_plugin{name = AppName, version = Ver, descr = Descr}.
+    case application:get_all_key(AppName) of
+        {ok, Attrs} ->
+            Ver = proplists:get_value(vsn, Attrs, "0"),
+            Descr = proplists:get_value(description, Attrs, ""),
+            #mqtt_plugin{name = AppName, version = Ver, descr = Descr};
+        _ -> not_found
+    end.
 
 %% @doc Load a Plugin
 -spec(load(atom()) -> ok | {error, term()}).
@@ -169,7 +181,7 @@ find_plugin(Name) ->
     find_plugin(Name, list()).
 
 find_plugin(Name, Plugins) ->
-    lists:keyfind(Name, 2, Plugins). 
+    lists:keyfind(Name, 2, Plugins).
 
 %% @doc UnLoad a Plugin
 -spec(unload(atom()) -> ok | {error, term()}).
@@ -192,7 +204,7 @@ unload_plugin(App, Persistent) ->
         {error, Reason} ->
             {error, Reason}
     end.
-    
+
 stop_app(App) ->
     case application:stop(App) of
         ok ->
@@ -269,4 +281,3 @@ write_loaded(AppNames) ->
             lager:error("Open File ~p Error: ~p", [File, Error]),
             {error, Error}
     end.
-
