@@ -38,7 +38,7 @@
 -http_api({"^nodes/(.+?)/subscriptions/(.+?)/?$", 'GET', subscription_list, []}).
 -http_api({"^subscriptions/(.+?)/?$", 'GET', subscription, []}).
 
--http_api({"^mqtt/publish?$", 'POST', publish, [{<<"topic">>, binary}]}).
+-http_api({"^mqtt/publish?$", 'POST', publish, [{<<"topic">>, binary}, {<<"payload">>, binary}]}).
 -http_api({"^mqtt/subscribe?$", 'POST', subscribe, [{<<"client_id">>, binary},{<<"topic">>, binary}]}).
 -http_api({"^mqtt/unsubscribe?$", 'POST', unsubscribe, [{<<"client_id">>, binary},{<<"topic">>, binary}]}).
 
