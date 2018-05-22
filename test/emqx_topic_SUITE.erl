@@ -20,6 +20,7 @@
 
 %% CT
 -compile(export_all).
+-compile(nowarn_export_all).
 
 -import(emqx_topic, [wildcard/1, match/2, validate/1, triples/1, join/1,
                      words/1, systop/1, feed_var/3, parse/1, parse/2]).

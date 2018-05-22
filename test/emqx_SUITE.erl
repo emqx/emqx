@@ -17,6 +17,7 @@
 -module(emqx_SUITE).
 
 -compile(export_all).
+-compile(nowarn_export_all).
 
 -include_lib("emqttc/include/emqttc_packet.hrl").
 

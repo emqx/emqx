@@ -117,12 +117,10 @@ del_route(From, Topic, Dest) when is_binary(Topic) ->
     Route = #route{topic = Topic, dest = Dest},
     cast(pick(Topic), {del_route, From, Route}).
 
-%% @doc Has routes?
 -spec(has_routes(topic()) -> boolean()).
 has_routes(Topic) when is_binary(Topic) ->
     ets:member(?ROUTE, Topic).
 
-%% @doc Get topics
 -spec(topics() -> list(topic())).
 topics() -> mnesia:dirty_all_keys(?ROUTE).
 

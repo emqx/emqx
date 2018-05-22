@@ -22,16 +22,11 @@
 
 -export([start_link/2]).
 
--export([subscribe/1, subscribe/2, subscribe/3, unsubscribe/1, unsubscribe/2]).
-
+-export([subscribe/1, subscribe/2, subscribe/3, subscribe/4]).
 -export([publish/1, publish/2]).
-
+-export([unsubscribe/1, unsubscribe/2]).
 -export([dispatch/2, dispatch/3]).
-
 -export([subscriptions/1, subscribers/1, subscribed/2]).
-
--export([topics/0]).
-
 -export([get_subopts/2, set_subopts/3]).
 
 %% gen_server Function Exports
@@ -41,7 +36,6 @@
 -record(state, {pool, id, submon}).
 
 -define(BROKER, ?MODULE).
-
 -define(TIMEOUT, 120000).
 
 %% ETS tables
@@ -104,7 +98,7 @@ unsubscribe(Topic, Subscriber, Timeout) ->
 -spec(publish(message()) -> delivery() | stopped).
 publish(Msg = #message{from = From}) ->
     %% Hook to trace?
-    trace(public, From, Msg),
+    trace(publish, From, Msg),
     case emqx_hooks:run('message.publish', [], Msg) of
         {ok, Msg1 = #message{topic = Topic}} ->
             publish(Topic, Msg1);
@@ -226,15 +220,20 @@ subscribed(Topic, {SubId, SubPid}) when is_binary(Topic),
                                         is_pid(SubPid) ->
     ets:member(?SUBOPTION, {Topic, {SubId, SubPid}}).
 
-topics() -> emqx_router:topics().
-
+-spec(get_subopts(topic(), subscriber()) -> [suboption()]).
 get_subopts(Topic, Subscriber) when is_binary(Topic) ->
     try ets:lookup_element(?SUBOPTION, {Topic, Subscriber}, 2)
     catch error:badarg -> []
     end.
 
+-spec(set_subopts(topic(), subscriber(), [suboption()]) -> boolean()).
 set_subopts(Topic, Subscriber, Opts) when is_binary(Topic), is_list(Opts) ->
-    gen_server:call(pick(Subscriber), {set_subopts, Topic, Subscriber, Opts}).
+    case ets:lookup(?SUBOPTION, {Topic, Subscriber}) of
+        [{_, OldOpts}] ->
+            Opts1 = lists:usort(lists:umerge(Opts, OldOpts)),
+            ets:insert(?SUBOPTION, {{Topic, Subscriber}, Opts1});
+        [] -> false
+    end.
 
 with_subpid(SubPid) when is_pid(SubPid) ->
     SubPid;
@@ -267,18 +266,8 @@ init([Pool, Id]) ->
     gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #state{pool = Pool, id = Id, submon = emqx_pmon:new()}}.
 
-handle_call({set_subopts, Topic, Subscriber, Opts}, _From, State) ->
-    case ets:lookup(?SUBOPTION, {Topic, Subscriber}) of
-        [{_, OldOpts}] ->
-            Opts1 = lists:usort(lists:umerge(Opts, OldOpts)),
-            ets:insert(?SUBOPTION, {{Topic, Subscriber}, Opts1}),
-            {reply, ok, State};
-        [] ->
-            {reply, {error, not_found}, State}
-    end;
-
-handle_call(Request, _From, State) ->
-    emqx_logger:error("[Broker] Unexpected request: ~p", [Request]),
+handle_call(Req, _From, State) ->
+    emqx_logger:error("[Broker] Unexpected request: ~p", [Req]),
     {reply, ignore, State}.
 
 handle_cast({From, {subscribe, Topic, Subscriber, Options}}, State) ->

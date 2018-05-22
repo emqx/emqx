@@ -22,11 +22,7 @@
 
 -export([init/1]).
 
--import(lists, [foreach/2]).
-
--define(TAB_OPTS, [public,
-                   {read_concurrency, true},
-                   {write_concurrency, true}]).
+-define(TAB_OPTS, [public, {read_concurrency, true}, {write_concurrency, true}]).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
@@ -37,9 +33,9 @@ start_link() ->
 
 init([]) ->
     %% Create the pubsub tables
-    foreach(fun create_tab/1, [subscription, subscriber, suboption]),
+    lists:foreach(fun create_tab/1, [subscription, subscriber, suboption]),
 
-    %% Shared subscription
+    %% Shared Subscription
     SharedSub = {shared_sub, {emqx_shared_sub, start_link, []},
                  permanent, 5000, worker, [emqx_shared_sub]},
 
@@ -47,13 +43,12 @@ init([]) ->
     Helper = {broker_helper, {emqx_broker_helper, start_link, []},
               permanent, 5000, worker, [emqx_broker_helper]},
 
-    %% Broker pool
-    PoolArgs = [broker, hash, emqx_vm:schedulers() * 2,
-                {emqx_broker, start_link, []}],
+    %% Broker Pool
+    BrokerPool = emqx_pool_sup:spec(emqx_broker_pool,
+                                    [broker, hash, emqx_vm:schedulers() * 2,
+                                     {emqx_broker, start_link, []}]),
 
-    PoolSup = emqx_pool_sup:spec(eqmx_broker_pool, PoolArgs),
-
-    {ok, {{one_for_all, 0, 1}, [SharedSub, Helper, PoolSup]}}.
+    {ok, {{one_for_all, 0, 1}, [SharedSub, Helper, BrokerPool]}}.
 
 %%--------------------------------------------------------------------
 %% Create tables

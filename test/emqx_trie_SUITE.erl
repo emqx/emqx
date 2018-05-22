@@ -1,39 +1,40 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_trie_SUITE).
 
 -compile(export_all).
+-compile(nowarn_export_all).
 
 -include("emqx.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -define(TRIE, emqx_trie).
-
--include_lib("eunit/include/eunit.hrl").
+-define(TRIE_TABS, [emqx_trie, emqx_trie_node]).
 
 all() ->
     [t_insert, t_match, t_match2, t_match3, t_delete, t_delete2, t_delete3].
 
 init_per_suite(Config) ->
-    ekka_mnesia:ensure_started(),
-    ?TRIE:mnesia(boot),
-    ?TRIE:mnesia(copy),
+    application:load(emqx),
+    ok = ekka:start(),
     Config.
 
 end_per_suite(_Config) ->
+    ekka:stop(),
     ekka_mnesia:ensure_stopped(),
     ekka_mnesia:delete_schema().
 
@@ -131,5 +132,5 @@ t_delete3(_) ->
             end).
 
 clear_tables() ->
-    lists:foreach(fun mnesia:clear_table/1, [emqx_trie, emqx_trie_node]).
+    lists:foreach(fun mnesia:clear_table/1, ?TRIE_TABS).
 

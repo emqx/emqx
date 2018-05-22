@@ -17,7 +17,7 @@
 %% @doc Hot Configuration
 %%
 %% TODO: How to persist the configuration?
-%% 
+%%
 %% 1. Store in mnesia database?
 %% 2. Store in dets?
 %% 3. Store in data/app.config?
@@ -26,6 +26,8 @@
 -module(emqx_config).
 
 -export([get_env/1, get_env/2]).
+
+-export([populate/1]).
 
 -export([read/1, write/2, dump/2, reload/1, get/2, get/3, set/3]).
 
@@ -41,6 +43,10 @@ get_env(Key, Default) ->
 -spec(get_env(Key :: atom()) -> {ok, any()} | undefined).
 get_env(Key) ->
     application:get_env(?APP, Key).
+
+%% TODO:
+populate(_App) ->
+    ok.
 
 %% @doc Read the configuration of an application.
 -spec(read(atom()) -> {ok, list(env())} | {error, term()}).

@@ -284,9 +284,7 @@ serialize_parse_publish_v5(_) ->
               'Correlation-Data'         => <<"correlation-id">>,
               'Subscription-Identifier'  => 1,
               'Content-Type'             => <<"text/json">>},
-    Packet = ?PUBLISH_PACKET(#mqtt_packet_header{type = ?PUBLISH},
-                             <<"$share/group/topic">>, 1, Props,
-                             <<"payload">>),
+    Packet = ?PUBLISH_PACKET(?QOS_1, <<"$share/group/topic">>, 1, Props, <<"payload">>),
     ?assertEqual({ok, Packet, <<>>},
                  parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
@@ -335,7 +333,7 @@ serialize_parse_subscribe(_) ->
     Bin = <<130,11,0,2,0,6,84,111,112,105,99,65,2>>,
     TopicFilters = [{<<"TopicA">>, #mqtt_subopts{qos = 2}}],
     Packet = ?SUBSCRIBE_PACKET(2, TopicFilters),
-    ?assertEqual(Bin, serialize(Packet)),
+    ?assertEqual(Bin, iolist_to_binary(serialize(Packet))),
     ?assertEqual({ok, Packet, <<>>}, parse(Bin)).
 
 serialize_parse_subscribe_v5(_) ->
@@ -343,7 +341,8 @@ serialize_parse_subscribe_v5(_) ->
                     {<<"TopicQos1">>, #mqtt_subopts{rh = 1, qos =?QOS_1}}],
     Packet = ?SUBSCRIBE_PACKET(1, #{'Subscription-Identifier' => 16#FFFFFFF},
                                TopicFilters),
-    ?assertEqual({ok, Packet, <<>>}, parse_serialize(Packet)).
+    ?assertEqual({ok, Packet, <<>>},
+                 parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
 serialize_parse_suback(_) ->
     Packet = ?SUBACK_PACKET(10, [?QOS_0, ?QOS_1, 128]),

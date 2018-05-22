@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_ws_connection).
 
@@ -44,8 +44,9 @@
 -export([handle_pre_hibernate/1]).
 
 %% WebSocket Client State
--record(wsclient_state, {ws_pid, peername, connection, proto_state, keepalive,
-                         enable_stats, force_gc_count}).
+-record(wsclient_state, {ws_pid, transport, socket, peername,
+                         proto_state, keepalive, enable_stats,
+                         force_gc_count}).
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
@@ -85,27 +86,29 @@ clean_acl_cache(CPid, Topic) ->
 
 init([Env, WsPid, Req, ReplyChannel]) ->
     process_flag(trap_exit, true),
-    Conn = Req:get(connection),
     true = link(WsPid),
-    case Req:get(peername) of
+    Transport = mochiweb_request:get(transport, Req),
+    Sock = mochiweb_request:get(socket, Req),
+    case mochiweb_request:get(peername, Req) of
         {ok, Peername} ->
             Headers = mochiweb_headers:to_list(mochiweb_request:get(headers, Req)),
-            ProtoState = emqx_protocol:init(Conn, Peername, send_fun(ReplyChannel),
+            ProtoState = emqx_protocol:init(Transport, Sock, Peername, send_fun(ReplyChannel),
                                               [{ws_initial_headers, Headers} | Env]),
             IdleTimeout = get_value(client_idle_timeout, Env, 30000),
             EnableStats = get_value(client_enable_stats, Env, false),
             ForceGcCount = emqx_gc:conn_max_gc_count(),
-            {ok, #wsclient_state{connection     = Conn,
+            {ok, #wsclient_state{transport      = Transport,
+                                 socket         = Sock,
                                  ws_pid         = WsPid,
                                  peername       = Peername,
                                  proto_state    = ProtoState,
                                  enable_stats   = EnableStats,
                                  force_gc_count = ForceGcCount},
              IdleTimeout, {backoff, 2000, 2000, 20000}, ?MODULE};
-        {error, enotconn} -> Conn:fast_close(),
+        {error, enotconn} -> Transport:fast_close(Sock),
                              exit(WsPid, normal),
                              exit(normal);
-        {error, Reason}   -> Conn:fast_close(),
+        {error, Reason}   -> Transport:fast_close(Sock),
                              exit(WsPid, normal),
                              exit({shutdown, Reason})
     end.
@@ -205,9 +208,10 @@ handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
 handle_info({shutdown, Reason}, State) ->
     shutdown(Reason, State);
 
-handle_info({keepalive, start, Interval}, State = #wsclient_state{connection = Conn}) ->
+handle_info({keepalive, start, Interval},
+            State = #wsclient_state{transport = Transport, socket =Sock}) ->
     ?WSLOG(debug, "Keepalive at the interval of ~p", [Interval], State),
-    case emqx_keepalive:start(stat_fun(Conn), Interval, {keepalive, check}) of
+    case emqx_keepalive:start(stat_fun(Transport, Sock), Interval, {keepalive, check}) of
         {ok, KeepAlive} ->
             {noreply, State#wsclient_state{keepalive = KeepAlive}, hibernate};
         {error, Error} ->
@@ -265,7 +269,7 @@ code_change(_OldVsn, State, _Extra) ->
 send_fun(ReplyChannel) ->
     Self = self(),
     fun(Packet) ->
-        Data = emqx_serializer:serialize(Packet),
+        Data = emqx_frame:serialize(Packet),
         emqx_metrics:inc('bytes/sent', iolist_size(Data)),
         case ReplyChannel({binary, Data}) of
             ok -> ok;
@@ -273,9 +277,9 @@ send_fun(ReplyChannel) ->
         end
     end.
 
-stat_fun(Conn) ->
+stat_fun(Transport, Sock) ->
     fun() ->
-        case Conn:getstat([recv_oct]) of
+        case Transport:getstat(Sock, [recv_oct]) of
             {ok, [{recv_oct, RecvOct}]} -> {ok, RecvOct};
             {error, Error}              -> {error, Error}
         end
@@ -293,8 +297,8 @@ emit_stats(ClientId, State) ->
     emqx_cm:set_client_stats(ClientId, Stats),
     State.
 
-wsock_stats(#wsclient_state{connection = Conn}) ->
-    case Conn:getstat(?SOCK_STATS) of
+wsock_stats(#wsclient_state{transport = Transport, socket = Sock}) ->
+    case Transport:getstat(Sock, ?SOCK_STATS) of
         {ok,   Ss} -> Ss;
         {error, _} -> []
     end.

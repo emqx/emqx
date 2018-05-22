@@ -167,6 +167,7 @@ parse_packet(#mqtt_packet_header{type = ?PUBLISH, qos = QoS}, Bin,
                             ?QOS_0 -> {undefined, Rest};
                             _ -> parse_packet_id(Rest)
                         end,
+    io:format("Rest1: ~p~n", [Rest1]),
     {Properties, Payload} = parse_properties(Rest1, Ver),
     {#mqtt_packet_publish{topic_name = TopicName,
                           packet_id  = PacketId,
@@ -577,8 +578,10 @@ serialize_property('Shared-Subscription-Available', Val) ->
     <<16#2A, Val>>.
 
 serialize_topic_filters(subscribe, TopicFilters, ?MQTT_PROTO_V5) ->
-    << <<(serialize_utf8_string(Topic))/binary, (serialize_subopts(SubOpts)) >>
-       || {Topic, SubOpts} <- TopicFilters >>;
+    << <<(serialize_utf8_string(Topic))/binary,
+         ?RESERVED:2, Rh:2, (flag(Rap)):1,(flag(Nl)):1, QoS:2 >>
+       || {Topic, #mqtt_subopts{rh = Rh, rap = Rap, nl = Nl, qos = QoS}}
+          <- TopicFilters >>;
 
 serialize_topic_filters(subscribe, TopicFilters, _Ver) ->
     << <<(serialize_utf8_string(Topic))/binary, ?RESERVED:6, QoS:2>>
@@ -586,9 +589,6 @@ serialize_topic_filters(subscribe, TopicFilters, _Ver) ->
 
 serialize_topic_filters(unsubscribe, TopicFilters, _Ver) ->
     << <<(serialize_utf8_string(Topic))/binary>> || Topic <- TopicFilters >>.
-
-serialize_subopts(#mqtt_subopts{rh = Rh, rap = Rap, nl = Nl, qos = QoS}) ->
-    <<?RESERVED:2, Rh:2, (flag(Rap)):1, (flag(Nl)):1, QoS:2>>.
 
 serialize_reason_codes(undefined) ->
     <<>>;

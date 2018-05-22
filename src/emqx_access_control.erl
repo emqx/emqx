@@ -114,7 +114,7 @@ tab_key(acl)  -> acl_modules.
 
 %% @doc Stop access control server.
 stop() ->
-    gen_server:call(?MODULE, stop).
+    gen_server:stop(?MODULE, normal, infinity).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

@@ -18,6 +18,7 @@
 
 %% CT
 -compile(export_all).
+-compile(nowarn_export_all).
 
 all() -> [{group, keepalive}].
 

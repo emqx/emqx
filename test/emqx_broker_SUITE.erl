@@ -16,6 +16,7 @@
 -module(emqx_broker_SUITE).
 
 -compile(export_all).
+-compile(nowarn_export_all).
 
 -define(APP, emqx).
 
@@ -24,6 +25,7 @@
 -include_lib("common_test/include/ct.hrl").
 
 -include("emqx.hrl").
+-include("emqx_mqtt.hrl").
 
 all() ->
     [
@@ -56,7 +58,7 @@ init_per_suite(Config) ->
 
 end_per_suite(Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
-    
+
 %%--------------------------------------------------------------------
 %% PubSub Test
 %%--------------------------------------------------------------------
@@ -147,7 +149,7 @@ start_session(_) ->
     {ok, ClientPid} = emqx_mock_client:start_link(<<"clientId">>),
     {ok, SessPid} = emqx_mock_client:start_session(ClientPid),
     Message = emqx_message:make(<<"clientId">>, 2, <<"topic">>, <<"hello">>),
-    Message1 = Message#mqtt_message{pktid = 1},
+    Message1 = Message#mqtt_message{packet_id = 1},
     emqx_session:publish(SessPid, Message1),
     emqx_session:pubrel(SessPid, 1),
     emqx_session:subscribe(SessPid, [{<<"topic/session">>, [{qos, 2}]}]),
@@ -228,7 +230,7 @@ hook_fun7(arg, initArg) -> any.
 hook_fun8(arg, initArg) -> stop.
 
 set_alarms(_) ->
-    AlarmTest = #mqtt_alarm{id = <<"1">>, severity = error, title="alarm title", summary="alarm summary"},
+    AlarmTest = #alarm{id = <<"1">>, severity = error, title="alarm title", summary="alarm summary"},
     emqx_alarm:set_alarm(AlarmTest),
     Alarms = emqx_alarm:get_alarms(),
     ?assertEqual(1, length(Alarms)),

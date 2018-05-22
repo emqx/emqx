@@ -17,8 +17,10 @@
 -module(emqx_mqueue_SUITE).
 
 -compile(export_all).
+-compile(nowarn_export_all).
 
 -include("emqx.hrl").
+-include("emqx_mqtt.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 

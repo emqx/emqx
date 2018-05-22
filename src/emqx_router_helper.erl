@@ -40,7 +40,6 @@
 -compile({no_auto_import, [monitor/1]}).
 
 -define(SERVER, ?MODULE).
-
 -define(ROUTE, emqx_route).
 -define(ROUTING_NODE, emqx_routing_node).
 
@@ -96,7 +95,7 @@ init([]) ->
                   end
               end, [], mnesia:dirty_all_keys(?ROUTING_NODE)),
     emqx_stats:update_interval(route_stats, stats_fun()),
-    {ok, #state{nodes = Nodes}}.
+    {ok, #state{nodes = Nodes}, hibernate}.
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[RouterHelper] Unexpected request: ~p", [Req]),
@@ -124,7 +123,7 @@ handle_info({nodedown, Node}, State = #state{nodes = Nodes}) ->
                      mnesia:transaction(fun cleanup_routes/1, [Node])
                  end),
     mnesia:dirty_delete(?ROUTING_NODE, Node),
-    {noreply, State#state{nodes = lists:delete(Node, Nodes)}};
+    {noreply, State#state{nodes = lists:delete(Node, Nodes)}, hibernate};
 
 handle_info({membership, {mnesia, down, Node}}, State) ->
     handle_info({nodedown, Node}, State);

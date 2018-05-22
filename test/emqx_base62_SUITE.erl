@@ -21,6 +21,7 @@
 -define(BASE62, emqx_base62).
 
 -compile(export_all).
+-compile(nowarn_export_all).
 
 all() -> [t_base62_encode].
 

@@ -40,24 +40,21 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-%% @doc Register a command
 -spec(register_command(cmd(), {module(), atom()}) -> ok).
 register_command(Cmd, MF) when is_atom(Cmd) ->
     register_command(Cmd, MF, []).
 
-%% @doc Register a command with options
 -spec(register_command(cmd(), {module(), atom()}, list()) -> ok).
 register_command(Cmd, MF, Opts) when is_atom(Cmd) ->
     cast({register_command, Cmd, MF, Opts}).
 
-%% @doc Unregister a command
 -spec(unregister_command(cmd()) -> ok).
 unregister_command(Cmd) when is_atom(Cmd) ->
     cast({unregister_command, Cmd}).
 
-cast(Msg) -> gen_server:cast(?SERVER, Msg).
+cast(Msg) ->
+    gen_server:cast(?SERVER, Msg).
 
-%% @doc Run a command
 -spec(run_command(cmd(), [string()]) -> ok | {error, term()}).
 run_command(help, []) ->
     usage();
@@ -68,7 +65,7 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
                 _ -> ok
             catch
                 _:Reason ->
-                    emqx_logger:error("[CTL] Cmd error:~p, stacktrace:~p",
+                    emqx_logger:error("[CTL] CMD Error:~p, Stacktrace:~p",
                                       [Reason, erlang:get_stacktrace()]),
                     {error, Reason}
             end;
@@ -76,7 +73,6 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
             usage(), {error, cmd_not_found}
     end.
 
-%% @doc Lookup a command
 -spec(lookup_command(cmd()) -> [{module(), atom()}]).
 lookup_command(Cmd) when is_atom(Cmd) ->
     case ets:match(?TAB, {{'_', Cmd}, '$1', '_'}) of
@@ -84,7 +80,6 @@ lookup_command(Cmd) when is_atom(Cmd) ->
         []   -> []
     end.
 
-%% @doc Usage
 usage() ->
     io:format("Usage: ~s~n", [?MODULE]),
     [begin io:format("~80..-s~n", [""]), Mod:Cmd(usage) end
@@ -144,7 +139,7 @@ next_seq(State = #state{seq = Seq}) ->
 -include_lib("eunit/include/eunit.hrl").
 
 register_command_test_() ->
-    {setup, 
+    {setup,
         fun() ->
             {ok, InitState} = emqx_ctl:init([]),
             InitState
@@ -152,7 +147,7 @@ register_command_test_() ->
         fun(State) ->
             ok = emqx_ctl:terminate(shutdown, State)
         end,
-        fun(State = #state{seq = Seq}) -> 
+        fun(State = #state{seq = Seq}) ->
             emqx_ctl:handle_cast({register_command, test0, {?MODULE, test0}, []}, State),
             [?_assertMatch([{{0,test0},{?MODULE, test0}, []}], ets:lookup(?TAB, {Seq,test0}))]
         end

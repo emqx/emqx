@@ -14,23 +14,28 @@
 %%% limitations under the License.
 %%%===================================================================
 
--module(emqx_sys_sup).
+-module(emqx_client_SUITE).
 
--behaviour(supervisor).
+-compile(export_all).
+-compile(nowarn_export_all).
 
--export([start_link/0]).
+-include("emqx_mqtt.hrl").
 
--export([init/1]).
+-include_lib("eunit/include/eunit.hrl").
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+all() -> [].
 
-init([]) ->
-    Sys = {sys, {emqx_sys, start_link, []},
-           permanent, 5000, worker, [emqx_sys]},
+groups() -> [].
 
-    {ok, Env} = emqx_config:get_env(sysmon),
-    Sysmon = {sys_mon, {emqx_sys_mon, start_link, [Env]},
-              permanent, 5000, worker, [emqx_sys_mon]},
-    {ok, {{one_for_one, 10, 100}, [Sys, Sysmon]}}.
+init_per_suite(Config) ->
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
+
+init_per_group(_Group, Config) ->
+    Config.
+
+end_per_group(_Group, _Config) ->
+	ok.
 

@@ -14,23 +14,11 @@
 %%% limitations under the License.
 %%%===================================================================
 
--module(emqx_sys_sup).
+-module(emqx_ct_helpers).
 
--behaviour(supervisor).
+-export([ensure_mnesia_stopped/0]).
 
--export([start_link/0]).
-
--export([init/1]).
-
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-init([]) ->
-    Sys = {sys, {emqx_sys, start_link, []},
-           permanent, 5000, worker, [emqx_sys]},
-
-    {ok, Env} = emqx_config:get_env(sysmon),
-    Sysmon = {sys_mon, {emqx_sys_mon, start_link, [Env]},
-              permanent, 5000, worker, [emqx_sys_mon]},
-    {ok, {{one_for_one, 10, 100}, [Sys, Sysmon]}}.
+ensure_mnesia_stopped() ->
+    ekka_mnesia:ensure_stopped(),
+    ekka_mnesia:delete_schema().
 

@@ -16,9 +16,11 @@
 
 -module(emqx_pqueue_SUITE).
 
+-include("emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 -compile(export_all).
+-compile(nowarn_export_all).
 
 -define(PQ, emqx_pqueue).
 

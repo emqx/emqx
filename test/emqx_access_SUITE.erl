@@ -17,6 +17,7 @@
 -module(emqx_access_SUITE).
 
 -compile(export_all).
+-compile(nowarn_export_all).
 
 -include("emqx.hrl").
 

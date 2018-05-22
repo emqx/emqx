@@ -243,7 +243,7 @@
           is_bridge    = false          :: boolean(),
           clean_start  = true           :: boolean(),
           will_flag    = false          :: boolean(),
-          will_qos     = ?QOS_1         :: mqtt_qos(),
+          will_qos     = ?QOS_0         :: mqtt_qos(),
           will_retain  = false          :: boolean(),
           keepalive    = 0              :: non_neg_integer(),
           properties   = undefined      :: mqtt_properties(),
@@ -339,7 +339,8 @@
 
 -define(CONNACK_PACKET(ReasonCode),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},
-                 variable = #mqtt_packet_connack{reason_code = ReasonCode}}).
+                 variable = #mqtt_packet_connack{ack_flags   = 0,
+                                                 reason_code = ReasonCode}}).
 
 -define(CONNACK_PACKET(ReasonCode, SessPresent),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},
@@ -348,9 +349,9 @@
 
 -define(CONNACK_PACKET(ReasonCode, SessPresent, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},
-                 variable = #mqtt_packet_connack{ack_flags = SessPresent,
+                 variable = #mqtt_packet_connack{ack_flags   = SessPresent,
                                                  reason_code = ReasonCode,
-                                                 properties = Properties}}).
+                                                 properties  = Properties}}).
 
 -define(AUTH_PACKET(),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?AUTH},
@@ -370,15 +371,16 @@
                                                 qos = Qos},
                  variable = #mqtt_packet_publish{packet_id = PacketId}}).
 
--define(PUBLISH_PACKET(Qos, Topic, PacketId, Payload),
+-define(PUBLISH_PACKET(QoS, Topic, PacketId, Payload),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBLISH,
-                                                qos = Qos},
+                                                qos  = QoS},
                  variable = #mqtt_packet_publish{topic_name = Topic,
                                                  packet_id  = PacketId},
                  payload  = Payload}).
 
--define(PUBLISH_PACKET(Header, Topic, PacketId, Properties, Payload),
-    #mqtt_packet{header   = Header = #mqtt_packet_header{type = ?PUBLISH},
+-define(PUBLISH_PACKET(QoS, Topic, PacketId, Properties, Payload),
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBLISH,
+                                                qos  = QoS},
                  variable = #mqtt_packet_publish{topic_name = Topic,
                                                  packet_id  = PacketId,
                                                  properties = Properties},
@@ -386,7 +388,8 @@
 
 -define(PUBACK_PACKET(PacketId),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBACK},
-                 variable = #mqtt_packet_puback{packet_id = PacketId}}).
+                 variable = #mqtt_packet_puback{packet_id   = PacketId,
+                                                reason_code = 0}}).
 
 -define(PUBACK_PACKET(PacketId, ReasonCode, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBACK},
@@ -396,7 +399,8 @@
 
 -define(PUBREC_PACKET(PacketId),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREC},
-                 variable = #mqtt_packet_puback{packet_id = PacketId}}).
+                 variable = #mqtt_packet_puback{packet_id   = PacketId,
+                                                reason_code = 0}}).
 
 -define(PUBREC_PACKET(PacketId, ReasonCode, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREC},
@@ -406,7 +410,8 @@
 
 -define(PUBREL_PACKET(PacketId),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREL, qos = ?QOS_1},
-                 variable = #mqtt_packet_puback{packet_id = PacketId}}).
+                 variable = #mqtt_packet_puback{packet_id   = PacketId,
+                                                reason_code = 0}}).
 
 -define(PUBREL_PACKET(PacketId, ReasonCode, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREL, qos = ?QOS_1},
@@ -416,7 +421,8 @@
 
 -define(PUBCOMP_PACKET(PacketId),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBCOMP},
-                 variable = #mqtt_packet_puback{packet_id = PacketId}}).
+                 variable = #mqtt_packet_puback{packet_id   = PacketId,
+                                                reason_code = 0}}).
 
 -define(PUBCOMP_PACKET(PacketId, ReasonCode, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBCOMP},
@@ -467,7 +473,8 @@
                                                   reason_codes = ReasonCodes}}).
 
 -define(DISCONNECT_PACKET(),
-    #mqtt_packet{header = #mqtt_packet_header{type = ?DISCONNECT}}).
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?DISCONNECT},
+                 variable = #mqtt_packet_disconnect{reason_code = 0}}).
 
 -define(DISCONNECT_PACKET(ReasonCode),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?DISCONNECT},

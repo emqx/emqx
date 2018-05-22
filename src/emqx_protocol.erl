@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_protocol).
 
@@ -25,7 +25,7 @@
 -import(proplists, [get_value/2, get_value/3]).
 
 %% API
--export([init/3, init/4, get/2, info/1, stats/1, clientid/1, client/1, session/1]).
+-export([init/3, init/5, get/2, info/1, stats/1, clientid/1, client/1, session/1]).
 
 -export([subscribe/2, unsubscribe/2, pubrel/2, shutdown/2]).
 
@@ -76,8 +76,9 @@ init(Peername, SendFun, Opts) ->
                  keepalive_backoff  = Backoff,
                  stats_data         = #proto_stats{enable_stats = EnableStats}}.
 
-init(Conn, Peername, SendFun, Opts) ->
-    enrich_opt(Conn:opts(), Conn, init(Peername, SendFun, Opts)).
+init(_Transport, _Sock, Peername, SendFun, Opts) ->
+    init(Peername, SendFun, Opts).
+    %%enrich_opt(Conn:opts(), Conn, ).
 
 enrich_opt([], _Conn, State) ->
     State;

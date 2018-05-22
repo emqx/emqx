@@ -1,18 +1,18 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_session).
 
@@ -246,7 +246,7 @@ stats(#state{max_subscriptions = MaxSubscriptions,
                  [{max_subscriptions, MaxSubscriptions},
                   {subscriptions,     maps:size(Subscriptions)},
                   {max_inflight,      MaxInflight},
-                  {inflight_len,      Inflight:size()},
+                  {inflight_len,      emqx_inflight:size(Inflight)},
                   {max_mqueue,        ?MQueue:max_len(MQueue)},
                   {mqueue_len,        ?MQueue:len(MQueue)},
                   {mqueue_dropped,    ?MQueue:dropped(MQueue)},
@@ -405,12 +405,12 @@ handle_cast({unsubscribe, From, TopicTable},
 %% PUBACK:
 handle_cast({puback, PacketId}, State = #state{inflight = Inflight}) ->
     {noreply,
-     case Inflight:contain(PacketId) of
+     case emqx_inflight:contain(PacketId, Inflight) of
          true ->
              dequeue(acked(puback, PacketId, State));
          false ->
              ?LOG(warning, "PUBACK ~p missed inflight: ~p",
-                  [PacketId, Inflight:window()], State),
+                  [PacketId, emqx_inflight:window(Inflight)], State),
              emqx_metrics:inc('packets/puback/missed'),
              State
      end, hibernate};
@@ -418,12 +418,12 @@ handle_cast({puback, PacketId}, State = #state{inflight = Inflight}) ->
 %% PUBREC:
 handle_cast({pubrec, PacketId}, State = #state{inflight = Inflight}) ->
     {noreply,
-     case Inflight:contain(PacketId) of
+     case emqx_inflight:contain(PacketId, Inflight) of
          true ->
              acked(pubrec, PacketId, State);
          false ->
              ?LOG(warning, "PUBREC ~p missed inflight: ~p",
-                  [PacketId, Inflight:window()], State),
+                  [PacketId, emqx_inflight:window(Inflight)], State),
              emqx_metrics:inc('packets/pubrec/missed'),
              State
      end, hibernate};
@@ -446,12 +446,12 @@ handle_cast({pubrel, PacketId}, State = #state{awaiting_rel = AwaitingRel}) ->
 %% PUBCOMP:
 handle_cast({pubcomp, PacketId}, State = #state{inflight = Inflight}) ->
     {noreply,
-     case Inflight:contain(PacketId) of
+     case emqx_inflight:contain(PacketId, Inflight) of
          true ->
              dequeue(acked(pubcomp, PacketId, State));
          false ->
              ?LOG(warning, "The PUBCOMP ~p is not inflight: ~p",
-                  [PacketId, Inflight:window()], State),
+                  [PacketId, emqx_inflight:window(Inflight)], State),
              emqx_metrics:inc('packets/pubcomp/missed'),
              State
      end, hibernate};
@@ -581,11 +581,11 @@ kick(ClientId, OldPid, Pid) ->
 %%--------------------------------------------------------------------
 
 %% Redeliver at once if Force is true
-
 retry_delivery(Force, State = #state{inflight = Inflight}) ->
-    case Inflight:is_empty() of
+    case emqx_inflight:is_empty(Inflight) of
         true  -> State;
-        false -> Msgs = lists:sort(sortfun(inflight), Inflight:values()),
+        false -> Msgs = lists:sort(sortfun(inflight),
+                                   emqx_inflight:values(Inflight)),
                  retry_delivery(Force, Msgs, os:timestamp(), State)
     end.
 
@@ -601,11 +601,11 @@ retry_delivery(Force, [{Type, Msg, Ts} | Msgs], Now,
             case {Type, Msg} of
                 {publish, Msg = #message{headers = #{packet_id := PacketId}}} ->
                     redeliver(Msg, State),
-                    Inflight1 = Inflight:update(PacketId, {publish, Msg, Now}),
+                    Inflight1 = emqx_inflight:update(PacketId, {publish, Msg, Now}, Inflight),
                     retry_delivery(Force, Msgs, Now, State#state{inflight = Inflight1});
                 {pubrel, PacketId} ->
                     redeliver({pubrel, PacketId}, State),
-                    Inflight1 = Inflight:update(PacketId, {pubrel, PacketId, Now}),
+                    Inflight1 = emqx_inflight:update(PacketId, {pubrel, PacketId, Now}, Inflight),
                     retry_delivery(Force, Msgs, Now, State#state{inflight = Inflight1})
             end;
         true ->
@@ -678,7 +678,7 @@ dispatch(Msg = #message{qos = ?QOS0}, State) ->
 dispatch(Msg = #message{qos = QoS},
          State = #state{next_msg_id = MsgId, inflight = Inflight})
     when QoS =:= ?QOS1 orelse QoS =:= ?QOS2 ->
-    case Inflight:is_full() of
+    case emqx_inflight:is_full(Inflight) of
         true  ->
             enqueue_msg(Msg, State);
         false ->
@@ -719,15 +719,15 @@ await(Msg = #message{headers = #{packet_id := PacketId}},
                  true  -> State#state{retry_timer = start_timer(Interval, retry_delivery)};
                  false -> State
              end,
-    State1#state{inflight = Inflight:insert(PacketId, {publish, Msg, os:timestamp()})}.
+    State1#state{inflight = emqx_inflight:insert(PacketId, {publish, Msg, os:timestamp()}, Inflight)}.
 
 acked(puback, PacketId, State = #state{client_id = ClientId,
                                        username  = Username,
                                        inflight  = Inflight}) ->
-    case Inflight:lookup(PacketId) of
+    case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {publish, Msg, _Ts}} ->
             emqx_hooks:run('message.acked', [ClientId, Username], Msg),
-            State#state{inflight = Inflight:delete(PacketId)};
+            State#state{inflight = emqx_inflight:delete(PacketId, Inflight)};
         none ->
             ?LOG(warning, "Duplicated PUBACK Packet: ~p", [PacketId], State),
             State
@@ -736,10 +736,10 @@ acked(puback, PacketId, State = #state{client_id = ClientId,
 acked(pubrec, PacketId, State = #state{client_id = ClientId,
                                        username  = Username,
                                        inflight  = Inflight}) ->
-    case Inflight:lookup(PacketId) of
+    case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {publish, Msg, _Ts}} ->
             emqx_hooks:run('message.acked', [ClientId, Username], Msg),
-            State#state{inflight = Inflight:update(PacketId, {pubrel, PacketId, os:timestamp()})};
+            State#state{inflight = emqx_inflight:update(PacketId, {pubrel, PacketId, os:timestamp()}, Inflight)};
         {value, {pubrel, PacketId, _Ts}} ->
             ?LOG(warning, "Duplicated PUBREC Packet: ~p", [PacketId], State),
             State;
@@ -749,7 +749,7 @@ acked(pubrec, PacketId, State = #state{client_id = ClientId,
     end;
 
 acked(pubcomp, PacketId, State = #state{inflight = Inflight}) ->
-    State#state{inflight = Inflight:delete(PacketId)}.
+    State#state{inflight = emqx_inflight:delete(PacketId, Inflight)}.
 
 %%--------------------------------------------------------------------
 %% Dequeue
@@ -760,7 +760,7 @@ dequeue(State = #state{client_pid = undefined}) ->
     State;
 
 dequeue(State = #state{inflight = Inflight}) ->
-    case Inflight:is_full() of
+    case emqx_inflight:is_full(Inflight) of
         true  -> State;
         false -> dequeue2(State)
     end.
