@@ -728,7 +728,7 @@ end}.
 %%--------------------------------------------------------------------
 
 {mapping, "mqtt.pubsub.pool_size", "emqttd.pubsub", [
-  {default, 8},
+  {default, 0},
   {datatype, integer}
 ]}.
 
@@ -738,7 +738,11 @@ end}.
 ]}.
 
 {translation, "emqttd.pubsub", fun(Conf) ->
-  [{pool_size, cuttlefish:conf_get("mqtt.pubsub.pool_size", Conf)},
+  PoolSize = case cuttlefish:conf_get("mqtt.pubsub.pool_size", Conf) of
+                 N when N =< 0 -> erlang:system_info(schedulers);
+                 N -> N
+             end,
+  [{pool_size, PoolSize},
    {async, cuttlefish:conf_get("mqtt.pubsub.async", Conf)}]
 end}.
 
