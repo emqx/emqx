@@ -1,6 +1,6 @@
 {application,emqttd,
              [{description,"Erlang MQTT Broker"},
-              {vsn,"2.3.9"},
+              {vsn,"2.3.9-authfix"},
               {modules,[]},
               {registered,[emqttd_sup]},
               {applications,[kernel,stdlib,gproc,lager,esockd,mochiweb,
