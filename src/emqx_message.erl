@@ -1,24 +1,25 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%
-%% Licensed under the Apache License, Version 2.0 (the "License");
-%% you may not use this file except in compliance with the License.
-%% You may obtain a copy of the License at
-%%
-%%     http://www.apache.org/licenses/LICENSE-2.0
-%%
-%% Unless required by applicable law or agreed to in writing, software
-%% distributed under the License is distributed on an "AS IS" BASIS,
-%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%% See the License for the specific language governing permissions and
-%% limitations under the License.
-%%--------------------------------------------------------------------
+%%%===================================================================
+%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%%%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
+%%%===================================================================
 
 -module(emqx_message).
 
 -include("emqx.hrl").
+-include("emqx_mqtt.hrl").
 
--export([make/3]).
+-export([make/3, make/4]).
 
 -export([get_flag/2, get_flag/3, set_flag/2, unset_flag/2]).
 
@@ -29,8 +30,11 @@
 %% Create a default message
 -spec(make(atom() | client(), topic(), payload()) -> message()).
 make(From, Topic, Payload) when is_atom(From); is_record(From, client) ->
+    make(From, ?QOS_0, Topic, Payload).
+
+make(From, QoS, Topic, Payload) when is_atom(From); is_record(From, client) ->
     #message{id         = msgid(),
-             qos        = 0,
+             qos        = ?QOS_I(QoS),
              from       = From,
              sender     = self(),
              flags      = #{},
@@ -55,7 +59,7 @@ set_flag(Flag, Msg = #message{flags = Flags}) when is_atom(Flag) ->
 
 %% @doc Unset flag
 -spec(unset_flag(message_flag(), message()) -> message()).
-unset_flag(Flag, Msg = #message{flags = Flags}) -> 
+unset_flag(Flag, Msg = #message{flags = Flags}) ->
     Msg#message{flags = maps:remove(Flag, Flags)}.
 
 %% @doc Get header

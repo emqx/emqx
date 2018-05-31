@@ -44,7 +44,7 @@
 -spec(wildcard(topic() | words()) -> true | false).
 wildcard(Topic) when is_binary(Topic) ->
     wildcard(words(Topic));
-wildcard([]) -> 
+wildcard([]) ->
     false;
 wildcard(['#'|_]) ->
     true;
