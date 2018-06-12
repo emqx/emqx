@@ -378,7 +378,7 @@ serialize(#mqtt_packet_header{type   = Type,
                               retain = Retain}, VariableBin, PayloadBin)
     when ?CONNECT =< Type andalso Type =< ?AUTH ->
     Len = iolist_size(VariableBin) + iolist_size(PayloadBin),
-    true = (Len =< ?MAX_PACKET_SIZE),
+    (Len =< ?MAX_PACKET_SIZE) orelse error(mqtt_frame_too_large),
     [<<Type:4, (flag(Dup)):1, (flag(QoS)):2, (flag(Retain)):1>>,
      serialize_remaining_len(Len), VariableBin, PayloadBin].
 
