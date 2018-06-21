@@ -42,7 +42,20 @@
 %% @doc Start access control server.
 -spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+    case gen_server:start_link({local, ?SERVER}, ?MODULE, [], []) of
+        {ok, Pid} ->
+            ok = register_default_mod(),
+            {ok, Pid};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+register_default_mod() ->
+    case emqx_config:get_env(acl_file) of
+        {ok, File} ->
+            emqx_access_control:register_mod(acl, emqx_acl_internal, [File]);
+        undefined  -> ok
+    end.
 
 %% @doc Authenticate Client.
 -spec(auth(Client :: client(), Password :: password())

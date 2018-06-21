@@ -19,15 +19,16 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
--export([make/3, make/4]).
-
+-export([make/2, make/3, make/4]).
 -export([get_flag/2, get_flag/3, set_flag/2, unset_flag/2]).
-
 -export([get_header/2, get_header/3, set_header/3]).
-
 -export([get_user_property/2, get_user_property/3, set_user_property/3]).
 
-%% Create a default message
+-spec(make(topic(), payload()) -> message()).
+make(Topic, Payload) ->
+    make(undefined, Topic, Payload).
+
+%% Create a message
 -spec(make(atom() | client(), topic(), payload()) -> message()).
 make(From, Topic, Payload) when is_atom(From); is_record(From, client) ->
     make(From, ?QOS_0, Topic, Payload).

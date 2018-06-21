@@ -28,6 +28,7 @@
 -export([dispatch/2, dispatch/3]).
 -export([subscriptions/1, subscribers/1, subscribed/2]).
 -export([get_subopts/2, set_subopts/3]).
+-export([topics/0]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -95,13 +96,17 @@ unsubscribe(Topic, Subscriber, Timeout) ->
 %% Publish
 %%--------------------------------------------------------------------
 
+-spec(publish(topic(), payload()) -> delivery() | stopped).
+publish(Topic, Payload) when is_binary(Topic), is_binary(Payload) ->
+    publish(emqx_message:make(Topic, Payload)).
+
 -spec(publish(message()) -> delivery() | stopped).
 publish(Msg = #message{from = From}) ->
     %% Hook to trace?
     trace(publish, From, Msg),
     case emqx_hooks:run('message.publish', [], Msg) of
         {ok, Msg1 = #message{topic = Topic}} ->
-            publish(Topic, Msg1);
+            route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1));
         {stop, Msg1} ->
             emqx_logger:warning("Stop publishing: ~s", [emqx_message:format(Msg1)]),
             stopped
@@ -123,8 +128,9 @@ trace(public, From, #message{topic = Topic, payload = Payload})
     emqx_logger:info([{client, From}, {topic, Topic}],
                      "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
 
-publish(Topic, Msg) ->
-    route(aggre(emqx_router:match_routes(Topic)), delivery(Msg)).
+%%--------------------------------------------------------------------
+%% Route
+%%--------------------------------------------------------------------
 
 route([], Delivery = #delivery{message = Msg}) ->
     emqx_hooks:run('message.dropped', [undefined, Msg]),
@@ -257,6 +263,9 @@ pick(SubId) when is_binary(SubId) ->
     gproc_pool:pick_worker(broker, SubId);
 pick({SubId, SubPid}) when is_binary(SubId), is_pid(SubPid) ->
     pick(SubId).
+
+-spec(topics() -> [topic()]).
+topics() -> emqx_router:topics().
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
