@@ -89,7 +89,10 @@ enrich_opt([_ | ConnOpts], Conn, State) ->
 peercert_username(cn, Conn) ->
     Conn:peer_cert_common_name();
 peercert_username(dn, Conn) ->
-    Conn:peer_cert_subject().
+    Conn:peer_cert_subject();
+peercert_username(crt, Conn) ->
+    {ok, Cert} = Conn:peercert(),
+    binary_to_list(Cert).
 
 repl_username_with_peercert(State = #proto_state{peercert_username = undefined}) ->
     State;

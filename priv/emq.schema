@@ -820,7 +820,7 @@ end}.
 ]}.
 
 {mapping, "listener.tcp.$name.peer_cert_as_username", "emqttd.listeners", [
-  {datatype, {enum, [cn, dn]}}
+  {datatype, {enum, [cn, dn, crt]}}
 ]}.
 
 {mapping, "listener.tcp.$name.backlog", "emqttd.listeners", [
@@ -1006,7 +1006,7 @@ end}.
 ]}.
 
 {mapping, "listener.ssl.$name.peer_cert_as_username", "emqttd.listeners", [
-  {datatype, {enum, [cn, dn]}}
+  {datatype, {enum, [cn, dn, crt]}}
 ]}.
 
 %%--------------------------------------------------------------------
@@ -1248,7 +1248,7 @@ end}.
 ]}.
 
 {mapping, "listener.wss.$name.peer_cert_as_username", "emqttd.listeners", [
-  {datatype, {enum, [cn, dn]}}
+  {datatype, {enum, [cn, dn, crt]}}
 ]}.
 
 {translation, "emqttd.listeners", fun(Conf) ->
