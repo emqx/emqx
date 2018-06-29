@@ -116,7 +116,7 @@ init([]) ->
 init_monitors() ->
     mnesia:foldl(
       fun(#shared_subscription{subpid = SubPid}, Mon) ->
-          Mon:monitor(SubPid)
+          emqx_pmon:monitor(SubPid, Mon)
       end, emqx_pmon:new(), ?TAB).
 
 handle_call(Req, _From, State) ->
@@ -124,7 +124,7 @@ handle_call(Req, _From, State) ->
     {reply, ignore, State}.
 
 handle_cast({monitor, SubPid}, State= #state{pmon = PMon}) ->
-    {noreply, update_stats(State#state{pmon = PMon:monitor(SubPid)})};
+    {noreply, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
 
 handle_cast(Msg, State) ->
     emqx_logger:error("[Shared] Unexpected msg: ~p", [Msg]),
@@ -132,11 +132,11 @@ handle_cast(Msg, State) ->
 
 handle_info({mnesia_table_event, {write, NewRecord, _}}, State = #state{pmon = PMon}) ->
     #shared_subscription{subpid = SubPid} = NewRecord,
-    {noreply, update_stats(State#state{pmon = PMon:monitor(SubPid)})};
+    {noreply, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
 
 handle_info({mnesia_table_event, {delete_object, OldRecord, _}}, State = #state{pmon = PMon}) ->
     #shared_subscription{subpid = SubPid} = OldRecord,
-    {noreply, update_stats(State#state{pmon = PMon:demonitor(SubPid)})};
+    {noreply, update_stats(State#state{pmon = emqx_pmon:demonitor(SubPid, PMon)})};
 
 handle_info({mnesia_table_event, _Event}, State) ->
     {noreply, State};
@@ -144,7 +144,7 @@ handle_info({mnesia_table_event, _Event}, State) ->
 handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{pmon = PMon}) ->
     emqx_logger:info("Shared subscription down: ~p", [SubPid]),
     mnesia:async_dirty(fun cleanup_down/1, [SubPid]),
-    {noreply, update_stats(State#state{pmon = PMon:erase(SubPid)})};
+    {noreply, update_stats(State#state{pmon = emqx_pmon:erase(SubPid, PMon)})};
 
 handle_info(Info, State) ->
     emqx_logger:error("[Shared] Unexpected info: ~p", [Info]),
@@ -162,12 +162,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 cleanup_down(SubPid) ->
     Pat = #shared_subscription{_ = '_', subpid = SubPid},
-    lists:foreach(fun(Record) ->
-                      mnesia:delete_object(?TAB, Record)
-                  end, mnesia:match_object(Pat)).
+    lists:foreach(fun(Record) -> mnesia:delete_object(?TAB, Record) end, mnesia:match_object(Pat)).
 
 update_stats(State) ->
-    emqx_stats:setstat('subscriptions/shared/count',
-                       'subscriptions/shared/max',
-                       ets:info(?TAB, size)), State.
+    emqx_stats:setstat('subscriptions/shared/count', 'subscriptions/shared/max', ets:info(?TAB, size)), State.
 

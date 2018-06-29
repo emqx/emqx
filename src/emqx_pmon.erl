@@ -35,10 +35,9 @@ monitor(Pid, PM) ->
 
 monitor(Pid, Val, PM = {?MODULE, [M]}) ->
     case maps:is_key(Pid, M) of
-        true -> PM;
-        false ->
-            Ref = erlang:monitor(process, Pid),
-            {?MODULE, [maps:put(Pid, {Ref, Val}, M)]}
+        true  -> PM;
+        false -> Ref = erlang:monitor(process, Pid),
+                 {?MODULE, [maps:put(Pid, {Ref, Val}, M)]}
     end.
 
 -spec(demonitor(pid(), pmon()) -> pmon()).
@@ -48,8 +47,7 @@ demonitor(Pid, PM = {?MODULE, [M]}) ->
             %% Don't flush
             _ = erlang:demonitor(Ref),
             {?MODULE, [maps:remove(Pid, M)]};
-        error ->
-            PM
+        error -> PM
     end.
 
 -spec(find(pid(), pmon()) -> undefined | term()).

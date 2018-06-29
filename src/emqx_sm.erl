@@ -216,26 +216,22 @@ handle_call(Req, _From, State) ->
     emqx_logger:error("[SM] Unexpected request: ~p", [Req]),
     {reply, ignore, State}.
 
-handle_cast({notify, {registered, ClientId, SessionPid}},
-            State = #state{session_pmon = PMon}) ->
-    {noreply, State#state{session_pmon = PMon:monitor(SessionPid, ClientId)}};
+handle_cast({notify, {registered, ClientId, SessionPid}}, State = #state{session_pmon = PMon}) ->
+    {noreply, State#state{session_pmon = emqx_pmon:monitor(SessionPid, ClientId, PMon)}};
 
-handle_cast({notify, {unregistered, _ClientId, SessionPid}},
-            State = #state{session_pmon = PMon}) ->
-    {noreply, State#state{session_pmon = PMon:demonitor(SessionPid)}};
+handle_cast({notify, {unregistered, _ClientId, SessionPid}}, State = #state{session_pmon = PMon}) ->
+    {noreply, State#state{session_pmon = emqx_pmon:demonitor(SessionPid, PMon)}};
 
 handle_cast(Msg, State) ->
     emqx_logger:error("[SM] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({'DOWN', _MRef, process, DownPid, _Reason},
-            State = #state{session_pmon = PMon}) ->
-    case PMon:find(DownPid) of
-        undefined ->
-            {noreply, State};
-        ClientId ->
+handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State = #state{session_pmon = PMon}) ->
+    case emqx_pmon:find(DownPid, PMon) of
+        undefined -> {noreply, State};
+        ClientId  ->
             unregister_session({ClientId, DownPid}),
-            {noreply, State#state{session_pmon = PMon:erase(DownPid)}}
+            {noreply, State#state{session_pmon = emqx_pmon:erase(DownPid, PMon)}}
     end;
 
 handle_info(Info, State) ->
