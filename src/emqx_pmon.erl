@@ -20,45 +20,45 @@
 
 -export([monitor/2, monitor/3, demonitor/2, find/2, erase/2]).
 
--compile({no_auto_import,[monitor/3]}).
-
--type(pmon() :: {?MODULE, map()}).
+-compile({no_auto_import,[monitor/3]}).  
+-type(pmon() :: map()).
 
 -export_type([pmon/0]).
 
+-spec(new() -> pmon()).
 new() ->
-    {?MODULE, [maps:new()]}.
+    maps:new().
 
 -spec(monitor(pid(), pmon()) -> pmon()).
 monitor(Pid, PM) ->
     monitor(Pid, undefined, PM).
 
-monitor(Pid, Val, PM = {?MODULE, [M]}) ->
-    case maps:is_key(Pid, M) of
+monitor(Pid, Val, PM) ->
+    case maps:is_key(Pid, PM) of
         true  -> PM;
         false -> Ref = erlang:monitor(process, Pid),
-                 {?MODULE, [maps:put(Pid, {Ref, Val}, M)]}
+                 maps:put(Pid, {Ref, Val}, PM)
     end.
 
 -spec(demonitor(pid(), pmon()) -> pmon()).
-demonitor(Pid, PM = {?MODULE, [M]}) ->
-    case maps:find(Pid, M) of
+demonitor(Pid, PM) ->
+    case maps:find(Pid, PM) of
         {ok, {Ref, _Val}} ->
             %% Don't flush
             _ = erlang:demonitor(Ref),
-            {?MODULE, [maps:remove(Pid, M)]};
+            maps:remove(Pid, PM);
         error -> PM
     end.
 
 -spec(find(pid(), pmon()) -> undefined | term()).
-find(Pid, {?MODULE, [M]}) ->
-    case maps:find(Pid, M) of
+find(Pid, PM) ->
+    case maps:find(Pid, PM) of
         {ok, {_Ref, Val}} ->
             Val;
         error -> undefined
     end.
 
 -spec(erase(pid(), pmon()) -> pmon()).
-erase(Pid, {?MODULE, [M]}) ->
-    {?MODULE, [maps:remove(Pid, M)]}.
+erase(Pid, PM) ->
+    maps:remove(Pid, PM).
 
