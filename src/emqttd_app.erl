@@ -239,4 +239,3 @@ merge_sockopts_test_() ->
     ?_assert(merge_sockopts(Opts) == [{sockopts, ?MQTT_SOCKOPTS} | Opts]).
 
 -endif.
-

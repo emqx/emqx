@@ -479,11 +479,17 @@ listeners([]) ->
                         end, Info)
             end, esockd:listeners());
 
+listeners(["start", Proto, ListenOn]) ->
+    ListenOn1 = listenon_tokens(ListenOn),
+    case emqttd_app:start_listener({list_to_atom(Proto), ListenOn1, []}) of
+        {ok, _Pid} ->
+            io:format("Start ~s listener on ~s successfully.~n", [Proto, ListenOn]);
+        {error, Error} ->
+            io:format("Failed to Start ~s listener on ~s, error:~p~n", [Proto, ListenOn, Error])
+    end;
+
 listeners(["restart", Proto, ListenOn]) ->
-    ListenOn1 = case string:tokens(ListenOn, ":") of
-        [Port]     -> list_to_integer(Port);
-        [IP, Port] -> {IP, list_to_integer(Port)}
-    end,
+    ListenOn1 = listenon_tokens(ListenOn),
     case emqttd_app:restart_listener({list_to_atom(Proto), ListenOn1, []}) of
         {ok, _Pid} ->
             io:format("Restart ~s listener on ~s successfully.~n", [Proto, ListenOn]);
@@ -492,10 +498,7 @@ listeners(["restart", Proto, ListenOn]) ->
     end;
 
 listeners(["stop", Proto, ListenOn]) ->
-    ListenOn1 = case string:tokens(ListenOn, ":") of
-        [Port]     -> list_to_integer(Port);
-        [IP, Port] -> {IP, list_to_integer(Port)}
-    end,
+    ListenOn1 = listenon_tokens(ListenOn),
     case emqttd_app:stop_listener({list_to_atom(Proto), ListenOn1, []}) of
         ok ->
             io:format("Stop ~s listener on ~s successfully.~n", [Proto, ListenOn]);
@@ -605,3 +608,9 @@ format(_, Val) ->
     Val.
 
 bin(S) -> iolist_to_binary(S).
+
+listenon_tokens(ListenOn) ->
+    case string:tokens(ListenOn, ":") of
+        [Port]     -> {"0.0.0.0", list_to_integer(Port)};
+        [IP, Port] -> {IP, list_to_integer(Port)}
+    end.
