@@ -203,6 +203,7 @@ merge_sockopts(Options) ->
 %% @doc Stop Listeners
 stop_listeners() -> lists:foreach(fun stop_listener/1, emqttd:env(listeners, [])).
 
+
 %% @private
 stop_listener({tcp, ListenOn, _Opts}) ->
     esockd:close('mqtt:tcp', ListenOn);
