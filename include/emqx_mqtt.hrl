@@ -1,18 +1,16 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 %%--------------------------------------------------------------------
 %% MQTT SockOpts
@@ -77,7 +75,7 @@
          I =:= qos2; I =:= exactly_once)).
 
 %%--------------------------------------------------------------------
-%% Maximum ClientId Length. Why 1024?
+%% Maximum ClientId Length.
 %%--------------------------------------------------------------------
 
 -define(MAX_CLIENTID_LEN, 1024).
@@ -199,7 +197,7 @@
 -define(MAX_PACKET_SIZE, 16#fffffff).
 
 %%--------------------------------------------------------------------
-%% MQTT Parser and Serializer
+%% MQTT Frame Mask
 %%--------------------------------------------------------------------
 
 -define(HIGHBIT, 2#10000000).
@@ -526,19 +524,5 @@
 -type(mqtt_message() :: #mqtt_message{}).
 
 -define(WILL_MSG(Qos, Retain, Topic, Props, Payload),
-        #mqtt_message{qos = WillQos, retain = WillRetain,
-                      topic = WillTopic, properties = Props,
-                      payload = WillPayload}).
-
-%%--------------------------------------------------------------------
-%% MQTT Delivery
-%%--------------------------------------------------------------------
-
--record(mqtt_delivery,
-        { sender  :: pid(),
-          message :: mqtt_message(),
-          flows   :: list()
-        }).
-
--type(mqtt_delivery() :: #mqtt_delivery{}).
+        #mqtt_message{qos = Qos, retain = Retain, topic = Topic, properties = Props, payload = Payload}).
 
