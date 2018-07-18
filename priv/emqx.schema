@@ -1409,21 +1409,18 @@ end}.
 
     MountPoint = fun(undefined) -> undefined; (S) -> list_to_binary(S) end,
 
-    ConnOpts = fun(Prefix) ->
-                   Filter([{zone, Atom(cuttlefish:conf_get(Prefix ++ ".zone", Conf, undefined))},
-                           {rate_limit, cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined)},
-                           {proxy_protocol, cuttlefish:conf_get(Prefix ++ ".proxy_protocol", Conf, undefined)},
-                           {proxy_protocol_timeout, cuttlefish:conf_get(Prefix ++ ".proxy_protocol_timeout", Conf, undefined)},
-                           {mountpoint, MountPoint(cuttlefish:conf_get(Prefix ++ ".mountpoint", Conf, undefined))},
-                           {peer_cert_as_username, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_username", Conf, undefined)},
-                           {proxy_port_header, cuttlefish:conf_get(Prefix ++ ".proxy_port_header", Conf, undefined)},
-                           {proxy_address_header, cuttlefish:conf_get(Prefix ++ ".proxy_address_header", Conf, undefined)}])
-               end,
-
     LisOpts = fun(Prefix) ->
                   Filter([{acceptors,   cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
                           {max_clients, cuttlefish:conf_get(Prefix ++ ".max_clients", Conf)},
-                          {tune_buffer, cuttlefish:conf_get(Prefix ++ ".tune_buffer", Conf, undefined)} | AccOpts(Prefix)])
+                          {tune_buffer, cuttlefish:conf_get(Prefix ++ ".tune_buffer", Conf, undefined)},
+                          {zone, Atom(cuttlefish:conf_get(Prefix ++ ".zone", Conf, undefined))},
+                          {rate_limit, cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined)},
+                          {proxy_protocol, cuttlefish:conf_get(Prefix ++ ".proxy_protocol", Conf, undefined)},
+                          {proxy_protocol_timeout, cuttlefish:conf_get(Prefix ++ ".proxy_protocol_timeout", Conf, undefined)},
+                          {mountpoint, MountPoint(cuttlefish:conf_get(Prefix ++ ".mountpoint", Conf, undefined))},
+                          {peer_cert_as_username, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_username", Conf, undefined)},
+                          {proxy_port_header, cuttlefish:conf_get(Prefix ++ ".proxy_port_header", Conf, undefined)},
+                          {proxy_address_header, cuttlefish:conf_get(Prefix ++ ".proxy_address_header", Conf, undefined)} | AccOpts(Prefix)])
               end,
     TcpOpts = fun(Prefix) ->
                    Filter([{backlog, cuttlefish:conf_get(Prefix ++ ".backlog", Conf, undefined)},
@@ -1460,11 +1457,9 @@ end}.
     TcpListeners = fun(Type, Name) ->
                        Prefix = string:join(["listener", Type, Name], "."),
                        case cuttlefish:conf_get(Prefix, Conf, undefined) of
-                           undefined ->
-                               [];
-                           ListenOn ->
-                               [{Atom(Type), ListenOn, [{connopts, ConnOpts(Prefix)},
-                                                        {sockopts, TcpOpts(Prefix)} | LisOpts(Prefix)]}]
+                           undefined -> [];
+                           ListenOn  ->
+                               [{Atom(Type), ListenOn, [{tcp_options, TcpOpts(Prefix)} | LisOpts(Prefix)]}]
                        end
                    end,
 
@@ -1474,9 +1469,8 @@ end}.
                            undefined ->
                                [];
                            ListenOn ->
-                               [{Atom(Type), ListenOn, [{connopts, ConnOpts(Prefix)},
-                                                        {sockopts, TcpOpts(Prefix)},
-                                                        {sslopts, SslOpts(Prefix)} | LisOpts(Prefix)]}]
+                               [{Atom(Type), ListenOn, [{tcp_options, TcpOpts(Prefix)},
+                                                        {ssl_options, SslOpts(Prefix)} | LisOpts(Prefix)]}]
                        end
                    end,
 
@@ -1486,12 +1480,8 @@ end}.
                            undefined ->
                                [];
                            ListenOn ->
-                               SslOpts1 = case SslOpts(Prefix) of
-                                        [] -> [];
-                                        SslOpts0 -> [{sslopts, SslOpts0}]
-                                      end,
-                               [{Atom(Type), ListenOn, [{connopts, ConnOpts(Prefix)},
-                                                        {sockopts, TcpOpts(Prefix)}| LisOpts(Prefix)] ++ SslOpts1}]
+                               SslOpts1 = case SslOpts(Prefix) of [] -> []; SslOpts0 -> [{ssl_options, SslOpts0}] end,
+                               [{Atom(Type), ListenOn, [{tcp_options, TcpOpts(Prefix)}|LisOpts(Prefix)] ++ SslOpts1}]
                        end
                    end,
 

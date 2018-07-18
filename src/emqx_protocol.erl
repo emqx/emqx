@@ -1,44 +1,36 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_protocol).
 
 -include("emqx.hrl").
-
 -include("emqx_mqtt.hrl").
-
 -include("emqx_misc.hrl").
 
 -import(proplists, [get_value/2, get_value/3]).
 
 %% API
 -export([init/3, init/5, get/2, info/1, stats/1, clientid/1, client/1, session/1]).
-
 -export([subscribe/2, unsubscribe/2, pubrel/2, shutdown/2]).
-
 -export([received/2, send/2]).
-
 -export([process/2]).
 
 -ifdef(TEST).
 -compile(export_all).
 -endif.
 
--record(proto_stats, {enable_stats = false, recv_pkt = 0, recv_msg = 0,
-                      send_pkt = 0, send_msg = 0}).
+-record(proto_stats, {enable_stats = false, recv_pkt = 0, recv_msg = 0, send_pkt = 0, send_msg = 0}).
 
 %% Protocol State
 %% ws_initial_headers: Headers from first HTTP request for WebSocket Client.
@@ -76,23 +68,22 @@ init(Peername, SendFun, Opts) ->
                  keepalive_backoff  = Backoff,
                  stats_data         = #proto_stats{enable_stats = EnableStats}}.
 
-init(_Transport, _Sock, Peername, SendFun, Opts) ->
-    init(Peername, SendFun, Opts).
-    %%enrich_opt(Conn:opts(), Conn, ).
+init(_Transport, _Sock, Peername, SendFun, Options) ->
+    enrich_opt(Options, init(Peername, SendFun, Options)).
 
-enrich_opt([], _Conn, State) ->
+enrich_opt([], State) ->
     State;
-enrich_opt([{mountpoint, MountPoint} | ConnOpts], Conn, State) ->
-    enrich_opt(ConnOpts, Conn, State#proto_state{mountpoint = MountPoint});
-enrich_opt([{peer_cert_as_username, N} | ConnOpts], Conn, State) ->
-    enrich_opt(ConnOpts, Conn, State#proto_state{peercert_username = peercert_username(N, Conn)});
-enrich_opt([_ | ConnOpts], Conn, State) ->
-    enrich_opt(ConnOpts, Conn, State).
+enrich_opt([{mountpoint, MountPoint} | ConnOpts], State) ->
+    enrich_opt(ConnOpts, State#proto_state{mountpoint = MountPoint});
+%%enrich_opt([{peer_cert_as_username, N} | ConnOpts], State) ->
+%%    enrich_opt(ConnOpts, State#proto_state{peercert_username = peercert_username(N, Conn)});
+enrich_opt([_ | ConnOpts], State) ->
+    enrich_opt(ConnOpts, State).
 
-peercert_username(cn, Conn) ->
-    Conn:peer_cert_common_name();
-peercert_username(dn, Conn) ->
-    Conn:peer_cert_subject().
+%%peercert_username(cn, Conn) ->
+%%    Conn:peer_cert_common_name();
+%%peercert_username(dn, Conn) ->
+%%    Conn:peer_cert_subject().
 
 repl_username_with_peercert(State = #proto_state{peercert_username = undefined}) ->
     State;
@@ -122,17 +113,14 @@ client(#proto_state{client_id          = ClientId,
                     proto_ver          = ProtoVer,
                     keepalive          = Keepalive,
                     will_msg           = WillMsg,
-                    ws_initial_headers = WsInitialHeaders,
-                    mountpoint         = MountPoint,
-                    connected_at       = Time}) ->
+                    ws_initial_headers = _WsInitialHeaders,
+                    mountpoint         = _MountPoint,
+                    connected_at       = _Time}) ->
     WillTopic = if
                     WillMsg =:= undefined -> undefined;
                     true -> WillMsg#message.topic
                 end,
-    #client{id  = ClientId,
-            pid = ClientPid,
-            username = Username,
-            peername = Peername}.
+    #client{id = ClientId, pid = ClientPid, username = Username, peername = Peername}.
 
 session(#proto_state{session = Session}) ->
     Session.

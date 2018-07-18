@@ -21,7 +21,7 @@
 %% This module implements a simple in-memory queue for MQTT persistent session.
 %%
 %% If the broker restarted or crashed, all the messages queued will be gone.
-%% 
+%%
 %% Concept of Message Queue and Inflight Window:
 %%
 %%       |<----------------- Max Len ----------------->|
@@ -154,7 +154,7 @@ stats(#mqueue{type = Type, q = Q, max_len = MaxLen, len = Len, dropped = Dropped
 
 %% @doc Enqueue a message.
 -spec(in(message(), mqueue()) -> mqueue()).
-in(#message{flags = #{qos := ?QOS_0}}, MQ = #mqueue{qos0 = false}) ->
+in(#message{qos = ?QOS_0}, MQ = #mqueue{qos0 = false}) ->
     MQ;
 in(Msg, MQ = #mqueue{type = simple, q = Q, len = Len, max_len = 0}) ->
     MQ#mqueue{q = queue:in(Msg, Q), len = Len + 1};

@@ -1,48 +1,16 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
-
--module(emqx_session).
-
--behaviour(gen_server).
-
--include("emqx.hrl").
-
--include("emqx_mqtt.hrl").
-
--include("emqx_misc.hrl").
-
--import(emqx_misc, [start_timer/2]).
-
--import(proplists, [get_value/2, get_value/3]).
-
-%% Session API
--export([start_link/1, resume/2, discard/2]).
-
-%% Management and Monitor API
--export([state/1, info/1, stats/1]).
-
-%% PubSub API
--export([subscribe/2, subscribe/3, publish/2, puback/2, pubrec/2,
-         pubrel/2, pubcomp/2, unsubscribe/2]).
-
-%% gen_server Function Exports
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
-
--define(MQueue, emqx_mqueue).
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 %% A stateful interaction between a Client and a Server. Some Sessions
 %% last only as long as the Network Connection, others can span multiple
@@ -66,6 +34,32 @@
 %%
 %% If the session is currently disconnected, the time at which the Session state
 %% will be deleted.
+-module(emqx_session).
+
+-behaviour(gen_server).
+
+-include("emqx.hrl").
+-include("emqx_mqtt.hrl").
+-include("emqx_misc.hrl").
+
+-import(emqx_misc, [start_timer/2]).
+-import(proplists, [get_value/2, get_value/3]).
+
+%% Session API
+-export([start_link/1, resume/2, discard/2]).
+%% Management and Monitor API
+-export([state/1, info/1, stats/1]).
+%% PubSub API
+-export([subscribe/2, subscribe/3]).
+-export([publish/2, puback/2, pubrec/2, pubrel/2, pubcomp/2]).
+-export([unsubscribe/2]).
+
+%% gen_server Function Exports
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3]).
+
+-define(MQueue, emqx_mqueue).
+
 -record(state,
         { %% Clean Start Flag
           clean_start = false :: boolean(),
@@ -145,9 +139,7 @@
         }).
 
 -define(TIMEOUT, 60000).
-
 -define(INFO_KEYS, [clean_start, client_id, username, client_pid, binding, created_at]).
-
 -define(STATE_KEYS, [clean_start, client_id, username, binding, client_pid, old_client_pid,
                      next_msg_id, max_subscriptions, subscriptions, upgrade_qos, inflight,
                      max_inflight, retry_interval, mqueue, awaiting_rel, max_awaiting_rel,
@@ -169,71 +161,71 @@ start_link(Attrs) ->
 
 %% @doc Subscribe topics
 -spec(subscribe(pid(), [{binary(), [emqx_topic:option()]}]) -> ok).
-subscribe(SessionPid, TopicTable) -> %%TODO: the ack function??...
-    gen_server:cast(SessionPid, {subscribe, self(), TopicTable, fun(_) -> ok end}).
+subscribe(SPid, TopicTable) -> %%TODO: the ack function??...
+    gen_server:cast(SPid, {subscribe, self(), TopicTable, fun(_) -> ok end}).
 
 -spec(subscribe(pid(), mqtt_packet_id(), [{binary(), [emqx_topic:option()]}]) -> ok).
-subscribe(SessionPid, PacketId, TopicTable) -> %%TODO: the ack function??...
+subscribe(SPid, PacketId, TopicTable) -> %%TODO: the ack function??...
     From = self(),
     AckFun = fun(GrantedQos) -> From ! {suback, PacketId, GrantedQos} end,
-    gen_server:cast(SessionPid, {subscribe, From, TopicTable, AckFun}).
+    gen_server:cast(SPid, {subscribe, From, TopicTable, AckFun}).
 
 %% @doc Publish Message
--spec(publish(pid(), message()) -> ok | {error, term()}).
-publish(_SessionPid, Msg = #message{qos = ?QOS_0}) ->
+-spec(publish(pid(), message()) -> {ok, delivery()} | {error, term()}).
+publish(_SPid, Msg = #message{qos = ?QOS_0}) ->
     %% Publish QoS0 Directly
-    emqx_broker:publish(Msg), ok;
+    emqx_broker:publish(Msg);
 
-publish(_SessionPid, Msg = #message{qos = ?QOS_1}) ->
+publish(_SPid, Msg = #message{qos = ?QOS_1}) ->
     %% Publish QoS1 message directly for client will PubAck automatically
-    emqx_broker:publish(Msg), ok;
+    emqx_broker:publish(Msg);
 
-publish(SessionPid, Msg = #message{qos = ?QOS_2}) ->
+publish(SPid, Msg = #message{qos = ?QOS_2}) ->
     %% Publish QoS2 to Session
-    gen_server:call(SessionPid, {publish, Msg}, ?TIMEOUT).
+    gen_server:call(SPid, {publish, Msg}, infinity).
 
 %% @doc PubAck Message
 -spec(puback(pid(), mqtt_packet_id()) -> ok).
-puback(SessionPid, PacketId) ->
-    gen_server:cast(SessionPid, {puback, PacketId}).
+puback(SPid, PacketId) ->
+    gen_server:cast(SPid, {puback, PacketId}).
 
 -spec(pubrec(pid(), mqtt_packet_id()) -> ok).
-pubrec(SessionPid, PacketId) ->
-    gen_server:cast(SessionPid, {pubrec, PacketId}).
+pubrec(SPid, PacketId) ->
+    gen_server:cast(SPid, {pubrec, PacketId}).
 
 -spec(pubrel(pid(), mqtt_packet_id()) -> ok).
-pubrel(SessionPid, PacketId) ->
-    gen_server:cast(SessionPid, {pubrel, PacketId}).
+pubrel(SPid, PacketId) ->
+    gen_server:cast(SPid, {pubrel, PacketId}).
 
 -spec(pubcomp(pid(), mqtt_packet_id()) -> ok).
-pubcomp(SessionPid, PacketId) ->
-    gen_server:cast(SessionPid, {pubcomp, PacketId}).
+pubcomp(SPid, PacketId) ->
+    gen_server:cast(SPid, {pubcomp, PacketId}).
 
 %% @doc Unsubscribe the topics
 -spec(unsubscribe(pid(), [{binary(), [suboption()]}]) -> ok).
-unsubscribe(SessionPid, TopicTable) ->
-    gen_server:cast(SessionPid, {unsubscribe, self(), TopicTable}).
+unsubscribe(SPid, TopicTable) ->
+    gen_server:cast(SPid, {unsubscribe, self(), TopicTable}).
 
 %% @doc Resume the session
 -spec(resume(pid(), pid()) -> ok).
-resume(SessionPid, ClientPid) ->
-    gen_server:cast(SessionPid, {resume, ClientPid}).
+resume(SPid, ClientPid) ->
+    gen_server:cast(SPid, {resume, ClientPid}).
 
 %% @doc Get session state
-state(SessionPid) when is_pid(SessionPid) ->
-    gen_server:call(SessionPid, state).
+state(SPid) when is_pid(SPid) ->
+    gen_server:call(SPid, state).
 
 %% @doc Get session info
 -spec(info(pid() | #state{}) -> list(tuple())).
-info(SessionPid) when is_pid(SessionPid) ->
-    gen_server:call(SessionPid, info);
+info(SPid) when is_pid(SPid) ->
+    gen_server:call(SPid, info);
 
 info(State) when is_record(State, state) ->
     ?record_to_proplist(state, State, ?INFO_KEYS).
 
 -spec(stats(pid() | #state{}) -> list({atom(), non_neg_integer()})).
-stats(SessionPid) when is_pid(SessionPid) ->
-    gen_server:call(SessionPid, stats);
+stats(SPid) when is_pid(SPid) ->
+    gen_server:call(SPid, stats);
 
 stats(#state{max_subscriptions = MaxSubscriptions,
              subscriptions     = Subscriptions,
@@ -257,8 +249,8 @@ stats(#state{max_subscriptions = MaxSubscriptions,
 
 %% @doc Discard the session
 -spec(discard(pid(), client_id()) -> ok).
-discard(SessionPid, ClientId) ->
-    gen_server:call(SessionPid, {discard, ClientId}).
+discard(SPid, ClientId) ->
+    gen_server:call(SPid, {discard, ClientId}).
 
 %%--------------------------------------------------------------------
 %% gen_server Callbacks
@@ -342,41 +334,34 @@ handle_call(state, _From, State) ->
     reply(?record_to_proplist(state, State, ?STATE_KEYS), State);
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[Session] Unexpected request: ~p", [Req]),
-    {reply, ignore, State}.
+    emqx_logger:error("[Session] unexpected call: ~p", [Req]),
+    {reply, ignored, State}.
 
 handle_cast({subscribe, From, TopicTable, AckFun},
-            State = #state{client_id     = ClientId,
-                           username      = Username,
-                           subscriptions = Subscriptions}) ->
+            State = #state{client_id = ClientId, username = Username, subscriptions = Subscriptions}) ->
     ?LOG(info, "Subscribe ~p", [TopicTable], State),
     {GrantedQos, Subscriptions1} =
     lists:foldl(fun({Topic, Opts}, {QosAcc, SubMap}) ->
-                io:format("SubOpts: ~p~n", [Opts]),
-                Fastlane = lists:member(fastlane, Opts),
-                NewQos = if Fastlane == true -> ?QOS_0; true -> get_value(qos, Opts) end,
+                NewQos = get_value(qos, Opts),
                 SubMap1 =
                 case maps:find(Topic, SubMap) of
                     {ok, NewQos} ->
                         ?LOG(warning, "Duplicated subscribe: ~s, qos = ~w", [Topic, NewQos], State),
                         SubMap;
                     {ok, OldQos} ->
-                        emqx_broker:setopts(Topic, ClientId, [{qos, NewQos}]),
+                        %% TODO:....
+                        emqx_broker:set_subopts(Topic, ClientId, [{qos, NewQos}]),
                         emqx_hooks:run('session.subscribed', [ClientId, Username], {Topic, Opts}),
-                        ?LOG(warning, "Duplicated subscribe ~s, old_qos=~w, new_qos=~w",
-                            [Topic, OldQos, NewQos], State),
+                        ?LOG(warning, "Duplicated subscribe ~s, old_qos=~w, new_qos=~w", [Topic, OldQos, NewQos], State),
                         maps:put(Topic, NewQos, SubMap);
                     error ->
-                        case Fastlane of
-                            true  -> emqx:subscribe(Topic, From, Opts);
-                            false -> emqx:subscribe(Topic, ClientId, Opts)
-                        end,
+                        %% TODO:....
+                        emqx:subscribe(Topic, ClientId, Opts),
                         emqx_hooks:run('session.subscribed', [ClientId, Username], {Topic, Opts}),
                         maps:put(Topic, NewQos, SubMap)
                 end,
                 {[NewQos|QosAcc], SubMap1}
         end, {[], Subscriptions}, TopicTable),
-    io:format("GrantedQos: ~p~n", [GrantedQos]),
     AckFun(lists:reverse(GrantedQos)),
     {noreply, emit_stats(State#state{subscriptions = Subscriptions1}), hibernate};
 
@@ -501,7 +486,7 @@ handle_cast({resume, ClientPid},
     {noreply, emit_stats(dequeue(retry_delivery(true, State1)))};
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[Session] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[Session] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 %% Ignore Messages delivered by self
@@ -546,16 +531,15 @@ handle_info({'EXIT', Pid, _Reason}, State = #state{old_client_pid = Pid}) ->
 
 handle_info({'EXIT', Pid, Reason}, State = #state{client_pid = ClientPid}) ->
 
-    ?LOG(error, "Unexpected EXIT: client_pid=~p, exit_pid=~p, reason=~p",
+    ?LOG(error, "unexpected EXIT: client_pid=~p, exit_pid=~p, reason=~p",
          [ClientPid, Pid, Reason], State),
     {noreply, State, hibernate};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[Session] Unexpected info: ~p", [Info]),
+    emqx_logger:error("[Session] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(Reason, #state{client_id = ClientId, username = Username}) ->
-
     emqx_hooks:run('session.terminated', [ClientId, Username, Reason]),
     emqx_sm:unregister_session(ClientId).
 

@@ -131,7 +131,7 @@ encode_alarm(#alarm{id = AlarmId, severity = Severity, title = Title,
                            {ts, emqx_time:now_secs(Ts)}]).
 
 alarm_msg(Type, AlarmId, Json) ->
-    emqx_message:make(?ALARM_MGR, #{sys => true, qos => 0}, topic(Type, AlarmId), Json).
+    emqx_message:make(?ALARM_MGR, #{sys => true}, topic(Type, AlarmId), Json).
 
 topic(alert, AlarmId) ->
     emqx_topic:systop(<<"alarms/", AlarmId/binary, "/alert">>);

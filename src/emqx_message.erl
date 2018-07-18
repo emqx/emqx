@@ -37,6 +37,7 @@ new(From, Flags, Topic, Payload) when is_atom(From); is_record(From, client) ->
 -spec(new(atom() | client(), message_flags(), message_headers(), topic(), payload()) -> message()).
 new(From, Flags, Headers, Topic, Payload) when is_atom(From); is_record(From, client) ->
     #message{id         = msgid(),
+             qos        = ?QOS0,
              from       = From,
              sender     = self(),
              flags      = Flags,

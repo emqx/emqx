@@ -17,24 +17,17 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
-
 -include("emqx_mqtt.hrl").
-
 -include("emqx_misc.hrl").
 
 -import(proplists, [get_value/2, get_value/3]).
 
-%% API Function Exports
 -export([start_link/3]).
-
 %% Management and Monitor API
 -export([info/1, stats/1, kick/1, clean_acl_cache/2]).
-
 -export([set_rate_limit/2, get_rate_limit/1]).
-
 %% SUB/UNSUB Asynchronously. Called by plugins.
 -export([subscribe/2, unsubscribe/2]).
-
 %% Get the session proc?
 -export([session/1]).
 
@@ -48,15 +41,12 @@
                 keepalive, enable_stats, idle_timeout, force_gc_count}).
 
 -define(INFO_KEYS, [peername, conn_state, await_recv]).
-
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
-
 -define(LOG(Level, Format, Args, State),
-            emqx_logger:Level("Client(~s): " ++ Format,
-                              [esockd_net:format(State#state.peername) | Args])).
+        emqx_logger:Level("Conn(~s): " ++ Format, [esockd_net:format(State#state.peername) | Args])).
 
-start_link(Transport, Sock, Env) ->
-    {ok, proc_lib:spawn_link(?MODULE, init, [[Transport, Sock, Env]])}.
+start_link(Transport, Sock, Options) ->
+    {ok, proc_lib:spawn_link(?MODULE, init, [[Transport, Sock, Options]])}.
 
 info(CPid) ->
     gen_server:call(CPid, info).
@@ -85,26 +75,27 @@ session(CPid) ->
 clean_acl_cache(CPid, Topic) ->
     gen_server:call(CPid, {clean_acl_cache, Topic}).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
-init([Transport, Sock, Env]) ->
+init([Transport, Sock, Options]) ->
     case Transport:wait(Sock) of
         {ok, NewSock} ->
             {ok, Peername} = Transport:ensure_ok_or_exit(peername, [NewSock]),
-            do_init(Transport, Sock, Peername, Env);
+            do_init(Transport, Sock, Peername, Options);
         {error, Reason} ->
             {stop, Reason}
     end.
 
-do_init(Transport, Sock, Peername, Env) ->
-    RateLimit = get_value(rate_limit, Env),
-    PacketSize = get_value(max_packet_size, Env, ?MAX_PACKET_SIZE),
+do_init(Transport, Sock, Peername, Options) ->
+    io:format("Options: ~p~n", [Options]),
+    RateLimit = get_value(rate_limit, Options),
+    PacketSize = get_value(max_packet_size, Options, ?MAX_PACKET_SIZE),
     SendFun = send_fun(Transport, Sock, Peername),
-    ProtoState = emqx_protocol:init(Transport, Sock, Peername, SendFun, Env),
-    EnableStats = get_value(client_enable_stats, Env, false),
-    IdleTimout = get_value(client_idle_timeout, Env, 30000),
+    ProtoState = emqx_protocol:init(Transport, Sock, Peername, SendFun, Options),
+    EnableStats = get_value(client_enable_stats, Options, false),
+    IdleTimout = get_value(client_idle_timeout, Options, 30000),
     ForceGcCount = emqx_gc:conn_max_gc_count(),
     State = run_socket(#state{transport       = Transport,
                               socket          = Sock,
@@ -136,8 +127,7 @@ send_fun(Transport, Sock, Peername) ->
 
 init_parse_state(State = #state{max_packet_size = Size, proto_state = ProtoState}) ->
     Version = emqx_protocol:get(proto_ver, ProtoState),
-    State#state{parse_state = emqx_frame:initial_state(
-                                #{max_packet_size => Size, version => Version})}.
+    State#state{parse_state = emqx_frame:initial_state(#{max_packet_size => Size, version => Version})}.
 
 handle_call(info, From, State = #state{proto_state = ProtoState}) ->
     ProtoInfo  = emqx_protocol:info(ProtoState),
@@ -193,10 +183,6 @@ handle_info({suback, PacketId, GrantedQos}, State) ->
           Packet = ?SUBACK_PACKET(PacketId, GrantedQos),
           emqx_protocol:send(Packet, ProtoState)
       end, State);
-
-%% Fastlane
-handle_info({dispatch, _Topic, Msg}, State) ->
-    handle_info({deliver, emqx_message:set_flag(qos, ?QOS_0, Msg)}, State);
 
 handle_info({deliver, Message}, State) ->
     with_proto(

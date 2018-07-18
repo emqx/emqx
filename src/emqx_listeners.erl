@@ -42,10 +42,14 @@ start_listener({Proto, ListenOn, Options}) when Proto == https; Proto == wss ->
     start_http_listener('mqtt:wss', ListenOn, Options).
 
 start_mqtt_listener(Name, ListenOn, Options) ->
-    {ok, _} = esockd:open(Name, ListenOn, merge_sockopts(Options), {emqx_connection, start_link, []}).
+    SockOpts = esockd:parse_opt(Options),
+    MFA = {emqx_connection, start_link, [Options -- SockOpts]},
+    {ok, _} = esockd:open(Name, ListenOn, merge_default(SockOpts), MFA).
 
 start_http_listener(Name, ListenOn, Options) ->
-    {ok, _} = mochiweb:start_http(Name, ListenOn, Options, {emqx_ws, handle_request, []}).
+    SockOpts = esockd:parse_opt(Options),
+    MFA = {emqx_ws, handle_request, [Options -- SockOpts]},
+    {ok, _} = mochiweb:start_http(Name, ListenOn, SockOpts, MFA).
 
 %% @doc Restart all listeners
 -spec(restart_all() -> ok).
@@ -56,7 +60,7 @@ restart_all() ->
 restart_listener({tcp, ListenOn, _Opts}) ->
     esockd:reopen('mqtt:tcp', ListenOn);
 restart_listener({Proto, ListenOn, _Opts}) when Proto == ssl; Proto == tls ->
-    esockd:reopen('mqtt:tls', ListenOn);
+    esockd:reopen('mqtt:ssl', ListenOn);
 restart_listener({Proto, ListenOn, _Opts}) when Proto == http; Proto == ws ->
     mochiweb:restart_http('mqtt:ws', ListenOn);
 restart_listener({Proto, ListenOn, _Opts}) when Proto == https; Proto == wss ->
@@ -73,7 +77,7 @@ stop_all() ->
 stop_listener({tcp, ListenOn, _Opts}) ->
     esockd:close('mqtt:tcp', ListenOn);
 stop_listener({Proto, ListenOn, _Opts}) when Proto == ssl; Proto == tls ->
-    esockd:close('mqtt:tls', ListenOn);
+    esockd:close('mqtt:ssl', ListenOn);
 stop_listener({Proto, ListenOn, _Opts}) when Proto == http; Proto == ws ->
     mochiweb:stop_http('mqtt:ws', ListenOn);
 stop_listener({Proto, ListenOn, _Opts}) when Proto == https; Proto == wss ->
@@ -81,19 +85,11 @@ stop_listener({Proto, ListenOn, _Opts}) when Proto == https; Proto == wss ->
 stop_listener({Proto, ListenOn, _Opts}) ->
     esockd:close(Proto, ListenOn).
 
-merge_sockopts(Options) ->
+merge_default(Options) ->
     case lists:keytake(tcp_options, 1, Options) of
         {value, {tcp_options, TcpOpts}, Options1} ->
             [{tcp_options, emqx_misc:merge_opts(?MQTT_SOCKOPTS, TcpOpts)} | Options1];
         false ->
             [{tcp_options, ?MQTT_SOCKOPTS} | Options]
     end.
-
-%% all() ->
-%%    [Listener || Listener = {{Proto, _}, _Pid} <- esockd:listeners(), is_mqtt(Proto)].
-%%is_mqtt('mqtt:tcp') -> true;
-%%is_mqtt('mqtt:tls') -> true;
-%%is_mqtt('mqtt:ws')  -> true;
-%%is_mqtt('mqtt:wss') -> true;
-%%is_mqtt(_Proto)     -> false.
 

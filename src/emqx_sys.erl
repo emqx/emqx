@@ -171,6 +171,6 @@ publish(metrics, Metrics) ->
 safe_publish(Topic, Payload) ->
     safe_publish(Topic, #{}, Payload).
 safe_publish(Topic, Flags, Payload) ->
-    Flags1 = maps:merge(#{sys => true, qos => 0}, Flags),
+    Flags1 = maps:merge(#{sys => true}, Flags),
     emqx_broker:safe_publish(emqx_message:new(?SYS, Flags1, Topic, iolist_to_binary(Payload))).
 

@@ -158,5 +158,5 @@ safe_publish(Event, WarnMsg) ->
     emqx_broker:safe_publish(sysmon_msg(Topic, iolist_to_binary(WarnMsg))).
 
 sysmon_msg(Topic, Payload) ->
-    emqx_message:new(?SYSMON, #{sys => true, qos => 0}, Topic, Payload).
+    emqx_message:new(?SYSMON, #{sys => true}, Topic, Payload).
 

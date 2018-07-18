@@ -1,5 +1,7 @@
 
 1. Update the README.md
 2. Update the Documentation
-3. Shared subscription strategy and dispatch strategy
+3. Shared subscription and dispatch strategy
+4. Remove lager syslog:
+   dep_lager_syslog = git https://github.com/basho/lager_syslog
 
