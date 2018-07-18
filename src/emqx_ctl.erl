@@ -1,18 +1,16 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_ctl).
 
@@ -22,9 +20,8 @@
 -export([register_command/2, register_command/3, unregister_command/1]).
 -export([run_command/2, lookup_command/1]).
 
-%% gen_server Function Exports
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3]).
 
 -record(state, {seq = 0}).
 
@@ -32,10 +29,6 @@
 
 -define(SERVER, ?MODULE).
 -define(TAB, emqx_command).
-
-%%--------------------------------------------------------------------
-%% API
-%%--------------------------------------------------------------------
 
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
@@ -64,9 +57,8 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
             try Mod:Fun(Args) of
                 _ -> ok
             catch
-                _:Reason ->
-                    emqx_logger:error("[CTL] CMD Error:~p, Stacktrace:~p",
-                                      [Reason, erlang:get_stacktrace()]),
+                _:Reason:Stacktrace ->
+                    emqx_logger:error("[CTL] CMD Error:~p, Stacktrace:~p", [Reason, Stacktrace]),
                     {error, Reason}
             end;
         [] ->
@@ -83,19 +75,19 @@ lookup_command(Cmd) when is_atom(Cmd) ->
 usage() ->
     io:format("Usage: ~s~n", [?MODULE]),
     [begin io:format("~80..-s~n", [""]), Mod:Cmd(usage) end
-        || {_, {Mod, Cmd}, _} <- ets:tab2list(?TAB)].
+     || {_, {Mod, Cmd}, _} <- ets:tab2list(?TAB)].
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([]) ->
     _ = emqx_tables:new(?TAB, [ordered_set, protected]),
     {ok, #state{seq = 0}}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("Unexpected request: ~p", [Req]),
-    {reply, ignore, State}.
+    emqx_logger:error("unexpected call: ~p", [Req]),
+    {reply, ignored, State}.
 
 handle_cast({register_command, Cmd, MF, Opts}, State = #state{seq = Seq}) ->
     case ets:match(?TAB, {{'$1', Cmd}, '_', '_'}) of
@@ -111,11 +103,11 @@ handle_cast({unregister_command, Cmd}, State) ->
     noreply(State);
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("Unexpected cast: ~p", [Msg]),
     noreply(State).
 
 handle_info(Info, State) ->
-    emqx_logger:error("Unexpected info: ~p", [Info]),
+    emqx_logger:error("unexpected info: ~p", [Info]),
     noreply(State).
 
 terminate(_Reason, _State) ->
@@ -124,9 +116,9 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Internal Function
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 noreply(State) ->
     {noreply, State, hibernate}.

@@ -1,41 +1,35 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx).
 
 -include("emqx.hrl").
 
-%% Start/Stop Application
+%% Start/Stop the application
 -export([start/0, is_running/1, stop/0]).
 
 %% PubSub API
--export([subscribe/1, subscribe/2, subscribe/3, publish/1,
-         unsubscribe/1, unsubscribe/2]).
+-export([subscribe/1, subscribe/2, subscribe/3]).
+-export([publish/1]).
+-export([unsubscribe/1, unsubscribe/2]).
 
 %% PubSub management API
 -export([topics/0, subscriptions/1, subscribers/1, subscribed/2]).
-
-%% Get/Set suboptions
 -export([get_subopts/2, set_subopts/3]).
 
 %% Hooks API
 -export([hook/4, hook/3, unhook/2, run_hooks/2, run_hooks/3]).
-
-%% Debug API
--export([dump/0]).
 
 %% Shutdown and reboot
 -export([shutdown/0, shutdown/1, reboot/0]).
@@ -76,16 +70,16 @@ is_running(Node) ->
 subscribe(Topic) ->
     emqx_broker:subscribe(iolist_to_binary(Topic)).
 
--spec(subscribe(topic() | iodata(), subscriber() | string()) -> ok | {error, term()}).
+-spec(subscribe(topic() | string(), subscriber() | string()) -> ok | {error, term()}).
 subscribe(Topic, Subscriber) ->
     emqx_broker:subscribe(iolist_to_binary(Topic), list_to_subid(Subscriber)).
 
--spec(subscribe(topic() | iodata(), subscriber() | string(), [suboption()]) -> ok | {error, term()}).
+-spec(subscribe(topic() | string(), subscriber() | string(), [suboption()]) -> ok | {error, term()}).
 subscribe(Topic, Subscriber, Options) ->
     emqx_broker:subscribe(iolist_to_binary(Topic), list_to_subid(Subscriber), Options).
 
 %% @doc Publish Message
--spec(publish(message()) -> {ok, delivery()} | ignore).
+-spec(publish(message()) -> {ok, delivery()} | {error, term()}).
 publish(Msg) ->
     emqx_broker:publish(Msg).
 
@@ -118,7 +112,7 @@ subscribers(Topic) ->
 
 -spec(subscriptions(subscriber() | string()) -> [{topic(), list(suboption())}]).
 subscriptions(Subscriber) ->
-    emqx_broker:subscriptions(Subscriber).
+    emqx_broker:subscriptions(list_to_subid(Subscriber)).
 
 -spec(subscribed(topic() | string(), subscriber()) -> boolean()).
 subscribed(Topic, Subscriber) ->
@@ -170,16 +164,10 @@ shutdown() ->
     shutdown(normal).
 
 shutdown(Reason) ->
-    emqx_logger:error("EMQ shutdown for ~s", [Reason]),
+    emqx_logger:error("emqx shutdown for ~s", [Reason]),
     emqx_plugins:unload(),
     lists:foreach(fun application:stop/1, [emqx, ekka, mochiweb, esockd, gproc]).
 
 reboot() ->
     lists:foreach(fun application:start/1, [gproc, esockd, mochiweb, ekka, emqx]).
-
-%%--------------------------------------------------------------------
-%% Debug
-%%--------------------------------------------------------------------
-
-dump() -> lists:append([emqx_broker:dump(), emqx_router:dump()]).
 

@@ -1,5 +1,4 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -12,22 +11,18 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
-%%--------------------------------------------------------------------
 
 -module(emqx_bridge).
 
 -behaviour(gen_server).
 
 -include("emqx.hrl").
-
 -include("emqx_mqtt.hrl").
 
-%% API Function Exports
 -export([start_link/5]).
 
-%% gen_server Function Exports
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3]).
 
 -define(PING_DOWN_INTERVAL, 1000).
 
@@ -49,36 +44,31 @@
 
 -export_type([option/0]).
 
-%%--------------------------------------------------------------------
-%% API
-%%--------------------------------------------------------------------
-
 %% @doc Start a bridge
--spec(start_link(any(), pos_integer(), atom(), binary(), [option()]) ->
-    {ok, pid()} | ignore | {error, term()}).
+-spec(start_link(term(), pos_integer(), atom(), binary(), [option()])
+      -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id, Node, Topic, Options) ->
-    gen_server:start_link(?MODULE, [Pool, Id, Node, Topic, Options], []).
+    gen_server:start_link(?MODULE, [Pool, Id, Node, Topic, Options], [{hibernate_after, 5000}]).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([Pool, Id, Node, Topic, Options]) ->
     process_flag(trap_exit, true),
-    gproc_pool:connect_worker(Pool, {Pool, Id}),
+    true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     case net_kernel:connect_node(Node) of
-        true -> 
+        true ->
             true = erlang:monitor_node(Node, true),
             Share = iolist_to_binary(["$bridge:", atom_to_list(Node), ":", Topic]),
-            %% TODO:: local???
-            emqx_broker:subscribe(Topic, self(), [local, {share, Share}, {qos, ?QOS_0}]),
+            emqx_broker:subscribe(Topic, self(), [{share, Share}, {qos, ?QOS_0}]),
             State = parse_opts(Options, #state{node = Node, subtopic = Topic}),
+            %%TODO: queue....
             MQueue = emqx_mqueue:new(qname(Node, Topic),
                                      [{max_len, State#state.max_queue_len}],
                                      emqx_alarm:alarm_fun()),
-            {ok, State#state{pool = Pool, id = Id, mqueue = MQueue},
-             hibernate, {backoff, 1000, 1000, 10000}};
-        false -> 
+            {ok, State#state{pool = Pool, id = Id, mqueue = MQueue}};
+        false ->
             {stop, {cannot_connect_node, Node}}
     end.
 
@@ -103,44 +93,41 @@ qname(Node, Topic) ->
     iolist_to_binary(["Bridge:", Node, ":", Topic]).
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[Bridge] Unexpected request: ~p", [Req]),
-    {reply, ignore, State}.
+    emqx_logger:error("[Bridge] unexpected call: ~p", [Req]),
+    {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[Bridge] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[Bridge] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({dispatch, _Topic, Msg}, State = #state{mqueue = MQ, status = down}) ->
-    {noreply, State#state{mqueue = emqx_mqueue:in(Msg, MQ)}};
+handle_info({dispatch, _Topic, Msg}, State = #state{mqueue = Q, status = down}) ->
+    %% TODO: how to drop???
+    {noreply, State#state{mqueue = emqx_mqueue:in(Msg, Q)}};
 
 handle_info({dispatch, _Topic, Msg}, State = #state{node = Node, status = up}) ->
-    emqx_rpc:cast(Node, emqx, publish, [transform(Msg, State)]),
-    {noreply, State, hibernate};
+    ok = emqx_rpc:cast(Node, emqx_broker, publish, [transform(Msg, State)]),
+    {noreply, State};
 
 handle_info({nodedown, Node}, State = #state{node = Node, ping_down_interval = Interval}) ->
-    emqx_logger:warning("[Bridge] Node Down: ~s", [Node]),
+    emqx_logger:warning("[Bridge] node down: ~s", [Node]),
     erlang:send_after(Interval, self(), ping_down_node),
     {noreply, State#state{status = down}, hibernate};
 
 handle_info({nodeup, Node}, State = #state{node = Node}) ->
     %% TODO: Really fast??
     case emqx:is_running(Node) of
-        true ->
-            emqx_logger:warning("[Bridge] Node up: ~s", [Node]),
-            {noreply, dequeue(State#state{status = up})};
-        false ->
-            self() ! {nodedown, Node},
-            {noreply, State#state{status = down}}
+        true -> emqx_logger:warning("[Bridge] Node up: ~s", [Node]),
+                {noreply, dequeue(State#state{status = up})};
+        false -> self() ! {nodedown, Node},
+                 {noreply, State#state{status = down}}
     end;
 
 handle_info(ping_down_node, State = #state{node = Node, ping_down_interval = Interval}) ->
     Self = self(),
     spawn_link(fun() ->
                  case net_kernel:connect_node(Node) of
-                     true -> %%TODO: this is not right... fixme later
-                         Self ! {nodeup, Node};
-                     false ->
-                         erlang:send_after(Interval, Self, ping_down_node)
+                     true -> Self ! {nodeup, Node};
+                     false -> erlang:send_after(Interval, Self, ping_down_node)
                  end
                end),
     {noreply, State};
@@ -149,7 +136,7 @@ handle_info({'EXIT', _Pid, normal}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[Bridge] Unexpected info: ~p", [Info]),
+    emqx_logger:error("[Bridge] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->

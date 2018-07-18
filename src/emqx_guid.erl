@@ -1,5 +1,4 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -12,15 +11,14 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
-%%--------------------------------------------------------------------
 
 %% @doc Generate global unique id for mqtt message.
 %%
 %% --------------------------------------------------------
-%% |        Timestamp       |  NodeID + PID  |  Sequence  | 
+%% |        Timestamp       |  NodeID + PID  |  Sequence  |
 %% |<------- 64bits ------->|<--- 48bits --->|<- 16bits ->|
 %% --------------------------------------------------------
-%% 
+%%
 %% 1. Timestamp: erlang:system_time if Erlang >= R18, otherwise os:timestamp
 %% 2. NodeId:    encode node() to 2 bytes integer
 %% 3. Pid:       encode pid to 4 bytes integer

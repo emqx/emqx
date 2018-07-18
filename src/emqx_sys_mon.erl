@@ -1,18 +1,16 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_sys_mon).
 
@@ -20,30 +18,25 @@
 
 -export([start_link/1]).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3]).
 
 -record(state, {timer, events}).
 
--define(LOG(Msg, ProcInfo),
-        emqx_logger:warning([{sysmon, true}],
-                            "[SYSMON] ~s~n~p", [WarnMsg, ProcInfo])).
-
--define(LOG(Msg, ProcInfo, PortInfo),
-        emqx_logger:warning([{sysmon, true}],
-                            "[SYSMON] ~s~n~p~n~p", [WarnMsg, ProcInfo, PortInfo])).
-
 -define(SYSMON, ?MODULE).
+-define(LOG(Msg, ProcInfo),
+        emqx_logger:warning([{sysmon, true}], "[SYSMON] ~s~n~p", [WarnMsg, ProcInfo])).
+-define(LOG(Msg, ProcInfo, PortInfo),
+        emqx_logger:warning([{sysmon, true}], "[SYSMON] ~s~n~p~n~p", [WarnMsg, ProcInfo, PortInfo])).
 
 %% @doc Start system monitor
--spec(start_link(Opts :: list(tuple()))
-      -> {ok, pid()} | ignore | {error, term()}).
+-spec(start_link(Opts :: list(tuple())) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Opts) ->
     gen_server:start_link({local, ?SYSMON}, ?MODULE, [Opts], []).
 
-%%--------------------------------------------------------------------
+%%-----------------------------------------------------------------------------
 %% gen_server callbacks
-%%--------------------------------------------------------------------
+%%-----------------------------------------------------------------------------
 
 init([Opts]) ->
     erlang:system_monitor(self(), parse_opt(Opts)),
@@ -78,60 +71,66 @@ parse_opt([_Opt|Opts], Acc) ->
     parse_opt(Opts, Acc).
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[SYSMON] Unexpected request: ~p", [Req]),
-    {reply, ignore, State}.
+    emqx_logger:error("[SYSMON] unexpected call: ~p", [Req]),
+    {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[SYSMON] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[SYSMON] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({monitor, Pid, long_gc, Info}, State) ->
-    suppress({long_gc, Pid}, fun() ->
-            WarnMsg = io_lib:format("long_gc warning: pid = ~p, info: ~p", [Pid, Info]),
-            ?LOG(WarnMsg, procinfo(Pid)),
-            safe_publish(long_gc, WarnMsg)
-        end, State);
+    suppress({long_gc, Pid},
+             fun() ->
+                 WarnMsg = io_lib:format("long_gc warning: pid = ~p, info: ~p", [Pid, Info]),
+                 ?LOG(WarnMsg, procinfo(Pid)),
+                 safe_publish(long_gc, WarnMsg)
+             end, State);
 
 handle_info({monitor, Pid, long_schedule, Info}, State) when is_pid(Pid) ->
-    suppress({long_schedule, Pid}, fun() ->
-            WarnMsg = io_lib:format("long_schedule warning: pid = ~p, info: ~p", [Pid, Info]),
-            ?LOG(WarnMsg, procinfo(Pid)),
-            safe_publish(long_schedule, WarnMsg)
-        end, State);
+    suppress({long_schedule, Pid},
+             fun() ->
+                 WarnMsg = io_lib:format("long_schedule warning: pid = ~p, info: ~p", [Pid, Info]),
+                 ?LOG(WarnMsg, procinfo(Pid)),
+                 safe_publish(long_schedule, WarnMsg)
+             end, State);
 
 handle_info({monitor, Port, long_schedule, Info}, State) when is_port(Port) ->
-    suppress({long_schedule, Port}, fun() ->
-        WarnMsg  = io_lib:format("long_schedule warning: port = ~p, info: ~p", [Port, Info]),
-        ?LOG(WarnMsg, erlang:port_info(Port)),
-        safe_publish(long_schedule, WarnMsg)
-    end, State);
+    suppress({long_schedule, Port},
+             fun() ->
+                 WarnMsg = io_lib:format("long_schedule warning: port = ~p, info: ~p", [Port, Info]),
+                 ?LOG(WarnMsg, erlang:port_info(Port)),
+                 safe_publish(long_schedule, WarnMsg)
+             end, State);
 
 handle_info({monitor, Pid, large_heap, Info}, State) ->
-    suppress({large_heap, Pid}, fun() ->
-        WarnMsg = io_lib:format("large_heap warning: pid = ~p, info: ~p", [Pid, Info]),
-        ?LOG(WarnMsg, procinfo(Pid)),
-        safe_publish(large_heap, WarnMsg)
-    end, State);
+    suppress({large_heap, Pid},
+             fun() ->
+                 WarnMsg = io_lib:format("large_heap warning: pid = ~p, info: ~p", [Pid, Info]),
+                 ?LOG(WarnMsg, procinfo(Pid)),
+                 safe_publish(large_heap, WarnMsg)
+             end, State);
 
 handle_info({monitor, SusPid, busy_port, Port}, State) ->
-    suppress({busy_port, Port}, fun() ->
-        WarnMsg = io_lib:format("busy_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
-        ?LOG(WarnMsg, procinfo(SusPid), erlang:port_info(Port)),
-        safe_publish(busy_port, WarnMsg)
-    end, State);
+    suppress({busy_port, Port},
+             fun() ->
+                 WarnMsg = io_lib:format("busy_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
+                 ?LOG(WarnMsg, procinfo(SusPid), erlang:port_info(Port)),
+                 safe_publish(busy_port, WarnMsg)
+             end, State);
 
 handle_info({monitor, SusPid, busy_dist_port, Port}, State) ->
-    suppress({busy_dist_port, Port}, fun() ->
-        WarnMsg = io_lib:format("busy_dist_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
-        ?LOG(WarnMsg, procinfo(SusPid), erlang:port_info(Port)),
-        safe_publish(busy_dist_port, WarnMsg)
-    end, State);
+    suppress({busy_dist_port, Port},
+             fun() ->
+                 WarnMsg = io_lib:format("busy_dist_port warning: suspid = ~p, port = ~p", [SusPid, Port]),
+                 ?LOG(WarnMsg, procinfo(SusPid), erlang:port_info(Port)),
+                 safe_publish(busy_dist_port, WarnMsg)
+             end, State);
 
 handle_info(reset, State) ->
     {noreply, State#state{events = []}, hibernate};
 
 handle_info(Info, State) ->
-    lager:error("[SYSMON] Unexpected Info: ~p", [Info]),
+    lager:error("[SYSMON] unexpected Info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{timer = TRef}) ->
@@ -155,12 +154,9 @@ procinfo(Pid) ->
     end.
 
 safe_publish(Event, WarnMsg) ->
-    try
-        Topic = emqx_topic:systop(lists:concat(['sysmon/', Event])),
-        Msg = emqx_message:make(?SYSMON, Topic, iolist_to_binary(WarnMsg)),
-        emqx_broker:publish(emqx_message:set_flag(sys, Msg))
-    catch
-        _:Error ->
-            emqx_logger:error("[SYSMON] Publish error: ~p", [Error])
-    end.
+    Topic = emqx_topic:systop(lists:concat(['sysmon/', Event])),
+    emqx_broker:safe_publish(sysmon_msg(Topic, iolist_to_binary(WarnMsg))).
+
+sysmon_msg(Topic, Payload) ->
+    emqx_message:new(?SYSMON, #{sys => true, qos => 0}, Topic, Payload).
 

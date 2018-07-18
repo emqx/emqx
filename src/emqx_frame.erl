@@ -1,24 +1,25 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_frame).
 
 -include("emqx.hrl").
-
 -include("emqx_mqtt.hrl").
+
+-export([initial_state/0, initial_state/1]).
+-export([parse/2]).
+-export([serialize/1, serialize/2]).
 
 -type(options() :: #{max_packet_size => 1..?MAX_PACKET_SIZE,
                      version         => mqtt_version()}).
@@ -30,16 +31,11 @@
 
 -export_type([options/0, parse_state/0]).
 
--export([initial_state/0, initial_state/1]).
--export([parse/2]).
--export([serialize/1, serialize/2]).
+-define(DEFAULT_OPTIONS, #{max_packet_size => ?MAX_PACKET_SIZE, version => ?MQTT_PROTO_V4}).
 
--define(DEFAULT_OPTIONS, #{max_packet_size => ?MAX_PACKET_SIZE,
-                           version         => ?MQTT_PROTO_V4}).
-
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Init parse state
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 -spec(initial_state() -> {none, options()}).
 initial_state() ->
@@ -52,12 +48,11 @@ initial_state(Options) when is_map(Options) ->
 merge_opts(Options) ->
     maps:merge(?DEFAULT_OPTIONS, Options).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Parse MQTT Frame
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
--spec(parse(binary(), parse_state())
-      -> {ok, mqtt_packet(), binary()} | {more, cont_fun(binary())}).
+-spec(parse(binary(), parse_state()) -> {ok, mqtt_packet(), binary()} | {more, cont_fun(binary())}).
 parse(<<>>, {none, Options}) ->
     {more, fun(Bin) -> parse(Bin, {none, Options}) end};
 parse(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>, {none, Options}) ->
@@ -357,9 +352,9 @@ parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>) ->
 parse_binary_data(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
     {Data, Rest}.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Serialize MQTT Packet
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 -spec(serialize(mqtt_packet()) -> iodata()).
 serialize(Packet) ->
@@ -369,8 +364,7 @@ serialize(Packet) ->
 serialize(#mqtt_packet{header   = Header,
                        variable = Variable,
                        payload  = Payload}, Options) when is_map(Options) ->
-    serialize(Header, serialize_variable(Variable, merge_opts(Options)),
-              serialize_payload(Payload)).
+    serialize(Header, serialize_variable(Variable, merge_opts(Options)), serialize_payload(Payload)).
 
 serialize(#mqtt_packet_header{type   = Type,
                               dup    = Dup,
@@ -621,10 +615,6 @@ serialize_variable_byte_integer(N) when N =< ?LOWBITS ->
     <<0:1, N:7>>;
 serialize_variable_byte_integer(N) ->
     <<1:1, (N rem ?HIGHBIT):7, (serialize_variable_byte_integer(N div ?HIGHBIT))/binary>>.
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
 
 bool(0) -> false;
 bool(1) -> true.

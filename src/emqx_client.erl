@@ -1,18 +1,16 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_client).
 
@@ -142,9 +140,9 @@
 
 -define(PROPERTY(Name, Val), #state{properties = #{Name := Val}}).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% API
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 -spec(start_link() -> gen_statem:start_ret()).
 start_link() -> start_link([]).
@@ -302,9 +300,9 @@ disconnect(Client, ReasonCode) ->
 disconnect(Client, ReasonCode, Properties) ->
     gen_statem:call(Client, {disconnect, ReasonCode, Properties}).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% For test cases
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 puback(Client, PacketId) when is_integer(PacketId) ->
     puback(Client, PacketId, ?RC_SUCCESS).
@@ -357,9 +355,9 @@ pause(Client) ->
 resume(Client) ->
     gen_statem:call(Client, resume).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_statem callbacks
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([Options]) ->
     process_flag(trap_exit, true),
@@ -892,9 +890,9 @@ terminate(_Reason, _State, #state{socket = Socket}) ->
 code_change(_Vsn, State, Data, _Extra) ->
     {ok, State, Data}.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Internal functions
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 ensure_keepalive_timer(State = ?PROPERTY('Server-Keep-Alive', Secs)) ->
     ensure_keepalive_timer(timer:seconds(Secs), State);
@@ -1017,7 +1015,7 @@ msg_to_packet(#mqtt_message{qos        = Qos,
                  payload  = Payload}.
 
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Socket Connect/Send
 
 sock_connect(Hosts, SockOpts, Timeout) ->
@@ -1057,7 +1055,7 @@ send(Packet, State = #state{socket = Sock, proto_ver = Ver})
 run_sock(State = #state{socket = Sock}) ->
     emqx_client_sock:setopts(Sock, [{active, once}]), State.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Receive Loop
 
 receive_loop(<<>>, State) ->
@@ -1076,7 +1074,7 @@ receive_loop(Bytes, State = #state{parse_state = ParseState}) ->
             {stop, Error}
     end.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Next packet id
 
 next_packet_id(State = #state{last_packet_id = 16#ffff}) ->

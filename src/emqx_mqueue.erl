@@ -1,5 +1,4 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -12,8 +11,8 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
-%%--------------------------------------------------------------------
 
+%% TODO: should be a bound queue.
 %% @doc A Simple in-memory message queue.
 %%
 %% Notice that MQTT is not an enterprise messaging queue. MQTT assume that client
@@ -155,7 +154,7 @@ stats(#mqueue{type = Type, q = Q, max_len = MaxLen, len = Len, dropped = Dropped
 
 %% @doc Enqueue a message.
 -spec(in(message(), mqueue()) -> mqueue()).
-in(#message{qos = ?QOS_0}, MQ = #mqueue{qos0 = false}) ->
+in(#message{flags = #{qos := ?QOS_0}}, MQ = #mqueue{qos0 = false}) ->
     MQ;
 in(Msg, MQ = #mqueue{type = simple, q = Q, len = Len, max_len = 0}) ->
     MQ#mqueue{q = queue:in(Msg, Q), len = Len + 1};
@@ -167,8 +166,8 @@ in(Msg, MQ = #mqueue{type = simple, q = Q, len = Len}) ->
     maybe_set_alarm(MQ#mqueue{q = queue:in(Msg, Q), len = Len + 1});
 
 in(Msg = #message{topic = Topic}, MQ = #mqueue{type = priority, q = Q,
-                                                    priorities = Priorities,
-                                                    max_len = 0}) ->
+                                               priorities = Priorities,
+                                               max_len = 0}) ->
     case lists:keysearch(Topic, 1, Priorities) of
         {value, {_, Pri}} ->
             MQ#mqueue{q = ?PQUEUE:in(Msg, Pri, Q)};

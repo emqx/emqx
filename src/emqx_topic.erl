@@ -1,39 +1,31 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_topic).
 
 -include("emqx.hrl").
-
 -include("emqx_mqtt.hrl").
 
 -import(lists, [reverse/1]).
 
 -export([match/2, validate/1, triples/1, words/1, wildcard/1]).
-
 -export([join/1, feed_var/3, systop/1]).
-
 -export([parse/1, parse/2]).
 
+-type(word() :: '' | '+' | '#' | binary()).
+-type(words() :: list(word())).
 -type(option() :: {qos, mqtt_qos()} | {share, '$queue' | binary()}).
-
--type(word()   :: '' | '+' | '#' | binary()).
-
--type(words()  :: list(word())).
-
 -type(triple() :: {root | binary(), word(), binary()}).
 
 -export_type([option/0, word/0, triple/0]).
@@ -110,14 +102,13 @@ validate3(<<C/utf8, _Rest/binary>>) when C == $#; C == $+; C == 0 ->
 validate3(<<_/utf8, Rest/binary>>) ->
     validate3(Rest).
 
-%% @doc Topic to Triples
+%% @doc Topic to triples
 -spec(triples(topic()) -> list(triple())).
 triples(Topic) when is_binary(Topic) ->
     triples(words(Topic), root, []).
 
 triples([], _Parent, Acc) ->
     reverse(Acc);
-
 triples([W|Words], Parent, Acc) ->
     Node = join(Parent, W),
     triples(Words, Node, [{Parent, W, Node}|Acc]).
@@ -166,9 +157,9 @@ join([W]) ->
 join(Words) ->
     {_, Bin} =
     lists:foldr(fun(W, {true, Tail}) ->
-                        {false, <<W/binary, Tail/binary>>};
+                    {false, <<W/binary, Tail/binary>>};
                    (W, {false, Tail}) ->
-                        {false, <<W/binary, "/", Tail/binary>>}
+                    {false, <<W/binary, "/", Tail/binary>>}
                 end, {true, <<>>}, [bin(W) || W <- Words]),
     Bin.
 
@@ -176,24 +167,16 @@ join(Words) ->
 parse(Topic) when is_binary(Topic) ->
     parse(Topic, []).
 
-parse(Topic = <<"$fastlane/", Topic1/binary>>, Options) ->
-    case lists:member(fastlane, Options) of
-        true  -> error({invalid_topic, Topic});
-        false -> parse(Topic1, [fastlane | Options])
-    end;
-
 parse(Topic = <<"$queue/", Topic1/binary>>, Options) ->
     case lists:keyfind(share, 1, Options) of
         {share, _} -> error({invalid_topic, Topic});
         false      -> parse(Topic1, [{share, '$queue'} | Options])
     end;
-
 parse(Topic = <<"$share/", Topic1/binary>>, Options) ->
     case lists:keyfind(share, 1, Options) of
         {share, _} -> error({invalid_topic, Topic});
         false      -> [Group, Topic2] = binary:split(Topic1, <<"/">>),
                       {Topic2, [{share, Group} | Options]}
     end;
-
 parse(Topic, Options) -> {Topic, Options}.
 

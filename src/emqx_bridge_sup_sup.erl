@@ -1,18 +1,16 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_bridge_sup_sup).
 
@@ -23,16 +21,13 @@
 -export([start_link/0, bridges/0]).
 -export([start_bridge/2, start_bridge/3, stop_bridge/2]).
 
+%% Supervisor callbacks
 -export([init/1]).
 
 -define(CHILD_ID(Node, Topic), {bridge_sup, Node, Topic}).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-%%--------------------------------------------------------------------
-%% API
-%%--------------------------------------------------------------------
 
 %% @doc List all bridges
 -spec(bridges() -> [{node(), topic(), pid()}]).
@@ -50,8 +45,7 @@ start_bridge(Node, Topic) when is_atom(Node), is_binary(Topic) ->
 start_bridge(Node, _Topic, _Options) when Node =:= node() ->
     {error, bridge_to_self};
 start_bridge(Node, Topic, Options) when is_atom(Node), is_binary(Topic) ->
-    {ok, BridgeEnv} = emqx_config:get_env(bridge),
-    Options1 = emqx_misc:merge_opts(BridgeEnv, Options),
+    Options1 = emqx_misc:merge_opts(emqx_config:get_env(bridge, []), Options),
     supervisor:start_child(?MODULE, bridge_spec(Node, Topic, Options1)).
 
 %% @doc Stop a bridge
@@ -63,15 +57,18 @@ stop_bridge(Node, Topic) when is_atom(Node), is_binary(Topic) ->
         Error -> Error
     end.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Supervisor callbacks
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([]) ->
     {ok, {{one_for_one, 10, 3600}, []}}.
 
 bridge_spec(Node, Topic, Options) ->
-    {?CHILD_ID(Node, Topic),
-     {emqx_bridge_sup, start_link, [Node, Topic, Options]},
-     permanent, infinity, supervisor, [emqx_bridge_sup]}.
+    #{id       => ?CHILD_ID(Node, Topic),
+      start    => {emqx_bridge_sup, start_link, [Node, Topic, Options]},
+      restart  => permanent,
+      shutdown => infinity,
+      type     => supervisor,
+      modules  => [emqx_bridge_sup]}.
 

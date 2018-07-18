@@ -1,35 +1,30 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_metrics).
 
 -include("emqx_mqtt.hrl").
 
 -export([start_link/0]).
-
 -export([new/1, all/0]).
-
 -export([val/1, inc/1, inc/2, inc/3, dec/2, dec/3, set/2]).
-
 %% Received/sent metrics
 -export([received/1, sent/1]).
 
-%% gen_server Function Exports
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+%% gen_server callbacks
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3]).
 
 -record(state, {}).
 
@@ -86,7 +81,6 @@
 ]).
 
 -define(TAB, ?MODULE).
-
 -define(SERVER, ?MODULE).
 
 %% @doc Start the metrics server
@@ -94,9 +88,9 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Metrics API
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 new({gauge, Name}) ->
     ets:insert(?TAB, {{Name, 0}, 0});
@@ -168,9 +162,9 @@ key(counter, Metric) ->
 update_counter(Key, UpOp) ->
     ets:update_counter(?TAB, Key, UpOp).
 
-%%--------------------------------------------------------------------
-%% Receive/Sent metrics
-%%--------------------------------------------------------------------
+%%-----------------------------------------------------------------------------
+%% Received/Sent metrics
+%%-----------------------------------------------------------------------------
 
 %% @doc Count packets received.
 -spec(received(mqtt_packet()) -> ok).
@@ -248,9 +242,9 @@ qos_sent(?QOS_1) ->
 qos_sent(?QOS_2) ->
     inc('messages/qos2/sent').
 
-%%--------------------------------------------------------------------
+%%-----------------------------------------------------------------------------
 %% gen_server callbacks
-%%--------------------------------------------------------------------
+%%-----------------------------------------------------------------------------
 
 init([]) ->
     % Create metrics table
@@ -259,15 +253,15 @@ init([]) ->
     {ok, #state{}, hibernate}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[METRICS] Unexpected request: ~p", [Req]),
-    {reply, ignore, State}.
+    emqx_logger:error("[Metrics] unexpected call: ~p", [Req]),
+    {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[METRICS] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[Metrics] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    emqx_logger:error("[METRICS] Unexpected info: ~p", [Info]),
+    emqx_logger:error("[Metrics] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{}) ->

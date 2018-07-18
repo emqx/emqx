@@ -1,18 +1,16 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_broker).
 
@@ -21,18 +19,17 @@
 -include("emqx.hrl").
 
 -export([start_link/2]).
-
 -export([subscribe/1, subscribe/2, subscribe/3, subscribe/4]).
--export([publish/1, publish/2]).
+-export([publish/1, publish/2, safe_publish/1]).
 -export([unsubscribe/1, unsubscribe/2]).
 -export([dispatch/2, dispatch/3]).
 -export([subscriptions/1, subscribers/1, subscribed/2]).
 -export([get_subopts/2, set_subopts/3]).
 -export([topics/0]).
 
-%% gen_server Function Exports
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+%% gen_server callbacks
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3]).
 
 -record(state, {pool, id, submon}).
 
@@ -44,19 +41,14 @@
 -define(SUBSCRIBER,   emqx_subscriber).
 -define(SUBSCRIPTION, emqx_subscription).
 
-%%--------------------------------------------------------------------
-%% Start a broker
-%%--------------------------------------------------------------------
-
--spec(start_link(atom(), pos_integer())
-      -> {ok, pid()} | ignore | {error, term()}).
+-spec(start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id) ->
     gen_server:start_link({local, emqx_misc:proc_name(?MODULE, Id)},
                           ?MODULE, [Pool, Id], [{hibernate_after, 2000}]).
 
-%%--------------------------------------------------------------------
-%% Subscriber/Unsubscribe
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
+%% Subscribe/Unsubscribe
+%%------------------------------------------------------------------------------
 
 -spec(subscribe(topic()) -> ok | {error, term()}).
 subscribe(Topic) when is_binary(Topic) ->
@@ -85,52 +77,60 @@ unsubscribe(Topic) when is_binary(Topic) ->
 unsubscribe(Topic, Subscriber) when is_binary(Topic) ->
     unsubscribe(Topic, Subscriber, ?TIMEOUT).
 
--spec(unsubscribe(topic(), subscriber(), timeout())
-      -> ok | {error, term()}).
+-spec(unsubscribe(topic(), subscriber(), timeout()) -> ok | {error, term()}).
 unsubscribe(Topic, Subscriber, Timeout) ->
     {Topic1, _} = emqx_topic:parse(Topic),
     UnsubReq = {unsubscribe, Topic1, with_subpid(Subscriber)},
     async_call(pick(Subscriber), UnsubReq, Timeout).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Publish
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 -spec(publish(topic(), payload()) -> delivery() | stopped).
 publish(Topic, Payload) when is_binary(Topic), is_binary(Payload) ->
     publish(emqx_message:make(Topic, Payload)).
 
--spec(publish(message()) -> delivery() | stopped).
+-spec(publish(message()) -> {ok, delivery()} | {error, stopped}).
 publish(Msg = #message{from = From}) ->
     %% Hook to trace?
-    trace(publish, From, Msg),
+    _ = trace(publish, From, Msg),
     case emqx_hooks:run('message.publish', [], Msg) of
         {ok, Msg1 = #message{topic = Topic}} ->
-            route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1));
+            {ok, route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1))};
         {stop, Msg1} ->
             emqx_logger:warning("Stop publishing: ~s", [emqx_message:format(Msg1)]),
-            stopped
+            {error, stopped}
     end.
 
-%%--------------------------------------------------------------------
+%% called internally
+safe_publish(Msg) ->
+    try
+        publish(Msg)
+    catch
+        _:Error:Stacktrace ->
+            emqx_logger:error("[Broker] publish error: ~p~n~p~n~p", [Error, Msg, Stacktrace])
+    end.
+
+%%------------------------------------------------------------------------------
 %% Trace
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 trace(publish, From, _Msg) when is_atom(From) ->
     %% Dont' trace '$SYS' publish
     ignore;
-trace(public, #client{client_id = ClientId, username = Username},
+trace(public, #client{id = ClientId, username = Username},
       #message{topic = Topic, payload = Payload}) ->
     emqx_logger:info([{client, ClientId}, {topic, Topic}],
-                     "~s/~s PUBLISH to ~s: ~p", [ClientId, Username, Topic, Payload]);
+                     "~s/~s PUBLISH to ~s: ~p", [Username, ClientId, Topic, Payload]);
 trace(public, From, #message{topic = Topic, payload = Payload})
     when is_binary(From); is_list(From) ->
     emqx_logger:info([{client, From}, {topic, Topic}],
                      "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Route
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 route([], Delivery = #delivery{message = Msg}) ->
     emqx_hooks:run('message.dropped', [undefined, Msg]),
@@ -193,7 +193,7 @@ dispatch({SubId, SubPid}, Topic, Msg) when is_binary(SubId), is_pid(SubPid) ->
 dispatch(SubId, Topic, Msg) when is_binary(SubId) ->
    emqx_sm:dispatch(SubId, Topic, Msg);
 dispatch({share, _Group, _Sub}, _Topic, _Msg) ->
-    ignore.
+    ignored.
 
 dropped(<<"$SYS/", _/binary>>) ->
     ok;
@@ -201,16 +201,16 @@ dropped(_Topic) ->
     emqx_metrics:inc('messages/dropped').
 
 delivery(Msg) ->
-    #delivery{message = Msg, flows = []}.
+    #delivery{node = node(), message = Msg, flows = []}.
 
 subscribers(Topic) ->
     try ets:lookup_element(?SUBSCRIBER, Topic, 2) catch error:badarg -> [] end.
 
 subscriptions(Subscriber) ->
     lists:map(fun({_, {share, _Group, Topic}}) ->
-                subscription(Topic, Subscriber);
+                  subscription(Topic, Subscriber);
                  ({_, Topic}) ->
-                subscription(Topic, Subscriber)
+                  subscription(Topic, Subscriber)
         end, ets:lookup(?SUBSCRIPTION, Subscriber)).
 
 subscription(Topic, Subscriber) ->
@@ -221,9 +221,7 @@ subscribed(Topic, SubPid) when is_binary(Topic), is_pid(SubPid) ->
     ets:member(?SUBOPTION, {Topic, SubPid});
 subscribed(Topic, SubId) when is_binary(Topic), is_binary(SubId) ->
     length(ets:match_object(?SUBOPTION, {{Topic, {SubId, '_'}}, '_'}, 1)) == 1;
-subscribed(Topic, {SubId, SubPid}) when is_binary(Topic),
-                                        is_binary(SubId),
-                                        is_pid(SubPid) ->
+subscribed(Topic, {SubId, SubPid}) when is_binary(Topic), is_binary(SubId), is_pid(SubPid) ->
     ets:member(?SUBOPTION, {Topic, {SubId, SubPid}}).
 
 -spec(get_subopts(topic(), subscriber()) -> [suboption()]).
@@ -262,26 +260,26 @@ pick(SubPid) when is_pid(SubPid) ->
 pick(SubId) when is_binary(SubId) ->
     gproc_pool:pick_worker(broker, SubId);
 pick({SubId, SubPid}) when is_binary(SubId), is_pid(SubPid) ->
-    pick(SubId).
+    pick(SubPid).
 
 -spec(topics() -> [topic()]).
 topics() -> emqx_router:topics().
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([Pool, Id]) ->
-    gproc_pool:connect_worker(Pool, {Pool, Id}),
+    true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #state{pool = Pool, id = Id, submon = emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[Broker] Unexpected request: ~p", [Req]),
-    {reply, ignore, State}.
+    emqx_logger:error("[Broker] unexpected call: ~p", [Req]),
+    {reply, ignored, State}.
 
 handle_cast({From, {subscribe, Topic, Subscriber, Options}}, State) ->
     case ets:lookup(?SUBOPTION, {Topic, Subscriber}) of
-        []  ->
+        [] ->
             Group = proplists:get_value(share, Options),
             true = do_subscribe(Group, Topic, Subscriber, Options),
             emqx_shared_sub:subscribe(Group, Topic, subpid(Subscriber)),
@@ -307,11 +305,10 @@ handle_cast({From, {unsubscribe, Topic, Subscriber}}, State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[Broker] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[Broker] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({'DOWN', _MRef, process, SubPid, _Reason},
-            State = #state{submon = SubMon}) ->
+handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{submon = SubMon}) ->
     Subscriber = case SubMon:find(SubPid) of
                      undefined -> SubPid;
                      SubId -> {SubId, SubPid}
@@ -321,7 +318,8 @@ handle_info({'DOWN', _MRef, process, SubPid, _Reason},
                           ({_, Topic}) ->
                            Topic
                        end, ets:lookup(?SUBSCRIPTION, Subscriber)),
-    lists:foreach(fun(Topic) ->
+    lists:foreach(
+      fun(Topic) ->
         case ets:lookup(?SUBOPTION, {Topic, Subscriber}) of
             [{_, Options}] ->
                 Group = proplists:get_value(share, Options),
@@ -336,18 +334,18 @@ handle_info({'DOWN', _MRef, process, SubPid, _Reason},
     {noreply, demonitor_subscriber(SubPid, State)};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[Broker] Unexpected info: ~p", [Info]),
+    emqx_logger:error("[Broker] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{pool = Pool, id = Id}) ->
-    gproc_pool:disconnect_worker(Pool, {Pool, Id}).
+    true = gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%--------------------------------------------------------------------
-%% Internal Functions
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
 
 do_subscribe(Group, Topic, Subscriber, Options) ->
     ets:insert(?SUBSCRIPTION, {Subscriber, shared(Group, Topic)}),

@@ -1,5 +1,4 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -12,7 +11,6 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
-%%--------------------------------------------------------------------
 
 -module(emqx_access_rule).
 
@@ -73,8 +71,7 @@ compile(topic, Topic) ->
     end.
 
 'pattern?'(Words) ->
-    lists:member(<<"%u">>, Words)
-        orelse lists:member(<<"%c">>, Words).
+    lists:member(<<"%u">>, Words) orelse lists:member(<<"%c">>, Words).
 
 bin(L) when is_list(L) ->
     list_to_binary(L);
@@ -99,7 +96,7 @@ match_who(_Client, {user, all}) ->
     true;
 match_who(_Client, {client, all}) ->
     true;
-match_who(#client{client_id = ClientId}, {client, ClientId}) ->
+match_who(#client{id = ClientId}, {client, ClientId}) ->
     true;
 match_who(#client{username = Username}, {user, Username}) ->
     true;
@@ -137,9 +134,9 @@ feed_var(Client, Pattern) ->
     feed_var(Client, Pattern, []).
 feed_var(_Client, [], Acc) ->
     lists:reverse(Acc);
-feed_var(Client = #client{client_id = undefined}, [<<"%c">>|Words], Acc) ->
+feed_var(Client = #client{id = undefined}, [<<"%c">>|Words], Acc) ->
     feed_var(Client, Words, [<<"%c">>|Acc]);
-feed_var(Client = #client{client_id = ClientId}, [<<"%c">>|Words], Acc) ->
+feed_var(Client = #client{id = ClientId}, [<<"%c">>|Words], Acc) ->
     feed_var(Client, Words, [ClientId |Acc]);
 feed_var(Client = #client{username = undefined}, [<<"%u">>|Words], Acc) ->
     feed_var(Client, Words, [<<"%u">>|Acc]);

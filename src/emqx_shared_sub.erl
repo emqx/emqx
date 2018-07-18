@@ -1,18 +1,16 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_shared_sub).
 
@@ -33,20 +31,18 @@
 -export([dispatch/3]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3]).
 
 -define(SERVER, ?MODULE).
-
 -define(TAB, emqx_shared_subscription).
 
 -record(state, {pmon}).
-
 -record(shared_subscription, {group, topic, subpid}).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Mnesia bootstrap
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
@@ -58,15 +54,15 @@ mnesia(boot) ->
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?TAB).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% API
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
--spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
+-spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec(strategy() -> random | hash).
+-spec(strategy() -> round_robin | random | hash).
 strategy() ->
     emqx_config:get_env(shared_subscription_strategy, random).
 
@@ -84,7 +80,7 @@ unsubscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
 record(Group, Topic, SubPid) ->
     #shared_subscription{group = Group, topic = Topic, subpid = SubPid}.
 
-%% TODO: ensure the delivery...
+%% TODO: dispatch strategy, ensure the delivery...
 dispatch(Group, Topic, Delivery = #delivery{message = Msg, flows = Flows}) ->
     case pick(subscribers(Group, Topic)) of
         false  -> Delivery;
@@ -97,16 +93,15 @@ pick([]) ->
 pick([SubPid]) ->
     SubPid;
 pick(SubPids) ->
-    X = abs(erlang:monotonic_time()
-		bxor erlang:unique_integer()),
+    X = abs(erlang:monotonic_time() bxor erlang:unique_integer()),
     lists:nth((X rem length(SubPids)) + 1, SubPids).
 
 subscribers(Group, Topic) ->
     ets:select(?TAB, [{{shared_subscription, Group, Topic, '$1'}, [], ['$1']}]).
 
-%%--------------------------------------------------------------------
+%%-----------------------------------------------------------------------------
 %% gen_server callbacks
-%%--------------------------------------------------------------------
+%%-----------------------------------------------------------------------------
 
 init([]) ->
     {atomic, PMon} = mnesia:transaction(fun init_monitors/0),
@@ -120,14 +115,14 @@ init_monitors() ->
       end, emqx_pmon:new(), ?TAB).
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[Shared] Unexpected request: ~p", [Req]),
-    {reply, ignore, State}.
+    emqx_logger:error("[SharedSub] unexpected call: ~p", [Req]),
+    {reply, ignored, State}.
 
 handle_cast({monitor, SubPid}, State= #state{pmon = PMon}) ->
     {noreply, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[Shared] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[SharedSub] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({mnesia_table_event, {write, NewRecord, _}}, State = #state{pmon = PMon}) ->
@@ -142,12 +137,12 @@ handle_info({mnesia_table_event, _Event}, State) ->
     {noreply, State};
 
 handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{pmon = PMon}) ->
-    emqx_logger:info("Shared subscription down: ~p", [SubPid]),
+    emqx_logger:info("[SharedSub] shared subscriber down: ~p", [SubPid]),
     mnesia:async_dirty(fun cleanup_down/1, [SubPid]),
     {noreply, update_stats(State#state{pmon = emqx_pmon:erase(SubPid, PMon)})};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[Shared] Unexpected info: ~p", [Info]),
+    emqx_logger:error("[SharedSub] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -161,8 +156,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 cleanup_down(SubPid) ->
-    Pat = #shared_subscription{_ = '_', subpid = SubPid},
-    lists:foreach(fun(Record) -> mnesia:delete_object(?TAB, Record) end, mnesia:match_object(Pat)).
+    lists:foreach(fun(Record) -> mnesia:delete_object(?TAB, Record) end,
+                  mnesia:match_object(#shared_subscription{_ = '_', subpid = SubPid})).
 
 update_stats(State) ->
     emqx_stats:setstat('subscriptions/shared/count', 'subscriptions/shared/max', ets:info(?TAB, size)), State.

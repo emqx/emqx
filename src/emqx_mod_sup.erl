@@ -1,5 +1,4 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -12,26 +11,16 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
-%%--------------------------------------------------------------------
 
 -module(emqx_mod_sup).
 
 -behaviour(supervisor).
 
--include("emqx.hrl").
-
-%% API
 -export([start_link/0, start_child/1, start_child/2, stop_child/1]).
-
-%% Supervisor callbacks
 -export([init/1]).
 
 %% Helper macro for declaring children of supervisor
 -define(CHILD(Mod, Type), {Mod, {Mod, start_link, []}, permanent, 5000, Type, [Mod]}).
-
-%%--------------------------------------------------------------------
-%% API
-%%--------------------------------------------------------------------
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
@@ -49,10 +38,9 @@ stop_child(ChildId) ->
         Error -> Error
     end.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Supervisor callbacks
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([]) ->
     {ok, {{one_for_one, 10, 100}, []}}.
-

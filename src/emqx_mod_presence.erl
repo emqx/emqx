@@ -1,18 +1,16 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_mod_presence).
 
@@ -21,14 +19,13 @@
 -include("emqx.hrl").
 
 -export([load/1, unload/1]).
-
 -export([on_client_connected/3, on_client_disconnected/3]).
 
 load(Env) ->
     emqx:hook('client.connected',    fun ?MODULE:on_client_connected/3, [Env]),
     emqx:hook('client.disconnected', fun ?MODULE:on_client_disconnected/3, [Env]).
 
-on_client_connected(ConnAck, Client = #client{client_id = ClientId,
+on_client_connected(ConnAck, Client = #client{id = ClientId,
                                               username  = Username,
                                               peername  = {IpAddr, _}
                                               %%clean_sess = CleanSess,
@@ -36,7 +33,7 @@ on_client_connected(ConnAck, Client = #client{client_id = ClientId,
                                              }, Env) ->
     case emqx_json:safe_encode([{clientid, ClientId},
                                 {username, Username},
-                                {ipaddress, iolist_to_binary(emqx_net:ntoa(IpAddr))},
+                                {ipaddress, iolist_to_binary(esockd_net:ntoa(IpAddr))},
                                 %%{clean_sess, CleanSess}, %%TODO:: fixme later
                                 %%{protocol, ProtoVer},
                                 {connack, ConnAck},
@@ -49,8 +46,7 @@ on_client_connected(ConnAck, Client = #client{client_id = ClientId,
     end,
     {ok, Client}.
 
-on_client_disconnected(Reason, #client{client_id = ClientId,
-                                       username = Username}, Env) ->
+on_client_disconnected(Reason, #client{id = ClientId, username = Username}, Env) ->
     case emqx_json:safe_encode([{clientid, ClientId},
                                 {username, Username},
                                 {reason, reason(Reason)},

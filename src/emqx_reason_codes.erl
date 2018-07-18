@@ -1,19 +1,18 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
+%% @doc MQTT5 reason codes
 -module(emqx_reason_codes).
 
 -export([name/1, text/1]).
@@ -61,7 +60,7 @@ name(16#9F) -> connection_rate_exceeded;
 name(16#A0) -> maximum_connect_time;
 name(16#A1) -> subscription_identifiers_not_supported;
 name(16#A2) -> wildcard_subscriptions_not_supported;
-name(Code)  -> list_to_atom("unkown_" ++ integer_to_list(Code)).
+name(Code)  -> list_to_atom("unkown_reason_code" ++ integer_to_list(Code)).
 
 text(16#00) -> <<"Success">>;
 text(16#01) -> <<"Granted QoS 1">>;
@@ -106,5 +105,5 @@ text(16#9F) -> <<"Connection rate exceeded">>;
 text(16#A0) -> <<"Maximum connect time">>;
 text(16#A1) -> <<"Subscription Identifiers not supported">>;
 text(16#A2) -> <<"Wildcard Subscriptions not supported">>;
-text(Code)  -> iolist_to_binary(["Unkown", integer_to_list(Code)]).
+text(Code)  -> iolist_to_binary(["Unkown Reason Code:", integer_to_list(Code)]).
 

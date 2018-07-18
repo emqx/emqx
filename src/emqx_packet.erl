@@ -1,5 +1,4 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -12,7 +11,6 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
-%%--------------------------------------------------------------------
 
 -module(emqx_packet).
 
@@ -21,9 +19,7 @@
 -include("emqx_mqtt.hrl").
 
 -export([protocol_name/1, type_name/1]).
-
 -export([format/1]).
-
 -export([to_message/1, from_message/1]).
 
 %% @doc Protocol name of version
@@ -39,9 +35,8 @@ type_name(Type) when Type > ?RESERVED andalso Type =< ?AUTH ->
 
 %% @doc From Message to Packet
 -spec(from_message(message()) -> mqtt_packet()).
-from_message(Msg = #message{qos     = Qos,
-                            topic   = Topic,
-                            payload = Payload}) ->
+from_message(Msg = #message{topic = Topic, payload = Payload}) ->
+    Qos = emqx_message:get_flag(qos, Msg, 0),
     Dup = emqx_message:get_flag(dup, Msg, false),
     Retain = emqx_message:get_flag(retain, Msg, false),
     PacketId = emqx_message:get_header(packet_id, Msg),
@@ -61,13 +56,12 @@ to_message(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                                                        dup    = Dup},
                         variable = #mqtt_packet_publish{topic_name = Topic,
                                                         packet_id  = PacketId,
-                                                        properties = Props},
+                                                        properties = Properties},
                         payload  = Payload}) ->
-    Msg = emqx_message:make(undefined, Topic, Payload),
-    Msg#message{qos        = Qos,
-                flags      = #{dup => Dup, retain => Retain},
-                headers    = #{packet_id => PacketId},
-                properties = Props};
+    Flags = #{dup => Dup, retain => Retain, qos => Qos},
+    Msg = emqx_message:new(undefined, Flags, #{packet_id => PacketId}, Topic, Payload),
+    Msg#message{properties = Properties};
+
 to_message(#mqtt_packet_connect{will_flag = false}) ->
     undefined;
 to_message(#mqtt_packet_connect{will_retain  = Retain,
@@ -75,10 +69,8 @@ to_message(#mqtt_packet_connect{will_retain  = Retain,
                                 will_topic   = Topic,
                                 will_props   = Props,
                                 will_payload = Payload}) ->
-    Msg = emqx_message:make(undefined, Topic, Payload),
-    Msg#message{flags      = #{retain => Retain},
-                headers    = #{qos => Qos},
-                properties = Props}.
+    Msg = emqx_message:new(undefined, #{qos => Qos, retain => Retain}, Topic, Payload),
+    Msg#message{properties = Props}.
 
 %% @doc Format packet
 -spec(format(mqtt_packet()) -> iolist()).

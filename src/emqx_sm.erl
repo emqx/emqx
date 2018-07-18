@@ -1,18 +1,16 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_sm).
 
@@ -30,8 +28,8 @@
 %% Internal functions for rpc
 -export([dispatch/3]).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+%% gen_server callbacks
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {session_pmon}).
 
@@ -50,7 +48,8 @@ start_link() ->
 %% @doc Open a session.
 -spec(open_session(map()) -> {ok, pid()} | {error, term()}).
 open_session(Attrs = #{clean_start := true,
-                       client_id := ClientId, client_pid := ClientPid}) ->
+                       client_id   := ClientId,
+                       client_pid  := ClientPid}) ->
     CleanStart = fun(_) ->
                      ok = discard_session(ClientId, ClientPid),
                      emqx_session_sup:start_session(Attrs)
@@ -58,7 +57,8 @@ open_session(Attrs = #{clean_start := true,
     emqx_sm_locker:trans(ClientId, CleanStart);
 
 open_session(Attrs = #{clean_start := false,
-                       client_id := ClientId, client_pid := ClientPid}) ->
+                       client_id   := ClientId,
+                       client_pid  := ClientPid}) ->
     ResumeStart = fun(_) ->
                       case resume_session(ClientId, ClientPid) of
                           {ok, SessionPid} ->
@@ -72,7 +72,7 @@ open_session(Attrs = #{clean_start := false,
     emqx_sm_locker:trans(ClientId, ResumeStart).
 
 %% @doc Discard all the sessions identified by the ClientId.
--spec(discard_session(map()) -> ok).
+-spec(discard_session(client_id()) -> ok).
 discard_session(ClientId) when is_binary(ClientId) ->
     discard_session(ClientId, self()).
 
@@ -80,8 +80,8 @@ discard_session(ClientId, ClientPid) when is_binary(ClientId) ->
     lists:foreach(
       fun({_ClientId, SessionPid}) ->
           case catch emqx_session:discard(SessionPid, ClientPid) of
-              {'EXIT', Error} ->
-                  emqx_logger:error("[SM] Failed to discard ~p: ~p", [SessionPid, Error]);
+              {Err, Reason} when Err =:= 'EXIT'; Err =:= error ->
+                  emqx_logger:error("[SM] Failed to discard ~p: ~p", [SessionPid, Reason]);
               ok -> ok
           end
       end, lookup_session(ClientId)).
@@ -126,7 +126,7 @@ register_session(Session = {ClientId, SessionPid}, Attrs)
     ets:insert(?SESSION_ATTRS, {Session, Attrs}),
     case proplists:get_value(clean_start, Attrs, true) of
         true  -> ok;
-        false -> ets:insert(?SESSION_P, Session)
+        false  -> ets:insert(?SESSION_P, Session)
     end,
     emqx_sm_registry:register_session(Session),
     notify({registered, ClientId, SessionPid}).
@@ -197,11 +197,12 @@ safe_lookup_element(Tab, Key, Default) ->
         error:badarg -> Default
     end.
 
-notify(Event) -> gen_server:cast(?SM, {notify, Event}).
+notify(Event) ->
+    gen_server:cast(?SM, {notify, Event}).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([]) ->
     TabOpts = [public, set, {write_concurrency, true}],
@@ -213,8 +214,8 @@ init([]) ->
     {ok, #state{session_pmon = emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[SM] Unexpected request: ~p", [Req]),
-    {reply, ignore, State}.
+    emqx_logger:error("[SM] unexpected call: ~p", [Req]),
+    {reply, ignored, State}.
 
 handle_cast({notify, {registered, ClientId, SessionPid}}, State = #state{session_pmon = PMon}) ->
     {noreply, State#state{session_pmon = emqx_pmon:monitor(SessionPid, ClientId, PMon)}};
@@ -223,7 +224,7 @@ handle_cast({notify, {unregistered, _ClientId, SessionPid}}, State = #state{sess
     {noreply, State#state{session_pmon = emqx_pmon:demonitor(SessionPid, PMon)}};
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[SM] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[SM] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State = #state{session_pmon = PMon}) ->
@@ -235,24 +236,23 @@ handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State = #state{session_p
     end;
 
 handle_info(Info, State) ->
-    emqx_logger:error("[SM] Unexpected info: ~p", [Info]),
+    emqx_logger:error("[SM] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    emqx_stats:cancel_update(cm_stats).
+    emqx_stats:cancel_update(sm_stats).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Internal functions
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 stats_fun() ->
-    fun () ->
+    fun() ->
         safe_update_stats(?SESSION, 'sessions/count', 'sessions/max'),
-        safe_update_stats(?SESSION_P, 'sessions/persistent/count',
-                          'sessions/persistent/max')
+        safe_update_stats(?SESSION_P, 'sessions/persistent/count', 'sessions/persistent/max')
     end.
 
 safe_update_stats(Tab, Stat, MaxStat) ->

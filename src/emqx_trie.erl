@@ -1,18 +1,16 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_trie).
 
@@ -31,9 +29,9 @@
 -define(TRIE, emqx_trie).
 -define(TRIE_NODE, emqx_trie_node).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Mnesia bootstrap
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 %% @doc Create or replicate trie tables.
 -spec(mnesia(boot | copy) -> ok).
@@ -55,9 +53,9 @@ mnesia(copy) ->
     %% Copy trie_node table
     ok = ekka_mnesia:copy_table(?TRIE_NODE).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Trie APIs
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 %% @doc Insert a topic into the trie
 -spec(insert(Topic :: topic()) -> ok).
@@ -94,13 +92,12 @@ delete(Topic) when is_binary(Topic) ->
             delete_path(lists:reverse(emqx_topic:triples(Topic)));
         [TrieNode] ->
             write_trie_node(TrieNode#trie_node{topic = undefined});
-        [] ->
-            ok
+        [] -> ok
     end.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Internal functions
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 %% @private
 %% @doc Add a path to the trie.
@@ -112,8 +109,7 @@ add_path({Node, Word, Child}) ->
                 [] ->
                     write_trie_node(TrieNode#trie_node{edge_count = Count + 1}),
                     write_trie(#trie{edge = Edge, node_id = Child});
-                [_] ->
-                    ok
+                [_] -> ok
             end;
         [] ->
             write_trie_node(#trie_node{node_id = Node, edge_count = 1}),
@@ -145,8 +141,7 @@ match_node(NodeId, [W|Words], ResAcc) ->
     case mnesia:read(?TRIE, #trie_edge{node_id = NodeId, word = '#'}) of
         [#trie{node_id = ChildId}] ->
             mnesia:read(?TRIE_NODE, ChildId) ++ ResAcc;
-        [] ->
-            ResAcc
+        [] -> ResAcc
     end.
 
 %% @private

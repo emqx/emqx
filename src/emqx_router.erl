@@ -1,18 +1,16 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_router).
 
@@ -34,13 +32,11 @@
 -export([get_routes/1]).
 -export([del_route/1, del_route/2, del_route/3]).
 -export([has_routes/1, match_routes/1, print_routes/1]).
-
-%% Topics
 -export([topics/0]).
 
 %% gen_server Function Exports
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3]).
 
 -type(destination() :: node() | {binary(), node()}).
 
@@ -49,15 +45,12 @@
 -record(state, {pool, id, batch :: #batch{}}).
 
 -define(ROUTE, emqx_route).
-
 -define(BATCH(Enabled), #batch{enabled = Enabled}).
+-define(BATCH(Enabled, Pending), #batch{enabled = Enabled, pending = Pending}).
 
--define(BATCH(Enabled, Pending),
-        #batch{enabled = Enabled, pending = Pending}).
-
-%%--------------------------------------------------------------------
+%%-----------------------------------------------------------------------------
 %% Mnesia bootstrap
-%%--------------------------------------------------------------------
+%%-----------------------------------------------------------------------------
 
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?ROUTE, [
@@ -65,23 +58,21 @@ mnesia(boot) ->
                 {ram_copies, [node()]},
                 {record_name, route},
                 {attributes, record_info(fields, route)}]);
-
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?ROUTE).
 
-%%--------------------------------------------------------------------
-%% Strat a Router
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
+%% Strat a router
+%%------------------------------------------------------------------------------
 
--spec(start_link(atom(), pos_integer())
-      -> {ok, pid()} | ignore | {error, term()}).
+-spec(start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, term()}).
 start_link(Pool, Id) ->
     gen_server:start_link({local, emqx_misc:proc_name(?MODULE, Id)},
                           ?MODULE, [Pool, Id], [{hibernate_after, 2000}]).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Route APIs
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 -spec(add_route(topic() | route()) -> ok).
 add_route(Topic) when is_binary(Topic) ->
@@ -95,8 +86,7 @@ add_route(Topic, Dest) when is_binary(Topic) ->
 
 -spec(add_route({pid(), reference()}, topic(), destination()) -> ok).
 add_route(From, Topic, Dest) when is_binary(Topic) ->
-    Route = #route{topic = Topic, dest = Dest},
-    cast(pick(Topic), {add_route, From, Route}).
+    cast(pick(Topic), {add_route, From, #route{topic = Topic, dest = Dest}}).
 
 -spec(get_routes(topic()) -> [route()]).
 get_routes(Topic) ->
@@ -114,8 +104,7 @@ del_route(Topic, Dest) when is_binary(Topic) ->
 
 -spec(del_route({pid(), reference()}, topic(), destination()) -> ok).
 del_route(From, Topic, Dest) when is_binary(Topic) ->
-    Route = #route{topic = Topic, dest = Dest},
-    cast(pick(Topic), {del_route, From, Route}).
+    cast(pick(Topic), {del_route, From, #route{topic = Topic, dest = Dest}}).
 
 -spec(has_routes(topic()) -> boolean()).
 has_routes(Topic) when is_binary(Topic) ->
@@ -144,9 +133,9 @@ cast(Router, Msg) ->
 pick(Topic) ->
     gproc_pool:pick_worker(router, Topic).
 
-%%--------------------------------------------------------------------
+%%-----------------------------------------------------------------------------
 %% gen_server callbacks
-%%--------------------------------------------------------------------
+%%-----------------------------------------------------------------------------
 
 init([Pool, Id]) ->
     rand:seed(exsplus, erlang:timestamp()),
@@ -156,12 +145,12 @@ init([Pool, Id]) ->
     {ok, ensure_batch_timer(#state{pool = Pool, id = Id, batch = Batch})}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[Router] Unexpected request: ~p", [Req]),
-    {reply, ignore, State}.
+    emqx_logger:error("[Router] unexpected call: ~p", [Req]),
+    {reply, ignored, State}.
 
 handle_cast({add_route, From, Route}, State) ->
     {noreply, NewState} = handle_cast({add_route, Route}, State),
-    gen_server:reply(From, ok),
+    _ = gen_server:reply(From, ok),
     {noreply, NewState};
 
 handle_cast({add_route, Route = #route{topic = Topic, dest = Dest}}, State) ->
@@ -178,7 +167,7 @@ handle_cast({add_route, Route = #route{topic = Topic, dest = Dest}}, State) ->
 
 handle_cast({del_route, From, Route}, State) ->
     {noreply, NewState} = handle_cast({del_route, Route}, State),
-    gen_server:reply(From, ok),
+    _ = gen_server:reply(From, ok),
     {noreply, NewState};
 
 handle_cast({del_route, Route = #route{topic = Topic}}, State) ->
@@ -194,7 +183,7 @@ handle_cast({del_route, Route = #route{topic = Topic}}, State) ->
               end};
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[Router] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[Router] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({timeout, _TRef, batch_delete}, State = #state{batch = Batch}) ->
@@ -202,7 +191,7 @@ handle_info({timeout, _TRef, batch_delete}, State = #state{batch = Batch}) ->
     {noreply, ensure_batch_timer(State#state{batch = ?BATCH(true, sets:new())}), hibernate};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[Router] Unexpected info: ~p", [Info]),
+    emqx_logger:error("[Router] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{pool = Pool, id = Id, batch = Batch}) ->
@@ -212,9 +201,9 @@ terminate(_Reason, #state{pool = Pool, id = Id, batch = Batch}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%--------------------------------------------------------------------
+%%-----------------------------------------------------------------------------
 %% Internal functions
-%%--------------------------------------------------------------------
+%%-----------------------------------------------------------------------------
 
 ensure_batch_timer(State = #state{batch = #batch{enabled = false}}) ->
     State;
@@ -225,7 +214,7 @@ ensure_batch_timer(State = #state{batch = Batch}) ->
 cacel_batch_timer(#batch{enabled = false}) ->
     ok;
 cacel_batch_timer(#batch{enabled = true, timer = TRef}) ->
-    erlang:cancel_timer(TRef).
+    catch erlang:cancel_timer(TRef).
 
 add_direct_route(Route) ->
     mnesia:async_dirty(fun mnesia:write/3, [?ROUTE, Route, sticky_write]).
@@ -275,6 +264,6 @@ trans(Fun, Args) ->
     end.
 
 log(ok) -> ok;
-log({error, Error}) ->
-    emqx_logger:error("[Router] Mnesia aborted: ~p", [Error]).
+log({error, Reason}) ->
+    emqx_logger:error("[Router] mnesia aborted: ~p", [Reason]).
 

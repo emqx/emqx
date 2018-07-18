@@ -1,5 +1,4 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -12,16 +11,14 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
-%%--------------------------------------------------------------------
 
 -module(emqx_bridge_sup).
 
+-include("emqx.hrl").
+
 -export([start_link/3]).
 
-
-%% @doc Start bridge pool supervisor
--spec(start_link(atom(), binary(), [emqx_bridge:option()])
-      -> {ok, pid()} | {error, term()}).
+-spec(start_link(node(), topic(), [emqx_bridge:option()]) -> {ok, pid()} | {error, term()}).
 start_link(Node, Topic, Options) ->
     MFA = {emqx_bridge, start_link, [Node, Topic, Options]},
     emqx_pool_sup:start_link({bridge, Node, Topic}, random, MFA).

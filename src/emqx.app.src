@@ -6,6 +6,6 @@
               {applications,[kernel,stdlib,gproc,lager,esockd,mochiweb,lager_syslog,pbkdf2,bcrypt,clique,jsx]},
               {env,[]},
               {mod,{emqx_app,[]}},
-              {maintainers,["Feng Lee <feng@emqtt.io>"]},
+              {maintainers,["Feng Lee <feng@emqx.io>"]},
               {licenses,["Apache-2.0"]},
               {links,[{"Github","https://github.com/emqx/emqx"}]}]}.
