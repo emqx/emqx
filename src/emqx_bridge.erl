@@ -64,9 +64,7 @@ init([Pool, Id, Node, Topic, Options]) ->
             emqx_broker:subscribe(Topic, self(), [{share, Share}, {qos, ?QOS_0}]),
             State = parse_opts(Options, #state{node = Node, subtopic = Topic}),
             %%TODO: queue....
-            MQueue = emqx_mqueue:new(qname(Node, Topic),
-                                     [{max_len, State#state.max_queue_len}],
-                                     emqx_alarm:alarm_fun()),
+            MQueue = emqx_mqueue:new(qname(Node, Topic), [{max_len, State#state.max_queue_len}]),
             {ok, State#state{pool = Pool, id = Id, mqueue = MQueue}};
         false ->
             {stop, {cannot_connect_node, Node}}
