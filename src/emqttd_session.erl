@@ -386,6 +386,7 @@ handle_cast({subscribe, _From, TopicTable, AckFun},
                 SubMap1 =
                 case maps:find(Topic, SubMap) of
                     {ok, NewQos} ->
+                        emqttd_hooks:run('session.subscribed', [ClientId, Username], {Topic, Opts}),
                         ?LOG(warning, "Duplicated subscribe: ~s, qos = ~w", [Topic, NewQos], State),
                         SubMap;
                     {ok, OldQos} ->
