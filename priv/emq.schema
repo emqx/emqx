@@ -439,7 +439,7 @@ end}.
     ConsoleLogLevel = cuttlefish:conf_get("log.console.level", Conf),
     ConsoleLogFile = cuttlefish:conf_get("log.console.file", Conf),
 
-    ConsoleHandler = {lager_console_backend, [ConsoleLogLevel]},
+    ConsoleHandler = {lager_console_backend, ConsoleLogLevel},
     ConsoleFileHandler = {lager_file_backend, [{file, ConsoleLogFile},
                                                {level, ConsoleLogLevel},
                                                {size, cuttlefish:conf_get("log.console.size", Conf)},
