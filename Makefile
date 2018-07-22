@@ -13,7 +13,7 @@ dep_ekka         = git https://github.com/emqtt/ekka v0.2.3
 dep_mochiweb     = git https://github.com/emqtt/mochiweb v4.2.2
 dep_pbkdf2       = git https://github.com/emqtt/pbkdf2 2.0.1
 dep_lager_syslog = git https://github.com/basho/lager_syslog 3.0.1
-dep_bcrypt       = git https://github.com/smarkets/erlang-bcrypt 0.5.0.3
+dep_bcrypt       = git https://github.com/smarkets/erlang-bcrypt master
 dep_clique       = git https://github.com/emqtt/clique v0.3.10
 dep_jsx          = git https://github.com/talentdeficit/jsx v2.8.3
 
