@@ -136,14 +136,14 @@ route([], Delivery = #delivery{message = Msg}) ->
     emqx_hooks:run('message.dropped', [undefined, Msg]),
     dropped(Msg#message.topic), Delivery;
 
-route([{To, Node}], Delivery) when Node =:= node() ->
-    dispatch(To, Delivery);
+route([{Topic, Node}], Delivery) when Node =:= node() ->
+    dispatch(Topic, Delivery);
 
-route([{To, Node}], Delivery = #delivery{flows = Flows}) when is_atom(Node) ->
-    forward(Node, To, Delivery#delivery{flows = [{route, Node, To}|Flows]});
+route([{Topic, Node}], Delivery = #delivery{flows = Flows}) when is_atom(Node) ->
+    forward(Node, Topic, Delivery#delivery{flows = [#route{topic = Topic, dest = Node} |Flows]});
 
-route([{To, Shared}], Delivery) when is_tuple(Shared); is_binary(Shared) ->
-    emqx_shared_sub:dispatch(Shared, To, Delivery);
+route([{Topic, Shared}], Delivery) when is_tuple(Shared); is_binary(Shared) ->
+    emqx_shared_sub:dispatch(Shared, Topic, Delivery);
 
 route(Routes, Delivery) ->
     lists:foldl(fun(Route, Acc) -> route([Route], Acc) end, Delivery, Routes).
