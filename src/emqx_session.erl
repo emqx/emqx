@@ -29,7 +29,7 @@
 -import(proplists, [get_value/2, get_value/3]).
 
 %% Session API
--export([start_link/1, resume/2, discard/2]).
+-export([start_link/1, resume/2, discard/3]).
 
 %% Management and Monitor API
 -export([state/1, info/1, stats/1]).
@@ -256,10 +256,12 @@ stats(#state{max_subscriptions = MaxSubscriptions,
                   {enqueue_msg,       get(enqueue_msg)}]).
 
 %% @doc Discard the session
--spec(discard(pid(), client_id()) -> ok).
-discard(SessionPid, ClientId) ->
-    gen_server:call(SessionPid, {discard, ClientId}).
-
+-spec(discard(pid(), client_id(), pid()) -> ok).
+discard(SessionPid, ClientId, ClientPid) ->
+    case is_process_alive(SessionPid) of
+        true -> gen_server:call(SessionPid, {discard, ClientId, ClientPid});
+        false -> ok
+    end.
 %%--------------------------------------------------------------------
 %% gen_server Callbacks
 %%--------------------------------------------------------------------
@@ -307,12 +309,12 @@ init_stats(Keys) ->
 binding(ClientPid) ->
     case node(ClientPid) =:= node() of true -> local; false -> remote end.
 
-handle_call({discard, ClientPid}, _From, State = #state{client_pid = undefined}) ->
+handle_call({discard, _ClientId, ClientPid}, _From, State = #state{client_pid = undefined}) ->
     ?LOG(warning, "Discarded by ~p", [ClientPid], State),
     {stop, {shutdown, discard}, ok, State};
 
-handle_call({discard, ClientPid}, _From, State = #state{client_pid = OldClientPid}) ->
-    ?LOG(warning, " ~p kickout ~p", [ClientPid, OldClientPid], State),
+handle_call({discard, ClientId, ClientPid}, _From, State = #state{client_id = ClientId, client_pid = OldClientPid}) ->
+    ?LOG(warning, "client_id ~p now_pid ~p kickout ~p", [ClientPid, OldClientPid], State),
     {stop, {shutdown, conflict}, ok, State};
 
 handle_call({publish, Msg = #message{qos = ?QOS_2, headers = #{packet_id := PacketId}}}, _From,
