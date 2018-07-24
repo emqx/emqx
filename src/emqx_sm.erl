@@ -50,8 +50,11 @@ start_link() ->
 open_session(Attrs = #{clean_start := true,
                        client_id   := ClientId,
                        client_pid  := ClientPid}) ->
-    CleanStart = fun(_) ->
-                     ok = discard_session(ClientId, ClientPid),
+    CleanStart = fun(Nodes) ->
+                     [if
+                          Node == node() -> discard_session(ClientId, ClientPid);
+                          true -> rpc:call(Node, emqx_sm, discard_session, [ClientId, ClientPid])
+                      end || Node <- Nodes],
                      emqx_session_sup:start_session(Attrs)
                  end,
     emqx_sm_locker:trans(ClientId, CleanStart);
@@ -79,7 +82,7 @@ discard_session(ClientId) when is_binary(ClientId) ->
 discard_session(ClientId, ClientPid) when is_binary(ClientId) ->
     lists:foreach(
       fun({_ClientId, SessionPid}) ->
-          case catch emqx_session:discard(SessionPid, ClientPid) of
+          case catch emqx_session:discard(SessionPid, ClientId, ClientPid) of
               {Err, Reason} when Err =:= 'EXIT'; Err =:= error ->
                   emqx_logger:error("[SM] Failed to discard ~p: ~p", [SessionPid, Reason]);
               ok -> ok
@@ -101,7 +104,7 @@ resume_session(ClientId, ClientPid) ->
             [{_, SessionPid}|StaleSessions] = lists:reverse(Sessions),
             emqx_logger:error("[SM] More than one session found: ~p", [Sessions]),
             lists:foreach(fun({_, StalePid}) ->
-                              catch emqx_session:discard(StalePid, ClientPid)
+                              catch emqx_session:discard(StalePid, ClientId, ClientPid)
                           end, StaleSessions),
             ok = emqx_session:resume(SessionPid, ClientPid),
             {ok, SessionPid}
