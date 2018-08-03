@@ -551,6 +551,11 @@ end}.
   {datatype, flag}
 ]}.
 
+{mapping, "mqtt.websocket_listen_path", "emqttd.websocket_listen_path", [
+  {default, "/mqtt"},
+  {datatype, string}
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT Connection
 %%--------------------------------------------------------------------

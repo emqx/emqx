@@ -33,13 +33,13 @@
 
 
 handle_request(Req) ->
-    handle_request(Req:get(method), Req:get(path), Req).
+    handle_request(Req:get(method), Req:get(path), emqttd:env(websocket_listen_path, "/mqtt"), Req).
 
 %%--------------------------------------------------------------------
 %% MQTT Over WebSocket
 %%--------------------------------------------------------------------
 
-handle_request('GET', "/mqtt", Req) ->
+handle_request('GET', Path, Path, Req) ->
     lager:debug("WebSocket Connection from: ~s", [Req:get(peer)]),
     Upgrade = Req:get_header_value("Upgrade"),
     Proto   = check_protocol_header(Req),
@@ -69,8 +69,8 @@ handle_request('GET', "/mqtt", Req) ->
             Req:respond({400, [], <<"Bad WebSocket Protocol">>})
     end;
 
-handle_request(Method, Path, Req) ->
-    lager:error("Unexpected WS Request: ~s ~s", [Method, Path]),
+handle_request(Method, Path, Required, Req) ->
+    lager:error("Unexpected WS Request: ~s ~s, But Required: ~s", [Method, Path, Required]),
     Req:not_found().
 
 is_websocket(Upgrade) ->
