@@ -758,14 +758,12 @@ dequeue2(State = #state{mqueue = Q}) ->
 tune_qos(Topic, Msg = #message{qos = PubQoS},
          #state{subscriptions = SubMap, upgrade_qos = UpgradeQoS}) ->
     case maps:find(Topic, SubMap) of
-        {ok, SubQoS} when UpgradeQoS andalso (SubQoS > PubQoS) ->
+        {ok, #{qos := SubQoS}} when UpgradeQoS andalso (SubQoS > PubQoS) ->
             Msg#message{qos = SubQoS};
-        {ok, SubQoS} when (not UpgradeQoS) andalso (SubQoS < PubQoS) ->
+        {ok, #{qos := SubQoS}} when (not UpgradeQoS) andalso (SubQoS < PubQoS) ->
             Msg#message{qos = SubQoS};
-        {ok, _} ->
-            Msg;
-        error ->
-            Msg
+        {ok, _} -> Msg;
+        error   -> Msg
     end.
 
 %%------------------------------------------------------------------------------
