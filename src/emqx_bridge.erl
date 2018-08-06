@@ -72,8 +72,8 @@ init([Pool, Id, Node, Topic, Options]) ->
 
 parse_opts([], State) ->
     State;
-parse_opts([{qos, Qos} | Opts], State) ->
-    parse_opts(Opts, State#state{qos = Qos});
+parse_opts([{qos, QoS} | Opts], State) ->
+    parse_opts(Opts, State#state{qos = QoS});
 parse_opts([{topic_suffix, Suffix} | Opts], State) ->
     parse_opts(Opts, State#state{topic_suffix= Suffix});
 parse_opts([{topic_prefix, Prefix} | Opts], State) ->

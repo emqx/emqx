@@ -69,6 +69,11 @@
 
 -export_type([host/0, option/0]).
 
+-record(mqtt_msg, {qos = ?QOS0, retain = false, dup = false,
+                   packet_id, topic, props, payload}).
+
+-type(mqtt_msg() :: #mqtt_msg{}).
+
 -record(state, {name            :: atom(),
                 owner           :: pid(),
                 host            :: host(),
@@ -89,7 +94,7 @@
                 force_ping      :: boolean(),
                 paused          :: boolean(),
                 will_flag       :: boolean(),
-                will_msg        :: mqtt_message(),
+                will_msg        :: mqtt_msg(),
                 properties      :: properties(),
                 pending_calls   :: list(),
                 subscriptions   :: map(),
@@ -139,6 +144,9 @@
 -define(DEFAULT_CONNECT_TIMEOUT, 60000).
 
 -define(PROPERTY(Name, Val), #state{properties = #{Name := Val}}).
+
+-define(WILL_MSG(QoS, Retain, Topic, Props, Payload),
+        #mqtt_msg{qos = QoS, retain = Retain, topic = Topic, props = Props, payload = Payload}).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -242,8 +250,7 @@ parse_subopt([{qos, QoS} | Opts], Rec) ->
 
 -spec(publish(client(), topic(), payload()) -> ok | {error, term()}).
 publish(Client, Topic, Payload) when is_binary(Topic) ->
-    publish(Client, #mqtt_message{topic = Topic, qos = ?QOS_0,
-                                  payload = iolist_to_binary(Payload)}).
+    publish(Client, #mqtt_msg{topic = Topic, qos = ?QOS_0, payload = iolist_to_binary(Payload)}).
 
 -spec(publish(client(), topic(), payload(), qos() | [pubopt()])
       -> ok | {ok, packet_id()} | {error, term()}).
@@ -261,15 +268,14 @@ publish(Client, Topic, Properties, Payload, Opts)
     ok = emqx_mqtt_properties:validate(Properties),
     Retain = proplists:get_bool(retain, Opts),
     QoS = ?QOS_I(proplists:get_value(qos, Opts, ?QOS_0)),
-    publish(Client, #mqtt_message{qos        = QoS,
-                                  retain     = Retain,
-                                  topic      = Topic,
-                                  properties = Properties,
-                                  payload    = iolist_to_binary(Payload)}).
+    publish(Client, #mqtt_msg{qos     = QoS,
+                              retain  = Retain,
+                              topic   = Topic,
+                              props   = Properties,
+                              payload = iolist_to_binary(Payload)}).
 
--spec(publish(client(), mqtt_message())
-      -> ok | {ok, packet_id()} | {error, term()}).
-publish(Client, Msg) when is_record(Msg, mqtt_message) ->
+-spec(publish(client(), #mqtt_msg{}) -> ok | {ok, packet_id()} | {error, term()}).
+publish(Client, Msg) when is_record(Msg, mqtt_msg) ->
     gen_statem:call(Client, {publish, Msg}).
 
 -spec(unsubscribe(client(), topic() | [topic()]) -> subscribe_ret()).
@@ -380,7 +386,7 @@ init([Options]) ->
                                  force_ping      = false,
                                  paused          = false,
                                  will_flag       = false,
-                                 will_msg        = #mqtt_message{},
+                                 will_msg        = #mqtt_msg{},
                                  pending_calls   = [],
                                  subscriptions   = #{},
                                  max_inflight    = infinity,
@@ -488,15 +494,15 @@ init([_Opt | Opts], State) ->
     init(Opts, State).
 
 init_will_msg({topic, Topic}, WillMsg) ->
-    WillMsg#mqtt_message{topic = iolist_to_binary(Topic)};
-init_will_msg({props, Properties}, WillMsg) ->
-    WillMsg#mqtt_message{properties = Properties};
+    WillMsg#mqtt_msg{topic = iolist_to_binary(Topic)};
+init_will_msg({props, Props}, WillMsg) ->
+    WillMsg#mqtt_msg{props = Props};
 init_will_msg({payload, Payload}, WillMsg) ->
-    WillMsg#mqtt_message{payload = iolist_to_binary(Payload)};
+    WillMsg#mqtt_msg{payload = iolist_to_binary(Payload)};
 init_will_msg({retain, Retain}, WillMsg) when is_boolean(Retain) ->
-    WillMsg#mqtt_message{retain = Retain};
+    WillMsg#mqtt_msg{retain = Retain};
 init_will_msg({qos, QoS}, WillMsg) ->
-    WillMsg#mqtt_message{qos = ?QOS_I(QoS)}.
+    WillMsg#mqtt_msg{qos = ?QOS_I(QoS)}.
 
 init_parse_state(State = #state{proto_ver = Ver, properties = Properties}) ->
     Size = maps:get('Maximum-Packet-Size', Properties, ?MAX_PACKET_SIZE),
@@ -534,15 +540,16 @@ mqtt_connect(State = #state{client_id   = ClientId,
                             will_flag   = WillFlag,
                             will_msg    = WillMsg,
                             properties  = Properties}) ->
-    ?WILL_MSG(WillQos, WillRetain, WillTopic, WillProps, WillPayload) = WillMsg,
-    ConnProps = emqx_mqtt_properties:filter(?CONNECT, maps:to_list(Properties)),
+    ?WILL_MSG(WillQoS, WillRetain, WillTopic, WillProps, WillPayload) = WillMsg,
+    ConnProps = emqx_mqtt_properties:filter(?CONNECT, Properties),
+    io:format("ConnProps: ~p~n", [ConnProps]),
     send(?CONNECT_PACKET(
             #mqtt_packet_connect{proto_ver    = ProtoVer,
                                  proto_name   = ProtoName,
                                  is_bridge    = IsBridge,
                                  clean_start  = CleanStart,
                                  will_flag    = WillFlag,
-                                 will_qos     = WillQos,
+                                 will_qos     = WillQoS,
                                  will_retain  = WillRetain,
                                  keepalive    = KeepAlive,
                                  properties   = ConnProps,
@@ -624,7 +631,7 @@ connected({call, From}, SubReq = {subscribe, Properties, Topics},
             {stop_and_reply, Reason, [{reply, From, Error}]}
     end;
 
-connected({call, From}, {publish, Msg = #mqtt_message{qos = ?QOS_0}}, State) ->
+connected({call, From}, {publish, Msg = #mqtt_msg{qos = ?QOS_0}}, State) ->
     case send(Msg, State) of
         {ok, NewState} ->
             {keep_state, NewState, [{reply, From, ok}]};
@@ -632,14 +639,14 @@ connected({call, From}, {publish, Msg = #mqtt_message{qos = ?QOS_0}}, State) ->
             {stop_and_reply, Reason, [{reply, From, Error}]}
     end;
 
-connected({call, From}, {publish, Msg = #mqtt_message{qos = Qos}},
+connected({call, From}, {publish, Msg = #mqtt_msg{qos = QoS}},
           State = #state{inflight = Inflight, last_packet_id = PacketId})
-    when (Qos =:= ?QOS_1); (Qos =:= ?QOS_2) ->
+    when (QoS =:= ?QOS_1); (QoS =:= ?QOS_2) ->
     case emqx_inflight:is_full(Inflight) of
         true ->
             {keep_state, State, [{reply, From, {error, inflight_full}}]};
         false ->
-            Msg1 = Msg#mqtt_message{packet_id = PacketId},
+            Msg1 = Msg#mqtt_msg{packet_id = PacketId},
             case send(Msg1, State) of
                 {ok, NewState} ->
                     Inflight1 = emqx_inflight:insert(PacketId, {publish, Msg1, os:timestamp()}, Inflight),
@@ -690,7 +697,7 @@ connected(cast, {pubcomp, PacketId, ReasonCode, Properties}, State) ->
     send_puback(?PUBCOMP_PACKET(PacketId, ReasonCode, Properties), State);
 
 connected(cast, Packet = ?PUBLISH_PACKET(?QOS_0, _PacketId), State) ->
-    {keep_state, deliver_msg(packet_to_msg(Packet), State)};
+    {keep_state, deliver(packet_to_msg(Packet), State)};
 
 connected(cast, ?PUBLISH_PACKET(_QoS, _PacketId), State = #state{paused = true}) ->
     {keep_state, State};
@@ -698,7 +705,7 @@ connected(cast, ?PUBLISH_PACKET(_QoS, _PacketId), State = #state{paused = true})
 connected(cast, Packet = ?PUBLISH_PACKET(?QOS_1, PacketId),
           State = #state{auto_ack = AutoAck}) ->
 
-    _ = deliver_msg(packet_to_msg(Packet), State),
+    _ = deliver(packet_to_msg(Packet), State),
     case AutoAck of
         true  -> send_puback(?PUBACK_PACKET(PacketId), State);
         false -> {keep_state, State}
@@ -716,7 +723,7 @@ connected(cast, Packet = ?PUBLISH_PACKET(?QOS_2, PacketId),
 connected(cast, ?PUBACK_PACKET(PacketId, ReasonCode, Properties),
           State = #state{owner = Owner, inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, {publish, #mqtt_message{packet_id = PacketId}, _Ts}} ->
+        {value, {publish, #mqtt_msg{packet_id = PacketId}, _Ts}} ->
             Owner ! {puback, #{packet_id   => PacketId,
                                reason_code => ReasonCode,
                                properties  => Properties}},
@@ -745,8 +752,7 @@ connected(cast, ?PUBREL_PACKET(PacketId),
           State = #state{awaiting_rel = AwaitingRel, auto_ack = AutoAck}) ->
      case maps:take(PacketId, AwaitingRel) of
          {Packet, AwaitingRel1} ->
-             NewState = deliver_msg(packet_to_msg(Packet),
-                                    State#state{awaiting_rel = AwaitingRel1}),
+             NewState = deliver(packet_to_msg(Packet), State#state{awaiting_rel = AwaitingRel1}),
              case AutoAck of
                  true  -> send_puback(?PUBCOMP_PACKET(PacketId), NewState);
                  false -> {keep_state, NewState}
@@ -960,9 +966,9 @@ retry_send([{Type, Msg, Ts} | Msgs], Now, State = #state{retry_interval = Interv
         false -> {keep_state, ensure_retry_timer(Interval - Diff, State)}
     end.
 
-retry_send(publish, Msg = #mqtt_message{qos = QoS, packet_id = PacketId},
+retry_send(publish, Msg = #mqtt_msg{qos = QoS, packet_id = PacketId},
            Now, State = #state{inflight = Inflight}) ->
-    Msg1 = Msg#mqtt_message{dup = (QoS =:= ?QOS1)},
+    Msg1 = Msg#mqtt_msg{dup = (QoS =:= ?QOS1)},
     case send(Msg1, State) of
         {ok, NewState} ->
             Inflight1 = emqx_inflight:update(PacketId, {publish, Msg1, Now}, Inflight),
@@ -979,41 +985,28 @@ retry_send(pubrel, PacketId, Now, State = #state{inflight = Inflight}) ->
             Error
     end.
 
-deliver_msg(#mqtt_message{qos        = QoS,
-                          dup        = Dup,
-                          retain     = Retain,
-                          topic      = Topic,
-                          packet_id  = PacketId,
-                          properties = Properties,
-                          payload    = Payload},
-            State = #state{owner = Owner}) ->
-    Owner ! {publish, #{qos => QoS, dup => Dup, retain => Retain,
-                        packet_id => PacketId, topic => Topic,
-                        properties => Properties, payload => Payload}},
+deliver(#mqtt_msg{qos = QoS, dup = Dup, retain = Retain, packet_id = PacketId,
+                  topic = Topic, props = Props, payload = Payload},
+        State = #state{owner = Owner}) ->
+    Owner ! {publish, #{qos => QoS, dup => Dup, retain => Retain, packet_id => PacketId,
+                        topic => Topic, properties => Props, payload => Payload}},
     State.
 
-packet_to_msg(?PUBLISH_PACKET(Header, Topic, PacketId, Properties, Payload)) ->
+packet_to_msg(?PUBLISH_PACKET(Header, Topic, PacketId, Props, Payload)) ->
     #mqtt_packet_header{qos = QoS, retain = R, dup = Dup} = Header,
-    #mqtt_message{qos = QoS, retain = R, dup = Dup,
-                  packet_id = PacketId, topic = Topic,
-                  properties = Properties, payload = Payload}.
+    #mqtt_msg{qos = QoS, retain = R, dup = Dup, packet_id = PacketId,
+              topic = Topic, props = Props, payload = Payload}.
 
-msg_to_packet(#mqtt_message{qos        = Qos,
-                            dup        = Dup,
-                            retain     = Retain,
-                            topic      = Topic,
-                            packet_id  = PacketId,
-                            properties = Properties,
-                            payload    = Payload}) ->
+msg_to_packet(#mqtt_msg{qos = QoS, dup = Dup, retain = Retain, packet_id = PacketId,
+                       topic = Topic, props = Props, payload = Payload}) ->
     #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
-                                                qos    = Qos,
+                                                qos    = QoS,
                                                 retain = Retain,
                                                 dup    = Dup},
                  variable = #mqtt_packet_publish{topic_name = Topic,
                                                  packet_id  = PacketId,
-                                                 properties = Properties},
+                                                 properties = Props},
                  payload  = Payload}.
-
 
 %%------------------------------------------------------------------------------
 %% Socket Connect/Send
@@ -1040,7 +1033,7 @@ send_puback(Packet, State) ->
         {error, Reason} -> {stop, Reason}
     end.
 
-send(Msg, State) when is_record(Msg, mqtt_message) ->
+send(Msg, State) when is_record(Msg, mqtt_msg) ->
     send(msg_to_packet(Msg), State);
 
 send(Packet, State = #state{socket = Sock, proto_ver = Ver})

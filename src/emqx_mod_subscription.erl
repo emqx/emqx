@@ -34,7 +34,7 @@ load(Topics) ->
 on_client_connected(RC, Client = #client{id = ClientId, pid = ClientPid, username = Username}, Topics)
     when RC < 16#80 ->
     Replace = fun(Topic) -> rep(<<"%u">>, Username, rep(<<"%c">>, ClientId, Topic)) end,
-    TopicTable = [{Replace(Topic), Qos} || {Topic, Qos} <- Topics],
+    TopicTable = [{Replace(Topic), QoS} || {Topic, QoS} <- Topics],
     ClientPid ! {subscribe, TopicTable},
     {ok, Client};
 

@@ -1,18 +1,16 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_ws_connection).
 
@@ -157,8 +155,8 @@ handle_cast({received, Packet}, State = #wsclient_state{proto_state = ProtoState
     end;
 
 handle_cast(Msg, State) ->
-    ?WSLOG(error, "Unexpected Msg: ~p", [Msg], State),
-    {noreply, State, hibernate}.
+    ?WSLOG(error, "unexpected msg: ~p", [Msg], State),
+    {noreply, State}.
 
 handle_info({subscribe, TopicTable}, State) ->
     with_proto(
@@ -172,10 +170,17 @@ handle_info({unsubscribe, Topics}, State) ->
           emqx_protocol:unsubscribe(Topics, ProtoState)
       end, State);
 
-handle_info({suback, PacketId, GrantedQos}, State) ->
+handle_info({suback, PacketId, ReasonCodes}, State) ->
     with_proto(
       fun(ProtoState) ->
-          Packet = ?SUBACK_PACKET(PacketId, GrantedQos),
+          Packet = ?SUBACK_PACKET(PacketId, ReasonCodes),
+          emqx_protocol:send(Packet, ProtoState)
+      end, State);
+
+handle_info({unsuback, PacketId, ReasonCodes}, State) ->
+    with_proto(
+      fun(ProtoState) ->
+          Packet = ?UNSUBACK_PACKET(PacketId, ReasonCodes),
           emqx_protocol:send(Packet, ProtoState)
       end, State);
 

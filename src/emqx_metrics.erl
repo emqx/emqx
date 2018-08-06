@@ -171,10 +171,10 @@ update_counter(Key, UpOp) ->
 received(Packet) ->
     inc('packets/received'),
     received1(Packet).
-received1(?PUBLISH_PACKET(Qos, _PktId)) ->
+received1(?PUBLISH_PACKET(QoS, _PktId)) ->
     inc('packets/publish/received'),
     inc('messages/received'),
-    qos_received(Qos);
+    qos_received(QoS);
 received1(?PACKET(Type)) ->
     received2(Type).
 received2(?CONNECT) ->
@@ -206,15 +206,15 @@ qos_received(?QOS_2) ->
 
 %% @doc Count packets received. Will not count $SYS PUBLISH.
 -spec(sent(mqtt_packet()) -> ignore | non_neg_integer()).
-sent(?PUBLISH_PACKET(_Qos, <<"$SYS/", _/binary>>, _, _)) ->
+sent(?PUBLISH_PACKET(_QoS, <<"$SYS/", _/binary>>, _, _)) ->
     ignore;
 sent(Packet) ->
     inc('packets/sent'),
     sent1(Packet).
-sent1(?PUBLISH_PACKET(Qos, _PktId)) ->
+sent1(?PUBLISH_PACKET(QoS, _PktId)) ->
     inc('packets/publish/sent'),
     inc('messages/sent'),
-    qos_sent(Qos);
+    qos_sent(QoS);
 sent1(?PACKET(Type)) ->
     sent2(Type).
 sent2(?CONNACK) ->

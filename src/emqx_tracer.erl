@@ -19,6 +19,7 @@
 -include("emqx.hrl").
 
 -export([start_link/0]).
+-export([trace/2]).
 -export([start_trace/2, lookup_traces/0, stop_trace/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
@@ -31,13 +32,16 @@
 -define(TRACER, ?MODULE).
 -define(OPTIONS, [{formatter_config, [time, " [",severity,"] ", message, "\n"]}]).
 
-%%------------------------------------------------------------------------------
-%% Start the tracer
-%%------------------------------------------------------------------------------
-
 -spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
 start_link() ->
     gen_server:start_link({local, ?TRACER}, ?MODULE, [], []).
+
+trace(publish, #message{topic = <<"$SYS/", _/binary>>}) ->
+    %% Dont' trace '$SYS' publish
+    ignore;
+trace(publish, #message{from = From, topic = Topic, payload = Payload})
+    when is_binary(From); is_atom(From) ->
+    emqx_logger:info([{client, From}, {topic, Topic}], "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
 
 %%------------------------------------------------------------------------------
 %% Start/Stop trace

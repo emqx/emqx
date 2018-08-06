@@ -15,12 +15,11 @@
 -module(emqx_packet).
 
 -include("emqx.hrl").
-
 -include("emqx_mqtt.hrl").
 
 -export([protocol_name/1, type_name/1]).
 -export([format/1]).
--export([to_message/1, from_message/1]).
+-export([to_message/2, from_message/2]).
 
 %% @doc Protocol name of version
 -spec(protocol_name(mqtt_version()) -> binary()).
@@ -34,43 +33,40 @@ type_name(Type) when Type > ?RESERVED andalso Type =< ?AUTH ->
     lists:nth(Type, ?TYPE_NAMES).
 
 %% @doc From Message to Packet
--spec(from_message(message()) -> mqtt_packet()).
-from_message(Msg = #message{topic = Topic, payload = Payload}) ->
-    Qos = emqx_message:get_flag(qos, Msg, 0),
+-spec(from_message(mqtt_packet_id(), message()) -> mqtt_packet()).
+from_message(PacketId, Msg = #message{qos = QoS, topic = Topic, payload = Payload}) ->
     Dup = emqx_message:get_flag(dup, Msg, false),
     Retain = emqx_message:get_flag(retain, Msg, false),
-    PacketId = emqx_message:get_header(packet_id, Msg),
     #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
-                                              qos    = Qos,
+                                              qos    = QoS,
                                               retain = Retain,
                                               dup    = Dup},
                  variable = #mqtt_packet_publish{topic_name = Topic,
-                                                 packet_id  = PacketId},
+                                                 packet_id  = PacketId,
+                                                 properties = #{}}, %%TODO:
                  payload = Payload}.
 
 %% @doc Message from Packet
--spec(to_message(mqtt_packet()) -> message()).
-to_message(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
-                                                       retain = Retain,
-                                                       qos    = Qos,
-                                                       dup    = Dup},
-                        variable = #mqtt_packet_publish{topic_name = Topic,
-                                                        packet_id  = PacketId,
-                                                        properties = Properties},
-                        payload  = Payload}) ->
-    Flags = #{dup => Dup, retain => Retain, qos => Qos},
-    Msg = emqx_message:new(undefined, Flags, #{packet_id => PacketId}, Topic, Payload),
-    Msg#message{properties = Properties};
+-spec(to_message(client_id(), mqtt_packet()) -> message()).
+to_message(ClientId, #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
+                                                                 retain = Retain,
+                                                                 qos    = QoS,
+                                                                 dup    = Dup},
+                                  variable = #mqtt_packet_publish{topic_name = Topic,
+                                                                  properties = Props},
+                                  payload  = Payload}) ->
+    Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
+    Msg#message{flags = #{dup => Dup, retain => Retain}, headers = Props};
 
-to_message(#mqtt_packet_connect{will_flag = false}) ->
+to_message(_ClientId, #mqtt_packet_connect{will_flag = false}) ->
     undefined;
-to_message(#mqtt_packet_connect{will_retain  = Retain,
-                                will_qos     = Qos,
-                                will_topic   = Topic,
-                                will_props   = Props,
-                                will_payload = Payload}) ->
-    Msg = emqx_message:new(undefined, #{qos => Qos, retain => Retain}, Topic, Payload),
-    Msg#message{properties = Props}.
+to_message(ClientId, #mqtt_packet_connect{will_retain  = Retain,
+                                          will_qos     = QoS,
+                                          will_topic   = Topic,
+                                          will_props   = Props,
+                                          will_payload = Payload}) ->
+    Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
+    Msg#message{flags = #{qos => QoS, retain => Retain}, headers = Props}.
 
 %% @doc Format packet
 -spec(format(mqtt_packet()) -> iolist()).
@@ -110,8 +106,8 @@ format_variable(#mqtt_packet_connect{
     Format = "ClientId=~s, ProtoName=~s, ProtoVsn=~p, CleanStart=~s, KeepAlive=~p, Username=~s, Password=~s",
     Args = [ClientId, ProtoName, ProtoVer, CleanStart, KeepAlive, Username, format_password(Password)],
     {Format1, Args1} = if
-                        WillFlag -> { Format ++ ", Will(Q~p, R~p, Topic=~s, Payload=~p)",
-                                      Args ++ [WillQoS, i(WillRetain), WillTopic, WillPayload] };
+                        WillFlag -> {Format ++ ", Will(Q~p, R~p, Topic=~s, Payload=~p)",
+                                     Args ++ [WillQoS, i(WillRetain), WillTopic, WillPayload]};
                         true -> {Format, Args}
                        end,
     io_lib:format(Format1, Args1);
@@ -153,3 +149,4 @@ format_password(_Password) -> '******'.
 i(true)  -> 1;
 i(false) -> 0;
 i(I) when is_integer(I) -> I.
+

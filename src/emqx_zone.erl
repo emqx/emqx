@@ -12,43 +12,59 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_broker_helper).
+-module(emqx_zone).
 
 -behaviour(gen_server).
 
 -export([start_link/0]).
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([get_env/2, get_env/3]).
 
--define(HELPER, ?MODULE).
+%% gen_server callbacks
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3]).
 
--record(state, {}).
+-record(state, {timer}).
+-define(TAB, ?MODULE).
+-define(SERVER, ?MODULE).
 
--spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
 start_link() ->
-    gen_server:start_link({local, ?HELPER}, ?MODULE, [], []).
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+get_env(Zone, Par) ->
+    get_env(Zone, Par, undefined).
+
+get_env(Zone, Par, Def) ->
+    try ets:lookup_element(?TAB, {Zone, Par}, 2) catch error:badarg -> Def end.
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    emqx_stats:update_interval(broker_stats, stats_fun()),
-    {ok, #state{}, hibernate}.
+    _ = emqx_tables:new(?TAB, [set, {read_concurrency, true}]),
+    {ok, element(2, handle_info(reload, #state{}))}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[BrokerHelper] unexpected call: ~p", [Req]),
-   {reply, ignored, State}.
+    emqx_logger:error("[Zone] unexpected call: ~p", [Req]),
+    {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[BrokerHelper] unexpected cast: ~p", [Msg]),
+    emqx_logger:error("[Zone] unexpected cast: ~p", [Msg]),
     {noreply, State}.
+
+handle_info(reload, State) ->
+    lists:foreach(
+      fun({Zone, Options}) ->
+          [ets:insert(?TAB, {{Zone, Par}, Val}) || {Par, Val} <- Options]
+      end, emqx_config:get_env(zones, [])),
+    {noreply, ensure_reload_timer(State), hibernate};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[BrokerHelper] unexpected info: ~p", [Info]),
+    emqx_logger:error("[Zone] unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #state{}) ->
-    emqx_stats:cancel_update(broker_stats).
+terminate(_Reason, _State) ->
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -57,19 +73,6 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-stats_fun() ->
-    fun() ->
-        safe_update_stats(emqx_subscriber,
-                          'subscribers/count', 'subscribers/max'),
-        safe_update_stats(emqx_subscription,
-                          'subscriptions/count', 'subscriptions/max'),
-        safe_update_stats(emqx_suboptions,
-                          'suboptions/count', 'suboptions/max')
-    end.
-
-safe_update_stats(Tab, Stat, MaxStat) ->
-    case ets:info(Tab, size) of
-        undefined -> ok;
-        Size -> emqx_stats:setstat(Stat, MaxStat, Size)
-    end.
+ensure_reload_timer(State) ->
+    State#state{timer = erlang:send_after(5000, self(), reload)}.
 

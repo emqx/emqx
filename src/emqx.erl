@@ -74,7 +74,7 @@ subscribe(Topic) ->
 subscribe(Topic, Subscriber) ->
     emqx_broker:subscribe(iolist_to_binary(Topic), list_to_subid(Subscriber)).
 
--spec(subscribe(topic() | string(), subscriber() | string(), [suboption()]) -> ok | {error, term()}).
+-spec(subscribe(topic() | string(), subscriber() | string(), subopts()) -> ok | {error, term()}).
 subscribe(Topic, Subscriber, Options) ->
     emqx_broker:subscribe(iolist_to_binary(Topic), list_to_subid(Subscriber), Options).
 
@@ -95,11 +95,11 @@ unsubscribe(Topic, Subscriber) ->
 %% PubSub management API
 %%--------------------------------------------------------------------
 
--spec(get_subopts(topic() | string(), subscriber()) -> [suboption()]).
+-spec(get_subopts(topic() | string(), subscriber()) -> subopts()).
 get_subopts(Topic, Subscriber) ->
     emqx_broker:get_subopts(iolist_to_binary(Topic), list_to_subid(Subscriber)).
 
--spec(set_subopts(topic() | string(), subscriber(), [suboption()]) -> ok).
+-spec(set_subopts(topic() | string(), subscriber(), subopts()) -> ok).
 set_subopts(Topic, Subscriber, Options) when is_list(Options) ->
     emqx_broker:set_subopts(iolist_to_binary(Topic), list_to_subid(Subscriber), Options).
 
@@ -110,7 +110,7 @@ topics() -> emqx_router:topics().
 subscribers(Topic) ->
     emqx_broker:subscribers(iolist_to_binary(Topic)).
 
--spec(subscriptions(subscriber() | string()) -> [{topic(), list(suboption())}]).
+-spec(subscriptions(subscriber() | string()) -> [{topic(), subopts()}]).
 subscriptions(Subscriber) ->
     emqx_broker:subscriptions(list_to_subid(Subscriber)).
 

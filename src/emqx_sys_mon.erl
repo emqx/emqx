@@ -43,7 +43,7 @@ init([Opts]) ->
     {ok, start_timer(#state{events = []})}.
 
 start_timer(State) ->
-    State#state{timer = emqx_misc:start_timer(timer:seconds(2), tick)}.
+    State#state{timer = emqx_misc:start_timer(timer:seconds(2), reset)}.
 
 parse_opt(Opts) ->
     parse_opt(Opts, []).
@@ -126,7 +126,7 @@ handle_info({monitor, SusPid, busy_dist_port, Port}, State) ->
                  safe_publish(busy_dist_port, WarnMsg)
              end, State);
 
-handle_info(reset, State) ->
+handle_info({timeout, _Ref, reset}, State) ->
     {noreply, State#state{events = []}, hibernate};
 
 handle_info(Info, State) ->
@@ -158,5 +158,5 @@ safe_publish(Event, WarnMsg) ->
     emqx_broker:safe_publish(sysmon_msg(Topic, iolist_to_binary(WarnMsg))).
 
 sysmon_msg(Topic, Payload) ->
-    emqx_message:new(?SYSMON, #{sys => true}, Topic, Payload).
+    emqx_message:make(?SYSMON, #{sys => true}, Topic, Payload).
 

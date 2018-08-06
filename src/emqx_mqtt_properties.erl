@@ -104,17 +104,20 @@ id('Wildcard-Subscription-Available')   -> 16#28;
 id('Subscription-Identifier-Available') -> 16#29;
 id('Shared-Subscription-Available')     -> 16#2A.
 
-filter(Packet, Props) when ?CONNECT =< Packet, Packet =< ?AUTH ->
-    Fun = fun(Name) ->
-            case maps:find(id(Name), ?PROPS_TABLE) of
-                {ok, {Name, _Type, 'ALL'}} ->
-                    true;
-                {ok, {Name, _Type, Packets}} ->
-                    lists:member(Packet, Packets);
-                error -> false
-            end
-          end,
-    [Prop || Prop = {Name, _} <- Props, Fun(Name)].
+filter(PacketType, Props) when is_map(Props) ->
+    maps:from_list(filter(PacketType, maps:to_list(Props)));
+
+filter(PacketType, Props) when ?CONNECT =< PacketType, PacketType =< ?AUTH, is_list(Props) ->
+    Filter = fun(Name) ->
+                 case maps:find(id(Name), ?PROPS_TABLE) of
+                     {ok, {Name, _Type, 'ALL'}} ->
+                         true;
+                     {ok, {Name, _Type, AllowedTypes}} ->
+                         lists:member(PacketType, AllowedTypes);
+                     error -> false
+                 end
+             end,
+    [Prop || Prop = {Name, _} <- Props, Filter(Name)].
 
 validate(Props) when is_map(Props) ->
     lists:foreach(fun validate_prop/1, maps:to_list(Props)).

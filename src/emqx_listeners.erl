@@ -33,7 +33,7 @@ start_listener({tcp, ListenOn, Options}) ->
     start_mqtt_listener('mqtt:tcp', ListenOn, Options);
 %% Start MQTT/TLS listener
 start_listener({Proto, ListenOn, Options}) when Proto == ssl; Proto == tls ->
-    start_mqtt_listener('mqtt:tls', ListenOn, Options);
+    start_mqtt_listener('mqtt:ssl', ListenOn, Options);
 %% Start MQTT/WS listener
 start_listener({Proto, ListenOn, Options}) when Proto == http; Proto == ws ->
     start_http_listener('mqtt:ws', ListenOn, Options);

@@ -31,6 +31,7 @@ init([]) ->
            child_spec(emqx_stats, worker),
            child_spec(emqx_metrics, worker),
            child_spec(emqx_ctl, worker),
+           child_spec(emqx_zone, worker),
            child_spec(emqx_tracer, worker)]}}.
 
 child_spec(M, worker) ->

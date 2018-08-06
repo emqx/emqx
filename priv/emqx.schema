@@ -933,6 +933,10 @@ end}.
   {datatype, integer}
 ]}.
 
+{mapping, "listener.tcp.$name.max_conn_rate", "emqx.listeners", [
+  {datatype, integer}
+]}.
+
 {mapping, "listener.tcp.$name.zone", "emqx.listeners", [
   {datatype, string}
 ]}.
@@ -1021,6 +1025,10 @@ end}.
 
 {mapping, "listener.ssl.$name.max_clients", "emqx.listeners", [
   {default, 1024},
+  {datatype, integer}
+]}.
+
+{mapping, "listener.ssl.$name.max_conn_rate", "emqx.listeners", [
   {datatype, integer}
 ]}.
 
@@ -1165,8 +1173,8 @@ end}.
   {datatype, integer}
 ]}.
 
-{mapping, "listener.ws.$name.rate_limit", "emqx.listeners", [
-  {datatype, string}
+{mapping, "listener.ws.$name.max_conn_rate", "emqx.listeners", [
+  {datatype, integer}
 ]}.
 
 {mapping, "listener.ws.$name.zone", "emqx.listeners", [
@@ -1258,6 +1266,10 @@ end}.
 
 {mapping, "listener.wss.$name.max_clients", "emqx.listeners", [
   {default, 1024},
+  {datatype, integer}
+]}.
+
+{mapping, "listener.wss.$name.max_conn_rate", "emqx.listeners", [
   {datatype, integer}
 ]}.
 
@@ -1404,7 +1416,7 @@ end}.
     AccOpts = fun(Prefix) ->
                   case cuttlefish_variable:filter_by_prefix(Prefix ++ ".access", Conf) of
                       [] -> [];
-                      Rules -> [{access, [Access(Rule) || {_, Rule} <- Rules]}]
+                      Rules -> [{access_rules, [Access(Rule) || {_, Rule} <- Rules]}]
                   end
               end,
 
@@ -1413,9 +1425,10 @@ end}.
     LisOpts = fun(Prefix) ->
                   Filter([{acceptors,   cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
                           {max_clients, cuttlefish:conf_get(Prefix ++ ".max_clients", Conf)},
+                          {max_conn_rate, cuttlefish:conf_get(Prefix ++ ".max_conn_rate", Conf, undefined)},
                           {tune_buffer, cuttlefish:conf_get(Prefix ++ ".tune_buffer", Conf, undefined)},
                           {zone, Atom(cuttlefish:conf_get(Prefix ++ ".zone", Conf, undefined))},
-                          {rate_limit, cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined)},
+                          %%{rate_limit, cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined)},
                           {proxy_protocol, cuttlefish:conf_get(Prefix ++ ".proxy_protocol", Conf, undefined)},
                           {proxy_protocol_timeout, cuttlefish:conf_get(Prefix ++ ".proxy_protocol_timeout", Conf, undefined)},
                           {mountpoint, MountPoint(cuttlefish:conf_get(Prefix ++ ".mountpoint", Conf, undefined))},

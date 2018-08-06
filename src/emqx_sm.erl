@@ -46,7 +46,7 @@ start_link() ->
     gen_server:start_link({local, ?SM}, ?MODULE, [], []).
 
 %% @doc Open a session.
--spec(open_session(map()) -> {ok, pid()} | {error, term()}).
+-spec(open_session(map()) -> {ok, pid(), boolean()} | {error, term()}).
 open_session(Attrs = #{clean_start := true,
                        client_id   := ClientId,
                        client_pid  := ClientPid}) ->
