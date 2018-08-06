@@ -26,11 +26,11 @@
 all() -> [t_base62_encode].
 
 t_base62_encode(_) ->
-    10 = ?BASE62:decode(?BASE62:encode(10)),
-    100 = ?BASE62:decode(?BASE62:encode(100)),
-    9999 = ?BASE62:decode(?BASE62:encode(9999)),
-    65535 = ?BASE62:decode(?BASE62:encode(65535)),
+    <<"10">> = ?BASE62:decode(?BASE62:encode(<<"10">>)),
+    <<"100">> = ?BASE62:decode(?BASE62:encode(<<"100">>)),
+    <<"9999">> = ?BASE62:decode(?BASE62:encode(<<"9999">>)),
+    <<"65535">> = ?BASE62:decode(?BASE62:encode(<<"65535">>)),
     <<X:128/unsigned-big-integer>> = emqx_guid:gen(),
     <<Y:128/unsigned-big-integer>> = emqx_guid:gen(),
-    X = ?BASE62:decode(?BASE62:encode(X)),
-    Y = ?BASE62:decode(?BASE62:encode(Y)).
+    X = erlang:binary_to_integer(?BASE62:decode(?BASE62:encode(X))),
+    Y = erlang:binary_to_integer(?BASE62:decode(?BASE62:encode(Y))).
