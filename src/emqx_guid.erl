@@ -126,9 +126,9 @@ from_hexstr(S) ->
     I = list_to_integer(binary_to_list(S), 16), <<I:128>>.
 
 to_base62(<<I:128>>) ->
-    binary_to_list(emqx_base62:encode(I)).
+    emqx_base62:encode(I).
 
 from_base62(S) ->
-    I = binary_to_integer(emqx_base62:decode(S)),
+    I = emqx_base62:decode(S, integer),
     <<I:128>>.
 

@@ -32,5 +32,8 @@ t_base62_encode(_) ->
     <<"65535">> = ?BASE62:decode(?BASE62:encode(<<"65535">>)),
     <<X:128/unsigned-big-integer>> = emqx_guid:gen(),
     <<Y:128/unsigned-big-integer>> = emqx_guid:gen(),
-    X = erlang:binary_to_integer(?BASE62:decode(?BASE62:encode(X))),
-    Y = erlang:binary_to_integer(?BASE62:decode(?BASE62:encode(Y))).
+    X = ?BASE62:decode(?BASE62:encode(X), integer),
+    Y = ?BASE62:decode(?BASE62:encode(Y), integer),
+    <<"helloworld">> = ?BASE62:decode(?BASE62:encode("helloworld")),
+    "helloworld" = ?BASE62:decode(?BASE62:encode("helloworld", string), string).
+
