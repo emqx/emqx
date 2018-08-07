@@ -262,14 +262,14 @@ process({subscribe, RawTopicTable},
 process(?UNSUBSCRIBE_PACKET(PacketId, []), State) ->
     send(?UNSUBACK_PACKET(PacketId), State);
 
-process(?UNSUBSCRIBE_PACKET(PacketId, _Properties, RawTopics),
+process(?UNSUBSCRIBE_PACKET(PacketId, Properties, RawTopics),
         State = #proto_state{client_id  = ClientId,
                              username   = Username,
                              mountpoint = MountPoint,
                              session    = Session}) ->
     case emqx_hooks:run('client.unsubscribe', [ClientId, Username], parse_topics(RawTopics)) of
         {ok, TopicTable} ->
-            emqx_session:unsubscribe(Session, mount(replvar(MountPoint, State), TopicTable));
+            emqx_session:unsubscribe(Session, {PacketId, Properties, mount(replvar(MountPoint, State), TopicTable)});
         {stop, _} ->
             ok
     end,
@@ -280,7 +280,7 @@ process({unsubscribe, RawTopics}, State = #proto_state{client_id = ClientId,
                                                        session   = Session}) ->
     case emqx_hooks:run('client.unsubscribe', [ClientId, Username], parse_topics(RawTopics)) of
         {ok, TopicTable} ->
-            emqx_session:unsubscribe(Session, TopicTable);
+            emqx_session:unsubscribe(Session, {undefined, #{}, TopicTable});
         {stop, _} -> ok
     end,
     {ok, State};
