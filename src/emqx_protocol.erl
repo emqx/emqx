@@ -353,11 +353,11 @@ send(Packet = ?PACKET(Type), ProtoState = #proto_state{proto_ver = Ver,
                                                        sockprops = #{sendfun := SendFun}}) ->
     Data = emqx_frame:serialize(Packet, #{version => Ver}),
     case SendFun(Data) of
-        ok -> emqx_metrics:sent(Packet),
-              trace(send, Packet, ProtoState),
-              {ok, inc_stats(send, Type, ProtoState)};
         {error, Reason} ->
-            {error, Reason}
+            {error, Reason};
+        _ -> emqx_metrics:sent(Packet),
+              trace(send, Packet, ProtoState),
+              {ok, inc_stats(send, Type, ProtoState)}
     end.
 
 trace(recv, Packet, ProtoState) ->

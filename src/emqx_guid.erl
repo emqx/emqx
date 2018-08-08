@@ -129,5 +129,6 @@ to_base62(<<I:128>>) ->
     emqx_base62:encode(I).
 
 from_base62(S) ->
-    I = emqx_base62:decode(S), <<I:128>>.
+    I = emqx_base62:decode(S, integer),
+    <<I:128>>.
 

@@ -199,7 +199,7 @@ mem_info() ->
      {used_memory, proplists:get_value(total_memory, Dataset) - proplists:get_value(free_memory, Dataset)}].
 
 ftos(F) ->
-    [S] = io_lib:format("~.2f", [F]), S.
+    S = io_lib:format("~.2f", [F]), S.
 
 %%%% erlang vm scheduler_usage  fun copied from recon
 scheduler_usage(Interval) when is_integer(Interval) ->

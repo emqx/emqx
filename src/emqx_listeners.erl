@@ -36,20 +36,30 @@ start_listener({Proto, ListenOn, Options}) when Proto == ssl; Proto == tls ->
     start_mqtt_listener('mqtt:ssl', ListenOn, Options);
 %% Start MQTT/WS listener
 start_listener({Proto, ListenOn, Options}) when Proto == http; Proto == ws ->
-    start_http_listener('mqtt:ws', ListenOn, Options);
+    Dispatch = [{"/mqtt", emqx_ws, []}],
+    NumAcceptors = proplists:get_value(acceptors, Options, 4),
+    MaxConnections = proplists:get_value(max_clients, Options, 1024),
+    TcpOptions = proplists:get_value(tcp_options, Options, []),
+    Options1 = [{port, ListenOn},
+                {num_acceptors, NumAcceptors},
+                {max_connections, MaxConnections} | TcpOptions],
+    minirest:start_http(Proto, Options1, Dispatch);
 %% Start MQTT/WSS listener
 start_listener({Proto, ListenOn, Options}) when Proto == https; Proto == wss ->
-    start_http_listener('mqtt:wss', ListenOn, Options).
+    Dispatch = [{"/mqtt", emqx_ws, []}],
+    NumAcceptors = proplists:get_value(acceptors, Options, 4),
+    MaxConnections = proplists:get_value(max_clients, Options, 1024),
+    TcpOptions = proplists:get_value(tcp_options, Options, []),
+    SslOptions = proplists:get_value(ssl_options, Options, []),
+    Options1 = [{port, ListenOn},
+                {num_acceptors, NumAcceptors},
+                {max_connections, MaxConnections} | TcpOptions ++ SslOptions],
+    minirest:start_https(Proto, Options1, Dispatch).
 
 start_mqtt_listener(Name, ListenOn, Options) ->
     SockOpts = esockd:parse_opt(Options),
     MFA = {emqx_connection, start_link, [Options -- SockOpts]},
     {ok, _} = esockd:open(Name, ListenOn, merge_default(SockOpts), MFA).
-
-start_http_listener(Name, ListenOn, Options) ->
-    SockOpts = esockd:parse_opt(Options),
-    MFA = {emqx_ws, handle_request, [Options -- SockOpts]},
-    {ok, _} = mochiweb:start_http(Name, ListenOn, SockOpts, MFA).
 
 %% @doc Restart all listeners
 -spec(restart_all() -> ok).

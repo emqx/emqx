@@ -497,7 +497,7 @@ end}.
     ConsoleLogLevel = cuttlefish:conf_get("log.console.level", Conf),
     ConsoleLogFile = cuttlefish:conf_get("log.console.file", Conf),
 
-    ConsoleHandler = {lager_console_backend, [ConsoleLogLevel]},
+    ConsoleHandler = {lager_console_backend, [{level, ConsoleLogLevel}]},
     ConsoleFileHandler = {lager_file_backend, [{file, ConsoleLogFile},
                                                {level, ConsoleLogLevel},
                                                {size, cuttlefish:conf_get("log.console.size", Conf)},
@@ -845,10 +845,6 @@ end}.
   {datatype, integer}
 ]}.
 
-{mapping, "listener.ws.$name.max_conn_rate", "emqx.listeners", [
-  {datatype, integer}
-]}.
-
 {mapping, "listener.ws.$name.zone", "emqx.listeners", [
   {datatype, string}
 ]}.
@@ -929,11 +925,6 @@ end}.
   hidden
 ]}.
 
-{mapping, "listener.ws.$name.reuseaddr", "emqx.listeners", [
-  {datatype, {enum, [true, false]}},
-  hidden
-]}.
-
 %%--------------------------------------------------------------------
 %% MQTT/WebSocket/SSL Listeners
 
@@ -948,10 +939,6 @@ end}.
 
 {mapping, "listener.wss.$name.max_connections", "emqx.listeners", [
   {default, 1024},
-  {datatype, integer}
-]}.
-
-{mapping, "listener.wss.$name.max_conn_rate", "emqx.listeners", [
   {datatype, integer}
 ]}.
 
@@ -1034,22 +1021,12 @@ end}.
   hidden
 ]}.
 
-{mapping, "listener.wss.$name.reuseaddr", "emqx.listeners", [
-  {datatype, {enum, [true, false]}},
-  hidden
-]}.
-
 {mapping, "listener.wss.$name.tls_versions", "emqx.listeners", [
   {datatype, string}
 ]}.
 
 {mapping, "listener.wss.$name.ciphers", "emqx.listeners", [
   {datatype, string}
-]}.
-
-{mapping, "listener.wss.$name.handshake_timeout", "emqx.listeners", [
-  {default, "15s"},
-  {datatype, {duration, ms}}
 ]}.
 
 {mapping, "listener.wss.$name.keyfile", "emqx.listeners", [
@@ -1138,7 +1115,7 @@ end}.
                            {sndbuf,  cuttlefish:conf_get(Prefix ++ ".sndbuf", Conf, undefined)},
                            {buffer,  cuttlefish:conf_get(Prefix ++ ".buffer", Conf, undefined)},
                            {nodelay, cuttlefish:conf_get(Prefix ++ ".nodelay", Conf, true)},
-                           {reuseaddr, cuttlefish:conf_get(Prefix ++ ".reuseaddr", Conf, true)}])
+                           {reuseaddr, cuttlefish:conf_get(Prefix ++ ".reuseaddr", Conf, undefined)}])
               end,
 
     SplitFun = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
