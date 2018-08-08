@@ -23,7 +23,7 @@
 -import(proplists, [get_value/2, get_value/3]).
 
 %% API Exports
--export([start_link/4]).
+-export([start_link/3]).
 
 %% Management and Monitor API
 -export([info/1, stats/1, kick/1, clean_acl_cache/2]).
@@ -38,13 +38,15 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
-%% TODO: remove ...
--export([handle_pre_hibernate/1]).
-
 %% WebSocket Client State
--record(wsclient_state, {ws_pid, transport, socket, peername,
-                         proto_state, keepalive, enable_stats,
-                         force_gc_count}).
+-record(wsclient_state, {ws_pid, peername, proto_state, keepalive,
+                         enable_stats, force_gc_count}).
+
+%% recv_oct
+%% Number of bytes received by the socket.
+
+%% recv_cnt
+%% Number of packets received by the socket.
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
@@ -53,8 +55,8 @@
                                 [esockd_net:format(State#wsclient_state.peername) | Args])).
 
 %% @doc Start WebSocket Client.
-start_link(Env, WsPid, Req, ReplyChannel) ->
-    gen_server:start_link(?MODULE, [Env, WsPid, Req, ReplyChannel],
+start_link(Env, WsPid, Req) ->
+    gen_server:start_link(?MODULE, [Env, WsPid, Req],
                           [[{hibernate_after, 10000}]]).
 
 info(CPid) ->
@@ -82,38 +84,29 @@ clean_acl_cache(CPid, Topic) ->
 %% gen_server Callbacks
 %%--------------------------------------------------------------------
 
-init([Env, WsPid, Req, ReplyChannel]) ->
+init([Options, WsPid, Req]) ->
+    init_stas(),
     process_flag(trap_exit, true),
     true = link(WsPid),
-    Transport = mochiweb_request:get(transport, Req),
-    Sock = mochiweb_request:get(socket, Req),
-    case mochiweb_request:get(peername, Req) of
-        {ok, Peername} ->
-            Headers = mochiweb_headers:to_list(mochiweb_request:get(headers, Req)),
-            ProtoState = emqx_protocol:init(Transport, Sock, Peername, send_fun(ReplyChannel),
-                                              [{ws_initial_headers, Headers} | Env]),
-            IdleTimeout = get_value(client_idle_timeout, Env, 30000),
-            EnableStats = get_value(client_enable_stats, Env, false),
-            ForceGcCount = emqx_gc:conn_max_gc_count(),
-            {ok, #wsclient_state{transport      = Transport,
-                                 socket         = Sock,
-                                 ws_pid         = WsPid,
-                                 peername       = Peername,
-                                 proto_state    = ProtoState,
-                                 enable_stats   = EnableStats,
-                                 force_gc_count = ForceGcCount},
-             IdleTimeout, {backoff, 2000, 2000, 20000}, ?MODULE};
-        {error, enotconn} -> Transport:fast_close(Sock),
-                             exit(WsPid, normal),
-                             exit(normal);
-        {error, Reason}   -> Transport:fast_close(Sock),
-                             exit(WsPid, normal),
-                             exit({shutdown, Reason})
-    end.
-
-handle_pre_hibernate(State = #wsclient_state{ws_pid = WsPid}) ->
-    erlang:garbage_collect(WsPid),
-    {hibernate, emqx_gc:reset_conn_gc_count(#wsclient_state.force_gc_count, emit_stats(State))}.
+    Peername = cowboy_req:peer(Req),
+    Headers  = cowboy_req:headers(Req),
+    Sockname = cowboy_req:sock(Req),
+    Peercert = cowboy_req:cert(Req),
+    Zone     = proplists:get_value(zone, Options),
+    ProtoState = emqx_protocol:init(#{zone     => Zone,
+                                      peername => Peername,
+                                      sockname => Sockname,
+                                      peercert => Peercert,
+                                      sendfun  => send_fun(WsPid)},
+                                    [{ws_initial_headers, Headers} | Options]),
+    IdleTimeout = get_value(client_idle_timeout, Options, 30000),
+    EnableStats = get_value(client_enable_stats, Options, false),
+    ForceGcCount = emqx_gc:conn_max_gc_count(),
+    {ok, #wsclient_state{ws_pid         = WsPid,
+                         peername       = Peername,
+                         proto_state    = ProtoState,
+                         enable_stats   = EnableStats,
+                         force_gc_count = ForceGcCount}, IdleTimeout}.
 
 handle_call(info, From, State = #wsclient_state{peername    = Peername,
                                                 proto_state = ProtoState}) ->
@@ -123,7 +116,7 @@ handle_call(info, From, State = #wsclient_state{peername    = Peername,
 
 handle_call(stats, _From, State = #wsclient_state{proto_state = ProtoState}) ->
     reply(lists:append([emqx_misc:proc_stats(),
-                        wsock_stats(State),
+                        wsock_stats(),
                         emqx_protocol:stats(ProtoState)]), State);
 
 handle_call(kick, _From, State) ->
@@ -140,7 +133,9 @@ handle_call(Req, _From, State) ->
     ?WSLOG(error, "Unexpected request: ~p", [Req], State),
     reply({error, unexpected_request}, State).
 
-handle_cast({received, Packet}, State = #wsclient_state{proto_state = ProtoState}) ->
+handle_cast({received, Packet, BinSize}, State = #wsclient_state{proto_state = ProtoState}) ->
+    put(recv_oct, get(recv_oct) + BinSize),
+    put(recv_cnt, get(recv_cnt) + 1),
     emqx_metrics:received(Packet),
     case emqx_protocol:received(Packet, ProtoState) of
         {ok, ProtoState1} ->
@@ -158,47 +153,23 @@ handle_cast(Msg, State) ->
     ?WSLOG(error, "unexpected msg: ~p", [Msg], State),
     {noreply, State}.
 
-handle_info({subscribe, TopicTable}, State) ->
+handle_info(SubReq ={subscribe, _TopicTable}, State) ->
     with_proto(
       fun(ProtoState) ->
-          emqx_protocol:subscribe(TopicTable, ProtoState)
+          emqx_protocol:process(SubReq, ProtoState)
       end, State);
 
-handle_info({unsubscribe, Topics}, State) ->
+handle_info(UnsubReq = {unsubscribe, _Topics}, State) ->
     with_proto(
       fun(ProtoState) ->
-          emqx_protocol:unsubscribe(Topics, ProtoState)
+          emqx_protocol:process(UnsubReq, ProtoState)
       end, State);
 
-handle_info({suback, PacketId, ReasonCodes}, State) ->
+handle_info({deliver, PubOrAck}, State) ->
     with_proto(
       fun(ProtoState) ->
-          Packet = ?SUBACK_PACKET(PacketId, ReasonCodes),
-          emqx_protocol:send(Packet, ProtoState)
-      end, State);
-
-handle_info({unsuback, PacketId, ReasonCodes}, State) ->
-    with_proto(
-      fun(ProtoState) ->
-          Packet = ?UNSUBACK_PACKET(PacketId, ReasonCodes),
-          emqx_protocol:send(Packet, ProtoState)
-      end, State);
-
-%% Fastlane
-handle_info({dispatch, _Topic, Message}, State) ->
-    handle_info({deliver, Message#message{qos = ?QOS_0}}, State);
-
-handle_info({deliver, Message}, State) ->
-    with_proto(
-      fun(ProtoState) ->
-          emqx_protocol:send(Message, ProtoState)
+          emqx_protocol:deliver(PubOrAck, ProtoState)
       end, gc(State));
-
-handle_info({redeliver, {?PUBREL, PacketId}}, State) ->
-    with_proto(
-      fun(ProtoState) ->
-          emqx_protocol:pubrel(PacketId, ProtoState)
-      end, State);
 
 handle_info(emit_stats, State) ->
     {noreply, emit_stats(State), hibernate};
@@ -213,10 +184,9 @@ handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
 handle_info({shutdown, Reason}, State) ->
     shutdown(Reason, State);
 
-handle_info({keepalive, start, Interval},
-            State = #wsclient_state{transport = Transport, socket =Sock}) ->
+handle_info({keepalive, start, Interval}, State) ->
     ?WSLOG(debug, "Keepalive at the interval of ~p", [Interval], State),
-    case emqx_keepalive:start(stat_fun(Transport, Sock), Interval, {keepalive, check}) of
+    case emqx_keepalive:start(stat_fun(), Interval, {keepalive, check}) of
         {ok, KeepAlive} ->
             {noreply, State#wsclient_state{keepalive = KeepAlive}, hibernate};
         {error, Error} ->
@@ -271,23 +241,18 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-send_fun(ReplyChannel) ->
-    Self = self(),
-    fun(Packet) ->
-        Data = emqx_frame:serialize(Packet),
-        emqx_metrics:inc('bytes/sent', iolist_size(Data)),
-        case ReplyChannel({binary, Data}) of
-            ok -> ok;
-            {error, Reason} -> Self ! {shutdown, Reason}
-        end
+send_fun(WsPid) ->
+    fun(Data) ->
+        BinSize = iolist_size(Data),
+        emqx_metrics:inc('bytes/sent', BinSize),
+        put(send_oct, get(send_oct) + BinSize),
+        put(send_cnt, get(send_cnt) + 1),
+        WsPid ! {binary, iolist_to_binary(Data)}
     end.
 
-stat_fun(Transport, Sock) ->
+stat_fun() ->
     fun() ->
-        case Transport:getstat(Sock, [recv_oct]) of
-            {ok, [{recv_oct, RecvOct}]} -> {ok, RecvOct};
-            {error, Error}              -> {error, Error}
-        end
+        {ok, get(recv_oct)}
     end.
 
 emit_stats(State = #wsclient_state{proto_state = ProtoState}) ->
@@ -302,11 +267,8 @@ emit_stats(ClientId, State) ->
     emqx_cm:set_client_stats(ClientId, Stats),
     State.
 
-wsock_stats(#wsclient_state{transport = Transport, socket = Sock}) ->
-    case Transport:getstat(Sock, ?SOCK_STATS) of
-        {ok,   Ss} -> Ss;
-        {error, _} -> []
-    end.
+wsock_stats() ->
+    [{Key, get(Key)}|| Key <- ?SOCK_STATS].
 
 with_proto(Fun, State = #wsclient_state{proto_state = ProtoState}) ->
     {ok, ProtoState1} = Fun(ProtoState),
@@ -324,4 +286,10 @@ stop(Reason, State) ->
 gc(State) ->
     Cb = fun() -> emit_stats(State) end,
     emqx_gc:maybe_force_gc(#wsclient_state.force_gc_count, State, Cb).
+
+init_stas() ->
+    put(recv_oct, 0),
+    put(recv_cnt, 0),
+    put(send_oct, 0),
+    put(send_cnt, 0).
 

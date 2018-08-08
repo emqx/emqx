@@ -192,13 +192,13 @@
 %%--------------------------------------------------------------------
 
 -record(plugin, {
-          name    :: atom(),
-          version :: string(),
-          dir     :: string(),
-          descr   :: string(),
-          vendor  :: string(),
-          active  :: boolean(),
-          info    :: map()
+          name           :: atom(),
+          version        :: string(),
+          dir            :: string(),
+          descr          :: string(),
+          vendor         :: string(),
+          active = false :: boolean(),
+          info           :: map()
         }).
 
 -type(plugin() :: #plugin{}).

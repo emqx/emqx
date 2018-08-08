@@ -18,7 +18,7 @@
 
 -export([start_link/0]).
 -export([register_command/2, register_command/3, unregister_command/1]).
--export([run_command/2, lookup_command/1]).
+-export([run_command/1, run_command/2, lookup_command/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
@@ -48,7 +48,21 @@ unregister_command(Cmd) when is_atom(Cmd) ->
 cast(Msg) ->
     gen_server:cast(?SERVER, Msg).
 
+run_command([]) ->
+    run_command(help, []);
+run_command([Cmd | Args]) ->
+    run_command(list_to_atom(Cmd), Args).
+
 -spec(run_command(cmd(), [string()]) -> ok | {error, term()}).
+run_command(set, []) ->
+    emqx_mgmt_cli_cfg:set_usage(), ok;
+
+run_command(set, Args) ->
+    emqx_mgmt_cli_cfg:run(["config" | Args]), ok;
+
+run_command(show, Args) ->
+    emqx_mgmt_cli_cfg:run(["config" | Args]), ok;
+
 run_command(help, []) ->
     usage();
 run_command(Cmd, Args) when is_atom(Cmd) ->

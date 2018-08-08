@@ -4,7 +4,7 @@ PROJECT = emqx
 PROJECT_DESCRIPTION = EMQ X Broker
 PROJECT_VERSION = 3.0
 
-DEPS = jsx gproc gen_rpc lager ekka esockd mochiweb clique
+DEPS = jsx gproc gen_rpc lager ekka esockd minirest clique
 
 dep_jsx      = git https://github.com/talentdeficit/jsx 2.9.0
 dep_gproc    = git https://github.com/uwiger/gproc 0.8.0
@@ -12,7 +12,7 @@ dep_gen_rpc  = git https://github.com/emqx/gen_rpc 2.1.1
 dep_lager    = git https://github.com/erlang-lager/lager 3.6.4
 dep_esockd   = git https://github.com/emqx/esockd emqx30
 dep_ekka     = git https://github.com/emqx/ekka emqx30
-dep_mochiweb = git https://github.com/emqtt/mochiweb emqx30
+dep_minirest = git https://github.com/emqx/minirest emqx30
 dep_clique   = git https://github.com/emqx/clique
 
 NO_AUTOPATCH = gen_rpc cuttlefish

@@ -20,100 +20,83 @@
 
 -import(proplists, [get_value/3]).
 
--export([handle_request/1, ws_loop/3]).
-
 %% WebSocket Loop State
--record(wsocket_state, {peername, client_pid, max_packet_size, parser}).
+-record(wsocket_state, {req, peername, client_pid, max_packet_size, parser}).
 
 -define(WSLOG(Level, Format, Args, State),
-              emqx_logger:Level("WsClient(~s): " ++ Format,
-                                [esockd_net:format(State#wsocket_state.peername) | Args])).
+              lager:Level("WsClient(~s): " ++ Format,
+                          [esockd_net:format(State#wsocket_state.peername) | Args])).
 
+-export([init/2]).
+-export([websocket_init/1]).
+-export([websocket_handle/2]).
+-export([websocket_info/2]).
 
-handle_request(Req) ->
-    handle_request(Req:get(method), Req:get(path), Req).
-
-%%--------------------------------------------------------------------
-%% MQTT Over WebSocket
-%%--------------------------------------------------------------------
-
-handle_request('GET', "/mqtt", Req) ->
-    emqx_logger:debug("WebSocket Connection from: ~s", [Req:get(peer)]),
-    Upgrade = Req:get_header_value("Upgrade"),
-    Proto   = check_protocol_header(Req),
-    case {is_websocket(Upgrade), Proto} of
-        {true, "mqtt" ++ _Vsn} ->
-            case Req:get(peername) of
-                {ok, Peername} ->
-                    {ok, ProtoEnv} = emqx_config:get_env(protocol),
-                    PacketSize = get_value(max_packet_size, ProtoEnv, ?MAX_PACKET_SIZE),
-                    Parser = emqx_parser:initial_state(PacketSize),
-                    %% Upgrade WebSocket.
-                    {ReentryWs, ReplyChannel} = mochiweb_websocket:upgrade_connection(Req, fun ?MODULE:ws_loop/3),
-                    {ok, ClientPid} = emqx_ws_conn_sup:start_connection(self(), Req, ReplyChannel),
-                    ReentryWs(#wsocket_state{peername = Peername,
-                                             parser = Parser,
-                                             max_packet_size = PacketSize,
-                                             client_pid = ClientPid});
-                {error, Reason} ->
-                    emqx_logger:error("Get peername with error ~s", [Reason]),
-                    Req:respond({400, [], <<"Bad Request">>})
-            end;
-        {false, _} ->
-            emqx_logger:error("Not WebSocket: Upgrade = ~s", [Upgrade]),
-            Req:respond({400, [], <<"Bad Request">>});
-        {_, Proto} ->
-            emqx_logger:error("WebSocket with error Protocol: ~s", [Proto]),
-            Req:respond({400, [], <<"Bad WebSocket Protocol">>})
-    end;
-
-handle_request(Method, Path, Req) ->
-    emqx_logger:error("Unexpected WS Request: ~s ~s", [Method, Path]),
-    Req:not_found().
-
-is_websocket(Upgrade) ->
-    (not emqx_config:get_env(websocket_check_upgrade_header, true)) orelse
-        (Upgrade =/= undefined andalso string:to_lower(Upgrade) =:= "websocket").
-
-check_protocol_header(Req) ->
-    case emqx_config:get_env(websocket_protocol_header, false) of
-        true  -> get_protocol_header(Req);
-        false -> "mqtt-v3.1.1"
+init(Req0, State) ->
+    case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req0) of
+        undefined ->
+            {cowboy_websocket, Req0, #wsocket_state{}};
+        Subprotocols ->
+            case lists:member(<<"mqtt">>, Subprotocols) of
+                true ->
+                    Peername = cowboy_req:peer(Req0),
+                    Req = cowboy_req:set_resp_header(<<"sec-websocket-protocol">>, <<"mqtt">>, Req0),
+                    {cowboy_websocket, Req, #wsocket_state{req = Req, peername = Peername}, #{idle_timeout => 86400000}};
+                false ->
+                    Req = cowboy_req:reply(400, Req0),
+                    {ok, Req, #wsocket_state{}}
+            end
     end.
 
-get_protocol_header(Req) ->
-    case Req:get_header_value("EMQ-WebSocket-Protocol") of
-        undefined -> Req:get_header_value("Sec-WebSocket-Protocol");
-        Proto     -> Proto
+websocket_init(State = #wsocket_state{req = Req}) ->
+    case emqx_ws_connection_sup:start_connection(self(), Req) of
+        {ok, ClientPid} ->
+            {ok, ProtoEnv} = emqx_config:get_env(protocol),
+            PacketSize = get_value(max_packet_size, ProtoEnv, ?MAX_PACKET_SIZE),
+            Parser = emqx_frame:initial_state(#{max_packet_size => PacketSize}),
+            NewState = State#wsocket_state{parser = Parser,
+                                           max_packet_size = PacketSize,
+                                           client_pid = ClientPid},
+            {ok, NewState};
+        Error ->
+            ?WSLOG(error, "Start client fail: ~p", [Error], State),
+            {stop, State}
     end.
 
-%%--------------------------------------------------------------------
-%% Receive Loop
-%%--------------------------------------------------------------------
+websocket_handle({binary, <<>>}, State) ->
+    {ok, State};
+websocket_handle({binary, [<<>>]}, State) ->
+    {ok, State};
 
-%% @doc WebSocket frame receive loop.
-ws_loop(<<>>, State, _ReplyChannel) ->
-    State;
-ws_loop([<<>>], State, _ReplyChannel) ->
-    State;
-ws_loop(Data, State = #wsocket_state{client_pid = ClientPid, parser = Parser}, ReplyChannel) ->
+websocket_handle({binary, Data}, State = #wsocket_state{client_pid = ClientPid, parser = Parser}) ->
     ?WSLOG(debug, "RECV ~p", [Data], State),
-    emqx_metrics:inc('bytes/received', iolist_size(Data)),
-    case catch emqx_parser:parse(iolist_to_binary(Data), Parser) of
+    BinSize = iolist_size(Data),
+    emqx_metrics:inc('bytes/received', BinSize),
+    case catch emqx_frame:parse(iolist_to_binary(Data), Parser) of
         {more, NewParser} ->
-            State#wsocket_state{parser = NewParser};
+            {ok, State#wsocket_state{parser = NewParser}};
         {ok, Packet, Rest} ->
-            gen_server:cast(ClientPid, {received, Packet}),
-            ws_loop(Rest, reset_parser(State), ReplyChannel);
+            gen_server:cast(ClientPid, {received, Packet, BinSize}),
+            websocket_handle({binary, Rest}, reset_parser(State));
         {error, Error} ->
             ?WSLOG(error, "Frame error: ~p", [Error], State),
-            exit({shutdown, Error});
+            {stop, State};
         {'EXIT', Reason} ->
             ?WSLOG(error, "Frame error: ~p", [Reason], State),
             ?WSLOG(error, "Error data: ~p", [Data], State),
-            exit({shutdown, parser_error})
+            {stop, State}
     end.
 
+websocket_info({binary, Data}, State) ->
+    {reply, {binary, Data}, State};
+
+websocket_info({'EXIT', _Pid, {shutdown, kick}}, State) ->
+    {stop, State};
+
+websocket_info(_Info, State) ->
+    {ok, State}.
+
 reset_parser(State = #wsocket_state{max_packet_size = PacketSize}) ->
-    State#wsocket_state{parser = emqx_parser:initial_state(PacketSize)}.
+    State#wsocket_state{parser = emqx_frame:initial_state(#{max_packet_size => PacketSize})}.
+
 

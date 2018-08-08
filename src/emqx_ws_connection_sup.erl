@@ -18,7 +18,7 @@
 
 -behavior(supervisor).
 
--export([start_link/0, start_connection/3]).
+-export([start_link/0, start_connection/2]).
 
 -export([init/1]).
 
@@ -27,9 +27,9 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% @doc Start a MQTT/WebSocket Connection.
--spec(start_connection(pid(), mochiweb_request:request(), fun()) -> {ok, pid()}).
-start_connection(WsPid, Req, ReplyChannel) ->
-    supervisor:start_child(?MODULE, [WsPid, Req, ReplyChannel]).
+-spec(start_connection(pid(), mochiweb_request:request()) -> {ok, pid()}).
+start_connection(WsPid, Req) ->
+    supervisor:start_child(?MODULE, [WsPid, Req]).
 
 %%--------------------------------------------------------------------
 %% Supervisor callbacks

@@ -14,7 +14,7 @@
 
 -module(emqx_cli).
 
--export([print/1, print/2, usage/1]).
+-export([print/1, print/2, usage/1, usage/2]).
 
 print(Msg) ->
     io:format(Msg).
@@ -28,3 +28,5 @@ usage(CmdList) ->
         io:format("~-48s# ~s~n", [Cmd, Descr])
       end, CmdList).
 
+usage(Format, Args) ->
+    usage([{Format, Args}]).

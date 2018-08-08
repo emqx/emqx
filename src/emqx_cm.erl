@@ -84,7 +84,7 @@ unregister_client(CObj = {ClientId, ClientPid}) when is_binary(ClientId), is_pid
 %% @doc Lookup client pid
 -spec(lookup_client_pid(client_id()) -> pid() | undefined).
 lookup_client_pid(ClientId) when is_binary(ClientId) ->
-    case lookup_client_pid(ClientId) of
+    case ets:lookup(?CLIENT, ClientId) of
         [] -> undefined;
         [{_, Pid}] -> Pid
     end.
