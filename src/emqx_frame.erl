@@ -162,7 +162,6 @@ parse_packet(#mqtt_packet_header{type = ?PUBLISH, qos = QoS}, Bin,
                             ?QOS_0 -> {undefined, Rest};
                             _ -> parse_packet_id(Rest)
                         end,
-    io:format("Rest1: ~p~n", [Rest1]),
     {Properties, Payload} = parse_properties(Rest1, Ver),
     {#mqtt_packet_publish{topic_name = TopicName,
                           packet_id  = PacketId,

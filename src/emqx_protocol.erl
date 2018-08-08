@@ -19,6 +19,7 @@
 -include("emqx_misc.hrl").
 
 -export([init/2, info/1, stats/1, clientid/1, session/1]).
+%%-export([capabilities/1]).
 -export([parser/1]).
 -export([received/2, process/2, deliver/2, send/2]).
 -export([shutdown/2]).
