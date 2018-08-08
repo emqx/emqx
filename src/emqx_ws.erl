@@ -32,7 +32,7 @@
 -export([websocket_handle/2]).
 -export([websocket_info/2]).
 
-init(Req0, State) ->
+init(Req0, _State) ->
     case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req0) of
         undefined ->
             {cowboy_websocket, Req0, #wsocket_state{}};
@@ -90,7 +90,8 @@ websocket_handle({binary, Data}, State = #wsocket_state{client_pid = ClientPid, 
 websocket_info({binary, Data}, State) ->
     {reply, {binary, Data}, State};
 
-websocket_info({'EXIT', _Pid, {shutdown, kick}}, State) ->
+websocket_info({'EXIT', Pid, Reason}, State = #wsocket_state{client_pid = Pid}) ->
+    ?WSLOG(debug, "EXIT: ~p", [Reason], State),
     {stop, State};
 
 websocket_info(_Info, State) ->
