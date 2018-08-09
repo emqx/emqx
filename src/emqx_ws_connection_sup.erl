@@ -27,7 +27,7 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% @doc Start a MQTT/WebSocket Connection.
--spec(start_connection(pid(), mochiweb_request:request()) -> {ok, pid()}).
+-spec(start_connection(pid(), cowboy_req:req()) -> {ok, pid()}).
 start_connection(WsPid, Req) ->
     supervisor:start_child(?MODULE, [WsPid, Req]).
 
