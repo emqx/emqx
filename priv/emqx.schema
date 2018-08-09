@@ -989,10 +989,10 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
-{mapping, "listener.wss.$name.handshake_timeout", "emqx.listeners", [
-  {default, "15s"},
-  {datatype, {duration, ms}}
-]}.
+%%{mapping, "listener.wss.$name.handshake_timeout", "emqx.listeners", [
+%%  {default, "15s"},
+%%  {datatype, {duration, ms}}
+%%]}.
 
 {mapping, "listener.wss.$name.backlog", "emqx.listeners", [
   {default, 1024},
