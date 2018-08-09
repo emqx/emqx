@@ -31,7 +31,7 @@ start(_Type, _Args) ->
     emqx_modules:load(),
     emqx_plugins:init(),
     emqx_plugins:load(),
-    emqx_listeners:start_all(),
+    emqx_listeners:start(),
     start_autocluster(),
     register(emqx, self()),
     print_vsn(),
