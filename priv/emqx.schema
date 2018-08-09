@@ -845,6 +845,10 @@ end}.
   {datatype, integer}
 ]}.
 
+{mapping, "listener.ws.$name.max_conn_rate", "emqx.listeners", [
+  {datatype, integer}
+]}.
+
 {mapping, "listener.ws.$name.zone", "emqx.listeners", [
   {datatype, string}
 ]}.
@@ -942,6 +946,10 @@ end}.
   {datatype, integer}
 ]}.
 
+{mapping, "listener.wss.$name.max_conn_rate", "emqx.listeners", [
+  {datatype, integer}
+]}.
+
 {mapping, "listener.wss.$name.zone", "emqx.listeners", [
   {datatype, string}
 ]}.
@@ -978,6 +986,11 @@ end}.
 ]}.
 
 {mapping, "listener.wss.$name.proxy_protocol_timeout", "emqx.listeners", [
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "listener.wss.$name.handshake_timeout", "emqx.listeners", [
+  {default, "15s"},
   {datatype, {duration, ms}}
 ]}.
 
