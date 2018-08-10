@@ -1361,7 +1361,7 @@ end}.
 %% @doc Max queue length. Enqueued messages when persistent client
 %% disconnected, or inflight window is full. 0 means no limit.
 {mapping, "zone.$name.max_mqueue_len", "emqx.zones", [
-  {default, 0},
+  {default, 1000},
   {datatype, integer}
 ]}.
 
