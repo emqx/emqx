@@ -578,9 +578,62 @@ end}.
 ]}.
 
 %% @doc ACL cache size.
-{mapping, "acl_cache_size", "emqx.acl_cache_size", [
+%% {mapping, "acl_cache_size", "emqx.acl_cache_size", [
+%%  {default, 0},
+%%  {datatype, integer}
+%% ]}.
+
+%%--------------------------------------------------------------------
+%% MQTT
+%%--------------------------------------------------------------------
+
+%% @doc Max Packet Size Allowed, 1MB by default.
+{mapping, "mqtt.max_packet_size", "emqx.max_packet_size", [
+  {default, "1MB"},
+  {datatype, bytesize}
+]}.
+
+%% @doc Set the Max ClientId Length Allowed.
+{mapping, "mqtt.max_clientid_len", "emqx.max_clientid_len", [
+  {default, 65535},
+  {datatype, integer}
+]}.
+
+%% @doc Set the Maximum topic levels.
+{mapping, "mqtt.max_topic_levels", "emqx.max_topic_levels", [
   {default, 0},
   {datatype, integer}
+]}.
+
+%% @doc Set the Maximum QoS allowed.
+{mapping, "mqtt.max_qos_allowed", "emqx.max_qos_allowed", [
+  {default, 2},
+  {datatype, integer},
+  {validators, ["range:0-2"]}
+]}.
+
+%% @doc Set the Maximum topic alias.
+{mapping, "mqtt.max_topic_alias", "emqx.max_topic_alias", [
+ {default, 0},
+ {datatype, integer}
+]}.
+
+%% @doc Whether the server supports MQTT retained messages.
+{mapping, "mqtt.retain_available", "emqx.mqtt_retain_available", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+%% @doc Whether the Server supports MQTT Wildcard Subscriptions.
+{mapping, "mqtt.wildcard_subscription", "emqx.mqtt_wildcard_subscription", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+%% @doc Whether the Server supports MQTT Shared Subscriptions.
+{mapping, "mqtt.shared_subscription", "emqx.mqtt_shared_subscription", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
 ]}.
 
 %%--------------------------------------------------------------------
@@ -1211,50 +1264,42 @@ end}.
 
 %% @doc Max Packet Size Allowed, 64K by default.
 {mapping, "zone.$name.max_packet_size", "emqx.zones", [
-  {default, "64KB"},
   {datatype, bytesize}
 ]}.
 
 %% @doc Set the Max ClientId Length Allowed.
 {mapping, "zone.$name.max_clientid_len", "emqx.zones", [
-  {default, 65535},
   {datatype, integer}
 ]}.
 
 %% @doc Set the Maximum topic levels.
 {mapping, "zone.$name.max_topic_levels", "emqx.zones", [
-  {default, 0},
   {datatype, integer}
 ]}.
 
 %% @doc Set the Maximum QoS allowed.
 {mapping, "zone.$name.max_qos_allowed", "emqx.zones", [
-  {default, 2},
   {datatype, integer},
   {validators, ["range:0-2"]}
 ]}.
 
 %% @doc Set the Maximum topic alias.
 {mapping, "zone.$name.max_topic_alias", "emqx.zones", [
-  {default, 0},
   {datatype, integer}
 ]}.
 
 %% @doc Whether the server supports retained messages.
 {mapping, "zone.$name.retain_available", "emqx.zones", [
-  {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
 
 %% @doc Whether the Server supports Wildcard Subscriptions.
 {mapping, "zone.$name.wildcard_subscription", "emqx.zones", [
-  {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
 
 %% @doc Whether the Server supports Shared Subscriptions.
 {mapping, "zone.$name.shared_subscription", "emqx.zones", [
-  {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
 
@@ -1327,16 +1372,21 @@ end}.
 ]}.
 
 {translation, "emqx.zones", fun(Conf) ->
+  Mapping = fun(retain_available, Val) ->
+                    {mqtt_retain_available, Val};
+               (wildcard_subscription, Val) ->
+                    {mqtt_wildcard_subscription, Val};
+               (shared_subscription, Val) ->
+                    {mqtt_shared_subscription, Val};
+               (Opt, Val) -> {Opt, Val}
+            end,
   maps:to_list(
     lists:foldl(
-      fun({["zone", Name, Opt], Val}, Acc) ->
-              ZName = list_to_atom(Name),
-              case maps:find(ZName, Acc) of
-                  {ok, Opts} ->
-                      maps:put(ZName, [{list_to_atom(Opt), Val} | Opts], Acc);
-                  error ->
-                      maps:put(ZName, [{list_to_atom(Opt), Val}], Acc)
-              end
+      fun({["zone", Name, Opt], Val}, Zones) ->
+              maps:update_with(list_to_atom(Name),
+                               fun(Opts) ->
+                                       [Mapping(list_to_atom(Opt), Val)|Opts]
+                               end, [], Zones)
       end, #{}, lists:usort(cuttlefish_variable:filter_by_prefix("zone.", Conf))))
 end}.
 
