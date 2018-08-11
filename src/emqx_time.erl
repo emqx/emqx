@@ -14,23 +14,13 @@
 
 -module(emqx_time).
 
--export([seed/0, now_secs/0, now_secs/1, now_ms/0, now_ms/1, ts_from_ms/1]).
+-export([seed/0, now_secs/0, now_ms/0]).
 
 seed() ->
     rand:seed(exsplus, erlang:timestamp()).
 
 now_ms() ->
-    now_ms(os:timestamp()).
-
-now_ms({MegaSecs, Secs, MicroSecs}) ->
-    (MegaSecs * 1000000 + Secs) * 1000 + round(MicroSecs/1000).
+    erlang:system_time(millisecond).
 
 now_secs() ->
-    now_secs(os:timestamp()).
-
-now_secs({MegaSecs, Secs, _MicroSecs}) ->
-    MegaSecs * 1000000 + Secs.
-
-ts_from_ms(Ms) ->
-    {Ms div 1000000, Ms rem 1000000, 0}.
-
+    erlang:system_time(second).
