@@ -71,8 +71,6 @@ init([]) ->
     SessionSup = supervisor_spec(emqx_session_sup),
     %% Connection Manager
     CMSup = supervisor_spec(emqx_cm_sup),
-    %% WebSocket Connection Sup
-    WSConnSup = supervisor_spec(emqx_ws_connection_sup),
     %% Sys Sup
     SysSup = supervisor_spec(emqx_sys_sup),
     {ok, {{one_for_all, 0, 1},
@@ -84,7 +82,6 @@ init([]) ->
            SMSup,
            SessionSup,
            CMSup,
-           WSConnSup,
            SysSup]}}.
 
 %%--------------------------------------------------------------------

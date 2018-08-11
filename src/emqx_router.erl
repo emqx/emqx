@@ -39,7 +39,6 @@
 -type(destination() :: node() | {binary(), node()}).
 
 -record(batch, {enabled, timer, pending}).
-
 -record(state, {pool, id, batch :: #batch{}}).
 
 -define(ROUTE, emqx_route).

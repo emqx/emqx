@@ -36,7 +36,7 @@
                        {shared_subscription,   true},
                        {wildcard_subscription, true}]).
 
--record(proto_state, {sockprops, capabilities, connected, client_id, client_pid,
+-record(proto_state, {zone, sockprops, capabilities, connected, client_id, client_pid,
                       clean_start, proto_ver, proto_name, username, connprops,
                       is_superuser, will_msg, keepalive, keepalive_backoff, session,
                       recv_pkt = 0, recv_msg = 0, send_pkt = 0, send_msg = 0,
@@ -56,15 +56,17 @@
 
 -export_type([proto_state/0]).
 
-init(SockProps = #{zone := Zone, peercert := Peercert}, Options) ->
-    MountPoint = emqx_zone:get_env(Zone, mountpoint),
-    Backoff = emqx_zone:get_env(Zone, keepalive_backoff, 0.75),
+init(SockProps = #{peercert := Peercert}, Options) ->
+    Zone = proplists:get_value(zone, Options),
+    MountPoint = emqx_zone:env(Zone, mountpoint),
+    Backoff = emqx_zone:env(Zone, keepalive_backoff, 0.75),
     Username = case proplists:get_value(peer_cert_as_username, Options) of
                    cn -> esockd_peercert:common_name(Peercert);
                    dn -> esockd_peercert:subject(Peercert);
                    _  -> undefined
                end,
-    #proto_state{sockprops          = SockProps,
+    #proto_state{zone               = Zone,
+                 sockprops          = SockProps,
                  capabilities       = capabilities(Zone),
                  connected          = false,
                  clean_start        = true,
@@ -82,7 +84,7 @@ init(SockProps = #{zone := Zone, peercert := Peercert}, Options) ->
                  send_msg           = 0}.
 
 capabilities(Zone) ->
-    Capabilities = emqx_zone:get_env(Zone, mqtt_capabilities, []),
+    Capabilities = emqx_zone:env(Zone, mqtt_capabilities, []),
     maps:from_list(lists:ukeymerge(1, ?CAPABILITIES, Capabilities)).
 
 parser(#proto_state{capabilities = #{max_packet_size := Size}, proto_ver = Ver}) ->
@@ -128,7 +130,9 @@ received(Packet = ?PACKET(Type), ProtoState) ->
             {error, Reason, ProtoState}
     end.
 
-process(?CONNECT_PACKET(Var), ProtoState = #proto_state{username = Username0, client_pid = ClientPid}) ->
+process(?CONNECT_PACKET(Var), ProtoState = #proto_state{zone       = Zone,
+                                                        username   = Username0,
+                                                        client_pid = ClientPid}) ->
     #mqtt_packet_connect{proto_name  = ProtoName,
                          proto_ver   = ProtoVer,
                          is_bridge   = IsBridge,
@@ -160,7 +164,8 @@ process(?CONNECT_PACKET(Var), ProtoState = #proto_state{username = Username0, cl
                     %% Generate clientId if null
                     ProtoState2 = maybe_set_clientid(ProtoState1),
                     %% Open session
-                    case emqx_sm:open_session(#{clean_start => CleanStart,
+                    case emqx_sm:open_session(#{zone        => Zone,
+                                                clean_start => CleanStart,
                                                 client_id   => clientid(ProtoState2),
                                                 username    => Username,
                                                 client_pid  => ClientPid}) of
@@ -242,22 +247,9 @@ process(?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters), State) ->
                 {ok, TopicFilters1} ->
                     ok = emqx_session:subscribe(Session, {PacketId, Properties, mount(replvar(MountPoint, State), TopicFilters1)}),
                     {ok, State};
-                {stop, _} ->
-                    {ok, State}
+                {stop, _} -> {ok, State}
             end
     end;
-
-process({subscribe, RawTopicTable},
-        State = #proto_state{client_id = ClientId,
-                             username  = Username,
-                             session   = Session}) ->
-    TopicTable = parse_topic_filters(RawTopicTable),
-    case emqx_hooks:run('client.subscribe', [ClientId, Username], TopicTable) of
-        {ok, TopicTable1} ->
-            emqx_session:subscribe(Session, TopicTable1);
-        {stop, _} -> ok
-    end,
-    {ok, State};
 
 %% Protect from empty topic list
 process(?UNSUBSCRIBE_PACKET(PacketId, []), State) ->
@@ -275,16 +267,6 @@ process(?UNSUBSCRIBE_PACKET(PacketId, Properties, RawTopics),
             ok
     end,
     send(?UNSUBACK_PACKET(PacketId), State);
-
-process({unsubscribe, RawTopics}, State = #proto_state{client_id = ClientId,
-                                                       username  = Username,
-                                                       session   = Session}) ->
-    case emqx_hooks:run('client.unsubscribe', [ClientId, Username], parse_topics(RawTopics)) of
-        {ok, TopicTable} ->
-            emqx_session:unsubscribe(Session, {undefined, #{}, TopicTable});
-        {stop, _} -> ok
-    end,
-    {ok, State};
 
 process(?PACKET(?PINGREQ), ProtoState) ->
     send(?PACKET(?PINGRESP), ProtoState);

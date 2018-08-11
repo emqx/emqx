@@ -114,7 +114,7 @@ format_variable(#mqtt_packet_connect{
 
 format_variable(#mqtt_packet_connack{ack_flags   = AckFlags,
                                      reason_code = ReasonCode}) ->
-    io_lib:format("AckFlags=~p, RetainCode=~p", [AckFlags, ReasonCode]);
+    io_lib:format("AckFlags=~p, ReasonCode=~p", [AckFlags, ReasonCode]);
 
 format_variable(#mqtt_packet_publish{topic_name = TopicName,
                                      packet_id  = PacketId}) ->

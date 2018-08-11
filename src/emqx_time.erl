@@ -20,7 +20,7 @@ seed() ->
     rand:seed(exsplus, erlang:timestamp()).
 
 now_ms() ->
-    now_ms(os:timestamp()).
+    os:system_time(milli_seconds).
 
 now_ms({MegaSecs, Secs, MicroSecs}) ->
     (MegaSecs * 1000000 + Secs) * 1000 + round(MicroSecs/1000).

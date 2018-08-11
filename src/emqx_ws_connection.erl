@@ -14,232 +14,111 @@
 
 -module(emqx_ws_connection).
 
--behaviour(gen_server).
-
 -include("emqx.hrl").
-
 -include("emqx_mqtt.hrl").
+-include("emqx_misc.hrl").
 
--import(proplists, [get_value/2, get_value/3]).
-
-%% API Exports
--export([start_link/3]).
-
-%% Management and Monitor API
--export([info/1, stats/1, kick/1, clean_acl_cache/2]).
-
-%% SUB/UNSUB Asynchronously
--export([subscribe/2, unsubscribe/2]).
-
-%% Get the session proc?
+-export([info/1]).
+-export([stats/1]).
+-export([kick/1]).
 -export([session/1]).
 
-%% gen_server Function Exports
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+%% websocket callbacks
+-export([init/2]).
+-export([websocket_init/1]).
+-export([websocket_handle/2]).
+-export([websocket_info/2]).
+-export([terminate/3]).
 
-%% WebSocket Client State
--record(wsclient_state, {ws_pid, peername, proto_state, keepalive,
-                         enable_stats, force_gc_count}).
+-record(state, {
+          request,
+          options,
+          peername,
+          sockname,
+          proto_state,
+          parser_state,
+          keepalive,
+          enable_stats,
+          stats_timer,
+          idle_timeout,
+          shutdown_reason
+         }).
 
-%% recv_oct
-%% Number of bytes received by the socket.
+-define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
-%% recv_cnt
-%% Number of packets received by the socket.
-
--define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
+-define(INFO_KEYS, [peername, sockname]).
 
 -define(WSLOG(Level, Format, Args, State),
-              emqx_logger:Level("WsClient(~s): " ++ Format,
-                                [esockd_net:format(State#wsclient_state.peername) | Args])).
+        lager:Level("WsClient(~s): " ++ Format, [esockd_net:format(State#state.peername) | Args])).
 
-%% @doc Start WebSocket Client.
-start_link(Env, WsPid, Req) ->
-    gen_server:start_link(?MODULE, [Env, WsPid, Req],
-                          [[{hibernate_after, 10000}]]).
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
 
-info(CPid) ->
-    gen_server:call(CPid, info).
+info(WSPid) ->
+    call(WSPid, info).
 
-stats(CPid) ->
-    gen_server:call(CPid, stats).
+stats(WSPid) ->
+    call(WSPid, stats).
 
-kick(CPid) ->
-    gen_server:call(CPid, kick).
+kick(WSPid) ->
+    call(WSPid, kick).
 
-subscribe(CPid, TopicTable) ->
-    CPid ! {subscribe, TopicTable}.
+session(WSPid) ->
+    call(WSPid, session).
 
-unsubscribe(CPid, Topics) ->
-    CPid ! {unsubscribe, Topics}.
-
-session(CPid) ->
-    gen_server:call(CPid, session).
-
-clean_acl_cache(CPid, Topic) ->
-    gen_server:call(CPid, {clean_acl_cache, Topic}).
-
-%%--------------------------------------------------------------------
-%% gen_server Callbacks
-%%--------------------------------------------------------------------
-
-init([Options, WsPid, Req]) ->
-    init_stas(),
-    process_flag(trap_exit, true),
-    true = link(WsPid),
-    Peername = cowboy_req:peer(Req),
-    Headers  = cowboy_req:headers(Req),
-    Sockname = cowboy_req:sock(Req),
-    Peercert = cowboy_req:cert(Req),
-    Zone     = proplists:get_value(zone, Options),
-    ProtoState = emqx_protocol:init(#{zone     => Zone,
-                                      peername => Peername,
-                                      sockname => Sockname,
-                                      peercert => Peercert,
-                                      sendfun  => send_fun(WsPid)},
-                                    [{ws_initial_headers, Headers} | Options]),
-    IdleTimeout = get_value(client_idle_timeout, Options, 30000),
-    EnableStats = get_value(client_enable_stats, Options, false),
-    ForceGcCount = emqx_gc:conn_max_gc_count(),
-    {ok, #wsclient_state{ws_pid         = WsPid,
-                         peername       = Peername,
-                         proto_state    = ProtoState,
-                         enable_stats   = EnableStats,
-                         force_gc_count = ForceGcCount}, IdleTimeout}.
-
-handle_call(info, From, State = #wsclient_state{peername    = Peername,
-                                                proto_state = ProtoState}) ->
-    Info = [{websocket, true}, {peername, Peername} | emqx_protocol:info(ProtoState)],
-    {reply, Stats, _, _} = handle_call(stats, From, State),
-    reply(lists:append(Info, Stats), State);
-
-handle_call(stats, _From, State = #wsclient_state{proto_state = ProtoState}) ->
-    reply(lists:append([emqx_misc:proc_stats(),
-                        wsock_stats(),
-                        emqx_protocol:stats(ProtoState)]), State);
-
-handle_call(kick, _From, State) ->
-    {stop, {shutdown, kick}, ok, State};
-
-handle_call(session, _From, State = #wsclient_state{proto_state = ProtoState}) ->
-    reply(emqx_protocol:session(ProtoState), State);
-
-handle_call({clean_acl_cache, Topic}, _From, State) ->
-    erase({acl, publish, Topic}),
-    reply(ok, State);
-
-handle_call(Req, _From, State) ->
-    ?WSLOG(error, "Unexpected request: ~p", [Req], State),
-    reply({error, unexpected_request}, State).
-
-handle_cast({received, Packet, BinSize}, State = #wsclient_state{proto_state = ProtoState}) ->
-    put(recv_oct, get(recv_oct) + BinSize),
-    put(recv_cnt, get(recv_cnt) + 1),
-    emqx_metrics:received(Packet),
-    case emqx_protocol:received(Packet, ProtoState) of
-        {ok, ProtoState1} ->
-            {noreply, gc(State#wsclient_state{proto_state = ProtoState1}), hibernate};
-        {error, Error} ->
-            ?WSLOG(error, "Protocol error - ~p", [Error], State),
-            shutdown(Error, State);
-        {error, Error, ProtoState1} ->
-            shutdown(Error, State#wsclient_state{proto_state = ProtoState1});
-        {stop, Reason, ProtoState1} ->
-            stop(Reason, State#wsclient_state{proto_state = ProtoState1})
-    end;
-
-handle_cast(Msg, State) ->
-    ?WSLOG(error, "unexpected msg: ~p", [Msg], State),
-    {noreply, State}.
-
-handle_info(SubReq ={subscribe, _TopicTable}, State) ->
-    with_proto(
-      fun(ProtoState) ->
-          emqx_protocol:process(SubReq, ProtoState)
-      end, State);
-
-handle_info(UnsubReq = {unsubscribe, _Topics}, State) ->
-    with_proto(
-      fun(ProtoState) ->
-          emqx_protocol:process(UnsubReq, ProtoState)
-      end, State);
-
-handle_info({deliver, PubOrAck}, State) ->
-    with_proto(
-      fun(ProtoState) ->
-          emqx_protocol:deliver(PubOrAck, ProtoState)
-      end, gc(State));
-
-handle_info(emit_stats, State) ->
-    {noreply, emit_stats(State), hibernate};
-
-handle_info(timeout, State) ->
-    shutdown(idle_timeout, State);
-
-handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
-    ?WSLOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid], State),
-    shutdown(conflict, State);
-
-handle_info({shutdown, Reason}, State) ->
-    shutdown(Reason, State);
-
-handle_info({keepalive, start, Interval}, State) ->
-    ?WSLOG(debug, "Keepalive at the interval of ~p", [Interval], State),
-    case emqx_keepalive:start(stat_fun(), Interval, {keepalive, check}) of
-        {ok, KeepAlive} ->
-            {noreply, State#wsclient_state{keepalive = KeepAlive}, hibernate};
-        {error, Error} ->
-            ?WSLOG(warning, "Keepalive error - ~p", [Error], State),
-            shutdown(Error, State)
-    end;
-
-handle_info({keepalive, check}, State = #wsclient_state{keepalive = KeepAlive}) ->
-    case emqx_keepalive:check(KeepAlive) of
-        {ok, KeepAlive1} ->
-            {noreply, emit_stats(State#wsclient_state{keepalive = KeepAlive1}), hibernate};
-        {error, timeout} ->
-            ?WSLOG(debug, "Keepalive Timeout!", [], State),
-            shutdown(keepalive_timeout, State);
-        {error, Error} ->
-            ?WSLOG(warning, "Keepalive error - ~p", [Error], State),
-            shutdown(keepalive_error, State)
-    end;
-
-handle_info({'EXIT', WsPid, normal}, State = #wsclient_state{ws_pid = WsPid}) ->
-    stop(normal, State);
-
-handle_info({'EXIT', WsPid, Reason}, State = #wsclient_state{ws_pid = WsPid}) ->
-    ?WSLOG(error, "shutdown: ~p",[Reason], State),
-    shutdown(Reason, State);
-
-%% The session process exited unexpectedly.
-handle_info({'EXIT', Pid, Reason}, State = #wsclient_state{proto_state = ProtoState}) ->
-    case emqx_protocol:session(ProtoState) of
-        Pid -> stop(Reason, State);
-        _   -> ?WSLOG(error, "Unexpected EXIT: ~p, Reason: ~p", [Pid, Reason], State),
-               {noreply, State, hibernate}
-    end;
-
-handle_info(Info, State) ->
-    ?WSLOG(error, "Unexpected Info: ~p", [Info], State),
-    {noreply, State, hibernate}.
-
-terminate(Reason, #wsclient_state{proto_state = ProtoState, keepalive = KeepAlive}) ->
-    emqx_keepalive:cancel(KeepAlive),
-    case Reason of
-        {shutdown, Error} ->
-            emqx_protocol:shutdown(Error, ProtoState);
-        _ ->
-            emqx_protocol:shutdown(Reason, ProtoState)
+call(WSPid, Req) ->
+    Mref = erlang:monitor(process, WSPid),
+    WSPid ! {call, {self(), Mref}, Req},
+    receive
+        {Mref, Reply} ->
+            erlang:demonitor(Mref, [flush]),
+            Reply;
+        {'DOWN', Mref, _, _, Reason} ->
+            exit(Reason)
+    after 5000 ->
+        erlang:demonitor(Mref, [flush]),
+        exit(timeout)
     end.
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+%%------------------------------------------------------------------------------
+%% WebSocket callbacks
+%%------------------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
+init(Req, Opts) ->
+    io:format("Opts: ~p~n", [Opts]),
+    case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req) of
+        undefined ->
+            {cowboy_websocket, Req, #state{}};
+        Subprotocols ->
+            case lists:member(<<"mqtt">>, Subprotocols) of
+                true ->
+                    Resp = cowboy_req:set_resp_header(<<"sec-websocket-protocol">>, <<"mqtt">>, Req),
+                    {cowboy_websocket, Resp, #state{request = Req, options = Opts}, #{idle_timeout => 86400000}};
+                false ->
+                    {ok, cowboy_req:reply(400, Req), #state{}}
+            end
+    end.
+
+websocket_init(#state{request = Req, options = Options}) ->
+    Peername = cowboy_req:peer(Req),
+    Sockname = cowboy_req:sock(Req),
+    Peercert = cowboy_req:cert(Req),
+    ProtoState = emqx_protocol:init(#{peername => Peername,
+                                      sockname => Sockname,
+                                      peercert => Peercert,
+                                      sendfun  => send_fun(self())}, Options),
+    ParserState = emqx_protocol:parser(ProtoState),
+    Zone = proplists:get_value(zone, Options),
+    EnableStats = emqx_zone:env(Zone, enable_stats, true),
+    IdleTimout = emqx_zone:env(Zone, idle_timeout, 30000),
+    lists:foreach(fun(Stat) -> put(Stat, 0) end, ?SOCK_STATS),
+    {ok, #state{peername     = Peername,
+                sockname     = Sockname,
+                parser_state = ParserState,
+                proto_state  = ProtoState,
+                enable_stats = EnableStats,
+                idle_timeout = IdleTimout}}.
 
 send_fun(WsPid) ->
     fun(Data) ->
@@ -251,45 +130,143 @@ send_fun(WsPid) ->
     end.
 
 stat_fun() ->
-    fun() ->
-        {ok, get(recv_oct)}
+    fun() -> {ok, get(recv_oct)} end.
+
+websocket_handle({binary, <<>>}, State) ->
+    {ok, State};
+websocket_handle({binary, [<<>>]}, State) ->
+    {ok, State};
+websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
+                                                proto_state  = ProtoState}) ->
+    BinSize = iolist_size(Data),
+    put(recv_oct, get(recv_oct) + BinSize),
+    ?WSLOG(debug, "RECV ~p", [Data], State),
+    emqx_metrics:inc('bytes/received', BinSize),
+    case catch emqx_frame:parse(iolist_to_binary(Data), ParserState) of
+        {more, NewParserState} ->
+            {ok, State#state{parser_state = NewParserState}};
+        {ok, Packet, Rest} ->
+            emqx_metrics:received(Packet),
+            put(recv_cnt, get(recv_cnt) + 1),
+            case emqx_protocol:received(Packet, ProtoState) of
+                {ok, ProtoState1} ->
+                    websocket_handle({binary, Rest}, reset_parser(State#state{proto_state = ProtoState1}));
+                {error, Error} ->
+                    ?WSLOG(error, "Protocol error - ~p", [Error], State),
+                    {stop, State};
+                {error, Error, ProtoState1} ->
+                    shutdown(Error, State#state{proto_state = ProtoState1});
+                {stop, Reason, ProtoState1} ->
+                    shutdown(Reason, State#state{proto_state = ProtoState1})
+            end;
+        {error, Error} ->
+            ?WSLOG(error, "Frame error: ~p", [Error], State),
+            {stop, State};
+        {'EXIT', Reason} ->
+            ?WSLOG(error, "Frame error:~p~nFrame data: ~p", [Reason, Data], State),
+            {stop, State}
     end.
 
-emit_stats(State = #wsclient_state{proto_state = ProtoState}) ->
-    emit_stats(emqx_protocol:clientid(ProtoState), State).
+websocket_info({call, From, info}, State = #state{peername    = Peername,
+                                                  sockname    = Sockname,
+                                                  proto_state = ProtoState}) ->
+    ProtoInfo = emqx_protocol:info(ProtoState),
+    ConnInfo = [{socktype, websocket}, {conn_state, running},
+                {peername, Peername}, {sockname, Sockname}],
+    gen_server:reply(From, lists:append([ConnInfo, ProtoInfo])),
+    {ok, State};
 
-emit_stats(_ClientId, State = #wsclient_state{enable_stats = false}) ->
-    State;
-emit_stats(undefined, State) ->
-    State;
-emit_stats(ClientId, State) ->
-    {reply, Stats, _, _} = handle_call(stats, undefined, State),
-    emqx_cm:set_client_stats(ClientId, Stats),
+websocket_info({call, From, stats}, State = #state{proto_state = ProtoState}) ->
+    Stats = lists:append([wsock_stats(), emqx_misc:proc_stats(), emqx_protocol:stats(ProtoState)]),
+    gen_server:reply(From, Stats),
+    {ok, State};
+
+websocket_info({call, From, kick}, State) ->
+    gen_server:reply(From, ok),
+    shutdown(kick, State);
+
+websocket_info({call, From, session}, State = #state{proto_state = ProtoState}) ->
+    gen_server:reply(From, emqx_protocol:session(ProtoState)),
+    {ok, State};
+
+websocket_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
+    case emqx_protocol:deliver(PubOrAck, ProtoState) of
+        {ok, ProtoState1} ->
+            {ok, ensure_stats_timer(State#state{proto_state = ProtoState1})};
+        {error, Reason} ->
+            shutdown(Reason, State);
+        {error, Reason, ProtoState1} ->
+            shutdown(Reason, State#state{proto_state = ProtoState1})
+    end;
+
+websocket_info(emit_stats, State = #state{proto_state = ProtoState}) ->
+    Stats = lists:append([wsock_stats(), emqx_misc:proc_stats(),
+                          emqx_protocol:stats(ProtoState)]),
+    emqx_cm:set_client_stats(emqx_protocol:clientid(ProtoState), Stats),
+    {ok, State#state{stats_timer = undefined}, hibernate};
+
+websocket_info({keepalive, start, Interval}, State) ->
+    ?WSLOG(debug, "Keepalive at the interval of ~p", [Interval], State),
+    case emqx_keepalive:start(stat_fun(), Interval, {keepalive, check}) of
+        {ok, KeepAlive} ->
+            {ok, State#state{keepalive = KeepAlive}};
+        {error, Error} ->
+            ?WSLOG(warning, "Keepalive error - ~p", [Error], State),
+            shutdown(Error, State)
+    end;
+
+websocket_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
+    case emqx_keepalive:check(KeepAlive) of
+        {ok, KeepAlive1} ->
+            {ok, State#state{keepalive = KeepAlive1}};
+        {error, timeout} ->
+            ?WSLOG(debug, "Keepalive Timeout!", [], State),
+            shutdown(keepalive_timeout, State);
+        {error, Error} ->
+            ?WSLOG(warning, "Keepalive error - ~p", [Error], State),
+            shutdown(keepalive_error, State)
+    end;
+
+websocket_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
+    ?WSLOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid], State),
+    shutdown(conflict, State);
+
+websocket_info({binary, Data}, State) ->
+    {reply, {binary, Data}, State};
+
+websocket_info({shutdown, Reason}, State) ->
+    shutdown(Reason, State);
+
+websocket_info(Info, State) ->
+    ?WSLOG(error, "unexpected info: ~p", [Info], State),
+    {ok, State}.
+
+terminate(SockError, _Req, #state{keepalive       = Keepalive,
+                                  proto_state     = ProtoState,
+                                  shutdown_reason = Reason}) ->
+    emqx_keepalive:cancel(Keepalive),
+    io:format("Websocket shutdown for ~p, sockerror: ~p~n", [Reason, SockError]),
+    case Reason of
+        undefined ->
+            ok;
+            %%emqx_protocol:shutdown(SockError, ProtoState);
+        _ ->
+            ok%%emqx_protocol:shutdown(Reason, ProtoState)
+    end.
+
+reset_parser(State = #state{proto_state = ProtoState}) ->
+    State#state{parser_state = emqx_protocol:parser(ProtoState)}.
+
+ensure_stats_timer(State = #state{enable_stats = true,
+                                  stats_timer  = undefined,
+                                  idle_timeout = Timeout}) ->
+    State#state{stats_timer = erlang:send_after(Timeout, self(), emit_stats)};
+ensure_stats_timer(State) ->
     State.
 
-wsock_stats() ->
-    [{Key, get(Key)}|| Key <- ?SOCK_STATS].
-
-with_proto(Fun, State = #wsclient_state{proto_state = ProtoState}) ->
-    {ok, ProtoState1} = Fun(ProtoState),
-    {noreply, State#wsclient_state{proto_state = ProtoState1}, hibernate}.
-
-reply(Reply, State) ->
-    {reply, Reply, State, hibernate}.
-
 shutdown(Reason, State) ->
-    stop({shutdown, Reason}, State).
+    {stop, State#state{shutdown_reason = Reason}}.
 
-stop(Reason, State) ->
-    {stop, Reason, State}.
-
-gc(State) ->
-    Cb = fun() -> emit_stats(State) end,
-    emqx_gc:maybe_force_gc(#wsclient_state.force_gc_count, State, Cb).
-
-init_stas() ->
-    put(recv_oct, 0),
-    put(recv_cnt, 0),
-    put(send_oct, 0),
-    put(send_cnt, 0).
+wsock_stats() ->
+    [{Key, get(Key)} || Key <- ?SOCK_STATS].
 

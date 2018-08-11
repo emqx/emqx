@@ -1372,21 +1372,21 @@ end}.
 ]}.
 
 {translation, "emqx.zones", fun(Conf) ->
-  Mapping = fun(retain_available, Val) ->
+  Mapping = fun("retain_available", Val) ->
                     {mqtt_retain_available, Val};
-               (wildcard_subscription, Val) ->
+               ("wildcard_subscription", Val) ->
                     {mqtt_wildcard_subscription, Val};
-               (shared_subscription, Val) ->
+               ("shared_subscription", Val) ->
                     {mqtt_shared_subscription, Val};
-               (Opt, Val) -> {Opt, Val}
+               (Opt, Val) ->
+                    {list_to_atom(Opt), Val}
             end,
   maps:to_list(
     lists:foldl(
       fun({["zone", Name, Opt], Val}, Zones) ->
               maps:update_with(list_to_atom(Name),
-                               fun(Opts) ->
-                                       [Mapping(list_to_atom(Opt), Val)|Opts]
-                               end, [], Zones)
+                               fun(Opts) -> [Mapping(Opt, Val)|Opts] end,
+                               [Mapping(Opt, Val)], Zones)
       end, #{}, lists:usort(cuttlefish_variable:filter_by_prefix("zone.", Conf))))
 end}.
 
@@ -1507,9 +1507,11 @@ end}.
                 maps:update_with(list_to_atom(Name),
                                  fun(Opts) ->
                                          Merge(list_to_atom(Opt), Val, Opts)
-                                 end, [{subscriptions, Subscriptions(Name)}], Acc);
+                                 end, [{list_to_atom(Opt), Val},
+                                       {subscriptions, Subscriptions(Name)}], Acc);
            (_, Acc) -> Acc
         end, #{}, lists:usort(cuttlefish_variable:filter_by_prefix("bridge.", Conf))))
+
 end}.
 
 %%--------------------------------------------------------------------

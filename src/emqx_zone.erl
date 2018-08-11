@@ -17,24 +17,32 @@
 -behaviour(gen_server).
 
 -export([start_link/0]).
--export([get_env/2, get_env/3]).
+
+-export([env/2, env/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
 -record(state, {timer}).
+
 -define(TAB, ?MODULE).
--define(SERVER, ?MODULE).
 
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-get_env(Zone, Par) ->
-    get_env(Zone, Par, undefined).
+env(undefined, Par) ->
+    emqx_config:get_env(Par);
+env(Zone, Par) ->
+    env(Zone, Par, undefined).
 
-get_env(Zone, Par, Def) ->
-    try ets:lookup_element(?TAB, {Zone, Par}, 2) catch error:badarg -> Def end.
+env(undefined, Par, Default) ->
+    emqx_config:get_env(Par, Default);
+env(Zone, Par, Default) ->
+    try ets:lookup_element(?TAB, {Zone, Par}, 2)
+    catch error:badarg ->
+        emqx_config:get_env(Par, Default)
+    end.
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -54,8 +62,8 @@ handle_cast(Msg, State) ->
 
 handle_info(reload, State) ->
     lists:foreach(
-      fun({Zone, Options}) ->
-          [ets:insert(?TAB, {{Zone, Par}, Val}) || {Par, Val} <- Options]
+      fun({Zone, Opts}) ->
+          [ets:insert(?TAB, {{Zone, Par}, Val}) || {Par, Val} <- Opts]
       end, emqx_config:get_env(zones, [])),
     {noreply, ensure_reload_timer(State), hibernate};
 
