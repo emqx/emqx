@@ -992,8 +992,14 @@ deliver(#mqtt_msg{qos = QoS, dup = Dup, retain = Retain, packet_id = PacketId,
                         topic => Topic, properties => Props, payload => Payload}},
     State.
 
-packet_to_msg(?PUBLISH_PACKET(Header, Topic, PacketId, Props, Payload)) ->
-    #mqtt_packet_header{qos = QoS, retain = R, dup = Dup} = Header,
+packet_to_msg(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
+                                                          dup    = Dup,
+                                                          qos    = QoS,
+                                                          retain = R},
+                           variable = #mqtt_packet_publish{topic_name = Topic,
+                                                           packet_id  = PacketId,
+                                                           properties = Props},
+                           payload  = Payload}) ->
     #mqtt_msg{qos = QoS, retain = R, dup = Dup, packet_id = PacketId,
               topic = Topic, props = Props, payload = Payload}.
 
