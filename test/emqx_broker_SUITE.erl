@@ -149,7 +149,7 @@ start_session(_) ->
     {ok, ClientPid} = emqx_mock_client:start_link(<<"clientId">>),
     {ok, SessPid} = emqx_mock_client:start_session(ClientPid),
     Message = emqx_message:make(<<"clientId">>, 2, <<"topic">>, <<"hello">>),
-    Message1 = Message#mqtt_message{packet_id = 1},
+    Message1 = Message#message{id = 1},
     emqx_session:publish(SessPid, Message1),
     emqx_session:pubrel(SessPid, 1),
     emqx_session:subscribe(SessPid, [{<<"topic/session">>, [{qos, 2}]}]),
