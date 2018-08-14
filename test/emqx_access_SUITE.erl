@@ -59,11 +59,8 @@ prepare_config() ->
              {deny, all, subscribe, ["$SYS/#", "#"]},
              {deny, all}],
     write_config("access_SUITE_acl.conf", Rules),
-    Config = [{auth, anonymous, []},
-              {acl, internal, [{config, "access_SUITE_acl.conf"},
-                               {nomatch, allow}]}],
-    write_config("access_SUITE_emqx.conf", Config),
-    application:set_env(emqx, conf, "access_SUITE_emqx.conf").
+    application:set_env(emqx, acl_file, "access_SUITE_acl.conf"),
+    application:set_env(emqx, acl_cache, false).
 
 write_config(Filename, Terms) ->
     file:write_file(Filename, [io_lib:format("~tp.~n", [Term]) || Term <- Terms]).
@@ -119,14 +116,14 @@ unregister_mod(_) ->
     [] = ?AC:lookup_mods(auth).
 
 check_acl(_) ->
-    User1 = #client{client_id = <<"client1">>, username = <<"testuser">>},
-    User2 = #client{client_id = <<"client2">>, username = <<"xyz">>},
+    User1 = #client{id = <<"client1">>, username = <<"testuser">>},
+    User2 = #client{id = <<"client2">>, username = <<"xyz">>},
     allow = ?AC:check_acl(User1, subscribe, <<"users/testuser/1">>),
     allow = ?AC:check_acl(User1, subscribe, <<"clients/client1">>),
-    allow = ?AC:check_acl(User1, subscribe, <<"clients/client1/x/y">>),
+    deny = ?AC:check_acl(User1, subscribe, <<"clients/client1/x/y">>),
     allow = ?AC:check_acl(User1, publish, <<"users/testuser/1">>),
     allow = ?AC:check_acl(User1, subscribe, <<"a/b/c">>),
-    allow = ?AC:check_acl(User2, subscribe, <<"a/b/c">>).
+    deny = ?AC:check_acl(User2, subscribe, <<"a/b/c">>).
 
 %%--------------------------------------------------------------------
 %% emqx_access_rule
@@ -159,9 +156,9 @@ compile_rule(_) ->
     {deny, all} = compile({deny, all}).
 
 match_rule(_) ->
-    User = #client{peername = {{127,0,0,1}, 2948}, client_id = <<"testClient">>, username = <<"TestUser">>},
-    User2 = #client{peername = {{192,168,0,10}, 3028}, client_id = <<"testClient">>, username = <<"TestUser">>},
-    
+    User = #client{peername = {{127,0,0,1}, 2948}, id = <<"testClient">>, username = <<"TestUser">>},
+    User2 = #client{peername = {{192,168,0,10}, 3028}, id = <<"testClient">>, username = <<"TestUser">>},
+
     {matched, allow} = match(User, <<"Test/Topic">>, {allow, all}),
     {matched, deny} = match(User, <<"Test/Topic">>, {deny, all}),
     {matched, allow} = match(User, <<"Test/Topic">>, compile({allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]})),
@@ -179,4 +176,3 @@ match_rule(_) ->
     {matched, allow} = match(User, <<"Topic">>, AndRule),
     OrRule = compile({allow, {'or', [{ipaddr, "127.0.0.1"}, {user, <<"WrongUser">>}]}, publish, ["Topic"]}),
     {matched, allow} = match(User, <<"Topic">>, OrRule).
-

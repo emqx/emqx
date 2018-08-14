@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("emqttc/include/emqttc_packet.hrl").
+-include("emqx_mqtt.hrl").
 
 -define(APP, emqx).
 
@@ -79,7 +79,7 @@ mqtt_connect_with_tcp(_) ->
     Packet = raw_send_serialise(?CLIENT),
     gen_tcp:send(Sock, Packet),
     {ok, Data} = gen_tcp:recv(Sock, 0),
-    {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(Data),
+    {ok, ?CONNACK_PACKET(0), _} = raw_recv_pase(Data),
     gen_tcp:close(Sock).
 
 mqtt_connect_with_ssl_oneway(_) ->
@@ -133,7 +133,7 @@ mqtt_connect_with_ws(_Config) ->
     Packet = raw_send_serialise(?CLIENT),
     ok = rfc6455_client:send_binary(WS, Packet),
     {binary, P} = rfc6455_client:recv(WS),
-    {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(P),
+    {ok, ?CONNACK_PACKET(0), _} = raw_recv_pase(P),
     {close, _} = rfc6455_client:close(WS),
     ok.
 
