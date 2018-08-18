@@ -29,27 +29,54 @@
 
 all() ->
     [{group, access_control},
-     {group, access_rule}].
+     {group, acl_cache},
+     {group, access_control_cache_mode},
+     {group, access_rule}
+     ].
 
 groups() ->
     [{access_control, [sequence],
-      [reload_acl,
-       register_mod,
-       unregister_mod,
-       check_acl]},
+       [reload_acl,
+        register_mod,
+        unregister_mod,
+        check_acl_1,
+        check_acl_2
+        ]},
+     {access_control_cache_mode, [],
+       [
+        acl_cache_basic,
+        acl_cache_expiry,
+        acl_cache_cleanup,
+        acl_cache_full
+        ]},
+     {acl_cache, [], [
+       put_get_del_cache,
+       cache_update,
+       cache_expiry,
+       cache_full_replacement,
+       cache_cleanup,
+       cache_full_cleanup
+     ]},
      {access_rule, [],
-      [compile_rule,
-       match_rule]}].
+       [compile_rule,
+        match_rule]}].
 
-init_per_group(access_control, Config) ->
+init_per_group(Group, Config) when  Group =:= access_control;
+                                    Group =:= access_control_cache_mode ->
+    prepare_config(Group),
     application:load(emqx),
-    prepare_config(),
     Config;
-
 init_per_group(_Group, Config) ->
     Config.
 
-prepare_config() ->
+prepare_config(Group = access_control) ->
+    set_acl_config_file(Group),
+    application:set_env(emqx, acl_cache_size, 0);
+prepare_config(Group = access_control_cache_mode) ->
+    set_acl_config_file(Group),
+    application:set_env(emqx, acl_cache_size, 100).
+
+set_acl_config_file(_Group) ->
     Rules = [{allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]},
              {allow, {user, "testuser"}, subscribe, ["a/b/c", "d/e/f/#"]},
              {allow, {user, "admin"}, pubsub, ["a/b/c", "d/e/f/#"]},
@@ -59,8 +86,8 @@ prepare_config() ->
              {deny, all, subscribe, ["$SYS/#", "#"]},
              {deny, all}],
     write_config("access_SUITE_acl.conf", Rules),
-    application:set_env(emqx, acl_file, "access_SUITE_acl.conf"),
-    application:set_env(emqx, acl_cache, false).
+    application:set_env(emqx, acl_file, "access_SUITE_acl.conf").
+
 
 write_config(Filename, Terms) ->
     file:write_file(Filename, [io_lib:format("~tp.~n", [Term]) || Term <- Terms]).
@@ -68,23 +95,17 @@ write_config(Filename, Terms) ->
 end_per_group(_Group, Config) ->
     Config.
 
-init_per_testcase(TestCase, Config) when TestCase =:= reload_acl;
-                                         TestCase =:= register_mod;
-                                         TestCase =:= unregister_mod;
-                                         TestCase =:= check_acl ->
-    {ok, _Pid} = ?AC:start_link(), Config;
-
 init_per_testcase(_TestCase, Config) ->
+    {ok, _Pid} = ?AC:start_link(),
     Config.
-
-end_per_testcase(TestCase, _Config) when TestCase =:= reload_acl;
-                                         TestCase =:= register_mod;
-                                         TestCase =:= unregister_mod;
-                                         TestCase =:= check_acl ->
-    ?AC:stop();
-
 end_per_testcase(_TestCase, _Config) ->
     ok.
+
+per_testcase_config(acl_cache_full, Config) ->
+    Config;
+per_testcase_config(_TestCase, Config) ->
+    Config.
+
 
 %%--------------------------------------------------------------------
 %% emqx_access_control
@@ -115,15 +136,170 @@ unregister_mod(_) ->
     timer:sleep(5),
     [] = ?AC:lookup_mods(auth).
 
-check_acl(_) ->
-    User1 = #client{id = <<"client1">>, username = <<"testuser">>},
-    User2 = #client{id = <<"client2">>, username = <<"xyz">>},
-    allow = ?AC:check_acl(User1, subscribe, <<"users/testuser/1">>),
-    allow = ?AC:check_acl(User1, subscribe, <<"clients/client1">>),
-    deny = ?AC:check_acl(User1, subscribe, <<"clients/client1/x/y">>),
-    allow = ?AC:check_acl(User1, publish, <<"users/testuser/1">>),
-    allow = ?AC:check_acl(User1, subscribe, <<"a/b/c">>),
-    deny = ?AC:check_acl(User2, subscribe, <<"a/b/c">>).
+check_acl_1(_) ->
+    SelfUser = #client{id = <<"client1">>, username = <<"testuser">>},
+    allow = ?AC:check_acl(SelfUser, subscribe, <<"users/testuser/1">>),
+    allow = ?AC:check_acl(SelfUser, subscribe, <<"clients/client1">>),
+    deny = ?AC:check_acl(SelfUser, subscribe, <<"clients/client1/x/y">>),
+    allow = ?AC:check_acl(SelfUser, publish, <<"users/testuser/1">>),
+    allow = ?AC:check_acl(SelfUser, subscribe, <<"a/b/c">>).
+check_acl_2(_) ->
+    SelfUser = #client{id = <<"client2">>, username = <<"xyz">>},
+    deny = ?AC:check_acl(SelfUser, subscribe, <<"a/b/c">>).
+
+acl_cache_basic(_) ->
+    SelfUser = #client{id = <<"client1">>, username = <<"testuser">>},
+    not_found = ?AC:get_acl_cache(subscribe, <<"users/testuser/1">>),
+    not_found = ?AC:get_acl_cache(subscribe, <<"clients/client1">>),
+
+    allow = ?AC:check_acl(SelfUser, subscribe, <<"users/testuser/1">>),
+    allow = ?AC:check_acl(SelfUser, subscribe, <<"clients/client1">>),
+
+    allow = ?AC:get_acl_cache(subscribe, <<"users/testuser/1">>),
+    allow = ?AC:get_acl_cache(subscribe, <<"clients/client1">>),
+    ok.
+
+acl_cache_expiry(_) ->
+    application:set_env(emqx, acl_cache_ttl, 1000),
+
+    SelfUser = #client{id = <<"client1">>, username = <<"testuser">>},
+    allow = ?AC:check_acl(SelfUser, subscribe, <<"clients/client1">>),
+    allow = ?AC:get_acl_cache(subscribe, <<"clients/client1">>),
+    ct:sleep(1100),
+    not_found = ?AC:get_acl_cache(subscribe, <<"clients/client1">>),
+    ok.
+
+acl_cache_full(_) ->
+    application:set_env(emqx, acl_cache_size, 1),
+
+    SelfUser = #client{id = <<"client1">>, username = <<"testuser">>},
+    allow = ?AC:check_acl(SelfUser, subscribe, <<"users/testuser/1">>),
+    allow = ?AC:check_acl(SelfUser, subscribe, <<"clients/client1">>),
+
+    %% the older ones (the <<"users/testuser/1">>) will be evicted first
+    not_found = ?AC:get_acl_cache(subscribe, <<"users/testuser/1">>),
+    allow = ?AC:get_acl_cache(subscribe, <<"clients/client1">>),
+    ok.
+
+acl_cache_cleanup(_) ->
+    %% The acl cache will try to evict memory, if the size is full and the newest
+    %%   cache entry is expired
+    application:set_env(emqx, acl_cache_ttl, 1000),
+    application:set_env(emqx, acl_cache_size, 2),
+
+    SelfUser = #client{id = <<"client1">>, username = <<"testuser">>},
+    allow = ?AC:check_acl(SelfUser, subscribe, <<"users/testuser/1">>),
+    allow = ?AC:check_acl(SelfUser, subscribe, <<"clients/client1">>),
+
+    allow = ?AC:get_acl_cache(subscribe, <<"users/testuser/1">>),
+    allow = ?AC:get_acl_cache(subscribe, <<"clients/client1">>),
+
+    ct:sleep(1100),
+    %% now the cache is full and the newest one - "clients/client1"
+    %%  should be expired, so we'll try to cleanup before putting the next cache entry
+    deny = ?AC:check_acl(SelfUser, subscribe, <<"#">>),
+
+    not_found = ?AC:get_acl_cache(subscribe, <<"users/testuser/1">>),
+    not_found = ?AC:get_acl_cache(subscribe, <<"clients/client1">>),
+    deny = ?AC:get_acl_cache(subscribe, <<"#">>),
+    ok.
+
+put_get_del_cache(_) ->
+    application:set_env(emqx, acl_cache_ttl, 300000),
+    application:set_env(emqx, acl_cache_size, 30),
+
+    not_found = ?AC:get_acl_cache(publish, <<"a">>),
+    ok = ?AC:put_acl_cache(publish, <<"a">>, allow),
+    allow = ?AC:get_acl_cache(publish, <<"a">>),
+
+    not_found = ?AC:get_acl_cache(subscribe, <<"b">>),
+    ok = ?AC:put_acl_cache(subscribe, <<"b">>, deny),
+    deny = ?AC:get_acl_cache(subscribe, <<"b">>),
+
+    2 = ?AC:get_cache_size(),
+    {subscribe, <<"b">>} = ?AC:get_newest_key().
+
+cache_expiry(_) ->
+    application:set_env(emqx, acl_cache_ttl, 1000),
+    application:set_env(emqx, acl_cache_size, 30),
+    ok = ?AC:put_acl_cache(subscribe, <<"a">>, allow),
+    allow = ?AC:get_acl_cache(subscribe, <<"a">>),
+
+    ct:sleep(1100),
+    not_found = ?AC:get_acl_cache(subscribe, <<"a">>),
+
+    ok = ?AC:put_acl_cache(subscribe, <<"a">>, deny),
+    deny = ?AC:get_acl_cache(subscribe, <<"a">>),
+
+    ct:sleep(1100),
+    not_found = ?AC:get_acl_cache(subscribe, <<"a">>).
+
+cache_update(_) ->
+    application:set_env(emqx, acl_cache_ttl, 300000),
+    application:set_env(emqx, acl_cache_size, 30),
+    [] = ?AC:dump_acl_cache(),
+
+    ok = ?AC:put_acl_cache(subscribe, <<"a">>, allow),
+    ok = ?AC:put_acl_cache(publish, <<"b">>, allow),
+    ok = ?AC:put_acl_cache(publish, <<"c">>, allow),
+    3 = ?AC:get_cache_size(),
+    {publish, <<"c">>} = ?AC:get_newest_key(),
+
+    %% update the 2nd one
+    ok = ?AC:put_acl_cache(publish, <<"b">>, allow),
+    %ct:pal("dump acl cache: ~p~n", [?AC:dump_acl_cache()]),
+
+    3 = ?AC:get_cache_size(),
+    {publish, <<"b">>} = ?AC:get_newest_key().
+
+cache_full_replacement(_) ->
+    application:set_env(emqx, acl_cache_ttl, 300000),
+    application:set_env(emqx, acl_cache_size, 3),
+    ok = ?AC:put_acl_cache(subscribe, <<"a">>, allow),
+    ok = ?AC:put_acl_cache(publish, <<"b">>, allow),
+    ok = ?AC:put_acl_cache(publish, <<"c">>, allow),
+    allow = ?AC:get_acl_cache(subscribe, <<"a">>),
+    allow = ?AC:get_acl_cache(publish, <<"b">>),
+    allow = ?AC:get_acl_cache(publish, <<"c">>),
+    3 = ?AC:get_cache_size(),
+    {publish, <<"c">>} = ?AC:get_newest_key(),
+
+    ok = ?AC:put_acl_cache(publish, <<"d">>, deny),
+    3 = ?AC:get_cache_size(),
+    {publish, <<"d">>} = ?AC:get_newest_key(),
+
+    ok = ?AC:put_acl_cache(publish, <<"e">>, deny),
+    3 = ?AC:get_cache_size(),
+    {publish, <<"e">>} = ?AC:get_newest_key(),
+
+    not_found = ?AC:get_acl_cache(subscribe, <<"a">>),
+    not_found = ?AC:get_acl_cache(publish, <<"b">>),
+    allow = ?AC:get_acl_cache(publish, <<"c">>).
+
+cache_cleanup(_) ->
+    application:set_env(emqx, acl_cache_ttl, 1000),
+    application:set_env(emqx, acl_cache_size, 30),
+    ok = ?AC:put_acl_cache(subscribe, <<"a">>, allow),
+    ok = ?AC:put_acl_cache(publish, <<"b">>, allow),
+    ok = ?AC:put_acl_cache(publish, <<"c">>, allow),
+    3 = ?AC:get_cache_size(),
+
+    ct:sleep(1100),
+    ?AC:cleanup_acl_cache(),
+    0 = ?AC:get_cache_size().
+
+cache_full_cleanup(_) ->
+    application:set_env(emqx, acl_cache_ttl, 1000),
+    application:set_env(emqx, acl_cache_size, 3),
+    ok = ?AC:put_acl_cache(subscribe, <<"a">>, allow),
+    ok = ?AC:put_acl_cache(publish, <<"b">>, allow),
+    ok = ?AC:put_acl_cache(publish, <<"c">>, allow),
+    3 = ?AC:get_cache_size(),
+
+    ct:sleep(1100),
+    %% verify auto cleanup upon cache full
+    ok = ?AC:put_acl_cache(subscribe, <<"d">>, deny),
+    1 = ?AC:get_cache_size().
 
 %%--------------------------------------------------------------------
 %% emqx_access_rule

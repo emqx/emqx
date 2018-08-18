@@ -662,4 +662,3 @@ feed_var({<<"%u">>, Username}, MountPoint) ->
 
 sp(true)  -> 1;
 sp(false) -> 0.
-
