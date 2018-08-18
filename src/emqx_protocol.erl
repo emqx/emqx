@@ -511,21 +511,8 @@ authenticate(Client, Password) ->
     end.
 
 %% PUBLISH ACL is cached in process dictionary.
-check_acl(publish, Topic, Client) ->
-    IfCache = emqx_config:get_env(cache_acl, true),
-    case {IfCache, get({acl, publish, Topic})} of
-        {true, undefined} ->
-            AllowDeny = emqx_access_control:check_acl(Client, publish, Topic),
-            put({acl, publish, Topic}, AllowDeny),
-            AllowDeny;
-        {true, AllowDeny} ->
-            AllowDeny;
-        {false, _} ->
-            emqx_access_control:check_acl(Client, publish, Topic)
-    end;
-
-check_acl(subscribe, Topic, Client) ->
-    emqx_access_control:check_acl(Client, subscribe, Topic).
+check_acl(PubSub, Topic, Client) ->
+    emqx_access_control:check_acl(Client, PubSub, Topic).
 
 sp(true)  -> 1;
 sp(false) -> 0.
@@ -572,4 +559,3 @@ unmount(MountPoint, Msg = #message{topic = Topic}) ->
         {MountPoint, Topic0} -> Msg#message{topic = Topic0};
         _ -> Msg
     end.
-

@@ -565,23 +565,17 @@ end}.
   hidden
 ]}.
 
-%% @doc Enable ACL cache for publish.
-{mapping, "enable_acl_cache", "emqx.enable_acl_cache", [
-  {default, on},
-  {datatype, flag}
-]}.
-
-%% @doc ACL cache age.
-{mapping, "acl_cache_age", "emqx.acl_cache_age", [
-  {default, "5m"},
+%% @doc ACL cache time-to-live.
+{mapping, "acl_cache_ttl", "emqx.acl_cache_ttl", [
+  {default, "1m"},
   {datatype, {duration, ms}}
 ]}.
 
 %% @doc ACL cache size.
-%% {mapping, "acl_cache_size", "emqx.acl_cache_size", [
-%%  {default, 0},
-%%  {datatype, integer}
-%% ]}.
+{mapping, "acl_cache_size", "emqx.acl_cache_size", [
+  {default, 100},
+  {datatype, integer}
+]}.
 
 %%--------------------------------------------------------------------
 %% MQTT
@@ -1666,4 +1660,3 @@ end}.
    {busy_port, cuttlefish:conf_get("sysmon.busy_port", Conf)},
    {busy_dist_port, cuttlefish:conf_get("sysmon.busy_dist_port", Conf)}]
 end}.
-
