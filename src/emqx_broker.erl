@@ -69,9 +69,9 @@ subscribe(Topic, SubId) when is_binary(Topic), ?is_subid(SubId) ->
 
 -spec(subscribe(topic(), pid() | subid(), subid() | subopts()) -> ok).
 subscribe(Topic, SubPid, SubId) when is_binary(Topic), is_pid(SubPid), ?is_subid(SubId) ->
-    subscribe(Topic, SubPid, SubId, []);
+    subscribe(Topic, SubPid, SubId, #{});
 subscribe(Topic, SubPid, SubId) when is_binary(Topic), is_pid(SubPid), ?is_subid(SubId) ->
-    subscribe(Topic, SubPid, SubId, []);
+    subscribe(Topic, SubPid, SubId, #{});
 subscribe(Topic, SubPid, SubOpts) when is_binary(Topic), is_pid(SubPid), is_map(SubOpts) ->
     subscribe(Topic, SubPid, undefined, SubOpts);
 subscribe(Topic, SubId, SubOpts) when is_binary(Topic), ?is_subid(SubId), is_map(SubOpts) ->
