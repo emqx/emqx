@@ -989,7 +989,8 @@ deliver(#mqtt_msg{qos = QoS, dup = Dup, retain = Retain, packet_id = PacketId,
                   topic = Topic, props = Props, payload = Payload},
         State = #state{owner = Owner}) ->
     Owner ! {publish, #{qos => QoS, dup => Dup, retain => Retain, packet_id => PacketId,
-                        topic => Topic, properties => Props, payload => Payload}},
+                        topic => Topic, properties => Props, payload => Payload,
+                        client_pid => self()}},
     State.
 
 packet_to_msg(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
