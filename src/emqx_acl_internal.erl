@@ -109,11 +109,12 @@ reload_acl(#state{config = undefined}) ->
 reload_acl(State) ->
     case catch load_rules_from_file(State) of
         {'EXIT', Error} -> {error, Error};
-        true -> io:format("~s~n", ["reload acl_internal successfully"]), ok
+        #state{config=File} ->
+            io:format("reload acl_internal successfully: ~p~n", [File]),
+            ok
     end.
 
 %% @doc ACL Module Description
 -spec(description() -> string()).
 description() ->
     "Internal ACL with etc/acl.conf".
-
