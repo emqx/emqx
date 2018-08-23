@@ -25,41 +25,50 @@
 -define(ERTS_MINIMUM_REQUIRED, "10.0").
 
 %%--------------------------------------------------------------------
+%% PubSub
+%%--------------------------------------------------------------------
+
+-type(pubsub() :: publish | subscribe).
+
+-define(PS(I), (I =:= publish orelse I =:= subscribe)).
+
+%%--------------------------------------------------------------------
 %% Topics' prefix: $SYS | $queue | $share
 %%--------------------------------------------------------------------
 
-%% System Topic
+%% System topic
 -define(SYSTOP, <<"$SYS/">>).
 
-%% Queue Topic
+%% Queue topic
 -define(QUEUE,  <<"$queue/">>).
 
-%% Shared Topic
+%% Shared topic
 -define(SHARE,  <<"$share/">>).
 
 %%--------------------------------------------------------------------
 %% Topic, subscription and subscriber
 %%--------------------------------------------------------------------
 
--type(qos() :: integer()).
-
 -type(topic() :: binary()).
 
--type(suboption() :: {qos, qos()}
-                   | {share, '$queue'}
-                   | {share, binary()}
-                   | {atom(), term()}).
+-type(subid() :: binary() | atom()).
 
--record(subscription, {subid   :: binary() | atom(),
-                       topic   :: topic(),
-                       subopts :: list(suboption())}).
+-type(subopts() :: #{qos => integer(), share => '$queue' | binary(), atom() => term()}).
+
+-record(subscription, {
+          topic   :: topic(),
+          subid   :: subid(),
+          subopts :: subopts()
+        }).
 
 -type(subscription() :: #subscription{}).
 
--type(subscriber() :: binary() | pid() | {binary(), pid()}).
+-type(subscriber() :: {pid(), subid()}).
+
+-type(topic_table() :: [{topic(), subopts()}]).
 
 %%--------------------------------------------------------------------
-%% Client and session
+%% Client and Session
 %%--------------------------------------------------------------------
 
 -type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | none | atom()).
@@ -70,18 +79,19 @@
 
 -type(username() :: binary() | atom()).
 
--type(mountpoint() :: binary()).
+-type(zone() :: atom()).
 
--type(zone() :: undefined | atom()).
-
--record(client, {id           :: client_id(),
-                 pid          :: pid(),
-                 zone         :: zone(),
-                 peername     :: peername(),
-                 username     :: username(),
-                 protocol     :: protocol(),
-                 attributes   :: #{atom() => term()},
-                 connected_at :: erlang:timestamp()}).
+-record(client, {
+          id          :: client_id(),
+          pid         :: pid(),
+          zone        :: zone(),
+          protocol    :: protocol(),
+          peername    :: peername(),
+          peercert    :: nossl | binary(),
+          username    :: username(),
+          clean_start :: boolean(),
+          attributes  :: map()
+         }).
 
 -type(client() :: #client{}).
 
@@ -90,63 +100,53 @@
 -type(session() :: #session{}).
 
 %%--------------------------------------------------------------------
-%% Message and delivery
+%% Payload, Message and Delivery
 %%--------------------------------------------------------------------
 
--type(message_id() :: binary() | undefined).
+-type(qos() :: integer()).
 
--type(message_flag() :: sys | qos | dup | retain | atom()).
+-type(payload() :: binary() | iodata()).
 
--type(message_flags() :: #{message_flag() => boolean() | integer()}).
-
--type(message_headers() :: #{protocol  => protocol(),
-                             packet_id => pos_integer(),
-                             priority  => non_neg_integer(),
-                             ttl       => pos_integer(),
-                             atom()    => term()}).
-
--type(payload() :: binary()).
+-type(message_flag() :: dup | sys | retain | atom()).
 
 %% See 'Application Message' in MQTT Version 5.0
--record(message,
-        { id         :: message_id(),      %% Message guid
-          qos        :: qos(),             %% Message qos
-          from       :: atom() | client(), %% Message from
-          sender     :: pid(),             %% The pid of the sender/publisher
-          flags      :: message_flags(),   %% Message flags
-          headers    :: message_headers(), %% Message headers
-          topic      :: topic(),           %% Message topic
-          properties :: map(),             %% Message user properties
-          payload    :: payload(),         %% Message payload
-          timestamp  :: erlang:timestamp() %% Timestamp
+-record(message, {
+          %% Global unique message ID
+          id :: binary() | pos_integer(),
+          %% Message QoS
+          qos = 0 :: qos(),
+          %% Message from
+          from :: atom() | client_id(),
+          %% Message flags
+          flags :: #{message_flag() => boolean()},
+          %% Message headers, or MQTT 5.0 Properties
+          headers = #{} :: map(),
+          %% Topic that the message is published to
+          topic :: topic(),
+          %% Message Payload
+          payload :: binary(),
+          %% Timestamp
+          timestamp :: erlang:timestamp()
         }).
 
 -type(message() :: #message{}).
 
--record(delivery,
-        { node    :: node(),    %% The node that created the delivery
+-record(delivery, {
+          sender  :: pid(),     %% Sender of the delivery
           message :: message(), %% The message delivered
-          flows   :: list()     %% The message flow path
+          flows   :: list()     %% The dispatch path of message
         }).
 
 -type(delivery() :: #delivery{}).
 
 %%--------------------------------------------------------------------
-%% PubSub
-%%--------------------------------------------------------------------
-
--type(pubsub() :: publish | subscribe).
-
--define(PS(I), (I =:= publish orelse I =:= subscribe)).
-
-%%--------------------------------------------------------------------
 %% Route
 %%--------------------------------------------------------------------
 
--record(route,
-        { topic :: topic(),
-          dest  :: node() | {binary(), node()}
-        }).
+-record(route, {
+          topic :: topic(),
+          dest :: node() | {binary(), node()}
+         }).
 
 -type(route() :: #route{}).
 
@@ -156,20 +156,20 @@
 
 -type(trie_node_id() :: binary() | atom()).
 
--record(trie_node,
-        { node_id        :: trie_node_id(),
+-record(trie_node, {
+          node_id        :: trie_node_id(),
           edge_count = 0 :: non_neg_integer(),
           topic          :: topic() | undefined,
           flags          :: list(atom())
         }).
 
--record(trie_edge,
-        { node_id :: trie_node_id(),
+-record(trie_edge, {
+          node_id :: trie_node_id(),
           word    :: binary() | atom()
         }).
 
--record(trie,
-        { edge    :: #trie_edge{},
+-record(trie, {
+          edge    :: #trie_edge{},
           node_id :: trie_node_id()
         }).
 
@@ -177,11 +177,11 @@
 %% Alarm
 %%--------------------------------------------------------------------
 
--record(alarm,
-        { id        :: binary(),
+-record(alarm, {
+          id        :: binary(),
           severity  :: notice | warning | error | critical,
-          title     :: iolist() | binary(),
-          summary   :: iolist() | binary(),
+          title     :: iolist(),
+          summary   :: iolist(),
           timestamp :: erlang:timestamp()
         }).
 
@@ -191,14 +191,14 @@
 %% Plugin
 %%--------------------------------------------------------------------
 
--record(plugin,
-        { name    :: atom(),
-          version :: string(),
-          dir     :: string(),
-          descr   :: string(),
-          vendor  :: string(),
-          active  :: boolean(),
-          info    :: map()
+-record(plugin, {
+          name           :: atom(),
+          version        :: string(),
+          dir            :: string(),
+          descr          :: string(),
+          vendor         :: string(),
+          active = false :: boolean(),
+          info           :: map()
         }).
 
 -type(plugin() :: #plugin{}).
@@ -207,8 +207,8 @@
 %% Command
 %%--------------------------------------------------------------------
 
--record(command,
-        { name      :: atom(),
+-record(command, {
+          name      :: atom(),
           action    :: atom(),
           args = [] :: list(),
           opts = [] :: list(),

@@ -38,7 +38,7 @@
 -define(TAB, emqx_shared_subscription).
 
 -record(state, {pmon}).
--record(shared_subscription, {group, topic, subpid}).
+-record(emqx_shared_subscription, {group, topic, subpid}).
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -48,8 +48,8 @@ mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
                 {type, bag},
                 {ram_copies, [node()]},
-                {record_name, shared_subscription},
-                {attributes, record_info(fields, shared_subscription)}]);
+                {record_name, emqx_shared_subscription},
+                {attributes, record_info(fields, emqx_shared_subscription)}]);
 
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?TAB).
@@ -78,7 +78,7 @@ unsubscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
     mnesia:dirty_delete_object(?TAB, record(Group, Topic, SubPid)).
 
 record(Group, Topic, SubPid) ->
-    #shared_subscription{group = Group, topic = Topic, subpid = SubPid}.
+    #emqx_shared_subscription{group = Group, topic = Topic, subpid = SubPid}.
 
 %% TODO: dispatch strategy, ensure the delivery...
 dispatch(Group, Topic, Delivery = #delivery{message = Msg, flows = Flows}) ->
@@ -110,7 +110,7 @@ init([]) ->
 
 init_monitors() ->
     mnesia:foldl(
-      fun(#shared_subscription{subpid = SubPid}, Mon) ->
+      fun(#emqx_shared_subscription{subpid = SubPid}, Mon) ->
           emqx_pmon:monitor(SubPid, Mon)
       end, emqx_pmon:new(), ?TAB).
 
@@ -126,11 +126,11 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({mnesia_table_event, {write, NewRecord, _}}, State = #state{pmon = PMon}) ->
-    #shared_subscription{subpid = SubPid} = NewRecord,
+    #emqx_shared_subscription{subpid = SubPid} = NewRecord,
     {noreply, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
 
 handle_info({mnesia_table_event, {delete_object, OldRecord, _}}, State = #state{pmon = PMon}) ->
-    #shared_subscription{subpid = SubPid} = OldRecord,
+    #emqx_shared_subscription{subpid = SubPid} = OldRecord,
     {noreply, update_stats(State#state{pmon = emqx_pmon:demonitor(SubPid, PMon)})};
 
 handle_info({mnesia_table_event, _Event}, State) ->
@@ -138,7 +138,7 @@ handle_info({mnesia_table_event, _Event}, State) ->
 
 handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{pmon = PMon}) ->
     emqx_logger:info("[SharedSub] shared subscriber down: ~p", [SubPid]),
-    mnesia:async_dirty(fun cleanup_down/1, [SubPid]),
+    cleanup_down(SubPid),
     {noreply, update_stats(State#state{pmon = emqx_pmon:erase(SubPid, PMon)})};
 
 handle_info(Info, State) ->
@@ -156,8 +156,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 cleanup_down(SubPid) ->
-    lists:foreach(fun(Record) -> mnesia:delete_object(?TAB, Record) end,
-                  mnesia:match_object(#shared_subscription{_ = '_', subpid = SubPid})).
+    lists:foreach(
+        fun(Record) ->
+            mnesia:dirty_delete_object(?TAB, Record)
+        end,mnesia:dirty_match_object(#emqx_shared_subscription{_ = '_', subpid = SubPid})).
 
 update_stats(State) ->
     emqx_stats:setstat('subscriptions/shared/count', 'subscriptions/shared/max', ets:info(?TAB, size)), State.

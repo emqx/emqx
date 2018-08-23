@@ -4,20 +4,16 @@ PROJECT = emqx
 PROJECT_DESCRIPTION = EMQ X Broker
 PROJECT_VERSION = 3.0
 
-DEPS = goldrush gproc lager esockd ekka mochiweb pbkdf2 lager_syslog bcrypt clique jsx
+DEPS = jsx gproc gen_rpc lager ekka esockd cowboy clique
 
-dep_goldrush     = git https://github.com/basho/goldrush 0.1.9
-dep_gproc        = git https://github.com/uwiger/gproc 0.7.0
-dep_jsx          = git https://github.com/talentdeficit/jsx 2.9.0
-dep_getopt       = git https://github.com/jcomellas/getopt v0.8.2
-dep_lager        = git https://github.com/basho/lager master
-dep_lager_syslog = git https://github.com/basho/lager_syslog
-dep_esockd       = git https://github.com/emqtt/esockd emqx30
-dep_ekka         = git https://github.com/emqtt/ekka develop
-dep_mochiweb     = git https://github.com/emqtt/mochiweb emqx30
-dep_pbkdf2       = git https://github.com/emqtt/pbkdf2 2.0.1
-dep_bcrypt       = git https://github.com/smarkets/erlang-bcrypt master
-dep_clique       = git https://github.com/emqx/clique
+dep_jsx     = git https://github.com/talentdeficit/jsx 2.9.0
+dep_gproc   = git https://github.com/uwiger/gproc 0.8.0
+dep_gen_rpc = git https://github.com/emqx/gen_rpc 2.1.1
+dep_lager   = git https://github.com/erlang-lager/lager 3.6.4
+dep_esockd  = git https://github.com/emqx/esockd emqx30
+dep_ekka    = git https://github.com/emqx/ekka emqx30
+dep_cowboy  = git https://github.com/ninenines/cowboy 2.4.0
+dep_clique  = git https://github.com/emqx/clique
 
 NO_AUTOPATCH = gen_rpc cuttlefish
 
@@ -25,7 +21,7 @@ ERLC_OPTS += +debug_info
 ERLC_OPTS += +'{parse_transform, lager_transform}'
 
 BUILD_DEPS = cuttlefish
-dep_cuttlefish = git https://github.com/emqtt/cuttlefish
+dep_cuttlefish = git https://github.com/emqx/cuttlefish emqx30
 
 TEST_DEPS = emqx_ct_helplers
 dep_emqx_ct_helplers = git git@github.com:emqx/emqx_ct_helpers
@@ -47,8 +43,7 @@ COVER = true
 
 PLT_APPS = sasl asn1 ssl syntax_tools runtime_tools crypto xmerl os_mon inets public_key ssl lager compiler mnesia
 DIALYZER_DIRS := ebin/
-DIALYZER_OPTS := --verbose --statistics -Werror_handling \
-                 -Wrace_conditions #-Wunmatched_returns
+DIALYZER_OPTS := --verbose --statistics -Werror_handling -Wrace_conditions #-Wunmatched_returns
 
 include erlang.mk
 

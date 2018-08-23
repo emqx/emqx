@@ -12,41 +12,34 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_kernel_sup).
+-module(emqx_bridge1_sup).
 
--behaviour(supervisor).
+-behavior(supervisor).
 
--export([start_link/0]).
+-include("emqx.hrl").
 
+-export([start_link/0, bridges/0]).
+
+%% Supervisor callbacks
 -export([init/1]).
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-init([]) ->
-    {ok, {{one_for_one, 10, 100},
-          [child_spec(emqx_pool, supervisor),
-           child_spec(emqx_alarm_mgr, worker),
-           child_spec(emqx_hooks, worker),
-           child_spec(emqx_stats, worker),
-           child_spec(emqx_metrics, worker),
-           child_spec(emqx_ctl, worker),
-           child_spec(emqx_zone, worker),
-           child_spec(emqx_tracer, worker)]}}.
+%% @doc List all bridges
+-spec(bridges() -> [{node(), topic(), pid()}]).
+bridges() ->
+    [{Name, emqx_bridge1:status(Pid)} || {Name, Pid, _, _} <- supervisor:which_children(?MODULE)].
 
-child_spec(M, worker) ->
-    #{id       => M,
-      start    => {M, start_link, []},
+init([]) ->
+    BridgesOpts = emqx_config:get_env(bridges, []),
+    Bridges = [spec(Opts)|| Opts <- BridgesOpts],
+    {ok, {{one_for_one, 10, 100}, Bridges}}.
+
+spec({Id, Options})->
+    #{id       => Id,
+      start    => {emqx_bridge1, start_link, [Id, Options]},
       restart  => permanent,
       shutdown => 5000,
       type     => worker,
-      modules  => [M]};
-child_spec(M, supervisor) ->
-    #{id       => M,
-      start    => {M, start_link, []},
-      restart  => permanent,
-      shutdown => infinity,
-      type     => supervisor,
-      modules  => [M]}.
-
-
+      modules  => [emqx_bridge1]}.

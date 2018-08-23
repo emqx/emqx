@@ -22,6 +22,8 @@
 -export([start_link/0, auth/2, check_acl/3, reload_acl/0, lookup_mods/1,
          register_mod/3, register_mod/4, unregister_mod/2, stop/0]).
 
+-export([clean_acl_cache/1, clean_acl_cache/2]).
+
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -50,9 +52,9 @@ start_link() ->
 
 register_default_mod() ->
     case emqx_config:get_env(acl_file) of
-        {ok, File} ->
-            emqx_access_control:register_mod(acl, emqx_acl_internal, [File]);
-        undefined  -> ok
+        undefined -> ok;
+        File ->
+            emqx_access_control:register_mod(acl, emqx_acl_internal, [File])
     end.
 
 %% @doc Authenticate Client.
@@ -126,6 +128,12 @@ tab_key(acl)  -> acl_modules.
 %% @doc Stop access control server.
 stop() ->
     gen_server:stop(?MODULE, normal, infinity).
+
+%%TODO: Support ACL cache...
+clean_acl_cache(_ClientId) ->
+    ok.
+clean_acl_cache(_ClientId, _Topic) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

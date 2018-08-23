@@ -121,7 +121,7 @@ parse_packet(#mqtt_packet_header{type = ?CONNECT}, FrameBin, _Options) ->
     <<UsernameFlag : 1,
       PasswordFlag : 1,
       WillRetain   : 1,
-      WillQos      : 2,
+      WillQoS      : 2,
       WillFlag     : 1,
       CleanStart   : 1,
       _Reserved    : 1,
@@ -138,7 +138,7 @@ parse_packet(#mqtt_packet_header{type = ?CONNECT}, FrameBin, _Options) ->
                                       is_bridge    = (BridgeTag =:= 8),
                                       clean_start  = bool(CleanStart),
                                       will_flag    = bool(WillFlag),
-                                      will_qos     = WillQos,
+                                      will_qos     = WillQoS,
                                       will_retain  = bool(WillRetain),
                                       keepalive    = KeepAlive,
                                       properties   = Properties,
@@ -162,7 +162,6 @@ parse_packet(#mqtt_packet_header{type = ?PUBLISH, qos = QoS}, Bin,
                             ?QOS_0 -> {undefined, Rest};
                             _ -> parse_packet_id(Rest)
                         end,
-    io:format("Rest1: ~p~n", [Rest1]),
     {Properties, Payload} = parse_properties(Rest1, Ver),
     {#mqtt_packet_publish{topic_name = TopicName,
                           packet_id  = PacketId,
@@ -242,6 +241,9 @@ parse_packet_id(<<PacketId:16/big, Rest/binary>>) ->
 
 parse_properties(Bin, Ver) when Ver =/= ?MQTT_PROTO_V5 ->
     {undefined, Bin};
+%% TODO: version mess?
+parse_properties(<<>>, ?MQTT_PROTO_V5) ->
+    {#{}, <<>>};
 parse_properties(<<0, Rest/binary>>, ?MQTT_PROTO_V5) ->
     {#{}, Rest};
 parse_properties(Bin, ?MQTT_PROTO_V5) ->
@@ -328,7 +330,7 @@ parse_variable_byte_integer(<<0:1, Len:7, Rest/binary>>, Multiplier, Value) ->
     {Value + Len * Multiplier, Rest}.
 
 parse_topic_filters(subscribe, Bin) ->
-    [{Topic,  #mqtt_subopts{rh = Rh, rap = Rap, nl = Nl, qos = QoS}}
+    [{Topic, #mqtt_subopts{rh = Rh, rap = Rap, nl = Nl, qos = QoS}}
      || <<Len:16/big, Topic:Len/binary, _:2, Rh:2, Rap:1, Nl:1, QoS:2>> <= Bin];
 
 parse_topic_filters(unsubscribe, Bin) ->
@@ -382,7 +384,7 @@ serialize_variable(#mqtt_packet_connect{
                       is_bridge    = IsBridge,
                       clean_start  = CleanStart,
                       will_flag    = WillFlag,
-                      will_qos     = WillQos,
+                      will_qos     = WillQoS,
                       will_retain  = WillRetain,
                       keepalive    = KeepAlive,
                       properties   = Properties,
@@ -400,7 +402,7 @@ serialize_variable(#mqtt_packet_connect{
        (flag(Username)):1,
        (flag(Password)):1,
        (flag(WillRetain)):1,
-       WillQos:2,
+       WillQoS:2,
        (flag(WillFlag)):1,
        (flag(CleanStart)):1,
        0:1,

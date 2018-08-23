@@ -17,21 +17,15 @@
 -module(emqx_vm).
 
 -export([schedulers/0]).
-
 -export([microsecs/0]).
-
 -export([loads/0, get_system_info/0, get_system_info/1,  mem_info/0, scheduler_usage/1]).
-
 -export([get_memory/0]).
-
 -export([get_process_list/0, get_process_info/0, get_process_info/1,
          get_process_gc/0, get_process_gc/1,
          get_process_group_leader_info/1,
          get_process_limit/0]).
-
 -export([get_ets_list/0, get_ets_info/0, get_ets_info/1,
          get_ets_object/0, get_ets_object/1]).
-
 -export([get_port_types/0, get_port_info/0, get_port_info/1]).
 
 -define(UTIL_ALLOCATORS, [temp_alloc,
@@ -204,13 +198,13 @@ mem_info() ->
     [{total_memory, proplists:get_value(total_memory, Dataset)},
      {used_memory, proplists:get_value(total_memory, Dataset) - proplists:get_value(free_memory, Dataset)}].
 
-ftos(F) -> 
-    [S] = io_lib:format("~.2f", [F]), S.
+ftos(F) ->
+    S = io_lib:format("~.2f", [F]), S.
 
-%%%% erlang vm scheduler_usage  fun copied from recon 
+%%%% erlang vm scheduler_usage  fun copied from recon
 scheduler_usage(Interval) when is_integer(Interval) ->
     %% We start and stop the scheduler_wall_time system flag
-    %% if it wasn't in place already. Usually setting the flag 
+    %% if it wasn't in place already. Usually setting the flag
     %% should have a CPU impact(make it higher) only when under low usage.
     FormerFlag = erlang:system_flag(scheduler_wall_time, true),
     First = erlang:statistics(scheduler_wall_time),
@@ -300,7 +294,7 @@ get_process_group_leader_info(LeaderPid) when is_pid(LeaderPid) ->
     [{Key, Value}|| {Key, Value} <- process_info(LeaderPid), lists:member(Key, ?PROCESS_INFO)].
 
 get_process_limit() ->
-    erlang:system_info(process_limit). 
+    erlang:system_info(process_limit).
 
 get_ets_list() ->
      ets:all().

@@ -25,10 +25,9 @@
 
 -type(word() :: '' | '+' | '#' | binary()).
 -type(words() :: list(word())).
--type(option() :: {qos, mqtt_qos()} | {share, '$queue' | binary()}).
 -type(triple() :: {root | binary(), word(), binary()}).
 
--export_type([option/0, word/0, triple/0]).
+-export_type([word/0, triple/0]).
 
 -define(MAX_TOPIC_LEN, 4096).
 
@@ -163,20 +162,21 @@ join(Words) ->
                 end, {true, <<>>}, [bin(W) || W <- Words]),
     Bin.
 
--spec(parse(topic()) -> {topic(), [option()]}).
+-spec(parse(topic()) -> {topic(), #{}}).
 parse(Topic) when is_binary(Topic) ->
-    parse(Topic, []).
+    parse(Topic, #{}).
 
 parse(Topic = <<"$queue/", Topic1/binary>>, Options) ->
-    case lists:keyfind(share, 1, Options) of
-        {share, _} -> error({invalid_topic, Topic});
-        false      -> parse(Topic1, [{share, '$queue'} | Options])
+    case maps:find(share, Options) of
+        {ok, _} -> error({invalid_topic, Topic});
+        error   -> parse(Topic1, maps:put(share, '$queue', Options))
     end;
 parse(Topic = <<"$share/", Topic1/binary>>, Options) ->
-    case lists:keyfind(share, 1, Options) of
-        {share, _} -> error({invalid_topic, Topic});
-        false      -> [Group, Topic2] = binary:split(Topic1, <<"/">>),
-                      {Topic2, [{share, Group} | Options]}
+    case maps:find(share, Options) of
+        {ok, _} -> error({invalid_topic, Topic});
+        error   -> [Group, Topic2] = binary:split(Topic1, <<"/">>),
+                   {Topic2, maps:put(share, Group, Options)}
     end;
-parse(Topic, Options) -> {Topic, Options}.
+parse(Topic, Options) ->
+    {Topic, Options}.
 

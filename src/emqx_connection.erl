@@ -17,46 +17,53 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
-
 -include("emqx_mqtt.hrl").
-
 -include("emqx_misc.hrl").
 
--import(proplists, [get_value/2, get_value/3]).
-
-%% API Function Exports
 -export([start_link/3]).
-
-%% Management and Monitor API
--export([info/1, stats/1, kick/1, clean_acl_cache/2]).
-
--export([set_rate_limit/2, get_rate_limit/1]).
-
-%% SUB/UNSUB Asynchronously. Called by plugins.
--export([subscribe/2, unsubscribe/2]).
-
-%% Get the session proc?
+-export([info/1, stats/1, kick/1]).
 -export([session/1]).
+-export([clean_acl_cache/1]).
+-export([get_rate_limit/1, set_rate_limit/2]).
+-export([get_pub_limit/1, set_pub_limit/2]).
 
-%% gen_server Function Exports
+%% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, code_change/3,
          terminate/2]).
 
-%% Unused fields: connname, peerhost, peerport
--record(state, {transport, socket, peername, conn_state, await_recv,
-                rate_limit, max_packet_size, proto_state, parse_state,
-                keepalive, enable_stats, idle_timeout, force_gc_count}).
+-record(state, {
+          transport,    %% Network transport module
+          socket,       %% TCP or SSL Socket
+          peername,     %% Peername of the socket
+          sockname,     %% Sockname of the socket
+          conn_state,   %% Connection state: running | blocked
+          await_recv,   %% Awaiting recv
+          incoming,     %% Incoming bytes and packets
+          pub_limit,    %% Publish rate limit
+          rate_limit,   %% Traffic rate limit
+          limit_timer,  %% Rate limit timer
+          proto_state,  %% MQTT protocol state
+          parser_state, %% MQTT parser state
+          keepalive,    %% MQTT keepalive timer
+          enable_stats, %% Enable stats
+          stats_timer,  %% Stats timer
+          idle_timeout  %% Connection idle timeout
+         }).
 
--define(INFO_KEYS, [peername, conn_state, await_recv]).
+-define(INFO_KEYS, [peername, sockname, conn_state, await_recv, rate_limit, pub_limit]).
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
 -define(LOG(Level, Format, Args, State),
-            emqx_logger:Level("Client(~s): " ++ Format,
-                              [esockd_net:format(State#state.peername) | Args])).
+        emqx_logger:Level("Client(~s): " ++ Format,
+                          [esockd_net:format(State#state.peername) | Args])).
 
-start_link(Transport, Sock, Env) ->
-    {ok, proc_lib:spawn_link(?MODULE, init, [[Transport, Sock, Env]])}.
+start_link(Transport, Socket, Options) ->
+    {ok, proc_lib:spawn_link(?MODULE, init, [[Transport, Socket, Options]])}.
+
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
 
 info(CPid) ->
     gen_server:call(CPid, info).
@@ -67,156 +74,141 @@ stats(CPid) ->
 kick(CPid) ->
     gen_server:call(CPid, kick).
 
-set_rate_limit(CPid, Rl) ->
-    gen_server:call(CPid, {set_rate_limit, Rl}).
+session(CPid) ->
+    gen_server:call(CPid, session, infinity).
+
+clean_acl_cache(CPid) ->
+    gen_server:call(CPid, clean_acl_cache).
 
 get_rate_limit(CPid) ->
     gen_server:call(CPid, get_rate_limit).
 
-subscribe(CPid, TopicTable) ->
-    CPid ! {subscribe, TopicTable}.
+set_rate_limit(CPid, Rl = {_Rate, _Burst}) ->
+    gen_server:call(CPid, {set_rate_limit, Rl}).
 
-unsubscribe(CPid, Topics) ->
-    CPid ! {unsubscribe, Topics}.
+get_pub_limit(CPid) ->
+    gen_server:call(CPid, get_pub_limit).
 
-session(CPid) ->
-    gen_server:call(CPid, session, infinity).
+set_pub_limit(CPid, Rl = {_Rate, _Burst}) ->
+    gen_server:call(CPid, {set_pub_limit, Rl}).
 
-clean_acl_cache(CPid, Topic) ->
-    gen_server:call(CPid, {clean_acl_cache, Topic}).
-
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
-init([Transport, Sock, Env]) ->
-    case Transport:wait(Sock) of
-        {ok, NewSock} ->
-            {ok, Peername} = Transport:ensure_ok_or_exit(peername, [NewSock]),
-            do_init(Transport, Sock, Peername, Env);
+init([Transport, RawSocket, Options]) ->
+    case Transport:wait(RawSocket) of
+        {ok, Socket} ->
+            Zone = proplists:get_value(zone, Options),
+            {ok, Peername} = Transport:ensure_ok_or_exit(peername, [Socket]),
+            {ok, Sockname} = Transport:ensure_ok_or_exit(sockname, [Socket]),
+            Peercert = Transport:ensure_ok_or_exit(peercert, [Socket]),
+            PubLimit = rate_limit(emqx_zone:env(Zone, publish_limit)),
+            RateLimit = rate_limit(proplists:get_value(rate_limit, Options)),
+            EnableStats = emqx_zone:env(Zone, enable_stats, true),
+            IdleTimout = emqx_zone:env(Zone, idle_timeout, 30000),
+            SendFun = send_fun(Transport, Socket, Peername),
+            ProtoState = emqx_protocol:init(#{peername => Peername,
+                                              sockname => Sockname,
+                                              peercert => Peercert,
+                                              sendfun  => SendFun}, Options),
+            ParserState = emqx_protocol:parser(ProtoState),
+            State = run_socket(#state{transport    = Transport,
+                                      socket       = Socket,
+                                      peername     = Peername,
+                                      await_recv   = false,
+                                      conn_state   = running,
+                                      rate_limit   = RateLimit,
+                                      pub_limit    = PubLimit,
+                                      proto_state  = ProtoState,
+                                      parser_state = ParserState,
+                                      enable_stats = EnableStats,
+                                      idle_timeout = IdleTimout}),
+            gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}],
+                                  State, self(), IdleTimout);
         {error, Reason} ->
             {stop, Reason}
     end.
 
-do_init(Transport, Sock, Peername, Env) ->
-    RateLimit = get_value(rate_limit, Env),
-    PacketSize = get_value(max_packet_size, Env, ?MAX_PACKET_SIZE),
-    SendFun = send_fun(Transport, Sock, Peername),
-    ProtoState = emqx_protocol:init(Transport, Sock, Peername, SendFun, Env),
-    EnableStats = get_value(client_enable_stats, Env, false),
-    IdleTimout = get_value(client_idle_timeout, Env, 30000),
-    ForceGcCount = emqx_gc:conn_max_gc_count(),
-    State = run_socket(#state{transport       = Transport,
-                              socket          = Sock,
-                              peername        = Peername,
-                              await_recv      = false,
-                              conn_state      = running,
-                              rate_limit      = RateLimit,
-                              max_packet_size = PacketSize,
-                              proto_state     = ProtoState,
-                              enable_stats    = EnableStats,
-                              idle_timeout    = IdleTimout,
-                              force_gc_count  = ForceGcCount}),
-    gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}],
-                          init_parse_state(State), self(), IdleTimout).
+rate_limit(undefined) ->
+    undefined;
+rate_limit({Rate, Burst}) ->
+    esockd_rate_limit:new(Rate, Burst).
 
-send_fun(Transport, Sock, Peername) ->
-    Self = self(),
-    fun(Packet) ->
-        Data = emqx_frame:serialize(Packet),
-        ?LOG(debug, "SEND ~p", [Data], #state{peername = Peername}),
-        emqx_metrics:inc('bytes/sent', iolist_size(Data)),
-        try Transport:async_send(Sock, Data) of
-            ok -> ok;
-            {error, Reason} -> Self ! {shutdown, Reason}
+send_fun(Transport, Socket, Peername) ->
+    fun(Data) ->
+        try Transport:async_send(Socket, Data) of
+            ok  ->
+                ?LOG(debug, "SEND ~p", [Data], #state{peername = Peername}),
+                emqx_metrics:inc('bytes/sent', iolist_size(Data)), ok;
+            Error -> Error
         catch
-            error:Error -> Self ! {shutdown, Error}
+            error:Error -> {error, Error}
         end
     end.
 
-init_parse_state(State = #state{max_packet_size = Size, proto_state = ProtoState}) ->
-    Version = emqx_protocol:get(proto_ver, ProtoState),
-    State#state{parse_state = emqx_frame:initial_state(
-                                #{max_packet_size => Size, version => Version})}.
+handle_call(info, From, State = #state{transport = Transport, socket = Socket, proto_state = ProtoState}) ->
+    ProtoInfo = emqx_protocol:info(ProtoState),
+    ConnInfo = [{socktype, Transport:type(Socket)} | ?record_to_proplist(state, State, ?INFO_KEYS)],
+    StatsInfo = element(2, handle_call(stats, From, State)),
+    {reply, lists:append([ConnInfo, StatsInfo, ProtoInfo]), State};
 
-handle_call(info, From, State = #state{proto_state = ProtoState}) ->
-    ProtoInfo  = emqx_protocol:info(ProtoState),
-    ClientInfo = ?record_to_proplist(state, State, ?INFO_KEYS),
-    {reply, Stats, _, _} = handle_call(stats, From, State),
-    reply(lists:append([ClientInfo, ProtoInfo, Stats]), State);
-
-handle_call(stats, _From, State = #state{proto_state = ProtoState}) ->
-    reply(lists:append([emqx_misc:proc_stats(),
-                        emqx_protocol:stats(ProtoState),
-                        sock_stats(State)]), State);
+handle_call(stats, _From, State = #state{transport = Transport, socket = Sock, proto_state = ProtoState}) ->
+    ProcStats = emqx_misc:proc_stats(),
+    ProtoStats = emqx_protocol:stats(ProtoState),
+    SockStats = case Transport:getstat(Sock, ?SOCK_STATS) of
+                    {ok, Ss}   -> Ss;
+                    {error, _} -> []
+                end,
+    {reply, lists:append([ProcStats, ProtoStats, SockStats]), State};
 
 handle_call(kick, _From, State) ->
     {stop, {shutdown, kick}, ok, State};
 
-handle_call({set_rate_limit, Rl}, _From, State) ->
-    reply(ok, State#state{rate_limit = Rl});
+handle_call(session, _From, State = #state{proto_state = ProtoState}) ->
+    {reply, emqx_protocol:session(ProtoState), State};
+
+handle_call(clean_acl_cache, _From, State = #state{proto_state = ProtoState}) ->
+    {reply, ok, State#state{proto_state = emqx_protocol:clean_acl_cache(ProtoState)}};
 
 handle_call(get_rate_limit, _From, State = #state{rate_limit = Rl}) ->
-    reply(Rl, State);
+    {reply, esockd_rate_limit:info(Rl), State};
 
-handle_call(session, _From, State = #state{proto_state = ProtoState}) ->
-    reply(emqx_protocol:session(ProtoState), State);
+handle_call({set_rate_limit, {Rate, Burst}}, _From, State) ->
+    {reply, ok, State#state{rate_limit = esockd_rate_limit:new(Rate, Burst)}};
 
-handle_call({clean_acl_cache, Topic}, _From, State) ->
-    erase({acl, publish, Topic}),
-    reply(ok, State);
+handle_call(get_publish_limit, _From, State = #state{pub_limit = Rl}) ->
+    {reply, esockd_rate_limit:info(Rl), State};
+
+handle_call({set_publish_limit, {Rate, Burst}}, _From, State) ->
+    {reply, ok, State#state{pub_limit = esockd_rate_limit:new(Rate, Burst)}};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "Unexpected Call: ~p", [Req], State),
-    {reply, ignore, State}.
+    ?LOG(error, "unexpected call: ~p", [Req], State),
+    {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "Unexpected Cast: ~p", [Msg], State),
+    ?LOG(error, "unexpected cast: ~p", [Msg], State),
     {noreply, State}.
 
-handle_info({subscribe, TopicTable}, State) ->
-    with_proto(
-      fun(ProtoState) ->
-          emqx_protocol:subscribe(TopicTable, ProtoState)
-      end, State);
+handle_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
+    case emqx_protocol:deliver(PubOrAck, ProtoState) of
+        {ok, ProtoState1} ->
+            {noreply, maybe_gc(ensure_stats_timer(State#state{proto_state = ProtoState1}))};
+        {error, Reason} ->
+            shutdown(Reason, State);
+        {error, Reason, ProtoState1} ->
+            shutdown(Reason, State#state{proto_state = ProtoState1})
+    end;
 
-handle_info({unsubscribe, Topics}, State) ->
-    with_proto(
-      fun(ProtoState) ->
-          emqx_protocol:unsubscribe(Topics, ProtoState)
-      end, State);
-
-%% Asynchronous SUBACK
-handle_info({suback, PacketId, GrantedQos}, State) ->
-    with_proto(
-      fun(ProtoState) ->
-          Packet = ?SUBACK_PACKET(PacketId, GrantedQos),
-          emqx_protocol:send(Packet, ProtoState)
-      end, State);
-
-%% Fastlane
-handle_info({dispatch, _Topic, Msg}, State) ->
-    handle_info({deliver, emqx_message:set_flag(qos, ?QOS_0, Msg)}, State);
-
-handle_info({deliver, Message}, State) ->
-    with_proto(
-      fun(ProtoState) ->
-          emqx_protocol:send(Message, ProtoState)
-      end, State);
-
-handle_info({redeliver, {?PUBREL, PacketId}}, State) ->
-    with_proto(
-      fun(ProtoState) ->
-          emqx_protocol:pubrel(PacketId, ProtoState)
-      end, State);
-
-handle_info(emit_stats, State) ->
-    {noreply, emit_stats(State), hibernate};
+handle_info(emit_stats, State = #state{proto_state = ProtoState}) ->
+    Stats = element(2, handle_call(stats, undefined, State)),
+    emqx_cm:set_client_stats(emqx_protocol:clientid(ProtoState), Stats),
+    {noreply, State#state{stats_timer = undefined}, hibernate};
 
 handle_info(timeout, State) ->
     shutdown(idle_timeout, State);
 
-%% Fix issue #535
 handle_info({shutdown, Error}, State) ->
     shutdown(Error, State);
 
@@ -225,25 +217,25 @@ handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
     shutdown(conflict, State);
 
 handle_info(activate_sock, State) ->
-    {noreply, run_socket(State#state{conn_state = running})};
+    {noreply, run_socket(State#state{conn_state = running, limit_timer = undefined})};
 
 handle_info({inet_async, _Sock, _Ref, {ok, Data}}, State) ->
     Size = iolist_size(Data),
     ?LOG(debug, "RECV ~p", [Data], State),
     emqx_metrics:inc('bytes/received', Size),
-    received(Data, rate_limit(Size, State#state{await_recv = false}));
+    Incoming = #{bytes => Size, packets => 0},
+    handle_packet(Data, State#state{await_recv = false, incoming = Incoming});
 
 handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
     shutdown(Reason, State);
 
 handle_info({inet_reply, _Sock, ok}, State) ->
-    {noreply, gc(State)}; %% Tune GC
+    {noreply, State};
 
 handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
     shutdown(Reason, State);
 
-handle_info({keepalive, start, Interval},
-            State = #state{transport = Transport, socket = Sock}) ->
+handle_info({keepalive, start, Interval}, State = #state{transport = Transport, socket = Sock}) ->
     ?LOG(debug, "Keepalive at the interval of ~p", [Interval], State),
     StatFun = fun() ->
                 case Transport:getstat(Sock, [recv_oct]) of
@@ -272,20 +264,18 @@ handle_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
     end;
 
 handle_info(Info, State) ->
-    ?LOG(error, "Unexpected Info: ~p", [Info], State),
+    ?LOG(error, "unexpected info: ~p", [Info], State),
     {noreply, State}.
 
 terminate(Reason, State = #state{transport   = Transport,
                                  socket      = Sock,
                                  keepalive   = KeepAlive,
                                  proto_state = ProtoState}) ->
-
     ?LOG(debug, "Terminated for ~p", [Reason], State),
     Transport:fast_close(Sock),
     emqx_keepalive:cancel(KeepAlive),
     case {ProtoState, Reason} of
-        {undefined, _} ->
-            ok;
+        {undefined, _} -> ok;
         {_, {shutdown, Error}} ->
             emqx_protocol:shutdown(Error, ProtoState);
         {_, Reason} ->
@@ -295,25 +285,29 @@ terminate(Reason, State = #state{transport   = Transport,
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Internal functions
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
-%% Receive and Parse TCP Data
-received(<<>>, State) ->
-    {noreply, gc(State)};
+%% Receive and parse data
+handle_packet(<<>>, State) ->
+    {noreply, maybe_gc(ensure_stats_timer(ensure_rate_limit(State)))};
 
-received(Bytes, State = #state{parse_state  = ParseState,
-                               proto_state  = ProtoState,
-                               idle_timeout = IdleTimeout}) ->
-    case catch emqx_frame:parse(Bytes, ParseState) of
-        {more, NewParseState} ->
-            {noreply, State#state{parse_state = NewParseState}, IdleTimeout};
-        {ok, Packet, Rest} ->
+handle_packet(Bytes, State = #state{incoming     = Incoming,
+                                    parser_state = ParserState,
+                                    proto_state  = ProtoState,
+                                    idle_timeout = IdleTimeout}) ->
+    case catch emqx_frame:parse(Bytes, ParserState) of
+        {more, NewParserState} ->
+            {noreply, State#state{parser_state = NewParserState}, IdleTimeout};
+        {ok, Packet = ?PACKET(Type), Rest} ->
             emqx_metrics:received(Packet),
             case emqx_protocol:received(Packet, ProtoState) of
                 {ok, ProtoState1} ->
-                    received(Rest, init_parse_state(State#state{proto_state = ProtoState1}));
+                    ParserState1 = emqx_protocol:parser(ProtoState1),
+                    handle_packet(Rest, State#state{incoming     = count_packets(Type, Incoming),
+                                                    proto_state  = ProtoState1,
+                                                    parser_state = ParserState1});
                 {error, Error} ->
                     ?LOG(error, "Protocol error - ~p", [Error], State),
                     shutdown(Error, State);
@@ -326,22 +320,33 @@ received(Bytes, State = #state{parse_state  = ParseState,
             ?LOG(error, "Framing error - ~p", [Error], State),
             shutdown(Error, State);
         {'EXIT', Reason} ->
-            ?LOG(error, "Parser failed for ~p", [Reason], State),
-            ?LOG(error, "Error data: ~p", [Bytes], State),
-            shutdown(parser_error, State)
+            ?LOG(error, "Parse failed for ~p~nError data:~p", [Reason, Bytes], State),
+            shutdown(parse_error, State)
     end.
 
-rate_limit(_Size, State = #state{rate_limit = undefined}) ->
+count_packets(?PUBLISH, Incoming = #{packets := Num}) ->
+    Incoming#{packets := Num + 1};
+count_packets(?SUBSCRIBE, Incoming = #{packets := Num}) ->
+    Incoming#{packets := Num + 1};
+count_packets(_Type, Incoming) ->
+    Incoming.
+
+ensure_rate_limit(State = #state{rate_limit = Rl, pub_limit = Pl,
+                                 incoming = #{bytes := Bytes, packets := Pkts}}) ->
+    ensure_rate_limit([{Pl, #state.pub_limit, Pkts}, {Rl, #state.rate_limit, Bytes}], State).
+
+ensure_rate_limit([], State) ->
     run_socket(State);
-rate_limit(Size, State = #state{rate_limit = Rl}) ->
-    case Rl:check(Size) of
-        {0, Rl1} ->
-            run_socket(State#state{conn_state = running, rate_limit = Rl1});
-        {Pause, Rl1} ->
-            ?LOG(warning, "Rate limiter pause for ~p", [Pause], State),
-            erlang:send_after(Pause, self(), activate_sock),
-            State#state{conn_state = blocked, rate_limit = Rl1}
-    end.
+ensure_rate_limit([{undefined, _Pos, _Num}|Limiters], State) ->
+    ensure_rate_limit(Limiters, State);
+ensure_rate_limit([{Rl, Pos, Num}|Limiters], State) ->
+   case esockd_rate_limit:check(Num, Rl) of
+       {0, Rl1} ->
+           ensure_rate_limit(Limiters, setelement(Pos, State, Rl1));
+       {Pause, Rl1} ->
+           TRef = erlang:send_after(Pause, self(), activate_sock),
+           setelement(Pos, State#state{conn_state = blocked, limit_timer = TRef}, Rl1)
+   end.
 
 run_socket(State = #state{conn_state = blocked}) ->
     State;
@@ -351,30 +356,12 @@ run_socket(State = #state{transport = Transport, socket = Sock}) ->
     Transport:async_recv(Sock, 0, infinity),
     State#state{await_recv = true}.
 
-with_proto(Fun, State = #state{proto_state = ProtoState}) ->
-    {ok, ProtoState1} = Fun(ProtoState),
-    {noreply, State#state{proto_state = ProtoState1}}.
-
-emit_stats(State = #state{proto_state = ProtoState}) ->
-    emit_stats(emqx_protocol:clientid(ProtoState), State).
-
-emit_stats(_ClientId, State = #state{enable_stats = false}) ->
-    State;
-emit_stats(undefined, State) ->
-    State;
-emit_stats(ClientId, State) ->
-    {reply, Stats, _, _} = handle_call(stats, undefined, State),
-    emqx_cm:set_client_stats(ClientId, Stats),
+ensure_stats_timer(State = #state{enable_stats = true,
+                                  stats_timer  = undefined,
+                                  idle_timeout = IdleTimeout}) ->
+    State#state{stats_timer = erlang:send_after(IdleTimeout, self(), emit_stats)};
+ensure_stats_timer(State) ->
     State.
-
-sock_stats(#state{transport = Transport, socket = Sock}) ->
-    case Transport:getstat(Sock, ?SOCK_STATS) of
-        {ok, Ss} -> Ss;
-        _Error   -> []
-    end.
-
-reply(Reply, State) ->
-    {reply, Reply, State, hibernate}.
 
 shutdown(Reason, State) ->
     stop({shutdown, Reason}, State).
@@ -382,7 +369,8 @@ shutdown(Reason, State) ->
 stop(Reason, State) ->
     {stop, Reason, State}.
 
-gc(State = #state{transport = Transport, socket = Sock}) ->
-    Cb = fun() -> Transport:gc(Sock), emit_stats(State) end,
-    emqx_gc:maybe_force_gc(#state.force_gc_count, State, Cb).
+maybe_gc(State) ->
+    State. %% TODO:...
+    %%Cb = fun() -> Transport:gc(Sock), end,
+    %%emqx_gc:maybe_force_gc(#state.force_gc_count, State, Cb).
 

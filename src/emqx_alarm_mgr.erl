@@ -81,7 +81,7 @@ handle_event({set_alarm, Alarm = #alarm{timestamp = undefined}}, State)->
 handle_event({set_alarm, Alarm = #alarm{id = AlarmId}}, State = #state{alarms = Alarms}) ->
     case encode_alarm(Alarm) of
         {ok, Json} ->
-            emqx_broker:safe_publish(alarm_msg(alert, AlarmId, Json));
+            ok = emqx_broker:safe_publish(alarm_msg(alert, AlarmId, Json));
         {error, Reason} ->
             emqx_logger:error("[AlarmMgr] Failed to encode alarm: ~p", [Reason])
     end,
@@ -131,7 +131,9 @@ encode_alarm(#alarm{id = AlarmId, severity = Severity, title = Title,
                            {ts, emqx_time:now_secs(Ts)}]).
 
 alarm_msg(Type, AlarmId, Json) ->
-    emqx_message:make(?ALARM_MGR, #{sys => true, qos => 0}, topic(Type, AlarmId), Json).
+    Msg = emqx_message:make(?ALARM_MGR, topic(Type, AlarmId), Json),
+    emqx_message:set_headers(#{'Content-Type' => <<"application/json">>},
+                             emqx_message:set_flags(#{sys => true}, Msg)).
 
 topic(alert, AlarmId) ->
     emqx_topic:systop(<<"alarms/", AlarmId/binary, "/alert">>);

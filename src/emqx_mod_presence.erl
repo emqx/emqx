@@ -39,8 +39,7 @@ on_client_connected(ConnAck, Client = #client{id = ClientId,
                                 {connack, ConnAck},
                                 {ts, emqx_time:now_secs()}]) of
         {ok, Payload} ->
-            Msg = message(qos(Env), topic(connected, ClientId), Payload),
-            emqx:publish(emqx_message:set_flag(sys, Msg));
+            emqx:publish(message(qos(Env), topic(connected, ClientId), Payload));
         {error, Reason} ->
             emqx_logger:error("[Presence Module] Json error: ~p", [Reason])
     end,
@@ -52,8 +51,7 @@ on_client_disconnected(Reason, #client{id = ClientId, username = Username}, Env)
                                 {reason, reason(Reason)},
                                 {ts, emqx_time:now_secs()}]) of
         {ok, Payload} ->
-            Msg = message(qos(Env), topic(disconnected, ClientId), Payload),
-            emqx:publish(emqx_message:set_flag(sys, Msg));
+            emqx_broker:publish(message(qos(Env), topic(disconnected, ClientId), Payload));
         {error, Reason} ->
             emqx_logger:error("[Presence Module] Json error: ~p", [Reason])
     end, ok.
@@ -62,9 +60,9 @@ unload(_Env) ->
     emqx:unhook('client.connected',    fun ?MODULE:on_client_connected/3),
     emqx:unhook('client.disconnected', fun ?MODULE:on_client_disconnected/3).
 
-message(Qos, Topic, Payload) ->
-    Msg = emqx_message:make(?MODULE, Topic, iolist_to_binary(Payload)),
-    emqx_message:set_header(qos, Qos, Msg).
+message(QoS, Topic, Payload) ->
+    Msg = emqx_message:make(?MODULE, QoS, Topic, iolist_to_binary(Payload)),
+    emqx_message:set_flags(#{sys => true}, Msg).
 
 topic(connected, ClientId) ->
     emqx_topic:systop(iolist_to_binary(["clients/", ClientId, "/connected"]));

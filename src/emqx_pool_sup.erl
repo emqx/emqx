@@ -27,11 +27,11 @@ spec(Args) ->
 -spec(spec(any(), list()) -> supervisor:child_spec()).
 spec(ChildId, Args) ->
     {ChildId, {?MODULE, start_link, Args},
-        transient, infinity, supervisor, [?MODULE]}.
+     transient, infinity, supervisor, [?MODULE]}.
 
 -spec(start_link(atom() | tuple(), atom(), mfa()) -> {ok, pid()} | {error, term()}).
 start_link(Pool, Type, MFA) ->
-    start_link(Pool, Type, emqx_vm:schedulers(schedulers), MFA).
+    start_link(Pool, Type, emqx_vm:schedulers(), MFA).
 
 -spec(start_link(atom() | tuple(), atom(), pos_integer(), mfa()) -> {ok, pid()} | {error, term()}).
 start_link(Pool, Type, Size, MFA) when is_atom(Pool) ->

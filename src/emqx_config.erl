@@ -33,14 +33,14 @@
 
 -define(APP, emqx).
 
+%% @doc Get environment
+-spec(get_env(Key :: atom()) -> term() | undefined).
+get_env(Key) ->
+    get_env(Key, undefined).
+
 -spec(get_env(Key :: atom(), Default :: term()) -> term()).
 get_env(Key, Default) ->
     application:get_env(?APP, Key, Default).
-
-%% @doc Get environment
--spec(get_env(Key :: atom()) -> {ok, any()} | undefined).
-get_env(Key) ->
-    application:get_env(?APP, Key).
 
 %% TODO:
 populate(_App) ->

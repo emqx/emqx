@@ -20,7 +20,7 @@
 
 -export([start_link/0]).
 
--export([open_session/1, lookup_session/1, close_session/1]).
+-export([open_session/1, lookup_session/1, close_session/1, lookup_session_pid/1]).
 -export([resume_session/1, resume_session/2, discard_session/1, discard_session/2]).
 -export([register_session/2, get_session_attrs/1, unregister_session/1]).
 -export([get_session_stats/1, set_session_stats/2]).
@@ -46,7 +46,7 @@ start_link() ->
     gen_server:start_link({local, ?SM}, ?MODULE, [], []).
 
 %% @doc Open a session.
--spec(open_session(map()) -> {ok, pid()} | {error, term()}).
+-spec(open_session(map()) -> {ok, pid(), boolean()} | {error, term()}).
 open_session(Attrs = #{clean_start := true,
                        client_id   := ClientId,
                        client_pid  := ClientPid}) ->

@@ -32,12 +32,11 @@
 -spec(init() -> ok).
 init() ->
     case emqx_config:get_env(plugins_etc_dir) of
-        {ok, PluginsEtc} ->
+        undefined  -> ok;
+        PluginsEtc ->
             CfgFiles = [filename:join(PluginsEtc, File) ||
-                          File <- filelib:wildcard("*.config", PluginsEtc)],
-            lists:foreach(fun init_config/1, CfgFiles);
-        undefined ->
-            ok
+                        File <- filelib:wildcard("*.config", PluginsEtc)],
+            lists:foreach(fun init_config/1, CfgFiles)
     end.
 
 init_config(CfgFile) ->
@@ -51,25 +50,24 @@ init_config(CfgFile) ->
 load() ->
     load_expand_plugins(),
     case emqx_config:get_env(plugins_loaded_file) of
-        {ok, File} ->
+        undefined -> %% No plugins available
+            ignore;
+        File ->
             ensure_file(File),
-            with_loaded_file(File, fun(Names) -> load_plugins(Names, false) end);
-        undefined ->
-            %% No plugins available
-            ignore
+            with_loaded_file(File, fun(Names) -> load_plugins(Names, false) end)
     end.
 
 load_expand_plugins() ->
     case emqx_config:get_env(expand_plugins_dir) of
-        {ok, Dir} ->
+        undefined -> ok;
+        Dir ->
             PluginsDir = filelib:wildcard("*", Dir),
             lists:foreach(fun(PluginDir) ->
                 case filelib:is_dir(Dir ++ PluginDir) of
                     true  -> load_expand_plugin(Dir ++ PluginDir);
                     false -> ok
                 end
-            end, PluginsDir);
-        _ -> ok
+            end, PluginsDir)
     end.
 
 load_expand_plugin(PluginDir) ->
@@ -102,7 +100,8 @@ init_expand_plugin_config(PluginDir) ->
 
 get_expand_plugin_config() ->
     case emqx_config:get_env(expand_plugins_dir) of
-        {ok, Dir} ->
+        undefined -> ok;
+        Dir ->
             PluginsDir = filelib:wildcard("*", Dir),
             lists:foldl(fun(PluginDir, Acc) ->
                 case filelib:is_dir(Dir ++ PluginDir) of
@@ -115,10 +114,8 @@ get_expand_plugin_config() ->
                     false ->
                         Acc
                 end
-            end, [], PluginsDir);
-        _ -> ok
+            end, [], PluginsDir)
     end.
-
 
 ensure_file(File) ->
     case filelib:is_file(File) of false -> write_loaded([]); true -> ok end.
@@ -145,10 +142,10 @@ load_plugins(Names, Persistent) ->
 -spec(unload() -> list() | {error, term()}).
 unload() ->
     case emqx_config:get_env(plugins_loaded_file) of
-        {ok, File} ->
-            with_loaded_file(File, fun stop_plugins/1);
         undefined ->
-            ignore
+            ignore;
+        File ->
+            with_loaded_file(File, fun stop_plugins/1)
     end.
 
 %% stop plugins
@@ -159,7 +156,9 @@ stop_plugins(Names) ->
 -spec(list() -> [plugin()]).
 list() ->
     case emqx_config:get_env(plugins_etc_dir) of
-        {ok, PluginsEtc} ->
+        undefined ->
+            [];
+        PluginsEtc ->
             CfgFiles = filelib:wildcard("*.{conf,config}", PluginsEtc) ++ get_expand_plugin_config(),
             Plugins = [plugin(CfgFile) || CfgFile <- CfgFiles],
             StartedApps = names(started_app),
@@ -168,9 +167,7 @@ list() ->
                               true  -> Plugin#plugin{active = true};
                               false -> Plugin
                           end
-                      end, Plugins);
-        undefined ->
-            []
+                      end, Plugins)
     end.
 
 plugin(CfgFile) ->
@@ -314,14 +311,14 @@ plugin_unloaded(Name, true) ->
 
 read_loaded() ->
     case emqx_config:get_env(plugins_loaded_file) of
-        {ok, File} -> read_loaded(File);
-        undefined  -> {error, not_found}
+        undefined -> {error, not_found};
+        File      -> read_loaded(File)
     end.
 
 read_loaded(File) -> file:consult(File).
 
 write_loaded(AppNames) ->
-    {ok, File} = emqx_config:get_env(plugins_loaded_file),
+    File = emqx_config:get_env(plugins_loaded_file),
     case file:open(File, [binary, write]) of
         {ok, Fd} ->
             lists:foreach(fun(Name) ->
