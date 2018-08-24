@@ -17,10 +17,15 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
--import(lists, [reverse/1]).
-
--export([match/2, validate/1, triples/1, words/1, wildcard/1]).
--export([join/1, feed_var/3, systop/1]).
+-export([match/2]).
+-export([validate/1, validate/2]).
+-export([levels/1]).
+-export([triples/1]).
+-export([words/1]).
+-export([wildcard/1]).
+-export([join/1]).
+-export([feed_var/3]).
+-export([systop/1]).
 -export([parse/1, parse/2]).
 
 -type(word() :: '' | '+' | '#' | binary()).
@@ -69,15 +74,21 @@ match([_H1|_], []) ->
 match([], [_H|_T2]) ->
     false.
 
-%% @doc Validate Topic
--spec(validate({name | filter, topic()}) -> boolean()).
-validate({_, <<>>}) ->
-    false;
-validate({_, Topic}) when is_binary(Topic) and (size(Topic) > ?MAX_TOPIC_LEN) ->
-    false;
-validate({filter, Topic}) when is_binary(Topic) ->
+%% @doc Validate topic name or filter
+-spec(validate(topic() | {name | filter, topic()}) -> true).
+validate(Topic) when is_binary(Topic) ->
+    validate(filter, Topic);
+validate({Type, Topic}) when Type =:= name; Type =:= filter ->
+    validate(Type, Topic).
+
+-spec(validate(name | filter, topic()) -> true).
+validate(_, <<>>) ->
+    error(empty_topic);
+validate(_, Topic) when is_binary(Topic) and (size(Topic) > ?MAX_TOPIC_LEN) ->
+    error(topic_too_long);
+validate(filter, Topic) when is_binary(Topic) ->
     validate2(words(Topic));
-validate({name, Topic}) when is_binary(Topic) ->
+validate(name, Topic) when is_binary(Topic) ->
     Words = words(Topic),
     validate2(Words) and (not wildcard(Words)).
 
@@ -86,7 +97,7 @@ validate2([]) ->
 validate2(['#']) -> % end with '#'
     true;
 validate2(['#'|Words]) when length(Words) > 0 ->
-    false;
+    error('topic_invalid_#');
 validate2([''|Words]) ->
     validate2(Words);
 validate2(['+'|Words]) ->
@@ -97,7 +108,7 @@ validate2([W|Words]) ->
 validate3(<<>>) ->
     true;
 validate3(<<C/utf8, _Rest/binary>>) when C == $#; C == $+; C == 0 ->
-    false;
+    error('topic_invalid_char');
 validate3(<<_/utf8, Rest/binary>>) ->
     validate3(Rest).
 
@@ -107,7 +118,7 @@ triples(Topic) when is_binary(Topic) ->
     triples(words(Topic), root, []).
 
 triples([], _Parent, Acc) ->
-    reverse(Acc);
+    lists:reverse(Acc);
 triples([W|Words], Parent, Acc) ->
     Node = join(Parent, W),
     triples(Words, Node, [{Parent, W, Node}|Acc]).
@@ -121,6 +132,9 @@ bin('')  -> <<>>;
 bin('+') -> <<"+">>;
 bin('#') -> <<"#">>;
 bin(B) when is_binary(B) -> B.
+
+levels(Topic) when is_binary(Topic) ->
+    length(words(Topic)).
 
 %% @doc Split Topic Path to Words
 -spec(words(topic()) -> words()).
@@ -142,7 +156,7 @@ systop(Name) when is_binary(Name) ->
 feed_var(Var, Val, Topic) ->
     feed_var(Var, Val, words(Topic), []).
 feed_var(_Var, _Val, [], Acc) ->
-    join(reverse(Acc));
+    join(lists:reverse(Acc));
 feed_var(Var, Val, [Var|Words], Acc) ->
     feed_var(Var, Val, Words, [Val|Acc]);
 feed_var(Var, Val, [W|Words], Acc) ->
@@ -166,17 +180,15 @@ join(Words) ->
 parse(Topic) when is_binary(Topic) ->
     parse(Topic, #{}).
 
-parse(Topic = <<"$queue/", Topic1/binary>>, Options) ->
-    case maps:find(share, Options) of
-        {ok, _} -> error({invalid_topic, Topic});
-        error   -> parse(Topic1, maps:put(share, '$queue', Options))
-    end;
-parse(Topic = <<"$share/", Topic1/binary>>, Options) ->
-    case maps:find(share, Options) of
-        {ok, _} -> error({invalid_topic, Topic});
-        error   -> [Group, Topic2] = binary:split(Topic1, <<"/">>),
-                   {Topic2, maps:put(share, Group, Options)}
-    end;
+parse(Topic = <<"$queue/", _/binary>>, #{share := _Group}) ->
+    error({invalid_topic, Topic});
+parse(Topic = <<"$share/", _/binary>>, #{share := _Group}) ->
+    error({invalid_topic, Topic});
+parse(<<"$queue/", Topic1/binary>>, Options) ->
+    parse(Topic1, maps:put(share, '$queue', Options));
+parse(<<"$share/", Topic1/binary>>, Options) ->
+    [Group, Topic2] = binary:split(Topic1, <<"/">>),
+    {Topic2, maps:put(share, Group, Options)};
 parse(Topic, Options) ->
     {Topic, Options}.
 

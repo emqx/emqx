@@ -12,15 +12,15 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--define(record_to_map(Def, Rec),
-        maps:from_list(?record_to_proplist(Def, Rec))).
+-module(emqx_mqtt_caps_SUITE).
 
--define(record_to_map(Def, Rec, Fields),
-        maps:from_list(?record_to_proplist(Def, Rec, Fields))).
+-include_lib("eunit/include/eunit.hrl").
 
--define(record_to_proplist(Def, Rec),
-        lists:zip(record_info(fields, Def), tl(tuple_to_list(Rec)))).
+%% CT
+-compile(export_all).
+-compile(nowarn_export_all).
 
--define(record_to_proplist(Def, Rec, Fields),
-        [{K, V} || {K, V} <- ?record_to_proplist(Def, Rec), lists:member(K, Fields)]).
+all() ->
+    [].
+
 
