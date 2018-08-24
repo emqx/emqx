@@ -1411,8 +1411,11 @@ end}.
 %%--------------------------------------------------------------------
 
 {mapping, "bridge.$name.type", "emqx.bridges", [
-  {default, local},
-  {datatype, {enum, [local,remote]}}
+  {datatype, {enum, [in, out]}}
+]}.
+
+{mapping, "bridge.$name.store_type", "emqx.bridges", [
+  {datatype, {enum, [memory, disk]}}
 ]}.
 
 {mapping, "bridge.$name.address", "emqx.bridges", [
@@ -1441,6 +1444,10 @@ end}.
 ]}.
 
 {mapping, "bridge.$name.mountpoint", "emqx.bridges", [
+  {datatype, string}
+]}.
+
+{mapping, "bridge.$name.forward_rule", "emqx.bridges", [
   {datatype, string}
 ]}.
 
@@ -1481,6 +1488,22 @@ end}.
 {mapping, "bridge.$name.subscription.$id.qos", "emqx.bridges", [
   {datatype, integer}
 ]}.
+
+{mapping, "bridge.$name.start_type", "emqx.bridges", [
+  {datatype, {enum, [manual, auto]}},
+  {default, auto}
+]}.
+
+{mapping, "bridge.$name.reconnect_count", "emqx.bridges", [
+  {default, 10},
+  {datatype, integer}
+]}.
+
+{mapping, "bridge.$name.reconnect_time", "emqx.bridges", [
+  {default, "30s"},
+  {datatype, {duration, s}}
+]}.
+
 
 {translation, "emqx.bridges", fun(Conf) ->
 

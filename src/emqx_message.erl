@@ -69,7 +69,9 @@ unset_flag(Flag, Msg = #message{flags = Flags}) ->
 set_headers(Headers, Msg = #message{headers = undefined}) when is_map(Headers) ->
     Msg#message{headers = Headers};
 set_headers(New, Msg = #message{headers = Old}) when is_map(New) ->
-    Msg#message{headers = maps:merge(Old, New)}.
+    Msg#message{headers = maps:merge(Old, New)};
+set_headers(_, Msg) ->
+    Msg.
 
 get_header(Hdr, Msg) ->
     get_header(Hdr, Msg, undefined).
