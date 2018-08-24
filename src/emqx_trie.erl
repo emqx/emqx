@@ -118,8 +118,8 @@ add_path({Node, Word, Child}) ->
 
 %% @private
 %% @doc Match node with word or '+'.
-match_node(root, [<<"$SYS">>|Words]) ->
-    match_node(<<"$SYS">>, Words, []);
+match_node(root, [NodeId = <<$$, _/binary>>|Words]) ->
+    match_node(NodeId, Words, []);
 
 match_node(NodeId, Words) ->
     match_node(NodeId, Words, []).

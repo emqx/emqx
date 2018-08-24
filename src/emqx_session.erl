@@ -310,7 +310,7 @@ close(SPid) ->
 
 init(#{zone        := Zone,
        client_id   := ClientId,
-       conn_pid    := ClientPid,
+       client_pid  := ClientPid,
        clean_start := CleanStart,
        username    := Username,
        %% TODO:
@@ -469,7 +469,7 @@ handle_cast({pubrec, PacketId, _ReasonCode}, State = #state{inflight = Inflight}
     end;
 
 %% PUBREL:
-handle_cast({pubrel, PacketId}, State = #state{awaiting_rel = AwaitingRel}) ->
+handle_cast({pubrel, PacketId, _ReasonCode}, State = #state{awaiting_rel = AwaitingRel}) ->
     {noreply,
      case maps:take(PacketId, AwaitingRel) of
          {Msg, AwaitingRel1} ->
@@ -503,7 +503,7 @@ handle_cast({resume, ClientPid},
                            await_rel_timer = AwaitTimer,
                            expiry_timer    = ExpireTimer}) ->
 
-    ?LOG(info, "Resumed by ~p", [ClientPid], State),
+    ?LOG(info, "Resumed by ~p ", [ClientPid], State),
 
     %% Cancel Timers
     lists:foreach(fun emqx_misc:cancel_timer/1,
@@ -649,6 +649,7 @@ retry_delivery(Force, State = #state{inflight = Inflight}) ->
             State;
         false ->
             Msgs = lists:sort(sortfun(inflight), emqx_inflight:values(Inflight)),
+            io:format("!!! Retry Delivery: ~p~n", [Msgs]),
             retry_delivery(Force, Msgs, os:timestamp(), State)
     end.
 

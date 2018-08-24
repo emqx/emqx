@@ -121,8 +121,9 @@ send_fun(Transport, Socket, Peername) ->
     fun(Data) ->
         try Transport:async_send(Socket, Data) of
             ok ->
-                ?LOG(debug, "SEND ~p", [Data], #state{peername = Peername}),
-                emqx_metrics:inc('bytes/sent', iolist_size(Data)), ok;
+                ?LOG(debug, "SEND ~p", [iolist_to_binary(Data)], #state{peername = Peername}),
+                emqx_metrics:inc('bytes/sent', iolist_size(Data)),
+                ok;
             Error -> Error
         catch
             error:Error ->

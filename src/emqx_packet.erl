@@ -94,7 +94,11 @@ to_message(ClientId, #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLI
                                                                   properties = Props},
                                   payload  = Payload}) ->
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
-    Msg#message{flags = #{dup => Dup, retain => Retain}, headers = Props};
+    Msg#message{flags = #{dup => Dup, retain => Retain},
+                headers = if
+                              Props =:= undefined -> #{};
+                              true -> Props
+                          end};
 
 to_message(_ClientId, #mqtt_packet_connect{will_flag = false}) ->
     undefined;

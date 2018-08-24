@@ -46,7 +46,6 @@
                       mqtt_retain_available]).
 -define(SUBCAP_KEYS, [max_qos_allowed,
                       max_topic_levels,
-                      mqtt_retain_available,
                       mqtt_shared_subscription,
                       mqtt_wildcard_subscription]).
 

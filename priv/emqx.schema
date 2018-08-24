@@ -653,12 +653,10 @@ end}.
 ]}.
 
 {mapping, "zone.$name.allow_anonymous", "emqx.zones", [
-  {default, false},
   {datatype, {enum, [true, false]}}
 ]}.
 
 {mapping, "zone.$name.acl_nomatch", "emqx.zones", [
-  {default, deny},
   {datatype, {enum, [allow, deny]}}
 ]}.
 

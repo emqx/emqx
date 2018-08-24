@@ -215,28 +215,28 @@ process(?CONNECT_PACKET(
 
     connack(
       case check_connect(Connect, PState1) of
-          ok ->
-              case authenticate(client(PState1), Password) of
+          {ok, PState2} ->
+              case authenticate(client(PState2), Password) of
                   {ok, IsSuper} ->
                       %% Maybe assign a clientId
-                      PState2 = maybe_assign_client_id(PState1#pstate{is_super = IsSuper}),
+                      PState3 = maybe_assign_client_id(PState2#pstate{is_super = IsSuper}),
                       %% Open session
-                      case try_open_session(PState2) of
+                      case try_open_session(PState3) of
                           {ok, SPid, SP} ->
-                              PState3 = PState2#pstate{session = SPid},
-                              ok = emqx_cm:register_client({client_id(PState3), self()}, info(PState3)),
+                              PState4 = PState3#pstate{session = SPid},
+                              ok = emqx_cm:register_client({client_id(PState4), self()}, info(PState4)),
                               %% Start keepalive
-                              start_keepalive(Keepalive, PState3),
+                              start_keepalive(Keepalive, PState4),
                               %% TODO: 'Run hooks' before open_session?
-                              emqx_hooks:run('client.connected', [?RC_SUCCESS], client(PState3)),
+                              emqx_hooks:run('client.connected', [?RC_SUCCESS], client(PState4)),
                               %% Success
-                              {?RC_SUCCESS, SP, replvar(PState3)};
+                              {?RC_SUCCESS, SP, replvar(PState4)};
                           {error, Error} ->
                               ?LOG(error, "Failed to open session: ~p", [Error], PState1),
                               {?RC_UNSPECIFIED_ERROR, PState1}
                     end;
                   {error, Reason} ->
-                      ?LOG(error, "Username '~s' login failed for ~p", [Username, Reason], PState1),
+                      ?LOG(error, "Username '~s' login failed for ~p", [Username, Reason], PState2),
                       {?RC_NOT_AUTHORIZED, PState1}
               end;
           {error, ReasonCode} ->
@@ -245,8 +245,8 @@ process(?CONNECT_PACKET(
 
 process(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PState) ->
     case check_publish(Packet, PState) of
-        ok ->
-            do_publish(Packet, PState);
+        {ok, PState1} ->
+            do_publish(Packet, PState1);
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos0 message to ~s for ~s", [Topic, ReasonCode], PState),
             {ok, PState}
@@ -254,16 +254,16 @@ process(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PState) ->
 
 process(Packet = ?PUBLISH_PACKET(?QOS_1, PacketId), PState) ->
     case check_publish(Packet, PState) of
-        ok ->
-            do_publish(Packet, PState);
+        {ok, PState1} ->
+            do_publish(Packet, PState1);
         {error, ReasonCode} ->
             deliver({puback, PacketId, ReasonCode}, PState)
     end;
 
 process(Packet = ?PUBLISH_PACKET(?QOS_2, PacketId), PState) ->
     case check_publish(Packet, PState) of
-        ok ->
-            do_publish(Packet, PState);
+        {ok, PState1} ->
+            do_publish(Packet, PState1);
         {error, ReasonCode} ->
             deliver({pubrec, PacketId, ReasonCode}, PState)
     end;
