@@ -19,7 +19,7 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
- -import(proplists, [get_value/2, get_value/3]).
+-import(proplists, [get_value/2, get_value/3]).
 
 -export([start_link/2, start_bridge/1, stop_bridge/1, status/1]).
 
