@@ -124,10 +124,8 @@ list_to_subid(SubId) when is_list(SubId) ->
     iolist_to_binary(SubId);
 list_to_subid(SubPid) when is_pid(SubPid) ->
     SubPid;
-list_to_subid({SubId, SubPid}) when is_binary(SubId), is_pid(SubPid) ->
-    {SubId, SubPid};
-list_to_subid({SubId, SubPid}) when is_list(SubId), is_pid(SubPid) ->
-    {iolist_to_binary(SubId), SubPid}.
+list_to_subid({SubPid, SubId}) when is_pid(SubPid), is_binary(SubId) ->
+    {SubPid, SubId}.
 
 %%--------------------------------------------------------------------
 %% Hooks API
