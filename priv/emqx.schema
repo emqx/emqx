@@ -559,6 +559,12 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc ACL nomatch.
+{mapping, "acl_nomatch", "emqx.acl_nomatch", [
+  {default, deny},
+  {datatype, {enum, [allow, deny]}}
+]}.
+
 %% @doc Default ACL file.
 {mapping, "acl_file", "emqx.acl_file", [
   {datatype, string},
@@ -584,7 +590,7 @@ end}.
 %% ]}.
 
 %%--------------------------------------------------------------------
-%% MQTT
+%% MQTT Protocol
 %%--------------------------------------------------------------------
 
 %% @doc Max Packet Size Allowed, 1MB by default.
@@ -635,6 +641,170 @@ end}.
   {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
+
+%%--------------------------------------------------------------------
+%% Zones
+%%--------------------------------------------------------------------
+
+%% @doc Idle timeout of the MQTT connection.
+{mapping, "zone.$name.idle_timeout", "emqx.zones", [
+  {default, "15s"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "zone.$name.allow_anonymous", "emqx.zones", [
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "zone.$name.acl_nomatch", "emqx.zones", [
+  {datatype, {enum, [allow, deny]}}
+]}.
+
+%% @doc Enable ACL check.
+{mapping, "zone.$name.enable_acl", "emqx.zones", [
+  {default, off},
+  {datatype, flag}
+]}.
+
+%% @doc Enable per connection statistics.
+{mapping, "zone.$name.enable_stats", "emqx.zones", [
+  {default, off},
+  {datatype, flag}
+]}.
+
+%% @doc Publish limit of the MQTT connections.
+{mapping, "zone.$name.publish_limit", "emqx.zones", [
+  {default, undefined},
+  {datatype, string}
+]}.
+
+%% @doc Max Packet Size Allowed, 64K by default.
+{mapping, "zone.$name.max_packet_size", "emqx.zones", [
+  {datatype, bytesize}
+]}.
+
+%% @doc Set the Max ClientId Length Allowed.
+{mapping, "zone.$name.max_clientid_len", "emqx.zones", [
+  {datatype, integer}
+]}.
+
+%% @doc Set the Maximum topic levels.
+{mapping, "zone.$name.max_topic_levels", "emqx.zones", [
+  {datatype, integer}
+]}.
+
+%% @doc Set the Maximum QoS allowed.
+{mapping, "zone.$name.max_qos_allowed", "emqx.zones", [
+  {datatype, integer},
+  {validators, ["range:0-2"]}
+]}.
+
+%% @doc Set the Maximum topic alias.
+{mapping, "zone.$name.max_topic_alias", "emqx.zones", [
+  {datatype, integer}
+]}.
+
+%% @doc Whether the server supports retained messages.
+{mapping, "zone.$name.retain_available", "emqx.zones", [
+  {datatype, {enum, [true, false]}}
+]}.
+
+%% @doc Whether the Server supports Wildcard Subscriptions.
+{mapping, "zone.$name.wildcard_subscription", "emqx.zones", [
+  {datatype, {enum, [true, false]}}
+]}.
+
+%% @doc Whether the Server supports Shared Subscriptions.
+{mapping, "zone.$name.shared_subscription", "emqx.zones", [
+  {datatype, {enum, [true, false]}}
+]}.
+
+%% @doc Keepalive backoff
+{mapping, "zone.$name.keepalive_backoff", "emqx.zones", [
+  {default, 0.75},
+  {datatype, float}
+]}.
+
+%% @doc Max Number of Subscriptions Allowed.
+{mapping, "zone.$name.max_subscriptions", "emqx.zones", [
+  {default, 0},
+  {datatype, integer}
+]}.
+
+%% @doc Upgrade QoS according to subscription?
+{mapping, "zone.$name.upgrade_qos", "emqx.zones", [
+  {default, off},
+  {datatype, flag}
+]}.
+
+%% @doc Max number of QoS 1 and 2 messages that can be “inflight” at one time.
+%% 0 means no limit
+{mapping, "zone.$name.max_inflight", "emqx.zones", [
+  {default, 0},
+  {datatype, integer}
+]}.
+
+%% @doc Retry interval for redelivering QoS1/2 messages.
+{mapping, "zone.$name.retry_interval", "emqx.zones", [
+  {default, "20s"},
+  {datatype, {duration, ms}}
+]}.
+
+%% @doc Max Packets that Awaiting PUBREL, 0 means no limit
+{mapping, "zone.$name.max_awaiting_rel", "emqx.zones", [
+  {default, 0},
+  {datatype, integer}
+]}.
+
+%% @doc Awaiting PUBREL timeout
+{mapping, "zone.$name.await_rel_timeout", "emqx.zones", [
+  {default, "60s"},
+  {datatype, {duration, ms}}
+]}.
+
+%% @doc Ignore loop delivery of messages
+{mapping, "zone.$name.ignore_loop_deliver", "emqx.zones", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
+%% @doc Session Expiry Interval
+{mapping, "zone.$name.session_expiry_interval", "emqx.zones", [
+  {default, "2h"},
+  {datatype, {duration, ms}}
+]}.
+
+%% @doc Max queue length. Enqueued messages when persistent client
+%% disconnected, or inflight window is full. 0 means no limit.
+{mapping, "zone.$name.max_mqueue_len", "emqx.zones", [
+  {default, 1000},
+  {datatype, integer}
+]}.
+
+%% @doc Queue Qos0 messages?
+{mapping, "zone.$name.mqueue_store_qos0", "emqx.zones", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{translation, "emqx.zones", fun(Conf) ->
+  Mapping = fun("retain_available", Val) ->
+                    {mqtt_retain_available, Val};
+               ("wildcard_subscription", Val) ->
+                    {mqtt_wildcard_subscription, Val};
+               ("shared_subscription", Val) ->
+                    {mqtt_shared_subscription, Val};
+               (Opt, Val) ->
+                    {list_to_atom(Opt), Val}
+            end,
+  maps:to_list(
+    lists:foldl(
+      fun({["zone", Name, Opt], Val}, Zones) ->
+              maps:update_with(list_to_atom(Name),
+                               fun(Opts) -> [Mapping(Opt, Val)|Opts] end,
+                               [Mapping(Opt, Val)], Zones)
+      end, #{}, lists:usort(cuttlefish_variable:filter_by_prefix("zone.", Conf))))
+end}.
 
 %%--------------------------------------------------------------------
 %% Listeners
@@ -1232,162 +1402,6 @@ end}.
                   [SslListeners(Type, Name) || {["listener", Type, Name], ListenOn}
                                                <- cuttlefish_variable:filter_by_prefix("listener.ssl", Conf)
                                                ++ cuttlefish_variable:filter_by_prefix("listener.wss", Conf)])
-end}.
-
-%%--------------------------------------------------------------------
-%% Zones
-%%--------------------------------------------------------------------
-
-%% @doc Idle timeout of the MQTT connection.
-{mapping, "zone.$name.idle_timeout", "emqx.zones", [
-  {default, "15s"},
-  {datatype, {duration, ms}}
-]}.
-
-%% @doc Enable ACL check.
-{mapping, "zone.$name.enable_acl", "emqx.zones", [
-  {default, off},
-  {datatype, flag}
-]}.
-
-%% @doc Enable per connection statistics.
-{mapping, "zone.$name.enable_stats", "emqx.zones", [
-  {default, off},
-  {datatype, flag}
-]}.
-
-%% @doc Publish limit of the MQTT connections.
-{mapping, "zone.$name.publish_limit", "emqx.zones", [
-  {default, undefined},
-  {datatype, string}
-]}.
-
-%% @doc Max Packet Size Allowed, 64K by default.
-{mapping, "zone.$name.max_packet_size", "emqx.zones", [
-  {datatype, bytesize}
-]}.
-
-%% @doc Set the Max ClientId Length Allowed.
-{mapping, "zone.$name.max_clientid_len", "emqx.zones", [
-  {datatype, integer}
-]}.
-
-%% @doc Set the Maximum topic levels.
-{mapping, "zone.$name.max_topic_levels", "emqx.zones", [
-  {datatype, integer}
-]}.
-
-%% @doc Set the Maximum QoS allowed.
-{mapping, "zone.$name.max_qos_allowed", "emqx.zones", [
-  {datatype, integer},
-  {validators, ["range:0-2"]}
-]}.
-
-%% @doc Set the Maximum topic alias.
-{mapping, "zone.$name.max_topic_alias", "emqx.zones", [
-  {datatype, integer}
-]}.
-
-%% @doc Whether the server supports retained messages.
-{mapping, "zone.$name.retain_available", "emqx.zones", [
-  {datatype, {enum, [true, false]}}
-]}.
-
-%% @doc Whether the Server supports Wildcard Subscriptions.
-{mapping, "zone.$name.wildcard_subscription", "emqx.zones", [
-  {datatype, {enum, [true, false]}}
-]}.
-
-%% @doc Whether the Server supports Shared Subscriptions.
-{mapping, "zone.$name.shared_subscription", "emqx.zones", [
-  {datatype, {enum, [true, false]}}
-]}.
-
-%% @doc Keepalive backoff
-{mapping, "zone.$name.keepalive_backoff", "emqx.zones", [
-  {default, 0.75},
-  {datatype, float}
-]}.
-
-%% @doc Max Number of Subscriptions Allowed.
-{mapping, "zone.$name.max_subscriptions", "emqx.zones", [
-  {default, 0},
-  {datatype, integer}
-]}.
-
-%% @doc Upgrade QoS according to subscription?
-{mapping, "zone.$name.upgrade_qos", "emqx.zones", [
-  {default, off},
-  {datatype, flag}
-]}.
-
-%% @doc Max number of QoS 1 and 2 messages that can be “inflight” at one time.
-%% 0 means no limit
-{mapping, "zone.$name.max_inflight", "emqx.zones", [
-  {default, 0},
-  {datatype, integer}
-]}.
-
-%% @doc Retry interval for redelivering QoS1/2 messages.
-{mapping, "zone.$name.retry_interval", "emqx.zones", [
-  {default, "20s"},
-  {datatype, {duration, ms}}
-]}.
-
-%% @doc Max Packets that Awaiting PUBREL, 0 means no limit
-{mapping, "zone.$name.max_awaiting_rel", "emqx.zones", [
-  {default, 0},
-  {datatype, integer}
-]}.
-
-%% @doc Awaiting PUBREL timeout
-{mapping, "zone.$name.await_rel_timeout", "emqx.zones", [
-  {default, "60s"},
-  {datatype, {duration, ms}}
-]}.
-
-%% @doc Ignore message from self publish
-{mapping, "zone.$name.ignore_loop_deliver", "emqx.zones", [
-  {default, false},
-  {datatype, {enum, [true, false]}}
-]}.
-
-%% @doc Session Expiry Interval
-{mapping, "zone.$name.session_expiry_interval", "emqx.zones", [
-  {default, "2h"},
-  {datatype, {duration, ms}}
-]}.
-
-%% @doc Max queue length. Enqueued messages when persistent client
-%% disconnected, or inflight window is full. 0 means no limit.
-{mapping, "zone.$name.max_mqueue_len", "emqx.zones", [
-  {default, 1000},
-  {datatype, integer}
-]}.
-
-%% @doc Queue Qos0 messages?
-{mapping, "zone.$name.mqueue_store_qos0", "emqx.zones", [
-  {default, true},
-  {datatype, {enum, [true, false]}}
-]}.
-
-{translation, "emqx.zones", fun(Conf) ->
-  Mapping = fun("retain_available", Val) ->
-                    {mqtt_retain_available, Val};
-               ("wildcard_subscription", Val) ->
-                    {mqtt_wildcard_subscription, Val};
-               ("shared_subscription", Val) ->
-                    {mqtt_shared_subscription, Val};
-               (Opt, Val) ->
-                    {list_to_atom(Opt), Val}
-            end,
-  maps:to_list(
-    lists:foldl(
-      fun({["zone", Name, Opt], Val}, Zones) ->
-              maps:update_with(list_to_atom(Name),
-                               fun(Opts) -> [Mapping(Opt, Val)|Opts] end,
-                               [Mapping(Opt, Val)], Zones)
-      end, #{}, lists:usort(cuttlefish_variable:filter_by_prefix("zone.", Conf))))
 end}.
 
 %%--------------------------------------------------------------------

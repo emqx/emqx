@@ -17,20 +17,58 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
--export([protocol_name/1, type_name/1]).
+-export([protocol_name/1]).
+-export([type_name/1]).
+-export([validate/1]).
 -export([format/1]).
 -export([to_message/2, from_message/2]).
 
 %% @doc Protocol name of version
 -spec(protocol_name(mqtt_version()) -> binary()).
-protocol_name(?MQTT_PROTO_V3) -> <<"MQIsdp">>;
-protocol_name(?MQTT_PROTO_V4) -> <<"MQTT">>;
-protocol_name(?MQTT_PROTO_V5) -> <<"MQTT">>.
+protocol_name(?MQTT_PROTO_V3) ->
+    <<"MQIsdp">>;
+protocol_name(?MQTT_PROTO_V4) ->
+    <<"MQTT">>;
+protocol_name(?MQTT_PROTO_V5) ->
+    <<"MQTT">>.
 
 %% @doc Name of MQTT packet type
 -spec(type_name(mqtt_packet_type()) -> atom()).
 type_name(Type) when Type > ?RESERVED andalso Type =< ?AUTH ->
     lists:nth(Type, ?TYPE_NAMES).
+
+validate(?SUBSCRIBE_PACKET(_PacketId, _Properties, [])) ->
+    error(packet_empty_topic_filters);
+validate(?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters)) ->
+    validate_packet_id(PacketId)
+        andalso validate_properties(?SUBSCRIBE, Properties)
+            andalso ok == lists:foreach(fun validate_subscription/1, TopicFilters);
+
+validate(?UNSUBSCRIBE_PACKET(_PacketId, [])) ->
+    error(packet_empty_topic_filters);
+validate(?UNSUBSCRIBE_PACKET(PacketId, TopicFilters)) ->
+    validate_packet_id(PacketId)
+        andalso ok == lists:foreach(fun emqx_topic:validate/1, TopicFilters);
+
+validate(_Packet) ->
+    true.
+
+validate_packet_id(0) ->
+    error(bad_packet_id);
+validate_packet_id(_) ->
+    true.
+
+validate_properties(?SUBSCRIBE, #{'Subscription-Identifier' := 0}) ->
+    error(bad_subscription_identifier);
+validate_properties(?SUBSCRIBE, _) ->
+    true.
+
+validate_subscription({Topic, #{qos := QoS}}) ->
+    emqx_topic:validate(filter, Topic) andalso validate_qos(QoS).
+
+validate_qos(QoS) when ?QOS0 =< QoS, QoS =< ?QOS2 ->
+    true;
+validate_qos(_) -> error(bad_qos).
 
 %% @doc From Message to Packet
 -spec(from_message(mqtt_packet_id(), message()) -> mqtt_packet()).
@@ -56,7 +94,11 @@ to_message(ClientId, #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLI
                                                                   properties = Props},
                                   payload  = Payload}) ->
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
-    Msg#message{flags = #{dup => Dup, retain => Retain}, headers = Props};
+    Msg#message{flags = #{dup => Dup, retain => Retain},
+                headers = if
+                              Props =:= undefined -> #{};
+                              true -> Props
+                          end};
 
 to_message(_ClientId, #mqtt_packet_connect{will_flag = false}) ->
     undefined;

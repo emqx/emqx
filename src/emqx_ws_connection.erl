@@ -16,7 +16,6 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
--include("emqx_misc.hrl").
 
 -export([info/1]).
 -export([stats/1]).
@@ -44,9 +43,8 @@
           shutdown_reason
          }).
 
--define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
-
 -define(INFO_KEYS, [peername, sockname]).
+-define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
 -define(WSLOG(Level, Format, Args, State),
         lager:Level("WsClient(~s): " ++ Format, [esockd_net:format(State#state.peername) | Args])).
@@ -110,8 +108,8 @@ websocket_init(#state{request = Req, options = Options}) ->
                                       sendfun  => send_fun(self())}, Options),
     ParserState = emqx_protocol:parser(ProtoState),
     Zone = proplists:get_value(zone, Options),
-    EnableStats = emqx_zone:env(Zone, enable_stats, true),
-    IdleTimout = emqx_zone:env(Zone, idle_timeout, 30000),
+    EnableStats = emqx_zone:get_env(Zone, enable_stats, true),
+    IdleTimout = emqx_zone:get_env(Zone, idle_timeout, 30000),
     lists:foreach(fun(Stat) -> put(Stat, 0) end, ?SOCK_STATS),
     {ok, #state{peername     = Peername,
                 sockname     = Sockname,

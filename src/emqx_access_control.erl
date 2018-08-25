@@ -18,15 +18,16 @@
 
 -include("emqx.hrl").
 
-%% API Function Exports
--export([start_link/0, auth/2, check_acl/3, reload_acl/0, lookup_mods/1,
-         register_mod/3, register_mod/4, unregister_mod/2, stop/0]).
-
+-export([start_link/0]).
+-export([authenticate/2]).
+-export([check_acl/3, reload_acl/0, lookup_mods/1]).
 -export([clean_acl_cache/1, clean_acl_cache/2]).
+-export([register_mod/3, register_mod/4, unregister_mod/2]).
+-export([stop/0]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3]).
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
@@ -35,9 +36,9 @@
 
 -record(state, {}).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% API
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 %% @doc Start access control server.
 -spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
@@ -58,34 +59,34 @@ register_default_mod() ->
     end.
 
 %% @doc Authenticate Client.
--spec(auth(Client :: client(), Password :: password())
+-spec(authenticate(Client :: client(), Password :: password())
       -> ok | {ok, boolean()} | {error, term()}).
-auth(Client, Password) when is_record(Client, client) ->
-    auth(Client, Password, lookup_mods(auth)).
-auth(_Client, _Password, []) ->
-    case emqx_config:get_env(allow_anonymous, false) of
+authenticate(Client, Password) when is_record(Client, client) ->
+    authenticate(Client, Password, lookup_mods(auth)).
+
+authenticate(#client{zone = Zone}, _Password, []) ->
+    case emqx_zone:get_env(Zone, allow_anonymous, false) of
         true  -> ok;
         false -> {error, "No auth module to check!"}
     end;
-auth(Client, Password, [{Mod, State, _Seq} | Mods]) ->
+
+authenticate(Client, Password, [{Mod, State, _Seq} | Mods]) ->
     case catch Mod:check(Client, Password, State) of
         ok              -> ok;
         {ok, IsSuper}   -> {ok, IsSuper};
-        ignore          -> auth(Client, Password, Mods);
+        ignore          -> authenticate(Client, Password, Mods);
         {error, Reason} -> {error, Reason};
         {'EXIT', Error} -> {error, Error}
     end.
 
 %% @doc Check ACL
--spec(check_acl(Client, PubSub, Topic) -> allow | deny when
-      Client :: client(),
-      PubSub :: pubsub(),
-      Topic  :: topic()).
+-spec(check_acl(client(), pubsub(), topic()) -> allow | deny).
 check_acl(Client, PubSub, Topic) when ?PS(PubSub) ->
     check_acl(Client, PubSub, Topic, lookup_mods(acl)).
 
-check_acl(_Client, _PubSub, _Topic, []) ->
-    emqx_config:get_env(acl_nomatch, allow);
+check_acl(#client{zone = Zone}, _PubSub, _Topic, []) ->
+    emqx_zone:get_env(Zone, acl_nomatch, deny);
+
 check_acl(Client, PubSub, Topic, [{Mod, State, _Seq}|AclMods]) ->
     case Mod:check_acl({Client, PubSub, Topic}, State) of
         allow  -> allow;
@@ -175,15 +176,15 @@ handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[AccessControl] Unexpected request: ~p", [Req]),
+    emqx_logger:error("[AccessControl] unexpected request: ~p", [Req]),
     {reply, ignore, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[AccessControl] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[AccessControl] unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    emqx_logger:error("[AccessControl] Unexpected info: ~p", [Info]),
+    emqx_logger:error("[AccessControl] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
