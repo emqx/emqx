@@ -24,7 +24,7 @@ BUILD_DEPS = cuttlefish
 dep_cuttlefish = git https://github.com/emqx/cuttlefish emqx30
 
 TEST_DEPS = emqx_ct_helplers
-dep_emqx_ct_helplers = git git@github.com:emqx/emqx_ct_helpers
+dep_emqx_ct_helplers = git git@github.com:emqx/emqx-ct-helpers
 
 TEST_ERLC_OPTS += +debug_info
 TEST_ERLC_OPTS += +'{parse_transform, lager_transform}'
