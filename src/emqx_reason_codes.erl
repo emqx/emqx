@@ -15,7 +15,10 @@
 %% @doc MQTT5 reason codes
 -module(emqx_reason_codes).
 
+-include("emqx_mqtt.hrl").
+
 -export([name/1, text/1]).
+-export([compat/2]).
 
 name(16#00) -> success;
 name(16#01) -> granted_qos1;
@@ -106,4 +109,25 @@ text(16#A0) -> <<"Maximum connect time">>;
 text(16#A1) -> <<"Subscription Identifiers not supported">>;
 text(16#A2) -> <<"Wildcard Subscriptions not supported">>;
 text(Code)  -> iolist_to_binary(["Unkown Reason Code:", integer_to_list(Code)]).
+
+compat(connack, 16#80) -> ?CONNACK_PROTO_VER;
+compat(connack, 16#81) -> ?CONNACK_PROTO_VER;
+compat(connack, 16#82) -> ?CONNACK_PROTO_VER;
+compat(connack, 16#83) -> ?CONNACK_PROTO_VER;
+compat(connack, 16#84) -> ?CONNACK_PROTO_VER;
+compat(connack, 16#85) -> ?CONNACK_INVALID_ID;
+compat(connack, 16#86) -> ?CONNACK_CREDENTIALS;
+compat(connack, 16#87) -> ?CONNACK_AUTH;
+compat(connack, 16#88) -> ?CONNACK_SERVER;
+compat(connack, 16#89) -> ?CONNACK_SERVER;
+compat(connack, 16#8A) -> ?CONNACK_AUTH;
+compat(connack, 16#8B) -> ?CONNACK_SERVER;
+compat(connack, 16#8C) -> ?CONNACK_AUTH;
+compat(connack, 16#97) -> ?CONNACK_SERVER;
+compat(connack, 16#9C) -> ?CONNACK_SERVER;
+compat(connack, 16#9D) -> ?CONNACK_SERVER;
+compat(connack, 16#9F) -> ?CONNACK_SERVER;
+
+compat(suback, Code) when Code =< ?QOS2 -> Code;
+compat(suback, Code) when Code > 16#80  -> 16#80.
 
