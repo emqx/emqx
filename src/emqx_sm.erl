@@ -20,8 +20,10 @@
 
 -export([start_link/0]).
 
--export([open_session/1, lookup_session/1, close_session/1, lookup_session_pid/1]).
--export([resume_session/1, resume_session/2, discard_session/1, discard_session/2]).
+-export([open_session/1, close_session/1]).
+-export([lookup_session/1, lookup_session_pid/1]).
+-export([resume_session/1, resume_session/2]).
+-export([discard_session/1, discard_session/2]).
 -export([register_session/2, get_session_attrs/1, unregister_session/1]).
 -export([get_session_stats/1, set_session_stats/2]).
 
@@ -29,7 +31,8 @@
 -export([dispatch/3]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3]).
 
 -record(state, {session_pmon}).
 
@@ -46,7 +49,7 @@ start_link() ->
     gen_server:start_link({local, ?SM}, ?MODULE, [], []).
 
 %% @doc Open a session.
--spec(open_session(map()) -> {ok, pid(), boolean()} | {error, term()}).
+-spec(open_session(map()) -> {ok, pid()} | {ok, pid(), boolean()} | {error, term()}).
 open_session(Attrs = #{clean_start := true,
                        client_id   := ClientId,
                        client_pid  := ClientPid}) ->
@@ -61,8 +64,8 @@ open_session(Attrs = #{clean_start := false,
                        client_pid  := ClientPid}) ->
     ResumeStart = fun(_) ->
                       case resume_session(ClientId, ClientPid) of
-                          {ok, SessionPid} ->
-                              {ok, SessionPid};
+                          {ok, SPid} ->
+                              {ok, SPid, true};
                           {error, not_found} ->
                               emqx_session_sup:start_session(Attrs);
                           {error, Reason} ->
@@ -78,10 +81,10 @@ discard_session(ClientId) when is_binary(ClientId) ->
 
 discard_session(ClientId, ClientPid) when is_binary(ClientId) ->
     lists:foreach(
-      fun({_ClientId, SessionPid}) ->
-          case catch emqx_session:discard(SessionPid, ClientPid) of
+      fun({_ClientId, SPid}) ->
+          case catch emqx_session:discard(SPid, ClientPid) of
               {Err, Reason} when Err =:= 'EXIT'; Err =:= error ->
-                  emqx_logger:error("[SM] Failed to discard ~p: ~p", [SessionPid, Reason]);
+                  emqx_logger:error("[SM] Failed to discard ~p: ~p", [SPid, Reason]);
               ok -> ok
           end
       end, lookup_session(ClientId)).
@@ -94,25 +97,25 @@ resume_session(ClientId) ->
 resume_session(ClientId, ClientPid) ->
     case lookup_session(ClientId) of
         [] -> {error, not_found};
-        [{_ClientId, SessionPid}] ->
-            ok = emqx_session:resume(SessionPid, ClientPid),
-            {ok, SessionPid};
+        [{_ClientId, SPid}] ->
+            ok = emqx_session:resume(SPid, ClientPid),
+            {ok, SPid};
         Sessions ->
-            [{_, SessionPid}|StaleSessions] = lists:reverse(Sessions),
+            [{_, SPid}|StaleSessions] = lists:reverse(Sessions),
             emqx_logger:error("[SM] More than one session found: ~p", [Sessions]),
             lists:foreach(fun({_, StalePid}) ->
                               catch emqx_session:discard(StalePid, ClientPid)
                           end, StaleSessions),
-            ok = emqx_session:resume(SessionPid, ClientPid),
-            {ok, SessionPid}
+            ok = emqx_session:resume(SPid, ClientPid),
+            {ok, SPid}
     end.
 
 %% @doc Close a session.
 -spec(close_session({client_id(), pid()} | pid()) -> ok).
-close_session({_ClientId, SessionPid}) ->
-    emqx_session:close(SessionPid);
-close_session(SessionPid) when is_pid(SessionPid) ->
-    emqx_session:close(SessionPid).
+close_session({_ClientId, SPid}) ->
+    emqx_session:close(SPid);
+close_session(SPid) when is_pid(SPid) ->
+    emqx_session:close(SPid).
 
 %% @doc Register a session with attributes.
 -spec(register_session(client_id() | {client_id(), pid()},
@@ -120,8 +123,8 @@ close_session(SessionPid) when is_pid(SessionPid) ->
 register_session(ClientId, Attrs) when is_binary(ClientId) ->
     register_session({ClientId, self()}, Attrs);
 
-register_session(Session = {ClientId, SessionPid}, Attrs)
-    when is_binary(ClientId), is_pid(SessionPid) ->
+register_session(Session = {ClientId, SPid}, Attrs)
+    when is_binary(ClientId), is_pid(SPid) ->
     ets:insert(?SESSION, Session),
     ets:insert(?SESSION_ATTRS, {Session, Attrs}),
     case proplists:get_value(clean_start, Attrs, true) of
@@ -129,13 +132,13 @@ register_session(Session = {ClientId, SessionPid}, Attrs)
         false  -> ets:insert(?SESSION_P, Session)
     end,
     emqx_sm_registry:register_session(Session),
-    notify({registered, ClientId, SessionPid}).
+    notify({registered, ClientId, SPid}).
 
 %% @doc Get session attrs
 -spec(get_session_attrs({client_id(), pid()})
       -> list(emqx_session:attribute())).
-get_session_attrs(Session = {ClientId, SessionPid})
-    when is_binary(ClientId), is_pid(SessionPid) ->
+get_session_attrs(Session = {ClientId, SPid})
+    when is_binary(ClientId), is_pid(SPid) ->
     safe_lookup_element(?SESSION_ATTRS, Session, []).
 
 %% @doc Unregister a session
@@ -143,19 +146,19 @@ get_session_attrs(Session = {ClientId, SessionPid})
 unregister_session(ClientId) when is_binary(ClientId) ->
     unregister_session({ClientId, self()});
 
-unregister_session(Session = {ClientId, SessionPid})
-    when is_binary(ClientId), is_pid(SessionPid) ->
+unregister_session(Session = {ClientId, SPid})
+    when is_binary(ClientId), is_pid(SPid) ->
     emqx_sm_registry:unregister_session(Session),
     ets:delete(?SESSION_STATS, Session),
     ets:delete(?SESSION_ATTRS, Session),
     ets:delete_object(?SESSION_P, Session),
     ets:delete_object(?SESSION, Session),
-    notify({unregistered, ClientId, SessionPid}).
+    notify({unregistered, ClientId, SPid}).
 
 %% @doc Get session stats
 -spec(get_session_stats({client_id(), pid()}) -> list(emqx_stats:stats())).
-get_session_stats(Session = {ClientId, SessionPid})
-    when is_binary(ClientId), is_pid(SessionPid) ->
+get_session_stats(Session = {ClientId, SPid})
+    when is_binary(ClientId), is_pid(SPid) ->
     safe_lookup_element(?SESSION_STATS, Session, []).
 
 %% @doc Set session stats
@@ -164,8 +167,8 @@ get_session_stats(Session = {ClientId, SessionPid})
 set_session_stats(ClientId, Stats) when is_binary(ClientId) ->
     set_session_stats({ClientId, self()}, Stats);
 
-set_session_stats(Session = {ClientId, SessionPid}, Stats)
-    when is_binary(ClientId), is_pid(SessionPid) ->
+set_session_stats(Session = {ClientId, SPid}, Stats)
+    when is_binary(ClientId), is_pid(SPid) ->
     ets:insert(?SESSION_STATS, {Session, Stats}).
 
 %% @doc Lookup a session from registry
@@ -217,11 +220,11 @@ handle_call(Req, _From, State) ->
     emqx_logger:error("[SM] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
-handle_cast({notify, {registered, ClientId, SessionPid}}, State = #state{session_pmon = PMon}) ->
-    {noreply, State#state{session_pmon = emqx_pmon:monitor(SessionPid, ClientId, PMon)}};
+handle_cast({notify, {registered, ClientId, SPid}}, State = #state{session_pmon = PMon}) ->
+    {noreply, State#state{session_pmon = emqx_pmon:monitor(SPid, ClientId, PMon)}};
 
-handle_cast({notify, {unregistered, _ClientId, SessionPid}}, State = #state{session_pmon = PMon}) ->
-    {noreply, State#state{session_pmon = emqx_pmon:demonitor(SessionPid, PMon)}};
+handle_cast({notify, {unregistered, _ClientId, SPid}}, State = #state{session_pmon = PMon}) ->
+    {noreply, State#state{session_pmon = emqx_pmon:demonitor(SPid, PMon)}};
 
 handle_cast(Msg, State) ->
     emqx_logger:error("[SM] unexpected cast: ~p", [Msg]),

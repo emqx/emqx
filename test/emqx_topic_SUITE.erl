@@ -1,5 +1,4 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2018 EMQ Enterprise, Inc. All Rights Reserved.
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -12,7 +11,6 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
-%%--------------------------------------------------------------------
 
 -module(emqx_topic_SUITE).
 
@@ -27,10 +25,23 @@
 
 -define(N, 10000).
 
-all() -> [t_wildcard, t_match, t_match2, t_match3, t_validate, t_triples, t_join,
-          t_words, t_systop, t_feed_var, t_sys_match, 't_#_match',
-          t_sigle_level_validate, t_sigle_level_match, t_match_perf,
-          t_triples_perf, t_parse].
+all() ->
+    [t_wildcard,
+     t_match, t_match2, t_match3,
+     t_validate,
+     t_triples,
+     t_join,
+     t_levels,
+     t_words,
+     t_systop,
+     t_feed_var,
+     t_sys_match,
+     't_#_match',
+     t_sigle_level_validate,
+     t_sigle_level_match,
+     t_match_perf,
+     t_triples_perf,
+     t_parse].
 
 t_wildcard(_) ->
     true  = wildcard(<<"a/b/#">>),
@@ -148,6 +159,9 @@ t_triples_perf(_) ->
                 [triples(Topic) || _I <- lists:seq(1, ?N)]
         end),
     io:format("Time for triples: ~p(micro)", [Time/?N]).
+
+t_levels(_) ->
+    ?assertEqual(4, emqx_topic:levels(<<"a/b/c/d">>)).
 
 t_words(_) ->
     ['', <<"a">>, '+', '#'] = words(<<"/a/+/#">>),

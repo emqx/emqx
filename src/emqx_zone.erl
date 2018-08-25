@@ -16,9 +16,11 @@
 
 -behaviour(gen_server).
 
--export([start_link/0]).
+-include("emqx.hrl").
 
--export([env/2, env/3]).
+-export([start_link/0]).
+-export([get_env/2, get_env/3]).
+-export([set_env/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
@@ -31,18 +33,24 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-env(undefined, Par) ->
-    emqx_config:get_env(Par);
-env(Zone, Par) ->
-    env(Zone, Par, undefined).
+-spec(get_env(zone() | undefined, atom()) -> undefined | term()).
+get_env(undefined, Key) ->
+    emqx_config:get_env(Key);
+get_env(Zone, Key) ->
+    get_env(Zone, Key, undefined).
 
-env(undefined, Par, Default) ->
-    emqx_config:get_env(Par, Default);
-env(Zone, Par, Default) ->
-    try ets:lookup_element(?TAB, {Zone, Par}, 2)
+-spec(get_env(zone() | undefined, atom(), term()) -> undefined | term()).
+get_env(undefined, Key, Def) ->
+    emqx_config:get_env(Key, Def);
+get_env(Zone, Key, Def) ->
+    try ets:lookup_element(?TAB, {Zone, Key}, 2)
     catch error:badarg ->
-        emqx_config:get_env(Par, Default)
+        emqx_config:get_env(Key, Def)
     end.
+
+-spec(set_env(zone(), atom(), term()) -> ok).
+set_env(Zone, Key, Val) ->
+    gen_server:cast(?MODULE, {set_env, Zone, Key, Val}).
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -56,6 +64,10 @@ handle_call(Req, _From, State) ->
     emqx_logger:error("[Zone] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
+handle_cast({set_env, Zone, Key, Val}, State) ->
+    true = ets:insert(?TAB, {{Zone, Key}, Val}),
+    {noreply, State};
+
 handle_cast(Msg, State) ->
     emqx_logger:error("[Zone] unexpected cast: ~p", [Msg]),
     {noreply, State}.
@@ -63,7 +75,7 @@ handle_cast(Msg, State) ->
 handle_info(reload, State) ->
     lists:foreach(
       fun({Zone, Opts}) ->
-          [ets:insert(?TAB, {{Zone, Par}, Val}) || {Par, Val} <- Opts]
+          [ets:insert(?TAB, {{Zone, Key}, Val}) || {Key, Val} <- Opts]
       end, emqx_config:get_env(zones, [])),
     {noreply, ensure_reload_timer(State), hibernate};
 
@@ -82,5 +94,5 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 ensure_reload_timer(State) ->
-    State#state{timer = erlang:send_after(5000, self(), reload)}.
+    State#state{timer = erlang:send_after(10000, self(), reload)}.
 

@@ -53,7 +53,9 @@
 
 -type(subid() :: binary() | atom()).
 
--type(subopts() :: #{qos => integer(), share => '$queue' | binary(), atom() => term()}).
+-type(subopts() :: #{qos    => integer(),
+                     share  => '$queue' | binary(),
+                     atom() => term()}).
 
 -record(subscription, {
           topic   :: topic(),
@@ -82,20 +84,21 @@
 -type(zone() :: atom()).
 
 -record(client, {
-          id          :: client_id(),
-          pid         :: pid(),
-          zone        :: zone(),
-          protocol    :: protocol(),
-          peername    :: peername(),
-          peercert    :: nossl | binary(),
-          username    :: username(),
-          clean_start :: boolean(),
-          attributes  :: map()
+          id         :: client_id(),
+          pid        :: pid(),
+          zone       :: zone(),
+          peername   :: peername(),
+          username   :: username(),
+          protocol   :: protocol(),
+          attributes :: map()
          }).
 
 -type(client() :: #client{}).
 
--record(session, {sid :: client_id(), pid :: pid()}).
+-record(session, {
+          sid :: client_id(),
+          pid :: pid()
+         }).
 
 -type(session() :: #session{}).
 

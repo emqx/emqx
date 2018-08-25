@@ -97,7 +97,7 @@ pick(SubPids) ->
     lists:nth((X rem length(SubPids)) + 1, SubPids).
 
 subscribers(Group, Topic) ->
-    ets:select(?TAB, [{{shared_subscription, Group, Topic, '$1'}, [], ['$1']}]).
+    ets:select(?TAB, [{{emqx_shared_subscription, Group, Topic, '$1'}, [], ['$1']}]).
 
 %%-----------------------------------------------------------------------------
 %% gen_server callbacks

@@ -229,10 +229,17 @@
 
 -type(mqtt_properties() :: #{atom() => term()} | undefined).
 
-%% nl: no local, rap: retain as publish, rh: retain handling
--record(mqtt_subopts, {rh = 0, rap = 0, nl = 0, qos = ?QOS_0}).
+-type(mqtt_subopts() :: #{atom() => term()}).
 
--type(mqtt_subopts() :: #mqtt_subopts{}).
+-define(DEFAULT_SUBOPTS, #{rh  => 0,  %% Retain Handling
+                           rap => 0,  %% Retain as Publish
+                           nl  => 0,  %% No Local
+                           qos => ?QOS_0,
+                           rc  => 0,  %% Reason Code
+                           subid => 0 %% Subscription-Identifier
+                          }).
+
+-type(mqtt_topic_filters() :: [{mqtt_topic(), mqtt_subopts()}]).
 
 -record(mqtt_packet_connect, {
           proto_name   = <<"MQTT">>     :: binary(),
@@ -273,7 +280,7 @@
 -record(mqtt_packet_subscribe, {
           packet_id     :: mqtt_packet_id(),
           properties    :: mqtt_properties(),
-          topic_filters :: [{mqtt_topic(), mqtt_subopts()}]
+          topic_filters :: mqtt_topic_filters()
         }).
 
 -record(mqtt_packet_suback, {
@@ -391,6 +398,11 @@
                  variable = #mqtt_packet_puback{packet_id   = PacketId,
                                                 reason_code = 0}}).
 
+-define(PUBACK_PACKET(PacketId, ReasonCode),
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBACK},
+                 variable = #mqtt_packet_puback{packet_id   = PacketId,
+                                                reason_code = ReasonCode}}).
+
 -define(PUBACK_PACKET(PacketId, ReasonCode, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBACK},
                  variable = #mqtt_packet_puback{packet_id   = PacketId,
@@ -399,8 +411,13 @@
 
 -define(PUBREC_PACKET(PacketId),
         #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREC},
-                 variable = #mqtt_packet_puback{packet_id   = PacketId,
-                                                reason_code = 0}}).
+                     variable = #mqtt_packet_puback{packet_id   = PacketId,
+                                                    reason_code = 0}}).
+
+-define(PUBREC_PACKET(PacketId, ReasonCode),
+        #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREC},
+                     variable = #mqtt_packet_puback{packet_id   = PacketId,
+                                                    reason_code = ReasonCode}}).
 
 -define(PUBREC_PACKET(PacketId, ReasonCode, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREC},
@@ -412,6 +429,10 @@
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREL, qos = ?QOS_1},
                  variable = #mqtt_packet_puback{packet_id   = PacketId,
                                                 reason_code = 0}}).
+-define(PUBREL_PACKET(PacketId, ReasonCode),
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREL, qos = ?QOS_1},
+                 variable = #mqtt_packet_puback{packet_id   = PacketId,
+                                                reason_code = ReasonCode}}).
 
 -define(PUBREL_PACKET(PacketId, ReasonCode, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREL, qos = ?QOS_1},
@@ -423,6 +444,10 @@
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBCOMP},
                  variable = #mqtt_packet_puback{packet_id   = PacketId,
                                                 reason_code = 0}}).
+-define(PUBCOMP_PACKET(PacketId, ReasonCode),
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBCOMP},
+                 variable = #mqtt_packet_puback{packet_id   = PacketId,
+                                                reason_code = ReasonCode}}).
 
 -define(PUBCOMP_PACKET(PacketId, ReasonCode, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBCOMP},

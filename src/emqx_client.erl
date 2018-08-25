@@ -231,22 +231,22 @@ subscribe(Client, Properties, Topic, Opts)
     subscribe(Client, Properties, [{Topic, Opts}]).
 
 parse_subopt(Opts) ->
-    parse_subopt(Opts, #mqtt_subopts{}).
+    parse_subopt(Opts, #{rh => 0, rap => 0, nl => 0, qos => ?QOS_0}).
 
-parse_subopt([], Rec) ->
-    Rec;
-parse_subopt([{rh, I} | Opts], Rec) when I >= 0, I =< 2 ->
-    parse_subopt(Opts, Rec#mqtt_subopts{rh = I});
-parse_subopt([{rap, true} | Opts], Rec) ->
-    parse_subopt(Opts, Rec#mqtt_subopts{rap =1});
-parse_subopt([{rap, false} | Opts], Rec) ->
-    parse_subopt(Opts, Rec#mqtt_subopts{rap = 0});
-parse_subopt([{nl, true} | Opts], Rec) ->
-    parse_subopt(Opts, Rec#mqtt_subopts{nl = 1});
-parse_subopt([{nl, false} | Opts], Rec) ->
-    parse_subopt(Opts, Rec#mqtt_subopts{nl = 0});
-parse_subopt([{qos, QoS} | Opts], Rec) ->
-    parse_subopt(Opts, Rec#mqtt_subopts{qos = ?QOS_I(QoS)}).
+parse_subopt([], Result) ->
+    Result;
+parse_subopt([{rh, I} | Opts], Result) when I >= 0, I =< 2 ->
+    parse_subopt(Opts, Result#{rh := I});
+parse_subopt([{rap, true} | Opts], Result) ->
+    parse_subopt(Opts, Result#{rap := 1});
+parse_subopt([{rap, false} | Opts], Result) ->
+    parse_subopt(Opts, Result#{rap := 0});
+parse_subopt([{nl, true} | Opts], Result) ->
+    parse_subopt(Opts, Result#{nl := 1});
+parse_subopt([{nl, false} | Opts], Result) ->
+    parse_subopt(Opts, Result#{nl := 0});
+parse_subopt([{qos, QoS} | Opts], Result) ->
+    parse_subopt(Opts, Result#{qos := ?QOS_I(QoS)}).
 
 -spec(publish(client(), topic(), payload()) -> ok | {error, term()}).
 publish(Client, Topic, Payload) when is_binary(Topic) ->

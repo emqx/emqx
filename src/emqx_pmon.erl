@@ -15,7 +15,11 @@
 -module(emqx_pmon).
 
 -export([new/0]).
--export([monitor/2, monitor/3, demonitor/2, find/2, erase/2]).
+-export([monitor/2, monitor/3]).
+-export([demonitor/2]).
+-export([find/2]).
+-export([erase/2]).
+
 -compile({no_auto_import,[monitor/3]}).
 
 -type(pmon() :: {?MODULE, map()}).

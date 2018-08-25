@@ -31,7 +31,8 @@
 
 -export_type([options/0, parse_state/0]).
 
--define(DEFAULT_OPTIONS, #{max_packet_size => ?MAX_PACKET_SIZE, version => ?MQTT_PROTO_V4}).
+-define(DEFAULT_OPTIONS, #{max_packet_size => ?MAX_PACKET_SIZE,
+                           version         => ?MQTT_PROTO_V4}).
 
 %%------------------------------------------------------------------------------
 %% Init parse state
@@ -330,7 +331,7 @@ parse_variable_byte_integer(<<0:1, Len:7, Rest/binary>>, Multiplier, Value) ->
     {Value + Len * Multiplier, Rest}.
 
 parse_topic_filters(subscribe, Bin) ->
-    [{Topic, #mqtt_subopts{rh = Rh, rap = Rap, nl = Nl, qos = QoS}}
+    [{Topic, #{rh => Rh, rap => Rap, nl => Nl, qos => QoS}}
      || <<Len:16/big, Topic:Len/binary, _:2, Rh:2, Rap:1, Nl:1, QoS:2>> <= Bin];
 
 parse_topic_filters(unsubscribe, Bin) ->
@@ -576,12 +577,12 @@ serialize_property('Shared-Subscription-Available', Val) ->
 serialize_topic_filters(subscribe, TopicFilters, ?MQTT_PROTO_V5) ->
     << <<(serialize_utf8_string(Topic))/binary,
          ?RESERVED:2, Rh:2, (flag(Rap)):1,(flag(Nl)):1, QoS:2 >>
-       || {Topic, #mqtt_subopts{rh = Rh, rap = Rap, nl = Nl, qos = QoS}}
+       || {Topic, #{rh := Rh, rap := Rap, nl := Nl, qos := QoS}}
           <- TopicFilters >>;
 
 serialize_topic_filters(subscribe, TopicFilters, _Ver) ->
     << <<(serialize_utf8_string(Topic))/binary, ?RESERVED:6, QoS:2>>
-       || {Topic, #mqtt_subopts{qos = QoS}} <- TopicFilters >>;
+       || {Topic, #{qos := QoS}} <- TopicFilters >>;
 
 serialize_topic_filters(unsubscribe, TopicFilters, _Ver) ->
     << <<(serialize_utf8_string(Topic))/binary>> || Topic <- TopicFilters >>.
