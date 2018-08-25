@@ -391,8 +391,13 @@ deliver({pubrel, PacketId}, PState) ->
 deliver({pubrec, PacketId, ReasonCode}, PState) ->
     send(?PUBREC_PACKET(PacketId, ReasonCode), PState);
 
-deliver({suback, PacketId, ReasonCodes}, PState) ->
-    send(?SUBACK_PACKET(PacketId, ReasonCodes), PState);
+deliver({suback, PacketId, ReasonCodes}, PState = #pstate{proto_ver = ProtoVer}) ->
+    send(?SUBACK_PACKET(PacketId,
+                        if ProtoVer =:= ?MQTT_PROTO_V5 ->
+                               ReasonCodes;
+                           true ->
+                               [emqx_reason_codes:compat(suback, RC) || RC <- ReasonCodes]
+                        end), PState);
 
 deliver({unsuback, PacketId, ReasonCodes}, PState) ->
     send(?UNSUBACK_PACKET(PacketId, ReasonCodes), PState);
@@ -408,12 +413,12 @@ deliver({disconnect, _ReasonCode}, PState) ->
 %% Send Packet to Client
 
 -spec(send(mqtt_packet(), state()) -> {ok, state()} | {error, term()}).
-send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver,
-                                              sendfun   = SendFun}) ->
+send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = SendFun}) ->
+    trace(send, Packet, PState),
     case SendFun(emqx_frame:serialize(Packet, #{version => Ver})) of
-        ok -> emqx_metrics:sent(Packet),
-              trace(send, Packet, PState),
-              {ok, inc_stats(send, Type, PState)};
+        ok ->
+            emqx_metrics:sent(Packet),
+            {ok, inc_stats(send, Type, PState)};
         {error, Reason} ->
             {error, Reason}
     end.
