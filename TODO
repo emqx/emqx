@@ -1,4 +1,58 @@
 
+## MQTT 5.0
+
+1. Topic Alias
+2. Subscriber ID
+3. Session ensure stats
+4. Message Expiration
+
+## Connection
+
+## WebSocket
+
+## Listeners
+
+## Protocol
+
+1. Global ACL cache with limited age and size?
+2. Whether to enable ACL for each zone?
+
+## Session
+
+## Bridges
+
+Config
+CLI
+Remote Bridge
+replay queue
+
+## Access Control
+
+  Global ACL Cache
+  Add ACL cache emqx_access_control module
+
+## Zone
+
+## Hooks
+
+The hooks design...
+
+## MQueue
+
+Bound Queue
+LastValue Queue
+Priority Queue
+
+## Supervisor tree
+
+KernelSup
+
+## Managment
+
+## Dashboard
+
+## Testcases
+
 1. Update the README.md
 2. Update the Documentation
 3. Shared subscription and dispatch strategy
