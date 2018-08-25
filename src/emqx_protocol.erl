@@ -73,6 +73,7 @@ init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options)
             peercert     = Peercert,
             proto_ver    = ?MQTT_PROTO_V4,
             proto_name   = <<"MQTT">>,
+            client_id    = <<>>,
             client_pid   = self(),
             username     = init_username(Peercert, Options),
             is_super     = false,
@@ -200,6 +201,8 @@ process(?CONNECT_PACKET(
                                 client_id   = ClientId,
                                 username    = Username,
                                 password    = Password} = Connect), PState) ->
+
+    io:format("~p~n", [Connect]),
 
     PState1 = set_username(Username,
                            PState#pstate{client_id    = ClientId,
@@ -334,8 +337,12 @@ process(?PACKET(?DISCONNECT), PState) ->
 connack({?RC_SUCCESS, SP, PState}) ->
     deliver({connack, ?RC_SUCCESS, sp(SP)}, PState);
 
-connack({ReasonCode, PState}) ->
-    deliver({connack, ReasonCode, 0}, PState),
+connack({ReasonCode, PState = #pstate{proto_ver = ProtoVer}}) ->
+    _ = deliver({connack, if ProtoVer =:= ?MQTT_PROTO_V5 ->
+                                 ReasonCode;
+                             true ->
+                                 emqx_reason_codes:compat(connack, ReasonCode)
+                          end}, PState),
     {error, emqx_reason_codes:name(ReasonCode), PState}.
 
 %%------------------------------------------------------------------------------
@@ -384,8 +391,13 @@ deliver({pubrel, PacketId}, PState) ->
 deliver({pubrec, PacketId, ReasonCode}, PState) ->
     send(?PUBREC_PACKET(PacketId, ReasonCode), PState);
 
-deliver({suback, PacketId, ReasonCodes}, PState) ->
-    send(?SUBACK_PACKET(PacketId, ReasonCodes), PState);
+deliver({suback, PacketId, ReasonCodes}, PState = #pstate{proto_ver = ProtoVer}) ->
+    send(?SUBACK_PACKET(PacketId,
+                        if ProtoVer =:= ?MQTT_PROTO_V5 ->
+                               ReasonCodes;
+                           true ->
+                               [emqx_reason_codes:compat(suback, RC) || RC <- ReasonCodes]
+                        end), PState);
 
 deliver({unsuback, PacketId, ReasonCodes}, PState) ->
     send(?UNSUBACK_PACKET(PacketId, ReasonCodes), PState);
@@ -401,12 +413,12 @@ deliver({disconnect, _ReasonCode}, PState) ->
 %% Send Packet to Client
 
 -spec(send(mqtt_packet(), state()) -> {ok, state()} | {error, term()}).
-send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver,
-                                              sendfun   = SendFun}) ->
+send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = SendFun}) ->
+    trace(send, Packet, PState),
     case SendFun(emqx_frame:serialize(Packet, #{version => Ver})) of
-        ok -> emqx_metrics:sent(Packet),
-              trace(send, Packet, PState),
-              {ok, inc_stats(send, Type, PState)};
+        ok ->
+            emqx_metrics:sent(Packet),
+            {ok, inc_stats(send, Type, PState)};
         {error, Reason} ->
             {error, Reason}
     end.
@@ -415,7 +427,7 @@ send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver,
 %% Assign a clientid
 
 maybe_assign_client_id(PState = #pstate{client_id = <<>>, ackprops = AckProps}) ->
-    ClientId = iolist_to_binary(["emqx_", emqx_guid:gen()]),
+    ClientId = emqx_guid:to_base62(emqx_guid:gen()),
     AckProps1 = set_property('Assigned-Client-Identifier', ClientId, AckProps),
     PState#pstate{client_id = ClientId, ackprops = AckProps1};
 maybe_assign_client_id(PState) ->
@@ -464,17 +476,19 @@ check_proto_ver(#mqtt_packet_connect{proto_ver  = Ver,
         false -> {error, ?RC_PROTOCOL_ERROR}
     end.
 
-%% Issue#599: Null clientId and clean_start = false
-check_client_id(#mqtt_packet_connect{client_id   = ClientId,
-                                     clean_start = false}, _PState)
-    when ClientId == undefined; ClientId == <<>> ->
-    {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID};
-
 %% MQTT3.1 does not allow null clientId
 check_client_id(#mqtt_packet_connect{proto_ver = ?MQTT_PROTO_V3,
-                                     client_id = ClientId}, _PState)
-    when ClientId == undefined; ClientId == <<>> ->
+                                     client_id = <<>>}, _PState) ->
     {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID};
+
+%% Issue#599: Null clientId and clean_start = false
+check_client_id(#mqtt_packet_connect{client_id   = <<>>,
+                                     clean_start = false}, _PState) ->
+    {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID};
+
+check_client_id(#mqtt_packet_connect{client_id   = <<>>,
+                                     clean_start = true}, _PState) ->
+    ok;
 
 check_client_id(#mqtt_packet_connect{client_id = ClientId}, #pstate{zone = Zone}) ->
     Len = byte_size(ClientId),

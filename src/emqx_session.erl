@@ -433,7 +433,7 @@ handle_cast({subscribe, From, {PacketId, Properties, TopicFilters}},
 handle_cast({unsubscribe, From, {PacketId, _Properties, TopicFilters}},
             State = #state{client_id = ClientId, subscriptions = Subscriptions}) ->
     {ReasonCodes, Subscriptions1} =
-    lists:foldr(fun(Topic, {RcAcc, SubMap}) ->
+    lists:foldr(fun({Topic, _Opts}, {RcAcc, SubMap}) ->
                         case maps:find(Topic, SubMap) of
                             {ok, SubOpts} ->
                                 emqx_broker:unsubscribe(Topic, ClientId),
@@ -649,7 +649,6 @@ retry_delivery(Force, State = #state{inflight = Inflight}) ->
             State;
         false ->
             Msgs = lists:sort(sortfun(inflight), emqx_inflight:values(Inflight)),
-            io:format("!!! Retry Delivery: ~p~n", [Msgs]),
             retry_delivery(Force, Msgs, os:timestamp(), State)
     end.
 

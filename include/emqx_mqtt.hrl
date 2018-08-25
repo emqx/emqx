@@ -140,7 +140,20 @@
 -type(mqtt_packet_type() :: ?RESERVED..?AUTH).
 
 %%--------------------------------------------------------------------
-%% MQTT Reason Codes
+%% MQTT V3.1.1 Connect Return Codes
+%%--------------------------------------------------------------------
+
+-define(CONNACK_ACCEPT,      0). %% Connection accepted
+-define(CONNACK_PROTO_VER,   1). %% Unacceptable protocol version
+-define(CONNACK_INVALID_ID,  2). %% Client Identifier is correct UTF-8 but not allowed by the Server
+-define(CONNACK_SERVER,      3). %% Server unavailable
+-define(CONNACK_CREDENTIALS, 4). %% Username or password is malformed
+-define(CONNACK_AUTH,        5). %% Client is not authorized to connect
+
+-type(mqtt_connack() :: ?CONNACK_ACCEPT..?CONNACK_AUTH).
+
+%%--------------------------------------------------------------------
+%% MQTT V5.0 Reason Codes
 %%--------------------------------------------------------------------
 
 -define(RC_SUCCESS,                                16#00).
