@@ -22,14 +22,12 @@
 
 -ifdef(use_specs).
 
--callback(init(AclOpts :: list()) -> {ok, State :: any()}).
+-callback(init(AclOpts :: list()) -> {ok, State :: term()}).
 
--callback(check_acl({Client :: client(),
-                     PubSub :: pubsub(),
-                     Topic  :: topic()}, State :: any())
+-callback(check_acl({credentials(), pubsub(), topic()}, State :: term())
           -> allow | deny | ignore).
 
--callback(reload_acl(State :: any()) -> ok | {error, term()}).
+-callback(reload_acl(State :: term()) -> ok | {error, term()}).
 
 -callback(description() -> string()).
 

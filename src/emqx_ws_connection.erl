@@ -247,6 +247,7 @@ terminate(SockError, _Req, #state{keepalive       = Keepalive,
     case Reason of
         undefined ->
             ok;
+            %%TODO:
             %%emqx_protocol:shutdown(SockError, ProtoState);
         _ ->
             ok%%emqx_protocol:shutdown(Reason, ProtoState)

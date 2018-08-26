@@ -70,18 +70,26 @@
 -type(topic_table() :: [{topic(), subopts()}]).
 
 %%--------------------------------------------------------------------
-%% Client and Session
+%% Zone, Credentials, Client and Session
 %%--------------------------------------------------------------------
 
--type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | none | atom()).
-
--type(peername() :: {inet:ip_address(), inet:port_number()}).
+-type(zone() :: atom()).
 
 -type(client_id() :: binary() | atom()).
 
--type(username() :: binary() | atom()).
+-type(username() :: binary() | undefined).
 
--type(zone() :: atom()).
+-type(password() :: binary() | undefined).
+
+-type(peername() :: {inet:ip_address(), inet:port_number()}).
+
+-type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | none | atom()).
+
+-type(credentials() :: #{client_id := binary(),
+                         username  := binary(),
+                         peername  := peername(),
+                         zone      => zone(),
+                         atom()    => term()}).
 
 -record(client, {
           id         :: client_id(),
