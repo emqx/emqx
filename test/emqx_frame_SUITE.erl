@@ -331,14 +331,14 @@ serialize_parse_pubcomp_v5(_) ->
 serialize_parse_subscribe(_) ->
     %% SUBSCRIBE(Q1, R0, D0, PacketId=2, TopicTable=[{<<"TopicA">>,2}])
     Bin = <<130,11,0,2,0,6,84,111,112,105,99,65,2>>,
-    TopicFilters = [{<<"TopicA">>, #mqtt_subopts{qos = 2}}],
+    TopicFilters = [{<<"TopicA">>, #{qos => 2}}],
     Packet = ?SUBSCRIBE_PACKET(2, TopicFilters),
     ?assertEqual(Bin, iolist_to_binary(serialize(Packet))),
     ?assertEqual({ok, Packet, <<>>}, parse(Bin)).
 
 serialize_parse_subscribe_v5(_) ->
-    TopicFilters = [{<<"TopicQos0">>, #mqtt_subopts{rh = 1, qos = ?QOS_0}},
-                    {<<"TopicQos1">>, #mqtt_subopts{rh = 1, qos =?QOS_1}}],
+    TopicFilters = [{<<"TopicQos0">>, #{rh => 1, qos => ?QOS_0}},
+                    {<<"TopicQos1">>, #{rh => 1, qos => ?QOS_1}}],
     Packet = ?SUBSCRIBE_PACKET(1, #{'Subscription-Identifier' => 16#FFFFFFF},
                                TopicFilters),
     ?assertEqual({ok, Packet, <<>>},
