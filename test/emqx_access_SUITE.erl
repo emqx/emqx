@@ -55,9 +55,10 @@ groups() ->
        put_get_del_cache,
        cache_update,
        cache_expiry,
-       cache_full_replacement,
+       cache_replacement,
        cache_cleanup,
-       cache_full_cleanup
+       cache_auto_emtpy,
+       cache_auto_cleanup
      ]},
      {access_rule, [],
        [compile_rule,
@@ -73,9 +74,10 @@ init_per_group(_Group, Config) ->
 
 prepare_config(Group = access_control) ->
     set_acl_config_file(Group),
-    application:set_env(emqx, acl_cache_max_size, 0);
+    application:set_env(emqx, enable_acl_cache, false);
 prepare_config(Group = access_control_cache_mode) ->
     set_acl_config_file(Group),
+    application:set_env(emqx, enable_acl_cache, true),
     application:set_env(emqx, acl_cache_max_size, 100).
 
 set_acl_config_file(_Group) ->
@@ -162,12 +164,12 @@ acl_cache_basic(_) ->
     ok.
 
 acl_cache_expiry(_) ->
-    application:set_env(emqx, acl_cache_ttl, 1000),
+    application:set_env(emqx, acl_cache_ttl, 100),
 
     SelfUser = #client{id = <<"client1">>, username = <<"testuser">>},
     allow = ?AC:check_acl(SelfUser, subscribe, <<"clients/client1">>),
     allow = ?CACHE:get_acl_cache(subscribe, <<"clients/client1">>),
-    ct:sleep(1100),
+    ct:sleep(150),
     not_found = ?CACHE:get_acl_cache(subscribe, <<"clients/client1">>),
     ok.
 
@@ -186,7 +188,7 @@ acl_cache_full(_) ->
 acl_cache_cleanup(_) ->
     %% The acl cache will try to evict memory, if the size is full and the newest
     %%   cache entry is expired
-    application:set_env(emqx, acl_cache_ttl, 1000),
+    application:set_env(emqx, acl_cache_ttl, 100),
     application:set_env(emqx, acl_cache_max_size, 2),
 
     SelfUser = #client{id = <<"client1">>, username = <<"testuser">>},
@@ -196,9 +198,10 @@ acl_cache_cleanup(_) ->
     allow = ?CACHE:get_acl_cache(subscribe, <<"users/testuser/1">>),
     allow = ?CACHE:get_acl_cache(subscribe, <<"clients/client1">>),
 
-    ct:sleep(1100),
+    ct:sleep(150),
     %% now the cache is full and the newest one - "clients/client1"
-    %%  should be expired, so we'll try to cleanup before putting the next cache entry
+    %%  should be expired, so we'll empty the cache before putting
+    %%  the next cache entry
     deny = ?AC:check_acl(SelfUser, subscribe, <<"#">>),
 
     not_found = ?CACHE:get_acl_cache(subscribe, <<"users/testuser/1">>),
@@ -222,18 +225,18 @@ put_get_del_cache(_) ->
     ?assertEqual(?CACHE:cache_k(subscribe, <<"b">>), ?CACHE:get_newest_key()).
 
 cache_expiry(_) ->
-    application:set_env(emqx, acl_cache_ttl, 1000),
+    application:set_env(emqx, acl_cache_ttl, 100),
     application:set_env(emqx, acl_cache_max_size, 30),
     ok = ?CACHE:put_acl_cache(subscribe, <<"a">>, allow),
     allow = ?CACHE:get_acl_cache(subscribe, <<"a">>),
 
-    ct:sleep(1100),
+    ct:sleep(150),
     not_found = ?CACHE:get_acl_cache(subscribe, <<"a">>),
 
     ok = ?CACHE:put_acl_cache(subscribe, <<"a">>, deny),
     deny = ?CACHE:get_acl_cache(subscribe, <<"a">>),
 
-    ct:sleep(1100),
+    ct:sleep(150),
     not_found = ?CACHE:get_acl_cache(subscribe, <<"a">>).
 
 cache_update(_) ->
@@ -249,12 +252,13 @@ cache_update(_) ->
 
     %% update the 2nd one
     ok = ?CACHE:put_acl_cache(publish, <<"b">>, allow),
-    %ct:pal("dump acl cache: ~p~n", [?CACHE:dump_acl_cache()]),
+    ct:pal("dump acl cache: ~p~n", [?CACHE:dump_acl_cache()]),
 
     3 = ?CACHE:get_cache_size(),
-    ?assertEqual(?CACHE:cache_k(publish, <<"b">>), ?CACHE:get_newest_key()).
+    ?assertEqual(?CACHE:cache_k(publish, <<"b">>), ?CACHE:get_newest_key()),
+    ?assertEqual(?CACHE:cache_k(subscribe, <<"a">>), ?CACHE:get_oldest_key()).
 
-cache_full_replacement(_) ->
+cache_replacement(_) ->
     application:set_env(emqx, acl_cache_ttl, 300000),
     application:set_env(emqx, acl_cache_max_size, 3),
     ok = ?CACHE:put_acl_cache(subscribe, <<"a">>, allow),
@@ -269,39 +273,63 @@ cache_full_replacement(_) ->
     ok = ?CACHE:put_acl_cache(publish, <<"d">>, deny),
     3 = ?CACHE:get_cache_size(),
     ?assertEqual(?CACHE:cache_k(publish, <<"d">>), ?CACHE:get_newest_key()),
+    ?assertEqual(?CACHE:cache_k(publish, <<"b">>), ?CACHE:get_oldest_key()),
 
     ok = ?CACHE:put_acl_cache(publish, <<"e">>, deny),
     3 = ?CACHE:get_cache_size(),
     ?assertEqual(?CACHE:cache_k(publish, <<"e">>), ?CACHE:get_newest_key()),
+    ?assertEqual(?CACHE:cache_k(publish, <<"c">>), ?CACHE:get_oldest_key()),
 
     not_found = ?CACHE:get_acl_cache(subscribe, <<"a">>),
     not_found = ?CACHE:get_acl_cache(publish, <<"b">>),
     allow = ?CACHE:get_acl_cache(publish, <<"c">>).
 
 cache_cleanup(_) ->
-    application:set_env(emqx, acl_cache_ttl, 1000),
+    application:set_env(emqx, acl_cache_ttl, 100),
     application:set_env(emqx, acl_cache_max_size, 30),
     ok = ?CACHE:put_acl_cache(subscribe, <<"a">>, allow),
     ok = ?CACHE:put_acl_cache(publish, <<"b">>, allow),
+    ct:sleep(150),
     ok = ?CACHE:put_acl_cache(publish, <<"c">>, allow),
     3 = ?CACHE:get_cache_size(),
 
-    ct:sleep(1100),
     ?CACHE:cleanup_acl_cache(),
-    0 = ?CACHE:get_cache_size().
+    ?assertEqual(?CACHE:cache_k(publish, <<"c">>), ?CACHE:get_oldest_key()),
+    1 = ?CACHE:get_cache_size().
 
-cache_full_cleanup(_) ->
-    application:set_env(emqx, acl_cache_ttl, 1000),
+cache_auto_emtpy(_) ->
+    %% verify cache is emptied when cache full and even the newest
+    %%   one is expired.
+    application:set_env(emqx, acl_cache_ttl, 100),
     application:set_env(emqx, acl_cache_max_size, 3),
     ok = ?CACHE:put_acl_cache(subscribe, <<"a">>, allow),
     ok = ?CACHE:put_acl_cache(publish, <<"b">>, allow),
     ok = ?CACHE:put_acl_cache(publish, <<"c">>, allow),
     3 = ?CACHE:get_cache_size(),
 
-    ct:sleep(1100),
-    %% verify auto cleanup upon cache full
+    ct:sleep(150),
     ok = ?CACHE:put_acl_cache(subscribe, <<"d">>, deny),
     1 = ?CACHE:get_cache_size().
+
+cache_auto_cleanup(_) ->
+    %% verify we'll cleanup expired entries when we got a exipired acl
+    %%   from cache.
+    application:set_env(emqx, acl_cache_ttl, 100),
+    application:set_env(emqx, acl_cache_max_size, 30),
+    ok = ?CACHE:put_acl_cache(subscribe, <<"a">>, allow),
+    ok = ?CACHE:put_acl_cache(publish, <<"b">>, allow),
+    ct:sleep(150),
+    ok = ?CACHE:put_acl_cache(publish, <<"c">>, allow),
+    ok = ?CACHE:put_acl_cache(publish, <<"d">>, deny),
+    4 = ?CACHE:get_cache_size(),
+
+    %% "a" and "b" expires, while "c" and "d" not
+    not_found = ?CACHE:get_acl_cache(publish, <<"b">>),
+    2 = ?CACHE:get_cache_size(),
+
+    ct:sleep(150), %% now "c" and "d" expires
+    not_found = ?CACHE:get_acl_cache(publish, <<"c">>),
+    0 = ?CACHE:get_cache_size().
 
 %%--------------------------------------------------------------------
 %% emqx_access_rule

@@ -81,15 +81,15 @@ authenticate(Client, Password, [{Mod, State, _Seq} | Mods]) ->
 %% @doc Check ACL
 -spec(check_acl(client(), pubsub(), topic()) -> allow | deny).
 check_acl(Client, PubSub, Topic) when ?PS(PubSub) ->
-    CacheEnabled = (emqx_acl_cache:get_cache_max_size() =/= 0),
+    CacheEnabled = emqx_acl_cache:is_enabled(),
     check_acl(Client, PubSub, Topic, lookup_mods(acl), CacheEnabled).
 
 check_acl(Client, PubSub, Topic, AclMods, false) ->
-    check_acl_from_plugins(Client, PubSub, Topic, AclMods);
+    do_check_acl(Client, PubSub, Topic, AclMods);
 check_acl(Client, PubSub, Topic, AclMods, true) ->
     case emqx_acl_cache:get_acl_cache(PubSub, Topic) of
         not_found ->
-            AclResult = check_acl_from_plugins(Client, PubSub, Topic, AclMods),
+            AclResult = do_check_acl(Client, PubSub, Topic, AclMods),
             emqx_acl_cache:put_acl_cache(PubSub, Topic, AclResult),
             AclResult;
         AclResult ->
@@ -189,13 +189,13 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-check_acl_from_plugins(#client{zone = Zone}, _PubSub, _Topic, []) ->
+do_check_acl(#client{zone = Zone}, _PubSub, _Topic, []) ->
     emqx_zone:get_env(Zone, acl_nomatch, deny);
-check_acl_from_plugins(Client, PubSub, Topic, [{Mod, State, _Seq}|AclMods]) ->
+do_check_acl(Client, PubSub, Topic, [{Mod, State, _Seq}|AclMods]) ->
     case Mod:check_acl({Client, PubSub, Topic}, State) of
         allow  -> allow;
         deny   -> deny;
-        ignore -> check_acl_from_plugins(Client, PubSub, Topic, AclMods)
+        ignore -> do_check_acl(Client, PubSub, Topic, AclMods)
     end.
 
 %%--------------------------------------------------------------------

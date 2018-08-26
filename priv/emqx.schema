@@ -571,6 +571,12 @@ end}.
   hidden
 ]}.
 
+%% @doc Enable ACL cache for publish.
+{mapping, "enable_acl_cache", "emqx.enable_acl_cache", [
+  {default, on},
+  {datatype, flag}
+]}.
+
 %% @doc ACL cache time-to-live.
 {mapping, "acl_cache_ttl", "emqx.acl_cache_ttl", [
   {default, "1m"},
@@ -580,8 +586,13 @@ end}.
 %% @doc ACL cache size.
 {mapping, "acl_cache_max_size", "emqx.acl_cache_max_size", [
   {default, 32},
-  {datatype, integer}
+  {datatype, integer},
+  {validators, ["range:gt_0"]}
 ]}.
+
+{validator, "range:gt_0", "must greater than 0",
+  fun(X) -> X > 0 end
+}.
 
 %%--------------------------------------------------------------------
 %% MQTT Protocol

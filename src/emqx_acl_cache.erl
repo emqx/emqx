@@ -13,6 +13,7 @@
          , get_oldest_key/0
          , cache_k/2
          , cache_v/1
+         , is_enabled/0
          ]).
 
 -type(acl_result() :: allow | deny).
@@ -20,6 +21,10 @@
 %% Wrappers for key and value
 cache_k(PubSub, Topic)-> {PubSub, Topic}.
 cache_v(AclResult)-> {AclResult, time_now()}.
+
+-spec(is_enabled() -> boolean()).
+is_enabled() ->
+    application:get_env(emqx, enable_acl_cache, true).
 
 %% We'll cleanup the cache before repalcing an expired acl.
 -spec(get_acl_cache(PubSub :: publish | subscribe, Topic :: topic())
@@ -90,7 +95,7 @@ get_newest_key() ->
     keys_queue_pick(queue_rear()).
 
 get_cache_max_size() ->
-    application:get_env(emqx, acl_cache_max_size, 0).
+    application:get_env(emqx, acl_cache_max_size, 32).
 
 get_cache_size() ->
     case erlang:get(acl_cache_size) of
