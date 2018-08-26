@@ -71,12 +71,18 @@ subscribe(Topic) ->
     emqx_broker:subscribe(iolist_to_binary(Topic)).
 
 -spec(subscribe(topic() | string(), subscriber() | string()) -> ok | {error, term()}).
-subscribe(Topic, Subscriber) ->
-    emqx_broker:subscribe(iolist_to_binary(Topic), list_to_subid(Subscriber)).
+subscribe(Topic, Sub) when is_list(Sub)->
+    emqx_broker:subscribe(iolist_to_binary(Topic), list_to_subid(Sub));
+subscribe(Topic, Subscriber) when is_tuple(Subscriber) ->
+    {SubPid, SubId} = Subscriber,
+    emqx_broker:subscribe(iolist_to_binary(Topic), SubPid, SubId).
 
 -spec(subscribe(topic() | string(), subscriber() | string(), subopts()) -> ok | {error, term()}).
-subscribe(Topic, Subscriber, Options) ->
-    emqx_broker:subscribe(iolist_to_binary(Topic), list_to_subid(Subscriber), Options).
+subscribe(Topic, Sub, Options) when is_list(Sub)->
+    emqx_broker:subscribe(iolist_to_binary(Topic), list_to_subid(Sub), Options);
+subscribe(Topic, Subscriber, Options) when is_tuple(Subscriber)->
+    {SubPid, SubId} = Subscriber,
+    emqx_broker:subscribe(iolist_to_binary(Topic), SubPid, SubId, Options).
 
 %% @doc Publish Message
 -spec(publish(message()) -> {ok, delivery()} | {error, term()}).
@@ -123,11 +129,7 @@ list_to_subid(SubId) when is_binary(SubId) ->
 list_to_subid(SubId) when is_list(SubId) ->
     iolist_to_binary(SubId);
 list_to_subid(SubPid) when is_pid(SubPid) ->
-    SubPid;
-list_to_subid({SubId, SubPid}) when is_binary(SubId), is_pid(SubPid) ->
-    {SubId, SubPid};
-list_to_subid({SubId, SubPid}) when is_list(SubId), is_pid(SubPid) ->
-    {iolist_to_binary(SubId), SubPid}.
+    SubPid.
 
 %%--------------------------------------------------------------------
 %% Hooks API
