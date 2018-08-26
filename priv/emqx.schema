@@ -578,8 +578,8 @@ end}.
 ]}.
 
 %% @doc ACL cache size.
-{mapping, "acl_cache_size", "emqx.acl_cache_size", [
-  {default, 100},
+{mapping, "acl_cache_max_size", "emqx.acl_cache_max_size", [
+  {default, 32},
   {datatype, integer}
 ]}.
 

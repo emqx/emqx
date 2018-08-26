@@ -26,11 +26,13 @@
 
 -export([get_acl_cache/2,
          put_acl_cache/3,
-         delete_acl_cache/2,
          cleanup_acl_cache/0,
          dump_acl_cache/0,
          get_cache_size/0,
-         get_newest_key/0
+         get_newest_key/0,
+         get_oldest_key/0,
+         cache_k/2,
+         cache_v/1
          ]).
 
 %% gen_server callbacks
@@ -221,158 +223,124 @@ if_existed(_Mod, _Fun) ->
 %% ACL cache
 %%--------------------------------------------------------------------
 
+%% We'll cleanup the cache before repalcing an expired acl.
 -spec(get_acl_cache(PubSub :: publish | subscribe, Topic :: topic())
         -> (acl_result() | not_found)).
 get_acl_cache(PubSub, Topic) ->
-    case erlang:get({PubSub, Topic}) of
+    case erlang:get(cache_k(PubSub, Topic)) of
         undefined -> not_found;
-        {AclResult, CachedAt, _NextK, _PrevK} ->
-            if_acl_cache_expired(CachedAt,
+        {AclResult, CachedAt} ->
+            if_expired(CachedAt,
                 fun(false) ->
                       AclResult;
                    (true) ->
-                      %% this expired entry will get updated in
-                      %%   put_acl_cache/3
+                      cleanup_acl_cache(),
                       not_found
                 end)
     end.
 
+%% If the cache get full, and also the latest one
+%%   is expired, then delete all the cache entries
 -spec(put_acl_cache(PubSub :: publish | subscribe,
                     Topic :: topic(), AclResult :: acl_result()) -> ok).
 put_acl_cache(PubSub, Topic, AclResult) ->
     MaxSize = get_cache_max_size(), true = (MaxSize =/= 0),
     Size = get_cache_size(),
     if
-        Size =:= 0 ->
-            create_first(PubSub, Topic, AclResult);
         Size < MaxSize ->
-            append(PubSub, Topic, AclResult);
+            add_acl_cache(PubSub, Topic, AclResult);
         Size =:= MaxSize ->
-            %% when the cache get full, and also the latest one
-            %%   is expired, we'll perform a cleanup.
             NewestK = get_newest_key(),
-            {_AclResult, CachedAt, OldestK, _PrevK} = erlang:get(NewestK),
-            if_acl_cache_expired(CachedAt,
+            {_AclResult, CachedAt} = erlang:get(NewestK),
+            if_expired(CachedAt,
                 fun(true) ->
-                      % try to cleanup first
-                      cleanup_acl_cache(OldestK),
-                      add_cache(PubSub, Topic, AclResult);
+                      % all cache expired, cleanup first
+                      empty_acl_cache(),
+                      add_acl_cache(PubSub, Topic, AclResult);
                    (false) ->
                       % cache full, perform cache replacement
-                      delete_acl_cache(OldestK),
-                      append(PubSub, Topic, AclResult)
+                      evict_acl_cache(),
+                      add_acl_cache(PubSub, Topic, AclResult)
                 end)
     end.
 
--spec(delete_acl_cache(PubSub :: publish | subscribe, Topic :: topic()) -> ok).
-delete_acl_cache(PubSub, Topic) ->
-    delete_acl_cache(_K = {PubSub, Topic}).
-delete_acl_cache(K) ->
-    case erlang:get(K) of
-        undefined -> ok;
-        {_AclResult, _CachedAt, NextK, PrevK} when NextK =:= PrevK ->
-            %% there is only one entry in the cache
-            erlang:erase(K),
-            decr_cache_size(),
-            set_newest_key(undefined);
-        {_AclResult, _CachedAt, NextK, PrevK} ->
-            update_next(PrevK, NextK),
-            update_prev(NextK, PrevK),
-            erlang:erase(K),
+empty_acl_cache() ->
+    map_acl_cache(fun({CacheK, _CacheV}) ->
+            erlang:erase(CacheK)
+        end),
+    set_cache_size(0),
+    set_keys_queue(queue:new()).
 
-            decr_cache_size(),
-            NewestK = get_newest_key(),
-            if
-                K =:= NewestK -> set_newest_key(NextK);
-                true -> ok
-            end
+evict_acl_cache() ->
+    {{value, OldestK}, RemKeys} = queue:out(get_keys_queue()),
+    set_keys_queue(RemKeys),
+    erlang:erase(OldestK),
+    decr_cache_size().
+
+add_acl_cache(PubSub, Topic, AclResult) ->
+    K = cache_k(PubSub, Topic),
+    V = cache_v(AclResult),
+    case get(K) of
+        undefined -> add_new_acl(K, V);
+        {_AclResult, _CachedAt} ->
+            update_acl(K, V)
     end.
 
-%% evict all the exipired cache entries
+add_new_acl(K, V) ->
+    erlang:put(K, V),
+    keys_queue_in(K),
+    incr_cache_size().
+
+update_acl(K, V) ->
+    erlang:put(K, V),
+    keys_queue_update(K).
+
+%% cleanup all the exipired cache entries
 -spec(cleanup_acl_cache() -> ok).
 cleanup_acl_cache() ->
-    case get_newest_key() of
-        undefined -> ok;
-        NewestK ->
-            {_AclResult, _CachedAt, OldestK, _PrevK} = erlang:get(NewestK),
-            cleanup_acl_cache(OldestK)
-    end.
-cleanup_acl_cache(FromK) ->
-    case erlang:get(FromK) of
-        undefined -> ok;
-        {_AclResult, CachedAt, NextK, _PrevK} ->
-            if_acl_cache_expired(CachedAt,
-                fun(false) ->
-                      ok;
+    set_keys_queue(
+        cleanup_acl_cache(get_keys_queue())).
+
+cleanup_acl_cache(KeysQ) ->
+    case queue:out(KeysQ) of
+        {{value, OldestK}, RemKeys} ->
+            {_AclResult, CachedAt} = erlang:get(OldestK),
+            if_expired(CachedAt,
+                fun(false) -> KeysQ;
                    (true) ->
-                      delete_acl_cache(FromK),
-                      cleanup_acl_cache(NextK)
-                end)
+                      erlang:erase(OldestK),
+                      decr_cache_size(),
+                      cleanup_acl_cache(RemKeys)
+                end);
+        {empty, KeysQ} -> KeysQ
+    end.
+
+get_newest_key() ->
+    get_key(fun(KeysQ) -> queue:get_r(KeysQ) end).
+
+get_oldest_key() ->
+    get_key(fun(KeysQ) -> queue:get(KeysQ) end).
+
+get_key(Pick) ->
+    KeysQ = get_keys_queue(),
+    case queue:is_empty(KeysQ) of
+        true -> undefined;
+        false -> Pick(KeysQ)
     end.
 
 %% for test only
 dump_acl_cache() ->
-    [R || R = {{SubPub, _T}, _Acl} <- get(), SubPub =:= publish
+    map_acl_cache(fun(Cache) -> Cache end).
+map_acl_cache(Fun) ->
+    [Fun(R) || R = {{SubPub, _T}, _Acl} <- get(), SubPub =:= publish
                                              orelse SubPub =:= subscribe].
 
-add_cache(PubSub, Topic, AclResult) ->
-    Size = get_cache_size(),
-    MaxSize = get_cache_max_size(), true = (MaxSize =/= 0),
-    if
-        Size =:= 0 ->
-            create_first(PubSub, Topic, AclResult);
-        Size =:= MaxSize ->
-            OldestK = get_next_key(get_newest_key()),
-            delete_acl_cache(OldestK),
-            case get_cache_size() =:= 0 of
-                true -> create_first(PubSub, Topic, AclResult);
-                false -> append(PubSub, Topic, AclResult)
-            end;
-        true ->
-            append(PubSub, Topic, AclResult)
-    end.
-
-create_first(PubSub, Topic, AclResult) ->
-    K = cache_k(PubSub, Topic),
-    V = cache_v(AclResult, _NextK = K, _PrevK = K),
-    erlang:put(K, V),
-    set_cache_size(1),
-    set_newest_key(K).
-
-append(PubSub, Topic, AclResult) ->
-    %% try to update the existing one:
-    %% - we delete it and then append it at the tail
-    delete_acl_cache(PubSub, Topic),
-
-    case get_cache_size() =:= 0 of
-        true -> create_first(PubSub, Topic, AclResult);
-        false ->
-            NewestK = get_newest_key(),
-            OldestK = get_next_key(NewestK),
-            K = cache_k(PubSub, Topic),
-            V = cache_v(AclResult, OldestK, NewestK),
-            erlang:put(K, V),
-
-            update_next(NewestK, K),
-            update_prev(OldestK, K),
-            incr_cache_size(),
-            set_newest_key(K)
-    end.
-
-get_next_key(K) ->
-    erlang:element(3, erlang:get(K)).
-update_next(K, NextK) ->
-    NoNext = erlang:delete_element(3, erlang:get(K)),
-    erlang:put(K, erlang:insert_element(3, NoNext, NextK)).
-update_prev(K, PrevK) ->
-    NoPrev = erlang:delete_element(4, erlang:get(K)),
-    erlang:put(K, erlang:insert_element(4, NoPrev, PrevK)).
 
 cache_k(PubSub, Topic)-> {PubSub, Topic}.
-cache_v(AclResult, NextK, PrevK)-> {AclResult, time_now(), NextK, PrevK}.
+cache_v(AclResult)-> {AclResult, time_now()}.
 
 get_cache_max_size() ->
-    application:get_env(emqx, acl_cache_size, 100).
+    application:get_env(emqx, acl_cache_max_size, 0).
 
 get_cache_size() ->
     case erlang:get(acl_cache_size) of
@@ -386,15 +354,31 @@ decr_cache_size() ->
 set_cache_size(N) ->
     erlang:put(acl_cache_size, N), ok.
 
-get_newest_key() ->
-    erlang:get(acl_cache_newest_key).
+keys_queue_in(Key) ->
+    %% delete the key first if exists
+    KeysQ = get_keys_queue(),
+    set_keys_queue(queue:in(Key, KeysQ)).
 
-set_newest_key(Key) ->
-    erlang:put(acl_cache_newest_key, Key), ok.
+keys_queue_update(Key) ->
+    NewKeysQ = remove_key(Key, get_keys_queue()),
+    set_keys_queue(queue:in(Key, NewKeysQ)).
+
+remove_key(Key, KeysQ) ->
+    queue:filter(fun
+        (K) when K =:= Key -> false; (_) -> true
+      end, KeysQ).
+
+set_keys_queue(KeysQ) ->
+    erlang:put(acl_keys_q, KeysQ), ok.
+get_keys_queue() ->
+    case erlang:get(acl_keys_q) of
+        undefined -> queue:new();
+        KeysQ -> KeysQ
+    end.
 
 time_now() -> erlang:system_time(millisecond).
 
-if_acl_cache_expired(CachedAt, Fun) ->
+if_expired(CachedAt, Fun) ->
     TTL = application:get_env(emqx, acl_cache_ttl, 60000),
     Now = time_now(),
     if (CachedAt + TTL) =< Now ->

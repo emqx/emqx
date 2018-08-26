@@ -22,6 +22,7 @@
 -include("emqx.hrl").
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -define(AC, emqx_access_control).
 
@@ -71,10 +72,10 @@ init_per_group(_Group, Config) ->
 
 prepare_config(Group = access_control) ->
     set_acl_config_file(Group),
-    application:set_env(emqx, acl_cache_size, 0);
+    application:set_env(emqx, acl_cache_max_size, 0);
 prepare_config(Group = access_control_cache_mode) ->
     set_acl_config_file(Group),
-    application:set_env(emqx, acl_cache_size, 100).
+    application:set_env(emqx, acl_cache_max_size, 100).
 
 set_acl_config_file(_Group) ->
     Rules = [{allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]},
@@ -170,7 +171,7 @@ acl_cache_expiry(_) ->
     ok.
 
 acl_cache_full(_) ->
-    application:set_env(emqx, acl_cache_size, 1),
+    application:set_env(emqx, acl_cache_max_size, 1),
 
     SelfUser = #client{id = <<"client1">>, username = <<"testuser">>},
     allow = ?AC:check_acl(SelfUser, subscribe, <<"users/testuser/1">>),
@@ -185,7 +186,7 @@ acl_cache_cleanup(_) ->
     %% The acl cache will try to evict memory, if the size is full and the newest
     %%   cache entry is expired
     application:set_env(emqx, acl_cache_ttl, 1000),
-    application:set_env(emqx, acl_cache_size, 2),
+    application:set_env(emqx, acl_cache_max_size, 2),
 
     SelfUser = #client{id = <<"client1">>, username = <<"testuser">>},
     allow = ?AC:check_acl(SelfUser, subscribe, <<"users/testuser/1">>),
@@ -206,7 +207,7 @@ acl_cache_cleanup(_) ->
 
 put_get_del_cache(_) ->
     application:set_env(emqx, acl_cache_ttl, 300000),
-    application:set_env(emqx, acl_cache_size, 30),
+    application:set_env(emqx, acl_cache_max_size, 30),
 
     not_found = ?AC:get_acl_cache(publish, <<"a">>),
     ok = ?AC:put_acl_cache(publish, <<"a">>, allow),
@@ -217,11 +218,11 @@ put_get_del_cache(_) ->
     deny = ?AC:get_acl_cache(subscribe, <<"b">>),
 
     2 = ?AC:get_cache_size(),
-    {subscribe, <<"b">>} = ?AC:get_newest_key().
+    ?assertEqual(?AC:cache_k(subscribe, <<"b">>), ?AC:get_newest_key()).
 
 cache_expiry(_) ->
     application:set_env(emqx, acl_cache_ttl, 1000),
-    application:set_env(emqx, acl_cache_size, 30),
+    application:set_env(emqx, acl_cache_max_size, 30),
     ok = ?AC:put_acl_cache(subscribe, <<"a">>, allow),
     allow = ?AC:get_acl_cache(subscribe, <<"a">>),
 
@@ -236,25 +237,25 @@ cache_expiry(_) ->
 
 cache_update(_) ->
     application:set_env(emqx, acl_cache_ttl, 300000),
-    application:set_env(emqx, acl_cache_size, 30),
+    application:set_env(emqx, acl_cache_max_size, 30),
     [] = ?AC:dump_acl_cache(),
 
     ok = ?AC:put_acl_cache(subscribe, <<"a">>, allow),
     ok = ?AC:put_acl_cache(publish, <<"b">>, allow),
     ok = ?AC:put_acl_cache(publish, <<"c">>, allow),
     3 = ?AC:get_cache_size(),
-    {publish, <<"c">>} = ?AC:get_newest_key(),
+    ?assertEqual(?AC:cache_k(publish, <<"c">>), ?AC:get_newest_key()),
 
     %% update the 2nd one
     ok = ?AC:put_acl_cache(publish, <<"b">>, allow),
     %ct:pal("dump acl cache: ~p~n", [?AC:dump_acl_cache()]),
 
     3 = ?AC:get_cache_size(),
-    {publish, <<"b">>} = ?AC:get_newest_key().
+    ?assertEqual(?AC:cache_k(publish, <<"b">>), ?AC:get_newest_key()).
 
 cache_full_replacement(_) ->
     application:set_env(emqx, acl_cache_ttl, 300000),
-    application:set_env(emqx, acl_cache_size, 3),
+    application:set_env(emqx, acl_cache_max_size, 3),
     ok = ?AC:put_acl_cache(subscribe, <<"a">>, allow),
     ok = ?AC:put_acl_cache(publish, <<"b">>, allow),
     ok = ?AC:put_acl_cache(publish, <<"c">>, allow),
@@ -262,15 +263,15 @@ cache_full_replacement(_) ->
     allow = ?AC:get_acl_cache(publish, <<"b">>),
     allow = ?AC:get_acl_cache(publish, <<"c">>),
     3 = ?AC:get_cache_size(),
-    {publish, <<"c">>} = ?AC:get_newest_key(),
+    ?assertEqual(?AC:cache_k(publish, <<"c">>), ?AC:get_newest_key()),
 
     ok = ?AC:put_acl_cache(publish, <<"d">>, deny),
     3 = ?AC:get_cache_size(),
-    {publish, <<"d">>} = ?AC:get_newest_key(),
+    ?assertEqual(?AC:cache_k(publish, <<"d">>), ?AC:get_newest_key()),
 
     ok = ?AC:put_acl_cache(publish, <<"e">>, deny),
     3 = ?AC:get_cache_size(),
-    {publish, <<"e">>} = ?AC:get_newest_key(),
+    ?assertEqual(?AC:cache_k(publish, <<"e">>), ?AC:get_newest_key()),
 
     not_found = ?AC:get_acl_cache(subscribe, <<"a">>),
     not_found = ?AC:get_acl_cache(publish, <<"b">>),
@@ -278,7 +279,7 @@ cache_full_replacement(_) ->
 
 cache_cleanup(_) ->
     application:set_env(emqx, acl_cache_ttl, 1000),
-    application:set_env(emqx, acl_cache_size, 30),
+    application:set_env(emqx, acl_cache_max_size, 30),
     ok = ?AC:put_acl_cache(subscribe, <<"a">>, allow),
     ok = ?AC:put_acl_cache(publish, <<"b">>, allow),
     ok = ?AC:put_acl_cache(publish, <<"c">>, allow),
@@ -290,7 +291,7 @@ cache_cleanup(_) ->
 
 cache_full_cleanup(_) ->
     application:set_env(emqx, acl_cache_ttl, 1000),
-    application:set_env(emqx, acl_cache_size, 3),
+    application:set_env(emqx, acl_cache_max_size, 3),
     ok = ?AC:put_acl_cache(subscribe, <<"a">>, allow),
     ok = ?AC:put_acl_cache(publish, <<"b">>, allow),
     ok = ?AC:put_acl_cache(publish, <<"c">>, allow),
