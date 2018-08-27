@@ -18,6 +18,7 @@
 -include("emqx_mqtt.hrl").
 
 -export([init/2, info/1, caps/1, stats/1]).
+-export([credentials/1]).
 -export([client/1, client_id/1]).
 -export([session/1]).
 -export([parser/1]).
@@ -134,6 +135,15 @@ info(#pstate{zone         = Zone,
 caps(#pstate{zone = Zone}) ->
     emqx_mqtt_caps:get_caps(Zone).
 
+credentials(#pstate{zone       = Zone,
+                    client_id  = ClientId,
+                    username   = Username,
+                    peername   = Peername}) ->
+    #{zone      => Zone,
+      client_id => ClientId,
+      username  => Username,
+      peername  => Peername}.
+
 client(#pstate{zone       = Zone,
                client_id  = ClientId,
                client_pid = ClientPid,
@@ -219,7 +229,7 @@ process(?CONNECT_PACKET(
     connack(
       case check_connect(Connect, PState1) of
           {ok, PState2} ->
-              case authenticate(client(PState2), Password) of
+              case authenticate(credentials(PState2), Password) of
                   {ok, IsSuper} ->
                       %% Maybe assign a clientId
                       PState3 = maybe_assign_client_id(PState2#pstate{is_super = IsSuper}),
@@ -449,8 +459,8 @@ try_open_session(#pstate{zone        = Zone,
         Other -> Other
     end.
 
-authenticate(Client, Password) ->
-    case emqx_access_control:authenticate(Client, Password) of
+authenticate(Credentials, Password) ->
+    case emqx_access_control:authenticate(Credentials, Password) of
         ok             -> {ok, false};
         {ok, IsSuper}  -> {ok, IsSuper};
         {error, Error} -> {error, Error}
@@ -511,7 +521,7 @@ check_pub_acl(_Packet, #pstate{is_super = IsSuper, enable_acl = EnableAcl})
     ok;
 
 check_pub_acl(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}}, PState) ->
-    case emqx_access_control:check_acl(client(PState), publish, Topic) of
+    case emqx_access_control:check_acl(credentials(PState), publish, Topic) of
         allow -> ok;
         deny  -> {error, ?RC_NOT_AUTHORIZED}
     end.
@@ -541,10 +551,10 @@ check_sub_acl(TopicFilters, #pstate{is_super = IsSuper, enable_acl = EnableAcl})
     {ok, TopicFilters};
 
 check_sub_acl(TopicFilters, PState) ->
-    Client = client(PState),
+    Credentials = credentials(PState),
     lists:foldr(
       fun({Topic, SubOpts}, {Ok, Acc}) ->
-              case emqx_access_control:check_acl(Client, subscribe, Topic) of
+              case emqx_access_control:check_acl(Credentials, subscribe, Topic) of
                   allow -> {Ok, [{Topic, SubOpts}|Acc]};
                   deny  -> {error, [{Topic, SubOpts#{rc := ?RC_NOT_AUTHORIZED}}|Acc]}
               end

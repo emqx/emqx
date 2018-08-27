@@ -20,8 +20,9 @@
 
 -export([start_link/0]).
 -export([authenticate/2]).
--export([check_acl/3, reload_acl/0, lookup_mods/1]).
+-export([check_acl/3, reload_acl/0]).
 -export([register_mod/3, register_mod/4, unregister_mod/2]).
+-export([lookup_mods/1]).
 -export([stop/0]).
 
 %% gen_server callbacks
@@ -31,8 +32,6 @@
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 
--type(password() :: undefined | binary()).
-
 -record(state, {}).
 
 %%------------------------------------------------------------------------------
@@ -40,84 +39,91 @@
 %%------------------------------------------------------------------------------
 
 %% @doc Start access control server.
--spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
+-spec(start_link() -> {ok, pid()} | {error, term()}).
 start_link() ->
+    start_with(fun register_default_acl/0).
+
+start_with(Fun) ->
     case gen_server:start_link({local, ?SERVER}, ?MODULE, [], []) of
         {ok, Pid} ->
-            ok = register_default_mod(),
-            {ok, Pid};
+            Fun(), {ok, Pid};
         {error, Reason} ->
             {error, Reason}
     end.
 
-register_default_mod() ->
+register_default_acl() ->
     case emqx_config:get_env(acl_file) of
         undefined -> ok;
-        File ->
-            emqx_access_control:register_mod(acl, emqx_acl_internal, [File])
+        File -> register_mod(acl, emqx_acl_internal, [File])
     end.
 
-%% @doc Authenticate Client.
--spec(authenticate(Client :: client(), Password :: password())
-      -> ok | {ok, boolean()} | {error, term()}).
-authenticate(Client, Password) when is_record(Client, client) ->
-    authenticate(Client, Password, lookup_mods(auth)).
+-spec(authenticate(credentials(), password())
+      -> ok | {ok, map()} | {continue, map()} | {error, term()}).
+authenticate(Credentials, Password) ->
+    authenticate(Credentials, Password, lookup_mods(auth)).
 
-authenticate(#client{zone = Zone}, _Password, []) ->
+authenticate(Credentials, _Password, []) ->
+    Zone = maps:get(zone, Credentials, undefined),
     case emqx_zone:get_env(Zone, allow_anonymous, false) of
         true  -> ok;
-        false -> {error, "No auth module to check!"}
+        false -> {error, auth_modules_not_found}
     end;
 
-authenticate(Client, Password, [{Mod, State, _Seq} | Mods]) ->
-    case catch Mod:check(Client, Password, State) of
-        ok              -> ok;
-        {ok, IsSuper}   -> {ok, IsSuper};
-        ignore          -> authenticate(Client, Password, Mods);
-        {error, Reason} -> {error, Reason};
-        {'EXIT', Error} -> {error, Error}
+authenticate(Credentials, Password, [{Mod, State, _Seq} | Mods]) ->
+    case catch Mod:check(Credentials, Password, State) of
+        ok -> ok;
+        {ok, IsSuper} when is_boolean(IsSuper) ->
+            {ok, #{is_superuser => IsSuper}};
+        {ok, Result} when is_map(Result) ->
+            {ok, Result};
+        {continue, Result} when is_map(Result) ->
+            {continue, Result};
+        ignore ->
+            authenticate(Credentials, Password, Mods);
+        {error, Reason} ->
+            {error, Reason};
+        {'EXIT', Error} ->
+            {error, Error}
     end.
 
 %% @doc Check ACL
--spec(check_acl(client(), pubsub(), topic()) -> allow | deny).
-check_acl(Client, PubSub, Topic) when ?PS(PubSub) ->
+-spec(check_acl(credentials(), pubsub(), topic()) -> allow | deny).
+check_acl(Credentials, PubSub, Topic) when ?PS(PubSub) ->
     CacheEnabled = emqx_acl_cache:is_enabled(),
-    check_acl(Client, PubSub, Topic, lookup_mods(acl), CacheEnabled).
+    check_acl(Credentials, PubSub, Topic, lookup_mods(acl), CacheEnabled).
 
-check_acl(Client, PubSub, Topic, AclMods, false) ->
-    do_check_acl(Client, PubSub, Topic, AclMods);
-check_acl(Client, PubSub, Topic, AclMods, true) ->
+check_acl(Credentials, PubSub, Topic, AclMods, false) ->
+    do_check_acl(Credentials, PubSub, Topic, AclMods);
+check_acl(Credentials, PubSub, Topic, AclMods, true) ->
     case emqx_acl_cache:get_acl_cache(PubSub, Topic) of
         not_found ->
-            AclResult = do_check_acl(Client, PubSub, Topic, AclMods),
+            AclResult = do_check_acl(Credentials, PubSub, Topic, AclMods),
             emqx_acl_cache:put_acl_cache(PubSub, Topic, AclResult),
             AclResult;
         AclResult ->
             AclResult
     end.
 
-%% @doc Reload ACL Rules.
--spec(reload_acl() -> list(ok | {error, already_existed})).
+-spec(reload_acl() -> list(ok | {error, term()})).
 reload_acl() ->
     [Mod:reload_acl(State) || {Mod, State, _Seq} <- lookup_mods(acl)].
 
-%% @doc Register Authentication or ACL module.
--spec(register_mod(auth | acl, atom(), list()) -> ok | {error, term()}).
+%% @doc Register an Auth/ACL module.
+-spec(register_mod(auth | acl, module(), list()) -> ok | {error, term()}).
 register_mod(Type, Mod, Opts) when Type =:= auth; Type =:= acl ->
     register_mod(Type, Mod, Opts, 0).
 
--spec(register_mod(auth | acl, atom(), list(), non_neg_integer())
+-spec(register_mod(auth | acl, module(), list(), non_neg_integer())
       -> ok | {error, term()}).
 register_mod(Type, Mod, Opts, Seq) when Type =:= auth; Type =:= acl->
     gen_server:call(?SERVER, {register_mod, Type, Mod, Opts, Seq}).
 
-%% @doc Unregister authentication or ACL module
--spec(unregister_mod(Type :: auth | acl, Mod :: atom())
-      -> ok | {error, not_found | term()}).
+%% @doc Unregister an Auth/ACL module.
+-spec(unregister_mod(auth | acl, module()) -> ok | {error, not_found | term()}).
 unregister_mod(Type, Mod) when Type =:= auth; Type =:= acl ->
     gen_server:call(?SERVER, {unregister_mod, Type, Mod}).
 
-%% @doc Lookup authentication or ACL modules.
+%% @doc Lookup all Auth/ACL modules.
 -spec(lookup_mods(auth | acl) -> list()).
 lookup_mods(Type) ->
     case ets:lookup(?TAB, tab_key(Type)) of
@@ -128,13 +134,12 @@ lookup_mods(Type) ->
 tab_key(auth) -> auth_modules;
 tab_key(acl)  -> acl_modules.
 
-%% @doc Stop access control server.
 stop() ->
-    gen_server:stop(?MODULE, normal, infinity).
+    gen_server:stop(?SERVER, normal, infinity).
 
-%%--------------------------------------------------------------------
+%%-----------------------------------------------------------------------------
 %% gen_server callbacks
-%%--------------------------------------------------------------------
+%%-----------------------------------------------------------------------------
 
 init([]) ->
     _ = emqx_tables:new(?TAB, [set, protected, {read_concurrency, true}]),
@@ -142,31 +147,31 @@ init([]) ->
 
 handle_call({register_mod, Type, Mod, Opts, Seq}, _From, State) ->
     Mods = lookup_mods(Type),
-    Existed = lists:keyfind(Mod, 1, Mods),
-    {reply, if_existed(Existed, fun() ->
-                case catch Mod:init(Opts) of
-                    {ok, ModState} ->
-                        NewMods = lists:sort(fun({_, _, Seq1}, {_, _, Seq2}) ->
-                                            Seq1 >= Seq2
-                                    end, [{Mod, ModState, Seq} | Mods]),
-                        ets:insert(?TAB, {tab_key(Type), NewMods}),
-                        ok;
-                    {error, Error} ->
-                        {error, Error};
-                    {'EXIT', Reason} ->
-                        {error, Reason}
-                end
-            end), State};
+    reply(case lists:keyfind(Mod, 1, Mods) of
+              true ->
+                  {error, already_existed};
+              false ->
+                  case catch Mod:init(Opts) of
+                      {ok, ModState} ->
+                          NewMods = lists:sort(fun({_, _, Seq1}, {_, _, Seq2}) ->
+                                                       Seq1 >= Seq2
+                                               end, [{Mod, ModState, Seq} | Mods]),
+                          ets:insert(?TAB, {tab_key(Type), NewMods}), ok;
+                      {error, Error} ->
+                          {error, Error};
+                      {'EXIT', Reason} ->
+                          {error, Reason}
+                    end
+          end, State);
 
 handle_call({unregister_mod, Type, Mod}, _From, State) ->
     Mods = lookup_mods(Type),
-    case lists:keyfind(Mod, 1, Mods) of
-        false ->
-            {reply, {error, not_found}, State};
-        _ ->
-            _ = ets:insert(?TAB, {tab_key(Type), lists:keydelete(Mod, 1, Mods)}),
-            {reply, ok, State}
-    end;
+    reply(case lists:keyfind(Mod, 1, Mods) of
+              false ->
+                  {error, not_found};
+              true ->
+                  ets:insert(?TAB, {tab_key(Type), lists:keydelete(Mod, 1, Mods)}), ok
+          end, State);
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
@@ -202,7 +207,6 @@ do_check_acl(Client, PubSub, Topic, [{Mod, State, _Seq}|AclMods]) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-if_existed(false, Fun) ->
-    Fun();
-if_existed(_Mod, _Fun) ->
-    {error, already_existed}.
+reply(Reply, State) ->
+    {reply, Reply, State}.
+

@@ -22,13 +22,11 @@
 
 -ifdef(use_specs).
 
--callback(init(AuthOpts :: list()) -> {ok, State :: any()}).
+-callback(init(AuthOpts :: list()) -> {ok, State :: term()}).
 
--callback(check(Client   :: client(),
-                Password :: binary(),
-                State    :: any())
-          -> ok | {ok, boolean()} | ignore | {error, string()}).
-
+-callback(check(credentials(), password(), State :: term())
+          -> ok | {ok, boolean()} | {ok, map()} |
+             {continue, map()} | ignore | {error, term()}).
 -callback(description() -> string()).
 
 -else.
