@@ -379,9 +379,18 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+insert_subscriber(Group, Topic, Subscriber) ->
+    Subscribers = subscribers(Topic),
+    case lists:member(Subscriber, Subscribers) of
+        false ->
+            ets:insert(?SUBSCRIBER, {Topic, shared(Group, Subscriber)});
+        _ ->
+            ok
+    end.
+
 do_subscribe(Group, Topic, Subscriber, SubOpts) ->
     ets:insert(?SUBSCRIPTION, {Subscriber, shared(Group, Topic)}),
-    ets:insert(?SUBSCRIBER, {Topic, shared(Group, Subscriber)}),
+    insert_subscriber(Group, Topic, Subscriber),
     ets:insert(?SUBOPTION, {{Topic, Subscriber}, SubOpts}).
 
 do_unsubscribe(Group, Topic, Subscriber) ->
