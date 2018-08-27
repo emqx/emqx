@@ -32,8 +32,6 @@
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 
--record(state, {}).
-
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
@@ -104,6 +102,15 @@ check_acl(Credentials, PubSub, Topic, AclMods, true) ->
             AclResult
     end.
 
+do_check_acl(#{zone := Zone}, _PubSub, _Topic, []) ->
+    emqx_zone:get_env(Zone, acl_nomatch, deny);
+do_check_acl(Credentials, PubSub, Topic, [{Mod, State, _Seq}|AclMods]) ->
+    case Mod:check_acl({Credentials, PubSub, Topic}, State) of
+        allow  -> allow;
+        deny   -> deny;
+        ignore -> do_check_acl(Credentials, PubSub, Topic, AclMods)
+    end.
+
 -spec(reload_acl() -> list(ok | {error, term()})).
 reload_acl() ->
     [Mod:reload_acl(State) || {Mod, State, _Seq} <- lookup_mods(acl)].
@@ -143,7 +150,7 @@ stop() ->
 
 init([]) ->
     _ = emqx_tables:new(?TAB, [set, protected, {read_concurrency, true}]),
-    {ok, #state{}}.
+    {ok, #{}}.
 
 handle_call({register_mod, Type, Mod, Opts, Seq}, _From, State) ->
     Mods = lookup_mods(Type),
@@ -193,15 +200,6 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
-do_check_acl(#client{zone = Zone}, _PubSub, _Topic, []) ->
-    emqx_zone:get_env(Zone, acl_nomatch, deny);
-do_check_acl(Client, PubSub, Topic, [{Mod, State, _Seq}|AclMods]) ->
-    case Mod:check_acl({Client, PubSub, Topic}, State) of
-        allow  -> allow;
-        deny   -> deny;
-        ignore -> do_check_acl(Client, PubSub, Topic, AclMods)
-    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions
