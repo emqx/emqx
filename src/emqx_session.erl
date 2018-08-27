@@ -611,9 +611,10 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-with_subid(#{'Subscription-Identifier' := SubId}, Opts) ->
-    maps:put(subid, SubId, Opts);
-with_subid(_Props, Opts) -> Opts.
+with_subid(#{'Subscription-Identifier' := SubId}, SubOpts) ->
+    maps:put(subid, SubId, SubOpts);
+with_subid(_Props, SubOpts) ->
+    SubOpts.
 
 suback(_From, undefined, _ReasonCodes) ->
     ignore;
