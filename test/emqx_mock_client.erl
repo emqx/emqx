@@ -18,7 +18,7 @@
 
 -behaviour(gen_server).
 
--export([start_link/1, open_session/3, stop/1]).
+-export([start_link/1, open_session/3, close_session/2, stop/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -30,6 +30,9 @@ start_link(ClientId) ->
 
 open_session(ClientPid, ClientId, Zone) ->
     gen_server:call(ClientPid, {start_session, ClientPid, ClientId, Zone}).
+
+close_session(ClientPid, SessPid) ->
+    gen_server:call(ClientPid, {stop_session, SessPid}).
 
 stop(CPid) ->
     gen_server:call(CPid, stop).
@@ -54,6 +57,11 @@ handle_call({start_session, ClientPid, ClientId, Zone}, _From, State) ->
                              client_id = ClientId, 
                              client_pid = ClientPid
                             }};
+
+handle_call({stop_session, SessPid}, _From, State) ->
+    unlink(SessPid),
+    emqx_sm:close_session(SessPid),
+    {stop, normal, ok, State};
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State};

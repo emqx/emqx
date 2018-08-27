@@ -383,7 +383,7 @@ handle_call(stats, _From, State) ->
     reply(stats(State), State);
 
 handle_call(close, _From, State) ->
-    {stop, normal, State};
+    {stop, normal, ok, State};
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[Session] unexpected call: ~p", [Req]),
