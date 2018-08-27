@@ -47,7 +47,7 @@
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
 -define(WSLOG(Level, Format, Args, State),
-        lager:Level("WsClient(~s): " ++ Format, [esockd_net:format(State#state.peername) | Args])).
+        emqx_logger:Level("WsClient(~s): " ++ Format, [esockd_net:format(State#state.peername) | Args])).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -84,7 +84,6 @@ call(WSPid, Req) ->
 %%------------------------------------------------------------------------------
 
 init(Req, Opts) ->
-    io:format("Opts: ~p~n", [Opts]),
     case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req) of
         undefined ->
             {cowboy_websocket, Req, #state{}};
@@ -200,7 +199,7 @@ websocket_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
 websocket_info(emit_stats, State = #state{proto_state = ProtoState}) ->
     Stats = lists:append([wsock_stats(), emqx_misc:proc_stats(),
                           emqx_protocol:stats(ProtoState)]),
-    emqx_cm:set_client_stats(emqx_protocol:clientid(ProtoState), Stats),
+    emqx_cm:set_conn_stats(emqx_protocol:clientid(ProtoState), Stats),
     {ok, State#state{stats_timer = undefined}, hibernate};
 
 websocket_info({keepalive, start, Interval}, State) ->

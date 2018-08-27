@@ -237,7 +237,7 @@ process(?CONNECT_PACKET(
                       case try_open_session(PState3) of
                           {ok, SPid, SP} ->
                               PState4 = PState3#pstate{session = SPid},
-                              ok = emqx_cm:register_client({client_id(PState4), self()}, info(PState4)),
+                              ok = emqx_cm:register_connection(client_id(PState4), info(PState4)),
                               %% Start keepalive
                               start_keepalive(Keepalive, PState4),
                               %% TODO: 'Run hooks' before open_session?
@@ -580,10 +580,10 @@ inc_stats(Type, Stats = #{pkt := PktCnt, msg := MsgCnt}) ->
 shutdown(_Error, #pstate{client_id = undefined}) ->
     ignore;
 shutdown(conflict, #pstate{client_id = ClientId}) ->
-    emqx_cm:unregister_client(ClientId),
+    emqx_cm:unregister_connection(ClientId),
     ignore;
 shutdown(mnesia_conflict, #pstate{client_id = ClientId}) ->
-    emqx_cm:unregister_client(ClientId),
+    emqx_cm:unregister_connection(ClientId),
     ignore;
 shutdown(Error, PState = #pstate{client_id = ClientId, will_msg = WillMsg}) ->
     ?LOG(info, "Shutdown for ~p", [Error], PState),
@@ -593,7 +593,7 @@ shutdown(Error, PState = #pstate{client_id = ClientId, will_msg = WillMsg}) ->
         false -> send_willmsg(WillMsg)
     end,
     emqx_hooks:run('client.disconnected', [Error], client(PState)),
-    emqx_cm:unregister_client(ClientId).
+    emqx_cm:unregister_connection(ClientId).
 
 willmsg(Packet, PState = #pstate{client_id = ClientId})
     when is_record(Packet, mqtt_packet_connect) ->
