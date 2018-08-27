@@ -131,9 +131,9 @@ stat_fun() ->
     fun() -> {ok, get(recv_oct)} end.
 
 websocket_handle({binary, <<>>}, State) ->
-    {ok, State};
+    {ok, ensure_stats_timer(State)};
 websocket_handle({binary, [<<>>]}, State) ->
-    {ok, State};
+    {ok, ensure_stats_timer(State)};
 websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
                                                 proto_state  = ProtoState}) ->
     BinSize = iolist_size(Data),

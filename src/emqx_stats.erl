@@ -59,7 +59,9 @@
     'subscribers/count',
     'subscribers/max',
     'subscriptions/count',
-    'subscriptions/max'
+    'subscriptions/max',
+    'subscriptions/shared/count',
+    'subscriptions/shared/max'
 ]).
 
 -define(ROUTE_STATS, [
