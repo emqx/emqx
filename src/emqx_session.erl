@@ -220,7 +220,7 @@ pubcomp(SPid, PacketId, ReasonCode) ->
 -spec(unsubscribe(pid(), {mqtt_packet_id(), mqtt_properties(), topic_table()}) -> ok).
 unsubscribe(SPid, TopicFilters) when is_list(TopicFilters) ->
     %%TODO: Parse the topic filters?
-    unsubscribe(SPid, {undefined, #{}, TopicFilters}).
+    unsubscribe(SPid, undefined, #{}, TopicFilters).
 
 %% TODO:...
 unsubscribe(SPid, PacketId, Properties, TopicFilters) ->
