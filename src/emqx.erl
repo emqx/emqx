@@ -116,9 +116,9 @@ topics() -> emqx_router:topics().
 subscribers(Topic) ->
     emqx_broker:subscribers(iolist_to_binary(Topic)).
 
--spec(subscriptions(subscriber() | string()) -> [{topic(), subopts()}]).
+-spec(subscriptions(subscriber()) -> [{topic(), subopts()}]).
 subscriptions(Subscriber) ->
-    emqx_broker:subscriptions(list_to_subid(Subscriber)).
+    emqx_broker:subscriptions(Subscriber).
 
 -spec(subscribed(topic() | string(), subscriber()) -> boolean()).
 subscribed(Topic, Subscriber) ->
