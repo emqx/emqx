@@ -20,12 +20,10 @@
 
 -export([all_rules/0]).
 
-%% ACL callbacks
+%% ACL mod callbacks
 -export([init/1, check_acl/2, reload_acl/1, description/0]).
 
 -define(ACL_RULE_TAB, emqx_acl_rule).
-
--record(state, {acl_file}).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -43,21 +41,20 @@ all_rules() ->
 %% ACL callbacks
 %%------------------------------------------------------------------------------
 
-%% @doc Init internal ACL
--spec(init([File :: string()]) -> {ok, State :: term()}).
+-spec(init([File :: string()]) -> {ok, #{}}).
 init([File]) ->
     _ = emqx_tables:new(?ACL_RULE_TAB, [set, public, {read_concurrency, true}]),
-    {ok, load_rules_from_file(#state{acl_file = File})}.
+    true = load_rules_from_file(File),
+    {ok, #{acl_file => File}}.
 
-load_rules_from_file(State = #state{acl_file = AclFile}) ->
+load_rules_from_file(AclFile) ->
     {ok, Terms} = file:consult(AclFile),
     Rules = [emqx_access_rule:compile(Term) || Term <- Terms],
     lists:foreach(fun(PubSub) ->
         ets:insert(?ACL_RULE_TAB, {PubSub,
             lists:filter(fun(Rule) -> filter(PubSub, Rule) end, Rules)})
         end, [publish, subscribe]),
-    ets:insert(?ACL_RULE_TAB, {all_rules, Terms}),
-    State.
+    ets:insert(?ACL_RULE_TAB, {all_rules, Terms}).
 
 filter(_PubSub, {allow, all}) ->
     true;
@@ -73,11 +70,11 @@ filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
     false.
 
 %% @doc Check ACL
--spec(check_acl({credentials(), pubsub(), topic()}, #state{})
+-spec(check_acl({credentials(), pubsub(), topic()}, #{})
       -> allow | deny | ignore).
-check_acl(_Who, #state{acl_file = undefined}) ->
+check_acl(_Who, #{acl_file := undefined}) ->
     allow;
-check_acl({Credentials, PubSub, Topic}, #state{}) ->
+check_acl({Credentials, PubSub, Topic}, #{}) ->
     case match(Credentials, Topic, lookup(PubSub)) of
         {matched, allow} -> allow;
         {matched, deny}  -> deny;
@@ -94,22 +91,24 @@ match(_Credentials, _Topic, []) ->
     nomatch;
 match(Credentials, Topic, [Rule|Rules]) ->
     case emqx_access_rule:match(Credentials, Topic, Rule) of
-        nomatch -> match(Credentials, Topic, Rules);
-        {matched, AllowDeny} -> {matched, AllowDeny}
+        nomatch ->
+            match(Credentials, Topic, Rules);
+        {matched, AllowDeny} ->
+            {matched, AllowDeny}
     end.
 
--spec(reload_acl(#state{}) -> ok | {error, term()}).
-reload_acl(#state{acl_file = undefined}) ->
+-spec(reload_acl(#{}) -> ok | {error, term()}).
+reload_acl(#{acl_file := undefined}) ->
     ok;
-reload_acl(State) ->
-    case catch load_rules_from_file(State) of
-
-        {'EXIT', Error} -> {error, Error};
-        #state{config=File} ->
-            io:format("reload acl_internal successfully: ~p~n", [File]),
-            ok
+reload_acl(#{acl_file := AclFile}) ->
+    case catch load_rules_from_file(AclFile) of
+        true -> emqx_logger:error("Reload acl_file ~s successfully", [AclFile]),
+                ok;
+        {'EXIT', Error} ->
+            {error, Error}
     end.
 
 -spec(description() -> string()).
 description() ->
     "Internal ACL with etc/acl.conf".
+
