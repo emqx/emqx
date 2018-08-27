@@ -31,7 +31,7 @@ TEST_ERLC_OPTS += +'{parse_transform, lager_transform}'
 
 EUNIT_OPTS = verbose
 
-CT_SUITES = emqx_inflight
+CT_SUITES = emqx_stats
 ## emqx_trie emqx_router emqx_frame emqx_mqtt_compat
 
 #CT_SUITES = emqx emqx_broker emqx_mod emqx_lib emqx_topic emqx_mqueue emqx_inflight \

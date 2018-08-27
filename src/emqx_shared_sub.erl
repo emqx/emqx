@@ -81,7 +81,7 @@ record(Group, Topic, SubPid) ->
     #emqx_shared_subscription{group = Group, topic = Topic, subpid = SubPid}.
 
 %% TODO: dispatch strategy, ensure the delivery...
-dispatch({Group, _Node}, Topic, Delivery = #delivery{message = Msg, flows = Flows}) ->
+dispatch(Group, Topic, Delivery = #delivery{message = Msg, flows = Flows}) ->
     case pick(subscribers(Group, Topic)) of
         false  -> Delivery;
         SubPid -> SubPid ! {dispatch, Topic, Msg},

@@ -185,7 +185,7 @@ parse(Topic = <<"$queue/", _/binary>>, #{share := _Group}) ->
 parse(Topic = <<"$share/", _/binary>>, #{share := _Group}) ->
     error({invalid_topic, Topic});
 parse(<<"$queue/", Topic1/binary>>, Options) ->
-    parse(Topic1, maps:put(share, '$queue', Options));
+    parse(Topic1, maps:put(share, <<"$queue">>, Options));
 parse(<<"$share/", Topic1/binary>>, Options) ->
     [Group, Topic2] = binary:split(Topic1, <<"/">>),
     {Topic2, maps:put(share, Group, Options)};

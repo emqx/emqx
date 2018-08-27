@@ -200,7 +200,7 @@ websocket_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
 websocket_info(emit_stats, State = #state{proto_state = ProtoState}) ->
     Stats = lists:append([wsock_stats(), emqx_misc:proc_stats(),
                           emqx_protocol:stats(ProtoState)]),
-    emqx_cm:set_client_stats(emqx_protocol:clientid(ProtoState), Stats),
+    emqx_cm:set_client_stats(emqx_protocol:client_id(ProtoState), Stats),
     {ok, State#state{stats_timer = undefined}, hibernate};
 
 websocket_info({keepalive, start, Interval}, State) ->
@@ -240,7 +240,7 @@ websocket_info(Info, State) ->
     {ok, State}.
 
 terminate(SockError, _Req, #state{keepalive       = Keepalive,
-                                  proto_state     = ProtoState,
+                                  proto_state     = _ProtoState,
                                   shutdown_reason = Reason}) ->
     emqx_keepalive:cancel(Keepalive),
     io:format("Websocket shutdown for ~p, sockerror: ~p~n", [Reason, SockError]),

@@ -181,16 +181,18 @@ route([{To, Node}], Delivery) when Node =:= node() ->
 route([{To, Node}], Delivery = #delivery{flows = Flows}) when is_atom(Node) ->
     forward(Node, To, Delivery#delivery{flows = [{route, Node, To}|Flows]});
 
-route([{To, Shared}], Delivery) when is_tuple(Shared); is_binary(Shared) ->
-    emqx_shared_sub:dispatch(Shared, To, Delivery);
+route([{To, Group}], Delivery) when is_tuple(Group); is_binary(Group) ->
+    emqx_shared_sub:dispatch(Group, To, Delivery);
 
 route(Routes, Delivery) ->
     lists:foldl(fun(Route, Acc) -> route([Route], Acc) end, Delivery, Routes).
 
 aggre([]) ->
     [];
-aggre([#route{topic = To, dest = Dest}]) ->
-    [{To, Dest}];
+aggre([#route{topic = To, dest = Node}]) when is_atom(Node) ->
+    [{To, Node}];
+aggre([#route{topic = To, dest = {Group, _Node}}]) ->
+    [{To, Group}];
 aggre(Routes) ->
     lists:foldl(
       fun(#route{topic = To, dest = Node}, Acc) when is_atom(Node) ->
