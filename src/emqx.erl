@@ -95,7 +95,7 @@ unsubscribe(Topic) ->
 
 -spec(unsubscribe(topic() | string(), subscriber() | string()) -> ok | {error, term()}).
 unsubscribe(Topic, Sub) when is_list(Sub) ->
-    emqx_broker:unsubscribe(iolist_to_binary(Topic));
+    emqx_broker:unsubscribe(iolist_to_binary(Topic), list_to_subid(Sub));
 unsubscribe(Topic, Subscriber) when is_tuple(Subscriber) ->
     {SubPid, SubId} = Subscriber,
     emqx_broker:unsubscribe(iolist_to_binary(Topic), SubPid, SubId).
