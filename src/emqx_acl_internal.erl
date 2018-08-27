@@ -70,11 +70,8 @@ filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
     false.
 
 %% @doc Check ACL
--spec(check_acl({credentials(), pubsub(), topic()}, #{})
-      -> allow | deny | ignore).
-check_acl(_Who, #{acl_file := undefined}) ->
-    allow;
-check_acl({Credentials, PubSub, Topic}, #{}) ->
+-spec(check_acl({credentials(), pubsub(), topic()}, #{}) -> allow | deny | ignore).
+check_acl({Credentials, PubSub, Topic}, _State) ->
     case match(Credentials, Topic, lookup(PubSub)) of
         {matched, allow} -> allow;
         {matched, deny}  -> deny;
@@ -98,12 +95,11 @@ match(Credentials, Topic, [Rule|Rules]) ->
     end.
 
 -spec(reload_acl(#{}) -> ok | {error, term()}).
-reload_acl(#{acl_file := undefined}) ->
-    ok;
 reload_acl(#{acl_file := AclFile}) ->
     case catch load_rules_from_file(AclFile) of
-        true -> emqx_logger:error("Reload acl_file ~s successfully", [AclFile]),
-                ok;
+        true ->
+            emqx_logger:info("Reload acl_file ~s successfully", [AclFile]),
+            ok;
         {'EXIT', Error} ->
             {error, Error}
     end.
