@@ -94,8 +94,11 @@ unsubscribe(Topic) ->
     emqx_broker:unsubscribe(iolist_to_binary(Topic)).
 
 -spec(unsubscribe(topic() | string(), subscriber() | string()) -> ok | {error, term()}).
-unsubscribe(Topic, Subscriber) ->
-    emqx_broker:unsubscribe(iolist_to_binary(Topic), list_to_subid(Subscriber)).
+unsubscribe(Topic, Sub) when is_list(Sub) ->
+    emqx_broker:unsubscribe(iolist_to_binary(Topic));
+unsubscribe(Topic, Subscriber) when is_tuple(Subscriber) ->
+    {SubPid, SubId} = Subscriber,
+    emqx_broker:unsubscribe(iolist_to_binary(Topic), SubPid, SubId).
 
 %%--------------------------------------------------------------------
 %% PubSub management API
