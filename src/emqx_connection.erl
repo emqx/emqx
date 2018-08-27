@@ -96,16 +96,16 @@ init([Transport, RawSocket, Options]) ->
                                               sendfun  => SendFun}, Options),
             ParserState = emqx_protocol:parser(ProtoState),
             State = run_socket(#state{transport     = Transport,
-                                       socket        = Socket,
-                                       peername      = Peername,
-                                       await_recv    = false,
-                                       conn_state    = running,
-                                       rate_limit    = RateLimit,
-                                       publish_limit = PubLimit,
-                                       proto_state   = ProtoState,
-                                       parser_state  = ParserState,
-                                       enable_stats  = EnableStats,
-                                       idle_timeout  = IdleTimout}),
+                                      socket        = Socket,
+                                      peername      = Peername,
+                                      await_recv    = false,
+                                      conn_state    = running,
+                                      rate_limit    = RateLimit,
+                                      publish_limit = PubLimit,
+                                      proto_state   = ProtoState,
+                                      parser_state  = ParserState,
+                                      enable_stats  = EnableStats,
+                                      idle_timeout  = IdleTimout}),
             gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}],
                                   State, self(), IdleTimout);
         {error, Reason} ->
@@ -187,7 +187,7 @@ handle_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
 
 handle_info(emit_stats, State = #state{proto_state = ProtoState}) ->
     Stats = element(2, handle_call(stats, undefined, State)),
-    emqx_cm:set_client_stats(emqx_protocol:client_id(ProtoState), Stats),
+    emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), Stats),
     {noreply, State#state{stats_timer = undefined}, hibernate};
 
 handle_info(timeout, State) ->

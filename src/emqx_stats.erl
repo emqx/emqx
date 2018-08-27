@@ -20,11 +20,10 @@
 
 -export([start_link/0]).
 
-%% Get all stats
--export([all/0]).
-
 %% Stats API.
--export([statsfun/1, statsfun/2, getstats/0, getstat/1, setstat/2, setstat/3]).
+-export([getstats/0, getstat/1]).
+-export([setstat/2, setstat/3]).
+-export([statsfun/1, statsfun/2]).
 -export([update_interval/2, update_interval/3, cancel_update/1]).
 
 %% gen_server callbacks
@@ -35,13 +34,12 @@
 -record(state, {timer, updates :: #update{}}).
 
 -type(stats() :: list({atom(), non_neg_integer()})).
-
 -export_type([stats/0]).
 
-%% Client stats
--define(CLIENT_STATS, [
-    'clients/count', % clients connected current
-    'clients/max'    % maximum clients connected
+%% Connection stats
+-define(CONNECTION_STATS, [
+    'connections/count', % current connections
+    'connections/max'    % maximum connections connected
 ]).
 
 %% Session stats
@@ -79,13 +77,9 @@
 -define(SERVER, ?MODULE).
 
 %% @doc Start stats server
--spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
+-spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
-
-%% Get all stats.
--spec(all() -> stats()).
-all() -> getstats().
 
 %% @doc Generate stats fun
 -spec(statsfun(Stat :: atom()) -> fun()).
@@ -141,13 +135,13 @@ rec(Name, Secs, UpFun) ->
 cast(Msg) ->
     gen_server:cast(?SERVER, Msg).
 
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([]) ->
     _ = emqx_tables:new(?TAB, [set, public, {write_concurrency, true}]),
-    Stats = lists:append([?CLIENT_STATS, ?SESSION_STATS, ?PUBSUB_STATS,
+    Stats = lists:append([?CONNECTION_STATS, ?SESSION_STATS, ?PUBSUB_STATS,
                           ?ROUTE_STATS, ?RETAINED_STATS]),
     true = ets:insert(?TAB, [{Name, 0} || Name <- Stats]),
     {ok, start_timer(#state{updates = []}), hibernate}.
@@ -187,19 +181,19 @@ handle_cast(Msg, State) ->
     emqx_logger:error("[Stats] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({timeout, TRef, tick}, State = #state{timer= TRef, updates = Updates}) ->
-    lists:foldl(
-      fun(Update = #update{name = Name, countdown = C, interval = I,
-                           func = UpFun}, Acc) when C =< 0 ->
-              try UpFun()
-              catch _:Error ->
-                  emqx_logger:error("[Stats] update ~s error: ~p", [Name, Error])
-              end,
-              [Update#update{countdown = I} | Acc];
-         (Update = #update{countdown = C}, Acc) ->
-              [Update#update{countdown = C - 1} | Acc]
-      end, [], Updates),
-    {noreply, start_timer(State), hibernate};
+handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Updates}) ->
+    Updates1 = lists:foldl(
+                 fun(Update = #update{name = Name, countdown = C, interval = I,
+                                      func = UpFun}, Acc) when C =< 0 ->
+                         try UpFun()
+                         catch _:Error ->
+                               emqx_logger:error("[Stats] update ~s error: ~p", [Name, Error])
+                         end,
+                         [Update#update{countdown = I} | Acc];
+                    (Update = #update{countdown = C}, Acc) ->
+                         [Update#update{countdown = C - 1} | Acc]
+                 end, [], Updates),
+    {noreply, start_timer(State#state{updates = Updates1}), hibernate};
 
 handle_info(Info, State) ->
     emqx_logger:error("[Stats] unexpected info: ~p", [Info]),
@@ -211,9 +205,9 @@ terminate(_Reason, #state{timer = TRef}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Internal functions
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 safe_update_element(Key, Val) ->
     try ets:update_element(?TAB, Key, {2, Val})

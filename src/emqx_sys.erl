@@ -114,7 +114,7 @@ handle_info({timeout, TRef, tick}, State = #state{ticker = TRef, version = Versi
     publish(version, Version),
     publish(sysdescr, Descr),
     publish(brokers, ekka_mnesia:running_nodes()),
-    publish(stats, emqx_stats:all()),
+    publish(stats, emqx_stats:getstats()),
     publish(metrics, emqx_metrics:all()),
     {noreply, tick(State), hibernate};
 

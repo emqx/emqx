@@ -50,8 +50,9 @@ print_banner() ->
     io:format("Starting ~s on node ~s~n", [?APP, node()]).
 
 print_vsn() ->
+    {ok, Descr} = application:get_key(description),
     {ok, Vsn} = application:get_key(vsn),
-    io:format("~s ~s is running now!~n", [?APP, Vsn]).
+    io:format("~s ~s is running now!~n", [Descr, Vsn]).
 
 %%--------------------------------------------------------------------
 %% Autocluster

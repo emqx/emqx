@@ -24,7 +24,8 @@
 -export([lookup_session/1, lookup_session_pid/1]).
 -export([resume_session/1, resume_session/2]).
 -export([discard_session/1, discard_session/2]).
--export([register_session/2, get_session_attrs/1, unregister_session/1]).
+-export([register_session/2, unregister_session/1]).
+-export([get_session_attrs/1, set_session_attrs/2]).
 -export([get_session_stats/1, set_session_stats/2]).
 
 %% Internal functions for rpc
@@ -39,10 +40,10 @@
 -define(SM, ?MODULE).
 
 %% ETS Tables
--define(SESSION,       emqx_session).
--define(SESSION_P,     emqx_persistent_session).
--define(SESSION_ATTRS, emqx_session_attrs).
--define(SESSION_STATS, emqx_session_stats).
+-define(SESSION_TAB,       emqx_session).
+-define(SESSION_P_TAB,     emqx_persistent_session).
+-define(SESSION_ATTRS_TAB, emqx_session_attrs).
+-define(SESSION_STATS_TAB, emqx_session_stats).
 
 -spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
 start_link() ->
@@ -125,41 +126,44 @@ register_session(ClientId, Attrs) when is_binary(ClientId) ->
 
 register_session(Session = {ClientId, SPid}, Attrs)
     when is_binary(ClientId), is_pid(SPid) ->
-    ets:insert(?SESSION, Session),
-    ets:insert(?SESSION_ATTRS, {Session, Attrs}),
+    ets:insert(?SESSION_TAB, Session),
+    ets:insert(?SESSION_ATTRS_TAB, {Session, Attrs}),
     case proplists:get_value(clean_start, Attrs, true) of
         true  -> ok;
-        false  -> ets:insert(?SESSION_P, Session)
+        false  -> ets:insert(?SESSION_P_TAB, Session)
     end,
     emqx_sm_registry:register_session(Session),
     notify({registered, ClientId, SPid}).
 
 %% @doc Get session attrs
--spec(get_session_attrs({client_id(), pid()})
-      -> list(emqx_session:attribute())).
-get_session_attrs(Session = {ClientId, SPid})
-    when is_binary(ClientId), is_pid(SPid) ->
-    safe_lookup_element(?SESSION_ATTRS, Session, []).
+-spec(get_session_attrs({client_id(), pid()}) -> list(emqx_session:attribute())).
+get_session_attrs(Session = {ClientId, SPid}) when is_binary(ClientId), is_pid(SPid) ->
+    safe_lookup_element(?SESSION_ATTRS_TAB, Session, []).
+
+%% @doc Set session attrs
+set_session_attrs(ClientId, Attrs) when is_binary(ClientId) ->
+    set_session_attrs({ClientId, self()}, Attrs);
+set_session_attrs(Session = {ClientId, SPid}, Attrs) when is_binary(ClientId), is_pid(SPid) ->
+    ets:insert(?SESSION_ATTRS_TAB, {Session, Attrs}).
 
 %% @doc Unregister a session
 -spec(unregister_session(client_id() | {client_id(), pid()}) -> ok).
 unregister_session(ClientId) when is_binary(ClientId) ->
     unregister_session({ClientId, self()});
 
-unregister_session(Session = {ClientId, SPid})
-    when is_binary(ClientId), is_pid(SPid) ->
+unregister_session(Session = {ClientId, SPid}) when is_binary(ClientId), is_pid(SPid) ->
     emqx_sm_registry:unregister_session(Session),
-    ets:delete(?SESSION_STATS, Session),
-    ets:delete(?SESSION_ATTRS, Session),
-    ets:delete_object(?SESSION_P, Session),
-    ets:delete_object(?SESSION, Session),
+    ets:delete(?SESSION_STATS_TAB, Session),
+    ets:delete(?SESSION_ATTRS_TAB, Session),
+    ets:delete_object(?SESSION_P_TAB, Session),
+    ets:delete_object(?SESSION_TAB, Session),
     notify({unregistered, ClientId, SPid}).
 
 %% @doc Get session stats
 -spec(get_session_stats({client_id(), pid()}) -> list(emqx_stats:stats())).
 get_session_stats(Session = {ClientId, SPid})
     when is_binary(ClientId), is_pid(SPid) ->
-    safe_lookup_element(?SESSION_STATS, Session, []).
+    safe_lookup_element(?SESSION_STATS_TAB, Session, []).
 
 %% @doc Set session stats
 -spec(set_session_stats(client_id() | {client_id(), pid()},
@@ -169,14 +173,14 @@ set_session_stats(ClientId, Stats) when is_binary(ClientId) ->
 
 set_session_stats(Session = {ClientId, SPid}, Stats)
     when is_binary(ClientId), is_pid(SPid) ->
-    ets:insert(?SESSION_STATS, {Session, Stats}).
+    ets:insert(?SESSION_STATS_TAB, {Session, Stats}).
 
 %% @doc Lookup a session from registry
 -spec(lookup_session(client_id()) -> list({client_id(), pid()})).
 lookup_session(ClientId) ->
     case emqx_sm_registry:is_enabled() of
         true  -> emqx_sm_registry:lookup_session(ClientId);
-        false -> ets:lookup(?SESSION, ClientId)
+        false -> ets:lookup(?SESSION_TAB, ClientId)
     end.
 
 %% @doc Dispatch a message to the session.
@@ -192,7 +196,7 @@ dispatch(ClientId, Topic, Msg) ->
 %% @doc Lookup session pid.
 -spec(lookup_session_pid(client_id()) -> pid() | undefined).
 lookup_session_pid(ClientId) ->
-    safe_lookup_element(?SESSION, ClientId, undefined).
+    safe_lookup_element(?SESSION_TAB, ClientId, undefined).
 
 safe_lookup_element(Tab, Key, Default) ->
     try ets:lookup_element(Tab, Key, 2)
@@ -209,12 +213,12 @@ notify(Event) ->
 
 init([]) ->
     TabOpts = [public, set, {write_concurrency, true}],
-    _ = emqx_tables:new(?SESSION, [{read_concurrency, true} | TabOpts]),
-    _ = emqx_tables:new(?SESSION_P, TabOpts),
-    _ = emqx_tables:new(?SESSION_ATTRS, TabOpts),
-    _ = emqx_tables:new(?SESSION_STATS, TabOpts),
+    _ = emqx_tables:new(?SESSION_TAB, [{read_concurrency, true} | TabOpts]),
+    _ = emqx_tables:new(?SESSION_P_TAB, TabOpts),
+    _ = emqx_tables:new(?SESSION_ATTRS_TAB, TabOpts),
+    _ = emqx_tables:new(?SESSION_STATS_TAB, TabOpts),
     emqx_stats:update_interval(sm_stats, stats_fun()),
-    {ok, #state{session_pmon = emqx_pmon:new()}}.
+    {ok, #{session_pmon => emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[SM] unexpected call: ~p", [Req]),
@@ -230,12 +234,12 @@ handle_cast(Msg, State) ->
     emqx_logger:error("[SM] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State = #state{session_pmon = PMon}) ->
+handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State = #{session_pmon := PMon}) ->
     case emqx_pmon:find(DownPid, PMon) of
         undefined -> {noreply, State};
         ClientId  ->
             unregister_session({ClientId, DownPid}),
-            {noreply, State#state{session_pmon = emqx_pmon:erase(DownPid, PMon)}}
+            {noreply, State#{session_pmon := emqx_pmon:erase(DownPid, PMon)}}
     end;
 
 handle_info(Info, State) ->
@@ -254,8 +258,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 stats_fun() ->
     fun() ->
-        safe_update_stats(?SESSION, 'sessions/count', 'sessions/max'),
-        safe_update_stats(?SESSION_P, 'sessions/persistent/count', 'sessions/persistent/max')
+        safe_update_stats(?SESSION_TAB, 'sessions/count', 'sessions/max'),
+        safe_update_stats(?SESSION_P_TAB, 'sessions/persistent/count', 'sessions/persistent/max')
     end.
 
 safe_update_stats(Tab, Stat, MaxStat) ->
