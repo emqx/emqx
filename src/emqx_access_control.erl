@@ -86,19 +86,22 @@ authenticate(Credentials, Password, [{Mod, State, _Seq} | Mods]) ->
             {error, Error}
     end.
 
+%% @doc Check ACL
 -spec(check_acl(credentials(), pubsub(), topic()) -> allow | deny).
 check_acl(Credentials, PubSub, Topic) when ?PS(PubSub) ->
-    check_acl(Credentials, PubSub, Topic, lookup_mods(acl)).
+    CacheEnabled = emqx_acl_cache:is_enabled(),
+    check_acl(Credentials, PubSub, Topic, lookup_mods(acl), CacheEnabled).
 
-check_acl(Credentials, _PubSub, _Topic, []) ->
-    Zone = maps:get(zone, Credentials, undefined),
-    emqx_zone:get_env(Zone, acl_nomatch, deny);
-
-check_acl(Credentials, PubSub, Topic, [{Mod, State, _Seq}|Mods]) ->
-    case Mod:check_acl({Credentials, PubSub, Topic}, State) of
-        ignore -> check_acl(Credentials, PubSub, Topic, Mods);
-        allow  -> allow;
-        deny   -> deny
+check_acl(Credentials, PubSub, Topic, AclMods, false) ->
+    do_check_acl(Credentials, PubSub, Topic, AclMods);
+check_acl(Credentials, PubSub, Topic, AclMods, true) ->
+    case emqx_acl_cache:get_acl_cache(PubSub, Topic) of
+        not_found ->
+            AclResult = do_check_acl(Credentials, PubSub, Topic, AclMods),
+            emqx_acl_cache:put_acl_cache(PubSub, Topic, AclResult),
+            AclResult;
+        AclResult ->
+            AclResult
     end.
 
 -spec(reload_acl() -> list(ok | {error, term()})).
@@ -190,6 +193,15 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+do_check_acl(#client{zone = Zone}, _PubSub, _Topic, []) ->
+    emqx_zone:get_env(Zone, acl_nomatch, deny);
+do_check_acl(Client, PubSub, Topic, [{Mod, State, _Seq}|AclMods]) ->
+    case Mod:check_acl({Client, PubSub, Topic}, State) of
+        allow  -> allow;
+        deny   -> deny;
+        ignore -> do_check_acl(Client, PubSub, Topic, AclMods)
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions

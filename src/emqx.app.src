@@ -3,7 +3,8 @@
               {vsn,"3.0"},
               {modules,[]},
               {registered,[emqx_sup]},
-              {applications,[kernel,stdlib,jsx,gproc,gen_rpc,lager,esockd,cowboy]},
+              {applications,[kernel,stdlib,jsx,gproc,gen_rpc,lager,esockd,cowboy
+                             ]},
               {env,[]},
               {mod,{emqx_app,[]}},
               {maintainers,["Feng Lee <feng@emqx.io>"]},
