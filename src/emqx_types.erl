@@ -18,6 +18,7 @@
 
 -export_type([zone/0, client_id/0, username/0, password/0, peername/0,
               protocol/0, credentials/0]).
+-export_type([payload/0]).
 %%-export_type([payload/0, message/0, delivery/0]).
 
 -type(zone() :: atom()).
