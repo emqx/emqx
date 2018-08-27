@@ -8,7 +8,7 @@ DEPS = jsx gproc gen_rpc lager ekka esockd cowboy clique lager_syslog
 
 dep_jsx     = git https://github.com/talentdeficit/jsx 2.9.0
 dep_gproc   = git https://github.com/uwiger/gproc 0.8.0
-dep_gen_rpc = git https://github.com/emqx/gen_rpc 2.1.1
+dep_gen_rpc = git https://github.com/emqx/gen_rpc 2.2.0
 dep_lager   = git https://github.com/erlang-lager/lager 3.6.4
 dep_esockd  = git https://github.com/emqx/esockd emqx30
 dep_ekka    = git https://github.com/emqx/ekka emqx30
@@ -16,7 +16,7 @@ dep_cowboy  = git https://github.com/ninenines/cowboy 2.4.0
 dep_clique  = git https://github.com/emqx/clique
 dep_lager_syslog = git https://github.com/basho/lager_syslog 3.0.1
 
-NO_AUTOPATCH = gen_rpc cuttlefish
+NO_AUTOPATCH = cuttlefish
 
 ERLC_OPTS += +debug_info
 ERLC_OPTS += +'{parse_transform, lager_transform}'
