@@ -29,6 +29,31 @@
                           {cacertfile, "certs/cacert.pem"},
                           {certfile, "certs/client-cert.pem"}]).
 
+-define(CIPHERS,    [{ciphers,
+                        ["ECDHE-ECDSA-AES256-GCM-SHA384",
+                         "ECDHE-RSA-AES256-GCM-SHA384",
+                         "ECDHE-ECDSA-AES256-SHA384",
+                         "ECDHE-RSA-AES256-SHA384","ECDHE-ECDSA-DES-CBC3-SHA",
+                         "ECDH-ECDSA-AES256-GCM-SHA384",
+                         "ECDH-RSA-AES256-GCM-SHA384",
+                         "ECDH-ECDSA-AES256-SHA384","ECDH-RSA-AES256-SHA384",
+                         "DHE-DSS-AES256-GCM-SHA384","DHE-DSS-AES256-SHA256",
+                         "AES256-GCM-SHA384","AES256-SHA256",
+                         "ECDHE-ECDSA-AES128-GCM-SHA256",
+                         "ECDHE-RSA-AES128-GCM-SHA256",
+                         "ECDHE-ECDSA-AES128-SHA256",
+                         "ECDHE-RSA-AES128-SHA256",
+                         "ECDH-ECDSA-AES128-GCM-SHA256",
+                         "ECDH-RSA-AES128-GCM-SHA256",
+                         "ECDH-ECDSA-AES128-SHA256","ECDH-RSA-AES128-SHA256",
+                         "DHE-DSS-AES128-GCM-SHA256","DHE-DSS-AES128-SHA256",
+                         "AES128-GCM-SHA256","AES128-SHA256",
+                         "ECDHE-ECDSA-AES256-SHA","ECDHE-RSA-AES256-SHA",
+                         "DHE-DSS-AES256-SHA","ECDH-ECDSA-AES256-SHA",
+                         "ECDH-RSA-AES256-SHA","AES256-SHA",
+                         "ECDHE-ECDSA-AES128-SHA","ECDHE-RSA-AES128-SHA",
+                         "DHE-DSS-AES128-SHA","ECDH-ECDSA-AES128-SHA",
+                         "ECDH-RSA-AES128-SHA","AES128-SHA"]}]).
 
 run_setup_steps() ->
     NewConfig = generate_config(),
@@ -71,7 +96,7 @@ change_opts(SslType) ->
     lists:foldl(fun({Protocol, Port, Opts} = Listener, Acc) ->
     case Protocol of
     ssl ->
-            SslOpts = proplists:get_value(sslopts, Opts),
+            SslOpts = proplists:get_value(ssl_options, Opts),
             Keyfile = local_path(["etc/certs", "key.pem"]),
             Certfile = local_path(["etc/certs", "cert.pem"]),
             TupleList1 = lists:keyreplace(keyfile, 1, SslOpts, {keyfile, Keyfile}),
@@ -89,13 +114,15 @@ change_opts(SslType) ->
                                  (_) -> true
                              end, TupleList2)
             end,
-            [{Protocol, Port, lists:keyreplace(sslopts, 1, Opts, {sslopts, TupleList3})} | Acc];
+            [{Protocol, Port, lists:keyreplace(ssl_options, 1, Opts, {ssl_options, TupleList3})} | Acc];
         _ ->
             [Listener | Acc]
     end
     end, [], Listeners),
     application:set_env(?APP, listeners, NewListeners).
 
-client_ssl() ->
-    [{Key, local_path(["etc", File])} || {Key, File} <- ?MQTT_SSL_CLIENT].
+client_ssl_twoway() ->
+    [{Key, local_path(["etc", File])} || {Key, File} <- ?MQTT_SSL_CLIENT] ++ ?CIPHERS.
 
+client_ssl() ->
+    ?CIPHERS ++ [{reuse_sessions, true}].
