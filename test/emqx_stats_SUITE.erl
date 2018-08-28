@@ -25,36 +25,33 @@ all() -> [t_set_get_state, t_update_interval].
 
 t_set_get_state(_) ->
     {ok, _} = emqx_stats:start_link(),
-    SetClientsCount = emqx_stats:statsfun('clients/count'),
-    SetClientsCount(1),
-    1 = emqx_stats:getstat('clients/count'),
-    emqx_stats:setstat('clients/count', 2),
-    2 = emqx_stats:getstat('clients/count'),
-    emqx_stats:setstat('clients/count', 'clients/max', 3),
+    SetConnsCount = emqx_stats:statsfun('connections/count'),
+    SetConnsCount(1),
+    1 = emqx_stats:getstat('connections/count'),
+    emqx_stats:setstat('connections/count', 2),
+    2 = emqx_stats:getstat('connections/count'),
+    emqx_stats:setstat('connections/count', 'connections/max', 3),
     timer:sleep(100),
-    3 = emqx_stats:getstat('clients/count'),
-    3 = emqx_stats:getstat('clients/max'),
-    emqx_stats:setstat('clients/count', 'clients/max', 2),
+    3 = emqx_stats:getstat('connections/count'),
+    3 = emqx_stats:getstat('connections/max'),
+    emqx_stats:setstat('connections/count', 'connections/max', 2),
     timer:sleep(100),
-    2 = emqx_stats:getstat('clients/count'),
-    3 = emqx_stats:getstat('clients/max'),
-    SetClients = emqx_stats:statsfun('clients/count', 'clients/max'),
-    SetClients(4),
+    2 = emqx_stats:getstat('connections/count'),
+    3 = emqx_stats:getstat('connections/max'),
+    SetConns = emqx_stats:statsfun('connections/count', 'connections/max'),
+    SetConns(4),
     timer:sleep(100),
-    4 = emqx_stats:getstat('clients/count'),
-    4 = emqx_stats:getstat('clients/max'),
-    Clients = emqx_stats:getstats(),
-    4 = proplists:get_value('clients/count', Clients),
-    4 = proplists:get_value('clients/max', Clients).
+    4 = emqx_stats:getstat('connections/count'),
+    4 = emqx_stats:getstat('connections/max'),
+    Conns = emqx_stats:getstats(),
+    4 = proplists:get_value('connections/count', Conns),
+    4 = proplists:get_value('connections/max', Conns).
 
 t_update_interval(_) ->
     {ok, _} = emqx_stats:start_link(),
     ok = emqx_stats:update_interval(cm_stats, fun update_stats/0),
-    timer:sleep(2000),
-    1 = emqx_stats:getstat('clients/count').
+    timer:sleep(2500),
+    1 = emqx_stats:getstat('connections/count').
 
 update_stats() ->
-    ClientsCount = emqx_stats:getstat('clients/count'),
-    ct:log("hello~n"),
-    % emqx_stats:setstat('clients/count', 'clients/max', ClientsCount + 1).
-    emqx_stats:setstat('clients/count',  1).
+    emqx_stats:setstat('connections/count',  1).
