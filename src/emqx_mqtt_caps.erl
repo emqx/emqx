@@ -62,7 +62,7 @@ do_check_pub(Props = #{qos := QoS}, [{max_qos_allowed, MaxQoS}|Caps]) ->
     end;
 do_check_pub(#{retain := true}, [{mqtt_retain_available, false}|_Caps]) ->
     {error, ?RC_RETAIN_NOT_SUPPORTED};
-do_check_pub(Props, [{mqtt_retain_available, true}|Caps]) ->
+do_check_pub(Props, [{mqtt_retain_available, _}|Caps]) ->
     do_check_pub(Props, Caps).
 
 -spec(check_sub(zone(), mqtt_topic_filters()) -> {ok | error, mqtt_topic_filters()}).

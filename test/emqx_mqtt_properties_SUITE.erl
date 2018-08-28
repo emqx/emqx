@@ -14,26 +14,16 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_cm_SUITE).
+-module(emqx_mqtt_properties_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
 -include("emqx_mqtt.hrl").
 
-all() -> [t_register_unregister_connection].
+all() -> [t_mqtt_properties_all].
 
-t_register_unregister_connection(_) ->
-    {ok, _} = emqx_cm_sup:start_link(),
-    Pid = self(),
-    emqx_cm:register_connection(<<"conn1">>),
-    emqx_cm:register_connection({<<"conn2">>, Pid}, [{port, 8080}, {ip, "192.168.0.1"}]),
-    timer:sleep(2000),
-    [{<<"conn1">>, Pid}] = emqx_cm:lookup_connection(<<"conn1">>),
-    [{<<"conn2">>, Pid}] = emqx_cm:lookup_connection(<<"conn2">>),
-    Pid = emqx_cm:lookup_conn_pid(<<"conn1">>),
-    emqx_cm:unregister_connection(<<"conn1">>),
-    [] = emqx_cm:lookup_connection(<<"conn1">>),
-    [{port, 8080}, {ip, "192.168.0.1"}] = emqx_cm:get_conn_attrs({<<"conn2">>, Pid}),
-    emqx_cm:set_conn_stats(<<"conn2">>, [[{count, 1}, {max, 2}]]),
-    [[{count, 1}, {max, 2}]] = emqx_cm:get_conn_stats({<<"conn2">>, Pid}).
+t_mqtt_properties_all(_) ->
+    Props = emqx_mqtt_properties:filter(?CONNECT, #{'Session-Expiry-Interval' => 1, 'Maximum-Packet-Size' => 255}),
+    ok = emqx_mqtt_properties:validate(Props),
+    #{} = emqx_mqtt_properties:filter(?CONNECT, #{'Maximum-QoS' => ?QOS_2}).

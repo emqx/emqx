@@ -14,26 +14,20 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_cm_SUITE).
+-module(emqx_zone_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
 -include("emqx_mqtt.hrl").
 
-all() -> [t_register_unregister_connection].
+all() -> [t_set_get_env].
 
-t_register_unregister_connection(_) ->
-    {ok, _} = emqx_cm_sup:start_link(),
-    Pid = self(),
-    emqx_cm:register_connection(<<"conn1">>),
-    emqx_cm:register_connection({<<"conn2">>, Pid}, [{port, 8080}, {ip, "192.168.0.1"}]),
-    timer:sleep(2000),
-    [{<<"conn1">>, Pid}] = emqx_cm:lookup_connection(<<"conn1">>),
-    [{<<"conn2">>, Pid}] = emqx_cm:lookup_connection(<<"conn2">>),
-    Pid = emqx_cm:lookup_conn_pid(<<"conn1">>),
-    emqx_cm:unregister_connection(<<"conn1">>),
-    [] = emqx_cm:lookup_connection(<<"conn1">>),
-    [{port, 8080}, {ip, "192.168.0.1"}] = emqx_cm:get_conn_attrs({<<"conn2">>, Pid}),
-    emqx_cm:set_conn_stats(<<"conn2">>, [[{count, 1}, {max, 2}]]),
-    [[{count, 1}, {max, 2}]] = emqx_cm:get_conn_stats({<<"conn2">>, Pid}).
+t_set_get_env(_) ->
+    {ok, _} = emqx_zone:start_link(),
+    ok = emqx_zone:set_env(china, language, chinese),
+    timer:sleep(100),   % make sure set_env/3 is okay
+    chinese = emqx_zone:get_env(china, language),
+    cn470 = emqx_zone:get_env(china, ism_band, cn470),
+    undefined = emqx_zone:get_env(undefined, delay),
+    500 = emqx_zone:get_env(undefined, delay, 500).
