@@ -25,21 +25,34 @@
 
 -include_lib("common_test/include/ct.hrl").
 
+-include("emqx_mqtt.hrl").
+
+-record(ssl_socket, {tcp, ssl}).
+
+-type(socket() :: inet:socket() | #ssl_socket{}).
+
 -define(CLIENT, ?CONNECT_PACKET(#mqtt_packet_connect{
                                 client_id = <<"mqtt_client">>,
                                 username  = <<"admin">>,
                                 password  = <<"public">>})).
+
+-define(CLIENT2, ?CONNECT_PACKET(#mqtt_packet_connect{
+                                username  = <<"admin">>,
+                                clean_start = false,
+                                password  = <<"public">>})).
 all() ->
-    [{group, connect},
-     {group, cleanSession}].
+    [{group, connect}%,
+    % {group, cleanSession}
+    ].
 
 groups() ->
     [{connect, [non_parallel_tests],
-      [mqtt_connect,
-%       mqtt_connect_with_tcp,
-       mqtt_connect_with_ssl_oneway,
-       mqtt_connect_with_ssl_twoway%,
-     %  mqtt_connect_with_ws
+      [
+      % mqtt_connect,
+      % mqtt_connect_with_tcp,
+      % mqtt_connect_with_ssl_oneway,
+      % mqtt_connect_with_ssl_twoway%,
+       mqtt_connect_with_ws%,
       ]},
      {cleanSession, [sequence],
       [cleanSession_validate]
@@ -48,7 +61,6 @@ groups() ->
 
 init_per_suite(Config) ->
     emqx_ct_broker_helpers:run_setup_steps(),
-   % ct:log("Apps:~p", [Apps]),
     Config.
 
 end_per_suite(_Config) ->
@@ -65,76 +77,65 @@ mqtt_connect(_) ->
     ?assertEqual(<<32,2,0,0>>, connect_broker_(<<16,12,0,4,77,81,84,84,4,2,0,90,0,0>>, 4)).
 
 connect_broker_(Packet, RecvSize) ->
-    {ok, Sock} = gen_tcp:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}]),
-    gen_tcp:send(Sock, Packet),
+    {ok, Sock} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
+    emqx_client_sock:send(Sock, Packet),
     {ok, Data} = gen_tcp:recv(Sock, RecvSize, 3000),
-    gen_tcp:close(Sock),
+    emqx_client_sock:close(Sock),
     Data.
 
-%% mqtt_connect_with_tcp(_) ->
-%%     %% Issue #599
-%%     %% Empty clientId and clean_session = false
-%%     {ok, Sock} = gen_tcp:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}]),
-%%     Packet = raw_send_serialise(?CLIENT),
-%%     gen_tcp:send(Sock, Packet),
-%%     {ok, Data} = gen_tcp:recv(Sock, 0),
-%% %    {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(Data),
-%%     gen_tcp:close(Sock).
+mqtt_connect_with_tcp(_) ->
+    %% Issue #599
+    %% Empty clientId and clean_session = false
+    {ok, Sock} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
+    Packet = raw_send_serialise(?CLIENT2),
+    emqx_client_sock:send(Sock, Packet),
+    {ok, Data} = gen_tcp:recv(Sock, 0),
+    {ok, ?CONNACK_PACKET(?CONNACK_INVALID_ID), _} = raw_recv_pase(Data),
+    emqx_client_sock:close(Sock).
 
 mqtt_connect_with_ssl_oneway(_) ->
-    emqx:stop(),
+    emqx:shutdown(),
     emqx_ct_broker_helpers:change_opts(ssl_oneway),
     emqx:start(),
-    timer:sleep(5000),
-    {ok, SslOneWay} = emqttc:start_link([{host, "localhost"},
-                                         {port, 8883},
-                                         {logger, debug},
-                                         {client_id, <<"ssloneway">>}, ssl]),
-    timer:sleep(100),
-    emqttc:subscribe(SslOneWay, <<"topic">>, qos1),
-    {ok, Pub} = emqttc:start_link([{host, "localhost"},
-                                   {client_id, <<"pub">>}]),
-    emqttc:publish(Pub, <<"topic">>, <<"SSL oneWay test">>, [{qos, 1}]),
-    timer:sleep(100),
-    receive {publish, _Topic, RM} ->
-        ?assertEqual(<<"SSL oneWay test">>, RM)
-    after 1000 -> false
-    end,
-    timer:sleep(100),
-    emqttc:disconnect(SslOneWay),
-    emqttc:disconnect(Pub).
+    ClientSsl = emqx_ct_broker_helpers:client_ssl(),
+    {ok, #ssl_socket{tcp = Sock, ssl = SslSock}}
+    = emqx_client_sock:connect("127.0.0.1", 8883, [{ssl_opts, ClientSsl}], 3000),
+%%     Packet = raw_send_serialise(?CLIENT),
+%%     ssl:send(SslSock, Packet),
+%%     receive Data  ->
+%%         ct:log("Data:~p~n", [Data])
+%%     after 30000 ->
+%%               ok
+%%     end,
+    ssl:close(SslSock).
 
 mqtt_connect_with_ssl_twoway(_Config) ->
-    emqx:stop(),
+    emqx:shutdown(),
     emqx_ct_broker_helpers:change_opts(ssl_twoway),
     emqx:start(),
-    timer:sleep(3000),
-    ClientSSl = emqx_ct_broker_helpers:client_ssl(),
-    {ok, SslTwoWay} = emqttc:start_link([{host, "localhost"},
-                                         {port, 8883},
-                                         {client_id, <<"ssltwoway">>},
-                                         {ssl, ClientSSl}]),
-    {ok, Sub} = emqttc:start_link([{host, "localhost"},
-                                   {client_id, <<"sub">>}]),
-    emqttc:subscribe(Sub, <<"topic">>, qos1),
-    emqttc:publish(SslTwoWay, <<"topic">>, <<"ssl client pub message">>, [{qos, 1}]),
-    timer:sleep(10),
-    receive {publish, _Topic, RM} ->
-        ?assertEqual(<<"ssl client pub message">>, RM)
-    after 1000 -> false
+    ClientSsl = emqx_ct_broker_helpers:client_ssl_twoway(),
+    {ok, #ssl_socket{tcp = _Sock1, ssl = SslSock} = Sock}
+    = emqx_client_sock:connect("127.0.0.1", 8883, [{ssl_opts, ClientSsl}], 3000),
+    Packet = raw_send_serialise(?CLIENT),
+    emqx_client_sock:setopts(Sock, [{active, once}]),
+    emqx_client_sock:send(Sock, Packet),
+    timer:sleep(500),
+    receive {ssl, _, Data}->
+        {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(Data)
+    after 1000 ->
+        ok
     end,
-    emqttc:disconnect(SslTwoWay),
-    emqttc:disconnect(Sub).
+    emqx_client_sock:close(Sock).
 
-%% mqtt_connect_with_ws(_Config) ->
-%%     WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
-%%     {ok, _} = rfc6455_client:open(WS),
-%%     Packet = raw_send_serialise(?CLIENT),
-%%     ok = rfc6455_client:send_binary(WS, Packet),
-%%     {binary, P} = rfc6455_client:recv(WS),
-%% %    {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(P),
-%%     {close, _} = rfc6455_client:close(WS),
-%%     ok.
+mqtt_connect_with_ws(_Config) ->
+    WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
+    {ok, _} = rfc6455_client:open(WS),
+    Packet = raw_send_serialise(?CLIENT),
+    ok = rfc6455_client:send_binary(WS, Packet),
+    {binary, P} = rfc6455_client:recv(WS),
+    ct:log(":~p", [P]),
+    {close, _} = rfc6455_client:close(WS),
+    ok.
 
 cleanSession_validate(_) ->
     {ok, C1} = emqttc:start_link([{host, "localhost"},
@@ -163,8 +164,9 @@ cleanSession_validate(_) ->
     emqttc:disconnect(C11).
 
 raw_send_serialise(Packet) ->
-    emqttc_serialiser:serialise(Packet).
+    emqx_frame:serialize(Packet).
 
 raw_recv_pase(P) ->
-    emqttc_parser:parse(P, emqttc_parser:new()).
+    emqx_frame:parse(P, {none, #{max_packet_size => ?MAX_PACKET_SIZE,
+                                 version         => ?MQTT_PROTO_V4} }).
 
