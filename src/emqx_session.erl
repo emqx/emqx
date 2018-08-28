@@ -133,9 +133,6 @@
           %% Stats timer
           stats_timer  :: reference() | undefined,
 
-          %% Ignore loop deliver?
-          ignore_loop_deliver = false :: boolean(),
-
           %% TODO:
           deliver_stats = 0,
 
@@ -169,20 +166,17 @@ start_link(SessAttrs) ->
 
 -spec(subscribe(pid(), list({topic(), map()}) |
                 {mqtt_packet_id(), mqtt_properties(), topic_table()}) -> ok).
-subscribe(SPid, TopicFilters) when is_list(TopicFilters) ->
-    gen_server:cast(SPid, {subscribe, [begin
-                                           {Topic, Opts} = emqx_topic:parse(RawTopic),
-                                           {Topic, maps:merge(
-                                                     maps:merge(
-                                                       ?DEFAULT_SUBOPTS, SubOpts), Opts)}
-                                       end || {RawTopic, SubOpts} <- TopicFilters]}).
+subscribe(SPid, RawTopicFilters) when is_list(RawTopicFilters) ->
+    TopicFilters = [emqx_topic:parse(RawTopic, maps:merge(?DEFAULT_SUBOPTS, SubOpts))
+                    || {RawTopic, SubOpts} <- RawTopicFilters],
+    subscribe(SPid, undefined, #{}, TopicFilters).
 
 %% for mqtt 5.0
 subscribe(SPid, PacketId, Properties, TopicFilters) ->
     SubReq = {PacketId, Properties, TopicFilters},
     gen_server:cast(SPid, {subscribe, self(), SubReq}).
 
--spec(publish(pid(), mqtt_packet_id(), message()) -> {ok, delivery()} | {error, term()}).
+-spec(publish(pid(), mqtt_packet_id(), message()) -> {ok, emqx_types:dispatches()}).
 publish(_SPid, _PacketId, Msg = #message{qos = ?QOS_0}) ->
     %% Publish QoS0 message to broker directly
     emqx_broker:publish(Msg);
@@ -202,27 +196,29 @@ puback(SPid, PacketId) ->
 puback(SPid, PacketId, ReasonCode) ->
     gen_server:cast(SPid, {puback, PacketId, ReasonCode}).
 
--spec(pubrec(pid(), mqtt_packet_id()) -> ok).
+-spec(pubrec(pid(), mqtt_packet_id()) -> ok | {error, mqtt_reason_code()}).
 pubrec(SPid, PacketId) ->
-    gen_server:cast(SPid, {pubrec, PacketId}).
+    pubrec(SPid, PacketId, ?RC_SUCCESS).
 
+-spec(pubrec(pid(), mqtt_packet_id(), mqtt_reason_code())
+      -> ok | {error, mqtt_reason_code()}).
 pubrec(SPid, PacketId, ReasonCode) ->
-    gen_server:cast(SPid, {pubrec, PacketId, ReasonCode}).
+    gen_server:call(SPid, {pubrec, PacketId, ReasonCode}, infinity).
 
--spec(pubrel(pid(), mqtt_packet_id(), mqtt_reason_code()) -> ok).
+-spec(pubrel(pid(), mqtt_packet_id(), mqtt_reason_code())
+      -> ok | {error, mqtt_reason_code()}).
 pubrel(SPid, PacketId, ReasonCode) ->
-    gen_server:cast(SPid, {pubrel, PacketId, ReasonCode}).
+    gen_server:call(SPid, {pubrel, PacketId, ReasonCode}, infinity).
 
 -spec(pubcomp(pid(), mqtt_packet_id(), mqtt_reason_code()) -> ok).
 pubcomp(SPid, PacketId, ReasonCode) ->
     gen_server:cast(SPid, {pubcomp, PacketId, ReasonCode}).
 
--spec(unsubscribe(pid(), {mqtt_packet_id(), mqtt_properties(), topic_table()}) -> ok).
-unsubscribe(SPid, TopicFilters) when is_list(TopicFilters) ->
-    %%TODO: Parse the topic filters?
-    unsubscribe(SPid, {undefined, #{}, TopicFilters}).
+-spec(unsubscribe(pid(), topic_table()) -> ok).
+unsubscribe(SPid, RawTopicFilters) when is_list(RawTopicFilters) ->
+    unsubscribe(SPid, undefined, #{}, lists:map(fun emqx_topic:parse/1, RawTopicFilters)).
 
-%% TODO:...
+-spec(unsubscribe(pid(), mqtt_packet_id(), mqtt_properties(), topic_table()) -> ok).
 unsubscribe(SPid, PacketId, Properties, TopicFilters) ->
     UnsubReq = {PacketId, Properties, TopicFilters},
     gen_server:cast(SPid, {unsubscribe, self(), UnsubReq}).
@@ -335,7 +331,6 @@ init(#{zone        := Zone,
                    max_awaiting_rel  = get_env(Zone, max_awaiting_rel),
                    expiry_interval   = get_env(Zone, session_expiry_interval),
                    enable_stats      = get_env(Zone, enable_stats, true),
-                   ignore_loop_deliver = get_env(Zone, ignore_loop_deliver, false),
                    deliver_stats      = 0,
                    enqueue_stats      = 0,
                    created_at        = os:timestamp()},
@@ -359,21 +354,45 @@ handle_call({discard, ClientPid}, _From, State = #state{client_pid = OldClientPi
     ?LOG(warning, " ~p kickout ~p", [ClientPid, OldClientPid], State),
     {stop, {shutdown, conflict}, ok, State};
 
+%% PUBLISH:
 handle_call({publish, PacketId, Msg = #message{qos = ?QOS_2}}, _From,
-            State = #state{awaiting_rel      = AwaitingRel,
-                           await_rel_timer   = Timer,
-                           await_rel_timeout = Timeout}) ->
+            State = #state{awaiting_rel = AwaitingRel}) ->
     case is_awaiting_full(State) of
         false ->
-            State1 = case Timer == undefined of
-                         true  -> State#state{await_rel_timer = emqx_misc:start_timer(Timeout, check_awaiting_rel)};
-                         false -> State
-                     end,
-            reply(ok, State1#state{awaiting_rel = maps:put(PacketId, Msg, AwaitingRel)});
+            case maps:is_key(PacketId, AwaitingRel) of
+                true ->
+                    reply({error, ?RC_PACKET_IDENTIFIER_IN_USE}, State);
+                false ->
+                    State1 = State#state{awaiting_rel = maps:put(PacketId, Msg, AwaitingRel)},
+                    reply(emqx_broker:publish(Msg), ensure_await_rel_timer(State1))
+            end;
         true ->
             ?LOG(warning, "Dropped QoS2 Message for too many awaiting_rel: ~p", [Msg], State),
             emqx_metrics:inc('messages/qos2/dropped'),
-            reply({error, dropped}, State)
+            reply({error, ?RC_RECEIVE_MAXIMUM_EXCEEDED}, State)
+    end;
+
+%% PUBREC:
+handle_call({pubrec, PacketId, _ReasonCode}, _From, State = #state{inflight = Inflight}) ->
+    case emqx_inflight:contain(PacketId, Inflight) of
+        true ->
+            reply(ok, acked(pubrec, PacketId, State));
+        false ->
+            ?LOG(warning, "The PUBREC PacketId is not found: ~w", [PacketId], State),
+            emqx_metrics:inc('packets/pubrec/missed'),
+            reply({error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}, State)
+    end;
+
+%% PUBREL:
+handle_call({pubrel, PacketId, _ReasonCode}, _From,
+            State = #state{awaiting_rel = AwaitingRel}) ->
+    case maps:take(PacketId, AwaitingRel) of
+        {_, AwaitingRel1} ->
+            reply(ok, State#state{awaiting_rel = AwaitingRel1});
+        error ->
+            ?LOG(warning, "Cannot find PUBREL: ~p", [PacketId], State),
+            emqx_metrics:inc('packets/pubrel/missed'),
+            reply({error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}, State)
     end;
 
 handle_call(info, _From, State) ->
@@ -390,57 +409,38 @@ handle_call(Req, _From, State) ->
     {reply, ignored, State}.
 
 %% SUBSCRIBE:
-handle_cast({subscribe, TopicFilters}, State = #state{client_id = ClientId, subscriptions = Subscriptions}) ->
-    Subscriptions1 = lists:foldl(
-                       fun({Topic, SubOpts}, SubMap) ->
-                               case maps:find(Topic, SubMap) of
-                                   {ok, _OldOpts} ->
-                                       emqx_broker:set_subopts(Topic, {self(), ClientId}, SubOpts),
-                                       emqx_hooks:run('session.subscribed', [ClientId, Topic, SubOpts]),
-                                       ?LOG(warning, "Duplicated subscribe: ~s, subopts: ~p", [Topic, SubOpts], State);
-                                   error ->
-                                       emqx_broker:subscribe(Topic, ClientId, SubOpts),
-                                       emqx_hooks:run('session.subscribed', [ClientId, Topic, SubOpts])
-                               end,
-                               maps:put(Topic, SubOpts, SubMap)
-                       end, Subscriptions, TopicFilters),
-    {noreply, State#state{subscriptions = Subscriptions1}};
-
-handle_cast({subscribe, From, {PacketId, Properties, TopicFilters}},
+handle_cast({subscribe, FromPid, {PacketId, _Properties, TopicFilters}},
             State = #state{client_id = ClientId, subscriptions = Subscriptions}) ->
     {ReasonCodes, Subscriptions1} =
     lists:foldr(fun({Topic, SubOpts = #{qos := QoS}}, {RcAcc, SubMap}) ->
-                    {[QoS|RcAcc],
-                     case maps:find(Topic, SubMap) of
-                         {ok, SubOpts} ->
-                             ?LOG(warning, "Duplicated subscribe: ~s, subopts: ~p", [Topic, SubOpts], State),
-                             SubMap;
-                         {ok, OldOpts} ->
-                             emqx_broker:set_subopts(Topic, {self(), ClientId}, SubOpts),
-                             emqx_hooks:run('session.subscribed', [ClientId, Topic, SubOpts]),
-                             ?LOG(warning, "Duplicated subscribe ~s, old_opts: ~p, new_opts: ~p", [Topic, OldOpts, SubOpts], State),
-                             maps:put(Topic, with_subid(Properties, SubOpts), SubMap);
-                         error ->
-                             emqx_broker:subscribe(Topic, ClientId, SubOpts),
-                             emqx_hooks:run('session.subscribed', [ClientId, Topic, SubOpts]),
-                             maps:put(Topic, with_subid(Properties, SubOpts), SubMap)
-                     end}
+                    {[QoS|RcAcc], case maps:find(Topic, SubMap) of
+                                      {ok, SubOpts} ->
+                                          SubMap;
+                                      {ok, _SubOpts} ->
+                                          emqx_broker:set_subopts(Topic, {self(), ClientId}, SubOpts),
+                                          emqx_hooks:run('session.subscribed', [ClientId, Topic, SubOpts]),
+                                          maps:put(Topic, SubOpts, SubMap);
+                                      error ->
+                                          emqx_broker:subscribe(Topic, ClientId, SubOpts),
+                                          emqx_hooks:run('session.subscribed', [ClientId, Topic, SubOpts]),
+                                          maps:put(Topic, SubOpts, SubMap)
+                                  end}
                 end, {[], Subscriptions}, TopicFilters),
-    suback(From, PacketId, ReasonCodes),
+    suback(FromPid, PacketId, ReasonCodes),
     {noreply, State#state{subscriptions = Subscriptions1}};
 
 %% UNSUBSCRIBE:
 handle_cast({unsubscribe, From, {PacketId, _Properties, TopicFilters}},
             State = #state{client_id = ClientId, subscriptions = Subscriptions}) ->
     {ReasonCodes, Subscriptions1} =
-    lists:foldr(fun({Topic, _Opts}, {RcAcc, SubMap}) ->
+    lists:foldr(fun({Topic, _SubOpts}, {Acc, SubMap}) ->
                         case maps:find(Topic, SubMap) of
                             {ok, SubOpts} ->
-                                emqx_broker:unsubscribe(Topic, ClientId),
+                                ok = emqx_broker:unsubscribe(Topic, ClientId),
                                 emqx_hooks:run('session.unsubscribed', [ClientId, Topic, SubOpts]),
-                                {[?RC_SUCCESS|RcAcc], maps:remove(Topic, SubMap)};
+                                {[?RC_SUCCESS|Acc], maps:remove(Topic, SubMap)};
                             error ->
-                                {[?RC_NO_SUBSCRIPTION_EXISTED|RcAcc], SubMap}
+                                {[?RC_NO_SUBSCRIPTION_EXISTED|Acc], SubMap}
                         end
                 end, {[], Subscriptions}, TopicFilters),
     unsuback(From, PacketId, ReasonCodes),
@@ -452,36 +452,10 @@ handle_cast({puback, PacketId, _ReasonCode}, State = #state{inflight = Inflight}
         true ->
             {noreply, dequeue(acked(puback, PacketId, State))};
         false ->
-            ?LOG(warning, "The PUBACK PacketId is not found: ~p", [PacketId], State),
+            ?LOG(warning, "The PUBACK PacketId is not found: ~w", [PacketId], State),
             emqx_metrics:inc('packets/puback/missed'),
             {noreply, State}
     end;
-
-%% PUBREC: How to handle ReasonCode?
-handle_cast({pubrec, PacketId, _ReasonCode}, State = #state{inflight = Inflight}) ->
-    case emqx_inflight:contain(PacketId, Inflight) of
-        true ->
-            {noreply, acked(pubrec, PacketId, State)};
-        false ->
-            ?LOG(warning, "The PUBREC PacketId is not found: ~w", [PacketId], State),
-            emqx_metrics:inc('packets/pubrec/missed'),
-            {noreply, State}
-    end;
-
-%% PUBREL:
-handle_cast({pubrel, PacketId, _ReasonCode}, State = #state{awaiting_rel = AwaitingRel}) ->
-    {noreply,
-     case maps:take(PacketId, AwaitingRel) of
-         {Msg, AwaitingRel1} ->
-             %% Implement Qos2 by method A [MQTT 4.33]
-             %% Dispatch to subscriber when received PUBREL
-             emqx_broker:publish(Msg), %% FIXME:
-             maybe_gc(State#state{awaiting_rel = AwaitingRel1});
-         error ->
-             ?LOG(warning, "Cannot find PUBREL: ~p", [PacketId], State),
-             emqx_metrics:inc('packets/pubrel/missed'),
-             State
-     end, hibernate};
 
 %% PUBCOMP:
 handle_cast({pubcomp, PacketId, _ReasonCode}, State = #state{inflight = Inflight}) ->
@@ -489,7 +463,7 @@ handle_cast({pubcomp, PacketId, _ReasonCode}, State = #state{inflight = Inflight
         true ->
             {noreply, dequeue(acked(pubcomp, PacketId, State))};
         false ->
-            ?LOG(warning, "The PUBCOMP Packet Identifier is not found: ~w", [PacketId], State),
+            ?LOG(warning, "The PUBCOMP PacketId is not found: ~w", [PacketId], State),
             emqx_metrics:inc('packets/pubcomp/missed'),
             {noreply, State}
     end;
@@ -542,19 +516,22 @@ handle_cast(Msg, State) ->
     emqx_logger:error("[Session] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
+%% Batch dispatch
 handle_info({dispatch, Topic, Msgs}, State) when is_list(Msgs) ->
     {noreply, lists:foldl(fun(Msg, NewState) ->
                               element(2, handle_info({dispatch, Topic, Msg}, NewState))
                           end, State, Msgs)};
 
-%% Ignore messages delivered by self
-handle_info({dispatch, _Topic, #message{from = ClientId}},
-             State = #state{client_id = ClientId, ignore_loop_deliver = true}) ->
-    {noreply, State};
-
-%% Dispatch Message
-handle_info({dispatch, Topic, Msg}, State) when is_record(Msg, message) ->
-    {noreply, maybe_gc(dispatch(tune_qos(Topic, reset_dup(Msg), State), State))};
+%% Dispatch message
+handle_info({dispatch, Topic, Msg}, State = #state{subscriptions = SubMap}) when is_record(Msg, message) ->
+    {noreply, case maps:find(Topic, SubMap) of
+                  {ok, #{nl := Nl, qos := QoS, subid := SubId}} ->
+                      run_dispatch_steps([{nl, Nl},{qos, QoS}, {subid, SubId}], Msg, State);
+                  {ok, #{nl := Nl, qos := QoS}} ->
+                      run_dispatch_steps([{nl, Nl},{qos, QoS}], Msg, State);
+                  error ->
+                      dispatch(reset_dup(Msg), State)
+              end};
 
 %% Do nothing if the client has been disconnected.
 handle_info({timeout, _Timer, retry_delivery}, State = #state{client_pid = undefined}) ->
@@ -610,11 +587,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
-
-with_subid(#{'Subscription-Identifier' := SubId}, SubOpts) ->
-    maps:put(subid, SubId, SubOpts);
-with_subid(_Props, SubOpts) ->
-    SubOpts.
 
 suback(_From, undefined, _ReasonCodes) ->
     ignore;
@@ -727,6 +699,19 @@ is_awaiting_full(#state{awaiting_rel = AwaitingRel, max_awaiting_rel = MaxLen}) 
 %% Dispatch Messages
 %%------------------------------------------------------------------------------
 
+run_dispatch_steps([], Msg, State) ->
+    dispatch(Msg, State);
+run_dispatch_steps([{nl, 1}|_Steps], #message{from = ClientId}, State = #state{client_id = ClientId}) ->
+    State;
+run_dispatch_steps([{nl, 0}|Steps], Msg, State) ->
+    run_dispatch_steps(Steps, Msg, State);
+run_dispatch_steps([{qos, SubQoS}|Steps], Msg = #message{qos = PubQoS}, State = #state{upgrade_qos = false}) ->
+    run_dispatch_steps(Steps, Msg#message{qos = min(SubQoS, PubQoS)}, State);
+run_dispatch_steps([{qos, SubQoS}|Steps], Msg = #message{qos = PubQoS}, State = #state{upgrade_qos = true}) ->
+    run_dispatch_steps(Steps, Msg#message{qos = max(SubQoS, PubQoS)}, State);
+run_dispatch_steps([{subid, SubId}|Steps], Msg, State) ->
+    run_dispatch_steps(Steps, emqx_message:set_header('Subscription-Identifier', SubId, Msg), State).
+
 %% Enqueue message if the client has been disconnected
 dispatch(Msg, State = #state{client_id = ClientId, client_pid = undefined}) ->
     case emqx_hooks:run('message.dropped', [ClientId, Msg]) of
@@ -837,19 +822,14 @@ dequeue2(State = #state{mqueue = Q}) ->
             dequeue(dispatch(Msg, State#state{mqueue = Q1}))
     end.
 
-%%------------------------------------------------------------------------------
-%% Tune QoS
 
-tune_qos(Topic, Msg = #message{qos = PubQoS},
-         #state{subscriptions = SubMap, upgrade_qos = UpgradeQoS}) ->
-    case maps:find(Topic, SubMap) of
-        {ok, #{qos := SubQoS}} when UpgradeQoS andalso (SubQoS > PubQoS) ->
-            Msg#message{qos = SubQoS};
-        {ok, #{qos := SubQoS}} when (not UpgradeQoS) andalso (SubQoS < PubQoS) ->
-            Msg#message{qos = SubQoS};
-        {ok, _} -> Msg;
-        error   -> Msg
-    end.
+%%------------------------------------------------------------------------------
+%% Ensure timers
+
+ensure_await_rel_timer(State = #state{await_rel_timer = undefined, await_rel_timeout = Timeout}) ->
+     State#state{await_rel_timer = emqx_misc:start_timer(Timeout, check_awaiting_rel)};
+ensure_await_rel_timer(State) ->
+    State.
 
 %%------------------------------------------------------------------------------
 %% Reset Dup
@@ -889,5 +869,5 @@ reply(Reply, State) ->
 shutdown(Reason, State) ->
     {stop, {shutdown, Reason}, State}.
 
-maybe_gc(State) -> State.
+%%TODO: maybe_gc(State) -> State.
 

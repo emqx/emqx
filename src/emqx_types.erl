@@ -19,7 +19,7 @@
 -export_type([startlink_ret/0]).
 -export_type([zone/0, client_id/0, username/0, password/0, peername/0,
               protocol/0, credentials/0]).
--export_type([payload/0]).
+-export_type([topic/0, payload/0, dispatches/0]).
 %%-export_type([payload/0, message/0, delivery/0]).
 
 -type(startlink_ret() :: {ok, pid()} | ignore | {error, term()}).
@@ -36,7 +36,10 @@
                          zone      => zone(),
                          atom()    => term()}).
 
+-type(topic() :: binary()).
 -type(payload() :: binary() | iodata()).
 %-type(message() :: #message{}).
 %-type(delivery() :: #delivery{}).
+
+-type(dispatches() :: [{route, node(), topic()} | {dispatch, topic(), pos_integer()}]).
 
