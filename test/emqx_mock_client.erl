@@ -59,7 +59,6 @@ handle_call({start_session, ClientPid, ClientId, Zone}, _From, State) ->
                             }};
 
 handle_call({stop_session, SessPid}, _From, State) ->
-    unlink(SessPid),
     emqx_sm:close_session(SessPid),
     {stop, normal, ok, State};
 

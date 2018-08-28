@@ -49,11 +49,21 @@ end_per_testcase(_TestCase, _Config) ->
 add_del_route(_) ->
     From = {self(), make_ref()},
     ?R:add_route(From, <<"a/b/c">>, node()),
+    timer:sleep(1),
+
     ?R:add_route(From, <<"a/b/c">>, node()),
+    timer:sleep(1),
+
     ?R:add_route(From, <<"a/+/b">>, node()),
+    ct:log("Topics: ~p ~n", [emqx_topic:wildcard(<<"a/+/b">>)]),
+    timer:sleep(1),
+
     ?assertEqual([<<"a/+/b">>, <<"a/b/c">>], lists:sort(?R:topics())),
+
     ?R:del_route(From, <<"a/b/c">>, node()),
+
     ?R:del_route(From, <<"a/+/b">>, node()),
+    timer:sleep(1),
     ?assertEqual([], lists:sort(?R:topics())).
 
 match_routes(_) ->
@@ -62,6 +72,7 @@ match_routes(_) ->
     ?R:add_route(From, <<"a/+/c">>, node()),
     ?R:add_route(From, <<"a/b/#">>, node()),
     ?R:add_route(From, <<"#">>, node()),
+    timer:sleep(6),
     ?assertEqual([#route{topic = <<"#">>, dest = node()},
                   #route{topic = <<"a/+/c">>, dest = node()},
                   #route{topic = <<"a/b/#">>, dest = node()},
