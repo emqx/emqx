@@ -87,14 +87,11 @@ init(Req, Opts) ->
     case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req) of
         undefined ->
             {cowboy_websocket, Req, #state{}};
-        Subprotocols ->
-            case lists:member(<<"mqtt">>, Subprotocols) of
-                true ->
-                    Resp = cowboy_req:set_resp_header(<<"sec-websocket-protocol">>, <<"mqtt">>, Req),
-                    {cowboy_websocket, Resp, #state{request = Req, options = Opts}, #{idle_timeout => 86400000}};
-                false ->
-                    {ok, cowboy_req:reply(400, Req), #state{}}
-            end
+        [<<"mqtt", Vsn/binary>>] ->
+            Resp = cowboy_req:set_resp_header(<<"sec-websocket-protocol">>, <<"mqtt", Vsn/binary>>, Req),
+            {cowboy_websocket, Resp, #state{request = Req, options = Opts}, #{idle_timeout => 86400000}};
+        R ->
+            {ok, cowboy_req:reply(400, Req), #state{}}
     end.
 
 websocket_init(#state{request = Req, options = Options}) ->
