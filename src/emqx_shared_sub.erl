@@ -93,8 +93,7 @@ pick([]) ->
 pick([SubPid]) ->
     SubPid;
 pick(SubPids) ->
-    X = abs(erlang:monotonic_time() bxor erlang:unique_integer()),
-    lists:nth((X rem length(SubPids)) + 1, SubPids).
+    lists:nth(rand:uniform(length(SubPids)), SubPids).
 
 subscribers(Group, Topic) ->
     ets:select(?TAB, [{{emqx_shared_subscription, Group, Topic, '$1'}, [], ['$1']}]).
