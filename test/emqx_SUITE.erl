@@ -40,6 +40,17 @@
                                 username  = <<"admin">>,
                                 clean_start = false,
                                 password  = <<"public">>})).
+
+-define(SUBCODE, [0]).
+
+-define(PACKETID, 1).
+
+-define(PUBQOS, 1).
+
+-define(SUBPACKET, ?SUBSCRIBE_PACKET(?PACKETID, [{<<"sub/topic">>, ?DEFAULT_SUBOPTS}])).
+
+-define(PUBPACKET, ?PUBLISH_PACKET(?PUBQOS, <<"sub/topic">>, ?PACKETID, <<"publish">>)).
+
 all() ->
     [{group, connect}%,
     % {group, cleanSession}
@@ -48,11 +59,11 @@ all() ->
 groups() ->
     [{connect, [non_parallel_tests],
       [
-      % mqtt_connect,
-      % mqtt_connect_with_tcp,
-      % mqtt_connect_with_ssl_oneway,
-      % mqtt_connect_with_ssl_twoway%,
-       mqtt_connect_with_ws%,
+      mqtt_connect,
+      mqtt_connect_with_tcp,
+      mqtt_connect_with_ssl_oneway,
+      mqtt_connect_with_ssl_twoway,
+      mqtt_connect_with_ws
       ]},
      {cleanSession, [sequence],
       [cleanSession_validate]
@@ -130,10 +141,24 @@ mqtt_connect_with_ssl_twoway(_Config) ->
 mqtt_connect_with_ws(_Config) ->
     WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
     {ok, _} = rfc6455_client:open(WS),
+
+    %% Connect Packet
     Packet = raw_send_serialise(?CLIENT),
     ok = rfc6455_client:send_binary(WS, Packet),
-    {binary, P} = rfc6455_client:recv(WS),
-    ct:log(":~p", [P]),
+    {binary, CONACK} = rfc6455_client:recv(WS),
+    {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(CONACK),
+
+    %% Sub Packet
+    SubPacket = raw_send_serialise(?SUBPACKET),
+    rfc6455_client:send_binary(WS, SubPacket),
+    {binary, SubAck} = rfc6455_client:recv(WS),
+    {ok, ?SUBACK_PACKET(?PACKETID, ?SUBCODE), _} = raw_recv_pase(SubAck),
+
+    %% Pub Packet QoS 1
+    PubPacket = raw_send_serialise(?PUBPACKET),
+    rfc6455_client:send_binary(WS, PubPacket),
+    {binary, PubAck} = rfc6455_client:recv(WS),
+    {ok, ?PUBACK_PACKET(?PACKETID), _} = raw_recv_pase(PubAck),
     {close, _} = rfc6455_client:close(WS),
     ok.
 
