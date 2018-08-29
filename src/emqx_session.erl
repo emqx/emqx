@@ -761,7 +761,7 @@ await(PacketId, Msg, State = #state{inflight       = Inflight,
 
 acked(puback, PacketId, State = #state{client_id = ClientId, inflight  = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, {publish, Msg, _Ts}} ->
+        {value, {publish, {_, Msg}, _Ts}} ->
             emqx_hooks:run('message.acked', [#{client_id =>ClientId}], Msg),
             State#state{inflight = emqx_inflight:delete(PacketId, Inflight)};
         none ->
@@ -771,7 +771,7 @@ acked(puback, PacketId, State = #state{client_id = ClientId, inflight  = Infligh
 
 acked(pubrec, PacketId, State = #state{client_id = ClientId, inflight  = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, {publish, Msg, _Ts}} ->
+        {value, {publish, {_, Msg}, _Ts}} ->
             emqx_hooks:run('message.acked', [ClientId], Msg),
             State#state{inflight = emqx_inflight:update(PacketId, {pubrel, PacketId, os:timestamp()}, Inflight)};
         {value, {pubrel, PacketId, _Ts}} ->

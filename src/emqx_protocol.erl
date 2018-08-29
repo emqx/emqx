@@ -435,7 +435,7 @@ deliver({connack, ReasonCode, SP}, PState) ->
     send(?CONNACK_PACKET(ReasonCode, SP), PState);
 
 deliver({publish, PacketId, Msg}, PState = #pstate{is_bridge  = IsBridge, mountpoint = MountPoint}) ->
-    _ = emqx_hooks:run('message.delivered', credentials(PState), Msg),
+    _ = emqx_hooks:run('message.delivered', [credentials(PState)], Msg),
     Msg1 = emqx_mountpoint:unmount(MountPoint, clean_retain(IsBridge, Msg)),
     send(emqx_packet:from_message(PacketId, Msg1), PState);
 
