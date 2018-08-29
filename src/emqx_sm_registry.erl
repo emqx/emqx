@@ -43,16 +43,17 @@ start_link() ->
 is_enabled() ->
     ets:info(?TAB, name) =/= undefined.
 
--spec(lookup_session(client_id()) -> list({client_id(), session_pid()})).
+-spec(lookup_session(emqx_types:client_id())
+      -> list({emqx_types:client_id(), session_pid()})).
 lookup_session(ClientId) ->
     [{ClientId, SessionPid} || #global_session{pid = SessionPid}
                                <- mnesia:dirty_read(?TAB, ClientId)].
 
--spec(register_session({client_id(), session_pid()}) -> ok).
+-spec(register_session({emqx_types:client_id(), session_pid()}) -> ok).
 register_session({ClientId, SessionPid}) when is_binary(ClientId), is_pid(SessionPid) ->
     mnesia:dirty_write(?TAB, record(ClientId, SessionPid)).
 
--spec(unregister_session({client_id(), session_pid()}) -> ok).
+-spec(unregister_session({emqx_types:client_id(), session_pid()}) -> ok).
 unregister_session({ClientId, SessionPid}) when is_binary(ClientId), is_pid(SessionPid) ->
     mnesia:dirty_delete_object(?TAB, record(ClientId, SessionPid)).
 

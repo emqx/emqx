@@ -36,7 +36,7 @@
                 ping_down_interval = ?PING_DOWN_INTERVAL,
                 status             = up}).
 
--type(option() :: {qos, mqtt_qos()} |
+-type(option() :: {qos, emqx_mqtt_types:qos()} |
                   {topic_suffix, binary()} |
                   {topic_prefix, binary()} |
                   {max_queue_len, pos_integer()} |

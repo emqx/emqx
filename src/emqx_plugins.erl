@@ -153,7 +153,7 @@ stop_plugins(Names) ->
     [stop_app(App) || App <- Names].
 
 %% @doc List all available plugins
--spec(list() -> [plugin()]).
+-spec(list() -> [emqx_types:plugin()]).
 list() ->
     case emqx_config:get_env(plugins_etc_dir) of
         undefined ->

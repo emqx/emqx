@@ -80,7 +80,7 @@
           old_conn_pid :: pid(),
 
           %% Next packet id of the session
-          next_pkt_id = 1 :: mqtt_packet_id(),
+          next_pkt_id = 1 :: emqx_mqtt_types:packet_id(),
 
           %% Max subscriptions
           max_subscriptions :: non_neg_integer(),
@@ -164,19 +164,20 @@ start_link(SessAttrs) ->
 %% PubSub API
 %%------------------------------------------------------------------------------
 
--spec(subscribe(pid(), list({topic(), map()}) |
-                {mqtt_packet_id(), mqtt_properties(), topic_table()}) -> ok).
+-spec(subscribe(pid(), list({emqx_topic:topic(), emqx_types:subopts()})) -> ok).
 subscribe(SPid, RawTopicFilters) when is_list(RawTopicFilters) ->
     TopicFilters = [emqx_topic:parse(RawTopic, maps:merge(?DEFAULT_SUBOPTS, SubOpts))
                     || {RawTopic, SubOpts} <- RawTopicFilters],
     subscribe(SPid, undefined, #{}, TopicFilters).
 
-%% for mqtt 5.0
+-spec(subscribe(pid(), emqx_mqtt_types:packet_id(),
+                emqx_mqtt_types:properties(), emqx_mqtt_types:topic_filters()) -> ok).
 subscribe(SPid, PacketId, Properties, TopicFilters) ->
     SubReq = {PacketId, Properties, TopicFilters},
     gen_server:cast(SPid, {subscribe, self(), SubReq}).
 
--spec(publish(pid(), mqtt_packet_id(), message()) -> {ok, emqx_types:dispatches()}).
+-spec(publish(pid(), emqx_mqtt_types:packet_id(), emqx_types:message())
+      -> {ok, emqx_types:deliver_results()}).
 publish(_SPid, _PacketId, Msg = #message{qos = ?QOS_0}) ->
     %% Publish QoS0 message to broker directly
     emqx_broker:publish(Msg);
@@ -189,43 +190,44 @@ publish(SPid, PacketId, Msg = #message{qos = ?QOS_2}) ->
     %% Publish QoS2 message to session
     gen_server:call(SPid, {publish, PacketId, Msg}, infinity).
 
--spec(puback(pid(), mqtt_packet_id()) -> ok).
+-spec(puback(pid(), emqx_mqtt_types:packet_id()) -> ok).
 puback(SPid, PacketId) ->
     gen_server:cast(SPid, {puback, PacketId, ?RC_SUCCESS}).
 
 puback(SPid, PacketId, ReasonCode) ->
     gen_server:cast(SPid, {puback, PacketId, ReasonCode}).
 
--spec(pubrec(pid(), mqtt_packet_id()) -> ok | {error, mqtt_reason_code()}).
+-spec(pubrec(pid(), emqx_mqtt_types:packet_id()) -> ok | {error, emqx_mqtt_types:reason_code()}).
 pubrec(SPid, PacketId) ->
     pubrec(SPid, PacketId, ?RC_SUCCESS).
 
--spec(pubrec(pid(), mqtt_packet_id(), mqtt_reason_code())
-      -> ok | {error, mqtt_reason_code()}).
+-spec(pubrec(pid(), emqx_mqtt_types:packet_id(), emqx_mqtt_types:reason_code())
+      -> ok | {error, emqx_mqtt_types:reason_code()}).
 pubrec(SPid, PacketId, ReasonCode) ->
     gen_server:call(SPid, {pubrec, PacketId, ReasonCode}, infinity).
 
--spec(pubrel(pid(), mqtt_packet_id(), mqtt_reason_code())
-      -> ok | {error, mqtt_reason_code()}).
+-spec(pubrel(pid(), emqx_mqtt_types:packet_id(), emqx_mqtt_types:reason_code())
+      -> ok | {error, emqx_mqtt_types:reason_code()}).
 pubrel(SPid, PacketId, ReasonCode) ->
     gen_server:call(SPid, {pubrel, PacketId, ReasonCode}, infinity).
 
--spec(pubcomp(pid(), mqtt_packet_id(), mqtt_reason_code()) -> ok).
+-spec(pubcomp(pid(), emqx_mqtt_types:packet_id(), emqx_mqtt_types:reason_code()) -> ok).
 pubcomp(SPid, PacketId, ReasonCode) ->
     gen_server:cast(SPid, {pubcomp, PacketId, ReasonCode}).
 
--spec(unsubscribe(pid(), topic_table()) -> ok).
+-spec(unsubscribe(pid(), emqx_types:topic_table()) -> ok).
 unsubscribe(SPid, RawTopicFilters) when is_list(RawTopicFilters) ->
     unsubscribe(SPid, undefined, #{}, lists:map(fun emqx_topic:parse/1, RawTopicFilters)).
 
--spec(unsubscribe(pid(), mqtt_packet_id(), mqtt_properties(), topic_table()) -> ok).
+-spec(unsubscribe(pid(), emqx_mqtt_types:packet_id(),
+                  emqx_mqtt_types:properties(), emqx_mqtt_types:topic_filters()) -> ok).
 unsubscribe(SPid, PacketId, Properties, TopicFilters) ->
     UnsubReq = {PacketId, Properties, TopicFilters},
     gen_server:cast(SPid, {unsubscribe, self(), UnsubReq}).
 
 -spec(resume(pid(), pid()) -> ok).
-resume(SPid, ClientPid) ->
-    gen_server:cast(SPid, {resume, ClientPid}).
+resume(SPid, ConnPid) ->
+    gen_server:cast(SPid, {resume, ConnPid}).
 
 %% @doc Get session info
 -spec(info(pid() | #state{}) -> list(tuple())).
@@ -292,7 +294,7 @@ stats(#state{max_subscriptions = MaxSubscriptions,
                   {enqueue_msg,       EnqueueMsg}]).
 
 %% @doc Discard the session
--spec(discard(pid(), client_id()) -> ok).
+-spec(discard(pid(), emqx_types:client_id()) -> ok).
 discard(SPid, ClientId) ->
     gen_server:call(SPid, {discard, ClientId}, infinity).
 
@@ -342,8 +344,8 @@ init_mqueue(Zone, ClientId) ->
                                 max_len => get_env(Zone, max_mqueue_len),
                                 store_qos0 => get_env(Zone, mqueue_store_qos0)}).
 
-binding(ClientPid) ->
-    case node(ClientPid) =:= node() of true -> local; false -> remote end.
+binding(ConnPid) ->
+    case node(ConnPid) =:= node() of true -> local; false -> remote end.
 
 handle_call({discard, ConnPid}, _From, State = #state{conn_pid = undefined}) ->
     ?LOG(warning, "Discarded by ~p", [ConnPid], State),

@@ -58,7 +58,7 @@ mnesia(copy) ->
 %%------------------------------------------------------------------------------
 
 %% @doc Insert a topic into the trie
--spec(insert(Topic :: topic()) -> ok).
+-spec(insert(emqx_topic:topic()) -> ok).
 insert(Topic) when is_binary(Topic) ->
     case mnesia:read(?TRIE_NODE, Topic) of
         [#trie_node{topic = Topic}] ->
@@ -73,7 +73,7 @@ insert(Topic) when is_binary(Topic) ->
     end.
 
 %% @doc Find trie nodes that match the topic
--spec(match(Topic :: topic()) -> list(MatchedTopic :: topic())).
+-spec(match(emqx_topic:topic()) -> list(emqx_topic:topic())).
 match(Topic) when is_binary(Topic) ->
     TrieNodes = match_node(root, emqx_topic:words(Topic)),
     [Name || #trie_node{topic = Name} <- TrieNodes, Name =/= undefined].
@@ -84,7 +84,7 @@ lookup(NodeId) ->
     mnesia:read(?TRIE_NODE, NodeId).
 
 %% @doc Delete a topic from the trie
--spec(delete(Topic :: topic()) -> ok).
+-spec(delete(emqx_topic:topic()) -> ok).
 delete(Topic) when is_binary(Topic) ->
     case mnesia:read(?TRIE_NODE, Topic) of
         [#trie_node{edge_count = 0}] ->

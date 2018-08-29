@@ -167,7 +167,7 @@ update_counter(Key, UpOp) ->
 %%-----------------------------------------------------------------------------
 
 %% @doc Count packets received.
--spec(received(mqtt_packet()) -> ok).
+-spec(received(emqx_mqtt_types:packet()) -> ok).
 received(Packet) ->
     inc('packets/received'),
     received1(Packet).
@@ -205,7 +205,7 @@ qos_received(?QOS_2) ->
     inc('messages/qos2/received').
 
 %% @doc Count packets received. Will not count $SYS PUBLISH.
--spec(sent(mqtt_packet()) -> ignore | non_neg_integer()).
+-spec(sent(emqx_mqtt_types:packet()) -> ignore | non_neg_integer()).
 sent(?PUBLISH_PACKET(_QoS, <<"$SYS/", _/binary>>, _, _)) ->
     ignore;
 sent(Packet) ->

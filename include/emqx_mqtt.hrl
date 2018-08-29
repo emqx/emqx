@@ -12,6 +12,9 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
+-ifndef(EMQ_X_MQTT_HRL).
+-define(EMQ_X_MQTT_HRL, true).
+
 %%--------------------------------------------------------------------
 %% MQTT SockOpts
 %%--------------------------------------------------------------------
@@ -32,8 +35,6 @@
     {?MQTT_PROTO_V4, <<"MQTT">>},
     {?MQTT_PROTO_V5, <<"MQTT">>}]).
 
--type(mqtt_version() :: ?MQTT_PROTO_V3 | ?MQTT_PROTO_V4 | ?MQTT_PROTO_V5).
-
 %%--------------------------------------------------------------------
 %% MQTT QoS Levels
 %%--------------------------------------------------------------------
@@ -47,12 +48,6 @@
 -define(QOS2, 2). %% Exactly once
 
 -define(IS_QOS(I), (I >= ?QOS0 andalso I =< ?QOS2)).
-
--type(mqtt_qos() :: ?QOS0 | ?QOS1 | ?QOS2).
-
--type(mqtt_qos_name() :: qos0 | at_most_once  |
-                         qos1 | at_least_once |
-                         qos2 | exactly_once).
 
 -define(QOS_I(Name),
     begin
@@ -79,25 +74,6 @@
 %%--------------------------------------------------------------------
 
 -define(MAX_CLIENTID_LEN, 65535).
-
-%%--------------------------------------------------------------------
-%% MQTT Client
-%%--------------------------------------------------------------------
--record(mqtt_client, {
-          client_id     :: binary() | undefined,
-          client_pid    :: pid(),
-          username      :: binary() | undefined,
-          peername      :: {inet:ip_address(), inet:port_number()},
-          clean_start   :: boolean(),
-          proto_ver     :: mqtt_version(),
-          keepalive = 0 :: non_neg_integer(),
-          will_topic    :: undefined | binary(),
-          mountpoint    :: undefined | binary(),
-          connected_at  :: erlang:timestamp(),
-          attributes    :: map()
-        }).
-
--type(mqtt_client() :: #mqtt_client{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Control Packet Types
@@ -137,8 +113,6 @@
         'DISCONNECT',
         'AUTH']).
 
--type(mqtt_packet_type() :: ?RESERVED..?AUTH).
-
 %%--------------------------------------------------------------------
 %% MQTT V3.1.1 Connect Return Codes
 %%--------------------------------------------------------------------
@@ -149,8 +123,6 @@
 -define(CONNACK_SERVER,      3). %% Server unavailable
 -define(CONNACK_CREDENTIALS, 4). %% Username or password is malformed
 -define(CONNACK_AUTH,        5). %% Client is not authorized to connect
-
--type(mqtt_connack() :: ?CONNACK_ACCEPT..?CONNACK_AUTH).
 
 %%--------------------------------------------------------------------
 %% MQTT V5.0 Reason Codes
@@ -220,108 +192,91 @@
 %%--------------------------------------------------------------------
 
 -record(mqtt_packet_header, {
-          type   = ?RESERVED :: mqtt_packet_type(),
-          dup    = false     :: boolean(),
-          qos    = ?QOS_0    :: mqtt_qos(),
-          retain = false     :: boolean()
+          type   = ?RESERVED,
+          dup    = false,
+          qos    = ?QOS_0,
+          retain = false
         }).
 
 %%--------------------------------------------------------------------
 %% MQTT Packets
 %%--------------------------------------------------------------------
 
--type(mqtt_topic() :: binary()).
-
--type(mqtt_client_id() :: binary()).
-
--type(mqtt_username()  :: binary() | undefined).
-
--type(mqtt_packet_id() :: 1..16#FFFF | undefined).
-
--type(mqtt_reason_code() :: 0..16#FF | undefined).
-
--type(mqtt_properties() :: #{atom() => term()} | undefined).
-
--type(mqtt_subopts() :: #{atom() => term()}).
-
--define(DEFAULT_SUBOPTS, #{rh  => 0,  %% Retain Handling
-                           rap => 0,  %% Retain as Publish
-                           nl  => 0,  %% No Local
-                           qos => ?QOS_0,
-                           rc  => 0,  %% Reason Code
-                           subid => 0 %% Subscription-Identifier
+-define(DEFAULT_SUBOPTS, #{rh  => 0, %% Retain Handling
+                           rap => 0, %% Retain as Publish
+                           nl  => 0, %% No Local
+                           qos => 0, %% QoS
+                           rc  => 0  %% Reason Code
                           }).
 
--type(mqtt_topic_filters() :: [{mqtt_topic(), mqtt_subopts()}]).
-
 -record(mqtt_packet_connect, {
-          proto_name   = <<"MQTT">>     :: binary(),
-          proto_ver    = ?MQTT_PROTO_V4 :: mqtt_version(),
-          is_bridge    = false          :: boolean(),
-          clean_start  = true           :: boolean(),
-          will_flag    = false          :: boolean(),
-          will_qos     = ?QOS_0         :: mqtt_qos(),
-          will_retain  = false          :: boolean(),
-          keepalive    = 0              :: non_neg_integer(),
-          properties   = undefined      :: mqtt_properties(),
-          client_id    = <<>>           :: mqtt_client_id(),
-          will_props   = undefined      :: undefined | map(),
-          will_topic   = undefined      :: undefined | binary(),
-          will_payload = undefined      :: undefined | binary(),
-          username     = undefined      :: undefined | binary(),
-          password     = undefined      :: undefined | binary()
+          proto_name   = <<"MQTT">>,
+          proto_ver    = ?MQTT_PROTO_V4,
+          is_bridge    = false,
+          clean_start  = true,
+          will_flag    = false,
+          will_qos     = ?QOS_0,
+          will_retain  = false,
+          keepalive    = 0,
+          properties   = undefined,
+          client_id    = <<>>,
+          will_props   = undefined,
+          will_topic   = undefined,
+          will_payload = undefined,
+          username     = undefined,
+          password     = undefined
         }).
 
 -record(mqtt_packet_connack, {
-          ack_flags   :: 0 | 1,
-          reason_code :: mqtt_reason_code(),
-          properties  :: mqtt_properties()
+          ack_flags,
+          reason_code,
+          properties
         }).
 
 -record(mqtt_packet_publish, {
-          topic_name :: mqtt_topic(),
-          packet_id  :: mqtt_packet_id(),
-          properties :: mqtt_properties()
+          topic_name,
+          packet_id,
+          properties
         }).
 
 -record(mqtt_packet_puback, {
-          packet_id   :: mqtt_packet_id(),
-          reason_code :: mqtt_reason_code(),
-          properties  :: mqtt_properties()
+          packet_id,
+          reason_code,
+          properties
         }).
 
 -record(mqtt_packet_subscribe, {
-          packet_id     :: mqtt_packet_id(),
-          properties    :: mqtt_properties(),
-          topic_filters :: mqtt_topic_filters()
+          packet_id,
+          properties,
+          topic_filters
         }).
 
 -record(mqtt_packet_suback, {
-          packet_id    :: mqtt_packet_id(),
-          properties   :: mqtt_properties(),
-          reason_codes :: list(mqtt_reason_code())
+          packet_id,
+          properties,
+          reason_codes
         }).
 
 -record(mqtt_packet_unsubscribe, {
-          packet_id     :: mqtt_packet_id(),
-          properties    :: mqtt_properties(),
-          topic_filters :: [mqtt_topic()]
+          packet_id,
+          properties,
+          topic_filters
         }).
 
 -record(mqtt_packet_unsuback, {
-          packet_id    :: mqtt_packet_id(),
-          properties   :: mqtt_properties(),
-          reason_codes :: list(mqtt_reason_code())
+          packet_id,
+          properties,
+          reason_codes
         }).
 
 -record(mqtt_packet_disconnect, {
-          reason_code :: mqtt_reason_code(),
-          properties  :: mqtt_properties()
+          reason_code,
+          properties
         }).
 
 -record(mqtt_packet_auth, {
-          reason_code :: mqtt_reason_code(),
-          properties  :: mqtt_properties()
+          reason_code,
+          properties
         }).
 
 %%--------------------------------------------------------------------
@@ -340,63 +295,70 @@
                     | #mqtt_packet_unsuback{}
                     | #mqtt_packet_disconnect{}
                     | #mqtt_packet_auth{}
-                    | mqtt_packet_id()
+                    | pos_integer()
                     | undefined,
           payload  :: binary() | undefined
         }).
-
--type(mqtt_packet() :: #mqtt_packet{}).
 
 %%--------------------------------------------------------------------
 %% MQTT Packet Match
 %%--------------------------------------------------------------------
 
 -define(CONNECT_PACKET(Var),
-    #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT}, variable = Var}).
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNECT},
+                 variable = Var}).
 
 -define(CONNACK_PACKET(ReasonCode),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},
                  variable = #mqtt_packet_connack{ack_flags   = 0,
-                                                 reason_code = ReasonCode}}).
+                                                 reason_code = ReasonCode}
+                }).
 
 -define(CONNACK_PACKET(ReasonCode, SessPresent),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},
                  variable = #mqtt_packet_connack{ack_flags   = SessPresent,
-                                                 reason_code = ReasonCode}}).
+                                                 reason_code = ReasonCode}
+                }).
 
 -define(CONNACK_PACKET(ReasonCode, SessPresent, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?CONNACK},
                  variable = #mqtt_packet_connack{ack_flags   = SessPresent,
                                                  reason_code = ReasonCode,
-                                                 properties  = Properties}}).
+                                                 properties  = Properties}
+                }).
 
 -define(AUTH_PACKET(),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?AUTH},
-                 variable = #mqtt_packet_auth{reason_code = 0}}).
+                 variable = #mqtt_packet_auth{reason_code = 0}
+                }).
 
 -define(AUTH_PACKET(ReasonCode),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?AUTH},
-                 variable = #mqtt_packet_auth{reason_code = ReasonCode}}).
+                 variable = #mqtt_packet_auth{reason_code = ReasonCode}
+                }).
 
 -define(AUTH_PACKET(ReasonCode, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?AUTH},
                  variable = #mqtt_packet_auth{reason_code = ReasonCode,
-                                              properties = Properties}}).
+                                              properties  = Properties}
+                }).
 
 -define(PUBLISH_PACKET(QoS),
     #mqtt_packet{header = #mqtt_packet_header{type = ?PUBLISH, qos = QoS}}).
 
 -define(PUBLISH_PACKET(QoS, PacketId),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBLISH,
-                                                qos = QoS},
-                 variable = #mqtt_packet_publish{packet_id = PacketId}}).
+                                                qos  = QoS},
+                 variable = #mqtt_packet_publish{packet_id = PacketId}
+                }).
 
 -define(PUBLISH_PACKET(QoS, Topic, PacketId, Payload),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBLISH,
                                                 qos  = QoS},
                  variable = #mqtt_packet_publish{topic_name = Topic,
                                                  packet_id  = PacketId},
-                 payload  = Payload}).
+                 payload  = Payload
+                }).
 
 -define(PUBLISH_PACKET(QoS, Topic, PacketId, Properties, Payload),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBLISH,
@@ -404,130 +366,166 @@
                  variable = #mqtt_packet_publish{topic_name = Topic,
                                                  packet_id  = PacketId,
                                                  properties = Properties},
-                 payload  = Payload}).
+                 payload  = Payload
+                }).
 
 -define(PUBACK_PACKET(PacketId),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBACK},
                  variable = #mqtt_packet_puback{packet_id   = PacketId,
-                                                reason_code = 0}}).
+                                                reason_code = 0}
+                }).
 
 -define(PUBACK_PACKET(PacketId, ReasonCode),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBACK},
                  variable = #mqtt_packet_puback{packet_id   = PacketId,
-                                                reason_code = ReasonCode}}).
+                                                reason_code = ReasonCode}
+                }).
 
 -define(PUBACK_PACKET(PacketId, ReasonCode, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBACK},
                  variable = #mqtt_packet_puback{packet_id   = PacketId,
                                                 reason_code = ReasonCode,
-                                                properties  = Properties}}).
+                                                properties  = Properties}
+                }).
 
 -define(PUBREC_PACKET(PacketId),
         #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREC},
                      variable = #mqtt_packet_puback{packet_id   = PacketId,
-                                                    reason_code = 0}}).
+                                                    reason_code = 0}
+                    }).
 
 -define(PUBREC_PACKET(PacketId, ReasonCode),
         #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREC},
                      variable = #mqtt_packet_puback{packet_id   = PacketId,
-                                                    reason_code = ReasonCode}}).
+                                                    reason_code = ReasonCode}
+                    }).
 
 -define(PUBREC_PACKET(PacketId, ReasonCode, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREC},
-                 variable = #mqtt_packet_puback{packet_id = PacketId,
+                 variable = #mqtt_packet_puback{packet_id   = PacketId,
                                                 reason_code = ReasonCode,
-                                                properties  = Properties}}).
+                                                properties  = Properties}
+                }).
 
 -define(PUBREL_PACKET(PacketId),
-    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREL, qos = ?QOS_1},
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREL,
+                                                qos  = ?QOS_1},
                  variable = #mqtt_packet_puback{packet_id   = PacketId,
-                                                reason_code = 0}}).
+                                                reason_code = 0}
+                }).
+
 -define(PUBREL_PACKET(PacketId, ReasonCode),
-    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREL, qos = ?QOS_1},
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREL,
+                                                qos  = ?QOS_1},
                  variable = #mqtt_packet_puback{packet_id   = PacketId,
-                                                reason_code = ReasonCode}}).
+                                                reason_code = ReasonCode}
+                }).
 
 -define(PUBREL_PACKET(PacketId, ReasonCode, Properties),
-    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREL, qos = ?QOS_1},
-                 variable = #mqtt_packet_puback{packet_id = PacketId,
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBREL,
+                                                qos  = ?QOS_1},
+                 variable = #mqtt_packet_puback{packet_id   = PacketId,
                                                 reason_code = ReasonCode,
-                                                properties  = Properties}}).
+                                                properties  = Properties}
+                }).
 
 -define(PUBCOMP_PACKET(PacketId),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBCOMP},
                  variable = #mqtt_packet_puback{packet_id   = PacketId,
-                                                reason_code = 0}}).
+                                                reason_code = 0}
+                }).
+
 -define(PUBCOMP_PACKET(PacketId, ReasonCode),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBCOMP},
                  variable = #mqtt_packet_puback{packet_id   = PacketId,
-                                                reason_code = ReasonCode}}).
+                                                reason_code = ReasonCode}
+                }).
 
 -define(PUBCOMP_PACKET(PacketId, ReasonCode, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBCOMP},
                  variable = #mqtt_packet_puback{packet_id   = PacketId,
                                                 reason_code = ReasonCode,
-                                                properties  = Properties}}).
+                                                properties  = Properties}
+                }).
 
 -define(SUBSCRIBE_PACKET(PacketId, TopicFilters),
-    #mqtt_packet{header = #mqtt_packet_header{type = ?SUBSCRIBE, qos = ?QOS_1},
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?SUBSCRIBE,
+                                                qos  = ?QOS_1},
                  variable = #mqtt_packet_subscribe{packet_id     = PacketId,
-                                                   topic_filters = TopicFilters}}).
+                                                   topic_filters = TopicFilters}
+                }).
 
 -define(SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
-    #mqtt_packet{header = #mqtt_packet_header{type = ?SUBSCRIBE, qos = ?QOS_1},
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?SUBSCRIBE,
+                                                qos  = ?QOS_1},
                  variable = #mqtt_packet_subscribe{packet_id     = PacketId,
                                                    properties    = Properties,
-                                                   topic_filters = TopicFilters}}).
+                                                   topic_filters = TopicFilters}
+                }).
 
 -define(SUBACK_PACKET(PacketId, ReasonCodes),
-    #mqtt_packet{header = #mqtt_packet_header{type = ?SUBACK},
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?SUBACK},
                  variable = #mqtt_packet_suback{packet_id    = PacketId,
-                                                reason_codes = ReasonCodes}}).
+                                                reason_codes = ReasonCodes}
+                }).
 
 -define(SUBACK_PACKET(PacketId, Properties, ReasonCodes),
-    #mqtt_packet{header = #mqtt_packet_header{type = ?SUBACK},
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?SUBACK},
                  variable = #mqtt_packet_suback{packet_id    = PacketId,
                                                 properties   = Properties,
-                                                reason_codes = ReasonCodes}}).
+                                                reason_codes = ReasonCodes}
+                }).
+
 -define(UNSUBSCRIBE_PACKET(PacketId, TopicFilters),
-    #mqtt_packet{header = #mqtt_packet_header{type = ?UNSUBSCRIBE, qos = ?QOS_1},
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?UNSUBSCRIBE,
+                                                qos  = ?QOS_1},
                  variable = #mqtt_packet_unsubscribe{packet_id     = PacketId,
-                                                     topic_filters = TopicFilters}}).
+                                                     topic_filters = TopicFilters}
+                }).
 
 -define(UNSUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
-    #mqtt_packet{header = #mqtt_packet_header{type = ?UNSUBSCRIBE, qos = ?QOS_1},
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?UNSUBSCRIBE,
+                                                qos  = ?QOS_1},
                  variable = #mqtt_packet_unsubscribe{packet_id     = PacketId,
                                                      properties    = Properties,
-                                                     topic_filters = TopicFilters}}).
+                                                     topic_filters = TopicFilters}
+                }).
 
 -define(UNSUBACK_PACKET(PacketId),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?UNSUBACK},
-                 variable = #mqtt_packet_unsuback{packet_id = PacketId}}).
+                 variable = #mqtt_packet_unsuback{packet_id = PacketId}
+                }).
 
 -define(UNSUBACK_PACKET(PacketId, ReasonCodes),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?UNSUBACK},
                  variable = #mqtt_packet_unsuback{packet_id    = PacketId,
-                                                  reason_codes = ReasonCodes}}).
+                                                  reason_codes = ReasonCodes}
+                }).
 
 -define(UNSUBACK_PACKET(PacketId, Properties, ReasonCodes),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?UNSUBACK},
                  variable = #mqtt_packet_unsuback{packet_id    = PacketId,
                                                   properties   = Properties,
-                                                  reason_codes = ReasonCodes}}).
+                                                  reason_codes = ReasonCodes}
+                }).
 
 -define(DISCONNECT_PACKET(),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?DISCONNECT},
-                 variable = #mqtt_packet_disconnect{reason_code = 0}}).
+                 variable = #mqtt_packet_disconnect{reason_code = 0}
+                }).
 
 -define(DISCONNECT_PACKET(ReasonCode),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?DISCONNECT},
-                 variable = #mqtt_packet_disconnect{reason_code = ReasonCode}}).
+                 variable = #mqtt_packet_disconnect{reason_code = ReasonCode}
+                }).
 
 -define(DISCONNECT_PACKET(ReasonCode, Properties),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?DISCONNECT},
                  variable = #mqtt_packet_disconnect{reason_code = ReasonCode,
-                                                    properties  = Properties}}).
+                                                    properties  = Properties}
+                }).
 
--define(PACKET(Type),
-    #mqtt_packet{header = #mqtt_packet_header{type = Type}}).
+-define(PACKET(Type), #mqtt_packet{header = #mqtt_packet_header{type = Type}}).
+
+-endif.
 

@@ -125,7 +125,7 @@ stats(#mqueue{type = Type, q = Q, max_len = MaxLen, len = Len, dropped = Dropped
             end} | [{max_len, MaxLen}, {dropped, Dropped}]].
 
 %% @doc Enqueue a message.
--spec(in(message(), mqueue()) -> mqueue()).
+-spec(in(emqx_types:message(), mqueue()) -> mqueue()).
 in(#message{flags = #{qos := ?QOS_0}}, MQ = #mqueue{qos0 = false}) ->
     MQ;
 in(Msg, MQ = #mqueue{type = simple, q = Q, len = Len, max_len = 0}) ->

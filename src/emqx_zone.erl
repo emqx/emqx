@@ -33,13 +33,13 @@
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec(get_env(zone() | undefined, atom()) -> undefined | term()).
+-spec(get_env(emqx_types:zone() | undefined, atom()) -> undefined | term()).
 get_env(undefined, Key) ->
     emqx_config:get_env(Key);
 get_env(Zone, Key) ->
     get_env(Zone, Key, undefined).
 
--spec(get_env(zone() | undefined, atom(), term()) -> undefined | term()).
+-spec(get_env(emqx_types:zone() | undefined, atom(), term()) -> undefined | term()).
 get_env(undefined, Key, Def) ->
     emqx_config:get_env(Key, Def);
 get_env(Zone, Key, Def) ->
@@ -48,7 +48,7 @@ get_env(Zone, Key, Def) ->
         emqx_config:get_env(Key, Def)
     end.
 
--spec(set_env(zone(), atom(), term()) -> ok).
+-spec(set_env(emqx_types:zone(), atom(), term()) -> ok).
 set_env(Zone, Key, Val) ->
     gen_server:cast(?MODULE, {set_env, Zone, Key, Val}).
 

@@ -58,7 +58,7 @@ mnesia(copy) ->
 %% API
 %%------------------------------------------------------------------------------
 
--spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
+-spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
@@ -81,11 +81,11 @@ record(Group, Topic, SubPid) ->
     #emqx_shared_subscription{group = Group, topic = Topic, subpid = SubPid}.
 
 %% TODO: dispatch strategy, ensure the delivery...
-dispatch(Group, Topic, Delivery = #delivery{message = Msg, flows = Flows}) ->
+dispatch(Group, Topic, Delivery = #delivery{message = Msg, results = Results}) ->
     case pick(subscribers(Group, Topic)) of
         false  -> Delivery;
         SubPid -> SubPid ! {dispatch, Topic, Msg},
-                  Delivery#delivery{flows = [{dispatch, {Group, Topic}, 1} | Flows]}
+                  Delivery#delivery{results = [{dispatch, {Group, Topic}, 1} | Results]}
     end.
 
 pick([]) ->

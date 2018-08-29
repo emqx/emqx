@@ -25,7 +25,7 @@
 -export([will_msg/1]).
 
 %% @doc Protocol name of version
--spec(protocol_name(mqtt_version()) -> binary()).
+-spec(protocol_name(emqx_mqtt_types:version()) -> binary()).
 protocol_name(?MQTT_PROTO_V3) ->
     <<"MQIsdp">>;
 protocol_name(?MQTT_PROTO_V4) ->
@@ -34,7 +34,7 @@ protocol_name(?MQTT_PROTO_V5) ->
     <<"MQTT">>.
 
 %% @doc Name of MQTT packet type
--spec(type_name(mqtt_packet_type()) -> atom()).
+-spec(type_name(emqx_mqtt_types:packet_type()) -> atom()).
 type_name(Type) when Type > ?RESERVED andalso Type =< ?AUTH ->
     lists:nth(Type, ?TYPE_NAMES).
 
@@ -82,7 +82,7 @@ validate_qos(QoS) when ?QOS0 =< QoS, QoS =< ?QOS2 ->
 validate_qos(_) -> error(bad_qos).
 
 %% @doc From Message to Packet
--spec(from_message(mqtt_packet_id(), message()) -> mqtt_packet()).
+-spec(from_message(emqx_mqtt_types:packet_id(), emqx_types:message()) -> emqx_mqtt_types:packet()).
 from_message(PacketId, Msg = #message{qos = QoS, topic = Topic, payload = Payload}) ->
     Dup = emqx_message:get_flag(dup, Msg, false),
     Retain = emqx_message:get_flag(retain, Msg, false),
@@ -97,7 +97,8 @@ from_message(PacketId, Msg = #message{qos = QoS, topic = Topic, payload = Payloa
                  variable = Publish, payload = Payload}.
 
 %% @doc Message from Packet
--spec(to_message(emqx_types:credentials(), mqtt_packet()) -> message()).
+-spec(to_message(emqx_types:credentials(), emqx_mqtt_types:packet())
+      -> emqx_types:message()).
 to_message(#{client_id := ClientId, username := Username},
            #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                                                        retain = Retain,
@@ -110,7 +111,7 @@ to_message(#{client_id := ClientId, username := Username},
     Msg#message{flags = #{dup => Dup, retain => Retain},
                 headers = merge_props(#{username => Username}, Props)}.
 
--spec(will_msg(#mqtt_packet_connect{}) -> message()).
+-spec(will_msg(#mqtt_packet_connect{}) -> emqx_types:message()).
 will_msg(#mqtt_packet_connect{will_flag = false}) ->
     undefined;
 will_msg(#mqtt_packet_connect{client_id    = ClientId,
@@ -130,7 +131,7 @@ merge_props(Headers, Props) ->
     maps:merge(Headers, Props).
 
 %% @doc Format packet
--spec(format(mqtt_packet()) -> iolist()).
+-spec(format(emqx_mqtt_types:packet()) -> iolist()).
 format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}) ->
     format_header(Header, format_variable(Variable, Payload)).
 

@@ -14,9 +14,6 @@
 
 -module(emqx_topic).
 
--include("emqx.hrl").
--include("emqx_mqtt.hrl").
-
 -export([match/2]).
 -export([validate/1, validate/2]).
 -export([levels/1]).
@@ -28,11 +25,12 @@
 -export([systop/1]).
 -export([parse/1, parse/2]).
 
+-type(topic() :: binary()).
 -type(word() :: '' | '+' | '#' | binary()).
 -type(words() :: list(word())).
 -type(triple() :: {root | binary(), word(), binary()}).
 
--export_type([word/0, triple/0]).
+-export_type([topic/0, word/0, triple/0]).
 
 -define(MAX_TOPIC_LEN, 4096).
 

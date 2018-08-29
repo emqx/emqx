@@ -24,9 +24,9 @@
 -type(access() :: subscribe | publish | pubsub).
 
 -type(rule() :: {allow, all} |
-                {allow, who(), access(), list(topic())} |
+                {allow, who(), access(), list(emqx_topic:topic())} |
                 {deny, all} |
-                {deny, who(), access(), list(topic())}).
+                {deny, who(), access(), list(emqx_topic:topic())}).
 
 -export_type([rule/0]).
 
@@ -81,7 +81,7 @@ bin(B) when is_binary(B) ->
     B.
 
 %% @doc Match access rule
--spec(match(credentials(), topic(), rule())
+-spec(match(emqx_types:credentials(), emqx_types:topic(), rule())
       -> {matched, allow} | {matched, deny} | nomatch).
 match(_Credentials, _Topic, {AllowDeny, all}) when ?ALLOW_DENY(AllowDeny) ->
     {matched, AllowDeny};

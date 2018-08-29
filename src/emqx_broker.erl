@@ -57,17 +57,18 @@ start_link(Pool, Id) ->
 %% Subscribe
 %%------------------------------------------------------------------------------
 
--spec(subscribe(topic()) -> ok).
+-spec(subscribe(emqx_topic:topic()) -> ok).
 subscribe(Topic) when is_binary(Topic) ->
     subscribe(Topic, self()).
 
--spec(subscribe(topic(), pid() | subid()) -> ok).
+-spec(subscribe(emqx_topic:topic(), pid() | emqx_types:subid()) -> ok).
 subscribe(Topic, SubPid) when is_binary(Topic), is_pid(SubPid) ->
     subscribe(Topic, SubPid, undefined);
 subscribe(Topic, SubId) when is_binary(Topic), ?is_subid(SubId) ->
     subscribe(Topic, self(), SubId).
 
--spec(subscribe(topic(), pid() | subid(), subid() | subopts()) -> ok).
+-spec(subscribe(emqx_topic:topic(), pid() | emqx_types:subid(),
+                emqx_types:subid() | emqx_types:subopts()) -> ok).
 subscribe(Topic, SubPid, SubId) when is_binary(Topic), is_pid(SubPid), ?is_subid(SubId) ->
     subscribe(Topic, SubPid, SubId, #{});
 subscribe(Topic, SubPid, SubOpts) when is_binary(Topic), is_pid(SubPid), is_map(SubOpts) ->
@@ -75,24 +76,24 @@ subscribe(Topic, SubPid, SubOpts) when is_binary(Topic), is_pid(SubPid), is_map(
 subscribe(Topic, SubId, SubOpts) when is_binary(Topic), ?is_subid(SubId), is_map(SubOpts) ->
     subscribe(Topic, self(), SubId, SubOpts).
 
--spec(subscribe(topic(), pid(), subid(), subopts()) -> ok).
+-spec(subscribe(emqx_topic:topic(), pid(), emqx_types:subid(), emqx_types:subopts()) -> ok).
 subscribe(Topic, SubPid, SubId, SubOpts) when is_binary(Topic), is_pid(SubPid),
                                               ?is_subid(SubId), is_map(SubOpts) ->
     Broker = pick(SubPid),
     SubReq = #subscribe{topic = Topic, subpid = SubPid, subid = SubId, subopts = SubOpts},
     wait_for_reply(async_call(Broker, SubReq), ?TIMEOUT).
 
--spec(multi_subscribe(topic_table()) -> ok).
+-spec(multi_subscribe(emqx_types:topic_table()) -> ok).
 multi_subscribe(TopicTable) when is_list(TopicTable) ->
     multi_subscribe(TopicTable, self()).
 
--spec(multi_subscribe(topic_table(), pid() | subid()) -> ok).
+-spec(multi_subscribe(emqx_types:topic_table(), pid() | emqx_types:subid()) -> ok).
 multi_subscribe(TopicTable, SubPid) when is_pid(SubPid) ->
     multi_subscribe(TopicTable, SubPid, undefined);
 multi_subscribe(TopicTable, SubId) when ?is_subid(SubId) ->
     multi_subscribe(TopicTable, self(), SubId).
 
--spec(multi_subscribe(topic_table(), pid(), subid()) -> ok).
+-spec(multi_subscribe(emqx_types:topic_table(), pid(), emqx_types:subid()) -> ok).
 multi_subscribe(TopicTable, SubPid, SubId) when is_pid(SubPid), ?is_subid(SubId) ->
     Broker = pick(SubPid),
     SubReq = fun(Topic, SubOpts) ->
@@ -105,33 +106,33 @@ multi_subscribe(TopicTable, SubPid, SubId) when is_pid(SubPid), ?is_subid(SubId)
 %% Unsubscribe
 %%------------------------------------------------------------------------------
 
--spec(unsubscribe(topic()) -> ok).
+-spec(unsubscribe(emqx_topic:topic()) -> ok).
 unsubscribe(Topic) when is_binary(Topic) ->
     unsubscribe(Topic, self()).
 
--spec(unsubscribe(topic(), pid() | subid()) -> ok).
+-spec(unsubscribe(emqx_topic:topic(), pid() | emqx_types:subid()) -> ok).
 unsubscribe(Topic, SubPid) when is_binary(Topic), is_pid(SubPid) ->
     unsubscribe(Topic, SubPid, undefined);
 unsubscribe(Topic, SubId) when is_binary(Topic), ?is_subid(SubId) ->
     unsubscribe(Topic, self(), SubId).
 
--spec(unsubscribe(topic(), pid(), subid()) -> ok).
+-spec(unsubscribe(emqx_topic:topic(), pid(), emqx_types:subid()) -> ok).
 unsubscribe(Topic, SubPid, SubId) when is_binary(Topic), is_pid(SubPid), ?is_subid(SubId) ->
     Broker = pick(SubPid),
     UnsubReq = #unsubscribe{topic = Topic, subpid = SubPid, subid = SubId},
     wait_for_reply(async_call(Broker, UnsubReq), ?TIMEOUT).
 
--spec(multi_unsubscribe([topic()]) -> ok).
+-spec(multi_unsubscribe([emqx_topic:topic()]) -> ok).
 multi_unsubscribe(Topics) ->
     multi_unsubscribe(Topics, self()).
 
--spec(multi_unsubscribe([topic()], pid() | subid()) -> ok).
+-spec(multi_unsubscribe([emqx_topic:topic()], pid() | emqx_types:subid()) -> ok).
 multi_unsubscribe(Topics, SubPid) when is_pid(SubPid) ->
     multi_unsubscribe(Topics, SubPid, undefined);
 multi_unsubscribe(Topics, SubId) when ?is_subid(SubId) ->
     multi_unsubscribe(Topics, self(), SubId).
 
--spec(multi_unsubscribe([topic()], pid(), subid()) -> ok).
+-spec(multi_unsubscribe([emqx_topic:topic()], pid(), emqx_types:subid()) -> ok).
 multi_unsubscribe(Topics, SubPid, SubId) when is_pid(SubPid), ?is_subid(SubId) ->
     Broker = pick(SubPid),
     UnsubReq = fun(Topic) ->
@@ -143,18 +144,19 @@ multi_unsubscribe(Topics, SubPid, SubId) when is_pid(SubPid), ?is_subid(SubId) -
 %% Publish
 %%------------------------------------------------------------------------------
 
--spec(publish(message()) -> {ok, emqx_types:dispatches()}).
+-spec(publish(emqx_types:message()) -> {ok, emqx_types:deliver_results()}).
 publish(Msg) when is_record(Msg, message) ->
     _ = emqx_tracer:trace(publish, Msg),
     {ok, case emqx_hooks:run('message.publish', [], Msg) of
              {ok, Msg1 = #message{topic = Topic}} ->
                    Delivery = route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1)),
-                   Delivery#delivery.flows;
+                   Delivery#delivery.results;
                {stop, _} ->
-                   emqx_logger:warning("Stop publishing: ~p", [Msg]), []
+                   emqx_logger:warning("Stop publishing: ~s", [emqx_message:format(Msg)]),
+                   []
          end}.
 
--spec(safe_publish(message()) -> ok).
+-spec(safe_publish(emqx_types:message()) -> ok).
 %% Called internally
 safe_publish(Msg) when is_record(Msg, message) ->
     try
@@ -167,7 +169,7 @@ safe_publish(Msg) when is_record(Msg, message) ->
     end.
 
 delivery(Msg) ->
-    #delivery{sender = self(), message = Msg, flows = []}.
+    #delivery{sender = self(), message = Msg, results = []}.
 
 %%------------------------------------------------------------------------------
 %% Route
@@ -180,8 +182,8 @@ route([], Delivery = #delivery{message = Msg}) ->
 route([{To, Node}], Delivery) when Node =:= node() ->
     dispatch(To, Delivery);
 
-route([{To, Node}], Delivery = #delivery{flows = Flows}) when is_atom(Node) ->
-    forward(Node, To, Delivery#delivery{flows = [{route, Node, To}|Flows]});
+route([{To, Node}], Delivery = #delivery{results = Results}) when is_atom(Node) ->
+    forward(Node, To, Delivery#delivery{results = [{route, Node, To}|Results]});
 
 route([{To, Group}], Delivery) when is_tuple(Group); is_binary(Group) ->
     emqx_shared_sub:dispatch(Group, To, Delivery);
@@ -213,20 +215,21 @@ forward(Node, To, Delivery) ->
         Delivery1 -> Delivery1
     end.
 
--spec(dispatch(topic(), delivery()) -> delivery()).
-dispatch(Topic, Delivery = #delivery{message = Msg, flows = Flows}) ->
+-spec(dispatch(emqx_topic:topic(), emqx_types:delivery()) -> emqx_types:delivery()).
+dispatch(Topic, Delivery = #delivery{message = Msg, results = Results}) ->
     case subscribers(Topic) of
         [] ->
             emqx_hooks:run('message.dropped', [#{node => node()}, Msg]),
-            inc_dropped_cnt(Topic), Delivery;
+            inc_dropped_cnt(Topic),
+            Delivery;
         [Sub] -> %% optimize?
             dispatch(Sub, Topic, Msg),
-            Delivery#delivery{flows = [{dispatch, Topic, 1}|Flows]};
+            Delivery#delivery{results = [{dispatch, Topic, 1}|Results]};
         Subscribers ->
             Count = lists:foldl(fun(Sub, Acc) ->
                                     dispatch(Sub, Topic, Msg), Acc + 1
                                 end, 0, Subscribers),
-            Delivery#delivery{flows = [{dispatch, Topic, Count}|Flows]}
+            Delivery#delivery{results = [{dispatch, Topic, Count}|Results]}
     end.
 
 dispatch({SubPid, _SubId}, Topic, Msg) when is_pid(SubPid) ->
@@ -239,11 +242,12 @@ inc_dropped_cnt(<<"$SYS/", _/binary>>) ->
 inc_dropped_cnt(_Topic) ->
     emqx_metrics:inc('messages/dropped').
 
--spec(subscribers(topic()) -> [subscriber()]).
+-spec(subscribers(emqx_topic:topic()) -> [emqx_types:subscriber()]).
 subscribers(Topic) ->
     try ets:lookup_element(?SUBSCRIBER, Topic, 2) catch error:badarg -> [] end.
 
--spec(subscriptions(subscriber()) -> [{topic(), subopts()}]).
+-spec(subscriptions(emqx_types:subscriber())
+      -> [{emqx_topic:topic(), emqx_types:subopts()}]).
 subscriptions(Subscriber) ->
     lists:map(fun({_, {share, _Group, Topic}}) ->
                   subscription(Topic, Subscriber);
@@ -254,7 +258,7 @@ subscriptions(Subscriber) ->
 subscription(Topic, Subscriber) ->
     {Topic, ets:lookup_element(?SUBOPTION, {Topic, Subscriber}, 2)}.
 
--spec(subscribed(topic(), pid() | subid() | subscriber()) -> boolean()).
+-spec(subscribed(emqx_topic:topic(), pid() | emqx_types:subid() | emqx_types:subscriber()) -> boolean()).
 subscribed(Topic, SubPid) when is_binary(Topic), is_pid(SubPid) ->
     length(ets:match_object(?SUBOPTION, {{Topic, {SubPid, '_'}}, '_'}, 1)) == 1;
 subscribed(Topic, SubId) when is_binary(Topic), ?is_subid(SubId) ->
@@ -262,13 +266,13 @@ subscribed(Topic, SubId) when is_binary(Topic), ?is_subid(SubId) ->
 subscribed(Topic, {SubPid, SubId}) when is_binary(Topic), is_pid(SubPid), ?is_subid(SubId) ->
     ets:member(?SUBOPTION, {Topic, {SubPid, SubId}}).
 
--spec(get_subopts(topic(), subscriber()) -> subopts()).
+-spec(get_subopts(emqx_topic:topic(), emqx_types:subscriber()) -> emqx_types:subopts()).
 get_subopts(Topic, Subscriber) when is_binary(Topic) ->
     try ets:lookup_element(?SUBOPTION, {Topic, Subscriber}, 2)
     catch error:badarg -> []
     end.
 
--spec(set_subopts(topic(), subscriber(), subopts()) -> boolean()).
+-spec(set_subopts(emqx_topic:topic(), emqx_types:subscriber(), emqx_types:subopts()) -> boolean()).
 set_subopts(Topic, Subscriber, Opts) when is_binary(Topic), is_map(Opts) ->
     case ets:lookup(?SUBOPTION, {Topic, Subscriber}) of
         [{_, OldOpts}] ->
@@ -298,7 +302,7 @@ wait_for_reply(Tag, Timeout) ->
 pick(SubPid) when is_pid(SubPid) ->
     gproc_pool:pick_worker(broker, SubPid).
 
--spec(topics() -> [topic()]).
+-spec(topics() -> [emqx_topic:topic()]).
 topics() -> emqx_router:topics().
 
 %%------------------------------------------------------------------------------

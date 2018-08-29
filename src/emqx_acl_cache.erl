@@ -1,3 +1,17 @@
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+
 -module(emqx_acl_cache).
 
 -include("emqx.hrl").
@@ -27,8 +41,7 @@ is_enabled() ->
     application:get_env(emqx, enable_acl_cache, true).
 
 %% We'll cleanup the cache before repalcing an expired acl.
--spec(get_acl_cache(PubSub :: publish | subscribe, Topic :: topic())
-        -> (acl_result() | not_found)).
+-spec(get_acl_cache(publish | subscribe, emqx_topic:topic()) -> (acl_result() | not_found)).
 get_acl_cache(PubSub, Topic) ->
     case erlang:get(cache_k(PubSub, Topic)) of
         undefined -> not_found;
@@ -44,8 +57,7 @@ get_acl_cache(PubSub, Topic) ->
 
 %% If the cache get full, and also the latest one
 %%   is expired, then delete all the cache entries
--spec(put_acl_cache(PubSub :: publish | subscribe,
-                    Topic :: topic(), AclResult :: acl_result()) -> ok).
+-spec(put_acl_cache(publish | subscribe, emqx_topic:topic(), acl_result()) -> ok).
 put_acl_cache(PubSub, Topic, AclResult) ->
     MaxSize = get_cache_max_size(), true = (MaxSize =/= 0),
     Size = get_cache_size(),

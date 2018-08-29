@@ -48,7 +48,7 @@ alarm_fun(Bool) ->
        (clear, _AlarmId) when Bool =:= false -> alarm_fun(false)
     end.
 
--spec(set_alarm(alarm()) -> ok).
+-spec(set_alarm(emqx_types:alarm()) -> ok).
 set_alarm(Alarm) when is_record(Alarm, alarm) ->
     gen_event:notify(?ALARM_MGR, {set_alarm, Alarm}).
 
@@ -56,7 +56,7 @@ set_alarm(Alarm) when is_record(Alarm, alarm) ->
 clear_alarm(AlarmId) when is_binary(AlarmId) ->
     gen_event:notify(?ALARM_MGR, {clear_alarm, AlarmId}).
 
--spec(get_alarms() -> list(alarm())).
+-spec(get_alarms() -> list(emqx_types:alarm())).
 get_alarms() ->
     gen_event:call(?ALARM_MGR, ?MODULE, get_alarms).
 

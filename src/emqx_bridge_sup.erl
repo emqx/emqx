@@ -18,7 +18,8 @@
 
 -export([start_link/3]).
 
--spec(start_link(node(), topic(), [emqx_bridge:option()]) -> {ok, pid()} | {error, term()}).
+-spec(start_link(node(), emqx_topic:topic(), [emqx_bridge:option()])
+      -> {ok, pid()} | {error, term()}).
 start_link(Node, Topic, Options) ->
     MFA = {emqx_bridge, start_link, [Node, Topic, Options]},
     emqx_pool_sup:start_link({bridge, Node, Topic}, random, MFA).
