@@ -22,6 +22,7 @@
 -export([validate/1]).
 -export([format/1]).
 -export([to_message/2, from_message/2]).
+-export([will_msg/1]).
 
 %% @doc Protocol name of version
 -spec(protocol_name(mqtt_version()) -> binary()).
@@ -57,7 +58,7 @@ validate(?UNSUBSCRIBE_PACKET(PacketId, TopicFilters)) ->
 validate(?PUBLISH_PACKET(_QoS, <<>>, _, _)) ->
     error(topic_name_invalid);
 validate(?PUBLISH_PACKET(_QoS, Topic, _, _)) ->
-    emqx_topic:wildcard(Topic) orelse error(topic_name_invalid);
+    (not emqx_topic:wildcard(Topic)) orelse error(topic_name_invalid);
 
 validate(_Packet) ->
     true.
@@ -85,14 +86,15 @@ validate_qos(_) -> error(bad_qos).
 from_message(PacketId, Msg = #message{qos = QoS, topic = Topic, payload = Payload}) ->
     Dup = emqx_message:get_flag(dup, Msg, false),
     Retain = emqx_message:get_flag(retain, Msg, false),
+    Publish = #mqtt_packet_publish{topic_name = Topic,
+                                   packet_id  = PacketId,
+                                   %% TODO: Properties
+                                   properties = #{}},
     #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
+                                              dup    = Dup,
                                               qos    = QoS,
-                                              retain = Retain,
-                                              dup    = Dup},
-                 variable = #mqtt_packet_publish{topic_name = Topic,
-                                                 packet_id  = PacketId,
-                                                 properties = #{}}, %%TODO:
-                 payload = Payload}.
+                                              retain = Retain},
+                 variable = Publish, payload = Payload}.
 
 %% @doc Message from Packet
 -spec(to_message(emqx_types:credentials(), mqtt_packet()) -> message()).
@@ -106,19 +108,21 @@ to_message(#{client_id := ClientId, username := Username},
                         payload  = Payload}) ->
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
     Msg#message{flags = #{dup => Dup, retain => Retain},
-                headers = merge_props(#{username => Username}, Props)};
+                headers = merge_props(#{username => Username}, Props)}.
 
-to_message(_Credentials, #mqtt_packet_connect{will_flag = false}) ->
+-spec(will_msg(#mqtt_packet_connect{}) -> message()).
+will_msg(#mqtt_packet_connect{will_flag = false}) ->
     undefined;
-to_message(#{client_id := ClientId, username := Username},
-           #mqtt_packet_connect{will_retain  = Retain,
-                                will_qos     = QoS,
-                                will_topic   = Topic,
-                                will_props   = Props,
-                                will_payload = Payload}) ->
+will_msg(#mqtt_packet_connect{client_id    = ClientId,
+                              username     = Username,
+                              will_retain  = Retain,
+                              will_qos     = QoS,
+                              will_topic   = Topic,
+                              will_props   = Properties,
+                              will_payload = Payload}) ->
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
     Msg#message{flags = #{dup => false, retain => Retain},
-                headers = merge_props(#{username => Username}, Props)}.
+                headers = merge_props(#{username => Username}, Properties)}.
 
 merge_props(Headers, undefined) ->
     Headers;

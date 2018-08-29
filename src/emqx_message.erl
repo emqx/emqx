@@ -22,6 +22,7 @@
 -export([get_flag/2, get_flag/3, set_flag/2, set_flag/3, unset_flag/2]).
 -export([set_headers/2]).
 -export([get_header/2, get_header/3, set_header/3]).
+-export([format/1]).
 
 -spec(make(topic(), payload()) -> message()).
 make(Topic, Payload) ->
@@ -55,10 +56,14 @@ get_flag(Flag, #message{flags = Flags}, Default) ->
     maps:get(Flag, Flags, Default).
 
 -spec(set_flag(message_flag(), message()) -> message()).
+set_flag(Flag, Msg = #message{flags = undefined}) when is_atom(Flag) ->
+    Msg#message{flags = #{Flag => true}};
 set_flag(Flag, Msg = #message{flags = Flags}) when is_atom(Flag) ->
     Msg#message{flags = maps:put(Flag, true, Flags)}.
 
 -spec(set_flag(message_flag(), boolean() | integer(), message()) -> message()).
+set_flag(Flag, Val, Msg = #message{flags = undefined}) when is_atom(Flag) ->
+    Msg#message{flags = #{Flag => Val}};
 set_flag(Flag, Val, Msg = #message{flags = Flags}) when is_atom(Flag) ->
     Msg#message{flags = maps:put(Flag, Val, Flags)}.
 
@@ -82,4 +87,15 @@ set_header(Hdr, Val, Msg = #message{headers = undefined}) ->
     Msg#message{headers = #{Hdr => Val}};
 set_header(Hdr, Val, Msg = #message{headers = Headers}) ->
     Msg#message{headers = maps:put(Hdr, Val, Headers)}.
+
+format(#message{id = Id, qos = QoS, topic = Topic, from = From, flags = Flags, headers = Headers}) ->
+    io_lib:format("Message(Id=~s, QoS=~w, Topic=~s, From=~s, Flags=~s, Headers=~s)",
+                  [Id, QoS, Topic, From, format(flags, Flags), format(headers, Headers)]).
+
+format(_, undefined) ->
+    "";
+format(flags, Flags) ->
+    io_lib:format("~p", [[Flag || {Flag, true} <- maps:to_list(Flags)]]);
+format(headers, Headers) ->
+    io_lib:format("~p", [Headers]).
 

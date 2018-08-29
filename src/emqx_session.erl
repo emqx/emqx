@@ -73,11 +73,11 @@
           %% Username
           username :: binary() | undefined,
 
-          %% Client pid binding with session
-          client_pid :: pid(),
+          %% Connection pid binding with session
+          conn_pid :: pid(),
 
-          %% Old client Pid that has been kickout
-          old_client_pid :: pid(),
+          %% Old Connection Pid that has been kickout
+          old_conn_pid :: pid(),
 
           %% Next packet id of the session
           next_pkt_id = 1 :: mqtt_packet_id(),
@@ -145,7 +145,7 @@
 
 -define(TIMEOUT, 60000).
 
--define(INFO_KEYS, [clean_start, client_id, username, binding, client_pid, old_client_pid,
+-define(INFO_KEYS, [clean_start, client_id, username, binding, conn_pid, old_conn_pid,
                     next_pkt_id, max_subscriptions, subscriptions, upgrade_qos, inflight,
                     max_inflight, retry_interval, mqueue, awaiting_rel, max_awaiting_rel,
                     await_rel_timeout, expiry_interval, enable_stats, created_at]).
@@ -306,19 +306,18 @@ close(SPid) ->
 
 init(#{zone        := Zone,
        client_id   := ClientId,
-       client_pid  := ClientPid,
-       clean_start := CleanStart,
        username    := Username,
-       %% TODO:
+       conn_pid    := ConnPid,
+       clean_start := CleanStart,
        conn_props  := _ConnProps}) ->
     process_flag(trap_exit, true),
-    true = link(ClientPid),
+    true = link(ConnPid),
     MaxInflight = get_env(Zone, max_inflight),
     State = #state{clean_start       = CleanStart,
-                   binding           = binding(ClientPid),
+                   binding           = binding(ConnPid),
                    client_id         = ClientId,
-                   client_pid        = ClientPid,
                    username          = Username,
+                   conn_pid          = ConnPid,
                    subscriptions     = #{},
                    max_subscriptions = get_env(Zone, max_subscriptions, 0),
                    upgrade_qos       = get_env(Zone, upgrade_qos, false),
@@ -335,7 +334,7 @@ init(#{zone        := Zone,
                    enqueue_stats      = 0,
                    created_at        = os:timestamp()},
     emqx_sm:register_session(ClientId, info(State)),
-    emqx_hooks:run('session.created', [ClientId]),
+    emqx_hooks:run('session.created', [#{client_id => ClientId}, info(State)]),
     {ok, ensure_stats_timer(State), hibernate}.
 
 init_mqueue(Zone, ClientId) ->
@@ -346,12 +345,12 @@ init_mqueue(Zone, ClientId) ->
 binding(ClientPid) ->
     case node(ClientPid) =:= node() of true -> local; false -> remote end.
 
-handle_call({discard, ClientPid}, _From, State = #state{client_pid = undefined}) ->
-    ?LOG(warning, "Discarded by ~p", [ClientPid], State),
+handle_call({discard, ConnPid}, _From, State = #state{conn_pid = undefined}) ->
+    ?LOG(warning, "Discarded by ~p", [ConnPid], State),
     {stop, {shutdown, discard}, ok, State};
 
-handle_call({discard, ClientPid}, _From, State = #state{client_pid = OldClientPid}) ->
-    ?LOG(warning, " ~p kickout ~p", [ClientPid, OldClientPid], State),
+handle_call({discard, ConnPid}, _From, State = #state{conn_pid = OldConnPid}) ->
+    ?LOG(warning, " ~p kickout ~p", [ConnPid, OldConnPid], State),
     {stop, {shutdown, conflict}, ok, State};
 
 %% PUBLISH:
@@ -418,11 +417,11 @@ handle_cast({subscribe, FromPid, {PacketId, _Properties, TopicFilters}},
                                           SubMap;
                                       {ok, _SubOpts} ->
                                           emqx_broker:set_subopts(Topic, {self(), ClientId}, SubOpts),
-                                          emqx_hooks:run('session.subscribed', [ClientId, Topic, SubOpts]),
+                                          emqx_hooks:run('session.subscribed', [#{client_id => ClientId}, Topic, SubOpts]),
                                           maps:put(Topic, SubOpts, SubMap);
                                       error ->
                                           emqx_broker:subscribe(Topic, ClientId, SubOpts),
-                                          emqx_hooks:run('session.subscribed', [ClientId, Topic, SubOpts]),
+                                          emqx_hooks:run('session.subscribed', [#{client_id => ClientId}, Topic, SubOpts]),
                                           maps:put(Topic, SubOpts, SubMap)
                                   end}
                 end, {[], Subscriptions}, TopicFilters),
@@ -437,7 +436,7 @@ handle_cast({unsubscribe, From, {PacketId, _Properties, TopicFilters}},
                         case maps:find(Topic, SubMap) of
                             {ok, SubOpts} ->
                                 ok = emqx_broker:unsubscribe(Topic, ClientId),
-                                emqx_hooks:run('session.unsubscribed', [ClientId, Topic, SubOpts]),
+                                emqx_hooks:run('session.unsubscribed', [#{client_id => ClientId}, Topic, SubOpts]),
                                 {[?RC_SUCCESS|Acc], maps:remove(Topic, SubMap)};
                             error ->
                                 {[?RC_NO_SUBSCRIPTION_EXISTED|Acc], SubMap}
@@ -469,30 +468,28 @@ handle_cast({pubcomp, PacketId, _ReasonCode}, State = #state{inflight = Inflight
     end;
 
 %% RESUME:
-handle_cast({resume, ClientPid},
-            State = #state{client_id       = ClientId,
-                           client_pid      = OldClientPid,
-                           clean_start     = CleanStart,
-                           retry_timer     = RetryTimer,
-                           await_rel_timer = AwaitTimer,
-                           expiry_timer    = ExpireTimer}) ->
+handle_cast({resume, ConnPid}, State = #state{client_id       = ClientId,
+                                              conn_pid        = OldConnPid,
+                                              clean_start     = CleanStart,
+                                              retry_timer     = RetryTimer,
+                                              await_rel_timer = AwaitTimer,
+                                              expiry_timer    = ExpireTimer}) ->
 
-    ?LOG(info, "Resumed by ~p ", [ClientPid], State),
+    ?LOG(info, "Resumed by connection ~p ", [ConnPid], State),
 
     %% Cancel Timers
-    lists:foreach(fun emqx_misc:cancel_timer/1,
-                  [RetryTimer, AwaitTimer, ExpireTimer]),
+    lists:foreach(fun emqx_misc:cancel_timer/1, [RetryTimer, AwaitTimer, ExpireTimer]),
 
-    case kick(ClientId, OldClientPid, ClientPid) of
-        ok -> ?LOG(warning, "~p kickout ~p", [ClientPid, OldClientPid], State);
+    case kick(ClientId, OldConnPid, ConnPid) of
+        ok -> ?LOG(warning, "connection ~p kickout ~p", [ConnPid, OldConnPid], State);
         ignore -> ok
     end,
 
-    true = link(ClientPid),
+    true = link(ConnPid),
 
-    State1 = State#state{client_pid      = ClientPid,
-                         binding         = binding(ClientPid),
-                         old_client_pid  = OldClientPid,
+    State1 = State#state{conn_pid        = ConnPid,
+                         binding         = binding(ConnPid),
+                         old_conn_pid    = OldConnPid,
                          clean_start     = false,
                          retry_timer     = undefined,
                          awaiting_rel    = #{},
@@ -500,14 +497,9 @@ handle_cast({resume, ClientPid},
                          expiry_timer    = undefined},
 
     %% Clean Session: true -> false?
-    if
-        CleanStart =:= true ->
-            ?LOG(error, "CleanSess changed to false.", [], State1);
-            %%TODO::
-            %%emqx_sm:register_session(ClientId, info(State1));
-        CleanStart =:= false ->
-            ok
-    end,
+    CleanStart andalso emqx_sm:set_session_attrs(ClientId, info(State1)),
+
+    emqx_hooks:run('session.resumed', [#{client_id => ClientId}, info(State)]),
 
     %% Replay delivery and Dequeue pending messages
     {noreply, ensure_stats_timer(dequeue(retry_delivery(true, State1)))};
@@ -534,7 +526,7 @@ handle_info({dispatch, Topic, Msg}, State = #state{subscriptions = SubMap}) when
               end};
 
 %% Do nothing if the client has been disconnected.
-handle_info({timeout, _Timer, retry_delivery}, State = #state{client_pid = undefined}) ->
+handle_info({timeout, _Timer, retry_delivery}, State = #state{conn_pid = undefined}) ->
     {noreply, ensure_stats_timer(State#state{retry_timer = undefined})};
 
 handle_info({timeout, _Timer, retry_delivery}, State) ->
@@ -547,27 +539,25 @@ handle_info({timeout, _Timer, expired}, State) ->
     ?LOG(info, "Expired, shutdown now.", [], State),
     shutdown(expired, State);
 
-handle_info({'EXIT', ClientPid, _Reason},
-            State = #state{clean_start= true, client_pid = ClientPid}) ->
+handle_info({'EXIT', ConnPid, _Reason}, State = #state{clean_start= true, conn_pid = ConnPid}) ->
     {stop, normal, State};
 
-handle_info({'EXIT', ClientPid, Reason},
-            State = #state{clean_start     = false,
-                           client_pid      = ClientPid,
-                           expiry_interval = Interval}) ->
-    ?LOG(info, "Client ~p EXIT for ~p", [ClientPid, Reason], State),
+handle_info({'EXIT', ConnPid, Reason}, State = #state{clean_start = false,
+                                                      conn_pid    = ConnPid,
+                                                      expiry_interval = Interval}) ->
+    ?LOG(info, "Connection ~p EXIT for ~p", [ConnPid, Reason], State),
     ExpireTimer = emqx_misc:start_timer(Interval, expired),
-    State1 = State#state{client_pid = undefined, expiry_timer = ExpireTimer},
-    {noreply, State1, hibernate};
+    State1 = State#state{conn_pid = undefined, expiry_timer = ExpireTimer},
+    {noreply, State1};
 
-handle_info({'EXIT', Pid, _Reason}, State = #state{old_client_pid = Pid}) ->
+handle_info({'EXIT', Pid, _Reason}, State = #state{old_conn_pid = Pid}) ->
     %% ignore
     {noreply, State, hibernate};
 
-handle_info({'EXIT', Pid, Reason}, State = #state{client_pid = ClientPid}) ->
-    ?LOG(error, "unexpected EXIT: client_pid=~p, exit_pid=~p, reason=~p",
-         [ClientPid, Pid, Reason], State),
-    {noreply, State, hibernate};
+handle_info({'EXIT', Pid, Reason}, State = #state{conn_pid = ConnPid}) ->
+    ?LOG(error, "unexpected EXIT: conn_pid=~p, exit_pid=~p, reason=~p",
+         [ConnPid, Pid, Reason], State),
+    {noreply, State};
 
 handle_info(emit_stats, State = #state{client_id = ClientId}) ->
     emqx_sm:set_session_stats(ClientId, stats(State)),
@@ -577,8 +567,8 @@ handle_info(Info, State) ->
     emqx_logger:error("[Session] unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(Reason, #state{client_id = ClientId, username = Username}) ->
-    emqx_hooks:run('session.terminated', [ClientId, Username, Reason]),
+terminate(Reason, #state{client_id = ClientId}) ->
+    emqx_hooks:run('session.terminated', [#{client_id => ClientId}, Reason]),
     emqx_sm:unregister_session(ClientId).
 
 code_change(_OldVsn, State, _Extra) ->
@@ -713,8 +703,8 @@ run_dispatch_steps([{subid, SubId}|Steps], Msg, State) ->
     run_dispatch_steps(Steps, emqx_message:set_header('Subscription-Identifier', SubId, Msg), State).
 
 %% Enqueue message if the client has been disconnected
-dispatch(Msg, State = #state{client_id = ClientId, client_pid = undefined}) ->
-    case emqx_hooks:run('message.dropped', [ClientId, Msg]) of
+dispatch(Msg, State = #state{client_id = ClientId, conn_pid = undefined}) ->
+    case emqx_hooks:run('message.dropped', [#{client_id => ClientId}, Msg]) of
         ok   -> enqueue_msg(Msg, State);
         stop -> State
     end;
@@ -747,12 +737,12 @@ redeliver({PacketId, Msg = #message{qos = QoS}}, State) ->
                          true -> emqx_message:set_flag(dup, Msg)
                       end, State);
 
-redeliver({pubrel, PacketId}, #state{client_pid = Pid}) ->
-    Pid ! {deliver, {pubrel, PacketId}}.
+redeliver({pubrel, PacketId}, #state{conn_pid = ConnPid}) ->
+    ConnPid ! {deliver, {pubrel, PacketId}}.
 
-deliver(PacketId, Msg, #state{client_pid = Pid, binding = local}) ->
+deliver(PacketId, Msg, #state{conn_pid = Pid, binding = local}) ->
     Pid ! {deliver, {publish, PacketId, Msg}};
-deliver(PacketId, Msg, #state{client_pid = Pid, binding = remote}) ->
+deliver(PacketId, Msg, #state{conn_pid = Pid, binding = remote}) ->
     emqx_rpc:cast(node(Pid), erlang, send, [Pid, {deliver, PacketId, Msg}]).
 
 %%------------------------------------------------------------------------------
@@ -769,24 +759,20 @@ await(PacketId, Msg, State = #state{inflight       = Inflight,
              end,
     State1#state{inflight = emqx_inflight:insert(PacketId, {publish, {PacketId, Msg}, os:timestamp()}, Inflight)}.
 
-acked(puback, PacketId, State = #state{client_id = ClientId,
-                                       username  = Username,
-                                       inflight  = Inflight}) ->
+acked(puback, PacketId, State = #state{client_id = ClientId, inflight  = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {publish, Msg, _Ts}} ->
-            emqx_hooks:run('message.acked', [ClientId, Username], Msg),
+            emqx_hooks:run('message.acked', [#{client_id =>ClientId}], Msg),
             State#state{inflight = emqx_inflight:delete(PacketId, Inflight)};
         none ->
             ?LOG(warning, "Duplicated PUBACK Packet: ~p", [PacketId], State),
             State
     end;
 
-acked(pubrec, PacketId, State = #state{client_id = ClientId,
-                                       username  = Username,
-                                       inflight  = Inflight}) ->
+acked(pubrec, PacketId, State = #state{client_id = ClientId, inflight  = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {publish, Msg, _Ts}} ->
-            emqx_hooks:run('message.acked', [ClientId, Username], Msg),
+            emqx_hooks:run('message.acked', [ClientId], Msg),
             State#state{inflight = emqx_inflight:update(PacketId, {pubrel, PacketId, os:timestamp()}, Inflight)};
         {value, {pubrel, PacketId, _Ts}} ->
             ?LOG(warning, "Duplicated PUBREC Packet: ~p", [PacketId], State),
@@ -804,7 +790,7 @@ acked(pubcomp, PacketId, State = #state{inflight = Inflight}) ->
 %%------------------------------------------------------------------------------
 
 %% Do nothing if client is disconnected
-dequeue(State = #state{client_pid = undefined}) ->
+dequeue(State = #state{conn_pid = undefined}) ->
     State;
 
 dequeue(State = #state{inflight = Inflight}) ->

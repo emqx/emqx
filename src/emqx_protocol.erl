@@ -112,13 +112,13 @@ set_username(_Username, PState) ->
 %%------------------------------------------------------------------------------
 
 info(#pstate{zone         = Zone,
+             client_id    = ClientId,
+             username     = Username,
              peername     = Peername,
              proto_ver    = ProtoVer,
              proto_name   = ProtoName,
-             conn_props   = ConnProps,
-             client_id    = ClientId,
-             username     = Username,
              clean_start  = CleanStart,
+             conn_props   = ConnProps,
              keepalive    = Keepalive,
              mountpoint   = Mountpoint,
              is_super     = IsSuper,
@@ -126,12 +126,12 @@ info(#pstate{zone         = Zone,
              connected    = Connected,
              connected_at = ConnectedAt}) ->
     [{zone, Zone},
+     {client_id, ClientId},
+     {username, Username},
      {peername, Peername},
      {proto_ver, ProtoVer},
      {proto_name, ProtoName},
      {conn_props, ConnProps},
-     {client_id, ClientId},
-     {username, Username},
      {clean_start, CleanStart},
      {keepalive, Keepalive},
      {mountpoint, Mountpoint},
@@ -242,6 +242,10 @@ process_packet(?CONNECT_PACKET(
                                        username    = Username,
                                        password    = Password} = Connect), PState) ->
 
+    %% TODO: Mountpoint...
+    %% Msg -> emqx_mountpoint:mount(MountPoint, Msg)
+    WillMsg = emqx_packet:will_msg(Connect),
+
     PState1 = set_username(Username,
                            PState#pstate{client_id    = ClientId,
                                          proto_ver    = ProtoVer,
@@ -249,7 +253,7 @@ process_packet(?CONNECT_PACKET(
                                          clean_start  = CleanStart,
                                          keepalive    = Keepalive,
                                          conn_props   = ConnProps,
-                                         will_msg     = willmsg(Connect, PState),
+                                         will_msg     = WillMsg,
                                          is_bridge    = IsBridge,
                                          connected    = true,
                                          connected_at = os:timestamp()}),
@@ -379,10 +383,11 @@ process_packet(?PACKET(?DISCONNECT), PState) ->
 %%------------------------------------------------------------------------------
 
 connack({?RC_SUCCESS, SP, PState}) ->
-    emqx_hooks:run('client.connected', [credentials(PState), ?RC_SUCCESS]),
+    emqx_hooks:run('client.connected', [credentials(PState), ?RC_SUCCESS, info(PState)]),
     deliver({connack, ?RC_SUCCESS, sp(SP)}, update_mountpoint(PState));
 
 connack({ReasonCode, PState = #pstate{proto_ver = ProtoVer}}) ->
+    emqx_hooks:run('client.connected', [credentials(PState), ?RC_SUCCESS, info(PState)]),
     _ = deliver({connack, if ProtoVer =:= ?MQTT_PROTO_V5 ->
                                  ReasonCode;
                              true ->
@@ -636,13 +641,6 @@ shutdown(Error, PState = #pstate{client_id = ClientId, will_msg = WillMsg}) ->
     end,
     emqx_hooks:run('client.disconnected', [credentials(PState), Error]),
     emqx_cm:unregister_connection(ClientId).
-
-willmsg(Packet, #pstate{client_id = ClientId, mountpoint = MountPoint})
-    when is_record(Packet, mqtt_packet_connect) ->
-    case emqx_packet:to_message(ClientId, Packet) of
-        undefined -> undefined;
-        Msg -> emqx_mountpoint:mount(MountPoint, Msg)
-    end.
 
 send_willmsg(undefined) ->
     ignore;

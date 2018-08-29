@@ -174,7 +174,7 @@ delivery(Msg) ->
 %%------------------------------------------------------------------------------
 
 route([], Delivery = #delivery{message = Msg}) ->
-    emqx_hooks:run('message.dropped', [node(), Msg]),
+    emqx_hooks:run('message.dropped', [#{node => node()}, Msg]),
     inc_dropped_cnt(Msg#message.topic), Delivery;
 
 route([{To, Node}], Delivery) when Node =:= node() ->
@@ -215,7 +215,7 @@ forward(Node, To, Delivery) ->
 dispatch(Topic, Delivery = #delivery{message = Msg, flows = Flows}) ->
     case subscribers(Topic) of
         [] ->
-            emqx_hooks:run('message.dropped', [node(), Msg]),
+            emqx_hooks:run('message.dropped', [#{node => node()}, Msg]),
             inc_dropped_cnt(Topic), Delivery;
         [Sub] -> %% optimize?
             dispatch(Sub, Topic, Msg),
