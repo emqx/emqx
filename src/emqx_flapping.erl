@@ -47,7 +47,7 @@ banned(ClientId) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    _ = ets:new(banned, [public, ordered_set, named_table]),
+    %% ets:new(banned, [public, ordered_set, named_table]),
     {ok, #state{}}.
 
 handle_call(_Request, _From, State) ->

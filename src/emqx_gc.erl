@@ -19,8 +19,6 @@
 %% Memory: (10, 100, 1000)
 %%
 
-%%-record
-
 -export([conn_max_gc_count/0, reset_conn_gc_count/2, maybe_force_gc/2,
          maybe_force_gc/3]).
 
