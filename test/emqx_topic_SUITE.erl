@@ -132,20 +132,22 @@ t_validate(_) ->
     true  = validate({filter, <<"x">>}),
     true  = validate({name, <<"x//y">>}),
 	true  = validate({filter, <<"sport/tennis/#">>}),
-    false = validate({name, <<>>}),
-    false = validate({name, long_topic()}),
-    false = validate({name, <<"abc/#">>}),
-    false = validate({filter, <<"abc/#/1">>}),
-    false = validate({filter, <<"abc/#xzy/+">>}),
-    false = validate({filter, <<"abc/xzy/+9827">>}),
-	false = validate({filter, <<"sport/tennis#">>}),
-    false = validate({filter, <<"sport/tennis/#/ranking">>}).
+    catch validate({name, <<>>}),
+    catch validate({name, long_topic()}),
+    catch validate({name, <<"abc/#">>}),
+    catch validate({filter, <<"abc/#/1">>}),
+    catch validate({filter, <<"abc/#xzy/+">>}),
+    catch validate({filter, <<"abc/xzy/+9827">>}),
+	catch validate({filter, <<"sport/tennis#">>}),
+    catch validate({filter, <<"sport/tennis/#/ranking">>}),
+    ok.
 
 t_sigle_level_validate(_) ->
     true  = validate({filter, <<"+">>}),
     true  = validate({filter, <<"+/tennis/#">>}),
     true  = validate({filter, <<"sport/+/player1">>}),
-    false = validate({filter, <<"sport+">>}).
+    catch validate({filter, <<"sport+">>}),
+    ok.
 
 t_triples(_) ->
     Triples = [{root,<<"a">>,<<"a">>},
@@ -199,11 +201,11 @@ long_topic() ->
     iolist_to_binary([[integer_to_list(I), "/"] || I <- lists:seq(0, 10000)]).
 
 t_parse(_) ->
-    ?assertEqual({<<"a/b/+/#">>, []}, parse(<<"a/b/+/#">>)),
-    ?assertEqual({<<"topic">>, [{share, '$queue'}]}, parse(<<"$queue/topic">>)),
-    ?assertEqual({<<"topic">>, [{share, <<"group">>}]}, parse(<<"$share/group/topic">>)),
-    ?assertEqual({<<"topic">>, [local]}, parse(<<"$local/topic">>)),
-    ?assertEqual({<<"topic">>, [{share, '$queue'}, local]}, parse(<<"$local/$queue/topic">>)),
-    ?assertEqual({<<"/a/b/c">>, [{share, <<"group">>}, local]}, parse(<<"$local/$share/group//a/b/c">>)),
-    ?assertEqual({<<"topic">>, [fastlane]}, parse(<<"$fastlane/topic">>)).
+    ?assertEqual({<<"a/b/+/#">>, #{}}, parse(<<"a/b/+/#">>)),
+    ?assertEqual({<<"topic">>, #{ share => <<"$queue">> }}, parse(<<"$queue/topic">>)),
+    ?assertEqual({<<"topic">>, #{ share => <<"group">>}}, parse(<<"$share/group/topic">>)),
+    ?assertEqual({<<"$local/topic">>, #{}}, parse(<<"$local/topic">>)),
+    ?assertEqual({<<"$local/$queue/topic">>, #{}}, parse(<<"$local/$queue/topic">>)),
+    ?assertEqual({<<"$local/$share/group/a/b/c">>, #{}}, parse(<<"$local/$share/group/a/b/c">>)),
+    ?assertEqual({<<"$fastlane/topic">>, #{}}, parse(<<"$fastlane/topic">>)).
 

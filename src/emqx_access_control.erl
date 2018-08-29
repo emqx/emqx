@@ -176,7 +176,7 @@ handle_call({unregister_mod, Type, Mod}, _From, State) ->
     reply(case lists:keyfind(Mod, 1, Mods) of
               false ->
                   {error, not_found};
-              true ->
+              {Mod, _ModState, _Seq} ->
                   ets:insert(?TAB, {tab_key(Type), lists:keydelete(Mod, 1, Mods)}), ok
           end, State);
 

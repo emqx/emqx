@@ -12,20 +12,21 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_acl_test_mod).
+-module(emqx_zone_SUITE).
 
-%% ACL callbacks
--export([init/1, check_acl/2, reload_acl/1, description/0]).
+-compile(export_all).
+-compile(nowarn_export_all).
 
-init(AclOpts) ->
-    {ok, AclOpts}.
+-include("emqx_mqtt.hrl").
 
-check_acl({_User, _PubSub, _Topic}, _State) ->
-    allow.
+all() -> [t_set_get_env].
 
-reload_acl(_State) ->
-    ok.
-
-description() ->
-    "Test ACL Mod".
+t_set_get_env(_) ->
+    {ok, _} = emqx_zone:start_link(),
+    ok = emqx_zone:set_env(china, language, chinese),
+    timer:sleep(100),   % make sure set_env/3 is okay
+    chinese = emqx_zone:get_env(china, language),
+    cn470 = emqx_zone:get_env(china, ism_band, cn470),
+    undefined = emqx_zone:get_env(undefined, delay),
+    500 = emqx_zone:get_env(undefined, delay, 500).
 

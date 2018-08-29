@@ -87,14 +87,11 @@ init(Req, Opts) ->
     case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req) of
         undefined ->
             {cowboy_websocket, Req, #state{}};
-        Subprotocols ->
-            case lists:member(<<"mqtt">>, Subprotocols) of
-                true ->
-                    Resp = cowboy_req:set_resp_header(<<"sec-websocket-protocol">>, <<"mqtt">>, Req),
-                    {cowboy_websocket, Resp, #state{request = Req, options = Opts}, #{idle_timeout => 86400000}};
-                false ->
-                    {ok, cowboy_req:reply(400, Req), #state{}}
-            end
+        [<<"mqtt", Vsn/binary>>] ->
+            Resp = cowboy_req:set_resp_header(<<"sec-websocket-protocol">>, <<"mqtt", Vsn/binary>>, Req),
+            {cowboy_websocket, Resp, #state{request = Req, options = Opts}, #{idle_timeout => 86400000}};
+        _ ->
+            {ok, cowboy_req:reply(400, Req), #state{}}
     end.
 
 websocket_init(#state{request = Req, options = Options}) ->
@@ -130,9 +127,9 @@ stat_fun() ->
     fun() -> {ok, get(recv_oct)} end.
 
 websocket_handle({binary, <<>>}, State) ->
-    {ok, State};
+    {ok, ensure_stats_timer(State)};
 websocket_handle({binary, [<<>>]}, State) ->
-    {ok, State};
+    {ok, ensure_stats_timer(State)};
 websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
                                                 proto_state  = ProtoState}) ->
     BinSize = iolist_size(Data),
@@ -199,7 +196,7 @@ websocket_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
 websocket_info(emit_stats, State = #state{proto_state = ProtoState}) ->
     Stats = lists:append([wsock_stats(), emqx_misc:proc_stats(),
                           emqx_protocol:stats(ProtoState)]),
-    emqx_cm:set_conn_stats(emqx_protocol:clientid(ProtoState), Stats),
+    emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), Stats),
     {ok, State#state{stats_timer = undefined}, hibernate};
 
 websocket_info({keepalive, start, Interval}, State) ->
@@ -239,7 +236,7 @@ websocket_info(Info, State) ->
     {ok, State}.
 
 terminate(SockError, _Req, #state{keepalive       = Keepalive,
-                                  proto_state     = ProtoState,
+                                  proto_state     = _ProtoState,
                                   shutdown_reason = Reason}) ->
     emqx_keepalive:cancel(Keepalive),
     io:format("Websocket shutdown for ~p, sockerror: ~p~n", [Reason, SockError]),

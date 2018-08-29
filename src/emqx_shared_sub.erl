@@ -81,7 +81,7 @@ record(Group, Topic, SubPid) ->
     #emqx_shared_subscription{group = Group, topic = Topic, subpid = SubPid}.
 
 %% TODO: dispatch strategy, ensure the delivery...
-dispatch({Group, _Node}, Topic, Delivery = #delivery{message = Msg, flows = Flows}) ->
+dispatch(Group, Topic, Delivery = #delivery{message = Msg, flows = Flows}) ->
     case pick(subscribers(Group, Topic)) of
         false  -> Delivery;
         SubPid -> SubPid ! {dispatch, Topic, Msg},
@@ -93,8 +93,7 @@ pick([]) ->
 pick([SubPid]) ->
     SubPid;
 pick(SubPids) ->
-    X = abs(erlang:monotonic_time() bxor erlang:unique_integer()),
-    lists:nth((X rem length(SubPids)) + 1, SubPids).
+    lists:nth(rand:uniform(length(SubPids)), SubPids).
 
 subscribers(Group, Topic) ->
     ets:select(?TAB, [{{emqx_shared_subscription, Group, Topic, '$1'}, [], ['$1']}]).

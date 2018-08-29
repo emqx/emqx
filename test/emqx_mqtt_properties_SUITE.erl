@@ -12,20 +12,16 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_acl_test_mod).
+-module(emqx_mqtt_properties_SUITE).
 
-%% ACL callbacks
--export([init/1, check_acl/2, reload_acl/1, description/0]).
+-compile(export_all).
+-compile(nowarn_export_all).
 
-init(AclOpts) ->
-    {ok, AclOpts}.
+-include("emqx_mqtt.hrl").
 
-check_acl({_User, _PubSub, _Topic}, _State) ->
-    allow.
+all() -> [t_mqtt_properties_all].
 
-reload_acl(_State) ->
-    ok.
-
-description() ->
-    "Test ACL Mod".
-
+t_mqtt_properties_all(_) ->
+    Props = emqx_mqtt_properties:filter(?CONNECT, #{'Session-Expiry-Interval' => 1, 'Maximum-Packet-Size' => 255}),
+    ok = emqx_mqtt_properties:validate(Props),
+    #{} = emqx_mqtt_properties:filter(?CONNECT, #{'Maximum-QoS' => ?QOS_2}).

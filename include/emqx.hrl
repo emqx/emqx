@@ -54,7 +54,7 @@
 -type(subid() :: binary() | atom()).
 
 -type(subopts() :: #{qos    => integer(),
-                     share  => '$queue' | binary(),
+                     share  => binary(),
                      atom() => term()}).
 
 -record(subscription, {

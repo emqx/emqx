@@ -1,18 +1,16 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_frame_SUITE).
 
@@ -331,15 +329,17 @@ serialize_parse_pubcomp_v5(_) ->
 serialize_parse_subscribe(_) ->
     %% SUBSCRIBE(Q1, R0, D0, PacketId=2, TopicTable=[{<<"TopicA">>,2}])
     Bin = <<130,11,0,2,0,6,84,111,112,105,99,65,2>>,
-    TopicFilters = [{<<"TopicA">>, #mqtt_subopts{qos = 2}}],
+    TopicOpts = #{ nl => 0 , rap => 0, rc => 0,
+                      rh => 0, subid => 0 , qos => 2 },
+    TopicFilters = [{<<"TopicA">>, TopicOpts}],
     Packet = ?SUBSCRIBE_PACKET(2, TopicFilters),
     ?assertEqual(Bin, iolist_to_binary(serialize(Packet))),
     ?assertEqual({ok, Packet, <<>>}, parse(Bin)).
 
 serialize_parse_subscribe_v5(_) ->
-    TopicFilters = [{<<"TopicQos0">>, #mqtt_subopts{rh = 1, qos = ?QOS_0}},
-                    {<<"TopicQos1">>, #mqtt_subopts{rh = 1, qos =?QOS_1}}],
-    Packet = ?SUBSCRIBE_PACKET(1, #{'Subscription-Identifier' => 16#FFFFFFF},
+    TopicFilters = [{<<"TopicQos0">>, #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0, subid => 0}},
+                    {<<"TopicQos1">>, #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0, subid => 0}}],
+    Packet = ?SUBSCRIBE_PACKET(3, #{'Subscription-Identifier' => 16#FFFFFFF},
                                TopicFilters),
     ?assertEqual({ok, Packet, <<>>},
                  parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).

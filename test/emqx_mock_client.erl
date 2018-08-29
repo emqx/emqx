@@ -1,5 +1,4 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2017 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -12,34 +11,54 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
-%%--------------------------------------------------------------------
 
 -module(emqx_mock_client).
 
 -behaviour(gen_server).
 
--export([start_link/1, start_session/1, stop/1]).
+-export([start_link/1, open_session/3, close_session/2, stop/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--record(state, {clientid, session}).
+-record(state, {clean_start, client_id, client_pid}).
 
 start_link(ClientId) ->
     gen_server:start_link(?MODULE, [ClientId], []).
 
-start_session(CPid) ->
-    gen_server:call(CPid, start_session).
+open_session(ClientPid, ClientId, Zone) ->
+    gen_server:call(ClientPid, {start_session, ClientPid, ClientId, Zone}).
+
+close_session(ClientPid, SessPid) ->
+    gen_server:call(ClientPid, {stop_session, SessPid}).
 
 stop(CPid) ->
     gen_server:call(CPid, stop).
 
 init([ClientId]) ->
-    {ok, #state{clientid = ClientId}}.
+    {ok, 
+     #state{clean_start = true,
+            client_id = ClientId}
+    }.
 
-handle_call(start_session, _From, State = #state{clientid = ClientId}) ->
-    {ok, SessPid, _} = emqx_sm:start_session(true, {ClientId, undefined}),
-    {reply, {ok, SessPid}, State#state{session = SessPid}};
+handle_call({start_session, ClientPid, ClientId, Zone}, _From, State) ->
+    Attrs = #{ zone        => Zone,
+               client_id   => ClientId,
+               client_pid  => ClientPid,
+               clean_start => true,
+               username    => undefined,
+               conn_props  => undefined
+             },
+    {ok, SessPid} = emqx_sm:open_session(Attrs),
+    {reply, {ok, SessPid}, State#state{
+                             clean_start = true,
+                             client_id = ClientId, 
+                             client_pid = ClientPid
+                            }};
+
+handle_call({stop_session, SessPid}, _From, State) ->
+    emqx_sm:close_session(SessPid),
+    {stop, normal, ok, State};
 
 handle_call(stop, _From, State) ->
     {stop, normal, ok, State};
