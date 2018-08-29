@@ -70,7 +70,7 @@ match_routes(_) ->
     ?R:add_route(From, <<"a/+/c">>, node()),
     ?R:add_route(From, <<"a/b/#">>, node()),
     ?R:add_route(From, <<"#">>, node()),
-    timer:sleep(6),
+    timer:sleep(1000),
     ?assertEqual([#route{topic = <<"#">>, dest = node()},
                   #route{topic = <<"a/+/c">>, dest = node()},
                   #route{topic = <<"a/b/#">>, dest = node()},

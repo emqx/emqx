@@ -32,11 +32,13 @@ TEST_ERLC_OPTS += +'{parse_transform, lager_transform}'
 
 EUNIT_OPTS = verbose
 
-CT_SUITES = emqx_stats
+# CT_SUITES = emqx_stats
 ## emqx_trie emqx_router emqx_frame emqx_mqtt_compat
 
-#CT_SUITES = emqx emqx_broker emqx_mod emqx_lib emqx_topic emqx_mqueue emqx_inflight \
-#			emqx_vm emqx_net emqx_protocol emqx_access emqx_router
+CT_SUITES = emqx emqx_access emqx_base62 emqx_broker emqx_client emqx_cm emqx_frame emqx_guid emqx_inflight \
+			emqx_json emqx_keepalive emqx_lib emqx_metrics emqx_misc emqx_mod emqx_mqtt_caps \
+			emqx_mqtt_compat emqx_mqtt_properties emqx_mqueue emqx_net emqx_pqueue emqx_router emqx_sm \
+			emqx_stats emqx_tables emqx_time emqx_topic emqx_trie emqx_vm emqx_zone
 
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name emqxct@127.0.0.1
 
