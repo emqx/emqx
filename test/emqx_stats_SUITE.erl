@@ -22,7 +22,7 @@
 all() -> [t_set_get_state, t_update_interval].
 
 t_set_get_state(_) ->
-    {ok, _} = emqx_stats:start_link(),
+    emqx_stats:start_link(),
     SetConnsCount = emqx_stats:statsfun('connections/count'),
     SetConnsCount(1),
     1 = emqx_stats:getstat('connections/count'),
@@ -46,8 +46,9 @@ t_set_get_state(_) ->
     4 = proplists:get_value('connections/max', Conns).
 
 t_update_interval(_) ->
-    {ok, _} = emqx_stats:start_link(),
-    ok = emqx_stats:update_interval(cm_stats, fun update_stats/0),
+    emqx_stats:start_link(),
+    emqx_stats:cancel_update(cm_stats),
+    ok = emqx_stats:update_interval(stats_test, fun update_stats/0),
     timer:sleep(2500),
     1 = emqx_stats:getstat('connections/count').
 
