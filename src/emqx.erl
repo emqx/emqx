@@ -84,10 +84,8 @@ subscribe(Topic, Subscriber, Options) when is_tuple(Subscriber)->
     {SubPid, SubId} = Subscriber,
     emqx_broker:subscribe(iolist_to_binary(Topic), SubPid, SubId, Options).
 
-%% @doc Publish Message
--spec(publish(message()) -> {ok, delivery()} | {error, term()}).
-publish(Msg) ->
-    emqx_broker:publish(Msg).
+-spec(publish(message()) -> {ok, emqx_types:dispatches()}).
+publish(Msg) -> emqx_broker:publish(Msg).
 
 -spec(unsubscribe(topic() | string()) -> ok | {error, term()}).
 unsubscribe(Topic) ->

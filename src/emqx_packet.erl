@@ -22,6 +22,7 @@
 -export([validate/1]).
 -export([format/1]).
 -export([to_message/2, from_message/2]).
+-export([will_msg/1]).
 
 %% @doc Protocol name of version
 -spec(protocol_name(mqtt_version()) -> binary()).
@@ -37,30 +38,40 @@ protocol_name(?MQTT_PROTO_V5) ->
 type_name(Type) when Type > ?RESERVED andalso Type =< ?AUTH ->
     lists:nth(Type, ?TYPE_NAMES).
 
+%%------------------------------------------------------------------------------
+%% Validate MQTT Packet
+%%------------------------------------------------------------------------------
+
 validate(?SUBSCRIBE_PACKET(_PacketId, _Properties, [])) ->
-    error(packet_empty_topic_filters);
+    error(topic_filters_invalid);
 validate(?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters)) ->
     validate_packet_id(PacketId)
         andalso validate_properties(?SUBSCRIBE, Properties)
             andalso ok == lists:foreach(fun validate_subscription/1, TopicFilters);
 
 validate(?UNSUBSCRIBE_PACKET(_PacketId, [])) ->
-    error(packet_empty_topic_filters);
+    error(topic_filters_invalid);
 validate(?UNSUBSCRIBE_PACKET(PacketId, TopicFilters)) ->
     validate_packet_id(PacketId)
         andalso ok == lists:foreach(fun emqx_topic:validate/1, TopicFilters);
+
+validate(?PUBLISH_PACKET(_QoS, <<>>, _, _)) ->
+    error(topic_name_invalid);
+validate(?PUBLISH_PACKET(_QoS, Topic, _, _)) ->
+    (not emqx_topic:wildcard(Topic)) orelse error(topic_name_invalid);
 
 validate(_Packet) ->
     true.
 
 validate_packet_id(0) ->
-    error(bad_packet_id);
+    error(packet_id_invalid);
 validate_packet_id(_) ->
     true.
 
-validate_properties(?SUBSCRIBE, #{'Subscription-Identifier' := 0}) ->
-    error(bad_subscription_identifier);
-validate_properties(?SUBSCRIBE, _) ->
+validate_properties(?SUBSCRIBE, #{'Subscription-Identifier' := I})
+    when I =< 0; I >= 16#FFFFFFF ->
+    error(subscription_identifier_invalid);
+validate_properties(_, _) ->
     true.
 
 validate_subscription({Topic, #{qos := QoS}}) ->
@@ -75,40 +86,48 @@ validate_qos(_) -> error(bad_qos).
 from_message(PacketId, Msg = #message{qos = QoS, topic = Topic, payload = Payload}) ->
     Dup = emqx_message:get_flag(dup, Msg, false),
     Retain = emqx_message:get_flag(retain, Msg, false),
+    Publish = #mqtt_packet_publish{topic_name = Topic,
+                                   packet_id  = PacketId,
+                                   %% TODO: Properties
+                                   properties = #{}},
     #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
+                                              dup    = Dup,
                                               qos    = QoS,
-                                              retain = Retain,
-                                              dup    = Dup},
-                 variable = #mqtt_packet_publish{topic_name = Topic,
-                                                 packet_id  = PacketId,
-                                                 properties = #{}}, %%TODO:
-                 payload = Payload}.
+                                              retain = Retain},
+                 variable = Publish, payload = Payload}.
 
 %% @doc Message from Packet
--spec(to_message(client_id(), mqtt_packet()) -> message()).
-to_message(ClientId, #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
-                                                                 retain = Retain,
-                                                                 qos    = QoS,
-                                                                 dup    = Dup},
-                                  variable = #mqtt_packet_publish{topic_name = Topic,
-                                                                  properties = Props},
-                                  payload  = Payload}) ->
+-spec(to_message(emqx_types:credentials(), mqtt_packet()) -> message()).
+to_message(#{client_id := ClientId, username := Username},
+           #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
+                                                       retain = Retain,
+                                                       qos    = QoS,
+                                                       dup    = Dup},
+                        variable = #mqtt_packet_publish{topic_name = Topic,
+                                                        properties = Props},
+                        payload  = Payload}) ->
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
     Msg#message{flags = #{dup => Dup, retain => Retain},
-                headers = if
-                              Props =:= undefined -> #{};
-                              true -> Props
-                          end};
+                headers = merge_props(#{username => Username}, Props)}.
 
-to_message(_ClientId, #mqtt_packet_connect{will_flag = false}) ->
+-spec(will_msg(#mqtt_packet_connect{}) -> message()).
+will_msg(#mqtt_packet_connect{will_flag = false}) ->
     undefined;
-to_message(ClientId, #mqtt_packet_connect{will_retain  = Retain,
-                                          will_qos     = QoS,
-                                          will_topic   = Topic,
-                                          will_props   = Props,
-                                          will_payload = Payload}) ->
+will_msg(#mqtt_packet_connect{client_id    = ClientId,
+                              username     = Username,
+                              will_retain  = Retain,
+                              will_qos     = QoS,
+                              will_topic   = Topic,
+                              will_props   = Properties,
+                              will_payload = Payload}) ->
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
-    Msg#message{flags = #{qos => QoS, retain => Retain}, headers = Props}.
+    Msg#message{flags = #{dup => false, retain => Retain},
+                headers = merge_props(#{username => Username}, Properties)}.
+
+merge_props(Headers, undefined) ->
+    Headers;
+merge_props(Headers, Props) ->
+    maps:merge(Headers, Props).
 
 %% @doc Format packet
 -spec(format(mqtt_packet()) -> iolist()).

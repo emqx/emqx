@@ -35,8 +35,6 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
--record(state, {session_pmon}).
-
 -define(SM, ?MODULE).
 
 %% ETS Tables
@@ -45,26 +43,22 @@
 -define(SESSION_ATTRS_TAB, emqx_session_attrs).
 -define(SESSION_STATS_TAB, emqx_session_stats).
 
--spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
+-spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?SM}, ?MODULE, [], []).
 
 %% @doc Open a session.
 -spec(open_session(map()) -> {ok, pid()} | {ok, pid(), boolean()} | {error, term()}).
-open_session(Attrs = #{clean_start := true,
-                       client_id   := ClientId,
-                       client_pid  := ClientPid}) ->
+open_session(Attrs = #{clean_start := true, client_id := ClientId, conn_pid := ConnPid}) ->
     CleanStart = fun(_) ->
-                     ok = discard_session(ClientId, ClientPid),
+                     ok = discard_session(ClientId, ConnPid),
                      emqx_session_sup:start_session(Attrs)
                  end,
     emqx_sm_locker:trans(ClientId, CleanStart);
 
-open_session(Attrs = #{clean_start := false,
-                       client_id   := ClientId,
-                       client_pid  := ClientPid}) ->
+open_session(Attrs = #{clean_start := false, client_id := ClientId, conn_pid := ConnPid}) ->
     ResumeStart = fun(_) ->
-                      case resume_session(ClientId, ClientPid) of
+                      case resume_session(ClientId, ConnPid) of
                           {ok, SPid} ->
                               {ok, SPid, true};
                           {error, not_found} ->
@@ -80,34 +74,33 @@ open_session(Attrs = #{clean_start := false,
 discard_session(ClientId) when is_binary(ClientId) ->
     discard_session(ClientId, self()).
 
-discard_session(ClientId, ClientPid) when is_binary(ClientId) ->
-    lists:foreach(
-      fun({_ClientId, SPid}) ->
-          case catch emqx_session:discard(SPid, ClientPid) of
-              {Err, Reason} when Err =:= 'EXIT'; Err =:= error ->
-                  emqx_logger:error("[SM] Failed to discard ~p: ~p", [SPid, Reason]);
-              ok -> ok
-          end
-      end, lookup_session(ClientId)).
+discard_session(ClientId, ConnPid) when is_binary(ClientId) ->
+    lists:foreach(fun({_ClientId, SPid}) ->
+                      case catch emqx_session:discard(SPid, ConnPid) of
+                          {Err, Reason} when Err =:= 'EXIT'; Err =:= error ->
+                              emqx_logger:error("[SM] Failed to discard ~p: ~p", [SPid, Reason]);
+                          ok -> ok
+                      end
+                  end, lookup_session(ClientId)).
 
 %% @doc Try to resume a session.
 -spec(resume_session(client_id()) -> {ok, pid()} | {error, term()}).
 resume_session(ClientId) ->
     resume_session(ClientId, self()).
 
-resume_session(ClientId, ClientPid) ->
+resume_session(ClientId, ConnPid) ->
     case lookup_session(ClientId) of
         [] -> {error, not_found};
         [{_ClientId, SPid}] ->
-            ok = emqx_session:resume(SPid, ClientPid),
+            ok = emqx_session:resume(SPid, ConnPid),
             {ok, SPid};
         Sessions ->
             [{_, SPid}|StaleSessions] = lists:reverse(Sessions),
             emqx_logger:error("[SM] More than one session found: ~p", [Sessions]),
             lists:foreach(fun({_, StalePid}) ->
-                              catch emqx_session:discard(StalePid, ClientPid)
+                              catch emqx_session:discard(StalePid, ConnPid)
                           end, StaleSessions),
-            ok = emqx_session:resume(SPid, ClientPid),
+            ok = emqx_session:resume(SPid, ConnPid),
             {ok, SPid}
     end.
 
@@ -224,11 +217,11 @@ handle_call(Req, _From, State) ->
     emqx_logger:error("[SM] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
-handle_cast({notify, {registered, ClientId, SPid}}, State = #state{session_pmon = PMon}) ->
-    {noreply, State#state{session_pmon = emqx_pmon:monitor(SPid, ClientId, PMon)}};
+handle_cast({notify, {registered, ClientId, SPid}}, State = #{session_pmon := PMon}) ->
+    {noreply, State#{session_pmon := emqx_pmon:monitor(SPid, ClientId, PMon)}};
 
-handle_cast({notify, {unregistered, _ClientId, SPid}}, State = #state{session_pmon = PMon}) ->
-    {noreply, State#state{session_pmon = emqx_pmon:demonitor(SPid, PMon)}};
+handle_cast({notify, {unregistered, _ClientId, SPid}}, State = #{session_pmon := PMon}) ->
+    {noreply, State#{session_pmon := emqx_pmon:demonitor(SPid, PMon)}};
 
 handle_cast(Msg, State) ->
     emqx_logger:error("[SM] unexpected cast: ~p", [Msg]),
@@ -236,7 +229,8 @@ handle_cast(Msg, State) ->
 
 handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State = #{session_pmon := PMon}) ->
     case emqx_pmon:find(DownPid, PMon) of
-        undefined -> {noreply, State};
+        undefined ->
+            {noreply, State};
         ClientId  ->
             unregister_session({ClientId, DownPid}),
             {noreply, State#{session_pmon := emqx_pmon:erase(DownPid, PMon)}}

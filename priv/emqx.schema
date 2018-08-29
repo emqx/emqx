@@ -768,7 +768,6 @@ end}.
 
 %% @doc Ignore loop delivery of messages
 {mapping, "zone.$name.ignore_loop_deliver", "emqx.zones", [
-  {default, false},
   {datatype, {enum, [true, false]}}
 ]}.
 

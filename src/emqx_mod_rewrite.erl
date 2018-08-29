@@ -15,47 +15,31 @@
 -module(emqx_mod_rewrite).
 
 -include_lib("emqx.hrl").
-
 -include_lib("emqx_mqtt.hrl").
 
 -export([load/1, unload/1]).
 
--export([rewrite_subscribe/4, rewrite_unsubscribe/4, rewrite_publish/2]).
-
-%%--------------------------------------------------------------------
-%% API
-%%--------------------------------------------------------------------
+-export([rewrite_subscribe/3, rewrite_unsubscribe/3, rewrite_publish/2]).
 
 load(Rules0) ->
     Rules = compile(Rules0),
-    emqx:hook('client.subscribe',  fun ?MODULE:rewrite_subscribe/4, [Rules]),
-    emqx:hook('client.unsubscribe',fun ?MODULE:rewrite_unsubscribe/4, [Rules]),
-    emqx:hook('message.publish',   fun ?MODULE:rewrite_publish/2, [Rules]).
+    emqx_hooks:add('client.subscribe',  fun ?MODULE:rewrite_subscribe/4, [Rules]),
+    emqx_hooks:add('client.unsubscribe',fun ?MODULE:rewrite_unsubscribe/4, [Rules]),
+    emqx_hooks:add('message.publish',   fun ?MODULE:rewrite_publish/2, [Rules]).
 
-rewrite_subscribe(_ClientId, _Username, TopicTable, Rules) ->
-    emqx_logger:info("Rewrite subscribe: ~p", [TopicTable]),
+rewrite_subscribe(_Credentials, TopicTable, Rules) ->
     {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicTable]}.
 
-rewrite_unsubscribe(_ClientId, _Username, TopicTable, Rules) ->
-    emqx_logger:info("Rewrite unsubscribe: ~p", [TopicTable]),
+rewrite_unsubscribe(_Credentials, TopicTable, Rules) ->
     {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicTable]}.
 
 rewrite_publish(Message = #message{topic = Topic}, Rules) ->
-    %%TODO: this will not work if the client is always online.
-    RewriteTopic =
-    case get({rewrite, Topic}) of
-        undefined ->
-            DestTopic = match_rule(Topic, Rules),
-            put({rewrite, Topic}, DestTopic), DestTopic;
-        DestTopic ->
-            DestTopic
-        end,
-    {ok, Message#message{topic = RewriteTopic}}.
+    {ok, Message#message{topic = match_rule(Topic, Rules)}}.
 
 unload(_) ->
-    emqx:unhook('client.subscribe',  fun ?MODULE:rewrite_subscribe/4),
-    emqx:unhook('client.unsubscribe',fun ?MODULE:rewrite_unsubscribe/4),
-    emqx:unhook('message.publish',   fun ?MODULE:rewrite_publish/2).
+    emqx_hooks:delete('client.subscribe',  fun ?MODULE:rewrite_subscribe/3),
+    emqx_hooks:delete('client.unsubscribe',fun ?MODULE:rewrite_unsubscribe/3),
+    emqx_hooks:delete('message.publish',   fun ?MODULE:rewrite_publish/2).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -79,8 +63,7 @@ match_regx(Topic, MP, Dest) ->
                     fun({Var, Val}, Acc) ->
                         re:replace(Acc, Var, Val, [global])
                     end, Dest, Vars));
-        nomatch ->
-            Topic
+        nomatch -> Topic
     end.
 
 compile(Rules) ->

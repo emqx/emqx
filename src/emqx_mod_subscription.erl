@@ -17,32 +17,26 @@
 -behaviour(emqx_gen_mod).
 
 -include_lib("emqx.hrl").
-
 -include_lib("emqx_mqtt.hrl").
 
--export([load/1, on_client_connected/3, unload/1]).
-
--define(TAB, ?MODULE).
+-export([load/1, on_session_created/3, unload/1]).
 
 %%--------------------------------------------------------------------
 %% Load/Unload Hook
 %%--------------------------------------------------------------------
 
 load(Topics) ->
-    emqx:hook('client.connected', fun ?MODULE:on_client_connected/3, [Topics]).
+    emqx_hooks:add('session.created', fun ?MODULE:on_session_created/3, [Topics]).
 
-on_client_connected(RC, Client = #client{id = ClientId, pid = ClientPid, username = Username}, Topics)
-    when RC < 16#80 ->
-    Replace = fun(Topic) -> rep(<<"%u">>, Username, rep(<<"%c">>, ClientId, Topic)) end,
-    TopicTable = [{Replace(Topic), QoS} || {Topic, QoS} <- Topics],
-    ClientPid ! {subscribe, TopicTable},
-    {ok, Client};
-
-on_client_connected(_ConnAck, _Client, _State) ->
-    ok.
+on_session_created(#{client_id := ClientId}, SessInfo, Topics) ->
+    Username = proplists:get_value(username, SessInfo),
+    Replace = fun(Topic) ->
+                      rep(<<"%u">>, Username, rep(<<"%c">>, ClientId, Topic))
+              end,
+    emqx_session:subscribe(self(), [{Replace(Topic), #{qos => QoS}} || {Topic, QoS} <- Topics]).
 
 unload(_) ->
-    emqx:unhook('client.connected', fun ?MODULE:on_client_connected/3).
+    emqx_hooks:delete('session.created', fun ?MODULE:on_session_created/3).
 
 %%--------------------------------------------------------------------
 %% Internal functions

@@ -143,16 +143,18 @@ multi_unsubscribe(Topics, SubPid, SubId) when is_pid(SubPid), ?is_subid(SubId) -
 %% Publish
 %%------------------------------------------------------------------------------
 
--spec(publish(message()) -> delivery()).
+-spec(publish(message()) -> {ok, emqx_types:dispatches()}).
 publish(Msg) when is_record(Msg, message) ->
     _ = emqx_tracer:trace(publish, Msg),
-    case emqx_hooks:run('message.publish', [], Msg) of
-        {ok, Msg1 = #message{topic = Topic}} ->
-            route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1));
-        {stop, Msg1} ->
-            emqx_logger:warning("Stop publishing: ~p", [Msg]), delivery(Msg1)
-    end.
+    {ok, case emqx_hooks:run('message.publish', [], Msg) of
+             {ok, Msg1 = #message{topic = Topic}} ->
+                   Delivery = route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1)),
+                   Delivery#delivery.flows;
+               {stop, _} ->
+                   emqx_logger:warning("Stop publishing: ~p", [Msg]), []
+         end}.
 
+-spec(safe_publish(message()) -> ok).
 %% Called internally
 safe_publish(Msg) when is_record(Msg, message) ->
     try
@@ -172,8 +174,8 @@ delivery(Msg) ->
 %%------------------------------------------------------------------------------
 
 route([], Delivery = #delivery{message = Msg}) ->
-    emqx_hooks:run('message.dropped', [undefined, Msg]),
-    dropped(Msg#message.topic), Delivery;
+    emqx_hooks:run('message.dropped', [#{node => node()}, Msg]),
+    inc_dropped_cnt(Msg#message.topic), Delivery;
 
 route([{To, Node}], Delivery) when Node =:= node() ->
     dispatch(To, Delivery);
@@ -215,8 +217,8 @@ forward(Node, To, Delivery) ->
 dispatch(Topic, Delivery = #delivery{message = Msg, flows = Flows}) ->
     case subscribers(Topic) of
         [] ->
-            emqx_hooks:run('message.dropped', [undefined, Msg]),
-            dropped(Topic), Delivery;
+            emqx_hooks:run('message.dropped', [#{node => node()}, Msg]),
+            inc_dropped_cnt(Topic), Delivery;
         [Sub] -> %% optimize?
             dispatch(Sub, Topic, Msg),
             Delivery#delivery{flows = [{dispatch, Topic, 1}|Flows]};
@@ -232,9 +234,9 @@ dispatch({SubPid, _SubId}, Topic, Msg) when is_pid(SubPid) ->
 dispatch({share, _Group, _Sub}, _Topic, _Msg) ->
     ignored.
 
-dropped(<<"$SYS/", _/binary>>) ->
+inc_dropped_cnt(<<"$SYS/", _/binary>>) ->
     ok;
-dropped(_Topic) ->
+inc_dropped_cnt(_Topic) ->
     emqx_metrics:inc('messages/dropped').
 
 -spec(subscribers(topic()) -> [subscriber()]).
