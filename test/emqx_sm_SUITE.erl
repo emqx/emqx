@@ -14,22 +14,23 @@
 
 -module(emqx_sm_SUITE).
 
+-include("emqx.hrl").
+
 -compile(export_all).
 -compile(nowarn_export_all).
-
--include("emqx.hrl").
 
 all() -> [t_open_close_session].
 
 t_open_close_session(_) ->
     emqx_ct_broker_helpers:run_setup_steps(),
     {ok, ClientPid} = emqx_mock_client:start_link(<<"client">>),
-    Attrs = #{clean_start => true, client_id => <<"client">>, client_pid => ClientPid, zone => internal, username => <<"zhou">>, conn_props => ref},
+    Attrs = #{clean_start => true, client_id => <<"client">>, conn_pid => ClientPid,
+              zone => internal, username => <<"zhou">>, conn_props => #{}},
     {ok, _SPid} = emqx_sm:open_session(Attrs),
     [{<<"client">>, SPid}] = emqx_sm:lookup_session(<<"client">>),
     SPid = emqx_sm:lookup_session_pid(<<"client">>),
-    {ok, NewClientPid} = emqx_mock_client:start_link(<<"client">>),
-    {ok, SPid, true} = emqx_sm:open_session(Attrs#{clean_start => false, client_pid => NewClientPid}),
+    {ok, NewConnPid} = emqx_mock_client:start_link(<<"client">>),
+    {ok, SPid, true} = emqx_sm:open_session(Attrs#{clean_start => false, conn_pid => NewConnPid}),
     [{<<"client">>, SPid}] = emqx_sm:lookup_session(<<"client">>),
     SAttrs = emqx_sm:get_session_attrs({<<"client">>, SPid}),
     <<"client">> = proplists:get_value(client_id, SAttrs),
@@ -38,3 +39,4 @@ t_open_close_session(_) ->
     {open, true} = emqx_sm:get_session_stats(Session),
     ok = emqx_sm:close_session(SPid),
     [] = emqx_sm:lookup_session(<<"client">>).
+
