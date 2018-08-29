@@ -24,15 +24,19 @@
 -export([get_header/2, get_header/3, set_header/3]).
 -export([format/1]).
 
--spec(make(topic(), payload()) -> message()).
+-type(flag() :: atom()).
+
+-spec(make(emqx_topic:topic(), emqx_types:payload()) -> emqx_types:message()).
 make(Topic, Payload) ->
     make(undefined, Topic, Payload).
 
--spec(make(atom() | client_id(), topic(), payload()) -> message()).
+-spec(make(atom() | emqx_types:client_id(), emqx_topic:topic(), emqx_types:payload())
+      -> emqx_types:message()).
 make(From, Topic, Payload) ->
     make(From, ?QOS0, Topic, Payload).
 
--spec(make(atom() | client_id(), qos(), topic(), payload()) -> message()).
+-spec(make(atom() | emqx_types:client_id(), emqx_mqtt_types:qos(),
+           emqx_topic:topic(), emqx_types:payload()) -> emqx_types:message()).
 make(From, QoS, Topic, Payload) ->
     #message{id         = msgid(QoS),
              qos        = QoS,
@@ -55,19 +59,20 @@ get_flag(Flag, Msg) ->
 get_flag(Flag, #message{flags = Flags}, Default) ->
     maps:get(Flag, Flags, Default).
 
--spec(set_flag(message_flag(), message()) -> message()).
+-spec(set_flag(flag(), emqx_types:message()) -> emqx_types:message()).
 set_flag(Flag, Msg = #message{flags = undefined}) when is_atom(Flag) ->
     Msg#message{flags = #{Flag => true}};
 set_flag(Flag, Msg = #message{flags = Flags}) when is_atom(Flag) ->
     Msg#message{flags = maps:put(Flag, true, Flags)}.
 
--spec(set_flag(message_flag(), boolean() | integer(), message()) -> message()).
+-spec(set_flag(flag(), boolean() | integer(), emqx_types:message())
+      -> emqx_types:message()).
 set_flag(Flag, Val, Msg = #message{flags = undefined}) when is_atom(Flag) ->
     Msg#message{flags = #{Flag => Val}};
 set_flag(Flag, Val, Msg = #message{flags = Flags}) when is_atom(Flag) ->
     Msg#message{flags = maps:put(Flag, Val, Flags)}.
 
--spec(unset_flag(message_flag(), message()) -> message()).
+-spec(unset_flag(flag(), emqx_types:message()) -> emqx_types:message()).
 unset_flag(Flag, Msg = #message{flags = Flags}) ->
     Msg#message{flags = maps:remove(Flag, Flags)}.
 

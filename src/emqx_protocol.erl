@@ -28,6 +28,22 @@
 -export([send/2]).
 -export([shutdown/2]).
 
+
+%%-record(mqtt_client, {
+%%         client_id     :: binary() | undefined,
+%%         client_pid    :: pid(),
+%%         username      :: binary() | undefined,
+%%         peername      :: {inet:ip_address(), inet:port_number()},
+%%         clean_start   :: boolean(),
+%%         proto_ver     :: emqx_mqtt_types:version(),
+%%         keepalive = 0 :: non_neg_integer(),
+%%         will_topic    :: undefined | binary(),
+%%         mountpoint    :: undefined | binary(),
+%%         connected_at  :: erlang:timestamp(),
+%%         attributes    :: map()
+%%      }).
+
+
 -record(pstate, {
           zone,
           sendfun,
@@ -172,7 +188,7 @@ parser(#pstate{packet_size = Size, proto_ver = Ver}) ->
 %% Packet Received
 %%------------------------------------------------------------------------------
 
--spec(received(mqtt_packet(), state())
+-spec(received(emqx_mqtt_types:packet(), state())
       -> {ok, state()} | {error, term()} | {error, term(), state()}).
 received(?PACKET(Type), PState = #pstate{connected = false}) when Type =/= ?CONNECT ->
     {error, proto_not_connected, PState};
@@ -469,7 +485,7 @@ deliver({disconnect, _ReasonCode}, PState) ->
 %%------------------------------------------------------------------------------
 %% Send Packet to Client
 
--spec(send(mqtt_packet(), state()) -> {ok, state()} | {error, term()}).
+-spec(send(emqx_mqtt_types:packet(), state()) -> {ok, state()} | {error, term()}).
 send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = SendFun}) ->
     trace(send, Packet, PState),
     case SendFun(emqx_frame:serialize(Packet, #{version => Ver})) of

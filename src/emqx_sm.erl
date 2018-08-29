@@ -70,7 +70,7 @@ open_session(Attrs = #{clean_start := false, client_id := ClientId, conn_pid := 
     emqx_sm_locker:trans(ClientId, ResumeStart).
 
 %% @doc Discard all the sessions identified by the ClientId.
--spec(discard_session(client_id()) -> ok).
+-spec(discard_session(emqx_types:client_id()) -> ok).
 discard_session(ClientId) when is_binary(ClientId) ->
     discard_session(ClientId, self()).
 
@@ -84,7 +84,7 @@ discard_session(ClientId, ConnPid) when is_binary(ClientId) ->
                   end, lookup_session(ClientId)).
 
 %% @doc Try to resume a session.
--spec(resume_session(client_id()) -> {ok, pid()} | {error, term()}).
+-spec(resume_session(emqx_types:client_id()) -> {ok, pid()} | {error, term()}).
 resume_session(ClientId) ->
     resume_session(ClientId, self()).
 
@@ -105,14 +105,14 @@ resume_session(ClientId, ConnPid) ->
     end.
 
 %% @doc Close a session.
--spec(close_session({client_id(), pid()} | pid()) -> ok).
+-spec(close_session({emqx_types:client_id(), pid()} | pid()) -> ok).
 close_session({_ClientId, SPid}) ->
     emqx_session:close(SPid);
 close_session(SPid) when is_pid(SPid) ->
     emqx_session:close(SPid).
 
 %% @doc Register a session with attributes.
--spec(register_session(client_id() | {client_id(), pid()},
+-spec(register_session(emqx_types:client_id() | {emqx_types:client_id(), pid()},
                        list(emqx_session:attribute())) -> ok).
 register_session(ClientId, Attrs) when is_binary(ClientId) ->
     register_session({ClientId, self()}, Attrs);
@@ -129,7 +129,7 @@ register_session(Session = {ClientId, SPid}, Attrs)
     notify({registered, ClientId, SPid}).
 
 %% @doc Get session attrs
--spec(get_session_attrs({client_id(), pid()}) -> list(emqx_session:attribute())).
+-spec(get_session_attrs({emqx_types:client_id(), pid()}) -> list(emqx_session:attribute())).
 get_session_attrs(Session = {ClientId, SPid}) when is_binary(ClientId), is_pid(SPid) ->
     safe_lookup_element(?SESSION_ATTRS_TAB, Session, []).
 
@@ -140,7 +140,7 @@ set_session_attrs(Session = {ClientId, SPid}, Attrs) when is_binary(ClientId), i
     ets:insert(?SESSION_ATTRS_TAB, {Session, Attrs}).
 
 %% @doc Unregister a session
--spec(unregister_session(client_id() | {client_id(), pid()}) -> ok).
+-spec(unregister_session(emqx_types:client_id() | {emqx_types:client_id(), pid()}) -> ok).
 unregister_session(ClientId) when is_binary(ClientId) ->
     unregister_session({ClientId, self()});
 
@@ -153,13 +153,13 @@ unregister_session(Session = {ClientId, SPid}) when is_binary(ClientId), is_pid(
     notify({unregistered, ClientId, SPid}).
 
 %% @doc Get session stats
--spec(get_session_stats({client_id(), pid()}) -> list(emqx_stats:stats())).
+-spec(get_session_stats({emqx_types:client_id(), pid()}) -> list(emqx_stats:stats())).
 get_session_stats(Session = {ClientId, SPid})
     when is_binary(ClientId), is_pid(SPid) ->
     safe_lookup_element(?SESSION_STATS_TAB, Session, []).
 
 %% @doc Set session stats
--spec(set_session_stats(client_id() | {client_id(), pid()},
+-spec(set_session_stats(emqx_types:client_id() | {emqx_types:client_id(), pid()},
                         emqx_stats:stats()) -> ok).
 set_session_stats(ClientId, Stats) when is_binary(ClientId) ->
     set_session_stats({ClientId, self()}, Stats);
@@ -169,7 +169,7 @@ set_session_stats(Session = {ClientId, SPid}, Stats)
     ets:insert(?SESSION_STATS_TAB, {Session, Stats}).
 
 %% @doc Lookup a session from registry
--spec(lookup_session(client_id()) -> list({client_id(), pid()})).
+-spec(lookup_session(emqx_types:client_id()) -> list({emqx_types:client_id(), pid()})).
 lookup_session(ClientId) ->
     case emqx_sm_registry:is_enabled() of
         true  -> emqx_sm_registry:lookup_session(ClientId);
@@ -177,17 +177,17 @@ lookup_session(ClientId) ->
     end.
 
 %% @doc Dispatch a message to the session.
--spec(dispatch(client_id(), topic(), message()) -> any()).
+-spec(dispatch(emqx_types:client_id(), emqx_topic:topic(), emqx_types:message()) -> any()).
 dispatch(ClientId, Topic, Msg) ->
     case lookup_session_pid(ClientId) of
         Pid when is_pid(Pid) ->
             Pid ! {dispatch, Topic, Msg};
         undefined ->
-            emqx_hooks:run('message.dropped', [ClientId, Msg])
+            emqx_hooks:run('message.dropped', [#{client_id => ClientId}, Msg])
     end.
 
 %% @doc Lookup session pid.
--spec(lookup_session_pid(client_id()) -> pid() | undefined).
+-spec(lookup_session_pid(emqx_types:client_id()) -> pid() | undefined).
 lookup_session_pid(ClientId) ->
     safe_lookup_element(?SESSION_TAB, ClientId, undefined).
 

@@ -87,7 +87,7 @@
                 clean_start     :: boolean(),
                 username        :: binary() | undefined,
                 password        :: binary() | undefined,
-                proto_ver       :: mqtt_version(),
+                proto_ver       :: emqx_mqtt_types:version(),
                 proto_name      :: iodata(),
                 keepalive       :: non_neg_integer(),
                 keepalive_timer :: reference() | undefined,
@@ -114,15 +114,15 @@
 
 -type(client() :: pid() | atom()).
 
--type(topic() :: mqtt_topic()).
+-type(topic() :: emqx_topic:topic()).
 
 -type(payload() :: iodata()).
 
--type(packet_id() :: mqtt_packet_id()).
+-type(packet_id() :: emqx_mqtt_types:packet_id()).
 
--type(properties() :: mqtt_properties()).
+-type(properties() :: emqx_mqtt_types:properties()).
 
--type(qos() :: mqtt_qos_name() | mqtt_qos()).
+-type(qos() :: emqx_mqtt_types:qos_name() | emqx_mqtt_types:qos()).
 
 -type(pubopt() :: {retain, boolean()} | {qos, qos()}).
 
@@ -131,7 +131,7 @@
                 | {nl,  boolean()}
                 | {qos, qos()}).
 
--type(reason_code() :: mqtt_reason_code()).
+-type(reason_code() :: emqx_mqtt_types:reason_code()).
 
 -type(subscribe_ret() :: {ok, properties(), [reason_code()]} | {error, term()}).
 

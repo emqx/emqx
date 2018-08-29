@@ -55,7 +55,7 @@ register_default_acl() ->
         File -> register_mod(acl, emqx_acl_internal, [File])
     end.
 
--spec(authenticate(credentials(), password())
+-spec(authenticate(emqx_types:credentials(), emqx_types:password())
       -> ok | {ok, map()} | {continue, map()} | {error, term()}).
 authenticate(Credentials, Password) ->
     authenticate(Credentials, Password, lookup_mods(auth)).
@@ -85,10 +85,9 @@ authenticate(Credentials, Password, [{Mod, State, _Seq} | Mods]) ->
     end.
 
 %% @doc Check ACL
--spec(check_acl(credentials(), pubsub(), topic()) -> allow | deny).
-check_acl(Credentials, PubSub, Topic) when ?PS(PubSub) ->
-    CacheEnabled = emqx_acl_cache:is_enabled(),
-    check_acl(Credentials, PubSub, Topic, lookup_mods(acl), CacheEnabled).
+-spec(check_acl(emqx_types:credentials(), emqx_types:pubsub(), emqx_types:topic()) -> allow | deny).
+check_acl(Credentials, PubSub, Topic) when PubSub =:= publish; PubSub =:= subscribe ->
+    check_acl(Credentials, PubSub, Topic, lookup_mods(acl), emqx_acl_cache:is_enabled()).
 
 check_acl(Credentials, PubSub, Topic, AclMods, false) ->
     do_check_acl(Credentials, PubSub, Topic, AclMods);

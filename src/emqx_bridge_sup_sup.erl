@@ -30,17 +30,17 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% @doc List all bridges
--spec(bridges() -> [{node(), topic(), pid()}]).
+-spec(bridges() -> [{node(), emqx_topic:topic(), pid()}]).
 bridges() ->
     [{Node, Topic, Pid} || {?CHILD_ID(Node, Topic), Pid, supervisor, _}
                            <- supervisor:which_children(?MODULE)].
 
 %% @doc Start a bridge
--spec(start_bridge(node(), topic()) -> {ok, pid()} | {error, term()}).
+-spec(start_bridge(node(), emqx_topic:topic()) -> {ok, pid()} | {error, term()}).
 start_bridge(Node, Topic) when is_atom(Node), is_binary(Topic) ->
     start_bridge(Node, Topic, []).
 
--spec(start_bridge(node(), topic(), [emqx_bridge:option()])
+-spec(start_bridge(node(), emqx_topic:topic(), [emqx_bridge:option()])
       -> {ok, pid()} | {error, term()}).
 start_bridge(Node, _Topic, _Options) when Node =:= node() ->
     {error, bridge_to_self};
@@ -49,7 +49,7 @@ start_bridge(Node, Topic, Options) when is_atom(Node), is_binary(Topic) ->
     supervisor:start_child(?MODULE, bridge_spec(Node, Topic, Options1)).
 
 %% @doc Stop a bridge
--spec(stop_bridge(node(), topic()) -> ok | {error, term()}).
+-spec(stop_bridge(node(), emqx_topic:topic()) -> ok | {error, term()}).
 stop_bridge(Node, Topic) when is_atom(Node), is_binary(Topic) ->
     ChildId = ?CHILD_ID(Node, Topic),
     case supervisor:terminate_child(?MODULE, ChildId) of

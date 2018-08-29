@@ -71,54 +71,54 @@ start_link(Pool, Id) ->
 %% Route APIs
 %%------------------------------------------------------------------------------
 
--spec(add_route(topic() | route()) -> ok).
+-spec(add_route(emqx_topic:topic() | emqx_types:route()) -> ok).
 add_route(Topic) when is_binary(Topic) ->
     add_route(#route{topic = Topic, dest = node()});
 add_route(Route = #route{topic = Topic}) ->
     cast(pick(Topic), {add_route, Route}).
 
--spec(add_route(topic(), destination()) -> ok).
+-spec(add_route(emqx_topic:topic(), destination()) -> ok).
 add_route(Topic, Dest) when is_binary(Topic) ->
     add_route(#route{topic = Topic, dest = Dest}).
 
--spec(add_route({pid(), reference()}, topic(), destination()) -> ok).
+-spec(add_route({pid(), reference()}, emqx_topic:topic(), destination()) -> ok).
 add_route(From, Topic, Dest) when is_binary(Topic) ->
     cast(pick(Topic), {add_route, From, #route{topic = Topic, dest = Dest}}).
 
--spec(get_routes(topic()) -> [route()]).
+-spec(get_routes(emqx_topic:topic()) -> [emqx_types:route()]).
 get_routes(Topic) ->
     ets:lookup(?ROUTE, Topic).
 
--spec(del_route(topic() | route()) -> ok).
+-spec(del_route(emqx_topic:topic() | emqx_types:route()) -> ok).
 del_route(Topic) when is_binary(Topic) ->
     del_route(#route{topic = Topic, dest = node()});
 del_route(Route = #route{topic = Topic}) ->
     cast(pick(Topic), {del_route, Route}).
 
--spec(del_route(topic(), destination()) -> ok).
+-spec(del_route(emqx_topic:topic(), destination()) -> ok).
 del_route(Topic, Dest) when is_binary(Topic) ->
     del_route(#route{topic = Topic, dest = Dest}).
 
--spec(del_route({pid(), reference()}, topic(), destination()) -> ok).
+-spec(del_route({pid(), reference()}, emqx_topic:topic(), destination()) -> ok).
 del_route(From, Topic, Dest) when is_binary(Topic) ->
     cast(pick(Topic), {del_route, From, #route{topic = Topic, dest = Dest}}).
 
--spec(has_routes(topic()) -> boolean()).
+-spec(has_routes(emqx_topic:topic()) -> boolean()).
 has_routes(Topic) when is_binary(Topic) ->
     ets:member(?ROUTE, Topic).
 
--spec(topics() -> list(topic())).
+-spec(topics() -> list(emqx_topic:topic())).
 topics() -> mnesia:dirty_all_keys(?ROUTE).
 
 %% @doc Match routes
 %% Optimize: routing table will be replicated to all router nodes.
--spec(match_routes(topic()) -> [route()]).
+-spec(match_routes(emqx_topic:topic()) -> [emqx_types:route()]).
 match_routes(Topic) when is_binary(Topic) ->
     Matched = mnesia:ets(fun emqx_trie:match/1, [Topic]),
     lists:append([get_routes(To) || To <- [Topic | Matched]]).
 
 %% @doc Print routes to a topic
--spec(print_routes(topic()) -> ok).
+-spec(print_routes(emqx_topic:topic()) -> ok).
 print_routes(Topic) ->
     lists:foreach(fun(#route{topic = To, dest = Dest}) ->
                       io:format("~s -> ~s~n", [To, Dest])

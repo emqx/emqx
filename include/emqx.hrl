@@ -12,6 +12,9 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
+-ifndef(EMQ_X_HRL).
+-define(EMQ_X_HRL, true).
+
 %%--------------------------------------------------------------------
 %% Banner
 %%--------------------------------------------------------------------
@@ -23,14 +26,6 @@
 -define(PROTOCOL_VERSION, "MQTT/5.0").
 
 -define(ERTS_MINIMUM_REQUIRED, "10.0").
-
-%%--------------------------------------------------------------------
-%% PubSub
-%%--------------------------------------------------------------------
-
--type(pubsub() :: publish | subscribe).
-
--define(PS(I), (I =:= publish orelse I =:= subscribe)).
 
 %%--------------------------------------------------------------------
 %% Topics' prefix: $SYS | $queue | $share
@@ -46,120 +41,47 @@
 -define(SHARE,  <<"$share/">>).
 
 %%--------------------------------------------------------------------
-%% Topic, subscription and subscriber
+%% Message and Delivery
 %%--------------------------------------------------------------------
 
--type(topic() :: binary()).
+-record(session, {sid, pid}).
 
--type(subid() :: binary() | atom()).
-
--type(subopts() :: #{qos    => integer(),
-                     share  => binary(),
-                     atom() => term()}).
-
--record(subscription, {
-          topic   :: topic(),
-          subid   :: subid(),
-          subopts :: subopts()
-        }).
-
--type(subscription() :: #subscription{}).
-
--type(subscriber() :: {pid(), subid()}).
-
--type(topic_table() :: [{topic(), subopts()}]).
-
-%%--------------------------------------------------------------------
-%% Zone, Credentials, Client and Session
-%%--------------------------------------------------------------------
-
--type(zone() :: atom()).
-
--type(client_id() :: binary() | atom()).
-
--type(username() :: binary() | undefined).
-
--type(password() :: binary() | undefined).
-
--type(peername() :: {inet:ip_address(), inet:port_number()}).
-
--type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | none | atom()).
-
--type(credentials() :: #{client_id := binary(),
-                         username  := binary(),
-                         peername  := peername(),
-                         zone      => zone(),
-                         atom()    => term()}).
-
--record(client, {
-          id         :: client_id(),
-          pid        :: pid(),
-          zone       :: zone(),
-          peername   :: peername(),
-          username   :: username(),
-          protocol   :: protocol(),
-          attributes :: map()
-         }).
-
--type(client() :: #client{}).
-
--record(session, {
-          sid :: client_id(),
-          pid :: pid()
-         }).
-
--type(session() :: #session{}).
-
-%%--------------------------------------------------------------------
-%% Payload, Message and Delivery
-%%--------------------------------------------------------------------
-
--type(qos() :: integer()).
-
--type(payload() :: binary() | iodata()).
-
--type(message_flag() :: dup | sys | retain | atom()).
+-record(subscription, {topic, subid, subopts}).
 
 %% See 'Application Message' in MQTT Version 5.0
 -record(message, {
           %% Global unique message ID
-          id :: binary() | pos_integer(),
+          id :: binary(),
           %% Message QoS
-          qos = 0 :: qos(),
+          qos = 0,
           %% Message from
-          from :: atom() | client_id(),
+          from :: atom() | binary(),
           %% Message flags
-          flags :: #{message_flag() => boolean()},
+          flags :: #{atom() => boolean()},
           %% Message headers, or MQTT 5.0 Properties
-          headers = #{} :: map(),
+          headers = #{},
           %% Topic that the message is published to
-          topic :: topic(),
+          topic :: binary(),
           %% Message Payload
           payload :: binary(),
           %% Timestamp
           timestamp :: erlang:timestamp()
         }).
 
--type(message() :: #message{}).
-
 -record(delivery, {
-          sender  :: pid(),     %% Sender of the delivery
-          message :: message(), %% The message delivered
-          flows   :: list()     %% The dispatch path of message
+          sender  :: pid(),      %% Sender of the delivery
+          message :: #message{}, %% The message delivered
+          results :: list()      %% Dispatches of the message
         }).
-
--type(delivery() :: #delivery{}).
 
 %%--------------------------------------------------------------------
 %% Route
 %%--------------------------------------------------------------------
 
 -record(route, {
-          topic :: topic(),
-          dest :: node() | {binary(), node()}
+          topic :: binary(),
+          dest  :: node() | {binary(), node()}
          }).
-
--type(route() :: #route{}).
 
 %%--------------------------------------------------------------------
 %% Trie
@@ -170,7 +92,7 @@
 -record(trie_node, {
           node_id        :: trie_node_id(),
           edge_count = 0 :: non_neg_integer(),
-          topic          :: topic() | undefined,
+          topic          :: binary() | undefined,
           flags          :: list(atom())
         }).
 
@@ -196,8 +118,6 @@
           timestamp :: erlang:timestamp()
         }).
 
--type(alarm() :: #alarm{}).
-
 %%--------------------------------------------------------------------
 %% Plugin
 %%--------------------------------------------------------------------
@@ -212,8 +132,6 @@
           info           :: map()
         }).
 
--type(plugin() :: #plugin{}).
-
 %%--------------------------------------------------------------------
 %% Command
 %%--------------------------------------------------------------------
@@ -227,5 +145,5 @@
           descr     :: string()
         }).
 
--type(command() :: #command{}).
+-endif.
 

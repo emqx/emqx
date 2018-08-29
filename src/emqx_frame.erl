@@ -22,11 +22,11 @@
 -export([serialize/1, serialize/2]).
 
 -type(options() :: #{max_packet_size => 1..?MAX_PACKET_SIZE,
-                     version         => mqtt_version()}).
+                     version         => emqx_mqtt_types:version()}).
 
 -type(parse_state() :: {none, options()} | cont_fun(binary())).
 
--type(cont_fun(Bin) :: fun((Bin) -> {ok, mqtt_packet(), binary()}
+-type(cont_fun(Bin) :: fun((Bin) -> {ok, emqx_mqtt_types:packet(), binary()}
                                   | {more, cont_fun(Bin)})).
 
 -export_type([options/0, parse_state/0]).
@@ -53,7 +53,8 @@ merge_opts(Options) ->
 %% Parse MQTT Frame
 %%------------------------------------------------------------------------------
 
--spec(parse(binary(), parse_state()) -> {ok, mqtt_packet(), binary()} | {more, cont_fun(binary())}).
+-spec(parse(binary(), parse_state()) -> {ok, emqx_mqtt_types:packet(), binary()} |
+                                        {more, cont_fun(binary())}).
 parse(<<>>, {none, Options}) ->
     {more, fun(Bin) -> parse(Bin, {none, Options}) end};
 parse(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>, {none, Options}) ->
@@ -359,11 +360,11 @@ parse_binary_data(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
 %% Serialize MQTT Packet
 %%------------------------------------------------------------------------------
 
--spec(serialize(mqtt_packet()) -> iodata()).
+-spec(serialize(emqx_mqtt_types:packet()) -> iodata()).
 serialize(Packet) ->
     serialize(Packet, ?DEFAULT_OPTIONS).
 
--spec(serialize(mqtt_packet(), options()) -> iodata()).
+-spec(serialize(emqx_mqtt_types:packet(), options()) -> iodata()).
 serialize(#mqtt_packet{header   = Header,
                        variable = Variable,
                        payload  = Payload}, Options) when is_map(Options) ->

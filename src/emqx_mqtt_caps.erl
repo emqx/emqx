@@ -25,7 +25,7 @@
                   max_clientid_len => integer(),
                   max_topic_alias  => integer(),
                   max_topic_levels => integer(),
-                  max_qos_allowed  => mqtt_qos(),
+                  max_qos_allowed  => emqx_mqtt_types:qos(),
                   mqtt_retain_available      => boolean(),
                   mqtt_shared_subscription   => boolean(),
                   mqtt_wildcard_subscription => boolean()}).
@@ -49,7 +49,7 @@
                       mqtt_shared_subscription,
                       mqtt_wildcard_subscription]).
 
--spec(check_pub(zone(), map()) -> ok | {error, mqtt_reason_code()}).
+-spec(check_pub(emqx_types:zone(), map()) -> ok | {error, emqx_mqtt_types:reason_code()}).
 check_pub(Zone, Props) when is_map(Props) ->
     do_check_pub(Props, maps:to_list(get_caps(Zone, publish))).
 
@@ -65,7 +65,8 @@ do_check_pub(#{retain := true}, [{mqtt_retain_available, false}|_Caps]) ->
 do_check_pub(Props, [{mqtt_retain_available, _}|Caps]) ->
     do_check_pub(Props, Caps).
 
--spec(check_sub(zone(), mqtt_topic_filters()) -> {ok | error, mqtt_topic_filters()}).
+-spec(check_sub(emqx_types:zone(), emqx_mqtt_types:topic_filters())
+      -> {ok | error, emqx_mqtt_types:topic_filters()}).
 check_sub(Zone, TopicFilters) ->
     Caps = maps:to_list(get_caps(Zone, subscribe)),
     lists:foldr(fun({Topic, Opts}, {Ok, Result}) ->

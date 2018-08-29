@@ -43,12 +43,12 @@ start_link() ->
     gen_server:start_link({local, ?CM}, ?MODULE, [], []).
 
 %% @doc Lookup a connection.
--spec(lookup_connection(client_id()) -> list({client_id(), pid()})).
+-spec(lookup_connection(emqx_types:client_id()) -> list({emqx_types:client_id(), pid()})).
 lookup_connection(ClientId) when is_binary(ClientId) ->
     ets:lookup(?CONN_TAB, ClientId).
 
 %% @doc Register a connection.
--spec(register_connection(client_id() | {client_id(), pid()}) -> ok).
+-spec(register_connection(emqx_types:client_id() | {emqx_types:client_id(), pid()}) -> ok).
 register_connection(ClientId) when is_binary(ClientId) ->
     register_connection({ClientId, self()});
 
@@ -56,7 +56,7 @@ register_connection(Conn = {ClientId, ConnPid}) when is_binary(ClientId), is_pid
     _ = ets:insert(?CONN_TAB, Conn),
     notify({registered, ClientId, ConnPid}).
 
--spec(register_connection(client_id() | {client_id(), pid()}, list()) -> ok).
+-spec(register_connection(emqx_types:client_id() | {emqx_types:client_id(), pid()}, list()) -> ok).
 register_connection(ClientId, Attrs) when is_binary(ClientId) ->
     register_connection({ClientId, self()}, Attrs);
 register_connection(Conn = {ClientId, ConnPid}, Attrs) when is_binary(ClientId), is_pid(ConnPid) ->
@@ -64,7 +64,7 @@ register_connection(Conn = {ClientId, ConnPid}, Attrs) when is_binary(ClientId),
     register_connection(Conn).
 
 %% @doc Get conn attrs
--spec(get_conn_attrs({client_id(), pid()}) -> list()).
+-spec(get_conn_attrs({emqx_types:client_id(), pid()}) -> list()).
 get_conn_attrs(Conn = {ClientId, ConnPid}) when is_binary(ClientId), is_pid(ConnPid) ->
     try
         ets:lookup_element(?CONN_ATTRS_TAB, Conn, 2)
@@ -79,7 +79,7 @@ set_conn_attrs(Conn = {ClientId, ConnPid}, Attrs) when is_binary(ClientId), is_p
     ets:insert(?CONN_ATTRS_TAB, {Conn, Attrs}).
 
 %% @doc Unregister a conn.
--spec(unregister_connection(client_id() | {client_id(), pid()}) -> ok).
+-spec(unregister_connection(emqx_types:client_id() | {emqx_types:client_id(), pid()}) -> ok).
 unregister_connection(ClientId) when is_binary(ClientId) ->
     unregister_connection({ClientId, self()});
 
@@ -90,7 +90,7 @@ unregister_connection(Conn = {ClientId, ConnPid}) when is_binary(ClientId), is_p
     notify({unregistered, ClientId, ConnPid}).
 
 %% @doc Lookup connection pid
--spec(lookup_conn_pid(client_id()) -> pid() | undefined).
+-spec(lookup_conn_pid(emqx_types:client_id()) -> pid() | undefined).
 lookup_conn_pid(ClientId) when is_binary(ClientId) ->
     case ets:lookup(?CONN_TAB, ClientId) of
         [] -> undefined;
@@ -98,7 +98,7 @@ lookup_conn_pid(ClientId) when is_binary(ClientId) ->
     end.
 
 %% @doc Get conn stats
--spec(get_conn_stats({client_id(), pid()}) -> list(emqx_stats:stats())).
+-spec(get_conn_stats({emqx_types:client_id(), pid()}) -> list(emqx_stats:stats())).
 get_conn_stats(Conn = {ClientId, ConnPid}) when is_binary(ClientId), is_pid(ConnPid) ->
     try ets:lookup_element(?CONN_STATS_TAB, Conn, 2)
     catch
@@ -106,7 +106,7 @@ get_conn_stats(Conn = {ClientId, ConnPid}) when is_binary(ClientId), is_pid(Conn
     end.
 
 %% @doc Set conn stats.
--spec(set_conn_stats(client_id(), list(emqx_stats:stats())) -> boolean()).
+-spec(set_conn_stats(emqx_types:client_id(), list(emqx_stats:stats())) -> boolean()).
 set_conn_stats(ClientId, Stats) when is_binary(ClientId) ->
     set_conn_stats({ClientId, self()}, Stats);
 

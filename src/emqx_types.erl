@@ -14,17 +14,29 @@
 
 -module(emqx_types).
 
-%%-include("emqx.hrl").
+-include("emqx.hrl").
 
+-export_type([zone/0]).
 -export_type([startlink_ret/0]).
--export_type([zone/0, client_id/0, username/0, password/0, peername/0,
-              protocol/0, credentials/0]).
--export_type([topic/0, payload/0, dispatches/0]).
-%%-export_type([payload/0, message/0, delivery/0]).
-
--type(startlink_ret() :: {ok, pid()} | ignore | {error, term()}).
+-export_type([pubsub/0, topic/0, subid/0, subopts/0]).
+-export_type([client_id/0, username/0, password/0, peername/0, protocol/0]).
+-export_type([credentials/0, session/0]).
+-export_type([subscription/0, subscriber/0, topic_table/0]).
+-export_type([payload/0, message/0]).
+-export_type([delivery/0, deliver_results/0]).
+-export_type([route/0]).
+-export_type([alarm/0, plugin/0, command/0]).
 
 -type(zone() :: atom()).
+-type(startlink_ret() :: {ok, pid()} | ignore | {error, term()}).
+-type(pubsub() :: publish | subscribe).
+-type(topic() :: binary()).
+-type(subid() :: binary() | atom()).
+-type(subopts() :: #{qos    := integer(),
+                     share  => binary(),
+                     atom() => term()
+                    }).
+-type(session() :: #session{}).
 -type(client_id() :: binary() | atom()).
 -type(username() :: binary() | undefined).
 -type(password() :: binary() | undefined).
@@ -34,12 +46,18 @@
                          username  := username(),
                          peername  := peername(),
                          zone      => zone(),
-                         atom()    => term()}).
-
--type(topic() :: binary()).
+                         atom()    => term()
+                        }).
+-type(subscription() :: #subscription{}).
+-type(subscriber() :: {pid(), subid()}).
+-type(topic_table() :: [{topic(), subopts()}]).
 -type(payload() :: binary() | iodata()).
-%-type(message() :: #message{}).
-%-type(delivery() :: #delivery{}).
-
--type(dispatches() :: [{route, node(), topic()} | {dispatch, topic(), pos_integer()}]).
+-type(message() :: #message{}).
+-type(delivery() :: #delivery{}).
+-type(deliver_results() :: [{route, node(), topic()} |
+                            {dispatch, topic(), pos_integer()}]).
+-type(route() :: #route{}).
+-type(alarm() :: #alarm{}).
+-type(plugin() :: #plugin{}).
+-type(command() :: #command{}).
 

@@ -66,32 +66,36 @@ is_running(Node) ->
 %% PubSub API
 %%--------------------------------------------------------------------
 
--spec(subscribe(topic() | string()) -> ok | {error, term()}).
+-spec(subscribe(emqx_topic:topic() | string()) -> ok | {error, term()}).
 subscribe(Topic) ->
     emqx_broker:subscribe(iolist_to_binary(Topic)).
 
--spec(subscribe(topic() | string(), subscriber() | string()) -> ok | {error, term()}).
+-spec(subscribe(emqx_topic:topic() | string(), emqx_types:subscriber() | string())
+      -> ok | {error, term()}).
 subscribe(Topic, Sub) when is_list(Sub)->
     emqx_broker:subscribe(iolist_to_binary(Topic), list_to_subid(Sub));
 subscribe(Topic, Subscriber) when is_tuple(Subscriber) ->
     {SubPid, SubId} = Subscriber,
     emqx_broker:subscribe(iolist_to_binary(Topic), SubPid, SubId).
 
--spec(subscribe(topic() | string(), subscriber() | string(), subopts()) -> ok | {error, term()}).
+-spec(subscribe(emqx_topic:topic() | string(), emqx_types:subscriber() | string(),
+                emqx_topic:subopts()) -> ok | {error, term()}).
 subscribe(Topic, Sub, Options) when is_list(Sub)->
     emqx_broker:subscribe(iolist_to_binary(Topic), list_to_subid(Sub), Options);
 subscribe(Topic, Subscriber, Options) when is_tuple(Subscriber)->
     {SubPid, SubId} = Subscriber,
     emqx_broker:subscribe(iolist_to_binary(Topic), SubPid, SubId, Options).
 
--spec(publish(message()) -> {ok, emqx_types:dispatches()}).
-publish(Msg) -> emqx_broker:publish(Msg).
+-spec(publish(emqx_types:message()) -> {ok, emqx_types:deliver_results()}).
+publish(Msg) ->
+    emqx_broker:publish(Msg).
 
--spec(unsubscribe(topic() | string()) -> ok | {error, term()}).
+-spec(unsubscribe(emqx_topic:topic() | string()) -> ok | {error, term()}).
 unsubscribe(Topic) ->
     emqx_broker:unsubscribe(iolist_to_binary(Topic)).
 
--spec(unsubscribe(topic() | string(), subscriber() | string()) -> ok | {error, term()}).
+-spec(unsubscribe(emqx_topic:topic() | string(), emqx_types:subscriber() | string())
+      -> ok | {error, term()}).
 unsubscribe(Topic, Sub) when is_list(Sub) ->
     emqx_broker:unsubscribe(iolist_to_binary(Topic), list_to_subid(Sub));
 unsubscribe(Topic, Subscriber) when is_tuple(Subscriber) ->
@@ -102,26 +106,28 @@ unsubscribe(Topic, Subscriber) when is_tuple(Subscriber) ->
 %% PubSub management API
 %%--------------------------------------------------------------------
 
--spec(get_subopts(topic() | string(), subscriber()) -> subopts()).
+-spec(get_subopts(emqx_topic:topic() | string(), emqx_types:subscriber())
+      -> emqx_types:subopts()).
 get_subopts(Topic, Subscriber) ->
     emqx_broker:get_subopts(iolist_to_binary(Topic), list_to_subid(Subscriber)).
 
--spec(set_subopts(topic() | string(), subscriber(), subopts()) -> ok).
+-spec(set_subopts(emqx_topic:topic() | string(), emqx_types:subscriber(),
+                  emqx_types:subopts()) -> ok).
 set_subopts(Topic, Subscriber, Options) when is_list(Options) ->
     emqx_broker:set_subopts(iolist_to_binary(Topic), list_to_subid(Subscriber), Options).
 
--spec(topics() -> list(topic())).
+-spec(topics() -> list(emqx_topic:topic())).
 topics() -> emqx_router:topics().
 
--spec(subscribers(topic() | string()) -> list(subscriber())).
+-spec(subscribers(emqx_topic:topic() | string()) -> list(emqx_types:subscriber())).
 subscribers(Topic) ->
     emqx_broker:subscribers(iolist_to_binary(Topic)).
 
--spec(subscriptions(subscriber()) -> [{topic(), subopts()}]).
+-spec(subscriptions(emqx_types:subscriber()) -> [{emqx_topic:topic(), emqx_types:subopts()}]).
 subscriptions(Subscriber) ->
     emqx_broker:subscriptions(Subscriber).
 
--spec(subscribed(topic() | string(), subscriber()) -> boolean()).
+-spec(subscribed(emqx_topic:topic() | string(), emqx_types:subscriber()) -> boolean()).
 subscribed(Topic, Subscriber) ->
     emqx_broker:subscribed(iolist_to_binary(Topic), list_to_subid(Subscriber)).
 
@@ -169,8 +175,8 @@ shutdown() ->
 shutdown(Reason) ->
     emqx_logger:error("emqx shutdown for ~s", [Reason]),
     emqx_plugins:unload(),
-    lists:foreach(fun application:stop/1, [emqx, ekka, cowboy, esockd, gproc]).
+    lists:foreach(fun application:stop/1, [emqx, ekka, cowboy, ranch, esockd, gproc]).
 
 reboot() ->
-    lists:foreach(fun application:start/1, [gproc, esockd, cowboy, ekka, emqx]).
+    lists:foreach(fun application:start/1, [gproc, esockd, ranch, cowboy, ekka, emqx]).
 

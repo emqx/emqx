@@ -30,15 +30,15 @@
 -export([add/1, del/1]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3]).
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 
--type(key() :: {client_id, client_id()} |
-               {ipaddr, inet:ip_address()} |
-               {username, username()}).
+-type(key() :: {client_id, emqx_types:client_id()} |
+               {username, emqx_types:username() |
+               {ipaddr, inet:ip_address()}}).
 
 -record(state, {expiry_timer}).
 
@@ -63,12 +63,12 @@ mnesia(copy) ->
 %%--------------------------------------------------------------------
 
 %% @doc Start the banned server
--spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
+-spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec(check(client()) -> boolean()).
-check(#client{id = ClientId, username = Username, peername = {IPAddr, _}}) ->
+-spec(check(emqx_types:credentials()) -> boolean()).
+check(#{client_id := ClientId, username := Username, peername := {IPAddr, _}}) ->
     ets:member(?TAB, {client_id, ClientId})
         orelse ets:member(?TAB, {username, Username})
             orelse ets:member(?TAB, {ipaddr, IPAddr}).

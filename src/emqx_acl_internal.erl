@@ -70,7 +70,8 @@ filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
     false.
 
 %% @doc Check ACL
--spec(check_acl({credentials(), pubsub(), topic()}, #{}) -> allow | deny | ignore).
+-spec(check_acl({emqx_types:credentials(), emqx_types:pubsub(), emqx_topic:topic()}, #{})
+      -> allow | deny | ignore).
 check_acl({Credentials, PubSub, Topic}, _State) ->
     case match(Credentials, Topic, lookup(PubSub)) of
         {matched, allow} -> allow;
