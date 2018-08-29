@@ -90,7 +90,7 @@ init(Req, Opts) ->
         [<<"mqtt", Vsn/binary>>] ->
             Resp = cowboy_req:set_resp_header(<<"sec-websocket-protocol">>, <<"mqtt", Vsn/binary>>, Req),
             {cowboy_websocket, Resp, #state{request = Req, options = Opts}, #{idle_timeout => 86400000}};
-        R ->
+        _ ->
             {ok, cowboy_req:reply(400, Req), #state{}}
     end.
 
