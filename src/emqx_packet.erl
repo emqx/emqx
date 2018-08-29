@@ -81,20 +81,34 @@ validate_qos(QoS) when ?QOS0 =< QoS, QoS =< ?QOS2 ->
     true;
 validate_qos(_) -> error(bad_qos).
 
-%% @doc From Message to Packet
+%% @doc From message to packet
 -spec(from_message(emqx_mqtt_types:packet_id(), emqx_types:message()) -> emqx_mqtt_types:packet()).
-from_message(PacketId, Msg = #message{qos = QoS, topic = Topic, payload = Payload}) ->
-    Dup = emqx_message:get_flag(dup, Msg, false),
-    Retain = emqx_message:get_flag(retain, Msg, false),
+from_message(PacketId, #message{qos = QoS, flags = Flags, headers = Headers,
+                                topic = Topic, payload = Payload}) ->
+    Flags1 = if Flags =:= undefined ->
+                    #{};
+                true -> Flags
+             end,
+    Dup = maps:get(dup, Flags1, false),
+    Retain = maps:get(retain, Flags1, false),
     Publish = #mqtt_packet_publish{topic_name = Topic,
                                    packet_id  = PacketId,
-                                   %% TODO: Properties
-                                   properties = #{}},
+                                   properties = publish_props(Headers)},
     #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
                                               dup    = Dup,
                                               qos    = QoS,
                                               retain = Retain},
                  variable = Publish, payload = Payload}.
+
+publish_props(Headers) ->
+    maps:filter(fun('Payload-Format-Indicator', _) -> true;
+                   ('Response-Topic',           _) -> true;
+                   ('Correlation-Data',         _) -> true;
+                   ('User-Property',            _) -> true;
+                   ('Subscription-Identifier',  _) -> true;
+                   ('Content-Type',             _) -> true;
+                   (_Key, _Val) -> false
+                end , Headers).
 
 %% @doc Message from Packet
 -spec(to_message(emqx_types:credentials(), emqx_mqtt_types:packet())
