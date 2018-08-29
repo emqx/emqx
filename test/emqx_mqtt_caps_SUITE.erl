@@ -37,7 +37,11 @@ t_get_set_caps(_) ->
         mqtt_shared_subscription => true,
         mqtt_wildcard_subscription => true
     },
-    Caps = emqx_mqtt_caps:get_caps(zone),
+    Caps2 = Caps#{max_packet_size => 1048576},
+    case emqx_mqtt_caps:get_caps(zone) of 
+        Caps -> ok;
+        Caps2 -> ok
+    end,
     PubCaps = #{
         max_qos_allowed => ?QOS_2,
         mqtt_retain_available => true
