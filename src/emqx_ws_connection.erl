@@ -199,7 +199,7 @@ websocket_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
 websocket_info(emit_stats, State = #state{proto_state = ProtoState}) ->
     Stats = lists:append([wsock_stats(), emqx_misc:proc_stats(),
                           emqx_protocol:stats(ProtoState)]),
-    emqx_cm:set_conn_stats(emqx_protocol:clientid(ProtoState), Stats),
+    emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), Stats),
     {ok, State#state{stats_timer = undefined}, hibernate};
 
 websocket_info({keepalive, start, Interval}, State) ->
