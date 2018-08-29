@@ -17,6 +17,7 @@
 -module(emqx_keepalive_SUITE).
 
 -compile(export_all).
+-compile(nowarn_export_all).
 
 all() -> [{group, keepalive}].
 
