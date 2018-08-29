@@ -236,17 +236,15 @@ websocket_info(Info, State) ->
     {ok, State}.
 
 terminate(SockError, _Req, #state{keepalive       = Keepalive,
-                                  proto_state     = _ProtoState,
+                                  proto_state     = ProtoState,
                                   shutdown_reason = Reason}) ->
     emqx_keepalive:cancel(Keepalive),
     io:format("Websocket shutdown for ~p, sockerror: ~p~n", [Reason, SockError]),
     case Reason of
         undefined ->
             ok;
-            %%TODO:
-            %%emqx_protocol:shutdown(SockError, ProtoState);
         _ ->
-            ok%%emqx_protocol:shutdown(Reason, ProtoState)
+            emqx_protocol:shutdown(Reason, ProtoState)
     end.
 
 reset_parser(State = #state{proto_state = ProtoState}) ->
