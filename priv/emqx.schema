@@ -857,8 +857,7 @@ end}.
 ]}.
 
 {mapping, "listener.tcp.$name.peer_cert_as_username", "emqx.listeners", [
-  {default, false},
-  {datatype, {enum, [true, false]}}
+  {datatype, {enum, [cn, dn]}}
 ]}.
 
 {mapping, "listener.tcp.$name.backlog", "emqx.listeners", [
