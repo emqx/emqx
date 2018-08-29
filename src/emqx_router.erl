@@ -167,6 +167,13 @@ handle_cast({del_route, From, Route}, State) ->
     _ = gen_server:reply(From, ok),
     {noreply, NewState};
 
+handle_cast({del_route, Route = #route{topic = Topic, dest = Dest}}, State) when is_tuple(Dest) ->
+    {noreply, case emqx_topic:wildcard(Topic) of
+                  true  -> log(trans(fun del_trie_route/1, [Route])),
+                           State;
+                  false -> del_direct_route(Route, State)
+              end};
+
 handle_cast({del_route, Route = #route{topic = Topic}}, State) ->
     %% Confirm if there are still subscribers...
     {noreply, case ets:member(emqx_subscriber, Topic) of

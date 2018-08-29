@@ -399,20 +399,21 @@ do_unsubscribe(Group, Topic, Subscriber) ->
     ets:delete(?SUBOPTION, {Topic, Subscriber}).
 
 subscriber_down(Subscriber) ->
-    Topics = lists:map(fun({_, {share, _, Topic}}) ->
-                           Topic;
+    Topics = lists:map(fun({_, {share, Group, Topic}}) ->
+                           {Topic, Group};
                           ({_, Topic}) ->
-                           Topic
+                           {Topic, undefined}
                        end, ets:lookup(?SUBSCRIPTION, Subscriber)),
-    lists:foreach(fun(Topic) ->
-                      case ets:lookup(?SUBOPTION, {Topic, Subscriber}) of
-                          [{_, SubOpts}] ->
-                              Group = maps:get(share, SubOpts, undefined),
-                              true = do_unsubscribe(Group, Topic, Subscriber),
-                              ets:member(?SUBSCRIBER, Topic)
-                                orelse emqx_router:del_route(Topic, dest(Group));
-                          [] -> ok
-                      end
+    lists:foreach(fun({Topic, undefined}) ->
+                      true = do_unsubscribe(undefined, Topic, Subscriber),
+                      ets:member(?SUBSCRIBER, Topic) orelse emqx_router:del_route(Topic, dest(undefined));
+                 ({Topic, Group}) ->
+                     true = do_unsubscribe(Group, Topic, Subscriber),
+                     Groups = groups(Topic),
+                     case lists:member(Group, lists:usort(Groups)) of
+                        true  -> ok;
+                        false -> emqx_router:del_route(Topic, dest(Group))
+                    end
                   end, Topics).
 
 monitor_subscriber({SubPid, SubId}, State = #state{submap = SubMap, submon = SubMon}) ->
@@ -430,3 +431,9 @@ dest(Group)     -> {Group, node()}.
 shared(undefined, Name) -> Name;
 shared(Group, Name)     -> {share, Group, Name}.
 
+groups(Topic) ->
+    lists:foldl(fun({_, {share, Group, _}}, Acc) ->
+                        [Group | Acc];
+                   ({_, _}, Acc) ->
+                        Acc
+                end, [], ets:lookup(?SUBSCRIBER, Topic)).
