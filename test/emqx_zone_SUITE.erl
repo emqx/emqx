@@ -22,7 +22,7 @@
 all() -> [t_set_get_env].
 
 t_set_get_env(_) ->
-    {ok, _} = emqx_zone:start_link(),
+    emqx_zone:start_link(),
     ok = emqx_zone:set_env(china, language, chinese),
     timer:sleep(100),   % make sure set_env/3 is okay
     chinese = emqx_zone:get_env(china, language),
