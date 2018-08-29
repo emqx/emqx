@@ -161,12 +161,13 @@ node_parse_name(_) ->
 %%--------------------------------------------------------------------
 
 base62_encode(_) ->
-    10 = ?BASE62:decode(?BASE62:encode(10)),
-    100 = ?BASE62:decode(?BASE62:encode(100)),
-    9999 = ?BASE62:decode(?BASE62:encode(9999)),
-    65535 = ?BASE62:decode(?BASE62:encode(65535)),
+    <<"10">> = ?BASE62:decode(?BASE62:encode(<<"10">>)),
+    <<"100">> = ?BASE62:decode(?BASE62:encode(<<"100">>)),
+    <<"9999">> = ?BASE62:decode(?BASE62:encode(<<"9999">>)),
+    <<"65535">> = ?BASE62:decode(?BASE62:encode(<<"65535">>)),
     <<X:128/unsigned-big-integer>> = emqx_guid:gen(),
     <<Y:128/unsigned-big-integer>> = emqx_guid:gen(),
-    X = ?BASE62:decode(?BASE62:encode(X)),
-    Y = ?BASE62:decode(?BASE62:encode(Y)).
-
+    X = ?BASE62:decode(?BASE62:encode(X), integer),
+    Y = ?BASE62:decode(?BASE62:encode(Y), integer),
+    <<"helloworld">> = ?BASE62:decode(?BASE62:encode("helloworld")),
+    "helloworld" = ?BASE62:decode(?BASE62:encode("helloworld", string), string).
