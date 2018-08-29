@@ -373,12 +373,22 @@ init([Options]) ->
                    {_ver, undefined} -> random_client_id();
                    {_ver, Id}        -> iolist_to_binary(Id)
                end,
+    Username = case proplists:get_value(username, Options) of
+                  undefined  -> <<>>;
+                  Name       -> Name
+               end,
+    Password = case proplists:get_value(password, Options) of
+                  undefined  -> <<>>;
+                  Passw      -> Passw
+               end,
     State = init(Options, #state{host            = {127,0,0,1},
                                  port            = 1883,
                                  hosts           = [],
                                  sock_opts       = [],
                                  bridge_mode     = false,
                                  client_id       = ClientId,
+                                 username        = Username,
+                                 password        = Password,
                                  clean_start     = true,
                                  proto_ver       = ?MQTT_PROTO_V4,
                                  proto_name      = <<"MQTT">>,
@@ -542,7 +552,8 @@ mqtt_connect(State = #state{client_id   = ClientId,
                             properties  = Properties}) ->
     ?WILL_MSG(WillQoS, WillRetain, WillTopic, WillProps, WillPayload) = WillMsg,
     ConnProps = emqx_mqtt_properties:filter(?CONNECT, Properties),
-    io:format("ConnProps: ~p~n", [ConnProps]),
+    io:format("ConnProps: ~p, ClientID: ~p, Username: ~p, Password: ~p~n",
+        [ConnProps, ClientId, Username, Password]),
     send(?CONNECT_PACKET(
             #mqtt_packet_connect{proto_ver    = ProtoVer,
                                  proto_name   = ProtoName,
@@ -1082,4 +1093,3 @@ next_packet_id(State = #state{last_packet_id = 16#ffff}) ->
 
 next_packet_id(State = #state{last_packet_id = Id}) ->
     State#state{last_packet_id = Id + 1}.
-

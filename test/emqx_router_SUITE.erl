@@ -1,18 +1,16 @@
-%%%===================================================================
-%%% Copyright (c) 2013-2018 EMQ Inc. All rights reserved.
-%%%
-%%% Licensed under the Apache License, Version 2.0 (the "License");
-%%% you may not use this file except in compliance with the License.
-%%% You may obtain a copy of the License at
-%%%
-%%%     http://www.apache.org/licenses/LICENSE-2.0
-%%%
-%%% Unless required by applicable law or agreed to in writing, software
-%%% distributed under the License is distributed on an "AS IS" BASIS,
-%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-%%% See the License for the specific language governing permissions and
-%%% limitations under the License.
-%%%===================================================================
+%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(emqx_router_SUITE).
 
@@ -49,11 +47,21 @@ end_per_testcase(_TestCase, _Config) ->
 add_del_route(_) ->
     From = {self(), make_ref()},
     ?R:add_route(From, <<"a/b/c">>, node()),
+    timer:sleep(1),
+
     ?R:add_route(From, <<"a/b/c">>, node()),
+    timer:sleep(1),
+
     ?R:add_route(From, <<"a/+/b">>, node()),
+    ct:log("Topics: ~p ~n", [emqx_topic:wildcard(<<"a/+/b">>)]),
+    timer:sleep(1),
+
     ?assertEqual([<<"a/+/b">>, <<"a/b/c">>], lists:sort(?R:topics())),
+
     ?R:del_route(From, <<"a/b/c">>, node()),
+
     ?R:del_route(From, <<"a/+/b">>, node()),
+    timer:sleep(1),
     ?assertEqual([], lists:sort(?R:topics())).
 
 match_routes(_) ->
@@ -62,6 +70,7 @@ match_routes(_) ->
     ?R:add_route(From, <<"a/+/c">>, node()),
     ?R:add_route(From, <<"a/b/#">>, node()),
     ?R:add_route(From, <<"#">>, node()),
+    timer:sleep(1000),
     ?assertEqual([#route{topic = <<"#">>, dest = node()},
                   #route{topic = <<"a/+/c">>, dest = node()},
                   #route{topic = <<"a/b/#">>, dest = node()},
