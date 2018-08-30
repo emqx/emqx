@@ -466,7 +466,7 @@ deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
               'Maximum-Packet-Size' => MaxPktSize,
               'Topic-Alias-Maximum' => MaxAlias,
               'Wildcard-Subscription-Available' => Wildcard,
-              'Subscription-Identifiers-Available' => 1,
+              'Subscription-Identifier-Available' => 1,
               'Shared-Subscription-Available' => flag(Shared)},
     Props1 = if IsAssigned ->
                     Props#{'Assigned-Client-Identifier' => ClientId};
