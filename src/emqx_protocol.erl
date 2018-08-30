@@ -264,7 +264,6 @@ process_packet(?CONNECT_PACKET(
     %% TODO: Mountpoint...
     %% Msg -> emqx_mountpoint:mount(MountPoint, Msg)
     WillMsg = emqx_packet:will_msg(Connect),
-
     PState1 = set_username(Username,
                            PState#pstate{client_id    = ClientId,
                                          proto_ver    = ProtoVer,
@@ -656,18 +655,23 @@ shutdown(conflict, #pstate{client_id = ClientId}) ->
 shutdown(mnesia_conflict, #pstate{client_id = ClientId}) ->
     emqx_cm:unregister_connection(ClientId),
     ignore;
-shutdown(Error, PState = #pstate{client_id = ClientId, will_msg = WillMsg}) ->
+shutdown(Error, PState = #pstate{connected = false}) ->
     ?LOG(info, "Shutdown for ~p", [Error], PState),
-    %% TODO: Auth failure not publish the will message
-    case Error =:= auth_failure of
-        true -> ok;
-        false -> send_willmsg(WillMsg)
-    end,
+    ignore;
+shutdown(Error, PState = #pstate{connected = true,
+                                 client_id = ClientId,
+                                 will_msg = WillMsg}) ->
+    ?LOG(info, "Shutdown for ~p", [Error], PState),
+    send_willmsg(WillMsg),
     emqx_hooks:run('client.disconnected', [credentials(PState), Error]),
     emqx_cm:unregister_connection(ClientId).
 
 send_willmsg(undefined) ->
     ignore;
+send_willmsg(WillMsg = #message{topic = Topic,
+                                headers = #{'Will-Delay-Interval' := Interval}}) when is_integer(Interval) ->
+    SendAfter = integer_to_binary(Interval),
+    emqx_broker:publish(WillMsg#message{topic = <<"$delayed/", SendAfter/binary, "/", Topic/binary>>});
 send_willmsg(WillMsg) ->
     emqx_broker:publish(WillMsg).
 
@@ -709,4 +713,3 @@ update_mountpoint(PState = #pstate{mountpoint = MountPoint}) ->
 
 sp(true)  -> 1;
 sp(false) -> 0.
-

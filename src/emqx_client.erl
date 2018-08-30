@@ -373,22 +373,12 @@ init([Options]) ->
                    {_ver, undefined} -> random_client_id();
                    {_ver, Id}        -> iolist_to_binary(Id)
                end,
-    Username = case proplists:get_value(username, Options) of
-                  undefined  -> <<>>;
-                  Name       -> Name
-               end,
-    Password = case proplists:get_value(password, Options) of
-                  undefined  -> <<>>;
-                  Passw      -> Passw
-               end,
     State = init(Options, #state{host            = {127,0,0,1},
                                  port            = 1883,
                                  hosts           = [],
                                  sock_opts       = [],
                                  bridge_mode     = false,
                                  client_id       = ClientId,
-                                 username        = Username,
-                                 password        = Password,
                                  clean_start     = true,
                                  proto_ver       = ?MQTT_PROTO_V4,
                                  proto_name      = <<"MQTT">>,
@@ -450,9 +440,9 @@ init([{client_id, ClientId} | Opts], State) ->
     init(Opts, State#state{client_id = iolist_to_binary(ClientId)});
 init([{clean_start, CleanStart} | Opts], State) when is_boolean(CleanStart) ->
     init(Opts, State#state{clean_start = CleanStart});
-init([{useranme, Username} | Opts], State) ->
+init([{username, Username} | Opts], State) ->
     init(Opts, State#state{username = iolist_to_binary(Username)});
-init([{passwrod, Password} | Opts], State) ->
+init([{password, Password} | Opts], State) ->
     init(Opts, State#state{password = iolist_to_binary(Password)});
 init([{keepalive, Secs} | Opts], State) ->
     init(Opts, State#state{keepalive = timer:seconds(Secs)});
@@ -552,8 +542,6 @@ mqtt_connect(State = #state{client_id   = ClientId,
                             properties  = Properties}) ->
     ?WILL_MSG(WillQoS, WillRetain, WillTopic, WillProps, WillPayload) = WillMsg,
     ConnProps = emqx_mqtt_properties:filter(?CONNECT, Properties),
-    io:format("ConnProps: ~p, ClientID: ~p, Username: ~p, Password: ~p~n",
-        [ConnProps, ClientId, Username, Password]),
     send(?CONNECT_PACKET(
             #mqtt_packet_connect{proto_ver    = ProtoVer,
                                  proto_name   = ProtoName,
