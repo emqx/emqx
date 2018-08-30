@@ -1,7 +1,7 @@
 # *EMQ X* - MQTT Broker
 
 
-*EMQ X* broker is fully a open source, highly scalable, highly available distributed message broker for IoT, M2M and Mobile applications that can handle tens of millions of concurrent clients.
+*EMQ X* broker is a fully open source, highly scalable, highly available distributed message broker for IoT, M2M and Mobile applications that can handle tens of millions of concurrent clients.
 
 Starting from 3.0 release, *EMQ X* broker fully supports MQTT V5.0 protocol specifications and backward compatible with MQTT V3.1 and V3.1.1,  as well as other communication protocols such as MQTT-SN, CoAP, LwM2M, WebSocket, STOMP and SockJS. The 3.0 release of the *EMQ X* broker can scaled to 10+ million concurrent MQTT connections on one cluster.
 
@@ -17,8 +17,8 @@ The *EMQ* broker is cross-platform, which can be deployed on Linux, Unix, Mac, W
 
 Download the binary package for your platform from [here](http://emqtt.io/downloads).
 
--[Single Node Install](http://emqtt.io/docs/v2/install.html)
--[Multi Node Install](http://emqtt.io/docs/v2/cluster.html)
+- [Single Node Install](http://emqtt.io/docs/v2/install.html)
+- [Multi Node Install](http://emqtt.io/docs/v2/cluster.html)
 
 
 ## Build From Source
