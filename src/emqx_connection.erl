@@ -217,6 +217,10 @@ handle_info(timeout, State) ->
 handle_info({shutdown, Error}, State) ->
     shutdown(Error, State);
 
+handle_info({shutdown, discard, {ClientId, ByPid}}, State) ->
+    ?LOG(warning, "discarded by ~s:~p", [ClientId, ByPid], State),
+    shutdown(discard, State);
+
 handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
     ?LOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid], State),
     shutdown(conflict, State);
@@ -240,10 +244,10 @@ handle_info({inet_reply, _Sock, ok}, State) ->
 handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
     shutdown(Reason, State);
 
-handle_info({keepalive, start, Interval}, State = #state{transport = Transport, socket = Sock}) ->
+handle_info({keepalive, start, Interval}, State = #state{transport = Transport, socket = Socket}) ->
     ?LOG(debug, "Keepalive at the interval of ~p", [Interval], State),
     StatFun = fun() ->
-                case Transport:getstat(Sock, [recv_oct]) of
+                case Transport:getstat(Socket, [recv_oct]) of
                     {ok, [{recv_oct, RecvOct}]} -> {ok, RecvOct};
                     Error                       -> Error
                 end
@@ -270,11 +274,11 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(Reason, State = #state{transport   = Transport,
-                                 socket      = Sock,
+                                 socket      = Socket,
                                  keepalive   = KeepAlive,
                                  proto_state = ProtoState}) ->
     ?LOG(debug, "Terminated for ~p", [Reason], State),
-    Transport:fast_close(Sock),
+    Transport:fast_close(Socket),
     emqx_keepalive:cancel(KeepAlive),
     case {ProtoState, Reason} of
         {undefined, _} -> ok;
@@ -358,8 +362,8 @@ run_socket(State = #state{conn_state = blocked}) ->
     State;
 run_socket(State = #state{await_recv = true}) ->
     State;
-run_socket(State = #state{transport = Transport, socket = Sock}) ->
-    Transport:async_recv(Sock, 0, infinity),
+run_socket(State = #state{transport = Transport, socket = Socket}) ->
+    Transport:async_recv(Socket, 0, infinity),
     State#state{await_recv = true}.
 
 %%------------------------------------------------------------------------------

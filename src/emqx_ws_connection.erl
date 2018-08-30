@@ -34,20 +34,21 @@
           options,
           peername,
           sockname,
+          idle_timeout,
           proto_state,
           parser_state,
           keepalive,
           enable_stats,
           stats_timer,
-          idle_timeout,
           shutdown_reason
          }).
 
 -define(INFO_KEYS, [peername, sockname]).
+
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
 -define(WSLOG(Level, Format, Args, State),
-        emqx_logger:Level("WsClient(~s): " ++ Format, [esockd_net:format(State#state.peername) | Args])).
+        emqx_logger:Level("WSMQTT(~s): " ++ Format, [esockd_net:format(State#state.peername) | Args])).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -234,6 +235,10 @@ websocket_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
             ?WSLOG(warning, "Keepalive error - ~p", [Error], State),
             shutdown(keepalive_error, State)
     end;
+
+websocket_info({shutdown, discard, {ClientId, ByPid}}, State) ->
+    ?WSLOG(warning, "discarded by ~s:~p", [ClientId, ByPid], State),
+    shutdown(discard, State);
 
 websocket_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
     ?WSLOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid], State),
