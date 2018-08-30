@@ -264,7 +264,6 @@ process_packet(?CONNECT_PACKET(
     %% TODO: Mountpoint...
     %% Msg -> emqx_mountpoint:mount(MountPoint, Msg)
     WillMsg = emqx_packet:will_msg(Connect),
-
     PState1 = set_username(Username,
                            PState#pstate{client_id    = ClientId,
                                          proto_ver    = ProtoVer,
@@ -412,7 +411,7 @@ connack({ReasonCode, PState = #pstate{proto_ver = ProtoVer}}) ->
                              true ->
                                  emqx_reason_codes:compat(connack, ReasonCode)
                           end}, PState),
-    {error, emqx_reason_codes:name(ReasonCode), PState}.
+    {error, emqx_reason_codes:name(ReasonCode, ProtoVer), PState}.
 
 %%------------------------------------------------------------------------------
 %% Publish Message -> Broker
@@ -650,12 +649,14 @@ inc_stats(Type, Stats = #{pkt := PktCnt, msg := MsgCnt}) ->
 
 shutdown(_Reason, #pstate{client_id = undefined}) ->
     ok;
+shutdown(_Reason, PState = #pstate{connected = false}) ->
+    ok;
 shutdown(Reason, #pstate{client_id = ClientId}) when Reason =:= conflict;
                                                      Reason =:= discard ->
     emqx_cm:unregister_connection(ClientId);
-shutdown(Reason, PState = #pstate{client_id = ClientId,
-                                  will_msg  = WillMsg,
-                                  connected = true}) ->
+shutdown(Reason, PState = #pstate{connected = true,
+                                  client_id = ClientId,
+                                  will_msg  = WillMsg}) ->
     ?LOG(info, "Shutdown for ~p", [Reason], PState),
     _ = send_willmsg(WillMsg),
     emqx_hooks:run('client.disconnected', [credentials(PState), Reason]),
@@ -663,6 +664,10 @@ shutdown(Reason, PState = #pstate{client_id = ClientId,
 
 send_willmsg(undefined) ->
     ignore;
+send_willmsg(WillMsg = #message{topic = Topic,
+                                headers = #{'Will-Delay-Interval' := Interval}}) when is_integer(Interval) ->
+    SendAfter = integer_to_binary(Interval),
+    emqx_broker:publish(WillMsg#message{topic = <<"$delayed/", SendAfter/binary, "/", Topic/binary>>});
 send_willmsg(WillMsg) ->
     emqx_broker:publish(WillMsg).
 
@@ -704,4 +709,3 @@ update_mountpoint(PState = #pstate{mountpoint = MountPoint}) ->
 
 sp(true)  -> 1;
 sp(false) -> 0.
-

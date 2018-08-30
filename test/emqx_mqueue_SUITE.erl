@@ -86,7 +86,7 @@ t_infinity_simple_mqueue(_) ->
     ?assertEqual(<<1>>, V#message.payload).
 
 t_priority_mqueue(_) ->
-    Opts = #{type => priority, max_len => 3, store_qos0 => false},
+    Opts = #{type => priority, max_len => 3, priorities => [{<<"t1">>, 1}, {<<"t2">>, 2}, {<<"t3">>, 3}], store_qos0 => false},
     Q = ?Q:init(Opts),
     ?assertEqual(priority, ?Q:type(Q)),
     ?assertEqual(3, ?Q:max_len(Q)),
@@ -103,10 +103,10 @@ t_priority_mqueue(_) ->
     ?assertEqual(5, ?Q:len(Q6)),
     {{value, Msg}, Q7} = ?Q:out(Q6),
     ?assertEqual(4, ?Q:len(Q7)),
-    ?assertEqual(<<"t1">>, Msg#message.topic).
+    ?assertEqual(<<"t3">>, Msg#message.topic).
 
 t_infinity_priority_mqueue(_) ->
-    Opts = #{type => priority, max_len => 0, store_qos0 => false},
+    Opts = #{type => priority, max_len => 0, priorities => [{<<"t">>, 1}, {<<"t1">>, 2}], store_qos0 => false},
     Q = ?Q:init(Opts),
     ?assertEqual(0, ?Q:max_len(Q)),
     Qx = lists:foldl(fun(I, AccQ) ->

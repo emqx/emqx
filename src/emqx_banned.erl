@@ -36,13 +36,7 @@
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 
--type(key() :: {client_id, emqx_types:client_id()} |
-               {username, emqx_types:username() |
-               {ipaddr, inet:ip_address()}}).
-
 -record(state, {expiry_timer}).
-
--record(banned, {key :: key(), reason, by, desc, until}).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -84,7 +78,7 @@ del(Key) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    emqx_timer:seed(),
+    emqx_time:seed(),
     {ok, ensure_expiry_timer(#state{})}.
 
 handle_call(Req, _From, State) ->
@@ -128,7 +122,8 @@ expire_banned_item(Key, Now) ->
         [#banned{until = undefined}] -> ok;
         [B = #banned{until = Until}] when Until < Now ->
            mnesia:delete_object(?TAB, B, sticky_write);
+        [_] -> ok;
         [] -> ok
     end,
-    expire_banned_item(mnesia:next(Key), Now).
+    expire_banned_item(mnesia:next(?TAB, Key), Now).
 
