@@ -24,12 +24,12 @@
 
 -define(Q, emqx_mqueue).
 
-all() -> [t_in, t_in_qos0, t_out, t_simple_mqueue, t_infinity_simple_mqueue, 
-            t_priority_mqueue, t_infinity_priority_mqueue].
+all() -> [t_in, t_in_qos0, t_out, t_simple_mqueue, t_infinity_simple_mqueue,
+          t_priority_mqueue, t_infinity_priority_mqueue].
 
 t_in(_) ->
     Opts = #{type => simple, max_len => 5, store_qos0 => true},
-    Q = ?Q:new(<<"testQ">>, Opts),
+    Q = ?Q:init(Opts),
     ?assert(?Q:is_empty(Q)),
     Q1 = ?Q:in(#message{}, Q),
     ?assertEqual(1, ?Q:len(Q1)),
@@ -42,7 +42,7 @@ t_in(_) ->
 
 t_in_qos0(_) ->
     Opts = #{type => simple, max_len => 5, store_qos0 => false},
-    Q = ?Q:new(<<"testQ">>, Opts),
+    Q = ?Q:init(Opts),
     Q1 = ?Q:in(#message{qos = 0}, Q),
     ?assert(?Q:is_empty(Q1)),
     Q2 = ?Q:in(#message{qos = 0}, Q1),
@@ -50,7 +50,7 @@ t_in_qos0(_) ->
 
 t_out(_) ->
     Opts = #{type => simple, max_len => 5, store_qos0 => true},
-    Q = ?Q:new(<<"testQ">>, Opts),
+    Q = ?Q:init(Opts),
     {empty, Q} = ?Q:out(Q),
     Q1 = ?Q:in(#message{}, Q),
     {Value, Q2} = ?Q:out(Q1),
@@ -59,10 +59,9 @@ t_out(_) ->
 
 t_simple_mqueue(_) ->
     Opts = #{type => simple, max_len => 3, store_qos0 => false},
-    Q = ?Q:new("simple_queue", Opts),
+    Q = ?Q:init(Opts),
     ?assertEqual(simple, ?Q:type(Q)),
     ?assertEqual(3, ?Q:max_len(Q)),
-    ?assertEqual(<<"simple_queue">>, ?Q:name(Q)),
     ?assert(?Q:is_empty(Q)),
     Q1 = ?Q:in(#message{qos = 1, payload = <<"1">>}, Q),
     Q2 = ?Q:in(#message{qos = 1, payload = <<"2">>}, Q1),
@@ -75,7 +74,7 @@ t_simple_mqueue(_) ->
 
 t_infinity_simple_mqueue(_) ->
     Opts = #{type => simple, max_len => 0, store_qos0 => false},
-    Q = ?Q:new("infinity_simple_queue", Opts),
+    Q = ?Q:init(Opts),
     ?assert(?Q:is_empty(Q)),
     ?assertEqual(0, ?Q:max_len(Q)),
     Qx = lists:foldl(fun(I, AccQ) ->
@@ -88,10 +87,9 @@ t_infinity_simple_mqueue(_) ->
 
 t_priority_mqueue(_) ->
     Opts = #{type => priority, max_len => 3, store_qos0 => false},
-    Q = ?Q:new("priority_queue", Opts),
+    Q = ?Q:init(Opts),
     ?assertEqual(priority, ?Q:type(Q)),
     ?assertEqual(3, ?Q:max_len(Q)),
-    ?assertEqual(<<"priority_queue">>, ?Q:name(Q)),
     ?assert(?Q:is_empty(Q)),
     Q1 = ?Q:in(#message{qos = 1, topic = <<"t2">>}, Q),
     Q2 = ?Q:in(#message{qos = 1, topic = <<"t1">>}, Q1),
@@ -109,7 +107,7 @@ t_priority_mqueue(_) ->
 
 t_infinity_priority_mqueue(_) ->
     Opts = #{type => priority, max_len => 0, store_qos0 => false},
-    Q = ?Q:new("infinity_priority_queue", Opts),
+    Q = ?Q:init(Opts),
     ?assertEqual(0, ?Q:max_len(Q)),
     Qx = lists:foldl(fun(I, AccQ) ->
                     AccQ1 =
@@ -118,3 +116,16 @@ t_infinity_priority_mqueue(_) ->
             end, Q, lists:seq(1, 255)),
     ?assertEqual(510, ?Q:len(Qx)),
     ?assertEqual([{len, 510}, {max_len, 0}, {dropped, 0}], ?Q:stats(Qx)).
+
+t_priority_mqueue2(_) ->
+    Opts = #{type => priority, max_length => 2, store_qos0 => false},
+    Q = ?Q:init("priority_queue2_test", Opts),
+    2 = ?Q:max_len(Q),
+    Q1 = ?Q:in(#message{topic = <<"x">>, qos = 1, payload = <<1>>}, Q),
+    Q2 = ?Q:in(#message{topic = <<"x">>, qos = 1, payload = <<2>>}, Q1),
+    Q3 = ?Q:in(#message{topic = <<"y">>, qos = 1, payload = <<3>>}, Q2),
+    Q4 = ?Q:in(#message{topic = <<"y">>, qos = 1, payload = <<4>>}, Q3),
+    4 = ?Q:len(Q4),
+    {{value, _Val}, Q5} = ?Q:out(Q4),
+    3 = ?Q:len(Q5).
+
