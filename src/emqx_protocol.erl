@@ -402,11 +402,11 @@ process_packet(?PACKET(?DISCONNECT), PState) ->
 %%------------------------------------------------------------------------------
 
 connack({?RC_SUCCESS, SP, PState}) ->
-    emqx_hooks:run('client.connected', [credentials(PState), ?RC_SUCCESS, info(PState)]),
+    emqx_hooks:run('client.connected', [credentials(PState), ?RC_SUCCESS, attrs(PState)]),
     deliver({connack, ?RC_SUCCESS, sp(SP)}, update_mountpoint(PState));
 
 connack({ReasonCode, PState = #pstate{proto_ver = ProtoVer}}) ->
-    emqx_hooks:run('client.connected', [credentials(PState), ?RC_SUCCESS, info(PState)]),
+    emqx_hooks:run('client.connected', [credentials(PState), ?RC_SUCCESS, attrs(PState)]),
     _ = deliver({connack, if ProtoVer =:= ?MQTT_PROTO_V5 ->
                                  ReasonCode;
                              true ->
@@ -648,22 +648,17 @@ inc_stats(Type, Stats = #{pkt := PktCnt, msg := MsgCnt}) ->
                                          false -> MsgCnt
                                      end}.
 
-shutdown(_Error, #pstate{client_id = undefined}) ->
-    ignore;
-shutdown(conflict, #pstate{client_id = ClientId}) ->
-    emqx_cm:unregister_connection(ClientId),
-    ignore;
-shutdown(mnesia_conflict, #pstate{client_id = ClientId}) ->
-    emqx_cm:unregister_connection(ClientId),
-    ignore;
-shutdown(Error, PState = #pstate{client_id = ClientId, will_msg = WillMsg}) ->
-    ?LOG(info, "Shutdown for ~p", [Error], PState),
-    %% TODO: Auth failure not publish the will message
-    case Error =:= auth_failure of
-        true -> ok;
-        false -> send_willmsg(WillMsg)
-    end,
-    emqx_hooks:run('client.disconnected', [credentials(PState), Error]),
+shutdown(_Reason, #pstate{client_id = undefined}) ->
+    ok;
+shutdown(Reason, #pstate{client_id = ClientId}) when Reason =:= conflict;
+                                                     Reason =:= discard ->
+    emqx_cm:unregister_connection(ClientId);
+shutdown(Reason, PState = #pstate{client_id = ClientId,
+                                  will_msg  = WillMsg,
+                                  connected = true}) ->
+    ?LOG(info, "Shutdown for ~p", [Reason], PState),
+    _ = send_willmsg(WillMsg),
+    emqx_hooks:run('client.disconnected', [credentials(PState), Reason]),
     emqx_cm:unregister_connection(ClientId).
 
 send_willmsg(undefined) ->
