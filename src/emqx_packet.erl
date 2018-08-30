@@ -107,6 +107,7 @@ publish_props(Headers) ->
                    ('User-Property',            _) -> true;
                    ('Subscription-Identifier',  _) -> true;
                    ('Content-Type',             _) -> true;
+                   ('Message-Expiry-Interval',  _) -> true;
                    (_Key, _Val) -> false
                 end , Headers).
 
