@@ -465,7 +465,7 @@ deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
               'Retain-Available' => flag(Retain),
               'Maximum-Packet-Size' => MaxPktSize,
               'Topic-Alias-Maximum' => MaxAlias,
-              'Wildcard-Subscription-Available' => Wildcard,
+              'Wildcard-Subscription-Available' => flag(Wildcard),
               'Subscription-Identifier-Available' => 1,
               'Shared-Subscription-Available' => flag(Shared)},
     Props1 = if IsAssigned ->
@@ -745,4 +745,3 @@ sp(false) -> 0.
 
 flag(false) -> 0;
 flag(true)  -> 1.
-
