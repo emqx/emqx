@@ -44,7 +44,8 @@
 -include("emqx_mqtt.hrl").
 
 -export([start_link/1]).
--export([info/1, stats/1]).
+-export([info/1, attrs/1]).
+-export([stats/1]).
 -export([resume/2, discard/2]).
 -export([subscribe/2, subscribe/4]).
 -export([publish/3]).
@@ -94,8 +95,8 @@
           %% Client <- Broker: Inflight QoS1, QoS2 messages sent to the client but unacked.
           inflight :: emqx_inflight:inflight(),
 
-          %% Max Inflight Size
-          max_inflight = 32 :: non_neg_integer(),
+          %% Max Inflight Size. DEPRECATED: Get from inflight
+          %% max_inflight = 32 :: non_neg_integer(),
 
           %% Retry interval for redelivering QoS1/2 messages
           retry_interval = 20000 :: timeout(),
@@ -145,11 +146,6 @@
 
 -define(TIMEOUT, 60000).
 
--define(INFO_KEYS, [clean_start, client_id, username, binding, conn_pid, old_conn_pid,
-                    next_pkt_id, max_subscriptions, subscriptions, upgrade_qos, inflight,
-                    max_inflight, retry_interval, mqueue, awaiting_rel, max_awaiting_rel,
-                    await_rel_timeout, expiry_interval, enable_stats, created_at]).
-
 -define(LOG(Level, Format, Args, State),
         emqx_logger:Level([{client, State#state.client_id}],
                           "Session(~s): " ++ Format, [State#state.client_id | Args])).
@@ -159,6 +155,77 @@
 start_link(SessAttrs) ->
     IdleTimeout = maps:get(idle_timeout, SessAttrs, 30000),
     gen_server:start_link(?MODULE, SessAttrs, [{hibernate_after, IdleTimeout}]).
+
+%% @doc Get session info
+-spec(info(pid() | #state{}) -> list({atom(), term()})).
+info(SPid) when is_pid(SPid) ->
+    gen_server:call(SPid, info, infinity);
+
+info(State = #state{conn_pid = ConnPid,
+                    next_pkt_id = PktId,
+                    max_subscriptions = MaxSubscriptions,
+                    subscriptions = Subscriptions,
+                    upgrade_qos = UpgradeQoS,
+                    inflight = Inflight,
+                    retry_interval = RetryInterval,
+                    mqueue = MQueue,
+                    awaiting_rel = AwaitingRel,
+                    max_awaiting_rel = MaxAwaitingRel,
+                    await_rel_timeout = AwaitRelTimeout}) ->
+    attrs(State) ++ [{conn_pid, ConnPid},
+                     {next_pkt_id, PktId},
+                     {max_subscriptions, MaxSubscriptions},
+                     {subscriptions, Subscriptions},
+                     {upgrade_qos, UpgradeQoS},
+                     {inflight, Inflight},
+                     {retry_interval, RetryInterval},
+                     {mqueue_len, MQueue},
+                     {awaiting_rel, AwaitingRel},
+                     {max_awaiting_rel, MaxAwaitingRel},
+                     {await_rel_timeout, AwaitRelTimeout}].
+
+%% @doc Get session attrs
+-spec(attrs(pid() | #state{}) -> list({atom(), term()})).
+attrs(SPid) when is_pid(SPid) ->
+    gen_server:call(SPid, attrs, infinity);
+
+attrs(#state{clean_start = CleanStart,
+             binding = Binding,
+             client_id = ClientId,
+             username = Username,
+             expiry_interval = ExpiryInterval,
+             created_at = CreatedAt}) ->
+    [{clean_start, CleanStart},
+     {binding, Binding},
+     {client_id, ClientId},
+     {username, Username},
+     {expiry_interval, ExpiryInterval div 1000},
+     {created_at, CreatedAt}].
+
+-spec(stats(pid() | #state{}) -> list({atom(), non_neg_integer()})).
+stats(SPid) when is_pid(SPid) ->
+    gen_server:call(SPid, stats, infinity);
+
+stats(#state{max_subscriptions = MaxSubscriptions,
+             subscriptions = Subscriptions,
+             inflight = Inflight,
+             mqueue = MQueue,
+             max_awaiting_rel = MaxAwaitingRel,
+             awaiting_rel = AwaitingRel,
+             deliver_stats = DeliverMsg,
+             enqueue_stats = EnqueueMsg}) ->
+    lists:append(emqx_misc:proc_stats(),
+                 [{max_subscriptions, MaxSubscriptions},
+                  {subscriptions_num, maps:size(Subscriptions)},
+                  {max_inflight, emqx_inflight:max_size(Inflight)},
+                  {inflight_len, emqx_inflight:size(Inflight)},
+                  {max_mqueue, emqx_mqueue:max_len(MQueue)},
+                  {mqueue_len, emqx_mqueue:len(MQueue)},
+                  {mqueue_dropped, emqx_mqueue:dropped(MQueue)},
+                  {max_awaiting_rel, MaxAwaitingRel},
+                  {awaiting_rel_len, maps:size(AwaitingRel)},
+                  {deliver_msg, DeliverMsg},
+                  {enqueue_msg, EnqueueMsg}]).
 
 %%------------------------------------------------------------------------------
 %% PubSub API
@@ -229,70 +296,6 @@ unsubscribe(SPid, PacketId, Properties, TopicFilters) ->
 resume(SPid, ConnPid) ->
     gen_server:cast(SPid, {resume, ConnPid}).
 
-%% @doc Get session info
--spec(info(pid() | #state{}) -> list(tuple())).
-info(SPid) when is_pid(SPid) ->
-    gen_server:call(SPid, info);
-
-info(#state{clean_start = CleanStart,
-            binding = Binding,
-            client_id = ClientId,
-            username = Username,
-            max_subscriptions = MaxSubscriptions,
-            subscriptions = Subscriptions,
-            upgrade_qos = UpgradeQoS,
-            inflight = Inflight,
-            max_inflight = MaxInflight,
-            retry_interval = RetryInterval,
-            mqueue = MQueue,
-            awaiting_rel = AwaitingRel,
-            max_awaiting_rel = MaxAwaitingRel,
-            await_rel_timeout = AwaitRelTimeout,
-            expiry_interval = ExpiryInterval,
-            created_at = CreatedAt}) ->
-    [{clean_start, CleanStart},
-     {binding, Binding},
-     {client_id, ClientId},
-     {username, Username},
-     {max_subscriptions, MaxSubscriptions},
-     {subscriptions, maps:size(Subscriptions)},
-     {upgrade_qos, UpgradeQoS},
-     {inflight, emqx_inflight:size(Inflight)},
-     {max_inflight, MaxInflight},
-     {retry_interval, RetryInterval},
-     {mqueue_len, emqx_mqueue:len(MQueue)},
-     {awaiting_rel, maps:size(AwaitingRel)},
-     {max_awaiting_rel, MaxAwaitingRel},
-     {await_rel_timeout, AwaitRelTimeout},
-     {expiry_interval, ExpiryInterval},
-     {created_at, CreatedAt}].
-
--spec(stats(pid() | #state{}) -> list({atom(), non_neg_integer()})).
-stats(SPid) when is_pid(SPid) ->
-    gen_server:call(SPid, stats, infinity);
-
-stats(#state{max_subscriptions = MaxSubscriptions,
-              subscriptions     = Subscriptions,
-              inflight          = Inflight,
-              max_inflight      = MaxInflight,
-              mqueue            = MQueue,
-              max_awaiting_rel  = MaxAwaitingRel,
-              awaiting_rel      = AwaitingRel,
-              deliver_stats     = DeliverMsg,
-              enqueue_stats     = EnqueueMsg}) ->
-    lists:append(emqx_misc:proc_stats(),
-                 [{max_subscriptions, MaxSubscriptions},
-                  {subscriptions,     maps:size(Subscriptions)},
-                  {max_inflight,      MaxInflight},
-                  {inflight_len,      emqx_inflight:size(Inflight)},
-                  {max_mqueue,        emqx_mqueue:max_len(MQueue)},
-                  {mqueue_len,        emqx_mqueue:len(MQueue)},
-                  {mqueue_dropped,    emqx_mqueue:dropped(MQueue)},
-                  {max_awaiting_rel,  MaxAwaitingRel},
-                  {awaiting_rel_len,  maps:size(AwaitingRel)},
-                  {deliver_msg,       DeliverMsg},
-                  {enqueue_msg,       EnqueueMsg}]).
-
 %% @doc Discard the session
 -spec(discard(pid(), emqx_types:client_id()) -> ok).
 discard(SPid, ClientId) ->
@@ -311,7 +314,7 @@ init(#{zone        := Zone,
        username    := Username,
        conn_pid    := ConnPid,
        clean_start := CleanStart,
-       conn_props  := _ConnProps}) ->
+       conn_props  := ConnProps}) ->
     process_flag(trap_exit, true),
     true = link(ConnPid),
     MaxInflight = get_env(Zone, max_inflight),
@@ -323,21 +326,26 @@ init(#{zone        := Zone,
                    subscriptions     = #{},
                    max_subscriptions = get_env(Zone, max_subscriptions, 0),
                    upgrade_qos       = get_env(Zone, upgrade_qos, false),
-                   max_inflight      = MaxInflight,
                    inflight          = emqx_inflight:new(MaxInflight),
                    mqueue            = init_mqueue(Zone, ClientId),
                    retry_interval    = get_env(Zone, retry_interval, 0),
                    awaiting_rel      = #{},
                    await_rel_timeout = get_env(Zone, await_rel_timeout),
                    max_awaiting_rel  = get_env(Zone, max_awaiting_rel),
-                   expiry_interval   = get_env(Zone, session_expiry_interval),
+                   expiry_interval   = expire_interval(Zone, ConnProps),
                    enable_stats      = get_env(Zone, enable_stats, true),
-                   deliver_stats      = 0,
-                   enqueue_stats      = 0,
+                   deliver_stats     = 0,
+                   enqueue_stats     = 0,
                    created_at        = os:timestamp()},
-    emqx_sm:register_session(ClientId, info(State)),
+    emqx_sm:register_session(ClientId, [{zone, Zone} | attrs(State)]),
+    emqx_sm:set_session_stats(ClientId, stats(State)),
     emqx_hooks:run('session.created', [#{client_id => ClientId}, info(State)]),
-    {ok, ensure_stats_timer(State), hibernate}.
+    {ok, State}.
+
+expire_interval(_Zone, #{'Session-Expiry-Interval' := I}) ->
+    I * 1000;
+expire_interval(Zone, _ConnProps) -> %% Maybe v3.1.1
+    get_env(Zone, session_expiry_interval, 0).
 
 init_mqueue(Zone, ClientId) ->
     emqx_mqueue:new(ClientId, #{type => simple,
@@ -398,6 +406,9 @@ handle_call({pubrel, PacketId, _ReasonCode}, _From,
 
 handle_call(info, _From, State) ->
     reply(info(State), State);
+
+handle_call(attrs, _From, State) ->
+    reply(attrs(State), State);
 
 handle_call(stats, _From, State) ->
     reply(stats(State), State);
@@ -501,7 +512,7 @@ handle_cast({resume, ConnPid}, State = #state{client_id       = ClientId,
     %% Clean Session: true -> false?
     CleanStart andalso emqx_sm:set_session_attrs(ClientId, info(State1)),
 
-    emqx_hooks:run('session.resumed', [#{client_id => ClientId}, info(State)]),
+    emqx_hooks:run('session.resumed', [#{client_id => ClientId}, attrs(State)]),
 
     %% Replay delivery and Dequeue pending messages
     {noreply, ensure_stats_timer(dequeue(retry_delivery(true, State1)))};
@@ -541,20 +552,18 @@ handle_info({timeout, _Timer, expired}, State) ->
     ?LOG(info, "Expired, shutdown now.", [], State),
     shutdown(expired, State);
 
-handle_info({'EXIT', ConnPid, _Reason}, State = #state{clean_start= true, conn_pid = ConnPid}) ->
-    {stop, normal, State};
+handle_info({'EXIT', ConnPid, Reason}, State = #state{clean_start = true, conn_pid = ConnPid}) ->
+    {stop, Reason, State};
 
-handle_info({'EXIT', ConnPid, Reason}, State = #state{clean_start = false,
-                                                      conn_pid    = ConnPid,
-                                                      expiry_interval = Interval}) ->
-    ?LOG(info, "Connection ~p EXIT for ~p", [ConnPid, Reason], State),
-    ExpireTimer = emqx_misc:start_timer(Interval, expired),
-    State1 = State#state{conn_pid = undefined, expiry_timer = ExpireTimer},
-    {noreply, State1};
+handle_info({'EXIT', ConnPid, Reason}, State = #state{expiry_interval = 0, conn_pid = ConnPid}) ->
+    {stop, Reason, State};
 
-handle_info({'EXIT', Pid, _Reason}, State = #state{old_conn_pid = Pid}) ->
+handle_info({'EXIT', ConnPid, _Reason}, State = #state{clean_start = false, conn_pid = ConnPid}) ->
+    {noreply, ensure_expire_timer(State#state{conn_pid = undefined})};
+
+handle_info({'EXIT', OldPid, _Reason}, State = #state{old_conn_pid = OldPid}) ->
     %% ignore
-    {noreply, State, hibernate};
+    {noreply, State#state{old_conn_pid = undefined}, hibernate};
 
 handle_info({'EXIT', Pid, Reason}, State = #state{conn_pid = ConnPid}) ->
     ?LOG(error, "unexpected EXIT: conn_pid=~p, exit_pid=~p, reason=~p",
@@ -571,6 +580,7 @@ handle_info(Info, State) ->
 
 terminate(Reason, #state{client_id = ClientId}) ->
     emqx_hooks:run('session.terminated', [#{client_id => ClientId}, Reason]),
+    %%TODO: notify conn_pid to shutdown?
     emqx_sm:unregister_session(ClientId).
 
 code_change(_OldVsn, State, _Extra) ->
@@ -819,6 +829,11 @@ ensure_await_rel_timer(State = #state{await_rel_timer = undefined, await_rel_tim
 ensure_await_rel_timer(State) ->
     State.
 
+ensure_expire_timer(State = #state{expiry_interval = Interval}) when Interval > 0 ->
+    State#state{expiry_timer = emqx_misc:start_timer(Interval, expired)};
+ensure_expire_timer(State) ->
+    State.
+
 %%------------------------------------------------------------------------------
 %% Reset Dup
 
@@ -837,8 +852,7 @@ next_pkt_id(State = #state{next_pkt_id = Id}) ->
 %%------------------------------------------------------------------------------
 %% Ensure stats timer
 
-ensure_stats_timer(State = #state{enable_stats = true,
-                                  stats_timer  = undefined}) ->
+ensure_stats_timer(State = #state{enable_stats = true, stats_timer = undefined}) ->
     State#state{stats_timer = erlang:send_after(30000, self(), emit_stats)};
 ensure_stats_timer(State) ->
     State.
@@ -857,5 +871,5 @@ reply(Reply, State) ->
 shutdown(Reason, State) ->
     {stop, {shutdown, Reason}, State}.
 
-%%TODO: maybe_gc(State) -> State.
+%% TODO: maybe_gc(State) -> State.
 

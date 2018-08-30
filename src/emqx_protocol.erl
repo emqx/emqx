@@ -17,7 +17,11 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
--export([init/2, info/1, caps/1, stats/1]).
+-export([init/2]).
+-export([info/1]).
+-export([attrs/1]).
+-export([caps/1]).
+-export([stats/1]).
 -export([client_id/1]).
 -export([credentials/1]).
 -export([parser/1]).
@@ -27,22 +31,6 @@
 -export([deliver/2]).
 -export([send/2]).
 -export([shutdown/2]).
-
-
-%%-record(mqtt_client, {
-%%         client_id     :: binary() | undefined,
-%%         client_pid    :: pid(),
-%%         username      :: binary() | undefined,
-%%         peername      :: {inet:ip_address(), inet:port_number()},
-%%         clean_start   :: boolean(),
-%%         proto_ver     :: emqx_mqtt_types:version(),
-%%         keepalive = 0 :: non_neg_integer(),
-%%         will_topic    :: undefined | binary(),
-%%         mountpoint    :: undefined | binary(),
-%%         connected_at  :: erlang:timestamp(),
-%%         attributes    :: map()
-%%      }).
-
 
 -record(pstate, {
           zone,
@@ -61,6 +49,7 @@
           clean_start,
           topic_aliases,
           packet_size,
+          will_topic,
           will_msg,
           keepalive,
           mountpoint,
@@ -81,7 +70,7 @@
 -endif.
 
 -define(LOG(Level, Format, Args, PState),
-        emqx_logger:Level([{client, PState#pstate.client_id}], "Client(~s@~s): " ++ Format,
+        emqx_logger:Level([{client, PState#pstate.client_id}], "MQTT(~s@~s): " ++ Format,
                           [PState#pstate.client_id, esockd_net:format(PState#pstate.peername) | Args])).
 
 %%------------------------------------------------------------------------------
@@ -127,33 +116,46 @@ set_username(_Username, PState) ->
 %% API
 %%------------------------------------------------------------------------------
 
-info(#pstate{zone         = Zone,
-             client_id    = ClientId,
-             username     = Username,
-             peername     = Peername,
-             proto_ver    = ProtoVer,
-             proto_name   = ProtoName,
-             clean_start  = CleanStart,
-             conn_props   = ConnProps,
-             keepalive    = Keepalive,
-             mountpoint   = Mountpoint,
-             is_super     = IsSuper,
-             is_bridge    = IsBridge,
-             connected    = Connected,
-             connected_at = ConnectedAt}) ->
+info(PState = #pstate{conn_props    = ConnProps,
+                      ack_props     = AclProps,
+                      session       = Session,
+                      topic_aliases = Aliases,
+                      will_msg      = WillMsg,
+                      enable_acl    = EnableAcl}) ->
+    attrs(PState) ++ [{conn_props, ConnProps},
+                      {ack_props, AclProps},
+                      {session, Session},
+                      {topic_aliases, Aliases},
+                      {will_msg, WillMsg},
+                      {enable_acl, EnableAcl}].
+
+attrs(#pstate{zone         = Zone,
+              client_id    = ClientId,
+              username     = Username,
+              peername     = Peername,
+              peercert     = Peercert,
+              clean_start  = CleanStart,
+              proto_ver    = ProtoVer,
+              proto_name   = ProtoName,
+              keepalive    = Keepalive,
+              will_topic   = WillTopic,
+              mountpoint   = Mountpoint,
+              is_super     = IsSuper,
+              is_bridge    = IsBridge,
+              connected_at = ConnectedAt}) ->
     [{zone, Zone},
      {client_id, ClientId},
      {username, Username},
      {peername, Peername},
+     {peercert, Peercert},
      {proto_ver, ProtoVer},
      {proto_name, ProtoName},
-     {conn_props, ConnProps},
      {clean_start, CleanStart},
      {keepalive, Keepalive},
+     {will_topic, WillTopic},
      {mountpoint, Mountpoint},
      {is_super, IsSuper},
      {is_bridge, IsBridge},
-     {connected, Connected},
      {connected_at, ConnectedAt}].
 
 caps(#pstate{zone = Zone}) ->
@@ -254,6 +256,7 @@ process_packet(?CONNECT_PACKET(
                                        clean_start = CleanStart,
                                        keepalive   = Keepalive,
                                        properties  = ConnProps,
+                                       will_topic  = WillTopic,
                                        client_id   = ClientId,
                                        username    = Username,
                                        password    = Password} = Connect), PState) ->
@@ -269,9 +272,9 @@ process_packet(?CONNECT_PACKET(
                                          clean_start  = CleanStart,
                                          keepalive    = Keepalive,
                                          conn_props   = ConnProps,
+                                         will_topic   = WillTopic,
                                          will_msg     = WillMsg,
                                          is_bridge    = IsBridge,
-                                         connected    = true,
                                          connected_at = os:timestamp()}),
 
     connack(
@@ -284,8 +287,8 @@ process_packet(?CONNECT_PACKET(
                       %% Open session
                       case try_open_session(PState3) of
                           {ok, SPid, SP} ->
-                              PState4 = PState3#pstate{session = SPid},
-                              ok = emqx_cm:register_connection(client_id(PState4), info(PState4)),
+                              PState4 = PState3#pstate{session = SPid, connected = true},
+                              ok = emqx_cm:register_connection(client_id(PState4), attrs(PState4)),
                               %% Start keepalive
                               start_keepalive(Keepalive, PState4),
                               %% Success
@@ -521,7 +524,8 @@ try_open_session(#pstate{zone        = Zone,
                                 username    => Username,
                                 clean_start => CleanStart,
                                 conn_props  => ConnProps}) of
-        {ok, SPid} -> {ok, SPid, false};
+        {ok, SPid} ->
+            {ok, SPid, false};
         Other -> Other
     end.
 

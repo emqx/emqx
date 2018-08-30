@@ -139,18 +139,18 @@ unregister_mod(_) ->
     [] = ?AC:lookup_mods(auth).
 
 check_acl_1(_) ->
-    SelfUser = #client{id = <<"client1">>, username = <<"testuser">>},
+    SelfUser = #{client_id => <<"client1">>, username => <<"testuser">>},
     allow = ?AC:check_acl(SelfUser, subscribe, <<"users/testuser/1">>),
     allow = ?AC:check_acl(SelfUser, subscribe, <<"clients/client1">>),
     deny = ?AC:check_acl(SelfUser, subscribe, <<"clients/client1/x/y">>),
     allow = ?AC:check_acl(SelfUser, publish, <<"users/testuser/1">>),
     allow = ?AC:check_acl(SelfUser, subscribe, <<"a/b/c">>).
 check_acl_2(_) ->
-    SelfUser = #client{id = <<"client2">>, username = <<"xyz">>},
+    SelfUser = #{client_id => <<"client2">>, username => <<"xyz">>},
     deny = ?AC:check_acl(SelfUser, subscribe, <<"a/b/c">>).
 
 acl_cache_basic(_) ->
-    SelfUser = #client{id = <<"client1">>, username = <<"testuser">>},
+    SelfUser = #{client_id => <<"client1">>, username => <<"testuser">>},
     not_found = ?CACHE:get_acl_cache(subscribe, <<"users/testuser/1">>),
     not_found = ?CACHE:get_acl_cache(subscribe, <<"clients/client1">>),
 
@@ -163,8 +163,7 @@ acl_cache_basic(_) ->
 
 acl_cache_expiry(_) ->
     application:set_env(emqx, acl_cache_ttl, 100),
-
-    SelfUser = #client{id = <<"client1">>, username = <<"testuser">>},
+    SelfUser = #{client_id => <<"client1">>, username => <<"testuser">>},
     allow = ?AC:check_acl(SelfUser, subscribe, <<"clients/client1">>),
     allow = ?CACHE:get_acl_cache(subscribe, <<"clients/client1">>),
     ct:sleep(150),
@@ -174,7 +173,7 @@ acl_cache_expiry(_) ->
 acl_cache_full(_) ->
     application:set_env(emqx, acl_cache_max_size, 1),
 
-    SelfUser = #client{id = <<"client1">>, username = <<"testuser">>},
+    SelfUser = #{client_id => <<"client1">>, username => <<"testuser">>},
     allow = ?AC:check_acl(SelfUser, subscribe, <<"users/testuser/1">>),
     allow = ?AC:check_acl(SelfUser, subscribe, <<"clients/client1">>),
 
@@ -189,7 +188,7 @@ acl_cache_cleanup(_) ->
     application:set_env(emqx, acl_cache_ttl, 100),
     application:set_env(emqx, acl_cache_max_size, 2),
 
-    SelfUser = #client{id = <<"client1">>, username = <<"testuser">>},
+    SelfUser = #{client_id => <<"client1">>, username => <<"testuser">>},
     allow = ?AC:check_acl(SelfUser, subscribe, <<"users/testuser/1">>),
     allow = ?AC:check_acl(SelfUser, subscribe, <<"clients/client1">>),
 
@@ -334,7 +333,6 @@ cache_auto_cleanup(_) ->
 %%--------------------------------------------------------------------
 
 compile_rule(_) ->
-
     {allow, {'and', [{ipaddr, {{127,0,0,1}, {127,0,0,1}, 32}},
                      {user, <<"user">>}]}, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]} =
         compile({allow, {'and', [{ipaddr, "127.0.0.1"}, {user, <<"user">>}]}, subscribe, ["$SYS/#", "#"]}),
@@ -360,8 +358,8 @@ compile_rule(_) ->
     {deny, all} = compile({deny, all}).
 
 match_rule(_) ->
-    User = #client{peername = {{127,0,0,1}, 2948}, id = <<"testClient">>, username = <<"TestUser">>},
-    User2 = #client{peername = {{192,168,0,10}, 3028}, id = <<"testClient">>, username = <<"TestUser">>},
+    User = #{client_id => <<"testClient">>, username => <<"TestUser">>, peername => {{127,0,0,1}, 2948}},
+    User2 = #{client_id => <<"testClient">>, username => <<"TestUser">>, peername => {{192,168,0,10}, 3028}},
 
     {matched, allow} = match(User, <<"Test/Topic">>, {allow, all}),
     {matched, deny} = match(User, <<"Test/Topic">>, {deny, all}),
@@ -371,8 +369,7 @@ match_rule(_) ->
     nomatch = match(User, <<"d/e/f/x">>, compile({allow, {user, "admin"}, pubsub, ["d/e/f/#"]})),
     {matched, allow} = match(User, <<"testTopics/testClient">>, compile({allow, {client, "testClient"}, publish, ["testTopics/testClient"]})),
     {matched, allow} = match(User, <<"clients/testClient">>, compile({allow, all, pubsub, ["clients/%c"]})),
-    {matched, allow} = match(#client{username = <<"user2">>}, <<"users/user2/abc/def">>,
-                             compile({allow, all, subscribe, ["users/%u/#"]})),
+    {matched, allow} = match(#{username => <<"user2">>}, <<"users/user2/abc/def">>, compile({allow, all, subscribe, ["users/%u/#"]})),
     {matched, deny} = match(User, <<"d/e/f">>, compile({deny, all, subscribe, ["$SYS/#", "#"]})),
     Rule = compile({allow, {'and', [{ipaddr, "127.0.0.1"}, {user, <<"WrongUser">>}]}, publish, <<"Topic">>}),
     nomatch = match(User, <<"Topic">>, Rule),
@@ -380,3 +377,4 @@ match_rule(_) ->
     {matched, allow} = match(User, <<"Topic">>, AndRule),
     OrRule = compile({allow, {'or', [{ipaddr, "127.0.0.1"}, {user, <<"WrongUser">>}]}, publish, ["Topic"]}),
     {matched, allow} = match(User, <<"Topic">>, OrRule).
+

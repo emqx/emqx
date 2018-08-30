@@ -36,15 +36,12 @@ stop(CPid) ->
     gen_server:call(CPid, stop).
 
 init([ClientId]) ->
-    {ok, 
-     #state{clean_start = true,
-            client_id = ClientId}
-    }.
+    {ok, #state{clean_start = true, client_id = ClientId}}.
 
 handle_call({start_session, ClientPid, ClientId, Zone}, _From, State) ->
     Attrs = #{ zone        => Zone,
                client_id   => ClientId,
-               client_pid  => ClientPid,
+               conn_pid    => ClientPid,
                clean_start => true,
                username    => undefined,
                conn_props  => undefined
@@ -52,7 +49,7 @@ handle_call({start_session, ClientPid, ClientId, Zone}, _From, State) ->
     {ok, SessPid} = emqx_sm:open_session(Attrs),
     {reply, {ok, SessPid}, State#state{
                              clean_start = true,
-                             client_id = ClientId, 
+                             client_id = ClientId,
                              client_pid = ClientPid
                             }};
 

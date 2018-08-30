@@ -28,8 +28,8 @@
 load(Topics) ->
     emqx_hooks:add('session.created', fun ?MODULE:on_session_created/3, [Topics]).
 
-on_session_created(#{client_id := ClientId}, SessInfo, Topics) ->
-    Username = proplists:get_value(username, SessInfo),
+on_session_created(#{client_id := ClientId}, SessAttrs, Topics) ->
+    Username = proplists:get_value(username, SessAttrs),
     Replace = fun(Topic) ->
                       rep(<<"%u">>, Username, rep(<<"%c">>, ClientId, Topic))
               end,

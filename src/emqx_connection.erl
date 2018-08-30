@@ -20,7 +20,9 @@
 -include("emqx_mqtt.hrl").
 
 -export([start_link/3]).
--export([info/1, stats/1, kick/1]).
+-export([info/1, attrs/1]).
+-export([stats/1]).
+-export([kick/1]).
 -export([session/1]).
 
 %% gen_server callbacks
@@ -49,7 +51,7 @@
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
 -define(LOG(Level, Format, Args, State),
-        emqx_logger:Level("Client(~s): " ++ Format,
+        emqx_logger:Level("MQTT(~s): " ++ Format,
                           [esockd_net:format(State#state.peername) | Args])).
 
 start_link(Transport, Socket, Options) ->
@@ -59,17 +61,58 @@ start_link(Transport, Socket, Options) ->
 %% API
 %%------------------------------------------------------------------------------
 
-info(CPid) ->
-    call(CPid, info).
+%% for debug
+info(CPid) when is_pid(CPid) ->
+    call(CPid, info);
 
-stats(CPid) ->
-    call(CPid, stats).
+info(#state{transport     = Transport,
+            socket        = Socket,
+            peername      = Peername,
+            sockname      = Sockname,
+            conn_state    = ConnState,
+            await_recv    = AwaitRecv,
+            rate_limit    = RateLimit,
+            publish_limit = PubLimit,
+            proto_state   = ProtoState}) ->
+    ConnInfo = [{socktype, Transport:type(Socket)},
+                {peername, Peername},
+                {sockname, Sockname},
+                {conn_state, ConnState},
+                {await_recv, AwaitRecv},
+                {rate_limit, esockd_rate_limit:info(RateLimit)},
+                {publish_limit, esockd_rate_limit:info(PubLimit)}],
+    ProtoInfo = emqx_protocol:info(ProtoState),
+    lists:usort(lists:append(ConnInfo, ProtoInfo)).
 
-kick(CPid) ->
-    call(CPid, kick).
+%% for dashboard
+attrs(CPid) when is_pid(CPid) ->
+    call(CPid, attrs);
 
-session(CPid) ->
-    call(CPid, session).
+attrs(#state{peername    = Peername,
+             sockname    = Sockname,
+             proto_state = ProtoState}) ->
+    SockAttrs = [{peername, Peername},
+                 {sockname, Sockname}],
+    ProtoAttrs = emqx_protocol:attrs(ProtoState),
+    lists:usort(lists:append(SockAttrs, ProtoAttrs)).
+
+%% Conn stats
+stats(CPid) when is_pid(CPid) ->
+    call(CPid, stats);
+
+stats(#state{transport   = Transport,
+             socket      = Socket,
+             proto_state = ProtoState}) ->
+    lists:append([emqx_misc:proc_stats(),
+                  emqx_protocol:stats(ProtoState),
+                  case Transport:getstat(Socket, ?SOCK_STATS) of
+                      {ok, Ss}   -> Ss;
+                      {error, _} -> []
+                  end]).
+
+kick(CPid) -> call(CPid, kick).
+
+session(CPid) -> call(CPid, session).
 
 call(CPid, Req) ->
     gen_server:call(CPid, Req, infinity).
@@ -131,38 +174,17 @@ send_fun(Transport, Socket, Peername) ->
         end
     end.
 
-handle_call(info, _From, State = #state{transport     = Transport,
-                                        socket        = Socket,
-                                        peername      = Peername,
-                                        sockname      = Sockname,
-                                        conn_state    = ConnState,
-                                        await_recv    = AwaitRecv,
-                                        rate_limit    = RateLimit,
-                                        publish_limit = PubLimit,
-                                        proto_state   = ProtoState}) ->
-    ConnInfo = [{socktype, Transport:type(Socket)},
-                {peername, Peername},
-                {sockname, Sockname},
-                {conn_state, ConnState},
-                {await_recv, AwaitRecv},
-                {rate_limit, esockd_rate_limit:info(RateLimit)},
-                {publish_limit, esockd_rate_limit:info(PubLimit)}],
-    ProtoInfo = emqx_protocol:info(ProtoState),
-    {reply, lists:usort(lists:append([ConnInfo, ProtoInfo])), State};
+handle_call(info, _From, State) ->
+    {reply, info(State), State};
 
-handle_call(stats, _From, State = #state{transport   = Transport,
-                                          socket      = Socket,
-                                          proto_state = ProtoState}) ->
-    ProcStats = emqx_misc:proc_stats(),
-    ProtoStats = emqx_protocol:stats(ProtoState),
-    SockStats = case Transport:getstat(Socket, ?SOCK_STATS) of
-                    {ok, Ss}   -> Ss;
-                    {error, _} -> []
-                end,
-    {reply, lists:append([ProcStats, ProtoStats, SockStats]), State};
+handle_call(attrs, _From, State) ->
+    {reply, attrs(State), State};
+
+handle_call(stats, _From, State) ->
+    {reply, stats(State), State};
 
 handle_call(kick, _From, State) ->
-    {stop, {shutdown, kick}, ok, State};
+    {stop, {shutdown, kicked}, ok, State};
 
 handle_call(session, _From, State = #state{proto_state = ProtoState}) ->
     {reply, emqx_protocol:session(ProtoState), State};
@@ -186,8 +208,7 @@ handle_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
     end;
 
 handle_info(emit_stats, State = #state{proto_state = ProtoState}) ->
-    Stats = element(2, handle_call(stats, undefined, State)),
-    emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), Stats),
+    emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), stats(State)),
     {noreply, State#state{stats_timer = undefined}, hibernate};
 
 handle_info(timeout, State) ->
