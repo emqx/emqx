@@ -73,6 +73,7 @@
     {counter, 'messages/qos1/received'}, % QoS1 Messages received
     {counter, 'messages/qos1/sent'},     % QoS1 Messages sent
     {counter, 'messages/qos2/received'}, % QoS2 Messages received
+    {counter, 'messages/qos2/expired'},  % QoS2 Messages expired
     {counter, 'messages/qos2/sent'},     % QoS2 Messages sent
     {counter, 'messages/qos2/dropped'},  % QoS2 Messages dropped
     {gauge,   'messages/retained'},      % Messagea retained
