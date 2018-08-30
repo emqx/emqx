@@ -7,13 +7,13 @@ Starting from 3.0 release, *EMQ X* broker fully supports MQTT V5.0 protocol spec
 
 
 - For full list of new features, please read *EMQ X* broker 3.0 [release notes](https://github.com/emqtt/emqttd/releases/).
-- For more information, please visit [EMQ X homepage](http://emqtt.io). 
+- For more information, please visit [EMQ X homepage](http://emqtt.io).
 
 
 
 ## Installation
 
-The *EMQ* broker is cross-platform, which can be deployed on Linux, Unix, Mac, Windows and even Raspberry Pi.
+The *EMQ X* broker is cross-platform, which can be deployed on Linux, Unix, Mac, Windows and even Raspberry Pi.
 
 Download the binary package for your platform from [here](http://emqtt.io/downloads).
 
@@ -23,27 +23,27 @@ Download the binary package for your platform from [here](http://emqtt.io/downlo
 
 ## Build From Source
 
-The *EMQ* broker requires Erlang/OTP R21+ to build since 3.0 release.
+The *EMQ X* broker requires Erlang/OTP R21+ to build since 3.0 release.
 
 ```
-git clone https://github.com/emqtt/emq-relx.git
+git clone https://github.com/emqx/emqx-rel.git
 
-cd emq-relx && make
+cd emqx-rel && make
 
-cd _rel/emqttd && ./bin/emqttd console
+cd _rel/emqx && ./bin/emqx console
 
 ```
 
 ## Quick Start
 
-    # Start emqttd
-    ./bin/emqttd start
-    
+    # Start emqx
+    ./bin/emqx start
+
     # Check Status
-    ./bin/emqttd_ctl status
-    
-    # Stop emqttd
-    ./bin/emqttd stop
+    ./bin/emqx_ctl status
+
+    # Stop emqx
+    ./bin/emqx stop
 
   To view the dashboard after running, use your browser to open: http://localhost:18083
 
@@ -59,11 +59,11 @@ You can reach the EMQ community and developers via the following channels:
    -[#emqx-users](https://emqx.slack.com/messages/CBUF2TTB8/)
    -[#emqx-devs](https://emqx.slack.com/messages/CBSL57DUH/)
 - [Mailing Lists](<emqtt@googlegroups.com>)
-- [Twitter](https://twitter.com/emqtt) 
+- [Twitter](https://twitter.com/emqtt)
 - [Forum](https://groups.google.com/d/forum/emqtt)
 - [Blog](https://medium.com/@emqtt)
 
-Please submit any bugs, issues, and feature requests to [emqtt/emqttd](//github.com/emqtt/emqttd/issues). 
+Please submit any bugs, issues, and feature requests to [emqtt/emqttd](//github.com/emqtt/emqttd/issues).
 
 
 ## License
