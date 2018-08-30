@@ -98,7 +98,8 @@ end_per_group(_Group, Config) ->
     Config.
 
 init_per_testcase(_TestCase, Config) ->
-    {ok, _Pid} = ?AC:start_link(),
+    %% {ok, _Pid} = 
+    ?AC:start_link(),
     Config.
 end_per_testcase(_TestCase, _Config) ->
     ok.
