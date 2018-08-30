@@ -17,8 +17,17 @@
 
 -include("emqx_mqtt.hrl").
 
--export([name/1, text/1]).
+-export([name/2, text/1]).
 -export([compat/2]).
+
+name(I, Ver) when Ver >= ?MQTT_PROTO_V5 ->
+    name(I);
+name(0, _Ver) -> connection_acceptd;
+name(1, _Ver) -> unacceptable_protocol_version;
+name(2, _Ver) -> client_identifier_not_valid;
+name(3, _Ver) -> server_unavaliable;
+name(4, _Ver) -> malformed_username_or_password;
+name(5, _Ver) -> unauthorized_client.
 
 name(16#00) -> success;
 name(16#01) -> granted_qos1;

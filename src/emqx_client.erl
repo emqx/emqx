@@ -592,8 +592,8 @@ waiting_for_connack(cast, ?CONNACK_PACKET(?RC_SUCCESS,
 
 waiting_for_connack(cast, ?CONNACK_PACKET(ReasonCode,
                                           _SessPresent,
-                                          Properties), State) ->
-    Reason = emqx_reason_codes:name(ReasonCode),
+                                          Properties), State = #state{ proto_ver = ProtoVer}) ->
+    Reason = emqx_reason_codes:name(ReasonCode, ProtoVer),
     case take_call(connect, State) of
         {value, #call{from = From}, _State} ->
             Reply = {error, {Reason, Properties}},
@@ -1082,6 +1082,7 @@ receive_loop(Bytes, State = #state{parse_state = ParseState}) ->
         {error, Reason} ->
             {stop, Reason};
         {'EXIT', Error} ->
+            io:format("client stop"),
             {stop, Error}
     end.
 

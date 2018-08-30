@@ -412,7 +412,7 @@ connack({ReasonCode, PState = #pstate{proto_ver = ProtoVer}}) ->
                              true ->
                                  emqx_reason_codes:compat(connack, ReasonCode)
                           end}, PState),
-    {error, emqx_reason_codes:name(ReasonCode), PState}.
+    {error, emqx_reason_codes:name(ReasonCode, ProtoVer), PState}.
 
 %%------------------------------------------------------------------------------
 %% Publish Message -> Broker
