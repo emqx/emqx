@@ -37,8 +37,9 @@ EUNIT_OPTS = verbose
 
 CT_SUITES = emqx emqx_connection emqx_session emqx_access emqx_base62 emqx_broker emqx_client emqx_cm emqx_frame emqx_guid emqx_inflight \
 			emqx_json emqx_keepalive emqx_lib emqx_metrics emqx_misc emqx_mod emqx_mqtt_caps \
-			emqx_mqtt_compat emqx_mqtt_properties emqx_mqueue emqx_message emqx_net emqx_pqueue emqx_router emqx_sm \
-			emqx_stats emqx_tables emqx_time emqx_topic emqx_trie emqx_vm emqx_zone emqx_mountpoint
+			emqx_mqtt_compat emqx_mqtt_properties emqx_mqueue emqx_net emqx_pqueue emqx_router emqx_sm \
+			emqx_stats emqx_tables emqx_time emqx_topic emqx_trie emqx_vm emqx_zone \
+		 	emqx_mountpoint emqx_listeners
 
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name emqxct@127.0.0.1
 
