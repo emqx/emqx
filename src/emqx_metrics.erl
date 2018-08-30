@@ -77,6 +77,7 @@
     {counter, 'messages/qos2/dropped'},  % QoS2 Messages dropped
     {gauge,   'messages/retained'},      % Messagea retained
     {counter, 'messages/dropped'},       % Messages dropped
+    {counter, 'messages/expired'},       % Messages expired
     {counter, 'messages/forward'}        % Messages forward
 ]).
 
