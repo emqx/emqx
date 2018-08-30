@@ -21,9 +21,9 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> [].
+all() -> [{group, connect}].
 
-groups() -> [].
+groups() -> [{connect, [start]}].
 
 init_per_suite(Config) ->
     Config.
@@ -36,4 +36,7 @@ init_per_group(_Group, Config) ->
 
 end_per_group(_Group, _Config) ->
 	ok.
+
+start(_Config) ->
+    {ok, ClientPid, _} = emqx_client:start_link().
 
