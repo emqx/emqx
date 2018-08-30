@@ -655,14 +655,14 @@ shutdown(conflict, #pstate{client_id = ClientId}) ->
 shutdown(mnesia_conflict, #pstate{client_id = ClientId}) ->
     emqx_cm:unregister_connection(ClientId),
     ignore;
-shutdown(Error, PState = #pstate{connected = Connected,
+shutdown(Error, PState = #pstate{connected = false}) ->
+    ?LOG(info, "Shutdown for ~p", [Error], PState),
+    ignore;
+shutdown(Error, PState = #pstate{connected = true,
                                  client_id = ClientId,
                                  will_msg = WillMsg}) ->
     ?LOG(info, "Shutdown for ~p", [Error], PState),
-    case Connected of
-        false -> ok;
-        true -> send_willmsg(WillMsg)
-    end,
+    send_willmsg(WillMsg),
     emqx_hooks:run('client.disconnected', [credentials(PState), Error]),
     emqx_cm:unregister_connection(ClientId).
 
