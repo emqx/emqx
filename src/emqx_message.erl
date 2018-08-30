@@ -120,7 +120,9 @@ update_expiry(Msg = #message{headers = #{'Message-Expiry-Interval' := Interval},
         Elapsed when Elapsed > 0 ->
             set_header('Message-Expiry-Interval', max(1, Interval - (Elapsed div 1000)), Msg);
         _ -> Msg
-    end.
+    end;
+
+update_expiry(Msg) -> Msg.
 
 %% MilliSeconds
 elapsed(Since) ->
