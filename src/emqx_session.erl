@@ -68,75 +68,74 @@
           %% Clean Start Flag
           clean_start = false :: boolean(),
 
+          %% Client Binding: local | remote
+          binding = local :: local | remote,
 
-                %% Client Binding: local | remote
-                binding = local :: local | remote,
+          %% ClientId: Identifier of Session
+          client_id :: binary(),
 
-                %% ClientId: Identifier of Session
-                client_id :: binary(),
+          %% Username
+          username :: binary() | undefined,
 
-                %% Username
-                username :: binary() | undefined,
+          %% Connection pid binding with session
+          conn_pid :: pid(),
 
-                %% Connection pid binding with session
-                conn_pid :: pid(),
+          %% Old Connection Pid that has been kickout
+          old_conn_pid :: pid(),
 
-                %% Old Connection Pid that has been kickout
-                old_conn_pid :: pid(),
+          %% Next packet id of the session
+          next_pkt_id = 1 :: emqx_mqtt_types:packet_id(),
 
-                %% Next packet id of the session
-                next_pkt_id = 1 :: emqx_mqtt_types:packet_id(),
+          %% Max subscriptions
+          max_subscriptions :: non_neg_integer(),
 
-                %% Max subscriptions
-                max_subscriptions :: non_neg_integer(),
+          %% Client’s Subscriptions.
+          subscriptions :: map(),
 
-                %% Client’s Subscriptions.
-                subscriptions :: map(),
+          %% Upgrade QoS?
+          upgrade_qos = false :: boolean(),
 
-                %% Upgrade QoS?
-                upgrade_qos = false :: boolean(),
+          %% Client <- Broker: Inflight QoS1, QoS2 messages sent to the client but unacked.
+          inflight :: emqx_inflight:inflight(),
 
-                %% Client <- Broker: Inflight QoS1, QoS2 messages sent to the client but unacked.
-                inflight :: emqx_inflight:inflight(),
+          %% Max Inflight Size. DEPRECATED: Get from inflight
+          %% max_inflight = 32 :: non_neg_integer(),
 
-                %% Max Inflight Size. DEPRECATED: Get from inflight
-                %% max_inflight = 32 :: non_neg_integer(),
+          %% Retry interval for redelivering QoS1/2 messages
+          retry_interval = 20000 :: timeout(),
 
-                %% Retry interval for redelivering QoS1/2 messages
-                retry_interval = 20000 :: timeout(),
+          %% Retry Timer
+          retry_timer :: reference() | undefined,
 
-                %% Retry Timer
-                retry_timer :: reference() | undefined,
+          %% All QoS1, QoS2 messages published to when client is disconnected.
+          %% QoS 1 and QoS 2 messages pending transmission to the Client.
+          %%
+          %% Optionally, QoS 0 messages pending transmission to the Client.
+          mqueue :: emqx_mqueue:mqueue(),
 
-                %% All QoS1, QoS2 messages published to when client is disconnected.
-                %% QoS 1 and QoS 2 messages pending transmission to the Client.
-                %%
-                %% Optionally, QoS 0 messages pending transmission to the Client.
-                mqueue :: emqx_mqueue:mqueue(),
+          %% Client -> Broker: Inflight QoS2 messages received from client and waiting for pubrel.
+          awaiting_rel :: map(),
 
-                %% Client -> Broker: Inflight QoS2 messages received from client and waiting for pubrel.
-                awaiting_rel :: map(),
+          %% Max Packets Awaiting PUBREL
+          max_awaiting_rel = 100 :: non_neg_integer(),
 
-                %% Max Packets Awaiting PUBREL
-                max_awaiting_rel = 100 :: non_neg_integer(),
+          %% Awaiting PUBREL Timeout
+          await_rel_timeout = 20000 :: timeout(),
 
-                %% Awaiting PUBREL Timeout
-                await_rel_timeout = 20000 :: timeout(),
+          %% Awaiting PUBREL Timer
+          await_rel_timer :: reference() | undefined,
 
-                %% Awaiting PUBREL Timer
-                await_rel_timer :: reference() | undefined,
+          %% Session Expiry Interval
+          expiry_interval = 7200000 :: timeout(),
 
-                %% Session Expiry Interval
-                expiry_interval = 7200000 :: timeout(),
+          %% Expired Timer
+          expiry_timer :: reference() | undefined,
 
-                %% Expired Timer
-                expiry_timer :: reference() | undefined,
+          %% Enable Stats
+          enable_stats :: boolean(),
 
-                %% Enable Stats
-                enable_stats :: boolean(),
-
-                %% Stats timer
-                stats_timer  :: reference() | undefined,
+          %% Stats timer
+          stats_timer  :: reference() | undefined,
 
           %% Deliver stats
           deliver_stats = 0,
@@ -144,10 +143,9 @@
           %% Enqueue stats
           enqueue_stats = 0,
 
-
-                %% Created at
-                created_at :: erlang:timestamp()
-               }).
+          %% Created at
+          created_at :: erlang:timestamp()
+         }).
 
 -define(TIMEOUT, 60000).
 
