@@ -646,6 +646,18 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc Type: simple | priority
+{mapping, "mqtt.mqueue_type", "emqx.mqueue_type", [
+  {default, simple},
+  {datatype, {enum, [simple, priority]}}
+]}.
+
+%% @doc Topic Priorities: 0~255, Default is 0
+{mapping, "mqtt.mqueue_priorities", "emqx.mqueue_priorities", [
+  {default, ""},
+  {datatype, string}
+]}.
+
 %%--------------------------------------------------------------------
 %% Zones
 %%--------------------------------------------------------------------
@@ -777,11 +789,22 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
+%% @doc Type: simple | priority
+{mapping, "zone.$name.mqueue_type", "emqx.zones", [
+  {default, simple},
+  {datatype, {enum, [simple, priority]}}
+]}.
+
 %% @doc Max queue length. Enqueued messages when persistent client
 %% disconnected, or inflight window is full. 0 means no limit.
 {mapping, "zone.$name.max_mqueue_len", "emqx.zones", [
   {default, 1000},
   {datatype, integer}
+]}.
+
+%% @doc Topic Priorities: 0~255, Default is 0
+{mapping, "zone.$name.mqueue_priorities", "emqx.zones", [
+  {datatype, string}
 ]}.
 
 %% @doc Queue Qos0 messages?
