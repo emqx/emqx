@@ -16,12 +16,14 @@
 
 -behaviour(gen_server).
 
--export([start_link/1, open_session/3, close_session/2, stop/1]).
+-export([start_link/1, open_session/3, close_session/2, stop/1, get_last_message/0]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
 -record(state, {clean_start, client_id, client_pid}).
+
+-define(TAB, messages).
 
 start_link(ClientId) ->
     gen_server:start_link(?MODULE, [ClientId], []).
@@ -35,13 +37,25 @@ close_session(ClientPid, SessPid) ->
 stop(CPid) ->
     gen_server:call(CPid, stop).
 
+get_last_message() ->
+    [{last_message, Msg}] = ets:lookup(?TAB, last_message),
+    Msg.
+
 init([ClientId]) ->
-    {ok, #state{clean_start = true, client_id = ClientId}}.
+    Result = lists:member(?TAB, ets:all()),
+    if Result == false -> 
+        ets:new(?TAB, [set, named_table]);
+       true -> ok
+    end,
+    {ok, 
+     #state{clean_start = true,
+            client_id = ClientId}
+    }.
 
 handle_call({start_session, ClientPid, ClientId, Zone}, _From, State) ->
     Attrs = #{ zone        => Zone,
                client_id   => ClientId,
-               conn_pid    => ClientPid,
+               conn_pid  => ClientPid,
                clean_start => true,
                username    => undefined,
                conn_props  => undefined
@@ -49,7 +63,7 @@ handle_call({start_session, ClientPid, ClientId, Zone}, _From, State) ->
     {ok, SessPid} = emqx_sm:open_session(Attrs),
     {reply, {ok, SessPid}, State#state{
                              clean_start = true,
-                             client_id = ClientId,
+                             client_id = ClientId, 
                              client_pid = ClientPid
                             }};
 
@@ -66,6 +80,9 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+handle_info({_, Msg}, State) ->
+    ets:insert(?TAB, {last_message, Msg}),
+    {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 
