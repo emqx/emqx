@@ -17,7 +17,7 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
--export([info/1]).
+-export([info/1, attrs/1]).
 -export([stats/1]).
 -export([kick/1]).
 -export([session/1]).
@@ -53,8 +53,13 @@
 %% API
 %%------------------------------------------------------------------------------
 
+%% for debug
 info(WSPid) ->
     call(WSPid, info).
+
+%% for dashboard
+attrs(CPid) when is_pid(CPid) ->
+    call(CPid, attrs).
 
 stats(WSPid) ->
     call(WSPid, stats).
@@ -170,6 +175,15 @@ websocket_info({call, From, info}, State = #state{peername    = Peername,
     gen_server:reply(From, lists:append([ConnInfo, ProtoInfo])),
     {ok, State};
 
+websocket_info({call, From, attrs}, State = #state{peername    = Peername,
+                                                   sockname    = Sockname,
+                                                   proto_state = ProtoState}) ->
+    SockAttrs = [{peername, Peername},
+                 {sockname, Sockname}],
+    ProtoAttrs = emqx_protocol:attrs(ProtoState),
+    gen_server:reply(From, lists:usort(lists:append(SockAttrs, ProtoAttrs))),
+    {ok, State};
+
 websocket_info({call, From, stats}, State = #state{proto_state = ProtoState}) ->
     Stats = lists:append([wsock_stats(), emqx_misc:proc_stats(), emqx_protocol:stats(ProtoState)]),
     gen_server:reply(From, Stats),
@@ -262,4 +276,3 @@ shutdown(Reason, State) ->
 
 wsock_stats() ->
     [{Key, get(Key)} || Key <- ?SOCK_STATS].
-

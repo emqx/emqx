@@ -330,15 +330,16 @@ serialize_parse_subscribe(_) ->
     %% SUBSCRIBE(Q1, R0, D0, PacketId=2, TopicTable=[{<<"TopicA">>,2}])
     Bin = <<130,11,0,2,0,6,84,111,112,105,99,65,2>>,
     TopicOpts = #{ nl => 0 , rap => 0, rc => 0,
-                      rh => 0, subid => 0 , qos => 2 },
+                      rh => 0, qos => 2 },
     TopicFilters = [{<<"TopicA">>, TopicOpts}],
     Packet = ?SUBSCRIBE_PACKET(2, TopicFilters),
     ?assertEqual(Bin, iolist_to_binary(serialize(Packet))),
+    ct:log("Bin: ~p, Packet: ~p ~n", [Packet, parse(Bin)]),
     ?assertEqual({ok, Packet, <<>>}, parse(Bin)).
 
 serialize_parse_subscribe_v5(_) ->
-    TopicFilters = [{<<"TopicQos0">>, #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0, subid => 0}},
-                    {<<"TopicQos1">>, #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0, subid => 0}}],
+    TopicFilters = [{<<"TopicQos0">>, #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0}},
+                    {<<"TopicQos1">>, #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0}}],
     Packet = ?SUBSCRIBE_PACKET(3, #{'Subscription-Identifier' => 16#FFFFFFF},
                                TopicFilters),
     ?assertEqual({ok, Packet, <<>>},
