@@ -774,7 +774,7 @@ end}.
 
 %% @doc Awaiting PUBREL timeout
 {mapping, "zone.$name.await_rel_timeout", "emqx.zones", [
-  {default, "60s"},
+  {default, "300s"},
   {datatype, {duration, ms}}
 ]}.
 
