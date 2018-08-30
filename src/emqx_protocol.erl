@@ -267,16 +267,17 @@ process_packet(?CONNECT_PACKET(
     %% Msg -> emqx_mountpoint:mount(MountPoint, Msg)
     WillMsg = emqx_packet:will_msg(Connect),
 
-    PState1 = set_username(Username, PState#pstate{client_id    = ClientId,
-                                                   proto_ver    = ProtoVer,
-                                                   proto_name   = ProtoName,
-                                                   clean_start  = CleanStart,
-                                                   keepalive    = Keepalive,
-                                                   conn_props   = ConnProps,
-                                                   will_topic   = WillTopic,
-                                                   will_msg     = WillMsg,
-                                                   is_bridge    = IsBridge,
-                                                   connected_at = os:timestamp()}),
+    PState1 = set_username(Username,
+                           PState#pstate{client_id    = ClientId,
+                                         proto_ver    = ProtoVer,
+                                         proto_name   = ProtoName,
+                                         clean_start  = CleanStart,
+                                         keepalive    = Keepalive,
+                                         conn_props   = ConnProps,
+                                         will_topic   = WillTopic,
+                                         will_msg     = WillMsg,
+                                         is_bridge    = IsBridge,
+                                         connected_at = os:timestamp()}),
     connack(
       case check_connect(Connect, PState1) of
           {ok, PState2} ->
@@ -681,7 +682,7 @@ inc_stats(Type, Stats = #{pkt := PktCnt, msg := MsgCnt}) ->
 
 shutdown(_Reason, #pstate{client_id = undefined}) ->
     ok;
-shutdown(_Reason, PState = #pstate{connected = false}) ->
+shutdown(_Reason, #pstate{connected = false}) ->
     ok;
 shutdown(Reason, #pstate{client_id = ClientId}) when Reason =:= conflict;
                                                      Reason =:= discard ->
