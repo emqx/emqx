@@ -216,7 +216,7 @@ stats(#state{max_subscriptions = MaxSubscriptions,
              enqueue_stats = EnqueueMsg}) ->
     lists:append(emqx_misc:proc_stats(),
                  [{max_subscriptions, MaxSubscriptions},
-                  {subscriptions_num, maps:size(Subscriptions)},
+                  {subscriptions_count, maps:size(Subscriptions)},
                   {max_inflight, emqx_inflight:max_size(Inflight)},
                   {inflight_len, emqx_inflight:size(Inflight)},
                   {max_mqueue, emqx_mqueue:max_len(MQueue)},
@@ -620,8 +620,7 @@ kick(ClientId, OldPid, Pid) ->
 %% Redeliver at once if force is true
 retry_delivery(Force, State = #state{inflight = Inflight}) ->
     case emqx_inflight:is_empty(Inflight) of
-        true  ->
-            State;
+        true  -> State;
         false ->
             Msgs = lists:sort(sortfun(inflight), emqx_inflight:values(Inflight)),
             retry_delivery(Force, Msgs, os:timestamp(), State)
@@ -752,10 +751,10 @@ redeliver({PacketId, Msg = #message{qos = QoS}}, State) ->
 redeliver({pubrel, PacketId}, #state{conn_pid = ConnPid}) ->
     ConnPid ! {deliver, {pubrel, PacketId}}.
 
-deliver(PacketId, Msg, #state{conn_pid = Pid, binding = local}) ->
-    Pid ! {deliver, {publish, PacketId, Msg}};
-deliver(PacketId, Msg, #state{conn_pid = Pid, binding = remote}) ->
-    emqx_rpc:cast(node(Pid), erlang, send, [Pid, {deliver, PacketId, Msg}]).
+deliver(PacketId, Msg, #state{conn_pid = ConnPid, binding = local}) ->
+    ConnPid ! {deliver, {publish, PacketId, Msg}};
+deliver(PacketId, Msg, #state{conn_pid = ConnPid, binding = remote}) ->
+    emqx_rpc:cast(node(ConnPid), erlang, send, [ConnPid, {deliver, PacketId, Msg}]).
 
 %%------------------------------------------------------------------------------
 %% Awaiting ACK for QoS1/QoS2 Messages
