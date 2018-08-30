@@ -12,31 +12,15 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_client_SUITE).
+-module(emqx_local_bridge_sup).
 
--compile(export_all).
--compile(nowarn_export_all).
+-include("emqx.hrl").
 
--include("emqx_mqtt.hrl").
+-export([start_link/3]).
 
--include_lib("eunit/include/eunit.hrl").
-
-all() -> [{group, connect}].
-
-groups() -> [{connect, [start]}].
-
-init_per_suite(Config) ->
-    Config.
-
-end_per_suite(_Config) ->
-    ok.
-
-init_per_group(_Group, Config) ->
-    Config.
-
-end_per_group(_Group, _Config) ->
-	ok.
-
-start(_Config) ->
-    {ok, ClientPid, _} = emqx_client:start_link().
+-spec(start_link(node(), emqx_topic:topic(), [emqx_local_bridge:option()])
+      -> {ok, pid()} | {error, term()}).
+start_link(Node, Topic, Options) ->
+    MFA = {emqx_local_bridge, start_link, [Node, Topic, Options]},
+    emqx_pool_sup:start_link({bridge, Node, Topic}, random, MFA).
 

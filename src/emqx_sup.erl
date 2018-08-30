@@ -62,8 +62,9 @@ init([]) ->
     %% Broker Sup
     BrokerSup = supervisor_spec(emqx_broker_sup),
     %% BridgeSup
-    BridgeSup = supervisor_spec(emqx_bridge_sup_sup),
-    BridgeSup1 = supervisor_spec(emqx_bridge1_sup),
+    LocalBridgeSup = supervisor_spec(emqx_local_bridge_sup_sup),
+
+    BridgeSup = supervisor_spec(emqx_bridge_sup),
     %% AccessControl
     AccessControl = worker_spec(emqx_access_control),
     %% Session Manager
@@ -78,8 +79,8 @@ init([]) ->
           [KernelSup,
            RouterSup,
            BrokerSup,
+           LocalBridgeSup,
            BridgeSup,
-           BridgeSup1,
            AccessControl,
            SMSup,
            SessionSup,

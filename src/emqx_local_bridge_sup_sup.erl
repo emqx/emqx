@@ -12,7 +12,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_bridge_sup_sup).
+-module(emqx_local_bridge_sup_sup).
 
 -behavior(supervisor).
 
@@ -66,9 +66,9 @@ init([]) ->
 
 bridge_spec(Node, Topic, Options) ->
     #{id       => ?CHILD_ID(Node, Topic),
-      start    => {emqx_bridge_sup, start_link, [Node, Topic, Options]},
+      start    => {emqx_local_bridge_sup, start_link, [Node, Topic, Options]},
       restart  => permanent,
       shutdown => infinity,
       type     => supervisor,
-      modules  => [emqx_bridge_sup]}.
+      modules  => [emqx_local_bridge_sup]}.
 

@@ -14,13 +14,32 @@
 
 -module(emqx_bridge_sup).
 
+-behavior(supervisor).
+
 -include("emqx.hrl").
 
--export([start_link/3]).
+-export([start_link/0, bridges/0]).
 
--spec(start_link(node(), emqx_topic:topic(), [emqx_bridge:option()])
-      -> {ok, pid()} | {error, term()}).
-start_link(Node, Topic, Options) ->
-    MFA = {emqx_bridge, start_link, [Node, Topic, Options]},
-    emqx_pool_sup:start_link({bridge, Node, Topic}, random, MFA).
+%% Supervisor callbacks
+-export([init/1]).
 
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+
+%% @doc List all bridges
+-spec(bridges() -> [{node(), emqx_topic:topic(), pid()}]).
+bridges() ->
+    [{Name, emqx_bridge:status(Pid)} || {Name, Pid, _, _} <- supervisor:which_children(?MODULE)].
+
+init([]) ->
+    BridgesOpts = emqx_config:get_env(bridges, []),
+    Bridges = [spec(Opts)|| Opts <- BridgesOpts],
+    {ok, {{one_for_one, 10, 100}, Bridges}}.
+
+spec({Id, Options})->
+    #{id       => Id,
+      start    => {emqx_bridge, start_link, [Id, Options]},
+      restart  => permanent,
+      shutdown => 5000,
+      type     => worker,
+      modules  => [emqx_bridge]}.
