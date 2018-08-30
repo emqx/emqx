@@ -32,19 +32,26 @@
                       <<"+/+">>, <<"TopicA/#">>]).
 
 all() ->
-    [basic_test,
-     retained_message_test,
-     will_message_test,
-     zero_length_clientid_test,
-     offline_message_queueing_test,
-     overlapping_subscriptions_test,
-     keepalive_test,
-     redelivery_on_reconnect_test,
-     subscribe_failure_test,
-     dollar_topics_test].
+    [{group, client}].
+
+groups() ->
+    [{client, [sequence],
+      [basic_test,
+       retained_message_test,
+       will_message_test,
+       zero_length_clientid_test,
+       offline_message_queueing_test,
+       overlapping_subscriptions_test,
+       %% keepalive_test,
+       %% redelivery_on_reconnect_test,
+       %% subscribe_failure_test,
+       dollar_topics_test]
+     }].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    [emqx_ct_broker_helpers:run_setup_steps(App)  || App  <- [emqx, emqx_retainer]],
+    
+    %% emqx_ct_broker_helpers:run_setup_steps(),
     Config.
 
 end_per_suite(_Config) ->
@@ -57,52 +64,76 @@ receive_messages(0, Msgs) ->
     Msgs;
 receive_messages(Count, Msgs) ->
     receive
-        {public, Msg} ->
+        {publish, Msg} ->
+            ct:log("Msg: ~p ~n", [Msg]),
             receive_messages(Count-1, [Msg|Msgs]);
-        _Other ->
+        Other ->
+            ct:log("Other Msg: ~p~n",[Other]),
             receive_messages(Count, Msgs)
     after 10 ->
-        Msgs
+            Msgs
     end.
 
 basic_test(_Config) ->
     Topic = nth(1, ?TOPICS),
     ct:print("Basic test starting"),
     {ok, C, _} = emqx_client:start_link(),
-    {ok, _, [0]} = emqx_client:subscribe(C, Topic, qos2),
-    ok = emqx_client:publish(C, Topic, <<"qos 0">>),
-    {ok, _} = emqx_client:publish(C, Topic, <<"qos 1">>, 1),
-    {ok, _} = emqx_client:publish(C, Topic, <<"qos 2">>, 2),
+    {ok, _, [2]} = emqx_client:subscribe(C, Topic, qos2),
+    {ok, _} = emqx_client:publish(C, Topic, <<"qos 2">>, qos2),
+    {ok, _} = emqx_client:publish(C, Topic, <<"qos 2">>, qos2),
+    {ok, _} = emqx_client:publish(C, Topic, <<"qos 2">>, qos2),
+    timer:sleep(1000),
     ok = emqx_client:disconnect(C),
     ?assertEqual(3, length(receive_messages(3))).
+
+publish_retained_message(ClientId, Qos, Payload) ->
+    emqx_client:publish(ClientId, nth(2, ?TOPICS), Payload, [{qos, Qos}, {retain, true}]),
+    emqx_client:publish(ClientId, nth(3, ?TOPICS), Payload, [{qos, Qos}, {retain, true}]),
+    emqx_client:publish(ClientId, nth(4, ?TOPICS), Payload, [{qos, Qos}, {retain, true}]).
 
 retained_message_test(_Config) ->
     ct:print("Retained message test starting"),
 
     %% Retained messages
     {ok, C1, _} = emqx_client:start_link([{clean_start, true}]),
-    ok = emqx_client:publish(C1, nth(1, ?TOPICS), <<"qos 0">>, [{qos, 0}, {retain, true}]),
-    {ok, _} = emqx_client:publish(C1, nth(3, ?TOPICS), <<"qos 1">>, [{qos, 1}, {retain, true}]),
-    {ok, _} = emqx_client:publish(C1, nth(4, ?TOPICS), <<"qos 2">>, [{qos, 2}, {retain, true}]),
-    timer:sleep(10),
-    {ok, #{}, [0]} = emqx_client:subscribe(C1, nth(6, ?WILD_TOPICS), 2),
+    publish_retained_message(C1, 0, <<"Qos0">>),
     ok = emqx_client:disconnect(C1),
-    ?assertEqual(3, length(receive_messages(10))),
-
-    %% Clear retained messages
+    timer:sleep(20),
     {ok, C2, _} = emqx_client:start_link([{clean_start, true}]),
-    ok = emqx_client:publish(C2, nth(2, ?TOPICS), <<"">>, [{qos, 0}, {retain, true}]),
-    {ok, _} = emqx_client:publish(C2, nth(3, ?TOPICS), <<"">>, [{qos, 1}, {retain, true}]),
-    {ok, _} = emqx_client:publish(C2, nth(4, ?TOPICS), <<"">>, [{qos, 2}, {retain, true}]),
-    timer:sleep(10), %% wait for QoS 2 exchange to be completed
-    {ok, _, [0]} = emqx_client:subscribe(C2, nth(6, ?WILD_TOPICS), 2),
-    timer:sleep(10),
-    ok = emqx_client:disconnect(),
-    ?assertEqual(0, length(receive_messages(3))).
+    {ok, undefined, [0]} = emqx_client:subscribe(C2, nth(6, ?WILD_TOPICS), 0),
+    ?assertEqual(3, length(receive_messages(3))),
+    ok = emqx_client:disconnect(C2),
+
+    {ok, C3, _} = emqx_client:start_link([{clean_start, true}]),
+    publish_retained_message(C3, 1, <<"Qos1">>),
+    ok = emqx_client:disconnect(C3),
+    timer:sleep(20),
+    {ok, C4, _} = emqx_client:start_link([{clean_start, true}]),
+    {ok, undefined, [1]} = emqx_client:subscribe(C4, nth(6, ?WILD_TOPICS), 1),
+    ?assertEqual(3, length(receive_messages(3))),
+    ok = emqx_client:disconnect(C4),
+
+    {ok, C5, _} = emqx_client:start_link([{clean_start, true}]),
+    publish_retained_message(C5, 2, <<"Qos2">>),
+    ok = emqx_client:disconnect(C5),
+    timer:sleep(20),
+    {ok, C6, _} = emqx_client:start_link([{clean_start, true}]),
+    {ok, undefined, [2]} = emqx_client:subscribe(C6, nth(6, ?WILD_TOPICS), 2),
+    ?assertEqual(3, length(receive_messages(3))),
+    ok = emqx_client:disconnect(C6),
+
+    {ok, C7, _} = emqx_client:start_link([{clean_start, true}]),
+    publish_retained_message(C7, 2, <<"">>),
+    ok = emqx_client:disconnect(C7),
+    timer:sleep(20),
+    {ok, C8, _} = emqx_client:start_link([{clean_start, true}]),
+    {ok, undefined, [2]} = emqx_client:subscribe(C8, nth(6, ?WILD_TOPICS), 2),
+    ?assertEqual(0, length(receive_messages(3))),
+    ok = emqx_client:disconnect(C8).
 
 will_message_test(_Config) ->
     {ok, C1, _} = emqx_client:start_link([{clean_start, true},
-                                          {will_topic = nth(3, ?TOPICS)},
+                                          {will_topic, nth(3, ?TOPICS)},
                                           {will_payload, <<"client disconnected">>},
                                           {keepalive, 2}]),
     {ok, C2, _} = emqx_client:start_link(),
@@ -116,11 +147,18 @@ will_message_test(_Config) ->
 
 zero_length_clientid_test(_Config) ->
     ct:print("Zero length clientid test starting"),
-    {error, _} = emqx_client:start_link([{clean_start, false},
+    
+    %% ct:log("Client Start: ~p ~n", [emqx_client:start_link([{clean_start, false},
+    %%                                                        {client_id, <<>>}]
+    %%                                                      )]), 
+    %% Info = emqx_client:start_link([{clean_start, false},
+    %%                                {client_id, <<>>}]),
+    %% ct:log("Info: ~p", [Info]),
+    %% { error, _ } = emqx_client:start_link([{clean_start, false}, {client_id, <<>>}]),
+    {ok, C, _} = emqx_client:start_link([{clean_start, true},
                                          {client_id, <<>>}]),
-    {ok, _, _} = emqx_client:start_link([{clean_start, true},
-                                         {client_id, <<>>}]),
-    ct:print("Zero length clientid test succeeded").
+    ct:print("Zero length clientid test succeeded"),
+    emqx_client:disconnect(C).
 
 offline_message_queueing_test(_) ->
     {ok, C1, _} = emqx_client:start_link([{clean_start, false},
@@ -156,10 +194,10 @@ overlapping_subscriptions_test(_) ->
             ct:print("This server is publishing one message for all
                      matching overlapping subscriptions, not one for each.");
         Num == 2 ->
-            ct:print("This server is publishing one message per each
+                            ct:print("This server is publishing one message per each
                      matching overlapping subscription.");
         true -> ok
-    end.
+                                    end.
 
 keepalive_test(_) ->
     ct:print("Keepalive test starting"),

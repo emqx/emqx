@@ -54,16 +54,29 @@
                          "ECDH-RSA-AES128-SHA","AES128-SHA"]}]).
 
 run_setup_steps() ->
-    NewConfig = generate_config(),
+    run_setup_steps(?APP).
+    %% NewConfig = generate_config(),
+    %% lists:foreach(fun set_app_env/1, NewConfig),
+    %% application:ensure_all_started(?APP).
+
+run_setup_steps(App) ->
+    NewConfig = generate_config(App),
     lists:foreach(fun set_app_env/1, NewConfig),
-    application:ensure_all_started(?APP).
+    application:ensure_all_started(App),
+    ct:log("Applications: ~p", [application:loaded_applications()]).
 
 run_teardown_steps() ->
+    application:stop(emqx_retainer),
     ?APP:shutdown().
 
-generate_config() ->
+generate_config(?APP) ->
     Schema = cuttlefish_schema:files([local_path(["priv", "emqx.schema"])]),
     Conf = conf_parse:file([local_path(["etc", "emqx.conf"])]),
+    cuttlefish_generator:map(Schema, Conf);
+
+generate_config(emqx_retainer) ->
+    Schema = cuttlefish_schema:files([local_path(["deps", "emqx_retainer", "priv", "emqx_retainer.schema"])]),
+    Conf = conf_parse:file([local_path(["deps", "emqx_retainer", "etc", "emqx_retainer.conf"])]),
     cuttlefish_generator:map(Schema, Conf).
 
 get_base_dir(Module) ->
@@ -83,7 +96,7 @@ set_app_env({App, Lists}) ->
     lists:foreach(fun({acl_file, _Var}) ->
                       application:set_env(App, acl_file, local_path(["etc", "acl.conf"]));
                      ({plugins_loaded_file, _Var}) ->
-                      application:set_env(App, plugins_loaded_file, local_path(["test", "emqx_SUITE_data","loaded_plugins"]));
+                      application:set_env(App, plugins_loaded_file, local_path(["test", "emqx_SUITE_data", "loaded_plugins"]));
                      ({Par, Var}) ->
                       application:set_env(App, Par, Var)
                   end, Lists).

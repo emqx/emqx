@@ -39,6 +39,7 @@ end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
 
 init_per_testcase(_TestCase, Config) ->
+    clear_tables(),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->

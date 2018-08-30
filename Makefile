@@ -24,8 +24,14 @@ ERLC_OPTS += +'{parse_transform, lager_transform}'
 BUILD_DEPS = cuttlefish
 dep_cuttlefish = git https://github.com/emqx/cuttlefish emqx30
 
+
 #TEST_DEPS = emqx_ct_helplers
 #dep_emqx_ct_helplers = git git@github.com:emqx/emqx-ct-helpers
+TEST_DEPS = emqx_ct_helplers emqx_retainer clique
+dep_emqx_ct_helplers = git git@github.com:emqx/emqx-ct-helpers
+dep_clique  = git https://github.com/emqx/clique
+dep_emqx_retainer = git git@github.com:emqx/emqx-retainer
+
 
 TEST_ERLC_OPTS += +debug_info
 TEST_ERLC_OPTS += +'{parse_transform, lager_transform}'
@@ -52,4 +58,5 @@ include erlang.mk
 
 app.config::
 	./deps/cuttlefish/cuttlefish -l info -e etc/ -c etc/emqx.conf -i priv/emqx.schema -d data/
+
 
