@@ -407,13 +407,14 @@ connack({?RC_SUCCESS, SP, PState}) ->
     deliver({connack, ?RC_SUCCESS, sp(SP)}, update_mountpoint(PState));
 
 connack({ReasonCode, PState = #pstate{proto_ver = ProtoVer}}) ->
-    emqx_hooks:run('client.connected', [credentials(PState), ?RC_SUCCESS, attrs(PState)]),
-    _ = deliver({connack, if ProtoVer =:= ?MQTT_PROTO_V5 ->
-                                 ReasonCode;
-                             true ->
-                                 emqx_reason_codes:compat(connack, ReasonCode)
-                          end}, PState),
-    {error, emqx_reason_codes:name(ReasonCode, ProtoVer), PState}.
+    emqx_hooks:run('client.connected', [credentials(PState), ReasonCode, attrs(PState)]),
+    ReasonCode1 = if ProtoVer =:= ?MQTT_PROTO_V5 ->
+                         ReasonCode;
+                     true ->
+                         emqx_reason_codes:compat(connack, ReasonCode)
+                  end,
+    _ = deliver({connack, ReasonCode1}, PState),
+    {error, emqx_reason_codes:name(ReasonCode1, ProtoVer), PState}.
 
 %%------------------------------------------------------------------------------
 %% Publish Message -> Broker
