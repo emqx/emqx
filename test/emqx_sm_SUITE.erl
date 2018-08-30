@@ -26,7 +26,7 @@ t_open_close_session(_) ->
     {ok, ClientPid} = emqx_mock_client:start_link(<<"client">>),
     Attrs = #{clean_start => true, client_id => <<"client">>, conn_pid => ClientPid,
               zone => internal, username => <<"zhou">>, conn_props => #{}},
-    {ok, _SPid} = emqx_sm:open_session(Attrs),
+    {ok, SPid} = emqx_sm:open_session(Attrs),
     [{<<"client">>, SPid}] = emqx_sm:lookup_session(<<"client">>),
     SPid = emqx_sm:lookup_session_pid(<<"client">>),
     {ok, NewConnPid} = emqx_mock_client:start_link(<<"client">>),
