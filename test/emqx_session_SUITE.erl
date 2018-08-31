@@ -21,8 +21,14 @@
 
 all() -> [t_session_all].
 
-t_session_all(_) ->
+init_per_suite(Config) ->
     emqx_ct_broker_helpers:run_setup_steps(),
+    Config.
+    
+end_per_suite(_Config) ->
+    emqx_ct_broker_helpers:run_teardown_steps().
+
+t_session_all(_) ->
     ClientId = <<"ClientId">>,
     {ok, ConnPid} = emqx_mock_client:start_link(ClientId),
     {ok, SPid} = emqx_mock_client:open_session(ConnPid, ClientId, internal),

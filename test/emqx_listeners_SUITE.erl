@@ -28,15 +28,14 @@ all() ->
     [start_stop_listeners,
      restart_listeners].
 
-init_per_suite() ->
+init_per_suite(Config) ->
     NewConfig = generate_config(),
     application:ensure_all_started(esockd),
     lists:foreach(fun set_app_env/1, NewConfig),
-    ok.
+    Config.
 
-end_per_suite() ->
-    application:stop(esockd),
-    ok.
+end_per_suite(_Config) ->
+    application:stop(esockd).
 
 start_stop_listeners(_) ->
     ok = emqx_listeners:start(),
