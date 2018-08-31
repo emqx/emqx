@@ -25,11 +25,17 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    {ok, {{one_for_all, 10, 3600},
-          [#{id       => manager,
-             start    => {emqx_cm, start_link, []},
-             restart  => permanent,
-             shutdown => 5000,
-             type     => worker,
-             modules  => [emqx_cm]}]}}.
+    Banned = #{id       => banned,
+               start    => {emqx_banned, start_link, []},
+               restart  => permanent,
+               shutdown => 5000,
+               type     => worker,
+               modules  => [emqx_banned]},
+    Manager = #{id       => manager,
+                start    => {emqx_cm, start_link, []},
+                restart  => permanent,
+                shutdown => 5000,
+                type     => worker,
+                modules  => [emqx_cm]},
+    {ok, {{one_for_one, 10, 100}, [Banned, Manager]}}.
 

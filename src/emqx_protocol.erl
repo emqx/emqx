@@ -56,6 +56,7 @@
           mountpoint,
           is_super,
           is_bridge,
+          enable_ban,
           enable_acl,
           recv_stats,
           send_stats,
@@ -97,6 +98,7 @@ init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options)
             packet_size  = emqx_zone:get_env(Zone, max_packet_size),
             mountpoint   = emqx_zone:get_env(Zone, mountpoint),
             is_bridge    = false,
+            enable_ban   = emqx_zone:get_env(Zone, enable_ban, false),
             enable_acl   = emqx_zone:get_env(Zone, enable_acl),
             recv_stats   = #{msg => 0, pkt => 0},
             send_stats   = #{msg => 0, pkt => 0},
@@ -581,7 +583,8 @@ set_property(Name, Value, Props) ->
 
 check_connect(Packet, PState) ->
     run_check_steps([fun check_proto_ver/2,
-                     fun check_client_id/2], Packet, PState).
+                     fun check_client_id/2,
+                     fun check_banned/2], Packet, PState).
 
 check_proto_ver(#mqtt_packet_connect{proto_ver  = Ver,
                                      proto_name = Name}, _PState) ->
@@ -610,6 +613,17 @@ check_client_id(#mqtt_packet_connect{client_id = ClientId}, #pstate{zone = Zone}
     case (1 =< Len) andalso (Len =< MaxLen) of
         true  -> ok;
         false -> {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID}
+    end.
+
+check_banned(_Connect, #pstate{enable_ban = false}) ->
+    ok;
+check_banned(#mqtt_packet_connect{client_id = ClientId, username = Username},
+             #pstate{peername = Peername}) ->
+    case emqx_banned:check(#{client_id => ClientId,
+                             username  => Username,
+                             peername  => Peername}) of
+        true  -> {error, ?RC_BANNED};
+        false -> ok
     end.
 
 check_publish(Packet, PState) ->

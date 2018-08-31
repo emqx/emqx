@@ -676,6 +676,12 @@ end}.
   {datatype, {enum, [allow, deny]}}
 ]}.
 
+%% @doc Enable Ban.
+{mapping, "zone.$name.enable_ban", "emqx.zones", [
+  {default, off},
+  {datatype, flag}
+]}.
+
 %% @doc Enable ACL check.
 {mapping, "zone.$name.enable_acl", "emqx.zones", [
   {default, off},
