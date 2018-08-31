@@ -102,7 +102,7 @@ init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options)
             enable_acl   = emqx_zone:get_env(Zone, enable_acl),
             recv_stats   = #{msg => 0, pkt => 0},
             send_stats   = #{msg => 0, pkt => 0},
-            connected    = fasle}.
+            connected    = false}.
 
 init_username(Peercert, Options) ->
     case proplists:get_value(peer_cert_as_username, Options) of
