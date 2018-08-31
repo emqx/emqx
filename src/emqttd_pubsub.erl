@@ -117,7 +117,15 @@ dispatch({{share, _Share}, [Sub]}, Topic, Msg) ->
 dispatch({{share, _Share}, []}, _Topic, _Msg) ->
     ok;
 dispatch({{share, _Share}, Subs}, Topic, Msg) -> %% round-robbin?
-    dispatch(lists:nth(rand:uniform(length(Subs)), Subs), Topic, Msg).
+   AliveSubs = lists:filter(fun({_SubId, SubPid}) ->
+                                    is_process_alive(SubPid);
+                               (SubPid) ->
+                                    is_process_alive(SubPid)
+                            end, Subs),
+   if
+       AliveSubs == [] -> ok;
+       true -> dispatch(lists:nth(rand:uniform(length(AliveSubs)), AliveSubs), Topic, Msg)
+   end.
 
 subscribers(Topic) ->
     group_by_share(try ets:lookup_element(mqtt_subscriber, Topic, 2) catch error:badarg -> [] end).
