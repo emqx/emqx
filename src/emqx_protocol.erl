@@ -451,7 +451,7 @@ puback(?QOS_2, PacketId, {ok, _}, PState) ->
 %% Deliver Packet -> Client
 %%------------------------------------------------------------------------------
 
--spec(deliver(term(), state()) -> {ok, state()} | {error, term()}).
+-spec(deliver(tuple(), state()) -> {ok, state()} | {error, term()}).
 deliver({connack, ReasonCode}, PState) ->
     send(?CONNACK_PACKET(ReasonCode), PState);
 
