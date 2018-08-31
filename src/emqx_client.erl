@@ -186,7 +186,7 @@ with_owner(Options) ->
 connect(Client) ->
     gen_statem:call(Client, connect, infinity).
 
--spec(subscribe(client(), topic() | {topic(), qos() | [subopt()]})
+-spec(subscribe(client(), topic() | {topic(), qos() | [subopt()]} | [{topic(), qos()}])
       -> subscribe_ret()).
 subscribe(Client, Topic) when is_binary(Topic) ->
     subscribe(Client, {Topic, ?QOS_0});

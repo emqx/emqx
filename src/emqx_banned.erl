@@ -24,19 +24,15 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
-%% API
 -export([start_link/0]).
 -export([check/1]).
 -export([add/1, del/1]).
 
-%% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
-
--record(state, {expiry_timer}).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -44,7 +40,7 @@
 
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
-                {type, ordered_set},
+                {type, set},
                 {disc_copies, [node()]},
                 {record_name, banned},
                 {attributes, record_info(fields, banned)}]);
@@ -52,11 +48,7 @@ mnesia(boot) ->
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?TAB).
 
-%%--------------------------------------------------------------------
-%% API
-%%--------------------------------------------------------------------
-
-%% @doc Start the banned server
+%% @doc Start the banned server.
 -spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
@@ -67,9 +59,13 @@ check(#{client_id := ClientId, username := Username, peername := {IPAddr, _}}) -
         orelse ets:member(?TAB, {username, Username})
             orelse ets:member(?TAB, {ipaddr, IPAddr}).
 
-add(Record) when is_record(Record, banned) ->
-    mnesia:dirty_write(?TAB, Record).
+-spec(add(#banned{}) -> ok).
+add(Banned) when is_record(Banned, banned) ->
+    mnesia:dirty_write(?TAB, Banned).
 
+-spec(del({client_id, emqx_types:client_id()} |
+          {username, emqx_types:username()} |
+          {peername, emqx_types:peername()}) -> ok).
 del(Key) ->
     mnesia:dirty_delete(?TAB, Key).
 
@@ -78,27 +74,26 @@ del(Key) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    emqx_time:seed(),
-    {ok, ensure_expiry_timer(#state{})}.
+    {ok, ensure_expiry_timer(#{expiry_timer => undefined})}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[BANNED] Unexpected request: ~p", [Req]),
-    {reply, ignore, State}.
+    emqx_logger:error("[BANNED] unexpected call: ~p", [Req]),
+    {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[BANNED] Unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[BANNED] unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({timeout, Ref, expire}, State = #state{expiry_timer = Ref}) ->
+handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
     mnesia:async_dirty(fun expire_banned_items/1, [erlang:timestamp()]),
     {noreply, ensure_expiry_timer(State), hibernate};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[BANNED] Unexpected info: ~p", [Info]),
+    emqx_logger:error("[BANNED] unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #state{expiry_timer = Timer}) ->
-    emqx_misc:cancel_timer(Timer).
+terminate(_Reason, #{expiry_timer := TRef}) ->
+    emqx_misc:cancel_timer(TRef).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -108,9 +103,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 ensure_expiry_timer(State) ->
-    Interval = emqx_config:get_env(banned_expiry_interval, timer:minutes(5)),
-    State#state{expiry_timer = emqx_misc:start_timer(
-                                 Interval + rand:uniform(Interval), expire)}.
+    State#{expiry_timer := emqx_misc:start_timer(timer:minutes(5), expire)}.
 
 expire_banned_items(Now) ->
     expire_banned_item(mnesia:first(?TAB), Now).
@@ -119,11 +112,11 @@ expire_banned_item('$end_of_table', _Now) ->
     ok;
 expire_banned_item(Key, Now) ->
     case mnesia:read(?TAB, Key) of
-        [#banned{until = undefined}] -> ok;
+        [#banned{until = undefined}] ->
+            ok;
         [B = #banned{until = Until}] when Until < Now ->
            mnesia:delete_object(?TAB, B, sticky_write);
-        [_] -> ok;
-        [] -> ok
+        _ -> ok
     end,
     expire_banned_item(mnesia:next(?TAB, Key), Now).
 

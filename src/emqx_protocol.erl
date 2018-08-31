@@ -56,6 +56,7 @@
           mountpoint,
           is_super,
           is_bridge,
+          enable_ban,
           enable_acl,
           recv_stats,
           send_stats,
@@ -97,6 +98,7 @@ init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options)
             packet_size  = emqx_zone:get_env(Zone, max_packet_size),
             mountpoint   = emqx_zone:get_env(Zone, mountpoint),
             is_bridge    = false,
+            enable_ban   = emqx_zone:get_env(Zone, enable_ban, false),
             enable_acl   = emqx_zone:get_env(Zone, enable_acl),
             recv_stats   = #{msg => 0, pkt => 0},
             send_stats   = #{msg => 0, pkt => 0},
@@ -186,14 +188,14 @@ session(#pstate{session = SPid}) ->
     SPid.
 
 parser(#pstate{packet_size = Size, proto_ver = Ver}) ->
-    emqx_frame:initial_state(#{packet_size => Size, version => Ver}).
+    emqx_frame:initial_state(#{max_packet_size => Size, version => Ver}).
 
 %%------------------------------------------------------------------------------
 %% Packet Received
 %%------------------------------------------------------------------------------
 
--spec(received(emqx_mqtt_types:packet(), state())
-      -> {ok, state()} | {error, term()} | {error, term(), state()}).
+-spec(received(emqx_mqtt_types:packet(), state()) ->
+    {ok, state()} | {error, term()} | {error, term(), state()} | {stop, term(), state()}).
 received(?PACKET(Type), PState = #pstate{connected = false}) when Type =/= ?CONNECT ->
     {error, proto_not_connected, PState};
 
@@ -449,6 +451,7 @@ puback(?QOS_2, PacketId, {ok, _}, PState) ->
 %% Deliver Packet -> Client
 %%------------------------------------------------------------------------------
 
+-spec(deliver(tuple(), state()) -> {ok, state()} | {error, term()}).
 deliver({connack, ReasonCode}, PState) ->
     send(?CONNACK_PACKET(ReasonCode), PState);
 
@@ -581,7 +584,8 @@ set_property(Name, Value, Props) ->
 
 check_connect(Packet, PState) ->
     run_check_steps([fun check_proto_ver/2,
-                     fun check_client_id/2], Packet, PState).
+                     fun check_client_id/2,
+                     fun check_banned/2], Packet, PState).
 
 check_proto_ver(#mqtt_packet_connect{proto_ver  = Ver,
                                      proto_name = Name}, _PState) ->
@@ -610,6 +614,17 @@ check_client_id(#mqtt_packet_connect{client_id = ClientId}, #pstate{zone = Zone}
     case (1 =< Len) andalso (Len =< MaxLen) of
         true  -> ok;
         false -> {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID}
+    end.
+
+check_banned(_Connect, #pstate{enable_ban = false}) ->
+    ok;
+check_banned(#mqtt_packet_connect{client_id = ClientId, username = Username},
+             #pstate{peername = Peername}) ->
+    case emqx_banned:check(#{client_id => ClientId,
+                             username  => Username,
+                             peername  => Peername}) of
+        true  -> {error, ?RC_BANNED};
+        false -> ok
     end.
 
 check_publish(Packet, PState) ->

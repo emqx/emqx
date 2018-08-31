@@ -148,6 +148,9 @@
          }).
 
 -type(spid() :: pid()).
+-type(attr() :: {atom(), term()}).
+
+-export_type([attr/0]).
 
 -define(TIMEOUT, 60000).
 
@@ -564,7 +567,7 @@ handle_info({timeout, Timer, check_awaiting_rel}, State = #state{await_rel_timer
     noreply(expire_awaiting_rel(State#state{await_rel_timer = undefined}));
 
 handle_info({timeout, Timer, emit_stats}, State = #state{client_id = ClientId, stats_timer = Timer}) ->
-    true = emqx_sm:set_session_stats(ClientId, stats(State)),
+    _ = emqx_sm:set_session_stats(ClientId, stats(State)),
     {noreply, State#state{stats_timer = undefined}, hibernate};
 
 handle_info({timeout, Timer, expired}, State = #state{expiry_timer = Timer}) ->
