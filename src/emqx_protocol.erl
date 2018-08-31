@@ -188,14 +188,14 @@ session(#pstate{session = SPid}) ->
     SPid.
 
 parser(#pstate{packet_size = Size, proto_ver = Ver}) ->
-    emqx_frame:initial_state(#{packet_size => Size, version => Ver}).
+    emqx_frame:initial_state(#{max_packet_size => Size, version => Ver}).
 
 %%------------------------------------------------------------------------------
 %% Packet Received
 %%------------------------------------------------------------------------------
 
--spec(received(emqx_mqtt_types:packet(), state())
-      -> {ok, state()} | {error, term()} | {error, term(), state()}).
+-spec(received(emqx_mqtt_types:packet(), state()) ->
+    {ok, state()} | {error, term()} | {error, term(), state()} | {stop, term(), state()}).
 received(?PACKET(Type), PState = #pstate{connected = false}) when Type =/= ?CONNECT ->
     {error, proto_not_connected, PState};
 
@@ -451,6 +451,7 @@ puback(?QOS_2, PacketId, {ok, _}, PState) ->
 %% Deliver Packet -> Client
 %%------------------------------------------------------------------------------
 
+-spec(deliver(term(), state()) -> {ok, state()} | {error, term()}).
 deliver({connack, ReasonCode}, PState) ->
     send(?CONNACK_PACKET(ReasonCode), PState);
 

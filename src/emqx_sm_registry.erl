@@ -20,7 +20,9 @@
 
 -export([start_link/0]).
 -export([is_enabled/0]).
+
 -export([register_session/1, lookup_session/1, unregister_session/1]).
+
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
@@ -30,12 +32,11 @@
 -define(LOCK, {?MODULE, cleanup_sessions}).
 
 -record(global_session, {sid, pid}).
--record(state, {}).
 
 -type(session_pid() :: pid()).
 
-%% @doc Start the session manager.
--spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
+%% @doc Start the global session manager.
+-spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?REGISTRY}, ?MODULE, [], []).
 
@@ -46,19 +47,18 @@ is_enabled() ->
 -spec(lookup_session(emqx_types:client_id())
       -> list({emqx_types:client_id(), session_pid()})).
 lookup_session(ClientId) ->
-    [{ClientId, SessionPid} || #global_session{pid = SessionPid}
-                               <- mnesia:dirty_read(?TAB, ClientId)].
+    [{ClientId, SessPid} || #global_session{pid = SessPid} <- mnesia:dirty_read(?TAB, ClientId)].
 
 -spec(register_session({emqx_types:client_id(), session_pid()}) -> ok).
-register_session({ClientId, SessionPid}) when is_binary(ClientId), is_pid(SessionPid) ->
-    mnesia:dirty_write(?TAB, record(ClientId, SessionPid)).
+register_session({ClientId, SessPid}) when is_binary(ClientId), is_pid(SessPid) ->
+    mnesia:dirty_write(?TAB, record(ClientId, SessPid)).
 
 -spec(unregister_session({emqx_types:client_id(), session_pid()}) -> ok).
-unregister_session({ClientId, SessionPid}) when is_binary(ClientId), is_pid(SessionPid) ->
-    mnesia:dirty_delete_object(?TAB, record(ClientId, SessionPid)).
+unregister_session({ClientId, SessPid}) when is_binary(ClientId), is_pid(SessPid) ->
+    mnesia:dirty_delete_object(?TAB, record(ClientId, SessPid)).
 
-record(ClientId, SessionPid) ->
-    #global_session{sid = ClientId, pid = SessionPid}.
+record(ClientId, SessPid) ->
+    #global_session{sid = ClientId, pid = SessPid}.
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -72,7 +72,7 @@ init([]) ->
                 {attributes, record_info(fields, global_session)}]),
     ok = ekka_mnesia:copy_table(?TAB),
     ekka:monitor(membership),
-    {ok, #state{}}.
+    {ok, #{}}.
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[Registry] unexpected call: ~p", [Req]),
@@ -107,9 +107,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 cleanup_sessions(Node) ->
-    Pat = [{#global_session{pid = '$1', _ = '_'},
-            [{'==', {node, '$1'}, Node}], ['$_']}],
-    lists:foreach(fun(Session) ->
-                      mnesia:delete_object(?TAB, Session)
-                  end, mnesia:select(?TAB, Pat)).
+    Pat = [{#global_session{pid = '$1', _ = '_'}, [{'==', {node, '$1'}, Node}], ['$_']}],
+    lists:foreach(fun delete_session/1, mnesia:select(?TAB, Pat, write)).
+
+delete_session(Session) ->
+    mnesia:delete_object(?TAB, Session, write).
 

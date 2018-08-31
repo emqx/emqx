@@ -60,8 +60,8 @@ init([Pool, Id, Node, Topic, Options]) ->
     case net_kernel:connect_node(Node) of
         true ->
             true = erlang:monitor_node(Node, true),
-            Share = iolist_to_binary(["$bridge:", atom_to_list(Node), ":", Topic]),
-            emqx_broker:subscribe(Topic, self(), [{share, Share}, {qos, ?QOS_0}]),
+            Group = iolist_to_binary(["$bridge:", atom_to_list(Node), ":", Topic]),
+            emqx_broker:subscribe(Topic, self(), #{share => Group, qos => ?QOS_0}),
             State = parse_opts(Options, #state{node = Node, subtopic = Topic}),
             MQueue = emqx_mqueue:init(#{type => simple,
                                         max_len => State#state.max_queue_len,
@@ -86,11 +86,6 @@ parse_opts([{ping_down_interval, Interval} | Opts], State) ->
 parse_opts([_Opt | Opts], State) ->
     parse_opts(Opts, State).
 
-qname(Node, Topic) when is_atom(Node) ->
-    qname(atom_to_list(Node), Topic);
-qname(Node, Topic) ->
-    iolist_to_binary(["Bridge:", Node, ":", Topic]).
-
 handle_call(Req, _From, State) ->
     emqx_logger:error("[Bridge] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
@@ -104,7 +99,7 @@ handle_info({dispatch, _Topic, Msg}, State = #state{mqueue = Q, status = down}) 
     {noreply, State#state{mqueue = emqx_mqueue:in(Msg, Q)}};
 
 handle_info({dispatch, _Topic, Msg}, State = #state{node = Node, status = up}) ->
-    ok = emqx_rpc:cast(Node, emqx_broker, publish, [transform(Msg, State)]),
+    emqx_rpc:cast(Node, emqx_broker, publish, [transform(Msg, State)]),
     {noreply, State};
 
 handle_info({nodedown, Node}, State = #state{node = Node, ping_down_interval = Interval}) ->
@@ -157,7 +152,6 @@ dequeue(State = #state{mqueue = MQ}) ->
             dequeue(State#state{mqueue = MQ1})
     end.
 
-transform(Msg = #message{topic = Topic}, #state{topic_prefix = Prefix,
-                                                topic_suffix = Suffix}) ->
+transform(Msg = #message{topic = Topic}, #state{topic_prefix = Prefix, topic_suffix = Suffix}) ->
     Msg#message{topic = <<Prefix/binary, Topic/binary, Suffix/binary>>}.
 

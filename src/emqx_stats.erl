@@ -31,9 +31,10 @@
          code_change/3]).
 
 -record(update, {name, countdown, interval, func}).
--record(state, {timer, updates :: #update{}}).
+-record(state, {timer, updates :: [#update{}]}).
 
 -type(stats() :: list({atom(), non_neg_integer()})).
+
 -export_type([stats/0]).
 
 %% Connection stats

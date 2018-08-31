@@ -25,6 +25,8 @@
 
 -define(ACL_RULE_TAB, emqx_acl_rule).
 
+-type(state() :: #{acl_file := string()}).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
@@ -95,7 +97,7 @@ match(Credentials, Topic, [Rule|Rules]) ->
             {matched, AllowDeny}
     end.
 
--spec(reload_acl(#{}) -> ok | {error, term()}).
+-spec(reload_acl(state()) -> ok | {error, term()}).
 reload_acl(#{acl_file := AclFile}) ->
     case catch load_rules_from_file(AclFile) of
         true ->

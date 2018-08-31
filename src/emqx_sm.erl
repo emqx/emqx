@@ -49,22 +49,20 @@ start_link() ->
 
 %% @doc Open a session.
 -spec(open_session(map()) -> {ok, pid()} | {ok, pid(), boolean()} | {error, term()}).
-open_session(Attrs = #{clean_start := true, client_id := ClientId, conn_pid := ConnPid}) ->
+open_session(SessAttrs = #{clean_start := true, client_id := ClientId, conn_pid := ConnPid}) ->
     CleanStart = fun(_) ->
                      ok = discard_session(ClientId, ConnPid),
-                     emqx_session_sup:start_session(Attrs)
+                     emqx_session_sup:start_session(SessAttrs)
                  end,
     emqx_sm_locker:trans(ClientId, CleanStart);
 
-open_session(Attrs = #{clean_start := false, client_id := ClientId, conn_pid := ConnPid}) ->
+open_session(SessAttrs = #{clean_start := false, client_id := ClientId, conn_pid := ConnPid}) ->
     ResumeStart = fun(_) ->
                       case resume_session(ClientId, ConnPid) of
                           {ok, SPid} ->
                               {ok, SPid, true};
                           {error, not_found} ->
-                              emqx_session_sup:start_session(Attrs);
-                          {error, Reason} ->
-                              {error, Reason}
+                              emqx_session_sup:start_session(SessAttrs)
                       end
                   end,
     emqx_sm_locker:trans(ClientId, ResumeStart).
@@ -113,31 +111,31 @@ close_session(SPid) when is_pid(SPid) ->
 
 %% @doc Register a session with attributes.
 -spec(register_session(emqx_types:client_id() | {emqx_types:client_id(), pid()},
-                       list(emqx_session:attribute())) -> ok).
-register_session(ClientId, Attrs) when is_binary(ClientId) ->
-    register_session({ClientId, self()}, Attrs);
+                       list(emqx_session:attr())) -> ok).
+register_session(ClientId, SessAttrs) when is_binary(ClientId) ->
+    register_session({ClientId, self()}, SessAttrs);
 
-register_session(Session = {ClientId, SPid}, Attrs)
+register_session(Session = {ClientId, SPid}, SessAttrs)
     when is_binary(ClientId), is_pid(SPid) ->
     ets:insert(?SESSION_TAB, Session),
-    ets:insert(?SESSION_ATTRS_TAB, {Session, Attrs}),
-    case proplists:get_value(clean_start, Attrs, true) of
-        true  -> ok;
-        false  -> ets:insert(?SESSION_P_TAB, Session)
-    end,
+    ets:insert(?SESSION_ATTRS_TAB, {Session, SessAttrs}),
+    proplists:get_value(clean_start, SessAttrs, true)
+        andalso ets:insert(?SESSION_P_TAB, Session),
     emqx_sm_registry:register_session(Session),
     notify({registered, ClientId, SPid}).
 
 %% @doc Get session attrs
--spec(get_session_attrs({emqx_types:client_id(), pid()}) -> list(emqx_session:attribute())).
+-spec(get_session_attrs({emqx_types:client_id(), pid()}) -> list(emqx_session:attr())).
 get_session_attrs(Session = {ClientId, SPid}) when is_binary(ClientId), is_pid(SPid) ->
     safe_lookup_element(?SESSION_ATTRS_TAB, Session, []).
 
 %% @doc Set session attrs
-set_session_attrs(ClientId, Attrs) when is_binary(ClientId) ->
-    set_session_attrs({ClientId, self()}, Attrs);
-set_session_attrs(Session = {ClientId, SPid}, Attrs) when is_binary(ClientId), is_pid(SPid) ->
-    ets:insert(?SESSION_ATTRS_TAB, {Session, Attrs}).
+-spec(set_session_attrs(emqx_types:client_id() | {emqx_types:client_id(), pid()},
+                        list(emqx_session:attr())) -> true).
+set_session_attrs(ClientId, SessAttrs) when is_binary(ClientId) ->
+    set_session_attrs({ClientId, self()}, SessAttrs);
+set_session_attrs(Session = {ClientId, SPid}, SessAttrs) when is_binary(ClientId), is_pid(SPid) ->
+    ets:insert(?SESSION_ATTRS_TAB, {Session, SessAttrs}).
 
 %% @doc Unregister a session
 -spec(unregister_session(emqx_types:client_id() | {emqx_types:client_id(), pid()}) -> ok).
@@ -154,18 +152,15 @@ unregister_session(Session = {ClientId, SPid}) when is_binary(ClientId), is_pid(
 
 %% @doc Get session stats
 -spec(get_session_stats({emqx_types:client_id(), pid()}) -> list(emqx_stats:stats())).
-get_session_stats(Session = {ClientId, SPid})
-    when is_binary(ClientId), is_pid(SPid) ->
+get_session_stats(Session = {ClientId, SPid}) when is_binary(ClientId), is_pid(SPid) ->
     safe_lookup_element(?SESSION_STATS_TAB, Session, []).
 
 %% @doc Set session stats
 -spec(set_session_stats(emqx_types:client_id() | {emqx_types:client_id(), pid()},
-                        emqx_stats:stats()) -> ok).
+                        emqx_stats:stats()) -> true).
 set_session_stats(ClientId, Stats) when is_binary(ClientId) ->
     set_session_stats({ClientId, self()}, Stats);
-
-set_session_stats(Session = {ClientId, SPid}, Stats)
-    when is_binary(ClientId), is_pid(SPid) ->
+set_session_stats(Session = {ClientId, SPid}, Stats) when is_binary(ClientId), is_pid(SPid) ->
     ets:insert(?SESSION_STATS_TAB, {Session, Stats}).
 
 %% @doc Lookup a session from registry
