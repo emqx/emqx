@@ -61,3 +61,8 @@
 -type(plugin() :: #plugin{}).
 -type(command() :: #command{}).
 
+%% for access_control and banned
+-type(who() :: all | binary() |
+               {client, binary()} |
+               {user, binary()} |
+               {ipaddr, esockd_cidr:cidr_string()}).

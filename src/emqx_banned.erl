@@ -46,8 +46,8 @@ mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
                 {type, ordered_set},
                 {disc_copies, [node()]},
-                {record_name, banned},
-                {attributes, record_info(fields, banned)}]);
+                {record_name, emqx_banned},
+                {attributes, record_info(fields, emqx_banned)}]);
 
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?TAB).
@@ -56,7 +56,7 @@ mnesia(copy) ->
 %% API
 %%--------------------------------------------------------------------
 
-%% @doc Start the banned server
+%% @doc Start the emqx_banned server
 -spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
@@ -67,11 +67,12 @@ check(#{client_id := ClientId, username := Username, peername := {IPAddr, _}}) -
         orelse ets:member(?TAB, {username, Username})
             orelse ets:member(?TAB, {ipaddr, IPAddr}).
 
-add(Record) when is_record(Record, banned) ->
-    mnesia:dirty_write(?TAB, Record).
+add(Record = #emqx_banned{who = {WhoK, WhoV}}) when is_record(Record, emqx_banned) ->
+    R = Record#emqx_banned{id = <<WhoK/binary, ":", WhoV/binary>>},
+    ok = mnesia:dirty_write(?TAB, R), R.
 
-del(Key) ->
-    mnesia:dirty_delete(?TAB, Key).
+del(ID) ->
+    mnesia:dirty_delete(?TAB, ID).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -119,11 +120,11 @@ expire_banned_item('$end_of_table', _Now) ->
     ok;
 expire_banned_item(Key, Now) ->
     case mnesia:read(?TAB, Key) of
-        [#banned{until = undefined}] -> ok;
-        [B = #banned{until = Until}] when Until < Now ->
+        [#emqx_banned{until = undefined}] -> ok;
+        [B = #emqx_banned{until = Until}] when Until < Now ->
            mnesia:delete_object(?TAB, B, sticky_write);
-        [_] -> ok;
-        [] -> ok
+        _ -> ok
     end,
     expire_banned_item(mnesia:next(?TAB, Key), Now).
 
+%atom_to_binary(A) -> list_to_binary(atom_to_list(A)).
