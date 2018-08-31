@@ -62,12 +62,12 @@ end_per_suite(_Config) ->
 %%--------------------------------------------------------------------
 
 subscribe_unsubscribe(_) ->
-    ok = emqx:subscribe(<<"topic">>, "clientId"),
-    ok = emqx:subscribe(<<"topic/1">>, "clientId", #{ qos => 1 }),
-    ok = emqx:subscribe(<<"topic/2">>, "clientId", #{ qos => 2 }),
-    ok = emqx:unsubscribe(<<"topic">>, "clientId"),
-    ok = emqx:unsubscribe(<<"topic/1">>, "clientId"),
-    ok = emqx:unsubscribe(<<"topic/2">>, "clientId").
+    ok = emqx:subscribe(<<"topic">>, <<"clientId">>),
+    ok = emqx:subscribe(<<"topic/1">>, <<"clientId">>, #{ qos => 1 }),
+    ok = emqx:subscribe(<<"topic/2">>, <<"clientId">>, #{ qos => 2 }),
+    ok = emqx:unsubscribe(<<"topic">>, <<"clientId">>),
+    ok = emqx:unsubscribe(<<"topic/1">>, <<"clientId">>),
+    ok = emqx:unsubscribe(<<"topic/2">>, <<"clientId">>).
 
 publish(_) ->
     Msg = emqx_message:make(ct, <<"test/pubsub">>, <<"hello">>),
@@ -79,9 +79,9 @@ publish(_) ->
 pubsub(_) ->
     Self = self(),
     Subscriber = {Self, <<"clientId">>},
-    ok = emqx:subscribe(<<"a/b/c">>, Subscriber, #{ qos => 1 }),
+    ok = emqx:subscribe(<<"a/b/c">>, <<"clientId">>, #{ qos => 1 }),
     #{ qos := 1} = ets:lookup_element(emqx_suboption, {<<"a/b/c">>, Subscriber}, 2),
-    ok = emqx:subscribe(<<"a/b/c">>, Subscriber, #{ qos => 2 }),
+    ok = emqx:subscribe(<<"a/b/c">>, <<"clientId">>, #{ qos => 2 }),
     #{ qos := 2} = ets:lookup_element(emqx_suboption, {<<"a/b/c">>, Subscriber}, 2),
     %% ct:log("Emq Sub: ~p.~n", [ets:lookup(emqx_suboption, {<<"a/b/c">>, Subscriber})]),
     timer:sleep(10),
@@ -100,8 +100,8 @@ pubsub(_) ->
 
 t_local_subscribe(_) ->
     ok = emqx:subscribe(<<"$local/topic0">>),
-    ok = emqx:subscribe(<<"$local/topic1">>, "clientId"),
-    ok = emqx:subscribe(<<"$local/topic2">>, "clientId", #{ qos => 2 }),
+    ok = emqx:subscribe(<<"$local/topic1">>, <<"clientId">>),
+    ok = emqx:subscribe(<<"$local/topic2">>, <<"clientId">>, #{ qos => 2 }),
     timer:sleep(10),
     ?assertEqual([{self(), undefined}], emqx:subscribers("$local/topic0")),
     ?assertEqual([{self(), <<"clientId">>}], emqx:subscribers("$local/topic1")),
@@ -110,8 +110,8 @@ t_local_subscribe(_) ->
                  emqx:subscriptions({self(), <<"clientId">>})),
     ?assertEqual(ok, emqx:unsubscribe("$local/topic0")),
     ?assertEqual(ok, emqx:unsubscribe("$local/topic0")),
-    ?assertEqual(ok, emqx:unsubscribe("$local/topic1", "clientId")),
-    ?assertEqual(ok, emqx:unsubscribe("$local/topic2", "clientId")),
+    ?assertEqual(ok, emqx:unsubscribe("$local/topic1", <<"clientId">>)),
+    ?assertEqual(ok, emqx:unsubscribe("$local/topic2", <<"clientId">>)),
     ?assertEqual([], emqx:subscribers("topic1")),
     ?assertEqual([], emqx:subscriptions({self(), <<"clientId">>})).
 
