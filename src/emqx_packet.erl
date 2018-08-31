@@ -195,6 +195,10 @@ format_variable(#mqtt_packet_connect{
                        end,
     io_lib:format(Format1, Args1);
 
+format_variable(#mqtt_packet_disconnect
+                {reason_code = ReasonCode}) ->
+    io_lib:format("ReasonCode=~p", [ReasonCode]);
+
 format_variable(#mqtt_packet_connack{ack_flags   = AckFlags,
                                      reason_code = ReasonCode}) ->
     io_lib:format("AckFlags=~p, ReasonCode=~p", [AckFlags, ReasonCode]);
