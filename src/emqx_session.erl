@@ -720,7 +720,7 @@ run_dispatch_steps([], Msg, State) ->
     dispatch(Msg, State);
 run_dispatch_steps([{nl, 1}|_Steps], #message{from = ClientId}, State = #state{client_id = ClientId}) ->
     State;
-run_dispatch_steps([{nl, 0}|Steps], Msg, State) ->
+run_dispatch_steps([{nl, _}|Steps], Msg, State) ->
     run_dispatch_steps(Steps, Msg, State);
 run_dispatch_steps([{qos, SubQoS}|Steps], Msg = #message{qos = PubQoS}, State = #state{upgrade_qos = false}) ->
     run_dispatch_steps(Steps, Msg#message{qos = min(SubQoS, PubQoS)}, State);
@@ -897,4 +897,3 @@ shutdown(Reason, State) ->
 
 %% TODO: GC Policy and Shutdown Policy
 %% maybe_gc(State) -> State.
-
