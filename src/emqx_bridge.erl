@@ -117,7 +117,7 @@ handle_info(start, State = #state{options = Options,
             {noreply, State#state{client_pid = ClientPid}};
         {error,_} ->
             erlang:send_after(ReconnectTime, self(), start),
-            {noreply, State = #state{reconnect_count = ReconnectCount-1}}
+            {noreply, State#state{reconnect_count = ReconnectCount-1}}
     end;
 
 %%----------------------------------------------------------------
@@ -138,7 +138,7 @@ handle_info(start, State = #state{options = Options,
             {noreply, State#state{client_pid = ClientPid}};
         {error,_} ->
             erlang:send_after(ReconnectTime, self(), start),
-            {noreply, State = #state{reconnect_count = ReconnectCount-1}}
+            {noreply, State#state{reconnect_count = ReconnectCount-1}}
     end;
 
 %%----------------------------------------------------------------
