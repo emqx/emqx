@@ -149,12 +149,13 @@
 %% Banned
 %%--------------------------------------------------------------------
 
--record(banned, {
-          key, 
-          reason, 
-          by, 
-          desc, 
-          until}).
+-record(emqx_banned, {
+          id :: binary(),
+          who :: emqx_types:who(),
+          reason :: binary(),
+          by :: binary(),
+          desc :: binary(),
+          until :: binary()
+        }).
 
 -endif.
-

@@ -16,17 +16,12 @@
 
 -include("emqx.hrl").
 
--type(who() :: all | binary() |
-               {client, binary()} |
-               {user, binary()} |
-               {ipaddr, esockd_cidr:cidr_string()}).
-
 -type(access() :: subscribe | publish | pubsub).
 
 -type(rule() :: {allow, all} |
-                {allow, who(), access(), list(emqx_topic:topic())} |
+                {allow, emqx_types:who(), access(), list(emqx_topic:topic())} |
                 {deny, all} |
-                {deny, who(), access(), list(emqx_topic:topic())}).
+                {deny, emqx_types:who(), access(), list(emqx_topic:topic())}).
 
 -export_type([rule/0]).
 
@@ -147,4 +142,3 @@ feed_var(Credentials = #{username := Username}, [<<"%u">>|Words], Acc) ->
     feed_var(Credentials, Words, [Username|Acc]);
 feed_var(Credentials, [W|Words], Acc) ->
     feed_var(Credentials, Words, [W|Acc]).
-
