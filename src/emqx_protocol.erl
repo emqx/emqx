@@ -121,13 +121,13 @@ set_username(_Username, PState) ->
 %%------------------------------------------------------------------------------
 
 info(PState = #pstate{conn_props    = ConnProps,
-                      ack_props     = AclProps,
+                      ack_props     = AckProps,
                       session       = Session,
                       topic_aliases = Aliases,
                       will_msg      = WillMsg,
                       enable_acl    = EnableAcl}) ->
     attrs(PState) ++ [{conn_props, ConnProps},
-                      {ack_props, AclProps},
+                      {ack_props, AckProps},
                       {session, Session},
                       {topic_aliases, Aliases},
                       {will_msg, WillMsg},
