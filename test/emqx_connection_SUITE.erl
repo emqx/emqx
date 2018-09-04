@@ -19,12 +19,29 @@
 
 -include_lib("common_test/include/ct.hrl").
 
-all() -> [t_attrs].
+all() -> 
+    [{group, connection}].
+
+groups() ->
+    [{connection, [sequence], [t_attrs]}].
+
+init_per_suite(Config) ->
+    emqx_ct_broker_helpers:run_setup_steps(),
+    Config.
+    
+end_per_suite(_Config) ->
+    emqx_ct_broker_helpers:run_teardown_steps().
+
 
 t_attrs(_) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
     {ok, C, _} = emqx_client:start_link([{host, "localhost"}, {client_id, <<"simpleClient">>}, {username, <<"plain">>}, {password, <<"plain">>}]),
     [{<<"simpleClient">>, ConnPid}] = emqx_cm:lookup_connection(<<"simpleClient">>),
     Attrs = emqx_connection:attrs(ConnPid),
     <<"simpleClient">> = proplists:get_value(client_id, Attrs),
-    <<"plain">> = proplists:get_value(username, Attrs).
+    <<"plain">> = proplists:get_value(username, Attrs),
+    emqx_client:disconnect(C).
+
+%% t_stats() ->
+%%     {ok, C, _ } = emqx_client;
+%% t_stats() ->
+

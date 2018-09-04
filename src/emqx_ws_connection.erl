@@ -34,43 +34,67 @@
           options,
           peername,
           sockname,
+          idle_timeout,
           proto_state,
           parser_state,
           keepalive,
           enable_stats,
           stats_timer,
-          idle_timeout,
-          shutdown_reason
+          shutdown
          }).
 
--define(INFO_KEYS, [peername, sockname]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
 -define(WSLOG(Level, Format, Args, State),
-        emqx_logger:Level("WsClient(~s): " ++ Format, [esockd_net:format(State#state.peername) | Args])).
+        emqx_logger:Level("MQTT/WS(~s): " ++ Format,
+                          [esockd_net:format(State#state.peername) | Args])).
 
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
 
 %% for debug
-info(WSPid) ->
-    call(WSPid, info).
+info(WSPid) when is_pid(WSPid) ->
+    call(WSPid, info);
+
+info(#state{peername    = Peername,
+            sockname    = Sockname,
+            proto_state = ProtoState}) ->
+    ProtoInfo = emqx_protocol:info(ProtoState),
+    ConnInfo = [{socktype, websocket},
+                {conn_state, running},
+                {peername, Peername},
+                {sockname, Sockname}],
+    lists:append([ConnInfo, ProtoInfo]).
 
 %% for dashboard
-attrs(CPid) when is_pid(CPid) ->
-    call(CPid, attrs).
+attrs(WSPid) when is_pid(WSPid) ->
+    call(WSPid, attrs);
 
-stats(WSPid) ->
-    call(WSPid, stats).
+attrs(#state{peername    = Peername,
+             sockname    = Sockname,
+             proto_state = ProtoState}) ->
+    SockAttrs = [{peername, Peername},
+                 {sockname, Sockname}],
+    ProtoAttrs = emqx_protocol:attrs(ProtoState),
+    lists:usort(lists:append(SockAttrs, ProtoAttrs)).
 
-kick(WSPid) ->
+stats(WSPid) when is_pid(WSPid) ->
+    call(WSPid, stats);
+
+stats(#state{proto_state = ProtoState}) ->
+    lists:append([wsock_stats(),
+                  emqx_misc:proc_stats(),
+                  emqx_protocol:stats(ProtoState)
+                 ]).
+
+kick(WSPid) when is_pid(WSPid) ->
     call(WSPid, kick).
 
-session(WSPid) ->
+session(WSPid) when is_pid(WSPid) ->
     call(WSPid, session).
 
-call(WSPid, Req) ->
+call(WSPid, Req) when is_pid(WSPid) ->
     Mref = erlang:monitor(process, WSPid),
     WSPid ! {call, {self(), Mref}, Req},
     receive
@@ -152,41 +176,30 @@ websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
                     websocket_handle({binary, Rest}, reset_parser(State#state{proto_state = ProtoState1}));
                 {error, Error} ->
                     ?WSLOG(error, "Protocol error - ~p", [Error], State),
-                    {stop, State};
-                {error, Error, ProtoState1} ->
-                    shutdown(Error, State#state{proto_state = ProtoState1});
-                {stop, Reason, ProtoState1} ->
-                    shutdown(Reason, State#state{proto_state = ProtoState1})
+                    stop(Error, State);
+                {error, Reason, ProtoState1} ->
+                    shutdown(Reason, State#state{proto_state = ProtoState1});
+                {stop, Error, ProtoState1} ->
+                    stop(Error, State#state{proto_state = ProtoState1})
             end;
         {error, Error} ->
             ?WSLOG(error, "Frame error: ~p", [Error], State),
-            {stop, State};
+            stop(Error, State);
         {'EXIT', Reason} ->
             ?WSLOG(error, "Frame error:~p~nFrame data: ~p", [Reason, Data], State),
-            {stop, State}
+            shutdown(parse_error, State)
     end.
 
-websocket_info({call, From, info}, State = #state{peername    = Peername,
-                                                  sockname    = Sockname,
-                                                  proto_state = ProtoState}) ->
-    ProtoInfo = emqx_protocol:info(ProtoState),
-    ConnInfo = [{socktype, websocket}, {conn_state, running},
-                {peername, Peername}, {sockname, Sockname}],
-    gen_server:reply(From, lists:append([ConnInfo, ProtoInfo])),
+websocket_info({call, From, info}, State) ->
+    gen_server:reply(From, info(State)),
     {ok, State};
 
-websocket_info({call, From, attrs}, State = #state{peername    = Peername,
-                                                   sockname    = Sockname,
-                                                   proto_state = ProtoState}) ->
-    SockAttrs = [{peername, Peername},
-                 {sockname, Sockname}],
-    ProtoAttrs = emqx_protocol:attrs(ProtoState),
-    gen_server:reply(From, lists:usort(lists:append(SockAttrs, ProtoAttrs))),
+websocket_info({call, From, attrs}, State) ->
+    gen_server:reply(From, attrs(State)),
     {ok, State};
 
-websocket_info({call, From, stats}, State = #state{proto_state = ProtoState}) ->
-    Stats = lists:append([wsock_stats(), emqx_misc:proc_stats(), emqx_protocol:stats(ProtoState)]),
-    gen_server:reply(From, Stats),
+websocket_info({call, From, stats}, State) ->
+    gen_server:reply(From, stats(State)),
     {ok, State};
 
 websocket_info({call, From, kick}, State) ->
@@ -202,15 +215,12 @@ websocket_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
         {ok, ProtoState1} ->
             {ok, ensure_stats_timer(State#state{proto_state = ProtoState1})};
         {error, Reason} ->
-            shutdown(Reason, State);
-        {error, Reason, ProtoState1} ->
-            shutdown(Reason, State#state{proto_state = ProtoState1})
+            shutdown(Reason, State)
     end;
 
-websocket_info(emit_stats, State = #state{proto_state = ProtoState}) ->
-    Stats = lists:append([wsock_stats(), emqx_misc:proc_stats(),
-                          emqx_protocol:stats(ProtoState)]),
-    emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), Stats),
+websocket_info({timeout, Timer, emit_stats},
+               State = #state{stats_timer = Timer, proto_state = ProtoState}) ->
+    emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), stats(State)),
     {ok, State#state{stats_timer = undefined}, hibernate};
 
 websocket_info({keepalive, start, Interval}, State) ->
@@ -235,6 +245,10 @@ websocket_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
             shutdown(keepalive_error, State)
     end;
 
+websocket_info({shutdown, discard, {ClientId, ByPid}}, State) ->
+    ?WSLOG(warning, "discarded by ~s:~p", [ClientId, ByPid], State),
+    shutdown(discard, State);
+
 websocket_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
     ?WSLOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid], State),
     shutdown(conflict, State);
@@ -249,30 +263,40 @@ websocket_info(Info, State) ->
     ?WSLOG(error, "unexpected info: ~p", [Info], State),
     {ok, State}.
 
-terminate(SockError, _Req, #state{keepalive       = Keepalive,
-                                  proto_state     = ProtoState,
-                                  shutdown_reason = Reason}) ->
+terminate(SockError, _Req, State = #state{keepalive   = Keepalive,
+                                          proto_state = ProtoState,
+                                          shutdown    = Shutdown}) ->
+    ?WSLOG(debug, "Terminated for ~p, sockerror: ~p",
+           [Shutdown, SockError], State),
     emqx_keepalive:cancel(Keepalive),
-    io:format("Websocket shutdown for ~p, sockerror: ~p~n", [Reason, SockError]),
-    case Reason of
-        undefined ->
-            ok;
-        _ ->
-            emqx_protocol:shutdown(Reason, ProtoState)
+    case {ProtoState, Shutdown} of
+        {undefined, _} -> ok;
+        {_, {shutdown, Reason}} ->
+            emqx_protocol:shutdown(Reason, ProtoState);
+        {_, Error} ->
+            emqx_protocol:shutdown(Error, ProtoState)
     end.
+
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
 
 reset_parser(State = #state{proto_state = ProtoState}) ->
     State#state{parser_state = emqx_protocol:parser(ProtoState)}.
 
 ensure_stats_timer(State = #state{enable_stats = true,
                                   stats_timer  = undefined,
-                                  idle_timeout = Timeout}) ->
-    State#state{stats_timer = erlang:send_after(Timeout, self(), emit_stats)};
+                                  idle_timeout = IdleTimeout}) ->
+    State#state{stats_timer = emqx_misc:start_timer(IdleTimeout, emit_stats)};
 ensure_stats_timer(State) ->
     State.
 
 shutdown(Reason, State) ->
-    {stop, State#state{shutdown_reason = Reason}}.
+    {stop, State#state{shutdown = Reason}}.
+
+stop(Error, State) ->
+    {stop, State#state{shutdown = Error}}.
 
 wsock_stats() ->
     [{Key, get(Key)} || Key <- ?SOCK_STATS].
+

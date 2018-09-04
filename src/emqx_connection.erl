@@ -202,20 +202,23 @@ handle_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
         {ok, ProtoState1} ->
             {noreply, maybe_gc(ensure_stats_timer(State#state{proto_state = ProtoState1}))};
         {error, Reason} ->
-            shutdown(Reason, State);
-        {error, Reason, ProtoState1} ->
-            shutdown(Reason, State#state{proto_state = ProtoState1})
+            shutdown(Reason, State)
     end;
 
-handle_info(emit_stats, State = #state{proto_state = ProtoState}) ->
+handle_info({timeout, Timer, emit_stats},
+            State = #state{stats_timer = Timer, proto_state = ProtoState}) ->
     emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), stats(State)),
     {noreply, State#state{stats_timer = undefined}, hibernate};
 
 handle_info(timeout, State) ->
     shutdown(idle_timeout, State);
 
-handle_info({shutdown, Error}, State) ->
-    shutdown(Error, State);
+handle_info({shutdown, Reason}, State) ->
+    shutdown(Reason, State);
+
+handle_info({shutdown, discard, {ClientId, ByPid}}, State) ->
+    ?LOG(warning, "discarded by ~s:~p", [ClientId, ByPid], State),
+    shutdown(discard, State);
 
 handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
     ?LOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid], State),
@@ -240,10 +243,10 @@ handle_info({inet_reply, _Sock, ok}, State) ->
 handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
     shutdown(Reason, State);
 
-handle_info({keepalive, start, Interval}, State = #state{transport = Transport, socket = Sock}) ->
+handle_info({keepalive, start, Interval}, State = #state{transport = Transport, socket = Socket}) ->
     ?LOG(debug, "Keepalive at the interval of ~p", [Interval], State),
     StatFun = fun() ->
-                case Transport:getstat(Sock, [recv_oct]) of
+                case Transport:getstat(Socket, [recv_oct]) of
                     {ok, [{recv_oct, RecvOct}]} -> {ok, RecvOct};
                     Error                       -> Error
                 end
@@ -270,11 +273,11 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(Reason, State = #state{transport   = Transport,
-                                 socket      = Sock,
+                                 socket      = Socket,
                                  keepalive   = KeepAlive,
                                  proto_state = ProtoState}) ->
     ?LOG(debug, "Terminated for ~p", [Reason], State),
-    Transport:fast_close(Sock),
+    Transport:fast_close(Socket),
     emqx_keepalive:cancel(KeepAlive),
     case {ProtoState, Reason} of
         {undefined, _} -> ok;
@@ -307,13 +310,13 @@ handle_packet(Data, State = #state{proto_state  = ProtoState,
                 {ok, ProtoState1} ->
                     NewState = State#state{proto_state = ProtoState1},
                     handle_packet(Rest, inc_publish_cnt(Type, reset_parser(NewState)));
-                {error, Error} ->
-                    ?LOG(error, "Protocol error - ~p", [Error], State),
-                    shutdown(Error, State);
-                {error, Error, ProtoState1} ->
-                    shutdown(Error, State#state{proto_state = ProtoState1});
-                {stop, Reason, ProtoState1} ->
-                    stop(Reason, State#state{proto_state = ProtoState1})
+                {error, Reason} ->
+                    ?LOG(error, "Process packet error - ~p", [Reason], State),
+                    shutdown(Reason, State);
+                {error, Reason, ProtoState1} ->
+                    shutdown(Reason, State#state{proto_state = ProtoState1});
+                {stop, Error, ProtoState1} ->
+                    stop(Error, State#state{proto_state = ProtoState1})
             end;
         {error, Error} ->
             ?LOG(error, "Framing error - ~p", [Error], State),
@@ -358,8 +361,8 @@ run_socket(State = #state{conn_state = blocked}) ->
     State;
 run_socket(State = #state{await_recv = true}) ->
     State;
-run_socket(State = #state{transport = Transport, socket = Sock}) ->
-    Transport:async_recv(Sock, 0, infinity),
+run_socket(State = #state{transport = Transport, socket = Socket}) ->
+    Transport:async_recv(Socket, 0, infinity),
     State#state{await_recv = true}.
 
 %%------------------------------------------------------------------------------
@@ -367,9 +370,9 @@ run_socket(State = #state{transport = Transport, socket = Sock}) ->
 %%------------------------------------------------------------------------------
 
 ensure_stats_timer(State = #state{enable_stats = true,
-                                   stats_timer  = undefined,
-                                   idle_timeout = IdleTimeout}) ->
-    State#state{stats_timer = erlang:send_after(IdleTimeout, self(), emit_stats)};
+                                  stats_timer  = undefined,
+                                  idle_timeout = IdleTimeout}) ->
+    State#state{stats_timer = emqx_misc:start_timer(IdleTimeout, emit_stats)};
 ensure_stats_timer(State) -> State.
 
 shutdown(Reason, State) ->

@@ -17,8 +17,18 @@
 
 -include("emqx_mqtt.hrl").
 
--export([name/1, text/1]).
+-export([name/2, text/1]).
 -export([compat/2]).
+
+name(I, Ver) when Ver >= ?MQTT_PROTO_V5 ->
+    name(I);
+name(0, _Ver) -> connection_acceptd;
+name(1, _Ver) -> unacceptable_protocol_version;
+name(2, _Ver) -> client_identifier_not_valid;
+name(3, _Ver) -> server_unavaliable;
+name(4, _Ver) -> malformed_username_or_password;
+name(5, _Ver) -> unauthorized_client;
+name(I, _Ver) -> list_to_atom("unkown_connack" ++ integer_to_list(I)).
 
 name(16#00) -> success;
 name(16#01) -> granted_qos1;
@@ -130,4 +140,3 @@ compat(connack, 16#9F) -> ?CONNACK_SERVER;
 
 compat(suback, Code) when Code =< ?QOS2 -> Code;
 compat(suback, Code) when Code > 16#80  -> 16#80.
-

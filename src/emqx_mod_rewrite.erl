@@ -23,8 +23,8 @@
 
 load(Rules0) ->
     Rules = compile(Rules0),
-    emqx_hooks:add('client.subscribe',  fun ?MODULE:rewrite_subscribe/4, [Rules]),
-    emqx_hooks:add('client.unsubscribe',fun ?MODULE:rewrite_unsubscribe/4, [Rules]),
+    emqx_hooks:add('client.subscribe',  fun ?MODULE:rewrite_subscribe/3, [Rules]),
+    emqx_hooks:add('client.unsubscribe',fun ?MODULE:rewrite_unsubscribe/3, [Rules]),
     emqx_hooks:add('message.publish',   fun ?MODULE:rewrite_publish/2, [Rules]).
 
 rewrite_subscribe(_Credentials, TopicTable, Rules) ->

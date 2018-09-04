@@ -41,6 +41,7 @@
           proto_name,
           ackprops,
           client_id,
+          is_assigned,
           conn_pid,
           conn_props,
           ack_props,
@@ -55,6 +56,7 @@
           mountpoint,
           is_super,
           is_bridge,
+          enable_ban,
           enable_acl,
           recv_stats,
           send_stats,
@@ -87,6 +89,7 @@ init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options)
             proto_ver    = ?MQTT_PROTO_V4,
             proto_name   = <<"MQTT">>,
             client_id    = <<>>,
+            is_assigned  = false,
             conn_pid     = self(),
             username     = init_username(Peercert, Options),
             is_super     = false,
@@ -95,10 +98,11 @@ init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options)
             packet_size  = emqx_zone:get_env(Zone, max_packet_size),
             mountpoint   = emqx_zone:get_env(Zone, mountpoint),
             is_bridge    = false,
+            enable_ban   = emqx_zone:get_env(Zone, enable_ban, false),
             enable_acl   = emqx_zone:get_env(Zone, enable_acl),
             recv_stats   = #{msg => 0, pkt => 0},
             send_stats   = #{msg => 0, pkt => 0},
-            connected    = fasle}.
+            connected    = false}.
 
 init_username(Peercert, Options) ->
     case proplists:get_value(peer_cert_as_username, Options) of
@@ -117,13 +121,13 @@ set_username(_Username, PState) ->
 %%------------------------------------------------------------------------------
 
 info(PState = #pstate{conn_props    = ConnProps,
-                      ack_props     = AclProps,
+                      ack_props     = AckProps,
                       session       = Session,
                       topic_aliases = Aliases,
                       will_msg      = WillMsg,
                       enable_acl    = EnableAcl}) ->
     attrs(PState) ++ [{conn_props, ConnProps},
-                      {ack_props, AclProps},
+                      {ack_props, AckProps},
                       {session, Session},
                       {topic_aliases, Aliases},
                       {will_msg, WillMsg},
@@ -184,14 +188,14 @@ session(#pstate{session = SPid}) ->
     SPid.
 
 parser(#pstate{packet_size = Size, proto_ver = Ver}) ->
-    emqx_frame:initial_state(#{packet_size => Size, version => Ver}).
+    emqx_frame:initial_state(#{max_packet_size => Size, version => Ver}).
 
 %%------------------------------------------------------------------------------
 %% Packet Received
 %%------------------------------------------------------------------------------
 
--spec(received(emqx_mqtt_types:packet(), state())
-      -> {ok, state()} | {error, term()} | {error, term(), state()}).
+-spec(received(emqx_mqtt_types:packet(), state()) ->
+    {ok, state()} | {error, term()} | {error, term(), state()} | {stop, term(), state()}).
 received(?PACKET(Type), PState = #pstate{connected = false}) when Type =/= ?CONNECT ->
     {error, proto_not_connected, PState};
 
@@ -276,7 +280,6 @@ process_packet(?CONNECT_PACKET(
                                          will_msg     = WillMsg,
                                          is_bridge    = IsBridge,
                                          connected_at = os:timestamp()}),
-
     connack(
       case check_connect(Connect, PState1) of
           {ok, PState2} ->
@@ -402,17 +405,18 @@ process_packet(?PACKET(?DISCONNECT), PState) ->
 %%------------------------------------------------------------------------------
 
 connack({?RC_SUCCESS, SP, PState}) ->
-    emqx_hooks:run('client.connected', [credentials(PState), ?RC_SUCCESS, info(PState)]),
+    emqx_hooks:run('client.connected', [credentials(PState), ?RC_SUCCESS, attrs(PState)]),
     deliver({connack, ?RC_SUCCESS, sp(SP)}, update_mountpoint(PState));
 
 connack({ReasonCode, PState = #pstate{proto_ver = ProtoVer}}) ->
-    emqx_hooks:run('client.connected', [credentials(PState), ?RC_SUCCESS, info(PState)]),
-    _ = deliver({connack, if ProtoVer =:= ?MQTT_PROTO_V5 ->
-                                 ReasonCode;
-                             true ->
-                                 emqx_reason_codes:compat(connack, ReasonCode)
-                          end}, PState),
-    {error, emqx_reason_codes:name(ReasonCode), PState}.
+    emqx_hooks:run('client.connected', [credentials(PState), ReasonCode, attrs(PState)]),
+    ReasonCode1 = if ProtoVer =:= ?MQTT_PROTO_V5 ->
+                         ReasonCode;
+                     true ->
+                         emqx_reason_codes:compat(connack, ReasonCode)
+                  end,
+    _ = deliver({connack, ReasonCode1}, PState),
+    {error, emqx_reason_codes:name(ReasonCode1, ProtoVer), PState}.
 
 %%------------------------------------------------------------------------------
 %% Publish Message -> Broker
@@ -447,8 +451,36 @@ puback(?QOS_2, PacketId, {ok, _}, PState) ->
 %% Deliver Packet -> Client
 %%------------------------------------------------------------------------------
 
+-spec(deliver(tuple(), state()) -> {ok, state()} | {error, term()}).
 deliver({connack, ReasonCode}, PState) ->
     send(?CONNACK_PACKET(ReasonCode), PState);
+
+deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
+                                                     proto_ver = ?MQTT_PROTO_V5,
+                                                     client_id = ClientId,
+                                                     is_assigned = IsAssigned}) ->
+    #{max_packet_size := MaxPktSize,
+      max_qos_allowed := MaxQoS,
+      mqtt_retain_available := Retain,
+      max_topic_alias := MaxAlias,
+      mqtt_shared_subscription := Shared,
+      mqtt_wildcard_subscription := Wildcard} = caps(PState),
+    Props = #{'Maximum-QoS' => MaxQoS,
+              'Retain-Available' => flag(Retain),
+              'Maximum-Packet-Size' => MaxPktSize,
+              'Topic-Alias-Maximum' => MaxAlias,
+              'Wildcard-Subscription-Available' => flag(Wildcard),
+              'Subscription-Identifier-Available' => 1,
+              'Shared-Subscription-Available' => flag(Shared)},
+    Props1 = if IsAssigned ->
+                    Props#{'Assigned-Client-Identifier' => ClientId};
+                true -> Props
+             end,
+    Props2 = case emqx_zone:get_env(Zone, server_keepalive) of
+                 undefined -> Props1;
+                 Keepalive -> Props1#{'Server-Keep-Alive' => Keepalive}
+             end,
+    send(?CONNACK_PACKET(?RC_SUCCESS, SP, Props2), PState);
 
 deliver({connack, ReasonCode, SP}, PState) ->
     send(?CONNACK_PACKET(ReasonCode, SP), PState);
@@ -509,7 +541,7 @@ send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = SendFun
 maybe_assign_client_id(PState = #pstate{client_id = <<>>, ackprops = AckProps}) ->
     ClientId = emqx_guid:to_base62(emqx_guid:gen()),
     AckProps1 = set_property('Assigned-Client-Identifier', ClientId, AckProps),
-    PState#pstate{client_id = ClientId, ackprops = AckProps1};
+    PState#pstate{client_id = ClientId, is_assigned = true, ackprops = AckProps1};
 maybe_assign_client_id(PState) ->
     PState.
 
@@ -532,9 +564,13 @@ try_open_session(#pstate{zone        = Zone,
 
 authenticate(Credentials, Password) ->
     case emqx_access_control:authenticate(Credentials, Password) of
-        ok             -> {ok, false};
-        {ok, IsSuper}  -> {ok, IsSuper};
-        {error, Error} -> {error, Error}
+        ok -> {ok, false};
+        {ok, IsSuper} when is_boolean(IsSuper) ->
+            {ok, IsSuper};
+        {ok, Result} when is_map(Result) ->
+            {ok, maps:get(is_superuser, Result, false)};
+        {error, Error} ->
+            {error, Error}
     end.
 
 set_property(Name, Value, undefined) ->
@@ -548,7 +584,8 @@ set_property(Name, Value, Props) ->
 
 check_connect(Packet, PState) ->
     run_check_steps([fun check_proto_ver/2,
-                     fun check_client_id/2], Packet, PState).
+                     fun check_client_id/2,
+                     fun check_banned/2], Packet, PState).
 
 check_proto_ver(#mqtt_packet_connect{proto_ver  = Ver,
                                      proto_name = Name}, _PState) ->
@@ -577,6 +614,17 @@ check_client_id(#mqtt_packet_connect{client_id = ClientId}, #pstate{zone = Zone}
     case (1 =< Len) andalso (Len =< MaxLen) of
         true  -> ok;
         false -> {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID}
+    end.
+
+check_banned(_Connect, #pstate{enable_ban = false}) ->
+    ok;
+check_banned(#mqtt_packet_connect{client_id = ClientId, username = Username},
+             #pstate{peername = Peername}) ->
+    case emqx_banned:check(#{client_id => ClientId,
+                             username  => Username,
+                             peername  => Peername}) of
+        true  -> {error, ?RC_BANNED};
+        false -> ok
     end.
 
 check_publish(Packet, PState) ->
@@ -648,26 +696,27 @@ inc_stats(Type, Stats = #{pkt := PktCnt, msg := MsgCnt}) ->
                                          false -> MsgCnt
                                      end}.
 
-shutdown(_Error, #pstate{client_id = undefined}) ->
-    ignore;
-shutdown(conflict, #pstate{client_id = ClientId}) ->
-    emqx_cm:unregister_connection(ClientId),
-    ignore;
-shutdown(mnesia_conflict, #pstate{client_id = ClientId}) ->
-    emqx_cm:unregister_connection(ClientId),
-    ignore;
-shutdown(Error, PState = #pstate{client_id = ClientId, will_msg = WillMsg}) ->
-    ?LOG(info, "Shutdown for ~p", [Error], PState),
-    %% TODO: Auth failure not publish the will message
-    case Error =:= auth_failure of
-        true -> ok;
-        false -> send_willmsg(WillMsg)
-    end,
-    emqx_hooks:run('client.disconnected', [credentials(PState), Error]),
+shutdown(_Reason, #pstate{client_id = undefined}) ->
+    ok;
+shutdown(_Reason, #pstate{connected = false}) ->
+    ok;
+shutdown(Reason, #pstate{client_id = ClientId}) when Reason =:= conflict;
+                                                     Reason =:= discard ->
+    emqx_cm:unregister_connection(ClientId);
+shutdown(Reason, PState = #pstate{connected = true,
+                                  client_id = ClientId,
+                                  will_msg  = WillMsg}) ->
+    ?LOG(info, "Shutdown for ~p", [Reason], PState),
+    _ = send_willmsg(WillMsg),
+    emqx_hooks:run('client.disconnected', [credentials(PState), Reason]),
     emqx_cm:unregister_connection(ClientId).
 
 send_willmsg(undefined) ->
     ignore;
+send_willmsg(WillMsg = #message{topic = Topic,
+                                headers = #{'Will-Delay-Interval' := Interval}}) when is_integer(Interval) ->
+    SendAfter = integer_to_binary(Interval),
+    emqx_broker:publish(WillMsg#message{topic = <<"$delayed/", SendAfter/binary, "/", Topic/binary>>});
 send_willmsg(WillMsg) ->
     emqx_broker:publish(WillMsg).
 
@@ -710,3 +759,5 @@ update_mountpoint(PState = #pstate{mountpoint = MountPoint}) ->
 sp(true)  -> 1;
 sp(false) -> 0.
 
+flag(false) -> 0;
+flag(true)  -> 1.

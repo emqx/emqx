@@ -28,10 +28,11 @@
 
 -define(ALARM_MGR, ?MODULE).
 
--record(state, {alarms}).
-
 start_link() ->
-    start_with(fun(Pid) -> gen_event:add_handler(Pid, ?MODULE, []) end).
+    start_with(
+      fun(Pid) ->
+          gen_event:add_handler(Pid, ?MODULE, [])
+      end).
 
 start_with(Fun) ->
     case gen_event:start_link({local, ?ALARM_MGR}) of
@@ -73,42 +74,42 @@ delete_alarm_handler(Module) when is_atom(Module) ->
 %% Default Alarm handler
 %%------------------------------------------------------------------------------
 
-init(_) -> {ok, #state{alarms = []}}.
+init(_) -> {ok, #{alarms => []}}.
 
 handle_event({set_alarm, Alarm = #alarm{timestamp = undefined}}, State)->
     handle_event({set_alarm, Alarm#alarm{timestamp = os:timestamp()}}, State);
 
-handle_event({set_alarm, Alarm = #alarm{id = AlarmId}}, State = #state{alarms = Alarms}) ->
+handle_event({set_alarm, Alarm = #alarm{id = AlarmId}}, State = #{alarms := Alarms}) ->
     case encode_alarm(Alarm) of
         {ok, Json} ->
             emqx_broker:safe_publish(alarm_msg(alert, AlarmId, Json));
         {error, Reason} ->
             emqx_logger:error("[AlarmMgr] Failed to encode alarm: ~p", [Reason])
     end,
-    {ok, State#state{alarms = [Alarm|Alarms]}};
+    {ok, State#{alarms := [Alarm|Alarms]}};
 
-handle_event({clear_alarm, AlarmId}, State = #state{alarms = Alarms}) ->
-    case emqx_json:safe_encode([{id, AlarmId}, {ts, emqx_time:now_secs()}]) of
+handle_event({clear_alarm, AlarmId}, State = #{alarms := Alarms}) ->
+    case emqx_json:safe_encode([{id, AlarmId}, {ts, os:system_time(second)}]) of
         {ok, Json} ->
             emqx_broker:safe_publish(alarm_msg(clear, AlarmId, Json));
         {error, Reason} ->
             emqx_logger:error("[AlarmMgr] Failed to encode clear: ~p", [Reason])
     end,
-    {ok, State#state{alarms = lists:keydelete(AlarmId, 2, Alarms)}, hibernate};
+    {ok, State#{alarms := lists:keydelete(AlarmId, 2, Alarms)}, hibernate};
 
 handle_event(Event, State)->
-    error_logger:error("[AlarmMgr] unexpected event: ~p", [Event]),
+    emqx_logger:error("[AlarmMgr] unexpected event: ~p", [Event]),
     {ok, State}.
 
 handle_info(Info, State) ->
-    error_logger:error("[AlarmMgr] unexpected info: ~p", [Info]),
+    emqx_logger:error("[AlarmMgr] unexpected info: ~p", [Info]),
     {ok, State}.
 
-handle_call(get_alarms, State = #state{alarms = Alarms}) ->
+handle_call(get_alarms, State = #{alarms := Alarms}) ->
     {ok, Alarms, State};
 
 handle_call(Req, State) ->
-    error_logger:error("[AlarmMgr] unexpected call: ~p", [Req]),
+    emqx_logger:error("[AlarmMgr] unexpected call: ~p", [Req]),
     {ok, ignored, State}.
 
 terminate(swap, State) ->
@@ -132,8 +133,8 @@ encode_alarm(#alarm{id = AlarmId, severity = Severity, title = Title,
 
 alarm_msg(Type, AlarmId, Json) ->
     Msg = emqx_message:make(?ALARM_MGR, topic(Type, AlarmId), Json),
-    emqx_message:set_headers(#{'Content-Type' => <<"application/json">>},
-                             emqx_message:set_flags(#{sys => true}, Msg)).
+    emqx_message:set_headers( #{'Content-Type' => <<"application/json">>},
+                              emqx_message:set_flag(sys, Msg)).
 
 topic(alert, AlarmId) ->
     emqx_topic:systop(<<"alarms/", AlarmId/binary, "/alert">>);

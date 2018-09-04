@@ -26,8 +26,6 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
--record(state, {}).
-
 %% Bytes sent and received of Broker
 -define(BYTES_METRICS, [
     {counter, 'bytes/received'}, % Total bytes received
@@ -73,6 +71,7 @@
     {counter, 'messages/qos1/received'}, % QoS1 Messages received
     {counter, 'messages/qos1/sent'},     % QoS1 Messages sent
     {counter, 'messages/qos2/received'}, % QoS2 Messages received
+    {counter, 'messages/qos2/expired'},  % QoS2 Messages expired
     {counter, 'messages/qos2/sent'},     % QoS2 Messages sent
     {counter, 'messages/qos2/dropped'},  % QoS2 Messages dropped
     {gauge,   'messages/retained'},      % Messagea retained
@@ -84,8 +83,8 @@
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 
-%% @doc Start the metrics server
--spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
+%% @doc Start the metrics server.
+-spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
@@ -251,7 +250,7 @@ init([]) ->
     % Create metrics table
     _ = emqx_tables:new(?TAB, [set, public, {write_concurrency, true}]),
     lists:foreach(fun new/1, ?BYTES_METRICS ++ ?PACKET_METRICS ++ ?MESSAGE_METRICS),
-    {ok, #state{}, hibernate}.
+    {ok, #{}, hibernate}.
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[Metrics] unexpected call: ~p", [Req]),
@@ -265,7 +264,7 @@ handle_info(Info, State) ->
     emqx_logger:error("[Metrics] unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #state{}) ->
+terminate(_Reason, #{}) ->
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

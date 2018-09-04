@@ -676,6 +676,12 @@ end}.
   {datatype, {enum, [allow, deny]}}
 ]}.
 
+%% @doc Enable Ban.
+{mapping, "zone.$name.enable_ban", "emqx.zones", [
+  {default, off},
+  {datatype, flag}
+]}.
+
 %% @doc Enable ACL check.
 {mapping, "zone.$name.enable_acl", "emqx.zones", [
   {default, off},
@@ -735,6 +741,11 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc Server Keepalive
+{mapping, "zone.$name.server_keepalive", "emqx.zones", [
+  {datatype, integer}
+]}.
+
 %% @doc Keepalive backoff
 {mapping, "zone.$name.keepalive_backoff", "emqx.zones", [
   {default, 0.75},
@@ -774,7 +785,7 @@ end}.
 
 %% @doc Awaiting PUBREL timeout
 {mapping, "zone.$name.await_rel_timeout", "emqx.zones", [
-  {default, "60s"},
+  {default, "300s"},
   {datatype, {duration, ms}}
 ]}.
 

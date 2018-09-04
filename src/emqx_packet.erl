@@ -55,10 +55,11 @@ validate(?UNSUBSCRIBE_PACKET(PacketId, TopicFilters)) ->
     validate_packet_id(PacketId)
         andalso ok == lists:foreach(fun emqx_topic:validate/1, TopicFilters);
 
-validate(?PUBLISH_PACKET(_QoS, <<>>, _, _)) ->
+validate(?PUBLISH_PACKET(_QoS, <<>>, _, _, _)) ->
     error(topic_name_invalid);
-validate(?PUBLISH_PACKET(_QoS, Topic, _, _)) ->
-    (not emqx_topic:wildcard(Topic)) orelse error(topic_name_invalid);
+validate(?PUBLISH_PACKET(_QoS, Topic, _, Properties, _)) ->
+    ((not emqx_topic:wildcard(Topic)) orelse error(topic_name_invalid))
+        andalso validate_properties(?PUBLISH, Properties);
 
 validate(_Packet) ->
     true.
@@ -71,8 +72,13 @@ validate_packet_id(_) ->
 validate_properties(?SUBSCRIBE, #{'Subscription-Identifier' := I})
     when I =< 0; I >= 16#FFFFFFF ->
     error(subscription_identifier_invalid);
+validate_properties(?PUBLISH, # {'Topic-Alias':= I})
+    when I =:= 0 ->
+    error(topic_alias_invalid);
 validate_properties(_, _) ->
     true.
+
+
 
 validate_subscription({Topic, #{qos := QoS}}) ->
     emqx_topic:validate(filter, Topic) andalso validate_qos(QoS).
@@ -188,6 +194,10 @@ format_variable(#mqtt_packet_connect{
                         true -> {Format, Args}
                        end,
     io_lib:format(Format1, Args1);
+
+format_variable(#mqtt_packet_disconnect
+                {reason_code = ReasonCode}) ->
+    io_lib:format("ReasonCode=~p", [ReasonCode]);
 
 format_variable(#mqtt_packet_connack{ack_flags   = AckFlags,
                                      reason_code = ReasonCode}) ->

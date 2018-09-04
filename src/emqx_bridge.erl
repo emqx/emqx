@@ -117,7 +117,7 @@ handle_info(start, State = #state{options = Options,
             {noreply, State#state{client_pid = ClientPid}};
         {error,_} ->
             erlang:send_after(ReconnectTime, self(), start),
-            {noreply, State = #state{reconnect_count = ReconnectCount-1}}
+            {noreply, State#state{reconnect_count = ReconnectCount-1}}
     end;
 
 %%----------------------------------------------------------------
@@ -133,11 +133,12 @@ handle_info(start, State = #state{options = Options,
             Subs = get_value(subscriptions, Options, []),
             [emqx_client:subscribe(ClientPid, {i2b(Topic), Qos}) || {Topic, Qos} <- Subs],
             ForwardRules = string:tokens(get_value(forward_rule, Options, ""), ","),
-            [emqx_broker:subscribe(i2b(Topic)) || Topic <- ForwardRules, emqx_topic:validate({filter, i2b(Topic)})],
+            [emqx_broker:subscribe(i2b(Topic)) || Topic <- ForwardRules,
+                                                  emqx_topic:validate({filter, i2b(Topic)})],
             {noreply, State#state{client_pid = ClientPid}};
         {error,_} ->
             erlang:send_after(ReconnectTime, self(), start),
-            {noreply, State = #state{reconnect_count = ReconnectCount-1}}
+            {noreply, State#state{reconnect_count = ReconnectCount-1}}
     end;
 
 %%----------------------------------------------------------------
