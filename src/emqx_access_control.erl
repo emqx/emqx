@@ -154,7 +154,7 @@ init([]) ->
 handle_call({register_mod, Type, Mod, Opts, Seq}, _From, State) ->
     Mods = lookup_mods(Type),
     reply(case lists:keymember(Mod, 1, Mods) of
-              true  -> {error, already_existed};
+              true  -> {error, already_exists};
               false ->
                   case catch Mod:init(Opts) of
                       {ok, ModState} ->

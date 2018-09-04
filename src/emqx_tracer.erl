@@ -78,7 +78,7 @@ init([]) ->
 handle_call({start_trace, Who, LogFile}, _From, State = #state{level = Level, traces = Traces}) ->
     case catch lager:trace_file(LogFile, [Who], Level, ?OPTIONS) of
         {ok, exists} ->
-            {reply, {error, already_existed}, State};
+            {reply, {error, already_exists}, State};
         {ok, Trace} ->
             {reply, ok, State#state{traces = maps:put(Who, {Trace, LogFile}, Traces)}};
         {error, Reason} ->
