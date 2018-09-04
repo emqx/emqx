@@ -120,19 +120,17 @@ wrap(Header, Rest) ->
 parse_packet(#mqtt_packet_header{type = ?CONNECT}, FrameBin, _Options) ->
     {ProtoName, Rest} = parse_utf8_string(FrameBin),
     <<BridgeTag:4, ProtoVer:4, Rest1/binary>> = Rest,
+    % Note: Crash when reserved flag doesn't equal to 0, there is no strict compliance with the MQTT5.0.
     <<UsernameFlag : 1,
       PasswordFlag : 1,
       WillRetain   : 1,
       WillQoS      : 2,
       WillFlag     : 1,
       CleanStart   : 1,
-      _Reserved    : 1,
+      0            : 0,         
       KeepAlive    : 16/big,
       Rest2/binary>> = Rest1,
-    case protocol_approved(ProtoVer, ProtoName) of
-        true  -> ok;
-        false -> error(protocol_name_unapproved)
-    end,
+
     {Properties, Rest3} = parse_properties(Rest2, ProtoVer),
     {ClientId, Rest4} = parse_utf8_string(Rest3),
     ConnPacket = #mqtt_packet_connect{proto_name   = ProtoName,
