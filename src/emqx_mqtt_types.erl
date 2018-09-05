@@ -32,8 +32,8 @@
 -type(reason_code() :: 0..16#FF).
 -type(packet_id() :: 1..16#FFFF).
 -type(properties() :: #{atom() => term()}).
--type(subopts() :: #{rh  := 0 | 1,
-                     rap := 0 | 1 | 2,
+-type(subopts() :: #{rh  := 0 | 1 | 2,
+                     rap := 0 | 1,
                      nl  := 0 | 1,
                      qos := qos(),
                      rc  => reason_code()
