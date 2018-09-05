@@ -33,36 +33,36 @@
 -export([shutdown/2]).
 
 -record(pstate, {
-          zone,
-          sendfun,
-          peername,
-          peercert,
-          proto_ver,
-          proto_name,
-          ackprops,
-          client_id,
-          is_assigned,
-          conn_pid,
-          conn_props,
-          ack_props,
-          username,
-          session,
-          clean_start,
-          topic_aliases,
-          packet_size,
-          will_topic,
-          will_msg,
-          keepalive,
-          mountpoint,
-          is_super,
-          is_bridge,
-          enable_ban,
-          enable_acl,
-          recv_stats,
-          send_stats,
-          connected,
-          connected_at
-         }).
+                 zone,
+                 sendfun,
+                 peername,
+                 peercert,
+                 proto_ver,
+                 proto_name,
+                 ackprops,
+                 client_id,
+                 is_assigned,
+                 conn_pid,
+                 conn_props,
+                 ack_props,
+                 username,
+                 session,
+                 clean_start,
+                 topic_aliases,
+                 packet_size,
+                 will_topic,
+                 will_msg,
+                 keepalive,
+                 mountpoint,
+                 is_super,
+                 is_bridge,
+                 enable_ban,
+                 enable_acl,
+                 recv_stats,
+                 send_stats,
+                 connected,
+                 connected_at
+                }).
 
 -type(state() :: #pstate{}).
 -export_type([state/0]).
@@ -631,9 +631,11 @@ check_publish(Packet, PState) ->
     run_check_steps([fun check_pub_caps/2,
                      fun check_pub_acl/2], Packet, PState).
 
-check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos = QoS, retain = R}},
+check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos = QoS, retain = Retain},
+                            variable = #mqtt_packet_publish{ properties = Properties}},
                #pstate{zone = Zone}) ->
-    emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => R}).
+    #{'Topic-Alias' := TopicAlias} = Properties,
+    emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain, topic_alias => TopicAlias}).
 
 check_pub_acl(_Packet, #pstate{is_super = IsSuper, enable_acl = EnableAcl})
     when IsSuper orelse (not EnableAcl) ->
