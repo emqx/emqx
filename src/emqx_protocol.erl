@@ -396,9 +396,15 @@ process_packet(?UNSUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
 process_packet(?PACKET(?PINGREQ), PState) ->
     send(?PACKET(?PINGRESP), PState);
 
-process_packet(?PACKET(?DISCONNECT), PState) ->
+process_packet(?DISCONNECT_PACKET(16#00), PState) ->
     %% Clean willmsg
-    {stop, normal, PState#pstate{will_msg = undefined}}.
+    {stop, normal, PState#pstate{will_msg = undefined}};
+process_packet(?DISCONNECT_PACKET(_), PState) ->
+    {stop, normal, PState};
+process_packet(Packet = ?PACKET(?DISCONNECT), PState) ->
+    if Packet#mqtt_packet.variable =:= undefined ->
+        {stop, normal, PState#pstate{will_msg = undefined}}
+    end.
 
 %%------------------------------------------------------------------------------
 %% ConnAck --> Client
