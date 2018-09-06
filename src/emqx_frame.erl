@@ -76,6 +76,9 @@ parse_remaining_len(_Bin, _Header, _Multiplier, Length,
     error(mqtt_frame_too_large);
 parse_remaining_len(<<>>, Header, Multiplier, Length, Options) ->
     {more, fun(Bin) -> parse_remaining_len(Bin, Header, Multiplier, Length, Options) end};
+%% Match DISCONNECT without payload
+parse_remaining_len(<<0:8, Rest/binary>>, Header = #mqtt_packet_header{type = ?DISCONNECT}, 1, 0, _Options) ->
+    wrap(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS}, Rest);
 %% Match PINGREQ.
 parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, Options) ->
     parse_frame(Rest, Header, 0, Options);
