@@ -183,7 +183,7 @@ handle_call(stop, _From, State) ->
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[AccessControl] unexpected request: ~p", [Req]),
-    {reply, ignore, State}.
+    {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
     emqx_logger:error("[AccessControl] unexpected msg: ~p", [Msg]),
