@@ -12,7 +12,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_mqtt_properties_SUITE).
+-module(emqx_mqtt_props_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -22,6 +22,7 @@
 all() -> [t_mqtt_properties_all].
 
 t_mqtt_properties_all(_) ->
-    Props = emqx_mqtt_properties:filter(?CONNECT, #{'Session-Expiry-Interval' => 1, 'Maximum-Packet-Size' => 255}),
-    ok = emqx_mqtt_properties:validate(Props),
-    #{} = emqx_mqtt_properties:filter(?CONNECT, #{'Maximum-QoS' => ?QOS_2}).
+    Props = emqx_mqtt_props:filter(?CONNECT, #{'Session-Expiry-Interval' => 1, 'Maximum-Packet-Size' => 255}),
+    ok = emqx_mqtt_props:validate(Props),
+    #{} = emqx_mqtt_props:filter(?CONNECT, #{'Maximum-QoS' => ?QOS_2}).
+
