@@ -26,8 +26,12 @@ spec(Args) ->
 
 -spec(spec(any(), list()) -> supervisor:child_spec()).
 spec(ChildId, Args) ->
-    {ChildId, {?MODULE, start_link, Args},
-     transient, infinity, supervisor, [?MODULE]}.
+    #{id       => ChildId,
+      start    => {?MODULE, start_link, Args},
+      restart  => transient,
+      shutdown => infinity,
+      type     => supervisor,
+      modules  => [?MODULE]}.
 
 -spec(start_link(atom() | tuple(), atom(), mfa()) -> {ok, pid()} | {error, term()}).
 start_link(Pool, Type, MFA) ->
