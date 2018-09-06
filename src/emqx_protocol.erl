@@ -312,9 +312,12 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PSt
     case check_publish(Packet, PState) of
         {ok, PState1} ->
             do_publish(Packet, PState1);
+        {error, ?RC_TOPIC_ALIAS_INVALID} ->
+            ?LOG(error, "Protocol error - ~p", [?RC_TOPIC_ALIAS_INVALID], PState),
+            {error, ?RC_TOPIC_ALIAS_INVALID, PState};
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos0 message to ~s for ~s", [Topic, ReasonCode], PState),
-            {ok, PState}
+            {error, ReasonCode, PState}
     end;
 
 process_packet(Packet = ?PUBLISH_PACKET(?QOS_1, PacketId), PState) ->
