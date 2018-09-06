@@ -208,6 +208,9 @@ received(Packet = ?PACKET(Type), PState) ->
         true ->
             {Packet1, PState1} = preprocess_properties(Packet, PState),
             process_packet(Packet1, inc_stats(recv, Type, PState1));
+        {'EXIT', {topic_filters_invalid, _Stacktrace}} ->
+            deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState),
+            {error, topic_filters_invalid, PState};
         {'EXIT', {Reason, _Stacktrace}} ->
             deliver({disconnect, ?RC_MALFORMED_PACKET}, PState),
             {error, Reason, PState}
