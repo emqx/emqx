@@ -134,16 +134,16 @@ lookup(HookPoint) ->
         [] -> []
     end.
 
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([]) ->
     _ = emqx_tables:new(?TAB, [{keypos, #hook.name}, {read_concurrency, true}]),
     {ok, #{}}.
 
 handle_call({add, HookPoint, Callback = #callback{action = Action}}, _From, State) ->
-    Reply = case lists:keyfind(Action, 2, Callbacks = lookup(HookPoint)) of
+    Reply = case lists:keymember(Action, 2, Callbacks = lookup(HookPoint)) of
                 true ->
                     {error, already_exists};
                 false ->
@@ -151,18 +151,18 @@ handle_call({add, HookPoint, Callback = #callback{action = Action}}, _From, Stat
             end,
     {reply, Reply, State};
 
-handle_call({del, HookPoint, Action}, _From, State) ->
-    case lists:keydelete(Action, 2, lookup(HookPoint)) of
+handle_call(Req, _From, State) ->
+    emqx_logger:error("[Hooks] unexpected call: ~p", [Req]),
+    {reply, ignored, State}.
+
+handle_cast({del, HookPoint, Action}, State) ->
+    case del_callback(Action, lookup(HookPoint)) of
         [] ->
             ets:delete(?TAB, HookPoint);
         Callbacks ->
             insert_hook(HookPoint, Callbacks)
     end,
-    {reply, ok, State};
-
-handle_call(Req, _From, State) ->
-    emqx_logger:error("[Hooks] unexpected call: ~p", [Req]),
-    {reply, ignored, State}.
+    {noreply, State};
 
 handle_cast(Msg, State) ->
     emqx_logger:error("[Hooks] unexpected msg: ~p", [Msg]),
@@ -178,9 +178,9 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Internal functions
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 insert_hook(HookPoint, Callbacks) ->
     ets:insert(?TAB, #hook{name = HookPoint, callbacks = Callbacks}), ok.
@@ -195,4 +195,18 @@ add_callback(C1 = #callback{priority = P1}, [C2 = #callback{priority = P2}|More]
     add_callback(C1, More, [C2|Acc]);
 add_callback(C1, More, Acc) ->
     lists:append(lists:reverse(Acc), [C1 | More]).
+
+del_callback(Action, Callbacks) ->
+    del_callback(Action, Callbacks, []).
+
+del_callback(_Action, [], Acc) ->
+    lists:reverse(Acc);
+del_callback(Action, [#callback{action = Action} | Callbacks], Acc) ->
+    del_callback(Action, Callbacks, Acc);
+del_callback(Action = {M, F}, [#callback{action = {M, F, _A}} | Callbacks], Acc) ->
+    del_callback(Action, Callbacks, Acc);
+del_callback(Func, [#callback{action = {Func, _A}} | Callbacks], Acc) ->
+    del_callback(Func, Callbacks, Acc);
+del_callback(Action, [Callback | Callbacks], Acc) ->
+    del_callback(Action, Callbacks, [Callback | Acc]).
 

@@ -21,11 +21,15 @@
 
 -export([rewrite_subscribe/3, rewrite_unsubscribe/3, rewrite_publish/2]).
 
-load(Rules0) ->
-    Rules = compile(Rules0),
-    emqx_hooks:add('client.subscribe',  fun ?MODULE:rewrite_subscribe/3, [Rules]),
-    emqx_hooks:add('client.unsubscribe',fun ?MODULE:rewrite_unsubscribe/3, [Rules]),
-    emqx_hooks:add('message.publish',   fun ?MODULE:rewrite_publish/2, [Rules]).
+%%------------------------------------------------------------------------------
+%% Load/Unload
+%%------------------------------------------------------------------------------
+
+load(RawRules) ->
+    Rules = compile(RawRules),
+    emqx_hooks:add('client.subscribe',   fun ?MODULE:rewrite_subscribe/3, [Rules]),
+    emqx_hooks:add('client.unsubscribe', fun ?MODULE:rewrite_unsubscribe/3, [Rules]),
+    emqx_hooks:add('message.publish',    fun ?MODULE:rewrite_publish/2, [Rules]).
 
 rewrite_subscribe(_Credentials, TopicTable, Rules) ->
     {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicTable]}.
@@ -37,13 +41,13 @@ rewrite_publish(Message = #message{topic = Topic}, Rules) ->
     {ok, Message#message{topic = match_rule(Topic, Rules)}}.
 
 unload(_) ->
-    emqx_hooks:delete('client.subscribe',  fun ?MODULE:rewrite_subscribe/3),
-    emqx_hooks:delete('client.unsubscribe',fun ?MODULE:rewrite_unsubscribe/3),
-    emqx_hooks:delete('message.publish',   fun ?MODULE:rewrite_publish/2).
+    emqx_hooks:del('client.subscribe',   fun ?MODULE:rewrite_subscribe/3),
+    emqx_hooks:del('client.unsubscribe', fun ?MODULE:rewrite_unsubscribe/3),
+    emqx_hooks:del('message.publish',    fun ?MODULE:rewrite_publish/2).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Internal functions
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 match_rule(Topic, []) ->
     Topic;
