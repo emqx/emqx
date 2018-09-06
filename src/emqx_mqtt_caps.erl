@@ -69,6 +69,8 @@ do_check_pub(Props = #{ topic_alias := TopicAlias}, [{max_topic_alias, MaxTopicA
     end;
 do_check_pub(#{retain := true}, [{mqtt_retain_available, false}|_Caps]) ->
     {error, ?RC_RETAIN_NOT_SUPPORTED};
+do_check_pub(Props, [{max_topic_alias, _} | Caps]) ->
+    do_check_pub(Props, Caps);
 do_check_pub(Props, [{mqtt_retain_available, _}|Caps]) ->
     do_check_pub(Props, Caps).
 
