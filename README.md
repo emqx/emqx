@@ -1,5 +1,4 @@
-# *EMQ X* - MQTT Broker
-
+# EMQ X Broker
 
 *EMQ X* broker is a fully open source, highly scalable, highly available distributed MQTT messaging broker for IoT, M2M and Mobile applications that can handle tens of millions of concurrent clients.
 
