@@ -159,7 +159,7 @@ start_link() -> start_link([]).
 start_link(Options) when is_map(Options) ->
     start_link(maps:to_list(Options));
 start_link(Options) when is_list(Options) ->
-    ok  = emqx_mqtt_properties:validate(
+    ok  = emqx_mqtt_props:validate(
             proplists:get_value(properties, Options, #{})),
     case start_client(with_owner(Options)) of
         {ok, Client} ->
@@ -265,7 +265,7 @@ publish(Client, Topic, Payload, Opts) when is_binary(Topic), is_list(Opts) ->
       -> ok | {ok, packet_id()} | {error, term()}).
 publish(Client, Topic, Properties, Payload, Opts)
     when is_binary(Topic), is_map(Properties), is_list(Opts) ->
-    ok = emqx_mqtt_properties:validate(Properties),
+    ok = emqx_mqtt_props:validate(Properties),
     Retain = proplists:get_bool(retain, Opts),
     QoS = ?QOS_I(proplists:get_value(qos, Opts, ?QOS_0)),
     publish(Client, #mqtt_msg{qos     = QoS,
@@ -541,7 +541,7 @@ mqtt_connect(State = #state{client_id   = ClientId,
                             will_msg    = WillMsg,
                             properties  = Properties}) ->
     ?WILL_MSG(WillQoS, WillRetain, WillTopic, WillProps, WillPayload) = WillMsg,
-    ConnProps = emqx_mqtt_properties:filter(?CONNECT, Properties),
+    ConnProps = emqx_mqtt_props:filter(?CONNECT, Properties),
     send(?CONNECT_PACKET(
             #mqtt_packet_connect{proto_ver    = ProtoVer,
                                  proto_name   = ProtoName,
