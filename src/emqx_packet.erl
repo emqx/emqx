@@ -69,12 +69,14 @@ validate_packet_id(0) ->
 validate_packet_id(_) ->
     true.
 
-validate_properties(?SUBSCRIBE, #{'Subscription-Identifier' := _I}) ->
-    %% when I =< 0; I >= 16#FFFFFFF ->
-    error(protocol_error);
-validate_properties(?PUBLISH, # {'Topic-Alias':= I})
+validate_properties(?SUBSCRIBE, #{'Subscription-Identifier' := I})
+    when I =< 0; I >= 16#FFFFFFF ->
+    error(subscription_identifier_invalid);
+validate_properties(?PUBLISH, #{'Topic-Alias':= I})
     when I =:= 0 ->
     error(topic_alias_invalid);
+validate_properties(?PUBLISH, #{'Subscription-Identifier' := _I}) ->
+    error(protocol_error);
 validate_properties(_, _) ->
     true.
 
