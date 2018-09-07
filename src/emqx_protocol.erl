@@ -364,7 +364,9 @@ process_packet(?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
                             case IsBridge of
                                 true -> [{RawTopic, SubOpts#{rap => 1}} || {RawTopic, SubOpts} <- RawTopicFilters];
                                 false -> [{RawTopic, SubOpts#{rap => 0}} || {RawTopic, SubOpts} <- RawTopicFilters]
-                            end
+                            end;
+                           true ->
+                               RawTopicFilters
                         end, 
     case check_subscribe(
            parse_topic_filters(?SUBSCRIBE, RawTopicFilters1), PState) of
