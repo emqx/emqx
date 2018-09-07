@@ -21,16 +21,20 @@
 -export([start_link/0]).
 -export([get_env/2, get_env/3]).
 -export([set_env/3]).
+-export([force_reload/0]).
+%% for test
+-export([stop/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
 -define(TAB, ?MODULE).
+-define(SERVER, ?MODULE).
 
 -spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 -spec(get_env(emqx_types:zone() | undefined, atom()) -> undefined | term()).
 get_env(undefined, Key) ->
@@ -49,7 +53,15 @@ get_env(Zone, Key, Def) ->
 
 -spec(set_env(emqx_types:zone(), atom(), term()) -> ok).
 set_env(Zone, Key, Val) ->
-    gen_server:cast(?MODULE, {set_env, Zone, Key, Val}).
+    gen_server:cast(?SERVER, {set_env, Zone, Key, Val}).
+
+-spec(force_reload() -> ok).
+force_reload() ->
+    gen_server:call(?SERVER, force_reload).
+
+-spec(stop() -> ok).
+stop() ->
+    gen_server:stop(?SERVER, normal, infinity).
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -58,6 +70,10 @@ set_env(Zone, Key, Val) ->
 init([]) ->
     _ = emqx_tables:new(?TAB, [set, {read_concurrency, true}]),
     {ok, element(2, handle_info(reload, #{timer => undefined}))}.
+
+handle_call(force_reload, _From, State) ->
+    _ = do_reload(),
+    {reply, ok, State};
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[Zone] unexpected call: ~p", [Req]),
@@ -71,10 +87,9 @@ handle_cast(Msg, State) ->
     emqx_logger:error("[Zone] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({timeout, TRef, reload}, State = #{timer := TRef}) ->
-    [ets:insert(?TAB, [{{Zone, Key}, Val} || {Key, Val} <- Opts])
-     || {Zone, Opts} <- emqx_config:get_env(zones, [])],
-    {noreply, ensure_reload_timer(State), hibernate};
+handle_info(reload, State) ->
+    _ = do_reload(),
+    {noreply, ensure_reload_timer(State#{timer := undefined}), hibernate};
 
 handle_info(Info, State) ->
     emqx_logger:error("[Zone] unexpected info: ~p", [Info]),
@@ -90,6 +105,12 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+do_reload() ->
+    [ets:insert(?TAB, [{{Zone, Key}, Val} || {Key, Val} <- Opts])
+     || {Zone, Opts} <- emqx_config:get_env(zones, [])].
+
+ensure_reload_timer(State = #{timer := undefined}) ->
+    State#{timer := erlang:send_after(timer:minutes(5), self(), reload)};
 ensure_reload_timer(State) ->
-    State#{timer := emqx_misc:start_timer(timer:minutes(5), reload)}.
+    State.
 

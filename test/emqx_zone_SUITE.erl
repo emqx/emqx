@@ -18,15 +18,21 @@
 -compile(nowarn_export_all).
 
 -include("emqx_mqtt.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 all() -> [t_set_get_env].
 
 t_set_get_env(_) ->
-    emqx_zone:start_link(),
-    ok = emqx_zone:set_env(china, language, chinese),
-    timer:sleep(100),   % make sure set_env/3 is okay
+    application:set_env(emqx, zones, [{china, [{language, chinese}]}]),
+    {ok, _} = emqx_zone:start_link(),
+    ct:print("~p~n", [ets:tab2list(emqx_zone)]),
     chinese = emqx_zone:get_env(china, language),
     cn470 = emqx_zone:get_env(china, ism_band, cn470),
     undefined = emqx_zone:get_env(undefined, delay),
-    500 = emqx_zone:get_env(undefined, delay, 500).
+    500 = emqx_zone:get_env(undefined, delay, 500),
+    application:set_env(emqx, zones, [{zone1, [{key, val}]}]),
+    ?assertEqual(undefined, emqx_zone:get_env(zone1, key)),
+    emqx_zone:force_reload(),
+    ?assertEqual(val, emqx_zone:get_env(zone1, key)),
+    emqx_zone:stop().
 
