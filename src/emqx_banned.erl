@@ -85,7 +85,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
-    mnesia:async_dirty(fun expire_banned_items/1, [erlang:timestamp()]),
+    mnesia:async_dirty(fun expire_banned_items/1, [erlang:system_time(second)]),
     {noreply, ensure_expiry_timer(State), hibernate};
 
 handle_info(Info, State) ->
@@ -106,17 +106,8 @@ ensure_expiry_timer(State) ->
     State#{expiry_timer := emqx_misc:start_timer(timer:minutes(5), expire)}.
 
 expire_banned_items(Now) ->
-    expire_banned_item(mnesia:first(?TAB), Now).
-
-expire_banned_item('$end_of_table', _Now) ->
-    ok;
-expire_banned_item(Key, Now) ->
-    case mnesia:read(?TAB, Key) of
-        [#banned{until = undefined}] ->
-            ok;
-        [B = #banned{until = Until}] when Until < Now ->
-           mnesia:delete_object(?TAB, B, sticky_write);
-        _ -> ok
-    end,
-    expire_banned_item(mnesia:next(?TAB, Key), Now).
-
+    mnesia:foldl(fun
+            (B = #banned{until = Until}, _Acc) when Until < Now ->
+                mnesia:delete_object(?TAB, B, sticky_write);
+            (_, _Acc) -> ok
+        end, ok, ?TAB).

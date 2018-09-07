@@ -28,12 +28,12 @@ all() -> [t_banned_all].
 t_banned_all(_) ->
     emqx_ct_broker_helpers:run_setup_steps(),
     emqx_banned:start_link(),
-    {MegaSecs, Secs, MicroSecs} = erlang:timestamp(),
-    ok = emqx_banned:add(#banned{key = {client_id, <<"TestClient">>}, 
+    TimeNow = erlang:system_time(second),
+    ok = emqx_banned:add(#banned{who = {client_id, <<"TestClient">>},
                                  reason = <<"test">>,
                                  by = <<"banned suite">>,
-                                 desc = <<"test">>, 
-                                 until = {MegaSecs, Secs + 10, MicroSecs}}),
+                                 desc = <<"test">>,
+                                 until = TimeNow + 10}),
     % here is not expire banned test because its check interval is greater than 5 mins, but its effect has been confirmed
     timer:sleep(100),
     ?assert(emqx_banned:check(#{client_id => <<"TestClient">>, username => undefined, peername => {undefined, undefined}})),
