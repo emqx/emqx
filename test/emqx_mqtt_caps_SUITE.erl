@@ -57,7 +57,8 @@ t_get_set_caps(_) ->
         mqtt_shared_subscription => true,
         mqtt_wildcard_subscription => true
     },
-    SubCaps = emqx_mqtt_caps:get_caps(zone, subscribe).
+    SubCaps = emqx_mqtt_caps:get_caps(zone, subscribe),
+    emqx_zone:stop().
 
 t_check_pub(_) ->
     {ok, _} = emqx_zone:start_link(),
@@ -81,7 +82,8 @@ t_check_pub(_) ->
         qos => ?QOS_1,
         retain => false
     },
-    ok = emqx_mqtt_caps:check_pub(zone, PubProps).
+    ok = emqx_mqtt_caps:check_pub(zone, PubProps),
+    emqx_zone:stop().
 
 t_check_sub(_) ->
     {ok, _} = emqx_zone:start_link(),
@@ -104,7 +106,8 @@ t_check_sub(_) ->
                         [{<<"client/stat">>, Opts#{rc => ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}}]),
     ok = do_check_sub(Caps#{mqtt_wildcard_subscription => false}, 
                         [{<<"vlient/+/dsofi">>, Opts}], 
-                        [{<<"vlient/+/dsofi">>, Opts#{rc => ?RC_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED}}]).
+                        [{<<"vlient/+/dsofi">>, Opts#{rc => ?RC_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED}}]),
+    emqx_zone:stop().
         
 
 
