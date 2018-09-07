@@ -236,8 +236,8 @@ parse_will_message(Packet = #mqtt_packet_connect{will_flag = true,
 parse_will_message(Packet, Bin) ->
     {Packet, Bin}.
 
-protocol_approved(Ver, Name) ->
-    lists:member({Ver, Name}, ?PROTOCOL_NAMES).
+% protocol_approved(Ver, Name) ->
+%     lists:member({Ver, Name}, ?PROTOCOL_NAMES).
 
 parse_packet_id(<<PacketId:16/big, Rest/binary>>) ->
     {PacketId, Rest}.
