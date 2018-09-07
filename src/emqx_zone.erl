@@ -26,10 +26,9 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
--record(state, {timer}).
-
 -define(TAB, ?MODULE).
 
+-spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
@@ -58,7 +57,7 @@ set_env(Zone, Key, Val) ->
 
 init([]) ->
     _ = emqx_tables:new(?TAB, [set, {read_concurrency, true}]),
-    {ok, element(2, handle_info(reload, #state{}))}.
+    {ok, element(2, handle_info(reload, #{timer => undefined}))}.
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[Zone] unexpected call: ~p", [Req]),
@@ -72,11 +71,9 @@ handle_cast(Msg, State) ->
     emqx_logger:error("[Zone] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info(reload, State) ->
-    lists:foreach(
-      fun({Zone, Opts}) ->
-          [ets:insert(?TAB, {{Zone, Key}, Val}) || {Key, Val} <- Opts]
-      end, emqx_config:get_env(zones, [])),
+handle_info({timeout, TRef, reload}, State = #{timer := TRef}) ->
+    [ets:insert(?TAB, [{{Zone, Key}, Val} || {Key, Val} <- Opts])
+     || {Zone, Opts} <- emqx_config:get_env(zones, [])],
     {noreply, ensure_reload_timer(State), hibernate};
 
 handle_info(Info, State) ->
@@ -94,5 +91,5 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 ensure_reload_timer(State) ->
-    State#state{timer = erlang:send_after(10000, self(), reload)}.
+    State#{timer := emqx_misc:start_timer(timer:minutes(5), reload)}.
 
