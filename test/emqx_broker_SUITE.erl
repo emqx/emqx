@@ -20,7 +20,6 @@
 -define(APP, emqx).
 
 -include_lib("eunit/include/eunit.hrl").
-
 -include_lib("common_test/include/ct.hrl").
 
 -include("emqx.hrl").
@@ -32,7 +31,6 @@ all() ->
      {group, broker},
      {group, metrics},
      {group, stats},
-     {group, hook},
      {group, alarms}].
 
 groups() ->
@@ -43,10 +41,8 @@ groups() ->
                            t_shared_subscribe,
                            'pubsub#', 'pubsub+']},
      {session, [sequence], [start_session]},
-     {broker, [sequence], [hook_unhook]},
      {metrics, [sequence], [inc_dec_metric]},
      {stats, [sequence], [set_get_stat]},
-     {hook, [sequence], [add_delete_hook, run_hooks]},
      {alarms, [sequence], [set_alarms]}
     ].
 
@@ -165,8 +161,6 @@ start_session(_) ->
 %%--------------------------------------------------------------------
 %% Broker Group
 %%--------------------------------------------------------------------
-hook_unhook(_) ->
-    ok.
 
 %%--------------------------------------------------------------------
 %% Metric Group
@@ -178,60 +172,10 @@ inc_dec_metric(_) ->
 %%--------------------------------------------------------------------
 %% Stats Group
 %%--------------------------------------------------------------------
+
 set_get_stat(_) ->
     emqx_stats:setstat('retained/max', 99),
     99 = emqx_stats:getstat('retained/max').
-
-%%--------------------------------------------------------------------
-%% Hook Test
-%%--------------------------------------------------------------------
-
-add_delete_hook(_) ->
-    ok = emqx:hook(test_hook, fun ?MODULE:hook_fun1/1, []),
-    ok = emqx:hook(test_hook, {tag, fun ?MODULE:hook_fun2/1}, []),
-    {error, already_hooked} = emqx:hook(test_hook, {tag, fun ?MODULE:hook_fun2/1}, []),
-    Callbacks = [{callback, undefined, fun ?MODULE:hook_fun1/1, [], 0},
-                 {callback, tag, fun ?MODULE:hook_fun2/1, [], 0}],
-    Callbacks = emqx_hooks:lookup(test_hook),
-    ok = emqx:unhook(test_hook, fun ?MODULE:hook_fun1/1),
-    ct:print("Callbacks: ~p~n", [emqx_hooks:lookup(test_hook)]),
-    ok = emqx:unhook(test_hook, {tag, fun ?MODULE:hook_fun2/1}),
-    {error, not_found} = emqx:unhook(test_hook1, {tag, fun ?MODULE:hook_fun2/1}),
-    [] = emqx_hooks:lookup(test_hook),
-
-    ok = emqx:hook(emqx_hook, fun ?MODULE:hook_fun1/1, [], 9),
-    ok = emqx:hook(emqx_hook, {"tag", fun ?MODULE:hook_fun2/1}, [], 8),
-    Callbacks2 = [{callback, "tag", fun ?MODULE:hook_fun2/1, [], 8},
-                  {callback, undefined, fun ?MODULE:hook_fun1/1, [], 9}],
-    Callbacks2 = emqx_hooks:lookup(emqx_hook),
-    ok = emqx:unhook(emqx_hook, fun ?MODULE:hook_fun1/1),
-    ok = emqx:unhook(emqx_hook, {"tag", fun ?MODULE:hook_fun2/1}),
-    [] = emqx_hooks:lookup(emqx_hook).
-
-run_hooks(_) ->
-    ok = emqx:hook(foldl_hook, fun ?MODULE:hook_fun3/4, [init]),
-    ok = emqx:hook(foldl_hook, {tag, fun ?MODULE:hook_fun3/4}, [init]),
-    ok = emqx:hook(foldl_hook, fun ?MODULE:hook_fun4/4, [init]),
-    ok = emqx:hook(foldl_hook, fun ?MODULE:hook_fun5/4, [init]),
-    {stop, [r3, r2]} = emqx:run_hooks(foldl_hook, [arg1, arg2], []),
-    {ok, []} = emqx:run_hooks(unknown_hook, [], []),
-
-    ok = emqx:hook(foreach_hook, fun ?MODULE:hook_fun6/2, [initArg]),
-    ok = emqx:hook(foreach_hook, {tag, fun ?MODULE:hook_fun6/2}, [initArg]),
-    ok = emqx:hook(foreach_hook, fun ?MODULE:hook_fun7/2, [initArg]),
-    ok = emqx:hook(foreach_hook, fun ?MODULE:hook_fun8/2, [initArg]),
-    stop = emqx:run_hooks(foreach_hook, [arg]).
-
-hook_fun1([]) -> ok.
-hook_fun2([]) -> {ok, []}.
-
-hook_fun3(arg1, arg2, _Acc, init) -> ok.
-hook_fun4(arg1, arg2, Acc, init)  -> {ok, [r2 | Acc]}.
-hook_fun5(arg1, arg2, Acc, init)  -> {stop, [r3 | Acc]}.
-
-hook_fun6(arg, initArg) -> ok.
-hook_fun7(arg, initArg) -> any.
-hook_fun8(arg, initArg) -> stop.
 
 set_alarms(_) ->
     AlarmTest = #alarm{id = <<"1">>, severity = error, title="alarm title", summary="alarm summary"},

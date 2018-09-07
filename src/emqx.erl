@@ -29,16 +29,16 @@
 -export([get_subopts/2, set_subopts/3]).
 
 %% Hooks API
--export([hook/4, hook/3, unhook/2, run_hooks/2, run_hooks/3]).
+-export([hook/2, hook/3, hook/4, unhook/2, run_hooks/2, run_hooks/3]).
 
 %% Shutdown and reboot
 -export([shutdown/0, shutdown/1, reboot/0]).
 
 -define(APP, ?MODULE).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Bootstrap, is_running...
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 %% @doc Start emqx application
 -spec(start() -> {ok, list(atom())} | {error, term()}).
@@ -62,9 +62,9 @@ is_running(Node) ->
         Pid when is_pid(Pid) -> true
     end.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% PubSub API
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 -spec(subscribe(emqx_topic:topic() | string()) -> ok).
 subscribe(Topic) ->
@@ -97,9 +97,9 @@ unsubscribe(Topic, SubId) when is_atom(SubId); is_binary(SubId) ->
 unsubscribe(Topic, SubPid) when is_pid(SubPid) ->
     emqx_broker:unsubscribe(iolist_to_binary(Topic), SubPid).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% PubSub management API
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 -spec(get_subopts(emqx_topic:topic() | string(), emqx_types:subscriber())
       -> emqx_types:subopts()).
@@ -128,36 +128,43 @@ subscribed(Topic, SubPid) when is_pid(SubPid) ->
 subscribed(Topic, SubId) when is_atom(SubId); is_binary(SubId) ->
     emqx_broker:subscribed(iolist_to_binary(Topic), SubId).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Hooks API
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
--spec(hook(atom(), function() | {emqx_hooks:hooktag(), function()}, list(any()))
-      -> ok | {error, term()}).
-hook(Hook, TagFunction, InitArgs) ->
-    emqx_hooks:add(Hook, TagFunction, InitArgs).
+-spec(hook(emqx_hooks:hookpoint(), emqx_hooks:action()) -> ok | {error, already_exists}).
+hook(HookPoint, Action) ->
+    emqx_hooks:add(HookPoint, Action).
 
--spec(hook(atom(), function() | {emqx_hooks:hooktag(), function()}, list(any()), integer())
-      -> ok | {error, term()}).
-hook(Hook, TagFunction, InitArgs, Priority) ->
-    emqx_hooks:add(Hook, TagFunction, InitArgs, Priority).
+-spec(hook(emqx_hooks:hookpoint(), emqx_hooks:action(), emqx_hooks:filter() | integer())
+      -> ok | {error, already_exists}).
+hook(HookPoint, Action, Priority) when is_integer(Priority) ->
+    emqx_hooks:add(HookPoint, Action, Priority);
+hook(HookPoint, Action, Filter) when is_function(Filter); is_tuple(Filter) ->
+    emqx_hooks:add(HookPoint, Action, Filter);
+hook(HookPoint, Action, InitArgs) when is_list(InitArgs) ->
+    emqx_hooks:add(HookPoint, Action, InitArgs).
 
--spec(unhook(atom(), function() | {emqx_hooks:hooktag(), function()})
-      -> ok | {error, term()}).
-unhook(Hook, TagFunction) ->
-    emqx_hooks:delete(Hook, TagFunction).
+-spec(hook(emqx_hooks:hookpoint(), emqx_hooks:action(), emqx_hooks:filter(), integer())
+      -> ok | {error, already_exists}).
+hook(HookPoint, Action, Filter, Priority) ->
+    emqx_hooks:add(HookPoint, Action, Filter, Priority).
 
--spec(run_hooks(atom(), list(any())) -> ok | stop).
-run_hooks(Hook, Args) ->
-    emqx_hooks:run(Hook, Args).
+-spec(unhook(emqx_hooks:hookpoint(), emqx_hooks:action()) -> ok).
+unhook(HookPoint, Action) ->
+    emqx_hooks:del(HookPoint, Action).
 
--spec(run_hooks(atom(), list(any()), any()) -> {ok | stop, any()}).
-run_hooks(Hook, Args, Acc) ->
-    emqx_hooks:run(Hook, Args, Acc).
+-spec(run_hooks(emqx_hooks:hookpoint(), list(any())) -> ok | stop).
+run_hooks(HookPoint, Args) ->
+    emqx_hooks:run(HookPoint, Args).
 
-%%--------------------------------------------------------------------
+-spec(run_hooks(emqx_hooks:hookpoint(), list(any()), any()) -> {ok | stop, any()}).
+run_hooks(HookPoint, Args, Acc) ->
+    emqx_hooks:run(HookPoint, Args, Acc).
+
+%%------------------------------------------------------------------------------
 %% Shutdown and reboot
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 shutdown() ->
     shutdown(normal).
