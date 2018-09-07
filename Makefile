@@ -51,6 +51,29 @@ DIALYZER_OPTS := --verbose --statistics -Werror_handling -Wrace_conditions #-Wun
 
 include erlang.mk
 
-app.config::
-	./deps/cuttlefish/cuttlefish -l info -e etc/ -c etc/emqx.conf -i priv/emqx.schema -d data/
+clean:: gen-clean
+
+.PHONY: gen-clean
+gen-clean:
+	@rm -rf bbmustache
+	@rm -f etc/gen.emqx.conf
+
+bbmustache:
+	$(verbose) git clone https://github.com/soranoba/bbmustache.git && pushd bbmustache && ./rebar3 compile && popd
+
+# This hack is to generate a conf file for testing
+# relx overlay is used for release
+etc/gen.emqx.conf: bbmustache etc/emqx.conf
+	$(verbose) erl -noshell -pa bbmustache/_build/default/lib/bbmustache/ebin -eval \
+		"{ok, Temp} = file:read_file('etc/emqx.conf'), \
+		{ok, Vars0} = file:consult('vars'), \
+		Vars = [{atom_to_list(N), list_to_binary(V)} || {N, V} <- Vars0], \
+		Targ = bbmustache:render(Temp, Vars), \
+		ok = file:write_file('etc/gen.emqx.conf', Targ), \
+		halt(0)."
+
+app.config: etc/gen.emqx.conf
+	$(verbose) ./deps/cuttlefish/cuttlefish -l info -e etc/ -c etc/gen.emqx.conf -i priv/emqx.schema -d data/
+
+ct: app.config
 
