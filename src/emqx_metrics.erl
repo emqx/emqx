@@ -34,32 +34,33 @@
 
 %% Packets sent and received of broker
 -define(PACKET_METRICS, [
-    {counter, 'packets/received'},         % All Packets received
-    {counter, 'packets/sent'},             % All Packets sent
-    {counter, 'packets/connect'},          % CONNECT Packets received
-    {counter, 'packets/connack'},          % CONNACK Packets sent
-    {counter, 'packets/publish/received'}, % PUBLISH packets received
-    {counter, 'packets/publish/sent'},     % PUBLISH packets sent
-    {counter, 'packets/puback/received'},  % PUBACK packets received
-    {counter, 'packets/puback/sent'},      % PUBACK packets sent
-    {counter, 'packets/puback/missed'},    % PUBACK packets missed
-    {counter, 'packets/pubrec/received'},  % PUBREC packets received
-    {counter, 'packets/pubrec/sent'},      % PUBREC packets sent
-    {counter, 'packets/pubrec/missed'},    % PUBREC packets missed
-    {counter, 'packets/pubrel/received'},  % PUBREL packets received
-    {counter, 'packets/pubrel/sent'},      % PUBREL packets sent
-    {counter, 'packets/pubrel/missed'},    % PUBREL packets missed
-    {counter, 'packets/pubcomp/received'}, % PUBCOMP packets received
-    {counter, 'packets/pubcomp/sent'},     % PUBCOMP packets sent
-    {counter, 'packets/pubcomp/missed'},   % PUBCOMP packets missed
-    {counter, 'packets/subscribe'},        % SUBSCRIBE Packets received
-    {counter, 'packets/suback'},           % SUBACK packets sent
-    {counter, 'packets/unsubscribe'},      % UNSUBSCRIBE Packets received
-    {counter, 'packets/unsuback'},         % UNSUBACK Packets sent
-    {counter, 'packets/pingreq'},          % PINGREQ packets received
-    {counter, 'packets/pingresp'},         % PINGRESP Packets sent
-    {counter, 'packets/disconnect'},       % DISCONNECT Packets received
-    {counter, 'packets/auth'}              % Auth Packets received
+    {counter, 'packets/received'},              % All Packets received
+    {counter, 'packets/sent'},                  % All Packets sent
+    {counter, 'packets/connect'},               % CONNECT Packets received
+    {counter, 'packets/connack'},               % CONNACK Packets sent
+    {counter, 'packets/publish/received'},      % PUBLISH packets received
+    {counter, 'packets/publish/sent'},          % PUBLISH packets sent
+    {counter, 'packets/puback/received'},       % PUBACK packets received
+    {counter, 'packets/puback/sent'},           % PUBACK packets sent
+    {counter, 'packets/puback/missed'},         % PUBACK packets missed
+    {counter, 'packets/pubrec/received'},       % PUBREC packets received
+    {counter, 'packets/pubrec/sent'},           % PUBREC packets sent
+    {counter, 'packets/pubrec/missed'},         % PUBREC packets missed
+    {counter, 'packets/pubrel/received'},       % PUBREL packets received
+    {counter, 'packets/pubrel/sent'},           % PUBREL packets sent
+    {counter, 'packets/pubrel/missed'},         % PUBREL packets missed
+    {counter, 'packets/pubcomp/received'},      % PUBCOMP packets received
+    {counter, 'packets/pubcomp/sent'},          % PUBCOMP packets sent
+    {counter, 'packets/pubcomp/missed'},        % PUBCOMP packets missed
+    {counter, 'packets/subscribe'},             % SUBSCRIBE Packets received
+    {counter, 'packets/suback'},                % SUBACK packets sent
+    {counter, 'packets/unsubscribe'},           % UNSUBSCRIBE Packets received
+    {counter, 'packets/unsuback'},              % UNSUBACK Packets sent
+    {counter, 'packets/pingreq'},               % PINGREQ packets received
+    {counter, 'packets/pingresp'},              % PINGRESP Packets sent
+    {counter, 'packets/disconnect/received'},   % DISCONNECT Packets received
+    {counter, 'packets/disconnect/sent'},       % DISCONNECT Packets sent
+    {counter, 'packets/auth'}                   % Auth Packets received
 ]).
 
 %% Messages sent and received of broker
@@ -194,7 +195,7 @@ received2(?UNSUBSCRIBE) ->
 received2(?PINGREQ) ->
     inc('packets/pingreq');
 received2(?DISCONNECT) ->
-    inc('packets/disconnect');
+    inc('packets/disconnect/received');
 received2(_) ->
     ignore.
 qos_received(?QOS_0) ->
@@ -233,6 +234,8 @@ sent2(?UNSUBACK) ->
     inc('packets/unsuback');
 sent2(?PINGRESP) ->
     inc('packets/pingresp');
+sent2(?DISCONNECT) ->
+    inc('packets/disconnect/sent');
 sent2(_Type) ->
     ignore.
 qos_sent(?QOS_0) ->
