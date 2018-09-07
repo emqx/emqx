@@ -17,8 +17,6 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include("emqx_mqtt.hrl").
-
 -define(APP, emqx).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -52,9 +50,7 @@
 -define(PUBPACKET, ?PUBLISH_PACKET(?PUBQOS, <<"sub/topic">>, ?PACKETID, <<"publish">>)).
 
 all() ->
-    [{group, connect}%,
-    % {group, cleanSession}
-    ].
+    [{group, connect}].
 
 groups() ->
     [{connect, [non_parallel_tests],
@@ -64,11 +60,7 @@ groups() ->
       mqtt_connect_with_ssl_oneway,
       mqtt_connect_with_ssl_twoway,
       mqtt_connect_with_ws
-      ]},
-     {cleanSession, [sequence],
-      [cleanSession_validate]
-     }
-    ].
+      ]}].
 
 init_per_suite(Config) ->
     emqx_ct_broker_helpers:run_setup_steps(),
@@ -109,15 +101,17 @@ mqtt_connect_with_ssl_oneway(_) ->
     emqx_ct_broker_helpers:change_opts(ssl_oneway),
     emqx:start(),
     ClientSsl = emqx_ct_broker_helpers:client_ssl(),
-    {ok, #ssl_socket{tcp = Sock, ssl = SslSock}}
+    {ok, #ssl_socket{tcp = _Sock1, ssl = SslSock} = Sock}
     = emqx_client_sock:connect("127.0.0.1", 8883, [{ssl_opts, ClientSsl}], 3000),
-%%     Packet = raw_send_serialise(?CLIENT),
-%%     ssl:send(SslSock, Packet),
-%%     receive Data  ->
-%%         ct:log("Data:~p~n", [Data])
-%%     after 30000 ->
-%%               ok
-%%     end,
+    Packet = raw_send_serialise(?CLIENT),
+    emqx_client_sock:setopts(Sock, [{active, once}]),
+    emqx_client_sock:send(Sock, Packet),
+    ?assert(
+    receive {ssl, _, ConAck}->
+        {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(ConAck), true
+    after 1000 ->
+        false
+    end),
     ssl:close(SslSock).
 
 mqtt_connect_with_ssl_twoway(_Config) ->
@@ -131,11 +125,12 @@ mqtt_connect_with_ssl_twoway(_Config) ->
     emqx_client_sock:setopts(Sock, [{active, once}]),
     emqx_client_sock:send(Sock, Packet),
     timer:sleep(500),
+    ?assert(
     receive {ssl, _, Data}->
-        {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(Data)
+        {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(Data), true
     after 1000 ->
-        ok
-    end,
+        false
+    end),
     emqx_client_sock:close(Sock).
 
 mqtt_connect_with_ws(_Config) ->
@@ -161,32 +156,6 @@ mqtt_connect_with_ws(_Config) ->
     {ok, ?PUBACK_PACKET(?PACKETID), _} = raw_recv_pase(PubAck),
     {close, _} = rfc6455_client:close(WS),
     ok.
-
-cleanSession_validate(_) ->
-    {ok, C1} = emqttc:start_link([{host, "localhost"},
-                                         {port, 1883},
-                                         {client_id, <<"c1">>},
-                                         {clean_sess, false}]),
-    timer:sleep(10),
-    emqttc:subscribe(C1, <<"topic">>, qos0),
-    emqttc:disconnect(C1),
-    {ok, Pub} = emqttc:start_link([{host, "localhost"},
-                                         {port, 1883},
-                                         {client_id, <<"pub">>}]),
-
-    emqttc:publish(Pub, <<"topic">>, <<"m1">>, [{qos, 0}]),
-    timer:sleep(10),
-    {ok, C11} = emqttc:start_link([{host, "localhost"},
-                                   {port, 1883},
-                                   {client_id, <<"c1">>},
-                                   {clean_sess, false}]),
-    timer:sleep(100),
-    receive {publish, _Topic, M1} ->
-        ?assertEqual(<<"m1">>, M1)
-    after 1000 -> false
-    end,
-    emqttc:disconnect(Pub),
-    emqttc:disconnect(C11).
 
 raw_send_serialise(Packet) ->
     emqx_frame:serialize(Packet).

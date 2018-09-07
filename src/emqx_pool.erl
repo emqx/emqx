@@ -23,16 +23,14 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
--record(state, {pool, id}).
-
 -define(POOL, ?MODULE).
 
 %% @doc Start pooler supervisor.
 start_link() ->
     emqx_pool_sup:start_link(?POOL, random, {?MODULE, start_link, []}).
 
-%% @doc Start pool
--spec(start_link(atom(), pos_integer()) -> {ok, pid()} | ignore | {error, term()}).
+%% @doc Start pool.
+-spec(start_link(atom(), pos_integer()) -> emqx_types:startlink_ret()).
 start_link(Pool, Id) ->
     gen_server:start_link({local, emqx_misc:proc_name(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
 
@@ -49,13 +47,13 @@ async_submit(Fun) ->
 worker() ->
     gproc_pool:pick_worker(pool).
 
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    {ok, #state{pool = Pool, id = Id}}.
+    {ok, #{pool => Pool, id => Id}}.
 
 handle_call({submit, Fun}, _From, State) ->
     {reply, catch run(Fun), State};
@@ -79,15 +77,15 @@ handle_info(Info, State) ->
     emqx_logger:error("[Pool] unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #state{pool = Pool, id = Id}) ->
+terminate(_Reason, #{pool := Pool, id := Id}) ->
     true = gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Internal functions
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 run({M, F, A}) ->
     erlang:apply(M, F, A);
