@@ -448,11 +448,11 @@ handle_cast({subscribe, FromPid, {PacketId, _Properties, TopicFilters}},
                                               {ok, _SubOpts} ->
                                                   emqx_broker:set_subopts(Topic, {self(), ClientId}, SubOpts),
                                                   %% Why???
-                                                  emqx_hooks:run('session.subscribed', [#{client_id => ClientId}, Topic, SubOpts]),
+                                                  emqx_hooks:run('session.subscribed', [#{client_id => ClientId}, Topic, SubOpts#{first => false}]),
                                                   maps:put(Topic, SubOpts, SubMap);
                                               error ->
                                                   emqx_broker:subscribe(Topic, ClientId, SubOpts),
-                                                  emqx_hooks:run('session.subscribed', [#{client_id => ClientId}, Topic, SubOpts]),
+                                                  emqx_hooks:run('session.subscribed', [#{client_id => ClientId}, Topic, SubOpts#{first => true}]),
                                                   maps:put(Topic, SubOpts, SubMap)
                                           end}
                     end, {[], Subscriptions}, TopicFilters),
