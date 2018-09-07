@@ -72,9 +72,11 @@ validate_packet_id(_) ->
 validate_properties(?SUBSCRIBE, #{'Subscription-Identifier' := I})
     when I =< 0; I >= 16#FFFFFFF ->
     error(subscription_identifier_invalid);
-validate_properties(?PUBLISH, # {'Topic-Alias':= I})
+validate_properties(?PUBLISH, #{'Topic-Alias':= I})
     when I =:= 0 ->
     error(topic_alias_invalid);
+validate_properties(?PUBLISH, #{'Subscription-Identifier' := _I}) ->
+    error(protocol_error);
 validate_properties(_, _) ->
     true.
 
@@ -236,4 +238,3 @@ format_password(_Password) -> '******'.
 i(true)  -> 1;
 i(false) -> 0;
 i(I) when is_integer(I) -> I.
-
