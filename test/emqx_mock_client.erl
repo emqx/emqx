@@ -44,7 +44,7 @@ get_last_message() ->
 init([ClientId]) ->
     Result = lists:member(?TAB, ets:all()),
     if Result == false -> 
-        ets:new(?TAB, [set, named_table]);
+        ets:new(?TAB, [set, named_table, public]);
        true -> ok
     end,
     {ok, 

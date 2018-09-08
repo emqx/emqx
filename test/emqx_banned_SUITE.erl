@@ -38,4 +38,5 @@ t_banned_all(_) ->
     timer:sleep(100),
     ?assert(emqx_banned:check(#{client_id => <<"TestClient">>, username => undefined, peername => {undefined, undefined}})),
     emqx_banned:del({client_id, <<"TestClient">>}),
-    ?assertNot(emqx_banned:check(#{client_id => <<"TestClient">>, username => undefined, peername => {undefined, undefined}})).
+    ?assertNot(emqx_banned:check(#{client_id => <<"TestClient">>, username => undefined, peername => {undefined, undefined}})),
+    emqx_ct_broker_helpers:run_teardown_steps().

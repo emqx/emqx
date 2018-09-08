@@ -28,7 +28,6 @@
 all() ->
     [{group, pubsub},
      {group, session},
-     {group, broker},
      {group, metrics},
      {group, stats},
      {group, alarms}].
