@@ -444,6 +444,7 @@ handle_cast({subscribe, FromPid, {PacketId, _Properties, TopicFilters}},
         lists:foldr(fun({Topic, SubOpts = #{qos := QoS}}, {RcAcc, SubMap}) ->
                             {[QoS|RcAcc], case maps:find(Topic, SubMap) of
                                               {ok, SubOpts} ->
+                                                  emqx_hooks:run('session.subscribed', [#{client_id => ClientId}, Topic, SubOpts#{first => false}]),
                                                   SubMap;
                                               {ok, _SubOpts} ->
                                                   emqx_broker:set_subopts(Topic, {self(), ClientId}, SubOpts),
