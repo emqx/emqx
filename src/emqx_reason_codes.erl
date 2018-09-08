@@ -139,4 +139,4 @@ compat(connack, 16#9D) -> ?CONNACK_SERVER;
 compat(connack, 16#9F) -> ?CONNACK_SERVER;
 
 compat(suback, Code) when Code =< ?QOS2 -> Code;
-compat(suback, Code) when Code > 16#80  -> 16#80.
+compat(suback, Code) when Code >= 16#80  -> 16#80.
