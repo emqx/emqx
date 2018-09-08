@@ -726,9 +726,10 @@ run_dispatch_steps([{qos, SubQoS}|Steps], Msg = #message{qos = PubQoS}, State = 
     run_dispatch_steps(Steps, Msg#message{qos = min(SubQoS, PubQoS)}, State);
 run_dispatch_steps([{qos, SubQoS}|Steps], Msg = #message{qos = PubQoS}, State = #state{upgrade_qos = true}) ->
     run_dispatch_steps(Steps, Msg#message{qos = max(SubQoS, PubQoS)}, State);
+run_dispatch_steps([{rap, _Rap}|Steps], Msg = #message{flags = Flags, headers = #{retained := true}}, State = #state{}) ->
+    run_dispatch_steps(Steps, Msg#message{flags = maps:put(retain, true, Flags)}, State);
 run_dispatch_steps([{rap, 0}|Steps], Msg = #message{flags = Flags}, State = #state{}) ->
-    Flags1 = maps:put(retain, false, Flags),
-    run_dispatch_steps(Steps, Msg#message{flags = Flags1}, State);
+    run_dispatch_steps(Steps, Msg#message{flags = maps:put(retain, false, Flags)}, State);
 run_dispatch_steps([{rap, _}|Steps], Msg, State) ->
     run_dispatch_steps(Steps, Msg, State);
 run_dispatch_steps([{subid, SubId}|Steps], Msg, State) ->
