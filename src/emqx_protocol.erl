@@ -370,7 +370,7 @@ process_packet(?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
                             end;
                            true ->
                                RawTopicFilters
-                        end, 
+                        end,
     case check_subscribe(
            parse_topic_filters(?SUBSCRIBE, RawTopicFilters1), PState) of
         {ok, TopicFilters} ->
@@ -732,7 +732,8 @@ shutdown(Reason, PState = #pstate{connected = true,
 send_willmsg(undefined) ->
     ignore;
 send_willmsg(WillMsg = #message{topic = Topic,
-                                headers = #{'Will-Delay-Interval' := Interval}}) when is_integer(Interval) ->
+                                headers = #{'Will-Delay-Interval' := Interval}})
+            when is_integer(Interval), Interval > 0 ->
     SendAfter = integer_to_binary(Interval),
     emqx_broker:publish(WillMsg#message{topic = <<"$delayed/", SendAfter/binary, "/", Topic/binary>>});
 send_willmsg(WillMsg) ->
