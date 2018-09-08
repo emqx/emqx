@@ -13,7 +13,7 @@
 %% limitations under the License.
 
 %% @doc MQTT5 Properties
--module(emqx_mqtt_properties).
+-module(emqx_mqtt_props).
 
 -include("emqx_mqtt.hrl").
 

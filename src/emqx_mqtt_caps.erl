@@ -43,7 +43,9 @@
                        {mqtt_wildcard_subscription, true}]).
 
 -define(PUBCAP_KEYS, [max_qos_allowed,
-                      mqtt_retain_available]).
+                      mqtt_retain_available,
+                      mqtt_topic_alias
+                     ]).
 -define(SUBCAP_KEYS, [max_qos_allowed,
                       max_topic_levels,
                       mqtt_shared_subscription,
@@ -60,8 +62,15 @@ do_check_pub(Props = #{qos := QoS}, [{max_qos_allowed, MaxQoS}|Caps]) ->
         true  -> {error, ?RC_QOS_NOT_SUPPORTED};
         false -> do_check_pub(Props, Caps)
     end;
+do_check_pub(Props = #{ topic_alias := TopicAlias}, [{max_topic_alias, MaxTopicAlias}| Caps]) ->
+    case TopicAlias =< MaxTopicAlias andalso TopicAlias > 0 of
+        false -> {error, ?RC_TOPIC_ALIAS_INVALID};
+        true -> do_check_pub(Props, Caps)
+    end;
 do_check_pub(#{retain := true}, [{mqtt_retain_available, false}|_Caps]) ->
     {error, ?RC_RETAIN_NOT_SUPPORTED};
+do_check_pub(Props, [{max_topic_alias, _} | Caps]) ->
+    do_check_pub(Props, Caps);
 do_check_pub(Props, [{mqtt_retain_available, _}|Caps]) ->
     do_check_pub(Props, Caps).
 
@@ -136,4 +145,3 @@ with_env(Zone, Key, InitFun) ->
                      Caps;
         ZoneCaps  -> ZoneCaps
     end.
-

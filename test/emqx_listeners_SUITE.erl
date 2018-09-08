@@ -49,7 +49,7 @@ restart_listeners(_) ->
     
 generate_config() ->
     Schema = cuttlefish_schema:files([local_path(["priv", "emqx.schema"])]),
-    Conf = conf_parse:file([local_path(["etc", "emqx.conf"])]),
+    Conf = conf_parse:file([local_path(["etc", "gen.emqx.conf"])]),
     cuttlefish_generator:map(Schema, Conf).
 
 set_app_env({App, Lists}) ->

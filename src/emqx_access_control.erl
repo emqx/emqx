@@ -154,7 +154,7 @@ init([]) ->
 handle_call({register_mod, Type, Mod, Opts, Seq}, _From, State) ->
     Mods = lookup_mods(Type),
     reply(case lists:keymember(Mod, 1, Mods) of
-              true  -> {error, already_existed};
+              true  -> {error, already_exists};
               false ->
                   case catch Mod:init(Opts) of
                       {ok, ModState} ->
@@ -183,7 +183,7 @@ handle_call(stop, _From, State) ->
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[AccessControl] unexpected request: ~p", [Req]),
-    {reply, ignore, State}.
+    {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
     emqx_logger:error("[AccessControl] unexpected msg: ~p", [Msg]),

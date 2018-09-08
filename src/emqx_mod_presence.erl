@@ -19,7 +19,10 @@
 -include("emqx.hrl").
 
 -export([load/1, unload/1]).
+
 -export([on_client_connected/4, on_client_disconnected/3]).
+
+-define(ATTR_KEYS, [clean_start, proto_ver, proto_name, keepalive]).
 
 load(Env) ->
     emqx_hooks:add('client.connected',    fun ?MODULE:on_client_connected/4, [Env]),
@@ -27,16 +30,13 @@ load(Env) ->
 
 on_client_connected(#{client_id := ClientId,
                       username  := Username,
-                      peername  := {IpAddr, _}}, ConnAck, ConnInfo, Env) ->
+                      peername  := {IpAddr, _}}, ConnAck, ConnAttrs, Env) ->
+    Attrs = lists:filter(fun({K, _}) -> lists:member(K, ?ATTR_KEYS) end, ConnAttrs),
     case emqx_json:safe_encode([{clientid, ClientId},
                                 {username, Username},
                                 {ipaddress, iolist_to_binary(esockd_net:ntoa(IpAddr))},
-                                {clean_start, proplists:get_value(clean_start, ConnInfo)},
-                                {proto_ver, proplists:get_value(proto_ver, ConnInfo)},
-                                {proto_name, proplists:get_value(proto_name, ConnInfo)},
-                                {keepalive, proplists:get_value(keepalive, ConnInfo)},
                                 {connack, ConnAck},
-                                {ts, os:system_time(second)}]) of
+                                {ts, os:system_time(second)} | Attrs]) of
         {ok, Payload} ->
             emqx:publish(message(qos(Env), topic(connected, ClientId), Payload));
         {error, Reason} ->
@@ -55,20 +55,20 @@ on_client_disconnected(#{client_id := ClientId, username := Username}, Reason, E
     end.
 
 unload(_Env) ->
-    emqx_hooks:delete('client.connected',    fun ?MODULE:on_client_connected/4),
-    emqx_hooks:delete('client.disconnected', fun ?MODULE:on_client_disconnected/3).
+    emqx_hooks:del('client.connected',    fun ?MODULE:on_client_connected/4),
+    emqx_hooks:del('client.disconnected', fun ?MODULE:on_client_disconnected/3).
 
 message(QoS, Topic, Payload) ->
-    Msg = emqx_message:make(?MODULE, QoS, Topic, iolist_to_binary(Payload)),
-    emqx_message:set_flag(sys, Msg).
+    emqx_message:set_flag(
+      sys, emqx_message:make(
+             ?MODULE, QoS, Topic, iolist_to_binary(Payload))).
 
 topic(connected, ClientId) ->
     emqx_topic:systop(iolist_to_binary(["clients/", ClientId, "/connected"]));
 topic(disconnected, ClientId) ->
     emqx_topic:systop(iolist_to_binary(["clients/", ClientId, "/disconnected"])).
 
-qos(Env) ->
-    proplists:get_value(qos, Env, 0).
+qos(Env) -> proplists:get_value(qos, Env, 0).
 
 reason(Reason) when is_atom(Reason) -> Reason;
 reason({Error, _}) when is_atom(Error) -> Error;

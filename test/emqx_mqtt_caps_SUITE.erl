@@ -38,7 +38,7 @@ t_get_set_caps(_) ->
         mqtt_wildcard_subscription => true
     },
     Caps2 = Caps#{max_packet_size => 1048576},
-    case emqx_mqtt_caps:get_caps(zone) of 
+    case emqx_mqtt_caps:get_caps(zone) of
         Caps -> ok;
         Caps2 -> ok
     end,
@@ -57,31 +57,41 @@ t_get_set_caps(_) ->
         mqtt_shared_subscription => true,
         mqtt_wildcard_subscription => true
     },
-    SubCaps = emqx_mqtt_caps:get_caps(zone, subscribe).
+    SubCaps = emqx_mqtt_caps:get_caps(zone, subscribe),
+    emqx_zone:stop().
 
 t_check_pub(_) ->
     {ok, _} = emqx_zone:start_link(),
     PubCaps = #{
         max_qos_allowed => ?QOS_1,
-        mqtt_retain_available => false
+        mqtt_retain_available => false,
+        max_topic_alias => 4
     },
     emqx_zone:set_env(zone, '$mqtt_pub_caps', PubCaps),
     timer:sleep(100),
+    ct:log("~p", [emqx_mqtt_caps:get_caps(zone, publish)]),
     BadPubProps1 = #{
         qos => ?QOS_2,
         retain => false
-    }, 
+    },
     {error, ?RC_QOS_NOT_SUPPORTED} = emqx_mqtt_caps:check_pub(zone, BadPubProps1),
     BadPubProps2 = #{
         qos => ?QOS_1,
         retain => true
-    }, 
+    },
     {error, ?RC_RETAIN_NOT_SUPPORTED} = emqx_mqtt_caps:check_pub(zone, BadPubProps2),
+    BadPubProps3 = #{
+        qos => ?QOS_1,
+        retain => false,
+        topic_alias => 5
+    },
+    {error, ?RC_TOPIC_ALIAS_INVALID} = emqx_mqtt_caps:check_pub(zone, BadPubProps3),
     PubProps = #{
         qos => ?QOS_1,
         retain => false
     },
-    ok = emqx_mqtt_caps:check_pub(zone, PubProps).
+    ok = emqx_mqtt_caps:check_pub(zone, PubProps),
+    emqx_zone:stop().
 
 t_check_sub(_) ->
     {ok, _} = emqx_zone:start_link(),
@@ -94,18 +104,19 @@ t_check_sub(_) ->
         mqtt_wildcard_subscription => true
     },
 
-    ok = do_check_sub([{<<"client/stat">>, Opts}], [{<<"client/stat">>, Opts}]), 
+    ok = do_check_sub([{<<"client/stat">>, Opts}], [{<<"client/stat">>, Opts}]),
     ok = do_check_sub(Caps#{max_qos_allowed => ?QOS_1}, [{<<"client/stat">>, Opts}], [{<<"client/stat">>, Opts#{qos => ?QOS_1}}]),
-    ok = do_check_sub(Caps#{max_topic_levels => 1}, 
-                        [{<<"client/stat">>, Opts}], 
+    ok = do_check_sub(Caps#{max_topic_levels => 1},
+                        [{<<"client/stat">>, Opts}],
                         [{<<"client/stat">>, Opts#{rc => ?RC_TOPIC_FILTER_INVALID}}]),
-    ok = do_check_sub(Caps#{mqtt_shared_subscription => false}, 
-                        [{<<"client/stat">>, Opts}], 
+    ok = do_check_sub(Caps#{mqtt_shared_subscription => false},
+                        [{<<"client/stat">>, Opts}],
                         [{<<"client/stat">>, Opts#{rc => ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}}]),
+
     ok = do_check_sub(Caps#{mqtt_wildcard_subscription => false}, 
                         [{<<"vlient/+/dsofi">>, Opts}], 
-                        [{<<"vlient/+/dsofi">>, Opts#{rc => ?RC_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED}}]).
-        
+                        [{<<"vlient/+/dsofi">>, Opts#{rc => ?RC_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED}}]),
+    emqx_zone:stop().
 
 
 

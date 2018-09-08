@@ -32,3 +32,5 @@ rebar3.crashdump
 .DS_Store
 rebar.config
 emqx.iml
+bbmustache/
+etc/gen.emqx.conf

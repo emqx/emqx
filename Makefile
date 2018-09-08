@@ -37,7 +37,7 @@ EUNIT_OPTS = verbose
 
 CT_SUITES = emqx emqx_banned emqx_connection emqx_session emqx_access emqx_broker emqx_cm emqx_frame emqx_guid emqx_inflight \
 			emqx_json emqx_keepalive emqx_lib emqx_metrics emqx_misc emqx_mod emqx_mqtt_caps \
-			emqx_mqtt_compat emqx_mqtt_properties emqx_mqueue emqx_net emqx_pqueue emqx_router emqx_sm \
+			emqx_mqtt_compat emqx_mqtt_props emqx_mqueue emqx_net emqx_pqueue emqx_router emqx_sm \
 			emqx_stats emqx_tables emqx_time emqx_topic emqx_trie emqx_vm emqx_zone \
 		 	emqx_mountpoint emqx_listeners emqx_protocol
 
@@ -51,6 +51,29 @@ DIALYZER_OPTS := --verbose --statistics -Werror_handling -Wrace_conditions #-Wun
 
 include erlang.mk
 
-app.config::
-	./deps/cuttlefish/cuttlefish -l info -e etc/ -c etc/emqx.conf -i priv/emqx.schema -d data/
+clean:: gen-clean
+
+.PHONY: gen-clean
+gen-clean:
+	@rm -rf bbmustache
+	@rm -f etc/gen.emqx.conf
+
+bbmustache:
+	$(verbose) git clone https://github.com/soranoba/bbmustache.git && pushd bbmustache && ./rebar3 compile && popd
+
+# This hack is to generate a conf file for testing
+# relx overlay is used for release
+etc/gen.emqx.conf: bbmustache etc/emqx.conf
+	$(verbose) erl -noshell -pa bbmustache/_build/default/lib/bbmustache/ebin -eval \
+		"{ok, Temp} = file:read_file('etc/emqx.conf'), \
+		{ok, Vars0} = file:consult('vars'), \
+		Vars = [{atom_to_list(N), list_to_binary(V)} || {N, V} <- Vars0], \
+		Targ = bbmustache:render(Temp, Vars), \
+		ok = file:write_file('etc/gen.emqx.conf', Targ), \
+		halt(0)."
+
+app.config: etc/gen.emqx.conf
+	$(verbose) ./deps/cuttlefish/cuttlefish -l info -e etc/ -c etc/gen.emqx.conf -i priv/emqx.schema -d data/
+
+ct: app.config
 
