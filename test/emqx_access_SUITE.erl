@@ -98,7 +98,7 @@ end_per_group(_Group, Config) ->
     Config.
 
 init_per_testcase(_TestCase, Config) ->
-    %% {ok, _Pid} = 
+    %% {ok, _Pid} =
     ?AC:start_link(),
     Config.
 end_per_testcase(_TestCase, _Config) ->
@@ -119,7 +119,6 @@ reload_acl(_) ->
 
 register_mod(_) ->
     ok = ?AC:register_mod(acl, emqx_acl_test_mod, []),
-    {error, already_existed} = ?AC:register_mod(acl, emqx_acl_test_mod, []),
     {emqx_acl_test_mod, _, 0} = hd(?AC:lookup_mods(acl)),
     ok = ?AC:register_mod(auth, emqx_auth_anonymous_test_mod,[]),
     ok = ?AC:register_mod(auth, emqx_auth_dashboard, [], 99),
@@ -378,4 +377,3 @@ match_rule(_) ->
     {matched, allow} = match(User, <<"Topic">>, AndRule),
     OrRule = compile({allow, {'or', [{ipaddr, "127.0.0.1"}, {user, <<"WrongUser">>}]}, publish, ["Topic"]}),
     {matched, allow} = match(User, <<"Topic">>, OrRule).
-
