@@ -38,5 +38,6 @@ t_open_close_session(_) ->
     emqx_sm:set_session_stats(Session, {open, true}),
     {open, true} = emqx_sm:get_session_stats(Session),
     ok = emqx_sm:close_session(SPid),
-    [] = emqx_sm:lookup_session(<<"client">>).
+    [] = emqx_sm:lookup_session(<<"client">>),
+    emqx_ct_broker_helpers:run_teardown_steps().
 

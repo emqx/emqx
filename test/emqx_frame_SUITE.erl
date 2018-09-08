@@ -393,7 +393,7 @@ parse_disconnect(_) ->
     ?assertEqual({ok, ?DISCONNECT_PACKET(?RC_SUCCESS), <<>>}, parse(<<224, 0>>)).
 
 serialize_parse_disconnect(_) ->
-    Packet = ?PACKET(?DISCONNECT),
+    Packet = ?DISCONNECT_PACKET(?RC_SUCCESS),
     ?assertEqual({ok, Packet, <<>>}, parse_serialize(Packet)).
 
 serialize_parse_disconnect_v5(_) ->
