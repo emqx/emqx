@@ -18,7 +18,7 @@ dep_lager_syslog = git https://github.com/basho/lager_syslog 3.0.1
 
 NO_AUTOPATCH = cuttlefish
 
-ERLC_OPTS += +debug_info
+ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 ERLC_OPTS += +'{parse_transform, lager_transform}'
 
 BUILD_DEPS = cuttlefish
@@ -27,7 +27,7 @@ dep_cuttlefish = git https://github.com/emqx/cuttlefish emqx30
 #TEST_DEPS = emqx_ct_helplers
 #dep_emqx_ct_helplers = git git@github.com:emqx/emqx-ct-helpers
 
-TEST_ERLC_OPTS += +debug_info
+TEST_ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 TEST_ERLC_OPTS += +'{parse_transform, lager_transform}'
 
 EUNIT_OPTS = verbose
