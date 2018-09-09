@@ -9,11 +9,11 @@ DEPS = jsx gproc gen_rpc lager ekka esockd cowboy clique lager_syslog
 dep_jsx     = git https://github.com/talentdeficit/jsx 2.9.0
 dep_gproc   = git https://github.com/uwiger/gproc 0.8.0
 dep_gen_rpc = git https://github.com/emqx/gen_rpc 2.2.0
-dep_lager   = git https://github.com/erlang-lager/lager 3.6.4
+dep_lager   = git https://github.com/erlang-lager/lager 3.6.5
 dep_esockd  = git https://github.com/emqx/esockd v5.4
 dep_ekka    = git https://github.com/emqx/ekka v0.4.1
 dep_cowboy  = git https://github.com/ninenines/cowboy 2.4.0
-dep_clique  = git https://github.com/emqx/clique
+dep_clique  = git https://github.com/emqx/clique master
 dep_lager_syslog = git https://github.com/basho/lager_syslog 3.0.1
 
 NO_AUTOPATCH = cuttlefish
@@ -41,7 +41,8 @@ CT_SUITES = emqx emqx_zone emqx_banned emqx_connection emqx_session emqx_access 
 			emqx_stats emqx_tables emqx_time emqx_topic emqx_trie emqx_vm \
 		 	emqx_mountpoint emqx_listeners emqx_protocol
 
-CT_OPTS = -cover test/ct.cover.spec -erl_args -name emqxct@127.0.0.1
+CT_NODE_NAME = emqxct@127.0.0.1
+CT_OPTS = -cover test/ct.cover.spec -erl_args -name $(CT_NODE_NAME)
 
 COVER = true
 
@@ -51,7 +52,7 @@ DIALYZER_OPTS := --verbose --statistics -Werror_handling -Wrace_conditions #-Wun
 
 include erlang.mk
 
-clean:: gen-clean
+clean:: gen-clean rebar-clean
 
 .PHONY: gen-clean
 gen-clean:
@@ -73,7 +74,39 @@ etc/gen.emqx.conf: bbmustache etc/emqx.conf
 		halt(0)."
 
 app.config: etc/gen.emqx.conf
-	$(verbose) ./deps/cuttlefish/cuttlefish -l info -e etc/ -c etc/gen.emqx.conf -i priv/emqx.schema -d data/
+	$(verbose) ./cuttlefish -l info -e etc/ -c etc/gen.emqx.conf -i priv/emqx.schema -d data/
 
-ct: app.config
+ct: cuttlefish app.config
+
+coveralls:
+	@rebar3 coveralls send
+
+cuttlefish: deps
+	@mv ./deps/cuttlefish/cuttlefish ./cuttlefish
+
+rebar-cuttlefish: rebar-deps
+	@make -C _build/default/lib/cuttlefish
+	@mv _build/default/lib/cuttlefish/cuttlefish ./cuttlefish
+
+rebar-deps:
+	@rebar3 get-deps
+
+rebar-eunit:
+	@rebar3 eunit
+
+rebar-compile:
+	@rebar3 compile
+
+rebar-ct: rebar-cuttlefish app.config
+	@rebar3 as test compile
+	@ln -s -f '../../../../etc' _build/test/lib/emqx/
+	@ln -s -f '../../../../data' _build/test/lib/emqx/
+	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(shell echo $(foreach var,$(CT_SUITES),test/$(var)_SUITE) | tr ' ' ',')
+
+rebar-clean:
+	@rebar3 clean
+
+distclean:: rebar-clean
+	@rm -rf _build cover deps logs log data
+	@rm -f rebar.lock compile_commands.json cuttlefish
 

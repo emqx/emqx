@@ -1,10 +1,14 @@
 language: erlang
 
 otp_release:
-   - 21.0
    - 21.0.4
 
+before_install:
+    - git clone https://github.com/erlang/rebar3.git; cd rebar3; ./bootstrap; sudo mv rebar3 /usr/local/bin/; cd ..
+
 script:
-  - make
+  - make rebar-eunit
+  - make rebar-ct
+  - make coveralls
 
 sudo: false

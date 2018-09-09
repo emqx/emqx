@@ -1,0 +1,19 @@
+
+CONFIG1 = case os:getenv("TRAVIS") of
+  "true" ->
+    JobId = os:getenv("TRAVIS_JOB_ID"),
+    [{coveralls_service_job_id, JobId},
+     {plugins, [coveralls]},
+     {coveralls_coverdata, "_build/test/cover/*.coverdata"},
+     {coveralls_service_name , "travis-ci"} | CONFIG];
+  _ ->
+    CONFIG
+end,
+
+{_, Deps} = lists:keyfind(deps, 1, CONFIG1),
+{_, OurDeps} = lists:keyfind(github_emqx_deps, 1, CONFIG1),
+UrlPrefix = "https://github.com/emqx/",
+NewDeps = Deps ++ [{Name, {git, UrlPrefix ++ atom_to_list(Name), {branch, Branch}}} || {Name, Branch} <- OurDeps],
+CONFIG2 = lists:keystore(deps, 1, CONFIG1, {deps, NewDeps}),
+
+CONFIG2.
