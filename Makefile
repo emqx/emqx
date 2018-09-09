@@ -13,7 +13,7 @@ dep_lager   = git https://github.com/erlang-lager/lager 3.6.5
 dep_esockd  = git https://github.com/emqx/esockd v5.4
 dep_ekka    = git https://github.com/emqx/ekka v0.4.1
 dep_cowboy  = git https://github.com/ninenines/cowboy 2.4.0
-dep_clique  = git https://github.com/emqx/clique master
+dep_clique  = git https://github.com/emqx/clique develop
 dep_lager_syslog = git https://github.com/basho/lager_syslog 3.0.1
 
 NO_AUTOPATCH = cuttlefish
@@ -109,4 +109,27 @@ rebar-clean:
 distclean:: rebar-clean
 	@rm -rf _build cover deps logs log data
 	@rm -f rebar.lock compile_commands.json cuttlefish
+
+## Below are for version consistency check during erlang.mk and rebar3 dual mode support
+none=
+space = $(none) $(none)
+comma = ,
+quote = \"
+curly_l = "{"
+curly_r = "}"
+dep-versions = [$(foreach dep,$(DEPS) $(BUILD_DEPS),$(curly_l)$(dep),$(quote)$(word 3,$(dep_$(dep)))$(quote)$(curly_r)$(comma))[]]
+
+.PHONY: dep-vsn-check
+dep-vsn-check:
+	$(verbose) erl -noshell -eval \
+		"MkVsns = lists:sort(lists:flatten($(dep-versions))), \
+		{ok, Conf} = file:consult('rebar.config'), \
+		{_, Deps1} = lists:keyfind(deps, 1, Conf), \
+		{_, Deps2} = lists:keyfind(github_emqx_deps, 1, Conf), \
+		F = fun({N, V}) when is_list(V) -> {N, V}; ({N, {git, _, {branch, V}}}) -> {N, V} end, \
+		RebarVsns = lists:sort(lists:map(F, Deps1 ++ Deps2)), \
+		case {RebarVsns -- MkVsns, MkVsns -- RebarVsns} of \
+		  {[], []} -> halt(0); \
+		  {Rebar, Mk} -> erlang:error({deps_version_discrepancy, [{rebar, Rebar}, {mk, Mk}]}) \
+		end."
 
