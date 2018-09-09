@@ -35,3 +35,5 @@ bbmustache/
 etc/gen.emqx.conf
 compile_commands.json
 cuttlefish
+rebar.lock
+xrefr

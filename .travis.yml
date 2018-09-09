@@ -10,6 +10,7 @@ script:
   - make dep-vsn-check
   - make rebar-eunit
   - make rebar-ct
+  - make rebar-cover
   - make coveralls
 
 sudo: false
