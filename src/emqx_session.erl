@@ -350,10 +350,13 @@ init([Parent, #{zone        := Zone,
                    enable_stats      = get_env(Zone, enable_stats, true),
                    deliver_stats     = 0,
                    enqueue_stats     = 0,
-                   created_at        = os:timestamp()},
+                   created_at        = os:timestamp()
+                  },
     emqx_sm:register_session(ClientId, attrs(State)),
     emqx_sm:set_session_stats(ClientId, stats(State)),
     emqx_hooks:run('session.created', [#{client_id => ClientId}, info(State)]),
+    GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
+    ok = emqx_gc:init(GcPolicy),
     ok = proc_lib:init_ack(Parent, {ok, self()}),
     gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}], State).
 
@@ -567,8 +570,11 @@ handle_info({timeout, Timer, retry_delivery}, State = #state{retry_timer = Timer
 handle_info({timeout, Timer, check_awaiting_rel}, State = #state{await_rel_timer = Timer}) ->
     noreply(expire_awaiting_rel(State#state{await_rel_timer = undefined}));
 
-handle_info({timeout, Timer, emit_stats}, State = #state{client_id = ClientId, stats_timer = Timer}) ->
+handle_info({timeout, Timer, emit_stats},
+            State = #state{client_id = ClientId,
+                           stats_timer = Timer}) ->
     _ = emqx_sm:set_session_stats(ClientId, stats(State)),
+    ok = emqx_gc:reset(), %% going to hibernate, reset gc stats
     {noreply, State#state{stats_timer = undefined}, hibernate};
 
 handle_info({timeout, Timer, expired}, State = #state{expiry_timer = Timer}) ->
@@ -744,21 +750,22 @@ dispatch(Msg, State = #state{client_id = ClientId, conn_pid = undefined}) ->
     end;
 
 %% Deliver qos0 message directly to client
-dispatch(Msg = #message{qos = ?QOS0}, State) ->
+dispatch(Msg = #message{qos = ?QOS0} = Msg, State) ->
     deliver(undefined, Msg, State),
-    inc_stats(deliver, State);
+    inc_stats(deliver, Msg, State);
 
-dispatch(Msg = #message{qos = QoS}, State = #state{next_pkt_id = PacketId, inflight = Inflight})
+dispatch(Msg = #message{qos = QoS} = Msg,
+         State = #state{next_pkt_id = PacketId, inflight = Inflight})
   when QoS =:= ?QOS1 orelse QoS =:= ?QOS2 ->
     case emqx_inflight:is_full(Inflight) of
         true -> enqueue_msg(Msg, State);
         false ->
             deliver(PacketId, Msg, State),
-            await(PacketId, Msg, inc_stats(deliver, next_pkt_id(State)))
+            await(PacketId, Msg, inc_stats(deliver, Msg, next_pkt_id(State)))
     end.
 
 enqueue_msg(Msg, State = #state{mqueue = Q}) ->
-    inc_stats(enqueue, State#state{mqueue = emqx_mqueue:in(Msg, Q)}).
+    inc_stats(enqueue, Msg, State#state{mqueue = emqx_mqueue:in(Msg, Q)}).
 
 %%------------------------------------------------------------------------------
 %% Deliver
@@ -882,10 +889,18 @@ next_pkt_id(State = #state{next_pkt_id = Id}) ->
 %%------------------------------------------------------------------------------
 %% Inc stats
 
-inc_stats(deliver, State = #state{deliver_stats = I}) ->
+inc_stats(deliver, Msg, State = #state{deliver_stats = I}) ->
+    MsgSize = msg_size(Msg),
+    ok = emqx_gc:inc(1, MsgSize),
     State#state{deliver_stats = I + 1};
-inc_stats(enqueue, State = #state{enqueue_stats = I}) ->
+inc_stats(enqueue, _Msg, State = #state{enqueue_stats = I}) ->
     State#state{enqueue_stats = I + 1}.
+
+%% Take only the payload size into account, add other fields if necessary
+msg_size(#message{payload = Payload}) -> payload_size(Payload).
+
+%% Payload should be binary(), but not 100% sure. Need dialyzer!
+payload_size(Payload) -> erlang:iolist_size(Payload).
 
 %%------------------------------------------------------------------------------
 %% Helper functions
@@ -902,5 +917,3 @@ noreply(State) ->
 shutdown(Reason, State) ->
     {stop, {shutdown, Reason}, State}.
 
-%% TODO: GC Policy and Shutdown Policy
-%% maybe_gc(State) -> State.

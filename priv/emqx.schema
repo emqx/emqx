@@ -824,6 +824,14 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc Force connection/session process GC after this number of
+%% messages | bytes passed through.
+%% Numbers delimited by `|'. Zero or negative is to disable.
+{mapping, "zone.$name.force_gc_policy", "emqx.zones", [
+   {default, "0|0"},
+   {datatype, string}
+ ]}.
+
 {translation, "emqx.zones", fun(Conf) ->
   Mapping = fun("retain_available", Val) ->
                     {mqtt_retain_available, Val};
@@ -831,6 +839,10 @@ end}.
                     {mqtt_wildcard_subscription, Val};
                ("shared_subscription", Val) ->
                     {mqtt_shared_subscription, Val};
+               ("force_gc_policy", Val) ->
+                    [Count, Bytes] = string:tokens(Val, "| "),
+                    {force_gc_policy, #{count => list_to_integer(Count),
+                                        bytes => list_to_integer(Bytes)}};
                (Opt, Val) ->
                     {list_to_atom(Opt), Val}
             end,
@@ -1750,3 +1762,5 @@ end}.
    {busy_port, cuttlefish:conf_get("sysmon.busy_port", Conf)},
    {busy_dist_port, cuttlefish:conf_get("sysmon.busy_dist_port", Conf)}]
 end}.
+
+
