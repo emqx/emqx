@@ -78,6 +78,9 @@ app.config: etc/gen.emqx.conf
 
 ct: cuttlefish app.config
 
+rebar-cover:
+	@rebar3 cover
+
 coveralls:
 	@rebar3 coveralls send
 
