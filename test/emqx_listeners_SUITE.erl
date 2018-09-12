@@ -31,22 +31,24 @@ all() ->
 init_per_suite(Config) ->
     NewConfig = generate_config(),
     application:ensure_all_started(esockd),
+    application:ensure_all_started(cowboy),
     lists:foreach(fun set_app_env/1, NewConfig),
     Config.
 
 end_per_suite(_Config) ->
-    application:stop(esockd).
+    application:stop(esockd),
+    application:stop(cowboy).
 
 start_stop_listeners(_) ->
     ok = emqx_listeners:start(),
     ok = emqx_listeners:stop().
-    
+
 restart_listeners(_) ->
     ok = emqx_listeners:start(),
     ok = emqx_listeners:stop(),
     ok = emqx_listeners:restart(),
     ok = emqx_listeners:stop().
-    
+
 generate_config() ->
     Schema = cuttlefish_schema:files([local_path(["priv", "emqx.schema"])]),
     Conf = conf_parse:file([local_path(["etc", "gen.emqx.conf"])]),

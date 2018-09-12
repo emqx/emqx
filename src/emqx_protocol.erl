@@ -370,7 +370,7 @@ process_packet(?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
                             end;
                            true ->
                                RawTopicFilters
-                        end, 
+                        end,
     case check_subscribe(
            parse_topic_filters(?SUBSCRIBE, RawTopicFilters1), PState) of
         {ok, TopicFilters} ->
@@ -648,10 +648,16 @@ check_publish(Packet, PState) ->
                      fun check_pub_acl/2], Packet, PState).
 
 check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos = QoS, retain = Retain},
-                            variable = #mqtt_packet_publish{ properties = Properties}},
+                            variable = #mqtt_packet_publish{
+                                          properties = #{'Topic-Alias' := TopicAlias}
+                                         }},
                #pstate{zone = Zone}) ->
-    #{'Topic-Alias' := TopicAlias} = Properties,
-    emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain, topic_alias => TopicAlias}).
+    emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain, topic_alias => TopicAlias});
+check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos = QoS, retain = Retain},
+                            variable = #mqtt_packet_publish{ properties = _Properties}},
+               #pstate{zone = Zone}) ->
+    emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain}).
+
 
 check_pub_acl(_Packet, #pstate{is_super = IsSuper, enable_acl = EnableAcl})
     when IsSuper orelse (not EnableAcl) ->
@@ -732,7 +738,8 @@ shutdown(Reason, PState = #pstate{connected = true,
 send_willmsg(undefined) ->
     ignore;
 send_willmsg(WillMsg = #message{topic = Topic,
-                                headers = #{'Will-Delay-Interval' := Interval}}) when is_integer(Interval) ->
+                                headers = #{'Will-Delay-Interval' := Interval}})
+            when is_integer(Interval), Interval > 0 ->
     SendAfter = integer_to_binary(Interval),
     emqx_broker:publish(WillMsg#message{topic = <<"$delayed/", SendAfter/binary, "/", Topic/binary>>});
 send_willmsg(WillMsg) ->
