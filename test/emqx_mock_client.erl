@@ -16,7 +16,8 @@
 
 -behaviour(gen_server).
 
--export([start_link/1, open_session/3, close_session/2, stop/1, get_last_message/0]).
+-export([start_link/1, open_session/3, close_session/2, stop/1, get_last_message/0,
+         try_get_last_message/0]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -40,6 +41,12 @@ stop(CPid) ->
 get_last_message() ->
     [{last_message, Msg}] = ets:lookup(?TAB, last_message),
     Msg.
+
+try_get_last_message() ->
+    case ets:lookup(?TAB, last_message) of
+        [{last_message, Msg}] -> Msg;
+        [] -> false
+    end.
 
 init([ClientId]) ->
     Result = lists:member(?TAB, ets:all()),
