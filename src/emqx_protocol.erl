@@ -249,6 +249,13 @@ preprocess_properties(Packet = #mqtt_packet{
                       PState = #pstate{proto_ver = ?MQTT_PROTO_V5, topic_aliases = Aliases}) ->
     {Packet, PState#pstate{topic_aliases = maps:put(AliasId, Topic, Aliases)}};
 
+preprocess_properties(Packet = #mqtt_packet{variable = #mqtt_packet_publish{properties = #{'Message-Expiry-Interval' := _Interval}}},
+                      PState = #pstate{proto_ver = ?MQTT_PROTO_V5}) ->
+    {Packet, PState};
+preprocess_properties(Packet = #mqtt_packet{variable = Publish = #mqtt_packet_publish{properties = Properties}},
+                      PState = #pstate{proto_ver = ?MQTT_PROTO_V5}) ->
+    {Packet#mqtt_packet{variable = Publish#mqtt_packet_publish{properties = maps:put('Message-Expiry-Interval', 0, Properties)}}, PState};
+
 preprocess_properties(Packet, PState) ->
     {Packet, PState}.
 
