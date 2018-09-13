@@ -303,7 +303,7 @@ handle_packet(Data, State = #state{proto_state  = ProtoState,
                                    idle_timeout = IdleTimeout}) ->
     case catch emqx_frame:parse(Data, ParserState) of
         {more, NewParserState} ->
-            {noreply, State#state{parser_state = NewParserState}, IdleTimeout};
+            {noreply, run_socket(State#state{parser_state = NewParserState}), IdleTimeout};
         {ok, Packet = ?PACKET(Type), Rest} ->
             emqx_metrics:received(Packet),
             case emqx_protocol:received(Packet, ProtoState) of
