@@ -44,31 +44,43 @@ packet_type_name(_) ->
     ?assertEqual('UNSUBSCRIBE', emqx_packet:type_name(?UNSUBSCRIBE)).
 
 packet_validate(_) ->
-    ?assertEqual(true, emqx_packet:validate(?SUBSCRIBE_PACKET(15, #{'Subscription-Identifier' => 1}, [{<<"topic">>, #{qos => ?QOS0}}]))),
-    ?assertEqual(true, emqx_packet:validate(?UNSUBSCRIBE_PACKET(89, [<<"topic">>]))),
-    ?assertEqual(true, emqx_packet:validate(?CONNECT_PACKET(#mqtt_packet_connect{}))),
-    ?assertEqual(true, emqx_packet:validate(?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Response-Topic' => <<"responsetopic">>, 'Topic-Alias' => 1}, <<"payload">>))),
-    {'EXIT', {subscription_identifier_invalid, _Stacktrace}} =
-        (catch emqx_packet:validate(?SUBSCRIBE_PACKET(15, #{'Subscription-Identifier' => -1}, [{<<"topic">>, #{qos => ?QOS0}}]))),
-    {'EXIT', {topic_filters_invalid, _}} = (catch emqx_packet:validate(?UNSUBSCRIBE_PACKET(1,[]))),
-    {'EXIT', {topic_name_invalid, _}} =
-        (catch emqx_packet:validate(?PUBLISH_PACKET(1,<<>>,1,#{},<<"payload">>))),
-    {'EXIT', {topic_name_invalid, _}} =
-        (catch emqx_packet:validate(?PUBLISH_PACKET(1, <<"+/+">>, 1, #{}, <<"payload">>))),
-    {'EXIT', {topic_alias_invalid, _}} =
-        (catch emqx_packet:validate(?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Topic-Alias' => 0}, <<"payload">>))),
-    {'EXIT', {protocol_error, _}} =
-        (catch emqx_packet:validate(?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Subscription-Identifier' => 10}, <<"payload">>))),
-    {'EXIT', {protocol_error, _}} =
-        (catch emqx_packet:validate(?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Response-Topic' => <<"+/+">>}, <<"payload">>))),
-    {'EXIT', {protocol_error, _}} =
-        (catch emqx_packet:validate(?CONNECT_PACKET(#mqtt_packet_connect{
-                                                       properties = #{'Request-Response-Information' => -1}}))),
-    {'EXIT', {protocol_error, _}} =
-        (catch emqx_packet:validate(?CONNECT_PACKET(#mqtt_packet_connect{
-                                                       properties = #{'Request-Problem-Information' => 2}}))),
-    ok.
-
+    ?assert(emqx_packet:validate(?SUBSCRIBE_PACKET(15, #{'Subscription-Identifier' => 1}, [{<<"topic">>, #{qos => ?QOS0}}]))),
+    ?assert(emqx_packet:validate(?UNSUBSCRIBE_PACKET(89, [<<"topic">>]))),
+    ?assert(emqx_packet:validate(?CONNECT_PACKET(#mqtt_packet_connect{}))),
+    ?assert(emqx_packet:validate(?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Response-Topic' => <<"responsetopic">>, 'Topic-Alias' => 1}, <<"payload">>))),
+    ?assertException(error, subscription_identifier_invalid,
+                     emqx_packet:validate(
+                       ?SUBSCRIBE_PACKET(15, #{'Subscription-Identifier' => -1},
+                                         [{<<"topic">>, #{qos => ?QOS0}}]))),
+    ?assertException(error, topic_filters_invalid,
+                     emqx_packet:validate(?UNSUBSCRIBE_PACKET(1,[]))),
+    ?assertException(error, topic_name_invalid,
+                     emqx_packet:validate(?PUBLISH_PACKET(1,<<>>,1,#{},<<"payload">>))),
+    ?assertException(error, topic_name_invalid,
+                     emqx_packet:validate(?PUBLISH_PACKET
+                                             (1, <<"+/+">>, 1, #{}, <<"payload">>))),
+    ?assertException(error, topic_alias_invalid,
+                     emqx_packet:validate(
+                       ?PUBLISH_PACKET
+                          (1, <<"topic">>, 1, #{'Topic-Alias' => 0}, <<"payload">>))),
+    ?assertException(error, protocol_error,
+                     emqx_packet:validate(
+                       ?PUBLISH_PACKET(1, <<"topic">>, 1,
+                                       #{'Subscription-Identifier' => 10}, <<"payload">>))),
+    ?assertException(error, protocol_error,
+                     emqx_packet:validate(
+                       ?PUBLISH_PACKET(1, <<"topic">>, 1,
+                                       #{'Response-Topic' => <<"+/+">>}, <<"payload">>))),
+    ?assertException(error, protocol_error,
+                     emqx_packet:validate(
+                       ?CONNECT_PACKET(#mqtt_packet_connect{
+                                          properties =
+                                              #{'Request-Response-Information' => -1}}))),
+    ?assertException(error, protocol_error,
+                     emqx_packet:validate(
+                       ?CONNECT_PACKET(#mqtt_packet_connect{
+                                          properties =
+                                              #{'Request-Problem-Information' => 2}}))).
 
 packet_message(_) ->
     Pkt = #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
