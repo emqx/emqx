@@ -82,6 +82,13 @@ validate_properties(?PUBLISH, #{'Topic-Alias':= I})
     error(topic_alias_invalid);
 validate_properties(?PUBLISH, #{'Subscription-Identifier' := _I}) ->
     error(protocol_error);
+validate_properties(?PUBLISH, #{'Response-Topic' := ResponseTopic}) ->
+    case emqx_topic:wildcard(ResponseTopic) of
+        true ->
+            error(protocol_error);
+        false ->
+            true
+    end;
 validate_properties(?CONNECT, #{'Request-Response-Information' := ReqRespInfo})
     when ReqRespInfo =/= 0; ReqRespInfo =/= 1 ->
     error(protocol_error);
