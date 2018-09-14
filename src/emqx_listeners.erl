@@ -22,6 +22,12 @@
 -export([restart_listener/1, restart_listener/3]).
 -export([stop_listener/1, stop_listener/3]).
 
+-ifdef(TEST).
+
+-export([mqtt_path/1]).
+
+-endif.
+
 -type(listener() :: {esockd:proto(), esockd:listen_on(), [esockd:option()]}).
 
 %% @doc Start all listeners.
