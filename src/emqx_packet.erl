@@ -93,7 +93,7 @@ validate_properties(?CONNECT, #{'Request-Response-Information' := ReqRespInfo})
     when ReqRespInfo =/= 0; ReqRespInfo =/= 1 ->
     error(protocol_error);
 validate_properties(?CONNECT, #{'Request-Problem-Information' := ReqProInfo})
-    when ReqProInfo =/= 0;  ReqProInfo =/= 1 ->
+    when ReqProInfo =/= 0; ReqProInfo =/= 1 ->
     error(protocol_error);
 validate_properties(_, _) ->
     true.

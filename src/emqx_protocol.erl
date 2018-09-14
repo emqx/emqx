@@ -208,9 +208,21 @@ received(Packet = ?PACKET(Type), PState) ->
         true ->
             {Packet1, PState1} = preprocess_properties(Packet, PState),
             process_packet(Packet1, inc_stats(recv, Type, PState1));
-        {'EXIT', {topic_filters_invalid, _Stacktrace}} ->
+        {'EXIT', {protocol_error, _Stacktrace}, PState} ->
             deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState),
+            {error, protocol_error, PState};
+        {'EXIT', {subscription_identifier_invalid, _Stacktrace}} ->
+            deliver({disconnect, ?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED}, PState),
+            {error, subscription_identifier_invalid, PState};
+        {'EXIT', {topic_alias_invalid, _Stacktrace}} ->
+            deliver({disconnect, ?RC_TOPIC_ALIAS_INVALID}, PState),
+            {error, topic_alias_invalid, PState};
+        {'EXIT', {topic_filters_invalid, _Stacktrace}} ->
+            deliver({disconnect, ?RC_TOPIC_FILTER_INVALID}, PState),
             {error, topic_filters_invalid, PState};
+        {'EXIT', {topic_name_invalid, _Stacktrace}} ->
+            deliver({disconnect, ?RC_TOPIC_NAME_INVALID}, PState),
+            {error, topic_name_invalid, PState};
         {'EXIT', {Reason, _Stacktrace}} ->
             deliver({disconnect, ?RC_MALFORMED_PACKET}, PState),
             {error, Reason, PState}
