@@ -22,12 +22,6 @@
 -export([restart_listener/1, restart_listener/3]).
 -export([stop_listener/1, stop_listener/3]).
 
--ifdef(TEST).
-
--export([mqtt_path/1]).
-
--endif.
-
 -type(listener() :: {esockd:proto(), esockd:listen_on(), [esockd:option()]}).
 
 %% @doc Start all listeners.
@@ -74,12 +68,7 @@ start_http_listener(Start, Name, ListenOn, RanchOpts, Dispatch) ->
     Start(Name, with_port(ListenOn, RanchOpts), #{env => #{dispatch => Dispatch}}).
 
 mqtt_path(Options) ->
-    MQTTPath = proplists:get_value(mqtt_path, Options, "/mqtt"),
-    case erlang:list_to_bitstring(MQTTPath) of
-        <<"/">> -> MQTTPath;
-        <<"/", _/binary>> -> MQTTPath;
-        _ -> "/mqtt"
-    end.
+    proplists:get_value(mqtt_path, Options, "/mqtt").
 
 ranch_opts(Options) ->
     NumAcceptors = proplists:get_value(acceptors, Options, 4),
