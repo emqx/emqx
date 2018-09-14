@@ -302,7 +302,7 @@ process_packet(?CONNECT_PACKET(
                           {error, Error} ->
                               ?LOG(error, "Failed to open session: ~p", [Error], PState1),
                               {?RC_UNSPECIFIED_ERROR, PState1}
-                    end;
+                      end;
                   {error, Reason} ->
                       ?LOG(error, "Username '~s' login failed for ~p", [Username, Reason], PState2),
                       {?RC_NOT_AUTHORIZED, PState1}
@@ -474,7 +474,14 @@ deliver({connack, ReasonCode}, PState) ->
 deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
                                                      proto_ver = ?MQTT_PROTO_V5,
                                                      client_id = ClientId,
+                                                     conn_props = CONNPROPS,
                                                      is_assigned = IsAssigned}) ->
+    case maps:find('Request-Response-Information', CONNPROPS) of
+        {ok, 1} ->
+            ResponseInformation = ClientId;
+        _ ->
+            ResponseInformation = <<>>
+    end,
     #{max_packet_size := MaxPktSize,
       max_qos_allowed := MaxQoS,
       mqtt_retain_available := Retain,
@@ -487,7 +494,8 @@ deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
               'Topic-Alias-Maximum' => MaxAlias,
               'Wildcard-Subscription-Available' => flag(Wildcard),
               'Subscription-Identifier-Available' => 1,
-              'Shared-Subscription-Available' => flag(Shared)},
+              'Shared-Subscription-Available' => flag(Shared),
+              'Request-Response-Information' => ResponseInformation},
     Props1 = if IsAssigned ->
                     Props#{'Assigned-Client-Identifier' => ClientId};
                 true -> Props

@@ -61,6 +61,11 @@ validate(?PUBLISH_PACKET(_QoS, Topic, _, Properties, _)) ->
     ((not emqx_topic:wildcard(Topic)) orelse error(topic_name_invalid))
         andalso validate_properties(?PUBLISH, Properties);
 
+validate(?CONNECT_PACKET(#mqtt_packet_connect{
+                           properties = Properties
+                           })) ->
+    validate_properties(?CONNECT, Properties);
+
 validate(_Packet) ->
     true.
 
@@ -76,6 +81,12 @@ validate_properties(?PUBLISH, #{'Topic-Alias':= I})
     when I =:= 0 ->
     error(topic_alias_invalid);
 validate_properties(?PUBLISH, #{'Subscription-Identifier' := _I}) ->
+    error(protocol_error);
+validate_properties(?CONNECT, #{'Request-Response-Information' := ReqRespInfo})
+    when ReqRespInfo =/= 0; ReqRespInfo =/= 1 ->
+    error(protocol_error);
+validate_properties(?CONNECT, #{'Request-Problem-Information' := ReqProInfo})
+    when ReqProInfo =/= 0;  ReqProInfo =/= 1 ->
     error(protocol_error);
 validate_properties(_, _) ->
     true.
