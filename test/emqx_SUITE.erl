@@ -27,7 +27,7 @@
 
 -record(ssl_socket, {tcp, ssl}).
 
--type(socket() :: inet:socket() | #ssl_socket{}).
+%% -type(socket() :: inet:socket() | #ssl_socket{}).
 
 -define(CLIENT, ?CONNECT_PACKET(#mqtt_packet_connect{
                                 client_id = <<"mqtt_client">>,
@@ -145,6 +145,7 @@ mqtt_connect_with_ssl_twoway(_Config) ->
     after 1000 ->
         false
     end),
+    ssl:close(SslSock),
     emqx_client_sock:close(Sock).
 
 mqtt_connect_with_ws(_Config) ->
@@ -192,4 +193,3 @@ raw_send_serialise(Packet) ->
 raw_recv_pase(P) ->
     emqx_frame:parse(P, {none, #{max_packet_size => ?MAX_PACKET_SIZE,
                                  version         => ?MQTT_PROTO_V4} }).
-

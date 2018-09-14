@@ -25,7 +25,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--import(emqx_serializer, [serialize/1]).
+%% -import(emqx_serializer, [serialize/1]).
 
 all() ->
     [%% {group, parser},
@@ -128,5 +128,3 @@ message_make(_) ->
 
     %% Msg2 = emqx_message:fomat_packet(<<"username">>, <<"clientid">>,
     %%                                   ?PUBLISH_PACKET(1, <<"topic">>, 20, <<"payload">>)),
-
-

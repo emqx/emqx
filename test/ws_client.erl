@@ -1,6 +1,6 @@
 -module(ws_client).
 
--behaviour(websocket_client_handler).
+%% -behaviour(websocket_client_handler).
 
 -export([
          start_link/0,
