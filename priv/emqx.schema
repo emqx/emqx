@@ -1094,9 +1094,9 @@ end}.
   {datatype, [integer, ip]}
 ]}.
 
-{mapping, "listener.ws.$name.standard_mqtt", "emqx.listeners", [
-  {default, true},
-  {datatype, {enum, [true, false]}}
+{mapping, "listener.ws.$name.mqtt_path", "emqx.listeners", [
+  {default, "/mqtt"},
+  {datatype, string}
 ]}.
 
 {mapping, "listener.ws.$name.acceptors", "emqx.listeners", [
@@ -1200,9 +1200,9 @@ end}.
   {datatype, [integer, ip]}
 ]}.
 
-{mapping, "listener.wss.$name.standard_mqtt", "emqx.listeners", [
-  {default, true},
-  {datatype, {enum, [true, false]}}
+{mapping, "listener.wss.$name.mqtt_path", "emqx.listeners", [
+  {default, "/mqtt"},
+  {datatype, string}
 ]}.
 
 {mapping, "listener.wss.$name.acceptors", "emqx.listeners", [
@@ -1375,7 +1375,7 @@ end}.
                 end,
 
     LisOpts = fun(Prefix) ->
-                  Filter([{standard_mqtt, cuttlefish:conf_get(Prefix ++ ".standard_mqtt", Conf, undefined)},
+                  Filter([{mqtt_path, cuttlefish:conf_get(Prefix ++ ".mqtt_path", Conf, undefined)},
                           {acceptors, cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
                           {max_connections, cuttlefish:conf_get(Prefix ++ ".max_connections", Conf)},
                           {max_conn_rate, cuttlefish:conf_get(Prefix ++ ".max_conn_rate", Conf, undefined)},
