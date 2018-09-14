@@ -1375,8 +1375,8 @@ end}.
                 end,
 
     LisOpts = fun(Prefix) ->
-                  Filter([{mqtt_path, cuttlefish:conf_get(Prefix ++ ".mqtt_path", Conf, undefined)},
-                          {acceptors, cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
+                  Filter([{acceptors, cuttlefish:conf_get(Prefix ++ ".acceptors", Conf)},
+                          {mqtt_path, cuttlefish:conf_get(Prefix ++ ".mqtt_path", Conf, undefined)},
                           {max_connections, cuttlefish:conf_get(Prefix ++ ".max_connections", Conf)},
                           {max_conn_rate, cuttlefish:conf_get(Prefix ++ ".max_conn_rate", Conf, undefined)},
                           {tune_buffer, cuttlefish:conf_get(Prefix ++ ".tune_buffer", Conf, undefined)},

@@ -26,8 +26,7 @@
 
 all() ->
     [start_stop_listeners,
-     restart_listeners,
-     t_mqtt_path].
+     restart_listeners].
 
 init_per_suite(Config) ->
     NewConfig = generate_config(),
@@ -49,11 +48,6 @@ restart_listeners(_) ->
     ok = emqx_listeners:stop(),
     ok = emqx_listeners:restart(),
     ok = emqx_listeners:stop().
-
-t_mqtt_path(_) ->
-    ?assertEqual("/test", emqx_listeners:mqtt_path([{mqtt_path, "/test"}])),
-    ?assertEqual("/", emqx_listeners:mqtt_path([{mqtt_path, "/"}])),
-    ?assertEqual("/mqtt", emqx_listeners:mqtt_path([{mqtt_path, "test"}])).
 
 generate_config() ->
     Schema = cuttlefish_schema:files([local_path(["priv", "emqx.schema"])]),
