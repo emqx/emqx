@@ -19,6 +19,7 @@
 -export([t_random_basic/1, t_random/1, t_round_robin/1, t_sticky/1, t_hash/1, t_not_so_sticky/1]).
 
 -include("emqx.hrl").
+-include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 -define(wait(For, Timeout), wait_for(?FUNCTION_NAME, ?LINE, fun() -> For end, Timeout)).
@@ -32,7 +33,7 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
 
-t_random(_) ->
+t_random_basic(_) ->
     application:set_env(?APPLICATION, shared_subscription_strategy, random),
     ClientId = <<"ClientId">>,
     {ok, ConnPid} = emqx_mock_client:start_link(ClientId),
@@ -42,7 +43,7 @@ t_random(_) ->
     %% wait for the subscription to show up
     ?wait(ets:lookup(emqx_alive_shared_subscribers, SPid) =:= [{SPid}], 1000),
     emqx_session:publish(SPid, 1, Message1),
-    ?wait(case emqx_mock_client:try_get_last_message() of
+    ?wait(case emqx_mock_client:get_last_message(ConnPid) of
               {publish, 1, _} -> true;
               Other -> Other
           end, 1000),
@@ -54,6 +55,9 @@ t_random(_) ->
     emqx_session:pubcomp(SPid, 7, reasoncode),
     emqx_mock_client:close_session(ConnPid, SPid),
     ok.
+
+t_random(_) ->
+    test_two_messages(random).
 
 t_round_robin(_) ->
     test_two_messages(round_robin).
@@ -76,17 +80,19 @@ t_not_so_sticky(_) ->
     Message1 = emqx_message:make(ClientId1, 0, <<"foo/bar">>, <<"hello1">>),
     Message2 = emqx_message:make(ClientId1, 0, <<"foo/bar">>, <<"hello2">>),
     emqx_session:subscribe(SPid1, [{<<"foo/bar">>, #{qos => 0, share => <<"group1">>}}]),
-    emqx_session:subscribe(SPid2, [{<<"foo/#">>, #{qos => 0, share => <<"group1">>}}]),
     %% wait for the subscription to show up
-    ?wait(ets:lookup(emqx_alive_shared_subscribers, SPid1) =:= [{SPid1}] andalso
-          ets:lookup(emqx_alive_shared_subscribers, SPid2) =:= [{SPid2}], 1000),
+    ?wait(ets:lookup(emqx_alive_shared_subscribers, SPid1) =:= [{SPid1}], 1000),
     emqx_session:publish(SPid1, 1, Message1),
-    ?wait(case emqx_mock_client:try_get_last_message() of
+    ?wait(case emqx_mock_client:get_last_message(ConnPid1) of
               {publish, _, #message{payload = <<"hello1">>}} -> true;
               Other -> Other
           end, 1000),
-    emqx_session:publish(SPid1, 2, Message2),
-    ?wait(case emqx_mock_client:try_get_last_message() of
+    emqx_mock_client:close_session(ConnPid1, SPid1),
+    ?wait(ets:lookup(emqx_alive_shared_subscribers, SPid1) =:= [], 1000),
+    emqx_session:subscribe(SPid2, [{<<"foo/#">>, #{qos => 0, share => <<"group1">>}}]),
+    ?wait(ets:lookup(emqx_alive_shared_subscribers, SPid2) =:= [{SPid2}], 1000),
+    emqx_session:publish(SPid2, 2, Message2),
+    ?wait(case emqx_mock_client:get_last_message(ConnPid2) of
               {publish, _, #message{payload = <<"hello2">>}} -> true;
               Other -> Other
           end, 1000),
@@ -132,10 +138,16 @@ test_two_messages(Strategy) ->
         hash -> ?assert(UsedSubPid1 =:= UsedSubPid2);
         _ -> ok
     end,
->>>>>>> 38d0d409... Add 'hash' option for shared subscription
     emqx_mock_client:close_session(ConnPid1, SPid1),
     emqx_mock_client:close_session(ConnPid2, SPid2),
     ok.
+
+last_message(_ExpectedPayload, []) -> <<"not yet?">>;
+last_message(ExpectedPayload, [Pid | Pids]) ->
+    case emqx_mock_client:get_last_message(Pid) of
+        {publish, _, #message{payload = ExpectedPayload}} -> {true, Pid};
+        _Other -> last_message(ExpectedPayload, Pids)
+    end.
 
 %%------------------------------------------------------------------------------
 %% help functions
