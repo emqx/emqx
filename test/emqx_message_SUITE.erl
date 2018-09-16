@@ -29,7 +29,7 @@ all() ->
         message_flag,
         message_header,
         message_format,
-        message_expired 
+        message_expired
     ].
 
 message_make(_) ->
@@ -53,7 +53,7 @@ message_flag(_) ->
     ?assert(emqx_message:get_flag(dup, Msg6)),
     ?assert(emqx_message:get_flag(retain, Msg6)).
 
-message_header(_) -> 
+message_header(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
     Msg1 = emqx_message:set_headers(#{a => 1, b => 2}, Msg),
     Msg2 = emqx_message:set_header(c, 3, Msg1),
@@ -68,11 +68,8 @@ message_expired(_) ->
     Msg1 = emqx_message:set_headers(#{'Message-Expiry-Interval' => 1}, Msg),
     timer:sleep(500),
     ?assertNot(emqx_message:is_expired(Msg1)),
-    {ok, 1} = emqx_message:check_expiry(Msg1),
     timer:sleep(600),
     ?assert(emqx_message:is_expired(Msg1)),
-    expired = emqx_message:check_expiry(Msg1),
     timer:sleep(1000),
     Msg2 = emqx_message:update_expiry(Msg1),
     ?assertEqual(1, emqx_message:get_header('Message-Expiry-Interval', Msg2)).
-
