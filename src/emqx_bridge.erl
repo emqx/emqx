@@ -23,12 +23,18 @@
 
 -export([start_link/2, start_bridge/1, stop_bridge/1, status/1]).
 
+-export([show_forwards/1, add_forward/2, del_forward/2]).
+
+-export([show_subscriptions/1, add_subscription/3, del_subscription/2]).
+
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
 -record(state, {client_pid, options, reconnect_time, reconnect_count,
-                def_reconnect_count, type, mountpoint, queue, store_type,
-                max_pending_messages}).
+                def_reconnect_count, mountpoint, queue, store_type,
+                max_pending_messages,
+                forwards = [],
+                subscriptions = []}).
 
 -record(mqtt_msg, {qos = ?QOS0, retain = false, dup = false,
                    packet_id, topic, props, payload}).
@@ -41,6 +47,24 @@ start_bridge(Name) ->
 
 stop_bridge(Name) ->
     gen_server:call(name(Name), stop_bridge).
+
+show_forwards(Name) ->
+    gen_server:call(name(Name), show_forwards).
+
+add_forward(Name, Topic) ->
+    gen_server:call(name(Name), {add_forward, Topic}).
+
+del_forward(Name, Topic) ->
+    gen_server:call(name(Name), {del_forward, Topic}).
+
+show_subscriptions(Name) ->
+    gen_server:call(name(Name), show_subscriptions).
+
+add_subscription(Name, Topic, Qos) ->
+    gen_server:call(name(Name), {add_subscription, Topic, Qos}).
+
+del_subscription(Name, Topic) ->
+    gen_server:call(name(Name), {del_subscription, Topic}).
 
 status(Pid) ->
     gen_server:call(Pid, status).
@@ -60,10 +84,8 @@ init([Options]) ->
     MaxPendingMsg = get_value(max_pending_messages, Options, 10000),
     Mountpoint = format_mountpoint(get_value(mountpoint, Options)),
     StoreType = get_value(store_type, Options, memory),
-    Type = get_value(type, Options, in),
     Queue = [],
-    {ok, #state{type                = Type,
-                mountpoint          = Mountpoint,
+    {ok, #state{mountpoint          = Mountpoint,
                 queue               = Queue,
                 store_type          = StoreType,
                 options             = Options,
@@ -91,6 +113,48 @@ handle_call(status, _From, State = #state{client_pid = undefined}) ->
 handle_call(status, _From, State = #state{client_pid = _Pid})->
     {reply, <<"Running">>, State};
 
+handle_call(show_forwards, _From, State = #state{forwards = Forwards}) ->
+    {reply, Forwards, State};
+
+handle_call({add_forward, Topic}, _From, State = #state{forwards = Forwards}) ->
+    case emqx_topic:validate({filter, Topic}) andalso (not lists:member(Topic, Forwards)) of
+        true ->
+            emqx_broker:subscribe(Topic),
+            {reply, ok, State#state{forwards = [Topic | Forwards]}};
+        false ->
+            {reply, fail, State}
+    end;
+
+handle_call({del_forward, Topic}, _From, State = #state{forwards = Forwards}) ->
+    case lists:member(Topic, Forwards) of
+        true ->
+            emqx_broker:unsubscribe(Topic),
+            {reply, ok, State#state{forwards = lists:delete(Topic, Forwards)}};
+        false ->
+            {reply, fail, State}
+    end;
+
+handle_call(show_subscriptions, _From, State = #state{subscriptions = Subscriptions}) ->
+    {reply, Subscriptions, State};
+
+handle_call({add_subscription, Topic, Qos}, _From, State = #state{subscriptions = Subscriptions, client_pid = ClientPid}) ->
+    case emqx_topic:validate({filter, Topic}) andalso (not lists:keymember(Topic, 1, Subscriptions)) of
+        true ->
+            emqx_client:subscribe(ClientPid, {Topic, Qos}),
+            {reply, ok, State#state{subscriptions = [{Topic, Qos} | Subscriptions]}};
+        false ->
+            {reply, fail, State}
+    end;
+
+handle_call({del_subscription, Topic}, _From, State = #state{subscriptions = Subscriptions, client_pid = ClientPid}) ->
+    case lists:keymember(Topic, 1, Subscriptions) of
+        true ->
+            emqx_client:unsubscribe(ClientPid, Topic),
+            {reply, ok, State#state{subscriptions = lists:keydelete(Topic, 1, Subscriptions)}};
+        false ->
+            {reply, fail, State}
+    end;
+
 handle_call(Req, _From, State) ->
     emqx_logger:error("[Bridge] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
@@ -103,39 +167,21 @@ handle_info(start, State = #state{reconnect_count = 0}) ->
     {noreply, State};
 
 %%----------------------------------------------------------------
-%% start in message bridge
+%% start message bridge
 %%----------------------------------------------------------------
 handle_info(start, State = #state{options = Options,
                                   client_pid = undefined,
                                   reconnect_time = ReconnectTime,
-                                  reconnect_count = ReconnectCount,
-                                  type = in}) ->
+                                  reconnect_count = ReconnectCount}) ->
     case emqx_client:start_link([{owner, self()}|options(Options)]) of
         {ok, ClientPid, _} ->
-            Subs = get_value(subscriptions, Options, []),
-            [emqx_client:subscribe(ClientPid, {i2b(Topic), Qos}) || {Topic, Qos} <- Subs],
-            {noreply, State#state{client_pid = ClientPid}};
-        {error,_} ->
-            erlang:send_after(ReconnectTime, self(), start),
-            {noreply, State#state{reconnect_count = ReconnectCount-1}}
-    end;
-
-%%----------------------------------------------------------------
-%% start out message bridge
-%%----------------------------------------------------------------
-handle_info(start, State = #state{options = Options,
-                                  client_pid = undefined,
-                                  reconnect_time = ReconnectTime,
-                                  reconnect_count = ReconnectCount,
-                                  type = out}) ->
-    case emqx_client:start_link([{owner, self()}|options(Options)]) of
-        {ok, ClientPid, _} ->
-            Subs = get_value(subscriptions, Options, []),
-            [emqx_client:subscribe(ClientPid, {i2b(Topic), Qos}) || {Topic, Qos} <- Subs],
-            ForwardRules = string:tokens(get_value(forward_rule, Options, ""), ","),
-            [emqx_broker:subscribe(i2b(Topic)) || Topic <- ForwardRules,
-                                                  emqx_topic:validate({filter, i2b(Topic)})],
-            {noreply, State#state{client_pid = ClientPid}};
+            Subs = [{i2b(Topic), Qos} || {Topic, Qos} <- get_value(subscriptions, Options, []),
+                                                         emqx_topic:validate({filter, i2b(Topic)})],
+            Forwards = [i2b(Topic) || Topic <- string:tokens(get_value(forwards, Options, ""), ","),
+                                               emqx_topic:validate({filter, i2b(Topic)})],
+            [emqx_client:subscribe(ClientPid, {Topic, Qos}) || {Topic, Qos} <- Subs],
+            [emqx_broker:subscribe(Topic) || Topic <- Forwards],
+            {noreply, State#state{client_pid = ClientPid, subscriptions = Subs, forwards = Forwards}};
         {error,_} ->
             erlang:send_after(ReconnectTime, self(), start),
             {noreply, State#state{reconnect_count = ReconnectCount-1}}

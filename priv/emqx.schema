@@ -1454,11 +1454,6 @@ end}.
 %%--------------------------------------------------------------------
 %% Bridges
 %%--------------------------------------------------------------------
-
-{mapping, "bridge.$name.type", "emqx.bridges", [
-  {datatype, {enum, [in, out]}}
-]}.
-
 {mapping, "bridge.$name.store_type", "emqx.bridges", [
   {datatype, {enum, [memory, disk]}}
 ]}.
@@ -1492,7 +1487,7 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "bridge.$name.forward_rule", "emqx.bridges", [
+{mapping, "bridge.$name.forwards", "emqx.bridges", [
   {datatype, string}
 ]}.
 
