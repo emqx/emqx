@@ -65,7 +65,7 @@ cast(Msg) ->
 
 %% @private
 worker() ->
-    gproc_pool:pick_worker(pool).
+    gproc_pool:pick_worker(?POOL).
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
