@@ -1764,3 +1764,18 @@ end}.
 end}.
 
 
+%% @doc Max message queue length for connection/session process.
+%% NOTE: Message queue here is the Erlang process mailbox, but not
+%% the number of MQTT queued messages.
+{mapping, "mqtt.conn.max_msg_queue_len", "emqx.conn_max_msg_queue_len", [
+  {default, 100000},
+  {datatype, integer}
+]}.
+
+%% @doc Max total heap size to kill connection/session process.
+%% set to 0 or negative number to have it disabled.
+{mapping, "mqtt.conn.max_total_heap_size", "emqx.conn_max_total_heap_size", [
+  {default, -1}, %% disabled by default
+  {datatype, integer}
+]}.
+
