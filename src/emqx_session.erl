@@ -574,9 +574,17 @@ handle_info({timeout, Timer, emit_stats},
             State = #state{client_id = ClientId,
                            stats_timer = Timer}) ->
     _ = emqx_sm:set_session_stats(ClientId, stats(State)),
-    ok = emqx_gc:reset(), %% going to hibernate, reset gc stats
-    {noreply, State#state{stats_timer = undefined}, hibernate};
-
+    NewState = State#state{stats_timer = undefined},
+    case emqx_misc:conn_proc_mng_policy() of
+        continue ->
+            {noreply, NewState};
+        hibernate ->
+            ok = emqx_gc:reset(), %% going to hibernate, reset gc stats
+            {noreply, NewState, hibernate};
+        {shutdown, Reason} ->
+            ?LOG(warning, "shutdown due to ~p", [Reason], NewState),
+            shutdown(Reason, NewState)
+    end;
 handle_info({timeout, Timer, expired}, State = #state{expiry_timer = Timer}) ->
     ?LOG(info, "expired, shutdown now:(", [], State),
     shutdown(expired, State);

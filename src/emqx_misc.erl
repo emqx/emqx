@@ -15,7 +15,7 @@
 -module(emqx_misc).
 
 -export([merge_opts/2, start_timer/2, start_timer/3, cancel_timer/1,
-         proc_name/2, proc_stats/0, proc_stats/1]).
+         proc_name/2, proc_stats/0, proc_stats/1, conn_proc_mng_policy/0]).
 
 %% @doc Merge options
 -spec(merge_opts(list(), list()) -> list()).
@@ -58,4 +58,43 @@ proc_stats(Pid) ->
     Stats = process_info(Pid, [message_queue_len, heap_size, reductions]),
     {value, {_, V}, Stats1} = lists:keytake(message_queue_len, 1, Stats),
     [{mailbox_len, V} | Stats1].
+
+-define(DISABLED, 0).
+
+%% @doc Check self() process status against connection/session process management policy,
+%% return `continue | hibernate | {shutdown, Reason}' accordingly.
+%% `continue': There is nothing out of the ordinary
+%% `hibernate': Nothing to process in my mailbox (and since this check is triggered
+%%              by a timer, we assume it is a fat chance to continue idel, hence hibernate.
+%% `shutdown': Some numbers (message queue length or heap size have hit the limit,
+%%             hence shutdown for greater good (system stability).
+-spec(conn_proc_mng_policy() -> continue | hibernate | {shutdown, _}).
+conn_proc_mng_policy() ->
+    MaxMsgQueueLen = application:get_env(?APPLICATION, conn_max_msg_queue_len, ?DISABLED),
+    Qlength = proc_info(message_queue_len),
+    Checks =
+        [{fun() -> is_enabled(MaxMsgQueueLen) andalso Qlength > MaxMsgQueueLen end,
+          {shutdown, message_queue_too_long}},
+         {fun() -> is_heap_size_too_large() end,
+          {shutdown, total_heap_size_too_large}},
+         {fun() -> Qlength > 0 end, continue},
+         {fun() -> true end, hibernate}
+        ],
+    check(Checks).
+
+check([{Pred, Result} | Rest]) ->
+    case Pred() of
+        true -> Result;
+        false -> check(Rest)
+    end.
+
+is_heap_size_too_large() ->
+    MaxTotalHeapSize = application:get_env(?APPLICATION, conn_max_total_heap_size, ?DISABLED),
+    is_enabled(MaxTotalHeapSize) andalso proc_info(total_heap_size) > MaxTotalHeapSize.
+
+is_enabled(Max) -> Max > ?DISABLED.
+
+proc_info(Key) ->
+    {Key, Value} = erlang:process_info(self(), Key),
+    Value.
 
