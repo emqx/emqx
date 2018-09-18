@@ -194,6 +194,14 @@ parser(#pstate{packet_size = Size, proto_ver = Ver}) ->
 %% Packet Received
 %%------------------------------------------------------------------------------
 
+set_protover(?CONNECT_PACKET(#mqtt_packet_connect{
+                                proto_ver = ProtoVer}),
+             PState) ->
+    PState#pstate{
+      proto_ver = ProtoVer};
+set_protover(_Packet, PState) ->
+    PState.
+
 -spec(received(emqx_mqtt_types:packet(), state()) ->
     {ok, state()} | {error, term()} | {error, term(), state()} | {stop, term(), state()}).
 received(?PACKET(Type), PState = #pstate{connected = false}) when Type =/= ?CONNECT ->
@@ -203,30 +211,31 @@ received(?PACKET(?CONNECT), PState = #pstate{connected = true}) ->
     {error, proto_unexpected_connect, PState};
 
 received(Packet = ?PACKET(Type), PState) ->
-    trace(recv, Packet, PState),
+    PState1 =  set_protover(Packet, PState),
+    trace(recv, Packet, PState1),
     try emqx_packet:validate(Packet) of
         true ->
-            {Packet1, PState1} = preprocess_properties(Packet, PState),
-            process_packet(Packet1, inc_stats(recv, Type, PState1))
+            {Packet1, PState2} = preprocess_properties(Packet, PState1),
+            process_packet(Packet1, inc_stats(recv, Type, PState2))
     catch
         error:protocol_error ->
-            deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState),
+            deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState1),
             {error, protocol_error, PState};
         error:subscription_identifier_invalid ->
-            deliver({disconnect, ?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED}, PState),
-            {error, subscription_identifier_invalid, PState};
+            deliver({disconnect, ?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED}, PState1),
+            {error, subscription_identifier_invalid, PState1};
         error:topic_alias_invalid ->
-            deliver({disconnect, ?RC_TOPIC_ALIAS_INVALID}, PState),
-            {error, topic_alias_invalid, PState};
+            deliver({disconnect, ?RC_TOPIC_ALIAS_INVALID}, PState1),
+            {error, topic_alias_invalid, PState1};
         error:topic_filters_invalid ->
-            deliver({disconnect, ?RC_TOPIC_FILTER_INVALID}, PState),
-            {error, topic_filters_invalid, PState};
+            deliver({disconnect, ?RC_TOPIC_FILTER_INVALID}, PState1),
+            {error, topic_filters_invalid, PState1};
         error:topic_name_invalid ->
-            deliver({disconnect, ?RC_TOPIC_FILTER_INVALID}, PState),
-            {error, topic_filters_invalid, PState};
+            deliver({disconnect, ?RC_TOPIC_FILTER_INVALID}, PState1),
+            {error, topic_filters_invalid, PState1};
         error:Reason ->
-            deliver({disconnect, ?RC_MALFORMED_PACKET}, PState),
-            {error, Reason, PState}
+            deliver({disconnect, ?RC_MALFORMED_PACKET}, PState1),
+            {error, Reason, PState1}
     end.
 
 %%------------------------------------------------------------------------------
