@@ -517,7 +517,7 @@ deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
               'Wildcard-Subscription-Available' => flag(Wildcard),
               'Subscription-Identifier-Available' => 1,
               'Shared-Subscription-Available' => flag(Shared),
-              'Request-Response-Information' => ResponseInformation},
+              'Response-Information' => ResponseInformation},
     Props1 = if IsAssigned ->
                     Props#{'Assigned-Client-Identifier' => ClientId};
                 true -> Props
