@@ -214,9 +214,17 @@ handle_info({timeout, Timer, emit_stats},
                            proto_state = ProtoState
                           }) ->
     emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), stats(State)),
-    ok = emqx_gc:reset(),
-    {noreply, State#state{stats_timer = undefined}, hibernate};
-
+    NewState = State#state{stats_timer = undefined},
+    case meqx_misc:conn_proc_mng_policy() of
+        continue ->
+            {noreply, NewState};
+        hibernate ->
+            ok = emqx_gc:reset(),
+            {noreply, NewState, hibernate};
+        {shutdown, Reason} ->
+            ?LOG(warning, "shutdown due to ~p", [Reason], NewState),
+            shutdown(Reason, NewState)
+    end;
 handle_info(timeout, State) ->
     shutdown(idle_timeout, State);
 

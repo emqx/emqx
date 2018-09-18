@@ -1767,6 +1767,7 @@ end}.
 %% @doc Max message queue length for connection/session process.
 %% NOTE: Message queue here is the Erlang process mailbox, but not
 %% the number of MQTT queued messages.
+%% Set to 0 or negative to have it disabled
 {mapping, "mqtt.conn.max_msg_queue_len", "emqx.conn_max_msg_queue_len", [
   {default, 100000},
   {datatype, integer}
