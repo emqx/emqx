@@ -36,14 +36,13 @@ start_timer(Interval, Dest, Msg) ->
     erlang:start_timer(Interval, Dest, Msg).
 
 -spec(cancel_timer(undefined | reference()) -> ok).
-cancel_timer(undefined) ->
-    ok;
-cancel_timer(Timer) ->
-    case catch erlang:cancel_timer(Timer) of
+cancel_timer(Timer) when is_reference(Timer) ->
+    case erlang:cancel_timer(Timer) of
         false ->
             receive {timeout, Timer, _} -> ok after 0 -> ok end;
         _ -> ok
-    end.
+    end;
+cancel_timer(_) -> ok.
 
 -spec(proc_name(atom(), pos_integer()) -> atom()).
 proc_name(Mod, Id) ->

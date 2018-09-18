@@ -15,6 +15,13 @@
 -module(emqx_misc_tests).
 -include_lib("eunit/include/eunit.hrl").
 
+timer_cancel_flush_test() ->
+    Timer = emqx_misc:start_timer(0, foo),
+    ok = emqx_misc:cancel_timer(Timer),
+    receive {timeout, Timer, foo} -> error(unexpected)
+    after 0 -> ok
+    end.
+
 shutdown_disabled_test() ->
     with_env(
       [{conn_max_msg_queue_len, 0},
