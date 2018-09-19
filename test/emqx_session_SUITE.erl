@@ -25,7 +25,7 @@ all() -> [t_session_all].
 init_per_suite(Config) ->
     emqx_ct_broker_helpers:run_setup_steps(),
     Config.
-    
+
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
 

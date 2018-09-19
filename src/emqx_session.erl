@@ -357,6 +357,7 @@ init([Parent, #{zone        := Zone,
     emqx_hooks:run('session.created', [#{client_id => ClientId}, info(State)]),
     GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
     ok = emqx_gc:init(GcPolicy),
+    erlang:put(force_shutdown_policy, emqx_zone:get_env(Zone, force_shutdown_policy)),
     ok = proc_lib:init_ack(Parent, {ok, self()}),
     gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}], State).
 
@@ -575,7 +576,8 @@ handle_info({timeout, Timer, emit_stats},
                            stats_timer = Timer}) ->
     _ = emqx_sm:set_session_stats(ClientId, stats(State)),
     NewState = State#state{stats_timer = undefined},
-    case emqx_misc:conn_proc_mng_policy() of
+    Limits = erlang:get(force_shutdown_policy),
+    case emqx_misc:conn_proc_mng_policy(Limits) of
         continue ->
             {noreply, NewState};
         hibernate ->

@@ -152,6 +152,7 @@ init([Transport, RawSocket, Options]) ->
                                      }),
             GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
             ok = emqx_gc:init(GcPolicy),
+            erlang:put(force_shutdown_policy, emqx_zone:get_env(Zone, force_shutdown_policy)),
             gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}],
                                   State, self(), IdleTimout);
         {error, Reason} ->
@@ -215,7 +216,8 @@ handle_info({timeout, Timer, emit_stats},
                           }) ->
     emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), stats(State)),
     NewState = State#state{stats_timer = undefined},
-    case meqx_misc:conn_proc_mng_policy() of
+    Limits = erlang:get(force_shutdown_policy),
+    case meqx_misc:conn_proc_mng_policy(Limits) of
         continue ->
             {noreply, NewState};
         hibernate ->
