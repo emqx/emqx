@@ -23,39 +23,24 @@ timer_cancel_flush_test() ->
     end.
 
 shutdown_disabled_test() ->
-    with_env(
-      [{conn_max_msg_queue_len, 0},
-       {conn_max_total_heap_size, 0}],
-      fun() ->
-          self() ! foo,
-          ?assertEqual(continue, conn_proc_mng_policy()),
-          receive foo -> ok end,
-          ?assertEqual(hibernate, conn_proc_mng_policy())
-      end).
+    self() ! foo,
+    ?assertEqual(continue, conn_proc_mng_policy(0, 0)),
+    receive foo -> ok end,
+    ?assertEqual(hibernate, conn_proc_mng_policy(0, 0)).
 
 message_queue_too_long_test() ->
-    with_env(
-      [{conn_max_msg_queue_len, 1},
-       {conn_max_total_heap_size, 0}],
-      fun() ->
-          self() ! foo,
-          self() ! bar,
-          ?assertEqual({shutdown, message_queue_too_long},
-                       conn_proc_mng_policy()),
-          receive foo -> ok end,
-          ?assertEqual(continue, conn_proc_mng_policy()),
-          receive bar -> ok end
-      end).
+    self() ! foo,
+    self() ! bar,
+    ?assertEqual({shutdown, message_queue_too_long},
+                 conn_proc_mng_policy(1, 0)),
+    receive foo -> ok end,
+    ?assertEqual(continue, conn_proc_mng_policy(1, 0)),
+    receive bar -> ok end.
 
 total_heap_size_too_large_test() ->
-    with_env(
-      [{conn_max_msg_queue_len, 0},
-       {conn_max_total_heap_size, 1}],
-      fun() ->
-          ?assertEqual({shutdown, total_heap_size_too_large},
-                       conn_proc_mng_policy())
-      end).
+    ?assertEqual({shutdown, total_heap_size_too_large},
+                 conn_proc_mng_policy(0, 1)).
 
-with_env(Envs, F) -> emqx_test_lib:with_env(Envs, F).
-
-conn_proc_mng_policy() -> emqx_misc:conn_proc_mng_policy().
+conn_proc_mng_policy(L, S) ->
+    emqx_misc:conn_proc_mng_policy(#{message_queue_len => L,
+                                     total_heap_size => S}).
