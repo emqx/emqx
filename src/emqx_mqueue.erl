@@ -18,7 +18,7 @@
 %%
 %% This module implements a simple in-memory queue for MQTT persistent session.
 %%
-%% If the broker restarted or crashed, all the messages queued will be gone.
+%% If the broker restarts or crashes, all queued messages will be lost.
 %%
 %% Concept of Message Queue and Inflight Window:
 %%
@@ -29,12 +29,15 @@
 %%                               |<---   Win Size  --->|
 %%
 %%
-%% 1. Inflight Window to store the messages delivered and awaiting for puback.
+%% 1. Inflight Window is to store the messages
+%%    that are delivered but still awaiting for puback.
 %%
-%% 2. Enqueue messages when the inflight window is full.
+%% 2. Messages are enqueued to tail when the inflight window is full.
 %%
-%% 3. If the queue is full, dropped qos0 messages if store_qos0 is true,
-%%    otherwise dropped the oldest one.
+%% 3. QoS=0 messages are only enqueued when `store_qos0' is given `true`
+%%    in init options
+%%
+%% 4. If the queue is full drop the oldest one unless `max_len' is set to `0'.
 %%
 %% @end
 

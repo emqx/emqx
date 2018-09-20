@@ -188,8 +188,8 @@ parse(Topic = <<"$share/", Topic1/binary>>, Options) ->
     case binary:split(Topic1, <<"/">>) of
         [<<>>] -> error({invalid_topic, Topic});
         [_] -> error({invalid_topic, Topic});
-        [Group, Topic2] -> 
-            case binary:match(Group, [<<"/">>, <<"+">>, <<"#">>]) of 
+        [Group, Topic2] ->
+            case binary:match(Group, [<<"/">>, <<"+">>, <<"#">>]) of
                 nomatch -> {Topic2, maps:put(share, Group, Options)};
                 _ -> error({invalid_topic, Topic})
             end

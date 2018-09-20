@@ -18,7 +18,7 @@ dep_lager_syslog = git https://github.com/basho/lager_syslog 3.0.1
 
 NO_AUTOPATCH = cuttlefish
 
-ERLC_OPTS += +debug_info
+ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 ERLC_OPTS += +'{parse_transform, lager_transform}'
 
 BUILD_DEPS = cuttlefish
@@ -27,7 +27,7 @@ dep_cuttlefish = git https://github.com/emqx/cuttlefish emqx30
 #TEST_DEPS = emqx_ct_helplers
 #dep_emqx_ct_helplers = git git@github.com:emqx/emqx-ct-helpers
 
-TEST_ERLC_OPTS += +debug_info
+TEST_ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 TEST_ERLC_OPTS += +'{parse_transform, lager_transform}'
 
 EUNIT_OPTS = verbose
@@ -39,7 +39,7 @@ CT_SUITES = emqx emqx_zone emqx_banned emqx_connection emqx_session emqx_access 
 			emqx_json emqx_keepalive emqx_lib emqx_metrics emqx_misc emqx_mod emqx_mqtt_caps \
 			emqx_mqtt_compat emqx_mqtt_props emqx_mqueue emqx_net emqx_pqueue emqx_router emqx_sm \
 			emqx_stats emqx_tables emqx_time emqx_topic emqx_trie emqx_vm \
-		 	emqx_mountpoint emqx_listeners emqx_protocol
+		 	emqx_mountpoint emqx_listeners emqx_protocol emqx_pool
 
 CT_NODE_NAME = emqxct@127.0.0.1
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name $(CT_NODE_NAME)
@@ -60,7 +60,7 @@ gen-clean:
 	@rm -f etc/gen.emqx.conf
 
 bbmustache:
-	$(verbose) git clone https://github.com/soranoba/bbmustache.git && pushd bbmustache && ./rebar3 compile && popd
+	$(verbose) git clone https://github.com/soranoba/bbmustache.git && cd bbmustache && ./rebar3 compile && cd ..
 
 # This hack is to generate a conf file for testing
 # relx overlay is used for release
@@ -78,6 +78,9 @@ app.config: etc/gen.emqx.conf
 
 ct: cuttlefish app.config
 
+rebar-cover:
+	@rebar3 cover
+
 coveralls:
 	@rebar3 coveralls send
 
@@ -91,7 +94,7 @@ rebar-cuttlefish: rebar-deps
 rebar-deps:
 	@rebar3 get-deps
 
-rebar-eunit:
+rebar-eunit: rebar-cuttlefish
 	@rebar3 eunit
 
 rebar-compile:

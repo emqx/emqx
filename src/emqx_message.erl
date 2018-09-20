@@ -22,7 +22,7 @@
 -export([get_flag/2, get_flag/3, set_flag/2, set_flag/3, unset_flag/2]).
 -export([set_headers/2]).
 -export([get_header/2, get_header/3, set_header/3]).
--export([is_expired/1, check_expiry/1, check_expiry/2, update_expiry/1]).
+-export([is_expired/1, update_expiry/1]).
 -export([format/1]).
 
 -type(flag() :: atom()).
@@ -100,21 +100,6 @@ is_expired(#message{headers = #{'Message-Expiry-Interval' := Interval}, timestam
 is_expired(_Msg) ->
     false.
 
--spec(check_expiry(emqx_types:message()) -> {ok, pos_integer()} | expired | false).
-check_expiry(Msg = #message{timestamp = CreatedAt}) ->
-    check_expiry(Msg, CreatedAt);
-check_expiry(_Msg) ->
-    false.
-
--spec(check_expiry(emqx_types:message(), erlang:timestamp()) -> {ok, pos_integer()} | expired | false).
-check_expiry(#message{headers = #{'Message-Expiry-Interval' := Interval}}, Since) ->
-    case Interval - (elapsed(Since) div 1000) of
-        Timeout when Timeout > 0 -> {ok, Timeout};
-        _ -> expired
-    end;
-check_expiry(_Msg, _Since) ->
-    false.
-
 update_expiry(Msg = #message{headers = #{'Message-Expiry-Interval' := Interval}, timestamp = CreatedAt}) ->
     case elapsed(CreatedAt) of
         Elapsed when Elapsed > 0 ->
@@ -138,4 +123,3 @@ format(flags, Flags) ->
     io_lib:format("~p", [[Flag || {Flag, true} <- maps:to_list(Flags)]]);
 format(headers, Headers) ->
     io_lib:format("~p", [Headers]).
-

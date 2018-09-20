@@ -49,8 +49,18 @@
 
 -define(PUBPACKET, ?PUBLISH_PACKET(?PUBQOS, <<"sub/topic">>, ?PACKETID, <<"publish">>)).
 
+-define(PAYLOAD, [{type,"dsmSimulationData"},
+                  {id, 9999},
+                  {status, "running"},
+                  {soc, 1536702170},
+                  {fracsec, 451000},
+                  {data, lists:seq(1, 20480)}]).
+
+-define(BIG_PUBPACKET, ?PUBLISH_PACKET(?PUBQOS, <<"sub/topic">>, ?PACKETID, emqx_json:encode(?PAYLOAD))).
+
 all() ->
-    [{group, connect}].
+    [{group, connect},
+     {group, publish}].
 
 groups() ->
     [{connect, [non_parallel_tests],
@@ -60,6 +70,10 @@ groups() ->
       mqtt_connect_with_ssl_oneway,
       mqtt_connect_with_ssl_twoway,
       mqtt_connect_with_ws
+      ]},
+    {publish, [non_parallel_tests],
+      [
+      packet_size
       ]}].
 
 init_per_suite(Config) ->
@@ -156,6 +170,21 @@ mqtt_connect_with_ws(_Config) ->
     {ok, ?PUBACK_PACKET(?PACKETID), _} = raw_recv_pase(PubAck),
     {close, _} = rfc6455_client:close(WS),
     ok.
+
+%%issue 1811
+packet_size(_Config) ->
+    {ok, Sock} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
+    Packet = raw_send_serialise(?CLIENT),
+    emqx_client_sock:send(Sock, Packet),
+    {ok, Data} = gen_tcp:recv(Sock, 0),
+    {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(Data),
+
+    %% Pub Packet QoS 1
+    PubPacket = raw_send_serialise(?BIG_PUBPACKET),
+    emqx_client_sock:send(Sock, PubPacket),
+    {ok, Data1} = gen_tcp:recv(Sock, 0),
+    {ok, ?PUBACK_PACKET(?PACKETID), _} = raw_recv_pase(Data1),
+    emqx_client_sock:close(Sock).
 
 raw_send_serialise(Packet) ->
     emqx_frame:serialize(Packet).
