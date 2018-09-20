@@ -26,17 +26,18 @@ groups() -> [{keepalive, [], [t_keepalive]}].
 %%--------------------------------------------------------------------
 
 t_keepalive(_) ->
-    {ok, KA} = emqx_keepalive:start(fun() -> {ok, 1} end, 1, {keepalive, timeout}),
-    [resumed, timeout] = lists:reverse(keepalive_recv(KA, [])).
+    {ok, KA} = emqx_keepalive:start(1, {keepalive, timeout}),
+    resumed = keepalive_recv(KA, 100),
+    timeout = keepalive_recv(KA, 2000).
 
-keepalive_recv(KA, Acc) ->
+keepalive_recv(KA, MockInterval) ->
     receive
         {keepalive, timeout} ->
-            case emqx_keepalive:check(KA) of
-                {ok, KA1} -> keepalive_recv(KA1, [resumed | Acc]);
-                {error, timeout} -> [timeout | Acc]
+            case emqx_keepalive:check(KA, erlang:system_time(millisecond) - MockInterval) of
+                {ok, _} -> resumed;
+                {error, timeout} -> timeout
             end
         after 4000 ->
-                Acc
+                error
     end.
 
