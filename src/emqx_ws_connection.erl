@@ -40,7 +40,8 @@
           keepalive,
           enable_stats,
           stats_timer,
-          shutdown
+          shutdown,
+          last_packet_ts = 0
          }).
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
@@ -152,13 +153,10 @@ send_fun(WsPid) ->
         WsPid ! {binary, iolist_to_binary(Data)}
     end.
 
-stat_fun() ->
-    fun() -> {ok, get(recv_oct)} end.
-
 websocket_handle({binary, <<>>}, State) ->
-    {ok, ensure_stats_timer(State)};
+    {ok, ensure_stats_timer(State#state{last_packet_ts = erlang:system_time(millisecond)})};
 websocket_handle({binary, [<<>>]}, State) ->
-    {ok, ensure_stats_timer(State)};
+    {ok, ensure_stats_timer(State#state{last_packet_ts = erlang:system_time(millisecond)})};
 websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
                                                 proto_state  = ProtoState}) ->
     BinSize = iolist_size(Data),
@@ -167,7 +165,7 @@ websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
     emqx_metrics:inc('bytes/received', BinSize),
     case catch emqx_frame:parse(iolist_to_binary(Data), ParserState) of
         {more, NewParserState} ->
-            {ok, State#state{parser_state = NewParserState}};
+            {ok, State#state{parser_state = NewParserState, last_packet_ts = erlang:system_time(millisecond)}};
         {ok, Packet, Rest} ->
             emqx_metrics:received(Packet),
             put(recv_cnt, get(recv_cnt) + 1),
@@ -225,7 +223,7 @@ websocket_info({timeout, Timer, emit_stats},
 
 websocket_info({keepalive, start, Interval}, State) ->
     ?WSLOG(debug, "Keepalive at the interval of ~p", [Interval], State),
-    case emqx_keepalive:start(stat_fun(), Interval, {keepalive, check}) of
+    case emqx_keepalive:start(Interval, {keepalive, check}) of
         {ok, KeepAlive} ->
             {ok, State#state{keepalive = KeepAlive}};
         {error, Error} ->
@@ -233,8 +231,8 @@ websocket_info({keepalive, start, Interval}, State) ->
             shutdown(Error, State)
     end;
 
-websocket_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
-    case emqx_keepalive:check(KeepAlive) of
+websocket_info({keepalive, check}, State = #state{keepalive = KeepAlive, last_packet_ts = LastPacketTs}) ->
+    case emqx_keepalive:check(KeepAlive, LastPacketTs) of
         {ok, KeepAlive1} ->
             {ok, State#state{keepalive = KeepAlive1}};
         {error, timeout} ->

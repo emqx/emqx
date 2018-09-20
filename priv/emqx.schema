@@ -748,7 +748,7 @@ end}.
 
 %% @doc Keepalive backoff
 {mapping, "zone.$name.keepalive_backoff", "emqx.zones", [
-  {default, 0.75},
+  {default, 1.5},
   {datatype, float}
 ]}.
 
