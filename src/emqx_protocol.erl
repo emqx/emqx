@@ -410,9 +410,17 @@ process_packet(?UNSUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
 process_packet(?PACKET(?PINGREQ), PState) ->
     send(?PACKET(?PINGRESP), PState);
 
-process_packet(?DISCONNECT_PACKET(?RC_SUCCESS), PState) ->
-    %% Clean willmsg
-    {stop, normal, PState#pstate{will_msg = undefined}};
+process_packet(?DISCONNECT_PACKET(?RC_SUCCESS, #{'Session-Expiry-Interval' := Interval}), 
+                PState = #pstate{session = SPid, conn_props = #{'Session-Expiry-Interval' := OldInterval}}) ->
+    case Interval =/= 0 andalso OldInterval =:= 0 of
+        true -> 
+            deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState),
+            {error, protocol_error, PState};
+        false -> 
+            emqx_session:update_expiry_interval(SPid, Interval),
+            %% Clean willmsg
+            {stop, normal, PState#pstate{will_msg = undefined}}
+    end;
 process_packet(?DISCONNECT_PACKET(_), PState) ->
     {stop, normal, PState}.
 
