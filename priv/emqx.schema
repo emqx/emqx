@@ -839,7 +839,7 @@ end}.
 %% Total heap size is the in Erlang 'words' not in 'bytes'.
 %% Zero or negative is to disable.
 {mapping, "zone.$name.force_shutdown_policy", "emqx.zones", [
-  {default, "0 | 0"},
+  {default, "0 | 0MB"},
   {datatype, string}
 ]}.
 
@@ -856,8 +856,14 @@ end}.
                                         bytes => list_to_integer(Bytes)}};
                ("force_shutdown_policy", Val) ->
                     [Len, Siz] = string:tokens(Val, "| "),
-                    {force_shutdown_policy, #{message_queue_len => list_to_integer(Len),
-                                              total_heap_size => list_to_integer(Siz)}};
+                    ShutdownPolicy = case cuttlefish_bytesize:parse(Siz) of
+                                   {error, Reason} ->
+                                       error(Reason);
+                                   Siz1 ->
+                                         #{message_queue_len => list_to_integer(Len),
+                                           total_heap_size   => Siz1}
+                               end,
+                    {force_shutdown_policy, ShutdownPolicy};
                (Opt, Val) ->
                     {list_to_atom(Opt), Val}
             end,
