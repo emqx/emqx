@@ -316,7 +316,6 @@ discard(SPid, ByPid) ->
 
 -spec(update_expiry_interval(spid(), timeout()) -> ok).
 update_expiry_interval(SPid, Interval) ->
-    lager:error("update Interval: ~p", [Interval]),
     gen_server:cast(SPid, {expiry_interval, Interval * 1000}).
 
 -spec(close(spid()) -> ok).
