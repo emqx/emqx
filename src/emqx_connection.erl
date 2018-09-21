@@ -217,7 +217,7 @@ handle_info({timeout, Timer, emit_stats},
     emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), stats(State)),
     NewState = State#state{stats_timer = undefined},
     Limits = erlang:get(force_shutdown_policy),
-    case meqx_misc:conn_proc_mng_policy(Limits) of
+    case emqx_misc:conn_proc_mng_policy(Limits) of
         continue ->
             {noreply, NewState};
         hibernate ->
