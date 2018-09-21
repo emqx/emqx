@@ -828,7 +828,7 @@ end}.
 %% messages | bytes passed through.
 %% Numbers delimited by `|'. Zero or negative is to disable.
 {mapping, "zone.$name.force_gc_policy", "emqx.zones", [
-   {default, "0|0"},
+   {default, "0|0KB"},
    {datatype, string}
  ]}.
 
@@ -841,8 +841,13 @@ end}.
                     {mqtt_shared_subscription, Val};
                ("force_gc_policy", Val) ->
                     [Count, Bytes] = string:tokens(Val, "| "),
-                    {force_gc_policy, #{count => list_to_integer(Count),
-                                        bytes => list_to_integer(Bytes)}};
+                    GcPolicy = case cuttlefish_bytesize:parse(Bytes) of
+                                   {error, Reason} ->
+                                       error(Reason);
+                                   Bytes1 ->
+                                       #{bytes => Bytes1, count => list_to_integer(Count)}
+                               end,
+                    {force_gc_policy, GcPolicy};
                (Opt, Val) ->
                     {list_to_atom(Opt), Val}
             end,
