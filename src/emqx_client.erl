@@ -791,32 +791,30 @@ connected(cast, {pubrel, PacketId, ReasonCode, Properties}, State) ->
 connected(cast, {pubcomp, PacketId, ReasonCode, Properties}, State) ->
     send_puback(?PUBCOMP_PACKET(PacketId, ReasonCode, Properties), State);
 
-connected(cast, Packet = ?PUBLISH_PACKET(?QOS_0, _Topic, _PacketId, Properties, _Payload),
-          State) ->
-    NewState = response_publish(Properties, State, ?QOS_0),
-    {keep_state, deliver(packet_to_msg(Packet), NewState)};
-
 connected(cast, ?PUBLISH_PACKET(_QoS, _PacketId), State = #state{paused = true}) ->
     {keep_state, State};
 
-connected(cast, Packet = ?PUBLISH_PACKET(?QOS_1, _Topic, PacketId, Properties, _Payload),
-    State = #state{ auto_ack = AutoAck}) ->
-    NewState = response_publish(Properties, State, ?QOS_1),
-    _ = deliver(packet_to_msg(Packet), State),
-    case AutoAck of
-        true  -> send_puback(?PUBACK_PACKET(PacketId), State);
-        false -> {keep_state, NewState}
-    end;
+connected(cast, Packet = ?PUBLISH_PACKET(?QOS_0, _Topic, _PacketId, Properties, _Payload),
+          State) when Properties =/= undefined ->
+    NewState = response_publish(Properties, State, ?QOS_0),
+    {keep_state, deliver(packet_to_msg(Packet), NewState)};
+connected(cast, Packet = ?PUBLISH_PACKET(?QOS_0, _PacketId), State) ->
+     {keep_state, deliver(packet_to_msg(Packet), State)};
 
-connected(cast, Packet = ?PUBLISH_PACKET(?QOS_2, _Topic, PacketId, Properties, _Payload),
-    State = #state{awaiting_rel = AwaitingRel}) ->
+connected(cast, Packet = ?PUBLISH_PACKET(?QOS_1, _Topic, _PacketId, Properties, _Payload), State)
+    when Properties =/= undefined ->
+    NewState = response_publish(Properties, State, ?QOS_1),
+    publish_process(?QOS_1, Packet, NewState);
+
+connected(cast, Packet = ?PUBLISH_PACKET(?QOS_1, _PacketId), State) ->
+    publish_process(?QOS_1, Packet, State);
+
+connected(cast, Packet = ?PUBLISH_PACKET(?QOS_2, _Topic, _PacketId, Properties, _Payload), State)
+    when Properties =/= undefined ->
     NewState = response_publish(Properties, State, ?QOS_2),
-    case send_puback(?PUBREC_PACKET(PacketId), NewState) of
-        {keep_state, NewState1} ->
-            AwaitingRel1 = maps:put(PacketId, Packet, AwaitingRel),
-            {keep_state, NewState1#state{awaiting_rel = AwaitingRel1}};
-        Stop -> Stop
-    end;
+    publish_process(?QOS_2, Packet, NewState);
+connected(cast, Packet = ?PUBLISH_PACKET(?QOS_2, _PacketId), State) ->
+    publish_process(?QOS_2, Packet, State);
 
 connected(cast, ?PUBACK_PACKET(PacketId, ReasonCode, Properties),
           State = #state{owner = Owner, inflight = Inflight}) ->
@@ -998,6 +996,21 @@ code_change(_Vsn, State, Data, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+publish_process(?QOS_1, Packet = ?PUBLISH_PACKET(?QOS_1, PacketId), State = #state{auto_ack = AutoAck}) ->
+    _ = deliver(packet_to_msg(Packet), State),
+    case AutoAck of
+        true  -> send_puback(?PUBACK_PACKET(PacketId), State);
+        false -> {keep_state, State}
+    end;
+publish_process(?QOS_2, Packet = ?PUBLISH_PACKET(?QOS_2, PacketId),
+    State = #state{awaiting_rel = AwaitingRel}) ->
+    case send_puback(?PUBREC_PACKET(PacketId), State) of
+        {keep_state, NewState} ->
+            AwaitingRel1 = maps:put(PacketId, Packet, AwaitingRel),
+            {keep_state, NewState#state{awaiting_rel = AwaitingRel1}};
+        Stop -> Stop
+    end.
+
 shared_topic(Shared, Topic) ->
     case Shared of
         true ->
@@ -1028,7 +1041,7 @@ do_publish(ResponseTopic, Properties, State = #state{response_info = ResponseInf
     case send(Msg, State) of
         {ok, NewState} -> NewState;
         _Error -> State
-    end; 
+    end;
 do_publish(ResponseTopic, Properties, State = #state{response_info = ResponseInfo,
     inflight = Inflight, last_packet_id = PacketId}, {qos, QoS})
     when (QoS =:= ?QOS_1); (QoS =:= ?QOS_2)->
