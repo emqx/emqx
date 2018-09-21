@@ -25,7 +25,7 @@
 
 all() ->
     [
-
+        request_response_test
     ].
 
 init_per_suite(Config) ->
@@ -35,6 +35,33 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
 
+receive_messages(Count) ->
+    receive_messages(Count, []).
+receive_messages(0, Msgs) ->
+    Msgs;
+receive_messages(Count, Msgs) ->
+    receive
+        {publish, Msg} ->
+            receive_messages(Count-1, [Msg|Msgs]);
+        Other ->
+            ct:log("~p~n", [Other]),
+            receive_messages(Count, Msgs)
+    after 10 ->
+        Msgs
+    end.
 
-request(_Config) ->
-    ok.
+request_response_test(_Config) ->
+    dbg:start(),
+    dbg:tracer(),
+    dbg:p(all, c),
+
+    {ok, Requester, _} =
+        emqx_client:start_request({shared, false},[{client_id, <<"requestclient1">>},
+            {request_qos, ?QOS_2}]),
+    {ok, Responser} = emqx_client:start_response({shared, false},<<"requestclient1">>, ?QOS_2,
+        [{client_id, <<"responseclient2">>}]),
+    ok = emqx_client:set_response(Responser, <<"ResponseInfomation">>),
+        emqx_client:request(Requester, <<"requestclient1">>, <<"Request">>, ?QOS_2),
+    ?assertEqual(2,length(receive_messages(4))),
+    ok = emqx_client:disconnect(Responser),
+    ok = emqx_client:disconnect(Requester).

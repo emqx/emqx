@@ -317,13 +317,6 @@ handle_call(Req, _From, State) ->
     emqx_logger:error("[Broker] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
-resubscribe(From, {Subscriber, SubOpts, Topic}, State) ->
-    {SubPid, _} = Subscriber,
-    Group = maps:get(share, SubOpts, undefined),
-    true = do_subscribe(Group, Topic, Subscriber, SubOpts),
-    emqx_shared_sub:subscribe(Group, Topic, SubPid),
-    emqx_router:add_route(From, Topic, dest(Group)),
-    {noreply, monitor_subscriber(Subscriber, State)}.
 
 
 handle_cast({From, #subscribe{topic = Topic, subpid = SubPid, subid = SubId, subopts = SubOpts}}, State) ->
@@ -384,6 +377,14 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+resubscribe(From, {Subscriber, SubOpts, Topic}, State) ->
+    {SubPid, _} = Subscriber,
+    Group = maps:get(share, SubOpts, undefined),
+    true = do_subscribe(Group, Topic, Subscriber, SubOpts),
+    emqx_shared_sub:subscribe(Group, Topic, SubPid),
+    emqx_router:add_route(From, Topic, dest(Group)),
+    {noreply, monitor_subscriber(Subscriber, State)}.
 
 insert_subscriber(Group, Topic, Subscriber) ->
     Subscribers = subscribers(Topic),
