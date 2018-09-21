@@ -14,51 +14,37 @@
 
 -module(emqx_keepalive).
 
--export([start/3, check/1, cancel/1]).
+-export([start/2, check/2, cancel/1]).
 
--record(keepalive, {statfun, statval, tsec, tmsg, tref, repeat = 0}).
+-record(keepalive, {tmsec, tmsg, tref}).
 
 -type(keepalive() :: #keepalive{}).
 
 -export_type([keepalive/0]).
 
+-define(SWEET_SPOT, 50).    % 50ms
+
 %% @doc Start a keepalive
--spec(start(fun(), integer(), any()) -> {ok, keepalive()} | {error, term()}).
-start(_, 0, _) ->
+-spec(start(integer(), any()) -> {ok, keepalive()}).
+start(0, _) ->
     {ok, #keepalive{}};
-start(StatFun, TimeoutSec, TimeoutMsg) ->
-    case catch StatFun() of
-        {ok, StatVal} ->
-            {ok, #keepalive{statfun = StatFun, statval = StatVal,
-                            tsec = TimeoutSec, tmsg = TimeoutMsg,
-                            tref = timer(TimeoutSec, TimeoutMsg)}};
-        {error, Error} ->
-            {error, Error};
-        {'EXIT', Reason} ->
-            {error, Reason}
-    end.
+start(TimeoutSec, TimeoutMsg) ->
+    {ok, #keepalive{tmsec = TimeoutSec * 1000, tmsg = TimeoutMsg, tref = timer(TimeoutSec * 1000 + ?SWEET_SPOT, TimeoutMsg)}}.
 
 %% @doc Check keepalive, called when timeout...
--spec(check(keepalive()) -> {ok, keepalive()} | {error, term()}).
-check(KeepAlive = #keepalive{statfun = StatFun, statval = LastVal, repeat = Repeat}) ->
-    case catch StatFun() of
-        {ok, NewVal} ->
-            if NewVal =/= LastVal ->
-                    {ok, resume(KeepAlive#keepalive{statval = NewVal, repeat = 0})};
-                Repeat < 1 ->
-                    {ok, resume(KeepAlive#keepalive{statval = NewVal, repeat = Repeat + 1})};
-                true ->
-                    {error, timeout}
-            end;
-        {error, Error} ->
-            {error, Error};
-        {'EXIT', Reason} ->
-            {error, Reason}
+-spec(check(keepalive(), integer()) -> {ok, keepalive()} | {error, term()}).
+check(KeepAlive = #keepalive{tmsec = TimeoutMs}, LastPacketTs) ->
+    TimeDiff = erlang:system_time(millisecond) - LastPacketTs,
+    case TimeDiff >= TimeoutMs of
+        true ->
+            {error, timeout};
+        false ->
+            {ok, resume(KeepAlive, TimeoutMs + ?SWEET_SPOT - TimeDiff)}
     end.
 
--spec(resume(keepalive()) -> keepalive()).
-resume(KeepAlive = #keepalive{tsec = TimeoutSec, tmsg = TimeoutMsg}) ->
-    KeepAlive#keepalive{tref = timer(TimeoutSec, TimeoutMsg)}.
+-spec(resume(keepalive(), integer()) -> keepalive()).
+resume(KeepAlive = #keepalive{tmsg = TimeoutMsg}, TimeoutMs) ->
+    KeepAlive#keepalive{tref = timer(TimeoutMs, TimeoutMsg)}.
 
 %% @doc Cancel Keepalive
 -spec(cancel(keepalive()) -> ok).
@@ -67,6 +53,6 @@ cancel(#keepalive{tref = TRef}) when is_reference(TRef) ->
 cancel(_) ->
     ok.
 
-timer(Secs, Msg) ->
-    erlang:send_after(timer:seconds(Secs), self(), Msg).
+timer(Millisecond, Msg) ->
+    erlang:send_after(Millisecond, self(), Msg).
 
