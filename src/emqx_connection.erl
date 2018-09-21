@@ -45,8 +45,7 @@
           rate_limit,
           publish_limit,
           limit_timer,
-          idle_timeout,
-          last_packet_ts = 0
+          idle_timeout
          }).
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
@@ -253,8 +252,8 @@ handle_info({keepalive, start, Interval}, State) ->
             shutdown(Error, State)
     end;
 
-handle_info({keepalive, check}, State = #state{keepalive = KeepAlive, last_packet_ts = LastPacketTs}) ->
-    case emqx_keepalive:check(KeepAlive, LastPacketTs) of
+handle_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
+    case emqx_keepalive:check(KeepAlive, get(last_packet_ts)) of
         {ok, KeepAlive1} ->
             {noreply, State#state{keepalive = KeepAlive1}};
         {error, timeout} ->
@@ -291,14 +290,16 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% Receive and parse data
 handle_packet(<<>>, State) ->
-    {noreply, maybe_gc(ensure_stats_timer(ensure_rate_limit(State#state{last_packet_ts = erlang:system_time(millisecond)})))};
+    put(last_packet_ts, erlang:system_time(millisecond)),
+    {noreply, maybe_gc(ensure_stats_timer(ensure_rate_limit(State)))};
 
 handle_packet(Data, State = #state{proto_state  = ProtoState,
                                    parser_state = ParserState,
                                    idle_timeout = IdleTimeout}) ->
     case catch emqx_frame:parse(Data, ParserState) of
         {more, NewParserState} ->
-            {noreply, run_socket(State#state{parser_state = NewParserState, last_packet_ts = erlang:system_time(millisecond)}), IdleTimeout};
+            put(last_packet_ts, erlang:system_time(millisecond)),
+            {noreply, run_socket(State#state{parser_state = NewParserState}), IdleTimeout};
         {ok, Packet = ?PACKET(Type), Rest} ->
             emqx_metrics:received(Packet),
             case emqx_protocol:received(Packet, ProtoState) of

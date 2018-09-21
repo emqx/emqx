@@ -40,8 +40,7 @@
           keepalive,
           enable_stats,
           stats_timer,
-          shutdown,
-          last_packet_ts = 0
+          shutdown
          }).
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
@@ -154,9 +153,11 @@ send_fun(WsPid) ->
     end.
 
 websocket_handle({binary, <<>>}, State) ->
-    {ok, ensure_stats_timer(State#state{last_packet_ts = erlang:system_time(millisecond)})};
+    put(last_packet_ts, erlang:system_time(millisecond)),
+    {ok, ensure_stats_timer(State)};
 websocket_handle({binary, [<<>>]}, State) ->
-    {ok, ensure_stats_timer(State#state{last_packet_ts = erlang:system_time(millisecond)})};
+    put(last_packet_ts, erlang:system_time(millisecond)),
+    {ok, ensure_stats_timer(State)};
 websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
                                                 proto_state  = ProtoState}) ->
     BinSize = iolist_size(Data),
@@ -165,7 +166,8 @@ websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
     emqx_metrics:inc('bytes/received', BinSize),
     case catch emqx_frame:parse(iolist_to_binary(Data), ParserState) of
         {more, NewParserState} ->
-            {ok, State#state{parser_state = NewParserState, last_packet_ts = erlang:system_time(millisecond)}};
+            put(last_packet_ts, erlang:system_time(millisecond)),
+            {ok, State#state{parser_state = NewParserState}};
         {ok, Packet, Rest} ->
             emqx_metrics:received(Packet),
             put(recv_cnt, get(recv_cnt) + 1),
@@ -231,8 +233,8 @@ websocket_info({keepalive, start, Interval}, State) ->
             shutdown(Error, State)
     end;
 
-websocket_info({keepalive, check}, State = #state{keepalive = KeepAlive, last_packet_ts = LastPacketTs}) ->
-    case emqx_keepalive:check(KeepAlive, LastPacketTs) of
+websocket_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
+    case emqx_keepalive:check(KeepAlive, get(last_packet_ts)) of
         {ok, KeepAlive1} ->
             {ok, State#state{keepalive = KeepAlive1}};
         {error, timeout} ->
