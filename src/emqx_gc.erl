@@ -21,8 +21,6 @@
 
 -module(emqx_gc).
 
--author("Feng Lee <feng@emqtt.io>").
-
 -export([init/1, inc/2, reset/0]).
 
 -type st() :: #{ cnt => {integer(), integer()}

@@ -852,8 +852,13 @@ end}.
                     {mqtt_shared_subscription, Val};
                ("force_gc_policy", Val) ->
                     [Count, Bytes] = string:tokens(Val, "| "),
-                    {force_gc_policy, #{count => list_to_integer(Count),
-                                        bytes => list_to_integer(Bytes)}};
+                    GcPolicy = case cuttlefish_bytesize:parse(Bytes) of
+                                   {error, Reason} ->
+                                       error(Reason);
+                                   Bytes1 ->
+                                       #{bytes => Bytes1, count => list_to_integer(Count)}
+                               end,
+                    {force_gc_policy, GcPolicy};
                ("force_shutdown_policy", Val) ->
                     [Len, Siz] = string:tokens(Val, "| "),
                     ShutdownPolicy = case cuttlefish_bytesize:parse(Siz) of
