@@ -217,7 +217,7 @@ handle_info({timeout, Timer, emit_stats},
     emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), stats(State)),
     NewState = State#state{stats_timer = undefined},
     Limits = erlang:get(force_shutdown_policy),
-    case meqx_misc:conn_proc_mng_policy(Limits) of
+    case emqx_misc:conn_proc_mng_policy(Limits) of
         continue ->
             {noreply, NewState};
         hibernate ->
@@ -249,6 +249,7 @@ handle_info({inet_async, _Sock, _Ref, {ok, Data}}, State) ->
     Size = iolist_size(Data),
     emqx_metrics:inc('bytes/received', Size),
     Incoming = #{bytes => Size, packets => 0},
+    put(last_packet_ts, erlang:system_time(millisecond)),
     handle_packet(Data, State#state{await_recv = false, incoming = Incoming});
 
 handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
@@ -260,15 +261,9 @@ handle_info({inet_reply, _Sock, ok}, State) ->
 handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
     shutdown(Reason, State);
 
-handle_info({keepalive, start, Interval}, State = #state{transport = Transport, socket = Socket}) ->
+handle_info({keepalive, start, Interval}, State) ->
     ?LOG(debug, "Keepalive at the interval of ~p", [Interval], State),
-    StatFun = fun() ->
-                case Transport:getstat(Socket, [recv_oct]) of
-                    {ok, [{recv_oct, RecvOct}]} -> {ok, RecvOct};
-                    Error                       -> Error
-                end
-             end,
-    case emqx_keepalive:start(StatFun, Interval, {keepalive, check}) of
+    case emqx_keepalive:start(Interval, {keepalive, check}) of
         {ok, KeepAlive} ->
             {noreply, State#state{keepalive = KeepAlive}};
         {error, Error} ->
@@ -276,7 +271,7 @@ handle_info({keepalive, start, Interval}, State = #state{transport = Transport, 
     end;
 
 handle_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
-    case emqx_keepalive:check(KeepAlive) of
+    case emqx_keepalive:check(KeepAlive, get(last_packet_ts)) of
         {ok, KeepAlive1} ->
             {noreply, State#state{keepalive = KeepAlive1}};
         {error, timeout} ->
