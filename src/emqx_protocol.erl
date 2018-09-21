@@ -498,12 +498,12 @@ deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
                                                      client_id = ClientId,
                                                      conn_props = CONNPROPS,
                                                      is_assigned = IsAssigned}) ->
-    case maps:find('Request-Response-Information', CONNPROPS) of
-        {ok, 1} ->
-            ResponseInformation = ClientId;
-        _ ->
-            ResponseInformation = <<>>
-    end,
+    ResponseInformation = case maps:find('Request-Response-Information', CONNPROPS) of
+                              {ok, 1} ->
+                                  ClientId;
+                              _ ->
+                                  <<>>
+                          end,
     #{max_packet_size := MaxPktSize,
       max_qos_allowed := MaxQoS,
       mqtt_retain_available := Retain,
