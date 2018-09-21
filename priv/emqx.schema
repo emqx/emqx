@@ -617,9 +617,9 @@ end}.
 
 %% @doc Set the Maximum QoS allowed.
 {mapping, "mqtt.max_qos_allowed", "emqx.max_qos_allowed", [
-  {default, 2},
+  {default, 1},
   {datatype, integer},
-  {validators, ["range:0-2"]}
+  {validators, ["range:0-1"]}
 ]}.
 
 %% @doc Set the Maximum topic alias.
@@ -718,7 +718,7 @@ end}.
 %% @doc Set the Maximum QoS allowed.
 {mapping, "zone.$name.max_qos_allowed", "emqx.zones", [
   {datatype, integer},
-  {validators, ["range:0-2"]}
+  {validators, ["range:0-1"]}
 ]}.
 
 %% @doc Set the Maximum topic alias.

@@ -24,5 +24,5 @@ all() -> [t_mqtt_properties_all].
 t_mqtt_properties_all(_) ->
     Props = emqx_mqtt_props:filter(?CONNECT, #{'Session-Expiry-Interval' => 1, 'Maximum-Packet-Size' => 255}),
     ok = emqx_mqtt_props:validate(Props),
-    #{} = emqx_mqtt_props:filter(?CONNECT, #{'Maximum-QoS' => ?QOS_2}).
+    #{} = emqx_mqtt_props:filter(?CONNECT, #{'Maximum-QoS' => ?QOS_1}).
 

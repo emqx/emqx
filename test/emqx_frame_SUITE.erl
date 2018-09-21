@@ -134,7 +134,7 @@ serialize_parse_v4_connect(_) ->
 serialize_parse_v5_connect(_) ->
     Props = #{'Session-Expiry-Interval'      => 60,
               'Receive-Maximum'              => 100,
-              'Maximum-QoS'                  => ?QOS_2,
+              'Maximum-QoS'                  => ?QOS_1,
               'Retain-Available'             => 1,
               'Maximum-Packet-Size'          => 1024,
               'Topic-Alias-Maximum'          => 10,
@@ -228,7 +228,7 @@ serialize_parse_connack(_) ->
 serialize_parse_connack_v5(_) ->
     Props = #{'Session-Expiry-Interval'            => 60,
               'Receive-Maximum'                    => 100,
-              'Maximum-QoS'                        => ?QOS_2,
+              'Maximum-QoS'                        => ?QOS_1,
               'Retain-Available'                   => 1,
               'Maximum-Packet-Size'                => 1024,
               'Assigned-Client-Identifier'         => <<"id">>,
