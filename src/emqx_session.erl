@@ -47,6 +47,7 @@
 -export([info/1, attrs/1]).
 -export([stats/1]).
 -export([resume/2, discard/2]).
+-export([update_expiry_interval/2]).
 -export([subscribe/2, subscribe/4]).
 -export([publish/3]).
 -export([puback/2, puback/3]).
@@ -313,6 +314,11 @@ resume(SPid, ConnPid) ->
 discard(SPid, ByPid) ->
     gen_server:call(SPid, {discard, ByPid}, infinity).
 
+-spec(update_expiry_interval(spid(), timeout()) -> ok).
+update_expiry_interval(SPid, Interval) ->
+    lager:error("update Interval: ~p", [Interval]),
+    gen_server:cast(SPid, {expiry_interval, Interval * 1000}).
+
 -spec(close(spid()) -> ok).
 close(SPid) ->
     gen_server:call(SPid, close, infinity).
@@ -536,6 +542,9 @@ handle_cast({resume, ConnPid}, State = #state{client_id       = ClientId,
     %% Replay delivery and Dequeue pending messages
     noreply(dequeue(retry_delivery(true, State1)));
 
+handle_cast({expiry_interval, Interval}, State) ->
+    {noreply, State#state{expiry_interval = Interval}};
+
 handle_cast(Msg, State) ->
     emqx_logger:error("[Session] unexpected cast: ~p", [Msg]),
     {noreply, State}.
@@ -575,13 +584,10 @@ handle_info({timeout, Timer, expired}, State = #state{expiry_timer = Timer}) ->
     ?LOG(info, "expired, shutdown now:(", [], State),
     shutdown(expired, State);
 
-handle_info({'EXIT', ConnPid, Reason}, State = #state{clean_start = true, conn_pid = ConnPid}) ->
-    {stop, Reason, State#state{conn_pid = undefined}};
-
 handle_info({'EXIT', ConnPid, Reason}, State = #state{expiry_interval = 0, conn_pid = ConnPid}) ->
     {stop, Reason, State#state{conn_pid = undefined}};
 
-handle_info({'EXIT', ConnPid, _Reason}, State = #state{clean_start = false, conn_pid = ConnPid}) ->
+handle_info({'EXIT', ConnPid, _Reason}, State = #state{conn_pid = ConnPid}) ->
     {noreply, ensure_expire_timer(State#state{conn_pid = undefined})};
 
 handle_info({'EXIT', OldPid, _Reason}, State = #state{old_conn_pid = OldPid}) ->
@@ -859,7 +865,7 @@ ensure_retry_timer(Interval, State = #state{retry_timer = undefined}) ->
 ensure_retry_timer(_Timeout, State) ->
     State.
 
-ensure_expire_timer(State = #state{expiry_interval = Interval}) when Interval > 0 ->
+ensure_expire_timer(State = #state{expiry_interval = Interval}) when Interval > 0 andalso Interval =/= 16#ffffffff ->
     State#state{expiry_timer = emqx_misc:start_timer(Interval, expired)};
 ensure_expire_timer(State) ->
     State.
