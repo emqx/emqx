@@ -748,7 +748,7 @@ end}.
 
 %% @doc Keepalive backoff
 {mapping, "zone.$name.keepalive_backoff", "emqx.zones", [
-  {default, 0.75},
+  {default, 1.5},
   {datatype, float}
 ]}.
 
@@ -848,6 +848,7 @@ end}.
                                        #{bytes => Bytes1, count => list_to_integer(Count)}
                                end,
                     {force_gc_policy, GcPolicy};
+
                (Opt, Val) ->
                     {list_to_atom(Opt), Val}
             end,

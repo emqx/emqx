@@ -782,7 +782,7 @@ redeliver({pubrel, PacketId}, #state{conn_pid = ConnPid}) ->
 deliver(PacketId, Msg, #state{conn_pid = ConnPid, binding = local}) ->
     ConnPid ! {deliver, {publish, PacketId, Msg}};
 deliver(PacketId, Msg, #state{conn_pid = ConnPid, binding = remote}) ->
-    emqx_rpc:cast(node(ConnPid), erlang, send, [ConnPid, {deliver, PacketId, Msg}]).
+    emqx_rpc:cast(node(ConnPid), erlang, send, [ConnPid, {deliver, {publish, PacketId, Msg}}]).
 
 %%------------------------------------------------------------------------------
 %% Awaiting ACK for QoS1/QoS2 Messages
