@@ -62,7 +62,7 @@ mnesia(copy) ->
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec(strategy() -> random | round_robin | stiky | hash).
+-spec(strategy() -> random | round_robin | sticky | hash).
 strategy() ->
     emqx_config:get_env(shared_subscription_strategy, round_robin).
 
