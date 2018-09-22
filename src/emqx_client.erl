@@ -787,7 +787,7 @@ connected(cast, ?SUBACK_PACKET(PacketId, Properties, ReasonCodes),
 connected(cast, ?UNSUBACK_PACKET(PacketId, Properties, ReasonCodes),
           State = #state{subscriptions = Subscriptions}) ->
     case take_call({unsubscribe, PacketId}, State) of
-        {value, #call{from = From, req = {_, Topics}}, NewState} ->
+        {value, #call{from = From, req = {_, _, Topics}}, NewState} ->
             Subscriptions1 =
               lists:foldl(fun(Topic, Acc) ->
                               maps:remove(Topic, Acc)
