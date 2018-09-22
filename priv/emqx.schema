@@ -1734,9 +1734,16 @@ end}.
   {datatype, {enum, [local,one,quorum,all]}}
 ]}.
 
+%% @doc Shared Subscription Dispatch Strategy.
 {mapping, "broker.shared_subscription_strategy", "emqx.shared_subscription_strategy", [
-  {default, random},
-  {datatype, {enum, [random, round_robbin, hash]}}
+  {default, round_robbin},
+  {datatype,
+   {enum,
+    [random, %% randomly pick a subscriber
+     round_robbin, %% round robin alive subscribers one message after another
+     sticky, %% pick a random subscriber and stick to it
+     hash %% hash client ID to a group member
+    ]}}
 ]}.
 
 {mapping, "broker.route_batch_clean", "emqx.route_batch_clean", [
