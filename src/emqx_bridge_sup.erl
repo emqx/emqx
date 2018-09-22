@@ -27,7 +27,7 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 %% @doc List all bridges
--spec(bridges() -> [{node(), Status :: binary()}]).
+-spec(bridges() -> [{node(), map()}]).
 bridges() ->
     [{Name, emqx_bridge:status(Pid)} || {Name, Pid, _, _} <- supervisor:which_children(?MODULE)].
 

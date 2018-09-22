@@ -25,7 +25,7 @@ all() -> [t_session_all].
 init_per_suite(Config) ->
     emqx_ct_broker_helpers:run_setup_steps(),
     Config.
-    
+
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
 
@@ -40,7 +40,7 @@ t_session_all(_) ->
     [{<<"topic">>, _}] = emqx:subscriptions({SPid, <<"ClientId">>}),
     emqx_session:publish(SPid, 1, Message1),
     timer:sleep(200),
-    {publish, 1, _} = emqx_mock_client:get_last_message(),
+    {publish, 1, _} = emqx_mock_client:get_last_message(ConnPid),
     emqx_session:puback(SPid, 2),
     emqx_session:puback(SPid, 3, reasoncode),
     emqx_session:pubrec(SPid, 4),
