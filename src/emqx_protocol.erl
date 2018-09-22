@@ -23,6 +23,7 @@
 -export([caps/1]).
 -export([stats/1]).
 -export([client_id/1]).
+-export([peername/1]).
 -export([credentials/1]).
 -export([parser/1]).
 -export([session/1]).
@@ -168,6 +169,9 @@ caps(#pstate{zone = Zone}) ->
 client_id(#pstate{client_id = ClientId}) ->
     ClientId.
 
+peername(#pstate{peername = Peername}) ->
+    Peername.
+
 credentials(#pstate{zone       = Zone,
                     client_id  = ClientId,
                     username   = Username,
@@ -255,6 +259,33 @@ preprocess_properties(Packet, PState) ->
 %%------------------------------------------------------------------------------
 %% Process MQTT Packet
 %%------------------------------------------------------------------------------
+
+process_packet(?CONNECT_PACKET(
+                  #mqtt_packet_connect{proto_name  = <<"LwM2M">>,
+                                       proto_ver   = ProtoVer,
+                                       keepalive   = Keepalive,
+                                       client_id   = ClientId,
+                                       username    = Username,
+                                       password    = Password} = Connect), PState) ->
+
+    PState1 = set_username(Username,
+                           PState#pstate{client_id    = ClientId,
+                                         proto_ver    = ProtoVer,
+                                         proto_name   = <<"LwM2M">>,
+                                         keepalive    = Keepalive,
+                                         connected_at = os:timestamp()}),
+    case check_connect(Connect, PState1) of
+          {ok, PState2} ->
+              case authenticate(credentials(PState2), Password) of
+                  {ok, IsSuper} ->
+                      {ok, PState2#pstate{is_super = IsSuper, connected = true}};
+                  {error, Reason} ->
+                      ?LOG(error, "Username '~s' login failed for ~p", [Username, Reason], PState2),
+                      {error, Reason, PState1}
+              end;
+          {error, ReasonCode} ->
+              {error, {code, ReasonCode}, PState1}
+    end;
 
 process_packet(?CONNECT_PACKET(
                   #mqtt_packet_connect{proto_name  = ProtoName,
@@ -621,10 +652,14 @@ set_property(Name, Value, Props) ->
 %% Check Packet
 %%------------------------------------------------------------------------------
 
-check_connect(Packet, PState) ->
+check_connect(Packet, PState = #pstate{proto_name = MQTT})
+                when MQTT =:= <<"MQTT">>; MQTT =:= <<"MQIsdp">> ->
     run_check_steps([fun check_proto_ver/2,
                      fun check_client_id/2,
-                     fun check_banned/2], Packet, PState).
+                     fun check_banned/2], Packet, PState);
+
+check_connect(Packet, PState = #pstate{proto_name = <<"LwM2M">> }) ->
+    run_check_steps([fun check_banned/2], Packet, PState).
 
 check_proto_ver(#mqtt_packet_connect{proto_ver  = Ver,
                                      proto_name = Name}, _PState) ->
