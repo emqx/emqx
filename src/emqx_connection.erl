@@ -152,7 +152,7 @@ init([Transport, RawSocket, Options]) ->
                                      }),
             GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
             ok = emqx_gc:init(GcPolicy),
-            erlang:put(force_shutdown_policy, emqx_zone:get_env(Zone, force_shutdown_policy)),
+            ok = emqx_misc:init_proc_mng_policy(Zone),
             gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}],
                                   State, self(), IdleTimout);
         {error, Reason} ->
