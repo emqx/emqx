@@ -249,7 +249,6 @@ handle_info({inet_async, _Sock, _Ref, {ok, Data}}, State) ->
     Size = iolist_size(Data),
     emqx_metrics:inc('bytes/received', Size),
     Incoming = #{bytes => Size, packets => 0},
-    put(last_packet_ts, erlang:system_time(millisecond)),
     handle_packet(Data, State#state{await_recv = false, incoming = Incoming});
 
 handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
@@ -261,9 +260,15 @@ handle_info({inet_reply, _Sock, ok}, State) ->
 handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
     shutdown(Reason, State);
 
-handle_info({keepalive, start, Interval}, State) ->
+handle_info({keepalive, start, Interval}, State = #state{transport = Transport, socket = Socket}) ->
     ?LOG(debug, "Keepalive at the interval of ~p", [Interval], State),
-    case emqx_keepalive:start(Interval, {keepalive, check}) of
+    StatFun = fun() ->
+                case Transport:getstat(Socket, [recv_oct]) of
+                    {ok, [{recv_oct, RecvOct}]} -> {ok, RecvOct};
+                    Error                       -> Error
+                end
+             end,
+    case emqx_keepalive:start(StatFun, Interval, {keepalive, check}) of
         {ok, KeepAlive} ->
             {noreply, State#state{keepalive = KeepAlive}};
         {error, Error} ->
@@ -271,7 +276,7 @@ handle_info({keepalive, start, Interval}, State) ->
     end;
 
 handle_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
-    case emqx_keepalive:check(KeepAlive, get(last_packet_ts)) of
+    case emqx_keepalive:check(KeepAlive) of
         {ok, KeepAlive1} ->
             {noreply, State#state{keepalive = KeepAlive1}};
         {error, timeout} ->

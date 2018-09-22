@@ -12,8 +12,9 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_keepalive_SUITE).
+-module(emqx_net_SUITE).
 
+%% CT
 -compile(export_all).
 -compile(nowarn_export_all).
 
