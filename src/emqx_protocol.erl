@@ -607,7 +607,7 @@ check_proto_ver(#mqtt_packet_connect{proto_ver  = Ver,
                                      proto_name = Name}, _PState) ->
     case lists:member({Ver, Name}, ?PROTOCOL_NAMES) of
         true  -> ok;
-        false -> {error, ?RC_UNSUPPORTED_PROTOCOL_VERSION}
+        false -> {error, ?RC_PROTOCOL_ERROR}
     end.
 
 %% MQTT3.1 does not allow null clientId
