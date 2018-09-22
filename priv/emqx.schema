@@ -676,14 +676,14 @@ end}.
   {datatype, {enum, [allow, deny]}}
 ]}.
 
-%% @doc Enable Ban.
-{mapping, "zone.$name.enable_ban", "emqx.zones", [
+%% @doc Enable ACL check.
+{mapping, "zone.$name.enable_acl", "emqx.zones", [
   {default, off},
   {datatype, flag}
 ]}.
 
-%% @doc Enable ACL check.
-{mapping, "zone.$name.enable_acl", "emqx.zones", [
+%% @doc Enable Ban.
+{mapping, "zone.$name.enable_ban", "emqx.zones", [
   {default, off},
   {datatype, flag}
 ]}.
@@ -696,7 +696,6 @@ end}.
 
 %% @doc Publish limit of the MQTT connections.
 {mapping, "zone.$name.publish_limit", "emqx.zones", [
-  {default, undefined},
   {datatype, string}
 ]}.
 
@@ -850,6 +849,15 @@ end}.
                     {mqtt_wildcard_subscription, Val};
                ("shared_subscription", Val) ->
                     {mqtt_shared_subscription, Val};
+               ("publish_limit", Val) ->
+                    [Limit, Duration] = string:tokens(Val, ", "),
+                    PubLimit = case cuttlefish_duration:parse(Duration, s) of
+                                   Secs when is_integer(Secs) ->
+                                       {list_to_integer(Limit) / Secs, list_to_integer(Limit)};
+                                   {error, Reason} ->
+                                       error(Reason)
+                               end,
+                    {publish_limit, PubLimit};
                ("force_gc_policy", Val) ->
                     [Count, Bytes] = string:tokens(Val, "| "),
                     GcPolicy = case cuttlefish_bytesize:parse(Bytes) of
@@ -862,12 +870,12 @@ end}.
                ("force_shutdown_policy", Val) ->
                     [Len, Siz] = string:tokens(Val, "| "),
                     ShutdownPolicy = case cuttlefish_bytesize:parse(Siz) of
-                                   {error, Reason} ->
-                                       error(Reason);
-                                   Siz1 ->
-                                         #{message_queue_len => list_to_integer(Len),
-                                           total_heap_size   => Siz1}
-                               end,
+                                         {error, Reason} ->
+                                             error(Reason);
+                                         Siz1 ->
+                                             #{message_queue_len => list_to_integer(Len),
+                                               total_heap_size   => Siz1}
+                                     end,
                     {force_shutdown_policy, ShutdownPolicy};
                (Opt, Val) ->
                     {list_to_atom(Opt), Val}
