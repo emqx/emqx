@@ -1454,7 +1454,7 @@ end}.
 %%--------------------------------------------------------------------
 %% Bridges
 %%--------------------------------------------------------------------
-{mapping, "bridge.$name.store_type", "emqx.bridges", [
+{mapping, "bridge.$name.mqueue_type", "emqx.bridges", [
   {datatype, {enum, [memory, disk]}}
 ]}.
 
@@ -1463,7 +1463,7 @@ end}.
 ]}.
 
 {mapping, "bridge.$name.proto_ver", "emqx.bridges", [
-  {datatype, {enum, [mqtt3, mqtt4, mqtt5]}}
+  {datatype, {enum, [mqttv3, mqttv4, mqttv5]}}
 ]}.
 
 {mapping, "bridge.$name.client_id", "emqx.bridges", [
@@ -1534,12 +1534,7 @@ end}.
   {default, auto}
 ]}.
 
-{mapping, "bridge.$name.reconnect_count", "emqx.bridges", [
-  {default, 10},
-  {datatype, integer}
-]}.
-
-{mapping, "bridge.$name.reconnect_time", "emqx.bridges", [
+{mapping, "bridge.$name.reconnect_interval", "emqx.bridges", [
   {default, "30s"},
   {datatype, {duration, s}}
 ]}.
