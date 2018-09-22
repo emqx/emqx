@@ -331,7 +331,7 @@ init([Parent, #{zone        := Zone,
                 username    := Username,
                 conn_pid    := ConnPid,
                 clean_start := CleanStart,
-                conn_props  := ConnProps}]) ->
+                expiry_interval := ExpiryInterval}]) ->
     process_flag(trap_exit, true),
     true = link(ConnPid),
     MaxInflight = get_env(Zone, max_inflight),
@@ -351,7 +351,7 @@ init([Parent, #{zone        := Zone,
                    awaiting_rel      = #{},
                    await_rel_timeout = get_env(Zone, await_rel_timeout),
                    max_awaiting_rel  = get_env(Zone, max_awaiting_rel),
-                   expiry_interval   = expire_interval(Zone, ConnProps),
+                   expiry_interval   = ExpiryInterval,
                    enable_stats      = get_env(Zone, enable_stats, true),
                    deliver_stats     = 0,
                    enqueue_stats     = 0,
@@ -361,11 +361,6 @@ init([Parent, #{zone        := Zone,
     emqx_hooks:run('session.created', [#{client_id => ClientId}, info(State)]),
     ok = proc_lib:init_ack(Parent, {ok, self()}),
     gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}], State).
-
-expire_interval(_Zone, #{'Session-Expiry-Interval' := I}) ->
-    I * 1000;
-expire_interval(Zone, _ConnProps) -> %% Maybe v3.1.1
-    get_env(Zone, session_expiry_interval, 0).
 
 init_mqueue(Zone) ->
     emqx_mqueue:init(#{type => get_env(Zone, mqueue_type, simple),
@@ -865,7 +860,7 @@ ensure_retry_timer(_Timeout, State) ->
     State.
 
 ensure_expire_timer(State = #state{expiry_interval = Interval}) when Interval > 0 andalso Interval =/= 16#ffffffff ->
-    State#state{expiry_timer = emqx_misc:start_timer(Interval, expired)};
+    State#state{expiry_timer = emqx_misc:start_timer(Interval * 1000, expired)};
 ensure_expire_timer(State) ->
     State.
 

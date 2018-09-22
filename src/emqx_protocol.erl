@@ -570,17 +570,32 @@ maybe_assign_client_id(PState) ->
     PState.
 
 try_open_session(#pstate{zone        = Zone,
+                         proto_ver   = ProtoVer,
                          client_id   = ClientId,
                          conn_pid    = ConnPid,
                          conn_props  = ConnProps,
                          username    = Username,
                          clean_start = CleanStart}) ->
-    case emqx_sm:open_session(#{zone        => Zone,
-                                client_id   => ClientId,
-                                conn_pid    => ConnPid,
-                                username    => Username,
-                                clean_start => CleanStart,
-                                conn_props  => ConnProps}) of
+
+    SessAttrs = #{
+        zone        => Zone,
+        client_id   => ClientId,
+        conn_pid    => ConnPid,
+        username    => Username,
+        clean_start => CleanStart
+    },
+
+    case emqx_sm:open_session(maps:put(expiry_interval, if 
+                                ProtoVer =:= ?MQTT_PROTO_V5 ->
+                                    maps:get('Session-Expiry-Interval', ConnProps, 0);
+                                true ->
+                                    case CleanStart of
+                                        true ->
+                                            0;
+                                        false ->
+                                            emqx_zone:get_env(Zone, session_expiry_interval, 16#ffffffff)
+                                    end  
+                            end, SessAttrs)) of
         {ok, SPid} ->
             {ok, SPid, false};
         Other -> Other
