@@ -835,7 +835,6 @@ end}.
 %% connection/session process.
 %% Message queue here is the Erlang process mailbox, but not the number
 %% of queued MQTT messages of QoS 1 and 2.
-%% Total heap size is the in Erlang 'words' not in 'bytes'.
 %% Zero or negative is to disable.
 {mapping, "zone.$name.force_shutdown_policy", "emqx.zones", [
   {default, "0 | 0MB"},
@@ -864,7 +863,8 @@ end}.
                                    {error, Reason} ->
                                        error(Reason);
                                    Bytes1 ->
-                                       #{bytes => Bytes1, count => list_to_integer(Count)}
+                                       #{bytes => Bytes1,
+                                         count => list_to_integer(Count)}
                                end,
                     {force_gc_policy, GcPolicy};
                ("force_shutdown_policy", Val) ->
@@ -874,7 +874,7 @@ end}.
                                              error(Reason);
                                          Siz1 ->
                                              #{message_queue_len => list_to_integer(Len),
-                                               total_heap_size   => Siz1}
+                                               max_heap_size => Siz1}
                                      end,
                     {force_shutdown_policy, ShutdownPolicy};
                (Opt, Val) ->
