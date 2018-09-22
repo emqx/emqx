@@ -489,22 +489,30 @@ deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
       max_topic_alias := MaxAlias,
       mqtt_shared_subscription := Shared,
       mqtt_wildcard_subscription := Wildcard} = caps(PState),
-    Props = #{'Maximum-QoS' => MaxQoS,
-              'Retain-Available' => flag(Retain),
+    Props = #{'Retain-Available' => flag(Retain),
               'Maximum-Packet-Size' => MaxPktSize,
               'Topic-Alias-Maximum' => MaxAlias,
               'Wildcard-Subscription-Available' => flag(Wildcard),
               'Subscription-Identifier-Available' => 1,
               'Shared-Subscription-Available' => flag(Shared)},
-    Props1 = if IsAssigned ->
-                    Props#{'Assigned-Client-Identifier' => ClientId};
-                true -> Props
+
+    Props1 = if 
+                MaxQoS =:= ?QOS_2 -> 
+                    Props;
+                true ->
+                    maps:put('Maximum-QoS', MaxQoS, Props)
+            end,
+    
+    Props2 = if IsAssigned ->
+                    Props1#{'Assigned-Client-Identifier' => ClientId};
+                true -> Props1
              end,
-    Props2 = case emqx_zone:get_env(Zone, server_keepalive) of
-                 undefined -> Props1;
-                 Keepalive -> Props1#{'Server-Keep-Alive' => Keepalive}
+
+    Props3 = case emqx_zone:get_env(Zone, server_keepalive) of
+                 undefined -> Props2;
+                 Keepalive -> Props2#{'Server-Keep-Alive' => Keepalive}
              end,
-    send(?CONNACK_PACKET(?RC_SUCCESS, SP, Props2), PState);
+    send(?CONNACK_PACKET(?RC_SUCCESS, SP, Props3), PState);
 
 deliver({connack, ReasonCode, SP}, PState) ->
     send(?CONNACK_PACKET(ReasonCode, SP), PState);
