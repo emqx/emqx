@@ -24,23 +24,19 @@ timer_cancel_flush_test() ->
 
 shutdown_disabled_test() ->
     self() ! foo,
-    ?assertEqual(continue, conn_proc_mng_policy(0, 0)),
+    ?assertEqual(continue, conn_proc_mng_policy(0)),
     receive foo -> ok end,
-    ?assertEqual(hibernate, conn_proc_mng_policy(0, 0)).
+    ?assertEqual(hibernate, conn_proc_mng_policy(0)).
 
 message_queue_too_long_test() ->
     self() ! foo,
     self() ! bar,
     ?assertEqual({shutdown, message_queue_too_long},
-                 conn_proc_mng_policy(1, 0)),
+                 conn_proc_mng_policy(1)),
     receive foo -> ok end,
-    ?assertEqual(continue, conn_proc_mng_policy(1, 0)),
+    ?assertEqual(continue, conn_proc_mng_policy(1)),
     receive bar -> ok end.
 
-total_heap_size_too_large_test() ->
-    ?assertEqual({shutdown, total_heap_size_too_large},
-                 conn_proc_mng_policy(0, 1)).
+conn_proc_mng_policy(L) ->
+    emqx_misc:conn_proc_mng_policy(#{message_queue_len => L}).
 
-conn_proc_mng_policy(L, S) ->
-    emqx_misc:conn_proc_mng_policy(#{message_queue_len => L,
-                                     total_heap_size => S}).
