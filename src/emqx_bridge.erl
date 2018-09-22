@@ -52,19 +52,39 @@ show_forwards(Name) ->
     gen_server:call(name(Name), show_forwards).
 
 add_forward(Name, Topic) ->
-    gen_server:call(name(Name), {add_forward, Topic}).
+    case emqx_topic:validate({filter, Topic}) of
+        true ->
+            gen_server:call(name(Name), {add_forward, Topic});
+        false ->
+            validate_fail
+    end.
 
 del_forward(Name, Topic) ->
-    gen_server:call(name(Name), {del_forward, Topic}).
+    case emqx_topic:validate({filter, Topic}) of
+        true ->
+            gen_server:call(name(Name), {del_forward, Topic});
+        false ->
+            validate_fail
+    end.
 
 show_subscriptions(Name) ->
     gen_server:call(name(Name), show_subscriptions).
 
 add_subscription(Name, Topic, Qos) ->
-    gen_server:call(name(Name), {add_subscription, Topic, Qos}).
+    case emqx_topic:validate({filter, Topic}) of
+        true ->
+            gen_server:call(name(Name), {add_subscription, Topic, Qos});
+        false ->
+            validate_fail
+    end.
 
 del_subscription(Name, Topic) ->
-    gen_server:call(name(Name), {del_subscription, Topic}).
+    case emqx_topic:validate({filter, Topic}) of
+        true ->
+            gen_server:call(name(Name), {del_subscription, Topic});
+        false ->
+            validate_fail
+    end.
 
 status(Pid) ->
     gen_server:call(Pid, status).
@@ -117,7 +137,7 @@ handle_call(show_forwards, _From, State = #state{forwards = Forwards}) ->
     {reply, Forwards, State};
 
 handle_call({add_forward, Topic}, _From, State = #state{forwards = Forwards}) ->
-    case emqx_topic:validate({filter, Topic}) andalso (not lists:member(Topic, Forwards)) of
+    case not lists:member(Topic, Forwards) of
         true ->
             emqx_broker:subscribe(Topic),
             {reply, ok, State#state{forwards = [Topic | Forwards]}};
@@ -138,7 +158,7 @@ handle_call(show_subscriptions, _From, State = #state{subscriptions = Subscripti
     {reply, Subscriptions, State};
 
 handle_call({add_subscription, Topic, Qos}, _From, State = #state{subscriptions = Subscriptions, client_pid = ClientPid}) ->
-    case emqx_topic:validate({filter, Topic}) andalso (not lists:keymember(Topic, 1, Subscriptions)) of
+    case not lists:keymember(Topic, 1, Subscriptions) of
         true ->
             emqx_client:subscribe(ClientPid, {Topic, Qos}),
             {reply, ok, State#state{subscriptions = [{Topic, Qos} | Subscriptions]}};
