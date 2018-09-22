@@ -326,11 +326,11 @@ close(SPid) ->
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
 
-init([Parent, #{zone        := Zone,
-                client_id   := ClientId,
-                username    := Username,
-                conn_pid    := ConnPid,
-                clean_start := CleanStart,
+init([Parent, #{zone            := Zone,
+                client_id       := ClientId,
+                username        := Username,
+                conn_pid        := ConnPid,
+                clean_start     := CleanStart,
                 expiry_interval := ExpiryInterval}]) ->
     process_flag(trap_exit, true),
     true = link(ConnPid),
