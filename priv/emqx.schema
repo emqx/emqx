@@ -797,7 +797,7 @@ end}.
 %% @doc Session Expiry Interval
 {mapping, "zone.$name.session_expiry_interval", "emqx.zones", [
   {default, "2h"},
-  {datatype, {duration, ms}}
+  {datatype, {duration, s}}
 ]}.
 
 %% @doc Type: simple | priority
