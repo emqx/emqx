@@ -66,19 +66,19 @@ reload(_App) ->
     ok.
 
 -spec(write(atom(), list(env())) -> ok | {error, term()}).
-write(App, Terms) ->
-    Configs = lists:map(fun({Key, Val}) ->
-        {cuttlefish_variable:tokenize(binary_to_list(Key)), binary_to_list(Val)}
-    end, Terms),
-    Path = lists:concat([code:priv_dir(App), "/", App, ".schema"]),
-    Schema = cuttlefish_schema:files([Path]),
-    case cuttlefish_generator:map(Schema, Configs) of
-        [{App, Configs1}] ->
-            emqx_cli_config:write_config(App, Configs),
-            lists:foreach(fun({Key, Val}) -> application:set_env(App, Key, Val) end, Configs1);
-        _ ->
-            error
-    end.
+write(_App, _Terms) -> ok.
+    % Configs = lists:map(fun({Key, Val}) ->
+    %     {cuttlefish_variable:tokenize(binary_to_list(Key)), binary_to_list(Val)}
+    % end, Terms),
+    % Path = lists:concat([code:priv_dir(App), "/", App, ".schema"]),
+    % Schema = cuttlefish_schema:files([Path]),
+    % case cuttlefish_generator:map(Schema, Configs) of
+    %     [{App, Configs1}] ->
+    %         emqx_cli_config:write_config(App, Configs),
+    %         lists:foreach(fun({Key, Val}) -> application:set_env(App, Key, Val) end, Configs1);
+    %     _ ->
+    %         error
+    % end.
 
 -spec(dump(atom(), list(env())) -> ok | {error, term()}).
 dump(_App, _Terms) ->
@@ -86,47 +86,47 @@ dump(_App, _Terms) ->
     ok.
 
 -spec(set(atom(), list(), list()) -> ok).
-set(App, Par, Val) ->
-    emqx_cli_config:run(["config",
-                            "set",
-                            lists:concat([Par, "=", Val]),
-                            lists:concat(["--app=", App])]).
+set(_App, _Par, _Val) -> ok.
+    % emqx_cli_config:run(["config",
+    %                         "set",
+    %                         lists:concat([Par, "=", Val]),
+    %                         lists:concat(["--app=", App])]).
 
 -spec(get(atom(), list()) -> undefined | {ok, term()}).
-get(App, Par) ->
-    case emqx_cli_config:get_cfg(App, Par) of
-        undefined -> undefined;
-        Val -> {ok, Val}
-    end.
+get(_App, _Par) -> error(no_impl).
+    % case emqx_cli_config:get_cfg(App, Par) of
+    %     undefined -> undefined;
+    %     Val -> {ok, Val}
+    % end.
 
 -spec(get(atom(), list(), atom()) -> term()).
-get(App, Par, Def) ->
-    emqx_cli_config:get_cfg(App, Par, Def).
+get(_App, _Par, _Def) -> error(no_impl).
+    % emqx_cli_config:get_cfg(App, Par, Def).
 
 
-read_(App) ->
-    Configs = emqx_cli_config:read_config(App),
-    Path = lists:concat([code:priv_dir(App), "/", App, ".schema"]),
-    case filelib:is_file(Path) of
-        false ->
-            [];
-        true ->
-            {_, Mappings, _} = cuttlefish_schema:files([Path]),
-            OptionalCfg = lists:foldl(fun(Map, Acc) ->
-                Key = cuttlefish_mapping:variable(Map),
-                case proplists:get_value(Key, Configs) of
-                    undefined ->
-                        [{cuttlefish_variable:format(Key), "", cuttlefish_mapping:doc(Map), false} | Acc];
-                    _ -> Acc
-                end
-            end, [], Mappings),
-            RequiredCfg = lists:foldl(fun({Key, Val}, Acc) ->
-                case lists:keyfind(Key, 2, Mappings) of
-                    false -> Acc;
-                    Map ->
-                        [{cuttlefish_variable:format(Key), Val, cuttlefish_mapping:doc(Map), true} | Acc]
-                end
-            end, [], Configs),
-            RequiredCfg ++ OptionalCfg
-    end.
+read_(_App) -> error(no_impl).
+    % Configs = emqx_cli_config:read_config(App),
+    % Path = lists:concat([code:priv_dir(App), "/", App, ".schema"]),
+    % case filelib:is_file(Path) of
+    %     false ->
+    %         [];
+    %     true ->
+    %         {_, Mappings, _} = cuttlefish_schema:files([Path]),
+    %         OptionalCfg = lists:foldl(fun(Map, Acc) ->
+    %             Key = cuttlefish_mapping:variable(Map),
+    %             case proplists:get_value(Key, Configs) of
+    %                 undefined ->
+    %                     [{cuttlefish_variable:format(Key), "", cuttlefish_mapping:doc(Map), false} | Acc];
+    %                 _ -> Acc
+    %             end
+    %         end, [], Mappings),
+    %         RequiredCfg = lists:foldl(fun({Key, Val}, Acc) ->
+    %             case lists:keyfind(Key, 2, Mappings) of
+    %                 false -> Acc;
+    %                 Map ->
+    %                     [{cuttlefish_variable:format(Key), Val, cuttlefish_mapping:doc(Map), true} | Acc]
+    %             end
+    %         end, [], Configs),
+    %         RequiredCfg ++ OptionalCfg
+    % end.
 

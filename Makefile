@@ -91,6 +91,9 @@ cuttlefish: rebar-deps
 		mv _build/default/lib/cuttlefish/cuttlefish ./cuttlefish; \
 	fi
 
+rebar-xref:
+	@rebar3 xref
+
 rebar-deps:
 	@rebar3 get-deps
 
