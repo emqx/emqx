@@ -13,6 +13,8 @@ script:
   - make rebar-eunit
   - make rebar-ct
   - make rebar-cover
+
+after_success:
   - make coveralls
 
 sudo: false
