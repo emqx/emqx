@@ -19,9 +19,8 @@
 -include("emqx_mqtt.hrl").
 
 -export([start_link/0, start_link/1]).
--export([start_request/0, start_request/2, start_response/2, start_response/4]).
 -export([request/4, request/5]).
--export([set_response/2]).
+-export([def_response/2, sub_response_topic/4]).
 -export([subscribe/2, subscribe/3, subscribe/4]).
 -export([publish/2, publish/3, publish/4, publish/5]).
 -export([unsubscribe/2, unsubscribe/3]).
@@ -59,7 +58,6 @@
                 | {keepalive, non_neg_integer()}
                 | {max_inflight, pos_integer()}
                 | {retry_interval, timeout()}
-                | {request_qos, ?QOS_0 | ?QOS_1 | ?QOS_2}
                 | {response_info, map()}
                 | {will_topic, iodata()}
                 | {will_payload, iodata()}
@@ -110,7 +108,6 @@
                 ack_timer       :: reference(),
                 retry_interval  :: pos_integer(),
                 retry_timer     :: reference(),
-                request_qos     :: ?QOS0 | ?QOS1 | ?QOS2,
                 response_info   :: iodata(),
                 session_present :: boolean(),
                 last_packet_id  :: packet_id(),
@@ -157,54 +154,24 @@
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
+-spec(def_response(client(), function() | binary()) -> ok).
+def_response(Responser, Response) ->
+    gen_statem:call(Responser, {def_response, Response}).
 
--spec(start_request() -> gen_statem:start_ret()).
-start_request() ->
-    start_request({shared,false},[{proto_ver, v5},
-        {properties, #{'Request-Response-Information' => 1}}]).
-
--spec(start_request(tuple(), map() | [option()]) -> gen_statem:start_ret()).
-start_request({shared, Shared}, Options) when is_map(Options) ->
-    start_request({shared, Shared},maps:to_list(Options));
-start_request({shared, Shared}, Options) when is_list(Options) ->
-    Properties = proplists:get_value(properties, Options, #{}),
-    ok = emqx_mqtt_props:validate(Properties),
-    NewProperties = maps:merge(Properties,
-                               #{'Request-Response-Information' => 1}),
-    NewOptions = lists:append(Options, [{proto_ver, v5},
-                                        {properties, NewProperties}]),
-    {ok, C, _} = start_link_with_owner(NewOptions),
-    {RequestQoS, ReqProperties} = gen_statem:call(C, requestinfo),
-    case maps:find('Response-Information', ReqProperties) of
-        {ok, ResponseTopic} ->
-            NewResponseTopic = shared_topic(Shared, ResponseTopic),
+sub_response_topic(Client, Shared, RequestQoS, Topic) ->
+    Properties = gen_statem:call(Client, request_info),
+    case maps:find('Response-Information', Properties) of
+        {ok, ResponseInformation} ->
+            NewResponseTopic = <<(shared_topic(Shared, ResponseInformation))/binary,
+                                 "/",
+                                 (emqx_base62:encode(Topic))/binary>>,
             io:format("~p", [NewResponseTopic]),
-            {ok, _, [2]} = subscribe(C, [{NewResponseTopic, [{rh, 2}, {rap, false},
-                {nl, true}, {qos, RequestQoS}]}]),
-            {ok, C, RequestQoS};
+            {ok, _, [2]} = subscribe(Client, [{NewResponseTopic, [{rh, 2}, {rap, false},
+                                                                  {nl, true}, {qos, RequestQoS}]}]),
+            {ok, NewResponseTopic};
         error ->
             emqx_logger:error("request failed.")
     end.
-
--spec(set_response(client(), iodata()) -> ok | term()).
-set_response(Responser, ResponseInfo) ->
-    gen_statem:call(Responser, {set_response, ResponseInfo}).
-
--spec(start_response(tuple(), iodata()) -> gen_statem:start_ret()).
-start_response({shared, Shared}, Topic) ->
-    start_response({shared, Shared},Topic, ?QOS_0, [{proto_ver, v5}]).
-
--spec(start_response(tuple(), iodata(), qos(), map() | [option()]) -> gen_statem:start_ret()).
-start_response({shared, Shared}, Topic, QOS, Options) when is_map(Options) ->
-    start_response({shared, Shared}, Topic, QOS, Options);
-start_response({shared, Shared},Topic, QOS, Options) when is_list(Options) ->
-    ok  = emqx_mqtt_props:validate(
-            proplists:get_value(properties, Options, #{})),
-    NewOptions = lists:append(Options, [{proto_ver, v5}]),
-    {ok, C, _} = start_link_with_owner(NewOptions),
-    NewTopic = shared_topic(Shared, Topic),
-    {ok, _, [QOS]} = subscribe(C, [{NewTopic, [{rh, 2}, {rap, false}, {nl, true}, {qos, ?QOS_2}]}]),
-    {ok, C}.
 
 -spec(start_link() -> gen_statem:start_ret()).
 start_link() -> start_link([]).
@@ -215,9 +182,6 @@ start_link(Options) when is_map(Options) ->
 start_link(Options) when is_list(Options) ->
     ok  = emqx_mqtt_props:validate(
             proplists:get_value(properties, Options, #{})),
-    start_link_with_owner(Options).
-
-start_link_with_owner(Options) ->
     case start_client(with_owner(Options)) of
         {ok, Client} ->
             connect(Client);
@@ -319,17 +283,23 @@ request(Client, Topic, Payload, Opts) when is_binary(Topic), is_list(Opts) ->
 request(Client, Topic, Properties, Payload, Opts)
     when is_binary(Topic), is_map(Properties), is_list(Opts) ->
     ok = emqx_mqtt_props:validate(Properties),
-    {_, ReqProperties} = gen_statem:call(Client, requestinfo),
-    {ok, ResponseTopic} = maps:find('Response-Information', ReqProperties),
-    NewProperties = maps:merge(Properties, #{'Response-Topic' => ResponseTopic}),
     Retain = proplists:get_bool(retain, Opts),
+    Shared = proplists:get_bool(shared, Opts),
+    TimeOut = proplists:get_value(timeout, Opts, 5),
     QoS = ?QOS_I(proplists:get_value(qos, Opts, ?QOS_0)),
+    {ok, ResponseTopic} = sub_response_topic(Client, Shared, QoS, Topic),
+    NewProperties = maps:merge(Properties, #{'Response-Topic' => ResponseTopic}),
     publish(Client, #mqtt_msg{qos  = QoS,
                               retain = Retain,
-                              topic = Topic,
+                              topic = ResponseTopic,
                               props = NewProperties,
-                              payload = iolist_to_binary(Payload)}).
-
+                              payload = iolist_to_binary(Payload)}),
+    receive
+        {publish, Response} ->
+            maps:find(payload, Response)
+    after TimeOut ->
+            {timeout, <<"No Response">>}
+    end.
 
 -spec(publish(client(), topic(), payload()) -> ok | {error, term()}).
 publish(Client, Topic, Payload) when is_binary(Topic) ->
@@ -479,7 +449,6 @@ init([Options]) ->
                                  auto_ack        = true,
                                  ack_timeout     = ?DEFAULT_ACK_TIMEOUT,
                                  retry_interval  = 0,
-                                 request_qos     = 0,
                                  response_info   = <<>>,
                                  connect_timeout = ?DEFAULT_CONNECT_TIMEOUT,
                                  last_packet_id  = 1}),
@@ -573,8 +542,6 @@ init([{auto_ack, AutoAck} | Opts], State) when is_boolean(AutoAck) ->
     init(Opts, State#state{auto_ack = AutoAck});
 init([{retry_interval, I} | Opts], State) ->
     init(Opts, State#state{retry_interval = timer:seconds(I)});
-init([{request_qos, ReqQoS} | Opts], State) ->
-    init(Opts, State#state{request_qos = ReqQoS});
 init([{bridge_mode, Mode} | Opts], State) when is_boolean(Mode) ->
     init(Opts, State#state{bridge_mode = Mode});
 init([_Opt | Opts], State) ->
@@ -600,6 +567,7 @@ callback_mode() -> state_functions.
 
 initialized({call, From}, connect, State = #state{sock_opts       = SockOpts,
                                                   connect_timeout = Timeout}) ->
+    io:format("State: ~p", [State]),
     case sock_connect(hosts(State), SockOpts, Timeout) of
         {ok, Sock} ->
             case mqtt_connect(run_sock(State#state{socket = Sock})) of
@@ -669,7 +637,7 @@ waiting_for_connack(cast, ?CONNACK_PACKET(?RC_SUCCESS,
                                   (Id, _Props) ->
                                        Id
                                end,
-            State2 = State1#state{client_id = AssignedClientId(ClientId, AllProps),
+            State2 = State1#state{client_id = AssignedClientId(ClientId, AllProps1),
                                   properties = AllProps1,
                                   session_present = SessPresent},
             {next_state, connected, ensure_keepalive_timer(State2),
@@ -716,13 +684,11 @@ connected({call, From}, resume, State) ->
 connected({call, From}, stop, _State) ->
     {stop_and_reply, normal, [{reply, From, ok}]};
 
-connected({call, From}, requestinfo, State = #state{properties = Properties, request_qos = RequestQoS}) ->
-    {keep_state, State, [{reply, From, {RequestQoS, Properties}}]};
+connected({call, From}, request_info, State = #state{properties = Properties}) ->
+    {keep_state, State, [{reply, From, Properties}]};
 
-connected({call, From}, {set_response, ResponseInfo}, State) ->
+connected({call, From}, {def_response, ResponseInfo}, State) ->
     {keep_state, State#state{response_info = ResponseInfo}, [{reply, From, ok}]};
-
-
 
 connected({call, From}, SubReq = {subscribe, Properties, Topics},
           State = #state{last_packet_id = PacketId, subscriptions = Subscriptions}) ->
@@ -806,24 +772,24 @@ connected(cast, {pubcomp, PacketId, ReasonCode, Properties}, State) ->
 connected(cast, ?PUBLISH_PACKET(_QoS, _PacketId), State = #state{paused = true}) ->
     {keep_state, State};
 
-connected(cast, Packet = ?PUBLISH_PACKET(?QOS_0, _Topic, _PacketId, Properties, _Payload),
+connected(cast, Packet = ?PUBLISH_PACKET(?QOS_0, _Topic, _PacketId, Properties, Payload),
           State) when Properties =/= undefined ->
-    NewState = response_publish(Properties, State, ?QOS_0),
+    NewState = response_publish(Properties, State, ?QOS_0, Payload),
     {keep_state, deliver(packet_to_msg(Packet), NewState)};
 connected(cast, Packet = ?PUBLISH_PACKET(?QOS_0, _PacketId), State) ->
      {keep_state, deliver(packet_to_msg(Packet), State)};
 
-connected(cast, Packet = ?PUBLISH_PACKET(?QOS_1, _Topic, _PacketId, Properties, _Payload), State)
+connected(cast, Packet = ?PUBLISH_PACKET(?QOS_1, _Topic, _PacketId, Properties, Payload), State)
     when Properties =/= undefined ->
-    NewState = response_publish(Properties, State, ?QOS_1),
+    NewState = response_publish(Properties, State, ?QOS_1, Payload),
     publish_process(?QOS_1, Packet, NewState);
 
 connected(cast, Packet = ?PUBLISH_PACKET(?QOS_1, _PacketId), State) ->
     publish_process(?QOS_1, Packet, State);
 
-connected(cast, Packet = ?PUBLISH_PACKET(?QOS_2, _Topic, _PacketId, Properties, _Payload), State)
+connected(cast, Packet = ?PUBLISH_PACKET(?QOS_2, _Topic, _PacketId, Properties, Payload), State)
     when Properties =/= undefined ->
-    NewState = response_publish(Properties, State, ?QOS_2),
+    NewState = response_publish(Properties, State, ?QOS_2, Payload),
     publish_process(?QOS_2, Packet, NewState);
 connected(cast, Packet = ?PUBLISH_PACKET(?QOS_2, _PacketId), State) ->
     publish_process(?QOS_2, Packet, State);
@@ -1023,6 +989,13 @@ publish_process(?QOS_2, Packet = ?PUBLISH_PACKET(?QOS_2, PacketId),
         Stop -> Stop
     end.
 
+response_process(ResponseInfo, _Payload) when is_list(ResponseInfo) ->
+    response_process(iolist_to_binary(ResponseInfo), _Payload);
+response_process(ResponseInfo, _Payload) when is_binary(ResponseInfo) ->
+    ResponseInfo;
+response_process(ResponseFun, Payload) when is_function(ResponseFun) ->
+    ResponseFun(Payload).
+
 shared_topic(Shared, Topic) ->
     case Shared of
         true ->
@@ -1031,31 +1004,33 @@ shared_topic(Shared, Topic) ->
             Topic
     end.
 
-response_publish(undefined, _State, _QoS) ->
+response_publish(undefined, _State, _QoS, _Payload) ->
     ok;
 
-response_publish(Properties, State = #state{response_info = ResponseInfo}, QoS) ->
+response_publish(Properties, State = #state{response_info = ResponseInfo}, QoS, Payload) ->
     case maps:find('Response-Topic', Properties) of
         {ok, ResponseTopic} ->
-            case bit_size(ResponseInfo) of
-                0 -> State;
-                _ -> do_publish(ResponseTopic, Properties, State, {qos, QoS})
+            case ResponseInfo of
+                <<>> -> State;
+                _ -> do_publish(ResponseTopic, Properties, State, QoS, Payload)
             end
     end.
 
-do_publish(ResponseTopic, Properties, State = #state{response_info = ResponseInfo}, {qos, ?QOS_0}) ->
+do_publish(ResponseTopic, Properties, State = #state{response_info = ResponseInfo}, ?QOS_0, Payload) ->
         Msg = #mqtt_msg{qos     = ?QOS_0,
                         retain  = false,
                         topic   = ResponseTopic,
                         props   = Properties,
-                        payload = iolist_to_binary(ResponseInfo)
+                        payload = response_process(ResponseInfo, Payload)
                        },
     case send(Msg, State) of
         {ok, NewState} -> NewState;
         _Error -> State
     end;
 do_publish(ResponseTopic, Properties, State = #state{response_info = ResponseInfo,
-    inflight = Inflight, last_packet_id = PacketId}, {qos, QoS})
+                                                     inflight = Inflight,
+                                                     last_packet_id = PacketId},
+           QoS, Payload)
     when (QoS =:= ?QOS_1); (QoS =:= ?QOS_2)->
     case emqx_inflight:is_full(Inflight) of
         true -> emqx_logger:error("Inflight is full");
@@ -1065,7 +1040,7 @@ do_publish(ResponseTopic, Properties, State = #state{response_info = ResponseInf
                             retain    = false,
                             topic     = ResponseTopic,
                             props     = Properties,
-                            payload   = iolist_to_binary(ResponseInfo)},
+                            payload   = response_process(ResponseInfo, Payload)},
             case send(Msg, State) of
                 {ok, NewState} ->
                     Inflight1 = emqx_inflight:insert(PacketId, {publish, Msg, os:timestamp()}, Inflight),
@@ -1074,8 +1049,6 @@ do_publish(ResponseTopic, Properties, State = #state{response_info = ResponseInf
                     emqx_logger:error("Send failed: ~p", [Reason])
             end
     end.
-
-
 
 ensure_keepalive_timer(State = ?PROPERTY('Server-Keep-Alive', Secs)) ->
     ensure_keepalive_timer(timer:seconds(Secs), State);
@@ -1179,7 +1152,7 @@ packet_to_msg(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                                                            properties = Props},
                            payload  = Payload}) ->
     #mqtt_msg{qos = QoS, retain = R, dup = Dup, packet_id = PacketId,
-              topic = Topic, props = Props, payload = Payload}.
+               topic = Topic, props = Props, payload = Payload}.
 
 msg_to_packet(#mqtt_msg{qos = QoS, dup = Dup, retain = Retain, packet_id = PacketId,
                        topic = Topic, props = Props, payload = Payload}) ->

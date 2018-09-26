@@ -82,27 +82,27 @@
 -spec(init(map(), list()) -> state()).
 init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options) ->
     Zone = proplists:get_value(zone, Options),
-    #pstate{zone         = Zone,
-            sendfun      = SendFun,
-            peername     = Peername,
-            peercert     = Peercert,
-            proto_ver    = ?MQTT_PROTO_V4,
-            proto_name   = <<"MQTT">>,
-            client_id    = <<>>,
-            is_assigned  = false,
-            conn_pid     = self(),
-            username     = init_username(Peercert, Options),
-            is_super     = false,
-            clean_start  = false,
+    #pstate{zone          = Zone,
+            sendfun       = SendFun,
+            peername      = Peername,
+            peercert      = Peercert,
+            proto_ver     = ?MQTT_PROTO_V4,
+            proto_name    = <<"MQTT">>,
+            client_id     = <<>>,
+            is_assigned   = false,
+            conn_pid      = self(),
+            username      = init_username(Peercert, Options),
+            is_super      = false,
+            clean_start   = false,
             topic_aliases = #{},
-            packet_size  = emqx_zone:get_env(Zone, max_packet_size),
-            mountpoint   = emqx_zone:get_env(Zone, mountpoint),
-            is_bridge    = false,
-            enable_ban   = emqx_zone:get_env(Zone, enable_ban, false),
-            enable_acl   = emqx_zone:get_env(Zone, enable_acl),
-            recv_stats   = #{msg => 0, pkt => 0},
-            send_stats   = #{msg => 0, pkt => 0},
-            connected    = false}.
+            packet_size   = emqx_zone:get_env(Zone, max_packet_size),
+            mountpoint    = emqx_zone:get_env(Zone, mountpoint),
+            is_bridge     = false,
+            enable_ban    = emqx_zone:get_env(Zone, enable_ban, false),
+            enable_acl    = emqx_zone:get_env(Zone, enable_acl),
+            recv_stats    = #{msg => 0, pkt => 0},
+            send_stats    = #{msg => 0, pkt => 0},
+            connected     = false}.
 
 init_username(Peercert, Options) ->
     case proplists:get_value(peer_cert_as_username, Options) of
@@ -500,7 +500,7 @@ deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
                                                      is_assigned = IsAssigned}) ->
     ResponseInformation = case maps:find('Request-Response-Information', CONNPROPS) of
                               {ok, 1} ->
-                                  ClientId;
+                                  iolist_to_binary(emqx_config:get_env(response_topic_prefix, "ResponseTopic"));
                               _ ->
                                   <<>>
                           end,

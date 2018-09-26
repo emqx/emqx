@@ -1,3 +1,4 @@
+
 %% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -51,17 +52,14 @@ receive_messages(Count, Msgs) ->
     end.
 
 request_response_test(_Config) ->
-    dbg:start(),
-    dbg:tracer(),
-    dbg:p(all, c),
+    {ok, Requester, _} = emqx_client:start_link([{proto_ver, v5},
+                                {properties, #{ 'Request-Response-Information' => 1}}]),
+    {ok, Responser, _} = emqx_client:start_link([{proto_ver, v5},
+                                {properties, #{ 'Request-Response-Information' => 1}}]),
+    {ok, ResponseTopic} = emqx_client:sub_response_topic(Responser, false, 2, <<"request_response_test">>),
+    ct:log("ResponseTopic: ~p",[ResponseTopic]),
+    ok = emqx_client:def_response(Responser, <<"ResponseTest">>),
+    {ok, <<"request_payload">>} = emqx_client:request(Requester, <<"request_response_test">>, <<"request_payload">>, ?QOS_2),
 
-    {ok, Requester, _} =
-        emqx_client:start_request({shared, false},[{client_id, <<"requestclient1">>},
-            {request_qos, ?QOS_2}]),
-    {ok, Responser} = emqx_client:start_response({shared, false},<<"requestclient1">>, ?QOS_2,
-        [{client_id, <<"responseclient2">>}]),
-    ok = emqx_client:set_response(Responser, <<"ResponseInfomation">>),
-        emqx_client:request(Requester, <<"requestclient1">>, <<"Request">>, ?QOS_2),
-    ?assertEqual(2,length(receive_messages(4))),
     ok = emqx_client:disconnect(Responser),
     ok = emqx_client:disconnect(Requester).
