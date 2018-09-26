@@ -649,7 +649,8 @@ mqtt_connect(State = #state{client_id   = ClientId,
 waiting_for_connack(cast, ?CONNACK_PACKET(?RC_SUCCESS,
                                           SessPresent,
                                           Properties),
-                    State = #state{properties = AllProps}) ->
+                    State = #state{properties = AllProps,
+                                   client_id = ClientId}) ->
     io:format("CONNACK Props: ~p~n", [Properties]),
     case take_call(connect, State) of
         {value, #call{from = From}, State1} ->
@@ -658,7 +659,18 @@ waiting_for_connack(cast, ?CONNACK_PACKET(?RC_SUCCESS,
                             _ -> maps:merge(AllProps, Properties)
                         end,
             Reply = {ok, self(), Properties},
-            State2 = State1#state{properties = AllProps1,
+            AssignedClientId = fun(<<>>, Props) ->
+                                   case maps:find('Assigned-Client-Identifier', Props) of
+                                       {ok, Value} ->
+                                           Value;
+                                       _ ->
+                                           emqx_logger:error("Bad Client Id")
+                                   end;
+                                  (Id, _Props) ->
+                                       Id
+                               end,
+            State2 = State1#state{client_id = AssignedClientId(ClientId, AllProps),
+                                  properties = AllProps1,
                                   session_present = SessPresent},
             {next_state, connected, ensure_keepalive_timer(State2),
              [{reply, From, Reply}]};
