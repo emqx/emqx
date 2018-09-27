@@ -294,9 +294,17 @@ request(Client, Topic, Properties, Payload, Opts)
                               topic = ResponseTopic,
                               props = NewProperties,
                               payload = iolist_to_binary(Payload)}),
+    receive_response(Client,TimeOut).
+
+receive_response(Client, TimeOut) ->
     receive
         {publish, Response} ->
-            maps:find(payload, Response)
+            case maps:find(client_pid, Response) of
+                {ok, Client} ->
+                    maps:find(payload, Response);
+                _ ->
+                    receive_response(Client, TimeOut)
+            end
     after TimeOut ->
             {timeout, <<"No Response">>}
     end.
