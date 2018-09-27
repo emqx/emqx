@@ -91,6 +91,7 @@
                 password        :: binary() | undefined,
                 proto_ver       :: emqx_mqtt_types:version(),
                 proto_name      :: iodata(),
+                response_flag   :: boolean(),
                 keepalive       :: non_neg_integer(),
                 keepalive_timer :: reference() | undefined,
                 force_ping      :: boolean(),
@@ -165,7 +166,6 @@ sub_response_topic(Client, Shared, RequestQoS, Topic) ->
             NewResponseTopic = <<(shared_topic(Shared, ResponseInformation))/binary,
                                  "/",
                                  (emqx_base62:encode(Topic))/binary>>,
-            io:format("~p", [NewResponseTopic]),
             {ok, _, [2]} = subscribe(Client, [{NewResponseTopic, [{rh, 2}, {rap, false},
                                                                   {nl, true}, {qos, RequestQoS}]}]),
             {ok, NewResponseTopic};
@@ -288,22 +288,25 @@ request(Client, Topic, Properties, Payload, Opts)
     TimeOut = proplists:get_value(timeout, Opts, 5),
     QoS = ?QOS_I(proplists:get_value(qos, Opts, ?QOS_0)),
     {ok, ResponseTopic} = sub_response_topic(Client, Shared, QoS, Topic),
-    NewProperties = maps:merge(Properties, #{'Response-Topic' => ResponseTopic}),
+    ClientId = gen_statem:call(Client, client_id),
+    NewProperties = maps:merge(Properties, #{'Response-Topic' => ResponseTopic,
+                                             'Correlation-Data' => ClientId}),
     publish(Client, #mqtt_msg{qos  = QoS,
                               retain = Retain,
                               topic = ResponseTopic,
                               props = NewProperties,
                               payload = iolist_to_binary(Payload)}),
-    receive_response(Client,TimeOut).
+    receive_response(Client, ClientId, TimeOut).
 
-receive_response(Client, TimeOut) ->
+receive_response(Client, ClientId, TimeOut) ->
     receive
         {publish, Response} ->
-            case maps:find(client_pid, Response) of
-                {ok, Client} ->
+            {ok, Properties} = maps:find(properties, Response),
+            case maps:find('Correlation-Data', Properties) of
+                {ok, ClientId} ->
                     maps:find(payload, Response);
                 _ ->
-                    receive_response(Client, TimeOut)
+                    receive_response(Client, ClientId, TimeOut)
             end
     after TimeOut ->
             {timeout, <<"No Response">>}
@@ -443,6 +446,7 @@ init([Options]) ->
                                  clean_start     = true,
                                  proto_ver       = ?MQTT_PROTO_V4,
                                  proto_name      = <<"MQTT">>,
+                                 response_flag   = false,
                                  keepalive       = ?DEFAULT_KEEPALIVE,
                                  force_ping      = false,
                                  paused          = false,
@@ -575,7 +579,6 @@ callback_mode() -> state_functions.
 
 initialized({call, From}, connect, State = #state{sock_opts       = SockOpts,
                                                   connect_timeout = Timeout}) ->
-    io:format("State: ~p", [State]),
     case sock_connect(hosts(State), SockOpts, Timeout) of
         {ok, Sock} ->
             case mqtt_connect(run_sock(State#state{socket = Sock})) of
@@ -627,7 +630,6 @@ waiting_for_connack(cast, ?CONNACK_PACKET(?RC_SUCCESS,
                                           Properties),
                     State = #state{properties = AllProps,
                                    client_id = ClientId}) ->
-    io:format("CONNACK Props: ~p~n", [Properties]),
     case take_call(connect, State) of
         {value, #call{from = From}, State1} ->
             AllProps1 = case Properties of
@@ -694,6 +696,9 @@ connected({call, From}, stop, _State) ->
 
 connected({call, From}, request_info, State = #state{properties = Properties}) ->
     {keep_state, State, [{reply, From, Properties}]};
+
+connected({call, From}, client_id, State = #state{client_id = ClientId}) ->
+    {keep_state, State, [{reply, From, ClientId}]};
 
 connected({call, From}, {def_response, ResponseInfo}, State) ->
     {keep_state, State#state{response_info = ResponseInfo}, [{reply, From, ok}]};
@@ -1019,9 +1024,11 @@ response_publish(Properties, State = #state{response_info = ResponseInfo}, QoS, 
     case maps:find('Response-Topic', Properties) of
         {ok, ResponseTopic} ->
             case ResponseInfo of
-                <<>> -> State;
+                <<>> -> State#state{response_flag = false};
                 _ -> do_publish(ResponseTopic, Properties, State, QoS, Payload)
-            end
+            end;
+        _ ->
+            State#state{response_flag = false}
     end.
 
 do_publish(ResponseTopic, Properties, State = #state{response_info = ResponseInfo}, ?QOS_0, Payload) ->
@@ -1032,7 +1039,7 @@ do_publish(ResponseTopic, Properties, State = #state{response_info = ResponseInf
                         payload = response_process(ResponseInfo, Payload)
                        },
     case send(Msg, State) of
-        {ok, NewState} -> NewState;
+        {ok, NewState} -> NewState#state{response_flag = true};
         _Error -> State
     end;
 do_publish(ResponseTopic, Properties, State = #state{response_info = ResponseInfo,
@@ -1052,7 +1059,8 @@ do_publish(ResponseTopic, Properties, State = #state{response_info = ResponseInf
             case send(Msg, State) of
                 {ok, NewState} ->
                     Inflight1 = emqx_inflight:insert(PacketId, {publish, Msg, os:timestamp()}, Inflight),
-                    ensure_retry_timer(NewState#state{inflight = Inflight1});
+                    NewState1 = ensure_retry_timer(NewState#state{inflight = Inflight1}),
+                    NewState1#state{response_flag = true};
                 {error, Reason} ->
                     emqx_logger:error("Send failed: ~p", [Reason])
             end
@@ -1145,10 +1153,15 @@ retry_send(pubrel, PacketId, Now, State = #state{inflight = Inflight}) ->
 
 deliver(#mqtt_msg{qos = QoS, dup = Dup, retain = Retain, packet_id = PacketId,
                   topic = Topic, props = Props, payload = Payload},
-        State = #state{owner = Owner}) ->
-    Owner ! {publish, #{qos => QoS, dup => Dup, retain => Retain, packet_id => PacketId,
-                        topic => Topic, properties => Props, payload => Payload,
-                        client_pid => self()}},
+        State = #state{owner = Owner, response_flag = ResponseFlag}) ->
+    case ResponseFlag of
+        false ->
+            Owner ! {publish, #{qos => QoS, dup => Dup, retain => Retain, packet_id => PacketId,
+                                topic => Topic, properties => Props, payload => Payload,
+                                client_pid => self()}};
+        true ->
+            ok
+    end,
     State.
 
 packet_to_msg(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
