@@ -73,10 +73,10 @@ etc/gen.emqx.conf: bbmustache etc/emqx.conf
 		ok = file:write_file('etc/gen.emqx.conf', Targ), \
 		halt(0)."
 
-app.config: etc/gen.emqx.conf
+app.config: cuttlefish etc/gen.emqx.conf
 	$(verbose) ./cuttlefish -l info -e etc/ -c etc/gen.emqx.conf -i priv/emqx.schema -d data/
 
-ct: cuttlefish app.config
+ct: app.config
 
 rebar-cover:
 	@rebar3 cover
@@ -103,7 +103,7 @@ rebar-eunit: cuttlefish
 rebar-compile:
 	@rebar3 compile
 
-rebar-ct: cuttlefish app.config
+rebar-ct: app.config
 	@rebar3 as test compile
 	@ln -s -f '../../../../etc' _build/test/lib/emqx/
 	@ln -s -f '../../../../data' _build/test/lib/emqx/
