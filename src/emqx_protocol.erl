@@ -432,9 +432,17 @@ process_packet(?UNSUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
 process_packet(?PACKET(?PINGREQ), PState) ->
     send(?PACKET(?PINGRESP), PState);
 
-process_packet(?DISCONNECT_PACKET(?RC_SUCCESS), PState) ->
-    %% Clean willmsg
-    {stop, normal, PState#pstate{will_msg = undefined}};
+process_packet(?DISCONNECT_PACKET(?RC_SUCCESS, #{'Session-Expiry-Interval' := Interval}), 
+                PState = #pstate{session = SPid, conn_props = #{'Session-Expiry-Interval' := OldInterval}}) ->
+    case Interval =/= 0 andalso OldInterval =:= 0 of
+        true -> 
+            deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState),
+            {error, protocol_error, PState};
+        false -> 
+            emqx_session:update_expiry_interval(SPid, Interval),
+            %% Clean willmsg
+            {stop, normal, PState#pstate{will_msg = undefined}}
+    end;
 process_packet(?DISCONNECT_PACKET(_), PState) ->
     {stop, normal, PState}.
 
@@ -510,23 +518,33 @@ deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
       max_topic_alias := MaxAlias,
       mqtt_shared_subscription := Shared,
       mqtt_wildcard_subscription := Wildcard} = caps(PState),
-    Props = #{'Maximum-QoS' => MaxQoS,
-              'Retain-Available' => flag(Retain),
+    Props = #{'Retain-Available' => flag(Retain),
               'Maximum-Packet-Size' => MaxPktSize,
               'Topic-Alias-Maximum' => MaxAlias,
               'Wildcard-Subscription-Available' => flag(Wildcard),
               'Subscription-Identifier-Available' => 1,
-              'Shared-Subscription-Available' => flag(Shared),
-              'Response-Information' => ResponseInformation},
-    Props1 = if IsAssigned ->
-                    Props#{'Assigned-Client-Identifier' => ClientId};
-                true -> Props
+              'Response-Information' => ResponseInformation,
+
+              'Shared-Subscription-Available' => flag(Shared)},
+
+    Props1 = if 
+                MaxQoS =:= ?QOS_2 -> 
+                    Props;
+                true ->
+                    maps:put('Maximum-QoS', MaxQoS, Props)
+            end,
+    
+    Props2 = if IsAssigned ->
+                    Props1#{'Assigned-Client-Identifier' => ClientId};
+                true -> Props1
+
              end,
-    Props2 = case emqx_zone:get_env(Zone, server_keepalive) of
-                 undefined -> Props1;
-                 Keepalive -> Props1#{'Server-Keep-Alive' => Keepalive}
+
+    Props3 = case emqx_zone:get_env(Zone, server_keepalive) of
+                 undefined -> Props2;
+                 Keepalive -> Props2#{'Server-Keep-Alive' => Keepalive}
              end,
-    send(?CONNACK_PACKET(?RC_SUCCESS, SP, Props2), PState);
+    send(?CONNACK_PACKET(?RC_SUCCESS, SP, Props3), PState);
 
 deliver({connack, ReasonCode, SP}, PState) ->
     send(?CONNACK_PACKET(ReasonCode, SP), PState);
@@ -592,17 +610,32 @@ maybe_assign_client_id(PState) ->
     PState.
 
 try_open_session(#pstate{zone        = Zone,
+                         proto_ver   = ProtoVer,
                          client_id   = ClientId,
                          conn_pid    = ConnPid,
                          conn_props  = ConnProps,
                          username    = Username,
                          clean_start = CleanStart}) ->
-    case emqx_sm:open_session(#{zone        => Zone,
-                                client_id   => ClientId,
-                                conn_pid    => ConnPid,
-                                username    => Username,
-                                clean_start => CleanStart,
-                                conn_props  => ConnProps}) of
+
+    SessAttrs = #{
+        zone        => Zone,
+        client_id   => ClientId,
+        conn_pid    => ConnPid,
+        username    => Username,
+        clean_start => CleanStart
+    },
+
+    case emqx_sm:open_session(maps:put(expiry_interval, if 
+                                ProtoVer =:= ?MQTT_PROTO_V5 ->
+                                    maps:get('Session-Expiry-Interval', ConnProps, 0);
+                                true ->
+                                    case CleanStart of
+                                        true ->
+                                            0;
+                                        false ->
+                                            emqx_zone:get_env(Zone, session_expiry_interval, 16#ffffffff)
+                                    end  
+                            end, SessAttrs)) of
         {ok, SPid} ->
             {ok, SPid, false};
         Other -> Other

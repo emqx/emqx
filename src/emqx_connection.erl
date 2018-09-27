@@ -148,7 +148,11 @@ init([Transport, RawSocket, Options]) ->
                                       proto_state   = ProtoState,
                                       parser_state  = ParserState,
                                       enable_stats  = EnableStats,
-                                      idle_timeout  = IdleTimout}),
+                                      idle_timeout  = IdleTimout
+                                     }),
+            GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
+            ok = emqx_gc:init(GcPolicy),
+            erlang:put(force_shutdown_policy, emqx_zone:get_env(Zone, force_shutdown_policy)),
             gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}],
                                   State, self(), IdleTimout);
         {error, Reason} ->
@@ -200,16 +204,29 @@ handle_cast(Msg, State) ->
 handle_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
     case emqx_protocol:deliver(PubOrAck, ProtoState) of
         {ok, ProtoState1} ->
-            {noreply, maybe_gc(ensure_stats_timer(State#state{proto_state = ProtoState1}))};
+            State1 = ensure_stats_timer(State#state{proto_state = ProtoState1}),
+            ok = maybe_gc(State1, PubOrAck),
+            {noreply, State1};
         {error, Reason} ->
             shutdown(Reason, State)
     end;
-
 handle_info({timeout, Timer, emit_stats},
-            State = #state{stats_timer = Timer, proto_state = ProtoState}) ->
+            State = #state{stats_timer = Timer,
+                           proto_state = ProtoState
+                          }) ->
     emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), stats(State)),
-    {noreply, State#state{stats_timer = undefined}, hibernate};
-
+    NewState = State#state{stats_timer = undefined},
+    Limits = erlang:get(force_shutdown_policy),
+    case emqx_misc:conn_proc_mng_policy(Limits) of
+        continue ->
+            {noreply, NewState};
+        hibernate ->
+            ok = emqx_gc:reset(),
+            {noreply, NewState, hibernate};
+        {shutdown, Reason} ->
+            ?LOG(warning, "shutdown due to ~p", [Reason], NewState),
+            shutdown(Reason, NewState)
+    end;
 handle_info(timeout, State) ->
     shutdown(idle_timeout, State);
 
@@ -295,9 +312,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 %% Receive and parse data
-handle_packet(<<>>, State) ->
-    {noreply, maybe_gc(ensure_stats_timer(ensure_rate_limit(State)))};
-
+handle_packet(<<>>, State0) ->
+    State = ensure_stats_timer(ensure_rate_limit(State0)),
+    ok = maybe_gc(State, incoming),
+    {noreply, State};
 handle_packet(Data, State = #state{proto_state  = ProtoState,
                                    parser_state = ParserState,
                                    idle_timeout = IdleTimeout}) ->
@@ -381,7 +399,13 @@ shutdown(Reason, State) ->
 stop(Reason, State) ->
     {stop, Reason, State}.
 
-maybe_gc(State) ->
-    %% TODO: gc and shutdown policy
-    State.
+%% For incoming messages, bump gc-stats with packet count and totoal volume
+%% For outgoing messages, only 'publish' type is taken into account.
+maybe_gc(#state{incoming = #{bytes := Oct, packets := Cnt}}, incoming) ->
+    ok = emqx_gc:inc(Cnt, Oct);
+maybe_gc(#state{}, {publish, _PacketId, #message{payload = Payload}}) ->
+    Oct = iolist_size(Payload),
+    ok = emqx_gc:inc(1, Oct);
+maybe_gc(_, _) ->
+    ok.
 

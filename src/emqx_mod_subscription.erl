@@ -36,7 +36,7 @@ on_session_created(#{client_id := ClientId}, SessAttrs, Topics) ->
     emqx_session:subscribe(self(), [{Replace(Topic), #{qos => QoS}} || {Topic, QoS} <- Topics]).
 
 unload(_) ->
-    emqx_hooks:delete('session.created', fun ?MODULE:on_session_created/3).
+    emqx_hooks:del('session.created', fun ?MODULE:on_session_created/3).
 
 %%--------------------------------------------------------------------
 %% Internal functions
