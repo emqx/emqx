@@ -61,6 +61,11 @@ validate(?PUBLISH_PACKET(_QoS, Topic, _, Properties, _)) ->
     ((not emqx_topic:wildcard(Topic)) orelse error(topic_name_invalid))
         andalso validate_properties(?PUBLISH, Properties);
 
+validate(?CONNECT_PACKET(#mqtt_packet_connect{properties = #{'Receive-Maximum' := 0}})) ->
+    error(protocol_error);
+validate(?CONNECT_PACKET(#mqtt_packet_connect{properties = #{'Receive-Maximum' := _}})) ->
+    true;
+
 validate(_Packet) ->
     true.
 

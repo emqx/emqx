@@ -208,11 +208,8 @@ received(Packet = ?PACKET(Type), PState) ->
         true ->
             {Packet1, PState1} = preprocess_properties(Packet, PState),
             process_packet(Packet1, inc_stats(recv, Type, PState1));
-        {'EXIT', {topic_filters_invalid, _Stacktrace}} ->
-            deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState),
-            {error, topic_filters_invalid, PState};
         {'EXIT', {Reason, _Stacktrace}} ->
-            deliver({disconnect, ?RC_MALFORMED_PACKET}, PState),
+            deliver({disconnect, rc(Reason)}, PState),
             {error, Reason, PState}
     end.
 
@@ -593,17 +590,25 @@ try_open_session(#pstate{zone        = Zone,
         clean_start => CleanStart
     },
 
-    case emqx_sm:open_session(maps:put(expiry_interval, if 
-                                ProtoVer =:= ?MQTT_PROTO_V5 ->
-                                    maps:get('Session-Expiry-Interval', ConnProps, 0);
-                                true ->
-                                    case CleanStart of
-                                        true ->
-                                            0;
-                                        false ->
-                                            emqx_zone:get_env(Zone, session_expiry_interval, 16#ffffffff)
-                                    end  
-                            end, SessAttrs)) of
+    MaxInflight = #{max_inflight => if 
+                                        ProtoVer =:= ?MQTT_PROTO_V5 ->
+                                            maps:get('Receive-Maximum', ConnProps, 65535);
+                                        true -> 
+                                            emqx_zone:get_env(Zone, max_inflight, 65535)
+                                    end},
+    SessionExpiryInterval = #{expiry_interval => if 
+                                                    ProtoVer =:= ?MQTT_PROTO_V5 ->
+                                                        maps:get('Session-Expiry-Interval', ConnProps, 0);
+                                                    true ->
+                                                        case CleanStart of
+                                                            true ->
+                                                                0;
+                                                            false ->
+                                                                emqx_zone:get_env(Zone, session_expiry_interval, 16#ffffffff)
+                                                        end  
+                                                 end},
+
+    case emqx_sm:open_session(maps:merge(SessAttrs, maps:merge(MaxInflight, SessionExpiryInterval))) of
         {ok, SPid} ->
             {ok, SPid, false};
         Other -> Other
@@ -781,6 +786,14 @@ start_keepalive(0, _PState) ->
 start_keepalive(Secs, #pstate{zone = Zone}) when Secs > 0 ->
     Backoff = emqx_zone:get_env(Zone, keepalive_backoff, 0.75),
     self() ! {keepalive, start, round(Secs * Backoff)}.
+
+rc(Reason) ->
+    case Reason of
+        protocol_error -> ?RC_PROTOCOL_ERROR;
+        topic_filters_invalid -> ?RC_TOPIC_FILTER_INVALID;
+        topic_name_invalid -> ?RC_TOPIC_NAME_INVALID;
+        _ -> ?RC_MALFORMED_PACKET
+    end.
 
 %%-----------------------------------------------------------------------------
 %% Parse topic filters

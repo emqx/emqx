@@ -25,7 +25,7 @@ t_open_close_session(_) ->
     emqx_ct_broker_helpers:run_setup_steps(),
     {ok, ClientPid} = emqx_mock_client:start_link(<<"client">>),
     Attrs = #{clean_start => true, client_id => <<"client">>, conn_pid => ClientPid,
-              zone => internal, username => <<"zhou">>, expiry_interval => 0},
+              zone => internal, username => <<"zhou">>, expiry_interval => 0, max_inflight => 0},
     {ok, SPid} = emqx_sm:open_session(Attrs),
     [{<<"client">>, SPid}] = emqx_sm:lookup_session(<<"client">>),
     SPid = emqx_sm:lookup_session_pid(<<"client">>),
