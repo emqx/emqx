@@ -645,7 +645,6 @@ handle_info({'EXIT', Pid, Reason}, State = #state{conn_pid = ConnPid}) ->
     ?LOG(error, "Unexpected EXIT: conn_pid=~p, exit_pid=~p, reason=~p",
          [ConnPid, Pid, Reason], State),
     {noreply, State};
-
 handle_info(Info, State) ->
     emqx_logger:error("[Session] unexpected info: ~p", [Info]),
     {noreply, State}.
@@ -785,7 +784,12 @@ run_dispatch_steps([{nl, 1}|_Steps], #message{from = ClientId}, State = #state{c
     State;
 run_dispatch_steps([{nl, _}|Steps], Msg, State) ->
     run_dispatch_steps(Steps, Msg, State);
-run_dispatch_steps([{qos, SubQoS}|Steps], Msg = #message{qos = PubQoS}, State = #state{upgrade_qos = false}) ->
+run_dispatch_steps([{qos, SubQoS}|Steps], Msg0 = #message{qos = PubQoS}, State = #state{upgrade_qos = false}) ->
+    %% Ack immediately if a shared dispatch QoS is downgraded to 0
+    Msg = case SubQoS =:= ?QOS0 of
+              true -> emqx_shared_sub:maybe_ack(Msg0);
+              false -> Msg0
+          end,
     run_dispatch_steps(Steps, Msg#message{qos = min(SubQoS, PubQoS)}, State);
 run_dispatch_steps([{qos, SubQoS}|Steps], Msg = #message{qos = PubQoS}, State = #state{upgrade_qos = true}) ->
     run_dispatch_steps(Steps, Msg#message{qos = max(SubQoS, PubQoS)}, State);
@@ -814,7 +818,8 @@ dispatch(Msg = #message{qos = QoS} = Msg,
          State = #state{next_pkt_id = PacketId, inflight = Inflight})
   when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
     case emqx_inflight:is_full(Inflight) of
-        true -> enqueue_msg(Msg, State);
+        true ->
+            enqueue_msg(Msg, State);
         false ->
             deliver(PacketId, Msg, State),
             await(PacketId, Msg, inc_stats(deliver, Msg, next_pkt_id(State)))
@@ -836,9 +841,19 @@ redeliver({PacketId, Msg = #message{qos = QoS}}, State) ->
 redeliver({pubrel, PacketId}, #state{conn_pid = ConnPid}) ->
     ConnPid ! {deliver, {pubrel, PacketId}}.
 
-deliver(PacketId, Msg, #state{conn_pid = ConnPid, binding = local}) ->
+deliver(PacketId, Msg, State) ->
+    %% Ack QoS1/QoS2 messages when message is delivered to connection.
+    %% NOTE: NOT to wait for PUBACK because:
+    %% The sender is monitoring this session process,
+    %% if the message is delivered to client but connection or session crashes,
+    %% sender will try to dispatch the message to the next shared subscriber.
+    %% This violates spec as QoS2 messages are not allowed to be sent to more
+    %% than one member in the group.
+    do_deliver(PacketId, emqx_shared_sub:maybe_ack(Msg), State).
+
+do_deliver(PacketId, Msg, #state{conn_pid = ConnPid, binding = local}) ->
     ConnPid ! {deliver, {publish, PacketId, Msg}};
-deliver(PacketId, Msg, #state{conn_pid = ConnPid, binding = remote}) ->
+do_deliver(PacketId, Msg, #state{conn_pid = ConnPid, binding = remote}) ->
     emqx_rpc:cast(node(ConnPid), erlang, send, [ConnPid, {deliver, {publish, PacketId, Msg}}]).
 
 %%------------------------------------------------------------------------------

@@ -27,7 +27,7 @@
 -export([start_link/0]).
 
 -export([subscribe/3, unsubscribe/3]).
--export([dispatch/3]).
+-export([dispatch/3, maybe_ack/1, maybe_nack/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
@@ -36,9 +36,14 @@
 -define(SERVER, ?MODULE).
 -define(TAB, emqx_shared_subscription).
 -define(ALIVE_SUBS, emqx_alive_shared_subscribers).
+-define(SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS, 5).
+-define(ack, shared_sub_ack).
+-define(nack, shared_sub_nack).
 
 -record(state, {pmon}).
 -record(emqx_shared_subscription, {group, topic, subpid}).
+
+-include("emqx_mqtt.hrl").
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -80,33 +85,87 @@ unsubscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
 record(Group, Topic, SubPid) ->
     #emqx_shared_subscription{group = Group, topic = Topic, subpid = SubPid}.
 
-dispatch(Group, Topic, Delivery = #delivery{message = Msg, results = Results}) ->
+dispatch(Group, Topic, Delivery) ->
+    dispatch(Group, Topic, Delivery, _FailedSubs = []).
+
+dispatch(Group, Topic, Delivery = #delivery{message = Msg, results = Results}, FailedSubs) ->
     #message{from = ClientId} = Msg,
-    case pick(strategy(), ClientId, Group, Topic) of
-        false  -> Delivery;
-        SubPid -> SubPid ! {dispatch, Topic, Msg},
-                  Delivery#delivery{results = [{dispatch, {Group, Topic}, 1} | Results]}
+    case pick(strategy(), ClientId, Group, Topic, FailedSubs) of
+        false ->
+            Delivery;
+        SubPid ->
+            case do_dispatch(SubPid, Topic, Msg) of
+                ok ->
+                    Delivery#delivery{results = [{dispatch, {Group, Topic}, 1} | Results]};
+                error ->
+                    %% failed to dispatch to this sub, try next
+                    dispatch(Group, Topic, Delivery, [SubPid | FailedSubs])
+            end
     end.
 
-pick(sticky, ClientId, Group, Topic) ->
+%% return either 'ok' (when everything is fine) or 'error'
+do_dispatch(SubPid, Topic, #message{qos = ?QOS0} = Msg) ->
+    %% For QoS 0 message, send it as regular dispatch
+    _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
+    ok;
+do_dispatch(SubPid, Topic, Msg) when SubPid =:= self() ->
+    %% Deadlock otherwise
+    _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
+    ok;
+do_dispatch(SubPid, Topic, Msg) ->
+    %% For QoS 1/2 message, expect an ack
+    Ref = erlang:monitor(process, SubPid),
+    Sender = self(),
+    _ = erlang:send(SubPid, {dispatch, Topic, Msg#message{shared_dispatch_ack = {Sender, Ref}}}),
+    Timeout = case Msg#message.qos of
+                  ?QOS1 -> timer:seconds(?SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS);
+                  ?QOS2 -> infinity
+              end,
+    Result =
+        receive
+            {Ref, ?ack} ->
+                ok;
+            {Ref, ?nack} ->
+                %% the receive session may nack this message when its queue is full
+                error;
+            {'DOWN', Ref, process, SubPid, _Reason} ->
+                error
+        after
+            Timeout ->
+                error
+        end,
+    _ = erlang:demonitor(Ref, [flush]),
+    Result.
+
+-spec(maybe_nack(emqx_types:message()) -> ok).
+maybe_nack(#message{shared_dispatch_ack = no_ack}) -> ok;
+maybe_nack(#message{shared_dispatch_ack = {Sender, Ref}}) -> erlang:send(Sender, {Ref, ?nack}), ok.
+
+-spec(maybe_ack(emqx_types:message()) -> emqx_types:message()).
+maybe_ack(Msg = #message{shared_dispatch_ack = no_ack}) -> Msg;
+maybe_ack(Msg = #message{shared_dispatch_ack = {Sender, Ref}}) ->
+    erlang:send(Sender, {Ref, ?ack}),
+    Msg#message{shared_dispatch_ack = no_ack}.
+
+pick(sticky, ClientId, Group, Topic, FailedSubs) ->
     Sub0 = erlang:get({shared_sub_sticky, Group, Topic}),
-    case is_sub_alive(Sub0) of
+    case is_sub_alive(Sub0, FailedSubs) of
         true ->
             %% the old subscriber is still alive
             %% keep using it for sticky strategy
             Sub0;
         false ->
             %% randomly pick one for the first message
-            Sub = do_pick(random, ClientId, Group, Topic),
+            Sub = do_pick(random, ClientId, Group, Topic, FailedSubs),
             %% stick to whatever pick result
             erlang:put({shared_sub_sticky, Group, Topic}, Sub),
             Sub
     end;
-pick(Strategy, ClientId, Group, Topic) ->
-    do_pick(Strategy, ClientId, Group, Topic).
+pick(Strategy, ClientId, Group, Topic, FailedSubs) ->
+    do_pick(Strategy, ClientId, Group, Topic, FailedSubs).
 
-do_pick(Strategy, ClientId, Group, Topic) ->
-    case subscribers(Group, Topic) of
+do_pick(Strategy, ClientId, Group, Topic, FailedSubs) ->
+    case subscribers(Group, Topic) -- FailedSubs of
         [] -> false;
         [Sub] -> Sub;
         All -> pick_subscriber(Group, Topic, Strategy, ClientId, All)
@@ -201,5 +260,7 @@ update_stats(State) ->
 
 %% erlang:is_process_alive/1 is expensive
 %% and does not work with remote pids
-is_sub_alive(Sub) -> [] =/= ets:lookup(?ALIVE_SUBS, Sub).
+is_sub_alive(Sub, FailedSubs) ->
+    [] =/= ets:lookup(?ALIVE_SUBS, Sub) andalso
+    not lists:member(Sub, FailedSubs).
 
