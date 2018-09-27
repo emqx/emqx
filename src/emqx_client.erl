@@ -166,7 +166,7 @@ sub_response_topic(Client, Shared, RequestQoS, Topic) ->
             NewResponseTopic = <<(shared_topic(Shared, ResponseInformation))/binary,
                                  "/",
                                  (emqx_base62:encode(Topic))/binary>>,
-            {ok, _, [2]} = subscribe(Client, [{NewResponseTopic, [{rh, 2}, {rap, false},
+            {ok, _Props, _QoS} = subscribe(Client, [{NewResponseTopic, [{rh, 2}, {rap, false},
                                                                   {nl, true}, {qos, RequestQoS}]}]),
             {ok, NewResponseTopic};
         error ->
