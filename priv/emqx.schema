@@ -815,6 +815,10 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "zone.$name.mountpoint", "emqx.zones", [
+  {datatype, string}
+]}.
+
 {translation, "emqx.zones", fun(Conf) ->
   Mapping = fun("retain_available", Val) ->
                     {mqtt_retain_available, Val};
