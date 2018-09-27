@@ -47,7 +47,7 @@
 -export([info/1, attrs/1]).
 -export([stats/1]).
 -export([resume/2, discard/2]).
--export([update_expiry_interval/2]).
+-export([update_expiry_interval/2, update_max_inflight/2]).
 -export([subscribe/2, subscribe/4]).
 -export([publish/3]).
 -export([puback/2, puback/3]).
@@ -318,6 +318,9 @@ discard(SPid, ByPid) ->
 update_expiry_interval(SPid, Interval) ->
     gen_server:cast(SPid, {expiry_interval, Interval * 1000}).
 
+update_max_inflight(SPid, MaxInflight) ->
+    gen_server:cast(SPid, {max_inflight, MaxInflight}).
+
 -spec(close(spid()) -> ok).
 close(SPid) ->
     gen_server:call(SPid, close, infinity).
@@ -331,10 +334,10 @@ init([Parent, #{zone            := Zone,
                 username        := Username,
                 conn_pid        := ConnPid,
                 clean_start     := CleanStart,
-                expiry_interval := ExpiryInterval}]) ->
+                expiry_interval := ExpiryInterval,
+                max_inflight    := MaxInflight}]) ->
     process_flag(trap_exit, true),
     true = link(ConnPid),
-    MaxInflight = get_env(Zone, max_inflight),
     IdleTimout = get_env(Zone, idle_timeout, 30000),
     State = #state{idle_timeout      = IdleTimout,
                    clean_start       = CleanStart,
@@ -542,6 +545,9 @@ handle_cast({resume, ConnPid}, State = #state{client_id       = ClientId,
 
 handle_cast({expiry_interval, Interval}, State) ->
     {noreply, State#state{expiry_interval = Interval}};
+
+handle_cast({max_inflight, MaxInflight}, State) ->
+    {noreply, State#state{inflight = emqx_inflight:update_size(MaxInflight, State#state.inflight)}};
 
 handle_cast(Msg, State) ->
     emqx_logger:error("[Session] unexpected cast: ~p", [Msg]),

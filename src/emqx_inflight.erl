@@ -14,7 +14,7 @@
 
 -module(emqx_inflight).
 
--export([new/1, contain/2, lookup/2, insert/3, update/3, delete/2, values/1,
+-export([new/1, contain/2, lookup/2, insert/3, update/3, update_size/2, delete/2, values/1,
          to_list/1, size/1, max_size/1, is_full/1, is_empty/1, window/1]).
 
 -type(max_size() :: pos_integer()).
@@ -45,6 +45,10 @@ delete(Key, {?MODULE, MaxSize, Tree}) ->
 -spec(update(Key :: term(), Val :: term(), inflight()) -> inflight()).
 update(Key, Val, {?MODULE, MaxSize, Tree}) ->
     {?MODULE, MaxSize, gb_trees:update(Key, Val, Tree)}.
+
+-spec(update_size(integer(), inflight()) -> inflight()).
+update_size(MaxSize, {?MODULE, _OldMaxSize, Tree}) ->
+    {?MODULE, MaxSize, Tree}.
 
 -spec(is_full(inflight()) -> boolean()).
 is_full({?MODULE, 0, _Tree}) ->
