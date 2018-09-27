@@ -84,10 +84,6 @@ connect_v4(_) ->
     emqx_client_sock:send(Sock, ConnectPacket),
     {error, closed} = gen_tcp:recv(Sock, 0),
     emqx_client_sock:close(Sock),
-
-
-
-
     {ok, Sock3} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
     ConnectPacket3 = raw_send_serialize(?CONNECT_PACKET(#mqtt_packet_connect{
                                                            client_id  = <<"mqttv4_client">>,
@@ -216,6 +212,12 @@ subscribe_v5(_) ->
     {ok, DisConnData3} = gen_tcp:recv(Sock3, 0),
     {ok, ?SUBACK_PACKET(1, #{}, [2]), _} = raw_recv_parse(DisConnData3, ?MQTT_PROTO_V5),
     emqx_client_sock:close(Sock3),
+    ok.
+
+publish_v4(_) ->
+    ok.
+
+publish_v5(_) ->
     ok.
 
 raw_send_serialize(Packet) ->
