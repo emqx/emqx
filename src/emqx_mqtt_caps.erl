@@ -44,7 +44,7 @@
 
 -define(PUBCAP_KEYS, [max_qos_allowed,
                       mqtt_retain_available,
-                      mqtt_topic_alias
+                      max_topic_alias
                      ]).
 -define(SUBCAP_KEYS, [max_qos_allowed,
                       max_topic_levels,
