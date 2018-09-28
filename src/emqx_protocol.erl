@@ -574,13 +574,11 @@ maybe_assign_client_id(PState = #pstate{client_id = <<>>, ackprops = AckProps}) 
 maybe_assign_client_id(PState) ->
     PState.
 
-try_open_session(#pstate{zone        = Zone,
-                         proto_ver   = ProtoVer,
-                         client_id   = ClientId,
-                         conn_pid    = ConnPid,
-                         conn_props  = ConnProps,
-                         username    = Username,
-                         clean_start = CleanStart}) ->
+try_open_session(PState = #pstate{zone        = Zone,
+                                  client_id   = ClientId,
+                                  conn_pid    = ConnPid,
+                                  username    = Username,
+                                  clean_start = CleanStart}) ->
 
     SessAttrs = #{
         zone        => Zone,
@@ -590,29 +588,41 @@ try_open_session(#pstate{zone        = Zone,
         clean_start => CleanStart
     },
 
-    MaxInflight = #{max_inflight => if 
-                                        ProtoVer =:= ?MQTT_PROTO_V5 ->
-                                            maps:get('Receive-Maximum', ConnProps, 65535);
-                                        true -> 
-                                            emqx_zone:get_env(Zone, max_inflight, 65535)
-                                    end},
-    SessionExpiryInterval = #{expiry_interval => if 
-                                                    ProtoVer =:= ?MQTT_PROTO_V5 ->
-                                                        maps:get('Session-Expiry-Interval', ConnProps, 0);
-                                                    true ->
-                                                        case CleanStart of
-                                                            true ->
-                                                                0;
-                                                            false ->
-                                                                emqx_zone:get_env(Zone, session_expiry_interval, 16#ffffffff)
-                                                        end  
-                                                 end},
-
-    case emqx_sm:open_session(maps:merge(SessAttrs, maps:merge(MaxInflight, SessionExpiryInterval))) of
+    SessAttrs1 = lists:foldl(fun set_session_attrs/2, SessAttrs, [{max_inflight, PState}, {expiry_interval, PState}, {topic_alias_maximum, PState}]),
+    case emqx_sm:open_session(SessAttrs1) of
         {ok, SPid} ->
             {ok, SPid, false};
         Other -> Other
     end.
+
+set_session_attrs({max_inflight, #pstate{zone = Zone, proto_ver = ProtoVer, conn_props = ConnProps}}, SessAttrs) ->
+    maps:put(max_inflight, if
+                               ProtoVer =:= ?MQTT_PROTO_V5 ->
+                                   maps:get('Receive-Maximum', ConnProps, 65535);
+                               true -> 
+                                   emqx_zone:get_env(Zone, max_inflight, 65535)
+                           end, SessAttrs);
+set_session_attrs({expiry_interval, #pstate{zone = Zone, proto_ver = ProtoVer, conn_props = ConnProps, clean_start = CleanStart}}, SessAttrs) ->
+    maps:put(expiry_interval, if
+                               ProtoVer =:= ?MQTT_PROTO_V5 ->
+                                   maps:get('Session-Expiry-Interval', ConnProps, 0);
+                               true -> 
+                                   case CleanStart of
+                                       true -> 0;
+                                       false -> 
+                                           emqx_zone:get_env(Zone, session_expiry_interval, 16#ffffffff)
+                                   end
+                           end, SessAttrs);
+set_session_attrs({topic_alias_maximum, #pstate{zone = Zone, proto_ver = ProtoVer, conn_props = ConnProps}}, SessAttrs) ->
+    maps:put(topic_alias_maximum, if
+                                    ProtoVer =:= ?MQTT_PROTO_V5 ->
+                                        maps:get('Topic-Alias-Maximum', ConnProps, 0);
+                                    true -> 
+                                        emqx_zone:get_env(Zone, max_topic_alias, 0)
+                                  end, SessAttrs);
+set_session_attrs({_, #pstate{}}, SessAttrs) ->
+    SessAttrs.
+
 
 authenticate(Credentials, Password) ->
     case emqx_access_control:authenticate(Credentials, Password) of
