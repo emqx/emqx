@@ -747,7 +747,11 @@ check_sub_acl(TopicFilters, PState) ->
       fun({Topic, SubOpts}, {Ok, Acc}) ->
               case emqx_access_control:check_acl(Credentials, subscribe, Topic) of
                   allow -> {Ok, [{Topic, SubOpts}|Acc]};
-                  deny  -> {error, [{Topic, SubOpts#{rc := ?RC_NOT_AUTHORIZED}}|Acc]}
+                  deny  ->
+                      emqx_logger:warning([{client, PState#pstate.client_id}],
+                                          "ACL(~s) Cannot SUBSCRIBE ~p for ACL Deny",
+                                          [PState#pstate.client_id, Topic]),
+                      {error, [{Topic, SubOpts#{rc := ?RC_NOT_AUTHORIZED}}|Acc]}
               end
       end, {ok, []}, TopicFilters).
 
