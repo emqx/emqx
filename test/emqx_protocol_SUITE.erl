@@ -34,20 +34,6 @@
                                     clean_start = false,
                                     password  = <<"public">>})).
 
-%% receive_messages(Count) ->
-%%     receive_messages(Count, []).
-
-%% receive_messages(0, Msgs) ->
-%%     Msgs;
-%% receive_messages(Count, Msgs) ->
-%%     receive
-%%         Other ->
-%%             ct:log("~p~n", [Other]),
-%%             receive_messages(Count-1, Msgs)
-%%     after 10 ->
-%%         Msgs
-%%     end.
-
 all() ->
     [
      {group, mqttv4},
@@ -59,8 +45,6 @@ groups() ->
       [
        connect_v4,
        subscribe_v4
-       %% unsubscribe_v4
-       %% publish_v4-
       ]},
      {mqttv5,
       [sequence],
@@ -78,7 +62,6 @@ end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
 
 connect_v4(_) ->
-    ct:print("MQTT v4 connect test starting"),
     {ok, Sock} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
     ConnectPacket = raw_send_serialize(?PACKET(?PUBLISH)),
     emqx_client_sock:send(Sock, ConnectPacket),
@@ -101,7 +84,6 @@ connect_v4(_) ->
 
 
 connect_v5(_) ->
-    ct:print("MQTT v5 connect test starting"),
     {ok, Sock1} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
     ConnectPacket1 = raw_send_serialize(?CONNECT_PACKET(#mqtt_packet_connect{
                                                            proto_ver  = ?MQTT_PROTO_V5,
@@ -134,7 +116,6 @@ connect_v5(_) ->
     ok.
 
 subscribe_v4(_) ->
-    ct:print("MQTT v4 subscribe test starting"),
     {ok, Sock} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
     ConnectPacket = raw_send_serialize(?CONNECT_PACKET(#mqtt_packet_connect{
                                                            client_id  = <<"mqttv4_client">>,
@@ -154,7 +135,6 @@ subscribe_v4(_) ->
     ok.
 
 subscribe_v5(_) ->
-    ct:print("MQTT v5  subscribe test starting"),
     {ok, Sock} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
     ConnectPacket = raw_send_serialize(?CONNECT_PACKET(#mqtt_packet_connect{
                                                            client_id  = <<"mqttv5_client">>,

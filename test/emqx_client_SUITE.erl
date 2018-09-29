@@ -68,10 +68,10 @@ request_response_test(_Config) ->
     ok = emqx_client:def_response(Responser1, <<"ResponseTest">>),
     {ok, <<"ResponseTest">>} = emqx_client:request(Requester1, <<"request_response_test">>, <<"request_payload">>, ?QOS_2),
     ok = emqx_client:def_response(Responser1, fun(<<"request_payload">>) ->
-                                                     <<"ResponseFunctionTest">>;
-                                                (_) ->
-                                                     <<"404">>
-                                             end),
+                                                      <<"ResponseFunctionTest">>;
+                                                 (_) ->
+                                                      <<"404">>
+                                              end),
     {ok, <<"ResponseFunctionTest">>} = emqx_client:request(Requester1, <<"request_response_test">>, <<"request_payload">>, ?QOS_2),
     {ok, <<"404">>} = emqx_client:request(Requester1, <<"request_response_test">>, <<"invalid_request">>, ?QOS_2),
     ok = emqx_client:disconnect(Responser1),
@@ -86,10 +86,10 @@ request_response_test(_Config) ->
     ok = emqx_client:def_response(Responser2, <<"ResponseTest">>),
     {ok, <<"ResponseTest">>} = emqx_client:request(Requester2, <<"request_response_test">>, <<"request_payload">>, ?QOS_1),
     ok = emqx_client:def_response(Responser2, fun(<<"request_payload">>) ->
-                                                     <<"ResponseFunctionTest">>;
-                                                (_) ->
-                                                     <<"404">>
-                                             end),
+                                                      <<"ResponseFunctionTest">>;
+                                                 (_) ->
+                                                      <<"404">>
+                                              end),
     {ok, <<"ResponseFunctionTest">>} = emqx_client:request(Requester2, <<"request_response_test">>, <<"request_payload">>, ?QOS_1),
     {ok, <<"404">>} = emqx_client:request(Requester2, <<"request_response_test">>, <<"invalid_request">>, ?QOS_1),
     ok = emqx_client:disconnect(Responser2),
@@ -104,10 +104,10 @@ request_response_test(_Config) ->
     ok = emqx_client:def_response(Responser3, <<"ResponseTest">>),
     {ok, <<"ResponseTest">>} = emqx_client:request(Requester3, <<"request_response_test">>, <<"request_payload">>, ?QOS_0),
     ok = emqx_client:def_response(Responser3, fun(<<"request_payload">>) ->
-                                                     <<"ResponseFunctionTest">>;
-                                                (_) ->
-                                                     <<"404">>
-                                             end),
+                                                      <<"ResponseFunctionTest">>;
+                                                 (_) ->
+                                                      <<"404">>
+                                              end),
     {ok, <<"ResponseFunctionTest">>} = emqx_client:request(Requester3, <<"request_response_test">>, <<"request_payload">>, ?QOS_0),
     {ok, <<"404">>} = emqx_client:request(Requester3, <<"request_response_test">>, <<"invalid_request">>, ?QOS_0),
     ok = emqx_client:disconnect(Responser3),
