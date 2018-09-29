@@ -44,7 +44,8 @@ t_get_set_caps(_) ->
     end,
     PubCaps = #{
         max_qos_allowed => ?QOS_2,
-        mqtt_retain_available => true
+        mqtt_retain_available => true,
+        max_topic_alias => 0
     },
     PubCaps = emqx_mqtt_caps:get_caps(zone, publish),
     NewPubCaps = PubCaps#{max_qos_allowed => ?QOS_1},

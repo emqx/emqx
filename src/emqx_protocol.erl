@@ -215,8 +215,6 @@ received(Packet = ?PACKET(Type), PState) ->
     trace(recv, Packet, PState1),
     try emqx_packet:validate(Packet) of
         true ->
-            {Packet1, PState2} = preprocess_properties(Packet, PState1),
-            process_packet(Packet1, inc_stats(recv, Type, PState2))
     catch
         error:protocol_error ->
             deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState1),
@@ -437,12 +435,14 @@ process_packet(?DISCONNECT_PACKET(?RC_SUCCESS, #{'Session-Expiry-Interval' := In
     case Interval =/= 0 andalso OldInterval =:= 0 of
         true -> 
             deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState),
-            {error, protocol_error, PState};
+            {error, protocol_error, PState#pstate{will_msg = undefined}};
         false -> 
             emqx_session:update_expiry_interval(SPid, Interval),
             %% Clean willmsg
             {stop, normal, PState#pstate{will_msg = undefined}}
     end;
+process_packet(?DISCONNECT_PACKET(?RC_SUCCESS), PState) ->
+    {stop, normal, PState#pstate{will_msg = undefined}};
 process_packet(?DISCONNECT_PACKET(_), PState) ->
     {stop, normal, PState}.
 
@@ -609,13 +609,11 @@ maybe_assign_client_id(PState = #pstate{client_id = <<>>, ackprops = AckProps}) 
 maybe_assign_client_id(PState) ->
     PState.
 
-try_open_session(#pstate{zone        = Zone,
-                         proto_ver   = ProtoVer,
-                         client_id   = ClientId,
-                         conn_pid    = ConnPid,
-                         conn_props  = ConnProps,
-                         username    = Username,
-                         clean_start = CleanStart}) ->
+try_open_session(PState = #pstate{zone        = Zone,
+                                  client_id   = ClientId,
+                                  conn_pid    = ConnPid,
+                                  username    = Username,
+                                  clean_start = CleanStart}) ->
 
     SessAttrs = #{
         zone        => Zone,
@@ -625,21 +623,41 @@ try_open_session(#pstate{zone        = Zone,
         clean_start => CleanStart
     },
 
-    case emqx_sm:open_session(maps:put(expiry_interval, if 
-                                ProtoVer =:= ?MQTT_PROTO_V5 ->
-                                    maps:get('Session-Expiry-Interval', ConnProps, 0);
-                                true ->
-                                    case CleanStart of
-                                        true ->
-                                            0;
-                                        false ->
-                                            emqx_zone:get_env(Zone, session_expiry_interval, 16#ffffffff)
-                                    end  
-                            end, SessAttrs)) of
+    SessAttrs1 = lists:foldl(fun set_session_attrs/2, SessAttrs, [{max_inflight, PState}, {expiry_interval, PState}, {topic_alias_maximum, PState}]),
+    case emqx_sm:open_session(SessAttrs1) of
         {ok, SPid} ->
             {ok, SPid, false};
         Other -> Other
     end.
+
+set_session_attrs({max_inflight, #pstate{zone = Zone, proto_ver = ProtoVer, conn_props = ConnProps}}, SessAttrs) ->
+    maps:put(max_inflight, if
+                               ProtoVer =:= ?MQTT_PROTO_V5 ->
+                                   maps:get('Receive-Maximum', ConnProps, 65535);
+                               true -> 
+                                   emqx_zone:get_env(Zone, max_inflight, 65535)
+                           end, SessAttrs);
+set_session_attrs({expiry_interval, #pstate{zone = Zone, proto_ver = ProtoVer, conn_props = ConnProps, clean_start = CleanStart}}, SessAttrs) ->
+    maps:put(expiry_interval, if
+                               ProtoVer =:= ?MQTT_PROTO_V5 ->
+                                   maps:get('Session-Expiry-Interval', ConnProps, 0);
+                               true -> 
+                                   case CleanStart of
+                                       true -> 0;
+                                       false -> 
+                                           emqx_zone:get_env(Zone, session_expiry_interval, 16#ffffffff)
+                                   end
+                           end, SessAttrs);
+set_session_attrs({topic_alias_maximum, #pstate{zone = Zone, proto_ver = ProtoVer, conn_props = ConnProps}}, SessAttrs) ->
+    maps:put(topic_alias_maximum, if
+                                    ProtoVer =:= ?MQTT_PROTO_V5 ->
+                                        maps:get('Topic-Alias-Maximum', ConnProps, 0);
+                                    true -> 
+                                        emqx_zone:get_env(Zone, max_topic_alias, 0)
+                                  end, SessAttrs);
+set_session_attrs({_, #pstate{}}, SessAttrs) ->
+    SessAttrs.
+
 
 authenticate(Credentials, Password) ->
     case emqx_access_control:authenticate(Credentials, Password) of

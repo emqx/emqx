@@ -47,7 +47,7 @@
 -export([info/1, attrs/1]).
 -export([stats/1]).
 -export([resume/2, discard/2]).
--export([update_expiry_interval/2]).
+-export([update_expiry_interval/2, update_misc/2]).
 -export([subscribe/2, subscribe/4]).
 -export([publish/3]).
 -export([puback/2, puback/3]).
@@ -145,7 +145,9 @@
           enqueue_stats = 0,
 
           %% Created at
-          created_at :: erlang:timestamp()
+          created_at :: erlang:timestamp(),
+
+          topic_alias_maximum :: pos_integer()
          }).
 
 -type(spid() :: pid()).
@@ -318,6 +320,9 @@ discard(SPid, ByPid) ->
 update_expiry_interval(SPid, Interval) ->
     gen_server:cast(SPid, {expiry_interval, Interval * 1000}).
 
+update_misc(SPid, Misc) ->
+    gen_server:cast(SPid, {update_misc, Misc}).
+
 -spec(close(spid()) -> ok).
 close(SPid) ->
     gen_server:call(SPid, close, infinity).
@@ -326,36 +331,38 @@ close(SPid) ->
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
 
-init([Parent, #{zone            := Zone,
-                client_id       := ClientId,
-                username        := Username,
-                conn_pid        := ConnPid,
-                clean_start     := CleanStart,
-                expiry_interval := ExpiryInterval}]) ->
+init([Parent, #{zone                := Zone,
+                client_id           := ClientId,
+                username            := Username,
+                conn_pid            := ConnPid,
+                clean_start         := CleanStart,
+                expiry_interval     := ExpiryInterval,
+                max_inflight        := MaxInflight,
+                topic_alias_maximum := TopicAliasMaximum}]) ->
     process_flag(trap_exit, true),
     true = link(ConnPid),
-    MaxInflight = get_env(Zone, max_inflight),
     IdleTimout = get_env(Zone, idle_timeout, 30000),
-    State = #state{idle_timeout      = IdleTimout,
-                   clean_start       = CleanStart,
-                   binding           = binding(ConnPid),
-                   client_id         = ClientId,
-                   username          = Username,
-                   conn_pid          = ConnPid,
-                   subscriptions     = #{},
-                   max_subscriptions = get_env(Zone, max_subscriptions, 0),
-                   upgrade_qos       = get_env(Zone, upgrade_qos, false),
-                   inflight          = emqx_inflight:new(MaxInflight),
-                   mqueue            = init_mqueue(Zone),
-                   retry_interval    = get_env(Zone, retry_interval, 0),
-                   awaiting_rel      = #{},
-                   await_rel_timeout = get_env(Zone, await_rel_timeout),
-                   max_awaiting_rel  = get_env(Zone, max_awaiting_rel),
-                   expiry_interval   = ExpiryInterval,
-                   enable_stats      = get_env(Zone, enable_stats, true),
-                   deliver_stats     = 0,
-                   enqueue_stats     = 0,
-                   created_at        = os:timestamp()
+    State = #state{idle_timeout        = IdleTimout,
+                   clean_start         = CleanStart,
+                   binding             = binding(ConnPid),
+                   client_id           = ClientId,
+                   username            = Username,
+                   conn_pid            = ConnPid,
+                   subscriptions       = #{},
+                   max_subscriptions   = get_env(Zone, max_subscriptions, 0),
+                   upgrade_qos         = get_env(Zone, upgrade_qos, false),
+                   inflight            = emqx_inflight:new(MaxInflight),
+                   mqueue              = init_mqueue(Zone),
+                   retry_interval      = get_env(Zone, retry_interval, 0),
+                   awaiting_rel        = #{},
+                   await_rel_timeout   = get_env(Zone, await_rel_timeout),
+                   max_awaiting_rel    = get_env(Zone, max_awaiting_rel),
+                   expiry_interval     = ExpiryInterval,
+                   enable_stats        = get_env(Zone, enable_stats, true),
+                   deliver_stats       = 0,
+                   enqueue_stats       = 0,
+                   created_at          = os:timestamp(),
+                   topic_alias_maximum = TopicAliasMaximum
                   },
     emqx_sm:register_session(ClientId, attrs(State)),
     emqx_sm:set_session_stats(ClientId, stats(State)),
@@ -543,6 +550,10 @@ handle_cast({resume, ConnPid}, State = #state{client_id       = ClientId,
 handle_cast({expiry_interval, Interval}, State) ->
     {noreply, State#state{expiry_interval = Interval}};
 
+handle_cast({update_misc, #{max_inflight := MaxInflight, topic_alias_maximum := TopicAliasMaximum}}, State) ->
+    {noreply, State#state{inflight            = emqx_inflight:update_size(MaxInflight, State#state.inflight),
+                          topic_alias_maximum = TopicAliasMaximum}};
+
 handle_cast(Msg, State) ->
     emqx_logger:error("[Session] unexpected cast: ~p", [Msg]),
     {noreply, State}.
@@ -554,15 +565,22 @@ handle_info({dispatch, Topic, Msgs}, State) when is_list(Msgs) ->
                           end, State, Msgs)};
 
 %% Dispatch message
-handle_info({dispatch, Topic, Msg}, State = #state{subscriptions = SubMap}) when is_record(Msg, message) ->
-    noreply(case maps:find(Topic, SubMap) of
-                {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
-                    run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}, {subid, SubId}], Msg, State);
-                {ok, #{nl := Nl, qos := QoS, rap := Rap}} ->
-                    run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}], Msg, State);
-                error ->
-                    dispatch(emqx_message:unset_flag(dup, Msg), State)
-            end);
+handle_info({dispatch, Topic, Msg = #message{headers = Headers}}, 
+            State = #state{subscriptions = SubMap, topic_alias_maximum = TopicAliasMaximum}) when is_record(Msg, message) ->
+    TopicAlias = maps:get('Topic-Alias', Headers, undefined),
+    if 
+        TopicAlias =:= undefined orelse TopicAlias =< TopicAliasMaximum ->
+            noreply(case maps:find(Topic, SubMap) of
+                        {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
+                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}, {subid, SubId}], Msg, State);
+                        {ok, #{nl := Nl, qos := QoS, rap := Rap}} ->
+                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}], Msg, State);
+                        error ->
+                            dispatch(emqx_message:unset_flag(dup, Msg), State)
+                    end);
+        true ->
+            noreply(State)
+    end;
 
 %% Do nothing if the client has been disconnected.
 handle_info({timeout, Timer, retry_delivery}, State = #state{conn_pid = undefined, retry_timer = Timer}) ->
@@ -806,7 +824,7 @@ await(PacketId, Msg, State = #state{inflight = Inflight}) ->
 acked(puback, PacketId, State = #state{client_id = ClientId, inflight  = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {publish, {_, Msg}, _Ts}} ->
-            emqx_hooks:run('message.acked', [#{client_id =>ClientId}], Msg),
+            emqx_hooks:run('message.acked', [#{client_id => ClientId}], Msg),
             State#state{inflight = emqx_inflight:delete(PacketId, Inflight)};
         none ->
             ?LOG(warning, "Duplicated PUBACK PacketId ~w", [PacketId], State),
@@ -816,7 +834,7 @@ acked(puback, PacketId, State = #state{client_id = ClientId, inflight  = Infligh
 acked(pubrec, PacketId, State = #state{client_id = ClientId, inflight  = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {publish, {_, Msg}, _Ts}} ->
-            emqx_hooks:run('message.acked', [ClientId], Msg),
+            emqx_hooks:run('message.acked', [#{client_id => ClientId}], Msg),
             State#state{inflight = emqx_inflight:update(PacketId, {pubrel, PacketId, os:timestamp()}, Inflight)};
         {value, {pubrel, PacketId, _Ts}} ->
             ?LOG(warning, "Duplicated PUBREC PacketId ~w", [PacketId], State),

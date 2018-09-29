@@ -48,6 +48,7 @@ packet_validate(_) ->
     ?assert(emqx_packet:validate(?UNSUBSCRIBE_PACKET(89, [<<"topic">>]))),
     ?assert(emqx_packet:validate(?CONNECT_PACKET(#mqtt_packet_connect{}))),
     ?assert(emqx_packet:validate(?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Response-Topic' => <<"responsetopic">>, 'Topic-Alias' => 1}, <<"payload">>))),
+    ?assert(emqx_packet:validate(?CONNECT_PACKET(#mqtt_packet_connect{properties = #{'Receive-Maximum' => 1}}))),
     ?assertError(subscription_identifier_invalid,
                  emqx_packet:validate(
                    ?SUBSCRIBE_PACKET(15, #{'Subscription-Identifier' => -1},
@@ -80,7 +81,13 @@ packet_validate(_) ->
                  emqx_packet:validate(
                    ?CONNECT_PACKET(#mqtt_packet_connect{
                                       properties =
-                                          #{'Request-Problem-Information' => 2}}))).
+                                          #{'Request-Problem-Information' => 2}}))),
+    ?assertError(protocol_error,
+                emqx_packet:validate(
+                  ?CONNECT_PACKET(#mqtt_packet_connect{
+                                      properties =
+                                          #{'Receive-Maximum' => 0})
+                                    ).
 
 packet_message(_) ->
     Pkt = #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,

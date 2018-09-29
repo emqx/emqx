@@ -89,6 +89,8 @@ validate_properties(?PUBLISH, #{'Response-Topic' := ResponseTopic}) ->
         false ->
             true
     end;
+validate_properties(?CONNECT, #{'Receive-Maximum' := 0}) ->
+    error(protocol_error);
 validate_properties(?CONNECT, #{'Request-Response-Information' := ReqRespInfo})
     when ReqRespInfo =/= 0, ReqRespInfo =/= 1 ->
     error(protocol_error);
