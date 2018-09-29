@@ -86,8 +86,7 @@ packet_validate(_) ->
                 emqx_packet:validate(
                   ?CONNECT_PACKET(#mqtt_packet_connect{
                                       properties =
-                                          #{'Receive-Maximum' => 0})
-                                    ).
+                                          #{'Receive-Maximum' => 0}}))).
 
 packet_message(_) ->
     Pkt = #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
