@@ -63,8 +63,6 @@ validate(?PUBLISH_PACKET(_QoS, Topic, _, Properties, _)) ->
 
 validate(?CONNECT_PACKET(#mqtt_packet_connect{properties = #{'Receive-Maximum' := 0}})) ->
     error(protocol_error);
-validate(?CONNECT_PACKET(#mqtt_packet_connect{properties = #{'Receive-Maximum' := _}})) ->
-    true;
 
 validate(_Packet) ->
     true.
