@@ -127,7 +127,7 @@
           await_rel_timer :: reference() | undefined,
 
           %% Session Expiry Interval
-          expiry_interval = 7200000 :: timeout(),
+          expiry_interval = 7200 :: timeout(),
 
           %% Expired Timer
           expiry_timer :: reference() | undefined,
@@ -318,7 +318,7 @@ discard(SPid, ByPid) ->
 
 -spec(update_expiry_interval(spid(), timeout()) -> ok).
 update_expiry_interval(SPid, Interval) ->
-    gen_server:cast(SPid, {expiry_interval, Interval * 1000}).
+    gen_server:cast(SPid, {expiry_interval, Interval}).
 
 update_misc(SPid, Misc) ->
     gen_server:cast(SPid, {update_misc, Misc}).
