@@ -27,7 +27,6 @@
 
 -record(ssl_socket, {tcp, ssl}).
 
-%% -type(socket() :: inet:socket() | #ssl_socket{}).
 
 -define(CLIENT, ?CONNECT_PACKET(#mqtt_packet_connect{
                                 client_id = <<"mqtt_client">>,

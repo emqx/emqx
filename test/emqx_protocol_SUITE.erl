@@ -1,4 +1,3 @@
-
 %%--------------------------------------------------------------------
 %% Copyright (c) 2013-2018 EMQ Enterprise, Inc. (http://emqtt.io)
 %%
@@ -61,137 +60,156 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
 
-connect_v4(_) ->
-    {ok, Sock} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
-    ConnectPacket = raw_send_serialize(?PACKET(?PUBLISH)),
-    emqx_client_sock:send(Sock, ConnectPacket),
-    {error, closed} = gen_tcp:recv(Sock, 0),
-    emqx_client_sock:close(Sock),
-    {ok, Sock3} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
-    ConnectPacket3 = raw_send_serialize(?CONNECT_PACKET(#mqtt_packet_connect{
-                                                           client_id  = <<"mqttv4_client">>,
-                                                           username = <<"admin">>,
-                                                           password = <<"public">>,
-                                                           proto_ver  = ?MQTT_PROTO_V4})),
-    emqx_client_sock:send(Sock3, ConnectPacket3),
-    {ok, Data} = gen_tcp:recv(Sock3, 0),
-    {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_parse(Data, ?MQTT_PROTO_V4),
+with_connection(DoFun) ->
+    {ok, Sock} = emqx_client_sock:connect({127, 0, 0, 1}, 1883,
+                                          [binary, {packet, raw},
+                                           {active, false}], 3000),
+    try
+        DoFun(Sock)
+    after
+        emqx_client_sock:close(Sock)
+    end.
 
-    emqx_client_sock:send(Sock3, ConnectPacket3),
-    {error, closed} = gen_tcp:recv(Sock3, 0),
-    emqx_client_sock:close(Sock3),
+connect_v4(_) ->
+    with_connection(fun(Sock) ->
+                            emqx_client_sock:send(Sock, raw_send_serialize(?PACKET(?PUBLISH))),
+                            {error, closed} =gen_tcp:recv(Sock, 0)
+                    end),
+    with_connection(fun(Sock) ->
+                            ConnectPacket = raw_send_serialize(?CONNECT_PACKET
+                                                                   (#mqtt_packet_connect{
+                                                                       client_id = <<"mqttv4_client">>,
+                                                                       username = <<"admin">>,
+                                                                       password = <<"public">>,
+                                                                       proto_ver = ?MQTT_PROTO_V4
+                                                                      })),
+                            emqx_client_sock:send(Sock, ConnectPacket),
+                            {ok, Data} = gen_tcp:recv(Sock, 0),
+                            {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_parse(Data, ?MQTT_PROTO_V4),
+
+                            emqx_client_sock:send(Sock, ConnectPacket),
+                            {error, closed} = gen_tcp:recv(Sock, 0)
+                    end),
     ok.
 
 
 connect_v5(_) ->
-    {ok, Sock1} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
-    ConnectPacket1 = raw_send_serialize(?CONNECT_PACKET(#mqtt_packet_connect{
-                                                           proto_ver  = ?MQTT_PROTO_V5,
-                                                           properties =
-                                                               #{'Request-Response-Information' => -1}})),
-    emqx_client_sock:send(Sock1, ConnectPacket1),
-    {ok, Data1} = gen_tcp:recv(Sock1, 0),
-    {ok, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR), _} = raw_recv_parse(Data1, ?MQTT_PROTO_V5),
-    emqx_client_sock:close(Sock1),
+    with_connection(fun(Sock) ->
+                            emqx_client_sock:send(Sock,
+                                                  raw_send_serialize(
+                                                    ?CONNECT_PACKET(#mqtt_packet_connect{
+                                                                       proto_ver  = ?MQTT_PROTO_V5,
+                                                                       properties =
+                                                                           #{'Request-Response-Information' => -1}}))),
+                            {ok, Data} = gen_tcp:recv(Sock, 0),
+                            {ok, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR), _} = raw_recv_parse(Data, ?MQTT_PROTO_V5)
+                    end),
 
-    {ok, Sock2} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
-    ConnectPacket2 = raw_send_serialize(?CONNECT_PACKET(#mqtt_packet_connect{
-                                                           proto_ver  = ?MQTT_PROTO_V5,
-                                                           properties =
-                                                               #{'Request-Problem-Information' => 2}})),
-    emqx_client_sock:send(Sock2, ConnectPacket2),
-    {ok, Data2} = gen_tcp:recv(Sock2, 0),
-    {ok, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR), _} = raw_recv_parse(Data2, ?MQTT_PROTO_V5),
-    emqx_client_sock:close(Sock2),
+    with_connection(fun(Sock) ->
+                            emqx_client_sock:send(Sock,
+                                                  raw_send_serialize(
+                                                    ?CONNECT_PACKET(
+                                                       #mqtt_packet_connect{
+                                                          proto_ver  = ?MQTT_PROTO_V5,
+                                                          properties =
+                                                               #{'Request-Problem-Information' => 2}}))),
+                            {ok, Data} = gen_tcp:recv(Sock, 0),
+                            {ok, ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR), _} = raw_recv_parse(Data, ?MQTT_PROTO_V5)
+                    end),
 
-    {ok, Sock3} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
-    ConnectPacket3 = raw_send_serialize(?CONNECT_PACKET(#mqtt_packet_connect{
-                                                           proto_ver  = ?MQTT_PROTO_V5,
-                                                           properties =
-                                                               #{'Request-Response-Information' => 1}})),
-    emqx_client_sock:send(Sock3, ConnectPacket3),
-    {ok, Data3} = gen_tcp:recv(Sock3, 0),
-    {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0, #{'Response-Information' := _RespInfo}), _} = raw_recv_parse(Data3, ?MQTT_PROTO_V5),
-    emqx_client_sock:close(Sock3),
+    with_connection(fun(Sock) ->
+                            emqx_client_sock:send(Sock,
+                                                  raw_send_serialize(
+                                                    ?CONNECT_PACKET(
+                                                       #mqtt_packet_connect{
+                                                          proto_ver  = ?MQTT_PROTO_V5,
+                                                          properties =
+                                                              #{'Request-Response-Information' => 1}})
+                                                  )),
+                            {ok, Data} = gen_tcp:recv(Sock, 0),
+                            {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0,
+                                                 #{'Response-Information' := _RespInfo}), _} =
+                                raw_recv_parse(Data, ?MQTT_PROTO_V5)
+                    end),
     ok.
 
-subscribe_v4(_) ->
-    {ok, Sock} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
-    ConnectPacket = raw_send_serialize(?CONNECT_PACKET(#mqtt_packet_connect{
-                                                           client_id  = <<"mqttv4_client">>,
-                                                           proto_ver  = ?MQTT_PROTO_V4})),
-    emqx_client_sock:send(Sock, ConnectPacket),
+do_connect(Sock, ProtoVer) ->
+    emqx_client_sock:send(Sock, raw_send_serialize(
+                                  ?CONNECT_PACKET(
+                                     #mqtt_packet_connect{
+                                        client_id  = <<"mqtt_client">>,
+                                        proto_ver  = ProtoVer
+                                       }))),
     {ok, Data} = gen_tcp:recv(Sock, 0),
-    {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_parse(Data, ?MQTT_PROTO_V4),
-    SubPacket = raw_send_serialize(?SUBSCRIBE_PACKET(15, [{<<"topic">>, #{rh => 1,
-                                                                          qos => ?QOS_2,
-                                                                          rap => 0,
-                                                                          nl => 0,
-                                                                          rc => 0}}])),
-    emqx_client_sock:send(Sock, SubPacket),
-    {ok, Data1} = gen_tcp:recv(Sock, 0),
-    {ok, ?SUBACK_PACKET(15, _), _} = raw_recv_parse(Data1, ?MQTT_PROTO_V4),
-    emqx_client_sock:close(Sock),
+    {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_parse(Data, ProtoVer).
+
+subscribe_v4(_) ->
+    with_connection(fun(Sock) ->
+                            do_connect(Sock, ?MQTT_PROTO_V4),
+                            SubPacket = raw_send_serialize(
+                                          ?SUBSCRIBE_PACKET(15,
+                                                            [{<<"topic">>, #{rh => 1,
+                                                                             qos => ?QOS_2,
+                                                                             rap => 0,
+                                                                             nl => 0,
+                                                                             rc => 0}}])),
+                            emqx_client_sock:send(Sock, SubPacket),
+                            {ok, Data} = gen_tcp:recv(Sock, 0),
+                            {ok, ?SUBACK_PACKET(15, _), _} = raw_recv_parse(Data, ?MQTT_PROTO_V4)
+                    end),
     ok.
 
 subscribe_v5(_) ->
-    {ok, Sock} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
-    ConnectPacket = raw_send_serialize(?CONNECT_PACKET(#mqtt_packet_connect{
-                                                           client_id  = <<"mqttv5_client">>,
-                                                           proto_ver  = ?MQTT_PROTO_V5})),
-    emqx_client_sock:send(Sock, ConnectPacket),
-    {ok, ConnData} = gen_tcp:recv(Sock, 0),
-    {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0), _} = raw_recv_parse(ConnData, ?MQTT_PROTO_V5),
-    SubPacket1 = raw_send_serialize(?SUBSCRIBE_PACKET(15, #{'Subscription-Identifier' => -1},[]),
-                                    #{version => ?MQTT_PROTO_V5}),
-    emqx_client_sock:send(Sock, SubPacket1),
-    {ok, DisConnData} = gen_tcp:recv(Sock, 0),
-    {ok, ?DISCONNECT_PACKET(?RC_TOPIC_FILTER_INVALID), _} = raw_recv_parse(DisConnData, ?MQTT_PROTO_V5),
-    emqx_client_sock:close(Sock),
-
-    {ok, Sock1} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
-    emqx_client_sock:send(Sock1, ConnectPacket),
-    {ok, ConnData1} = gen_tcp:recv(Sock1, 0),
-    {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0), _} = raw_recv_parse(ConnData1, ?MQTT_PROTO_V5),
-    SubPacket2 = raw_send_serialize(?SUBSCRIBE_PACKET(0, #{}, [{<<"TopicQos0">>,
-                                                                #{rh => 1, qos => ?QOS_2,
-                                                                  rap => 0, nl => 0,
-                                                                  rc => 0}}]),
-                                    #{version => ?MQTT_PROTO_V5}),
-    emqx_client_sock:send(Sock1, SubPacket2),
-    {ok, DisConnData1} = gen_tcp:recv(Sock1, 0),
-    {ok, ?DISCONNECT_PACKET(?RC_MALFORMED_PACKET), _} = raw_recv_parse(DisConnData1, ?MQTT_PROTO_V5),
-    emqx_client_sock:close(Sock1),
-
-    {ok, Sock2} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
-    emqx_client_sock:send(Sock2, ConnectPacket),
-    {ok, ConnData2} = gen_tcp:recv(Sock2, 0),
-    {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0), _} = raw_recv_parse(ConnData2, ?MQTT_PROTO_V5),
-    SubPacket3 = raw_send_serialize(?SUBSCRIBE_PACKET(1, #{'Subscription-Identifier' => 0},
-                                                      [{<<"TopicQos0">>,
-                                                        #{rh => 1, qos => ?QOS_2,
-                                                          rap => 0, nl => 0,
-                                                          rc => 0}}]),
-                                    #{version => ?MQTT_PROTO_V5}),
-    emqx_client_sock:send(Sock2, SubPacket3),
-    {ok, DisConnData2} = gen_tcp:recv(Sock2, 0),
-    {ok, ?DISCONNECT_PACKET(?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED), _} = raw_recv_parse(DisConnData2, ?MQTT_PROTO_V5),
-    emqx_client_sock:close(Sock2),
-
-    {ok, Sock3} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
-    emqx_client_sock:send(Sock3, ConnectPacket),
-    {ok, ConnData3} = gen_tcp:recv(Sock3, 0),
-    {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0), _} = raw_recv_parse(ConnData3, ?MQTT_PROTO_V5),
-    SubPacket4 = raw_send_serialize(?SUBSCRIBE_PACKET(1, #{'Subscription-Identifier' => 1},
-                                                      [{<<"TopicQos0">>,
-                                                        #{rh => 1, qos => ?QOS_2,
-                                                          rap => 0, nl => 0,
-                                                          rc => 0}}]),
-                                    #{version => ?MQTT_PROTO_V5}),
-    emqx_client_sock:send(Sock3, SubPacket4),
-    {ok, DisConnData3} = gen_tcp:recv(Sock3, 0),
-    {ok, ?SUBACK_PACKET(1, #{}, [2]), _} = raw_recv_parse(DisConnData3, ?MQTT_PROTO_V5),
-    emqx_client_sock:close(Sock3),
+    with_connection(fun(Sock) ->
+                            do_connect(Sock, ?MQTT_PROTO_V5),
+                            SubPacket = raw_send_serialize(?SUBSCRIBE_PACKET(15, #{'Subscription-Identifier' => -1},[]),
+                                                            #{version => ?MQTT_PROTO_V5}),
+                            emqx_client_sock:send(Sock, SubPacket),
+                            {ok, DisConnData} = gen_tcp:recv(Sock, 0),
+                            {ok, ?DISCONNECT_PACKET(?RC_TOPIC_FILTER_INVALID), _} =
+                                raw_recv_parse(DisConnData, ?MQTT_PROTO_V5)
+                    end),
+    with_connection(fun(Sock) ->
+                            do_connect(Sock, ?MQTT_PROTO_V5),
+                            SubPacket = raw_send_serialize(
+                                          ?SUBSCRIBE_PACKET(0, #{}, [{<<"TopicQos0">>,
+                                                                      #{rh => 1, qos => ?QOS_2,
+                                                                        rap => 0, nl => 0,
+                                                                        rc => 0}}]),
+                                          #{version => ?MQTT_PROTO_V5}),
+                            emqx_client_sock:send(Sock, SubPacket),
+                            {ok, DisConnData} = gen_tcp:recv(Sock, 0),
+                            {ok, ?DISCONNECT_PACKET(?RC_MALFORMED_PACKET), _} =
+                                raw_recv_parse(DisConnData, ?MQTT_PROTO_V5)
+                    end),
+    with_connection(fun(Sock) ->
+                            do_connect(Sock, ?MQTT_PROTO_V5),
+                            SubPacket = raw_send_serialize(
+                                          ?SUBSCRIBE_PACKET(1, #{'Subscription-Identifier' => 0},
+                                                            [{<<"TopicQos0">>,
+                                                              #{rh => 1, qos => ?QOS_2,
+                                                                rap => 0, nl => 0,
+                                                                rc => 0}}]),
+                                          #{version => ?MQTT_PROTO_V5}),
+                            emqx_client_sock:send(Sock, SubPacket),
+                            {ok, DisConnData} = gen_tcp:recv(Sock, 0),
+                            {ok, ?DISCONNECT_PACKET(?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED), _} =
+                                raw_recv_parse(DisConnData, ?MQTT_PROTO_V5)
+                    end),
+    with_connection(fun(Sock) ->
+                            do_connect(Sock, ?MQTT_PROTO_V5),
+                            SubPacket = raw_send_serialize(
+                                          ?SUBSCRIBE_PACKET(1, #{'Subscription-Identifier' => 1},
+                                                            [{<<"TopicQos0">>,
+                                                              #{rh => 1, qos => ?QOS_2,
+                                                                rap => 0, nl => 0,
+                                                                rc => 0}}]),
+                                          #{version => ?MQTT_PROTO_V5}),
+                            emqx_client_sock:send(Sock, SubPacket),
+                            {ok, SubData} = gen_tcp:recv(Sock, 0),
+                            {ok, ?SUBACK_PACKET(1, #{}, [2]), _} =
+                                raw_recv_parse(SubData, ?MQTT_PROTO_V5)
+                    end),
     ok.
 
 publish_v4(_) ->
