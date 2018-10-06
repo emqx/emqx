@@ -65,9 +65,9 @@
     end).
 
 -define(IS_QOS_NAME(I),
-        (I =:= qos0; I =:= at_most_once;
-         I =:= qos1; I =:= at_least_once;
-         I =:= qos2; I =:= exactly_once)).
+        (I =:= qos0 orelse I =:= at_most_once orelse
+         I =:= qos1 orelse I =:= at_least_once orelse
+         I =:= qos2 orelse I =:= exactly_once)).
 
 %%--------------------------------------------------------------------
 %% Maximum ClientId Length.
@@ -528,4 +528,3 @@
 -define(PACKET(Type), #mqtt_packet{header = #mqtt_packet_header{type = Type}}).
 
 -endif.
-

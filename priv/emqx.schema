@@ -599,7 +599,6 @@ end}.
 
 %% @doc Response Topic Prefix
 {mapping, "mqtt.response_topic_prefix", "emqx.response_topic_prefix",[
-    {default, "ResponseTopic"},
     {datatype, string}
 ]}.
 
@@ -1803,4 +1802,3 @@ end}.
    {busy_port, cuttlefish:conf_get("sysmon.busy_port", Conf)},
    {busy_dist_port, cuttlefish:conf_get("sysmon.busy_dist_port", Conf)}]
 end}.
-

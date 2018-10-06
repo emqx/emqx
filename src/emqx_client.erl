@@ -154,6 +154,8 @@
 
 -define(SHARED(GROUP, TOPIC), {GROUP, TOPIC}).
 
+-define(RESPONSE_TIMEOUT_SECONDS, timer:seconds(5)).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
@@ -172,9 +174,11 @@ sub_response_topic(Client, RequestQoS, {Group, Topic}) ->
         {ok, ResponseInformation} ->
             NewResponseTopic = <<(shared_topic(Group, ResponseInformation))/binary,
                                  "/",
-                                 (emqx_base62:encode(Topic))/binary>>,
+                                 Topic/binary>>,
             {ok, _Props, _QoS} = subscribe(Client, [{NewResponseTopic, [{rh, 2}, {rap, false},
                                                                   {nl, true}, {qos, RequestQoS}]}]),
+            emqx_logger:debug("Properties are ~p, QoS is ~p.",
+                              [Properties, RequestQoS]),
             {ok, NewResponseTopic};
         error ->
             {error, no_response_information}
@@ -279,14 +283,22 @@ parse_subopt([{nl, false} | Opts], Result) ->
 parse_subopt([{qos, QoS} | Opts], Result) ->
     parse_subopt(Opts, Result#{qos := ?QOS_I(QoS)}).
 
+unify_qos(Opts) -> lists:map(fun({qos, QoS}) -> {qos, ?QOS_I(QoS)}; (X) -> X end, Opts).
+
 -spec(request(client(), topic(), payload(), qos() | [pubopt()])
         -> ok | {ok, packet_id()} | {error, term()}).
-request(Client, Topic, Payload, QoS) when is_binary(Topic), is_atom(QoS) ->
-    request(Client, Topic, Payload, [{qos, ?QOS_I(QoS)}]);
-request(Client, Topic, Payload, QoS) when is_binary(Topic), ?IS_QOS(QoS) ->
+request(Client, Topic, Payload, QoS) when ?IS_QOS(QoS);
+                                          ?IS_QOS_NAME(QoS) ->
     request(Client, Topic, Payload, [{qos, QoS}]);
-request(Client, Topic, Payload, Opts) when is_binary(Topic), is_list(Opts) ->
-    request(Client, Topic, #{}, Payload, Opts).
+request(Client, Topic, Payload, Opts0) ->
+    request(Client, Topic, #{}, Payload, unify_qos(Opts0)).
+
+%% request(Client, Topic, Payload, QoS) when is_binary(Topic), is_atom(QoS) ->
+%%     request(Client, Topic, Payload, [{qos, ?QOS_I(QoS)}]);
+%% request(Client, Topic, Payload, QoS) when is_binary(Topic), ?IS_QOS(QoS) ->
+%%     request(Client, Topic, Payload, [{qos, QoS}]);
+%% request(Client, Topic, Payload, Opts) when is_binary(Topic), is_list(Opts) ->
+%%     request(Client, Topic, #{}, Payload, Opts).
 
 -spec(request(client(), topic(), properties(), payload(), [pubopt()])
         -> ok | {ok, packet_id()} | {error, term()}).
@@ -295,7 +307,7 @@ request(Client, Topic, Properties, Payload, Opts)
     ok = emqx_mqtt_props:validate(Properties),
     Retain = proplists:get_bool(retain, Opts),
     Group = proplists:get_value(group, Opts, <<>>),
-    TimeOut = proplists:get_value(timeout, Opts, 5),
+    TimeOut = proplists:get_value(timeout, Opts, ?RESPONSE_TIMEOUT_SECONDS),
     QoS = ?QOS_I(proplists:get_value(qos, Opts, ?QOS_0)),
     {ok, ResponseTopic} = sub_response_topic(Client, QoS, {Group, Topic}),
     ClientId = gen_statem:call(Client, client_id),
@@ -647,17 +659,7 @@ waiting_for_connack(cast, ?CONNACK_PACKET(?RC_SUCCESS,
                             _ -> maps:merge(AllProps, Properties)
                         end,
             Reply = {ok, self(), Properties},
-            AssignedClientId = fun(<<>>, Props) ->
-                                   case maps:find('Assigned-Client-Identifier', Props) of
-                                       {ok, Value} ->
-                                           Value;
-                                       _ ->
-                                           emqx_logger:error("Bad Client Id")
-                                   end;
-                                  (Id, _Props) ->
-                                       Id
-                               end,
-            State2 = State1#state{client_id = AssignedClientId(ClientId, AllProps1),
+            State2 = State1#state{client_id = assign_id(ClientId, AllProps1),
                                   properties = AllProps1,
                                   session_present = SessPresent},
             {next_state, connected, ensure_keepalive_timer(State2),
@@ -996,6 +998,16 @@ code_change(_Vsn, State, Data, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+assign_id(<<>>, Props) ->
+    case maps:find('Assigned-Client-Identifier', Props) of
+        {ok, Value} ->
+            Value;
+        _ ->
+            error(bad_client_id)
+    end;
+assign_id(Id, _Props) ->
+    Id.
 
 publish_process(?QOS_1, Packet = ?PUBLISH_PACKET(?QOS_1, PacketId), State = #state{auto_ack = AutoAck}) ->
     _ = deliver(packet_to_msg(Packet), State),
