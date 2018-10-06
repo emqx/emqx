@@ -261,16 +261,17 @@ subscribe(SPid, PacketId, Properties, TopicFilters) ->
 -spec(publish(spid(), emqx_mqtt_types:packet_id(), emqx_types:message())
       -> {ok, emqx_types:deliver_results()}).
 publish(_SPid, _PacketId, Msg = #message{qos = ?QOS_0}) ->
-    %% Publish QoS0 message to broker directly
+    %% Publish QoS0 message directly
     emqx_broker:publish(Msg);
-
 publish(_SPid, _PacketId, Msg = #message{qos = ?QOS_1}) ->
-    %% Publish QoS1 message to broker directly
+    %% Publish QoS1 message directly
     emqx_broker:publish(Msg);
-
-publish(SPid, PacketId, Msg = #message{qos = ?QOS_2}) ->
-    %% Publish QoS2 message to session
-    gen_server:call(SPid, {publish, PacketId, Msg}, infinity).
+publish(SPid, PacketId, Msg = #message{qos = ?QOS_2, timestamp = Ts}) ->
+    %% Register QoS2 message packet ID (and timestamp) to session, then publish
+    case gen_server:call(SPid, {register_publish_packet_id, PacketId, Ts}, infinity) of
+        ok -> emqx_broker:publish(Msg);
+        {error, Reason} -> {error, Reason}
+    end.
 
 -spec(puback(spid(), emqx_mqtt_types:packet_id()) -> ok).
 puback(SPid, PacketId) ->
@@ -406,8 +407,9 @@ handle_call({discard, ByPid}, _From, State = #state{client_id = ClientId, conn_p
     ConnPid ! {shutdown, discard, {ClientId, ByPid}},
     {stop, {shutdown, discard}, ok, State};
 
-%% PUBLISH:
-handle_call({publish, PacketId, Msg = #message{qos = ?QOS_2, timestamp = Ts}}, _From,
+%% PUBLISH: This is only to register packetId to session state.
+%% The actual message dispatching should be done by the caller (e.g. connection) process.
+handle_call({register_publish_packet_id, PacketId, Ts}, _From,
             State = #state{awaiting_rel = AwaitingRel}) ->
     reply(case is_awaiting_full(State) of
               false ->
@@ -416,7 +418,7 @@ handle_call({publish, PacketId, Msg = #message{qos = ?QOS_2, timestamp = Ts}}, _
                           {{error, ?RC_PACKET_IDENTIFIER_IN_USE}, State};
                       false ->
                           State1 = State#state{awaiting_rel = maps:put(PacketId, Ts, AwaitingRel)},
-                          {emqx_broker:publish(Msg), ensure_await_rel_timer(State1)}
+                          {ok, ensure_await_rel_timer(State1)}
                   end;
               true ->
                   emqx_metrics:inc('messages/qos2/dropped'),
