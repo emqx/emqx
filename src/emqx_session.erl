@@ -257,6 +257,7 @@ subscribe(SPid, PacketId, Properties, TopicFilters) ->
     SubReq = {PacketId, Properties, TopicFilters},
     gen_server:cast(SPid, {subscribe, self(), SubReq}).
 
+%% @doc Called by connection processes when publishing messages
 -spec(publish(spid(), emqx_mqtt_types:packet_id(), emqx_types:message())
       -> {ok, emqx_types:deliver_results()}).
 publish(_SPid, _PacketId, Msg = #message{qos = ?QOS_0}) ->
