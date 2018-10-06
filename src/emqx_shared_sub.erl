@@ -29,6 +29,9 @@
 -export([subscribe/3, unsubscribe/3]).
 -export([dispatch/3, maybe_ack/1, maybe_nack/1]).
 
+%% for testing
+-export([subscribers/2]).
+
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
@@ -39,6 +42,7 @@
 -define(SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS, 5).
 -define(ack, shared_sub_ack).
 -define(nack, shared_sub_nack).
+-define(IS_LOCAL_PID(Pid), (is_pid(Pid) andalso node(Pid) =:= node())).
 
 -record(state, {pmon}).
 -record(emqx_shared_subscription, {group, topic, subpid}).
@@ -103,25 +107,28 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg, results = Results}, F
             end
     end.
 
-%% return either 'ok' (when everything is fine) or 'error'
-do_dispatch(SubPid, Topic, #message{qos = ?QOS0} = Msg) ->
-    %% For QoS 0 message, send it as regular dispatch
-    _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
-    ok;
 do_dispatch(SubPid, Topic, Msg) when SubPid =:= self() ->
     %% Deadlock otherwise
     _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
     ok;
 do_dispatch(SubPid, Topic, Msg) ->
+    do_dispatch_per_qos(SubPid, Topic, Msg).
+
+%% return either 'ok' (when everything is fine) or 'error'
+do_dispatch_per_qos(SubPid, Topic, #message{qos = ?QOS_0} = Msg) ->
+    %% For QoS 0 message, send it as regular dispatch
+    _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
+    ok;
+do_dispatch_per_qos(SubPid, Topic, Msg) ->
     %% For QoS 1/2 message, expect an ack
     Ref = erlang:monitor(process, SubPid),
     Sender = self(),
     _ = erlang:send(SubPid, {dispatch, Topic, Msg#message{shared_dispatch_ack = {Sender, Ref}}}),
     Timeout = case Msg#message.qos of
-                  ?QOS1 -> timer:seconds(?SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS);
-                  ?QOS2 -> infinity
+                  ?QOS_1 -> timer:seconds(?SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS);
+                  ?QOS_2 -> infinity
               end,
-    Result =
+    try
         receive
             {Ref, ?ack} ->
                 ok;
@@ -133,9 +140,10 @@ do_dispatch(SubPid, Topic, Msg) ->
         after
             Timeout ->
                 error
-        end,
-    _ = erlang:demonitor(Ref, [flush]),
-    Result.
+        end
+    after
+        _ = erlang:demonitor(Ref, [flush])
+    end.
 
 -spec(maybe_nack(emqx_types:message()) -> ok).
 maybe_nack(#message{shared_dispatch_ack = no_ack}) -> ok;
@@ -149,7 +157,7 @@ maybe_ack(Msg = #message{shared_dispatch_ack = {Sender, Ref}}) ->
 
 pick(sticky, ClientId, Group, Topic, FailedSubs) ->
     Sub0 = erlang:get({shared_sub_sticky, Group, Topic}),
-    case is_sub_alive(Sub0, FailedSubs) of
+    case is_active_sub(Sub0, FailedSubs) of
         true ->
             %% the old subscriber is still alive
             %% keep using it for sticky strategy
@@ -212,7 +220,7 @@ handle_call(Req, _From, State) ->
 
 handle_cast({monitor, SubPid}, State= #state{pmon = PMon}) ->
     NewPmon = emqx_pmon:monitor(SubPid, PMon),
-    ets:insert(?ALIVE_SUBS, {SubPid}),
+    ok = maybe_insert_alive_tab(SubPid),
     {noreply, update_stats(State#state{pmon = NewPmon})};
 handle_cast(Msg, State) ->
     emqx_logger:error("[SharedSub] unexpected cast: ~p", [Msg]),
@@ -248,8 +256,12 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
+%% keep track of alive remote pids
+maybe_insert_alive_tab(Pid) when ?IS_LOCAL_PID(Pid) -> ok;
+maybe_insert_alive_tab(Pid) when is_pid(Pid) -> ets:insert(?ALIVE_SUBS, {Pid}), ok.
+
 cleanup_down(SubPid) ->
-    ets:delete(?ALIVE_SUBS, SubPid),
+    ?IS_LOCAL_PID(SubPid) orelse ets:delete(?ALIVE_SUBS, SubPid),
     lists:foreach(
         fun(Record) ->
             mnesia:dirty_delete_object(?TAB, Record)
@@ -258,9 +270,13 @@ cleanup_down(SubPid) ->
 update_stats(State) ->
     emqx_stats:setstat('subscriptions/shared/count', 'subscriptions/shared/max', ets:info(?TAB, size)), State.
 
-%% erlang:is_process_alive/1 is expensive
-%% and does not work with remote pids
-is_sub_alive(Sub, FailedSubs) ->
-    [] =/= ets:lookup(?ALIVE_SUBS, Sub) andalso
-    not lists:member(Sub, FailedSubs).
+%% Return 'true' if the subscriber process is alive AND not in the failed list
+is_active_sub(Pid, FailedSubs) ->
+    is_alive_sub(Pid) andalso not lists:member(Pid, FailedSubs).
+
+%% erlang:is_process_alive/1 does not work with remote pid.
+is_alive_sub(Pid) when ?IS_LOCAL_PID(Pid) ->
+    erlang:is_process_alive(Pid);
+is_alive_sub(Pid) ->
+    [] =/= ets:lookup(?ALIVE_SUBS, Pid).
 
