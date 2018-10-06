@@ -63,7 +63,7 @@ request_response(QoS) ->
                                 {properties, #{ 'Request-Response-Information' => 1}}]),
     {ok, Responser, _} = emqx_client:start_link([{proto_ver, v5},
                                 {properties, #{ 'Request-Response-Information' => 1}}]),
-    {ok, ResponseTopic} = emqx_client:sub_response_topic(Responser, false, QoS, <<"request_response_test">>),
+    {ok, ResponseTopic} = emqx_client:sub_response_topic(Responser, QoS, <<"request_response_test">>),
     ct:log("ResponseTopic: ~p",[ResponseTopic]),
     ok = emqx_client:def_response(Responser, <<"ResponseTest">>),
     {ok, <<"ResponseTest">>} = emqx_client:request(Requester, <<"request_response_test">>, <<"request_payload">>, QoS),

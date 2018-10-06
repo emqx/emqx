@@ -20,7 +20,7 @@
 
 -export([start_link/0, start_link/1]).
 -export([request/4, request/5]).
--export([def_response/2, sub_response_topic/4]).
+-export([def_response/2, sub_response_topic/3]).
 -export([subscribe/2, subscribe/3, subscribe/4]).
 -export([publish/2, publish/3, publish/4, publish/5]).
 -export([unsubscribe/2, unsubscribe/3]).
@@ -152,26 +152,36 @@
 -define(WILL_MSG(QoS, Retain, Topic, Props, Payload),
         #mqtt_msg{qos = QoS, retain = Retain, topic = Topic, props = Props, payload = Payload}).
 
+-define(SHARED(GROUP, TOPIC), {GROUP, TOPIC}).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
+
+%% @doc set response information or response function for responser
 -spec(def_response(client(), function() | binary()) -> ok).
 def_response(Responser, Response) ->
     gen_statem:call(Responser, {def_response, Response}).
 
-sub_response_topic(Client, Shared, RequestQoS, Topic) ->
+-spec(sub_response_topic(client(), qos(), topic() | ?SHARED(ShareGroup :: binary(), binary())) ->
+             {ok, binary()} |
+             {error, no_response_information}).
+sub_response_topic(Client, RequestQoS, {Group, Topic}) ->
     Properties = gen_statem:call(Client, request_info),
     case maps:find('Response-Information', Properties) of
         {ok, ResponseInformation} ->
-            NewResponseTopic = <<(shared_topic(Shared, ResponseInformation))/binary,
+            NewResponseTopic = <<(shared_topic(Group, ResponseInformation))/binary,
                                  "/",
                                  (emqx_base62:encode(Topic))/binary>>,
             {ok, _Props, _QoS} = subscribe(Client, [{NewResponseTopic, [{rh, 2}, {rap, false},
                                                                   {nl, true}, {qos, RequestQoS}]}]),
             {ok, NewResponseTopic};
         error ->
-            emqx_logger:error("request failed.")
-    end.
+            {error, no_response_information}
+    end;
+sub_response_topic(Client, RequestQoS, Topic) ->
+    sub_response_topic(Client, RequestQoS, {<<>>, Topic}).
+
 
 -spec(start_link() -> gen_statem:start_ret()).
 start_link() -> start_link([]).
@@ -284,10 +294,10 @@ request(Client, Topic, Properties, Payload, Opts)
     when is_binary(Topic), is_map(Properties), is_list(Opts) ->
     ok = emqx_mqtt_props:validate(Properties),
     Retain = proplists:get_bool(retain, Opts),
-    Shared = proplists:get_bool(shared, Opts),
+    Group = proplists:get_value(group, Opts, <<>>),
     TimeOut = proplists:get_value(timeout, Opts, 5),
     QoS = ?QOS_I(proplists:get_value(qos, Opts, ?QOS_0)),
-    {ok, ResponseTopic} = sub_response_topic(Client, Shared, QoS, Topic),
+    {ok, ResponseTopic} = sub_response_topic(Client, QoS, {Group, Topic}),
     ClientId = gen_statem:call(Client, client_id),
     NewProperties = maps:merge(Properties, #{'Response-Topic' => ResponseTopic,
                                              'Correlation-Data' => ClientId}),
@@ -1009,13 +1019,10 @@ response_process(ResponseInfo, _Payload) when is_binary(ResponseInfo) ->
 response_process(ResponseFun, Payload) when is_function(ResponseFun) ->
     ResponseFun(Payload).
 
-shared_topic(Shared, Topic) ->
-    case Shared of
-        true ->
-            <<"$shared/", Topic/binary>>;
-        false ->
-            Topic
-    end.
+shared_topic(<<>>, ResponsePrefix) ->
+    ResponsePrefix;
+shared_topic(Group, Topic) ->
+    <<"$shared/", Group/binary, "/", Topic/binary>>.
 
 response_publish(undefined, _State, _QoS, _Payload) ->
     ok;
