@@ -27,7 +27,7 @@
 -export([start_link/0]).
 
 -export([subscribe/3, unsubscribe/3]).
--export([dispatch/3, maybe_ack/1, maybe_nack/1]).
+-export([dispatch/3, maybe_ack/1, maybe_nack_dropped/1, nack_no_connection/1, is_ack_required/1]).
 
 %% for testing
 -export([subscribers/2]).
@@ -41,7 +41,7 @@
 -define(ALIVE_SUBS, emqx_alive_shared_subscribers).
 -define(SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS, 5).
 -define(ack, shared_sub_ack).
--define(nack, shared_sub_nack).
+-define(nack(Reason), {shared_sub_nack, Reason}).
 -define(IS_LOCAL_PID(Pid), (is_pid(Pid) andalso node(Pid) =:= node())).
 
 -record(state, {pmon}).
@@ -101,8 +101,14 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg, results = Results}, F
             case do_dispatch(SubPid, Topic, Msg) of
                 ok ->
                     Delivery#delivery{results = [{dispatch, {Group, Topic}, 1} | Results]};
-                error ->
+                {error, _Reason} ->
                     %% failed to dispatch to this sub, try next
+                    %% 'Reason' is discarded so far, meaning for QoS1/2 messages
+                    %% if all subscribers are off line, the dispatch would faile
+                    %% even if there are sessions not expired yet.
+                    %% If required, we can make use of the 'no_connection' reason to perform
+                    %% retry without requiring acks, so the messages can be delivered
+                    %% to sessions of offline clients
                     dispatch(Group, Topic, Delivery, [SubPid | FailedSubs])
             end
     end.
@@ -132,22 +138,36 @@ do_dispatch_per_qos(SubPid, Topic, Msg) ->
         receive
             {Ref, ?ack} ->
                 ok;
-            {Ref, ?nack} ->
+            {Ref, ?nack(Reason)} ->
                 %% the receive session may nack this message when its queue is full
-                error;
-            {'DOWN', Ref, process, SubPid, _Reason} ->
-                error
+                {error, Reason};
+            {'DOWN', Ref, process, SubPid, Reason} ->
+                {error, Reason}
         after
             Timeout ->
-                error
+                {error, timeout}
         end
     after
         _ = erlang:demonitor(Ref, [flush])
     end.
 
--spec(maybe_nack(emqx_types:message()) -> ok).
-maybe_nack(#message{shared_dispatch_ack = no_ack}) -> ok;
-maybe_nack(#message{shared_dispatch_ack = {Sender, Ref}}) -> erlang:send(Sender, {Ref, ?nack}), ok.
+-spec(is_ack_required(emqx_types:message()) -> boolean()).
+is_ack_required(#message{shared_dispatch_ack = no_ack}) -> false;
+is_ack_required(#message{shared_dispatch_ack = {_, _}}) -> true.
+
+%% @doc Negative ack dropped message due to message queue being full.
+-spec(maybe_nack_dropped(emqx_types:message()) -> ok).
+maybe_nack_dropped(#message{shared_dispatch_ack = no_ack}) -> ok;
+maybe_nack_dropped(Msg) -> nack(Msg, dropped).
+
+%% @doc Negative ack message due to connection down.
+-spec(nack_no_connection(emqx_types:message()) -> ok).
+nack_no_connection(Msg) -> nack(Msg, no_connection).
+
+-spec(nack(emqx_types:message(), dropped | no_connection) -> ok).
+nack(#message{shared_dispatch_ack = {Sender, Ref}}, Reason) ->
+    erlang:send(Sender, {Ref, ?nack(Reason)}),
+    ok.
 
 -spec(maybe_ack(emqx_types:message()) -> emqx_types:message()).
 maybe_ack(Msg = #message{shared_dispatch_ack = no_ack}) -> Msg;
