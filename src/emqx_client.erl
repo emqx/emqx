@@ -172,9 +172,9 @@ sub_response_topic(Client, RequestQoS, {Group, Topic}) ->
     Properties = gen_statem:call(Client, request_info),
     case maps:find('Response-Information', Properties) of
         {ok, ResponseInformation} ->
-            NewResponseTopic = <<(shared_topic(Group, ResponseInformation))/binary,
-                                 "/",
-                                 Topic/binary>>,
+            NewResponseTopic =
+                emqx_topic:join([shared_topic(Group, ResponseInformation),
+                               <<"/">>, Topic]),
             {ok, _Props, _QoS} = subscribe(Client, [{NewResponseTopic, [{rh, 2}, {rap, false},
                                                                   {nl, true}, {qos, RequestQoS}]}]),
             emqx_logger:debug("Properties are ~p, QoS is ~p.",
@@ -1034,7 +1034,7 @@ response_process(ResponseFun, Payload) when is_function(ResponseFun) ->
 shared_topic(<<>>, ResponsePrefix) ->
     ResponsePrefix;
 shared_topic(Group, Topic) ->
-    <<"$shared/", Group/binary, "/", Topic/binary>>.
+    emqx_topic:join([<<"$shared/">>, Group, Topic]).
 
 response_publish(undefined, _State, _QoS, _Payload) ->
     ok;
