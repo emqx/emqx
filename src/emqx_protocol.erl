@@ -610,14 +610,14 @@ try_open_session(PState = #pstate{zone        = Zone,
 set_session_attrs({max_inflight, #pstate{zone = Zone, proto_ver = ProtoVer, conn_props = ConnProps}}, SessAttrs) ->
     maps:put(max_inflight, if
                                ProtoVer =:= ?MQTT_PROTO_V5 ->
-                                   maps:get('Receive-Maximum', ConnProps, 65535);
+                                   get_property('Receive-Maximum', ConnProps, 65535);
                                true -> 
                                    emqx_zone:get_env(Zone, max_inflight, 65535)
                            end, SessAttrs);
 set_session_attrs({expiry_interval, #pstate{zone = Zone, proto_ver = ProtoVer, conn_props = ConnProps, clean_start = CleanStart}}, SessAttrs) ->
     maps:put(expiry_interval, if
                                ProtoVer =:= ?MQTT_PROTO_V5 ->
-                                   maps:get('Session-Expiry-Interval', ConnProps, 0);
+                                   get_property('Session-Expiry-Interval', ConnProps, 0);
                                true -> 
                                    case CleanStart of
                                        true -> 0;
@@ -628,7 +628,7 @@ set_session_attrs({expiry_interval, #pstate{zone = Zone, proto_ver = ProtoVer, c
 set_session_attrs({topic_alias_maximum, #pstate{zone = Zone, proto_ver = ProtoVer, conn_props = ConnProps}}, SessAttrs) ->
     maps:put(topic_alias_maximum, if
                                     ProtoVer =:= ?MQTT_PROTO_V5 ->
-                                        maps:get('Topic-Alias-Maximum', ConnProps, 0);
+                                        get_property('Topic-Alias-Maximum', ConnProps, 0);
                                     true -> 
                                         emqx_zone:get_env(Zone, max_topic_alias, 0)
                                   end, SessAttrs);
