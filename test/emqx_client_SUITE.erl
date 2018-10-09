@@ -74,11 +74,6 @@ request_response(QoS) ->
                                                        (_) ->
                                                             <<"404">>
                                                     end),
-    %% ok = emqx_client:def_response(Responser, fun(<<"request_payload">>) ->
-    %%                                                   <<"ResponseFunctionTest">>;
-    %%                                              (_) ->
-    %%                                                   <<"404">>
-    %%                                           end),
     {ok, <<"ResponseFunctionTest">>} = emqx_client:request(Requester, <<"request_response_test">>, <<"request_payload">>, QoS),
     {ok, <<"404">>} = emqx_client:request(Requester, <<"request_response_test">>, <<"invalid_request">>, QoS),
     ok = emqx_client:disconnect(Responser),

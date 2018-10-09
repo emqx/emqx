@@ -324,9 +324,10 @@ request(Client, Topic, Properties, Payload, Opts)
                               topic = ResponseTopic,
                               props = NewProperties,
                               payload = iolist_to_binary(Payload)}),
-    receive_response(Client, ClientId, TimeOut).
+    Ref = erlang:start_timer(TimeOut, self(), response),
+    receive_response(Client, ClientId, Ref).
 
-receive_response(Client, ClientId, TimeOut) ->
+receive_response(Client, ClientId, Ref) ->
     receive
         {publish, Response} ->
             {ok, Properties} = maps:find(properties, Response),
@@ -334,9 +335,9 @@ receive_response(Client, ClientId, TimeOut) ->
                 {ok, ClientId} ->
                     maps:find(payload, Response);
                 _ ->
-                    receive_response(Client, ClientId, TimeOut)
-            end
-    after TimeOut ->
+                    receive_response(Client, ClientId, Ref)
+            end;
+        {timeout, Ref, response} ->
             {timeout, <<"No Response">>}
     end.
 
