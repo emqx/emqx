@@ -542,7 +542,7 @@ handle_cast({resume, ConnPid}, State = #state{client_id       = ClientId,
     %% Clean Session: true -> false???
     CleanStart andalso emqx_sm:set_session_attrs(ClientId, attrs(State1)),
 
-    emqx_hooks:run('session.resumed', [#{client_id => ClientId}, attrs(State)]),
+    emqx_hooks:run('session.resumed', [#{client_id => ClientId, session => self()}, attrs(State)]),
 
     %% Replay delivery and Dequeue pending messages
     noreply(dequeue(retry_delivery(true, State1)));
