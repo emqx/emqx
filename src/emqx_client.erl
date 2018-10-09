@@ -20,7 +20,7 @@
 
 -export([start_link/0, start_link/1]).
 -export([request/4, request/5]).
--export([def_response/2, sub_response_topic/3]).
+-export([set_request_handler/2, sub_response_topic/3]).
 -export([subscribe/2, subscribe/3, subscribe/4]).
 -export([publish/2, publish/3, publish/4, publish/5]).
 -export([unsubscribe/2, unsubscribe/3]).
@@ -58,7 +58,7 @@
                 | {keepalive, non_neg_integer()}
                 | {max_inflight, pos_integer()}
                 | {retry_interval, timeout()}
-                | {response_info, map()}
+                | {request_handler, request_handler()}
                 | {will_topic, iodata()}
                 | {will_payload, iodata()}
                 | {will_retain, boolean()}
@@ -91,7 +91,6 @@
                 password        :: binary() | undefined,
                 proto_ver       :: emqx_mqtt_types:version(),
                 proto_name      :: iodata(),
-                response_flag   :: boolean(),
                 keepalive       :: non_neg_integer(),
                 keepalive_timer :: reference() | undefined,
                 force_ping      :: boolean(),
@@ -109,7 +108,7 @@
                 ack_timer       :: reference(),
                 retry_interval  :: pos_integer(),
                 retry_timer     :: reference(),
-                response_info   :: iodata(),
+                request_handler :: request_handler(),
                 session_present :: boolean(),
                 last_packet_id  :: packet_id(),
                 parse_state     :: emqx_frame:state()}).
@@ -139,8 +138,15 @@
 
 -type(subscribe_ret() :: {ok, properties(), [reason_code()]} | {error, term()}).
 
+-type(request_input() :: binary()).
+
+-type(response_payload() :: binary()).
+
+-type(request_handler() :: fun((request_input()) -> response_payload())).
+
 -export_type([client/0, topic/0, qos/0, properties/0, payload/0,
-              packet_id/0, pubopt/0, subopt/0, reason_code/0]).
+              packet_id/0, pubopt/0, subopt/0, reason_code/0,
+              request_input/0, response_payload/0, request_handler/0]).
 
 %% Default timeout
 -define(DEFAULT_KEEPALIVE,       60000).
@@ -156,32 +162,32 @@
 
 -define(RESPONSE_TIMEOUT_SECONDS, timer:seconds(5)).
 
+-define(NO_HANDLER, undefined).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
 
-%% @doc set response information or response function for responser
--spec(def_response(client(), function() | binary()) -> ok).
-def_response(Responser, Response) ->
-    gen_statem:call(Responser, {def_response, Response}).
+-spec(set_request_handler(client(), request_handler()) -> ok).
+set_request_handler(Responser, RequestHandler) ->
+    gen_statem:call(Responser, {set_request_handler, RequestHandler}).
 
 -spec(sub_response_topic(client(), qos(), topic() | ?SHARED(ShareGroup :: binary(), binary())) ->
              {ok, binary()} |
-             {error, no_response_information}).
+             {error, no_request_handlerrmation}).
 sub_response_topic(Client, RequestQoS, {Group, Topic}) ->
     Properties = gen_statem:call(Client, request_info),
     case maps:find('Response-Information', Properties) of
         {ok, ResponseInformation} ->
             NewResponseTopic =
-                emqx_topic:join([shared_topic(Group, ResponseInformation),
-                               <<"/">>, Topic]),
+                emqx_topic:join([shared_topic(Group, ResponseInformation), Topic]),
             {ok, _Props, _QoS} = subscribe(Client, [{NewResponseTopic, [{rh, 2}, {rap, false},
                                                                   {nl, true}, {qos, RequestQoS}]}]),
             emqx_logger:debug("Properties are ~p, QoS is ~p.",
                               [Properties, RequestQoS]),
             {ok, NewResponseTopic};
         error ->
-            {error, no_response_information}
+            {error, no_request_handlerrmation}
     end;
 sub_response_topic(Client, RequestQoS, Topic) ->
     sub_response_topic(Client, RequestQoS, {<<>>, Topic}).
@@ -468,7 +474,6 @@ init([Options]) ->
                                  clean_start     = true,
                                  proto_ver       = ?MQTT_PROTO_V4,
                                  proto_name      = <<"MQTT">>,
-                                 response_flag   = false,
                                  keepalive       = ?DEFAULT_KEEPALIVE,
                                  force_ping      = false,
                                  paused          = false,
@@ -483,7 +488,7 @@ init([Options]) ->
                                  auto_ack        = true,
                                  ack_timeout     = ?DEFAULT_ACK_TIMEOUT,
                                  retry_interval  = 0,
-                                 response_info   = <<>>,
+                                 request_handler = ?NO_HANDLER,
                                  connect_timeout = ?DEFAULT_CONNECT_TIMEOUT,
                                  last_packet_id  = 1}),
     {ok, initialized, init_parse_state(State)}.
@@ -576,6 +581,8 @@ init([{auto_ack, AutoAck} | Opts], State) when is_boolean(AutoAck) ->
     init(Opts, State#state{auto_ack = AutoAck});
 init([{retry_interval, I} | Opts], State) ->
     init(Opts, State#state{retry_interval = timer:seconds(I)});
+init([{request_handler, Handler} | Opts], State) ->
+    init(Opts, State#state{request_handler = Handler});
 init([{bridge_mode, Mode} | Opts], State) when is_boolean(Mode) ->
     init(Opts, State#state{bridge_mode = Mode});
 init([_Opt | Opts], State) ->
@@ -712,8 +719,8 @@ connected({call, From}, request_info, State = #state{properties = Properties}) -
 connected({call, From}, client_id, State = #state{client_id = ClientId}) ->
     {keep_state, State, [{reply, From, ClientId}]};
 
-connected({call, From}, {def_response, ResponseInfo}, State) ->
-    {keep_state, State#state{response_info = ResponseInfo}, [{reply, From, ok}]};
+connected({call, From}, {set_request_handler, RequestHandler}, State) ->
+    {keep_state, State#state{request_handler = RequestHandler}, [{reply, From, ok}]};
 
 connected({call, From}, SubReq = {subscribe, Properties, Topics},
           State = #state{last_packet_id = PacketId, subscriptions = Subscriptions}) ->
@@ -1024,44 +1031,43 @@ publish_process(?QOS_2, Packet = ?PUBLISH_PACKET(?QOS_2, PacketId),
         Stop -> Stop
     end.
 
-response_process(ResponseInfo, _Payload) when is_list(ResponseInfo) ->
-    response_process(iolist_to_binary(ResponseInfo), _Payload);
-response_process(ResponseInfo, _Payload) when is_binary(ResponseInfo) ->
-    ResponseInfo;
-response_process(ResponseFun, Payload) when is_function(ResponseFun) ->
-    ResponseFun(Payload).
+%% response_process(ResponseInfo, _Payload) when is_list(ResponseInfo) ->
+%%     response_process(iolist_to_binary(ResponseInfo), _Payload);
+%% response_process(ResponseInfo, _Payload) when is_binary(ResponseInfo) ->
+%%     ResponseInfo;
+%% response_process(ResponseFun, Payload) when is_function(ResponseFun) ->
+%%     ResponseFun(Payload).
 
 shared_topic(<<>>, ResponsePrefix) ->
     ResponsePrefix;
 shared_topic(Group, Topic) ->
-    emqx_topic:join([<<"$shared/">>, Group, Topic]).
+    emqx_topic:join([<<"$shared">>, Group, Topic]).
 
 response_publish(undefined, _State, _QoS, _Payload) ->
     ok;
-
-response_publish(Properties, State = #state{response_info = ResponseInfo}, QoS, Payload) ->
+response_publish(Properties, State = #state{request_handler = RequestHandler}, QoS, Payload) ->
     case maps:find('Response-Topic', Properties) of
         {ok, ResponseTopic} ->
-            case ResponseInfo of
-                <<>> -> State#state{response_flag = false};
+            case RequestHandler of
+                ?NO_HANDLER -> State;
                 _ -> do_publish(ResponseTopic, Properties, State, QoS, Payload)
             end;
         _ ->
-            State#state{response_flag = false}
+            State
     end.
 
-do_publish(ResponseTopic, Properties, State = #state{response_info = ResponseInfo}, ?QOS_0, Payload) ->
+do_publish(ResponseTopic, Properties, State = #state{request_handler = RequestHandler}, ?QOS_0, Payload) ->
         Msg = #mqtt_msg{qos     = ?QOS_0,
                         retain  = false,
                         topic   = ResponseTopic,
                         props   = Properties,
-                        payload = response_process(ResponseInfo, Payload)
+                        payload = RequestHandler(Payload)
                        },
     case send(Msg, State) of
-        {ok, NewState} -> NewState#state{response_flag = true};
+        {ok, NewState} -> NewState;
         _Error -> State
     end;
-do_publish(ResponseTopic, Properties, State = #state{response_info = ResponseInfo,
+do_publish(ResponseTopic, Properties, State = #state{request_handler = RequestHandler,
                                                      inflight = Inflight,
                                                      last_packet_id = PacketId},
            QoS, Payload)
@@ -1074,12 +1080,11 @@ do_publish(ResponseTopic, Properties, State = #state{response_info = ResponseInf
                             retain    = false,
                             topic     = ResponseTopic,
                             props     = Properties,
-                            payload   = response_process(ResponseInfo, Payload)},
+                            payload   = RequestHandler(Payload)},
             case send(Msg, State) of
                 {ok, NewState} ->
                     Inflight1 = emqx_inflight:insert(PacketId, {publish, Msg, os:timestamp()}, Inflight),
-                    NewState1 = ensure_retry_timer(NewState#state{inflight = Inflight1}),
-                    NewState1#state{response_flag = true};
+                    ensure_retry_timer(NewState#state{inflight = Inflight1});
                 {error, Reason} ->
                     emqx_logger:error("Send failed: ~p", [Reason])
             end
@@ -1172,13 +1177,13 @@ retry_send(pubrel, PacketId, Now, State = #state{inflight = Inflight}) ->
 
 deliver(#mqtt_msg{qos = QoS, dup = Dup, retain = Retain, packet_id = PacketId,
                   topic = Topic, props = Props, payload = Payload},
-        State = #state{owner = Owner, response_flag = ResponseFlag}) ->
-    case ResponseFlag of
-        false ->
+        State = #state{owner = Owner, request_handler = RequestHandler}) ->
+    case RequestHandler of
+        ?NO_HANDLER ->
             Owner ! {publish, #{qos => QoS, dup => Dup, retain => Retain, packet_id => PacketId,
                                 topic => Topic, properties => Props, payload => Payload,
                                 client_pid => self()}};
-        true ->
+        _ ->
             ok
     end,
     State.

@@ -60,18 +60,25 @@ end_per_suite(_Config) ->
 
 request_response(QoS) ->
     {ok, Requester, _} = emqx_client:start_link([{proto_ver, v5},
-                                {properties, #{ 'Request-Response-Information' => 1}}]),
+                                                 {properties, #{ 'Request-Response-Information' => 1}}]),
     {ok, Responser, _} = emqx_client:start_link([{proto_ver, v5},
-                                {properties, #{ 'Request-Response-Information' => 1}}]),
+                                                 {properties, #{ 'Request-Response-Information' => 1}},
+                                                 {request_handler, fun(_) -> <<"ResponseTest">> end}]),
     {ok, ResponseTopic} = emqx_client:sub_response_topic(Responser, QoS, <<"request_response_test">>),
     ct:log("ResponseTopic: ~p",[ResponseTopic]),
-    ok = emqx_client:def_response(Responser, <<"ResponseTest">>),
     {ok, <<"ResponseTest">>} = emqx_client:request(Requester, <<"request_response_test">>, <<"request_payload">>, QoS),
-    ok = emqx_client:def_response(Responser, fun(<<"request_payload">>) ->
-                                                      <<"ResponseFunctionTest">>;
-                                                 (_) ->
-                                                      <<"404">>
-                                              end),
+    %% Response = emqx_client:request(Requester, <<"request_response_test">>, <<"request_payload">>, QoS),
+    %% ct:log("~p", [Response]),
+    ok = emqx_client:set_request_handler(Responser, fun(<<"request_payload">>) ->
+                                                            <<"ResponseFunctionTest">>;
+                                                       (_) ->
+                                                            <<"404">>
+                                                    end),
+    %% ok = emqx_client:def_response(Responser, fun(<<"request_payload">>) ->
+    %%                                                   <<"ResponseFunctionTest">>;
+    %%                                              (_) ->
+    %%                                                   <<"404">>
+    %%                                           end),
     {ok, <<"ResponseFunctionTest">>} = emqx_client:request(Requester, <<"request_response_test">>, <<"request_payload">>, QoS),
     {ok, <<"404">>} = emqx_client:request(Requester, <<"request_response_test">>, <<"invalid_request">>, QoS),
     ok = emqx_client:disconnect(Responser),

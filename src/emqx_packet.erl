@@ -61,9 +61,7 @@ validate(?PUBLISH_PACKET(_QoS, Topic, _, Properties, _)) ->
     ((not emqx_topic:wildcard(Topic)) orelse error(topic_name_invalid))
         andalso validate_properties(?PUBLISH, Properties);
 
-validate(?CONNECT_PACKET(#mqtt_packet_connect{
-                           properties = Properties
-                           })) ->
+validate(?CONNECT_PACKET(#mqtt_packet_connect{properties = Properties})) ->
     validate_properties(?CONNECT, Properties);
 
 validate(_Packet) ->
