@@ -55,7 +55,7 @@ validate(?UNSUBSCRIBE_PACKET(PacketId, TopicFilters)) ->
     validate_packet_id(PacketId)
         andalso ok == lists:foreach(fun emqx_topic:validate/1, TopicFilters);
 
-validate(?PUBLISH_PACKET(_QoS, <<>>, #{'Topic-Alias':= _I}, _)) ->
+validate(?PUBLISH_PACKET(_QoS, <<>>, _, #{'Topic-Alias':= _I}, _)) ->
     true;
 validate(?PUBLISH_PACKET(_QoS, <<>>, _, _, _)) ->
     error(topic_name_invalid);
