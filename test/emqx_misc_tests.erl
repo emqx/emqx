@@ -15,6 +15,30 @@
 -module(emqx_misc_tests).
 -include_lib("eunit/include/eunit.hrl").
 
+-define(SOCKOPTS, [binary,
+                   {packet,    raw},
+                   {reuseaddr, true},
+                   {backlog,   512},
+                   {nodelay,   true}]).
+
+
+t_merge_opts_test() ->
+    Opts = emqx_misc:merge_opts(?SOCKOPTS, [raw,
+                                            binary,
+                                            {backlog, 1024},
+                                            {nodelay, false},
+                                            {max_clients, 1024},
+                                            {acceptors, 16}]),
+    ?assertEqual(1024, proplists:get_value(backlog, Opts)),
+    ?assertEqual(1024, proplists:get_value(max_clients, Opts)),
+    [binary, raw,
+     {acceptors, 16},
+     {backlog, 1024},
+     {max_clients, 1024},
+     {nodelay, false},
+     {packet, raw},
+     {reuseaddr, true}] = lists:sort(Opts).
+
 timer_cancel_flush_test() ->
     Timer = emqx_misc:start_timer(0, foo),
     ok = emqx_misc:cancel_timer(Timer),
@@ -39,4 +63,3 @@ message_queue_too_long_test() ->
 
 conn_proc_mng_policy(L) ->
     emqx_misc:conn_proc_mng_policy(#{message_queue_len => L}).
-
