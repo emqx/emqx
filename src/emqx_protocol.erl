@@ -792,22 +792,20 @@ shutdown(Reason, #pstate{client_id = ClientId}) when Reason =:= conflict;
     emqx_cm:unregister_connection(ClientId);
 shutdown(Reason, PState = #pstate{connected = true,
                                   client_id = ClientId,
-                                  will_msg  = WillMsg,
-                                  session   = Session}) ->
+                                  will_msg  = WillMsg}) ->
     ?LOG(info, "Shutdown for ~p", [Reason], PState),
-    _ = send_willmsg(WillMsg, Session),
+    _ = send_willmsg(WillMsg, ClientId),
     emqx_hooks:run('client.disconnected', [credentials(PState), Reason]),
     emqx_cm:unregister_connection(ClientId).
 
-send_willmsg(undefined, _Session) ->
+send_willmsg(undefined, _ClientId) ->
     ignore;
 send_willmsg(WillMsg = #message{topic = Topic,
-                                headers = #{'Will-Delay-Interval' := Interval}}, Session)
+                                headers = #{'Will-Delay-Interval' := Interval} = Headers}, ClientId)
             when is_integer(Interval), Interval > 0 ->
     SendAfter = integer_to_binary(Interval),
-    Session1 = list_to_binary(pid_to_list(Session)),
-    emqx_broker:publish(WillMsg#message{topic = <<"$will/", Session1/binary, "/", SendAfter/binary, "/", Topic/binary>>});
-send_willmsg(WillMsg, _Session) ->
+    emqx_broker:publish(WillMsg#message{topic = emqx_topic:join([<<"$will">>, SendAfter, Topic]), headers = Headers#{client_id => ClientId}});
+send_willmsg(WillMsg, _ClientId) ->
     emqx_broker:publish(WillMsg).
 
 start_keepalive(0, _PState) ->
