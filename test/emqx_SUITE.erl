@@ -39,6 +39,13 @@
                                 clean_start = false,
                                 password  = <<"public">>})).
 
+-define(CLIENT3, ?CONNECT_PACKET(#mqtt_packet_connect{
+                                username  = <<"admin">>,
+                                proto_ver = ?MQTT_PROTO_V5,
+                                clean_start = false,
+                                password  = <<"public">>,
+                                will_props = #{'Will-Delay-Interval' => 2}})).
+
 -define(SUBCODE, [0]).
 
 -define(PACKETID, 1).
@@ -67,6 +74,7 @@ groups() ->
       [
       mqtt_connect,
       mqtt_connect_with_tcp,
+      mqtt_connect_with_will_props,
       mqtt_connect_with_ssl_oneway,
       mqtt_connect_with_ssl_twoway,
       mqtt_connect_with_ws
@@ -108,6 +116,14 @@ mqtt_connect_with_tcp(_) ->
     emqx_client_sock:send(Sock, Packet),
     {ok, Data} = gen_tcp:recv(Sock, 0),
     {ok, ?CONNACK_PACKET(?CONNACK_INVALID_ID), _} = raw_recv_pase(Data),
+    emqx_client_sock:close(Sock).
+
+mqtt_connect_with_will_props(_) ->
+    %% Issue #599
+    %% Empty clientId and clean_session = false
+    {ok, Sock} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
+    Packet = raw_send_serialise(?CLIENT3),
+    emqx_client_sock:send(Sock, Packet),
     emqx_client_sock:close(Sock).
 
 mqtt_connect_with_ssl_oneway(_) ->
