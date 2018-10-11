@@ -82,27 +82,27 @@
 -spec(init(map(), list()) -> state()).
 init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options) ->
     Zone = proplists:get_value(zone, Options),
-    #pstate{zone          = Zone,
-            sendfun       = SendFun,
-            peername      = Peername,
-            peercert      = Peercert,
-            proto_ver     = ?MQTT_PROTO_V4,
-            proto_name    = <<"MQTT">>,
-            client_id     = <<>>,
-            is_assigned   = false,
-            conn_pid      = self(),
-            username      = init_username(Peercert, Options),
-            is_super      = false,
-            clean_start   = false,
-            topic_aliases = #{},
-            packet_size   = emqx_zone:get_env(Zone, max_packet_size),
-            mountpoint    = emqx_zone:get_env(Zone, mountpoint),
-            is_bridge     = false,
-            enable_ban    = emqx_zone:get_env(Zone, enable_ban, false),
-            enable_acl    = emqx_zone:get_env(Zone, enable_acl),
-            recv_stats    = #{msg => 0, pkt => 0},
-            send_stats    = #{msg => 0, pkt => 0},
-            connected     = false}.
+    #pstate{zone          =  Zone,
+            sendfun       =  SendFun,
+            peername      =  Peername,
+            peercert      =  Peercert,
+            proto_ver     =  ?MQTT_PROTO_V4,
+            proto_name    =  <<"MQTT">>,
+            client_id     =  <<>>,
+            is_assigned   =  false,
+            conn_pid      =  self(),
+            username      =  init_username(Peercert, Options),
+            is_super      =  false,
+            clean_start   =  false,
+            topic_aliases =  #{},
+            packet_size   =  emqx_zone:get_env(Zone, max_packet_size),
+            mountpoint    =  emqx_zone:get_env(Zone, mountpoint),
+            is_bridge     =  false,
+            enable_ban    =  emqx_zone:get_env(Zone, enable_ban, false),
+            enable_acl    =  emqx_zone:get_env(Zone, enable_acl),
+            recv_stats    =  #{msg => 0, pkt => 0},
+            send_stats    =  #{msg => 0, pkt => 0},
+            connected     =  false}.
 
 init_username(Peercert, Options) ->
     case proplists:get_value(peer_cert_as_username, Options) of
@@ -197,8 +197,7 @@ parser(#pstate{packet_size = Size, proto_ver = Ver}) ->
 set_protover(?CONNECT_PACKET(#mqtt_packet_connect{
                                 proto_ver = ProtoVer}),
              PState) ->
-    PState#pstate{
-      proto_ver = ProtoVer};
+    PState#pstate{ proto_ver = ProtoVer };
 set_protover(_Packet, PState) ->
     PState.
 
@@ -218,22 +217,22 @@ received(Packet = ?PACKET(Type), PState) ->
             {Packet1, PState2} = preprocess_properties(Packet, PState1),
             process_packet(Packet1, inc_stats(recv, Type, PState2))
     catch
-        error:protocol_error ->
+        error : protocol_error ->
             deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState1),
             {error, protocol_error, PState};
-        error:subscription_identifier_invalid ->
+        error : subscription_identifier_invalid ->
             deliver({disconnect, ?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED}, PState1),
             {error, subscription_identifier_invalid, PState1};
-        error:topic_alias_invalid ->
+        error : topic_alias_invalid ->
             deliver({disconnect, ?RC_TOPIC_ALIAS_INVALID}, PState1),
             {error, topic_alias_invalid, PState1};
-        error:topic_filters_invalid ->
+        error : topic_filters_invalid ->
             deliver({disconnect, ?RC_TOPIC_FILTER_INVALID}, PState1),
             {error, topic_filters_invalid, PState1};
-        error:topic_name_invalid ->
+        error : topic_name_invalid ->
             deliver({disconnect, ?RC_TOPIC_FILTER_INVALID}, PState1),
             {error, topic_filters_invalid, PState1};
-        error:Reason ->
+        error : Reason ->
             deliver({disconnect, ?RC_MALFORMED_PACKET}, PState1),
             {error, Reason, PState1}
     end.

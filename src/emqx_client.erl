@@ -38,6 +38,22 @@
 -export([initialized/3, waiting_for_connack/3, connected/3]).
 -export([init/1, callback_mode/0, handle_event/4, terminate/3, code_change/4]).
 
+%% Default timeout
+-define(DEFAULT_KEEPALIVE,       60000).
+-define(DEFAULT_ACK_TIMEOUT,     30000).
+-define(DEFAULT_CONNECT_TIMEOUT, 60000).
+
+-define(PROPERTY(Name, Val), #state{properties = #{Name := Val}}).
+
+-define(WILL_MSG(QoS, Retain, Topic, Props, Payload),
+        #mqtt_msg{qos = QoS, retain = Retain, topic = Topic, props = Props, payload = Payload}).
+
+-define(SHARED(GROUP, TOPIC), {GROUP, TOPIC}).
+
+-define(RESPONSE_TIMEOUT_SECONDS, timer:seconds(5)).
+
+-define(NO_HANDLER, undefined).
+
 -type(host() :: inet:ip_address() | inet:hostname()).
 
 -type(option() :: {name, atom()}
@@ -144,25 +160,12 @@
 
 -type(request_handler() :: fun((request_input()) -> response_payload())).
 
+-type(response_topic() :: ?SHARED(ShareGroup :: binary(), binary())).
+
 -export_type([client/0, topic/0, qos/0, properties/0, payload/0,
               packet_id/0, pubopt/0, subopt/0, reason_code/0,
               request_input/0, response_payload/0, request_handler/0]).
 
-%% Default timeout
--define(DEFAULT_KEEPALIVE,       60000).
--define(DEFAULT_ACK_TIMEOUT,     30000).
--define(DEFAULT_CONNECT_TIMEOUT, 60000).
-
--define(PROPERTY(Name, Val), #state{properties = #{Name := Val}}).
-
--define(WILL_MSG(QoS, Retain, Topic, Props, Payload),
-        #mqtt_msg{qos = QoS, retain = Retain, topic = Topic, props = Props, payload = Payload}).
-
--define(SHARED(GROUP, TOPIC), {GROUP, TOPIC}).
-
--define(RESPONSE_TIMEOUT_SECONDS, timer:seconds(5)).
-
--define(NO_HANDLER, undefined).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -172,10 +175,10 @@
 set_request_handler(Responser, RequestHandler) ->
     gen_statem:call(Responser, {set_request_handler, RequestHandler}).
 
--spec(sub_response_topic(client(), qos(), topic() | ?SHARED(ShareGroup :: binary(), binary())) ->
+-spec(sub_response_topic(client(), qos(), topic() | response_topic()) ->
              {ok, binary()} |
-             {error, no_request_handlerrmation}).
-sub_response_topic(Client, RequestQoS, {Group, Topic}) ->
+             {error, no_request_handler}).
+sub_response_topic(Client, RequestQoS, ?SHARED(Group, Topic)) ->
     Properties = gen_statem:call(Client, request_info),
     case maps:find('Response-Information', Properties) of
         {ok, ResponseInformation} ->
@@ -187,11 +190,10 @@ sub_response_topic(Client, RequestQoS, {Group, Topic}) ->
                               [Properties, RequestQoS]),
             {ok, NewResponseTopic};
         error ->
-            {error, no_request_handlerrmation}
+            {error, no_request_handler}
     end;
 sub_response_topic(Client, RequestQoS, Topic) ->
     sub_response_topic(Client, RequestQoS, {<<>>, Topic}).
-
 
 -spec(start_link() -> gen_statem:start_ret()).
 start_link() -> start_link([]).
@@ -299,13 +301,6 @@ request(Client, Topic, Payload, QoS) when ?IS_QOS(QoS);
 request(Client, Topic, Payload, Opts0) ->
     request(Client, Topic, #{}, Payload, unify_qos(Opts0)).
 
-%% request(Client, Topic, Payload, QoS) when is_binary(Topic), is_atom(QoS) ->
-%%     request(Client, Topic, Payload, [{qos, ?QOS_I(QoS)}]);
-%% request(Client, Topic, Payload, QoS) when is_binary(Topic), ?IS_QOS(QoS) ->
-%%     request(Client, Topic, Payload, [{qos, QoS}]);
-%% request(Client, Topic, Payload, Opts) when is_binary(Topic), is_list(Opts) ->
-%%     request(Client, Topic, #{}, Payload, Opts).
-
 -spec(request(client(), topic(), properties(), payload(), [pubopt()])
         -> ok | {ok, packet_id()} | {error, term()}).
 request(Client, Topic, Properties, Payload, Opts)
@@ -315,7 +310,7 @@ request(Client, Topic, Properties, Payload, Opts)
     Group = proplists:get_value(group, Opts, <<>>),
     TimeOut = proplists:get_value(timeout, Opts, ?RESPONSE_TIMEOUT_SECONDS),
     QoS = ?QOS_I(proplists:get_value(qos, Opts, ?QOS_0)),
-    {ok, ResponseTopic} = sub_response_topic(Client, QoS, {Group, Topic}),
+    {ok, ResponseTopic} = sub_response_topic(Client, QoS, ?SHARED(Group, Topic)),
     ClientId = gen_statem:call(Client, client_id),
     NewProperties = maps:merge(Properties, #{'Response-Topic' => ResponseTopic,
                                              'Correlation-Data' => ClientId}),
@@ -338,7 +333,7 @@ receive_response(Client, ClientId, Ref) ->
                     receive_response(Client, ClientId, Ref)
             end;
         {timeout, Ref, response} ->
-            {timeout, <<"No Response">>}
+            {error, {timeout, <<"No Response">>}}
     end.
 
 -spec(publish(client(), topic(), payload()) -> ok | {error, term()}).
@@ -1031,13 +1026,6 @@ publish_process(?QOS_2, Packet = ?PUBLISH_PACKET(?QOS_2, PacketId),
             {keep_state, NewState#state{awaiting_rel = AwaitingRel1}};
         Stop -> Stop
     end.
-
-%% response_process(ResponseInfo, _Payload) when is_list(ResponseInfo) ->
-%%     response_process(iolist_to_binary(ResponseInfo), _Payload);
-%% response_process(ResponseInfo, _Payload) when is_binary(ResponseInfo) ->
-%%     ResponseInfo;
-%% response_process(ResponseFun, Payload) when is_function(ResponseFun) ->
-%%     ResponseFun(Payload).
 
 shared_topic(<<>>, ResponsePrefix) ->
     ResponsePrefix;
