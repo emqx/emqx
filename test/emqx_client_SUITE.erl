@@ -62,17 +62,18 @@ request_response_exception(QoS) ->
     {ok, Client, _} = emqx_client:start_link([{proto_ver, v5},
                                                  {properties, #{ 'Request-Response-Information' => 0 }}]),
     ?assertError(no_response_information,
-                emqx_client:sub_request_topic(Client, QoS, <<"request_topic">>)),
+                 emqx_client:sub_request_topic(Client, QoS, <<"request_topic">>)),
     ok = emqx_client:disconnect(Client).
 
 request_response(QoS) ->
     {ok, Requester, _} = emqx_client:start_link([{proto_ver, v5},
+                                                 {client_id, <<"requester">>},
                                                  {properties, #{ 'Request-Response-Information' => 1}}]),
     {ok, Responser, _} = emqx_client:start_link([{proto_ver, v5},
+                                                 {client_id, <<"responser">>},
                                                  {properties, #{ 'Request-Response-Information' => 1}},
-                                                 {request_handler, fun(_) -> <<"ResponseTest">> end}]),
-    {ok, RequestTopic} = emqx_client:sub_request_topic(Responser, QoS, <<"request_topic">>),
-    ct:log("RequestTopic: ~p",[RequestTopic]),
+                                                 {request_handler, fun(Req) -> <<"ResponseTest">> end}]),
+    ok = emqx_client:sub_request_topic(Responser, QoS, <<"request_topic">>),
     {ok, <<"ResponseTest">>} = emqx_client:request(Requester, <<"response_topic">>, <<"request_topic">>, <<"request_payload">>, QoS),
     ok = emqx_client:set_request_handler(Responser, fun(<<"request_payload">>) ->
                                                             <<"ResponseFunctionTest">>;
