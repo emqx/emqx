@@ -43,7 +43,7 @@ add_delete_hook(_) ->
                   {callback, {?MODULE, hook_fun2, []}, undefined, 8}],
     ?assertEqual(Callbacks2, emqx_hooks:lookup(emqx_hook)),
     ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun1, []}),
-    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun2, []}),
+    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun2}),
     timer:sleep(1000),
     ?assertEqual([], emqx_hooks:lookup(emqx_hook)),
     ok = emqx_hooks:stop().
@@ -62,6 +62,17 @@ run_hooks(_) ->
     ok = emqx:hook(foreach_hook, fun ?MODULE:hook_fun7/2, [initArg]),
     ok = emqx:hook(foreach_hook, fun ?MODULE:hook_fun8/2, [initArg]),
     stop = emqx:run_hooks(foreach_hook, [arg]),
+
+    ok = emqx:hook(foldl_hook2, fun ?MODULE:hook_fun9/2),
+    ok = emqx:hook(foldl_hook2, {?MODULE, hook_fun10, []}),
+    {stop, []} = emqx:run_hooks(foldl_hook2, [arg], []),
+
+    ok = emqx:hook(filter1_hook, {?MODULE, hook_fun1, []}, {?MODULE, hook_filter1, []}, 0),
+    ok = emqx:run_hooks(filter1_hook, [arg]),
+
+    ok = emqx:hook(filter2_hook, {?MODULE, hook_fun2, []}, {?MODULE, hook_filter2, []}),
+    {ok, []} = emqx:run_hooks(filter2_hook, [arg], []),
+
     ok = emqx_hooks:stop().
 
 hook_fun1([]) -> ok.
@@ -74,4 +85,10 @@ hook_fun5(arg1, arg2, Acc, init)  -> {stop, [r3 | Acc]}.
 hook_fun6(arg, initArg) -> ok.
 hook_fun7(arg, initArg) -> any.
 hook_fun8(arg, initArg) -> stop.
+
+hook_fun9(arg, _Acc)  -> any.
+hook_fun10(arg, _Acc)  -> stop.
+
+hook_filter1(arg) -> true.
+hook_filter2(arg, _Acc) -> true.
 
