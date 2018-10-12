@@ -38,6 +38,10 @@
 -export([initialized/3, waiting_for_connack/3, connected/3]).
 -export([init/1, callback_mode/0, handle_event/4, terminate/3, code_change/4]).
 
+-export_type([client/0, properties/0, payload/0,
+              pubopt/0, subopt/0, request_input/0,
+              response_payload/0, request_handler/0]).
+
 %% Default timeout
 -define(DEFAULT_KEEPALIVE,       60000).
 -define(DEFAULT_ACK_TIMEOUT,     30000).
@@ -48,11 +52,13 @@
 -define(WILL_MSG(QoS, Retain, Topic, Props, Payload),
         #mqtt_msg{qos = QoS, retain = Retain, topic = Topic, props = Props, payload = Payload}).
 
--define(SHARED(GROUP, TOPIC), {GROUP, TOPIC}).
-
 -define(RESPONSE_TIMEOUT_SECONDS, timer:seconds(5)).
 
 -define(NO_HANDLER, undefined).
+
+-define(NO_GROUP, <<>>).
+
+-define(NO_CLIENT_ID, <<>>).
 
 -type(host() :: inet:ip_address() | inet:hostname()).
 
@@ -160,11 +166,10 @@
 
 -type(request_handler() :: fun((request_input()) -> response_payload())).
 
--type(response_topic() :: ?SHARED(ShareGroup :: binary(), binary())).
+-type(group() :: binary()).
 
--export_type([client/0, topic/0, qos/0, properties/0, payload/0,
-              packet_id/0, pubopt/0, subopt/0, reason_code/0,
-              request_input/0, response_payload/0, request_handler/0]).
+-type(response_topic() :: {group(), topic()} | topic()).
+
 
 
 %%------------------------------------------------------------------------------
@@ -175,15 +180,15 @@
 set_request_handler(Responser, RequestHandler) ->
     gen_statem:call(Responser, {set_request_handler, RequestHandler}).
 
--spec(sub_response_topic(client(), qos(), topic() | response_topic()) ->
+-spec(sub_response_topic(client(), qos(), response_topic()) ->
              {ok, binary()} |
              {error, no_request_handler}).
-sub_response_topic(Client, RequestQoS, ?SHARED(Group, Topic)) ->
+sub_response_topic(Client, RequestQoS, {Group, Topic}) ->
     Properties = gen_statem:call(Client, request_info),
     case maps:find('Response-Information', Properties) of
         {ok, ResponseInformation} ->
             NewResponseTopic =
-                emqx_topic:join([shared_topic(Group, ResponseInformation), Topic]),
+                emqx_topic:join([make_response_topic(Group, ResponseInformation), Topic]),
             {ok, _Props, _QoS} = subscribe(Client, [{NewResponseTopic, [{rh, 2}, {rap, false},
                                                                   {nl, true}, {qos, RequestQoS}]}]),
             emqx_logger:debug("Properties are ~p, QoS is ~p.",
@@ -193,7 +198,7 @@ sub_response_topic(Client, RequestQoS, ?SHARED(Group, Topic)) ->
             {error, no_request_handler}
     end;
 sub_response_topic(Client, RequestQoS, Topic) ->
-    sub_response_topic(Client, RequestQoS, {<<>>, Topic}).
+    sub_response_topic(Client, RequestQoS, {?NO_GROUP, Topic}).
 
 -spec(start_link() -> gen_statem:start_ret()).
 start_link() -> start_link([]).
@@ -291,26 +296,25 @@ parse_subopt([{nl, false} | Opts], Result) ->
 parse_subopt([{qos, QoS} | Opts], Result) ->
     parse_subopt(Opts, Result#{qos := ?QOS_I(QoS)}).
 
-unify_qos(Opts) -> lists:map(fun({qos, QoS}) -> {qos, ?QOS_I(QoS)}; (X) -> X end, Opts).
-
 -spec(request(client(), topic(), payload(), qos() | [pubopt()])
         -> ok | {ok, packet_id()} | {error, term()}).
-request(Client, Topic, Payload, QoS) when ?IS_QOS(QoS);
-                                          ?IS_QOS_NAME(QoS) ->
+request(Client, Topic, Payload, QoS) when is_binary(Topic), is_atom(QoS) ->
+    request(Client, Topic, Payload, [{qos, ?QOS_I(QoS)}]);
+request(Client, Topic, Payload, QoS) when is_binary(Topic), ?IS_QOS(QoS) ->
     request(Client, Topic, Payload, [{qos, QoS}]);
-request(Client, Topic, Payload, Opts0) ->
-    request(Client, Topic, #{}, Payload, unify_qos(Opts0)).
+request(Client, Topic, Payload, Opts) when is_binary(Topic), is_list(Opts) ->
+    request(Client, Topic, Payload, Opts, _Properties = #{}).
 
--spec(request(client(), topic(), properties(), payload(), [pubopt()])
+-spec(request(client(), topic(), payload(), [pubopt()], properties())
         -> ok | {ok, packet_id()} | {error, term()}).
-request(Client, Topic, Properties, Payload, Opts)
+request(Client, Topic, Payload, Opts, Properties)
     when is_binary(Topic), is_map(Properties), is_list(Opts) ->
     ok = emqx_mqtt_props:validate(Properties),
     Retain = proplists:get_bool(retain, Opts),
-    Group = proplists:get_value(group, Opts, <<>>),
+    Group = proplists:get_value(group, Opts, ?NO_GROUP),
     TimeOut = proplists:get_value(timeout, Opts, ?RESPONSE_TIMEOUT_SECONDS),
     QoS = ?QOS_I(proplists:get_value(qos, Opts, ?QOS_0)),
-    {ok, ResponseTopic} = sub_response_topic(Client, QoS, ?SHARED(Group, Topic)),
+    {ok, ResponseTopic} = sub_response_topic(Client, QoS, {Group, Topic}),
     ClientId = gen_statem:call(Client, client_id),
     NewProperties = maps:merge(Properties, #{'Response-Topic' => ResponseTopic,
                                              'Correlation-Data' => ClientId}),
@@ -319,10 +323,17 @@ request(Client, Topic, Properties, Payload, Opts)
                               topic = ResponseTopic,
                               props = NewProperties,
                               payload = iolist_to_binary(Payload)}),
+    MRef = erlang:monitor(process, Client),
     Ref = erlang:start_timer(TimeOut, self(), response),
-    receive_response(Client, ClientId, Ref).
+    try
+        receive_response(Client, ClientId, Ref, MRef)
+    after
+        erlang:cancel_timer(Ref),
+        receive {timeout, Ref, _} -> ok after 0 -> ok end,
+        erlang:demonitor(MRef, [flush])
+    end.
 
-receive_response(Client, ClientId, Ref) ->
+receive_response(Client, ClientId, Ref, MRef) ->
     receive
         {publish, Response} ->
             {ok, Properties} = maps:find(properties, Response),
@@ -330,10 +341,12 @@ receive_response(Client, ClientId, Ref) ->
                 {ok, ClientId} ->
                     maps:find(payload, Response);
                 _ ->
-                    receive_response(Client, ClientId, Ref)
+                    receive_response(Client, ClientId, Ref, MRef)
             end;
         {timeout, Ref, response} ->
-            {error, {timeout, <<"No Response">>}}
+            {error, {timeout, <<"No Response">>}};
+        {'DOWN', MRef, process, _, _} ->
+            {error, client_down}
     end.
 
 -spec(publish(client(), topic(), payload()) -> ok | {error, term()}).
@@ -457,7 +470,7 @@ init([Options]) ->
     process_flag(trap_exit, true),
     ClientId = case {proplists:get_value(proto_ver, Options, v4),
                      proplists:get_value(client_id, Options)} of
-                   {v5, undefined}   -> <<>>;
+                   {v5, undefined}   -> ?NO_CLIENT_ID;
                    {_ver, undefined} -> random_client_id();
                    {_ver, Id}        -> iolist_to_binary(Id)
                end,
@@ -1002,7 +1015,7 @@ code_change(_Vsn, State, Data, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-assign_id(<<>>, Props) ->
+assign_id(?NO_CLIENT_ID, Props) ->
     case maps:find('Assigned-Client-Identifier', Props) of
         {ok, Value} ->
             Value;
@@ -1027,13 +1040,13 @@ publish_process(?QOS_2, Packet = ?PUBLISH_PACKET(?QOS_2, PacketId),
         Stop -> Stop
     end.
 
-shared_topic(<<>>, ResponsePrefix) ->
+make_response_topic(?NO_GROUP, ResponsePrefix) ->
     ResponsePrefix;
-shared_topic(Group, Topic) ->
+make_response_topic(Group, Topic) ->
     emqx_topic:join([<<"$shared">>, Group, Topic]).
 
-response_publish(undefined, _State, _QoS, _Payload) ->
-    ok;
+response_publish(undefined, State, _QoS, _Payload) ->
+    State;
 response_publish(Properties, State = #state{request_handler = RequestHandler}, QoS, Payload) ->
     case maps:find('Response-Topic', Properties) of
         {ok, ResponseTopic} ->
@@ -1062,7 +1075,9 @@ do_publish(ResponseTopic, Properties, State = #state{request_handler = RequestHa
            QoS, Payload)
     when (QoS =:= ?QOS_1); (QoS =:= ?QOS_2)->
     case emqx_inflight:is_full(Inflight) of
-        true -> emqx_logger:error("Inflight is full");
+        true ->
+            emqx_logger:error("Inflight is full"),
+            State;
         false ->
             Msg = #mqtt_msg{packet_id = PacketId,
                             qos       = QoS,
@@ -1075,7 +1090,8 @@ do_publish(ResponseTopic, Properties, State = #state{request_handler = RequestHa
                     Inflight1 = emqx_inflight:insert(PacketId, {publish, Msg, os:timestamp()}, Inflight),
                     ensure_retry_timer(NewState#state{inflight = Inflight1});
                 {error, Reason} ->
-                    emqx_logger:error("Send failed: ~p", [Reason])
+                    emqx_logger:error("Send failed: ~p", [Reason]),
+                    State
             end
     end.
 
