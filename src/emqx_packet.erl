@@ -98,8 +98,6 @@ validate_properties(?CONNECT, #{'Request-Problem-Information' := ReqProInfo})
 validate_properties(_, _) ->
     true.
 
-
-
 validate_subscription({Topic, #{qos := QoS}}) ->
     emqx_topic:validate(filter, Topic) andalso validate_qos(QoS).
 

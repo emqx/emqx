@@ -58,31 +58,39 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
 
+request_response_exception(QoS) ->
+    {ok, Client, _} = emqx_client:start_link([{proto_ver, v5},
+                                                 {properties, #{ 'Request-Response-Information' => 0 }}]),
+    ?assertError(no_response_information,
+                emqx_client:sub_request_topic(Client, QoS, <<"request_topic">>)),
+    ok = emqx_client:disconnect(Client).
+
 request_response(QoS) ->
     {ok, Requester, _} = emqx_client:start_link([{proto_ver, v5},
                                                  {properties, #{ 'Request-Response-Information' => 1}}]),
     {ok, Responser, _} = emqx_client:start_link([{proto_ver, v5},
                                                  {properties, #{ 'Request-Response-Information' => 1}},
                                                  {request_handler, fun(_) -> <<"ResponseTest">> end}]),
-    {ok, ResponseTopic} = emqx_client:sub_response_topic(Responser, QoS, <<"request_response_test">>),
-    ct:log("ResponseTopic: ~p",[ResponseTopic]),
-    {ok, <<"ResponseTest">>} = emqx_client:request(Requester, <<"request_response_test">>, <<"request_payload">>, QoS),
-    %% Response = emqx_client:request(Requester, <<"request_response_test">>, <<"request_payload">>, QoS),
-    %% ct:log("~p", [Response]),
+    {ok, RequestTopic} = emqx_client:sub_request_topic(Responser, QoS, <<"request_topic">>),
+    ct:log("RequestTopic: ~p",[RequestTopic]),
+    {ok, <<"ResponseTest">>} = emqx_client:request(Requester, <<"response_topic">>, RequestTopic, <<"request_payload">>, QoS),
     ok = emqx_client:set_request_handler(Responser, fun(<<"request_payload">>) ->
                                                             <<"ResponseFunctionTest">>;
                                                        (_) ->
                                                             <<"404">>
                                                     end),
-    {ok, <<"ResponseFunctionTest">>} = emqx_client:request(Requester, <<"request_response_test">>, <<"request_payload">>, QoS),
-    {ok, <<"404">>} = emqx_client:request(Requester, <<"request_response_test">>, <<"invalid_request">>, QoS),
+    {ok, <<"ResponseFunctionTest">>} = emqx_client:request(Requester, <<"response_topic">>, RequestTopic, <<"request_payload">>, QoS),
+    {ok, <<"404">>} = emqx_client:request(Requester, <<"response_topic">>, RequestTopic, <<"invalid_request">>, QoS),
     ok = emqx_client:disconnect(Responser),
     ok = emqx_client:disconnect(Requester).
 
 request_response_test(_Config) ->
     request_response(?QOS_2),
     request_response(?QOS_1),
-    request_response(?QOS_0).
+    request_response(?QOS_0),
+    request_response_exception(?QOS_0),
+    request_response_exception(?QOS_1),
+    request_response_exception(?QOS_2).
 
 receive_messages(Count) ->
     receive_messages(Count, []).

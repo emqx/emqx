@@ -19,8 +19,8 @@
 -include("emqx_mqtt.hrl").
 
 -export([start_link/0, start_link/1]).
--export([request/4, request/5]).
--export([set_request_handler/2, sub_response_topic/3]).
+-export([request/5, request/6]).
+-export([set_request_handler/2, sub_request_topic/3]).
 -export([subscribe/2, subscribe/3, subscribe/4]).
 -export([publish/2, publish/3, publish/4, publish/5]).
 -export([unsubscribe/2, unsubscribe/3]).
@@ -171,7 +171,6 @@
 -type(response_topic() :: {group(), topic()} | topic()).
 
 
-
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
@@ -180,25 +179,37 @@
 set_request_handler(Responser, RequestHandler) ->
     gen_statem:call(Responser, {set_request_handler, RequestHandler}).
 
--spec(sub_response_topic(client(), qos(), response_topic()) ->
+-spec(sub_response_topic(client(), qos(), topic()) ->
              {ok, binary()} |
              {error, no_request_handler}).
-sub_response_topic(Client, RequestQoS, {Group, Topic}) ->
-    Properties = gen_statem:call(Client, request_info),
-    case maps:find('Response-Information', Properties) of
-        {ok, ResponseInformation} ->
-            NewResponseTopic =
-                emqx_topic:join([make_response_topic(Group, ResponseInformation), Topic]),
+sub_response_topic(Client, RequestQoS, Topic) ->
+    sub_request_topic(Client, RequestQoS, {?NO_GROUP, Topic}).
+
+-spec(sub_request_topic(client(), qos(), response_topic()) ->
+             {ok, binary()} |
+             {error, no_request_handler}).
+sub_request_topic(Client, RequestQoS, Topic) ->
+    case new_response_topic(Client, Topic) of
+        {ok, {NewResponseTopic, Properties}} ->
             {ok, _Props, _QoS} = subscribe(Client, [{NewResponseTopic, [{rh, 2}, {rap, false},
                                                                   {nl, true}, {qos, RequestQoS}]}]),
             emqx_logger:debug("Properties are ~p, QoS is ~p.",
                               [Properties, RequestQoS]),
             {ok, NewResponseTopic};
-        error ->
-            {error, no_request_handler}
+        {error, no_response_information} ->
+            error(no_response_information)
+    end.
+
+new_response_topic(Client, {Group, Topic}) ->
+    Properties = gen_statem:call(Client, request_info),
+    case maps:find('Response-Information', Properties) of
+        {ok, ResponseInformation} when ResponseInformation =/= <<>> ->
+            {ok, {emqx_topic:join([make_response_topic(Group, ResponseInformation), Topic]), Properties}};
+        _ ->
+            {error, no_response_information}
     end;
-sub_response_topic(Client, RequestQoS, Topic) ->
-    sub_response_topic(Client, RequestQoS, {?NO_GROUP, Topic}).
+new_response_topic(Client, Topic) ->
+    new_response_topic(Client, {?NO_GROUP, Topic}).
 
 -spec(start_link() -> gen_statem:start_ret()).
 start_link() -> start_link([]).
@@ -296,31 +307,33 @@ parse_subopt([{nl, false} | Opts], Result) ->
 parse_subopt([{qos, QoS} | Opts], Result) ->
     parse_subopt(Opts, Result#{qos := ?QOS_I(QoS)}).
 
--spec(request(client(), topic(), payload(), qos() | [pubopt()])
+-spec(request(client(), topic(), topic(), payload(), qos() | [pubopt()])
         -> ok | {ok, packet_id()} | {error, term()}).
-request(Client, Topic, Payload, QoS) when is_binary(Topic), is_atom(QoS) ->
-    request(Client, Topic, Payload, [{qos, ?QOS_I(QoS)}]);
-request(Client, Topic, Payload, QoS) when is_binary(Topic), ?IS_QOS(QoS) ->
-    request(Client, Topic, Payload, [{qos, QoS}]);
-request(Client, Topic, Payload, Opts) when is_binary(Topic), is_list(Opts) ->
-    request(Client, Topic, Payload, Opts, _Properties = #{}).
+request(Client, ResponseTopic, RequestTopic, Payload, QoS) when is_binary(ResponseTopic), is_atom(QoS) ->
+    request(Client, ResponseTopic, RequestTopic, Payload, [{qos, ?QOS_I(QoS)}]);
+request(Client, ResponseTopic, RequestTopic, Payload, QoS) when is_binary(ResponseTopic), ?IS_QOS(QoS) ->
+    request(Client, ResponseTopic, RequestTopic, Payload, [{qos, QoS}]);
+request(Client, ResponseTopic, RequestTopic, Payload, Opts) when is_binary(ResponseTopic), is_list(Opts) ->
+    request(Client, ResponseTopic, RequestTopic, Payload, Opts, _Properties = #{}).
 
--spec(request(client(), topic(), payload(), [pubopt()], properties())
+-spec(request(client(), topic(), topic(), payload(), [pubopt()], properties())
         -> ok | {ok, packet_id()} | {error, term()}).
-request(Client, Topic, Payload, Opts, Properties)
-    when is_binary(Topic), is_map(Properties), is_list(Opts) ->
+request(Client, ResponseTopic, RequestTopic, Payload, Opts, Properties)
+    when is_binary(ResponseTopic),
+         is_binary(RequestTopic),
+         is_map(Properties),
+         is_list(Opts) ->
     ok = emqx_mqtt_props:validate(Properties),
     Retain = proplists:get_bool(retain, Opts),
-    Group = proplists:get_value(group, Opts, ?NO_GROUP),
     TimeOut = proplists:get_value(timeout, Opts, ?RESPONSE_TIMEOUT_SECONDS),
     QoS = ?QOS_I(proplists:get_value(qos, Opts, ?QOS_0)),
-    {ok, ResponseTopic} = sub_response_topic(Client, QoS, {Group, Topic}),
+    {ok, NewResponseTopic} = sub_response_topic(Client, QoS, ResponseTopic),
     ClientId = gen_statem:call(Client, client_id),
-    NewProperties = maps:merge(Properties, #{'Response-Topic' => ResponseTopic,
+    NewProperties = maps:merge(Properties, #{'Response-Topic' => NewResponseTopic,
                                              'Correlation-Data' => ClientId}),
     publish(Client, #mqtt_msg{qos  = QoS,
                               retain = Retain,
-                              topic = ResponseTopic,
+                              topic = RequestTopic,
                               props = NewProperties,
                               payload = iolist_to_binary(Payload)}),
     MRef = erlang:monitor(process, Client),
