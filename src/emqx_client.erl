@@ -19,8 +19,8 @@
 -include("emqx_mqtt.hrl").
 
 -export([start_link/0, start_link/1]).
--export([request/5, request/6]).
--export([set_request_handler/2, sub_request_topic/3]).
+-export([request/5, request/6, request_async/7, receive_response/3]).
+-export([set_request_handler/2, sub_request_topic/3, sub_request_topic/4]).
 -export([subscribe/2, subscribe/3, subscribe/4]).
 -export([publish/2, publish/3, publish/4, publish/5]).
 -export([unsubscribe/2, unsubscribe/3]).
@@ -40,7 +40,9 @@
 
 -export_type([client/0, properties/0, payload/0,
               pubopt/0, subopt/0, request_input/0,
-              response_payload/0, request_handler/0]).
+              response_payload/0, request_handler/0,
+              corr_data/0]).
+-export_type([host/0, option/0]).
 
 %% Default timeout
 -define(DEFAULT_KEEPALIVE,       60000).
@@ -61,6 +63,8 @@
 -define(NO_CLIENT_ID, <<>>).
 
 -type(host() :: inet:ip_address() | inet:hostname()).
+
+-type corr_data() :: binary().
 
 -type(option() :: {name, atom()}
                 | {owner, pid()}
@@ -90,8 +94,6 @@
                 | {ack_timeout, pos_integer()}
                 | {force_ping, boolean()}
                 | {properties, properties()}).
-
--export_type([host/0, option/0]).
 
 -record(mqtt_msg, {qos = ?QOS0, retain = false, dup = false,
                    packet_id, topic, props, payload}).
@@ -149,7 +151,7 @@
 
 -type(qos() :: emqx_mqtt_types:qos_name() | emqx_mqtt_types:qos()).
 
--type(pubopt() :: {retain, boolean()} | {qos, qos()}).
+-type(pubopt() :: {retain, boolean()} | {qos, qos()} | {timeout, timeout()}).
 
 -type(subopt() :: {rh, 0 | 1 | 2}
                 | {rap, boolean()}
@@ -168,48 +170,26 @@
 
 -type(group() :: binary()).
 
--type(response_topic() :: {group(), topic()} | topic()).
-
-
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
 
+%% @doc Swap in a new request handler on the fly.
 -spec(set_request_handler(client(), request_handler()) -> ok).
 set_request_handler(Responser, RequestHandler) ->
     gen_statem:call(Responser, {set_request_handler, RequestHandler}).
 
--spec(sub_response_topic(client(), qos(), topic()) ->
-             {ok, binary()} |
-             {error, no_request_handler}).
-sub_response_topic(Client, RequestQoS, Topic) ->
-    sub_request_topic(Client, RequestQoS, {?NO_GROUP, Topic}).
+%% @doc Subscribe to request topic.
+-spec(sub_request_topic(client(), qos(), topic()) -> ok).
+sub_request_topic(Client, QoS, Topic) ->
+    sub_request_topic(Client, QoS, Topic, ?NO_GROUP).
 
--spec(sub_request_topic(client(), qos(), response_topic()) ->
-             {ok, binary()} |
-             {error, no_request_handler}).
-sub_request_topic(Client, RequestQoS, Topic) ->
-    case new_response_topic(Client, Topic) of
-        {ok, {NewResponseTopic, Properties}} ->
-            {ok, _Props, _QoS} = subscribe(Client, [{NewResponseTopic, [{rh, 2}, {rap, false},
-                                                                  {nl, true}, {qos, RequestQoS}]}]),
-            emqx_logger:debug("Properties are ~p, QoS is ~p.",
-                              [Properties, RequestQoS]),
-            {ok, NewResponseTopic};
-        {error, no_response_information} ->
-            error(no_response_information)
-    end.
-
-new_response_topic(Client, {Group, Topic}) ->
-    Properties = gen_statem:call(Client, request_info),
-    case maps:find('Response-Information', Properties) of
-        {ok, ResponseInformation} when ResponseInformation =/= <<>> ->
-            {ok, {emqx_topic:join([make_response_topic(Group, ResponseInformation), Topic]), Properties}};
-        _ ->
-            {error, no_response_information}
-    end;
-new_response_topic(Client, Topic) ->
-    new_response_topic(Client, {?NO_GROUP, Topic}).
+%% @doc Share-subscribe to request topic.
+-spec(sub_request_topic(client(), qos(), topic(), group()) -> ok).
+sub_request_topic(Client, QoS, Topic, Group) ->
+    Properties = get_properties(Client),
+    NewTopic = make_req_rsp_topic(Properties, Topic, Group),
+    subscribe_req_rsp_topic(Client, QoS, NewTopic).
 
 -spec(start_link() -> gen_statem:start_ret()).
 start_link() -> start_link([]).
@@ -316,51 +296,65 @@ request(Client, ResponseTopic, RequestTopic, Payload, QoS) when is_binary(Respon
 request(Client, ResponseTopic, RequestTopic, Payload, Opts) when is_binary(ResponseTopic), is_list(Opts) ->
     request(Client, ResponseTopic, RequestTopic, Payload, Opts, _Properties = #{}).
 
+%% @doc Send a request to request topic and wait for response.
 -spec(request(client(), topic(), topic(), payload(), [pubopt()], properties())
-        -> ok | {ok, packet_id()} | {error, term()}).
-request(Client, ResponseTopic, RequestTopic, Payload, Opts, Properties)
+        -> {ok, response_payload()} | {error, term()}).
+request(Client, ResponseTopic, RequestTopic, Payload, Opts, Properties) ->
+    CorrData = make_corr_data(),
+    case request_async(Client, ResponseTopic, RequestTopic,
+                       Payload, Opts, Properties, CorrData) of
+        ok -> receive_response(Client, CorrData, Opts);
+        {error, Reason} -> {error, Reason}
+    end.
+
+%% @doc Get client properties.
+-spec(get_properties(client()) -> properties()).
+get_properties(Client) -> gen_statem:call(Client, get_properties, infinity).
+
+%% @doc Send a request, but do not wait for response.
+%% The caller should expect a `{publish, Response}' message,
+%% or call `receive_response/3' to receive the message.
+-spec(request_async(client(), topic(), topic(), payload(),
+                    [pubopt()], properties(), corr_data()) -> ok | {error, any()}).
+request_async(Client, ResponseTopic, RequestTopic, Payload, Opts, Properties, CorrData)
     when is_binary(ResponseTopic),
          is_binary(RequestTopic),
          is_map(Properties),
          is_list(Opts) ->
     ok = emqx_mqtt_props:validate(Properties),
     Retain = proplists:get_bool(retain, Opts),
-    TimeOut = proplists:get_value(timeout, Opts, ?RESPONSE_TIMEOUT_SECONDS),
     QoS = ?QOS_I(proplists:get_value(qos, Opts, ?QOS_0)),
-    {ok, NewResponseTopic} = sub_response_topic(Client, QoS, ResponseTopic),
-    {ok, {NewRequestTopic, _}} = new_response_topic(Client, RequestTopic),
-    ClientId = gen_statem:call(Client, client_id),
+    ClientProperties = get_properties(Client),
+    NewResponseTopic = make_req_rsp_topic(ClientProperties, ResponseTopic),
+    NewRequestTopic = make_req_rsp_topic(ClientProperties, RequestTopic),
+    %% This is perhaps not optimal to subscribe the response topic for
+    %% each and every request even though the response topic is always the same
+    ok = sub_response_topic(Client, QoS, NewResponseTopic),
     NewProperties = maps:merge(Properties, #{'Response-Topic' => NewResponseTopic,
-                                             'Correlation-Data' => ClientId}),
-    publish(Client, #mqtt_msg{qos  = QoS,
-                              retain = Retain,
-                              topic = NewRequestTopic,
-                              props = NewProperties,
-                              payload = iolist_to_binary(Payload)}),
-    MRef = erlang:monitor(process, Client),
-    Ref = erlang:start_timer(TimeOut, self(), response),
-    try
-        receive_response(Client, ClientId, Ref, MRef)
-    after
-        erlang:cancel_timer(Ref),
-        receive {timeout, Ref, _} -> ok after 0 -> ok end,
-        erlang:demonitor(MRef, [flush])
+                                             'Correlation-Data' => CorrData}),
+    case publish(Client, #mqtt_msg{qos  = QoS,
+                                   retain = Retain,
+                                   topic = NewRequestTopic,
+                                   props = NewProperties,
+                                   payload = iolist_to_binary(Payload)}) of
+        ok -> ok;
+        {ok, _PacketId} -> ok; %% assume auto_ack
+        {error, Reason} -> {error, Reason}
     end.
 
-receive_response(Client, ClientId, Ref, MRef) ->
-    receive
-        {publish, Response} ->
-            {ok, Properties} = maps:find(properties, Response),
-            case maps:find('Correlation-Data', Properties) of
-                {ok, ClientId} ->
-                    maps:find(payload, Response);
-                _ ->
-                    receive_response(Client, ClientId, Ref, MRef)
-            end;
-        {timeout, Ref, response} ->
-            {error, {timeout, <<"No Response">>}};
-        {'DOWN', MRef, process, _, _} ->
-            {error, client_down}
+%% @doc Block wait the response for a request sent earlier.
+-spec(receive_response(client(), corr_data(), [pubopt()])
+      -> {ok, response_payload()} | {error, any()}).
+receive_response(Client, CorrData, Opts) ->
+    TimeOut = proplists:get_value(timeout, Opts, ?RESPONSE_TIMEOUT_SECONDS),
+    MRef = erlang:monitor(process, Client),
+    TRef = erlang:start_timer(TimeOut, self(), response),
+    try
+        receive_response(Client, CorrData, TRef, MRef)
+    after
+        erlang:cancel_timer(TRef),
+        receive {timeout, TRef, _} -> ok after 0 -> ok end,
+        erlang:demonitor(MRef, [flush])
     end.
 
 -spec(publish(client(), topic(), payload()) -> ok | {error, term()}).
@@ -736,7 +730,7 @@ connected({call, From}, resume, State) ->
 connected({call, From}, stop, _State) ->
     {stop_and_reply, normal, [{reply, From, ok}]};
 
-connected({call, From}, request_info, State = #state{properties = Properties}) ->
+connected({call, From}, get_properties, State = #state{properties = Properties}) ->
     {keep_state, State, [{reply, From, Properties}]};
 
 connected({call, From}, client_id, State = #state{client_id = ClientId}) ->
@@ -1029,6 +1023,57 @@ code_change(_Vsn, State, Data, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+%% Subscribe to response topic.
+-spec(sub_response_topic(client(), qos(), topic()) -> ok).
+sub_response_topic(Client, QoS, Topic) when is_binary(Topic) ->
+    subscribe_req_rsp_topic(Client, QoS, Topic).
+
+receive_response(Client, CorrData, TRef, MRef) ->
+    receive
+        {publish, Response} ->
+            {ok, Properties} = maps:find(properties, Response),
+            case maps:find('Correlation-Data', Properties) of
+                {ok, CorrData} ->
+                    maps:find(payload, Response);
+                _ ->
+                    emqx_logger:debug("Discarded stale response: ~p", [Response]),
+                    receive_response(Client, CorrData, TRef, MRef)
+            end;
+        {timeout, TRef, response} ->
+            {error, timeout};
+        {'DOWN', MRef, process, _, _} ->
+            {error, client_down}
+    end.
+
+%% Make a unique correlation data for each request.
+%% It has to be unique because stale responses should be discarded.
+make_corr_data() -> term_to_binary(make_ref()).
+
+%% Shared function for request and response topic subscription.
+subscribe_req_rsp_topic(Client, QoS, Topic) ->
+    {ok, _Props, _QoS} = subscribe(Client, [{Topic, [{rh, 2}, {rap, false},
+                                                     {nl, true}, {qos, QoS}]}]),
+    emqx_logger:debug("Subscribed to topic ~s", [Topic]),
+    ok.
+
+%% Make a request or response topic.
+make_req_rsp_topic(Properties, Topic) ->
+    make_req_rsp_topic(Properties, Topic, ?NO_GROUP).
+
+%% Same as make_req_rsp_topic/2, but allow shared subscription (for request topics)
+make_req_rsp_topic(Properties, Topic, Group) ->
+    case maps:find('Response-Information', Properties) of
+        {ok, ResponseInformation} when ResponseInformation =/= <<>> ->
+            emqx_topic:join([req_rsp_topic_prefix(Group, ResponseInformation), Topic]);
+        _ ->
+            erlang:error(no_response_information)
+    end.
+
+req_rsp_topic_prefix(?NO_GROUP, Prefix) ->
+    Prefix;
+req_rsp_topic_prefix(Group, Prefix) ->
+    emqx_topic:join([<<"$shared">>, Group, Prefix]).
+
 assign_id(?NO_CLIENT_ID, Props) ->
     case maps:find('Assigned-Client-Identifier', Props) of
         {ok, Value} ->
@@ -1053,11 +1098,6 @@ publish_process(?QOS_2, Packet = ?PUBLISH_PACKET(?QOS_2, PacketId),
             {keep_state, NewState#state{awaiting_rel = AwaitingRel1}};
         Stop -> Stop
     end.
-
-make_response_topic(?NO_GROUP, ResponsePrefix) ->
-    ResponsePrefix;
-make_response_topic(Group, Topic) ->
-    emqx_topic:join([<<"$shared">>, Group, Topic]).
 
 response_publish(undefined, State, _QoS, _Payload) ->
     State;
@@ -1285,7 +1325,6 @@ receive_loop(Bytes, State = #state{parse_state = ParseState}) ->
         {error, Reason} ->
             {stop, Reason};
         {'EXIT', Error} ->
-            io:format("client stop"),
             {stop, Error}
     end.
 
