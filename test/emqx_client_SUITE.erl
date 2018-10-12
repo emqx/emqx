@@ -73,14 +73,14 @@ request_response(QoS) ->
                                                  {request_handler, fun(_) -> <<"ResponseTest">> end}]),
     {ok, RequestTopic} = emqx_client:sub_request_topic(Responser, QoS, <<"request_topic">>),
     ct:log("RequestTopic: ~p",[RequestTopic]),
-    {ok, <<"ResponseTest">>} = emqx_client:request(Requester, <<"response_topic">>, RequestTopic, <<"request_payload">>, QoS),
+    {ok, <<"ResponseTest">>} = emqx_client:request(Requester, <<"response_topic">>, <<"request_topic">>, <<"request_payload">>, QoS),
     ok = emqx_client:set_request_handler(Responser, fun(<<"request_payload">>) ->
                                                             <<"ResponseFunctionTest">>;
                                                        (_) ->
                                                             <<"404">>
                                                     end),
-    {ok, <<"ResponseFunctionTest">>} = emqx_client:request(Requester, <<"response_topic">>, RequestTopic, <<"request_payload">>, QoS),
-    {ok, <<"404">>} = emqx_client:request(Requester, <<"response_topic">>, RequestTopic, <<"invalid_request">>, QoS),
+    {ok, <<"ResponseFunctionTest">>} = emqx_client:request(Requester, <<"response_topic">>, <<"request_topic">>, <<"request_payload">>, QoS),
+    {ok, <<"404">>} = emqx_client:request(Requester, <<"response_topic">>, <<"request_topic">>, <<"invalid_request">>, QoS),
     ok = emqx_client:disconnect(Responser),
     ok = emqx_client:disconnect(Requester).
 
