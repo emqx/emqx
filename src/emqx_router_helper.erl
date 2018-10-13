@@ -31,6 +31,9 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
+%% internal export
+-export([stats_fun/0]).
+
 -record(routing_node, {name, const = unused}).
 -record(state, {nodes = []}).
 
@@ -90,7 +93,7 @@ init([]) ->
                                [Node | Acc]
                   end
               end, [], mnesia:dirty_all_keys(?ROUTING_NODE)),
-    emqx_stats:update_interval(route_stats, stats_fun()),
+    emqx_stats:update_interval(route_stats, fun ?MODULE:stats_fun/0),
     {ok, #state{nodes = Nodes}, hibernate}.
 
 handle_call(Req, _From, State) ->
@@ -143,13 +146,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 stats_fun() ->
-    fun() ->
-        case ets:info(?ROUTE, size) of
-            undefined -> ok;
-            Size ->
-                emqx_stats:setstat('routes/count', 'routes/max', Size),
-                emqx_stats:setstat('topics/count', 'topics/max', Size)
-        end
+    case ets:info(?ROUTE, size) of
+        undefined -> ok;
+        Size ->
+            emqx_stats:setstat('routes/count', 'routes/max', Size),
+            emqx_stats:setstat('topics/count', 'topics/max', Size)
     end.
 
 cleanup_routes(Node) ->

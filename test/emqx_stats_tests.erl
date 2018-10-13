@@ -42,7 +42,7 @@ get_state_test() ->
     end).
 
 update_interval_test() ->
-    TickMs = 100,
+    TickMs = 200,
     with_proc(fun() ->
         SleepMs = TickMs * 2 + TickMs div 2, %% sleep for 2.5 ticks
         emqx_stats:cancel_update(cm_stats),
@@ -52,22 +52,34 @@ update_interval_test() ->
         ?assertEqual(1, emqx_stats:getstat('connections/count'))
     end, TickMs).
 
-emqx_broker_helpe_test() ->
-    TickMs = 100,
-    with_proc(fun() ->
-        SleepMs = TickMs + TickMs div 2, %% sleep for 1.5 ticks
-        Ref = make_ref(),
-        Tester = self(),
-        UpdFun =
-            fun() ->
-                    emqx_broker_helper:stats_fun(),
-                    Tester ! Ref,
-                    ok
-            end,
-            ok = emqx_stats:update_interval(stats_test, UpdFun),
-            timer:sleep(SleepMs),
-            receive Ref -> ok after 2000 -> error(timeout) end
-              end, TickMs).
+helper_test_() ->
+    TickMs = 200,
+    TestF =
+        fun(CbModule, CbFun) ->
+                SleepMs = TickMs + TickMs div 2, %% sleep for 1.5 ticks
+                Ref = make_ref(),
+                Tester = self(),
+                UpdFun =
+                    fun() ->
+                            CbModule:CbFun(),
+                            Tester ! Ref,
+                            ok
+                    end,
+                    ok = emqx_stats:update_interval(stats_test, UpdFun),
+                    timer:sleep(SleepMs),
+                    receive Ref -> ok after 2000 -> error(timeout) end
+        end,
+    MkTestFun =
+        fun(CbModule, CbFun) ->
+                fun() ->
+                        with_proc(fun() -> TestF(CbModule, CbFun) end, TickMs)
+                end
+        end,
+    [{"emqx_broker_helper", MkTestFun(emqx_broker_helper, stats_fun)},
+     {"emqx_sm", MkTestFun(emqx_sm, stats_fun)},
+     {"emqx_router_helper", MkTestFun(emqx_router_helper, stats_fun)},
+     {"emqx_cm", MkTestFun(emqx_cm, update_conn_stats)}
+    ].
 
 with_proc(F) ->
     {ok, _Pid} = emqx_stats:start_link(),
