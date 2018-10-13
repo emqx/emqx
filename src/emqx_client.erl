@@ -1051,8 +1051,10 @@ make_corr_data() -> term_to_binary(make_ref()).
 
 %% Shared function for request and response topic subscription.
 subscribe_req_rsp_topic(Client, QoS, Topic) ->
+    %% It is a Protocol Error to set the No Local bit to 1 on a Shared Subscription
     {ok, _Props, _QoS} = subscribe(Client, [{Topic, [{rh, 2}, {rap, false},
-                                                     {nl, true}, {qos, QoS}]}]),
+                                                     {nl, not ?IS_SHARE(Topic)},
+                                                     {qos, QoS}]}]),
     emqx_logger:debug("Subscribed to topic ~s", [Topic]),
     ok.
 
@@ -1069,10 +1071,8 @@ make_req_rsp_topic(Properties, Topic, Group) ->
             erlang:error(no_response_information)
     end.
 
-req_rsp_topic_prefix(?NO_GROUP, Prefix) ->
-    Prefix;
-req_rsp_topic_prefix(Group, Prefix) ->
-    emqx_topic:join([<<"$shared">>, Group, Prefix]).
+req_rsp_topic_prefix(?NO_GROUP, Prefix) -> Prefix;
+req_rsp_topic_prefix(Group, Prefix) -> ?SHARE(Group, Prefix).
 
 assign_id(?NO_CLIENT_ID, Props) ->
     case maps:find('Assigned-Client-Identifier', Props) of

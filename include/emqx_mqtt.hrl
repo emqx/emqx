@@ -527,4 +527,8 @@
 
 -define(PACKET(Type), #mqtt_packet{header = #mqtt_packet_header{type = Type}}).
 
+-define(SHARE, "$share").
+-define(SHARE(Group, Topic), emqx_topic:join([<<?SHARE>>, Group, Topic])).
+-define(IS_SHARE(Topic), case Topic of <<?SHARE, _/binary>> -> true; _ -> false end).
+
 -endif.

@@ -57,10 +57,10 @@ t_match(_) ->
     true  = match(<<"abc">>, <<"+">>),
     true  = match(<<"a/b/c">>, <<"a/b/c">>),
     false = match(<<"a/b/c">>, <<"a/c/d">>),
-    false = match(<<"$shared/x/y">>, <<"+">>),
-    false = match(<<"$shared/x/y">>, <<"+/x/y">>),
-    false = match(<<"$shared/x/y">>, <<"#">>),
-    false = match(<<"$shared/x/y">>, <<"+/+/#">>),
+    false = match(<<"$share/x/y">>, <<"+">>),
+    false = match(<<"$share/x/y">>, <<"+/x/y">>),
+    false = match(<<"$share/x/y">>, <<"#">>),
+    false = match(<<"$share/x/y">>, <<"+/+/#">>),
     false = match(<<"house/1/sensor/0">>, <<"house/+">>),
     false = match(<<"house">>, <<"house/+">>).
 
@@ -77,10 +77,10 @@ t_match2(_) ->
     true  = match(<<"abc">>, <<"+">>),
     true  = match(<<"a/b/c">>, <<"a/b/c">>),
     false = match(<<"a/b/c">>, <<"a/c/d">>),
-    false = match(<<"$shared/x/y">>, <<"+">>),
-    false = match(<<"$shared/x/y">>, <<"+/x/y">>),
-    false = match(<<"$shared/x/y">>, <<"#">>),
-    false = match(<<"$shared/x/y">>, <<"+/+/#">>),
+    false = match(<<"$share/x/y">>, <<"+">>),
+    false = match(<<"$share/x/y">>, <<"+/x/y">>),
+    false = match(<<"$share/x/y">>, <<"#">>),
+    false = match(<<"$share/x/y">>, <<"+/+/#">>),
     false = match(<<"house/1/sensor/0">>, <<"house/+">>).
 
 t_match3(_) ->
