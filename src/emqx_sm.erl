@@ -31,6 +31,9 @@
 %% Internal functions for rpc
 -export([dispatch/3]).
 
+%% Internal function for stats
+-export([stats_fun/0]).
+
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
@@ -210,7 +213,7 @@ init([]) ->
     _ = emqx_tables:new(?SESSION_P_TAB, TabOpts),
     _ = emqx_tables:new(?SESSION_ATTRS_TAB, TabOpts),
     _ = emqx_tables:new(?SESSION_STATS_TAB, TabOpts),
-    emqx_stats:update_interval(sm_stats, stats_fun()),
+    emqx_stats:update_interval(sm_stats, fun ?MODULE:stats_fun/0),
     {ok, #{session_pmon => emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
@@ -251,10 +254,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 stats_fun() ->
-    fun() ->
-        safe_update_stats(?SESSION_TAB, 'sessions/count', 'sessions/max'),
-        safe_update_stats(?SESSION_P_TAB, 'sessions/persistent/count', 'sessions/persistent/max')
-    end.
+    safe_update_stats(?SESSION_TAB, 'sessions/count', 'sessions/max'),
+    safe_update_stats(?SESSION_P_TAB, 'sessions/persistent/count', 'sessions/persistent/max').
 
 safe_update_stats(Tab, Stat, MaxStat) ->
     case ets:info(Tab, size) of
