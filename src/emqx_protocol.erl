@@ -61,7 +61,9 @@
          recv_stats,
          send_stats,
          connected,
-         connected_at
+         connected_at,
+         auth_method,
+         auth_state
         }).
 
 -type(state() :: #pstate{}).
@@ -102,7 +104,9 @@ init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options)
             enable_acl   = emqx_zone:get_env(Zone, enable_acl),
             recv_stats   = #{msg => 0, pkt => 0},
             send_stats   = #{msg => 0, pkt => 0},
-            connected    = false}.
+            connected    = false,
+            auth_method  = <<>>,
+            auth_state   = disconnected}.
 
 init_username(Peercert, Options) ->
     case proplists:get_value(peer_cert_as_username, Options) of
@@ -168,14 +172,19 @@ caps(#pstate{zone = Zone}) ->
 client_id(#pstate{client_id = ClientId}) ->
     ClientId.
 
+credentials(PState) ->
+    credentials(PState, #{}).
+
 credentials(#pstate{zone       = Zone,
                     client_id  = ClientId,
                     username   = Username,
-                    peername   = Peername}) ->
-    #{zone      => Zone,
-      client_id => ClientId,
-      username  => Username,
-      peername  => Peername}.
+                    peername   = Peername,
+                    auth_state = AuthState}, More) when is_map(More) ->
+    maps:merge(#{zone       => Zone,
+                 client_id  => ClientId,
+                 username   => Username,
+                 peername   => Peername,
+                 auth_state => AuthState}, More).
 
 stats(#pstate{recv_stats = #{pkt := RecvPkt, msg := RecvMsg},
               send_stats = #{pkt := SendPkt, msg := SendMsg}}) ->
@@ -267,7 +276,6 @@ process_packet(?CONNECT_PACKET(
 
     %% TODO: Mountpoint...
     %% Msg -> emqx_mountpoint:mount(MountPoint, Msg)
-    WillMsg = emqx_packet:will_msg(Connect),
 
     PState1 = set_username(Username,
                            PState#pstate{client_id    = ClientId,
@@ -277,36 +285,30 @@ process_packet(?CONNECT_PACKET(
                                          keepalive    = Keepalive,
                                          conn_props   = ConnProps,
                                          will_topic   = WillTopic,
-                                         will_msg     = WillMsg,
+                                         will_msg     = emqx_packet:will_msg(Connect),
                                          is_bridge    = IsBridge,
                                          connected_at = os:timestamp()}),
-    connack(
-      case check_connect(Connect, PState1) of
-          {ok, PState2} ->
-              case authenticate(credentials(PState2), Password) of
-                  {ok, IsSuper} ->
-                      %% Maybe assign a clientId
-                      PState3 = maybe_assign_client_id(PState2#pstate{is_super = IsSuper}),
-                      %% Open session
-                      case try_open_session(PState3) of
-                          {ok, SPid, SP} ->
-                              PState4 = PState3#pstate{session = SPid, connected = true},
-                              ok = emqx_cm:register_connection(client_id(PState4), attrs(PState4)),
-                              %% Start keepalive
-                              start_keepalive(Keepalive, PState4),
-                              %% Success
-                              {?RC_SUCCESS, SP, PState4};
-                          {error, Error} ->
-                              ?LOG(error, "Failed to open session: ~p", [Error], PState1),
-                              {?RC_UNSPECIFIED_ERROR, PState1}
-                    end;
-                  {error, Reason} ->
-                      ?LOG(error, "Username '~s' login failed for ~p", [Username, Reason], PState2),
-                      {?RC_NOT_AUTHORIZED, PState1}
-              end;
-          {error, ReasonCode} ->
-              {ReasonCode, PState1}
-      end);
+
+    case check_connect(Connect, PState1) of
+        {ok, PState2} ->
+            EnhancedAuth = is_map(ConnProps) andalso maps:is_key('Authentication-Method', ConnProps),
+            if 
+                EnhancedAuth ->
+                    process_enhanced_auth(maps:get('Authentication-Method', ConnProps, undefined), 
+                                          maps:get('Authentication-Data', ConnProps, undefined),
+                                          PState2);
+                true ->
+                    case authenticate(credentials(PState2), #{password => Password}) of
+                        {ok, IsSuper} ->
+                            connack(open_session(PState2#pstate{is_super = IsSuper, auth_state = connected}));
+                        {error, Reason} ->
+                            ?LOG(error, "Username '~s' login failed for ~p", [Username, Reason], PState2),
+                            connack({?RC_NOT_AUTHORIZED, PState2})
+                    end
+            end;
+        {error, ReasonCode} ->
+            connack({ReasonCode, PState1})
+    end;
 
 process_packet(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PState) ->
     case check_publish(Packet, PState) of
@@ -421,7 +423,84 @@ process_packet(?DISCONNECT_PACKET(?RC_SUCCESS, #{'Session-Expiry-Interval' := In
 process_packet(?DISCONNECT_PACKET(?RC_SUCCESS), PState) ->
     {stop, normal, PState#pstate{will_msg = undefined}};
 process_packet(?DISCONNECT_PACKET(_), PState) ->
-    {stop, normal, PState}.
+    {stop, normal, PState};
+
+process_packet(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATE, properties = Properties), 
+               PState = #pstate{auth_state = authenticating}) ->
+    process_enhanced_auth(maps:get('Authentication-Method', Properties, undefined), maps:get('Authentication-Data', Properties, undefined), PState);
+process_packet(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATE, properties = Properties), 
+               PState = #pstate{auth_state = reauthenticating}) ->
+    process_enhanced_auth(maps:get('Authentication-Method', Properties, undefined), maps:get('Authentication-Data', Properties, undefined), PState);
+process_packet(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATE), PState = #pstate{auth_state = connected}) -> 
+    disconnect({?RC_PROTOCOL_ERROR, PState});
+process_packet(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATE), PState = #pstate{auth_state = _AuthState}) -> 
+    connack({?RC_PROTOCOL_ERROR, PState});
+
+process_packet(?AUTH_PACKET(?RC_RE_AUTHENTICATE, properties = Properties), PState = #pstate{auth_state = connected}) ->
+    process_enhanced_auth(maps:get('Authentication-Method', Properties, undefined), maps:get('Authentication-Data', Properties, undefined), PState);
+process_packet(?AUTH_PACKET(?RC_RE_AUTHENTICATE), PState = #pstate{auth_state = reauthenticating}) ->
+    disconnect({?RC_PROTOCOL_ERROR, PState});
+process_packet(?AUTH_PACKET(?RC_RE_AUTHENTICATE), PState = #pstate{auth_state = _AuthState}) ->
+    connack({?RC_PROTOCOL_ERROR, PState});
+
+process_packet(?AUTH_PACKET(_), PState = #pstate{auth_state = connected}) ->
+    disconnect({?RC_PROTOCOL_ERROR, PState});
+process_packet(?AUTH_PACKET(_), PState = #pstate{auth_state = _AuthState}) ->
+    connack({?RC_PROTOCOL_ERROR, PState}).
+
+%%------------------------------------------------------------------------------
+%% process enhanced authenticate
+%%------------------------------------------------------------------------------
+
+process_enhanced_auth(AuthMethod, _AuthData, PState = #pstate{auth_state = AuthState}) 
+    when AuthMethod =:= undefined orelse AuthMethod =:= <<>> ->
+    if 
+        AuthState =:= reauthenticating orelse AuthState =:= connected ->
+            disconnect({?RC_MALFORMED_PACKET, PState});
+        true ->
+            connack({?RC_MALFORMED_PACKET, PState})
+    end;
+process_enhanced_auth(AuthMethod, AuthData, PState = #pstate{auth_method = OldAuthMethod, auth_state = AuthState}) ->
+    if 
+        OldAuthMethod =/= <<>> andalso OldAuthMethod =/= AuthMethod ->
+            if 
+                AuthState =:= reauthenticating orelse AuthState =:= connected ->
+                    disconnect({?RC_BAD_AUTHENTICATION_METHOD, PState});
+                true ->
+                    connack({?RC_BAD_AUTHENTICATION_METHOD, PState})
+            end;
+        true ->
+            case authenticate(credentials(PState, #{auth_method => AuthMethod, 
+                                                    auth_data   => AuthData})) of
+                {continue, Reply} -> 
+                    deliver({auth, ?RC_CONTINUE_AUTHENTICATE, AuthMethod, Reply}, PState#pstate{auth_state = case AuthState of
+                                                                                                                 connected ->
+                                                                                                                     reauthenticating;
+                                                                                                                 _ ->
+                                                                                                                     authenticating
+                                                                                                             end});
+                {ok, Username, IsSuper} ->
+                    if 
+                        AuthState =:= reauthenticating orelse AuthState =:= connected ->
+                            deliver({auth, ?RC_SUCCESS}, PState#pstate{username = Username, is_super = IsSuper, auth_state = connected});
+                        true ->
+                            connack(open_session(PState#pstate{username = Username, is_super = IsSuper, auth_state = connected}))
+                    end;
+                {error, Reason} ->
+                    ReasonCode = case Reason of 
+                                     bad_authentication_method ->
+                                         ?RC_BAD_AUTHENTICATION_METHOD;
+                                     _ ->
+                                         ?RC_NOT_AUTHORIZED
+                                 end,
+                    if 
+                        AuthState =:= reauthenticating orelse AuthState =:= connected ->
+                            disconnect({ReasonCode, PState});
+                        true ->
+                            connack({ReasonCode, PState})
+                    end
+            end
+    end.
 
 %%------------------------------------------------------------------------------
 %% ConnAck --> Client
@@ -441,6 +520,21 @@ connack({ReasonCode, PState = #pstate{proto_ver = ProtoVer}}) ->
     _ = deliver({connack, ReasonCode1}, PState),
     {error, emqx_reason_codes:name(ReasonCode1, ProtoVer), PState}.
 
+%%------------------------------------------------------------------------------
+%% Disconnect --> Client
+%%------------------------------------------------------------------------------
+
+disconnect({?RC_SUCCESS, PState}) ->
+    deliver({disconnect, ?RC_SUCCESS}, PState);
+disconnect({ReasonCode, PState = #pstate{proto_ver = ProtoVer}}) ->
+    ReasonCode1 = if ProtoVer =:= ?MQTT_PROTO_V5 ->
+                         ReasonCode;
+                     true ->
+                         emqx_reason_codes:compat(connack, ReasonCode)
+                  end,
+    deliver({disconnect, ReasonCode1}, PState),
+    {error, emqx_reason_codes:name(ReasonCode1, ProtoVer), PState}.
+    
 %%------------------------------------------------------------------------------
 %% Publish Message -> Broker
 %%------------------------------------------------------------------------------
@@ -547,8 +641,13 @@ deliver({disconnect, ReasonCode}, PState = #pstate{proto_ver = ?MQTT_PROTO_V5}) 
     send(?DISCONNECT_PACKET(ReasonCode), PState);
 
 deliver({disconnect, _ReasonCode}, PState) ->
-    {ok, PState}.
+    {ok, PState};
 
+deliver({auth, ?RC_SUCCESS}, PState) ->
+    send(?AUTH_PACKET(), PState);
+deliver({auth, ReasonCode, AuthMethod, AuthData}, PState) ->
+    send(?AUTH_PACKET(ReasonCode, #{'Authentication-Method' => AuthMethod,
+                                    'Authentication-Data' => AuthData}), PState).
 %%------------------------------------------------------------------------------
 %% Send Packet to Client
 
@@ -564,6 +663,22 @@ send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = SendFun
             {ok, inc_stats(send, Type, PState)};
         {error, Reason} ->
             {error, Reason}
+    end.
+
+%% TODO: need a better function name
+open_session(PState = #pstate{keepalive = Keepalive}) ->
+    PState1 = maybe_assign_client_id(PState),
+    case try_open_session(PState1) of
+        {ok, SPid, SP} ->
+            PState2 = PState1#pstate{session = SPid, connected = true},
+            ok = emqx_cm:register_connection(client_id(PState2), attrs(PState2)),
+            %% Start keepalive
+            start_keepalive(Keepalive, PState2),
+            %% Success
+            {?RC_SUCCESS, SP, PState2#pstate{auth_state = connected}};
+        {error, Error} ->
+            ?LOG(error, "Failed to open session: ~p", [Error], PState1),
+            {?RC_UNSPECIFIED_ERROR, PState1}
     end.
 
 %%------------------------------------------------------------------------------
@@ -625,10 +740,14 @@ set_session_attrs({topic_alias_maximum, #pstate{zone = Zone, proto_ver = ProtoVe
 set_session_attrs({_, #pstate{}}, SessAttrs) ->
     SessAttrs.
 
+authenticate(Credentials) ->
+    authenticate(Credentials, maps:get(password, Credentials, undefined)).
 
 authenticate(Credentials, Password) ->
     case emqx_access_control:authenticate(Credentials, Password) of
         ok -> {ok, false};
+        {ok, #{username := Username}} -> 
+            {ok, Username, false};
         {ok, IsSuper} when is_boolean(IsSuper) ->
             {ok, IsSuper};
         {ok, Result} when is_map(Result) ->
