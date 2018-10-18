@@ -78,6 +78,7 @@
                           [PState#pstate.client_id, esockd_net:format(PState#pstate.peername) | Args])).
 
 -define(NOT_SUPER, false).
+-define(NO_AUTH_METHOD, <<>>).
 
 %%------------------------------------------------------------------------------
 %% Init
@@ -296,8 +297,8 @@ process_packet(?CONNECT_PACKET(
             EnhancedAuth = is_map(ConnProps) andalso maps:is_key('Authentication-Method', ConnProps),
             if 
                 EnhancedAuth ->
-                    process_enhanced_auth(maps:get('Authentication-Method', ConnProps, undefined), 
-                                          maps:get('Authentication-Data', ConnProps, undefined),
+                    process_enhanced_auth(maps:get('Authentication-Method', ConnProps, ?NO_AUTH_METHOD), 
+                                          maps:get('Authentication-Data', ConnProps, ?NO_AUTH_METHOD),
                                           PState2);
                 true ->
                     case authenticate(credentials(PState2), Password) of
@@ -446,9 +447,9 @@ process_packet(?AUTH_PACKET(_, undefined), PState = #pstate{auth_state = AuthSta
 process_packet(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATE, _), PState = #pstate{auth_state = connected}) -> 
     disconnect({?RC_PROTOCOL_ERROR, PState});
 process_packet(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATE, Properties), PState) ->
-    process_enhanced_auth(maps:get('Authentication-Method', Properties, undefined), maps:get('Authentication-Data', Properties, undefined), PState);
+    process_enhanced_auth(maps:get('Authentication-Method', Properties, ?NO_AUTH_METHOD), maps:get('Authentication-Data', Properties, ?NO_AUTH_METHOD), PState);
 process_packet(?AUTH_PACKET(?RC_RE_AUTHENTICATE, Properties), PState = #pstate{auth_state = connected}) ->
-    process_enhanced_auth(maps:get('Authentication-Method', Properties, undefined), maps:get('Authentication-Data', Properties, undefined), PState);
+    process_enhanced_auth(maps:get('Authentication-Method', Properties, ?NO_AUTH_METHOD), maps:get('Authentication-Data', Properties, ?NO_AUTH_METHOD), PState);
 process_packet(?AUTH_PACKET(?RC_RE_AUTHENTICATE), PState = #pstate{auth_state = reauthenticating}) ->
     disconnect({?RC_PROTOCOL_ERROR, PState});
 process_packet(?AUTH_PACKET(?RC_RE_AUTHENTICATE), PState = #pstate{auth_state = authenticating}) ->
@@ -458,8 +459,7 @@ process_packet(?AUTH_PACKET(?RC_RE_AUTHENTICATE), PState = #pstate{auth_state = 
 %% process enhanced authenticate
 %%------------------------------------------------------------------------------
 
-process_enhanced_auth(AuthMethod, _AuthData, PState = #pstate{auth_state = AuthState}) 
-    when AuthMethod =:= undefined orelse AuthMethod =:= <<>> ->
+process_enhanced_auth(?NO_AUTH_METHOD, _AuthData, PState = #pstate{auth_state = AuthState}) ->
     if 
         AuthState =:= reauthenticating orelse AuthState =:= connected ->
             disconnect({?RC_MALFORMED_PACKET, PState});
@@ -479,13 +479,13 @@ process_enhanced_auth(AuthMethod, AuthData, PState = #pstate{auth_method = OldAu
             case authenticate(credentials(PState, #{auth_method => AuthMethod, 
                                                     auth_data   => AuthData})) of
                 {continue, Reply} -> 
-                    deliver({auth, ?RC_CONTINUE_AUTHENTICATE, AuthMethod, Reply}, PState#pstate{auth_method = AuthMethod,
-                                                                                                auth_state = case AuthState of
-                                                                                                                 connected ->
-                                                                                                                     reauthenticating;
-                                                                                                                 _ ->
-                                                                                                                     authenticating
-                                                                                                             end});
+                    deliver({auth, ?RC_CONTINUE_AUTHENTICATE, AuthMethod, Reply}, 
+                            PState#pstate{auth_method = AuthMethod, auth_state  = case AuthState of
+                                                                                      connected ->
+                                                                                          reauthenticating;
+                                                                                      _ ->
+                                                                                          authenticating
+                                                                                  end});
                     
                 {ok, Username, IsSuper} ->
                     if 
