@@ -25,7 +25,7 @@
                    {backlog,   512},
                    {nodelay,   true}]).
 
-all() -> [t_merge_opts].
+all() -> [t_merge_opts, t_init_proc_mng_policy].
 
 t_merge_opts(_) ->
     Opts = emqx_misc:merge_opts(?SOCKOPTS, [raw,
@@ -43,3 +43,10 @@ t_merge_opts(_) ->
      {nodelay, false},
      {packet, raw},
      {reuseaddr, true}] = lists:sort(Opts).
+
+t_init_proc_mng_policy(_) ->
+    application:set_env(emqx, zones, [{policy, [{force_shutdown_policy, #{max_heap_size => 1}}]}]),
+    {ok, _} = emqx_zone:start_link(),
+    ok = emqx_misc:init_proc_mng_policy(policy),
+    ok = emqx_misc:init_proc_mng_policy(undefined),
+    emqx_zone:stop().
