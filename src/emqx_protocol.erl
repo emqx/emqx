@@ -77,6 +77,8 @@
         emqx_logger:Level([{client, PState#pstate.client_id}], "MQTT(~s@~s): " ++ Format,
                           [PState#pstate.client_id, esockd_net:format(PState#pstate.peername) | Args])).
 
+-define(NOT_SUPER, false).
+
 %%------------------------------------------------------------------------------
 %% Init
 %%------------------------------------------------------------------------------
@@ -300,7 +302,7 @@ process_packet(?CONNECT_PACKET(
                 true ->
                     case authenticate(credentials(PState2), Password) of
                         {ok, IsSuper} ->
-                            connack(open_session(PState2#pstate{is_super = IsSuper, auth_state = connected}));
+                            connack(ensure_client_id_and_try_open_session(PState2#pstate{is_super = IsSuper, auth_state = connected}));
                         {error, Reason} ->
                             ?LOG(error, "Username '~s' login failed for ~p", [Username, Reason], PState2),
                             connack({?RC_NOT_AUTHORIZED, PState2})
@@ -493,10 +495,10 @@ process_enhanced_auth(AuthMethod, AuthData, PState = #pstate{auth_method = OldAu
                                                                        auth_method = AuthMethod, 
                                                                        auth_state  = connected});
                         true ->
-                            connack(open_session(PState#pstate{username    = Username, 
-                                                               is_super    = IsSuper, 
-                                                               auth_method = AuthMethod, 
-                                                               auth_state  = connected}))
+                            connack(ensure_client_id_and_try_open_session(PState#pstate{username    = Username, 
+                                                                                        is_super    = IsSuper, 
+                                                                                        auth_method = AuthMethod, 
+                                                                                        auth_state  = connected}))
                     end;
                 {error, Reason} ->
                     ReasonCode = case Reason of 
@@ -539,11 +541,12 @@ connack({ReasonCode, PState = #pstate{proto_ver = ProtoVer}}) ->
 disconnect({?RC_SUCCESS, PState}) ->
     deliver({disconnect, ?RC_SUCCESS}, PState);
 disconnect({ReasonCode, PState = #pstate{proto_ver = ProtoVer}}) ->
-    ReasonCode1 = if ProtoVer =:= ?MQTT_PROTO_V5 ->
-                         ReasonCode;
-                     true ->
-                         emqx_reason_codes:compat(connack, ReasonCode)
-                  end,
+    ReasonCode1 = case ProtoVer of
+                      ?MQTT_PROTO_V5 ->
+                          ReasonCode;
+                      _ ->
+                          emqx_reason_codes:compat(connack, ReasonCode)
+                  end, 
     deliver({disconnect, ReasonCode1}, PState),
     {error, emqx_reason_codes:name(ReasonCode1, ProtoVer), PState}.
 
@@ -677,8 +680,7 @@ send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = SendFun
             {error, Reason}
     end.
 
-%% TODO: need a better function name
-open_session(PState = #pstate{keepalive = Keepalive}) ->
+ensure_client_id_and_try_open_session(PState = #pstate{keepalive = Keepalive}) ->
     PState1 = maybe_assign_client_id(PState),
     case try_open_session(PState1) of
         {ok, SPid, SP} ->
@@ -757,9 +759,9 @@ authenticate(Credentials) ->
 
 authenticate(Credentials, Password) ->
     case emqx_access_control:authenticate(Credentials, Password) of
-        ok -> {ok, false};
+        ok -> {ok, ?NOT_SUPER};
         {ok, #{username := Username}} -> 
-            {ok, Username, false};
+            {ok, Username, ?NOT_SUPER};
         {ok, IsSuper} when is_boolean(IsSuper) ->
             {ok, IsSuper};
         {ok, Result} when is_map(Result) ->
