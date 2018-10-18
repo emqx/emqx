@@ -505,11 +505,11 @@ deliver({connack, ReasonCode}, PState) ->
 deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
                                                      proto_ver = ?MQTT_PROTO_V5,
                                                      client_id = ClientId,
-                                                     conn_props = CONNPROPS,
+                                                     conn_props = ConnProps,
                                                      is_assigned = IsAssigned}) ->
-    ResponseInformation = case maps:find('Request-Response-Information', CONNPROPS) of
+    ResponseInformation = case maps:find('Request-Response-Information', ConnProps) of
                               {ok, 1} ->
-                                  iolist_to_binary(emqx_config:get_env(response_topic_prefix, "ResponseTopic"));
+                                  iolist_to_binary(emqx_config:get_env(response_topic_prefix));
                               _ ->
                                   <<>>
                           end,
