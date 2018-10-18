@@ -232,6 +232,9 @@ format_variable(#mqtt_packet_suback{packet_id = PacketId,
 format_variable(#mqtt_packet_unsuback{packet_id = PacketId}) ->
     io_lib:format("PacketId=~p", [PacketId]);
 
+format_variable(#mqtt_packet_auth{reason_code = ReasonCode, properties = Properties}) ->
+    io_lib:format("ReasonCode=~p, Properties=~p", [ReasonCode, Properties]);
+
 format_variable(PacketId) when is_integer(PacketId) ->
     io_lib:format("PacketId=~p", [PacketId]);
 

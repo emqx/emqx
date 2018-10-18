@@ -205,7 +205,7 @@ parser(#pstate{packet_size = Size, proto_ver = Ver}) ->
 
 -spec(received(emqx_mqtt_types:packet(), state()) ->
     {ok, state()} | {error, term()} | {error, term(), state()} | {stop, term(), state()}).
-received(?PACKET(Type), PState = #pstate{connected = false}) when Type =/= ?CONNECT ->
+received(?PACKET(Type), PState = #pstate{connected = false}) when Type =/= ?AUTH andalso Type =/= ?CONNECT ->
     {error, proto_not_connected, PState};
 
 received(?PACKET(?CONNECT), PState = #pstate{connected = true}) ->
@@ -298,7 +298,7 @@ process_packet(?CONNECT_PACKET(
                                           maps:get('Authentication-Data', ConnProps, undefined),
                                           PState2);
                 true ->
-                    case authenticate(credentials(PState2), #{password => Password}) of
+                    case authenticate(credentials(PState2), Password) of
                         {ok, IsSuper} ->
                             connack(open_session(PState2#pstate{is_super = IsSuper, auth_state = connected}));
                         {error, Reason} ->
@@ -425,27 +425,31 @@ process_packet(?DISCONNECT_PACKET(?RC_SUCCESS), PState) ->
 process_packet(?DISCONNECT_PACKET(_), PState) ->
     {stop, normal, PState};
 
-process_packet(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATE, properties = Properties), 
-               PState = #pstate{auth_state = authenticating}) ->
-    process_enhanced_auth(maps:get('Authentication-Method', Properties, undefined), maps:get('Authentication-Data', Properties, undefined), PState);
-process_packet(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATE, properties = Properties), 
-               PState = #pstate{auth_state = reauthenticating}) ->
-    process_enhanced_auth(maps:get('Authentication-Method', Properties, undefined), maps:get('Authentication-Data', Properties, undefined), PState);
-process_packet(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATE), PState = #pstate{auth_state = connected}) -> 
+process_packet(?AUTH_PACKET(_), PState = #pstate{auth_state = disconnected}) ->
+    {error, proto_not_connected, PState};
+process_packet(?AUTH_PACKET(_), PState = #pstate{auth_method = <<>>, auth_state = AuthState}) ->
+    if 
+        AuthState =:= authenticating ->
+            connack({?RC_PROTOCOL_ERROR, PState});
+        true ->     % reauthenticating or connected 
+            disconnect({?RC_PROTOCOL_ERROR, PState})
+    end;
+process_packet(?AUTH_PACKET(_, undefined), PState = #pstate{auth_state = AuthState}) ->
+    if 
+        AuthState =:= authenticating ->
+            connack({?RC_MALFORMED_PACKET, PState});
+        true ->     % reauthenticating or connected 
+            disconnect({?RC_MALFORMED_PACKET, PState})
+    end;
+process_packet(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATE, _), PState = #pstate{auth_state = connected}) -> 
     disconnect({?RC_PROTOCOL_ERROR, PState});
-process_packet(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATE), PState = #pstate{auth_state = _AuthState}) -> 
-    connack({?RC_PROTOCOL_ERROR, PState});
-
-process_packet(?AUTH_PACKET(?RC_RE_AUTHENTICATE, properties = Properties), PState = #pstate{auth_state = connected}) ->
+process_packet(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATE, Properties), PState) ->
+    process_enhanced_auth(maps:get('Authentication-Method', Properties, undefined), maps:get('Authentication-Data', Properties, undefined), PState);
+process_packet(?AUTH_PACKET(?RC_RE_AUTHENTICATE, Properties), PState = #pstate{auth_state = connected}) ->
     process_enhanced_auth(maps:get('Authentication-Method', Properties, undefined), maps:get('Authentication-Data', Properties, undefined), PState);
 process_packet(?AUTH_PACKET(?RC_RE_AUTHENTICATE), PState = #pstate{auth_state = reauthenticating}) ->
     disconnect({?RC_PROTOCOL_ERROR, PState});
-process_packet(?AUTH_PACKET(?RC_RE_AUTHENTICATE), PState = #pstate{auth_state = _AuthState}) ->
-    connack({?RC_PROTOCOL_ERROR, PState});
-
-process_packet(?AUTH_PACKET(_), PState = #pstate{auth_state = connected}) ->
-    disconnect({?RC_PROTOCOL_ERROR, PState});
-process_packet(?AUTH_PACKET(_), PState = #pstate{auth_state = _AuthState}) ->
+process_packet(?AUTH_PACKET(?RC_RE_AUTHENTICATE), PState = #pstate{auth_state = authenticating}) ->
     connack({?RC_PROTOCOL_ERROR, PState}).
 
 %%------------------------------------------------------------------------------
@@ -473,18 +477,26 @@ process_enhanced_auth(AuthMethod, AuthData, PState = #pstate{auth_method = OldAu
             case authenticate(credentials(PState, #{auth_method => AuthMethod, 
                                                     auth_data   => AuthData})) of
                 {continue, Reply} -> 
-                    deliver({auth, ?RC_CONTINUE_AUTHENTICATE, AuthMethod, Reply}, PState#pstate{auth_state = case AuthState of
+                    deliver({auth, ?RC_CONTINUE_AUTHENTICATE, AuthMethod, Reply}, PState#pstate{auth_method = AuthMethod,
+                                                                                                auth_state = case AuthState of
                                                                                                                  connected ->
                                                                                                                      reauthenticating;
                                                                                                                  _ ->
                                                                                                                      authenticating
                                                                                                              end});
+                    
                 {ok, Username, IsSuper} ->
                     if 
                         AuthState =:= reauthenticating orelse AuthState =:= connected ->
-                            deliver({auth, ?RC_SUCCESS}, PState#pstate{username = Username, is_super = IsSuper, auth_state = connected});
+                            deliver({auth, ?RC_SUCCESS}, PState#pstate{username    = Username, 
+                                                                       is_super    = IsSuper, 
+                                                                       auth_method = AuthMethod, 
+                                                                       auth_state  = connected});
                         true ->
-                            connack(open_session(PState#pstate{username = Username, is_super = IsSuper, auth_state = connected}))
+                            connack(open_session(PState#pstate{username    = Username, 
+                                                               is_super    = IsSuper, 
+                                                               auth_method = AuthMethod, 
+                                                               auth_state  = connected}))
                     end;
                 {error, Reason} ->
                     ReasonCode = case Reason of 
@@ -534,7 +546,7 @@ disconnect({ReasonCode, PState = #pstate{proto_ver = ProtoVer}}) ->
                   end,
     deliver({disconnect, ReasonCode1}, PState),
     {error, emqx_reason_codes:name(ReasonCode1, ProtoVer), PState}.
-    
+
 %%------------------------------------------------------------------------------
 %% Publish Message -> Broker
 %%------------------------------------------------------------------------------
@@ -752,6 +764,8 @@ authenticate(Credentials, Password) ->
             {ok, IsSuper};
         {ok, Result} when is_map(Result) ->
             {ok, maps:get(is_superuser, Result, false)};
+        {continue, Result} when is_map(Result) ->
+            {continue, maps:get(auth_data, Result, <<>>)};
         {error, Error} ->
             {error, Error}
     end.

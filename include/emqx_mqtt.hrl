@@ -136,7 +136,7 @@
 -define(RC_DISCONNECT_WITH_WILL_MESSAGE,           16#04).
 -define(RC_NO_MATCHING_SUBSCRIBERS,                16#10).
 -define(RC_NO_SUBSCRIPTION_EXISTED,                16#11).
--define(RC_CONTINUE_AUTHENTICATION,                16#18).
+-define(RC_CONTINUE_AUTHENTICATE,                  16#18).
 -define(RC_RE_AUTHENTICATE,                        16#19).
 -define(RC_UNSPECIFIED_ERROR,                      16#80).
 -define(RC_MALFORMED_PACKET,                       16#81).
