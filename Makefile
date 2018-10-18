@@ -10,7 +10,7 @@ dep_jsx     = git https://github.com/talentdeficit/jsx 2.9.0
 dep_gproc   = git https://github.com/uwiger/gproc 0.8.0
 dep_gen_rpc = git https://github.com/emqx/gen_rpc 2.2.0
 dep_lager   = git https://github.com/erlang-lager/lager 3.6.5
-dep_esockd  = git https://github.com/emqx/esockd v5.4.1
+dep_esockd  = git https://github.com/emqx/esockd v5.4.2
 dep_ekka    = git https://github.com/emqx/ekka v0.4.1
 dep_cowboy  = git https://github.com/ninenines/cowboy 2.4.0
 dep_clique  = git https://github.com/emqx/clique develop
@@ -35,11 +35,12 @@ EUNIT_OPTS = verbose
 # CT_SUITES = emqx_frame
 ## emqx_trie emqx_router emqx_frame emqx_mqtt_compat
 
-CT_SUITES = emqx emqx_zone emqx_banned emqx_connection emqx_session emqx_access emqx_broker emqx_cm emqx_frame emqx_guid emqx_inflight \
-			emqx_json emqx_keepalive emqx_lib emqx_metrics emqx_misc emqx_mod emqx_mqtt_caps \
-			emqx_client emqx_mqtt_props emqx_mqueue emqx_net emqx_pqueue emqx_router emqx_sm \
-			emqx_stats emqx_tables emqx_time emqx_topic emqx_trie emqx_vm \
-		 	emqx_mountpoint emqx_listeners emqx_protocol emqx_pool emqx_shared_sub
+CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_connection emqx_session \
+			emqx_access emqx_broker emqx_cm emqx_frame emqx_guid emqx_inflight emqx_json \
+			emqx_keepalive emqx_lib emqx_metrics emqx_misc emqx_mod emqx_mqtt_caps \
+			emqx_mqtt_compat emqx_mqtt_props emqx_mqueue emqx_net emqx_pqueue emqx_router \
+      emqx_sm emqx_tables emqx_time emqx_topic emqx_trie emqx_vm emqx_mountpoint \
+		 	emqx_listeners emqx_protocol emqx_pool emqx_shared_sub
 
 CT_NODE_NAME = emqxct@127.0.0.1
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name $(CT_NODE_NAME)

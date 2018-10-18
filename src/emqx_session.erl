@@ -127,7 +127,7 @@
           await_rel_timer :: reference() | undefined,
 
           %% Session Expiry Interval
-          expiry_interval = 7200000 :: timeout(),
+          expiry_interval = 7200 :: timeout(),
 
           %% Expired Timer
           expiry_timer :: reference() | undefined,
@@ -318,7 +318,7 @@ discard(SPid, ByPid) ->
 
 -spec(update_expiry_interval(spid(), timeout()) -> ok).
 update_expiry_interval(SPid, Interval) ->
-    gen_server:cast(SPid, {expiry_interval, Interval * 1000}).
+    gen_server:cast(SPid, {expiry_interval, Interval}).
 
 update_misc(SPid, Misc) ->
     gen_server:cast(SPid, {update_misc, Misc}).
@@ -369,7 +369,7 @@ init([Parent, #{zone                := Zone,
     emqx_hooks:run('session.created', [#{client_id => ClientId}, info(State)]),
     GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
     ok = emqx_gc:init(GcPolicy),
-    erlang:put(force_shutdown_policy, emqx_zone:get_env(Zone, force_shutdown_policy)),
+    ok = emqx_misc:init_proc_mng_policy(Zone),
     ok = proc_lib:init_ack(Parent, {ok, self()}),
     gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}], State).
 
