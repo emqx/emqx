@@ -79,6 +79,7 @@
 
 -define(NOT_SUPER, false).
 -define(NO_AUTH_METHOD, <<>>).
+-define(NO_AUTH_DATA, <<>>).
 
 %%------------------------------------------------------------------------------
 %% Init
@@ -108,7 +109,7 @@ init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options)
             recv_stats   = #{msg => 0, pkt => 0},
             send_stats   = #{msg => 0, pkt => 0},
             connected    = false,
-            auth_method  = <<>>,
+            auth_method  = ?NO_AUTH_METHOD,
             auth_state   = disconnected}.
 
 init_username(Peercert, Options) ->
@@ -298,7 +299,7 @@ process_packet(?CONNECT_PACKET(
             if 
                 EnhancedAuth ->
                     process_enhanced_auth(maps:get('Authentication-Method', ConnProps, ?NO_AUTH_METHOD), 
-                                          maps:get('Authentication-Data', ConnProps, ?NO_AUTH_METHOD),
+                                          maps:get('Authentication-Data', ConnProps, ?NO_AUTH_DATA),
                                           PState2);
                 true ->
                     case authenticate(credentials(PState2), Password) of
@@ -430,7 +431,7 @@ process_packet(?DISCONNECT_PACKET(_), PState) ->
 
 process_packet(?AUTH_PACKET(_), PState = #pstate{auth_state = disconnected}) ->
     {error, proto_not_connected, PState};
-process_packet(?AUTH_PACKET(_), PState = #pstate{auth_method = <<>>, auth_state = AuthState}) ->
+process_packet(?AUTH_PACKET(_), PState = #pstate{auth_method = ?NO_AUTH_METHOD, auth_state = AuthState}) ->
     if 
         AuthState =:= authenticating ->
             connack({?RC_PROTOCOL_ERROR, PState});
@@ -447,9 +448,9 @@ process_packet(?AUTH_PACKET(_, undefined), PState = #pstate{auth_state = AuthSta
 process_packet(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATE, _), PState = #pstate{auth_state = connected}) -> 
     disconnect({?RC_PROTOCOL_ERROR, PState});
 process_packet(?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATE, Properties), PState) ->
-    process_enhanced_auth(maps:get('Authentication-Method', Properties, ?NO_AUTH_METHOD), maps:get('Authentication-Data', Properties, ?NO_AUTH_METHOD), PState);
+    process_enhanced_auth(maps:get('Authentication-Method', Properties, ?NO_AUTH_METHOD), maps:get('Authentication-Data', Properties, ?NO_AUTH_DATA), PState);
 process_packet(?AUTH_PACKET(?RC_RE_AUTHENTICATE, Properties), PState = #pstate{auth_state = connected}) ->
-    process_enhanced_auth(maps:get('Authentication-Method', Properties, ?NO_AUTH_METHOD), maps:get('Authentication-Data', Properties, ?NO_AUTH_METHOD), PState);
+    process_enhanced_auth(maps:get('Authentication-Method', Properties, ?NO_AUTH_METHOD), maps:get('Authentication-Data', Properties, ?NO_AUTH_DATA), PState);
 process_packet(?AUTH_PACKET(?RC_RE_AUTHENTICATE), PState = #pstate{auth_state = reauthenticating}) ->
     disconnect({?RC_PROTOCOL_ERROR, PState});
 process_packet(?AUTH_PACKET(?RC_RE_AUTHENTICATE), PState = #pstate{auth_state = authenticating}) ->
@@ -468,7 +469,7 @@ process_enhanced_auth(?NO_AUTH_METHOD, _AuthData, PState = #pstate{auth_state = 
     end;
 process_enhanced_auth(AuthMethod, AuthData, PState = #pstate{auth_method = OldAuthMethod, auth_state = AuthState}) ->
     if 
-        OldAuthMethod =/= <<>> andalso OldAuthMethod =/= AuthMethod ->
+        OldAuthMethod =/= ?NO_AUTH_METHOD andalso OldAuthMethod =/= AuthMethod ->
             if 
                 AuthState =:= reauthenticating orelse AuthState =:= connected ->
                     disconnect({?RC_BAD_AUTHENTICATION_METHOD, PState});
