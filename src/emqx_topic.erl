@@ -34,6 +34,8 @@
 
 -define(MAX_TOPIC_LEN, 4096).
 
+-include("emqx_mqtt.hrl").
+
 %% @doc Is wildcard topic?
 -spec(wildcard(topic() | words()) -> true | false).
 wildcard(Topic) when is_binary(Topic) ->
@@ -180,11 +182,11 @@ parse(Topic) when is_binary(Topic) ->
 
 parse(Topic = <<"$queue/", _/binary>>, #{share := _Group}) ->
     error({invalid_topic, Topic});
-parse(Topic = <<"$share/", _/binary>>, #{share := _Group}) ->
+parse(Topic = <<?SHARE, "/", _/binary>>, #{share := _Group}) ->
     error({invalid_topic, Topic});
 parse(<<"$queue/", Topic1/binary>>, Options) ->
     parse(Topic1, maps:put(share, <<"$queue">>, Options));
-parse(Topic = <<"$share/", Topic1/binary>>, Options) ->
+parse(Topic = <<?SHARE, "/", Topic1/binary>>, Options) ->
     case binary:split(Topic1, <<"/">>) of
         [<<>>] -> error({invalid_topic, Topic});
         [_] -> error({invalid_topic, Topic});

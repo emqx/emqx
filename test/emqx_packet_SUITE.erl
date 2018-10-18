@@ -44,14 +44,49 @@ packet_type_name(_) ->
     ?assertEqual('UNSUBSCRIBE', emqx_packet:type_name(?UNSUBSCRIBE)).
 
 packet_validate(_) ->
-    ?assertEqual(true, emqx_packet:validate(?SUBSCRIBE_PACKET(15, #{'Subscription-Identifier' => 1}, [{<<"topic">>, #{qos => ?QOS0}}]))),
-    ?assertEqual(true, emqx_packet:validate(?UNSUBSCRIBE_PACKET(89, [<<"topic">>]))),
-    ?assertEqual(true, emqx_packet:validate(?CONNECT_PACKET(#mqtt_packet_connect{}))),
-    ?assertEqual(true, emqx_packet:validate(?CONNECT_PACKET(#mqtt_packet_connect{properties = #{'Receive-Maximum' => 1}}))),
-    case catch emqx_packet:validate(?CONNECT_PACKET(#mqtt_packet_connect{properties = #{'Receive-Maximum' => 0}})) of
-        {'EXIT', {protocol_error, _}} -> ?assertEqual(true, true);
-        true -> ?assertEqual(true, false)
-    end.
+    ?assert(emqx_packet:validate(?SUBSCRIBE_PACKET(15, #{'Subscription-Identifier' => 1}, [{<<"topic">>, #{qos => ?QOS0}}]))),
+    ?assert(emqx_packet:validate(?UNSUBSCRIBE_PACKET(89, [<<"topic">>]))),
+    ?assert(emqx_packet:validate(?CONNECT_PACKET(#mqtt_packet_connect{}))),
+    ?assert(emqx_packet:validate(?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Response-Topic' => <<"responsetopic">>, 'Topic-Alias' => 1}, <<"payload">>))),
+    ?assert(emqx_packet:validate(?CONNECT_PACKET(#mqtt_packet_connect{properties = #{'Receive-Maximum' => 1}}))),
+    ?assertError(subscription_identifier_invalid,
+                 emqx_packet:validate(
+                   ?SUBSCRIBE_PACKET(15, #{'Subscription-Identifier' => -1},
+                                     [{<<"topic">>, #{qos => ?QOS0}}]))),
+    ?assertError(topic_filters_invalid,
+                 emqx_packet:validate(?UNSUBSCRIBE_PACKET(1,[]))),
+    ?assertError(topic_name_invalid,
+                 emqx_packet:validate(?PUBLISH_PACKET(1,<<>>,1,#{},<<"payload">>))),
+    ?assertError(topic_name_invalid,
+                 emqx_packet:validate(?PUBLISH_PACKET
+                                             (1, <<"+/+">>, 1, #{}, <<"payload">>))),
+    ?assertError(topic_alias_invalid,
+                 emqx_packet:validate(
+                       ?PUBLISH_PACKET
+                          (1, <<"topic">>, 1, #{'Topic-Alias' => 0}, <<"payload">>))),
+    ?assertError(protocol_error,
+                 emqx_packet:validate(
+                   ?PUBLISH_PACKET(1, <<"topic">>, 1,
+                                   #{'Subscription-Identifier' => 10}, <<"payload">>))),
+    ?assertError(protocol_error,
+                 emqx_packet:validate(
+                   ?PUBLISH_PACKET(1, <<"topic">>, 1,
+                                   #{'Response-Topic' => <<"+/+">>}, <<"payload">>))),
+    ?assertError(protocol_error,
+                 emqx_packet:validate(
+                   ?CONNECT_PACKET(#mqtt_packet_connect{
+                                      properties =
+                                          #{'Request-Response-Information' => -1}}))),
+    ?assertError(protocol_error,
+                 emqx_packet:validate(
+                   ?CONNECT_PACKET(#mqtt_packet_connect{
+                                      properties =
+                                          #{'Request-Problem-Information' => 2}}))),
+    ?assertError(protocol_error,
+                emqx_packet:validate(
+                  ?CONNECT_PACKET(#mqtt_packet_connect{
+                                      properties =
+                                          #{'Receive-Maximum' => 0}}))).
 
 packet_message(_) ->
     Pkt = #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
@@ -83,16 +118,14 @@ packet_format(_) ->
     io:format("~s", [emqx_packet:format(?UNSUBACK_PACKET(90))]).
 
 packet_will_msg(_) ->
-    Pkt = #mqtt_packet_connect{ will_flag = true, 
-                                client_id = <<"clientid">>, 
-                                username = "test", 
-                                will_retain = true, 
-                                will_qos = ?QOS2, 
-                                will_topic = <<"topic">>, 
-                                will_props = #{}, 
+    Pkt = #mqtt_packet_connect{ will_flag = true,
+                                client_id = <<"clientid">>,
+                                username = "test",
+                                will_retain = true,
+                                will_qos = ?QOS2,
+                                will_topic = <<"topic">>,
+                                will_props = #{},
                                 will_payload = <<"payload">>},
     Msg = emqx_packet:will_msg(Pkt),
     ?assertEqual(<<"clientid">>, Msg#message.from),
     ?assertEqual(<<"topic">>, Msg#message.topic).
-
-
