@@ -382,100 +382,87 @@ end}.
 %% Log
 %%--------------------------------------------------------------------
 
-{mapping, "log.dir", "lager.log_dir", [
+{mapping, "log.to", "logger.to", [
+  {default, console},
+  {datatype, {enum, [off, file, console, both]}}
+]}.
+
+{mapping, "log.level", "kernel.logger_level", [
+  {default, error},
+  {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
+]}.
+
+{mapping, "log.dir", "logger.dir", [
   {default, "log"},
   {datatype, string}
 ]}.
 
-{mapping, "log.console", "lager.handlers", [
-  {default, file},
-  {datatype, {enum, [off, file, console, both]}}
-]}.
-
-{mapping, "log.console.level", "lager.handlers", [
-  {default, info},
-  {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, none]}}
-]}.
-
-{mapping, "log.console.file", "lager.handlers", [
-  {default, "log/console.log"},
+{mapping, "log.file", "logger.filename", [
+  {default, "emqx.log"},
   {datatype, file}
 ]}.
 
-{mapping, "log.console.size", "lager.handlers", [
-  {default, 10485760},
-  {datatype, integer}
+{mapping, "log.rotation.size", "logger.size", [
+  {default, "10M"},
+  {datatype, bytesize}
 ]}.
 
-{mapping, "log.console.count", "lager.handlers", [
+{mapping, "log.rotation.count", "logger.count", [
   {default, 5},
   {datatype, integer}
 ]}.
 
-{mapping, "log.info.file", "lager.handlers", [
+{mapping, "log.$level.file", "logger.additional_handlers", [
   {datatype, file}
 ]}.
 
-{mapping, "log.info.size", "lager.handlers", [
-  {default, 10485760},
-  {datatype, integer}
-]}.
-
-{mapping, "log.info.count", "lager.handlers", [
-  {default, 5},
-  {datatype, integer}
-]}.
-
-{mapping, "log.error.file", "lager.handlers", [
-  {default, "log/error.log"},
-  {datatype, file}
-]}.
-
-{mapping, "log.error.size", "lager.handlers", [
-  {default, 10485760},
-  {datatype, integer}
-]}.
-
-{mapping, "log.error.count", "lager.handlers", [
-  {default, 5},
-  {datatype, integer}
-]}.
-
-{mapping, "log.syslog", "lager.handlers", [
+{mapping, "log.syslog", "logger.syslog", [
   {default,  off},
   {datatype, flag}
 ]}.
 
-{mapping, "log.syslog.identity", "lager.handlers", [
+{mapping, "log.syslog.identity", "logger.syslog", [
   {default, "emqx"},
   {datatype, string}
 ]}.
 
-{mapping, "log.syslog.facility", "lager.handlers", [
+{mapping, "log.syslog.facility", "logger.syslog", [
   {default, local0},
   {datatype, {enum, [daemon, local0, local1, local2, local3, local4, local5, local6, local7]}}
 ]}.
 
-{mapping, "log.syslog.level", "lager.handlers", [
+{mapping, "log.syslog.level", "logger.syslog", [
   {default, error},
   {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency]}}
 ]}.
 
-{mapping, "log.error.redirect", "lager.error_logger_redirect", [
-  {default, on},
-  {datatype, flag},
-  hidden
-]}.
-
-{mapping, "log.error.messages_per_second", "lager.error_logger_hwm", [
-  {default, 1000},
-  {datatype, integer},
-  hidden
-]}.
-
 {translation,
- "lager.handlers",
+ "logger.additional_handlers",
  fun(Conf) ->
+    Format = [time," [",level,"] ",msg,"\n"],
+    AdditionalHandlers = lists:filter(
+                  fun({K, _V}) ->
+                    cuttlefish_variable:is_fuzzy_match(K, string:tokens("log.$level.file", "."))
+                  end,
+               Conf),
+      Users = [{handler, file, logger_disk_log_h,
+                  #{level => Level,
+                    config => #{file => Dir ++ Filename,
+                                type => wrap,
+                                max_no_files => MaxNoFiles,
+                                max_no_bytes => MaxNoBytes},
+                    formatter =>
+                        {logger_formatter, #{legacy_header => false,
+                                             single_line => true,
+                                             template => Format}},
+                    filesync_repeat_interval => 1000}}
+                || {[_, Level, _], Filename} <- UserList],
+      case Users of
+          [] ->
+              throw(unset);
+          _ -> Users
+      end
+
     ErrorHandler = case cuttlefish:conf_get("log.error.file", Conf, undefined) of
       undefined -> [];
       ErrorFilename -> [{lager_file_backend, [{file, ErrorFilename},
@@ -511,14 +498,7 @@ end}.
       both -> [ConsoleHandler, ConsoleFileHandler];
       _ -> []
     end,
-    SyslogHandler = case cuttlefish:conf_get("log.syslog", Conf) of
-      false -> [];
-      true  -> [{lager_syslog_backend,
-                  [cuttlefish:conf_get("log.syslog.identity", Conf),
-                   cuttlefish:conf_get("log.syslog.facility", Conf),
-                   cuttlefish:conf_get("log.syslog.level", Conf)]}]
-    end,
-    ConsoleHandlers ++ ErrorHandler ++ InfoHandler ++ SyslogHandler
+    ConsoleHandlers ++ ErrorHandler ++ InfoHandler
   end
 }.
 
