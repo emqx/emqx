@@ -597,6 +597,11 @@ end}.
 %% MQTT Protocol
 %%--------------------------------------------------------------------
 
+%% @doc Response Topic Prefix
+{mapping, "mqtt.response_topic_prefix", "emqx.response_topic_prefix",[
+    {datatype, string}
+]}.
+
 %% @doc Max Packet Size Allowed, 1MB by default.
 {mapping, "mqtt.max_packet_size", "emqx.max_packet_size", [
   {default, "1MB"},
@@ -1797,4 +1802,3 @@ end}.
    {busy_port, cuttlefish:conf_get("sysmon.busy_port", Conf)},
    {busy_dist_port, cuttlefish:conf_get("sysmon.busy_dist_port", Conf)}]
 end}.
-

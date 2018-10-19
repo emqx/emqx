@@ -63,8 +63,8 @@ validate(?PUBLISH_PACKET(_QoS, Topic, _, Properties, _)) ->
     ((not emqx_topic:wildcard(Topic)) orelse error(topic_name_invalid))
         andalso validate_properties(?PUBLISH, Properties);
 
-validate(?CONNECT_PACKET(#mqtt_packet_connect{properties = #{'Receive-Maximum' := 0}})) ->
-    error(protocol_error);
+validate(?CONNECT_PACKET(#mqtt_packet_connect{properties = Properties})) ->
+    validate_properties(?CONNECT, Properties);
 
 validate(_Packet) ->
     true.
@@ -82,10 +82,23 @@ validate_properties(?PUBLISH, #{'Topic-Alias':= I})
     error(topic_alias_invalid);
 validate_properties(?PUBLISH, #{'Subscription-Identifier' := _I}) ->
     error(protocol_error);
+validate_properties(?PUBLISH, #{'Response-Topic' := ResponseTopic}) ->
+    case emqx_topic:wildcard(ResponseTopic) of
+        true ->
+            error(protocol_error);
+        false ->
+            true
+    end;
+validate_properties(?CONNECT, #{'Receive-Maximum' := 0}) ->
+    error(protocol_error);
+validate_properties(?CONNECT, #{'Request-Response-Information' := ReqRespInfo})
+    when ReqRespInfo =/= 0, ReqRespInfo =/= 1 ->
+    error(protocol_error);
+validate_properties(?CONNECT, #{'Request-Problem-Information' := ReqProInfo})
+    when ReqProInfo =/= 0, ReqProInfo =/= 1 ->
+    error(protocol_error);
 validate_properties(_, _) ->
     true.
-
-
 
 validate_subscription({Topic, #{qos := QoS}}) ->
     emqx_topic:validate(filter, Topic) andalso validate_qos(QoS).

@@ -139,4 +139,3 @@ dep-vsn-check:
 		  {[], []} -> halt(0); \
 		  {Rebar, Mk} -> erlang:error({deps_version_discrepancy, [{rebar, Rebar}, {mk, Mk}]}) \
 		end."
-

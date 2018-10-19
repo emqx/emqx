@@ -12,7 +12,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_mqtt_compat_SUITE).
+-module(emqx_client_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -32,15 +32,24 @@
                       <<"+/+">>, <<"TopicA/#">>]).
 
 all() ->
-    [basic_test,
-     will_message_test,
-     zero_length_clientid_test,
-     offline_message_queueing_test,
-     overlapping_subscriptions_test,
-     %% keepalive_test,
-     redelivery_on_reconnect_test,
-     %% subscribe_failure_test,
-     dollar_topics_test].
+    [ {group, mqttv4},
+      {group, mqttv5}
+    ].
+
+groups() ->
+    [{mqttv4, [non_parallel_tests],
+      [basic_test,
+       will_message_test,
+       offline_message_queueing_test,
+       overlapping_subscriptions_test,
+       %% keepalive_test,
+       redelivery_on_reconnect_test,
+       %% subscribe_failure_test,
+       dollar_topics_test]},
+     {mqttv5, [non_parallel_tests],
+      [request_response,
+       share_sub_request_topic]}
+].
 
 init_per_suite(Config) ->
     emqx_ct_broker_helpers:run_setup_steps(),
@@ -48,6 +57,77 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
+
+request_response_exception(QoS) ->
+    {ok, Client, _} = emqx_client:start_link([{proto_ver, v5},
+                                                 {properties, #{ 'Request-Response-Information' => 0 }}]),
+    ?assertError(no_response_information,
+                 emqx_client:sub_request_topic(Client, QoS, <<"request_topic">>)),
+    ok = emqx_client:disconnect(Client).
+
+request_response_per_qos(QoS) ->
+    {ok, Requester, _} = emqx_client:start_link([{proto_ver, v5},
+                                                 {client_id, <<"requester">>},
+                                                 {properties, #{ 'Request-Response-Information' => 1}}]),
+    {ok, Responser, _} = emqx_client:start_link([{proto_ver, v5},
+                                                 {client_id, <<"responser">>},
+                                                 {properties, #{ 'Request-Response-Information' => 1}},
+                                                 {request_handler, fun(_Req) -> <<"ResponseTest">> end}]),
+    ok = emqx_client:sub_request_topic(Responser, QoS, <<"request_topic">>),
+    {ok, <<"ResponseTest">>} = emqx_client:request(Requester, <<"response_topic">>, <<"request_topic">>, <<"request_payload">>, QoS),
+    ok = emqx_client:set_request_handler(Responser, fun(<<"request_payload">>) ->
+                                                            <<"ResponseFunctionTest">>;
+                                                       (_) ->
+                                                            <<"404">>
+                                                    end),
+    {ok, <<"ResponseFunctionTest">>} = emqx_client:request(Requester, <<"response_topic">>, <<"request_topic">>, <<"request_payload">>, QoS),
+    {ok, <<"404">>} = emqx_client:request(Requester, <<"response_topic">>, <<"request_topic">>, <<"invalid_request">>, QoS),
+    ok = emqx_client:disconnect(Responser),
+    ok = emqx_client:disconnect(Requester).
+
+request_response(_Config) ->
+    request_response_per_qos(?QOS_2),
+    request_response_per_qos(?QOS_1),
+    request_response_per_qos(?QOS_0),
+    request_response_exception(?QOS_0),
+    request_response_exception(?QOS_1),
+    request_response_exception(?QOS_2).
+
+share_sub_request_topic(_Config) ->
+    share_sub_request_topic_per_qos(?QOS_2),
+    share_sub_request_topic_per_qos(?QOS_1),
+    share_sub_request_topic_per_qos(?QOS_0).
+
+share_sub_request_topic_per_qos(QoS) ->
+    application:set_env(?APPLICATION, shared_subscription_strategy, random),
+    ReqTopic = <<"request-topic">>,
+    RspTopic = <<"response-topic">>,
+    Group = <<"g1">>,
+    Properties = #{ 'Request-Response-Information' => 1},
+    Opts = fun(ClientId) -> [{proto_ver, v5},
+                             {client_id, atom_to_binary(ClientId, utf8)},
+                             {properties, Properties}
+                            ] end,
+    {ok, Requester, _} = emqx_client:start_link(Opts(requester)),
+    {ok, Responser1, _} = emqx_client:start_link([{request_handler, fun(Req) -> <<"1-", Req/binary>> end} | Opts(requester1)]),
+    {ok, Responser2, _} = emqx_client:start_link([{request_handler, fun(Req) -> <<"2-", Req/binary>> end} | Opts(requester2)]),
+    ok = emqx_client:sub_request_topic(Responser1, QoS, ReqTopic, Group),
+    ok = emqx_client:sub_request_topic(Responser2, QoS, ReqTopic, Group),
+    %% Send a request, wait for response, validate response then return responser ID
+    ReqFun = fun(Req) ->
+                     {ok, Rsp} = emqx_client:request(Requester, RspTopic, ReqTopic, Req, QoS),
+                     case Rsp of
+                         <<"1-", Req/binary>> -> 1;
+                         <<"2-", Req/binary>> -> 2
+                     end
+             end,
+    Ids = lists:map(fun(I) -> ReqFun(integer_to_binary(I)) end, lists:seq(1, 100)),
+    %% we are testing with random shared-dispatch strategy,
+    %% fail if not all responsers got a chance to handle requests
+    ?assertEqual([1, 2], lists:usort(Ids)),
+    ok = emqx_client:disconnect(Responser1),
+    ok = emqx_client:disconnect(Responser2),
+    ok = emqx_client:disconnect(Requester).
 
 receive_messages(Count) ->
     receive_messages(Count, []).
@@ -59,7 +139,7 @@ receive_messages(Count, Msgs) ->
         {publish, Msg} ->
             receive_messages(Count-1, [Msg|Msgs]);
         Other ->
-            ct:log("~p~n", [Other]), 
+            ct:log("~p~n", [Other]),
             receive_messages(Count, Msgs)
     after 10 ->
         Msgs
@@ -90,18 +170,6 @@ will_message_test(_Config) ->
     ok = emqx_client:disconnect(C2),
     ct:print("Will message test succeeded").
 
-zero_length_clientid_test(_Config) ->
-    ct:print("Zero length clientid test starting"),
-
-    %% TODO: There are some controversies on the situation when 
-    %%       clean_start flag is true and clientid is zero length.
-    
-    %% {error, _} = emqx_client:start_link([{clean_start, false},
-    %%                                      {client_id, <<>>}]),
-    {ok, _, _} = emqx_client:start_link([{clean_start, true},
-                                         {client_id, <<>>}]),
-    ct:print("Zero length clientid test succeeded").
-
 offline_message_queueing_test(_) ->
     {ok, C1, _} = emqx_client:start_link([{clean_start, false},
                                           {client_id, <<"c1">>}]),
@@ -109,7 +177,7 @@ offline_message_queueing_test(_) ->
     ok = emqx_client:disconnect(C1),
     {ok, C2, _} = emqx_client:start_link([{clean_start, true},
                                           {client_id, <<"c2">>}]),
- 
+
     ok = emqx_client:publish(C2, nth(2, ?TOPICS), <<"qos 0">>, 0),
     {ok, _} = emqx_client:publish(C2, nth(3, ?TOPICS), <<"qos 1">>, 1),
     {ok, _} = emqx_client:publish(C2, nth(4, ?TOPICS), <<"qos 2">>, 2),
@@ -196,4 +264,3 @@ dollar_topics_test(_) ->
     ?assertEqual(0, length(receive_messages(1))),
     ok = emqx_client:disconnect(C),
     ct:print("$ topics test succeeded").
-
