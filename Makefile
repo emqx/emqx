@@ -35,9 +35,10 @@ EUNIT_OPTS = verbose
 # CT_SUITES = emqx_frame
 ## emqx_trie emqx_router emqx_frame emqx_mqtt_compat
 
+
 CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_connection emqx_session \
 			emqx_access emqx_broker emqx_cm emqx_frame emqx_guid emqx_inflight emqx_json \
-			emqx_keepalive emqx_lib emqx_metrics emqx_misc emqx_mod emqx_mqtt_caps \
+			emqx_keepalive emqx_lib emqx_metrics emqx_mod emqx_mqtt_caps \
 			emqx_mqtt_props emqx_mqueue emqx_net emqx_pqueue emqx_router emqx_sm \
 			emqx_tables emqx_time emqx_topic emqx_trie emqx_vm emqx_mountpoint \
 		 	emqx_listeners emqx_protocol emqx_pool emqx_shared_sub
