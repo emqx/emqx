@@ -304,7 +304,7 @@ process_packet(?CONNECT_PACKET(
                 true ->
                     case authenticate(credentials(PState2), Password) of
                         {ok, IsSuper} ->
-                            connack(ensure_client_id_and_try_open_session(PState2#pstate{is_super = IsSuper, auth_state = connected}));
+                            ensure_client_id_and_try_open_session(PState2#pstate{is_super = IsSuper, auth_state = connected}, fun connack/1);
                         {error, Reason} ->
                             ?LOG(error, "Username '~s' login failed for ~p", [Username, Reason], PState2),
                             connack({?RC_NOT_AUTHORIZED, PState2})
@@ -496,10 +496,10 @@ process_enhanced_auth(AuthMethod, AuthData, PState = #pstate{auth_method = OldAu
                                                                        auth_method = AuthMethod, 
                                                                        auth_state  = connected});
                         true ->
-                            connack(ensure_client_id_and_try_open_session(PState#pstate{username    = Username, 
-                                                                                        is_super    = IsSuper, 
-                                                                                        auth_method = AuthMethod, 
-                                                                                        auth_state  = connected}))
+                            ensure_client_id_and_try_open_session(PState#pstate{username    = Username, 
+                                                                                is_super    = IsSuper, 
+                                                                                auth_method = AuthMethod, 
+                                                                                auth_state  = connected}, fun connack/1)
                     end;
                 {error, Reason} ->
                     ReasonCode = case Reason of 
@@ -681,7 +681,7 @@ send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = SendFun
             {error, Reason}
     end.
 
-ensure_client_id_and_try_open_session(PState = #pstate{keepalive = Keepalive}) ->
+ensure_client_id_and_try_open_session(PState = #pstate{keepalive = Keepalive}, ConnackFun) ->
     PState1 = maybe_assign_client_id(PState),
     case try_open_session(PState1) of
         {ok, SPid, SP} ->
@@ -690,10 +690,10 @@ ensure_client_id_and_try_open_session(PState = #pstate{keepalive = Keepalive}) -
             %% Start keepalive
             start_keepalive(Keepalive, PState2),
             %% Success
-            {?RC_SUCCESS, SP, PState2#pstate{auth_state = connected}};
+            ConnackFun({?RC_SUCCESS, SP, PState2#pstate{auth_state = connected}});
         {error, Error} ->
             ?LOG(error, "Failed to open session: ~p", [Error], PState1),
-            {?RC_UNSPECIFIED_ERROR, PState1}
+            ConnackFun({?RC_UNSPECIFIED_ERROR, PState1})
     end.
 
 %%------------------------------------------------------------------------------
