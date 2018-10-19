@@ -153,7 +153,7 @@ do_recv2(State = #state{phase = Phase, socket = Socket, ppid = PPid}, R) ->
                     ok
             end,
             die(Socket, PPid, WsReason, normal);
-        {_, _, _, Rest2} ->
+        {_, _, _, _Rest2} ->
             io:format("Unknown frame type~n"),
             die(Socket, PPid, {1006, "Unknown frame type"}, normal)
     end.

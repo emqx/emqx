@@ -30,6 +30,9 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
+%% internal export
+-export([update_conn_stats/0]).
+
 -define(CM, ?MODULE).
 
 %% ETS Tables.
@@ -125,7 +128,7 @@ init([]) ->
     _ = emqx_tables:new(?CONN_TAB, [{read_concurrency, true} | TabOpts]),
     _ = emqx_tables:new(?CONN_ATTRS_TAB, TabOpts),
     _ = emqx_tables:new(?CONN_STATS_TAB, TabOpts),
-    ok = emqx_stats:update_interval(cm_stats, fun update_conn_stats/0),
+    ok = emqx_stats:update_interval(cm_stats, fun ?MODULE:update_conn_stats/0),
     {ok, #{conn_pmon => emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
