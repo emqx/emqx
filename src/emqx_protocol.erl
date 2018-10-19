@@ -82,27 +82,27 @@
 -spec(init(map(), list()) -> state()).
 init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options) ->
     Zone = proplists:get_value(zone, Options),
-    #pstate{zone         = Zone,
-            sendfun      = SendFun,
-            peername     = Peername,
-            peercert     = Peercert,
-            proto_ver    = ?MQTT_PROTO_V4,
-            proto_name   = <<"MQTT">>,
-            client_id    = <<>>,
-            is_assigned  = false,
-            conn_pid     = self(),
-            username     = init_username(Peercert, Options),
-            is_super     = false,
-            clean_start  = false,
-            topic_aliases = #{},
-            packet_size  = emqx_zone:get_env(Zone, max_packet_size),
-            mountpoint   = emqx_zone:get_env(Zone, mountpoint),
-            is_bridge    = false,
-            enable_ban   = emqx_zone:get_env(Zone, enable_ban, false),
-            enable_acl   = emqx_zone:get_env(Zone, enable_acl),
-            recv_stats   = #{msg => 0, pkt => 0},
-            send_stats   = #{msg => 0, pkt => 0},
-            connected    = false}.
+    #pstate{zone          =  Zone,
+            sendfun       =  SendFun,
+            peername      =  Peername,
+            peercert      =  Peercert,
+            proto_ver     =  ?MQTT_PROTO_V4,
+            proto_name    =  <<"MQTT">>,
+            client_id     =  <<>>,
+            is_assigned   =  false,
+            conn_pid      =  self(),
+            username      =  init_username(Peercert, Options),
+            is_super      =  false,
+            clean_start   =  false,
+            topic_aliases =  #{},
+            packet_size   =  emqx_zone:get_env(Zone, max_packet_size),
+            mountpoint    =  emqx_zone:get_env(Zone, mountpoint),
+            is_bridge     =  false,
+            enable_ban    =  emqx_zone:get_env(Zone, enable_ban, false),
+            enable_acl    =  emqx_zone:get_env(Zone, enable_acl),
+            recv_stats    =  #{msg => 0, pkt => 0},
+            send_stats    =  #{msg => 0, pkt => 0},
+            connected     =  false}.
 
 init_username(Peercert, Options) ->
     case proplists:get_value(peer_cert_as_username, Options) of
@@ -194,6 +194,13 @@ parser(#pstate{packet_size = Size, proto_ver = Ver}) ->
 %% Packet Received
 %%------------------------------------------------------------------------------
 
+set_protover(?CONNECT_PACKET(#mqtt_packet_connect{
+                                proto_ver = ProtoVer}),
+             PState) ->
+    PState#pstate{ proto_ver = ProtoVer };
+set_protover(_Packet, PState) ->
+    PState.
+
 -spec(received(emqx_mqtt_types:packet(), state()) ->
     {ok, state()} | {error, term()} | {error, term(), state()} | {stop, term(), state()}).
 received(?PACKET(Type), PState = #pstate{connected = false}) when Type =/= ?CONNECT ->
@@ -203,14 +210,31 @@ received(?PACKET(?CONNECT), PState = #pstate{connected = true}) ->
     {error, proto_unexpected_connect, PState};
 
 received(Packet = ?PACKET(Type), PState) ->
-    trace(recv, Packet, PState),
-    case catch emqx_packet:validate(Packet) of
+    PState1 =  set_protover(Packet, PState),
+    trace(recv, Packet, PState1),
+    try emqx_packet:validate(Packet) of
         true ->
-            {Packet1, PState1} = preprocess_properties(Packet, PState),
-            process_packet(Packet1, inc_stats(recv, Type, PState1));
-        {'EXIT', {Reason, _Stacktrace}} ->
-            deliver({disconnect, rc(Reason)}, PState),
-            {error, Reason, PState}
+            {Packet1, PState2} = preprocess_properties(Packet, PState1),
+            process_packet(Packet1, inc_stats(recv, Type, PState2))
+    catch
+        error : protocol_error ->
+            deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState1),
+            {error, protocol_error, PState};
+        error : subscription_identifier_invalid ->
+            deliver({disconnect, ?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED}, PState1),
+            {error, subscription_identifier_invalid, PState1};
+        error : topic_alias_invalid ->
+            deliver({disconnect, ?RC_TOPIC_ALIAS_INVALID}, PState1),
+            {error, topic_alias_invalid, PState1};
+        error : topic_filters_invalid ->
+            deliver({disconnect, ?RC_TOPIC_FILTER_INVALID}, PState1),
+            {error, topic_filters_invalid, PState1};
+        error : topic_name_invalid ->
+            deliver({disconnect, ?RC_TOPIC_FILTER_INVALID}, PState1),
+            {error, topic_filters_invalid, PState1};
+        error : Reason ->
+            deliver({disconnect, ?RC_MALFORMED_PACKET}, PState1),
+            {error, Reason, PState1}
     end.
 
 %%------------------------------------------------------------------------------
@@ -309,7 +333,7 @@ process_packet(?CONNECT_PACKET(
                           {error, Error} ->
                               ?LOG(error, "Failed to open session: ~p", [Error], PState1),
                               {?RC_UNSPECIFIED_ERROR, PState1}
-                    end;
+                      end;
                   {error, Reason} ->
                       ?LOG(error, "Username '~s' login failed for ~p", [Username, Reason], PState2),
                       {?RC_NOT_AUTHORIZED, PState1}
@@ -417,13 +441,13 @@ process_packet(?UNSUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
 process_packet(?PACKET(?PINGREQ), PState) ->
     send(?PACKET(?PINGRESP), PState);
 
-process_packet(?DISCONNECT_PACKET(?RC_SUCCESS, #{'Session-Expiry-Interval' := Interval}), 
+process_packet(?DISCONNECT_PACKET(?RC_SUCCESS, #{'Session-Expiry-Interval' := Interval}),
                 PState = #pstate{session = SPid, conn_props = #{'Session-Expiry-Interval' := OldInterval}}) ->
     case Interval =/= 0 andalso OldInterval =:= 0 of
-        true -> 
+        true ->
             deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState),
             {error, protocol_error, PState#pstate{will_msg = undefined}};
-        false -> 
+        false ->
             emqx_session:update_expiry_interval(SPid, Interval),
             %% Clean willmsg
             {stop, normal, PState#pstate{will_msg = undefined}}
@@ -491,7 +515,14 @@ deliver({connack, ReasonCode}, PState) ->
 deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
                                                      proto_ver = ?MQTT_PROTO_V5,
                                                      client_id = ClientId,
+                                                     conn_props = ConnProps,
                                                      is_assigned = IsAssigned}) ->
+    ResponseInformation = case maps:find('Request-Response-Information', ConnProps) of
+                              {ok, 1} ->
+                                  iolist_to_binary(emqx_config:get_env(response_topic_prefix));
+                              _ ->
+                                  <<>>
+                          end,
     #{max_packet_size := MaxPktSize,
       max_qos_allowed := MaxQoS,
       mqtt_retain_available := Retain,
@@ -503,18 +534,21 @@ deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
               'Topic-Alias-Maximum' => MaxAlias,
               'Wildcard-Subscription-Available' => flag(Wildcard),
               'Subscription-Identifier-Available' => 1,
+              'Response-Information' => ResponseInformation,
+
               'Shared-Subscription-Available' => flag(Shared)},
 
-    Props1 = if 
-                MaxQoS =:= ?QOS_2 -> 
+    Props1 = if
+                MaxQoS =:= ?QOS_2 ->
                     Props;
                 true ->
                     maps:put('Maximum-QoS', MaxQoS, Props)
             end,
-    
+
     Props2 = if IsAssigned ->
                     Props1#{'Assigned-Client-Identifier' => ClientId};
                 true -> Props1
+
              end,
 
     Props3 = case emqx_zone:get_env(Zone, server_keepalive) of
@@ -621,7 +655,7 @@ set_session_attrs({expiry_interval, #pstate{zone = Zone, proto_ver = ProtoVer, c
                                true -> 
                                    case CleanStart of
                                        true -> 0;
-                                       false -> 
+                                       false ->
                                            emqx_zone:get_env(Zone, session_expiry_interval, 16#ffffffff)
                                    end
                            end, SessAttrs);
@@ -762,7 +796,11 @@ check_sub_acl(TopicFilters, PState) ->
       fun({Topic, SubOpts}, {Ok, Acc}) ->
               case emqx_access_control:check_acl(Credentials, subscribe, Topic) of
                   allow -> {Ok, [{Topic, SubOpts}|Acc]};
-                  deny  -> {error, [{Topic, SubOpts#{rc := ?RC_NOT_AUTHORIZED}}|Acc]}
+                  deny  ->
+                      emqx_logger:warning([{client, PState#pstate.client_id}],
+                                          "ACL(~s) Cannot SUBSCRIBE ~p for ACL Deny",
+                                          [PState#pstate.client_id, Topic]),
+                      {error, [{Topic, SubOpts#{rc := ?RC_NOT_AUTHORIZED}}|Acc]}
               end
       end, {ok, []}, TopicFilters).
 
@@ -813,14 +851,6 @@ start_keepalive(0, _PState) ->
 start_keepalive(Secs, #pstate{zone = Zone}) when Secs > 0 ->
     Backoff = emqx_zone:get_env(Zone, keepalive_backoff, 0.75),
     self() ! {keepalive, start, round(Secs * Backoff)}.
-
-rc(Reason) ->
-    case Reason of
-        protocol_error -> ?RC_PROTOCOL_ERROR;
-        topic_filters_invalid -> ?RC_TOPIC_FILTER_INVALID;
-        topic_name_invalid -> ?RC_TOPIC_NAME_INVALID;
-        _ -> ?RC_MALFORMED_PACKET
-    end.
 
 %%-----------------------------------------------------------------------------
 %% Parse topic filters
