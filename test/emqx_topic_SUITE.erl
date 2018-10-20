@@ -21,7 +21,7 @@
 -compile(nowarn_export_all).
 
 -import(emqx_topic, [wildcard/1, match/2, validate/1, triples/1, join/1,
-                     words/1, systop/1, feed_var/3, parse/1, parse/2]).
+                     words/1, systop/1, feed_var/3, parse/1]).
 
 -define(N, 10000).
 
@@ -57,10 +57,10 @@ t_match(_) ->
     true  = match(<<"abc">>, <<"+">>),
     true  = match(<<"a/b/c">>, <<"a/b/c">>),
     false = match(<<"a/b/c">>, <<"a/c/d">>),
-    false = match(<<"$shared/x/y">>, <<"+">>),
-    false = match(<<"$shared/x/y">>, <<"+/x/y">>),
-    false = match(<<"$shared/x/y">>, <<"#">>),
-    false = match(<<"$shared/x/y">>, <<"+/+/#">>),
+    false = match(<<"$share/x/y">>, <<"+">>),
+    false = match(<<"$share/x/y">>, <<"+/x/y">>),
+    false = match(<<"$share/x/y">>, <<"#">>),
+    false = match(<<"$share/x/y">>, <<"+/+/#">>),
     false = match(<<"house/1/sensor/0">>, <<"house/+">>),
     false = match(<<"house">>, <<"house/+">>).
 
@@ -77,10 +77,10 @@ t_match2(_) ->
     true  = match(<<"abc">>, <<"+">>),
     true  = match(<<"a/b/c">>, <<"a/b/c">>),
     false = match(<<"a/b/c">>, <<"a/c/d">>),
-    false = match(<<"$shared/x/y">>, <<"+">>),
-    false = match(<<"$shared/x/y">>, <<"+/x/y">>),
-    false = match(<<"$shared/x/y">>, <<"#">>),
-    false = match(<<"$shared/x/y">>, <<"+/+/#">>),
+    false = match(<<"$share/x/y">>, <<"+">>),
+    false = match(<<"$share/x/y">>, <<"+/x/y">>),
+    false = match(<<"$share/x/y">>, <<"#">>),
+    false = match(<<"$share/x/y">>, <<"+/+/#">>),
     false = match(<<"house/1/sensor/0">>, <<"house/+">>).
 
 t_match3(_) ->
@@ -208,4 +208,3 @@ t_parse(_) ->
     ?assertEqual({<<"$local/$queue/topic">>, #{}}, parse(<<"$local/$queue/topic">>)),
     ?assertEqual({<<"$local/$share/group/a/b/c">>, #{}}, parse(<<"$local/$share/group/a/b/c">>)),
     ?assertEqual({<<"$fastlane/topic">>, #{}}, parse(<<"$fastlane/topic">>)).
-
