@@ -144,8 +144,8 @@ websocket_init(#state{request = Req, options = Options}) ->
                 idle_timeout = IdleTimout}}.
 
 send_fun(WsPid) ->
-    fun(Serialize, Packet, Options) ->
-        Data = Serialize(Packet, Options),
+    fun(Packet, Options) ->
+        Data = emqx_frame:serialize(Packet, Options),
         BinSize = iolist_size(Data),
         emqx_metrics:inc('bytes/sent', BinSize),
         put(send_oct, get(send_oct) + BinSize),

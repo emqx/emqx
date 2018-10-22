@@ -165,8 +165,8 @@ init_limiter({Rate, Burst}) ->
     esockd_rate_limit:new(Rate, Burst).
 
 send_fun(Transport, Socket, Peername) ->
-    fun(Serialize, Packet, Options) ->
-        Data = Serialize(Packet, Options),
+    fun(Packet, Options) ->
+        Data = emqx_frame:serialize(Packet, Options),
         try Transport:async_send(Socket, Data) of
             ok ->
                 ?LOG(debug, "SEND ~p", [iolist_to_binary(Data)], #state{peername = Peername}),
