@@ -106,9 +106,10 @@ init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options)
 
 init_username(Peercert, Options) ->
     case proplists:get_value(peer_cert_as_username, Options) of
-        cn -> esockd_peercert:common_name(Peercert);
-        dn -> esockd_peercert:subject(Peercert);
-        _  -> undefined
+        cn  -> esockd_peercert:common_name(Peercert);
+        dn  -> esockd_peercert:subject(Peercert);
+        crt -> Peercert;
+        _   -> undefined
     end.
 
 set_username(Username, PState = #pstate{username = undefined}) ->
