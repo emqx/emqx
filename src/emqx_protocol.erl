@@ -33,35 +33,35 @@
 -export([shutdown/2]).
 
 -record(pstate, {
-         zone,
-         sendfun,
-         peername,
-         peercert,
-         proto_ver,
-         proto_name,
-         ackprops,
-         client_id,
-         is_assigned,
-         conn_pid,
-         conn_props,
-         ack_props,
-         username,
-         session,
-         clean_start,
-         topic_aliases,
-         packet_size,
-         will_topic,
-         will_msg,
-         keepalive,
-         mountpoint,
-         is_super,
-         is_bridge,
-         enable_ban,
-         enable_acl,
-         recv_stats,
-         send_stats,
-         connected,
-         connected_at
+          zone,
+          sendfun,
+          peername,
+          peercert,
+          proto_ver,
+          proto_name,
+          ackprops,
+          client_id,
+          is_assigned,
+          conn_pid,
+          conn_props,
+          ack_props,
+          username,
+          session,
+          clean_start,
+          topic_aliases,
+          packet_size,
+          will_topic,
+          will_msg,
+          keepalive,
+          mountpoint,
+          is_super,
+          is_bridge,
+          enable_ban,
+          enable_acl,
+          recv_stats,
+          send_stats,
+          connected,
+          connected_at
         }).
 
 -type(state() :: #pstate{}).
@@ -70,6 +70,8 @@
 -ifdef(TEST).
 -compile(export_all).
 -endif.
+
+-define(NO_PROPS, undefined).
 
 -define(LOG(Level, Format, Args, PState),
         emqx_logger:Level([{client, PState#pstate.client_id}], "MQTT(~s@~s): " ++ Format,
@@ -672,7 +674,7 @@ authenticate(Credentials, Password) ->
             {error, Error}
     end.
 
-set_property(Name, Value, undefined) ->
+set_property(Name, Value, ?NO_PROPS) ->
     #{Name => Value};
 set_property(Name, Value, Props) ->
     Props#{Name => Value}.
