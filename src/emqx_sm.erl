@@ -59,13 +59,12 @@ open_session(SessAttrs = #{clean_start := true, client_id := ClientId, conn_pid 
                  end,
     emqx_sm_locker:trans(ClientId, CleanStart);
 
-open_session(SessAttrs = #{clean_start := false, 
-                           client_id := ClientId, 
-                           conn_pid := ConnPid, 
-                           max_inflight := MaxInflight,
-                           topic_alias_maximum := TopicAliasMaximum}) ->
+open_session(SessAttrs = #{clean_start          := false, 
+                           client_id            := ClientId,
+                           max_inflight         := MaxInflight,
+                           topic_alias_maximum  := TopicAliasMaximum}) ->
     ResumeStart = fun(_) ->
-                      case resume_session(ClientId, ConnPid) of
+                      case resume_session(ClientId, SessAttrs) of
                           {ok, SPid} ->
                               emqx_session:update_misc(SPid, #{max_inflight => MaxInflight, topic_alias_maximum => TopicAliasMaximum}),
                               {ok, SPid, true};
@@ -92,13 +91,13 @@ discard_session(ClientId, ConnPid) when is_binary(ClientId) ->
 %% @doc Try to resume a session.
 -spec(resume_session(emqx_types:client_id()) -> {ok, pid()} | {error, term()}).
 resume_session(ClientId) ->
-    resume_session(ClientId, self()).
+    resume_session(ClientId, #{conn_pid => self(), will_msg => undefined}).
 
-resume_session(ClientId, ConnPid) ->
+resume_session(ClientId, #{conn_pid := ConnPid, will_msg := WillMsg}) ->
     case lookup_session(ClientId) of
         [] -> {error, not_found};
         [{_ClientId, SPid}] ->
-            ok = emqx_session:resume(SPid, ConnPid),
+            ok = emqx_session:resume(SPid, ConnPid, WillMsg),
             {ok, SPid};
         Sessions ->
             [{_, SPid}|StaleSessions] = lists:reverse(Sessions),
@@ -106,7 +105,7 @@ resume_session(ClientId, ConnPid) ->
             lists:foreach(fun({_, StalePid}) ->
                               catch emqx_session:discard(StalePid, ConnPid)
                           end, StaleSessions),
-            ok = emqx_session:resume(SPid, ConnPid),
+            ok = emqx_session:resume(SPid, ConnPid, WillMsg),
             {ok, SPid}
     end.
 

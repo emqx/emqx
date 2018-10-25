@@ -50,7 +50,6 @@
          clean_start,
          topic_aliases,
          packet_size,
-         will_topic,
          will_msg,
          keepalive,
          mountpoint,
@@ -142,7 +141,6 @@ attrs(#pstate{zone         = Zone,
               proto_ver    = ProtoVer,
               proto_name   = ProtoName,
               keepalive    = Keepalive,
-              will_topic   = WillTopic,
               mountpoint   = Mountpoint,
               is_super     = IsSuper,
               is_bridge    = IsBridge,
@@ -156,7 +154,6 @@ attrs(#pstate{zone         = Zone,
      {proto_name, ProtoName},
      {clean_start, CleanStart},
      {keepalive, Keepalive},
-     {will_topic, WillTopic},
      {mountpoint, Mountpoint},
      {is_super, IsSuper},
      {is_bridge, IsBridge},
@@ -285,7 +282,6 @@ process_packet(?CONNECT_PACKET(
                                        keepalive   = Keepalive,
                                        properties  = ConnProps,
                                        will_props  = WillProps,
-                                       will_topic  = WillTopic,
                                        client_id   = ClientId,
                                        username    = Username,
                                        password    = Password} = Connect), PState) ->
@@ -310,7 +306,6 @@ process_packet(?CONNECT_PACKET(
                                          clean_start  = CleanStart,
                                          keepalive    = Keepalive,
                                          conn_props   = ConnProps,
-                                         will_topic   = WillTopic,
                                          will_msg     = WillMsg,
                                          is_bridge    = IsBridge,
                                          connected_at = os:timestamp()}),
@@ -535,7 +530,6 @@ deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
               'Wildcard-Subscription-Available' => flag(Wildcard),
               'Subscription-Identifier-Available' => 1,
               'Response-Information' => ResponseInformation,
-
               'Shared-Subscription-Available' => flag(Shared)},
 
     Props1 = if
@@ -624,23 +618,22 @@ try_open_session(PState = #pstate{zone        = Zone,
                                   client_id   = ClientId,
                                   conn_pid    = ConnPid,
                                   username    = Username,
-                                  clean_start = CleanStart}) ->
+                                  clean_start = CleanStart,
+                                  will_msg    = WillMsg}) ->
 
     SessAttrs = #{
         zone        => Zone,
         client_id   => ClientId,
         conn_pid    => ConnPid,
         username    => Username,
-        clean_start => CleanStart
+        clean_start => CleanStart,
+        will_msg    => WillMsg
     },
 
     SessAttrs1 = lists:foldl(fun set_session_attrs/2, SessAttrs, [{max_inflight, PState}, {expiry_interval, PState}, {topic_alias_maximum, PState}]),
     case emqx_sm:open_session(SessAttrs1) of
         {ok, SPid} ->
             {ok, SPid, false};
-        {ok, SPid, true} ->
-            emqx_delayed_publish:cancel_publish(ClientId),
-            {ok, SPid, true};
         Other -> Other
     end.
 
@@ -832,20 +825,10 @@ shutdown(Reason, #pstate{client_id = ClientId}) when Reason =:= conflict;
                                                      Reason =:= discard ->
     emqx_cm:unregister_connection(ClientId);
 shutdown(Reason, PState = #pstate{connected = true,
-                                  client_id = ClientId,
-                                  will_msg  = WillMsg}) ->
+                                  client_id = ClientId}) ->
     ?LOG(info, "Shutdown for ~p", [Reason], PState),
-    _ = send_willmsg(WillMsg, ClientId),
     emqx_hooks:run('client.disconnected', [credentials(PState), Reason]),
     emqx_cm:unregister_connection(ClientId).
-
-send_willmsg(undefined, _ClientId) ->
-    ignore;
-send_willmsg(WillMsg = #message{headers = #{'Will-Delay-Interval' := Interval}}, ClientId)
-            when is_integer(Interval), Interval > 0 ->
-    emqx_delayed_publish:delay_publish(WillMsg, ClientId);
-send_willmsg(WillMsg, _ClientId) ->
-    emqx_broker:publish(WillMsg).
 
 start_keepalive(0, _PState) ->
     ignore;
