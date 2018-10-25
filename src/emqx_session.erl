@@ -619,7 +619,7 @@ handle_info({timeout, Timer, emit_stats},
     end;
 handle_info({timeout, Timer, expired}, State = #state{expiry_timer = Timer}) ->
     ?LOG(info, "expired, shutdown now:(", [], State),
-    shutdown(expired, State#state{will_msg = undefined});
+    shutdown(expired, State);
 
 handle_info({timeout, Timer, will_delay}, State = #state{will_msg = WillMsg, will_delay_timer = Timer}) ->
     send_willmsg(WillMsg),

@@ -281,23 +281,13 @@ process_packet(?CONNECT_PACKET(
                                        clean_start = CleanStart,
                                        keepalive   = Keepalive,
                                        properties  = ConnProps,
-                                       will_props  = WillProps,
                                        client_id   = ClientId,
                                        username    = Username,
                                        password    = Password} = Connect), PState) ->
 
     %% TODO: Mountpoint...
     %% Msg -> emqx_mountpoint:mount(MountPoint, Msg)
-    Connect1 = if 
-                   ProtoVer =:= ?MQTT_PROTO_V5 ->
-                       WillDelayInterval = get_property('Will-Delay-Interval', WillProps, 0),
-                       SessionExpiryInterval = get_property('Session-Expiry-Interval', ConnProps, 0),
-                       WillProps1 = set_property('Will-Delay-Interval', erlang:min(SessionExpiryInterval, WillDelayInterval), WillProps),
-                       Connect#mqtt_packet_connect{will_props = WillProps1};
-                   true -> 
-                       Connect
-               end,
-    WillMsg = emqx_packet:will_msg(Connect1),
+    WillMsg = make_will_msg(Connect),
 
     PState1 = set_username(Username,
                            PState#pstate{client_id    = ClientId,
@@ -686,6 +676,16 @@ get_property(_Name, undefined, Default) ->
     Default;
 get_property(Name, Props, Default) ->
     maps:get(Name, Props, Default).
+
+make_will_msg(#mqtt_packet_connect{proto_ver   = ProtoVer,
+                                   will_props  = WillProps} = Connect) -> 
+    emqx_packet:will_msg(if 
+                             ProtoVer =:= ?MQTT_PROTO_V5 ->
+                                 WillDelayInterval = get_property('Will-Delay-Interval', WillProps, 0),
+                                 Connect#mqtt_packet_connect{will_props = set_property('Will-Delay-Interval', WillDelayInterval, WillProps)};
+                             true -> 
+                                 Connect
+                         end).
 
 %%------------------------------------------------------------------------------
 %% Check Packet
