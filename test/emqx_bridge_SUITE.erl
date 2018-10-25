@@ -21,7 +21,7 @@
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
-    [start_stop_bridge].
+    [bridge_test].
 
 init_per_suite(Config) ->
     emqx_ct_broker_helpers:run_setup_steps(),
@@ -30,9 +30,28 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
 
-start_stop_bridge(_) ->
+bridge_test(_) ->
     {ok, _Pid} = emqx_bridge:start_link(emqx, []),
     #{msg := <<"start bridge successfully">>}
         = emqx_bridge:start_bridge(emqx),
-    Result = emqx_bridge:stop_bridge(emqx),
-    ct:log("Bridge: ~p", [Result]).
+    test_forwards(),
+    test_subscriptions(0),
+    test_subscriptions(1),
+    test_subscriptions(2),
+    #{msg := <<"stop bridge successfully">>}
+        = emqx_bridge:stop_bridge(emqx),
+    ok.
+
+test_forwards() ->
+    emqx_bridge:add_forward(emqx, <<"test_forwards">>),
+    [<<"test_forwards">>] = emqx_bridge:show_forwards(emqx),
+    emqx_bridge:del_forward(emqx, <<"test_forwards">>),
+    [] = emqx_bridge:show_forwards(emqx),
+    ok.
+
+test_subscriptions(QoS) ->
+    emqx_bridge:add_subscription(emqx, <<"test_subscriptions">>, QoS),
+    [{<<"test_subscriptions">>, QoS}] = emqx_bridge:show_subscriptions(emqx),
+    emqx_bridge:del_subscription(emqx, <<"test_subscriptions">>),
+    [] = emqx_bridge:show_subscriptions(emqx),
+    ok.
