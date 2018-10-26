@@ -46,14 +46,15 @@ init([ClientId]) ->
     }.
 
 handle_call({start_session, ClientPid, ClientId, Zone}, _From, State) ->
-    Attrs = #{ zone             => Zone,
-               client_id        => ClientId,
-               conn_pid         => ClientPid,
-               clean_start      => true,
-               username         => undefined,
-               expiry_interval  => 0,
-               max_inflight     => 0,
-               topic_alias_maximum => 0
+    Attrs = #{ zone                 => Zone,
+               client_id            => ClientId,
+               conn_pid             => ClientPid,
+               clean_start          => true,
+               username             => undefined,
+               expiry_interval      => 0,
+               max_inflight         => 0,
+               topic_alias_maximum  => 0,
+               will_msg             => undefined
              },
     {ok, SessPid} = emqx_sm:open_session(Attrs),
     {reply, {ok, SessPid},
