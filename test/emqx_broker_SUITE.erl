@@ -60,6 +60,11 @@ subscribe_unsubscribe(_) ->
     ok = emqx:subscribe(<<"topic">>, <<"clientId">>),
     ok = emqx:subscribe(<<"topic/1">>, <<"clientId">>, #{ qos => 1 }),
     ok = emqx:subscribe(<<"topic/2">>, <<"clientId">>, #{ qos => 2 }),
+    true = emqx:subscribed(<<"topic">>, <<"clientId">>),
+    Topics = emqx:topics(),
+    lists:foreach(fun(Topic) -> 
+                      ?assert(lists:member(Topic, Topics))
+                  end, Topics),
     ok = emqx:unsubscribe(<<"topic">>, <<"clientId">>),
     ok = emqx:unsubscribe(<<"topic/1">>, <<"clientId">>),
     ok = emqx:unsubscribe(<<"topic/2">>, <<"clientId">>).
@@ -72,12 +77,16 @@ publish(_) ->
     ?assert(receive {dispatch, <<"test/+">>, Msg} -> true after 5 -> false end).
 
 pubsub(_) ->
+    true = emqx:is_running(node()),
     Self = self(),
     Subscriber = {Self, <<"clientId">>},
     ok = emqx:subscribe(<<"a/b/c">>, <<"clientId">>, #{ qos => 1 }),
-    #{ qos := 1} = ets:lookup_element(emqx_suboption, {<<"a/b/c">>, Subscriber}, 2),
+    #{qos := 1} = ets:lookup_element(emqx_suboption, {<<"a/b/c">>, Subscriber}, 2),
+    #{qos := 1} = emqx:get_subopts(<<"a/b/c">>, Subscriber),
+    true = emqx:set_subopts(<<"a/b/c">>, Subscriber, #{qos => 0}),
+    #{qos := 0} = emqx:get_subopts(<<"a/b/c">>, Subscriber),
     ok = emqx:subscribe(<<"a/b/c">>, <<"clientId">>, #{ qos => 2 }),
-    #{ qos := 2} = ets:lookup_element(emqx_suboption, {<<"a/b/c">>, Subscriber}, 2),
+    #{qos := 2} = ets:lookup_element(emqx_suboption, {<<"a/b/c">>, Subscriber}, 2),
     %% ct:log("Emq Sub: ~p.~n", [ets:lookup(emqx_suboption, {<<"a/b/c">>, Subscriber})]),
     timer:sleep(10),
     [{<<"a/b/c">>, #{qos := 2}}] = emqx_broker:subscriptions(Subscriber),
