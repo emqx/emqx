@@ -29,7 +29,9 @@ all() ->
 groups() ->
     [{route, [sequence],
       [add_del_route,
-       match_routes]}].
+       match_routes,
+       has_routes,
+       router_add_del]}].
 
 init_per_suite(Config) ->
     emqx_ct_broker_helpers:run_setup_steps(),
@@ -81,6 +83,7 @@ match_routes(_) ->
 has_routes(_) ->
     From = {self(), make_ref()},
     ?R:add_route(From, <<"devices/+/messages">>, node()),
+    timer:sleep(200),
     ?assert(?R:has_routes(<<"devices/+/messages">>)).
 
 clear_tables() ->
@@ -88,28 +91,33 @@ clear_tables() ->
 
 router_add_del(_) ->
     ?R:add_route(<<"#">>),
-    ?R:add_route(<<"a/b/c">>),
+    ?R:add_route(<<"a/b/c">>, node()),
     ?R:add_route(<<"+/#">>),
     Routes = [R1, R2 | _] = [
             #route{topic = <<"#">>,     dest = node()},
             #route{topic = <<"+/#">>,   dest = node()},
             #route{topic = <<"a/b/c">>, dest = node()}],
+    timer:sleep(500),
     ?assertEqual(Routes, lists:sort(?R:match_routes(<<"a/b/c">>))),
+
+    ?R:print_routes(<<"a/b/c">>),
 
     %% Batch Add
     lists:foreach(fun(R) -> ?R:add_route(R) end, Routes),
     ?assertEqual(Routes, lists:sort(?R:match_routes(<<"a/b/c">>))),
 
     %% Del
-    ?R:del_route(<<"a/b/c">>),
-    [R1, R2] = lists:sort(?R:match(<<"a/b/c">>)),
+    ?R:del_route(<<"a/b/c">>, node()),
+    timer:sleep(500),
+    [R1, R2] = lists:sort(?R:match_routes(<<"a/b/c">>)),
     {atomic, []} = mnesia:transaction(fun emqx_trie:lookup/1, [<<"a/b/c">>]),
 
     %% Batch Del
     R3 = #route{topic = <<"#">>, dest = 'a@127.0.0.1'},
     ?R:add_route(R3),
-    ?R:del_route(R1),
+    ?R:del_route(<<"#">>),
     ?R:del_route(R2),
     ?R:del_route(R3),
-    [] = lists:sort(?R:match(<<"a/b/c">>)).
+    timer:sleep(500),
+    [] = lists:sort(?R:match_routes(<<"a/b/c">>)).
 
