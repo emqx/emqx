@@ -121,7 +121,7 @@ mqtt_connect_with_will_props(_) ->
     %% Issue #599
     %% Empty clientId and clean_session = false
     {ok, Sock} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
-    Packet = raw_send_serialise(?CLIENT3),
+    Packet = raw_send_serialize(?CLIENT3),
     emqx_client_sock:send(Sock, Packet),
     emqx_client_sock:close(Sock).
 
