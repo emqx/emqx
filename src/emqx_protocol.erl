@@ -39,7 +39,6 @@
           peercert,
           proto_ver,
           proto_name,
-          ackprops,
           client_id,
           is_assigned,
           conn_pid,
@@ -606,10 +605,10 @@ send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = SendFun
 %%------------------------------------------------------------------------------
 %% Assign a clientid
 
-maybe_assign_client_id(PState = #pstate{client_id = <<>>, ackprops = AckProps}) ->
+maybe_assign_client_id(PState = #pstate{client_id = <<>>, ack_props = AckProps}) ->
     ClientId = emqx_guid:to_base62(emqx_guid:gen()),
     AckProps1 = set_property('Assigned-Client-Identifier', ClientId, AckProps),
-    PState#pstate{client_id = ClientId, is_assigned = true, ackprops = AckProps1};
+    PState#pstate{client_id = ClientId, is_assigned = true, ack_props = AckProps1};
 maybe_assign_client_id(PState) ->
     PState.
 
