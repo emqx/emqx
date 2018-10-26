@@ -311,7 +311,7 @@ unsubscribe(SPid, PacketId, Properties, TopicFilters) ->
     UnsubReq = {PacketId, Properties, TopicFilters},
     gen_server:cast(SPid, {unsubscribe, self(), UnsubReq}).
 
--spec(resume(spid(), pid(), emqx:message()) -> ok).
+-spec(resume(spid(), pid(), emqx:message() | undefined) -> ok).
 resume(SPid, ConnPid, WillMsg) ->
     gen_server:cast(SPid, {resume, ConnPid, WillMsg}).
 
