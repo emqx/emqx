@@ -260,11 +260,19 @@ subscription(Topic, Subscriber) ->
 
 -spec(subscribed(emqx_topic:topic(), pid() | emqx_types:subid() | emqx_types:subscriber()) -> boolean()).
 subscribed(Topic, SubPid) when is_binary(Topic), is_pid(SubPid) ->
-    {Match, _} = ets:match_object(?SUBOPTION, {{Topic, {SubPid, '_'}}, '_'}, 1),
-    length(Match) >= 1;
+    case ets:match_object(?SUBOPTION, {{Topic, {SubPid, '_'}}, '_'}, 1) of
+        {Match, _} ->
+            length(Match) >= 1;
+        '$end_of_table' ->
+            false
+    end;
 subscribed(Topic, SubId) when is_binary(Topic), ?is_subid(SubId) ->
-    {Match, _} = ets:match_object(?SUBOPTION, {{Topic, {'_', SubId}}, '_'}, 1),
-    length(Match) >= 1;
+    case ets:match_object(?SUBOPTION, {{Topic, {'_', SubId}}, '_'}, 1) of
+        {Match, _} ->
+            length(Match) >= 1;
+    '$end_of_table' ->
+            false
+    end;
 subscribed(Topic, {SubPid, SubId}) when is_binary(Topic), is_pid(SubPid), ?is_subid(SubId) ->
     ets:member(?SUBOPTION, {Topic, {SubPid, SubId}}).
 
