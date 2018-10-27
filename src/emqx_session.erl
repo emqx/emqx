@@ -47,7 +47,7 @@
 -export([info/1, attrs/1]).
 -export([stats/1]).
 -export([resume/2, discard/2]).
--export([update_expiry_interval/2, update_misc/2]).
+-export([update_expiry_interval/2]).
 -export([subscribe/2, subscribe/4]).
 -export([publish/3]).
 -export([puback/2, puback/3]).
@@ -324,9 +324,6 @@ discard(SPid, ByPid) ->
 update_expiry_interval(SPid, Interval) ->
     gen_server:cast(SPid, {expiry_interval, Interval}).
 
-update_misc(SPid, Misc) ->
-    gen_server:cast(SPid, {update_misc, Misc}).
-
 -spec(close(spid()) -> ok).
 close(SPid) ->
     gen_server:call(SPid, close, infinity).
@@ -517,9 +514,11 @@ handle_cast({pubcomp, PacketId, _ReasonCode}, State = #state{inflight = Inflight
     end;
 
 %% RESUME:
-handle_cast({resume, #{conn_pid        := ConnPid,
-                       will_msg        := WillMsg,
-                       expiry_interval := SessionExpiryInterval}}, State = #state{client_id        = ClientId,
+handle_cast({resume, #{conn_pid            := ConnPid,
+                       will_msg            := WillMsg,
+                       expiry_interval     := SessionExpiryInterval,
+                       max_inflight        := MaxInflight, 
+                       topic_alias_maximum := TopicAliasMaximum}}, State = #state{client_id        = ClientId,
                                                                                   conn_pid         = OldConnPid,
                                                                                   clean_start      = CleanStart,
                                                                                   retry_timer      = RetryTimer,
@@ -539,17 +538,19 @@ handle_cast({resume, #{conn_pid        := ConnPid,
 
     true = link(ConnPid),
 
-    State1 = State#state{conn_pid         = ConnPid,
-                         binding          = binding(ConnPid),
-                         old_conn_pid     = OldConnPid,
-                         clean_start      = false,
-                         retry_timer      = undefined,
-                         awaiting_rel     = #{},
-                         await_rel_timer  = undefined,
-                         expiry_timer     = undefined,
-                         expiry_interval  = SessionExpiryInterval,
-                         will_delay_timer = undefined,
-                         will_msg         = WillMsg},
+    State1 = State#state{conn_pid            = ConnPid,
+                         binding             = binding(ConnPid),
+                         old_conn_pid        = OldConnPid,
+                         clean_start         = false,
+                         retry_timer         = undefined,
+                         awaiting_rel        = #{},
+                         await_rel_timer     = undefined,
+                         expiry_timer        = undefined,
+                         expiry_interval     = SessionExpiryInterval,
+                         inflight            = emqx_inflight:update_size(MaxInflight, State#state.inflight), 
+                         topic_alias_maximum = TopicAliasMaximum,
+                         will_delay_timer    = undefined,
+                         will_msg            = WillMsg},
 
     %% Clean Session: true -> false???
     CleanStart andalso emqx_sm:set_session_attrs(ClientId, attrs(State1)),
@@ -561,10 +562,6 @@ handle_cast({resume, #{conn_pid        := ConnPid,
 
 handle_cast({expiry_interval, Interval}, State) ->
     {noreply, State#state{expiry_interval = Interval}};
-
-handle_cast({update_misc, #{max_inflight := MaxInflight, topic_alias_maximum := TopicAliasMaximum}}, State) ->
-    {noreply, State#state{inflight            = emqx_inflight:update_size(MaxInflight, State#state.inflight),
-                          topic_alias_maximum = TopicAliasMaximum}};
 
 handle_cast(Msg, State) ->
     emqx_logger:error("[Session] unexpected cast: ~p", [Msg]),

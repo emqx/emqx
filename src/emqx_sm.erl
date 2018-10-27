@@ -22,7 +22,7 @@
 
 -export([open_session/1, close_session/1]).
 -export([lookup_session/1, lookup_session_pid/1]).
--export([resume_session/1, resume_session/2]).
+-export([resume_session/2]).
 -export([discard_session/1, discard_session/2]).
 -export([register_session/2, unregister_session/1]).
 -export([get_session_attrs/1, set_session_attrs/2]).
@@ -66,7 +66,6 @@ open_session(SessAttrs = #{clean_start          := false,
     ResumeStart = fun(_) ->
                       case resume_session(ClientId, SessAttrs) of
                           {ok, SPid} ->
-                              emqx_session:update_misc(SPid, #{max_inflight => MaxInflight, topic_alias_maximum => TopicAliasMaximum}),
                               {ok, SPid, true};
                           {error, not_found} ->
                               emqx_session_sup:start_session(SessAttrs)
@@ -89,10 +88,7 @@ discard_session(ClientId, ConnPid) when is_binary(ClientId) ->
                   end, lookup_session(ClientId)).
 
 %% @doc Try to resume a session.
--spec(resume_session(emqx_types:client_id()) -> {ok, pid()} | {error, term()}).
-resume_session(ClientId) ->
-    resume_session(ClientId, #{conn_pid => self(), will_msg => undefined}).
-
+-spec(resume_session(emqx_types:client_id(), map()) -> {ok, pid()} | {error, term()}).
 resume_session(ClientId, SessAttrs = #{conn_pid := ConnPid}) ->
     case lookup_session(ClientId) of
         [] -> {error, not_found};
