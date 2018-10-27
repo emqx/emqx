@@ -93,11 +93,11 @@ discard_session(ClientId, ConnPid) when is_binary(ClientId) ->
 resume_session(ClientId) ->
     resume_session(ClientId, #{conn_pid => self(), will_msg => undefined}).
 
-resume_session(ClientId, #{conn_pid := ConnPid, will_msg := WillMsg}) ->
+resume_session(ClientId, SessAttrs = #{conn_pid := ConnPid}) ->
     case lookup_session(ClientId) of
         [] -> {error, not_found};
         [{_ClientId, SPid}] ->
-            ok = emqx_session:resume(SPid, ConnPid, WillMsg),
+            ok = emqx_session:resume(SPid, SessAttrs),
             {ok, SPid};
         Sessions ->
             [{_, SPid}|StaleSessions] = lists:reverse(Sessions),
@@ -105,7 +105,7 @@ resume_session(ClientId, #{conn_pid := ConnPid, will_msg := WillMsg}) ->
             lists:foreach(fun({_, StalePid}) ->
                               catch emqx_session:discard(StalePid, ConnPid)
                           end, StaleSessions),
-            ok = emqx_session:resume(SPid, ConnPid, WillMsg),
+            ok = emqx_session:resume(SPid, SessAttrs),
             {ok, SPid}
     end.
 

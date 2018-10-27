@@ -46,7 +46,7 @@
 -export([start_link/1]).
 -export([info/1, attrs/1]).
 -export([stats/1]).
--export([resume/3, discard/2]).
+-export([resume/2, discard/2]).
 -export([update_expiry_interval/2, update_misc/2]).
 -export([subscribe/2, subscribe/4]).
 -export([publish/3]).
@@ -311,9 +311,9 @@ unsubscribe(SPid, PacketId, Properties, TopicFilters) ->
     UnsubReq = {PacketId, Properties, TopicFilters},
     gen_server:cast(SPid, {unsubscribe, self(), UnsubReq}).
 
--spec(resume(spid(), pid(), emqx:message() | undefined) -> ok).
-resume(SPid, ConnPid, WillMsg) ->
-    gen_server:cast(SPid, {resume, ConnPid, WillMsg}).
+-spec(resume(spid(), map()) -> ok).
+resume(SPid, SessAttrs) ->
+    gen_server:cast(SPid, {resume, SessAttrs}).
 
 %% @doc Discard the session
 -spec(discard(spid(), ByPid :: pid()) -> ok).
@@ -517,13 +517,15 @@ handle_cast({pubcomp, PacketId, _ReasonCode}, State = #state{inflight = Inflight
     end;
 
 %% RESUME:
-handle_cast({resume, ConnPid, WillMsg}, State = #state{client_id        = ClientId,
-                                                       conn_pid         = OldConnPid,
-                                                       clean_start      = CleanStart,
-                                                       retry_timer      = RetryTimer,
-                                                       await_rel_timer  = AwaitTimer,
-                                                       expiry_timer     = ExpireTimer,
-                                                       will_delay_timer = WillDelayTimer}) ->
+handle_cast({resume, #{conn_pid        := ConnPid,
+                       will_msg        := WillMsg,
+                       expiry_interval := SessionExpiryInterval}}, State = #state{client_id        = ClientId,
+                                                                                  conn_pid         = OldConnPid,
+                                                                                  clean_start      = CleanStart,
+                                                                                  retry_timer      = RetryTimer,
+                                                                                  await_rel_timer  = AwaitTimer,
+                                                                                  expiry_timer     = ExpireTimer,
+                                                                                  will_delay_timer = WillDelayTimer}) ->
 
     ?LOG(info, "Resumed by connection ~p ", [ConnPid], State),
 
@@ -545,6 +547,7 @@ handle_cast({resume, ConnPid, WillMsg}, State = #state{client_id        = Client
                          awaiting_rel     = #{},
                          await_rel_timer  = undefined,
                          expiry_timer     = undefined,
+                         expiry_interval  = SessionExpiryInterval,
                          will_delay_timer = undefined,
                          will_msg         = WillMsg},
 
