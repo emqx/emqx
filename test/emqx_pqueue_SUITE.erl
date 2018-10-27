@@ -22,7 +22,7 @@
 
 -define(PQ, emqx_pqueue).
 
-all() -> [t_priority_queue_plen, t_priority_queue_out2].
+all() -> [t_priority_queue_plen, t_priority_queue_out2, t_priority_queues].
 
 t_priority_queue_plen(_) ->
     Q = ?PQ:new(),
@@ -67,3 +67,57 @@ t_priority_queue_out2(_) ->
     {Val5, Q6} = ?PQ:out(Q5),
     {value, a} = Val5,
     {empty, _Q7} = ?PQ:out(Q6).
+
+t_priority_queues(_) ->
+    Q0 = ?PQ:new(),
+    Q1 = ?PQ:new(),
+    PQueue = {pqueue, [{0, Q0}, {1, Q1}]},
+    ?assert(?PQ:is_queue(PQueue)),
+    [] = ?PQ:to_list(PQueue),
+
+    PQueue1 = ?PQ:in(a, 0, ?PQ:new()),
+    PQueue2 = ?PQ:in(b, 0, PQueue1),
+
+    PQueue3 = ?PQ:in(c, 1, PQueue2),
+    PQueue4 = ?PQ:in(d, 1, PQueue3),
+
+    4 = ?PQ:len(PQueue4),
+
+    [{1, c}, {1, d}, {0, a}, {0, b}] = ?PQ:to_list(PQueue4),
+    PQueue4 = ?PQ:from_list([{1, c}, {1, d}, {0, a}, {0, b}]),
+    
+    empty = ?PQ:highest(?PQ:new()),
+    0 = ?PQ:highest(PQueue1),
+    1 = ?PQ:highest(PQueue4),
+
+    PQueue5 = ?PQ:in(e, infinity, PQueue4),
+    PQueue6 = ?PQ:in(f, 1, PQueue5),
+
+    {{value, e}, PQueue7} = ?PQ:out(PQueue6),
+    {empty, _} = ?PQ:out(0, ?PQ:new()), 
+
+    {empty, Q0} = ?PQ:out_p(Q0),
+
+    Q2 = ?PQ:in(a, Q0),
+    Q3 = ?PQ:in(b, Q2),
+    Q4 = ?PQ:in(c, Q3),
+
+    {{value, a, 0}, _Q5} = ?PQ:out_p(Q4),
+
+    {{value,c,1}, PQueue8} = ?PQ:out_p(PQueue7),
+
+    Q4 = ?PQ:join(Q4, ?PQ:new()),
+    Q4 = ?PQ:join(?PQ:new(), Q4),
+
+    {queue, [a], [a], 2} = ?PQ:join(Q2, Q2),
+
+    {pqueue,[{-1,{queue,[f],[d],2}},
+             {0,{queue,[a],[a,b],3}}]} = ?PQ:join(PQueue8, Q2),
+
+    {pqueue,[{-1,{queue,[f],[d],2}},
+             {0,{queue,[b],[a,a],3}}]} = ?PQ:join(Q2, PQueue8),
+
+    {pqueue,[{-1,{queue,[f],[d,f,d],4}},
+             {0,{queue,[b],[a,b,a],4}}]} = ?PQ:join(PQueue8, PQueue8).
+
+
