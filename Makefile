@@ -74,8 +74,10 @@ etc/gen.emqx.conf: bbmustache etc/emqx.conf
 		ok = file:write_file('etc/gen.emqx.conf', Targ), \
 		halt(0)."
 
-app.config: cuttlefish etc/gen.emqx.conf
-	$(verbose) ./cuttlefish -l info -e etc/ -c etc/gen.emqx.conf -i priv/emqx.schema -d data/
+CUTTLEFISH_SCRIPT = _build/default/lib/cuttlefish/cuttlefish
+
+app.config: $(CUTTLEFISH_SCRIPT) etc/gen.emqx.conf
+	$(verbose) $(CUTTLEFISH_SCRIPT) -l info -e etc/ -c etc/gen.emqx.conf -i priv/emqx.schema -d data/
 
 ct: app.config
 
@@ -86,11 +88,8 @@ coveralls:
 	@rebar3 coveralls send
 
 
-cuttlefish: rebar-deps
-	@if [ ! -f cuttlefish ]; then \
-		make -C _build/default/lib/cuttlefish; \
-		mv _build/default/lib/cuttlefish/cuttlefish ./cuttlefish; \
-	fi
+$(CUTTLEFISH_SCRIPT): rebar-deps
+	@if [ ! -f cuttlefish ]; then make -C _build/default/lib/cuttlefish; fi
 
 rebar-xref:
 	@rebar3 xref
@@ -98,7 +97,7 @@ rebar-xref:
 rebar-deps:
 	@rebar3 get-deps
 
-rebar-eunit: cuttlefish
+rebar-eunit: $(CUTTLEFISH_SCRIPT)
 	@rebar3 eunit
 
 rebar-compile:
