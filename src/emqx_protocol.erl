@@ -144,7 +144,6 @@ attrs(#pstate{zone         = Zone,
               proto_ver    = ProtoVer,
               proto_name   = ProtoName,
               keepalive    = Keepalive,
-              will_topic   = WillTopic,
               mountpoint   = Mountpoint,
               is_super     = IsSuper,
               is_bridge    = IsBridge,
@@ -158,7 +157,6 @@ attrs(#pstate{zone         = Zone,
      {proto_name, ProtoName},
      {clean_start, CleanStart},
      {keepalive, Keepalive},
-     {will_topic, WillTopic},
      {mountpoint, Mountpoint},
      {is_super, IsSuper},
      {is_bridge, IsBridge},
@@ -286,14 +284,13 @@ process_packet(?CONNECT_PACKET(
                                        clean_start = CleanStart,
                                        keepalive   = Keepalive,
                                        properties  = ConnProps,
-                                       will_topic  = WillTopic,
                                        client_id   = ClientId,
                                        username    = Username,
                                        password    = Password} = Connect), PState) ->
 
     %% TODO: Mountpoint...
     %% Msg -> emqx_mountpoint:mount(MountPoint, Msg)
-    WillMsg = emqx_packet:will_msg(Connect),
+    WillMsg = make_will_msg(Connect),
 
     PState1 = set_username(Username,
                            PState#pstate{client_id    = ClientId,
@@ -302,7 +299,6 @@ process_packet(?CONNECT_PACKET(
                                          clean_start  = CleanStart,
                                          keepalive    = Keepalive,
                                          conn_props   = ConnProps,
-                                         will_topic   = WillTopic,
                                          will_msg     = WillMsg,
                                          is_bridge    = IsBridge,
                                          connected_at = os:timestamp()}),
@@ -527,7 +523,6 @@ deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
               'Wildcard-Subscription-Available' => flag(Wildcard),
               'Subscription-Identifier-Available' => 1,
               'Response-Information' => ResponseInformation,
-
               'Shared-Subscription-Available' => flag(Shared)},
 
     Props1 = if
@@ -616,14 +611,16 @@ try_open_session(PState = #pstate{zone        = Zone,
                                   client_id   = ClientId,
                                   conn_pid    = ConnPid,
                                   username    = Username,
-                                  clean_start = CleanStart}) ->
+                                  clean_start = CleanStart,
+                                  will_msg    = WillMsg}) ->
 
     SessAttrs = #{
         zone        => Zone,
         client_id   => ClientId,
         conn_pid    => ConnPid,
         username    => Username,
-        clean_start => CleanStart
+        clean_start => CleanStart,
+        will_msg    => WillMsg
     },
 
     SessAttrs1 = lists:foldl(fun set_session_attrs/2, SessAttrs, [{max_inflight, PState}, {expiry_interval, PState}, {topic_alias_maximum, PState}]),
@@ -636,14 +633,14 @@ try_open_session(PState = #pstate{zone        = Zone,
 set_session_attrs({max_inflight, #pstate{zone = Zone, proto_ver = ProtoVer, conn_props = ConnProps}}, SessAttrs) ->
     maps:put(max_inflight, if
                                ProtoVer =:= ?MQTT_PROTO_V5 ->
-                                   maps:get('Receive-Maximum', ConnProps, 65535);
+                                   get_property('Receive-Maximum', ConnProps, 65535);
                                true ->
                                    emqx_zone:get_env(Zone, max_inflight, 65535)
                            end, SessAttrs);
 set_session_attrs({expiry_interval, #pstate{zone = Zone, proto_ver = ProtoVer, conn_props = ConnProps, clean_start = CleanStart}}, SessAttrs) ->
     maps:put(expiry_interval, if
                                ProtoVer =:= ?MQTT_PROTO_V5 ->
-                                   maps:get('Session-Expiry-Interval', ConnProps, 0);
+                                   get_property('Session-Expiry-Interval', ConnProps, 0);
                                true ->
                                    case CleanStart of
                                        true -> 0;
@@ -654,7 +651,7 @@ set_session_attrs({expiry_interval, #pstate{zone = Zone, proto_ver = ProtoVer, c
 set_session_attrs({topic_alias_maximum, #pstate{zone = Zone, proto_ver = ProtoVer, conn_props = ConnProps}}, SessAttrs) ->
     maps:put(topic_alias_maximum, if
                                     ProtoVer =:= ?MQTT_PROTO_V5 ->
-                                        maps:get('Topic-Alias-Maximum', ConnProps, 0);
+                                        get_property('Topic-Alias-Maximum', ConnProps, 0);
                                     true ->
                                         emqx_zone:get_env(Zone, max_topic_alias, 0)
                                   end, SessAttrs);
@@ -677,6 +674,21 @@ set_property(Name, Value, ?NO_PROPS) ->
     #{Name => Value};
 set_property(Name, Value, Props) ->
     Props#{Name => Value}.
+
+get_property(_Name, undefined, Default) ->
+    Default;
+get_property(Name, Props, Default) ->
+    maps:get(Name, Props, Default).
+
+make_will_msg(#mqtt_packet_connect{proto_ver   = ProtoVer,
+                                   will_props  = WillProps} = Connect) -> 
+    emqx_packet:will_msg(if 
+                             ProtoVer =:= ?MQTT_PROTO_V5 ->
+                                 WillDelayInterval = get_property('Will-Delay-Interval', WillProps, 0),
+                                 Connect#mqtt_packet_connect{will_props = set_property('Will-Delay-Interval', WillDelayInterval, WillProps)};
+                             true -> 
+                                 Connect
+                         end).
 
 %%------------------------------------------------------------------------------
 %% Check Packet
@@ -816,22 +828,10 @@ shutdown(Reason, #pstate{client_id = ClientId}) when Reason =:= conflict;
                                                      Reason =:= discard ->
     emqx_cm:unregister_connection(ClientId);
 shutdown(Reason, PState = #pstate{connected = true,
-                                  client_id = ClientId,
-                                  will_msg  = WillMsg}) ->
+                                  client_id = ClientId}) ->
     ?LOG(info, "Shutdown for ~p", [Reason], PState),
-    _ = send_willmsg(WillMsg),
     emqx_hooks:run('client.disconnected', [credentials(PState), Reason]),
     emqx_cm:unregister_connection(ClientId).
-
-send_willmsg(undefined) ->
-    ignore;
-send_willmsg(WillMsg = #message{topic = Topic,
-                                headers = #{'Will-Delay-Interval' := Interval}})
-            when is_integer(Interval), Interval > 0 ->
-    SendAfter = integer_to_binary(Interval),
-    emqx_broker:publish(WillMsg#message{topic = <<"$delayed/", SendAfter/binary, "/", Topic/binary>>});
-send_willmsg(WillMsg) ->
-    emqx_broker:publish(WillMsg).
 
 start_keepalive(0, _PState) ->
     ignore;

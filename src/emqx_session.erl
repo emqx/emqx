@@ -47,7 +47,7 @@
 -export([info/1, attrs/1]).
 -export([stats/1]).
 -export([resume/2, discard/2]).
--export([update_expiry_interval/2, update_misc/2]).
+-export([update_expiry_interval/2]).
 -export([subscribe/2, subscribe/4]).
 -export([publish/3]).
 -export([puback/2, puback/3]).
@@ -147,7 +147,11 @@
           %% Created at
           created_at :: erlang:timestamp(),
 
-          topic_alias_maximum :: pos_integer()
+          topic_alias_maximum :: pos_integer(),
+
+          will_msg :: emqx:message(),
+
+          will_delay_timer :: reference() | undefined
          }).
 
 -type(spid() :: pid()).
@@ -307,9 +311,9 @@ unsubscribe(SPid, PacketId, Properties, TopicFilters) ->
     UnsubReq = {PacketId, Properties, TopicFilters},
     gen_server:cast(SPid, {unsubscribe, self(), UnsubReq}).
 
--spec(resume(spid(), pid()) -> ok).
-resume(SPid, ConnPid) ->
-    gen_server:cast(SPid, {resume, ConnPid}).
+-spec(resume(spid(), map()) -> ok).
+resume(SPid, SessAttrs) ->
+    gen_server:cast(SPid, {resume, SessAttrs}).
 
 %% @doc Discard the session
 -spec(discard(spid(), ByPid :: pid()) -> ok).
@@ -319,9 +323,6 @@ discard(SPid, ByPid) ->
 -spec(update_expiry_interval(spid(), timeout()) -> ok).
 update_expiry_interval(SPid, Interval) ->
     gen_server:cast(SPid, {expiry_interval, Interval}).
-
-update_misc(SPid, Misc) ->
-    gen_server:cast(SPid, {update_misc, Misc}).
 
 -spec(close(spid()) -> ok).
 close(SPid) ->
@@ -338,7 +339,8 @@ init([Parent, #{zone                := Zone,
                 clean_start         := CleanStart,
                 expiry_interval     := ExpiryInterval,
                 max_inflight        := MaxInflight,
-                topic_alias_maximum := TopicAliasMaximum}]) ->
+                topic_alias_maximum := TopicAliasMaximum,
+                will_msg            := WillMsg}]) ->
     process_flag(trap_exit, true),
     true = link(ConnPid),
     IdleTimout = get_env(Zone, idle_timeout, 30000),
@@ -362,7 +364,8 @@ init([Parent, #{zone                := Zone,
                    deliver_stats       = 0,
                    enqueue_stats       = 0,
                    created_at          = os:timestamp(),
-                   topic_alias_maximum = TopicAliasMaximum
+                   topic_alias_maximum = TopicAliasMaximum,
+                   will_msg            = WillMsg
                   },
     emqx_sm:register_session(ClientId, attrs(State)),
     emqx_sm:set_session_stats(ClientId, stats(State)),
@@ -511,17 +514,22 @@ handle_cast({pubcomp, PacketId, _ReasonCode}, State = #state{inflight = Inflight
     end;
 
 %% RESUME:
-handle_cast({resume, ConnPid}, State = #state{client_id       = ClientId,
-                                              conn_pid        = OldConnPid,
-                                              clean_start     = CleanStart,
-                                              retry_timer     = RetryTimer,
-                                              await_rel_timer = AwaitTimer,
-                                              expiry_timer    = ExpireTimer}) ->
+handle_cast({resume, #{conn_pid            := ConnPid,
+                       will_msg            := WillMsg,
+                       expiry_interval     := SessionExpiryInterval,
+                       max_inflight        := MaxInflight, 
+                       topic_alias_maximum := TopicAliasMaximum}}, State = #state{client_id        = ClientId,
+                                                                                  conn_pid         = OldConnPid,
+                                                                                  clean_start      = CleanStart,
+                                                                                  retry_timer      = RetryTimer,
+                                                                                  await_rel_timer  = AwaitTimer,
+                                                                                  expiry_timer     = ExpireTimer,
+                                                                                  will_delay_timer = WillDelayTimer}) ->
 
     ?LOG(info, "Resumed by connection ~p ", [ConnPid], State),
 
     %% Cancel Timers
-    lists:foreach(fun emqx_misc:cancel_timer/1, [RetryTimer, AwaitTimer, ExpireTimer]),
+    lists:foreach(fun emqx_misc:cancel_timer/1, [RetryTimer, AwaitTimer, ExpireTimer, WillDelayTimer]),
 
     case kick(ClientId, OldConnPid, ConnPid) of
         ok -> ?LOG(warning, "Connection ~p kickout ~p", [ConnPid, OldConnPid], State);
@@ -530,14 +538,19 @@ handle_cast({resume, ConnPid}, State = #state{client_id       = ClientId,
 
     true = link(ConnPid),
 
-    State1 = State#state{conn_pid        = ConnPid,
-                         binding         = binding(ConnPid),
-                         old_conn_pid    = OldConnPid,
-                         clean_start     = false,
-                         retry_timer     = undefined,
-                         awaiting_rel    = #{},
-                         await_rel_timer = undefined,
-                         expiry_timer    = undefined},
+    State1 = State#state{conn_pid            = ConnPid,
+                         binding             = binding(ConnPid),
+                         old_conn_pid        = OldConnPid,
+                         clean_start         = false,
+                         retry_timer         = undefined,
+                         awaiting_rel        = #{},
+                         await_rel_timer     = undefined,
+                         expiry_timer        = undefined,
+                         expiry_interval     = SessionExpiryInterval,
+                         inflight            = emqx_inflight:update_size(MaxInflight, State#state.inflight), 
+                         topic_alias_maximum = TopicAliasMaximum,
+                         will_delay_timer    = undefined,
+                         will_msg            = WillMsg},
 
     %% Clean Session: true -> false???
     CleanStart andalso emqx_sm:set_session_attrs(ClientId, attrs(State1)),
@@ -549,10 +562,6 @@ handle_cast({resume, ConnPid}, State = #state{client_id       = ClientId,
 
 handle_cast({expiry_interval, Interval}, State) ->
     {noreply, State#state{expiry_interval = Interval}};
-
-handle_cast({update_misc, #{max_inflight := MaxInflight, topic_alias_maximum := TopicAliasMaximum}}, State) ->
-    {noreply, State#state{inflight            = emqx_inflight:update_size(MaxInflight, State#state.inflight),
-                          topic_alias_maximum = TopicAliasMaximum}};
 
 handle_cast(Msg, State) ->
     emqx_logger:error("[Session] unexpected cast: ~p", [Msg]),
@@ -612,11 +621,17 @@ handle_info({timeout, Timer, expired}, State = #state{expiry_timer = Timer}) ->
     ?LOG(info, "expired, shutdown now:(", [], State),
     shutdown(expired, State);
 
-handle_info({'EXIT', ConnPid, Reason}, State = #state{expiry_interval = 0, conn_pid = ConnPid}) ->
-    {stop, Reason, State#state{conn_pid = undefined}};
+handle_info({timeout, Timer, will_delay}, State = #state{will_msg = WillMsg, will_delay_timer = Timer}) ->
+    send_willmsg(WillMsg),
+    {noreply, State#state{will_msg = undefined}};
+
+handle_info({'EXIT', ConnPid, Reason}, State = #state{will_msg = WillMsg, expiry_interval = 0, conn_pid = ConnPid}) ->
+    send_willmsg(WillMsg),
+    {stop, Reason, State#state{will_msg = undefined, conn_pid = undefined}};
 
 handle_info({'EXIT', ConnPid, _Reason}, State = #state{conn_pid = ConnPid}) ->
-    {noreply, ensure_expire_timer(State#state{conn_pid = undefined})};
+    State1 = ensure_will_delay_timer(State),
+    {noreply, ensure_expire_timer(State1#state{conn_pid = undefined})};
 
 handle_info({'EXIT', OldPid, _Reason}, State = #state{old_conn_pid = OldPid}) ->
     %% ignore
@@ -631,8 +646,9 @@ handle_info(Info, State) ->
     emqx_logger:error("[Session] unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(Reason, #state{client_id = ClientId, conn_pid = ConnPid}) ->
+terminate(Reason, #state{will_msg = WillMsg, client_id = ClientId, conn_pid = ConnPid}) ->
     emqx_hooks:run('session.terminated', [#{client_id => ClientId}, Reason]),
+    send_willmsg(WillMsg),
     %% Ensure to shutdown the connection
     if
         ConnPid =/= undefined ->
@@ -713,6 +729,14 @@ retry_delivery(Force, [{Type, Msg0, Ts} | Msgs], Now,
         true ->
             ensure_retry_timer(Interval - max(0, Age), State)
     end.
+
+%%------------------------------------------------------------------------------
+%% Send Will Message
+%%------------------------------------------------------------------------------
+send_willmsg(undefined) ->
+    ignore;
+send_willmsg(WillMsg) ->
+    emqx_broker:publish(WillMsg).
 
 %%------------------------------------------------------------------------------
 %% Expire Awaiting Rel
@@ -897,6 +921,11 @@ ensure_retry_timer(_Timeout, State) ->
 ensure_expire_timer(State = #state{expiry_interval = Interval}) when Interval > 0 andalso Interval =/= 16#ffffffff ->
     State#state{expiry_timer = emqx_misc:start_timer(Interval * 1000, expired)};
 ensure_expire_timer(State) ->
+    State.
+
+ensure_will_delay_timer(State = #state{will_msg = #message{headers = #{'Will-Delay-Interval' := WillDelayInterval}}}) ->
+    State#state{will_delay_timer = emqx_misc:start_timer(WillDelayInterval * 1000, will_delay)};
+ensure_will_delay_timer(State) ->
     State.
 
 ensure_stats_timer(State = #state{enable_stats = true, stats_timer = undefined,

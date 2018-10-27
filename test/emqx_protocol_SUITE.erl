@@ -131,6 +131,125 @@ connect_v5(_) ->
                                                  #{'Response-Information' := _RespInfo}), _} =
                                 raw_recv_parse(Data, ?MQTT_PROTO_V5)
                     end),
+    
+    % test clean start 
+    with_connection(fun(Sock) ->
+                            emqx_client_sock:send(Sock,
+                                                    raw_send_serialize(
+                                                        ?CONNECT_PACKET(
+                                                            #mqtt_packet_connect{
+                                                                proto_ver   = ?MQTT_PROTO_V5,
+                                                                clean_start = true,
+                                                                client_id   = <<"myclient">>,
+                                                                properties  =
+                                                                    #{'Session-Expiry-Interval' => 10}})
+                                                  )),
+                            {ok, Data} = gen_tcp:recv(Sock, 0),
+                            {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0), _} = raw_recv_parse(Data, ?MQTT_PROTO_V5),
+                            emqx_client_sock:send(Sock, raw_send_serialize(
+                                                            ?DISCONNECT_PACKET(?RC_SUCCESS)
+                                                  ))
+                    end),
+
+    timer:sleep(1000),
+
+    with_connection(fun(Sock) ->
+                            emqx_client_sock:send(Sock,
+                                                    raw_send_serialize(
+                                                        ?CONNECT_PACKET(
+                                                            #mqtt_packet_connect{
+                                                                proto_ver   = ?MQTT_PROTO_V5,
+                                                                clean_start = false,
+                                                                client_id   = <<"myclient">>,
+                                                                properties  =
+                                                                    #{'Session-Expiry-Interval' => 10}})
+                                                  )),
+                            {ok, Data} = gen_tcp:recv(Sock, 0),
+                            {ok, ?CONNACK_PACKET(?RC_SUCCESS, 1), _} = raw_recv_parse(Data, ?MQTT_PROTO_V5)
+                    end),
+
+    % test will message publish and cancel
+    with_connection(fun(Sock) ->
+                            emqx_client_sock:send(Sock,
+                                                    raw_send_serialize(
+                                                        ?CONNECT_PACKET(
+                                                            #mqtt_packet_connect{
+                                                                proto_ver    = ?MQTT_PROTO_V5,
+                                                                clean_start  = true,
+                                                                client_id    = <<"myclient">>,
+                                                                will_flag    = true,
+                                                                will_qos     = ?QOS_1,
+                                                                will_retain  = false,
+                                                                will_props   = #{'Will-Delay-Interval' => 5},
+                                                                will_topic   = <<"TopicA">>,
+                                                                will_payload = <<"will message">>,
+                                                                properties   = #{'Session-Expiry-Interval' => 3}
+                                                            }
+                                                        )
+                                                    )
+                            ),
+                            {ok, Data} = gen_tcp:recv(Sock, 0),
+                            {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0), _} = raw_recv_parse(Data, ?MQTT_PROTO_V5),
+
+                            {ok, Sock2} = emqx_client_sock:connect({127, 0, 0, 1}, 1883,
+                                                                   [binary, {packet, raw},
+                                                                    {active, false}], 3000),
+
+                            do_connect(Sock2, ?MQTT_PROTO_V5),
+
+                            emqx_client_sock:send(Sock2, raw_send_serialize(?SUBSCRIBE_PACKET(1, [{<<"TopicA">>, #{rh  => 1,
+                                                                                                                   qos => ?QOS_2,
+                                                                                                                   rap => 0,
+                                                                                                                   nl  => 0,
+                                                                                                                   rc  => 0}}]),
+                                                                            #{version => ?MQTT_PROTO_V5})),
+
+                            {ok, SubData} = gen_tcp:recv(Sock2, 0),
+                            {ok, ?SUBACK_PACKET(1, #{}, [2]), _} = raw_recv_parse(SubData, ?MQTT_PROTO_V5),
+
+                            emqx_client_sock:send(Sock, raw_send_serialize(
+                                                            ?DISCONNECT_PACKET(?RC_DISCONNECT_WITH_WILL_MESSAGE)
+                                                        )
+                            ),
+
+                            {error, timeout} = gen_tcp:recv(Sock2, 0, 1000),
+
+                            % session resumed
+                            {ok, Sock3} = emqx_client_sock:connect({127, 0, 0, 1}, 1883,
+                                                                   [binary, {packet, raw},
+                                                                    {active, false}], 3000),
+
+                            emqx_client_sock:send(Sock3,
+                                                    raw_send_serialize(
+                                                        ?CONNECT_PACKET(
+                                                            #mqtt_packet_connect{
+                                                                proto_ver    = ?MQTT_PROTO_V5,
+                                                                clean_start  = false,
+                                                                client_id    = <<"myclient">>,
+                                                                will_flag    = true,
+                                                                will_qos     = ?QOS_1,
+                                                                will_retain  = false,
+                                                                will_props   = #{'Will-Delay-Interval' => 5},
+                                                                will_topic   = <<"TopicA">>,
+                                                                will_payload = <<"will message 2">>,
+                                                                properties   = #{'Session-Expiry-Interval' => 3}
+                                                            }
+                                                        )
+                                                    )
+                            ),
+                            {ok, Data3} = gen_tcp:recv(Sock3, 0),
+                            {ok, ?CONNACK_PACKET(?RC_SUCCESS, 1), _} = raw_recv_parse(Data3, ?MQTT_PROTO_V5),
+
+                            emqx_client_sock:send(Sock3, raw_send_serialize(
+                                                            ?DISCONNECT_PACKET(?RC_DISCONNECT_WITH_WILL_MESSAGE)
+                                                        )
+                            ),
+                            
+                            {ok, WillData} = gen_tcp:recv(Sock2, 0),
+                            {ok, ?PUBLISH_PACKET(?QOS_1, <<"TopicA">>, _, <<"will message 2">>), _} = raw_recv_parse(WillData, ?MQTT_PROTO_V5),
+
+                            emqx_client_sock:close(Sock2)
+                    end),
     ok.
 
 do_connect(Sock, ProtoVer) ->

@@ -22,7 +22,7 @@
 
 -export([open_session/1, close_session/1]).
 -export([lookup_session/1, lookup_session_pid/1]).
--export([resume_session/1, resume_session/2]).
+-export([resume_session/2]).
 -export([discard_session/1, discard_session/2]).
 -export([register_session/2, unregister_session/1]).
 -export([get_session_attrs/1, set_session_attrs/2]).
@@ -59,15 +59,13 @@ open_session(SessAttrs = #{clean_start := true, client_id := ClientId, conn_pid 
                  end,
     emqx_sm_locker:trans(ClientId, CleanStart);
 
-open_session(SessAttrs = #{clean_start := false, 
-                           client_id := ClientId, 
-                           conn_pid := ConnPid, 
-                           max_inflight := MaxInflight,
-                           topic_alias_maximum := TopicAliasMaximum}) ->
+open_session(SessAttrs = #{clean_start          := false, 
+                           client_id            := ClientId,
+                           max_inflight         := MaxInflight,
+                           topic_alias_maximum  := TopicAliasMaximum}) ->
     ResumeStart = fun(_) ->
-                      case resume_session(ClientId, ConnPid) of
+                      case resume_session(ClientId, SessAttrs) of
                           {ok, SPid} ->
-                              emqx_session:update_misc(SPid, #{max_inflight => MaxInflight, topic_alias_maximum => TopicAliasMaximum}),
                               {ok, SPid, true};
                           {error, not_found} ->
                               emqx_session_sup:start_session(SessAttrs)
@@ -90,15 +88,12 @@ discard_session(ClientId, ConnPid) when is_binary(ClientId) ->
                   end, lookup_session(ClientId)).
 
 %% @doc Try to resume a session.
--spec(resume_session(emqx_types:client_id()) -> {ok, pid()} | {error, term()}).
-resume_session(ClientId) ->
-    resume_session(ClientId, self()).
-
-resume_session(ClientId, ConnPid) ->
+-spec(resume_session(emqx_types:client_id(), map()) -> {ok, pid()} | {error, term()}).
+resume_session(ClientId, SessAttrs = #{conn_pid := ConnPid}) ->
     case lookup_session(ClientId) of
         [] -> {error, not_found};
         [{_ClientId, SPid}] ->
-            ok = emqx_session:resume(SPid, ConnPid),
+            ok = emqx_session:resume(SPid, SessAttrs),
             {ok, SPid};
         Sessions ->
             [{_, SPid}|StaleSessions] = lists:reverse(Sessions),
@@ -106,7 +101,7 @@ resume_session(ClientId, ConnPid) ->
             lists:foreach(fun({_, StalePid}) ->
                               catch emqx_session:discard(StalePid, ConnPid)
                           end, StaleSessions),
-            ok = emqx_session:resume(SPid, ConnPid),
+            ok = emqx_session:resume(SPid, SessAttrs),
             {ok, SPid}
     end.
 
