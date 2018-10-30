@@ -473,9 +473,13 @@ serialize_variable(#mqtt_packet_unsubscribe{packet_id     = PacketId,
 serialize_variable(#mqtt_packet_unsuback{packet_id    = PacketId,
                                          properties   = Properties,
                                          reason_codes = ReasonCodes},
-                   #{version := Ver}) ->
+                   #{version := ?MQTT_PROTO_V5}) ->
     [<<PacketId:16/big-unsigned-integer>>, serialize_properties(Properties, Ver),
      serialize_reason_codes(ReasonCodes)];
+
+serialize_variable(#mqtt_packet_unsuback{packet_id    = PacketId},
+                   #{version := _Ver}) ->
+    <<PacketId:16/big-unsigned-integer>>;
 
 serialize_variable(#mqtt_packet_disconnect{}, #{version := Ver})
     when Ver == ?MQTT_PROTO_V3; Ver == ?MQTT_PROTO_V4 ->
