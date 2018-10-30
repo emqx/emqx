@@ -143,7 +143,7 @@ in(Msg = #message{topic = Topic}, MQ = #mqueue{type = priority, q = Q,
         {value, {_, Pri}} ->
             MQ#mqueue{q = ?PQUEUE:in(Msg, Pri, Q)};
         false ->
-            {Pri, MQ1} = insert_p(Topic, 0, MQ),
+            {Pri, MQ1} = insert_p(Topic, priority_in_user_props(Msg), MQ),
             MQ1#mqueue{q = ?PQUEUE:in(Msg, Pri, Q)}
     end;
 in(Msg = #message{topic = Topic}, MQ = #mqueue{type = priority, q = Q,
@@ -159,7 +159,7 @@ in(Msg = #message{topic = Topic}, MQ = #mqueue{type = priority, q = Q,
                     MQ#mqueue{q = ?PQUEUE:in(Msg, Pri, Q)}
             end;
         false ->
-            {Pri, MQ1} = insert_p(Topic, 0, MQ),
+            {Pri, MQ1} = insert_p(Topic, priority_in_user_props(Msg), MQ),
             MQ1#mqueue{q = ?PQUEUE:in(Msg, Pri, Q)}
     end.
 
@@ -175,3 +175,14 @@ out(MQ = #mqueue{type = priority, q = Q}) ->
     {R, Q2} = ?PQUEUE:out(Q),
     {R, MQ#mqueue{q = Q2}}.
 
+priority_in_user_props(#message{headers = #{'User-Property' := UserProperty}}) ->
+    case lists:keyfind(<<"priority">>, 1, UserProperty) of 
+        false ->
+            0;
+        {<<"priority">>, Priority} when is_binary(Priority) ->
+            list_to_integer(binary_to_list(Priority));
+        _ ->
+            0
+    end;
+priority_in_user_props(_) ->
+    0.
