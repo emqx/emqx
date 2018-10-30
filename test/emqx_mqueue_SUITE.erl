@@ -86,12 +86,12 @@ t_infinity_simple_mqueue(_) ->
     ?assertEqual(<<1>>, V#message.payload).
 
 t_priority_mqueue(_) ->
-    Opts = #{type => priority, max_len => 3, priorities => [{<<"t1">>, 1}, {<<"t2">>, 2}, {<<"t3">>, 3}], store_qos0 => false},
+    Opts = #{type => priority, max_len => 3, priorities => [{<<"t1">>, 1}], store_qos0 => false},
     Q = ?Q:init(Opts),
     ?assertEqual(priority, ?Q:type(Q)),
     ?assertEqual(3, ?Q:max_len(Q)),
     ?assert(?Q:is_empty(Q)),
-    Q1 = ?Q:in(#message{qos = 1, topic = <<"t2">>}, Q),
+    Q1 = ?Q:in(#message{qos = 1, topic = <<"t2">>, headers = #{'User-Property' => [{<<"priority">>, <<"2">>}]}}, Q),
     Q2 = ?Q:in(#message{qos = 1, topic = <<"t1">>}, Q1),
     Q3 = ?Q:in(#message{qos = 1, topic = <<"t3">>}, Q2),
     ?assertEqual(3, ?Q:len(Q3)),
@@ -103,7 +103,7 @@ t_priority_mqueue(_) ->
     ?assertEqual(5, ?Q:len(Q6)),
     {{value, Msg}, Q7} = ?Q:out(Q6),
     ?assertEqual(4, ?Q:len(Q7)),
-    ?assertEqual(<<"t3">>, Msg#message.topic).
+    ?assertEqual(<<"t2">>, Msg#message.topic).
 
 t_infinity_priority_mqueue(_) ->
     Opts = #{type => priority, max_len => 0, priorities => [{<<"t">>, 1}, {<<"t1">>, 2}], store_qos0 => false},
