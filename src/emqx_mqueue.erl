@@ -180,7 +180,7 @@ priority_in_user_props(#message{headers = #{'User-Property' := UserProperty}}) -
         false ->
             0;
         {<<"priority">>, Priority} when is_binary(Priority) ->
-            list_to_integer(binary_to_list(Priority));
+            binary_to_integer(Priority);
         _ ->
             0
     end;
