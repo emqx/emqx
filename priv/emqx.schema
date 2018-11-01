@@ -382,7 +382,7 @@ end}.
 %% Log
 %%--------------------------------------------------------------------
 
-{mapping, "log.to", "logger.to", [
+{mapping, "log.to", "kernel.logger", [
   {default, console},
   {datatype, {enum, [off, file, console, both]}}
 ]}.
@@ -392,141 +392,99 @@ end}.
   {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
 ]}.
 
-{mapping, "log.dir", "logger.dir", [
+{mapping, "log.logger_sasl_compatible", "kernel.logger_sasl_compatible", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "log.dir", "kernel.logger", [
   {default, "log"},
   {datatype, string}
 ]}.
 
-{mapping, "log.file", "logger.filename", [
+{mapping, "log.file", "kernel.logger", [
   {default, "emqx.log"},
   {datatype, file}
 ]}.
 
-{mapping, "log.rotation.size", "logger.size", [
-  {default, "10M"},
+{mapping, "log.rotation.size", "kernel.logger", [
+  {default, "10MB"},
   {datatype, bytesize}
 ]}.
 
-{mapping, "log.rotation.count", "logger.count", [
+{mapping, "log.rotation.count", "kernel.logger", [
   {default, 5},
   {datatype, integer}
 ]}.
 
-{mapping, "log.$level.file", "logger.additional_handlers", [
+{mapping, "log.$level.file", "kernel.logger", [
   {datatype, file}
 ]}.
-
-{mapping, "log.syslog", "logger.syslog", [
-  {default,  off},
-  {datatype, flag}
-]}.
-
-{mapping, "log.syslog.identity", "logger.syslog", [
-  {default, "emqx"},
-  {datatype, string}
-]}.
-
-{mapping, "log.syslog.facility", "logger.syslog", [
-  {default, local0},
-  {datatype, {enum, [daemon, local0, local1, local2, local3, local4, local5, local6, local7]}}
-]}.
-
-{mapping, "log.syslog.level", "logger.syslog", [
-  {default, error},
-  {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency]}}
-]}.
-
-{translation,
- "logger.additional_handlers",
- fun(Conf) ->
-    Format = [time," [",level,"] ",msg,"\n"],
-    AdditionalHandlers = lists:filter(
-                  fun({K, _V}) ->
-                    cuttlefish_variable:is_fuzzy_match(K, string:tokens("log.$level.file", "."))
-                  end,
-               Conf),
-      Users = [{handler, file, logger_disk_log_h,
-                  #{level => Level,
-                    config => #{file => Dir ++ Filename,
-                                type => wrap,
-                                max_no_files => MaxNoFiles,
-                                max_no_bytes => MaxNoBytes},
-                    formatter =>
-                        {logger_formatter, #{legacy_header => false,
-                                             single_line => true,
-                                             template => Format}},
-                    filesync_repeat_interval => 1000}}
-                || {[_, Level, _], Filename} <- UserList],
-      case Users of
-          [] ->
-              throw(unset);
-          _ -> Users
-      end
-
-    ErrorHandler = case cuttlefish:conf_get("log.error.file", Conf, undefined) of
-      undefined -> [];
-      ErrorFilename -> [{lager_file_backend, [{file, ErrorFilename},
-                                              {level, error},
-                                              {size, cuttlefish:conf_get("log.error.size", Conf)},
-                                              {date, "$D0"},
-                                              {count, cuttlefish:conf_get("log.error.count", Conf)}]}]
-    end,
-
-    InfoHandler = case cuttlefish:conf_get("log.info.file", Conf, undefined) of
-      undefined -> [];
-      InfoFilename -> [{lager_file_backend, [{file, InfoFilename},
-                                             {level, info},
-                                             {size, cuttlefish:conf_get("log.info.size", Conf)},
-                                             {date, "$D0"},
-                                             {count, cuttlefish:conf_get("log.info.count", Conf)}]}]
-    end,
-
-    ConsoleLogLevel = cuttlefish:conf_get("log.console.level", Conf),
-    ConsoleLogFile = cuttlefish:conf_get("log.console.file", Conf),
-
-    ConsoleHandler = {lager_console_backend, [{level, ConsoleLogLevel}]},
-    ConsoleFileHandler = {lager_file_backend, [{file, ConsoleLogFile},
-                                               {level, ConsoleLogLevel},
-                                               {size, cuttlefish:conf_get("log.console.size", Conf)},
-                                               {date, "$D0"},
-                                               {count, cuttlefish:conf_get("log.console.count", Conf)}]},
-
-    ConsoleHandlers = case cuttlefish:conf_get("log.console", Conf) of
-      off -> [];
-      file -> [ConsoleFileHandler];
-      console -> [ConsoleHandler];
-      both -> [ConsoleHandler, ConsoleFileHandler];
-      _ -> []
-    end,
-    ConsoleHandlers ++ ErrorHandler ++ InfoHandler
-  end
-}.
-
-{mapping, "log.crash", "lager.crash_log", [
-  {default, on},
-  {datatype, flag}
-]}.
-
-{mapping, "log.crash.file", "lager.crash_log", [
-  {default, "log/crash.log"},
-  {datatype, file}
-]}.
-
-{translation,
- "lager.crash_log",
- fun(Conf) ->
-     case cuttlefish:conf_get("log.crash", Conf) of
-         false -> undefined;
-         _ ->
-             cuttlefish:conf_get("log.crash.file", Conf, "./log/crash.log")
-     end
- end}.
 
 {mapping, "sasl", "sasl.sasl_error_logger", [
   {default, off},
   {datatype, flag},
   hidden
 ]}.
+
+{translation, "kernel.logger", fun(Conf) ->
+    LogTo = cuttlefish:conf_get("log.to", Conf),
+    Formatter = {emqx_logger_formatter,
+                  #{template =>
+                      [time," [",level,"] ",
+                       {client_id,
+                          [{peername,
+                              [client_id,"@",peername," "],
+                              [client_id, " "]}],
+                          []},
+                       msg,"\n"]}},
+    FileConf =  fun(Filename) ->
+                  #{type => wrap,
+                    file => filename:join(cuttlefish:conf_get("log.dir", Conf), Filename),
+                    max_no_files => cuttlefish:conf_get("log.rotation.count", Conf),
+                    max_no_bytes => cuttlefish:conf_get("log.rotation.size", Conf)}
+                end,
+
+    %% For the default logger that outputs to console
+    DefaultHandler =
+        if LogTo =:= console orelse LogTo =:= both ->
+                [{handler, default, logger_std_h,
+                    #{level => all,
+                      config => #{type => standard_io},
+                      formatter => Formatter}}];
+           true ->
+                [{handler, default, undefined}]
+        end,
+
+    %% For the file logger
+    FileHandler =
+        if LogTo =:= file orelse LogTo =:= both ->
+              [{handler, file, logger_disk_log_h,
+                    #{level => all,
+                      config => FileConf(cuttlefish:conf_get("log.file", Conf)),
+                      formatter => Formatter,
+                      filesync_repeat_interval => 1000}}];
+           true -> []
+        end,
+
+    %% For creating additional log files for specific log levels.
+    AdditionalLogFiles =
+        if LogTo =:= file orelse LogTo =:= both ->
+              lists:filter(fun({K, V}) ->
+                  cuttlefish_variable:is_fuzzy_match(K, string:tokens("log.$level.file", "."))
+                end, Conf);
+           true -> []
+        end,
+    AdditionalHandlers =
+        [{handler, list_to_atom("file_for_"++Level), logger_disk_log_h,
+            #{level => list_to_atom(Level),
+              config => FileConf(Filename),
+              formatter => Formatter,
+              filesync_repeat_interval => 1000}}
+          || {[_, Level, _], Filename} <- AdditionalLogFiles],
+
+    _AllHandlers = DefaultHandler ++ FileHandler ++ AdditionalHandlers
+end}.
 
 %%--------------------------------------------------------------------
 %% Authentication/ACL

@@ -4,30 +4,27 @@ PROJECT = emqx
 PROJECT_DESCRIPTION = EMQ X Broker
 PROJECT_VERSION = 3.0
 
-DEPS = jsx gproc gen_rpc lager ekka esockd cowboy clique
+DEPS = jsx gproc gen_rpc ekka esockd cowboy clique
 
 dep_jsx     = git https://github.com/talentdeficit/jsx 2.9.0
 dep_gproc   = git https://github.com/uwiger/gproc 0.8.0
-dep_gen_rpc = git https://github.com/emqx/gen_rpc 2.2.0
-dep_lager   = git https://github.com/erlang-lager/lager 3.6.5
+dep_gen_rpc = git https://github.com/emqx/gen_rpc switch_to_logger
 dep_esockd  = git https://github.com/emqx/esockd v5.4.2
-dep_ekka    = git https://github.com/emqx/ekka v0.4.1
+dep_ekka    = git https://github.com/emqx/ekka switch_to_logger
 dep_cowboy  = git https://github.com/ninenines/cowboy 2.4.0
 dep_clique  = git https://github.com/emqx/clique develop
 
 NO_AUTOPATCH = cuttlefish
 
 ERLC_OPTS += +debug_info -DAPPLICATION=emqx
-ERLC_OPTS += +'{parse_transform, lager_transform}'
 
 BUILD_DEPS = cuttlefish
-dep_cuttlefish = git https://github.com/emqx/cuttlefish emqx30
+dep_cuttlefish = git https://github.com/emqx/cuttlefish switch_to_logger
 
 #TEST_DEPS = emqx_ct_helplers
 #dep_emqx_ct_helplers = git git@github.com:emqx/emqx-ct-helpers
 
 TEST_ERLC_OPTS += +debug_info -DAPPLICATION=emqx
-TEST_ERLC_OPTS += +'{parse_transform, lager_transform}'
 
 EUNIT_OPTS = verbose
 
@@ -46,7 +43,7 @@ CT_OPTS = -cover test/ct.cover.spec -erl_args -name $(CT_NODE_NAME)
 
 COVER = true
 
-PLT_APPS = sasl asn1 ssl syntax_tools runtime_tools crypto xmerl os_mon inets public_key ssl lager compiler mnesia
+PLT_APPS = sasl asn1 ssl syntax_tools runtime_tools crypto xmerl os_mon inets public_key ssl compiler mnesia
 DIALYZER_DIRS := ebin/
 DIALYZER_OPTS := --verbose --statistics -Werror_handling -Wrace_conditions #-Wunmatched_returns
 

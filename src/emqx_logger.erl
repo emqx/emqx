@@ -22,38 +22,47 @@
 -export([error/1, error/2, error/3]).
 -export([critical/1, critical/2, critical/3]).
 
+-export([add_proc_metadata/1]).
+
 debug(Msg) ->
-    lager:debug(Msg).
+    logger:debug(Msg).
 debug(Format, Args) ->
-    lager:debug(Format, Args).
-debug(Metadata, Format, Args) when is_list(Metadata) ->
-    lager:debug(Metadata, Format, Args).
+    logger:debug(Format, Args).
+debug(Metadata, Format, Args) when is_map(Metadata) ->
+    logger:debug(Format, Args, Metadata).
 
 info(Msg) ->
-    lager:info(Msg).
+    logger:info(Msg).
 info(Format, Args) ->
-    lager:info(Format, Args).
-info(Metadata, Format, Args) when is_list(Metadata) ->
-    lager:info(Metadata, Format, Args).
+    logger:info(Format, Args).
+info(Metadata, Format, Args) when is_map(Metadata) ->
+    logger:info(Format, Args, Metadata).
 
 warning(Msg) ->
-    lager:warning(Msg).
+    logger:warning(Msg).
 warning(Format, Args) ->
-    lager:warning(Format, Args).
-warning(Metadata, Format, Args) when is_list(Metadata) ->
-    lager:warning(Metadata, Format, Args).
+    logger:warning(Format, Args).
+warning(Metadata, Format, Args) when is_map(Metadata) ->
+    logger:warning(Format, Args, Metadata).
 
 error(Msg) ->
-    lager:error(Msg).
+    logger:error(Msg).
 error(Format, Args) ->
-    lager:error(Format, Args).
-error(Metadata, Format, Args) when is_list(Metadata) ->
-    lager:error(Metadata, Format, Args).
+    logger:error(Format, Args).
+error(Metadata, Format, Args) when is_map(Metadata) ->
+    logger:error(Format, Args, Metadata).
 
 critical(Msg) ->
-    lager:critical(Msg).
+    logger:critical(Msg).
 critical(Format, Args) ->
-    lager:critical(Format, Args).
-critical(Metadata, Format, Args) when is_list(Metadata) ->
-    lager:critical(Metadata, Format, Args).
+    logger:critical(Format, Args).
+critical(Metadata, Format, Args) when is_map(Metadata) ->
+    logger:critical(Format, Args, Metadata).
 
+add_proc_metadata(Meta) ->
+    case logger:get_process_metadata() of
+        undefined ->
+            logger:set_process_metadata(Meta);
+        OldMeta ->
+            logger:set_process_metadata(maps:merge(OldMeta, Meta))
+    end.

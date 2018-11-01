@@ -45,9 +45,8 @@
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
--define(WSLOG(Level, Format, Args, State),
-        emqx_logger:Level("MQTT/WS(~s): " ++ Format,
-                          [esockd_net:format(State#state.peername) | Args])).
+-define(WSLOG(Level, Format, Args, _State),
+        emqx_logger:Level("[MQTT/WS] " ++ Format, Args)).
 
 %%------------------------------------------------------------------------------
 %% API

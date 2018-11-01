@@ -41,7 +41,7 @@ trace(publish, #message{topic = <<"$SYS/", _/binary>>}) ->
     ignore;
 trace(publish, #message{from = From, topic = Topic, payload = Payload})
     when is_binary(From); is_atom(From) ->
-    emqx_logger:info([{client, From}, {topic, Topic}], "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
+    emqx_logger:info(#{topic => Topic}, "PUBLISH to ~s: ~p", [Topic, Payload]).
 
 %%------------------------------------------------------------------------------
 %% Start/Stop trace
@@ -76,7 +76,7 @@ init([]) ->
     {ok, #state{level = emqx_config:get_env(trace_level, debug), traces = #{}}}.
 
 handle_call({start_trace, Who, LogFile}, _From, State = #state{level = Level, traces = Traces}) ->
-    case catch lager:trace_file(LogFile, [Who], Level, ?OPTIONS) of
+    case catch logger:trace_file(LogFile, [Who], Level, ?OPTIONS) of
         {ok, exists} ->
             {reply, {error, already_exists}, State};
         {ok, Trace} ->
@@ -92,7 +92,7 @@ handle_call({start_trace, Who, LogFile}, _From, State = #state{level = Level, tr
 handle_call({stop_trace, Who}, _From, State = #state{traces = Traces}) ->
     case maps:find(Who, Traces) of
         {ok, {Trace, _LogFile}} ->
-            case lager:stop_trace(Trace) of
+            case logger:stop_trace(Trace) of
                 ok -> ok;
                 {error, Error} ->
                     emqx_logger:error("[Tracer] stop trace ~p error: ~p", [Who, Error])

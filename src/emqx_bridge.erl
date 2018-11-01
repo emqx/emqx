@@ -244,7 +244,7 @@ handle_info({'EXIT', Pid, normal}, State = #state{client_pid = Pid}) ->
 
 handle_info({'EXIT', Pid, Reason}, State = #state{client_pid = Pid,
                                                   reconnect_interval = ReconnectInterval}) ->
-    lager:warning("emqx bridge stop reason:~p", [Reason]),
+    logger:warning("emqx bridge stop reason:~p", [Reason]),
     erlang:send_after(ReconnectInterval, self(), start),
     {noreply, State#state{client_pid = undefined}};
 
@@ -306,7 +306,7 @@ format_mountpoint(Prefix) ->
 store(memory, Data, Queue, MaxPendingMsg) when length(Queue) =< MaxPendingMsg ->
     [Data | Queue];
 store(memory, _Data, Queue, _MaxPendingMsg) ->
-    lager:error("Beyond max pending messages"),
+    logger:error("Beyond max pending messages"),
     Queue;
 store(disk, Data, Queue, _MaxPendingMsg)->
     [Data | Queue].

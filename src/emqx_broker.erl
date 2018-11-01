@@ -337,7 +337,7 @@ handle_cast({From, #subscribe{topic = Topic, subpid = SubPid, subid = SubId, sub
         true ->
             case ets:lookup_element(?SUBOPTION, {Topic, Subscriber}, 2) =:= SubOpts of
                 true ->
-                    io:format("Ets: ~p,  SubOpts: ~p", [ets:lookup_element(?SUBOPTION, Topic, Subscriber), SubOpts]),
+                    logger:info("Ets: ~p,  SubOpts: ~p", [ets:lookup_element(?SUBOPTION, Topic, Subscriber), SubOpts]),
                     gen_server:reply(From, ok),
                     {noreply, State};
                 false ->

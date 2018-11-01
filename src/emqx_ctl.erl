@@ -87,8 +87,8 @@ lookup_command(Cmd) when is_atom(Cmd) ->
     end.
 
 usage() ->
-    io:format("Usage: ~s~n", [?MODULE]),
-    [begin io:format("~80..-s~n", [""]), Mod:Cmd(usage) end
+    logger:info("Usage: ~s", [?MODULE]),
+    [begin logger:info("~80..-s", [""]), Mod:Cmd(usage) end
      || {_, {Mod, Cmd}, _} <- ets:tab2list(?TAB)].
 
 %%------------------------------------------------------------------------------
