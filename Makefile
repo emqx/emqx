@@ -8,9 +8,9 @@ DEPS = jsx gproc gen_rpc ekka esockd cowboy clique
 
 dep_jsx     = git https://github.com/talentdeficit/jsx 2.9.0
 dep_gproc   = git https://github.com/uwiger/gproc 0.8.0
-dep_gen_rpc = git https://github.com/emqx/gen_rpc 2.2.0
+dep_gen_rpc = git https://github.com/emqx/gen_rpc 2.3.0
 dep_esockd  = git https://github.com/emqx/esockd v5.4.2
-dep_ekka    = git https://github.com/emqx/ekka v0.4.1
+dep_ekka    = git https://github.com/emqx/ekka v0.5.0
 dep_cowboy  = git https://github.com/ninenines/cowboy 2.4.0
 dep_clique  = git https://github.com/emqx/clique develop
 
@@ -19,7 +19,7 @@ NO_AUTOPATCH = cuttlefish
 ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 
 BUILD_DEPS = cuttlefish
-dep_cuttlefish = git https://github.com/emqx/cuttlefish emqx30
+dep_cuttlefish = git https://github.com/emqx/cuttlefish v2.1.0
 
 #TEST_DEPS = emqx_ct_helplers
 #dep_emqx_ct_helplers = git git@github.com:emqx/emqx-ct-helpers
