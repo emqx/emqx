@@ -133,7 +133,7 @@ to_string(X,_) when is_list(X) ->
         _ -> io_lib:format(?FormatP,[X])
     end;
 to_string(X,_) ->
-    io_lib:format(?FormatP,[X]).
+    io_lib:format("~s",[X]).
 
 printable_list([]) ->
     false;
