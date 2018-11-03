@@ -651,18 +651,6 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
-%% @doc Type: simple | priority
-{mapping, "mqtt.mqueue_type", "emqx.mqueue_type", [
-  {default, simple},
-  {datatype, {enum, [simple, priority]}}
-]}.
-
-%% @doc Topic Priorities: 0~255, Default is 0
-{mapping, "mqtt.mqueue_priorities", "emqx.mqueue_priorities", [
-  {default, ""},
-  {datatype, string}
-]}.
-
 %%--------------------------------------------------------------------
 %% Zones
 %%--------------------------------------------------------------------
@@ -804,12 +792,6 @@ end}.
   {datatype, {duration, s}}
 ]}.
 
-%% @doc Type: simple | priority
-{mapping, "zone.$name.mqueue_type", "emqx.zones", [
-  {default, simple},
-  {datatype, {enum, [simple, priority]}}
-]}.
-
 %% @doc Max queue length. Enqueued messages when persistent client
 %% disconnected, or inflight window is full. 0 means no limit.
 {mapping, "zone.$name.max_mqueue_len", "emqx.zones", [
@@ -817,9 +799,21 @@ end}.
   {datatype, integer}
 ]}.
 
-%% @doc Topic Priorities: 0~255, Default is 0
+%% @doc Topic Priorities, comma separated topic=priority pairs,
+%% where priority should be integer in range 1-255 (inclusive)
+%% 1 being the lowest and 255 being the highest.
+%% default value `none` to indicate no priority table, hence all
+%% messages are treated equal, which means either highest ('infinity'),
+%% or lowest (0) depending on mqueue_default_priority config.
 {mapping, "zone.$name.mqueue_priorities", "emqx.zones", [
+  {default, "none"},
   {datatype, string}
+]}.
+
+%% @doc Default priority for topics not in priority table.
+{mapping, "zone.$name.mqueue_default_priority", "emqx.zones", [
+  {default, lowest},
+  {datatype, {enum, [highest, lowest]}}
 ]}.
 
 %% @doc Queue Qos0 messages?
@@ -886,6 +880,18 @@ end}.
                                                max_heap_size => Siz1}
                                      end,
                     {force_shutdown_policy, ShutdownPolicy};
+               ("mqueue_priorities", Val) ->
+                    case Val of
+                        "none" -> none; % NO_PRIORITY_TABLE
+                        _ ->
+                            lists:foldl(fun(T, Acc) ->
+                                                %% NOTE: space in "= " is intended
+                                                [{Topic, Prio}] = string:tokens(T, "= "),
+                                                P = list_to_integer(Prio),
+                                                (P < 0 orelse P > 255) andalso error({bad_priority, Topic, Prio}),
+                                                maps:put(iolist_to_binary(Topic), P, Acc)
+                                        end, string:tokens(Val, ","))
+                    end;
                (Opt, Val) ->
                     {list_to_atom(Opt), Val}
             end,

@@ -377,10 +377,10 @@ init([Parent, #{zone                := Zone,
     gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}], State).
 
 init_mqueue(Zone) ->
-    emqx_mqueue:init(#{type => get_env(Zone, mqueue_type, simple),
-                       max_len => get_env(Zone, max_mqueue_len, 1000),
-                       priorities => get_env(Zone, mqueue_priorities, ""),
-                       store_qos0 => get_env(Zone, mqueue_store_qos0, true)
+    emqx_mqueue:init(#{max_len => get_env(Zone, max_mqueue_len, 1000),
+                       store_qos0 => get_env(Zone, mqueue_store_qos0, true),
+                       priorities => get_env(Zone, mqueue_priorities),
+                       default_priority => get_env(Zone, mqueue_default_priority)
                       }).
 
 binding(ConnPid) ->
@@ -817,7 +817,8 @@ dispatch(Msg = #message{qos = QoS} = Msg,
     end.
 
 enqueue_msg(Msg, State = #state{mqueue = Q}) ->
-    inc_stats(enqueue, Msg, State#state{mqueue = emqx_mqueue:in(Msg, Q)}).
+    {_Dropped, NewQ} = emqx_mqueue:in(Msg, Q),
+    inc_stats(enqueue, Msg, State#state{mqueue = NewQ}).
 
 %%------------------------------------------------------------------------------
 %% Deliver

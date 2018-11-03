@@ -63,8 +63,7 @@ init([Pool, Id, Node, Topic, Options]) ->
             Group = iolist_to_binary(["$bridge:", atom_to_list(Node), ":", Topic]),
             emqx_broker:subscribe(Topic, self(), #{share => Group, qos => ?QOS_0}),
             State = parse_opts(Options, #state{node = Node, subtopic = Topic}),
-            MQueue = emqx_mqueue:init(#{type => simple,
-                                        max_len => State#state.max_queue_len,
+            MQueue = emqx_mqueue:init(#{max_len => State#state.max_queue_len,
                                         store_qos0 => true}),
             {ok, State#state{pool = Pool, id = Id, mqueue = MQueue}};
         false ->
@@ -96,7 +95,8 @@ handle_cast(Msg, State) ->
 
 handle_info({dispatch, _Topic, Msg}, State = #state{mqueue = Q, status = down}) ->
     %% TODO: how to drop???
-    {noreply, State#state{mqueue = emqx_mqueue:in(Msg, Q)}};
+    {_Dropped, NewQ} = emqx_mqueue:in(Msg, Q),
+    {noreply, State#state{mqueue = NewQ}};
 
 handle_info({dispatch, _Topic, Msg}, State = #state{node = Node, status = up}) ->
     emqx_rpc:cast(Node, emqx_broker, publish, [transform(Msg, State)]),
