@@ -150,7 +150,8 @@ send_fun(WsPid) ->
         emqx_metrics:inc('bytes/sent', BinSize),
         put(send_oct, get(send_oct) + BinSize),
         put(send_cnt, get(send_cnt) + 1),
-        WsPid ! {binary, iolist_to_binary(Data)}
+        WsPid ! {binary, iolist_to_binary(Data)},
+        ok
     end.
 
 stat_fun() ->

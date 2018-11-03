@@ -593,12 +593,6 @@ send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = SendFun
         ok ->
             emqx_metrics:sent(Packet),
             {ok, inc_stats(send, Type, PState)};
-        {binary, _Data} ->
-            emqx_metrics:sent(Packet),
-            {ok, inc_stats(send, Type, PState)};
-        {datagram, _Peer, _Data} ->
-            emqx_metrics:sent(Packet),
-            {ok, inc_stats(send, Type, PState)};
         {error, Reason} ->
             {error, Reason}
     end.
