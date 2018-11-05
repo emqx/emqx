@@ -130,7 +130,7 @@ parse_packet(#mqtt_packet_header{type = ?CONNECT}, FrameBin, _Options) ->
       WillQoS      : 2,
       WillFlag     : 1,
       CleanStart   : 1,
-      0            : 1,         
+      0            : 1,
       KeepAlive    : 16/big,
       Rest2/binary>> = Rest1,
 
@@ -634,4 +634,3 @@ fixqos(?PUBREL, 0)      -> 1;
 fixqos(?SUBSCRIBE, 0)   -> 1;
 fixqos(?UNSUBSCRIBE, 0) -> 1;
 fixqos(_Type, QoS)      -> QoS.
-

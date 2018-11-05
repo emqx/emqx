@@ -165,7 +165,8 @@ init_limiter({Rate, Burst}) ->
     esockd_rate_limit:new(Rate, Burst).
 
 send_fun(Transport, Socket, Peername) ->
-    fun(Data) ->
+    fun(Packet, Options) ->
+        Data = emqx_frame:serialize(Packet, Options),
         try Transport:async_send(Socket, Data) of
             ok ->
                 ?LOG(debug, "SEND ~p", [iolist_to_binary(Data)], #state{peername = Peername}),
@@ -408,4 +409,3 @@ maybe_gc(#state{}, {publish, _PacketId, #message{payload = Payload}}) ->
     ok = emqx_gc:inc(1, Oct);
 maybe_gc(_, _) ->
     ok.
-

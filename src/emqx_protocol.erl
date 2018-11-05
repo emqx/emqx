@@ -586,11 +586,8 @@ deliver({disconnect, _ReasonCode}, PState) ->
 -spec(send(emqx_mqtt_types:packet(), state()) -> {ok, state()} | {error, term()}).
 send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = SendFun}) ->
     trace(send, Packet, PState),
-    case SendFun(emqx_frame:serialize(Packet, #{version => Ver})) of
+    case SendFun(Packet, #{version => Ver}) of
         ok ->
-            emqx_metrics:sent(Packet),
-            {ok, inc_stats(send, Type, PState)};
-        {binary, _Data} ->
             emqx_metrics:sent(Packet),
             {ok, inc_stats(send, Type, PState)};
         {error, Reason} ->
