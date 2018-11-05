@@ -464,27 +464,30 @@ end}.
                     #{level => TopLogLevel,
                       config => FileConf(cuttlefish:conf_get("log.file", Conf)),
                       formatter => Formatter,
-                      filesync_repeat_interval => 1000}}];
+                      filesync_repeat_interval => no_repeat}}];
            true -> []
         end,
 
     %% For creating additional log files for specific log levels.
     AdditionalLogFiles =
-        if LogTo =:= file orelse LogTo =:= both ->
-              lists:filter(fun({K, V}) ->
-                  cuttlefish_variable:is_fuzzy_match(K, string:tokens("log.$level.file", "."))
-                end, Conf);
-           true -> []
-        end,
+        lists:foldl(
+          fun({[_, Level, _] = K, Filename}, Acc) when LogTo =:= file; LogTo =:= both ->
+                case cuttlefish_variable:is_fuzzy_match(K, ["log", "$level", "file"]) of
+                  true -> [{Level, Filename} | Acc];
+                  false -> Acc
+                end;
+             ({_K, _V}, Acc) ->
+               Acc
+          end, [], Conf),
     AdditionalHandlers =
         [{handler, list_to_atom("file_for_"++Level), logger_disk_log_h,
             #{level => list_to_atom(Level),
               config => FileConf(Filename),
               formatter => Formatter,
-              filesync_repeat_interval => 1000}}
-          || {[_, Level, _], Filename} <- AdditionalLogFiles],
+              filesync_repeat_interval => no_repeat}}
+          || {Level, Filename} <- AdditionalLogFiles],
 
-    _AllHandlers = DefaultHandler ++ FileHandler ++ AdditionalHandlers
+    DefaultHandler ++ FileHandler ++ AdditionalHandlers
 end}.
 
 %%--------------------------------------------------------------------
