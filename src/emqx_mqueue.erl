@@ -89,13 +89,13 @@
 -opaque(mqueue() :: #mqueue{}).
 
 -spec(init(options()) -> mqueue()).
-init(Opts = #{max_len := MaxLen0, store_qos0 := QoS0}) ->
+init(Opts = #{max_len := MaxLen0, store_qos0 := QoS_0}) ->
     MaxLen = case (is_integer(MaxLen0) andalso MaxLen0 > ?MAX_LEN_INFINITY) of
                  true -> MaxLen0;
                  false -> ?MAX_LEN_INFINITY
              end,
     #mqueue{max_len = MaxLen,
-            store_qos0 = QoS0,
+            store_qos0 = QoS_0,
             p_table = get_opt(priorities, Opts, ?NO_PRIORITY_TABLE),
             default_p = get_priority_opt(Opts)
            }.
@@ -165,4 +165,3 @@ get_priority_opt(Opts) ->
 %% while the highest 'infinity' is a [{infinity, queue:queue()}]
 get_priority(_Topic, ?NO_PRIORITY_TABLE, _) -> ?LOWEST_PRIORITY;
 get_priority(Topic, PTab, Dp) -> maps:get(Topic, PTab, Dp).
-

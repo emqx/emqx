@@ -95,7 +95,7 @@
                 | {force_ping, boolean()}
                 | {properties, properties()}).
 
--record(mqtt_msg, {qos = ?QOS0, retain = false, dup = false,
+-record(mqtt_msg, {qos = ?QOS_0, retain = false, dup = false,
                    packet_id, topic, props, payload}).
 
 -type(mqtt_msg() :: #mqtt_msg{}).
@@ -1217,7 +1217,7 @@ retry_send([{Type, Msg, Ts} | Msgs], Now, State = #state{retry_interval = Interv
 
 retry_send(publish, Msg = #mqtt_msg{qos = QoS, packet_id = PacketId},
            Now, State = #state{inflight = Inflight}) ->
-    Msg1 = Msg#mqtt_msg{dup = (QoS =:= ?QOS1)},
+    Msg1 = Msg#mqtt_msg{dup = (QoS =:= ?QOS_1)},
     case send(Msg1, State) of
         {ok, NewState} ->
             Inflight1 = emqx_inflight:update(PacketId, {publish, Msg1, Now}, Inflight),

@@ -30,11 +30,11 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
--record(state, {client_pid, options, reconnect_interval, 
+-record(state, {client_pid, options, reconnect_interval,
                 mountpoint, queue, mqueue_type, max_pending_messages,
                 forwards = [], subscriptions = []}).
 
--record(mqtt_msg, {qos = ?QOS0, retain = false, dup = false,
+-record(mqtt_msg, {qos = ?QOS_0, retain = false, dup = false,
                    packet_id, topic, props, payload}).
 
 start_link(Name, Options) ->

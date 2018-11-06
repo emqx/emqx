@@ -103,7 +103,7 @@ validate_properties(_, _) ->
 validate_subscription({Topic, #{qos := QoS}}) ->
     emqx_topic:validate(filter, Topic) andalso validate_qos(QoS).
 
-validate_qos(QoS) when ?QOS0 =< QoS, QoS =< ?QOS2 ->
+validate_qos(QoS) when ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
     true;
 validate_qos(_) -> error(bad_qos).
 

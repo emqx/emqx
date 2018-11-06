@@ -39,4 +39,3 @@ behaviour_info(_Other) ->
     undefined.
 
 -endif.
-

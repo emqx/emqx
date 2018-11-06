@@ -22,7 +22,7 @@
 -export_type([topic_filters/0]).
 -export_type([packet_id/0, packet_type/0, packet/0]).
 
--type(qos() :: ?QOS0 | ?QOS1 | ?QOS2).
+-type(qos() :: ?QOS_0 | ?QOS_1 | ?QOS_2).
 -type(version() :: ?MQTT_PROTO_V3 | ?MQTT_PROTO_V4 | ?MQTT_PROTO_V5).
 -type(qos_name() :: qos0 | at_most_once |
                     qos1 | at_least_once |
@@ -40,4 +40,3 @@
                     }).
 -type(topic_filters() :: [{emqx_topic:topic(), subopts()}]).
 -type(packet() :: #mqtt_packet{}).
-
