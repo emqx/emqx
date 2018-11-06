@@ -517,7 +517,7 @@ handle_cast({pubcomp, PacketId, _ReasonCode}, State = #state{inflight = Inflight
 handle_cast({resume, #{conn_pid            := ConnPid,
                        will_msg            := WillMsg,
                        expiry_interval     := SessionExpiryInterval,
-                       max_inflight        := MaxInflight, 
+                       max_inflight        := MaxInflight,
                        topic_alias_maximum := TopicAliasMaximum}}, State = #state{client_id        = ClientId,
                                                                                   conn_pid         = OldConnPid,
                                                                                   clean_start      = CleanStart,
@@ -547,7 +547,7 @@ handle_cast({resume, #{conn_pid            := ConnPid,
                          await_rel_timer     = undefined,
                          expiry_timer        = undefined,
                          expiry_interval     = SessionExpiryInterval,
-                         inflight            = emqx_inflight:update_size(MaxInflight, State#state.inflight), 
+                         inflight            = emqx_inflight:update_size(MaxInflight, State#state.inflight),
                          topic_alias_maximum = TopicAliasMaximum,
                          will_delay_timer    = undefined,
                          will_msg            = WillMsg},
@@ -574,10 +574,10 @@ handle_info({dispatch, Topic, Msgs}, State) when is_list(Msgs) ->
                           end, State, Msgs)};
 
 %% Dispatch message
-handle_info({dispatch, Topic, Msg = #message{headers = Headers}}, 
+handle_info({dispatch, Topic, Msg = #message{headers = Headers}},
             State = #state{subscriptions = SubMap, topic_alias_maximum = TopicAliasMaximum}) when is_record(Msg, message) ->
     TopicAlias = maps:get('Topic-Alias', Headers, undefined),
-    if 
+    if
         TopicAlias =:= undefined orelse TopicAlias =< TopicAliasMaximum ->
             noreply(case maps:find(Topic, SubMap) of
                         {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
@@ -802,13 +802,13 @@ dispatch(Msg, State = #state{client_id = ClientId, conn_pid = undefined}) ->
     end;
 
 %% Deliver qos0 message directly to client
-dispatch(Msg = #message{qos = ?QOS0} = Msg, State) ->
+dispatch(Msg = #message{qos = ?QOS_0} = Msg, State) ->
     deliver(undefined, Msg, State),
     inc_stats(deliver, Msg, State);
 
 dispatch(Msg = #message{qos = QoS} = Msg,
          State = #state{next_pkt_id = PacketId, inflight = Inflight})
-  when QoS =:= ?QOS1 orelse QoS =:= ?QOS2 ->
+  when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
     case emqx_inflight:is_full(Inflight) of
         true -> enqueue_msg(Msg, State);
         false ->
@@ -825,7 +825,7 @@ enqueue_msg(Msg, State = #state{mqueue = Q}) ->
 %%------------------------------------------------------------------------------
 
 redeliver({PacketId, Msg = #message{qos = QoS}}, State) ->
-    deliver(PacketId, if QoS =:= ?QOS2 -> Msg;
+    deliver(PacketId, if QoS =:= ?QOS_2 -> Msg;
                          true -> emqx_message:set_flag(dup, Msg)
                       end, State);
 
@@ -974,4 +974,3 @@ noreply(State) ->
 
 shutdown(Reason, State) ->
     {stop, {shutdown, Reason}, State}.
-

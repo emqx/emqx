@@ -28,8 +28,8 @@ t_mount_unmount(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
     Msg2 = emqx_mountpoint:mount(<<"mount">>, Msg),
     ?assertEqual(<<"mounttopic">>, Msg2#message.topic),
-    TopicFilter = [{<<"mounttopic">>, #{qos => ?QOS2}}],
-    TopicFilter = emqx_mountpoint:mount(<<"mount">>, [{<<"topic">>, #{qos => ?QOS2}}]),
+    TopicFilter = [{<<"mounttopic">>, #{qos => ?QOS_2}}],
+    TopicFilter = emqx_mountpoint:mount(<<"mount">>, [{<<"topic">>, #{qos => ?QOS_2}}]),
     Msg = emqx_mountpoint:unmount(<<"mount">>, Msg2).
 
 t_replvar(_) ->

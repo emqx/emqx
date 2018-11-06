@@ -44,7 +44,7 @@ packet_type_name(_) ->
     ?assertEqual('UNSUBSCRIBE', emqx_packet:type_name(?UNSUBSCRIBE)).
 
 packet_validate(_) ->
-    ?assert(emqx_packet:validate(?SUBSCRIBE_PACKET(15, #{'Subscription-Identifier' => 1}, [{<<"topic">>, #{qos => ?QOS0}}]))),
+    ?assert(emqx_packet:validate(?SUBSCRIBE_PACKET(15, #{'Subscription-Identifier' => 1}, [{<<"topic">>, #{qos => ?QOS_0}}]))),
     ?assert(emqx_packet:validate(?UNSUBSCRIBE_PACKET(89, [<<"topic">>]))),
     ?assert(emqx_packet:validate(?CONNECT_PACKET(#mqtt_packet_connect{}))),
     ?assert(emqx_packet:validate(?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Response-Topic' => <<"responsetopic">>, 'Topic-Alias' => 1}, <<"payload">>))),
@@ -52,7 +52,7 @@ packet_validate(_) ->
     ?assertError(subscription_identifier_invalid,
                  emqx_packet:validate(
                    ?SUBSCRIBE_PACKET(15, #{'Subscription-Identifier' => -1},
-                                     [{<<"topic">>, #{qos => ?QOS0}}]))),
+                                     [{<<"topic">>, #{qos => ?QOS_0}}]))),
     ?assertError(topic_filters_invalid,
                  emqx_packet:validate(?UNSUBSCRIBE_PACKET(1,[]))),
     ?assertError(topic_name_invalid,
@@ -90,14 +90,14 @@ packet_validate(_) ->
 
 packet_message(_) ->
     Pkt = #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
-                                                    qos    = ?QOS0,
+                                                    qos    = ?QOS_0,
                                                     retain = false,
                                                     dup    = false},
                        variable = #mqtt_packet_publish{topic_name = <<"topic">>,
                                                        packet_id  = 10,
                                                        properties = #{}},
                        payload = <<"payload">>},
-    Msg = emqx_message:make(<<"clientid">>, ?QOS0, <<"topic">>, <<"payload">>),
+    Msg = emqx_message:make(<<"clientid">>, ?QOS_0, <<"topic">>, <<"payload">>),
     Msg2 = emqx_message:set_flag(retain, false, Msg),
     Pkt = emqx_packet:from_message(10, Msg2),
     Msg3 = emqx_message:set_header(username, "test", Msg2),
@@ -112,8 +112,8 @@ packet_format(_) ->
     io:format("~s", [emqx_packet:format(?PUBLISH_PACKET(?QOS_2, <<"topic">>, 10, <<"payload">>))]),
     io:format("~s", [emqx_packet:format(?PUBACK_PACKET(?PUBACK, 98))]),
     io:format("~s", [emqx_packet:format(?PUBREL_PACKET(99))]),
-    io:format("~s", [emqx_packet:format(?SUBSCRIBE_PACKET(15, [{<<"topic">>, ?QOS0}, {<<"topic1">>, ?QOS1}]))]),
-    io:format("~s", [emqx_packet:format(?SUBACK_PACKET(40, [?QOS0, ?QOS1]))]),
+    io:format("~s", [emqx_packet:format(?SUBSCRIBE_PACKET(15, [{<<"topic">>, ?QOS_0}, {<<"topic1">>, ?QOS_1}]))]),
+    io:format("~s", [emqx_packet:format(?SUBACK_PACKET(40, [?QOS_0, ?QOS_1]))]),
     io:format("~s", [emqx_packet:format(?UNSUBSCRIBE_PACKET(89, [<<"t">>, <<"t2">>]))]),
     io:format("~s", [emqx_packet:format(?UNSUBACK_PACKET(90))]).
 
@@ -122,7 +122,7 @@ packet_will_msg(_) ->
                                 client_id = <<"clientid">>,
                                 username = "test",
                                 will_retain = true,
-                                will_qos = ?QOS2,
+                                will_qos = ?QOS_2,
                                 will_topic = <<"topic">>,
                                 will_props = #{},
                                 will_payload = <<"payload">>},
