@@ -538,14 +538,24 @@ init([{hosts, Hosts} | Opts], State) ->
     init(Opts, State#state{hosts = Hosts1});
 init([{tcp_opts, TcpOpts} | Opts], State = #state{sock_opts = SockOpts}) ->
     init(Opts, State#state{sock_opts = emqx_misc:merge_opts(SockOpts, TcpOpts)});
-init([ssl | Opts], State = #state{sock_opts = SockOpts}) ->
-    ok = ssl:start(),
-    SockOpts1 = emqx_misc:merge_opts([{ssl_opts, []}], SockOpts),
-    init(Opts, State#state{sock_opts = SockOpts1});
+init([{ssl, EnableSsl} | Opts], State) ->
+    case lists:keytake(ssl_opts, 1, Opts) of
+        {value, SslOpts, WithOutSslOpts} ->
+            init([SslOpts, {ssl, EnableSsl}| WithOutSslOpts], State);
+        false ->
+            init([{ssl_opts, []}, {ssl, EnableSsl}| Opts], State)
+    end;
 init([{ssl_opts, SslOpts} | Opts], State = #state{sock_opts = SockOpts}) ->
-    ok = ssl:start(),
-    SockOpts1 = emqx_misc:merge_opts(SockOpts, [{ssl_opts, SslOpts}]),
-    init(Opts, State#state{sock_opts = SockOpts1});
+    case lists:keytake(ssl, 1, Opts) of
+        {value, {ssl, true}, WithOutEnableSsl} ->
+            ok = ssl:start(),
+            SockOpts1 = emqx_misc:merge_opts(SockOpts, [{ssl_opts, SslOpts}]),
+            init(WithOutEnableSsl, State#state{sock_opts = SockOpts1});
+        {value, {ssl, false}, WithOutEnableSsl} ->
+            init(WithOutEnableSsl, State);
+        false ->
+            init(Opts, State)
+    end;
 init([{client_id, ClientId} | Opts], State) ->
     init(Opts, State#state{client_id = iolist_to_binary(ClientId)});
 init([{clean_start, CleanStart} | Opts], State) when is_boolean(CleanStart) ->

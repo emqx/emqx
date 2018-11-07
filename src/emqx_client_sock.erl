@@ -49,7 +49,10 @@ connect(Host, Port, SockOpts, Timeout) ->
     end.
 
 ssl_upgrade(Sock, SslOpts, Timeout) ->
-    case ssl:connect(Sock, SslOpts, Timeout) of
+    TlsVersions = proplists:get_value(versions, SslOpts, []),
+    Ciphers = proplists:get_value(ciphers, SslOpts, default_ciphers(TlsVersions)),
+    SslOpts2 = emqx_misc:merge_opts(SslOpts, [{ciphers, Ciphers}]),
+    case ssl:connect(Sock, SslOpts2, Timeout) of
         {ok, SslSock} ->
             ok = ssl:controlling_process(SslSock, self()),
             {ok, #ssl_socket{tcp = Sock, ssl = SslSock}};
@@ -91,3 +94,8 @@ sockname(Sock) when is_port(Sock) ->
 sockname(#ssl_socket{ssl = SslSock}) ->
     ssl:sockname(SslSock).
 
+default_ciphers(TlsVersions) ->
+    lists:foldl(
+        fun(TlsVer, Ciphers) ->
+            Ciphers ++ ssl:cipher_suites(all, TlsVer)
+        end, [], TlsVersions).
