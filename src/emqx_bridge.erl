@@ -199,7 +199,8 @@ handle_info(start, State = #state{options = Options,
             [emqx_client:subscribe(ClientPid, {Topic, Qos}) || {Topic, Qos} <- Subs],
             [emqx_broker:subscribe(Topic) || Topic <- Forwards],
             {noreply, State#state{client_pid = ClientPid, subscriptions = Subs, forwards = Forwards}};
-        {error,_} ->
+        {error, Reason} ->
+            logger:error("[Bridge] start failed! error: ~p", [Reason]),
             erlang:send_after(ReconnectInterval, self(), start),
             {noreply, State}
     end;
@@ -285,6 +286,10 @@ options([{clean_start, CleanStart}| Options], Acc) ->
 options([{address, Address}| Options], Acc) ->
     {Host, Port} = address(Address),
     options(Options, [{host, Host}, {port, Port}|Acc]);
+options([{ssl, Ssl}| Options], Acc) ->
+    options(Options, [{ssl, Ssl}|Acc]);
+options([{ssl_opts, SslOpts}| Options], Acc) ->
+    options(Options, [{ssl_opts, SslOpts}|Acc]);
 options([_Option | Options], Acc) ->
     options(Options, Acc).
 

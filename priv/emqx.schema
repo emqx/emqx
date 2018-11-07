@@ -1552,6 +1552,11 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "bridge.$name.ssl", "emqx.bridges", [
+  {datatype, flag},
+  {default, off}
+]}.
+
 {mapping, "bridge.$name.cacertfile", "emqx.bridges", [
   {datatype, string}
 ]}.
@@ -1575,11 +1580,12 @@ end}.
 
 {mapping, "bridge.$name.keepalive", "emqx.bridges", [
   {default, "10s"},
-  {datatype, {duration, s}}
+  {datatype, {duration, ms}}
 ]}.
 
 {mapping, "bridge.$name.tls_versions", "emqx.bridges", [
-  {datatype, string}
+  {datatype, string},
+  {default, "tlsv1,tlsv1.1,tlsv1.2"}
 ]}.
 
 {mapping, "bridge.$name.subscription.$id.topic", "emqx.bridges", [
@@ -1597,12 +1603,11 @@ end}.
 
 {mapping, "bridge.$name.reconnect_interval", "emqx.bridges", [
   {default, "30s"},
-  {datatype, {duration, s}}
+  {datatype, {duration, ms}}
 ]}.
 
 
 {translation, "emqx.bridges", fun(Conf) ->
-
     Split = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
 
     IsSsl = fun(cacertfile)   -> true;
@@ -1625,11 +1630,12 @@ end}.
                 case IsSsl(Opt) of
                     true ->
                         SslOpts = [Parse(Opt, Val)|proplists:get_value(ssl_opts, Opts, [])],
-                        lists:ukeymerge(1, [{ssl_opts, SslOpts}], Opts);
+                        lists:ukeymerge(1, [{ssl_opts, SslOpts}], lists:usort(Opts));
                     false ->
                         [{Opt, Val}|Opts]
                 end
             end,
+
     Subscriptions = fun(Name) ->
                             Configs = cuttlefish_variable:filter_by_prefix("bridge." ++ Name ++ ".subscription", Conf),
                             lists:zip([Topic || {_, Topic} <- lists:sort([{I, Topic} || {[_, _, "subscription", I, "topic"], Topic} <- Configs])],
@@ -1639,11 +1645,10 @@ end}.
     maps:to_list(
       lists:foldl(
         fun({["bridge", Name, Opt], Val}, Acc) ->
+                %% e.g #{aws => [{OptKey, OptVal}]}
+                Init = [{list_to_atom(Opt), Val},{subscriptions, Subscriptions(Name)}],
                 maps:update_with(list_to_atom(Name),
-                                 fun(Opts) ->
-                                         Merge(list_to_atom(Opt), Val, Opts)
-                                 end, [{list_to_atom(Opt), Val},
-                                       {subscriptions, Subscriptions(Name)}], Acc);
+                                 fun(Opts) -> Merge(list_to_atom(Opt), Val, Opts) end, Init, Acc);
            (_, Acc) -> Acc
         end, #{}, lists:usort(cuttlefish_variable:filter_by_prefix("bridge.", Conf))))
 
