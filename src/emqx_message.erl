@@ -114,7 +114,7 @@ elapsed(Since) ->
     max(0, timer:now_diff(os:timestamp(), Since) div 1000).
 
 format(#message{id = Id, qos = QoS, topic = Topic, from = From, flags = Flags, headers = Headers}) ->
-    io_lib:format("Message(Id=~s, QoS=~w, Topic=~s, From=~s, Flags=~s, Headers=~s)",
+    io_lib:format("Message(Id=~s, QoS=~w, Topic=~s, From=~p, Flags=~s, Headers=~s)",
                   [Id, QoS, Topic, From, format(flags, Flags), format(headers, Headers)]).
 
 format(_, undefined) ->
