@@ -1549,7 +1549,8 @@ end}.
 ]}.
 
 {mapping, "bridge.$name.forwards", "emqx.bridges", [
-  {datatype, string}
+  {datatype, string},
+  {default, ""}
 ]}.
 
 {mapping, "bridge.$name.ssl", "emqx.bridges", [
@@ -1624,22 +1625,24 @@ end}.
                     {ciphers, Split(Ciphers)};
                (Opt, Val) ->
                     {Opt, Val}
-               end,
+            end,
 
-    Merge = fun(Opt, Val, Opts) ->
-                case IsSsl(Opt) of
-                    true ->
-                        SslOpts = [Parse(Opt, Val)|proplists:get_value(ssl_opts, Opts, [])],
-                        lists:ukeymerge(1, [{ssl_opts, SslOpts}], lists:usort(Opts));
-                    false ->
-                        [{Opt, Val}|Opts]
-                end
+    Merge = fun(forwards, Val, Opts) ->
+                  [{forwards, string:tokens(Val, ",")}|Opts];
+               (Opt, Val, Opts) ->
+                  case IsSsl(Opt) of
+                      true ->
+                          SslOpts = [Parse(Opt, Val)|proplists:get_value(ssl_opts, Opts, [])],
+                          lists:ukeymerge(1, [{ssl_opts, SslOpts}], lists:usort(Opts));
+                      false ->
+                          [{Opt, Val}|Opts]
+                  end
             end,
 
     Subscriptions = fun(Name) ->
-                            Configs = cuttlefish_variable:filter_by_prefix("bridge." ++ Name ++ ".subscription", Conf),
-                            lists:zip([Topic || {_, Topic} <- lists:sort([{I, Topic} || {[_, _, "subscription", I, "topic"], Topic} <- Configs])],
-                                      [QoS || {_, QoS} <- lists:sort([{I, QoS} || {[_, _, "subscription", I, "qos"], QoS} <- Configs])])
+                        Configs = cuttlefish_variable:filter_by_prefix("bridge." ++ Name ++ ".subscription", Conf),
+                        lists:zip([Topic || {_, Topic} <- lists:sort([{I, Topic} || {[_, _, "subscription", I, "topic"], Topic} <- Configs])],
+                                  [QoS || {_, QoS} <- lists:sort([{I, QoS} || {[_, _, "subscription", I, "qos"], QoS} <- Configs])])
                     end,
 
     maps:to_list(

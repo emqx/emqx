@@ -59,20 +59,26 @@ end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
 
 request_response_exception(QoS) ->
-    {ok, Client, _} = emqx_client:start_link([{proto_ver, v5},
-                                                 {properties, #{ 'Request-Response-Information' => 0 }}]),
+    {ok, Client} = emqx_client:start_link([{proto_ver, v5},
+                                           {properties, #{ 'Request-Response-Information' => 0 }}]),
+    {ok, _} = emqx_client:connect(Client),
     ?assertError(no_response_information,
                  emqx_client:sub_request_topic(Client, QoS, <<"request_topic">>)),
     ok = emqx_client:disconnect(Client).
 
 request_response_per_qos(QoS) ->
-    {ok, Requester, _} = emqx_client:start_link([{proto_ver, v5},
-                                                 {client_id, <<"requester">>},
-                                                 {properties, #{ 'Request-Response-Information' => 1}}]),
-    {ok, Responser, _} = emqx_client:start_link([{proto_ver, v5},
-                                                 {client_id, <<"responser">>},
-                                                 {properties, #{ 'Request-Response-Information' => 1}},
-                                                 {request_handler, fun(_Req) -> <<"ResponseTest">> end}]),
+    {ok, Requester} = emqx_client:start_link([{proto_ver, v5},
+                                              {client_id, <<"requester">>},
+                                              {properties, #{ 'Request-Response-Information' => 1}}]),
+    {ok, _} = emqx_client:connect(Requester),
+    {ok, Responser} = emqx_client:start_link([{proto_ver, v5},
+                                              {client_id, <<"responser">>},
+                                              {properties, #{
+                                                'Request-Response-Information' => 1}},
+                                              {request_handler,
+                                                fun(_Req) -> <<"ResponseTest">> end}
+                                             ]),
+    {ok, _} = emqx_client:connect(Responser),
     ok = emqx_client:sub_request_topic(Responser, QoS, <<"request_topic">>),
     {ok, <<"ResponseTest">>} = emqx_client:request(Requester, <<"response_topic">>, <<"request_topic">>, <<"request_payload">>, QoS),
     ok = emqx_client:set_request_handler(Responser, fun(<<"request_payload">>) ->
@@ -108,9 +114,15 @@ share_sub_request_topic_per_qos(QoS) ->
                              {client_id, atom_to_binary(ClientId, utf8)},
                              {properties, Properties}
                             ] end,
-    {ok, Requester, _} = emqx_client:start_link(Opts(requester)),
-    {ok, Responser1, _} = emqx_client:start_link([{request_handler, fun(Req) -> <<"1-", Req/binary>> end} | Opts(requester1)]),
-    {ok, Responser2, _} = emqx_client:start_link([{request_handler, fun(Req) -> <<"2-", Req/binary>> end} | Opts(requester2)]),
+    {ok, Requester} = emqx_client:start_link(Opts(requester)),
+    {ok, _} = emqx_client:connect(Requester),
+
+    {ok, Responser1} = emqx_client:start_link([{request_handler, fun(Req) -> <<"1-", Req/binary>> end} | Opts(requester1)]),
+    {ok, _} = emqx_client:connect(Responser1),
+
+    {ok, Responser2} = emqx_client:start_link([{request_handler, fun(Req) -> <<"2-", Req/binary>> end} | Opts(requester2)]),
+    {ok, _} = emqx_client:connect(Responser2),
+
     ok = emqx_client:sub_request_topic(Responser1, QoS, ReqTopic, Group),
     ok = emqx_client:sub_request_topic(Responser2, QoS, ReqTopic, Group),
     %% Send a request, wait for response, validate response then return responser ID
@@ -148,7 +160,9 @@ receive_messages(Count, Msgs) ->
 basic_test(_Config) ->
     Topic = nth(1, ?TOPICS),
     ct:print("Basic test starting"),
-    {ok, C, _} = emqx_client:start_link(),
+    {ok, C} = emqx_client:start_link(),
+    {ok, _} = emqx_client:connect(C),
+
     {ok, _, [2]} = emqx_client:subscribe(C, Topic, qos2),
     {ok, _} = emqx_client:publish(C, Topic, <<"qos 2">>, 2),
     {ok, _} = emqx_client:publish(C, Topic, <<"qos 2">>, 2),
@@ -157,11 +171,15 @@ basic_test(_Config) ->
     ok = emqx_client:disconnect(C).
 
 will_message_test(_Config) ->
-    {ok, C1, _} = emqx_client:start_link([{clean_start, true},
+    {ok, C1} = emqx_client:start_link([{clean_start, true},
                                           {will_topic, nth(3, ?TOPICS)},
                                           {will_payload, <<"client disconnected">>},
                                           {keepalive, 2}]),
-    {ok, C2, _} = emqx_client:start_link(),
+    {ok, _} = emqx_client:connect(C1),
+
+    {ok, C2} = emqx_client:start_link(),
+    {ok, _} = emqx_client:connect(C2),
+
     {ok, _, [2]} = emqx_client:subscribe(C2, nth(3, ?TOPICS), 2),
     timer:sleep(10),
     ok = emqx_client:stop(C1),
@@ -171,26 +189,33 @@ will_message_test(_Config) ->
     ct:print("Will message test succeeded").
 
 offline_message_queueing_test(_) ->
-    {ok, C1, _} = emqx_client:start_link([{clean_start, false},
-                                          {client_id, <<"c1">>}]),
+    {ok, C1} = emqx_client:start_link([{clean_start, false},
+                                       {client_id, <<"c1">>}]),
+    {ok, _} = emqx_client:connect(C1),
+
     {ok, _, [2]} = emqx_client:subscribe(C1, nth(6, ?WILD_TOPICS), 2),
     ok = emqx_client:disconnect(C1),
-    {ok, C2, _} = emqx_client:start_link([{clean_start, true},
-                                          {client_id, <<"c2">>}]),
+    {ok, C2} = emqx_client:start_link([{clean_start, true},
+                                       {client_id, <<"c2">>}]),
+    {ok, _} = emqx_client:connect(C2),
 
     ok = emqx_client:publish(C2, nth(2, ?TOPICS), <<"qos 0">>, 0),
     {ok, _} = emqx_client:publish(C2, nth(3, ?TOPICS), <<"qos 1">>, 1),
     {ok, _} = emqx_client:publish(C2, nth(4, ?TOPICS), <<"qos 2">>, 2),
     timer:sleep(10),
     emqx_client:disconnect(C2),
-    {ok, C3, _} = emqx_client:start_link([{clean_start, false},
+    {ok, C3} = emqx_client:start_link([{clean_start, false},
                                           {client_id, <<"c1">>}]),
+    {ok, _} = emqx_client:connect(C3),
+
     timer:sleep(10),
     emqx_client:disconnect(C3),
     ?assertEqual(3, length(receive_messages(3))).
 
 overlapping_subscriptions_test(_) ->
-    {ok, C, _} = emqx_client:start_link([]),
+    {ok, C} = emqx_client:start_link([]),
+    {ok, _} = emqx_client:connect(C),
+
     {ok, _, [2, 1]} = emqx_client:subscribe(C, [{nth(7, ?WILD_TOPICS), 2},
                                                 {nth(1, ?WILD_TOPICS), 1}]),
     timer:sleep(10),
@@ -228,8 +253,10 @@ overlapping_subscriptions_test(_) ->
 
 redelivery_on_reconnect_test(_) ->
     ct:print("Redelivery on reconnect test starting"),
-    {ok, C1, _} = emqx_client:start_link([{clean_start, false},
-                                          {client_id, <<"c">>}]),
+    {ok, C1} = emqx_client:start_link([{clean_start, false},
+                                       {client_id, <<"c">>}]),
+    {ok, _} = emqx_client:connect(C1),
+
     {ok, _, [2]} = emqx_client:subscribe(C1, nth(7, ?WILD_TOPICS), 2),
     timer:sleep(10),
     ok = emqx_client:pause(C1),
@@ -240,8 +267,10 @@ redelivery_on_reconnect_test(_) ->
     timer:sleep(10),
     ok = emqx_client:disconnect(C1),
     ?assertEqual(0, length(receive_messages(2))),
-    {ok, C2, _} = emqx_client:start_link([{clean_start, false},
+    {ok, C2} = emqx_client:start_link([{clean_start, false},
                                           {client_id, <<"c">>}]),
+    {ok, _} = emqx_client:connect(C2),
+
     timer:sleep(10),
     ok = emqx_client:disconnect(C2),
     ?assertEqual(2, length(receive_messages(2))).
@@ -255,8 +284,10 @@ redelivery_on_reconnect_test(_) ->
 
 dollar_topics_test(_) ->
     ct:print("$ topics test starting"),
-    {ok, C, _} = emqx_client:start_link([{clean_start, true},
-                                         {keepalive, 0}]),
+    {ok, C} = emqx_client:start_link([{clean_start, true},
+                                      {keepalive, 0}]),
+    {ok, _} = emqx_client:connect(C),
+
     {ok, _, [1]} = emqx_client:subscribe(C, nth(6, ?WILD_TOPICS), 1),
     {ok, _} = emqx_client:publish(C, << <<"$">>/binary, (nth(2, ?TOPICS))/binary>>,
                                   <<"test">>, [{qos, 1}, {retain, false}]),

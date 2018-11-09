@@ -21,6 +21,7 @@
 -export([start_link/0, start_link/1]).
 -export([request/5, request/6, request_async/7, receive_response/3]).
 -export([set_request_handler/2, sub_request_topic/3, sub_request_topic/4]).
+-export([connect/1]).
 -export([subscribe/2, subscribe/3, subscribe/4]).
 -export([publish/2, publish/3, publish/4, publish/5]).
 -export([unsubscribe/2, unsubscribe/3]).
@@ -200,18 +201,11 @@ start_link(Options) when is_map(Options) ->
 start_link(Options) when is_list(Options) ->
     ok  = emqx_mqtt_props:validate(
             proplists:get_value(properties, Options, #{})),
-    case start_client(with_owner(Options)) of
-        {ok, Client} ->
-            connect(Client);
-        Error -> Error
-    end.
-
-start_client(Options) ->
     case proplists:get_value(name, Options) of
         undefined ->
-            gen_statem:start_link(?MODULE, [Options], []);
+            gen_statem:start_link(?MODULE, [with_owner(Options)], []);
         Name when is_atom(Name) ->
-            gen_statem:start_link({local, Name}, ?MODULE, [Options], [])
+            gen_statem:start_link({local, Name}, ?MODULE, [with_owner(Options)], [])
     end.
 
 with_owner(Options) ->
@@ -220,8 +214,7 @@ with_owner(Options) ->
         undefined -> [{owner, self()} | Options]
     end.
 
-%% @private
--spec(connect(client()) -> {ok, client(), properties()} | {error, term()}).
+-spec(connect(client()) -> {ok, properties()} | {error, term()}).
 connect(Client) ->
     gen_statem:call(Client, connect, infinity).
 
@@ -692,7 +685,7 @@ waiting_for_connack(cast, ?CONNACK_PACKET(?RC_SUCCESS,
                             undefined -> AllProps;
                             _ -> maps:merge(AllProps, Properties)
                         end,
-            Reply = {ok, self(), Properties},
+            Reply = {ok, Properties},
             State2 = State1#state{client_id = assign_id(ClientId, AllProps1),
                                   properties = AllProps1,
                                   session_present = SessPresent},
@@ -1004,7 +997,7 @@ handle_event(info, {Error, _Sock, Reason}, _StateName, State)
 
 handle_event(info, {Closed, _Sock}, _StateName, State)
     when Closed =:= tcp_closed; Closed =:= ssl_closed ->
-    {stop, Closed, State};
+    {stop, {shutdown, Closed}, State};
 
 handle_event(info, {'EXIT', Owner, Reason}, _, #state{owner = Owner}) ->
     {stop, Reason};
