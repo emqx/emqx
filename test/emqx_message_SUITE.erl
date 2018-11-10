@@ -35,7 +35,7 @@ all() ->
 message_make(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
     ?assertEqual(0, Msg#message.qos),
-    Msg1 = emqx_message:make(<<"clientid">>, ?QOS2, <<"topic">>, <<"payload">>),
+    Msg1 = emqx_message:make(<<"clientid">>, ?QOS_2, <<"topic">>, <<"payload">>),
     ?assert(is_binary(Msg1#message.id)),
     ?assertEqual(2, Msg1#message.qos).
 

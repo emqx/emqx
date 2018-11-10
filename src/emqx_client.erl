@@ -21,6 +21,7 @@
 -export([start_link/0, start_link/1]).
 -export([request/5, request/6, request_async/7, receive_response/3]).
 -export([set_request_handler/2, sub_request_topic/3, sub_request_topic/4]).
+-export([connect/1]).
 -export([subscribe/2, subscribe/3, subscribe/4]).
 -export([publish/2, publish/3, publish/4, publish/5]).
 -export([unsubscribe/2, unsubscribe/3]).
@@ -95,7 +96,7 @@
                 | {force_ping, boolean()}
                 | {properties, properties()}).
 
--record(mqtt_msg, {qos = ?QOS0, retain = false, dup = false,
+-record(mqtt_msg, {qos = ?QOS_0, retain = false, dup = false,
                    packet_id, topic, props, payload}).
 
 -type(mqtt_msg() :: #mqtt_msg{}).
@@ -200,18 +201,11 @@ start_link(Options) when is_map(Options) ->
 start_link(Options) when is_list(Options) ->
     ok  = emqx_mqtt_props:validate(
             proplists:get_value(properties, Options, #{})),
-    case start_client(with_owner(Options)) of
-        {ok, Client} ->
-            connect(Client);
-        Error -> Error
-    end.
-
-start_client(Options) ->
     case proplists:get_value(name, Options) of
         undefined ->
-            gen_statem:start_link(?MODULE, [Options], []);
+            gen_statem:start_link(?MODULE, [with_owner(Options)], []);
         Name when is_atom(Name) ->
-            gen_statem:start_link({local, Name}, ?MODULE, [Options], [])
+            gen_statem:start_link({local, Name}, ?MODULE, [with_owner(Options)], [])
     end.
 
 with_owner(Options) ->
@@ -220,8 +214,7 @@ with_owner(Options) ->
         undefined -> [{owner, self()} | Options]
     end.
 
-%% @private
--spec(connect(client()) -> {ok, client(), properties()} | {error, term()}).
+-spec(connect(client()) -> {ok, properties()} | {error, term()}).
 connect(Client) ->
     gen_statem:call(Client, connect, infinity).
 
@@ -538,14 +531,24 @@ init([{hosts, Hosts} | Opts], State) ->
     init(Opts, State#state{hosts = Hosts1});
 init([{tcp_opts, TcpOpts} | Opts], State = #state{sock_opts = SockOpts}) ->
     init(Opts, State#state{sock_opts = emqx_misc:merge_opts(SockOpts, TcpOpts)});
-init([ssl | Opts], State = #state{sock_opts = SockOpts}) ->
-    ok = ssl:start(),
-    SockOpts1 = emqx_misc:merge_opts([{ssl_opts, []}], SockOpts),
-    init(Opts, State#state{sock_opts = SockOpts1});
+init([{ssl, EnableSsl} | Opts], State) ->
+    case lists:keytake(ssl_opts, 1, Opts) of
+        {value, SslOpts, WithOutSslOpts} ->
+            init([SslOpts, {ssl, EnableSsl}| WithOutSslOpts], State);
+        false ->
+            init([{ssl_opts, []}, {ssl, EnableSsl}| Opts], State)
+    end;
 init([{ssl_opts, SslOpts} | Opts], State = #state{sock_opts = SockOpts}) ->
-    ok = ssl:start(),
-    SockOpts1 = emqx_misc:merge_opts(SockOpts, [{ssl_opts, SslOpts}]),
-    init(Opts, State#state{sock_opts = SockOpts1});
+    case lists:keytake(ssl, 1, Opts) of
+        {value, {ssl, true}, WithOutEnableSsl} ->
+            ok = ssl:start(),
+            SockOpts1 = emqx_misc:merge_opts(SockOpts, [{ssl_opts, SslOpts}]),
+            init(WithOutEnableSsl, State#state{sock_opts = SockOpts1});
+        {value, {ssl, false}, WithOutEnableSsl} ->
+            init(WithOutEnableSsl, State);
+        false ->
+            init(Opts, State)
+    end;
 init([{client_id, ClientId} | Opts], State) ->
     init(Opts, State#state{client_id = iolist_to_binary(ClientId)});
 init([{clean_start, CleanStart} | Opts], State) when is_boolean(CleanStart) ->
@@ -682,7 +685,7 @@ waiting_for_connack(cast, ?CONNACK_PACKET(?RC_SUCCESS,
                             undefined -> AllProps;
                             _ -> maps:merge(AllProps, Properties)
                         end,
-            Reply = {ok, self(), Properties},
+            Reply = {ok, Properties},
             State2 = State1#state{client_id = assign_id(ClientId, AllProps1),
                                   properties = AllProps1,
                                   session_present = SessPresent},
@@ -994,7 +997,7 @@ handle_event(info, {Error, _Sock, Reason}, _StateName, State)
 
 handle_event(info, {Closed, _Sock}, _StateName, State)
     when Closed =:= tcp_closed; Closed =:= ssl_closed ->
-    {stop, Closed, State};
+    {stop, {shutdown, Closed}, State};
 
 handle_event(info, {'EXIT', Owner, Reason}, _, #state{owner = Owner}) ->
     {stop, Reason};
@@ -1217,7 +1220,7 @@ retry_send([{Type, Msg, Ts} | Msgs], Now, State = #state{retry_interval = Interv
 
 retry_send(publish, Msg = #mqtt_msg{qos = QoS, packet_id = PacketId},
            Now, State = #state{inflight = Inflight}) ->
-    Msg1 = Msg#mqtt_msg{dup = (QoS =:= ?QOS1)},
+    Msg1 = Msg#mqtt_msg{dup = (QoS =:= ?QOS_1)},
     case send(Msg1, State) of
         {ok, NewState} ->
             Inflight1 = emqx_inflight:update(PacketId, {publish, Msg1, Now}, Inflight),

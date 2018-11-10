@@ -25,12 +25,20 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
--record(state, {level, traces}).
+-record(state, {level, org_top_level, traces}).
 
--type(trace_who() :: {client | topic, binary()}).
+-type(trace_who() :: {client_id | topic, binary()}).
 
 -define(TRACER, ?MODULE).
--define(OPTIONS, [{formatter_config, [time, " [",severity,"] ", message, "\n"]}]).
+-define(FORMAT, {emqx_logger_formatter,
+                  #{template =>
+                      [time," [",level,"] ",
+                       {client_id,
+                          [{peername,
+                              [client_id,"@",peername," "],
+                              [client_id, " "]}],
+                          []},
+                       msg,"\n"]}}).
 
 -spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
 start_link() ->
@@ -40,26 +48,26 @@ trace(publish, #message{topic = <<"$SYS/", _/binary>>}) ->
     %% Dont' trace '$SYS' publish
     ignore;
 trace(publish, #message{from = From, topic = Topic, payload = Payload})
-    when is_binary(From); is_atom(From) ->
-    emqx_logger:info([{client, From}, {topic, Topic}], "~s PUBLISH to ~s: ~p", [From, Topic, Payload]).
+        when is_binary(From); is_atom(From) ->
+    emqx_logger:info(#{topic => Topic}, "PUBLISH to ~s: ~p", [Topic, Payload]).
 
 %%------------------------------------------------------------------------------
 %% Start/Stop trace
 %%------------------------------------------------------------------------------
 
-%% @doc Start to trace client or topic.
+%% @doc Start to trace client_id or topic.
 -spec(start_trace(trace_who(), string()) -> ok | {error, term()}).
-start_trace({client, ClientId}, LogFile) ->
-    start_trace({start_trace, {client, ClientId}, LogFile});
+start_trace({client_id, ClientId}, LogFile) ->
+    start_trace({start_trace, {client_id, ClientId}, LogFile});
 start_trace({topic, Topic}, LogFile) ->
     start_trace({start_trace, {topic, Topic}, LogFile}).
 
 start_trace(Req) -> gen_server:call(?MODULE, Req, infinity).
 
-%% @doc Stop tracing client or topic.
+%% @doc Stop tracing client_id or topic.
 -spec(stop_trace(trace_who()) -> ok | {error, term()}).
-stop_trace({client, ClientId}) ->
-    gen_server:call(?MODULE, {stop_trace, {client, ClientId}});
+stop_trace({client_id, ClientId}) ->
+    gen_server:call(?MODULE, {stop_trace, {client_id, ClientId}});
 stop_trace({topic, Topic}) ->
     gen_server:call(?MODULE, {stop_trace, {topic, Topic}}).
 
@@ -73,37 +81,45 @@ lookup_traces() ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    {ok, #state{level = emqx_config:get_env(trace_level, debug), traces = #{}}}.
+    {ok, #state{level = emqx_config:get_env(trace_level, debug),
+                org_top_level = get_top_level(),
+                traces = #{}}}.
 
 handle_call({start_trace, Who, LogFile}, _From, State = #state{level = Level, traces = Traces}) ->
-    case catch lager:trace_file(LogFile, [Who], Level, ?OPTIONS) of
-        {ok, exists} ->
-            {reply, {error, already_exists}, State};
-        {ok, Trace} ->
-            {reply, ok, State#state{traces = maps:put(Who, {Trace, LogFile}, Traces)}};
+    case logger:add_handler(handler_id(Who), logger_disk_log_h,
+                                #{level => Level,
+                                  formatter => ?FORMAT,
+                                  filesync_repeat_interval => 1000,
+                                  config => #{type => halt, file => LogFile},
+                                  filter_default => stop,
+                                  filters => [{meta_key_filter,
+                                               {fun filter_by_meta_key/2, Who} }]}) of
+        ok ->
+            set_top_level(all), % open the top logger level to 'all'
+            emqx_logger:info("[Tracer] start trace for ~p", [Who]),
+            {reply, ok, State#state{traces = maps:put(Who, LogFile, Traces)}};
         {error, Reason} ->
-            emqx_logger:error("[Tracer] trace error: ~p", [Reason]),
-            {reply, {error, Reason}, State};
-        {'EXIT', Error} ->
-            emqx_logger:error("[Tracer] trace exit: ~p", [Error]),
-            {reply, {error, Error}, State}
+            emqx_logger:error("[Tracer] start trace for ~p failed, error: ~p", [Who, Reason]),
+            {reply, {error, Reason}, State}
     end;
 
-handle_call({stop_trace, Who}, _From, State = #state{traces = Traces}) ->
+handle_call({stop_trace, Who}, _From, State = #state{org_top_level = OrgTopLevel, traces = Traces}) ->
     case maps:find(Who, Traces) of
-        {ok, {Trace, _LogFile}} ->
-            case lager:stop_trace(Trace) of
-                ok -> ok;
-                {error, Error} ->
-                    emqx_logger:error("[Tracer] stop trace ~p error: ~p", [Who, Error])
+        {ok, _LogFile} ->
+            case logger:remove_handler(handler_id(Who)) of
+                ok ->
+                    emqx_logger:info("[Tracer] stop trace for ~p", [Who]);
+                {error, Reason} ->
+                    emqx_logger:error("[Tracer] stop trace for ~p failed, error: ~p", [Who, Reason])
             end,
+            set_top_level(OrgTopLevel), % reset the top logger level to original value
             {reply, ok, State#state{traces = maps:remove(Who, Traces)}};
         error ->
             {reply, {error, not_found}, State}
     end;
 
 handle_call(lookup_traces, _From, State = #state{traces = Traces}) ->
-    {reply, [{Who, LogFile} || {Who, {_Trace, LogFile}} <- maps:to_list(Traces)], State};
+    {reply, [{Who, LogFile} || {Who, LogFile} <- maps:to_list(Traces)], State};
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[Tracer] unexpected call: ~p", [Req]),
@@ -123,3 +139,25 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+handler_id({topic, Topic}) ->
+    list_to_atom("topic_" ++ binary_to_list(Topic));
+handler_id({client_id, ClientId}) ->
+    list_to_atom("clientid_" ++ binary_to_list(ClientId)).
+
+get_top_level() ->
+    #{level := OrgTopLevel} = logger:get_primary_config(),
+    OrgTopLevel.
+
+set_top_level(Level) ->
+    logger:set_primary_config(level, Level).
+
+filter_by_meta_key(#{meta:=Meta}=LogEvent, {MetaKey, MetaValue}) ->
+    case maps:find(MetaKey, Meta) of
+        {ok, MetaValue} -> LogEvent;
+        {ok, Topic} when MetaKey =:= topic ->
+            case emqx_topic:match(Topic, MetaValue) of
+                true -> LogEvent;
+                false -> ignore
+            end;
+        _ -> ignore
+    end.

@@ -382,144 +382,113 @@ end}.
 %% Log
 %%--------------------------------------------------------------------
 
-{mapping, "log.dir", "lager.log_dir", [
+{mapping, "log.to", "kernel.logger", [
+  {default, console},
+  {datatype, {enum, [off, file, console, both]}}
+]}.
+
+{mapping, "log.level", "kernel.logger_level", [
+  {default, error},
+  {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
+]}.
+
+{mapping, "log.logger_sasl_compatible", "kernel.logger_sasl_compatible", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+{mapping, "log.dir", "kernel.logger", [
   {default, "log"},
   {datatype, string}
 ]}.
 
-{mapping, "log.console", "lager.handlers", [
-  {default, file},
-  {datatype, {enum, [off, file, console, both]}}
-]}.
-
-{mapping, "log.console.level", "lager.handlers", [
-  {default, info},
-  {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, none]}}
-]}.
-
-{mapping, "log.console.file", "lager.handlers", [
-  {default, "log/console.log"},
+{mapping, "log.file", "kernel.logger", [
+  {default, "emqx.log"},
   {datatype, file}
 ]}.
 
-{mapping, "log.console.size", "lager.handlers", [
-  {default, 10485760},
-  {datatype, integer}
+{mapping, "log.rotation.size", "kernel.logger", [
+  {default, "10MB"},
+  {datatype, bytesize}
 ]}.
 
-{mapping, "log.console.count", "lager.handlers", [
+{mapping, "log.rotation.count", "kernel.logger", [
   {default, 5},
   {datatype, integer}
 ]}.
 
-{mapping, "log.info.file", "lager.handlers", [
+{mapping, "log.$level.file", "kernel.logger", [
   {datatype, file}
 ]}.
-
-{mapping, "log.info.size", "lager.handlers", [
-  {default, 10485760},
-  {datatype, integer}
-]}.
-
-{mapping, "log.info.count", "lager.handlers", [
-  {default, 5},
-  {datatype, integer}
-]}.
-
-{mapping, "log.error.file", "lager.handlers", [
-  {default, "log/error.log"},
-  {datatype, file}
-]}.
-
-{mapping, "log.error.size", "lager.handlers", [
-  {default, 10485760},
-  {datatype, integer}
-]}.
-
-{mapping, "log.error.count", "lager.handlers", [
-  {default, 5},
-  {datatype, integer}
-]}.
-
-{mapping, "log.error.redirect", "lager.error_logger_redirect", [
-  {default, on},
-  {datatype, flag},
-  hidden
-]}.
-
-{mapping, "log.error.messages_per_second", "lager.error_logger_hwm", [
-  {default, 1000},
-  {datatype, integer},
-  hidden
-]}.
-
-{translation,
- "lager.handlers",
- fun(Conf) ->
-    ErrorHandler = case cuttlefish:conf_get("log.error.file", Conf, undefined) of
-      undefined -> [];
-      ErrorFilename -> [{lager_file_backend, [{file, ErrorFilename},
-                                              {level, error},
-                                              {size, cuttlefish:conf_get("log.error.size", Conf)},
-                                              {date, "$D0"},
-                                              {count, cuttlefish:conf_get("log.error.count", Conf)}]}]
-    end,
-
-    InfoHandler = case cuttlefish:conf_get("log.info.file", Conf, undefined) of
-      undefined -> [];
-      InfoFilename -> [{lager_file_backend, [{file, InfoFilename},
-                                             {level, info},
-                                             {size, cuttlefish:conf_get("log.info.size", Conf)},
-                                             {date, "$D0"},
-                                             {count, cuttlefish:conf_get("log.info.count", Conf)}]}]
-    end,
-
-    ConsoleLogLevel = cuttlefish:conf_get("log.console.level", Conf),
-    ConsoleLogFile = cuttlefish:conf_get("log.console.file", Conf),
-
-    ConsoleHandler = {lager_console_backend, [{level, ConsoleLogLevel}]},
-    ConsoleFileHandler = {lager_file_backend, [{file, ConsoleLogFile},
-                                               {level, ConsoleLogLevel},
-                                               {size, cuttlefish:conf_get("log.console.size", Conf)},
-                                               {date, "$D0"},
-                                               {count, cuttlefish:conf_get("log.console.count", Conf)}]},
-
-    ConsoleHandlers = case cuttlefish:conf_get("log.console", Conf) of
-      off -> [];
-      file -> [ConsoleFileHandler];
-      console -> [ConsoleHandler];
-      both -> [ConsoleHandler, ConsoleFileHandler];
-      _ -> []
-    end,
-    ConsoleHandlers ++ ErrorHandler ++ InfoHandler
-  end
-}.
-
-{mapping, "log.crash", "lager.crash_log", [
-  {default, on},
-  {datatype, flag}
-]}.
-
-{mapping, "log.crash.file", "lager.crash_log", [
-  {default, "log/crash.log"},
-  {datatype, file}
-]}.
-
-{translation,
- "lager.crash_log",
- fun(Conf) ->
-     case cuttlefish:conf_get("log.crash", Conf) of
-         false -> undefined;
-         _ ->
-             cuttlefish:conf_get("log.crash.file", Conf, "./log/crash.log")
-     end
- end}.
 
 {mapping, "sasl", "sasl.sasl_error_logger", [
   {default, off},
   {datatype, flag},
   hidden
 ]}.
+
+{translation, "kernel.logger", fun(Conf) ->
+    LogTo = cuttlefish:conf_get("log.to", Conf),
+    TopLogLevel = cuttlefish:conf_get("log.level", Conf),
+    Formatter = {emqx_logger_formatter,
+                  #{template =>
+                      [time," [",level,"] ",
+                       {client_id,
+                          [{peername,
+                              [client_id,"@",peername," "],
+                              [client_id, " "]}],
+                          []},
+                       msg,"\n"]}},
+    FileConf =  fun(Filename) ->
+                  #{type => wrap,
+                    file => filename:join(cuttlefish:conf_get("log.dir", Conf), Filename),
+                    max_no_files => cuttlefish:conf_get("log.rotation.count", Conf),
+                    max_no_bytes => cuttlefish:conf_get("log.rotation.size", Conf)}
+                end,
+
+    %% For the default logger that outputs to console
+    DefaultHandler =
+        if LogTo =:= console orelse LogTo =:= both ->
+                [{handler, default, logger_std_h,
+                    #{level => TopLogLevel,
+                      config => #{type => standard_io},
+                      formatter => Formatter}}];
+           true ->
+                [{handler, default, undefined}]
+        end,
+
+    %% For the file logger
+    FileHandler =
+        if LogTo =:= file orelse LogTo =:= both ->
+              [{handler, file, logger_disk_log_h,
+                    #{level => TopLogLevel,
+                      config => FileConf(cuttlefish:conf_get("log.file", Conf)),
+                      formatter => Formatter,
+                      filesync_repeat_interval => no_repeat}}];
+           true -> []
+        end,
+
+    %% For creating additional log files for specific log levels.
+    AdditionalLogFiles =
+        lists:foldl(
+          fun({[_, Level, _] = K, Filename}, Acc) when LogTo =:= file; LogTo =:= both ->
+                case cuttlefish_variable:is_fuzzy_match(K, ["log", "$level", "file"]) of
+                  true -> [{Level, Filename} | Acc];
+                  false -> Acc
+                end;
+             ({_K, _V}, Acc) ->
+               Acc
+          end, [], Conf),
+    AdditionalHandlers =
+        [{handler, list_to_atom("file_for_"++Level), logger_disk_log_h,
+            #{level => list_to_atom(Level),
+              config => FileConf(Filename),
+              formatter => Formatter,
+              filesync_repeat_interval => no_repeat}}
+          || {Level, Filename} <- AdditionalLogFiles],
+
+    DefaultHandler ++ FileHandler ++ AdditionalHandlers
+end}.
 
 %%--------------------------------------------------------------------
 %% Authentication/ACL
@@ -622,18 +591,6 @@ end}.
 {mapping, "mqtt.shared_subscription", "emqx.mqtt_shared_subscription", [
   {default, true},
   {datatype, {enum, [true, false]}}
-]}.
-
-%% @doc Type: simple | priority
-{mapping, "mqtt.mqueue_type", "emqx.mqueue_type", [
-  {default, simple},
-  {datatype, {enum, [simple, priority]}}
-]}.
-
-%% @doc Topic Priorities: 0~255, Default is 0
-{mapping, "mqtt.mqueue_priorities", "emqx.mqueue_priorities", [
-  {default, ""},
-  {datatype, string}
 ]}.
 
 %%--------------------------------------------------------------------
@@ -777,12 +734,6 @@ end}.
   {datatype, {duration, s}}
 ]}.
 
-%% @doc Type: simple | priority
-{mapping, "zone.$name.mqueue_type", "emqx.zones", [
-  {default, simple},
-  {datatype, {enum, [simple, priority]}}
-]}.
-
 %% @doc Max queue length. Enqueued messages when persistent client
 %% disconnected, or inflight window is full. 0 means no limit.
 {mapping, "zone.$name.max_mqueue_len", "emqx.zones", [
@@ -790,9 +741,21 @@ end}.
   {datatype, integer}
 ]}.
 
-%% @doc Topic Priorities: 0~255, Default is 0
+%% @doc Topic Priorities, comma separated topic=priority pairs,
+%% where priority should be integer in range 1-255 (inclusive)
+%% 1 being the lowest and 255 being the highest.
+%% default value `none` to indicate no priority table, hence all
+%% messages are treated equal, which means either highest ('infinity'),
+%% or lowest (0) depending on mqueue_default_priority config.
 {mapping, "zone.$name.mqueue_priorities", "emqx.zones", [
+  {default, "none"},
   {datatype, string}
+]}.
+
+%% @doc Default priority for topics not in priority table.
+{mapping, "zone.$name.mqueue_default_priority", "emqx.zones", [
+  {default, lowest},
+  {datatype, {enum, [highest, lowest]}}
 ]}.
 
 %% @doc Queue Qos0 messages?
@@ -859,6 +822,18 @@ end}.
                                                max_heap_size => Siz1}
                                      end,
                     {force_shutdown_policy, ShutdownPolicy};
+               ("mqueue_priorities", Val) ->
+                    case Val of
+                        "none" -> none; % NO_PRIORITY_TABLE
+                        _ ->
+                            lists:foldl(fun(T, Acc) ->
+                                                %% NOTE: space in "= " is intended
+                                                [{Topic, Prio}] = string:tokens(T, "= "),
+                                                P = list_to_integer(Prio),
+                                                (P < 0 orelse P > 255) andalso error({bad_priority, Topic, Prio}),
+                                                maps:put(iolist_to_binary(Topic), P, Acc)
+                                        end, string:tokens(Val, ","))
+                    end;
                (Opt, Val) ->
                     {list_to_atom(Opt), Val}
             end,
@@ -1516,7 +1491,13 @@ end}.
 ]}.
 
 {mapping, "bridge.$name.forwards", "emqx.bridges", [
-  {datatype, string}
+  {datatype, string},
+  {default, ""}
+]}.
+
+{mapping, "bridge.$name.ssl", "emqx.bridges", [
+  {datatype, flag},
+  {default, off}
 ]}.
 
 {mapping, "bridge.$name.cacertfile", "emqx.bridges", [
@@ -1542,11 +1523,12 @@ end}.
 
 {mapping, "bridge.$name.keepalive", "emqx.bridges", [
   {default, "10s"},
-  {datatype, {duration, s}}
+  {datatype, {duration, ms}}
 ]}.
 
 {mapping, "bridge.$name.tls_versions", "emqx.bridges", [
-  {datatype, string}
+  {datatype, string},
+  {default, "tlsv1,tlsv1.1,tlsv1.2"}
 ]}.
 
 {mapping, "bridge.$name.subscription.$id.topic", "emqx.bridges", [
@@ -1564,12 +1546,11 @@ end}.
 
 {mapping, "bridge.$name.reconnect_interval", "emqx.bridges", [
   {default, "30s"},
-  {datatype, {duration, s}}
+  {datatype, {duration, ms}}
 ]}.
 
 
 {translation, "emqx.bridges", fun(Conf) ->
-
     Split = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
 
     IsSsl = fun(cacertfile)   -> true;
@@ -1586,31 +1567,33 @@ end}.
                     {ciphers, Split(Ciphers)};
                (Opt, Val) ->
                     {Opt, Val}
-               end,
-
-    Merge = fun(Opt, Val, Opts) ->
-                case IsSsl(Opt) of
-                    true ->
-                        SslOpts = [Parse(Opt, Val)|proplists:get_value(ssl_opts, Opts, [])],
-                        lists:ukeymerge(1, [{ssl_opts, SslOpts}], Opts);
-                    false ->
-                        [{Opt, Val}|Opts]
-                end
             end,
+
+    Merge = fun(forwards, Val, Opts) ->
+                  [{forwards, string:tokens(Val, ",")}|Opts];
+               (Opt, Val, Opts) ->
+                  case IsSsl(Opt) of
+                      true ->
+                          SslOpts = [Parse(Opt, Val)|proplists:get_value(ssl_opts, Opts, [])],
+                          lists:ukeymerge(1, [{ssl_opts, SslOpts}], lists:usort(Opts));
+                      false ->
+                          [{Opt, Val}|Opts]
+                  end
+            end,
+
     Subscriptions = fun(Name) ->
-                            Configs = cuttlefish_variable:filter_by_prefix("bridge." ++ Name ++ ".subscription", Conf),
-                            lists:zip([Topic || {_, Topic} <- lists:sort([{I, Topic} || {[_, _, "subscription", I, "topic"], Topic} <- Configs])],
-                                      [QoS || {_, QoS} <- lists:sort([{I, QoS} || {[_, _, "subscription", I, "qos"], QoS} <- Configs])])
+                        Configs = cuttlefish_variable:filter_by_prefix("bridge." ++ Name ++ ".subscription", Conf),
+                        lists:zip([Topic || {_, Topic} <- lists:sort([{I, Topic} || {[_, _, "subscription", I, "topic"], Topic} <- Configs])],
+                                  [QoS || {_, QoS} <- lists:sort([{I, QoS} || {[_, _, "subscription", I, "qos"], QoS} <- Configs])])
                     end,
 
     maps:to_list(
       lists:foldl(
         fun({["bridge", Name, Opt], Val}, Acc) ->
+                %% e.g #{aws => [{OptKey, OptVal}]}
+                Init = [{list_to_atom(Opt), Val},{subscriptions, Subscriptions(Name)}],
                 maps:update_with(list_to_atom(Name),
-                                 fun(Opts) ->
-                                         Merge(list_to_atom(Opt), Val, Opts)
-                                 end, [{list_to_atom(Opt), Val},
-                                       {subscriptions, Subscriptions(Name)}], Acc);
+                                 fun(Opts) -> Merge(list_to_atom(Opt), Val, Opts) end, Init, Acc);
            (_, Acc) -> Acc
         end, #{}, lists:usort(cuttlefish_variable:filter_by_prefix("bridge.", Conf))))
 

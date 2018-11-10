@@ -43,11 +43,7 @@
 -define(QOS_1, 1). %% At least once
 -define(QOS_2, 2). %% Exactly once
 
--define(QOS0, 0). %% At most once
--define(QOS1, 1). %% At least once
--define(QOS2, 2). %% Exactly once
-
--define(IS_QOS(I), (I >= ?QOS0 andalso I =< ?QOS2)).
+-define(IS_QOS(I), (I >= ?QOS_0 andalso I =< ?QOS_2)).
 
 -define(QOS_I(Name),
     begin

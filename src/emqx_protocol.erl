@@ -72,9 +72,8 @@
 
 -define(NO_PROPS, undefined).
 
--define(LOG(Level, Format, Args, PState),
-        emqx_logger:Level([{client, PState#pstate.client_id}], "MQTT(~s@~s): " ++ Format,
-                          [PState#pstate.client_id, esockd_net:format(PState#pstate.peername) | Args])).
+-define(LOG(Level, Format, Args, _PState),
+        emqx_logger:Level("[MQTT] " ++ Format, Args)).
 
 %%------------------------------------------------------------------------------
 %% Init
@@ -82,6 +81,7 @@
 
 -spec(init(map(), list()) -> state()).
 init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options) ->
+    emqx_logger:add_proc_metadata(#{peername => esockd_net:format(Peername)}),
     Zone = proplists:get_value(zone, Options),
     #pstate{zone          =  Zone,
             sendfun       =  SendFun,
@@ -287,7 +287,7 @@ process_packet(?CONNECT_PACKET(
                                        client_id   = ClientId,
                                        username    = Username,
                                        password    = Password} = Connect), PState) ->
-
+    emqx_logger:add_proc_metadata(#{client_id => ClientId}),
     %% TODO: Mountpoint...
     %% Msg -> emqx_mountpoint:mount(MountPoint, Msg)
     WillMsg = make_will_msg(Connect),
@@ -586,11 +586,8 @@ deliver({disconnect, _ReasonCode}, PState) ->
 -spec(send(emqx_mqtt_types:packet(), state()) -> {ok, state()} | {error, term()}).
 send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = SendFun}) ->
     trace(send, Packet, PState),
-    case SendFun(emqx_frame:serialize(Packet, #{version => Ver})) of
+    case SendFun(Packet, #{version => Ver}) of
         ok ->
-            emqx_metrics:sent(Packet),
-            {ok, inc_stats(send, Type, PState)};
-        {binary, _Data} ->
             emqx_metrics:sent(Packet),
             {ok, inc_stats(send, Type, PState)};
         {error, Reason} ->

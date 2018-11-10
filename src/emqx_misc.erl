@@ -62,9 +62,11 @@ proc_stats(Pid) ->
 
 -define(DISABLED, 0).
 
+init_proc_mng_policy(undefined) -> ok;
 init_proc_mng_policy(Zone) ->
-    #{max_heap_size := MaxHeapSizeInBytes} = ShutdownPolicy =
-        emqx_zone:get_env(Zone, force_shutdown_policy),
+    #{max_heap_size := MaxHeapSizeInBytes}
+        = ShutdownPolicy
+        = emqx_zone:get_env(Zone, force_shutdown_policy),
     MaxHeapSize = MaxHeapSizeInBytes div erlang:system_info(wordsize),
     _ = erlang:process_flag(max_heap_size, MaxHeapSize), % zero is discarded
     erlang:put(force_shutdown_policy, ShutdownPolicy),
@@ -106,4 +108,3 @@ is_enabled(Max) -> is_integer(Max) andalso Max > ?DISABLED.
 proc_info(Key) ->
     {Key, Value} = erlang:process_info(self(), Key),
     Value.
-

@@ -100,7 +100,7 @@ serialize_parse_connect(_) ->
     ?assertEqual({ok, Packet1, <<>>}, parse_serialize(Packet1)),
     Packet2 = ?CONNECT_PACKET(#mqtt_packet_connect{
                                  client_id    = <<"clientId">>,
-                                 will_qos     = ?QOS1,
+                                 will_qos     = ?QOS_1,
                                  will_flag    = true,
                                  will_retain  = true,
                                  will_topic   = <<"will">>,
@@ -427,4 +427,3 @@ parse(Bin, Opts) when is_map(Opts) ->
 
 payload() ->
     iolist_to_binary(["payload." || _I <- lists:seq(1, 1000)]).
-

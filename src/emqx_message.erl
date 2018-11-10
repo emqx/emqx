@@ -34,7 +34,7 @@ make(Topic, Payload) ->
 -spec(make(atom() | emqx_types:client_id(), emqx_topic:topic(), emqx_types:payload())
       -> emqx_types:message()).
 make(From, Topic, Payload) ->
-    make(From, ?QOS0, Topic, Payload).
+    make(From, ?QOS_0, Topic, Payload).
 
 -spec(make(atom() | emqx_types:client_id(), emqx_mqtt_types:qos(),
            emqx_topic:topic(), emqx_types:payload()) -> emqx_types:message()).
@@ -47,7 +47,7 @@ make(From, QoS, Topic, Payload) ->
              payload    = Payload,
              timestamp  = os:timestamp()}.
 
-msgid(?QOS0) -> undefined;
+msgid(?QOS_0) -> undefined;
 msgid(_QoS)  -> emqx_guid:gen().
 
 set_flags(Flags, Msg = #message{flags = undefined}) when is_map(Flags) ->
@@ -114,7 +114,7 @@ elapsed(Since) ->
     max(0, timer:now_diff(os:timestamp(), Since) div 1000).
 
 format(#message{id = Id, qos = QoS, topic = Topic, from = From, flags = Flags, headers = Headers}) ->
-    io_lib:format("Message(Id=~s, QoS=~w, Topic=~s, From=~s, Flags=~s, Headers=~s)",
+    io_lib:format("Message(Id=~s, QoS=~w, Topic=~s, From=~p, Flags=~s, Headers=~s)",
                   [Id, QoS, Topic, From, format(flags, Flags), format(headers, Headers)]).
 
 format(_, undefined) ->

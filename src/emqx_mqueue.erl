@@ -13,8 +13,8 @@
 
 %% @doc A Simple in-memory message queue.
 %%
-%% Notice that MQTT is not an enterprise messaging queue. MQTT assume that client
-%% should be online in most of the time.
+%% Notice that MQTT is not a (on-disk) persistent messaging queue.
+%% It assumes that clients should be online in most of the time.
 %%
 %% This module implements a simple in-memory queue for MQTT persistent session.
 %%
@@ -37,7 +37,8 @@
 %% 3. QoS=0 messages are only enqueued when `store_qos0' is given `true`
 %%    in init options
 %%
-%% 4. If the queue is full drop the oldest one unless `max_len' is set to `0'.
+%% 4. If the queue is full, drop the oldest one
+%%    unless `max_len' is set to `0' which implies (`infinity').
 %%
 %% @end
 
@@ -46,132 +47,121 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
--export([init/1, type/1]).
+-export([init/1]).
 -export([is_empty/1]).
 -export([len/1, max_len/1]).
 -export([in/2, out/1]).
 -export([stats/1, dropped/1]).
 
--define(PQUEUE, emqx_pqueue).
+-export_type([mqueue/0, options/0]).
 
--type(priority() :: {iolist(), pos_integer()}).
-
--type(options() :: #{type       := simple | priority,
-                     max_len    := non_neg_integer(),
-                     priorities => list(priority()),
-                     store_qos0 => boolean()}).
+-type(topic() :: emqx_topic:topic()).
+-type(priority() :: infinity | integer()).
+-type(pq() :: emqx_pqueue:q()).
+-type(count() :: non_neg_integer()).
+-type(p_table() :: ?NO_PRIORITY_TABLE | #{topic() := priority()}).
+-type(options() :: #{max_len := count(),
+                     priorities => p_table(),
+                     default_priority => highest | lowest,
+                     store_qos0 => boolean()
+                    }).
+-type(message() :: pemqx_types:message()).
 
 -type(stat() :: {len, non_neg_integer()}
               | {max_len, non_neg_integer()}
               | {dropped, non_neg_integer()}).
 
+-define(PQUEUE, emqx_pqueue).
+-define(LOWEST_PRIORITY, 0).
+-define(HIGHEST_PRIORITY, infinity).
+-define(MAX_LEN_INFINITY, 0).
+
 -record(mqueue, {
-          type :: simple | priority,
-          q :: queue:queue() | ?PQUEUE:q(),
-          %% priority table
-          priorities = [],
-          pseq = 0,
-          len = 0,
-          max_len = 0,
-          qos0 = false,
-          dropped = 0
+          store_qos0 = false              :: boolean(),
+          max_len    = ?MAX_LEN_INFINITY  :: count(),
+          len        = 0                  :: count(),
+          dropped    = 0                  :: count(),
+          p_table    = ?NO_PRIORITY_TABLE :: p_table(),
+          default_p  = ?LOWEST_PRIORITY   :: priority(),
+          q          = ?PQUEUE:new()      :: pq()
          }).
 
--type(mqueue() :: #mqueue{}).
-
--export_type([mqueue/0, priority/0, options/0]).
+-opaque(mqueue() :: #mqueue{}).
 
 -spec(init(options()) -> mqueue()).
-init(Opts = #{type := Type, max_len := MaxLen, store_qos0 := QoS0}) ->
-    init_q(#mqueue{type = Type, len = 0, max_len = MaxLen, qos0 = QoS0}, Opts).
+init(Opts = #{max_len := MaxLen0, store_qos0 := QoS_0}) ->
+    MaxLen = case (is_integer(MaxLen0) andalso MaxLen0 > ?MAX_LEN_INFINITY) of
+                 true -> MaxLen0;
+                 false -> ?MAX_LEN_INFINITY
+             end,
+    #mqueue{max_len = MaxLen,
+            store_qos0 = QoS_0,
+            p_table = get_opt(priorities, Opts, ?NO_PRIORITY_TABLE),
+            default_p = get_priority_opt(Opts)
+           }.
 
-init_q(MQ = #mqueue{type = simple}, _Opts) ->
-    MQ#mqueue{q = queue:new()};
-init_q(MQ = #mqueue{type = priority}, #{priorities := Priorities}) ->
-    init_pq(Priorities, MQ#mqueue{q = ?PQUEUE:new()}).
+is_empty(#mqueue{len = Len}) -> Len =:= 0.
 
-init_pq([], MQ) ->
-    MQ;
-init_pq([{Topic, P} | L], MQ) ->
-    {_, MQ1} = insert_p(iolist_to_binary(Topic), P, MQ),
-    init_pq(L, MQ1).
-
-insert_p(Topic, P, MQ = #mqueue{priorities = L, pseq = Seq}) ->
-    <<PInt:48>> = <<P:8, (erlang:phash2(Topic)):32, Seq:8>>,
-    {PInt, MQ#mqueue{priorities = [{Topic, PInt} | L], pseq = Seq + 1}}.
-
--spec(type(mqueue()) -> simple | priority).
-type(#mqueue{type = Type}) -> Type.
-
-is_empty(#mqueue{type = simple, len = Len}) -> Len =:= 0;
-is_empty(#mqueue{type = priority, q = Q})   -> ?PQUEUE:is_empty(Q).
-
-len(#mqueue{type = simple, len = Len}) -> Len;
-len(#mqueue{type = priority, q = Q})   -> ?PQUEUE:len(Q).
+len(#mqueue{len = Len}) -> Len.
 
 max_len(#mqueue{max_len = MaxLen}) -> MaxLen.
 
-%% @doc Dropped of the mqueue
--spec(dropped(mqueue()) -> non_neg_integer()).
+%% @doc Return number of dropped messages.
+-spec(dropped(mqueue()) -> count()).
 dropped(#mqueue{dropped = Dropped}) -> Dropped.
 
 %% @doc Stats of the mqueue
 -spec(stats(mqueue()) -> [stat()]).
-stats(#mqueue{type = Type, q = Q, max_len = MaxLen, len = Len, dropped = Dropped}) ->
-    [{len, case Type of
-                simple   -> Len;
-                priority -> ?PQUEUE:len(Q)
-            end} | [{max_len, MaxLen}, {dropped, Dropped}]].
+stats(#mqueue{max_len = MaxLen, dropped = Dropped} = MQ) ->
+    [{len, len(MQ)}, {max_len, MaxLen}, {dropped, Dropped}].
 
 %% @doc Enqueue a message.
--spec(in(emqx_types:message(), mqueue()) -> mqueue()).
-in(#message{qos = ?QOS_0}, MQ = #mqueue{qos0 = false}) ->
-    MQ;
-in(Msg, MQ = #mqueue{type = simple, q = Q, len = Len, max_len = 0}) ->
-    MQ#mqueue{q = queue:in(Msg, Q), len = Len + 1};
-in(Msg, MQ = #mqueue{type = simple, q = Q, len = Len, max_len = MaxLen, dropped = Dropped})
-    when Len >= MaxLen ->
-    {{value, _Old}, Q2} = queue:out(Q),
-    MQ#mqueue{q = queue:in(Msg, Q2), dropped = Dropped +1};
-in(Msg, MQ = #mqueue{type = simple, q = Q, len = Len}) ->
-    MQ#mqueue{q = queue:in(Msg, Q), len = Len + 1};
-
-in(Msg = #message{topic = Topic}, MQ = #mqueue{type = priority, q = Q,
-                                               priorities = Priorities,
-                                               max_len = 0}) ->
-    case lists:keysearch(Topic, 1, Priorities) of
-        {value, {_, Pri}} ->
-            MQ#mqueue{q = ?PQUEUE:in(Msg, Pri, Q)};
+-spec(in(message(), mqueue()) -> {undefined | message(), mqueue()}).
+in(#message{qos = ?QOS_0}, MQ = #mqueue{store_qos0 = false}) ->
+    {_Dropped = undefined, MQ};
+in(Msg = #message{topic = Topic}, MQ = #mqueue{default_p = Dp,
+                                               p_table = PTab,
+                                               q = Q,
+                                               len = Len,
+                                               max_len = MaxLen,
+                                               dropped = Dropped
+                                              } = MQ) ->
+    Priority = get_priority(Topic, PTab, Dp),
+    PLen = ?PQUEUE:plen(Priority, Q),
+    case MaxLen =/= ?MAX_LEN_INFINITY andalso PLen =:= MaxLen of
+        true ->
+            %% reached max length, drop the oldest message
+            {{value, DroppedMsg}, Q1} = ?PQUEUE:out(Priority, Q),
+            Q2 = ?PQUEUE:in(Msg, Priority, Q1),
+            {DroppedMsg, MQ#mqueue{q = Q2, dropped = Dropped + 1}};
         false ->
-            {Pri, MQ1} = insert_p(Topic, 0, MQ),
-            MQ1#mqueue{q = ?PQUEUE:in(Msg, Pri, Q)}
-    end;
-in(Msg = #message{topic = Topic}, MQ = #mqueue{type = priority, q = Q,
-                                               priorities = Priorities,
-                                               max_len = MaxLen}) ->
-    case lists:keysearch(Topic, 1, Priorities) of
-        {value, {_, Pri}} ->
-            case ?PQUEUE:plen(Pri, Q) >= MaxLen of
-                true ->
-                    {_, Q1} = ?PQUEUE:out(Pri, Q),
-                    MQ#mqueue{q = ?PQUEUE:in(Msg, Pri, Q1)};
-                false ->
-                    MQ#mqueue{q = ?PQUEUE:in(Msg, Pri, Q)}
-            end;
-        false ->
-            {Pri, MQ1} = insert_p(Topic, 0, MQ),
-            MQ1#mqueue{q = ?PQUEUE:in(Msg, Pri, Q)}
+            {_DroppedMsg = undefined, MQ#mqueue{len = Len + 1, q = ?PQUEUE:in(Msg, Priority, Q)}}
     end.
 
-out(MQ = #mqueue{type = simple, len = 0}) ->
+-spec(out(mqueue()) -> {empty | {value, message()}, mqueue()}).
+out(MQ = #mqueue{len = 0, q = Q}) ->
+    0 = ?PQUEUE:len(Q), %% assert, in this case, ?PQUEUE:len should be very cheap
     {empty, MQ};
-out(MQ = #mqueue{type = simple, q = Q, len = Len, max_len = 0}) ->
-    {R, Q2} = queue:out(Q),
-    {R, MQ#mqueue{q = Q2, len = Len - 1}};
-out(MQ = #mqueue{type = simple, q = Q, len = Len}) ->
-    {R, Q2} = queue:out(Q),
-    {R, MQ#mqueue{q = Q2, len = Len - 1}};
-out(MQ = #mqueue{type = priority, q = Q}) ->
-    {R, Q2} = ?PQUEUE:out(Q),
-    {R, MQ#mqueue{q = Q2}}.
+out(MQ = #mqueue{q = Q, len = Len}) ->
+    {R, Q1} = ?PQUEUE:out(Q),
+    {R, MQ#mqueue{q = Q1, len = Len - 1}}.
 
+get_opt(Key, Opts, Default) ->
+    case maps:get(Key, Opts, Default) of
+        undefined -> Default;
+        X -> X
+    end.
+
+get_priority_opt(Opts) ->
+    case get_opt(default_priority, Opts, ?LOWEST_PRIORITY) of
+        lowest -> ?LOWEST_PRIORITY;
+        highest -> ?HIGHEST_PRIORITY;
+        N when is_integer(N) -> N
+    end.
+
+%% MICRO-OPTIMIZATION: When there is no priority table defined (from config),
+%% disregard default priority from config, always use lowest (?LOWEST_PRIORITY=0)
+%% because the lowest priority in emqx_pqueue is a fallback to queue:queue()
+%% while the highest 'infinity' is a [{infinity, queue:queue()}]
+get_priority(_Topic, ?NO_PRIORITY_TABLE, _) -> ?LOWEST_PRIORITY;
+get_priority(Topic, PTab, Dp) -> maps:get(Topic, PTab, Dp).

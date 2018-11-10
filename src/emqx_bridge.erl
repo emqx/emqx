@@ -30,11 +30,11 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
--record(state, {client_pid, options, reconnect_interval, 
+-record(state, {client_pid, options, reconnect_interval,
                 mountpoint, queue, mqueue_type, max_pending_messages,
                 forwards = [], subscriptions = []}).
 
--record(mqtt_msg, {qos = ?QOS0, retain = false, dup = false,
+-record(mqtt_msg, {qos = ?QOS_0, retain = false, dup = false,
                    packet_id, topic, props, payload}).
 
 start_link(Name, Options) ->
@@ -188,19 +188,23 @@ handle_cast(Msg, State) ->
 %% start message bridge
 %%----------------------------------------------------------------
 handle_info(start, State = #state{options = Options,
-                                  client_pid = undefined,
-                                  reconnect_interval = ReconnectInterval}) ->
+                                  client_pid = undefined}) ->
     case emqx_client:start_link([{owner, self()}|options(Options)]) of
-        {ok, ClientPid, _} ->
-            Subs = [{i2b(Topic), Qos} || {Topic, Qos} <- get_value(subscriptions, Options, []),
-                                                         emqx_topic:validate({filter, i2b(Topic)})],
-            Forwards = [i2b(Topic) || Topic <- string:tokens(get_value(forwards, Options, ""), ","),
-                                               emqx_topic:validate({filter, i2b(Topic)})],
-            [emqx_client:subscribe(ClientPid, {Topic, Qos}) || {Topic, Qos} <- Subs],
-            [emqx_broker:subscribe(Topic) || Topic <- Forwards],
-            {noreply, State#state{client_pid = ClientPid, subscriptions = Subs, forwards = Forwards}};
-        {error,_} ->
-            erlang:send_after(ReconnectInterval, self(), start),
+        {ok, ClientPid} ->
+            case emqx_client:connect(ClientPid) of
+                {ok, _} ->
+                    emqx_logger:info("[Bridge] connected to remote sucessfully"),
+                    Subs = subscribe_remote_topics(ClientPid, get_value(subscriptions, Options, [])),
+                    Forwards = subscribe_local_topics(get_value(forwards, Options, [])),
+                    {noreply, State#state{client_pid = ClientPid,
+                                          subscriptions = Subs,
+                                          forwards = Forwards}};
+                {error, Reason} ->
+                    emqx_logger:error("[Bridge] connect to remote failed! error: ~p", [Reason]),
+                    {noreply, State#state{client_pid = ClientPid}}
+            end;
+        {error, Reason} ->
+            emqx_logger:error("[Bridge] start failed! error: ~p", [Reason]),
             {noreply, State}
     end;
 
@@ -218,7 +222,7 @@ handle_info({dispatch, _, #message{topic = Topic, payload = Payload, flags = #{r
         {ok, PkgId} ->
             {noreply, State#state{queue = store(MqueueType, {PkgId, Msg}, Queue, MaxPendingMsg)}};
         {error, Reason} ->
-            emqx_logger:error("Publish fail:~p", [Reason]),
+            emqx_logger:error("[Bridge] Publish fail:~p", [Reason]),
             {noreply, State}
     end;
 
@@ -240,11 +244,12 @@ handle_info({puback, #{packet_id := PkgId}}, State = #state{queue = Queue, mqueu
     {noreply, State#state{queue = delete(MqueueType, PkgId, Queue)}};
 
 handle_info({'EXIT', Pid, normal}, State = #state{client_pid = Pid}) ->
+    emqx_logger:warning("[Bridge] stop ~p", [normal]),
     {noreply, State#state{client_pid = undefined}};
 
 handle_info({'EXIT', Pid, Reason}, State = #state{client_pid = Pid,
                                                   reconnect_interval = ReconnectInterval}) ->
-    lager:warning("emqx bridge stop reason:~p", [Reason]),
+    emqx_logger:error("[Bridge] stop ~p", [Reason]),
     erlang:send_after(ReconnectInterval, self(), start),
     {noreply, State#state{client_pid = undefined}};
 
@@ -257,6 +262,14 @@ terminate(_Reason, #state{}) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+subscribe_remote_topics(ClientPid, Subscriptions) ->
+    [begin emqx_client:subscribe(ClientPid, {bin(Topic), Qos}), {bin(Topic), Qos} end
+        || {Topic, Qos} <- Subscriptions, emqx_topic:validate({filter, bin(Topic)})].
+
+subscribe_local_topics(Topics) ->
+    [begin emqx_broker:subscribe(bin(Topic)), bin(Topic) end
+        || Topic <- Topics, emqx_topic:validate({filter, bin(Topic)})].
 
 proto_ver(mqttv3) -> v3;
 proto_ver(mqttv4) -> v4;
@@ -285,13 +298,17 @@ options([{clean_start, CleanStart}| Options], Acc) ->
 options([{address, Address}| Options], Acc) ->
     {Host, Port} = address(Address),
     options(Options, [{host, Host}, {port, Port}|Acc]);
+options([{ssl, Ssl}| Options], Acc) ->
+    options(Options, [{ssl, Ssl}|Acc]);
+options([{ssl_opts, SslOpts}| Options], Acc) ->
+    options(Options, [{ssl_opts, SslOpts}|Acc]);
 options([_Option | Options], Acc) ->
     options(Options, Acc).
 
 name(Id) ->
     list_to_atom(lists:concat([?MODULE, "_", Id])).
 
-i2b(L) -> iolist_to_binary(L).
+bin(L) -> iolist_to_binary(L).
 
 mountpoint(undefined, Topic) ->
     Topic;
@@ -301,12 +318,12 @@ mountpoint(Prefix, Topic) ->
 format_mountpoint(undefined) ->
     undefined;
 format_mountpoint(Prefix) ->
-    binary:replace(i2b(Prefix), <<"${node}">>, atom_to_binary(node(), utf8)).
+    binary:replace(bin(Prefix), <<"${node}">>, atom_to_binary(node(), utf8)).
 
 store(memory, Data, Queue, MaxPendingMsg) when length(Queue) =< MaxPendingMsg ->
     [Data | Queue];
 store(memory, _Data, Queue, _MaxPendingMsg) ->
-    lager:error("Beyond max pending messages"),
+    logger:error("Beyond max pending messages"),
     Queue;
 store(disk, Data, Queue, _MaxPendingMsg)->
     [Data | Queue].

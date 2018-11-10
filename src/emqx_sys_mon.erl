@@ -25,9 +25,9 @@
 
 -define(SYSMON, ?MODULE).
 -define(LOG(Msg, ProcInfo),
-        emqx_logger:warning([{sysmon, true}], "[SYSMON] ~s~n~p", [WarnMsg, ProcInfo])).
+        emqx_logger:warning(#{sysmon => true}, "[SYSMON] ~s~n~p", [WarnMsg, ProcInfo])).
 -define(LOG(Msg, ProcInfo, PortInfo),
-        emqx_logger:warning([{sysmon, true}], "[SYSMON] ~s~n~p~n~p", [WarnMsg, ProcInfo, PortInfo])).
+        emqx_logger:warning(#{sysmon => true}, "[SYSMON] ~s~n~p~n~p", [WarnMsg, ProcInfo, PortInfo])).
 
 %% @doc Start system monitor
 -spec(start_link(Opts :: list(tuple())) -> {ok, pid()} | ignore | {error, term()}).
@@ -130,7 +130,7 @@ handle_info({timeout, _Ref, reset}, State) ->
     {noreply, State#state{events = []}, hibernate};
 
 handle_info(Info, State) ->
-    lager:error("[SYSMON] unexpected Info: ~p", [Info]),
+    logger:error("[SYSMON] unexpected Info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{timer = TRef}) ->
