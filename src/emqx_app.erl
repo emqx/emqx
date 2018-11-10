@@ -25,6 +25,12 @@
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
+    %% We configure the primary logger level to `all` here, rather than set the
+    %%   kernel config `logger_level = all` before starting the erlang vm.
+    %% This is because the latter approach an annoying debug msg will be printed out:
+    %%   "[debug] got_unexpected_message {'EXIT',<0.1198.0>,normal}"
+    logger:set_primary_config(level, application:get_env(emqx, primary_log_level, all)),
+
     print_banner(),
     ekka:start(),
     {ok, Sup} = emqx_sup:start_link(),

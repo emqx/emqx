@@ -25,7 +25,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
--record(state, {level, org_top_level, traces}).
+-record(state, {level, traces}).
 
 -type(trace_who() :: {client_id | topic, binary()}).
 
@@ -82,20 +82,18 @@ lookup_traces() ->
 
 init([]) ->
     {ok, #state{level = emqx_config:get_env(trace_level, debug),
-                org_top_level = get_top_level(),
                 traces = #{}}}.
 
 handle_call({start_trace, Who, LogFile}, _From, State = #state{level = Level, traces = Traces}) ->
     case logger:add_handler(handler_id(Who), logger_disk_log_h,
                                 #{level => Level,
                                   formatter => ?FORMAT,
-                                  filesync_repeat_interval => 1000,
+                                  filesync_repeat_interval => no_repeat,
                                   config => #{type => halt, file => LogFile},
                                   filter_default => stop,
                                   filters => [{meta_key_filter,
                                                {fun filter_by_meta_key/2, Who} }]}) of
         ok ->
-            set_top_level(all), % open the top logger level to 'all'
             emqx_logger:info("[Tracer] start trace for ~p", [Who]),
             {reply, ok, State#state{traces = maps:put(Who, LogFile, Traces)}};
         {error, Reason} ->
@@ -103,7 +101,7 @@ handle_call({start_trace, Who, LogFile}, _From, State = #state{level = Level, tr
             {reply, {error, Reason}, State}
     end;
 
-handle_call({stop_trace, Who}, _From, State = #state{org_top_level = OrgTopLevel, traces = Traces}) ->
+handle_call({stop_trace, Who}, _From, State = #state{traces = Traces}) ->
     case maps:find(Who, Traces) of
         {ok, _LogFile} ->
             case logger:remove_handler(handler_id(Who)) of
@@ -112,7 +110,6 @@ handle_call({stop_trace, Who}, _From, State = #state{org_top_level = OrgTopLevel
                 {error, Reason} ->
                     emqx_logger:error("[Tracer] stop trace for ~p failed, error: ~p", [Who, Reason])
             end,
-            set_top_level(OrgTopLevel), % reset the top logger level to original value
             {reply, ok, State#state{traces = maps:remove(Who, Traces)}};
         error ->
             {reply, {error, not_found}, State}
@@ -143,13 +140,6 @@ handler_id({topic, Topic}) ->
     list_to_atom("topic_" ++ binary_to_list(Topic));
 handler_id({client_id, ClientId}) ->
     list_to_atom("clientid_" ++ binary_to_list(ClientId)).
-
-get_top_level() ->
-    #{level := OrgTopLevel} = logger:get_primary_config(),
-    OrgTopLevel.
-
-set_top_level(Level) ->
-    logger:set_primary_config(level, Level).
 
 filter_by_meta_key(#{meta:=Meta}=LogEvent, {MetaKey, MetaValue}) ->
     case maps:find(MetaKey, Meta) of

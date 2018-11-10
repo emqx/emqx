@@ -387,8 +387,13 @@ end}.
   {datatype, {enum, [off, file, console, both]}}
 ]}.
 
-{mapping, "log.level", "kernel.logger_level", [
+{mapping, "log.level", "kernel.logger", [
   {default, error},
+  {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
+]}.
+
+{mapping, "log.primary_level", "emqx.primary_log_level", [
+  {default, all},
   {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
 ]}.
 
@@ -429,7 +434,7 @@ end}.
 
 {translation, "kernel.logger", fun(Conf) ->
     LogTo = cuttlefish:conf_get("log.to", Conf),
-    TopLogLevel = cuttlefish:conf_get("log.level", Conf),
+    LogLevel = cuttlefish:conf_get("log.level", Conf),
     Formatter = {emqx_logger_formatter,
                   #{template =>
                       [time," [",level,"] ",
@@ -450,7 +455,7 @@ end}.
     DefaultHandler =
         if LogTo =:= console orelse LogTo =:= both ->
                 [{handler, default, logger_std_h,
-                    #{level => TopLogLevel,
+                    #{level => LogLevel,
                       config => #{type => standard_io},
                       formatter => Formatter}}];
            true ->
@@ -461,7 +466,7 @@ end}.
     FileHandler =
         if LogTo =:= file orelse LogTo =:= both ->
               [{handler, file, logger_disk_log_h,
-                    #{level => TopLogLevel,
+                    #{level => LogLevel,
                       config => FileConf(cuttlefish:conf_get("log.file", Conf)),
                       formatter => Formatter,
                       filesync_repeat_interval => no_repeat}}];
