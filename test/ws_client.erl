@@ -52,10 +52,10 @@ init(_, _WSReq) ->
     {ok, #state{}}.
 
 websocket_handle(Frame, _, State = #state{waiting = undefined, buffer = Buffer}) ->
-    lager:info("Client received frame~p", [Frame]),
+    logger:info("Client received frame~p", [Frame]),
     {ok, State#state{buffer = [Frame|Buffer]}};
 websocket_handle(Frame, _, State = #state{waiting = From}) ->
-    lager:info("Client received frame~p", [Frame]),
+    logger:info("Client received frame~p", [Frame]),
     From ! Frame,
     {ok, State#state{waiting = undefined}}.
 

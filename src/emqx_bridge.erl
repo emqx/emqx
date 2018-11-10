@@ -323,7 +323,7 @@ format_mountpoint(Prefix) ->
 store(memory, Data, Queue, MaxPendingMsg) when length(Queue) =< MaxPendingMsg ->
     [Data | Queue];
 store(memory, _Data, Queue, _MaxPendingMsg) ->
-    lager:error("Beyond max pending messages"),
+    logger:error("Beyond max pending messages"),
     Queue;
 store(disk, Data, Queue, _MaxPendingMsg)->
     [Data | Queue].
