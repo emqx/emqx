@@ -33,7 +33,7 @@ start() ->
 start_listener({Proto, ListenOn, Options}) ->
     case start_listener(Proto, ListenOn, Options) of
         {ok, _} ->
-            logger:info("Start mqtt:~s listener on ~s successfully.", [Proto, format(ListenOn)]);
+            io:format("Start mqtt:~s listener on ~s successfully.~n", [Proto, format(ListenOn)]);
         {error, Reason} ->
             io:format(standard_error, "Failed to start mqtt:~s listener on ~s - ~p~n!",
                       [Proto, format(ListenOn), Reason])
@@ -117,7 +117,7 @@ stop() ->
 stop_listener({Proto, ListenOn, Opts}) ->
     case stop_listener(Proto, ListenOn, Opts) of
         ok ->
-            logger:info("Stop mqtt:~s listener on ~s successfully.", [Proto, format(ListenOn)]);
+            io:format("Stop mqtt:~s listener on ~s successfully.~n", [Proto, format(ListenOn)]);
         {error, Reason} ->
             io:format(standard_error, "Failed to stop mqtt:~s listener on ~s - ~p~n.",
                       [Proto, format(ListenOn), Reason])
