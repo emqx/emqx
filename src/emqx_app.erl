@@ -47,12 +47,12 @@ stop(_State) ->
 %%--------------------------------------------------------------------
 
 print_banner() ->
-    logger:info("Starting ~s on node ~s", [?APP, node()]).
+    io:format("Starting ~s on node ~s~n", [?APP, node()]).
 
 print_vsn() ->
     {ok, Descr} = application:get_key(description),
     {ok, Vsn} = application:get_key(vsn),
-    logger:info("~s ~s is running now!", [Descr, Vsn]).
+    io:format("~s ~s is running now!~n", [Descr, Vsn]).
 
 %%--------------------------------------------------------------------
 %% Autocluster
