@@ -72,8 +72,12 @@
 
 -define(NO_PROPS, undefined).
 
--define(LOG(Level, Format, Args, _PState),
-        emqx_logger:Level("[MQTT] " ++ Format, Args)).
+-define(LOG(Level, Format, Args),
+        emqx_logger:Level(#{header => "[MQTT] ", format => Format, args => Args},
+                          #{report_cb =>
+                                fun(#{header := Hdr0, format := Fmt0, args := Args0}) ->
+                                    {Hdr0 ++ Fmt0, Args0}
+                                end})).
 
 %%------------------------------------------------------------------------------
 %% Init
@@ -81,7 +85,6 @@
 
 -spec(init(map(), list()) -> state()).
 init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options) ->
-    emqx_logger:add_proc_metadata(#{peername => esockd_net:format(Peername)}),
     Zone = proplists:get_value(zone, Options),
     #pstate{zone          =  Zone,
             sendfun       =  SendFun,
@@ -211,7 +214,7 @@ received(?PACKET(?CONNECT), PState = #pstate{connected = true}) ->
 
 received(Packet = ?PACKET(Type), PState) ->
     PState1 =  set_protover(Packet, PState),
-    trace(recv, Packet, PState1),
+    trace(recv, Packet),
     try emqx_packet:validate(Packet) of
         true ->
             {Packet1, PState2} = preprocess_properties(Packet, PState1),
@@ -319,11 +322,11 @@ process_packet(?CONNECT_PACKET(
                               %% Success
                               {?RC_SUCCESS, SP, PState4};
                           {error, Error} ->
-                              ?LOG(error, "Failed to open session: ~p", [Error], PState1),
+                              ?LOG(error, "Failed to open session: ~p", [Error]),
                               {?RC_UNSPECIFIED_ERROR, PState1}
                       end;
                   {error, Reason} ->
-                      ?LOG(error, "Username '~s' login failed for ~p", [Username, Reason], PState2),
+                      ?LOG(error, "Username '~s' login failed for ~p", [Username, Reason]),
                       {?RC_NOT_AUTHORIZED, PState1}
               end;
           {error, ReasonCode} ->
@@ -335,26 +338,31 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PSt
         {ok, PState1} ->
             do_publish(Packet, PState1);
         {error, ?RC_TOPIC_ALIAS_INVALID} ->
-            ?LOG(error, "Protocol error - ~p", [?RC_TOPIC_ALIAS_INVALID], PState),
+            ?LOG(error, "Protocol error - ~p", [?RC_TOPIC_ALIAS_INVALID]),
             {error, ?RC_TOPIC_ALIAS_INVALID, PState};
         {error, ReasonCode} ->
-            ?LOG(warning, "Cannot publish qos0 message to ~s for ~s", [Topic, ReasonCode], PState),
+            ?LOG(warning, "Cannot publish qos0 message to ~s for ~s",
+                [Topic, emqx_reason_codes:text(ReasonCode)]),
             {error, ReasonCode, PState}
     end;
 
-process_packet(Packet = ?PUBLISH_PACKET(?QOS_1, PacketId), PState) ->
+process_packet(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PState) ->
     case check_publish(Packet, PState) of
         {ok, PState1} ->
             do_publish(Packet, PState1);
         {error, ReasonCode} ->
+            ?LOG(warning, "Cannot publish qos1 message to ~s for ~s",
+                [Topic, emqx_reason_codes:text(ReasonCode)]),
             deliver({puback, PacketId, ReasonCode}, PState)
     end;
 
-process_packet(Packet = ?PUBLISH_PACKET(?QOS_2, PacketId), PState) ->
+process_packet(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PState) ->
     case check_publish(Packet, PState) of
         {ok, PState1} ->
             do_publish(Packet, PState1);
         {error, ReasonCode} ->
+            ?LOG(warning, "Cannot publish qos2 message to ~s for ~s",
+                [Topic, emqx_reason_codes:text(ReasonCode)]),
             deliver({pubrec, PacketId, ReasonCode}, PState)
     end;
 
@@ -404,11 +412,14 @@ process_packet(?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
                     deliver({suback, PacketId, ReasonCodes}, PState)
             end;
         {error, TopicFilters} ->
-            ReasonCodes = lists:map(fun({_, #{rc := ?RC_SUCCESS}}) ->
-                                            ?RC_IMPLEMENTATION_SPECIFIC_ERROR;
-                                       ({_, #{rc := ReasonCode}}) ->
-                                            ReasonCode
-                                    end, TopicFilters),
+            {SubTopics, ReasonCodes} =
+                lists:foldr(fun({Topic, #{rc := ?RC_SUCCESS}}, {Topics, Codes}) ->
+                                    {[Topic|Topics], [?RC_IMPLEMENTATION_SPECIFIC_ERROR | Codes]};
+                                ({Topic, #{rc := Code}}, {Topics, Codes}) ->
+                                    {[Topic|Topics], [Code|Codes]}
+                            end, {[], []}, TopicFilters),
+            ?LOG(warning, "Cannot subscribe ~p for ~p",
+                [SubTopics, [emqx_reason_codes:text(R) || R <- ReasonCodes]]),
             deliver({suback, PacketId, ReasonCodes}, PState)
     end;
 
@@ -585,7 +596,7 @@ deliver({disconnect, _ReasonCode}, PState) ->
 
 -spec(send(emqx_mqtt_types:packet(), state()) -> {ok, state()} | {error, term()}).
 send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = SendFun}) ->
-    trace(send, Packet, PState),
+    trace(send, Packet),
     case SendFun(Packet, #{version => Ver}) of
         ok ->
             emqx_metrics:sent(Packet),
@@ -759,7 +770,8 @@ check_pub_acl(_Packet, #pstate{is_super = IsSuper, enable_acl = EnableAcl})
 check_pub_acl(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}}, PState) ->
     case emqx_access_control:check_acl(credentials(PState), publish, Topic) of
         allow -> ok;
-        deny  -> {error, ?RC_NOT_AUTHORIZED}
+        deny  ->
+            {error, ?RC_NOT_AUTHORIZED}
     end.
 
 run_check_steps([], _Packet, PState) ->
@@ -793,17 +805,22 @@ check_sub_acl(TopicFilters, PState) ->
               case emqx_access_control:check_acl(Credentials, subscribe, Topic) of
                   allow -> {Ok, [{Topic, SubOpts}|Acc]};
                   deny  ->
-                      emqx_logger:warning([{client, PState#pstate.client_id}],
-                                          "ACL(~s) Cannot SUBSCRIBE ~p for ACL Deny",
-                                          [PState#pstate.client_id, Topic]),
                       {error, [{Topic, SubOpts#{rc := ?RC_NOT_AUTHORIZED}}|Acc]}
               end
       end, {ok, []}, TopicFilters).
 
-trace(recv, Packet, PState) ->
-    ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)], PState);
-trace(send, Packet, PState) ->
-    ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)], PState).
+trace(recv, Packet) ->
+    emqx_logger:debug(#{header => "[MQTT] RECV ~s", pck => Packet},
+                      #{report_cb =>
+                            fun(#{header := Fmt, pck := Pckt}) ->
+                                {Fmt, [emqx_packet:format(Pckt)]}
+                            end});
+trace(send, Packet) ->
+    emqx_logger:debug(#{header => "[MQTT] SEND ~s", pck => Packet},
+                      #{report_cb =>
+                            fun(#{header := Fmt, pck := Pckt}) ->
+                                {Fmt, [emqx_packet:format(Pckt)]}
+                            end}).
 
 inc_stats(recv, Type, PState = #pstate{recv_stats = Stats}) ->
     PState#pstate{recv_stats = inc_stats(Type, Stats)};
@@ -826,7 +843,7 @@ shutdown(Reason, #pstate{client_id = ClientId}) when Reason =:= conflict;
     emqx_cm:unregister_connection(ClientId);
 shutdown(Reason, PState = #pstate{connected = true,
                                   client_id = ClientId}) ->
-    ?LOG(info, "Shutdown for ~p", [Reason], PState),
+    ?LOG(info, "Shutdown for ~p", [Reason]),
     emqx_hooks:run('client.disconnected', [credentials(PState), Reason]),
     emqx_cm:unregister_connection(ClientId).
 
