@@ -14,8 +14,11 @@
 
 -module(emqx_protocol).
 
+-define(LOG_HEADER, "[MQTT]").
+
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
+-include("logger.hrl").
 
 -export([init/2]).
 -export([info/1]).
@@ -71,13 +74,6 @@
 -endif.
 
 -define(NO_PROPS, undefined).
-
--define(LOG(Level, Format, Args),
-        emqx_logger:Level(#{header => "[MQTT] ", format => Format, args => Args},
-                          #{report_cb =>
-                                fun(#{header := Hdr0, format := Fmt0, args := Args0}) ->
-                                    {Hdr0 ++ Fmt0, Args0}
-                                end})).
 
 %%------------------------------------------------------------------------------
 %% Init
@@ -810,17 +806,9 @@ check_sub_acl(TopicFilters, PState) ->
       end, {ok, []}, TopicFilters).
 
 trace(recv, Packet) ->
-    emqx_logger:debug(#{header => "[MQTT] RECV ~s", pck => Packet},
-                      #{report_cb =>
-                            fun(#{header := Fmt, pck := Pckt}) ->
-                                {Fmt, [emqx_packet:format(Pckt)]}
-                            end});
+    ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]);
 trace(send, Packet) ->
-    emqx_logger:debug(#{header => "[MQTT] SEND ~s", pck => Packet},
-                      #{report_cb =>
-                            fun(#{header := Fmt, pck := Pckt}) ->
-                                {Fmt, [emqx_packet:format(Pckt)]}
-                            end}).
+    ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)]).
 
 inc_stats(recv, Type, PState = #pstate{recv_stats = Stats}) ->
     PState#pstate{recv_stats = inc_stats(Type, Stats)};
