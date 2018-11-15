@@ -16,8 +16,11 @@
 
 -behaviour(gen_server).
 
+-define(LOG_HEADER, "[TCP]").
+
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
+-include("logger.hrl").
 
 -export([start_link/3]).
 -export([info/1, attrs/1]).
@@ -49,13 +52,6 @@
          }).
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
-
--define(LOG(Level, Format, Args),
-        emqx_logger:Level(#{header => "[TCP] ", format => Format, args => Args},
-                          #{report_cb =>
-                                fun(#{header := Hdr0, format := Fmt0, args := Args0}) ->
-                                    {Hdr0 ++ Fmt0, Args0}
-                                end})).
 
 start_link(Transport, Socket, Options) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[Transport, Socket, Options]])}.
@@ -135,7 +131,7 @@ init([Transport, RawSocket, Options]) ->
             PubLimit = init_limiter(emqx_zone:get_env(Zone, publish_limit)),
             EnableStats = emqx_zone:get_env(Zone, enable_stats, true),
             IdleTimout = emqx_zone:get_env(Zone, idle_timeout, 30000),
-            SendFun = send_fun(Transport, Socket, Peername),
+            SendFun = send_fun(Transport, Socket),
             ProtoState = emqx_protocol:init(#{peername => Peername,
                                               sockname => Sockname,
                                               peercert => Peercert,
@@ -169,7 +165,7 @@ init_limiter(undefined) ->
 init_limiter({Rate, Burst}) ->
     esockd_rate_limit:new(Rate, Burst).
 
-send_fun(Transport, Socket, Peername) ->
+send_fun(Transport, Socket) ->
     fun(Packet, Options) ->
         Data = emqx_frame:serialize(Packet, Options),
         try Transport:async_send(Socket, Data) of
