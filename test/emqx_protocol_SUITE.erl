@@ -250,6 +250,63 @@ connect_v5(_) ->
 
                             emqx_client_sock:close(Sock2)
                     end),
+
+    % duplicate client id
+    with_connection(fun(Sock) ->
+                            application:set_env(emqx, use_username_as_clientid, true),
+                            emqx_client_sock:send(Sock,
+                                                    raw_send_serialize(
+                                                        ?CONNECT_PACKET(
+                                                            #mqtt_packet_connect{
+                                                                proto_ver   = ?MQTT_PROTO_V5,
+                                                                clean_start = true,
+                                                                client_id   = <<"myclient">>,
+                                                                properties  =
+                                                                    #{'Session-Expiry-Interval' => 10}})
+                                                  )),
+                            {ok, Data} = gen_tcp:recv(Sock, 0),
+                            {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0), _} = raw_recv_parse(Data, ?MQTT_PROTO_V5),
+
+                            {ok, Sock1} = emqx_client_sock:connect({127, 0, 0, 1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
+                            emqx_client_sock:send(Sock1,
+                                                    raw_send_serialize(
+                                                        ?CONNECT_PACKET(
+                                                            #mqtt_packet_connect{
+                                                                proto_ver   = ?MQTT_PROTO_V5,
+                                                                clean_start = false,
+                                                                client_id   = <<"myclient">>,
+                                                                username    = <<"admin">>,
+                                                                password    = <<"public">>,
+                                                                properties  =
+                                                                    #{'Session-Expiry-Interval' => 10}})
+                                                  )),
+                            {ok, Data1} = gen_tcp:recv(Sock1, 0),
+                            {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0), _} = raw_recv_parse(Data1, ?MQTT_PROTO_V5),
+
+                            emqx_client_sock:send(Sock, raw_send_serialize(?SUBSCRIBE_PACKET(1, [{<<"TopicA">>, #{rh  => 1,
+                                                                                                                  qos => ?QOS_2,
+                                                                                                                  rap => 0,
+                                                                                                                  nl  => 0,
+                                                                                                                  rc  => 0}}]),
+                                                                            #{version => ?MQTT_PROTO_V5})),
+
+                            {ok, SubData} = gen_tcp:recv(Sock, 0),
+                            {ok, ?SUBACK_PACKET(1, #{}, [2]), _} = raw_recv_parse(SubData, ?MQTT_PROTO_V5),
+
+                            emqx_client_sock:send(Sock1, raw_send_serialize(?SUBSCRIBE_PACKET(1, [{<<"TopicA">>, #{rh  => 1,
+                                                                                                                  qos => ?QOS_2,
+                                                                                                                  rap => 0,
+                                                                                                                  nl  => 0,
+                                                                                                                  rc  => 0}}]),
+                                                                            #{version => ?MQTT_PROTO_V5})),
+
+                            {ok, SubData1} = gen_tcp:recv(Sock1, 0),
+                            {ok, ?SUBACK_PACKET(1, #{}, [2]), _} = raw_recv_parse(SubData1, ?MQTT_PROTO_V5),
+
+
+                            emqx_client_sock:close(Sock1)
+                    end),    
+
     ok.
 
 do_connect(Sock, ProtoVer) ->
