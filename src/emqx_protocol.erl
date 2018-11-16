@@ -286,7 +286,7 @@ process_packet(?CONNECT_PACKET(
                                        client_id   = ClientId,
                                        username    = Username,
                                        password    = Password} = Connect), PState) ->
-    emqx_logger:add_proc_metadata(#{client_id => ClientId}),
+    emqx_logger:add_metadata_client_id(ClientId),
     %% TODO: Mountpoint...
     %% Msg -> emqx_mountpoint:mount(MountPoint, Msg)
     WillMsg = make_will_msg(Connect),
