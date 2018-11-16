@@ -136,7 +136,7 @@ websocket_init(#state{request = Req, options = Options}) ->
     IdleTimout = emqx_zone:get_env(Zone, idle_timeout, 30000),
     lists:foreach(fun(Stat) -> put(Stat, 0) end, ?SOCK_STATS),
 
-    emqx_logger:add_proc_metadata(#{peername => esockd_net:format(Peername)}),
+    emqx_logger:add_metadata_peername(esockd_net:format(Peername)),
     {ok, #state{peername     = Peername,
                 sockname     = Sockname,
                 parser_state = ParserState,

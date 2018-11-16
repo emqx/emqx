@@ -7,7 +7,7 @@
 
 -define(LOG(Level, Format, Args),
         begin
-          (logger:log(Level, #{},#{report_cb =>
+          (logger:log(Level,#{},#{report_cb =>
                                     fun(_) ->
                                         {?LOG_HEADER ++ " "++ (Format), (Args)}
                                     end}))

@@ -153,7 +153,7 @@ init([Transport, RawSocket, Options]) ->
             ok = emqx_gc:init(GcPolicy),
             ok = emqx_misc:init_proc_mng_policy(Zone),
 
-            emqx_logger:add_proc_metadata(#{peername => esockd_net:format(Peername)}),
+            emqx_logger:add_metadata_peername(esockd_net:format(Peername)),
             gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}],
                                   State, self(), IdleTimout);
         {error, Reason} ->
