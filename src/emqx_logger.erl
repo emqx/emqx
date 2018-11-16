@@ -22,6 +22,7 @@
 -export([error/1, error/2, error/3]).
 -export([critical/1, critical/2, critical/3]).
 
+-export([add_metadata_peername/1, add_metadata_client_id/1]).
 -export([add_proc_metadata/1]).
 
 debug(Msg) ->
@@ -58,6 +59,13 @@ critical(Format, Args) ->
     logger:critical(Format, Args).
 critical(Metadata, Format, Args) when is_map(Metadata) ->
     logger:critical(Format, Args, Metadata).
+
+
+add_metadata_client_id(ClientId) ->
+    add_proc_metadata(#{client_id => ClientId}).
+
+add_metadata_peername(Peername) ->
+    add_proc_metadata(#{peername => Peername}).
 
 add_proc_metadata(Meta) ->
     case logger:get_process_metadata() of
