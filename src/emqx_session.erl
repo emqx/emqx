@@ -152,6 +152,7 @@
           will_msg :: emqx:message(),
 
           will_delay_timer :: reference() | undefined
+
          }).
 
 -type(spid() :: pid()).
@@ -575,19 +576,28 @@ handle_info({dispatch, Topic, Msgs}, State) when is_list(Msgs) ->
 
 %% Dispatch message
 handle_info({dispatch, Topic, Msg = #message{headers = Headers}},
-            State = #state{subscriptions = SubMap, topic_alias_maximum = TopicAliasMaximum}) when is_record(Msg, message) ->
+            State = #state{subscriptions = SubMap,
+                           topic_alias_maximum = TopicAliasMaximum}) when is_record(Msg, message) ->
     TopicAlias = maps:get('Topic-Alias', Headers, undefined),
-    if
-        TopicAlias =:= undefined orelse TopicAlias =< TopicAliasMaximum ->
+    case TopicAlias of
+        undefined ->
+            noreply(case emqx_zone:get_env(undefined, mqtt_ignore_loop_deliver, false) of
+                        true ->
+                            State;
+                        false ->
+                            dispatch(emqx_message:unset_flag(dup, Msg), State)
+            end);
+        TopicAlias when TopicAlias =< TopicAliasMaximum ->
             noreply(case maps:find(Topic, SubMap) of
                         {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
                             run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}, {subid, SubId}], Msg, State);
                         {ok, #{nl := Nl, qos := QoS, rap := Rap}} ->
                             run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}], Msg, State);
                         error ->
-                            dispatch(emqx_message:unset_flag(dup, Msg), State)
+                            State
+
                     end);
-        true ->
+        _ ->
             noreply(State)
     end;
 

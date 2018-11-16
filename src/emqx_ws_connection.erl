@@ -264,9 +264,9 @@ websocket_info(Info, State) ->
     ?WSLOG(error, "unexpected info: ~p", [Info], State),
     {ok, State}.
 
-terminate(SockError, _Req, State = #state{keepalive   = Keepalive,
-                                          proto_state = ProtoState,
-                                          shutdown    = Shutdown}) ->
+terminate(SockError, _Req, #state{keepalive   = Keepalive,
+                                  proto_state = ProtoState,
+                                  shutdown    = Shutdown}) ->
     ?WSLOG(debug, "Terminated for ~p, sockerror: ~p",
            [Shutdown, SockError], State),
     emqx_keepalive:cancel(Keepalive),
