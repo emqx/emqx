@@ -531,6 +531,12 @@ end}.
   {validators, ["range:gt_0"]}
 ]}.
 
+%% @doc Use username replace client id
+{mapping, "use_username_as_clientid", "emqx.use_username_as_clientid", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
 {validator, "range:gt_0", "must greater than 0",
   fun(X) -> X > 0 end
 }.
