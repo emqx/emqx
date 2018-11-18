@@ -579,27 +579,27 @@ handle_info({dispatch, Topic, Msg = #message{headers = Headers}},
             State = #state{subscriptions = SubMap,
                            topic_alias_maximum = TopicAliasMaximum}) when is_record(Msg, message) ->
     TopicAlias = maps:get('Topic-Alias', Headers, undefined),
-    case TopicAlias of
-        undefined ->
-            noreply(case emqx_zone:get_env(undefined, mqtt_ignore_loop_deliver, false) of
-                        true ->
-                            State;
-                        false ->
-                            dispatch(emqx_message:unset_flag(dup, Msg), State)
-            end);
-        TopicAlias when TopicAlias =< TopicAliasMaximum ->
+    IgnoreLoop = fun(NL) -> case emqx_config:get_env(mqtt_ignore_loop_deliver, false) of
+                                true ->
+                                    1;
+                                false ->
+                                    NL
+                            end
+                 end,
+    if
+        TopicAlias =:= undefined orelse TopicAlias =< TopicAliasMaximum ->
             noreply(case maps:find(Topic, SubMap) of
                         {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
-                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}, {subid, SubId}], Msg, State);
+                            run_dispatch_steps([{nl, IgnoreLoop(Nl)}, {qos, QoS}, {rap, Rap}, {subid, SubId}], Msg, State);
                         {ok, #{nl := Nl, qos := QoS, rap := Rap}} ->
-                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}], Msg, State);
+                            run_dispatch_steps([{nl, IgnoreLoop(Nl)}, {qos, QoS}, {rap, Rap}], Msg, State);
                         error ->
-                            State
-
+                            dispatch(emqx_message:unset_flag(dup, Msg), State)
                     end);
-        _ ->
+        true ->
             noreply(State)
     end;
+
 
 %% Do nothing if the client has been disconnected.
 handle_info({timeout, Timer, retry_delivery}, State = #state{conn_pid = undefined, retry_timer = Timer}) ->
