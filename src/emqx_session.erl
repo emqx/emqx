@@ -579,20 +579,13 @@ handle_info({dispatch, Topic, Msg = #message{headers = Headers}},
             State = #state{subscriptions = SubMap,
                            topic_alias_maximum = TopicAliasMaximum}) when is_record(Msg, message) ->
     TopicAlias = maps:get('Topic-Alias', Headers, undefined),
-    IgnoreLoop = fun(NL) -> case emqx_config:get_env(mqtt_ignore_loop_deliver, false) of
-                                true ->
-                                    1;
-                                false ->
-                                    NL
-                            end
-                 end,
     if
         TopicAlias =:= undefined orelse TopicAlias =< TopicAliasMaximum ->
             noreply(case maps:find(Topic, SubMap) of
                         {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
-                            run_dispatch_steps([{nl, IgnoreLoop(Nl)}, {qos, QoS}, {rap, Rap}, {subid, SubId}], Msg, State);
+                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}, {subid, SubId}], Msg, State);
                         {ok, #{nl := Nl, qos := QoS, rap := Rap}} ->
-                            run_dispatch_steps([{nl, IgnoreLoop(Nl)}, {qos, QoS}, {rap, Rap}], Msg, State);
+                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}], Msg, State);
                         error ->
                             dispatch(emqx_message:unset_flag(dup, Msg), State)
                     end);

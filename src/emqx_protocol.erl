@@ -383,10 +383,17 @@ process_packet(?PUBCOMP_PACKET(PacketId, ReasonCode), PState = #pstate{session =
 
 process_packet(?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
                PState = #pstate{session = SPid, mountpoint = Mountpoint, proto_ver = ProtoVer, is_bridge = IsBridge}) ->
+    IgnoreLoop = fun() -> case emqx_config:get_env(mqtt_ignore_loop_deliver, false) of
+                                true ->
+                                    1;
+                                false ->
+                                    0
+                          end
+                 end,
     RawTopicFilters1 =  if ProtoVer < ?MQTT_PROTO_V5 ->
                             case IsBridge of
-                                true -> [{RawTopic, SubOpts#{rap => 1}} || {RawTopic, SubOpts} <- RawTopicFilters];
-                                false -> [{RawTopic, SubOpts#{rap => 0}} || {RawTopic, SubOpts} <- RawTopicFilters]
+                                true -> [{RawTopic, SubOpts#{rap => 1, nl => IgnoreLoop()}} || {RawTopic, SubOpts} <- RawTopicFilters];
+                                false -> [{RawTopic, SubOpts#{rap => 0, nl => IgnoreLoop()}} || {RawTopic, SubOpts} <- RawTopicFilters]
                             end;
                            true ->
                                RawTopicFilters
