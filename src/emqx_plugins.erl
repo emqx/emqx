@@ -228,7 +228,7 @@ find_plugin(Name) ->
     find_plugin(Name, list()).
 
 find_plugin(Name, Plugins) ->
-    lists:keyfind(Name, 2, Plugins). 
+    lists:keyfind(Name, 2, Plugins).
 
 %% @doc UnLoad a Plugin
 -spec(unload(atom()) -> ok | {error, term()}).

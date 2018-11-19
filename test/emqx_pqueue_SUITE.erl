@@ -94,7 +94,7 @@ t_priority_queues(_) ->
     PQueue6 = ?PQ:in(f, 1, PQueue5),
 
     {{value, e}, PQueue7} = ?PQ:out(PQueue6),
-    {empty, _} = ?PQ:out(0, ?PQ:new()), 
+    {empty, _} = ?PQ:out(0, ?PQ:new()),
 
     {empty, Q0} = ?PQ:out_p(Q0),
 

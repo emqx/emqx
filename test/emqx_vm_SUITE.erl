@@ -95,7 +95,7 @@
 
 
 all() ->
-    [load, systeminfo, mem_info, process_list, process_info, process_gc, 
+    [load, systeminfo, mem_info, process_list, process_info, process_gc,
      get_ets_list, get_ets_info, get_ets_object, get_port_types, get_port_info,
      scheduler_usage, get_memory, microsecs, schedulers, get_process_group_leader_info,
      get_process_limit].
@@ -121,13 +121,13 @@ process_list(_Config) ->
     true = lists:member({pid, Pid}, lists:concat(ProcessInfo)).
 
 process_info(_Config) ->
-    ProcessInfos = emqx_vm:get_process_info(), 
+    ProcessInfos = emqx_vm:get_process_info(),
     ProcessInfo = lists:last(ProcessInfos),
     Keys = [K || {K, _V}<- ProcessInfo],
     ?PROCESS_INFO = Keys.
 
 process_gc(_Config) ->
-    ProcessGcs = emqx_vm:get_process_gc(), 
+    ProcessGcs = emqx_vm:get_process_gc(),
     ProcessGc = lists:last(ProcessGcs),
     Keys = [K || {K, _V}<- ProcessGc],
     ?PROCESS_GC = Keys.
@@ -137,7 +137,7 @@ get_ets_list(_Config) ->
     Ets =  emqx_vm:get_ets_list(),
     true = lists:member(test, Ets).
 
-get_ets_info(_Config) ->    
+get_ets_info(_Config) ->
     ets:new(test, [named_table]),
     [] = emqx_vm:get_ets_info(test1),
     EtsInfo = emqx_vm:get_ets_info(test),
