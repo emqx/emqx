@@ -41,7 +41,8 @@ ignore_loop(_Config) ->
     {ok, _} = emqx_client:publish(Client, TestTopic, <<"testmsg">>, 1),
     {ok, _} = emqx_client:publish(Client, TestTopic, <<"testmsg">>, 2),
     ?assertEqual(0, length(emqx_client_SUITE:receive_messages(3))),
-    ok = emqx_client:disconnect(Client).
+    ok = emqx_client:disconnect(Client),
+    application:set_env(emqx, mqtt_ignore_loop_deliver, false).
 
 t_session_all(_) ->
     ClientId = <<"ClientId">>,
