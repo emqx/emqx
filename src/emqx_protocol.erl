@@ -387,13 +387,7 @@ process_packet(?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
                PState = #pstate{session = SPid, mountpoint = Mountpoint,
                                 proto_ver = ProtoVer, is_bridge = IsBridge,
                                 ignore_loop = IgnoreLoop}) ->
-    IfIgnoreLoop = fun() -> case IgnoreLoop of
-                                true ->
-                                    1;
-                                false ->
-                                    0
-                            end
-                   end,
+    IfIgnoreLoop = fun() -> case IgnoreLoop of true -> 1; false -> 0 end end,
     RawTopicFilters1 =  if ProtoVer < ?MQTT_PROTO_V5 ->
                             case IsBridge of
                                 true -> [{RawTopic, SubOpts#{rap => 1, nl => IfIgnoreLoop()}} || {RawTopic, SubOpts} <- RawTopicFilters];
