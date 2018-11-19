@@ -21,7 +21,7 @@
 
 all() -> [t_child_all].
 
-t_child_all(_) -> 
+t_child_all(_) ->
     {ok, _Pid} = emqx_mod_sup:start_link(),
     {ok, _Child} = emqx_mod_sup:start_child(emqx_banned, worker),
     timer:sleep(10),

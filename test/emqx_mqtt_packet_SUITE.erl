@@ -63,7 +63,7 @@
 
 all() -> [{group, connect}].
 
-groups() -> [{connect, [sequence], 
+groups() -> [{connect, [sequence],
               [case1_protocol_name,
                case2_protocol_ver%,
              %TOTO case3_invalid_reserved

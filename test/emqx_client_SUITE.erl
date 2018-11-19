@@ -150,8 +150,7 @@ receive_messages(Count, Msgs) ->
     receive
         {publish, Msg} ->
             receive_messages(Count-1, [Msg|Msgs]);
-        Other ->
-            ct:log("~p~n", [Other]),
+        _Other ->
             receive_messages(Count, Msgs)
     after 10 ->
         Msgs

@@ -114,8 +114,8 @@ t_check_sub(_) ->
                         [{<<"client/stat">>, Opts}],
                         [{<<"client/stat">>, Opts#{rc => ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED}}]),
 
-    ok = do_check_sub(Caps#{mqtt_wildcard_subscription => false}, 
-                        [{<<"vlient/+/dsofi">>, Opts}], 
+    ok = do_check_sub(Caps#{mqtt_wildcard_subscription => false},
+                        [{<<"vlient/+/dsofi">>, Opts}],
                         [{<<"vlient/+/dsofi">>, Opts#{rc => ?RC_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED}}]),
     emqx_zone:stop().
 
