@@ -60,7 +60,8 @@
           recv_stats,
           send_stats,
           connected,
-          connected_at
+          connected_at,
+          ignore_loop
         }).
 
 -type(state() :: #pstate{}).
@@ -104,7 +105,8 @@ init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options)
             enable_acl    =  emqx_zone:get_env(Zone, enable_acl),
             recv_stats    =  #{msg => 0, pkt => 0},
             send_stats    =  #{msg => 0, pkt => 0},
-            connected     =  false}.
+            connected     =  false,
+            ignore_loop   =  emqx_config:get_env(mqtt_ignore_loop_deliver, false)}.
 
 init_username(Peercert, Options) ->
     case proplists:get_value(peer_cert_as_username, Options) of
@@ -382,18 +384,20 @@ process_packet(?PUBCOMP_PACKET(PacketId, ReasonCode), PState = #pstate{session =
     {ok = emqx_session:pubcomp(SPid, PacketId, ReasonCode), PState};
 
 process_packet(?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
-               PState = #pstate{session = SPid, mountpoint = Mountpoint, proto_ver = ProtoVer, is_bridge = IsBridge}) ->
-    IgnoreLoop = fun() -> case emqx_config:get_env(mqtt_ignore_loop_deliver, false) of
+               PState = #pstate{session = SPid, mountpoint = Mountpoint,
+                                proto_ver = ProtoVer, is_bridge = IsBridge,
+                                ignore_loop = IgnoreLoop}) ->
+    IfIgnoreLoop = fun() -> case IgnoreLoop of
                                 true ->
                                     1;
                                 false ->
                                     0
-                          end
-                 end,
+                            end
+                   end,
     RawTopicFilters1 =  if ProtoVer < ?MQTT_PROTO_V5 ->
                             case IsBridge of
-                                true -> [{RawTopic, SubOpts#{rap => 1, nl => IgnoreLoop()}} || {RawTopic, SubOpts} <- RawTopicFilters];
-                                false -> [{RawTopic, SubOpts#{rap => 0, nl => IgnoreLoop()}} || {RawTopic, SubOpts} <- RawTopicFilters]
+                                true -> [{RawTopic, SubOpts#{rap => 1, nl => IfIgnoreLoop()}} || {RawTopic, SubOpts} <- RawTopicFilters];
+                                false -> [{RawTopic, SubOpts#{rap => 0, nl => IfIgnoreLoop()}} || {RawTopic, SubOpts} <- RawTopicFilters]
                             end;
                            true ->
                                RawTopicFilters
