@@ -62,7 +62,7 @@ subscribe_unsubscribe(_) ->
     ok = emqx:subscribe(<<"topic/2">>, <<"clientId">>, #{ qos => 2 }),
     true = emqx:subscribed(<<"topic">>, <<"clientId">>),
     Topics = emqx:topics(),
-    lists:foreach(fun(Topic) -> 
+    lists:foreach(fun(Topic) ->
                       ?assert(lists:member(Topic, Topics))
                   end, Topics),
     ok = emqx:unsubscribe(<<"topic">>, <<"clientId">>),

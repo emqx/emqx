@@ -49,7 +49,7 @@ populate(_App) ->
 %% @doc Read the configuration of an application.
 -spec(read(atom()) -> {ok, list(env())} | {error, term()}).
 read(App) ->
-    %% TODO: 
+    %% TODO:
     %% 1. Read the app.conf from etc folder
     %% 2. Cuttlefish to read the conf
     %% 3. Return the terms and schema

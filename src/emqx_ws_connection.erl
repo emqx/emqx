@@ -269,6 +269,7 @@ websocket_info(Info, State) ->
 terminate(SockError, _Req, #state{keepalive   = Keepalive,
                                   proto_state = ProtoState,
                                   shutdown    = Shutdown}) ->
+
     ?LOG(debug, "Terminated for ~p, sockerror: ~p",
            [Shutdown, SockError]),
     emqx_keepalive:cancel(Keepalive),
