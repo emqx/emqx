@@ -16,8 +16,11 @@
 
 -behaviour(gen_server).
 
+-define(LOG_HEADER, "[TCP]").
+
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
+-include("logger.hrl").
 
 -export([start_link/3]).
 -export([info/1, attrs/1]).
@@ -49,10 +52,6 @@
          }).
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
-
--define(LOG(Level, Format, Args, State),
-        emqx_logger:Level("MQTT(~s): " ++ Format,
-                          [esockd_net:format(State#state.peername) | Args])).
 
 start_link(Transport, Socket, Options) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[Transport, Socket, Options]])}.
@@ -132,7 +131,7 @@ init([Transport, RawSocket, Options]) ->
             PubLimit = init_limiter(emqx_zone:get_env(Zone, publish_limit)),
             EnableStats = emqx_zone:get_env(Zone, enable_stats, true),
             IdleTimout = emqx_zone:get_env(Zone, idle_timeout, 30000),
-            SendFun = send_fun(Transport, Socket, Peername),
+            SendFun = send_fun(Transport, Socket),
             ProtoState = emqx_protocol:init(#{peername => Peername,
                                               sockname => Sockname,
                                               peercert => Peercert,
@@ -153,6 +152,8 @@ init([Transport, RawSocket, Options]) ->
             GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
             ok = emqx_gc:init(GcPolicy),
             ok = emqx_misc:init_proc_mng_policy(Zone),
+
+            emqx_logger:add_metadata_peername(esockd_net:format(Peername)),
             gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}],
                                   State, self(), IdleTimout);
         {error, Reason} ->
@@ -164,12 +165,11 @@ init_limiter(undefined) ->
 init_limiter({Rate, Burst}) ->
     esockd_rate_limit:new(Rate, Burst).
 
-send_fun(Transport, Socket, Peername) ->
+send_fun(Transport, Socket) ->
     fun(Packet, Options) ->
         Data = emqx_frame:serialize(Packet, Options),
         try Transport:async_send(Socket, Data) of
             ok ->
-                ?LOG(debug, "SEND ~p", [iolist_to_binary(Data)], #state{peername = Peername}),
                 emqx_metrics:inc('bytes/sent', iolist_size(Data)),
                 ok;
             Error -> Error
@@ -195,11 +195,11 @@ handle_call(session, _From, State = #state{proto_state = ProtoState}) ->
     {reply, emqx_protocol:session(ProtoState), State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "unexpected call: ~p", [Req], State),
+    ?LOG(error, "unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "unexpected cast: ~p", [Msg], State),
+    ?LOG(error, "unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
@@ -225,7 +225,7 @@ handle_info({timeout, Timer, emit_stats},
             ok = emqx_gc:reset(),
             {noreply, NewState, hibernate};
         {shutdown, Reason} ->
-            ?LOG(warning, "shutdown due to ~p", [Reason], NewState),
+            ?LOG(warning, "shutdown due to ~p", [Reason]),
             shutdown(Reason, NewState)
     end;
 handle_info(timeout, State) ->
@@ -235,18 +235,18 @@ handle_info({shutdown, Reason}, State) ->
     shutdown(Reason, State);
 
 handle_info({shutdown, discard, {ClientId, ByPid}}, State) ->
-    ?LOG(warning, "discarded by ~s:~p", [ClientId, ByPid], State),
+    ?LOG(warning, "discarded by ~s:~p", [ClientId, ByPid]),
     shutdown(discard, State);
 
 handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
-    ?LOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid], State),
+    ?LOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid]),
     shutdown(conflict, State);
 
 handle_info(activate_sock, State) ->
     {noreply, run_socket(State#state{conn_state = running, limit_timer = undefined})};
 
 handle_info({inet_async, _Sock, _Ref, {ok, Data}}, State) ->
-    ?LOG(debug, "RECV ~p", [Data], State),
+    ?LOG(debug, "RECV ~p", [Data]),
     Size = iolist_size(Data),
     emqx_metrics:inc('bytes/received', Size),
     Incoming = #{bytes => Size, packets => 0},
@@ -262,7 +262,7 @@ handle_info({inet_reply, _Sock, {error, Reason}}, State) ->
     shutdown(Reason, State);
 
 handle_info({keepalive, start, Interval}, State = #state{transport = Transport, socket = Socket}) ->
-    ?LOG(debug, "Keepalive at the interval of ~p", [Interval], State),
+    ?LOG(debug, "Keepalive at the interval of ~p", [Interval]),
     StatFun = fun() ->
                 case Transport:getstat(Socket, [recv_oct]) of
                     {ok, [{recv_oct, RecvOct}]} -> {ok, RecvOct};
@@ -287,14 +287,14 @@ handle_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
     end;
 
 handle_info(Info, State) ->
-    ?LOG(error, "unexpected info: ~p", [Info], State),
+    ?LOG(error, "unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(Reason, State = #state{transport   = Transport,
-                                 socket      = Socket,
-                                 keepalive   = KeepAlive,
-                                 proto_state = ProtoState}) ->
-    ?LOG(debug, "Terminated for ~p", [Reason], State),
+terminate(Reason, #state{transport   = Transport,
+                         socket      = Socket,
+                         keepalive   = KeepAlive,
+                         proto_state = ProtoState}) ->
+    ?LOG(debug, "Terminated for ~p", [Reason]),
     Transport:fast_close(Socket),
     emqx_keepalive:cancel(KeepAlive),
     case {ProtoState, Reason} of
@@ -330,7 +330,7 @@ handle_packet(Data, State = #state{proto_state  = ProtoState,
                     NewState = State#state{proto_state = ProtoState1},
                     handle_packet(Rest, inc_publish_cnt(Type, reset_parser(NewState)));
                 {error, Reason} ->
-                    ?LOG(error, "Process packet error - ~p", [Reason], State),
+                    ?LOG(error, "Process packet error - ~p", [Reason]),
                     shutdown(Reason, State);
                 {error, Reason, ProtoState1} ->
                     shutdown(Reason, State#state{proto_state = ProtoState1});
@@ -338,10 +338,10 @@ handle_packet(Data, State = #state{proto_state  = ProtoState,
                     stop(Error, State#state{proto_state = ProtoState1})
             end;
         {error, Error} ->
-            ?LOG(error, "Framing error - ~p", [Error], State),
+            ?LOG(error, "Framing error - ~p", [Error]),
             shutdown(Error, State);
         {'EXIT', Reason} ->
-            ?LOG(error, "Parse failed for ~p~nError data:~p", [Reason, Data], State),
+            ?LOG(error, "Parse failed for ~p~nError data:~p", [Reason, Data]),
             shutdown(parse_error, State)
     end.
 

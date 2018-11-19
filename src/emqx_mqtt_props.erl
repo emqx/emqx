@@ -143,6 +143,6 @@ validate_value('UTF8-Encoded-String', Val)  ->
     is_binary(Val);
 validate_value('Binary-Data', Val) ->
     is_binary(Val);
-validate_value('User-Property', Val) ->
+validate_value('UTF8-String-Pair', Val) ->
     is_tuple(Val) orelse is_list(Val).
 
