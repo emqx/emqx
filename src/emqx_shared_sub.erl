@@ -71,10 +71,6 @@ mnesia(copy) ->
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec(strategy() -> random | round_robin | sticky | hash).
-strategy() ->
-    emqx_config:get_env(shared_subscription_strategy, round_robin).
-
 subscribe(undefined, _Topic, _SubPid) ->
     ok;
 subscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
@@ -113,19 +109,36 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg, results = Results}, F
             end
     end.
 
+-spec(strategy() -> random | round_robin | sticky | hash).
+strategy() ->
+    emqx_config:get_env(shared_subscription_strategy, round_robin).
+
+-spec(ack_enabled() -> boolean()).
+ack_enabled() ->
+    emqx_config:get_env(shared_dispatch_ack_enabled, false).
+
 do_dispatch(SubPid, Topic, Msg) when SubPid =:= self() ->
     %% Deadlock otherwise
     _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
     ok;
 do_dispatch(SubPid, Topic, Msg) ->
-    do_dispatch_per_qos(SubPid, Topic, Msg).
+    dispatch_per_qos(SubPid, Topic, Msg).
 
 %% return either 'ok' (when everything is fine) or 'error'
-do_dispatch_per_qos(SubPid, Topic, #message{qos = ?QOS_0} = Msg) ->
+dispatch_per_qos(SubPid, Topic, #message{qos = ?QOS_0} = Msg) ->
     %% For QoS 0 message, send it as regular dispatch
     _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
     ok;
-do_dispatch_per_qos(SubPid, Topic, Msg) ->
+dispatch_per_qos(SubPid, Topic, Msg) ->
+    case ack_enabled() of
+        true ->
+            dispatch_with_ack(SubPid, Topic, Msg);
+        false ->
+            _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
+            ok
+    end.
+
+dispatch_with_ack(SubPid, Topic, Msg) ->
     %% For QoS 1/2 message, expect an ack
     Ref = erlang:monitor(process, SubPid),
     Sender = self(),

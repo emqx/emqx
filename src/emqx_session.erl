@@ -802,7 +802,7 @@ run_dispatch_steps([{nl, _}|Steps], Msg, State) ->
     run_dispatch_steps(Steps, Msg, State);
 run_dispatch_steps([{qos, SubQoS}|Steps], Msg0 = #message{qos = PubQoS}, State = #state{upgrade_qos = false}) ->
     %% Ack immediately if a shared dispatch QoS is downgraded to 0
-    Msg = case SubQoS =:= ?QOS0 of
+    Msg = case SubQoS =:= ?QOS_0 of
               true -> emqx_shared_sub:maybe_ack(Msg0);
               false -> Msg0
           end,

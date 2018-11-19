@@ -48,7 +48,7 @@ end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
 
 t_random_basic(_) ->
-    application:set_env(?APPLICATION, shared_subscription_strategy, random),
+    ok = ensure_config(random),
     ClientId = <<"ClientId">>,
     {ok, ConnPid} = emqx_mock_client:start_link(ClientId),
     {ok, SPid} = emqx_mock_client:open_session(ConnPid, ClientId, internal),
@@ -56,17 +56,14 @@ t_random_basic(_) ->
     emqx_session:subscribe(SPid, [{<<"foo">>, #{qos => 2, share => <<"group1">>}}]),
     %% wait for the subscription to show up
     ?wait(subscribed(<<"group1">>, <<"foo">>, SPid), 1000),
-    emqx_session:publish(SPid, 1, Message1),
+    PacketId = 1,
+    emqx_session:publish(SPid, PacketId, Message1),
     ?wait(case emqx_mock_client:get_last_message(ConnPid) of
               {publish, 1, _} -> true;
               Other -> Other
           end, 1000),
-    emqx_session:puback(SPid, 2),
-    emqx_session:puback(SPid, 3, reasoncode),
-    emqx_session:pubrec(SPid, 4),
-    emqx_session:pubrec(SPid, 5, reasoncode),
-    emqx_session:pubrel(SPid, 6, reasoncode),
-    emqx_session:pubcomp(SPid, 7, reasoncode),
+    emqx_session:pubrec(SPid, PacketId, reasoncode),
+    emqx_session:pubcomp(SPid, PacketId, reasoncode),
     emqx_mock_client:close_session(ConnPid),
     ok.
 
@@ -76,7 +73,7 @@ t_random_basic(_) ->
 %% send the second message, the message should be 'nack'ed
 %% by the sticky session and delivered to the 2nd session.
 t_no_connection_nack(_) ->
-    application:set_env(?APPLICATION, shared_subscription_strategy, sticky),
+    ok = ensure_config(sticky),
     Publisher = <<"publisher">>,
     Subscriber1 = <<"Subscriber1">>,
     Subscriber2 = <<"Subscriber2">>,
@@ -148,11 +145,11 @@ t_sticky(_) ->
     test_two_messages(sticky).
 
 t_hash(_) ->
-    test_two_messages(hash).
+    test_two_messages(hash, false).
 
 %% if the original subscriber dies, change to another one alive
 t_not_so_sticky(_) ->
-    application:set_env(?APPLICATION, shared_subscription_strategy, sticky),
+    ok = ensure_config(sticky),
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
     {ok, ConnPid1} = emqx_mock_client:start_link(ClientId1),
@@ -183,8 +180,11 @@ t_not_so_sticky(_) ->
     ok.
 
 test_two_messages(Strategy) ->
+    test_two_messages(Strategy, _WithAck = true).
+
+test_two_messages(Strategy, WithAck) ->
+    ok = ensure_config(Strategy, WithAck),
     Topic = <<"foo/bar">>,
-    application:set_env(?APPLICATION, shared_subscription_strategy, Strategy),
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
     {ok, ConnPid1} = emqx_mock_client:start_link(ClientId1),
@@ -234,6 +234,14 @@ last_message(ExpectedPayload, [Pid | Pids]) ->
 %%------------------------------------------------------------------------------
 %% help functions
 %%------------------------------------------------------------------------------
+
+ensure_config(Strategy) ->
+    ensure_config(Strategy, _AckEnabled = true).
+
+ensure_config(Strategy, AckEnabled) ->
+    application:set_env(?APPLICATION, shared_subscription_strategy, Strategy),
+    application:set_env(?APPLICATION, shared_dispatch_ack_enabled, AckEnabled),
+    ok.
 
 subscribed(Group, Topic, Pid) ->
     lists:member(Pid, emqx_shared_sub:subscribers(Group, Topic)).
