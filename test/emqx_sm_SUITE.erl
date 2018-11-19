@@ -28,7 +28,7 @@ t_open_close_session(_) ->
               client_id           => <<"client">>,
               conn_pid            => ClientPid,
               zone                => internal,
-              username            => <<"zhou">>,
+              username            => <<"emqx">>,
               expiry_interval     => 0,
               max_inflight        => 0,
               topic_alias_maximum => 0,
