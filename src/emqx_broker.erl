@@ -201,7 +201,7 @@ aggre(Routes) ->
     lists:foldl(
       fun(#route{topic = To, dest = Node}, Acc) when is_atom(Node) ->
           [{To, Node} | Acc];
-        (#route{topic = To, dest = {Group, _Node}}, Acc) ->
+         (#route{topic = To, dest = {Group, _Node}}, Acc) ->
           lists:usort([{To, Group} | Acc])
       end, [], Routes).
 

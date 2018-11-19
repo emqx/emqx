@@ -437,7 +437,9 @@ end}.
                           [{peername,
                               [client_id,"@",peername," "],
                               [client_id, " "]}],
-                          []},
+                          [{peername,
+                              [peername," "],
+                              []}]},
                        msg,"\n"]}},
     FileConf =  fun(Filename) ->
                   #{type => wrap,
@@ -595,6 +597,12 @@ end}.
 
 %% @doc Whether the Server supports MQTT Shared Subscriptions.
 {mapping, "mqtt.shared_subscription", "emqx.mqtt_shared_subscription", [
+  {default, true},
+  {datatype, {enum, [true, false]}}
+]}.
+
+%% @doc Whether to ignore loop delivery of messages.(for mqtt v3.1.1)
+{mapping, "mqtt.ignore_loop_deliver", "emqx.mqtt_ignore_loop_deliver", [
   {default, true},
   {datatype, {enum, [true, false]}}
 ]}.

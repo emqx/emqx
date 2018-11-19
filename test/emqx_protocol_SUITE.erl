@@ -132,7 +132,7 @@ connect_v5(_) ->
                                 raw_recv_parse(Data, ?MQTT_PROTO_V5)
                     end),
     
-    % test clean start 
+    % test clean start
     with_connection(fun(Sock) ->
                             emqx_client_sock:send(Sock,
                                                     raw_send_serialize(

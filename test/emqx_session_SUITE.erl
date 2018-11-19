@@ -18,9 +18,11 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("eunit/include/eunit.hrl").
+
 -include_lib("common_test/include/ct.hrl").
 
-all() -> [t_session_all].
+all() -> [ignore_loop, t_session_all].
 
 init_per_suite(Config) ->
     emqx_ct_broker_helpers:run_setup_steps(),
@@ -28,6 +30,19 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
+
+ignore_loop(_Config) ->
+    application:set_env(emqx, mqtt_ignore_loop_deliver, true),
+    {ok, Client} = emqx_client:start_link(),
+    {ok, _} = emqx_client:connect(Client),
+    TestTopic = <<"Self">>,
+    {ok, _, [2]} = emqx_client:subscribe(Client, TestTopic, qos2),
+    ok = emqx_client:publish(Client, TestTopic, <<"testmsg">>, 0),
+    {ok, _} = emqx_client:publish(Client, TestTopic, <<"testmsg">>, 1),
+    {ok, _} = emqx_client:publish(Client, TestTopic, <<"testmsg">>, 2),
+    ?assertEqual(0, length(emqx_client_SUITE:receive_messages(3))),
+    ok = emqx_client:disconnect(Client),
+    application:set_env(emqx, mqtt_ignore_loop_deliver, false).
 
 t_session_all(_) ->
     ClientId = <<"ClientId">>,

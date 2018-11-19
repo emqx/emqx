@@ -152,6 +152,7 @@
           will_msg :: emqx:message(),
 
           will_delay_timer :: reference() | undefined
+
          }).
 
 -type(spid() :: pid()).
@@ -575,7 +576,8 @@ handle_info({dispatch, Topic, Msgs}, State) when is_list(Msgs) ->
 
 %% Dispatch message
 handle_info({dispatch, Topic, Msg = #message{headers = Headers}},
-            State = #state{subscriptions = SubMap, topic_alias_maximum = TopicAliasMaximum}) when is_record(Msg, message) ->
+            State = #state{subscriptions = SubMap,
+                           topic_alias_maximum = TopicAliasMaximum}) when is_record(Msg, message) ->
     TopicAlias = maps:get('Topic-Alias', Headers, undefined),
     if
         TopicAlias =:= undefined orelse TopicAlias =< TopicAliasMaximum ->
@@ -590,6 +592,7 @@ handle_info({dispatch, Topic, Msg = #message{headers = Headers}},
         true ->
             noreply(State)
     end;
+
 
 %% Do nothing if the client has been disconnected.
 handle_info({timeout, Timer, retry_delivery}, State = #state{conn_pid = undefined, retry_timer = Timer}) ->
