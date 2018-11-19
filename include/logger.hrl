@@ -14,5 +14,11 @@
         end).
 -else.
 %% without header
--define(LOG(Level, Format, Args), logger:log(Level, Format, Args)).
+-define(LOG(Level, Format, Args),
+        begin
+          (logger:log(Level,#{},#{report_cb =>
+                                    fun(_) ->
+                                        {(Format), (Args)}
+                                    end}))
+        end).
 -endif.
