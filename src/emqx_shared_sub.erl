@@ -43,6 +43,7 @@
 -define(ack, shared_sub_ack).
 -define(nack(Reason), {shared_sub_nack, Reason}).
 -define(IS_LOCAL_PID(Pid), (is_pid(Pid) andalso node(Pid) =:= node())).
+-define(no_ack, no_ack).
 
 -record(state, {pmon}).
 -record(emqx_shared_subscription, {group, topic, subpid}).
@@ -142,7 +143,7 @@ dispatch_with_ack(SubPid, Topic, Msg) ->
     %% For QoS 1/2 message, expect an ack
     Ref = erlang:monitor(process, SubPid),
     Sender = self(),
-    _ = erlang:send(SubPid, {dispatch, Topic, Msg#message{shared_dispatch_ack = {Sender, Ref}}}),
+    _ = erlang:send(SubPid, {dispatch, Topic, with_ack_ref(Msg, {Sender, Ref})}),
     Timeout = case Msg#message.qos of
                   ?QOS_1 -> timer:seconds(?SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS);
                   ?QOS_2 -> infinity
@@ -164,29 +165,48 @@ dispatch_with_ack(SubPid, Topic, Msg) ->
         _ = erlang:demonitor(Ref, [flush])
     end.
 
+with_ack_ref(Msg, SenderRef) ->
+    emqx_message:set_headers(#{shared_dispatch_ack => SenderRef}, Msg).
+
+without_ack_ref(Msg) ->
+    emqx_message:set_headers(#{shared_dispatch_ack => ?no_ack}, Msg).
+
+get_ack_ref(Msg) ->
+    emqx_message:get_header(shared_dispatch_ack, Msg, ?no_ack).
+
 -spec(is_ack_required(emqx_types:message()) -> boolean()).
-is_ack_required(#message{shared_dispatch_ack = no_ack}) -> false;
-is_ack_required(#message{shared_dispatch_ack = {_, _}}) -> true.
+is_ack_required(Msg) -> ?no_ack =/= get_ack_ref(Msg).
 
 %% @doc Negative ack dropped message due to message queue being full.
 -spec(maybe_nack_dropped(emqx_types:message()) -> ok).
-maybe_nack_dropped(#message{shared_dispatch_ack = no_ack}) -> ok;
-maybe_nack_dropped(Msg) -> nack(Msg, dropped).
+maybe_nack_dropped(Msg) ->
+    case get_ack_ref(Msg) of
+        ?no_ack -> ok;
+        {Sender, Ref} -> nack(Sender, Ref, drpped)
+    end.
 
 %% @doc Negative ack message due to connection down.
+%% Assuming this function is always called when ack is required
+%% i.e is_ack_required returned true.
 -spec(nack_no_connection(emqx_types:message()) -> ok).
-nack_no_connection(Msg) -> nack(Msg, no_connection).
+nack_no_connection(Msg) ->
+    {Sender, Ref} = get_ack_ref(Msg),
+    nack(Sender, Ref, no_connection).
 
--spec(nack(emqx_types:message(), dropped | no_connection) -> ok).
-nack(#message{shared_dispatch_ack = {Sender, Ref}}, Reason) ->
+-spec(nack(pid(), reference(), dropped | no_connection) -> ok).
+nack(Sender, Ref, Reason) ->
     erlang:send(Sender, {Ref, ?nack(Reason)}),
     ok.
 
 -spec(maybe_ack(emqx_types:message()) -> emqx_types:message()).
-maybe_ack(Msg = #message{shared_dispatch_ack = no_ack}) -> Msg;
-maybe_ack(Msg = #message{shared_dispatch_ack = {Sender, Ref}}) ->
-    erlang:send(Sender, {Ref, ?ack}),
-    Msg#message{shared_dispatch_ack = no_ack}.
+maybe_ack(Msg) ->
+    case get_ack_ref(Msg) of
+        ?no_ack ->
+            Msg;
+        {Sender, Ref} ->
+            erlang:send(Sender, {Ref, ?ack}),
+            without_ack_ref(Msg)
+    end.
 
 pick(sticky, ClientId, Group, Topic, FailedSubs) ->
     Sub0 = erlang:get({shared_sub_sticky, Group, Topic}),
