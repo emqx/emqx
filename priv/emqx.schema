@@ -794,6 +794,12 @@ end}.
   {datatype, string}
 ]}.
 
+%% @doc Use username replace client id
+{mapping, "zone.$name.use_username_as_clientid", "emqx.zones", [
+  {default, false},
+  {datatype, {enum, [true, false]}}
+]}.
+
 {translation, "emqx.zones", fun(Conf) ->
   Mapping = fun("retain_available", Val) ->
                     {mqtt_retain_available, Val};
