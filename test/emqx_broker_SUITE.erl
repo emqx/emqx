@@ -164,7 +164,7 @@ start_session(_) ->
     emqx_session:publish(SessPid, 3, Message2),
     emqx_session:unsubscribe(SessPid, [{<<"topic/session">>, []}]),
     %% emqx_mock_client:stop(ClientPid).
-    emqx_mock_client:close_session(ClientPid, SessPid).
+    emqx_mock_client:close_session(ClientPid).
 
 %%--------------------------------------------------------------------
 %% Broker Group

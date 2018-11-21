@@ -257,19 +257,21 @@ subscribe(SPid, PacketId, Properties, TopicFilters) ->
     SubReq = {PacketId, Properties, TopicFilters},
     gen_server:cast(SPid, {subscribe, self(), SubReq}).
 
+%% @doc Called by connection processes when publishing messages
 -spec(publish(spid(), emqx_mqtt_types:packet_id(), emqx_types:message())
       -> {ok, emqx_types:deliver_results()}).
 publish(_SPid, _PacketId, Msg = #message{qos = ?QOS_0}) ->
-    %% Publish QoS0 message to broker directly
+    %% Publish QoS0 message directly
     emqx_broker:publish(Msg);
-
 publish(_SPid, _PacketId, Msg = #message{qos = ?QOS_1}) ->
-    %% Publish QoS1 message to broker directly
+    %% Publish QoS1 message directly
     emqx_broker:publish(Msg);
-
-publish(SPid, PacketId, Msg = #message{qos = ?QOS_2}) ->
-    %% Publish QoS2 message to session
-    gen_server:call(SPid, {publish, PacketId, Msg}, infinity).
+publish(SPid, PacketId, Msg = #message{qos = ?QOS_2, timestamp = Ts}) ->
+    %% Register QoS2 message packet ID (and timestamp) to session, then publish
+    case gen_server:call(SPid, {register_publish_packet_id, PacketId, Ts}, infinity) of
+        ok -> emqx_broker:publish(Msg);
+        {error, Reason} -> {error, Reason}
+    end.
 
 -spec(puback(spid(), emqx_mqtt_types:packet_id()) -> ok).
 puback(SPid, PacketId) ->
@@ -405,8 +407,9 @@ handle_call({discard, ByPid}, _From, State = #state{client_id = ClientId, conn_p
     ConnPid ! {shutdown, discard, {ClientId, ByPid}},
     {stop, {shutdown, discard}, ok, State};
 
-%% PUBLISH:
-handle_call({publish, PacketId, Msg = #message{qos = ?QOS_2, timestamp = Ts}}, _From,
+%% PUBLISH: This is only to register packetId to session state.
+%% The actual message dispatching should be done by the caller (e.g. connection) process.
+handle_call({register_publish_packet_id, PacketId, Ts}, _From,
             State = #state{awaiting_rel = AwaitingRel}) ->
     reply(case is_awaiting_full(State) of
               false ->
@@ -415,7 +418,7 @@ handle_call({publish, PacketId, Msg = #message{qos = ?QOS_2, timestamp = Ts}}, _
                           {{error, ?RC_PACKET_IDENTIFIER_IN_USE}, State};
                       false ->
                           State1 = State#state{awaiting_rel = maps:put(PacketId, Ts, AwaitingRel)},
-                          {emqx_broker:publish(Msg), ensure_await_rel_timer(State1)}
+                          {ok, ensure_await_rel_timer(State1)}
                   end;
               true ->
                   emqx_metrics:inc('messages/qos2/dropped'),
@@ -575,22 +578,15 @@ handle_info({dispatch, Topic, Msgs}, State) when is_list(Msgs) ->
                           end, State, Msgs)};
 
 %% Dispatch message
-handle_info({dispatch, Topic, Msg = #message{headers = Headers}},
-            State = #state{subscriptions = SubMap,
-                           topic_alias_maximum = TopicAliasMaximum}) when is_record(Msg, message) ->
-    TopicAlias = maps:get('Topic-Alias', Headers, undefined),
-    if
-        TopicAlias =:= undefined orelse TopicAlias =< TopicAliasMaximum ->
-            noreply(case maps:find(Topic, SubMap) of
-                        {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
-                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}, {subid, SubId}], Msg, State);
-                        {ok, #{nl := Nl, qos := QoS, rap := Rap}} ->
-                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}], Msg, State);
-                        error ->
-                            dispatch(emqx_message:unset_flag(dup, Msg), State)
-                    end);
+handle_info({dispatch, Topic, Msg = #message{}}, State) ->
+    case emqx_shared_sub:is_ack_required(Msg) andalso not has_connection(State) of
         true ->
-            noreply(State)
+            %% Require ack, but we do not have connection
+            %% negative ack the message so it can try the next subscriber in the group
+            ok = emqx_shared_sub:nack_no_connection(Msg),
+            noreply(State);
+        false ->
+            handle_dispatch(Topic, Msg, State)
     end;
 
 
@@ -644,7 +640,6 @@ handle_info({'EXIT', Pid, Reason}, State = #state{conn_pid = ConnPid}) ->
     ?LOG(error, "Unexpected EXIT: conn_pid=~p, exit_pid=~p, reason=~p",
          [ConnPid, Pid, Reason], State),
     {noreply, State};
-
 handle_info(Info, State) ->
     emqx_logger:error("[Session] unexpected info: ~p", [Info]),
     {noreply, State}.
@@ -666,6 +661,27 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+has_connection(#state{conn_pid = Pid}) -> is_pid(Pid) andalso is_process_alive(Pid).
+
+handle_dispatch(Topic, Msg = #message{headers = Headers},
+                State = #state{subscriptions = SubMap,
+                               topic_alias_maximum = TopicAliasMaximum
+                              }) ->
+    TopicAlias = maps:get('Topic-Alias', Headers, undefined),
+    if
+        TopicAlias =:= undefined orelse TopicAlias =< TopicAliasMaximum ->
+            noreply(case maps:find(Topic, SubMap) of
+                        {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
+                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}, {subid, SubId}], Msg, State);
+                        {ok, #{nl := Nl, qos := QoS, rap := Rap}} ->
+                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}], Msg, State);
+                        error ->
+                            dispatch(emqx_message:unset_flag(dup, Msg), State)
+                    end);
+        true ->
+            noreply(State)
+    end.
 
 suback(_From, undefined, _ReasonCodes) ->
     ignore;
@@ -784,7 +800,12 @@ run_dispatch_steps([{nl, 1}|_Steps], #message{from = ClientId}, State = #state{c
     State;
 run_dispatch_steps([{nl, _}|Steps], Msg, State) ->
     run_dispatch_steps(Steps, Msg, State);
-run_dispatch_steps([{qos, SubQoS}|Steps], Msg = #message{qos = PubQoS}, State = #state{upgrade_qos = false}) ->
+run_dispatch_steps([{qos, SubQoS}|Steps], Msg0 = #message{qos = PubQoS}, State = #state{upgrade_qos = false}) ->
+    %% Ack immediately if a shared dispatch QoS is downgraded to 0
+    Msg = case SubQoS =:= ?QOS_0 of
+              true -> emqx_shared_sub:maybe_ack(Msg0);
+              false -> Msg0
+          end,
     run_dispatch_steps(Steps, Msg#message{qos = min(SubQoS, PubQoS)}, State);
 run_dispatch_steps([{qos, SubQoS}|Steps], Msg = #message{qos = PubQoS}, State = #state{upgrade_qos = true}) ->
     run_dispatch_steps(Steps, Msg#message{qos = max(SubQoS, PubQoS)}, State);
@@ -813,14 +834,16 @@ dispatch(Msg = #message{qos = QoS} = Msg,
          State = #state{next_pkt_id = PacketId, inflight = Inflight})
   when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
     case emqx_inflight:is_full(Inflight) of
-        true -> enqueue_msg(Msg, State);
+        true ->
+            enqueue_msg(Msg, State);
         false ->
             deliver(PacketId, Msg, State),
             await(PacketId, Msg, inc_stats(deliver, Msg, next_pkt_id(State)))
     end.
 
 enqueue_msg(Msg, State = #state{mqueue = Q}) ->
-    {_Dropped, NewQ} = emqx_mqueue:in(Msg, Q),
+    {Dropped, NewQ} = emqx_mqueue:in(Msg, Q),
+    Dropped =/= undefined andalso emqx_shared_sub:maybe_nack_dropped(Dropped),
     inc_stats(enqueue, Msg, State#state{mqueue = NewQ}).
 
 %%------------------------------------------------------------------------------
@@ -835,9 +858,19 @@ redeliver({PacketId, Msg = #message{qos = QoS}}, State) ->
 redeliver({pubrel, PacketId}, #state{conn_pid = ConnPid}) ->
     ConnPid ! {deliver, {pubrel, PacketId}}.
 
-deliver(PacketId, Msg, #state{conn_pid = ConnPid, binding = local}) ->
+deliver(PacketId, Msg, State) ->
+    %% Ack QoS1/QoS2 messages when message is delivered to connection.
+    %% NOTE: NOT to wait for PUBACK because:
+    %% The sender is monitoring this session process,
+    %% if the message is delivered to client but connection or session crashes,
+    %% sender will try to dispatch the message to the next shared subscriber.
+    %% This violates spec as QoS2 messages are not allowed to be sent to more
+    %% than one member in the group.
+    do_deliver(PacketId, emqx_shared_sub:maybe_ack(Msg), State).
+
+do_deliver(PacketId, Msg, #state{conn_pid = ConnPid, binding = local}) ->
     ConnPid ! {deliver, {publish, PacketId, Msg}};
-deliver(PacketId, Msg, #state{conn_pid = ConnPid, binding = remote}) ->
+do_deliver(PacketId, Msg, #state{conn_pid = ConnPid, binding = remote}) ->
     emqx_rpc:cast(node(ConnPid), erlang, send, [ConnPid, {deliver, {publish, PacketId, Msg}}]).
 
 %%------------------------------------------------------------------------------
