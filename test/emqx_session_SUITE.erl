@@ -76,4 +76,4 @@ t_session_all(_) ->
     emqx_session:unsubscribe(SPid, [<<"topic">>]),
     timer:sleep(200),
     [] = emqx:subscriptions({SPid, <<"clientId">>}),
-    emqx_mock_client:close_session(ConnPid, SPid).
+    emqx_mock_client:close_session(ConnPid).
