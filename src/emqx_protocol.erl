@@ -289,13 +289,17 @@ process_packet(?CONNECT_PACKET(
                                        client_id   = ClientId,
                                        username    = Username,
                                        password    = Password} = Connect), PState) ->
-    emqx_logger:add_metadata_client_id(ClientId),
+
+    NewClientId = maybe_use_username_as_clientid(ClientId, Username, PState),
+
+    emqx_logger:add_metadata_client_id(NewClientId),
+
     %% TODO: Mountpoint...
     %% Msg -> emqx_mountpoint:mount(MountPoint, Msg)
     WillMsg = make_will_msg(Connect),
 
     PState1 = set_username(Username,
-                           PState#pstate{client_id    = ClientId,
+                           PState#pstate{client_id    = NewClientId,
                                          proto_ver    = ProtoVer,
                                          proto_name   = ProtoName,
                                          clean_start  = CleanStart,
@@ -605,6 +609,19 @@ send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = SendFun
             {ok, inc_stats(send, Type, PState)};
         {error, Reason} ->
             {error, Reason}
+    end.
+
+%%------------------------------------------------------------------------------
+%% Maybe use username replace client id
+
+maybe_use_username_as_clientid(ClientId, undefined, _PState) ->
+    ClientId;
+maybe_use_username_as_clientid(ClientId, Username, #pstate{zone = Zone}) ->
+    case emqx_zone:get_env(Zone, use_username_as_clientid, false) of
+        true ->
+            Username;
+        false ->
+            ClientId
     end.
 
 %%------------------------------------------------------------------------------
