@@ -43,11 +43,11 @@ trans(ClientId, Fun, Piggyback) ->
 
 -spec(lock(emqx_types:client_id()) -> ekka_locker:lock_result()).
 lock(ClientId) ->
-    ekka_locker:aquire(?MODULE, ClientId, strategy()).
+    ekka_locker:acquire(?MODULE, ClientId, strategy()).
 
 -spec(lock(emqx_types:client_id(), ekka_locker:piggyback()) -> ekka_locker:lock_result()).
 lock(ClientId, Piggyback) ->
-    ekka_locker:aquire(?MODULE, ClientId, strategy(), Piggyback).
+    ekka_locker:acquire(?MODULE, ClientId, strategy(), Piggyback).
 
 -spec(unlock(emqx_types:client_id()) -> {boolean(), [node()]}).
 unlock(ClientId) ->
