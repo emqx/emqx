@@ -343,7 +343,7 @@ init([Parent, #{zone                := Zone,
                 max_inflight        := MaxInflight,
                 topic_alias_maximum := TopicAliasMaximum,
                 will_msg            := WillMsg}]) ->
-    emqx_logger:add_proc_metadata(#{client_id => ClientId}),
+    emqx_logger:set_metadata_client_id(ClientId),
     process_flag(trap_exit, true),
     true = link(ConnPid),
     IdleTimout = get_env(Zone, idle_timeout, 30000),
