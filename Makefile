@@ -6,20 +6,20 @@ PROJECT_VERSION = 3.0
 
 DEPS = jsx gproc gen_rpc ekka esockd cowboy clique
 
-dep_jsx     = git https://github.com/talentdeficit/jsx 2.9.0
-dep_gproc   = git https://github.com/uwiger/gproc 0.8.0
-dep_gen_rpc = git https://github.com/emqx/gen_rpc 2.3.0
-dep_esockd  = git https://github.com/emqx/esockd v5.4.2
-dep_ekka    = git https://github.com/emqx/ekka v0.5.1
-dep_cowboy  = git https://github.com/ninenines/cowboy 2.4.0
-dep_clique  = git https://github.com/emqx/clique develop
+dep_jsx     = git-emqx https://github.com/talentdeficit/jsx 2.9.0
+dep_gproc   = git-emqx https://github.com/uwiger/gproc 0.8.0
+dep_gen_rpc = git-emqx https://github.com/emqx/gen_rpc 2.3.0
+dep_esockd  = git-emqx https://github.com/emqx/esockd v5.4.2
+dep_ekka    = git-emqx https://github.com/emqx/ekka v0.5.1
+dep_cowboy  = git-emqx https://github.com/ninenines/cowboy 2.4.0
+dep_clique  = git-emqx https://github.com/emqx/clique develop
 
 NO_AUTOPATCH = cuttlefish
 
 ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 
 BUILD_DEPS = cuttlefish
-dep_cuttlefish = git https://github.com/emqx/cuttlefish v2.1.1
+dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish v2.1.1
 
 #TEST_DEPS = emqx_ct_helplers
 #dep_emqx_ct_helplers = git git@github.com:emqx/emqx-ct-helpers
@@ -46,6 +46,11 @@ COVER = true
 PLT_APPS = sasl asn1 ssl syntax_tools runtime_tools crypto xmerl os_mon inets public_key ssl compiler mnesia
 DIALYZER_DIRS := ebin/
 DIALYZER_OPTS := --verbose --statistics -Werror_handling -Wrace_conditions #-Wunmatched_returns
+
+define dep_fetch_git-emqx
+	git clone -q --depth 1 -b $(call dep_commit,$(1)) -- $(call dep_repo,$(1)) $(DEPS_DIR)/$(call dep_name,$(1)) > /dev/null 2>&1; \
+	cd $(DEPS_DIR)/$(call dep_name,$(1));
+endef
 
 include erlang.mk
 
