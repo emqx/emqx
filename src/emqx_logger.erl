@@ -22,8 +22,8 @@
 -export([error/1, error/2, error/3]).
 -export([critical/1, critical/2, critical/3]).
 
--export([add_metadata_peername/1, add_metadata_client_id/1]).
--export([add_proc_metadata/1]).
+-export([set_metadata_peername/1, set_metadata_client_id/1]).
+-export([set_proc_metadata/1]).
 
 -export([get_primary_log_level/0, set_primary_log_level/1]).
 -export([get_log_handlers/0, get_log_handler/1, set_log_handler_level/2]).
@@ -63,20 +63,14 @@ critical(Format, Args) ->
 critical(Metadata, Format, Args) when is_map(Metadata) ->
     logger:critical(Format, Args, Metadata).
 
+set_metadata_client_id(ClientId) ->
+    set_proc_metadata(#{client_id => ClientId}).
 
-add_metadata_client_id(ClientId) ->
-    add_proc_metadata(#{client_id => ClientId}).
+set_metadata_peername(Peername) ->
+    set_proc_metadata(#{peername => Peername}).
 
-add_metadata_peername(Peername) ->
-    add_proc_metadata(#{peername => Peername}).
-
-add_proc_metadata(Meta) ->
-    case logger:get_process_metadata() of
-        undefined ->
-            logger:set_process_metadata(Meta);
-        OldMeta ->
-            logger:set_process_metadata(maps:merge(OldMeta, Meta))
-    end.
+set_proc_metadata(Meta) ->
+    logger:update_process_metadata(Meta).
 
 get_primary_log_level() ->
     #{level := Level} = logger:get_primary_config(),
