@@ -1,13 +1,21 @@
 
+CONFIG0 = case os:getenv("REBAR_GIT_CLONE_OPTIONS") of
+              "--depth 1" ->
+                  CONFIG;
+              _ ->
+                  os:putenv("REBAR_GIT_CLONE_OPTIONS", "--depth 1"),
+                  CONFIG
+          end,
+
 CONFIG1 = case os:getenv("TRAVIS") of
-  "true" ->
-    JobId = os:getenv("TRAVIS_JOB_ID"),
-    [{coveralls_service_job_id, JobId},
-     {coveralls_coverdata, "_build/test/cover/*.coverdata"},
-     {coveralls_service_name , "travis-ci"} | CONFIG];
-  _ ->
-    CONFIG
-end,
+              "true" ->
+                  JobId = os:getenv("TRAVIS_JOB_ID"),
+                  [{coveralls_service_job_id, JobId},
+                   {coveralls_coverdata, "_build/test/cover/*.coverdata"},
+                   {coveralls_service_name , "travis-ci"} | CONFIG];
+              _ ->
+                  CONFIG
+          end,
 
 {_, Deps} = lists:keyfind(deps, 1, CONFIG1),
 {_, OurDeps} = lists:keyfind(github_emqx_deps, 1, CONFIG1),
