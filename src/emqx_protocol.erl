@@ -789,7 +789,7 @@ check_pub_acl(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
     case emqx_access_control:check_acl(credentials(PState), publish, Topic) of
         allow -> ok;
         deny  ->
-            {error, ?RC_NOT_AUTHORIZED}
+            deny_acl_disconnection(PState)
     end.
 
 run_check_steps([], _Packet, PState) ->
@@ -872,6 +872,22 @@ parse_topic_filters(?SUBSCRIBE, RawTopicFilters) ->
 
 parse_topic_filters(?UNSUBSCRIBE, RawTopicFilters) ->
     lists:map(fun emqx_topic:parse/1, RawTopicFilters).
+
+%% Issue#1641: not close connection when http acl rejected
+%%-----------------------------------------------------------------------------
+%% close connection when acl rejected and the config is available
+%%-----------------------------------------------------------------------------
+
+
+deny_acl_disconnection(PState) ->
+    case is_disconnect() of
+        true -> shutdown("http acl rejeced", PState) ;
+        false -> {error, ?RC_NOT_AUTHORIZED}
+        end.
+
+
+is_disconnect() ->
+    application:get_env(emqx,enable_acl_connection,true).
 
 %%------------------------------------------------------------------------------
 %% Update mountpoint
