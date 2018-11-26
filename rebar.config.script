@@ -1,3 +1,4 @@
+CONFIG
 
 CONFIG1 = case os:getenv("TRAVIS") of
   "true" ->
