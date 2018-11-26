@@ -6,12 +6,12 @@ PROJECT_VERSION = 3.0
 
 DEPS = jsx gproc gen_rpc ekka esockd cowboy clique
 
-dep_jsx     = git-emqx https://github.com/talentdeficit/jsx 2.9.0
-dep_gproc   = git-emqx https://github.com/uwiger/gproc 0.8.0
+dep_jsx     = hex-emqx 2.9.0
+dep_gproc   = hex-emqx 0.8.0
 dep_gen_rpc = git-emqx https://github.com/emqx/gen_rpc 2.3.0
 dep_esockd  = git-emqx https://github.com/emqx/esockd v5.4.2
 dep_ekka    = git-emqx https://github.com/emqx/ekka v0.5.1
-dep_cowboy  = git-emqx https://github.com/ninenines/cowboy 2.4.0
+dep_cowboy  = hex-emqx 2.4.0
 dep_clique  = git-emqx https://github.com/emqx/clique develop
 
 NO_AUTOPATCH = cuttlefish
@@ -50,6 +50,15 @@ DIALYZER_OPTS := --verbose --statistics -Werror_handling -Wrace_conditions #-Wun
 define dep_fetch_git-emqx
 	git clone -q --depth 1 -b $(call dep_commit,$(1)) -- $(call dep_repo,$(1)) $(DEPS_DIR)/$(call dep_name,$(1)) > /dev/null 2>&1; \
 	cd $(DEPS_DIR)/$(call dep_name,$(1));
+endef
+
+core_http_get-emqx = curl -Lf$(if $(filter-out 0,$(V)),,s)o $(call core_native_path,$1) $2
+
+define dep_fetch_hex-emqx
+	mkdir -p $(ERLANG_MK_TMP)/hex $(DEPS_DIR)/$1; \
+	$(call core_http_get-emqx,$(ERLANG_MK_TMP)/hex/$1.tar,\
+		https://repo.hex.pm/tarballs/$1-$(strip $(word 2,$(dep_$1))).tar); \
+	tar -xOf $(ERLANG_MK_TMP)/hex/$1.tar contents.tar.gz | tar -C $(DEPS_DIR)/$1 -xzf -;
 endef
 
 include erlang.mk
