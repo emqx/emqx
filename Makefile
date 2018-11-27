@@ -63,7 +63,7 @@ endef
 
 include erlang.mk
 
-clean:: gen-clean rebar-clean
+clean:: gen-clean
 
 .PHONY: gen-clean
 gen-clean:
@@ -122,7 +122,7 @@ rebar-ct: app.config
 rebar-clean:
 	@rebar3 clean
 
-distclean:: rebar-clean
+distclean::
 	@rm -rf _build cover deps logs log data
 	@rm -f rebar.lock compile_commands.json cuttlefish
 
