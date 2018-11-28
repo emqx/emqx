@@ -64,7 +64,7 @@ add_del_route(_) ->
     ?R:del_route(From, <<"a/b/c">>, node()),
 
     ?R:del_route(From, <<"a/+/b">>, node()),
-    timer:sleep(1),
+    timer:sleep(120),
     ?assertEqual([], lists:sort(?R:topics())).
 
 match_routes(_) ->
