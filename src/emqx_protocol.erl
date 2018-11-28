@@ -179,6 +179,8 @@ credentials(#pstate{zone       = Zone,
       username  => Username,
       peername  => Peername}.
 
+
+
 stats(#pstate{recv_stats = #{pkt := RecvPkt, msg := RecvMsg},
               send_stats = #{pkt := SendPkt, msg := SendMsg}}) ->
     [{recv_pkt, RecvPkt},
@@ -789,7 +791,7 @@ check_pub_acl(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
     case emqx_access_control:check_acl(credentials(PState), publish, Topic) of
         allow -> ok;
         deny  ->
-            deny_acl_disconnection(PState)
+            control_acl_pub_connection(PState)
     end.
 
 run_check_steps([], _Packet, PState) ->
@@ -823,7 +825,7 @@ check_sub_acl(TopicFilters, PState) ->
               case emqx_access_control:check_acl(Credentials, subscribe, Topic) of
                   allow -> {Ok, [{Topic, SubOpts}|Acc]};
                   deny  ->
-                      {error, [{Topic, SubOpts#{rc := ?RC_NOT_AUTHORIZED}}|Acc]}
+                        control_acl_sub_connection(Credentials, {error, [{Topic, SubOpts#{rc := ?RC_NOT_AUTHORIZED}}|Acc]})
               end
       end, {ok, []}, TopicFilters).
 
@@ -878,15 +880,32 @@ parse_topic_filters(?UNSUBSCRIBE, RawTopicFilters) ->
 %% close connection when acl rejected and the config is available
 %%-----------------------------------------------------------------------------
 
-
-deny_acl_disconnection(PState) ->
-    case is_disconnect() of
-        true -> shutdown("http acl rejeced", PState) ;
+control_acl_pub_connection(PState) ->
+    case is_enable() of
+        true -> shutdown("close connection", PState);
         false -> {error, ?RC_NOT_AUTHORIZED}
-        end.
+    end.
 
+control_acl_sub_connection(Credentials, Result) ->
+            case is_enable() of
+                true -> shutdown("close connection", docredentias(Credentials));
+                false -> Result
+            end.
 
-is_disconnect() ->
+docredentias(#{zone := Zone ,
+                client_id := ClientId,
+                 useranme := Username,
+                 peername := Peername}) ->
+         #pstate{zone = Zone,
+                  client_id = ClientId,
+                  username = Username,
+                  peername = Peername } .
+
+%%-----------------------------------------------------------------------------
+%%  get config
+%%-----------------------------------------------------------------------------
+
+is_enable() ->
     application:get_env(emqx,enable_acl_connection,true).
 
 %%------------------------------------------------------------------------------
