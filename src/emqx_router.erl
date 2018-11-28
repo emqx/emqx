@@ -137,7 +137,7 @@ pick(Topic) ->
 init([Pool, Id]) ->
     rand:seed(exsplus, erlang:timestamp()),
     gproc_pool:connect_worker(Pool, {Pool, Id}),
-    Batch = #batch{enabled = emqx_config:get_env(route_batch_delete, false),
+    Batch = #batch{enabled = emqx_config:get_env(route_batch_clean, false),
                    pending = sets:new()},
     {ok, ensure_batch_timer(#state{pool = Pool, id = Id, batch = Batch})}.
 
