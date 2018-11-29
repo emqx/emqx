@@ -377,6 +377,10 @@ init([Parent, #{zone                := Zone,
     ok = emqx_gc:init(GcPolicy),
     ok = emqx_misc:init_proc_mng_policy(Zone),
     ok = proc_lib:init_ack(Parent, {ok, self()}),
+    MetricCommitInterval = emqx_config:get_env(metric_commit_interval, 10000),
+    emqx_metrics:start_timer(MetricCommitInterval,
+                             MetricCommitInterval div 2,
+                             {metric_commit, MetricCommitInterval}),
     gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}], State).
 
 init_mqueue(Zone) ->
@@ -623,6 +627,11 @@ handle_info({timeout, Timer, expired}, State = #state{expiry_timer = Timer}) ->
 handle_info({timeout, Timer, will_delay}, State = #state{will_msg = WillMsg, will_delay_timer = Timer}) ->
     send_willmsg(WillMsg),
     {noreply, State#state{will_msg = undefined}};
+
+handle_info({timeout, _Timer, {metric_commit, MetricCommitInterval}}, State) ->
+    emqx_metrics:commit(),
+    emqx_metrics:start_timer(MetricCommitInterval, {metric_commit, MetricCommitInterval}),
+    {noreply, State};
 
 handle_info({'EXIT', ConnPid, Reason}, State = #state{will_msg = WillMsg, expiry_interval = 0, conn_pid = ConnPid}) ->
     send_willmsg(WillMsg),

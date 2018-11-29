@@ -137,6 +137,10 @@ websocket_init(#state{request = Req, options = Options}) ->
     lists:foreach(fun(Stat) -> put(Stat, 0) end, ?SOCK_STATS),
 
     emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
+    MetricCommitInterval = emqx_config:get_env(metric_commit_interval, 10000),
+    emqx_metrics:start_timer(MetricCommitInterval, 
+                             MetricCommitInterval div 2, 
+                             {metric_commit, MetricCommitInterval}),
     {ok, #state{peername     = Peername,
                 sockname     = Sockname,
                 parser_state = ParserState,
@@ -225,6 +229,11 @@ websocket_info({timeout, Timer, emit_stats},
                State = #state{stats_timer = Timer, proto_state = ProtoState}) ->
     emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), stats(State)),
     {ok, State#state{stats_timer = undefined}, hibernate};
+
+websocket_info({timeout, _Timer, {metric_commit, MetricCommitInterval}}, State) ->
+    emqx_metrics:commit(),
+    emqx_metrics:start_timer(MetricCommitInterval, {metric_commit, MetricCommitInterval}),
+    {ok, State, hibernate};
 
 websocket_info({keepalive, start, Interval}, State) ->
     ?LOG(debug, "Keepalive at the interval of ~p", [Interval]),

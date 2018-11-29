@@ -18,7 +18,8 @@
 
 -export([start_link/0]).
 -export([new/1, all/0]).
--export([val/1, inc/1, inc/2, inc/3, dec/2, dec/3, set/2]).
+-export([val/1, inc/1, inc/2, inc/3, dec/2, dec/3, set/2, commit/0]).
+-export([start_timer/2, start_timer/3]).
 %% Received/sent metrics
 -export([received/1, sent/1]).
 
@@ -133,10 +134,8 @@ inc(Metric, Val) when is_atom(Metric) ->
 
 %% @doc Increase metric value
 -spec(inc(counter | gauge, atom(), pos_integer()) -> pos_integer()).
-inc(gauge, Metric, Val) ->
-    update_counter(key(gauge, Metric), {2, Val});
-inc(counter, Metric, Val) ->
-    update_counter(key(counter, Metric), {2, Val}).
+inc(Type, Metric, Val) ->
+    hold(Type, Metric, Val).
 
 %% @doc Decrease metric value
 -spec(dec(gauge, atom()) -> integer()).
@@ -146,13 +145,51 @@ dec(gauge, Metric) ->
 %% @doc Decrease metric value
 -spec(dec(gauge, atom(), pos_integer()) -> integer()).
 dec(gauge, Metric, Val) ->
-    update_counter(key(gauge, Metric), {2, -Val}).
+    hold(gauge, Metric, -Val).
 
 %% @doc Set metric value
 set(Metric, Val) when is_atom(Metric) ->
     set(gauge, Metric, Val).
 set(gauge, Metric, Val) ->
     ets:insert(?TAB, {key(gauge, Metric), Val}).
+
+% -spec(hold(counter | gauge, atom(), inc_dec | assign, integer()) -> integer()).
+hold(Type, Metric, Val) when Type =:= counter orelse Type =:= gauge ->
+    NewMetrics = case get(metrics) of
+                     undefined ->
+                         #{Metric => {Type, Val}};
+                     Metrics ->
+                         {Type, Count} = maps:get(Metric, Metrics, {Type, 0}),
+                         Metrics#{Metric => {Type, Count + Val}}
+                 end,
+    put(metrics, NewMetrics).
+
+commit() ->
+    case get(metrics) of
+        undefined ->
+            ok;
+        Metrics ->
+            maps:fold(fun(Metric, {Type, Val}, Acc) -> 
+                          update_counter(key(Type, Metric), {2, Val}),
+                          Acc
+                      end, 0, Metrics),
+            put(metrics, #{})
+    end.
+
+-spec(start_timer(integer(), term()) -> reference() | undefined).
+start_timer(Interval, Msg) ->
+    start_timer(Interval, 0, Msg).
+
+-spec(start_timer(integer(), integer(), term()) -> reference() | undefined).
+start_timer(Interval, MaxJitter, Msg) when Interval > 0 ->
+    emqx_misc:start_timer((Interval + case MaxJitter >= 1 of 
+                                          true ->
+                                              rand:uniform(MaxJitter);
+                                          false ->
+                                              0
+                                      end), Msg);
+start_timer(_Interval, _Jitter, _Msg) ->
+    undefined.
 
 %% @doc Metric key
 key(gauge, Metric) ->
