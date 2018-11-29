@@ -154,6 +154,10 @@ init([Transport, RawSocket, Options]) ->
             ok = emqx_misc:init_proc_mng_policy(Zone),
 
             emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
+            MetricCommitInterval = emqx_config:get_env(metric_commit_interval, 10000),
+            emqx_metrics:start_timer(MetricCommitInterval, 
+                                     MetricCommitInterval div 2, 
+                                     {metric_commit, MetricCommitInterval}),
             gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}],
                                   State, self(), IdleTimout);
         {error, Reason} ->
@@ -228,6 +232,10 @@ handle_info({timeout, Timer, emit_stats},
             ?LOG(warning, "shutdown due to ~p", [Reason]),
             shutdown(Reason, NewState)
     end;
+handle_info({timeout, _Timer, {metric_commit, MetricCommitInterval}}, State) ->
+    emqx_metrics:commit(),
+    emqx_metrics:start_timer(MetricCommitInterval, {metric_commit, MetricCommitInterval}),
+    {noreply, State};
 handle_info(timeout, State) ->
     shutdown(idle_timeout, State);
 
