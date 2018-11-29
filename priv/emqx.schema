@@ -191,13 +191,6 @@ end}.
   {default, "emqxsecretcookie"}
 ]}.
 
-%% @doc SMP Support
-{mapping, "node.smp", "vm_args.-smp", [
-  {default, auto},
-  {datatype, {enum, [enable, auto, disable]}},
-  hidden
-]}.
-
 %% @doc http://erlang.org/doc/man/heart.html
 {mapping, "node.heartbeat", "vm_args.-heart", [
   {datatype, flag},
@@ -218,18 +211,178 @@ end}.
   hidden
 ]}.
 
+{mapping, "node.schedulers.total", "vm_args.+S", [
+  {default, undefined},
+  {datatype, integer},
+  {validators, ["=<1024"]}
+]}.
+
+%% @see erlang.schedulers.total
+{mapping, "node.schedulers.online", "vm_args.+S", [
+  {default, undefined},
+  {datatype, integer},
+  {validators, ["=<1024"]}
+]}.
+
+{translation, "vm_args.+S",
+ fun(Conf) ->
+  Total = cuttlefish:conf_get("node.schedulers.total", Conf, undefined),
+  Online = cuttlefish:conf_get("node.schedulers.online", Conf, undefined),
+  case {Total, Online} of
+      {undefined, undefined} -> cuttlefish:unset();
+      {undefined, O} -> ":" ++ integer_to_list(O);
+      {T, undefined} -> integer_to_list(T);
+      _ -> integer_to_list(Total) ++ ":" ++ integer_to_list(Online)
+  end
+ end
+}.
+
+{mapping, "node.dirty_cpu_schedulers.total", "vm_args.+SDcpu", [
+  {default, undefined},
+  {datatype, integer},
+  {validators, ["=<1024"]}
+]}.
+
+%% @see erlang.dirty_cpu_schedulers.total
+{mapping, "node.dirty_cpu_schedulers.online", "vm_args.+SDcpu", [
+  {default, undefined},
+  {datatype, integer},
+  {validators, ["=<1024"]}
+]}.
+
+{translation, "vm_args.+SDcpu",
+ fun(Conf) ->
+  Total = cuttlefish:conf_get("node.dirty_cpu_schedulers.total", Conf, undefined),
+  Online = cuttlefish:conf_get("node.dirty_cpu_schedulers.online", Conf, undefined),
+  case {Total, Online} of
+      {undefined, undefined} -> cuttlefish:unset();
+      {undefined, O} -> ":" ++ integer_to_list(O);
+      {T, undefined} -> integer_to_list(T);
+      _ -> integer_to_list(Total) ++ ":" ++ integer_to_list(Online)
+  end
+ end
+}.
+
+
+{validator, "=<1024", "has a maximum value of 1024",
+ fun(X) -> X =< 1024 end}.
+
+{mapping, "node.dirty_io_schedulers", "vm_args.+SDio", [
+  {datatype, integer}
+]}.
+{translation, "vm_args.+SDio",
+ fun(Conf) ->
+  case cuttlefish:conf_get("node.dirty_io_schedulers", Conf, undefined) of
+      undefined -> cuttlefish:unset();
+      Count -> Count
+  end
+ end
+}.
+
 %% @doc More information at: http://erlang.org/doc/man/erl.html
 {mapping, "node.async_threads", "vm_args.+A", [
-  {default, 64},
   {datatype, integer},
-  {validators, ["range:0-1024"]}
+  {validators, ["=<1024"]}
 ]}.
+{translation, "vm_args.+A",
+ fun(Conf) ->
+  case cuttlefish:conf_get("node.async_threads", Conf, undefined) of
+      undefined -> cuttlefish:unset();
+      Count -> Count
+  end
+ end
+}.
+
+{mapping, "node.schedulers.stack_size", "vm_args.+sss", [
+  {default, 32},
+  {datatype, integer},
+  {validators, ["range:20-8192"]}
+]}.
+
+{mapping, "node.dirty_cpu_schedulers.stack_size", "vm_args.+sssdcpu", [
+  {default, 40},
+  {datatype, integer},
+  {validators, ["range:20-8192"]}
+]}.
+
+{mapping, "node.dirty_io_schedulers.stack_size", "vm_args.+sssdio", [
+  {default, 40},
+  {datatype, integer},
+  {validators, ["range:20-8192"]}
+]}.
+
+{validator, "range:20-8192", "has a range of 20-8192",
+ fun(X) -> X =< 8192 andalso X >= 20 end}.
+
+{mapping, "node.schedulers.bind_type", "vm_args.+sbt", [
+  {datatype, {enum, [u, ns, ts, ps, s, nnts, nnps, tnnps, db]}}
+]}.
+{translation, "vm_args.+sbt",
+ fun(Conf) ->
+  case cuttlefish:conf_get("node.schedulers.bind_type", Conf, undefined) of
+      undefined -> cuttlefish:unset();
+      BindType -> BindType
+  end
+ end
+}.
+
+{mapping, "node.schedulers.cpu_topology", "vm_args.+sct", [
+  %{default, 40},
+  {datatype, string}
+]}.
+{translation, "vm_args.+sct",
+ fun(Conf) ->
+  case cuttlefish:conf_get("node.schedulers.cpu_topology", Conf, undefined) of
+      undefined -> cuttlefish:unset();
+      CpuTopo -> CpuTopo
+  end
+ end
+}.
 
 %% @doc Erlang Process Limit
 {mapping, "node.process_limit", "vm_args.+P", [
   {datatype, integer},
-  {default, 256000},
+  {default, 2097152},
   hidden
+]}.
+
+{mapping, "node.default_heap_size", "vm_args.+hms", [
+  {datatype, integer},
+  {validators, ["heap_size"]}
+]}.
+{translation, "vm_args.+hms",
+ fun(Conf) ->
+  case cuttlefish:conf_get("node.default_heap_size", Conf, undefined) of
+      undefined -> cuttlefish:unset();
+      HMS -> HMS
+  end
+ end
+}.
+
+{mapping, "node.default_virtual_heap_size", "vm_args.+hmbs", [
+  {datatype, integer},
+  {validators, ["heap_size"]}
+]}.
+{translation, "vm_args.+hmbs",
+ fun(Conf) ->
+  case cuttlefish:conf_get("node.default_virtual_heap_size", Conf, undefined) of
+      undefined -> cuttlefish:unset();
+      HMBS -> HMBS
+  end
+ end
+}.
+
+{validator, "heap_size", "must be a valid heap_size listed by erlang:system_info(heap_sizes)",
+ fun(X) -> lists:member(X, erlang:system_info(heap_sizes)) end}.
+
+{mapping, "node.poll_sets", "vm_args.+IOp", [
+  {datatype, integer},
+  {default, 1}
+]}.
+
+{mapping, "node.poll_threads", "vm_args.+IOt", [
+  {datatype, integer},
+  {default, 1}
 ]}.
 
 %% Note: OTP R15 and earlier uses -env ERL_MAX_PORTS, R16+ uses +Q
@@ -237,7 +390,7 @@ end}.
 %% Valid range is 1024-134217727
 {mapping, "node.max_ports",
   cuttlefish:otp("R16", "vm_args.+Q", "vm_args.-env ERL_MAX_PORTS"), [
-  {default, 262144},
+  {default, 1048576},
   {datatype, integer},
   {validators, ["range4ports"]}
 ]}.
@@ -248,7 +401,6 @@ end}.
 %% @doc http://www.erlang.org/doc/man/erl.html#%2bzdbbl
 {mapping, "node.dist_buffer_size", "vm_args.+zdbbl", [
   {datatype, bytesize},
-  {commented, "32MB"},
   hidden,
   {validators, ["zdbbl_range"]}
 ]}.
@@ -287,9 +439,14 @@ end}.
 %% @doc The ETS table limit
 {mapping, "node.max_ets_tables",
   cuttlefish:otp("R16", "vm_args.+e", "vm_args.-env ERL_MAX_ETS_TABLES"), [
-  {default, 256000},
+  {default, 1400},
   {datatype, integer},
   hidden
+]}.
+
+{mapping, "node.max_atoms", "vm_args.+t", [
+  {default, 1048576},
+  {datatype, integer}
 ]}.
 
 %% @doc Set the location of crash dumps
@@ -426,9 +583,15 @@ end}.
   {datatype, file}
 ]}.
 
-{mapping, "sasl", "sasl.sasl_error_logger", [
+{mapping, "log.sasl_error_logger", "sasl.sasl_error_logger", [
   {default, off},
   {datatype, flag},
+  hidden
+]}.
+
+{mapping, "log.error_logger", "kernel.error_logger", [
+  {default, silent},
+  {datatype, {enum, [silent]}},
   hidden
 ]}.
 
