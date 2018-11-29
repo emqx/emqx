@@ -52,19 +52,21 @@ show_forwards(Name) ->
 
 -spec(add_forward(atom(), binary()) -> ok | {error, already_exists | validate_fail}).
 add_forward(Name, Topic) ->
-    case catch emqx_topic:validate({filter, Topic}) of
+    try emqx_topic:validate({filter, Topic}) of
         true ->
-            gen_server:call(name(Name), {add_forward, Topic});
-        {'EXIT', _Reason} ->
+            gen_server:call(name(Name), {add_forward, Topic})
+    catch
+        error : _Reason ->
             {error, validate_fail}
     end.
 
 -spec(del_forward(atom(), binary()) -> ok | {error, validate_fail}).
 del_forward(Name, Topic) ->
-    case catch emqx_topic:validate({filter, Topic}) of
+    try emqx_topic:validate({filter, Topic}) of
         true ->
-            gen_server:call(name(Name), {del_forward, Topic});
-        _ ->
+            gen_server:call(name(Name), {del_forward, Topic})
+    catch
+        error : _Reason ->
             {error, validate_fail}
     end.
 
@@ -74,19 +76,21 @@ show_subscriptions(Name) ->
 
 -spec(add_subscription(atom(), binary(), integer()) -> ok | {error, already_exists | validate_fail}).
 add_subscription(Name, Topic, QoS) ->
-    case catch emqx_topic:validate({filter, Topic}) of
+    try emqx_topic:validate({filter, Topic}) of
         true ->
-            gen_server:call(name(Name), {add_subscription, Topic, QoS});
-        {'EXIT', _Reason} ->
+            gen_server:call(name(Name), {add_subscription, Topic, QoS})
+    catch
+        error : _Reason ->
             {error, validate_fail}
     end.
 
 -spec(del_subscription(atom(), binary()) -> ok | {error, validate_fail}).
 del_subscription(Name, Topic) ->
-    case catch emqx_topic:validate({filter, Topic}) of
+    try emqx_topic:validate({filter, Topic}) of
         true ->
-            gen_server:call(name(Name), {del_subscription, Topic});
-        _ ->
+            gen_server:call(name(Name), {del_subscription, Topic})
+    catch
+        error : _Reason ->
             {error, validate_fail}
     end.
 

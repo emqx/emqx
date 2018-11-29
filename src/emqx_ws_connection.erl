@@ -168,7 +168,7 @@ websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
     put(recv_oct, get(recv_oct) + BinSize),
     ?LOG(debug, "RECV ~p", [Data]),
     emqx_metrics:inc('bytes/received', BinSize),
-    case catch emqx_frame:parse(iolist_to_binary(Data), ParserState) of
+    try emqx_frame:parse(iolist_to_binary(Data), ParserState) of
         {more, NewParserState} ->
             {ok, State#state{parser_state = NewParserState}};
         {ok, Packet, Rest} ->
@@ -187,8 +187,9 @@ websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
             end;
         {error, Error} ->
             ?LOG(error, "Frame error: ~p", [Error]),
-            stop(Error, State);
-        {'EXIT', Reason} ->
+            stop(Error, State)
+    catch
+        error : Reason ->
             ?LOG(error, "Frame error:~p~nFrame data: ~p", [Reason, Data]),
             shutdown(parse_error, State)
     end.

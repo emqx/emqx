@@ -1319,15 +1319,16 @@ receive_loop(<<>>, State) ->
     {keep_state, State};
 
 receive_loop(Bytes, State = #state{parse_state = ParseState}) ->
-    case catch emqx_frame:parse(Bytes, ParseState) of
+    try emqx_frame:parse(Bytes, ParseState) of
         {ok, Packet, Rest} ->
             ok = gen_statem:cast(self(), Packet),
             receive_loop(Rest, init_parse_state(State));
         {more, NewParseState} ->
             {keep_state, State#state{parse_state = NewParseState}};
         {error, Reason} ->
-            {stop, Reason};
-        {'EXIT', Error} ->
+            {stop, Reason}
+    catch
+        error : Error ->
             {stop, Error}
     end.
 

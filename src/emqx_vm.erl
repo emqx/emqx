@@ -420,4 +420,3 @@ mapping([{owner, V}|Entries], Acc) when is_pid(V) ->
     mapping(Entries, [{owner, Owner}|Acc]);
 mapping([{Key, Value}|Entries], Acc) ->
     mapping(Entries, [{Key, Value}|Acc]).
-

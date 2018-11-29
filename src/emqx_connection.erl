@@ -320,7 +320,7 @@ handle_packet(<<>>, State0) ->
 handle_packet(Data, State = #state{proto_state  = ProtoState,
                                    parser_state = ParserState,
                                    idle_timeout = IdleTimeout}) ->
-    case catch emqx_frame:parse(Data, ParserState) of
+    try emqx_frame:parse(Data, ParserState) of
         {more, NewParserState} ->
             {noreply, run_socket(State#state{parser_state = NewParserState}), IdleTimeout};
         {ok, Packet = ?PACKET(Type), Rest} ->
@@ -339,8 +339,9 @@ handle_packet(Data, State = #state{proto_state  = ProtoState,
             end;
         {error, Error} ->
             ?LOG(error, "Framing error - ~p", [Error]),
-            shutdown(Error, State);
-        {'EXIT', Reason} ->
+            shutdown(Error, State)
+    catch
+        error : Reason ->
             ?LOG(error, "Parse failed for ~p~nError data:~p", [Reason, Data]),
             shutdown(parse_error, State)
     end.

@@ -78,10 +78,11 @@ discard_session(ClientId) when is_binary(ClientId) ->
 
 discard_session(ClientId, ConnPid) when is_binary(ClientId) ->
     lists:foreach(fun({_ClientId, SPid}) ->
-                      case catch emqx_session:discard(SPid, ConnPid) of
-                          {Err, Reason} when Err =:= 'EXIT'; Err =:= error ->
-                              emqx_logger:error("[SM] Failed to discard ~p: ~p", [SPid, Reason]);
+                      try emqx_session:discard(SPid, ConnPid) of
                           ok -> ok
+                      catch
+                          error : Reason ->
+                              emqx_logger:error("[SM] Failed to discard ~p: ~p", [SPid, Reason])
                       end
                   end, lookup_session(ClientId)).
 
@@ -255,4 +256,3 @@ safe_update_stats(Tab, Stat, MaxStat) ->
         undefined -> ok;
         Size -> emqx_stats:setstat(Stat, MaxStat, Size)
     end.
-

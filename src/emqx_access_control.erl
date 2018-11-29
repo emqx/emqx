@@ -68,8 +68,8 @@ authenticate(Credentials, _Password, []) ->
     end;
 
 authenticate(Credentials, Password, [{Mod, State, _Seq} | Mods]) ->
-    case catch Mod:check(Credentials, Password, State) of
-        ok -> ok;
+    try Mod:check(Credentials, Password, State) of
+                ok -> ok;
         {ok, IsSuper} when is_boolean(IsSuper) ->
             {ok, #{is_superuser => IsSuper}};
         {ok, Result} when is_map(Result) ->
@@ -79,9 +79,10 @@ authenticate(Credentials, Password, [{Mod, State, _Seq} | Mods]) ->
         ignore ->
             authenticate(Credentials, Password, Mods);
         {error, Reason} ->
-            {error, Reason};
-        {'EXIT', Error} ->
-            {error, Error}
+            {error, Reason}
+    catch
+        error : Reason ->
+            {error, Reason}
     end.
 
 %% @doc Check ACL
@@ -156,17 +157,18 @@ handle_call({register_mod, Type, Mod, Opts, Seq}, _From, State) ->
     reply(case lists:keymember(Mod, 1, Mods) of
               true  -> {error, already_exists};
               false ->
-                  case catch Mod:init(Opts) of
+                  try Mod:init(Opts) of
                       {ok, ModState} ->
                           NewMods = lists:sort(fun({_, _, Seq1}, {_, _, Seq2}) ->
                                                        Seq1 >= Seq2
                                                end, [{Mod, ModState, Seq} | Mods]),
                           ets:insert(?TAB, {tab_key(Type), NewMods}), ok;
                       {error, Error} ->
-                          {error, Error};
-                      {'EXIT', Reason} ->
+                          {error, Error}
+                  catch
+                      error : Reason ->
                           {error, Reason}
-                    end
+                  end
           end, State);
 
 handle_call({unregister_mod, Type, Mod}, _From, State) ->
@@ -205,4 +207,3 @@ code_change(_OldVsn, State, _Extra) ->
 
 reply(Reply, State) ->
     {reply, Reply, State}.
-

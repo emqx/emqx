@@ -99,15 +99,15 @@ match(Credentials, Topic, [Rule|Rules]) ->
 
 -spec(reload_acl(state()) -> ok | {error, term()}).
 reload_acl(#{acl_file := AclFile}) ->
-    case catch load_rules_from_file(AclFile) of
+    try load_rules_from_file(AclFile) of
         true ->
             emqx_logger:info("Reload acl_file ~s successfully", [AclFile]),
-            ok;
-        {'EXIT', Error} ->
+            ok
+    catch
+        error : Error ->
             {error, Error}
     end.
 
 -spec(description() -> string()).
 description() ->
     "Internal ACL with etc/acl.conf".
-
