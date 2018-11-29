@@ -69,7 +69,7 @@ authenticate(Credentials, _Password, []) ->
 
 authenticate(Credentials, Password, [{Mod, State, _Seq} | Mods]) ->
     try Mod:check(Credentials, Password, State) of
-                ok -> ok;
+        ok -> ok;
         {ok, IsSuper} when is_boolean(IsSuper) ->
             {ok, #{is_superuser => IsSuper}};
         {ok, Result} when is_map(Result) ->
