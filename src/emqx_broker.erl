@@ -321,8 +321,6 @@ topics() -> emqx_router:topics().
 
 init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
-    MetricCommitInterval = emqx_config:get_env(metric_commit_interval, 10000),
-    emqx_metrics:start_timer(MetricCommitInterval, MetricCommitInterval div 2, {metric_commit, MetricCommitInterval}),
     {ok, #state{pool = Pool, id = Id, submap = #{}, submon = emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
@@ -372,11 +370,6 @@ handle_info({'DOWN', _MRef, process, SubPid, Reason}, State = #state{submap = Su
             emqx_logger:error("unexpected 'DOWN': ~p, reason: ~p", [SubPid, Reason]),
             {noreply, State}
     end;
-
-handle_info({timeout, _Timer, {metric_commit, MetricCommitInterval}}, State) ->
-    emqx_metrics:commit(),
-    emqx_metrics:start_timer(MetricCommitInterval, {metric_commit, MetricCommitInterval}),
-    {noreply, State};
 
 handle_info(Info, State) ->
     emqx_logger:error("[Broker] unexpected info: ~p", [Info]),
