@@ -1,6 +1,6 @@
 {application,emqx,
              [{description,"EMQ X Broker"},
-              {vsn,"3.0-rc.3"},
+              {vsn,"git"},
               {modules,[]},
               {registered,[emqx_sup]},
               {applications,[kernel,stdlib,jsx,gproc,gen_rpc,esockd,

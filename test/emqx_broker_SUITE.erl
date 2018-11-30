@@ -38,6 +38,7 @@ groups() ->
                            publish, pubsub,
                            t_local_subscribe,
                            t_shared_subscribe,
+                           dispatch_with_no_sub,
                            'pubsub#', 'pubsub+']},
      {session, [sequence], [start_session]},
      {metrics, [sequence], [inc_dec_metric]},
@@ -75,6 +76,11 @@ publish(_) ->
     timer:sleep(10),
     emqx:publish(Msg),
     ?assert(receive {dispatch, <<"test/+">>, Msg} -> true after 5 -> false end).
+
+dispatch_with_no_sub(_) ->
+    Msg = emqx_message:make(ct, <<"no_subscribers">>, <<"hello">>),
+    Delivery = #delivery{sender = self(), message = Msg, results = []},
+    ?assertEqual(Delivery, emqx_broker:route([{<<"no_subscribers">>, node()}], Delivery)).
 
 pubsub(_) ->
     true = emqx:is_running(node()),
@@ -193,4 +199,3 @@ set_alarms(_) ->
     ?assertEqual(1, length(Alarms)),
     emqx_alarm_mgr:clear_alarm(<<"1">>),
     [] = emqx_alarm_mgr:get_alarms().
-

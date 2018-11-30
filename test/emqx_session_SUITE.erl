@@ -45,6 +45,7 @@ ignore_loop(_Config) ->
     application:set_env(emqx, mqtt_ignore_loop_deliver, false).
 
 t_session_all(_) ->
+    emqx_zone:set_env(internal, idle_timeout, 100),
     ClientId = <<"ClientId">>,
     {ok, ConnPid} = emqx_mock_client:start_link(ClientId),
     {ok, SPid} = emqx_mock_client:open_session(ConnPid, ClientId, internal),

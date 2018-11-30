@@ -33,6 +33,11 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
 -record(state, {pool, id, submap, submon}).
 -record(subscribe, {topic, subpid, subid, subopts = #{}}).
 -record(unsubscribe, {topic, subpid, subid}).
@@ -326,8 +331,6 @@ init([Pool, Id]) ->
 handle_call(Req, _From, State) ->
     emqx_logger:error("[Broker] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
-
-
 
 handle_cast({From, #subscribe{topic = Topic, subpid = SubPid, subid = SubId, subopts = SubOpts}}, State) ->
     Subscriber = {SubPid, SubId},

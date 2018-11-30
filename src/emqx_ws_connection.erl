@@ -148,7 +148,7 @@ send_fun(WsPid) ->
     fun(Packet, Options) ->
         Data = emqx_frame:serialize(Packet, Options),
         BinSize = iolist_size(Data),
-        emqx_metrics:inc('bytes/sent', BinSize),
+        emqx_metrics:trans(inc, 'bytes/sent', BinSize),
         put(send_oct, get(send_oct) + BinSize),
         put(send_cnt, get(send_cnt) + 1),
         WsPid ! {binary, iolist_to_binary(Data)},
@@ -167,7 +167,7 @@ websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
     BinSize = iolist_size(Data),
     put(recv_oct, get(recv_oct) + BinSize),
     ?LOG(debug, "RECV ~p", [Data]),
-    emqx_metrics:inc('bytes/received', BinSize),
+    emqx_metrics:trans(inc, 'bytes/received', BinSize),
     case catch emqx_frame:parse(iolist_to_binary(Data), ParserState) of
         {more, NewParserState} ->
             {ok, State#state{parser_state = NewParserState}};
@@ -223,6 +223,7 @@ websocket_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
 
 websocket_info({timeout, Timer, emit_stats},
                State = #state{stats_timer = Timer, proto_state = ProtoState}) ->
+    emqx_metrics:commit(),
     emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), stats(State)),
     {ok, State#state{stats_timer = undefined}, hibernate};
 

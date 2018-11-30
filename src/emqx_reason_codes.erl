@@ -28,7 +28,7 @@ name(2, _Ver) -> client_identifier_not_valid;
 name(3, _Ver) -> server_unavaliable;
 name(4, _Ver) -> malformed_username_or_password;
 name(5, _Ver) -> unauthorized_client;
-name(I, _Ver) -> list_to_atom("unkown_connack" ++ integer_to_list(I)).
+name(_, _Ver) -> unknown_error.
 
 name(16#00) -> success;
 name(16#01) -> granted_qos1;
@@ -73,7 +73,7 @@ name(16#9F) -> connection_rate_exceeded;
 name(16#A0) -> maximum_connect_time;
 name(16#A1) -> subscription_identifiers_not_supported;
 name(16#A2) -> wildcard_subscriptions_not_supported;
-name(Code)  -> list_to_atom("unkown_reason_code" ++ integer_to_list(Code)).
+name(_Code) -> unknown_error.
 
 text(16#00) -> <<"Success">>;
 text(16#01) -> <<"Granted QoS 1">>;
@@ -118,7 +118,7 @@ text(16#9F) -> <<"Connection rate exceeded">>;
 text(16#A0) -> <<"Maximum connect time">>;
 text(16#A1) -> <<"Subscription Identifiers not supported">>;
 text(16#A2) -> <<"Wildcard Subscriptions not supported">>;
-text(Code)  -> iolist_to_binary(["Unkown Reason Code:", integer_to_list(Code)]).
+text(_Code) -> <<"Unknown error">>.
 
 compat(connack, 16#80) -> ?CONNACK_PROTO_VER;
 compat(connack, 16#81) -> ?CONNACK_PROTO_VER;

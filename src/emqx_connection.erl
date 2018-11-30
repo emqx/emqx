@@ -170,7 +170,7 @@ send_fun(Transport, Socket) ->
         Data = emqx_frame:serialize(Packet, Options),
         try Transport:async_send(Socket, Data) of
             ok ->
-                emqx_metrics:inc('bytes/sent', iolist_size(Data)),
+                emqx_metrics:trans(inc, 'bytes/sent', iolist_size(Data)),
                 ok;
             Error -> Error
         catch
@@ -215,6 +215,7 @@ handle_info({timeout, Timer, emit_stats},
             State = #state{stats_timer = Timer,
                            proto_state = ProtoState
                           }) ->
+    emqx_metrics:commit(),
     emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), stats(State)),
     NewState = State#state{stats_timer = undefined},
     Limits = erlang:get(force_shutdown_policy),
@@ -248,7 +249,7 @@ handle_info(activate_sock, State) ->
 handle_info({inet_async, _Sock, _Ref, {ok, Data}}, State) ->
     ?LOG(debug, "RECV ~p", [Data]),
     Size = iolist_size(Data),
-    emqx_metrics:inc('bytes/received', Size),
+    emqx_metrics:trans(inc, 'bytes/received', Size),
     Incoming = #{bytes => Size, packets => 0},
     handle_packet(Data, State#state{await_recv = false, incoming = Incoming});
 

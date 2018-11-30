@@ -2,25 +2,24 @@
 
 PROJECT = emqx
 PROJECT_DESCRIPTION = EMQ X Broker
-PROJECT_VERSION = 3.0
 
 DEPS = jsx gproc gen_rpc ekka esockd cowboy clique emqx_passwd
 
-dep_jsx     = git https://github.com/talentdeficit/jsx 2.9.0
-dep_gproc   = git https://github.com/uwiger/gproc 0.8.0
-dep_gen_rpc = git https://github.com/emqx/gen_rpc 2.3.0
-dep_esockd  = git https://github.com/emqx/esockd v5.4.2
-dep_ekka    = git https://github.com/emqx/ekka v0.5.1
-dep_cowboy  = git https://github.com/ninenines/cowboy 2.4.0
-dep_clique  = git https://github.com/emqx/clique develop
-dep_emqx_passwd = git https://github.com/emqx/emqx-passwd win30
+dep_jsx     = hex-emqx 2.9.0
+dep_gproc   = hex-emqx 0.8.0
+dep_gen_rpc = git-emqx https://github.com/emqx/gen_rpc 2.3.0
+dep_esockd  = git-emqx https://github.com/emqx/esockd v5.4.2
+dep_ekka    = git-emqx https://github.com/emqx/ekka v0.5.1
+dep_cowboy  = hex-emqx 2.4.0
+dep_clique  = git-emqx https://github.com/emqx/clique develop
 
 NO_AUTOPATCH = cuttlefish
 
 ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 
 BUILD_DEPS = cuttlefish
-dep_cuttlefish = git https://github.com/emqx/cuttlefish v2.1.1
+
+dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish v2.1.1
 
 #TEST_DEPS = emqx_ct_helplers
 #dep_emqx_ct_helplers = git git@github.com:emqx/emqx-ct-helpers
@@ -37,7 +36,8 @@ CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
 			emqx_keepalive emqx_lib emqx_metrics emqx_mod emqx_mod_sup emqx_mqtt_caps \
 			emqx_mqtt_props emqx_mqueue emqx_net emqx_pqueue emqx_router emqx_sm \
 			emqx_tables emqx_time emqx_topic emqx_trie emqx_vm emqx_mountpoint \
-		 	emqx_listeners emqx_protocol emqx_pool emqx_shared_sub emqx_bridge emqx_hooks
+			emqx_listeners emqx_protocol emqx_pool emqx_shared_sub emqx_bridge \
+			emqx_hooks emqx_batch
 
 CT_NODE_NAME = emqxct@127.0.0.1
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name $(CT_NODE_NAME)
@@ -48,9 +48,32 @@ PLT_APPS = sasl asn1 ssl syntax_tools runtime_tools crypto xmerl os_mon inets pu
 DIALYZER_DIRS := ebin/
 DIALYZER_OPTS := --verbose --statistics -Werror_handling -Wrace_conditions #-Wunmatched_returns
 
+GIT_VSN := $(shell git --version | grep -oE "[0-9]{1,2}\.[0-9]{1,2}")
+GIT_VSN_17_COMP := $(shell echo -e "$(GIT_VSN)\n1.7" | sort -V | tail -1)
+
+ifeq ($(GIT_VSN_17_COMP),1.7)
+define dep_fetch_git-emqx
+	git clone -q -n -- $(call dep_repo,$(1)) $(DEPS_DIR)/$(call dep_name,$(1)); \
+		cd $(DEPS_DIR)/$(call dep_name,$(1)) && git checkout -q $(call dep_commit,$(1))
+endef
+else
+define dep_fetch_git-emqx
+	git clone -q -c advice.detachedHead=false --depth 1 -b $(call dep_commit,$(1)) -- $(call dep_repo,$(1)) $(DEPS_DIR)/$(call dep_name,$(1))
+endef
+endif
+
+core_http_get-emqx = curl -Lf$(if $(filter-out 0,$(V)),,s)o $(call core_native_path,$1) $2
+
+define dep_fetch_hex-emqx
+	mkdir -p $(ERLANG_MK_TMP)/hex $(DEPS_DIR)/$1; \
+	$(call core_http_get-emqx,$(ERLANG_MK_TMP)/hex/$1.tar,\
+		https://repo.hex.pm/tarballs/$1-$(strip $(word 2,$(dep_$1))).tar); \
+	tar -xOf $(ERLANG_MK_TMP)/hex/$1.tar contents.tar.gz | tar -C $(DEPS_DIR)/$1 -xzf -;
+endef
+
 include erlang.mk
 
-clean:: gen-clean rebar-clean
+clean:: gen-clean
 
 .PHONY: gen-clean
 gen-clean:
@@ -109,7 +132,7 @@ rebar-ct: app.config
 rebar-clean:
 	@rebar3 clean
 
-distclean:: rebar-clean
+distclean::
 	@rm -rf _build cover deps logs log data
 	@rm -f rebar.lock compile_commands.json cuttlefish
 
@@ -120,7 +143,7 @@ comma = ,
 quote = \"
 curly_l = "{"
 curly_r = "}"
-dep-versions = [$(foreach dep,$(DEPS) $(BUILD_DEPS),$(curly_l)$(dep),$(quote)$(word 3,$(dep_$(dep)))$(quote)$(curly_r)$(comma))[]]
+dep-versions = [$(foreach dep,$(DEPS) $(BUILD_DEPS),$(curly_l)$(dep),$(quote)$(word $(words $(dep_$(dep))),$(dep_$(dep)))$(quote)$(curly_r)$(comma))[]]
 
 .PHONY: dep-vsn-check
 dep-vsn-check:
