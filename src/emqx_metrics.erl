@@ -18,8 +18,8 @@
 
 -export([start_link/0]).
 -export([new/1, all/0]).
--export([val/1, inc/1, inc/2, inc/3, dec/2, dec/3, set/2, commit/0]).
--export([start_timer/2, start_timer/3]).
+-export([val/1, inc/1, inc/2, inc/3, dec/2, dec/3, set/2]).
+-export([trans/2, trans/3, trans/4, commit/0]).
 %% Received/sent metrics
 -export([received/1, sent/1]).
 
@@ -135,7 +135,7 @@ inc(Metric, Val) when is_atom(Metric) ->
 %% @doc Increase metric value
 -spec(inc(counter | gauge, atom(), pos_integer()) -> pos_integer()).
 inc(Type, Metric, Val) ->
-    hold(Type, Metric, Val).
+    update_counter(key(Type, Metric), {2, Val}).
 
 %% @doc Decrease metric value
 -spec(dec(gauge, atom()) -> integer()).
@@ -145,7 +145,7 @@ dec(gauge, Metric) ->
 %% @doc Decrease metric value
 -spec(dec(gauge, atom(), pos_integer()) -> integer()).
 dec(gauge, Metric, Val) ->
-    hold(gauge, Metric, -Val).
+    update_counter(key(gauge, Metric), {2, -Val}).
 
 %% @doc Set metric value
 set(Metric, Val) when is_atom(Metric) ->
@@ -153,7 +153,24 @@ set(Metric, Val) when is_atom(Metric) ->
 set(gauge, Metric, Val) ->
     ets:insert(?TAB, {key(gauge, Metric), Val}).
 
-% -spec(hold(counter | gauge, atom(), inc_dec | assign, integer()) -> integer()).
+trans(inc, Metric) ->
+    trans(inc, {counter, Metric}, 1).
+
+trans(Opt, {gauge, Metric}, Val) ->
+    trans(Opt, gauge, Metric, Val);
+trans(inc, {counter, Metric}, Val) ->
+    trans(inc, counter, Metric, Val);
+trans(inc, Metric, Val) when is_atom(Metric) ->
+    trans(inc, counter, Metric, Val);
+trans(dec, gauge, Metric) ->
+    trans(dec, gauge, Metric, 1).
+
+trans(inc, Type, Metric, Val) ->
+    hold(Type, Metric, Val);
+trans(dec, gauge, Metric, Val) ->
+    hold(gauge, Metric, -Val).
+
+% -spec(hold(counter | gauge, atom(), integer()) -> integer()).
 hold(Type, Metric, Val) when Type =:= counter orelse Type =:= gauge ->
     NewMetrics = case get(metrics) of
                      undefined ->
@@ -175,21 +192,6 @@ commit() ->
                       end, 0, Metrics),
             put(metrics, #{})
     end.
-
--spec(start_timer(integer(), term()) -> reference() | undefined).
-start_timer(Interval, Msg) ->
-    start_timer(Interval, 0, Msg).
-
--spec(start_timer(integer(), integer(), term()) -> reference() | undefined).
-start_timer(Interval, MaxJitter, Msg) when Interval > 0 ->
-    emqx_misc:start_timer((Interval + case MaxJitter >= 1 of 
-                                          true ->
-                                              rand:uniform(MaxJitter);
-                                          false ->
-                                              0
-                                      end), Msg);
-start_timer(_Interval, _Jitter, _Msg) ->
-    undefined.
 
 %% @doc Metric key
 key(gauge, Metric) ->

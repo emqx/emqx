@@ -154,10 +154,6 @@ init([Transport, RawSocket, Options]) ->
             ok = emqx_misc:init_proc_mng_policy(Zone),
 
             emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
-            MetricCommitInterval = emqx_config:get_env(metric_commit_interval, 10000),
-            emqx_metrics:start_timer(MetricCommitInterval, 
-                                     MetricCommitInterval div 2, 
-                                     {metric_commit, MetricCommitInterval}),
             gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}],
                                   State, self(), IdleTimout);
         {error, Reason} ->
@@ -174,7 +170,7 @@ send_fun(Transport, Socket) ->
         Data = emqx_frame:serialize(Packet, Options),
         try Transport:async_send(Socket, Data) of
             ok ->
-                emqx_metrics:inc('bytes/sent', iolist_size(Data)),
+                emqx_metrics:trans(inc, 'bytes/sent', iolist_size(Data)),
                 ok;
             Error -> Error
         catch
@@ -219,6 +215,7 @@ handle_info({timeout, Timer, emit_stats},
             State = #state{stats_timer = Timer,
                            proto_state = ProtoState
                           }) ->
+    emqx_metrics:commit(),
     emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), stats(State)),
     NewState = State#state{stats_timer = undefined},
     Limits = erlang:get(force_shutdown_policy),
@@ -232,10 +229,6 @@ handle_info({timeout, Timer, emit_stats},
             ?LOG(warning, "shutdown due to ~p", [Reason]),
             shutdown(Reason, NewState)
     end;
-handle_info({timeout, _Timer, {metric_commit, MetricCommitInterval}}, State) ->
-    emqx_metrics:commit(),
-    emqx_metrics:start_timer(MetricCommitInterval, {metric_commit, MetricCommitInterval}),
-    {noreply, State};
 handle_info(timeout, State) ->
     shutdown(idle_timeout, State);
 
@@ -256,7 +249,7 @@ handle_info(activate_sock, State) ->
 handle_info({inet_async, _Sock, _Ref, {ok, Data}}, State) ->
     ?LOG(debug, "RECV ~p", [Data]),
     Size = iolist_size(Data),
-    emqx_metrics:inc('bytes/received', Size),
+    emqx_metrics:trans(inc, 'bytes/received', Size),
     Incoming = #{bytes => Size, packets => 0},
     handle_packet(Data, State#state{await_recv = false, incoming = Incoming});
 
