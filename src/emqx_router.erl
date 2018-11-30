@@ -54,7 +54,9 @@ mnesia(boot) ->
                 {type, bag},
                 {ram_copies, [node()]},
                 {record_name, route},
-                {attributes, record_info(fields, route)}]);
+                {attributes, record_info(fields, route)},
+                {storage_properties, [{ets, [{read_concurrency, true},
+                                             {write_concurrency, true}]}]}]);
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?ROUTE).
 
