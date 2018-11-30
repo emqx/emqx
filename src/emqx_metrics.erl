@@ -171,25 +171,21 @@ trans(dec, gauge, Metric, Val) ->
     hold(gauge, Metric, -Val).
 
 hold(Type, Metric, Val) when Type =:= counter orelse Type =:= gauge ->
-    NewMetrics = case get(metrics) of
+    put('$metrics', case get('$metrics') of
                      undefined ->
-                         #{Metric => {Type, Val}};
+                         #{{Type, Metric} => Val};
                      Metrics ->
-                         {Type, Count} = maps:get(Metric, Metrics, {Type, 0}),
-                         Metrics#{Metric => {Type, Count + Val}}
-                 end,
-    put(metrics, NewMetrics).
+                         maps:update_with({Type, Metric}, fun(Cnt) -> Cnt + Val end, Val, Metrics)
+                 end).
 
 commit() ->
-    case get(metrics) of
-        undefined ->
-            ok;
+    case get('$metrics') of
+        undefined -> ok;
         Metrics ->
-            maps:fold(fun(Metric, {Type, Val}, Acc) -> 
-                          update_counter(key(Type, Metric), {2, Val}),
-                          Acc
+            maps:fold(fun({Type, Metric}, Val, _Acc) -> 
+                          update_counter(key(Type, Metric), {2, Val})
                       end, 0, Metrics),
-            put(metrics, #{})
+            erase('$metrics')
     end.
 
 %% @doc Metric key
