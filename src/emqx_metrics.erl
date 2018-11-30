@@ -170,7 +170,6 @@ trans(inc, Type, Metric, Val) ->
 trans(dec, gauge, Metric, Val) ->
     hold(gauge, Metric, -Val).
 
-% -spec(hold(counter | gauge, atom(), integer()) -> integer()).
 hold(Type, Metric, Val) when Type =:= counter orelse Type =:= gauge ->
     NewMetrics = case get(metrics) of
                      undefined ->
