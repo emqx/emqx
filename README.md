@@ -63,6 +63,15 @@ You can reach the EMQ community and developers via the following channels:
 
 Please submit any bugs, issues, and feature requests to [emqx/emqx](https://github.com/emqx/emqx/issues).
 
+## MQTT Specifications
+
+You can read the mqtt protocol via the following links:
+
+[MQTT Version 3.1.1](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html)
+
+[MQTT Version 5.0](https://docs.oasis-open.org/mqtt/mqtt/v5.0/cs02/mqtt-v5.0-cs02.html)
+
+[MQTT SN](http://mqtt.org/new/wp-content/uploads/2009/06/MQTT-SN_spec_v1.2.pdf)
 
 ## License
 
@@ -74,4 +83,3 @@ Licensed under the Apache License, Version 2.0 (the "License");you may not use t
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and limitations under the License.
-

@@ -22,8 +22,11 @@
 -export([error/1, error/2, error/3]).
 -export([critical/1, critical/2, critical/3]).
 
--export([add_metadata_peername/1, add_metadata_client_id/1]).
--export([add_proc_metadata/1]).
+-export([set_metadata_peername/1, set_metadata_client_id/1]).
+-export([set_proc_metadata/1]).
+
+-export([get_primary_log_level/0, set_primary_log_level/1]).
+-export([get_log_handlers/0, get_log_handler/1, set_log_handler_level/2]).
 
 debug(Msg) ->
     logger:debug(Msg).
@@ -60,17 +63,48 @@ critical(Format, Args) ->
 critical(Metadata, Format, Args) when is_map(Metadata) ->
     logger:critical(Format, Args, Metadata).
 
+set_metadata_client_id(ClientId) ->
+    set_proc_metadata(#{client_id => ClientId}).
 
-add_metadata_client_id(ClientId) ->
-    add_proc_metadata(#{client_id => ClientId}).
+set_metadata_peername(Peername) ->
+    set_proc_metadata(#{peername => Peername}).
 
-add_metadata_peername(Peername) ->
-    add_proc_metadata(#{peername => Peername}).
+set_proc_metadata(Meta) ->
+    logger:update_process_metadata(Meta).
 
-add_proc_metadata(Meta) ->
-    case logger:get_process_metadata() of
-        undefined ->
-            logger:set_process_metadata(Meta);
-        OldMeta ->
-            logger:set_process_metadata(maps:merge(OldMeta, Meta))
-    end.
+get_primary_log_level() ->
+    #{level := Level} = logger:get_primary_config(),
+    Level.
+
+set_primary_log_level(Level) ->
+    logger:set_primary_config(level, Level).
+
+get_log_handlers() ->
+    lists:map(fun log_hanlder_info/1, logger:get_handler_config()).
+
+get_log_handler(HandlerId) ->
+    {ok, Conf} = logger:get_handler_config(HandlerId),
+    log_hanlder_info(Conf).
+
+set_log_handler_level(HandlerId, Level) ->
+    logger:set_handler_config(HandlerId, level, Level).
+
+%%========================
+%% Internal Functions
+%%========================
+log_hanlder_info(#{id := Id, level := Level, module := logger_std_h,
+                   config := #{type := Type}}) when Type =:= standard_io;
+                                                    Type =:= standard_error ->
+    {Id, Level, console};
+log_hanlder_info(#{id := Id, level := Level, module := logger_std_h,
+                   config := #{type := Type}}) ->
+    case Type of
+        {file, Filename} -> {Id, Level, Filename};
+        {file, Filename, _Opts} -> {Id, Level, Filename};
+        _ -> {Id, Level, unknown}
+    end;
+log_hanlder_info(#{id := Id, level := Level, module := logger_disk_log_h,
+                   config := #{file := Filename}}) ->
+    {Id, Level, Filename};
+log_hanlder_info(#{id := Id, level := Level, module := _OtherModule}) ->
+    {Id, Level, unknown}.

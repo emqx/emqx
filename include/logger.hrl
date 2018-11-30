@@ -4,7 +4,6 @@
 %%--------------------------------------------------------------------
 -ifdef(LOG_HEADER).
 %% with header
-
 -define(LOG(Level, Format, Args),
         begin
           (logger:log(Level,#{},#{report_cb =>

@@ -294,7 +294,7 @@ process_packet(?CONNECT_PACKET(
 
     NewClientId = maybe_use_username_as_clientid(ClientId, Username, PState),
 
-    emqx_logger:add_metadata_client_id(NewClientId),
+    emqx_logger:set_metadata_client_id(NewClientId),
 
     %% TODO: Mountpoint...
     %% Msg -> emqx_mountpoint:mount(MountPoint, Msg)
@@ -317,6 +317,7 @@ process_packet(?CONNECT_PACKET(
                   {ok, IsSuper} ->
                       %% Maybe assign a clientId
                       PState3 = maybe_assign_client_id(PState2#pstate{is_super = IsSuper}),
+                      emqx_logger:set_metadata_client_id(PState3#pstate.client_id),
                       %% Open session
                       case try_open_session(PState3) of
                           {ok, SPid, SP} ->
