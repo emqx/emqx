@@ -38,6 +38,7 @@ groups() ->
                            publish, pubsub,
                            t_local_subscribe,
                            t_shared_subscribe,
+                           dispatch_with_no_sub,
                            'pubsub#', 'pubsub+']},
      {session, [sequence], [start_session]},
      {metrics, [sequence], [inc_dec_metric]},
