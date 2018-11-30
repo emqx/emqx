@@ -2,7 +2,6 @@
 
 PROJECT = emqx
 PROJECT_DESCRIPTION = EMQ X Broker
-PROJECT_VERSION = 3.0.0
 
 DEPS = jsx gproc gen_rpc ekka esockd cowboy clique
 
