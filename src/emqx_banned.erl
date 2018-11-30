@@ -43,7 +43,8 @@ mnesia(boot) ->
                 {type, set},
                 {disc_copies, [node()]},
                 {record_name, banned},
-                {attributes, record_info(fields, banned)}]);
+                {attributes, record_info(fields, banned)},
+                {storage_properties, [{ets, [{read_concurrency, true}]}]}]);
 
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?TAB).

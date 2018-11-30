@@ -36,16 +36,21 @@
 %% @doc Create or replicate trie tables.
 -spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
+    %% Optimize
+    StoreProps = [{ets, [{read_concurrency, true},
+                         {write_concurrency, true}]}],
     %% Trie table
     ok = ekka_mnesia:create_table(?TRIE, [
                 {ram_copies, [node()]},
                 {record_name, trie},
-                {attributes, record_info(fields, trie)}]),
+                {attributes, record_info(fields, trie)},
+                {storage_properties, StoreProps}]),
     %% Trie node table
     ok = ekka_mnesia:create_table(?TRIE_NODE, [
                 {ram_copies, [node()]},
                 {record_name, trie_node},
-                {attributes, record_info(fields, trie_node)}]);
+                {attributes, record_info(fields, trie_node)},
+                {storage_properties, StoreProps}]);
 
 mnesia(copy) ->
     %% Copy trie table
