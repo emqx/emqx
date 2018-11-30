@@ -3,7 +3,7 @@
 PROJECT = emqx
 PROJECT_DESCRIPTION = EMQ X Broker
 
-DEPS = jsx gproc gen_rpc ekka esockd cowboy clique emqx_passwd
+DEPS = jsx gproc gen_rpc ekka esockd cowboy clique
 
 dep_jsx     = hex-emqx 2.9.0
 dep_gproc   = hex-emqx 0.8.0
