@@ -47,17 +47,19 @@ PLT_APPS = sasl asn1 ssl syntax_tools runtime_tools crypto xmerl os_mon inets pu
 DIALYZER_DIRS := ebin/
 DIALYZER_OPTS := --verbose --statistics -Werror_handling -Wrace_conditions #-Wunmatched_returns
 
-GIT_VSN = $(shell git --version | grep -oE "[0-9]{1,2}\.[0-9]{1,2}")
-GIT_VSN_17_COMP = $(shell echo -e "$(GIT_VSN)\n1.7" | sort -V | tail -1)
-ifeq ($(GIT_VSN_17_COMP),1.7)
-	MAYBE_SHALLOW =
-else
-	MAYBE_SHALLOW = -c advice.detachedHead=false --depth 1
-endif
+GIT_VSN := $(shell git --version | grep -oE "[0-9]{1,2}\.[0-9]{1,2}")
+GIT_VSN_17_COMP := $(shell echo -e "$(GIT_VSN)\n1.7" | sort -V | tail -1)
 
+ifeq ($(GIT_VSN_17_COMP),1.7)
 define dep_fetch_git-emqx
-	git clone $(MAYBE_SHALLOW) -q -b $(call dep_commit,$(1)) -- $(call dep_repo,$(1)) $(DEPS_DIR)/$(call dep_name,$(1)) > /dev/null 2>&1
+	git clone -q -n -- $(call dep_repo,$(1)) $(DEPS_DIR)/$(call dep_name,$(1)); \
+		cd $(DEPS_DIR)/$(call dep_name,$(1)) && git checkout -q $(call dep_commit,$(1))
 endef
+else
+define dep_fetch_git-emqx
+	git clone -q -c advice.detachedHead=false --depth 1 -b $(call dep_commit,$(1)) -- $(call dep_repo,$(1)) $(DEPS_DIR)/$(call dep_name,$(1))
+endef
+endif
 
 core_http_get-emqx = curl -Lf$(if $(filter-out 0,$(V)),,s)o $(call core_native_path,$1) $2
 
