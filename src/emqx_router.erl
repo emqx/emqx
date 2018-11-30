@@ -34,7 +34,8 @@
 -export([has_routes/1, match_routes/1, print_routes/1]).
 -export([topics/0]).
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3]).
 
 -type(destination() :: node() | {binary(), node()}).
 
@@ -45,9 +46,9 @@
 -define(BATCH(Enabled), #batch{enabled = Enabled}).
 -define(BATCH(Enabled, Pending), #batch{enabled = Enabled, pending = Pending}).
 
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Mnesia bootstrap
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?ROUTE, [
@@ -132,9 +133,9 @@ cast(Router, Msg) ->
 pick(Topic) ->
     gproc_pool:pick_worker(router, Topic).
 
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([Pool, Id]) ->
     rand:seed(exsplus, erlang:timestamp()),
@@ -207,9 +208,9 @@ terminate(_Reason, #state{pool = Pool, id = Id, batch = Batch}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Internal functions
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 ensure_batch_timer(State = #state{batch = #batch{enabled = false}}) ->
     State;

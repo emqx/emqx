@@ -84,8 +84,8 @@ monitor(Node) when is_atom(Node) ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    ekka:monitor(membership),
-    mnesia:subscribe({table, ?ROUTING_NODE, simple}),
+    _ = ekka:monitor(membership),
+    _ = mnesia:subscribe({table, ?ROUTING_NODE, simple}),
     Nodes = lists:foldl(
               fun(Node, Acc) ->
                   case ekka:is_member(Node) of
