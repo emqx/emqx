@@ -172,11 +172,11 @@ trans(dec, gauge, Metric, Val) ->
 
 hold(Type, Metric, Val) when Type =:= counter orelse Type =:= gauge ->
     put('$metrics', case get('$metrics') of
-                     undefined ->
-                         #{{Type, Metric} => Val};
-                     Metrics ->
-                         maps:update_with({Type, Metric}, fun(Cnt) -> Cnt + Val end, Val, Metrics)
-                 end).
+                        undefined ->
+                            #{{Type, Metric} => Val};
+                        Metrics ->
+                            maps:update_with({Type, Metric}, fun(Cnt) -> Cnt + Val end, Val, Metrics)
+                    end).
 
 commit() ->
     case get('$metrics') of
