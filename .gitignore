@@ -37,3 +37,4 @@ compile_commands.json
 cuttlefish
 rebar.lock
 xrefr
+erlang.mk
