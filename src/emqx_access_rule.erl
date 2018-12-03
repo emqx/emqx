@@ -34,16 +34,20 @@
 -export([match/3]).
 
 -define(ALLOW_DENY(A), ((A =:= allow) orelse (A =:= deny))).
+-define(PUBSUB(A), ((A =:= subscribe) orelse (A =:= publish) orelse (A =:= pubsub))).
 
 %% @doc Compile Access Rule.
 compile({A, all}) when ?ALLOW_DENY(A) ->
     {A, all};
 
-compile({A, Who, Access, Topic}) when ?ALLOW_DENY(A), is_binary(Topic) ->
+compile({A, Who, Access, Topic}) when ?ALLOW_DENY(A), ?PUBSUB(Access), is_binary(Topic) ->
     {A, compile(who, Who), Access, [compile(topic, Topic)]};
 
-compile({A, Who, Access, TopicFilters}) when ?ALLOW_DENY(A) ->
-    {A, compile(who, Who), Access, [compile(topic, Topic) || Topic <- TopicFilters]}.
+compile({A, Who, Access, TopicFilters}) when ?ALLOW_DENY(A), ?PUBSUB(Access) ->
+    {A, compile(who, Who), Access, [compile(topic, Topic) || Topic <- TopicFilters]};
+
+compile(Rule) ->
+    emqx_logger:error("[ACCESS_RULE] Malformed rule: ~p", [Rule]).
 
 compile(who, all) ->
     all;
