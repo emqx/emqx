@@ -543,7 +543,7 @@ end}.
 ]}.
 
 %% @doc Enable ACL close connection when acl rejected
-{mapping, "acl_disconnection_client", "emqx.enable_acl_connection", [
+{mapping, "acl_kick_client", "emqx.acl_kick_client", [
   {default, on},
   {datatype, flag}
 ]

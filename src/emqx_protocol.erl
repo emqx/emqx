@@ -349,7 +349,7 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PSt
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos0 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
-            {error, ReasonCode, PState}
+                {stop, normal, PState}
     end;
 
 process_packet(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PState) ->
@@ -359,7 +359,10 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PSta
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos1 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
-            deliver({puback, PacketId, ReasonCode}, PState)
+            case deliver({puback, PacketId, ReasonCode}, PState) of
+              {ok, PState2} -> try_close_connect(PState2) ;
+              {error, Reason} ->  {error, Reason}
+            end
     end;
 
 process_packet(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PState) ->
@@ -369,7 +372,10 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PSta
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos2 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
-            deliver({pubrec, PacketId, ReasonCode}, PState)
+            case deliver({pubrec, PacketId, ReasonCode}, PState) of
+                    {ok, PState2} -> try_close_connect(PState2) ;
+                    {error, Reason} ->  {error, Reason}
+                  end
     end;
 
 process_packet(?PUBACK_PACKET(PacketId, ReasonCode), PState = #pstate{session = SPid}) ->
@@ -460,6 +466,7 @@ process_packet(?DISCONNECT_PACKET(?RC_SUCCESS, #{'Session-Expiry-Interval' := In
             %% Clean willmsg
             {stop, normal, PState#pstate{will_msg = undefined}}
     end;
+
 process_packet(?DISCONNECT_PACKET(?RC_SUCCESS), PState) ->
     {stop, normal, PState#pstate{will_msg = undefined}};
 process_packet(?DISCONNECT_PACKET(_), PState) ->
@@ -792,7 +799,7 @@ check_pub_acl(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
     case emqx_access_control:check_acl(credentials(PState), publish, Topic) of
         allow -> ok;
         deny  ->
-                try_close_connect(PState)
+            {error, ?RC_NOT_AUTHORIZED}
     end.
 
 run_check_steps([], _Packet, PState) ->
@@ -877,24 +884,19 @@ parse_topic_filters(?UNSUBSCRIBE, RawTopicFilters) ->
     lists:map(fun emqx_topic:parse/1, RawTopicFilters).
 
 %% Issue#1641:  close connection when http acl rejected
-%%-----------------------------------------------------------------------------
-%% close connection when acl rejected and the config is available
-%%-----------------------------------------------------------------------------
 
 try_close_connect(PState) ->
      case acl_deny_disconnect() of
-         true -> PState1 = PState#pstate{connected = false},
-             {ok, PState1};
-         false -> {error, ?RC_NOT_AUTHORIZED}
+         true ->  {error, kick_client};
+         false -> {ok, PState}
         end.
-
 
 %%-----------------------------------------------------------------------------
 %%  get config
 %%-----------------------------------------------------------------------------
 
 acl_deny_disconnect() ->
-    application:get_env(emqx,enable_acl_connection,true).
+     emqx_config:get_env(acl_kick_client,true).
 
 %%------------------------------------------------------------------------------
 %% Update mountpoint
