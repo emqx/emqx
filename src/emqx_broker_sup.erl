@@ -54,15 +54,15 @@ init([]) ->
 
 create_tab(suboption) ->
     %% Suboption: {Topic, Sub} -> [{qos, 1}]
-    emqx_tables:new(emqx_suboption, [set | ?TAB_OPTS]);
+    emqx_tables:new(emqx_suboption, [set | ?TAB_OPTS]),
+    emqx_tables:new(emqx_shared_suboption, [set | ?TAB_OPTS]);
 
 create_tab(subscriber) ->
     %% Subscriber: Topic -> Sub1, Sub2, Sub3, ..., SubN
-    %% duplicate_bag: o(1) insert
-    emqx_tables:new(emqx_subscriber, [duplicate_bag | ?TAB_OPTS]);
+    emqx_tables:new(emqx_subscriber, [bag | ?TAB_OPTS]);
 
 create_tab(subscription) ->
     %% Subscription: Sub -> Topic1, Topic2, Topic3, ..., TopicN
-    %% bag: o(n) insert
-    emqx_tables:new(emqx_subscription, [bag | ?TAB_OPTS]).
+    emqx_tables:new(emqx_subscription, [bag | ?TAB_OPTS]),
+    emqx_tables:new(emqx_shared_subscription, [bag | ?TAB_OPTS]).
 

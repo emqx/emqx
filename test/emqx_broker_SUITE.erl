@@ -162,7 +162,7 @@ start_session(_) ->
     emqx_session:subscribe(SessPid, [{<<"topic/session">>, #{qos => 2}}]),
     Message2 = emqx_message:make(<<"clientId">>, 1, <<"topic/session">>, <<"test">>),
     emqx_session:publish(SessPid, 3, Message2),
-    emqx_session:unsubscribe(SessPid, [{<<"topic/session">>, []}]),
+    emqx_session:unsubscribe(SessPid, [{<<"topic/session">>, #{}}]),
     %% emqx_mock_client:stop(ClientPid).
     emqx_mock_client:close_session(ClientPid).
 

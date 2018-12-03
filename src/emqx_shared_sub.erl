@@ -29,15 +29,14 @@
 -export([subscribe/3, unsubscribe/3]).
 -export([dispatch/3, maybe_ack/1, maybe_nack_dropped/1, nack_no_connection/1, is_ack_required/1]).
 
-%% for testing
--export([subscribers/2]).
+-export([subscribers/2, groups/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
 -define(SERVER, ?MODULE).
--define(TAB, emqx_shared_subscription).
+-define(TAB, emqx_shared_subscriber).
 -define(ALIVE_SUBS, emqx_alive_shared_subscribers).
 -define(SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS, 5).
 -define(ack, shared_sub_ack).
@@ -45,8 +44,18 @@
 -define(IS_LOCAL_PID(Pid), (is_pid(Pid) andalso node(Pid) =:= node())).
 -define(no_ack, no_ack).
 
--record(state, {pmon}).
--record(emqx_shared_subscription, {group, topic, subpid}).
+-define(SHARED_SUB(Group, Topic, SubPid),
+        #emqx_shared_subscriber{key = {Group, Topic},
+                                topic = Topic,
+                                group = Group,
+                                subpid = SubPid}).
+-record(state, {}).
+-record(emqx_shared_subscriber, {
+            key :: {emqx_types:topic(), emqx_types:subgroup()},
+            topic :: emqx_types:topic(),    %% for buiding extra index
+            group :: emqx_types:subgroup(), %% for buiding extra index
+            subpid :: pid()
+        }).
 
 -include("emqx_mqtt.hrl").
 
@@ -58,8 +67,9 @@ mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
                 {type, bag},
                 {ram_copies, [node()]},
-                {record_name, emqx_shared_subscription},
-                {attributes, record_info(fields, emqx_shared_subscription)}]);
+                {index, [topic, group, subpid]},
+                {record_name, emqx_shared_subscriber},
+                {attributes, record_info(fields, emqx_shared_subscriber)}]);
 
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?TAB).
@@ -75,16 +85,13 @@ start_link() ->
 subscribe(undefined, _Topic, _SubPid) ->
     ok;
 subscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
-    mnesia:dirty_write(?TAB, record(Group, Topic, SubPid)),
-    gen_server:cast(?SERVER, {monitor, SubPid}).
+    mnesia:dirty_write(?TAB, ?SHARED_SUB(Group, Topic, SubPid)),
+    gen_server:cast(?SERVER, {subscribe, SubPid}).
 
 unsubscribe(undefined, _Topic, _SubPid) ->
     ok;
 unsubscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
-    mnesia:dirty_delete_object(?TAB, record(Group, Topic, SubPid)).
-
-record(Group, Topic, SubPid) ->
-    #emqx_shared_subscription{group = Group, topic = Topic, subpid = SubPid}.
+    mnesia:dirty_delete(?TAB, {Group, Topic}).
 
 dispatch(Group, Topic, Delivery) ->
     dispatch(Group, Topic, Delivery, _FailedSubs = []).
@@ -95,9 +102,9 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg, results = Results}, F
         false ->
             Delivery;
         SubPid ->
-            case do_dispatch(SubPid, Topic, Msg) of
+            case do_dispatch(SubPid, Group, Topic, Msg) of
                 ok ->
-                    Delivery#delivery{results = [{dispatch, {Group, Topic}, 1} | Results]};
+                    Delivery#delivery{results = [{dispatch_shared, {Group, Topic}, 1} | Results]};
                 {error, _Reason} ->
                     %% failed to dispatch to this sub, try next
                     %% 'Reason' is discarded so far, meaning for QoS1/2 messages
@@ -118,32 +125,32 @@ strategy() ->
 ack_enabled() ->
     emqx_config:get_env(shared_dispatch_ack_enabled, false).
 
-do_dispatch(SubPid, Topic, Msg) when SubPid =:= self() ->
+do_dispatch(SubPid, Group, Topic, Msg) when SubPid =:= self() ->
     %% Deadlock otherwise
-    _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
+    _ = erlang:send(SubPid, {dispatch_shared, Group, Topic, Msg}),
     ok;
-do_dispatch(SubPid, Topic, Msg) ->
-    dispatch_per_qos(SubPid, Topic, Msg).
+do_dispatch(SubPid, Group, Topic, Msg) ->
+    dispatch_per_qos(SubPid, Group, Topic, Msg).
 
 %% return either 'ok' (when everything is fine) or 'error'
-dispatch_per_qos(SubPid, Topic, #message{qos = ?QOS_0} = Msg) ->
+dispatch_per_qos(SubPid, Group, Topic, #message{qos = ?QOS_0} = Msg) ->
     %% For QoS 0 message, send it as regular dispatch
-    _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
+    _ = erlang:send(SubPid, {dispatch_shared, Group, Topic, Msg}),
     ok;
-dispatch_per_qos(SubPid, Topic, Msg) ->
+dispatch_per_qos(SubPid, Group, Topic, Msg) ->
     case ack_enabled() of
         true ->
-            dispatch_with_ack(SubPid, Topic, Msg);
+            dispatch_with_ack(SubPid, Group, Topic, Msg);
         false ->
-            _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
+            _ = erlang:send(SubPid, {dispatch_shared, Group, Topic, Msg}),
             ok
     end.
 
-dispatch_with_ack(SubPid, Topic, Msg) ->
+dispatch_with_ack(SubPid, Group, Topic, Msg) ->
     %% For QoS 1/2 message, expect an ack
     Ref = erlang:monitor(process, SubPid),
     Sender = self(),
-    _ = erlang:send(SubPid, {dispatch, Topic, with_ack_ref(Msg, {Sender, Ref})}),
+    _ = erlang:send(SubPid, {dispatch_shared, Group, Topic, with_ack_ref(Msg, {Sender, Ref})}),
     Timeout = case Msg#message.qos of
                   ?QOS_1 -> timer:seconds(?SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS);
                   ?QOS_2 -> infinity
@@ -249,58 +256,41 @@ do_pick_subscriber(Group, Topic, round_robin, _ClientId, Count) ->
     Rem + 1.
 
 subscribers(Group, Topic) ->
-    ets:select(?TAB, [{{emqx_shared_subscription, Group, Topic, '$1'}, [], ['$1']}]).
+   [Pid || #emqx_shared_subscriber{subpid = Pid}
+                <- mnesia:dirty_read(?TAB, {Group, Topic})].
+
+groups(Topic) ->
+   lists:usort([Group || #emqx_shared_subscriber{group = Group}
+                <- mnesia:dirty_index_read(?TAB, Topic, #emqx_shared_subscriber.topic)]).
 
 %%-----------------------------------------------------------------------------
 %% gen_server callbacks
 %%-----------------------------------------------------------------------------
 
 init([]) ->
-    {atomic, PMon} = mnesia:transaction(fun init_monitors/0),
-    mnesia:subscribe({table, ?TAB, simple}),
     ets:new(?ALIVE_SUBS, [named_table, {read_concurrency, true}, protected]),
-    {ok, update_stats(#state{pmon = PMon})}.
-
-init_monitors() ->
-    mnesia:foldl(
-      fun(#emqx_shared_subscription{subpid = SubPid}, Mon) ->
-          emqx_pmon:monitor(SubPid, Mon)
-      end, emqx_pmon:new(), ?TAB).
+    {ok, update_stats(#state{})}.
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[SharedSub] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
-handle_cast({monitor, SubPid}, State= #state{pmon = PMon}) ->
-    NewPmon = emqx_pmon:monitor(SubPid, PMon),
+handle_cast({subscribe, SubPid}, State= #state{}) ->
     ok = maybe_insert_alive_tab(SubPid),
-    {noreply, update_stats(State#state{pmon = NewPmon})};
+    {noreply, update_stats(State#state{})};
 handle_cast(Msg, State) ->
     emqx_logger:error("[SharedSub] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({mnesia_table_event, {write, NewRecord, _}}, State = #state{pmon = PMon}) ->
-    #emqx_shared_subscription{subpid = SubPid} = NewRecord,
-    {noreply, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
-
-handle_info({mnesia_table_event, {delete_object, OldRecord, _}}, State = #state{pmon = PMon}) ->
-    #emqx_shared_subscription{subpid = SubPid} = OldRecord,
-    {noreply, update_stats(State#state{pmon = emqx_pmon:demonitor(SubPid, PMon)})};
-
 handle_info({mnesia_table_event, _Event}, State) ->
     {noreply, State};
-
-handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{pmon = PMon}) ->
-    emqx_logger:info("[SharedSub] shared subscriber down: ~p", [SubPid]),
-    cleanup_down(SubPid),
-    {noreply, update_stats(State#state{pmon = emqx_pmon:erase(SubPid, PMon)})};
 
 handle_info(Info, State) ->
     emqx_logger:error("[SharedSub] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    mnesia:unsubscribe({table, ?TAB, simple}).
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -312,13 +302,6 @@ code_change(_OldVsn, State, _Extra) ->
 %% keep track of alive remote pids
 maybe_insert_alive_tab(Pid) when ?IS_LOCAL_PID(Pid) -> ok;
 maybe_insert_alive_tab(Pid) when is_pid(Pid) -> ets:insert(?ALIVE_SUBS, {Pid}), ok.
-
-cleanup_down(SubPid) ->
-    ?IS_LOCAL_PID(SubPid) orelse ets:delete(?ALIVE_SUBS, SubPid),
-    lists:foreach(
-        fun(Record) ->
-            mnesia:dirty_delete_object(?TAB, Record)
-        end,mnesia:dirty_match_object(#emqx_shared_subscription{_ = '_', subpid = SubPid})).
 
 update_stats(State) ->
     emqx_stats:setstat('subscriptions/shared/count', 'subscriptions/shared/max', ets:info(?TAB, size)), State.

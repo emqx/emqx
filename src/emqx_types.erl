@@ -18,7 +18,7 @@
 
 -export_type([zone/0]).
 -export_type([startlink_ret/0, ok_or_error/1]).
--export_type([pubsub/0, topic/0, subid/0, subopts/0]).
+-export_type([pubsub/0, topic/0, subid/0, subopts/0, subgroup/0]).
 -export_type([client_id/0, username/0, password/0, peername/0, protocol/0]).
 -export_type([credentials/0, session/0]).
 -export_type([subscription/0, subscriber/0, topic_table/0]).
@@ -33,6 +33,7 @@
 -type(pubsub() :: publish | subscribe).
 -type(topic() :: binary()).
 -type(subid() :: binary() | atom()).
+-type(subgroup() :: binary()).
 -type(subopts() :: #{qos    := integer(),
                      share  => binary(),
                      atom() => term()

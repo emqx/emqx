@@ -165,6 +165,8 @@
 -define(LOG(Level, Format, Args, _State),
         emqx_logger:Level("[Session] " ++ Format, Args)).
 
+-define(sub_key(Group, Topic), {shared, Group, Topic}).
+
 %% @doc Start a session proc.
 -spec(start_link(SessAttrs :: map()) -> {ok, pid()}).
 start_link(SessAttrs) ->
@@ -459,22 +461,26 @@ handle_call(Req, _From, State) ->
 handle_cast({subscribe, FromPid, {PacketId, _Properties, TopicFilters}},
             State = #state{client_id = ClientId, subscriptions = Subscriptions}) ->
     {ReasonCodes, Subscriptions1} =
-        lists:foldr(fun({Topic, SubOpts = #{qos := QoS}}, {RcAcc, SubMap}) ->
-                            {[QoS|RcAcc], case maps:find(Topic, SubMap) of
-                                              {ok, SubOpts} ->
-                                                  emqx_hooks:run('session.subscribed', [#{client_id => ClientId}, Topic, SubOpts#{first => false}]),
-                                                  SubMap;
-                                              {ok, _SubOpts} ->
-                                                  emqx_broker:set_subopts(Topic, {self(), ClientId}, SubOpts),
-                                                  %% Why???
-                                                  emqx_hooks:run('session.subscribed', [#{client_id => ClientId}, Topic, SubOpts#{first => false}]),
-                                                  maps:put(Topic, SubOpts, SubMap);
-                                              error ->
-                                                  emqx_broker:subscribe(Topic, ClientId, SubOpts),
-                                                  emqx_hooks:run('session.subscribed', [#{client_id => ClientId}, Topic, SubOpts#{first => true}]),
-                                                  maps:put(Topic, SubOpts, SubMap)
-                                          end}
-                    end, {[], Subscriptions}, TopicFilters),
+        lists:foldr(
+            fun({Topic, SubOpts = #{qos := QoS}}, {RcAcc, SubMap}) ->
+                Group = maps:get(share, SubOpts, undefined),
+                NewSubMap =
+                    case maps:find(sub_key(Group, Topic), SubMap) of
+                        {ok, SubOpts} ->
+                            ?LOG(warning, "Ignore duplicated subscription: ~p", [Topic], State),
+                            emqx_hooks:run('session.subscribed', [#{client_id => ClientId}, Topic, SubOpts#{first => false}]),
+                            SubMap;
+                        {ok, _SubOpts} ->
+                            emqx_broker:set_subopts(Topic, {self(), ClientId}, SubOpts),
+                            emqx_hooks:run('session.subscribed', [#{client_id => ClientId}, Topic, SubOpts#{first => false}]),
+                            maps:put(sub_key(Group, Topic), SubOpts, SubMap);
+                        error ->
+                            emqx_broker:subscribe(Topic, ClientId, SubOpts),
+                            emqx_hooks:run('session.subscribed', [#{client_id => ClientId}, Topic, SubOpts#{first => true}]),
+                            maps:put(sub_key(Group, Topic), SubOpts, SubMap)
+                    end,
+                {[QoS|RcAcc], NewSubMap}
+            end, {[], Subscriptions}, TopicFilters),
     suback(FromPid, PacketId, ReasonCodes),
     noreply(State#state{subscriptions = Subscriptions1});
 
@@ -482,15 +488,16 @@ handle_cast({subscribe, FromPid, {PacketId, _Properties, TopicFilters}},
 handle_cast({unsubscribe, From, {PacketId, _Properties, TopicFilters}},
             State = #state{client_id = ClientId, subscriptions = Subscriptions}) ->
     {ReasonCodes, Subscriptions1} =
-        lists:foldr(fun({Topic, _SubOpts}, {Acc, SubMap}) ->
-                            case maps:find(Topic, SubMap) of
-                                {ok, SubOpts} ->
-                                    ok = emqx_broker:unsubscribe(Topic, ClientId),
-                                    emqx_hooks:run('session.unsubscribed', [#{client_id => ClientId}, Topic, SubOpts]),
-                                    {[?RC_SUCCESS|Acc], maps:remove(Topic, SubMap)};
-                                error ->
-                                    {[?RC_NO_SUBSCRIPTION_EXISTED|Acc], SubMap}
-                            end
+        lists:foldr(fun({Topic, SubOpts}, {Acc, SubMap}) ->
+                        Group = maps:get(share, SubOpts, undefined),
+                        case maps:find(sub_key(Group, Topic), SubMap) of
+                            {ok, SubOpts2} ->
+                                ok = emqx_broker:unsubscribe(Topic, self(), ClientId, SubOpts2),
+                                emqx_hooks:run('session.unsubscribed', [#{client_id => ClientId}, Topic, SubOpts2]),
+                                {[?RC_SUCCESS|Acc], maps:remove(sub_key(Group, Topic), SubMap)};
+                            error ->
+                                {[?RC_NO_SUBSCRIPTION_EXISTED|Acc], SubMap}
+                        end
                     end, {[], Subscriptions}, TopicFilters),
     unsuback(From, PacketId, ReasonCodes),
     noreply(State#state{subscriptions = Subscriptions1});
@@ -574,21 +581,19 @@ handle_cast(Msg, State) ->
 %% Batch dispatch
 handle_info({dispatch, Topic, Msgs}, State) when is_list(Msgs) ->
     {noreply, lists:foldl(fun(Msg, NewState) ->
-                                  element(2, handle_info({dispatch, Topic, Msg}, NewState))
+                                  element(2, handle_dispatch(Topic, Msg, NewState))
                           end, State, Msgs)};
+handle_info({dispatch, Topic, Msgs}, State) ->
+    handle_dispatch(Topic, Msgs, State);
 
-%% Dispatch message
-handle_info({dispatch, Topic, Msg = #message{}}, State) ->
-    case emqx_shared_sub:is_ack_required(Msg) andalso not has_connection(State) of
-        true ->
-            %% Require ack, but we do not have connection
-            %% negative ack the message so it can try the next subscriber in the group
-            ok = emqx_shared_sub:nack_no_connection(Msg),
-            noreply(State);
-        false ->
-            handle_dispatch(Topic, Msg, State)
-    end;
-
+%% Batch shared dispatch
+handle_info({dispatch_shared, Group, Topic, Msgs}, State) when is_list(Msgs) ->
+    {noreply, lists:foldl(fun(Msg, NewState) ->
+                                  element(2, handle_dispatch(Group, Topic, Msg, NewState))
+                          end, State, Msgs)};
+%% Dispatch shared topics
+handle_info({dispatch_shared, Group, Topic, Msg = #message{}}, State) ->
+    handle_dispatch(Group, Topic, Msg, State);
 
 %% Do nothing if the client has been disconnected.
 handle_info({timeout, Timer, retry_delivery}, State = #state{conn_pid = undefined, retry_timer = Timer}) ->
@@ -645,7 +650,7 @@ handle_info(Info, State) ->
     emqx_logger:error("[Session] unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(Reason, #state{will_msg = WillMsg, client_id = ClientId, conn_pid = ConnPid}) ->
+terminate(Reason, #state{will_msg = WillMsg, client_id = ClientId, conn_pid = ConnPid, subscriptions = Subscriptions}) ->
     emqx_hooks:run('session.terminated', [#{client_id => ClientId}, Reason]),
     send_willmsg(WillMsg),
     %% Ensure to shutdown the connection
@@ -654,6 +659,12 @@ terminate(Reason, #state{will_msg = WillMsg, client_id = ClientId, conn_pid = Co
             ConnPid ! {shutdown, Reason};
         true -> ok
     end,
+    maps:map(fun
+                (?sub_key(Group, Topic), _SubOpts) ->
+                    emqx_broker:cleanup_down(Group, Topic, self(), ClientId);
+                (Topic, _SubOpts) ->
+                    emqx_broker:cleanup_down(Topic, self(), ClientId)
+            end, Subscriptions),
     emqx_sm:unregister_session(ClientId).
 
 code_change(_OldVsn, State, _Extra) ->
@@ -664,25 +675,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 has_connection(#state{conn_pid = Pid}) -> is_pid(Pid) andalso is_process_alive(Pid).
-
-handle_dispatch(Topic, Msg = #message{headers = Headers},
-                State = #state{subscriptions = SubMap,
-                               topic_alias_maximum = TopicAliasMaximum
-                              }) ->
-    TopicAlias = maps:get('Topic-Alias', Headers, undefined),
-    if
-        TopicAlias =:= undefined orelse TopicAlias =< TopicAliasMaximum ->
-            noreply(case maps:find(Topic, SubMap) of
-                        {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
-                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}, {subid, SubId}], Msg, State);
-                        {ok, #{nl := Nl, qos := QoS, rap := Rap}} ->
-                            run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}], Msg, State);
-                        error ->
-                            dispatch(emqx_message:unset_flag(dup, Msg), State)
-                    end);
-        true ->
-            noreply(State)
-    end.
 
 suback(_From, undefined, _ReasonCodes) ->
     ignore;
@@ -1011,3 +1003,48 @@ noreply(State) ->
 
 shutdown(Reason, State) ->
     {stop, {shutdown, Reason}, State}.
+
+handle_dispatch(Topic, Msg = #message{headers = Headers},
+                State = #state{subscriptions = SubMap,
+                               topic_alias_maximum = TopicAliasMaximum}) ->
+    if_topic_alias_valid(
+        maps:get('Topic-Alias', Headers, undefined), TopicAliasMaximum,
+            fun() -> do_handle_dispatch(undefined, Topic, Msg, SubMap, State) end,
+            fun() -> noreply(State) end).
+
+handle_dispatch(Group, Topic, Msg = #message{headers = Headers},
+                State = #state{subscriptions = SubMap,
+                               topic_alias_maximum = TopicAliasMaximum}) ->
+    case emqx_shared_sub:is_ack_required(Msg) andalso not has_connection(State) of
+        true ->
+            %% Require ack, but we do not have connection
+            %% negative ack the message so it can try the next subscriber in the group
+            ok = emqx_shared_sub:nack_no_connection(Msg),
+            noreply(State);
+        false ->
+            if_topic_alias_valid(
+                maps:get('Topic-Alias', Headers, undefined), TopicAliasMaximum,
+                    fun() -> do_handle_dispatch(Group, Topic, Msg, SubMap, State) end,
+                    fun() -> noreply(State) end)
+    end.
+
+if_topic_alias_valid(TopicAlias, TopicAliasMaximum, True, _False)
+        when TopicAlias =:= undefined; TopicAlias =< TopicAliasMaximum ->
+    True();
+if_topic_alias_valid(_TopicAlias, _TopicAliasMaximum, _True, False) ->
+    False().
+
+do_handle_dispatch(Group, Topic, Msg, SubMap, State) ->
+    noreply(case maps:find(sub_key(Group, Topic), SubMap) of
+                {ok, #{nl := Nl, qos := QoS, rap := Rap, subid := SubId}} ->
+                    run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}, {subid, SubId}], Msg, State);
+                {ok, #{nl := Nl, qos := QoS, rap := Rap}} ->
+                    run_dispatch_steps([{nl, Nl}, {qos, QoS}, {rap, Rap}], Msg, State);
+                error ->
+                    dispatch(emqx_message:unset_flag(dup, Msg), State)
+            end).
+
+sub_key(undefined, Topic) ->
+    Topic;
+sub_key(Group, Topic) ->
+    ?sub_key(Group, Topic).
