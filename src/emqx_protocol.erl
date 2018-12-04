@@ -435,7 +435,10 @@ process_packet(?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
                             end, {[], []}, TopicFilters),
             ?LOG(warning, "Cannot subscribe ~p for ~p",
                 [SubTopics, [emqx_reason_codes:text(R) || R <- ReasonCodes]]),
-            deliver({suback, PacketId, ReasonCodes}, PState)
+              case deliver({suback, PacketId, ReasonCodes}, PState) of
+                    {ok, PState2} -> try_close_connect(PState2) ;
+                    {error, Reason} ->  {error, Reason}
+                  end
     end;
 
 process_packet(?UNSUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),

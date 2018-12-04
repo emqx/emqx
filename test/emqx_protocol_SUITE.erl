@@ -49,7 +49,7 @@ all() -> [{group, mqttv4}, {group, mqttv5}].
 groups() ->
     [{mqttv4, [sequence], [connect_v4, subscribe_v4]},
      {mqttv5, [sequence],
-      [connect_v5, subscribe_v5, test_kick_client]}].
+      [connect_v5, subscribe_v5, disconnect_acl_deny]}].
 
 init_per_suite(Config) ->
     emqx_ct_broker_helpers:run_setup_steps(), Config.
@@ -586,27 +586,65 @@ subscribe_v5(_) ->
 		    end),
     ok.
 
-test_kick_client(_) ->
-    ct:pal("start client"),
-    set_acl_config_file(),
-    {ok, T1} = emqx_client:start_link([{host, "localhost"},
-    {client_id, <<"client1">>},
-    {username, <<"admin1">>},
-    {password, <<"pass1">>}]),
-    {ok, _} = emqx_client:connect(T1),
-    emqx_client:subscribe(T1, <<"a/b/c">>),
-      {ok, T2} = emqx_client:start_link([{host, "localhost"},
-    {client_id, <<"client1">>},
-    {username, <<"admin">>},
+disconnect_acl_deny(_) ->
+        ct:pal("start client"),
+        set_acl_config_file(),
+        % {ok, T1} = emqx_client:start_link([{host, "localhost"},
+        % {client_id, <<"client1">>},
+        % {username, <<"admin1">>},
+        % {password, <<"pass1">>}]),
+        % {ok, _} = emqx_client:connect(T1),
+        % emqx_client:subscribe(T1, <<"a/b/c">>),
+        process_flag(trap_exit, true),
+          {ok, T1} = emqx_client:start_link([{host, "localhost"},
+        {client_id, <<"client2">>},
+        {username, <<"admin">>},
+        {password, <<"pass2">>}]),
+        {ok, _} = emqx_client:connect(T1),
+
+        %% 1. On pub ACL denied
+        emqx_client:publish(T1, <<"a/b/c">>, <<"body">>, [{qos, 0}, {retain, true}]),
+        receive
+            {'EXIT', T1, Reason} ->
+                ct:pal("Connection closed: ~p~n", [Reason])
+        after
+            500 ->
+                erlang:error("Client is not disconnected")
+        end,
+
+        %% 2. On pub ACL allowed
+    {ok, T2} = emqx_client:start_link([{host, "localhost"},
+    {client_id, <<"client2">>},
+    {username, <<"admin2">>},
     {password, <<"pass2">>}]),
     {ok, _} = emqx_client:connect(T2),
-    emqx_client:publish(T2, <<"a/b/c">>, <<"body">>, [{qos, 0}, {retain, true}]),
-    % receive
-    %         {subscribe, _Topic, Payload} ->
-    %         ?assertEqual(<<"body">>, Payload)
-    %         after 1000 -> false end,
-     emqx_client:disconnect(T1),
-     emqx_client:disconnect(T2).
+    _MSG=  emqx_client:publish(T2, <<"a/b/c/c">>, <<"body">>, [{qos, 0}, {retain, true}]),
+    ct:pal("Connection closed: ~p~n", [_MSG]),
+        %% 3. On sub ACL deny
+    {ok, T3} = emqx_client:start_link([{host, "localhost"},
+    {client_id, <<"client3">>},
+    {username, <<"admin">>},
+    {password, <<"pass3">>}]),
+    {ok, _} = emqx_client:connect(T3),
+     emqx_client:subscribe(T3, <<"a/b/c">>),
+     receive
+            {'EXIT', T3, Reason1} ->
+                ct:pal("Connection closed: ~p~n", [Reason1])
+        after
+            500 ->
+                erlang:error("Client is not disconnected")
+        end,
+
+    %% 4. On sub ACL allowed
+
+    {ok, T4} = emqx_client:start_link([{host, "localhost"},
+    {client_id, <<"client4">>},
+    {username, <<"admin4">>},
+    {password, <<"pass4">>}]),
+    {ok, _} = emqx_client:connect(T4),
+     MSG=  emqx_client:subscribe(T4, <<"a/b/c">>),
+     ct:pal("Connection closed: ~p~n", [MSG]).
+
 
 set_acl_config_file() ->
     Rules = [{deny, {user, "admin"}, pubsub,
