@@ -589,6 +589,12 @@ subscribe_v5(_) ->
 disconnect_acl_deny(_) ->
         ct:pal("start client"),
         set_acl_config_file(),
+        % {ok, T1} = emqx_client:start_link([{host, "localhost"},
+        % {client_id, <<"client1">>},
+        % {username, <<"admin1">>},
+        % {password, <<"pass1">>}]),
+        % {ok, _} = emqx_client:connect(T1),
+        % emqx_client:subscribe(T1, <<"a/b/c">>),
         process_flag(trap_exit, true),
           {ok, T1} = emqx_client:start_link([{host, "localhost"},
         {client_id, <<"client2">>},
