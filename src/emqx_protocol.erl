@@ -345,11 +345,17 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PSt
             do_publish(Packet, PState1);
         {error, ?RC_TOPIC_ALIAS_INVALID} ->
             ?LOG(error, "Protocol error - ~p", [?RC_TOPIC_ALIAS_INVALID]),
-            {error, ?RC_TOPIC_ALIAS_INVALID, PState};
+            case acl_deny_disconnect() of
+                    true ->   {error, ?RC_TOPIC_ALIAS_INVALID, PState};
+                    false -> {ok, PState}
+                   end;
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos0 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
-                {stop, normal, PState}
+                case acl_deny_disconnect() of
+                        true ->  {error, ReasonCode, ReasonCode};
+                        false -> {ok, PState}
+                       end
     end;
 
 process_packet(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PState) ->
@@ -885,8 +891,6 @@ parse_topic_filters(?SUBSCRIBE, RawTopicFilters) ->
 
 parse_topic_filters(?UNSUBSCRIBE, RawTopicFilters) ->
     lists:map(fun emqx_topic:parse/1, RawTopicFilters).
-
-%% Issue#1641:  close connection when http acl rejected
 
 try_close_connect(PState) ->
      case acl_deny_disconnect() of
