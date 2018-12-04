@@ -542,7 +542,7 @@ end}.
   {validators, ["range:gt_0"]}
 ]}.
 
-%% @doc Enable ACL close connection when acl rejected
+%% @doc Disconnect when ACL denied
 {mapping, "acl_kick_client", "emqx.acl_kick_client", [
   {default, on},
   {datatype, flag}
