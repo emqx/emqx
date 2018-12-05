@@ -343,7 +343,6 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PSt
     case check_publish(Packet, PState) of
         {ok, PState1} ->
             do_publish(Packet, PState1);
-
         {error, ?RC_NOT_AUTHORIZED} ->
                 case acl_deny_disconnect() of
                         true -> {error, ?RC_NOT_AUTHORIZED, PState};
@@ -390,7 +389,6 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PSta
             ?LOG(warning, "Cannot publish qos2 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
              deliver({pubrec, PacketId, ReasonCode}, PState)
-
     end;
 
 process_packet(?PUBACK_PACKET(PacketId, ReasonCode), PState = #pstate{session = SPid}) ->
