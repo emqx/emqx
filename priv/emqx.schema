@@ -191,40 +191,6 @@ end}.
   {default, "emqxsecretcookie"}
 ]}.
 
-%% @doc SMP Support
-{mapping, "node.smp", "vm_args.-smp", [
-  {default, auto},
-  {datatype, {enum, [enable, auto, disable]}},
-  hidden
-]}.
-
-%% @doc http://erlang.org/doc/man/heart.html
-{mapping, "node.heartbeat", "vm_args.-heart", [
-  {datatype, flag},
-  hidden
-]}.
-
-{translation, "vm_args.-heart", fun(Conf) ->
-    case cuttlefish:conf_get("node.heartbeat", Conf) of
-        true  -> "";
-        false -> cuttlefish:invalid("should be 'on' or comment the line!")
-    end
-end}.
-
-%% @doc Enable Kernel Poll
-{mapping, "node.kernel_poll", "vm_args.+K", [
-  {default, on},
-  {datatype, flag},
-  hidden
-]}.
-
-%% @doc More information at: http://erlang.org/doc/man/erl.html
-{mapping, "node.async_threads", "vm_args.+A", [
-  {default, 64},
-  {datatype, integer},
-  {validators, ["range:0-1024"]}
-]}.
-
 %% @doc Erlang Process Limit
 {mapping, "node.process_limit", "vm_args.+P", [
   {datatype, integer},
@@ -245,64 +211,10 @@ end}.
 {validator, "range4ports", "must be 1024 to 134217727",
  fun(X) -> X >= 1024 andalso X =< 134217727 end}.
 
-%% @doc http://www.erlang.org/doc/man/erl.html#%2bzdbbl
-{mapping, "node.dist_buffer_size", "vm_args.+zdbbl", [
-  {datatype, bytesize},
-  {commented, "32MB"},
-  hidden,
-  {validators, ["zdbbl_range"]}
-]}.
-
-{translation, "vm_args.+zdbbl",
- fun(Conf) ->
-  ZDBBL = cuttlefish:conf_get("node.dist_buffer_size", Conf, undefined),
-  case ZDBBL of
-    undefined -> undefined;
-    X when is_integer(X) -> cuttlefish_util:ceiling(X / 1024); %% Bytes to Kilobytes;
-    _ -> undefined
-  end
- end
-}.
-
-{validator, "zdbbl_range", "must be between 1KB and 2097151KB",
- fun(ZDBBL) ->
-  %% 2097151KB = 2147482624
-  ZDBBL >= 1024 andalso ZDBBL =< 2147482624
- end
-}.
-
-%% @doc http://www.erlang.org/doc/man/erlang.html#system_flag-2
-{mapping, "node.fullsweep_after", "vm_args.-env ERL_FULLSWEEP_AFTER", [
-  {default, 1000},
-  {datatype, integer},
-  hidden,
-  {validators, ["positive_integer"]}
-]}.
-
-{validator, "positive_integer", "must be a positive integer",
-  fun(X) -> X >= 0 end}.
-
-%% Note: OTP R15 and earlier uses -env ERL_MAX_ETS_TABLES,
-%% R16+ uses +e
-%% @doc The ETS table limit
-{mapping, "node.max_ets_tables",
-  cuttlefish:otp("R16", "vm_args.+e", "vm_args.-env ERL_MAX_ETS_TABLES"), [
-  {default, 256000},
-  {datatype, integer},
-  hidden
-]}.
-
 %% @doc Set the location of crash dumps
 {mapping, "node.crash_dump", "vm_args.-env ERL_CRASH_DUMP", [
   {default, "{{crash_dump}}"},
   {datatype, file},
-  hidden
-]}.
-
-%% @doc http://www.erlang.org/doc/man/kernel_app.html#net_ticktime
-{mapping, "node.dist_net_ticktime", "vm_args.-kernel net_ticktime", [
-  {commented, 60},
-  {datatype, integer},
   hidden
 ]}.
 
