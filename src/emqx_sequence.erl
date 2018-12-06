@@ -14,45 +14,47 @@
 
 -module(emqx_sequence).
 
--export([create/0, create/1]).
--export([generate/1, generate/2]).
--export([reclaim/1, reclaim/2]).
+-export([create/1, nextval/2, currval/2, reclaim/2, delete/1]).
 
 -type(key() :: term()).
+-type(name() :: atom()).
 -type(seqid() :: non_neg_integer()).
 
--define(DEFAULT_TAB, ?MODULE).
+-export_type([seqid/0]).
 
 %% @doc Create a sequence.
--spec(create() -> ok).
-create() ->
-    create(?DEFAULT_TAB).
-
--spec(create(atom()) -> ok).
-create(Tab) ->
-    _ = ets:new(Tab, [set, public, named_table, {write_concurrency, true}]),
+-spec(create(name()) -> ok).
+create(Name) ->
+    _ = ets:new(Name, [set, public, named_table, {write_concurrency, true}]),
     ok.
 
-%% @doc Generate a sequence id.
--spec(generate(key()) -> seqid()).
-generate(Key) ->
-    generate(?DEFAULT_TAB, Key).
+%% @doc Next value of the sequence.
+-spec(nextval(name(), key()) -> seqid()).
+nextval(Name, Key) ->
+    ets:update_counter(Name, Key, {2, 1}, {Key, 0}).
 
--spec(generate(atom(), key()) -> seqid()).
-generate(Tab, Key) ->
-    ets:update_counter(Tab, Key, {2, 1}, {Key, 0}).
+%% @doc Current value of the sequence.
+-spec(currval(name(), key()) -> seqid()).
+currval(Name, Key) ->
+    try ets:lookup_element(Name, Key, 2)
+    catch
+        error:badarg -> 0
+    end.
 
 %% @doc Reclaim a sequence id.
--spec(reclaim(key()) -> seqid()).
-reclaim(Key) ->
-    reclaim(?DEFAULT_TAB, Key).
-
--spec(reclaim(atom(), key()) -> seqid()).
-reclaim(Tab, Key) ->
-    try ets:update_counter(Tab, Key, {2, -1, 0, 0}) of
-        0 -> ets:delete_object(Tab, {Key, 0}), 0;
+-spec(reclaim(name(), key()) -> seqid()).
+reclaim(Name, Key) ->
+    try ets:update_counter(Name, Key, {2, -1, 0, 0}) of
+        0 -> ets:delete_object(Name, {Key, 0}), 0;
         I -> I
     catch
         error:badarg -> 0
+    end.
+
+%% @doc Delete the sequence.
+delete(Name) ->
+    case ets:info(Name, name) of
+        Name -> ets:delete(Name);
+        undefined -> false
     end.
 

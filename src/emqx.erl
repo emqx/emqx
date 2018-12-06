@@ -26,7 +26,6 @@
 
 %% PubSub management API
 -export([topics/0, subscriptions/1, subscribers/1, subscribed/2]).
--export([get_subopts/2, set_subopts/3]).
 
 %% Hooks API
 -export([hook/2, hook/3, hook/4, unhook/2, run_hooks/2, run_hooks/3]).
@@ -70,20 +69,18 @@ is_running(Node) ->
 subscribe(Topic) ->
     emqx_broker:subscribe(iolist_to_binary(Topic)).
 
--spec(subscribe(emqx_topic:topic() | string(), emqx_types:subid() | pid()) -> ok).
+-spec(subscribe(emqx_topic:topic() | string(), emqx_types:subid() | emqx_types:subopts()) -> ok).
 subscribe(Topic, SubId) when is_atom(SubId); is_binary(SubId)->
     emqx_broker:subscribe(iolist_to_binary(Topic), SubId);
-subscribe(Topic, SubPid) when is_pid(SubPid) ->
-    emqx_broker:subscribe(iolist_to_binary(Topic), SubPid).
+subscribe(Topic, SubOpts) when is_map(SubOpts) ->
+    emqx_broker:subscribe(iolist_to_binary(Topic), SubOpts).
 
--spec(subscribe(emqx_topic:topic() | string(), emqx_types:subid() | pid(),
-                emqx_types:subopts()) -> ok).
-subscribe(Topic, SubId, Options) when is_atom(SubId); is_binary(SubId)->
-    emqx_broker:subscribe(iolist_to_binary(Topic), SubId, Options);
-subscribe(Topic, SubPid, Options) when is_pid(SubPid)->
-    emqx_broker:subscribe(iolist_to_binary(Topic), SubPid, Options).
+-spec(subscribe(emqx_topic:topic() | string(),
+                emqx_types:subid() | pid(), emqx_types:subopts()) -> ok).
+subscribe(Topic, SubId, SubOpts) when (is_atom(SubId) orelse is_binary(SubId)), is_map(SubOpts) ->
+    emqx_broker:subscribe(iolist_to_binary(Topic), SubId, SubOpts).
 
--spec(publish(emqx_types:message()) -> {ok, emqx_types:deliver_results()}).
+-spec(publish(emqx_types:message()) -> emqx_types:deliver_results()).
 publish(Msg) ->
     emqx_broker:publish(Msg).
 
@@ -91,25 +88,13 @@ publish(Msg) ->
 unsubscribe(Topic) ->
     emqx_broker:unsubscribe(iolist_to_binary(Topic)).
 
--spec(unsubscribe(emqx_topic:topic() | string(), emqx_types:subid() | pid()) -> ok).
-unsubscribe(Topic, SubId) when is_atom(SubId); is_binary(SubId) ->
-    emqx_broker:unsubscribe(iolist_to_binary(Topic), SubId);
-unsubscribe(Topic, SubPid) when is_pid(SubPid) ->
-    emqx_broker:unsubscribe(iolist_to_binary(Topic), SubPid).
+-spec(unsubscribe(emqx_topic:topic() | string(), emqx_types:subid()) -> ok).
+unsubscribe(Topic, SubId) ->
+    emqx_broker:unsubscribe(iolist_to_binary(Topic), SubId).
 
 %%------------------------------------------------------------------------------
 %% PubSub management API
 %%------------------------------------------------------------------------------
-
--spec(get_subopts(emqx_topic:topic() | string(), emqx_types:subscriber())
-      -> emqx_types:subopts()).
-get_subopts(Topic, Subscriber) ->
-    emqx_broker:get_subopts(iolist_to_binary(Topic), Subscriber).
-
--spec(set_subopts(emqx_topic:topic() | string(), emqx_types:subscriber(),
-                  emqx_types:subopts()) -> boolean()).
-set_subopts(Topic, Subscriber, Options) when is_map(Options) ->
-    emqx_broker:set_subopts(iolist_to_binary(Topic), Subscriber, Options).
 
 -spec(topics() -> list(emqx_topic:topic())).
 topics() -> emqx_router:topics().
@@ -118,15 +103,15 @@ topics() -> emqx_router:topics().
 subscribers(Topic) ->
     emqx_broker:subscribers(iolist_to_binary(Topic)).
 
--spec(subscriptions(emqx_types:subscriber()) -> [{emqx_topic:topic(), emqx_types:subopts()}]).
-subscriptions(Subscriber) ->
-    emqx_broker:subscriptions(Subscriber).
+-spec(subscriptions(pid()) -> [{emqx_topic:topic(), emqx_types:subopts()}]).
+subscriptions(SubPid) when is_pid(SubPid) ->
+    emqx_broker:subscriptions(SubPid).
 
--spec(subscribed(emqx_topic:topic() | string(), pid() | emqx_types:subid()) -> boolean()).
-subscribed(Topic, SubPid) when is_pid(SubPid) ->
-    emqx_broker:subscribed(iolist_to_binary(Topic), SubPid);
-subscribed(Topic, SubId) when is_atom(SubId); is_binary(SubId) ->
-    emqx_broker:subscribed(iolist_to_binary(Topic), SubId).
+-spec(subscribed(pid() | emqx_types:subid(), emqx_topic:topic() | string()) -> boolean()).
+subscribed(SubPid, Topic) when is_pid(SubPid) ->
+    emqx_broker:subscribed(SubPid, iolist_to_binary(Topic));
+subscribed(SubId, Topic) when is_atom(SubId); is_binary(SubId) ->
+    emqx_broker:subscribed(SubId, iolist_to_binary(Topic)).
 
 %%------------------------------------------------------------------------------
 %% Hooks API
