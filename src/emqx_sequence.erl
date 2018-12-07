@@ -25,8 +25,7 @@
 %% @doc Create a sequence.
 -spec(create(name()) -> ok).
 create(Name) ->
-    _ = ets:new(Name, [set, public, named_table, {write_concurrency, true}]),
-    ok.
+    emqx_tables:new(Name, [public, set, {write_concurrency, true}]).
 
 %% @doc Next value of the sequence.
 -spec(nextval(name(), key()) -> seqid()).

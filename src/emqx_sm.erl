@@ -202,10 +202,10 @@ notify(Event) ->
 
 init([]) ->
     TabOpts = [public, set, {write_concurrency, true}],
-    _ = emqx_tables:new(?SESSION_TAB, [{read_concurrency, true} | TabOpts]),
-    _ = emqx_tables:new(?SESSION_P_TAB, TabOpts),
-    _ = emqx_tables:new(?SESSION_ATTRS_TAB, TabOpts),
-    _ = emqx_tables:new(?SESSION_STATS_TAB, TabOpts),
+    ok = emqx_tables:new(?SESSION_TAB, [{read_concurrency, true} | TabOpts]),
+    ok = emqx_tables:new(?SESSION_P_TAB, TabOpts),
+    ok = emqx_tables:new(?SESSION_ATTRS_TAB, TabOpts),
+    ok = emqx_tables:new(?SESSION_STATS_TAB, TabOpts),
     emqx_stats:update_interval(sm_stats, fun ?MODULE:stats_fun/0),
     {ok, #{session_pmon => emqx_pmon:new()}}.
 

@@ -20,6 +20,7 @@
 
 -export([start_link/0]).
 -export([monitor/2]).
+-export([get_shard/2]).
 -export([create_seq/1, reclaim_seq/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
@@ -46,6 +47,13 @@ monitor(SubPid, SubId) when is_pid(SubPid) ->
             error(subid_conflict)
     end.
 
+-spec(get_shard(pid(), emqx_topic:topic()) -> non_neg_integer()).
+get_shard(SubPid, Topic) ->
+    case create_seq(Topic) of
+        Seq when Seq =< 1024 -> 0;
+        _Seq -> erlang:phash2(SubPid, ets:lookup_element(?SUBSEQ, shards, 2))
+    end.
+
 -spec(create_seq(emqx_topic:topic()) -> emqx_sequence:seqid()).
 create_seq(Topic) ->
     emqx_sequence:nextval(?SUBSEQ, Topic).
@@ -60,9 +68,11 @@ reclaim_seq(Topic) ->
 
 init([]) ->
     %% SubSeq: Topic -> SeqId
-    _ = emqx_sequence:create(?SUBSEQ),
+    ok = emqx_sequence:create(?SUBSEQ),
+    %% Shards: CPU * 32
+    true = ets:insert(?SUBSEQ, {shards, emqx_vm:schedulers() * 32}),
     %% SubMon: SubPid -> SubId
-    _ = emqx_tables:new(?SUBMON, [set, protected, {read_concurrency, true}]),
+    ok = emqx_tables:new(?SUBMON, [set, protected, {read_concurrency, true}]),
     %% Stats timer
     emqx_stats:update_interval(broker_stats, fun emqx_broker:stats_fun/0),
     {ok, #state{pmon = emqx_pmon:new()}, hibernate}.

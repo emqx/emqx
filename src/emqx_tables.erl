@@ -17,10 +17,12 @@
 -export([new/2]).
 
 %% Create a named_table ets.
+-spec(new(atom(), list()) -> ok).
 new(Tab, Opts) ->
     case ets:info(Tab, name) of
         undefined ->
-            ets:new(Tab, lists:usort([named_table | Opts]));
-        Tab -> Tab
+            _ = ets:new(Tab, lists:usort([named_table | Opts])),
+            ok;
+        Tab -> ok
     end.
 

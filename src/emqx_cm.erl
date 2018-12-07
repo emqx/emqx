@@ -125,9 +125,9 @@ notify(Msg) ->
 
 init([]) ->
     TabOpts = [public, set, {write_concurrency, true}],
-    _ = emqx_tables:new(?CONN_TAB, [{read_concurrency, true} | TabOpts]),
-    _ = emqx_tables:new(?CONN_ATTRS_TAB, TabOpts),
-    _ = emqx_tables:new(?CONN_STATS_TAB, TabOpts),
+    ok = emqx_tables:new(?CONN_TAB, [{read_concurrency, true} | TabOpts]),
+    ok = emqx_tables:new(?CONN_ATTRS_TAB, TabOpts),
+    ok = emqx_tables:new(?CONN_STATS_TAB, TabOpts),
     ok = emqx_stats:update_interval(cm_stats, fun ?MODULE:update_conn_stats/0),
     {ok, #{conn_pmon => emqx_pmon:new()}}.
 

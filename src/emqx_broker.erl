@@ -23,7 +23,7 @@
 -export([unsubscribe/1, unsubscribe/2]).
 -export([subscriber_down/1]).
 -export([publish/1, safe_publish/1]).
--export([dispatch/2, dispatch/3]).
+-export([dispatch/2]).
 -export([subscriptions/1, subscribers/1, subscribed/2]).
 -export([get_subopts/2, set_subopts/2]).
 -export([topics/0]).
@@ -34,8 +34,6 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
--define(SHARD, 1024).
--define(TIMEOUT, 60000).
 -define(BROKER, ?MODULE).
 
 %% ETS tables
@@ -44,33 +42,36 @@
 -define(SUBSCRIBER, emqx_subscriber).
 -define(SUBSCRIPTION, emqx_subscription).
 
-%% Gards
+%% Guards
 -define(is_subid(Id), (is_binary(Id) orelse is_atom(Id))).
 
 -spec(start_link(atom(), pos_integer()) -> emqx_types:startlink_ret()).
 start_link(Pool, Id) ->
     _ = create_tabs(),
-    gen_server:start_link({local, emqx_misc:proc_name(?BROKER, Id)}, ?MODULE, [Pool, Id], []).
+    Name = emqx_misc:proc_name(?BROKER, Id),
+    gen_server:start_link({local, Name}, ?MODULE, [Pool, Id], []).
 
 %%------------------------------------------------------------------------------
 %% Create tabs
 %%------------------------------------------------------------------------------
 
+-spec(create_tabs() -> ok).
 create_tabs() ->
     TabOpts = [public, {read_concurrency, true}, {write_concurrency, true}],
 
-    %% SubId: SubId -> SubPid1, SubPid2,...
-    _ = emqx_tables:new(?SUBID, [bag | TabOpts]),
+    %% SubId: SubId -> SubPid
+    ok = emqx_tables:new(?SUBID, [set | TabOpts]),
+
     %% SubOption: {SubPid, Topic} -> SubOption
-    _ = emqx_tables:new(?SUBOPTION, [set | TabOpts]),
+    ok = emqx_tables:new(?SUBOPTION, [set | TabOpts]),
 
     %% Subscription: SubPid -> Topic1, Topic2, Topic3, ...
     %% duplicate_bag: o(1) insert
-    _ = emqx_tables:new(?SUBSCRIPTION, [duplicate_bag | TabOpts]),
+    ok = emqx_tables:new(?SUBSCRIPTION, [duplicate_bag | TabOpts]),
 
     %% Subscriber: Topic -> SubPid1, SubPid2, SubPid3, ...
     %% duplicate_bag: o(1) insert
-    emqx_tables:new(?SUBSCRIBER, [duplicate_bag | TabOpts]).
+    ok = emqx_tables:new(?SUBSCRIBER, [duplicate_bag | TabOpts]).
 
 %%------------------------------------------------------------------------------
 %% Subscribe API
@@ -92,14 +93,23 @@ subscribe(Topic, SubId, SubOpts) when is_binary(Topic), ?is_subid(SubId), is_map
     case ets:member(?SUBOPTION, {SubPid, Topic}) of
         false ->
             ok = emqx_broker_helper:monitor(SubPid, SubId),
-            Group = maps:get(share, SubOpts, undefined),
             %% true = ets:insert(?SUBID, {SubId, SubPid}),
             true = ets:insert(?SUBSCRIPTION, {SubPid, Topic}),
-            %% SeqId = emqx_broker_helper:create_seq(Topic),
-            true = ets:insert(?SUBSCRIBER, {Topic, shared(Group, SubPid)}),
-            true = ets:insert(?SUBOPTION, {{SubPid, Topic}, SubOpts}),
-            ok = emqx_shared_sub:subscribe(Group, Topic, SubPid),
-            call(pick(Topic), {subscribe, Group, Topic});
+            case maps:get(share, SubOpts, undefined) of
+                undefined ->
+                    Shard = emqx_broker_helper:get_shard(SubPid, Topic),
+                    case Shard of
+                        0 -> true = ets:insert(?SUBSCRIBER, {Topic, SubPid});
+                        I -> true = ets:insert(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
+                             true = ets:insert(?SUBSCRIBER, {Topic, {shard, I}})
+                    end,
+                    SubOpts1 = maps:put(shard, Shard, SubOpts),
+                    true = ets:insert(?SUBOPTION, {{SubPid, Topic}, SubOpts1}),
+                    call(pick({Topic, Shard}), {subscribe, Topic});
+                Group -> %% Shared subscription
+                    true = ets:insert(?SUBOPTION, {{SubPid, Topic}, SubOpts}),
+                    emqx_shared_sub:subscribe(Group, Topic, SubPid)
+            end;
         true -> ok
     end.
 
@@ -112,12 +122,21 @@ unsubscribe(Topic) when is_binary(Topic) ->
     SubPid = self(),
     case ets:lookup(?SUBOPTION, {SubPid, Topic}) of
         [{_, SubOpts}] ->
-            Group = maps:get(share, SubOpts, undefined),
+            _ = emqx_broker_helper:reclaim_seq(Topic),
+            case maps:get(share, SubOpts, undefined) of
+                undefined ->
+                    case maps:get(shared, SubOpts, 0) of
+                        0 -> true = ets:delete_object(?SUBSCRIBER, {Topic, SubPid}),
+                             ok = cast(pick(Topic), {unsubscribed, Topic});
+                        I -> true = ets:delete_object(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
+                             ok = cast(pick({Topic, I}), {unsubscribed, Topic, I})
+                    end;
+                Group ->
+                    ok = emqx_shared_sub:unsubscribe(Group, Topic, SubPid)
+            end,
             true = ets:delete_object(?SUBSCRIPTION, {SubPid, Topic}),
-            true = ets:delete_object(?SUBSCRIBER, {Topic, shared(Group, SubPid)}),
-            true = ets:delete(?SUBOPTION, {SubPid, Topic}),
-            ok = emqx_shared_sub:unsubscribe(Group, Topic, SubPid),
-            call(pick(Topic), {unsubscribe, Group, Topic});
+            %%true = ets:delete_object(?SUBID, {SubId, SubPid}),
+            true = ets:delete(?SUBOPTION, {SubPid, Topic});
         [] -> ok
     end.
 
@@ -207,22 +226,23 @@ dispatch(Topic, Delivery = #delivery{message = Msg, results = Results}) ->
             emqx_hooks:run('message.dropped', [#{node => node()}, Msg]),
             inc_dropped_cnt(Topic),
             Delivery;
-        [SubPid] -> %% optimize?
-            dispatch(SubPid, Topic, Msg),
+        [Sub] -> %% optimize?
+            dispatch(Sub, Topic, Msg),
             Delivery#delivery{results = [{dispatch, Topic, 1}|Results]};
-        SubPids ->
-            Count = lists:foldl(fun(SubPid, Acc) ->
-                                    dispatch(SubPid, Topic, Msg), Acc + 1
-                                end, 0, SubPids),
+        Subs ->
+            Count = lists:foldl(
+                      fun(Sub, Acc) ->
+                              dispatch(Sub, Topic, Msg), Acc + 1
+                      end, 0, Subs),
             Delivery#delivery{results = [{dispatch, Topic, Count}|Results]}
     end.
 
 dispatch(SubPid, Topic, Msg) when is_pid(SubPid) ->
-    SubPid ! {dispatch, Topic, Msg},
-    true;
-%% TODO: how to optimize the share sub?
-dispatch({share, _Group, _SubPid}, _Topic, _Msg) ->
-    false.
+    SubPid ! {dispatch, Topic, Msg};
+dispatch({shard, I}, Topic, Msg) ->
+    lists:foreach(fun(SubPid) ->
+                      SubPid ! {dispatch, Topic, Msg}
+                  end, safe_lookup_element(?SUBSCRIBER, {share, Topic, I}, [])).
 
 inc_dropped_cnt(<<"$SYS/", _/binary>>) ->
     ok;
@@ -240,17 +260,20 @@ subscribers(Topic) ->
 -spec(subscriber_down(pid()) -> true).
 subscriber_down(SubPid) ->
     lists:foreach(
-      fun(Sub = {_, Topic}) ->
+      fun(Sub = {_Pid, Topic}) ->
           case ets:lookup(?SUBOPTION, Sub) of
               [{_, SubOpts}] ->
-                  Group = maps:get(share, SubOpts, undefined),
-                  true = ets:delete_object(?SUBSCRIBER, {Topic, shared(Group, SubPid)}),
-                  true = ets:delete(?SUBOPTION, Sub),
-                  gen_server:cast(pick(Topic), {unsubscribe, Group, Topic});
+                  _ = emqx_broker_helper:reclaim_seq(Topic),
+                  case maps:get(shared, SubOpts, 0) of
+                      0 -> true = ets:delete_object(?SUBSCRIBER, {Topic, SubPid}),
+                           ok = cast(pick(Topic), {unsubscribed, Topic});
+                      I -> true = ets:delete_object(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
+                           ok = cast(pick({Topic, I}), {unsubscribed, Topic, I})
+                  end;
               [] -> ok
           end
       end, ets:lookup(?SUBSCRIPTION, SubPid)),
-      ets:delete(?SUBSCRIPTION, SubPid).
+      true = ets:delete(?SUBSCRIPTION, SubPid).
 
 %%------------------------------------------------------------------------------
 %% Management APIs
@@ -305,11 +328,14 @@ safe_update_stats(Tab, Stat, MaxStat) ->
     end.
 
 %%------------------------------------------------------------------------------
-%% Pick and call
+%% call, cast, pick
 %%------------------------------------------------------------------------------
 
 call(Broker, Req) ->
-    gen_server:call(Broker, Req, ?TIMEOUT).
+    gen_server:call(Broker, Req).
+
+cast(Broker, Msg) ->
+    gen_server:cast(Broker, Msg).
 
 %% Pick a broker
 pick(Topic) ->
@@ -320,23 +346,40 @@ pick(Topic) ->
 %%------------------------------------------------------------------------------
 
 init([Pool, Id]) ->
+    _ = emqx_router:set_mode(protected),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #{pool => Pool, id => Id}}.
 
-handle_call({subscribe, Group, Topic}, _From, State) ->
-    Ok = emqx_router:add_route(Topic, dest(Group)),
-    {reply, Ok, State};
-
-handle_call({unsubscribe, Group, Topic}, _From, State) ->
-    Ok = case ets:member(?SUBSCRIBER, Topic) of
-             false -> emqx_router:delete_route(Topic, dest(Group));
-             true  -> ok
-         end,
-    {reply, Ok, State};
+handle_call({subscribe, Topic}, _From, State) ->
+    case get(Topic) of
+        undefined ->
+            _ = put(Topic, true),
+            emqx_router:add_route(Topic);
+        true -> ok
+    end,
+    {reply, ok, State};
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[Broker] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
+
+handle_cast({unsubscribed, Topic}, State) ->
+    case ets:member(?SUBSCRIBER, Topic) of
+        false ->
+           _ = erase(Topic),
+           emqx_router:delete_route(Topic);
+        true -> ok
+    end,
+    {noreply, State};
+
+handle_cast({unsubscribed, Topic, I}, State) ->
+    case ets:member(?SUBSCRIBER, {shard, Topic, I}) of
+        false ->
+            true = ets:delete_object(?SUBSCRIBER, {Topic, {shard, I}}),
+            cast(pick(Topic), {unsubscribed, Topic});
+        true -> ok
+    end,
+    {noreply, State};
 
 handle_cast(Msg, State) ->
     emqx_logger:error("[Broker] unexpected cast: ~p", [Msg]),
@@ -355,10 +398,4 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
-
-dest(undefined) -> node();
-dest(Group)     -> {Group, node()}.
-
-shared(undefined, Name) -> Name;
-shared(Group, Name)     -> {share, Group, Name}.
 
