@@ -19,6 +19,7 @@
 -export([start_link/0]).
 -export([new/1, all/0]).
 -export([val/1, inc/1, inc/2, inc/3, dec/2, dec/3, set/2]).
+-export([trans/2, trans/3, trans/4, commit/0]).
 %% Received/sent metrics
 -export([received/1, sent/1]).
 
@@ -133,10 +134,8 @@ inc(Metric, Val) when is_atom(Metric) ->
 
 %% @doc Increase metric value
 -spec(inc(counter | gauge, atom(), pos_integer()) -> pos_integer()).
-inc(gauge, Metric, Val) ->
-    update_counter(key(gauge, Metric), {2, Val});
-inc(counter, Metric, Val) ->
-    update_counter(key(counter, Metric), {2, Val}).
+inc(Type, Metric, Val) ->
+    update_counter(key(Type, Metric), {2, Val}).
 
 %% @doc Decrease metric value
 -spec(dec(gauge, atom()) -> integer()).
@@ -153,6 +152,41 @@ set(Metric, Val) when is_atom(Metric) ->
     set(gauge, Metric, Val).
 set(gauge, Metric, Val) ->
     ets:insert(?TAB, {key(gauge, Metric), Val}).
+
+trans(inc, Metric) ->
+    trans(inc, {counter, Metric}, 1).
+
+trans(Opt, {gauge, Metric}, Val) ->
+    trans(Opt, gauge, Metric, Val);
+trans(inc, {counter, Metric}, Val) ->
+    trans(inc, counter, Metric, Val);
+trans(inc, Metric, Val) when is_atom(Metric) ->
+    trans(inc, counter, Metric, Val);
+trans(dec, gauge, Metric) ->
+    trans(dec, gauge, Metric, 1).
+
+trans(inc, Type, Metric, Val) ->
+    hold(Type, Metric, Val);
+trans(dec, gauge, Metric, Val) ->
+    hold(gauge, Metric, -Val).
+
+hold(Type, Metric, Val) when Type =:= counter orelse Type =:= gauge ->
+    put('$metrics', case get('$metrics') of
+                        undefined ->
+                            #{{Type, Metric} => Val};
+                        Metrics ->
+                            maps:update_with({Type, Metric}, fun(Cnt) -> Cnt + Val end, Val, Metrics)
+                    end).
+
+commit() ->
+    case get('$metrics') of
+        undefined -> ok;
+        Metrics ->
+            maps:fold(fun({Type, Metric}, Val, _Acc) -> 
+                          update_counter(key(Type, Metric), {2, Val})
+                      end, 0, Metrics),
+            erase('$metrics')
+    end.
 
 %% @doc Metric key
 key(gauge, Metric) ->

@@ -426,9 +426,15 @@ end}.
   {datatype, file}
 ]}.
 
-{mapping, "sasl", "sasl.sasl_error_logger", [
+{mapping, "log.sasl", "sasl.sasl_error_logger", [
   {default, off},
   {datatype, flag},
+  hidden
+]}.
+
+{mapping, "log.error_logger", "kernel.error_logger", [
+  {default, silent},
+  {datatype, {enum, [silent]}},
   hidden
 ]}.
 

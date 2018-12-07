@@ -69,9 +69,11 @@ init([]) ->
                 {type, bag},
                 {ram_copies, [node()]},
                 {record_name, global_session},
-                {attributes, record_info(fields, global_session)}]),
+                {attributes, record_info(fields, global_session)},
+                {storage_properties, [{ets, [{read_concurrency, true},
+                                             {write_concurrency, true}]}]}]),
     ok = ekka_mnesia:copy_table(?TAB),
-    ekka:monitor(membership),
+    _ = ekka:monitor(membership),
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->

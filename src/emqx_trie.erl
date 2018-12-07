@@ -36,16 +36,21 @@
 %% @doc Create or replicate trie tables.
 -spec(mnesia(boot | copy) -> ok).
 mnesia(boot) ->
+    %% Optimize
+    StoreProps = [{ets, [{read_concurrency, true},
+                         {write_concurrency, true}]}],
     %% Trie table
     ok = ekka_mnesia:create_table(?TRIE, [
                 {ram_copies, [node()]},
                 {record_name, trie},
-                {attributes, record_info(fields, trie)}]),
+                {attributes, record_info(fields, trie)},
+                {storage_properties, StoreProps}]),
     %% Trie node table
     ok = ekka_mnesia:create_table(?TRIE_NODE, [
                 {ram_copies, [node()]},
                 {record_name, trie_node},
-                {attributes, record_info(fields, trie_node)}]);
+                {attributes, record_info(fields, trie_node)},
+                {storage_properties, StoreProps}]);
 
 mnesia(copy) ->
     %% Copy trie table
@@ -57,10 +62,10 @@ mnesia(copy) ->
 %% Trie APIs
 %%------------------------------------------------------------------------------
 
-%% @doc Insert a topic into the trie
+%% @doc Insert a topic filter into the trie.
 -spec(insert(emqx_topic:topic()) -> ok).
 insert(Topic) when is_binary(Topic) ->
-    case mnesia:read(?TRIE_NODE, Topic) of
+    case mnesia:wread({?TRIE_NODE, Topic}) of
         [#trie_node{topic = Topic}] ->
             ok;
         [TrieNode = #trie_node{topic = undefined}] ->
@@ -72,21 +77,21 @@ insert(Topic) when is_binary(Topic) ->
             write_trie_node(#trie_node{node_id = Topic, topic = Topic})
     end.
 
-%% @doc Find trie nodes that match the topic
+%% @doc Find trie nodes that match the topic name.
 -spec(match(emqx_topic:topic()) -> list(emqx_topic:topic())).
 match(Topic) when is_binary(Topic) ->
     TrieNodes = match_node(root, emqx_topic:words(Topic)),
     [Name || #trie_node{topic = Name} <- TrieNodes, Name =/= undefined].
 
-%% @doc Lookup a trie node
+%% @doc Lookup a trie node.
 -spec(lookup(NodeId :: binary()) -> [#trie_node{}]).
 lookup(NodeId) ->
     mnesia:read(?TRIE_NODE, NodeId).
 
-%% @doc Delete a topic from the trie
+%% @doc Delete a topic filter from the trie.
 -spec(delete(emqx_topic:topic()) -> ok).
 delete(Topic) when is_binary(Topic) ->
-    case mnesia:read(?TRIE_NODE, Topic) of
+    case mnesia:wread({?TRIE_NODE, Topic}) of
         [#trie_node{edge_count = 0}] ->
             mnesia:delete({?TRIE_NODE, Topic}),
             delete_path(lists:reverse(emqx_topic:triples(Topic)));
@@ -103,7 +108,7 @@ delete(Topic) when is_binary(Topic) ->
 %% @doc Add a path to the trie.
 add_path({Node, Word, Child}) ->
     Edge = #trie_edge{node_id = Node, word = Word},
-    case mnesia:read(?TRIE_NODE, Node) of
+    case mnesia:wread({?TRIE_NODE, Node}) of
         [TrieNode = #trie_node{edge_count = Count}] ->
             case mnesia:wread({?TRIE, Edge}) of
                 [] ->
