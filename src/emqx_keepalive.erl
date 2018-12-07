@@ -43,12 +43,12 @@ start(StatFun, TimeoutSec, TimeoutMsg) ->
 -spec(check(keepalive()) -> {ok, keepalive()} | {error, term()}).
 check(KeepAlive = #keepalive{statfun = StatFun, statval = LastVal, repeat = Repeat}) ->
     try StatFun() of
-                {ok, NewVal} ->
+        {ok, NewVal} ->
             if NewVal =/= LastVal ->
                     {ok, resume(KeepAlive#keepalive{statval = NewVal, repeat = 0})};
-                Repeat < 1 ->
+               Repeat < 1 ->
                     {ok, resume(KeepAlive#keepalive{statval = NewVal, repeat = Repeat + 1})};
-                true ->
+               true ->
                     {error, timeout}
             end;
         {error, Error} ->
