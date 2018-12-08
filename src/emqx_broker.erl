@@ -71,7 +71,7 @@ create_tabs() ->
 
     %% Subscriber: Topic -> SubPid1, SubPid2, SubPid3, ...
     %% duplicate_bag: o(1) insert
-    ok = emqx_tables:new(?SUBSCRIBER, [duplicate_bag | TabOpts]).
+    ok = emqx_tables:new(?SUBSCRIBER, [bag | TabOpts]).
 
 %%------------------------------------------------------------------------------
 %% Subscribe API
@@ -97,15 +97,16 @@ subscribe(Topic, SubId, SubOpts) when is_binary(Topic), ?is_subid(SubId), is_map
             true = ets:insert(?SUBSCRIPTION, {SubPid, Topic}),
             case maps:get(share, SubOpts, undefined) of
                 undefined ->
-                    Shard = emqx_broker_helper:get_shard(SubPid, Topic),
-                    case Shard of
+                    Shared = emqx_broker_helper:get_shared(SubPid, Topic),
+                    case Shared of
                         0 -> true = ets:insert(?SUBSCRIBER, {Topic, SubPid});
-                        I -> true = ets:insert(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
-                             true = ets:insert(?SUBSCRIBER, {Topic, {shard, I}})
+                        I ->
+                            true = ets:insert(?SUBSCRIBER, {{shared, Topic, I}, SubPid}),
+                            true = ets:insert(?SUBSCRIBER, {Topic, {shared, I}})
                     end,
-                    SubOpts1 = maps:put(shard, Shard, SubOpts),
+                    SubOpts1 = maps:put(shared, Shared, SubOpts),
                     true = ets:insert(?SUBOPTION, {{SubPid, Topic}, SubOpts1}),
-                    call(pick({Topic, Shard}), {subscribe, Topic});
+                    call(pick({Topic, Shared}), {subscribe, Topic});
                 Group -> %% Shared subscription
                     true = ets:insert(?SUBOPTION, {{SubPid, Topic}, SubOpts}),
                     emqx_shared_sub:subscribe(Group, Topic, SubPid)
@@ -128,7 +129,7 @@ unsubscribe(Topic) when is_binary(Topic) ->
                     case maps:get(shared, SubOpts, 0) of
                         0 -> true = ets:delete_object(?SUBSCRIBER, {Topic, SubPid}),
                              ok = cast(pick(Topic), {unsubscribed, Topic});
-                        I -> true = ets:delete_object(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
+                        I -> true = ets:delete_object(?SUBSCRIBER, {{shared, Topic, I}, SubPid}),
                              ok = cast(pick({Topic, I}), {unsubscribed, Topic, I})
                     end;
                 Group ->
@@ -239,10 +240,11 @@ dispatch(Topic, Delivery = #delivery{message = Msg, results = Results}) ->
 
 dispatch(SubPid, Topic, Msg) when is_pid(SubPid) ->
     SubPid ! {dispatch, Topic, Msg};
-dispatch({shard, I}, Topic, Msg) ->
+dispatch({shared, I}, Topic, Msg) ->
+
     lists:foreach(fun(SubPid) ->
                       SubPid ! {dispatch, Topic, Msg}
-                  end, safe_lookup_element(?SUBSCRIBER, {share, Topic, I}, [])).
+                  end, safe_lookup_element(?SUBSCRIBER, {shared, Topic, I}, [])).
 
 inc_dropped_cnt(<<"$SYS/", _/binary>>) ->
     ok;
@@ -267,7 +269,8 @@ subscriber_down(SubPid) ->
                   case maps:get(shared, SubOpts, 0) of
                       0 -> true = ets:delete_object(?SUBSCRIBER, {Topic, SubPid}),
                            ok = cast(pick(Topic), {unsubscribed, Topic});
-                      I -> true = ets:delete_object(?SUBSCRIBER, {{shard, Topic, I}, SubPid}),
+                      I -> true = ets:delete_object(?SUBSCRIBER, {Topic, {shared, I}}),
+                           true = ets:delete_object(?SUBSCRIBER, {{shared, Topic, I}, SubPid}),
                            ok = cast(pick({Topic, I}), {unsubscribed, Topic, I})
                   end;
               [] -> ok
@@ -373,9 +376,9 @@ handle_cast({unsubscribed, Topic}, State) ->
     {noreply, State};
 
 handle_cast({unsubscribed, Topic, I}, State) ->
-    case ets:member(?SUBSCRIBER, {shard, Topic, I}) of
+    case ets:member(?SUBSCRIBER, {shared, Topic, I}) of
         false ->
-            true = ets:delete_object(?SUBSCRIBER, {Topic, {shard, I}}),
+            true = ets:delete_object(?SUBSCRIBER, {Topic, {shared, I}}),
             cast(pick(Topic), {unsubscribed, Topic});
         true -> ok
     end,

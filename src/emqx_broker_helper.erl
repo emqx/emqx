@@ -20,7 +20,7 @@
 
 -export([start_link/0]).
 -export([monitor/2]).
--export([get_shard/2]).
+-export([get_shared/2]).
 -export([create_seq/1, reclaim_seq/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
@@ -47,11 +47,11 @@ monitor(SubPid, SubId) when is_pid(SubPid) ->
             error(subid_conflict)
     end.
 
--spec(get_shard(pid(), emqx_topic:topic()) -> non_neg_integer()).
-get_shard(SubPid, Topic) ->
+-spec(get_shared(pid(), emqx_topic:topic()) -> non_neg_integer()).
+get_shared(SubPid, Topic) ->
     case create_seq(Topic) of
         Seq when Seq =< 1024 -> 0;
-        _Seq -> erlang:phash2(SubPid, ets:lookup_element(?SUBSEQ, shards, 2))
+        _Seq -> erlang:phash2(SubPid, ets:lookup_element(?SUBSEQ, shareds, 2))
     end.
 
 -spec(create_seq(emqx_topic:topic()) -> emqx_sequence:seqid()).
@@ -69,8 +69,8 @@ reclaim_seq(Topic) ->
 init([]) ->
     %% SubSeq: Topic -> SeqId
     ok = emqx_sequence:create(?SUBSEQ),
-    %% Shards: CPU * 32
-    true = ets:insert(?SUBSEQ, {shards, emqx_vm:schedulers() * 32}),
+    %% Shareds: CPU * 32
+    true = ets:insert(?SUBSEQ, {shareds, emqx_vm:schedulers() * 32}),
     %% SubMon: SubPid -> SubId
     ok = emqx_tables:new(?SUBMON, [set, protected, {read_concurrency, true}]),
     %% Stats timer
