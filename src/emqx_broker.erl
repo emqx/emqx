@@ -272,7 +272,8 @@ subscriber_down(SubPid) ->
                       I -> true = ets:delete_object(?SUBSCRIBER, {Topic, {shared, I}}),
                            true = ets:delete_object(?SUBSCRIBER, {{shared, Topic, I}, SubPid}),
                            ok = cast(pick({Topic, I}), {unsubscribed, Topic, I})
-                  end;
+                  end,
+                  ets:delete(?SUBOPTION, Sub);
               [] -> ok
           end
       end, ets:lookup(?SUBSCRIPTION, SubPid)),
