@@ -239,7 +239,7 @@ dispatch(Topic, Delivery = #delivery{message = Msg, results = Results}) ->
 
 dispatch({SubPid, _SubId}, Topic, Msg) when is_pid(SubPid) ->
     SubPid ! {dispatch, Topic, Msg};
-dispatch({share, _Group, _Sub}, _Topic, _Msg) ->
+dispatch(_Subscribers, _Topic, _Msg) ->
     ignored.
 
 inc_dropped_cnt(<<"$SYS/", _/binary>>) ->
@@ -338,7 +338,6 @@ handle_cast({From, #subscribe{topic = Topic, subpid = SubPid, subid = SubId, sub
         false ->
             Group = maps:get(share, SubOpts, undefined),
             true = do_subscribe(Group, Topic, Subscriber, SubOpts),
-            emqx_shared_sub:subscribe(Group, Topic, SubPid),
             emqx_router:add_route(From, Topic, dest(Group)),
             {noreply, monitor_subscriber(Subscriber, State)};
         true ->
@@ -352,7 +351,6 @@ handle_cast({From, #unsubscribe{topic = Topic, subpid = SubPid, subid = SubId}},
         [{_, SubOpts}] ->
             Group = maps:get(share, SubOpts, undefined),
             true = do_unsubscribe(Group, Topic, Subscriber),
-            emqx_shared_sub:unsubscribe(Group, Topic, SubPid),
             case ets:member(?SUBSCRIBER, Topic) of
                 false -> emqx_router:del_route(From, Topic, dest(Group));
                 true  -> gen_server:reply(From, ok)
@@ -389,33 +387,38 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-do_subscribe(Group, Topic, Subscriber, SubOpts) ->
+do_subscribe(undefined, Topic, Subscriber, SubOpts) ->
+    ets:insert(?SUBSCRIPTION, {Subscriber, Topic}),
+    ets:insert(?SUBSCRIBER, {Topic, Subscriber}),
+    ets:insert(?SUBOPTION, {{Topic, Subscriber}, SubOpts});
+
+do_subscribe(Group, Topic, Subscriber  = {SubPid, _}, SubOpts) ->
+    emqx_shared_sub:subscribe(Group, Topic, SubPid),
     ets:insert(?SUBSCRIPTION, {Subscriber, shared(Group, Topic)}),
-    ets:insert(?SUBSCRIBER, {Topic, shared(Group, Subscriber)}),
     ets:insert(?SUBOPTION, {{Topic, Subscriber}, SubOpts}).
 
-do_unsubscribe(Group, Topic, Subscriber) ->
+do_unsubscribe(undefined, Topic, Subscriber) ->
+    ets:delete_object(?SUBSCRIPTION, {Subscriber, Topic}),
+    ets:delete_object(?SUBSCRIBER, {Topic, Subscriber}),
+    ets:delete(?SUBOPTION, {Topic, Subscriber});
+
+do_unsubscribe(Group, Topic, Subscriber = {SubPid, _}) ->
+    emqx_shared_sub:unsubscribe(Group, Topic, SubPid),
     ets:delete_object(?SUBSCRIPTION, {Subscriber, shared(Group, Topic)}),
-    ets:delete_object(?SUBSCRIBER, {Topic, shared(Group, Subscriber)}),
     ets:delete(?SUBOPTION, {Topic, Subscriber}).
 
 subscriber_down(Subscriber) ->
-    Topics = lists:map(fun({_, {share, Group, Topic}}) ->
-                           {Topic, Group};
-                          ({_, Topic}) ->
-                           {Topic, undefined}
-                       end, ets:lookup(?SUBSCRIPTION, Subscriber)),
-    lists:foreach(fun({Topic, undefined}) ->
-                      true = do_unsubscribe(undefined, Topic, Subscriber),
-                      ets:member(?SUBSCRIBER, Topic) orelse emqx_router:del_route(Topic, dest(undefined));
-                 ({Topic, Group}) ->
-                     true = do_unsubscribe(Group, Topic, Subscriber),
-                     Groups = groups(Topic),
-                     case lists:member(Group, lists:usort(Groups)) of
-                        true  -> ok;
-                        false -> emqx_router:del_route(Topic, dest(Group))
-                    end
-                  end, Topics).
+    lists:foreach(
+        fun({_, {share, Group, Topic}}) ->
+            true = do_unsubscribe(Group, Topic, Subscriber),
+            case length(emqx_shared_sub:subscribers(Group, Topic)) =< 0 of
+                true  -> emqx_router:del_route(Topic, dest(Group));
+                false -> ok
+            end;
+        ({_, Topic}) ->
+            true = do_unsubscribe(undefined, Topic, Subscriber),
+            ets:member(?SUBSCRIBER, Topic) orelse emqx_router:del_route(Topic, dest(undefined))
+    end, ets:lookup(?SUBSCRIPTION, Subscriber)).
 
 monitor_subscriber({SubPid, SubId}, State = #state{submap = SubMap, submon = SubMon}) ->
     UpFun = fun(SubIds) -> lists:usort([SubId|SubIds]) end,
@@ -431,10 +434,3 @@ dest(Group)     -> {Group, node()}.
 
 shared(undefined, Name) -> Name;
 shared(Group, Name)     -> {share, Group, Name}.
-
-groups(Topic) ->
-    lists:foldl(fun({_, {share, Group, _}}, Acc) ->
-                        [Group | Acc];
-                   ({_, _}, Acc) ->
-                        Acc
-                end, [], ets:lookup(?SUBSCRIBER, Topic)).
