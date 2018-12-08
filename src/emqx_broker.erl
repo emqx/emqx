@@ -258,7 +258,7 @@ subscriptions(Subscriber) ->
                   subscription(Topic, Subscriber);
                  ({_, Topic}) ->
                   subscription(Topic, Subscriber)
-        end, ets:lookup(?SUBSCRIPTION, Subscriber)).
+              end, ets:lookup(?SUBSCRIPTION, Subscriber)).
 
 subscription(Topic, Subscriber) ->
     {Topic, ets:lookup_element(?SUBOPTION, {Topic, Subscriber}, 2)}.
@@ -336,15 +336,14 @@ handle_cast({From, #subscribe{topic = Topic, subpid = SubPid, subid = SubId, sub
     Subscriber = {SubPid, SubId},
     case ets:member(?SUBOPTION, {Topic, Subscriber}) of
         false ->
-            resubscribe(From, {Subscriber, SubOpts, Topic}, State);
+            Group = maps:get(share, SubOpts, undefined),
+            true = do_subscribe(Group, Topic, Subscriber, SubOpts),
+            emqx_shared_sub:subscribe(Group, Topic, SubPid),
+            emqx_router:add_route(From, Topic, dest(Group)),
+            {noreply, monitor_subscriber(Subscriber, State)};
         true ->
-            case ets:lookup_element(?SUBOPTION, {Topic, Subscriber}, 2) =:= SubOpts of
-                true ->
-                    gen_server:reply(From, ok),
-                    {noreply, State};
-                false ->
-                    resubscribe(From, {Subscriber, SubOpts, Topic}, State)
-            end
+            gen_server:reply(From, ok),
+            {noreply, State}
     end;
 
 handle_cast({From, #unsubscribe{topic = Topic, subpid = SubPid, subid = SubId}}, State) ->
@@ -390,26 +389,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-resubscribe(From, {Subscriber, SubOpts, Topic}, State) ->
-    {SubPid, _} = Subscriber,
-    Group = maps:get(share, SubOpts, undefined),
-    true = do_subscribe(Group, Topic, Subscriber, SubOpts),
-    emqx_shared_sub:subscribe(Group, Topic, SubPid),
-    emqx_router:add_route(From, Topic, dest(Group)),
-    {noreply, monitor_subscriber(Subscriber, State)}.
-
-insert_subscriber(Group, Topic, Subscriber) ->
-    Subscribers = subscribers(Topic),
-    case lists:member(Subscriber, Subscribers) of
-        false ->
-            ets:insert(?SUBSCRIBER, {Topic, shared(Group, Subscriber)});
-        _ ->
-            ok
-    end.
-
 do_subscribe(Group, Topic, Subscriber, SubOpts) ->
     ets:insert(?SUBSCRIPTION, {Subscriber, shared(Group, Topic)}),
-    insert_subscriber(Group, Topic, Subscriber),
+    ets:insert(?SUBSCRIBER, {Topic, shared(Group, Subscriber)}),
     ets:insert(?SUBOPTION, {{Topic, Subscriber}, SubOpts}).
 
 do_unsubscribe(Group, Topic, Subscriber) ->
