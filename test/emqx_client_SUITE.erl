@@ -161,7 +161,7 @@ basic_test(_Config) ->
     ct:print("Basic test starting"),
     {ok, C} = emqx_client:start_link(),
     {ok, _} = emqx_client:connect(C),
-
+    {ok, _, [1]} = emqx_client:subscribe(C, Topic, qos1),
     {ok, _, [2]} = emqx_client:subscribe(C, Topic, qos2),
     {ok, _} = emqx_client:publish(C, Topic, <<"qos 2">>, 2),
     {ok, _} = emqx_client:publish(C, Topic, <<"qos 2">>, 2),
