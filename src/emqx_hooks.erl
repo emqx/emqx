@@ -42,7 +42,7 @@
 
 -spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], [{hibernate_after, 60000}]).
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], [{hibernate_after, 1000}]).
 
 -spec(stop() -> ok).
 stop() ->
