@@ -60,10 +60,12 @@ load_rules_from_file(AclFile) ->
             ets:insert(?ACL_RULE_TAB, {all_rules, Terms}),
             ok;
         {error, Reason} ->
-            emqx_logger:error("[ACL_INTERNAL] Consult failed: ~p", [Reason]),
+            emqx_logger:error("[ACL_INTERNAL] Failed to read ~s: ~p", [AclFile, Reason]),
             {error, Reason}
     end.
-    
+
+filter(_PubSub, {error, _}) ->
+    false;   
 filter(_PubSub, {allow, all}) ->
     true;
 filter(_PubSub, {deny, all}) ->

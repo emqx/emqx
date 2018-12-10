@@ -47,7 +47,8 @@ compile({A, Who, Access, TopicFilters}) when ?ALLOW_DENY(A), ?PUBSUB(Access) ->
     {A, compile(who, Who), Access, [compile(topic, Topic) || Topic <- TopicFilters]};
 
 compile(Rule) ->
-    emqx_logger:error("[ACCESS_RULE] Malformed rule: ~p", [Rule]).
+    emqx_logger:error("[ACCESS_RULE] Malformed rule: ~p", [Rule]),
+    {error, bad_rule}.
 
 compile(who, all) ->
     all;
