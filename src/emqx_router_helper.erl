@@ -31,15 +31,11 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
-%% internal export
+%% Internal export
 -export([stats_fun/0]).
 
 -record(routing_node, {name, const = unused}).
--record(state, {nodes = []}).
 
--compile({no_auto_import, [monitor/1]}).
-
--define(SERVER, ?MODULE).
 -define(ROUTE, emqx_route).
 -define(ROUTING_NODE, emqx_routing_node).
 -define(LOCK, {?MODULE, cleanup_routes}).
@@ -64,9 +60,9 @@ mnesia(copy) ->
 %%------------------------------------------------------------------------------
 
 %% @doc Starts the router helper
--spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
+-spec(start_link() ->  emqx_types:startlink_ret()).
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 %% @doc Monitor routing node
 -spec(monitor(node() | {binary(), node()}) -> ok).
@@ -84,18 +80,18 @@ monitor(Node) when is_atom(Node) ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    _ = ekka:monitor(membership),
-    _ = mnesia:subscribe({table, ?ROUTING_NODE, simple}),
+    ok = ekka:monitor(membership),
+    {ok, _} = mnesia:subscribe({table, ?ROUTING_NODE, simple}),
     Nodes = lists:foldl(
               fun(Node, Acc) ->
                   case ekka:is_member(Node) of
                       true  -> Acc;
-                      false -> _ = erlang:monitor_node(Node, true),
+                      false -> true = erlang:monitor_node(Node, true),
                                [Node | Acc]
                   end
               end, [], mnesia:dirty_all_keys(?ROUTING_NODE)),
     emqx_stats:update_interval(route_stats, fun ?MODULE:stats_fun/0),
-    {ok, #state{nodes = Nodes}, hibernate}.
+    {ok, #{nodes => Nodes}, hibernate}.
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[RouterHelper] unexpected call: ~p", [Req]),
@@ -105,24 +101,29 @@ handle_cast(Msg, State) ->
     emqx_logger:error("[RouterHelper] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({mnesia_table_event, {write, #routing_node{name = Node}, _}}, State = #state{nodes = Nodes}) ->
-    emqx_logger:info("[RouterHelper] write routing node: ~s", [Node]),
+handle_info({mnesia_table_event, {write, {?ROUTING_NODE, Node, _}, _}}, State = #{nodes := Nodes}) ->
     case ekka:is_member(Node) orelse lists:member(Node, Nodes) of
-        true  -> {noreply, State};
-        false -> _ = erlang:monitor_node(Node, true),
-                 {noreply, State#state{nodes = [Node | Nodes]}}
+        true -> {noreply, State};
+        false ->
+            true = erlang:monitor_node(Node, true),
+            {noreply, State#{nodes := [Node | Nodes]}}
     end;
 
-handle_info({mnesia_table_event, _Event}, State) ->
+handle_info({mnesia_table_event, {delete, {?ROUTING_NODE, _Node}, _}}, State) ->
+    %% ignore
     {noreply, State};
 
-handle_info({nodedown, Node}, State = #state{nodes = Nodes}) ->
+handle_info({mnesia_table_event, Event}, State) ->
+    emqx_logger:error("[RouterHelper] unexpected mnesia_table_event: ~p", [Event]),
+    {noreply, State};
+
+handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
     global:trans({?LOCK, self()},
                  fun() ->
                      mnesia:transaction(fun cleanup_routes/1, [Node])
                  end),
-    mnesia:dirty_delete(?ROUTING_NODE, Node),
-    {noreply, State#state{nodes = lists:delete(Node, Nodes)}, hibernate};
+    ok = mnesia:dirty_delete(?ROUTING_NODE, Node),
+    {noreply, State#{nodes := lists:delete(Node, Nodes)}, hibernate};
 
 handle_info({membership, {mnesia, down, Node}}, State) ->
     handle_info({nodedown, Node}, State);
@@ -134,8 +135,8 @@ handle_info(Info, State) ->
     emqx_logger:error("[RouteHelper] unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #state{}) ->
-    ekka:unmonitor(membership),
+terminate(_Reason, _State) ->
+    ok = ekka:unmonitor(membership),
     emqx_stats:cancel_update(route_stats),
     mnesia:unsubscribe({table, ?ROUTING_NODE, simple}).
 

@@ -27,6 +27,7 @@
 -export([subscriptions/1, subscribers/1, subscribed/2]).
 -export([get_subopts/2, set_subopts/2]).
 -export([topics/0]).
+
 %% Stats fun
 -export([stats_fun/0]).
 
@@ -52,9 +53,9 @@
 
 -spec(start_link(atom(), pos_integer()) -> emqx_types:startlink_ret()).
 start_link(Pool, Id) ->
-    _ = create_tabs(),
-    Name = emqx_misc:proc_name(?BROKER, Id),
-    gen_server:start_link({local, Name}, ?MODULE, [Pool, Id], []).
+    ok = create_tabs(),
+    gen_server:start_link({local, emqx_misc:proc_name(?BROKER, Id)},
+                          ?MODULE, [Pool, Id], []).
 
 %%------------------------------------------------------------------------------
 %% Create tabs
@@ -75,7 +76,7 @@ create_tabs() ->
     ok = emqx_tables:new(?SUBSCRIPTION, [duplicate_bag | TabOpts]),
 
     %% Subscriber: Topic -> SubPid1, SubPid2, SubPid3, ...
-    %% duplicate_bag: o(1) insert
+    %% bag: o(n) insert
     ok = emqx_tables:new(?SUBSCRIBER, [bag | TabOpts]).
 
 %%------------------------------------------------------------------------------
@@ -114,7 +115,7 @@ subscribe(Topic, SubId, SubOpts) when is_binary(Topic), ?is_subid(SubId), is_map
                     call(pick({Topic, Shard}), {subscribe, Topic});
                 Group -> %% Shard subscription
                     true = ets:insert(?SUBOPTION, {{SubPid, Topic}, SubOpts}),
-                    emqx_shard_sub:subscribe(Group, Topic, SubPid)
+                    emqx_shared_sub:subscribe(Group, Topic, SubPid)
             end;
         true -> ok
     end.
@@ -367,18 +368,17 @@ pick(Topic) ->
 %%------------------------------------------------------------------------------
 
 init([Pool, Id]) ->
-    _ = emqx_router:set_mode(protected),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #{pool => Pool, id => Id}}.
 
 handle_call({subscribe, Topic}, _From, State) ->
-    case get(Topic) of
-        undefined ->
-            _ = put(Topic, true),
-            emqx_router:add_route(Topic);
-        true -> ok
-    end,
-    {reply, ok, State};
+    Ok = case get(Topic) of
+             undefined ->
+                 _ = put(Topic, true),
+                 emqx_router:do_add_route(Topic);
+             true -> ok
+         end,
+    {reply, Ok, State};
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[Broker] unexpected call: ~p", [Req]),
@@ -387,8 +387,8 @@ handle_call(Req, _From, State) ->
 handle_cast({unsubscribed, Topic}, State) ->
     case ets:member(?SUBSCRIBER, Topic) of
         false ->
-           _ = erase(Topic),
-           emqx_router:delete_route(Topic);
+            _ = erase(Topic),
+            emqx_router:do_delete_route(Topic);
         true -> ok
     end,
     {noreply, State};
