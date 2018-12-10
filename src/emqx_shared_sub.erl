@@ -252,7 +252,6 @@ subscribers(Group, Topic) ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    _ = emqx_router:set_mode(protected),
     mnesia:subscribe({table, ?TAB, simple}),
     {atomic, PMon} = mnesia:transaction(fun init_monitors/0),
     ok = emqx_tables:new(?SHARED_SUBS, [protected, bag]),
@@ -269,7 +268,7 @@ handle_call({subscribe, Group, Topic, SubPid}, _From, State = #state{pmon = PMon
     mnesia:dirty_write(?TAB, record(Group, Topic, SubPid)),
     case ets:member(?SHARED_SUBS, {Group, Topic}) of
         true  -> ok;
-        false -> ok = emqx_router:add_route(Topic, {Group, node()})
+        false -> ok = emqx_router:do_add_route(Topic, {Group, node()})
     end,
     ok = maybe_insert_alive_tab(SubPid),
     true = ets:insert(?SHARED_SUBS, {{Group, Topic}, SubPid}),
@@ -280,7 +279,7 @@ handle_call({unsubscribe, Group, Topic, SubPid}, _From, State) ->
     true = ets:delete_object(?SHARED_SUBS, {{Group, Topic}, SubPid}),
     case ets:member(?SHARED_SUBS, {Group, Topic}) of
         true  -> ok;
-        false -> ok = emqx_router:delete_route(Topic, {Group, node()})
+        false -> ok = emqx_router:do_delete_route(Topic, {Group, node()})
     end,
     {reply, ok, State};
 
@@ -334,7 +333,7 @@ cleanup_down(SubPid) ->
             true = ets:delete_object(?SHARED_SUBS, {{Group, Topic}, SubPid}),
             case ets:member(?SHARED_SUBS, {Group, Topic}) of
                 true -> ok;
-                false -> ok = emqx_router:delete_route(Topic, {Group, node()})
+                false -> ok = emqx_router:do_delete_route(Topic, {Group, node()})
             end
         end, mnesia:dirty_match_object(#emqx_shared_subscription{_ = '_', subpid = SubPid})).
 
