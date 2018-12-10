@@ -16,63 +16,92 @@
 
 -behaviour(gen_server).
 
--export([start_link/0]).
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-compile({no_auto_import, [monitor/2]}).
 
-%% internal export
--export([stats_fun/0]).
+-export([start_link/0]).
+-export([monitor/2]).
+-export([get_shard/2]).
+-export([create_seq/1, reclaim_seq/1]).
+
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
+         code_change/3]).
 
 -define(HELPER, ?MODULE).
+-define(SUBMON, emqx_submon).
+-define(SUBSEQ, emqx_subseq).
 
--record(state, {}).
+-record(state, {pmon :: emqx_pmon:pmon()}).
 
--spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
+-spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?HELPER}, ?MODULE, [], []).
+
+-spec(monitor(pid(), emqx_types:subid()) -> ok).
+monitor(SubPid, SubId) when is_pid(SubPid) ->
+    case ets:lookup(?SUBMON, SubPid) of
+        [] ->
+            gen_server:cast(?HELPER, {monitor, SubPid, SubId});
+        [{_, SubId}] ->
+            ok;
+        _Other ->
+            error(subid_conflict)
+    end.
+
+-spec(get_shard(pid(), emqx_topic:topic()) -> non_neg_integer()).
+get_shard(SubPid, Topic) ->
+    case create_seq(Topic) of
+        Seq when Seq =< 1024 -> 0;
+        _Seq -> erlang:phash2(SubPid, ets:lookup_element(?SUBSEQ, shards, 2))
+    end.
+
+-spec(create_seq(emqx_topic:topic()) -> emqx_sequence:seqid()).
+create_seq(Topic) ->
+    emqx_sequence:nextval(?SUBSEQ, Topic).
+
+-spec(reclaim_seq(emqx_topic:topic()) -> emqx_sequence:seqid()).
+reclaim_seq(Topic) ->
+    emqx_sequence:reclaim(?SUBSEQ, Topic).
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    %% Use M:F/A for callback, not anonymous function because
-    %% fun M:F/A is small, also no badfun risk during hot beam reload
-    emqx_stats:update_interval(broker_stats, fun ?MODULE:stats_fun/0),
-    {ok, #state{}, hibernate}.
+    %% SubSeq: Topic -> SeqId
+    ok = emqx_sequence:create(?SUBSEQ),
+    %% Shards: CPU * 32
+    true = ets:insert(?SUBSEQ, {shards, emqx_vm:schedulers() * 32}),
+    %% SubMon: SubPid -> SubId
+    ok = emqx_tables:new(?SUBMON, [set, protected, {read_concurrency, true}]),
+    %% Stats timer
+    emqx_stats:update_interval(broker_stats, fun emqx_broker:stats_fun/0),
+    {ok, #state{pmon = emqx_pmon:new()}, hibernate}.
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[BrokerHelper] unexpected call: ~p", [Req]),
    {reply, ignored, State}.
 
+handle_cast({monitor, SubPid, SubId}, State = #state{pmon = PMon}) ->
+    true = ets:insert(?SUBMON, {SubPid, SubId}),
+    {noreply, State#state{pmon = emqx_pmon:monitor(SubPid, PMon)}};
+
 handle_cast(Msg, State) ->
     emqx_logger:error("[BrokerHelper] unexpected cast: ~p", [Msg]),
     {noreply, State}.
+
+handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{pmon = PMon}) ->
+    true = ets:delete(?SUBMON, SubPid),
+    ok = emqx_pool:async_submit(fun emqx_broker:subscriber_down/1, [SubPid]),
+    {noreply, State#state{pmon = emqx_pmon:erase(SubPid, PMon)}};
 
 handle_info(Info, State) ->
     emqx_logger:error("[BrokerHelper] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{}) ->
+    _ = emqx_sequence:delete(?SUBSEQ),
     emqx_stats:cancel_update(broker_stats).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
-%%------------------------------------------------------------------------------
-%% Internal functions
-%%------------------------------------------------------------------------------
-
-stats_fun() ->
-    safe_update_stats(emqx_subscriber,
-                      'subscribers/count', 'subscribers/max'),
-    safe_update_stats(emqx_subscription,
-                      'subscriptions/count', 'subscriptions/max'),
-    safe_update_stats(emqx_suboptions,
-                      'suboptions/count', 'suboptions/max').
-
-safe_update_stats(Tab, Stat, MaxStat) ->
-    case ets:info(Tab, size) of
-        undefined -> ok;
-        Size -> emqx_stats:setstat(Stat, MaxStat, Size)
-    end.
 

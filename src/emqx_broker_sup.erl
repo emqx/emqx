@@ -20,8 +20,6 @@
 
 -export([init/1]).
 
--define(TAB_OPTS, [public, {read_concurrency, true}, {write_concurrency, true}]).
-
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
@@ -30,39 +28,26 @@ start_link() ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    %% Create the pubsub tables
-    ok = lists:foreach(fun create_tab/1, [subscription, subscriber, suboption]),
-
+    %% Broker pool
+    PoolSize = emqx_vm:schedulers() * 2,
+    BrokerPool = emqx_pool_sup:spec(emqx_broker_pool,
+                                    [broker, hash, PoolSize,
+                                     {emqx_broker, start_link, []}]),
     %% Shared subscription
-    SharedSub = {shared_sub, {emqx_shared_sub, start_link, []},
-                 permanent, 5000, worker, [emqx_shared_sub]},
+    SharedSub = #{id       => shared_sub,
+                  start    => {emqx_shared_sub, start_link, []},
+                  restart  => permanent,
+                  shutdown => 2000,
+                  type     => worker,
+                  modules  => [emqx_shared_sub]},
 
     %% Broker helper
-    Helper = {broker_helper, {emqx_broker_helper, start_link, []},
-              permanent, 5000, worker, [emqx_broker_helper]},
+    Helper = #{id       => helper,
+               start    => {emqx_broker_helper, start_link, []},
+               restart  => permanent,
+               shutdown => 2000,
+               type     => worker,
+               modules  => [emqx_broker_helper]},
 
-    %% Broker pool
-    BrokerPool = emqx_pool_sup:spec(emqx_broker_pool,
-                                    [broker, hash, emqx_vm:schedulers() * 2,
-                                     {emqx_broker, start_link, []}]),
-
-    {ok, {{one_for_all, 0, 1}, [SharedSub, Helper, BrokerPool]}}.
-
-%%------------------------------------------------------------------------------
-%% Create tables
-%%------------------------------------------------------------------------------
-
-create_tab(suboption) ->
-    %% Suboption: {Topic, Sub} -> [{qos, 1}]
-    emqx_tables:new(emqx_suboption, [set | ?TAB_OPTS]);
-
-create_tab(subscriber) ->
-    %% Subscriber: Topic -> Sub1, Sub2, Sub3, ..., SubN
-    %% duplicate_bag: o(1) insert
-    emqx_tables:new(emqx_subscriber, [duplicate_bag | ?TAB_OPTS]);
-
-create_tab(subscription) ->
-    %% Subscription: Sub -> Topic1, Topic2, Topic3, ..., TopicN
-    %% bag: o(n) insert
-    emqx_tables:new(emqx_subscription, [bag | ?TAB_OPTS]).
+    {ok, {{one_for_all, 0, 1}, [BrokerPool, SharedSub, Helper]}}.
 

@@ -12,17 +12,26 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_tables).
+-module(emqx_sequence_SUITE).
 
--export([new/2]).
+-compile(export_all).
+-compile(nowarn_export_all).
 
-%% Create a named_table ets.
--spec(new(atom(), list()) -> ok).
-new(Tab, Opts) ->
-    case ets:info(Tab, name) of
-        undefined ->
-            _ = ets:new(Tab, lists:usort([named_table | Opts])),
-            ok;
-        Tab -> ok
-    end.
+-include_lib("eunit/include/eunit.hrl").
+
+-import(emqx_sequence, [nextval/2, reclaim/2]).
+
+all() ->
+    [sequence_generate].
+
+sequence_generate(_) ->
+    ok = emqx_sequence:create(seqtab),
+    ?assertEqual(1, nextval(seqtab, key)),
+    ?assertEqual(2, nextval(seqtab, key)),
+    ?assertEqual(3, nextval(seqtab, key)),
+    ?assertEqual(2, reclaim(seqtab, key)),
+    ?assertEqual(1, reclaim(seqtab, key)),
+    ?assertEqual(0, reclaim(seqtab, key)),
+    ?assertEqual(false, ets:member(seqtab, key)),
+    ?assertEqual(1, nextval(seqtab, key)).
 

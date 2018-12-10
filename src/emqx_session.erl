@@ -465,7 +465,7 @@ handle_cast({subscribe, FromPid, {PacketId, _Properties, TopicFilters}},
                                                   emqx_hooks:run('session.subscribed', [#{client_id => ClientId}, Topic, SubOpts#{first => false}]),
                                                   SubMap;
                                               {ok, _SubOpts} ->
-                                                  emqx_broker:set_subopts(Topic, {self(), ClientId}, SubOpts),
+                                                  emqx_broker:set_subopts(Topic, SubOpts),
                                                   %% Why???
                                                   emqx_hooks:run('session.subscribed', [#{client_id => ClientId}, Topic, SubOpts#{first => false}]),
                                                   maps:put(Topic, SubOpts, SubMap);
