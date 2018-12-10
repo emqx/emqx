@@ -544,7 +544,7 @@ end}.
 
 %% @doc Disconnect when ACL denied
 {mapping, "acl_kick_connection", "emqx.acl_kick_connection", [
-  {default, on},
+  {default, off},
   {datatype, flag}
 ]
 }.

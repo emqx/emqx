@@ -344,17 +344,19 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PSt
         {ok, PState1} ->
             do_publish(Packet, PState1);
         {error, ?RC_NOT_AUTHORIZED} ->
-                case acl_deny_disconnect() of
-                        true -> {error, ?RC_NOT_AUTHORIZED, PState};
-                        false -> {ok, PState}
-                end;
+            ?LOG(warning, "Cannot publish qos0 message to ~s for ~s",
+                [Topic, emqx_reason_codes:text(?RC_NOT_AUTHORIZED)]),
+            case acl_should_disconnect() of
+                true -> {error, ?RC_NOT_AUTHORIZED, PState};
+                false -> {ok, PState}
+            end;
         {error, ?RC_TOPIC_ALIAS_INVALID} ->
             ?LOG(error, "Protocol error - ~p", [?RC_TOPIC_ALIAS_INVALID]),
-             {ok, PState};
+            {ok, PState};
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos0 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
-                 {ok, PState}
+            {ok, PState}
     end;
 
 process_packet(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PState) ->
@@ -362,12 +364,16 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PSta
         {ok, PState1} ->
             do_publish(Packet, PState1);
          {error, ?RC_NOT_AUTHORIZED} ->
-                    ?LOG(warning, "Cannot publish qos1 message to ~s for ~s",
-                        [Topic, emqx_reason_codes:text(?RC_NOT_AUTHORIZED)]),
-                    case deliver({puback, PacketId, ?RC_NOT_AUTHORIZED}, PState) of
-                      {ok, PState2} -> try_close_connect(PState2) ;
-                      {error, Reason} -> {error, Reason}
+            ?LOG(warning, "Cannot publish qos1 message to ~s for ~s",
+                [Topic, emqx_reason_codes:text(?RC_NOT_AUTHORIZED)]),
+            case deliver({puback, PacketId, ?RC_NOT_AUTHORIZED}, PState) of
+                {ok, PState2} ->
+                    case acl_should_disconnect() of
+                        true -> {error, kick_client};
+                        false -> {ok, PState2}
                     end;
+                {error, Reason} -> {error, Reason}
+            end;
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos1 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
@@ -378,17 +384,21 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PSta
     case check_publish(Packet, PState) of
         {ok, PState1} ->
             do_publish(Packet, PState1);
-         {error, ?RC_NOT_AUTHORIZED} ->
-                    ?LOG(warning, "Cannot publish qos1 message to ~s for ~s",
-                        [Topic, emqx_reason_codes:text(?RC_NOT_AUTHORIZED)]),
-                    case deliver({puback, PacketId, ?RC_NOT_AUTHORIZED}, PState) of
-                      {ok, PState2} -> try_close_connect(PState2) ;
-                      {error, Reason} -> {error, Reason}
+        {error, ?RC_NOT_AUTHORIZED} ->
+            ?LOG(warning, "Cannot publish qos2 message to ~s for ~s",
+                [Topic, emqx_reason_codes:text(?RC_NOT_AUTHORIZED)]),
+            case deliver({puback, PacketId, ?RC_NOT_AUTHORIZED}, PState) of
+                {ok, PState2} ->
+                    case acl_should_disconnect() of
+                        true -> {error, kick_client};
+                        false -> {ok, PState2}
                     end;
+                {error, Reason} -> {error, Reason}
+            end;
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos2 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
-             deliver({pubrec, PacketId, ReasonCode}, PState)
+            deliver({pubrec, PacketId, ReasonCode}, PState)
     end;
 
 process_packet(?PUBACK_PACKET(PacketId, ReasonCode), PState = #pstate{session = SPid}) ->
@@ -448,12 +458,17 @@ process_packet(?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
                             end, {[], []}, TopicFilters),
             ?LOG(warning, "Cannot subscribe ~p for ~p",
                 [SubTopics, [emqx_reason_codes:text(R) || R <- ReasonCodes]]),
-                case   lists:member(?RC_NOT_AUTHORIZED, ReasonCodes) of
-                    true -> case deliver({suback, PacketId, ReasonCodes}, PState) of
-                               {ok, PState2} -> try_close_connect(PState2);
-                               {error, Reason} ->  {error, Reason}
+            case lists:member(?RC_NOT_AUTHORIZED, ReasonCodes) of
+                true ->
+                    case deliver({suback, PacketId, ReasonCodes}, PState) of
+                        {ok, PState2} ->
+                            case acl_should_disconnect() of
+                                true -> {error, kick_client};
+                                false -> {ok, PState2}
                             end;
-                   false -> deliver({suback, PacketId, ReasonCodes}, PState)
+                        {error, Reason} ->  {error, Reason}
+                    end;
+                false -> deliver({suback, PacketId, ReasonCodes}, PState)
                 end
    end;
 
@@ -902,18 +917,12 @@ parse_topic_filters(?SUBSCRIBE, RawTopicFilters) ->
 parse_topic_filters(?UNSUBSCRIBE, RawTopicFilters) ->
     lists:map(fun emqx_topic:parse/1, RawTopicFilters).
 
-try_close_connect(PState) ->
-    case acl_deny_disconnect() of
-         true -> {error, kick_client};
-         false -> {ok, PState}
-    end.
-
 %%-----------------------------------------------------------------------------
 %%  get config
 %%-----------------------------------------------------------------------------
 
-acl_deny_disconnect() ->
-     emqx_config:get_env(acl_kick_connection,true).
+acl_should_disconnect() ->
+    emqx_config:get_env(acl_kick_connection, false).
 
 %%------------------------------------------------------------------------------
 %% Update mountpoint
