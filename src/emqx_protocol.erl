@@ -913,7 +913,7 @@ try_close_connect(PState) ->
 %%-----------------------------------------------------------------------------
 
 acl_deny_disconnect() ->
-     emqx_config:get_env(acl_kick_client,true).
+     emqx_config:get_env(acl_kick_connection,true).
 
 %%------------------------------------------------------------------------------
 %% Update mountpoint
