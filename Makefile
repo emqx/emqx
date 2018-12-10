@@ -3,15 +3,16 @@
 PROJECT = emqx
 PROJECT_DESCRIPTION = EMQ X Broker
 
-DEPS = jsx gproc gen_rpc ekka esockd cowboy clique
+DEPS = jsx gproc gen_rpc ekka esockd cowboy clique emqx_passwd
 
-dep_jsx     = hex-emqx 2.9.0
-dep_gproc   = hex-emqx 0.8.0
-dep_gen_rpc = git-emqx https://github.com/emqx/gen_rpc 2.3.0
-dep_esockd  = git-emqx https://github.com/emqx/esockd v5.4.2
-dep_ekka    = git-emqx https://github.com/emqx/ekka v0.5.1
-dep_cowboy  = hex-emqx 2.4.0
-dep_clique  = git-emqx https://github.com/emqx/clique develop
+dep_jsx         = hex-emqx 2.9.0
+dep_gproc       = hex-emqx 0.8.0
+dep_gen_rpc     = git-emqx https://github.com/emqx/gen_rpc 2.3.0
+dep_esockd      = git-emqx https://github.com/emqx/esockd v5.4.2
+dep_ekka        = git-emqx https://github.com/emqx/ekka v0.5.1
+dep_cowboy      = hex-emqx 2.4.0
+dep_clique      = git-emqx https://github.com/emqx/clique develop
+dep_emqx_passwd = git-emqx https://github.com/emqx/emqx-passwd win30
 
 NO_AUTOPATCH = cuttlefish
 
