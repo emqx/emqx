@@ -179,8 +179,6 @@ credentials(#pstate{zone       = Zone,
       username  => Username,
       peername  => Peername}.
 
-
-
 stats(#pstate{recv_stats = #{pkt := RecvPkt, msg := RecvMsg},
               send_stats = #{pkt := SendPkt, msg := SendMsg}}) ->
     [{recv_pkt, RecvPkt},
