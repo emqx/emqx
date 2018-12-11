@@ -24,7 +24,7 @@
 -define(TRIE_TABS, [emqx_trie, emqx_trie_node]).
 
 all() ->
-    [t_insert, t_match, t_match2, t_match3, t_delete, t_delete2, t_delete3].
+    [t_mnesia, t_insert, t_match, t_match2, t_match3, t_delete, t_delete2, t_delete3].
 
 init_per_suite(Config) ->
     application:load(emqx),
@@ -41,6 +41,9 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     clear_tables().
+
+t_mnesia(_) ->
+    ok = ?TRIE:mnesia(copy).
 
 t_insert(_) ->
     TN = #trie_node{node_id = <<"sensor">>,
