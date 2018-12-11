@@ -344,19 +344,19 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PSt
         {ok, PState1} ->
             do_publish(Packet, PState1);
         {error, ?RC_NOT_AUTHORIZED} ->
-            ?LOG(warning, "Cannot publish qos0 message to ~s for ~s",
+            ?LOG(warning, "Cannot publsish qos0 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(?RC_NOT_AUTHORIZED)]),
             case acl_should_disconnect() of
-                true -> {error, ?RC_NOT_AUTHORIZED, PState};
+                true -> {error, kick_client, PState};
                 false -> {ok, PState}
             end;
         {error, ?RC_TOPIC_ALIAS_INVALID} ->
             ?LOG(error, "Protocol error - ~p", [?RC_TOPIC_ALIAS_INVALID]),
-            {ok, PState};
+            {error, ?RC_TOPIC_ALIAS_INVALID, PState};
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos0 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
-            {ok, PState}
+            {error, emqx_reason_codes:text(ReasonCode), PState}
     end;
 
 process_packet(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PState) ->
@@ -369,15 +369,18 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PSta
             case deliver({puback, PacketId, ?RC_NOT_AUTHORIZED}, PState) of
                 {ok, PState2} ->
                     case acl_should_disconnect() of
-                        true -> {error, kick_client};
-                        false -> {ok, PState2}
+                        true -> {error, kick_client,PState2};
+                        false -> {ok, kick_client}
                     end;
                 {error, Reason} -> {error, Reason}
             end;
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos1 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
-            deliver({puback, PacketId, ReasonCode}, PState)
+            case deliver({puback, PacketId, ReasonCode}, PState) of
+                {ok, PState3} -> {error, emqx_reason_codes:text(ReasonCode), PState3};
+                {error, Reason} -> {error, Reason}
+            end
     end;
 
 process_packet(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PState) ->
@@ -398,7 +401,10 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PSta
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos2 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
-            deliver({pubrec, PacketId, ReasonCode}, PState)
+            case deliver({pubrec, PacketId, ReasonCode}, PState) of
+                {ok, PState3} -> {error, emqx_reason_codes:text(ReasonCode), PState3};
+                {error, Reason} -> {error, Reason}
+            end
     end;
 
 process_packet(?PUBACK_PACKET(PacketId, ReasonCode), PState = #pstate{session = SPid}) ->
@@ -864,11 +870,11 @@ check_sub_acl(TopicFilters, PState) ->
     Credentials = credentials(PState),
     lists:foldr(
       fun({Topic, SubOpts}, {Ok, Acc}) ->
-              case emqx_access_control:check_acl(Credentials, subscribe, Topic) of
-                  allow -> {Ok, [{Topic, SubOpts}|Acc]};
-                  deny  ->
-                        {error, [{Topic, SubOpts#{rc := ?RC_NOT_AUTHORIZED}}|Acc]}
-              end
+            case emqx_access_control:check_acl(Credentials, subscribe, Topic) of
+                allow -> {Ok, [{Topic, SubOpts}|Acc]};
+                deny  ->
+                    {error, [{Topic, SubOpts#{rc := ?RC_NOT_AUTHORIZED}}|Acc]}
+            end
       end, {ok, []}, TopicFilters).
 
 trace(recv, Packet) ->
