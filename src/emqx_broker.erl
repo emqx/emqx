@@ -96,7 +96,7 @@ subscribe(Topic, SubId, SubOpts) when is_binary(Topic), ?is_subid(SubId), is_map
     SubPid = self(),
     case ets:member(?SUBOPTION, {SubPid, Topic}) of
         false ->
-            ok = emqx_broker_helper:monitor_sub(SubPid, SubId),
+            ok = emqx_broker_helper:register_sub(SubPid, SubId),
             do_subscribe(Topic, SubPid, with_subid(SubId, SubOpts));
         true -> ok
     end.
