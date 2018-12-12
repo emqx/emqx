@@ -33,5 +33,6 @@ sequence_generate(_) ->
     ?assertEqual(1, reclaim(seqtab, key)),
     ?assertEqual(0, reclaim(seqtab, key)),
     ?assertEqual(false, ets:member(seqtab, key)),
-    ?assertEqual(1, nextval(seqtab, key)).
+    ?assertEqual(1, nextval(seqtab, key)),
+    ?assert(emqx_sequence:delete(seqtab).
 

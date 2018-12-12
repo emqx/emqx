@@ -22,7 +22,7 @@
 %% PubSub API
 -export([subscribe/1, subscribe/2, subscribe/3]).
 -export([publish/1]).
--export([unsubscribe/1, unsubscribe/2]).
+-export([unsubscribe/1]).
 
 %% PubSub management API
 -export([topics/0, subscriptions/1, subscribers/1, subscribed/2]).
@@ -87,10 +87,6 @@ publish(Msg) ->
 -spec(unsubscribe(emqx_topic:topic() | string()) -> ok).
 unsubscribe(Topic) ->
     emqx_broker:unsubscribe(iolist_to_binary(Topic)).
-
--spec(unsubscribe(emqx_topic:topic() | string(), emqx_types:subid()) -> ok).
-unsubscribe(Topic, SubId) ->
-    emqx_broker:unsubscribe(iolist_to_binary(Topic), SubId).
 
 %%------------------------------------------------------------------------------
 %% PubSub management API

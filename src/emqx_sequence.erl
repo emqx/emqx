@@ -51,6 +51,7 @@ reclaim(Name, Key) ->
     end.
 
 %% @doc Delete the sequence.
+-spec(delete(name()) -> boolean()).
 delete(Name) ->
     case ets:info(Name, name) of
         Name -> ets:delete(Name);
