@@ -90,7 +90,7 @@ init([]) ->
                                [Node | Acc]
                   end
               end, [], mnesia:dirty_all_keys(?ROUTING_NODE)),
-    emqx_stats:update_interval(route_stats, fun ?MODULE:stats_fun/0),
+    ok = emqx_stats:update_interval(route_stats, fun ?MODULE:stats_fun/0),
     {ok, #{nodes => Nodes}, hibernate}.
 
 handle_call(Req, _From, State) ->

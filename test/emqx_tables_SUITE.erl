@@ -20,7 +20,7 @@
 all() -> [t_new].
 
 t_new(_) ->
-    TId = emqx_tables:new(test_table, [{read_concurrency, true}]),
-    ets:insert(TId, {loss, 100}),
-    TId = emqx_tables:new(test_table, [{read_concurrency, true}]),
-    100 = ets:lookup_element(TId, loss, 2).
+    ok = emqx_tables:new(test_table, [{read_concurrency, true}]),
+    ets:insert(test_table, {key, 100}),
+    ok = emqx_tables:new(test_table, [{read_concurrency, true}]),
+    100 = ets:lookup_element(test_table, key, 2).
