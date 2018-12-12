@@ -345,8 +345,8 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PSt
             ?LOG(warning, "Cannot publsish qos0 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(?RC_NOT_AUTHORIZED)]),
             case acl_should_disconnect() of
-                true -> {error, kick_client, PState};
-                false -> {ok, PState}
+                disconnect -> {error, kick_client, PState};
+                ignore -> {ok, PState}
             end;
         {error, ?RC_TOPIC_ALIAS_INVALID} ->
             ?LOG(error, "Protocol error - ~p", [?RC_TOPIC_ALIAS_INVALID]),
@@ -367,8 +367,8 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PSta
             case deliver({puback, PacketId, ?RC_NOT_AUTHORIZED}, PState) of
                 {ok, PState2} ->
                     case acl_should_disconnect() of
-                        true -> {error, kick_client,PState2};
-                        false -> {ok, kick_client}
+                        disconnect -> {error, kick_client,PState2};
+                        ignore -> {ok, kick_client}
                     end;
                 {error, Reason} -> {error, Reason}
             end;
@@ -391,8 +391,8 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PSta
             case deliver({puback, PacketId, ?RC_NOT_AUTHORIZED}, PState) of
                 {ok, PState2} ->
                     case acl_should_disconnect() of
-                        true -> {error, kick_client};
-                        false -> {ok, PState2}
+                        disconnect -> {error, kick_client};
+                        ignore -> {ok, PState2}
                     end;
                 {error, Reason} -> {error, Reason}
             end;
@@ -467,13 +467,17 @@ process_packet(?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
                     case deliver({suback, PacketId, ReasonCodes}, PState) of
                         {ok, PState2} ->
                             case acl_should_disconnect() of
-                                true -> {error, kick_client};
-                                false -> {ok, PState2}
+                                disconnect -> {error, kick_client};
+                                ignore -> {ok, PState2}
                             end;
                         {error, Reason} ->  {error, Reason}
                     end;
-                false -> deliver({suback, PacketId, ReasonCodes}, PState)
-                end
+                false ->
+                    case deliver({suback, PacketId, ReasonCodes}, PState) of
+                        {ok, PState3} -> {error, error_occurred, PState3};
+                        {error, Reason} -> {error, Reason}
+                    end
+            end
    end;
 
 process_packet(?UNSUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
@@ -926,7 +930,7 @@ parse_topic_filters(?UNSUBSCRIBE, RawTopicFilters) ->
 %%-----------------------------------------------------------------------------
 
 acl_should_disconnect() ->
-    emqx_config:get_env(acl_kick_connection, false).
+    emqx_config:get_env(acl_kick_connection, ignore).
 
 %%------------------------------------------------------------------------------
 %% Update mountpoint
