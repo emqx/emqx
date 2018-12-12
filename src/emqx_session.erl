@@ -645,16 +645,14 @@ handle_info(Info, State) ->
     emqx_logger:error("[Session] unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(Reason, #state{will_msg = WillMsg, client_id = ClientId, conn_pid = ConnPid}) ->
-    emqx_hooks:run('session.terminated', [#{client_id => ClientId}, Reason]),
+terminate(Reason, #state{will_msg = WillMsg, conn_pid = ConnPid}) ->
+    %% Should not run hooks here.
+    %% emqx_hooks:run('session.terminated', [#{client_id => ClientId}, Reason]),
     send_willmsg(WillMsg),
     %% Ensure to shutdown the connection
-    if
-        ConnPid =/= undefined ->
-            ConnPid ! {shutdown, Reason};
-        true -> ok
-    end,
-    emqx_sm:unregister_session(ClientId).
+    (ConnPid =:= undefined) orelse ConnPid ! {shutdown, Reason}.
+    %% Let it crash.
+    %% emqx_sm:unregister_session(ClientId).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -1011,3 +1009,4 @@ noreply(State) ->
 
 shutdown(Reason, State) ->
     {stop, {shutdown, Reason}, State}.
+

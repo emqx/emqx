@@ -38,7 +38,7 @@ init([]) ->
           [#{id       => session,
              start    => {emqx_session, start_link, []},
              restart  => temporary,
-             shutdown => 5000,
+             shutdown => brutal_kill,
              type     => worker,
              modules  => [emqx_session]}]}}.
 

@@ -41,8 +41,7 @@ start_link() ->
     gen_server:start_link({local, ?REGISTRY}, ?MODULE, [], []).
 
 -spec(is_enabled() -> boolean()).
-is_enabled() ->
-    ets:info(?TAB, name) =/= undefined.
+is_enabled() -> ets:info(?TAB, name) =/= undefined.
 
 -spec(lookup_session(emqx_types:client_id())
       -> list({emqx_types:client_id(), session_pid()})).
@@ -73,7 +72,7 @@ init([]) ->
                 {storage_properties, [{ets, [{read_concurrency, true},
                                              {write_concurrency, true}]}]}]),
     ok = ekka_mnesia:copy_table(?TAB),
-    _ = ekka:monitor(membership),
+    ok = ekka:monitor(membership),
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->
