@@ -648,11 +648,14 @@ handle_info(Info, State) ->
 terminate(Reason, #state{will_msg = WillMsg, conn_pid = ConnPid}) ->
     %% Should not run hooks here.
     %% emqx_hooks:run('session.terminated', [#{client_id => ClientId}, Reason]),
+    %% Let it crash.
+    %% emqx_sm:unregister_session(ClientId),
     send_willmsg(WillMsg),
     %% Ensure to shutdown the connection
-    (ConnPid =:= undefined) orelse ConnPid ! {shutdown, Reason}.
-    %% Let it crash.
-    %% emqx_sm:unregister_session(ClientId).
+    if
+        ConnPid == undefined -> ok;
+        true -> ConnPid ! {shutdown, Reason}
+    end.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
