@@ -849,14 +849,13 @@ shutdown(_Reason, #pstate{client_id = undefined}) ->
     ok;
 shutdown(_Reason, #pstate{connected = false}) ->
     ok;
-shutdown(Reason, #pstate{client_id = ClientId}) when Reason =:= conflict;
-                                                     Reason =:= discard ->
-    emqx_cm:unregister_connection(ClientId);
-shutdown(Reason, PState = #pstate{connected = true,
-                                  client_id = ClientId}) ->
+shutdown(conflict, _PState) ->
+    ok;
+shutdown(discard, _PState) ->
+    ok;
+shutdown(Reason, PState) ->
     ?LOG(info, "Shutdown for ~p", [Reason]),
-    emqx_hooks:run('client.disconnected', [credentials(PState), Reason]),
-    emqx_cm:unregister_connection(ClientId).
+    emqx_hooks:run('client.disconnected', [credentials(PState), Reason]).
 
 start_keepalive(0, _PState) ->
     ignore;
