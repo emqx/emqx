@@ -244,8 +244,8 @@ handle_info(pop, State = #state{writeq = WriteQ, replayq = ReplayQ,
                                 queue_option = #{batch_size := BatchSize}}) ->
     {NewReplayQ, AckRef, NewReadQ} = replayq:pop(ReplayQ, #{count_limit => BatchSize}),
     {NewReadQ1, NewWriteQ} = case NewReadQ of
-                                [] -> {WriteQ, []};
-                                _ -> {NewReadQ, WriteQ}
+                                 [] -> {WriteQ, []};
+                                 _ -> {NewReadQ, WriteQ}
                             end,
     self() ! republish,
     {noreply, State#state{readq = NewReadQ1, writeq = NewWriteQ, replayq = NewReplayQ, ackref = AckRef}};
@@ -373,16 +373,24 @@ format_mountpoint(undefined) ->
 format_mountpoint(Prefix) ->
     binary:replace(bin(Prefix), <<"${node}">>, atom_to_binary(node(), utf8)).
 
-en_writeq(Msg, State = #state{writeq = WriteQ, queue_option = #{batch_size := BatchSize}})
+
+en_writeq(Msg, State = #state{replayq = ReplayQ,
+                              queue_option = #{mem_cache := false}}) ->
+    NewReplayQ = replayq:append(ReplayQ, [Msg]),
+    State#state{replayq = NewReplayQ};
+en_writeq(Msg, State = #state{writeq = WriteQ,
+                              queue_option = #{batch_size := BatchSize,
+                                               mem_cache := true}})
   when length(WriteQ) < BatchSize->
     State#state{writeq = [Msg | WriteQ]} ;
-en_writeq(Msg, State = #state{writeq = WriteQ, replayq = ReplayQ}) ->
+en_writeq(Msg, State = #state{writeq = WriteQ, replayq = ReplayQ,
+                              queue_option = #{mem_cache := true}}) ->
     NewReplayQ =replayq:append(ReplayQ, lists:reverse(WriteQ)),
     State#state{writeq = [Msg], replayq = NewReplayQ}.
 
 publish_readq_msg(_ClientPid, []) ->
     ok;
-publish_readq_msg(ClientPid, [Msg | ReadQ]) ->
+publish_readq_msg(ClientPid, [{_PktId, Msg} | ReadQ]) ->
     emqx_client:publish(ClientPid, Msg),
     publish_readq_msg(ClientPid, ReadQ).
 

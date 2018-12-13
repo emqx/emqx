@@ -1486,6 +1486,9 @@ end}.
 %%--------------------------------------------------------------------
 %% Bridges
 %%--------------------------------------------------------------------
+{mapping, "bridge.$name.queue.mem_cache", "emqx.bridges", [
+  {datatype, flag}
+]}.
 
 {mapping, "bridge.$name.queue.batch_size", "emqx.bridges", [
   {datatype, integer}
