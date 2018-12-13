@@ -30,8 +30,8 @@ start_link() ->
 init([]) ->
     %% Broker pool
     PoolSize = emqx_vm:schedulers() * 2,
-    BrokerPool = emqx_pool_sup:spec(emqx_broker_pool,
-                                    [broker, hash, PoolSize,
+    BrokerPool = emqx_pool_sup:spec(broker_pool,
+                                    [emqx_broker_pool, hash, PoolSize,
                                      {emqx_broker, start_link, []}]),
     %% Shared subscription
     SharedSub = #{id       => shared_sub,
