@@ -30,9 +30,17 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
--record(state, {client_pid, options, reconnect_interval,
-                mountpoint, queue, mqueue_type, max_pending_messages,
-                forwards = [], subscriptions = []}).
+-record(state, {client_pid,
+                options,
+                reconnect_interval,
+                mountpoint,
+                readq,
+                writeq,
+                replayq,
+                ackref,
+                queue_option,
+                forwards = [],
+                subscriptions = []}).
 
 -record(mqtt_msg, {qos = ?QOS_0, retain = false, dup = false,
                    packet_id, topic, props, payload}).
@@ -104,16 +112,14 @@ init([Options]) ->
         auto -> erlang:send_after(1000, self(), start)
     end,
     ReconnectInterval = get_value(reconnect_interval, Options, 30000),
-    MaxPendingMsg = get_value(max_pending_messages, Options, 10000),
     Mountpoint = format_mountpoint(get_value(mountpoint, Options)),
-    MqueueType = get_value(mqueue_type, Options, memory),
-    Queue = [],
+    QueueOptions = get_value(queue, Options),
     {ok, #state{mountpoint           = Mountpoint,
-                queue                = Queue,
-                mqueue_type          = MqueueType,
+                queue_option         = QueueOptions,
+                readq                = [],
+                writeq               = [],
                 options              = Options,
-                reconnect_interval   = ReconnectInterval,
-                max_pending_messages = MaxPendingMsg}}.
+                reconnect_interval   = ReconnectInterval}}.
 
 handle_call(start_bridge, _From, State = #state{client_pid = undefined}) ->
     {noreply, NewState} = handle_info(start, State),
@@ -188,7 +194,10 @@ handle_cast(Msg, State) ->
 %% start message bridge
 %%----------------------------------------------------------------
 handle_info(start, State = #state{options = Options,
-                                  client_pid = undefined}) ->
+                                  client_pid = undefined,
+                                  queue_option = #{batch_size := BatchSize,
+                                                   replayq_dir := ReplayqDir,
+                                                   replayq_seg_bytes := ReplayqSegBytes}}) ->
     case emqx_client:start_link([{owner, self()}|options(Options)]) of
         {ok, ClientPid} ->
             case emqx_client:connect(ClientPid) of
@@ -196,8 +205,24 @@ handle_info(start, State = #state{options = Options,
                     emqx_logger:info("[Bridge] connected to remote sucessfully"),
                     Subs = subscribe_remote_topics(ClientPid, get_value(subscriptions, Options, [])),
                     Forwards = subscribe_local_topics(get_value(forwards, Options, [])),
+                    ReplayQ = replayq:open(#{dir => ReplayqDir,
+                                             seg_bytes => ReplayqSegBytes,
+                                             sizer => fun(Term) ->
+                                                          size(term_to_binary(Term))
+                                                      end,
+                                             marshaller => fun({PktId, Msg}) ->
+                                                               term_to_binary({PktId, Msg});
+                                                              (Bin) ->
+                                                               binary_to_term(Bin)
+                                                           end
+                                              }),
+                    {NewReplayQ, AckRef, ReadQ} = replayq:pop(ReplayQ, #{count_limit => BatchSize}),
+                    ok = publish_readq_msg(ClientPid, ReadQ),
                     {noreply, State#state{client_pid = ClientPid,
                                           subscriptions = Subs,
+                                          readq = ReadQ,
+                                          replayq = NewReplayQ,
+                                          ackref = AckRef,
                                           forwards = Forwards}};
                 {error, Reason} ->
                     emqx_logger:error("[Bridge] connect to remote failed! error: ~p", [Reason]),
@@ -207,23 +232,50 @@ handle_info(start, State = #state{options = Options,
             emqx_logger:error("[Bridge] start failed! error: ~p", [Reason]),
             {noreply, State}
     end;
+handle_info(start, State) ->
+    Reason = "Config entry of bridge queue is broken.",
+    emqx_logger:error("[Bridge] start failed! error: ~p", [Reason]),
+    {noreply, State};
+
+%%----------------------------------------------------------------
+%% pop message from replayq and publish again
+%%----------------------------------------------------------------
+handle_info(pop, State = #state{writeq = WriteQ, replayq = ReplayQ,
+                                queue_option = #{batch_size := BatchSize}}) ->
+    {NewReplayQ, AckRef, NewReadQ} = replayq:pop(ReplayQ, #{count_limit => BatchSize}),
+    {NewReadQ1, NewWriteQ} = case NewReadQ of
+                                [] -> {WriteQ, []};
+                                _ -> {NewReadQ, WriteQ}
+                            end,
+    self() ! republish,
+    {noreply, State#state{readq = NewReadQ1, writeq = NewWriteQ, replayq = NewReplayQ, ackref = AckRef}};
+
+handle_info(dump, State = #state{writeq = WriteQ, replayq = ReplayQ}) ->
+    NewReplayQueue = replayq:append(ReplayQ, lists:reverse(WriteQ)),
+    {noreply, State#state{replayq = NewReplayQueue, writeq = []}};
+
+%%----------------------------------------------------------------
+%% republish message from replayq and publish again
+%%----------------------------------------------------------------
+handle_info(republish, State = #state{client_pid = ClientPid, readq = ReadQ}) ->
+    ok = publish_readq_msg(ClientPid, ReadQ),
+    {noreply, State};
 
 %%----------------------------------------------------------------
 %% received local node message
 %%----------------------------------------------------------------
 handle_info({dispatch, _, #message{topic = Topic, payload = Payload, flags = #{retain := Retain}}},
-             State = #state{client_pid = Pid, mountpoint = Mountpoint, queue = Queue,
-                            mqueue_type = MqueueType, max_pending_messages = MaxPendingMsg}) ->
+            State = #state{client_pid = Pid, mountpoint = Mountpoint}) ->
     Msg = #mqtt_msg{qos     = 1,
                     retain  = Retain,
                     topic   = mountpoint(Mountpoint, Topic),
                     payload = Payload},
     case emqx_client:publish(Pid, Msg) of
-        {ok, PkgId} ->
-            {noreply, State#state{queue = store(MqueueType, {PkgId, Msg}, Queue, MaxPendingMsg)}};
-        {error, Reason} ->
+        {ok, PktId} ->
+            {noreply, en_writeq({PktId, Msg}, State)};
+        {error, {PktId, Reason}} ->
             emqx_logger:error("[Bridge] Publish fail:~p", [Reason]),
-            {noreply, State}
+            {noreply, en_writeq({PktId, Msg}, State)}
     end;
 
 %%----------------------------------------------------------------
@@ -239,17 +291,18 @@ handle_info({publish, #{qos := QoS, dup := Dup, retain := Retain, topic := Topic
 %%----------------------------------------------------------------
 %% received remote puback message
 %%----------------------------------------------------------------
-handle_info({puback, #{packet_id := PkgId}}, State = #state{queue = Queue, mqueue_type = MqueueType}) ->
-    % lists:keydelete(PkgId, 1, Queue)
-    {noreply, State#state{queue = delete(MqueueType, PkgId, Queue)}};
+handle_info({puback, #{packet_id := PktId}}, State) ->
+    {noreply, delete(PktId, State)};
 
 handle_info({'EXIT', Pid, normal}, State = #state{client_pid = Pid}) ->
     emqx_logger:warning("[Bridge] stop ~p", [normal]),
+    self() ! dump,
     {noreply, State#state{client_pid = undefined}};
 
 handle_info({'EXIT', Pid, Reason}, State = #state{client_pid = Pid,
                                                   reconnect_interval = ReconnectInterval}) ->
     emqx_logger:error("[Bridge] stop ~p", [Reason]),
+    self() ! dump,
     erlang:send_after(ReconnectInterval, self(), start),
     {noreply, State#state{client_pid = undefined}};
 
@@ -320,15 +373,23 @@ format_mountpoint(undefined) ->
 format_mountpoint(Prefix) ->
     binary:replace(bin(Prefix), <<"${node}">>, atom_to_binary(node(), utf8)).
 
-store(memory, Data, Queue, MaxPendingMsg) when length(Queue) =< MaxPendingMsg ->
-    [Data | Queue];
-store(memory, _Data, Queue, _MaxPendingMsg) ->
-    logger:error("Beyond max pending messages"),
-    Queue;
-store(disk, Data, Queue, _MaxPendingMsg)->
-    [Data | Queue].
+en_writeq(Msg, State = #state{writeq = WriteQ, queue_option = #{batch_size := BatchSize}})
+  when length(WriteQ) < BatchSize->
+    State#state{writeq = [Msg | WriteQ]} ;
+en_writeq(Msg, State = #state{writeq = WriteQ, replayq = ReplayQ}) ->
+    NewReplayQ =replayq:append(ReplayQ, lists:reverse(WriteQ)),
+    State#state{writeq = [Msg], replayq = NewReplayQ}.
 
-delete(memory, PkgId, Queue) ->
-    lists:keydelete(PkgId, 1, Queue);
-delete(disk, PkgId, Queue) ->
-    lists:keydelete(PkgId, 1, Queue).
+publish_readq_msg(_ClientPid, []) ->
+    ok;
+publish_readq_msg(ClientPid, [Msg | ReadQ]) ->
+    emqx_client:publish(ClientPid, Msg),
+    publish_readq_msg(ClientPid, ReadQ).
+
+delete(_PktId, State = #state{readq = [], replayq = ReplayQ, ackref = AckRef}) ->
+    ok = replayq:ack(ReplayQ, AckRef),
+    self() ! pop,
+    State;
+
+delete(PktId, #state{readq = ReadQ}) ->
+    #state{readq = lists:keydelete(PktId, 1, ReadQ)}.
