@@ -448,14 +448,12 @@ acl_deny_do_disconnect(subscribe, QoS, Topic) ->
     {ok, Client} = emqx_client:start_link([{username, <<"emqx">>}]),
     {ok, _} = emqx_client:connect(Client),
     try emqx_client:subscribe(Client, Topic, QoS) of
-        Return ->
-            ct:log("return: ~p", [Return])
+        _ ->
+            ok
     catch
-        exit : Reason ->
-            false = is_process_alive(Client),
-            ct:log("Reason ~p", [Reason])
+        exit : _Reason ->
+            false = is_process_alive(Client)
     end.
-
 
 start_apps(App, SchemaFile, ConfigFile) ->
     read_schema_configs(App, SchemaFile, ConfigFile),
@@ -463,7 +461,6 @@ start_apps(App, SchemaFile, ConfigFile) ->
     application:ensure_all_started(App).
 
 read_schema_configs(App, SchemaFile, ConfigFile) ->
-    ct:pal("Read configs - SchemaFile: ~p, ConfigFile: ~p", [SchemaFile, ConfigFile]),
     Schema = cuttlefish_schema:files([SchemaFile]),
     Conf = conf_parse:file(ConfigFile),
     NewConfig = cuttlefish_generator:map(Schema, Conf),
