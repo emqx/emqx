@@ -772,6 +772,11 @@ end}.
   {datatype, integer}
 ]}.
 
+{mapping, "listener.tcp.$name.active_n", "emqx.listeners", [
+  {default, 100},
+  {datatype, integer}
+]}.
+
 {mapping, "listener.tcp.$name.zone", "emqx.listeners", [
   {datatype, string}
 ]}.
@@ -864,6 +869,11 @@ end}.
 ]}.
 
 {mapping, "listener.ssl.$name.max_conn_rate", "emqx.listeners", [
+  {datatype, integer}
+]}.
+
+{mapping, "listener.ssl.$name.active_n", "emqx.listeners", [
+  {default, 100},
   {datatype, integer}
 ]}.
 
@@ -1283,6 +1293,7 @@ end}.
                           {mqtt_path, cuttlefish:conf_get(Prefix ++ ".mqtt_path", Conf, undefined)},
                           {max_connections, cuttlefish:conf_get(Prefix ++ ".max_connections", Conf)},
                           {max_conn_rate, cuttlefish:conf_get(Prefix ++ ".max_conn_rate", Conf, undefined)},
+                          {active_n, cuttlefish:conf_get(Prefix ++ ".active_n", Conf, undefined)},
                           {tune_buffer, cuttlefish:conf_get(Prefix ++ ".tune_buffer", Conf, undefined)},
                           {zone, Atom(cuttlefish:conf_get(Prefix ++ ".zone", Conf, undefined))},
                           {rate_limit, Ratelimit(cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined))},
