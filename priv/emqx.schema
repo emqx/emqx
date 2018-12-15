@@ -548,7 +548,7 @@ end}.
   {validators, ["range:gt_0"]}
 ]}.
 
-%% @doc Action when acl check reject current option
+%% @doc Action when acl check reject current operation
 {mapping, "acl_deny_action", "emqx.acl_deny_action", [
   {default, ignore},
   {datatype, {enum, [ignore, disconnect]}}
@@ -646,7 +646,7 @@ end}.
   {datatype, flag}
 ]}.
 
-%% @doc Action when acl check reject current option
+%% @doc Action when acl check reject current operation
 {mapping, "zone.$name.acl_deny_action", "emqx.zones", [
   {default, ignore},
   {datatype, {enum, [ignore, disconnect]}}

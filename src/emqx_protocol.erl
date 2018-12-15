@@ -345,7 +345,7 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PSt
             do_publish(Packet, PState1);
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos0 message to ~s for ~s",
-                 [Topic, emqx_reason_codes:text(ReasonCode)]),
+                [Topic, emqx_reason_codes:text(ReasonCode)]),
             do_acl_deny_action(Packet, ReasonCode, PState)
     end;
 
