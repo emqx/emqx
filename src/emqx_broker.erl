@@ -371,7 +371,7 @@ cast(Broker, Msg) ->
 
 %% Pick a broker
 pick(Topic) ->
-    gproc_pool:pick_worker(broker, Topic).
+    gproc_pool:pick_worker(broker_pool, Topic).
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
