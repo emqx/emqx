@@ -148,7 +148,7 @@ call(Router, Msg) ->
     gen_server:call(Router, Msg, infinity).
 
 pick(Topic) ->
-    gproc_pool:pick_worker(emqx_router_pool, Topic).
+    gproc_pool:pick_worker(router_pool, Topic).
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks

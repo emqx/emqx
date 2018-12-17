@@ -38,7 +38,7 @@
           peername,
           sockname,
           conn_state,
-          await_recv,
+          active_n,
           proto_state,
           parser_state,
           keepalive,
@@ -51,6 +51,7 @@
           idle_timeout
          }).
 
+-define(DEFAULT_ACTIVE_N, 100).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
 start_link(Transport, Socket, Options) ->
@@ -69,7 +70,7 @@ info(#state{transport     = Transport,
             peername      = Peername,
             sockname      = Sockname,
             conn_state    = ConnState,
-            await_recv    = AwaitRecv,
+            active_n      = ActiveN,
             rate_limit    = RateLimit,
             publish_limit = PubLimit,
             proto_state   = ProtoState}) ->
@@ -77,7 +78,7 @@ info(#state{transport     = Transport,
                 {peername, Peername},
                 {sockname, Sockname},
                 {conn_state, ConnState},
-                {await_recv, AwaitRecv},
+                {active_n, ActiveN},
                 {rate_limit, esockd_rate_limit:info(RateLimit)},
                 {publish_limit, esockd_rate_limit:info(PubLimit)}],
     ProtoInfo = emqx_protocol:info(ProtoState),
@@ -87,8 +88,8 @@ info(#state{transport     = Transport,
 attrs(CPid) when is_pid(CPid) ->
     call(CPid, attrs);
 
-attrs(#state{peername    = Peername,
-             sockname    = Sockname,
+attrs(#state{peername = Peername,
+             sockname = Sockname,
              proto_state = ProtoState}) ->
     SockAttrs = [{peername, Peername},
                  {sockname, Sockname}],
@@ -129,6 +130,7 @@ init([Transport, RawSocket, Options]) ->
             Peercert = Transport:ensure_ok_or_exit(peercert, [Socket]),
             RateLimit = init_limiter(proplists:get_value(rate_limit, Options)),
             PubLimit = init_limiter(emqx_zone:get_env(Zone, publish_limit)),
+            ActiveN = proplists:get_value(active_n, Options, ?DEFAULT_ACTIVE_N),
             EnableStats = emqx_zone:get_env(Zone, enable_stats, true),
             IdleTimout = emqx_zone:get_env(Zone, idle_timeout, 30000),
             SendFun = send_fun(Transport, Socket),
@@ -140,8 +142,8 @@ init([Transport, RawSocket, Options]) ->
             State = run_socket(#state{transport     = Transport,
                                       socket        = Socket,
                                       peername      = Peername,
-                                      await_recv    = false,
                                       conn_state    = running,
+                                      active_n      = ActiveN,
                                       rate_limit    = RateLimit,
                                       publish_limit = PubLimit,
                                       proto_state   = ProtoState,
@@ -243,18 +245,25 @@ handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
     ?LOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid]),
     shutdown(conflict, State);
 
-handle_info(activate_sock, State) ->
-    {noreply, run_socket(State#state{conn_state = running, limit_timer = undefined})};
-
-handle_info({inet_async, _Sock, _Ref, {ok, Data}}, State) ->
+handle_info({tcp, _Sock, Data}, State) ->
     ?LOG(debug, "RECV ~p", [Data]),
     Size = iolist_size(Data),
     emqx_metrics:trans(inc, 'bytes/received', Size),
     Incoming = #{bytes => Size, packets => 0},
-    handle_packet(Data, State#state{await_recv = false, incoming = Incoming});
+    handle_packet(Data, State#state{incoming = Incoming});
 
-handle_info({inet_async, _Sock, _Ref, {error, Reason}}, State) ->
+%% Rate limit here, cool:)
+handle_info({tcp_passive, _Sock}, State) ->
+    {noreply, ensure_rate_limit(State)};
+
+handle_info({tcp_error, _Sock, Reason}, State) ->
     shutdown(Reason, State);
+
+handle_info({tcp_closed, _Sock}, State) ->
+    shutdown(closed, State);
+
+handle_info(activate_sock, State) ->
+    {noreply, run_socket(State#state{conn_state = running, limit_timer = undefined})};
 
 handle_info({inet_reply, _Sock, ok}, State) ->
     {noreply, State};
@@ -314,16 +323,17 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 %% Receive and parse data
-handle_packet(<<>>, State0) ->
-    State = ensure_stats_timer(ensure_rate_limit(State0)),
-    ok = maybe_gc(State, incoming),
-    {noreply, State};
+handle_packet(<<>>, State) ->
+    NState = ensure_stats_timer(State),
+    ok = maybe_gc(NState, incoming),
+    {noreply, NState};
+
 handle_packet(Data, State = #state{proto_state  = ProtoState,
                                    parser_state = ParserState,
                                    idle_timeout = IdleTimeout}) ->
     case catch emqx_frame:parse(Data, ParserState) of
         {more, NewParserState} ->
-            {noreply, run_socket(State#state{parser_state = NewParserState}), IdleTimeout};
+            {noreply, State#state{parser_state = NewParserState}, IdleTimeout};
         {ok, Packet = ?PACKET(Type), Rest} ->
             emqx_metrics:received(Packet),
             case emqx_protocol:received(Packet, ProtoState) of
@@ -352,6 +362,7 @@ reset_parser(State = #state{proto_state = ProtoState}) ->
 inc_publish_cnt(Type, State = #state{incoming = Incoming = #{packets := Cnt}})
     when Type == ?PUBLISH; Type == ?SUBSCRIBE ->
     State#state{incoming = Incoming#{packets := Cnt + 1}};
+
 inc_publish_cnt(_Type, State) ->
     State.
 
@@ -379,11 +390,11 @@ ensure_rate_limit([{Rl, Pos, Num}|Limiters], State) ->
 
 run_socket(State = #state{conn_state = blocked}) ->
     State;
-run_socket(State = #state{await_recv = true}) ->
-    State;
-run_socket(State = #state{transport = Transport, socket = Socket}) ->
-    Transport:async_recv(Socket, 0, infinity),
-    State#state{await_recv = true}.
+run_socket(State = #state{transport = Transport,
+                          socket = Socket,
+                          active_n = ActiveN}) ->
+    Transport:setopts(Socket, [{active, ActiveN}]),
+    State.
 
 %%------------------------------------------------------------------------------
 %% Ensure stats timer

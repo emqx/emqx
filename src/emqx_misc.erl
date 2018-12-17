@@ -19,6 +19,8 @@
 
 -export([init_proc_mng_policy/1, conn_proc_mng_policy/1]).
 
+-export([drain_down/1]).
+
 %% @doc Merge options
 -spec(merge_opts(list(), list()) -> list()).
 merge_opts(Defaults, Options) ->
@@ -108,3 +110,19 @@ is_enabled(Max) -> is_integer(Max) andalso Max > ?DISABLED.
 proc_info(Key) ->
     {Key, Value} = erlang:process_info(self(), Key),
     Value.
+
+-spec(drain_down(pos_integer()) -> list(pid())).
+drain_down(Cnt) when Cnt > 0 ->
+    drain_down(Cnt, []).
+
+drain_down(0, Acc) ->
+    lists:reverse(Acc);
+
+drain_down(Cnt, Acc) ->
+    receive
+        {'DOWN', _MRef, process, Pid, _Reason} ->
+            drain_down(Cnt - 1, [Pid|Acc])
+    after 0 ->
+          lists:reverse(Acc)
+    end.
+

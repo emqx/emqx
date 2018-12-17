@@ -320,7 +320,8 @@ process_packet(?CONNECT_PACKET(
                       case try_open_session(PState3) of
                           {ok, SPid, SP} ->
                               PState4 = PState3#pstate{session = SPid, connected = true},
-                              ok = emqx_cm:register_connection(client_id(PState4), attrs(PState4)),
+                              ok = emqx_cm:register_connection(client_id(PState4)),
+                              true = emqx_cm:set_conn_attrs(client_id(PState4), attrs(PState4)),
                               %% Start keepalive
                               start_keepalive(Keepalive, PState4),
                               %% Success
@@ -497,18 +498,18 @@ do_publish(Packet = ?PUBLISH_PACKET(QoS, PacketId),
 
 puback(?QOS_0, _PacketId, _Result, PState) ->
     {ok, PState};
+puback(?QOS_1, PacketId, [], PState) ->
+    deliver({puback, PacketId, ?RC_NO_MATCHING_SUBSCRIBERS}, PState);
+puback(?QOS_1, PacketId, [_|_], PState) -> %%TODO: check the dispatch?
+    deliver({puback, PacketId, ?RC_SUCCESS}, PState);
 puback(?QOS_1, PacketId, {error, ReasonCode}, PState) ->
     deliver({puback, PacketId, ReasonCode}, PState);
-puback(?QOS_1, PacketId, {ok, []}, PState) ->
-    deliver({puback, PacketId, ?RC_NO_MATCHING_SUBSCRIBERS}, PState);
-puback(?QOS_1, PacketId, {ok, _}, PState) ->
-    deliver({puback, PacketId, ?RC_SUCCESS}, PState);
-puback(?QOS_2, PacketId, {error, ReasonCode}, PState) ->
-    deliver({pubrec, PacketId, ReasonCode}, PState);
-puback(?QOS_2, PacketId, {ok, []}, PState) ->
+puback(?QOS_2, PacketId, [], PState) ->
     deliver({pubrec, PacketId, ?RC_NO_MATCHING_SUBSCRIBERS}, PState);
-puback(?QOS_2, PacketId, {ok, _}, PState) ->
-    deliver({pubrec, PacketId, ?RC_SUCCESS}, PState).
+puback(?QOS_2, PacketId, [_|_], PState) -> %%TODO: check the dispatch?
+    deliver({pubrec, PacketId, ?RC_SUCCESS}, PState);
+puback(?QOS_2, PacketId, {error, ReasonCode}, PState) ->
+    deliver({pubrec, PacketId, ReasonCode}, PState).
 
 %%------------------------------------------------------------------------------
 %% Deliver Packet -> Client
