@@ -259,7 +259,7 @@ subscribe(SPid, PacketId, Properties, TopicFilters) ->
 
 %% @doc Called by connection processes when publishing messages
 -spec(publish(spid(), emqx_mqtt_types:packet_id(), emqx_types:message())
-      -> {ok, emqx_types:deliver_results()}).
+      -> emqx_types:deliver_results() | {error, term()}).
 publish(_SPid, _PacketId, Msg = #message{qos = ?QOS_0}) ->
     %% Publish QoS0 message directly
     emqx_broker:publish(Msg);
@@ -370,7 +370,8 @@ init([Parent, #{zone                := Zone,
                    topic_alias_maximum = TopicAliasMaximum,
                    will_msg            = WillMsg
                   },
-    ok = emqx_sm:register_session(ClientId, attrs(State)),
+    ok = emqx_sm:register_session(ClientId, self()),
+    true = emqx_sm:set_session_attrs(ClientId, attrs(State)),
     true = emqx_sm:set_session_stats(ClientId, stats(State)),
     emqx_hooks:run('session.created', [#{client_id => ClientId}, info(State)]),
     GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
