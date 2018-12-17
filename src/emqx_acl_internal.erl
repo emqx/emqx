@@ -45,7 +45,7 @@ all_rules() ->
 
 -spec(init([File :: string()]) -> {ok, #{}}).
 init([File]) ->
-    _ = emqx_tables:new(?ACL_RULE_TAB, [set, public, {read_concurrency, true}]),
+    ok = emqx_tables:new(?ACL_RULE_TAB, [set, public, {read_concurrency, true}]),
     true = load_rules_from_file(File),
     {ok, #{acl_file => File}}.
 

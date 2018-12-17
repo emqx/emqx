@@ -15,12 +15,28 @@
 -module(emqx_tables).
 
 -export([new/2]).
+-export([lookup_value/2, lookup_value/3]).
 
 %% Create a named_table ets.
+-spec(new(atom(), list()) -> ok).
 new(Tab, Opts) ->
     case ets:info(Tab, name) of
         undefined ->
-            ets:new(Tab, lists:usort([named_table | Opts]));
-        Tab -> Tab
+            _ = ets:new(Tab, lists:usort([named_table | Opts])),
+            ok;
+        Tab -> ok
+    end.
+
+%% KV lookup
+-spec(lookup_value(atom(), term()) -> any()).
+lookup_value(Tab, Key) ->
+    lookup_value(Tab, Key, undefined).
+
+-spec(lookup_value(atom(), term(), any()) -> any()).
+lookup_value(Tab, Key, Def) ->
+    try
+        ets:lookup_element(Tab, Key, 2)
+    catch
+        error:badarg -> Def
     end.
 

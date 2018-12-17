@@ -12,15 +12,27 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_tables_SUITE).
+-module(emqx_sequence_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
-all() -> [t_new].
+-include_lib("eunit/include/eunit.hrl").
 
-t_new(_) ->
-    ok = emqx_tables:new(test_table, [{read_concurrency, true}]),
-    ets:insert(test_table, {key, 100}),
-    ok = emqx_tables:new(test_table, [{read_concurrency, true}]),
-    100 = ets:lookup_element(test_table, key, 2).
+-import(emqx_sequence, [nextval/2, reclaim/2]).
+
+all() ->
+    [sequence_generate].
+
+sequence_generate(_) ->
+    ok = emqx_sequence:create(seqtab),
+    ?assertEqual(1, nextval(seqtab, key)),
+    ?assertEqual(2, nextval(seqtab, key)),
+    ?assertEqual(3, nextval(seqtab, key)),
+    ?assertEqual(2, reclaim(seqtab, key)),
+    ?assertEqual(1, reclaim(seqtab, key)),
+    ?assertEqual(0, reclaim(seqtab, key)),
+    ?assertEqual(false, ets:member(seqtab, key)),
+    ?assertEqual(1, nextval(seqtab, key)),
+    ?assert(emqx_sequence:delete(seqtab).
+

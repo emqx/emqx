@@ -152,7 +152,7 @@ cast(Msg) ->
 %%------------------------------------------------------------------------------
 
 init(#{tick_ms := TickMs}) ->
-    _ = emqx_tables:new(?TAB, [set, public, {write_concurrency, true}]),
+    ok = emqx_tables:new(?TAB, [public, set, {write_concurrency, true}]),
     Stats = lists:append([?CONNECTION_STATS, ?SESSION_STATS, ?PUBSUB_STATS,
                           ?ROUTE_STATS, ?RETAINED_STATS]),
     true = ets:insert(?TAB, [{Name, 0} || Name <- Stats]),

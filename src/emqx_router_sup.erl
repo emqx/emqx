@@ -32,8 +32,8 @@ init([]) ->
                modules  => [emqx_router_helper]},
 
     %% Router pool
-    RouterPool = emqx_pool_sup:spec(emqx_router_pool,
-                                    [router, hash, emqx_vm:schedulers(),
+    RouterPool = emqx_pool_sup:spec(router_pool,
+                                    [emqx_router_pool, hash, emqx_vm:schedulers(),
                                      {emqx_router, start_link, []}]),
     {ok, {{one_for_all, 0, 1}, [Helper, RouterPool]}}.
 

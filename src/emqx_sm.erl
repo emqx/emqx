@@ -40,9 +40,9 @@
 
 -define(SM, ?MODULE).
 
-%% ETS Tables
--define(SESSION_TAB,       emqx_session).
--define(SESSION_P_TAB,     emqx_persistent_session).
+%% ETS Tables for session management.
+-define(SESSION_TAB, emqx_session).
+-define(SESSION_P_TAB, emqx_session_p).
 -define(SESSION_ATTRS_TAB, emqx_session_attrs).
 -define(SESSION_STATS_TAB, emqx_session_stats).
 
@@ -55,18 +55,17 @@ start_link() ->
 open_session(SessAttrs = #{clean_start := true, client_id := ClientId, conn_pid := ConnPid}) ->
     CleanStart = fun(_) ->
                      ok = discard_session(ClientId, ConnPid),
-                     emqx_session_sup:start_session(SessAttrs)
+                     emqx_session:start_link(SessAttrs)
                  end,
     emqx_sm_locker:trans(ClientId, CleanStart);
 
-open_session(SessAttrs = #{clean_start := false,
-                           client_id   := ClientId}) ->
+open_session(SessAttrs = #{clean_start := false, client_id := ClientId}) ->
     ResumeStart = fun(_) ->
                       case resume_session(ClientId, SessAttrs) of
                           {ok, SPid} ->
                               {ok, SPid, true};
                           {error, not_found} ->
-                              emqx_session_sup:start_session(SessAttrs)
+                              emqx_session:start_link(SessAttrs)
                       end
                   end,
     emqx_sm_locker:trans(ClientId, ResumeStart).
@@ -77,13 +76,14 @@ discard_session(ClientId) when is_binary(ClientId) ->
     discard_session(ClientId, self()).
 
 discard_session(ClientId, ConnPid) when is_binary(ClientId) ->
-    lists:foreach(fun({_ClientId, SPid}) ->
-                      case catch emqx_session:discard(SPid, ConnPid) of
-                          {Err, Reason} when Err =:= 'EXIT'; Err =:= error ->
-                              emqx_logger:error("[SM] Failed to discard ~p: ~p", [SPid, Reason]);
-                          ok -> ok
-                      end
-                  end, lookup_session(ClientId)).
+    lists:foreach(
+      fun({_ClientId, SPid}) ->
+              case catch emqx_session:discard(SPid, ConnPid) of
+                  {Err, Reason} when Err =:= 'EXIT'; Err =:= error ->
+                      emqx_logger:error("[SM] Failed to discard ~p: ~p", [SPid, Reason]);
+                  ok -> ok
+              end
+      end, lookup_session(ClientId)).
 
 %% @doc Try to resume a session.
 -spec(resume_session(emqx_types:client_id(), map()) -> {ok, pid()} | {error, term()}).
@@ -116,19 +116,18 @@ close_session(SPid) when is_pid(SPid) ->
 register_session(ClientId, SessAttrs) when is_binary(ClientId) ->
     register_session({ClientId, self()}, SessAttrs);
 
-register_session(Session = {ClientId, SPid}, SessAttrs)
-    when is_binary(ClientId), is_pid(SPid) ->
-    ets:insert(?SESSION_TAB, Session),
-    ets:insert(?SESSION_ATTRS_TAB, {Session, SessAttrs}),
-    proplists:get_value(clean_start, SessAttrs, true)
-        andalso ets:insert(?SESSION_P_TAB, Session),
-    emqx_sm_registry:register_session(Session),
+register_session(Session = {ClientId, SPid}, SessAttrs) when is_binary(ClientId), is_pid(SPid) ->
+    true = ets:insert(?SESSION_TAB, Session),
+    true = ets:insert(?SESSION_ATTRS_TAB, {Session, SessAttrs}),
+    true = proplists:get_value(clean_start, SessAttrs, true)
+            orelse ets:insert(?SESSION_P_TAB, Session),
+    ok = emqx_sm_registry:register_session(Session),
     notify({registered, ClientId, SPid}).
 
 %% @doc Get session attrs
 -spec(get_session_attrs({emqx_types:client_id(), pid()}) -> list(emqx_session:attr())).
 get_session_attrs(Session = {ClientId, SPid}) when is_binary(ClientId), is_pid(SPid) ->
-    safe_lookup_element(?SESSION_ATTRS_TAB, Session, []).
+    emqx_tables:lookup_value(?SESSION_ATTRS_TAB, Session, []).
 
 %% @doc Set session attrs
 -spec(set_session_attrs(emqx_types:client_id() | {emqx_types:client_id(), pid()},
@@ -144,17 +143,21 @@ unregister_session(ClientId) when is_binary(ClientId) ->
     unregister_session({ClientId, self()});
 
 unregister_session(Session = {ClientId, SPid}) when is_binary(ClientId), is_pid(SPid) ->
-    emqx_sm_registry:unregister_session(Session),
-    ets:delete(?SESSION_STATS_TAB, Session),
-    ets:delete(?SESSION_ATTRS_TAB, Session),
-    ets:delete_object(?SESSION_P_TAB, Session),
-    ets:delete_object(?SESSION_TAB, Session),
+    ok = do_unregister_session(Session),
     notify({unregistered, ClientId, SPid}).
+
+%% @private
+do_unregister_session(Session) ->
+    true = ets:delete(?SESSION_STATS_TAB, Session),
+    true = ets:delete(?SESSION_ATTRS_TAB, Session),
+    true = ets:delete_object(?SESSION_P_TAB, Session),
+    true = ets:delete_object(?SESSION_TAB, Session),
+    emqx_sm_registry:unregister_session(Session).
 
 %% @doc Get session stats
 -spec(get_session_stats({emqx_types:client_id(), pid()}) -> list(emqx_stats:stats())).
 get_session_stats(Session = {ClientId, SPid}) when is_binary(ClientId), is_pid(SPid) ->
-    safe_lookup_element(?SESSION_STATS_TAB, Session, []).
+    emqx_tables:lookup_value(?SESSION_STATS_TAB, Session, []).
 
 %% @doc Set session stats
 -spec(set_session_stats(emqx_types:client_id() | {emqx_types:client_id(), pid()},
@@ -168,7 +171,7 @@ set_session_stats(Session = {ClientId, SPid}, Stats) when is_binary(ClientId), i
 -spec(lookup_session(emqx_types:client_id()) -> list({emqx_types:client_id(), pid()})).
 lookup_session(ClientId) ->
     case emqx_sm_registry:is_enabled() of
-        true  -> emqx_sm_registry:lookup_session(ClientId);
+        true -> emqx_sm_registry:lookup_session(ClientId);
         false -> ets:lookup(?SESSION_TAB, ClientId)
     end.
 
@@ -185,13 +188,7 @@ dispatch(ClientId, Topic, Msg) ->
 %% @doc Lookup session pid.
 -spec(lookup_session_pid(emqx_types:client_id()) -> pid() | undefined).
 lookup_session_pid(ClientId) ->
-    safe_lookup_element(?SESSION_TAB, ClientId, undefined).
-
-safe_lookup_element(Tab, Key, Default) ->
-    try ets:lookup_element(Tab, Key, 2)
-    catch
-        error:badarg -> Default
-    end.
+    emqx_tables:lookup_value(?SESSION_TAB, ClientId).
 
 notify(Event) ->
     gen_server:cast(?SM, {notify, Event}).
@@ -202,34 +199,39 @@ notify(Event) ->
 
 init([]) ->
     TabOpts = [public, set, {write_concurrency, true}],
-    _ = emqx_tables:new(?SESSION_TAB, [{read_concurrency, true} | TabOpts]),
-    _ = emqx_tables:new(?SESSION_P_TAB, TabOpts),
-    _ = emqx_tables:new(?SESSION_ATTRS_TAB, TabOpts),
-    _ = emqx_tables:new(?SESSION_STATS_TAB, TabOpts),
-    emqx_stats:update_interval(sm_stats, fun ?MODULE:stats_fun/0),
-    {ok, #{session_pmon => emqx_pmon:new()}}.
+    ok = emqx_tables:new(?SESSION_TAB, [{read_concurrency, true} | TabOpts]),
+    ok = emqx_tables:new(?SESSION_P_TAB, TabOpts),
+    ok = emqx_tables:new(?SESSION_ATTRS_TAB, TabOpts),
+    ok = emqx_tables:new(?SESSION_STATS_TAB, TabOpts),
+    ok = emqx_stats:update_interval(sm_stats, fun ?MODULE:stats_fun/0),
+    {ok, #{sess_pmon => emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[SM] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
-handle_cast({notify, {registered, ClientId, SPid}}, State = #{session_pmon := PMon}) ->
-    {noreply, State#{session_pmon := emqx_pmon:monitor(SPid, ClientId, PMon)}};
+handle_cast({notify, {registered, ClientId, SPid}}, State = #{sess_pmon := PMon}) ->
+    {noreply, State#{sess_pmon := emqx_pmon:monitor(SPid, ClientId, PMon)}};
 
-handle_cast({notify, {unregistered, _ClientId, SPid}}, State = #{session_pmon := PMon}) ->
-    {noreply, State#{session_pmon := emqx_pmon:demonitor(SPid, PMon)}};
+handle_cast({notify, {unregistered, _ClientId, SPid}}, State = #{sess_pmon := PMon}) ->
+    {noreply, State#{sess_pmon := emqx_pmon:demonitor(SPid, PMon)}};
 
 handle_cast(Msg, State) ->
     emqx_logger:error("[SM] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State = #{session_pmon := PMon}) ->
+handle_info({'DOWN', _MRef, process, DownPid, _Reason}, State = #{sess_pmon := PMon}) ->
     case emqx_pmon:find(DownPid, PMon) of
         undefined ->
             {noreply, State};
-        ClientId  ->
-            unregister_session({ClientId, DownPid}),
-            {noreply, State#{session_pmon := emqx_pmon:erase(DownPid, PMon)}}
+        ClientId ->
+            Session = {ClientId, DownPid},
+            case ets:member(?SESSION_ATTRS_TAB, Session) of
+                true ->
+                    ok = emqx_pool:async_submit(fun do_unregister_session/1, [Session]);
+                false -> ok
+            end,
+            {noreply, State#{sess_pmon := emqx_pmon:erase(DownPid, PMon)}}
     end;
 
 handle_info(Info, State) ->

@@ -20,7 +20,6 @@
 
 -export([start_link/0]).
 -export([is_enabled/0]).
-
 -export([register_session/1, lookup_session/1, unregister_session/1]).
 
 %% gen_server callbacks
@@ -42,7 +41,7 @@ start_link() ->
 
 -spec(is_enabled() -> boolean()).
 is_enabled() ->
-    ets:info(?TAB, name) =/= undefined.
+    emqx_config:get_env(enable_session_registry, true).
 
 -spec(lookup_session(emqx_types:client_id())
       -> list({emqx_types:client_id(), session_pid()})).
@@ -51,11 +50,17 @@ lookup_session(ClientId) ->
 
 -spec(register_session({emqx_types:client_id(), session_pid()}) -> ok).
 register_session({ClientId, SessPid}) when is_binary(ClientId), is_pid(SessPid) ->
-    mnesia:dirty_write(?TAB, record(ClientId, SessPid)).
+    case is_enabled() of
+        true -> mnesia:dirty_write(?TAB, record(ClientId, SessPid));
+        false -> ok
+    end.
 
 -spec(unregister_session({emqx_types:client_id(), session_pid()}) -> ok).
 unregister_session({ClientId, SessPid}) when is_binary(ClientId), is_pid(SessPid) ->
-    mnesia:dirty_delete_object(?TAB, record(ClientId, SessPid)).
+    case is_enabled() of
+        true -> mnesia:dirty_delete_object(?TAB, record(ClientId, SessPid));
+        false -> ok
+    end.
 
 record(ClientId, SessPid) ->
     #global_session{sid = ClientId, pid = SessPid}.
@@ -73,7 +78,7 @@ init([]) ->
                 {storage_properties, [{ets, [{read_concurrency, true},
                                              {write_concurrency, true}]}]}]),
     ok = ekka_mnesia:copy_table(?TAB),
-    _ = ekka:monitor(membership),
+    ok = ekka:monitor(membership),
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->

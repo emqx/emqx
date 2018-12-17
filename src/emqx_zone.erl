@@ -68,7 +68,7 @@ stop() ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    _ = emqx_tables:new(?TAB, [set, {read_concurrency, true}]),
+    ok = emqx_tables:new(?TAB, [set, {read_concurrency, true}]),
     {ok, element(2, handle_info(reload, #{timer => undefined}))}.
 
 handle_call(force_reload, _From, State) ->

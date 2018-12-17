@@ -96,7 +96,7 @@ usage() ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    _ = emqx_tables:new(?TAB, [ordered_set, protected]),
+    ok = emqx_tables:new(?TAB, [protected, ordered_set]),
     {ok, #state{seq = 0}}.
 
 handle_call(Req, _From, State) ->

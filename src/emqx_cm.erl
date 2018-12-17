@@ -36,7 +36,7 @@
 -define(CM, ?MODULE).
 
 %% ETS Tables.
--define(CONN_TAB,       emqx_conn).
+-define(CONN_TAB, emqx_conn).
 -define(CONN_ATTRS_TAB, emqx_conn_attrs).
 -define(CONN_STATS_TAB, emqx_conn_stats).
 
@@ -56,7 +56,7 @@ register_connection(ClientId) when is_binary(ClientId) ->
     register_connection({ClientId, self()});
 
 register_connection(Conn = {ClientId, ConnPid}) when is_binary(ClientId), is_pid(ConnPid) ->
-    _ = ets:insert(?CONN_TAB, Conn),
+    true = ets:insert(?CONN_TAB, Conn),
     notify({registered, ClientId, ConnPid}).
 
 -spec(register_connection(emqx_types:client_id() | {emqx_types:client_id(), pid()}, list()) -> ok).
@@ -87,10 +87,13 @@ unregister_connection(ClientId) when is_binary(ClientId) ->
     unregister_connection({ClientId, self()});
 
 unregister_connection(Conn = {ClientId, ConnPid}) when is_binary(ClientId), is_pid(ConnPid) ->
-    _ = ets:delete(?CONN_STATS_TAB, Conn),
-    _ = ets:delete(?CONN_ATTRS_TAB, Conn),
-    _ = ets:delete_object(?CONN_TAB, Conn),
-    notify({unregistered, ClientId, ConnPid}).
+    do_unregister_connection(Conn),
+    notify({unregistered, ConnPid}).
+
+do_unregister_connection(Conn) ->
+    true = ets:delete(?CONN_STATS_TAB, Conn),
+    true = ets:delete(?CONN_ATTRS_TAB, Conn),
+    true = ets:delete_object(?CONN_TAB, Conn).
 
 %% @doc Lookup connection pid
 -spec(lookup_conn_pid(emqx_types:client_id()) -> pid() | undefined).
@@ -125,9 +128,9 @@ notify(Msg) ->
 
 init([]) ->
     TabOpts = [public, set, {write_concurrency, true}],
-    _ = emqx_tables:new(?CONN_TAB, [{read_concurrency, true} | TabOpts]),
-    _ = emqx_tables:new(?CONN_ATTRS_TAB, TabOpts),
-    _ = emqx_tables:new(?CONN_STATS_TAB, TabOpts),
+    ok = emqx_tables:new(?CONN_TAB, [{read_concurrency, true} | TabOpts]),
+    ok = emqx_tables:new(?CONN_ATTRS_TAB, TabOpts),
+    ok = emqx_tables:new(?CONN_STATS_TAB, TabOpts),
     ok = emqx_stats:update_interval(cm_stats, fun ?MODULE:update_conn_stats/0),
     {ok, #{conn_pmon => emqx_pmon:new()}}.
 
@@ -138,7 +141,7 @@ handle_call(Req, _From, State) ->
 handle_cast({notify, {registered, ClientId, ConnPid}}, State = #{conn_pmon := PMon}) ->
     {noreply, State#{conn_pmon := emqx_pmon:monitor(ConnPid, ClientId, PMon)}};
 
-handle_cast({notify, {unregistered, _ClientId, ConnPid}}, State = #{conn_pmon := PMon}) ->
+handle_cast({notify, {unregistered, ConnPid}}, State = #{conn_pmon := PMon}) ->
     {noreply, State#{conn_pmon := emqx_pmon:demonitor(ConnPid, PMon)}};
 
 handle_cast(Msg, State) ->
@@ -150,7 +153,12 @@ handle_info({'DOWN', _MRef, process, ConnPid, _Reason}, State = #{conn_pmon := P
         undefined ->
             {noreply, State};
         ClientId ->
-            unregister_connection({ClientId, ConnPid}),
+            Conn = {ClientId, ConnPid},
+            case ets:member(?CONN_ATTRS_TAB, Conn) of
+                true ->
+                    ok = emqx_pool:async_submit(fun do_unregister_connection/1, [Conn]);
+                false -> ok
+            end,
             {noreply, State#{conn_pmon := emqx_pmon:erase(ConnPid, PMon)}}
     end;
 
