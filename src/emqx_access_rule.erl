@@ -44,11 +44,7 @@ compile({A, Who, Access, Topic}) when ?ALLOW_DENY(A), ?PUBSUB(Access), is_binary
     {A, compile(who, Who), Access, [compile(topic, Topic)]};
 
 compile({A, Who, Access, TopicFilters}) when ?ALLOW_DENY(A), ?PUBSUB(Access) ->
-    {A, compile(who, Who), Access, [compile(topic, Topic) || Topic <- TopicFilters]};
-
-compile(Rule) ->
-    emqx_logger:error("[ACCESS_RULE] Malformed rule: ~p", [Rule]),
-    {error, bad_rule}.
+    {A, compile(who, Who), Access, [compile(topic, Topic) || Topic <- TopicFilters]}.
 
 compile(who, all) ->
     all;
