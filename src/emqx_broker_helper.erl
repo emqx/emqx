@@ -31,7 +31,7 @@
 -define(SUBSEQ, emqx_subseq).
 -define(SHARD, 1024).
 
--define(BATCH_SIZE, 10000).
+-define(BATCH_SIZE, 100000).
 
 -spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->

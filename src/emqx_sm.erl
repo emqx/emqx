@@ -49,7 +49,7 @@
 -define(SESSION_ATTRS_TAB, emqx_session_attrs).
 -define(SESSION_STATS_TAB, emqx_session_stats).
 
--define(BATCH_SIZE, 10000).
+-define(BATCH_SIZE, 100000).
 
 -spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
@@ -201,7 +201,7 @@ set_session_stats(ClientId, SessPid, Stats) when is_binary(ClientId), is_pid(Ses
 lookup_session_pids(ClientId) ->
     case emqx_sm_registry:is_enabled() of
         true -> emqx_sm_registry:lookup_session(ClientId);
-        false -> ets:lookup(?SESSION_TAB, ClientId, [])
+        false -> emqx_tables:lookup_value(?SESSION_TAB, ClientId, [])
     end.
 
 %% @doc Dispatch a message to the session.
