@@ -17,15 +17,19 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx.hrl").
+-include_lib("eunit/include/eunit.hrl").
+
 -include("emqx_mqtt.hrl").
 
-all() -> [t_register_unregister_connection].
+all() -> [t_register_unregister_connection, t_register_connection, t_unregister_connection, t_get_conn_attrs, t_set_conn_attrs,
+          t_get_conn_stats, t_set_conn_stats, t_lookup_conn_pid].
 
 t_register_unregister_connection(_) ->
     {ok, _} = emqx_cm_sup:start_link(),
     Pid = self(),
     ok = emqx_cm:register_connection(<<"conn1">>),
-    ok emqx_cm:register_connection(<<"conn2">>, Pid),
+    ok = emqx_cm:register_connection(<<"conn2">>, Pid),
     true = emqx_cm:set_conn_attrs(<<"conn1">>, [{port, 8080}, {ip, "192.168.0.1"}]),
     true = emqx_cm:set_conn_attrs(<<"conn2">>, Pid, [{port, 8080}, {ip, "192.168.0.1"}]),
     timer:sleep(2000),
@@ -33,7 +37,58 @@ t_register_unregister_connection(_) ->
     ?assertEqual(Pid, emqx_cm:lookup_conn_pid(<<"conn2">>)),
     ok = emqx_cm:unregister_connection(<<"conn1">>),
     ?assertEqual(undefined, emqx_cm:lookup_conn_pid(<<"conn1">>)),
-    ?assertEqual([{port, 8080}, {ip, "192.168.0.1"}], emqx_cm:get_conn_attrs({<<"conn2">>, Pid})),
+    ?assertEqual([{port, 8080}, {ip, "192.168.0.1"}], emqx_cm:get_conn_attrs(<<"conn2">>, Pid)),
     true = emqx_cm:set_conn_stats(<<"conn2">>, [{count, 1}, {max, 2}]),
-    ?assertEqual([{count, 1}, {max, 2}], emqx_cm:get_conn_stats({<<"conn2">>, Pid})).
+    ?assertEqual([{count, 1}, {max, 2}], emqx_cm:get_conn_stats(<<"conn2">>, Pid)).
 
+t_register_connection(_) ->
+    {ok, _} = emqx_cm_sup:start_link(),
+    Pid = self(),
+    ?assertEqual(ok, emqx_cm:register_connection(<<"conn1">>)),
+    ?assertEqual(ok, emqx_cm:register_connection(<<"conn2">>, Pid)).
+
+t_unregister_connection(_) ->
+    {ok, _} = emqx_cm_sup:start_link(),
+    Pid = self(),
+    emqx_cm:register_connection(<<"conn1">>),
+    emqx_cm:register_connection(<<"conn2">>, Pid),
+    ?assertEqual(ok, emqx_cm:unregister_connection(<<"conn1">>)),
+    ?assertEqual(ok, emqx_cm:unregister_connection(<<"conn2">>, Pid)).
+
+t_get_conn_attrs(_) ->
+    {ok, _} = emqx_cm_sup:start_link(),
+    ok = emqx_cm:register_connection(<<"conn1">>),
+    Pid = self(),
+    true = emqx_cm:set_conn_attrs(<<"conn1">>, [{port, 8080}, {ip, "192.168.0.1"}]),
+    true = emqx_cm:set_conn_attrs(<<"conn2">>, Pid, [{port, 8080}, {ip, "192.168.0.1"}]),
+    ?assertEqual([{port, 8080}, {ip, "192.168.0.1"}], emqx_cm:get_conn_attrs(<<"conn1">>)),
+    ?assertEqual([{port, 8080}, {ip, "192.168.0.1"}], emqx_cm:get_conn_attrs(<<"conn1">>, Pid)).
+
+t_set_conn_attrs(_) ->
+    {ok, _} = emqx_cm_sup:start_link(),
+    ok = emqx_cm:register_connection(<<"conn1">>),
+    Pid = self(),
+    ?assertEqual(true, emqx_cm:set_conn_attrs(<<"conn1">>, [{port, 8080}, {ip, "192.168.0.1"}])),
+    ?assertEqual(true, emqx_cm:set_conn_attrs(<<"conn2">>, Pid, [{port, 8080}, {ip, "192.168.0.1"}])).
+
+t_get_conn_stats(_) ->
+    {ok, _} = emqx_cm_sup:start_link(),
+    ok = emqx_cm:register_connection(<<"conn1">>),
+    Pid = self(),
+    true = emqx_cm:set_conn_stats(<<"conn1">>, [{count, 1}, {max, 2}]),
+    true = emqx_cm:set_conn_stats(<<"conn2">>, Pid, [{count, 1}, {max, 2}]),
+    ?assertEqual([{count, 1}, {max, 2}], emqx_cm:get_conn_stats(<<"conn1">>)),
+    ?assertEqual([{count, 1}, {max, 2}], emqx_cm:get_conn_stats(<<"conn2">>, Pid)).
+
+t_set_conn_stats(_) ->
+    {ok, _} = emqx_cm_sup:start_link(),
+    ok = emqx_cm:register_connection(<<"conn1">>),
+    Pid = self(),
+    ?assertEqual(true, emqx_cm:set_conn_stats(<<"conn2">>, [{count, 1}, {max, 2}])),
+    ?assertEqual(true, emqx_cm:set_conn_stats(<<"conn2">>, Pid, [{count, 1}, {max, 2}])).
+
+t_lookup_conn_pid(_) ->
+    {ok, _} = emqx_cm_sup:start_link(),
+    Pid = self(),
+    ok = emqx_cm:register_connection(<<"conn1">>, Pid),
+    ?assertEqual(Pid, emqx_cm:lookup_conn_pid(<<"conn1">>)).
