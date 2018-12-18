@@ -34,31 +34,6 @@
 all() -> [t_open_close_session, t_open_session, t_close_session, t_resume_session, t_discard_session, t_register_session,
           t_unregister_session, t_set_session_attrs, t_get_session_attrs, t_get_session_stats, t_set_session_stats, t_lookup_session_pids].
 
-t_open_close_session(_) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
-    {ok, ClientPid} = emqx_mock_client:start_link(<<"client">>),
-    Attrs = #{clean_start         => true,
-              client_id           => <<"client">>,
-              conn_pid            => ClientPid,
-              zone                => internal,
-              username            => <<"emqx">>,
-              expiry_interval     => 0,
-              max_inflight        => 0,
-              topic_alias_maximum => 0,
-              will_msg            => undefined},
-    {ok, SPid} = emqx_sm:open_session(Attrs),
-    ?assertEqual([SPid], emqx_sm:lookup_session_pids(<<"client">>)),
-    {ok, NewConnPid} = emqx_mock_client:start_link(<<"client">>),
-    {ok, SPid, true} = emqx_sm:open_session(Attrs#{clean_start => false, conn_pid => NewConnPid}),
-    ?assertEqual([SPid], emqx_sm:lookup_session_pids(<<"client">>)),
-    SAttrs = emqx_sm:get_session_attrs(<<"client">>, SPid),
-    ?assertEqual(<<"client">>, proplists:get_value(client_id, SAttrs)),
-    emqx_sm:set_session_stats(<<"client">>, SPid, [{inflight, 10}]),
-    ?assertEqual([{inflight, 10}], emqx_sm:get_session_stats(<<"client">>, SPid)),
-    ok = emqx_sm:close_session(SPid),
-    ?assertEqual([SPid], emqx_sm:lookup_session_pids(<<"client">>)),
-    emqx_ct_broker_helpers:run_teardown_steps().
-
 t_open_session(_) ->
     emqx_ct_broker_helpers:run_setup_steps(),
     {ok, ClientPid} = emqx_mock_client:start_link(<<"client">>),
