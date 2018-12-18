@@ -90,7 +90,7 @@ pool_sup[one_for_all supervisor]
 
 ## Author
 
-Feng Lee <feng@emqtt.io>
+Feng Lee <feng@emqx.io>
 
 
 ## License
