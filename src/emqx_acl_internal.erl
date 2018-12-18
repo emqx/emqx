@@ -45,19 +45,27 @@ all_rules() ->
 
 -spec(init([File :: string()]) -> {ok, #{}}).
 init([File]) ->
-    ok = emqx_tables:new(?ACL_RULE_TAB, [set, public, {read_concurrency, true}]),
-    true = load_rules_from_file(File),
+    _ = emqx_tables:new(?ACL_RULE_TAB, [set, public, {read_concurrency, true}]),
+    ok = load_rules_from_file(File),
     {ok, #{acl_file => File}}.
 
 load_rules_from_file(AclFile) ->
-    {ok, Terms} = file:consult(AclFile),
-    Rules = [emqx_access_rule:compile(Term) || Term <- Terms],
-    lists:foreach(fun(PubSub) ->
-        ets:insert(?ACL_RULE_TAB, {PubSub,
-            lists:filter(fun(Rule) -> filter(PubSub, Rule) end, Rules)})
-        end, [publish, subscribe]),
-    ets:insert(?ACL_RULE_TAB, {all_rules, Terms}).
+    case file:consult(AclFile) of
+        {ok, Terms} ->
+            Rules = [emqx_access_rule:compile(Term) || Term <- Terms],
+            lists:foreach(fun(PubSub) ->
+                ets:insert(?ACL_RULE_TAB, {PubSub,
+                    lists:filter(fun(Rule) -> filter(PubSub, Rule) end, Rules)})
+                end, [publish, subscribe]),
+            ets:insert(?ACL_RULE_TAB, {all_rules, Terms}),
+            ok;
+        {error, Reason} ->
+            emqx_logger:error("[ACL_INTERNAL] Failed to read ~s: ~p", [AclFile, Reason]),
+            {error, Reason}
+    end.
 
+filter(_PubSub, {error, _}) ->
+    false;   
 filter(_PubSub, {allow, all}) ->
     true;
 filter(_PubSub, {deny, all}) ->
@@ -100,9 +108,11 @@ match(Credentials, Topic, [Rule|Rules]) ->
 -spec(reload_acl(state()) -> ok | {error, term()}).
 reload_acl(#{acl_file := AclFile}) ->
     case catch load_rules_from_file(AclFile) of
-        true ->
+        ok ->
             emqx_logger:info("Reload acl_file ~s successfully", [AclFile]),
             ok;
+        {error, Error} ->
+            {error, Error};
         {'EXIT', Error} ->
             {error, Error}
     end.

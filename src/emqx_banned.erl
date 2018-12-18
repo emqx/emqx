@@ -104,7 +104,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 -ifdef(TEST).
 ensure_expiry_timer(State) ->
-    State#{expiry_timer := emqx_misc:start_timer(timer:seconds(2), expire)}.
+    State#{expiry_timer := emqx_misc:start_timer(timer:seconds(1), expire)}.
 -else.
 ensure_expiry_timer(State) ->
     State#{expiry_timer := emqx_misc:start_timer(timer:minutes(1), expire)}.

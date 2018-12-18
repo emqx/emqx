@@ -355,7 +355,8 @@ compile_rule(_) ->
     {deny, all, subscribe, [ [<<"$SYS">>, '#'], ['#'] ]} =
         compile({deny, all, subscribe, ["$SYS/#", "#"]}),
     {allow, all} = compile({allow, all}),
-    {deny, all} = compile({deny, all}).
+    {deny, all} = compile({deny, all}),
+    {error, bad_rule} = compile({test, malformed}).
 
 match_rule(_) ->
     User = #{client_id => <<"testClient">>, username => <<"TestUser">>, peername => {{127,0,0,1}, 2948}},
