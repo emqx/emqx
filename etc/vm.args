@@ -10,19 +10,19 @@
 ## such as `node.name` for `-name` and `node.cooke` for `-setcookie`.
 
 ## Sets the maximum number of simultaneously existing processes for this system.
-+P 256000
+#+P 256000
 
 ## Sets the maximum number of simultaneously existing ports for this system.
-+Q 262144
+#+Q 262144
 
 ## Sets the maximum number of ETS tables
-+e 256000
+#+e 256000
 
 ## Sets the maximum number of atoms the virtual machine can handle.
 #+t 1048576
 
 ## Set the location of crash dumps
--env ERL_CRASH_DUMP {{ platform_log_dir }}/crash.dump
+#-env ERL_CRASH_DUMP {{ platform_log_dir }}/crash.dump
 
 ## Set how many times generational garbages collections can be done without
 ## forcing a fullsweep collection.
@@ -46,13 +46,13 @@
 #-kernel net_ticktime 60
 
 ## Sets the distribution buffer busy limit (dist_buf_busy_limit).
-+zdbbl 8192
+#+zdbbl 8192
 
 ## Sets default scheduler hint for port parallelism.
 +spp true
 
 ## Sets the number of threads in async thread pool. Valid range is 0-1024.
-+A 8
+#+A 8
 
 ## Sets the default heap size of processes to the size Size.
 #+hms 233
