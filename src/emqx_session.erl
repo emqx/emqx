@@ -965,7 +965,7 @@ ensure_will_delay_timer(State = #state{will_msg = #message{headers = #{'Will-Del
     State#state{will_delay_timer = emqx_misc:start_timer(WillDelayInterval * 1000, will_delay)};
 ensure_will_delay_timer(State = #state{will_msg = WillMsg}) ->
     send_willmsg(WillMsg),
-    State.
+    State#state{will_msg = undefined}.
 
 ensure_stats_timer(State = #state{enable_stats = true, stats_timer = undefined,
                                   idle_timeout = IdleTimeout}) ->
