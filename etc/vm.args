@@ -10,10 +10,10 @@
 ## such as `node.name` for `-name` and `node.cooke` for `-setcookie`.
 
 ## Sets the maximum number of simultaneously existing processes for this system.
-#+P 256000
+#+P 2048000
 
 ## Sets the maximum number of simultaneously existing ports for this system.
-#+Q 262144
+#+Q 1024000
 
 ## Sets the maximum number of ETS tables
 #+e 256000
