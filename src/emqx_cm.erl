@@ -42,7 +42,7 @@
 -define(CONN_ATTRS_TAB, emqx_conn_attrs).
 -define(CONN_STATS_TAB, emqx_conn_stats).
 
--define(BATCH_SIZE, 10000).
+-define(BATCH_SIZE, 100000).
 
 %% @doc Start the connection manager.
 -spec(start_link() -> emqx_types:startlink_ret()).
