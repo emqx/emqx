@@ -224,8 +224,6 @@ received(Packet = ?PACKET(Type), PState) ->
                 {Packet1, PState2} ->
                     process_packet(Packet1, inc_stats(recv, Type, PState2))
             end
-            % {Packet1, PState2} = preprocess_properties(Packet, PState1),
-            % process_packet(Packet1, inc_stats(recv, Type, PState2))
     catch
         error : protocol_error ->
             deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState1),
