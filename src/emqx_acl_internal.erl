@@ -63,9 +63,7 @@ load_rules_from_file(AclFile) ->
             emqx_logger:error("[ACL_INTERNAL] Failed to read ~s: ~p", [AclFile, Reason]),
             {error, Reason}
     end.
-
-filter(_PubSub, {error, _}) ->
-    false;   
+  
 filter(_PubSub, {allow, all}) ->
     true;
 filter(_PubSub, {deny, all}) ->
