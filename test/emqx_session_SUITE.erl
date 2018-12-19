@@ -53,7 +53,7 @@ t_session_all(_) ->
     emqx_session:subscribe(SPid, [{<<"topic">>, #{qos => 2}}]),
     emqx_session:subscribe(SPid, [{<<"topic">>, #{qos => 1}}]),
     timer:sleep(200),
-    [{<<"topic">>, _}] = emqx:subscriptions({SPid, <<"ClientId">>}),
+    [{<<"topic">>, _}] = emqx:subscriptions(SPid),
     emqx_session:publish(SPid, 1, Message1),
     timer:sleep(200),
     {publish, 1, _} = emqx_mock_client:get_last_message(ConnPid),
@@ -76,5 +76,5 @@ t_session_all(_) ->
     1 = proplists:get_value(subscriptions_count, Stats),
     emqx_session:unsubscribe(SPid, [<<"topic">>]),
     timer:sleep(200),
-    [] = emqx:subscriptions({SPid, <<"clientId">>}),
+    [] = emqx:subscriptions(SPid),
     emqx_mock_client:close_session(ConnPid).
