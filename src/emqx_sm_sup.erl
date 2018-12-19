@@ -26,25 +26,40 @@ start_link() ->
 
 init([]) ->
     %% Session locker
-    Locker = #{id       => locker,
-               start    => {emqx_sm_locker, start_link, []},
-               restart  => permanent,
+    Locker = #{id => locker,
+               start => {emqx_sm_locker, start_link, []},
+               restart => permanent,
                shutdown => 5000,
-               type     => worker,
-               modules  => [emqx_sm_locker]},
+               type => worker,
+               modules => [emqx_sm_locker]
+              },
     %% Session registry
-    Registry = #{id       => registry,
-                 start    => {emqx_sm_registry, start_link, []},
-                 restart  => permanent,
+    Registry = #{id => registry,
+                 start => {emqx_sm_registry, start_link, []},
+                 restart => permanent,
                  shutdown => 5000,
-                 type     => worker,
-                 modules  => [emqx_sm_registry]},
+                 type => worker,
+                 modules => [emqx_sm_registry]
+                },
     %% Session Manager
-    Manager = #{id       => manager,
-                start    => {emqx_sm, start_link, []},
-                restart  => permanent,
+    Manager = #{id => manager,
+                start => {emqx_sm, start_link, []},
+                restart => permanent,
                 shutdown => 5000,
-                type     => worker,
-                modules  => [emqx_sm]},
-    {ok, {{rest_for_one, 10, 3600}, [Locker, Registry, Manager]}}.
+                type => worker,
+                modules => [emqx_sm]
+               },
+    %% Session Sup
+    SessSpec = #{start => {emqx_session, start_link, []},
+                 shutdown => brutal_kill,
+                 clean_down => fun emqx_sm:clean_down/1
+                },
+    SessionSup = #{id => session_sup,
+                   start => {emqx_session_sup, start_link, [SessSpec ]},
+                   restart => transient,
+                   shutdown => infinity,
+                   type => supervisor,
+                   modules => [emqx_session_sup]
+                  },
+    {ok, {{rest_for_one, 10, 3600}, [Locker, Registry, Manager, SessionSup]}}.
 

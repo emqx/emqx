@@ -37,6 +37,9 @@
 %% Internal function for stats
 -export([stats_fun/0]).
 
+%% Internal function for emqx_session_sup
+-export([clean_down/1]).
+
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
@@ -60,7 +63,7 @@ start_link() ->
 open_session(SessAttrs = #{clean_start := true, client_id := ClientId, conn_pid := ConnPid}) ->
     CleanStart = fun(_) ->
                      ok = discard_session(ClientId, ConnPid),
-                     emqx_session:start_link(SessAttrs)
+                     emqx_session_sup:start_session(SessAttrs)
                  end,
     emqx_sm_locker:trans(ClientId, CleanStart);
 
@@ -70,7 +73,7 @@ open_session(SessAttrs = #{clean_start := false, client_id := ClientId}) ->
                           {ok, SessPid} ->
                               {ok, SessPid, true};
                           {error, not_found} ->
-                              emqx_session:start_link(SessAttrs)
+                              emqx_session_sup:start_session(SessAttrs)
                       end
                   end,
     emqx_sm_locker:trans(ClientId, ResumeStart).
@@ -130,8 +133,7 @@ register_session(ClientId) when is_binary(ClientId) ->
 register_session(ClientId, SessPid) when is_binary(ClientId), is_pid(SessPid) ->
     Session = {ClientId, SessPid},
     true = ets:insert(?SESSION_TAB, Session),
-    ok = emqx_sm_registry:register_session(Session),
-    notify({registered, ClientId, SessPid}).
+    emqx_sm_registry:register_session(Session).
 
 %% @doc Unregister a session
 -spec(unregister_session(emqx_types:client_id()) -> ok).
@@ -140,11 +142,7 @@ unregister_session(ClientId) when is_binary(ClientId) ->
 
 -spec(unregister_session(emqx_types:client_id(), pid()) -> ok).
 unregister_session(ClientId, SessPid) when is_binary(ClientId), is_pid(SessPid) ->
-    ok = do_unregister_session({ClientId, SessPid}),
-    notify({unregistered, SessPid}).
-
-%% @private
-do_unregister_session(Session) ->
+    Session = {ClientId, SessPid},
     true = ets:delete(?SESSION_STATS_TAB, Session),
     true = ets:delete(?SESSION_ATTRS_TAB, Session),
     true = ets:delete_object(?SESSION_P_TAB, Session),
@@ -214,9 +212,6 @@ dispatch(ClientId, Topic, Msg) ->
             emqx_hooks:run('message.dropped', [#{client_id => ClientId}, Msg])
     end.
 
-notify(Event) ->
-    gen_server:cast(?SM, {notify, Event}).
-
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
@@ -228,28 +223,15 @@ init([]) ->
     ok = emqx_tables:new(?SESSION_ATTRS_TAB, TabOpts),
     ok = emqx_tables:new(?SESSION_STATS_TAB, TabOpts),
     ok = emqx_stats:update_interval(sess_stats, fun ?MODULE:stats_fun/0),
-    {ok, #{sess_pmon => emqx_pmon:new()}}.
+    {ok, #{}}.
 
 handle_call(Req, _From, State) ->
     emqx_logger:error("[SM] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
-handle_cast({notify, {registered, ClientId, SessPid}}, State = #{sess_pmon := PMon}) ->
-    {noreply, State#{sess_pmon := emqx_pmon:monitor(SessPid, ClientId, PMon)}};
-
-handle_cast({notify, {unregistered, SessPid}}, State = #{sess_pmon := PMon}) ->
-    {noreply, State#{sess_pmon := emqx_pmon:demonitor(SessPid, PMon)}};
-
 handle_cast(Msg, State) ->
     emqx_logger:error("[SM] unexpected cast: ~p", [Msg]),
     {noreply, State}.
-
-handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{sess_pmon := PMon}) ->
-    SessPids = [Pid | emqx_misc:drain_down(?BATCH_SIZE)],
-    {Items, PMon1} = emqx_pmon:erase_all(SessPids, PMon),
-    ok = emqx_pool:async_submit(
-           fun lists:foreach/2, [fun clean_down/1, Items]),
-    {noreply, State#{sess_pmon := PMon1}};
 
 handle_info(Info, State) ->
     emqx_logger:error("[SM] unexpected info: ~p", [Info]),
@@ -265,12 +247,11 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-clean_down({SessPid, ClientId}) ->
-    Session = {ClientId, SessPid},
+clean_down(Session = {ClientId, SessPid}) ->
     case ets:member(?SESSION_TAB, ClientId)
          orelse ets:member(?SESSION_ATTRS_TAB, Session) of
         true ->
-            do_unregister_session(Session);
+            unregister_session(ClientId, SessPid);
         false -> ok
     end.
 
