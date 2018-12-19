@@ -31,7 +31,7 @@
                  topic_alias_maximum => 0,
                  will_msg            => undefined}).
 
-all() -> [t_open_close_session, t_open_session, t_close_session, t_resume_session, t_discard_session, t_register_session,
+all() -> [t_open_session, t_close_session, t_resume_session, t_discard_session, t_register_session,
           t_unregister_session, t_set_session_attrs, t_get_session_attrs, t_get_session_stats, t_set_session_stats, t_lookup_session_pids].
 
 t_open_session(_) ->
