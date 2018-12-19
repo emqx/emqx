@@ -179,15 +179,15 @@ websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
                     websocket_handle({binary, Rest}, reset_parser(State#state{proto_state = ProtoState1}));
                 {error, Error} ->
                     ?LOG(error, "Protocol error - ~p", [Error]),
-                    stop(Error, State);
+                    shutdown(Error, State);
                 {error, Reason, ProtoState1} ->
                     shutdown(Reason, State#state{proto_state = ProtoState1});
                 {stop, Error, ProtoState1} ->
-                    stop(Error, State#state{proto_state = ProtoState1})
+                    shutdown(Error, State#state{proto_state = ProtoState1})
             end;
         {error, Error} ->
             ?LOG(error, "Frame error: ~p", [Error]),
-            stop(Error, State);
+            shutdown(Error, State);
         {'EXIT', Reason} ->
             ?LOG(error, "Frame error:~p~nFrame data: ~p", [Reason, Data]),
             shutdown(parse_error, State)
@@ -298,9 +298,6 @@ ensure_stats_timer(State) ->
 
 shutdown(Reason, State) ->
     {stop, State#state{shutdown = Reason}}.
-
-stop(Error, State) ->
-    {stop, State#state{shutdown = Error}}.
 
 wsock_stats() ->
     [{Key, get(Key)} || Key <- ?SOCK_STATS].

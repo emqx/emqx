@@ -60,6 +60,7 @@
           is_bridge,
           enable_ban,
           enable_acl,
+          acl_deny_action,
           recv_stats,
           send_stats,
           connected,
@@ -84,28 +85,29 @@
 -spec(init(map(), list()) -> state()).
 init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options) ->
     Zone = proplists:get_value(zone, Options),
-    #pstate{zone          =  Zone,
-            sendfun       =  SendFun,
-            peername      =  Peername,
-            peercert      =  Peercert,
-            proto_ver     =  ?MQTT_PROTO_V4,
-            proto_name    =  <<"MQTT">>,
-            client_id     =  <<>>,
-            is_assigned   =  false,
-            conn_pid      =  self(),
-            username      =  init_username(Peercert, Options),
-            is_super      =  false,
-            clean_start   =  false,
-            topic_aliases =  #{},
-            packet_size   =  emqx_zone:get_env(Zone, max_packet_size),
-            mountpoint    =  emqx_zone:get_env(Zone, mountpoint),
-            is_bridge     =  false,
-            enable_ban    =  emqx_zone:get_env(Zone, enable_ban, false),
-            enable_acl    =  emqx_zone:get_env(Zone, enable_acl),
-            recv_stats    =  #{msg => 0, pkt => 0},
-            send_stats    =  #{msg => 0, pkt => 0},
-            connected     =  false,
-            ignore_loop   =  emqx_config:get_env(mqtt_ignore_loop_deliver, false)}.
+    #pstate{zone            = Zone,
+            sendfun         = SendFun,
+            peername        = Peername,
+            peercert        = Peercert,
+            proto_ver       = ?MQTT_PROTO_V4,
+            proto_name      = <<"MQTT">>,
+            client_id       = <<>>,
+            is_assigned     = false,
+            conn_pid        = self(),
+            username        = init_username(Peercert, Options),
+            is_super        = false,
+            clean_start     = false,
+            topic_aliases   = #{},
+            packet_size     = emqx_zone:get_env(Zone, max_packet_size),
+            mountpoint      = emqx_zone:get_env(Zone, mountpoint),
+            is_bridge       = false,
+            enable_ban      = emqx_zone:get_env(Zone, enable_ban, false),
+            enable_acl      = emqx_zone:get_env(Zone, enable_acl),
+            acl_deny_action = emqx_zone:get_env(Zone, acl_deny_action, ignore),
+            recv_stats      = #{msg => 0, pkt => 0},
+            send_stats      = #{msg => 0, pkt => 0},
+            connected       = false,
+            ignore_loop     = emqx_config:get_env(mqtt_ignore_loop_deliver, false)}.
 
 init_username(Peercert, Options) ->
     case proplists:get_value(peer_cert_as_username, Options) of
@@ -341,13 +343,10 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PSt
     case check_publish(Packet, PState) of
         {ok, PState1} ->
             do_publish(Packet, PState1);
-        {error, ?RC_TOPIC_ALIAS_INVALID} ->
-            ?LOG(error, "Protocol error - ~p", [?RC_TOPIC_ALIAS_INVALID]),
-            {error, ?RC_TOPIC_ALIAS_INVALID, PState};
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos0 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
-            {error, ReasonCode, PState}
+            do_acl_deny_action(Packet, ReasonCode, PState)
     end;
 
 process_packet(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PState) ->
@@ -357,7 +356,12 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PSta
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos1 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
-            deliver({puback, PacketId, ReasonCode}, PState)
+            case deliver({puback, PacketId, ReasonCode}, PState) of
+                {ok, _PState} ->
+                    do_acl_deny_action(Packet, ReasonCode, PState);
+                Error ->
+                    Error
+            end
     end;
 
 process_packet(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PState) ->
@@ -367,7 +371,12 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PSta
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos2 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
-            deliver({pubrec, PacketId, ReasonCode}, PState)
+            case deliver({pubrec, PacketId, ?RC_NOT_AUTHORIZED}, PState) of
+                {ok, _PState} ->
+                    do_acl_deny_action(Packet, ReasonCode, PState);
+                Error ->
+                    Error
+            end
     end;
 
 process_packet(?PUBACK_PACKET(PacketId, ReasonCode), PState = #pstate{session = SPid}) ->
@@ -392,7 +401,7 @@ process_packet(?PUBREL_PACKET(PacketId, ReasonCode), PState = #pstate{session = 
 process_packet(?PUBCOMP_PACKET(PacketId, ReasonCode), PState = #pstate{session = SPid}) ->
     {ok = emqx_session:pubcomp(SPid, PacketId, ReasonCode), PState};
 
-process_packet(?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
+process_packet(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
                PState = #pstate{session = SPid, mountpoint = Mountpoint,
                                 proto_ver = ProtoVer, is_bridge = IsBridge,
                                 ignore_loop = IgnoreLoop}) ->
@@ -419,15 +428,17 @@ process_packet(?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
                     deliver({suback, PacketId, ReasonCodes}, PState)
             end;
         {error, TopicFilters} ->
-            {SubTopics, ReasonCodes} =
-                lists:foldr(fun({Topic, #{rc := ?RC_SUCCESS}}, {Topics, Codes}) ->
+            {ReverseSubTopics, ReverseReasonCodes} =
+                lists:foldl(fun({Topic, #{rc := ?RC_SUCCESS}}, {Topics, Codes}) ->
                                     {[Topic|Topics], [?RC_IMPLEMENTATION_SPECIFIC_ERROR | Codes]};
                                 ({Topic, #{rc := Code}}, {Topics, Codes}) ->
                                     {[Topic|Topics], [Code|Codes]}
                             end, {[], []}, TopicFilters),
+            {SubTopics, ReasonCodes} = {lists:reverse(ReverseSubTopics), lists:reverse(ReverseReasonCodes)},
             ?LOG(warning, "Cannot subscribe ~p for ~p",
                 [SubTopics, [emqx_reason_codes:text(R) || R <- ReasonCodes]]),
-            deliver({suback, PacketId, ReasonCodes}, PState)
+            deliver({suback, PacketId, ReasonCodes}, PState),
+            do_acl_deny_action(Packet, ReasonCodes, PState)
     end;
 
 process_packet(?UNSUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
@@ -674,7 +685,7 @@ set_session_attrs({expiry_interval, #pstate{zone = Zone, proto_ver = ProtoVer, c
                                        false ->
                                            emqx_zone:get_env(Zone, session_expiry_interval, 16#ffffffff)
                                    end
-                           end, SessAttrs);
+                              end, SessAttrs);
 set_session_attrs({topic_alias_maximum, #pstate{zone = Zone, proto_ver = ProtoVer, conn_props = ConnProps}}, SessAttrs) ->
     maps:put(topic_alias_maximum, if
                                     ProtoVer =:= ?MQTT_PROTO_V5 ->
@@ -781,7 +792,6 @@ check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos = QoS, retain = Ret
                #pstate{zone = Zone}) ->
     emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain}).
 
-
 check_pub_acl(_Packet, #pstate{is_super = IsSuper, enable_acl = EnableAcl})
     when IsSuper orelse (not EnableAcl) ->
     ok;
@@ -887,3 +897,32 @@ sp(false) -> 0.
 
 flag(false) -> 0;
 flag(true)  -> 1.
+
+%%------------------------------------------------------------------------------
+%% Execute actions in case acl deny
+
+do_acl_deny_action(?PUBLISH_PACKET(?QOS_0, _Topic, _PacketId, _Payload),
+                   ?RC_NOT_AUTHORIZED, PState = #pstate{acl_deny_action = disconnect}) ->
+    {error, ?RC_NOT_AUTHORIZED, PState};
+
+do_acl_deny_action(?PUBLISH_PACKET(?QOS_1, _Topic, _PacketId, _Payload),
+                   ?RC_NOT_AUTHORIZED, PState = #pstate{acl_deny_action = disconnect}) ->
+    deliver({disconnect, ?RC_NOT_AUTHORIZED}, PState),
+    {error, ?RC_NOT_AUTHORIZED, PState};
+
+do_acl_deny_action(?PUBLISH_PACKET(?QOS_2, _Topic, _PacketId, _Payload),
+                   ?RC_NOT_AUTHORIZED, PState = #pstate{acl_deny_action = disconnect}) ->
+    deliver({disconnect, ?RC_NOT_AUTHORIZED}, PState),
+    {error, ?RC_NOT_AUTHORIZED, PState};
+
+do_acl_deny_action(?SUBSCRIBE_PACKET(_PacketId, _Properties, _RawTopicFilters),
+                   ReasonCodes, PState = #pstate{acl_deny_action = disconnect}) ->
+    case lists:member(?RC_NOT_AUTHORIZED, ReasonCodes) of
+        true ->
+            deliver({disconnect, ?RC_NOT_AUTHORIZED}, PState),
+            {error, ?RC_NOT_AUTHORIZED, PState};
+        false ->
+            {ok, PState}
+    end;
+do_acl_deny_action(_PubSupPacket, _ReasonCode, PState) ->
+    {ok, PState}.

@@ -36,29 +36,33 @@
 all() ->
     [
      {group, mqttv4},
-     {group, mqttv5}].
+     {group, mqttv5},
+     {group, acl}
+    ].
 
 groups() ->
     [{mqttv4,
       [sequence],
-      [
-       connect_v4,
-       subscribe_v4
-      ]},
+      [connect_v4,
+       subscribe_v4]},
      {mqttv5,
       [sequence],
-      [
-       connect_v5,
-       subscribe_v5
-      ]
-     }].
+      [connect_v5,
+       subscribe_v5]},
+     {acl,
+      [sequence],
+      [acl_deny_action]}].
+
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    [start_apps(App, SchemaFile, ConfigFile) ||
+        {App, SchemaFile, ConfigFile}
+            <- [{emqx, deps_path(emqx, "priv/emqx.schema"),
+                       deps_path(emqx, "etc/emqx.conf")}]],
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    application:stop(emqx).
 
 batch_connect(NumberOfConnections) ->
     batch_connect([], NumberOfConnections).
@@ -67,7 +71,7 @@ batch_connect(Socks, 0) ->
     Socks;
 batch_connect(Socks, NumberOfConnections) ->
     {ok, Sock} = emqx_client_sock:connect({127, 0, 0, 1}, 1883,
-                                          [binary, {packet, raw}, {active, false}], 
+                                          [binary, {packet, raw}, {active, false}],
                                           3000),
     batch_connect([Sock | Socks], NumberOfConnections - 1).
 
@@ -77,7 +81,7 @@ with_connection(DoFun, NumberOfConnections) ->
         DoFun(Socks)
     after
         lists:foreach(fun(Sock) ->
-                         emqx_client_sock:close(Sock) 
+                         emqx_client_sock:close(Sock)
                       end, Socks)
     end.
 
@@ -154,7 +158,7 @@ connect_v5(_) ->
                                                  #{'Response-Information' := _RespInfo}), _} =
                                 raw_recv_parse(Data, ?MQTT_PROTO_V5)
                     end),
-    
+
     % test clean start
     with_connection(fun([Sock]) ->
                             emqx_client_sock:send(Sock,
@@ -267,7 +271,7 @@ connect_v5(_) ->
                                                             ?DISCONNECT_PACKET(?RC_DISCONNECT_WITH_WILL_MESSAGE)
                                                         )
                             ),
-                            
+
                             {ok, WillData} = gen_tcp:recv(Sock2, 0),
                             {ok, ?PUBLISH_PACKET(?QOS_1, <<"TopicA">>, _, <<"will message 2">>), _} = raw_recv_parse(WillData, ?MQTT_PROTO_V5),
 
@@ -324,7 +328,7 @@ connect_v5(_) ->
 
                             {ok, SubData1} = gen_tcp:recv(Sock1, 0),
                             {ok, ?SUBACK_PACKET(1, #{}, [2]), _} = raw_recv_parse(SubData1, ?MQTT_PROTO_V5)
-                    end, 2),    
+                    end, 2),
 
     ok.
 
@@ -422,3 +426,66 @@ raw_send_serialize(Packet, Opts) ->
 raw_recv_parse(P, ProtoVersion) ->
     emqx_frame:parse(P, {none, #{max_packet_size => ?MAX_PACKET_SIZE,
                                  version         => ProtoVersion}}).
+
+
+acl_deny_action(_) ->
+    emqx_zone:set_env(external, acl_deny_action, disconnect),
+    process_flag(trap_exit, true),
+    [acl_deny_do_disconnect(publish, QoS, <<"acl_deny_action">>) || QoS <- lists:seq(0, 2)],
+    [acl_deny_do_disconnect(subscribe, QoS, <<"acl_deny_action">>) || QoS <- lists:seq(0, 2)],
+    emqx_zone:set_env(external, acl_deny_action, ignore),
+    ok.
+
+acl_deny_do_disconnect(publish, QoS, Topic) ->
+    {ok, Client} = emqx_client:start_link([{username, <<"emqx">>}]),
+    {ok, _} = emqx_client:connect(Client),
+    emqx_client:publish(Client, Topic, <<"test">>, QoS),
+    receive
+        {'EXIT', Client, _Reason} ->
+            false = is_process_alive(Client)
+    end;
+acl_deny_do_disconnect(subscribe, QoS, Topic) ->
+    {ok, Client} = emqx_client:start_link([{username, <<"emqx">>}]),
+    {ok, _} = emqx_client:connect(Client),
+    try emqx_client:subscribe(Client, Topic, QoS) of
+        _ ->
+            ok
+    catch
+        exit : _Reason ->
+            false = is_process_alive(Client)
+    end.
+
+start_apps(App, SchemaFile, ConfigFile) ->
+    read_schema_configs(App, SchemaFile, ConfigFile),
+    set_special_configs(App),
+    application:ensure_all_started(App).
+
+read_schema_configs(App, SchemaFile, ConfigFile) ->
+    Schema = cuttlefish_schema:files([SchemaFile]),
+    Conf = conf_parse:file(ConfigFile),
+    NewConfig = cuttlefish_generator:map(Schema, Conf),
+    Vals = proplists:get_value(App, NewConfig, []),
+    [application:set_env(App, Par, Value) || {Par, Value} <- Vals].
+
+set_special_configs(emqx) ->
+    application:set_env(emqx, enable_acl_cache, false),
+    application:set_env(emqx, plugins_loaded_file,
+                        deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins")),
+    application:set_env(emqx, acl_deny_action, disconnect),
+    application:set_env(emqx, acl_file,
+                        deps_path(emqx, "test/emqx_access_SUITE_data/acl_deny_action.conf"));
+set_special_configs(_App) ->
+    ok.
+
+deps_path(App, RelativePath) ->
+    %% Note: not lib_dir because etc dir is not sym-link-ed to _build dir
+    %% but priv dir is
+    Path0 = code:priv_dir(App),
+    Path = case file:read_link(Path0) of
+               {ok, Resolved} -> Resolved;
+               {error, _} -> Path0
+           end,
+    filename:join([Path, "..", RelativePath]).
+
+local_path(RelativePath) ->
+    deps_path(emqx_auth_username, RelativePath).
