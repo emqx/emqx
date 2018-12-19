@@ -16,6 +16,8 @@
 
 -export([print/1, print/2, usage/1, usage/2]).
 
+-ifdef(TEST).
+
 print(Msg) ->
     io:format(Msg).
 
@@ -27,6 +29,22 @@ usage(CmdList) ->
       fun({Cmd, Descr}) ->
         io:format("~-48s# ~s~n", [Cmd, Descr])
       end, CmdList).
+
+-else.
+
+print(Msg) ->
+    io_lib:format("~s", [Msg]).
+
+print(Format, Args) ->
+    io_lib:format(Format, Args).
+
+usage(CmdList) ->
+    lists:map(
+      fun({Cmd, Descr}) ->
+        io_lib:format("~-48s# ~s~n", [Cmd, Descr])
+      end, CmdList).
+
+-endif.
 
 usage(Format, Args) ->
     usage([{Format, Args}]).
