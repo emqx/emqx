@@ -482,7 +482,7 @@ handle_cast({unsubscribe, From, {PacketId, _Properties, TopicFilters}},
         lists:foldr(fun({Topic, _SubOpts}, {Acc, SubMap}) ->
                             case maps:find(Topic, SubMap) of
                                 {ok, SubOpts} ->
-                                    ok = emqx_broker:unsubscribe(Topic, ClientId),
+                                    ok = emqx_broker:unsubscribe(Topic),
                                     emqx_hooks:run('session.unsubscribed', [#{client_id => ClientId}, Topic, SubOpts]),
                                     {[?RC_SUCCESS|Acc], maps:remove(Topic, SubMap)};
                                 error ->
