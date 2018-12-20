@@ -18,6 +18,8 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
+
+-define(LOG_HEADER, "[MQTT]").
 -include("logger.hrl").
 
 -export([start_link/3]).
@@ -48,7 +50,6 @@
           idle_timeout
          }).
 
--define(LOG_HEADER, "[TCP]").
 -define(DEFAULT_ACTIVE_N, 100).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
