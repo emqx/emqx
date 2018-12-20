@@ -16,7 +16,7 @@
 
 -export([print/1, print/2, usage/1, usage/2]).
 
--ifdef(TEST).
+-ifndef(TEST).
 
 print(Msg) ->
     io:format(Msg).
