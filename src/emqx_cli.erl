@@ -33,15 +33,15 @@ usage(CmdList) ->
 -else.
 
 print(Msg) ->
-    io_lib:format("~s", [Msg]).
+    lists:flatten(io_lib:format("~s", [Msg])).
 
 print(Format, Args) ->
-    io_lib:format(Format, Args).
+    lists:flatten(io_lib:format(Format, Args)).
 
 usage(CmdList) ->
     lists:map(
       fun({Cmd, Descr}) ->
-        io_lib:format("~-48s# ~s~n", [Cmd, Descr])
+        lists:flatten(io_lib:format("~-48s# ~s~n", [Cmd, Descr]))
       end, CmdList).
 
 -endif.
