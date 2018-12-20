@@ -40,10 +40,10 @@
           active_n,
           proto_state,
           parser_state,
+          gc_state,
           keepalive,
           enable_stats,
           stats_timer,
-          incoming,
           rate_limit,
           pub_limit,
           limit_timer,
@@ -138,6 +138,8 @@ init([Transport, RawSocket, Options]) ->
                                               peercert => Peercert,
                                               sendfun  => SendFun}, Options),
             ParserState = emqx_protocol:parser(ProtoState),
+            GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
+            GcState = emqx_gc:init(GcPolicy),
             State = run_socket(#state{transport    = Transport,
                                       socket       = Socket,
                                       peername     = Peername,
@@ -147,11 +149,10 @@ init([Transport, RawSocket, Options]) ->
                                       pub_limit    = PubLimit,
                                       proto_state  = ProtoState,
                                       parser_state = ParserState,
+                                      gc_state     = GcState,
                                       enable_stats = EnableStats,
                                       idle_timeout = IdleTimout
                                      }),
-            GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
-            ok = emqx_gc:init(GcPolicy),
             ok = emqx_misc:init_proc_mng_policy(Zone),
             emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
             gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}],
@@ -205,9 +206,8 @@ handle_cast(Msg, State) ->
 handle_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
     case emqx_protocol:deliver(PubOrAck, ProtoState) of
         {ok, ProtoState1} ->
-            State1 = ensure_stats_timer(State#state{proto_state = ProtoState1}),
-            ok = maybe_gc(State1, PubOrAck),
-            {noreply, State1};
+            State1 = State#state{proto_state = ProtoState1},
+            {noreply, maybe_gc(PubOrAck, ensure_stats_timer(State1))};
         {error, Reason} ->
             shutdown(Reason, State)
     end;
@@ -247,11 +247,10 @@ handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
 
 handle_info({tcp, _Sock, Data}, State) ->
     ?LOG(debug, "RECV ~p", [Data]),
-    Size = iolist_size(Data),
-    emqx_metrics:trans(inc, 'bytes/received', Size),
-    emqx_pd:update_counter(incoming_bytes, Size),
-    Incoming = #{bytes => Size, packets => 0},
-    handle_packet(Data, State#state{incoming = Incoming});
+    Oct = iolist_size(Data),
+    emqx_pd:update_counter(incoming_bytes, Oct),
+    emqx_metrics:trans(inc, 'bytes/received', Oct),
+    handle_packet(Data, maybe_gc({1, Oct}, State));
 
 %% Rate limit here, cool:)
 handle_info({tcp_passive, _Sock}, State) ->
@@ -325,9 +324,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% Receive and parse data
 handle_packet(<<>>, State) ->
-    NState = ensure_stats_timer(State),
-    ok = maybe_gc(NState, incoming),
-    {noreply, NState};
+    {noreply, ensure_stats_timer(State)};
 
 handle_packet(Data, State = #state{proto_state  = ProtoState,
                                    parser_state = ParserState,
@@ -407,14 +404,15 @@ shutdown(Reason, State) ->
 stop(Reason, State) ->
     {stop, Reason, State}.
 
-%% For incoming messages, bump gc-stats with packet count and totoal volume
-%% For outgoing messages, only 'publish' type is taken into account.
-maybe_gc(#state{incoming = #{bytes := Oct, packets := Cnt}}, incoming) ->
-    ok = emqx_gc:inc(Cnt, Oct);
-maybe_gc(#state{}, {publish, _PacketId, #message{payload = Payload}}) ->
+maybe_gc(_, State = #state{gc_state = undefined}) ->
+    State;
+maybe_gc({publish, _PacketId, #message{payload = Payload}}, State) ->
     Oct = iolist_size(Payload),
-    ok = emqx_gc:inc(1, Oct);
-maybe_gc(_, _) ->
-    ok.
+    maybe_gc({1, Oct}, State);
+maybe_gc({Cnt, Oct}, State = #state{gc_state = GCSt}) ->
+    {_, GCSt1} = emqx_gc:run(Cnt, Oct, GCSt),
+    State#state{gc_state = GCSt1};
+maybe_gc(_, State) ->
+    State.
 
 
