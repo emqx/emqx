@@ -1,3 +1,4 @@
+
 %% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,57 +23,49 @@
 
 -include("emqx_mqtt.hrl").
 
-all() -> [t_register_connection, t_unregister_connection, t_get_conn_attrs, t_set_conn_attrs,
-          t_get_conn_stats, t_set_conn_stats, t_lookup_conn_pid].
+all() -> [{group, cm}].
 
-t_register_connection(_) ->
-    {ok, _} = emqx_cm_sup:start_link(),
-    Pid = self(),
-    ?assertEqual(ok, emqx_cm:register_connection(<<"conn1">>)),
-    ?assertEqual(ok, emqx_cm:register_connection(<<"conn2">>, Pid)).
+groups() ->
+    [{cm, [non_parallel_tests],
+      [t_get_set_conn_attrs,
+       t_get_set_conn_stats,
+       t_lookup_conn_pid]}].
 
-t_unregister_connection(_) ->
-    {ok, _} = emqx_cm_sup:start_link(),
-    Pid = self(),
-    emqx_cm:register_connection(<<"conn1">>),
-    emqx_cm:register_connection(<<"conn2">>, Pid),
-    ?assertEqual(ok, emqx_cm:unregister_connection(<<"conn1">>)),
-    ?assertEqual(ok, emqx_cm:unregister_connection(<<"conn2">>, Pid)).
+init_per_suite(Config) ->
+    emqx_ct_broker_helpers:run_setup_steps(),
+    Config.
 
-t_get_conn_attrs(_) ->
-    {ok, _} = emqx_cm_sup:start_link(),
-    ok = emqx_cm:register_connection(<<"conn1">>),
-    Pid = self(),
-    true = emqx_cm:set_conn_attrs(<<"conn1">>, [{port, 8080}, {ip, "192.168.0.1"}]),
-    true = emqx_cm:set_conn_attrs(<<"conn2">>, Pid, [{port, 8080}, {ip, "192.168.0.1"}]),
+end_per_suite(_Config) ->
+    emqx_ct_broker_helpers:run_teardown_steps().
+
+init_per_testcase(_TestCase, Config) ->
+    register_connection(),
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    unregister_connection(),
+    ok.
+
+t_get_set_conn_attrs(_) ->
+    ?assert(emqx_cm:set_conn_attrs(<<"conn1">>, [{port, 8080}, {ip, "192.168.0.1"}])),
+    ?assert(emqx_cm:set_conn_attrs(<<"conn2">>, self(), [{port, 8080}, {ip, "192.168.0.2"}])),
     ?assertEqual([{port, 8080}, {ip, "192.168.0.1"}], emqx_cm:get_conn_attrs(<<"conn1">>)),
-    ?assertEqual([{port, 8080}, {ip, "192.168.0.1"}], emqx_cm:get_conn_attrs(<<"conn1">>, Pid)).
+    ?assertEqual([{port, 8080}, {ip, "192.168.0.2"}], emqx_cm:get_conn_attrs(<<"conn2">>, self())).
 
-t_set_conn_attrs(_) ->
-    {ok, _} = emqx_cm_sup:start_link(),
-    ok = emqx_cm:register_connection(<<"conn1">>),
-    Pid = self(),
-    ?assertEqual(true, emqx_cm:set_conn_attrs(<<"conn1">>, [{port, 8080}, {ip, "192.168.0.1"}])),
-    ?assertEqual(true, emqx_cm:set_conn_attrs(<<"conn2">>, Pid, [{port, 8080}, {ip, "192.168.0.1"}])).
-
-t_get_conn_stats(_) ->
-    {ok, _} = emqx_cm_sup:start_link(),
-    ok = emqx_cm:register_connection(<<"conn1">>),
-    Pid = self(),
-    true = emqx_cm:set_conn_stats(<<"conn1">>, [{count, 1}, {max, 2}]),
-    true = emqx_cm:set_conn_stats(<<"conn2">>, Pid, [{count, 1}, {max, 2}]),
+t_get_set_conn_stats(_) ->
+    ?assert(emqx_cm:set_conn_stats(<<"conn1">>, [{count, 1}, {max, 2}])),
+    ?assert(emqx_cm:set_conn_stats(<<"conn2">>, self(), [{count, 1}, {max, 2}])),
     ?assertEqual([{count, 1}, {max, 2}], emqx_cm:get_conn_stats(<<"conn1">>)),
-    ?assertEqual([{count, 1}, {max, 2}], emqx_cm:get_conn_stats(<<"conn2">>, Pid)).
-
-t_set_conn_stats(_) ->
-    {ok, _} = emqx_cm_sup:start_link(),
-    ok = emqx_cm:register_connection(<<"conn1">>),
-    Pid = self(),
-    ?assertEqual(true, emqx_cm:set_conn_stats(<<"conn2">>, [{count, 1}, {max, 2}])),
-    ?assertEqual(true, emqx_cm:set_conn_stats(<<"conn2">>, Pid, [{count, 1}, {max, 2}])).
+    ?assertEqual([{count, 1}, {max, 2}], emqx_cm:get_conn_stats(<<"conn2">>, self())).
 
 t_lookup_conn_pid(_) ->
-    {ok, _} = emqx_cm_sup:start_link(),
-    Pid = self(),
-    ok = emqx_cm:register_connection(<<"conn1">>, Pid),
-    ?assertEqual(Pid, emqx_cm:lookup_conn_pid(<<"conn1">>)).
+    ?assertEqual(ok, emqx_cm:register_connection(<<"conn1">>, self())),
+    ?assertEqual(self(), emqx_cm:lookup_conn_pid(<<"conn1">>)).
+
+register_connection() ->
+    ?assertEqual(ok, emqx_cm:register_connection(<<"conn1">>)),
+    ?assertEqual(ok, emqx_cm:register_connection(<<"conn2">>, self())).
+
+unregister_connection() ->
+    ?assertEqual(ok, emqx_cm:unregister_connection(<<"conn1">>)),
+    ?assertEqual(ok, emqx_cm:unregister_connection(<<"conn2">>, self())).
