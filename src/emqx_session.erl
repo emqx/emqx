@@ -144,6 +144,9 @@
           %% Enqueue stats
           enqueue_stats = 0,
 
+          %% GC State
+          gc_state,
+
           %% Created at
           created_at :: erlang:timestamp(),
 
@@ -344,6 +347,7 @@ init([Parent, #{zone            := Zone,
     process_flag(trap_exit, true),
     true = link(ConnPid),
     emqx_logger:set_metadata_client_id(ClientId),
+    GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
     IdleTimout = get_env(Zone, idle_timeout, 30000),
     State = #state{idle_timeout      = IdleTimout,
                    clean_start       = CleanStart,
@@ -364,6 +368,7 @@ init([Parent, #{zone            := Zone,
                    enable_stats      = get_env(Zone, enable_stats, true),
                    deliver_stats     = 0,
                    enqueue_stats     = 0,
+                   gc_state          = emqx_gc:init(GcPolicy),
                    created_at        = os:timestamp(),
                    will_msg          = WillMsg
                   },
@@ -371,8 +376,6 @@ init([Parent, #{zone            := Zone,
     true = emqx_sm:set_session_attrs(ClientId, attrs(State)),
     true = emqx_sm:set_session_stats(ClientId, stats(State)),
     emqx_hooks:run('session.created', [#{client_id => ClientId}, info(State)]),
-    GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
-    ok = emqx_gc:init(GcPolicy),
     ok = emqx_misc:init_proc_mng_policy(Zone),
     ok = proc_lib:init_ack(Parent, {ok, self()}),
     gen_server:enter_loop(?MODULE, [{hibernate_after, IdleTimout}], State).
@@ -605,7 +608,9 @@ handle_info({timeout, Timer, check_awaiting_rel}, State = #state{await_rel_timer
     noreply(ensure_stats_timer(expire_awaiting_rel(State1)));
 
 handle_info({timeout, Timer, emit_stats},
-            State = #state{client_id = ClientId, stats_timer = Timer}) ->
+            State = #state{client_id = ClientId,
+                           stats_timer = Timer,
+                           gc_state = GcState}) ->
     emqx_metrics:commit(),
     _ = emqx_sm:set_session_stats(ClientId, stats(State)),
     NewState = State#state{stats_timer = undefined},
@@ -614,8 +619,9 @@ handle_info({timeout, Timer, emit_stats},
         continue ->
             {noreply, NewState};
         hibernate ->
-            ok = emqx_gc:reset(), %% going to hibernate, reset gc stats
-            {noreply, NewState, hibernate};
+            %% going to hibernate, reset gc stats
+            GcState1 = emqx_gc:reset(GcState),
+            {noreply, NewState#state{gc_state = GcState1}, hibernate};
         {shutdown, Reason} ->
             ?LOG(warning, "shutdown due to ~p", [Reason], NewState),
             shutdown(Reason, NewState)
@@ -991,9 +997,8 @@ next_pkt_id(State = #state{next_pkt_id = Id}) ->
 %% Inc stats
 
 inc_stats(deliver, Msg, State = #state{deliver_stats = I}) ->
-    MsgSize = msg_size(Msg),
-    ok = emqx_gc:inc(1, MsgSize),
-    State#state{deliver_stats = I + 1};
+    State1 = maybe_gc({1, msg_size(Msg)}, State),
+    State1#state{deliver_stats = I + 1};
 inc_stats(enqueue, _Msg, State = #state{enqueue_stats = I}) ->
     State#state{enqueue_stats = I + 1}.
 
@@ -1017,4 +1022,10 @@ noreply(State) ->
 
 shutdown(Reason, State) ->
     {stop, Reason, State}.
+
+maybe_gc(_, State = #state{gc_state = undefined}) ->
+    State;
+maybe_gc({Cnt, Oct}, State = #state{gc_state = GCSt}) ->
+    {_, GCSt1} = emqx_gc:run(Cnt, Oct, GCSt),
+    State#state{gc_state = GCSt1}.
 
