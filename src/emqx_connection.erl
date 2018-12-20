@@ -248,12 +248,13 @@ handle_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
 handle_info({tcp, _Sock, Data}, State) ->
     ?LOG(debug, "RECV ~p", [Data]),
     Oct = iolist_size(Data),
+    emqx_pd:update_counter(incoming_bytes, Oct),
     emqx_metrics:trans(inc, 'bytes/received', Oct),
     handle_packet(Data, maybe_gc({1, Oct}, State));
 
 %% Rate limit here, cool:)
 handle_info({tcp_passive, _Sock}, State) ->
-    {noreply, ensure_rate_limit(State)};
+    {noreply, run_socket(ensure_rate_limit(State))};
 
 handle_info({tcp_error, _Sock, Reason}, State) ->
     shutdown(Reason, State);
@@ -333,10 +334,10 @@ handle_packet(Data, State = #state{proto_state  = ProtoState,
             {noreply, State#state{parser_state = ParserState1}, IdleTimeout};
         {ok, Packet = ?PACKET(Type), Rest} ->
             emqx_metrics:received(Packet),
+            (Type == ?PUBLISH) andalso emqx_pd:update_counter(incoming_pubs, 1),
             case emqx_protocol:received(Packet, ProtoState) of
                 {ok, ProtoState1} ->
-                    NewState = State#state{proto_state = ProtoState1},
-                    handle_packet(Rest, reset_parser(NewState));
+                    handle_packet(Rest, reset_parser(State#state{proto_state = ProtoState1}));
                 {error, Reason} ->
                     ?LOG(error, "Process packet error - ~p", [Reason]),
                     shutdown(Reason, State);
@@ -362,16 +363,16 @@ reset_parser(State = #state{proto_state = ProtoState}) ->
 %%------------------------------------------------------------------------------
 
 ensure_rate_limit(State = #state{rate_limit = Rl, pub_limit = Pl}) ->
-    Packets = Bytes = 0, %%FIXME Later
-    ensure_rate_limit([{Pl, #state.pub_limit, Packets},
-                       {Rl, #state.rate_limit, Bytes}], State).
+    Limiters = [{Pl, #state.pub_limit, emqx_pd:reset_counter(incoming_pubs)},
+                {Rl, #state.rate_limit, emqx_pd:reset_counter(incoming_bytes)}],
+    ensure_rate_limit(Limiters, State).
 
 ensure_rate_limit([], State) ->
-    run_socket(State);
-ensure_rate_limit([{undefined, _Pos, _Num}|Limiters], State) ->
+    State;
+ensure_rate_limit([{undefined, _Pos, _Cnt}|Limiters], State) ->
     ensure_rate_limit(Limiters, State);
-ensure_rate_limit([{Rl, Pos, Num}|Limiters], State) ->
-   case esockd_rate_limit:check(Num, Rl) of
+ensure_rate_limit([{Rl, Pos, Cnt}|Limiters], State) ->
+   case esockd_rate_limit:check(Cnt, Rl) of
        {0, Rl1} ->
            ensure_rate_limit(Limiters, setelement(Pos, State, Rl1));
        {Pause, Rl1} ->
@@ -413,4 +414,5 @@ maybe_gc({Cnt, Oct}, State = #state{gc_state = GCSt}) ->
     State#state{gc_state = GCSt1};
 maybe_gc(_, State) ->
     State.
+
 
