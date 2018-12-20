@@ -19,9 +19,8 @@
 -compile(nowarn_export_all).
 
 -include("emqx.hrl").
--include_lib("eunit/include/eunit.hrl").
-
 -include("emqx_mqtt.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 all() -> [{group, cm}].
 

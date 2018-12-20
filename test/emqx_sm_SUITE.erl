@@ -17,8 +17,6 @@
 -include("emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--include("emqx.hrl").
-
 -compile(export_all).
 -compile(nowarn_export_all).
 
