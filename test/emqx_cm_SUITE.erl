@@ -18,6 +18,7 @@
 -compile(nowarn_export_all).
 
 -include("emqx_mqtt.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 all() -> [t_register_unregister_connection].
 
@@ -25,7 +26,7 @@ t_register_unregister_connection(_) ->
     {ok, _} = emqx_cm_sup:start_link(),
     Pid = self(),
     ok = emqx_cm:register_connection(<<"conn1">>),
-    ok emqx_cm:register_connection(<<"conn2">>, Pid),
+    ok = emqx_cm:register_connection(<<"conn2">>, Pid),
     true = emqx_cm:set_conn_attrs(<<"conn1">>, [{port, 8080}, {ip, "192.168.0.1"}]),
     true = emqx_cm:set_conn_attrs(<<"conn2">>, Pid, [{port, 8080}, {ip, "192.168.0.1"}]),
     timer:sleep(2000),

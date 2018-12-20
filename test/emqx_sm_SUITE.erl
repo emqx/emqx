@@ -19,6 +19,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("eunit/include/eunit.hrl").
+
 all() -> [t_open_close_session].
 
 t_open_close_session(_) ->
