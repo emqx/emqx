@@ -391,12 +391,12 @@ handle_call(stats, _From, State) ->
 
 handle_call({discard, ByPid}, _From, State = #state{conn_pid = undefined}) ->
     ?LOG(warning, "Discarded by ~p", [ByPid], State),
-    {stop, discarded, ok, State};
+    {stop, {shutdown, discarded}, ok, State};
 
 handle_call({discard, ByPid}, _From, State = #state{client_id = ClientId, conn_pid = ConnPid}) ->
     ?LOG(warning, "Conn ~p is discarded by ~p", [ConnPid, ByPid], State),
     ConnPid ! {shutdown, discard, {ClientId, ByPid}},
-    {stop, discarded, ok, State};
+    {stop, {shutdown, discarded}, ok, State};
 
 %% PUBLISH: This is only to register packetId to session state.
 %% The actual message dispatching should be done by the caller (e.g. connection) process.
@@ -1015,5 +1015,5 @@ noreply(State) ->
     {noreply, State}.
 
 shutdown(Reason, State) ->
-    {stop, Reason, State}.
+    {stop, {shutdown, Reason}, State}.
 
