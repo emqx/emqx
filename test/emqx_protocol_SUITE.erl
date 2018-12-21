@@ -35,13 +35,17 @@
 
 all() ->
     [
+     {group, mqtt_common},
      {group, mqttv4},
      {group, mqttv5},
      {group, acl}
     ].
 
 groups() ->
-    [{mqttv4,
+    [{mqtt_common,
+      [sequence],
+      [will_check]},
+     {mqttv4,
       [sequence],
       [connect_v4,
        subscribe_v4]},
@@ -52,7 +56,6 @@ groups() ->
      {acl,
       [sequence],
       [acl_deny_action]}].
-
 
 init_per_suite(Config) ->
     [start_apps(App, SchemaFile, ConfigFile) ||
@@ -435,6 +438,39 @@ acl_deny_action(_) ->
     [acl_deny_do_disconnect(subscribe, QoS, <<"acl_deny_action">>) || QoS <- lists:seq(0, 2)],
     emqx_zone:set_env(external, acl_deny_action, ignore),
     ok.
+
+will_check(_) ->
+    process_flag(trap_exit, true),
+    will_topic_check(0),
+    will_acl_check(0).
+
+will_topic_check(QoS) ->
+    {ok, Client} = emqx_client:start_link([{username, <<"emqx">>},
+                                           {will_flag, true},
+                                           {will_topic, <<"">>},
+                                           {will_payload, <<"I have died">>},
+                                           {will_qos, QoS}]),
+    try emqx_client:connect(Client) of
+        _ ->
+            ok
+    catch
+        exit : _Reason ->
+            false = is_process_alive(Client)
+    end.
+
+will_acl_check(QoS) ->
+    {ok, Client} = emqx_client:start_link([{username, <<"emqx">>},
+                                           {will_flag, true},
+                                           {will_topic, <<"acl_deny_action">>},
+                                           {will_payload, <<"I have died">>},
+                                           {will_qos, QoS}]),
+    try emqx_client:connect(Client) of
+        _ ->
+            ok
+    catch
+        exit : _Reason ->
+            false = is_process_alive(Client)
+    end.
 
 acl_deny_do_disconnect(publish, QoS, Topic) ->
     {ok, Client} = emqx_client:start_link([{username, <<"emqx">>}]),
