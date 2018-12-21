@@ -17,7 +17,7 @@
 -export([print/1, print/2, usage/1, usage/2]).
 
 print(Msg) ->
-    io:format("~s", [Msg]), lists:flatten(io_lib:format("~s", [Msg])).
+    io:format(Msg), lists:flatten(io_lib:format("~p", [Msg])).
 
 print(Format, Args) ->
     io:format(Format, Args), lists:flatten(io_lib:format(Format, Args)).
