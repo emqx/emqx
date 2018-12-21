@@ -21,7 +21,7 @@
 -export([trans/2, trans/3]).
 -export([lock/1, lock/2, unlock/1]).
 
--spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
+-spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
     ekka_locker:start_link(?MODULE).
 

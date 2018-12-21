@@ -18,7 +18,7 @@ NO_AUTOPATCH = cuttlefish
 ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 
 BUILD_DEPS = cuttlefish
-dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish v2.1.1
+dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish v2.2.0
 
 #TEST_DEPS = emqx_ct_helplers
 #dep_emqx_ct_helplers = git git@github.com:emqx/emqx-ct-helpers
@@ -36,7 +36,7 @@ CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
 			emqx_mqtt_props emqx_mqueue emqx_net emqx_pqueue emqx_router emqx_sm \
 			emqx_tables emqx_time emqx_topic emqx_trie emqx_vm emqx_mountpoint \
 			emqx_listeners emqx_protocol emqx_pool emqx_shared_sub emqx_bridge \
-			emqx_hooks emqx_batch
+			emqx_hooks emqx_batch emqx_sequence emqx_pmon emqx_pd emqx_gc
 
 CT_NODE_NAME = emqxct@127.0.0.1
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name $(CT_NODE_NAME)

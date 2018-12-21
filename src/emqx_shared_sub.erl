@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("emqx_mqtt.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -27,7 +28,8 @@
 -export([start_link/0]).
 
 -export([subscribe/3, unsubscribe/3]).
--export([dispatch/3, maybe_ack/1, maybe_nack_dropped/1, nack_no_connection/1, is_ack_required/1]).
+-export([dispatch/3]).
+-export([maybe_ack/1, maybe_nack_dropped/1, nack_no_connection/1, is_ack_required/1]).
 
 %% for testing
 -export([subscribers/2]).
@@ -38,6 +40,7 @@
 
 -define(SERVER, ?MODULE).
 -define(TAB, emqx_shared_subscription).
+-define(SHARED_SUBS, emqx_shared_subscriber).
 -define(ALIVE_SUBS, emqx_alive_shared_subscribers).
 -define(SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS, 5).
 -define(ack, shared_sub_ack).
@@ -47,8 +50,6 @@
 
 -record(state, {pmon}).
 -record(emqx_shared_subscription, {group, topic, subpid}).
-
--include("emqx_mqtt.hrl").
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -72,16 +73,11 @@ mnesia(copy) ->
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-subscribe(undefined, _Topic, _SubPid) ->
-    ok;
 subscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
-    mnesia:dirty_write(?TAB, record(Group, Topic, SubPid)),
-    gen_server:cast(?SERVER, {monitor, SubPid}).
+    gen_server:call(?SERVER, {subscribe, Group, Topic, SubPid}).
 
-unsubscribe(undefined, _Topic, _SubPid) ->
-    ok;
 unsubscribe(Group, Topic, SubPid) when is_pid(SubPid) ->
-    mnesia:dirty_delete_object(?TAB, record(Group, Topic, SubPid)).
+    gen_server:call(?SERVER, {unsubscribe, Group, Topic, SubPid}).
 
 record(Group, Topic, SubPid) ->
     #emqx_shared_subscription{group = Group, topic = Topic, subpid = SubPid}.
@@ -251,14 +247,15 @@ do_pick_subscriber(Group, Topic, round_robin, _ClientId, Count) ->
 subscribers(Group, Topic) ->
     ets:select(?TAB, [{{emqx_shared_subscription, Group, Topic, '$1'}, [], ['$1']}]).
 
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([]) ->
-    {atomic, PMon} = mnesia:transaction(fun init_monitors/0),
     mnesia:subscribe({table, ?TAB, simple}),
-    ets:new(?ALIVE_SUBS, [named_table, {read_concurrency, true}, protected]),
+    {atomic, PMon} = mnesia:transaction(fun init_monitors/0),
+    ok = emqx_tables:new(?SHARED_SUBS, [protected, bag]),
+    ok = emqx_tables:new(?ALIVE_SUBS, [protected, set, {read_concurrency, true}]),
     {ok, update_stats(#state{pmon = PMon})}.
 
 init_monitors() ->
@@ -267,14 +264,29 @@ init_monitors() ->
           emqx_pmon:monitor(SubPid, Mon)
       end, emqx_pmon:new(), ?TAB).
 
+handle_call({subscribe, Group, Topic, SubPid}, _From, State = #state{pmon = PMon}) ->
+    mnesia:dirty_write(?TAB, record(Group, Topic, SubPid)),
+    case ets:member(?SHARED_SUBS, {Group, Topic}) of
+        true  -> ok;
+        false -> ok = emqx_router:do_add_route(Topic, {Group, node()})
+    end,
+    ok = maybe_insert_alive_tab(SubPid),
+    true = ets:insert(?SHARED_SUBS, {{Group, Topic}, SubPid}),
+    {reply, ok, update_stats(State#state{pmon = emqx_pmon:monitor(SubPid, PMon)})};
+
+handle_call({unsubscribe, Group, Topic, SubPid}, _From, State) ->
+    mnesia:dirty_delete_object(?TAB, record(Group, Topic, SubPid)),
+    true = ets:delete_object(?SHARED_SUBS, {{Group, Topic}, SubPid}),
+    case ets:member(?SHARED_SUBS, {Group, Topic}) of
+        true  -> ok;
+        false -> ok = emqx_router:do_delete_route(Topic, {Group, node()})
+    end,
+    {reply, ok, State};
+
 handle_call(Req, _From, State) ->
     emqx_logger:error("[SharedSub] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
-handle_cast({monitor, SubPid}, State= #state{pmon = PMon}) ->
-    NewPmon = emqx_pmon:monitor(SubPid, PMon),
-    ok = maybe_insert_alive_tab(SubPid),
-    {noreply, update_stats(State#state{pmon = NewPmon})};
 handle_cast(Msg, State) ->
     emqx_logger:error("[SharedSub] unexpected cast: ~p", [Msg]),
     {noreply, State}.
@@ -316,12 +328,18 @@ maybe_insert_alive_tab(Pid) when is_pid(Pid) -> ets:insert(?ALIVE_SUBS, {Pid}), 
 cleanup_down(SubPid) ->
     ?IS_LOCAL_PID(SubPid) orelse ets:delete(?ALIVE_SUBS, SubPid),
     lists:foreach(
-        fun(Record) ->
-            mnesia:dirty_delete_object(?TAB, Record)
-        end,mnesia:dirty_match_object(#emqx_shared_subscription{_ = '_', subpid = SubPid})).
+        fun(Record = #emqx_shared_subscription{topic = Topic, group = Group}) ->
+            ok = mnesia:dirty_delete_object(?TAB, Record),
+            true = ets:delete_object(?SHARED_SUBS, {{Group, Topic}, SubPid}),
+            case ets:member(?SHARED_SUBS, {Group, Topic}) of
+                true -> ok;
+                false -> ok = emqx_router:do_delete_route(Topic, {Group, node()})
+            end
+        end, mnesia:dirty_match_object(#emqx_shared_subscription{_ = '_', subpid = SubPid})).
 
 update_stats(State) ->
-    emqx_stats:setstat('subscriptions/shared/count', 'subscriptions/shared/max', ets:info(?TAB, size)), State.
+    emqx_stats:setstat('subscriptions/shared/count', 'subscriptions/shared/max', ets:info(?TAB, size)),
+    State.
 
 %% Return 'true' if the subscriber process is alive AND not in the failed list
 is_active_sub(Pid, FailedSubs) ->

@@ -54,15 +54,6 @@ run_command([Cmd | Args]) ->
     run_command(list_to_atom(Cmd), Args).
 
 -spec(run_command(cmd(), [string()]) -> ok | {error, term()}).
-% run_command(set, []) ->
-%     emqx_mgmt_cli_cfg:set_usage(), ok;
-
-% run_command(set, Args) ->
-%     emqx_mgmt_cli_cfg:run(["config" | Args]), ok;
-
-% run_command(show, Args) ->
-%     emqx_mgmt_cli_cfg:run(["config" | Args]), ok;
-
 run_command(help, []) ->
     usage();
 run_command(Cmd, Args) when is_atom(Cmd) ->
@@ -96,7 +87,7 @@ usage() ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    _ = emqx_tables:new(?TAB, [ordered_set, protected]),
+    ok = emqx_tables:new(?TAB, [protected, ordered_set]),
     {ok, #state{seq = 0}}.
 
 handle_call(Req, _From, State) ->
@@ -160,4 +151,3 @@ register_command_test_() ->
     }.
 
 -endif.
-

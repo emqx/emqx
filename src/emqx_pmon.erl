@@ -14,24 +14,27 @@
 
 -module(emqx_pmon).
 
+-compile({no_auto_import, [monitor/3]}).
+
 -export([new/0]).
 -export([monitor/2, monitor/3]).
 -export([demonitor/2]).
 -export([find/2]).
--export([erase/2]).
-
--compile({no_auto_import,[monitor/3]}).
+-export([erase/2, erase_all/2]).
+-export([count/1]).
 
 -type(pmon() :: {?MODULE, map()}).
 -export_type([pmon/0]).
 
 -spec(new() -> pmon()).
-new() -> {?MODULE, maps:new()}.
+new() ->
+    {?MODULE, maps:new()}.
 
 -spec(monitor(pid(), pmon()) -> pmon()).
 monitor(Pid, PM) ->
-    monitor(Pid, undefined, PM).
+    ?MODULE:monitor(Pid, undefined, PM).
 
+-spec(monitor(pid(), term(), pmon()) -> pmon()).
 monitor(Pid, Val, {?MODULE, PM}) ->
     {?MODULE, case maps:is_key(Pid, PM) of
                   true  -> PM;
@@ -43,21 +46,36 @@ monitor(Pid, Val, {?MODULE, PM}) ->
 demonitor(Pid, {?MODULE, PM}) ->
     {?MODULE, case maps:find(Pid, PM) of
                   {ok, {Ref, _Val}} ->
-                      %% Don't flush
-                      _ = erlang:demonitor(Ref),
+                      %% flush
+                      _ = erlang:demonitor(Ref, [flush]),
                       maps:remove(Pid, PM);
                   error -> PM
               end}.
 
--spec(find(pid(), pmon()) -> undefined | term()).
+-spec(find(pid(), pmon()) -> error | {ok, term()}).
 find(Pid, {?MODULE, PM}) ->
     case maps:find(Pid, PM) of
         {ok, {_Ref, Val}} ->
-            Val;
-        error -> undefined
+            {ok, Val};
+        error -> error
     end.
 
 -spec(erase(pid(), pmon()) -> pmon()).
 erase(Pid, {?MODULE, PM}) ->
     {?MODULE, maps:remove(Pid, PM)}.
+
+-spec(erase_all([pid()], pmon()) -> {[{pid(), term()}], pmon()}).
+erase_all(Pids, PMon0) ->
+    lists:foldl(
+      fun(Pid, {Acc, PMon}) ->
+          case find(Pid, PMon) of
+              {ok, Val} ->
+                  {[{Pid, Val}|Acc], erase(Pid, PMon)};
+              error -> {Acc, PMon}
+          end
+      end, {[], PMon0}, Pids).
+
+-spec(count(pmon()) -> non_neg_integer()).
+count({?MODULE, PM}) ->
+    maps:size(PM).
 

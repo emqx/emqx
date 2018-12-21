@@ -24,7 +24,7 @@
 -define(TRIE_TABS, [emqx_trie, emqx_trie_node]).
 
 all() ->
-    [t_insert, t_match, t_match2, t_match3, t_delete, t_delete2, t_delete3].
+    [t_mnesia, t_insert, t_match, t_match2, t_match3, t_delete, t_delete2, t_delete3].
 
 init_per_suite(Config) ->
     application:load(emqx),
@@ -42,41 +42,44 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, _Config) ->
     clear_tables().
 
+t_mnesia(_) ->
+    ok = ?TRIE:mnesia(copy).
+
 t_insert(_) ->
     TN = #trie_node{node_id = <<"sensor">>,
                     edge_count = 3,
                     topic = <<"sensor">>,
                     flags = undefined},
-    {atomic, [TN]} = mnesia:transaction(
-            fun() ->
-                ?TRIE:insert(<<"sensor/1/metric/2">>),
-                ?TRIE:insert(<<"sensor/+/#">>),
-                ?TRIE:insert(<<"sensor/#">>),
-                ?TRIE:insert(<<"sensor">>),
-                ?TRIE:insert(<<"sensor">>),
-                ?TRIE:lookup(<<"sensor">>)
-            end).
+    Fun = fun() ->
+              ?TRIE:insert(<<"sensor/1/metric/2">>),
+              ?TRIE:insert(<<"sensor/+/#">>),
+              ?TRIE:insert(<<"sensor/#">>),
+              ?TRIE:insert(<<"sensor">>),
+              ?TRIE:insert(<<"sensor">>),
+              ?TRIE:lookup(<<"sensor">>)
+          end,
+    ?assertEqual({atomic, [TN]}, mnesia:transaction(Fun)).
 
 t_match(_) ->
     Machted = [<<"sensor/+/#">>, <<"sensor/#">>],
-    {atomic, Machted} = mnesia:transaction(
-            fun() ->
-                ?TRIE:insert(<<"sensor/1/metric/2">>),
-                ?TRIE:insert(<<"sensor/+/#">>),
-                ?TRIE:insert(<<"sensor/#">>),
-                ?TRIE:match(<<"sensor/1">>)
-            end).
+    Fun = fun() ->
+              ?TRIE:insert(<<"sensor/1/metric/2">>),
+              ?TRIE:insert(<<"sensor/+/#">>),
+              ?TRIE:insert(<<"sensor/#">>),
+              ?TRIE:match(<<"sensor/1">>)
+            end,
+    ?assertEqual({atomic, Machted}, mnesia:transaction(Fun)).
 
 t_match2(_) ->
     Matched = {[<<"+/+/#">>, <<"+/#">>, <<"#">>], []},
-    {atomic, Matched} = mnesia:transaction(
-            fun() ->
-                ?TRIE:insert(<<"#">>),
-                ?TRIE:insert(<<"+/#">>),
-                ?TRIE:insert(<<"+/+/#">>),
-                {?TRIE:match(<<"a/b/c">>),
-                 ?TRIE:match(<<"$SYS/broker/zenmq">>)}
-            end).
+    Fun = fun() ->
+              ?TRIE:insert(<<"#">>),
+              ?TRIE:insert(<<"+/#">>),
+              ?TRIE:insert(<<"+/+/#">>),
+              {?TRIE:match(<<"a/b/c">>),
+               ?TRIE:match(<<"$SYS/broker/zenmq">>)}
+          end,
+    ?assertEqual({atomic, Matched}, mnesia:transaction(Fun)).
 
 t_match3(_) ->
     Topics = [<<"d/#">>, <<"a/b/c">>, <<"a/b/+">>, <<"a/#">>, <<"#">>, <<"$SYS/#">>],
@@ -91,43 +94,42 @@ t_delete(_) ->
                     edge_count = 2,
                     topic = undefined,
                     flags = undefined},
-    {atomic, [TN]} = mnesia:transaction(
-            fun() ->
-                ?TRIE:insert(<<"sensor/1/#">>),
-                ?TRIE:insert(<<"sensor/1/metric/2">>),
-                ?TRIE:insert(<<"sensor/1/metric/3">>),
-                ?TRIE:delete(<<"sensor/1/metric/2">>),
-                ?TRIE:delete(<<"sensor/1/metric">>),
-                ?TRIE:delete(<<"sensor/1/metric">>),
-                ?TRIE:lookup(<<"sensor/1">>)
-            end).
+    Fun = fun() ->
+              ?TRIE:insert(<<"sensor/1/#">>),
+              ?TRIE:insert(<<"sensor/1/metric/2">>),
+              ?TRIE:insert(<<"sensor/1/metric/3">>),
+              ?TRIE:delete(<<"sensor/1/metric/2">>),
+              ?TRIE:delete(<<"sensor/1/metric">>),
+              ?TRIE:delete(<<"sensor/1/metric">>),
+              ?TRIE:lookup(<<"sensor/1">>)
+          end,
+    ?assertEqual({atomic, [TN]}, mnesia:transaction(Fun)).
 
 t_delete2(_) ->
-    {atomic, {[], []}} = mnesia:transaction(
-            fun() ->
-                ?TRIE:insert(<<"sensor">>),
-                ?TRIE:insert(<<"sensor/1/metric/2">>),
-                ?TRIE:insert(<<"sensor/1/metric/3">>),
-                ?TRIE:delete(<<"sensor">>),
-                ?TRIE:delete(<<"sensor/1/metric/2">>),
-                ?TRIE:delete(<<"sensor/1/metric/3">>),
-                {?TRIE:lookup(<<"sensor">>),
-                 ?TRIE:lookup(<<"sensor/1">>)}
-            end).
+    Fun = fun() ->
+              ?TRIE:insert(<<"sensor">>),
+              ?TRIE:insert(<<"sensor/1/metric/2">>),
+              ?TRIE:insert(<<"sensor/1/metric/3">>),
+              ?TRIE:delete(<<"sensor">>),
+              ?TRIE:delete(<<"sensor/1/metric/2">>),
+              ?TRIE:delete(<<"sensor/1/metric/3">>),
+              {?TRIE:lookup(<<"sensor">>), ?TRIE:lookup(<<"sensor/1">>)}
+          end,
+    ?assertEqual({atomic, {[], []}}, mnesia:transaction(Fun)).
 
 t_delete3(_) ->
-    {atomic, {[], []}} = mnesia:transaction(
-            fun() ->
-                ?TRIE:insert(<<"sensor/+">>),
-                ?TRIE:insert(<<"sensor/+/metric/2">>),
-                ?TRIE:insert(<<"sensor/+/metric/3">>),
-                ?TRIE:delete(<<"sensor/+/metric/2">>),
-                ?TRIE:delete(<<"sensor/+/metric/3">>),
-                ?TRIE:delete(<<"sensor">>),
-                ?TRIE:delete(<<"sensor/+">>),
-                ?TRIE:delete(<<"sensor/+/unknown">>),
-                {?TRIE:lookup(<<"sensor">>), ?TRIE:lookup(<<"sensor/+">>)}
-            end).
+    Fun = fun() ->
+              ?TRIE:insert(<<"sensor/+">>),
+              ?TRIE:insert(<<"sensor/+/metric/2">>),
+              ?TRIE:insert(<<"sensor/+/metric/3">>),
+              ?TRIE:delete(<<"sensor/+/metric/2">>),
+              ?TRIE:delete(<<"sensor/+/metric/3">>),
+              ?TRIE:delete(<<"sensor">>),
+              ?TRIE:delete(<<"sensor/+">>),
+              ?TRIE:delete(<<"sensor/+/unknown">>),
+              {?TRIE:lookup(<<"sensor">>), ?TRIE:lookup(<<"sensor/+">>)}
+          end,
+    ?assertEqual({atomic, {[], []}}, mnesia:transaction(Fun)).
 
 clear_tables() ->
     lists:foreach(fun mnesia:clear_table/1, ?TRIE_TABS).

@@ -285,7 +285,7 @@ qos_sent(?QOS_2) ->
 
 init([]) ->
     % Create metrics table
-    _ = emqx_tables:new(?TAB, [set, public, {write_concurrency, true}]),
+    ok = emqx_tables:new(?TAB, [public, set, {write_concurrency, true}]),
     lists:foreach(fun new/1, ?BYTES_METRICS ++ ?PACKET_METRICS ++ ?MESSAGE_METRICS),
     {ok, #{}, hibernate}.
 
