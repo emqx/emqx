@@ -16,35 +16,18 @@
 
 -export([print/1, print/2, usage/1, usage/2]).
 
--ifndef(TEST).
-
 print(Msg) ->
-    io:format(Msg).
+    io:format("~s", [Msg]), lists:flatten(io_lib:format("~s", [Msg])).
 
 print(Format, Args) ->
-    io:format(Format, Args).
-
-usage(CmdList) ->
-    lists:foreach(
-      fun({Cmd, Descr}) ->
-        io:format("~-48s# ~s~n", [Cmd, Descr])
-      end, CmdList).
-
--else.
-
-print(Msg) ->
-    lists:flatten(io_lib:format("~s", [Msg])).
-
-print(Format, Args) ->
-    lists:flatten(io_lib:format(Format, Args)).
+    io:format(Format, Args), lists:flatten(io_lib:format(Format, Args)).
 
 usage(CmdList) ->
     lists:map(
       fun({Cmd, Descr}) ->
-        lists:flatten(io_lib:format("~-48s# ~s~n", [Cmd, Descr]))
+          io:format("~-48s# ~s~n", [Cmd, Descr]),
+          lists:flatten(io_lib:format("~-48s# ~s~n", [Cmd, Descr]))
       end, CmdList).
-
--endif.
 
 usage(Format, Args) ->
     usage([{Format, Args}]).
