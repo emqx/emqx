@@ -399,11 +399,12 @@ run_socket(State = #state{conn_state = blocked}) ->
     State;
 
 run_socket(State = #state{transport = Transport, socket = Socket, active_n = N}) ->
-    case Transport:is_ssl(Socket) of
-        true -> State; %% Cannot set '{active, N}' for SSL:(
-        false -> ensure_ok_or_exit(Transport:setopts(Socket, [{active, N}])),
-                 State
-    end.
+    TrueOrN = case Transport:is_ssl(Socket) of
+                  true  -> true; %% Cannot set '{active, N}' for SSL:(
+                  false -> N
+              end,
+    ensure_ok_or_exit(Transport:setopts(Socket, [{active, TrueOrN}])),
+    State.
 
 ensure_ok_or_exit(ok) -> ok;
 ensure_ok_or_exit({error, Reason}) ->
