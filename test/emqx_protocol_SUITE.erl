@@ -469,7 +469,7 @@ will_acl_check(QoS) ->
             ok
     catch
         exit : _Reason ->
-            false, is_process_alive(Client)
+            false = is_process_alive(Client)
     end.
 
 acl_deny_do_disconnect(publish, QoS, Topic) ->
