@@ -604,21 +604,12 @@ deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
 deliver({connack, ReasonCode, SP}, PState) ->
     send(?CONNACK_PACKET(ReasonCode, SP), PState);
 
-deliver({publish, PacketId, Msg = #message{headers = Headers}}, 
-        PState = #pstate{topic_alias_maximum = #{to_client := TopicAliasMaximum},
-                         mountpoint          = MountPoint}) ->
-    TopicAlias = maps:get('Topic-Alias', Headers, undefined),
-    case TopicAlias =:= undefined 
-         orelse (TopicAlias =/= 0 andalso TopicAlias =< TopicAliasMaximum) of
-        true ->
-            _ = emqx_hooks:run('message.delivered', [credentials(PState)], Msg),
-            Msg1 = emqx_message:update_expiry(Msg),
-            Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
-            send(emqx_packet:from_message(PacketId, Msg2), PState);
-        false ->
-            deliver({disconnect, ?RC_TOPIC_ALIAS_INVALID}, PState),
-            {error, topic_alias_invalid}
-    end;
+deliver({publish, PacketId, Msg}, 
+        PState = #pstate{mountpoint = MountPoint}) ->
+    _ = emqx_hooks:run('message.delivered', [credentials(PState)], Msg),
+    Msg1 = emqx_message:update_expiry(Msg),
+    Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
+    send(emqx_packet:from_message(PacketId, Msg2), PState);
     
 deliver({puback, PacketId, ReasonCode}, PState) ->
     send(?PUBACK_PACKET(PacketId, ReasonCode), PState);

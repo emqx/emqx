@@ -210,7 +210,7 @@ connect_v5(_) ->
 
                             emqx_client_sock:send(Sock,
                                                   raw_send_serialize(
-                                                      ?PUBLISH_PACKET(?QOS_1, <<"TopicA">>, 1, #{'Topic-Alias' => 9}, <<"hello">>),
+                                                      ?PUBLISH_PACKET(?QOS_1, <<"TopicA">>, 1, #{'Topic-Alias' => 15}, <<"hello">>),
                                                       #{version => ?MQTT_PROTO_V5}
                                                   )),
 
@@ -224,42 +224,12 @@ connect_v5(_) ->
 
                             emqx_client_sock:send(Sock,
                                                   raw_send_serialize(
-                                                      ?PUBLISH_PACKET(?QOS_1, <<"TopicA">>, 2, #{'Topic-Alias' => 18}, <<"hello">>),
+                                                      ?PUBLISH_PACKET(?QOS_1, <<"TopicA">>, 2, #{'Topic-Alias' => 21}, <<"hello">>),
                                                       #{version => ?MQTT_PROTO_V5}
                                                   )),
 
                             {ok, Data5} = gen_tcp:recv(Sock, 0),
-
-                            {ok, ?PUBACK_PACKET(2, 0), _} = raw_recv_parse(Data5, ?MQTT_PROTO_V5),
-
-                            {ok, Data6} = gen_tcp:recv(Sock, 0),
-                            {ok, ?DISCONNECT_PACKET(?RC_TOPIC_ALIAS_INVALID), _} = raw_recv_parse(Data6, ?MQTT_PROTO_V5)
-                    end),
-
-    % topic alias maximum 2
-    with_connection(fun([Sock]) ->
-                            emqx_client_sock:send(Sock,
-                                                  raw_send_serialize(
-                                                      ?CONNECT_PACKET(
-                                                          #mqtt_packet_connect{
-                                                              proto_ver  = ?MQTT_PROTO_V5,
-                                                              properties =
-                                                                  #{'Topic-Alias-Maximum' => 10}}),
-                                                      #{version => ?MQTT_PROTO_V5}
-                                                  )),
-                            {ok, Data} = gen_tcp:recv(Sock, 0),
-                            {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0,
-                                                 #{'Topic-Alias-Maximum' := 20}), _} =
-                                raw_recv_parse(Data, ?MQTT_PROTO_V5),
-                            
-                            emqx_client_sock:send(Sock,
-                                                  raw_send_serialize(
-                                                      ?PUBLISH_PACKET(?QOS_1, <<"TopicA">>, 1, #{'Topic-Alias' => 21}, <<"hello">>),
-                                                      #{version => ?MQTT_PROTO_V5}
-                                                  )),
-
-                            {ok, Data2} = gen_tcp:recv(Sock, 0),
-                            {ok, ?DISCONNECT_PACKET(?RC_TOPIC_ALIAS_INVALID), _} = raw_recv_parse(Data2, ?MQTT_PROTO_V5)
+                            {ok, ?DISCONNECT_PACKET(?RC_TOPIC_ALIAS_INVALID), _} = raw_recv_parse(Data5, ?MQTT_PROTO_V5)
                     end),
     
     % test clean start
