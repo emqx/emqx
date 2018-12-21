@@ -252,6 +252,9 @@ handle_info({TcpOrSsL, _Sock, Data}, State) when TcpOrSsL =:= tcp; TcpOrSsL =:= 
 %% Rate limit here, cool:)
 handle_info({tcp_passive, _Sock}, State) ->
     {noreply, run_socket(ensure_rate_limit(State))};
+%% FIXME Later
+handle_info({ssl_passive, _Sock}, State) ->
+    {noreply, run_socket(ensure_rate_limit(State))};
 
 handle_info({Err, _Sock, Reason}, State) when Err =:= tcp_error; Err =:= ssl_error ->
     shutdown(Reason, State);
@@ -394,6 +397,7 @@ ensure_rate_limit([{Rl, Pos, Cnt}|Limiters], State) ->
 
 run_socket(State = #state{conn_state = blocked}) ->
     State;
+
 run_socket(State = #state{transport = Transport, socket = Socket, active_n = N}) ->
     case Transport:is_ssl(Socket) of
         true -> State; %% Cannot set '{active, N}' for SSL:(
@@ -436,4 +440,3 @@ shutdown(Reason, State) ->
 
 stop(Reason, State) ->
     {stop, Reason, State}.
-
