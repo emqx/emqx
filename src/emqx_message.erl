@@ -23,6 +23,7 @@
 -export([set_headers/2]).
 -export([get_header/2, get_header/3, set_header/3]).
 -export([is_expired/1, update_expiry/1]).
+-export([remove_topic_alias/1]).
 -export([format/1]).
 
 -type(flag() :: atom()).
@@ -108,6 +109,9 @@ update_expiry(Msg = #message{headers = #{'Message-Expiry-Interval' := Interval},
     end;
 
 update_expiry(Msg) -> Msg.
+
+remove_topic_alias(Msg = #message{headers = Headers}) ->
+    Msg#message{headers = maps:remove('Topic-Alias', Headers)}.
 
 %% MilliSeconds
 elapsed(Since) ->
