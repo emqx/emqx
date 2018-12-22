@@ -617,12 +617,12 @@ deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
 deliver({connack, ReasonCode, SP}, PState) ->
     send(?CONNACK_PACKET(ReasonCode, SP), PState);
 
-deliver({publish, PacketId, Msg = #message{headers = Headers}}, PState = #pstate{mountpoint = MountPoint}) ->
+deliver({publish, PacketId, Msg}, PState = #pstate{mountpoint = MountPoint}) ->
     _ = emqx_hooks:run('message.delivered', [credentials(PState)], Msg),
     Msg1 = emqx_message:update_expiry(Msg),
     Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
-    send(emqx_packet:from_message(PacketId, Msg2#message{headers = maps:remove('Topic-Alias', Headers)}), PState);
-    
+    send(emqx_packet:from_message(PacketId, emqx_message:remove_topic_alias(Msg2)), PState);
+
 deliver({puback, PacketId, ReasonCode}, PState) ->
     send(?PUBACK_PACKET(PacketId, ReasonCode), PState);
 
