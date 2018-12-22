@@ -283,8 +283,8 @@ preprocess_properties(Packet = #mqtt_packet{
                                                           topic_name = <<>>,
                                                           properties = #{'Topic-Alias' := AliasId}}
                                  },
-                      PState = #pstate{proto_ver = ?MQTT_PROTO_V5, 
-                                       topic_aliases = Aliases, 
+                      PState = #pstate{proto_ver = ?MQTT_PROTO_V5,
+                                       topic_aliases = Aliases,
                                        topic_alias_maximum = #{from_client := TopicAliasMaximum}}) ->
     case AliasId =< TopicAliasMaximum of
         true ->
@@ -300,7 +300,7 @@ preprocess_properties(Packet = #mqtt_packet{
                                                   topic_name = Topic,
                                                   properties = #{'Topic-Alias' := AliasId}}
                                },
-                      PState = #pstate{proto_ver = ?MQTT_PROTO_V5, 
+                      PState = #pstate{proto_ver = ?MQTT_PROTO_V5,
                                        topic_aliases = Aliases,
                                        topic_alias_maximum = #{from_client := TopicAliasMaximum}}) ->
     case AliasId =< TopicAliasMaximum of
@@ -521,11 +521,7 @@ connack({?RC_SUCCESS, SP, PState}) ->
 
 connack({ReasonCode, PState = #pstate{proto_ver = ProtoVer}}) ->
     emqx_hooks:run('client.connected', [credentials(PState), ReasonCode, attrs(PState)]),
-    ReasonCode1 = if ProtoVer =:= ?MQTT_PROTO_V5 ->
-                         ReasonCode;
-                     true ->
-                         emqx_reason_codes:compat(connack, ReasonCode)
-                  end,
+    [ReasonCode1] = reason_codes_compat(connack, [ReasonCode], ProtoVer),
     _ = deliver({connack, ReasonCode1}, PState),
     {error, emqx_reason_codes:name(ReasonCode1, ProtoVer), PState}.
 
@@ -633,15 +629,10 @@ deliver({pubrec, PacketId, ReasonCode}, PState) ->
     send(?PUBREC_PACKET(PacketId, ReasonCode), PState);
 
 deliver({suback, PacketId, ReasonCodes}, PState = #pstate{proto_ver = ProtoVer}) ->
-    send(?SUBACK_PACKET(PacketId,
-                        if ProtoVer =:= ?MQTT_PROTO_V5 ->
-                               ReasonCodes;
-                           true ->
-                               [emqx_reason_codes:compat(suback, RC) || RC <- ReasonCodes]
-                        end), PState);
+    send(?SUBACK_PACKET(PacketId, reason_codes_compat(suback, ReasonCodes, ProtoVer)), PState);
 
-deliver({unsuback, PacketId, ReasonCodes}, PState) ->
-    send(?UNSUBACK_PACKET(PacketId, ReasonCodes), PState);
+deliver({unsuback, PacketId, ReasonCodes}, PState = #pstate{proto_ver = ProtoVer}) ->
+    send(?UNSUBACK_PACKET(PacketId, reason_codes_compat(unsuback, ReasonCodes, ProtoVer)), PState);
 
 %% Deliver a disconnect for mqtt 5.0
 deliver({disconnect, ReasonCode}, PState = #pstate{proto_ver = ?MQTT_PROTO_V5}) ->
@@ -981,3 +972,11 @@ do_acl_deny_action(?SUBSCRIBE_PACKET(_PacketId, _Properties, _RawTopicFilters),
     end;
 do_acl_deny_action(_PubSupPacket, _ReasonCode, PState) ->
     {ok, PState}.
+
+%% Reason code compat
+reason_codes_compat(_PktType, ReasonCodes, ?MQTT_PROTO_V5) ->
+    ReasonCodes;
+reason_codes_compat(unsuback, _ReasonCodes, _ProtoVer) ->
+    undefined;
+reason_codes_compat(PktType, ReasonCodes, _ProtoVer) ->
+    [emqx_reason_codes:compat(PktType, RC) || RC <- ReasonCodes].
