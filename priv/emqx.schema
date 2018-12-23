@@ -191,8 +191,22 @@ end}.
   {default, "emqxsecretcookie"}
 ]}.
 
+%% @doc SMP Support
+{mapping, "node.smp", "vm_args.-smp", [
+  {default, auto},
+  {datatype, {enum, [enable, auto, disable]}},
+  hidden
+]}.
+
 %% @doc http://erlang.org/doc/man/heart.html
 {mapping, "node.heartbeat", "vm_args.-heart", [
+  {datatype, flag},
+  hidden
+]}.
+
+%% @doc Enable Kernel Poll
+{mapping, "node.kernel_poll", "vm_args.+K", [
+  {default, on},
   {datatype, flag},
   hidden
 ]}.
