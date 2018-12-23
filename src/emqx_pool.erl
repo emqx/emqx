@@ -35,7 +35,8 @@ start_link() ->
 %% @doc Start pool.
 -spec(start_link(atom(), pos_integer()) -> emqx_types:startlink_ret()).
 start_link(Pool, Id) ->
-    gen_server:start_link({local, emqx_misc:proc_name(?MODULE, Id)}, ?MODULE, [Pool, Id], []).
+    gen_server:start_link({local, emqx_misc:proc_name(?MODULE, Id)},
+                          ?MODULE, [Pool, Id], [{hibernate_after, 1000}]).
 
 %% @doc Submit work to the pool.
 -spec(submit(task()) -> any()).

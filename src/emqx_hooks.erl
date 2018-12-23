@@ -42,7 +42,7 @@
 
 -spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], [{hibernate_after, 60000}]).
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], [{hibernate_after, 1000}]).
 
 -spec(stop() -> ok).
 stop() ->
@@ -139,7 +139,7 @@ lookup(HookPoint) ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    _ = emqx_tables:new(?TAB, [{keypos, #hook.name}, {read_concurrency, true}]),
+    ok = emqx_tables:new(?TAB, [{keypos, #hook.name}, {read_concurrency, true}]),
     {ok, #{}}.
 
 handle_call({add, HookPoint, Callback = #callback{action = Action}}, _From, State) ->

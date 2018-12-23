@@ -17,6 +17,7 @@
 -behaviour(supervisor).
 
 -export([start_link/0]).
+
 -export([init/1]).
 
 start_link() ->
@@ -24,12 +25,15 @@ start_link() ->
 
 init([]) ->
     %% Router helper
-    Helper = {router_helper, {emqx_router_helper, start_link, []},
-              permanent, 5000, worker, [emqx_router_helper]},
+    Helper = #{id       => helper,
+               start    => {emqx_router_helper, start_link, []},
+               restart  => permanent,
+               shutdown => 5000,
+               type     => worker,
+               modules  => [emqx_router_helper]},
 
     %% Router pool
-    RouterPool = emqx_pool_sup:spec(emqx_router_pool,
-                                    [router, hash, emqx_vm:schedulers(),
+    RouterPool = emqx_pool_sup:spec([router_pool, hash,
                                      {emqx_router, start_link, []}]),
     {ok, {{one_for_all, 0, 1}, [Helper, RouterPool]}}.
 

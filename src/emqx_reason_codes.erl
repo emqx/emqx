@@ -133,10 +133,13 @@ compat(connack, 16#89) -> ?CONNACK_SERVER;
 compat(connack, 16#8A) -> ?CONNACK_AUTH;
 compat(connack, 16#8B) -> ?CONNACK_SERVER;
 compat(connack, 16#8C) -> ?CONNACK_AUTH;
+compat(connack, 16#90) -> ?CONNACK_SERVER;
 compat(connack, 16#97) -> ?CONNACK_SERVER;
 compat(connack, 16#9C) -> ?CONNACK_SERVER;
 compat(connack, 16#9D) -> ?CONNACK_SERVER;
 compat(connack, 16#9F) -> ?CONNACK_SERVER;
 
 compat(suback, Code) when Code =< ?QOS_2 -> Code;
-compat(suback, Code) when Code >= 16#80  -> 16#80.
+compat(suback, Code) when Code >= 16#80  -> 16#80;
+
+compat(unsuback, _Code) -> undefined.

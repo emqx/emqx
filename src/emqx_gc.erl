@@ -21,74 +21,83 @@
 
 -module(emqx_gc).
 
--export([init/1, inc/2, reset/0]).
+-export([init/1, run/3, info/1, reset/1]).
 
--type st() :: #{ cnt => {integer(), integer()}
-               , oct => {integer(), integer()}
-               }.
+-type(opts() :: #{count => integer(),
+                  bytes => integer()}).
+
+-type(st() :: #{cnt => {integer(), integer()},
+                oct => {integer(), integer()}}).
+
+-type(gc_state() :: {?MODULE, st()}).
 
 -define(disabled, disabled).
 -define(ENABLED(X), (is_integer(X) andalso X > 0)).
 
-%% @doc Initialize force GC parameters.
--spec init(false | map()) -> ok.
+%% @doc Initialize force GC state.
+-spec(init(opts() | false) -> gc_state() | undefined).
 init(#{count := Count, bytes := Bytes}) ->
     Cnt = [{cnt, {Count, Count}} || ?ENABLED(Count)],
     Oct = [{oct, {Bytes, Bytes}} || ?ENABLED(Bytes)],
-    erlang:put(?MODULE, maps:from_list(Cnt ++ Oct)),
-    ok;
-init(_) -> erlang:put(?MODULE, #{}), ok.
+    {?MODULE, maps:from_list(Cnt ++ Oct)};
+init(false) -> undefined.
 
-%% @doc Increase count and bytes stats in one call,
-%% ensure gc is triggered at most once, even if both thresholds are hit.
--spec inc(pos_integer(), pos_integer()) -> ok.
-inc(Cnt, Oct) ->
-    mutate_pd_with(fun(St) -> inc(St, Cnt, Oct) end).
+%% @doc Try to run GC based on reduntions of count or bytes.
+-spec(run(pos_integer(), pos_integer(), gc_state()) -> {boolean(), gc_state()}).
+run(Cnt, Oct, {?MODULE, St}) ->
+    {Res, St1} = run([{cnt, Cnt}, {oct, Oct}], St),
+    {Res, {?MODULE, St1}};
+run(_Cnt, _Oct, undefined) ->
+    {false, undefined}.
 
-%% @doc Reset counters to zero.
--spec reset() -> ok.
-reset() ->
-    mutate_pd_with(fun(St) -> reset(St) end).
-
-%% ======== Internals ========
-
-%% mutate gc stats numbers in process dict with the given function
-mutate_pd_with(F) ->
-    St = F(erlang:get(?MODULE)),
-    erlang:put(?MODULE, St),
-    ok.
-
-%% Increase count and bytes stats in one call,
-%% ensure gc is triggered at most once, even if both thresholds are hit.
--spec inc(st(), pos_integer(), pos_integer()) -> st().
-inc(St0, Cnt, Oct) ->
-    case do_inc(St0, cnt, Cnt) of
-        {true, St} ->
-            St;
+run([], St) ->
+    {false, St};
+run([{K, N}|T], St) ->
+    case dec(K, N, St) of
+        {true, St1} ->
+            {true, do_gc(St1)};
         {false, St1} ->
-            {_, St} = do_inc(St1, oct, Oct),
-            St
+            run(T, St1)
     end.
 
-%% Reset counters to zero.
-reset(St) -> reset(cnt, reset(oct, St)).
+%% @doc Info of GC state.
+-spec(info(gc_state()) -> map() | undefined).
+info({?MODULE, St}) ->
+    St;
+info(undefined) ->
+    undefined.
 
--spec do_inc(st(), cnt | oct, pos_integer()) -> {boolean(), st()}.
-do_inc(St, Key, Num) ->
+%% @doc Reset counters to zero.
+-spec(reset(gc_state()) -> gc_state()).
+reset({?MODULE, St}) ->
+    {?MODULE, do_reset(St)};
+reset(undefined) ->
+    undefined.
+
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
+-spec(dec(cnt | oct, pos_integer(), st()) -> {boolean(), st()}).
+dec(Key, Num, St) ->
     case maps:get(Key, St, ?disabled) of
         ?disabled ->
             {false, St};
         {Init, Remain} when Remain > Num ->
             {false, maps:put(Key, {Init, Remain - Num}, St)};
         _ ->
-            {true, do_gc(St)}
+            {true, St}
     end.
 
 do_gc(St) ->
-    erlang:garbage_collect(),
-    reset(St).
+    true = erlang:garbage_collect(),
+    do_reset(St).
 
-reset(Key, St) ->
+do_reset(St) ->
+    do_reset(cnt, do_reset(oct, St)).
+
+%% Reset counters to zero.
+do_reset(Key, St) ->
     case maps:get(Key, St, ?disabled) of
         ?disabled -> St;
         {Init, _} -> maps:put(Key, {Init, Init}, St)

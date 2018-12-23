@@ -1,6 +1,5 @@
 %% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
-%%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
 %% You may obtain a copy of the License at
@@ -25,17 +24,17 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Banned = #{id       => banned,
-               start    => {emqx_banned, start_link, []},
-               restart  => permanent,
-               shutdown => 5000,
-               type     => worker,
-               modules  => [emqx_banned]},
-    Manager = #{id       => manager,
-                start    => {emqx_cm, start_link, []},
-                restart  => permanent,
-                shutdown => 5000,
-                type     => worker,
-                modules  => [emqx_cm]},
+    Banned = #{id => banned,
+               start => {emqx_banned, start_link, []},
+               restart => permanent,
+               shutdown => 1000,
+               type => worker,
+               modules => [emqx_banned]},
+    Manager = #{id => manager,
+                start => {emqx_cm, start_link, []},
+                restart => permanent,
+                shutdown => 2000,
+                type => worker,
+                modules => [emqx_cm]},
     {ok, {{one_for_one, 10, 100}, [Banned, Manager]}}.
 

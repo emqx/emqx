@@ -191,13 +191,6 @@ end}.
   {default, "emqxsecretcookie"}
 ]}.
 
-%% @doc SMP Support
-{mapping, "node.smp", "vm_args.-smp", [
-  {default, auto},
-  {datatype, {enum, [enable, auto, disable]}},
-  hidden
-]}.
-
 %% @doc http://erlang.org/doc/man/heart.html
 {mapping, "node.heartbeat", "vm_args.-heart", [
   {datatype, flag},
@@ -210,13 +203,6 @@ end}.
         false -> cuttlefish:invalid("should be 'on' or comment the line!")
     end
 end}.
-
-%% @doc Enable Kernel Poll
-{mapping, "node.kernel_poll", "vm_args.+K", [
-  {default, on},
-  {datatype, flag},
-  hidden
-]}.
 
 %% @doc More information at: http://erlang.org/doc/man/erl.html
 {mapping, "node.async_threads", "vm_args.+A", [
@@ -548,6 +534,12 @@ end}.
   {validators, ["range:gt_0"]}
 ]}.
 
+%% @doc Action when acl check reject current operation
+{mapping, "acl_deny_action", "emqx.acl_deny_action", [
+  {default, ignore},
+  {datatype, {enum, [ignore, disconnect]}}
+]}.
+
 {validator, "range:gt_0", "must greater than 0",
   fun(X) -> X > 0 end
 }.
@@ -638,6 +630,12 @@ end}.
 {mapping, "zone.$name.enable_acl", "emqx.zones", [
   {default, off},
   {datatype, flag}
+]}.
+
+%% @doc Action when acl check reject current operation
+{mapping, "zone.$name.acl_deny_action", "emqx.zones", [
+  {default, ignore},
+  {datatype, {enum, [ignore, disconnect]}}
 ]}.
 
 %% @doc Enable Ban.
@@ -900,6 +898,11 @@ end}.
   {datatype, integer}
 ]}.
 
+{mapping, "listener.tcp.$name.active_n", "emqx.listeners", [
+  {default, 100},
+  {datatype, integer}
+]}.
+
 {mapping, "listener.tcp.$name.zone", "emqx.listeners", [
   {datatype, string}
 ]}.
@@ -992,6 +995,11 @@ end}.
 ]}.
 
 {mapping, "listener.ssl.$name.max_conn_rate", "emqx.listeners", [
+  {datatype, integer}
+]}.
+
+{mapping, "listener.ssl.$name.active_n", "emqx.listeners", [
+  {default, 100},
   {datatype, integer}
 ]}.
 
@@ -1411,6 +1419,7 @@ end}.
                           {mqtt_path, cuttlefish:conf_get(Prefix ++ ".mqtt_path", Conf, undefined)},
                           {max_connections, cuttlefish:conf_get(Prefix ++ ".max_connections", Conf)},
                           {max_conn_rate, cuttlefish:conf_get(Prefix ++ ".max_conn_rate", Conf, undefined)},
+                          {active_n, cuttlefish:conf_get(Prefix ++ ".active_n", Conf, undefined)},
                           {tune_buffer, cuttlefish:conf_get(Prefix ++ ".tune_buffer", Conf, undefined)},
                           {zone, Atom(cuttlefish:conf_get(Prefix ++ ".zone", Conf, undefined))},
                           {rate_limit, Ratelimit(cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined))},
@@ -1721,6 +1730,11 @@ end}.
 {mapping, "broker.sys_interval", "emqx.broker_sys_interval", [
   {datatype, {duration, ms}},
   {default, "1m"}
+]}.
+
+{mapping, "broker.enable_session_registry", "emqx.enable_session_registry", [
+  {default, on},
+  {datatype, flag}
 ]}.
 
 {mapping, "broker.session_locking_strategy", "emqx.session_locking_strategy", [

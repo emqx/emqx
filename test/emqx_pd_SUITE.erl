@@ -12,15 +12,20 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_tables_SUITE).
+-module(emqx_pd_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
-all() -> [t_new].
+-include_lib("eunit/include/eunit.hrl").
 
-t_new(_) ->
-    ok = emqx_tables:new(test_table, [{read_concurrency, true}]),
-    ets:insert(test_table, {key, 100}),
-    ok = emqx_tables:new(test_table, [{read_concurrency, true}]),
-    100 = ets:lookup_element(test_table, key, 2).
+all() -> [update_counter].
+
+update_counter(_) ->
+    ?assertEqual(undefined, emqx_pd:update_counter(bytes, 1)),
+    ?assertEqual(1, emqx_pd:update_counter(bytes, 1)),
+    ?assertEqual(2, emqx_pd:update_counter(bytes, 1)),
+    ?assertEqual(3, emqx_pd:get_counter(bytes)),
+    ?assertEqual(3, emqx_pd:reset_counter(bytes)),
+    ?assertEqual(0, emqx_pd:get_counter(bytes)).
+

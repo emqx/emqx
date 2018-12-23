@@ -26,17 +26,16 @@
 
 -export([start_link/0]).
 -export([check/1]).
--export([add/1, del/1]).
+-export([add/1, delete/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
 -define(TAB, ?MODULE).
--define(SERVER, ?MODULE).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Mnesia bootstrap
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
@@ -52,7 +51,7 @@ mnesia(copy) ->
 %% @doc Start the banned server.
 -spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 -spec(check(emqx_types:credentials()) -> boolean()).
 check(#{client_id := ClientId, username := Username, peername := {IPAddr, _}}) ->
@@ -64,25 +63,25 @@ check(#{client_id := ClientId, username := Username, peername := {IPAddr, _}}) -
 add(Banned) when is_record(Banned, banned) ->
     mnesia:dirty_write(?TAB, Banned).
 
--spec(del({client_id, emqx_types:client_id()} |
-          {username, emqx_types:username()} |
-          {peername, emqx_types:peername()}) -> ok).
-del(Key) ->
+-spec(delete({client_id, emqx_types:client_id()}
+           | {username, emqx_types:username()}
+           | {peername, emqx_types:peername()}) -> ok).
+delete(Key) ->
     mnesia:dirty_delete(?TAB, Key).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([]) ->
     {ok, ensure_expiry_timer(#{expiry_timer => undefined})}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[BANNED] unexpected call: ~p", [Req]),
+    emqx_logger:error("[Banned] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[BANNED] unexpected msg: ~p", [Msg]),
+    emqx_logger:error("[Banned] unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
@@ -90,7 +89,7 @@ handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
     {noreply, ensure_expiry_timer(State), hibernate};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[BANNED] unexpected info: ~p", [Info]),
+    emqx_logger:error("[Banned] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{expiry_timer := TRef}) ->
@@ -99,21 +98,22 @@ terminate(_Reason, #{expiry_timer := TRef}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Internal functions
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 -ifdef(TEST).
 ensure_expiry_timer(State) ->
-    State#{expiry_timer := emqx_misc:start_timer(timer:seconds(2), expire)}.
+    State#{expiry_timer := emqx_misc:start_timer(timer:seconds(1), expire)}.
 -else.
 ensure_expiry_timer(State) ->
-    State#{expiry_timer := emqx_misc:start_timer(timer:minutes(5), expire)}.
+    State#{expiry_timer := emqx_misc:start_timer(timer:minutes(1), expire)}.
 -endif.
 
 expire_banned_items(Now) ->
-    mnesia:foldl(fun
-            (B = #banned{until = Until}, _Acc) when Until < Now ->
-                mnesia:delete_object(?TAB, B, sticky_write);
-            (_, _Acc) -> ok
-        end, ok, ?TAB).
+    mnesia:foldl(
+      fun(B = #banned{until = Until}, _Acc) when Until < Now ->
+              mnesia:delete_object(?TAB, B, sticky_write);
+         (_, _Acc) -> ok
+      end, ok, ?TAB).
+
