@@ -18,7 +18,7 @@ NO_AUTOPATCH = cuttlefish
 ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 
 BUILD_DEPS = cuttlefish
-dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish v2.1.0
+dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish win30
 
 #TEST_DEPS = emqx_ct_helplers
 #dep_emqx_ct_helplers = git git@github.com:emqx/emqx-ct-helpers
