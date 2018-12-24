@@ -24,6 +24,7 @@
 
 %% Trie APIs
 -export([insert/1, match/1, lookup/1, delete/1]).
+-export([empty/0]).
 
 %% Mnesia tables
 -define(TRIE, emqx_trie).
@@ -99,6 +100,11 @@ delete(Topic) when is_binary(Topic) ->
             write_trie_node(TrieNode#trie_node{topic = undefined});
         [] -> ok
     end.
+
+%% @doc Is the trie empty?
+-spec(empty() -> boolean()).
+empty() ->
+    ets:info(?TRIE, size) == 0.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
