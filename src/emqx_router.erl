@@ -101,9 +101,13 @@ do_add_route(Topic, Dest) when is_binary(Topic) ->
 %% @doc Match routes
 -spec(match_routes(emqx_topic:topic()) -> [emqx_types:route()]).
 match_routes(Topic) when is_binary(Topic) ->
-    %% Optimize: routing table will be replicated to all router nodes.
-    Matched = mnesia:ets(fun emqx_trie:match/1, [Topic]),
-    lists:append([lookup_routes(To) || To <- [Topic | Matched]]).
+    case emqx_trie:empty() of
+        true -> lookup_routes(Topic);
+        false ->
+            %% Optimize: routing table will be replicated to all router nodes.
+            Matched = mnesia:ets(fun emqx_trie:match/1, [Topic]),
+            lists:append([lookup_routes(To) || To <- [Topic | Matched]])
+    end.
 
 -spec(lookup_routes(emqx_topic:topic()) -> [emqx_types:route()]).
 lookup_routes(Topic) ->
