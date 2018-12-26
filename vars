@@ -1,0 +1,9 @@
+%% vars here are for test only, not intended for release
+
+{platform_bin_dir,  "bin"}.
+{platform_data_dir, "data"}.
+{platform_etc_dir,  "etc"}.
+{platform_lib_dir,  "lib"}.
+{platform_log_dir,  "log"}.
+{platform_plugins_dir,  "plugins"}.
+
