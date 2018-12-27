@@ -12,22 +12,22 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_cli).
+%% @doc The utility functions for erlang process dictionary.
+-module(emqx_pd).
 
--export([print/1, print/2, usage/1, usage/2]).
+-export([update_counter/2, get_counter/1, reset_counter/1]).
 
-print(Msg) ->
-    io:format(Msg), lists:flatten(io_lib:format("~p", [Msg])).
+-type(key() :: term()).
 
-print(Format, Args) ->
-    io:format(Format, Args), lists:flatten(io_lib:format(Format, Args)).
+-spec(update_counter(key(), number()) -> undefined | number()).
+update_counter(Key, Inc) ->
+    put(Key, get_counter(Key) + Inc).
 
-usage(CmdList) ->
-    lists:map(
-      fun({Cmd, Descr}) ->
-          io:format("~-48s# ~s~n", [Cmd, Descr]),
-          lists:flatten(io_lib:format("~-48s# ~s~n", [Cmd, Descr]))
-      end, CmdList).
+-spec(get_counter(key()) -> number()).
+get_counter(Key) ->
+    case get(Key) of undefined -> 0; Cnt -> Cnt end.
 
-usage(Format, Args) ->
-    usage([{Format, Args}]).
+-spec(reset_counter(key()) -> number()).
+reset_counter(Key) ->
+    case put(Key, 0) of undefined -> 0; Cnt -> Cnt end.
+

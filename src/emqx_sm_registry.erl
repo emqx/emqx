@@ -43,10 +43,9 @@ start_link() ->
 is_enabled() ->
     emqx_config:get_env(enable_session_registry, true).
 
--spec(lookup_session(emqx_types:client_id())
-      -> list({emqx_types:client_id(), session_pid()})).
+-spec(lookup_session(emqx_types:client_id()) -> list(session_pid())).
 lookup_session(ClientId) ->
-    [{ClientId, SessPid} || #global_session{pid = SessPid} <- mnesia:dirty_read(?TAB, ClientId)].
+    [SessPid || #global_session{pid = SessPid} <- mnesia:dirty_read(?TAB, ClientId)].
 
 -spec(register_session({emqx_types:client_id(), session_pid()}) -> ok).
 register_session({ClientId, SessPid}) when is_binary(ClientId), is_pid(SessPid) ->

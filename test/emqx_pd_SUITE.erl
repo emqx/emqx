@@ -12,27 +12,20 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_sequence_SUITE).
+-module(emqx_pd_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
 
--import(emqx_sequence, [nextval/2, reclaim/2]).
+all() -> [update_counter].
 
-all() ->
-    [sequence_generate].
-
-sequence_generate(_) ->
-    ok = emqx_sequence:create(seqtab),
-    ?assertEqual(1, nextval(seqtab, key)),
-    ?assertEqual(2, nextval(seqtab, key)),
-    ?assertEqual(3, nextval(seqtab, key)),
-    ?assertEqual(2, reclaim(seqtab, key)),
-    ?assertEqual(1, reclaim(seqtab, key)),
-    ?assertEqual(0, reclaim(seqtab, key)),
-    ?assertEqual(false, ets:member(seqtab, key)),
-    ?assertEqual(1, nextval(seqtab, key)),
-    ?assert(emqx_sequence:delete(seqtab)).
+update_counter(_) ->
+    ?assertEqual(undefined, emqx_pd:update_counter(bytes, 1)),
+    ?assertEqual(1, emqx_pd:update_counter(bytes, 1)),
+    ?assertEqual(2, emqx_pd:update_counter(bytes, 1)),
+    ?assertEqual(3, emqx_pd:get_counter(bytes)),
+    ?assertEqual(3, emqx_pd:reset_counter(bytes)),
+    ?assertEqual(0, emqx_pd:get_counter(bytes)).
 

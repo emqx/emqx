@@ -31,6 +31,8 @@
 -define(SUBSEQ, emqx_subseq).
 -define(SHARD, 1024).
 
+-define(BATCH_SIZE, 100000).
+
 -spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?HELPER}, ?MODULE, [], []).
@@ -106,14 +108,12 @@ handle_cast(Msg, State) ->
     emqx_logger:error("[BrokerHelper] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({'DOWN', _MRef, process, SubPid, Reason}, State = #{pmon := PMon}) ->
-    case ets:lookup(?SUBMON, SubPid) of
-        [{_, SubId}] ->
-            ok = emqx_pool:async_submit(fun subscriber_down/2, [SubPid, SubId]);
-        [] ->
-            emqx_logger:error("[BrokerHelper] unexpected DOWN: ~p, reason: ~p", [SubPid, Reason])
-    end,
-    {noreply, State#{pmon := emqx_pmon:erase(SubPid, PMon)}};
+handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #{pmon := PMon}) ->
+    SubPids = [SubPid | emqx_misc:drain_down(?BATCH_SIZE)],
+    ok = emqx_pool:async_submit(
+           fun lists:foreach/2, [fun clean_down/1, SubPids]),
+    {_, PMon1} = emqx_pmon:erase_all(SubPids, PMon),
+    {noreply, State#{pmon := PMon1}};
 
 handle_info(Info, State) ->
     emqx_logger:error("[BrokerHelper] unexpected info: ~p", [Info]),
@@ -126,8 +126,17 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-subscriber_down(SubPid, SubId) ->
-    true = ets:delete(?SUBMON, SubPid),
-    true = (SubId =:= undefined) orelse ets:delete_object(?SUBID, {SubId, SubPid}),
-    emqx_broker:subscriber_down(SubPid).
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
+clean_down(SubPid) ->
+    case ets:lookup(?SUBMON, SubPid) of
+        [{_, SubId}] ->
+            true = ets:delete(?SUBMON, SubPid),
+            true = (SubId =:= undefined)
+                orelse ets:delete_object(?SUBID, {SubId, SubPid}),
+            emqx_broker:subscriber_down(SubPid);
+        [] -> ok
+    end.
 

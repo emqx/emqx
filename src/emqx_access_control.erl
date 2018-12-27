@@ -156,16 +156,17 @@ handle_call({register_mod, Type, Mod, Opts, Seq}, _From, State) ->
     reply(case lists:keymember(Mod, 1, Mods) of
               true  -> {error, already_exists};
               false ->
-                  case catch Mod:init(Opts) of
-                      {ok, ModState} ->
-                          NewMods = lists:sort(fun({_, _, Seq1}, {_, _, Seq2}) ->
-                                                       Seq1 >= Seq2
-                                               end, [{Mod, ModState, Seq} | Mods]),
-                          ets:insert(?TAB, {tab_key(Type), NewMods}), ok;
-                      {error, Error} ->
-                          {error, Error};
-                      {'EXIT', Reason} ->
-                          {error, Reason}
+                    try Mod:init(Opts) of
+                        {ok, ModState} ->
+                            NewMods = lists:sort(fun({_, _, Seq1}, {_, _, Seq2}) ->
+                                                        Seq1 >= Seq2
+                                                end, [{Mod, ModState, Seq} | Mods]),
+                            ets:insert(?TAB, {tab_key(Type), NewMods}),
+                            ok
+                    catch
+                        _:Error ->
+                            emqx_logger:error("[AccessControl] Failed to init ~s: ~p", [Mod, Error]),
+                            {error, Error}
                     end
           end, State);
 

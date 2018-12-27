@@ -87,7 +87,7 @@ subscribe(Topic) when is_binary(Topic) ->
 
 -spec(subscribe(emqx_topic:topic(), emqx_types:subid() | emqx_types:subopts()) -> ok).
 subscribe(Topic, SubId) when is_binary(Topic), ?is_subid(SubId) ->
-    subscribe(Topic, SubId, #{});
+    subscribe(Topic, SubId, #{qos => 0});
 subscribe(Topic, SubOpts) when is_binary(Topic), is_map(SubOpts) ->
     subscribe(Topic, undefined, SubOpts).
 
@@ -371,7 +371,7 @@ cast(Broker, Msg) ->
 
 %% Pick a broker
 pick(Topic) ->
-    gproc_pool:pick_worker(emqx_broker_pool, Topic).
+    gproc_pool:pick_worker(broker_pool, Topic).
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks

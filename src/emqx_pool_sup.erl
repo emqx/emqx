@@ -39,8 +39,6 @@ start_link(Pool, Type, MFA) ->
 
 -spec(start_link(atom() | tuple(), atom(), pos_integer(), mfa())
       -> {ok, pid()} | {error, term()}).
-start_link(Pool, Type, Size, MFA) when is_atom(Pool) ->
-    supervisor:start_link({local, Pool}, ?MODULE, [Pool, Type, Size, MFA]);
 start_link(Pool, Type, Size, MFA) ->
     supervisor:start_link(?MODULE, [Pool, Type, Size, MFA]).
 
