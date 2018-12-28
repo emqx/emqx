@@ -121,13 +121,76 @@ init([Options]) ->
                 options              = Options,
                 reconnect_interval   = ReconnectInterval}}.
 
-handle_call(start_bridge, _From, State = #state{client_pid = undefined, replayq = #{}}) ->
-    {noreply, NewState} = handle_info(start, State),
-    {reply, #{msg => <<"start bridge successfully">>}, NewState};
+handle_call(start_bridge, _From, State = #state{options = Options,
+                                                replayq = undefined,
+                                                client_pid = undefined,
+                                                queue_option = #{batch_size := BatchSize,
+                                                                 replayq_dir := ReplayqDir,
+                                                                 replayq_seg_bytes := ReplayqSegBytes}}) ->
+    case emqx_client:start_link([{owner, self()}|options(Options)]) of
+        {ok, ClientPid} ->
+            case emqx_client:connect(ClientPid) of
+                {ok, _} ->
+                    emqx_logger:info("[Bridge] connected to remote ysucessfully"),
+                    Subs = subscribe_remote_topics(ClientPid, get_value(subscriptions, Options, [])),
+                    Forwards = subscribe_local_topics(Options),
+                    ReplayQ = replayq:open(#{dir => ReplayqDir,
+                                             seg_bytes => ReplayqSegBytes,
+                                             sizer => fun(Term) ->
+                                                          size(term_to_binary(Term))
+                                                      end,
+                                             marshaller => fun({PktId, Msg}) ->
+                                                               term_to_binary({PktId, Msg});
+                                                              (Bin) ->
+                                                               binary_to_term(Bin)
+                                                           end
+                                              }),
+                    {NewReplayQ, AckRef, ReadQ} = replayq:pop(ReplayQ, #{count_limit => BatchSize}),
+                    {ok, NewReadQ} = publish_readq_msg(ClientPid, ReadQ, []),
+                    {reply, #{msg => <<"start bridge successfully">>}, State#state{client_pid = ClientPid,
+                                                                                   subscriptions = Subs,
+                                                                                   readq = NewReadQ,
+                                                                                   replayq = NewReplayQ,
+                                                                                   ackref = AckRef,
+                                                                                   forwards = Forwards}};
+                {error, Reason} ->
+                    emqx_logger:error("[Bridge] connect to remote failed! error: ~p", [Reason]),
+                    {reply, #{msg => <<"connect to remote failed">>}, State#state{client_pid = ClientPid}}
+            end;
+        {error, Reason} ->
+            emqx_logger:error("[Bridge] start failed! error: ~p", [Reason]),
+            {reply, #{msg => <<"start bridge failed">>}, State}
+    end;
 
-handle_call(start_bridge, _From, State = #state{client_pid = undefined, replayq = _ReplayQ}) ->
-    {noreply, NewState} = handle_info(restart, State),
-    {reply, #{msg => <<"start bridge successfully">>}, NewState};
+
+handle_call(start_bridge, _From, State = #state{options = Options,
+                                                client_pid = undefined,
+                                                replayq = ReplayQ,
+                                                queue_option = #{batch_size := BatchSize}
+                                               }) ->
+    case emqx_client:start_link([{owner, self()} | options(Options)]) of
+        {ok, ClientPid} ->
+            case emqx_client:connect(ClientPid) of
+                {ok, _} ->
+                    emqx_logger:info("[Bridge] connected to remote ysucessfully"),
+                    Subs = subscribe_remote_topics(ClientPid, get_value(subscriptions, Options, [])),
+                    Forwards = subscribe_local_topics(Options),
+                    {NewReplayQ, AckRef, ReadQ} = replayq:pop(ReplayQ, #{count_limit => BatchSize}),
+                    {ok, NewReadQ} = publish_readq_msg(ClientPid, ReadQ, []),
+                    {reply, #{msg => <<"start bridge successfully">>}, State#state{client_pid = ClientPid,
+                                                                                   subscriptions = Subs,
+                                                                                   readq = NewReadQ,
+                                                                                   replayq = NewReplayQ,
+                                                                                   ackref = AckRef,
+                                                                                   forwards = Forwards}};
+                {error, Reason} ->
+                    emqx_logger:error("[Bridge] connect to remote failed! error: ~p", [Reason]),
+                    {reply, #{msg => <<"connect to remote failed">>}, State#state{client_pid = ClientPid}}
+            end;
+        {error, Reason} ->
+            emqx_logger:error("[Bridge] restart failed! error: ~p", [Reason]),
+            {reply, #{msg => <<"start bridge failed">>}, State}
+    end;
 
 handle_call(start_bridge, _From, State) ->
     {reply, #{msg => <<"bridge already started">>}, State};
@@ -194,21 +257,18 @@ handle_cast(Msg, State) ->
     emqx_logger:error("[Bridge] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-%%----------------------------------------------------------------
-%% restart message bridge
-%%----------------------------------------------------------------
 handle_info(restart, State = #state{options = Options,
                                     client_pid = undefined,
                                     replayq = ReplayQ,
                                     queue_option = #{batch_size := BatchSize}
-                                   }) ->
+                                    }) ->
     case emqx_client:start_link([{owner, self()} | options(Options)]) of
         {ok, ClientPid} ->
             case emqx_client:connect(ClientPid) of
                 {ok, _} ->
                     emqx_logger:info("[Bridge] connected to remote ysucessfully"),
                     Subs = subscribe_remote_topics(ClientPid, get_value(subscriptions, Options, [])),
-                    Forwards = subscribe_local_topics(get_value(forwards, Options, [])),
+                    Forwards = subscribe_local_topics(Options),
                     {NewReplayQ, AckRef, ReadQ} = replayq:pop(ReplayQ, #{count_limit => BatchSize}),
                     {ok, NewReadQ} = publish_readq_msg(ClientPid, ReadQ, []),
                     {noreply, State#state{client_pid = ClientPid,
@@ -225,57 +285,6 @@ handle_info(restart, State = #state{options = Options,
             emqx_logger:error("[Bridge] restart failed! error: ~p", [Reason]),
             {noreply, State}
     end;
-handle_info(restart, State) ->
-    Reason = "Config entry of bridge queue is broken.",
-    emqx_logger:error("[Bridge] start failed! error: ~p, [State]: ~p", [Reason, State]),
-    {noreply, State};
-
-%%----------------------------------------------------------------
-%% start message bridge
-%%----------------------------------------------------------------
-handle_info(start, State = #state{options = Options,
-                                  client_pid = undefined,
-                                  queue_option = #{batch_size := BatchSize,
-                                                   replayq_dir := ReplayqDir,
-                                                   replayq_seg_bytes := ReplayqSegBytes}}) ->
-    case emqx_client:start_link([{owner, self()}|options(Options)]) of
-        {ok, ClientPid} ->
-            case emqx_client:connect(ClientPid) of
-                {ok, _} ->
-                    emqx_logger:info("[Bridge] connected to remote ysucessfully"),
-                    Subs = subscribe_remote_topics(ClientPid, get_value(subscriptions, Options, [])),
-                    Forwards = subscribe_local_topics(get_value(forwards, Options, [])),
-                    ReplayQ = replayq:open(#{dir => ReplayqDir,
-                                             seg_bytes => ReplayqSegBytes,
-                                             sizer => fun(Term) ->
-                                                          size(term_to_binary(Term))
-                                                      end,
-                                             marshaller => fun({PktId, Msg}) ->
-                                                               term_to_binary({PktId, Msg});
-                                                              (Bin) ->
-                                                               binary_to_term(Bin)
-                                                           end
-                                              }),
-                    {NewReplayQ, AckRef, ReadQ} = replayq:pop(ReplayQ, #{count_limit => BatchSize}),
-                    {ok, NewReadQ} = publish_readq_msg(ClientPid, ReadQ, []),
-                    {noreply, State#state{client_pid = ClientPid,
-                                          subscriptions = Subs,
-                                          readq = NewReadQ,
-                                          replayq = NewReplayQ,
-                                          ackref = AckRef,
-                                          forwards = Forwards}};
-                {error, Reason} ->
-                    emqx_logger:error("[Bridge] connect to remote failed! error: ~p", [Reason]),
-                    {noreply, State#state{client_pid = ClientPid}}
-            end;
-        {error, Reason} ->
-            emqx_logger:error("[Bridge] start failed! error: ~p", [Reason]),
-            {noreply, State}
-    end;
-handle_info(start, State) ->
-    Reason = "Config entry of bridge queue is broken.",
-    emqx_logger:error("[Bridge] start failed! error: ~p, [State]: ~p", [Reason, State]),
-    {noreply, State};
 
 %%----------------------------------------------------------------
 %% pop message from replayq and publish again
@@ -351,7 +360,7 @@ handle_info({'EXIT', Pid, Reason}, State = #state{client_pid = Pid,
                                                   reconnect_interval = ReconnectInterval}) ->
     emqx_logger:error("[Bridge] stop ~p", [Reason]),
     self() ! dump,
-    erlang:send_after(ReconnectInterval, self(), start),
+    erlang:send_after(ReconnectInterval, self(), restart),
     {noreply, State#state{client_pid = undefined}};
 
 handle_info(Info, State) ->
@@ -368,8 +377,10 @@ subscribe_remote_topics(ClientPid, Subscriptions) ->
     [begin emqx_client:subscribe(ClientPid, {bin(Topic), Qos}), {bin(Topic), Qos} end
         || {Topic, Qos} <- Subscriptions, emqx_topic:validate({filter, bin(Topic)})].
 
-subscribe_local_topics(Topics) ->
-    [begin emqx_broker:subscribe(bin(Topic), #{qos => 1}), bin(Topic) end
+subscribe_local_topics(Options) ->
+    Topics = get_value(forwards, Options, []),
+    Subid = get_value(client_id, Options, <<"bridge">>),
+    [begin emqx_broker:subscribe(bin(Topic), #{qos => 1, subid => Subid}), bin(Topic) end
         || Topic <- Topics, emqx_topic:validate({filter, bin(Topic)})].
 
 proto_ver(mqttv3) -> v3;
