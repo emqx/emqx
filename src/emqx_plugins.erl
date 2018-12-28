@@ -175,7 +175,7 @@ plugin(CfgFile) ->
             Ver = proplists:get_value(vsn, Attrs, "0"),
             Descr = proplists:get_value(description, Attrs, ""),
             #plugin{name = AppName, version = Ver, descr = Descr};
-        Error -> error({Error, AppName})
+        undefined -> error({plugin_not_found, AppName})
     end.
 
 %% @doc Load a Plugin
