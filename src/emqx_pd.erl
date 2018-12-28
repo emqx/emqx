@@ -12,15 +12,22 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_tables_SUITE).
+%% @doc The utility functions for erlang process dictionary.
+-module(emqx_pd).
 
--compile(export_all).
--compile(nowarn_export_all).
+-export([update_counter/2, get_counter/1, reset_counter/1]).
 
-all() -> [t_new].
+-type(key() :: term()).
 
-t_new(_) ->
-    ok = emqx_tables:new(test_table, [{read_concurrency, true}]),
-    ets:insert(test_table, {key, 100}),
-    ok = emqx_tables:new(test_table, [{read_concurrency, true}]),
-    100 = ets:lookup_element(test_table, key, 2).
+-spec(update_counter(key(), number()) -> undefined | number()).
+update_counter(Key, Inc) ->
+    put(Key, get_counter(Key) + Inc).
+
+-spec(get_counter(key()) -> number()).
+get_counter(Key) ->
+    case get(Key) of undefined -> 0; Cnt -> Cnt end.
+
+-spec(reset_counter(key()) -> number()).
+reset_counter(Key) ->
+    case put(Key, 0) of undefined -> 0; Cnt -> Cnt end.
+

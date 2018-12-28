@@ -1,0 +1,95 @@
+##############################
+# Erlang VM Args
+##############################
+
+## NOTE:
+##
+## Arguments configured in this file might be overridden by configs from `emqx.conf`.
+##
+## Some basic VM arguments are to be configured in `emqx.conf`,
+## such as `node.name` for `-name` and `node.cooke` for `-setcookie`.
+
+## Sets the maximum number of simultaneously existing processes for this system.
+#+P 2048000
+
+## Sets the maximum number of simultaneously existing ports for this system.
+#+Q 1024000
+
+## Sets the maximum number of ETS tables
+#+e 256000
+
+## Sets the maximum number of atoms the virtual machine can handle.
+#+t 1048576
+
+## Set the location of crash dumps
+#-env ERL_CRASH_DUMP {{ platform_log_dir }}/crash.dump
+
+## Set how many times generational garbages collections can be done without
+## forcing a fullsweep collection.
+#-env ERL_FULLSWEEP_AFTER 1000
+
+## Heartbeat management; auto-restarts VM if it dies or becomes unresponsive
+## (Disabled by default..use with caution!)
+#-heart
+
+## Specify the erlang distributed protocol.
+## Can be one of: inet_tcp, inet6_tcp, inet_tls
+#-proto_dist inet_tcp
+
+## Specify SSL Options in the file if using SSL for Erlang Distribution.
+## Used only when -proto_dist set to inet_tls
+#-ssl_dist_optfile {{ platform_etc_dir }}/ssl_dist.conf
+
+## Specifies the net_kernel tick time in seconds.
+## This is the approximate time a connected node may be unresponsive until
+## it is considered down and thereby disconnected.
+#-kernel net_ticktime 60
+
+## Sets the distribution buffer busy limit (dist_buf_busy_limit).
+#+zdbbl 8192
+
+## Sets default scheduler hint for port parallelism.
++spp true
+
+## Sets the number of threads in async thread pool. Valid range is 0-1024.
+#+A 8
+
+## Sets the default heap size of processes to the size Size.
+#+hms 233
+
+## Sets the default binary virtual heap size of processes to the size Size.
+#+hmbs 46422
+
+## Sets the number of IO pollsets to use when polling for I/O.
+#+IOp 1
+
+## Sets the number of IO poll threads to use when polling for I/O.
+#+IOt 1
+
+## Sets the number of scheduler threads to create and scheduler threads to set online.
+#+S 8:8
+
+## Sets the number of dirty CPU scheduler threads to create and dirty CPU scheduler threads to set online.
+#+SDcpu 8:8
+
+## Sets the number of dirty I/O scheduler threads to create.
+#+SDio 10
+
+## Suggested stack size, in kilowords, for scheduler threads.
+#+sss 32
+
+## Suggested stack size, in kilowords, for dirty CPU scheduler threads.
+#+sssdcpu 40
+
+## Suggested stack size, in kilowords, for dirty IO scheduler threads.
+#+sssdio 40
+
+## Sets scheduler bind type.
+## Can be one of: u, ns, ts, ps, s, nnts, nnps, tnnps, db
+#+sbt db
+
+## Sets a user-defined CPU topology.
+#+sct L0-3c0-3p0N0:L4-7c0-3p1N1
+
+## Sets the mapping of warning messages for error_logger
+#+W w

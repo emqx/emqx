@@ -112,6 +112,10 @@ compat_test() ->
     (((codes_test(suback))
         ([0,1,2, 16#80]))
        ([0,1,2, 16#80]))
+      (fun emqx_reason_codes:compat/2),
+    (((codes_test(unsuback))
+        ([0, 1, 2]))
+       ([undefined, undefined, undefined]))
       (fun emqx_reason_codes:compat/2).
 
 codes_test(AsistVar) ->

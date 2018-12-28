@@ -148,7 +148,7 @@ stop() ->
 %%-----------------------------------------------------------------------------
 
 init([]) ->
-    _ = emqx_tables:new(?TAB, [set, protected, {read_concurrency, true}]),
+    ok = emqx_tables:new(?TAB, [set, protected, {read_concurrency, true}]),
     {ok, #{}}.
 
 handle_call({register_mod, Type, Mod, Opts, Seq}, _From, State) ->

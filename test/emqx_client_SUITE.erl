@@ -32,9 +32,8 @@
                       <<"+/+">>, <<"TopicA/#">>]).
 
 all() ->
-    [ {group, mqttv4},
-      {group, mqttv5}
-    ].
+    [{group, mqttv4},
+     {group, mqttv5}].
 
 groups() ->
     [{mqttv4, [non_parallel_tests],
@@ -48,8 +47,7 @@ groups() ->
        dollar_topics_test]},
      {mqttv5, [non_parallel_tests],
       [request_response,
-       share_sub_request_topic]}
-].
+       share_sub_request_topic]}].
 
 init_per_suite(Config) ->
     emqx_ct_broker_helpers:run_setup_steps(),
