@@ -202,7 +202,7 @@ handle_info(start, State = #state{options = Options,
         {ok, ClientPid} ->
             case emqx_client:connect(ClientPid) of
                 {ok, _} ->
-                    emqx_logger:info("[Bridge] connected to remote sucessfully"),
+                    emqx_logger:info("[Bridge] connected to remote ysucessfully"),
                     Subs = subscribe_remote_topics(ClientPid, get_value(subscriptions, Options, [])),
                     Forwards = subscribe_local_topics(get_value(forwards, Options, [])),
                     ReplayQ = replayq:open(#{dir => ReplayqDir,
@@ -329,7 +329,7 @@ subscribe_remote_topics(ClientPid, Subscriptions) ->
         || {Topic, Qos} <- Subscriptions, emqx_topic:validate({filter, bin(Topic)})].
 
 subscribe_local_topics(Topics) ->
-    [begin emqx_broker:subscribe(bin(Topic)), bin(Topic) end
+    [begin emqx_broker:subscribe(bin(Topic), #{qos => 1}), bin(Topic) end
         || Topic <- Topics, emqx_topic:validate({filter, bin(Topic)})].
 
 proto_ver(mqttv3) -> v3;
@@ -399,13 +399,17 @@ en_writeq(Msg, State = #state{writeq = WriteQ, replayq = ReplayQ,
 publish_readq_msg(_ClientPid, [], ReadQ) ->
     {ok, ReadQ};
 publish_readq_msg(ClientPid, [{_PktId, Msg} | ReadQ], ReadQ) ->
+    io:format("~n~p~n", [Msg]),
     {ok, PktId} = emqx_client:publish(ClientPid, Msg),
     publish_readq_msg(ClientPid, ReadQ, [{PktId, Msg} | ReadQ]).
 
-delete(_PktId, State = #state{readq = [], replayq = ReplayQ, ackref = AckRef}) ->
+delete(_PktId, State = #state{readq = [], writeq = [], replayq = ReplayQ, ackref = AckRef}) ->
     ok = replayq:ack(ReplayQ, AckRef),
     self() ! pop,
     State;
+
+delete(PktId, State = #state{readq = [], writeq = WriteQ}) ->
+    State#state{writeq = lists:keydelete(PktId, 1, WriteQ)};
 
 delete(PktId, State = #state{readq = ReadQ}) ->
     State#state{readq = lists:keydelete(PktId, 1, ReadQ)}.
