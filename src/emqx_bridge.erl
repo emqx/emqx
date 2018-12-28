@@ -115,9 +115,26 @@ init([Options]) ->
                 reconnect_interval   = ReconnectInterval,
                 max_pending_messages = MaxPendingMsg}}.
 
-handle_call(start_bridge, _From, State = #state{client_pid = undefined}) ->
-    {noreply, NewState} = handle_info(start, State),
-    {reply, #{msg => <<"start bridge successfully">>}, NewState};
+handle_call(start_bridge, _From, State = #state{client_pid = undefined, options = Options}) ->
+    case emqx_client:start_link([{owner, self()}|options(Options)]) of
+        {ok, ClientPid} ->
+            case emqx_client:connect(ClientPid) of
+                {ok, _} ->
+                    emqx_logger:info("[Bridge] connected to remote sucessfully"),
+                    Subs = subscribe_remote_topics(ClientPid, get_value(subscriptions, Options, [])),
+                    Forwards = subscribe_local_topics(get_value(forwards, Options, [])),
+                    {reply, #{msg => <<"start bridge successfully">>},
+                            State#state{client_pid = ClientPid,
+                                        subscriptions = Subs,
+                                        forwards = Forwards}};
+                {error, Reason} ->
+                    emqx_logger:error("[Bridge] connect to remote failed! error: ~p", [Reason]),
+                    {reply, #{msg => <<"connect to remote failed">>}, State#state{client_pid = ClientPid}}
+            end;
+        {error, Reason} ->
+            emqx_logger:error("[Bridge] start failed! error: ~p", [Reason]),
+            {reply, #{msg => <<"start bridge failed">>}, State}
+    end;
 
 handle_call(start_bridge, _From, State) ->
     {reply, #{msg => <<"bridge already started">>}, State};
@@ -183,30 +200,6 @@ handle_call(Req, _From, State) ->
 handle_cast(Msg, State) ->
     emqx_logger:error("[Bridge] unexpected cast: ~p", [Msg]),
     {noreply, State}.
-
-%%----------------------------------------------------------------
-%% start message bridge
-%%----------------------------------------------------------------
-handle_info(start, State = #state{options = Options,
-                                  client_pid = undefined}) ->
-    case emqx_client:start_link([{owner, self()}|options(Options)]) of
-        {ok, ClientPid} ->
-            case emqx_client:connect(ClientPid) of
-                {ok, _} ->
-                    emqx_logger:info("[Bridge] connected to remote sucessfully"),
-                    Subs = subscribe_remote_topics(ClientPid, get_value(subscriptions, Options, [])),
-                    Forwards = subscribe_local_topics(get_value(forwards, Options, [])),
-                    {noreply, State#state{client_pid = ClientPid,
-                                          subscriptions = Subs,
-                                          forwards = Forwards}};
-                {error, Reason} ->
-                    emqx_logger:error("[Bridge] connect to remote failed! error: ~p", [Reason]),
-                    {noreply, State#state{client_pid = ClientPid}}
-            end;
-        {error, Reason} ->
-            emqx_logger:error("[Bridge] start failed! error: ~p", [Reason]),
-            {noreply, State}
-    end;
 
 %%----------------------------------------------------------------
 %% received local node message
