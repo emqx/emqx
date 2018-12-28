@@ -247,7 +247,7 @@ handle_info(pop, State = #state{writeq = WriteQ, replayq = ReplayQ,
                                  [] -> {WriteQ, []};
                                  _ -> {NewReadQ, WriteQ}
                             end,
-    self() ! republish,
+    self() ! replay,
     {noreply, State#state{readq = NewReadQ1, writeq = NewWriteQ, replayq = NewReplayQ, ackref = AckRef}};
 
 handle_info(dump, State = #state{writeq = WriteQ, replayq = ReplayQ}) ->
@@ -255,9 +255,9 @@ handle_info(dump, State = #state{writeq = WriteQ, replayq = ReplayQ}) ->
     {noreply, State#state{replayq = NewReplayQueue, writeq = []}};
 
 %%----------------------------------------------------------------
-%% republish message from replayq and publish again
+%% replay message from replayq
 %%----------------------------------------------------------------
-handle_info(republish, State = #state{client_pid = ClientPid, readq = ReadQ}) ->
+handle_info(replay, State = #state{client_pid = ClientPid, readq = ReadQ}) ->
     ok = publish_readq_msg(ClientPid, ReadQ),
     {noreply, State};
 
@@ -399,5 +399,5 @@ delete(_PktId, State = #state{readq = [], replayq = ReplayQ, ackref = AckRef}) -
     self() ! pop,
     State;
 
-delete(PktId, #state{readq = ReadQ}) ->
-    #state{readq = lists:keydelete(PktId, 1, ReadQ)}.
+delete(PktId, State = #state{readq = ReadQ}) ->
+    State#state{readq = lists:keydelete(PktId, 1, ReadQ)}.
