@@ -84,7 +84,7 @@ info(#state{transport   = Transport,
     lists:usort(lists:append(ConnInfo, ProtoInfo)).
 
 rate_limit_info(undefined) -> #{};
-rate_limit_info(RateLimit) -> esockd_rate_limit:info(RateLimit).
+rate_limit_info(Limit) -> esockd_rate_limit:info(Limit).
 
 %% for dashboard
 attrs(CPid) when is_pid(CPid) ->

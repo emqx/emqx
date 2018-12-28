@@ -33,6 +33,17 @@
                                     clean_start = false,
                                     password  = <<"public">>})).
 
+-define(CLIENT, ?CONNECT_PACKET(#mqtt_packet_connect{
+                                client_id = <<"mqtt_client">>,
+                                username  = <<"emqx">>,
+                                password  = <<"public">>})).
+
+-define(SUBCODE, [0]).
+
+-define(PACKETID, 1).
+
+-define(PUBQOS, 1).
+
 all() ->
     [
      {group, mqtt_common},
@@ -557,6 +568,7 @@ acl_deny_do_disconnect(publish, QoS, Topic) ->
         {'EXIT', Client, _Reason} ->
             false = is_process_alive(Client)
     end;
+
 acl_deny_do_disconnect(subscribe, QoS, Topic) ->
     {ok, Client} = emqx_client:start_link([{username, <<"emqx">>}]),
     {ok, _} = emqx_client:connect(Client),
@@ -567,6 +579,13 @@ acl_deny_do_disconnect(subscribe, QoS, Topic) ->
         exit : _Reason ->
             false = is_process_alive(Client)
     end.
+
+raw_send_serialize1(Packet) ->
+    emqx_frame:serialize(Packet).
+
+raw_recv_pase1(P) ->
+    emqx_frame:parse(P, {none, #{max_packet_size => ?MAX_PACKET_SIZE,
+                                 version         => ?MQTT_PROTO_V4} }).
 
 start_apps(App, SchemaFile, ConfigFile) ->
     read_schema_configs(App, SchemaFile, ConfigFile),
