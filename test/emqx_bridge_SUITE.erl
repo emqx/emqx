@@ -31,27 +31,28 @@ end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
 
 bridge_test(_) ->
-    {ok, _Pid} = emqx_bridge:start_link(emqx, []),
     #{msg := <<"start bridge successfully">>}
-        = emqx_bridge:start_bridge(emqx),
+        = emqx_bridge:start_bridge(aws),
     test_forwards(),
     test_subscriptions(0),
     test_subscriptions(1),
     test_subscriptions(2),
     #{msg := <<"stop bridge successfully">>}
-        = emqx_bridge:stop_bridge(emqx),
+        = emqx_bridge:stop_bridge(aws),
     ok.
 
 test_forwards() ->
-    emqx_bridge:add_forward(emqx, <<"test_forwards">>),
-    [<<"test_forwards">>] = emqx_bridge:show_forwards(emqx),
-    emqx_bridge:del_forward(emqx, <<"test_forwards">>),
-    [] = emqx_bridge:show_forwards(emqx),
+    emqx_bridge:add_forward(aws, <<"test_forwards">>),
+    [<<"test_forwards">>, <<"topic1/#">>, <<"topic2/#">>] = emqx_bridge:show_forwards(aws),
+    emqx_bridge:del_forward(aws, <<"test_forwards">>),
+    [<<"topic1/#">>, <<"topic2/#">>] = emqx_bridge:show_forwards(aws),
     ok.
 
 test_subscriptions(QoS) ->
-    emqx_bridge:add_subscription(emqx, <<"test_subscriptions">>, QoS),
-    [{<<"test_subscriptions">>, QoS}] = emqx_bridge:show_subscriptions(emqx),
-    emqx_bridge:del_subscription(emqx, <<"test_subscriptions">>),
-    [] = emqx_bridge:show_subscriptions(emqx),
+    emqx_bridge:add_subscription(aws, <<"test_subscriptions">>, QoS),
+    [{<<"test_subscriptions">>, QoS},
+     {<<"cmd/topic1">>, 1},
+     {<<"cmd/topic2">>, 1}] = emqx_bridge:show_subscriptions(aws),
+    emqx_bridge:del_subscription(aws, <<"test_subscriptions">>),
+     [{<<"cmd/topic1">>,1}, {<<"cmd/topic2">>,1}] = emqx_bridge:show_subscriptions(aws),
     ok.

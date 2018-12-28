@@ -168,15 +168,6 @@ list() ->
                       end, Plugins)
     end.
 
-all_plugin_attrs(CfgFiles) ->
-    lists:foldl(
-      fun(CfgFile, Acc) ->
-          case plugin(CfgFile) of
-              not_found -> Acc;
-              Attr -> Acc ++ [Attr]
-          end
-      end, [], CfgFiles).
-
 plugin(CfgFile) ->
     AppName = app_name(CfgFile),
     {ok, Attrs} = application:get_all_key(AppName),
@@ -335,4 +326,3 @@ write_loaded(AppNames) ->
             emqx_logger:error("Open File ~p Error: ~p", [File, Error]),
             {error, Error}
     end.
-
