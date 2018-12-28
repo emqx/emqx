@@ -146,7 +146,7 @@ unload() ->
             with_loaded_file(File, fun stop_plugins/1)
     end.
 
-%% stop plugins
+%% Stop plugins
 stop_plugins(Names) ->
     [stop_app(App) || App <- Names].
 
@@ -252,7 +252,7 @@ unload_plugin(App, Persistent) ->
         {error, Reason} ->
             {error, Reason}
     end.
-    
+
 stop_app(App) ->
     case application:stop(App) of
         ok ->
@@ -329,4 +329,3 @@ write_loaded(AppNames) ->
             emqx_logger:error("Open File ~p Error: ~p", [File, Error]),
             {error, Error}
     end.
-

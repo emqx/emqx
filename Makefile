@@ -3,7 +3,7 @@
 PROJECT = emqx
 PROJECT_DESCRIPTION = EMQ X Broker
 
-DEPS = jsx gproc gen_rpc ekka esockd cowboy
+DEPS = jsx gproc gen_rpc ekka esockd cowboy replayq
 
 dep_jsx     = hex-emqx 2.9.0
 dep_gproc   = hex-emqx 0.8.0
@@ -11,6 +11,7 @@ dep_gen_rpc = git-emqx https://github.com/emqx/gen_rpc 2.3.0
 dep_esockd  = git-emqx https://github.com/emqx/esockd v5.4.3
 dep_ekka    = git-emqx https://github.com/emqx/ekka v0.5.1
 dep_cowboy  = hex-emqx 2.4.0
+dep_replayq = git-emqx https://github.com/emqx/replayq v0.1.1
 
 NO_AUTOPATCH = cuttlefish
 
