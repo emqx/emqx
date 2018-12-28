@@ -1,3 +1,4 @@
+
 %% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -131,7 +132,7 @@ handle_call(start_bridge, _From, State = #state{options = Options,
         {ok, ClientPid} ->
             case emqx_client:connect(ClientPid) of
                 {ok, _} ->
-                    emqx_logger:info("[Bridge] connected to remote ysucessfully"),
+                    emqx_logger:info("[Bridge] connected to remote successfully"),
                     Subs = subscribe_remote_topics(ClientPid, get_value(subscriptions, Options, [])),
                     Forwards = subscribe_local_topics(Options),
                     ReplayQ = replayq:open(#{dir => ReplayqDir,
@@ -266,7 +267,7 @@ handle_info(restart, State = #state{options = Options,
         {ok, ClientPid} ->
             case emqx_client:connect(ClientPid) of
                 {ok, _} ->
-                    emqx_logger:info("[Bridge] connected to remote ysucessfully"),
+                    emqx_logger:info("[Bridge] connected to remote successfully"),
                     Subs = subscribe_remote_topics(ClientPid, get_value(subscriptions, Options, [])),
                     Forwards = subscribe_local_topics(Options),
                     {NewReplayQ, AckRef, ReadQ} = replayq:pop(ReplayQ, #{count_limit => BatchSize}),
