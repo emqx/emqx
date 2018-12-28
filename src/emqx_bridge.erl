@@ -267,7 +267,7 @@ handle_info(replay, State = #state{client_pid = ClientPid, readq = ReadQ}) ->
 handle_info({dispatch, _, #message{topic = Topic, payload = Payload, flags = #{retain := Retain}}},
             State = #state{client_pid = undefined,
                            mountpoint = Mountpoint}) ->
-    Msg = #mqtt_msg{qos = 0,
+    Msg = #mqtt_msg{qos = 1,
                     retain = Retain,
                     topic = mountpoint(Mountpoint, Topic),
                     payload = Payload},
@@ -399,7 +399,7 @@ en_writeq(Msg, State = #state{writeq = WriteQ, replayq = ReplayQ,
 publish_readq_msg(_ClientPid, [], ReadQ) ->
     {ok, ReadQ};
 publish_readq_msg(ClientPid, [{_PktId, Msg} | ReadQ], ReadQ) ->
-    io:format("~n~p~n", [Msg]),
+    io:format("~n replay msg:  ~p ~n", [Msg]),
     {ok, PktId} = emqx_client:publish(ClientPid, Msg),
     publish_readq_msg(ClientPid, ReadQ, [{PktId, Msg} | ReadQ]).
 
