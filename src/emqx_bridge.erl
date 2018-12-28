@@ -30,17 +30,17 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
 
--record(state, {client_pid,
-                options,
-                reconnect_interval,
-                mountpoint,
-                readq,
-                writeq,
-                replayq,
-                ackref,
-                queue_option,
-                forwards = [],
-                subscriptions = []}).
+-record(state, {client_pid         :: pid(),
+                options            :: list(),
+                reconnect_interval :: pos_integer(),
+                mountpoint         :: binary(),
+                readq              :: list(),
+                writeq             :: list(),
+                replayq            :: map(),
+                ackref             :: replayq:ack_ref(),
+                queue_option       :: map(),
+                forwards           :: list(),
+                subscriptions      :: list()}).
 
 -record(mqtt_msg, {qos = ?QOS_0, retain = false, dup = false,
                    packet_id, topic, props, payload}).
@@ -217,10 +217,10 @@ handle_info(start, State = #state{options = Options,
                                                            end
                                               }),
                     {NewReplayQ, AckRef, ReadQ} = replayq:pop(ReplayQ, #{count_limit => BatchSize}),
-                    ok = publish_readq_msg(ClientPid, ReadQ),
+                    {ok, NewReadQ} = publish_readq_msg(ClientPid, ReadQ, []),
                     {noreply, State#state{client_pid = ClientPid,
                                           subscriptions = Subs,
-                                          readq = ReadQ,
+                                          readq = NewReadQ,
                                           replayq = NewReplayQ,
                                           ackref = AckRef,
                                           forwards = Forwards}};
@@ -258,12 +258,20 @@ handle_info(dump, State = #state{writeq = WriteQ, replayq = ReplayQ}) ->
 %% replay message from replayq
 %%----------------------------------------------------------------
 handle_info(replay, State = #state{client_pid = ClientPid, readq = ReadQ}) ->
-    ok = publish_readq_msg(ClientPid, ReadQ),
-    {noreply, State};
+    {ok, NewReadQ} = publish_readq_msg(ClientPid, ReadQ, []),
+    {noreply, State#state{readq = NewReadQ}};
 
 %%----------------------------------------------------------------
 %% received local node message
 %%----------------------------------------------------------------
+handle_info({dispatch, _, #message{topic = Topic, payload = Payload, flags = #{retain := Retain}}},
+            State = #state{client_pid = undefined,
+                           mountpoint = Mountpoint}) ->
+    Msg = #mqtt_msg{qos = 0,
+                    retain = Retain,
+                    topic = mountpoint(Mountpoint, Topic),
+                    payload = Payload},
+    {noreply, en_writeq({undefined, Msg}, State)};
 handle_info({dispatch, _, #message{topic = Topic, payload = Payload, flags = #{retain := Retain}}},
             State = #state{client_pid = Pid, mountpoint = Mountpoint}) ->
     Msg = #mqtt_msg{qos     = 1,
@@ -388,11 +396,11 @@ en_writeq(Msg, State = #state{writeq = WriteQ, replayq = ReplayQ,
     NewReplayQ =replayq:append(ReplayQ, lists:reverse(WriteQ)),
     State#state{writeq = [Msg], replayq = NewReplayQ}.
 
-publish_readq_msg(_ClientPid, []) ->
-    ok;
-publish_readq_msg(ClientPid, [{_PktId, Msg} | ReadQ]) ->
-    emqx_client:publish(ClientPid, Msg),
-    publish_readq_msg(ClientPid, ReadQ).
+publish_readq_msg(_ClientPid, [], ReadQ) ->
+    {ok, ReadQ};
+publish_readq_msg(ClientPid, [{_PktId, Msg} | ReadQ], ReadQ) ->
+    {ok, PktId} = emqx_client:publish(ClientPid, Msg),
+    publish_readq_msg(ClientPid, ReadQ, [{PktId, Msg} | ReadQ]).
 
 delete(_PktId, State = #state{readq = [], replayq = ReplayQ, ackref = AckRef}) ->
     ok = replayq:ack(ReplayQ, AckRef),
