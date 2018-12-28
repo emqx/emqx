@@ -234,7 +234,7 @@ handle_info(start, State = #state{options = Options,
     end;
 handle_info(start, State) ->
     Reason = "Config entry of bridge queue is broken.",
-    emqx_logger:error("[Bridge] start failed! error: ~p", [Reason]),
+    emqx_logger:error("[Bridge] start failed! error: ~p, [State]: ~p", [Reason, State]),
     {noreply, State};
 
 %%----------------------------------------------------------------
