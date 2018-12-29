@@ -27,7 +27,7 @@
 
 -export([get_primary_log_level/0, set_primary_log_level/1]).
 -export([get_log_handlers/0, get_log_handler/1, set_log_handler_level/2]).
--export([set_overall_log_level/1]).
+-export([set_log_level/1]).
 
 debug(Msg) ->
     logger:debug(Msg).
@@ -91,7 +91,7 @@ set_log_handler_level(HandlerId, Level) ->
     logger:set_handler_config(HandlerId, level, Level).
 
 %% Set both the primary and all handlers level in one command
-set_overall_log_level(Level) ->
+set_log_level(Level) ->
     case set_primary_log_level(Level) of
         ok -> set_all_log_handlers_level(Level);
         {error, Error} -> {error, {primary_logger_level, Error}}
