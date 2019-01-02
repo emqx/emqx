@@ -122,7 +122,7 @@ init([Options]) ->
                 reconnect_interval   = ReconnectInterval}}.
 
 handle_call(start_bridge, _From, State = #state{client_pid = undefined}) ->
-    bridge(start, State);
+    handle_info(start, State);
 
 handle_call(start_bridge, _From, State) ->
     {reply, #{msg => <<"bridge already started">>}, State};
@@ -188,6 +188,12 @@ handle_call(Req, _From, State) ->
 handle_cast(Msg, State) ->
     emqx_logger:error("[Bridge] unexpected cast: ~p", [Msg]),
     {noreply, State}.
+
+%%----------------------------------------------------------------
+%% Start or restart bridge
+%%----------------------------------------------------------------
+handle_info(start, State) ->
+    bridge(start, State);
 
 handle_info(restart, State) ->
     bridge(restart, State);
