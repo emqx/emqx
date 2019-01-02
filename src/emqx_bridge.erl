@@ -122,7 +122,7 @@ init([Options]) ->
                 reconnect_interval   = ReconnectInterval}}.
 
 handle_call(start_bridge, _From, State = #state{client_pid = undefined}) ->
-    handle_info(start, State);
+    bridge(start, State);
 
 handle_call(start_bridge, _From, State) ->
     {reply, #{msg => <<"bridge already started">>}, State};
@@ -207,7 +207,7 @@ handle_info(pop, State = #state{writeq = WriteQ, replayq = ReplayQ,
     {NewReadQ1, NewWriteQ} = case NewReadQ of
                                  [] -> {WriteQ, []};
                                  _ -> {NewReadQ, WriteQ}
-                            end,
+                             end,
     self() ! replay,
     {noreply, State#state{readq = NewReadQ1, writeq = NewWriteQ, replayq = NewReplayQ, ackref = AckRef}};
 
