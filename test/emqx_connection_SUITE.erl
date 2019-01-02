@@ -94,7 +94,6 @@ t_connect_api(_Config) ->
                                        {password, <<"pass1">>}]),
     {ok, _} = emqx_client:connect(T1),
     CPid = emqx_cm:lookup_conn_pid(<<"client1">>),
-    io:format("~p~n", [CPid]),
     ?STATS = emqx_connection:stats(CPid),
     ?ATTRS = emqx_connection:attrs(CPid),
     ?INFO = emqx_connection:info(CPid),
