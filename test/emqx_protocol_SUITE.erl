@@ -28,21 +28,10 @@
 -define(TOPICS, [<<"TopicA">>, <<"TopicA/B">>, <<"Topic/C">>, <<"TopicA/C">>,
                  <<"/TopicA">>]).
 
--define(CLIENT2, ?CONNECT_PACKET(#mqtt_packet_connect{
-                                    username  = <<"admin">>,
-                                    clean_start = false,
-                                    password  = <<"public">>})).
-
 -define(CLIENT, ?CONNECT_PACKET(#mqtt_packet_connect{
                                 client_id = <<"mqtt_client">>,
                                 username  = <<"emqx">>,
                                 password  = <<"public">>})).
-
--define(SUBCODE, [0]).
-
--define(PACKETID, 1).
-
--define(PUBQOS, 1).
 
 all() ->
     [
@@ -518,7 +507,6 @@ raw_recv_parse(P, ProtoVersion) ->
     emqx_frame:parse(P, {none, #{max_packet_size => ?MAX_PACKET_SIZE,
                                  version         => ProtoVersion}}).
 
-
 acl_deny_action(_) ->
     emqx_zone:set_env(external, acl_deny_action, disconnect),
     process_flag(trap_exit, true),
@@ -579,13 +567,6 @@ acl_deny_do_disconnect(subscribe, QoS, Topic) ->
         exit : _Reason ->
             false = is_process_alive(Client)
     end.
-
-raw_send_serialize1(Packet) ->
-    emqx_frame:serialize(Packet).
-
-raw_recv_pase1(P) ->
-    emqx_frame:parse(P, {none, #{max_packet_size => ?MAX_PACKET_SIZE,
-                                 version         => ?MQTT_PROTO_V4} }).
 
 start_apps(App, SchemaFile, ConfigFile) ->
     read_schema_configs(App, SchemaFile, ConfigFile),

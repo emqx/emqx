@@ -107,7 +107,8 @@ t_ws_connect_api(_Config) ->
     ?INFO = emqx_ws_connection:info(Pid),
     ?ATTRS = emqx_ws_connection:attrs(Pid),
     ?STATS = emqx_ws_connection:stats(Pid),
-    _ = emqx_ws_connection:session(Pid),
+    SessionPid = emqx_ws_connection:session(Pid),
+    true = is_pid(SessionPid),
     ok = emqx_ws_connection:kick(Pid),
     {close, _} = rfc6455_client:close(WS),
     ok.
