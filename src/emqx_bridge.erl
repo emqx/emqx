@@ -122,8 +122,8 @@ init([Options]) ->
                 reconnect_interval   = ReconnectInterval}}.
 
 handle_call(start_bridge, _From, State = #state{client_pid = undefined}) ->
-    {Msg, State} = bridge(start, State),
-    {reply, #{msg => Msg}, State};
+    {Msg, NewState} = bridge(start, State),
+    {reply, #{msg => Msg}, NewState};
 
 handle_call(start_bridge, _From, State) ->
     {reply, #{msg => <<"bridge already started">>}, State};
@@ -194,12 +194,12 @@ handle_cast(Msg, State) ->
 %% Start or restart bridge
 %%----------------------------------------------------------------
 handle_info(start, State) ->
-    {_Msg, State} = bridge(start, State),
-    {noreply, State};
+    {_Msg, NewState} = bridge(start, State),
+    {noreply, NewState};
 
 handle_info(restart, State) ->
-    {_Msg, State} = bridge(restart, State),
-    {noreply, State};
+    {_Msg, NewState} = bridge(restart, State),
+    {noreply, NewState};
 
 %%----------------------------------------------------------------
 %% pop message from replayq and publish again
