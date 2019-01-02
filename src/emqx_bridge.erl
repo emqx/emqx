@@ -122,7 +122,8 @@ init([Options]) ->
                 reconnect_interval   = ReconnectInterval}}.
 
 handle_call(start_bridge, _From, State = #state{client_pid = undefined}) ->
-    bridge(start, State);
+    {Msg, State} = bridge(start, State),
+    {reply, #{msg => Msg}, State};
 
 handle_call(start_bridge, _From, State) ->
     {reply, #{msg => <<"bridge already started">>}, State};
@@ -193,10 +194,12 @@ handle_cast(Msg, State) ->
 %% Start or restart bridge
 %%----------------------------------------------------------------
 handle_info(start, State) ->
-    bridge(start, State);
+    {_Msg, State} = bridge(start, State),
+    {noreply, State};
 
 handle_info(restart, State) ->
-    bridge(restart, State);
+    {_Msg, State} = bridge(restart, State),
+    {noreply, State};
 
 %%----------------------------------------------------------------
 %% pop message from replayq and publish again
@@ -388,20 +391,23 @@ bridge(Action, State = #state{options = Options,
                     Forwards = subscribe_local_topics(Options),
                     {NewReplayQ, AckRef, ReadQ} = open_replayq(ReplayQ, QueueOption),
                     {ok, NewReadQ} = publish_readq_msg(ClientPid, ReadQ, []),
-                    do_reply(Action, <<"start bridge successfully">>,
-                             State#state{client_pid = ClientPid,
-                                         subscriptions = Subs,
-                                         readq = NewReadQ,
-                                         replayq = NewReplayQ,
-                                         ackref = AckRef,
-                                         forwards = Forwards});
+                    {<<"start bridge successfully">>,
+                     State#state{client_pid = ClientPid,
+                                 subscriptions = Subs,
+                                 readq = NewReadQ,
+                                 replayq = NewReplayQ,
+                                 ackref = AckRef,
+                                 forwards = Forwards}};
+                    %% do_reply(Action, <<"start bridge successfully">>,
+                    %%         );
                 {error, Reason} ->
                     emqx_logger:error("[Bridge] connect to remote failed! error: ~p", [Reason]),
-                    do_reply(Action, <<"connect to remote failed">>, State#state{client_pid = ClientPid})
+                    {<<"connect to remote failed">>,
+                     State#state{client_pid = ClientPid}}
             end;
         {error, Reason} ->
             emqx_logger:error("[Bridge] ~p failed! error: ~p", [Action, Reason]),
-            do_reply(Action, <<"start bridge failed">>, State)
+            {<<"start bridge failed">>, State}
     end.
 
 open_replayq(undefined, #{batch_size := BatchSize,
@@ -420,8 +426,3 @@ open_replayq(undefined, #{batch_size := BatchSize,
     replayq:pop(ReplayQ, #{count_limit => BatchSize});
 open_replayq(ReplayQ, #{batch_size := BatchSize}) ->
     replayq:pop(ReplayQ, #{count_limit => BatchSize}).
-
-do_reply(start, Msg, State) ->
-    {reply, #{msg => Msg}, State};
-do_reply(restart, _Msg, State) ->
-    {noreply, State}.
