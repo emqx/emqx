@@ -28,10 +28,10 @@
 -define(TOPICS, [<<"TopicA">>, <<"TopicA/B">>, <<"Topic/C">>, <<"TopicA/C">>,
                  <<"/TopicA">>]).
 
--define(CLIENT2, ?CONNECT_PACKET(#mqtt_packet_connect{
-                                    username  = <<"admin">>,
-                                    clean_start = false,
-                                    password  = <<"public">>})).
+-define(CLIENT, ?CONNECT_PACKET(#mqtt_packet_connect{
+                                client_id = <<"mqtt_client">>,
+                                username  = <<"emqx">>,
+                                password  = <<"public">>})).
 
 all() ->
     [
@@ -507,7 +507,6 @@ raw_recv_parse(P, ProtoVersion) ->
     emqx_frame:parse(P, {none, #{max_packet_size => ?MAX_PACKET_SIZE,
                                  version         => ProtoVersion}}).
 
-
 acl_deny_action(_) ->
     emqx_zone:set_env(external, acl_deny_action, disconnect),
     process_flag(trap_exit, true),
@@ -557,6 +556,7 @@ acl_deny_do_disconnect(publish, QoS, Topic) ->
         {'EXIT', Client, _Reason} ->
             false = is_process_alive(Client)
     end;
+
 acl_deny_do_disconnect(subscribe, QoS, Topic) ->
     {ok, Client} = emqx_client:start_link([{username, <<"emqx">>}]),
     {ok, _} = emqx_client:connect(Client),
