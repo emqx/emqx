@@ -14,8 +14,6 @@
 
 -module(emqx_protocol).
 
--define(LOG_HEADER, "[MQTT]").
-
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
@@ -78,6 +76,8 @@
 -endif.
 
 -define(NO_PROPS, undefined).
+
+-define(LOG(Level, Format, Args), ?LOG_LZ(Level, "[MQTT] " ++ Format, Args)).
 
 %%------------------------------------------------------------------------------
 %% Init
