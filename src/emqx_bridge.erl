@@ -398,8 +398,6 @@ bridge(Action, State = #state{options = Options,
                                  replayq = NewReplayQ,
                                  ackref = AckRef,
                                  forwards = Forwards}};
-                    %% do_reply(Action, <<"start bridge successfully">>,
-                    %%         );
                 {error, Reason} ->
                     emqx_logger:error("[Bridge] connect to remote failed! error: ~p", [Reason]),
                     {<<"connect to remote failed">>,
