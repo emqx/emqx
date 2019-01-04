@@ -46,8 +46,6 @@
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 
--define(LOG(Level, Format, Args), ?LOG_LZ(Level, "[MQTT-WS] " ++ Format, Args)).
-
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------

@@ -18,7 +18,6 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
-
 -include("logger.hrl").
 
 -export([start_link/3]).
@@ -51,8 +50,6 @@
 
 -define(DEFAULT_ACTIVE_N, 100).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
-
--define(LOG(Level, Format, Args), ?LOG_LZ(Level, "[MQTT] " ++ Format, Args)).
 
 start_link(Transport, Socket, Options) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [[Transport, Socket, Options]])}.

@@ -42,7 +42,6 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
-
 -include("logger.hrl").
 
 -export([start_link/1]).
@@ -156,8 +155,6 @@
 -type(attr() :: {atom(), term()}).
 
 -export_type([attr/0]).
-
--define(LOG(Level, Format, Args), ?LOG_LZ(Level, "[Session] " ++ Format, Args)).
 
 %% @doc Start a session proc.
 -spec(start_link(SessAttrs :: map()) -> {ok, pid()}).
