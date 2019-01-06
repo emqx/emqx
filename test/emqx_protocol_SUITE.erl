@@ -61,7 +61,7 @@ init_per_suite(Config) ->
     [start_apps(App, SchemaFile, ConfigFile) ||
         {App, SchemaFile, ConfigFile}
             <- [{emqx, deps_path(emqx, "priv/emqx.schema"),
-                       deps_path(emqx, "etc/emqx.conf")}]],
+                       deps_path(emqx, "etc/gen.emqx.conf")}]],
     emqx_zone:set_env(external, max_topic_alias, 20),
     Config.
 
