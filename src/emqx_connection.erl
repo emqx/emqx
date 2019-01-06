@@ -18,8 +18,6 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
-
--define(LOG_HEADER, "[MQTT]").
 -include("logger.hrl").
 
 -export([start_link/3]).
@@ -78,10 +76,13 @@ info(#state{transport   = Transport,
                 {sockname, Sockname},
                 {conn_state, ConnState},
                 {active_n, ActiveN},
-                {rate_limit, esockd_rate_limit:info(RateLimit)},
-                {pub_limit, esockd_rate_limit:info(PubLimit)}],
+                {rate_limit, rate_limit_info(RateLimit)},
+                {pub_limit, rate_limit_info(PubLimit)}],
     ProtoInfo = emqx_protocol:info(ProtoState),
     lists:usort(lists:append(ConnInfo, ProtoInfo)).
+
+rate_limit_info(undefined) -> #{};
+rate_limit_info(Limit) -> esockd_rate_limit:info(Limit).
 
 %% for dashboard
 attrs(CPid) when is_pid(CPid) ->

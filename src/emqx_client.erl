@@ -199,7 +199,7 @@ start_link() -> start_link([]).
 start_link(Options) when is_map(Options) ->
     start_link(maps:to_list(Options));
 start_link(Options) when is_list(Options) ->
-    ok  = emqx_mqtt_props:validate(
+    ok = emqx_mqtt_props:validate(
             proplists:get_value(properties, Options, #{})),
     case proplists:get_value(name, Options) of
         undefined ->
@@ -769,7 +769,7 @@ connected({call, From}, {publish, Msg = #mqtt_msg{qos = QoS}},
     when (QoS =:= ?QOS_1); (QoS =:= ?QOS_2) ->
     case emqx_inflight:is_full(Inflight) of
         true ->
-            {keep_state, State, [{reply, From, {error, inflight_full}}]};
+            {keep_state, State, [{reply, From, {error, {PacketId, inflight_full}}}]};
         false ->
             Msg1 = Msg#mqtt_msg{packet_id = PacketId},
             case send(Msg1, State) of
@@ -777,8 +777,8 @@ connected({call, From}, {publish, Msg = #mqtt_msg{qos = QoS}},
                     Inflight1 = emqx_inflight:insert(PacketId, {publish, Msg1, os:timestamp()}, Inflight),
                     {keep_state, ensure_retry_timer(NewState#state{inflight = Inflight1}),
                      [{reply, From, {ok, PacketId}}]};
-                Error = {error, Reason} ->
-                    {stop_and_reply, Reason, [{reply, From, Error}]}
+                {error, Reason} ->
+                    {stop_and_reply, Reason, [{reply, From, {error, {PacketId, Reason}}}]}
             end
     end;
 
