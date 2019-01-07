@@ -715,7 +715,17 @@ waiting_for_connack(timeout, _Timeout, State) ->
     end;
 
 waiting_for_connack(EventType, EventContent, State) ->
-    handle_event(EventType, EventContent, waiting_for_connack, State).
+    case take_call(connect, State) of
+        {value, #call{from = From}, _State} ->
+            case handle_event(EventType, EventContent, waiting_for_connack, State) of
+                {stop, Reason, State} ->
+                    Reply = {error, {Reason, EventContent}},
+                    {stop_and_reply, Reason, [{reply, From, Reply}]};
+                StateCallbackResult ->
+                    StateCallbackResult
+            end;
+        false -> {stop, connack_timeout}
+    end.
 
 connected({call, From}, subscriptions, State = #state{subscriptions = Subscriptions}) ->
     {keep_state, State, [{reply, From, maps:to_list(Subscriptions)}]};
@@ -999,8 +1009,8 @@ handle_event(info, {Closed, _Sock}, _StateName, State)
     when Closed =:= tcp_closed; Closed =:= ssl_closed ->
     {stop, {shutdown, Closed}, State};
 
-handle_event(info, {'EXIT', Owner, Reason}, _, #state{owner = Owner}) ->
-    {stop, Reason};
+handle_event(info, {'EXIT', Owner, Reason}, _, State = #state{owner = Owner}) ->
+    {stop, Reason, State};
 
 handle_event(info, {inet_reply, _Sock, ok}, _, State) ->
     {keep_state, State};
