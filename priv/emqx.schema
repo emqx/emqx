@@ -861,6 +861,8 @@ end}.
                                                 maps:put(iolist_to_binary(Topic), P, Acc)
                                         end, string:tokens(Val, ","))
                     end;
+               ("mountpoint", Val) ->
+                    {mountpoint, iolist_to_binary(Val)};
                (Opt, Val) ->
                     {list_to_atom(Opt), Val}
             end,
