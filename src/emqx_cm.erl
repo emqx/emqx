@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([start_link/0]).
 
@@ -140,7 +141,7 @@ init([]) ->
     {ok, #{conn_pmon => emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[CM] unexpected call: ~p", [Req]),
+    ?ERROR("[CM] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({notify, {registered, ClientId, ConnPid}}, State = #{conn_pmon := PMon}) ->
@@ -150,7 +151,7 @@ handle_cast({notify, {unregistered, ConnPid}}, State = #{conn_pmon := PMon}) ->
     {noreply, State#{conn_pmon := emqx_pmon:demonitor(ConnPid, PMon)}};
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[CM] unexpected cast: ~p", [Msg]),
+    ?ERROR("[CM] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{conn_pmon := PMon}) ->
@@ -161,7 +162,7 @@ handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{conn_pmon := PMon}
     {noreply, State#{conn_pmon := PMon1}};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[CM] unexpected info: ~p", [Info]),
+    ?ERROR("[CM] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

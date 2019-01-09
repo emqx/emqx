@@ -14,6 +14,7 @@
 
 -module(emqx_metrics).
 
+-include("logger.hrl").
 -include("emqx_mqtt.hrl").
 
 -export([start_link/0]).
@@ -182,7 +183,7 @@ commit() ->
     case get('$metrics') of
         undefined -> ok;
         Metrics ->
-            maps:fold(fun({Type, Metric}, Val, _Acc) -> 
+            maps:fold(fun({Type, Metric}, Val, _Acc) ->
                           update_counter(key(Type, Metric), {2, Val})
                       end, 0, Metrics),
             erase('$metrics')
@@ -279,9 +280,9 @@ qos_sent(?QOS_1) ->
 qos_sent(?QOS_2) ->
     inc('messages/qos2/sent').
 
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([]) ->
     % Create metrics table
@@ -290,15 +291,15 @@ init([]) ->
     {ok, #{}, hibernate}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[Metrics] unexpected call: ~p", [Req]),
+    ?ERROR("[Metrics] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[Metrics] unexpected cast: ~p", [Msg]),
+    ?ERROR("[Metrics] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    emqx_logger:error("[Metrics] unexpected info: ~p", [Info]),
+    ?ERROR("[Metrics] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{}) ->

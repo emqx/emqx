@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 -include_lib("ekka/include/ekka.hrl").
 
 %% Mnesia bootstrap
@@ -177,15 +178,15 @@ handle_call({delete_route, Topic, Dest}, _From, State) ->
     {reply, Ok, State};
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[Router] unexpected call: ~p", [Req]),
+    ?ERROR("[Router] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[Router] unexpected cast: ~p", [Msg]),
+    ?ERROR("[Router] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    emqx_logger:error("[Router] unexpected info: ~p", [Info]),
+    ?ERROR("[Router] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->

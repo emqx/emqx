@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -77,11 +78,11 @@ init([]) ->
     {ok, ensure_expiry_timer(#{expiry_timer => undefined})}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[Banned] unexpected call: ~p", [Req]),
+    ?ERROR("[Banned] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[Banned] unexpected msg: ~p", [Msg]),
+    ?ERROR("[Banned] unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
@@ -89,7 +90,7 @@ handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
     {noreply, ensure_expiry_timer(State), hibernate};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[Banned] unexpected info: ~p", [Info]),
+    ?ERROR("[Banned] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{expiry_timer := TRef}) ->
