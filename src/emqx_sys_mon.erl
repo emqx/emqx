@@ -19,11 +19,10 @@
 -include("logger.hrl").
 
 -export([start_link/1]).
-
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
          code_change/3]).
-
--record(state, {timer, events}).
+%% compress unused warning
+-export([procinfo/1]).
 
 -define(SYSMON, ?MODULE).
 
@@ -32,17 +31,17 @@
 start_link(Opts) ->
     gen_server:start_link({local, ?SYSMON}, ?MODULE, [Opts], []).
 
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%-----------------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([Opts]) ->
     erlang:system_monitor(self(), parse_opt(Opts)),
     emqx_logger:set_proc_metadata(#{sysmon => true}),
-    {ok, start_timer(#state{events = []})}.
+    {ok, start_timer(#{timer => undefined, events => []})}.
 
 start_timer(State) ->
-    State#state{timer = emqx_misc:start_timer(timer:seconds(2), reset)}.
+    State#{timer := emqx_misc:start_timer(timer:seconds(2), reset)}.
 
 parse_opt(Opts) ->
     parse_opt(Opts, []).
@@ -126,23 +125,23 @@ handle_info({monitor, SusPid, busy_dist_port, Port}, State) ->
              end, State);
 
 handle_info({timeout, _Ref, reset}, State) ->
-    {noreply, State#state{events = []}, hibernate};
+    {noreply, State#{events := []}, hibernate};
 
 handle_info(Info, State) ->
     ?ERROR("[SYSMON] unexpected Info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #state{timer = TRef}) ->
+terminate(_Reason, #{timer := TRef}) ->
     emqx_misc:cancel_timer(TRef).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-suppress(Key, SuccFun, State = #state{events = Events}) ->
+suppress(Key, SuccFun, State = #{events := Events}) ->
     case lists:member(Key, Events) of
         true  -> {noreply, State};
         false -> SuccFun(),
-                 {noreply, State#state{events = [Key|Events]}}
+                 {noreply, State#{events := [Key|Events]}}
     end.
 
 procinfo(Pid) ->
