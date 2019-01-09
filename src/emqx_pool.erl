@@ -16,9 +16,14 @@
 
 -behaviour(gen_server).
 
--export([start_link/0, start_link/2]).
+-include("logger.hrl").
+
+-export([start_link/2]).
 -export([submit/1, submit/2]).
 -export([async_submit/1, async_submit/2]).
+-ifdef(TEST).
+-export([worker/0]).
+-endif.
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
@@ -27,10 +32,6 @@
 -define(POOL, ?MODULE).
 
 -type(task() :: fun() | mfa() | {fun(), Args :: list(any())}).
-
-%% @doc Start pooler supervisor.
-start_link() ->
-    emqx_pool_sup:start_link(?POOL, random, {?MODULE, start_link, []}).
 
 %% @doc Start pool.
 -spec(start_link(atom(), pos_integer()) -> emqx_types:startlink_ret()).
@@ -80,22 +81,22 @@ handle_call({submit, Task}, _From, State) ->
     {reply, catch run(Task), State};
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[Pool] unexpected call: ~p", [Req]),
+    ?ERROR("[Pool] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({async_submit, Task}, State) ->
     try run(Task)
     catch _:Error:Stacktrace ->
-        emqx_logger:error("[Pool] error: ~p, ~p", [Error, Stacktrace])
+        ?ERROR("[Pool] error: ~p, ~p", [Error, Stacktrace])
     end,
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[Pool] unexpected cast: ~p", [Msg]),
+    ?ERROR("[Pool] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    emqx_logger:error("[Pool] unexpected info: ~p", [Info]),
+    ?ERROR("[Pool] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->
