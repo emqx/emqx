@@ -14,8 +14,6 @@
 
 -module(emqx_protocol).
 
--define(LOG_HEADER, "[MQTT]").
-
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
