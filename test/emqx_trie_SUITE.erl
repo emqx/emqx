@@ -116,10 +116,11 @@ t_delete2(_) ->
     Fun = fun() ->
               ?TRIE:insert(<<"sensor">>),
               ?TRIE:insert(<<"sensor/1/metric/2">>),
-              ?TRIE:insert(<<"sensor/1/metric/3">>),
+              ?TRIE:insert(<<"sensor/+/metric/3">>),
               ?TRIE:delete(<<"sensor">>),
               ?TRIE:delete(<<"sensor/1/metric/2">>),
-              ?TRIE:delete(<<"sensor/1/metric/3">>),
+              ?TRIE:delete(<<"sensor/+/metric/3">>),
+              ?TRIE:delete(<<"sensor/+/metric/3">>),
               {?TRIE:lookup(<<"sensor">>), ?TRIE:lookup(<<"sensor/1">>)}
           end,
     ?assertEqual({atomic, {[], []}}, trans(Fun)).
