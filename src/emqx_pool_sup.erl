@@ -16,9 +16,12 @@
 
 -behaviour(supervisor).
 
--export([spec/1, spec/2, start_link/3, start_link/4]).
+-export([spec/1, spec/2]).
+-export([start_link/0, start_link/3, start_link/4]).
 
 -export([init/1]).
+
+-define(POOL, emqx_pool).
 
 -spec(spec(list()) -> supervisor:child_spec()).
 spec(Args) ->
@@ -32,6 +35,10 @@ spec(ChildId, Args) ->
       shutdown => infinity,
       type     => supervisor,
       modules  => [?MODULE]}.
+
+%% @doc Start the default pool supervisor.
+start_link() ->
+    start_link(?POOL, random, {?POOL, start_link, []}).
 
 -spec(start_link(atom() | tuple(), atom(), mfa()) -> {ok, pid()} | {error, term()}).
 start_link(Pool, Type, MFA) ->
