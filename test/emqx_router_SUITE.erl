@@ -89,9 +89,9 @@ t_match_routes(_) ->
     ?assertEqual([], lists:sort(?R:match_routes(<<"a/b/c">>))).
 
 t_print_routes(_) ->
-    ?R:add_route("+/#"),
-    ?R:add_route("+/+"),
-    ?R:print_routes("a/b").
+    ?R:add_route(<<"+/#">>),
+    ?R:add_route(<<"+/+">>),
+    ?R:print_routes(<<"a/b">>).
 
 t_has_routes(_) ->
     ?R:add_route(<<"devices/+/messages">>, node()),
