@@ -3,6 +3,9 @@ language: erlang
 otp_release:
    - 21.2.2
 
+before_script:
+    kerl list installations
+
 before_install:
     - git clone https://github.com/erlang/rebar3.git; cd rebar3; ./bootstrap; sudo mv rebar3 /usr/local/bin/; cd ..
 
