@@ -17,6 +17,7 @@
 -behaviour(gen_event).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([start_link/0]).
 -export([alarm_fun/0, get_alarms/0, set_alarm/1, clear_alarm/1]).
@@ -84,7 +85,7 @@ handle_event({set_alarm, Alarm = #alarm{id = AlarmId}}, State = #{alarms := Alar
         {ok, Json} ->
             emqx_broker:safe_publish(alarm_msg(alert, AlarmId, Json));
         {error, Reason} ->
-            emqx_logger:error("[AlarmMgr] Failed to encode alarm: ~p", [Reason])
+            ?ERROR("[AlarmMgr] Failed to encode alarm: ~p", [Reason])
     end,
     {ok, State#{alarms := [Alarm|Alarms]}};
 
@@ -93,23 +94,23 @@ handle_event({clear_alarm, AlarmId}, State = #{alarms := Alarms}) ->
         {ok, Json} ->
             emqx_broker:safe_publish(alarm_msg(clear, AlarmId, Json));
         {error, Reason} ->
-            emqx_logger:error("[AlarmMgr] Failed to encode clear: ~p", [Reason])
+            ?ERROR("[AlarmMgr] Failed to encode clear: ~p", [Reason])
     end,
     {ok, State#{alarms := lists:keydelete(AlarmId, 2, Alarms)}, hibernate};
 
 handle_event(Event, State)->
-    emqx_logger:error("[AlarmMgr] unexpected event: ~p", [Event]),
+    ?ERROR("[AlarmMgr] unexpected event: ~p", [Event]),
     {ok, State}.
 
 handle_info(Info, State) ->
-    emqx_logger:error("[AlarmMgr] unexpected info: ~p", [Info]),
+    ?ERROR("[AlarmMgr] unexpected info: ~p", [Info]),
     {ok, State}.
 
 handle_call(get_alarms, State = #{alarms := Alarms}) ->
     {ok, Alarms, State};
 
 handle_call(Req, State) ->
-    emqx_logger:error("[AlarmMgr] unexpected call: ~p", [Req]),
+    ?ERROR("[AlarmMgr] unexpected call: ~p", [Req]),
     {ok, ignored, State}.
 
 terminate(swap, State) ->

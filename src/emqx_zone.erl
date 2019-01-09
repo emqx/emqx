@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([start_link/0]).
 -export([get_env/2, get_env/3]).
@@ -76,7 +77,7 @@ handle_call(force_reload, _From, State) ->
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[Zone] unexpected call: ~p", [Req]),
+    ?ERROR("[Zone] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({set_env, Zone, Key, Val}, State) ->
@@ -84,7 +85,7 @@ handle_cast({set_env, Zone, Key, Val}, State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[Zone] unexpected cast: ~p", [Msg]),
+    ?ERROR("[Zone] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(reload, State) ->
@@ -92,7 +93,7 @@ handle_info(reload, State) ->
     {noreply, ensure_reload_timer(State#{timer := undefined}), hibernate};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[Zone] unexpected info: ~p", [Info]),
+    ?ERROR("[Zone] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

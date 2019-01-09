@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([start_link/0]).
 -export([is_enabled/0]).
@@ -81,11 +82,11 @@ init([]) ->
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[Registry] unexpected call: ~p", [Req]),
+    ?ERROR("[Registry] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[Registry] unexpected cast: ~p", [Msg]),
+    ?ERROR("[Registry] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({membership, {mnesia, down, Node}}, State) ->
@@ -99,7 +100,7 @@ handle_info({membership, _Event}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[Registry] unexpected info: ~p", [Info]),
+    ?ERROR("[Registry] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
