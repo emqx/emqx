@@ -116,8 +116,7 @@ groups() ->
        subscribe_v5]},
      {acl,
       [sequence],
-      [
-       acl_deny_action_ct,
+      [acl_deny_action_ct,
        acl_deny_action_eunit]}].
 
 init_per_suite(Config) ->
