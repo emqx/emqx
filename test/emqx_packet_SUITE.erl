@@ -102,7 +102,7 @@ packet_message(_) ->
     Pkt = emqx_packet:from_message(10, Msg2),
     Msg3 = emqx_message:set_header(username, "test", Msg2),
     Msg4 = emqx_packet:to_message(#{client_id => <<"clientid">>, username => "test"}, Pkt),
-    Msg5 = Msg4#message{timestamp = Msg3#message.timestamp},
+    Msg5 = Msg4#message{timestamp = Msg3#message.timestamp, id = Msg3#message.id},
     Msg5 = Msg3.
 
 packet_format(_) ->
