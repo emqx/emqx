@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([start_link/0, start_link/1, stop/0]).
 
@@ -164,7 +165,7 @@ start_timer(#state{tick_ms = Ms} = State) ->
 handle_call(stop, _From, State) ->
     {stop, normal, _Reply = ok, State};
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[Stats] unexpected call: ~p", [Req]),
+    ?ERROR("[Stats] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({setstat, Stat, MaxStat, Val}, State) ->
@@ -182,7 +183,7 @@ handle_cast({setstat, Stat, MaxStat, Val}, State) ->
 handle_cast({update_interval, Update = #update{name = Name}}, State = #state{updates = Updates}) ->
     case lists:keyfind(Name, #update.name, Updates) of
         #update{} ->
-            emqx_logger:error("[Stats]: duplicated update: ~s", [Name]),
+            ?ERROR("[Stats]: duplicated update: ~s", [Name]),
             {noreply, State};
         false ->
             {noreply, State#state{updates = [Update | Updates]}}
@@ -192,7 +193,7 @@ handle_cast({cancel_update, Name}, State = #state{updates = Updates}) ->
     {noreply, State#state{updates = lists:keydelete(Name, #update.name, Updates)}};
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[Stats] unexpected cast: ~p", [Msg]),
+    ?ERROR("[Stats] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Updates}) ->
@@ -200,8 +201,9 @@ handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Update
                  fun(Update = #update{name = Name, countdown = C, interval = I,
                                       func = UpFun}, Acc) when C =< 0 ->
                          try UpFun()
-                         catch _:Error ->
-                               emqx_logger:error("[Stats] update ~s error: ~p", [Name, Error])
+                         catch
+                             _:Error ->
+                                 ?ERROR("[Stats] update ~s error: ~p", [Name, Error])
                          end,
                          [Update#update{countdown = I} | Acc];
                     (Update = #update{countdown = C}, Acc) ->
@@ -210,7 +212,7 @@ handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Update
     {noreply, start_timer(State#state{updates = Updates1}), hibernate};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[Stats] unexpected info: ~p", [Info]),
+    ?ERROR("[Stats] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{timer = TRef}) ->

@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([start_link/2]).
 -export([subscribe/1, subscribe/2, subscribe/3]).
@@ -170,7 +171,7 @@ publish(Msg) when is_record(Msg, message) ->
             Delivery = route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1)),
             Delivery#delivery.results;
         {stop, _} ->
-            emqx_logger:warning("Stop publishing: ~s", [emqx_message:format(Msg)]),
+            ?WARN("Stop publishing: ~s", [emqx_message:format(Msg)]),
             []
     end.
 
@@ -181,7 +182,7 @@ safe_publish(Msg) when is_record(Msg, message) ->
         publish(Msg)
     catch
         _:Error:Stacktrace ->
-            emqx_logger:error("[Broker] publish error: ~p~n~p~n~p", [Error, Msg, Stacktrace])
+            ?ERROR("[Broker] publish error: ~p~n~p~n~p", [Error, Msg, Stacktrace])
     after
         ok
     end.
@@ -228,7 +229,7 @@ forward(Node, To, Delivery) ->
     %% rpc:call to ensure the delivery, but the latency:(
     case emqx_rpc:call(Node, ?BROKER, dispatch, [To, Delivery]) of
         {badrpc, Reason} ->
-            emqx_logger:error("[Broker] Failed to forward msg to ~s: ~p", [Node, Reason]),
+            ?ERROR("[Broker] Failed to forward msg to ~s: ~p", [Node, Reason]),
             Delivery;
         Delivery1 -> Delivery1
     end.
@@ -396,14 +397,14 @@ handle_call({subscribe, Topic, I}, _From, State) ->
     {reply, Ok, State};
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[Broker] unexpected call: ~p", [Req]),
+    ?ERROR("[Broker] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({subscribe, Topic}, State) ->
     case emqx_router:do_add_route(Topic) of
         ok -> ok;
         {error, Reason} ->
-            emqx_logger:error("[Broker] Failed to add route: ~p", [Reason])
+            ?ERROR("[Broker] Failed to add route: ~p", [Reason])
     end,
     {noreply, State};
 
@@ -426,11 +427,11 @@ handle_cast({unsubscribed, Topic, I}, State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[Broker] unexpected cast: ~p", [Msg]),
+    ?ERROR("[Broker] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    emqx_logger:error("[Broker] unexpected info: ~p", [Info]),
+    ?ERROR("[Broker] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->

@@ -18,6 +18,7 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
+-include("logger.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -284,11 +285,11 @@ handle_call({unsubscribe, Group, Topic, SubPid}, _From, State) ->
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[SharedSub] unexpected call: ~p", [Req]),
+    ?ERROR("[SharedSub] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[SharedSub] unexpected cast: ~p", [Msg]),
+    ?ERROR("[SharedSub] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({mnesia_table_event, {write, NewRecord, _}}, State = #state{pmon = PMon}) ->
@@ -303,12 +304,12 @@ handle_info({mnesia_table_event, _Event}, State) ->
     {noreply, State};
 
 handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{pmon = PMon}) ->
-    emqx_logger:info("[SharedSub] shared subscriber down: ~p", [SubPid]),
+    ?INFO("[SharedSub] shared subscriber down: ~p", [SubPid]),
     cleanup_down(SubPid),
     {noreply, update_stats(State#state{pmon = emqx_pmon:erase(SubPid, PMon)})};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[SharedSub] unexpected info: ~p", [Info]),
+    ?ERROR("[SharedSub] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

@@ -15,22 +15,22 @@
 -module(emqx_pool_SUITE).
 
 -compile(export_all).
-
 -compile(nowarn_export_all).
 
 -include("emqx_mqtt.hrl").
-
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> [
-          {group, submit_case},
-          {group, async_submit_case}
-         ].
+all() ->
+    [
+     {group, submit_case},
+     {group, async_submit_case},
+     t_unexpected
+    ].
 
 groups() ->
     [
      {submit_case, [sequence], [submit_mfa, submit_fa]},
-     {async_submit_case, [sequence], [async_submit_mfa]}
+     {async_submit_case, [sequence], [async_submit_mfa, async_submit_ex]}
     ].
 
 init_per_suite(Config) ->
@@ -40,26 +40,39 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
+init_per_testcase(_, Config) ->
+    {ok, Sup} = emqx_pool_sup:start_link(),
+    [{pool_sup, Sup}|Config].
+
+end_per_testcase(_, Config) ->
+    Sup = proplists:get_value(pool_sup, Config),
+    exit(Sup, normal).
+
 submit_mfa(_Config) ->
-    erlang:process_flag(trap_exit, true),
-    {ok, Pid} =  emqx_pool:start_link(),
     Result = emqx_pool:submit({?MODULE, test_mfa, []}),
-    ?assertEqual(15, Result),
-    gen_server:stop(Pid, normal, 3000),
-    ok.
+    ?assertEqual(15, Result).
 
 submit_fa(_Config) ->
-    {ok, Pid} =  emqx_pool:start_link(),
     Fun = fun(X) -> case X rem 2 of 0 -> {true, X div 2}; _ -> false end end,
     Result = emqx_pool:submit(Fun, [2]),
-    ?assertEqual({true, 1}, Result),
-    exit(Pid, normal).
+    ?assertEqual({true, 1}, Result).
+
+async_submit_mfa(_Config) ->
+    emqx_pool:async_submit({?MODULE, test_mfa, []}),
+    emqx_pool:async_submit(fun ?MODULE:test_mfa/0, []).
+
+async_submit_ex(_) ->
+    emqx_pool:async_submit(fun error_fun/0).
+
+t_unexpected(_) ->
+    Pid = emqx_pool:worker(),
+    ?assertEqual(ignored, gen_server:call(Pid, bad_request)),
+    ?assertEqual(ok, gen_server:cast(Pid, bad_msg)),
+    Pid ! bad_info,
+    ok = gen_server:stop(Pid).
 
 test_mfa() ->
     lists:foldl(fun(X, Sum) -> X + Sum end, 0, [1,2,3,4,5]).
 
-async_submit_mfa(_Config) ->
-    {ok, Pid} =  emqx_pool:start_link(),
-    emqx_pool:async_submit({?MODULE, test_mfa, []}),
-    exit(Pid, normal).
+error_fun() -> error(test_error).
 

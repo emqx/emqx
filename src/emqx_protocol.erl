@@ -14,8 +14,6 @@
 
 -module(emqx_protocol).
 
--define(LOG_HEADER, "[MQTT]").
-
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
@@ -394,8 +392,8 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PSta
             ?LOG(warning, "Cannot publish qos1 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
             case deliver({puback, PacketId, ReasonCode}, PState) of
-                {ok, _PState} ->
-                    do_acl_deny_action(Packet, ReasonCode, PState);
+                {ok, PState1} ->
+                    do_acl_deny_action(Packet, ReasonCode, PState1);
                 Error ->
                     Error
             end
@@ -408,9 +406,9 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PSta
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos2 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
-            case deliver({pubrec, PacketId, ?RC_NOT_AUTHORIZED}, PState) of
-                {ok, _PState} ->
-                    do_acl_deny_action(Packet, ReasonCode, PState);
+            case deliver({pubrec, PacketId, ReasonCode}, PState) of
+                {ok, PState1} ->
+                    do_acl_deny_action(Packet, ReasonCode, PState1);
                 Error ->
                     Error
             end
@@ -474,8 +472,12 @@ process_packet(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters)
             {SubTopics, ReasonCodes} = {lists:reverse(ReverseSubTopics), lists:reverse(ReverseReasonCodes)},
             ?LOG(warning, "Cannot subscribe ~p for ~p",
                 [SubTopics, [emqx_reason_codes:text(R) || R <- ReasonCodes]]),
-            deliver({suback, PacketId, ReasonCodes}, PState),
-            do_acl_deny_action(Packet, ReasonCodes, PState)
+            case deliver({suback, PacketId, ReasonCodes}, PState) of
+                {ok, PState1} ->
+                    do_acl_deny_action(Packet, ReasonCodes, PState1);
+                Error ->
+                    Error
+            end
     end;
 
 process_packet(?UNSUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),

@@ -39,10 +39,10 @@
 -export([initialized/3, waiting_for_connack/3, connected/3]).
 -export([init/1, callback_mode/0, handle_event/4, terminate/3, code_change/4]).
 
--export_type([client/0, properties/0, payload/0,
-              pubopt/0, subopt/0, request_input/0,
-              response_payload/0, request_handler/0,
+-export_type([client/0, properties/0, payload/0, pubopt/0, subopt/0,
+              request_input/0, response_payload/0, request_handler/0,
               corr_data/0]).
+
 -export_type([host/0, option/0]).
 
 %% Default timeout
@@ -199,7 +199,7 @@ start_link() -> start_link([]).
 start_link(Options) when is_map(Options) ->
     start_link(maps:to_list(Options));
 start_link(Options) when is_list(Options) ->
-    ok  = emqx_mqtt_props:validate(
+    ok = emqx_mqtt_props:validate(
             proplists:get_value(properties, Options, #{})),
     case proplists:get_value(name, Options) of
         undefined ->
@@ -697,7 +697,8 @@ waiting_for_connack(cast, ?CONNACK_PACKET(?RC_SUCCESS,
 
 waiting_for_connack(cast, ?CONNACK_PACKET(ReasonCode,
                                           _SessPresent,
-                                          Properties), State = #state{ proto_ver = ProtoVer}) ->
+                                          Properties),
+                    State = #state{proto_ver = ProtoVer}) ->
     Reason = emqx_reason_codes:name(ReasonCode, ProtoVer),
     case take_call(connect, State) of
         {value, #call{from = From}, _State} ->
@@ -715,7 +716,17 @@ waiting_for_connack(timeout, _Timeout, State) ->
     end;
 
 waiting_for_connack(EventType, EventContent, State) ->
-    handle_event(EventType, EventContent, waiting_for_connack, State).
+    case take_call(connect, State) of
+        {value, #call{from = From}, _State} ->
+            case handle_event(EventType, EventContent, waiting_for_connack, State) of
+                {stop, Reason, State} ->
+                    Reply = {error, {Reason, EventContent}},
+                    {stop_and_reply, Reason, [{reply, From, Reply}]};
+                StateCallbackResult ->
+                    StateCallbackResult
+            end;
+        false -> {stop, connack_timeout}
+    end.
 
 connected({call, From}, subscriptions, State = #state{subscriptions = Subscriptions}) ->
     {keep_state, State, [{reply, From, maps:to_list(Subscriptions)}]};
@@ -769,7 +780,7 @@ connected({call, From}, {publish, Msg = #mqtt_msg{qos = QoS}},
     when (QoS =:= ?QOS_1); (QoS =:= ?QOS_2) ->
     case emqx_inflight:is_full(Inflight) of
         true ->
-            {keep_state, State, [{reply, From, {error, inflight_full}}]};
+            {keep_state, State, [{reply, From, {error, {PacketId, inflight_full}}}]};
         false ->
             Msg1 = Msg#mqtt_msg{packet_id = PacketId},
             case send(Msg1, State) of
@@ -777,8 +788,8 @@ connected({call, From}, {publish, Msg = #mqtt_msg{qos = QoS}},
                     Inflight1 = emqx_inflight:insert(PacketId, {publish, Msg1, os:timestamp()}, Inflight),
                     {keep_state, ensure_retry_timer(NewState#state{inflight = Inflight1}),
                      [{reply, From, {ok, PacketId}}]};
-                Error = {error, Reason} ->
-                    {stop_and_reply, Reason, [{reply, From, Error}]}
+                {error, Reason} ->
+                    {stop_and_reply, Reason, [{reply, From, {error, {PacketId, Reason}}}]}
             end
     end;
 
@@ -989,7 +1000,7 @@ should_ping(Sock) ->
 handle_event(info, {TcpOrSsL, _Sock, Data}, _StateName, State)
     when TcpOrSsL =:= tcp; TcpOrSsL =:= ssl ->
     emqx_logger:debug("RECV Data: ~p", [Data]),
-    receive_loop(Data, run_sock(State));
+    process_incoming(Data, [], run_sock(State));
 
 handle_event(info, {Error, _Sock, Reason}, _StateName, State)
     when Error =:= tcp_error; Error =:= ssl_error ->
@@ -999,8 +1010,8 @@ handle_event(info, {Closed, _Sock}, _StateName, State)
     when Closed =:= tcp_closed; Closed =:= ssl_closed ->
     {stop, {shutdown, Closed}, State};
 
-handle_event(info, {'EXIT', Owner, Reason}, _, #state{owner = Owner}) ->
-    {stop, Reason};
+handle_event(info, {'EXIT', Owner, Reason}, _, State = #state{owner = Owner}) ->
+    {stop, Reason, State};
 
 handle_event(info, {inet_reply, _Sock, ok}, _, State) ->
     {keep_state, State};
@@ -1313,23 +1324,30 @@ run_sock(State = #state{socket = Sock}) ->
     emqx_client_sock:setopts(Sock, [{active, once}]), State.
 
 %%------------------------------------------------------------------------------
-%% Receive Loop
+%% Process incomming
 
-receive_loop(<<>>, State) ->
-    {keep_state, State};
+process_incoming(<<>>, Packets, State) ->
+    {keep_state, State, next_events(Packets)};
 
-receive_loop(Bytes, State = #state{parse_state = ParseState}) ->
-    case catch emqx_frame:parse(Bytes, ParseState) of
+process_incoming(Bytes, Packets, State = #state{parse_state = ParseState}) ->
+    try emqx_frame:parse(Bytes, ParseState) of
         {ok, Packet, Rest} ->
-            ok = gen_statem:cast(self(), Packet),
-            receive_loop(Rest, init_parse_state(State));
+            process_incoming(Rest, [Packet|Packets], init_parse_state(State));
         {more, NewParseState} ->
-            {keep_state, State#state{parse_state = NewParseState}};
+            {keep_state, State#state{parse_state = NewParseState}, next_events(Packets)};
         {error, Reason} ->
-            {stop, Reason};
-        {'EXIT', Error} ->
+            {stop, Reason}
+    catch
+        error:Error ->
             {stop, Error}
     end.
+
+next_events([]) ->
+    [];
+next_events([Packet]) ->
+    {next_event, cast, Packet};
+next_events(Packets) ->
+    [{next_event, cast, Packet} || Packet <- lists:reverse(Packets)].
 
 %%------------------------------------------------------------------------------
 %% Next packet id

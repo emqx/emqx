@@ -40,16 +40,13 @@ make(From, Topic, Payload) ->
 -spec(make(atom() | emqx_types:client_id(), emqx_mqtt_types:qos(),
            emqx_topic:topic(), emqx_types:payload()) -> emqx_types:message()).
 make(From, QoS, Topic, Payload) ->
-    #message{id         = msgid(QoS),
+    #message{id         = emqx_guid:gen(),
              qos        = QoS,
              from       = From,
              flags      = #{dup => false},
              topic      = Topic,
              payload    = Payload,
              timestamp  = os:timestamp()}.
-
-msgid(?QOS_0) -> undefined;
-msgid(_QoS)  -> emqx_guid:gen().
 
 set_flags(Flags, Msg = #message{flags = undefined}) when is_map(Flags) ->
     Msg#message{flags = Flags};

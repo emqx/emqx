@@ -24,7 +24,7 @@
 -define(TRIE_TABS, [emqx_trie, emqx_trie_node]).
 
 all() ->
-    [t_mnesia, t_insert, t_match, t_match2, t_match3, t_delete, t_delete2, t_delete3].
+    [t_mnesia, t_insert, t_match, t_match2, t_match3, t_empty, t_delete, t_delete2, t_delete3].
 
 init_per_suite(Config) ->
     application:load(emqx),
@@ -58,7 +58,7 @@ t_insert(_) ->
               ?TRIE:insert(<<"sensor">>),
               ?TRIE:lookup(<<"sensor">>)
           end,
-    ?assertEqual({atomic, [TN]}, mnesia:transaction(Fun)).
+    ?assertEqual({atomic, [TN]}, trans(Fun)).
 
 t_match(_) ->
     Machted = [<<"sensor/+/#">>, <<"sensor/#">>],
@@ -68,7 +68,7 @@ t_match(_) ->
               ?TRIE:insert(<<"sensor/#">>),
               ?TRIE:match(<<"sensor/1">>)
             end,
-    ?assertEqual({atomic, Machted}, mnesia:transaction(Fun)).
+    ?assertEqual({atomic, Machted}, trans(Fun)).
 
 t_match2(_) ->
     Matched = {[<<"+/+/#">>, <<"+/#">>, <<"#">>], []},
@@ -79,15 +79,22 @@ t_match2(_) ->
               {?TRIE:match(<<"a/b/c">>),
                ?TRIE:match(<<"$SYS/broker/zenmq">>)}
           end,
-    ?assertEqual({atomic, Matched}, mnesia:transaction(Fun)).
+    ?assertEqual({atomic, Matched}, trans(Fun)).
 
 t_match3(_) ->
     Topics = [<<"d/#">>, <<"a/b/c">>, <<"a/b/+">>, <<"a/#">>, <<"#">>, <<"$SYS/#">>],
-    mnesia:transaction(fun() -> [emqx_trie:insert(Topic) || Topic <- Topics] end),
+    trans(fun() -> [emqx_trie:insert(Topic) || Topic <- Topics] end),
     Matched = mnesia:async_dirty(fun emqx_trie:match/1, [<<"a/b/c">>]),
     ?assertEqual(4, length(Matched)),
     SysMatched = mnesia:async_dirty(fun emqx_trie:match/1, [<<"$SYS/a/b/c">>]),
     ?assertEqual([<<"$SYS/#">>], SysMatched).
+
+t_empty(_) ->
+    ?assert(?TRIE:empty()),
+    trans(fun ?TRIE:insert/1, [<<"topic/x/#">>]),
+    ?assertNot(?TRIE:empty()),
+    trans(fun ?TRIE:delete/1, [<<"topic/x/#">>]),
+    ?assert(?TRIE:empty()).
 
 t_delete(_) ->
     TN = #trie_node{node_id = <<"sensor/1">>,
@@ -103,19 +110,20 @@ t_delete(_) ->
               ?TRIE:delete(<<"sensor/1/metric">>),
               ?TRIE:lookup(<<"sensor/1">>)
           end,
-    ?assertEqual({atomic, [TN]}, mnesia:transaction(Fun)).
+    ?assertEqual({atomic, [TN]}, trans(Fun)).
 
 t_delete2(_) ->
     Fun = fun() ->
               ?TRIE:insert(<<"sensor">>),
               ?TRIE:insert(<<"sensor/1/metric/2">>),
-              ?TRIE:insert(<<"sensor/1/metric/3">>),
+              ?TRIE:insert(<<"sensor/+/metric/3">>),
               ?TRIE:delete(<<"sensor">>),
               ?TRIE:delete(<<"sensor/1/metric/2">>),
-              ?TRIE:delete(<<"sensor/1/metric/3">>),
+              ?TRIE:delete(<<"sensor/+/metric/3">>),
+              ?TRIE:delete(<<"sensor/+/metric/3">>),
               {?TRIE:lookup(<<"sensor">>), ?TRIE:lookup(<<"sensor/1">>)}
           end,
-    ?assertEqual({atomic, {[], []}}, mnesia:transaction(Fun)).
+    ?assertEqual({atomic, {[], []}}, trans(Fun)).
 
 t_delete3(_) ->
     Fun = fun() ->
@@ -129,8 +137,13 @@ t_delete3(_) ->
               ?TRIE:delete(<<"sensor/+/unknown">>),
               {?TRIE:lookup(<<"sensor">>), ?TRIE:lookup(<<"sensor/+">>)}
           end,
-    ?assertEqual({atomic, {[], []}}, mnesia:transaction(Fun)).
+    ?assertEqual({atomic, {[], []}}, trans(Fun)).
 
 clear_tables() ->
     lists:foreach(fun mnesia:clear_table/1, ?TRIE_TABS).
+
+trans(Fun) ->
+    mnesia:transaction(Fun).
+trans(Fun, Args) ->
+    mnesia:transaction(Fun, Args).
 
