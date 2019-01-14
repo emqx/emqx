@@ -62,7 +62,7 @@ async_submit_mfa(_Config) ->
     emqx_pool:async_submit(fun ?MODULE:test_mfa/0, []).
 
 async_submit_crash(_) ->
-    emqx_pool:async_submit(fun() -> A = 1, A = 0 end).
+    emqx_pool:async_submit(fun() -> error(test) end).
 
 t_unexpected(_) ->
     Pid = emqx_pool:worker(),
