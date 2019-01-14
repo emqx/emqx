@@ -665,7 +665,7 @@ code_change(_OldVsn, State, _Extra) ->
 maybe_shutdown(undefined, _Reason) ->
     ok;
 maybe_shutdown(Pid, normal) ->
-     Pid ! {shutdown, normal};
+    Pid ! {shutdown, normal};
 maybe_shutdown(Pid, Reason) ->
     exit(Pid, Reason).
 
