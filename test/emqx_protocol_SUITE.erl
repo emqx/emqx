@@ -103,19 +103,16 @@ all() ->
     ].
 
 groups() ->
-    [{mqtt_common,
-      [sequence],
-      [will_check]},
-     {mqttv4,
-      [sequence],
+    [{mqtt_common, [sequence],
+      [will_topic_check
+       ]},
+     {mqttv4, [sequence],
       [connect_v4,
        subscribe_v4]},
-     {mqttv5,
-      [sequence],
+     {mqttv5, [sequence],
       [connect_v5,
        subscribe_v5]},
-     {acl,
-      [sequence],
+     {acl, [sequence],
       [acl_deny_action_ct,
        acl_deny_action_eunit]}].
 
@@ -268,11 +265,10 @@ connect_v5(_) ->
                                 raw_recv_parse(Data, ?MQTT_PROTO_V5),
 
                             emqx_client_sock:send(Sock, raw_send_serialize(?SUBSCRIBE_PACKET(1, [{<<"TopicA">>, #{rh  => 1,
-                                                                                                                  qos => ?QOS_2,
-                                                                                                                  rap => 0,
-                                                                                                                  nl  => 0,
-                                                                                                                  rc  => 0}}]),
-                                                                            #{version => ?MQTT_PROTO_V5})),
+                                             qos => ?QOS_2,
+                                             rap => 0,
+                                             nl  => 0,
+                                             rc  => 0}}]), #{version => ?MQTT_PROTO_V5})),
 
                             {ok, Data2} = gen_tcp:recv(Sock, 0),
                             {ok, ?SUBACK_PACKET(1, #{}, [2]), _} = raw_recv_parse(Data2, ?MQTT_PROTO_V5),
@@ -367,19 +363,16 @@ connect_v5(_) ->
                             do_connect(Sock2, ?MQTT_PROTO_V5),
 
                             emqx_client_sock:send(Sock2, raw_send_serialize(?SUBSCRIBE_PACKET(1, [{<<"TopicA">>, #{rh  => 1,
-                                                                                                                   qos => ?QOS_2,
-                                                                                                                   rap => 0,
-                                                                                                                   nl  => 0,
-                                                                                                                   rc  => 0}}]),
-                                                                            #{version => ?MQTT_PROTO_V5})),
+                                             qos => ?QOS_2,
+                                             rap => 0,
+                                             nl  => 0,
+                                             rc  => 0}}]), #{version => ?MQTT_PROTO_V5})),
 
                             {ok, SubData} = gen_tcp:recv(Sock2, 0),
                             {ok, ?SUBACK_PACKET(1, #{}, [2]), _} = raw_recv_parse(SubData, ?MQTT_PROTO_V5),
 
                             emqx_client_sock:send(Sock, raw_send_serialize(
-                                                            ?DISCONNECT_PACKET(?RC_DISCONNECT_WITH_WILL_MESSAGE)
-                                                        )
-                            ),
+                                                            ?DISCONNECT_PACKET(?RC_DISCONNECT_WITH_WILL_MESSAGE))),
 
                             {error, timeout} = gen_tcp:recv(Sock2, 0, 1000),
 
@@ -572,8 +565,8 @@ raw_recv_parse(P, ProtoVersion) ->
 acl_deny_action_ct(_) ->
     emqx_zone:set_env(external, acl_deny_action, disconnect),
     process_flag(trap_exit, true),
-    [acl_deny_do_disconnect(publish, QoS, <<"acl_deny_action">>) || QoS <- lists:seq(0, 2)],
     [acl_deny_do_disconnect(subscribe, QoS, <<"acl_deny_action">>) || QoS <- lists:seq(0, 2)],
+    [acl_deny_do_disconnect(publish, QoS, <<"acl_deny_action">>) || QoS <- lists:seq(0, 2)],
     emqx_zone:set_env(external, acl_deny_action, ignore),
     ok.
 
@@ -585,57 +578,64 @@ acl_deny_action_eunit(_) ->
     {error, CodeName, NEWPSTATE2} = emqx_protocol:process_packet(?PUBLISH_PACKET(?QOS_2, <<"acl_deny_action">>, 2, <<"payload">>), PState),
     ?assertEqual(#{pkt => 1, msg => 0}, NEWPSTATE2#pstate.send_stats).
 
-will_check(_) ->
-    process_flag(trap_exit, true),
-    will_topic_check(0),
-    will_acl_check(0).
-
-will_topic_check(QoS) ->
+will_topic_check(_) ->
     {ok, Client} = emqx_client:start_link([{username, <<"emqx">>},
                                            {will_flag, true},
-                                           {will_topic, <<"">>},
+                                           {will_topic, <<"aaa">>},
                                            {will_payload, <<"I have died">>},
-                                           {will_qos, QoS}]),
-    try emqx_client:connect(Client) of
-        _ ->
-            ok
-    catch
-        exit : _Reason ->
-            false = is_process_alive(Client)
-    end.
+                                           {will_qos, 0}]),
+    {ok, _} = emqx_client:connect(Client),
 
-will_acl_check(QoS) ->
-    {ok, Client} = emqx_client:start_link([{username, <<"emqx">>},
+    {ok, T} = emqx_client:start_link([{client_id, <<"client">>}]),
+    emqx_client:connect(T),
+    emqx_client:subscribe(T, <<"aaa">>),
+    ct:sleep(200),
+
+    emqx_client:stop(Client),
+    ct:sleep(100),
+    false = is_process_alive(Client),
+    emqx_ct_broker_helpers:wait_mqtt_payload(<<"I have died">>),
+    emqx_client:stop(T).
+
+will_acl_check(_) ->
+    {ok, Client} = emqx_client:start_link([{username, <<"pub_deny">>},
                                            {will_flag, true},
-                                           {will_topic, <<"acl_deny_action">>},
+                                           {will_topic, <<"pub_deny">>},
                                            {will_payload, <<"I have died">>},
-                                           {will_qos, QoS}]),
-    try emqx_client:connect(Client) of
-        _ ->
-            ok
-    catch
-        exit : _Reason ->
-            false = is_process_alive(Client)
-    end.
+                                           {will_qos, 0}]),
+    {ok, _} = emqx_client:connect(Client),
+
+    {ok, T} = emqx_client:start_link([{client_id, <<"client">>}]),
+    {ok, _} = emqx_client:connect(T),
+    {ok,_,[0]} = emqx_client:subscribe(T, <<"pub_deny">>),
+    ct:sleep(200),
+
+    emqx_client:stop(Client),
+    ct:sleep(100),
+    false = is_process_alive(Client),
+    emqx_ct_broker_helpers:not_wait_mqtt_payload(<<"I have died">>),
+    emqx_client:stop(T).
 
 acl_deny_do_disconnect(publish, QoS, Topic) ->
     {ok, Client} = emqx_client:start_link([{username, <<"emqx">>}]),
     {ok, _} = emqx_client:connect(Client),
     emqx_client:publish(Client, Topic, <<"test">>, QoS),
     receive
-        {'EXIT', Client, _Reason} ->
+        {'EXIT', Client, {shutdown,tcp_closed}} ->
+            ct:pal(info, "[OK] after publish, received exit: {shutdown,tcp_closed}"),
             false = is_process_alive(Client)
+    after 1000 -> ct:fail({timeout, wait_tcp_closed})
     end;
 
 acl_deny_do_disconnect(subscribe, QoS, Topic) ->
     {ok, Client} = emqx_client:start_link([{username, <<"emqx">>}]),
     {ok, _} = emqx_client:connect(Client),
-    try emqx_client:subscribe(Client, Topic, QoS) of
-        _ ->
-            ok
-    catch
-        exit : _Reason ->
+    {ok, _, [128]} = emqx_client:subscribe(Client, Topic, QoS),
+    receive
+        {'EXIT', Client, {shutdown,tcp_closed}} ->
+            ct:pal(info, "[OK] after subscribe, received exit: {shutdown,tcp_closed}"),
             false = is_process_alive(Client)
+    after 1000 -> ct:fail({timeout, wait_tcp_closed})
     end.
 
 start_apps(App, SchemaFile, ConfigFile) ->
