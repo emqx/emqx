@@ -17,6 +17,7 @@
 -behaviour(gen_statem).
 
 -include("emqx_mqtt.hrl").
+-include("emqx_client.hrl").
 
 -export([start_link/0, start_link/1]).
 -export([request/5, request/6, request_async/7, receive_response/3]).
@@ -41,7 +42,7 @@
 
 -export_type([client/0, properties/0, payload/0, pubopt/0, subopt/0,
               request_input/0, response_payload/0, request_handler/0,
-              corr_data/0]).
+              corr_data/0, mqtt_msg/0]).
 
 -export_type([host/0, option/0]).
 
@@ -95,9 +96,6 @@
                 | {ack_timeout, pos_integer()}
                 | {force_ping, boolean()}
                 | {properties, properties()}).
-
--record(mqtt_msg, {qos = ?QOS_0, retain = false, dup = false,
-                   packet_id, topic, props, payload}).
 
 -type(mqtt_msg() :: #mqtt_msg{}).
 
