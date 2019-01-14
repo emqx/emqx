@@ -67,7 +67,7 @@
                      default_priority => highest | lowest,
                      store_qos0 => boolean()
                     }).
--type(message() :: pemqx_types:message()).
+-type(message() :: emqx_types:message()).
 
 -type(stat() :: {len, non_neg_integer()}
               | {max_len, non_neg_integer()}

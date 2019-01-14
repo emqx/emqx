@@ -20,7 +20,7 @@
 -export([triples/1]).
 -export([words/1]).
 -export([wildcard/1]).
--export([join/1]).
+-export([join/1, prepend/2]).
 -export([feed_var/3]).
 -export([systop/1]).
 -export([parse/1, parse/2]).
@@ -127,6 +127,18 @@ join(root, W) ->
     bin(W);
 join(Parent, W) ->
     <<(bin(Parent))/binary, $/, (bin(W))/binary>>.
+
+%% @doc Prepend a topic prefix.
+%% Ensured to have only one / between prefix and suffix.
+prepend(root, W) -> bin(W);
+prepend(undefined, W) -> bin(W);
+prepend(<<>>, W) -> bin(W);
+prepend(Parent0, W) ->
+    Parent = bin(Parent0),
+    case binary:last(Parent) of
+        $/ -> <<Parent/binary, (bin(W))/binary>>;
+        _ -> join(Parent, W)
+    end.
 
 bin('')  -> <<>>;
 bin('+') -> <<"+">>;
