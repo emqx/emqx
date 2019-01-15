@@ -104,7 +104,8 @@ all() ->
 
 groups() ->
     [{mqtt_common, [sequence],
-      [will_topic_check
+      [will_topic_check,
+       will_acl_check
        ]},
      {mqttv4, [sequence],
       [connect_v4,
