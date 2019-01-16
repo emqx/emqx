@@ -502,16 +502,15 @@ process_packet(?DISCONNECT_PACKET(?RC_SUCCESS, #{'Session-Expiry-Interval' := In
     case Interval =/= 0 andalso OldInterval =:= 0 of
         true ->
             deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState),
-            {error, protocol_error, PState#pstate{will_msg = undefined}};
+            {error, protocol_error, PState};
         false ->
             emqx_session:update_expiry_interval(SPid, Interval),
-            %% Clean willmsg
-            {stop, normal, PState#pstate{will_msg = undefined}}
+            {stop, normal, PState}
     end;
 process_packet(?DISCONNECT_PACKET(?RC_SUCCESS), PState) ->
-    {stop, normal, PState#pstate{will_msg = undefined}};
+    {stop, normal, PState};
 process_packet(?DISCONNECT_PACKET(_), PState) ->
-    {stop, normal, PState}.
+    {stop, {shutdown, disconnet_abnormally}, PState}.
 
 %%------------------------------------------------------------------------------
 %% ConnAck --> Client
