@@ -50,8 +50,6 @@
           clean_start,
           topic_aliases,
           packet_size,
-          will_topic,
-          will_msg,
           keepalive,
           mountpoint,
           is_super,
@@ -130,13 +128,11 @@ info(PState = #pstate{conn_props    = ConnProps,
                       ack_props     = AckProps,
                       session       = Session,
                       topic_aliases = Aliases,
-                      will_msg      = WillMsg,
                       enable_acl    = EnableAcl}) ->
     attrs(PState) ++ [{conn_props, ConnProps},
                       {ack_props, AckProps},
                       {session, Session},
                       {topic_aliases, Aliases},
-                      {will_msg, WillMsg},
                       {enable_acl, EnableAcl}].
 
 attrs(#pstate{zone         = Zone,
@@ -349,11 +345,10 @@ process_packet(?CONNECT_PACKET(
               case authenticate(credentials(PState2), Password) of
                   {ok, IsSuper} ->
                       %% Maybe assign a clientId
-                      PState3 = maybe_assign_client_id(PState2#pstate{is_super = IsSuper,
-                                                                      will_msg = make_will_msg(ConnPkt)}),
+                      PState3 = maybe_assign_client_id(PState2#pstate{is_super = IsSuper}),
                       emqx_logger:set_metadata_client_id(PState3#pstate.client_id),
                       %% Open session
-                      case try_open_session(PState3) of
+                      case try_open_session(#{will_msg => make_will_msg(ConnPkt)}, PState3) of
                           {ok, SPid, SP} ->
                               PState4 = PState3#pstate{session = SPid, connected = true},
                               ok = emqx_cm:register_connection(client_id(PState4)),
@@ -677,23 +672,22 @@ maybe_assign_client_id(PState = #pstate{client_id = <<>>, ack_props = AckProps})
 maybe_assign_client_id(PState) ->
     PState.
 
-try_open_session(PState = #pstate{zone        = Zone,
+try_open_session(SessAttrs = #{will_msg := _WillMsg}, 
+                 PState = #pstate{zone        = Zone,
                                   client_id   = ClientId,
                                   conn_pid    = ConnPid,
                                   username    = Username,
-                                  clean_start = CleanStart,
-                                  will_msg    = WillMsg}) ->
+                                  clean_start = CleanStart}) ->
 
-    SessAttrs = #{
+    SessAttrs1 = SessAttrs#{
         zone        => Zone,
         client_id   => ClientId,
         conn_pid    => ConnPid,
         username    => Username,
-        clean_start => CleanStart,
-        will_msg    => WillMsg
+        clean_start => CleanStart
     },
-    SessAttrs1 = lists:foldl(fun set_session_attrs/2, SessAttrs, [{max_inflight, PState}, {expiry_interval, PState}]),
-    case emqx_sm:open_session(SessAttrs1) of
+    SessAttrs2 = lists:foldl(fun set_session_attrs/2, SessAttrs1, [{max_inflight, PState}, {expiry_interval, PState}]),
+    case emqx_sm:open_session(SessAttrs2) of
         {ok, SPid} ->
             {ok, SPid, false};
         Other -> Other

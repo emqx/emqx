@@ -50,8 +50,6 @@
           clean_start,
           topic_aliases,
           packet_size,
-          will_topic,
-          will_msg,
           keepalive,
           mountpoint,
           is_super,
