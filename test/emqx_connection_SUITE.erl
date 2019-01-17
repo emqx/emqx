@@ -74,7 +74,6 @@
                {socktype, _},
                {topic_aliases, _},
                {username, _},
-               {will_msg, _},
                {zone, _}]).
 
 all() ->

@@ -630,11 +630,21 @@ handle_info({'EXIT', ConnPid, Reason}, #state{conn_pid = ConnPid})
     exit(Reason);
 
 handle_info({'EXIT', ConnPid, Reason}, State = #state{will_msg = WillMsg, expiry_interval = 0, conn_pid = ConnPid}) ->
-    send_willmsg(WillMsg),
+    case Reason of
+        normal ->
+            ignore;
+        _ ->
+            send_willmsg(WillMsg)
+    end,
     {stop, Reason, State#state{will_msg = undefined, conn_pid = undefined}};
 
-handle_info({'EXIT', ConnPid, _Reason}, State = #state{conn_pid = ConnPid}) ->
-    State1 = ensure_will_delay_timer(State),
+handle_info({'EXIT', ConnPid, Reason}, State = #state{conn_pid = ConnPid}) ->
+    State1 = case Reason of
+                 normal ->
+                     State#state{will_msg = undefined};
+                 _ ->
+                     ensure_will_delay_timer(State)
+             end,
     {noreply, ensure_expire_timer(State1#state{conn_pid = undefined})};
 
 handle_info({'EXIT', OldPid, _Reason}, State = #state{old_conn_pid = OldPid}) ->

@@ -50,8 +50,6 @@
           clean_start,
           topic_aliases,
           packet_size,
-          will_topic,
-          will_msg,
           keepalive,
           mountpoint,
           is_super,
@@ -130,13 +128,11 @@ info(PState = #pstate{conn_props    = ConnProps,
                       ack_props     = AckProps,
                       session       = Session,
                       topic_aliases = Aliases,
-                      will_msg      = WillMsg,
                       enable_acl    = EnableAcl}) ->
     attrs(PState) ++ [{conn_props, ConnProps},
                       {ack_props, AckProps},
                       {session, Session},
                       {topic_aliases, Aliases},
-                      {will_msg, WillMsg},
                       {enable_acl, EnableAcl}].
 
 attrs(#pstate{zone         = Zone,
@@ -349,11 +345,11 @@ process_packet(?CONNECT_PACKET(
               case authenticate(credentials(PState2), Password) of
                   {ok, IsSuper} ->
                       %% Maybe assign a clientId
-                      PState3 = maybe_assign_client_id(PState2#pstate{is_super = IsSuper,
-                                                                      will_msg = make_will_msg(ConnPkt)}),
+                      PState3 = maybe_assign_client_id(PState2#pstate{is_super = IsSuper}),
                       emqx_logger:set_metadata_client_id(PState3#pstate.client_id),
                       %% Open session
-                      case try_open_session(PState3) of
+                      SessAttrs = lists:foldl(fun set_session_attrs/2, #{will_msg => make_will_msg(ConnPkt)}, [{max_inflight, PState3}, {expiry_interval, PState3}, {misc, PState3}]),
+                      case try_open_session(SessAttrs) of
                           {ok, SPid, SP} ->
                               PState4 = PState3#pstate{session = SPid, connected = true},
                               ok = emqx_cm:register_connection(client_id(PState4)),
@@ -502,16 +498,15 @@ process_packet(?DISCONNECT_PACKET(?RC_SUCCESS, #{'Session-Expiry-Interval' := In
     case Interval =/= 0 andalso OldInterval =:= 0 of
         true ->
             deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState),
-            {error, protocol_error, PState#pstate{will_msg = undefined}};
+            {error, protocol_error, PState};
         false ->
             emqx_session:update_expiry_interval(SPid, Interval),
-            %% Clean willmsg
-            {stop, normal, PState#pstate{will_msg = undefined}}
+            {stop, normal, PState}
     end;
 process_packet(?DISCONNECT_PACKET(?RC_SUCCESS), PState) ->
-    {stop, normal, PState#pstate{will_msg = undefined}};
+    {stop, normal, PState};
 process_packet(?DISCONNECT_PACKET(_), PState) ->
-    {stop, normal, PState}.
+    {stop, {shutdown, abnormal_disconnet}, PState}.
 
 %%------------------------------------------------------------------------------
 %% ConnAck --> Client
@@ -678,23 +673,13 @@ maybe_assign_client_id(PState = #pstate{client_id = <<>>, ack_props = AckProps})
 maybe_assign_client_id(PState) ->
     PState.
 
-try_open_session(PState = #pstate{zone        = Zone,
-                                  client_id   = ClientId,
-                                  conn_pid    = ConnPid,
-                                  username    = Username,
-                                  clean_start = CleanStart,
-                                  will_msg    = WillMsg}) ->
-
-    SessAttrs = #{
-        zone        => Zone,
-        client_id   => ClientId,
-        conn_pid    => ConnPid,
-        username    => Username,
-        clean_start => CleanStart,
-        will_msg    => WillMsg
-    },
-    SessAttrs1 = lists:foldl(fun set_session_attrs/2, SessAttrs, [{max_inflight, PState}, {expiry_interval, PState}]),
-    case emqx_sm:open_session(SessAttrs1) of
+try_open_session(SessAttrs = #{zone        := _,
+                               client_id   := _,
+                               conn_pid    := _,
+                               username    := _,
+                               will_msg    := _,
+                               clean_start := _}) ->
+    case emqx_sm:open_session(SessAttrs) of
         {ok, SPid} ->
             {ok, SPid, false};
         Other -> Other
@@ -721,6 +706,17 @@ set_session_attrs({topic_alias_maximum, #pstate{proto_ver = ?MQTT_PROTO_V5, conn
 
 set_session_attrs({topic_alias_maximum, #pstate{zone = Zone}}, SessAttrs) ->
     maps:put(topic_alias_maximum, emqx_zone:get_env(Zone, max_topic_alias, 0), SessAttrs);
+
+set_session_attrs({misc, #pstate{zone        = Zone,
+                                 client_id   = ClientId, 
+                                 conn_pid    = ConnPid,
+                                 username    = Username,
+                                 clean_start = CleanStart}}, SessAttrs) ->
+    SessAttrs#{zone        => Zone,
+               client_id   => ClientId,
+               conn_pid    => ConnPid,
+               username    => Username,
+               clean_start => CleanStart};
 
 set_session_attrs(_, SessAttrs) ->
     SessAttrs.
