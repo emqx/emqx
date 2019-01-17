@@ -395,8 +395,16 @@ delete(_PktId, State = #state{readq = [], writeq = [], replayq = ReplayQ, ackref
 delete(PktId, State = #state{readq = [], writeq = WriteQ}) ->
     State#state{writeq = lists:keydelete(PktId, 1, WriteQ)};
 
-delete(PktId, State = #state{readq = ReadQ}) ->
-    State#state{readq = lists:keydelete(PktId, 1, ReadQ)}.
+delete(PktId, State = #state{readq = ReadQ, replayq = ReplayQ, ackref = AckRef}) ->
+    NewReadQ = lists:keydelete(PktId, 1, ReadQ),
+    case NewReadQ of
+        [] ->
+            ok = replayq:ack(ReplayQ, AckRef),
+            self() ! pop;
+        _NewReadQ ->
+            ok
+    end,
+    State#state{ readq = NewReadQ }.
 
 bridge(Action, State = #state{options = Options,
                               replayq = ReplayQ,
