@@ -69,4 +69,6 @@ start_traces(_Config) ->
     ok = emqx_tracer:stop_trace({client_id, <<"client">>}),
     ok = emqx_tracer:stop_trace({client_id, <<"client2">>}),
     ok = emqx_tracer:stop_trace({topic, <<"a/#">>}),
-    emqx_client:disconnect(T).
+    emqx_client:disconnect(T),
+
+    emqx_logger:set_log_level(error).

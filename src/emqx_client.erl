@@ -703,7 +703,7 @@ waiting_for_connack(cast, ?CONNACK_PACKET(ReasonCode,
     case take_call(connect, State) of
         {value, #call{from = From}, _State} ->
             Reply = {error, {Reason, Properties}},
-            {stop_and_reply, Reason, [{reply, From, Reply}]};
+            {stop_and_reply, {shutdown, Reason}, [{reply, From, Reply}]};
         false -> {stop, connack_error}
     end;
 
@@ -1004,20 +1004,24 @@ handle_event(info, {TcpOrSsL, _Sock, Data}, _StateName, State)
 
 handle_event(info, {Error, _Sock, Reason}, _StateName, State)
     when Error =:= tcp_error; Error =:= ssl_error ->
-    {stop, Reason, State};
+    emqx_logger:error("[~p] ~p, Reason: ~p", [?MODULE, Error, Reason]),
+    {stop, {shutdown, Reason}, State};
 
 handle_event(info, {Closed, _Sock}, _StateName, State)
     when Closed =:= tcp_closed; Closed =:= ssl_closed ->
+    emqx_logger:debug("[~p] ~p", [?MODULE, Closed]),
     {stop, {shutdown, Closed}, State};
 
 handle_event(info, {'EXIT', Owner, Reason}, _, State = #state{owner = Owner}) ->
-    {stop, Reason, State};
+    emqx_logger:debug("[~p] Got EXIT from owner, Reason: ~p", [?MODULE, Reason]),
+    {stop, {shutdown, Reason}, State};
 
 handle_event(info, {inet_reply, _Sock, ok}, _, State) ->
     {keep_state, State};
 
 handle_event(info, {inet_reply, _Sock, {error, Reason}}, _, State) ->
-    {stop, Reason, State};
+    emqx_logger:error("[~p] got tcp error: ~p", [?MODULE, Reason]),
+    {stop, {shutdown, Reason}, State};
 
 handle_event(EventType, EventContent, StateName, StateData) ->
     emqx_logger:error("State: ~s, Unexpected Event: (~p, ~p)",
@@ -1305,7 +1309,7 @@ hosts(#state{hosts = Hosts}) -> Hosts.
 send_puback(Packet, State) ->
     case send(Packet, State) of
         {ok, NewState}  -> {keep_state, NewState};
-        {error, Reason} -> {stop, Reason}
+        {error, Reason} -> {stop, {shutdown, Reason}}
     end.
 
 send(Msg, State) when is_record(Msg, mqtt_msg) ->

@@ -820,7 +820,7 @@ check_will_acl(#mqtt_packet_connect{will_topic = WillTopic}, PState) ->
     case emqx_access_control:check_acl(credentials(PState), publish, WillTopic) of
         allow -> ok;
         deny ->
-            ?LOG(warning, "Cannot publish will message to ~p for acl checking failed", [WillTopic]),
+            ?LOG(warning, "Will message (to ~s) validation failed, acl denied", [WillTopic]),
             {error, ?RC_UNSPECIFIED_ERROR}
     end.
 

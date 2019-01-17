@@ -30,7 +30,7 @@ all() ->
 groups() ->
     [
      {submit_case, [sequence], [submit_mfa, submit_fa]},
-     {async_submit_case, [sequence], [async_submit_mfa, async_submit_ex]}
+     {async_submit_case, [sequence], [async_submit_mfa, async_submit_crash]}
     ].
 
 init_per_suite(Config) ->
@@ -61,8 +61,8 @@ async_submit_mfa(_Config) ->
     emqx_pool:async_submit({?MODULE, test_mfa, []}),
     emqx_pool:async_submit(fun ?MODULE:test_mfa/0, []).
 
-async_submit_ex(_) ->
-    emqx_pool:async_submit(fun error_fun/0).
+async_submit_crash(_) ->
+    emqx_pool:async_submit(fun() -> A = 1, A = 0 end).
 
 t_unexpected(_) ->
     Pid = emqx_pool:worker(),
@@ -73,6 +73,3 @@ t_unexpected(_) ->
 
 test_mfa() ->
     lists:foldl(fun(X, Sum) -> X + Sum end, 0, [1,2,3,4,5]).
-
-error_fun() -> error(test_error).
-

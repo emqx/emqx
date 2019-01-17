@@ -599,43 +599,41 @@ will_topic_check(_) ->
     emqx_client:stop(T).
 
 will_acl_check(_) ->
+    %% The connection will be rejected if publishing of the will message is not allowed by
+    %% ACL rules
+    process_flag(trap_exit, true),
     {ok, Client} = emqx_client:start_link([{username, <<"pub_deny">>},
                                            {will_flag, true},
                                            {will_topic, <<"pub_deny">>},
                                            {will_payload, <<"I have died">>},
                                            {will_qos, 0}]),
-    {ok, _} = emqx_client:connect(Client),
-
-    {ok, T} = emqx_client:start_link([{client_id, <<"client">>}]),
-    {ok, _} = emqx_client:connect(T),
-    {ok,_,[0]} = emqx_client:subscribe(T, <<"pub_deny">>),
-    ct:sleep(200),
-
-    emqx_client:stop(Client),
-    ct:sleep(100),
-    false = is_process_alive(Client),
-    emqx_ct_broker_helpers:not_wait_mqtt_payload(<<"I have died">>),
-    emqx_client:stop(T).
+    ?assertMatch({error,{_,_}}, emqx_client:connect(Client)).
 
 acl_deny_do_disconnect(publish, QoS, Topic) ->
+    process_flag(trap_exit, true),
     {ok, Client} = emqx_client:start_link([{username, <<"emqx">>}]),
     {ok, _} = emqx_client:connect(Client),
     emqx_client:publish(Client, Topic, <<"test">>, QoS),
     receive
         {'EXIT', Client, {shutdown,tcp_closed}} ->
             ct:pal(info, "[OK] after publish, received exit: {shutdown,tcp_closed}"),
-            false = is_process_alive(Client)
+            false = is_process_alive(Client);
+        {'EXIT', Client, Reason} ->
+            ct:pal(info, "[OK] after publish, client got disconnected: ~p", [Reason])
     after 1000 -> ct:fail({timeout, wait_tcp_closed})
     end;
 
 acl_deny_do_disconnect(subscribe, QoS, Topic) ->
+    process_flag(trap_exit, true),
     {ok, Client} = emqx_client:start_link([{username, <<"emqx">>}]),
     {ok, _} = emqx_client:connect(Client),
     {ok, _, [128]} = emqx_client:subscribe(Client, Topic, QoS),
     receive
         {'EXIT', Client, {shutdown,tcp_closed}} ->
             ct:pal(info, "[OK] after subscribe, received exit: {shutdown,tcp_closed}"),
-            false = is_process_alive(Client)
+            false = is_process_alive(Client);
+        {'EXIT', Client, Reason} ->
+            ct:pal(info, "[OK] after subscribe, client got disconnected: ~p", [Reason])
     after 1000 -> ct:fail({timeout, wait_tcp_closed})
     end.
 

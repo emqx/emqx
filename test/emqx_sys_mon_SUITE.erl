@@ -58,7 +58,8 @@ validate_sys_mon_info(PidOrPort, SysMonName,ValidateInfo, InfoOrPort) ->
     after
         1000 ->
             ct:fail("flase")
-    end.
+    end,
+    emqx_client:stop(C).
 
 concat_str(ValidateInfo, InfoOrPort, Info) ->
     WarnInfo = io_lib:format(ValidateInfo, [InfoOrPort, Info]),
