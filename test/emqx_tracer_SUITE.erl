@@ -36,12 +36,39 @@ start_traces(_Config) ->
                                       {username, <<"testuser">>},
                                       {password, <<"pass">>}]),
     emqx_client:connect(T),
-    emqx_client:subscribe(T, <<"a/b/c">>),
-    ok = emqx_tracer:start_trace({client_id, <<"client">>}, all, "test/emqx_SUITE_data/clientid_trace.log"),
-    ok = emqx_tracer:start_trace({topic, <<"topic">>}, all, "test/emqx_SUITE_data/topic_trace.log"),
-    {ok, _} = file:read_file("test/emqx_SUITE_data/clientid_trace.log"),
-    {ok, _} = file:read_file("test/emqx_SUITE_data/topic_trace.log"),
-    Result = emqx_tracer:lookup_traces(),
-    ?assertEqual([{{client_id,<<"client">>},{all,"test/emqx_SUITE_data/clientid_trace.log"}},{{topic,<<"topic">>},{all,"test/emqx_SUITE_data/topic_trace.log"}}], Result),
+
+    %% Start tracing
+    ok = emqx_tracer:start_trace({client_id, <<"client">>}, debug, "tmp/client.log"),
+    ok = emqx_tracer:start_trace({client_id, <<"client2">>}, all, "tmp/client2.log"),
+    ok = emqx_tracer:start_trace({topic, <<"a/#">>}, all, "tmp/topic_trace.log"),
+    ct:sleep(100),
+
+    %% Verify the tracing file exits
+    ?assert(filelib:is_regular("tmp/client.log")),
+    ?assert(filelib:is_regular("tmp/client2.log")),
+    ?assert(filelib:is_regular("tmp/topic_trace.log")),
+
+    %% Get current traces
+    ?assertEqual([{{client_id,<<"client">>},{debug,"tmp/client.log"}},
+                  {{client_id,<<"client2">>},{all,"tmp/client2.log"}},
+                  {{topic,<<"a/#">>},{all,"tmp/topic_trace.log"}}], emqx_tracer:lookup_traces()),
+
+    %% set the overall log level to debug
+    emqx_logger:set_log_level(debug),
+
+    %% Client with clientid = "client" publishes a "hi" message to "a/b/c".
+    emqx_client:publish(T, <<"a/b/c">>, <<"hi">>),
+    ct:sleep(200),
+
+    %% Verify messages are logged to "tmp/client.log" and "tmp/topic_trace.log", but not "tmp/client2.log".
+    ?assert(filelib:file_size("tmp/client.log") > 0),
+    ?assert(filelib:file_size("tmp/topic_trace.log") > 0),
+    ?assert(filelib:file_size("tmp/client2.log") == 0),
+
+    %% Stop tracing
     ok = emqx_tracer:stop_trace({client_id, <<"client">>}),
-    ok = emqx_tracer:stop_trace({topic, <<"topic">>}).
+    ok = emqx_tracer:stop_trace({client_id, <<"client2">>}),
+    ok = emqx_tracer:stop_trace({topic, <<"a/#">>}),
+    emqx_client:disconnect(T),
+
+    emqx_logger:set_log_level(error).
