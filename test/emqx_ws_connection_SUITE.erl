@@ -56,7 +56,6 @@
                {ack_props, _},
                {session, _},
                {topic_aliases, _},
-               {will_msg, _},
                {enable_acl, _}]).
 
 -define(ATTRS, [{clean_start,true},
