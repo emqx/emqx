@@ -231,7 +231,7 @@ handle_info(replay, State = #state{client_pid = ClientPid, readq = ReadQ}) ->
 handle_info({dispatch, _, #message{topic = Topic, qos = QoS, payload = Payload, flags = #{retain := Retain}}},
             State = #state{client_pid = undefined,
                            mountpoint = Mountpoint})
-  when QoS =:= 1 ->
+  when QoS =< 1 ->
     Msg = #mqtt_msg{qos = 1,
                     retain = Retain,
                     topic = mountpoint(Mountpoint, Topic),
@@ -240,7 +240,7 @@ handle_info({dispatch, _, #message{topic = Topic, qos = QoS, payload = Payload, 
 handle_info({dispatch, _, #message{topic = Topic, qos = QoS ,payload = Payload, flags = #{retain := Retain}}},
             State = #state{client_pid = Pid,
                            mountpoint = Mountpoint})
-  when QoS =:= 1 ->
+  when QoS =< 1 ->
     Msg = #mqtt_msg{qos     = 1,
                     retain  = Retain,
                     topic   = mountpoint(Mountpoint, Topic),
