@@ -708,7 +708,7 @@ set_session_attrs({topic_alias_maximum, #pstate{zone = Zone}}, SessAttrs) ->
     maps:put(topic_alias_maximum, emqx_zone:get_env(Zone, max_topic_alias, 0), SessAttrs);
 
 set_session_attrs({misc, #pstate{zone        = Zone,
-                                 client_id   = ClientId, 
+                                 client_id   = ClientId,
                                  conn_pid    = ConnPid,
                                  username    = Username,
                                  clean_start = CleanStart}}, SessAttrs) ->
@@ -821,7 +821,7 @@ check_will_acl(#mqtt_packet_connect{will_topic = WillTopic}, PState) ->
         allow -> ok;
         deny ->
             ?LOG(warning, "Will message (to ~s) validation failed, acl denied", [WillTopic]),
-            {error, ?RC_UNSPECIFIED_ERROR}
+            {error, ?RC_NOT_AUTHORIZED}
     end.
 
 check_publish(Packet, PState) ->
