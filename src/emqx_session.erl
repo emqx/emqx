@@ -184,7 +184,7 @@ info(State = #state{conn_pid = ConnPid,
                      {upgrade_qos, UpgradeQoS},
                      {inflight, Inflight},
                      {retry_interval, RetryInterval},
-                     {mqueue_len, MQueue},
+                     {mqueue_len, emqx_mqueue:len(MQueue)},
                      {awaiting_rel, AwaitingRel},
                      {max_awaiting_rel, MaxAwaitingRel},
                      {await_rel_timeout, AwaitRelTimeout}].
