@@ -38,11 +38,6 @@
 
 -import(emqx_tables, [lookup_value/2, lookup_value/3]).
 
--ifdef(TEST).
--compile(export_all).
--compile(nowarn_export_all).
--endif.
-
 -define(BROKER, ?MODULE).
 
 %% ETS tables for PubSub

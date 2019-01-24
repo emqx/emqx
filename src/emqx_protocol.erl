@@ -69,11 +69,6 @@
 -type(state() :: #pstate{}).
 -export_type([state/0]).
 
--ifdef(TEST).
--compile(export_all).
--compile(nowarn_export_all).
--endif.
-
 -define(NO_PROPS, undefined).
 
 %%------------------------------------------------------------------------------

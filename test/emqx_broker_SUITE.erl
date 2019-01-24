@@ -78,8 +78,7 @@ publish(_) ->
 
 dispatch_with_no_sub(_) ->
     Msg = emqx_message:make(ct, <<"no_subscribers">>, <<"hello">>),
-    Delivery = #delivery{sender = self(), message = Msg, results = []},
-    ?assertEqual(Delivery, emqx_broker:route([{<<"no_subscribers">>, node()}], Delivery)).
+    ?assertEqual([], emqx_broker:publish(Msg)).
 
 pubsub(_) ->
     true = emqx:is_running(node()),
