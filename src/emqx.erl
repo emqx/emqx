@@ -17,7 +17,7 @@
 -include("emqx.hrl").
 
 %% Start/Stop the application
--export([start/0, restart/1, is_running/1, stop/0]).
+-export([start/0, restart/1, reboot/1, is_running/1, stop/0]).
 
 %% PubSub API
 -export([subscribe/1, subscribe/2, subscribe/3]).
@@ -52,6 +52,10 @@ restart(ConfFile) ->
     reload_config(ConfFile),
     shutdown(),
     reboot().
+
+-spec(reboot(string()) -> ok).
+reboot(ConfFile) ->
+    restart(ConfFile).
 
 %% @doc Stop emqx application.
 -spec(stop() -> ok | {error, term()}).
