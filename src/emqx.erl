@@ -50,12 +50,14 @@ start() ->
 -spec(restart(string()) -> ok).
 restart(ConfFile) ->
     reload_config(ConfFile),
-    init:restart().
+    shutdown(),
+    reboot().
 
 -spec(reboot(string()) -> ok).
 reboot(ConfFile) ->
     reload_config(ConfFile),
-    init:reboot().
+    shutdown(),
+    reboot().
 
 %% @doc Stop emqx application.
 -spec(stop() -> ok | {error, term()}).
