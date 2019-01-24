@@ -12,13 +12,14 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_ws_connection).
+-module(emqx_ws_channel).
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 
--export([info/1, attrs/1]).
+-export([info/1]).
+-export([attrs/1]).
 -export([stats/1]).
 -export([kick/1]).
 -export([session/1]).
@@ -37,7 +38,7 @@
           sockname,
           idle_timeout,
           proto_state,
-          parser_state,
+          parse_state,
           keepalive,
           enable_stats,
           stats_timer,
@@ -128,15 +129,14 @@ websocket_init(#state{request = Req, options = Options}) ->
                                       sockname => Sockname,
                                       peercert => Peercert,
                                       sendfun  => send_fun(self())}, Options),
-    ParserState = emqx_protocol:parser(ProtoState),
+    ParseState = emqx_protocol:parser(ProtoState),
     Zone = proplists:get_value(zone, Options),
     EnableStats = emqx_zone:get_env(Zone, enable_stats, true),
     IdleTimout = emqx_zone:get_env(Zone, idle_timeout, 30000),
-
     emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
     {ok, #state{peername     = Peername,
                 sockname     = Sockname,
-                parser_state = ParserState,
+                parse_state  = ParseState,
                 proto_state  = ProtoState,
                 enable_stats = EnableStats,
                 idle_timeout = IdleTimout}}.
@@ -159,15 +159,15 @@ websocket_handle({binary, <<>>}, State) ->
     {ok, ensure_stats_timer(State)};
 websocket_handle({binary, [<<>>]}, State) ->
     {ok, ensure_stats_timer(State)};
-websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
-                                                proto_state  = ProtoState}) ->
+websocket_handle({binary, Data}, State = #state{parse_state = ParseState,
+                                                proto_state = ProtoState}) ->
     ?LOG(debug, "RECV ~p", [Data]),
     BinSize = iolist_size(Data),
     emqx_pd:update_counter(recv_oct, BinSize),
     emqx_metrics:trans(inc, 'bytes/received', BinSize),
-    try emqx_frame:parse(iolist_to_binary(Data), ParserState) of
-        {more, ParserState1} ->
-            {ok, State#state{parser_state = ParserState1}};
+    try emqx_frame:parse(iolist_to_binary(Data), ParseState) of
+        {more, ParseState1} ->
+            {ok, State#state{parse_state = ParseState1}};
         {ok, Packet, Rest} ->
             emqx_metrics:received(Packet),
             emqx_pd:update_counter(recv_cnt, 1),
@@ -240,10 +240,10 @@ websocket_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
         {ok, KeepAlive1} ->
             {ok, State#state{keepalive = KeepAlive1}};
         {error, timeout} ->
-            ?LOG(debug, "Keepalive Timeout!", []),
+            ?LOG(debug, "Keepalive Timeout!"),
             shutdown(keepalive_timeout, State);
         {error, Error} ->
-            ?LOG(warning, "Keepalive error - ~p", [Error]),
+            ?LOG(error, "Keepalive error - ~p", [Error]),
             shutdown(keepalive_error, State)
     end;
 
@@ -269,15 +269,14 @@ terminate(SockError, _Req, #state{keepalive   = Keepalive,
                                   proto_state = ProtoState,
                                   shutdown    = Shutdown}) ->
 
-    ?LOG(debug, "Terminated for ~p, sockerror: ~p",
-           [Shutdown, SockError]),
+    ?LOG(debug, "Terminated for ~p, sockerror: ~p", [Shutdown, SockError]),
     emqx_keepalive:cancel(Keepalive),
     case {ProtoState, Shutdown} of
         {undefined, _} -> ok;
         {_, {shutdown, Reason}} ->
-            emqx_protocol:shutdown(Reason, ProtoState);
+            emqx_protocol:terminate(Reason, ProtoState);
         {_, Error} ->
-            emqx_protocol:shutdown(Error, ProtoState)
+            emqx_protocol:terminate(Error, ProtoState)
     end.
 
 %%------------------------------------------------------------------------------
@@ -285,7 +284,7 @@ terminate(SockError, _Req, #state{keepalive   = Keepalive,
 %%------------------------------------------------------------------------------
 
 reset_parser(State = #state{proto_state = ProtoState}) ->
-    State#state{parser_state = emqx_protocol:parser(ProtoState)}.
+    State#state{parse_state = emqx_protocol:parser(ProtoState)}.
 
 ensure_stats_timer(State = #state{enable_stats = true,
                                   stats_timer  = undefined,

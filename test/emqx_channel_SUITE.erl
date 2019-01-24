@@ -12,7 +12,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_connection_SUITE).
+-module(emqx_channel_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -93,9 +93,9 @@ t_connect_api(_Config) ->
                                        {password, <<"pass1">>}]),
     {ok, _} = emqx_client:connect(T1),
     CPid = emqx_cm:lookup_conn_pid(<<"client1">>),
-    ?STATS = emqx_connection:stats(CPid),
-    ?ATTRS = emqx_connection:attrs(CPid),
-    ?INFO = emqx_connection:info(CPid),
-    SessionPid = emqx_connection:session(CPid),
+    ?STATS = emqx_channel:stats(CPid),
+    ?ATTRS = emqx_channel:attrs(CPid),
+    ?INFO = emqx_channel:info(CPid),
+    SessionPid = emqx_channel:session(CPid),
     true = is_pid(SessionPid),
     emqx_client:disconnect(T1).
