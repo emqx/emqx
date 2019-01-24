@@ -149,7 +149,6 @@ with_connection(DoFun, NumberOfConnections) ->
 
 with_connection(DoFun) ->
     with_connection(DoFun, 1).
-
     % {ok, Sock} = emqx_client_sock:connect({127, 0, 0, 1}, 1883,
     %                                       [binary, {packet, raw},
     %                                        {active, false}], 3000),
