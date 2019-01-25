@@ -14,8 +14,6 @@
 
 -module(emqx_ws_connection).
 
--define(LOG_HEADER, "[WS]").
-
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").

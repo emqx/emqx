@@ -16,6 +16,8 @@
 
 -behaviour(gen_server).
 
+-include("logger.hrl").
+
 -export([start_link/0]).
 -export([register_command/2, register_command/3, unregister_command/1]).
 -export([run_command/1, run_command/2, lookup_command/1]).
@@ -63,7 +65,7 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
                 _ -> ok
             catch
                 _:Reason:Stacktrace ->
-                    emqx_logger:error("[CTL] CMD Error:~p, Stacktrace:~p", [Reason, Stacktrace]),
+                    ?ERROR("[Ctl] CMD Error:~p, Stacktrace:~p", [Reason, Stacktrace]),
                     {error, Reason}
             end;
         [] ->
@@ -91,14 +93,14 @@ init([]) ->
     {ok, #state{seq = 0}}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("unexpected call: ~p", [Req]),
+    ?ERROR("[Ctl] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({register_command, Cmd, MF, Opts}, State = #state{seq = Seq}) ->
     case ets:match(?TAB, {{'$1', Cmd}, '_', '_'}) of
         [] -> ets:insert(?TAB, {{Seq, Cmd}, MF, Opts});
         [[OriginSeq] | _] ->
-            emqx_logger:warning("[CTL] cmd ~s is overidden by ~p", [Cmd, MF]),
+            ?WARN("[Ctl] cmd ~s is overidden by ~p", [Cmd, MF]),
             ets:insert(?TAB, {{OriginSeq, Cmd}, MF, Opts})
     end,
     noreply(next_seq(State));
@@ -108,11 +110,11 @@ handle_cast({unregister_command, Cmd}, State) ->
     noreply(State);
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("Unexpected cast: ~p", [Msg]),
+    ?ERROR("[Ctl] unexpected cast: ~p", [Msg]),
     noreply(State).
 
 handle_info(Info, State) ->
-    emqx_logger:error("unexpected info: ~p", [Info]),
+    ?ERROR("[Ctl] unexpected info: ~p", [Info]),
     noreply(State).
 
 terminate(_Reason, _State) ->
@@ -151,3 +153,4 @@ register_command_test_() ->
     }.
 
 -endif.
+

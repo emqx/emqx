@@ -18,6 +18,7 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
+-include("logger.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -90,18 +91,12 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg, results = Results}, F
     case pick(strategy(), ClientId, Group, Topic, FailedSubs) of
         false ->
             Delivery;
-        SubPid ->
-            case do_dispatch(SubPid, Topic, Msg) of
+        {Type, SubPid} ->
+            case do_dispatch(SubPid, Topic, Msg, Type) of
                 ok ->
                     Delivery#delivery{results = [{dispatch, {Group, Topic}, 1} | Results]};
                 {error, _Reason} ->
-                    %% failed to dispatch to this sub, try next
-                    %% 'Reason' is discarded so far, meaning for QoS1/2 messages
-                    %% if all subscribers are off line, the dispatch would faile
-                    %% even if there are sessions not expired yet.
-                    %% If required, we can make use of the 'no_connection' reason to perform
-                    %% retry without requiring acks, so the messages can be delivered
-                    %% to sessions of offline clients
+                    %% Failed to dispatch to this sub, try next.
                     dispatch(Group, Topic, Delivery, [SubPid | FailedSubs])
             end
     end.
@@ -114,19 +109,23 @@ strategy() ->
 ack_enabled() ->
     emqx_config:get_env(shared_dispatch_ack_enabled, false).
 
-do_dispatch(SubPid, Topic, Msg) when SubPid =:= self() ->
+do_dispatch(SubPid, Topic, Msg, _Type) when SubPid =:= self() ->
     %% Deadlock otherwise
     _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
     ok;
-do_dispatch(SubPid, Topic, Msg) ->
-    dispatch_per_qos(SubPid, Topic, Msg).
+do_dispatch(SubPid, Topic, Msg, Type) ->
+    dispatch_per_qos(SubPid, Topic, Msg, Type).
 
 %% return either 'ok' (when everything is fine) or 'error'
-dispatch_per_qos(SubPid, Topic, #message{qos = ?QOS_0} = Msg) ->
+dispatch_per_qos(SubPid, Topic, #message{qos = ?QOS_0} = Msg, _Type) ->
     %% For QoS 0 message, send it as regular dispatch
     _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
     ok;
-dispatch_per_qos(SubPid, Topic, Msg) ->
+dispatch_per_qos(SubPid, Topic, Msg, retry) ->
+    %% Retry implies all subscribers nack:ed, send again without ack
+    _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
+    ok;
+dispatch_per_qos(SubPid, Topic, Msg, fresh) ->
     case ack_enabled() of
         true ->
             dispatch_with_ack(SubPid, Topic, Msg);
@@ -210,24 +209,32 @@ pick(sticky, ClientId, Group, Topic, FailedSubs) ->
         true ->
             %% the old subscriber is still alive
             %% keep using it for sticky strategy
-            Sub0;
+            {fresh, Sub0};
         false ->
             %% randomly pick one for the first message
-            Sub = do_pick(random, ClientId, Group, Topic, FailedSubs),
+            {Type, Sub} = do_pick(random, ClientId, Group, Topic, [Sub0 | FailedSubs]),
             %% stick to whatever pick result
             erlang:put({shared_sub_sticky, Group, Topic}, Sub),
-            Sub
+            {Type, Sub}
     end;
 pick(Strategy, ClientId, Group, Topic, FailedSubs) ->
     do_pick(Strategy, ClientId, Group, Topic, FailedSubs).
 
 do_pick(Strategy, ClientId, Group, Topic, FailedSubs) ->
-    case subscribers(Group, Topic) -- FailedSubs of
-        [] -> false;
-        [Sub] -> Sub;
-        All -> pick_subscriber(Group, Topic, Strategy, ClientId, All)
+    All = subscribers(Group, Topic),
+    case All -- FailedSubs of
+        [] when FailedSubs =:= [] ->
+            %% Genuinely no subscriber
+            false;
+        [] ->
+            %% All offline? pick one anyway
+            {retry, pick_subscriber(Group, Topic, Strategy, ClientId, All)};
+        Subs ->
+            %% More than one available
+            {fresh, pick_subscriber(Group, Topic, Strategy, ClientId, Subs)}
     end.
 
+pick_subscriber(_Group, _Topic, _Strategy, _ClientId, [Sub]) -> Sub;
 pick_subscriber(Group, Topic, Strategy, ClientId, Subs) ->
     Nth = do_pick_subscriber(Group, Topic, Strategy, ClientId, length(Subs)),
     lists:nth(Nth, Subs).
@@ -284,11 +291,11 @@ handle_call({unsubscribe, Group, Topic, SubPid}, _From, State) ->
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[SharedSub] unexpected call: ~p", [Req]),
+    ?ERROR("[SharedSub] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[SharedSub] unexpected cast: ~p", [Msg]),
+    ?ERROR("[SharedSub] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({mnesia_table_event, {write, NewRecord, _}}, State = #state{pmon = PMon}) ->
@@ -303,12 +310,12 @@ handle_info({mnesia_table_event, _Event}, State) ->
     {noreply, State};
 
 handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{pmon = PMon}) ->
-    emqx_logger:info("[SharedSub] shared subscriber down: ~p", [SubPid]),
+    ?INFO("[SharedSub] shared subscriber down: ~p", [SubPid]),
     cleanup_down(SubPid),
     {noreply, update_stats(State#state{pmon = emqx_pmon:erase(SubPid, PMon)})};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[SharedSub] unexpected info: ~p", [Info]),
+    ?ERROR("[SharedSub] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

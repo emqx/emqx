@@ -16,6 +16,8 @@
 
 -behaviour(gen_server).
 
+-include("logger.hrl").
+
 -export([start_link/1]).
 -export([start_session/1, count_sessions/0]).
 
@@ -34,8 +36,6 @@
 
 -define(SUP, ?MODULE).
 -define(BATCH_EXIT, 100000).
--define(ERROR_MSG(Format, Args),
-        error_logger:error_msg("[~s] " ++ Format, [?MODULE | Args])).
 
 %% @doc Start session supervisor.
 -spec(start_link(map()) -> emqx_types:startlink_ret()).
@@ -83,8 +83,8 @@ handle_call({start_session, SessAttrs = #{client_id := ClientId}}, _From,
             reply({error, Reason}, State)
     catch
         _:Error:Stk ->
-            ?ERROR_MSG("Failed to start session ~p: ~p, stacktrace:~n~p",
-                       [ClientId, Error, Stk]),
+            ?ERROR("Failed to start session ~p: ~p, stacktrace:~n~p",
+                   [ClientId, Error, Stk]),
             reply({error, Error}, State)
     end;
 
@@ -92,11 +92,11 @@ handle_call(count_sessions, _From, State = #state{sessions = SessMap}) ->
     {reply, maps:size(SessMap), State};
 
 handle_call(Req, _From, State) ->
-    ?ERROR_MSG("unexpected call: ~p", [Req]),
+    ?ERROR("unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?ERROR_MSG("unexpected cast: ~p", [Msg]),
+    ?ERROR("unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({'EXIT', Pid, _Reason}, State = #state{sessions = SessMap, clean_down = CleanDown}) ->
@@ -108,7 +108,7 @@ handle_info({'EXIT', Pid, _Reason}, State = #state{sessions = SessMap, clean_dow
     {noreply, State#state{sessions = SessMap1}};
 
 handle_info(Info, State) ->
-    ?ERROR_MSG("unexpected info: ~p", [Info]),
+    ?ERROR("unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, State) ->

@@ -146,7 +146,7 @@ unload() ->
             with_loaded_file(File, fun stop_plugins/1)
     end.
 
-%% stop plugins
+%% Stop plugins
 stop_plugins(Names) ->
     [stop_app(App) || App <- Names].
 
@@ -170,10 +170,13 @@ list() ->
 
 plugin(CfgFile) ->
     AppName = app_name(CfgFile),
-    {ok, Attrs} = application:get_all_key(AppName),
-    Ver = proplists:get_value(vsn, Attrs, "0"),
-    Descr = proplists:get_value(description, Attrs, ""),
-    #plugin{name = AppName, version = Ver, descr = Descr}.
+    case application:get_all_key(AppName) of
+        {ok, Attrs} ->
+            Ver = proplists:get_value(vsn, Attrs, "0"),
+            Descr = proplists:get_value(description, Attrs, ""),
+            #plugin{name = AppName, version = Ver, descr = Descr};
+        undefined -> error({plugin_not_found, AppName})
+    end.
 
 %% @doc Load a Plugin
 -spec(load(atom()) -> ok | {error, term()}).
@@ -249,7 +252,7 @@ unload_plugin(App, Persistent) ->
         {error, Reason} ->
             {error, Reason}
     end.
-    
+
 stop_app(App) ->
     case application:stop(App) of
         ok ->
@@ -326,4 +329,3 @@ write_loaded(AppNames) ->
             emqx_logger:error("Open File ~p Error: ~p", [File, Error]),
             {error, Error}
     end.
-

@@ -3,15 +3,16 @@
 PROJECT = emqx
 PROJECT_DESCRIPTION = EMQ X Broker
 
-DEPS = jsx gproc gen_rpc ekka esockd cowboy emqx_passwd
+DEPS = jsx gproc gen_rpc ekka esockd cowboy emqx_passwd replayq
 
-dep_jsx         = hex-emqx 2.9.0
-dep_gproc       = hex-emqx 0.8.0
-dep_gen_rpc     = git-emqx https://github.com/emqx/gen_rpc 2.3.0
-dep_esockd      = git-emqx https://github.com/emqx/esockd v5.4.3
-dep_ekka        = git-emqx https://github.com/emqx/ekka v0.5.1
-dep_cowboy      = hex-emqx 2.4.0
+dep_jsx     = hex-emqx 2.9.0
+dep_gproc   = hex-emqx 0.8.0
+dep_gen_rpc = git-emqx https://github.com/emqx/gen_rpc 2.3.0
+dep_esockd  = git-emqx https://github.com/emqx/esockd v5.4.4
+dep_ekka    = git-emqx https://github.com/emqx/ekka v0.5.3
+dep_cowboy  = hex-emqx 2.4.0
 dep_emqx_passwd = git-emqx https://github.com/emqx/emqx-passwd win30
+dep_replayq = git-emqx https://github.com/emqx/replayq v0.1.1
 
 NO_AUTOPATCH = cuttlefish
 
@@ -36,7 +37,8 @@ CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
 			emqx_mqtt_props emqx_mqueue emqx_net emqx_pqueue emqx_router emqx_sm \
 			emqx_tables emqx_time emqx_topic emqx_trie emqx_vm emqx_mountpoint \
 			emqx_listeners emqx_protocol emqx_pool emqx_shared_sub emqx_bridge \
-			emqx_hooks emqx_batch emqx_sequence emqx_pmon emqx_pd emqx_gc
+			emqx_hooks emqx_batch emqx_sequence emqx_pmon emqx_pd emqx_gc emqx_ws_connection \
+			emqx_packet emqx_connection emqx_tracer emqx_sys_mon
 
 CT_NODE_NAME = emqxct@127.0.0.1
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name $(CT_NODE_NAME)

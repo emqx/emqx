@@ -124,3 +124,28 @@ client_ssl_twoway() ->
 
 client_ssl() ->
     ?CIPHERS ++ [{reuse_sessions, true}].
+
+wait_mqtt_payload(Payload) ->
+    receive
+        {publish, #{payload := Payload}} ->
+            ct:pal("OK - received msg: ~p~n", [Payload])
+    after 1000 ->
+        ct:fail({timeout, Payload, {msg_box, flush()}})
+    end.
+
+not_wait_mqtt_payload(Payload) ->
+    receive
+        {publish, #{payload := Payload}} ->
+            ct:fail({received, Payload})
+    after 1000 ->
+        ct:pal("OK - msg ~p is not received", [Payload])
+    end.
+
+flush() ->
+    flush([]).
+flush(Msgs) ->
+    receive
+        M -> flush([M|Msgs])
+    after
+        0 -> lists:reverse(Msgs)
+    end.

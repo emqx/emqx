@@ -14,8 +14,6 @@
 
 -module(emqx_protocol).
 
--define(LOG_HEADER, "[MQTT]").
-
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
@@ -23,6 +21,7 @@
 -export([init/2]).
 -export([info/1]).
 -export([attrs/1]).
+-export([attr/2]).
 -export([caps/1]).
 -export([stats/1]).
 -export([client_id/1]).
@@ -52,8 +51,6 @@
           clean_start,
           topic_aliases,
           packet_size,
-          will_topic,
-          will_msg,
           keepalive,
           mountpoint,
           is_super,
@@ -132,13 +129,11 @@ info(PState = #pstate{conn_props    = ConnProps,
                       ack_props     = AckProps,
                       session       = Session,
                       topic_aliases = Aliases,
-                      will_msg      = WillMsg,
                       enable_acl    = EnableAcl}) ->
     attrs(PState) ++ [{conn_props, ConnProps},
                       {ack_props, AckProps},
                       {session, Session},
                       {topic_aliases, Aliases},
-                      {will_msg, WillMsg},
                       {enable_acl, EnableAcl}].
 
 attrs(#pstate{zone         = Zone,
@@ -167,6 +162,28 @@ attrs(#pstate{zone         = Zone,
      {is_super, IsSuper},
      {is_bridge, IsBridge},
      {connected_at, ConnectedAt}].
+
+attr(max_inflight, #pstate{proto_ver = ?MQTT_PROTO_V5, conn_props = ConnProps}) ->
+    get_property('Receive-Maximum', ConnProps, 65535);
+attr(max_inflight, #pstate{zone = Zone}) ->
+    emqx_zone:get_env(Zone, max_inflight, 65535);
+attr(expiry_interval, #pstate{proto_ver = ?MQTT_PROTO_V5, conn_props = ConnProps}) ->
+    get_property('Session-Expiry-Interval', ConnProps, 0);
+attr(expiry_interval, #pstate{zone = Zone, clean_start = CleanStart}) ->
+    case CleanStart of
+        true -> 0;
+        false -> emqx_zone:get_env(Zone, session_expiry_interval, 16#ffffffff)
+    end;
+attr(topic_alias_maximum, #pstate{proto_ver = ?MQTT_PROTO_V5, conn_props = ConnProps}) ->
+    get_property('Topic-Alias-Maximum', ConnProps, 0);
+attr(topic_alias_maximum, #pstate{zone = Zone}) ->
+    emqx_zone:get_env(Zone, max_topic_alias, 0);
+attr(Name, PState) ->
+    Attrs = lists:zip(record_info(fields, pstate), tl(tuple_to_list(PState))),
+    case lists:keyfind(Name, 1, Attrs) of
+        {_, Value} -> Value;
+        false -> undefined
+    end.
 
 caps(#pstate{zone = Zone}) ->
     emqx_mqtt_caps:get_caps(Zone).
@@ -351,11 +368,11 @@ process_packet(?CONNECT_PACKET(
               case authenticate(credentials(PState2), Password) of
                   {ok, IsSuper} ->
                       %% Maybe assign a clientId
-                      PState3 = maybe_assign_client_id(PState2#pstate{is_super = IsSuper,
-                                                                      will_msg = make_will_msg(ConnPkt)}),
+                      PState3 = maybe_assign_client_id(PState2#pstate{is_super = IsSuper}),
                       emqx_logger:set_metadata_client_id(PState3#pstate.client_id),
                       %% Open session
-                      case try_open_session(PState3) of
+                      SessAttrs = #{will_msg => make_will_msg(ConnPkt)},
+                      case try_open_session(SessAttrs, PState3) of
                           {ok, SPid, SP} ->
                               PState4 = PState3#pstate{session = SPid, connected = true},
                               ok = emqx_cm:register_connection(client_id(PState4)),
@@ -394,8 +411,8 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PSta
             ?LOG(warning, "Cannot publish qos1 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
             case deliver({puback, PacketId, ReasonCode}, PState) of
-                {ok, _PState} ->
-                    do_acl_deny_action(Packet, ReasonCode, PState);
+                {ok, PState1} ->
+                    do_acl_deny_action(Packet, ReasonCode, PState1);
                 Error ->
                     Error
             end
@@ -408,9 +425,9 @@ process_packet(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PSta
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos2 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
-            case deliver({pubrec, PacketId, ?RC_NOT_AUTHORIZED}, PState) of
-                {ok, _PState} ->
-                    do_acl_deny_action(Packet, ReasonCode, PState);
+            case deliver({pubrec, PacketId, ReasonCode}, PState) of
+                {ok, PState1} ->
+                    do_acl_deny_action(Packet, ReasonCode, PState1);
                 Error ->
                     Error
             end
@@ -474,8 +491,12 @@ process_packet(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters)
             {SubTopics, ReasonCodes} = {lists:reverse(ReverseSubTopics), lists:reverse(ReverseReasonCodes)},
             ?LOG(warning, "Cannot subscribe ~p for ~p",
                 [SubTopics, [emqx_reason_codes:text(R) || R <- ReasonCodes]]),
-            deliver({suback, PacketId, ReasonCodes}, PState),
-            do_acl_deny_action(Packet, ReasonCodes, PState)
+            case deliver({suback, PacketId, ReasonCodes}, PState) of
+                {ok, PState1} ->
+                    do_acl_deny_action(Packet, ReasonCodes, PState1);
+                Error ->
+                    Error
+            end
     end;
 
 process_packet(?UNSUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
@@ -500,16 +521,15 @@ process_packet(?DISCONNECT_PACKET(?RC_SUCCESS, #{'Session-Expiry-Interval' := In
     case Interval =/= 0 andalso OldInterval =:= 0 of
         true ->
             deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState),
-            {error, protocol_error, PState#pstate{will_msg = undefined}};
+            {error, protocol_error, PState};
         false ->
             emqx_session:update_expiry_interval(SPid, Interval),
-            %% Clean willmsg
-            {stop, normal, PState#pstate{will_msg = undefined}}
+            {stop, normal, PState}
     end;
 process_packet(?DISCONNECT_PACKET(?RC_SUCCESS), PState) ->
-    {stop, normal, PState#pstate{will_msg = undefined}};
+    {stop, normal, PState};
 process_packet(?DISCONNECT_PACKET(_), PState) ->
-    {stop, normal, PState}.
+    {stop, {shutdown, abnormal_disconnet}, PState}.
 
 %%------------------------------------------------------------------------------
 %% ConnAck --> Client
@@ -676,52 +696,25 @@ maybe_assign_client_id(PState = #pstate{client_id = <<>>, ack_props = AckProps})
 maybe_assign_client_id(PState) ->
     PState.
 
-try_open_session(PState = #pstate{zone        = Zone,
-                                  client_id   = ClientId,
-                                  conn_pid    = ConnPid,
-                                  username    = Username,
-                                  clean_start = CleanStart,
-                                  will_msg    = WillMsg}) ->
-
-    SessAttrs = #{
-        zone        => Zone,
-        client_id   => ClientId,
-        conn_pid    => ConnPid,
-        username    => Username,
-        clean_start => CleanStart,
-        will_msg    => WillMsg
-    },
-    SessAttrs1 = lists:foldl(fun set_session_attrs/2, SessAttrs, [{max_inflight, PState}, {expiry_interval, PState}]),
-    case emqx_sm:open_session(SessAttrs1) of
+try_open_session(SessAttrs, PState = #pstate{zone = Zone,
+                                             client_id = ClientId,
+                                             conn_pid = ConnPid,
+                                             username = Username,
+                                             clean_start = CleanStart}) ->
+    case emqx_sm:open_session(
+           maps:merge(#{zone => Zone,
+                        client_id => ClientId,
+                        conn_pid => ConnPid,
+                        username => Username,
+                        clean_start => CleanStart,
+                        max_inflight => attr(max_inflight, PState),
+                        expiry_interval => attr(expiry_interval, PState),
+                        topic_alias_maximum => attr(topic_alias_maximum, PState)},
+                      SessAttrs)) of
         {ok, SPid} ->
             {ok, SPid, false};
         Other -> Other
     end.
-
-
-set_session_attrs({max_inflight, #pstate{proto_ver = ?MQTT_PROTO_V5, conn_props = ConnProps}}, SessAttrs) ->
-    maps:put(max_inflight, get_property('Receive-Maximum', ConnProps, 65535), SessAttrs);
-
-set_session_attrs({max_inflight, #pstate{zone = Zone}}, SessAttrs) ->
-    maps:put(max_inflight, emqx_zone:get_env(Zone, max_inflight, 65535), SessAttrs);
-
-set_session_attrs({expiry_interval, #pstate{proto_ver = ?MQTT_PROTO_V5, conn_props = ConnProps}}, SessAttrs) ->
-    maps:put(expiry_interval, get_property('Session-Expiry-Interval', ConnProps, 0), SessAttrs);
-
-set_session_attrs({expiry_interval, #pstate{zone = Zone, clean_start = CleanStart}}, SessAttrs) ->
-    maps:put(expiry_interval, case CleanStart of
-                                  true -> 0;
-                                  false -> emqx_zone:get_env(Zone, session_expiry_interval, 16#ffffffff)
-                              end, SessAttrs);
-
-set_session_attrs({topic_alias_maximum, #pstate{proto_ver = ?MQTT_PROTO_V5, conn_props = ConnProps}}, SessAttrs) ->
-    maps:put(topic_alias_maximum, get_property('Topic-Alias-Maximum', ConnProps, 0), SessAttrs);
-
-set_session_attrs({topic_alias_maximum, #pstate{zone = Zone}}, SessAttrs) ->
-    maps:put(topic_alias_maximum, emqx_zone:get_env(Zone, max_topic_alias, 0), SessAttrs);
-
-set_session_attrs(_, SessAttrs) ->
-    SessAttrs.
 
 authenticate(Credentials, Password) ->
     case emqx_access_control:authenticate(Credentials, Password) of
@@ -822,8 +815,8 @@ check_will_acl(#mqtt_packet_connect{will_topic = WillTopic}, PState) ->
     case emqx_access_control:check_acl(credentials(PState), publish, WillTopic) of
         allow -> ok;
         deny ->
-            ?LOG(warning, "Cannot publish will message to ~p for acl checking failed", [WillTopic]),
-            {error, ?RC_UNSPECIFIED_ERROR}
+            ?LOG(warning, "Will message (to ~s) validation failed, acl denied", [WillTopic]),
+            {error, ?RC_NOT_AUTHORIZED}
     end.
 
 check_publish(Packet, PState) ->
@@ -988,3 +981,4 @@ reason_codes_compat(unsuback, _ReasonCodes, _ProtoVer) ->
     undefined;
 reason_codes_compat(PktType, ReasonCodes, _ProtoVer) ->
     [emqx_reason_codes:compat(PktType, RC) || RC <- ReasonCodes].
+
