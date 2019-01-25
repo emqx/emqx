@@ -16,6 +16,8 @@
 
 -behaviour(gen_server).
 
+-include("logger.hrl").
+
 -export([start_link/0]).
 -export([register_sub/2]).
 -export([lookup_subid/1, lookup_subpid/1]).
@@ -96,7 +98,7 @@ init([]) ->
     {ok, #{pmon => emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[BrokerHelper] unexpected call: ~p", [Req]),
+    ?ERROR("[BrokerHelper] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({register_sub, SubPid, SubId}, State = #{pmon := PMon}) ->
@@ -105,7 +107,7 @@ handle_cast({register_sub, SubPid, SubId}, State = #{pmon := PMon}) ->
     {noreply, State#{pmon := emqx_pmon:monitor(SubPid, PMon)}};
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[BrokerHelper] unexpected cast: ~p", [Msg]),
+    ?ERROR("[BrokerHelper] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #{pmon := PMon}) ->
@@ -116,7 +118,7 @@ handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #{pmon := PMon}) 
     {noreply, State#{pmon := PMon1}};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[BrokerHelper] unexpected info: ~p", [Info]),
+    ?ERROR("[BrokerHelper] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

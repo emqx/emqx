@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([start_link/0]).
 -export([version/0, uptime/0, datetime/0, sysdescr/0, sys_interval/0]).
@@ -98,11 +99,11 @@ handle_call(uptime, _From, State) ->
     {reply, uptime(State), State};
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[SYS] unexpected call: ~p", [Req]),
+    ?ERROR("[SYS] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[SYS] unexpected cast: ~p", [Msg]),
+    ?ERROR("[SYS] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({timeout, TRef, heartbeat}, State = #state{heartbeat = TRef}) ->
@@ -119,7 +120,7 @@ handle_info({timeout, TRef, tick}, State = #state{ticker = TRef, version = Versi
     {noreply, tick(State), hibernate};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[SYS] unexpected info: ~p", [Info]),
+    ?ERROR("[SYS] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{heartbeat = TRef1, ticker = TRef2}) ->

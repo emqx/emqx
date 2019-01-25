@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([start_link/0]).
 
@@ -90,7 +91,7 @@ discard_session(ClientId, ConnPid) when is_binary(ClientId) ->
           try emqx_session:discard(SessPid, ConnPid)
           catch
               _:Error:_Stk ->
-                  emqx_logger:error("[SM] Failed to discard ~p: ~p", [SessPid, Error])
+                  ?ERROR("[SM] Failed to discard ~p: ~p", [SessPid, Error])
           end
       end, lookup_session_pids(ClientId)).
 
@@ -104,7 +105,7 @@ resume_session(ClientId, SessAttrs = #{conn_pid := ConnPid}) ->
             {ok, SessPid};
         SessPids ->
             [SessPid|StalePids] = lists:reverse(SessPids),
-            emqx_logger:error("[SM] More than one session found: ~p", [SessPids]),
+            ?ERROR("[SM] More than one session found: ~p", [SessPids]),
             lists:foreach(fun(StalePid) ->
                               catch emqx_session:discard(StalePid, ConnPid)
                           end, StalePids),
@@ -226,15 +227,15 @@ init([]) ->
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[SM] unexpected call: ~p", [Req]),
+    ?ERROR("[SM] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[SM] unexpected cast: ~p", [Msg]),
+    ?ERROR("[SM] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    emqx_logger:error("[SM] unexpected info: ~p", [Info]),
+    ?ERROR("[SM] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

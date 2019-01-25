@@ -27,6 +27,7 @@
 
 -export([get_primary_log_level/0, set_primary_log_level/1]).
 -export([get_log_handlers/0, get_log_handler/1, set_log_handler_level/2]).
+-export([set_log_level/1]).
 
 debug(Msg) ->
     logger:debug(Msg).
@@ -89,6 +90,13 @@ get_log_handler(HandlerId) ->
 set_log_handler_level(HandlerId, Level) ->
     logger:set_handler_config(HandlerId, level, Level).
 
+%% Set both the primary and all handlers level in one command
+set_log_level(Level) ->
+    case set_primary_log_level(Level) of
+        ok -> set_all_log_handlers_level(Level);
+        {error, Error} -> {error, {primary_logger_level, Error}}
+    end.
+
 %%========================
 %% Internal Functions
 %%========================
@@ -108,3 +116,22 @@ log_hanlder_info(#{id := Id, level := Level, module := logger_disk_log_h,
     {Id, Level, Filename};
 log_hanlder_info(#{id := Id, level := Level, module := _OtherModule}) ->
     {Id, Level, unknown}.
+
+%% set level for all log handlers in one command
+set_all_log_handlers_level(Level) ->
+    set_all_log_handlers_level(get_log_handlers(), Level, []).
+
+set_all_log_handlers_level([{ID, Level, _Dst} | List], NewLevel, ChangeHistory) ->
+    case set_log_handler_level(ID, NewLevel) of
+        ok -> set_all_log_handlers_level(List, NewLevel, [{ID, Level} | ChangeHistory]);
+        {error, Error} ->
+            rollback(ChangeHistory),
+            {error, {handlers_logger_level, {ID, Error}}}
+    end;
+set_all_log_handlers_level([], _NewLevel, _NewHanlder) ->
+    ok.
+
+rollback([{ID, Level} | List]) ->
+    emqx_logger:set_log_handler_level(ID, Level),
+    rollback(List);
+rollback([]) -> ok.

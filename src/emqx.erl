@@ -17,7 +17,7 @@
 -include("emqx.hrl").
 
 %% Start/Stop the application
--export([start/0, is_running/1, stop/0]).
+-export([start/0, restart/1, is_running/1, stop/0]).
 
 %% PubSub API
 -export([subscribe/1, subscribe/2, subscribe/3]).
@@ -46,6 +46,12 @@ start() ->
     %% Check VM
     %% Check Mnesia
     application:ensure_all_started(?APP).
+
+-spec(restart(string()) -> ok).
+restart(ConfFile) ->
+    reload_config(ConfFile),
+    shutdown(),
+    reboot().
 
 %% @doc Stop emqx application.
 -spec(stop() -> ok | {error, term()}).
@@ -158,3 +164,11 @@ shutdown(Reason) ->
 reboot() ->
     lists:foreach(fun application:start/1, [gproc, esockd, ranch, cowboy, ekka, emqx]).
 
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+reload_config(ConfFile) ->
+    {ok, [Conf]} = file:consult(ConfFile),
+    lists:foreach(fun({App, Vals}) ->
+                      [application:set_env(App, Par, Val) || {Par, Val} <- Vals]
+                  end, Conf).

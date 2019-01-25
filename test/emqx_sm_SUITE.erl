@@ -16,6 +16,7 @@
 
 -include("emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -33,7 +34,7 @@ all() -> [{group, sm}].
 
 groups() ->
     [{sm, [non_parallel_tests],
-      [t_open_close_session,
+      [
        t_resume_session,
        t_discard_session,
        t_register_unregister_session,
@@ -48,45 +49,47 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
 
-t_open_close_session(_) ->
-    {ok, ClientPid} = emqx_mock_client:start_link(<<"client">>),
-    {ok, SPid} = emqx_sm:open_session(?ATTRS#{conn_pid => ClientPid}),
-    ?assertEqual(ok, emqx_sm:close_session(SPid)).
+init_per_testcase(_All, Config) ->
+    {ok, SPid} = emqx_sm:open_session(?ATTRS#{conn_pid => self()}),
+    [{session_pid, SPid}|Config].
 
-t_resume_session(_) ->
-    {ok, ClientPid} = emqx_mock_client:start_link(<<"client">>),
-    {ok, SPid} = emqx_sm:open_session(?ATTRS#{conn_pid => ClientPid}),
-    ?assertEqual({ok, SPid}, emqx_sm:resume_session(<<"client">>, ?ATTRS#{conn_pid => ClientPid})).
+end_per_testcase(_All, Config) ->
+    emqx_sm:close_session(?config(session_pid, Config)),
+    receive
+        {shutdown, normal} -> ok
+    after 500 -> ct:fail({timeout, wait_session_shutdown})
+    end.
+
+t_resume_session(Config) ->
+    ?assertEqual({ok, ?config(session_pid, Config)}, emqx_sm:resume_session(<<"client">>, ?ATTRS#{conn_pid => self()})).
 
 t_discard_session(_) ->
-    {ok, ClientPid} = emqx_mock_client:start_link(<<"client1">>),
-    {ok, _SPid} = emqx_sm:open_session(?ATTRS#{conn_pid => ClientPid}),
     ?assertEqual(ok, emqx_sm:discard_session(<<"client1">>)).
 
 t_register_unregister_session(_) ->
     Pid = self(),
-    {ok, _ClientPid} = emqx_mock_client:start_link(<<"client">>),
     ?assertEqual(ok, emqx_sm:register_session(<<"client">>)),
     ?assertEqual(ok, emqx_sm:register_session(<<"client">>, Pid)),
     ?assertEqual(ok, emqx_sm:unregister_session(<<"client">>)),
     ?assertEqual(ok, emqx_sm:unregister_session(<<"client">>), Pid).
 
-t_get_set_session_attrs(_) ->
-    {ok, ClientPid} = emqx_mock_client:start_link(<<"client">>),
-    {ok, SPid} = emqx_sm:open_session(?ATTRS#{conn_pid => ClientPid}),
-    ?assertEqual(true, emqx_sm:set_session_attrs(<<"client">>, [?ATTRS#{conn_pid => ClientPid}])),
-    ?assertEqual(true, emqx_sm:set_session_attrs(<<"client">>, SPid, [?ATTRS#{conn_pid => ClientPid}])),
-    [SAttr] = emqx_sm:get_session_attrs(<<"client">>, SPid),
-    ?assertEqual(<<"client">>, maps:get(client_id, SAttr)).
+t_get_set_session_attrs(Config) ->
+    SPid = ?config(session_pid, Config),
+    ClientPid0 = spawn(fun() -> receive _ -> ok end end),
+    ?assertEqual(true, emqx_sm:set_session_attrs(<<"client">>, [?ATTRS#{conn_pid => ClientPid0}])),
+    ?assertEqual(true, emqx_sm:set_session_attrs(<<"client">>, SPid, [?ATTRS#{conn_pid => ClientPid0}])),
+    [SAttr0] = emqx_sm:get_session_attrs(<<"client">>, SPid),
+    ?assertEqual(ClientPid0, maps:get(conn_pid, SAttr0)),
+    ?assertEqual(true, emqx_sm:set_session_attrs(<<"client">>, SPid, [?ATTRS#{conn_pid => self()}])),
+    [SAttr1] = emqx_sm:get_session_attrs(<<"client">>, SPid),
+    ?assertEqual(self(), maps:get(conn_pid, SAttr1)).
 
-t_get_set_session_stats(_) ->
-    {ok, ClientPid} = emqx_mock_client:start_link(<<"client">>),
-    {ok, SPid} = emqx_sm:open_session(?ATTRS#{conn_pid => ClientPid}),
+t_get_set_session_stats(Config) ->
+    SPid = ?config(session_pid, Config),
     ?assertEqual(true, emqx_sm:set_session_stats(<<"client">>, [{inflight, 10}])),
     ?assertEqual(true, emqx_sm:set_session_stats(<<"client">>, SPid, [{inflight, 10}])),
     ?assertEqual([{inflight, 10}], emqx_sm:get_session_stats(<<"client">>, SPid)).
 
-t_lookup_session_pids(_) ->
-    {ok, ClientPid} = emqx_mock_client:start_link(<<"client">>),
-    {ok, SPid} = emqx_sm:open_session(?ATTRS#{conn_pid => ClientPid}),
+t_lookup_session_pids(Config) ->
+    SPid = ?config(session_pid, Config),
     ?assertEqual([SPid], emqx_sm:lookup_session_pids(<<"client">>)).

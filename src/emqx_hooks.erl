@@ -16,6 +16,8 @@
 
 -behaviour(gen_server).
 
+-include("logger.hrl").
+
 -export([start_link/0, stop/0]).
 
 %% Hooks API
@@ -152,7 +154,7 @@ handle_call({add, HookPoint, Callback = #callback{action = Action}}, _From, Stat
     {reply, Reply, State};
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[Hooks] unexpected call: ~p", [Req]),
+    ?ERROR("[Hooks] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({del, HookPoint, Action}, State) ->
@@ -165,11 +167,11 @@ handle_cast({del, HookPoint, Action}, State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[Hooks] unexpected msg: ~p", [Msg]),
+    ?ERROR("[Hooks] unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    emqx_logger:error("[Hooks] unexpected info: ~p", [Info]),
+    ?ERROR("[Hooks] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

@@ -424,6 +424,17 @@ end}.
   hidden
 ]}.
 
+%% disable lager
+{mapping, "lager.handlers", "lager.handlers", [
+  {default, []},
+  hidden
+]}.
+{mapping, "lager.crash_log", "lager.crash_log", [
+  {default, off},
+  {datatype, flag},
+  hidden
+]}.
+
 {translation, "emqx.primary_log_level", fun(Conf) ->
     cuttlefish:conf_get("log.level", Conf)
 end}.
@@ -861,6 +872,8 @@ end}.
                                                 maps:put(iolist_to_binary(Topic), P, Acc)
                                         end, string:tokens(Val, ","))
                     end;
+               ("mountpoint", Val) ->
+                    {mountpoint, iolist_to_binary(Val)};
                (Opt, Val) ->
                     {list_to_atom(Opt), Val}
             end,
@@ -1495,8 +1508,20 @@ end}.
 %%--------------------------------------------------------------------
 %% Bridges
 %%--------------------------------------------------------------------
-{mapping, "bridge.$name.mqueue_type", "emqx.bridges", [
-  {datatype, {enum, [memory, disk]}}
+{mapping, "bridge.$name.queue.mem_cache", "emqx.bridges", [
+  {datatype, flag}
+]}.
+
+{mapping, "bridge.$name.queue.batch_size", "emqx.bridges", [
+  {datatype, integer}
+]}.
+
+{mapping, "bridge.$name.queue.replayq_dir", "emqx.bridges", [
+  {datatype, string}
+]}.
+
+{mapping, "bridge.$name.queue.replayq_seg_bytes", "emqx.bridges", [
+  {datatype, bytesize}
 ]}.
 
 {mapping, "bridge.$name.address", "emqx.bridges", [
@@ -1554,11 +1579,6 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "bridge.$name.max_pending_messages", "emqx.bridges", [
-  {default, 10000},
-  {datatype, integer}
-]}.
-
 {mapping, "bridge.$name.keepalive", "emqx.bridges", [
   {default, "10s"},
   {datatype, {duration, ms}}
@@ -1587,6 +1607,15 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
+{mapping, "bridge.$name.retry_interval", "emqx.bridges", [
+  {default, "20s"},
+  {datatype, {duration, ms}}
+]}.
+
+{mapping, "bridge.$name.max_inflight", "emqx.bridges", [
+  {default, 0},
+  {datatype, integer}
+]}.
 
 {translation, "emqx.bridges", fun(Conf) ->
     Split = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
@@ -1618,7 +1647,11 @@ end}.
                           [{Opt, Val}|Opts]
                   end
             end,
-
+    Queue = fun(Name) ->
+                Configs = cuttlefish_variable:filter_by_prefix("bridge." ++ Name ++ ".queue", Conf),
+                QOpts = [{list_to_atom(QOpt), QValue}|| {[_, _, "queue", QOpt], QValue} <- Configs],
+                maps:from_list(QOpts)
+            end,
     Subscriptions = fun(Name) ->
                         Configs = cuttlefish_variable:filter_by_prefix("bridge." ++ Name ++ ".subscription", Conf),
                         lists:zip([Topic || {_, Topic} <- lists:sort([{I, Topic} || {[_, _, "subscription", I, "topic"], Topic} <- Configs])],
@@ -1629,7 +1662,7 @@ end}.
       lists:foldl(
         fun({["bridge", Name, Opt], Val}, Acc) ->
                 %% e.g #{aws => [{OptKey, OptVal}]}
-                Init = [{list_to_atom(Opt), Val},{subscriptions, Subscriptions(Name)}],
+                Init = [{list_to_atom(Opt), Val},{subscriptions, Subscriptions(Name)}, {queue, Queue(Name)}],
                 maps:update_with(list_to_atom(Name),
                                  fun(Opts) -> Merge(list_to_atom(Opt), Val, Opts) end, Init, Acc);
            (_, Acc) -> Acc

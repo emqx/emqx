@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -94,11 +95,11 @@ init([]) ->
     {ok, #{nodes => Nodes}, hibernate}.
 
 handle_call(Req, _From, State) ->
-    emqx_logger:error("[RouterHelper] unexpected call: ~p", [Req]),
+    ?ERROR("[RouterHelper] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    emqx_logger:error("[RouterHelper] unexpected cast: ~p", [Msg]),
+    ?ERROR("[RouterHelper] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({mnesia_table_event, {write, {?ROUTING_NODE, Node, _}, _}}, State = #{nodes := Nodes}) ->
@@ -114,7 +115,7 @@ handle_info({mnesia_table_event, {delete, {?ROUTING_NODE, _Node}, _}}, State) ->
     {noreply, State};
 
 handle_info({mnesia_table_event, Event}, State) ->
-    emqx_logger:error("[RouterHelper] unexpected mnesia_table_event: ~p", [Event]),
+    ?ERROR("[RouterHelper] unexpected mnesia_table_event: ~p", [Event]),
     {noreply, State};
 
 handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
@@ -132,7 +133,7 @@ handle_info({membership, _Event}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    emqx_logger:error("[RouteHelper] unexpected info: ~p", [Info]),
+    ?ERROR("[RouteHelper] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

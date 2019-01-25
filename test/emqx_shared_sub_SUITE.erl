@@ -72,6 +72,9 @@ t_random_basic(_) ->
 %% out which member it picked, then close its connection
 %% send the second message, the message should be 'nack'ed
 %% by the sticky session and delivered to the 2nd session.
+%% After the connection for the 2nd session is also closed,
+%% i.e. when all clients are offline, the following message(s)
+%% should be delivered randomly.
 t_no_connection_nack(_) ->
     ok = ensure_config(sticky),
     Publisher = <<"publisher">>,
@@ -117,7 +120,7 @@ t_no_connection_nack(_) ->
     %% sleep then make synced calls to session processes to ensure that
     %% the connection pid's 'EXIT' message is propagated to the session process
     %% also to be sure sessions are still alive
-    timer:sleep(5),
+    timer:sleep(2),
     _ = emqx_session:info(SPid1),
     _ = emqx_session:info(SPid2),
     %% Now we know what is the other still alive connection
@@ -128,11 +131,21 @@ t_no_connection_nack(_) ->
                           SendF(Id),
                           ?wait(Received(Id, TheOtherConnPid), 1000)
                   end, PacketIdList),
+    %% Now close the 2nd (last connection)
+    emqx_mock_client:stop(TheOtherConnPid),
+    timer:sleep(2),
+    %% both sessions should have conn_pid = undefined
+    ?assertEqual({conn_pid, undefined}, lists:keyfind(conn_pid, 1, emqx_session:info(SPid1))),
+    ?assertEqual({conn_pid, undefined}, lists:keyfind(conn_pid, 1, emqx_session:info(SPid2))),
+    %% send more messages, but all should be queued in session state
+    lists:foreach(fun(Id) -> SendF(Id) end, PacketIdList),
+    {_, L1} = lists:keyfind(mqueue_len, 1, emqx_session:info(SPid1)),
+    {_, L2} = lists:keyfind(mqueue_len, 1, emqx_session:info(SPid2)),
+    ?assertEqual(length(PacketIdList), L1 + L2),
     %% clean up
     emqx_mock_client:close_session(PubConnPid),
     emqx_sm:close_session(SPid1),
     emqx_sm:close_session(SPid2),
-    emqx_mock_client:close_session(TheOtherConnPid),
     ok.
 
 t_random(_) ->

@@ -27,10 +27,13 @@ all() ->
 
 groups() ->
     [{route, [sequence],
-      [t_add_delete,
+      [t_mnesia,
+       t_add_delete,
        t_do_add_delete,
        t_match_routes,
-       t_has_routes]}].
+       t_print_routes,
+       t_has_routes,
+       t_unexpected]}].
 
 init_per_suite(Config) ->
     emqx_ct_broker_helpers:run_setup_steps(),
@@ -46,18 +49,21 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, _Config) ->
     clear_tables().
 
+t_mnesia(_) ->
+    %% for coverage
+    ok = emqx_router:mnesia(copy).
+
 t_add_delete(_) ->
-    ?R:add_route(<<"a/b/c">>, node()),
+    ?R:add_route(<<"a/b/c">>),
     ?R:add_route(<<"a/b/c">>, node()),
     ?R:add_route(<<"a/+/b">>, node()),
     ?assertEqual([<<"a/+/b">>, <<"a/b/c">>], lists:sort(?R:topics())),
-
     ?R:delete_route(<<"a/b/c">>),
     ?R:delete_route(<<"a/+/b">>, node()),
     ?assertEqual([], ?R:topics()).
 
 t_do_add_delete(_) ->
-    ?R:do_add_route(<<"a/b/c">>, node()),
+    ?R:do_add_route(<<"a/b/c">>),
     ?R:do_add_route(<<"a/b/c">>, node()),
     ?R:do_add_route(<<"a/+/b">>, node()),
     ?assertEqual([<<"a/+/b">>, <<"a/b/c">>], lists:sort(?R:topics())),
@@ -67,7 +73,7 @@ t_do_add_delete(_) ->
     ?assertEqual([], ?R:topics()).
 
 t_match_routes(_) ->
-    ?R:add_route(<<"a/b/c">>, node()),
+    ?R:add_route(<<"a/b/c">>),
     ?R:add_route(<<"a/+/c">>, node()),
     ?R:add_route(<<"a/b/#">>, node()),
     ?R:add_route(<<"#">>, node()),
@@ -82,10 +88,21 @@ t_match_routes(_) ->
     ?R:delete_route(<<"#">>, node()),
     ?assertEqual([], lists:sort(?R:match_routes(<<"a/b/c">>))).
 
+t_print_routes(_) ->
+    ?R:add_route(<<"+/#">>),
+    ?R:add_route(<<"+/+">>),
+    ?R:print_routes(<<"a/b">>).
+
 t_has_routes(_) ->
     ?R:add_route(<<"devices/+/messages">>, node()),
     ?assert(?R:has_routes(<<"devices/+/messages">>)),
     ?R:delete_route(<<"devices/+/messages">>).
+
+t_unexpected(_) ->
+    Router = emqx_misc:proc_name(?R, 1),
+    ?assertEqual(ignored, gen_server:call(Router, bad_request)),
+    ?assertEqual(ok, gen_server:cast(Router, bad_message)),
+    Router ! bad_info.
 
 clear_tables() ->
     lists:foreach(fun mnesia:clear_table/1, [emqx_route, emqx_trie, emqx_trie_node]).
