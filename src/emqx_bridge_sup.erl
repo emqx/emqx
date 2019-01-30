@@ -18,7 +18,7 @@
 
 -include("emqx.hrl").
 
--export([start_link/0, bridges/0]).
+-export([start_link/0, bridges/0, create_bridge/2, delete_bridge/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -43,3 +43,15 @@ spec({Id, Options})->
       shutdown => 5000,
       type     => worker,
       modules  => [emqx_bridge]}.
+
+create_bridge(Id, Options) ->
+    supervisor:start_child(?MODULE, spec({Id, Options})).
+
+delete_bridge(Id) ->
+    case supervisor:terminate_child(?MODULE, Id) of
+        ok ->
+            supervisor:delete_child(?MODULE, Id);
+        Error ->
+            emqx_logger:error("[Bridge] Delete bridge failed", [Error]),
+            Error
+    end.
