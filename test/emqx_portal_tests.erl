@@ -18,7 +18,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("emqx_mqtt.hrl").
 
--define(PORTAL_NAME, test_portal).
+-define(PORTAL_NAME, test).
+-define(PORTAL_REG_NAME, emqx_portal_test).
 -define(WAIT(PATTERN, TIMEOUT),
         receive
             PATTERN ->
@@ -49,11 +50,11 @@ reconnect_test() ->
     Config = make_config(Ref, self(), {error, test}),
     {ok, Pid} = emqx_portal:start_link(?PORTAL_NAME, Config),
     %% assert name registered
-    ?assertEqual(Pid, whereis(?PORTAL_NAME)),
+    ?assertEqual(Pid, whereis(?PORTAL_REG_NAME)),
     ?WAIT({connection_start_attempt, Ref}, 1000),
     %% expect same message again
     ?WAIT({connection_start_attempt, Ref}, 1000),
-    ok = emqx_portal:stop(?PORTAL_NAME),
+    ok = emqx_portal:stop(?PORTAL_REG_NAME),
     ok.
 
 %% connect first, disconnect, then connect again
@@ -61,11 +62,11 @@ disturbance_test() ->
     Ref = make_ref(),
     Config = make_config(Ref, self(), {ok, Ref, connection}),
     {ok, Pid} = emqx_portal:start_link(?PORTAL_NAME, Config),
-    ?assertEqual(Pid, whereis(?PORTAL_NAME)),
+    ?assertEqual(Pid, whereis(?PORTAL_REG_NAME)),
     ?WAIT({connection_start_attempt, Ref}, 1000),
     Pid ! {disconnected, Ref, test},
     ?WAIT({connection_start_attempt, Ref}, 1000),
-    ok = emqx_portal:stop(?PORTAL_NAME).
+    ok = emqx_portal:stop(?PORTAL_REG_NAME).
 
 %% buffer should continue taking in messages when disconnected
 buffer_when_disconnected_test_() ->
@@ -88,11 +89,11 @@ test_buffer_when_disconnected() ->
     {ok, Pid} = emqx_portal:start_link(?PORTAL_NAME, Config),
     Sender ! {portal, Pid},
     Receiver ! {portal, Pid},
-    ?assertEqual(Pid, whereis(?PORTAL_NAME)),
+    ?assertEqual(Pid, whereis(?PORTAL_REG_NAME)),
     Pid ! {disconnected, Ref, test},
     ?WAIT({'DOWN', SenderMref, process, Sender, normal}, 2000),
     ?WAIT({'DOWN', ReceiverMref, process, Receiver, normal}, 1000),
-    ok = emqx_portal:stop(?PORTAL_NAME).
+    ok = emqx_portal:stop(?PORTAL_REG_NAME).
 
 %% Feed messages to portal
 sender_loop(_Pid, [], _) -> exit(normal);

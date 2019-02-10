@@ -52,6 +52,9 @@
 %% to support automatic load-balancing, i.e. in case it can not keep up
 %% with the amount of messages comming in, administrator should split and
 %% balance topics between worker/connections manually.
+%%
+%% NOTES:
+%% * Local messages are all normalised to QoS-1 when exporting to remote
 
 -module(emqx_portal).
 -behaviour(gen_statem).
@@ -71,17 +74,18 @@
 
 -export_type([config/0,
               batch/0,
-              ref/0
+              ack_ref/0
              ]).
 
 -type config() :: map().
 -type batch() :: [emqx_portal_msg:msg()].
--type ref() :: reference().
+-type ack_ref() :: term().
 
 -include("logger.hrl").
 -include("emqx_mqtt.hrl").
 
--define(DEFAULT_BATCH_COUNT, 100).
+%% same as default in-flight limit for emqx_client
+-define(DEFAULT_BATCH_COUNT, 32).
 -define(DEFAULT_BATCH_BYTES, 1 bsl 20).
 -define(DEFAULT_SEND_AHEAD, 8).
 -define(DEFAULT_RECONNECT_DELAY_MS, timer:seconds(5)).
@@ -110,7 +114,7 @@
 start_link(Name, Config) when is_list(Config) ->
     start_link(Name, maps:from_list(Config));
 start_link(Name, Config) ->
-    gen_statem:start_link({local, Name}, ?MODULE, Config, []).
+    gen_statem:start_link({local, name(Name)}, ?MODULE, Config, []).
 
 stop(Pid) -> gen_statem:stop(Pid).
 
@@ -122,7 +126,7 @@ import_batch(Batch, AckFun) ->
 
 %% @doc This function is to be evaluated on message/batch exporter side
 %% when message/batch is accepted by remote node.
--spec handle_ack(pid(), ref()) -> ok.
+-spec handle_ack(pid(), ack_ref()) -> ok.
 handle_ack(Pid, Ref) when node() =:= node(Pid) ->
     Pid ! {batch_ack, Ref},
     ok.
@@ -231,7 +235,8 @@ connected(internal, maybe_send, State) ->
     end;
 connected(info, {disconnected, ConnRef, Reason},
           #{conn_ref := ConnRef, connection := Conn} = State) ->
-    ?INFO("Portal ~p diconnected~nreason=~p", [Conn, Reason]),
+    ?INFO("Portal ~p diconnected~nreason=~p",
+          [name(), Conn, Reason]),
     {next_state, connecting,
      State#{conn_ref := undefined,
             connection := undefined
@@ -255,7 +260,8 @@ common(_StateName, info, {dispatch, _, Msg},
     NewQ = replayq:append(Q, collect([Msg])),
     {keep_state, State#{replayq => NewQ}, ?maybe_send};
 common(StateName, Type, Content, State) ->
-    ?INFO("Ignored unknown ~p event ~p at state ~p", [Type, Content, StateName]),
+    ?DEBUG("Portal ~p discarded ~p type event at state ~p:~p",
+           [name(), Type, StateName, Content]),
     {keep_state, State}.
 
 collect(Acc) ->
@@ -300,6 +306,7 @@ pop_and_send(#{replayq := Q,
 do_send(State = #{inflight := Inflight}, QAckRef, [_ | _] = Batch) ->
     case maybe_send(State, Batch) of
         {ok, Ref} ->
+            %% this is a list of inflight BATCHes, not expecting it to be too long
             NewInflight = Inflight ++ [#{q_ack_ref => QAckRef,
                                          send_ack_ref => Ref,
                                          batch => Batch
@@ -326,8 +333,6 @@ subscribe_local_topics(Topics) ->
               emqx_broker:subscribe(Topic, #{qos => ?QOS_1, subid => name()})
       end, Topics).
 
-name() -> {_, Name} = process_info(self(), registered_name), Name.
-
 disconnect(#{connection := Conn,
              conn_ref := ConnRef,
              connect_module := Module
@@ -347,10 +352,14 @@ maybe_send(#{connect_module := Module,
              connection := Connection,
              mountpoint := Mountpoint
             }, Batch) ->
-    Module:send(Connection, [emqx_portal_msg:apply_mountpoint(M, Mountpoint) || M <- Batch]).
+    Module:send(Connection, [emqx_portal_msg:to_export(M, Mountpoint) || M <- Batch]).
 
 format_mountpoint(undefined) ->
     undefined;
 format_mountpoint(Prefix) ->
     binary:replace(iolist_to_binary(Prefix), <<"${node}">>, atom_to_binary(node(), utf8)).
+
+name() -> {_, Name} = process_info(self(), registered_name), Name.
+
+name(Id) -> list_to_atom(lists:concat([?MODULE, "_", Id])).
 
