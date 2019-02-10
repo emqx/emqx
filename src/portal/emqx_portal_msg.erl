@@ -16,7 +16,7 @@
 
 -export([ to_binary/1
         , from_binary/1
-        , apply_mountpoint/2
+        , to_export/2
         , to_broker_msgs/1
         , estimate_size/1
         ]).
@@ -28,10 +28,12 @@
 
 -type msg() :: emqx_types:message().
 
-%% @doc Mount topic to a prefix.
--spec apply_mountpoint(msg(), undefined | binary()) -> msg().
-apply_mountpoint(#{topic := Topic} = Msg, Mountpoint) ->
-    Msg#{topic := topic(Mountpoint, Topic)}.
+%% @doc Make export format:
+%% 1. Mount topic to a prefix
+%% 2. fix QoS to 1
+-spec to_export(msg(), undefined | binary()) -> msg().
+to_export(#{topic := Topic} = Msg, Mountpoint) ->
+    Msg#{topic := topic(Mountpoint, Topic), qos => 1}.
 
 %% @doc Make `binary()' in order to make iodata to be persisted on disk.
 -spec to_binary(msg()) -> binary().

@@ -29,7 +29,7 @@
         , heartbeat/2
         ]).
 
--type batch_ref() :: emqx_portal:batch_ref().
+-type ack_ref() :: emqx_portal:ack_ref().
 -type batch() :: emqx_portal:batch().
 
 -define(HEARTBEAT_INTERVAL, timer:seconds(1)).
@@ -59,7 +59,7 @@ stop(Pid, _Remote) when is_pid(Pid) ->
     ok.
 
 %% @doc Callback for `emqx_portal_connect' behaviour
--spec send(node(), batch()) -> {ok, batch_ref()} | {error, any()}.
+-spec send(node(), batch()) -> {ok, ack_ref()} | {error, any()}.
 send(Remote, Batch) ->
     Sender = self(),
     case ?RPC:call(Remote, ?MODULE, handle_send, [Sender, Batch]) of
@@ -68,7 +68,7 @@ send(Remote, Batch) ->
     end.
 
 %% @doc Handle send on receiver side.
--spec handle_send(pid(), batch()) -> {ok, batch_ref()} | {error, any()}.
+-spec handle_send(pid(), batch()) -> {ok, ack_ref()} | {error, any()}.
 handle_send(SenderPid, Batch) ->
     SenderNode = node(SenderPid),
     Ref = make_ref(),

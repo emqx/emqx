@@ -20,11 +20,12 @@
 
 -optional_callbacks([]).
 
+%% map fields depend on implementation
 -type config() :: map().
 -type connection() :: term().
 -type conn_ref() :: term().
 -type batch() :: emqx_protal:batch().
--type batch_ref() :: reference().
+-type ack_ref() :: emqx_portal:ack_ref().
 
 -include("logger.hrl").
 
@@ -36,7 +37,7 @@
 %% send to remote node/cluster
 %% portal worker (the caller process) should be expecting
 %% a message {batch_ack, reference()} when batch is acknowledged by remote node/cluster
--callback send(connection(), batch()) -> {ok, batch_ref()} | {error, any()}.
+-callback send(connection(), batch()) -> {ok, ack_ref()} | {error, any()}.
 
 %% called when owner is shutting down.
 -callback stop(conn_ref(), connection()) -> ok.
