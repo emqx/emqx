@@ -32,8 +32,8 @@
 %% 1. Mount topic to a prefix
 %% 2. fix QoS to 1
 -spec to_export(msg(), undefined | binary()) -> msg().
-to_export(#{topic := Topic} = Msg, Mountpoint) ->
-    Msg#{topic := topic(Mountpoint, Topic), qos => 1}.
+to_export(#message{topic = Topic} = Msg, Mountpoint) ->
+    Msg#message{topic = topic(Mountpoint, Topic), qos = 1}.
 
 %% @doc Make `binary()' in order to make iodata to be persisted on disk.
 -spec to_binary(msg()) -> binary().
@@ -46,15 +46,19 @@ from_binary(Bin) -> binary_to_term(Bin).
 %% @doc Estimate the size of a message.
 %% Count only the topic length + payload size
 -spec estimate_size(msg()) -> integer().
-estimate_size(#{topic := Topic, payload := Payload}) ->
+estimate_size(#message{topic = Topic, payload = Payload}) ->
     size(Topic) + size(Payload).
 
 %% @doc By message/batch receiver, transform received batch into
 %% messages to dispatch to local brokers.
 to_broker_msgs(Batch) -> lists:map(fun to_broker_msg/1, Batch).
 
+to_broker_msg(#message{} = Msg) ->
+    %% internal format from another EMQX node via rpc
+    Msg;
 to_broker_msg(#{qos := QoS, dup := Dup, retain := Retain, topic := Topic,
                 properties := Props, payload := Payload}) ->
+    %% published from remote node over a MQTT connection
     emqx_message:set_headers(Props,
         emqx_message:set_flags(#{dup => Dup, retain => Retain},
             emqx_message:make(portal, QoS, Topic, Payload))).
