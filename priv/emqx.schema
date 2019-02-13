@@ -324,38 +324,38 @@ end}.
 
 %% Client connect timeout
 {mapping, "rpc.connect_timeout", "gen_rpc.connect_timeout", [
-  {default, 5000},
-  {datatype, integer}
+  {default, "5s"},
+  {datatype, {duration, ms}}
 ]}.
 
 %% Client and Server send timeout
 {mapping, "rpc.send_timeout", "gen_rpc.send_timeout", [
   {default, 5000},
-  {datatype, integer}
+  {datatype, {duration, ms}}
 ]}.
 
 %% Authentication timeout
 {mapping, "rpc.authentication_timeout", "gen_rpc.authentication_timeout", [
   {default, 5000},
-  {datatype, integer}
+  {datatype, {duration, ms}}
 ]}.
 
 %% Default receive timeout for call() functions
 {mapping, "rpc.call_receive_timeout", "gen_rpc.call_receive_timeout", [
   {default, 15000},
-  {datatype, integer}
+  {datatype, {duration, ms}}
 ]}.
 
 %% Socket keepalive configuration
 {mapping, "rpc.socket_keepalive_idle", "gen_rpc.socket_keepalive_idle", [
   {default, 7200},
-  {datatype, integer}
+  {datatype, {duration, ms}}
 ]}.
 
 %% Seconds between probes
 {mapping, "rpc.socket_keepalive_interval", "gen_rpc.socket_keepalive_interval", [
   {default, 75},
-  {datatype, integer}
+  {datatype, {duration, ms}}
 ]}.
 
 %% Probes lost to close the connection
@@ -1607,14 +1607,21 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
-{mapping, "bridge.$name.retry_interval", "emqx.bridges", [
-  {default, "20s"},
-  {datatype, {duration, ms}}
-]}.
-
 {mapping, "bridge.$name.max_inflight", "emqx.bridges", [
   {default, 0},
   {datatype, integer}
+]}.
+
+{mapping, "bridge.$name.queue.batch_size", "emqx.bridges", [
+  {datatype, integer}
+]}.
+
+{mapping, "bridge.$name.queue.replayq_dir", "emqx.bridges", [
+  {datatype, string}
+]}.
+
+{mapping, "bridge.$name.queue.replayq_seg_bytes", "emqx.bridges", [
+  {datatype, bytesize}
 ]}.
 
 {translation, "emqx.bridges", fun(Conf) ->
