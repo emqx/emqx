@@ -1607,6 +1607,11 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
+{mapping, "bridge.$name.retry_interval", "emqx.bridges", [
+  {default, "20s"},
+  {datatype, {duration, ms}}
+]}.
+
 {mapping, "bridge.$name.max_inflight", "emqx.bridges", [
   {default, 0},
   {datatype, integer}
