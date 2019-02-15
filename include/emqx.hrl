@@ -155,21 +155,25 @@
                      | {username,   binary()}
                      | {ip_address, inet:ip_address()}).
 
--record(banned, {who    :: banned_who(),
-                 reason :: binary(),
-                 by     :: binary(),
-                 desc   :: binary(),
-                 until  :: integer()}).
+-record(banned, {
+          who    :: banned_who(),
+          reason :: binary(),
+          by     :: binary(),
+          desc   :: binary(),
+          until  :: integer()
+       }).
 
 %%--------------------------------------------------------------------
 %% Flapping
 %%--------------------------------------------------------------------
 
--record(flapping, {state         :: any(),
-                   check_times   :: pos_integer(),
-                   time_interval :: pos_integer(),
-                   high_treshold :: float(),
-                   low_treshold  :: float()}).
+-record(flapping, {
+          state         :: any(),
+          check_times   :: pos_integer(),
+          time_interval :: pos_integer(),
+          high_treshold :: float(),
+          low_treshold  :: float()
+       }).
 
 -type(flapping() :: #flapping{}).
 
