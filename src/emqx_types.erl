@@ -33,7 +33,7 @@
 -type(pubsub() :: publish | subscribe).
 -type(topic() :: binary()).
 -type(subid() :: binary() | atom()).
--type(subopts() :: #{qos    := integer(),
+-type(subopts() :: #{qos    := eqmx_mqtt_types:qos(),
                      share  => binary(),
                      atom() => term()
                     }).
