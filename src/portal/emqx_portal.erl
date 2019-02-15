@@ -78,7 +78,7 @@
              ]).
 
 -type config() :: map().
--type batch() :: [emqx_portal_msg:msg()].
+-type batch() :: [emqx_portal_msg:exp_msg()].
 -type ack_ref() :: term().
 
 -include("logger.hrl").
@@ -352,7 +352,7 @@ maybe_send(#{connect_module := Module,
              connection := Connection,
              mountpoint := Mountpoint
             }, Batch) ->
-    Module:send(Connection, [emqx_portal_msg:to_export(M, Mountpoint) || M <- Batch]).
+    Module:send(Connection, [emqx_portal_msg:to_export(Module, Mountpoint, M) || M <- Batch]).
 
 format_mountpoint(undefined) ->
     undefined;

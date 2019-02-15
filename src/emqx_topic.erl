@@ -144,7 +144,8 @@ prepend(Parent0, W) ->
 bin('')  -> <<>>;
 bin('+') -> <<"+">>;
 bin('#') -> <<"#">>;
-bin(B) when is_binary(B) -> B.
+bin(B) when is_binary(B) -> B;
+bin(L) when is_list(L) -> list_to_binary(L).
 
 levels(Topic) when is_binary(Topic) ->
     length(words(Topic)).

@@ -28,7 +28,8 @@
 -define(ACK_REF(ClientPid, PktId), {ClientPid, PktId}).
 
 %% Messages towards ack collector process
--define(SENT(MaxPktId), {sent, MaxPktId}).
+-define(RANGE(Min, Max), {Min, Max}).
+-define(SENT(PktIdRange), {sent, PktIdRange}).
 -define(ACKED(AnyPktId), {acked, AnyPktId}).
 -define(STOP(Ref), {stop, Ref}).
 
@@ -41,10 +42,17 @@ start(Config) ->
         {ok, Pid} ->
             case emqx_client:connect(Pid) of
                 {ok, _} ->
-                    %% ack collector is always a new pid every reconnect.
-                    %% use it as a connection reference
-                    {ok, Ref, #{ack_collector => AckCollector,
-                                client_pid => Pid}};
+                    try
+                        subscribe_remote_topics(Pid, maps:get(subscriptions, Config, [])),
+                        %% ack collector is always a new pid every reconnect.
+                        %% use it as a connection reference
+                        {ok, Ref, #{ack_collector => AckCollector,
+                                    client_pid => Pid}}
+                    catch
+                        throw : Reason ->
+                            ok = stop(AckCollector, Pid),
+                            {error, Reason}
+                    end;
                 {error, Reason} ->
                     ok = stop(AckCollector, Pid),
                     {error, Reason}
@@ -53,72 +61,79 @@ start(Config) ->
             {error, Reason}
     end.
 
-stop(Ref, #{ack_collector := AckCollector,
-            client_pid := Pid}) ->
-    MRef = monitor(process, AckCollector),
-    unlink(AckCollector),
-    _ = AckCollector ! ?STOP(Ref),
+stop(Ref, #{ack_collector := AckCollector, client_pid := Pid}) ->
+    safe_stop(AckCollector, fun() -> AckCollector ! ?STOP(Ref) end, 1000),
+    safe_stop(Pid, fun() -> emqx_client:stop(Pid) end, 1000),
+    ok.
+
+safe_stop(Pid, StopF, Timeout) ->
+    MRef = monitor(process, Pid),
+    unlink(Pid),
+    try
+        StopF()
+    catch
+        _ : _ ->
+            ok
+    end,
     receive
         {'DOWN', MRef, _, _, _} ->
             ok
     after
-        1000 ->
-            exit(AckCollector, kill)
-    end,
-    _ = emqx_client:stop(Pid),
-    ok.
+        Timeout ->
+            exit(Pid, kill)
+    end.
 
-send(#{client_pid := ClientPid, ack_collector := AckCollector}, Batch) ->
-    send_loop(ClientPid, AckCollector, Batch).
-
-send_loop(ClientPid, AckCollector, [Msg | Rest]) ->
-    case emqx_client:publish(ClientPid, Msg) of
-        {ok, PktId} when Rest =:= [] ->
-            Rest =:= [] andalso AckCollector ! ?SENT(PktId),
-            {ok, PktId};
-        {ok, _PktId} ->
-            send_loop(ClientPid, AckCollector, Rest);
+send(#{client_pid := ClientPid, ack_collector := AckCollector} = Conn, Batch) ->
+    case emqx_client:publish(ClientPid, Batch) of
+        {ok, BasePktId} ->
+            LastPktId = ?BUMP_PACKET_ID(BasePktId, length(Batch) - 1),
+            AckCollector ! ?SENT(?RANGE(BasePktId, LastPktId)),
+            %% return last pakcet id as batch reference
+            {ok, LastPktId};
         {error, {_PacketId, inflight_full}} ->
             timer:sleep(100),
-            send_loop(ClientPid, AckCollector, [Msg | Rest]);
+            send(Conn, Batch);
         {error, Reason} ->
-            %% There is no partial sucess of a batch and recover from the middle
+            %% NOTE: There is no partial sucess of a batch and recover from the middle
             %% only to retry all messages in one batch
             {error, Reason}
     end.
 
 ack_collector(Parent, ConnRef) ->
-    ack_collector(Parent, ConnRef, []).
+    ack_collector(Parent, ConnRef, queue:new(), []).
 
-ack_collector(Parent, ConnRef, PktIds) ->
-    NewIds =
+ack_collector(Parent, ConnRef, Acked, Sent) ->
+    {NewAcked, NewSent} =
         receive
             ?STOP(ConnRef) ->
                 exit(normal);
-            ?SENT(PktId) ->
-                %% this ++ only happens per-BATCH, hence no optimization
-                PktIds ++ [PktId];
             ?ACKED(PktId) ->
-                handle_ack(Parent, PktId, PktIds)
+                match_acks(Parent, queue:in(PktId, Acked), Sent);
+            ?SENT(Range) ->
+                %% this message only happens per-batch, hence ++ is ok
+                match_acks(Parent, Acked, Sent ++ [Range])
         after
             200 ->
-                PktIds
+                {Acked, Sent}
         end,
-   ack_collector(Parent, ConnRef, NewIds).
+   ack_collector(Parent, ConnRef, NewAcked, NewSent).
 
-handle_ack(Parent, PktId, [PktId | Rest]) ->
-    %% A batch is finished, time to ack portal
+match_acks(_Parent, Acked, []) -> {Acked, []};
+match_acks(Parent, Acked, Sent) ->
+    match_acks_1(Parent, queue:out(Acked), Sent).
+
+match_acks_1(_Parent, {empty, Empty}, Sent) -> {Empty, Sent};
+match_acks_1(Parent, {{value, PktId}, Acked}, [?RANGE(PktId, PktId) | Sent]) ->
+    %% batch finished
     ok = emqx_portal:handle_ack(Parent, PktId),
-    Rest;
-handle_ack(_Parent, PktId, [BatchMaxPktId | _] = All) ->
-    %% partial ack of a batch, terminate here.
-    true = (PktId < BatchMaxPktId), %% bad order otherwise
-    All.
+    match_acks(Parent, Acked, Sent);
+match_acks_1(Parent, {{value, PktId}, Acked}, [?RANGE(PktId, Max) | Sent]) ->
+    match_acks(Parent, Acked, [?RANGE(PktId + 1, Max) | Sent]).
 
 %% When puback for QoS-1 message is received from remote MQTT broker
 %% NOTE: no support for QoS-2
 handle_puback(AckCollector, #{packet_id := PktId, reason_code := RC}) ->
-    RC =:= ?RC_SUCCESS andalso error(RC),
+    RC =:= ?RC_SUCCESS orelse error({puback_error_code, RC}),
     AckCollector ! ?ACKED(PktId),
     ok.
 
@@ -133,3 +148,10 @@ make_hdlr(Parent, AckCollector, Ref) ->
       disconnected => fun(RC, _Properties) -> Parent ! {disconnected, Ref, RC}, ok end
      }.
 
+subscribe_remote_topics(ClientPid, Subscriptions) ->
+    [case emqx_client:subscribe(ClientPid, {bin(Topic), Qos}) of
+         {ok, _, _} -> ok;
+         Error -> throw(Error)
+     end || {Topic, Qos} <- Subscriptions, emqx_topic:validate({filter, bin(Topic)})].
+
+bin(L) -> iolist_to_binary(L).

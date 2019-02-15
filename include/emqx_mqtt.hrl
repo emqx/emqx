@@ -171,10 +171,16 @@
 -define(RC_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED,   16#A2).
 
 %%--------------------------------------------------------------------
-%% Maximum MQTT Packet Length
+%% Maximum MQTT Packet ID and Length
 %%--------------------------------------------------------------------
 
+-define(MAX_PACKET_ID, 16#ffff).
 -define(MAX_PACKET_SIZE, 16#fffffff).
+-define(BUMP_PACKET_ID(Base, Bump),
+        case Base + Bump of
+            __I__ when __I__ > ?MAX_PACKET_ID -> __I__ - ?MAX_PACKET_ID;
+            __I__ -> __I__
+        end).
 
 %%--------------------------------------------------------------------
 %% MQTT Frame Mask

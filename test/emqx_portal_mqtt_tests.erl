@@ -14,23 +14,28 @@
 
 -module(emqx_portal_mqtt_tests).
 -include_lib("eunit/include/eunit.hrl").
+-include("emqx_mqtt.hrl").
 
 send_and_ack_test() ->
     %% delegate from gen_rpc to rpc for unit test
     Tester = self(),
     meck:new(emqx_client, [passthrough, no_history]),
     meck:expect(emqx_client, start_link, 1,
-                fun(#{msg_handler := Hdlr}) -> {ok, Hdlr} end),
+                fun(#{msg_handler := Hdlr}) ->
+                        {ok, spawn_link(fun() -> fake_client(Hdlr) end)}
+                end),
     meck:expect(emqx_client, connect, 1, {ok, dummy}),
-    meck:expect(emqx_client, stop, 1, ok),
+    meck:expect(emqx_client, stop, 1,
+                fun(Pid) -> Pid ! stop end),
     meck:expect(emqx_client, publish, 2,
-                fun(_Conn, Msg) ->
+                fun(_Conn, Msgs) ->
                         case rand:uniform(100) of
                             1 ->
                                 {error, {dummy, inflight_full}};
                             _ ->
-                                Tester ! {published, Msg},
-                                {ok, Msg}
+                                BaseId = hd(Msgs),
+                                Tester ! {published, Msgs},
+                                {ok, BaseId}
                         end
                 end),
     try
@@ -39,24 +44,38 @@ send_and_ack_test() ->
         {ok, Ref, Conn} = emqx_portal_mqtt:start(#{}),
         %% return last packet id as batch reference
         {ok, AckRef} = emqx_portal_mqtt:send(Conn, Batch),
+        %% as if the remote broker replied with puback
+        ok = fake_pubacks(Conn),
         %% expect batch ack
-        {ok, LastId} = collect_acks(Conn, Batch),
+        AckRef1= receive {batch_ack, Id} -> Id end,
         %% asset received ack matches the batch ref returned in send API
-        ?assertEqual(AckRef, LastId),
+        ?assertEqual(AckRef, AckRef1),
         ok = emqx_portal_mqtt:stop(Ref, Conn)
     after
         meck:unload(emqx_client)
     end.
 
-collect_acks(_Conn, []) ->
-    receive {batch_ack, Id} -> {ok, Id} end;
-collect_acks(#{client_pid := Client} = Conn, [Id | Rest]) ->
-    %% mocked for testing, should be a pid() at runtime
-    #{puback := PubAckCallback} = Client,
+fake_pubacks(#{client_pid := Client}) ->
+    #{puback := PubAckCallback} = get_hdlr(Client),
     receive
-        {published, Id} ->
-            PubAckCallback(#{packet_id => Id, reason_code => dummy}),
-            collect_acks(Conn, Rest)
+        {published, Msgs} ->
+            lists:foreach(
+                fun(Id) ->
+                        PubAckCallback(#{packet_id => Id, reason_code => ?RC_SUCCESS})
+                end, Msgs)
+    end.
+
+get_hdlr(Client) ->
+    Client ! {get_hdlr, self()},
+    receive {hdr, Hdlr} -> Hdlr end.
+
+fake_client(Hdlr) ->
+    receive
+        {get_hdlr, Pid} ->
+            Pid ! {hdr, Hdlr},
+            fake_client(Hdlr);
+        stop ->
+            exit(normal)
     end.
 
 
