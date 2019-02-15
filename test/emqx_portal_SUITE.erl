@@ -43,6 +43,7 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
 
+%% A loopback RPC to local node
 t_rpc(Config) when is_list(Config) ->
     Cfg = #{address => node(),
             forwards => [<<"t_rpc/#">>],
@@ -68,6 +69,74 @@ t_rpc(Config) when is_list(Config) ->
         ok = emqx_portal:stop(Pid)
     end.
 
-t_mqtt(Config) when is_list(Config) -> ok.
+t_mqtt(Config) when is_list(Config) ->
+    SendToTopic = <<"t_mqtt/one">>,
+    Mountpoint = <<"forwarded/${node}/">>,
+    ForwardedTopic = emqx_topic:join(["forwarded", atom_to_list(node()), SendToTopic]),
+    Cfg = #{address => "127.0.0.1:1883",
+            forwards => [SendToTopic],
+            connect_module => emqx_portal_mqtt,
+            mountpoint => Mountpoint,
+            username => "user",
+            clean_start => true,
+            client_id => "bridge_aws",
+            keepalive => 60000,
+            max_inflight => 32,
+            password => "passwd",
+            proto_ver => mqttv4,
+            queue => #{replayq_dir => "data/t_mqtt/",
+                       replayq_seg_bytes => 10000,
+                       batch_bytes_limit => 1000,
+                       batch_count_limit => 10
+                      },
+            reconnect_delay_ms => 1000,
+            ssl => false,
+            start_type => manual,
+            %% Consume back to forwarded message for verification
+            %% NOTE: this is a indefenite loopback without mocking emqx_portal:import_batch/2
+            subscriptions => [{ForwardedTopic, 1}]
+           },
+    Tester = self(),
+    Ref = make_ref(),
+    meck:new(emqx_portal, [passthrough, no_history]),
+    meck:expect(emqx_portal, import_batch, 2,
+                fun(Batch, AckFun) ->
+                        Tester ! {Ref, Batch},
+                        AckFun()
+                end),
+    {ok, Pid} = emqx_portal:start_link(?FUNCTION_NAME, Cfg),
+    ClientId = <<"client-1">>,
+    try
+        {ok, ConnPid} = emqx_mock_client:start_link(ClientId),
+        {ok, SPid} = emqx_mock_client:open_session(ConnPid, ClientId, internal),
+        %% message from a different client, to avoid getting terminated by no-local
+        Msgs = lists:seq(1, 10),
+        lists:foreach(fun(I) ->
+                              Msg = emqx_message:make(<<"client-2">>, ?QOS_1, SendToTopic, integer_to_binary(I)),
+                              emqx_session:publish(SPid, I, Msg)
+                      end, Msgs),
+        ok = receive_and_match_messages(Ref, Msgs),
+        emqx_mock_client:close_session(ConnPid)
+    after
+        ok = emqx_portal:stop(Pid),
+        meck:unload(emqx_portal)
+    end.
 
+receive_and_match_messages(Ref, Msgs) ->
+    TRef = erlang:send_after(timer:seconds(4), self(), {Ref, timeout}),
+    try
+        do_receive_and_match_messages(Ref, Msgs)
+    after
+        erlang:cancel_timer(TRef)
+    end,
+    ok.
+
+do_receive_and_match_messages(_Ref, []) -> ok;
+do_receive_and_match_messages(Ref, [I | Rest]) ->
+    receive
+        {Ref, timeout} -> erlang:error(timeout);
+        {Ref, [#{payload := P}]} ->
+            ?assertEqual(I, binary_to_integer(P)),
+            do_receive_and_match_messages(Ref, Rest)
+    end.
 
