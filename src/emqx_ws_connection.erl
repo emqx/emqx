@@ -189,7 +189,15 @@ websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
         _:Error ->
             ?LOG(error, "Frame error:~p~nFrame data: ~p", [Error, Data]),
             shutdown(parse_error, State)
-    end.
+    end;
+%% Pings should be replied with pongs, cowboy does it automatically
+%% Pongs can be safely ignored. Clause here simply prevents crash.
+websocket_handle(Frame, State)
+  when Frame =:= ping; Frame =:= pong ->
+    {ok, ensure_stats_timer(State)};
+websocket_handle({FrameType, _}, State)
+  when FrameType =:= ping; FrameType =:= pong ->
+    {ok, ensure_stats_timer(State)}.
 
 websocket_info({call, From, info}, State) ->
     gen_server:reply(From, info(State)),
