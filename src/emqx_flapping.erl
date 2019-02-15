@@ -17,57 +17,57 @@
 %% 2. Conflict Detection?
 -module(emqx_flapping).
 
-%% Use ets:update_counter???
+-include("emqx.hrl").
 
--behaviour(gen_server).
+-export([init_flapping/4,
+         check_flapping/3]).
 
--export([start_link/0]).
+-spec init_flapping(pos_integer(),
+                    pos_integer(),float(),
+                    float()) -> flapping().
+init_flapping(CheckTimes, TimeInterval,
+              HighTreshold, LowTreshold) ->
+    #flapping{state = stop,
+              check_times = CheckTimes,
+              time_interval = TimeInterval,
+              high_treshold = HighTreshold,
+              low_treshold = LowTreshold}.
 
--export([is_banned/1, banned/1]).
+-spec check_flapping(Fun::fun(), term(), flapping()) -> flapping().
+check_flapping(CheckStateFun, StateChecked,
+               FlappingRecord = #flapping{state = FlappingState,
+                                          check_times = CheckTimes,
+                                          time_interval = TimeInterval,
+                                          high_treshold = HighTreshold,
+                                          low_treshold = LowTreshold}) ->
+    Weights = check_state_transition(CheckTimes, TimeInterval, CheckTimes,
+                                     CheckStateFun, StateChecked, 0),
+    case Weights/CheckTimes of
+        NewFlappingState when NewFlappingState >= HighTreshold,
+                              FlappingState =:= stop ->
+            FlappingRecord#flapping{state = start};
+        NewFlappingState when NewFlappingState =< LowTreshold,
+                              FlappingState =:= start ->
+            FlappingRecord#flapping{state = stop};
+        _ ->
+            FlappingRecord
+    end.
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+-spec check_state_transition(non_neg_integer(), pos_integer(), pos_integer(), Fun::fun(), term(), number()) -> pos_integer().
+check_state_transition(0, _TimeInterval, _Total, _CheckState, _State, Weight) ->
+    Weight;
+check_state_transition(Count, TimeInterval, Total, CheckState, State, Weight)
+  when Count > 0->
+    timer:sleep(TimeInterval),
+    NewState = CheckState(),
+    case State =:= NewState of
+        false ->
+            NewWeight = Weight + weight_transition(Total - Count + 1, Total),
+            check_state_transition(Count - 1, TimeInterval, Total, CheckState, NewState, NewWeight);
+        true ->
+            check_state_transition(Count - 1, TimeInterval, Total, CheckState, State, Weight)
+    end.
 
--define(SERVER, ?MODULE).
-
--record(state, {}).
-
--spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
-
-is_banned(ClientId) ->
-    ets:member(banned, ClientId).
-
-banned(ClientId) ->
-    ets:insert(banned, {ClientId, os:timestamp()}).
-
-%%--------------------------------------------------------------------
-%% gen_server callbacks
-%%--------------------------------------------------------------------
-
-init([]) ->
-    %% ets:new(banned, [public, ordered_set, named_table]),
-    {ok, #state{}}.
-
-handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
-
-handle_cast(_Msg, State) ->
-    {noreply, State}.
-
-handle_info(_Info, State) ->
-    {noreply, State}.
-
-terminate(_Reason, _State) ->
-    ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-
+-spec weight_transition(pos_integer(), pos_integer()) -> float().
+weight_transition(CheckTimes, TotalTimes) ->
+    0.8 + 0.4/TotalTimes * CheckTimes.
