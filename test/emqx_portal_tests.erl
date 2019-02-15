@@ -16,6 +16,7 @@
 -behaviour(emqx_portal_connect).
 
 -include_lib("eunit/include/eunit.hrl").
+-include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
 -define(PORTAL_NAME, test).
@@ -120,7 +121,7 @@ random_sleep(MaxInterval) ->
     end.
 
 match_nums([], Rest) -> Rest;
-match_nums([#{payload := P} | Rest], Nums) ->
+match_nums([#message{payload = P} | Rest], Nums) ->
     I = binary_to_integer(P),
     case Nums of
         [I | NumsLeft] -> match_nums(Rest, NumsLeft);
@@ -137,11 +138,5 @@ make_config(Ref, TestPid, Result) ->
 
 make_msg(I) ->
     Payload = integer_to_binary(I),
-    #{qos => ?QOS_1,
-      dup => false,
-      retain => false,
-      topic => <<"test/topic">>,
-      properties => [],
-      payload => Payload
-     }.
+    emqx_message:make(<<"test/topic">>, Payload).
 

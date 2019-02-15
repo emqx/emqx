@@ -16,7 +16,7 @@
 
 -export([ to_binary/1
         , from_binary/1
-        , to_export/2
+        , to_export/3
         , to_broker_msgs/1
         , estimate_size/1
         ]).
@@ -25,14 +25,32 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
+-include("emqx_client.hrl").
 
 -type msg() :: emqx_types:message().
+-type exp_msg() :: emqx_types:message() | #mqtt_msg{}.
 
 %% @doc Make export format:
 %% 1. Mount topic to a prefix
-%% 2. fix QoS to 1
--spec to_export(msg(), undefined | binary()) -> msg().
-to_export(#message{topic = Topic} = Msg, Mountpoint) ->
+%% 2. Fix QoS to 1
+%% @end
+%% Shame that we have to know the callback module here
+%% would be great if we can get rid of #mqtt_msg{} record
+%% and use #message{} in all places.
+-spec to_export(emqx_portal_rpc | emqx_portal_mqtt,
+                undefined | binary(), msg()) -> exp_msg().
+to_export(emqx_portal_mqtt, Mountpoint,
+          #message{topic = Topic,
+                   payload = Payload,
+                   flags = Flags
+                  }) ->
+    Retain = maps:get(retain, Flags, false),
+    #mqtt_msg{qos = ?QOS_1,
+              retain = Retain,
+              topic = topic(Mountpoint, Topic),
+              payload = Payload};
+to_export(_Module, Mountpoint,
+          #message{topic = Topic} = Msg) ->
     Msg#message{topic = topic(Mountpoint, Topic), qos = 1}.
 
 %% @doc Make `binary()' in order to make iodata to be persisted on disk.

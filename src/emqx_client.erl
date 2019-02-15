@@ -388,8 +388,8 @@ publish(Client, Topic, Properties, Payload, Opts)
                               props   = Properties,
                               payload = iolist_to_binary(Payload)}).
 
--spec(publish(client(), #mqtt_msg{}) -> ok | {ok, packet_id()} | {error, term()}).
-publish(Client, Msg) when is_record(Msg, mqtt_msg) ->
+-spec(publish(client(), #mqtt_msg{} | [#mqtt_msg{}]) -> ok | {ok, packet_id()} | {error, term()}).
+publish(Client, Msg) ->
     gen_statem:call(Client, {publish, Msg}).
 
 -spec(unsubscribe(client(), topic() | [topic()]) -> subscribe_ret()).
@@ -755,9 +755,6 @@ connected({call, From}, pause, State) ->
 connected({call, From}, resume, State) ->
     {keep_state, State#state{paused = false}, [{reply, From, ok}]};
 
-connected({call, From}, stop, _State) ->
-    {stop_and_reply, normal, [{reply, From, ok}]};
-
 connected({call, From}, get_properties, State = #state{properties = Properties}) ->
     {keep_state, State, [{reply, From, Properties}]};
 
@@ -789,19 +786,22 @@ connected({call, From}, {publish, Msg = #mqtt_msg{qos = ?QOS_0}}, State) ->
             {stop_and_reply, Reason, [{reply, From, Error}]}
     end;
 
-connected({call, From}, {publish, Msg = #mqtt_msg{qos = QoS}},
-          State = #state{inflight = Inflight, last_packet_id = PacketId})
+connected({call, From}, {publish, Msg = #mqtt_msg{qos = QoS}}, State)
     when (QoS =:= ?QOS_1); (QoS =:= ?QOS_2) ->
+    connected({call, From}, {publish, [Msg]}, State);
+
+%% when publishing a batch, {ok, BasePacketId} is returned,
+%% following packet ids for the batch tail are mod (1 bsl 16) consecutive
+connected({call, From}, {publish, Msgs},
+          State = #state{inflight = Inflight, last_packet_id = PacketId}) when is_list(Msgs) ->
+    %% NOTE: to ensure API call atomicity, inflight buffer may overflow
     case emqx_inflight:is_full(Inflight) of
         true ->
-            {keep_state, State, [{reply, From, {error, {PacketId, inflight_full}}}]};
+            {keep_state, State, [{reply, From, {error, inflight_full}}]};
         false ->
-            Msg1 = Msg#mqtt_msg{packet_id = PacketId},
-            case send(Msg1, State) of
+            case send_batch(assign_packet_id(Msgs, PacketId), State) of
                 {ok, NewState} ->
-                    Inflight1 = emqx_inflight:insert(PacketId, {publish, Msg1, os:timestamp()}, Inflight),
-                    {keep_state, ensure_retry_timer(NewState#state{inflight = Inflight1}),
-                     [{reply, From, {ok, PacketId}}]};
+                    {keep_state, ensure_retry_timer(NewState), [{reply, From, {ok, PacketId}}]};
                 {error, Reason} ->
                     {stop_and_reply, Reason, [{reply, From, {error, {PacketId, Reason}}}]}
             end
@@ -1010,6 +1010,8 @@ should_ping(Sock) ->
             Error
     end.
 
+handle_event({call, From}, stop, _StateName, _State) ->
+    {stop_and_reply, normal, [{reply, From, ok}]};
 handle_event(info, {TcpOrSsL, _Sock, Data}, _StateName, State)
     when TcpOrSsL =:= tcp; TcpOrSsL =:= ssl ->
     emqx_logger:debug("RECV Data: ~p", [Data]),
@@ -1332,6 +1334,17 @@ send_puback(Packet, State) ->
         {error, Reason} -> {stop, {shutdown, Reason}}
     end.
 
+send_batch([], State) -> {ok, State};
+send_batch([Msg = #mqtt_msg{packet_id = PacketId} | Rest],
+           State = #state{inflight = Inflight}) ->
+    case send(Msg, State) of
+        {ok, NewState} ->
+            Inflight1 = emqx_inflight:insert(PacketId, {publish, Msg, os:timestamp()}, Inflight),
+            send_batch(Rest, NewState#state{inflight = Inflight1});
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
 send(Msg, State) when is_record(Msg, mqtt_msg) ->
     send(msg_to_packet(Msg), State);
 
@@ -1374,10 +1387,17 @@ next_events(Packets) ->
     [{next_event, cast, Packet} || Packet <- lists:reverse(Packets)].
 
 %%------------------------------------------------------------------------------
-%% Next packet id
+%% packet_id generation and assignment
 
-next_packet_id(State = #state{last_packet_id = 16#ffff}) ->
-    State#state{last_packet_id = 1};
+assign_packet_id(Msg = #mqtt_msg{}, Id) ->
+    Msg#mqtt_msg{packet_id = Id};
+assign_packet_id([H | T], Id) ->
+    [assign_packet_id(H, Id) | assign_packet_id(T, next_packet_id(Id))];
+assign_packet_id([], _Id) ->
+    [].
 
 next_packet_id(State = #state{last_packet_id = Id}) ->
-    State#state{last_packet_id = Id + 1}.
+    State#state{last_packet_id = next_packet_id(Id)};
+next_packet_id(16#ffff) -> 1;
+next_packet_id(Id) -> Id + 1.
+
