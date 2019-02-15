@@ -41,7 +41,7 @@
 %%  |        |                 |
 %%  '--(1)---'--------(3)------'
 %%
-%% (1): timeout
+%% (1): retry timeout
 %% (2): successfuly connected to remote node/cluster
 %% (3): received {disconnected, conn_ref(), Reason} OR
 %%      failed to send to remote node/cluster.
@@ -72,11 +72,17 @@
 %% state functions
 -export([connecting/3, connected/3]).
 
+%% management APIs
+-export([get_forwards/1]). %, add_forward/2, del_forward/2]).
+-export([get_subscriptions/1]). %, add_subscription/3, del_subscription/2]).
+
 -export_type([config/0,
               batch/0,
               ack_ref/0
              ]).
 
+-type id() :: atom() | string() | pid().
+-type qos() :: emqx_mqtt_types:qos().
 -type config() :: map().
 -type batch() :: [emqx_portal_msg:exp_msg()].
 -type ack_ref() :: term().
@@ -131,6 +137,11 @@ handle_ack(Pid, Ref) when node() =:= node(Pid) ->
     Pid ! {batch_ack, Ref},
     ok.
 
+-spec get_forwards(id()) -> [emqx_topic:topic()].
+get_forwards(Id) -> gen_statem:call(id(Id), get_forwards).
+
+-spec get_subscriptions(id()) -> [{emqx_topic:topic(), qos()}].
+get_subscriptions(Id) -> gen_statem:call(id(Id), get_subscriptions).
 
 callback_mode() -> [state_functions, state_enter].
 
@@ -150,7 +161,12 @@ init(Config) ->
         end,
     Queue = replayq:open(QueueConfig#{sizer => fun emqx_portal_msg:estimate_size/1,
                                       marshaller => fun msg_marshaller/1}),
-    Topics = Get(forwards, []),
+    Topics = lists:sort([iolist_to_binary(T) || T <- Get(forwards, [])]),
+    Subs = lists:keysort(1, lists:map(fun({T0, QoS}) ->
+                                              T = iolist_to_binary(T0),
+                                              true = emqx_topic:validate({filter, T}),
+                                              {T, QoS}
+                                      end, Get(subscriptions, []))),
     ok = subscribe_local_topics(Topics),
     ConnectModule = maps:get(connect_module, Config),
     ConnectConfig = maps:without([connect_module,
@@ -159,7 +175,7 @@ init(Config) ->
                                   max_inflight_batches,
                                   mountpoint,
                                   forwards
-                                 ], Config),
+                                 ], Config#{subscriptions => Subs}),
     ConnectFun = fun() -> emqx_portal_connect:start(ConnectModule, ConnectConfig) end,
     {ok, connecting,
      #{connect_module => ConnectModule,
@@ -170,6 +186,7 @@ init(Config) ->
        max_inflight_batches => Get(max_inflight_batches, ?DEFAULT_SEND_AHEAD),
        mountpoint => format_mountpoint(Get(mountpoint, undefined)),
        topics => Topics,
+       subscriptions => Subs,
        replayq => Queue,
        inflight => []
       }}.
@@ -255,6 +272,10 @@ connected(Type, Content, State) ->
     common(connected, Type, Content, State).
 
 %% Common handlers
+common(_StateName, {call, From}, get_forwards, #{forwards := Forwards}) ->
+    {keep_state_and_data, [{reply, From, Forwards}]};
+common(_StateName, {call, From}, get_subscriptions, #{subscriptions := Subs}) ->
+    {keep_state_and_data, [{reply, From, Subs}]};
 common(_StateName, info, {dispatch, _, Msg},
        #{replayq := Q} = State) ->
     NewQ = replayq:append(Q, collect([Msg])),
@@ -362,4 +383,7 @@ format_mountpoint(Prefix) ->
 name() -> {_, Name} = process_info(self(), registered_name), Name.
 
 name(Id) -> list_to_atom(lists:concat([?MODULE, "_", Id])).
+
+id(Pid) when is_pid(Pid) -> Pid;
+id(Name) -> name(Name).
 

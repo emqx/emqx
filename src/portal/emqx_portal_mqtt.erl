@@ -149,9 +149,10 @@ make_hdlr(Parent, AckCollector, Ref) ->
      }.
 
 subscribe_remote_topics(ClientPid, Subscriptions) ->
-    [case emqx_client:subscribe(ClientPid, {bin(Topic), Qos}) of
-         {ok, _, _} -> ok;
-         Error -> throw(Error)
-     end || {Topic, Qos} <- Subscriptions, emqx_topic:validate({filter, bin(Topic)})].
+    lists:foreach(fun({Topic, Qos}) ->
+                          case emqx_client:subscribe(ClientPid, Topic, Qos) of
+                              {ok, _, _} -> ok;
+                              Error -> throw(Error)
+                          end
+                  end, Subscriptions).
 
-bin(L) -> iolist_to_binary(L).

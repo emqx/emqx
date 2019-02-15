@@ -16,7 +16,8 @@
 
 -export([all/0, init_per_suite/1, end_per_suite/1]).
 -export([t_rpc/1,
-         t_mqtt/1
+         t_mqtt/1,
+         t_forwards_mngr/1
         ]).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -27,7 +28,8 @@
 -define(wait(For, Timeout), emqx_ct_helpers:wait_for(?FUNCTION_NAME, ?LINE, fun() -> For end, Timeout)).
 
 all() -> [t_rpc,
-          t_mqtt
+          t_mqtt,
+          t_forwards_mngr
          ].
 
 init_per_suite(Config) ->
@@ -42,6 +44,24 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
+
+t_forwards_mngr(Config) when is_list(Config) ->
+    Subs = [{<<"a">>, 1}, {<<"b">>, 2}],
+    Cfg = #{address => node(),
+            forwards => [<<"mngr">>],
+            connect_module => emqx_portal_rpc,
+            mountpoint => <<"forwarded">>,
+            subscriptions => Subs
+           },
+    Name = ?FUNCTION_NAME,
+    {ok, Pid} = emqx_portal:start_link(Name, Cfg),
+    try
+        ?assertEqual([<<"mngr">>], emqx_portal:get_forwards(Name)),
+        ?assertEqual(Subs, emqx_portal:get_subscriptions(Pid))
+    after
+        ok = emqx_portal:stop(Pid)
+    end.
+
 
 %% A loopback RPC to local node
 t_rpc(Config) when is_list(Config) ->
