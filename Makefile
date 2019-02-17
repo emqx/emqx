@@ -101,11 +101,18 @@ rebar-eunit: $(CUTTLEFISH_SCRIPT)
 rebar-compile:
 	@rebar3 compile
 
-rebar-ct: app.config
+rebar-ct-setup: app.config
 	@rebar3 as test compile
 	@ln -s -f '../../../../etc' _build/test/lib/emqx/
 	@ln -s -f '../../../../data' _build/test/lib/emqx/
+
+rebar-ct: rebar-ct-setup
 	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(shell echo $(foreach var,$(CT_SUITES),test/$(var)_SUITE) | tr ' ' ',')
+
+## Run one single CT with rebar3
+## e.g. make ct-one-suite suite=emqx_portal
+ct-one-suite: rebar-ct-setup
+	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(suite)_SUITE
 
 rebar-clean:
 	@rebar3 clean
