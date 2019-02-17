@@ -23,6 +23,11 @@
          stop/2
         ]).
 
+%% optional behaviour callbacks
+-export([ensure_subscribed/3,
+         ensure_unsubscribed/2
+        ]).
+
 -include("emqx_mqtt.hrl").
 
 -define(ACK_REF(ClientPid, PktId), {ClientPid, PktId}).
@@ -64,6 +69,18 @@ start(Config) ->
 stop(Ref, #{ack_collector := AckCollector, client_pid := Pid}) ->
     safe_stop(AckCollector, fun() -> AckCollector ! ?STOP(Ref) end, 1000),
     safe_stop(Pid, fun() -> emqx_client:stop(Pid) end, 1000),
+    ok.
+
+ensure_subscribed(#{client_pid := Pid}, Topic, QoS) when is_pid(Pid) ->
+    emqx_client:subscribe(Pid, Topic, QoS);
+ensure_subscribed(_Conn, _Topic, _QoS) ->
+    %% return ok for now, next re-connect should should call start with new topic added to config
+    ok.
+
+ensure_unsubscribed(#{client_pid := Pid}, Topic) when is_pid(Pid) ->
+    emqx_client:unsubscribe(Pid, Topic);
+ensure_unsubscribed(_, _) ->
+    %% return ok for now, next re-connect should should call start with this topic deleted from config
     ok.
 
 safe_stop(Pid, StopF, Timeout) ->

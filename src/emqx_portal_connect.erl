@@ -18,7 +18,7 @@
 
 -export_type([config/0, connection/0]).
 
--optional_callbacks([]).
+-optional_callbacks([ensure_subscribed/3, ensure_unsubscribed/2]).
 
 %% map fields depend on implementation
 -type config() :: map().
@@ -26,6 +26,8 @@
 -type conn_ref() :: term().
 -type batch() :: emqx_protal:batch().
 -type ack_ref() :: emqx_portal:ack_ref().
+-type topic() :: emqx_topic:topic().
+-type qos() :: emqx_mqtt_types:qos().
 
 -include("logger.hrl").
 
@@ -41,6 +43,10 @@
 
 %% called when owner is shutting down.
 -callback stop(conn_ref(), connection()) -> ok.
+
+-callback ensure_subscribed(connection(), topic(), qos()) -> ok.
+
+-callback ensure_unsubscribed(connection(), topic()) -> ok.
 
 start(Module, Config) ->
     case Module:start(Config) of
