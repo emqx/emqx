@@ -39,8 +39,7 @@ init_per_suite(Config) ->
         _ ->
             ok
     end,
-    emqx_ct_broker_helpers:run_setup_steps(),
-    Config.
+    emqx_ct_broker_helpers:run_setup_steps(Config).
 
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
@@ -57,11 +56,13 @@ t_forwards_mngr(Config) when is_list(Config) ->
     {ok, Pid} = emqx_portal:start_link(Name, Cfg),
     try
         ?assertEqual([<<"mngr">>], emqx_portal:get_forwards(Name)),
+        ?assertEqual(ok, emqx_portal:ensure_forward_present(Name, "mngr")),
+        ?assertEqual(ok, emqx_portal:ensure_forward_present(Name, "mngr2")),
+        ?assertEqual([<<"mngr">>, <<"mngr2">>], emqx_portal:get_forwards(Pid)),
         ?assertEqual(Subs, emqx_portal:get_subscriptions(Pid))
     after
         ok = emqx_portal:stop(Pid)
     end.
-
 
 %% A loopback RPC to local node
 t_rpc(Config) when is_list(Config) ->
