@@ -74,7 +74,7 @@
 
 %% management APIs
 -export([get_forwards/1, ensure_forward_present/2, ensure_forward_absent/2]).
--export([get_subscriptions/1]). %, add_subscription/3, del_subscription/2]).
+-export([get_subscriptions/1, ensure_subscription_present/3, ensure_subscription_absent/2]).
 
 -export_type([config/0,
               batch/0,
@@ -142,17 +142,32 @@ handle_ack(Pid, Ref) when node() =:= node(Pid) ->
 -spec get_forwards(id()) -> [topic()].
 get_forwards(Id) -> gen_statem:call(id(Id), get_forwards, timer:seconds(1000)).
 
+%% @doc Return all subscriptions (subscription over mqtt connection to remote broker).
+-spec get_subscriptions(id()) -> [{emqx_topic:topic(), qos()}].
+get_subscriptions(Id) -> gen_statem:call(id(Id), get_subscriptions).
+
 %% @doc Add a new forward (local topic subscription).
 -spec ensure_forward_present(id(), topic()) -> ok.
 ensure_forward_present(Id, Topic) ->
-    gen_statem:call(id(Id), {ensure_forward_present, topic(Topic)}).
+    gen_statem:call(id(Id), {ensure_present, forwards, topic(Topic)}).
 
+%% @doc Ensure a forward topic is deleted.
 -spec ensure_forward_absent(id(), topic()) -> ok.
 ensure_forward_absent(Id, Topic) ->
-    gen_statem:call(id(Id), {ensure_forward_absent, topic(Topic)}).
+    gen_statem:call(id(Id), {ensure_absent, forwards, topic(Topic)}).
 
--spec get_subscriptions(id()) -> [{emqx_topic:topic(), qos()}].
-get_subscriptions(Id) -> gen_statem:call(id(Id), get_subscriptions).
+%% @doc Ensure subscribed to remote topic.
+%% NOTE: only applicable when connection module is emqx_portal_mqtt
+%%       return `{error, no_remote_subscription_support}' otherwise.
+-spec ensure_subscription_present(id(), topic(), qos()) -> ok | {error, any()}.
+ensure_subscription_present(Id, Topic, QoS) ->
+    gen_statem:call(id(Id), {ensure_present, subscriptions, {topic(Topic), QoS}}).
+
+%% @doc Ensure unsubscribed from remote topic.
+%% NOTE: only applicable when connection module is emqx_portal_mqtt
+-spec ensure_subscription_absent(id(), topic()) -> ok.
+ensure_subscription_absent(Id, Topic) ->
+    gen_statem:call(id(Id), {ensure_absent, subscriptions, topic(Topic)}).
 
 callback_mode() -> [state_functions, state_enter].
 
@@ -187,7 +202,7 @@ init(Config) ->
                                   mountpoint,
                                   forwards
                                  ], Config#{subscriptions => Subs}),
-    ConnectFun = fun() -> emqx_portal_connect:start(ConnectModule, ConnectConfig) end,
+    ConnectFun = fun(SubsX) -> emqx_portal_connect:start(ConnectModule, ConnectConfig#{subscriptions := SubsX}) end,
     {ok, connecting,
      #{connect_module => ConnectModule,
        connect_fun => ConnectFun,
@@ -217,8 +232,10 @@ connecting(enter, connected, #{reconnect_delay_ms := Timeout}) ->
     Action = {state_timeout, Timeout, reconnect},
     {keep_state_and_data, Action};
 connecting(enter, connecting, #{reconnect_delay_ms := Timeout,
-                                connect_fun := ConnectFun} = State) ->
-    case ConnectFun() of
+                                connect_fun := ConnectFun,
+                                subscriptions := Subs
+                               } = State) ->
+    case ConnectFun(Subs) of
         {ok, ConnRef, Conn} ->
             Action = {state_timeout, 0, connected},
             {keep_state, State#{conn_ref => ConnRef, connection => Conn}, Action};
@@ -277,7 +294,7 @@ connected(info, {batch_ack, Ref}, State) ->
             %% try re-connect then re-send
             {next_state, connecting, disconnect(State)};
         {ok, NewState} ->
-            {keep_state, NewState}
+            {keep_state, NewState, ?maybe_send}
     end;
 connected(Type, Content, State) ->
     common(connected, Type, Content, State).
@@ -285,28 +302,14 @@ connected(Type, Content, State) ->
 %% Common handlers
 common(_StateName, {call, From}, get_forwards, #{forwards := Forwards}) ->
     {keep_state_and_data, [{reply, From, Forwards}]};
-common(_StateName, {call, From}, {ensure_forward_present, Topic},
-       #{forwards := Forwards} = State) ->
-    case lists:member(Topic, Forwards) of
-        true ->
-            {keep_state_and_data, [{reply, From, ok}]};
-        false ->
-            ok = subscribe_local_topic(Topic),
-            {keep_state, State#{forwards := lists:usort([Topic | Forwards])},
-             [{reply, From, ok}]}
-    end;
-common(_StateName, {call, From}, {ensure_forward_absent, Topic},
-       #{forwards := Forwards} = State) ->
-    case lists:member(Topic, Forwards) of
-        true ->
-            emqx_broker:unsubscribe(Topic),
-            {keep_state, State#{forwards := lists:delete(Topic, Forwards)},
-             [{reply, From, ok}]};
-        false ->
-            {keep_state_and_data, [{reply, From, ok}]}
-    end;
 common(_StateName, {call, From}, get_subscriptions, #{subscriptions := Subs}) ->
     {keep_state_and_data, [{reply, From, Subs}]};
+common(_StateName, {call, From}, {ensure_present, What, Topic}, State) ->
+    {Result, NewState} = ensure_present(What, Topic, State),
+    {keep_state, NewState, [{reply, From, Result}]};
+common(_StateName, {call, From}, {ensure_absent, What, Topic}, State) ->
+    {Result, NewState} = ensure_absent(What, Topic, State),
+    {keep_state, NewState, [{reply, From, Result}]};
 common(_StateName, info, {dispatch, _, Msg},
        #{replayq := Q} = State) ->
     NewQ = replayq:append(Q, collect([Msg])),
@@ -315,6 +318,53 @@ common(StateName, Type, Content, State) ->
     ?INFO("Portal ~p discarded ~p type event at state ~p:~p",
           [name(), Type, StateName, Content]),
     {keep_state, State}.
+
+ensure_present(Key, Topic, State) ->
+    Topics = maps:get(Key, State),
+    case is_topic_present(Topic, Topics) of
+        true ->
+            {ok, State};
+        false ->
+            R = do_ensure_present(Key, Topic, State),
+            {R, State#{Key := lists:usort([Topic | Topics])}}
+    end.
+
+ensure_absent(Key, Topic, State) ->
+    Topics = maps:get(Key, State),
+    case is_topic_present(Topic, Topics) of
+        true ->
+            R = do_ensure_absent(Key, Topic, State),
+            {R, State#{Key := ensure_topic_absent(Topic, Topics)}};
+        false ->
+            {ok, State}
+    end.
+
+ensure_topic_absent(_Topic, []) -> [];
+ensure_topic_absent(Topic, [{_, _} | _] = L) -> lists:keydelete(Topic, 1, L);
+ensure_topic_absent(Topic, L) -> lists:delete(Topic, L).
+
+is_topic_present({Topic, _QoS}, Topics) ->
+    is_topic_present(Topic, Topics);
+is_topic_present(Topic, Topics) ->
+    lists:member(Topic, Topics) orelse false =/= lists:keyfind(Topic, 1, Topics).
+
+do_ensure_present(forwards, Topic, _) ->
+    ok = subscribe_local_topic(Topic);
+do_ensure_present(subscriptions, {Topic, QoS},
+                  #{connect_module := ConnectModule, connection := Conn}) ->
+    case erlang:function_exported(ConnectModule, ensure_subscribed, 3) of
+        true -> ConnectModule:ensure_subscribed(Conn, Topic, QoS);
+        false -> {error, no_remote_subscription_support}
+    end.
+
+do_ensure_absent(forwards, Topic, _) ->
+    ok = emqx_broker:unsubscribe(Topic);
+do_ensure_absent(subscriptions, Topic, #{connect_module := ConnectModule,
+                                         connection := Conn}) ->
+    case erlang:function_exported(ConnectModule, ensure_unsubscribed, 2) of
+        true -> ConnectModule:ensure_unsubscribed(Conn, Topic);
+        false -> {error, no_remote_subscription_support}
+    end.
 
 collect(Acc) ->
     receive

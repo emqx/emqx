@@ -17,7 +17,7 @@
 -export([all/0, init_per_suite/1, end_per_suite/1]).
 -export([t_rpc/1,
          t_mqtt/1,
-         t_forwards_mngr/1
+         t_mngr/1
         ]).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -29,7 +29,7 @@
 
 all() -> [t_rpc,
           t_mqtt,
-          t_forwards_mngr
+          t_mngr
          ].
 
 init_per_suite(Config) ->
@@ -44,7 +44,7 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
 
-t_forwards_mngr(Config) when is_list(Config) ->
+t_mngr(Config) when is_list(Config) ->
     Subs = [{<<"a">>, 1}, {<<"b">>, 2}],
     Cfg = #{address => node(),
             forwards => [<<"mngr">>],
@@ -62,6 +62,10 @@ t_forwards_mngr(Config) when is_list(Config) ->
         ?assertEqual(ok, emqx_portal:ensure_forward_absent(Name, "mngr2")),
         ?assertEqual(ok, emqx_portal:ensure_forward_absent(Name, "mngr3")),
         ?assertEqual([<<"mngr">>], emqx_portal:get_forwards(Pid)),
+        ?assertEqual({error, no_remote_subscription_support},
+                     emqx_portal:ensure_subscription_present(Pid, <<"t">>, 0)),
+        ?assertEqual({error, no_remote_subscription_support},
+                     emqx_portal:ensure_subscription_absent(Pid, <<"t">>)),
         ?assertEqual(Subs, emqx_portal:get_subscriptions(Pid))
     after
         ok = emqx_portal:stop(Pid)
@@ -93,10 +97,16 @@ t_rpc(Config) when is_list(Config) ->
         ok = emqx_portal:stop(Pid)
     end.
 
+%% Full data loopback flow explained:
+%% test-pid --->  mock-cleint ----> local-broker ---(local-subscription)--->
+%% portal(export) --- (mqtt-connection)--> local-broker ---(remote-subscription) -->
+%% portal(import) --(mecked message sending)--> test-pid
 t_mqtt(Config) when is_list(Config) ->
     SendToTopic = <<"t_mqtt/one">>,
+    SendToTopic2 = <<"t_mqtt/two">>,
     Mountpoint = <<"forwarded/${node}/">>,
     ForwardedTopic = emqx_topic:join(["forwarded", atom_to_list(node()), SendToTopic]),
+    ForwardedTopic2 = emqx_topic:join(["forwarded", atom_to_list(node()), SendToTopic2]),
     Cfg = #{address => "127.0.0.1:1883",
             forwards => [SendToTopic],
             connect_module => emqx_portal_mqtt,
@@ -118,7 +128,7 @@ t_mqtt(Config) when is_list(Config) ->
             start_type => manual,
             %% Consume back to forwarded message for verification
             %% NOTE: this is a indefenite loopback without mocking emqx_portal:import_batch/2
-            subscriptions => [{ForwardedTopic, 1}]
+            subscriptions => [{ForwardedTopic, _QoS = 1}]
            },
     Tester = self(),
     Ref = make_ref(),
@@ -131,15 +141,27 @@ t_mqtt(Config) when is_list(Config) ->
     {ok, Pid} = emqx_portal:start_link(?FUNCTION_NAME, Cfg),
     ClientId = <<"client-1">>,
     try
+        ?assertEqual([{ForwardedTopic, 1}], emqx_portal:get_subscriptions(Pid)),
+        emqx_portal:ensure_subscription_present(Pid, ForwardedTopic2, _QoS = 1),
+        ?assertEqual([{ForwardedTopic, 1},
+                      {ForwardedTopic2, 1}], emqx_portal:get_subscriptions(Pid)),
         {ok, ConnPid} = emqx_mock_client:start_link(ClientId),
         {ok, SPid} = emqx_mock_client:open_session(ConnPid, ClientId, internal),
         %% message from a different client, to avoid getting terminated by no-local
-        Msgs = lists:seq(1, 10),
+        Max = 100,
+        Msgs = lists:seq(1, Max),
         lists:foreach(fun(I) ->
                               Msg = emqx_message:make(<<"client-2">>, ?QOS_1, SendToTopic, integer_to_binary(I)),
                               emqx_session:publish(SPid, I, Msg)
                       end, Msgs),
         ok = receive_and_match_messages(Ref, Msgs),
+        ok = emqx_portal:ensure_forward_present(Pid, SendToTopic2),
+        Msgs2 = lists:seq(Max + 1, Max * 2),
+        lists:foreach(fun(I) ->
+                              Msg = emqx_message:make(<<"client-2">>, ?QOS_1, SendToTopic2, integer_to_binary(I)),
+                              emqx_session:publish(SPid, I, Msg)
+                      end, Msgs2),
+        ok = receive_and_match_messages(Ref, Msgs2),
         emqx_mock_client:close_session(ConnPid)
     after
         ok = emqx_portal:stop(Pid),
@@ -147,7 +169,7 @@ t_mqtt(Config) when is_list(Config) ->
     end.
 
 receive_and_match_messages(Ref, Msgs) ->
-    TRef = erlang:send_after(timer:seconds(4), self(), {Ref, timeout}),
+    TRef = erlang:send_after(timer:seconds(5), self(), {Ref, timeout}),
     try
         do_receive_and_match_messages(Ref, Msgs)
     after
