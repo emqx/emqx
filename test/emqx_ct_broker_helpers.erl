@@ -54,10 +54,17 @@
                          "ECDH-RSA-AES128-SHA","AES128-SHA"]}]).
 
 run_setup_steps() ->
+    _ = run_setup_steps([]),
+    %% return ok to be backward compatible
+    ok.
+
+run_setup_steps(Config) ->
     NewConfig = generate_config(),
     lists:foreach(fun set_app_env/1, NewConfig),
     set_bridge_env(),
-    application:ensure_all_started(?APP).
+    {ok, _} = application:ensure_all_started(?APP),
+    set_log_level(Config),
+    Config.
 
 run_teardown_steps() ->
     ?APP:shutdown().
@@ -66,6 +73,12 @@ generate_config() ->
     Schema = cuttlefish_schema:files([local_path(["priv", "emqx.schema"])]),
     Conf = conf_parse:file([local_path(["etc", "gen.emqx.conf"])]),
     cuttlefish_generator:map(Schema, Conf).
+
+set_log_level(Config) ->
+    case proplists:get_value(log_level, Config) of
+        undefined -> ok;
+        Level -> emqx_logger:set_log_level(Level)
+    end.
 
 get_base_dir(Module) ->
     {file, Here} = code:is_loaded(Module),
