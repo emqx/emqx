@@ -18,6 +18,7 @@
 
 -include("emqx.hrl").
 -include("logger.hrl").
+-include("types.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -61,7 +62,7 @@ mnesia(copy) ->
 %%------------------------------------------------------------------------------
 
 %% @doc Starts the router helper
--spec(start_link() ->  emqx_types:startlink_ret()).
+-spec(start_link() -> startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 

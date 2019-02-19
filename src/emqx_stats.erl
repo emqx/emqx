@@ -18,6 +18,7 @@
 
 -include("emqx.hrl").
 -include("logger.hrl").
+-include("types.hrl").
 
 -export([start_link/0, start_link/1, stop/0]).
 
@@ -82,11 +83,11 @@
 -type opts() :: #{tick_ms := timeout()}.
 
 %% @doc Start stats server
--spec(start_link() -> emqx_types:startlink_ret()).
+-spec(start_link() -> startlink_ret()).
 start_link() ->
     start_link(#{tick_ms => timer:seconds(1)}).
 
--spec(start_link(opts()) -> emqx_types:startlink_ret()).
+-spec(start_link(opts()) -> startlink_ret()).
 start_link(Opts) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, Opts, []).
 
@@ -112,7 +113,7 @@ getstats() ->
     end.
 
 %% @doc Get stats by name
--spec(getstat(atom()) -> non_neg_integer() | undefined).
+-spec(getstat(atom()) -> maybe(non_neg_integer())).
 getstat(Name) ->
     case ets:lookup(?TAB, Name) of
         [{Name, Val}] -> Val;

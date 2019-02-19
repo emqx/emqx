@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("logger.hrl").
+-include("types.hrl").
 
 -export([start_link/1]).
 -export([start_session/1, count_sessions/0]).
@@ -38,7 +39,7 @@
 -define(BATCH_EXIT, 100000).
 
 %% @doc Start session supervisor.
--spec(start_link(map()) -> emqx_types:startlink_ret()).
+-spec(start_link(map()) -> startlink_ret()).
 start_link(SessSpec) when is_map(SessSpec) ->
     gen_server:start_link({local, ?SUP}, ?MODULE, [SessSpec], []).
 
@@ -47,7 +48,7 @@ start_link(SessSpec) when is_map(SessSpec) ->
 %%------------------------------------------------------------------------------
 
 %% @doc Start a session.
--spec(start_session(map()) -> emqx_types:startlink_ret()).
+-spec(start_session(map()) -> startlink_ret()).
 start_session(SessAttrs) ->
     gen_server:call(?SUP, {start_session, SessAttrs}, infinity).
 
