@@ -176,11 +176,6 @@
 
 -define(MAX_PACKET_ID, 16#ffff).
 -define(MAX_PACKET_SIZE, 16#fffffff).
--define(BUMP_PACKET_ID(Base, Bump),
-        case Base + Bump of
-            __I__ when __I__ > ?MAX_PACKET_ID -> __I__ - ?MAX_PACKET_ID;
-            __I__ -> __I__
-        end).
 
 %%--------------------------------------------------------------------
 %% MQTT Frame Mask
