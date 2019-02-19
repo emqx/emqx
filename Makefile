@@ -35,7 +35,7 @@ CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
 			emqx_keepalive emqx_lib emqx_metrics emqx_mod emqx_mod_sup emqx_mqtt_caps \
 			emqx_mqtt_props emqx_mqueue emqx_net emqx_pqueue emqx_router emqx_sm \
 			emqx_tables emqx_time emqx_topic emqx_trie emqx_vm emqx_mountpoint \
-			emqx_listeners emqx_protocol emqx_pool emqx_shared_sub \
+			emqx_listeners emqx_protocol emqx_pool emqx_shared_sub emqx_portal \
 			emqx_hooks emqx_batch emqx_sequence emqx_pmon emqx_pd emqx_gc emqx_ws_connection \
 			emqx_packet emqx_connection emqx_tracer emqx_sys_mon emqx_message
 
