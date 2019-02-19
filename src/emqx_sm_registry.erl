@@ -18,6 +18,7 @@
 
 -include("emqx.hrl").
 -include("logger.hrl").
+-include("types.hrl").
 
 -export([start_link/0]).
 -export([is_enabled/0]).
@@ -36,7 +37,7 @@
 -type(session_pid() :: pid()).
 
 %% @doc Start the global session manager.
--spec(start_link() -> emqx_types:startlink_ret()).
+-spec(start_link() -> startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?REGISTRY}, ?MODULE, [], []).
 

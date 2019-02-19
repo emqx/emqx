@@ -21,6 +21,8 @@
 
 -module(emqx_gc).
 
+-include("types.hrl").
+
 -export([init/1, run/3, info/1, reset/1]).
 
 -type(opts() :: #{count => integer(),
@@ -35,7 +37,7 @@
 -define(ENABLED(X), (is_integer(X) andalso X > 0)).
 
 %% @doc Initialize force GC state.
--spec(init(opts() | false) -> gc_state() | undefined).
+-spec(init(opts() | false) -> maybe(gc_state())).
 init(#{count := Count, bytes := Bytes}) ->
     Cnt = [{cnt, {Count, Count}} || ?ENABLED(Count)],
     Oct = [{oct, {Bytes, Bytes}} || ?ENABLED(Bytes)],
@@ -61,7 +63,7 @@ run([{K, N}|T], St) ->
     end.
 
 %% @doc Info of GC state.
--spec(info(gc_state()) -> map() | undefined).
+-spec(info(gc_state()) -> maybe(map())).
 info({?MODULE, St}) ->
     St;
 info(undefined) ->

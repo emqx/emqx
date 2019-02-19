@@ -15,6 +15,7 @@
 -module(emqx_metrics).
 
 -include("logger.hrl").
+-include("types.hrl").
 -include("emqx_mqtt.hrl").
 
 -export([start_link/0]).
@@ -87,7 +88,7 @@
 -define(SERVER, ?MODULE).
 
 %% @doc Start the metrics server.
--spec(start_link() -> emqx_types:startlink_ret()).
+-spec(start_link() -> startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 

@@ -15,6 +15,7 @@
 -module(emqx).
 
 -include("emqx.hrl").
+-include("types.hrl").
 
 %% Start/Stop the application
 -export([start/0, restart/1, is_running/1, stop/0]).
@@ -167,8 +168,10 @@ reboot() ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
 reload_config(ConfFile) ->
     {ok, [Conf]} = file:consult(ConfFile),
     lists:foreach(fun({App, Vals}) ->
                       [application:set_env(App, Par, Val) || {Par, Val} <- Vals]
                   end, Conf).
+

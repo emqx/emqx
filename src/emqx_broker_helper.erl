@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("logger.hrl").
+-include("types.hrl").
 
 -export([start_link/0]).
 -export([register_sub/2]).
@@ -35,7 +36,7 @@
 
 -define(BATCH_SIZE, 100000).
 
--spec(start_link() -> emqx_types:startlink_ret()).
+-spec(start_link() -> startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?HELPER}, ?MODULE, [], []).
 
@@ -50,7 +51,7 @@ register_sub(SubPid, SubId) when is_pid(SubPid) ->
             error(subid_conflict)
     end.
 
--spec(lookup_subid(pid()) -> emqx_types:subid() | undefined).
+-spec(lookup_subid(pid()) -> maybe(emqx_types:subid())).
 lookup_subid(SubPid) when is_pid(SubPid) ->
     emqx_tables:lookup_value(?SUBMON, SubPid).
 

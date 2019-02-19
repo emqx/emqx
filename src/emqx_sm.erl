@@ -18,6 +18,7 @@
 
 -include("emqx.hrl").
 -include("logger.hrl").
+-include("types.hrl").
 
 -export([start_link/0]).
 
@@ -55,7 +56,7 @@
 
 -define(BATCH_SIZE, 100000).
 
--spec(start_link() -> emqx_types:startlink_ret()).
+-spec(start_link() -> startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?SM}, ?MODULE, [], []).
 

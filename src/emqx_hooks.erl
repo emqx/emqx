@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("logger.hrl").
+-include("types.hrl").
 
 -export([start_link/0, stop/0]).
 
@@ -42,7 +43,7 @@
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 
--spec(start_link() -> emqx_types:startlink_ret()).
+-spec(start_link() -> startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], [{hibernate_after, 1000}]).
 

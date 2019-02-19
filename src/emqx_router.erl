@@ -18,6 +18,7 @@
 
 -include("emqx.hrl").
 -include("logger.hrl").
+-include("types.hrl").
 -include_lib("ekka/include/ekka.hrl").
 
 %% Mnesia bootstrap
@@ -65,7 +66,7 @@ mnesia(copy) ->
 %% Start a router
 %%------------------------------------------------------------------------------
 
--spec(start_link(atom(), pos_integer()) -> emqx_types:startlink_ret()).
+-spec(start_link(atom(), pos_integer()) -> startlink_ret()).
 start_link(Pool, Id) ->
     gen_server:start_link({local, emqx_misc:proc_name(?MODULE, Id)},
                           ?MODULE, [Pool, Id], [{hibernate_after, 1000}]).
