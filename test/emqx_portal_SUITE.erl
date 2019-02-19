@@ -156,6 +156,7 @@ t_mqtt(Config) when is_list(Config) ->
                       end, Msgs),
         ok = receive_and_match_messages(Ref, Msgs),
         ok = emqx_portal:ensure_forward_present(Pid, SendToTopic2),
+        timer:sleep(200),
         Msgs2 = lists:seq(Max + 1, Max * 2),
         lists:foreach(fun(I) ->
                               Msg = emqx_message:make(<<"client-2">>, ?QOS_1, SendToTopic2, integer_to_binary(I)),
@@ -181,8 +182,11 @@ do_receive_and_match_messages(_Ref, []) -> ok;
 do_receive_and_match_messages(Ref, [I | Rest]) ->
     receive
         {Ref, timeout} -> erlang:error(timeout);
-        {Ref, [#{payload := P}]} ->
-            ?assertEqual(I, binary_to_integer(P)),
+        {Ref, [#{payload := P} = Msg]} ->
+            case I =:= binary_to_integer(P) of
+                true -> ok;
+                false -> throw({unexpected, Msg, [I | Rest]})
+            end,
             do_receive_and_match_messages(Ref, Rest)
     end.
 

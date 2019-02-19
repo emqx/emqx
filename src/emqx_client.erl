@@ -35,6 +35,7 @@
 -export([pubcomp/2, pubcomp/3, pubcomp/4]).
 -export([subscriptions/1]).
 -export([info/1, stop/1]).
+-export([next_packet_id/1, next_packet_id/2]).
 %% For test cases
 -export([pause/1, resume/1]).
 
@@ -420,6 +421,19 @@ disconnect(Client, ReasonCode) ->
 -spec(disconnect(client(), reason_code(), properties()) -> ok).
 disconnect(Client, ReasonCode, Properties) ->
     gen_statem:call(Client, {disconnect, ReasonCode, Properties}).
+
+-spec next_packet_id(packet_id()) -> packet_id().
+next_packet_id(?MAX_PACKET_ID) -> 1;
+next_packet_id(Id) -> Id + 1.
+
+-spec next_packet_id(packet_id(), integer()) -> packet_id().
+next_packet_id(Id, Bump) ->
+    true = (Bump < ?MAX_PACKET_ID div 2), %% assert
+    N = Id + Bump,
+    case N > ?MAX_PACKET_ID of
+        true -> N - ?MAX_PACKET_ID;
+        false -> N
+    end.
 
 %%------------------------------------------------------------------------------
 %% For test cases
@@ -1354,7 +1368,7 @@ send(Packet, State = #state{socket = Sock, proto_ver = Ver})
     Data = emqx_frame:serialize(Packet, #{version => Ver}),
     emqx_logger:debug("SEND Data: ~p", [Data]),
     case emqx_client_sock:send(Sock, Data) of
-        ok  -> {ok, next_packet_id(State)};
+        ok  -> {ok, bump_last_packet_id(State)};
         Error -> Error
     end.
 
@@ -1397,8 +1411,6 @@ assign_packet_id([H | T], Id) ->
 assign_packet_id([], _Id) ->
     [].
 
-next_packet_id(State = #state{last_packet_id = Id}) ->
-    State#state{last_packet_id = next_packet_id(Id)};
-next_packet_id(16#ffff) -> 1;
-next_packet_id(Id) -> Id + 1.
+bump_last_packet_id(State = #state{last_packet_id = Id}) ->
+    State#state{last_packet_id = next_packet_id(Id)}.
 

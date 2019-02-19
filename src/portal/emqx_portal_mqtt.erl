@@ -103,7 +103,7 @@ safe_stop(Pid, StopF, Timeout) ->
 send(#{client_pid := ClientPid, ack_collector := AckCollector} = Conn, Batch) ->
     case emqx_client:publish(ClientPid, Batch) of
         {ok, BasePktId} ->
-            LastPktId = ?BUMP_PACKET_ID(BasePktId, length(Batch) - 1),
+            LastPktId = emqx_client:next_packet_id(BasePktId, length(Batch) - 1),
             AckCollector ! ?SENT(?RANGE(BasePktId, LastPktId)),
             %% return last pakcet id as batch reference
             {ok, LastPktId};
@@ -145,7 +145,7 @@ match_acks_1(Parent, {{value, PktId}, Acked}, [?RANGE(PktId, PktId) | Sent]) ->
     ok = emqx_portal:handle_ack(Parent, PktId),
     match_acks(Parent, Acked, Sent);
 match_acks_1(Parent, {{value, PktId}, Acked}, [?RANGE(PktId, Max) | Sent]) ->
-    match_acks(Parent, Acked, [?RANGE(PktId + 1, Max) | Sent]).
+    match_acks(Parent, Acked, [?RANGE(emqx_client:next_packet_id(PktId), Max) | Sent]).
 
 %% When puback for QoS-1 message is received from remote MQTT broker
 %% NOTE: no support for QoS-2
