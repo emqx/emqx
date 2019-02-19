@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -187,7 +187,15 @@ websocket_handle({binary, Data}, State = #state{parse_state = ParseState,
         _:Error ->
             ?LOG(error, "Frame error:~p~nFrame data: ~p", [Error, Data]),
             shutdown(parse_error, State)
-    end.
+    end;
+%% Pings should be replied with pongs, cowboy does it automatically
+%% Pongs can be safely ignored. Clause here simply prevents crash.
+websocket_handle(Frame, State)
+  when Frame =:= ping; Frame =:= pong ->
+    {ok, ensure_stats_timer(State)};
+websocket_handle({FrameType, _}, State)
+  when FrameType =:= ping; FrameType =:= pong ->
+    {ok, ensure_stats_timer(State)}.
 
 websocket_info({call, From, info}, State) ->
     gen_server:reply(From, info(State)),

@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@
 %% Banner
 %%--------------------------------------------------------------------
 
--define(COPYRIGHT, "Copyright (c) 2018 EMQ Technologies Co., Ltd").
+-define(COPYRIGHT, "Copyright (c) 2013-2019 EMQ Technologies Co., Ltd").
 
 -define(LICENSE_MESSAGE, "Licensed under the Apache License, Version 2.0").
 
