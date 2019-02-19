@@ -56,6 +56,7 @@
 run_setup_steps() ->
     NewConfig = generate_config(),
     lists:foreach(fun set_app_env/1, NewConfig),
+    set_bridge_env(),
     application:ensure_all_started(?APP).
 
 run_teardown_steps() ->
@@ -87,6 +88,10 @@ set_app_env({App, Lists}) ->
                      ({Par, Var}) ->
                       application:set_env(App, Par, Var)
                   end, Lists).
+
+set_bridge_env() ->
+    BridgeEnvs = bridge_conf(),
+    application:set_env(?APP, bridges, BridgeEnvs).
 
 change_opts(SslType) ->
     {ok, Listeners} = application:get_env(?APP, listeners),
@@ -149,3 +154,26 @@ flush(Msgs) ->
     after
         0 -> lists:reverse(Msgs)
     end.
+
+bridge_conf() ->
+    [{aws,
+      [{username,"user"},
+       {address,"127.0.0.1:1883"},
+       {clean_start,true},
+       {client_id,"bridge_aws"},
+       {forwards,["topic1/#","topic2/#"]},
+       {keepalive,60000},
+       {max_inflight,32},
+       {mountpoint,"bridge/aws/${node}/"},
+       {password,"passwd"},
+       {proto_ver,mqttv4},
+       {queue,
+        #{batch_size => 1000,mem_cache => true,
+          replayq_dir => "data/emqx_aws_bridge/",
+          replayq_seg_bytes => 10485760}},
+       {reconnect_interval,30000},
+       {retry_interval,20000},
+       {ssl,false},
+       {ssl_opts,[{versions,[tlsv1,'tlsv1.1','tlsv1.2']}]},
+       {start_type,manual},
+       {subscriptions,[{"cmd/topic1",1},{"cmd/topic2",1}]}]}].

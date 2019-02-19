@@ -24,7 +24,7 @@
 -define(NOTICE(Format, Args), ?LOG(notice, Format, Args)).
 
 -define(WARN(Format), ?LOG(warning, Format, [])).
--define(WARN(Format, Args), ?LOG(warning, Format, [])).
+-define(WARN(Format, Args), ?LOG(warning, Format, Args)).
 
 -define(ERROR(Format), ?LOG(error, Format, [])).
 -define(ERROR(Format, Args), ?LOG(error, Format, Args)).

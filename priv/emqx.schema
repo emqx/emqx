@@ -324,38 +324,38 @@ end}.
 
 %% Client connect timeout
 {mapping, "rpc.connect_timeout", "gen_rpc.connect_timeout", [
-  {default, 5000},
-  {datatype, integer}
+  {default, "5s"},
+  {datatype, {duration, ms}}
 ]}.
 
 %% Client and Server send timeout
 {mapping, "rpc.send_timeout", "gen_rpc.send_timeout", [
   {default, 5000},
-  {datatype, integer}
+  {datatype, {duration, ms}}
 ]}.
 
 %% Authentication timeout
 {mapping, "rpc.authentication_timeout", "gen_rpc.authentication_timeout", [
   {default, 5000},
-  {datatype, integer}
+  {datatype, {duration, ms}}
 ]}.
 
 %% Default receive timeout for call() functions
 {mapping, "rpc.call_receive_timeout", "gen_rpc.call_receive_timeout", [
   {default, 15000},
-  {datatype, integer}
+  {datatype, {duration, ms}}
 ]}.
 
 %% Socket keepalive configuration
 {mapping, "rpc.socket_keepalive_idle", "gen_rpc.socket_keepalive_idle", [
   {default, 7200},
-  {datatype, integer}
+  {datatype, {duration, s}}
 ]}.
 
 %% Seconds between probes
 {mapping, "rpc.socket_keepalive_interval", "gen_rpc.socket_keepalive_interval", [
   {default, 75},
-  {datatype, integer}
+  {datatype, {duration, s}}
 ]}.
 
 %% Probes lost to close the connection
