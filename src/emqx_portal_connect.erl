@@ -67,6 +67,5 @@ obfuscate(Map) ->
                       end
               end, [], Map).
 
-is_sensitive(passsword) -> true;
+is_sensitive(password) -> true;
 is_sensitive(_) -> false.
-
