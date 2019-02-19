@@ -353,8 +353,11 @@ do_ensure_present(forwards, Topic, _) ->
 do_ensure_present(subscriptions, {Topic, QoS},
                   #{connect_module := ConnectModule, connection := Conn}) ->
     case erlang:function_exported(ConnectModule, ensure_subscribed, 3) of
-        true -> ConnectModule:ensure_subscribed(Conn, Topic, QoS);
-        false -> {error, no_remote_subscription_support}
+        true ->
+            _ = ConnectModule:ensure_subscribed(Conn, Topic, QoS),
+            ok;
+        false ->
+            {error, no_remote_subscription_support}
     end.
 
 do_ensure_absent(forwards, Topic, _) ->

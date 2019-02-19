@@ -1512,11 +1512,6 @@ end}.
 %%--------------------------------------------------------------------
 %% Bridges
 %%--------------------------------------------------------------------
-{mapping, "bridge.$name.transport", "emqx.bridges", [
-  {default, mqtt_client},
-  {datatype, {enum, [emqx_portal, mqtt_client]}}
-]}.
-
 {mapping, "bridge.$name.address", "emqx.bridges", [
   {datatype, string}
 ]}.
