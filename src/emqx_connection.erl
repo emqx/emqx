@@ -12,7 +12,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_channel).
+-module(emqx_connection).
 
 -behaviour(gen_statem).
 

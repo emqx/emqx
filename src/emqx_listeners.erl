@@ -51,18 +51,18 @@ start_listener(Proto, ListenOn, Options) when Proto == ssl; Proto == tls ->
 
 %% Start MQTT/WS listener
 start_listener(Proto, ListenOn, Options) when Proto == http; Proto == ws ->
-    Dispatch = cowboy_router:compile([{'_', [{mqtt_path(Options), emqx_ws_channel, Options}]}]),
+    Dispatch = cowboy_router:compile([{'_', [{mqtt_path(Options), emqx_ws_connection, Options}]}]),
     start_http_listener(fun cowboy:start_clear/3, 'mqtt:ws', ListenOn, ranch_opts(Options), Dispatch);
 
 %% Start MQTT/WSS listener
 start_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
-    Dispatch = cowboy_router:compile([{'_', [{mqtt_path(Options), emqx_ws_channel, Options}]}]),
+    Dispatch = cowboy_router:compile([{'_', [{mqtt_path(Options), emqx_ws_connection, Options}]}]),
     start_http_listener(fun cowboy:start_tls/3, 'mqtt:wss', ListenOn, ranch_opts(Options), Dispatch).
 
 start_mqtt_listener(Name, ListenOn, Options) ->
     SockOpts = esockd:parse_opt(Options),
     esockd:open(Name, ListenOn, merge_default(SockOpts),
-                {emqx_channel, start_link, [Options -- SockOpts]}).
+                {emqx_connection, start_link, [Options -- SockOpts]}).
 
 start_http_listener(Start, Name, ListenOn, RanchOpts, Dispatch) ->
     Start(Name, with_port(ListenOn, RanchOpts), #{env => #{dispatch => Dispatch}}).

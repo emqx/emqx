@@ -12,7 +12,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_ws_channel).
+-module(emqx_ws_connection).
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
@@ -142,10 +142,8 @@ websocket_init(#state{request = Req, options = Options}) ->
                 idle_timeout = IdleTimout}}.
 
 send_fun(WsPid) ->
-    fun(Packet, Options) ->
-        Data = emqx_frame:serialize(Packet, Options),
+    fun(Data) ->
         BinSize = iolist_size(Data),
-        emqx_metrics:trans(inc, 'bytes/sent', BinSize),
         emqx_pd:update_counter(send_cnt, 1),
         emqx_pd:update_counter(send_oct, BinSize),
         WsPid ! {binary, iolist_to_binary(Data)},

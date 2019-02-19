@@ -351,7 +351,8 @@ process(?CONNECT_PACKET(
               case authenticate(credentials(PState2), Password) of
                   {ok, IsSuper} ->
                       %% Maybe assign a clientId
-                      PState3 = maybe_assign_client_id(PState2#pstate{is_super = IsSuper}),
+                      PState3 = maybe_assign_client_id(PState2#pstate{is_super = IsSuper,
+                                                                      will_msg = make_will_msg(ConnPkt)}),
                       emqx_logger:set_metadata_client_id(PState3#pstate.client_id),
                       %% Open session
                       case try_open_session(PState3) of
@@ -500,14 +501,15 @@ process(?DISCONNECT_PACKET(?RC_SUCCESS, #{'Session-Expiry-Interval' := Interval}
     case Interval =/= 0 andalso OldInterval =:= 0 of
         true ->
             deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState),
-            {error, protocol_error, PState};
+            {error, protocol_error, PState#pstate{will_msg = undefined}};
         false ->
             emqx_session:update_expiry_interval(SPid, Interval),
-            {stop, normal, PState}
+            %% Clean willmsg
+            {stop, normal, PState#pstate{will_msg = undefined}}
     end;
 
 process(?DISCONNECT_PACKET(?RC_SUCCESS), PState) ->
-    {stop, normal, PState};
+    {stop, normal, PState#pstate{will_msg = undefined}};
 
 process(?DISCONNECT_PACKET(_), PState) ->
     {stop, {shutdown, abnormal_disconnet}, PState}.

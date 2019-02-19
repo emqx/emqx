@@ -950,7 +950,6 @@ dequeue2(State = #state{mqueue = Q}) ->
 
 ensure_await_rel_timer(State = #state{await_rel_timer = undefined, await_rel_timeout = Timeout}) ->
     ensure_await_rel_timer(Timeout, State);
-
 ensure_await_rel_timer(State) ->
     State.
 

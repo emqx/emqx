@@ -12,7 +12,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_ws_channel_SUITE).
+-module(emqx_ws_connection_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -103,12 +103,12 @@ t_ws_connect_api(_Config) ->
     {binary, CONACK} = rfc6455_client:recv(WS),
     {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(CONACK),
     Pid = emqx_cm:lookup_conn_pid(<<"mqtt_client">>),
-    ?INFO = emqx_ws_channel:info(Pid),
-    ?ATTRS = emqx_ws_channel:attrs(Pid),
-    ?STATS = emqx_ws_channel:stats(Pid),
-    SessionPid = emqx_ws_channel:session(Pid),
+    ?INFO = emqx_ws_connection:info(Pid),
+    ?ATTRS = emqx_ws_connection:attrs(Pid),
+    ?STATS = emqx_ws_connection:stats(Pid),
+    SessionPid = emqx_ws_connection:session(Pid),
     true = is_pid(SessionPid),
-    ok = emqx_ws_channel:kick(Pid),
+    ok = emqx_ws_connection:kick(Pid),
     {close, _} = rfc6455_client:close(WS),
     ok.
 
