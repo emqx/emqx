@@ -142,7 +142,10 @@ t_mqtt(Config) when is_list(Config) ->
     ClientId = <<"client-1">>,
     try
         ?assertEqual([{ForwardedTopic, 1}], emqx_portal:get_subscriptions(Pid)),
-        emqx_portal:ensure_subscription_present(Pid, ForwardedTopic2, _QoS = 1),
+        ok = emqx_portal:ensure_subscription_present(Pid, ForwardedTopic2, _QoS = 1),
+        ok = emqx_portal:ensure_forward_present(Pid, SendToTopic2),
+        %% TODO: investigate why it's necessary
+        timer:sleep(1000),
         ?assertEqual([{ForwardedTopic, 1},
                       {ForwardedTopic2, 1}], emqx_portal:get_subscriptions(Pid)),
         {ok, ConnPid} = emqx_mock_client:start_link(ClientId),
@@ -155,8 +158,6 @@ t_mqtt(Config) when is_list(Config) ->
                               emqx_session:publish(SPid, I, Msg)
                       end, Msgs),
         ok = receive_and_match_messages(Ref, Msgs),
-        ok = emqx_portal:ensure_forward_present(Pid, SendToTopic2),
-        timer:sleep(200),
         Msgs2 = lists:seq(Max + 1, Max * 2),
         lists:foreach(fun(I) ->
                               Msg = emqx_message:make(<<"client-2">>, ?QOS_1, SendToTopic2, integer_to_binary(I)),
