@@ -71,7 +71,7 @@ disturbance_test() ->
 
 %% buffer should continue taking in messages when disconnected
 buffer_when_disconnected_test_() ->
-    {timeout, 5000, fun test_buffer_when_disconnected/0}.
+    {timeout, 10000, fun test_buffer_when_disconnected/0}.
 
 test_buffer_when_disconnected() ->
     Ref = make_ref(),
@@ -92,7 +92,7 @@ test_buffer_when_disconnected() ->
     Receiver ! {portal, Pid},
     ?assertEqual(Pid, whereis(?PORTAL_REG_NAME)),
     Pid ! {disconnected, Ref, test},
-    ?WAIT({'DOWN', SenderMref, process, Sender, normal}, 2000),
+    ?WAIT({'DOWN', SenderMref, process, Sender, normal}, 5000),
     ?WAIT({'DOWN', ReceiverMref, process, Receiver, normal}, 1000),
     ok = emqx_portal:stop(?PORTAL_REG_NAME).
 

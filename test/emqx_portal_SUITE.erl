@@ -39,7 +39,7 @@ init_per_suite(Config) ->
         _ ->
             ok
     end,
-    emqx_ct_broker_helpers:run_setup_steps([{log_leve, info} | Config]).
+    emqx_ct_broker_helpers:run_setup_steps([{log_level, error} | Config]).
 
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
