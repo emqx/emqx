@@ -18,7 +18,6 @@
 
 send_and_ack_test() ->
     %% delegate from gen_rpc to rpc for unit test
-    Tester = self(),
     meck:new(emqx_client, [passthrough, no_history]),
     meck:expect(emqx_client, start_link, 1,
                 fun(#{msg_handler := Hdlr}) ->
@@ -28,14 +27,13 @@ send_and_ack_test() ->
     meck:expect(emqx_client, stop, 1,
                 fun(Pid) -> Pid ! stop end),
     meck:expect(emqx_client, publish, 2,
-                fun(_Conn, Msgs) ->
-                        case rand:uniform(100) of
+                fun(Client, Msg) ->
+                        case rand:uniform(200) of
                             1 ->
                                 {error, {dummy, inflight_full}};
                             _ ->
-                                BaseId = hd(Msgs),
-                                Tester ! {published, Msgs},
-                                {ok, BaseId}
+                                Client ! {publish, Msg},
+                                {ok, Msg} %% as packet id
                         end
                 end),
     try
@@ -44,38 +42,19 @@ send_and_ack_test() ->
         {ok, Ref, Conn} = emqx_portal_mqtt:start(#{}),
         %% return last packet id as batch reference
         {ok, AckRef} = emqx_portal_mqtt:send(Conn, Batch),
-        %% as if the remote broker replied with puback
-        ok = fake_pubacks(Conn),
         %% expect batch ack
-        AckRef1= receive {batch_ack, Id} -> Id end,
-        %% asset received ack matches the batch ref returned in send API
-        ?assertEqual(AckRef, AckRef1),
+        receive {batch_ack, AckRef} -> ok end,
         ok = emqx_portal_mqtt:stop(Ref, Conn)
     after
         meck:unload(emqx_client)
     end.
 
-fake_pubacks(#{client_pid := Client}) ->
-    #{puback := PubAckCallback} = get_hdlr(Client),
+fake_client(#{puback := PubAckCallback} = Hdlr) ->
     receive
-        {published, Msgs} ->
-            lists:foreach(
-                fun(Id) ->
-                        PubAckCallback(#{packet_id => Id, reason_code => ?RC_SUCCESS})
-                end, Msgs)
-    end.
-
-get_hdlr(Client) ->
-    Client ! {get_hdlr, self()},
-    receive {hdr, Hdlr} -> Hdlr end.
-
-fake_client(Hdlr) ->
-    receive
-        {get_hdlr, Pid} ->
-            Pid ! {hdr, Hdlr},
+        {publish, PktId} ->
+            PubAckCallback(#{packet_id => PktId, reason_code => ?RC_SUCCESS}),
             fake_client(Hdlr);
         stop ->
             exit(normal)
     end.
-
 

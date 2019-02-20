@@ -34,7 +34,8 @@
 
 %% Messages towards ack collector process
 -define(RANGE(Min, Max), {Min, Max}).
--define(SENT(PktIdRange), {sent, PktIdRange}).
+-define(REF_IDS(Ref, Ids), {Ref, Ids}).
+-define(SENT(RefIds), {sent, RefIds}).
 -define(ACKED(AnyPktId), {acked, AnyPktId}).
 -define(STOP(Ref), {stop, Ref}).
 
@@ -49,8 +50,6 @@ start(Config) ->
                 {ok, _} ->
                     try
                         subscribe_remote_topics(Pid, maps:get(subscriptions, Config, [])),
-                        %% ack collector is always a new pid every reconnect.
-                        %% use it as a connection reference
                         {ok, Ref, #{ack_collector => AckCollector,
                                     client_pid => Pid}}
                     catch
@@ -100,16 +99,21 @@ safe_stop(Pid, StopF, Timeout) ->
             exit(Pid, kill)
     end.
 
-send(#{client_pid := ClientPid, ack_collector := AckCollector} = Conn, Batch) ->
-    case emqx_client:publish(ClientPid, Batch) of
-        {ok, BasePktId} ->
-            LastPktId = emqx_client:next_packet_id(BasePktId, length(Batch) - 1),
-            AckCollector ! ?SENT(?RANGE(BasePktId, LastPktId)),
-            %% return last pakcet id as batch reference
-            {ok, LastPktId};
+send(Conn, Batch) ->
+    send(Conn, Batch, []).
+
+send(#{client_pid := ClientPid, ack_collector := AckCollector} = Conn, [Msg | Rest] = Batch, Acc) ->
+    case emqx_client:publish(ClientPid, Msg) of
+        {ok, PktId} when Rest =:= [] ->
+            %% last one sent
+            Ref = make_ref(),
+            AckCollector ! ?SENT(?REF_IDS(Ref, lists:reverse([PktId | Acc]))),
+            {ok, Ref};
+        {ok, PktId} ->
+            send(Conn, Rest, [PktId | Acc]);
         {error, {_PacketId, inflight_full}} ->
             timer:sleep(100),
-            send(Conn, Batch);
+            send(Conn, Batch, Acc);
         {error, Reason} ->
             %% NOTE: There is no partial sucess of a batch and recover from the middle
             %% only to retry all messages in one batch
@@ -126,9 +130,9 @@ ack_collector(Parent, ConnRef, Acked, Sent) ->
                 exit(normal);
             ?ACKED(PktId) ->
                 match_acks(Parent, queue:in(PktId, Acked), Sent);
-            ?SENT(Range) ->
+            ?SENT(RefIds) ->
                 %% this message only happens per-batch, hence ++ is ok
-                match_acks(Parent, Acked, Sent ++ [Range])
+                match_acks(Parent, Acked, Sent ++ [RefIds])
         after
             200 ->
                 {Acked, Sent}
@@ -140,12 +144,14 @@ match_acks(Parent, Acked, Sent) ->
     match_acks_1(Parent, queue:out(Acked), Sent).
 
 match_acks_1(_Parent, {empty, Empty}, Sent) -> {Empty, Sent};
-match_acks_1(Parent, {{value, PktId}, Acked}, [?RANGE(PktId, PktId) | Sent]) ->
+match_acks_1(Parent, {{value, PktId}, Acked}, [?REF_IDS(Ref, [PktId]) | Sent]) ->
     %% batch finished
-    ok = emqx_portal:handle_ack(Parent, PktId),
+    ok = emqx_portal:handle_ack(Parent, Ref),
     match_acks(Parent, Acked, Sent);
-match_acks_1(Parent, {{value, PktId}, Acked}, [?RANGE(PktId, Max) | Sent]) ->
-    match_acks(Parent, Acked, [?RANGE(emqx_client:next_packet_id(PktId), Max) | Sent]).
+match_acks_1(Parent, {{value, PktId}, Acked}, [?REF_IDS(Ref, [PktId | RestIds]) | Sent]) ->
+    %% one message finished, but not the whole batch
+    match_acks(Parent, Acked, [?REF_IDS(Ref, RestIds) | Sent]).
+
 
 %% When puback for QoS-1 message is received from remote MQTT broker
 %% NOTE: no support for QoS-2
