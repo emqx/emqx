@@ -1697,12 +1697,10 @@ end}.
         fun({["bridge", Name, Opt], Val}, Acc) ->
                 %% e.g #{aws => [{OptKey, OptVal}]}
                 Init = [{list_to_atom(Opt), Val},
-
                         {connect_module, ConnMod(Name)},
                         {subscriptions, Subscriptions(Name)},
                         {queue, Queue(Name)}
                        ],
-
                 C = maps:update_with(list_to_atom(Name),
                                      fun(Opts) -> Merge(list_to_atom(Opt), Val, Opts) end, Init, Acc),
                 maps:fold(Translate, #{}, C);
