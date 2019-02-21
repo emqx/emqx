@@ -14,11 +14,15 @@
 
 -module(emqx_inflight).
 
--export([new/1, contain/2, lookup/2, insert/3, update/3, update_size/2, delete/2, values/1,
-         to_list/1, size/1, max_size/1, is_full/1, is_empty/1, window/1]).
+-export([new/1, contain/2, lookup/2, insert/3, update/3, update_size/2, delete/2,
+         values/1, to_list/1, size/1, max_size/1, is_full/1, is_empty/1, window/1]).
 
+-type(key() :: term()).
 -type(max_size() :: pos_integer()).
--type(inflight() :: {?MODULE, max_size(), gb_trees:tree()}).
+-opaque(inflight() :: {?MODULE, max_size(), gb_trees:tree()}).
+
+-define(Inflight(Tree), {?MODULE, _MaxSize, Tree}).
+-define(Inflight(MaxSize, Tree), {?MODULE, MaxSize, (Tree)}).
 
 -export_type([inflight/0]).
 
@@ -26,68 +30,68 @@
 new(MaxSize) when MaxSize >= 0 ->
     {?MODULE, MaxSize, gb_trees:empty()}.
 
--spec(contain(Key :: term(), inflight()) -> boolean()).
-contain(Key, {?MODULE, _MaxSize, Tree}) ->
+-spec(contain(key(), inflight()) -> boolean()).
+contain(Key, ?Inflight(Tree)) ->
     gb_trees:is_defined(Key, Tree).
 
--spec(lookup(Key :: term(), inflight()) -> {value, term()} | none).
-lookup(Key, {?MODULE, _MaxSize, Tree}) ->
+-spec(lookup(key(), inflight()) -> {value, term()} | none).
+lookup(Key, ?Inflight(Tree)) ->
     gb_trees:lookup(Key, Tree).
 
--spec(insert(Key :: term(), Value :: term(), inflight()) -> inflight()).
-insert(Key, Value, {?MODULE, MaxSize, Tree}) ->
-    {?MODULE, MaxSize, gb_trees:insert(Key, Value, Tree)}.
+-spec(insert(key(), Val :: term(), inflight()) -> inflight()).
+insert(Key, Val, ?Inflight(MaxSize, Tree)) ->
+    ?Inflight(MaxSize, gb_trees:insert(Key, Val, Tree)).
 
--spec(delete(Key :: term(), inflight()) -> inflight()).
-delete(Key, {?MODULE, MaxSize, Tree}) ->
-    {?MODULE, MaxSize, gb_trees:delete(Key, Tree)}.
+-spec(delete(key(), inflight()) -> inflight()).
+delete(Key, ?Inflight(MaxSize, Tree)) ->
+    ?Inflight(MaxSize, gb_trees:delete(Key, Tree)).
 
--spec(update(Key :: term(), Val :: term(), inflight()) -> inflight()).
-update(Key, Val, {?MODULE, MaxSize, Tree}) ->
-    {?MODULE, MaxSize, gb_trees:update(Key, Val, Tree)}.
+-spec(update(key(), Val :: term(), inflight()) -> inflight()).
+update(Key, Val, ?Inflight(MaxSize, Tree)) ->
+    ?Inflight(MaxSize, gb_trees:update(Key, Val, Tree)).
 
 -spec(update_size(integer(), inflight()) -> inflight()).
-update_size(MaxSize, {?MODULE, _OldMaxSize, Tree}) ->
-    {?MODULE, MaxSize, Tree}.
+update_size(MaxSize, ?Inflight(Tree)) ->
+    ?Inflight(MaxSize, Tree).
 
 -spec(is_full(inflight()) -> boolean()).
-is_full({?MODULE, 0, _Tree}) ->
+is_full(?Inflight(0, _Tree)) ->
     false;
-is_full({?MODULE, MaxSize, Tree}) ->
+is_full(?Inflight(MaxSize, Tree)) ->
     MaxSize =< gb_trees:size(Tree).
 
 -spec(is_empty(inflight()) -> boolean()).
-is_empty({?MODULE, _MaxSize, Tree}) ->
+is_empty(?Inflight(Tree)) ->
     gb_trees:is_empty(Tree).
 
--spec(smallest(inflight()) -> {K :: term(), V :: term()}).
-smallest({?MODULE, _MaxSize, Tree}) ->
+-spec(smallest(inflight()) -> {key(), term()}).
+smallest(?Inflight(Tree)) ->
     gb_trees:smallest(Tree).
 
--spec(largest(inflight()) -> {K :: term(), V :: term()}).
-largest({?MODULE, _MaxSize, Tree}) ->
+-spec(largest(inflight()) -> {key(), term()}).
+largest(?Inflight(Tree)) ->
     gb_trees:largest(Tree).
 
 -spec(values(inflight()) -> list()).
-values({?MODULE, _MaxSize, Tree}) ->
+values(?Inflight(Tree)) ->
     gb_trees:values(Tree).
 
--spec(to_list(inflight()) -> list({K :: term(), V :: term()})).
-to_list({?MODULE, _MaxSize, Tree}) ->
+-spec(to_list(inflight()) -> list({key(), term()})).
+to_list(?Inflight(Tree)) ->
     gb_trees:to_list(Tree).
 
 -spec(window(inflight()) -> list()).
-window(Inflight = {?MODULE, _MaxSize, Tree}) ->
+window(Inflight = ?Inflight(Tree)) ->
     case gb_trees:is_empty(Tree) of
-        true  -> [];
+        true -> [];
         false -> [Key || {Key, _Val} <- [smallest(Inflight), largest(Inflight)]]
     end.
 
 -spec(size(inflight()) -> non_neg_integer()).
-size({?MODULE, _MaxSize, Tree}) ->
+size(?Inflight(Tree)) ->
     gb_trees:size(Tree).
 
 -spec(max_size(inflight()) -> non_neg_integer()).
-max_size({?MODULE, MaxSize, _Tree}) ->
+max_size(?Inflight(MaxSize, _Tree)) ->
     MaxSize.
 

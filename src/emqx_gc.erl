@@ -31,7 +31,11 @@
 -type(st() :: #{cnt => {integer(), integer()},
                 oct => {integer(), integer()}}).
 
--type(gc_state() :: {?MODULE, st()}).
+-opaque(gc_state() :: {?MODULE, st()}).
+
+-export_type([gc_state/0]).
+
+-define(GCS(St), {?MODULE, St}).
 
 -define(disabled, disabled).
 -define(ENABLED(X), (is_integer(X) andalso X > 0)).
@@ -41,14 +45,15 @@
 init(#{count := Count, bytes := Bytes}) ->
     Cnt = [{cnt, {Count, Count}} || ?ENABLED(Count)],
     Oct = [{oct, {Bytes, Bytes}} || ?ENABLED(Bytes)],
-    {?MODULE, maps:from_list(Cnt ++ Oct)};
+    ?GCS(maps:from_list(Cnt ++ Oct));
 init(false) -> undefined.
 
 %% @doc Try to run GC based on reduntions of count or bytes.
--spec(run(pos_integer(), pos_integer(), gc_state()) -> {boolean(), gc_state()}).
-run(Cnt, Oct, {?MODULE, St}) ->
+-spec(run(pos_integer(), pos_integer(), gc_state())
+      -> {boolean(), gc_state()}).
+run(Cnt, Oct, ?GCS(St)) ->
     {Res, St1} = run([{cnt, Cnt}, {oct, Oct}], St),
-    {Res, {?MODULE, St1}};
+    {Res, ?GCS(St1)};
 run(_Cnt, _Oct, undefined) ->
     {false, undefined}.
 
@@ -64,15 +69,15 @@ run([{K, N}|T], St) ->
 
 %% @doc Info of GC state.
 -spec(info(gc_state()) -> maybe(map())).
-info({?MODULE, St}) ->
+info(?GCS(St)) ->
     St;
 info(undefined) ->
     undefined.
 
 %% @doc Reset counters to zero.
 -spec(reset(gc_state()) -> gc_state()).
-reset({?MODULE, St}) ->
-    {?MODULE, do_reset(St)};
+reset(?GCS(St)) ->
+    ?GCS(do_reset(St));
 reset(undefined) ->
     undefined.
 
