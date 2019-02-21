@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@
 -define(NOTICE(Format, Args), ?LOG(notice, Format, Args)).
 
 -define(WARN(Format), ?LOG(warning, Format, [])).
--define(WARN(Format, Args), ?LOG(warning, Format, [])).
+-define(WARN(Format, Args), ?LOG(warning, Format, Args)).
 
 -define(ERROR(Format), ?LOG(error, Format, [])).
 -define(ERROR(Format, Args), ?LOG(error, Format, Args)).

@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("logger.hrl").
+-include("types.hrl").
 
 -export([start_link/1]).
 -export([start_session/1, count_sessions/0]).
@@ -38,7 +39,7 @@
 -define(BATCH_EXIT, 100000).
 
 %% @doc Start session supervisor.
--spec(start_link(map()) -> emqx_types:startlink_ret()).
+-spec(start_link(map()) -> startlink_ret()).
 start_link(SessSpec) when is_map(SessSpec) ->
     gen_server:start_link({local, ?SUP}, ?MODULE, [SessSpec], []).
 
@@ -47,7 +48,7 @@ start_link(SessSpec) when is_map(SessSpec) ->
 %%------------------------------------------------------------------------------
 
 %% @doc Start a session.
--spec(start_session(map()) -> emqx_types:startlink_ret()).
+-spec(start_session(map()) -> startlink_ret()).
 start_session(SessAttrs) ->
     gen_server:call(?SUP, {start_session, SessAttrs}, infinity).
 

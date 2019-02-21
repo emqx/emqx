@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,11 +15,13 @@
 %% @doc The utility functions for erlang process dictionary.
 -module(emqx_pd).
 
+-include("types.hrl").
+
 -export([update_counter/2, get_counter/1, reset_counter/1]).
 
 -type(key() :: term()).
 
--spec(update_counter(key(), number()) -> undefined | number()).
+-spec(update_counter(key(), number()) -> maybe(number())).
 update_counter(Key, Inc) ->
     put(Key, get_counter(Key) + Inc).
 

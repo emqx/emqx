@@ -12,17 +12,11 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_auth_dashboard).
+-type(maybe(T) :: undefined | T).
 
-%% Auth callbacks
--export([init/1, check/3, description/0]).
+-type(startlink_ret() :: {ok, pid()} | ignore | {error, term()}).
 
-init(Opts) ->
-    {ok, Opts}.
+-type(ok_or_error(Reason) :: ok | {error, Reason}).
 
-check(_Client, _Password, _Opts) ->
-    allow.
-
-description() ->
-    "Test Auth Mod".
+-type(ok_or_error(Value, Reason) :: {ok, Value} | {error, Reason}).
 

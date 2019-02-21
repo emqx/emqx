@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -46,6 +46,7 @@
 -module(emqx_mqueue).
 
 -include("emqx.hrl").
+-include("types.hrl").
 -include("emqx_mqtt.hrl").
 
 -export([init/1]).
@@ -117,7 +118,7 @@ stats(#mqueue{max_len = MaxLen, dropped = Dropped} = MQ) ->
     [{len, len(MQ)}, {max_len, MaxLen}, {dropped, Dropped}].
 
 %% @doc Enqueue a message.
--spec(in(message(), mqueue()) -> {undefined | message(), mqueue()}).
+-spec(in(message(), mqueue()) -> {maybe(message()), mqueue()}).
 in(#message{qos = ?QOS_0}, MQ = #mqueue{store_qos0 = false}) ->
     {_Dropped = undefined, MQ};
 in(Msg = #message{topic = Topic}, MQ = #mqueue{default_p = Dp,

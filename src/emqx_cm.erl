@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 
 -include("emqx.hrl").
 -include("logger.hrl").
+-include("types.hrl").
 
 -export([start_link/0]).
 
@@ -46,7 +47,7 @@
 -define(BATCH_SIZE, 100000).
 
 %% @doc Start the connection manager.
--spec(start_link() -> emqx_types:startlink_ret()).
+-spec(start_link() -> startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?CM}, ?MODULE, [], []).
 
@@ -121,7 +122,7 @@ set_conn_stats(ClientId, ConnPid, Stats) when is_binary(ClientId), is_pid(ConnPi
     ets:insert(?CONN_STATS_TAB, {Conn, Stats}).
 
 %% @doc Lookup connection pid.
--spec(lookup_conn_pid(emqx_types:client_id()) -> pid() | undefined).
+-spec(lookup_conn_pid(emqx_types:client_id()) -> maybe(pid())).
 lookup_conn_pid(ClientId) when is_binary(ClientId) ->
     emqx_tables:lookup_value(?CONN_TAB, ClientId).
 

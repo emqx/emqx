@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 
 -include("emqx.hrl").
 -include("logger.hrl").
+-include("types.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -50,7 +51,7 @@ mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?TAB).
 
 %% @doc Start the banned server.
--spec(start_link() -> emqx_types:startlink_ret()).
+-spec(start_link() -> startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 

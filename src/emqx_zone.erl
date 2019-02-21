@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 
 -include("emqx.hrl").
 -include("logger.hrl").
+-include("types.hrl").
 
 -export([start_link/0]).
 -export([get_env/2, get_env/3]).
@@ -33,17 +34,17 @@
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 
--spec(start_link() -> emqx_types:startlink_ret()).
+-spec(start_link() -> startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec(get_env(emqx_types:zone() | undefined, atom()) -> undefined | term()).
+-spec(get_env(maybe(emqx_types:zone()), atom()) -> maybe(term())).
 get_env(undefined, Key) ->
     emqx_config:get_env(Key);
 get_env(Zone, Key) ->
     get_env(Zone, Key, undefined).
 
--spec(get_env(emqx_types:zone() | undefined, atom(), term()) -> undefined | term()).
+-spec(get_env(maybe(emqx_types:zone()), atom(), term()) -> maybe(term())).
 get_env(undefined, Key, Def) ->
     emqx_config:get_env(Key, Def);
 get_env(Zone, Key, Def) ->

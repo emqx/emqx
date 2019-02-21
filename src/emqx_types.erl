@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,9 +15,9 @@
 -module(emqx_types).
 
 -include("emqx.hrl").
+-include("types.hrl").
 
 -export_type([zone/0]).
--export_type([startlink_ret/0, ok_or_error/1]).
 -export_type([pubsub/0, topic/0, subid/0, subopts/0]).
 -export_type([client_id/0, username/0, password/0, peername/0, protocol/0]).
 -export_type([credentials/0, session/0]).
@@ -28,8 +28,6 @@
 -export_type([alarm/0, plugin/0, command/0]).
 
 -type(zone() :: atom()).
--type(startlink_ret() :: {ok, pid()} | ignore | {error, term()}).
--type(ok_or_error(Reason) :: ok | {error, Reason}).
 -type(pubsub() :: publish | subscribe).
 -type(topic() :: binary()).
 -type(subid() :: binary() | atom()).
@@ -39,8 +37,8 @@
                     }).
 -type(session() :: #session{}).
 -type(client_id() :: binary() | atom()).
--type(username() :: binary() | undefined).
--type(password() :: binary() | undefined).
+-type(username() :: maybe(binary())).
+-type(password() :: maybe(binary())).
 -type(peername() :: {inet:ip_address(), inet:port_number()}).
 -type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | none | atom()).
 -type(credentials() :: #{client_id := client_id(),

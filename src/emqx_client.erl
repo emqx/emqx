@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 
 -behaviour(gen_statem).
 
+-include("types.hrl").
 -include("emqx_mqtt.hrl").
 
 -export([start_link/0, start_link/1]).
@@ -112,12 +113,12 @@
                 bridge_mode     :: boolean(),
                 client_id       :: binary(),
                 clean_start     :: boolean(),
-                username        :: binary() | undefined,
-                password        :: binary() | undefined,
+                username        :: maybe(binary()),
+                password        :: maybe(binary()),
                 proto_ver       :: emqx_mqtt_types:version(),
                 proto_name      :: iodata(),
                 keepalive       :: non_neg_integer(),
-                keepalive_timer :: reference() | undefined,
+                keepalive_timer :: maybe(reference()),
                 force_ping      :: boolean(),
                 paused          :: boolean(),
                 will_flag       :: boolean(),

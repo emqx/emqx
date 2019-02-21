@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 -module(emqx).
 
 -include("emqx.hrl").
+-include("types.hrl").
 
 %% Start/Stop the application
 -export([start/0, restart/1, is_running/1, stop/0]).
@@ -167,6 +168,7 @@ reboot() ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
 reload_config(ConfFile) ->
     {ok, [Conf]} = file:consult(ConfFile),
     lists:foreach(fun({App, Vals}) ->

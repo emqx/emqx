@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -43,6 +43,7 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
+-include("types.hrl").
 
 -export([start_link/1]).
 -export([info/1, attrs/1]).
@@ -77,7 +78,7 @@
           client_id :: binary(),
 
           %% Username
-          username :: binary() | undefined,
+          username :: maybe(binary()),
 
           %% Connection pid binding with session
           conn_pid :: pid(),
@@ -107,7 +108,7 @@
           retry_interval = 20000 :: timeout(),
 
           %% Retry Timer
-          retry_timer :: reference() | undefined,
+          retry_timer :: maybe(reference()),
 
           %% All QoS1, QoS2 messages published to when client is disconnected.
           %% QoS 1 and QoS 2 messages pending transmission to the Client.
@@ -125,19 +126,19 @@
           await_rel_timeout = 20000 :: timeout(),
 
           %% Awaiting PUBREL Timer
-          await_rel_timer :: reference() | undefined,
+          await_rel_timer :: maybe(reference()),
 
           %% Session Expiry Interval
           expiry_interval = 7200 :: timeout(),
 
           %% Expired Timer
-          expiry_timer :: reference() | undefined,
+          expiry_timer :: maybe(reference()),
 
           %% Enable Stats
           enable_stats :: boolean(),
 
           %% Stats timer
-          stats_timer  :: reference() | undefined,
+          stats_timer :: maybe(reference()),
 
           %% GC State
           gc_state,
@@ -147,7 +148,7 @@
 
           will_msg :: emqx:message(),
 
-          will_delay_timer :: reference() | undefined
+          will_delay_timer :: maybe(reference())
 
          }).
 
