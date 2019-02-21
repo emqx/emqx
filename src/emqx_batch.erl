@@ -22,6 +22,7 @@
         linger_ms => pos_integer(),
         commit_fun := function()
        }).
+
 -export_type([options/0]).
 
 -record(batch, {
@@ -31,7 +32,9 @@
           linger_timer :: reference() | undefined,
           commit_fun :: function()
          }).
--type(batch() :: #batch{}).
+
+-opaque(batch() :: #batch{}).
+
 -export_type([batch/0]).
 
 -spec(init(options()) -> batch()).

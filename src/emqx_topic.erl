@@ -29,7 +29,7 @@
 -type(topic() :: binary()).
 -type(word() :: '' | '+' | '#' | binary()).
 -type(words() :: list(word())).
--type(triple() :: {root | binary(), word(), binary()}).
+-opaque(triple() :: {root | binary(), word(), binary()}).
 
 -export_type([group/0, topic/0, word/0, triple/0]).
 
