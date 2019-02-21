@@ -190,4 +190,3 @@ do_receive_and_match_messages(Ref, [I | Rest]) ->
             end,
             do_receive_and_match_messages(Ref, Rest)
     end.
-
