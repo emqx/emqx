@@ -1591,6 +1591,11 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
+{mapping, "bridge.$name.retry_interval", "emqx.bridges", [
+  {default, "20s"},
+  {datatype, {duration, ms}}
+]}.
+
 {mapping, "bridge.$name.max_inflight", "emqx.bridges", [
   {default, 0},
   {datatype, integer}
@@ -1655,7 +1660,8 @@ end}.
                       end
                  end,
     ConnMod = fun(Name) ->
-                      [Addr] = cuttlefish_variable:filter_by_prefix("bridge." ++ Name ++ ".address", Conf),
+                      [AddrConfig] = cuttlefish_variable:filter_by_prefix("bridge." ++ Name ++ ".address", Conf),
+                      {_, Addr} = AddrConfig,
                       Subs = Subscriptions(Name),
                       case IsNodeAddr(Addr) of
                           true when Subs =/= [] ->
