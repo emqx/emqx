@@ -1027,7 +1027,6 @@ drain_q(Cnt, Msgs, Q) ->
     case emqx_mqueue:out(Q) of
         {empty, _Q} -> {Msgs, Q};
         {{value, Msg}, Q1} ->
-            io:format("Drain Msg: ~p~n", [Msg]),
             drain_q(Cnt-1, [Msg|Msgs], Q1)
     end.
 
