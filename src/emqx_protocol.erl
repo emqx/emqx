@@ -586,7 +586,17 @@ puback(?QOS_2, PacketId, {error, ReasonCode}, PState) ->
 %% Deliver Packet -> Client
 %%------------------------------------------------------------------------------
 
--spec(deliver(tuple(), state()) -> {ok, state()} | {error, term()}).
+-spec(deliver(list(tuple()) | tuple(), state()) -> {ok, state()} | {error, term()}).
+deliver([], PState) ->
+    {ok, PState};
+deliver([Pub|More], PState) ->
+    case deliver(Pub, PState) of
+        {ok, PState1} ->
+            deliver(More, PState1);
+        {error, _} = Error ->
+            Error
+    end;
+
 deliver({connack, ReasonCode}, PState) ->
     send(?CONNACK_PACKET(ReasonCode), PState);
 
