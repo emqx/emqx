@@ -96,6 +96,20 @@ test_buffer_when_disconnected() ->
     ?WAIT({'DOWN', ReceiverMref, process, Receiver, normal}, 1000),
     ok = emqx_portal:stop(?PORTAL_REG_NAME).
 
+manual_start_stop_test() ->
+    Ref = make_ref(),
+    Config0 = make_config(Ref, self(), {ok, Ref, connection}),
+    Config = Config0#{start_type := manual},
+    {ok, Pid} = emqx_portal:ensure_started(?PORTAL_NAME, Config),
+    %% call ensure_started again should yeld the same result
+    {ok, Pid} = emqx_portal:ensure_started(?PORTAL_NAME, Config),
+    ?assertEqual(Pid, whereis(?PORTAL_REG_NAME)),
+    ?assertEqual({error, standing_by},
+                 emqx_portal:ensure_forward_present(Pid, "dummy")),
+    ok = emqx_portal:ensure_stopped(unknown),
+    ok = emqx_portal:ensure_stopped(Pid),
+    ok = emqx_portal:ensure_stopped(?PORTAL_REG_NAME).
+
 %% Feed messages to portal
 sender_loop(_Pid, [], _) -> exit(normal);
 sender_loop(Pid, [Num | Rest], Interval) ->
@@ -133,7 +147,8 @@ make_config(Ref, TestPid, Result) ->
       test_ref => Ref,
       connect_module => ?MODULE,
       reconnect_delay_ms => 50,
-      connect_result => Result
+      connect_result => Result,
+      start_type => auto
      }.
 
 make_msg(I) ->
