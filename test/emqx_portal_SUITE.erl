@@ -50,7 +50,8 @@ t_mngr(Config) when is_list(Config) ->
             forwards => [<<"mngr">>],
             connect_module => emqx_portal_rpc,
             mountpoint => <<"forwarded">>,
-            subscriptions => Subs
+            subscriptions => Subs,
+            start_type => auto
            },
     Name = ?FUNCTION_NAME,
     {ok, Pid} = emqx_portal:start_link(Name, Cfg),
@@ -76,7 +77,8 @@ t_rpc(Config) when is_list(Config) ->
     Cfg = #{address => node(),
             forwards => [<<"t_rpc/#">>],
             connect_module => emqx_portal_rpc,
-            mountpoint => <<"forwarded">>
+            mountpoint => <<"forwarded">>,
+            start_type => auto
            },
     {ok, Pid} = emqx_portal:start_link(?FUNCTION_NAME, Cfg),
     ClientId = <<"ClientId">>,
@@ -125,10 +127,10 @@ t_mqtt(Config) when is_list(Config) ->
                       },
             reconnect_delay_ms => 1000,
             ssl => false,
-            start_type => manual,
             %% Consume back to forwarded message for verification
             %% NOTE: this is a indefenite loopback without mocking emqx_portal:import_batch/2
-            subscriptions => [{ForwardedTopic, _QoS = 1}]
+            subscriptions => [{ForwardedTopic, _QoS = 1}],
+            start_type => auto
            },
     Tester = self(),
     Ref = make_ref(),
