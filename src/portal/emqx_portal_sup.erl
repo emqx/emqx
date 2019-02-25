@@ -28,20 +28,12 @@ start_link(Name) ->
     supervisor:start_link({local, Name}, ?MODULE, Name).
 
 init(?SUP) ->
-    Sp = fun(Name) ->
-                 #{id => Name,
-                   start => {?MODULE, start_link, [Name]},
-                   restart => permanent,
-                   shutdown => 5000,
-                   type => supervisor,
-                   modules => [?MODULE]
-                  }
-         end,
-    {ok, {{one_for_one, 5, 10}, [Sp(?WORKER_SUP)]}};
-init(?WORKER_SUP) ->
     BridgesConf = emqx_config:get_env(bridges, []),
-    BridgesSpec = lists:map(fun portal_spec/1, BridgesConf),
-    {ok, {{one_for_one, 10, 100}, BridgesSpec}}.
+    BridgeSpec = lists:map(fun portal_spec/1, BridgesConf),
+    SupFlag = #{strategy => one_for_one,
+                intensity => 10,
+                period => 100},
+    {ok, {SupFlag, BridgeSpec}}.
 
 portal_spec({Name, Config}) ->
     #{id => Name,
@@ -49,9 +41,8 @@ portal_spec({Name, Config}) ->
       restart => permanent,
       shutdown => 5000,
       type => worker,
-      modules => [emqx_portal]
-     }.
+      modules => [emqx_portal]}.
 
 -spec(portals() -> [{node(), map()}]).
 portals() ->
-    [{Name, emqx_portal:status(Pid)} || {Name, Pid, _, _} <- supervisor:which_children(?WORKER_SUP)].
+    [{Name, emqx_portal:status(Pid)} || {Name, Pid, _, _} <- supervisor:which_children(?SUP)].
