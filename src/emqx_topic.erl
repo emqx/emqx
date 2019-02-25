@@ -25,12 +25,13 @@
 -export([systop/1]).
 -export([parse/1, parse/2]).
 
+-type(group() :: binary()).
 -type(topic() :: binary()).
 -type(word() :: '' | '+' | '#' | binary()).
 -type(words() :: list(word())).
--type(triple() :: {root | binary(), word(), binary()}).
+-opaque(triple() :: {root | binary(), word(), binary()}).
 
--export_type([topic/0, word/0, triple/0]).
+-export_type([group/0, topic/0, word/0, triple/0]).
 
 -define(MAX_TOPIC_LEN, 4096).
 

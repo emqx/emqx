@@ -34,6 +34,8 @@
 -export([send/2]).
 -export([shutdown/2]).
 
+-export_type([state/0]).
+
 -record(pstate, {
           zone,
           sendfun,
@@ -66,8 +68,7 @@
           topic_alias_maximum
         }).
 
--type(state() :: #pstate{}).
--export_type([state/0]).
+-opaque(state() :: #pstate{}).
 
 -ifdef(TEST).
 -compile(export_all).

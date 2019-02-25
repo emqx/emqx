@@ -18,7 +18,7 @@
 
 -record(keepalive, {statfun, statval, tsec, tmsg, tref, repeat = 0}).
 
--type(keepalive() :: #keepalive{}).
+-opaque(keepalive() :: #keepalive{}).
 
 -export_type([keepalive/0]).
 

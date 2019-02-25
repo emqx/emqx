@@ -24,7 +24,7 @@
 -type(options() :: #{max_packet_size => 1..?MAX_PACKET_SIZE,
                      version         => emqx_mqtt_types:version()}).
 
--type(parse_state() :: {none, options()} | cont_fun(binary())).
+-opaque(parse_state() :: {none, options()} | cont_fun(binary())).
 
 -type(cont_fun(Bin) :: fun((Bin) -> {ok, emqx_mqtt_types:packet(), binary()}
                                   | {more, cont_fun(Bin)})).
