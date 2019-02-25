@@ -106,9 +106,9 @@ manual_start_stop_test() ->
     ?assertEqual(Pid, whereis(?PORTAL_REG_NAME)),
     ?assertEqual({error, standing_by},
                  emqx_portal:ensure_forward_present(Pid, "dummy")),
-    ok = emqx_portal:ensure_stopped(unknown),
-    ok = emqx_portal:ensure_stopped(Pid),
-    ok = emqx_portal:ensure_stopped(?PORTAL_REG_NAME).
+    emqx_portal:ensure_stopped(unknown),
+    emqx_portal:ensure_stopped(Pid),
+    emqx_portal:ensure_stopped(?PORTAL_REG_NAME).
 
 %% Feed messages to portal
 sender_loop(_Pid, [], _) -> exit(normal);
@@ -154,4 +154,3 @@ make_config(Ref, TestPid, Result) ->
 make_msg(I) ->
     Payload = integer_to_binary(I),
     emqx_message:make(<<"test/topic">>, Payload).
-
