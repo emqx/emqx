@@ -99,16 +99,25 @@ test_buffer_when_disconnected() ->
 manual_start_stop_test() ->
     Ref = make_ref(),
     Config0 = make_config(Ref, self(), {ok, Ref, connection}),
-    Config = Config0#{start_type := manual},
+    Config1 = Config0#{start_type := manual,
+                       connect_module := emqx_portal_mqtt},
+    Config = maps:put(address, "127.0.0.1:1883", Config1),
     {ok, Pid} = emqx_portal:ensure_started(?PORTAL_NAME, Config),
+    ?assertEqual(<<"bridge not started">>, emqx_portal:stop_bridge(?PORTAL_NAME)),
+    ?assertEqual(<<"Stopped">>, emqx_portal:status(Pid)),
+    ?assertEqual(<<"starting bridge ......">>, emqx_portal:start_bridge(?PORTAL_NAME)),
+    ?assertEqual(<<"Running">>, emqx_portal:status(Pid)),
+    ?assertEqual(<<"bridge already started">>, emqx_portal:start_bridge(?PORTAL_NAME)),
+    emqx_portal:ensure_stopped(unknown),
+    emqx_portal:ensure_stopped(Pid),
+    emqx_portal:ensure_stopped(?PORTAL_REG_NAME),
     %% call ensure_started again should yeld the same result
-    {ok, Pid} = emqx_portal:ensure_started(?PORTAL_NAME, Config),
-    ?assertEqual(Pid, whereis(?PORTAL_REG_NAME)),
+    {ok, NewPid} = emqx_portal:ensure_started(?PORTAL_NAME, Config),
+    ?assertEqual(NewPid, whereis(?PORTAL_REG_NAME)),
     ?assertEqual({error, standing_by},
-                 emqx_portal:ensure_forward_present(Pid, "dummy")),
-    ok = emqx_portal:ensure_stopped(unknown),
-    ok = emqx_portal:ensure_stopped(Pid),
-    ok = emqx_portal:ensure_stopped(?PORTAL_REG_NAME).
+                 emqx_portal:ensure_forward_present(NewPid, "dummy")),
+    emqx_portal:ensure_stopped(NewPid),
+    emqx_portal:ensure_stopped(?PORTAL_REG_NAME).
 
 %% Feed messages to portal
 sender_loop(_Pid, [], _) -> exit(normal);
@@ -154,4 +163,3 @@ make_config(Ref, TestPid, Result) ->
 make_msg(I) ->
     Payload = integer_to_binary(I),
     emqx_message:make(<<"test/topic">>, Payload).
-
