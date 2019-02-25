@@ -39,7 +39,7 @@ send_and_ack_test() ->
     try
         Max = 100,
         Batch = lists:seq(1, Max),
-        {ok, Ref, Conn} = emqx_portal_mqtt:start(#{}),
+        {ok, Ref, Conn} = emqx_portal_mqtt:start(#{address => "127.0.0.1:1883"}),
         %% return last packet id as batch reference
         {ok, AckRef} = emqx_portal_mqtt:send(Conn, Batch),
         %% expect batch ack
@@ -57,4 +57,3 @@ fake_client(#{puback := PubAckCallback} = Hdlr) ->
         stop ->
             exit(normal)
     end.
-

@@ -39,12 +39,20 @@
 -define(ACKED(AnyPktId), {acked, AnyPktId}).
 -define(STOP(Ref), {stop, Ref}).
 
-start(Config) ->
+start(Config = #{address := Address}) ->
     Ref = make_ref(),
     Parent = self(),
     AckCollector = spawn_link(fun() -> ack_collector(Parent, Ref) end),
     Handlers = make_hdlr(Parent, AckCollector, Ref),
-    case emqx_client:start_link(Config#{msg_handler => Handlers, owner => AckCollector}) of
+    {Host, Port} = case string:tokens(Address, ":") of
+                       [H] -> {H, 1883};
+                       [H, P] -> {H, list_to_integer(P)}
+                   end,
+    ClientConfig = Config#{msg_handler => Handlers,
+                           owner => AckCollector,
+                           host => Host,
+                           port => Port},
+    case emqx_client:start_link(ClientConfig) of
         {ok, Pid} ->
             case emqx_client:connect(Pid) of
                 {ok, _} ->
@@ -58,7 +66,7 @@ start(Config) ->
                             {error, Reason}
                     end;
                 {error, Reason} ->
-                    ok = stop(AckCollector, Pid),
+                    ok = stop(Ref, #{ack_collector => AckCollector, client_pid => Pid}),
                     {error, Reason}
             end;
         {error, Reason} ->
@@ -178,4 +186,3 @@ subscribe_remote_topics(ClientPid, Subscriptions) ->
                               Error -> throw(Error)
                           end
                   end, Subscriptions).
-
