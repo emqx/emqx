@@ -1094,6 +1094,10 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "listener.ssl.$name.psk.ciphers", "emqx.listeners", [
+  {datatype, string}
+]}.
+
 {mapping, "listener.ssl.$name.handshake_timeout", "emqx.listeners", [
   {default, "15s"},
   {datatype, {duration, ms}}
@@ -1456,14 +1460,40 @@ end}.
               end,
 
     SplitFun = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
-
+    MapPSKCiphers = fun(PSKCiphers) ->
+                      lists:map(
+                          fun("PSK-AES128-CBC-SHA") -> {psk, aes_128_cbc, sha};
+                             ("PSK-AES256-CBC-SHA") -> {psk, aes_256_cbc, sha};
+                             ("PSK-3DES-EDE-CBC-SHA") -> {psk, '3des_ede_cbc', sha};
+                             ("PSK-RC4-SHA") -> {psk, rc4_128, sha}
+                          end, PSKCiphers)
+                    end,
     SslOpts = fun(Prefix) ->
-                 Versions = case SplitFun(cuttlefish:conf_get(Prefix ++ ".tls_versions", Conf, undefined)) of
+                  Versions = case SplitFun(cuttlefish:conf_get(Prefix ++ ".tls_versions", Conf, undefined)) of
                                 undefined -> undefined;
                                 L -> [list_to_atom(V) || V <- L]
                             end,
+                  TLSCiphers = cuttlefish:conf_get(Prefix++".ciphers", Conf, undefined),
+                  PSKCiphers = cuttlefish:conf_get(Prefix++".psk.ciphers", Conf, undefined),
+                  Ciphers =
+                    case {TLSCiphers, PSKCiphers} of
+                      {undefined, undefined} ->
+                        cuttlefish:invalid(Prefix++".ciphers or "++Prefix++".psk.ciphers is absent");
+                      {TLSCiphers, undefined} ->
+                        SplitFun(TLSCiphers);
+                      {undefined, PSKCiphers} ->
+                        MapPSKCiphers(SplitFun(PSKCiphers));
+                      {_TLSCiphers, _PSKCiphers} ->
+                        cuttlefish:invalid(Prefix++".ciphers and "++Prefix++".psk.ciphers cannot be configured at the same time")
+                    end,
+                  UserLookupFun =
+                    case PSKCiphers of
+                      undefined -> undefined;
+                      _ -> {emqx_psk, psk_lookup, []}
+                    end,
                   Filter([{versions, Versions},
-                          {ciphers, SplitFun(cuttlefish:conf_get(Prefix ++ ".ciphers", Conf, undefined))},
+                          {ciphers, Ciphers},
+                          {user_lookup_fun, UserLookupFun},
                           {handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf, undefined)},
                           {dhfile, cuttlefish:conf_get(Prefix ++ ".dhfile", Conf, undefined)},
                           {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
