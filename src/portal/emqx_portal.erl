@@ -292,7 +292,7 @@ standing_by(info, Info, State) ->
     ?INFO("Portal ~p discarded info event at state standing_by:\n~p", [name(), Info]),
     {keep_state_and_data, State};
 standing_by(Type, Content, State) ->
-    common(connecting, Type, Content, State).
+    common(standing_by, Type, Content, State).
 
 %% @doc Connecting state is a state with timeout.
 %% After each timeout, it re-enters this state and start a retry until
