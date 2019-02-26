@@ -64,7 +64,7 @@ add_forward(Name, Topic) ->
         true ->
             gen_server:call(name(Name), {add_forward, Topic})
     catch
-        error:_Reason ->
+        _Error:_Reason ->
             {error, validate_fail}
     end.
 
@@ -74,7 +74,7 @@ del_forward(Name, Topic) ->
         true ->
             gen_server:call(name(Name), {del_forward, Topic})
     catch
-        error:_Reason ->
+        _Error:_Reason ->
             {error, validate_fail}
     end.
 
@@ -86,9 +86,9 @@ show_subscriptions(Name) ->
 add_subscription(Name, Topic, QoS) ->
     try emqx_topic:validate({filter, Topic}) of
         true ->
-            gen_server:call(name(Name), {add_subscription, Topic})
+            gen_server:call(name(Name), {add_subscription, Topic, QoS})
     catch
-        error:_Reason ->
+        _Error:_Reason ->
             {error, validate_fail}
     end.
 
