@@ -16,7 +16,7 @@
 -behavior(supervisor).
 
 -export([start_link/0, start_link/1, portals/0]).
-
+-export([create_portal/2, drop_portal/1]).
 -export([init/1]).
 
 -define(SUP, ?MODULE).
@@ -46,3 +46,15 @@ portal_spec({Name, Config}) ->
 -spec(portals() -> [{node(), map()}]).
 portals() ->
     [{Name, emqx_portal:status(Pid)} || {Name, Pid, _, _} <- supervisor:which_children(?SUP)].
+
+create_portal(Id, Config) ->
+    supervisor:start_child(?SUP, portal_spec({Id, Config})).
+
+drop_portal(Id) ->
+    case supervisor:terminate_child(?SUP, Id) of
+        ok ->
+            supervisor:delete_child(?SUP, Id);
+        Error ->
+            emqx_logger:error("[Bridge] Delete bridge failed", [Error]),
+            Error
+    end.
