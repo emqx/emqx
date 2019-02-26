@@ -112,10 +112,13 @@ handle_info({'EXIT', Pid, Reason}, State = #state{client = Pid, opts = Opts}) ->
     end;
 
 handle_info(reconnect, State = #state{opts = Opts}) ->
-    case catch connect(State) of
+    try connect(State) of
         {ok, Client} ->
             {noreply, State#state{client = Client}};
-        {Err, _Reason} when Err =:= error orelse Err =:= 'EXIT' ->
+        {error, _Reason} ->
+            reconnect(proplists:get_value(auto_reconnect, Opts), State)
+    catch
+        _Error:_Reason ->
             reconnect(proplists:get_value(auto_reconnect, Opts), State)
     end;
 
