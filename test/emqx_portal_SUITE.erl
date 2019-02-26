@@ -146,8 +146,6 @@ t_mqtt(Config) when is_list(Config) ->
         ?assertEqual([{ForwardedTopic, 1}], emqx_portal:get_subscriptions(Pid)),
         ok = emqx_portal:ensure_subscription_present(Pid, ForwardedTopic2, _QoS = 1),
         ok = emqx_portal:ensure_forward_present(Pid, SendToTopic2),
-        %% TODO: investigate why it's necessary
-        timer:sleep(1000),
         ?assertEqual([{ForwardedTopic, 1},
                       {ForwardedTopic2, 1}], emqx_portal:get_subscriptions(Pid)),
         {ok, ConnPid} = emqx_mock_client:start_link(ClientId),
@@ -182,13 +180,16 @@ receive_and_match_messages(Ref, Msgs) ->
     ok.
 
 do_receive_and_match_messages(_Ref, []) -> ok;
-do_receive_and_match_messages(Ref, [I | Rest]) ->
+do_receive_and_match_messages(Ref, [I | Rest] = Exp) ->
     receive
         {Ref, timeout} -> erlang:error(timeout);
         {Ref, [#{payload := P} = Msg]} ->
-            case I =:= binary_to_integer(P) of
-                true -> ok;
-                false -> throw({unexpected, Msg, [I | Rest]})
-            end,
-            do_receive_and_match_messages(Ref, Rest)
+            case binary_to_integer(P) of
+                I ->  %% exact match
+                    do_receive_and_match_messages(Ref, Rest);
+                J when J < I -> %% allow retry
+                    do_receive_and_match_messages(Ref, Exp);
+                _Other ->
+                    throw({unexpected, Msg, Exp})
+            end
     end.

@@ -139,7 +139,8 @@ match_nums([#message{payload = P} | Rest], Nums) ->
     I = binary_to_integer(P),
     case Nums of
         [I | NumsLeft] -> match_nums(Rest, NumsLeft);
-        _ -> error({I, Nums})
+        [J | _] when J > I -> match_nums(Rest, Nums); %% allow retry
+        _ -> error([{received, I}, {expecting, Nums}])
     end.
 
 make_config(Ref, TestPid, Result) ->

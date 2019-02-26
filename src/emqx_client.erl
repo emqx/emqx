@@ -957,8 +957,7 @@ connected(cast, ?PACKET(?PINGRESP), State) ->
     end;
 
 connected(cast, ?DISCONNECT_PACKET(ReasonCode, Properties), State) ->
-    ok = eval_msg_handler(State, disconnected, {ReasonCode, Properties}),
-    {stop, disconnected, State};
+    {stop, {disconnected, ReasonCode, Properties}, State};
 
 connected(info, {timeout, _TRef, keepalive}, State = #state{force_ping = true}) ->
     case send(?PACKET(?PINGREQ), State) of
@@ -1042,10 +1041,18 @@ handle_event(EventType, EventContent, StateName, StateData) ->
     {keep_state, StateData}.
 
 %% Mandatory callback functions
-terminate(_Reason, _State, #state{socket = undefined}) ->
-    ok;
-terminate(_Reason, _State, #state{socket = Socket}) ->
-    emqx_client_sock:close(Socket).
+terminate(Reason, _StateName, State = #state{socket = Socket}) ->
+    case Reason of
+        {disconnected, ReasonCode, Properties} ->
+            %% backward compatible
+            ok = eval_msg_handler(State, disconnected, {ReasonCode, Properties});
+        _ ->
+            ok = eval_msg_handler(State, disconnected, Reason)
+    end,
+    case Socket =:= undefined of
+        true -> ok;
+        _ -> emqx_client_sock:close(Socket)
+    end.
 
 code_change(_Vsn, State, Data, _Extra) ->
     {ok, State, Data}.
@@ -1275,6 +1282,10 @@ eval_msg_handler(#state{msg_handler = ?NO_REQ_HANDLER,
                  disconnected, {ReasonCode, Properties}) ->
     %% Special handling for disconnected message when there is no handler callback
     Owner ! {disconnected, ReasonCode, Properties},
+    ok;
+eval_msg_handler(#state{msg_handler = ?NO_REQ_HANDLER},
+                 disconnected, _OtherReason) ->
+    %% do nothing to be backward compatible
     ok;
 eval_msg_handler(#state{msg_handler = ?NO_REQ_HANDLER,
                         owner = Owner}, Kind, Msg) ->

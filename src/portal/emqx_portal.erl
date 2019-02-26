@@ -64,8 +64,7 @@
 -export([start_link/2,
          import_batch/2,
          handle_ack/2,
-         stop/1
-        ]).
+         stop/1]).
 
 %% gen_statem callbacks
 -export([terminate/3, code_change/4, init/1, callback_mode/0]).
@@ -74,15 +73,13 @@
 -export([standing_by/3, connecting/3, connected/3]).
 
 %% management APIs
--export([start_bridge/1, stop_bridge/1, status/1]).
--export([ensure_started/2, ensure_stopped/1, ensure_stopped/2]).
+-export([ensure_started/1, ensure_started/2, ensure_stopped/1, ensure_stopped/2, status/1]).
 -export([get_forwards/1, ensure_forward_present/2, ensure_forward_absent/2]).
 -export([get_subscriptions/1, ensure_subscription_present/3, ensure_subscription_absent/2]).
 
 -export_type([config/0,
               batch/0,
-              ack_ref/0
-             ]).
+              ack_ref/0]).
 
 -type id() :: atom() | string() | pid().
 -type qos() :: emqx_mqtt_types:qos().
@@ -112,7 +109,7 @@
 %% max_inflight_batches: Max number of batches allowed to send-ahead before
 %%      receiving confirmation from remote node/cluster
 %% mountpoint: The topic mount point for messages sent to remote node/cluster
-%%      `undefined', `<<>>' or `""' to disalble
+%%      `undefined', `<<>>' or `""' to disable
 %% forwards: Local topics to subscribe.
 %% queue.batch_bytes_limit: Max number of bytes to collect in a batch for each
 %%      send call towards emqx_portal_connect
@@ -129,6 +126,9 @@ start_link(Name, Config) ->
     gen_statem:start_link({local, name(Name)}, ?MODULE, Config, []).
 
 %% @doc Manually start portal worker. State idempotency ensured.
+ensure_started(Name) ->
+    gen_statem:call(name(Name), ensure_started).
+
 ensure_started(Name, Config) ->
     case start_link(Name, Config) of
         {ok, Pid} -> {ok, Pid};
@@ -161,12 +161,6 @@ ensure_stopped(Id, Timeout) ->
     end.
 
 stop(Pid) -> gen_statem:stop(Pid).
-
-start_bridge(Name) ->
-    gen_statem:call(name(Name), ensure_started).
-
-stop_bridge(Name) ->
-    gen_statem:call(name(Name), ensure_stopped).
 
 status(Pid) ->
     gen_statem:call(Pid, status).
@@ -279,15 +273,11 @@ standing_by(enter, _, #{start_type := manual}) ->
     keep_state_and_data;
 standing_by({call, From}, ensure_started, State) ->
     {next_state, connecting, State,
-     [{reply, From, <<"starting bridge ......">>}]};
-standing_by({call, From}, ensure_stopped, _State) ->
-    {keep_state_and_data, [{reply, From, <<"bridge not started">>}]};
-standing_by({call, From}, status, _State) ->
-    {keep_state_and_data, [{reply, From, <<"Stopped">>}]};
+     [{reply, From, ok}]};
 standing_by(state_timeout, do_connect, State) ->
     {next_state, connecting, State};
 standing_by({call, From}, _Call, _State) ->
-    {keep_state_and_data, [{reply, From, {error, standing_by}}]};
+    {keep_state_and_data, [{reply, From, {error,standing_by}}]};
 standing_by(info, Info, State) ->
     ?INFO("Portal ~p discarded info event at state standing_by:\n~p", [name(), Info]),
     {keep_state_and_data, State};
@@ -308,6 +298,7 @@ connecting(enter, _, #{reconnect_delay_ms := Timeout,
     ok = subscribe_local_topics(Forwards),
     case ConnectFun(Subs) of
         {ok, ConnRef, Conn} ->
+            ?INFO("Portal ~p connected", [name()]),
             Action = {state_timeout, 0, connected},
             {keep_state, State#{conn_ref => ConnRef, connection => Conn}, Action};
         error ->
@@ -318,10 +309,6 @@ connecting(state_timeout, connected, State) ->
     {next_state, connected, State};
 connecting(state_timeout, reconnect, _State) ->
     repeat_state_and_data;
-connecting({call, From}, status, _State) ->
-    {keep_state_and_data, [{reply, From, <<"Stopped">>}]};
-connecting({call, From}, _Call, _State) ->
-    {keep_state_and_data, [{reply, From, <<"starting bridge ......">>}]};
 connecting(info, {batch_ack, Ref}, State) ->
     case do_ack(State, Ref) of
         {ok, NewState} ->
@@ -329,6 +316,10 @@ connecting(info, {batch_ack, Ref}, State) ->
         _ ->
             keep_state_and_data
     end;
+connecting(internal, maybe_send, _State) ->
+    keep_state_and_data;
+connecting(info, {disconnected, _Ref, _Reason}, _State) ->
+    keep_state_and_data;
 connecting(Type, Content, State) ->
     common(connecting, Type, Content, State).
 
@@ -353,23 +344,23 @@ connected(internal, maybe_send, State) ->
         {error, NewState} ->
             {next_state, connecting, disconnect(NewState)}
     end;
-connected({call, From}, ensure_started, _State) ->
-    {keep_state_and_data, [{reply, From, <<"bridge already started">>}]};
-connected({call, From}, status, _State) ->
-    {keep_state_and_data, [{reply, From, <<"Running">>}]};
 connected(info, {disconnected, ConnRef, Reason},
-          #{conn_ref := ConnRef, connection := Conn} = State) ->
-    ?INFO("Portal ~p diconnected~nreason=~p",
-          [name(), Conn, Reason]),
-    {next_state, connecting,
-     State#{conn_ref := undefined,
-            connection := undefined}};
+          #{conn_ref := ConnRefCurrent, connection := Conn} = State) ->
+    case ConnRefCurrent =:= ConnRef of
+        true ->
+            ?INFO("Portal ~p diconnected~nreason=~p", [name(), Conn, Reason]),
+            {next_state, connecting,
+             State#{conn_ref := undefined, connection := undefined}};
+        false ->
+            keep_state_and_data
+    end;
 connected(info, {batch_ack, Ref}, State) ->
     case do_ack(State, Ref) of
         stale ->
             keep_state_and_data;
         bad_order ->
             %% try re-connect then re-send
+            ?ERROR("Bad order ack received by portal ~p", [name()]),
             {next_state, connecting, disconnect(State)};
         {ok, NewState} ->
             {keep_state, NewState, ?maybe_send}
@@ -378,6 +369,8 @@ connected(Type, Content, State) ->
     common(connected, Type, Content, State).
 
 %% Common handlers
+common(StateName, {call, From}, status, _State) ->
+    {keep_state_and_data, [{reply, From, StateName}]};
 common(_StateName, {call, From}, ensure_started, _State) ->
     {keep_state_and_data, [{reply, From, ok}]};
 common(_StateName, {call, From}, get_forwards, #{forwards := Forwards}) ->
@@ -392,13 +385,13 @@ common(_StateName, {call, From}, {ensure_absent, What, Topic}, State) ->
     {keep_state, NewState, [{reply, From, Result}]};
 common(_StateName, {call, From}, ensure_stopped, _State) ->
     {stop_and_reply, {shutdown, manual},
-     [{reply, From, <<"stop bridge successfully">>}]};
+     [{reply, From, ok}]};
 common(_StateName, info, {dispatch, _, Msg},
        #{replayq := Q} = State) ->
     NewQ = replayq:append(Q, collect([Msg])),
     {keep_state, State#{replayq => NewQ}, ?maybe_send};
 common(StateName, Type, Content, State) ->
-    ?INFO("Portal ~p discarded ~p type event at state ~p:~p",
+    ?INFO("Portal ~p discarded ~p type event at state ~p:\n~p",
           [name(), Type, StateName, Content]),
     {keep_state, State}.
 
@@ -497,15 +490,16 @@ do_send(State = #{inflight := Inflight}, QAckRef, [_ | _] = Batch) ->
             %% this is a list of inflight BATCHes, not expecting it to be too long
             NewInflight = Inflight ++ [#{q_ack_ref => QAckRef,
                                          send_ack_ref => Ref,
-                                         batch => Batch
-                                        }],
+                                         batch => Batch}],
             {ok, State#{inflight := NewInflight}};
         {error, Reason} ->
             ?INFO("Batch produce failed\n~p", [Reason]),
             {error, State}
     end.
 
-do_ack(State = #{inflight := [#{send_ack_ref := Ref} | Rest]}, Ref) ->
+do_ack(State = #{inflight := [#{send_ack_ref := Refx, q_ack_ref := QAckRef} | Rest],
+                 replayq := Q}, Ref) when Refx =:= Ref ->
+    ok = replayq:ack(Q, QAckRef),
     {ok, State#{inflight := Rest}};
 do_ack(#{inflight := Inflight}, Ref) ->
     case lists:any(fun(#{send_ack_ref := Ref0}) -> Ref0 =:= Ref end, Inflight) of
@@ -533,8 +527,7 @@ disconnect(#{connection := Conn,
             } = State) when Conn =/= undefined ->
     ok = Module:stop(ConnRef, Conn),
     State#{conn_ref => undefined,
-           connection => undefined
-          };
+           connection => undefined};
 disconnect(State) -> State.
 
 %% Called only when replayq needs to dump it to disk.

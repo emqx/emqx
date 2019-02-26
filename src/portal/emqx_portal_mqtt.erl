@@ -74,8 +74,8 @@ start(Config = #{address := Address}) ->
     end.
 
 stop(Ref, #{ack_collector := AckCollector, client_pid := Pid}) ->
-    safe_stop(AckCollector, fun() -> AckCollector ! ?STOP(Ref) end, 1000),
     safe_stop(Pid, fun() -> emqx_client:stop(Pid) end, 1000),
+    safe_stop(AckCollector, fun() -> AckCollector ! ?STOP(Ref) end, 1000),
     ok.
 
 ensure_subscribed(#{client_pid := Pid}, Topic, QoS) when is_pid(Pid) ->
@@ -120,7 +120,7 @@ send(#{client_pid := ClientPid, ack_collector := AckCollector} = Conn, [Msg | Re
         {ok, PktId} ->
             send(Conn, Rest, [PktId | Acc]);
         {error, {_PacketId, inflight_full}} ->
-            timer:sleep(100),
+            timer:sleep(10),
             send(Conn, Batch, Acc);
         {error, Reason} ->
             %% NOTE: There is no partial sucess of a batch and recover from the middle
@@ -176,7 +176,7 @@ import_msg(Msg) ->
 make_hdlr(Parent, AckCollector, Ref) ->
     #{puback => fun(Ack) -> handle_puback(AckCollector, Ack) end,
       publish => fun(Msg) -> import_msg(Msg) end,
-      disconnected => fun(RC, _Properties) -> Parent ! {disconnected, Ref, RC}, ok end
+      disconnected => fun(Reason) -> Parent ! {disconnected, Ref, Reason}, ok end
      }.
 
 subscribe_remote_topics(ClientPid, Subscriptions) ->
