@@ -31,8 +31,8 @@ init(?SUP) ->
     BridgesConf = emqx_config:get_env(bridges, []),
     BridgeSpec = lists:map(fun portal_spec/1, BridgesConf),
     SupFlag = #{strategy => one_for_one,
-                intensity => 10,
-                period => 100},
+                intensity => 100,
+                period => 10},
     {ok, {SupFlag, BridgeSpec}}.
 
 portal_spec({Name, Config}) ->
