@@ -33,9 +33,11 @@ mount(MountPoint, TopicFilters) when is_list(TopicFilters) ->
 unmount(undefined, Msg) ->
     Msg;
 unmount(MountPoint, Msg = #message{topic = Topic}) ->
-    case catch split_binary(Topic, byte_size(MountPoint)) of
-        {MountPoint, Topic1} -> Msg#message{topic = Topic1};
-        _Other -> Msg
+    try split_binary(Topic, byte_size(MountPoint)) of
+        {MountPoint, Topic1} -> Msg#message{topic = Topic1}
+    catch
+        _Error:Msg ->
+            Msg
     end.
 
 replvar(undefined, _Vars) ->
@@ -49,4 +51,3 @@ feed_var({<<"%u">>, undefined}, MountPoint) ->
     MountPoint;
 feed_var({<<"%u">>, Username}, MountPoint) ->
     emqx_topic:feed_var(<<"%u">>, Username, MountPoint).
-

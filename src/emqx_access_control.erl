@@ -68,7 +68,7 @@ authenticate(Credentials, _Password, []) ->
     end;
 
 authenticate(Credentials, Password, [{Mod, State, _Seq} | Mods]) ->
-    case catch Mod:check(Credentials, Password, State) of
+    try Mod:check(Credentials, Password, State) of
         ok -> ok;
         {ok, IsSuper} when is_boolean(IsSuper) ->
             {ok, #{is_superuser => IsSuper}};
@@ -79,8 +79,9 @@ authenticate(Credentials, Password, [{Mod, State, _Seq} | Mods]) ->
         ignore ->
             authenticate(Credentials, Password, Mods);
         {error, Reason} ->
-            {error, Reason};
-        {'EXIT', Error} ->
+            {error, Reason}
+    catch
+        error : Error ->
             {error, Error}
     end.
 
@@ -206,4 +207,3 @@ code_change(_OldVsn, State, _Extra) ->
 
 reply(Reply, State) ->
     {reply, Reply, State}.
-
