@@ -41,8 +41,7 @@ groups() ->
                            'pubsub#', 'pubsub+']},
      {session, [sequence], [start_session]},
      {metrics, [sequence], [inc_dec_metric]},
-     {stats, [sequence], [set_get_stat]},
-     {alarms, [sequence], [set_alarms]}
+     {stats, [sequence], [set_get_stat]}
     ].
 
 init_per_suite(Config) ->
@@ -171,12 +170,3 @@ inc_dec_metric(_) ->
 set_get_stat(_) ->
     emqx_stats:setstat('retained/max', 99),
     99 = emqx_stats:getstat('retained/max').
-
-set_alarms(_) ->
-    AlarmTest = #alarm{id = <<"1">>, severity = error, title="alarm title", summary="alarm summary"},
-    emqx_alarm_mgr:set_alarm(AlarmTest),
-    Alarms = emqx_alarm_mgr:get_alarms(),
-    ct:log("Alarms Length: ~p ~n", [length(Alarms)]),
-    ?assertEqual(1, length(Alarms)),
-    emqx_alarm_mgr:clear_alarm(<<"1">>),
-    [] = emqx_alarm_mgr:get_alarms().

@@ -1840,3 +1840,58 @@ end}.
    {busy_port, cuttlefish:conf_get("sysmon.busy_port", Conf)},
    {busy_dist_port, cuttlefish:conf_get("sysmon.busy_dist_port", Conf)}]
 end}.
+
+%%--------------------------------------------------------------------
+%% Operating System Monitor
+%%--------------------------------------------------------------------
+
+{mapping, "os_mon.cpu_check_interval", "emqx.os_mon", [
+  {default, 60},
+  {datatype, {duration, s}}
+]}.
+
+{mapping, "os_mon.cpu_high_watermark", "emqx.os_mon", [
+  {default, 0.80},
+  {datatype, float}
+]}.
+
+{mapping, "os_mon.mem_check_interval", "emqx.os_mon", [
+  {default, 60},
+  {datatype, {duration, s}}
+]}.
+
+{mapping, "os_mon.sysmem_high_watermark", "emqx.os_mon", [
+  {default, 0.80},
+  {datatype, float}
+]}.
+
+{mapping, "os_mon.procmem_high_watermark", "emqx.os_mon", [
+  {default, 0.05},
+  {datatype, float}
+]}.
+
+{translation, "emqx.os_mon", fun(Conf) ->
+  [{cpu_check_interval, cuttlefish:conf_get("os_mon.cpu_check_interval", Conf)},
+   {cpu_high_watermark, cuttlefish:conf_get("os_mon.cpu_high_watermark", Conf)},
+   {mem_check_interval, cuttlefish:conf_get("os_mon.mem_check_interval", Conf)},
+   {sysmem_high_watermark, cuttlefish:conf_get("os_mon.sysmem_high_watermark", Conf)},
+   {procmem_high_watermark, cuttlefish:conf_get("os_mon.procmem_high_watermark", Conf)}]
+end}.
+
+%%--------------------------------------------------------------------
+%% VM Monitor
+%%--------------------------------------------------------------------
+{mapping, "vm_mon.check_interval", "emqx.vm_mon", [
+  {default, 30},
+  {datatype, {duration, s}}
+]}.
+
+{mapping, "vm_mon.process_high_watermark", "emqx.vm_mon", [
+  {default, 0.80},
+  {datatype, float}
+]}.
+
+{translation, "emqx.vm_mon", fun(Conf) ->
+  [{check_interval, cuttlefish:conf_get("vm_mon.check_interval", Conf)},
+   {process_high_watermark, cuttlefish:conf_get("vm_mon.process_high_watermark", Conf)}]
+end}.
