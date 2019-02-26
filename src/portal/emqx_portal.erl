@@ -64,8 +64,7 @@
 -export([start_link/2,
          import_batch/2,
          handle_ack/2,
-         stop/1
-        ]).
+         stop/1]).
 
 %% gen_statem callbacks
 -export([terminate/3, code_change/4, init/1, callback_mode/0]).
@@ -74,15 +73,13 @@
 -export([standing_by/3, connecting/3, connected/3]).
 
 %% management APIs
--export([start_bridge/1, stop_bridge/1, status/1]).
--export([ensure_started/2, ensure_stopped/1, ensure_stopped/2]).
+-export([ensure_started/1, ensure_started/2, ensure_stopped/1, ensure_stopped/2, status/1]).
 -export([get_forwards/1, ensure_forward_present/2, ensure_forward_absent/2]).
 -export([get_subscriptions/1, ensure_subscription_present/3, ensure_subscription_absent/2]).
 
 -export_type([config/0,
               batch/0,
-              ack_ref/0
-             ]).
+              ack_ref/0]).
 
 -type id() :: atom() | string() | pid().
 -type qos() :: emqx_mqtt_types:qos().
@@ -112,7 +109,7 @@
 %% max_inflight_batches: Max number of batches allowed to send-ahead before
 %%      receiving confirmation from remote node/cluster
 %% mountpoint: The topic mount point for messages sent to remote node/cluster
-%%      `undefined', `<<>>' or `""' to disalble
+%%      `undefined', `<<>>' or `""' to disable
 %% forwards: Local topics to subscribe.
 %% queue.batch_bytes_limit: Max number of bytes to collect in a batch for each
 %%      send call towards emqx_portal_connect
@@ -129,6 +126,9 @@ start_link(Name, Config) ->
     gen_statem:start_link({local, name(Name)}, ?MODULE, Config, []).
 
 %% @doc Manually start portal worker. State idempotency ensured.
+ensure_started(Name) ->
+    gen_statem:call(name(Name), ensure_started).
+
 ensure_started(Name, Config) ->
     case start_link(Name, Config) of
         {ok, Pid} -> {ok, Pid};
@@ -161,12 +161,6 @@ ensure_stopped(Id, Timeout) ->
     end.
 
 stop(Pid) -> gen_statem:stop(Pid).
-
-start_bridge(Name) ->
-    gen_statem:call(name(Name), ensure_started).
-
-stop_bridge(Name) ->
-    gen_statem:call(name(Name), ensure_stopped).
 
 status(Pid) ->
     gen_statem:call(Pid, status).
@@ -279,15 +273,14 @@ standing_by(enter, _, #{start_type := manual}) ->
     keep_state_and_data;
 standing_by({call, From}, ensure_started, State) ->
     {next_state, connecting, State,
-     [{reply, From, <<"starting bridge ......">>}]};
-standing_by({call, From}, ensure_stopped, _State) ->
-    {keep_state_and_data, [{reply, From, <<"bridge not started">>}]};
-standing_by({call, From}, status, _State) ->
-    {keep_state_and_data, [{reply, From, <<"Stopped">>}]};
+     [{reply, From, ok}]};
+standing_by({call, From}, Call, _State)
+  when Call =:= status; Call =:= ensure_stopped ->
+    {keep_state_and_data, [{reply, From, standing_by}]};
 standing_by(state_timeout, do_connect, State) ->
     {next_state, connecting, State};
 standing_by({call, From}, _Call, _State) ->
-    {keep_state_and_data, [{reply, From, {error, standing_by}}]};
+    {keep_state_and_data, [{reply, From, {error,standing_by}}]};
 standing_by(info, Info, State) ->
     ?INFO("Portal ~p discarded info event at state standing_by:\n~p", [name(), Info]),
     {keep_state_and_data, State};
@@ -318,10 +311,9 @@ connecting(state_timeout, connected, State) ->
     {next_state, connected, State};
 connecting(state_timeout, reconnect, _State) ->
     repeat_state_and_data;
-connecting({call, From}, status, _State) ->
-    {keep_state_and_data, [{reply, From, <<"Stopped">>}]};
-connecting({call, From}, _Call, _State) ->
-    {keep_state_and_data, [{reply, From, <<"starting bridge ......">>}]};
+connecting({call, From}, Content, _State)
+  when Content =:= status; Content =:= ensure_started ->
+    {keep_state_and_data, [{reply, From, connecting}]};
 connecting(info, {batch_ack, Ref}, State) ->
     case do_ack(State, Ref) of
         {ok, NewState} ->
@@ -353,10 +345,9 @@ connected(internal, maybe_send, State) ->
         {error, NewState} ->
             {next_state, connecting, disconnect(NewState)}
     end;
-connected({call, From}, ensure_started, _State) ->
-    {keep_state_and_data, [{reply, From, <<"bridge already started">>}]};
-connected({call, From}, status, _State) ->
-    {keep_state_and_data, [{reply, From, <<"Running">>}]};
+connected({call, From}, Content, _State)
+  when Content =:= status; Content =:= ensure_started ->
+    {keep_state_and_data, [{reply, From, connected}]};
 connected(info, {disconnected, ConnRef, Reason},
           #{conn_ref := ConnRef, connection := Conn} = State) ->
     ?INFO("Portal ~p diconnected~nreason=~p",
@@ -497,8 +488,7 @@ do_send(State = #{inflight := Inflight}, QAckRef, [_ | _] = Batch) ->
             %% this is a list of inflight BATCHes, not expecting it to be too long
             NewInflight = Inflight ++ [#{q_ack_ref => QAckRef,
                                          send_ack_ref => Ref,
-                                         batch => Batch
-                                        }],
+                                         batch => Batch}],
             {ok, State#{inflight := NewInflight}};
         {error, Reason} ->
             ?INFO("Batch produce failed\n~p", [Reason]),
@@ -533,8 +523,7 @@ disconnect(#{connection := Conn,
             } = State) when Conn =/= undefined ->
     ok = Module:stop(ConnRef, Conn),
     State#{conn_ref => undefined,
-           connection => undefined
-          };
+           connection => undefined};
 disconnect(State) -> State.
 
 %% Called only when replayq needs to dump it to disk.
