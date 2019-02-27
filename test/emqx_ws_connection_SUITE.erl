@@ -70,6 +70,7 @@
                 {proto_name, _},
                 {proto_ver, _},
                 {sockname, _},
+                {socktype, _},
                 {username, <<"admin">>},
                 {zone, _}]).
 
