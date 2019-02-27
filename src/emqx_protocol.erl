@@ -153,7 +153,7 @@ attrs(#pstate{zone         = Zone,
               is_super     = IsSuper,
               is_bridge    = IsBridge,
               connected_at = ConnectedAt,
-              socktype    = SockType}) ->
+              socktype     = SockType}) ->
     [{zone, Zone},
      {client_id, ClientId},
      {username, Username},
