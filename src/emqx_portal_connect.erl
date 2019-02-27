@@ -1,4 +1,4 @@
-%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -54,8 +54,8 @@ start(Module, Config) ->
             {ok, Ref, Conn};
         {error, Reason} ->
             Config1 = obfuscate(Config),
-            ?ERROR("Failed to connect with module=~p\n"
-                   "config=~p\nreason:~p", [Module, Config1, Reason]),
+            ?LOG(error, "Failed to connect with module=~p\n"
+                 "config=~p\nreason:~p", [Module, Config1, Reason]),
             error
     end.
 

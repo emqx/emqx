@@ -1,4 +1,4 @@
-%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -14,6 +14,8 @@
 
 -module(emqx_portal_sup).
 -behavior(supervisor).
+
+-include("logger.hrl").
 
 -export([start_link/0, start_link/1, portals/0]).
 -export([create_portal/2, drop_portal/1]).
@@ -55,6 +57,6 @@ drop_portal(Id) ->
         ok ->
             supervisor:delete_child(?SUP, Id);
         Error ->
-            emqx_logger:error("[Bridge] Delete bridge failed", [Error]),
+            ?LOG(error, "[Bridge] Delete bridge failed", [Error]),
             Error
     end.
