@@ -58,11 +58,10 @@ info(#state{peername    = Peername,
             sockname    = Sockname,
             proto_state = ProtoState}) ->
     ProtoInfo = emqx_protocol:info(ProtoState),
-    ConnInfo = [{socktype, websocket},
-                {conn_state, running},
+    ConnInfo = [{conn_state, running},
                 {peername, Peername},
                 {sockname, Sockname}],
-    lists:append([ConnInfo, ProtoInfo]).
+    lists:append([ConnInfo, ProtoInfo]).   
 
 %% for dashboard
 attrs(WSPid) when is_pid(WSPid) ->
@@ -127,7 +126,8 @@ websocket_init(#state{request = Req, options = Options}) ->
     ProtoState = emqx_protocol:init(#{peername => Peername,
                                       sockname => Sockname,
                                       peercert => Peercert,
-                                      sendfun  => send_fun(self())}, Options),
+                                      sendfun  => send_fun(self()),
+                                      socktype => websocket}, Options),
     ParserState = emqx_protocol:parser(ProtoState),
     Zone = proplists:get_value(zone, Options),
     EnableStats = emqx_zone:get_env(Zone, enable_stats, true),
