@@ -135,7 +135,7 @@ init([Transport, RawSocket, Options]) ->
             ProtoState = emqx_protocol:init(#{peername => Peername,
                                               sockname => Sockname,
                                               peercert => Peercert,
-                                              sendfun  => SendFun}, [Options ++ [{socktype, SockType}]]),
+                                              sendfun  => SendFun}, Options ++ [{socktype, SockType}]),
             ParserState = emqx_protocol:parser(ProtoState),
             GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
             GcState = emqx_gc:init(GcPolicy),
