@@ -83,8 +83,9 @@
 %%------------------------------------------------------------------------------
 
 -spec(init(map(), list()) -> state()).
-init(#{peername := Peername, peercert := Peercert, sendfun := SendFun, socktype := SockType}, Options) ->
+init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options) ->
     Zone = proplists:get_value(zone, Options),
+    SockType = proplists:get_value(socktype, Options, tcp),
     #pstate{zone                = Zone,
             sendfun             = SendFun,
             peername            = Peername,
@@ -109,7 +110,7 @@ init(#{peername := Peername, peercert := Peercert, sendfun := SendFun, socktype 
             connected           = false,
             ignore_loop         = emqx_config:get_env(mqtt_ignore_loop_deliver, false),
             topic_alias_maximum = #{to_client => 0, from_client => 0},
-            socktype           = SockType}.
+            socktype            = SockType}.
 
 init_username(Peercert, Options) ->
     case proplists:get_value(peer_cert_as_username, Options) of
