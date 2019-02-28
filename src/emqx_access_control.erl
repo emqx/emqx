@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([start_link/0]).
 -export([authenticate/2]).
@@ -68,7 +69,7 @@ authenticate(Credentials, _Password, []) ->
     end;
 
 authenticate(Credentials, Password, [{Mod, State, _Seq} | Mods]) ->
-    case catch Mod:check(Credentials, Password, State) of
+    try Mod:check(Credentials, Password, State) of
         ok -> ok;
         {ok, IsSuper} when is_boolean(IsSuper) ->
             {ok, #{is_superuser => IsSuper}};
@@ -79,9 +80,11 @@ authenticate(Credentials, Password, [{Mod, State, _Seq} | Mods]) ->
         ignore ->
             authenticate(Credentials, Password, Mods);
         {error, Reason} ->
-            {error, Reason};
-        {'EXIT', Error} ->
-            {error, Error}
+            {error, Reason}
+    catch
+        error:Reason:StackTrace ->
+            ?LOG(error, "Authenticate failed. StackTrace: ~p", [StackTrace]),
+            {error, Reason}
     end.
 
 %% @doc Check ACL
@@ -206,4 +209,3 @@ code_change(_OldVsn, State, _Extra) ->
 
 reply(Reply, State) ->
     {reply, Reply, State}.
-

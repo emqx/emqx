@@ -245,22 +245,22 @@ received(Packet = ?PACKET(Type), PState) ->
                     process_packet(Packet1, inc_stats(recv, Type, PState2))
             end
     catch
-        error : protocol_error ->
+        error:protocol_error ->
             deliver({disconnect, ?RC_PROTOCOL_ERROR}, PState1),
             {error, protocol_error, PState};
-        error : subscription_identifier_invalid ->
+        error:subscription_identifier_invalid ->
             deliver({disconnect, ?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED}, PState1),
             {error, subscription_identifier_invalid, PState1};
-        error : topic_alias_invalid ->
+        error:topic_alias_invalid ->
             deliver({disconnect, ?RC_TOPIC_ALIAS_INVALID}, PState1),
             {error, topic_alias_invalid, PState1};
-        error : topic_filters_invalid ->
+        error:topic_filters_invalid ->
             deliver({disconnect, ?RC_TOPIC_FILTER_INVALID}, PState1),
             {error, topic_filters_invalid, PState1};
-        error : topic_name_invalid ->
+        error:topic_name_invalid ->
             deliver({disconnect, ?RC_TOPIC_FILTER_INVALID}, PState1),
             {error, topic_filters_invalid, PState1};
-        error : Reason ->
+        error:Reason ->
             deliver({disconnect, ?RC_MALFORMED_PACKET}, PState1),
             {error, Reason, PState1}
     end.
@@ -974,4 +974,3 @@ reason_codes_compat(unsuback, _ReasonCodes, _ProtoVer) ->
     undefined;
 reason_codes_compat(PktType, ReasonCodes, _ProtoVer) ->
     [emqx_reason_codes:compat(PktType, RC) || RC <- ReasonCodes].
-
