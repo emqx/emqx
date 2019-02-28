@@ -114,9 +114,9 @@
 %% queue.batch_bytes_limit: Max number of bytes to collect in a batch for each
 %%      send call towards emqx_portal_connect
 %% queue.batch_count_limit: Max number of messages to collect in a batch for
-%%      each send call towards eqmx_portal_connect
+%%      each send call towards emqx_portal_connect
 %% queue.replayq_dir: Directory where replayq should persist messages
-%% queue.replayq_seg_bytes: Size in bytes for each replqyq segnment file
+%% queue.replayq_seg_bytes: Size in bytes for each replayq segment file
 %%
 %% Find more connection specific configs in the callback modules
 %% of emqx_portal_connect behaviour.

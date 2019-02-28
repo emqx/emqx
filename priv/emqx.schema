@@ -1600,13 +1600,17 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
-{mapping, "bridge.$name.max_inflight", "emqx.bridges", [
+{mapping, "bridge.$name.max_inflight_batches", "emqx.bridges", [
   {default, 0},
   {datatype, integer}
 ]}.
 
-{mapping, "bridge.$name.queue.batch_size", "emqx.bridges", [
+{mapping, "bridge.$name.queue.batch_count_limit", "emqx.bridges", [
   {datatype, integer}
+]}.
+
+{mapping, "bridge.$name.queue.batch_bytes_limit", "emqx.bridges", [
+  {datatype, bytesize}
 ]}.
 
 {mapping, "bridge.$name.queue.replayq_dir", "emqx.bridges", [
