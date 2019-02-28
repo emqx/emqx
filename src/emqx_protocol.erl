@@ -84,7 +84,6 @@
 
 -spec(init(map(), list()) -> state()).
 init(SocketOpts = #{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options)  ->
-    ConnMod = maps:get(conn_mod, SocketOpts, undefined),
     Zone = proplists:get_value(zone, Options),
     #pstate{zone                = Zone,
             sendfun             = SendFun,
@@ -110,7 +109,7 @@ init(SocketOpts = #{peername := Peername, peercert := Peercert, sendfun := SendF
             connected           = false,
             ignore_loop         = emqx_config:get_env(mqtt_ignore_loop_deliver, false),
             topic_alias_maximum = #{to_client => 0, from_client => 0},
-            conn_mod            = ConnMod}.
+            conn_mod            = maps:get(conn_mod, SocketOpts, undefined)}.
 
 init_username(Peercert, Options) ->
     case proplists:get_value(peer_cert_as_username, Options) of
