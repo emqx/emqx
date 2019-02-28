@@ -27,7 +27,7 @@ TEST_ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 
 EUNIT_OPTS = verbose
 
-CT_SUITES = emqx_bridge
+# CT_SUITES = emqx_bridge
 ## emqx_trie emqx_router emqx_frame emqx_mqtt_compat
 
 CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
