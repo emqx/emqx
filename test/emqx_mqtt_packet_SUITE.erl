@@ -88,7 +88,7 @@ case1_protocol_name(_) ->
     {ok, ?CONNACK_PACKET(?CONNACK_PROTO_VER), _} = raw_recv_pase(Data),
     Disconnect  = gen_tcp:recv(Sock, 0),
     ?assertEqual({error, closed}, Disconnect).
- 
+
 case2_protocol_ver(_) ->
     {ok, Sock} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
     Packet = serialize(?CASE2_PROTOCAL_VER),

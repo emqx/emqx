@@ -96,6 +96,7 @@ t_connect_api(_Config) ->
     ?STATS = emqx_connection:stats(CPid),
     ?ATTRS = emqx_connection:attrs(CPid),
     ?INFO = emqx_connection:info(CPid),
-    SessionPid = emqx_connection:session(CPid),
-    true = is_pid(SessionPid),
+    SPid = emqx_connection:session(CPid),
+    true = is_pid(SPid),
     emqx_client:disconnect(T1).
+

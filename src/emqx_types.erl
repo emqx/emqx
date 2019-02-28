@@ -31,7 +31,7 @@
 -type(pubsub() :: publish | subscribe).
 -type(topic() :: binary()).
 -type(subid() :: binary() | atom()).
--type(subopts() :: #{qos    := integer(),
+-type(subopts() :: #{qos    := emqx_mqtt_types:qos(),
                      share  => binary(),
                      atom() => term()
                     }).
@@ -59,4 +59,3 @@
 -type(alarm() :: #alarm{}).
 -type(plugin() :: #plugin{}).
 -type(command() :: #command{}).
-
