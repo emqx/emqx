@@ -10,7 +10,6 @@
 %% distributed under the License is distributed on an "AS IS" BASIS,
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
-%% limitations under the License.
 
 -module(emqx_mqtt_packet_SUITE).
 
@@ -88,7 +87,7 @@ case1_protocol_name(_) ->
     {ok, ?CONNACK_PACKET(?CONNACK_PROTO_VER), _} = raw_recv_pase(Data),
     Disconnect  = gen_tcp:recv(Sock, 0),
     ?assertEqual({error, closed}, Disconnect).
- 
+
 case2_protocol_ver(_) ->
     {ok, Sock} = emqx_client_sock:connect({127,0,0,1}, 1883, [binary, {packet, raw}, {active, false}], 3000),
     Packet = serialize(?CASE2_PROTOCAL_VER),

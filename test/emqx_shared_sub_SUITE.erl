@@ -29,7 +29,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(wait(For, Timeout), wait_for(?FUNCTION_NAME, ?LINE, fun() -> For end, Timeout)).
+-define(wait(For, Timeout), emqx_ct_helpers:wait_for(?FUNCTION_NAME, ?LINE, fun() -> For end, Timeout)).
 
 all() -> [t_random_basic,
           t_random,
@@ -258,50 +258,4 @@ ensure_config(Strategy, AckEnabled) ->
 
 subscribed(Group, Topic, Pid) ->
     lists:member(Pid, emqx_shared_sub:subscribers(Group, Topic)).
-
-wait_for(Fn, Ln, F, Timeout) ->
-    {Pid, Mref} = erlang:spawn_monitor(fun() -> wait_loop(F, catch_call(F)) end),
-    wait_for_down(Fn, Ln, Timeout, Pid, Mref, false).
-
-wait_for_down(Fn, Ln, Timeout, Pid, Mref, Kill) ->
-    receive
-        {'DOWN', Mref, process, Pid, normal} ->
-            ok;
-        {'DOWN', Mref, process, Pid, {unexpected, Result}} ->
-            erlang:error({unexpected, Fn, Ln, Result});
-        {'DOWN', Mref, process, Pid, {crashed, {C, E, S}}} ->
-            erlang:raise(C, {Fn, Ln, E}, S)
-    after
-        Timeout ->
-            case Kill of
-                true ->
-                    erlang:demonitor(Mref, [flush]),
-                    erlang:exit(Pid, kill),
-                    erlang:error({Fn, Ln, timeout});
-                false ->
-                    Pid ! stop,
-                    wait_for_down(Fn, Ln, Timeout, Pid, Mref, true)
-            end
-    end.
-
-wait_loop(_F, ok) -> exit(normal);
-wait_loop(F, LastRes) ->
-    receive
-        stop -> erlang:exit(LastRes)
-    after
-        100 ->
-            Res = catch_call(F),
-            wait_loop(F, Res)
-    end.
-
-catch_call(F) ->
-    try
-        case F() of
-            true -> ok;
-            Other -> {unexpected, Other}
-        end
-    catch
-        C : E : S ->
-            {crashed, {C, E, S}}
-    end.
 
