@@ -62,7 +62,7 @@ info(#state{peername    = Peername,
                 {conn_state, running},
                 {peername, Peername},
                 {sockname, Sockname}],
-    lists:append([ConnInfo, ProtoInfo]).   
+    lists:append([ConnInfo, ProtoInfo]). 
 
 %% for dashboard
 attrs(WSPid) when is_pid(WSPid) ->
