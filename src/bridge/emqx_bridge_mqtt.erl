@@ -12,10 +12,10 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
-%% @doc This module implements EMQX Portal transport layer on top of MQTT protocol
+%% @doc This module implements EMQX Bridge transport layer on top of MQTT protocol
 
--module(emqx_portal_mqtt).
--behaviour(emqx_portal_connect).
+-module(emqx_bridge_mqtt).
+-behaviour(emqx_bridge_connect).
 
 %% behaviour callbacks
 -export([start/1,
@@ -154,7 +154,7 @@ match_acks(Parent, Acked, Sent) ->
 match_acks_1(_Parent, {empty, Empty}, Sent) -> {Empty, Sent};
 match_acks_1(Parent, {{value, PktId}, Acked}, [?REF_IDS(Ref, [PktId]) | Sent]) ->
     %% batch finished
-    ok = emqx_portal:handle_ack(Parent, Ref),
+    ok = emqx_bridge:handle_ack(Parent, Ref),
     match_acks(Parent, Acked, Sent);
 match_acks_1(Parent, {{value, PktId}, Acked}, [?REF_IDS(Ref, [PktId | RestIds]) | Sent]) ->
     %% one message finished, but not the whole batch
@@ -171,7 +171,7 @@ handle_puback(AckCollector, #{packet_id := PktId, reason_code := RC}) ->
 %% Message published from remote broker. Import to local broker.
 import_msg(Msg) ->
     %% auto-ack should be enabled in emqx_client, hence dummy ack-fun.
-    emqx_portal:import_batch([Msg], _AckFun = fun() -> ok end).
+    emqx_bridge:import_batch([Msg], _AckFun = fun() -> ok end).
 
 make_hdlr(Parent, AckCollector, Ref) ->
     #{puback => fun(Ack) -> handle_puback(AckCollector, Ack) end,

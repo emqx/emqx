@@ -12,7 +12,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_portal_connect).
+-module(emqx_bridge_connect).
 
 -export([start/2]).
 
@@ -25,7 +25,7 @@
 -type connection() :: term().
 -type conn_ref() :: term().
 -type batch() :: emqx_protal:batch().
--type ack_ref() :: emqx_portal:ack_ref().
+-type ack_ref() :: emqx_bridge:ack_ref().
 -type topic() :: emqx_topic:topic().
 -type qos() :: emqx_mqtt_types:qos().
 
@@ -37,7 +37,7 @@
 -callback start(config()) -> {ok, conn_ref(), connection()} | {error, any()}.
 
 %% send to remote node/cluster
-%% portal worker (the caller process) should be expecting
+%% bridge worker (the caller process) should be expecting
 %% a message {batch_ack, reference()} when batch is acknowledged by remote node/cluster
 -callback send(connection(), batch()) -> {ok, ack_ref()} | {error, any()}.
 

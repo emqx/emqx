@@ -1675,9 +1675,9 @@ end}.
                           true when Subs =/= [] ->
                               error({"subscriptions are not supported when bridging between emqx nodes", Name, Subs});
                           true ->
-                              emqx_portal_rpc;
+                              emqx_bridge_rpc;
                           false ->
-                              emqx_portal_mqtt
+                              emqx_bridge_mqtt
                       end
               end,
     %% to be backward compatible

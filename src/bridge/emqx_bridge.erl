@@ -12,18 +12,18 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
-%% @doc Portal works in two layers (1) batching layer (2) transport layer
-%% The `portal' batching layer collects local messages in batches and sends over
+%% @doc Bridge works in two layers (1) batching layer (2) transport layer
+%% The `bridge' batching layer collects local messages in batches and sends over
 %% to remote MQTT node/cluster via `connetion' transport layer.
 %% In case `REMOTE' is also an EMQX node, `connection' is recommended to be
-%% the `gen_rpc' based implementation `emqx_portal_rpc'. Otherwise `connection'
-%% has to be `emqx_portal_mqtt'.
+%% the `gen_rpc' based implementation `emqx_bridge_rpc'. Otherwise `connection'
+%% has to be `emqx_bridge_mqtt'.
 %%
 %% ```
 %% +------+                        +--------+
 %% | EMQX |                        | REMOTE |
 %% |      |                        |        |
-%% |   (portal) <==(connection)==> |        |
+%% |   (bridge) <==(connection)==> |        |
 %% |      |                        |        |
 %% |      |                        |        |
 %% +------+                        +--------+
@@ -47,8 +47,8 @@
 %% (3): received {disconnected, conn_ref(), Reason} OR
 %%      failed to send to remote node/cluster.
 %%
-%% NOTE: A portal worker may subscribe to multiple (including wildcard)
-%% local topics, and the underlying `emqx_portal_connect' may subscribe to
+%% NOTE: A bridge worker may subscribe to multiple (including wildcard)
+%% local topics, and the underlying `emqx_bridge_connect' may subscribe to
 %% multiple remote topics, however, worker/connections are not designed
 %% to support automatic load-balancing, i.e. in case it can not keep up
 %% with the amount of messages comming in, administrator should split and
@@ -57,7 +57,7 @@
 %% NOTES:
 %% * Local messages are all normalised to QoS-1 when exporting to remote
 
--module(emqx_portal).
+-module(emqx_bridge).
 -behaviour(gen_statem).
 
 %% APIs
@@ -84,7 +84,7 @@
 -type id() :: atom() | string() | pid().
 -type qos() :: emqx_mqtt_types:qos().
 -type config() :: map().
--type batch() :: [emqx_portal_msg:exp_msg()].
+-type batch() :: [emqx_bridge_msg:exp_msg()].
 -type ack_ref() :: term().
 -type topic() :: emqx_topic:topic().
 
@@ -99,12 +99,12 @@
 -define(DEFAULT_SEG_BYTES, (1 bsl 20)).
 -define(maybe_send, {next_event, internal, maybe_send}).
 
-%% @doc Start a portal worker. Supported configs:
-%% start_type: 'manual' (default) or 'auto', when manual, portal will stay
+%% @doc Start a bridge worker. Supported configs:
+%% start_type: 'manual' (default) or 'auto', when manual, bridge will stay
 %%      at 'standing_by' state until a manual call to start it.
-%% connect_module: The module which implements emqx_portal_connect behaviour
+%% connect_module: The module which implements emqx_bridge_connect behaviour
 %%      and work as message batch transport layer
-%% reconnect_delay_ms: Delay in milli-seconds for the portal worker to retry
+%% reconnect_delay_ms: Delay in milli-seconds for the bridge worker to retry
 %%      in case of transportation failure.
 %% max_inflight_batches: Max number of batches allowed to send-ahead before
 %%      receiving confirmation from remote node/cluster
@@ -112,20 +112,20 @@
 %%      `undefined', `<<>>' or `""' to disable
 %% forwards: Local topics to subscribe.
 %% queue.batch_bytes_limit: Max number of bytes to collect in a batch for each
-%%      send call towards emqx_portal_connect
+%%      send call towards emqx_bridge_connect
 %% queue.batch_count_limit: Max number of messages to collect in a batch for
-%%      each send call towards emqx_portal_connect
+%%      each send call towards emqx_bridge_connect
 %% queue.replayq_dir: Directory where replayq should persist messages
 %% queue.replayq_seg_bytes: Size in bytes for each replayq segment file
 %%
 %% Find more connection specific configs in the callback modules
-%% of emqx_portal_connect behaviour.
+%% of emqx_bridge_connect behaviour.
 start_link(Name, Config) when is_list(Config) ->
     start_link(Name, maps:from_list(Config));
 start_link(Name, Config) ->
     gen_statem:start_link({local, name(Name)}, ?MODULE, Config, []).
 
-%% @doc Manually start portal worker. State idempotency ensured.
+%% @doc Manually start bridge worker. State idempotency ensured.
 ensure_started(Name) ->
     gen_statem:call(name(Name), ensure_started).
 
@@ -135,7 +135,7 @@ ensure_started(Name, Config) ->
         {error, {already_started,Pid}} -> {ok, Pid}
     end.
 
-%% @doc Manually stop portal worker. State idempotency ensured.
+%% @doc Manually stop bridge worker. State idempotency ensured.
 ensure_stopped(Id) ->
     ensure_stopped(Id, 1000).
 
@@ -168,7 +168,7 @@ status(Pid) ->
 %% @doc This function is to be evaluated on message/batch receiver side.
 -spec import_batch(batch(), fun(() -> ok)) -> ok.
 import_batch(Batch, AckFun) ->
-    lists:foreach(fun emqx_broker:publish/1, emqx_portal_msg:to_broker_msgs(Batch)),
+    lists:foreach(fun emqx_broker:publish/1, emqx_bridge_msg:to_broker_msgs(Batch)),
     AckFun().
 
 %% @doc This function is to be evaluated on message/batch exporter side
@@ -197,14 +197,14 @@ ensure_forward_absent(Id, Topic) ->
     gen_statem:call(id(Id), {ensure_absent, forwards, topic(Topic)}).
 
 %% @doc Ensure subscribed to remote topic.
-%% NOTE: only applicable when connection module is emqx_portal_mqtt
+%% NOTE: only applicable when connection module is emqx_bridge_mqtt
 %%       return `{error, no_remote_subscription_support}' otherwise.
 -spec ensure_subscription_present(id(), topic(), qos()) -> ok | {error, any()}.
 ensure_subscription_present(Id, Topic, QoS) ->
     gen_statem:call(id(Id), {ensure_present, subscriptions, {topic(Topic), QoS}}).
 
 %% @doc Ensure unsubscribed from remote topic.
-%% NOTE: only applicable when connection module is emqx_portal_mqtt
+%% NOTE: only applicable when connection module is emqx_bridge_mqtt
 -spec ensure_subscription_absent(id(), topic()) -> ok.
 ensure_subscription_absent(Id, Topic) ->
     gen_statem:call(id(Id), {ensure_absent, subscriptions, topic(Topic)}).
@@ -225,7 +225,7 @@ init(Config) ->
                        seg_bytes => GetQ(replayq_seg_bytes, ?DEFAULT_SEG_BYTES)
                       }
         end,
-    Queue = replayq:open(QueueConfig#{sizer => fun emqx_portal_msg:estimate_size/1,
+    Queue = replayq:open(QueueConfig#{sizer => fun emqx_bridge_msg:estimate_size/1,
                                       marshaller => fun msg_marshaller/1}),
     Topics = lists:sort([iolist_to_binary(T) || T <- Get(forwards, [])]),
     Subs = lists:keysort(1, lists:map(fun({T0, QoS}) ->
@@ -241,7 +241,7 @@ init(Config) ->
                                   mountpoint,
                                   forwards
                                  ], Config#{subscriptions => Subs}),
-    ConnectFun = fun(SubsX) -> emqx_portal_connect:start(ConnectModule, ConnectConfig#{subscriptions := SubsX}) end,
+    ConnectFun = fun(SubsX) -> emqx_bridge_connect:start(ConnectModule, ConnectConfig#{subscriptions := SubsX}) end,
     {ok, standing_by,
      #{connect_module => ConnectModule,
        connect_fun => ConnectFun,
@@ -279,7 +279,7 @@ standing_by(state_timeout, do_connect, State) ->
 standing_by({call, From}, _Call, _State) ->
     {keep_state_and_data, [{reply, From, {error,standing_by}}]};
 standing_by(info, Info, State) ->
-    ?LOG(info, "Portal ~p discarded info event at state standing_by:\n~p", [name(), Info]),
+    ?LOG(info, "Bridge ~p discarded info event at state standing_by:\n~p", [name(), Info]),
     {keep_state_and_data, State};
 standing_by(Type, Content, State) ->
     common(standing_by, Type, Content, State).
@@ -298,7 +298,7 @@ connecting(enter, _, #{reconnect_delay_ms := Timeout,
     ok = subscribe_local_topics(Forwards),
     case ConnectFun(Subs) of
         {ok, ConnRef, Conn} ->
-            ?LOG(info, "Portal ~p connected", [name()]),
+            ?LOG(info, "Bridge ~p connected", [name()]),
             Action = {state_timeout, 0, connected},
             {keep_state, State#{conn_ref => ConnRef, connection => Conn}, Action};
         error ->
@@ -348,7 +348,7 @@ connected(info, {disconnected, ConnRef, Reason},
           #{conn_ref := ConnRefCurrent, connection := Conn} = State) ->
     case ConnRefCurrent =:= ConnRef of
         true ->
-            ?LOG(info, "Portal ~p diconnected~nreason=~p", [name(), Conn, Reason]),
+            ?LOG(info, "Bridge ~p diconnected~nreason=~p", [name(), Conn, Reason]),
             {next_state, connecting,
              State#{conn_ref := undefined, connection := undefined}};
         false ->
@@ -360,7 +360,7 @@ connected(info, {batch_ack, Ref}, State) ->
             keep_state_and_data;
         bad_order ->
             %% try re-connect then re-send
-            ?LOG(error, "Bad order ack received by portal ~p", [name()]),
+            ?LOG(error, "Bad order ack received by bridge ~p", [name()]),
             {next_state, connecting, disconnect(State)};
         {ok, NewState} ->
             {keep_state, NewState, ?maybe_send}
@@ -391,7 +391,7 @@ common(_StateName, info, {dispatch, _, Msg},
     NewQ = replayq:append(Q, collect([Msg])),
     {keep_state, State#{replayq => NewQ}, ?maybe_send};
 common(StateName, Type, Content, State) ->
-    ?LOG(info, "Portal ~p discarded ~p type event at state ~p:\n~p",
+    ?LOG(info, "Bridge ~p discarded ~p type event at state ~p:\n~p",
           [name(), Type, StateName, Content]),
     {keep_state, State}.
 
@@ -531,15 +531,15 @@ disconnect(#{connection := Conn,
 disconnect(State) -> State.
 
 %% Called only when replayq needs to dump it to disk.
-msg_marshaller(Bin) when is_binary(Bin) -> emqx_portal_msg:from_binary(Bin);
-msg_marshaller(Msg) -> emqx_portal_msg:to_binary(Msg).
+msg_marshaller(Bin) when is_binary(Bin) -> emqx_bridge_msg:from_binary(Bin);
+msg_marshaller(Msg) -> emqx_bridge_msg:to_binary(Msg).
 
 %% Return {ok, SendAckRef} or {error, Reason}
 maybe_send(#{connect_module := Module,
              connection := Connection,
              mountpoint := Mountpoint
             }, Batch) ->
-    Module:send(Connection, [emqx_portal_msg:to_export(Module, Mountpoint, M) || M <- Batch]).
+    Module:send(Connection, [emqx_bridge_msg:to_export(Module, Mountpoint, M) || M <- Batch]).
 
 format_mountpoint(undefined) ->
     undefined;

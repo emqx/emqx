@@ -27,17 +27,17 @@ TEST_ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 
 EUNIT_OPTS = verbose
 
-# CT_SUITES = emqx_frame
+CT_SUITES = emqx_bridge
 ## emqx_trie emqx_router emqx_frame emqx_mqtt_compat
 
-CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
-			emqx_access emqx_broker emqx_cm emqx_frame emqx_guid emqx_inflight emqx_json \
-			emqx_keepalive emqx_lib emqx_metrics emqx_mod emqx_mod_sup emqx_mqtt_caps \
-			emqx_mqtt_props emqx_mqueue emqx_net emqx_pqueue emqx_router emqx_sm \
-			emqx_tables emqx_time emqx_topic emqx_trie emqx_vm emqx_mountpoint \
-			emqx_listeners emqx_protocol emqx_pool emqx_shared_sub emqx_portal \
-			emqx_hooks emqx_batch emqx_sequence emqx_pmon emqx_pd emqx_gc emqx_ws_connection \
-			emqx_packet emqx_connection emqx_tracer emqx_sys_mon emqx_message
+# CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
+# 			emqx_access emqx_broker emqx_cm emqx_frame emqx_guid emqx_inflight emqx_json \
+# 			emqx_keepalive emqx_lib emqx_metrics emqx_mod emqx_mod_sup emqx_mqtt_caps \
+# 			emqx_mqtt_props emqx_mqueue emqx_net emqx_pqueue emqx_router emqx_sm \
+# 			emqx_tables emqx_time emqx_topic emqx_trie emqx_vm emqx_mountpoint \
+# 			emqx_listeners emqx_protocol emqx_pool emqx_shared_sub emqx_bridge \
+# 			emqx_hooks emqx_batch emqx_sequence emqx_pmon emqx_pd emqx_gc emqx_ws_connection \
+# 			emqx_packet emqx_connection emqx_tracer emqx_sys_mon emqx_message
 
 CT_NODE_NAME = emqxct@127.0.0.1
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name $(CT_NODE_NAME)
@@ -110,7 +110,7 @@ rebar-ct: rebar-ct-setup
 	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(shell echo $(foreach var,$(CT_SUITES),test/$(var)_SUITE) | tr ' ' ',')
 
 ## Run one single CT with rebar3
-## e.g. make ct-one-suite suite=emqx_portal
+## e.g. make ct-one-suite suite=emqx_bridge
 ct-one-suite: rebar-ct-setup
 	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(suite)_SUITE
 

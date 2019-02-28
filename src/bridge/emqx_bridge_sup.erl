@@ -12,17 +12,17 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_portal_sup).
+-module(emqx_bridge_sup).
 -behavior(supervisor).
 
 -include("logger.hrl").
 
--export([start_link/0, start_link/1, portals/0]).
--export([create_portal/2, drop_portal/1]).
+-export([start_link/0, start_link/1, bridges/0]).
+-export([create_bridge/2, drop_bridge/1]).
 -export([init/1]).
 
 -define(SUP, ?MODULE).
--define(WORKER_SUP, emqx_portal_worker_sup).
+-define(WORKER_SUP, emqx_bridge_worker_sup).
 
 start_link() -> start_link(?SUP).
 
@@ -31,28 +31,28 @@ start_link(Name) ->
 
 init(?SUP) ->
     BridgesConf = emqx_config:get_env(bridges, []),
-    BridgeSpec = lists:map(fun portal_spec/1, BridgesConf),
+    BridgeSpec = lists:map(fun bridge_spec/1, BridgesConf),
     SupFlag = #{strategy => one_for_one,
                 intensity => 100,
                 period => 10},
     {ok, {SupFlag, BridgeSpec}}.
 
-portal_spec({Name, Config}) ->
+bridge_spec({Name, Config}) ->
     #{id => Name,
-      start => {emqx_portal, start_link, [Name, Config]},
+      start => {emqx_bridge, start_link, [Name, Config]},
       restart => permanent,
       shutdown => 5000,
       type => worker,
-      modules => [emqx_portal]}.
+      modules => [emqx_bridge]}.
 
--spec(portals() -> [{node(), map()}]).
-portals() ->
-    [{Name, emqx_portal:status(Pid)} || {Name, Pid, _, _} <- supervisor:which_children(?SUP)].
+-spec(bridges() -> [{node(), map()}]).
+bridges() ->
+    [{Name, emqx_bridge:status(Pid)} || {Name, Pid, _, _} <- supervisor:which_children(?SUP)].
 
-create_portal(Id, Config) ->
-    supervisor:start_child(?SUP, portal_spec({Id, Config})).
+create_bridge(Id, Config) ->
+    supervisor:start_child(?SUP, bridge_spec({Id, Config})).
 
-drop_portal(Id) ->
+drop_bridge(Id) ->
     case supervisor:terminate_child(?SUP, Id) of
         ok ->
             supervisor:delete_child(?SUP, Id);

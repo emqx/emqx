@@ -12,7 +12,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_portal_msg).
+-module(emqx_bridge_msg).
 
 -export([ to_binary/1
         , from_binary/1
@@ -37,9 +37,9 @@
 %% Shame that we have to know the callback module here
 %% would be great if we can get rid of #mqtt_msg{} record
 %% and use #message{} in all places.
--spec to_export(emqx_portal_rpc | emqx_portal_mqtt,
+-spec to_export(emqx_bridge_rpc | emqx_bridge_mqtt,
                 undefined | binary(), msg()) -> exp_msg().
-to_export(emqx_portal_mqtt, Mountpoint,
+to_export(emqx_bridge_mqtt, Mountpoint,
           #message{topic = Topic,
                    payload = Payload,
                    flags = Flags
@@ -79,6 +79,6 @@ to_broker_msg(#{qos := QoS, dup := Dup, retain := Retain, topic := Topic,
     %% published from remote node over a MQTT connection
     emqx_message:set_headers(Props,
         emqx_message:set_flags(#{dup => Dup, retain => Retain},
-            emqx_message:make(portal, QoS, Topic, Payload))).
+            emqx_message:make(bridge, QoS, Topic, Payload))).
 
 topic(Prefix, Topic) -> emqx_topic:prepend(Prefix, Topic).

@@ -12,7 +12,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_portal_rpc_tests).
+-module(emqx_bridge_rpc_tests).
 -include_lib("eunit/include/eunit.hrl").
 
 send_and_ack_test() ->
@@ -26,18 +26,18 @@ send_and_ack_test() ->
                 fun(Node, Module, Fun, Args) ->
                         rpc:cast(Node, Module, Fun, Args)
                 end),
-    meck:new(emqx_portal, [passthrough, no_history]),
-    meck:expect(emqx_portal, import_batch, 2,
+    meck:new(emqx_bridge, [passthrough, no_history]),
+    meck:expect(emqx_bridge, import_batch, 2,
                 fun(batch, AckFun) -> AckFun() end),
     try
-        {ok, Pid, Node} = emqx_portal_rpc:start(#{address => node()}),
-        {ok, Ref} = emqx_portal_rpc:send(Node, batch),
+        {ok, Pid, Node} = emqx_bridge_rpc:start(#{address => node()}),
+        {ok, Ref} = emqx_bridge_rpc:send(Node, batch),
         receive
             {batch_ack, Ref} ->
                 ok
         end,
-        ok = emqx_portal_rpc:stop(Pid, Node)
+        ok = emqx_bridge_rpc:stop(Pid, Node)
     after
         meck:unload(gen_rpc),
-        meck:unload(emqx_portal)
+        meck:unload(emqx_bridge)
     end.

@@ -170,13 +170,13 @@ flush(Msgs) ->
 
 bridge_conf() ->
     [ {local_rpc,
-        [{connect_module, emqx_portal_rpc},
+        [{connect_module, emqx_bridge_rpc},
          {address, node()},
-         {forwards, ["portal-1/#", "portal-2/#"]}
+         {forwards, ["bridge-1/#", "bridge-2/#"]}
         ]}
     ].
     % [{aws,
-    %   [{connect_module, emqx_portal_mqtt},
+    %   [{connect_module, emqx_bridge_mqtt},
     %   {username,"user"},
     %    {address,"127.0.0.1:1883"},
     %    {clean_start,true},

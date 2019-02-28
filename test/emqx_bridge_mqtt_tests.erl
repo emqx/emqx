@@ -12,7 +12,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_portal_mqtt_tests).
+-module(emqx_bridge_mqtt_tests).
 -include_lib("eunit/include/eunit.hrl").
 -include("emqx_mqtt.hrl").
 
@@ -39,12 +39,12 @@ send_and_ack_test() ->
     try
         Max = 100,
         Batch = lists:seq(1, Max),
-        {ok, Ref, Conn} = emqx_portal_mqtt:start(#{address => "127.0.0.1:1883"}),
+        {ok, Ref, Conn} = emqx_bridge_mqtt:start(#{address => "127.0.0.1:1883"}),
         %% return last packet id as batch reference
-        {ok, AckRef} = emqx_portal_mqtt:send(Conn, Batch),
+        {ok, AckRef} = emqx_bridge_mqtt:send(Conn, Batch),
         %% expect batch ack
         receive {batch_ack, AckRef} -> ok end,
-        ok = emqx_portal_mqtt:stop(Ref, Conn)
+        ok = emqx_bridge_mqtt:stop(Ref, Conn)
     after
         meck:unload(emqx_client)
     end.

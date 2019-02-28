@@ -12,10 +12,10 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
-%% @doc This module implements EMQX Portal transport layer based on gen_rpc.
+%% @doc This module implements EMQX Bridge transport layer based on gen_rpc.
 
--module(emqx_portal_rpc).
--behaviour(emqx_portal_connect).
+-module(emqx_bridge_rpc).
+-behaviour(emqx_bridge_connect).
 
 %% behaviour callbacks
 -export([start/1,
@@ -29,8 +29,8 @@
         , heartbeat/2
         ]).
 
--type ack_ref() :: emqx_portal:ack_ref().
--type batch() :: emqx_portal:batch().
+-type ack_ref() :: emqx_bridge:ack_ref().
+-type batch() :: emqx_bridge:batch().
 
 -define(HEARTBEAT_INTERVAL, timer:seconds(1)).
 
@@ -58,7 +58,7 @@ stop(Pid, _Remote) when is_pid(Pid) ->
     end,
     ok.
 
-%% @doc Callback for `emqx_portal_connect' behaviour
+%% @doc Callback for `emqx_bridge_connect' behaviour
 -spec send(node(), batch()) -> {ok, ack_ref()} | {error, any()}.
 send(Remote, Batch) ->
     Sender = self(),
@@ -73,14 +73,14 @@ handle_send(SenderPid, Batch) ->
     SenderNode = node(SenderPid),
     Ref = make_ref(),
     AckFun = fun() -> ?RPC:cast(SenderNode, ?MODULE, handle_ack, [SenderPid, Ref]), ok end,
-    case emqx_portal:import_batch(Batch, AckFun) of
+    case emqx_bridge:import_batch(Batch, AckFun) of
         ok -> {ok, Ref};
         Error -> Error
     end.
 
 %% @doc Handle batch ack in sender node.
 handle_ack(SenderPid, Ref) ->
-    ok = emqx_portal:handle_ack(SenderPid, Ref).
+    ok = emqx_bridge:handle_ack(SenderPid, Ref).
 
 %% @hidden Heartbeat loop
 heartbeat(Parent, RemoteNode) ->

@@ -12,15 +12,15 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_portal_tests).
--behaviour(emqx_portal_connect).
+-module(emqx_bridge_tests).
+-behaviour(emqx_bridge_connect).
 
 -include_lib("eunit/include/eunit.hrl").
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
--define(PORTAL_NAME, test).
--define(PORTAL_REG_NAME, emqx_portal_test).
+-define(BRIDGE_NAME, test).
+-define(BRIDGE_REG_NAME, emqx_bridge_test).
 -define(WAIT(PATTERN, TIMEOUT),
         receive
             PATTERN ->
@@ -45,29 +45,29 @@ send(SendFun, Batch) when is_function(SendFun, 1) ->
 
 stop(_Ref, _Pid) -> ok.
 
-%% portal worker should retry connecting remote node indefinitely
+%% bridge worker should retry connecting remote node indefinitely
 reconnect_test() ->
     Ref = make_ref(),
     Config = make_config(Ref, self(), {error, test}),
-    {ok, Pid} = emqx_portal:start_link(?PORTAL_NAME, Config),
+    {ok, Pid} = emqx_bridge:start_link(?BRIDGE_NAME, Config),
     %% assert name registered
-    ?assertEqual(Pid, whereis(?PORTAL_REG_NAME)),
+    ?assertEqual(Pid, whereis(?BRIDGE_REG_NAME)),
     ?WAIT({connection_start_attempt, Ref}, 1000),
     %% expect same message again
     ?WAIT({connection_start_attempt, Ref}, 1000),
-    ok = emqx_portal:stop(?PORTAL_REG_NAME),
+    ok = emqx_bridge:stop(?BRIDGE_REG_NAME),
     ok.
 
 %% connect first, disconnect, then connect again
 disturbance_test() ->
     Ref = make_ref(),
     Config = make_config(Ref, self(), {ok, Ref, connection}),
-    {ok, Pid} = emqx_portal:start_link(?PORTAL_NAME, Config),
-    ?assertEqual(Pid, whereis(?PORTAL_REG_NAME)),
+    {ok, Pid} = emqx_bridge:start_link(?BRIDGE_NAME, Config),
+    ?assertEqual(Pid, whereis(?BRIDGE_REG_NAME)),
     ?WAIT({connection_start_attempt, Ref}, 1000),
     Pid ! {disconnected, Ref, test},
     ?WAIT({connection_start_attempt, Ref}, 1000),
-    ok = emqx_portal:stop(?PORTAL_REG_NAME).
+    ok = emqx_bridge:stop(?BRIDGE_REG_NAME).
 
 %% buffer should continue taking in messages when disconnected
 buffer_when_disconnected_test_() ->
@@ -76,9 +76,9 @@ buffer_when_disconnected_test_() ->
 test_buffer_when_disconnected() ->
     Ref = make_ref(),
     Nums = lists:seq(1, 100),
-    Sender = spawn_link(fun() -> receive {portal, Pid} -> sender_loop(Pid, Nums, _Interval = 5) end end),
+    Sender = spawn_link(fun() -> receive {bridge, Pid} -> sender_loop(Pid, Nums, _Interval = 5) end end),
     SenderMref = monitor(process, Sender),
-    Receiver = spawn_link(fun() -> receive {portal, Pid} -> receiver_loop(Pid, Nums, _Interval = 1) end end),
+    Receiver = spawn_link(fun() -> receive {bridge, Pid} -> receiver_loop(Pid, Nums, _Interval = 1) end end),
     ReceiverMref = monitor(process, Receiver),
     SendFun = fun(Batch) ->
                       BatchRef = make_ref(),
@@ -87,44 +87,44 @@ test_buffer_when_disconnected() ->
               end,
     Config0 = make_config(Ref, false, {ok, Ref, SendFun}),
     Config = Config0#{reconnect_delay_ms => 100},
-    {ok, Pid} = emqx_portal:start_link(?PORTAL_NAME, Config),
-    Sender ! {portal, Pid},
-    Receiver ! {portal, Pid},
-    ?assertEqual(Pid, whereis(?PORTAL_REG_NAME)),
+    {ok, Pid} = emqx_bridge:start_link(?BRIDGE_NAME, Config),
+    Sender ! {bridge, Pid},
+    Receiver ! {bridge, Pid},
+    ?assertEqual(Pid, whereis(?BRIDGE_REG_NAME)),
     Pid ! {disconnected, Ref, test},
     ?WAIT({'DOWN', SenderMref, process, Sender, normal}, 5000),
     ?WAIT({'DOWN', ReceiverMref, process, Receiver, normal}, 1000),
-    ok = emqx_portal:stop(?PORTAL_REG_NAME).
+    ok = emqx_bridge:stop(?BRIDGE_REG_NAME).
 
 manual_start_stop_test() ->
     Ref = make_ref(),
     Config0 = make_config(Ref, self(), {ok, Ref, connection}),
     Config = Config0#{start_type := manual},
-    {ok, Pid} = emqx_portal:ensure_started(?PORTAL_NAME, Config),
+    {ok, Pid} = emqx_bridge:ensure_started(?BRIDGE_NAME, Config),
     %% call ensure_started again should yeld the same result
-    {ok, Pid} = emqx_portal:ensure_started(?PORTAL_NAME, Config),
-    ?assertEqual(Pid, whereis(?PORTAL_REG_NAME)),
+    {ok, Pid} = emqx_bridge:ensure_started(?BRIDGE_NAME, Config),
+    ?assertEqual(Pid, whereis(?BRIDGE_REG_NAME)),
     ?assertEqual({error, standing_by},
-                 emqx_portal:ensure_forward_present(Pid, "dummy")),
-    emqx_portal:ensure_stopped(unknown),
-    emqx_portal:ensure_stopped(Pid),
-    emqx_portal:ensure_stopped(?PORTAL_REG_NAME).
+                 emqx_bridge:ensure_forward_present(Pid, "dummy")),
+    emqx_bridge:ensure_stopped(unknown),
+    emqx_bridge:ensure_stopped(Pid),
+    emqx_bridge:ensure_stopped(?BRIDGE_REG_NAME).
 
-%% Feed messages to portal
+%% Feed messages to bridge
 sender_loop(_Pid, [], _) -> exit(normal);
 sender_loop(Pid, [Num | Rest], Interval) ->
     random_sleep(Interval),
     Pid ! {dispatch, dummy, make_msg(Num)},
     sender_loop(Pid, Rest, Interval).
 
-%% Feed acknowledgments to portal
+%% Feed acknowledgments to bridge
 receiver_loop(_Pid, [], _) -> ok;
 receiver_loop(Pid, Nums, Interval) ->
     receive
         {batch, BatchRef, Batch} ->
             Rest = match_nums(Batch, Nums),
             random_sleep(Interval),
-            emqx_portal:handle_ack(Pid, BatchRef),
+            emqx_bridge:handle_ack(Pid, BatchRef),
             receiver_loop(Pid, Rest, Interval)
     end.
 
