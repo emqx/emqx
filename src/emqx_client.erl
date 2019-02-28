@@ -789,21 +789,21 @@ connected({call, From}, {publish, Msg = #mqtt_msg{qos = ?QOS_0}}, State) ->
 
 connected({call, From}, {publish, Msg = #mqtt_msg{qos = QoS}},
           State = #state{inflight = Inflight, last_packet_id = PacketId})
-     when (QoS =:= ?QOS_1); (QoS =:= ?QOS_2) ->
-     case emqx_inflight:is_full(Inflight) of
-         true ->
-            {keep_state, State, [{reply, From, {error, {PacketId, inflight_full}}}]};
-         false ->
-            Msg1 = Msg#mqtt_msg{packet_id = PacketId},
-            case send(Msg1, State) of
-                 {ok, NewState} ->
-                    Inflight1 = emqx_inflight:insert(PacketId, {publish, Msg1, os:timestamp()}, Inflight),
-                    {keep_state, ensure_retry_timer(NewState#state{inflight = Inflight1}),
-                     [{reply, From, {ok, PacketId}}]};
-                 {error, Reason} ->
-                     {stop_and_reply, Reason, [{reply, From, {error, {PacketId, Reason}}}]}
-             end
-     end;
+    when (QoS =:= ?QOS_1); (QoS =:= ?QOS_2) ->
+        case emqx_inflight:is_full(Inflight) of
+            true ->
+                {keep_state, State, [{reply, From, {error, {PacketId, inflight_full}}}]};
+            false ->
+                Msg1 = Msg#mqtt_msg{packet_id = PacketId},
+                case send(Msg1, State) of
+                    {ok, NewState} ->
+                        Inflight1 = emqx_inflight:insert(PacketId, {publish, Msg1, os:timestamp()}, Inflight),
+                        {keep_state, ensure_retry_timer(NewState#state{inflight = Inflight1}),
+                         [{reply, From, {ok, PacketId}}]};
+                    {error, Reason} ->
+                        {stop_and_reply, Reason, [{reply, From, {error, {PacketId, Reason}}}]}
+                end
+        end;
 
 connected({call, From}, UnsubReq = {unsubscribe, Properties, Topics},
           State = #state{last_packet_id = PacketId}) ->
