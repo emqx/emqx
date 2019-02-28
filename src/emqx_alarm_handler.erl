@@ -21,11 +21,14 @@
 
 -export([init/1, handle_event/2, handle_call/2, handle_info/2, terminate/2]).
 
--export([get_alarms/0]).
+-export([load/0, get_alarms/0]).
 
 %%----------------------------------------------------------------------
 %% API
 %%----------------------------------------------------------------------
+
+load() ->
+    gen_event:swap_handler(alarm_handler, {alarm_handler, swap}, {?MODULE, []}).
 
 get_alarms() ->
     gen_event:call(alarm_handler, ?MODULE, get_alarms).
