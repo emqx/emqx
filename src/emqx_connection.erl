@@ -184,10 +184,10 @@ idle(enter, _, State) ->
 idle(timeout, _Timeout, State) ->
     {stop, idle_timeout, State};
 
-idle(cast, {incoming, Packet}, State) ->
+idle(cast, {incoming, Packet, PState}, _State) ->
     handle_packet(Packet, fun(NState) ->
-                              {next_state, connected, NState}
-                          end, State);
+                              {next_state, connected, reset_parser(NState)}
+                          end, PState);
 
 idle(EventType, Content, State) ->
     ?HANDLE(EventType, Content, State).
@@ -200,12 +200,12 @@ connected(enter, _, _State) ->
     keep_state_and_data;
 
 %% Handle Input
-connected(cast, {incoming, Packet = ?PACKET(Type)}, State) ->
+connected(cast, {incoming, Packet = ?PACKET(Type), PState}, _State) ->
     _ = emqx_metrics:received(Packet),
     (Type == ?PUBLISH) andalso emqx_pd:update_counter(incoming_pubs, 1),
     handle_packet(Packet, fun(NState) ->
-                              {keep_state, NState}
-                          end, State);
+                              {keep_state, reset_parser(NState)}
+                          end, PState);
 
 %% Handle Output
 connected(info, {deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
@@ -365,14 +365,14 @@ terminate(Reason, _StateName, #state{transport = Transport,
 %% Process incoming data
 
 process_incoming(<<>>, Packets, State) ->
-    {keep_state, State, next_events(Packets)};
+    {keep_state, State, next_events({Packets, State})};
 
 process_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
     try emqx_frame:parse(Data, ParseState) of
         {ok, Packet, Rest} ->
             process_incoming(Rest, [Packet|Packets], reset_parser(State));
         {more, NewParseState} ->
-            {keep_state, State#state{parse_state = NewParseState}, next_events(Packets)};
+            {keep_state, State#state{parse_state = NewParseState}, next_events({Packets, State})};
         {error, Reason} ->
             shutdown(Reason, State)
     catch
@@ -386,10 +386,10 @@ reset_parser(State = #state{proto_state = ProtoState}) ->
 
 next_events([]) ->
     [];
-next_events([Packet]) ->
-    {next_event, cast, {incoming, Packet}};
-next_events(Packets) ->
-    [next_events([Packet]) || Packet <- lists:reverse(Packets)].
+next_events([{Packet, State}]) ->
+    {next_event, cast, {incoming, Packet, State}};
+next_events({Packets, State}) ->
+    [next_events([{Packet, State}]) || Packet <- lists:reverse(Packets)].
 
 %%------------------------------------------------------------------------------
 %% Handle incoming packet
