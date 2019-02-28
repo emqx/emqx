@@ -54,9 +54,17 @@
                          "ECDH-RSA-AES128-SHA","AES128-SHA"]}]).
 
 run_setup_steps() ->
+    _ = run_setup_steps([]),
+    %% return ok to be backward compatible
+    ok.
+
+run_setup_steps(Config) ->
     NewConfig = generate_config(),
     lists:foreach(fun set_app_env/1, NewConfig),
-    application:ensure_all_started(?APP).
+    set_bridge_env(),
+    {ok, _} = application:ensure_all_started(?APP),
+    set_log_level(Config),
+    Config.
 
 run_teardown_steps() ->
     ?APP:shutdown().
@@ -65,6 +73,12 @@ generate_config() ->
     Schema = cuttlefish_schema:files([local_path(["priv", "emqx.schema"])]),
     Conf = conf_parse:file([local_path(["etc", "gen.emqx.conf"])]),
     cuttlefish_generator:map(Schema, Conf).
+
+set_log_level(Config) ->
+    case proplists:get_value(log_level, Config) of
+        undefined -> ok;
+        Level -> emqx_logger:set_log_level(Level)
+    end.
 
 get_base_dir(Module) ->
     {file, Here} = code:is_loaded(Module),
@@ -87,6 +101,10 @@ set_app_env({App, Lists}) ->
                      ({Par, Var}) ->
                       application:set_env(App, Par, Var)
                   end, Lists).
+
+set_bridge_env() ->
+    BridgeEnvs = bridge_conf(),
+    application:set_env(?APP, bridges, BridgeEnvs).
 
 change_opts(SslType) ->
     {ok, Listeners} = application:get_env(?APP, listeners),
@@ -149,3 +167,32 @@ flush(Msgs) ->
     after
         0 -> lists:reverse(Msgs)
     end.
+
+bridge_conf() ->
+    [ {local_rpc,
+        [{connect_module, emqx_bridge_rpc},
+         {address, node()},
+         {forwards, ["bridge-1/#", "bridge-2/#"]}
+        ]}
+    ].
+    % [{aws,
+    %   [{connect_module, emqx_bridge_mqtt},
+    %   {username,"user"},
+    %    {address,"127.0.0.1:1883"},
+    %    {clean_start,true},
+    %    {client_id,"bridge_aws"},
+    %    {forwards,["topic1/#","topic2/#"]},
+    %    {keepalive,60000},
+    %    {max_inflight,32},
+    %    {mountpoint,"bridge/aws/${node}/"},
+    %    {password,"passwd"},
+    %    {proto_ver,mqttv4},
+    %    {queue,
+    %     #{batch_coun t_limit => 1000,
+    %       replayq_dir => "data/emqx_aws_bridge/",
+    %       replayq_seg_bytes => 10485760}},
+    %    {reconnect_delay_ms,30000},
+    %    {ssl,false},
+    %    {ssl_opts,[{versions,[tlsv1,'tlsv1.1','tlsv1.2']}]},
+    %    {start_type,manual},
+    %    {subscriptions,[{"cmd/topic1",1},{"cmd/topic2",1}]}]}].

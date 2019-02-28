@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("logger.hrl").
+-include("types.hrl").
 
 -export([start_link/2]).
 -export([submit/1, submit/2]).
@@ -34,7 +35,7 @@
 -type(task() :: fun() | mfa() | {fun(), Args :: list(any())}).
 
 %% @doc Start pool.
--spec(start_link(atom(), pos_integer()) -> emqx_types:startlink_ret()).
+-spec(start_link(atom(), pos_integer()) -> startlink_ret()).
 start_link(Pool, Id) ->
     gen_server:start_link({local, emqx_misc:proc_name(?MODULE, Id)},
                           ?MODULE, [Pool, Id], [{hibernate_after, 1000}]).

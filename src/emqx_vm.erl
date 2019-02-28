@@ -351,30 +351,38 @@ port_info(PortTerm, memory_used) ->
 port_info(PortTerm, specific) ->
     Port = transform_port(PortTerm),
     Props = case erlang:port_info(Port, name) of
-        {_, Type} when Type =:= "udp_inet";
+                {_, Type} when Type =:= "udp_inet";
                        Type =:= "tcp_inet";
                        Type =:= "sctp_inet" ->
-                    case catch inet:getstat(Port) of
+                    try inet:getstat(Port) of
                         {ok, Stats} -> [{statistics, Stats}];
-                        _           -> []
-                    end ++
-                    case catch inet:peername(Port) of
-                        {ok, Peer} -> [{peername, Peer}];
                         {error, _} -> []
+                    catch
+                        _Error:_Reason -> []
                     end ++
-                    case catch inet:sockname(Port) of
+                    try inet:peername(Port) of
+                        {ok, Peer} -> [{peername, Peer}];
+                        _ -> []
+                    catch
+                        _Error:_Reason -> []
+                    end ++
+                    try inet:sockname(Port) of
                         {ok, Local} -> [{sockname, Local}];
                         {error, _}  -> []
+                    catch
+                        _Error:_Reason -> []
                     end ++
-                    case catch inet:getopts(Port, ?SOCKET_OPTS ) of
+                    try inet:getopts(Port, ?SOCKET_OPTS ) of
                         {ok, Opts} -> [{options, Opts}];
                         {error, _} -> []
+                    catch
+                        _Error:_Reason -> []
                     end;
-    {_, "efile"} ->
-        [];
-    _ ->
-        []
-    end,
+                {_, "efile"} ->
+                    [];
+                _ ->
+                    []
+            end,
     {specific, Props};
 port_info(PortTerm, Keys) when is_list(Keys) ->
     Port = transform_port(PortTerm),

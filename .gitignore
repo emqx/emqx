@@ -38,3 +38,4 @@ cuttlefish
 rebar.lock
 xrefr
 erlang.mk
+*.coverdata

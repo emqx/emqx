@@ -46,6 +46,7 @@
 -module(emqx_mqueue).
 
 -include("emqx.hrl").
+-include("types.hrl").
 -include("emqx_mqtt.hrl").
 
 -export([init/1]).
@@ -66,7 +67,7 @@
                      default_priority => highest | lowest,
                      store_qos0 => boolean()
                     }).
--type(message() :: pemqx_types:message()).
+-type(message() :: emqx_types:message()).
 
 -type(stat() :: {len, non_neg_integer()}
               | {max_len, non_neg_integer()}
@@ -117,7 +118,7 @@ stats(#mqueue{max_len = MaxLen, dropped = Dropped} = MQ) ->
     [{len, len(MQ)}, {max_len, MaxLen}, {dropped, Dropped}].
 
 %% @doc Enqueue a message.
--spec(in(message(), mqueue()) -> {undefined | message(), mqueue()}).
+-spec(in(message(), mqueue()) -> {maybe(message()), mqueue()}).
 in(#message{qos = ?QOS_0}, MQ = #mqueue{store_qos0 = false}) ->
     {_Dropped = undefined, MQ};
 in(Msg = #message{topic = Topic}, MQ = #mqueue{default_p = Dp,

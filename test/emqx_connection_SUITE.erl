@@ -23,59 +23,6 @@
 
 -include("emqx_mqtt.hrl").
 
--define(STATS, [{mailbox_len, _},
-                {heap_size, _},
-                {reductions, _},
-                {recv_pkt, _},
-                {recv_msg, _},
-                {send_pkt, _},
-                {send_msg, _},
-                {recv_oct, _},
-                {recv_cnt, _},
-                {send_oct, _},
-                {send_cnt, _},
-                {send_pend, _}]).
-
--define(ATTRS, [{clean_start, _},
-                {client_id, _},
-                {connected_at, _},
-                {is_bridge, _},
-                {is_super, _},
-                {keepalive, _},
-                {mountpoint, _},
-                {peercert, _},
-                {peername, _},
-                {proto_name, _},
-                {proto_ver, _},
-                {sockname, _},
-                {username, _},
-                {zone, _}]).
-
--define(INFO, [{ack_props, _},
-               {active_n, _},
-               {clean_start, _},
-               {client_id, _},
-               {conn_props, _},
-               {conn_state, _},
-               {connected_at, _},
-               {enable_acl, _},
-               {is_bridge, _},
-               {is_super, _},
-               {keepalive, _},
-               {mountpoint, _},
-               {peercert, _},
-               {peername, _},
-               {proto_name, _},
-               {proto_ver, _},
-               {pub_limit, _},
-               {rate_limit, _},
-               {session, _},
-               {sockname, _},
-               {socktype, _},
-               {topic_aliases, _},
-               {username, _},
-               {zone, _}]).
-
 all() ->
     [t_connect_api].
 
@@ -93,9 +40,33 @@ t_connect_api(_Config) ->
                                        {password, <<"pass1">>}]),
     {ok, _} = emqx_client:connect(T1),
     CPid = emqx_cm:lookup_conn_pid(<<"client1">>),
-    ?STATS = emqx_connection:stats(CPid),
-    ?ATTRS = emqx_connection:attrs(CPid),
-    ?INFO = emqx_connection:info(CPid),
+    ConnStats = emqx_connection:stats(CPid),
+    ok = t_stats(ConnStats),
+    ConnAttrs = emqx_connection:attrs(CPid),
+    ok = t_attrs(ConnAttrs),
+    ConnInfo = emqx_connection:info(CPid),
+    ok = t_info(ConnInfo),
     SessionPid = emqx_connection:session(CPid),
     true = is_pid(SessionPid),
     emqx_client:disconnect(T1).
+
+t_info(ConnInfo) ->
+    ?assertEqual(tcp, proplists:get_value(socktype, ConnInfo)),
+    ?assertEqual(running, proplists:get_value(conn_state, ConnInfo)),
+    ?assertEqual(<<"client1">>, proplists:get_value(client_id, ConnInfo)),
+    ?assertEqual(<<"testuser1">>, proplists:get_value(username, ConnInfo)),
+    ?assertEqual(<<"MQTT">>, proplists:get_value(proto_name, ConnInfo)).
+
+t_attrs(AttrsData) ->
+    ?assertEqual(<<"client1">>, proplists:get_value(client_id, AttrsData)),
+    ?assertEqual(emqx_connection, proplists:get_value(conn_mod, AttrsData)),  
+    ?assertEqual(<<"testuser1">>, proplists:get_value(username, AttrsData)).
+
+t_stats(StatsData) ->
+    ?assertEqual(true, proplists:get_value(recv_oct, StatsData) >= 0),
+    ?assertEqual(true, proplists:get_value(mailbox_len, StatsData) >= 0),
+    ?assertEqual(true, proplists:get_value(heap_size, StatsData) >= 0),
+    ?assertEqual(true, proplists:get_value(reductions, StatsData) >=0),
+    ?assertEqual(true, proplists:get_value(recv_pkt, StatsData) =:=1),
+    ?assertEqual(true, proplists:get_value(recv_msg, StatsData) >=0),
+    ?assertEqual(true, proplists:get_value(send_pkt, StatsData) =:=1).

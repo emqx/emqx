@@ -26,7 +26,6 @@ start_link() ->
 init([]) ->
     {ok, {{one_for_one, 10, 100},
           [child_spec(emqx_pool_sup, supervisor),
-           child_spec(emqx_alarm_mgr, worker),
            child_spec(emqx_hooks, worker),
            child_spec(emqx_stats, worker),
            child_spec(emqx_metrics, worker),

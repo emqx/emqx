@@ -20,14 +20,14 @@ ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 BUILD_DEPS = cuttlefish
 dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish v2.2.1
 
-#TEST_DEPS = emqx_ct_helplers
-#dep_emqx_ct_helplers = git git@github.com:emqx/emqx-ct-helpers
+TEST_DEPS = meck
+dep_meck = hex-emqx 0.8.13
 
 TEST_ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 
 EUNIT_OPTS = verbose
 
-# CT_SUITES = emqx_frame
+# CT_SUITES = emqx_bridge
 ## emqx_trie emqx_router emqx_frame emqx_mqtt_compat
 
 CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
@@ -37,7 +37,8 @@ CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
 			emqx_tables emqx_time emqx_topic emqx_trie emqx_vm emqx_mountpoint \
 			emqx_listeners emqx_protocol emqx_pool emqx_shared_sub emqx_bridge \
 			emqx_hooks emqx_batch emqx_sequence emqx_pmon emqx_pd emqx_gc emqx_ws_connection \
-			emqx_packet emqx_connection emqx_tracer emqx_sys_mon
+			emqx_packet emqx_connection emqx_tracer emqx_sys_mon emqx_message emqx_os_mon \
+      emqx_vm_mon emqx_alarm_handler
 
 CT_NODE_NAME = emqxct@127.0.0.1
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name $(CT_NODE_NAME)
@@ -96,16 +97,23 @@ rebar-deps:
 	@rebar3 get-deps
 
 rebar-eunit: $(CUTTLEFISH_SCRIPT)
-	@rebar3 eunit
+	@rebar3 eunit -v
 
 rebar-compile:
 	@rebar3 compile
 
-rebar-ct: app.config
+rebar-ct-setup: app.config
 	@rebar3 as test compile
 	@ln -s -f '../../../../etc' _build/test/lib/emqx/
 	@ln -s -f '../../../../data' _build/test/lib/emqx/
+
+rebar-ct: rebar-ct-setup
 	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(shell echo $(foreach var,$(CT_SUITES),test/$(var)_SUITE) | tr ' ' ',')
+
+## Run one single CT with rebar3
+## e.g. make ct-one-suite suite=emqx_bridge
+ct-one-suite: rebar-ct-setup
+	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(suite)_SUITE
 
 rebar-clean:
 	@rebar3 clean
@@ -113,26 +121,3 @@ rebar-clean:
 distclean::
 	@rm -rf _build cover deps logs log data
 	@rm -f rebar.lock compile_commands.json cuttlefish
-
-## Below are for version consistency check during erlang.mk and rebar3 dual mode support
-none=
-space = $(none) $(none)
-comma = ,
-quote = \"
-curly_l = "{"
-curly_r = "}"
-dep-versions = [$(foreach dep,$(DEPS) $(BUILD_DEPS),$(curly_l)$(dep),$(quote)$(word $(words $(dep_$(dep))),$(dep_$(dep)))$(quote)$(curly_r)$(comma))[]]
-
-.PHONY: dep-vsn-check
-dep-vsn-check:
-	$(verbose) erl -noshell -eval \
-		"MkVsns = lists:sort(lists:flatten($(dep-versions))), \
-		{ok, Conf} = file:consult('rebar.config'), \
-		{_, Deps1} = lists:keyfind(deps, 1, Conf), \
-		{_, Deps2} = lists:keyfind(github_emqx_deps, 1, Conf), \
-		F = fun({N, V}) when is_list(V) -> {N, V}; ({N, {git, _, {branch, V}}}) -> {N, V} end, \
-		RebarVsns = lists:sort(lists:map(F, Deps1 ++ Deps2)), \
-		case {RebarVsns -- MkVsns, MkVsns -- RebarVsns} of \
-		  {[], []} -> halt(0); \
-		  {Rebar, Mk} -> erlang:error({deps_version_discrepancy, [{rebar, Rebar}, {mk, Mk}]}) \
-		end."
