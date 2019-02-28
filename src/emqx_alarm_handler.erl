@@ -23,6 +23,12 @@
 
 -export([load/0, get_alarms/0]).
 
+-record(common_alarm, {id, desc}).
+-record(alarm_history, {id, clear_at}).
+
+-define(ALARMS_TAB, emqx_alarms).
+-define(ALARM_HISTORY_TAB, emqx_alarm_history).
+
 %%----------------------------------------------------------------------
 %% API
 %%----------------------------------------------------------------------
@@ -38,13 +44,18 @@ get_alarms() ->
 %%----------------------------------------------------------------------
 
 init({_Args, {alarm_handler, Alarms}}) ->
-    {ok, Alarms};
+    create_tables(),
+    lists:foreach(fun({Id, _Desc}) ->
+                      set_alarm_history(Id)
+                  end, Alarms),
+    {ok, []};
 init(_) ->
+    create_tables(),
     {ok, []}.
 
-handle_event({set_alarm, {AlarmId, AlarmDesc = #alarm{timestamp = undefined}}}, Alarms) ->
-    handle_event({set_alarm, {AlarmId, AlarmDesc#alarm{timestamp = os:timestamp()}}}, Alarms);
-handle_event({set_alarm, Alarm = {AlarmId, _AlarmDesc}}, Alarms) ->
+handle_event({set_alarm, {AlarmId, AlarmDesc = #alarm{timestamp = undefined}}}, State) ->
+    handle_event({set_alarm, {AlarmId, AlarmDesc#alarm{timestamp = os:timestamp()}}}, State);
+handle_event({set_alarm, Alarm = {AlarmId, AlarmDesc}}, State) ->
     ?LOG(notice, "Alarm report: set ~p", [Alarm]),
     case encode_alarm(Alarm) of
         {ok, Json} ->
@@ -52,27 +63,44 @@ handle_event({set_alarm, Alarm = {AlarmId, _AlarmDesc}}, Alarms) ->
         {error, Reason} ->
             ?LOG(error, "Failed to encode alarm: ~p", [Reason])
     end,
-    {ok, [Alarm | Alarms]};
-handle_event({clear_alarm, AlarmId}, Alarms) ->
+    set_alarm_(AlarmId, AlarmDesc),
+    {ok, State};
+handle_event({clear_alarm, AlarmId}, State) ->
     ?LOG(notice, "Alarm report: clear ~p", [AlarmId]),
     emqx_broker:safe_publish(alarm_msg(topic(clear, maybe_to_binary(AlarmId)), <<"">>)),
-    {ok, lists:keydelete(AlarmId, 1, Alarms)};
-handle_event(_, Alarms) ->
-    {ok, Alarms}.
+    clear_alarm_(AlarmId),
+    {ok, State};
+handle_event(_, State) ->
+    {ok, State}.
 
-handle_info(_, Alarms) -> {ok, Alarms}.
+handle_info(_, State) -> {ok, State}.
 
-handle_call(get_alarms, Alarms) -> {ok, Alarms, Alarms};
-handle_call(_Query, Alarms)     -> {ok, {error, bad_query}, Alarms}.
+handle_call(get_alarms, State) ->
+    {ok, get_alarms_(), State};
+handle_call(_Query, State)     -> {ok, {error, bad_query}, State}.
 
-terminate(swap, Alarms) ->
-    {emqx_alarm_handler, Alarms};
+terminate(swap, _State) ->
+    {emqx_alarm_handler, get_alarms_()};
 terminate(_, _) ->
     ok.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+create_tables() ->
+    ok = ekka_mnesia:create_table(?ALARMS_TAB, [
+                {type, set},
+                {disc_copies, [node()]},
+                {local_content, true},
+                {record_name, common_alarm},
+                {attributes, record_info(fields, common_alarm)}]),
+    ok = ekka_mnesia:create_table(?ALARM_HISTORY_TAB, [
+                {type, set},
+                {disc_copies, [node()]},
+                {local_content, true},
+                {record_name, alarm_history},
+                {attributes, record_info(fields, alarm_history)}]).
 
 encode_alarm({AlarmId, #alarm{severity  = Severity, 
                               title     = Title,
@@ -101,3 +129,23 @@ maybe_to_binary(Data) when is_binary(Data) ->
     Data;
 maybe_to_binary(Data) ->
     iolist_to_binary(io_lib:format("~p", [Data])).
+
+set_alarm_(Id, Desc) ->
+    ok = mnesia:dirty_write(?ALARMS_TAB, #common_alarm{id = Id, desc = Desc}).
+
+clear_alarm_(Id) ->
+    ok = mnesia:dirty_delete(?ALARMS_TAB, Id),
+    set_alarm_history(Id).
+
+get_alarms_() ->
+    Alarms = ets:tab2list(?ALARMS_TAB),
+    lists:foldr(fun(#common_alarm{id = Id, desc = Desc}, Acc) -> 
+                    Acc ++ [{Id, Desc}];
+                   (_, Acc) -> Acc
+                end, [], Alarms).
+
+set_alarm_history(Id) ->
+    ok = mnesia:dirty_write(?ALARM_HISTORY_TAB, #alarm_history{id = Id,
+                                                               clear_at = undefined}).
+
+
