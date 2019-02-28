@@ -84,7 +84,7 @@
 
 -spec(init(map(), list()) -> state()).
 init(SocketOpts = #{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options)  ->
-    ConnMod = maps:get(conn_mod, SocketOpts),
+    ConnMod = maps:get(conn_mod, SocketOpts, undefined),
     Zone = proplists:get_value(zone, Options),
     #pstate{zone                = Zone,
             sendfun             = SendFun,
