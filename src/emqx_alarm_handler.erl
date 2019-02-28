@@ -39,8 +39,8 @@ init({_Args, {alarm_handler, Alarms}}) ->
 init(_) ->
     {ok, []}.
 
-handle_event({set_alarm, {AlarmId, AlarmDesc = #alarm_desc{timestamp = undefined}}}, Alarms) ->
-    handle_event({set_alarm, {AlarmId, AlarmDesc#alarm_desc{timestamp = os:timestamp()}}}, Alarms);
+handle_event({set_alarm, {AlarmId, AlarmDesc = #alarm{timestamp = undefined}}}, Alarms) ->
+    handle_event({set_alarm, {AlarmId, AlarmDesc#alarm{timestamp = os:timestamp()}}}, Alarms);
 handle_event({set_alarm, Alarm = {AlarmId, _AlarmDesc}}, Alarms) ->
     ?LOG(notice, "Alarm report: set ~p", [Alarm]),
     case encode_alarm(Alarm) of
@@ -71,10 +71,10 @@ terminate(_, _) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-encode_alarm({AlarmId, #alarm_desc{severity  = Severity, 
-                                   title     = Title,
-                                   summary   = Summary, 
-                                   timestamp = Ts}}) ->
+encode_alarm({AlarmId, #alarm{severity  = Severity, 
+                              title     = Title,
+                              summary   = Summary, 
+                              timestamp = Ts}}) ->
     emqx_json:safe_encode([{id, maybe_to_binary(AlarmId)},
                            {desc, [{severity, Severity},
                                    {title, iolist_to_binary(Title)},

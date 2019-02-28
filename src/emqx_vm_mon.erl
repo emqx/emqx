@@ -18,54 +18,71 @@
 
 -export([start_link/1]).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+-export([init/1,
+         handle_call/3,
+         handle_cast/2,
+         handle_info/2,
+         terminate/2,
+         code_change/3]).
 
--export([get_check_interval/0, set_check_interval/1,
-         get_process_high_watermark/0, set_process_high_watermark/1]).
+-export([get_check_interval/0,
+         set_check_interval/1,
+         get_process_high_watermark/0,
+         set_process_high_watermark/1,
+         get_process_low_watermark/0,
+         set_process_low_watermark/1]).
 
--record(state, {
-          check_interval,
-          timer,
-          process_high_watermark
-}).
+-define(VM_MON, ?MODULE).
 
 %%----------------------------------------------------------------------
 %% API
 %%----------------------------------------------------------------------
 
 start_link(Opts) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Opts], []).
+    gen_server:start_link({local, ?VM_MON}, ?MODULE, [Opts], []).
 
 get_check_interval() ->
-    gen_server:call(?MODULE, get_check_interval, infinity).
+    call(get_check_interval).
 
 set_check_interval(Seconds) ->
-    gen_server:call(?MODULE, {set_check_interval, Seconds}, infinity).
+    call({set_check_interval, Seconds}).
 
 get_process_high_watermark() ->
-    gen_server:call(?MODULE, get_process_high_watermark, infinity).
+    call(get_process_high_watermark).
 
 set_process_high_watermark(Float) ->
-    gen_server:call(?MODULE, {set_process_high_watermark, Float}, infinity).
+    call({set_process_high_watermark, Float}).
+
+get_process_low_watermark() ->
+    call(get_process_low_watermark).
+
+set_process_low_watermark(Float) ->
+    call({set_process_low_watermark, Float}).
 
 %%----------------------------------------------------------------------
 %% gen_server callbacks
 %%----------------------------------------------------------------------
 
 init([Opts]) ->
-    {ok, start_check_timer(#state{check_interval = proplists:get_value(check_interval, Opts, 30),
-                                  process_high_watermark = proplists:get_value(process_high_watermark, Opts, 0.80)})}.
+    {ok, ensure_check_timer(#{check_interval => proplists:get_value(check_interval, Opts, 30),
+                              process_high_watermark => proplists:get_value(process_high_watermark, Opts, 0.70),
+                              process_low_watermark => proplists:get_value(process_low_watermark, Opts, 0.50),
+                              timer => undefined})}.
 
 handle_call(get_check_interval, _From, State) ->
-    {reply, State#state.check_interval, State};
+    {reply, maps:get(check_interval, State, undefined), State};
 handle_call({set_check_interval, Seconds}, _From, State) ->
-    {reply, ok, State#state{check_interval = Seconds}};
+    {reply, ok, State#{check_interval := Seconds}};
 
 handle_call(get_process_high_watermark, _From, State) ->
-    {reply, State#state.process_high_watermark, State};
+    {reply, maps:get(process_high_watermark, State, undefined), State};
 handle_call({set_process_high_watermark, Float}, _From, State) ->
-    {reply, ok, State#state{process_high_watermark = Float}};
+    {reply, ok, State#{process_high_watermark := Float}};
+
+handle_call(get_process_low_watermark, _From, State) ->
+    {reply, maps:get(process_low_watermark, State, undefined), State};
+handle_call({set_process_low_watermark, Float}, _From, State) ->
+    {reply, ok, State#{process_low_watermark := Float}};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -73,17 +90,19 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
-handle_info({timeout, Timer, check}, State = #state{timer = Timer}) ->
+handle_info({timeout, Timer, check}, State = #{timer := Timer,
+                                               process_high_watermark := ProcHighWatermark,
+                                               process_low_watermark := ProcLowWatermark}) ->
     ProcessCount = erlang:system_info(process_count),
-    case ProcessCount > erlang:system_info(process_limit) * State#state.process_high_watermark of
-        true ->
-            set_alarm(too_many_processes, ProcessCount);
-        false ->
-            clear_alarm(too_many_processes)
+    case ProcessCount / erlang:system_info(process_limit) of
+        Percent when Percent >= ProcHighWatermark ->
+            alarm_handler:set_alarm({too_many_processes, ProcessCount});
+        Percent when Percent < ProcLowWatermark ->
+            alarm_handler:clear_alarm(too_many_processes)
     end,
-    {noreply, start_check_timer(State)}.
+    {noreply, ensure_check_timer(State)}.
 
-terminate(_Reason, #state{timer = Timer}) ->
+terminate(_Reason, #{timer := Timer}) ->
     emqx_misc:cancel_timer(Timer).
 
 code_change(_OldVsn, State, _Extra) ->
@@ -92,24 +111,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%----------------------------------------------------------------------
 %% Internal functions
 %%----------------------------------------------------------------------
+call(Req) ->
+    gen_server:call(?VM_MON, Req, infinity).
 
-start_check_timer(State = #state{check_interval = Interval}) ->
-    State#state{timer = emqx_misc:start_timer(timer:seconds(Interval), check)}.
-
-set_alarm(AlarmId, AlarmDescr) ->
-    case get(AlarmId) of
-        set ->
-            ok;
-        undefined ->
-            alarm_handler:set_alarm({AlarmId, AlarmDescr}),
-            put(AlarmId, set), ok
-    end.
-
-clear_alarm(AlarmId) ->
-    case get(AlarmId) of
-        set ->
-            alarm_handler:clear_alarm(AlarmId),
-            erase(AlarmId), ok;
-        undefined ->
-            ok
-    end.
+ensure_check_timer(State = #{check_interval := Interval}) ->
+    State#{timer := emqx_misc:start_timer(timer:seconds(Interval), check)}.

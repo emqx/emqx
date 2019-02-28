@@ -98,7 +98,10 @@ t_alarm_handler(_) ->
             {ok, Data2} = gen_tcp:recv(Sock, 0),
             {ok, ?SUBACK_PACKET(1, #{}, [2, 2]), _} = raw_recv_parse(Data2, ?MQTT_PROTO_V5),
 
-            alarm_handler:set_alarm({alarm_for_test, #alarm_desc{severity = error, title="alarm title", summary="alarm summary"}}),
+            alarm_handler:set_alarm({alarm_for_test, #alarm{id = alarm_for_test,
+                                                            severity = error,
+                                                            title="alarm title",
+                                                            summary="alarm summary"}}),
 
             {ok, Data3} = gen_tcp:recv(Sock, 0),
 

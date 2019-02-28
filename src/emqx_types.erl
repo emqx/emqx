@@ -25,7 +25,7 @@
 -export_type([payload/0, message/0]).
 -export_type([delivery/0, deliver_results/0]).
 -export_type([route/0]).
--export_type([alarm_desc/0, plugin/0, command/0]).
+-export_type([alarm/0, plugin/0, command/0]).
 
 -type(zone() :: atom()).
 -type(pubsub() :: publish | subscribe).
@@ -56,7 +56,7 @@
 -type(deliver_results() :: [{route, node(), topic()} |
                             {dispatch, topic(), pos_integer()}]).
 -type(route() :: #route{}).
--type(alarm_desc() :: #alarm_desc{}).
+-type(alarm() :: #alarm{}).
 -type(plugin() :: #plugin{}).
 -type(command() :: #command{}).
 

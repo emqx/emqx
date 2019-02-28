@@ -1851,8 +1851,13 @@ end}.
 ]}.
 
 {mapping, "os_mon.cpu_high_watermark", "emqx.os_mon", [
-  {default, 0.80},
-  {datatype, float}
+  {default, "80%"},
+  {datatype, {percent, float}}
+]}.
+
+{mapping, "os_mon.cpu_low_watermark", "emqx.os_mon", [
+  {default, "60%"},
+  {datatype, {percent, float}}
 ]}.
 
 {mapping, "os_mon.mem_check_interval", "emqx.os_mon", [
@@ -1861,18 +1866,19 @@ end}.
 ]}.
 
 {mapping, "os_mon.sysmem_high_watermark", "emqx.os_mon", [
-  {default, 0.80},
-  {datatype, float}
+  {default, "70%"},
+  {datatype, {percent, float}}
 ]}.
 
 {mapping, "os_mon.procmem_high_watermark", "emqx.os_mon", [
-  {default, 0.05},
-  {datatype, float}
+  {default, "5%"},
+  {datatype, {percent, float}}
 ]}.
 
 {translation, "emqx.os_mon", fun(Conf) ->
   [{cpu_check_interval, cuttlefish:conf_get("os_mon.cpu_check_interval", Conf)},
    {cpu_high_watermark, cuttlefish:conf_get("os_mon.cpu_high_watermark", Conf)},
+   {cpu_low_watermark, cuttlefish:conf_get("os_mon.cpu_low_watermark", Conf)},
    {mem_check_interval, cuttlefish:conf_get("os_mon.mem_check_interval", Conf)},
    {sysmem_high_watermark, cuttlefish:conf_get("os_mon.sysmem_high_watermark", Conf)},
    {procmem_high_watermark, cuttlefish:conf_get("os_mon.procmem_high_watermark", Conf)}]
@@ -1887,11 +1893,17 @@ end}.
 ]}.
 
 {mapping, "vm_mon.process_high_watermark", "emqx.vm_mon", [
-  {default, 0.80},
-  {datatype, float}
+  {default, "80%"},
+  {datatype, {percent, float}}
+]}.
+
+{mapping, "vm_mon.process_low_watermark", "emqx.vm_mon", [
+  {default, "60%"},
+  {datatype, {percent, float}}
 ]}.
 
 {translation, "emqx.vm_mon", fun(Conf) ->
   [{check_interval, cuttlefish:conf_get("vm_mon.check_interval", Conf)},
-   {process_high_watermark, cuttlefish:conf_get("vm_mon.process_high_watermark", Conf)}]
+   {process_high_watermark, cuttlefish:conf_get("vm_mon.process_high_watermark", Conf)},
+   {process_low_watermark, cuttlefish:conf_get("vm_mon.process_low_watermark", Conf)}]
 end}.

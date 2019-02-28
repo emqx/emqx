@@ -113,7 +113,8 @@
 %% Alarm
 %%--------------------------------------------------------------------
 
--record(alarm_desc, { 
+-record(alarm, { 
+          id        :: binary(),
           severity  :: notice | warning | error | critical,
           title     :: iolist(),
           summary   :: iolist(),
