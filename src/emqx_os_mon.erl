@@ -16,6 +16,8 @@
 
 -behaviour(gen_server).
 
+-include("logger.hrl").
+
 -export([start_link/1]).
 
 -export([init/1,
@@ -88,7 +90,7 @@ set_procmem_high_watermark(Float) ->
 %%----------------------------------------------------------------------
 
 init([Opts]) ->
-    cpu_sup:util(),
+    _ = cpu_sup:util(),
     set_mem_check_interval(proplists:get_value(mem_check_interval, Opts, 60)),
     set_sysmem_high_watermark(proplists:get_value(sysmem_high_watermark, Opts, 0.70)),
     set_procmem_high_watermark(proplists:get_value(procmem_high_watermark, Opts, 0.05)),
@@ -124,7 +126,8 @@ handle_info({timeout, Timer, check}, State = #{timer := Timer,
     case cpu_sup:util() of
         0 ->
             {noreply, State#{timer := undefined}};
-        {error, _Reason} ->
+        {error, Reason} ->
+            ?LOG(warning, "Failed to get cpu utilization: ~p", [Reason]),
             {noreply, ensure_check_timer(State)};
         Busy when Busy / 100 >= CPUHighWatermark ->
             alarm_handler:set_alarm({cpu_high_watermark, Busy}),

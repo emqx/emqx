@@ -12,8 +12,8 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
-
 -module(emqx_logger_handler).
+
 -export([log/2]).
 -export([init/0]).
 

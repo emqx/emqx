@@ -19,15 +19,47 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
--export([init/1, handle_event/2, handle_call/2, handle_info/2, terminate/2]).
+%% Mnesia bootstrap
+-export([mnesia/1]).
 
--export([load/0, get_alarms/0]).
+-boot_mnesia({mnesia, [boot]}).
+-copy_mnesia({mnesia, [copy]}).
+
+-export([init/1,
+         handle_event/2,
+         handle_call/2,
+         handle_info/2,
+         terminate/2]).
+
+-export([load/0,
+         get_alarms/0]).
 
 -record(common_alarm, {id, desc}).
 -record(alarm_history, {id, clear_at}).
 
--define(ALARMS_TAB, emqx_alarms).
+-define(ALARM_TAB, emqx_alarm).
 -define(ALARM_HISTORY_TAB, emqx_alarm_history).
+
+%%------------------------------------------------------------------------------
+%% Mnesia bootstrap
+%%------------------------------------------------------------------------------
+
+mnesia(boot) ->
+    ok = ekka_mnesia:create_table(?ALARM_TAB, [
+                {type, set},
+                {disc_copies, [node()]},
+                {local_content, true},
+                {record_name, common_alarm},
+                {attributes, record_info(fields, common_alarm)}]),
+    ok = ekka_mnesia:create_table(?ALARM_HISTORY_TAB, [
+                {type, set},
+                {disc_copies, [node()]},
+                {local_content, true},
+                {record_name, alarm_history},
+                {attributes, record_info(fields, alarm_history)}]);
+mnesia(copy) ->
+    ok = ekka_mnesia:copy_table(?ALARM_TAB),
+    ok = ekka_mnesia:copy_table(?ALARM_HISTORY_TAB).
 
 %%----------------------------------------------------------------------
 %% API
@@ -43,14 +75,11 @@ get_alarms() ->
 %% gen_event callbacks
 %%----------------------------------------------------------------------
 
-init({_Args, {alarm_handler, Alarms}}) ->
-    create_tables(),
-    lists:foreach(fun({Id, _Desc}) ->
-                      set_alarm_history(Id)
-                  end, Alarms),
+init({_Args, {alarm_handler, ExistingAlarms}}) ->
+    init_tables(ExistingAlarms),
     {ok, []};
 init(_) ->
-    create_tables(),
+    init_tables([]),
     {ok, []}.
 
 handle_event({set_alarm, {AlarmId, AlarmDesc = #alarm{timestamp = undefined}}}, State) ->
@@ -88,19 +117,11 @@ terminate(_, _) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-create_tables() ->
-    ok = ekka_mnesia:create_table(?ALARMS_TAB, [
-                {type, set},
-                {disc_copies, [node()]},
-                {local_content, true},
-                {record_name, common_alarm},
-                {attributes, record_info(fields, common_alarm)}]),
-    ok = ekka_mnesia:create_table(?ALARM_HISTORY_TAB, [
-                {type, set},
-                {disc_copies, [node()]},
-                {local_content, true},
-                {record_name, alarm_history},
-                {attributes, record_info(fields, alarm_history)}]).
+init_tables(ExistingAlarms) ->
+    mnesia:clear_table(?ALARM_TAB),
+    lists:foreach(fun({Id, _Desc}) ->
+                      set_alarm_history(Id)
+                  end, ExistingAlarms).
 
 encode_alarm({AlarmId, #alarm{severity  = Severity, 
                               title     = Title,
@@ -131,21 +152,18 @@ maybe_to_binary(Data) ->
     iolist_to_binary(io_lib:format("~p", [Data])).
 
 set_alarm_(Id, Desc) ->
-    ok = mnesia:dirty_write(?ALARMS_TAB, #common_alarm{id = Id, desc = Desc}).
+    mnesia:dirty_write(?ALARM_TAB, #common_alarm{id = Id, desc = Desc}).
 
 clear_alarm_(Id) ->
-    ok = mnesia:dirty_delete(?ALARMS_TAB, Id),
+    mnesia:dirty_delete(?ALARM_TAB, Id),
     set_alarm_history(Id).
 
 get_alarms_() ->
-    Alarms = ets:tab2list(?ALARMS_TAB),
-    lists:foldr(fun(#common_alarm{id = Id, desc = Desc}, Acc) -> 
-                    Acc ++ [{Id, Desc}];
-                   (_, Acc) -> Acc
-                end, [], Alarms).
+    Alarms = ets:tab2list(?ALARM_TAB),
+    [{Id, Desc} || #common_alarm{id = Id, desc = Desc} <- Alarms].
 
 set_alarm_history(Id) ->
-    ok = mnesia:dirty_write(?ALARM_HISTORY_TAB, #alarm_history{id = Id,
-                                                               clear_at = undefined}).
+    mnesia:dirty_write(?ALARM_HISTORY_TAB, #alarm_history{id = Id,
+                                                          clear_at = undefined}).
 
 
