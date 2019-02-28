@@ -249,19 +249,19 @@ subscribe(SPid, PacketId, Properties, TopicFilters) ->
 
 %% @doc Called by connection processes when publishing messages
 -spec(publish(spid(), emqx_mqtt_types:packet_id(), emqx_types:message())
-      -> emqx_types:deliver_results() | {error, term()}).
+      -> {ok, emqx_types:deliver_results()} | {error, term()}).
 publish(_SPid, _PacketId, Msg = #message{qos = ?QOS_0}) ->
     %% Publish QoS0 message directly
-    emqx_broker:publish(Msg);
+    {ok, emqx_broker:publish(Msg)};
 
 publish(_SPid, _PacketId, Msg = #message{qos = ?QOS_1}) ->
     %% Publish QoS1 message directly
-    emqx_broker:publish(Msg);
+    {ok, emqx_broker:publish(Msg)};
 
 publish(SPid, PacketId, Msg = #message{qos = ?QOS_2, timestamp = Ts}) ->
     %% Register QoS2 message packet ID (and timestamp) to session, then publish
     case gen_server:call(SPid, {register_publish_packet_id, PacketId, Ts}, infinity) of
-        ok -> emqx_broker:publish(Msg);
+        ok -> {ok, emqx_broker:publish(Msg)};
         {error, Reason} -> {error, Reason}
     end.
 
@@ -951,7 +951,6 @@ dequeue2(State = #state{mqueue = Q}) ->
 
 ensure_await_rel_timer(State = #state{await_rel_timer = undefined, await_rel_timeout = Timeout}) ->
     ensure_await_rel_timer(Timeout, State);
-
 ensure_await_rel_timer(State) ->
     State.
 
