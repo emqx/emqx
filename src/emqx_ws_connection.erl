@@ -137,7 +137,7 @@ websocket_init(#state{request = Req, options = Options}) ->
     emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
     {ok, #state{peername     = Peername,
                 sockname     = Sockname,
-                parse_state  = ParseState,
+                parse_state  = ParserState,
                 proto_state  = ProtoState,
                 enable_stats = EnableStats,
                 idle_timeout = IdleTimout}}.
