@@ -39,4 +39,3 @@
         begin
           (logger:log(Level,#{},#{report_cb => fun(_) -> {(Format), (Args)} end}))
         end).
-
