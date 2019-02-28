@@ -40,6 +40,10 @@ start(_Type, _Args) ->
     emqx_listeners:start(),
     start_autocluster(),
     register(emqx, self()),
+
+    emqx_alarm_handler:load(),
+    emqx_logger_handler:init(),
+    
     print_vsn(),
     {ok, Sup}.
 
