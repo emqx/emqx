@@ -191,6 +191,10 @@ end}.
   {default, "emqxsecretcookie"}
 ]}.
 
+{mapping, "node.data_dir", "emqx.data_dir", [
+  {datatype, string}
+]}.
+
 %% @doc http://erlang.org/doc/man/heart.html
 {mapping, "node.heartbeat", "vm_args.-heart", [
   {datatype, flag},
