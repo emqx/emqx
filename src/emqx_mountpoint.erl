@@ -15,6 +15,7 @@
 -module(emqx_mountpoint).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([mount/2, unmount/2]).
 -export([replvar/2]).
@@ -36,7 +37,8 @@ unmount(MountPoint, Msg = #message{topic = Topic}) ->
     try split_binary(Topic, byte_size(MountPoint)) of
         {MountPoint, Topic1} -> Msg#message{topic = Topic1}
     catch
-        _Error:Msg ->
+        _Error:Reason ->
+            ?LOG(error, "Unmount error : ~p", [Reason]),
             Msg
     end.
 

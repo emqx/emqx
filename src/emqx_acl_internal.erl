@@ -17,6 +17,7 @@
 -behaviour(emqx_acl_mod).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([all_rules/0]).
 
@@ -112,8 +113,9 @@ reload_acl(#{acl_file := AclFile}) ->
         {error, Error} ->
             {error, Error}
     catch
-        error:Error ->
-            {error, Error}
+        error:Reason:StackTrace ->
+            ?LOG(error, "Reload acl failed. StackTrace: ~p", [StackTrace]),
+            {error, Reason}
     end.
 
 -spec(description() -> string()).

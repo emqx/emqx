@@ -17,6 +17,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([start_link/0]).
 -export([authenticate/2]).
@@ -81,8 +82,9 @@ authenticate(Credentials, Password, [{Mod, State, _Seq} | Mods]) ->
         {error, Reason} ->
             {error, Reason}
     catch
-        error : Error ->
-            {error, Error}
+        error:Reason:StackTrace ->
+            ?LOG(error, "Authenticate failed. StackTrace: ~p", [StackTrace]),
+            {error, Reason}
     end.
 
 %% @doc Check ACL
