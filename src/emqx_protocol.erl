@@ -67,7 +67,8 @@
           connected,
           connected_at,
           ignore_loop,
-          topic_alias_maximum
+          topic_alias_maximum,
+          conn_mod
         }).
 
 -opaque(state() :: #pstate{}).
@@ -84,7 +85,7 @@
 %%------------------------------------------------------------------------------
 
 -spec(init(map(), list()) -> state()).
-init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options) ->
+init(SocketOpts = #{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options)  ->
     Zone = proplists:get_value(zone, Options),
     #pstate{zone                = Zone,
             sendfun             = SendFun,
@@ -109,7 +110,8 @@ init(#{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options)
             send_stats          = #{msg => 0, pkt => 0},
             connected           = false,
             ignore_loop         = emqx_config:get_env(mqtt_ignore_loop_deliver, false),
-            topic_alias_maximum = #{to_client => 0, from_client => 0}}.
+            topic_alias_maximum = #{to_client => 0, from_client => 0},
+            conn_mod            = maps:get(conn_mod, SocketOpts, undefined)}.
 
 init_username(Peercert, Options) ->
     case proplists:get_value(peer_cert_as_username, Options) of
@@ -153,7 +155,8 @@ attrs(#pstate{zone         = Zone,
               mountpoint   = Mountpoint,
               is_super     = IsSuper,
               is_bridge    = IsBridge,
-              connected_at = ConnectedAt}) ->
+              connected_at = ConnectedAt,
+              conn_mod     = ConnMod}) ->
     [{zone, Zone},
      {client_id, ClientId},
      {username, Username},
@@ -166,7 +169,8 @@ attrs(#pstate{zone         = Zone,
      {mountpoint, Mountpoint},
      {is_super, IsSuper},
      {is_bridge, IsBridge},
-     {connected_at, ConnectedAt}].
+     {connected_at, ConnectedAt},
+     {conn_mod, ConnMod}].
 
 attr(max_inflight, #pstate{proto_ver = ?MQTT_PROTO_V5, conn_props = ConnProps}) ->
     get_property('Receive-Maximum', ConnProps, 65535);

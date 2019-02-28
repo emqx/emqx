@@ -60,7 +60,8 @@
           connected,
           connected_at,
           ignore_loop,
-          topic_alias_maximum
+          topic_alias_maximum,
+          conn_mod
         }).
 
 
@@ -88,7 +89,8 @@
                 send_stats          = SendStats,
                 connected           = false,
                 ignore_loop         = false,
-                topic_alias_maximum = #{to_client => 0, from_client => 0}}).
+                topic_alias_maximum = #{to_client => 0, from_client => 0},
+                conn_mod            = emqx_connection}).
 
 all() ->
     [
