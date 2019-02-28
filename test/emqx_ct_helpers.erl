@@ -20,7 +20,7 @@ ensure_mnesia_stopped() ->
     ekka_mnesia:ensure_stopped(),
     ekka_mnesia:delete_schema().
 
-%% Help function to wait for Fun to yeild 'true'.
+%% Help function to wait for Fun to yield 'true'.
 wait_for(Fn, Ln, F, Timeout) ->
     {Pid, Mref} = erlang:spawn_monitor(fun() -> wait_loop(F, catch_call(F)) end),
     wait_for_down(Fn, Ln, Timeout, Pid, Mref, false).
@@ -66,4 +66,3 @@ catch_call(F) ->
         C : E : S ->
             {crashed, {C, E, S}}
     end.
-

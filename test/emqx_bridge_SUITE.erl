@@ -29,8 +29,7 @@
 
 all() -> [t_rpc,
           t_mqtt,
-          t_mngr
-         ].
+          t_mngr].
 
 init_per_suite(Config) ->
     case node() of
@@ -91,8 +90,10 @@ t_rpc(Config) when is_list(Config) ->
         PacketId = 1,
         emqx_session:publish(SPid, PacketId, Msg1),
         ?wait(case emqx_mock_client:get_last_message(ConnPid) of
-                  {publish, PacketId, #message{topic = <<"forwarded/t_rpc/one">>}} -> true;
-                  Other -> Other
+                  [{publish, PacketId, #message{topic = <<"forwarded/t_rpc/one">>}}] ->
+                      true;
+                  Other ->
+                      Other
               end, 4000),
         emqx_mock_client:close_session(ConnPid)
     after
