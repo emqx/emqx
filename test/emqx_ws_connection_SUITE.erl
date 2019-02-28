@@ -61,7 +61,7 @@
 
 -define(ATTRS, [{clean_start,true},
                 {client_id, <<"mqtt_client">>},
-                {conn_mod, emqx_connection},
+                {conn_mod, _},
                 {connected_at, _},
                 {is_bridge, _},
                 {is_super, _},
