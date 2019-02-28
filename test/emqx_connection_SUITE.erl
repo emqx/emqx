@@ -38,6 +38,7 @@
 
 -define(ATTRS, [{clean_start, _},
                 {client_id, _},
+                {conn_mod, _},
                 {connected_at, _},
                 {is_bridge, _},
                 {is_super, _},
@@ -56,6 +57,7 @@
                {active_n, _},
                {clean_start, _},
                {client_id, _},
+               {conn_mod, _},
                {conn_props, _},
                {conn_state, _},
                {connected_at, _},

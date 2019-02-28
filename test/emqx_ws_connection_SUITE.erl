@@ -52,6 +52,7 @@
                {is_super, _},
                {is_bridge, _},
                {connected_at, _},
+               {conn_mod, _},
                {conn_props, _},
                {ack_props, _},
                {session, _},
@@ -60,6 +61,7 @@
 
 -define(ATTRS, [{clean_start,true},
                 {client_id, <<"mqtt_client">>},
+                {conn_mod, emqx_connection},
                 {connected_at, _},
                 {is_bridge, _},
                 {is_super, _},
@@ -70,7 +72,6 @@
                 {proto_name, _},
                 {proto_ver, _},
                 {sockname, _},
-                {socktype, _},
                 {username, <<"admin">>},
                 {zone, _}]).
 

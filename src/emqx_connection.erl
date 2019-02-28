@@ -62,14 +62,17 @@ start_link(Transport, Socket, Options) ->
 info(CPid) when is_pid(CPid) ->
     call(CPid, info);
 
-info(#state{peername    = Peername,
+info(#state{transport   = Transport,
+            socket      = Socket,
+            peername    = Peername,
             sockname    = Sockname,
             conn_state  = ConnState,
             active_n    = ActiveN,
             rate_limit  = RateLimit,
             pub_limit   = PubLimit,
             proto_state = ProtoState}) ->
-    ConnInfo = [{peername, Peername},
+    ConnInfo = [{socktype, Transport:type(Socket)},
+                {peername, Peername},
                 {sockname, Sockname},
                 {conn_state, ConnState},
                 {active_n, ActiveN},
@@ -131,11 +134,11 @@ init([Transport, RawSocket, Options]) ->
             EnableStats = emqx_zone:get_env(Zone, enable_stats, true),
             IdleTimout = emqx_zone:get_env(Zone, idle_timeout, 30000),
             SendFun = send_fun(Transport, Socket),
-            SockType = Transport:type(Socket),
             ProtoState = emqx_protocol:init(#{peername => Peername,
                                               sockname => Sockname,
                                               peercert => Peercert,
-                                              sendfun  => SendFun}, Options ++ [{socktype, SockType}]),
+                                              sendfun  => SendFun,
+                                              conn_mod => ?MODULE}, Options),
             ParserState = emqx_protocol:parser(ProtoState),
             GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
             GcState = emqx_gc:init(GcPolicy),
