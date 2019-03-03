@@ -18,8 +18,9 @@
 
 %% API Functions
 -export([init/0,
-         add_lookup_handler/2,
-         list_lookup_handlers/0]).
+         add_handler/3,
+         activate_handler/1,
+         list_handlers/0]).
 
 %% SSL PSK Callbacks
 -export([lookup/3]).
@@ -39,7 +40,7 @@ init() ->
 -spec lookup(psk, psk_identity(), psk_user_state()) ->
       {ok, SharedSecret :: binary()} | error.
 lookup(psk, ClientPSKID, _UserState) ->
-    {Module, Args} = list_lookup_handlers(),
+    {Module, Args} = list_handlers(),
     try Module:handle_lookup(ClientPSKID, Args) of
         {ok, SharedSecret} -> {ok, SharedSecret};
         {error, Reason} ->
@@ -51,10 +52,14 @@ lookup(psk, ClientPSKID, _UserState) ->
           error
     end.
 
--spec add_lookup_handler(Module::module(), Args::term()) -> ok.
-add_lookup_handler(Module, Args) ->
-    ets:insert(?TAB, {Module, Args}), ok.
+-spec add_handler(Name::string(), Module::module(), Args::term()) -> ok | {error, Reason::term()}.
+add_handler(Name, Module, Args) ->
+    ets:insert(?TAB, {Name, Module, Args}), ok.
 
--spec list_lookup_handlers() -> [{Module::module(), Args::term()}].
-list_lookup_handlers() ->
-    ets:lookup(?TAB, lookup_handler).
+-spec activate_handler(Name::string()) -> ok | {error, Reason::term()}.
+activate_handler(Name) ->
+    ets:insert(?TAB, {active_handler, Name}).
+
+-spec list_handlers() -> [{Name::string(), Module::module(), Args::term()}].
+list_handlers() ->
+    ets:lookup(?TAB, handler).
