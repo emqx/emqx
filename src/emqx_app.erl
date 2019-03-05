@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -40,6 +40,10 @@ start(_Type, _Args) ->
     emqx_listeners:start(),
     start_autocluster(),
     register(emqx, self()),
+
+    emqx_alarm_handler:load(),
+    emqx_logger_handler:init(),
+    
     print_vsn(),
     {ok, Sup}.
 

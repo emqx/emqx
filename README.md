@@ -6,17 +6,17 @@ Starting from 3.0 release, *EMQ X* broker fully supports MQTT V5.0 protocol spec
 
 
 - For full list of new features, please read *EMQ X* broker 3.0 [release notes](https://github.com/emqx/emqx/releases/).
-- For more information, please visit [EMQ X homepage](http://emqtt.io).
+- For more information, please visit [EMQ X homepage](http://emqx.io).
 
 
 ## Installation
 
 The *EMQ X* broker is cross-platform, which can be deployed on Linux, Unix, Mac, Windows and even Raspberry Pi.
 
-Download the binary package for your platform from [here](http://emqtt.io/downloads).
+Download the binary package for your platform from [here](http://emqx.io/downloads).
 
-- [Single Node Install](http://emqtt.io/docs/v3/install.html)
-- [Multi Node Install](http://emqtt.io/docs/v3/cluster.html)
+- [Single Node Install](https://developer.emqx.io/docs/emq/v3/en/install.html)
+- [Multi Node Install](https://developer.emqx.io/docs/emq/v3/en/cluster.html)
 
 
 ## Build From Source
@@ -75,7 +75,7 @@ You can read the mqtt protocol via the following links:
 
 ## License
 
-Copyright (c) 2018 [EMQ Technologies Co., Ltd](http://emqtt.io). All Rights Reserved.
+Copyright (c) 2013-2019 [EMQ Technologies Co., Ltd](http://emqx.io). All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");you may not use this file except in compliance with the License.You may obtain a copy of the License at
 

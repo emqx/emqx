@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -61,9 +61,6 @@ init([]) ->
     RouterSup = supervisor_spec(emqx_router_sup),
     %% Broker Sup
     BrokerSup = supervisor_spec(emqx_broker_sup),
-    %% BridgeSup
-    LocalBridgeSup = supervisor_spec(emqx_local_bridge_sup_sup),
-
     BridgeSup = supervisor_spec(emqx_bridge_sup),
     %% AccessControl
     AccessControl = worker_spec(emqx_access_control),
@@ -77,7 +74,6 @@ init([]) ->
           [KernelSup,
            RouterSup,
            BrokerSup,
-           LocalBridgeSup,
            BridgeSup,
            AccessControl,
            SMSup,
@@ -92,4 +88,3 @@ worker_spec(M) ->
     {M, {M, start_link, []}, permanent, 30000, worker, [M]}.
 supervisor_spec(M) ->
     {M, {M, start_link, []}, permanent, infinity, supervisor, [M]}.
-

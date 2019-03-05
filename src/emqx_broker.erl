@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 
 -include("emqx.hrl").
 -include("logger.hrl").
+-include("types.hrl").
 
 -export([start_link/2]).
 -export([subscribe/1, subscribe/2, subscribe/3]).
@@ -53,7 +54,7 @@
 %% Guards
 -define(is_subid(Id), (is_binary(Id) orelse is_atom(Id))).
 
--spec(start_link(atom(), pos_integer()) -> emqx_types:startlink_ret()).
+-spec(start_link(atom(), pos_integer()) -> startlink_ret()).
 start_link(Pool, Id) ->
     ok = create_tabs(),
     gen_server:start_link({local, emqx_misc:proc_name(?BROKER, Id)},
@@ -322,7 +323,7 @@ subscribed(SubId, Topic) when ?is_subid(SubId) ->
     SubPid = emqx_broker_helper:lookup_subpid(SubId),
     ets:member(?SUBOPTION, {SubPid, Topic}).
 
--spec(get_subopts(pid(), emqx_topic:topic()) -> emqx_types:subopts() | undefined).
+-spec(get_subopts(pid(), emqx_topic:topic()) -> maybe(emqx_types:subopts())).
 get_subopts(SubPid, Topic) when is_pid(SubPid), is_binary(Topic) ->
     lookup_value(?SUBOPTION, {SubPid, Topic});
 get_subopts(SubId, Topic) when ?is_subid(SubId) ->

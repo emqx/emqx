@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,7 +18,8 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 
--export([info/1, attrs/1]).
+-export([info/1]).
+-export([attrs/1]).
 -export([stats/1]).
 -export([kick/1]).
 -export([session/1]).
@@ -37,7 +38,7 @@
           sockname,
           idle_timeout,
           proto_state,
-          parser_state,
+          parse_state,
           keepalive,
           enable_stats,
           stats_timer,
@@ -127,25 +128,23 @@ websocket_init(#state{request = Req, options = Options}) ->
     ProtoState = emqx_protocol:init(#{peername => Peername,
                                       sockname => Sockname,
                                       peercert => Peercert,
-                                      sendfun  => send_fun(self())}, Options),
+                                      sendfun  => send_fun(self()),
+                                      conn_mod => ?MODULE}, Options),
     ParserState = emqx_protocol:parser(ProtoState),
     Zone = proplists:get_value(zone, Options),
     EnableStats = emqx_zone:get_env(Zone, enable_stats, true),
     IdleTimout = emqx_zone:get_env(Zone, idle_timeout, 30000),
-
     emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
     {ok, #state{peername     = Peername,
                 sockname     = Sockname,
-                parser_state = ParserState,
+                parse_state  = ParserState,
                 proto_state  = ProtoState,
                 enable_stats = EnableStats,
                 idle_timeout = IdleTimout}}.
 
 send_fun(WsPid) ->
-    fun(Packet, Options) ->
-        Data = emqx_frame:serialize(Packet, Options),
+    fun(Data) ->
         BinSize = iolist_size(Data),
-        emqx_metrics:trans(inc, 'bytes/sent', BinSize),
         emqx_pd:update_counter(send_cnt, 1),
         emqx_pd:update_counter(send_oct, BinSize),
         WsPid ! {binary, iolist_to_binary(Data)},
@@ -159,15 +158,15 @@ websocket_handle({binary, <<>>}, State) ->
     {ok, ensure_stats_timer(State)};
 websocket_handle({binary, [<<>>]}, State) ->
     {ok, ensure_stats_timer(State)};
-websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
-                                                proto_state  = ProtoState}) ->
+websocket_handle({binary, Data}, State = #state{parse_state = ParseState,
+                                                proto_state = ProtoState}) ->
     ?LOG(debug, "RECV ~p", [Data]),
     BinSize = iolist_size(Data),
     emqx_pd:update_counter(recv_oct, BinSize),
     emqx_metrics:trans(inc, 'bytes/received', BinSize),
-    try emqx_frame:parse(iolist_to_binary(Data), ParserState) of
-        {more, ParserState1} ->
-            {ok, State#state{parser_state = ParserState1}};
+    try emqx_frame:parse(iolist_to_binary(Data), ParseState) of
+        {more, ParseState1} ->
+            {ok, State#state{parse_state = ParseState1}};
         {ok, Packet, Rest} ->
             emqx_metrics:received(Packet),
             emqx_pd:update_counter(recv_cnt, 1),
@@ -189,7 +188,15 @@ websocket_handle({binary, Data}, State = #state{parser_state = ParserState,
         _:Error ->
             ?LOG(error, "Frame error:~p~nFrame data: ~p", [Error, Data]),
             shutdown(parse_error, State)
-    end.
+    end;
+%% Pings should be replied with pongs, cowboy does it automatically
+%% Pongs can be safely ignored. Clause here simply prevents crash.
+websocket_handle(Frame, State)
+  when Frame =:= ping; Frame =:= pong ->
+    {ok, ensure_stats_timer(State)};
+websocket_handle({FrameType, _}, State)
+  when FrameType =:= ping; FrameType =:= pong ->
+    {ok, ensure_stats_timer(State)}.
 
 websocket_info({call, From, info}, State) ->
     gen_server:reply(From, info(State)),
@@ -240,10 +247,10 @@ websocket_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
         {ok, KeepAlive1} ->
             {ok, State#state{keepalive = KeepAlive1}};
         {error, timeout} ->
-            ?LOG(debug, "Keepalive Timeout!", []),
+            ?LOG(debug, "Keepalive Timeout!"),
             shutdown(keepalive_timeout, State);
         {error, Error} ->
-            ?LOG(warning, "Keepalive error - ~p", [Error]),
+            ?LOG(error, "Keepalive error - ~p", [Error]),
             shutdown(keepalive_error, State)
     end;
 
@@ -269,15 +276,14 @@ terminate(SockError, _Req, #state{keepalive   = Keepalive,
                                   proto_state = ProtoState,
                                   shutdown    = Shutdown}) ->
 
-    ?LOG(debug, "Terminated for ~p, sockerror: ~p",
-           [Shutdown, SockError]),
+    ?LOG(debug, "Terminated for ~p, sockerror: ~p", [Shutdown, SockError]),
     emqx_keepalive:cancel(Keepalive),
     case {ProtoState, Shutdown} of
         {undefined, _} -> ok;
         {_, {shutdown, Reason}} ->
-            emqx_protocol:shutdown(Reason, ProtoState);
+            emqx_protocol:terminate(Reason, ProtoState);
         {_, Error} ->
-            emqx_protocol:shutdown(Error, ProtoState)
+            emqx_protocol:terminate(Error, ProtoState)
     end.
 
 %%------------------------------------------------------------------------------
@@ -285,7 +291,7 @@ terminate(SockError, _Req, #state{keepalive   = Keepalive,
 %%------------------------------------------------------------------------------
 
 reset_parser(State = #state{proto_state = ProtoState}) ->
-    State#state{parser_state = emqx_protocol:parser(ProtoState)}.
+    State#state{parse_state = emqx_protocol:parser(ProtoState)}.
 
 ensure_stats_timer(State = #state{enable_stats = true,
                                   stats_timer  = undefined,

@@ -191,11 +191,8 @@ end}.
   {default, "emqxsecretcookie"}
 ]}.
 
-%% @doc SMP Support
-{mapping, "node.smp", "vm_args.-smp", [
-  {default, auto},
-  {datatype, {enum, [enable, auto, disable]}},
-  hidden
+{mapping, "node.data_dir", "emqx.data_dir", [
+  {datatype, string}
 ]}.
 
 %% @doc http://erlang.org/doc/man/heart.html
@@ -338,38 +335,38 @@ end}.
 
 %% Client connect timeout
 {mapping, "rpc.connect_timeout", "gen_rpc.connect_timeout", [
-  {default, 5000},
-  {datatype, integer}
+  {default, "5s"},
+  {datatype, {duration, ms}}
 ]}.
 
 %% Client and Server send timeout
 {mapping, "rpc.send_timeout", "gen_rpc.send_timeout", [
   {default, 5000},
-  {datatype, integer}
+  {datatype, {duration, ms}}
 ]}.
 
 %% Authentication timeout
 {mapping, "rpc.authentication_timeout", "gen_rpc.authentication_timeout", [
   {default, 5000},
-  {datatype, integer}
+  {datatype, {duration, ms}}
 ]}.
 
 %% Default receive timeout for call() functions
 {mapping, "rpc.call_receive_timeout", "gen_rpc.call_receive_timeout", [
   {default, 15000},
-  {datatype, integer}
+  {datatype, {duration, ms}}
 ]}.
 
 %% Socket keepalive configuration
 {mapping, "rpc.socket_keepalive_idle", "gen_rpc.socket_keepalive_idle", [
   {default, 7200},
-  {datatype, integer}
+  {datatype, {duration, s}}
 ]}.
 
 %% Seconds between probes
 {mapping, "rpc.socket_keepalive_interval", "gen_rpc.socket_keepalive_interval", [
   {default, 75},
-  {datatype, integer}
+  {datatype, {duration, s}}
 ]}.
 
 %% Probes lost to close the connection
@@ -1522,22 +1519,6 @@ end}.
 %%--------------------------------------------------------------------
 %% Bridges
 %%--------------------------------------------------------------------
-{mapping, "bridge.$name.queue.mem_cache", "emqx.bridges", [
-  {datatype, flag}
-]}.
-
-{mapping, "bridge.$name.queue.batch_size", "emqx.bridges", [
-  {datatype, integer}
-]}.
-
-{mapping, "bridge.$name.queue.replayq_dir", "emqx.bridges", [
-  {datatype, string}
-]}.
-
-{mapping, "bridge.$name.queue.replayq_seg_bytes", "emqx.bridges", [
-  {datatype, bytesize}
-]}.
-
 {mapping, "bridge.$name.address", "emqx.bridges", [
   {datatype, string}
 ]}.
@@ -1626,9 +1607,25 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
-{mapping, "bridge.$name.max_inflight", "emqx.bridges", [
+{mapping, "bridge.$name.max_inflight_batches", "emqx.bridges", [
   {default, 0},
   {datatype, integer}
+]}.
+
+{mapping, "bridge.$name.queue.batch_count_limit", "emqx.bridges", [
+  {datatype, integer}
+]}.
+
+{mapping, "bridge.$name.queue.batch_bytes_limit", "emqx.bridges", [
+  {datatype, bytesize}
+]}.
+
+{mapping, "bridge.$name.queue.replayq_dir", "emqx.bridges", [
+  {datatype, string}
+]}.
+
+{mapping, "bridge.$name.queue.replayq_seg_bytes", "emqx.bridges", [
+  {datatype, bytesize}
 ]}.
 
 {translation, "emqx.bridges", fun(Conf) ->
@@ -1671,17 +1668,59 @@ end}.
                         lists:zip([Topic || {_, Topic} <- lists:sort([{I, Topic} || {[_, _, "subscription", I, "topic"], Topic} <- Configs])],
                                   [QoS || {_, QoS} <- lists:sort([{I, QoS} || {[_, _, "subscription", I, "qos"], QoS} <- Configs])])
                     end,
-
+    IsNodeAddr = fun(Addr) ->
+                      case string:tokens(Addr, "@") of
+                          [_NodeName, _Hostname] -> true;
+                           _ -> false
+                      end
+                 end,
+    ConnMod = fun(Name) ->
+                      [AddrConfig] = cuttlefish_variable:filter_by_prefix("bridge." ++ Name ++ ".address", Conf),
+                      {_, Addr} = AddrConfig,
+                      Subs = Subscriptions(Name),
+                      case IsNodeAddr(Addr) of
+                          true when Subs =/= [] ->
+                              error({"subscriptions are not supported when bridging between emqx nodes", Name, Subs});
+                          true ->
+                              emqx_bridge_rpc;
+                          false ->
+                              emqx_bridge_mqtt
+                      end
+              end,
+    %% to be backward compatible
+    Translate =
+        fun Tr(queue, Q, Cfg) ->
+                NewQ = maps:fold(Tr, #{}, Q),
+                Cfg#{queue => NewQ};
+            Tr(address, Addr0, Cfg) ->
+                Addr = case IsNodeAddr(Addr0) of
+                           true -> list_to_atom(Addr0);
+                           false -> Addr0
+                       end,
+                Cfg#{address => Addr};
+            Tr(batch_size, Count, Cfg) ->
+                Cfg#{batch_count_limit => Count};
+            Tr(reconnect_interval, Ms, Cfg) ->
+                Cfg#{reconnect_delay_ms => Ms};
+            Tr(max_inflight, Count, Cfg) ->
+                Cfg#{max_inflight_batches => Count};
+            Tr(Key, Value, Cfg) ->
+                Cfg#{Key => Value}
+         end,
     maps:to_list(
       lists:foldl(
         fun({["bridge", Name, Opt], Val}, Acc) ->
                 %% e.g #{aws => [{OptKey, OptVal}]}
-                Init = [{list_to_atom(Opt), Val},{subscriptions, Subscriptions(Name)}, {queue, Queue(Name)}],
-                maps:update_with(list_to_atom(Name),
-                                 fun(Opts) -> Merge(list_to_atom(Opt), Val, Opts) end, Init, Acc);
+                Init = [{list_to_atom(Opt), Val},
+                        {connect_module, ConnMod(Name)},
+                        {subscriptions, Subscriptions(Name)},
+                        {queue, Queue(Name)}
+                       ],
+                C = maps:update_with(list_to_atom(Name),
+                                     fun(Opts) -> Merge(list_to_atom(Opt), Val, Opts) end, Init, Acc),
+                maps:fold(Translate, #{}, C);
            (_, Acc) -> Acc
         end, #{}, lists:usort(cuttlefish_variable:filter_by_prefix("bridge.", Conf))))
-
 end}.
 
 %%--------------------------------------------------------------------
@@ -1853,4 +1892,71 @@ end}.
    {large_heap, cuttlefish:conf_get("sysmon.large_heap", Conf)},
    {busy_port, cuttlefish:conf_get("sysmon.busy_port", Conf)},
    {busy_dist_port, cuttlefish:conf_get("sysmon.busy_dist_port", Conf)}]
+end}.
+
+%%--------------------------------------------------------------------
+%% Operating System Monitor
+%%--------------------------------------------------------------------
+
+{mapping, "os_mon.cpu_check_interval", "emqx.os_mon", [
+  {default, 60},
+  {datatype, {duration, s}}
+]}.
+
+{mapping, "os_mon.cpu_high_watermark", "emqx.os_mon", [
+  {default, "80%"},
+  {datatype, {percent, float}}
+]}.
+
+{mapping, "os_mon.cpu_low_watermark", "emqx.os_mon", [
+  {default, "60%"},
+  {datatype, {percent, float}}
+]}.
+
+{mapping, "os_mon.mem_check_interval", "emqx.os_mon", [
+  {default, 60},
+  {datatype, {duration, s}}
+]}.
+
+{mapping, "os_mon.sysmem_high_watermark", "emqx.os_mon", [
+  {default, "70%"},
+  {datatype, {percent, float}}
+]}.
+
+{mapping, "os_mon.procmem_high_watermark", "emqx.os_mon", [
+  {default, "5%"},
+  {datatype, {percent, float}}
+]}.
+
+{translation, "emqx.os_mon", fun(Conf) ->
+  [{cpu_check_interval, cuttlefish:conf_get("os_mon.cpu_check_interval", Conf)},
+   {cpu_high_watermark, cuttlefish:conf_get("os_mon.cpu_high_watermark", Conf)},
+   {cpu_low_watermark, cuttlefish:conf_get("os_mon.cpu_low_watermark", Conf)},
+   {mem_check_interval, cuttlefish:conf_get("os_mon.mem_check_interval", Conf)},
+   {sysmem_high_watermark, cuttlefish:conf_get("os_mon.sysmem_high_watermark", Conf)},
+   {procmem_high_watermark, cuttlefish:conf_get("os_mon.procmem_high_watermark", Conf)}]
+end}.
+
+%%--------------------------------------------------------------------
+%% VM Monitor
+%%--------------------------------------------------------------------
+{mapping, "vm_mon.check_interval", "emqx.vm_mon", [
+  {default, 30},
+  {datatype, {duration, s}}
+]}.
+
+{mapping, "vm_mon.process_high_watermark", "emqx.vm_mon", [
+  {default, "80%"},
+  {datatype, {percent, float}}
+]}.
+
+{mapping, "vm_mon.process_low_watermark", "emqx.vm_mon", [
+  {default, "60%"},
+  {datatype, {percent, float}}
+]}.
+
+{translation, "emqx.vm_mon", fun(Conf) ->
+  [{check_interval, cuttlefish:conf_get("vm_mon.check_interval", Conf)},
+   {process_high_watermark, cuttlefish:conf_get("vm_mon.process_high_watermark", Conf)},
+   {process_low_watermark, cuttlefish:conf_get("vm_mon.process_low_watermark", Conf)}]
 end}.

@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 
 -include("emqx.hrl").
 -include("logger.hrl").
+-include("types.hrl").
 -include_lib("ekka/include/ekka.hrl").
 
 %% Mnesia bootstrap
@@ -65,7 +66,7 @@ mnesia(copy) ->
 %% Start a router
 %%------------------------------------------------------------------------------
 
--spec(start_link(atom(), pos_integer()) -> emqx_types:startlink_ret()).
+-spec(start_link(atom(), pos_integer()) -> startlink_ret()).
 start_link(Pool, Id) ->
     gen_server:start_link({local, emqx_misc:proc_name(?MODULE, Id)},
                           ?MODULE, [Pool, Id], [{hibernate_after, 1000}]).

@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 -behaviour(emqx_acl_mod).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([all_rules/0]).
 
@@ -63,7 +64,7 @@ load_rules_from_file(AclFile) ->
             emqx_logger:error("[ACL_INTERNAL] Failed to read ~s: ~p", [AclFile, Reason]),
             {error, Reason}
     end.
-  
+
 filter(_PubSub, {allow, all}) ->
     true;
 filter(_PubSub, {deny, all}) ->
@@ -105,17 +106,18 @@ match(Credentials, Topic, [Rule|Rules]) ->
 
 -spec(reload_acl(state()) -> ok | {error, term()}).
 reload_acl(#{acl_file := AclFile}) ->
-    case catch load_rules_from_file(AclFile) of
+    try load_rules_from_file(AclFile) of
         ok ->
             emqx_logger:info("Reload acl_file ~s successfully", [AclFile]),
             ok;
         {error, Error} ->
-            {error, Error};
-        {'EXIT', Error} ->
             {error, Error}
+    catch
+        error:Reason:StackTrace ->
+            ?LOG(error, "Reload acl failed. StackTrace: ~p", [StackTrace]),
+            {error, Reason}
     end.
 
 -spec(description() -> string()).
 description() ->
     "Internal ACL with etc/acl.conf".
-

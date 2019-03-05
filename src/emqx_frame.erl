@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@
 -type(options() :: #{max_packet_size => 1..?MAX_PACKET_SIZE,
                      version         => emqx_mqtt_types:version()}).
 
--type(parse_state() :: {none, options()} | cont_fun(binary())).
+-opaque(parse_state() :: {none, options()} | cont_fun(binary())).
 
 -type(cont_fun(Bin) :: fun((Bin) -> {ok, emqx_mqtt_types:packet(), binary()}
                                   | {more, cont_fun(Bin)})).

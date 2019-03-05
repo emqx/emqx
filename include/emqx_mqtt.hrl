@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -171,9 +171,10 @@
 -define(RC_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED,   16#A2).
 
 %%--------------------------------------------------------------------
-%% Maximum MQTT Packet Length
+%% Maximum MQTT Packet ID and Length
 %%--------------------------------------------------------------------
 
+-define(MAX_PACKET_ID, 16#ffff).
 -define(MAX_PACKET_SIZE, 16#fffffff).
 
 %%--------------------------------------------------------------------

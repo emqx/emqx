@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@
         linger_ms => pos_integer(),
         commit_fun := function()
        }).
+
 -export_type([options/0]).
 
 -record(batch, {
@@ -31,7 +32,9 @@
           linger_timer :: reference() | undefined,
           commit_fun :: function()
          }).
--type(batch() :: #batch{}).
+
+-opaque(batch() :: #batch{}).
+
 -export_type([batch/0]).
 
 -spec(init(options()) -> batch()).

@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -33,11 +33,13 @@ all() ->
     ].
 
 message_make(_) ->
-    Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
+    Msg = emqx_message:make(<<"clientid">>, <<"payload">>),
     ?assertEqual(0, Msg#message.qos),
-    Msg1 = emqx_message:make(<<"clientid">>, ?QOS_2, <<"topic">>, <<"payload">>),
-    ?assert(is_binary(Msg1#message.id)),
-    ?assertEqual(2, Msg1#message.qos).
+    Msg1 = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
+    ?assertEqual(0, Msg1#message.qos),
+    Msg2 = emqx_message:make(<<"clientid">>, ?QOS_2, <<"topic">>, <<"payload">>),
+    ?assert(is_binary(Msg2#message.id)),
+    ?assertEqual(2, Msg2#message.qos).
 
 message_flag(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),

@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 -module(emqx_mountpoint).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([mount/2, unmount/2]).
 -export([replvar/2]).
@@ -33,9 +34,12 @@ mount(MountPoint, TopicFilters) when is_list(TopicFilters) ->
 unmount(undefined, Msg) ->
     Msg;
 unmount(MountPoint, Msg = #message{topic = Topic}) ->
-    case catch split_binary(Topic, byte_size(MountPoint)) of
-        {MountPoint, Topic1} -> Msg#message{topic = Topic1};
-        _Other -> Msg
+    try split_binary(Topic, byte_size(MountPoint)) of
+        {MountPoint, Topic1} -> Msg#message{topic = Topic1}
+    catch
+        _Error:Reason ->
+            ?LOG(error, "Unmount error : ~p", [Reason]),
+            Msg
     end.
 
 replvar(undefined, _Vars) ->
@@ -49,4 +53,3 @@ feed_var({<<"%u">>, undefined}, MountPoint) ->
     MountPoint;
 feed_var({<<"%u">>, Username}, MountPoint) ->
     emqx_topic:feed_var(<<"%u">>, Username, MountPoint).
-

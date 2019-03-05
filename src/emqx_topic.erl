@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -20,17 +20,18 @@
 -export([triples/1]).
 -export([words/1]).
 -export([wildcard/1]).
--export([join/1]).
+-export([join/1, prepend/2]).
 -export([feed_var/3]).
 -export([systop/1]).
 -export([parse/1, parse/2]).
 
+-type(group() :: binary()).
 -type(topic() :: binary()).
 -type(word() :: '' | '+' | '#' | binary()).
 -type(words() :: list(word())).
--type(triple() :: {root | binary(), word(), binary()}).
+-opaque(triple() :: {root | binary(), word(), binary()}).
 
--export_type([topic/0, word/0, triple/0]).
+-export_type([group/0, topic/0, word/0, triple/0]).
 
 -define(MAX_TOPIC_LEN, 4096).
 
@@ -128,10 +129,23 @@ join(root, W) ->
 join(Parent, W) ->
     <<(bin(Parent))/binary, $/, (bin(W))/binary>>.
 
+%% @doc Prepend a topic prefix.
+%% Ensured to have only one / between prefix and suffix.
+prepend(root, W) -> bin(W);
+prepend(undefined, W) -> bin(W);
+prepend(<<>>, W) -> bin(W);
+prepend(Parent0, W) ->
+    Parent = bin(Parent0),
+    case binary:last(Parent) of
+        $/ -> <<Parent/binary, (bin(W))/binary>>;
+        _ -> join(Parent, W)
+    end.
+
 bin('')  -> <<>>;
 bin('+') -> <<"+">>;
 bin('#') -> <<"#">>;
-bin(B) when is_binary(B) -> B.
+bin(B) when is_binary(B) -> B;
+bin(L) when is_list(L) -> list_to_binary(L).
 
 levels(Topic) when is_binary(Topic) ->
     length(words(Topic)).

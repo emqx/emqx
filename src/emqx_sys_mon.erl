@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 -behavior(gen_server).
 
 -include("logger.hrl").
+-include("types.hrl").
 
 -export([start_link/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
@@ -24,10 +25,16 @@
 %% compress unused warning
 -export([procinfo/1]).
 
+-type(option() :: {long_gc, false | pos_integer()}
+                | {long_schedule, false | pos_integer()}
+                | {large_heap, pos_integer()}
+                | {busy_port, boolean()}
+                | {busy_dist_port, boolean()}).
+
 -define(SYSMON, ?MODULE).
 
 %% @doc Start system monitor
--spec(start_link(Opts :: list(tuple())) -> emqx_types:startlink_ret()).
+-spec(start_link(list(option())) -> startlink_ret()).
 start_link(Opts) ->
     gen_server:start_link({local, ?SYSMON}, ?MODULE, [Opts], []).
 
@@ -156,5 +163,6 @@ safe_publish(Event, WarnMsg) ->
     emqx_broker:safe_publish(sysmon_msg(Topic, iolist_to_binary(WarnMsg))).
 
 sysmon_msg(Topic, Payload) ->
-    emqx_message:make(?SYSMON, #{sys => true}, Topic, Payload).
+    Msg = emqx_message:make(?SYSMON, Topic, Payload),
+    emqx_message:set_flag(sys, Msg).
 

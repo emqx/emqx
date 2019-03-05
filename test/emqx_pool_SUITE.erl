@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -62,7 +62,7 @@ async_submit_mfa(_Config) ->
     emqx_pool:async_submit(fun ?MODULE:test_mfa/0, []).
 
 async_submit_crash(_) ->
-    emqx_pool:async_submit(fun() -> A = 1, A = 0 end).
+    emqx_pool:async_submit(fun() -> error(unexpected_error) end).
 
 t_unexpected(_) ->
     Pid = emqx_pool:worker(),
@@ -73,3 +73,4 @@ t_unexpected(_) ->
 
 test_mfa() ->
     lists:foldl(fun(X, Sum) -> X + Sum end, 0, [1,2,3,4,5]).
+

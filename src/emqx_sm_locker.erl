@@ -1,4 +1,4 @@
-%% Copyright (c) 2018 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -15,13 +15,14 @@
 -module(emqx_sm_locker).
 
 -include("emqx.hrl").
+-include("types.hrl").
 
 -export([start_link/0]).
 
 -export([trans/2, trans/3]).
 -export([lock/1, lock/2, unlock/1]).
 
--spec(start_link() -> emqx_types:startlink_ret()).
+-spec(start_link() -> startlink_ret()).
 start_link() ->
     ekka_locker:start_link(?MODULE).
 
@@ -29,7 +30,7 @@ start_link() ->
 trans(ClientId, Fun) ->
     trans(ClientId, Fun, undefined).
 
--spec(trans(emqx_types:client_id() | undefined,
+-spec(trans(maybe(emqx_types:client_id()),
             fun(([node()])-> any()), ekka_locker:piggyback()) -> any()).
 trans(undefined, Fun, _Piggyback) ->
     Fun([]);
