@@ -121,14 +121,15 @@ stats(#mqueue{max_len = MaxLen, dropped = Dropped} = MQ) ->
 -spec(in(message(), mqueue()) -> {maybe(message()), mqueue()}).
 in(#message{qos = ?QOS_0}, MQ = #mqueue{store_qos0 = false}) ->
     {_Dropped = undefined, MQ};
-in(Msg = #message{topic = Topic}, MQ = #mqueue{default_p = Dp,
+in(Msg = #message{topic = Topic, qos = Qos}, MQ = #mqueue{default_p = Dp,
                                                p_table = PTab,
                                                q = Q,
                                                len = Len,
                                                max_len = MaxLen,
                                                dropped = Dropped
                                               } = MQ) ->
-    Priority = get_priority(Topic, PTab, Dp),
+    Qos_ = integer_to_binary(Qos),
+    Priority = get_priority(<<Topic/binary, $/, Qos_/binary>>, PTab, Dp),
     PLen = ?PQUEUE:plen(Priority, Q),
     case MaxLen =/= ?MAX_LEN_INFINITY andalso PLen =:= MaxLen of
         true ->

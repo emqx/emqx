@@ -866,15 +866,16 @@ end}.
                     {force_shutdown_policy, ShutdownPolicy};
                ("mqueue_priorities", Val) ->
                     case Val of
-                        "none" -> none; % NO_PRIORITY_TABLE
+                        "none" -> {mqueue_priorities, none}; % NO_PRIORITY_TABLE
                         _ ->
-                            lists:foldl(fun(T, Acc) ->
+                            MqueuePriorities = lists:foldl(fun(T, Acc) ->
                                                 %% NOTE: space in "= " is intended
-                                                [{Topic, Prio}] = string:tokens(T, "= "),
+                                                [Topic, Prio] = string:tokens(T, "= "),
                                                 P = list_to_integer(Prio),
                                                 (P < 0 orelse P > 255) andalso error({bad_priority, Topic, Prio}),
                                                 maps:put(iolist_to_binary(Topic), P, Acc)
-                                        end, string:tokens(Val, ","))
+                                        end, #{}, string:tokens(Val, ",")),
+                            {mqueue_priorities, MqueuePriorities}
                     end;
                ("mountpoint", Val) ->
                     {mountpoint, iolist_to_binary(Val)};
