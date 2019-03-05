@@ -28,13 +28,8 @@ send_and_ack_test() ->
                 fun(Pid) -> Pid ! stop end),
     meck:expect(emqx_client, publish, 2,
                 fun(Client, Msg) ->
-                        case rand:uniform(200) of
-                            1 ->
-                                {error, {dummy, inflight_full}};
-                            _ ->
-                                Client ! {publish, Msg},
-                                {ok, Msg} %% as packet id
-                        end
+                        Client ! {publish, Msg},
+                        {ok, Msg} %% as packet id
                 end),
     try
         Max = 100,

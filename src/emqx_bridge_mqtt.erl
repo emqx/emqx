@@ -110,7 +110,7 @@ safe_stop(Pid, StopF, Timeout) ->
 send(Conn, Batch) ->
     send(Conn, Batch, []).
 
-send(#{client_pid := ClientPid, ack_collector := AckCollector} = Conn, [Msg | Rest] = Batch, Acc) ->
+send(#{client_pid := ClientPid, ack_collector := AckCollector} = Conn, [Msg | Rest], Acc) ->
     case emqx_client:publish(ClientPid, Msg) of
         {ok, PktId} when Rest =:= [] ->
             %% last one sent
@@ -119,9 +119,6 @@ send(#{client_pid := ClientPid, ack_collector := AckCollector} = Conn, [Msg | Re
             {ok, Ref};
         {ok, PktId} ->
             send(Conn, Rest, [PktId | Acc]);
-        {error, {_PacketId, inflight_full}} ->
-            timer:sleep(10),
-            send(Conn, Batch, Acc);
         {error, Reason} ->
             %% NOTE: There is no partial sucess of a batch and recover from the middle
             %% only to retry all messages in one batch
