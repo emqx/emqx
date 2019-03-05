@@ -988,15 +988,6 @@ inflight_full(EventType, EventContent, Data) ->
     %% delegate all other events to connected state.
     connected(EventType, EventContent, Data).
 
-should_ping(Sock) ->
-    case emqx_client_sock:getstat(Sock, [send_oct]) of
-        {ok, [{send_oct, Val}]} ->
-            OldVal = get(send_oct), put(send_oct, Val),
-            OldVal == undefined orelse OldVal == Val;
-        Error = {error, _Reason} ->
-            Error
-    end.
-
 handle_event({call, From}, stop, _StateName, _State) ->
     {stop_and_reply, normal, [{reply, From, ok}]};
 handle_event(info, {TcpOrSsL, _Sock, Data}, _StateName, State)
@@ -1050,6 +1041,15 @@ code_change(_Vsn, State, Data, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+should_ping(Sock) ->
+    case emqx_client_sock:getstat(Sock, [send_oct]) of
+        {ok, [{send_oct, Val}]} ->
+            OldVal = get(send_oct), put(send_oct, Val),
+            OldVal == undefined orelse OldVal == Val;
+        Error = {error, _Reason} ->
+            Error
+    end.
 
 delete_inflight(?PUBACK_PACKET(PacketId, ReasonCode, Properties),
                 State = #state{inflight = Inflight}) ->
