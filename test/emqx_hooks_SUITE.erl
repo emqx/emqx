@@ -34,17 +34,23 @@ add_delete_hook(_) ->
     ?assertEqual(Callbacks, emqx_hooks:lookup(test_hook)),
     ok = emqx:unhook(test_hook, fun ?MODULE:hook_fun1/1),
     ok = emqx:unhook(test_hook, fun ?MODULE:hook_fun2/1),
-    timer:sleep(1000),
+    timer:sleep(200),
     ?assertEqual([], emqx_hooks:lookup(test_hook)),
 
-    ok = emqx:hook(emqx_hook, {?MODULE, hook_fun2, []}, 8),
-    ok = emqx:hook(emqx_hook, {?MODULE, hook_fun1, []}, 9),
-    Callbacks2 = [{callback, {?MODULE, hook_fun1, []}, undefined, 9},
-                  {callback, {?MODULE, hook_fun2, []}, undefined, 8}],
+    ok = emqx:hook(emqx_hook, {?MODULE, hook_fun8, []}, 8),
+    ok = emqx:hook(emqx_hook, {?MODULE, hook_fun2, []}, 2),
+    ok = emqx:hook(emqx_hook, {?MODULE, hook_fun10, []}, 10),
+    ok = emqx:hook(emqx_hook, {?MODULE, hook_fun9, []}, 9),
+    Callbacks2 = [{callback, {?MODULE, hook_fun10, []}, undefined, 10},
+                  {callback, {?MODULE, hook_fun9, []}, undefined, 9},
+                  {callback, {?MODULE, hook_fun8, []}, undefined, 8},
+                  {callback, {?MODULE, hook_fun2, []}, undefined, 2}],
     ?assertEqual(Callbacks2, emqx_hooks:lookup(emqx_hook)),
-    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun1, []}),
-    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun2}),
-    timer:sleep(1000),
+    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun2, []}),
+    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun8, []}),
+    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun9, []}),
+    ok = emqx:unhook(emqx_hook, {?MODULE, hook_fun10, []}),
+    timer:sleep(200),
     ?assertEqual([], emqx_hooks:lookup(emqx_hook)),
     ok = emqx_hooks:stop().
 
@@ -67,16 +73,27 @@ run_hooks(_) ->
     ok = emqx:hook(foldl_hook2, {?MODULE, hook_fun10, []}),
     {stop, []} = emqx:run_hooks(foldl_hook2, [arg], []),
 
-    ok = emqx:hook(filter1_hook, {?MODULE, hook_fun1, []}, {?MODULE, hook_filter1, []}, 0),
-    ok = emqx:run_hooks(filter1_hook, [arg]),
+    %% foreach hook always returns 'ok' or 'stop'
+    ok = emqx:hook(foreach_filter1_hook, {?MODULE, hook_fun1, []}, {?MODULE, hook_filter1, []}, 0),
+    ?assertEqual(ok, emqx:run_hooks(foreach_filter1_hook, [arg])), %% filter passed
+    ?assertEqual(ok, emqx:run_hooks(foreach_filter1_hook, [arg1])), %% filter failed
 
-    ok = emqx:hook(filter2_hook, {?MODULE, hook_fun2, []}, {?MODULE, hook_filter2, []}),
-    {ok, []} = emqx:run_hooks(filter2_hook, [arg], []),
+    %% foldl hook always returns {'ok', Acc} or {'stop', Acc}
+    ok = emqx:hook(foldl_filter2_hook, {?MODULE, hook_fun2, []}, {?MODULE, hook_filter2, [init_arg]}),
+    ok = emqx:hook(foldl_filter2_hook, {?MODULE, hook_fun2_1, []}, {?MODULE, hook_filter2_1, [init_arg]}),
+    ?assertEqual({ok, 3}, emqx:run_hooks(foldl_filter2_hook, [arg], 1)),
+    ?assertEqual({ok, 2}, emqx:run_hooks(foldl_filter2_hook, [arg1], 1)),
 
     ok = emqx_hooks:stop().
 
-hook_fun1([]) -> ok.
-hook_fun2([]) -> {ok, []}.
+hook_fun1(arg) -> ok;
+hook_fun1(_) -> stop.
+
+hook_fun2(arg) -> ok;
+hook_fun2(_) -> stop.
+
+hook_fun2(_, Acc) -> {ok, Acc + 1}.
+hook_fun2_1(_, Acc) -> {ok, Acc + 1}.
 
 hook_fun3(arg1, arg2, _Acc, init) -> ok.
 hook_fun4(arg1, arg2, Acc, init)  -> {ok, [r2 | Acc]}.
@@ -89,6 +106,12 @@ hook_fun8(arg, initArg) -> stop.
 hook_fun9(arg, _Acc)  -> any.
 hook_fun10(arg, _Acc)  -> stop.
 
-hook_filter1(arg) -> true.
-hook_filter2(arg, _Acc) -> true.
+hook_filter1(arg) -> true;
+hook_filter1(_) -> false.
 
+hook_filter2(arg, init_arg) -> true;
+hook_filter2(_, _IntArg) -> false.
+
+hook_filter2_1(arg, init_arg) -> true;
+hook_filter2_1(arg1, init_arg) -> true;
+hook_filter2_1(_, _IntArg) -> false.
