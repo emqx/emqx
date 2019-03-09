@@ -610,24 +610,29 @@ deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
                                                      conn_props = ConnProps,
                                                      is_assigned = IsAssigned,
                                                      topic_alias_maximum = TopicAliasMaximum}) ->
-    ResponseInformation = case maps:find('Request-Response-Information', ConnProps) of
-                              {ok, 1} ->
-                                  iolist_to_binary(emqx_config:get_env(response_topic_prefix));
-                              _ ->
-                                  <<>>
-                          end,
     #{max_packet_size := MaxPktSize,
       max_qos_allowed := MaxQoS,
       mqtt_retain_available := Retain,
       max_topic_alias := MaxAlias,
       mqtt_shared_subscription := Shared,
       mqtt_wildcard_subscription := Wildcard} = caps(PState),
+    %% Response-Information is so far not set by broker.
+    %% i.e. It's a Client-to-Client contract for the request-response topic naming scheme.
+    %% According to MQTT 5.0 spec:
+    %%   A common use of this is to pass a globally unique portion of the topic tree which
+    %%   is reserved for this Client for at least the lifetime of its Session.
+    %%   This often cannot just be a random name as both the requesting Client and the
+    %%   responding Client need to be authorized to use it.
+    %% If we are to support it in the feature, the implementation should be flexible
+    %% to allow prefixing the response topic based on different ACL config.
+    %% e.g. prefix by username or client-id, so that unauthorized clients can not
+    %% subscribe requests or responses that are not intended for them.
     Props = #{'Retain-Available' => flag(Retain),
               'Maximum-Packet-Size' => MaxPktSize,
               'Topic-Alias-Maximum' => MaxAlias,
               'Wildcard-Subscription-Available' => flag(Wildcard),
               'Subscription-Identifier-Available' => 1,
-              'Response-Information' => ResponseInformation,
+              %'Response-Information' =>
               'Shared-Subscription-Available' => flag(Shared)},
 
     Props1 = if

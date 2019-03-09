@@ -215,9 +215,10 @@ connect_v5(_) ->
                                                               #{'Request-Response-Information' => 1}})
                                                   )),
                             {ok, Data} = gen_tcp:recv(Sock, 0),
-                            {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0,
-                                                 #{'Response-Information' := _RespInfo}), _} =
-                                raw_recv_parse(Data, ?MQTT_PROTO_V5)
+                            {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0, Props), _} =
+                                raw_recv_parse(Data, ?MQTT_PROTO_V5),
+                            ?assertNot(maps:is_key('Response-Information', Props)),
+                            ok
                     end),
 
     % topic alias = 0
