@@ -32,8 +32,7 @@
                       <<"+/+">>, <<"TopicA/#">>]).
 
 all() ->
-    [{group, mqttv4},
-     {group, mqttv5}].
+    [{group, mqttv4}].
 
 groups() ->
     [{mqttv4, [non_parallel_tests],
@@ -44,10 +43,7 @@ groups() ->
        %% keepalive_test,
        redelivery_on_reconnect_test,
        %% subscribe_failure_test,
-       dollar_topics_test]},
-     {mqttv5, [non_parallel_tests],
-      [request_response,
-       share_sub_request_topic]}].
+       dollar_topics_test]}].
 
 init_per_suite(Config) ->
     emqx_ct_broker_helpers:run_setup_steps(),
@@ -55,89 +51,6 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_ct_broker_helpers:run_teardown_steps().
-
-request_response_exception(QoS) ->
-    {ok, Client} = emqx_client:start_link([{proto_ver, v5},
-                                           {properties, #{ 'Request-Response-Information' => 0 }}]),
-    {ok, _} = emqx_client:connect(Client),
-    ?assertError(no_response_information,
-                 emqx_client:sub_request_topic(Client, QoS, <<"request_topic">>)),
-    ok = emqx_client:disconnect(Client).
-
-request_response_per_qos(QoS) ->
-    {ok, Requester} = emqx_client:start_link([{proto_ver, v5},
-                                              {client_id, <<"requester">>},
-                                              {properties, #{ 'Request-Response-Information' => 1}}]),
-    {ok, _} = emqx_client:connect(Requester),
-    {ok, Responser} = emqx_client:start_link([{proto_ver, v5},
-                                              {client_id, <<"responser">>},
-                                              {properties, #{
-                                                'Request-Response-Information' => 1}},
-                                              {request_handler,
-                                                fun(_Req) -> <<"ResponseTest">> end}
-                                             ]),
-    {ok, _} = emqx_client:connect(Responser),
-    ok = emqx_client:sub_request_topic(Responser, QoS, <<"request_topic">>),
-    {ok, <<"ResponseTest">>} = emqx_client:request(Requester, <<"response_topic">>, <<"request_topic">>, <<"request_payload">>, QoS),
-    ok = emqx_client:set_request_handler(Responser, fun(<<"request_payload">>) ->
-                                                            <<"ResponseFunctionTest">>;
-                                                       (_) ->
-                                                            <<"404">>
-                                                    end),
-    {ok, <<"ResponseFunctionTest">>} = emqx_client:request(Requester, <<"response_topic">>, <<"request_topic">>, <<"request_payload">>, QoS),
-    {ok, <<"404">>} = emqx_client:request(Requester, <<"response_topic">>, <<"request_topic">>, <<"invalid_request">>, QoS),
-    ok = emqx_client:disconnect(Responser),
-    ok = emqx_client:disconnect(Requester).
-
-request_response(_Config) ->
-    request_response_per_qos(?QOS_2),
-    request_response_per_qos(?QOS_1),
-    request_response_per_qos(?QOS_0),
-    request_response_exception(?QOS_0),
-    request_response_exception(?QOS_1),
-    request_response_exception(?QOS_2).
-
-share_sub_request_topic(_Config) ->
-    share_sub_request_topic_per_qos(?QOS_2),
-    share_sub_request_topic_per_qos(?QOS_1),
-    share_sub_request_topic_per_qos(?QOS_0).
-
-share_sub_request_topic_per_qos(QoS) ->
-    application:set_env(?APPLICATION, shared_subscription_strategy, random),
-    ReqTopic = <<"request-topic">>,
-    RspTopic = <<"response-topic">>,
-    Group = <<"g1">>,
-    Properties = #{ 'Request-Response-Information' => 1},
-    Opts = fun(ClientId) -> [{proto_ver, v5},
-                             {client_id, atom_to_binary(ClientId, utf8)},
-                             {properties, Properties}
-                            ] end,
-    {ok, Requester} = emqx_client:start_link(Opts(requester)),
-    {ok, _} = emqx_client:connect(Requester),
-
-    {ok, Responser1} = emqx_client:start_link([{request_handler, fun(Req) -> <<"1-", Req/binary>> end} | Opts(requester1)]),
-    {ok, _} = emqx_client:connect(Responser1),
-
-    {ok, Responser2} = emqx_client:start_link([{request_handler, fun(Req) -> <<"2-", Req/binary>> end} | Opts(requester2)]),
-    {ok, _} = emqx_client:connect(Responser2),
-
-    ok = emqx_client:sub_request_topic(Responser1, QoS, ReqTopic, Group),
-    ok = emqx_client:sub_request_topic(Responser2, QoS, ReqTopic, Group),
-    %% Send a request, wait for response, validate response then return responser ID
-    ReqFun = fun(Req) ->
-                     {ok, Rsp} = emqx_client:request(Requester, RspTopic, ReqTopic, Req, QoS),
-                     case Rsp of
-                         <<"1-", Req/binary>> -> 1;
-                         <<"2-", Req/binary>> -> 2
-                     end
-             end,
-    Ids = lists:map(fun(I) -> ReqFun(integer_to_binary(I)) end, lists:seq(1, 100)),
-    %% we are testing with random shared-dispatch strategy,
-    %% fail if not all responsers got a chance to handle requests
-    ?assertEqual([1, 2], lists:usort(Ids)),
-    ok = emqx_client:disconnect(Responser1),
-    ok = emqx_client:disconnect(Responser2),
-    ok = emqx_client:disconnect(Requester).
 
 receive_messages(Count) ->
     receive_messages(Count, []).

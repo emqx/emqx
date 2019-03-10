@@ -607,7 +607,6 @@ deliver({connack, ReasonCode}, PState) ->
 deliver({connack, ?RC_SUCCESS, SP}, PState = #pstate{zone = Zone,
                                                      proto_ver = ?MQTT_PROTO_V5,
                                                      client_id = ClientId,
-                                                     conn_props = ConnProps,
                                                      is_assigned = IsAssigned,
                                                      topic_alias_maximum = TopicAliasMaximum}) ->
     #{max_packet_size := MaxPktSize,

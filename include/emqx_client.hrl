@@ -15,6 +15,7 @@
 
 -ifndef(EMQX_CLIENT_HRL).
 -define(EMQX_CLIENT_HRL, true).
+-include("emqx_mqtt.hrl").
 -record(mqtt_msg, {qos = ?QOS_0, retain = false, dup = false,
                    packet_id, topic, props, payload}).
 -endif.
