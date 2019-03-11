@@ -1517,7 +1517,7 @@ end}.
 ]}.
 
 {mapping, "bridge.$name.proto_ver", "emqx.bridges", [
-  {datatype, {enum, [v3, v4, v5]}}
+  {datatype, {enum, [mqttv3, mqttv4, mqttv5]}}
 ]}.
 
 {mapping, "bridge.$name.client_id", "emqx.bridges", [
@@ -1697,6 +1697,14 @@ end}.
                 Cfg#{reconnect_delay_ms => Ms};
             Tr(max_inflight, Count, Cfg) ->
                 Cfg#{max_inflight_batches => Count};
+            Tr(proto_ver, Ver, Cfg) ->
+                Cfg#{proto_ver =>
+                   case Ver of
+                       mqttv3 -> v3;
+                       mqttv4 -> v4;
+                       mqttv5 -> v5;
+                       _ -> v4
+                   end};
             Tr(Key, Value, Cfg) ->
                 Cfg#{Key => Value}
          end,
