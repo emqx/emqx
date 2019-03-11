@@ -1094,7 +1094,7 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "listener.ssl.$name.psk.ciphers", "emqx.listeners", [
+{mapping, "listener.ssl.$name.psk_ciphers", "emqx.listeners", [
   {datatype, string}
 ]}.
 
@@ -1368,6 +1368,10 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "listener.wss.$name.psk_ciphers", "emqx.listeners", [
+  {datatype, string}
+]}.
+
 {mapping, "listener.wss.$name.keyfile", "emqx.listeners", [
   {datatype, string}
 ]}.
@@ -1474,22 +1478,22 @@ end}.
                                 L -> [list_to_atom(V) || V <- L]
                             end,
                   TLSCiphers = cuttlefish:conf_get(Prefix++".ciphers", Conf, undefined),
-                  PSKCiphers = cuttlefish:conf_get(Prefix++".psk.ciphers", Conf, undefined),
+                  PSKCiphers = cuttlefish:conf_get(Prefix++".psk_ciphers", Conf, undefined),
                   Ciphers =
                     case {TLSCiphers, PSKCiphers} of
                       {undefined, undefined} ->
-                        cuttlefish:invalid(Prefix++".ciphers or "++Prefix++".psk.ciphers is absent");
+                        cuttlefish:invalid(Prefix++".ciphers or "++Prefix++".psk_ciphers is absent");
                       {TLSCiphers, undefined} ->
                         SplitFun(TLSCiphers);
                       {undefined, PSKCiphers} ->
                         MapPSKCiphers(SplitFun(PSKCiphers));
                       {_TLSCiphers, _PSKCiphers} ->
-                        cuttlefish:invalid(Prefix++".ciphers and "++Prefix++".psk.ciphers cannot be configured at the same time")
+                        cuttlefish:invalid(Prefix++".ciphers and "++Prefix++".psk_ciphers cannot be configured at the same time")
                     end,
                   UserLookupFun =
                     case PSKCiphers of
                       undefined -> undefined;
-                      _ -> {emqx_psk, psk_lookup, []}
+                      _ -> {fun emqx_psk:lookup/3, <<>>}
                     end,
                   Filter([{versions, Versions},
                           {ciphers, Ciphers},
@@ -1609,6 +1613,10 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "bridge.$name.psk_ciphers", "emqx.bridges", [
+  {datatype, string}
+]}.
+
 {mapping, "bridge.$name.keepalive", "emqx.bridges", [
   {default, "10s"},
   {datatype, {duration, ms}}
@@ -1648,22 +1656,34 @@ end}.
 ]}.
 
 {translation, "emqx.bridges", fun(Conf) ->
+    MapPSKCiphers = fun(PSKCiphers) ->
+                      lists:map(
+                          fun("PSK-AES128-CBC-SHA") -> {psk, aes_128_cbc, sha};
+                             ("PSK-AES256-CBC-SHA") -> {psk, aes_256_cbc, sha};
+                             ("PSK-3DES-EDE-CBC-SHA") -> {psk, '3des_ede_cbc', sha};
+                             ("PSK-RC4-SHA") -> {psk, rc4_128, sha}
+                          end, PSKCiphers)
+                    end,
+
     Split = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
 
     IsSsl = fun(cacertfile)   -> true;
                (certfile)     -> true;
                (keyfile)      -> true;
                (ciphers)      -> true;
+               (psk_ciphers)  -> true;
                (tls_versions) -> true;
                (_Opt)         -> false
             end,
 
     Parse = fun(tls_versions, Vers) ->
-                    {versions, [list_to_atom(S) || S <- Split(Vers)]};
+                    [{versions, [list_to_atom(S) || S <- Split(Vers)]}];
                (ciphers, Ciphers) ->
-                    {ciphers, Split(Ciphers)};
+                    [{ciphers, Split(Ciphers)}];
+               (psk_ciphers, Ciphers) ->
+                    [{ciphers, MapPSKCiphers(Split(Ciphers))}, {user_lookup_fun, {fun emqx_psk:lookup/3, <<>>}}];
                (Opt, Val) ->
-                    {Opt, Val}
+                    [{Opt, Val}]
             end,
 
     Merge = fun(forwards, Val, Opts) ->
@@ -1671,7 +1691,7 @@ end}.
                (Opt, Val, Opts) ->
                   case IsSsl(Opt) of
                       true ->
-                          SslOpts = [Parse(Opt, Val)|proplists:get_value(ssl_opts, Opts, [])],
+                          SslOpts = Parse(Opt, Val) ++ [proplists:get_value(ssl_opts, Opts, [])],
                           lists:ukeymerge(1, [{ssl_opts, SslOpts}], lists:usort(Opts));
                       false ->
                           [{Opt, Val}|Opts]

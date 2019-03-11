@@ -16,12 +16,6 @@
 
 -include("logger.hrl").
 
-%% API Functions
--export([init/0,
-         add_handler/3,
-         activate_handler/1,
-         list_handlers/0]).
-
 %% SSL PSK Callbacks
 -export([lookup/3]).
 
@@ -30,36 +24,13 @@
 -type psk_identity() :: string().
 -type psk_user_state() :: term().
 
--callback handle_lookup(psk_identity(), Args::term()) ->
-    {ok, SharedSecret::binary()} | {error, Reason::term()}.
-
--spec init() -> ok.
-init() ->
-    ok = emqx_tables:new(?TAB, [bag, public, {read_concurrency,true}]).
-
--spec lookup(psk, psk_identity(), psk_user_state()) ->
-      {ok, SharedSecret :: binary()} | error.
-lookup(psk, ClientPSKID, _UserState) ->
-    {Module, Args} = list_handlers(),
-    try Module:handle_lookup(ClientPSKID, Args) of
+-spec lookup(psk, psk_identity(), psk_user_state()) -> {ok, SharedSecret :: binary()} | error.
+lookup(psk, ClientPSKID, UserState) ->
+    try emqx_hooks:run('tls_handshake.psk_lookup', [ClientPSKID], UserState) of
         {ok, SharedSecret} -> {ok, SharedSecret};
-        {error, Reason} ->
-            ?LOG(error, "Lookup PSK failed, ~p: ~p", [Module, Reason]),
-            error
+        {stop, SharedSecret} -> {ok, SharedSecret}
     catch
-        Except:Error ->
-          ?LOG(error, "Lookup PSK failed, ~p: ~p", [Module, {Except,Error}]),
+        Except:Error:Stacktrace ->
+          ?LOG(error, "Lookup PSK failed, ~p: ~p", [{Except,Error}, Stacktrace]),
           error
     end.
-
--spec add_handler(Name::string(), Module::module(), Args::term()) -> ok | {error, Reason::term()}.
-add_handler(Name, Module, Args) ->
-    ets:insert(?TAB, {Name, Module, Args}), ok.
-
--spec activate_handler(Name::string()) -> ok | {error, Reason::term()}.
-activate_handler(Name) ->
-    ets:insert(?TAB, {active_handler, Name}).
-
--spec list_handlers() -> [{Name::string(), Module::module(), Args::term()}].
-list_handlers() ->
-    ets:lookup(?TAB, handler).
