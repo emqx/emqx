@@ -1718,10 +1718,10 @@ end}.
                 maps:update_with(list_to_atom(Name), fun(Opts) -> Merge(list_to_atom(Opt), Val, Opts) end, Init, Acc);
            (_, Acc) -> Acc
         end, #{}, lists:usort(cuttlefish_variable:filter_by_prefix("bridge.", Conf))),
-      C2 = maps:map(fun(Bn, Bc) ->
-                         maps:to_list(maps:fold(Translate, #{}, maps:from_list(Bc)))
-                    end, C),
-      maps:to_list(C2)
+    C1 = maps:map(fun(Bn, Bc) ->
+                      maps:to_list(maps:fold(Translate, #{}, maps:from_list(Bc)))
+                  end, C),
+    maps:to_list(C1)
 end}.
 
 %%--------------------------------------------------------------------
