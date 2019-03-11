@@ -24,17 +24,23 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Sys = #{id       => sys,
-            start    => {emqx_sys, start_link, []},
-            restart  => permanent,
-            shutdown => 5000,
-            type     => worker,
-            modules  => [emqx_sys]},
-    Sysmon = #{id       => sys_mon,
-               start    => {emqx_sys_mon, start_link, [emqx_config:get_env(sysmon, [])]},
-               restart  => permanent,
-               shutdown => 5000,
-               type     => worker,
-               modules  => [emqx_sys_mon]},
-    {ok, {{one_for_one, 10, 100}, [Sys, Sysmon]}}.
+    {ok, {{one_for_one, 10, 100}, [child_spec(emqx_sys, worker),
+                                   child_spec(emqx_sys_mon, worker, [emqx_config:get_env(sysmon, [])]),
+                                   child_spec(emqx_os_mon, worker, [emqx_config:get_env(os_mon, [])]),
+                                   child_spec(emqx_vm_mon, worker, [emqx_config:get_env(vm_mon, [])])]}}.
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+child_spec(M, worker) ->
+    child_spec(M, worker, []).
+
+child_spec(M, worker, A) ->
+    #{id       => M,
+      start    => {M, start_link, A},
+      restart  => permanent,
+      shutdown => 5000,
+      type     => worker,
+      modules  => [M]}.
 

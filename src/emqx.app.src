@@ -4,7 +4,7 @@
               {modules,[]},
               {registered,[emqx_sup]},
               {applications,[kernel,stdlib,jsx,gproc,gen_rpc,esockd,cowboy,
-                             replayq]},
+                             replayq,sasl,os_mon]},
               {env,[]},
               {mod,{emqx_app,[]}},
               {maintainers,["Feng Lee <feng@emqx.io>"]},

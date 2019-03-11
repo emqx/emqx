@@ -29,7 +29,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(wait(For, Timeout), wait_for(?FUNCTION_NAME, ?LINE, fun() -> For end, Timeout)).
+-define(wait(For, Timeout), emqx_ct_helpers:wait_for(?FUNCTION_NAME, ?LINE, fun() -> For end, Timeout)).
 
 all() -> [t_random_basic,
           t_random,
@@ -59,7 +59,7 @@ t_random_basic(_) ->
     PacketId = 1,
     emqx_session:publish(SPid, PacketId, Message1),
     ?wait(case emqx_mock_client:get_last_message(ConnPid) of
-              {publish, 1, _} -> true;
+              [{publish, 1, _}] -> true;
               Other -> Other
           end, 1000),
     emqx_session:pubrec(SPid, PacketId, reasoncode),
@@ -105,7 +105,7 @@ t_no_connection_nack(_) ->
         fun(PacketId, ConnPid) ->
                 Payload = MkPayload(PacketId),
                 case emqx_mock_client:get_last_message(ConnPid) of
-                    {publish, _, #message{payload = Payload}} ->
+                    [{publish, _, #message{payload = Payload}}] ->
                         CasePid ! {Ref, PacketId, ConnPid},
                         true;
                     _Other ->
@@ -176,7 +176,7 @@ t_not_so_sticky(_) ->
     ?wait(subscribed(<<"group1">>, <<"foo/bar">>, SPid1), 1000),
     emqx_session:publish(SPid1, 1, Message1),
     ?wait(case emqx_mock_client:get_last_message(ConnPid1) of
-              {publish, _, #message{payload = <<"hello1">>}} -> true;
+              [{publish, _, #message{payload = <<"hello1">>}}] -> true;
               Other -> Other
           end, 1000),
     emqx_mock_client:close_session(ConnPid1),
@@ -185,7 +185,7 @@ t_not_so_sticky(_) ->
     ?wait(subscribed(<<"group1">>, <<"foo/#">>, SPid2), 1000),
     emqx_session:publish(SPid2, 2, Message2),
     ?wait(case emqx_mock_client:get_last_message(ConnPid2) of
-              {publish, _, #message{payload = <<"hello2">>}} -> true;
+              [{publish, _, #message{payload = <<"hello2">>}}] -> true;
               Other -> Other
           end, 1000),
     emqx_mock_client:close_session(ConnPid2),
@@ -240,7 +240,7 @@ test_two_messages(Strategy, WithAck) ->
 last_message(_ExpectedPayload, []) -> <<"not yet?">>;
 last_message(ExpectedPayload, [Pid | Pids]) ->
     case emqx_mock_client:get_last_message(Pid) of
-        {publish, _, #message{payload = ExpectedPayload}} -> {true, Pid};
+        [{publish, _, #message{payload = ExpectedPayload}}] -> {true, Pid};
         _Other -> last_message(ExpectedPayload, Pids)
     end.
 
@@ -258,50 +258,4 @@ ensure_config(Strategy, AckEnabled) ->
 
 subscribed(Group, Topic, Pid) ->
     lists:member(Pid, emqx_shared_sub:subscribers(Group, Topic)).
-
-wait_for(Fn, Ln, F, Timeout) ->
-    {Pid, Mref} = erlang:spawn_monitor(fun() -> wait_loop(F, catch_call(F)) end),
-    wait_for_down(Fn, Ln, Timeout, Pid, Mref, false).
-
-wait_for_down(Fn, Ln, Timeout, Pid, Mref, Kill) ->
-    receive
-        {'DOWN', Mref, process, Pid, normal} ->
-            ok;
-        {'DOWN', Mref, process, Pid, {unexpected, Result}} ->
-            erlang:error({unexpected, Fn, Ln, Result});
-        {'DOWN', Mref, process, Pid, {crashed, {C, E, S}}} ->
-            erlang:raise(C, {Fn, Ln, E}, S)
-    after
-        Timeout ->
-            case Kill of
-                true ->
-                    erlang:demonitor(Mref, [flush]),
-                    erlang:exit(Pid, kill),
-                    erlang:error({Fn, Ln, timeout});
-                false ->
-                    Pid ! stop,
-                    wait_for_down(Fn, Ln, Timeout, Pid, Mref, true)
-            end
-    end.
-
-wait_loop(_F, ok) -> exit(normal);
-wait_loop(F, LastRes) ->
-    receive
-        stop -> erlang:exit(LastRes)
-    after
-        100 ->
-            Res = catch_call(F),
-            wait_loop(F, Res)
-    end.
-
-catch_call(F) ->
-    try
-        case F() of
-            true -> ok;
-            Other -> {unexpected, Other}
-        end
-    catch
-        C : E : S ->
-            {crashed, {C, E, S}}
-    end.
 

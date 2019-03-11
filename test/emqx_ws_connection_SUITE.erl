@@ -35,56 +35,6 @@
 
 -define(PUBQOS, 1).
 
--define(INFO, [{socktype, _},
-               {conn_state, _},
-               {peername, _},
-               {sockname, _},
-               {zone, _},
-               {client_id, <<"mqtt_client">>},
-               {username, <<"admin">>},
-               {peername, _},
-               {peercert, _},
-               {proto_ver, _},
-               {proto_name, _},
-               {clean_start, _},
-               {keepalive, _},
-               {mountpoint, _},
-               {is_super, _},
-               {is_bridge, _},
-               {connected_at, _},
-               {conn_props, _},
-               {ack_props, _},
-               {session, _},
-               {topic_aliases, _},
-               {enable_acl, _}]).
-
--define(ATTRS, [{clean_start,true},
-                {client_id, <<"mqtt_client">>},
-                {connected_at, _},
-                {is_bridge, _},
-                {is_super, _},
-                {keepalive, _},
-                {mountpoint, _},
-                {peercert, _},
-                {peername, _},
-                {proto_name, _},
-                {proto_ver, _},
-                {sockname, _},
-                {username, <<"admin">>},
-                {zone, _}]).
-
--define(STATS, [{recv_oct, _},
-                {recv_cnt, _},
-                {send_oct, _},
-                {send_cnt, _},
-                {mailbox_len, _},
-                {heap_size, _},
-                {reductions, _},
-                {recv_pkt, _},
-                {recv_msg, _},
-                {send_pkt, _},
-                {send_msg, _}]).
-
 all() ->
     [t_ws_connect_api].
 
@@ -103,9 +53,12 @@ t_ws_connect_api(_Config) ->
     {binary, CONACK} = rfc6455_client:recv(WS),
     {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(CONACK),
     Pid = emqx_cm:lookup_conn_pid(<<"mqtt_client">>),
-    ?INFO = emqx_ws_connection:info(Pid),
-    ?ATTRS = emqx_ws_connection:attrs(Pid),
-    ?STATS = emqx_ws_connection:stats(Pid),
+    ConnInfo = emqx_ws_connection:info(Pid),
+    ok = t_info(ConnInfo),
+    ConnAttrs = emqx_ws_connection:attrs(Pid),
+    ok = t_attrs(ConnAttrs),
+    ConnStats = emqx_ws_connection:stats(Pid),
+    ok = t_stats(ConnStats),
     SessionPid = emqx_ws_connection:session(Pid),
     true = is_pid(SessionPid),
     ok = emqx_ws_connection:kick(Pid),
@@ -118,3 +71,24 @@ raw_send_serialize(Packet) ->
 raw_recv_pase(P) ->
     emqx_frame:parse(P, {none, #{max_packet_size => ?MAX_PACKET_SIZE,
                                  version         => ?MQTT_PROTO_V4} }).
+
+t_info(InfoData) ->
+    ?assertEqual(websocket, proplists:get_value(socktype, InfoData)),
+    ?assertEqual(running, proplists:get_value(conn_state, InfoData)),
+    ?assertEqual(<<"mqtt_client">>, proplists:get_value(client_id, InfoData)),
+    ?assertEqual(<<"admin">>, proplists:get_value(username, InfoData)),
+    ?assertEqual(<<"MQTT">>, proplists:get_value(proto_name, InfoData)).
+
+t_attrs(AttrsData) ->
+    ?assertEqual(<<"mqtt_client">>, proplists:get_value(client_id, AttrsData)),
+    ?assertEqual(emqx_ws_connection, proplists:get_value(conn_mod, AttrsData)),
+    ?assertEqual(<<"admin">>, proplists:get_value(username, AttrsData)).
+
+t_stats(StatsData) ->
+    ?assertEqual(true, proplists:get_value(recv_oct, StatsData) >= 0),
+    ?assertEqual(true, proplists:get_value(mailbox_len, StatsData) >= 0),
+    ?assertEqual(true, proplists:get_value(heap_size, StatsData) >= 0),
+    ?assertEqual(true, proplists:get_value(reductions, StatsData) >=0),
+    ?assertEqual(true, proplists:get_value(recv_pkt, StatsData) =:=1),
+    ?assertEqual(true, proplists:get_value(recv_msg, StatsData) >=0),
+    ?assertEqual(true, proplists:get_value(send_pkt, StatsData) =:=1).
