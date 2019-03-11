@@ -1697,23 +1697,31 @@ end}.
                 Cfg#{reconnect_delay_ms => Ms};
             Tr(max_inflight, Count, Cfg) ->
                 Cfg#{max_inflight_batches => Count};
+            Tr(proto_ver, Ver, Cfg) ->
+                Cfg#{proto_ver =>
+                   case Ver of
+                       mqttv3 -> v3;
+                       mqttv4 -> v4;
+                       mqttv5 -> v5;
+                       _ -> v4
+                   end};
             Tr(Key, Value, Cfg) ->
                 Cfg#{Key => Value}
          end,
-    maps:to_list(
-      lists:foldl(
+    C = lists:foldl(
         fun({["bridge", Name, Opt], Val}, Acc) ->
                 %% e.g #{aws => [{OptKey, OptVal}]}
                 Init = [{list_to_atom(Opt), Val},
                         {connect_module, ConnMod(Name)},
                         {subscriptions, Subscriptions(Name)},
-                        {queue, Queue(Name)}
-                       ],
-                C = maps:update_with(list_to_atom(Name),
-                                     fun(Opts) -> Merge(list_to_atom(Opt), Val, Opts) end, Init, Acc),
-                maps:fold(Translate, #{}, C);
+                        {queue, Queue(Name)}],
+                maps:update_with(list_to_atom(Name), fun(Opts) -> Merge(list_to_atom(Opt), Val, Opts) end, Init, Acc);
            (_, Acc) -> Acc
-        end, #{}, lists:usort(cuttlefish_variable:filter_by_prefix("bridge.", Conf))))
+        end, #{}, lists:usort(cuttlefish_variable:filter_by_prefix("bridge.", Conf))),
+    C1 = maps:map(fun(Bn, Bc) ->
+                      maps:to_list(maps:fold(Translate, #{}, maps:from_list(Bc)))
+                  end, C),
+    maps:to_list(C1)
 end}.
 
 %%--------------------------------------------------------------------
