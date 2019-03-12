@@ -866,15 +866,16 @@ end}.
                     {force_shutdown_policy, ShutdownPolicy};
                ("mqueue_priorities", Val) ->
                     case Val of
-                        "none" -> none; % NO_PRIORITY_TABLE
+                        "none" -> {mqueue_priorities, none}; % NO_PRIORITY_TABLE
                         _ ->
-                            lists:foldl(fun(T, Acc) ->
+                            MqueuePriorities = lists:foldl(fun(T, Acc) ->
                                                 %% NOTE: space in "= " is intended
-                                                [{Topic, Prio}] = string:tokens(T, "= "),
+                                                [Topic, Prio] = string:tokens(T, "= "),
                                                 P = list_to_integer(Prio),
                                                 (P < 0 orelse P > 255) andalso error({bad_priority, Topic, Prio}),
                                                 maps:put(iolist_to_binary(Topic), P, Acc)
-                                        end, string:tokens(Val, ","))
+                                        end, #{}, string:tokens(Val, ",")),
+                            {mqueue_priorities, MqueuePriorities}
                     end;
                ("mountpoint", Val) ->
                     {mountpoint, iolist_to_binary(Val)};
@@ -921,10 +922,6 @@ end}.
 ]}.
 
 {mapping, "listener.tcp.$name.zone", "emqx.listeners", [
-  {datatype, string}
-]}.
-
-{mapping, "listener.tcp.$name.mountpoint", "emqx.listeners", [
   {datatype, string}
 ]}.
 
@@ -1021,10 +1018,6 @@ end}.
 ]}.
 
 {mapping, "listener.ssl.$name.zone", "emqx.listeners", [
-  {datatype, string}
-]}.
-
-{mapping, "listener.ssl.$name.mountpoint", "emqx.listeners", [
   {datatype, string}
 ]}.
 
@@ -1174,10 +1167,6 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "listener.ws.$name.mountpoint", "emqx.listeners", [
-  {datatype, string}
-]}.
-
 {mapping, "listener.ws.$name.rate_limit", "emqx.listeners", [
   {default, undefined},
   {datatype, string}
@@ -1277,10 +1266,6 @@ end}.
 ]}.
 
 {mapping, "listener.wss.$name.zone", "emqx.listeners", [
-  {datatype, string}
-]}.
-
-{mapping, "listener.wss.$name.mountpoint", "emqx.listeners", [
   {datatype, string}
 ]}.
 
@@ -1423,8 +1408,6 @@ end}.
                   end
               end,
 
-    MountPoint = fun(undefined) -> undefined; (S) -> list_to_binary(S) end,
-
     Ratelimit = fun(undefined) ->
                     undefined;
                    (S) ->
@@ -1442,7 +1425,6 @@ end}.
                           {rate_limit, Ratelimit(cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined))},
                           {proxy_protocol, cuttlefish:conf_get(Prefix ++ ".proxy_protocol", Conf, undefined)},
                           {proxy_protocol_timeout, cuttlefish:conf_get(Prefix ++ ".proxy_protocol_timeout", Conf, undefined)},
-                          {mountpoint, MountPoint(cuttlefish:conf_get(Prefix ++ ".mountpoint", Conf, undefined))},
                           {verify_protocol_header, cuttlefish:conf_get(Prefix ++ ".verify_protocol_header", Conf, undefined)},
                           {peer_cert_as_username, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_username", Conf, undefined)},
                           {proxy_port_header, cuttlefish:conf_get(Prefix ++ ".proxy_port_header", Conf, undefined)},
