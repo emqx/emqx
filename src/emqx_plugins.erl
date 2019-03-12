@@ -24,6 +24,8 @@
 
 -export([list/0]).
 
+-export([find_plugin/1]).
+
 -export([load_expand_plugin/1]).
 
 %% @doc Init plugins' config
