@@ -112,7 +112,8 @@ run_([], _Args) ->
 
 %% @private
 run_([#callback{action = Action, filter = Filter} | Callbacks], Args, Acc) ->
-    case filter_passed(Filter, Args) andalso execute(Action, Args ++ [Acc]) of
+    Args1 = Args ++ [Acc],
+    case filter_passed(Filter, Args1) andalso execute(Action, Args1) of
         false          -> run_(Callbacks, Args, Acc);
         ok             -> run_(Callbacks, Args, Acc);
         {ok, NewAcc}   -> run_(Callbacks, Args, NewAcc);

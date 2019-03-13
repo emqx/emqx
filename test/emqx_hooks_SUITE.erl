@@ -109,9 +109,9 @@ hook_fun10(arg, _Acc)  -> stop.
 hook_filter1(arg) -> true;
 hook_filter1(_) -> false.
 
-hook_filter2(arg, init_arg) -> true;
-hook_filter2(_, _IntArg) -> false.
+hook_filter2(arg, _Acc, init_arg) -> true;
+hook_filter2(_, _Acc, _IntArg) -> false.
 
-hook_filter2_1(arg, init_arg) -> true;
-hook_filter2_1(arg1, init_arg) -> true;
-hook_filter2_1(_, _IntArg) -> false.
+hook_filter2_1(arg, _Acc, init_arg) -> true;
+hook_filter2_1(arg1, _Acc, init_arg) -> true;
+hook_filter2_1(_, _Acc, _IntArg) -> false.
