@@ -200,14 +200,24 @@ caps(#pstate{zone = Zone}) ->
 client_id(#pstate{client_id = ClientId}) ->
     ClientId.
 
-credentials(#pstate{zone       = Zone,
-                    client_id  = ClientId,
-                    username   = Username,
-                    peername   = Peername}) ->
+credentials(PState) ->
+    credentials(PState, #{}).
+credentials(PState, #{} = ExtendedCred) ->
+    maps:merge(basic_credentials(PState), ExtendedCred).
+
+basic_credentials(#pstate{zone       = Zone,
+                          client_id  = ClientId,
+                          username   = Username,
+                          peername   = Peername}) ->
     #{zone      => Zone,
       client_id => ClientId,
       username  => Username,
       peername  => Peername}.
+
+is_superuser(#{is_superuser := IsSuper}) when is_boolean(IsSuper) ->
+    IsSuper;
+is_superuser(#{}) ->
+    false.
 
 stats(#pstate{recv_stats = #{pkt := RecvPkt, msg := RecvMsg},
               send_stats = #{pkt := SendPkt, msg := SendMsg}}) ->
@@ -376,10 +386,10 @@ process(?CONNECT_PACKET(
     connack(
       case check_connect(ConnPkt, PState1) of
           {ok, PState2} ->
-              case authenticate(credentials(PState2), Password) of
-                  {ok, IsSuper} ->
+              case authenticate(credentials(PState2, #{password => Password})) of
+                  {ok, Credentials} ->
                       %% Maybe assign a clientId
-                      PState3 = maybe_assign_client_id(PState2#pstate{is_super = IsSuper}),
+                      PState3 = maybe_assign_client_id(PState2#pstate{is_super = is_superuser(Credentials)}),
                       emqx_logger:set_metadata_client_id(PState3#pstate.client_id),
                       %% Open session
                       SessAttrs = #{will_msg => make_will_msg(ConnPkt)},
@@ -396,7 +406,7 @@ process(?CONNECT_PACKET(
                               ?LOG(error, "Failed to open session: ~p", [Error]),
                               {?RC_UNSPECIFIED_ERROR, PState1}
                       end;
-                  {error, Reason} ->
+                  {error, Reason, _Credentials} ->
                       ?LOG(error, "Username '~s' login failed for ~p", [Username, Reason]),
                       {?RC_NOT_AUTHORIZED, PState1}
               end;
@@ -744,15 +754,12 @@ try_open_session(SessAttrs, PState = #pstate{zone = Zone,
         Other -> Other
     end.
 
-authenticate(Credentials, Password) ->
-    case emqx_access_control:authenticate(Credentials, Password) of
-        ok -> {ok, false};
-        {ok, IsSuper} when is_boolean(IsSuper) ->
-            {ok, IsSuper};
-        {ok, Result} when is_map(Result) ->
-            {ok, maps:get(is_superuser, Result, false)};
-        {error, Error} ->
-            {error, Error}
+authenticate(Credentials) ->
+    try emqx_hooks:run('client.authenticate', [], Credentials)
+    catch
+        Except:Error:Stacktrace ->
+          ?LOG(error, "'client.authenticate' hook, ~p: ~p", [{Except,Error}, Stacktrace]),
+          {error, Error, Credentials}
     end.
 
 set_property(Name, Value, ?NO_PROPS) ->

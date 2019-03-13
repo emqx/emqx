@@ -60,25 +60,23 @@ run_hooks(_) ->
     ok = emqx:hook(foldl_hook, {?MODULE, hook_fun3, [init]}),
     ok = emqx:hook(foldl_hook, fun ?MODULE:hook_fun4/4, [init]),
     ok = emqx:hook(foldl_hook, fun ?MODULE:hook_fun5/4, [init]),
-    {stop, [r3, r2]} = emqx:run_hooks(foldl_hook, [arg1, arg2], []),
+    {ok, [r5,r4]} = emqx:run_hooks(foldl_hook, [arg1, arg2], []),
     {ok, []} = emqx:run_hooks(unknown_hook, [], []),
+
+    ok = emqx:hook(foldl_hook2, fun ?MODULE:hook_fun9/2),
+    ok = emqx:hook(foldl_hook2, {?MODULE, hook_fun10, []}),
+    {ok, [r9]} = emqx:run_hooks(foldl_hook2, [arg], []),
 
     ok = emqx:hook(foreach_hook, fun ?MODULE:hook_fun6/2, [initArg]),
     {error, already_exists} = emqx:hook(foreach_hook, fun ?MODULE:hook_fun6/2, [initArg]),
     ok = emqx:hook(foreach_hook, fun ?MODULE:hook_fun7/2, [initArg]),
     ok = emqx:hook(foreach_hook, fun ?MODULE:hook_fun8/2, [initArg]),
-    stop = emqx:run_hooks(foreach_hook, [arg]),
+    ok = emqx:run_hooks(foreach_hook, [arg]),
 
-    ok = emqx:hook(foldl_hook2, fun ?MODULE:hook_fun9/2),
-    ok = emqx:hook(foldl_hook2, {?MODULE, hook_fun10, []}),
-    {stop, []} = emqx:run_hooks(foldl_hook2, [arg], []),
-
-    %% foreach hook always returns 'ok' or 'stop'
     ok = emqx:hook(foreach_filter1_hook, {?MODULE, hook_fun1, []}, {?MODULE, hook_filter1, []}, 0),
     ?assertEqual(ok, emqx:run_hooks(foreach_filter1_hook, [arg])), %% filter passed
     ?assertEqual(ok, emqx:run_hooks(foreach_filter1_hook, [arg1])), %% filter failed
 
-    %% foldl hook always returns {'ok', Acc} or {'stop', Acc}
     ok = emqx:hook(foldl_filter2_hook, {?MODULE, hook_fun2, []}, {?MODULE, hook_filter2, [init_arg]}),
     ok = emqx:hook(foldl_filter2_hook, {?MODULE, hook_fun2_1, []}, {?MODULE, hook_filter2_1, [init_arg]}),
     ?assertEqual({ok, 3}, emqx:run_hooks(foldl_filter2_hook, [arg], 1)),
@@ -87,24 +85,24 @@ run_hooks(_) ->
     ok = emqx_hooks:stop().
 
 hook_fun1(arg) -> ok;
-hook_fun1(_) -> stop.
+hook_fun1(_) -> error.
 
 hook_fun2(arg) -> ok;
-hook_fun2(_) -> stop.
+hook_fun2(_) -> error.
 
-hook_fun2(_, Acc) -> {ok, Acc + 1}.
-hook_fun2_1(_, Acc) -> {ok, Acc + 1}.
+hook_fun2(_, Acc) -> {continue, Acc + 1}.
+hook_fun2_1(_, Acc) -> {continue, Acc + 1}.
 
-hook_fun3(arg1, arg2, _Acc, init) -> ok.
-hook_fun4(arg1, arg2, Acc, init)  -> {ok, [r2 | Acc]}.
-hook_fun5(arg1, arg2, Acc, init)  -> {stop, [r3 | Acc]}.
+hook_fun3(arg1, arg2, _Acc, init) -> continue.
+hook_fun4(arg1, arg2, Acc, init)  -> {continue, [r4 | Acc]}.
+hook_fun5(arg1, arg2, Acc, init)  -> {continue, [r5 | Acc]}.
 
-hook_fun6(arg, initArg) -> ok.
-hook_fun7(arg, initArg) -> any.
-hook_fun8(arg, initArg) -> stop.
+hook_fun6(arg, initArg) -> continue.
+hook_fun7(arg, initArg) -> continue.
+hook_fun8(arg, initArg) -> ok.
 
-hook_fun9(arg, _Acc)  -> any.
-hook_fun10(arg, _Acc)  -> stop.
+hook_fun9(arg, Acc)  -> {ok, [r9 | Acc]}.
+hook_fun10(arg, Acc)  -> {ok, [r10 | Acc]}.
 
 hook_filter1(arg) -> true;
 hook_filter1(_) -> false.
