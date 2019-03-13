@@ -20,8 +20,17 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--import(emqx_topic, [wildcard/1, match/2, validate/1, triples/1, join/1,
-                     words/1, systop/1, feed_var/3, parse/1]).
+-import(emqx_topic,
+        [wildcard/1,
+         match/2,
+         validate/1,
+         triples/1,
+         join/1,
+         words/1,
+         systop/1,
+         feed_var/3,
+         parse/1
+        ]).
 
 -define(N, 10000).
 
@@ -32,6 +41,7 @@ all() ->
      t_triples,
      t_join,
      t_levels,
+     t_tokens,
      t_words,
      t_systop,
      t_feed_var,
@@ -165,6 +175,9 @@ t_triples_perf(_) ->
 t_levels(_) ->
     ?assertEqual(4, emqx_topic:levels(<<"a/b/c/d">>)).
 
+t_tokens(_) ->
+    ?assertEqual([<<"a">>, <<"b">>, <<"+">>, <<"#">>], emqx_topic:tokens(<<"a/b/+/#">>)).
+
 t_words(_) ->
     ['', <<"a">>, '+', '#'] = words(<<"/a/+/#">>),
     ['', <<"abkc">>, <<"19383">>, '+', <<"akakdkkdkak">>, '#'] = words(<<"/abkc/19383/+/akakdkkdkak/#">>),
@@ -193,9 +206,12 @@ t_systop(_) ->
     ?assertEqual(SysTop2,systop(<<"abc">>)).
 
 t_feed_var(_) ->
-    ?assertEqual(<<"$queue/client/clientId">>, feed_var(<<"$c">>, <<"clientId">>, <<"$queue/client/$c">>)),
-    ?assertEqual(<<"username/test/client/x">>, feed_var(<<"%u">>, <<"test">>, <<"username/%u/client/x">>)),
-    ?assertEqual(<<"username/test/client/clientId">>, feed_var(<<"%c">>, <<"clientId">>, <<"username/test/client/%c">>)).
+    ?assertEqual(<<"$queue/client/clientId">>,
+                 feed_var(<<"$c">>, <<"clientId">>, <<"$queue/client/$c">>)),
+    ?assertEqual(<<"username/test/client/x">>,
+                 feed_var(<<"%u">>, <<"test">>, <<"username/%u/client/x">>)),
+    ?assertEqual(<<"username/test/client/clientId">>,
+                 feed_var(<<"%c">>, <<"clientId">>, <<"username/test/client/%c">>)).
 
 long_topic() ->
     iolist_to_binary([[integer_to_list(I), "/"] || I <- lists:seq(0, 10000)]).
@@ -208,3 +224,4 @@ t_parse(_) ->
     ?assertEqual({<<"$local/$queue/topic">>, #{}}, parse(<<"$local/$queue/topic">>)),
     ?assertEqual({<<"$local/$share/group/a/b/c">>, #{}}, parse(<<"$local/$share/group/a/b/c">>)),
     ?assertEqual({<<"$fastlane/topic">>, #{}}, parse(<<"$fastlane/topic">>)).
+
