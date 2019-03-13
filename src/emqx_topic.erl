@@ -14,10 +14,13 @@
 
 -module(emqx_topic).
 
+-include("emqx_mqtt.hrl").
+
 -export([match/2]).
 -export([validate/1, validate/2]).
 -export([levels/1]).
 -export([triples/1]).
+-export([tokens/1]).
 -export([words/1]).
 -export([wildcard/1]).
 -export([join/1]).
@@ -34,8 +37,6 @@
 -export_type([group/0, topic/0, word/0, triple/0]).
 
 -define(MAX_TOPIC_LEN, 4096).
-
--include("emqx_mqtt.hrl").
 
 %% @doc Is wildcard topic?
 -spec(wildcard(topic() | words()) -> true | false).
@@ -134,13 +135,19 @@ bin('+') -> <<"+">>;
 bin('#') -> <<"#">>;
 bin(B) when is_binary(B) -> B.
 
+-spec(levels(topic()) -> pos_integer()).
 levels(Topic) when is_binary(Topic) ->
     length(words(Topic)).
+
+%% @doc Split topic to tokens.
+-spec(tokens(topic()) -> list(binary())).
+tokens(Topic) ->
+    binary:split(Topic, <<"/">>, [global]).
 
 %% @doc Split Topic Path to Words
 -spec(words(topic()) -> words()).
 words(Topic) when is_binary(Topic) ->
-    [word(W) || W <- binary:split(Topic, <<"/">>, [global])].
+    [word(W) || W <- tokens(Topic)].
 
 word(<<>>)    -> '';
 word(<<"+">>) -> '+';
