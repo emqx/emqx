@@ -90,22 +90,26 @@ del(HookPoint, Action) ->
     gen_server:cast(?SERVER, {del, HookPoint, Action}).
 
 %% @doc Run hooks.
--spec(run(atom(), list(Arg :: any())) -> ok | stop).
+-spec(run(atom(), list(Arg::term())) -> ok | {error, Reason::term()}).
 run(HookPoint, Args) ->
     run_(lookup(HookPoint), Args).
 
 %% @doc Run hooks with Accumulator.
--spec(run(atom(), list(Arg::any()), Acc::any()) -> {ok, Acc::any()} | {stop, Acc::any()}).
+-spec(run(atom(), list(Arg::term()), Acc::term()) -> {ok, Acc::term()} | {error, Reason::term(), Acc::term()}).
 run(HookPoint, Args, Acc) ->
     run_(lookup(HookPoint), Args, Acc).
 
 %% @private
 run_([#callback{action = Action, filter = Filter} | Callbacks], Args) ->
     case filter_passed(Filter, Args) andalso execute(Action, Args) of
+        %% the filter validation failed, skip it and continue the hook chain
         false -> run_(Callbacks, Args);
-        ok    -> run_(Callbacks, Args);
-        stop  -> stop;
-        _Any  -> run_(Callbacks, Args)
+        %% stop the hook chain and return ok
+        ok -> ok;
+        %% stop the hook chain and return error
+        {error, Reason} -> {error, Reason};
+        %% continue the hook chain
+        continue -> run_(Callbacks, Args)
     end;
 run_([], _Args) ->
     ok.
@@ -114,12 +118,17 @@ run_([], _Args) ->
 run_([#callback{action = Action, filter = Filter} | Callbacks], Args, Acc) ->
     Args1 = Args ++ [Acc],
     case filter_passed(Filter, Args1) andalso execute(Action, Args1) of
-        false          -> run_(Callbacks, Args, Acc);
-        ok             -> run_(Callbacks, Args, Acc);
-        {ok, NewAcc}   -> run_(Callbacks, Args, NewAcc);
-        stop           -> {stop, Acc};
-        {stop, NewAcc} -> {stop, NewAcc};
-        _Any           -> run_(Callbacks, Args, Acc)
+        %% the filter validation failed, skip it and continue the hook chain
+        false -> run_(Callbacks, Args, Acc);
+        %% stop the hook chain and return ok
+        ok             -> {ok, Acc};
+        {ok, NewAcc}   -> {ok, NewAcc};
+        %% stop the hook chain and return error
+        {error, Reason}           -> {error, Reason, Acc};
+        {error, Reason, NewAcc}   -> {error, Reason, NewAcc};
+        %% continue the hook chain
+        continue             -> run_(Callbacks, Args, Acc);
+        {continue, NewAcc}   -> run_(Callbacks, Args, NewAcc)
     end;
 run_([], _Args, Acc) ->
     {ok, Acc}.
