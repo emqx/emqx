@@ -137,7 +137,7 @@ bin(B) when is_binary(B) -> B.
 
 -spec(levels(topic()) -> pos_integer()).
 levels(Topic) when is_binary(Topic) ->
-    length(words(Topic)).
+    length(tokens(Topic)).
 
 %% @doc Split topic to tokens.
 -spec(tokens(topic()) -> list(binary())).
