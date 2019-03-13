@@ -12,15 +12,10 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_local_bridge_sup).
 
--include("emqx.hrl").
-
--export([start_link/3]).
-
--spec(start_link(node(), emqx_topic:topic(), [emqx_local_bridge:option()])
-      -> {ok, pid()} | {error, term()}).
-start_link(Node, Topic, Options) ->
-    MFA = {emqx_local_bridge, start_link, [Node, Topic, Options]},
-    emqx_pool_sup:start_link({bridge, Node, Topic}, random, MFA).
-
+-ifndef(EMQX_CLIENT_HRL).
+-define(EMQX_CLIENT_HRL, true).
+-include("emqx_mqtt.hrl").
+-record(mqtt_msg, {qos = ?QOS_0, retain = false, dup = false,
+                   packet_id, topic, props, payload}).
+-endif.

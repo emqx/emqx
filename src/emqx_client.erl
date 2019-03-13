@@ -17,11 +17,9 @@
 -behaviour(gen_statem).
 
 -include("types.hrl").
--include("emqx_mqtt.hrl").
+-include("emqx_client.hrl").
 
 -export([start_link/0, start_link/1]).
--export([request/5, request/6, request_async/7, receive_response/3]).
--export([set_request_handler/2, sub_request_topic/3, sub_request_topic/4]).
 -export([connect/1]).
 -export([subscribe/2, subscribe/3, subscribe/4]).
 -export([publish/2, publish/3, publish/4, publish/5]).
@@ -37,12 +35,10 @@
 %% For test cases
 -export([pause/1, resume/1]).
 
--export([initialized/3, waiting_for_connack/3, connected/3]).
+-export([initialized/3, waiting_for_connack/3, connected/3, inflight_full/3]).
 -export([init/1, callback_mode/0, handle_event/4, terminate/3, code_change/4]).
 
--export_type([client/0, properties/0, payload/0, pubopt/0, subopt/0,
-              request_input/0, response_payload/0, request_handler/0,
-              corr_data/0]).
+-export_type([client/0, properties/0, payload/0, pubopt/0, subopt/0, mqtt_msg/0]).
 
 -export_type([host/0, option/0]).
 
@@ -56,20 +52,21 @@
 -define(WILL_MSG(QoS, Retain, Topic, Props, Payload),
         #mqtt_msg{qos = QoS, retain = Retain, topic = Topic, props = Props, payload = Payload}).
 
--define(RESPONSE_TIMEOUT_SECONDS, timer:seconds(5)).
-
--define(NO_HANDLER, undefined).
-
--define(NO_GROUP, <<>>).
-
 -define(NO_CLIENT_ID, <<>>).
 
 -type(host() :: inet:ip_address() | inet:hostname()).
 
--type corr_data() :: binary().
+%% Message handler is a set of callbacks defined to handle MQTT messages
+%% as well as the disconnect event.
+-define(NO_MSG_HDLR, undefined).
+-type(msg_handler() :: #{puback := fun((_) -> any()),
+                         publish := fun((emqx_types:message()) -> any()),
+                         disconnected := fun(({reason_code(), _Properties :: term()}) -> any())
+                        }).
 
 -type(option() :: {name, atom()}
                 | {owner, pid()}
+                | {msg_handler, msg_handler()}
                 | {host, host()}
                 | {hosts, [{host(), inet:port_number()}]}
                 | {port, inet:port_number()}
@@ -86,7 +83,6 @@
                 | {keepalive, non_neg_integer()}
                 | {max_inflight, pos_integer()}
                 | {retry_interval, timeout()}
-                | {request_handler, request_handler()}
                 | {will_topic, iodata()}
                 | {will_payload, iodata()}
                 | {will_retain, boolean()}
@@ -97,13 +93,11 @@
                 | {force_ping, boolean()}
                 | {properties, properties()}).
 
--record(mqtt_msg, {qos = ?QOS_0, retain = false, dup = false,
-                   packet_id, topic, props, payload}).
-
 -type(mqtt_msg() :: #mqtt_msg{}).
 
 -record(state, {name            :: atom(),
                 owner           :: pid(),
+                msg_handler     :: ?NO_MSG_HDLR | msg_handler(),
                 host            :: host(),
                 port            :: inet:port_number(),
                 hosts           :: [{host(), inet:port_number()}],
@@ -134,7 +128,6 @@
                 ack_timer       :: reference(),
                 retry_interval  :: pos_integer(),
                 retry_timer     :: reference(),
-                request_handler :: request_handler(),
                 session_present :: boolean(),
                 last_packet_id  :: packet_id(),
                 parse_state     :: emqx_frame:state()}).
@@ -164,34 +157,9 @@
 
 -type(subscribe_ret() :: {ok, properties(), [reason_code()]} | {error, term()}).
 
--type(request_input() :: binary()).
-
--type(response_payload() :: binary()).
-
--type(request_handler() :: fun((request_input()) -> response_payload())).
-
--type(group() :: binary()).
-
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
-
-%% @doc Swap in a new request handler on the fly.
--spec(set_request_handler(client(), request_handler()) -> ok).
-set_request_handler(Responser, RequestHandler) ->
-    gen_statem:call(Responser, {set_request_handler, RequestHandler}).
-
-%% @doc Subscribe to request topic.
--spec(sub_request_topic(client(), qos(), topic()) -> ok).
-sub_request_topic(Client, QoS, Topic) ->
-    sub_request_topic(Client, QoS, Topic, ?NO_GROUP).
-
-%% @doc Share-subscribe to request topic.
--spec(sub_request_topic(client(), qos(), topic(), group()) -> ok).
-sub_request_topic(Client, QoS, Topic, Group) ->
-    Properties = get_properties(Client),
-    NewTopic = make_req_rsp_topic(Properties, Topic, Group),
-    subscribe_req_rsp_topic(Client, QoS, NewTopic).
 
 -spec(start_link() -> gen_statem:start_ret()).
 start_link() -> start_link([]).
@@ -281,76 +249,6 @@ parse_subopt([{nl, false} | Opts], Result) ->
 parse_subopt([{qos, QoS} | Opts], Result) ->
     parse_subopt(Opts, Result#{qos := ?QOS_I(QoS)}).
 
--spec(request(client(), topic(), topic(), payload(), qos() | [pubopt()])
-        -> ok | {ok, packet_id()} | {error, term()}).
-request(Client, ResponseTopic, RequestTopic, Payload, QoS) when is_binary(ResponseTopic), is_atom(QoS) ->
-    request(Client, ResponseTopic, RequestTopic, Payload, [{qos, ?QOS_I(QoS)}]);
-request(Client, ResponseTopic, RequestTopic, Payload, QoS) when is_binary(ResponseTopic), ?IS_QOS(QoS) ->
-    request(Client, ResponseTopic, RequestTopic, Payload, [{qos, QoS}]);
-request(Client, ResponseTopic, RequestTopic, Payload, Opts) when is_binary(ResponseTopic), is_list(Opts) ->
-    request(Client, ResponseTopic, RequestTopic, Payload, Opts, _Properties = #{}).
-
-%% @doc Send a request to request topic and wait for response.
--spec(request(client(), topic(), topic(), payload(), [pubopt()], properties())
-        -> {ok, response_payload()} | {error, term()}).
-request(Client, ResponseTopic, RequestTopic, Payload, Opts, Properties) ->
-    CorrData = make_corr_data(),
-    case request_async(Client, ResponseTopic, RequestTopic,
-                       Payload, Opts, Properties, CorrData) of
-        ok -> receive_response(Client, CorrData, Opts);
-        {error, Reason} -> {error, Reason}
-    end.
-
-%% @doc Get client properties.
--spec(get_properties(client()) -> properties()).
-get_properties(Client) -> gen_statem:call(Client, get_properties, infinity).
-
-%% @doc Send a request, but do not wait for response.
-%% The caller should expect a `{publish, Response}' message,
-%% or call `receive_response/3' to receive the message.
--spec(request_async(client(), topic(), topic(), payload(),
-                    [pubopt()], properties(), corr_data()) -> ok | {error, any()}).
-request_async(Client, ResponseTopic, RequestTopic, Payload, Opts, Properties, CorrData)
-    when is_binary(ResponseTopic),
-         is_binary(RequestTopic),
-         is_map(Properties),
-         is_list(Opts) ->
-    ok = emqx_mqtt_props:validate(Properties),
-    Retain = proplists:get_bool(retain, Opts),
-    QoS = ?QOS_I(proplists:get_value(qos, Opts, ?QOS_0)),
-    ClientProperties = get_properties(Client),
-    NewResponseTopic = make_req_rsp_topic(ClientProperties, ResponseTopic),
-    NewRequestTopic = make_req_rsp_topic(ClientProperties, RequestTopic),
-    %% This is perhaps not optimal to subscribe the response topic for
-    %% each and every request even though the response topic is always the same
-    ok = sub_response_topic(Client, QoS, NewResponseTopic),
-    NewProperties = maps:merge(Properties, #{'Response-Topic' => NewResponseTopic,
-                                             'Correlation-Data' => CorrData}),
-    case publish(Client, #mqtt_msg{qos  = QoS,
-                                   retain = Retain,
-                                   topic = NewRequestTopic,
-                                   props = NewProperties,
-                                   payload = iolist_to_binary(Payload)}) of
-        ok -> ok;
-        {ok, _PacketId} -> ok; %% assume auto_ack
-        {error, Reason} -> {error, Reason}
-    end.
-
-%% @doc Block wait the response for a request sent earlier.
--spec(receive_response(client(), corr_data(), [pubopt()])
-      -> {ok, response_payload()} | {error, any()}).
-receive_response(Client, CorrData, Opts) ->
-    TimeOut = proplists:get_value(timeout, Opts, ?RESPONSE_TIMEOUT_SECONDS),
-    MRef = erlang:monitor(process, Client),
-    TRef = erlang:start_timer(TimeOut, self(), response),
-    try
-        receive_response(Client, CorrData, TRef, MRef)
-    after
-        erlang:cancel_timer(TRef),
-        receive {timeout, TRef, _} -> ok after 0 -> ok end,
-        erlang:demonitor(MRef, [flush])
-    end.
-
 -spec(publish(client(), topic(), payload()) -> ok | {error, term()}).
 publish(Client, Topic, Payload) when is_binary(Topic) ->
     publish(Client, #mqtt_msg{topic = Topic, qos = ?QOS_0, payload = iolist_to_binary(Payload)}).
@@ -378,7 +276,7 @@ publish(Client, Topic, Properties, Payload, Opts)
                               payload = iolist_to_binary(Payload)}).
 
 -spec(publish(client(), #mqtt_msg{}) -> ok | {ok, packet_id()} | {error, term()}).
-publish(Client, Msg) when is_record(Msg, mqtt_msg) ->
+publish(Client, Msg) ->
     gen_statem:call(Client, {publish, Msg}).
 
 -spec(unsubscribe(client(), topic() | [topic()]) -> subscribe_ret()).
@@ -499,7 +397,6 @@ init([Options]) ->
                                  auto_ack        = true,
                                  ack_timeout     = ?DEFAULT_ACK_TIMEOUT,
                                  retry_interval  = 0,
-                                 request_handler = ?NO_HANDLER,
                                  connect_timeout = ?DEFAULT_CONNECT_TIMEOUT,
                                  last_packet_id  = 1}),
     {ok, initialized, init_parse_state(State)}.
@@ -518,6 +415,8 @@ init([{name, Name} | Opts], State) ->
 init([{owner, Owner} | Opts], State) when is_pid(Owner) ->
     link(Owner),
     init(Opts, State#state{owner = Owner});
+init([{msg_handler, Hdlr} | Opts], State) ->
+    init(Opts, State#state{msg_handler = Hdlr});
 init([{host, Host} | Opts], State) ->
     init(Opts, State#state{host = Host});
 init([{port, Port} | Opts], State) ->
@@ -602,8 +501,6 @@ init([{auto_ack, AutoAck} | Opts], State) when is_boolean(AutoAck) ->
     init(Opts, State#state{auto_ack = AutoAck});
 init([{retry_interval, I} | Opts], State) ->
     init(Opts, State#state{retry_interval = timer:seconds(I)});
-init([{request_handler, Handler} | Opts], State) ->
-    init(Opts, State#state{request_handler = Handler});
 init([{bridge_mode, Mode} | Opts], State) when is_boolean(Mode) ->
     init(Opts, State#state{bridge_mode = Mode});
 init([_Opt | Opts], State) ->
@@ -729,12 +626,12 @@ waiting_for_connack(EventType, EventContent, State) ->
         false -> {stop, connack_timeout}
     end.
 
-connected({call, From}, subscriptions, State = #state{subscriptions = Subscriptions}) ->
-    {keep_state, State, [{reply, From, maps:to_list(Subscriptions)}]};
+connected({call, From}, subscriptions, #state{subscriptions = Subscriptions}) ->
+    {keep_state_and_data, [{reply, From, maps:to_list(Subscriptions)}]};
 
 connected({call, From}, info, State) ->
     Info = lists:zip(record_info(fields, state), tl(tuple_to_list(State))),
-    {keep_state, State, [{reply, From, Info}]};
+    {keep_state_and_data, [{reply, From, Info}]};
 
 connected({call, From}, pause, State) ->
     {keep_state, State#state{paused = true}, [{reply, From, ok}]};
@@ -742,17 +639,8 @@ connected({call, From}, pause, State) ->
 connected({call, From}, resume, State) ->
     {keep_state, State#state{paused = false}, [{reply, From, ok}]};
 
-connected({call, From}, stop, _State) ->
-    {stop_and_reply, normal, [{reply, From, ok}]};
-
-connected({call, From}, get_properties, State = #state{properties = Properties}) ->
-    {keep_state, State, [{reply, From, Properties}]};
-
-connected({call, From}, client_id, State = #state{client_id = ClientId}) ->
-    {keep_state, State, [{reply, From, ClientId}]};
-
-connected({call, From}, {set_request_handler, RequestHandler}, State) ->
-    {keep_state, State#state{request_handler = RequestHandler}, [{reply, From, ok}]};
+connected({call, From}, client_id, #state{client_id = ClientId}) ->
+    {keep_state_and_data, [{reply, From, ClientId}]};
 
 connected({call, From}, SubReq = {subscribe, Properties, Topics},
           State = #state{last_packet_id = PacketId, subscriptions = Subscriptions}) ->
@@ -779,19 +667,18 @@ connected({call, From}, {publish, Msg = #mqtt_msg{qos = ?QOS_0}}, State) ->
 connected({call, From}, {publish, Msg = #mqtt_msg{qos = QoS}},
           State = #state{inflight = Inflight, last_packet_id = PacketId})
     when (QoS =:= ?QOS_1); (QoS =:= ?QOS_2) ->
-    case emqx_inflight:is_full(Inflight) of
-        true ->
-            {keep_state, State, [{reply, From, {error, {PacketId, inflight_full}}}]};
-        false ->
-            Msg1 = Msg#mqtt_msg{packet_id = PacketId},
-            case send(Msg1, State) of
-                {ok, NewState} ->
-                    Inflight1 = emqx_inflight:insert(PacketId, {publish, Msg1, os:timestamp()}, Inflight),
-                    {keep_state, ensure_retry_timer(NewState#state{inflight = Inflight1}),
-                     [{reply, From, {ok, PacketId}}]};
-                {error, Reason} ->
-                    {stop_and_reply, Reason, [{reply, From, {error, {PacketId, Reason}}}]}
-            end
+    Msg1 = Msg#mqtt_msg{packet_id = PacketId},
+    case send(Msg1, State) of
+        {ok, NewState} ->
+            Inflight1 = emqx_inflight:insert(PacketId, {publish, Msg1, os:timestamp()}, Inflight),
+            State1 = ensure_retry_timer(NewState#state{inflight = Inflight1}),
+            Actions = [{reply, From, {ok, PacketId}}],
+            case emqx_inflight:is_full(Inflight1) of
+                true -> {next_state, inflight_full, State1, Actions};
+                false -> {keep_state, State1, Actions}
+            end;
+        {error, Reason} ->
+            {stop_and_reply, Reason, [{reply, From, {error, {PacketId, Reason}}}]}
     end;
 
 connected({call, From}, UnsubReq = {unsubscribe, Properties, Topics},
@@ -833,43 +720,20 @@ connected(cast, {pubrel, PacketId, ReasonCode, Properties}, State) ->
 connected(cast, {pubcomp, PacketId, ReasonCode, Properties}, State) ->
     send_puback(?PUBCOMP_PACKET(PacketId, ReasonCode, Properties), State);
 
-connected(cast, ?PUBLISH_PACKET(_QoS, _PacketId), State = #state{paused = true}) ->
-    {keep_state, State};
+connected(cast, ?PUBLISH_PACKET(_QoS, _PacketId), #state{paused = true}) ->
+    keep_state_and_data;
 
-connected(cast, Packet = ?PUBLISH_PACKET(?QOS_0, _Topic, _PacketId, Properties, Payload),
-          State) when Properties =/= undefined ->
-    NewState = response_publish(Properties, State, ?QOS_0, Payload),
-    {keep_state, deliver(packet_to_msg(Packet), NewState)};
 connected(cast, Packet = ?PUBLISH_PACKET(?QOS_0, _PacketId), State) ->
      {keep_state, deliver(packet_to_msg(Packet), State)};
-
-connected(cast, Packet = ?PUBLISH_PACKET(?QOS_1, _Topic, _PacketId, Properties, Payload), State)
-    when Properties =/= undefined ->
-    NewState = response_publish(Properties, State, ?QOS_1, Payload),
-    publish_process(?QOS_1, Packet, NewState);
 
 connected(cast, Packet = ?PUBLISH_PACKET(?QOS_1, _PacketId), State) ->
     publish_process(?QOS_1, Packet, State);
 
-connected(cast, Packet = ?PUBLISH_PACKET(?QOS_2, _Topic, _PacketId, Properties, Payload), State)
-    when Properties =/= undefined ->
-    NewState = response_publish(Properties, State, ?QOS_2, Payload),
-    publish_process(?QOS_2, Packet, NewState);
 connected(cast, Packet = ?PUBLISH_PACKET(?QOS_2, _PacketId), State) ->
     publish_process(?QOS_2, Packet, State);
 
-connected(cast, ?PUBACK_PACKET(PacketId, ReasonCode, Properties),
-          State = #state{owner = Owner, inflight = Inflight}) ->
-    case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, {publish, #mqtt_msg{packet_id = PacketId}, _Ts}} ->
-            Owner ! {puback, #{packet_id   => PacketId,
-                               reason_code => ReasonCode,
-                               properties  => Properties}},
-            {keep_state, State#state{inflight = emqx_inflight:delete(PacketId, Inflight)}};
-        none ->
-            emqx_logger:warning("Unexpected PUBACK: ~p", [PacketId]),
-            {keep_state, State}
-    end;
+connected(cast, ?PUBACK_PACKET(_PacketId, _ReasonCode, _Properties) = PubAck, State) ->
+    {keep_state, delete_inflight(PubAck, State)};
 
 connected(cast, ?PUBREC_PACKET(PacketId), State = #state{inflight = Inflight}) ->
     send_puback(?PUBREL_PACKET(PacketId),
@@ -897,21 +761,11 @@ connected(cast, ?PUBREL_PACKET(PacketId),
              end;
          error ->
              emqx_logger:warning("Unexpected PUBREL: ~p", [PacketId]),
-             {keep_state, State}
+             keep_state_and_data
      end;
 
-connected(cast, ?PUBCOMP_PACKET(PacketId, ReasonCode, Properties),
-          State = #state{owner = Owner, inflight = Inflight}) ->
-    case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, {pubrel, _PacketId, _Ts}} ->
-            Owner ! {puback, #{packet_id   => PacketId,
-                               reason_code => ReasonCode,
-                               properties  => Properties}},
-            {keep_state, State#state{inflight = emqx_inflight:delete(PacketId, Inflight)}};
-        none ->
-            emqx_logger:warning("Unexpected PUBCOMP Packet: ~p", [PacketId]),
-            {keep_state, State}
-     end;
+connected(cast, ?PUBCOMP_PACKET(_PacketId, _ReasonCode, _Properties) = PubComp, State) ->
+    {keep_state, delete_inflight(PubComp, State)};
 
 connected(cast, ?SUBACK_PACKET(PacketId, Properties, ReasonCodes),
           State = #state{subscriptions = _Subscriptions}) ->
@@ -920,7 +774,8 @@ connected(cast, ?SUBACK_PACKET(PacketId, Properties, ReasonCodes),
             %%TODO: Merge reason codes to subscriptions?
             Reply = {ok, Properties, ReasonCodes},
             {keep_state, NewState, [{reply, From, Reply}]};
-        false -> {keep_state, State}
+        false ->
+            keep_state_and_data
     end;
 
 connected(cast, ?UNSUBACK_PACKET(PacketId, Properties, ReasonCodes),
@@ -933,22 +788,22 @@ connected(cast, ?UNSUBACK_PACKET(PacketId, Properties, ReasonCodes),
                           end, Subscriptions, Topics),
             {keep_state, NewState#state{subscriptions = Subscriptions1},
              [{reply, From, {ok, Properties, ReasonCodes}}]};
-        false -> {keep_state, State}
+        false ->
+            keep_state_and_data
     end;
 
-connected(cast, ?PACKET(?PINGRESP), State = #state{pending_calls = []}) ->
-    {keep_state, State};
+connected(cast, ?PACKET(?PINGRESP), #state{pending_calls = []}) ->
+    keep_state_and_data;
 connected(cast, ?PACKET(?PINGRESP), State) ->
     case take_call(ping, State) of
         {value, #call{from = From}, NewState} ->
             {keep_state, NewState, [{reply, From, pong}]};
-        false -> {keep_state, State}
+        false ->
+            keep_state_and_data
     end;
 
-connected(cast, ?DISCONNECT_PACKET(ReasonCode, Properties),
-          State = #state{owner = Owner}) ->
-    Owner ! {disconnected, ReasonCode, Properties},
-    {stop, disconnected, State};
+connected(cast, ?DISCONNECT_PACKET(ReasonCode, Properties), State) ->
+    {stop, {disconnected, ReasonCode, Properties}, State};
 
 connected(info, {timeout, _TRef, keepalive}, State = #state{force_ping = true}) ->
     case send(?PACKET(?PINGREQ), State) of
@@ -989,15 +844,19 @@ connected(info, {timeout, TRef, retry}, State = #state{retry_timer = TRef,
 connected(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, connected, Data).
 
-should_ping(Sock) ->
-    case emqx_client_sock:getstat(Sock, [send_oct]) of
-        {ok, [{send_oct, Val}]} ->
-            OldVal = get(send_oct), put(send_oct, Val),
-            OldVal == undefined orelse OldVal == Val;
-        Error = {error, _Reason} ->
-            Error
-    end.
+inflight_full({call, _From}, {publish, #mqtt_msg{qos = QoS}}, _State) when (QoS =:= ?QOS_1); (QoS =:= ?QOS_2) ->
+    {keep_state_and_data, [postpone]};
+inflight_full(cast, ?PUBACK_PACKET(_PacketId, _ReasonCode, _Properties) = PubAck, State) ->
+    delete_inflight_when_full(PubAck, State);
+inflight_full(cast, ?PUBCOMP_PACKET(_PacketId, _ReasonCode, _Properties) = PubComp, State) ->
+    delete_inflight_when_full(PubComp, State);
+inflight_full(EventType, EventContent, Data) ->
+    %% inflight_full is a sub-state of connected state,
+    %% delegate all other events to connected state.
+    connected(EventType, EventContent, Data).
 
+handle_event({call, From}, stop, _StateName, _State) ->
+    {stop_and_reply, normal, [{reply, From, ok}]};
 handle_event(info, {TcpOrSsL, _Sock, Data}, _StateName, State)
     when TcpOrSsL =:= tcp; TcpOrSsL =:= ssl ->
     emqx_logger:debug("RECV Data: ~p", [Data]),
@@ -1017,23 +876,31 @@ handle_event(info, {'EXIT', Owner, Reason}, _, State = #state{owner = Owner}) ->
     emqx_logger:debug("[~p] Got EXIT from owner, Reason: ~p", [?MODULE, Reason]),
     {stop, {shutdown, Reason}, State};
 
-handle_event(info, {inet_reply, _Sock, ok}, _, State) ->
-    {keep_state, State};
+handle_event(info, {inet_reply, _Sock, ok}, _, _State) ->
+    keep_state_and_data;
 
 handle_event(info, {inet_reply, _Sock, {error, Reason}}, _, State) ->
     emqx_logger:error("[~p] got tcp error: ~p", [?MODULE, Reason]),
     {stop, {shutdown, Reason}, State};
 
-handle_event(EventType, EventContent, StateName, StateData) ->
+handle_event(EventType, EventContent, StateName, _StateData) ->
     emqx_logger:error("State: ~s, Unexpected Event: (~p, ~p)",
                       [StateName, EventType, EventContent]),
-    {keep_state, StateData}.
+    keep_state_and_data.
 
 %% Mandatory callback functions
-terminate(_Reason, _State, #state{socket = undefined}) ->
-    ok;
-terminate(_Reason, _State, #state{socket = Socket}) ->
-    emqx_client_sock:close(Socket).
+terminate(Reason, _StateName, State = #state{socket = Socket}) ->
+    case Reason of
+        {disconnected, ReasonCode, Properties} ->
+            %% backward compatible
+            ok = eval_msg_handler(State, disconnected, {ReasonCode, Properties});
+        _ ->
+            ok = eval_msg_handler(State, disconnected, Reason)
+    end,
+    case Socket =:= undefined of
+        true -> ok;
+        _ -> emqx_client_sock:close(Socket)
+    end.
 
 code_change(_Vsn, State, Data, _Extra) ->
     {ok, State, Data}.
@@ -1042,56 +909,46 @@ code_change(_Vsn, State, Data, _Extra) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-%% Subscribe to response topic.
--spec(sub_response_topic(client(), qos(), topic()) -> ok).
-sub_response_topic(Client, QoS, Topic) when is_binary(Topic) ->
-    subscribe_req_rsp_topic(Client, QoS, Topic).
-
-receive_response(Client, CorrData, TRef, MRef) ->
-    receive
-        {publish, Response} ->
-            {ok, Properties} = maps:find(properties, Response),
-            case maps:find('Correlation-Data', Properties) of
-                {ok, CorrData} ->
-                    maps:find(payload, Response);
-                _ ->
-                    emqx_logger:debug("Discarded stale response: ~p", [Response]),
-                    receive_response(Client, CorrData, TRef, MRef)
-            end;
-        {timeout, TRef, response} ->
-            {error, timeout};
-        {'DOWN', MRef, process, _, _} ->
-            {error, client_down}
+should_ping(Sock) ->
+    case emqx_client_sock:getstat(Sock, [send_oct]) of
+        {ok, [{send_oct, Val}]} ->
+            OldVal = get(send_oct), put(send_oct, Val),
+            OldVal == undefined orelse OldVal == Val;
+        Error = {error, _Reason} ->
+            Error
     end.
 
-%% Make a unique correlation data for each request.
-%% It has to be unique because stale responses should be discarded.
-make_corr_data() -> term_to_binary(make_ref()).
+delete_inflight(?PUBACK_PACKET(PacketId, ReasonCode, Properties),
+                State = #state{inflight = Inflight}) ->
+    case emqx_inflight:lookup(PacketId, Inflight) of
+        {value, {publish, #mqtt_msg{packet_id = PacketId}, _Ts}} ->
+            ok = eval_msg_handler(State, puback, #{packet_id   => PacketId,
+                                                   reason_code => ReasonCode,
+                                                   properties  => Properties}),
+            State#state{inflight = emqx_inflight:delete(PacketId, Inflight)};
+        none ->
+            emqx_logger:warning("Unexpected PUBACK: ~p", [PacketId]),
+            State
+    end;
+delete_inflight(?PUBCOMP_PACKET(PacketId, ReasonCode, Properties),
+                State = #state{inflight = Inflight}) ->
+    case emqx_inflight:lookup(PacketId, Inflight) of
+        {value, {pubrel, _PacketId, _Ts}} ->
+            ok = eval_msg_handler(State, puback, #{packet_id   => PacketId,
+                                                   reason_code => ReasonCode,
+                                                   properties  => Properties}),
+            State#state{inflight = emqx_inflight:delete(PacketId, Inflight)};
+        none ->
+            emqx_logger:warning("Unexpected PUBCOMP Packet: ~p", [PacketId]),
+            State
+     end.
 
-%% Shared function for request and response topic subscription.
-subscribe_req_rsp_topic(Client, QoS, Topic) ->
-    %% It is a Protocol Error to set the No Local bit to 1 on a Shared Subscription
-    {ok, _Props, _QoS} = subscribe(Client, [{Topic, [{rh, 2}, {rap, false},
-                                                     {nl, not ?IS_SHARE(Topic)},
-                                                     {qos, QoS}]}]),
-    emqx_logger:debug("Subscribed to topic ~s", [Topic]),
-    ok.
-
-%% Make a request or response topic.
-make_req_rsp_topic(Properties, Topic) ->
-    make_req_rsp_topic(Properties, Topic, ?NO_GROUP).
-
-%% Same as make_req_rsp_topic/2, but allow shared subscription (for request topics)
-make_req_rsp_topic(Properties, Topic, Group) ->
-    case maps:find('Response-Information', Properties) of
-        {ok, ResponseInformation} when ResponseInformation =/= <<>> ->
-            emqx_topic:join([req_rsp_topic_prefix(Group, ResponseInformation), Topic]);
-        _ ->
-            erlang:error(no_response_information)
+delete_inflight_when_full(Packet, State0) ->
+    State = #state{inflight = Inflight} = delete_inflight(Packet, State0),
+    case emqx_inflight:is_full(Inflight) of
+        true -> {keep_state, State};
+        false -> {next_state, connected, State}
     end.
-
-req_rsp_topic_prefix(?NO_GROUP, Prefix) -> Prefix;
-req_rsp_topic_prefix(Group, Prefix) -> ?SHARE(Group, Prefix).
 
 assign_id(?NO_CLIENT_ID, Props) ->
     case maps:find('Assigned-Client-Identifier', Props) of
@@ -1103,8 +960,8 @@ assign_id(?NO_CLIENT_ID, Props) ->
 assign_id(Id, _Props) ->
     Id.
 
-publish_process(?QOS_1, Packet = ?PUBLISH_PACKET(?QOS_1, PacketId), State = #state{auto_ack = AutoAck}) ->
-    _ = deliver(packet_to_msg(Packet), State),
+publish_process(?QOS_1, Packet = ?PUBLISH_PACKET(?QOS_1, PacketId), State0 = #state{auto_ack = AutoAck}) ->
+    State = deliver(packet_to_msg(Packet), State0),
     case AutoAck of
         true  -> send_puback(?PUBACK_PACKET(PacketId), State);
         false -> {keep_state, State}
@@ -1116,56 +973,6 @@ publish_process(?QOS_2, Packet = ?PUBLISH_PACKET(?QOS_2, PacketId),
             AwaitingRel1 = maps:put(PacketId, Packet, AwaitingRel),
             {keep_state, NewState#state{awaiting_rel = AwaitingRel1}};
         Stop -> Stop
-    end.
-
-response_publish(undefined, State, _QoS, _Payload) ->
-    State;
-response_publish(Properties, State = #state{request_handler = RequestHandler}, QoS, Payload) ->
-    case maps:find('Response-Topic', Properties) of
-        {ok, ResponseTopic} ->
-            case RequestHandler of
-                ?NO_HANDLER -> State;
-                _ -> do_publish(ResponseTopic, Properties, State, QoS, Payload)
-            end;
-        _ ->
-            State
-    end.
-
-do_publish(ResponseTopic, Properties, State = #state{request_handler = RequestHandler}, ?QOS_0, Payload) ->
-        Msg = #mqtt_msg{qos     = ?QOS_0,
-                        retain  = false,
-                        topic   = ResponseTopic,
-                        props   = Properties,
-                        payload = RequestHandler(Payload)
-                       },
-    case send(Msg, State) of
-        {ok, NewState} -> NewState;
-        _Error -> State
-    end;
-do_publish(ResponseTopic, Properties, State = #state{request_handler = RequestHandler,
-                                                     inflight = Inflight,
-                                                     last_packet_id = PacketId},
-           QoS, Payload)
-    when (QoS =:= ?QOS_1); (QoS =:= ?QOS_2)->
-    case emqx_inflight:is_full(Inflight) of
-        true ->
-            emqx_logger:error("Inflight is full"),
-            State;
-        false ->
-            Msg = #mqtt_msg{packet_id = PacketId,
-                            qos       = QoS,
-                            retain    = false,
-                            topic     = ResponseTopic,
-                            props     = Properties,
-                            payload   = RequestHandler(Payload)},
-            case send(Msg, State) of
-                {ok, NewState} ->
-                    Inflight1 = emqx_inflight:insert(PacketId, {publish, Msg, os:timestamp()}, Inflight),
-                    ensure_retry_timer(NewState#state{inflight = Inflight1});
-                {error, Reason} ->
-                    emqx_logger:error("Send failed: ~p", [Reason]),
-                    State
-            end
     end.
 
 ensure_keepalive_timer(State = ?PROPERTY('Server-Keep-Alive', Secs)) ->
@@ -1210,11 +1017,12 @@ ensure_ack_timer(State = #state{ack_timer     = undefined,
 ensure_ack_timer(State) -> State.
 
 ensure_retry_timer(State = #state{retry_interval = Interval}) ->
-    ensure_retry_timer(Interval, State).
-ensure_retry_timer(Interval, State = #state{retry_timer = undefined})
+    do_ensure_retry_timer(Interval, State).
+
+do_ensure_retry_timer(Interval, State = #state{retry_timer = undefined})
     when Interval > 0 ->
     State#state{retry_timer = erlang:start_timer(Interval, self(), retry)};
-ensure_retry_timer(_Interval, State) ->
+do_ensure_retry_timer(_Interval, State) ->
     State.
 
 retry_send(State = #state{inflight = Inflight}) ->
@@ -1231,7 +1039,7 @@ retry_send([{Type, Msg, Ts} | Msgs], Now, State = #state{retry_interval = Interv
                      {ok, NewState} -> retry_send(Msgs, Now, NewState);
                      {error, Error} -> {stop, Error}
                  end;
-        false -> {keep_state, ensure_retry_timer(Interval - Diff, State)}
+        false -> {keep_state, do_ensure_retry_timer(Interval - Diff, State)}
     end.
 
 retry_send(publish, Msg = #mqtt_msg{qos = QoS, packet_id = PacketId},
@@ -1255,16 +1063,31 @@ retry_send(pubrel, PacketId, Now, State = #state{inflight = Inflight}) ->
 
 deliver(#mqtt_msg{qos = QoS, dup = Dup, retain = Retain, packet_id = PacketId,
                   topic = Topic, props = Props, payload = Payload},
-        State = #state{owner = Owner, request_handler = RequestHandler}) ->
-    case RequestHandler of
-        ?NO_HANDLER ->
-            Owner ! {publish, #{qos => QoS, dup => Dup, retain => Retain, packet_id => PacketId,
-                                topic => Topic, properties => Props, payload => Payload,
-                                client_pid => self()}};
-        _ ->
-            ok
-    end,
+        State) ->
+    Msg = #{qos => QoS, dup => Dup, retain => Retain, packet_id => PacketId,
+            topic => Topic, properties => Props, payload => Payload,
+            client_pid => self()},
+    ok = eval_msg_handler(State, publish, Msg),
     State.
+
+eval_msg_handler(#state{msg_handler = ?NO_MSG_HDLR,
+                        owner = Owner},
+                 disconnected, {ReasonCode, Properties}) ->
+    %% Special handling for disconnected message when there is no handler callback
+    Owner ! {disconnected, ReasonCode, Properties},
+    ok;
+eval_msg_handler(#state{msg_handler = ?NO_MSG_HDLR},
+                 disconnected, _OtherReason) ->
+    %% do nothing to be backward compatible
+    ok;
+eval_msg_handler(#state{msg_handler = ?NO_MSG_HDLR,
+                        owner = Owner}, Kind, Msg) ->
+    Owner ! {Kind, Msg},
+    ok;
+eval_msg_handler(#state{msg_handler = Handler}, Kind, Msg) ->
+    F = maps:get(Kind, Handler),
+    _ = F(Msg),
+    ok.
 
 packet_to_msg(#mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                                                           dup    = Dup,
@@ -1319,9 +1142,9 @@ send(Msg, State) when is_record(Msg, mqtt_msg) ->
 send(Packet, State = #state{socket = Sock, proto_ver = Ver})
     when is_record(Packet, mqtt_packet) ->
     Data = emqx_frame:serialize(Packet, #{version => Ver}),
-    emqx_logger:debug("SEND Data: ~p", [Data]),
+    emqx_logger:debug("SEND Data: ~1000p", [Packet]),
     case emqx_client_sock:send(Sock, Data) of
-        ok  -> {ok, next_packet_id(State)};
+        ok  -> {ok, bump_last_packet_id(State)};
         Error -> Error
     end.
 
@@ -1355,10 +1178,11 @@ next_events(Packets) ->
     [{next_event, cast, Packet} || Packet <- lists:reverse(Packets)].
 
 %%------------------------------------------------------------------------------
-%% Next packet id
+%% packet_id generation
 
-next_packet_id(State = #state{last_packet_id = 16#ffff}) ->
-    State#state{last_packet_id = 1};
+bump_last_packet_id(State = #state{last_packet_id = Id}) ->
+    State#state{last_packet_id = next_packet_id(Id)}.
 
-next_packet_id(State = #state{last_packet_id = Id}) ->
-    State#state{last_packet_id = Id + 1}.
+-spec next_packet_id(packet_id()) -> packet_id().
+next_packet_id(?MAX_PACKET_ID) -> 1;
+next_packet_id(Id) -> Id + 1.

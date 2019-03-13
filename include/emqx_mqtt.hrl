@@ -171,9 +171,10 @@
 -define(RC_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED,   16#A2).
 
 %%--------------------------------------------------------------------
-%% Maximum MQTT Packet Length
+%% Maximum MQTT Packet ID and Length
 %%--------------------------------------------------------------------
 
+-define(MAX_PACKET_ID, 16#ffff).
 -define(MAX_PACKET_SIZE, 16#fffffff).
 
 %%--------------------------------------------------------------------

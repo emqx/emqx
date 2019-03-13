@@ -13,33 +13,50 @@
 %% limitations under the License.
 
 -module(emqx_bridge_sup).
-
 -behavior(supervisor).
 
--include("emqx.hrl").
+-include("logger.hrl").
 
--export([start_link/0, bridges/0]).
-
-%% Supervisor callbacks
+-export([start_link/0, start_link/1, bridges/0]).
+-export([create_bridge/2, drop_bridge/1]).
 -export([init/1]).
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+-define(SUP, ?MODULE).
+-define(WORKER_SUP, emqx_bridge_worker_sup).
 
-%% @doc List all bridges
+start_link() -> start_link(?SUP).
+
+start_link(Name) ->
+    supervisor:start_link({local, Name}, ?MODULE, Name).
+
+init(?SUP) ->
+    BridgesConf = emqx_config:get_env(bridges, []),
+    BridgeSpec = lists:map(fun bridge_spec/1, BridgesConf),
+    SupFlag = #{strategy => one_for_one,
+                intensity => 100,
+                period => 10},
+    {ok, {SupFlag, BridgeSpec}}.
+
+bridge_spec({Name, Config}) ->
+    #{id => Name,
+      start => {emqx_bridge, start_link, [Name, Config]},
+      restart => permanent,
+      shutdown => 5000,
+      type => worker,
+      modules => [emqx_bridge]}.
+
 -spec(bridges() -> [{node(), map()}]).
 bridges() ->
-    [{Name, emqx_bridge:status(Pid)} || {Name, Pid, _, _} <- supervisor:which_children(?MODULE)].
+    [{Name, emqx_bridge:status(Pid)} || {Name, Pid, _, _} <- supervisor:which_children(?SUP)].
 
-init([]) ->
-    BridgesOpts = emqx_config:get_env(bridges, []),
-    Bridges = [spec(Opts)|| Opts <- BridgesOpts],
-    {ok, {{one_for_one, 10, 100}, Bridges}}.
+create_bridge(Id, Config) ->
+    supervisor:start_child(?SUP, bridge_spec({Id, Config})).
 
-spec({Id, Options})->
-    #{id       => Id,
-      start    => {emqx_bridge, start_link, [Id, Options]},
-      restart  => permanent,
-      shutdown => 5000,
-      type     => worker,
-      modules  => [emqx_bridge]}.
+drop_bridge(Id) ->
+    case supervisor:terminate_child(?SUP, Id) of
+        ok ->
+            supervisor:delete_child(?SUP, Id);
+        Error ->
+            ?LOG(error, "[Bridge] Delete bridge failed", [Error]),
+            Error
+    end.

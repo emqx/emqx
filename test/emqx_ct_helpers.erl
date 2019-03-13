@@ -14,9 +14,55 @@
 
 -module(emqx_ct_helpers).
 
--export([ensure_mnesia_stopped/0]).
+-export([ensure_mnesia_stopped/0, wait_for/4]).
 
 ensure_mnesia_stopped() ->
     ekka_mnesia:ensure_stopped(),
     ekka_mnesia:delete_schema().
 
+%% Help function to wait for Fun to yield 'true'.
+wait_for(Fn, Ln, F, Timeout) ->
+    {Pid, Mref} = erlang:spawn_monitor(fun() -> wait_loop(F, catch_call(F)) end),
+    wait_for_down(Fn, Ln, Timeout, Pid, Mref, false).
+
+wait_for_down(Fn, Ln, Timeout, Pid, Mref, Kill) ->
+    receive
+        {'DOWN', Mref, process, Pid, normal} ->
+            ok;
+        {'DOWN', Mref, process, Pid, {unexpected, Result}} ->
+            erlang:error({unexpected, Fn, Ln, Result});
+        {'DOWN', Mref, process, Pid, {crashed, {C, E, S}}} ->
+            erlang:raise(C, {Fn, Ln, E}, S)
+    after
+        Timeout ->
+            case Kill of
+                true ->
+                    erlang:demonitor(Mref, [flush]),
+                    erlang:exit(Pid, kill),
+                    erlang:error({Fn, Ln, timeout});
+                false ->
+                    Pid ! stop,
+                    wait_for_down(Fn, Ln, Timeout, Pid, Mref, true)
+            end
+    end.
+
+wait_loop(_F, ok) -> exit(normal);
+wait_loop(F, LastRes) ->
+    receive
+        stop -> erlang:exit(LastRes)
+    after
+        100 ->
+            Res = catch_call(F),
+            wait_loop(F, Res)
+    end.
+
+catch_call(F) ->
+    try
+        case F() of
+            true -> ok;
+            Other -> {unexpected, Other}
+        end
+    catch
+        C : E : S ->
+            {crashed, {C, E, S}}
+    end.

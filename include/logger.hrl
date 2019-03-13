@@ -35,8 +35,9 @@
 -define(ALERT(Format), ?LOG(alert, Format, [])).
 -define(ALERT(Format, Args), ?LOG(alert, Format, Args)).
 
+-define(LOG(Level, Format), ?LOG(Level, Format, [])).
+
 -define(LOG(Level, Format, Args),
         begin
           (logger:log(Level,#{},#{report_cb => fun(_) -> {(Format), (Args)} end}))
         end).
-

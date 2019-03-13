@@ -1,5 +1,4 @@
-%%--------------------------------------------------------------------
-%% Copyright (c) 2013-2013-2019 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -12,7 +11,6 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
-%%--------------------------------------------------------------------
 
 -module(emqx_protocol_SUITE).
 
@@ -32,65 +30,6 @@
                                 client_id = <<"mqtt_client">>,
                                 username  = <<"emqx">>,
                                 password  = <<"public">>})).
-
--record(pstate, {
-          zone,
-          sendfun,
-          peername,
-          peercert,
-          proto_ver,
-          proto_name,
-          client_id,
-          is_assigned,
-          conn_pid,
-          conn_props,
-          ack_props,
-          username,
-          session,
-          clean_start,
-          topic_aliases,
-          packet_size,
-          keepalive,
-          mountpoint,
-          is_super,
-          is_bridge,
-          enable_ban,
-          enable_acl,
-          acl_deny_action,
-          recv_stats,
-          send_stats,
-          connected,
-          connected_at,
-          ignore_loop,
-          topic_alias_maximum
-        }).
-
-
--define(TEST_PSTATE(ProtoVer, SendStats),
-        #pstate{zone                = test,
-                sendfun             = fun(_Packet, _Options) -> ok end,
-                peername            = test_peername,
-                peercert            = test_peercert,
-                proto_ver           = ProtoVer,
-                proto_name          = <<"MQTT">>,
-                client_id           = <<"test_pstate">>,
-                is_assigned         = false,
-                conn_pid            = self(),
-                username            = <<"emqx">>,
-                is_super            = false,
-                clean_start         = false,
-                topic_aliases       = #{},
-                packet_size         = 1000,
-                mountpoint          = <<>>,
-                is_bridge           = false,
-                enable_ban          = false,
-                enable_acl          = true,
-                acl_deny_action     = disconnect,
-                recv_stats          = #{msg => 0, pkt => 0},
-                send_stats          = SendStats,
-                connected           = false,
-                ignore_loop         = false,
-                topic_alias_maximum = #{to_client => 0, from_client => 0}}).
 
 all() ->
     [
@@ -112,8 +51,7 @@ groups() ->
       [connect_v5,
        subscribe_v5]},
      {acl, [sequence],
-      [acl_deny_action_ct,
-       acl_deny_action_eunit]}].
+      [acl_deny_action_ct]}].
 
 init_per_suite(Config) ->
     [start_apps(App, SchemaFile, ConfigFile) ||
@@ -216,9 +154,10 @@ connect_v5(_) ->
                                                               #{'Request-Response-Information' => 1}})
                                                   )),
                             {ok, Data} = gen_tcp:recv(Sock, 0),
-                            {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0,
-                                                 #{'Response-Information' := _RespInfo}), _} =
-                                raw_recv_parse(Data, ?MQTT_PROTO_V5)
+                            {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0, Props), _} =
+                                raw_recv_parse(Data, ?MQTT_PROTO_V5),
+                            ?assertNot(maps:is_key('Response-Information', Props)),
+                            ok
                     end),
 
     % topic alias = 0
@@ -570,14 +509,6 @@ acl_deny_action_ct(_) ->
     [acl_deny_do_disconnect(publish, QoS, <<"acl_deny_action">>) || QoS <- lists:seq(0, 2)],
     emqx_zone:set_env(external, acl_deny_action, ignore),
     ok.
-
-acl_deny_action_eunit(_) ->
-    PState = ?TEST_PSTATE(?MQTT_PROTO_V5, #{msg => 0, pkt => 0}),
-    CodeName = emqx_reason_codes:name(?RC_NOT_AUTHORIZED, ?MQTT_PROTO_V5),
-    {error, CodeName, NEWPSTATE1} = emqx_protocol:process_packet(?PUBLISH_PACKET(?QOS_1, <<"acl_deny_action">>, 1, <<"payload">>), PState),
-    ?assertEqual(#{pkt => 1, msg => 0}, NEWPSTATE1#pstate.send_stats),
-    {error, CodeName, NEWPSTATE2} = emqx_protocol:process_packet(?PUBLISH_PACKET(?QOS_2, <<"acl_deny_action">>, 2, <<"payload">>), PState),
-    ?assertEqual(#{pkt => 1, msg => 0}, NEWPSTATE2#pstate.send_stats).
 
 will_topic_check(_) ->
     {ok, Client} = emqx_client:start_link([{username, <<"emqx">>},
