@@ -563,11 +563,6 @@ end}.
 %% MQTT Protocol
 %%--------------------------------------------------------------------
 
-%% @doc Response Topic Prefix
-{mapping, "mqtt.response_topic_prefix", "emqx.response_topic_prefix",[
-    {datatype, string}
-]}.
-
 %% @doc Max Packet Size Allowed, 1MB by default.
 {mapping, "mqtt.max_packet_size", "emqx.max_packet_size", [
   {default, "1MB"},
