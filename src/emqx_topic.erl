@@ -157,11 +157,6 @@ levels(Topic) when is_binary(Topic) ->
 tokens(Topic) ->
     binary:split(Topic, <<"/">>, [global]).
 
-%% @doc Split topic to tokens.
--spec(tokens(topic()) -> list(binary())).
-tokens(Topic) ->
-    binary:split(Topic, <<"/">>, [global]).
-
 %% @doc Split Topic Path to Words
 -spec(words(topic()) -> words()).
 words(Topic) when is_binary(Topic) ->
@@ -226,4 +221,3 @@ parse(Topic, Options = #{qos := QoS}) ->
     {Topic, Options#{rc => QoS}};
 parse(Topic, Options) ->
     {Topic, Options}.
-
