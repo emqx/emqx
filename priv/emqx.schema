@@ -563,11 +563,6 @@ end}.
 %% MQTT Protocol
 %%--------------------------------------------------------------------
 
-%% @doc Response Topic Prefix
-{mapping, "mqtt.response_topic_prefix", "emqx.response_topic_prefix",[
-    {datatype, string}
-]}.
-
 %% @doc Max Packet Size Allowed, 1MB by default.
 {mapping, "mqtt.max_packet_size", "emqx.max_packet_size", [
   {default, "1MB"},
@@ -866,15 +861,16 @@ end}.
                     {force_shutdown_policy, ShutdownPolicy};
                ("mqueue_priorities", Val) ->
                     case Val of
-                        "none" -> none; % NO_PRIORITY_TABLE
+                        "none" -> {mqueue_priorities, none}; % NO_PRIORITY_TABLE
                         _ ->
-                            lists:foldl(fun(T, Acc) ->
+                            MqueuePriorities = lists:foldl(fun(T, Acc) ->
                                                 %% NOTE: space in "= " is intended
-                                                [{Topic, Prio}] = string:tokens(T, "= "),
+                                                [Topic, Prio] = string:tokens(T, "= "),
                                                 P = list_to_integer(Prio),
                                                 (P < 0 orelse P > 255) andalso error({bad_priority, Topic, Prio}),
                                                 maps:put(iolist_to_binary(Topic), P, Acc)
-                                        end, string:tokens(Val, ","))
+                                        end, #{}, string:tokens(Val, ",")),
+                            {mqueue_priorities, MqueuePriorities}
                     end;
                ("mountpoint", Val) ->
                     {mountpoint, iolist_to_binary(Val)};
@@ -921,10 +917,6 @@ end}.
 ]}.
 
 {mapping, "listener.tcp.$name.zone", "emqx.listeners", [
-  {datatype, string}
-]}.
-
-{mapping, "listener.tcp.$name.mountpoint", "emqx.listeners", [
   {datatype, string}
 ]}.
 
@@ -1024,10 +1016,6 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "listener.ssl.$name.mountpoint", "emqx.listeners", [
-  {datatype, string}
-]}.
-
 {mapping, "listener.ssl.$name.rate_limit", "emqx.listeners", [
   {default, undefined},
   {datatype, string}
@@ -1095,6 +1083,10 @@ end}.
 ]}.
 
 {mapping, "listener.ssl.$name.ciphers", "emqx.listeners", [
+  {datatype, string}
+]}.
+
+{mapping, "listener.ssl.$name.psk_ciphers", "emqx.listeners", [
   {datatype, string}
 ]}.
 
@@ -1171,10 +1163,6 @@ end}.
 ]}.
 
 {mapping, "listener.ws.$name.zone", "emqx.listeners", [
-  {datatype, string}
-]}.
-
-{mapping, "listener.ws.$name.mountpoint", "emqx.listeners", [
   {datatype, string}
 ]}.
 
@@ -1280,10 +1268,6 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "listener.wss.$name.mountpoint", "emqx.listeners", [
-  {datatype, string}
-]}.
-
 {mapping, "listener.wss.$name.rate_limit", "emqx.listeners", [
   {datatype, string}
 ]}.
@@ -1368,6 +1352,10 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "listener.wss.$name.psk_ciphers", "emqx.listeners", [
+  {datatype, string}
+]}.
+
 {mapping, "listener.wss.$name.keyfile", "emqx.listeners", [
   {datatype, string}
 ]}.
@@ -1423,8 +1411,6 @@ end}.
                   end
               end,
 
-    MountPoint = fun(undefined) -> undefined; (S) -> list_to_binary(S) end,
-
     Ratelimit = fun(undefined) ->
                     undefined;
                    (S) ->
@@ -1442,7 +1428,6 @@ end}.
                           {rate_limit, Ratelimit(cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined))},
                           {proxy_protocol, cuttlefish:conf_get(Prefix ++ ".proxy_protocol", Conf, undefined)},
                           {proxy_protocol_timeout, cuttlefish:conf_get(Prefix ++ ".proxy_protocol_timeout", Conf, undefined)},
-                          {mountpoint, MountPoint(cuttlefish:conf_get(Prefix ++ ".mountpoint", Conf, undefined))},
                           {verify_protocol_header, cuttlefish:conf_get(Prefix ++ ".verify_protocol_header", Conf, undefined)},
                           {peer_cert_as_username, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_username", Conf, undefined)},
                           {proxy_port_header, cuttlefish:conf_get(Prefix ++ ".proxy_port_header", Conf, undefined)},
@@ -1460,14 +1445,40 @@ end}.
               end,
 
     SplitFun = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
-
+    MapPSKCiphers = fun(PSKCiphers) ->
+                      lists:map(
+                          fun("PSK-AES128-CBC-SHA") -> {psk, aes_128_cbc, sha};
+                             ("PSK-AES256-CBC-SHA") -> {psk, aes_256_cbc, sha};
+                             ("PSK-3DES-EDE-CBC-SHA") -> {psk, '3des_ede_cbc', sha};
+                             ("PSK-RC4-SHA") -> {psk, rc4_128, sha}
+                          end, PSKCiphers)
+                    end,
     SslOpts = fun(Prefix) ->
-                 Versions = case SplitFun(cuttlefish:conf_get(Prefix ++ ".tls_versions", Conf, undefined)) of
+                  Versions = case SplitFun(cuttlefish:conf_get(Prefix ++ ".tls_versions", Conf, undefined)) of
                                 undefined -> undefined;
                                 L -> [list_to_atom(V) || V <- L]
                             end,
+                  TLSCiphers = cuttlefish:conf_get(Prefix++".ciphers", Conf, undefined),
+                  PSKCiphers = cuttlefish:conf_get(Prefix++".psk_ciphers", Conf, undefined),
+                  Ciphers =
+                    case {TLSCiphers, PSKCiphers} of
+                      {undefined, undefined} ->
+                        cuttlefish:invalid(Prefix++".ciphers or "++Prefix++".psk_ciphers is absent");
+                      {TLSCiphers, undefined} ->
+                        SplitFun(TLSCiphers);
+                      {undefined, PSKCiphers} ->
+                        MapPSKCiphers(SplitFun(PSKCiphers));
+                      {_TLSCiphers, _PSKCiphers} ->
+                        cuttlefish:invalid(Prefix++".ciphers and "++Prefix++".psk_ciphers cannot be configured at the same time")
+                    end,
+                  UserLookupFun =
+                    case PSKCiphers of
+                      undefined -> undefined;
+                      _ -> {fun emqx_psk:lookup/3, <<>>}
+                    end,
                   Filter([{versions, Versions},
-                          {ciphers, SplitFun(cuttlefish:conf_get(Prefix ++ ".ciphers", Conf, undefined))},
+                          {ciphers, Ciphers},
+                          {user_lookup_fun, UserLookupFun},
                           {handshake_timeout, cuttlefish:conf_get(Prefix ++ ".handshake_timeout", Conf, undefined)},
                           {dhfile, cuttlefish:conf_get(Prefix ++ ".dhfile", Conf, undefined)},
                           {keyfile,    cuttlefish:conf_get(Prefix ++ ".keyfile", Conf, undefined)},
@@ -1567,6 +1578,10 @@ end}.
   {datatype, string}
 ]}.
 
+{mapping, "bridge.$name.psk_ciphers", "emqx.bridges", [
+  {datatype, string}
+]}.
+
 {mapping, "bridge.$name.keepalive", "emqx.bridges", [
   {default, "10s"},
   {datatype, {duration, ms}}
@@ -1622,22 +1637,34 @@ end}.
 ]}.
 
 {translation, "emqx.bridges", fun(Conf) ->
+    MapPSKCiphers = fun(PSKCiphers) ->
+                      lists:map(
+                          fun("PSK-AES128-CBC-SHA") -> {psk, aes_128_cbc, sha};
+                             ("PSK-AES256-CBC-SHA") -> {psk, aes_256_cbc, sha};
+                             ("PSK-3DES-EDE-CBC-SHA") -> {psk, '3des_ede_cbc', sha};
+                             ("PSK-RC4-SHA") -> {psk, rc4_128, sha}
+                          end, PSKCiphers)
+                    end,
+
     Split = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
 
     IsSsl = fun(cacertfile)   -> true;
                (certfile)     -> true;
                (keyfile)      -> true;
                (ciphers)      -> true;
+               (psk_ciphers)  -> true;
                (tls_versions) -> true;
                (_Opt)         -> false
             end,
 
     Parse = fun(tls_versions, Vers) ->
-                    {versions, [list_to_atom(S) || S <- Split(Vers)]};
+                    [{versions, [list_to_atom(S) || S <- Split(Vers)]}];
                (ciphers, Ciphers) ->
-                    {ciphers, Split(Ciphers)};
+                    [{ciphers, Split(Ciphers)}];
+               (psk_ciphers, Ciphers) ->
+                    [{ciphers, MapPSKCiphers(Split(Ciphers))}, {user_lookup_fun, {fun emqx_psk:lookup/3, <<>>}}];
                (Opt, Val) ->
-                    {Opt, Val}
+                    [{Opt, Val}]
             end,
 
     Merge = fun(forwards, Val, Opts) ->
@@ -1645,7 +1672,7 @@ end}.
                (Opt, Val, Opts) ->
                   case IsSsl(Opt) of
                       true ->
-                          SslOpts = [Parse(Opt, Val)|proplists:get_value(ssl_opts, Opts, [])],
+                          SslOpts = Parse(Opt, Val) ++ [proplists:get_value(ssl_opts, Opts, [])],
                           lists:ukeymerge(1, [{ssl_opts, SslOpts}], lists:usort(Opts));
                       false ->
                           [{Opt, Val}|Opts]

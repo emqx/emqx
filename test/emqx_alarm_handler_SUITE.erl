@@ -30,7 +30,7 @@ init_per_suite(Config) ->
     [start_apps(App, {SchemaFile, ConfigFile}) ||
         {App, SchemaFile, ConfigFile}
             <- [{emqx, local_path("priv/emqx.schema"),
-                       local_path("etc/emqx.conf")}]],
+                       local_path("etc/gen.emqx.conf")}]],
     Config.
 
 end_per_suite(_Config) ->
@@ -85,12 +85,12 @@ t_alarm_handler(_) ->
             Topic1 = emqx_topic:systop(<<"alarms/alarm_for_test/alert">>),
             Topic2 = emqx_topic:systop(<<"alarms/alarm_for_test/clear">>),
             SubOpts = #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0},
-            emqx_client_sock:send(Sock, 
+            emqx_client_sock:send(Sock,
                                   raw_send_serialize(
                                       ?SUBSCRIBE_PACKET(
-                                          1, 
+                                          1,
                                           [{Topic1, SubOpts},
-                                           {Topic2, SubOpts}]), 
+                                           {Topic2, SubOpts}]),
                                       #{version => ?MQTT_PROTO_V5})),
 
             {ok, Data2} = gen_tcp:recv(Sock, 0),
@@ -119,16 +119,16 @@ t_alarm_handler(_) ->
 
 t_logger_handler(_) ->
     %% Meck supervisor report
-    logger:log(error, #{label => {supervisor, start_error}, 
-                        report => [{supervisor, {local, tmp_sup}}, 
-                                   {errorContext, shutdown}, 
-                                   {reason, reached_max_restart_intensity}, 
+    logger:log(error, #{label => {supervisor, start_error},
+                        report => [{supervisor, {local, tmp_sup}},
+                                   {errorContext, shutdown},
+                                   {reason, reached_max_restart_intensity},
                                    {offender, [{pid, meck},
                                                {id, meck},
                                                {mfargs, {meck, start_link, []}},
                                                {restart_type, permanent},
                                                {shutdown, 5000},
-                                               {child_type, worker}]}]}, 
+                                               {child_type, worker}]}]},
                #{logger_formatter => #{title => "SUPERVISOR REPORT"},
                  report_cb => fun logger:format_otp_report/1}),
     ?assertEqual(true, lists:keymember(supervisor_report, 1, emqx_alarm_handler:get_alarms())).
@@ -142,4 +142,3 @@ raw_send_serialize(Packet, Opts) ->
 raw_recv_parse(P, ProtoVersion) ->
     emqx_frame:parse(P, {none, #{max_packet_size => ?MAX_PACKET_SIZE,
                                  version         => ProtoVersion}}).
-
