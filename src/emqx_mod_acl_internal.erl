@@ -23,7 +23,6 @@
 
 -export([all_rules/0]).
 
-%% ACL mod callbacks
 -export([check_acl/4, reload_acl/1, description/0]).
 
 -define(ACL_RULE_TAB, emqx_acl_rule).

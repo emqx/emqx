@@ -661,7 +661,7 @@ deliver({connack, ReasonCode, SP}, PState) ->
     send(?CONNACK_PACKET(ReasonCode, SP), PState);
 
 deliver({publish, PacketId, Msg}, PState = #pstate{mountpoint = MountPoint}) ->
-    emqx_hooks:run('message.delivered', [credentials(PState), Msg]),
+    emqx_hooks:run_fold('message.deliver', [credentials(PState)], Msg),
     Msg1 = emqx_message:update_expiry(Msg),
     Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
     send(emqx_packet:from_message(PacketId, emqx_message:remove_topic_alias(Msg2)), PState);

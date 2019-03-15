@@ -89,17 +89,17 @@ subscribe(Topic) when is_binary(Topic) ->
 
 -spec(subscribe(emqx_topic:topic(), emqx_types:subid() | emqx_types:subopts()) -> ok).
 subscribe(Topic, SubId) when is_binary(Topic), ?is_subid(SubId) ->
-    subscribe(Topic, SubId, #{qos => 0, rc => 0});
+    subscribe(Topic, SubId, #{qos => 0});
 subscribe(Topic, SubOpts) when is_binary(Topic), is_map(SubOpts) ->
     subscribe(Topic, undefined, SubOpts).
 
 -spec(subscribe(emqx_topic:topic(), emqx_types:subid(), emqx_types:subopts()) -> ok).
-subscribe(Topic, SubId, SubOpts = #{qos := QoS}) when is_binary(Topic), ?is_subid(SubId), is_map(SubOpts) ->
+subscribe(Topic, SubId, SubOpts) when is_binary(Topic), ?is_subid(SubId), is_map(SubOpts) ->
     SubPid = self(),
     case ets:member(?SUBOPTION, {SubPid, Topic}) of
         false ->
             ok = emqx_broker_helper:register_sub(SubPid, SubId),
-            do_subscribe(Topic, SubPid, with_subid(SubId, SubOpts#{rc => QoS}));
+            do_subscribe(Topic, SubPid, with_subid(SubId, SubOpts));
         true -> ok
     end.
 

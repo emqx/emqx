@@ -550,8 +550,10 @@ acl_deny_do_disconnect(publish, QoS, Topic) ->
             ct:pal(info, "[OK] after publish, received exit: {shutdown,tcp_closed}"),
             false = is_process_alive(Client);
         {'EXIT', Client, Reason} ->
-            ct:pal(info, "[OK] after publish, client got disconnected: ~p", [Reason])
-    after 1000 -> ct:fail({timeout, wait_tcp_closed})
+            ct:pal(info, "[OK] after publish, client got disconnected: ~p", [Reason]);
+        {disconnected,shutdown,tcp_closed} ->
+            ct:pal(info, "[OK] after publish, client got disconnected: ~p", [tcp_closed])
+    after 2000 -> ct:fail({timeout, wait_tcp_closed})
     end;
 
 acl_deny_do_disconnect(subscribe, QoS, Topic) ->
