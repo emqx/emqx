@@ -18,7 +18,7 @@ clean:
 	@$(REBAR) clean
 
 test:
-	@$(REBAR) skip_deps=true eunit
+	@$(REBAR) skip_deps=true ct
 
 edoc:
 	@$(REBAR) doc
@@ -34,3 +34,4 @@ build_plt: compile
 
 dialyzer: compile
 	dialyzer -Wno_return --plt $(PLT) deps/*/ebin ebin
+

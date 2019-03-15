@@ -1,47 +1,54 @@
-%%% The MIT License (MIT)
-%%%  
-%%% Copyright (c) 2018 EMQ X
-%%%  
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%  
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%  
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%
-%%% 
-%%% @author Feng Lee <feng@emqx.io>
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(ecpool).
 
--export([pool_spec/4, start_pool/3, start_sup_pool/3, stop_sup_pool/1,
-         get_client/1, get_client/2, with_client/2, with_client/3,
-         name/1, workers/1]).
+-export([pool_spec/4,
+         start_pool/3,
+         start_sup_pool/3,
+         stop_sup_pool/1,
+         get_client/1,
+         get_client/2,
+         with_client/2,
+         with_client/3,
+         workers/1
+        ]).
 
--type pool_type() :: random | hash | round_robin.
+-export([name/1]).
 
--type option() :: {pool_size, pos_integer()}
+-type(pool_name() :: atom()).
+-type(pool_type() :: random | hash | round_robin).
+-type(option() :: {pool_size, pos_integer()}
                 | {pool_type, pool_type()}
                 | {auto_reconnect, false | pos_integer()}
-                | tuple().
+                | tuple()).
+
+-export_type([pool_name/0,
+              pool_type/0,
+              option/0
+             ]).
 
 pool_spec(ChildId, Pool, Mod, Opts) ->
-    {ChildId, {?MODULE, start_pool, [Pool, Mod, Opts]},
-        permanent, 5000, supervisor, [ecpool_pool_sup]}.
+    #{id => ChildId,
+      start => {?MODULE, start_pool, [Pool, Mod, Opts]},
+      restart => permanent,
+      shutdown => 5000,
+      type => supervisor,
+      modules => [ecpool_pool_sup]}.
 
-%% @doc Start the pool
--spec(start_pool(atom(), atom(), [option()]) -> {ok, pid()} | {error, any()}).
+%% @doc Start the pool sup.
+-spec(start_pool(atom(), atom(), [option()]) -> {ok, pid()} | {error, term()}).
 start_pool(Pool, Mod, Opts) when is_atom(Pool) ->
     ecpool_pool_sup:start_link(Pool, Mod, Opts).
 
@@ -79,9 +86,10 @@ with_worker(Worker, Fun) ->
         {error, Reason} -> {error, Reason}
     end.
 
+%% @doc Pool workers
+workers(Pool) ->
+    gproc_pool:active_workers(name(Pool)).
+
 %% @doc ecpool name
 name(Pool) -> {?MODULE, Pool}.
-
-%% @doc pool workers
-workers(Pool) -> gproc_pool:active_workers(name(Pool)).
 

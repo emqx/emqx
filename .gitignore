@@ -11,3 +11,4 @@ rel/example_project
 tmp
 _build/
 rebar.lock
+logs/

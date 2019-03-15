@@ -1,16 +1,15 @@
 # Erlang Connection/Client Pool
 
-ecpool is different with worker-pool libraries in that it is designed to pool connection/clients to server or database.
+`ecpool` is different with worker-pool libraries in that it is designed to pool connection/clients to server or database.
 
-ecpool tries to avoid the erlang application crash when the server or database going down.
-
+`ecpool` tries to avoid the erlang application crash when the server or database going down.
 
 ## Overview
 
-A pool worker to manage/monitor the client to server or database:
+A pool worker to manage/monitor the connection to server or database:
 
 ```
-PoolWorker -> Client -> DB
+PoolWorker -> Conn -> DB
 ```
 
 Use client:
@@ -18,7 +17,6 @@ Use client:
 ```
 ecpool:with_client(Pool, fun(Client) -> call(Client) end).
 ```
-
 
 ## Usage
 
@@ -47,7 +45,6 @@ PgOpts = [%% Pool Size
           {encoding,  utf8}],
 
 ecpool:start_pool(epgsql_pool, epgsql_pool_client, PgOpts)
-
 ```
 
 ### The Callback Module
@@ -77,7 +74,7 @@ squery(Pool, Sql) ->
 
 ## Design
 
-The ecpool supervisor tree:
+The `ecpool` supervisor tree:
 
 ```
 pool_sup[one_for_all supervisor]
@@ -92,9 +89,8 @@ pool_sup[one_for_all supervisor]
 
 Feng Lee <feng@emqx.io>
 
-
 ## License
 
-The MIT License (MIT)
+The Apache License Version 2.0
 
 

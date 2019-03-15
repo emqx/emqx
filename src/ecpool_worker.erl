@@ -1,48 +1,46 @@
-%%% The MIT License (MIT)
-%%%  
-%%% Copyright (c) 2018 EMQ X
-%%%  
-%%% Permission is hereby granted, free of charge, to any person obtaining a copy
-%%% of this software and associated documentation files (the "Software"), to deal
-%%% in the Software without restriction, including without limitation the rights
-%%% to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-%%% copies of the Software, and to permit persons to whom the Software is
-%%% furnished to do so, subject to the following conditions:
-%%%  
-%%% The above copyright notice and this permission notice shall be included in all
-%%% copies or substantial portions of the Software.
-%%%  
-%%% THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-%%% IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-%%% FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-%%% AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-%%% LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-%%% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-%%% SOFTWARE.
-%%%
-%%% 
-%%% @author Feng Lee <feng@emqx.io>
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(ecpool_worker).
 
 -behaviour(gen_server).
 
+-export([start_link/4]).
+
 %% API Function Exports
--export([start_link/4, client/1, is_connected/1]).
+-export([client/1]).
+-export([is_connected/1]).
 
 %% gen_server Function Exports
--export([init/1, handle_call/3, handle_cast/2, handle_info/2,
-         terminate/2, code_change/3]).
+-export([init/1,
+         handle_call/3,
+         handle_cast/2,
+         handle_info/2,
+         terminate/2,
+         code_change/3
+        ]).
 
 -record(state, {pool, id, client, mod, opts}).
 
-%%%=============================================================================
-%%% Callback
-%%%=============================================================================
+%%------------------------------------------------------------------------------
+%% Callback
+%%------------------------------------------------------------------------------
 
 -ifdef(use_specs).
 
--callback connect(ConnOpts :: list()) -> {ok, pid()} | {error, any()}.
+-callback(connect(ConnOpts :: list())
+          -> {ok, pid()} | {error, Reason :: term()}).
 
 -else.
 
@@ -50,15 +48,14 @@
 
 behaviour_info(callbacks) ->
     [{connect, 1}];
-
 behaviour_info(_Other) ->
     undefined.
 
 -endif.
 
-%%%=============================================================================
-%%% API
-%%%=============================================================================
+%%------------------------------------------------------------------------------
+%% API
+%%------------------------------------------------------------------------------
 
 %% @doc Start a pool worker.
 -spec(start_link(atom(), pos_integer(), module(), list()) ->
@@ -74,33 +71,40 @@ client(Pid) ->
 %% @doc Is client connected?
 -spec(is_connected(pid()) -> boolean()).
 is_connected(Pid) ->
-    gen_server:call(Pid, is_connected).
+    gen_server:call(Pid, is_connected, infinity).
 
-%%%=============================================================================
-%%% gen_server callbacks
-%%%=============================================================================
+%%------------------------------------------------------------------------------
+%% gen_server callbacks
+%%------------------------------------------------------------------------------
 
 init([Pool, Id, Mod, Opts]) ->
     process_flag(trap_exit, true),
     State = #state{pool = Pool, id = Id, mod = Mod, opts = Opts},
     case connect(State) of
         {ok, Client} ->
-            gproc_pool:connect_worker(ecpool:name(Pool), {Pool, Id}),
+            ok = maybe_apply(proplists:get_value(bind, Opts), self()),
+            true = gproc_pool:connect_worker(ecpool:name(Pool), {Pool, Id}),
             {ok, State#state{client = Client}};
         {error, Error} ->
             {stop, Error}
     end.
 
 handle_call(is_connected, _From, State = #state{client = Client}) ->
-    {reply, Client =/= undefined andalso is_process_alive(Client), State};
+    IsAlive = Client =/= undefined andalso is_process_alive(Client),
+    {reply, IsAlive, State};
 
 handle_call(client, _From, State = #state{client = undefined}) ->
     {reply, {error, disconnected}, State};
 
 handle_call(client, _From, State = #state{client = Client}) ->
-    {reply, {ok, Client}, State}.
+    {reply, {ok, Client}, State};
 
-handle_cast(_Msg, State) ->
+handle_call(Req, _From, State) ->
+    logger:error("[PoolWorker] unexpected call: ~p", [Req]),
+    {reply, ignored, State}.
+
+handle_cast(Msg, State) ->
+    logger:error("[PoolWorker] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({'EXIT', Pid, Reason}, State = #state{client = Pid, opts = Opts}) ->
@@ -108,48 +112,61 @@ handle_info({'EXIT', Pid, Reason}, State = #state{client = Pid, opts = Opts}) ->
         false ->
             {stop, Reason, State};
         Secs ->
-            reconnect(Secs, State)
+            reconnect_after(Secs, State)
     end;
 
-handle_info(reconnect, State = #state{opts = Opts}) ->
+handle_info(reconnect, State = #state{pool= Pool, opts = Opts}) ->
     try connect(State) of
         {ok, Client} ->
             {noreply, State#state{client = Client}};
-        {error, _Reason} ->
-            reconnect(proplists:get_value(auto_reconnect, Opts), State)
+        {error, Reason} ->
+            logger:error("[PoolWorker] ~p reconnect error: ~p", [Pool, Reason]),
+            reconnect_after(proplists:get_value(auto_reconnect, Opts), State)
     catch
-        _Error:_Reason ->
-            reconnect(proplists:get_value(auto_reconnect, Opts), State)
+        _Error:Reason ->
+            logger:error("[PoolWorker] ~p reconnect error: ~p", [Pool, Reason]),
+            reconnect_after(proplists:get_value(auto_reconnect, Opts), State)
     end;
 
-handle_info(_Info, State) ->
+handle_info(Info, State) ->
+    logger:error("[PoolWorker] unexpected info: ~p", [Info]),
     {noreply, State}.
 
-terminate(_Reason, #state{pool = Pool, id = Id}) ->
+terminate(_Reason, #state{pool = Pool, id = Id, opts = Opts}) ->
+    ok = maybe_apply(proplists:get_value(unbind, Opts), self()),
     gproc_pool:disconnect_worker(ecpool:name(Pool), {Pool, Id}).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%%=============================================================================
-%%% Internal Functions
-%%%=============================================================================
+%%------------------------------------------------------------------------------
+%% Internal Functions
+%%------------------------------------------------------------------------------
 
 connect(#state{mod = Mod, opts = Opts}) ->
     Mod:connect(connopts(Opts, [])).
 
 connopts([], Acc) ->
     Acc;
-connopts([{pool_size, _} | Opts], Acc) ->
+connopts([{pool_size, _}|Opts], Acc) ->
     connopts(Opts, Acc);
-connopts([{pool_type, _} | Opts], Acc) ->
+connopts([{pool_type, _}|Opts], Acc) ->
     connopts(Opts, Acc);
-connopts([{auto_reconnect, _} | Opts], Acc) ->
+connopts([{auto_reconnect, _}|Opts], Acc) ->
     connopts(Opts, Acc);
-connopts([Opt | Opts], Acc) ->
-    connopts(Opts, [Opt | Acc]).
+connopts([{bind, _}|Opts], Acc) ->
+    connopts(Opts, Acc);
+connopts([{unbind, _}|Opts], Acc) ->
+    connopts(Opts, Acc);
+connopts([Opt|Opts], Acc) ->
+    connopts(Opts, [Opt|Acc]).
 
-reconnect(Secs, State) ->
-    erlang:send_after(timer:seconds(Secs), self(), reconnect),
+reconnect_after(Secs, State) ->
+    _ = erlang:send_after(timer:seconds(Secs), self(), reconnect),
     {noreply, State#state{client = undefined}}.
+
+maybe_apply(undefined, _Self) ->
+    ok;
+maybe_apply(Fun, Self) ->
+    Fun(Self).
 
