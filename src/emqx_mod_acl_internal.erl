@@ -12,17 +12,19 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_acl_internal).
+-module(emqx_mod_acl_internal).
 
--behaviour(emqx_acl_mod).
+-behaviour(emqx_gen_mod).
 
 -include("emqx.hrl").
 -include("logger.hrl").
 
+-export([load/1, unload/1]).
+
 -export([all_rules/0]).
 
 %% ACL mod callbacks
--export([init/1, check_acl/2, reload_acl/1, description/0]).
+-export([check_acl/4, reload_acl/1, description/0]).
 
 -define(ACL_RULE_TAB, emqx_acl_rule).
 
@@ -31,6 +33,16 @@
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
+
+load(Env) ->
+    _ = emqx_tables:new(?ACL_RULE_TAB, [set, public, {read_concurrency, true}]),
+    File = proplists:get_value(acl_file, Env),
+    ok = load_rules_from_file(File),
+    emqx_hooks:add('client.check_acl', fun ?MODULE:check_acl/4, -1).
+
+unload(_Env) ->
+    emqx_tables:delete(?ACL_RULE_TAB),
+    emqx_hooks:del('client.check_acl', fun ?MODULE:check_acl/4).
 
 %% @doc Read all rules
 -spec(all_rules() -> list(emqx_access_rule:rule())).
@@ -43,12 +55,6 @@ all_rules() ->
 %%------------------------------------------------------------------------------
 %% ACL callbacks
 %%------------------------------------------------------------------------------
-
--spec(init([File :: string()]) -> {ok, #{}}).
-init([File]) ->
-    _ = emqx_tables:new(?ACL_RULE_TAB, [set, public, {read_concurrency, true}]),
-    ok = load_rules_from_file(File),
-    {ok, #{acl_file => File}}.
 
 load_rules_from_file(AclFile) ->
     case file:consult(AclFile) of
@@ -79,13 +85,12 @@ filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
     false.
 
 %% @doc Check ACL
--spec(check_acl({emqx_types:credentials(), emqx_types:pubsub(), emqx_topic:topic()}, #{})
-      -> allow | deny | ignore).
-check_acl({Credentials, PubSub, Topic}, _State) ->
+-spec(check_acl(emqx_types:credentials(), emqx_types:pubsub(), emqx_topic:topic(), AclResult::allow | deny) -> {ok, allow} | {ok, deny} | ok).
+check_acl(Credentials, PubSub, Topic, _AclResult) ->
     case match(Credentials, Topic, lookup(PubSub)) of
-        {matched, allow} -> allow;
-        {matched, deny}  -> deny;
-        nomatch          -> ignore
+        {matched, allow} -> {ok, allow};
+        {matched, deny}  -> {ok, deny};
+        nomatch          -> ok
     end.
 
 lookup(PubSub) ->

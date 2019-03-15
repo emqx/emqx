@@ -22,7 +22,7 @@
 -export([start_link/0, stop/0]).
 
 %% Hooks API
--export([add/2, add/3, add/4, del/2, run/2, run/3, lookup/1]).
+-export([add/2, add/3, add/4, del/2, run/2, run_fold/3, lookup/1]).
 
 %% gen_server Function Exports
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
@@ -90,48 +90,44 @@ del(HookPoint, Action) ->
     gen_server:cast(?SERVER, {del, HookPoint, Action}).
 
 %% @doc Run hooks.
--spec(run(atom(), list(Arg::term())) -> ok | {error, Reason::term()}).
+-spec(run(atom(), list(Arg::term())) -> ok).
 run(HookPoint, Args) ->
-    run_(lookup(HookPoint), Args).
+    do_run(lookup(HookPoint), Args).
 
 %% @doc Run hooks with Accumulator.
--spec(run(atom(), list(Arg::term()), Acc::term()) -> {ok, Acc::term()} | {error, Reason::term(), Acc::term()}).
-run(HookPoint, Args, Acc) ->
-    run_(lookup(HookPoint), Args, Acc).
+-spec(run_fold(atom(), list(Arg::term()), Acc::term()) -> Acc::term()).
+run_fold(HookPoint, Args, Acc) ->
+    do_run_fold(lookup(HookPoint), Args, Acc).
 
-%% @private
-run_([#callback{action = Action, filter = Filter} | Callbacks], Args) ->
+
+do_run([#callback{action = Action, filter = Filter} | Callbacks], Args) ->
     case filter_passed(Filter, Args) andalso execute(Action, Args) of
-        %% the filter validation failed, skip it and continue the hook chain
-        false -> run_(Callbacks, Args);
-        %% stop the hook chain and return ok
-        ok -> ok;
-        %% stop the hook chain and return error
-        {error, Reason} -> {error, Reason};
-        %% continue the hook chain
-        continue -> run_(Callbacks, Args)
+        %% stop the hook chain and return
+        stop -> ok;
+        %% continue the hook chain, in following cases:
+        %%   - the filter validation failed with 'false'
+        %%   - the callback returns any term other than 'stop'
+        _ -> do_run(Callbacks, Args)
     end;
-run_([], _Args) ->
+do_run([], _Args) ->
     ok.
 
-%% @private
-run_([#callback{action = Action, filter = Filter} | Callbacks], Args, Acc) ->
+do_run_fold([#callback{action = Action, filter = Filter} | Callbacks], Args, Acc) ->
     Args1 = Args ++ [Acc],
     case filter_passed(Filter, Args1) andalso execute(Action, Args1) of
-        %% the filter validation failed, skip it and continue the hook chain
-        false -> run_(Callbacks, Args, Acc);
-        %% stop the hook chain and return ok
-        ok             -> {ok, Acc};
-        {ok, NewAcc}   -> {ok, NewAcc};
-        %% stop the hook chain and return error
-        {error, Reason}           -> {error, Reason, Acc};
-        {error, Reason, NewAcc}   -> {error, Reason, NewAcc};
-        %% continue the hook chain
-        continue             -> run_(Callbacks, Args, Acc);
-        {continue, NewAcc}   -> run_(Callbacks, Args, NewAcc)
+        %% stop the hook chain
+        stop -> Acc;
+        %% stop the hook chain with NewAcc
+        {stop, NewAcc}   -> NewAcc;
+        %% continue the hook chain with NewAcc
+        {ok, NewAcc}   -> do_run_fold(Callbacks, Args, NewAcc);
+        %% continue the hook chain, in following cases:
+        %%   - the filter validation failed with 'false'
+        %%   - the callback returns any term other than 'stop' or {'stop', NewAcc}
+        _ -> do_run_fold(Callbacks, Args, Acc)
     end;
-run_([], _Args, Acc) ->
-    {ok, Acc}.
+do_run_fold([], _Args, Acc) ->
+    Acc.
 
 -spec(filter_passed(filter(), Args::term()) -> true | false).
 filter_passed(undefined, _Args) -> true;

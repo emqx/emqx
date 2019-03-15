@@ -89,17 +89,17 @@ subscribe(Topic) when is_binary(Topic) ->
 
 -spec(subscribe(emqx_topic:topic(), emqx_types:subid() | emqx_types:subopts()) -> ok).
 subscribe(Topic, SubId) when is_binary(Topic), ?is_subid(SubId) ->
-    subscribe(Topic, SubId, #{qos => 0});
+    subscribe(Topic, SubId, #{qos => 0, rc => 0});
 subscribe(Topic, SubOpts) when is_binary(Topic), is_map(SubOpts) ->
     subscribe(Topic, undefined, SubOpts).
 
 -spec(subscribe(emqx_topic:topic(), emqx_types:subid(), emqx_types:subopts()) -> ok).
-subscribe(Topic, SubId, SubOpts) when is_binary(Topic), ?is_subid(SubId), is_map(SubOpts) ->
+subscribe(Topic, SubId, SubOpts = #{qos := QoS}) when is_binary(Topic), ?is_subid(SubId), is_map(SubOpts) ->
     SubPid = self(),
     case ets:member(?SUBOPTION, {SubPid, Topic}) of
         false ->
             ok = emqx_broker_helper:register_sub(SubPid, SubId),
-            do_subscribe(Topic, SubPid, with_subid(SubId, SubOpts));
+            do_subscribe(Topic, SubPid, with_subid(SubId, SubOpts#{rc => QoS}));
         true -> ok
     end.
 
@@ -167,13 +167,14 @@ do_unsubscribe(Group, Topic, SubPid, _SubOpts) ->
 -spec(publish(emqx_types:message()) -> emqx_types:deliver_results()).
 publish(Msg) when is_record(Msg, message) ->
     _ = emqx_tracer:trace(publish, Msg),
-    case emqx_hooks:run('message.publish', [], Msg) of
-        {ok, Msg1 = #message{topic = Topic}} ->
+    Headers = Msg#message.headers,
+    case emqx_hooks:run_fold('message.publish', [], Msg#message{headers = Headers#{allow_publish => true}}) of
+        #message{headers = #{allow_publish := false}} ->
+            ?WARN("Publishing interrupted: ~s", [emqx_message:format(Msg)]),
+            [];
+        #message{topic = Topic} = Msg1 ->
             Delivery = route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1)),
-            Delivery#delivery.results;
-        {stop, _} ->
-            ?WARN("Stop publishing: ~s", [emqx_message:format(Msg)]),
-            []
+            Delivery#delivery.results
     end.
 
 %% Called internally
@@ -444,4 +445,3 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
-

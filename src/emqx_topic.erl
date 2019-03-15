@@ -217,6 +217,8 @@ parse(Topic = <<?SHARE, "/", Topic1/binary>>, Options) ->
                 _ -> error({invalid_topic, Topic})
             end
     end;
+parse(Topic, Options = #{qos := QoS}) ->
+    {Topic, Options#{rc => QoS}};
 parse(Topic, Options) ->
     {Topic, Options}.
 

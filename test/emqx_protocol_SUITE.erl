@@ -585,8 +585,9 @@ set_special_configs(emqx) ->
     application:set_env(emqx, plugins_loaded_file,
                         deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins")),
     application:set_env(emqx, acl_deny_action, disconnect),
-    application:set_env(emqx, acl_file,
-                        deps_path(emqx, "test/emqx_access_SUITE_data/acl_deny_action.conf"));
+    application:set_env(emqx, modules, [{emqx_mod_acl_internal, [
+                                            {acl_file, deps_path(emqx, "test/emqx_access_SUITE_data/acl_deny_action.conf")}
+                                            ]}]);
 set_special_configs(_App) ->
     ok.
 

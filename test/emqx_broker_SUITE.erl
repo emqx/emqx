@@ -72,7 +72,7 @@ publish(_) ->
     ok = emqx:subscribe(<<"test/+">>),
     timer:sleep(10),
     emqx:publish(Msg),
-    ?assert(receive {dispatch, <<"test/+">>, Msg} -> true after 5 -> false end).
+    ?assert(receive {dispatch, <<"test/+">>, #message{payload = <<"hello">>}} -> true after 5 -> false end).
 
 dispatch_with_no_sub(_) ->
     Msg = emqx_message:make(ct, <<"no_subscribers">>, <<"hello">>),
