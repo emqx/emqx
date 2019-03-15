@@ -378,20 +378,20 @@ process(?CONNECT_PACKET(
                                          conn_props   = ConnProps,
                                          is_bridge    = IsBridge,
                                          connected_at = os:timestamp()}),
-
+    Credentials = credentials(PState1, #{password => Password}),
     connack(
       case check_connect(ConnPkt, PState1) of
-          {ok, PState2} ->
-              case emqx_access_control:authenticate(credentials(PState2, #{password => Password})) of
-                  {ok, Credentials} ->
-                      PState3 = maybe_assign_client_id(PState2),
+          ok ->
+              case emqx_access_control:authenticate(Credentials) of
+                  {ok, Credentials0} ->
+                      PState3 = maybe_assign_client_id(PState1),
                       emqx_logger:set_metadata_client_id(PState3#pstate.client_id),
                       %% Open session
                       SessAttrs = #{will_msg => make_will_msg(ConnPkt)},
                       case try_open_session(SessAttrs, PState3) of
                           {ok, SPid, SP} ->
                               PState4 = PState3#pstate{session = SPid, connected = true,
-                                                       credentials = Credentials},
+                                                       credentials = Credentials0},
                               ok = emqx_cm:register_connection(client_id(PState4)),
                               true = emqx_cm:set_conn_attrs(client_id(PState4), attrs(PState4)),
                               %% Start keepalive
@@ -400,11 +400,11 @@ process(?CONNECT_PACKET(
                               {?RC_SUCCESS, SP, PState4};
                           {error, Error} ->
                               ?LOG(error, "Failed to open session: ~p", [Error]),
-                              {?RC_UNSPECIFIED_ERROR, PState1}
+                              {?RC_UNSPECIFIED_ERROR, PState1#pstate{credentials = Credentials0}}
                       end;
                   {error, Reason} ->
                       ?LOG(error, "Client ~s (Username: '~s') login failed for ~p", [NewClientId, Username, Reason]),
-                      {emqx_reason_codes:connack_error(Reason), PState1}
+                      {emqx_reason_codes:connack_error(Reason), PState1#pstate{credentials = Credentials}}
               end;
           {error, ReasonCode} ->
               {ReasonCode, PState1}
@@ -412,8 +412,8 @@ process(?CONNECT_PACKET(
 
 process(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PState) ->
     case check_publish(Packet, PState) of
-        {ok, PState1} ->
-            do_publish(Packet, PState1);
+        ok ->
+            do_publish(Packet, PState);
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos0 message to ~s for ~s",
                  [Topic, emqx_reason_codes:text(ReasonCode)]),
@@ -422,8 +422,8 @@ process(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PState) ->
 
 process(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PState) ->
     case check_publish(Packet, PState) of
-        {ok, PState1} ->
-            do_publish(Packet, PState1);
+        ok ->
+            do_publish(Packet, PState);
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos1 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
@@ -436,8 +436,8 @@ process(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PState) ->
 
 process(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PState) ->
     case check_publish(Packet, PState) of
-        {ok, PState1} ->
-            do_publish(Packet, PState1);
+        ok ->
+            do_publish(Packet, PState);
         {error, ReasonCode} ->
             ?LOG(warning, "Cannot publish qos2 message to ~s for ~s",
                  [Topic, emqx_reason_codes:text(ReasonCode)]),
@@ -847,14 +847,12 @@ check_pub_acl(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
         deny -> {error, ?RC_NOT_AUTHORIZED}
     end.
 
-run_check_steps([], _Packet, PState) ->
-    {ok, PState};
+run_check_steps([], _Packet, _PState) ->
+    ok;
 run_check_steps([Check|Steps], Packet, PState) ->
     case Check(Packet, PState) of
         ok ->
             run_check_steps(Steps, Packet, PState);
-        {ok, PState1} ->
-            run_check_steps(Steps, Packet, PState1);
         Error = {error, _RC} ->
             Error
     end.
