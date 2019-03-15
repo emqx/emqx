@@ -1672,7 +1672,7 @@ end}.
                (Opt, Val, Opts) ->
                   case IsSsl(Opt) of
                       true ->
-                          SslOpts = Parse(Opt, Val) ++ [proplists:get_value(ssl_opts, Opts, [])],
+                          SslOpts = Parse(Opt, Val) ++ proplists:get_value(ssl_opts, Opts, []),
                           lists:ukeymerge(1, [{ssl_opts, SslOpts}], lists:usort(Opts));
                       false ->
                           [{Opt, Val}|Opts]
