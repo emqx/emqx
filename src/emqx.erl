@@ -159,6 +159,7 @@ shutdown() ->
 
 shutdown(Reason) ->
     emqx_logger:error("emqx shutdown for ~s", [Reason]),
+    emqx_alarm_handler:unload(),
     emqx_plugins:unload(),
     lists:foreach(fun application:stop/1, [emqx, ekka, cowboy, ranch, esockd, gproc]).
 
