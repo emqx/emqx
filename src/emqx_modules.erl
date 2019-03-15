@@ -18,6 +18,7 @@
 
 -spec(load() -> ok).
 load() ->
+    ok = emqx_mod_acl_internal:load([]),
     lists:foreach(
       fun({Mod, Env}) ->
         ok = Mod:load(Env),
@@ -26,6 +27,7 @@ load() ->
 
 -spec(unload() -> ok).
 unload() ->
+    ok = emqx_mod_acl_internal:unload([]),
     lists:foreach(
       fun({Mod, Env}) ->
           Mod:unload(Env) end,

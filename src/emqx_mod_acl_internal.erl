@@ -23,33 +23,31 @@
 
 -export([all_rules/0]).
 
--export([check_acl/4, reload_acl/1, description/0]).
+-export([check_acl/5, reload_acl/0]).
 
 -define(ACL_RULE_TAB, emqx_acl_rule).
 
--type(state() :: #{acl_file := string()}).
+-define(FUNC(M, F, A), {M, F, A}).
+
+-type(acl_rules() :: #{publish => [emqx_access_rule:rule()],
+                       subscribe => [emqx_access_rule:rule()]}).
 
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
 
-load(Env) ->
-    _ = emqx_tables:new(?ACL_RULE_TAB, [set, public, {read_concurrency, true}]),
-    File = proplists:get_value(acl_file, Env),
-    ok = load_rules_from_file(File),
-    emqx_hooks:add('client.check_acl', fun ?MODULE:check_acl/4, -1).
+load(_Env) ->
+    Rules = load_rules_from_file(acl_file()),
+    emqx_hooks:add('client.check_acl', ?FUNC(?MODULE, check_acl, [Rules]),  -1).
 
 unload(_Env) ->
-    emqx_tables:delete(?ACL_RULE_TAB),
-    emqx_hooks:del('client.check_acl', fun ?MODULE:check_acl/4).
+    Rules = load_rules_from_file(acl_file()),
+    emqx_hooks:del('client.check_acl', ?FUNC(?MODULE, check_acl, [Rules])).
 
 %% @doc Read all rules
 -spec(all_rules() -> list(emqx_access_rule:rule())).
 all_rules() ->
-    case ets:lookup(?ACL_RULE_TAB, all_rules) of
-        [] -> [];
-        [{_, Rules}] -> Rules
-    end.
+    load_rules_from_file(acl_file()).
 
 %%------------------------------------------------------------------------------
 %% ACL callbacks
@@ -59,15 +57,11 @@ load_rules_from_file(AclFile) ->
     case file:consult(AclFile) of
         {ok, Terms} ->
             Rules = [emqx_access_rule:compile(Term) || Term <- Terms],
-            lists:foreach(fun(PubSub) ->
-                ets:insert(?ACL_RULE_TAB, {PubSub,
-                    lists:filter(fun(Rule) -> filter(PubSub, Rule) end, Rules)})
-                end, [publish, subscribe]),
-            ets:insert(?ACL_RULE_TAB, {all_rules, Terms}),
-            ok;
+            #{publish => lists:filter(fun(Rule) -> filter(publish, Rule) end, Rules),
+              subscribe => lists:filter(fun(Rule) -> filter(subscribe, Rule) end, Rules)};
         {error, Reason} ->
-            emqx_logger:error("[ACL_INTERNAL] Failed to read ~s: ~p", [AclFile, Reason]),
-            {error, Reason}
+            ?LOG(error, "[ACL_INTERNAL] Failed to read ~s: ~p", [AclFile, Reason]),
+            []
     end.
 
 filter(_PubSub, {allow, all}) ->
@@ -84,19 +78,18 @@ filter(_PubSub, {_AllowDeny, _Who, _, _Topics}) ->
     false.
 
 %% @doc Check ACL
--spec(check_acl(emqx_types:credentials(), emqx_types:pubsub(), emqx_topic:topic(), AclResult::allow | deny) -> {ok, allow} | {ok, deny} | ok).
-check_acl(Credentials, PubSub, Topic, _AclResult) ->
-    case match(Credentials, Topic, lookup(PubSub)) of
+-spec(check_acl(emqx_types:credentials(), emqx_types:pubsub(), emqx_topic:topic(),
+                emqx_access_rule:acl_result(), acl_rules())
+      -> {ok, allow} | {ok, deny} | ok).
+check_acl(Credentials, PubSub, Topic, _AclResult, Rules) ->
+    case match(Credentials, Topic, lookup(PubSub, Rules)) of
         {matched, allow} -> {ok, allow};
         {matched, deny}  -> {ok, deny};
         nomatch          -> ok
     end.
 
-lookup(PubSub) ->
-    case ets:lookup(?ACL_RULE_TAB, PubSub) of
-        [] -> [];
-        [{PubSub, Rules}] -> Rules
-    end.
+lookup(PubSub, Rules) ->
+    maps:get(PubSub, Rules, []).
 
 match(_Credentials, _Topic, []) ->
     nomatch;
@@ -108,11 +101,11 @@ match(Credentials, Topic, [Rule|Rules]) ->
             {matched, AllowDeny}
     end.
 
--spec(reload_acl(state()) -> ok | {error, term()}).
-reload_acl(#{acl_file := AclFile}) ->
-    try load_rules_from_file(AclFile) of
+-spec(reload_acl() -> ok | {error, term()}).
+reload_acl() ->
+    try load_rules_from_file(acl_file()) of
         ok ->
-            emqx_logger:info("Reload acl_file ~s successfully", [AclFile]),
+            emqx_logger:info("Reload acl_file ~s successfully", [acl_file()]),
             ok;
         {error, Error} ->
             {error, Error}
@@ -122,6 +115,5 @@ reload_acl(#{acl_file := AclFile}) ->
             {error, Reason}
     end.
 
--spec(description() -> string()).
-description() ->
-    "Internal ACL with etc/acl.conf".
+acl_file() ->
+    emqx_config:get_env(acl_file).

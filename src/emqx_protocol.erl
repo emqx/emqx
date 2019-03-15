@@ -57,7 +57,6 @@
           will_msg,
           keepalive,
           mountpoint,
-          is_super,
           is_bridge,
           enable_ban,
           enable_acl,
@@ -68,7 +67,8 @@
           connected_at,
           ignore_loop,
           topic_alias_maximum,
-          conn_mod
+          conn_mod,
+          credentials
         }).
 
 -opaque(state() :: #pstate{}).
@@ -97,7 +97,6 @@ init(SocketOpts = #{peername := Peername, peercert := Peercert, sendfun := SendF
             is_assigned         = false,
             conn_pid            = self(),
             username            = init_username(Peercert, Options),
-            is_super            = false,
             clean_start         = false,
             topic_aliases       = #{},
             packet_size         = emqx_zone:get_env(Zone, max_packet_size),
@@ -111,7 +110,8 @@ init(SocketOpts = #{peername := Peername, peercert := Peercert, sendfun := SendF
             connected           = false,
             ignore_loop         = emqx_config:get_env(mqtt_ignore_loop_deliver, false),
             topic_alias_maximum = #{to_client => 0, from_client => 0},
-            conn_mod            = maps:get(conn_mod, SocketOpts, undefined)}.
+            conn_mod            = maps:get(conn_mod, SocketOpts, undefined),
+            credentials         = #{}}.
 
 init_username(Peercert, Options) ->
     case proplists:get_value(peer_cert_as_username, Options) of
@@ -153,10 +153,10 @@ attrs(#pstate{zone         = Zone,
               proto_name   = ProtoName,
               keepalive    = Keepalive,
               mountpoint   = Mountpoint,
-              is_super     = IsSuper,
               is_bridge    = IsBridge,
               connected_at = ConnectedAt,
-              conn_mod     = ConnMod}) ->
+              conn_mod     = ConnMod,
+              credentials  = Credentials}) ->
     [{zone, Zone},
      {client_id, ClientId},
      {username, Username},
@@ -167,10 +167,11 @@ attrs(#pstate{zone         = Zone,
      {clean_start, CleanStart},
      {keepalive, Keepalive},
      {mountpoint, Mountpoint},
-     {is_super, IsSuper},
      {is_bridge, IsBridge},
      {connected_at, ConnectedAt},
-     {conn_mod, ConnMod}].
+     {conn_mod, ConnMod},
+     {credentials, Credentials}
+     ].
 
 attr(max_inflight, #pstate{proto_ver = ?MQTT_PROTO_V5, conn_props = ConnProps}) ->
     get_property('Receive-Maximum', ConnProps, 65535);
@@ -202,22 +203,17 @@ client_id(#pstate{client_id = ClientId}) ->
 
 credentials(PState) ->
     credentials(PState, #{}).
-credentials(PState, #{} = ExtendedCred) ->
-    maps:merge(basic_credentials(PState), ExtendedCred).
 
-basic_credentials(#pstate{zone       = Zone,
-                          client_id  = ClientId,
-                          username   = Username,
-                          peername   = Peername}) ->
-    #{zone      => Zone,
-      client_id => ClientId,
-      username  => Username,
-      peername  => Peername}.
-
-is_superuser(#{is_superuser := IsSuper}) when is_boolean(IsSuper) ->
-    IsSuper;
-is_superuser(#{}) ->
-    false.
+credentials(#pstate{credentials = Credentials}, Ext) when map_size(Credentials) =/= 0 ->
+    maps:merge(Credentials, Ext);
+credentials(#pstate{zone       = Zone,
+                    client_id  = ClientId,
+                    username   = Username,
+                    peername   = Peername}, Ext) ->
+    maps:merge(#{zone      => Zone,
+                 client_id => ClientId,
+                 username  => Username,
+                 peername  => Peername}, Ext).
 
 stats(#pstate{recv_stats = #{pkt := RecvPkt, msg := RecvMsg},
               send_stats = #{pkt := SendPkt, msg := SendMsg}}) ->
@@ -386,18 +382,16 @@ process(?CONNECT_PACKET(
     connack(
       case check_connect(ConnPkt, PState1) of
           {ok, PState2} ->
-              Credentials = credentials(PState2, #{auth_result => init_auth_result(PState2),
-                                                   password => Password}),
-              case emqx_hooks:run_fold('client.authenticate', [], Credentials) of
-                  #{auth_result := success} = NewCredentials ->
-                      %% Maybe assign a clientId
-                      PState3 = maybe_assign_client_id(PState2#pstate{is_super = is_superuser(NewCredentials)}),
+              case emqx_access_control:authenticate(credentials(PState2, #{password => Password})) of
+                  {ok, Credentials} ->
+                      PState3 = maybe_assign_client_id(PState2),
                       emqx_logger:set_metadata_client_id(PState3#pstate.client_id),
                       %% Open session
                       SessAttrs = #{will_msg => make_will_msg(ConnPkt)},
                       case try_open_session(SessAttrs, PState3) of
                           {ok, SPid, SP} ->
-                              PState4 = PState3#pstate{session = SPid, connected = true},
+                              PState4 = PState3#pstate{session = SPid, connected = true,
+                                                       credentials = Credentials},
                               ok = emqx_cm:register_connection(client_id(PState4)),
                               true = emqx_cm:set_conn_attrs(client_id(PState4), attrs(PState4)),
                               %% Start keepalive
@@ -408,8 +402,7 @@ process(?CONNECT_PACKET(
                               ?LOG(error, "Failed to open session: ~p", [Error]),
                               {?RC_UNSPECIFIED_ERROR, PState1}
                       end;
-                  NewCredentials ->
-                      Reason = maps:get(error_reason, NewCredentials, unknown_error),
+                  {error, Reason} ->
                       ?LOG(error, "Client ~s (Username: '~s') login failed for ~p", [NewClientId, Username, Reason]),
                       {emqx_reason_codes:connack_error(Reason), PState1}
               end;
@@ -829,32 +822,11 @@ check_will_topic(#mqtt_packet_connect{will_topic = WillTopic} = ConnPkt, PState)
 check_will_acl(_ConnPkt, #pstate{enable_acl = EnableAcl}) when not EnableAcl ->
     ok;
 check_will_acl(#mqtt_packet_connect{will_topic = WillTopic}, PState) ->
-    case check_acl(publish, WillTopic, credentials(PState)) of
+    case emqx_access_control:check_acl(credentials(PState), publish, WillTopic) of
         allow -> ok;
         deny ->
             ?LOG(warning, "Cannot publish will message to ~p for acl denied", [WillTopic]),
             {error, ?RC_NOT_AUTHORIZED}
-    end.
-
-check_acl(AccessType, Topic, Credentials) ->
-    case emqx_acl_cache:is_enabled() of
-        false ->
-            do_check_acl(AccessType, Topic, Credentials);
-        true ->
-            case emqx_acl_cache:get_acl_cache(AccessType, Topic) of
-                not_found ->
-                    AclResult = do_check_acl(AccessType, Topic, Credentials),
-                    emqx_acl_cache:put_acl_cache(AccessType, Topic, AclResult),
-                    AclResult;
-                AclResult ->
-                    AclResult
-            end
-    end.
-
-do_check_acl(AccessType, Topic, #{zone := Zone} = Credentials) ->
-    case emqx_hooks:run_fold('client.check_acl', [Credentials, AccessType, Topic], emqx_zone:get_env(Zone, acl_nomatch, deny)) of
-        allow -> allow;
-        _ -> deny
     end.
 
 check_publish(Packet, PState) ->
@@ -866,12 +838,11 @@ check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos = QoS, retain = Ret
                #pstate{zone = Zone}) ->
     emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain}).
 
-check_pub_acl(_Packet, #pstate{is_super = IsSuper, enable_acl = EnableAcl})
-    when IsSuper orelse (not EnableAcl) ->
+check_pub_acl(_Packet, #pstate{credentials = #{is_super := IsSuper}, enable_acl = EnableAcl})
+        when IsSuper orelse (not EnableAcl) ->
     ok;
-
 check_pub_acl(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}}, PState) ->
-    case check_acl(publish, Topic, credentials(PState)) of
+    case emqx_access_control:check_acl(credentials(PState), publish, Topic) of
         allow -> ok;
         deny -> {error, ?RC_NOT_AUTHORIZED}
     end.
@@ -896,15 +867,13 @@ check_subscribe(TopicFilters, PState = #pstate{zone = Zone}) ->
             {error, TopicFilter1}
     end.
 
-check_sub_acl(TopicFilters, #pstate{is_super = IsSuper, enable_acl = EnableAcl})
-    when IsSuper orelse (not EnableAcl) ->
+check_sub_acl(TopicFilters, #pstate{credentials = #{is_super := IsSuper}, enable_acl = EnableAcl})
+        when IsSuper orelse (not EnableAcl) ->
     {ok, TopicFilters};
-
 check_sub_acl(TopicFilters, PState) ->
-    Credentials = credentials(PState),
     lists:foldr(
       fun({Topic, SubOpts}, {Ok, Acc}) ->
-              case check_acl(subscribe, Topic, Credentials) of
+              case emqx_access_control:check_acl(credentials(PState), publish, Topic) of
                   allow -> {Ok, [{Topic, SubOpts}|Acc]};
                   deny  ->
                       {error, [{Topic, SubOpts#{rc := ?RC_NOT_AUTHORIZED}}|Acc]}
@@ -1010,9 +979,3 @@ reason_codes_compat(unsuback, _ReasonCodes, _ProtoVer) ->
     undefined;
 reason_codes_compat(PktType, ReasonCodes, _ProtoVer) ->
     [emqx_reason_codes:compat(PktType, RC) || RC <- ReasonCodes].
-
-init_auth_result(#pstate{zone = Zone}) ->
-    case emqx_zone:get_env(Zone, allow_anonymous, false) of
-        true -> success;
-        false -> not_authorized
-    end.

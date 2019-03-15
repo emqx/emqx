@@ -94,10 +94,8 @@ local_path(Components) ->
     local_path(Components, ?MODULE).
 
 set_app_env({App, Lists}) ->
-    lists:foreach(fun({modules, _Var}) ->
-                     application:set_env(App, modules, [{emqx_mod_acl_internal, [
-                                            {acl_file, local_path(["test", "emqx_SUITE_data","acl.conf"])}
-                                            ]}]);
+    lists:foreach(fun({acl_file, _Var}) ->
+                      application:set_env(App, acl_file, local_path(["etc", "acl.conf"]));
                      ({plugins_loaded_file, _Var}) ->
                       application:set_env(App, plugins_loaded_file, local_path(["test", "emqx_SUITE_data","loaded_plugins"]));
                      ({Par, Var}) ->

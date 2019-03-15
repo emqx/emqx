@@ -546,14 +546,14 @@ acl_deny_do_disconnect(publish, QoS, Topic) ->
     {ok, _} = emqx_client:connect(Client),
     emqx_client:publish(Client, Topic, <<"test">>, QoS),
     receive
+        {disconnected, shutdown, tcp_closed} ->
+            ct:pal(info, "[OK] after publish, client got disconnected: tcp_closed", []);
         {'EXIT', Client, {shutdown,tcp_closed}} ->
             ct:pal(info, "[OK] after publish, received exit: {shutdown,tcp_closed}"),
             false = is_process_alive(Client);
         {'EXIT', Client, Reason} ->
-            ct:pal(info, "[OK] after publish, client got disconnected: ~p", [Reason]);
-        {disconnected,shutdown,tcp_closed} ->
-            ct:pal(info, "[OK] after publish, client got disconnected: ~p", [tcp_closed])
-    after 2000 -> ct:fail({timeout, wait_tcp_closed})
+            ct:pal(info, "[OK] after publish, client got disconnected: ~p", [Reason])
+    after 1000 -> ct:fail({timeout, wait_tcp_closed})
     end;
 
 acl_deny_do_disconnect(subscribe, QoS, Topic) ->
@@ -562,6 +562,8 @@ acl_deny_do_disconnect(subscribe, QoS, Topic) ->
     {ok, _} = emqx_client:connect(Client),
     {ok, _, [128]} = emqx_client:subscribe(Client, Topic, QoS),
     receive
+        {disconnected, shutdown, tcp_closed} ->
+            ct:pal(info, "[OK] after subscribe, client got disconnected: tcp_closed", []);
         {'EXIT', Client, {shutdown,tcp_closed}} ->
             ct:pal(info, "[OK] after subscribe, received exit: {shutdown,tcp_closed}"),
             false = is_process_alive(Client);
@@ -587,9 +589,8 @@ set_special_configs(emqx) ->
     application:set_env(emqx, plugins_loaded_file,
                         deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins")),
     application:set_env(emqx, acl_deny_action, disconnect),
-    application:set_env(emqx, modules, [{emqx_mod_acl_internal, [
-                                            {acl_file, deps_path(emqx, "test/emqx_access_SUITE_data/acl_deny_action.conf")}
-                                            ]}]);
+    application:set_env(emqx, acl_file,
+                        deps_path(emqx, "test/emqx_access_SUITE_data/acl_deny_action.conf"));
 set_special_configs(_App) ->
     ok.
 
