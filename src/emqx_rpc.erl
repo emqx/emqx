@@ -21,10 +21,17 @@
 -define(RPC, gen_rpc).
 
 call(Node, Mod, Fun, Args) ->
-    ?RPC:call(Node, Mod, Fun, Args).
+    filter_result(?RPC:call(Node, Mod, Fun, Args)).
 
 multicall(Nodes, Mod, Fun, Args) ->
-    ?RPC:multicall(Nodes, Mod, Fun, Args).
+    filter_result(?RPC:multicall(Nodes, Mod, Fun, Args)).
 
 cast(Node, Mod, Fun, Args) ->
-    ?RPC:cast(Node, Mod, Fun, Args).
+    filter_result(?RPC:cast(Node, Mod, Fun, Args)).
+
+filter_result(Delivery) ->
+    case Delivery of 
+        {badrpc, Reason} -> {badrpc, Reason};
+        {badtcp, Reason} -> {badrpc, Reason};
+        Delivery1        -> Delivery1
+    end.
