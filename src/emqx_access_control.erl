@@ -30,7 +30,7 @@ authenticate(Credentials) ->
         #{result := success} = NewCredentials ->
             {ok, NewCredentials};
         NewCredentials ->
-            {error, maps:get_value(result, NewCredentials, unknown_error)}
+            {error, maps:get(result, NewCredentials, unknown_error)}
     end.
 
 %% @doc Check ACL
