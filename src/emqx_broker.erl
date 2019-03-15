@@ -229,11 +229,8 @@ aggre(Routes) ->
 forward(Node, To, Delivery) ->
     %% rpc:call to ensure the delivery, but the latency:(
     case emqx_rpc:call(Node, ?BROKER, dispatch, [To, Delivery]) of
-        {badrpc, Reason} ->
-            ?ERROR("[Broker] Failed to forward msg to ~s: ~p", [Node, Reason]),
-            Delivery;
-        {badtcp, Reason} ->
-            ?ERROR("[Broker] Failed to forward msg to ~s: ~p", [Node, Reason]),
+        {Error, Reason} ->
+            ?ERROR("[Broker] Failed to forward msg to ~s: ~p ~p", [Node, Error, Reason]),
             Delivery;
         Delivery1 -> Delivery1
     end.
