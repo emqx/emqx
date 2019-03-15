@@ -24,7 +24,7 @@ call(Node, Mod, Fun, Args) ->
     filter_result(?RPC:call(Node, Mod, Fun, Args)).
 
 multicall(Nodes, Mod, Fun, Args) ->
-    filter_result(?RPC:multicall(Nodes, Mod, Fun, Args)).
+    filter_results(?RPC:multicall(Nodes, Mod, Fun, Args)).
 
 cast(Node, Mod, Fun, Args) ->
     filter_result(?RPC:cast(Node, Mod, Fun, Args)).
@@ -35,3 +35,16 @@ filter_result(Delivery) ->
         {badtcp, Reason} -> {badrpc, Reason};
         Delivery1        -> Delivery1
     end.
+
+filter_results(Deliverys) ->
+    filter_results(Delivery, []).
+
+filter_results([], Acc) ->
+    Acc;
+filter_results([Delivery | WaitDelivery], Acc) ->
+    case Delivery of 
+        {badrpc, Reason} -> [{badrpc, Reason} | Acc], filter_results(WaitDelivery, Acc);
+        {badtcp, Reason} -> [{badrpc, Reason} | Acc], filter_results(WaitDelivery, Acc);
+        Delivery1        -> Delivery1
+    end.
+
