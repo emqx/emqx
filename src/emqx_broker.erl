@@ -232,6 +232,9 @@ forward(Node, To, Delivery) ->
         {badrpc, Reason} ->
             ?ERROR("[Broker] Failed to forward msg to ~s: ~p", [Node, Reason]),
             Delivery;
+        {badtcp, Reason} ->
+            ?ERROR("[Broker] Failed to forward msg to ~s: ~p", [Node, Reason]),
+            Delivery;
         Delivery1 -> Delivery1
     end.
 
