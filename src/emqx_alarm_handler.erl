@@ -32,6 +32,7 @@
          terminate/2]).
 
 -export([load/0,
+         unload/0,
          get_alarms/0]).
 
 -record(common_alarm, {id, desc}).
@@ -67,6 +68,10 @@ mnesia(copy) ->
 
 load() ->
     gen_event:swap_handler(alarm_handler, {alarm_handler, swap}, {?MODULE, []}).
+
+%% on the way shutting down, give it back to OTP
+unload() ->
+    gen_event:swap_handler(alarm_handler, {?MODULE, swap}, {alarm_handler, []}).
 
 get_alarms() ->
     gen_event:call(alarm_handler, ?MODULE, get_alarms).
