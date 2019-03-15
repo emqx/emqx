@@ -37,7 +37,7 @@ filter_result(Delivery) ->
     end.
 
 filter_results(Deliverys) ->
-    filter_results(Delivery, []).
+    filter_results(Deliverys, []).
 
 filter_results([], Acc) ->
     Acc;
