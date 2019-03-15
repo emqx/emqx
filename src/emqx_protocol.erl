@@ -541,11 +541,11 @@ process(?DISCONNECT_PACKET(_), PState) ->
 %%------------------------------------------------------------------------------
 
 connack({?RC_SUCCESS, SP, PState}) ->
-    emqx_hooks:run('client.connected', [credentials(PState), ?RC_SUCCESS, attrs(PState)]),
+    ok = emqx_hooks:run('client.connected', [credentials(PState), ?RC_SUCCESS, attrs(PState)]),
     deliver({connack, ?RC_SUCCESS, sp(SP)}, update_mountpoint(PState));
 
 connack({ReasonCode, PState = #pstate{proto_ver = ProtoVer}}) ->
-    emqx_hooks:run('client.connected', [credentials(PState), ReasonCode, attrs(PState)]),
+    ok = emqx_hooks:run('client.connected', [credentials(PState), ReasonCode, attrs(PState)]),
     [ReasonCode1] = reason_codes_compat(connack, [ReasonCode], ProtoVer),
     _ = deliver({connack, ReasonCode1}, PState),
     {error, emqx_reason_codes:name(ReasonCode1, ProtoVer), PState}.
@@ -654,8 +654,8 @@ deliver({connack, ReasonCode, SP}, PState) ->
     send(?CONNACK_PACKET(ReasonCode, SP), PState);
 
 deliver({publish, PacketId, Msg}, PState = #pstate{mountpoint = MountPoint}) ->
-    emqx_hooks:run_fold('message.deliver', [credentials(PState)], Msg),
-    Msg1 = emqx_message:update_expiry(Msg),
+    Msg0 = emqx_hooks:run_fold('message.deliver', [credentials(PState)], Msg),
+    Msg1 = emqx_message:update_expiry(Msg0),
     Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
     send(emqx_packet:from_message(PacketId, emqx_message:remove_topic_alias(Msg2)), PState);
 
@@ -907,7 +907,7 @@ terminate(discard, _PState) ->
     ok;
 terminate(Reason, PState) ->
     ?LOG(info, "Shutdown for ~p", [Reason]),
-    emqx_hooks:run('client.disconnected', [credentials(PState), Reason]).
+    ok = emqx_hooks:run('client.disconnected', [credentials(PState), Reason]).
 
 start_keepalive(0, _PState) ->
     ignore;
