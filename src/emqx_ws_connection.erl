@@ -143,12 +143,13 @@ websocket_init(#state{request = Req, options = Options}) ->
                 idle_timeout = IdleTimout}}.
 
 send_fun(WsPid) ->
-    fun(Data) ->
+    fun(Packet, Options) ->
+        Data = emqx_frame:serialize(Packet, Options),
         BinSize = iolist_size(Data),
         emqx_pd:update_counter(send_cnt, 1),
         emqx_pd:update_counter(send_oct, BinSize),
         WsPid ! {binary, iolist_to_binary(Data)},
-        ok
+        {ok, Data}
     end.
 
 stat_fun() ->
@@ -305,4 +306,3 @@ shutdown(Reason, State) ->
 
 wsock_stats() ->
     [{Key, emqx_pd:get_counter(Key)} || Key <- ?SOCK_STATS].
-

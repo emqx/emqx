@@ -683,9 +683,8 @@ deliver({disconnect, _ReasonCode}, PState) ->
 
 -spec(send(emqx_mqtt_types:packet(), state()) -> {ok, state()} | {error, term()}).
 send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = Send}) ->
-    Data = emqx_frame:serialize(Packet, #{version => Ver}),
-    case Send(Data) of
-        ok ->
+    case Send(Packet, #{version => Ver}) of
+        {ok, Data} ->
             trace(send, Packet),
             emqx_metrics:sent(Packet),
             emqx_metrics:trans(inc, 'bytes/sent', iolist_size(Data)),

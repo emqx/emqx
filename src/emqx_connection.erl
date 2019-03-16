@@ -141,7 +141,15 @@ init({Transport, RawSocket, Options}) ->
     ActiveN = proplists:get_value(active_n, Options, ?ACTIVE_N),
     EnableStats = emqx_zone:get_env(Zone, enable_stats, true),
     IdleTimout = emqx_zone:get_env(Zone, idle_timeout, 30000),
-    SendFun = fun(Data) -> Transport:async_send(Socket, Data) end,
+    SendFun = fun(Packet, SeriaOpts) ->
+                      Data = emqx_frame:serialize(Packet, SeriaOpts),
+                      case Transport:async_send(Socket, Data) of
+                          ok ->
+                              {ok, Data};
+                          {error, Reason} ->
+                              {error, Reason}
+                      end
+              end,
     ProtoState = emqx_protocol:init(#{peername => Peername,
                                       sockname => Sockname,
                                       peercert => Peercert,
@@ -484,4 +492,3 @@ shutdown(Reason, State) ->
 
 stop(Reason, State) ->
     {stop, Reason, State}.
-
