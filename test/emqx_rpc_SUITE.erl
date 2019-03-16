@@ -12,27 +12,25 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
-%% @doc wrap gen_rpc?
--module(emqx_rpc).
+-module(emqx_rpc_SUITE).
 
--export([call/4, cast/4]).
--export([multicall/4]).
+-include("emqx.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
--define(RPC, gen_rpc).
+-compile(export_all).
+-compile(nowarn_export_all).
+-define(MASTER, 'emqxct@127.0.0.1').
 
-call(Node, Mod, Fun, Args) ->
-    filter_result(?RPC:call(Node, Mod, Fun, Args)).
+all() -> [t_rpc].
 
-multicall(Nodes, Mod, Fun, Args) ->
-    filter_result(?RPC:multicall(Nodes, Mod, Fun, Args)).
+init_per_suite(Config) ->
+    emqx_ct_broker_helpers:run_setup_steps(),
+    Config.
 
-cast(Node, Mod, Fun, Args) ->
-    filter_result(?RPC:cast(Node, Mod, Fun, Args)).
+end_per_suite(_Config) ->
+    emqx_ct_broker_helpers:run_teardown_steps().
 
-filter_result(Delivery) ->
-    case Delivery of 
-        {badrpc, Reason} -> {badrpc, Reason};
-        {badtcp, Reason} -> {badrpc, Reason};
-        Delivery1 -> Delivery1
-    end.
-
+t_rpc(_) ->
+    60000 = emqx_rpc:call(?MASTER, timer, seconds, [60]),
+    {badrpc, _} = emqx_rpc:call(?MASTER, os, test, []),
+    {_, []} = emqx_rpc:multicall([?MASTER, ?MASTER], os, timestamp, []).
