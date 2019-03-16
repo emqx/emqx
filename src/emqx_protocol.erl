@@ -201,19 +201,16 @@ caps(#pstate{zone = Zone}) ->
 client_id(#pstate{client_id = ClientId}) ->
     ClientId.
 
-credentials(PState) ->
-    credentials(PState, #{}).
-
-credentials(#pstate{credentials = Credentials}, Ext) when map_size(Credentials) =/= 0 ->
-    maps:merge(Credentials, Ext);
+credentials(#pstate{credentials = Credentials}) when map_size(Credentials) =/= 0 ->
+    Credentials;
 credentials(#pstate{zone       = Zone,
                     client_id  = ClientId,
                     username   = Username,
-                    peername   = Peername}, Ext) ->
-    maps:merge(#{zone      => Zone,
-                 client_id => ClientId,
-                 username  => Username,
-                 peername  => Peername}, Ext).
+                    peername   = Peername}) ->
+    #{zone      => Zone,
+      client_id => ClientId,
+      username  => Username,
+      peername  => Peername}.
 
 stats(#pstate{recv_stats = #{pkt := RecvPkt, msg := RecvMsg},
               send_stats = #{pkt := SendPkt, msg := SendMsg}}) ->
@@ -368,8 +365,7 @@ process(?CONNECT_PACKET(
 
     %% TODO: Mountpoint...
     %% Msg -> emqx_mountpoint:mount(MountPoint, Msg)
-
-    PState1 = set_username(Username,
+    PState0 = set_username(Username,
                            PState#pstate{client_id    = NewClientId,
                                          proto_ver    = ProtoVer,
                                          proto_name   = ProtoName,
@@ -378,11 +374,12 @@ process(?CONNECT_PACKET(
                                          conn_props   = ConnProps,
                                          is_bridge    = IsBridge,
                                          connected_at = os:timestamp()}),
-    Credentials = credentials(PState1, #{password => Password}),
+    Credentials = credentials(PState0),
+    PState1 = PState0#pstate{credentials = Credentials},
     connack(
       case check_connect(ConnPkt, PState1) of
           ok ->
-              case emqx_access_control:authenticate(Credentials) of
+              case emqx_access_control:authenticate(Credentials#{password => Password}) of
                   {ok, Credentials0} ->
                       PState3 = maybe_assign_client_id(PState1),
                       emqx_logger:set_metadata_client_id(PState3#pstate.client_id),
@@ -391,7 +388,7 @@ process(?CONNECT_PACKET(
                       case try_open_session(SessAttrs, PState3) of
                           {ok, SPid, SP} ->
                               PState4 = PState3#pstate{session = SPid, connected = true,
-                                                       credentials = Credentials0},
+                                                       credentials = maps:remove(password, Credentials0)},
                               ok = emqx_cm:register_connection(client_id(PState4)),
                               true = emqx_cm:set_conn_attrs(client_id(PState4), attrs(PState4)),
                               %% Start keepalive
