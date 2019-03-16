@@ -33,7 +33,6 @@ filter_result(Delivery) ->
     case Delivery of 
         {badrpc, Reason} -> {badrpc, Reason};
         {badtcp, Reason} -> {badrpc, Reason};
-        {RealResults, RealBadNodes} -> {RealResults, RealBadNodes};
         Delivery1 -> Delivery1
     end.
 
