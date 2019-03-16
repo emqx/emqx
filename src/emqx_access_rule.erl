@@ -16,6 +16,8 @@
 
 -include("emqx.hrl").
 
+-type(acl_result() :: allow | deny).
+
 -type(who() :: all | binary() |
                {client, binary()} |
                {user, binary()} |
@@ -23,10 +25,8 @@
 
 -type(access() :: subscribe | publish | pubsub).
 
--type(rule() :: {allow, all} |
-                {allow, who(), access(), list(emqx_topic:topic())} |
-                {deny, all} |
-                {deny, who(), access(), list(emqx_topic:topic())}).
+-type(rule() :: {acl_result(), all} |
+                {acl_result(), who(), access(), list(emqx_topic:topic())}).
 
 -export_type([rule/0]).
 

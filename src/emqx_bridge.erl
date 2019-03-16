@@ -345,10 +345,10 @@ connected(internal, maybe_send, State) ->
             {next_state, connecting, disconnect(NewState)}
     end;
 connected(info, {disconnected, ConnRef, Reason},
-          #{conn_ref := ConnRefCurrent, connection := Conn} = State) ->
+          #{conn_ref := ConnRefCurrent} = State) ->
     case ConnRefCurrent =:= ConnRef of
         true ->
-            ?LOG(info, "Bridge ~p diconnected~nreason=~p", [name(), Conn, Reason]),
+            ?LOG(info, "Bridge ~p diconnected~nreason=~p", [name(), Reason]),
             {next_state, connecting,
              State#{conn_ref := undefined, connection := undefined}};
         false ->

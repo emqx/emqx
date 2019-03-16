@@ -5,12 +5,12 @@ PROJECT_DESCRIPTION = EMQ X Broker
 
 DEPS = jsx gproc gen_rpc ekka esockd cowboy replayq
 
-dep_jsx     = hex-emqx 2.9.0
-dep_gproc   = hex-emqx 0.8.0
-dep_gen_rpc = git-emqx https://github.com/emqx/gen_rpc 2.3.0
+dep_jsx     = git-emqx https://github.com/talentdeficit/jsx 2.9.0
+dep_gproc   = git-emqx https://github.com/uwiger/gproc 0.8.0
+dep_gen_rpc = git-emqx https://github.com/emqx/gen_rpc 2.3.1
 dep_esockd  = git-emqx https://github.com/emqx/esockd v5.4.4
 dep_ekka    = git-emqx https://github.com/emqx/ekka v0.5.3
-dep_cowboy  = hex-emqx 2.4.0
+dep_cowboy  = git-emqx https://github.com/ninenines/cowboy 2.4.0
 dep_replayq = git-emqx https://github.com/emqx/replayq v0.1.1
 
 NO_AUTOPATCH = cuttlefish
@@ -31,14 +31,14 @@ EUNIT_OPTS = verbose
 ## emqx_trie emqx_router emqx_frame emqx_mqtt_compat
 
 CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
-			emqx_access emqx_broker emqx_cm emqx_frame emqx_guid emqx_inflight emqx_json \
+			emqx_broker emqx_cm emqx_frame emqx_guid emqx_inflight emqx_json \
 			emqx_keepalive emqx_lib emqx_metrics emqx_mod emqx_mod_sup emqx_mqtt_caps \
 			emqx_mqtt_props emqx_mqueue emqx_net emqx_pqueue emqx_router emqx_sm \
 			emqx_tables emqx_time emqx_topic emqx_trie emqx_vm emqx_mountpoint \
 			emqx_listeners emqx_protocol emqx_pool emqx_shared_sub emqx_bridge \
 			emqx_hooks emqx_batch emqx_sequence emqx_pmon emqx_pd emqx_gc emqx_ws_connection \
 			emqx_packet emqx_connection emqx_tracer emqx_sys_mon emqx_message emqx_os_mon \
-      emqx_vm_mon emqx_alarm_handler
+            emqx_vm_mon emqx_alarm_handler emqx_rpc
 
 CT_NODE_NAME = emqxct@127.0.0.1
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name $(CT_NODE_NAME)

@@ -12,24 +12,25 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_modules).
+-module(emqx_rpc_SUITE).
 
--export([load/0, unload/0]).
+-include("emqx.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
--spec(load() -> ok).
-load() ->
-    ok = emqx_mod_acl_internal:load([]),
-    lists:foreach(
-      fun({Mod, Env}) ->
-        ok = Mod:load(Env),
-        logger:info("Load ~s module successfully.", [Mod])
-      end, emqx_config:get_env(modules, [])).
+-compile(export_all).
+-compile(nowarn_export_all).
+-define(MASTER, 'emqxct@127.0.0.1').
 
--spec(unload() -> ok).
-unload() ->
-    ok = emqx_mod_acl_internal:unload([]),
-    lists:foreach(
-      fun({Mod, Env}) ->
-          Mod:unload(Env) end,
-      emqx_config:get_env(modules, [])).
+all() -> [t_rpc].
 
+init_per_suite(Config) ->
+    emqx_ct_broker_helpers:run_setup_steps(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_ct_broker_helpers:run_teardown_steps().
+
+t_rpc(_) ->
+    60000 = emqx_rpc:call(?MASTER, timer, seconds, [60]),
+    {badrpc, _} = emqx_rpc:call(?MASTER, os, test, []),
+    {_, []} = emqx_rpc:multicall([?MASTER, ?MASTER], os, timestamp, []).
