@@ -146,6 +146,8 @@ compat(unsuback, _Code) -> undefined.
 
 connack_error(client_identifier_not_valid) -> ?RC_CLIENT_IDENTIFIER_NOT_VALID;
 connack_error(bad_username_or_password) -> ?RC_BAD_USER_NAME_OR_PASSWORD;
+connack_error(username_or_password_undefined) -> ?RC_BAD_USER_NAME_OR_PASSWORD;
+connack_error(password_error) -> ?RC_BAD_USER_NAME_OR_PASSWORD;
 connack_error(not_authorized) -> ?RC_NOT_AUTHORIZED;
 connack_error(server_unavailable) -> ?RC_SERVER_UNAVAILABLE;
 connack_error(server_busy) -> ?RC_SERVER_BUSY;
