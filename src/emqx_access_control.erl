@@ -61,8 +61,8 @@ do_check_acl(#{zone := Zone} = Credentials, PubSub, Topic) ->
 reload_acl() ->
     emqx_mod_acl_internal:reload_acl().
 
-init_result(#{zone := Zone}) ->
-    case emqx_zone:get_env(Zone, allow_anonymous, false) of
+init_result(Credentials) ->
+    case emqx_zone:get_env(maps:get(zone, Credentials, undefined), allow_anonymous, false) of
         true -> success;
         false -> not_authorized
     end.
