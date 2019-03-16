@@ -61,7 +61,7 @@ load_rules_from_file(AclFile) ->
               subscribe => lists:filter(fun(Rule) -> filter(subscribe, Rule) end, Rules)};
         {error, Reason} ->
             ?LOG(error, "[ACL_INTERNAL] Failed to read ~s: ~p", [AclFile, Reason]),
-            []
+            #{}
     end.
 
 filter(_PubSub, {allow, all}) ->
