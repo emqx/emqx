@@ -45,6 +45,6 @@ filter_results([Delivery | WaitDelivery], Acc) ->
     case Delivery of 
         {badrpc, Reason} -> [{badrpc, Reason} | Acc], filter_results(WaitDelivery, Acc);
         {badtcp, Reason} -> [{badrpc, Reason} | Acc], filter_results(WaitDelivery, Acc);
-        Delivery1        -> Delivery1
+        Delivery1        -> [Delivery1 | Acc], filter_results(WaitDelivery, Acc)
     end.
 
