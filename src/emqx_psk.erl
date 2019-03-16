@@ -25,10 +25,12 @@
 -type psk_user_state() :: term().
 
 -spec lookup(psk, psk_identity(), psk_user_state()) -> {ok, SharedSecret :: binary()} | error.
-lookup(psk, ClientPSKID, UserState) ->
-    try emqx_hooks:run('tls_handshake.psk_lookup', [ClientPSKID], UserState) of
-        {ok, SharedSecret} -> {ok, SharedSecret};
-        {stop, SharedSecret} -> {ok, SharedSecret}
+lookup(psk, ClientPSKID, _UserState) ->
+    try emqx_hooks:run_fold('tls_handshake.psk_lookup', [ClientPSKID], not_found) of
+        SharedSecret when is_binary(SharedSecret) -> {ok, SharedSecret};
+        Error ->
+            ?LOG(error, "Look PSK for PSKID ~p error: ~p", [ClientPSKID, Error]),
+            error
     catch
         Except:Error:Stacktrace ->
           ?LOG(error, "Lookup PSK failed, ~p: ~p", [{Except,Error}, Stacktrace]),

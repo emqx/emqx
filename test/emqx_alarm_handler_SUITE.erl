@@ -39,6 +39,16 @@ end_per_suite(_Config) ->
 local_path(RelativePath) ->
     filename:join([get_base_dir(), RelativePath]).
 
+deps_path(App, RelativePath) ->
+    %% Note: not lib_dir because etc dir is not sym-link-ed to _build dir
+    %% but priv dir is
+    Path0 = code:priv_dir(App),
+    Path = case file:read_link(Path0) of
+               {ok, Resolved} -> Resolved;
+               {error, _} -> Path0
+           end,
+    filename:join([Path, "..", RelativePath]).
+
 get_base_dir() ->
     {file, Here} = code:is_loaded(?MODULE),
     filename:dirname(filename:dirname(Here)).
@@ -55,6 +65,9 @@ read_schema_configs(App, {SchemaFile, ConfigFile}) ->
     NewConfig = cuttlefish_generator:map(Schema, Conf),
     Vals = proplists:get_value(App, NewConfig, []),
     [application:set_env(App, Par, Value) || {Par, Value} <- Vals].
+
+set_special_configs(emqx) ->
+    application:set_env(emqx, acl_file, deps_path(emqx, "test/emqx_access_SUITE_data/acl_deny_action.conf"));
 
 set_special_configs(_App) ->
     ok.

@@ -546,6 +546,8 @@ acl_deny_do_disconnect(publish, QoS, Topic) ->
     {ok, _} = emqx_client:connect(Client),
     emqx_client:publish(Client, Topic, <<"test">>, QoS),
     receive
+        {disconnected, shutdown, tcp_closed} ->
+            ct:pal(info, "[OK] after publish, client got disconnected: tcp_closed", []);
         {'EXIT', Client, {shutdown,tcp_closed}} ->
             ct:pal(info, "[OK] after publish, received exit: {shutdown,tcp_closed}"),
             false = is_process_alive(Client);
@@ -560,6 +562,8 @@ acl_deny_do_disconnect(subscribe, QoS, Topic) ->
     {ok, _} = emqx_client:connect(Client),
     {ok, _, [128]} = emqx_client:subscribe(Client, Topic, QoS),
     receive
+        {disconnected, shutdown, tcp_closed} ->
+            ct:pal(info, "[OK] after subscribe, client got disconnected: tcp_closed", []);
         {'EXIT', Client, {shutdown,tcp_closed}} ->
             ct:pal(info, "[OK] after subscribe, received exit: {shutdown,tcp_closed}"),
             false = is_process_alive(Client);
