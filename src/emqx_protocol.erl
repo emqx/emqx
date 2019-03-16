@@ -835,7 +835,7 @@ check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos = QoS, retain = Ret
                #pstate{zone = Zone}) ->
     emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain}).
 
-check_pub_acl(_Packet, #pstate{credentials = #{is_super := IsSuper}, enable_acl = EnableAcl})
+check_pub_acl(_Packet, #pstate{credentials = #{is_superuser := IsSuper}, enable_acl = EnableAcl})
         when IsSuper orelse (not EnableAcl) ->
     ok;
 check_pub_acl(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}}, PState) ->
@@ -862,7 +862,7 @@ check_subscribe(TopicFilters, PState = #pstate{zone = Zone}) ->
             {error, TopicFilter1}
     end.
 
-check_sub_acl(TopicFilters, #pstate{credentials = #{is_super := IsSuper}, enable_acl = EnableAcl})
+check_sub_acl(TopicFilters, #pstate{credentials = #{is_superuser := IsSuper}, enable_acl = EnableAcl})
         when IsSuper orelse (not EnableAcl) ->
     {ok, TopicFilters};
 check_sub_acl(TopicFilters, PState) ->
