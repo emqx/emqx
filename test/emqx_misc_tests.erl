@@ -47,12 +47,14 @@ timer_cancel_flush_test() ->
     end.
 
 shutdown_disabled_test() ->
+    ok = drain(),
     self() ! foo,
     ?assertEqual(continue, conn_proc_mng_policy(0)),
     receive foo -> ok end,
     ?assertEqual(hibernate, conn_proc_mng_policy(0)).
 
 message_queue_too_long_test() ->
+    ok = drain(),
     self() ! foo,
     self() ! bar,
     ?assertEqual({shutdown, message_queue_too_long},
@@ -63,3 +65,18 @@ message_queue_too_long_test() ->
 
 conn_proc_mng_policy(L) ->
     emqx_misc:conn_proc_mng_policy(#{message_queue_len => L}).
+
+%% drain self() msg queue for deterministic test behavior
+drain() ->
+    _ = drain([]), % maybe log
+    ok.
+
+drain(Acc) ->
+    receive
+        Msg ->
+            drain([Msg | Acc])
+    after
+        0 ->
+            lists:reverse(Acc)
+    end.
+

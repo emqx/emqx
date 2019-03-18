@@ -70,7 +70,7 @@ datetime() ->
 %% @doc Get sys interval
 -spec(sys_interval() -> pos_integer()).
 sys_interval() ->
-    application:get_env(?APP, sys_interval, 60000).
+    application:get_env(?APP, broker_sys_interval, 60000).
 
 %% @doc Get sys info
 -spec(info() -> list(tuple())).

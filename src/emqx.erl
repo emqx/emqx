@@ -29,7 +29,7 @@
 -export([topics/0, subscriptions/1, subscribers/1, subscribed/2]).
 
 %% Hooks API
--export([hook/2, hook/3, hook/4, unhook/2, run_hooks/2, run_hooks/3]).
+-export([hook/2, hook/3, hook/4, unhook/2, run_hook/2, run_fold_hook/3]).
 
 %% Shutdown and reboot
 -export([shutdown/0, shutdown/1, reboot/0]).
@@ -142,13 +142,13 @@ hook(HookPoint, Action, Filter, Priority) ->
 unhook(HookPoint, Action) ->
     emqx_hooks:del(HookPoint, Action).
 
--spec(run_hooks(emqx_hooks:hookpoint(), list(any())) -> ok | stop).
-run_hooks(HookPoint, Args) ->
+-spec(run_hook(emqx_hooks:hookpoint(), list(any())) -> ok | stop).
+run_hook(HookPoint, Args) ->
     emqx_hooks:run(HookPoint, Args).
 
--spec(run_hooks(emqx_hooks:hookpoint(), list(any()), any()) -> {ok | stop, any()}).
-run_hooks(HookPoint, Args, Acc) ->
-    emqx_hooks:run(HookPoint, Args, Acc).
+-spec(run_fold_hook(emqx_hooks:hookpoint(), list(any()), any()) -> any()).
+run_fold_hook(HookPoint, Args, Acc) ->
+    emqx_hooks:run_fold(HookPoint, Args, Acc).
 
 %%------------------------------------------------------------------------------
 %% Shutdown and reboot
@@ -159,6 +159,7 @@ shutdown() ->
 
 shutdown(Reason) ->
     emqx_logger:error("emqx shutdown for ~s", [Reason]),
+    emqx_alarm_handler:unload(),
     emqx_plugins:unload(),
     lists:foreach(fun application:stop/1, [emqx, ekka, cowboy, ranch, esockd, gproc]).
 

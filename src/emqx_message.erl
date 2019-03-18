@@ -81,11 +81,12 @@ unset_flag(Flag, Msg = #message{flags = Flags}) ->
         false -> Msg
     end.
 
--spec(set_headers(map(), emqx_types:message()) -> emqx_types:message()).
+-spec(set_headers(undefined | map(), emqx_types:message()) -> emqx_types:message()).
 set_headers(Headers, Msg = #message{headers = undefined}) when is_map(Headers) ->
     Msg#message{headers = Headers};
 set_headers(New, Msg = #message{headers = Old}) when is_map(New) ->
-    Msg#message{headers = maps:merge(Old, New)}.
+    Msg#message{headers = maps:merge(Old, New)};
+set_headers(undefined, Msg) -> Msg.
 
 -spec(get_header(term(), emqx_types:message()) -> term()).
 get_header(Hdr, Msg) ->
