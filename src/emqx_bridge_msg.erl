@@ -14,6 +14,10 @@
 
 -module(emqx_bridge_msg).
 
+-include("emqx.hrl").
+-include("emqx_mqtt.hrl").
+-include("emqx_client.hrl").
+
 -export([ to_binary/1
         , from_binary/1
         , to_export/3
@@ -22,10 +26,6 @@
         ]).
 
 -export_type([msg/0]).
-
--include("emqx.hrl").
--include("emqx_mqtt.hrl").
--include("emqx_client.hrl").
 
 -type msg() :: emqx_types:message().
 -type exp_msg() :: emqx_types:message() | #mqtt_msg{}.

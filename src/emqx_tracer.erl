@@ -17,13 +17,24 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 
 -export([start_link/0]).
--export([trace/2]).
--export([start_trace/3, lookup_traces/0, stop_trace/1]).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+-export([trace/2]).
+
+-export([ start_trace/3
+        , lookup_traces/0
+        , stop_trace/1
+        ]).
+
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -record(state, {traces}).
 
@@ -31,16 +42,16 @@
 
 -define(TRACER, ?MODULE).
 -define(FORMAT, {emqx_logger_formatter,
-                  #{template =>
-                      [time," [",level,"] ",
-                       {client_id,
-                          [{peername,
-                              [client_id,"@",peername," "],
-                              [client_id, " "]}],
-                          [{peername,
-                              [peername," "],
-                              []}]},
-                       msg,"\n"]}}).
+                 #{template =>
+                     [time," [",level,"] ",
+                      {client_id,
+                         [{peername,
+                             [client_id,"@",peername," "],
+                             [client_id, " "]}],
+                         [{peername,
+                             [peername," "],
+                             []}]},
+                      msg,"\n"]}}).
 
 -spec(start_link() -> {ok, pid()} | ignore | {error, term()}).
 start_link() ->

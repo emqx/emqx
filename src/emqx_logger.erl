@@ -16,17 +16,46 @@
 
 -compile({no_auto_import,[error/1]}).
 
--export([debug/1, debug/2, debug/3]).
--export([info/1, info/2, info/3]).
--export([warning/1, warning/2, warning/3]).
--export([error/1, error/2, error/3]).
--export([critical/1, critical/2, critical/3]).
+-export([ debug/1
+        , debug/2
+        , debug/3
+        ]).
 
--export([set_metadata_peername/1, set_metadata_client_id/1]).
+-export([ info/1
+        , info/2
+        , info/3
+        ]).
+
+-export([ warning/1
+        , warning/2
+        , warning/3
+        ]).
+
+-export([ error/1
+        , error/2
+        , error/3
+        ]).
+
+-export([ critical/1
+        , critical/2
+        , critical/3
+        ]).
+
+-export([ set_metadata_peername/1
+        , set_metadata_client_id/1
+        ]).
+
 -export([set_proc_metadata/1]).
 
--export([get_primary_log_level/0, set_primary_log_level/1]).
--export([get_log_handlers/0, get_log_handler/1, set_log_handler_level/2]).
+-export([ get_primary_log_level/0
+        , set_primary_log_level/1
+        ]).
+
+-export([ get_log_handlers/0
+        , get_log_handler/1
+        , set_log_handler_level/2
+        ]).
+
 -export([set_log_level/1]).
 
 debug(Msg) ->
@@ -97,9 +126,10 @@ set_log_level(Level) ->
         {error, Error} -> {error, {primary_logger_level, Error}}
     end.
 
-%%========================
-%% Internal Functions
-%%========================
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
 log_hanlder_info(#{id := Id, level := Level, module := logger_std_h,
                    config := #{type := Type}}) when Type =:= standard_io;
                                                     Type =:= standard_error ->
@@ -135,3 +165,4 @@ rollback([{ID, Level} | List]) ->
     emqx_logger:set_log_handler_level(ID, Level),
     rollback(List);
 rollback([]) -> ok.
+

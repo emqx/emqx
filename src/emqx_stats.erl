@@ -29,8 +29,13 @@
 -export([update_interval/2, update_interval/3, cancel_update/1]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -record(update, {name, countdown, interval, func}).
 -record(state, {timer, updates :: [#update{}],

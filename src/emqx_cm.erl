@@ -22,17 +22,40 @@
 
 -export([start_link/0]).
 
--export([register_connection/1, register_connection/2]).
--export([unregister_connection/1, unregister_connection/2]).
--export([get_conn_attrs/1, get_conn_attrs/2]).
--export([set_conn_attrs/2, set_conn_attrs/3]).
--export([get_conn_stats/1, get_conn_stats/2]).
--export([set_conn_stats/2, set_conn_stats/3]).
+-export([ register_connection/1
+        , register_connection/2
+        ]).
+
+-export([ unregister_connection/1
+        , unregister_connection/2
+        ]).
+
+-export([ get_conn_attrs/1
+        , get_conn_attrs/2
+        ]).
+
+-export([ set_conn_attrs/2
+        , set_conn_attrs/3
+        ]).
+
+-export([ get_conn_stats/1
+        , get_conn_stats/2
+        ]).
+
+-export([ set_conn_stats/2
+        , set_conn_stats/3
+        ]).
+
 -export([lookup_conn_pid/1]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 %% internal export
 -export([stats_fun/0]).

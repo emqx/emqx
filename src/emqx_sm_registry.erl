@@ -25,8 +25,13 @@
 -export([register_session/1, lookup_session/1, unregister_session/1]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -define(REGISTRY, ?MODULE).
 -define(TAB, emqx_session_registry).

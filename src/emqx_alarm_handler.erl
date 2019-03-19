@@ -19,21 +19,24 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
+-export([ load/0
+        , unload/0
+        ]).
+
+-export([get_alarms/0]).
+
+-export([ init/1
+        , handle_event/2
+        , handle_call/2
+        , handle_info/2
+        , terminate/2
+        ]).
+
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
-
--export([init/1,
-         handle_event/2,
-         handle_call/2,
-         handle_info/2,
-         terminate/2]).
-
--export([load/0,
-         unload/0,
-         get_alarms/0]).
 
 -record(common_alarm, {id, desc}).
 -record(alarm_history, {id, clear_at}).
@@ -62,9 +65,9 @@ mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?ALARM_TAB),
     ok = ekka_mnesia:copy_table(?ALARM_HISTORY_TAB).
 
-%%----------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% API
-%%----------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 load() ->
     gen_event:swap_handler(alarm_handler, {alarm_handler, swap}, {?MODULE, []}).
@@ -76,19 +79,21 @@ unload() ->
 get_alarms() ->
     gen_event:call(alarm_handler, ?MODULE, get_alarms).
 
-%%----------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_event callbacks
-%%----------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init({_Args, {alarm_handler, ExistingAlarms}}) ->
     init_tables(ExistingAlarms),
     {ok, []};
+
 init(_) ->
     init_tables([]),
     {ok, []}.
 
 handle_event({set_alarm, {AlarmId, AlarmDesc = #alarm{timestamp = undefined}}}, State) ->
     handle_event({set_alarm, {AlarmId, AlarmDesc#alarm{timestamp = os:timestamp()}}}, State);
+
 handle_event({set_alarm, Alarm = {AlarmId, AlarmDesc}}, State) ->
     ?LOG(notice, "Alarm report: set ~p", [Alarm]),
     case encode_alarm(Alarm) of
@@ -99,22 +104,28 @@ handle_event({set_alarm, Alarm = {AlarmId, AlarmDesc}}, State) ->
     end,
     set_alarm_(AlarmId, AlarmDesc),
     {ok, State};
+
 handle_event({clear_alarm, AlarmId}, State) ->
     ?LOG(notice, "Alarm report: clear ~p", [AlarmId]),
     emqx_broker:safe_publish(alarm_msg(topic(clear, maybe_to_binary(AlarmId)), <<"">>)),
     clear_alarm_(AlarmId),
     {ok, State};
+
 handle_event(_, State) ->
     {ok, State}.
 
-handle_info(_, State) -> {ok, State}.
+handle_info(_, State) ->
+    {ok, State}.
 
 handle_call(get_alarms, State) ->
     {ok, get_alarms_(), State};
-handle_call(_Query, State)     -> {ok, {error, bad_query}, State}.
+
+handle_call(_Req, State) ->
+    {ok, {error, bad_request}, State}.
 
 terminate(swap, _State) ->
     {emqx_alarm_handler, get_alarms_()};
+
 terminate(_, _) ->
     ok.
 
@@ -128,17 +139,18 @@ init_tables(ExistingAlarms) ->
                       set_alarm_history(Id)
                   end, ExistingAlarms).
 
-encode_alarm({AlarmId, #alarm{severity  = Severity, 
+encode_alarm({AlarmId, #alarm{severity  = Severity,
                               title     = Title,
-                              summary   = Summary, 
+                              summary   = Summary,
                               timestamp = Ts}}) ->
     emqx_json:safe_encode([{id, maybe_to_binary(AlarmId)},
                            {desc, [{severity, Severity},
                                    {title, iolist_to_binary(Title)},
                                    {summary, iolist_to_binary(Summary)},
                                    {ts, emqx_time:now_secs(Ts)}]}]);
+
 encode_alarm({AlarmId, AlarmDesc}) ->
-    emqx_json:safe_encode([{id, maybe_to_binary(AlarmId)}, 
+    emqx_json:safe_encode([{id, maybe_to_binary(AlarmId)},
                            {desc, maybe_to_binary(AlarmDesc)}]).
 
 alarm_msg(Topic, Payload) ->

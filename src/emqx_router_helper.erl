@@ -27,11 +27,18 @@
 -copy_mnesia({mnesia, [copy]}).
 
 %% API
--export([start_link/0, monitor/1]).
+-export([start_link/0]).
+
+-export([monitor/1]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 %% Internal export
 -export([stats_fun/0]).

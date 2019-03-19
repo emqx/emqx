@@ -21,15 +21,20 @@
 -include("types.hrl").
 
 -export([start_link/0]).
--export([get_env/2, get_env/3]).
+-export([get_env/2 , get_env/3]).
 -export([set_env/3]).
 -export([force_reload/0]).
 %% for test
 -export([stop/0]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
@@ -59,7 +64,7 @@ set_env(Zone, Key, Val) ->
 
 -spec(force_reload() -> ok).
 force_reload() ->
-    gen_server:call(?SERVER, force_reload).
+    gen_server:call(?SERVER, force_reload, infinity).
 
 -spec(stop() -> ok).
 stop() ->
@@ -74,11 +79,11 @@ init([]) ->
     {ok, element(2, handle_info(reload, #{timer => undefined}))}.
 
 handle_call(force_reload, _From, State) ->
-    _ = do_reload(),
+    ok = do_reload(),
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
-    ?ERROR("[Zone] unexpected call: ~p", [Req]),
+    ?LOG(error, "[Zone] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({set_env, Zone, Key, Val}, State) ->
@@ -86,15 +91,16 @@ handle_cast({set_env, Zone, Key, Val}, State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?ERROR("[Zone] unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[Zone] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info(reload, State) ->
-    _ = do_reload(),
-    {noreply, ensure_reload_timer(State#{timer := undefined}), hibernate};
+handle_info({timeout, TRef, reload}, State = #{timer := TRef}) ->
+    ok = do_reload(),
+    NState = ensure_reload_timer(State#{timer := undefined}),
+    {noreply, NState, hibernate};
 
 handle_info(Info, State) ->
-    ?ERROR("[Zone] unexpected info: ~p", [Info]),
+    ?LOG(error, "[Zone] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -108,11 +114,13 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 do_reload() ->
-    [ets:insert(?TAB, [{{Zone, Key}, Val} || {Key, Val} <- Opts])
-     || {Zone, Opts} <- emqx_config:get_env(zones, [])].
+    lists:foreach(fun update/1, emqx_config:get_env(zones, [])).
+
+update({Zone, Opts}) ->
+    ets:insert(?TAB, [{{Zone, Key}, Val} || {Key, Val} <- Opts]).
 
 ensure_reload_timer(State = #{timer := undefined}) ->
-    State#{timer := erlang:send_after(timer:minutes(5), self(), reload)};
+    State#{timer := emqx_misc:start_timer(timer:minutes(5), reload)};
 ensure_reload_timer(State) ->
     State.
 

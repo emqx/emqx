@@ -19,14 +19,28 @@
 -include("logger.hrl").
 -include("types.hrl").
 
--export([start_link/0, stop/0]).
+-export([ start_link/0
+        , stop/0
+        ]).
 
 %% Hooks API
--export([add/2, add/3, add/4, del/2, run/2, run_fold/3, lookup/1]).
+-export([ add/2
+        , add/3
+        , add/4
+        , del/2
+        , run/2
+        , run_fold/3
+        , lookup/1
+        ]).
 
-%% gen_server Function Exports
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+%% gen_server callbacks
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 %% Multiple callbacks can be registered on a hookpoint.
 %% The execution order depends on the priority value:
@@ -44,9 +58,14 @@
                    filter   :: filter(),
                    priority :: integer()}).
 
--record(hook, {name :: hookpoint(), callbacks :: list(#callback{})}).
+-record(hook, {name :: hookpoint(),
+               callbacks :: list(#callback{})
+              }).
 
--export_type([hookpoint/0, action/0, filter/0]).
+-export_type([ hookpoint/0
+             , action/0
+             , filter/0
+             ]).
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).

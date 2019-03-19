@@ -18,11 +18,13 @@
 -include("logger.hrl").
 
 -export([authenticate/1]).
+
 -export([check_acl/3, reload_acl/0]).
 
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
+
 -spec(authenticate(emqx_types:credentials())
       -> {ok, emqx_types:credentials()} | {error, term()}).
 authenticate(Credentials) ->
@@ -66,3 +68,4 @@ init_result(Credentials) ->
         true -> success;
         false -> not_authorized
     end.
+
