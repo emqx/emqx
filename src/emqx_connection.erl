@@ -205,7 +205,6 @@ idle(EventType, Content, State) ->
 
 connected(enter, _, _State) ->
     %% What to do?
-    put(cnt, 0),
     keep_state_and_data;
 
 %% Handle Input

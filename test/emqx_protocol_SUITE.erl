@@ -36,7 +36,8 @@ all() ->
      {group, mqtt_common},
      {group, mqttv4},
      {group, mqttv5},
-     {group, acl}
+     {group, acl},
+     {group, frame_partial}
     ].
 
 groups() ->
@@ -51,7 +52,9 @@ groups() ->
       [connect_v5,
        subscribe_v5]},
      {acl, [sequence],
-      [acl_deny_action_ct]}].
+      [acl_deny_action_ct]},
+     {frame_partial, [sequence],
+       [handle_followed_packet]}].
 
 init_per_suite(Config) ->
     [start_apps(App, SchemaFile, ConfigFile) ||
@@ -96,6 +99,44 @@ with_connection(DoFun) ->
     % after
     %     emqx_client_sock:close(Sock)
     % end.
+
+handle_followed_packet(_Config) ->
+    ConnPkt = <<16,12,0,4,77,81,84,84,4,2,0,60,0,0>>,
+    PartialPkt1 = <<50,182,1,0,4,116,101,115,116,0,1,48,48,48,48,48,48,48,48,48,48,48,48,48,
+                    48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,
+                    48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,
+                    48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,
+                    48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48>>,
+    PartialPkt2 = <<48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,
+                    48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,
+                    48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48>>,
+
+    %% This is a PUBLISH message (Qos=1)
+    PubPkt = <<PartialPkt1/binary, PartialPkt2/binary>>,
+    ComplexPkt = <<PubPkt/binary, PubPkt/binary, PubPkt/binary, PartialPkt1/binary>>,
+
+    AssertConnAck = fun(R) -> ?assertEqual({ok, <<32,2,0,0>>}, R) end,
+    AssertPubAck  = fun(R) -> ?assertEqual({ok, <<64,2,0,1>>}, R) end,
+
+    {ok, Sock} = gen_tcp:connect("127.0.0.1", 1883, [{active, false}, binary]),
+
+    %% CONNECT
+    ok = gen_tcp:send(Sock, ConnPkt),
+    AssertConnAck(gen_tcp:recv(Sock, 4, 500)),
+
+    %% Once Publish
+    ok = gen_tcp:send(Sock, PubPkt),
+    AssertPubAck(gen_tcp:recv(Sock, 4, 500)),
+
+    %% Complex Packet
+    ok = gen_tcp:send(Sock, ComplexPkt),
+    AssertPubAck(gen_tcp:recv(Sock, 4, 500)),
+    AssertPubAck(gen_tcp:recv(Sock, 4, 500)),
+    AssertPubAck(gen_tcp:recv(Sock, 4, 500)),
+
+    ok = gen_tcp:send(Sock, PartialPkt2),
+    AssertPubAck(gen_tcp:recv(Sock, 4, 500)),
+    gen_tcp:close(Sock).
 
 connect_v4(_) ->
     with_connection(fun([Sock]) ->
