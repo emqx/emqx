@@ -167,13 +167,14 @@ do_unsubscribe(Group, Topic, SubPid, _SubOpts) ->
 -spec(publish(emqx_types:message()) -> emqx_types:deliver_results()).
 publish(Msg) when is_record(Msg, message) ->
     _ = emqx_tracer:trace(publish, Msg),
-    case emqx_hooks:run('message.publish', [], Msg) of
-        {ok, Msg1 = #message{topic = Topic}} ->
+    Headers = Msg#message.headers,
+    case emqx_hooks:run_fold('message.publish', [], Msg#message{headers = Headers#{allow_publish => true}}) of
+        #message{headers = #{allow_publish := false}} ->
+            ?WARN("Publishing interrupted: ~s", [emqx_message:format(Msg)]),
+            [];
+        #message{topic = Topic} = Msg1 ->
             Delivery = route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1)),
-            Delivery#delivery.results;
-        {stop, _} ->
-            ?WARN("Stop publishing: ~s", [emqx_message:format(Msg)]),
-            []
+            Delivery#delivery.results
     end.
 
 %% Called internally
@@ -444,4 +445,3 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
-

@@ -72,7 +72,7 @@ publish(_) ->
     ok = emqx:subscribe(<<"test/+">>),
     timer:sleep(10),
     emqx:publish(Msg),
-    ?assert(receive {dispatch, <<"test/+">>, Msg} -> true after 5 -> false end).
+    ?assert(receive {dispatch, <<"test/+">>, #message{payload = <<"hello">>}} -> true after 100 -> false end).
 
 dispatch_with_no_sub(_) ->
     Msg = emqx_message:make(ct, <<"no_subscribers">>, <<"hello">>),
@@ -98,7 +98,7 @@ pubsub(_) ->
                 true;
             P ->
                 ct:log("Receive Message: ~p~n",[P])
-        after 2 ->
+        after 100 ->
             false
         end),
     spawn(fun() ->
@@ -124,14 +124,14 @@ t_shared_subscribe(_) ->
     emqx:subscribe(<<"a/#">>),
     timer:sleep(10),
     emqx:publish(emqx_message:make(ct, <<"a/b/c">>, <<"hello">>)),
-    ?assert(receive {dispatch, <<"a/#">>, _} -> true after 2 -> false end),
+    ?assert(receive {dispatch, <<"a/#">>, _} -> true after 100 -> false end),
     emqx:unsubscribe(<<"a/#">>).
 
 'pubsub+'(_) ->
     emqx:subscribe(<<"a/+/+">>),
     timer:sleep(10),
     emqx:publish(emqx_message:make(ct, <<"a/b/c">>, <<"hello">>)),
-    ?assert(receive {dispatch, <<"a/+/+">>, _} -> true after 1 -> false end),
+    ?assert(receive {dispatch, <<"a/+/+">>, _} -> true after 100 -> false end),
     emqx:unsubscribe(<<"a/+/+">>).
 
 %%--------------------------------------------------------------------
