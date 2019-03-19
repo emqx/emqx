@@ -24,12 +24,12 @@
 -include_lib("eunit/include/eunit.hrl").
 
 all() ->
-    [
-        message_make,
-        message_flag,
-        message_header,
-        message_format,
-        message_expired
+    [ message_make
+    , message_flag
+    , message_header
+    , message_format
+    , message_expired
+    , message_to_map
     ].
 
 message_make(_) ->
@@ -60,7 +60,9 @@ message_header(_) ->
     Msg1 = emqx_message:set_headers(#{a => 1, b => 2}, Msg),
     Msg2 = emqx_message:set_header(c, 3, Msg1),
     ?assertEqual(1, emqx_message:get_header(a, Msg2)),
-    ?assertEqual(4, emqx_message:get_header(d, Msg2, 4)).
+    ?assertEqual(4, emqx_message:get_header(d, Msg2, 4)),
+    Msg3 = emqx_message:remove_header(a, Msg2),
+    ?assertEqual(#{b => 2, c => 3}, emqx_message:get_headers(Msg3)).
 
 message_format(_) ->
     io:format("~s", [emqx_message:format(emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>))]).
@@ -75,3 +77,17 @@ message_expired(_) ->
     timer:sleep(1000),
     Msg2 = emqx_message:update_expiry(Msg1),
     ?assertEqual(1, emqx_message:get_header('Message-Expiry-Interval', Msg2)).
+
+message_to_map(_) ->
+    Msg = emqx_message:make(<<"clientid">>, ?QOS_1, <<"topic">>, <<"payload">>),
+    List = [{id, Msg#message.id},
+            {qos, ?QOS_1},
+            {from, <<"clientid">>},
+            {flags, #{dup => false}},
+            {headers, #{}},
+            {topic, <<"topic">>},
+            {payload, <<"payload">>},
+            {timestamp, Msg#message.timestamp}],
+    ?assertEqual(List, emqx_message:to_list(Msg)),
+    ?assertEqual(maps:from_list(List), emqx_message:to_map(Msg)).
+
