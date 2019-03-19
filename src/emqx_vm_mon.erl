@@ -98,14 +98,15 @@ handle_info({timeout, Timer, check}, State = #{timer := Timer,
     ProcessCount = erlang:system_info(process_count),
     case ProcessCount / erlang:system_info(process_limit) of
         Percent when Percent >= ProcHighWatermark ->
-            alarm_handler:set_alarm({too_many_processes, ProcessCount});
+            alarm_handler:set_alarm({too_many_processes, ProcessCount}),
+            {noreply, ensure_check_timer(State#{process_alarm := true})};
         Percent when Percent < ProcLowWatermark ->
             case ProcessAlarm of
                 true -> alarm_handler:clear_alarm(too_many_processes);
                 false -> ok
-            end
-    end,
-    {noreply, ensure_check_timer(State)}.
+            end,
+            {noreply, ensure_check_timer(State#{process_alarm := false})}
+    end.
 
 terminate(_Reason, #{timer := Timer}) ->
     emqx_misc:cancel_timer(Timer).
