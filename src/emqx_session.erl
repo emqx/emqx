@@ -943,7 +943,7 @@ enqueue_msg(Msg, State = #state{mqueue = Q, client_id = ClientId, username = Use
 
 redeliver({PacketId, Msg = #message{qos = QoS}}, State) ->
     Msg1 = if
-               QoS =:= ?QOS_2 -> Msg;
+               QoS =:= ?QOS_0 -> emqx_message:set_flag(dup, false, Msg);
                true -> emqx_message:set_flag(dup, Msg)
            end,
     do_deliver(PacketId, Msg1, State);

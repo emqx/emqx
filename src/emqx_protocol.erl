@@ -555,7 +555,7 @@ do_publish(Packet = ?PUBLISH_PACKET(QoS, PacketId),
            PState = #pstate{session = SPid, mountpoint = MountPoint}) ->
     Msg = emqx_mountpoint:mount(MountPoint,
                                 emqx_packet:to_message(credentials(PState), Packet)),
-    puback(QoS, PacketId, emqx_session:publish(SPid, PacketId, Msg), PState).
+    puback(QoS, PacketId, emqx_session:publish(SPid, PacketId, emqx_message:set_flag(dup, false, Msg)), PState).
 
 %%------------------------------------------------------------------------------
 %% Puback -> Client
