@@ -104,7 +104,7 @@ match(Credentials, Topic, [Rule|Rules]) ->
 -spec(reload_acl() -> ok | {error, term()}).
 reload_acl() ->
     try load_rules_from_file(acl_file()) of
-        _ ->
+        Rules when is_map(Rules) ->
             emqx_logger:info("Reload acl_file ~s successfully", [acl_file()]),
             ok;
         {error, Error} ->
