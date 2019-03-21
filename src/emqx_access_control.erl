@@ -26,11 +26,11 @@
 -spec(authenticate(emqx_types:credentials())
       -> {ok, emqx_types:credentials()} | {error, term()}).
 authenticate(Credentials) ->
-    case emqx_hooks:run_fold('client.authenticate', [], Credentials#{result => init_result(Credentials)}) of
-        #{result := success} = NewCredentials ->
+    case emqx_hooks:run_fold('client.authenticate', [], Credentials#{auth_result => init_auth_result(Credentials)}) of
+        #{auth_result := success} = NewCredentials ->
             {ok, NewCredentials};
         NewCredentials ->
-            {error, maps:get(result, NewCredentials, unknown_error)}
+            {error, maps:get(auth_result, NewCredentials, unknown_error)}
     end.
 
 %% @doc Check ACL
@@ -61,7 +61,7 @@ do_check_acl(#{zone := Zone} = Credentials, PubSub, Topic) ->
 reload_acl() ->
     emqx_mod_acl_internal:reload_acl().
 
-init_result(Credentials) ->
+init_auth_result(Credentials) ->
     case emqx_zone:get_env(maps:get(zone, Credentials, undefined), allow_anonymous, false) of
         true -> success;
         false -> not_authorized
