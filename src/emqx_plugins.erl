@@ -144,7 +144,7 @@ list() ->
             true  -> Plugin#plugin{active = true};
             false -> Plugin
         end
-    end, ekka_boot:all_module_attributes(emqx_plugin)).
+    end, lists:sort(ekka_boot:all_module_attributes(emqx_plugin))).
 
 plugin(AppName) ->
     case application:get_all_key(AppName) of
