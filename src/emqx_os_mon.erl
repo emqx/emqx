@@ -97,7 +97,8 @@ init([Opts]) ->
     {ok, ensure_check_timer(#{cpu_high_watermark => proplists:get_value(cpu_high_watermark, Opts, 0.80),
                               cpu_low_watermark => proplists:get_value(cpu_low_watermark, Opts, 0.60),
                               cpu_check_interval => proplists:get_value(cpu_check_interval, Opts, 60),
-                              timer => undefined})}.
+                              timer => undefined,
+                              is_cpu_alarm_set => false})}.
 
 handle_call(get_cpu_check_interval, _From, State) ->
     {reply, maps:get(cpu_check_interval, State, undefined), State};
@@ -122,7 +123,8 @@ handle_cast(_Request, State) ->
 
 handle_info({timeout, Timer, check}, State = #{timer := Timer, 
                                                cpu_high_watermark := CPUHighWatermark,
-                                               cpu_low_watermark := CPULowWatermark}) ->
+                                               cpu_low_watermark := CPULowWatermark,
+                                               is_cpu_alarm_set := IsCPUAlarmSet}) ->
     case cpu_sup:util() of
         0 ->
             {noreply, State#{timer := undefined}};
@@ -131,10 +133,13 @@ handle_info({timeout, Timer, check}, State = #{timer := Timer,
             {noreply, ensure_check_timer(State)};
         Busy when Busy / 100 >= CPUHighWatermark ->
             alarm_handler:set_alarm({cpu_high_watermark, Busy}),
-            {noreply, ensure_check_timer(State)};
+            {noreply, ensure_check_timer(State#{is_cpu_alarm_set := true})};
         Busy when Busy / 100 < CPULowWatermark ->
-            alarm_handler:clear_alarm(cpu_high_watermark),
-            {noreply, ensure_check_timer(State)}
+            case IsCPUAlarmSet of
+                true -> alarm_handler:clear_alarm(cpu_high_watermark);
+                false -> ok
+            end,
+            {noreply, ensure_check_timer(State#{is_cpu_alarm_set := false})}
     end.
 
 terminate(_Reason, #{timer := Timer}) ->
