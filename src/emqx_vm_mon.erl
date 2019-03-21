@@ -67,7 +67,8 @@ init([Opts]) ->
     {ok, ensure_check_timer(#{check_interval => proplists:get_value(check_interval, Opts, 30),
                               process_high_watermark => proplists:get_value(process_high_watermark, Opts, 0.70),
                               process_low_watermark => proplists:get_value(process_low_watermark, Opts, 0.50),
-                              timer => undefined})}.
+                              timer => undefined,
+                              is_process_alarm_set => false})}.
 
 handle_call(get_check_interval, _From, State) ->
     {reply, maps:get(check_interval, State, undefined), State};
@@ -92,15 +93,20 @@ handle_cast(_Request, State) ->
 
 handle_info({timeout, Timer, check}, State = #{timer := Timer,
                                                process_high_watermark := ProcHighWatermark,
-                                               process_low_watermark := ProcLowWatermark}) ->
+                                               process_low_watermark := ProcLowWatermark,
+                                               is_process_alarm_set := IsProcessAlarmSet}) ->
     ProcessCount = erlang:system_info(process_count),
     case ProcessCount / erlang:system_info(process_limit) of
         Percent when Percent >= ProcHighWatermark ->
-            alarm_handler:set_alarm({too_many_processes, ProcessCount});
+            alarm_handler:set_alarm({too_many_processes, ProcessCount}),
+            {noreply, ensure_check_timer(State#{is_process_alarm_set := true})};
         Percent when Percent < ProcLowWatermark ->
-            alarm_handler:clear_alarm(too_many_processes)
-    end,
-    {noreply, ensure_check_timer(State)}.
+            case IsProcessAlarmSet of
+                true -> alarm_handler:clear_alarm(too_many_processes);
+                false -> ok
+            end,
+            {noreply, ensure_check_timer(State#{is_process_alarm_set := false})}
+    end.
 
 terminate(_Reason, #{timer := Timer}) ->
     emqx_misc:cancel_timer(Timer).
