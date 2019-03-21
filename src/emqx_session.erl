@@ -390,7 +390,7 @@ deliver_fun(ConnPid) when node(ConnPid) == node() ->
 deliver_fun(ConnPid) ->
     Node = node(ConnPid),
     fun(Packet) ->
-            emqx_rpc:cast(Node, erlang, send, [ConnPid, {deliver, Packet}])
+        true = emqx_rpc:cast(Node, erlang, send, [ConnPid, {deliver, Packet}]), ok
     end.
 
 handle_call(info, _From, State) ->
