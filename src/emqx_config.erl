@@ -23,11 +23,20 @@
 
 -module(emqx_config).
 
--export([get_env/1, get_env/2]).
-
 -export([populate/1]).
 
--export([read/1, write/2, dump/2, reload/1, get/2, get/3, set/3]).
+-export([ read/1
+        , write/2
+        , dump/2
+        , reload/1
+        ]).
+
+-export([ set/3
+        , get/2
+        , get/3
+        , get_env/1
+        , get_env/2
+        ]).
 
 -type(env() :: {atom(), term()}).
 

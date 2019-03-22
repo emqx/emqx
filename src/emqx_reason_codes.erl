@@ -17,7 +17,11 @@
 
 -include("emqx_mqtt.hrl").
 
--export([name/2, text/1, connack_error/1]).
+-export([ name/2
+        , text/1
+        , connack_error/1
+        ]).
+
 -export([compat/2]).
 
 name(I, Ver) when Ver >= ?MQTT_PROTO_V5 ->

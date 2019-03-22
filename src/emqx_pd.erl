@@ -17,7 +17,10 @@
 
 -include("types.hrl").
 
--export([update_counter/2, get_counter/1, reset_counter/1]).
+-export([ update_counter/2
+        , get_counter/1
+        , reset_counter/1
+        ]).
 
 -type(key() :: term()).
 

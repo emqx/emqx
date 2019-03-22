@@ -18,7 +18,10 @@
 -include("logger.hrl").
 
 -export([authenticate/1]).
--export([check_acl/3, reload_acl/0]).
+
+-export([ check_acl/3
+        , reload_acl/0
+        ]).
 
 %%------------------------------------------------------------------------------
 %% APIs

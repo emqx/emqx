@@ -14,15 +14,19 @@
 
 -module(emqx_base62).
 
--export([encode/1,
-         encode/2,
-         decode/1,
-         decode/2]).
+%% APIs
+-export([ encode/1
+        , encode/2
+        , decode/1
+        , decode/2
+        ]).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 %% @doc Encode any data to base62 binary
--spec encode(string()
-             | integer()
-             | binary()) -> binary().
+-spec encode(string() | integer() | binary()) -> binary().
 encode(I) when is_integer(I) ->
     encode(integer_to_binary(I));
 encode(S) when is_list(S)->
@@ -39,11 +43,9 @@ decode(L) when is_list(L) ->
 decode(B) when is_binary(B) ->
     decode(B, <<>>).
 
-
-
-%%====================================================================
-%% Internal functions
-%%====================================================================
+%%------------------------------------------------------------------------------
+%% Interval Functions
+%%------------------------------------------------------------------------------
 
 encode(D, string) ->
     binary_to_list(encode(D));
@@ -110,3 +112,4 @@ decode_char(I) when I >= $A andalso I =< $Z->
 
 decode_char(9, I) ->
     I + 61 - $A.
+

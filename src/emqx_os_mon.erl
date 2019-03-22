@@ -20,31 +20,34 @@
 
 -export([start_link/1]).
 
--export([init/1,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2,
-         terminate/2,
-         code_change/3]).
+%% gen_server callbacks
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
--export([get_cpu_check_interval/0,
-         set_cpu_check_interval/1,
-         get_cpu_high_watermark/0,
-         set_cpu_high_watermark/1,
-         get_cpu_low_watermark/0,
-         set_cpu_low_watermark/1,
-         get_mem_check_interval/0,
-         set_mem_check_interval/1,
-         get_sysmem_high_watermark/0,
-         set_sysmem_high_watermark/1,
-         get_procmem_high_watermark/0,
-         set_procmem_high_watermark/1]).
+-export([ get_cpu_check_interval/0
+        , set_cpu_check_interval/1
+        , get_cpu_high_watermark/0
+        , set_cpu_high_watermark/1
+        , get_cpu_low_watermark/0
+        , set_cpu_low_watermark/1
+        , get_mem_check_interval/0
+        , set_mem_check_interval/1
+        , get_sysmem_high_watermark/0
+        , set_sysmem_high_watermark/1
+        , get_procmem_high_watermark/0
+        , set_procmem_high_watermark/1
+        ]).
 
 -define(OS_MON, ?MODULE).
 
-%%----------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% API
-%%----------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 start_link(Opts) ->
     gen_server:start_link({local, ?OS_MON}, ?MODULE, [Opts], []).
@@ -85,9 +88,9 @@ get_procmem_high_watermark() ->
 set_procmem_high_watermark(Float) ->
     memsup:set_procmem_high_watermark(Float).
 
-%%----------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% gen_server callbacks
-%%----------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 init([Opts]) ->
     _ = cpu_sup:util(),
@@ -148,11 +151,12 @@ terminate(_Reason, #{timer := Timer}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%----------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Internal functions
-%%----------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 call(Req) ->
     gen_server:call(?OS_MON, Req, infinity).
 
 ensure_check_timer(State = #{cpu_check_interval := Interval}) ->
     State#{timer := emqx_misc:start_timer(timer:seconds(Interval), check)}.
+

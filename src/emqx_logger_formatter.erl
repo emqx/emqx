@@ -24,6 +24,7 @@
 -module(emqx_logger_formatter).
 
 -export([format/2]).
+
 -export([check_config/1]).
 
 -define(DEFAULT_FORMAT_TEMPLATE_SINGLE, [time," ",level,": ",msg,"\n"]).

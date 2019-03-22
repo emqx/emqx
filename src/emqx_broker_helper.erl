@@ -20,13 +20,24 @@
 -include("types.hrl").
 
 -export([start_link/0]).
--export([register_sub/2]).
--export([lookup_subid/1, lookup_subpid/1]).
--export([get_sub_shard/2]).
--export([create_seq/1, reclaim_seq/1]).
 
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+%% APIs
+-export([ register_sub/2
+        , lookup_subid/1
+        , lookup_subpid/1
+        , get_sub_shard/2
+        , create_seq/1
+        , reclaim_seq/1
+        ]).
+
+%% gen_server callbacks
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -define(HELPER, ?MODULE).
 -define(SUBID, emqx_subid).

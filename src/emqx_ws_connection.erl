@@ -18,18 +18,20 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 
--export([info/1]).
--export([attrs/1]).
--export([stats/1]).
--export([kick/1]).
--export([session/1]).
+-export([ info/1
+        , attrs/1
+        , stats/1
+        , kick/1
+        , session/1
+        ]).
 
 %% websocket callbacks
--export([init/2]).
--export([websocket_init/1]).
--export([websocket_handle/2]).
--export([websocket_info/2]).
--export([terminate/3]).
+-export([ init/2
+        , websocket_init/1
+        , websocket_handle/2
+        , websocket_info/2
+        , terminate/3
+        ]).
 
 -record(state, {
           request,
@@ -306,3 +308,4 @@ shutdown(Reason, State) ->
 
 wsock_stats() ->
     [{Key, emqx_pd:get_counter(Key)} || Key <- ?SOCK_STATS].
+

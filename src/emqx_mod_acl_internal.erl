@@ -19,11 +19,16 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
--export([load/1, unload/1]).
+%% APIs
+-export([ all_rules/0
+        , check_acl/5
+        , reload_acl/0
+        ]).
 
--export([all_rules/0]).
-
--export([check_acl/5, reload_acl/0]).
+%% emqx_gen_mod callbacks
+-export([ load/1
+        , unload/1
+        ]).
 
 -define(MFA(M, F, A), {M, F, A}).
 

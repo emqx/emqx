@@ -25,8 +25,13 @@
 -callback(init(AuthOpts :: list()) -> {ok, State :: term()}).
 
 -callback(check(credentials(), password(), State :: term())
-          -> ok | {ok, boolean()} | {ok, map()} |
-             {continue, map()} | ignore | {error, term()}).
+          -> ok
+          | {ok, boolean()}
+          | {ok, map()}
+          | {continue, map()}
+          | ignore
+          | {error, term()}).
+
 -callback(description() -> string()).
 
 -else.
@@ -39,3 +44,4 @@ behaviour_info(_Other) ->
     undefined.
 
 -endif.
+

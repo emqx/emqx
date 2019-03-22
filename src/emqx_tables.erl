@@ -15,7 +15,10 @@
 -module(emqx_tables).
 
 -export([new/2]).
--export([lookup_value/2, lookup_value/3]).
+
+-export([ lookup_value/2
+        , lookup_value/3
+        ]).
 
 %% Create a named_table ets.
 -spec(new(atom(), list()) -> ok).
