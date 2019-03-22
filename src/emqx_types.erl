@@ -82,7 +82,7 @@
 -type(credentials() :: #{client_id := client_id(),
                          username  := username(),
                          peername  := peername(),
-                         result    := auth_result(),
+                         auth_result := auth_result(),
                          zone      => zone(),
                          atom()    => term()
                         }).
