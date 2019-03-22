@@ -221,4 +221,3 @@ parse(Topic, Options = #{qos := QoS}) ->
     {Topic, Options#{rc => QoS}};
 parse(Topic, Options) ->
     {Topic, Options}.
-
