@@ -20,19 +20,33 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+%% APIs
 -export([start_link/0]).
--export([get_env/2, get_env/3]).
--export([set_env/3]).
--export([force_reload/0]).
+
+-export([ get_env/2
+        , get_env/3
+        , set_env/3
+        , force_reload/0
+        ]).
+
 %% for test
 -export([stop/0]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 -spec(start_link() -> startlink_ret()).
 start_link() ->

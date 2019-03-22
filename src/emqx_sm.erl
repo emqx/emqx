@@ -20,17 +20,30 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+%% APIs
 -export([start_link/0]).
 
--export([open_session/1, close_session/1]).
--export([resume_session/2]).
--export([discard_session/1, discard_session/2]).
--export([register_session/1, register_session/2]).
--export([unregister_session/1, unregister_session/2]).
--export([get_session_attrs/1, get_session_attrs/2,
-         set_session_attrs/2, set_session_attrs/3]).
--export([get_session_stats/1, get_session_stats/2,
-         set_session_stats/2, set_session_stats/3]).
+-export([ open_session/1
+        , close_session/1
+        , resume_session/2
+        , discard_session/1
+        , discard_session/2
+        , register_session/1
+        , register_session/2
+        , unregister_session/1
+        , unregister_session/2
+        ]).
+
+-export([ get_session_attrs/1
+        , get_session_attrs/2
+        , set_session_attrs/2
+        , set_session_attrs/3
+        , get_session_stats/1
+        , get_session_stats/2
+        , set_session_stats/2
+        , set_session_stats/3
+        ]).
+
 -export([lookup_session_pids/1]).
 
 %% Internal functions for rpc
@@ -43,8 +56,13 @@
 -export([clean_down/1]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -define(SM, ?MODULE).
 
@@ -55,6 +73,10 @@
 -define(SESSION_STATS_TAB, emqx_session_stats).
 
 -define(BATCH_SIZE, 100000).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 -spec(start_link() -> startlink_ret()).
 start_link() ->

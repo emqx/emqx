@@ -23,7 +23,12 @@
 -copy_mnesia({mnesia, [copy]}).
 
 %% Trie APIs
--export([insert/1, match/1, lookup/1, delete/1]).
+-export([ insert/1
+        , match/1
+        , lookup/1
+        , delete/1
+        ]).
+
 -export([empty/0]).
 
 %% Mnesia tables

@@ -16,7 +16,9 @@
 
 -behaviour(application).
 
--export([start/2, stop/1]).
+-export([ start/2
+        , stop/1
+        ]).
 
 -define(APP, emqx).
 

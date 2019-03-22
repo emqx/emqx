@@ -63,7 +63,7 @@ receive_messages(Count, Msgs) ->
             receive_messages(Count-1, [Msg|Msgs]);
         _Other ->
             receive_messages(Count, Msgs)
-    after 10 ->
+    after 100 ->
         Msgs
     end.
 

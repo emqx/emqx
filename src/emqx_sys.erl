@@ -20,10 +20,24 @@
 -include("logger.hrl").
 
 -export([start_link/0]).
--export([version/0, uptime/0, datetime/0, sysdescr/0, sys_interval/0]).
+
+-export([ version/0
+        , uptime/0
+        , datetime/0
+        , sysdescr/0
+        , sys_interval/0
+        ]).
+
 -export([info/0]).
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+
+%% gen_server callbacks
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -import(emqx_topic, [systop/1]).
 -import(emqx_misc, [start_timer/2]).
@@ -39,6 +53,10 @@
     datetime, % Broker local datetime
     sysdescr  % Broker description
 ]).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 -spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
 start_link() ->

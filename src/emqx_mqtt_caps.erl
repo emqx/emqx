@@ -18,8 +18,11 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
--export([check_pub/2, check_sub/2]).
--export([get_caps/1, get_caps/2]).
+-export([ check_pub/2
+        , check_sub/2
+        , get_caps/1
+        , get_caps/2
+        ]).
 
 -type(caps() :: #{max_packet_size  => integer(),
                   max_clientid_len => integer(),

@@ -27,18 +27,32 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
+%% APIs
 -export([start_link/0]).
 
--export([subscribe/3, unsubscribe/3]).
+-export([ subscribe/3
+        , unsubscribe/3
+        ]).
+
 -export([dispatch/3]).
--export([maybe_ack/1, maybe_nack_dropped/1, nack_no_connection/1, is_ack_required/1]).
+
+-export([ maybe_ack/1
+        , maybe_nack_dropped/1
+        , nack_no_connection/1
+        , is_ack_required/1
+        ]).
 
 %% for testing
 -export([subscribers/2]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -define(SERVER, ?MODULE).
 -define(TAB, emqx_shared_subscription).

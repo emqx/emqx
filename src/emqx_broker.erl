@@ -21,21 +21,46 @@
 -include("types.hrl").
 
 -export([start_link/2]).
--export([subscribe/1, subscribe/2, subscribe/3]).
+
+%% PubSub
+-export([ subscribe/1
+        , subscribe/2
+        , subscribe/3
+        ]).
+
 -export([unsubscribe/1]).
+
 -export([subscriber_down/1]).
--export([publish/1, safe_publish/1]).
+
+-export([ publish/1
+        , safe_publish/1
+        ]).
+
 -export([dispatch/2]).
--export([subscriptions/1, subscribers/1, subscribed/2]).
--export([get_subopts/2, set_subopts/2]).
+
+%% PubSub Infos
+-export([ subscriptions/1
+        , subscribers/1
+        , subscribed/2
+        ]).
+
+-export([ get_subopts/2
+        , set_subopts/2
+        ]).
+
 -export([topics/0]).
 
 %% Stats fun
 -export([stats_fun/0]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -import(emqx_tables, [lookup_value/2, lookup_value/3]).
 

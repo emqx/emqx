@@ -17,9 +17,14 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
--export([initial_state/0, initial_state/1]).
--export([parse/2]).
--export([serialize/1, serialize/2]).
+-export([ initial_state/0
+        , initial_state/1
+        ]).
+
+-export([ parse/2
+        , serialize/1
+        , serialize/2
+        ]).
 
 -type(options() :: #{max_packet_size => 1..?MAX_PACKET_SIZE,
                      version         => emqx_mqtt_types:version()}).

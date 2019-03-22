@@ -14,12 +14,21 @@
 
 -module(emqx_mod_rewrite).
 
+-behavior(emqx_gen_mod).
+
 -include_lib("emqx.hrl").
 -include_lib("emqx_mqtt.hrl").
 
--export([load/1, unload/1]).
+%% APIs
+-export([ rewrite_subscribe/3
+        , rewrite_unsubscribe/3
+        , rewrite_publish/2
+        ]).
 
--export([rewrite_subscribe/3, rewrite_unsubscribe/3, rewrite_publish/2]).
+%% emqx_gen_mod callbacks
+-export([ load/1
+        , unload/1
+        ]).
 
 %%------------------------------------------------------------------------------
 %% Load/Unload

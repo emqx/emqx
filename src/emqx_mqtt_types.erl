@@ -40,3 +40,4 @@
                     }).
 -type(topic_filters() :: [{emqx_topic:topic(), subopts()}]).
 -type(packet() :: #mqtt_packet{}).
+

@@ -14,13 +14,24 @@
 
 -module(emqx_sequence).
 
--export([create/1, nextval/2, currval/2, reclaim/2, delete/1]).
+-export([ create/1
+        , nextval/2
+        , currval/2
+        , reclaim/2
+        , delete/1
+        ]).
 
 -type(key() :: term()).
+
 -type(name() :: atom()).
+
 -type(seqid() :: non_neg_integer()).
 
 -export_type([seqid/0]).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 %% @doc Create a sequence.
 -spec(create(name()) -> ok).

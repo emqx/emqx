@@ -19,11 +19,16 @@
 -include_lib("emqx.hrl").
 -include_lib("emqx_mqtt.hrl").
 
--export([load/1, on_session_created/3, unload/1]).
+%% APIs
+-export([on_session_created/3]).
 
-%%--------------------------------------------------------------------
+%% emqx_gen_mod callbacks
+-export([ load/1
+        , unload/1
+        ]).
+%%------------------------------------------------------------------------------
 %% Load/Unload Hook
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 load(Topics) ->
     emqx_hooks:add('session.created', fun ?MODULE:on_session_created/3, [Topics]).
@@ -38,9 +43,9 @@ on_session_created(#{client_id := ClientId}, SessAttrs, Topics) ->
 unload(_) ->
     emqx_hooks:del('session.created', fun ?MODULE:on_session_created/3).
 
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% Internal functions
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 rep(<<"%c">>, ClientId, Topic) ->
     emqx_topic:feed_var(<<"%c">>, ClientId, Topic);

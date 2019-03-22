@@ -16,19 +16,19 @@
 
 -include("emqx.hrl").
 
--export([  get_acl_cache/2
-         , put_acl_cache/3
-         , cleanup_acl_cache/0
-         , empty_acl_cache/0
-         , dump_acl_cache/0
-         , get_cache_size/0
-         , get_cache_max_size/0
-         , get_newest_key/0
-         , get_oldest_key/0
-         , cache_k/2
-         , cache_v/1
-         , is_enabled/0
-         ]).
+-export([ get_acl_cache/2
+        , put_acl_cache/3
+        , cleanup_acl_cache/0
+        , empty_acl_cache/0
+        , dump_acl_cache/0
+        , get_cache_size/0
+        , get_cache_max_size/0
+        , get_newest_key/0
+        , get_oldest_key/0
+        , cache_k/2
+        , cache_v/1
+        , is_enabled/0
+        ]).
 
 -type(acl_result() :: allow | deny).
 
