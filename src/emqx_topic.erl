@@ -16,17 +16,22 @@
 
 -include("emqx_mqtt.hrl").
 
--export([match/2]).
--export([validate/1, validate/2]).
--export([levels/1]).
--export([triples/1]).
--export([tokens/1]).
--export([words/1]).
--export([wildcard/1]).
--export([join/1, prepend/2]).
--export([feed_var/3]).
--export([systop/1]).
--export([parse/1, parse/2]).
+%% APIs
+-export([ match/2
+        , validate/1
+        , validate/2
+        , levels/1
+        , triples/1
+        , tokens/1
+        , words/1
+        , wildcard/1
+        , join/1
+        , prepend/2
+        , feed_var/3
+        , systop/1
+        , parse/1
+        , parse/2
+        ]).
 
 -type(group() :: binary()).
 -type(topic() :: binary()).
@@ -37,6 +42,10 @@
 -export_type([group/0, topic/0, word/0, triple/0]).
 
 -define(MAX_TOPIC_LEN, 4096).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 %% @doc Is wildcard topic?
 -spec(wildcard(topic() | words()) -> true | false).
@@ -221,4 +230,3 @@ parse(Topic, Options = #{qos := QoS}) ->
     {Topic, Options#{rc => QoS}};
 parse(Topic, Options) ->
     {Topic, Options}.
-

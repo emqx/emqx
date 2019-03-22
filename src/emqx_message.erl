@@ -17,13 +17,35 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
--export([make/2, make/3, make/4]).
--export([set_flags/2]).
--export([get_flag/2, get_flag/3, set_flag/2, set_flag/3, unset_flag/2]).
--export([set_headers/2]).
--export([get_header/2, get_header/3, set_header/3]).
--export([is_expired/1, update_expiry/1]).
--export([remove_topic_alias/1]).
+-export([ make/2
+        , make/3
+        , make/4
+        ]).
+
+-export([ get_flag/2
+        , get_flag/3
+        , set_flag/2
+        , set_flag/3
+        , set_flags/2
+        , unset_flag/2
+        ]).
+
+-export([ get_headers/1
+        , get_header/2
+        , get_header/3
+        , set_header/3
+        , set_headers/2
+        , remove_header/2
+        ]).
+
+-export([ is_expired/1
+        , update_expiry/1
+        ]).
+
+-export([ to_map/1
+        , to_list/1
+        ]).
+
 -export([format/1]).
 
 -type(flag() :: atom()).
@@ -40,13 +62,13 @@ make(From, Topic, Payload) ->
 -spec(make(atom() | emqx_types:client_id(), emqx_mqtt_types:qos(),
            emqx_topic:topic(), emqx_types:payload()) -> emqx_types:message()).
 make(From, QoS, Topic, Payload) ->
-    #message{id         = emqx_guid:gen(),
-             qos        = QoS,
-             from       = From,
-             flags      = #{dup => false},
-             topic      = Topic,
-             payload    = Payload,
-             timestamp  = os:timestamp()}.
+    #message{id = emqx_guid:gen(),
+             qos = QoS,
+             from = From,
+             flags = #{dup => false},
+             topic = Topic,
+             payload = Payload,
+             timestamp = os:timestamp()}.
 
 -spec(set_flags(map(), emqx_types:message()) -> emqx_types:message()).
 set_flags(Flags, Msg = #message{flags = undefined}) when is_map(Flags) ->
@@ -88,6 +110,10 @@ set_headers(New, Msg = #message{headers = Old}) when is_map(New) ->
     Msg#message{headers = maps:merge(Old, New)};
 set_headers(undefined, Msg) -> Msg.
 
+-spec(get_headers(emqx_types:message()) -> map()).
+get_headers(Msg) ->
+    Msg#message.headers.
+
 -spec(get_header(term(), emqx_types:message()) -> term()).
 get_header(Hdr, Msg) ->
     get_header(Hdr, Msg, undefined).
@@ -101,14 +127,24 @@ set_header(Hdr, Val, Msg = #message{headers = undefined}) ->
 set_header(Hdr, Val, Msg = #message{headers = Headers}) ->
     Msg#message{headers = maps:put(Hdr, Val, Headers)}.
 
+-spec(remove_header(term(), emqx_types:message()) -> emqx_types:message()).
+remove_header(Hdr, Msg = #message{headers = Headers}) ->
+    case maps:is_key(Hdr, Headers) of
+        true ->
+            Msg#message{headers = maps:remove(Hdr, Headers)};
+        false -> Msg
+    end.
+
 -spec(is_expired(emqx_types:message()) -> boolean()).
-is_expired(#message{headers = #{'Message-Expiry-Interval' := Interval}, timestamp = CreatedAt}) ->
+is_expired(#message{headers = #{'Message-Expiry-Interval' := Interval},
+                    timestamp = CreatedAt}) ->
     elapsed(CreatedAt) > timer:seconds(Interval);
 is_expired(_Msg) ->
     false.
 
 -spec(update_expiry(emqx_types:message()) -> emqx_types:message()).
-update_expiry(Msg = #message{headers = #{'Message-Expiry-Interval' := Interval}, timestamp = CreatedAt}) ->
+update_expiry(Msg = #message{headers = #{'Message-Expiry-Interval' := Interval},
+                             timestamp = CreatedAt}) ->
     case elapsed(CreatedAt) of
         Elapsed when Elapsed > 0 ->
             set_header('Message-Expiry-Interval', max(1, Interval - (Elapsed div 1000)), Msg);
@@ -116,8 +152,15 @@ update_expiry(Msg = #message{headers = #{'Message-Expiry-Interval' := Interval},
     end;
 update_expiry(Msg) -> Msg.
 
-remove_topic_alias(Msg = #message{headers = Headers}) ->
-    Msg#message{headers = maps:remove('Topic-Alias', Headers)}.
+%% @doc Message to map
+-spec(to_map(emqx_types:message()) -> map()).
+to_map(Msg) ->
+    maps:from_list(to_list(Msg)).
+
+%% @doc Message to tuple list
+-spec(to_list(emqx_types:message()) -> map()).
+to_list(Msg) ->
+    lists:zip(record_info(fields, message), tl(tuple_to_list(Msg))).
 
 %% MilliSeconds
 elapsed(Since) ->
@@ -133,3 +176,4 @@ format(flags, Flags) ->
     io_lib:format("~p", [[Flag || {Flag, true} <- maps:to_list(Flags)]]);
 format(headers, Headers) ->
     io_lib:format("~p", [Headers]).
+

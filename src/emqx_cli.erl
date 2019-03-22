@@ -14,7 +14,11 @@
 
 -module(emqx_cli).
 
--export([print/1, print/2, usage/1, usage/2]).
+-export([ print/1
+        , print/2
+        , usage/1
+        , usage/2
+        ]).
 
 print(Msg) ->
     io:format(Msg), lists:flatten(io_lib:format("~p", [Msg])).

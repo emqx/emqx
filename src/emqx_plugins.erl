@@ -18,15 +18,18 @@
 
 -export([init/0]).
 
--export([load/0, unload/0]).
+-export([ load/0
+        , load/1
+        , unload/0
+        , unload/1
+        , list/0
+        , find_plugin/1
+        , load_expand_plugin/1
+        ]).
 
--export([load/1, unload/1]).
-
--export([list/0]).
-
--export([find_plugin/1]).
-
--export([load_expand_plugin/1]).
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 %% @doc Init plugins' config
 -spec(init() -> ok).
@@ -60,14 +63,15 @@ load() ->
 load_expand_plugins() ->
     case emqx_config:get_env(expand_plugins_dir) of
         undefined -> ok;
-        Dir ->
-            PluginsDir = filelib:wildcard("*", Dir),
-            lists:foreach(fun(PluginDir) ->
-                case filelib:is_dir(Dir ++ PluginDir) of
-                    true  -> load_expand_plugin(Dir ++ PluginDir);
+        ExpandPluginsDir ->
+            Plugins = filelib:wildcard("*", ExpandPluginsDir),
+            lists:foreach(fun(Plugin) ->
+                PluginDir = filename:join(ExpandPluginsDir, Plugin),
+                case filelib:is_dir(PluginDir) of
+                    true  -> load_expand_plugin(PluginDir);
                     false -> ok
                 end
-            end, PluginsDir)
+            end, Plugins)
     end.
 
 load_expand_plugin(PluginDir) ->
@@ -97,25 +101,6 @@ init_expand_plugin_config(PluginDir) ->
     lists:foreach(fun({AppName, Envs}) ->
         [application:set_env(AppName, Par, Val) || {Par, Val} <- Envs]
     end, AppsEnv).
-
-get_expand_plugin_config() ->
-    case emqx_config:get_env(expand_plugins_dir) of
-        undefined -> ok;
-        Dir ->
-            PluginsDir = filelib:wildcard("*", Dir),
-            lists:foldl(fun(PluginDir, Acc) ->
-                case filelib:is_dir(Dir ++ PluginDir) of
-                    true  ->
-                        Etc  = Dir ++ PluginDir ++ "/etc",
-                        case filelib:wildcard("*.{conf,config}", Etc) of
-                            [] -> Acc;
-                            [Conf] -> [Conf | Acc]
-                        end;
-                    false ->
-                        Acc
-                end
-            end, [], PluginsDir)
-    end.
 
 ensure_file(File) ->
     case filelib:is_file(File) of false -> write_loaded([]); true -> ok end.
@@ -155,23 +140,16 @@ stop_plugins(Names) ->
 %% @doc List all available plugins
 -spec(list() -> [emqx_types:plugin()]).
 list() ->
-    case emqx_config:get_env(plugins_etc_dir) of
-        undefined ->
-            [];
-        PluginsEtc ->
-            CfgFiles = filelib:wildcard("*.{conf,config}", PluginsEtc) ++ get_expand_plugin_config(),
-            Plugins = [plugin(CfgFile) || CfgFile <- CfgFiles],
-            StartedApps = names(started_app),
-            lists:map(fun(Plugin = #plugin{name = Name}) ->
-                          case lists:member(Name, StartedApps) of
-                              true  -> Plugin#plugin{active = true};
-                              false -> Plugin
-                          end
-                      end, Plugins)
-    end.
+    StartedApps = names(started_app),
+    lists:map(fun({Name, _, _}) ->
+        Plugin = plugin(Name),
+        case lists:member(Name, StartedApps) of
+            true  -> Plugin#plugin{active = true};
+            false -> Plugin
+        end
+    end, lists:sort(ekka_boot:all_module_attributes(emqx_plugin))).
 
-plugin(CfgFile) ->
-    AppName = app_name(CfgFile),
+plugin(AppName) ->
     case application:get_all_key(AppName) of
         {ok, Attrs} ->
             Ver = proplists:get_value(vsn, Attrs, "0"),
@@ -268,10 +246,6 @@ stop_app(App) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
-app_name(File) ->
-    [AppName | _] = string:tokens(File, "."), list_to_atom(AppName).
-
 names(plugin) ->
     names(list());
 
@@ -331,3 +305,4 @@ write_loaded(AppNames) ->
             emqx_logger:error("Open File ~p Error: ~p", [File, Error]),
             {error, Error}
     end.
+

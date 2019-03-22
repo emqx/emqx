@@ -17,7 +17,11 @@
 
 -include("emqx_mqtt.hrl").
 
--export([id/1, name/1, filter/2, validate/1]).
+-export([ id/1
+        , name/1
+        , filter/2
+        , validate/1
+        ]).
 
 -define(PROPS_TABLE,
         #{16#01 => {'Payload-Format-Indicator', 'Byte', [?PUBLISH]},

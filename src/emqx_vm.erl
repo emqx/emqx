@@ -14,17 +14,36 @@
 
 -module(emqx_vm).
 
--export([schedulers/0]).
--export([microsecs/0]).
--export([loads/0, get_system_info/0, get_system_info/1,  mem_info/0, scheduler_usage/1]).
--export([get_memory/0]).
--export([get_process_list/0, get_process_info/0, get_process_info/1,
-         get_process_gc/0, get_process_gc/1,
-         get_process_group_leader_info/1,
-         get_process_limit/0]).
--export([get_ets_list/0, get_ets_info/0, get_ets_info/1,
-         get_ets_object/0, get_ets_object/1]).
--export([get_port_types/0, get_port_info/0, get_port_info/1]).
+-export([ schedulers/0
+        , scheduler_usage/1
+        , microsecs/0
+        , get_system_info/0
+        , get_system_info/1
+        , get_memory/0
+        , mem_info/0
+        , loads/0
+        ]).
+
+-export([ get_process_list/0
+        , get_process_info/0
+        , get_process_info/1
+        , get_process_gc/0
+        , get_process_gc/1
+        , get_process_group_leader_info/1
+        , get_process_limit/0
+        ]).
+
+-export([ get_ets_list/0
+        , get_ets_info/0
+        , get_ets_info/1
+        , get_ets_object/0
+        , get_ets_object/1
+        ]).
+
+-export([ get_port_types/0
+        , get_port_info/0
+        , get_port_info/1
+        ]).
 
 -define(UTIL_ALLOCATORS, [temp_alloc,
                           eheap_alloc,

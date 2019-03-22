@@ -14,10 +14,18 @@
 
 -module(emqx_misc).
 
--export([merge_opts/2, start_timer/2, start_timer/3, cancel_timer/1,
-         proc_name/2, proc_stats/0, proc_stats/1]).
+-export([ merge_opts/2
+        , start_timer/2
+        , start_timer/3
+        , cancel_timer/1
+        , proc_name/2
+        , proc_stats/0
+        , proc_stats/1
+        ]).
 
--export([init_proc_mng_policy/1, conn_proc_mng_policy/1]).
+-export([ init_proc_mng_policy/1
+        , conn_proc_mng_policy/1
+        ]).
 
 -export([drain_down/1]).
 

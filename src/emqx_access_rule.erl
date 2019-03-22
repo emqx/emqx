@@ -16,6 +16,11 @@
 
 -include("emqx.hrl").
 
+%% APIs
+-export([ match/3
+        , compile/1
+        ]).
+
 -type(acl_result() :: allow | deny).
 
 -type(who() :: all | binary() |
@@ -30,11 +35,12 @@
 
 -export_type([rule/0]).
 
--export([compile/1]).
--export([match/3]).
-
 -define(ALLOW_DENY(A), ((A =:= allow) orelse (A =:= deny))).
 -define(PUBSUB(A), ((A =:= subscribe) orelse (A =:= publish) orelse (A =:= pubsub))).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 %% @doc Compile Access Rule.
 compile({A, all}) when ?ALLOW_DENY(A) ->

@@ -17,7 +17,11 @@
 -behaviour(supervisor).
 
 -export([spec/1, spec/2]).
--export([start_link/0, start_link/3, start_link/4]).
+
+-export([ start_link/0
+        , start_link/3
+        , start_link/4
+        ]).
 
 -export([init/1]).
 

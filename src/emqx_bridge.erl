@@ -61,25 +61,47 @@
 -behaviour(gen_statem).
 
 %% APIs
--export([start_link/2,
-         import_batch/2,
-         handle_ack/2,
-         stop/1]).
+-export([ start_link/2
+        , import_batch/2
+        , handle_ack/2
+        , stop/1
+        ]).
 
 %% gen_statem callbacks
--export([terminate/3, code_change/4, init/1, callback_mode/0]).
+-export([ terminate/3
+        , code_change/4
+        , init/1
+        , callback_mode/0
+        ]).
 
 %% state functions
--export([standing_by/3, connecting/3, connected/3]).
+-export([ standing_by/3
+        , connecting/3
+        , connected/3
+        ]).
 
 %% management APIs
--export([ensure_started/1, ensure_started/2, ensure_stopped/1, ensure_stopped/2, status/1]).
--export([get_forwards/1, ensure_forward_present/2, ensure_forward_absent/2]).
--export([get_subscriptions/1, ensure_subscription_present/3, ensure_subscription_absent/2]).
+-export([ ensure_started/1
+        , ensure_started/2
+        , ensure_stopped/1
+        , ensure_stopped/2
+        , status/1
+        ]).
 
--export_type([config/0,
-              batch/0,
-              ack_ref/0]).
+-export([ get_forwards/1
+        , ensure_forward_present/2
+        , ensure_forward_absent/2
+        ]).
+
+-export([ get_subscriptions/1
+        , ensure_subscription_present/3
+        , ensure_subscription_absent/2
+        ]).
+
+-export_type([ config/0
+             , batch/0
+             , ack_ref/0
+             ]).
 
 -type id() :: atom() | string() | pid().
 -type qos() :: emqx_mqtt_types:qos().
@@ -552,3 +574,4 @@ name(Id) -> list_to_atom(lists:concat([?MODULE, "_", Id])).
 
 id(Pid) when is_pid(Pid) -> Pid;
 id(Name) -> name(Name).
+

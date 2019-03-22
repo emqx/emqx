@@ -23,7 +23,11 @@
 
 -include("types.hrl").
 
--export([init/1, run/3, info/1, reset/1]).
+-export([ init/1
+        , run/3
+        , info/1
+        , reset/1
+        ]).
 
 -type(opts() :: #{count => integer(),
                   bytes => integer()}).

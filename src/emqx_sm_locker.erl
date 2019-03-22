@@ -19,8 +19,16 @@
 
 -export([start_link/0]).
 
--export([trans/2, trans/3]).
--export([lock/1, lock/2, unlock/1]).
+-export([ trans/2
+        , trans/3
+        , lock/1
+        , lock/2
+        , unlock/1
+        ]).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 -spec(start_link() -> startlink_ret()).
 start_link() ->

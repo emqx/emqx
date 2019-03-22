@@ -18,14 +18,43 @@
 -include("types.hrl").
 
 -export_type([zone/0]).
--export_type([pubsub/0, topic/0, subid/0, subopts/0]).
--export_type([client_id/0, username/0, password/0, peername/0, protocol/0]).
--export_type([credentials/0, session/0]).
--export_type([subscription/0, subscriber/0, topic_table/0]).
--export_type([payload/0, message/0]).
--export_type([delivery/0, deliver_results/0]).
+
+-export_type([ pubsub/0
+             , topic/0
+             , subid/0
+             , subopts/0
+             ]).
+
+-export_type([ client_id/0
+             , username/0
+             , password/0
+             , peername/0
+             , protocol/0
+             ]).
+
+-export_type([ credentials/0
+             , session/0
+             ]).
+
+-export_type([ subscription/0
+             , subscriber/0
+             , topic_table/0
+             ]).
+
+-export_type([ payload/0
+             , message/0
+             ]).
+
+-export_type([ delivery/0
+             , deliver_results/0
+             ]).
+
 -export_type([route/0]).
--export_type([alarm/0, plugin/0, command/0]).
+
+-export_type([ alarm/0
+             , plugin/0
+             , command/0
+             ]).
 
 -type(zone() :: atom()).
 -type(pubsub() :: publish | subscribe).
@@ -40,10 +69,20 @@
 -type(username() :: maybe(binary())).
 -type(password() :: maybe(binary())).
 -type(peername() :: {inet:ip_address(), inet:port_number()}).
+-type(auth_result() :: success
+                     | client_identifier_not_valid
+                     | bad_username_or_password
+                     | bad_clientid_or_password
+                     | not_authorized
+                     | server_unavailable
+                     | server_busy
+                     | banned
+                     | bad_authentication_method).
 -type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | none | atom()).
 -type(credentials() :: #{client_id := client_id(),
                          username  := username(),
                          peername  := peername(),
+                         auth_result := auth_result(),
                          zone      => zone(),
                          atom()    => term()
                         }).
@@ -59,3 +98,4 @@
 -type(alarm() :: #alarm{}).
 -type(plugin() :: #plugin{}).
 -type(command() :: #command{}).
+

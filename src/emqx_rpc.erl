@@ -15,8 +15,10 @@
 %% @doc wrap gen_rpc?
 -module(emqx_rpc).
 
--export([call/4, cast/4]).
--export([multicall/4]).
+-export([ call/4
+        , cast/4
+        , multicall/4
+        ]).
 
 -define(RPC, gen_rpc).
 

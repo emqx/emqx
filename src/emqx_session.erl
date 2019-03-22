@@ -46,21 +46,40 @@
 -include("types.hrl").
 
 -export([start_link/1]).
--export([info/1, attrs/1]).
--export([stats/1]).
--export([resume/2, discard/2]).
--export([update_expiry_interval/2]).
--export([subscribe/2, subscribe/4]).
--export([publish/3]).
--export([puback/2, puback/3]).
--export([pubrec/2, pubrec/3]).
--export([pubrel/3, pubcomp/3]).
--export([unsubscribe/2, unsubscribe/4]).
+
+-export([ info/1
+        , attrs/1
+        , stats/1
+        ]).
+
+-export([ resume/2
+        , discard/2
+        , update_expiry_interval/2
+        ]).
+
+-export([ subscribe/2
+        , subscribe/4
+        , unsubscribe/2
+        , unsubscribe/4
+        , publish/3
+        , puback/2
+        , puback/3
+        , pubrec/2
+        , pubrec/3
+        , pubrel/3
+        , pubcomp/3
+        ]).
+
 -export([close/1]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -import(emqx_zone, [get_env/2, get_env/3]).
 
@@ -390,7 +409,7 @@ deliver_fun(ConnPid) when node(ConnPid) == node() ->
 deliver_fun(ConnPid) ->
     Node = node(ConnPid),
     fun(Packet) ->
-            emqx_rpc:cast(Node, erlang, send, [ConnPid, {deliver, Packet}])
+        true = emqx_rpc:cast(Node, erlang, send, [ConnPid, {deliver, Packet}]), ok
     end.
 
 handle_call(info, _From, State) ->
@@ -941,11 +960,8 @@ enqueue_msg(Msg, State = #state{mqueue = Q, client_id = ClientId, username = Use
 %% Deliver
 %%------------------------------------------------------------------------------
 
-redeliver({PacketId, Msg = #message{qos = QoS}}, State) ->
-    Msg1 = if
-               QoS =:= ?QOS_2 -> Msg;
-               true -> emqx_message:set_flag(dup, Msg)
-           end,
+redeliver({PacketId, Msg = #message{qos = QoS}}, State) when QoS =/= ?QOS_0 ->
+    Msg1 = emqx_message:set_flag(dup, Msg),
     do_deliver(PacketId, Msg1, State);
 
 redeliver({pubrel, PacketId}, #state{deliver_fun = DeliverFun}) ->

@@ -18,11 +18,21 @@
 
 -include("emqx.hrl").
 
--export([load/1, unload/1]).
+%% APIs
+-export([ on_client_connected/4
+        , on_client_disconnected/3
+        ]).
 
--export([on_client_connected/4, on_client_disconnected/3]).
+%% emqx_gen_mod callbacks
+-export([ load/1
+        , unload/1
+        ]).
 
 -define(ATTR_KEYS, [clean_start, proto_ver, proto_name, keepalive]).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 load(Env) ->
     emqx_hooks:add('client.connected',    fun ?MODULE:on_client_connected/4, [Env]),

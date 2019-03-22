@@ -15,6 +15,7 @@
 -module(emqx_logger_handler).
 
 -export([log/2]).
+
 -export([init/0]).
 
 init() ->

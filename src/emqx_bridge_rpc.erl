@@ -18,9 +18,9 @@
 -behaviour(emqx_bridge_connect).
 
 %% behaviour callbacks
--export([start/1,
-         send/2,
-         stop/2
+-export([ start/1
+        , send/2
+        , stop/2
         ]).
 
 %% Internal exports
