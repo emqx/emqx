@@ -72,6 +72,7 @@
 -type(auth_result() :: success
                      | client_identifier_not_valid
                      | bad_username_or_password
+                     | bad_clientid_or_password
                      | not_authorized
                      | server_unavailable
                      | server_busy
