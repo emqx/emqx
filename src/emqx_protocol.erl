@@ -18,21 +18,22 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 
--export([init/2]).
--export([info/1]).
--export([attrs/1]).
--export([attr/2]).
--export([caps/1]).
--export([stats/1]).
--export([client_id/1]).
--export([credentials/1]).
--export([parser/1]).
--export([session/1]).
--export([received/2]).
--export([process/2]).
--export([deliver/2]).
--export([send/2]).
--export([terminate/2]).
+-export([ init/2
+        , info/1
+        , attrs/1
+        , attr/2
+        , caps/1
+        , stats/1
+        , client_id/1
+        , credentials/1
+        , parser/1
+        , session/1
+        , received/2
+        , process/2
+        , deliver/2
+        , send/2
+        , terminate/2
+        ]).
 
 -export_type([state/0]).
 
@@ -654,7 +655,7 @@ deliver({publish, PacketId, Msg}, PState = #pstate{mountpoint = MountPoint}) ->
     Msg0 = emqx_hooks:run_fold('message.deliver', [credentials(PState)], Msg),
     Msg1 = emqx_message:update_expiry(Msg0),
     Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
-    send(emqx_packet:from_message(PacketId, emqx_message:remove_topic_alias(Msg2)), PState);
+    send(emqx_packet:from_message(PacketId, Msg2), PState);
 
 deliver({puback, PacketId, ReasonCode}, PState) ->
     send(?PUBACK_PACKET(PacketId, ReasonCode), PState);

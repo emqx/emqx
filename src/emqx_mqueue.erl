@@ -50,10 +50,15 @@
 -include("emqx_mqtt.hrl").
 
 -export([init/1]).
--export([is_empty/1]).
--export([len/1, max_len/1]).
--export([in/2, out/1]).
--export([stats/1, dropped/1]).
+
+-export([ is_empty/1
+        , len/1
+        , max_len/1
+        , in/2
+        , out/1
+        , stats/1
+        , dropped/1
+        ]).
 
 -export_type([mqueue/0, options/0]).
 

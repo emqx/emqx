@@ -17,12 +17,14 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
--export([protocol_name/1]).
--export([type_name/1]).
--export([validate/1]).
--export([format/1]).
--export([to_message/2, from_message/2]).
--export([will_msg/1]).
+-export([ protocol_name/1
+        , type_name/1
+        , validate/1
+        , format/1
+        , to_message/2
+        , from_message/2
+        , will_msg/1
+        ]).
 
 %% @doc Protocol name of version
 -spec(protocol_name(emqx_mqtt_types:version()) -> binary()).
@@ -254,3 +256,4 @@ format_password(_Password) -> '******'.
 i(true)  -> 1;
 i(false) -> 0;
 i(I) when is_integer(I) -> I.
+

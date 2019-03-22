@@ -14,13 +14,21 @@
 
 -module(emqx_keepalive).
 
--export([start/3, check/1, cancel/1]).
+%% APIs
+-export([ start/3
+        , check/1
+        , cancel/1
+        ]).
 
 -record(keepalive, {statfun, statval, tsec, tmsg, tref, repeat = 0}).
 
 -opaque(keepalive() :: #keepalive{}).
 
 -export_type([keepalive/0]).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 %% @doc Start a keepalive
 -spec(start(fun(), integer(), any()) -> {ok, keepalive()} | {error, term()}).

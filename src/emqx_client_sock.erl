@@ -14,9 +14,15 @@
 
 -module(emqx_client_sock).
 
--export([connect/4, send/2, close/1]).
+-export([ connect/4
+        , send/2
+        , close/1
+        ]).
 
--export([sockname/1, setopts/2, getstat/2]).
+-export([ sockname/1
+        , setopts/2
+        , getstat/2
+        ]).
 
 -record(ssl_socket, {tcp, ssl}).
 

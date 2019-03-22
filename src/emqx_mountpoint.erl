@@ -17,11 +17,19 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
--export([mount/2, unmount/2]).
+-export([ mount/2
+        , unmount/2
+        ]).
+
 -export([replvar/2]).
 
 -type(mountpoint() :: binary()).
+
 -export_type([mountpoint/0]).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 mount(undefined, Any) ->
     Any;
@@ -53,3 +61,4 @@ feed_var({<<"%u">>, undefined}, MountPoint) ->
     MountPoint;
 feed_var({<<"%u">>, Username}, MountPoint) ->
     emqx_topic:feed_var(<<"%u">>, Username, MountPoint).
+

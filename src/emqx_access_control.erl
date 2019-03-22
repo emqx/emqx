@@ -18,7 +18,10 @@
 -include("logger.hrl").
 
 -export([authenticate/1]).
--export([check_acl/3, reload_acl/0]).
+
+-export([ check_acl/3
+        , reload_acl/0
+        ]).
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -57,8 +60,10 @@ do_check_acl(#{zone := Zone} = Credentials, PubSub, Topic) ->
         _ -> deny
     end.
 
--spec(reload_acl() -> list(ok | {error, term()})).
+-spec(reload_acl() -> ok | {error, term()}).
 reload_acl() ->
+    emqx_acl_cache:is_enabled() andalso
+        emqx_acl_cache:empty_acl_cache(),
     emqx_mod_acl_internal:reload_acl().
 
 init_auth_result(Credentials) ->

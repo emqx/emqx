@@ -25,15 +25,18 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
--export([init/1,
-         handle_event/2,
-         handle_call/2,
-         handle_info/2,
-         terminate/2]).
+%% gen_server callbacks
+-export([ init/1
+        , handle_event/2
+        , handle_call/2
+        , handle_info/2
+        , terminate/2
+        ]).
 
--export([load/0,
-         unload/0,
-         get_alarms/0]).
+-export([ load/0
+        , unload/0
+        , get_alarms/0
+        ]).
 
 -record(common_alarm, {id, desc}).
 -record(alarm_history, {id, clear_at}).
@@ -170,5 +173,4 @@ get_alarms_() ->
 set_alarm_history(Id) ->
     mnesia:dirty_write(?ALARM_HISTORY_TAB, #alarm_history{id = Id,
                                                           clear_at = undefined}).
-
 

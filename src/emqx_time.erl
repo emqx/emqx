@@ -14,7 +14,13 @@
 
 -module(emqx_time).
 
--export([seed/0, now_secs/0, now_secs/1, now_ms/0, now_ms/1, ts_from_ms/1]).
+-export([ seed/0
+        , now_secs/0
+        , now_secs/1
+        , now_ms/0
+        , now_ms/1
+        , ts_from_ms/1
+        ]).
 
 seed() ->
     rand:seed(exsplus, erlang:timestamp()).

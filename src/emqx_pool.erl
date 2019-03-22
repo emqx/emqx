@@ -19,20 +19,35 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+%% APIs
 -export([start_link/2]).
--export([submit/1, submit/2]).
--export([async_submit/1, async_submit/2]).
+
+-export([ submit/1
+        , submit/2
+        , async_submit/1
+        , async_submit/2
+        ]).
+
 -ifdef(TEST).
 -export([worker/0]).
 -endif.
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -define(POOL, ?MODULE).
 
 -type(task() :: fun() | mfa() | {fun(), Args :: list(any())}).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 %% @doc Start pool.
 -spec(start_link(atom(), pos_integer()) -> startlink_ret()).

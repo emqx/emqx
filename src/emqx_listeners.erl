@@ -17,12 +17,25 @@
 
 -include("emqx_mqtt.hrl").
 
--export([start/0, restart/0, stop/0]).
--export([start_listener/1, start_listener/3]).
--export([restart_listener/1, restart_listener/3]).
--export([stop_listener/1, stop_listener/3]).
+%% APIs
+-export([ start/0
+        , restart/0
+        , stop/0
+        ]).
+
+-export([ start_listener/1
+        , start_listener/3
+        , stop_listener/1
+        , stop_listener/3
+        , restart_listener/1
+        , restart_listener/3
+        ]).
 
 -type(listener() :: {esockd:proto(), esockd:listen_on(), [esockd:option()]}).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 %% @doc Start all listeners.
 -spec(start() -> ok).

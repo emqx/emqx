@@ -20,27 +20,71 @@
 -include("emqx_client.hrl").
 
 -export([start_link/0, start_link/1]).
--export([connect/1]).
--export([subscribe/2, subscribe/3, subscribe/4]).
--export([publish/2, publish/3, publish/4, publish/5]).
--export([unsubscribe/2, unsubscribe/3]).
+
+-export([ connect/1
+        , disconnect/1
+        , disconnect/2
+        , disconnect/3
+        ]).
+
 -export([ping/1]).
--export([disconnect/1, disconnect/2, disconnect/3]).
--export([puback/2, puback/3, puback/4]).
--export([pubrec/2, pubrec/3, pubrec/4]).
--export([pubrel/2, pubrel/3, pubrel/4]).
--export([pubcomp/2, pubcomp/3, pubcomp/4]).
+
+%% PubSub
+-export([ subscribe/2
+        , subscribe/3
+        , subscribe/4
+        , publish/2
+        , publish/3
+        , publish/4
+        , publish/5
+        , unsubscribe/2
+        , unsubscribe/3
+        ]).
+
+%% Puback...
+-export([ puback/2
+        , puback/3
+        , puback/4
+        , pubrec/2
+        , pubrec/3
+        , pubrec/4
+        , pubrel/2
+        , pubrel/3
+        , pubrel/4
+        , pubcomp/2
+        , pubcomp/3
+        , pubcomp/4
+        ]).
+
 -export([subscriptions/1]).
+
 -export([info/1, stop/1]).
+
 %% For test cases
 -export([pause/1, resume/1]).
 
--export([initialized/3, waiting_for_connack/3, connected/3, inflight_full/3]).
--export([init/1, callback_mode/0, handle_event/4, terminate/3, code_change/4]).
+-export([ initialized/3
+        , waiting_for_connack/3
+        , connected/3
+        , inflight_full/3
+        ]).
 
--export_type([client/0, properties/0, payload/0, pubopt/0, subopt/0, mqtt_msg/0]).
+-export([ init/1
+        , callback_mode/0
+        , handle_event/4
+        , terminate/3
+        , code_change/4
+        ]).
 
--export_type([host/0, option/0]).
+-export_type([ host/0
+             , client/0
+             , option/0
+             , properties/0
+             , payload/0
+             , pubopt/0
+             , subopt/0
+             , mqtt_msg/0
+             ]).
 
 %% Default timeout
 -define(DEFAULT_KEEPALIVE,       60000).
@@ -1186,3 +1230,4 @@ bump_last_packet_id(State = #state{last_packet_id = Id}) ->
 -spec next_packet_id(packet_id()) -> packet_id().
 next_packet_id(?MAX_PACKET_ID) -> 1;
 next_packet_id(Id) -> Id + 1.
+

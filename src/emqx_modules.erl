@@ -14,7 +14,9 @@
 
 -module(emqx_modules).
 
--export([load/0, unload/0]).
+-export([ load/0
+        , unload/0
+        ]).
 
 -spec(load() -> ok).
 load() ->

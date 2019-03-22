@@ -17,8 +17,17 @@
 
 -include("logger.hrl").
 
--export([start_link/0, start_link/1, bridges/0]).
--export([create_bridge/2, drop_bridge/1]).
+%% APIs
+-export([ start_link/0
+        , start_link/1
+        , bridges/0
+        ]).
+
+-export([ create_bridge/2
+        , drop_bridge/1
+        ]).
+
+%% supervisor callbacks
 -export([init/1]).
 
 -define(SUP, ?MODULE).
@@ -60,3 +69,4 @@ drop_bridge(Id) ->
             ?LOG(error, "[Bridge] Delete bridge failed", [Error]),
             Error
     end.
+

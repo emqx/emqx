@@ -22,11 +22,23 @@
 -export([start_link/0, stop/0]).
 
 %% Hooks API
--export([add/2, add/3, add/4, del/2, run/2, run_fold/3, lookup/1]).
+-export([ add/2
+        , add/3
+        , add/4
+        , del/2
+        , run/2
+        , run_fold/3
+        , lookup/1
+        ]).
 
 %% gen_server Function Exports
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 %% Multiple callbacks can be registered on a hookpoint.
 %% The execution order depends on the priority value:

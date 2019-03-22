@@ -21,15 +21,28 @@
 -include("logger.hrl").
 
 -export([start_link/3]).
+
+%% APIs
 -export([info/1]).
+
 -export([attrs/1]).
+
 -export([stats/1]).
+
 -export([kick/1]).
+
 -export([session/1]).
 
 %% gen_statem callbacks
--export([idle/3, connected/3]).
--export([init/1, callback_mode/0, code_change/4, terminate/3]).
+-export([ idle/3
+        , connected/3
+        ]).
+
+-export([ init/1
+        , callback_mode/0
+        , code_change/4
+        , terminate/3
+        ]).
 
 -record(state, {
           transport,
