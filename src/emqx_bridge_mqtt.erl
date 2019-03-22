@@ -15,17 +15,18 @@
 %% @doc This module implements EMQX Bridge transport layer on top of MQTT protocol
 
 -module(emqx_bridge_mqtt).
+
 -behaviour(emqx_bridge_connect).
 
 %% behaviour callbacks
--export([start/1,
-         send/2,
-         stop/2
+-export([ start/1
+        , send/2
+        , stop/2
         ]).
 
 %% optional behaviour callbacks
--export([ensure_subscribed/3,
-         ensure_unsubscribed/2
+-export([ ensure_subscribed/3
+        , ensure_unsubscribed/2
         ]).
 
 -include("emqx_mqtt.hrl").
@@ -38,6 +39,10 @@
 -define(SENT(RefIds), {sent, RefIds}).
 -define(ACKED(AnyPktId), {acked, AnyPktId}).
 -define(STOP(Ref), {stop, Ref}).
+
+%%------------------------------------------------------------------------------
+%% emqx_bridge_connect callbacks
+%%------------------------------------------------------------------------------
 
 start(Config = #{address := Address}) ->
     Ref = make_ref(),
@@ -183,3 +188,4 @@ subscribe_remote_topics(ClientPid, Subscriptions) ->
                               Error -> throw(Error)
                           end
                   end, Subscriptions).
+

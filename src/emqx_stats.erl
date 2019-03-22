@@ -20,17 +20,32 @@
 -include("logger.hrl").
 -include("types.hrl").
 
--export([start_link/0, start_link/1, stop/0]).
+%% APIs
+-export([ start_link/0
+        , start_link/1
+        , stop/0
+        ]).
 
 %% Stats API.
--export([getstats/0, getstat/1]).
--export([setstat/2, setstat/3]).
--export([statsfun/1, statsfun/2]).
--export([update_interval/2, update_interval/3, cancel_update/1]).
+-export([ getstats/0
+        , getstat/1
+        , setstat/2
+        , setstat/3
+        , statsfun/1
+        , statsfun/2
+        , update_interval/2
+        , update_interval/3
+        , cancel_update/1
+        ]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -record(update, {name, countdown, interval, func}).
 -record(state, {timer, updates :: [#update{}],

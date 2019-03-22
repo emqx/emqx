@@ -69,3 +69,4 @@ obfuscate(Map) ->
 
 is_sensitive(password) -> true;
 is_sensitive(_) -> false.
+

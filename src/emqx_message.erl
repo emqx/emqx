@@ -19,23 +19,24 @@
 
 -export([ make/2
         , make/3
-        , make/4 ]).
+        , make/4
+        ]).
 
 -export([ get_flag/2
         , get_flag/3
         , set_flag/2
         , set_flag/3
+        , set_flags/2
         , unset_flag/2
         ]).
--export([set_flags/2]).
 
 -export([ get_headers/1
         , get_header/2
         , get_header/3
         , set_header/3
+        , set_headers/2
         , remove_header/2
         ]).
--export([set_headers/2]).
 
 -export([ is_expired/1
         , update_expiry/1

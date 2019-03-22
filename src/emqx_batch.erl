@@ -14,28 +14,37 @@
 
 -module(emqx_batch).
 
--export([init/1, push/2, commit/1]).
--export([size/1, items/1]).
+%% APIs
+-export([ init/1
+        , push/2
+        , commit/1
+        , size/1
+        , items/1
+        ]).
 
--type(options() :: #{
-        batch_size => non_neg_integer(),
-        linger_ms => pos_integer(),
-        commit_fun := function()
+-record(batch,
+        { batch_size :: non_neg_integer()
+        , batch_q :: list(any())
+        , linger_ms :: pos_integer()
+        , linger_timer :: reference() | undefined
+        , commit_fun :: function()
+        }).
+
+-type(options() ::
+      #{ batch_size => non_neg_integer()
+       , linger_ms => pos_integer()
+       , commit_fun := function()
        }).
-
--export_type([options/0]).
-
--record(batch, {
-          batch_size :: non_neg_integer(),
-          batch_q :: list(any()),
-          linger_ms :: pos_integer(),
-          linger_timer :: reference() | undefined,
-          commit_fun :: function()
-         }).
 
 -opaque(batch() :: #batch{}).
 
+-export_type([options/0]).
+
 -export_type([batch/0]).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 -spec(init(options()) -> batch()).
 init(Opts) when is_map(Opts) ->

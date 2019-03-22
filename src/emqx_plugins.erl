@@ -18,15 +18,18 @@
 
 -export([init/0]).
 
--export([load/0, unload/0]).
+-export([ load/0
+        , load/1
+        , unload/0
+        , unload/1
+        , list/0
+        , find_plugin/1
+        , load_expand_plugin/1
+        ]).
 
--export([load/1, unload/1]).
-
--export([list/0]).
-
--export([find_plugin/1]).
-
--export([load_expand_plugin/1]).
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 %% @doc Init plugins' config
 -spec(init() -> ok).
@@ -302,3 +305,4 @@ write_loaded(AppNames) ->
             emqx_logger:error("Open File ~p Error: ~p", [File, Error]),
             {error, Error}
     end.
+

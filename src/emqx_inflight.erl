@@ -14,17 +14,37 @@
 
 -module(emqx_inflight).
 
--export([new/1, contain/2, lookup/2, insert/3, update/3, update_size/2, delete/2,
-         values/1, to_list/1, size/1, max_size/1, is_full/1, is_empty/1, window/1]).
+%% APIs
+-export([ new/1
+        , contain/2
+        , lookup/2
+        , insert/3
+        , update/3
+        , update_size/2
+        , delete/2
+        , values/1
+        , to_list/1
+        , size/1
+        , max_size/1
+        , is_full/1
+        , is_empty/1
+        , window/1
+        ]).
 
 -type(key() :: term()).
+
 -type(max_size() :: pos_integer()).
+
 -opaque(inflight() :: {?MODULE, max_size(), gb_trees:tree()}).
 
 -define(Inflight(Tree), {?MODULE, _MaxSize, Tree}).
 -define(Inflight(MaxSize, Tree), {?MODULE, MaxSize, (Tree)}).
 
 -export_type([inflight/0]).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 -spec(new(non_neg_integer()) -> inflight()).
 new(MaxSize) when MaxSize >= 0 ->

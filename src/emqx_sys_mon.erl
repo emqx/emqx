@@ -20,10 +20,18 @@
 -include("types.hrl").
 
 -export([start_link/1]).
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-         code_change/3]).
+
 %% compress unused warning
 -export([procinfo/1]).
+
+%% gen_server callbacks
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -type(option() :: {long_gc, false | pos_integer()}
                 | {long_schedule, false | pos_integer()}
@@ -32,6 +40,10 @@
                 | {busy_dist_port, boolean()}).
 
 -define(SYSMON, ?MODULE).
+
+%%------------------------------------------------------------------------------
+%% APIs
+%%------------------------------------------------------------------------------
 
 %% @doc Start system monitor
 -spec(start_link(list(option())) -> startlink_ret()).

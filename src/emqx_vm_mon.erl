@@ -16,21 +16,25 @@
 
 -behaviour(gen_server).
 
+%% APIs
 -export([start_link/1]).
 
--export([init/1,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2,
-         terminate/2,
-         code_change/3]).
+-export([ get_check_interval/0
+        , set_check_interval/1
+        , get_process_high_watermark/0
+        , set_process_high_watermark/1
+        , get_process_low_watermark/0
+        , set_process_low_watermark/1
+        ]).
 
--export([get_check_interval/0,
-         set_check_interval/1,
-         get_process_high_watermark/0,
-         set_process_high_watermark/1,
-         get_process_low_watermark/0,
-         set_process_low_watermark/1]).
+%% gen_server callbacks
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
 
 -define(VM_MON, ?MODULE).
 
