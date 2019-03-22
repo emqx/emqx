@@ -197,4 +197,3 @@ reload_config(ConfFile) ->
     lists:foreach(fun({App, Vals}) ->
                       [application:set_env(App, Par, Val) || {Par, Val} <- Vals]
                   end, Conf).
-

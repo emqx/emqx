@@ -395,7 +395,7 @@ deliver_fun(ConnPid) when node(ConnPid) == node() ->
 deliver_fun(ConnPid) ->
     Node = node(ConnPid),
     fun(Packet) ->
-            emqx_rpc:cast(Node, erlang, send, [ConnPid, {deliver, Packet}])
+        true = emqx_rpc:cast(Node, erlang, send, [ConnPid, {deliver, Packet}]), ok
     end.
 
 handle_call(info, _From, State) ->
@@ -946,11 +946,8 @@ enqueue_msg(Msg, State = #state{mqueue = Q, client_id = ClientId, username = Use
 %% Deliver
 %%------------------------------------------------------------------------------
 
-redeliver({PacketId, Msg = #message{qos = QoS}}, State) ->
-    Msg1 = if
-               QoS =:= ?QOS_2 -> Msg;
-               true -> emqx_message:set_flag(dup, Msg)
-           end,
+redeliver({PacketId, Msg = #message{qos = QoS}}, State) when QoS =/= ?QOS_0 ->
+    Msg1 = emqx_message:set_flag(dup, Msg),
     do_deliver(PacketId, Msg1, State);
 
 redeliver({pubrel, PacketId}, #state{deliver_fun = DeliverFun}) ->
