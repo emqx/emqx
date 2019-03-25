@@ -204,14 +204,20 @@ client_id(#pstate{client_id = ClientId}) ->
 
 credentials(#pstate{credentials = Credentials}) when map_size(Credentials) =/= 0 ->
     Credentials;
-credentials(#pstate{zone       = Zone,
-                    client_id  = ClientId,
-                    username   = Username,
-                    peername   = Peername}) ->
-    #{zone      => Zone,
-      client_id => ClientId,
-      username  => Username,
-      peername  => Peername}.
+credentials(#pstate{zone      = Zone,
+                    client_id = ClientId,
+                    username  = Username,
+                    peername  = Peername,
+                    peercert  = Peercert}) ->
+    with_cert(#{zone => Zone,
+                client_id => ClientId,
+                username => Username,
+                peername => Peername}, Peercert).
+
+with_cert(Credentials, undefined) -> Credentials;
+with_cert(Credentials, Peercert) ->
+    Credentials#{dn => esockd_peercert:subject(Peercert),
+                 cn => esockd_peercert:common_name(Peercert)}.
 
 stats(#pstate{recv_stats = #{pkt := RecvPkt, msg := RecvMsg},
               send_stats = #{pkt := SendPkt, msg := SendMsg}}) ->
