@@ -1280,7 +1280,7 @@ end}.
 ]}.
 
 {mapping, "listener.ws.$name.idle_timeout", "emqx.listeners", [
-  {datatype, {duration, s}},
+  {datatype, {duration, ms}},
   hidden
 ]}.
 
@@ -1493,7 +1493,7 @@ end}.
 ]}.
 
 {mapping, "listener.wss.$name.idle_timeout", "emqx.listeners", [
-  {datatype, {duration, s}},
+  {datatype, {duration, ms}},
   hidden
 ]}.
 
@@ -1506,7 +1506,7 @@ end}.
 
 {translation, "emqx.listeners", fun(Conf) ->
 
-    Filter  = fun(Opts) -> io:format("Opts: ~p", [Opts]), [{K, V} || {K, V} <- Opts, V =/= undefined] end,
+    Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
 
     Atom = fun(undefined) -> undefined; (S) -> list_to_atom(S) end,
 

@@ -113,12 +113,25 @@ call(WSPid, Req) when is_pid(WSPid) ->
 %%------------------------------------------------------------------------------
 
 init(Req, Opts) ->
+    IdleTimeout = proplists:get_value(idle_timeout, Opts, 60000),
+    DeflateOptions = maps:from_list(proplists:get_value(deflate_options, Opts, [])),
+    MaxFrameSize = case proplists:get_value(max_frame_size, Opts, 0) of
+                       0 -> infinity;
+                       MFS -> MFS
+                   end,
+    Compress = proplists:get_value(compress, Opts, false)
+,
+    Options = #{compress => Compress,
+                deflate_opts => DeflateOptions,
+                max_frame_size => MaxFrameSize,
+                idle_timeout => IdleTimeout},
+
     case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req) of
         undefined ->
-            {cowboy_websocket, Req, #state{}};
+            {cowboy_websocket, Req, #state{}, Options};
         [<<"mqtt", Vsn/binary>>] ->
             Resp = cowboy_req:set_resp_header(<<"sec-websocket-protocol">>, <<"mqtt", Vsn/binary>>, Req),
-            {cowboy_websocket, Resp, #state{request = Req, options = Opts}, #{idle_timeout => 86400000}};
+            {cowboy_websocket, Resp, #state{request = Req, options = Opts}, Options};
         _ ->
             {ok, cowboy_req:reply(400, Req), #state{}}
     end.
@@ -308,4 +321,3 @@ shutdown(Reason, State) ->
 
 wsock_stats() ->
     [{Key, emqx_pd:get_counter(Key)} || Key <- ?SOCK_STATS].
-
