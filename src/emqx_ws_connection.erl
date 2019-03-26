@@ -119,13 +119,11 @@ init(Req, Opts) ->
                        0 -> infinity;
                        MFS -> MFS
                    end,
-    Compress = proplists:get_value(compress, Opts, false)
-,
+    Compress = proplists:get_value(compress, Opts, false),
     Options = #{compress => Compress,
                 deflate_opts => DeflateOptions,
                 max_frame_size => MaxFrameSize,
                 idle_timeout => IdleTimeout},
-
     case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req) of
         undefined ->
             {cowboy_websocket, Req, #state{}, Options};
