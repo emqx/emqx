@@ -195,7 +195,7 @@ publish(Msg) when is_record(Msg, message) ->
     Headers = Msg#message.headers,
     case emqx_hooks:run_fold('message.publish', [], Msg#message{headers = Headers#{allow_publish => true}}) of
         #message{headers = #{allow_publish := false}} ->
-            ?WARN("Publishing interrupted: ~s", [emqx_message:format(Msg)]),
+            ?LOG(notice, "[Broker] Publishing interrupted: ~s", [emqx_message:format(Msg)]),
             [];
         #message{topic = Topic} = Msg1 ->
             Delivery = route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1)),
@@ -209,7 +209,7 @@ safe_publish(Msg) when is_record(Msg, message) ->
         publish(Msg)
     catch
         _:Error:Stacktrace ->
-            ?ERROR("[Broker] publish error: ~p~n~p~n~p", [Error, Msg, Stacktrace])
+            ?LOG(error, "[Broker] publish error: ~p~n~p~n~p", [Error, Msg, Stacktrace])
     after
         ok
     end.
@@ -256,7 +256,7 @@ forward(Node, To, Delivery) ->
     %% rpc:call to ensure the delivery, but the latency:(
     case emqx_rpc:call(Node, ?BROKER, dispatch, [To, Delivery]) of
         {badrpc, Reason} ->
-            ?ERROR("[Broker] Failed to forward msg to ~s: ~p", [Node, Reason]),
+            ?LOG(error, "[Broker] Failed to forward msg to ~s: ~p", [Node, Reason]),
             Delivery;
         Delivery1 -> Delivery1
     end.
@@ -424,14 +424,14 @@ handle_call({subscribe, Topic, I}, _From, State) ->
     {reply, Ok, State};
 
 handle_call(Req, _From, State) ->
-    ?ERROR("[Broker] unexpected call: ~p", [Req]),
+    ?LOG(notice, "[Broker] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({subscribe, Topic}, State) ->
     case emqx_router:do_add_route(Topic) of
         ok -> ok;
         {error, Reason} ->
-            ?ERROR("[Broker] Failed to add route: ~p", [Reason])
+            ?LOG(error, "[Broker] Failed to add route: ~p", [Reason])
     end,
     {noreply, State};
 
@@ -454,11 +454,11 @@ handle_cast({unsubscribed, Topic, I}, State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?ERROR("[Broker] unexpected cast: ~p", [Msg]),
+    ?LOG(notice, "[Broker] unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?ERROR("[Broker] unexpected info: ~p", [Info]),
+    ?LOG(notice, "[Broker] unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->

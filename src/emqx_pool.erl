@@ -97,22 +97,22 @@ handle_call({submit, Task}, _From, State) ->
     {reply, catch run(Task), State};
 
 handle_call(Req, _From, State) ->
-    ?ERROR("[Pool] unexpected call: ~p", [Req]),
+    ?LOG(notice, "[Pool] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({async_submit, Task}, State) ->
     try run(Task)
     catch _:Error:Stacktrace ->
-        ?ERROR("[Pool] error: ~p, ~p", [Error, Stacktrace])
+        ?LOG(error, "[Pool] Error: ~p, ~p", [Error, Stacktrace])
     end,
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?ERROR("[Pool] unexpected cast: ~p", [Msg]),
+    ?LOG(notice, "[Pool] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?ERROR("[Pool] unexpected info: ~p", [Info]),
+    ?LOG(notice, "[Pool] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->

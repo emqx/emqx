@@ -181,7 +181,7 @@ handle_call({add, HookPoint, Callback = #callback{action = Action}}, _From, Stat
     {reply, Reply, State};
 
 handle_call(Req, _From, State) ->
-    ?ERROR("[Hooks] unexpected call: ~p", [Req]),
+    ?LOG(notice, "[Hooks] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({del, HookPoint, Action}, State) ->
@@ -194,11 +194,11 @@ handle_cast({del, HookPoint, Action}, State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?ERROR("[Hooks] unexpected msg: ~p", [Msg]),
+    ?LOG(notice, "[Hooks] Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?ERROR("[Hooks] unexpected info: ~p", [Info]),
+    ?LOG(notice, "[Hooks] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

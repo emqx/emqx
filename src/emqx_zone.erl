@@ -92,7 +92,7 @@ handle_call(force_reload, _From, State) ->
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
-    ?ERROR("[Zone] unexpected call: ~p", [Req]),
+    ?LOG(notice, "[Zone] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({set_env, Zone, Key, Val}, State) ->
@@ -100,7 +100,7 @@ handle_cast({set_env, Zone, Key, Val}, State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?ERROR("[Zone] unexpected cast: ~p", [Msg]),
+    ?LOG(notice, "[Zone] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(reload, State) ->
@@ -108,7 +108,7 @@ handle_info(reload, State) ->
     {noreply, ensure_reload_timer(State#{timer := undefined}), hibernate};
 
 handle_info(Info, State) ->
-    ?ERROR("[Zone] unexpected info: ~p", [Info]),
+    ?LOG(notice, "[Zone] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

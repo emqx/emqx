@@ -310,11 +310,11 @@ handle_call({unsubscribe, Group, Topic, SubPid}, _From, State) ->
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
-    ?ERROR("[SharedSub] unexpected call: ~p", [Req]),
+    ?LOG(notice, "[Shared Sub] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?ERROR("[SharedSub] unexpected cast: ~p", [Msg]),
+    ?LOG(notice, "[Shared Sub] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({mnesia_table_event, {write, NewRecord, _}}, State = #state{pmon = PMon}) ->
@@ -329,12 +329,12 @@ handle_info({mnesia_table_event, _Event}, State) ->
     {noreply, State};
 
 handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #state{pmon = PMon}) ->
-    ?INFO("[SharedSub] shared subscriber down: ~p", [SubPid]),
+    ?LOG(info, "[Shared Sub] Shared subscriber down: ~p", [SubPid]),
     cleanup_down(SubPid),
     {noreply, update_stats(State#state{pmon = emqx_pmon:erase(SubPid, PMon)})};
 
 handle_info(Info, State) ->
-    ?ERROR("[SharedSub] unexpected info: ~p", [Info]),
+    ?LOG(notice, "[Shared Sub] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

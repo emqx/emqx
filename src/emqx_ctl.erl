@@ -107,14 +107,14 @@ init([]) ->
     {ok, #state{seq = 0}}.
 
 handle_call(Req, _From, State) ->
-    ?ERROR("[Ctl] unexpected call: ~p", [Req]),
+    ?LOG(notice, "[Ctl] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({register_command, Cmd, MF, Opts}, State = #state{seq = Seq}) ->
     case ets:match(?TAB, {{'$1', Cmd}, '_', '_'}) of
         [] -> ets:insert(?TAB, {{Seq, Cmd}, MF, Opts});
         [[OriginSeq] | _] ->
-            ?WARN("[Ctl] cmd ~s is overidden by ~p", [Cmd, MF]),
+            ?LOG(warning, "[Ctl] CMD ~s is overidden by ~p", [Cmd, MF]),
             ets:insert(?TAB, {{OriginSeq, Cmd}, MF, Opts})
     end,
     noreply(next_seq(State));
@@ -124,11 +124,11 @@ handle_cast({unregister_command, Cmd}, State) ->
     noreply(State);
 
 handle_cast(Msg, State) ->
-    ?ERROR("[Ctl] unexpected cast: ~p", [Msg]),
+    ?LOG(notice, "[Ctl] Unexpected cast: ~p", [Msg]),
     noreply(State).
 
 handle_info(Info, State) ->
-    ?ERROR("[Ctl] unexpected info: ~p", [Info]),
+    ?LOG(notice, "[Ctl] Unexpected info: ~p", [Info]),
     noreply(State).
 
 terminate(_Reason, _State) ->

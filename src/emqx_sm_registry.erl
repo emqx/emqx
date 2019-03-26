@@ -96,11 +96,11 @@ init([]) ->
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->
-    ?ERROR("[Registry] unexpected call: ~p", [Req]),
+    ?LOG(notice, "[Registry] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?ERROR("[Registry] unexpected cast: ~p", [Msg]),
+    ?LOG(notice, "[Registry] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({membership, {mnesia, down, Node}}, State) ->
@@ -114,7 +114,7 @@ handle_info({membership, _Event}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    ?ERROR("[Registry] unexpected info: ~p", [Info]),
+    ?LOG(notice, "[Registry] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
