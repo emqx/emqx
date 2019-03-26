@@ -30,7 +30,7 @@
       -> {ok, emqx_types:credentials()} | {error, term()}).
 authenticate(Credentials) ->
     detect_anonymous_permission(Credentials, fun() ->
-        case emqx_hooks:run_fold('client.authenticate', [], Credentials#{auth_result => not_authorized}) of
+        case emqx_hooks:run_fold('client.authenticate', [], init_auth_result(Credentials)) of
             #{auth_result := success} = NewCredentials ->
                 {ok, NewCredentials};
             NewCredentials ->
@@ -67,6 +67,12 @@ reload_acl() ->
     emqx_acl_cache:is_enabled() andalso
         emqx_acl_cache:empty_acl_cache(),
     emqx_mod_acl_internal:reload_acl().
+
+init_auth_result(Credentials) ->
+    case anonymous_permission(Credentials) of
+        true -> Credentials#{auth_result => success};
+        false -> Credentials#{auth_result => not_authorized}
+    end.
 
 detect_anonymous_permission(#{username := undefined,
                               password := undefined} = Credentials, Fun) ->
