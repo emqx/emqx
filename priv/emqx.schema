@@ -105,6 +105,18 @@
   {default, "1m"}
 ]}.
 
+{mapping, "cluster.etcd.ssl.certfile", "ekka.cluster_discovery", [
+  {datatype, string}
+]}.
+
+{mapping, "cluster.etcd.ssl.cacertfile", "ekka.cluster_discovery", [
+  {datatype, string}
+]}.
+
+{mapping, "cluster.etcd.ssl.keyfile", "ekka.cluster_discovery", [
+  {datatype, string}
+]}.
+
 %%--------------------------------------------------------------------
 %% Cluster on K8s
 
@@ -149,9 +161,16 @@
                  [{name, cuttlefish:conf_get("cluster.dns.name", Conf)},
                   {app, cuttlefish:conf_get("cluster.dns.app", Conf)}];
                (etcd) ->
+                 SslOpts = fun(Conf) ->
+                              Options = cuttlefish_variable:filter_by_prefix("cluster.etcd.ssl", Conf),
+                                lists:map(fun({["cluster", "etcd", "ssl", Name], Value}) ->
+                                    {list_to_atom(Name), Value}
+                                end, Options)
+                            end,
                  [{server, string:tokens(cuttlefish:conf_get("cluster.etcd.server", Conf), ",")},
                   {prefix, cuttlefish:conf_get("cluster.etcd.prefix", Conf, "emqcl")},
-                  {node_ttl, cuttlefish:conf_get("cluster.etcd.node_ttl", Conf, 60)}];
+                  {node_ttl, cuttlefish:conf_get("cluster.etcd.node_ttl", Conf, 60)},
+                  {ssl_options, SslOpts(Conf)}];
                (k8s) ->
                  [{apiserver, cuttlefish:conf_get("cluster.k8s.apiserver", Conf)},
                   {service_name, cuttlefish:conf_get("cluster.k8s.service_name", Conf)},
