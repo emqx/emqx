@@ -163,9 +163,9 @@
                (etcd) ->
                  SslOpts = fun(Conf) ->
                               Options = cuttlefish_variable:filter_by_prefix("cluster.etcd.ssl", Conf),
-                                lists:map(fun({["cluster", "etcd", "ssl", Name], Value}) ->
-                                    {list_to_atom(Name), Value}
-                                end, Options)
+                              lists:map(fun({["cluster", "etcd", "ssl", Name], Value}) ->
+                                            {list_to_atom(Name), Value}
+                                        end, Options)
                             end,
                  [{server, string:tokens(cuttlefish:conf_get("cluster.etcd.server", Conf), ",")},
                   {prefix, cuttlefish:conf_get("cluster.etcd.prefix", Conf, "emqcl")},
