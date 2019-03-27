@@ -163,7 +163,7 @@ websocket_handle({binary, [<<>>]}, State) ->
     {ok, ensure_stats_timer(State)};
 websocket_handle({binary, Data}, State = #state{parse_state = ParseState,
                                                 proto_state = ProtoState}) ->
-    ?LOG(debug, "RECV ~p", [Data]),
+    ?LOG(debug, "[WS Connection] RECV ~p", [Data]),
     BinSize = iolist_size(Data),
     emqx_pd:update_counter(recv_oct, BinSize),
     emqx_metrics:trans(inc, 'bytes/received', BinSize),
@@ -177,7 +177,7 @@ websocket_handle({binary, Data}, State = #state{parse_state = ParseState,
                 {ok, ProtoState1} ->
                     websocket_handle({binary, Rest}, reset_parser(State#state{proto_state = ProtoState1}));
                 {error, Error} ->
-                    ?LOG(error, "Protocol error - ~p", [Error]),
+                    ?LOG(error, "[WS Connection] Protocol error: ~p", [Error]),
                     shutdown(Error, State);
                 {error, Reason, ProtoState1} ->
                     shutdown(Reason, State#state{proto_state = ProtoState1});
@@ -185,11 +185,11 @@ websocket_handle({binary, Data}, State = #state{parse_state = ParseState,
                     shutdown(Error, State#state{proto_state = ProtoState1})
             end;
         {error, Error} ->
-            ?LOG(error, "Frame error: ~p", [Error]),
+            ?LOG(error, "[WS Connection] Frame error: ~p", [Error]),
             shutdown(Error, State)
     catch
         _:Error ->
-            ?LOG(error, "Frame error:~p~nFrame data: ~p", [Error, Data]),
+            ?LOG(error, "[WS Connection] Frame error:~p~nFrame data: ~p", [Error, Data]),
             shutdown(parse_error, State)
     end;
 %% Pings should be replied with pongs, cowboy does it automatically
@@ -236,12 +236,12 @@ websocket_info({timeout, Timer, emit_stats},
     {ok, State#state{stats_timer = undefined}, hibernate};
 
 websocket_info({keepalive, start, Interval}, State) ->
-    ?LOG(debug, "Keepalive at the interval of ~p", [Interval]),
+    ?LOG(debug, "[WS Connection] Keepalive at the interval of ~p", [Interval]),
     case emqx_keepalive:start(stat_fun(), Interval, {keepalive, check}) of
         {ok, KeepAlive} ->
             {ok, State#state{keepalive = KeepAlive}};
         {error, Error} ->
-            ?LOG(warning, "Keepalive error - ~p", [Error]),
+            ?LOG(warning, "[WS Connection] Keepalive error: ~p", [Error]),
             shutdown(Error, State)
     end;
 
@@ -250,19 +250,19 @@ websocket_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
         {ok, KeepAlive1} ->
             {ok, State#state{keepalive = KeepAlive1}};
         {error, timeout} ->
-            ?LOG(debug, "Keepalive Timeout!"),
+            ?LOG(debug, "[WS Connection] Keepalive Timeout!"),
             shutdown(keepalive_timeout, State);
         {error, Error} ->
-            ?LOG(error, "Keepalive error - ~p", [Error]),
+            ?LOG(error, "[WS Connection] Keepalive error: ~p", [Error]),
             shutdown(keepalive_error, State)
     end;
 
 websocket_info({shutdown, discard, {ClientId, ByPid}}, State) ->
-    ?LOG(warning, "discarded by ~s:~p", [ClientId, ByPid]),
+    ?LOG(warning, "[WS Connection] Discarded by ~s:~p", [ClientId, ByPid]),
     shutdown(discard, State);
 
 websocket_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
-    ?LOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid]),
+    ?LOG(warning, "[WS Connection] Clientid '~s' conflict with ~p", [ClientId, NewPid]),
     shutdown(conflict, State);
 
 websocket_info({binary, Data}, State) ->
@@ -272,14 +272,14 @@ websocket_info({shutdown, Reason}, State) ->
     shutdown(Reason, State);
 
 websocket_info(Info, State) ->
-    ?LOG(error, "unexpected info: ~p", [Info]),
+    ?LOG(error, "[WS Connection] Unexpected info: ~p", [Info]),
     {ok, State}.
 
 terminate(SockError, _Req, #state{keepalive   = Keepalive,
                                   proto_state = ProtoState,
                                   shutdown    = Shutdown}) ->
 
-    ?LOG(debug, "Terminated for ~p, sockerror: ~p", [Shutdown, SockError]),
+    ?LOG(debug, "[WS Connection] Terminated for ~p, sockerror: ~p", [Shutdown, SockError]),
     emqx_keepalive:cancel(Keepalive),
     case {ProtoState, Shutdown} of
         {undefined, _} -> ok;

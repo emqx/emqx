@@ -99,7 +99,7 @@ rules_from_file(AclFile) ->
             #{publish   => [Rule || Rule <- Rules, filter(publish, Rule)],
               subscribe => [Rule || Rule <- Rules, filter(subscribe, Rule)]};
         {error, Reason} ->
-            ?LOG(error, "[ACL_INTERNAL] Failed to read ~s: ~p", [AclFile, Reason]),
+            ?LOG(alert, "[ACL_INTERNAL] Failed to read ~s: ~p", [AclFile, Reason]),
             #{}
     end.
 

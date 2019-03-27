@@ -397,11 +397,11 @@ process(?CONNECT_PACKET(
                               %% Success
                               {?RC_SUCCESS, SP, PState4};
                           {error, Error} ->
-                              ?LOG(error, "Failed to open session: ~p", [Error]),
+                              ?LOG(error, "[Protocol] Failed to open session: ~p", [Error]),
                               {?RC_UNSPECIFIED_ERROR, PState1#pstate{credentials = Credentials0}}
                       end;
                   {error, Reason} ->
-                      ?LOG(error, "Client ~s (Username: '~s') login failed for ~p", [NewClientId, Username, Reason]),
+                      ?LOG(warning, "[Protocol] Client ~s (Username: '~s') login failed for ~p", [NewClientId, Username, Reason]),
                       {emqx_reason_codes:connack_error(Reason), PState1#pstate{credentials = Credentials}}
               end;
           {error, ReasonCode} ->
@@ -413,7 +413,7 @@ process(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PState) ->
         ok ->
             do_publish(Packet, PState);
         {error, ReasonCode} ->
-            ?LOG(warning, "Cannot publish qos0 message to ~s for ~s",
+            ?LOG(warning, "[Protocol] Cannot publish qos0 message to ~s for ~s",
                  [Topic, emqx_reason_codes:text(ReasonCode)]),
             do_acl_deny_action(Packet, ReasonCode, PState)
     end;
@@ -423,7 +423,7 @@ process(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PState) ->
         ok ->
             do_publish(Packet, PState);
         {error, ReasonCode} ->
-            ?LOG(warning, "Cannot publish qos1 message to ~s for ~s",
+            ?LOG(warning, "[Protocol] Cannot publish qos1 message to ~s for ~s",
                 [Topic, emqx_reason_codes:text(ReasonCode)]),
             case deliver({puback, PacketId, ReasonCode}, PState) of
                 {ok, PState1} ->
@@ -437,7 +437,7 @@ process(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PState) ->
         ok ->
             do_publish(Packet, PState);
         {error, ReasonCode} ->
-            ?LOG(warning, "Cannot publish qos2 message to ~s for ~s",
+            ?LOG(warning, "[Protocol] Cannot publish qos2 message to ~s for ~s",
                  [Topic, emqx_reason_codes:text(ReasonCode)]),
             case deliver({pubrec, PacketId, ReasonCode}, PState) of
                 {ok, PState1} ->
@@ -495,7 +495,7 @@ process(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
                                 ({Topic, #{rc := Code}}, {Topics, Codes}) ->
                                     {[Topic|Topics], [Code|Codes]}
                             end, {[], []}, TopicFilters),
-            ?LOG(warning, "Cannot subscribe ~p for ~p",
+            ?LOG(warning, "[Protocol] Cannot subscribe ~p for ~p",
                  [SubTopics, [emqx_reason_codes:text(R) || R <- ReasonCodes]]),
             case deliver({suback, PacketId, ReasonCodes}, PState) of
                 {ok, PState1} ->
@@ -822,7 +822,7 @@ check_will_acl(#mqtt_packet_connect{will_topic = WillTopic}, PState) ->
     case emqx_access_control:check_acl(credentials(PState), publish, WillTopic) of
         allow -> ok;
         deny ->
-            ?LOG(warning, "Cannot publish will message to ~p for acl denied", [WillTopic]),
+            ?LOG(warning, "[Protocol] Cannot publish will message to ~p for acl denied", [WillTopic]),
             {error, ?RC_NOT_AUTHORIZED}
     end.
 
@@ -876,9 +876,9 @@ check_sub_acl(TopicFilters, PState) ->
       end, {ok, []}, TopicFilters).
 
 trace(recv, Packet) ->
-    ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]);
+    ?LOG(debug, "[Protocol] RECV ~s", [emqx_packet:format(Packet)]);
 trace(send, Packet) ->
-    ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)]).
+    ?LOG(debug, "[Protocol] SEND ~s", [emqx_packet:format(Packet)]).
 
 inc_stats(recv, Type, PState = #pstate{recv_stats = Stats}) ->
     PState#pstate{recv_stats = inc_stats(Type, Stats)};
@@ -901,7 +901,7 @@ terminate(conflict, _PState) ->
 terminate(discard, _PState) ->
     ok;
 terminate(Reason, PState) ->
-    ?LOG(info, "Shutdown for ~p", [Reason]),
+    ?LOG(info, "[Protocol] Shutdown for ~p", [Reason]),
     ok = emqx_hooks:run('client.disconnected', [credentials(PState), Reason]).
 
 start_keepalive(0, _PState) ->
