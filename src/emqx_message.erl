@@ -193,11 +193,9 @@ format(headers, Headers) ->
     io_lib:format("~p", [Headers]).
 
 bin_key_map(Map) when is_map(Map) ->
-    lists:foldl(
-        fun(Key, Acc) ->
-            Val = maps:get(Key, Map),
-            Acc#{bin(Key) => bin_key_map(Val)}
-        end, #{}, maps:keys(Map));
+    maps:fold(fun(Key, Val, Acc) ->
+                      Acc#{bin(Key) => bin_key_map(Val)}
+              end, #{}, Map);
 bin_key_map(Data) ->
     Data.
 
