@@ -105,11 +105,11 @@
   {default, "1m"}
 ]}.
 
-{mapping, "cluster.etcd.ssl.certfile", "ekka.cluster_discovery", [
+{mapping, "cluster.etcd.ssl.keyfile", "ekka.cluster_discovery", [
   {datatype, string}
 ]}.
 
-{mapping, "cluster.etcd.ssl.keyfile", "ekka.cluster_discovery", [
+{mapping, "cluster.etcd.ssl.certfile", "ekka.cluster_discovery", [
   {datatype, string}
 ]}.
 
