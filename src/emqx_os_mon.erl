@@ -142,7 +142,9 @@ handle_info({timeout, Timer, check}, State = #{timer := Timer,
                 true -> alarm_handler:clear_alarm(cpu_high_watermark);
                 false -> ok
             end,
-            {noreply, ensure_check_timer(State#{is_cpu_alarm_set := false})}
+            {noreply, ensure_check_timer(State#{is_cpu_alarm_set := false})};
+        _Busy ->
+            {noreply, ensure_check_timer(State)}
     end.
 
 terminate(_Reason, #{timer := Timer}) ->
