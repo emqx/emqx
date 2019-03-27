@@ -88,11 +88,11 @@ parse_opt([_Opt|Opts], Acc) ->
     parse_opt(Opts, Acc).
 
 handle_call(Req, _From, State) ->
-    ?LOG(notice, "[SYSMON] Unexpected call: ~p", [Req]),
+    ?LOG(error, "[SYSMON] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(notice, "[SYSMON] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[SYSMON] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({monitor, Pid, long_gc, Info}, State) ->
@@ -147,7 +147,7 @@ handle_info({timeout, _Ref, reset}, State) ->
     {noreply, State#{events := []}, hibernate};
 
 handle_info(Info, State) ->
-    ?LOG(notice, "[SYSMON] Unexpected Info: ~p", [Info]),
+    ?LOG(error, "[SYSMON] Unexpected Info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{timer := TRef}) ->

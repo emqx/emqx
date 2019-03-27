@@ -103,11 +103,11 @@ init([]) ->
     {ok, #{nodes => Nodes}, hibernate}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(notice, "[Router Helper] Unexpected call: ~p", [Req]),
+    ?LOG(error, "[Router Helper] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(notice, "[Router Helper] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[Router Helper] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({mnesia_table_event, {write, {?ROUTING_NODE, Node, _}, _}}, State = #{nodes := Nodes}) ->
@@ -141,7 +141,7 @@ handle_info({membership, _Event}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    ?LOG(notice, "[Route Helper] Unexpected info: ~p", [Info]),
+    ?LOG(error, "[Route Helper] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

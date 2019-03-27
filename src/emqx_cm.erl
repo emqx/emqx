@@ -159,7 +159,7 @@ init([]) ->
     {ok, #{conn_pmon => emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(notice, "[CM] unexpected call: ~p", [Req]),
+    ?LOG(error, "[CM] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({notify, {registered, ClientId, ConnPid}}, State = #{conn_pmon := PMon}) ->
@@ -169,7 +169,7 @@ handle_cast({notify, {unregistered, ConnPid}}, State = #{conn_pmon := PMon}) ->
     {noreply, State#{conn_pmon := emqx_pmon:demonitor(ConnPid, PMon)}};
 
 handle_cast(Msg, State) ->
-    ?LOG(notice, "[CM] unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[CM] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{conn_pmon := PMon}) ->
@@ -180,7 +180,7 @@ handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{conn_pmon := PMon}
     {noreply, State#{conn_pmon := PMon1}};
 
 handle_info(Info, State) ->
-    ?LOG(notice, "[CM] unexpected info: ~p", [Info]),
+    ?LOG(error, "[CM] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

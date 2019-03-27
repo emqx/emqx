@@ -250,15 +250,15 @@ init([]) ->
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(notice, "[SM] Unexpected call: ~p", [Req]),
+    ?LOG(error, "[SM] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(notice, "[SM] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[SM] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(notice, "[SM] Unexpected info: ~p", [Info]),
+    ?LOG(error, "[SM] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

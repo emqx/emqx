@@ -101,11 +101,11 @@ handle_call(count_sessions, _From, State = #state{sessions = SessMap}) ->
     {reply, maps:size(SessMap), State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(notice, "[Session Supervisor] Unexpected call: ~p", [Req]),
+    ?LOG(error, "[Session Supervisor] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(notice, "[Session Supervisor] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[Session Supervisor] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({'EXIT', Pid, _Reason}, State = #state{sessions = SessMap, clean_down = CleanDown}) ->

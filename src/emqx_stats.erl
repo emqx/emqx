@@ -181,7 +181,7 @@ start_timer(#state{tick_ms = Ms} = State) ->
 handle_call(stop, _From, State) ->
     {stop, normal, _Reply = ok, State};
 handle_call(Req, _From, State) ->
-    ?LOG(notice, "[Stats] Unexpected call: ~p", [Req]),
+    ?LOG(error, "[Stats] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({setstat, Stat, MaxStat, Val}, State) ->
@@ -209,7 +209,7 @@ handle_cast({cancel_update, Name}, State = #state{updates = Updates}) ->
     {noreply, State#state{updates = lists:keydelete(Name, #update.name, Updates)}};
 
 handle_cast(Msg, State) ->
-    ?LOG(notice, "[Stats] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[Stats] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Updates}) ->
@@ -228,7 +228,7 @@ handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Update
     {noreply, start_timer(State#state{updates = Updates1}), hibernate};
 
 handle_info(Info, State) ->
-    ?LOG("notice, [Stats] Unexpected info: ~p", [Info]),
+    ?LOG("error, [Stats] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{timer = TRef}) ->

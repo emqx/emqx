@@ -478,7 +478,7 @@ handle_call(close, _From, State) ->
     {stop, normal, ok, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(notice, "[Session] Unexpected call: ~p", [Req]),
+    ?LOG(error, "[Session] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 %% SUBSCRIBE:
@@ -587,7 +587,7 @@ handle_cast({update_expiry_interval, Interval}, State) ->
     {noreply, State#state{expiry_interval = Interval}};
 
 handle_cast(Msg, State) ->
-    ?LOG(notice, "[Session] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[Session] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({dispatch, Topic, Msg}, State) when is_record(Msg, message) ->
@@ -668,7 +668,7 @@ handle_info({'EXIT', Pid, Reason}, State = #state{conn_pid = ConnPid}) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    ?LOG(notice, "[Session] Unexpected info: ~p", [Info]),
+    ?LOG(error, "[Session] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(Reason, #state{will_msg = WillMsg,

@@ -209,7 +209,7 @@ safe_publish(Msg) when is_record(Msg, message) ->
         publish(Msg)
     catch
         _:Error:Stacktrace ->
-            ?LOG(error, "[Broker] publish error: ~p~n~p~n~p", [Error, Msg, Stacktrace])
+            ?LOG(error, "[Broker] Publish error: ~p~n~p~n~p", [Error, Msg, Stacktrace])
     after
         ok
     end.
@@ -424,7 +424,7 @@ handle_call({subscribe, Topic, I}, _From, State) ->
     {reply, Ok, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(notice, "[Broker] unexpected call: ~p", [Req]),
+    ?LOG(error, "[Broker] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({subscribe, Topic}, State) ->
@@ -454,11 +454,11 @@ handle_cast({unsubscribed, Topic, I}, State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?LOG(notice, "[Broker] unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[Broker] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(notice, "[Broker] unexpected info: ~p", [Info]),
+    ?LOG(error, "[Broker] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->

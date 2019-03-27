@@ -103,7 +103,7 @@ handle_event({set_alarm, Alarm = {AlarmId, AlarmDesc}}, State) ->
     set_alarm_(AlarmId, AlarmDesc),
     {ok, State};
 handle_event({clear_alarm, AlarmId}, State) ->
-    ?LOG(notice, "~p clear", [AlarmId]),
+    ?LOG(notice, "[Alarm Handler] ~p clear", [AlarmId]),
     emqx_broker:safe_publish(alarm_msg(topic(clear, maybe_to_binary(AlarmId)), <<"">>)),
     clear_alarm_(AlarmId),
     {ok, State};

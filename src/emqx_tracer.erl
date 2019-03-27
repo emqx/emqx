@@ -136,15 +136,15 @@ handle_call(lookup_traces, _From, State = #state{traces = Traces}) ->
     {reply, [{Who, LogFile} || {Who, LogFile} <- maps:to_list(Traces)], State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(notice, "[Tracer] Unexpected call: ~p", [Req]),
+    ?LOG(error, "[Tracer] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(notice, "[Tracer] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[Tracer] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(notice, "[Tracer] Unexpected info: ~p", [Info]),
+    ?LOG(error, "[Tracer] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

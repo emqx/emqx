@@ -97,7 +97,7 @@ handle_call({submit, Task}, _From, State) ->
     {reply, catch run(Task), State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(notice, "[Pool] Unexpected call: ~p", [Req]),
+    ?LOG(error, "[Pool] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({async_submit, Task}, State) ->
@@ -108,11 +108,11 @@ handle_cast({async_submit, Task}, State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?LOG(notice, "[Pool] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[Pool] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(notice, "[Pool] Unexpected info: ~p", [Info]),
+    ?LOG(error, "[Pool] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->

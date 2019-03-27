@@ -198,15 +198,15 @@ handle_call({delete_route, Topic, Dest}, _From, State) ->
     {reply, Ok, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(notice, "[Router] Unexpected call: ~p", [Req]),
+    ?LOG(error, "[Router] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(notice, "[Router] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[Router] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(notice, "[Router] Unexpected info: ~p", [Info]),
+    ?LOG(error, "[Router] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->

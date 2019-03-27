@@ -272,7 +272,7 @@ websocket_info({shutdown, Reason}, State) ->
     shutdown(Reason, State);
 
 websocket_info(Info, State) ->
-    ?LOG(notice, "[WS Connection] Unexpected info: ~p", [Info]),
+    ?LOG(error, "[WS Connection] Unexpected info: ~p", [Info]),
     {ok, State}.
 
 terminate(SockError, _Req, #state{keepalive   = Keepalive,

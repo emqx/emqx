@@ -107,7 +107,7 @@ init([]) ->
     {ok, #state{seq = 0}}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(notice, "[Ctl] Unexpected call: ~p", [Req]),
+    ?LOG(error, "[Ctl] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({register_command, Cmd, MF, Opts}, State = #state{seq = Seq}) ->
@@ -124,11 +124,11 @@ handle_cast({unregister_command, Cmd}, State) ->
     noreply(State);
 
 handle_cast(Msg, State) ->
-    ?LOG(notice, "[Ctl] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[Ctl] Unexpected cast: ~p", [Msg]),
     noreply(State).
 
 handle_info(Info, State) ->
-    ?LOG(notice, "[Ctl] Unexpected info: ~p", [Info]),
+    ?LOG(error, "[Ctl] Unexpected info: ~p", [Info]),
     noreply(State).
 
 terminate(_Reason, _State) ->

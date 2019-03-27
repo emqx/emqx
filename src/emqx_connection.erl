@@ -286,12 +286,12 @@ handle({call, From}, session, State = #state{proto_state = ProtoState}) ->
     reply(From, emqx_protocol:session(ProtoState), State);
 
 handle({call, From}, Req, State) ->
-    ?LOG(notice, "[Connection] Unexpected call: ~p", [Req]),
+    ?LOG(error, "[Connection] Unexpected call: ~p", [Req]),
     reply(From, ignored, State);
 
 %% Handle cast
 handle(cast, Msg, State) ->
-    ?LOG(notice, "[Connection] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[Connection] Unexpected cast: ~p", [Msg]),
     {keep_state, State};
 
 %% Handle Incoming
@@ -361,7 +361,7 @@ handle(info, {shutdown, Reason}, State) ->
     shutdown(Reason, State);
 
 handle(info, Info, State) ->
-    ?LOG(notice, "[Connection] Unexpected info: ~p", [Info]),
+    ?LOG(error, "[Connection] Unexpected info: ~p", [Info]),
     {keep_state, State}.
 
 code_change(_Vsn, State, Data, _Extra) ->
