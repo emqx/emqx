@@ -839,8 +839,14 @@ drain_m(Cnt, Msgs) when Cnt =< 0 ->
     lists:reverse(Msgs);
 drain_m(Cnt, Msgs) ->
     receive
-        {dispatch, Topic, Msg} ->
-            drain_m(Cnt-1, [{Topic, Msg}|Msgs])
+        {dispatch, Topic, Msg} when is_record(Msg, message)->
+            drain_m(Cnt-1, [{Topic, Msg} | Msgs]);
+        {dispatch, Topic, InMsgs} when is_list(InMsgs) ->
+            Msgs1 = lists:foldl(
+                      fun(Msg, Acc) ->
+                              [{Topic, Msg} | Acc]
+                      end, Msgs, InMsgs),
+            drain_m(Cnt-length(InMsgs), Msgs1)
     after 0 ->
         lists:reverse(Msgs)
     end.
