@@ -25,7 +25,7 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
-%% gen_server callbacks
+%% gen_event callbacks
 -export([ init/1
         , handle_event/2
         , handle_call/2

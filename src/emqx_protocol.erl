@@ -198,15 +198,27 @@ caps(#pstate{zone = Zone}) ->
 client_id(#pstate{client_id = ClientId}) ->
     ClientId.
 
-credentials(#pstate{zone       = Zone,
-                    client_id  = ClientId,
-                    username   = Username,
-                    peername   = Peername}) ->
-    #{zone       => Zone,
-      client_id  => ClientId,
-      username   => Username,
-      peername   => Peername,
-      mountpoint => emqx_zone:get_env(Zone, mountpoint)}.
+credentials(#pstate{zone      = Zone,
+                    client_id = ClientId,
+                    username  = Username,
+                    peername  = Peername,
+                    peercert  = Peercert}) ->
+    with_cert(#{zone => Zone,
+                client_id => ClientId,
+                username => Username,
+                peername => Peername,
+                mountpoint => emqx_zone:get_env(Zone, mountpoint)}, Peercert).
+
+with_cert(Credentials, undefined) -> Credentials;
+with_cert(Credentials, Peercert) ->
+    Credentials#{dn => esockd_peercert:subject(Peercert),
+                 cn => esockd_peercert:common_name(Peercert)}.
+
+keepsafety(Credentials) ->
+    maps:filter(fun(password, _) -> false;
+                   (dn, _) -> false;
+                   (cn, _) -> false;
+                   (_,  _) -> true end, Credentials).
 
 stats(#pstate{recv_stats = #{pkt := RecvPkt, msg := RecvMsg},
               send_stats = #{pkt := SendPkt, msg := SendMsg}}) ->
@@ -384,7 +396,7 @@ process(?CONNECT_PACKET(
                       case try_open_session(SessAttrs, PState3) of
                           {ok, SPid, SP} ->
                               PState4 = PState3#pstate{session = SPid, connected = true,
-                                                       credentials = maps:remove(password, Credentials0)},
+                                                       credentials = keepsafety(Credentials0)},
                               ok = emqx_cm:register_connection(client_id(PState4)),
                               true = emqx_cm:set_conn_attrs(client_id(PState4), attrs(PState4)),
                               %% Start keepalive
