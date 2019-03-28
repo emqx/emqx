@@ -54,7 +54,7 @@ start(Module, Config) ->
             {ok, Ref, Conn};
         {error, Reason} ->
             Config1 = obfuscate(Config),
-            ?LOG(error, "Failed to connect with module=~p\n"
+            ?LOG(error, "[Bridge connect] Failed to connect with module=~p\n"
                  "config=~p\nreason:~p", [Module, Config1, Reason]),
             error
     end.

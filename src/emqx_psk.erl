@@ -29,10 +29,10 @@ lookup(psk, ClientPSKID, _UserState) ->
     try emqx_hooks:run_fold('tls_handshake.psk_lookup', [ClientPSKID], not_found) of
         SharedSecret when is_binary(SharedSecret) -> {ok, SharedSecret};
         Error ->
-            ?LOG(error, "Look PSK for PSKID ~p error: ~p", [ClientPSKID, Error]),
+            ?LOG(error, "[PSK] Look PSK for PSKID ~p error: ~p", [ClientPSKID, Error]),
             error
     catch
         Except:Error:Stacktrace ->
-          ?LOG(error, "Lookup PSK failed, ~p: ~p", [{Except,Error}, Stacktrace]),
+          ?LOG(error, "[PSK] Lookup PSK failed, ~p: ~p", [{Except,Error}, Stacktrace]),
           error
     end.

@@ -174,7 +174,7 @@ to_list(Msg) ->
 to_bin_key_list(Msg) ->
     lists:zipwith(
         fun(Key, Val) ->
-            {bin(Key), Val}
+            {bin(Key), bin_key_map(Val)}
         end, record_info(fields, message), tl(tuple_to_list(Msg))).
 
 %% MilliSeconds
@@ -191,6 +191,13 @@ format(flags, Flags) ->
     io_lib:format("~p", [[Flag || {Flag, true} <- maps:to_list(Flags)]]);
 format(headers, Headers) ->
     io_lib:format("~p", [Headers]).
+
+bin_key_map(Map) when is_map(Map) ->
+    maps:fold(fun(Key, Val, Acc) ->
+                      Acc#{bin(Key) => bin_key_map(Val)}
+              end, #{}, Map);
+bin_key_map(Data) ->
+    Data.
 
 bin(Bin) when is_binary(Bin) -> Bin;
 bin(Atom) when is_atom(Atom) -> list_to_binary(atom_to_list(Atom));
