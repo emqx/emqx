@@ -863,7 +863,7 @@ check_sub_acl(TopicFilters, #pstate{credentials = #{is_superuser := IsSuper}, en
 check_sub_acl(TopicFilters, #pstate{credentials = Credentials}) ->
     lists:foldr(
       fun({Topic, SubOpts}, {Ok, Acc}) ->
-              case emqx_access_control:check_acl(Credentials, publish, Topic) of
+              case emqx_access_control:check_acl(Credentials, subscribe, Topic) of
                   allow -> {Ok, [{Topic, SubOpts}|Acc]};
                   deny  ->
                       {error, [{Topic, SubOpts#{rc := ?RC_NOT_AUTHORIZED}}|Acc]}
