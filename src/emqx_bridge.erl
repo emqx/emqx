@@ -298,8 +298,6 @@ standing_by({call, From}, ensure_started, State) ->
      [{reply, From, ok}]};
 standing_by(state_timeout, do_connect, State) ->
     {next_state, connecting, State};
-standing_by({call, From}, _Call, _State) ->
-    {keep_state_and_data, [{reply, From, {error,standing_by}}]};
 standing_by(info, Info, State) ->
     ?LOG(info, "[Bridge] Bridge ~p discarded info event at state standing_by:\n~p", [name(), Info]),
     {keep_state_and_data, State};
@@ -574,4 +572,3 @@ name(Id) -> list_to_atom(lists:concat([?MODULE, "_", Id])).
 
 id(Pid) when is_pid(Pid) -> Pid;
 id(Name) -> name(Name).
-
