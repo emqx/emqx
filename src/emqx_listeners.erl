@@ -89,9 +89,7 @@ ranch_opts(Options) ->
     NumAcceptors = proplists:get_value(acceptors, Options, 4),
     MaxConnections = proplists:get_value(max_connections, Options, 1024),
     TcpOptions = proplists:get_value(tcp_options, Options, []),
-    RanchOpts = [ {num_acceptors, NumAcceptors}
-                , {max_connections, MaxConnections}
-                | TcpOptions],
+    RanchOpts = [{num_acceptors, NumAcceptors}, {max_connections, MaxConnections} | TcpOptions],
     case proplists:get_value(ssl_options, Options) of
         undefined  -> RanchOpts;
         SslOptions -> RanchOpts ++ SslOptions
