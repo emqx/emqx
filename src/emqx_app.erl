@@ -27,6 +27,8 @@
 %%--------------------------------------------------------------------
 
 start(_Type, _Args) ->
+
+    emqx_gen_config:generate_config("etc/emqx.conf", "etc/plugins", "data/configs", "releases/3.1/schema"),
     %% We'd like to configure the primary logger level here, rather than set the
     %%   kernel config `logger_level` before starting the erlang vm.
     %% This is because the latter approach an annoying debug msg will be printed out:
