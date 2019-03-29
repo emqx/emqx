@@ -276,7 +276,8 @@ init(Config) ->
        forwards => Topics,
        subscriptions => Subs,
        replayq => Queue,
-       inflight => []
+       inflight => [],
+       connection => undefined
       }}.
 
 code_change(_Vsn, State, Data, _Extra) ->
@@ -370,7 +371,7 @@ connected(info, {disconnected, ConnRef, Reason},
         true ->
             ?LOG(info, "[Bridge] Bridge ~p diconnected~nreason=~p", [name(), Reason]),
             {next_state, connecting,
-             State#{conn_ref := undefined, connection := undefined}};
+             State#{conn_ref => undefined, connection => undefined}};
         false ->
             keep_state_and_data
     end;
@@ -446,6 +447,9 @@ is_topic_present(Topic, Topics) ->
 
 do_ensure_present(forwards, Topic, _) ->
     ok = subscribe_local_topic(Topic);
+do_ensure_present(subscriptions, _Topic, #{connect_module := _ConnectModule,
+                                           connection := undefined}) ->
+    {error, no_connection};
 do_ensure_present(subscriptions, {Topic, QoS},
                   #{connect_module := ConnectModule, connection := Conn}) ->
     case erlang:function_exported(ConnectModule, ensure_subscribed, 3) of
@@ -458,6 +462,9 @@ do_ensure_present(subscriptions, {Topic, QoS},
 
 do_ensure_absent(forwards, Topic, _) ->
     ok = emqx_broker:unsubscribe(Topic);
+do_ensure_absent(subscriptions, _Topic, #{connect_module := _ConnectModule,
+                                          connection := undefined}) ->
+    {error, no_connection};
 do_ensure_absent(subscriptions, Topic, #{connect_module := ConnectModule,
                                          connection := Conn}) ->
     case erlang:function_exported(ConnectModule, ensure_unsubscribed, 2) of
