@@ -181,7 +181,7 @@ shutdown() ->
     shutdown(normal).
 
 shutdown(Reason) ->
-    ?LOG(info, "[EMQ X] emqx shutdown for ~s", [Reason]),
+    ?LOG(critical, "[EMQ X] emqx shutdown for ~s", [Reason]),
     emqx_alarm_handler:unload(),
     emqx_plugins:unload(),
     lists:foreach(fun application:stop/1, [emqx, ekka, cowboy, ranch, esockd, gproc]).
