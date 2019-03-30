@@ -18,7 +18,7 @@ NO_AUTOPATCH = cuttlefish
 ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 
 BUILD_DEPS = cuttlefish
-dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish v2.2.1
+dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish win30
 
 TEST_DEPS = meck
 dep_meck = hex-emqx 0.8.13
