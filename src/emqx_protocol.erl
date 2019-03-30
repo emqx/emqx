@@ -906,14 +906,6 @@ start_keepalive(Secs, #pstate{zone = Zone}) when Secs > 0 ->
     Backoff = emqx_zone:get_env(Zone, keepalive_backoff, 0.75),
     self() ! {keepalive, start, round(Secs * Backoff)}.
 
-rc(Reason) ->
-    case Reason of
-        protocol_error -> ?RC_PROTOCOL_ERROR;
-        topic_filters_invalid -> ?RC_TOPIC_FILTER_INVALID;
-        topic_name_invalid -> ?RC_TOPIC_NAME_INVALID;
-        _ -> ?RC_MALFORMED_PACKET
-    end.
-
 %%-----------------------------------------------------------------------------
 %% Parse topic filters
 %%-----------------------------------------------------------------------------
