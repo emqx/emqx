@@ -3,7 +3,7 @@
 PROJECT = emqx
 PROJECT_DESCRIPTION = EMQ X Broker
 
-DEPS = jsx gproc gen_rpc ekka esockd cowboy emqx_passwd replayq
+DEPS = jsx gproc gen_rpc ekka esockd cowboy replayq
 
 dep_jsx     = git-emqx https://github.com/talentdeficit/jsx 2.9.0
 dep_gproc   = git-emqx https://github.com/uwiger/gproc 0.8.0
@@ -18,7 +18,7 @@ NO_AUTOPATCH = cuttlefish
 ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 
 BUILD_DEPS = cuttlefish
-dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish v2.2.0
+dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish v2.2.1
 
 TEST_DEPS = meck
 dep_meck = hex-emqx 0.8.13
@@ -49,7 +49,7 @@ PLT_APPS = sasl asn1 ssl syntax_tools runtime_tools crypto xmerl os_mon inets pu
 DIALYZER_DIRS := ebin/
 DIALYZER_OPTS := --verbose --statistics -Werror_handling -Wrace_conditions #-Wunmatched_returns
 
-$(shell [ -f erlang.mk ] || curl -s -o erlang.mk https://raw.githubusercontent.com/emqx/erlmk/master/erlang.mk)
+$(shell [ -f erlang.mk ] || curl -s -o erlang.mk https://raw.githubusercontent.com/emqx/erlmk/win30/erlang.mk)
 include erlang.mk
 
 clean:: gen-clean
