@@ -117,11 +117,11 @@ handle_call(uptime, _From, State) ->
     {reply, uptime(State), State};
 
 handle_call(Req, _From, State) ->
-    ?ERROR("[SYS] unexpected call: ~p", [Req]),
+    ?LOG(error, "[SYS] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?ERROR("[SYS] unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[SYS] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({timeout, TRef, heartbeat}, State = #state{heartbeat = TRef}) ->
@@ -138,7 +138,7 @@ handle_info({timeout, TRef, tick}, State = #state{ticker = TRef, version = Versi
     {noreply, tick(State), hibernate};
 
 handle_info(Info, State) ->
-    ?ERROR("[SYS] unexpected info: ~p", [Info]),
+    ?LOG(error, "[SYS] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{heartbeat = TRef1, ticker = TRef2}) ->

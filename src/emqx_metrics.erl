@@ -318,15 +318,15 @@ init([]) ->
     {ok, #{}, hibernate}.
 
 handle_call(Req, _From, State) ->
-    ?ERROR("[Metrics] unexpected call: ~p", [Req]),
+    ?LOG(error, "[Metrics] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?ERROR("[Metrics] unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[Metrics] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?ERROR("[Metrics] unexpected info: ~p", [Info]),
+    ?LOG(error, "[Metrics] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{}) ->

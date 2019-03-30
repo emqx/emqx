@@ -109,7 +109,9 @@ handle_info({timeout, Timer, check}, State = #{timer := Timer,
                 true -> alarm_handler:clear_alarm(too_many_processes);
                 false -> ok
             end,
-            {noreply, ensure_check_timer(State#{is_process_alarm_set := false})}
+            {noreply, ensure_check_timer(State#{is_process_alarm_set := false})};
+        _Precent ->
+            {noreply, ensure_check_timer(State)}
     end.
 
 terminate(_Reason, #{timer := Timer}) ->

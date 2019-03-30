@@ -84,13 +84,19 @@ stop(Ref, #{ack_collector := AckCollector, client_pid := Pid}) ->
     ok.
 
 ensure_subscribed(#{client_pid := Pid}, Topic, QoS) when is_pid(Pid) ->
-    emqx_client:subscribe(Pid, Topic, QoS);
+    case emqx_client:subscribe(Pid, Topic, QoS) of
+        {ok, _, _} -> ok;
+        Error -> Error
+    end;
 ensure_subscribed(_Conn, _Topic, _QoS) ->
     %% return ok for now, next re-connect should should call start with new topic added to config
     ok.
 
 ensure_unsubscribed(#{client_pid := Pid}, Topic) when is_pid(Pid) ->
-    emqx_client:unsubscribe(Pid, Topic);
+    case emqx_client:unsubscribe(Pid, Topic) of
+        {ok, _, _} -> ok;
+        Error -> Error
+    end;
 ensure_unsubscribed(_, _) ->
     %% return ok for now, next re-connect should should call start with this topic deleted from config
     ok.
@@ -188,4 +194,3 @@ subscribe_remote_topics(ClientPid, Subscriptions) ->
                               Error -> throw(Error)
                           end
                   end, Subscriptions).
-

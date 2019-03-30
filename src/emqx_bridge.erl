@@ -276,7 +276,8 @@ init(Config) ->
        forwards => Topics,
        subscriptions => Subs,
        replayq => Queue,
-       inflight => []
+       inflight => [],
+       connection => undefined
       }}.
 
 code_change(_Vsn, State, Data, _Extra) ->
@@ -298,10 +299,8 @@ standing_by({call, From}, ensure_started, State) ->
      [{reply, From, ok}]};
 standing_by(state_timeout, do_connect, State) ->
     {next_state, connecting, State};
-standing_by({call, From}, _Call, _State) ->
-    {keep_state_and_data, [{reply, From, {error,standing_by}}]};
 standing_by(info, Info, State) ->
-    ?LOG(info, "Bridge ~p discarded info event at state standing_by:\n~p", [name(), Info]),
+    ?LOG(info, "[Bridge] Bridge ~p discarded info event at state standing_by:\n~p", [name(), Info]),
     {keep_state_and_data, State};
 standing_by(Type, Content, State) ->
     common(standing_by, Type, Content, State).
@@ -320,7 +319,7 @@ connecting(enter, _, #{reconnect_delay_ms := Timeout,
     ok = subscribe_local_topics(Forwards),
     case ConnectFun(Subs) of
         {ok, ConnRef, Conn} ->
-            ?LOG(info, "Bridge ~p connected", [name()]),
+            ?LOG(info, "[Bridge] Bridge ~p connected", [name()]),
             Action = {state_timeout, 0, connected},
             {keep_state, State#{conn_ref => ConnRef, connection => Conn}, Action};
         error ->
@@ -370,9 +369,9 @@ connected(info, {disconnected, ConnRef, Reason},
           #{conn_ref := ConnRefCurrent} = State) ->
     case ConnRefCurrent =:= ConnRef of
         true ->
-            ?LOG(info, "Bridge ~p diconnected~nreason=~p", [name(), Reason]),
+            ?LOG(info, "[Bridge] Bridge ~p diconnected~nreason=~p", [name(), Reason]),
             {next_state, connecting,
-             State#{conn_ref := undefined, connection := undefined}};
+             State#{conn_ref => undefined, connection => undefined}};
         false ->
             keep_state_and_data
     end;
@@ -382,7 +381,7 @@ connected(info, {batch_ack, Ref}, State) ->
             keep_state_and_data;
         bad_order ->
             %% try re-connect then re-send
-            ?LOG(error, "Bad order ack received by bridge ~p", [name()]),
+            ?LOG(error, "[Bridge] Bad order ack received by bridge ~p", [name()]),
             {next_state, connecting, disconnect(State)};
         {ok, NewState} ->
             {keep_state, NewState, ?maybe_send}
@@ -413,7 +412,7 @@ common(_StateName, info, {dispatch, _, Msg},
     NewQ = replayq:append(Q, collect([Msg])),
     {keep_state, State#{replayq => NewQ}, ?maybe_send};
 common(StateName, Type, Content, State) ->
-    ?LOG(info, "Bridge ~p discarded ~p type event at state ~p:\n~p",
+    ?LOG(notice, "[Bridge] Bridge ~p discarded ~p type event at state ~p:\n~p",
           [name(), Type, StateName, Content]),
     {keep_state, State}.
 
@@ -448,6 +447,9 @@ is_topic_present(Topic, Topics) ->
 
 do_ensure_present(forwards, Topic, _) ->
     ok = subscribe_local_topic(Topic);
+do_ensure_present(subscriptions, _Topic, #{connect_module := _ConnectModule,
+                                           connection := undefined}) ->
+    {error, no_connection};
 do_ensure_present(subscriptions, {Topic, QoS},
                   #{connect_module := ConnectModule, connection := Conn}) ->
     case erlang:function_exported(ConnectModule, ensure_subscribed, 3) of
@@ -460,6 +462,9 @@ do_ensure_present(subscriptions, {Topic, QoS},
 
 do_ensure_absent(forwards, Topic, _) ->
     ok = emqx_broker:unsubscribe(Topic);
+do_ensure_absent(subscriptions, _Topic, #{connect_module := _ConnectModule,
+                                          connection := undefined}) ->
+    {error, no_connection};
 do_ensure_absent(subscriptions, Topic, #{connect_module := ConnectModule,
                                          connection := Conn}) ->
     case erlang:function_exported(ConnectModule, ensure_unsubscribed, 2) of
@@ -484,7 +489,7 @@ retry_inflight(#{inflight := Inflight} = State,
         {ok, NewState} ->
             retry_inflight(NewState, T);
         {error, Reason} ->
-            ?LOG(error, "Inflight retry failed\n~p", [Reason]),
+            ?LOG(error, "[Bridge] Inflight retry failed\n~p", [Reason]),
             {error, State#{inflight := Inflight ++ Remain}}
     end.
 
@@ -515,7 +520,7 @@ do_send(State = #{inflight := Inflight}, QAckRef, [_ | _] = Batch) ->
                                          batch => Batch}],
             {ok, State#{inflight := NewInflight}};
         {error, Reason} ->
-            ?LOG(info, "Batch produce failed\n~p", [Reason]),
+            ?LOG(info, "[Bridge] Batch produce failed\n~p", [Reason]),
             {error, State}
     end.
 
@@ -574,4 +579,3 @@ name(Id) -> list_to_atom(lists:concat([?MODULE, "_", Id])).
 
 id(Pid) when is_pid(Pid) -> Pid;
 id(Name) -> name(Name).
-

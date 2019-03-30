@@ -14,6 +14,8 @@
 
 -module(emqx_modules).
 
+-include("logger.hrl").
+
 -export([ load/0
         , unload/0
         ]).
@@ -24,7 +26,7 @@ load() ->
     lists:foreach(
       fun({Mod, Env}) ->
         ok = Mod:load(Env),
-        logger:info("Load ~s module successfully.", [Mod])
+        ?LOG(info, "[Modules] Load ~s module successfully.", [Mod])
       end, emqx_config:get_env(modules, [])).
 
 -spec(unload() -> ok).

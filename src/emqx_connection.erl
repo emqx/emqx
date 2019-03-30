@@ -286,18 +286,18 @@ handle({call, From}, session, State = #state{proto_state = ProtoState}) ->
     reply(From, emqx_protocol:session(ProtoState), State);
 
 handle({call, From}, Req, State) ->
-    ?LOG(error, "unexpected call: ~p", [Req]),
+    ?LOG(error, "[Connection] Unexpected call: ~p", [Req]),
     reply(From, ignored, State);
 
 %% Handle cast
 handle(cast, Msg, State) ->
-    ?LOG(error, "unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[Connection] Unexpected cast: ~p", [Msg]),
     {keep_state, State};
 
 %% Handle Incoming
 handle(info, {Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
     Oct = iolist_size(Data),
-    ?LOG(debug, "RECV ~p", [Data]),
+    ?LOG(debug, "[Connection] RECV ~p", [Data]),
     emqx_pd:update_counter(incoming_bytes, Oct),
     emqx_metrics:trans(inc, 'bytes/received', Oct),
     NState = ensure_stats_timer(maybe_gc({1, Oct}, State)),
@@ -345,23 +345,23 @@ handle(info, {timeout, Timer, emit_stats},
             GcState1 = emqx_gc:reset(GcState),
             {keep_state, NState#state{gc_state = GcState1}, hibernate};
         {shutdown, Reason} ->
-            ?LOG(warning, "shutdown due to ~p", [Reason]),
+            ?LOG(error, "[Connection] Shutdown exceptionally due to ~p", [Reason]),
             shutdown(Reason, NState)
     end;
 
 handle(info, {shutdown, discard, {ClientId, ByPid}}, State) ->
-    ?LOG(warning, "discarded by ~s:~p", [ClientId, ByPid]),
+    ?LOG(error, "[Connection] Discarded by ~s:~p", [ClientId, ByPid]),
     shutdown(discard, State);
 
 handle(info, {shutdown, conflict, {ClientId, NewPid}}, State) ->
-    ?LOG(warning, "clientid '~s' conflict with ~p", [ClientId, NewPid]),
+    ?LOG(warning, "[Connection] Clientid '~s' conflict with ~p", [ClientId, NewPid]),
     shutdown(conflict, State);
 
 handle(info, {shutdown, Reason}, State) ->
     shutdown(Reason, State);
 
 handle(info, Info, State) ->
-    ?LOG(error, "unexpected info: ~p", [Info]),
+    ?LOG(error, "[Connection] Unexpected info: ~p", [Info]),
     {keep_state, State}.
 
 code_change(_Vsn, State, Data, _Extra) ->
@@ -371,7 +371,7 @@ terminate(Reason, _StateName, #state{transport = Transport,
                                      socket = Socket,
                                      keepalive = KeepAlive,
                                      proto_state = ProtoState}) ->
-    ?LOG(debug, "Terminated for ~p", [Reason]),
+    ?LOG(debug, "[Connection] Terminated for ~p", [Reason]),
     Transport:fast_close(Socket),
     emqx_keepalive:cancel(KeepAlive),
     case {ProtoState, Reason} of
@@ -398,7 +398,7 @@ process_incoming(Data, Packets, State = #state{parse_state = ParseState}) ->
             shutdown(Reason, State)
     catch
         _:Error:Stk->
-            ?LOG(error, "Parse failed for ~p~nStacktrace:~p~nError data:~p", [Error, Stk, Data]),
+            ?LOG(error, "[Connection] Parse failed for ~p~nStacktrace:~p~nError data:~p", [Error, Stk, Data]),
             shutdown(Error, State)
     end.
 
