@@ -3,15 +3,16 @@
 PROJECT = emqx
 PROJECT_DESCRIPTION = EMQ X Broker
 
-DEPS = jsx gproc gen_rpc ekka esockd cowboy replayq
+DEPS = jsx gproc gen_rpc ekka esockd cowboy emqx_passwd replayq
 
-dep_jsx     = git-emqx https://github.com/talentdeficit/jsx 2.9.0
-dep_gproc   = git-emqx https://github.com/uwiger/gproc 0.8.0
-dep_gen_rpc = git-emqx https://github.com/emqx/gen_rpc 2.3.1
-dep_esockd  = git-emqx https://github.com/emqx/esockd v5.4.4
-dep_ekka    = git-emqx https://github.com/emqx/ekka v0.5.4
-dep_cowboy  = git-emqx https://github.com/ninenines/cowboy 2.6.1
-dep_replayq = git-emqx https://github.com/emqx/replayq v0.1.1
+dep_jsx         = git-emqx https://github.com/talentdeficit/jsx 2.9.0
+dep_gproc       = git-emqx https://github.com/uwiger/gproc 0.8.0
+dep_gen_rpc     = git-emqx https://github.com/emqx/gen_rpc 2.3.1
+dep_esockd      = git-emqx https://github.com/emqx/esockd v5.4.4
+dep_ekka        = git-emqx https://github.com/emqx/ekka v0.5.4
+dep_cowboy      = git-emqx https://github.com/ninenines/cowboy 2.6.1
+dep_emqx_passwd = git-emqx https://github.com/emqx/emqx-passwd win30
+dep_replayq     = git-emqx https://github.com/emqx/replayq v0.1.1
 
 NO_AUTOPATCH = cuttlefish
 
