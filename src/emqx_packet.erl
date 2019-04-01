@@ -140,7 +140,7 @@ publish_props(Headers) ->
 %% @doc Message from Packet
 -spec(to_message(emqx_types:credentials(), emqx_mqtt_types:packet())
       -> emqx_types:message()).
-to_message(#{client_id := ClientId, username := Username},
+to_message(#{client_id := ClientId, username := Username, peername := Peername},
            #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                                                        retain = Retain,
                                                        qos    = QoS,
@@ -150,7 +150,8 @@ to_message(#{client_id := ClientId, username := Username},
                         payload  = Payload}) ->
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
     Msg#message{flags = #{dup => Dup, retain => Retain},
-                headers = merge_props(#{username => Username}, Props)}.
+                headers = merge_props(#{username => Username,
+                                        peername => Peername}, Props)}.
 
 -spec(will_msg(#mqtt_packet_connect{}) -> emqx_types:message()).
 will_msg(#mqtt_packet_connect{will_flag = false}) ->
