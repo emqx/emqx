@@ -957,7 +957,7 @@ enqueue_msg(Msg, State = #state{mqueue = Q, client_id = ClientId, username = Use
     if
         Dropped =/= undefined ->
             SessProps = #{client_id => ClientId, username => Username},
-            ok = emqx_hooks:run('message.dropped', [SessProps, Msg]);
+            ok = emqx_hooks:run('message.dropped', [SessProps, Dropped]);
         true -> ok
     end,
     State#state{mqueue = NewQ}.
