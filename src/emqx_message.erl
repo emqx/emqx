@@ -57,8 +57,6 @@
 
 -export([ to_map/1
         , to_list/1
-        , to_bin_key_map/1
-        , to_bin_key_list/1
         ]).
 
 -export([format/1]).
@@ -193,23 +191,10 @@ update_expiry(Msg) -> Msg.
 to_map(Msg) ->
     maps:from_list(to_list(Msg)).
 
-%% @doc Message to map
--spec(to_bin_key_map(emqx_types:message()) -> #{binary() => any()}).
-to_bin_key_map(Msg) ->
-    maps:from_list(to_bin_key_list(Msg)).
-
 %% @doc Message to tuple list
 -spec(to_list(emqx_types:message()) -> map()).
 to_list(Msg) ->
     lists:zip(record_info(fields, message), tl(tuple_to_list(Msg))).
-
-%% @doc Message to tuple list
--spec(to_bin_key_list(emqx_types:message()) -> map()).
-to_bin_key_list(Msg) ->
-    lists:zipwith(
-        fun(Key, Val) ->
-            {bin(Key), bin_key_map(Val)}
-        end, record_info(fields, message), tl(tuple_to_list(Msg))).
 
 %% MilliSeconds
 elapsed(Since) ->
@@ -225,15 +210,3 @@ format(flags, Flags) ->
     io_lib:format("~p", [[Flag || {Flag, true} <- maps:to_list(Flags)]]);
 format(headers, Headers) ->
     io_lib:format("~p", [Headers]).
-
-bin_key_map(Map) when is_map(Map) ->
-    maps:fold(fun(Key, Val, Acc) ->
-                      Acc#{bin(Key) => bin_key_map(Val)}
-              end, #{}, Map);
-bin_key_map(Data) ->
-    Data.
-
-bin(Bin) when is_binary(Bin) -> Bin;
-bin(Atom) when is_atom(Atom) -> list_to_binary(atom_to_list(Atom));
-bin(Str) when is_list(Str) -> list_to_binary(Str).
-
