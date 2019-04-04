@@ -228,7 +228,7 @@ handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Update
     {noreply, start_timer(State#state{updates = Updates1}), hibernate};
 
 handle_info(Info, State) ->
-    ?LOG("error, [Stats] Unexpected info: ~p", [Info]),
+    ?LOG(error, "[Stats] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{timer = TRef}) ->

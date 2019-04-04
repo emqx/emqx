@@ -113,7 +113,7 @@ call(WSPid, Req) when is_pid(WSPid) ->
 %%------------------------------------------------------------------------------
 
 init(Req, Opts) ->
-    IdleTimeout = proplists:get_value(idle_timeout, Opts, 60000),
+    IdleTimeout = proplists:get_value(idle_timeout, Opts, 7200000),
     DeflateOptions = maps:from_list(proplists:get_value(deflate_options, Opts, [])),
     MaxFrameSize = case proplists:get_value(max_frame_size, Opts, 0) of
                        0 -> infinity;
