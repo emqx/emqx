@@ -16,12 +16,24 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
+-include("types.hrl").
 
+%% Create
 -export([ make/2
         , make/3
         , make/4
         ]).
 
+%% Fields
+-export([ id/1
+        , qos/1
+        , from/1
+        , topic/1
+        , payload/1
+        , timestamp/1
+        ]).
+
+%% Flags
 -export([ get_flag/2
         , get_flag/3
         , set_flag/2
@@ -30,6 +42,7 @@
         , unset_flag/2
         ]).
 
+%% Headers
 -export([ get_headers/1
         , get_header/2
         , get_header/3
@@ -44,8 +57,6 @@
 
 -export([ to_map/1
         , to_list/1
-        , to_bin_key_map/1
-        , to_bin_key_list/1
         ]).
 
 -export([format/1]).
@@ -56,14 +67,17 @@
 make(Topic, Payload) ->
     make(undefined, Topic, Payload).
 
--spec(make(atom() | emqx_types:client_id(), emqx_topic:topic(), emqx_types:payload())
-      -> emqx_types:message()).
+-spec(make(atom() | emqx_types:client_id(),
+           emqx_topic:topic(),
+           emqx_types:payload()) -> emqx_types:message()).
 make(From, Topic, Payload) ->
     make(From, ?QOS_0, Topic, Payload).
 
--spec(make(atom() | emqx_types:client_id(), emqx_mqtt_types:qos(),
-           emqx_topic:topic(), emqx_types:payload()) -> emqx_types:message()).
-make(From, QoS, Topic, Payload) ->
+-spec(make(atom() | emqx_types:client_id(),
+           emqx_mqtt_types:qos(),
+           emqx_topic:topic(),
+           emqx_types:payload()) -> emqx_types:message()).
+make(From, QoS, Topic, Payload) when ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
     #message{id = emqx_guid:gen(),
              qos = QoS,
              from = From,
@@ -71,6 +85,24 @@ make(From, QoS, Topic, Payload) ->
              topic = Topic,
              payload = Payload,
              timestamp = os:timestamp()}.
+
+-spec(id(emqx_types:message()) -> maybe(binary())).
+id(#message{id = Id}) -> Id.
+
+-spec(qos(emqx_types:message()) -> emqx_mqtt_types:qos()).
+qos(#message{qos = QoS}) -> QoS.
+
+-spec(from(emqx_types:message()) -> atom() | binary()).
+from(#message{from = From}) -> From.
+
+-spec(topic(emqx_types:message()) -> emqx_types:topic()).
+topic(#message{topic = Topic}) -> Topic.
+
+-spec(payload(emqx_types:message()) -> emqx_types:payload()).
+payload(#message{payload = Payload}) -> Payload.
+
+-spec(timestamp(emqx_types:message()) -> erlang:timestamp()).
+timestamp(#message{timestamp = TS}) -> TS.
 
 -spec(set_flags(map(), emqx_types:message()) -> emqx_types:message()).
 set_flags(Flags, Msg = #message{flags = undefined}) when is_map(Flags) ->
@@ -159,23 +191,10 @@ update_expiry(Msg) -> Msg.
 to_map(Msg) ->
     maps:from_list(to_list(Msg)).
 
-%% @doc Message to map
--spec(to_bin_key_map(emqx_types:message()) -> #{binary() => any()}).
-to_bin_key_map(Msg) ->
-    maps:from_list(to_bin_key_list(Msg)).
-
 %% @doc Message to tuple list
 -spec(to_list(emqx_types:message()) -> map()).
 to_list(Msg) ->
     lists:zip(record_info(fields, message), tl(tuple_to_list(Msg))).
-
-%% @doc Message to tuple list
--spec(to_bin_key_list(emqx_types:message()) -> map()).
-to_bin_key_list(Msg) ->
-    lists:zipwith(
-        fun(Key, Val) ->
-            {bin(Key), bin_key_map(Val)}
-        end, record_info(fields, message), tl(tuple_to_list(Msg))).
 
 %% MilliSeconds
 elapsed(Since) ->
@@ -191,14 +210,3 @@ format(flags, Flags) ->
     io_lib:format("~p", [[Flag || {Flag, true} <- maps:to_list(Flags)]]);
 format(headers, Headers) ->
     io_lib:format("~p", [Headers]).
-
-bin_key_map(Map) when is_map(Map) ->
-    maps:fold(fun(Key, Val, Acc) ->
-                      Acc#{bin(Key) => bin_key_map(Val)}
-              end, #{}, Map);
-bin_key_map(Data) ->
-    Data.
-
-bin(Bin) when is_binary(Bin) -> Bin;
-bin(Atom) when is_atom(Atom) -> list_to_binary(atom_to_list(Atom));
-bin(Str) when is_list(Str) -> list_to_binary(Str).

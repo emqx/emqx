@@ -172,7 +172,7 @@ uptime(days, D) ->
 publish(uptime, Uptime) ->
     safe_publish(systop(uptime), Uptime);
 publish(datetime, Datetime) ->
-    safe_publish(systop(datatype), Datetime);
+    safe_publish(systop(datetime), Datetime);
 publish(version, Version) ->
     safe_publish(systop(version), #{retain => true}, Version);
 publish(sysdescr, Descr) ->
