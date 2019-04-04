@@ -181,7 +181,7 @@ start_timer(#state{tick_ms = Ms} = State) ->
 handle_call(stop, _From, State) ->
     {stop, normal, _Reply = ok, State};
 handle_call(Req, _From, State) ->
-    ?ERROR("[Stats] unexpected call: ~p", [Req]),
+    ?LOG(error, "[Stats] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({setstat, Stat, MaxStat, Val}, State) ->
@@ -199,7 +199,7 @@ handle_cast({setstat, Stat, MaxStat, Val}, State) ->
 handle_cast({update_interval, Update = #update{name = Name}}, State = #state{updates = Updates}) ->
     case lists:keyfind(Name, #update.name, Updates) of
         #update{} ->
-            ?ERROR("[Stats]: duplicated update: ~s", [Name]),
+            ?LOG(warning, "[Stats] Duplicated update: ~s", [Name]),
             {noreply, State};
         false ->
             {noreply, State#state{updates = [Update | Updates]}}
@@ -209,7 +209,7 @@ handle_cast({cancel_update, Name}, State = #state{updates = Updates}) ->
     {noreply, State#state{updates = lists:keydelete(Name, #update.name, Updates)}};
 
 handle_cast(Msg, State) ->
-    ?ERROR("[Stats] unexpected cast: ~p", [Msg]),
+    ?LOG(error, "[Stats] Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Updates}) ->
@@ -219,7 +219,7 @@ handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Update
                          try UpFun()
                          catch
                              _:Error ->
-                                 ?ERROR("[Stats] update ~s error: ~p", [Name, Error])
+                                 ?LOG(error, "[Stats] update ~s failed: ~p", [Name, Error])
                          end,
                          [Update#update{countdown = I} | Acc];
                     (Update = #update{countdown = C}, Acc) ->
@@ -228,7 +228,7 @@ handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Update
     {noreply, start_timer(State#state{updates = Updates1}), hibernate};
 
 handle_info(Info, State) ->
-    ?ERROR("[Stats] unexpected info: ~p", [Info]),
+    ?LOG(error, "[Stats] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{timer = TRef}) ->

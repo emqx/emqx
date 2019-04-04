@@ -46,7 +46,7 @@ unmount(MountPoint, Msg = #message{topic = Topic}) ->
         {MountPoint, Topic1} -> Msg#message{topic = Topic1}
     catch
         _Error:Reason ->
-            ?LOG(error, "Unmount error : ~p", [Reason]),
+            ?LOG(error, "[Mountpoint] Unmount error : ~p", [Reason]),
             Msg
     end.
 

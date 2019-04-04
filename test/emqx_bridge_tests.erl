@@ -104,8 +104,6 @@ manual_start_stop_test() ->
     %% call ensure_started again should yeld the same result
     {ok, Pid} = emqx_bridge:ensure_started(?BRIDGE_NAME, Config),
     ?assertEqual(Pid, whereis(?BRIDGE_REG_NAME)),
-    ?assertEqual({error, standing_by},
-                 emqx_bridge:ensure_forward_present(Pid, "dummy")),
     emqx_bridge:ensure_stopped(unknown),
     emqx_bridge:ensure_stopped(Pid),
     emqx_bridge:ensure_stopped(?BRIDGE_REG_NAME).

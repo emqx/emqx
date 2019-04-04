@@ -15,6 +15,7 @@
 -module(emqx).
 
 -include("emqx.hrl").
+-include("logger.hrl").
 -include("types.hrl").
 
 %% Start/Stop the application
@@ -180,7 +181,7 @@ shutdown() ->
     shutdown(normal).
 
 shutdown(Reason) ->
-    emqx_logger:error("emqx shutdown for ~s", [Reason]),
+    ?LOG(critical, "[EMQ X] emqx shutdown for ~s", [Reason]),
     emqx_alarm_handler:unload(),
     emqx_plugins:unload(),
     lists:foreach(fun application:stop/1, [emqx, ekka, cowboy, ranch, esockd, gproc]).
@@ -197,4 +198,3 @@ reload_config(ConfFile) ->
     lists:foreach(fun({App, Vals}) ->
                       [application:set_env(App, Par, Val) || {Par, Val} <- Vals]
                   end, Conf).
-

@@ -105,6 +105,18 @@
   {default, "1m"}
 ]}.
 
+{mapping, "cluster.etcd.ssl.keyfile", "ekka.cluster_discovery", [
+  {datatype, string}
+]}.
+
+{mapping, "cluster.etcd.ssl.certfile", "ekka.cluster_discovery", [
+  {datatype, string}
+]}.
+
+{mapping, "cluster.etcd.ssl.cacertfile", "ekka.cluster_discovery", [
+  {datatype, string}
+]}.
+
 %%--------------------------------------------------------------------
 %% Cluster on K8s
 
@@ -149,9 +161,16 @@
                  [{name, cuttlefish:conf_get("cluster.dns.name", Conf)},
                   {app, cuttlefish:conf_get("cluster.dns.app", Conf)}];
                (etcd) ->
+                 SslOpts = fun(Conf) ->
+                              Options = cuttlefish_variable:filter_by_prefix("cluster.etcd.ssl", Conf),
+                              lists:map(fun({["cluster", "etcd", "ssl", Name], Value}) ->
+                                            {list_to_atom(Name), Value}
+                                        end, Options)
+                            end,
                  [{server, string:tokens(cuttlefish:conf_get("cluster.etcd.server", Conf), ",")},
                   {prefix, cuttlefish:conf_get("cluster.etcd.prefix", Conf, "emqcl")},
-                  {node_ttl, cuttlefish:conf_get("cluster.etcd.node_ttl", Conf, 60)}];
+                  {node_ttl, cuttlefish:conf_get("cluster.etcd.node_ttl", Conf, 60)},
+                  {ssl_options, SslOpts(Conf)}];
                (k8s) ->
                  [{apiserver, cuttlefish:conf_get("cluster.k8s.apiserver", Conf)},
                   {service_name, cuttlefish:conf_get("cluster.k8s.service_name", Conf)},
@@ -1238,6 +1257,57 @@ end}.
   hidden
 ]}.
 
+{mapping, "listener.ws.$name.compress", "emqx.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.deflate_opts.level", "emqx.listeners", [
+  {datatype, {enum, [none, default, best_compression, best_speed]}},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.deflate_opts.mem_level", "emqx.listeners", [
+  {datatype, integer},
+  {validators, ["range:1-9"]},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.deflate_opts.strategy", "emqx.listeners", [
+  {datatype, {enum, [default, filtered, huffman_only, rle]}},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.deflate_opts.server_context_takeover", "emqx.listeners", [
+  {datatype, {enum, [takeover, no_takeover]}},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.deflate_opts.client_context_takeover", "emqx.listeners", [
+  {datatype, {enum, [takeover, no_takeover]}},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.deflate_opts.server_max_window_bits", "emqx.listeners", [
+  {datatype, integer},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.deflate_opts.client_max_window_bits", "emqx.listeners", [
+  {datatype, integer},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.idle_timeout", "emqx.listeners", [
+  {datatype, {duration, ms}},
+  hidden
+]}.
+
+{mapping, "listener.ws.$name.max_frame_size", "emqx.listeners", [
+  {datatype, integer},
+  hidden
+]}.
+
 %%--------------------------------------------------------------------
 %% MQTT/WebSocket/SSL Listeners
 
@@ -1393,6 +1463,61 @@ end}.
   {datatype, {enum, [cn, dn, crt]}}
 ]}.
 
+{mapping, "listener.wss.$name.compress", "emqx.listeners", [
+  {datatype, {enum, [true, false]}},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.deflate_opts.level", "emqx.listeners", [
+  {datatype, {enum, [none, default, best_compression, best_speed]}},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.deflate_opts.mem_level", "emqx.listeners", [
+  {datatype, integer},
+  {validators, ["range:1-9"]},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.deflate_opts.strategy", "emqx.listeners", [
+  {datatype, {enum, [default, filtered, huffman_only, rle]}},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.deflate_opts.server_context_takeover", "emqx.listeners", [
+  {datatype, {enum, [takeover, no_takeover]}},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.deflate_opts.client_context_takeover", "emqx.listeners", [
+  {datatype, {enum, [takeover, no_takeover]}},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.deflate_opts.server_max_window_bits", "emqx.listeners", [
+  {datatype, integer},
+  {validators, ["range:8-15"]},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.deflate_opts.client_max_window_bits", "emqx.listeners", [
+  {datatype, integer},
+  {validators, ["range:8-15"]},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.idle_timeout", "emqx.listeners", [
+  {datatype, {duration, ms}},
+  hidden
+]}.
+
+{mapping, "listener.wss.$name.max_frame_size", "emqx.listeners", [
+  {datatype, integer},
+  hidden
+]}.
+
+
+
 {translation, "emqx.listeners", fun(Conf) ->
 
     Filter  = fun(Opts) -> [{K, V} || {K, V} <- Opts, V =/= undefined] end,
@@ -1431,19 +1556,30 @@ end}.
                           {verify_protocol_header, cuttlefish:conf_get(Prefix ++ ".verify_protocol_header", Conf, undefined)},
                           {peer_cert_as_username, cuttlefish:conf_get(Prefix ++ ".peer_cert_as_username", Conf, undefined)},
                           {proxy_port_header, cuttlefish:conf_get(Prefix ++ ".proxy_port_header", Conf, undefined)},
+                          {compress, cuttlefish:conf_get(Prefix ++ ".compress", Conf, undefined)},
+                          {idle_timeout, cuttlefish:conf_get(Prefix ++ ".idle_timeout", Conf, undefined)},
+                          {max_frame_size, cuttlefish:conf_get(Prefix ++ ".max_frame_size", Conf, undefined)},
                           {proxy_address_header, cuttlefish:conf_get(Prefix ++ ".proxy_address_header", Conf, undefined)} | AccOpts(Prefix)])
               end,
+    DeflateOpts = fun(Prefix) ->
+                      Filter([{level, cuttlefish:conf_get(Prefix ++ ".deflate_opts.level", Conf, undefined)},
+                              {mem_level, cuttlefish:conf_get(Prefix ++ ".deflate_opts.mem_level", Conf, undefined)},
+                              {strategy, cuttlefish:conf_get(Prefix ++ ".deflate_opts.strategy", Conf, undefined)},
+                              {server_context_takeover, cuttlefish:conf_get(Prefix ++ ".deflate_opts.server_context_takeover", Conf, undefined)},
+                              {client_context_takeover, cuttlefish:conf_get(Prefix ++ ".deflate_opts.client_context_takeover", Conf, undefined)},
+                              {server_max_windows_bits, cuttlefish:conf_get(Prefix ++ ".deflate_opts.server_max_window_bits", Conf, undefined)},
+                              {client_max_windows_bits, cuttlefish:conf_get(Prefix ++ ".deflate_opts.client_max_window_bits", Conf, undefined)}])
+                  end,
     TcpOpts = fun(Prefix) ->
-                   Filter([{backlog, cuttlefish:conf_get(Prefix ++ ".backlog", Conf, undefined)},
-                           {send_timeout, cuttlefish:conf_get(Prefix ++ ".send_timeout", Conf, undefined)},
-                           {send_timeout_close, cuttlefish:conf_get(Prefix ++ ".send_timeout_close", Conf, undefined)},
-                           {recbuf,  cuttlefish:conf_get(Prefix ++ ".recbuf", Conf, undefined)},
-                           {sndbuf,  cuttlefish:conf_get(Prefix ++ ".sndbuf", Conf, undefined)},
-                           {buffer,  cuttlefish:conf_get(Prefix ++ ".buffer", Conf, undefined)},
-                           {nodelay, cuttlefish:conf_get(Prefix ++ ".nodelay", Conf, true)},
-                           {reuseaddr, cuttlefish:conf_get(Prefix ++ ".reuseaddr", Conf, undefined)}])
+                  Filter([{backlog, cuttlefish:conf_get(Prefix ++ ".backlog", Conf, undefined)},
+                          {send_timeout, cuttlefish:conf_get(Prefix ++ ".send_timeout", Conf, undefined)},
+                          {send_timeout_close, cuttlefish:conf_get(Prefix ++ ".send_timeout_close", Conf, undefined)},
+                          {recbuf,  cuttlefish:conf_get(Prefix ++ ".recbuf", Conf, undefined)},
+                          {sndbuf,  cuttlefish:conf_get(Prefix ++ ".sndbuf", Conf, undefined)},
+                          {buffer,  cuttlefish:conf_get(Prefix ++ ".buffer", Conf, undefined)},
+                          {nodelay, cuttlefish:conf_get(Prefix ++ ".nodelay", Conf, true)},
+                          {reuseaddr, cuttlefish:conf_get(Prefix ++ ".reuseaddr", Conf, undefined)}])
               end,
-
     SplitFun = fun(undefined) -> undefined; (S) -> string:tokens(S, ",") end,
     MapPSKCiphers = fun(PSKCiphers) ->
                       lists:map(
@@ -1496,7 +1632,8 @@ end}.
                        case cuttlefish:conf_get(Prefix, Conf, undefined) of
                            undefined -> [];
                            ListenOn  ->
-                               [{Atom(Type), ListenOn, [{tcp_options, TcpOpts(Prefix)} | LisOpts(Prefix)]}]
+                               [{Atom(Type), ListenOn, [{deflate_options, DeflateOpts(Prefix)},
+                                                        {tcp_options, TcpOpts(Prefix)} | LisOpts(Prefix)]}]
                        end
                    end,
 
@@ -1506,7 +1643,8 @@ end}.
                            undefined ->
                                [];
                            ListenOn ->
-                               [{Atom(Type), ListenOn, [{tcp_options, TcpOpts(Prefix)},
+                               [{Atom(Type), ListenOn, [{deflate_options, DeflateOpts(Prefix)},
+                                                        {tcp_options, TcpOpts(Prefix)},
                                                         {ssl_options, SslOpts(Prefix)} | LisOpts(Prefix)]}]
                        end
                    end,

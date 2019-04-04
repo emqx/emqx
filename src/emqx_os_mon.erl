@@ -132,7 +132,7 @@ handle_info({timeout, Timer, check}, State = #{timer := Timer,
         0 ->
             {noreply, State#{timer := undefined}};
         {error, Reason} ->
-            ?LOG(warning, "Failed to get cpu utilization: ~p", [Reason]),
+            ?LOG(error, "[OS Monitor] Failed to get cpu utilization: ~p", [Reason]),
             {noreply, ensure_check_timer(State)};
         Busy when Busy / 100 >= CPUHighWatermark ->
             alarm_handler:set_alarm({cpu_high_watermark, Busy}),
@@ -142,7 +142,9 @@ handle_info({timeout, Timer, check}, State = #{timer := Timer,
                 true -> alarm_handler:clear_alarm(cpu_high_watermark);
                 false -> ok
             end,
-            {noreply, ensure_check_timer(State#{is_cpu_alarm_set := false})}
+            {noreply, ensure_check_timer(State#{is_cpu_alarm_set := false})};
+        _Busy ->
+            {noreply, ensure_check_timer(State)}
     end.
 
 terminate(_Reason, #{timer := Timer}) ->
