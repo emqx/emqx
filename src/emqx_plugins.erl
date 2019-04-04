@@ -276,7 +276,11 @@ plugin_unloaded(_Name, false) ->
     ok;
 plugin_unloaded(Name, true) ->
     case read_loaded() of
-        {ok, Names} ->
+        {ok, Names0} ->
+            Names = lists:filtermap(fun(Name1) when is_atom(Name1) -> {true, Name1};
+                                       ({Name1, true}) -> {true, Name1};
+                                       ({_Name1, false}) -> false
+                                    end, Names0),
             case lists:member(Name, Names) of
                 true ->
                     write_loaded(lists:delete(Name, Names));
@@ -306,4 +310,3 @@ write_loaded(AppNames) ->
             ?LOG(error, "[Plugins] Open File ~p Error: ~p", [File, Error]),
             {error, Error}
     end.
-

@@ -87,6 +87,7 @@ t_rpc(Config) when is_list(Config) ->
         %% message from a different client, to avoid getting terminated by no-local
         Msg1 = emqx_message:make(<<"ClientId-2">>, ?QOS_2, <<"t_rpc/one">>, <<"hello">>),
         ok = emqx_session:subscribe(SPid, [{<<"forwarded/t_rpc/one">>, #{qos => ?QOS_1}}]),
+        ct:sleep(100),
         PacketId = 1,
         emqx_session:publish(SPid, PacketId, Msg1),
         ?wait(case emqx_mock_client:get_last_message(ConnPid) of
