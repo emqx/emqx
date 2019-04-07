@@ -119,6 +119,7 @@
 -define(DEFAULT_SEND_AHEAD, 8).
 -define(DEFAULT_RECONNECT_DELAY_MS, timer:seconds(5)).
 -define(DEFAULT_SEG_BYTES, (1 bsl 20)).
+-define(NO_CALLER, undefined).
 -define(maybe_send, {next_event, internal, maybe_send}).
 
 %% @doc Start a bridge worker. Supported configs:
@@ -277,7 +278,8 @@ init(Config) ->
        subscriptions => Subs,
        replayq => Queue,
        inflight => [],
-       connection => undefined
+       connection => undefined,
+       caller => ?NO_CALLER
       }}.
 
 code_change(_Vsn, State, Data, _Extra) ->
@@ -295,7 +297,7 @@ standing_by(enter, _, #{start_type := auto}) ->
 standing_by(enter, _, #{start_type := manual}) ->
     keep_state_and_data;
 standing_by({call, From}, ensure_started, State) ->
-    {next_state, connecting, State,
+    {next_state, connecting, State#{caller => From},
      [{reply, From, ok}]};
 standing_by(state_timeout, do_connect, State) ->
     {next_state, connecting, State};
@@ -314,7 +316,8 @@ connecting(enter, connected, #{reconnect_delay_ms := Timeout}) ->
 connecting(enter, _, #{reconnect_delay_ms := Timeout,
                        connect_fun := ConnectFun,
                        subscriptions := Subs,
-                       forwards := Forwards
+                       forwards := Forwards,
+                       caller := Caller
                       } = State) ->
     ok = subscribe_local_topics(Forwards),
     case ConnectFun(Subs) of
@@ -322,7 +325,11 @@ connecting(enter, _, #{reconnect_delay_ms := Timeout,
             ?LOG(info, "[Bridge] Bridge ~p connected", [name()]),
             Action = {state_timeout, 0, connected},
             {keep_state, State#{conn_ref => ConnRef, connection => Conn}, Action};
-        error ->
+        {error, Reason} ->
+            case Caller of
+                undefined -> ok;
+                Caller0 -> Caller0 ! {error, Reason}
+            end,
             Action = {state_timeout, Timeout, reconnect},
             {keep_state_and_data, Action}
     end;
