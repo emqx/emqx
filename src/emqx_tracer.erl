@@ -82,11 +82,14 @@ start_trace({topic, Topic}, Level, LogFile) ->
 
 do_start_trace(Who, Level, LogFile) ->
     #{level := PrimaryLevel} = logger:get_primary_config(),
-    case logger:compare_levels(Level, PrimaryLevel) of
+    try logger:compare_levels(log_level(Level), PrimaryLevel) of
         lt ->
             {error, io_lib:format("Cannot trace at a log level (~s) lower than the primary log level (~s)", [Level, PrimaryLevel])};
         _GtOrEq ->
             gen_server:call(?MODULE, {start_trace, Who, Level, LogFile}, 5000)
+    catch
+        _:Error ->
+           {error, Error}
     end.
 
 %% @doc Stop tracing client_id or topic.
@@ -175,3 +178,14 @@ filter_by_meta_key(#{meta:=Meta}=LogEvent, {MetaKey, MetaValue}) ->
             end;
         _ -> ignore
     end.
+
+log_level(emergency) -> emergency;
+log_level(alert) -> alert;
+log_level(critical) -> critical;
+log_level(error) -> error;
+log_level(warning) -> warning;
+log_level(notice) -> notice;
+log_level(info) -> info;
+log_level(debug) -> debug;
+log_level(all) -> debug;
+log_level(_) -> throw(invalid_log_level).
