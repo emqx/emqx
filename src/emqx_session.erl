@@ -676,6 +676,7 @@ terminate(Reason, #state{will_msg = WillMsg,
                          username = Username,
                          conn_pid = ConnPid,
                          old_conn_pid = OldConnPid}) ->
+    emqx_metrics:commit(),
     send_willmsg(WillMsg),
     [maybe_shutdown(Pid, Reason) || Pid <- [ConnPid, OldConnPid]],
     ok = emqx_hooks:run('session.terminated', [#{client_id => ClientId, username => Username}, Reason]).
