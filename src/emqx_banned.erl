@@ -29,6 +29,7 @@
 -export([start_link/0]).
 
 -export([ add/1
+        , add/4
         , delete/1
         , check/1
         ]).
@@ -70,7 +71,20 @@ check(#{client_id := ClientId, username := Username, peername := {IPAddr, _}}) -
         orelse ets:member(?TAB, {username, Username})
             orelse ets:member(?TAB, {ipaddr, IPAddr}).
 
--spec(add(#banned{}) -> ok).
+-spec(add( ClientId :: binary()
+         , Reason :: binary()
+         , By :: binary()
+         , Until :: integer()) -> ok).
+add(ClientId, Reason, By, Until) ->
+    Banned = #banned{ who = {client_id, ClientId}
+                    , reason = Reason
+                    , by = By
+                    , desc = <<>>
+                    , until = Until
+                    },
+    add(Banned).
+
+-spec(add(emqx_types:banned()) -> ok).
 add(Banned) when is_record(Banned, banned) ->
     mnesia:dirty_write(?TAB, Banned).
 
@@ -127,4 +141,3 @@ expire_banned_items(Now) ->
               mnesia:delete_object(?TAB, B, sticky_write);
          (_, _Acc) -> ok
       end, ok, ?TAB).
-

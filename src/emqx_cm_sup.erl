@@ -30,11 +30,20 @@ init([]) ->
                shutdown => 1000,
                type => worker,
                modules => [emqx_banned]},
+    FlappingConf = #{ timer => emqx_config:get_env(flapping_clean_interval, 60) },
+    Flapping = #{id => flapping,
+                 start => {emqx_flapping, start_link, [FlappingConf]},
+                 restart => permanent,
+                 shutdown => 1000,
+                 type => worker,
+                 modules => [emqx_flapping]},
     Manager = #{id => manager,
                 start => {emqx_cm, start_link, []},
                 restart => permanent,
                 shutdown => 2000,
                 type => worker,
                 modules => [emqx_cm]},
-    {ok, {{one_for_one, 10, 100}, [Banned, Manager]}}.
-
+    SupFlags = #{strategy => one_for_one,
+                 intensity => 100,
+                 period => 10},
+    {ok, {SupFlags, [Banned, Manager, Flapping]}}.

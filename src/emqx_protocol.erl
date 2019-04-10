@@ -60,6 +60,7 @@
           is_bridge,
           enable_ban,
           enable_acl,
+          enable_flapping,
           acl_deny_action,
           recv_stats,
           send_stats,
@@ -106,6 +107,7 @@ init(SocketOpts = #{ peername := Peername
             is_bridge           = false,
             enable_ban          = emqx_zone:get_env(Zone, enable_ban, false),
             enable_acl          = emqx_zone:get_env(Zone, enable_acl),
+            enable_flapping     = emqx_zone:get_env(Zone, enable_flapping_detect, false),
             acl_deny_action     = emqx_zone:get_env(Zone, acl_deny_action, ignore),
             recv_stats          = #{msg => 0, pkt => 0},
             send_stats          = #{msg => 0, pkt => 0},
@@ -766,6 +768,7 @@ make_will_msg(#mqtt_packet_connect{proto_ver   = ProtoVer,
 check_connect(Packet, PState) ->
     run_check_steps([fun check_proto_ver/2,
                      fun check_client_id/2,
+                     fun check_flapping/2,
                      fun check_banned/2,
                      fun check_will_topic/2], Packet, PState).
 
@@ -797,6 +800,11 @@ check_client_id(#mqtt_packet_connect{client_id = ClientId}, #pstate{zone = Zone}
         true  -> ok;
         false -> {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID}
     end.
+
+check_flapping(_ConnPkt, #pstate{ enable_flapping = false }) ->
+    ok;
+check_flapping(#mqtt_packet_connect{client_id = ClientId}, #pstate{zone = Zone}) ->
+    do_flapping_detect(online, Zone, ClientId).
 
 check_banned(_ConnPkt, #pstate{enable_ban = false}) ->
     ok;
@@ -903,7 +911,11 @@ terminate(conflict, _PState) ->
 terminate(discard, _PState) ->
     ok;
 
-terminate(Reason, #pstate{credentials = Credentials}) ->
+terminate(Reason, #pstate{credentials
+                          = Credentials
+                          = #{ zone := Zone
+                             , client_id := ClientId }}) ->
+    do_flapping_detect(offline, Zone, ClientId),
     ?LOG(info, "[Protocol] Shutdown for ~p", [Reason]),
     ok = emqx_hooks:run('client.disconnected', [Credentials, Reason]).
 
@@ -931,6 +943,18 @@ flag(true)  -> 1.
 
 %%------------------------------------------------------------------------------
 %% Execute actions in case acl deny
+
+do_flapping_detect(Action, Zone, ClientId) ->
+    ExpiryInterval = emqx_zone:get_env(Zone, flapping_expiry_interval, 60),
+    Threshold = emqx_zone:get_env(Zone, flapping_threshold, 20),
+    Until = erlang:system_time(second) + ExpiryInterval * 60,
+    case emqx_flapping:check(Action, ClientId, ExpiryInterval, Threshold) of
+        flapping ->
+            emqx_banned:add(ClientId, _Reason = <<"flapping">>, _By = <<"flapping_checker">>, Until),
+            ok;
+        _Other ->
+            ok
+    end.
 
 do_acl_deny_action(?PUBLISH_PACKET(?QOS_0, _Topic, _PacketId, _Payload),
                    ?RC_NOT_AUTHORIZED, PState = #pstate{proto_ver = ProtoVer,
