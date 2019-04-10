@@ -138,10 +138,22 @@ websocket_init(#state{request = Req, options = Options}) ->
     Peername = cowboy_req:peer(Req),
     Sockname = cowboy_req:sock(Req),
     Peercert = cowboy_req:cert(Req),
+    WsCookie = try cowboy_req:parse_cookies(Req)
+               catch
+                   error:badarg ->
+                       ?LOG(error, "[WS Connection] Illegal cookie"),
+                       undefined;
+                   Error:Reason ->
+                       ?LOG(error,
+                            "[WS Connection] Cookie is parsed failed, Error: ~p, Reason ~p",
+                            [Error, Reason]),
+                       undefined
+               end,
     ProtoState = emqx_protocol:init(#{peername => Peername,
                                       sockname => Sockname,
                                       peercert => Peercert,
                                       sendfun  => send_fun(self()),
+                                      ws_cookie => WsCookie,
                                       conn_mod => ?MODULE}, Options),
     ParserState = emqx_protocol:parser(ProtoState),
     Zone = proplists:get_value(zone, Options),

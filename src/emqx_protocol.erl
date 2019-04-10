@@ -68,7 +68,8 @@
           ignore_loop,
           topic_alias_maximum,
           conn_mod,
-          credentials
+          credentials,
+          ws_cookie
         }).
 
 -opaque(state() :: #pstate{}).
@@ -85,7 +86,9 @@
 %%------------------------------------------------------------------------------
 
 -spec(init(map(), list()) -> state()).
-init(SocketOpts = #{peername := Peername, peercert := Peercert, sendfun := SendFun}, Options)  ->
+init(SocketOpts = #{ peername := Peername
+                   , peercert := Peercert
+                   , sendfun := SendFun}, Options)  ->
     Zone = proplists:get_value(zone, Options),
     #pstate{zone                = Zone,
             sendfun             = SendFun,
@@ -110,7 +113,8 @@ init(SocketOpts = #{peername := Peername, peercert := Peercert, sendfun := SendF
             ignore_loop         = emqx_config:get_env(mqtt_ignore_loop_deliver, false),
             topic_alias_maximum = #{to_client => 0, from_client => 0},
             conn_mod            = maps:get(conn_mod, SocketOpts, undefined),
-            credentials         = #{}}.
+            credentials         = #{},
+            ws_cookie           = maps:get(ws_cookie, SocketOpts, undefined)}.
 
 init_username(Peercert, Options) ->
     case proplists:get_value(peer_cert_as_username, Options) of
@@ -202,11 +206,13 @@ credentials(#pstate{zone      = Zone,
                     client_id = ClientId,
                     username  = Username,
                     peername  = Peername,
-                    peercert  = Peercert}) ->
+                    peercert  = Peercert,
+                    ws_cookie = WsCookie}) ->
     with_cert(#{zone => Zone,
                 client_id => ClientId,
                 username => Username,
                 peername => Peername,
+                ws_cookie => WsCookie,
                 mountpoint => emqx_zone:get_env(Zone, mountpoint)}, Peercert).
 
 with_cert(Credentials, undefined) -> Credentials;
