@@ -76,11 +76,21 @@ trace(publish, #message{from = From, topic = Topic, payload = Payload})
 %% @doc Start to trace client_id or topic.
 -spec(start_trace(trace_who(), logger:level(), string()) -> ok | {error, term()}).
 start_trace({client_id, ClientId}, Level, LogFile) ->
-    start_trace({start_trace, {client_id, ClientId}, Level, LogFile});
+    do_start_trace({client_id, ClientId}, Level, LogFile);
 start_trace({topic, Topic}, Level, LogFile) ->
-    start_trace({start_trace, {topic, Topic}, Level, LogFile}).
+    do_start_trace({topic, Topic}, Level, LogFile).
 
-start_trace(Req) -> gen_server:call(?MODULE, Req, infinity).
+do_start_trace(Who, Level, LogFile) ->
+    #{level := PrimaryLevel} = logger:get_primary_config(),
+    try logger:compare_levels(log_level(Level), PrimaryLevel) of
+        lt ->
+            {error, io_lib:format("Cannot trace at a log level (~s) lower than the primary log level (~s)", [Level, PrimaryLevel])};
+        _GtOrEq ->
+            gen_server:call(?MODULE, {start_trace, Who, Level, LogFile}, 5000)
+    catch
+        _:Error ->
+           {error, Error}
+    end.
 
 %% @doc Stop tracing client_id or topic.
 -spec(stop_trace(trace_who()) -> ok | {error, term()}).
@@ -109,7 +119,7 @@ handle_call({start_trace, Who, Level, LogFile}, _From, State = #state{traces = T
                                   config => #{type => halt, file => LogFile},
                                   filter_default => stop,
                                   filters => [{meta_key_filter,
-                                               {fun filter_by_meta_key/2, Who} }]}) of
+                                              {fun filter_by_meta_key/2, Who} }]}) of
         ok ->
             ?LOG(info, "[Tracer] Start trace for ~p", [Who]),
             {reply, ok, State#state{traces = maps:put(Who, {Level, LogFile}, Traces)}};
@@ -168,3 +178,14 @@ filter_by_meta_key(#{meta:=Meta}=LogEvent, {MetaKey, MetaValue}) ->
             end;
         _ -> ignore
     end.
+
+log_level(emergency) -> emergency;
+log_level(alert) -> alert;
+log_level(critical) -> critical;
+log_level(error) -> error;
+log_level(warning) -> warning;
+log_level(notice) -> notice;
+log_level(info) -> info;
+log_level(debug) -> debug;
+log_level(all) -> debug;
+log_level(_) -> throw(invalid_log_level).
