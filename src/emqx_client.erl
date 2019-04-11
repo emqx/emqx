@@ -928,6 +928,11 @@ handle_event(info, {inet_reply, _Sock, {error, Reason}}, _, State) ->
     ?LOG(error, "[Client] Got tcp error: ~p", [Reason]),
     {stop, {shutdown, Reason}, State};
 
+handle_event(info, EventContent = {'EXIT', _Pid, normal}, StateName, _State) ->
+    ?LOG(error, "[Client] State: ~s, Unexpected Event: (info, ~p)",
+         [StateName, EventContent]),
+    keep_state_and_data;
+
 handle_event(EventType, EventContent, StateName, _StateData) ->
     ?LOG(error, "[Client] State: ~s, Unexpected Event: (~p, ~p)",
          [StateName, EventType, EventContent]),

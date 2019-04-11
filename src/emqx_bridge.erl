@@ -323,10 +323,9 @@ connecting(enter, _, #{reconnect_delay_ms := Timeout,
         {ok, ConnRef, Conn} ->
             ?LOG(info, "[Bridge] Bridge ~p connected", [name()]),
             Action = {state_timeout, 0, connected},
-            {keep_state,
-             eval_bridge_handler(State#{ conn_ref => ConnRef
-                                       , connection => Conn}, connected),
-             Action};
+            State0 = State#{conn_ref => ConnRef, connection => Conn},
+            State1 = eval_bridge_handler(State0, connected),
+            {keep_state, State1, Action};
         error ->
             Action = {state_timeout, Timeout, reconnect},
             {keep_state_and_data, Action}
@@ -424,7 +423,7 @@ common(StateName, Type, Content, State) ->
 eval_bridge_handler(State = #{bridge_handler := ?NO_BRIDGE_HANDLER}, _Msg) ->
     State;
 eval_bridge_handler(State = #{bridge_handler := Handler}, Msg) ->
-    _ = Handler(Msg),
+    Handler(Msg),
     State.
 
 ensure_present(Key, Topic, State) ->
@@ -564,9 +563,8 @@ disconnect(#{connection := Conn,
              connect_module := Module
             } = State) when Conn =/= undefined ->
     ok = Module:stop(ConnRef, Conn),
-    eval_bridge_handler(State#{conn_ref => undefined,
-                               connection => undefined},
-                        disconnected);
+    State0 = State#{conn_ref => undefined, connection => undefined},
+    eval_bridge_handler(State0, disconnected);
 disconnect(State) ->
     eval_bridge_handler(State, disconnected).
 
