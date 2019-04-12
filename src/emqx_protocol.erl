@@ -155,20 +155,20 @@ attrs(#pstate{zone         = Zone,
               connected_at = ConnectedAt,
               conn_mod     = ConnMod,
               credentials  = Credentials}) ->
-    [{zone, Zone},
-     {client_id, ClientId},
-     {username, Username},
-     {peername, Peername},
-     {peercert, Peercert},
-     {proto_ver, ProtoVer},
-     {proto_name, ProtoName},
-     {clean_start, CleanStart},
-     {keepalive, Keepalive},
-     {is_bridge, IsBridge},
-     {connected_at, ConnectedAt},
-     {conn_mod, ConnMod},
-     {credentials, Credentials}
-     ].
+    #{ zone => Zone
+     , client_id => ClientId
+     , username => Username
+     , peername => Peername
+     , peercert => Peercert
+     , proto_ver => ProtoVer
+     , proto_name => ProtoName
+     , clean_start => CleanStart
+     , keepalive => Keepalive
+     , is_bridge => IsBridge
+     , connected_at => ConnectedAt
+     , conn_mod => ConnMod
+     , credentials => Credentials
+     }.
 
 attr(max_inflight, #pstate{proto_ver = ?MQTT_PROTO_V5, conn_props = ConnProps}) ->
     get_property('Receive-Maximum', ConnProps, 65535);
