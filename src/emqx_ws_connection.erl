@@ -61,11 +61,11 @@ info(#state{peername    = Peername,
             sockname    = Sockname,
             proto_state = ProtoState}) ->
     ProtoInfo = emqx_protocol:info(ProtoState),
-    ConnInfo = [{socktype, websocket},
-                {conn_state, running},
-                {peername, Peername},
-                {sockname, Sockname}],
-    lists:append([ConnInfo, ProtoInfo]).
+    ConnInfo = #{socktype => websocket,
+                 conn_state => running,
+                 peername => Peername,
+                 sockname => Sockname},
+    maps:merge(ProtoInfo, ConnInfo).
 
 %% for dashboard
 attrs(WSPid) when is_pid(WSPid) ->
@@ -74,10 +74,10 @@ attrs(WSPid) when is_pid(WSPid) ->
 attrs(#state{peername    = Peername,
              sockname    = Sockname,
              proto_state = ProtoState}) ->
-    SockAttrs = [{peername, Peername},
-                 {sockname, Sockname}],
+    SockAttrs = #{peername => Peername,
+                  sockname => Sockname},
     ProtoAttrs = emqx_protocol:attrs(ProtoState),
-    lists:usort(lists:append(SockAttrs, ProtoAttrs)).
+    maps:merge(SockAttrs, ProtoAttrs).
 
 stats(WSPid) when is_pid(WSPid) ->
     call(WSPid, stats);

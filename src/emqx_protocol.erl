@@ -135,12 +135,13 @@ info(PState = #pstate{conn_props    = ConnProps,
                       topic_aliases = Aliases,
                       will_msg      = WillMsg,
                       enable_acl    = EnableAcl}) ->
-    attrs(PState) ++ [{conn_props, ConnProps},
-                      {ack_props, AckProps},
-                      {session, Session},
-                      {topic_aliases, Aliases},
-                      {will_msg, WillMsg},
-                      {enable_acl, EnableAcl}].
+    maps:merge(attrs(PState), #{conn_props => ConnProps,
+                                ack_props => AckProps,
+                                session => Session,
+                                topic_aliases => Aliases,
+                                will_msg => WillMsg,
+                                enable_acl => EnableAcl
+                               }).
 
 attrs(#pstate{zone         = Zone,
               client_id    = ClientId,
