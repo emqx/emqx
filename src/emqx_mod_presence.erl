@@ -42,12 +42,15 @@ load(Env) ->
 on_client_connected(#{client_id := ClientId,
                       username  := Username,
                       peername  := {IpAddr, _}}, ConnAck, ConnAttrs, Env) ->
-    Attrs = lists:filter(fun({K, _}) -> lists:member(K, ?ATTR_KEYS) end, ConnAttrs),
-    case emqx_json:safe_encode([{clientid, ClientId},
-                                {username, Username},
-                                {ipaddress, iolist_to_binary(esockd_net:ntoa(IpAddr))},
-                                {connack, ConnAck},
-                                {ts, os:system_time(second)} | Attrs]) of
+    Attrs = maps:filter(fun(K, _) ->
+                                lists:member(K, ?ATTR_KEYS)
+                        end, ConnAttrs),
+    case emqx_json:safe_encode(Attrs#{clientid => ClientId,
+                                      username => Username,
+                                      ipaddress => iolist_to_binary(esockd_net:ntoa(IpAddr)),
+                                      connack => ConnAck,
+                                      ts => os:system_time(second)
+                                     }) of
         {ok, Payload} ->
             emqx:publish(message(qos(Env), topic(connected, ClientId), Payload));
         {error, Reason} ->
@@ -84,4 +87,3 @@ qos(Env) -> proplists:get_value(qos, Env, 0).
 reason(Reason) when is_atom(Reason) -> Reason;
 reason({Error, _}) when is_atom(Error) -> Error;
 reason(_) -> internal_error.
-

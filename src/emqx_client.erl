@@ -928,6 +928,11 @@ handle_event(info, {inet_reply, _Sock, {error, Reason}}, _, State) ->
     ?LOG(error, "[Client] Got tcp error: ~p", [Reason]),
     {stop, {shutdown, Reason}, State};
 
+handle_event(info, EventContent = {'EXIT', _Pid, normal}, StateName, _State) ->
+    ?LOG(info, "[Client] State: ~s, Unexpected Event: (info, ~p)",
+         [StateName, EventContent]),
+    keep_state_and_data;
+
 handle_event(EventType, EventContent, StateName, _StateData) ->
     ?LOG(error, "[Client] State: ~s, Unexpected Event: (~p, ~p)",
          [StateName, EventType, EventContent]),
@@ -1049,7 +1054,7 @@ timeout_calls(Timeout, Calls) ->
 timeout_calls(Now, Timeout, Calls) ->
     lists:foldl(fun(C = #call{from = From, ts = Ts}, Acc) ->
                     case (timer:now_diff(Now, Ts) div 1000) >= Timeout of
-                        true  -> gen_statem:reply(From, {error, ack_timeout}),
+                        true  -> From ! {error, ack_timeout},
                                  Acc;
                         false -> [C | Acc]
                     end
@@ -1231,4 +1236,3 @@ bump_last_packet_id(State = #state{last_packet_id = Id}) ->
 -spec next_packet_id(packet_id()) -> packet_id().
 next_packet_id(?MAX_PACKET_ID) -> 1;
 next_packet_id(Id) -> Id + 1.
-
