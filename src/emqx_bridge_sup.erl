@@ -74,6 +74,6 @@ drop_bridge(Id) ->
         ok ->
             supervisor:delete_child(?SUP, Id);
         Error ->
-            ?LOG(error, "[Bridge] Delete bridge failed", [Error]),
+            ?LOG(error, "[Bridge] Delete bridge failed, error : ~p", [Error]),
             Error
     end.

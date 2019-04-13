@@ -929,7 +929,7 @@ handle_event(info, {inet_reply, _Sock, {error, Reason}}, _, State) ->
     {stop, {shutdown, Reason}, State};
 
 handle_event(info, EventContent = {'EXIT', _Pid, normal}, StateName, _State) ->
-    ?LOG(error, "[Client] State: ~s, Unexpected Event: (info, ~p)",
+    ?LOG(info, "[Client] State: ~s, Unexpected Event: (info, ~p)",
          [StateName, EventContent]),
     keep_state_and_data;
 
