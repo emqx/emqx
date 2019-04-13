@@ -20,11 +20,12 @@
 %% APIs
 -export([ start_link/0
         , start_link/1
-        , bridges/0
         ]).
 
 -export([ create_bridge/2
         , drop_bridge/1
+        , bridges/0
+        , is_bridge_exist/1
         ]).
 
 %% supervisor callbacks
@@ -58,6 +59,13 @@ bridge_spec({Name, Config}) ->
 bridges() ->
     [{Name, emqx_bridge:status(Pid)} || {Name, Pid, _, _} <- supervisor:which_children(?SUP)].
 
+-spec(is_bridge_exist(atom() | pid()) -> boolean()).
+is_bridge_exist(Id) ->
+    case supervisor:get_childspec(?SUP, Id) of
+        {ok, _ChildSpec} -> true;
+        {error, _Error} -> false
+    end.
+
 create_bridge(Id, Config) ->
     supervisor:start_child(?SUP, bridge_spec({Id, Config})).
 
@@ -66,7 +74,6 @@ drop_bridge(Id) ->
         ok ->
             supervisor:delete_child(?SUP, Id);
         Error ->
-            ?LOG(error, "[Bridge] Delete bridge failed", [Error]),
+            ?LOG(error, "[Bridge] Delete bridge failed, error : ~p", [Error]),
             Error
     end.
-
