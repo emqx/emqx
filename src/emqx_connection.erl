@@ -87,15 +87,15 @@ info(#state{transport = Transport,
             rate_limit = RateLimit,
             pub_limit = PubLimit,
             proto_state = ProtoState}) ->
-    ConnInfo = [{socktype, Transport:type(Socket)},
-                {peername, Peername},
-                {sockname, Sockname},
-                {conn_state, ConnState},
-                {active_n, ActiveN},
-                {rate_limit, rate_limit_info(RateLimit)},
-                {pub_limit, rate_limit_info(PubLimit)}],
+    ConnInfo = #{socktype => Transport:type(Socket),
+                 peername => Peername,
+                 sockname => Sockname,
+                 conn_state => ConnState,
+                 active_n => ActiveN,
+                 rate_limit => rate_limit_info(RateLimit),
+                 pub_limit => rate_limit_info(PubLimit)},
     ProtoInfo = emqx_protocol:info(ProtoState),
-    lists:usort(lists:append(ConnInfo, ProtoInfo)).
+    maps:merge(ConnInfo, ProtoInfo).
 
 rate_limit_info(undefined) ->
     #{};
@@ -109,10 +109,10 @@ attrs(CPid) when is_pid(CPid) ->
 attrs(#state{peername = Peername,
              sockname = Sockname,
              proto_state = ProtoState}) ->
-    SockAttrs = [{peername, Peername},
-                 {sockname, Sockname}],
+    SockAttrs = #{peername => Peername,
+                  sockname => Sockname},
     ProtoAttrs = emqx_protocol:attrs(ProtoState),
-    lists:usort(lists:append(SockAttrs, ProtoAttrs)).
+    maps:merge(SockAttrs, ProtoAttrs).
 
 %% Conn stats
 stats(CPid) when is_pid(CPid) ->
