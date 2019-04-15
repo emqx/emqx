@@ -179,7 +179,10 @@ load(PluginName) when is_atom(PluginName) ->
 load_plugin(#plugin{name = Name}, Persistent) ->
     case load_app(Name) of
         ok ->
-            start_app(Name, fun(App) -> plugin_loaded(App, Persistent) end);
+            start_app(Name, fun(App) ->
+                                App:load(),
+                                plugin_loaded(App, Persistent)
+                            end);
         {error, Error} ->
             {error, Error}
     end.
