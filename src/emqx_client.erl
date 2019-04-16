@@ -1030,7 +1030,7 @@ ensure_keepalive_timer(State = ?PROPERTY('Server-Keep-Alive', Secs)) ->
 ensure_keepalive_timer(State = #state{keepalive = 0}) ->
     State;
 ensure_keepalive_timer(State = #state{keepalive = I}) ->
-    ensure_keepalive_timer(I, State).
+    ensure_keepalive_timer(timer:seconds(I), State).
 ensure_keepalive_timer(I, State) when is_integer(I) ->
     State#state{keepalive_timer = erlang:start_timer(I, self(), keepalive)}.
 
