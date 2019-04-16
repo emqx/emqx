@@ -1996,11 +1996,11 @@ end}.
 
 %% @doc Shared Subscription Dispatch Strategy.
 {mapping, "broker.shared_subscription_strategy", "emqx.shared_subscription_strategy", [
-  {default, round_robbin},
+  {default, round_robin},
   {datatype,
    {enum,
     [random, %% randomly pick a subscriber
-     round_robbin, %% round robin alive subscribers one message after another
+     round_robin, %% round robin alive subscribers one message after another
      sticky, %% pick a random subscriber and stick to it
      hash %% hash client ID to a group member
     ]}}
