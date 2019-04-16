@@ -503,7 +503,7 @@ init([{username, Username} | Opts], State) ->
 init([{password, Password} | Opts], State) ->
     init(Opts, State#state{password = iolist_to_binary(Password)});
 init([{keepalive, Secs} | Opts], State) ->
-    init(Opts, State#state{keepalive = timer:seconds(Secs)});
+    init(Opts, State#state{keepalive = Secs});
 init([{proto_ver, v3} | Opts], State) ->
     init(Opts, State#state{proto_ver  = ?MQTT_PROTO_V3,
                            proto_name = <<"MQIsdp">>});
