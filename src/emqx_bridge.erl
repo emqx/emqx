@@ -283,6 +283,8 @@ terminate(_Reason, _StateName, #{replayq := Q} = State) ->
     ok.
 
 %% @doc Standing by for manual start.
+standing_by(enter, connected, _State) ->
+    keep_state_and_data;
 standing_by(enter, _, #{start_type := auto}) ->
     Action = {state_timeout, 0, do_connect},
     {keep_state_and_data, Action};
@@ -292,9 +294,9 @@ standing_by({call, From}, ensure_started, State) ->
     do_connect({call, From}, standing_by, State);
 standing_by(state_timeout, do_connect, State) ->
     {next_state, connecting, State};
-standing_by(info, Info, State) ->
+standing_by(info, Info, _State) ->
     ?LOG(info, "[Bridge] Bridge ~p discarded info event at state standing_by:\n~p", [name(), Info]),
-    {keep_state_and_data, State};
+    keep_state_and_data;
 standing_by(Type, Content, State) ->
     common(standing_by, Type, Content, State).
 
@@ -385,8 +387,7 @@ common(_StateName, {call, From}, {ensure_absent, What, Topic}, State) ->
     {Result, NewState} = ensure_absent(What, Topic, State),
     {keep_state, NewState, [{reply, From, Result}]};
 common(_StateName, {call, From}, ensure_stopped, State) ->
-    State1 = disconnect(State),
-    {next_state, standing_by, State1#{ start_type => manual }, [{reply, From, ok}]};
+    {next_state, standing_by, disconnect(State), [{reply, From, ok}]};
 common(_StateName, info, {dispatch, _, Msg},
        #{replayq := Q} = State) ->
     NewQ = replayq:append(Q, collect([Msg])),
