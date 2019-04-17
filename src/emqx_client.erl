@@ -1026,7 +1026,7 @@ publish_process(?QOS_2, Packet = ?PUBLISH_PACKET(?QOS_2, PacketId),
     end.
 
 ensure_keepalive_timer(State = ?PROPERTY('Server-Keep-Alive', Secs)) ->
-    ensure_keepalive_timer(timer:seconds(Secs), State);
+    ensure_keepalive_timer(timer:seconds(Secs), State#state{keepalive = Secs});
 ensure_keepalive_timer(State = #state{keepalive = 0}) ->
     State;
 ensure_keepalive_timer(State = #state{keepalive = I}) ->
