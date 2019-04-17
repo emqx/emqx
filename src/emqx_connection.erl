@@ -297,7 +297,7 @@ handle(cast, Msg, State) ->
 %% Handle Incoming
 handle(info, {Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
     Oct = iolist_size(Data),
-    ?LOG(debug, "[Connection] RECV ~p", [Data]),
+    ?LOG(debug, "[Connection] RECV ~p", [emqx_logger:truncate(Data)]),
     emqx_pd:update_counter(incoming_bytes, Oct),
     emqx_metrics:trans(inc, 'bytes/received', Oct),
     NState = ensure_stats_timer(maybe_gc({1, Oct}, State)),

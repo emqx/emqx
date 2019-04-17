@@ -32,6 +32,7 @@
         , critical/1
         , critical/2
         , critical/3
+	, truncate/1
         ]).
 
 %% Configs
@@ -118,6 +119,16 @@ set_log_level(Level) ->
     case set_primary_log_level(Level) of
         ok -> set_all_log_handlers_level(Level);
         {error, Error} -> {error, {primary_logger_level, Error}}
+    end.
+
+
+truncate(Payload) ->
+    Oct = iolist_size(Payload),
+    if
+	Oct > 40 ->
+	    binary:part(Payload, 0 ,40);
+	true ->
+            Payload
     end.
 
 %%------------------------------------------------------------------------------
