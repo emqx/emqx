@@ -172,16 +172,7 @@ ensure_stopped(Id, Timeout) ->
         undefined ->
             ok;
         _ ->
-            MRef = monitor(process, Pid),
-            unlink(Pid),
-            _ = gen_statem:call(id(Id), ensure_stopped, Timeout),
-            receive
-                {'DOWN', MRef, _, _, _} ->
-                    ok
-            after
-                Timeout ->
-                    exit(Pid, kill)
-            end
+            gen_statem:call(id(Id), ensure_stopped, Timeout)
     end.
 
 stop(Pid) -> gen_statem:stop(Pid).
@@ -393,9 +384,9 @@ common(_StateName, {call, From}, {ensure_present, What, Topic}, State) ->
 common(_StateName, {call, From}, {ensure_absent, What, Topic}, State) ->
     {Result, NewState} = ensure_absent(What, Topic, State),
     {keep_state, NewState, [{reply, From, Result}]};
-common(_StateName, {call, From}, ensure_stopped, _State) ->
-    {stop_and_reply, {shutdown, manual},
-     [{reply, From, ok}]};
+common(_StateName, {call, From}, ensure_stopped, State) ->
+    State1 = disconnect(State),
+    {next_state, standing_by, State1#{ start_type => manual }, [{reply, From, ok}]};
 common(_StateName, info, {dispatch, _, Msg},
        #{replayq := Q} = State) ->
     NewQ = replayq:append(Q, collect([Msg])),
