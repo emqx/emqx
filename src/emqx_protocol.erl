@@ -60,7 +60,7 @@
           is_bridge,
           enable_ban,
           enable_acl,
-          enable_flapping,
+          enable_flapping_detect,
           acl_deny_action,
           recv_stats,
           send_stats,
@@ -91,32 +91,32 @@ init(SocketOpts = #{ peername := Peername
                    , peercert := Peercert
                    , sendfun := SendFun}, Options)  ->
     Zone = proplists:get_value(zone, Options),
-    #pstate{zone                = Zone,
-            sendfun             = SendFun,
-            peername            = Peername,
-            peercert            = Peercert,
-            proto_ver           = ?MQTT_PROTO_V4,
-            proto_name          = <<"MQTT">>,
-            client_id           = <<>>,
-            is_assigned         = false,
-            conn_pid            = self(),
-            username            = init_username(Peercert, Options),
-            clean_start         = false,
-            topic_aliases       = #{},
-            packet_size         = emqx_zone:get_env(Zone, max_packet_size),
-            is_bridge           = false,
-            enable_ban          = emqx_zone:get_env(Zone, enable_ban, false),
-            enable_acl          = emqx_zone:get_env(Zone, enable_acl),
-            enable_flapping     = emqx_zone:get_env(Zone, enable_flapping_detect, false),
-            acl_deny_action     = emqx_zone:get_env(Zone, acl_deny_action, ignore),
-            recv_stats          = #{msg => 0, pkt => 0},
-            send_stats          = #{msg => 0, pkt => 0},
-            connected           = false,
-            ignore_loop         = emqx_config:get_env(mqtt_ignore_loop_deliver, false),
-            topic_alias_maximum = #{to_client => 0, from_client => 0},
-            conn_mod            = maps:get(conn_mod, SocketOpts, undefined),
-            credentials         = #{},
-            ws_cookie           = maps:get(ws_cookie, SocketOpts, undefined)}.
+    #pstate{zone                   = Zone,
+            sendfun                = SendFun,
+            peername               = Peername,
+            peercert               = Peercert,
+            proto_ver              = ?MQTT_PROTO_V4,
+            proto_name             = <<"MQTT">>,
+            client_id              = <<>>,
+            is_assigned            = false,
+            conn_pid               = self(),
+            username               = init_username(Peercert, Options),
+            clean_start            = false,
+            topic_aliases          = #{},
+            packet_size            = emqx_zone:get_env(Zone, max_packet_size),
+            is_bridge              = false,
+            enable_ban             = emqx_zone:get_env(Zone, enable_ban, false),
+            enable_acl             = emqx_zone:get_env(Zone, enable_acl),
+            enable_flapping_detect = emqx_zone:get_env(Zone, enable_flapping_detect, false),
+            acl_deny_action        = emqx_zone:get_env(Zone, acl_deny_action, ignore),
+            recv_stats             = #{msg => 0, pkt => 0},
+            send_stats             = #{msg => 0, pkt => 0},
+            connected              = false,
+            ignore_loop            = emqx_config:get_env(mqtt_ignore_loop_deliver, false),
+            topic_alias_maximum    = #{to_client => 0, from_client => 0},
+            conn_mod               = maps:get(conn_mod, SocketOpts, undefined),
+            credentials            = #{},
+            ws_cookie              = maps:get(ws_cookie, SocketOpts, undefined)}.
 
 init_username(Peercert, Options) ->
     case proplists:get_value(peer_cert_as_username, Options) of
@@ -801,10 +801,8 @@ check_client_id(#mqtt_packet_connect{client_id = ClientId}, #pstate{zone = Zone}
         false -> {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID}
     end.
 
-check_flapping(_ConnPkt, #pstate{ enable_flapping = false }) ->
-    ok;
-check_flapping(#mqtt_packet_connect{client_id = ClientId}, #pstate{zone = Zone}) ->
-    do_flapping_detect(online, Zone, ClientId).
+check_flapping(#mqtt_packet_connect{}, PState) ->
+    do_flapping_detect(online, PState).
 
 check_banned(_ConnPkt, #pstate{enable_ban = false}) ->
     ok;
@@ -904,18 +902,16 @@ inc_stats(Type, Stats = #{pkt := PktCnt, msg := MsgCnt}) ->
 
 terminate(_Reason, #pstate{client_id = undefined}) ->
     ok;
-terminate(_Reason, #pstate{connected = false}) ->
+terminate(_Reason, PState = #pstate{connected = false}) ->
+    do_flapping_detect(offline, PState),
     ok;
-terminate(conflict, _PState) ->
-    ok;
-terminate(discard, _PState) ->
+terminate(Reason, PState) when Reason =:= conflict;
+                               Reason =:= discard ->
+    do_flapping_detect(offline, PState),
     ok;
 
-terminate(Reason, #pstate{credentials
-                          = Credentials
-                          = #{ zone := Zone
-                             , client_id := ClientId }}) ->
-    do_flapping_detect(offline, Zone, ClientId),
+terminate(Reason, PState = #pstate{credentials = Credentials}) ->
+    do_flapping_detect(offline, PState),
     ?LOG(info, "[Protocol] Shutdown for ~p", [Reason]),
     ok = emqx_hooks:run('client.disconnected', [Credentials, Reason]).
 
@@ -944,17 +940,21 @@ flag(true)  -> 1.
 %%------------------------------------------------------------------------------
 %% Execute actions in case acl deny
 
-do_flapping_detect(Action, Zone, ClientId) ->
-    ExpiryInterval = emqx_zone:get_env(Zone, flapping_expiry_interval, 60),
+do_flapping_detect(Action, #pstate{zone = Zone,
+                                   client_id = ClientId,
+                                   enable_flapping_detect = true}) ->
+    ExpiryInterval = emqx_zone:get_env(Zone, flapping_expiry_interval, 3600),
     Threshold = emqx_zone:get_env(Zone, flapping_threshold, 20),
-    Until = erlang:system_time(second) + ExpiryInterval * 60,
+    Until = erlang:system_time(second) + ExpiryInterval,
     case emqx_flapping:check(Action, ClientId, ExpiryInterval, Threshold) of
         flapping ->
             emqx_banned:add(ClientId, _Reason = <<"flapping">>, _By = <<"flapping_checker">>, Until),
             ok;
         _Other ->
             ok
-    end.
+    end;
+do_flapping_detect(_Action, _PState) ->
+    ok.
 
 do_acl_deny_action(?PUBLISH_PACKET(?QOS_0, _Topic, _PacketId, _Payload),
                    ?RC_NOT_AUTHORIZED, PState = #pstate{proto_ver = ProtoVer,

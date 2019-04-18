@@ -56,7 +56,7 @@
         }).
 
 -type(flapping_record() :: #flapping{}).
--type(flapping_state() :: flapping | normal).
+-type(flapping_state() :: flapping | ok).
 
 
 %% @doc This function is used to initialize flapping records
@@ -65,9 +65,9 @@
       -> flapping_record()).
 init_flapping(ClientId, ExpiryInterval) ->
     #flapping{ client_id = ClientId
-             , check_times = 0
+             , check_times = 1
              , timestamp = emqx_time:now_secs()
-             , expire_time = emqx_time:now_secs() + ExpiryInterval * 60
+             , expire_time = emqx_time:now_secs() + ExpiryInterval
              }.
 
 %% @doc This function is used to initialize flapping records
@@ -92,13 +92,14 @@ check(Action, ClientId, ExpiryInterval, Threshold, InitFlapping) ->
         CheckTimes ->
             case ets:lookup(?FLAPPING_TAB, ClientId) of
                 [Flapping] ->
-                    check_flapping(Action, CheckTimes, ExpiryInterval,  Threshold,  Flapping);
+                    check_flapping(Action, CheckTimes, ExpiryInterval, Threshold, Flapping);
                 _Flapping ->
-                    normal
+                    ok
             end
     catch
         error:badarg ->
-            ets:insert_new(?FLAPPING_TAB, InitFlapping)
+            ets:insert_new(?FLAPPING_TAB, InitFlapping),
+            ok
     end.
 
 -spec(check_flapping( Action :: atom()
@@ -112,25 +113,22 @@ check_flapping(Action, CheckTimes, ExpiryInterval,
                Flapping = #flapping{ client_id = ClientId
                                    , timestamp = TimeStamp }) ->
     TimeDiff = emqx_time:now_secs() - TimeStamp,
-    case time2min(TimeDiff) of
+    case TimeDiff of
         Minutes when Minutes < TimeInterval,
                      CheckTimes > TimesThreshold ->
             flapping;
         Minutes when Minutes =< ExpiryInterval ->
             Now = emqx_time:now_secs(),
             NewFlapping = Flapping#flapping{ timestamp = Now,
-                                             expire_time = Now + ExpiryInterval * 60},
+                                             expire_time = Now + ExpiryInterval},
             ets:insert(?FLAPPING_TAB, NewFlapping),
-            normal;
-        _Minutes when Action =:= offline->
+            ok;
+        _Minutes when Action =:= offline ->
             ets:delete(?FLAPPING_TAB, ClientId),
-            normal;
+            ok;
         _Minutes ->
-            normal
+            ok
     end.
-
-time2min(TimeInterval) ->
-    TimeInterval.
 
 %%--------------------------------------------------------------------
 %% gen_statem callbacks
@@ -149,7 +147,7 @@ init(Config) ->
               , {read_concurrency, true}],
     ok = emqx_tables:new(?FLAPPING_TAB, TabOpts),
     Timer = maps:get(timer, Config),
-    {ok, initialized, #{timer => timer:minutes(Timer)}}.
+    {ok, initialized, #{timer => Timer}}.
 
 callback_mode() -> [state_functions, state_enter].
 
@@ -164,6 +162,7 @@ code_change(_Vsn, State, Data, _Extra) ->
     {ok, State, Data}.
 
 terminate(_Reason, _StateName, _State) ->
+    emqx_tables:delete(?FLAPPING_TAB),
     ok.
 
 %%--------------------------------------------------------------------
@@ -172,23 +171,17 @@ terminate(_Reason, _StateName, _State) ->
 
 %% @doc clean expired records in ets
 clean_expired_records() ->
-    ets:safe_fixtable(?FLAPPING_TAB, true),
-    First = ets:first(?FLAPPING_TAB),
-    Fun = fun(Key, #flapping{ expire_time = Time}) ->
-             case emqx_time:now_secs() > Time of
-                 true ->
-                     ets:delete(?FLAPPING_TAB, Key);
-                 false ->
-                     true
-             end
-          end,
-    try
-        do_ets_each(?FLAPPING_TAB, Fun, First)
-    after
-        ets:safe_fixtable(?FLAPPING_TAB, false)
-    end.
+    Records = ets:tab2list(?FLAPPING_TAB),
+    traverse_records(Records).
 
-do_ets_each(_Table, _Fun, '$end_of_table') ->
+traverse_records([]) ->
     ok;
-do_ets_each(Table, Fun, Key) ->
-    Fun(Key, ets:lookup(Table, Key)).
+traverse_records([#flapping{ client_id = ClientId,
+                             expire_time = ExpiredTime} | LeftRecords]) ->
+    case emqx_time:now_secs() > ExpiredTime of
+        true ->
+            ets:delete(?FLAPPING_TAB, ClientId);
+        false ->
+            true
+    end,
+    traverse_records(LeftRecords).

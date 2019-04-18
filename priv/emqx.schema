@@ -575,7 +575,7 @@ end}.
 
 %% @doc time interval to clean flapping records
 {mapping, "flapping_clean_interval", "emqx.flapping_clean_interval", [
-  {datatype, {duration, m}}
+  {datatype, {duration, ms}}
 ]}.
 
 {validator, "range:gt_0", "must greater than 0",
@@ -827,7 +827,7 @@ end}.
 ]}.
 
 {mapping, "zone.$name.flapping_expiry_interval", "emqx.zones", [
-  {datatype, {duration, m}}
+  {datatype, {duration, s}}
 ]}.
 
 %% @doc Force connection/session process GC after this number of
@@ -863,7 +863,7 @@ end}.
                     {mqtt_retain_available, Val};
                ("flapping_threshold", Val) ->
                     [Limit, Duration] = string:tokens(Val, ", "),
-                    FlappingThreshold = case cuttlefish_duration:parse(Duration, m) of
+                    FlappingThreshold = case cuttlefish_duration:parse(Duration, s) of
                                             Min when is_integer(Min) ->
                                                 {list_to_integer(Limit), Min};
                                            {error, Reason} ->

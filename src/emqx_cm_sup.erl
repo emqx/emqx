@@ -30,7 +30,7 @@ init([]) ->
                shutdown => 1000,
                type => worker,
                modules => [emqx_banned]},
-    FlappingConf = #{ timer => emqx_config:get_env(flapping_clean_interval, 60) },
+    FlappingConf = #{timer => emqx_config:get_env(flapping_clean_interval, 3600000)},
     Flapping = #{id => flapping,
                  start => {emqx_flapping, start_link, [FlappingConf]},
                  restart => permanent,
