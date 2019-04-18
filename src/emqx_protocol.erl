@@ -878,9 +878,21 @@ check_sub_acl(TopicFilters, #pstate{credentials = Credentials}) ->
       end, {ok, []}, TopicFilters).
 
 trace(recv, Packet) ->
-    ?LOG(debug, "[Protocol] RECV ~s", [emqx_packet:format(Packet)]);
+    Level = emqx_logger:get_primary_log_level(),
+    if
+	Level =:= debug; Level =:= info ->
+	    ?LOG(Level, "[Protocol] RECV ~s", [emqx_packet:format(Level, Packet)]);
+	true ->
+	    ok
+    end;
 trace(send, Packet) ->
-    ?LOG(debug, "[Protocol] SEND ~s", [emqx_packet:format(Packet)]).
+    Level = emqx_logger:get_primary_log_level(),
+    if
+	Level =:= debug; Level =:= info ->
+	    ?LOG(Level, "[Protocol] SEND ~s", [emqx_packet:format(Level, Packet)]);
+	true ->
+	    ok
+    end.
 
 inc_stats(recv, Type, PState = #pstate{recv_stats = Stats}) ->
     PState#pstate{recv_stats = inc_stats(Type, Stats)};

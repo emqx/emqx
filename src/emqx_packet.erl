@@ -20,7 +20,7 @@
 -export([ protocol_name/1
         , type_name/1
         , validate/1
-        , format/1
+        , format/2
         , to_message/2
         , from_message/2
         , will_msg/1
@@ -173,9 +173,9 @@ merge_props(Headers, Props) ->
     maps:merge(Headers, Props).
 
 %% @doc Format packet
--spec(format(emqx_mqtt_types:packet()) -> iolist()).
-format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}) ->
-    format_header(Header, format_variable(Variable, Payload)).
+%-spec(format(e(mqx_mqtt_types:packet()) -> iolist()).
+format(Level, #mqtt_packet{header = Header, variable = Variable, payload = Payload}) ->
+    format_header(Header, format_variable(Level, Variable, Payload)).
 
 format_header(#mqtt_packet_header{type = Type,
                                   dup = Dup,
@@ -187,12 +187,23 @@ format_header(#mqtt_packet_header{type = Type,
          end,
     io_lib:format("~s(Q~p, R~p, D~p~s)", [type_name(Type), QoS, i(Retain), i(Dup), S1]).
 
-format_variable(undefined, _) ->
+format_variable(_, undefined, _) ->
     undefined;
-format_variable(Variable, undefined) ->
+format_variable(_, Variable, undefined) ->
     format_variable(Variable);
-format_variable(Variable, Payload) ->
-    io_lib:format("~s, Payload=~p", [format_variable(Variable), Payload]).
+format_variable(Level, Variable, Payload) ->
+    if
+	Level =:= debug ->
+	    io_lib:format("~s, Payload=~p", [format_variable(Variable), Payload]);
+	true ->
+	    Oct = iolist_size(Payload),
+	    if
+		Oct > 40 ->
+		    io_lib:format("~s, Payload=~p", [format_variable(Variable), binary:part(Payload, 0, 40)]);
+		true ->
+		    io_lib:format("~s, Payload=~p", [format_variable(Variable), Payload])
+	    end
+    end.
 
 format_variable(#mqtt_packet_connect{
                  proto_ver    = ProtoVer,
