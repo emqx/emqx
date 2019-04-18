@@ -57,5 +57,5 @@ flapping_connect() ->
 prepare_for_test() ->
     application:set_env(emqx, flapping_clean_interval, 60),
     emqx_zone:set_env(external, enable_flapping_detect, true),
-    emqx_zone:set_env(external, flapping_threshold, {10, 1}),
-    emqx_zone:set_env(external, flapping_expiry_interval, 60).
+    emqx_zone:set_env(external, flapping_threshold, {10, 60}),
+    emqx_zone:set_env(external, flapping_expiry_interval, 3600).

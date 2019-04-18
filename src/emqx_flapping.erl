@@ -12,18 +12,6 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
-%% @doc TODO:
-%% 1. Flapping Detection
-%% 2. Conflict Detection?
-
-
-%% @doc flapping detect algorithm
-%% * Storing the results of the last 21 checks of the host or service
-%% * Analyzing the historical check results and determine where state
-%%   changes/transitions occur
-%% * Using the state transitions to determine a percent state change value
-%%   (a measure of change) for the host or service
-%% * Comparing the percent state change value against low and high flapping thresholds
 -module(emqx_flapping).
 
 -include("emqx.hrl").
@@ -46,13 +34,12 @@
 
 -define(FLAPPING_TAB, ?MODULE).
 
--export([check/4]).
+-export([check/3]).
 
 -record(flapping,
         { client_id   :: binary()
-        , check_times :: integer()
+        , check_count :: integer()
         , timestamp   :: integer()
-        , expire_time :: integer()
         }).
 
 -type(flapping_record() :: #flapping{}).
@@ -61,38 +48,33 @@
 
 %% @doc This function is used to initialize flapping records
 %% the expiry time unit is minutes.
--spec(init_flapping(ClientId :: binary(), ExpiryInterval :: integer())
-      -> flapping_record()).
-init_flapping(ClientId, ExpiryInterval) ->
+-spec(init_flapping(ClientId :: binary(), Interval :: integer()) -> flapping_record()).
+init_flapping(ClientId, Interval) ->
     #flapping{ client_id = ClientId
-             , check_times = 1
-             , timestamp = emqx_time:now_secs()
-             , expire_time = emqx_time:now_secs() + ExpiryInterval
+             , check_count = 1
+             , timestamp = emqx_time:now_secs() + Interval
              }.
 
 %% @doc This function is used to initialize flapping records
 %% the expiry time unit is minutes.
 -spec(check( Action :: atom()
            , ClientId :: binary()
-           , ExpiryInterval :: integer()
            , Threshold :: {integer(), integer()})
       -> flapping_state()).
-check(Action, ClientId, ExpiryInterval, Threshold) ->
-    check(Action, ClientId, ExpiryInterval, Threshold, init_flapping(ClientId, ExpiryInterval)).
+check(Action, ClientId, Threshold = {_TimesThreshold, TimeInterval}) ->
+    check(Action, ClientId, Threshold, init_flapping(ClientId, TimeInterval)).
 
 -spec(check( Action :: atom()
            , ClientId :: binary()
-           , ExpiryInterval :: integer()
            , Threshold :: {integer(), integer()}
            , InitFlapping :: flapping_record())
       -> flapping_state()).
-check(Action, ClientId, ExpiryInterval, Threshold, InitFlapping) ->
-    Pos = #flapping.check_times,
-    try ets:update_counter(?FLAPPING_TAB, ClientId, {Pos, 1}) of
-        CheckTimes ->
+check(Action, ClientId, Threshold, InitFlapping) ->
+    try ets:update_counter(?FLAPPING_TAB, ClientId, {_Pos = #flapping.check_count, 1}) of
+        CheckCount ->
             case ets:lookup(?FLAPPING_TAB, ClientId) of
                 [Flapping] ->
-                    check_flapping(Action, CheckTimes, ExpiryInterval, Threshold, Flapping);
+                    check_flapping(Action, CheckCount, Threshold, Flapping);
                 _Flapping ->
                     ok
             end
@@ -104,54 +86,46 @@ check(Action, ClientId, ExpiryInterval, Threshold, InitFlapping) ->
 
 -spec(check_flapping( Action :: atom()
                     , CheckTimes :: integer()
-                    , ExpiryInterval :: integer()
                     , Threshold :: {integer(), integer()}
                     , InitFlapping :: flapping_record())
       -> flapping_state()).
-check_flapping(Action, CheckTimes, ExpiryInterval,
-               _Threshold = {TimesThreshold, TimeInterval},
+check_flapping(Action, CheckTimes, _Threshold = {TimesThreshold, TimeInterval},
                Flapping = #flapping{ client_id = ClientId
-                                   , timestamp = TimeStamp }) ->
-    TimeDiff = emqx_time:now_secs() - TimeStamp,
-    case TimeDiff of
-        Minutes when Minutes < TimeInterval,
-                     CheckTimes > TimesThreshold ->
+                                   , timestamp = Timestamp }) ->
+    case emqx_time:now_secs() of
+        NowTimestamp when NowTimestamp =< Timestamp,
+                          CheckTimes > TimesThreshold ->
+            ets:delete(?FLAPPING_TAB, ClientId),
             flapping;
-        Minutes when Minutes =< ExpiryInterval ->
-            Now = emqx_time:now_secs(),
-            NewFlapping = Flapping#flapping{ timestamp = Now,
-                                             expire_time = Now + ExpiryInterval},
-            ets:insert(?FLAPPING_TAB, NewFlapping),
-            ok;
-        _Minutes when Action =:= offline ->
+        NowTimestamp when NowTimestamp > Timestamp,
+                          Action =:= disconnect ->
             ets:delete(?FLAPPING_TAB, ClientId),
             ok;
-        _Minutes ->
+        NowTimestamp ->
+            NewFlapping = Flapping#flapping{timestamp = NowTimestamp + TimeInterval},
+            ets:insert(?FLAPPING_TAB, NewFlapping),
             ok
     end.
 
 %%--------------------------------------------------------------------
 %% gen_statem callbacks
 %%--------------------------------------------------------------------
--spec(start_link(Config :: list() | map()) -> startlink_ret()).
-start_link(Config) when is_list(Config) ->
-    start_link(maps:from_list(Config));
-start_link(Config) ->
-    gen_statem:start_link({local, ?MODULE}, ?MODULE, Config, []).
+-spec(start_link(TimerInterval :: integer()) -> startlink_ret()).
+start_link(TimerInterval) ->
+    gen_statem:start_link({local, ?MODULE}, ?MODULE, [TimerInterval], []).
 
-init(Config) ->
+init([TimerInterval]) ->
     TabOpts = [ public
               , set
               , {keypos, 2}
               , {write_concurrency, true}
               , {read_concurrency, true}],
     ok = emqx_tables:new(?FLAPPING_TAB, TabOpts),
-    Timer = maps:get(timer, Config),
-    {ok, initialized, #{timer => Timer}}.
+    {ok, initialized, #{timer_interval => TimerInterval}}.
 
 callback_mode() -> [state_functions, state_enter].
 
-initialized(enter, _OldState, #{timer := Time}) ->
+initialized(enter, _OldState, #{timer_interval := Time}) ->
     Action = {state_timeout, Time, clean_expired_records},
     {keep_state_and_data, Action};
 initialized(state_timeout, clean_expired_records, #{}) ->
@@ -176,9 +150,10 @@ clean_expired_records() ->
 
 traverse_records([]) ->
     ok;
-traverse_records([#flapping{ client_id = ClientId,
-                             expire_time = ExpiredTime} | LeftRecords]) ->
-    case emqx_time:now_secs() > ExpiredTime of
+traverse_records([#flapping{client_id = ClientId,
+
+                            timestamp = Timestamp} | LeftRecords]) ->
+    case emqx_time:now_secs() > Timestamp of
         true ->
             ets:delete(?FLAPPING_TAB, ClientId);
         false ->

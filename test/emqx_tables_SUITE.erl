@@ -23,4 +23,6 @@ t_new(_) ->
     ok = emqx_tables:new(test_table, [{read_concurrency, true}]),
     ets:insert(test_table, {key, 100}),
     ok = emqx_tables:new(test_table, [{read_concurrency, true}]),
-    100 = ets:lookup_element(test_table, key, 2).
+    100 = ets:lookup_element(test_table, key, 2),
+    ok = emqx_tables:delete(test_table),
+    ok = emqx_tables:delete(test_table).

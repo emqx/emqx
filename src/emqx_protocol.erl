@@ -802,7 +802,7 @@ check_client_id(#mqtt_packet_connect{client_id = ClientId}, #pstate{zone = Zone}
     end.
 
 check_flapping(#mqtt_packet_connect{}, PState) ->
-    do_flapping_detect(online, PState).
+    do_flapping_detect(connect, PState).
 
 check_banned(_ConnPkt, #pstate{enable_ban = false}) ->
     ok;
@@ -903,15 +903,15 @@ inc_stats(Type, Stats = #{pkt := PktCnt, msg := MsgCnt}) ->
 terminate(_Reason, #pstate{client_id = undefined}) ->
     ok;
 terminate(_Reason, PState = #pstate{connected = false}) ->
-    do_flapping_detect(offline, PState),
+    do_flapping_detect(disconnect, PState),
     ok;
 terminate(Reason, PState) when Reason =:= conflict;
                                Reason =:= discard ->
-    do_flapping_detect(offline, PState),
+    do_flapping_detect(disconnect, PState),
     ok;
 
 terminate(Reason, PState = #pstate{credentials = Credentials}) ->
-    do_flapping_detect(offline, PState),
+    do_flapping_detect(disconnect, PState),
     ?LOG(info, "[Protocol] Shutdown for ~p", [Reason]),
     ok = emqx_hooks:run('client.disconnected', [Credentials, Reason]).
 
@@ -943,12 +943,16 @@ flag(true)  -> 1.
 do_flapping_detect(Action, #pstate{zone = Zone,
                                    client_id = ClientId,
                                    enable_flapping_detect = true}) ->
-    ExpiryInterval = emqx_zone:get_env(Zone, flapping_expiry_interval, 3600),
+    ExpiryInterval = emqx_zone:get_env(Zone, flapping_expiry_interval, 3600000),
     Threshold = emqx_zone:get_env(Zone, flapping_threshold, 20),
     Until = erlang:system_time(second) + ExpiryInterval,
-    case emqx_flapping:check(Action, ClientId, ExpiryInterval, Threshold) of
+    case emqx_flapping:check(Action, ClientId, Threshold) of
         flapping ->
-            emqx_banned:add(ClientId, _Reason = <<"flapping">>, _By = <<"flapping_checker">>, Until),
+            emqx_banned:add(#banned{who = {client_id, ClientId},
+                                    reason = <<"flapping">>,
+                                    by = <<"flapping_checker">>,
+                                    until = Until
+                                   }),
             ok;
         _Other ->
             ok
