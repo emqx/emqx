@@ -199,7 +199,7 @@ format_variable(Level, Variable, Payload) ->
 	    Oct = iolist_size(Payload),
 	    if
 		Oct > 40 ->
-		    io_lib:format("~s, Payload=~p", [format_variable(Variable), binary:part(Payload, 0, 40)]);
+		    io_lib:format("~s, Payload=~p ... ~B Bytes", [format_variable(Variable), binary:part(Payload, 0, 40), Oct]);
 		true ->
 		    io_lib:format("~s, Payload=~p", [format_variable(Variable), Payload])
 	    end
