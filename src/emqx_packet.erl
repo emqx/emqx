@@ -173,7 +173,7 @@ merge_props(Headers, Props) ->
     maps:merge(Headers, Props).
 
 %% @doc Format packet
-%-spec(format(e(mqx_mqtt_types:packet()) -> iolist()).
+-spec(format(atom, mqx_mqtt_types:packet()) -> iolist()).
 format(Level, #mqtt_packet{header = Header, variable = Variable, payload = Payload}) ->
     format_header(Header, format_variable(Level, Variable, Payload)).
 
