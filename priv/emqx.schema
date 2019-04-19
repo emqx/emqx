@@ -420,6 +420,11 @@ end}.
   {datatype, file}
 ]}.
 
+{mapping, "log.chars_limit", "log.chars_limit", [
+  {default, 1024},
+  {datatype, integer}
+]}.
+
 {mapping, "log.rotation.size", "kernel.logger", [
   {default, "10MB"},
   {datatype, bytesize}
@@ -464,6 +469,10 @@ end}.
 {translation, "kernel.logger", fun(Conf) ->
     LogTo = cuttlefish:conf_get("log.to", Conf),
     LogLevel = cuttlefish:conf_get("log.level", Conf),
+    CharsLimit = case cuttlefish:conf_get("log.chars_limit", Conf) of
+                     -1 -> unlimited;
+                     V -> V
+                 end,
     Formatter = {emqx_logger_formatter,
                   #{template =>
                       [time," [",level,"] ",
@@ -474,7 +483,8 @@ end}.
                           [{peername,
                               [peername," "],
                               []}]},
-                       msg,"\n"]}},
+                       msg,"\n"],
+                    chars_limit => CharsLimit}},
     FileConf =  fun(Filename) ->
                   #{type => wrap,
                     file => filename:join(cuttlefish:conf_get("log.dir", Conf), Filename),
