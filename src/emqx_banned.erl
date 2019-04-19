@@ -70,13 +70,13 @@ check(#{client_id := ClientId, username := Username, peername := {IPAddr, _}}) -
         orelse ets:member(?TAB, {username, Username})
             orelse ets:member(?TAB, {ipaddr, IPAddr}).
 
--spec(add(#banned{}) -> ok).
+-spec(add(emqx_types:banned()) -> ok).
 add(Banned) when is_record(Banned, banned) ->
     mnesia:dirty_write(?TAB, Banned).
 
 -spec(delete({client_id, emqx_types:client_id()}
-           | {username, emqx_types:username()}
-           | {peername, emqx_types:peername()}) -> ok).
+             | {username, emqx_types:username()}
+             | {peername, emqx_types:peername()}) -> ok).
 delete(Key) ->
     mnesia:dirty_delete(?TAB, Key).
 
@@ -127,4 +127,3 @@ expire_banned_items(Now) ->
               mnesia:delete_object(?TAB, B, sticky_write);
          (_, _Acc) -> ok
       end, ok, ?TAB).
-

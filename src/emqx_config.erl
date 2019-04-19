@@ -19,7 +19,6 @@
 %% 1. Store in mnesia database?
 %% 2. Store in dets?
 %% 3. Store in data/app.config?
-%%
 
 -module(emqx_config).
 
@@ -138,4 +137,3 @@ read_(_App) -> error(no_impl).
     %         end, [], Configs),
     %         RequiredCfg ++ OptionalCfg
     % end.
-
