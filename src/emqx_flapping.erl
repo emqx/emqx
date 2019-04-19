@@ -12,70 +12,150 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
-%% @doc TODO:
-%% 1. Flapping Detection
-%% 2. Conflict Detection?
 -module(emqx_flapping).
 
-%% Use ets:update_counter???
+-include("emqx.hrl").
+-include("logger.hrl").
+-include("types.hrl").
 
--behaviour(gen_server).
+-behaviour(gen_statem).
 
--export([start_link/0]).
+-export([start_link/1]).
 
--export([ is_banned/1
-        , banned/1
+%% This module is used to garbage clean the flapping records
+
+%% gen_statem callbacks
+-export([ terminate/3
+        , code_change/4
+        , init/1
+        , initialized/3
+        , callback_mode/0
         ]).
 
-%% gen_server callbacks
--export([ init/1
-        , handle_call/3
-        , handle_cast/2
-        , handle_info/2
-        , terminate/2
-        , code_change/3
-        ]).
+-define(FLAPPING_TAB, ?MODULE).
 
--define(SERVER, ?MODULE).
+-export([check/3]).
 
--record(state, {}).
+-record(flapping,
+        { client_id   :: binary()
+        , check_count :: integer()
+        , timestamp   :: integer()
+        }).
 
--spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
-start_link() ->
-    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+-type(flapping_record() :: #flapping{}).
+-type(flapping_state() :: flapping | ok).
 
-is_banned(ClientId) ->
-    ets:member(banned, ClientId).
 
-banned(ClientId) ->
-    ets:insert(banned, {ClientId, os:timestamp()}).
+%% @doc This function is used to initialize flapping records
+%% the expiry time unit is minutes.
+-spec(init_flapping(ClientId :: binary(), Interval :: integer()) -> flapping_record()).
+init_flapping(ClientId, Interval) ->
+    #flapping{ client_id = ClientId
+             , check_count = 1
+             , timestamp = emqx_time:now_secs() + Interval
+             }.
+
+%% @doc This function is used to initialize flapping records
+%% the expiry time unit is minutes.
+-spec(check( Action :: atom()
+           , ClientId :: binary()
+           , Threshold :: {integer(), integer()})
+      -> flapping_state()).
+check(Action, ClientId, Threshold = {_TimesThreshold, TimeInterval}) ->
+    check(Action, ClientId, Threshold, init_flapping(ClientId, TimeInterval)).
+
+-spec(check( Action :: atom()
+           , ClientId :: binary()
+           , Threshold :: {integer(), integer()}
+           , InitFlapping :: flapping_record())
+      -> flapping_state()).
+check(Action, ClientId, Threshold, InitFlapping) ->
+    try ets:update_counter(?FLAPPING_TAB, ClientId, {_Pos = #flapping.check_count, 1}) of
+        CheckCount ->
+            case ets:lookup(?FLAPPING_TAB, ClientId) of
+                [Flapping] ->
+                    check_flapping(Action, CheckCount, Threshold, Flapping);
+                _Flapping ->
+                    ok
+            end
+    catch
+        error:badarg ->
+            ets:insert_new(?FLAPPING_TAB, InitFlapping),
+            ok
+    end.
+
+-spec(check_flapping( Action :: atom()
+                    , CheckTimes :: integer()
+                    , Threshold :: {integer(), integer()}
+                    , InitFlapping :: flapping_record())
+      -> flapping_state()).
+check_flapping(Action, CheckTimes, _Threshold = {TimesThreshold, TimeInterval},
+               Flapping = #flapping{ client_id = ClientId
+                                   , timestamp = Timestamp }) ->
+    case emqx_time:now_secs() of
+        NowTimestamp when NowTimestamp =< Timestamp,
+                          CheckTimes > TimesThreshold ->
+            ets:delete(?FLAPPING_TAB, ClientId),
+            flapping;
+        NowTimestamp when NowTimestamp > Timestamp,
+                          Action =:= disconnect ->
+            ets:delete(?FLAPPING_TAB, ClientId),
+            ok;
+        NowTimestamp ->
+            NewFlapping = Flapping#flapping{timestamp = NowTimestamp + TimeInterval},
+            ets:insert(?FLAPPING_TAB, NewFlapping),
+            ok
+    end.
 
 %%--------------------------------------------------------------------
-%% gen_server callbacks
+%% gen_statem callbacks
 %%--------------------------------------------------------------------
+-spec(start_link(TimerInterval :: integer()) -> startlink_ret()).
+start_link(TimerInterval) ->
+    gen_statem:start_link({local, ?MODULE}, ?MODULE, [TimerInterval], []).
 
-init([]) ->
-    %% ets:new(banned, [public, ordered_set, named_table]),
-    {ok, #state{}}.
+init([TimerInterval]) ->
+    TabOpts = [ public
+              , set
+              , {keypos, 2}
+              , {write_concurrency, true}
+              , {read_concurrency, true}],
+    ok = emqx_tables:new(?FLAPPING_TAB, TabOpts),
+    {ok, initialized, #{timer_interval => TimerInterval}}.
 
-handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
+callback_mode() -> [state_functions, state_enter].
 
-handle_cast(_Msg, State) ->
-    {noreply, State}.
+initialized(enter, _OldState, #{timer_interval := Time}) ->
+    Action = {state_timeout, Time, clean_expired_records},
+    {keep_state_and_data, Action};
+initialized(state_timeout, clean_expired_records, #{}) ->
+    clean_expired_records(),
+    repeat_state_and_data.
 
-handle_info(_Info, State) ->
-    {noreply, State}.
+code_change(_Vsn, State, Data, _Extra) ->
+    {ok, State, Data}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, _StateName, _State) ->
+    emqx_tables:delete(?FLAPPING_TAB),
     ok.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
+%% @doc clean expired records in ets
+clean_expired_records() ->
+    Records = ets:tab2list(?FLAPPING_TAB),
+    traverse_records(Records).
 
+traverse_records([]) ->
+    ok;
+traverse_records([#flapping{client_id = ClientId,
+                            timestamp = Timestamp} | LeftRecords]) ->
+    case emqx_time:now_secs() > Timestamp of
+        true ->
+            ets:delete(?FLAPPING_TAB, ClientId);
+        false ->
+            true
+    end,
+    traverse_records(LeftRecords).

@@ -62,6 +62,7 @@ run_setup_steps(Config) ->
     NewConfig = generate_config(),
     lists:foreach(fun set_app_env/1, NewConfig),
     set_bridge_env(),
+
     {ok, _} = application:ensure_all_started(?APP),
     set_log_level(Config),
     Config.
@@ -109,32 +110,32 @@ set_bridge_env() ->
 change_opts(SslType) ->
     {ok, Listeners} = application:get_env(?APP, listeners),
     NewListeners =
-    lists:foldl(fun({Protocol, Port, Opts} = Listener, Acc) ->
-    case Protocol of
-    ssl ->
-            SslOpts = proplists:get_value(ssl_options, Opts),
-            Keyfile = local_path(["etc/certs", "key.pem"]),
-            Certfile = local_path(["etc/certs", "cert.pem"]),
-            TupleList1 = lists:keyreplace(keyfile, 1, SslOpts, {keyfile, Keyfile}),
-            TupleList2 = lists:keyreplace(certfile, 1, TupleList1, {certfile, Certfile}),
-            TupleList3 =
-            case SslType of
-            ssl_twoway->
-                CAfile = local_path(["etc", proplists:get_value(cacertfile, ?MQTT_SSL_TWOWAY)]),
-                MutSslList = lists:keyreplace(cacertfile, 1, ?MQTT_SSL_TWOWAY, {cacertfile, CAfile}),
-                lists:merge(TupleList2, MutSslList);
-            _ ->
-                lists:filter(fun ({cacertfile, _}) -> false;
-                                 ({verify, _}) -> false;
-                                 ({fail_if_no_peer_cert, _}) -> false;
-                                 (_) -> true
-                             end, TupleList2)
-            end,
-            [{Protocol, Port, lists:keyreplace(ssl_options, 1, Opts, {ssl_options, TupleList3})} | Acc];
-        _ ->
-            [Listener | Acc]
-    end
-    end, [], Listeners),
+        lists:foldl(fun({Protocol, Port, Opts} = Listener, Acc) ->
+                            case Protocol of
+                                ssl ->
+                                    SslOpts = proplists:get_value(ssl_options, Opts),
+                                    Keyfile = local_path(["etc/certs", "key.pem"]),
+                                    Certfile = local_path(["etc/certs", "cert.pem"]),
+                                    TupleList1 = lists:keyreplace(keyfile, 1, SslOpts, {keyfile, Keyfile}),
+                                    TupleList2 = lists:keyreplace(certfile, 1, TupleList1, {certfile, Certfile}),
+                                    TupleList3 =
+                                        case SslType of
+                                            ssl_twoway->
+                                                CAfile = local_path(["etc", proplists:get_value(cacertfile, ?MQTT_SSL_TWOWAY)]),
+                                                MutSslList = lists:keyreplace(cacertfile, 1, ?MQTT_SSL_TWOWAY, {cacertfile, CAfile}),
+                                                lists:merge(TupleList2, MutSslList);
+                                            _ ->
+                                                lists:filter(fun ({cacertfile, _}) -> false;
+                                                                 ({verify, _}) -> false;
+                                                                 ({fail_if_no_peer_cert, _}) -> false;
+                                                                 (_) -> true
+                                                             end, TupleList2)
+                                        end,
+                                    [{Protocol, Port, lists:keyreplace(ssl_options, 1, Opts, {ssl_options, TupleList3})} | Acc];
+                                _ ->
+                                    [Listener | Acc]
+                            end
+                    end, [], Listeners),
     application:set_env(?APP, listeners, NewListeners).
 
 client_ssl_twoway() ->

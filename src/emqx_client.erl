@@ -88,7 +88,7 @@
              ]).
 
 %% Default timeout
--define(DEFAULT_KEEPALIVE,       60000).
+-define(DEFAULT_KEEPALIVE,       60).
 -define(DEFAULT_ACK_TIMEOUT,     30000).
 -define(DEFAULT_CONNECT_TIMEOUT, 60000).
 
@@ -503,7 +503,7 @@ init([{username, Username} | Opts], State) ->
 init([{password, Password} | Opts], State) ->
     init(Opts, State#state{password = iolist_to_binary(Password)});
 init([{keepalive, Secs} | Opts], State) ->
-    init(Opts, State#state{keepalive = timer:seconds(Secs)});
+    init(Opts, State#state{keepalive = Secs});
 init([{proto_ver, v3} | Opts], State) ->
     init(Opts, State#state{proto_ver  = ?MQTT_PROTO_V3,
                            proto_name = <<"MQIsdp">>});
@@ -1026,11 +1026,11 @@ publish_process(?QOS_2, Packet = ?PUBLISH_PACKET(?QOS_2, PacketId),
     end.
 
 ensure_keepalive_timer(State = ?PROPERTY('Server-Keep-Alive', Secs)) ->
-    ensure_keepalive_timer(timer:seconds(Secs), State);
+    ensure_keepalive_timer(timer:seconds(Secs), State#state{keepalive = Secs});
 ensure_keepalive_timer(State = #state{keepalive = 0}) ->
     State;
 ensure_keepalive_timer(State = #state{keepalive = I}) ->
-    ensure_keepalive_timer(I, State).
+    ensure_keepalive_timer(timer:seconds(I), State).
 ensure_keepalive_timer(I, State) when is_integer(I) ->
     State#state{keepalive_timer = erlang:start_timer(I, self(), keepalive)}.
 
