@@ -88,7 +88,7 @@
              ]).
 
 %% Default timeout
--define(DEFAULT_KEEPALIVE,       60000).
+-define(DEFAULT_KEEPALIVE,       60).
 -define(DEFAULT_ACK_TIMEOUT,     30000).
 -define(DEFAULT_CONNECT_TIMEOUT, 60000).
 
