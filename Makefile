@@ -39,7 +39,7 @@ CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
 			emqx_listeners emqx_protocol emqx_pool emqx_shared_sub emqx_bridge \
 			emqx_hooks emqx_batch emqx_sequence emqx_pmon emqx_pd emqx_gc emqx_ws_connection \
 			emqx_packet emqx_connection emqx_tracer emqx_sys_mon emqx_message emqx_os_mon \
-            emqx_vm_mon emqx_alarm_handler emqx_rpc
+            emqx_vm_mon emqx_alarm_handler emqx_rpc emqx_flapping
 
 CT_NODE_NAME = emqxct@127.0.0.1
 CT_OPTS = -cover test/ct.cover.spec -erl_args -name $(CT_NODE_NAME)

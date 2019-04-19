@@ -62,6 +62,13 @@ groups() ->
        [compile_rule,
         match_rule]}].
 
+init_per_suite(Config) ->
+    emqx_ct_broker_helpers:run_setup_steps(),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_ct_broker_helpers:run_teadown_steps().
+
 init_per_group(Group, Config) when  Group =:= access_control;
                                     Group =:= access_control_cache_mode ->
     prepare_config(Group),

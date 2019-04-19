@@ -14,7 +14,7 @@
 
 -module(emqx_tables).
 
--export([new/2]).
+-export([new/2, delete/1]).
 
 -export([ lookup_value/2
         , lookup_value/3
@@ -30,6 +30,16 @@ new(Tab, Opts) ->
         Tab -> ok
     end.
 
+-spec(delete(atom()) -> ok).
+delete(Tab) ->
+    case ets:info(Tab, name) of
+        undefined ->
+            ok;
+        Tab ->
+            ets:delete(Tab),
+            ok
+    end.
+
 %% KV lookup
 -spec(lookup_value(atom(), term()) -> any()).
 lookup_value(Tab, Key) ->
@@ -42,4 +52,3 @@ lookup_value(Tab, Key, Def) ->
     catch
         error:badarg -> Def
     end.
-

@@ -35,4 +35,3 @@ t_set_get_env(_) ->
     emqx_zone:force_reload(),
     ?assertEqual(val, emqx_zone:get_env(zone1, key)),
     emqx_zone:stop().
-

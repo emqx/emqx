@@ -53,6 +53,7 @@
 
 -export_type([ alarm/0
              , plugin/0
+             , banned/0
              , command/0
              ]).
 
@@ -91,6 +92,7 @@
 -type(topic_table() :: [{topic(), subopts()}]).
 -type(payload() :: binary() | iodata()).
 -type(message() :: #message{}).
+-type(banned() :: #banned{}).
 -type(delivery() :: #delivery{}).
 -type(deliver_results() :: [{route, node(), topic()} |
                             {dispatch, topic(), pos_integer()}]).
@@ -98,4 +100,3 @@
 -type(alarm() :: #alarm{}).
 -type(plugin() :: #plugin{}).
 -type(command() :: #command{}).
-
