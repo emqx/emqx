@@ -18,7 +18,7 @@ NO_AUTOPATCH = cuttlefish
 ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 
 BUILD_DEPS = cuttlefish
-dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish v2.2.1
+dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish v3.0.0
 
 CUR_BRANCH := $(shell git branch | grep -e "^*" | cut -d' ' -f 2)
 BRANCH := $(if $(filter $(CUR_BRANCH), master develop), $(CUR_BRANCH), develop)
