@@ -207,4 +207,3 @@ stats_fun() ->
         undefined -> ok;
         Size -> emqx_stats:setstat('connections/count', 'connections/max', Size)
     end.
-

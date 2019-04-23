@@ -85,16 +85,16 @@ check(Action, ClientId, Threshold, InitFlapping) ->
     end.
 
 -spec(check_flapping( Action :: atom()
-                    , CheckTimes :: integer()
+                    , CheckCount :: integer()
                     , Threshold :: {integer(), integer()}
                     , InitFlapping :: flapping_record())
       -> flapping_state()).
-check_flapping(Action, CheckTimes, _Threshold = {TimesThreshold, TimeInterval},
+check_flapping(Action, CheckCount, _Threshold = {TimesThreshold, TimeInterval},
                Flapping = #flapping{ client_id = ClientId
                                    , timestamp = Timestamp }) ->
     case emqx_time:now_secs() of
         NowTimestamp when NowTimestamp =< Timestamp,
-                          CheckTimes > TimesThreshold ->
+                          CheckCount > TimesThreshold ->
             ets:delete(?FLAPPING_TAB, ClientId),
             flapping;
         NowTimestamp when NowTimestamp > Timestamp,
@@ -145,17 +145,6 @@ terminate(_Reason, _StateName, _State) ->
 
 %% @doc clean expired records in ets
 clean_expired_records() ->
-    Records = ets:tab2list(?FLAPPING_TAB),
-    traverse_records(Records).
-
-traverse_records([]) ->
-    ok;
-traverse_records([#flapping{client_id = ClientId,
-                            timestamp = Timestamp} | LeftRecords]) ->
-    case emqx_time:now_secs() > Timestamp of
-        true ->
-            ets:delete(?FLAPPING_TAB, ClientId);
-        false ->
-            true
-    end,
-    traverse_records(LeftRecords).
+    NowTime = emqx_time:now_secs(),
+    MatchSpec = [{{'$1', '$2', '$3'},[{'<', '$3', NowTime}], [true]}],
+    ets:select_delete(?FLAPPING_TAB, MatchSpec).

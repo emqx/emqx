@@ -836,7 +836,7 @@ end}.
   {datatype, string}
 ]}.
 
-{mapping, "zone.$name.flapping_expiry_interval", "emqx.zones", [
+{mapping, "zone.$name.flapping_ban_expiry_interval", "emqx.zones", [
   {datatype, {duration, s}}
 ]}.
 
