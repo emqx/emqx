@@ -70,7 +70,8 @@ check(Action, ClientId, Threshold = {_TimesThreshold, TimeInterval}) ->
            , InitFlapping :: flapping_record())
       -> flapping_state()).
 check(Action, ClientId, Threshold, InitFlapping) ->
-    try ets:update_counter(?FLAPPING_TAB, ClientId, {_Pos = #flapping.check_count, 1}) of
+    case ets:update_counter(?FLAPPING_TAB, ClientId, {#flapping.check_count, 1}, InitFlapping) of
+        1 -> ok;
         CheckCount ->
             case ets:lookup(?FLAPPING_TAB, ClientId) of
                 [Flapping] ->
@@ -78,10 +79,6 @@ check(Action, ClientId, Threshold, InitFlapping) ->
                 _Flapping ->
                     ok
             end
-    catch
-        error:badarg ->
-            ets:insert_new(?FLAPPING_TAB, InitFlapping),
-            ok
     end.
 
 -spec(check_flapping( Action :: atom()
