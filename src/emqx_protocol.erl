@@ -943,16 +943,15 @@ flag(true)  -> 1.
 do_flapping_detect(Action, #pstate{zone = Zone,
                                    client_id = ClientId,
                                    enable_flapping_detect = true}) ->
-    ExpiryInterval = emqx_zone:get_env(Zone, flapping_expiry_interval, 3600000),
+    BanExpiryInterval = emqx_zone:get_env(Zone, flapping_ban_expiry_interval, 3600000),
     Threshold = emqx_zone:get_env(Zone, flapping_threshold, 20),
-    Until = erlang:system_time(second) + ExpiryInterval,
+    Until = erlang:system_time(second) + BanExpiryInterval,
     case emqx_flapping:check(Action, ClientId, Threshold) of
         flapping ->
             emqx_banned:add(#banned{who = {client_id, ClientId},
                                     reason = <<"flapping">>,
                                     by = <<"flapping_checker">>,
-                                    until = Until
-                                   }),
+                                    until = Until}),
             ok;
         _Other ->
             ok
