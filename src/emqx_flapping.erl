@@ -50,25 +50,20 @@
 %% the expiry time unit is minutes.
 -spec(init_flapping(ClientId :: binary(), Interval :: integer()) -> flapping_record()).
 init_flapping(ClientId, Interval) ->
-    #flapping{ client_id = ClientId
-             , check_count = 1
-             , timestamp = emqx_time:now_secs() + Interval
-             }.
+    #flapping{client_id = ClientId,
+              check_count = 1,
+              timestamp = emqx_time:now_secs() + Interval}.
 
 %% @doc This function is used to initialize flapping records
 %% the expiry time unit is minutes.
--spec(check( Action :: atom()
-           , ClientId :: binary()
-           , Threshold :: {integer(), integer()})
-      -> flapping_state()).
+-spec(check(Action :: atom(), ClientId :: binary(),
+            Threshold :: {integer(), integer()}) -> flapping_state()).
 check(Action, ClientId, Threshold = {_TimesThreshold, TimeInterval}) ->
     check(Action, ClientId, Threshold, init_flapping(ClientId, TimeInterval)).
 
--spec(check( Action :: atom()
-           , ClientId :: binary()
-           , Threshold :: {integer(), integer()}
-           , InitFlapping :: flapping_record())
-      -> flapping_state()).
+-spec(check(Action :: atom(), ClientId :: binary(),
+            Threshold :: {integer(), integer()},
+            InitFlapping :: flapping_record()) -> flapping_state()).
 check(Action, ClientId, Threshold, InitFlapping) ->
     case ets:update_counter(?FLAPPING_TAB, ClientId, {#flapping.check_count, 1}, InitFlapping) of
         1 -> ok;
@@ -81,11 +76,6 @@ check(Action, ClientId, Threshold, InitFlapping) ->
             end
     end.
 
--spec(check_flapping( Action :: atom()
-                    , CheckCount :: integer()
-                    , Threshold :: {integer(), integer()}
-                    , InitFlapping :: flapping_record())
-      -> flapping_state()).
 check_flapping(Action, CheckCount, _Threshold = {TimesThreshold, TimeInterval},
                Flapping = #flapping{ client_id = ClientId
                                    , timestamp = Timestamp }) ->
@@ -107,7 +97,7 @@ check_flapping(Action, CheckCount, _Threshold = {TimesThreshold, TimeInterval},
 %%--------------------------------------------------------------------
 %% gen_statem callbacks
 %%--------------------------------------------------------------------
--spec(start_link(TimerInterval :: integer()) -> startlink_ret()).
+-spec(start_link(TimerInterval :: [integer()]) -> startlink_ret()).
 start_link(TimerInterval) ->
     gen_statem:start_link({local, ?MODULE}, ?MODULE, [TimerInterval], []).
 
