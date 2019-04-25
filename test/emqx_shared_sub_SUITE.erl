@@ -37,15 +37,14 @@ all() -> [t_random_basic,
           t_sticky,
           t_hash,
           t_not_so_sticky,
-          t_no_connection_nack
-         ].
+          t_no_connection_nack].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 t_random_basic(_) ->
     ok = ensure_config(random),
@@ -258,4 +257,3 @@ ensure_config(Strategy, AckEnabled) ->
 
 subscribed(Group, Topic, Pid) ->
     lists:member(Pid, emqx_shared_sub:subscribers(Group, Topic)).
-

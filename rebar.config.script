@@ -16,10 +16,36 @@ CONFIG1 = case os:getenv("TRAVIS") of
                   CONFIG
           end,
 
-{_, Deps} = lists:keyfind(deps, 1, CONFIG1),
-{_, OurDeps} = lists:keyfind(github_emqx_deps, 1, CONFIG1),
-UrlPrefix = "https://github.com/emqx/",
-NewDeps = Deps ++ [{Name, {git, UrlPrefix ++ atom_to_list(Name), {branch, Branch}}} || {Name, Branch} <- OurDeps],
-CONFIG2 = lists:keystore(deps, 1, CONFIG1, {deps, NewDeps}),
+CUR_BRANCH = os:cmd("git branch | grep -e '^*' | cut -d' ' -f 2") -- "\n",
 
+BRANCH = case lists:member(CUR_BRANCH, ["master", "develop"]) of
+             true -> CUR_BRANCH;
+             false -> "develop"
+         end,
+
+FindDeps = fun(DepsType, Config) ->
+                   case lists:keyfind(DepsType, 1, Config) of
+                       {_, RawDeps} -> RawDeps;
+                       _ -> []
+                   end
+           end,
+Deps = FindDeps(deps, CONFIG1),
+LibDeps = FindDeps(github_emqx_libs, CONFIG1),
+ProjDeps = FindDeps(github_emqx_projects, CONFIG1),
+UrlPrefix = "https://github.com/emqx/",
+RealName = fun TransName([$_ | Tail], Result) ->
+                   TransName(Tail, [$- | Result]);
+               TransName([Head | Tail], Result) ->
+                   TransName(Tail, [Head | Result]);
+               TransName([], Result) ->
+                   lists:reverse(Result)
+           end,
+
+NewLibDeps = [{LibName, {git, UrlPrefix ++ atom_to_list(LibName), {branch, Branch}}}
+              || {LibName, Branch} <- LibDeps],
+NewProjDeps = [{Name, {git, UrlPrefix ++ RealName(atom_to_list(Name), []), {branch, BRANCH}}}
+                           || Name <- ProjDeps],
+
+NewDeps = Deps ++ NewLibDeps ++ NewProjDeps,
+CONFIG2 = lists:keystore(deps, 1, CONFIG1, {deps, NewDeps}),
 CONFIG2.

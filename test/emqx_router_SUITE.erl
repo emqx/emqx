@@ -36,11 +36,11 @@ groups() ->
        t_unexpected]}].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 init_per_testcase(_TestCase, Config) ->
     clear_tables(),
@@ -106,4 +106,3 @@ t_unexpected(_) ->
 
 clear_tables() ->
     lists:foreach(fun mnesia:clear_table/1, [emqx_route, emqx_trie, emqx_trie_node]).
-

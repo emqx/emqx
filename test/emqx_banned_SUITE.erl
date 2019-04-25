@@ -24,7 +24,7 @@
 all() -> [t_banned_all].
 
 t_banned_all(_) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     emqx_banned:start_link(),
     TimeNow = erlang:system_time(second),
     Banned = #banned{who = {client_id, <<"TestClient">>},
@@ -49,5 +49,4 @@ t_banned_all(_) ->
     ?assertNot(emqx_banned:check(#{client_id => <<"TestClient">>,
                                    username => undefined,
                                    peername => {undefined, undefined}})),
-    emqx_ct_broker_helpers:run_teardown_steps().
-
+    emqx_ct_helpers:stop_apps([]).
