@@ -24,7 +24,7 @@ CUR_BRANCH := $(shell git branch | grep -e "^*" | cut -d' ' -f 2)
 BRANCH := $(if $(filter $(CUR_BRANCH), master develop), $(CUR_BRANCH), develop)
 
 TEST_DEPS = emqx_ct_helpers
-dep_emqx_ct_helpers = git-emqx https://github.com/emqx/emqx-ct-helpers.git $(BRANCH)
+dep_emqx_ct_helpers = git-emqx https://github.com/emqx/emqx-ct-helpers.git v1.0
 
 TEST_ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 
