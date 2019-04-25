@@ -34,11 +34,11 @@
 all() -> [t_sys_mon].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 t_sys_mon(_Config) ->
     lists:foreach(fun({PidOrPort, SysMonName,ValidateInfo, InfoOrPort}) ->
@@ -64,4 +64,3 @@ validate_sys_mon_info(PidOrPort, SysMonName,ValidateInfo, InfoOrPort) ->
 concat_str(ValidateInfo, InfoOrPort, Info) ->
     WarnInfo = io_lib:format(ValidateInfo, [InfoOrPort, Info]),
     lists:flatten(WarnInfo).
-

@@ -43,11 +43,11 @@ groups() ->
        t_lookup_session_pids]}].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 init_per_testcase(_All, Config) ->
     {ok, SPid} = emqx_sm:open_session(?ATTRS#{conn_pid => self()}),
