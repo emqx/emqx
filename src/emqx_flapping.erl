@@ -15,7 +15,6 @@
 -module(emqx_flapping).
 
 -include("emqx.hrl").
--include("logger.hrl").
 -include("types.hrl").
 
 -behaviour(gen_statem).

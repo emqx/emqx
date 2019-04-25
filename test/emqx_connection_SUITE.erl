@@ -27,11 +27,11 @@ all() ->
     [t_connect_api].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 t_connect_api(_Config) ->
     {ok, T1} = emqx_client:start_link([{host, "localhost"},

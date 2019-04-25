@@ -31,46 +31,41 @@ all() ->
     [{group, access_control},
      {group, acl_cache},
      {group, access_control_cache_mode},
-     {group, access_rule}
-     ].
+     {group, access_rule}].
 
 groups() ->
     [{access_control, [sequence],
-       [reload_acl,
-        register_mod,
-        unregister_mod,
-        check_acl_1,
-        check_acl_2
-        ]},
+      [reload_acl,
+       register_mod,
+       unregister_mod,
+       check_acl_1,
+       check_acl_2]},
      {access_control_cache_mode, [],
-       [
-        acl_cache_basic,
-        acl_cache_expiry,
-        acl_cache_cleanup,
-        acl_cache_full
-        ]},
-     {acl_cache, [], [
-       put_get_del_cache,
+      [acl_cache_basic,
+       acl_cache_expiry,
+       acl_cache_cleanup,
+       acl_cache_full]},
+     {acl_cache, [],
+      [put_get_del_cache,
        cache_update,
        cache_expiry,
        cache_replacement,
        cache_cleanup,
        cache_auto_emtpy,
-       cache_auto_cleanup
-     ]},
+       cache_auto_cleanup]},
      {access_rule, [],
-       [compile_rule,
-        match_rule]}].
+      [compile_rule,
+       match_rule]}].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teadown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
-init_per_group(Group, Config) when  Group =:= access_control;
-                                    Group =:= access_control_cache_mode ->
+init_per_group(Group, Config) when Group =:= access_control;
+                                   Group =:= access_control_cache_mode ->
     prepare_config(Group),
     application:load(emqx),
     Config;
@@ -97,7 +92,6 @@ set_acl_config_file(_Group) ->
     write_config("access_SUITE_acl.conf", Rules),
     application:set_env(emqx, acl_file, "access_SUITE_acl.conf").
 
-
 write_config(Filename, Terms) ->
     file:write_file(Filename, [io_lib:format("~tp.~n", [Term]) || Term <- Terms]).
 
@@ -105,7 +99,6 @@ end_per_group(_Group, Config) ->
     Config.
 
 init_per_testcase(_TestCase, Config) ->
-    %% {ok, _Pid} =
     ?AC:start_link(),
     Config.
 end_per_testcase(_TestCase, _Config) ->
@@ -115,7 +108,6 @@ per_testcase_config(acl_cache_full, Config) ->
     Config;
 per_testcase_config(_TestCase, Config) ->
     Config.
-
 
 %%--------------------------------------------------------------------
 %% emqx_access_control
