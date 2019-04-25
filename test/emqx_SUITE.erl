@@ -70,25 +70,21 @@ all() ->
 
 groups() ->
     [{connect, [non_parallel_tests],
-      [
-      mqtt_connect,
-      mqtt_connect_with_tcp,
-      mqtt_connect_with_will_props,
-      mqtt_connect_with_ssl_oneway,
-      mqtt_connect_with_ssl_twoway,
-      mqtt_connect_with_ws
-      ]},
-    {publish, [non_parallel_tests],
-      [
-      packet_size
-      ]}].
+      [mqtt_connect,
+       mqtt_connect_with_tcp,
+       mqtt_connect_with_will_props,
+       mqtt_connect_with_ssl_oneway,
+       mqtt_connect_with_ssl_twoway,
+       mqtt_connect_with_ws]},
+     {publish, [non_parallel_tests],
+      [packet_size]}].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 %%--------------------------------------------------------------------
 %% Protocol Test
@@ -127,9 +123,9 @@ mqtt_connect_with_will_props(_) ->
 
 mqtt_connect_with_ssl_oneway(_) ->
     emqx:shutdown(),
-    emqx_ct_broker_helpers:change_opts(ssl_oneway),
+    emqx_ct_helpers:change_emqx_opts(ssl_oneway),
     emqx:start(),
-    ClientSsl = emqx_ct_broker_helpers:client_ssl(),
+    ClientSsl = emqx_ct_helpers:client_ssl(),
     {ok, #ssl_socket{tcp = _Sock1, ssl = SslSock} = Sock}
     = emqx_client_sock:connect("127.0.0.1", 8883, [{ssl_opts, ClientSsl}], 3000),
     Packet = raw_send_serialize(?CLIENT),
@@ -145,11 +141,11 @@ mqtt_connect_with_ssl_oneway(_) ->
 
 mqtt_connect_with_ssl_twoway(_Config) ->
     emqx:shutdown(),
-    emqx_ct_broker_helpers:change_opts(ssl_twoway),
+    emqx_ct_helpers:change_emqx_opts(ssl_twoway),
     emqx:start(),
-    ClientSsl = emqx_ct_broker_helpers:client_ssl_twoway(),
+    ClientSsl = emqx_ct_helpers:client_ssl_twoway(),
     {ok, #ssl_socket{tcp = _Sock1, ssl = SslSock} = Sock}
-    = emqx_client_sock:connect("127.0.0.1", 8883, [{ssl_opts, ClientSsl}], 3000),
+        = emqx_client_sock:connect("127.0.0.1", 8883, [{ssl_opts, ClientSsl}], 3000),
     Packet = raw_send_serialize(?CLIENT),
     emqx_client_sock:setopts(Sock, [{active, once}]),
     emqx_client_sock:send(Sock, Packet),

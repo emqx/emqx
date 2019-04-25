@@ -24,51 +24,18 @@
 -include("emqx_mqtt.hrl").
 -include("emqx.hrl").
 
-all() -> [t_alarm_handler, t_logger_handler].
+all() -> [t_alarm_handler,
+          t_logger_handler].
 
 init_per_suite(Config) ->
-    [start_apps(App, {SchemaFile, ConfigFile}) ||
-        {App, SchemaFile, ConfigFile}
-            <- [{emqx, local_path("priv/emqx.schema"),
-                       local_path("etc/gen.emqx.conf")}]],
+    emqx_ct_helpers:start_apps([], fun set_special_configs/1),
     Config.
 
 end_per_suite(_Config) ->
-    application:stop(emqx).
-
-local_path(RelativePath) ->
-    filename:join([get_base_dir(), RelativePath]).
-
-deps_path(App, RelativePath) ->
-    %% Note: not lib_dir because etc dir is not sym-link-ed to _build dir
-    %% but priv dir is
-    Path0 = code:priv_dir(App),
-    Path = case file:read_link(Path0) of
-               {ok, Resolved} -> Resolved;
-               {error, _} -> Path0
-           end,
-    filename:join([Path, "..", RelativePath]).
-
-get_base_dir() ->
-    {file, Here} = code:is_loaded(?MODULE),
-    filename:dirname(filename:dirname(Here)).
-
-start_apps(App, {SchemaFile, ConfigFile}) ->
-    read_schema_configs(App, {SchemaFile, ConfigFile}),
-    set_special_configs(App),
-    application:ensure_all_started(App).
-
-read_schema_configs(App, {SchemaFile, ConfigFile}) ->
-    ct:pal("Read configs - SchemaFile: ~p, ConfigFile: ~p", [SchemaFile, ConfigFile]),
-    Schema = cuttlefish_schema:files([SchemaFile]),
-    Conf = conf_parse:file(ConfigFile),
-    NewConfig = cuttlefish_generator:map(Schema, Conf),
-    Vals = proplists:get_value(App, NewConfig, []),
-    [application:set_env(App, Par, Value) || {Par, Value} <- Vals].
+    emqx_ct_helpers:stop_apps([]).
 
 set_special_configs(emqx) ->
-    application:set_env(emqx, acl_file, deps_path(emqx, "test/emqx_access_SUITE_data/acl_deny_action.conf"));
-
+    application:set_env(emqx, acl_file, emqx_ct_helpers:deps_path(emqx, "test/emqx_access_SUITE_data/acl_deny_action.conf"));
 set_special_configs(_App) ->
     ok.
 

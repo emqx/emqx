@@ -24,11 +24,11 @@
 all() -> [t_rpc].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 t_rpc(_) ->
     60000 = emqx_rpc:call(?MASTER, timer, seconds, [60]),
