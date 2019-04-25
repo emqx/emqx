@@ -15,7 +15,6 @@
 -module(emqx_access_control).
 
 -include("emqx.hrl").
--include("logger.hrl").
 
 -export([authenticate/1]).
 
