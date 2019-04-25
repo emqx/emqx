@@ -16,13 +16,6 @@ CONFIG1 = case os:getenv("TRAVIS") of
                   CONFIG
           end,
 
-CUR_BRANCH = os:cmd("git branch | grep -e '^*' | cut -d' ' -f 2") -- "\n",
-
-BRANCH = case lists:member(CUR_BRANCH, ["master", "develop"]) of
-             true -> CUR_BRANCH;
-             false -> "develop"
-         end,
-
 FindDeps = fun(DepsType, Config) ->
                    case lists:keyfind(DepsType, 1, Config) of
                        {_, RawDeps} -> RawDeps;
@@ -43,8 +36,7 @@ RealName = fun TransName([$_ | Tail], Result) ->
 
 NewLibDeps = [{LibName, {git, UrlPrefix ++ atom_to_list(LibName), {branch, Branch}}}
               || {LibName, Branch} <- LibDeps],
-NewProjDeps = [{Name, {git, UrlPrefix ++ RealName(atom_to_list(Name), []), {branch, BRANCH}}}
-                           || Name <- ProjDeps],
+NewProjDeps = [{ProjName, {git, UrlPrefix ++ RealName(atom_to_list(ProjName), []), {branch, Branch}}} || {ProjName, Branch} <- ProjDeps],
 
 NewDeps = Deps ++ NewLibDeps ++ NewProjDeps,
 CONFIG2 = lists:keystore(deps, 1, CONFIG1, {deps, NewDeps}),
