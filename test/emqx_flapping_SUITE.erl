@@ -26,12 +26,12 @@ all() ->
     [t_flapping].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     prepare_for_test(),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 t_flapping(_Config) ->
     process_flag(trap_exit, true),
