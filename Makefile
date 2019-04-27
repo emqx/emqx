@@ -1,4 +1,3 @@
-
 # CT_SUITES = emqx_trie emqx_router emqx_frame emqx_mqtt_compat
 
 CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
@@ -12,12 +11,6 @@ CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
             emqx_vm_mon emqx_alarm_handler emqx_rpc emqx_flapping
 
 CT_NODE_NAME = emqxct@127.0.0.1
-
-COVER = true
-
-PLT_APPS = sasl asn1 ssl syntax_tools runtime_tools crypto xmerl os_mon inets public_key ssl compiler mnesia
-DIALYZER_DIRS := ebin/
-DIALYZER_OPTS := --verbose --statistics -Werror_handling -Wrace_conditions #-Wunmatched_returns
 
 compile:
 	@rebar3 compile
