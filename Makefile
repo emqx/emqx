@@ -1,3 +1,8 @@
+## shallow clone for speed
+
+REBAR_GIT_CLONE_OPTIONS += --depth 1
+export REBAR_GIT_CLONE_OPTIONS
+
 # CT_SUITES = emqx_trie emqx_router emqx_frame emqx_mqtt_compat
 
 CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
