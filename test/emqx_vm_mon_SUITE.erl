@@ -23,6 +23,15 @@
 
 -include_lib("common_test/include/ct.hrl").
 
+-define(WAIT(PATTERN, TIMEOUT),
+        receive
+            PATTERN ->
+                ok
+        after
+            TIMEOUT ->
+                error(timeout)
+        end).
+
 all() -> [t_api].
 
 init_per_suite(Config) ->
@@ -33,18 +42,36 @@ end_per_suite(_Config) ->
     application:stop(sasl).
 
 t_api(_) ->
-    gen_event:swap_handler(alarm_handler, {emqx_alarm_handler, swap}, {alarm_handler, []}),
-    {ok, _} = emqx_vm_mon:start_link([{check_interval, 1},
-                                      {process_high_watermark, 0},
-                                      {process_low_watermark, 0.6}]),
-    timer:sleep(2000),
-    ?assertEqual(true, lists:keymember(too_many_processes, 1, alarm_handler:get_alarms())),
-    emqx_vm_mon:set_process_high_watermark(0.8),
-    emqx_vm_mon:set_process_low_watermark(0.75),
-    ?assertEqual(0.8, emqx_vm_mon:get_process_high_watermark()),
-    ?assertEqual(0.75, emqx_vm_mon:get_process_low_watermark()),
-    timer:sleep(3000),
-    ?assertEqual(false, lists:keymember(too_many_processes, 1, alarm_handler:get_alarms())),
-    emqx_vm_mon:set_check_interval(20),
-    ?assertEqual(20, emqx_vm_mon:get_check_interval()),
-    ok.
+    meck:new(alarm_handler, [passthrough, no_history]),
+    Tester = self(),
+    Ref = make_ref(),
+    try
+        meck:expect(alarm_handler, set_alarm,
+                    fun(What) ->
+                            Res = meck:passthrough([What]),
+                            Tester ! {Ref, set_alarm, What},
+                            Res
+                    end),
+        meck:expect(alarm_handler, clear_alarm,
+                    fun(What) ->
+                            Res = meck:passthrough([What]),
+                            Tester ! {Ref, clear_alarm, What},
+                            Res
+                    end),
+        gen_event:swap_handler(alarm_handler, {emqx_alarm_handler, swap}, {alarm_handler, []}),
+        {ok, _} = emqx_vm_mon:start_link([{check_interval, 1},
+                                        {process_high_watermark, 0},
+                                        {process_low_watermark, 0.6}]),
+        ?WAIT({Ref, set_alarm, {too_many_processes, _Count}}, 2000),
+        ?assertEqual(true, lists:keymember(too_many_processes, 1, alarm_handler:get_alarms())),
+        emqx_vm_mon:set_process_high_watermark(0.8),
+        emqx_vm_mon:set_process_low_watermark(0.75),
+        ?assertEqual(0.8, emqx_vm_mon:get_process_high_watermark()),
+        ?assertEqual(0.75, emqx_vm_mon:get_process_low_watermark()),
+        ?WAIT({Ref, clear_alarm, too_many_processes}, 3000),
+        ?assertEqual(false, lists:keymember(too_many_processes, 1, alarm_handler:get_alarms())),
+        emqx_vm_mon:set_check_interval(20),
+        ?assertEqual(20, emqx_vm_mon:get_check_interval())
+    after
+        meck:unload(alarm_handler)
+    end.
