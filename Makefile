@@ -24,30 +24,10 @@ clean: gen-clean
 
 .PHONY: gen-clean
 gen-clean:
-	@rm -f etc/gen.emqx.conf
-
-## bbmustache is a mustache template library used to render templated config files
-## for common tests.
-BBMUSTACHE := _build/test/lib/bbmustache
-$(BBMUSTACHE):
-	@rebar3 as test compile
+	@rm -f etc/emqx.conf.rendered
 
 ## Cuttlefish escript is built by default when cuttlefish app (as dependency) was built
 CUTTLEFISH_SCRIPT := _build/default/lib/cuttlefish/cuttlefish
-
-app.config: etc/gen.emqx.conf
-	$(verbose) $(CUTTLEFISH_SCRIPT) -l info -e etc/ -c etc/gen.emqx.conf -i priv/emqx.schema -d data/
-
-## NOTE: Mustache templating was resolved by relx overlay when building a release.
-## This is only to generate a conf file for testing,
-etc/gen.emqx.conf: $(BBMUSTACHE) etc/emqx.conf
-	@$(verbose) erl -noshell -pa _build/test/lib/bbmustache/ebin -eval \
-		"{ok, Temp} = file:read_file('etc/emqx.conf'), \
-		{ok, Vars0} = file:consult('vars'), \
-		Vars = [{atom_to_list(N), list_to_binary(V)} || {N, V} <- Vars0], \
-		Targ = bbmustache:render(Temp, Vars), \
-		ok = file:write_file('etc/gen.emqx.conf', Targ), \
-		halt(0)."
 
 .PHONY: cover
 cover:
@@ -69,17 +49,15 @@ deps:
 eunit:
 	@rebar3 eunit -v
 
-## 'ct-setup' is a pre hook for 'rebar3 ct',
-## but not the makefile target ct's dependency
-## because 'ct-setup' requires test dependencies to be compiled first
 .PHONY: ct-setup
 ct-setup:
-	@rebar3 as test compile
+	@mkdir -p data
+	@[ ! -f data/loaded_plugins ] && touch data/loaded_plugins
 	@ln -s -f '../../../../etc' _build/test/lib/emqx/
 	@ln -s -f '../../../../data' _build/test/lib/emqx/
 
 .PHONY: ct
-ct: app.config ct-setup
+ct: ct-setup
 	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(shell echo $(foreach var,$(CT_SUITES),test/$(var)_SUITE) | tr ' ' ',')
 
 ## Run one single CT with rebar3
