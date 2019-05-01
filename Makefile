@@ -52,7 +52,7 @@ eunit:
 .PHONY: ct-setup
 ct-setup:
 	@mkdir -p data
-	@[ ! -f data/loaded_plugins ] && touch data/loaded_plugins
+	@if [ ! -f data/loaded_plugins ]; then touch data/loaded_plugins; fi
 	@ln -s -f '../../../../etc' _build/test/lib/emqx/
 	@ln -s -f '../../../../data' _build/test/lib/emqx/
 
