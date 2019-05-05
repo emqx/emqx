@@ -33,7 +33,7 @@
         , code_change/3
         ]).
 
--type(option() :: {long_gc, false | pos_integer()}
+-type(option() :: {long_gc, pos_integer()}
                 | {long_schedule, false | pos_integer()}
                 | {large_heap, pos_integer()}
                 | {busy_port, boolean()}
