@@ -108,12 +108,19 @@ ensure_file(File) ->
 
 with_loaded_file(File, SuccFun) ->
     case read_loaded(File) of
-        {ok, Names} ->
+        {ok, Names0} ->
+            Names = filter_plugins(Names0),
             SuccFun(Names);
         {error, Error} ->
             ?LOG(alert, "[Plugins] Failed to read: ~p, error: ~p", [File, Error]),
             {error, Error}
     end.
+
+filter_plugins(Names) ->
+    lists:filtermap(fun(Name1) when is_atom(Name1) -> {true, Name1};
+                       ({Name1, true}) -> {true, Name1};
+                       ({_Name1, false}) -> false
+                    end, Names).
 
 load_plugins(Names, Persistent) ->
     Plugins = list(), NotFound = Names -- names(Plugins),
@@ -277,10 +284,7 @@ plugin_unloaded(_Name, false) ->
 plugin_unloaded(Name, true) ->
     case read_loaded() of
         {ok, Names0} ->
-            Names = lists:filtermap(fun(Name1) when is_atom(Name1) -> {true, Name1};
-                                       ({Name1, true}) -> {true, Name1};
-                                       ({_Name1, false}) -> false
-                                    end, Names0),
+            Names = filter_plugins(Names0),
             case lists:member(Name, Names) of
                 true ->
                     write_loaded(lists:delete(Name, Names));
