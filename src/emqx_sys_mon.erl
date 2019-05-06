@@ -33,9 +33,9 @@
         , code_change/3
         ]).
 
--type(option() :: {long_gc, pos_integer()}
-                | {long_schedule, false | pos_integer()}
-                | {large_heap, pos_integer()}
+-type(option() :: {long_gc, non_neg_integer()}
+                | {long_schedule, non_neg_integer()}
+                | {large_heap, non_neg_integer()}
                 | {busy_port, boolean()}
                 | {busy_dist_port, boolean()}).
 
@@ -66,12 +66,8 @@ parse_opt(Opts) ->
     parse_opt(Opts, []).
 parse_opt([], Acc) ->
     Acc;
-parse_opt([{long_gc, 0}|Opts], Acc) ->
-    parse_opt(Opts, Acc);
 parse_opt([{long_gc, Ms}|Opts], Acc) when is_integer(Ms) ->
     parse_opt(Opts, [{long_gc, Ms}|Acc]);
-parse_opt([{long_schedule, false}|Opts], Acc) ->
-    parse_opt(Opts, Acc);
 parse_opt([{long_schedule, Ms}|Opts], Acc) when is_integer(Ms) ->
     parse_opt(Opts, [{long_schedule, Ms}|Acc]);
 parse_opt([{large_heap, Size}|Opts], Acc) when is_integer(Size) ->
@@ -177,4 +173,3 @@ safe_publish(Event, WarnMsg) ->
 sysmon_msg(Topic, Payload) ->
     Msg = emqx_message:make(?SYSMON, Topic, Payload),
     emqx_message:set_flag(sys, Msg).
-

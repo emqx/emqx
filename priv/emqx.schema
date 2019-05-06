@@ -2065,8 +2065,8 @@ end}.
 
 %% @doc Long Schedule(ms)
 {mapping, "sysmon.long_schedule", "emqx.sysmon", [
-  {default, 1000},
-  {datatype, integer}
+  {default, 240},
+  {datatype, [integer, {duration, ms}]}
 ]}.
 
 %% @doc Large Heap
