@@ -400,7 +400,7 @@ end}.
   {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
 ]}.
 
-{mapping, "log.primary_level", "emqx.primary_log_level", [
+{mapping, "log.primary_level", "kernel.primary_log_level", [
    {default, error},
    {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
 ]}.
@@ -420,8 +420,8 @@ end}.
   {datatype, file}
 ]}.
 
-{mapping, "log.chars_limit", "log.chars_limit", [
-  {default, 1024},
+{mapping, "log.chars_limit", "kernel.logger", [
+  {default, 8192},
   {datatype, integer}
 ]}.
 
@@ -461,10 +461,6 @@ end}.
   {datatype, flag},
   hidden
 ]}.
-
-{translation, "emqx.primary_log_level", fun(Conf) ->
-    cuttlefish:conf_get("log.level", Conf)
-end}.
 
 {translation, "kernel.logger", fun(Conf) ->
     LogTo = cuttlefish:conf_get("log.to", Conf),
