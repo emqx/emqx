@@ -66,8 +66,12 @@ parse_opt(Opts) ->
     parse_opt(Opts, []).
 parse_opt([], Acc) ->
     Acc;
+parse_opt([{long_gc, 0}|Opts], Acc) ->
+    parse_opt(Opts, Acc);
 parse_opt([{long_gc, Ms}|Opts], Acc) when is_integer(Ms) ->
     parse_opt(Opts, [{long_gc, Ms}|Acc]);
+parse_opt([{long_schedule, 0}|Opts], Acc) ->
+    parse_opt(Opts, Acc);
 parse_opt([{long_schedule, Ms}|Opts], Acc) when is_integer(Ms) ->
     parse_opt(Opts, [{long_schedule, Ms}|Acc]);
 parse_opt([{large_heap, Size}|Opts], Acc) when is_integer(Size) ->
