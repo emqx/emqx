@@ -20,11 +20,7 @@ CT_NODE_NAME = emqxct@127.0.0.1
 compile:
 	@rebar3 compile
 
-clean: gen-clean
-
-.PHONY: gen-clean
-gen-clean:
-	@rm -f etc/emqx.conf.rendered
+clean: distclean
 
 ## Cuttlefish escript is built by default when cuttlefish app (as dependency) was built
 CUTTLEFISH_SCRIPT := _build/default/lib/cuttlefish/cuttlefish
@@ -66,7 +62,34 @@ ct: ct-setup
 ct-one-suite: ct-setup
 	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(suite)_SUITE
 
-.PHONY: clean
-clean:
+.PHONY: app.config
+app.config: $(CUTTLEFISH_SCRIPT) etc/gen.emqx.conf
+	$(CUTTLEFISH_SCRIPT) -l info -e etc/ -c etc/gen.emqx.conf -i priv/emqx.schema -d data/
+
+$(CUTTLEFISH_SCRIPT):
+	@rebar3 get-deps
+	@if [ ! -f cuttlefish ]; then make -C _build/default/lib/cuttlefish; fi
+
+bbmustache:
+	@git clone https://github.com/soranoba/bbmustache.git && cd bbmustache && ./rebar3 compile && cd ..
+
+# This hack is to generate a conf file for testing
+# relx overlay is used for release
+etc/gen.emqx.conf: bbmustache etc/emqx.conf
+	@erl -noshell -pa bbmustache/_build/default/lib/bbmustache/ebin -eval \
+		"{ok, Temp} = file:read_file('etc/emqx.conf'), \
+		{ok, Vars0} = file:consult('vars'), \
+		Vars = [{atom_to_list(N), list_to_binary(V)} || {N, V} <- Vars0], \
+		Targ = bbmustache:render(Temp, Vars), \
+		ok = file:write_file('etc/gen.emqx.conf', Targ), \
+		halt(0)."
+
+.PHONY: gen-clean
+gen-clean:
+	@rm -rf bbmustache
+	@rm -f etc/gen.emqx.conf etc/emqx.conf.rendered
+
+.PHONY: distclean
+distclean: gen-clean
 	@rm -rf _build cover deps logs log data
-	@rm -f rebar.lock compile_commands.json cuttlefish
+	@rm -f rebar.lock compile_commands.json cuttlefish erl_crash.dump
