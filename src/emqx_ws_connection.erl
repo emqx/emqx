@@ -160,6 +160,7 @@ websocket_init(#state{request = Req, options = Options}) ->
     EnableStats = emqx_zone:get_env(Zone, enable_stats, true),
     IdleTimout = emqx_zone:get_env(Zone, idle_timeout, 30000),
     emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
+    ok = emqx_misc:init_proc_mng_policy(Zone),
     {ok, #state{peername     = Peername,
                 sockname     = Sockname,
                 parse_state  = ParserState,

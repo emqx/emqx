@@ -400,7 +400,7 @@ end}.
   {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
 ]}.
 
-{mapping, "log.primary_level", "emqx.primary_log_level", [
+{mapping, "log.primary_level", "kernel.primary_log_level", [
    {default, error},
    {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
 ]}.
@@ -420,8 +420,8 @@ end}.
   {datatype, file}
 ]}.
 
-{mapping, "log.chars_limit", "log.chars_limit", [
-  {default, 1024},
+{mapping, "log.chars_limit", "kernel.logger", [
+  {default, 8192},
   {datatype, integer}
 ]}.
 
@@ -461,10 +461,6 @@ end}.
   {datatype, flag},
   hidden
 ]}.
-
-{translation, "emqx.primary_log_level", fun(Conf) ->
-    cuttlefish:conf_get("log.level", Conf)
-end}.
 
 {translation, "kernel.logger", fun(Conf) ->
     LogTo = cuttlefish:conf_get("log.to", Conf),
@@ -854,7 +850,7 @@ end}.
 %% of queued MQTT messages of QoS 1 and 2.
 %% Zero or negative is to disable.
 {mapping, "zone.$name.force_shutdown_policy", "emqx.zones", [
-  {default, "0 | 0MB"},
+  {default, "default"},
   {datatype, string}
 ]}.
 
@@ -903,15 +899,34 @@ end}.
                                          count => list_to_integer(Count)}
                                end,
                     {force_gc_policy, GcPolicy};
+               ("force_shutdown_policy", "default") ->
+                    {DefaultLen, DefaultSize} =
+                        case erlang:system_info(wordsize) of
+                            8 -> % arch_64
+                              {8000, cuttlefish_bytesize:parse("800MB")};
+                            4 -> % arch_32
+                              {1000, cuttlefish_bytesize:parse("100MB")}
+                        end,
+                    {force_shutdown_policy, #{message_queue_len => DefaultLen,
+                                              max_heap_size => DefaultSize}};
                ("force_shutdown_policy", Val) ->
                     [Len, Siz] = string:tokens(Val, "| "),
-                    ShutdownPolicy = case cuttlefish_bytesize:parse(Siz) of
-                                         {error, Reason} ->
-                                             error(Reason);
-                                         Siz1 ->
-                                             #{message_queue_len => list_to_integer(Len),
-                                               max_heap_size => Siz1}
-                                     end,
+                    MaxSiz = case erlang:system_info(wordsize) of
+                                8 -> % arch_64
+                                  (1 bsl 59) - 1;
+                                4 -> % arch_32
+                                  (1 bsl 27) - 1
+                             end,
+                    ShutdownPolicy =
+                      case cuttlefish_bytesize:parse(Siz) of
+                          {error, Reason} ->
+                              error(Reason);
+                          Siz1 when Siz1 > MaxSiz ->
+                              cuttlefish:invalid(io_lib:format("force_shutdown_policy: heap-size ~s is too large", [Siz]));
+                          Siz1 ->
+                              #{message_queue_len => list_to_integer(Len),
+                                max_heap_size => Siz1}
+                      end,
                     {force_shutdown_policy, ShutdownPolicy};
                ("mqueue_priorities", Val) ->
                     case Val of
@@ -2059,14 +2074,14 @@ end}.
 %% @doc Long GC, don't monitor in production mode for:
 %% https://github.com/erlang/otp/blob/feb45017da36be78d4c5784d758ede619fa7bfd3/erts/emulator/beam/erl_gc.c#L421
 {mapping, "sysmon.long_gc", "emqx.sysmon", [
-  {default, false},
-  {datatype, {enum, [true, false]}}
+  {default, 0},
+  {datatype, [integer, {duration, ms}]}
 ]}.
 
 %% @doc Long Schedule(ms)
 {mapping, "sysmon.long_schedule", "emqx.sysmon", [
-  {default, 1000},
-  {datatype, integer}
+  {default, 240},
+  {datatype, [integer, {duration, ms}]}
 ]}.
 
 %% @doc Large Heap
