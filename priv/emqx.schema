@@ -2074,14 +2074,14 @@ end}.
 %% @doc Long GC, don't monitor in production mode for:
 %% https://github.com/erlang/otp/blob/feb45017da36be78d4c5784d758ede619fa7bfd3/erts/emulator/beam/erl_gc.c#L421
 {mapping, "sysmon.long_gc", "emqx.sysmon", [
-  {default, false},
-  {datatype, {enum, [true, false]}}
+  {default, 0},
+  {datatype, [integer, {duration, ms}]}
 ]}.
 
 %% @doc Long Schedule(ms)
 {mapping, "sysmon.long_schedule", "emqx.sysmon", [
-  {default, 1000},
-  {datatype, integer}
+  {default, 240},
+  {datatype, [integer, {duration, ms}]}
 ]}.
 
 %% @doc Large Heap
