@@ -33,7 +33,7 @@ start(_Type, _Args) ->
     %%   kernel config `logger_level` before starting the erlang vm.
     %% This is because the latter approach an annoying debug msg will be printed out:
     %%   "[debug] got_unexpected_message {'EXIT',<0.1198.0>,normal}"
-    logger:set_primary_config(level, application:get_env(emqx, primary_log_level, error)),
+    logger:set_primary_config(level, application:get_env(kernel, primary_log_level, error)),
 
     print_banner(),
     ekka:start(),
