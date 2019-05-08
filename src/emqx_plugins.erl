@@ -271,7 +271,7 @@ plugin_loaded(Name, true) ->
             case lists:member(Name, Names) of
                 false ->
                     %% write file if plugin is loaded
-                    write_loaded(lists:append(Names, [Name]));
+                    write_loaded(lists:append(Names, [{Name, true}]));
                 true ->
                     ignore
             end;
@@ -308,7 +308,7 @@ write_loaded(AppNames) ->
     case file:open(File, [binary, write]) of
         {ok, Fd} ->
             lists:foreach(fun(Name) ->
-                file:write(Fd, iolist_to_binary(io_lib:format("~s.~n", [Name])))
+                file:write(Fd, iolist_to_binary(io_lib:format("~p.~n", [Name])))
             end, AppNames);
         {error, Error} ->
             ?LOG(error, "[Plugins] Open File ~p Error: ~p", [File, Error]),
