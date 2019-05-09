@@ -49,9 +49,27 @@ restart_listeners(_) ->
     ok = emqx_listeners:restart(),
     ok = emqx_listeners:stop().
 
+render_config_file() ->
+    Path = local_path(["etc", "emqx.conf"]),
+    {ok, Temp} = file:read_file(Path),
+    Vars0 = mustache_vars(),
+    Vars = [{atom_to_list(N), iolist_to_binary(V)} || {N, V} <- Vars0],
+    Targ = bbmustache:render(Temp, Vars),
+    NewName = Path ++ ".rendered",
+    ok = file:write_file(NewName, Targ),
+    NewName.
+
+mustache_vars() ->
+    [{platform_data_dir, local_path(["data"])},
+     {platform_etc_dir,  local_path(["etc"])},
+     {platform_log_dir,  local_path(["log"])},
+     {platform_plugins_dir,  local_path(["plugins"])}
+    ].
+
 generate_config() ->
     Schema = cuttlefish_schema:files([local_path(["priv", "emqx.schema"])]),
-    Conf = conf_parse:file([local_path(["etc", "gen.emqx.conf"])]),
+    ConfFile = render_config_file(),
+    Conf = conf_parse:file(ConfFile),
     cuttlefish_generator:map(Schema, Conf).
 
 set_app_env({App, Lists}) ->
