@@ -258,7 +258,10 @@ forward(Node, To, Delivery) ->
         {badrpc, Reason} ->
             ?LOG(error, "[Broker] Failed to forward msg to ~s: ~p", [Node, Reason]),
             Delivery;
-        Delivery1 -> Delivery1
+        Delivery1 ->
+            emqx_metrics:inc('/messages/forward'),
+            emqx_metrics:inc(<<To/binary, "/messages/forward">>),
+            Delivery1
     end.
 
 -spec(dispatch(emqx_topic:topic(), emqx_types:delivery()) -> emqx_types:delivery()).
@@ -294,8 +297,9 @@ dispatch({shard, I}, Topic, Msg) ->
 
 inc_dropped_cnt(<<"$SYS/", _/binary>>) ->
     ok;
-inc_dropped_cnt(_Topic) ->
-    emqx_metrics:inc('messages/dropped').
+inc_dropped_cnt(Topic) ->
+    emqx_metrics:inc('messages/dropped'),
+    emqx_metrics:inc(<<Topic/binary, "/messages/dropped">>).
 
 -spec(subscribers(emqx_topic:topic()) -> [pid()]).
 subscribers(Topic) when is_binary(Topic) ->
