@@ -282,9 +282,9 @@ publish(_SPid, _PacketId, Msg = #message{qos = ?QOS_1}) ->
     %% Publish QoS1 message directly
     {ok, emqx_broker:publish(Msg)};
 
-publish(SPid, PacketId, Msg = #message{qos = ?QOS_2, topic = Topic, timestamp = Ts}) ->
+publish(SPid, PacketId, Msg = #message{qos = ?QOS_2, timestamp = Ts}) ->
     %% Register QoS2 message packet ID (and timestamp) to session, then publish
-    case gen_server:call(SPid, {register_publish_packet_id, PacketId, Topic, Ts}, infinity) of
+    case gen_server:call(SPid, {register_publish_packet_id, PacketId, Ts}, infinity) of
         ok -> {ok, emqx_broker:publish(Msg)};
         {error, Reason} -> {error, Reason}
     end.
@@ -432,7 +432,7 @@ handle_call({discard, ByPid}, _From, State = #state{client_id = ClientId, conn_p
 
 %% PUBLISH: This is only to register packetId to session state.
 %% The actual message dispatching should be done by the caller (e.g. connection) process.
-handle_call({register_publish_packet_id, PacketId, Topic, Ts}, _From,
+handle_call({register_publish_packet_id, PacketId, Ts}, _From,
             State = #state{awaiting_rel = AwaitingRel}) ->
     reply(
       case is_awaiting_full(State) of
@@ -441,13 +441,12 @@ handle_call({register_publish_packet_id, PacketId, Topic, Ts}, _From,
                   true ->
                       {{error, ?RC_PACKET_IDENTIFIER_IN_USE}, State};
                   false ->
-                      State1 = State#state{awaiting_rel = maps:put(PacketId, {Topic, Ts}, AwaitingRel)},
+                      State1 = State#state{awaiting_rel = maps:put(PacketId, Ts, AwaitingRel)},
                       {ok, ensure_stats_timer(ensure_await_rel_timer(State1))}
               end;
           true ->
               ?LOG(warning, "[Session] Dropped qos2 packet ~w for too many awaiting_rel", [PacketId]),
               emqx_metrics:trans(inc, 'messages/qos2/dropped'),
-              emqx_metrics:trans(inc, <<Topic/binary, "/messages/qos2/dropped">>),
               {{error, ?RC_RECEIVE_MAXIMUM_EXCEEDED}, State}
       end);
 
@@ -467,7 +466,7 @@ handle_call({pubrec, PacketId, _ReasonCode}, _From, State = #state{inflight = In
 handle_call({pubrel, PacketId, _ReasonCode}, _From, State = #state{awaiting_rel = AwaitingRel}) ->
     reply(
       case maps:take(PacketId, AwaitingRel) of
-          {{_Topic, _Ts}, AwaitingRel1} ->
+          {_Ts, AwaitingRel1} ->
               {ok, ensure_stats_timer(State#state{awaiting_rel = AwaitingRel1})};
           error ->
               ?LOG(warning, "[Session] The PUBREL PacketId ~w is not found", [PacketId]),
@@ -754,7 +753,7 @@ retry_delivery(Force, [{Type, Msg0, Ts} | Msgs], Now,
                                     true ->
                                         emqx_metrics:trans(inc, 'messages/expired'),
                                         Topic = Msg#message.topic,
-                                        emqx_metrics:trans(inc, <<Topic/binary, "/messages/expired">>),
+                                        emqx_metrics:trans(inc, {topic_metrics, {Topic, '/messages/expired'}}),
                                         emqx_inflight:delete(PacketId, Inflight);
                                     false ->
                                         redeliver({PacketId, Msg}, State),
@@ -785,25 +784,17 @@ send_willmsg(WillMsg) ->
 expire_awaiting_rel(State = #state{awaiting_rel = AwaitingRel}) ->
     case maps:size(AwaitingRel) of
         0 -> State;
-        _ -> expire_awaiting_rel(
-                 lists:keysort(
-                     3,
-                     lists:map(fun({PacketId, {Topic, Ts}}) ->
-                                   {PacketId, Topic, Ts}
-                               end, maps:to_list(AwaitingRel))),
-                 os:timestamp(),
-                 State)
+        _ -> expire_awaiting_rel(lists:keysort(2, maps:to_list(AwaitingRel)), os:timestamp(), State)
     end.
 
 expire_awaiting_rel([], _Now, State) ->
     State#state{await_rel_timer = undefined};
 
-expire_awaiting_rel([{PacketId, Topic, Ts} | More], Now,
+expire_awaiting_rel([{PacketId, Ts} | More], Now,
                     State = #state{awaiting_rel = AwaitingRel, await_rel_timeout = Timeout}) ->
     case (timer:now_diff(Now, Ts) div 1000) of
         Age when Age >= Timeout ->
             emqx_metrics:trans(inc, 'messages/qos2/expired'),
-            emqx_metrics:trans(inc, <<Topic/binary, "/messages/qos2/expired">>),
             ?LOG(warning, "[Session] Dropped qos2 packet ~s for await_rel_timeout", [PacketId]),
             expire_awaiting_rel(More, Now, State#state{awaiting_rel = maps:remove(PacketId, AwaitingRel)});
         Age ->

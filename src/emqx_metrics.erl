@@ -115,17 +115,9 @@
     {counter, 'messages/forward'}        % Messages forward
 ]).
 
--define(TOPIC_MERICS, [
+-define(TOPIC_METRICS, [
     {counter, 'messages/received'},      % All Messages received
     {counter, 'messages/sent'},          % All Messages sent
-    {counter, 'messages/qos0/received'}, % QoS0 Messages received
-    {counter, 'messages/qos0/sent'},     % QoS0 Messages sent
-    {counter, 'messages/qos1/received'}, % QoS1 Messages received
-    {counter, 'messages/qos1/sent'},     % QoS1 Messages sent
-    {counter, 'messages/qos2/received'}, % QoS2 Messages received
-    {counter, 'messages/qos2/expired'},  % QoS2 Messages expired
-    {counter, 'messages/qos2/sent'},     % QoS2 Messages sent
-    {counter, 'messages/qos2/dropped'},  % QoS2 Messages dropped 
     {counter, 'messages/dropped'},       % Messages dropped
     {counter, 'messages/expired'},       % Messages expired
     {counter, 'messages/forward'}        % Messages forward
@@ -166,157 +158,158 @@ del({counter, Name}) ->
 all() ->
     maps:to_list(
         ets:foldl(
-            fun({{Metric, _N}, Val}, Map) ->
-                case maps:find(Metric, Map) of
-                    {ok, Count} -> maps:put(Metric, Count+Val, Map);
-                    error -> maps:put(Metric, Val, Map)
-                end
+            fun({{Name, _N}, Val}, Map) when is_atom(Name) ->
+                case maps:find(Name, Map) of
+                    {ok, Count} -> maps:put(Name, Count+Val, Map);
+                    error -> maps:put(Name, Val, Map)
+                end;
+               ({{_Name, _N}, _Val}, Map) -> Map
             end, #{}, ?TAB)).
 
-all(topic, Topic) ->
+all(topic_metrics, Topic) ->
     maps:to_list(
         ets:foldl(
-            fun({{Metric, _N}, Val}, Map) when is_binary(Metric) ->
-                case binary:match(Metric, [Topic]) of
-                    nomatch -> Map;
-                    _ ->
-                        case maps:find(Metric, Map) of
-                            {ok, Count} -> maps:put(Metric, Count+Val, Map);
-                            error -> maps:put(Metric, Val, Map)
-                        end
-                end;
-               ({{Metric, _N}, _Val}, Map) when is_atom(Metric) ->
-                Map
+            fun({{{topic_metrics, {Topic, Event}}, _N}, Val}, Map) ->
+                    case maps:find(Event, Map) of
+                        {ok, Count} -> maps:put(Event, Count+Val, Map);
+                        error -> maps:put(Event, Val, Map)
+                    end;
+               ({{_Name, _N}, _Val}, Map) -> Map
             end, #{}, ?TAB)).
 
-add_metrics(topic, Topic) when is_binary(Topic) ->
-    lists:foreach(fun({Type, Metric0}) ->
-                      Metric = erlang:atom_to_binary(Metric0, utf8),
-                      new({Type, list_to_binary(filename:join([binary_to_list(<<Topic/binary, "/", Metric/binary>>)]))})
-                  end, ?TOPIC_MERICS),
+add_metrics(topic_metrics, Topic) when is_binary(Topic) ->
+    lists:foreach(fun({Type, Event}) ->
+                      new({Type, {topic_metrics, {Topic, Event}}})
+                  end, ?TOPIC_METRICS),
+    case ets:lookup(?TAB, dynamic_metrics) of
+        [] ->
+            ets:insert(dynamic_metrics, [{topic_metrics, Topic}]);
+        [DynamicMetrics] ->
+            ets:insert(dynamic_metrics, [{topic_metrics, Topic} | DynamicMetrics])
+    end,
     ok;
 add_metrics(_, _) ->
     ok.
 
-del_metrics(topic, Topic) when is_binary(Topic) ->
-    lists:foreach(fun({Type, Metric0}) ->
-                      Metric = erlang:atom_to_binary(Metric0, utf8),
-                      del({Type, list_to_binary(filename:join([binary_to_list(<<Topic/binary, "/", Metric/binary>>)]))})
-                  end, ?TOPIC_MERICS),
+del_metrics(topic_metrics, Topic) when is_binary(Topic) ->
+    lists:foreach(fun({Type, Event}) ->
+                      del({Type, {topic_metrics, {Topic, Event}}})
+                  end, ?TOPIC_METRICS),
+    case ets:lookup(?TAB, dynamic_metrics) of
+        [] -> ok;
+        [DynamicMetrics] ->
+            ets:insert(dynamic_metrics, lists:delete({topic_metrics, Topic}, DynamicMetrics))
+    end,             
     ok;
 del_metrics(_, _) ->
     ok.
 
 %% @doc Get metric value
--spec(val(atom()) -> non_neg_integer()).
-val(Metric) ->
-    lists:sum(ets:select(?TAB, [{{{Metric, '_'}, '$1'}, [], ['$1']}])).
+-spec(val(atom() | tuple()) -> non_neg_integer()).
+val(Name) when is_atom(Name) ->
+    lists:sum(ets:select(?TAB, [{{{Name, '_'}, '$1'}, [], ['$1']}])).
 
 %% @doc Increase counter
--spec(inc(atom() | binary()) -> non_neg_integer()).
-inc(Metric) ->
-    inc(counter, Metric, 1).
+-spec(inc(atom() | tuple()) -> non_neg_integer()).
+inc(Name) ->
+    inc(counter, Name, 1).
 
 %% @doc Increase metric value
--spec(inc({counter | gauge, atom() | binary()} | atom() | binary(), pos_integer()) -> non_neg_integer()).
-inc({gauge, Metric}, Val) ->
-    inc(gauge, Metric, Val);
-inc({counter, Metric}, Val) ->
-    inc(counter, Metric, Val);
-inc(Metric, Val) ->
-    inc(counter, Metric, Val).
+-spec(inc({counter | gauge, atom() | tuple()} | atom() | tuple(), pos_integer()) -> non_neg_integer()).
+inc({gauge, Name}, Val) ->
+    inc(gauge, Name, Val);
+inc({counter, Name}, Val) ->
+    inc(counter, Name, Val);
+inc(Name, Val) ->
+    inc(counter, Name, Val).
 
 %% @doc Increase metric value
--spec(inc(counter | gauge, atom() | binary(), pos_integer()) -> pos_integer()).
-inc(Type, Metric, Val) when is_atom(Metric) ->
-    update_counter(key(Type, Metric), {2, Val});
-inc(Type, Metric0, Val) when is_binary(Metric0) ->
-    Metric = list_to_binary(filename:join([binary_to_list(Metric0)])),
-    case ets:match(?TAB, {{Metric, '_'}, '_'}) of
-        [] -> ok;
-        _ -> update_counter(key(Type, Metric), {2, Val})
+-spec(inc(counter | gauge, atom() | tuple(), pos_integer()) -> pos_integer()).
+inc(Type, Name, Val) when is_atom(Name) ->
+    update_counter(key(Type, Name), {2, Val});
+inc(Type, Name = {topic_metrics, {Topic, _Event}}, Val) when is_binary(Topic) ->
+    case is_being_monitored({topic_metrics, Topic}) of
+        false -> ok;
+        true -> update_counter(key(Type, Name), {2, Val})
     end.
 
 %% @doc Decrease metric value
 -spec(dec(gauge, atom()) -> integer()).
-dec(gauge, Metric) ->
-    dec(gauge, Metric, 1).
+dec(gauge, Name) ->
+    dec(gauge, Name, 1).
 
 %% @doc Decrease metric value
 -spec(dec(gauge, atom() | binary(), pos_integer()) -> integer()).
-dec(gauge, Metric, Val) when is_atom(Metric) ->
-    update_counter(key(gauge, Metric), {2, -Val});
-dec(gauge, Metric0, Val) when is_binary(Metric0) ->
-    Metric = list_to_binary(filename:join([binary_to_list(Metric0)])),
-    case ets:match(?TAB, {{Metric, '_'}, '_'}) of
-        [] -> ok;
-        _ -> update_counter(key(gauge, Metric), {2, -Val})
+dec(gauge, Name, Val) when is_atom(Name) ->
+    update_counter(key(gauge, Name), {2, -Val});
+dec(gauge, Name = {topic_metrics, {Topic, _Event}}, Val) when is_binary(Topic) ->
+    case is_being_monitored({topic_metrics, Topic}) of
+        false -> ok;
+        true -> update_counter(key(gauge, Name), {2, -Val})
     end.
 
 %% @doc Set metric value
-set(Metric, Val) ->
-    set(gauge, Metric, Val).
+set(Name, Val) ->
+    set(gauge, Name, Val).
 
-set(gauge, Metric, Val) when is_atom(Metric) ->
-    ets:insert(?TAB, {key(gauge, Metric), Val});
-set(gauge, Metric0, Val) when is_binary(Metric0) ->
-    Metric = list_to_binary(filename:join([binary_to_list(Metric0)])),
-    case ets:match(?TAB, {{Metric, '_'}, '_'}) of
-        [] -> ok;
-        _ -> ets:insert(?TAB, {key(gauge, Metric), Val})
+set(gauge, Name, Val) when is_atom(Name) ->
+    ets:insert(?TAB, {key(gauge, Name), Val});
+set(gauge, Name = {topic_metrics, {Topic, _Event}}, Val) when is_binary(Topic) ->
+    case is_being_monitored({topic_metrics, Topic}) of
+        false -> ok;
+        true -> ets:insert(?TAB, {key(gauge, Name), Val})
     end.
 
-trans(inc, Metric) ->
-    trans(inc, {counter, Metric}, 1).
+trans(inc, Name) ->
+    trans(inc, {counter, Name}, 1).
 
-trans(Opt, {gauge, Metric}, Val) ->
-    trans(Opt, gauge, Metric, Val);
-trans(inc, {counter, Metric}, Val) ->
-    trans(inc, counter, Metric, Val);
-trans(inc, Metric, Val) ->
-    trans(inc, counter, Metric, Val);
-trans(dec, gauge, Metric) ->
-    trans(dec, gauge, Metric, 1).
+trans(Opt, {gauge, Name}, Val) ->
+    trans(Opt, gauge, Name, Val);
+trans(inc, {counter, Name}, Val) ->
+    trans(inc, counter, Name, Val);
+trans(inc, Name, Val) ->
+    trans(inc, counter, Name, Val);
+trans(dec, gauge, Name) ->
+    trans(dec, gauge, Name, 1).
 
-trans(Opt, Type, Metric, Val) when is_atom(Metric) ->
+trans(Opt, Type, Name, Val) when is_atom(Name) ->
     case Opt of
-        inc -> hold(Type, Metric, Val);
-        dec -> hold(Type, Metric, -Val)
+        inc -> hold(Type, Name, Val);
+        dec -> hold(Type, Name, -Val)
     end;
-trans(Opt, Type, Metric0, Val) when is_binary(Metric0) ->
-    Metric = list_to_binary(filename:join([binary_to_list(Metric0)])),
-        case ets:match(?TAB, {{Metric, '_'}, '_'}) of
-        [] -> ok;
-        _ ->
+trans(Opt, Type, Name = {topic_metrics, {Topic, _Event}}, Val) when is_binary(Topic) ->
+    case is_being_monitored({topic_metrics, Topic}) of
+        false -> ok;
+        true ->
             case Opt of
-                inc -> hold(Type, Metric, Val);
-                dec -> hold(Type, Metric, -Val)
+                inc -> hold(Type, Name, Val);
+                dec -> hold(Type, Name, -Val)
             end
     end.
 
-hold(Type, Metric, Val) when Type =:= counter orelse Type =:= gauge ->
+hold(Type, Name, Val) when Type =:= counter orelse Type =:= gauge ->
     put('$metrics', case get('$metrics') of
                         undefined ->
-                            #{{Type, Metric} => Val};
+                            #{{Type, Name} => Val};
                         Metrics ->
-                            maps:update_with({Type, Metric}, fun(Cnt) -> Cnt + Val end, Val, Metrics)
+                            maps:update_with({Type, Name}, fun(Cnt) -> Cnt + Val end, Val, Metrics)
                     end).
 
 commit() ->
     case get('$metrics') of
         undefined -> ok;
         Metrics ->
-            maps:fold(fun({Type, Metric}, Val, _Acc) ->
-                          update_counter(key(Type, Metric), {2, Val})
+            maps:fold(fun({Type, Name}, Val, _Acc) ->
+                          update_counter(key(Type, Name), {2, Val})
                       end, 0, Metrics),
             erase('$metrics')
     end.
 
 %% @doc Metric key
-key(gauge, Metric) ->
-    {Metric, 0};
-key(counter, Metric) ->
-    {Metric, erlang:system_info(scheduler_id)}.
+key(gauge, Name) ->
+    {Name, 0};
+key(counter, Name) ->
+    {Name, erlang:system_info(scheduler_id)}.
 
 update_counter(Key, UpOp) ->
     ets:update_counter(?TAB, Key, UpOp).
@@ -333,8 +326,8 @@ received(Packet) ->
 received1(?PUBLISH_PACKET(QoS, Topic, _PktId, _Payload)) ->
     inc('packets/publish/received'),
     inc('messages/received'),
-    inc(<<Topic/binary, "/messages/received">>),
-    qos_received(Topic, QoS);
+    inc({topic_metrics, {Topic, 'messages/recevied'}}),
+    qos_received(QoS);
 received1(?PACKET(Type)) ->
     received2(Type).
 received2(?CONNECT) ->
@@ -357,15 +350,12 @@ received2(?DISCONNECT) ->
     inc('packets/disconnect/received');
 received2(_) ->
     ignore.
-qos_received(Topic, ?QOS_0) ->
-    inc('messages/qos0/received'),
-    inc(<<Topic/binary, "/messages/qos0/received">>);
-qos_received(Topic, ?QOS_1) ->
-    inc('messages/qos1/received'),
-    inc(<<Topic/binary, "/messages/qos1/received">>);
-qos_received(Topic, ?QOS_2) ->
-    inc('messages/qos2/received'),
-    inc(<<Topic/binary, "/messages/qos2/received">>).
+qos_received(?QOS_0) ->
+    inc('messages/qos0/received');
+qos_received(?QOS_1) ->
+    inc('messages/qos1/received');
+qos_received(?QOS_2) ->
+    inc('messages/qos2/received').
 
 %% @doc Count packets received. Will not count $SYS PUBLISH.
 -spec(sent(emqx_mqtt_types:packet()) -> ignore | non_neg_integer()).
@@ -377,8 +367,8 @@ sent(Packet) ->
 sent1(?PUBLISH_PACKET(QoS, Topic, _PktId, Payload)) ->
     inc('packets/publish/sent'),
     inc('messages/sent'),
-    inc(<<Topic/binary, "/messages/sent">>),
-    qos_sent(Topic, QoS);
+    inc({topic_metrics, {Topic, 'messages/sent'}}),
+    qos_sent(QoS);
 sent1(?PACKET(Type)) ->
     sent2(Type).
 sent2(?CONNACK) ->
@@ -401,15 +391,12 @@ sent2(?DISCONNECT) ->
     inc('packets/disconnect/sent');
 sent2(_Type) ->
     ignore.
-qos_sent(Topic, ?QOS_0) ->
-    inc('messages/qos0/sent'),
-    inc(<<Topic/binary, "/messages/qos0/sent">>);
-qos_sent(Topic, ?QOS_1) ->
-    inc('messages/qos1/sent'),
-    inc(<<Topic/binary, "/messages/qos1/sent">>);
-qos_sent(Topic, ?QOS_2) ->
-    inc('messages/qos2/sent'),
-    inc(<<Topic/binary, "/messages/qos2/sent">>).
+qos_sent(?QOS_0) ->
+    inc('messages/qos0/sent');
+qos_sent(?QOS_1) ->
+    inc('messages/qos1/sent');
+qos_sent(?QOS_2) ->
+    inc('messages/qos2/sent').
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -439,3 +426,13 @@ terminate(_Reason, #{}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+%%------------------------------------------------------------------------------
+%% Internal functions
+%%------------------------------------------------------------------------------
+
+is_being_monitored(DynamicMetric) ->
+    case ets:lookup(?TAB, dynamic_metrics) of
+        [] -> false;
+        [DynamicMetrics] ->
+            lists:member(DynamicMetric, DynamicMetrics)
+    end.

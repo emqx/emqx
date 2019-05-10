@@ -260,7 +260,7 @@ forward(Node, To, Delivery) ->
             Delivery;
         Delivery1 ->
             emqx_metrics:inc('/messages/forward'),
-            emqx_metrics:inc(<<To/binary, "/messages/forward">>),
+            emqx_metrics:inc({topic_metrics, {To, '/messages/forward'}}),
             Delivery1
     end.
 
@@ -299,7 +299,7 @@ inc_dropped_cnt(<<"$SYS/", _/binary>>) ->
     ok;
 inc_dropped_cnt(Topic) ->
     emqx_metrics:inc('messages/dropped'),
-    emqx_metrics:inc(<<Topic/binary, "/messages/dropped">>).
+    emqx_metrics:inc({topic_metrics, {Topic, '/messages/dropped'}}).
 
 -spec(subscribers(emqx_topic:topic()) -> [pid()]).
 subscribers(Topic) when is_binary(Topic) ->
