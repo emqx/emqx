@@ -317,9 +317,15 @@ handle(info, {tcp_passive, _Sock}, State) ->
     ok = activate_socket(NState),
     {keep_state, NState};
 
+handle(info, {ssl_passive, _Sock}, State) ->
+    %% Rate limit here:)
+    NState = ensure_rate_limit(State),
+    ok = activate_socket(NState),
+    {keep_state, NState};
+
 handle(info, activate_socket, State) ->
     %% Rate limit timer expired.
-    ok = activate_socket(State),
+    ok = activate_socket(State#state{conn_state = running}),
     {keep_state, State#state{conn_state = running, limit_timer = undefined}};
 
 handle(info, {inet_reply, _Sock, ok}, State) ->
@@ -442,6 +448,7 @@ ensure_rate_limit([{Rl, Pos, Cnt}|Limiters], State) ->
        {0, Rl1} ->
            ensure_rate_limit(Limiters, setelement(Pos, State, Rl1));
        {Pause, Rl1} ->
+           ?LOG(debug, "[Connection] Rate limit pause connection ~pms", [Pause]),
            TRef = erlang:send_after(Pause, self(), activate_socket),
            setelement(Pos, State#state{conn_state = blocked, limit_timer = TRef}, Rl1)
    end.
@@ -453,11 +460,7 @@ activate_socket(#state{conn_state = blocked}) ->
     ok;
 
 activate_socket(#state{transport = Transport, socket = Socket, active_n = N}) ->
-    TrueOrN = case Transport:is_ssl(Socket) of
-                  true  -> true; %% Cannot set '{active, N}' for SSL:(
-                  false -> N
-              end,
-    case Transport:setopts(Socket, [{active, TrueOrN}]) of
+    case Transport:setopts(Socket, [{active, N}]) of
         ok -> ok;
         {error, Reason} ->
             self() ! {shutdown, Reason},
