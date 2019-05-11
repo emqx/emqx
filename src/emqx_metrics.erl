@@ -126,6 +126,7 @@
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
+-define(DYNAMIC_METRICS_TAB, dynamic_metrics).
 
 %% @doc Start the metrics server.
 -spec(start_link() -> startlink_ret()).
@@ -198,12 +199,7 @@ add_metrics(topic_metrics, Topic) when is_binary(Topic) ->
     lists:foreach(fun({Type, Event}) ->
                       new({Type, {topic_metrics, {Topic, Event}}})
                   end, ?TOPIC_METRICS),
-    case ets:lookup(?TAB, dynamic_metrics) of
-        [] ->
-            ets:insert(?TAB, {dynamic_metrics, [{topic_metrics, Topic}]});
-        [{dynamic_metrics, DynamicMetrics}] ->
-            ets:insert(?TAB, {dynamic_metrics, [{topic_metrics, Topic} | DynamicMetrics]})
-    end,
+    ets:insert(?DYNAMIC_METRICS_TAB, {{topic_metrics, Topic}, true}),
     ok;
 add_metrics(_, _) ->
     ok.
@@ -212,18 +208,14 @@ del_metrics(topic_metrics, Topic) when is_binary(Topic) ->
     lists:foreach(fun({Type, Event}) ->
                       del({Type, {topic_metrics, {Topic, Event}}})
                   end, ?TOPIC_METRICS),
-    case ets:lookup(?TAB, dynamic_metrics) of
-        [] -> ok;
-        [{dynamic_metrics, DynamicMetrics}] ->
-            ets:insert(?TAB, {dynamic_metrics, lists:delete({topic_metrics, Topic}, DynamicMetrics)})
-    end,             
+    ets:delete(?DYNAMIC_METRICS_TAB, {topic_metrics, Topic}),
     ok;
 del_metrics(_, _) ->
     ok.
 
 %% @doc Get metric value
 -spec(val(atom() | tuple()) -> non_neg_integer()).
-val(Name) when is_atom(Name) ->
+val(Name) ->
     lists:sum(ets:select(?TAB, [{{{Name, '_'}, '$1'}, [], ['$1']}])).
 
 %% @doc Increase counter
@@ -422,6 +414,7 @@ qos_sent(?QOS_2) ->
 init([]) ->
     % Create metrics table
     ok = emqx_tables:new(?TAB, [public, set, {write_concurrency, true}]),
+    ok = emqx_tables:new(?DYNAMIC_METRICS_TAB, [public, set, {write_concurrency, true}]),
     lists:foreach(fun new/1, ?BYTES_METRICS ++ ?PACKET_METRICS ++ ?MESSAGE_METRICS),
     {ok, #{}, hibernate}.
 
@@ -448,8 +441,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 is_being_monitored(DynamicMetric) ->
-    case ets:lookup(?TAB, dynamic_metrics) of
-        [] -> false;
-        [{dynamic_metrics, DynamicMetrics}] ->
-            lists:member(DynamicMetric, DynamicMetrics)
+    case ets:info(?DYNAMIC_METRICS_TAB, size) of
+        0 -> false;
+        _ ->
+            ets:member(?DYNAMIC_METRICS_TAB, DynamicMetric)
     end.

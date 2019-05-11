@@ -259,8 +259,8 @@ forward(Node, To, Delivery) ->
             ?LOG(error, "[Broker] Failed to forward msg to ~s: ~p", [Node, Reason]),
             Delivery;
         Delivery1 ->
-            emqx_metrics:inc('/messages/forward'),
-            emqx_metrics:inc({topic_metrics, {To, '/messages/forward'}}),
+            emqx_metrics:inc('messages/forward'),
+            emqx_metrics:inc({topic_metrics, {To, 'messages/forward'}}),
             Delivery1
     end.
 
