@@ -752,6 +752,7 @@ retry_delivery(Force, [{Type, Msg0, Ts} | Msgs], Now,
                                 case emqx_message:is_expired(Msg) of
                                     true ->
                                         emqx_metrics:trans(inc, 'messages/expired'),
+                                        emqx_metrics:trans(inc, {topic_metrics, {Msg#message.topic, '/messages/expired'}}),
                                         emqx_inflight:delete(PacketId, Inflight);
                                     false ->
                                         redeliver({PacketId, Msg}, State),
