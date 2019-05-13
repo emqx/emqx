@@ -40,6 +40,7 @@
 -record(pstate, {
           zone,
           sendfun,
+          sockname,
           peername,
           peercert,
           proto_ver,
@@ -87,12 +88,14 @@
 %%------------------------------------------------------------------------------
 
 -spec(init(map(), list()) -> state()).
-init(SocketOpts = #{ peername := Peername
+init(SocketOpts = #{ sockname := Sockname
+                   , peername := Peername
                    , peercert := Peercert
                    , sendfun := SendFun}, Options)  ->
     Zone = proplists:get_value(zone, Options),
     #pstate{zone                   = Zone,
             sendfun                = SendFun,
+            sockname               = Sockname,
             peername               = Peername,
             peercert               = Peercert,
             proto_ver              = ?MQTT_PROTO_V4,
@@ -208,11 +211,13 @@ client_id(#pstate{client_id = ClientId}) ->
 credentials(#pstate{zone      = Zone,
                     client_id = ClientId,
                     username  = Username,
+                    sockname  = Sockname,
                     peername  = Peername,
                     peercert  = Peercert,
                     ws_cookie = WsCookie}) ->
     with_cert(#{zone => Zone,
                 client_id => ClientId,
+                sockname => Sockname,
                 username => Username,
                 peername => Peername,
                 ws_cookie => WsCookie,
