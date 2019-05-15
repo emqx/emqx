@@ -381,21 +381,22 @@ process(?CONNECT_PACKET(
                                 username    = Username,
                                 password    = Password} = ConnPkt), PState) ->
 
-    NewClientId = maybe_use_username_as_clientid(ClientId, Username, PState),
+    %% TODO: Mountpoint...
+    %% Msg -> emqx_mountpoint:mount(MountPoint, Msg)
+    PState0 = maybe_use_username_as_clientid(ClientId,
+                set_username(Username,
+                             PState#pstate{proto_ver    = ProtoVer,
+                                           proto_name   = ProtoName,
+                                           clean_start  = CleanStart,
+                                           keepalive    = Keepalive,
+                                           conn_props   = ConnProps,
+                                           is_bridge    = IsBridge,
+                                           connected_at = os:timestamp()})),
+
+    NewClientId = PState0#pstate.client_id,
 
     emqx_logger:set_metadata_client_id(NewClientId),
 
-    %% TODO: Mountpoint...
-    %% Msg -> emqx_mountpoint:mount(MountPoint, Msg)
-    PState0 = set_username(Username,
-                           PState#pstate{client_id    = NewClientId,
-                                         proto_ver    = ProtoVer,
-                                         proto_name   = ProtoName,
-                                         clean_start  = CleanStart,
-                                         keepalive    = Keepalive,
-                                         conn_props   = ConnProps,
-                                         is_bridge    = IsBridge,
-                                         connected_at = os:timestamp()}),
     Credentials = credentials(PState0),
     PState1 = PState0#pstate{credentials = Credentials},
     connack(
@@ -706,12 +707,12 @@ send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = Send}) 
 %%------------------------------------------------------------------------------
 %% Maybe use username replace client id
 
-maybe_use_username_as_clientid(ClientId, undefined, _PState) ->
-    ClientId;
-maybe_use_username_as_clientid(ClientId, Username, #pstate{zone = Zone}) ->
+maybe_use_username_as_clientid(ClientId, PState = #pstate{username = undefined}) ->
+    PState#pstate{client_id = ClientId};
+maybe_use_username_as_clientid(ClientId, PState = #pstate{username = Username, zone = Zone}) ->
     case emqx_zone:get_env(Zone, use_username_as_clientid, false) of
-        true -> Username;
-        false -> ClientId
+        true -> PState#pstate{client_id = Username};
+        false -> PState#pstate{client_id = ClientId}
     end.
 
 %%------------------------------------------------------------------------------
