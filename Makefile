@@ -47,6 +47,7 @@ eunit:
 
 .PHONY: ct-setup
 ct-setup:
+	rebar3 as test compile
 	@mkdir -p data
 	@if [ ! -f data/loaded_plugins ]; then touch data/loaded_plugins; fi
 	@ln -s -f '../../../../etc' _build/test/lib/emqx/
