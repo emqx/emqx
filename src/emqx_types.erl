@@ -89,6 +89,7 @@
                          mountpoint := binary(),
                          password   => binary(),
                          auth_result => auth_result(),
+                         anonymous => boolean(),
                          atom()    => term()
                         }).
 -type(subscription() :: #subscription{}).
