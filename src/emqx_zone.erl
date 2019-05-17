@@ -129,4 +129,3 @@ ensure_reload_timer(State = #{timer := undefined}) ->
     State#{timer := erlang:send_after(timer:minutes(5), self(), reload)};
 ensure_reload_timer(State) ->
     State.
-
