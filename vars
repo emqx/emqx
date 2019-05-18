@@ -5,5 +5,4 @@
 {platform_etc_dir,  "etc"}.
 {platform_lib_dir,  "lib"}.
 {platform_log_dir,  "log"}.
-{platform_plugins_dir,  "plugins"}.
-
+{platform_plugins_dir, "plugins"}.

@@ -19,4 +19,3 @@
 -type(ok_or_error(Reason) :: ok | {error, Reason}).
 
 -type(ok_or_error(Value, Reason) :: {ok, Value} | {error, Reason}).
-

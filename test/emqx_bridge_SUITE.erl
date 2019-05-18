@@ -14,11 +14,12 @@
 
 -module(emqx_bridge_SUITE).
 
--export([all/0, init_per_suite/1, end_per_suite/1]).
--export([t_rpc/1,
-         t_mqtt/1,
-         t_mngr/1
-        ]).
+-export([ all/0
+        , init_per_suite/1
+        , end_per_suite/1]).
+-export([ t_rpc/1
+        , t_mqtt/1
+        , t_mngr/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -27,21 +28,21 @@
 
 -define(wait(For, Timeout), emqx_ct_helpers:wait_for(?FUNCTION_NAME, ?LINE, fun() -> For end, Timeout)).
 
-all() -> [t_rpc,
-          t_mqtt,
-          t_mngr].
+all() -> [ t_rpc
+         , t_mqtt
+         , t_mngr].
 
 init_per_suite(Config) ->
     case node() of
-        nonode@nohost ->
-            net_kernel:start(['emqx@127.0.0.1', longnames]);
-        _ ->
-            ok
+        nonode@nohost -> net_kernel:start(['emqx@127.0.0.1', longnames]);
+        _ -> ok
     end,
-    emqx_ct_broker_helpers:run_setup_steps([{log_level, error} | Config]).
+    emqx_ct_helpers:start_apps([]),
+    emqx_logger:set_log_level(error),
+    [{log_level, error} | Config].
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 t_mngr(Config) when is_list(Config) ->
     Subs = [{<<"a">>, 1}, {<<"b">>, 2}],
@@ -50,8 +51,7 @@ t_mngr(Config) when is_list(Config) ->
             connect_module => emqx_bridge_rpc,
             mountpoint => <<"forwarded">>,
             subscriptions => Subs,
-            start_type => auto
-           },
+            start_type => auto},
     Name = ?FUNCTION_NAME,
     {ok, Pid} = emqx_bridge:start_link(Name, Cfg),
     try
@@ -77,8 +77,7 @@ t_rpc(Config) when is_list(Config) ->
             forwards => [<<"t_rpc/#">>],
             connect_module => emqx_bridge_rpc,
             mountpoint => <<"forwarded">>,
-            start_type => auto
-           },
+            start_type => auto},
     {ok, Pid} = emqx_bridge:start_link(?FUNCTION_NAME, Cfg),
     ClientId = <<"ClientId">>,
     try
@@ -132,8 +131,7 @@ t_mqtt(Config) when is_list(Config) ->
             %% Consume back to forwarded message for verification
             %% NOTE: this is a indefenite loopback without mocking emqx_bridge:import_batch/2
             subscriptions => [{ForwardedTopic, _QoS = 1}],
-            start_type => auto
-           },
+            start_type => auto},
     Tester = self(),
     Ref = make_ref(),
     meck:new(emqx_bridge, [passthrough, no_history]),
@@ -156,14 +154,14 @@ t_mqtt(Config) when is_list(Config) ->
         Max = 100,
         Msgs = lists:seq(1, Max),
         lists:foreach(fun(I) ->
-                              Msg = emqx_message:make(<<"client-2">>, ?QOS_1, SendToTopic, integer_to_binary(I)),
-                              emqx_session:publish(SPid, I, Msg)
+                          Msg = emqx_message:make(<<"client-2">>, ?QOS_1, SendToTopic, integer_to_binary(I)),
+                          emqx_session:publish(SPid, I, Msg)
                       end, Msgs),
         ok = receive_and_match_messages(Ref, Msgs),
         Msgs2 = lists:seq(Max + 1, Max * 2),
         lists:foreach(fun(I) ->
-                              Msg = emqx_message:make(<<"client-2">>, ?QOS_1, SendToTopic2, integer_to_binary(I)),
-                              emqx_session:publish(SPid, I, Msg)
+                          Msg = emqx_message:make(<<"client-2">>, ?QOS_1, SendToTopic2, integer_to_binary(I)),
+                          emqx_session:publish(SPid, I, Msg)
                       end, Msgs2),
         ok = receive_and_match_messages(Ref, Msgs2),
         emqx_mock_client:close_session(ConnPid)

@@ -24,11 +24,11 @@
 all() -> [ignore_loop, t_session_all].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 ignore_loop(_Config) ->
     application:set_env(emqx, mqtt_ignore_loop_deliver, true),

@@ -27,24 +27,21 @@
                  <<"/TopicA">>]).
 
 -define(CLIENT, ?CONNECT_PACKET(#mqtt_packet_connect{
-                                client_id = <<"mqtt_client">>,
-                                username  = <<"emqx">>,
-                                password  = <<"public">>})).
+                                   client_id = <<"mqtt_client">>,
+                                   username  = <<"emqx">>,
+                                   password  = <<"public">>})).
 
 all() ->
-    [
-     {group, mqtt_common},
+    [{group, mqtt_common},
      {group, mqttv4},
      {group, mqttv5},
      {group, acl},
-     {group, frame_partial}
-    ].
+     {group, frame_partial}].
 
 groups() ->
     [{mqtt_common, [sequence],
       [will_topic_check,
-       will_acl_check
-       ]},
+       will_acl_check]},
      {mqttv4, [sequence],
       [connect_v4,
        subscribe_v4]},
@@ -54,18 +51,15 @@ groups() ->
      {acl, [sequence],
       [acl_deny_action_ct]},
      {frame_partial, [sequence],
-       [handle_followed_packet]}].
+      [handle_followed_packet]}].
 
 init_per_suite(Config) ->
-    [start_apps(App, SchemaFile, ConfigFile) ||
-        {App, SchemaFile, ConfigFile}
-            <- [{emqx, deps_path(emqx, "priv/emqx.schema"),
-                       deps_path(emqx, "etc/gen.emqx.conf")}]],
+    emqx_ct_helpers:start_apps([], fun set_special_configs/1),
     emqx_zone:set_env(external, max_topic_alias, 20),
     Config.
 
 end_per_suite(_Config) ->
-    application:stop(emqx).
+    emqx_ct_helpers:stop_apps([]).
 
 batch_connect(NumberOfConnections) ->
     batch_connect([], NumberOfConnections).
@@ -567,7 +561,7 @@ will_topic_check(_) ->
     emqx_client:stop(Client),
     ct:sleep(100),
     false = is_process_alive(Client),
-    emqx_ct_broker_helpers:wait_mqtt_payload(<<"I have died">>),
+    emqx_ct_helpers:wait_mqtt_payload(<<"I have died">>),
     emqx_client:stop(T).
 
 will_acl_check(_) ->
@@ -613,37 +607,12 @@ acl_deny_do_disconnect(subscribe, QoS, Topic) ->
     after 1000 -> ct:fail({timeout, wait_tcp_closed})
     end.
 
-start_apps(App, SchemaFile, ConfigFile) ->
-    read_schema_configs(App, SchemaFile, ConfigFile),
-    set_special_configs(App),
-    application:ensure_all_started(App).
-
-read_schema_configs(App, SchemaFile, ConfigFile) ->
-    Schema = cuttlefish_schema:files([SchemaFile]),
-    Conf = conf_parse:file(ConfigFile),
-    NewConfig = cuttlefish_generator:map(Schema, Conf),
-    Vals = proplists:get_value(App, NewConfig, []),
-    [application:set_env(App, Par, Value) || {Par, Value} <- Vals].
-
 set_special_configs(emqx) ->
     application:set_env(emqx, enable_acl_cache, false),
     application:set_env(emqx, plugins_loaded_file,
-                        deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins")),
+                        emqx_ct_helpers:deps_path(emqx, "test/emqx_SUITE_data/loaded_plugins")),
     application:set_env(emqx, acl_deny_action, disconnect),
     application:set_env(emqx, acl_file,
-                        deps_path(emqx, "test/emqx_access_SUITE_data/acl_deny_action.conf"));
+                        emqx_ct_helpers:deps_path(emqx, "test/emqx_access_SUITE_data/acl_deny_action.conf"));
 set_special_configs(_App) ->
     ok.
-
-deps_path(App, RelativePath) ->
-    %% Note: not lib_dir because etc dir is not sym-link-ed to _build dir
-    %% but priv dir is
-    Path0 = code:priv_dir(App),
-    Path = case file:read_link(Path0) of
-               {ok, Resolved} -> Resolved;
-               {error, _} -> Path0
-           end,
-    filename:join([Path, "..", RelativePath]).
-
-local_path(RelativePath) ->
-    deps_path(emqx_auth_username, RelativePath).

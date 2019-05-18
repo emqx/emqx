@@ -36,7 +36,7 @@ new(WsUrl, PPid) ->
                    addr = Addr,
                    path = "/" ++ Path,
                    ppid = PPid},
-    spawn(fun () ->
+    spawn(fun() ->
                   start_conn(State)
           end).
 

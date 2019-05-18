@@ -56,7 +56,7 @@ start(Module, Config) ->
             Config1 = obfuscate(Config),
             ?LOG(error, "[Bridge connect] Failed to connect with module=~p\n"
                  "config=~p\nreason:~p", [Module, Config1, Reason]),
-            error
+            {error, Reason}
     end.
 
 obfuscate(Map) ->
@@ -69,4 +69,3 @@ obfuscate(Map) ->
 
 is_sensitive(password) -> true;
 is_sensitive(_) -> false.
-
