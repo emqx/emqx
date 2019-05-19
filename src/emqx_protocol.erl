@@ -438,8 +438,7 @@ process(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload),
         ok ->
             do_publish(Packet, PState);
         {error, ReasonCode} ->
-            ?LOG(warning, "[Protocol] Cannot publish qos1 message to ~s for ~s",
-                 [Topic, emqx_reason_codes:text(ReasonCode)]),
+            ?LOG(warning, "[Protocol] Cannot publish qos1 message to ~s for ~s", [Topic, emqx_reason_codes:text(ReasonCode)]),
             case deliver({puback, PacketId, ReasonCode}, PState) of
                 {ok, PState1} ->
                     AclDenyAction = emqx_zone:get_env(Zone, acl_deny_action, ignore),
@@ -816,13 +815,7 @@ check_banned(#mqtt_packet_connect{client_id = ClientId, username = Username},
                     username  => Username,
                     peername  => Peername},
     EnableBan = emqx_zone:get_env(Zone, enable_ban, false),
-    CheckBan = fun (Cred, true) -> case emqx_banned:check(Cred) of
-                                             true  -> {error, ?RC_BANNED};
-                                             false -> ok
-                                         end;
-                   (_Cred, false) -> ok
-               end,
-    CheckBan(Credentials, EnableBan).
+    do_check_banned(EnableBan, Credentials).
 
 check_will_topic(#mqtt_packet_connect{will_flag = false}, _PState) ->
     ok;
@@ -1014,6 +1007,13 @@ raw_topic_filters(#pstate{zone = Zone, proto_ver = ProtoVer, is_bridge = IsBridg
 
 mountpoint(Credentials) ->
     maps:get(mountpoint, Credentials, undefined).
+
+do_check_banned(_EnableBan = true, Credentials) ->
+    case emqx_banned:check(Credentials) of
+        true  -> {error, ?RC_BANNED};
+        false -> ok
+    end;
+do_check_banned(_EnableBan, Credentials) -> ok.
 
 do_acl_check(_EnableAcl = true, Action, Credentials, Topic) ->
     AllowTerm = ok,
