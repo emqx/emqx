@@ -55,7 +55,8 @@ groups() ->
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([], fun set_special_configs/1),
-    emqx_zone:set_env(external, max_topic_alias, 20),
+    MqttCaps = emqx_zone:get_env(external, '$mqtt_caps'),
+    emqx_zone:set_env(external, '$mqtt_caps', MqttCaps#{max_topic_alias => 20}),
     Config.
 
 end_per_suite(_Config) ->
@@ -84,15 +85,6 @@ with_connection(DoFun, NumberOfConnections) ->
 
 with_connection(DoFun) ->
     with_connection(DoFun, 1).
-
-    % {ok, Sock} = emqx_client_sock:connect({127, 0, 0, 1}, 1883,
-    %                                       [binary, {packet, raw},
-    %                                        {active, false}], 3000),
-    % try
-    %     DoFun(Sock)
-    % after
-    %     emqx_client_sock:close(Sock)
-    % end.
 
 handle_followed_packet(_Config) ->
     ConnPkt = <<16,12,0,4,77,81,84,84,4,2,0,60,0,0>>,
@@ -191,16 +183,18 @@ connect_v5(_) ->
                             {ok, Data} = gen_tcp:recv(Sock, 0),
                             {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0, Props), _} =
                                 raw_recv_parse(Data, ?MQTT_PROTO_V5),
-                            ?assertNot(maps:is_key('Response-Information', Props)),
-                            ok
+                            ?assertNot(maps:is_key('Response-Information', Props))
                     end),
 
     % topic alias = 0
     with_connection(fun([Sock]) ->
+
+                            %% ct:log("emqx_protocol: ~p~n", [emqx_zone:get_zone(external, max_topic_alias)]),
                             emqx_client_sock:send(Sock,
                                                   raw_send_serialize(
                                                       ?CONNECT_PACKET(
                                                           #mqtt_packet_connect{
+                                                              client_id  = "hello",
                                                               proto_ver  = ?MQTT_PROTO_V5,
                                                               properties =
                                                                   #{'Topic-Alias-Maximum' => 10}}),
@@ -210,7 +204,6 @@ connect_v5(_) ->
                             {ok, ?CONNACK_PACKET(?RC_SUCCESS, 0,
                                                  #{'Topic-Alias-Maximum' := 20}), _} =
                                 raw_recv_parse(Data, ?MQTT_PROTO_V5),
-
                             emqx_client_sock:send(Sock,
                                                   raw_send_serialize(
                                                       ?PUBLISH_PACKET(?QOS_1, <<"TopicA">>, 1, #{'Topic-Alias' => 0}, <<"hello">>),
@@ -383,9 +376,7 @@ connect_v5(_) ->
                             ),
 
                             {ok, WillData} = gen_tcp:recv(Sock2, 0, 5000),
-                            {ok, ?PUBLISH_PACKET(?QOS_1, <<"TopicA">>, _, <<"will message 2">>), _} = raw_recv_parse(WillData, ?MQTT_PROTO_V5),
-
-                            emqx_client_sock:close(Sock2)
+                            {ok, ?PUBLISH_PACKET(?QOS_1, <<"TopicA">>, _, <<"will message 2">>), _} = raw_recv_parse(WillData, ?MQTT_PROTO_V5)
                     end),
 
     % duplicate client id

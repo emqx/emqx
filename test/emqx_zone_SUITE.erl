@@ -25,7 +25,6 @@ all() -> [t_set_get_env].
 t_set_get_env(_) ->
     application:set_env(emqx, zones, [{china, [{language, chinese}]}]),
     {ok, _} = emqx_zone:start_link(),
-    ct:print("~p~n", [ets:tab2list(emqx_zone)]),
     chinese = emqx_zone:get_env(china, language),
     cn470 = emqx_zone:get_env(china, ism_band, cn470),
     undefined = emqx_zone:get_env(undefined, delay),
