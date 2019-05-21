@@ -695,6 +695,9 @@ deliver({disconnect, _ReasonCode}, PState) ->
 -spec(send(emqx_mqtt_types:packet(), state()) -> {ok, state()} | {error, term()}).
 send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = Send}) ->
     case Send(Packet, #{version => Ver}) of
+        ok ->
+            trace(send, Packet),
+            {ok, PState};
         {ok, Data} ->
             trace(send, Packet),
             emqx_metrics:sent(Packet),
