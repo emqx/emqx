@@ -223,7 +223,11 @@ set_session_stats(ClientId, SessPid, Stats) when is_binary(ClientId), is_pid(Ses
 lookup_session_pids(ClientId) ->
     case emqx_sm_registry:is_enabled() of
         true -> emqx_sm_registry:lookup_session(ClientId);
-        false -> emqx_tables:lookup_value(?SESSION_TAB, ClientId, [])
+        false ->
+            case emqx_tables:lookup_value(?SESSION_TAB, ClientId) of
+                undefined -> [];
+                SessPid when is_pid(SessPid) -> [SessPid]
+            end
     end.
 
 %% @doc Dispatch a message to the session.
