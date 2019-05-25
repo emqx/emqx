@@ -27,11 +27,11 @@ all() ->
     [t_connect_api].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 t_connect_api(_Config) ->
     {ok, T1} = emqx_client:start_link([{host, "localhost"},
@@ -51,16 +51,16 @@ t_connect_api(_Config) ->
     emqx_client:disconnect(T1).
 
 t_info(ConnInfo) ->
-    ?assertEqual(tcp, proplists:get_value(socktype, ConnInfo)),
-    ?assertEqual(running, proplists:get_value(conn_state, ConnInfo)),
-    ?assertEqual(<<"client1">>, proplists:get_value(client_id, ConnInfo)),
-    ?assertEqual(<<"testuser1">>, proplists:get_value(username, ConnInfo)),
-    ?assertEqual(<<"MQTT">>, proplists:get_value(proto_name, ConnInfo)).
+    ?assertEqual(tcp, maps:get(socktype, ConnInfo)),
+    ?assertEqual(running, maps:get(conn_state, ConnInfo)),
+    ?assertEqual(<<"client1">>, maps:get(client_id, ConnInfo)),
+    ?assertEqual(<<"testuser1">>, maps:get(username, ConnInfo)),
+    ?assertEqual(<<"MQTT">>, maps:get(proto_name, ConnInfo)).
 
 t_attrs(AttrsData) ->
-    ?assertEqual(<<"client1">>, proplists:get_value(client_id, AttrsData)),
-    ?assertEqual(emqx_connection, proplists:get_value(conn_mod, AttrsData)),  
-    ?assertEqual(<<"testuser1">>, proplists:get_value(username, AttrsData)).
+    ?assertEqual(<<"client1">>, maps:get(client_id, AttrsData)),
+    ?assertEqual(emqx_connection, maps:get(conn_mod, AttrsData)),
+    ?assertEqual(<<"testuser1">>, maps:get(username, AttrsData)).
 
 t_stats(StatsData) ->
     ?assertEqual(true, proplists:get_value(recv_oct, StatsData) >= 0),

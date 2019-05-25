@@ -87,15 +87,15 @@ info(#state{transport = Transport,
             rate_limit = RateLimit,
             pub_limit = PubLimit,
             proto_state = ProtoState}) ->
-    ConnInfo = [{socktype, Transport:type(Socket)},
-                {peername, Peername},
-                {sockname, Sockname},
-                {conn_state, ConnState},
-                {active_n, ActiveN},
-                {rate_limit, rate_limit_info(RateLimit)},
-                {pub_limit, rate_limit_info(PubLimit)}],
+    ConnInfo = #{socktype => Transport:type(Socket),
+                 peername => Peername,
+                 sockname => Sockname,
+                 conn_state => ConnState,
+                 active_n => ActiveN,
+                 rate_limit => rate_limit_info(RateLimit),
+                 pub_limit => rate_limit_info(PubLimit)},
     ProtoInfo = emqx_protocol:info(ProtoState),
-    lists:usort(lists:append(ConnInfo, ProtoInfo)).
+    maps:merge(ConnInfo, ProtoInfo).
 
 rate_limit_info(undefined) ->
     #{};
@@ -109,10 +109,10 @@ attrs(CPid) when is_pid(CPid) ->
 attrs(#state{peername = Peername,
              sockname = Sockname,
              proto_state = ProtoState}) ->
-    SockAttrs = [{peername, Peername},
-                 {sockname, Sockname}],
+    SockAttrs = #{peername => Peername,
+                  sockname => Sockname},
     ProtoAttrs = emqx_protocol:attrs(ProtoState),
-    lists:usort(lists:append(SockAttrs, ProtoAttrs)).
+    maps:merge(SockAttrs, ProtoAttrs).
 
 %% Conn stats
 stats(CPid) when is_pid(CPid) ->
@@ -242,10 +242,10 @@ connected(info, {deliver, PubOrAck}, State = #state{proto_state = ProtoState}) -
 connected(info, {keepalive, start, Interval},
           State = #state{transport = Transport, socket = Socket}) ->
     StatFun = fun() ->
-                case Transport:getstat(Socket, [recv_oct]) of
-                    {ok, [{recv_oct, RecvOct}]} -> {ok, RecvOct};
-                    Error -> Error
-                end
+                  case Transport:getstat(Socket, [recv_oct]) of
+                      {ok, [{recv_oct, RecvOct}]} -> {ok, RecvOct};
+                      Error -> Error
+                  end
               end,
     case emqx_keepalive:start(StatFun, Interval, {keepalive, check}) of
         {ok, KeepAlive} ->
@@ -317,9 +317,15 @@ handle(info, {tcp_passive, _Sock}, State) ->
     ok = activate_socket(NState),
     {keep_state, NState};
 
+handle(info, {ssl_passive, _Sock}, State) ->
+    %% Rate limit here:)
+    NState = ensure_rate_limit(State),
+    ok = activate_socket(NState),
+    {keep_state, NState};
+
 handle(info, activate_socket, State) ->
     %% Rate limit timer expired.
-    ok = activate_socket(State),
+    ok = activate_socket(State#state{conn_state = running}),
     {keep_state, State#state{conn_state = running, limit_timer = undefined}};
 
 handle(info, {inet_reply, _Sock, ok}, State) ->
@@ -442,6 +448,7 @@ ensure_rate_limit([{Rl, Pos, Cnt}|Limiters], State) ->
        {0, Rl1} ->
            ensure_rate_limit(Limiters, setelement(Pos, State, Rl1));
        {Pause, Rl1} ->
+           ?LOG(debug, "[Connection] Rate limit pause connection ~pms", [Pause]),
            TRef = erlang:send_after(Pause, self(), activate_socket),
            setelement(Pos, State#state{conn_state = blocked, limit_timer = TRef}, Rl1)
    end.
@@ -453,11 +460,7 @@ activate_socket(#state{conn_state = blocked}) ->
     ok;
 
 activate_socket(#state{transport = Transport, socket = Socket, active_n = N}) ->
-    TrueOrN = case Transport:is_ssl(Socket) of
-                  true  -> true; %% Cannot set '{active, N}' for SSL:(
-                  false -> N
-              end,
-    case Transport:setopts(Socket, [{active, TrueOrN}]) of
+    case Transport:setopts(Socket, [{active, N}]) of
         ok -> ok;
         {error, Reason} ->
             self() ! {shutdown, Reason},

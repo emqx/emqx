@@ -39,11 +39,11 @@ all() ->
     [t_ws_connect_api].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 t_ws_connect_api(_Config) ->
     WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
@@ -73,16 +73,16 @@ raw_recv_pase(P) ->
                                  version         => ?MQTT_PROTO_V4} }).
 
 t_info(InfoData) ->
-    ?assertEqual(websocket, proplists:get_value(socktype, InfoData)),
-    ?assertEqual(running, proplists:get_value(conn_state, InfoData)),
-    ?assertEqual(<<"mqtt_client">>, proplists:get_value(client_id, InfoData)),
-    ?assertEqual(<<"admin">>, proplists:get_value(username, InfoData)),
-    ?assertEqual(<<"MQTT">>, proplists:get_value(proto_name, InfoData)).
+    ?assertEqual(websocket, maps:get(socktype, InfoData)),
+    ?assertEqual(running, maps:get(conn_state, InfoData)),
+    ?assertEqual(<<"mqtt_client">>, maps:get(client_id, InfoData)),
+    ?assertEqual(<<"admin">>, maps:get(username, InfoData)),
+    ?assertEqual(<<"MQTT">>, maps:get(proto_name, InfoData)).
 
 t_attrs(AttrsData) ->
-    ?assertEqual(<<"mqtt_client">>, proplists:get_value(client_id, AttrsData)),
-    ?assertEqual(emqx_ws_connection, proplists:get_value(conn_mod, AttrsData)),
-    ?assertEqual(<<"admin">>, proplists:get_value(username, AttrsData)).
+    ?assertEqual(<<"mqtt_client">>, maps:get(client_id, AttrsData)),
+    ?assertEqual(emqx_ws_connection, maps:get(conn_mod, AttrsData)),
+    ?assertEqual(<<"admin">>, maps:get(username, AttrsData)).
 
 t_stats(StatsData) ->
     ?assertEqual(true, proplists:get_value(recv_oct, StatsData) >= 0),

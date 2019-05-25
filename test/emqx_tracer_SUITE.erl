@@ -24,11 +24,11 @@
 all() -> [start_traces].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 start_traces(_Config) ->
     {ok, T} = emqx_client:start_link([{host, "localhost"},
@@ -38,8 +38,12 @@ start_traces(_Config) ->
     emqx_client:connect(T),
 
     %% Start tracing
+    emqx_logger:set_log_level(error),
+    {error, _} = emqx_tracer:start_trace({client_id, <<"client">>}, debug, "tmp/client.log"),
+    emqx_logger:set_log_level(debug),
     ok = emqx_tracer:start_trace({client_id, <<"client">>}, debug, "tmp/client.log"),
     ok = emqx_tracer:start_trace({client_id, <<"client2">>}, all, "tmp/client2.log"),
+    {error, invalid_log_level} = emqx_tracer:start_trace({client_id, <<"client3">>}, bad_level, "tmp/client3.log"),
     ok = emqx_tracer:start_trace({topic, <<"a/#">>}, all, "tmp/topic_trace.log"),
     ct:sleep(100),
 

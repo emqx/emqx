@@ -61,11 +61,11 @@ info(#state{peername    = Peername,
             sockname    = Sockname,
             proto_state = ProtoState}) ->
     ProtoInfo = emqx_protocol:info(ProtoState),
-    ConnInfo = [{socktype, websocket},
-                {conn_state, running},
-                {peername, Peername},
-                {sockname, Sockname}],
-    lists:append([ConnInfo, ProtoInfo]).
+    ConnInfo = #{socktype => websocket,
+                 conn_state => running,
+                 peername => Peername,
+                 sockname => Sockname},
+    maps:merge(ProtoInfo, ConnInfo).
 
 %% for dashboard
 attrs(WSPid) when is_pid(WSPid) ->
@@ -74,10 +74,10 @@ attrs(WSPid) when is_pid(WSPid) ->
 attrs(#state{peername    = Peername,
              sockname    = Sockname,
              proto_state = ProtoState}) ->
-    SockAttrs = [{peername, Peername},
-                 {sockname, Sockname}],
+    SockAttrs = #{peername => Peername,
+                  sockname => Sockname},
     ProtoAttrs = emqx_protocol:attrs(ProtoState),
-    lists:usort(lists:append(SockAttrs, ProtoAttrs)).
+    maps:merge(SockAttrs, ProtoAttrs).
 
 stats(WSPid) when is_pid(WSPid) ->
     call(WSPid, stats);
@@ -113,7 +113,7 @@ call(WSPid, Req) when is_pid(WSPid) ->
 %%------------------------------------------------------------------------------
 
 init(Req, Opts) ->
-    IdleTimeout = proplists:get_value(idle_timeout, Opts, 60000),
+    IdleTimeout = proplists:get_value(idle_timeout, Opts, 7200000),
     DeflateOptions = maps:from_list(proplists:get_value(deflate_options, Opts, [])),
     MaxFrameSize = case proplists:get_value(max_frame_size, Opts, 0) of
                        0 -> infinity;
@@ -138,16 +138,29 @@ websocket_init(#state{request = Req, options = Options}) ->
     Peername = cowboy_req:peer(Req),
     Sockname = cowboy_req:sock(Req),
     Peercert = cowboy_req:cert(Req),
+    WsCookie = try cowboy_req:parse_cookies(Req)
+               catch
+                   error:badarg ->
+                       ?LOG(error, "[WS Connection] Illegal cookie"),
+                       undefined;
+                   Error:Reason ->
+                       ?LOG(error,
+                            "[WS Connection] Cookie is parsed failed, Error: ~p, Reason ~p",
+                            [Error, Reason]),
+                       undefined
+               end,
     ProtoState = emqx_protocol:init(#{peername => Peername,
                                       sockname => Sockname,
                                       peercert => Peercert,
                                       sendfun  => send_fun(self()),
+                                      ws_cookie => WsCookie,
                                       conn_mod => ?MODULE}, Options),
     ParserState = emqx_protocol:parser(ProtoState),
     Zone = proplists:get_value(zone, Options),
     EnableStats = emqx_zone:get_env(Zone, enable_stats, true),
     IdleTimout = emqx_zone:get_env(Zone, idle_timeout, 30000),
     emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
+    ok = emqx_misc:init_proc_mng_policy(Zone),
     {ok, #state{peername     = Peername,
                 sockname     = Sockname,
                 parse_state  = ParserState,

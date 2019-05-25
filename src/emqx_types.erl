@@ -53,6 +53,7 @@
 
 -export_type([ alarm/0
              , plugin/0
+             , banned/0
              , command/0
              ]).
 
@@ -79,11 +80,16 @@
                      | banned
                      | bad_authentication_method).
 -type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | none | atom()).
--type(credentials() :: #{client_id := client_id(),
-                         username  := username(),
-                         peername  := peername(),
-                         auth_result := auth_result(),
-                         zone      => zone(),
+-type(credentials() :: #{zone       := zone(),
+                         client_id  := client_id(),
+                         username   := username(),
+                         sockname   := peername(),
+                         peername   := peername(),
+                         ws_cookie  := undefined | list(),
+                         mountpoint := binary(),
+                         password   => binary(),
+                         auth_result => auth_result(),
+                         anonymous => boolean(),
                          atom()    => term()
                         }).
 -type(subscription() :: #subscription{}).
@@ -91,6 +97,7 @@
 -type(topic_table() :: [{topic(), subopts()}]).
 -type(payload() :: binary() | iodata()).
 -type(message() :: #message{}).
+-type(banned() :: #banned{}).
 -type(delivery() :: #delivery{}).
 -type(deliver_results() :: [{route, node(), topic()} |
                             {dispatch, topic(), pos_integer()}]).
@@ -98,4 +105,3 @@
 -type(alarm() :: #alarm{}).
 -type(plugin() :: #plugin{}).
 -type(command() :: #command{}).
-

@@ -32,23 +32,21 @@ all() ->
      {group, stats}].
 
 groups() ->
-    [
-     {pubsub, [sequence], [subscribe_unsubscribe,
+    [{pubsub, [sequence], [subscribe_unsubscribe,
                            publish, pubsub,
                            t_shared_subscribe,
                            dispatch_with_no_sub,
                            'pubsub#', 'pubsub+']},
      {session, [sequence], [start_session]},
      {metrics, [sequence], [inc_dec_metric]},
-     {stats, [sequence], [set_get_stat]}
-    ].
+     {stats, [sequence], [set_get_stat]}].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 %%--------------------------------------------------------------------
 %% PubSub Test

@@ -15,7 +15,6 @@
 -module(emqx_access_control).
 
 -include("emqx.hrl").
--include("logger.hrl").
 
 -export([authenticate/1]).
 
@@ -29,14 +28,12 @@
 -spec(authenticate(emqx_types:credentials())
       -> {ok, emqx_types:credentials()} | {error, term()}).
 authenticate(Credentials) ->
-    detect_anonymous_permission(Credentials, fun() ->
-        case emqx_hooks:run_fold('client.authenticate', [], init_auth_result(Credentials)) of
-            #{auth_result := success} = NewCredentials ->
-                {ok, NewCredentials};
-            NewCredentials ->
-                {error, maps:get(auth_result, NewCredentials, unknown_error)}
-        end
-    end).
+    case emqx_hooks:run_fold('client.authenticate', [], init_auth_result(Credentials)) of
+	    #{auth_result := success} = NewCredentials ->
+	        {ok, NewCredentials};
+	    NewCredentials ->
+	        {error, maps:get(auth_result, NewCredentials, unknown_error)}
+	end.
 
 %% @doc Check ACL
 -spec(check_acl(emqx_types:credentials(), emqx_types:pubsub(), emqx_types:topic()) -> allow | deny).
@@ -69,22 +66,8 @@ reload_acl() ->
     emqx_mod_acl_internal:reload_acl().
 
 init_auth_result(Credentials) ->
-    case anonymous_permission(Credentials) of
-        true -> Credentials#{auth_result => success};
-        false -> Credentials#{auth_result => not_authorized}
+    case emqx_zone:get_env(maps:get(zone, Credentials, undefined), allow_anonymous, false) of
+	    true -> Credentials#{auth_result => success, anonymous => true};
+	    false -> Credentials#{auth_result => not_authorized, anonymous => false}
     end.
-
-detect_anonymous_permission(#{username := undefined,
-                              password := undefined} = Credentials, Fun) ->
-    case anonymous_permission(Credentials) of
-        true -> {ok, Credentials};
-        false -> Fun()
-    end;
-
-detect_anonymous_permission(_Credentials, Fun) ->
-    Fun().
-
-anonymous_permission(Credentials) ->
-    emqx_zone:get_env(maps:get(zone, Credentials, undefined),
-                      allow_anonymous, false).
 

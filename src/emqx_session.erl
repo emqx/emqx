@@ -676,6 +676,7 @@ terminate(Reason, #state{will_msg = WillMsg,
                          username = Username,
                          conn_pid = ConnPid,
                          old_conn_pid = OldConnPid}) ->
+    emqx_metrics:commit(),
     send_willmsg(WillMsg),
     [maybe_shutdown(Pid, Reason) || Pid <- [ConnPid, OldConnPid]],
     ok = emqx_hooks:run('session.terminated', [#{client_id => ClientId, username => Username}, Reason]).
@@ -812,7 +813,11 @@ is_awaiting_full(#state{awaiting_rel = AwaitingRel,
 %% Dispatch messages
 %%------------------------------------------------------------------------------
 
-handle_dispatch(Msgs, State = #state{inflight = Inflight, subscriptions = SubMap}) ->
+handle_dispatch(Msgs, State = #state{inflight = Inflight,
+                                     client_id = ClientId,
+                                     username = Username,
+                                     subscriptions = SubMap}) ->
+    SessProps = #{client_id => ClientId, username => Username},
     %% Drain the mailbox and batch deliver
     Msgs1 = drain_m(batch_n(Inflight), Msgs),
     %% Ack the messages for shared subscription
@@ -823,7 +828,9 @@ handle_dispatch(Msgs, State = #state{inflight = Inflight, subscriptions = SubMap
                       SubOpts = find_subopts(Topic, SubMap),
                       case process_subopts(SubOpts, Msg, State) of
                           {ok, Msg1} -> [Msg1|Acc];
-                          ignore -> Acc
+                          ignore ->
+                              emqx_hooks:run('message.dropped', [SessProps, Msg]),
+                              Acc
                       end
               end, [], Msgs2),
     NState = batch_process(Msgs3, State),
@@ -957,7 +964,7 @@ enqueue_msg(Msg, State = #state{mqueue = Q, client_id = ClientId, username = Use
     if
         Dropped =/= undefined ->
             SessProps = #{client_id => ClientId, username => Username},
-            ok = emqx_hooks:run('message.dropped', [SessProps, Msg]);
+            ok = emqx_hooks:run('message.dropped', [SessProps, Dropped]);
         true -> ok
     end,
     State#state{mqueue = NewQ}.

@@ -270,8 +270,7 @@ end}.
     X when is_integer(X) -> cuttlefish_util:ceiling(X / 1024); %% Bytes to Kilobytes;
     _ -> undefined
   end
- end
-}.
+ end}.
 
 {validator, "zdbbl_range", "must be between 1KB and 2097151KB",
  fun(ZDBBL) ->
@@ -401,7 +400,7 @@ end}.
   {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
 ]}.
 
-{mapping, "log.primary_level", "emqx.primary_log_level", [
+{mapping, "log.primary_log_level", "kernel.logger_level", [
    {default, error},
    {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
 ]}.
@@ -419,6 +418,11 @@ end}.
 {mapping, "log.file", "kernel.logger", [
   {default, "emqx.log"},
   {datatype, file}
+]}.
+
+{mapping, "log.chars_limit", "kernel.logger", [
+  {default, 8192},
+  {datatype, integer}
 ]}.
 
 {mapping, "log.rotation.size", "kernel.logger", [
@@ -458,13 +462,17 @@ end}.
   hidden
 ]}.
 
-{translation, "emqx.primary_log_level", fun(Conf) ->
+{translation, "kernel.logger_level", fun(_, _, Conf) ->
     cuttlefish:conf_get("log.level", Conf)
 end}.
 
 {translation, "kernel.logger", fun(Conf) ->
     LogTo = cuttlefish:conf_get("log.to", Conf),
     LogLevel = cuttlefish:conf_get("log.level", Conf),
+    CharsLimit = case cuttlefish:conf_get("log.chars_limit", Conf) of
+                     -1 -> unlimited;
+                     V -> V
+                 end,
     Formatter = {emqx_logger_formatter,
                   #{template =>
                       [time," [",level,"] ",
@@ -475,7 +483,8 @@ end}.
                           [{peername,
                               [peername," "],
                               []}]},
-                       msg,"\n"]}},
+                       msg,"\n"],
+                    chars_limit => CharsLimit}},
     FileConf =  fun(Filename) ->
                   #{type => wrap,
                     file => filename:join(cuttlefish:conf_get("log.dir", Conf), Filename),
@@ -572,6 +581,11 @@ end}.
 {mapping, "acl_deny_action", "emqx.acl_deny_action", [
   {default, ignore},
   {datatype, {enum, [ignore, disconnect]}}
+]}.
+
+%% @doc time interval to clean flapping records
+{mapping, "flapping_clean_interval", "emqx.flapping_clean_interval", [
+  {datatype, {duration, ms}}
 ]}.
 
 {validator, "range:gt_0", "must greater than 0",
@@ -814,6 +828,18 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+{mapping, "zone.$name.enable_flapping_detect", "emqx.zones", [
+  {datatype, flag}
+]}.
+
+{mapping, "zone.$name.flapping_threshold", "emqx.zones", [
+  {datatype, string}
+]}.
+
+{mapping, "zone.$name.flapping_banned_expiry_interval", "emqx.zones", [
+  {datatype, {duration, s}}
+]}.
+
 %% @doc Force connection/session process GC after this number of
 %% messages | bytes passed through.
 %% Numbers delimited by `|'. Zero or negative is to disable.
@@ -828,7 +854,7 @@ end}.
 %% of queued MQTT messages of QoS 1 and 2.
 %% Zero or negative is to disable.
 {mapping, "zone.$name.force_shutdown_policy", "emqx.zones", [
-  {default, "0 | 0MB"},
+  {default, "default"},
   {datatype, string}
 ]}.
 
@@ -845,6 +871,15 @@ end}.
 {translation, "emqx.zones", fun(Conf) ->
   Mapping = fun("retain_available", Val) ->
                     {mqtt_retain_available, Val};
+               ("flapping_threshold", Val) ->
+                    [Limit, Duration] = string:tokens(Val, ", "),
+                    FlappingThreshold = case cuttlefish_duration:parse(Duration, s) of
+                                            Min when is_integer(Min) ->
+                                                {list_to_integer(Limit), Min};
+                                           {error, Reason} ->
+                                                error(Reason)
+                                        end,
+                    {flapping_threshold, FlappingThreshold};
                ("wildcard_subscription", Val) ->
                     {mqtt_wildcard_subscription, Val};
                ("shared_subscription", Val) ->
@@ -868,15 +903,34 @@ end}.
                                          count => list_to_integer(Count)}
                                end,
                     {force_gc_policy, GcPolicy};
+               ("force_shutdown_policy", "default") ->
+                    {DefaultLen, DefaultSize} =
+                        case erlang:system_info(wordsize) of
+                            8 -> % arch_64
+                              {8000, cuttlefish_bytesize:parse("800MB")};
+                            4 -> % arch_32
+                              {1000, cuttlefish_bytesize:parse("100MB")}
+                        end,
+                    {force_shutdown_policy, #{message_queue_len => DefaultLen,
+                                              max_heap_size => DefaultSize}};
                ("force_shutdown_policy", Val) ->
                     [Len, Siz] = string:tokens(Val, "| "),
-                    ShutdownPolicy = case cuttlefish_bytesize:parse(Siz) of
-                                         {error, Reason} ->
-                                             error(Reason);
-                                         Siz1 ->
-                                             #{message_queue_len => list_to_integer(Len),
-                                               max_heap_size => Siz1}
-                                     end,
+                    MaxSiz = case erlang:system_info(wordsize) of
+                                8 -> % arch_64
+                                  (1 bsl 59) - 1;
+                                4 -> % arch_32
+                                  (1 bsl 27) - 1
+                             end,
+                    ShutdownPolicy =
+                      case cuttlefish_bytesize:parse(Siz) of
+                          {error, Reason} ->
+                              error(Reason);
+                          Siz1 when Siz1 > MaxSiz ->
+                              cuttlefish:invalid(io_lib:format("force_shutdown_policy: heap-size ~s is too large", [Siz]));
+                          Siz1 ->
+                              #{message_queue_len => list_to_integer(Len),
+                                max_heap_size => Siz1}
+                      end,
                     {force_shutdown_policy, ShutdownPolicy};
                ("mqueue_priorities", Val) ->
                     case Val of
@@ -1996,11 +2050,11 @@ end}.
 
 %% @doc Shared Subscription Dispatch Strategy.
 {mapping, "broker.shared_subscription_strategy", "emqx.shared_subscription_strategy", [
-  {default, round_robbin},
+  {default, round_robin},
   {datatype,
    {enum,
     [random, %% randomly pick a subscriber
-     round_robbin, %% round robin alive subscribers one message after another
+     round_robin, %% round robin alive subscribers one message after another
      sticky, %% pick a random subscriber and stick to it
      hash %% hash client ID to a group member
     ]}}
@@ -2024,14 +2078,14 @@ end}.
 %% @doc Long GC, don't monitor in production mode for:
 %% https://github.com/erlang/otp/blob/feb45017da36be78d4c5784d758ede619fa7bfd3/erts/emulator/beam/erl_gc.c#L421
 {mapping, "sysmon.long_gc", "emqx.sysmon", [
-  {default, false},
-  {datatype, {enum, [true, false]}}
+  {default, 0},
+  {datatype, [integer, {duration, ms}]}
 ]}.
 
 %% @doc Long Schedule(ms)
 {mapping, "sysmon.long_schedule", "emqx.sysmon", [
-  {default, 1000},
-  {datatype, integer}
+  {default, 240},
+  {datatype, [integer, {duration, ms}]}
 ]}.
 
 %% @doc Large Heap
@@ -2053,11 +2107,8 @@ end}.
 ]}.
 
 {translation, "emqx.sysmon", fun(Conf) ->
-  [{long_gc, cuttlefish:conf_get("sysmon.long_gc", Conf)},
-   {long_schedule, cuttlefish:conf_get("sysmon.long_schedule", Conf)},
-   {large_heap, cuttlefish:conf_get("sysmon.large_heap", Conf)},
-   {busy_port, cuttlefish:conf_get("sysmon.busy_port", Conf)},
-   {busy_dist_port, cuttlefish:conf_get("sysmon.busy_dist_port", Conf)}]
+    Configs = cuttlefish_variable:filter_by_prefix("sysmon", Conf),
+    [{list_to_atom(Name), Value} || {[_, Name], Value} <- Configs]
 end}.
 
 %%--------------------------------------------------------------------
@@ -2095,12 +2146,8 @@ end}.
 ]}.
 
 {translation, "emqx.os_mon", fun(Conf) ->
-  [{cpu_check_interval, cuttlefish:conf_get("os_mon.cpu_check_interval", Conf)},
-   {cpu_high_watermark, cuttlefish:conf_get("os_mon.cpu_high_watermark", Conf)},
-   {cpu_low_watermark, cuttlefish:conf_get("os_mon.cpu_low_watermark", Conf)},
-   {mem_check_interval, cuttlefish:conf_get("os_mon.mem_check_interval", Conf)},
-   {sysmem_high_watermark, cuttlefish:conf_get("os_mon.sysmem_high_watermark", Conf)},
-   {procmem_high_watermark, cuttlefish:conf_get("os_mon.procmem_high_watermark", Conf)}]
+    Configs = cuttlefish_variable:filter_by_prefix("os_mon", Conf),
+    [{list_to_atom(Name), Value} || {[_, Name], Value} <- Configs]
 end}.
 
 %%--------------------------------------------------------------------
@@ -2122,7 +2169,6 @@ end}.
 ]}.
 
 {translation, "emqx.vm_mon", fun(Conf) ->
-  [{check_interval, cuttlefish:conf_get("vm_mon.check_interval", Conf)},
-   {process_high_watermark, cuttlefish:conf_get("vm_mon.process_high_watermark", Conf)},
-   {process_low_watermark, cuttlefish:conf_get("vm_mon.process_low_watermark", Conf)}]
+    Configs = cuttlefish_variable:filter_by_prefix("vm_mon", Conf),
+    [{list_to_atom(Name), Value} || {[_, Name], Value} <- Configs]
 end}.

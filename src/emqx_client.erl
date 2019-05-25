@@ -88,7 +88,7 @@
              ]).
 
 %% Default timeout
--define(DEFAULT_KEEPALIVE,       60000).
+-define(DEFAULT_KEEPALIVE,       60).
 -define(DEFAULT_ACK_TIMEOUT,     30000).
 -define(DEFAULT_CONNECT_TIMEOUT, 60000).
 
@@ -503,7 +503,7 @@ init([{username, Username} | Opts], State) ->
 init([{password, Password} | Opts], State) ->
     init(Opts, State#state{password = iolist_to_binary(Password)});
 init([{keepalive, Secs} | Opts], State) ->
-    init(Opts, State#state{keepalive = timer:seconds(Secs)});
+    init(Opts, State#state{keepalive = Secs});
 init([{proto_ver, v3} | Opts], State) ->
     init(Opts, State#state{proto_ver  = ?MQTT_PROTO_V3,
                            proto_name = <<"MQIsdp">>});
@@ -928,6 +928,11 @@ handle_event(info, {inet_reply, _Sock, {error, Reason}}, _, State) ->
     ?LOG(error, "[Client] Got tcp error: ~p", [Reason]),
     {stop, {shutdown, Reason}, State};
 
+handle_event(info, EventContent = {'EXIT', _Pid, normal}, StateName, _State) ->
+    ?LOG(info, "[Client] State: ~s, Unexpected Event: (info, ~p)",
+         [StateName, EventContent]),
+    keep_state_and_data;
+
 handle_event(EventType, EventContent, StateName, _StateData) ->
     ?LOG(error, "[Client] State: ~s, Unexpected Event: (~p, ~p)",
          [StateName, EventType, EventContent]),
@@ -1021,11 +1026,11 @@ publish_process(?QOS_2, Packet = ?PUBLISH_PACKET(?QOS_2, PacketId),
     end.
 
 ensure_keepalive_timer(State = ?PROPERTY('Server-Keep-Alive', Secs)) ->
-    ensure_keepalive_timer(timer:seconds(Secs), State);
+    ensure_keepalive_timer(timer:seconds(Secs), State#state{keepalive = Secs});
 ensure_keepalive_timer(State = #state{keepalive = 0}) ->
     State;
 ensure_keepalive_timer(State = #state{keepalive = I}) ->
-    ensure_keepalive_timer(I, State).
+    ensure_keepalive_timer(timer:seconds(I), State).
 ensure_keepalive_timer(I, State) when is_integer(I) ->
     State#state{keepalive_timer = erlang:start_timer(I, self(), keepalive)}.
 
@@ -1049,7 +1054,7 @@ timeout_calls(Timeout, Calls) ->
 timeout_calls(Now, Timeout, Calls) ->
     lists:foldl(fun(C = #call{from = From, ts = Ts}, Acc) ->
                     case (timer:now_diff(Now, Ts) div 1000) >= Timeout of
-                        true  -> gen_statem:reply(From, {error, ack_timeout}),
+                        true  -> From ! {error, ack_timeout},
                                  Acc;
                         false -> [C | Acc]
                     end
@@ -1231,4 +1236,3 @@ bump_last_packet_id(State = #state{last_packet_id = Id}) ->
 -spec next_packet_id(packet_id()) -> packet_id().
 next_packet_id(?MAX_PACKET_ID) -> 1;
 next_packet_id(Id) -> Id + 1.
-

@@ -73,6 +73,8 @@
 -define(PUBSUB_STATS, [
     'topics/count',
     'topics/max',
+    'suboptions/count',
+    'suboptions/max',
     'subscribers/count',
     'subscribers/max',
     'subscriptions/count',
@@ -228,7 +230,7 @@ handle_info({timeout, TRef, tick}, State = #state{timer = TRef, updates = Update
     {noreply, start_timer(State#state{updates = Updates1}), hibernate};
 
 handle_info(Info, State) ->
-    ?LOG("error, [Stats] Unexpected info: ~p", [Info]),
+    ?LOG(error, "[Stats] Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #state{timer = TRef}) ->
@@ -242,9 +244,12 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 safe_update_element(Key, Val) ->
-    try ets:update_element(?TAB, Key, {2, Val})
+    try ets:update_element(?TAB, Key, {2, Val}) of
+        false ->
+            ets:insert_new(?TAB, {Key, Val});
+        true ->
+            true
     catch
         error:badarg ->
-            ets:insert_new(?TAB, {Key, Val})
+            ?LOG(warning, "[Stats] Update ~p to ~p failed", [Key, Val])
     end.
-
