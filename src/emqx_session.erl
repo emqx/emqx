@@ -84,6 +84,9 @@
 -import(emqx_zone, [get_env/2, get_env/3]).
 
 -record(state, {
+          %% zone
+          zone :: atom(),
+
           %% Idle timeout
           idle_timeout :: pos_integer(),
 
@@ -111,23 +114,14 @@
           %% Next packet id of the session
           next_pkt_id = 1 :: emqx_mqtt_types:packet_id(),
 
-          %% Max subscriptions
-          max_subscriptions :: non_neg_integer(),
-
           %% Client’s Subscriptions.
           subscriptions :: map(),
-
-          %% Upgrade QoS?
-          upgrade_qos = false :: boolean(),
 
           %% Client <- Broker: Inflight QoS1, QoS2 messages sent to the client but unacked.
           inflight :: emqx_inflight:inflight(),
 
           %% Max Inflight Size. DEPRECATED: Get from inflight
           %% max_inflight = 32 :: non_neg_integer(),
-
-          %% Retry interval for redelivering QoS1/2 messages
-          retry_interval = 20000 :: timeout(),
 
           %% Retry Timer
           retry_timer :: maybe(reference()),
@@ -141,12 +135,6 @@
           %% Client -> Broker: Inflight QoS2 messages received from client and waiting for pubrel.
           awaiting_rel :: map(),
 
-          %% Max Packets Awaiting PUBREL
-          max_awaiting_rel = 100 :: non_neg_integer(),
-
-          %% Awaiting PUBREL Timeout
-          await_rel_timeout = 20000 :: timeout(),
-
           %% Awaiting PUBREL Timer
           await_rel_timer :: maybe(reference()),
 
@@ -155,9 +143,6 @@
 
           %% Expired Timer
           expiry_timer :: maybe(reference()),
-
-          %% Enable Stats
-          enable_stats :: boolean(),
 
           %% Stats timer
           stats_timer :: maybe(reference()),
@@ -191,28 +176,24 @@ start_link(SessAttrs) ->
 info(SPid) when is_pid(SPid) ->
     gen_server:call(SPid, info, infinity);
 
-info(State = #state{conn_pid = ConnPid,
+info(State = #state{zone = Zone,
+                    conn_pid = ConnPid,
                     next_pkt_id = PktId,
-                    max_subscriptions = MaxSubscriptions,
                     subscriptions = Subscriptions,
-                    upgrade_qos = UpgradeQoS,
                     inflight = Inflight,
-                    retry_interval = RetryInterval,
                     mqueue = MQueue,
-                    awaiting_rel = AwaitingRel,
-                    max_awaiting_rel = MaxAwaitingRel,
-                    await_rel_timeout = AwaitRelTimeout}) ->
+                    awaiting_rel = AwaitingRel}) ->
     attrs(State) ++ [{conn_pid, ConnPid},
                      {next_pkt_id, PktId},
-                     {max_subscriptions, MaxSubscriptions},
+                     {max_subscriptions, get_env(Zone, max_subscriptions, 0)},
                      {subscriptions, Subscriptions},
-                     {upgrade_qos, UpgradeQoS},
+                     {upgrade_qos, get_env(Zone, upgrade_qos, false)},
                      {inflight, Inflight},
-                     {retry_interval, RetryInterval},
+                     {retry_interval, get_env(Zone, retry_interval, 0)},
                      {mqueue_len, emqx_mqueue:len(MQueue)},
                      {awaiting_rel, AwaitingRel},
-                     {max_awaiting_rel, MaxAwaitingRel},
-                     {await_rel_timeout, AwaitRelTimeout}].
+                     {max_awaiting_rel, get_env(Zone, max_awaiting_rel)},
+                     {await_rel_timeout, get_env(Zone, await_rel_timeout)}].
 
 %% @doc Get session attrs
 -spec(attrs(spid() | #state{}) -> list({atom(), term()})).
@@ -236,21 +217,20 @@ attrs(#state{clean_start = CleanStart,
 stats(SPid) when is_pid(SPid) ->
     gen_server:call(SPid, stats, infinity);
 
-stats(#state{max_subscriptions = MaxSubscriptions,
+stats(#state{zone = Zone,
              subscriptions = Subscriptions,
              inflight = Inflight,
              mqueue = MQueue,
-             max_awaiting_rel = MaxAwaitingRel,
              awaiting_rel = AwaitingRel}) ->
     lists:append(emqx_misc:proc_stats(),
-                 [{max_subscriptions, MaxSubscriptions},
+                 [{max_subscriptions, get_env(Zone, max_subscriptions, 0)},
                   {subscriptions_count, maps:size(Subscriptions)},
                   {max_inflight, emqx_inflight:max_size(Inflight)},
                   {inflight_len, emqx_inflight:size(Inflight)},
                   {max_mqueue, emqx_mqueue:max_len(MQueue)},
                   {mqueue_len, emqx_mqueue:len(MQueue)},
                   {mqueue_dropped, emqx_mqueue:dropped(MQueue)},
-                  {max_awaiting_rel, MaxAwaitingRel},
+                  {max_awaiting_rel, get_env(Zone, max_awaiting_rel)},
                   {awaiting_rel_len, maps:size(AwaitingRel)},
                   {deliver_msg, emqx_pd:get_counter(deliver_stats)},
                   {enqueue_msg, emqx_pd:get_counter(enqueue_stats)}]).
@@ -364,23 +344,18 @@ init([Parent, #{zone            := Zone,
     emqx_logger:set_metadata_client_id(ClientId),
     GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
     IdleTimout = get_env(Zone, idle_timeout, 30000),
-    State = #state{idle_timeout      = IdleTimout,
+    State = #state{zone              = Zone,
+                   idle_timeout      = IdleTimout,
                    clean_start       = CleanStart,
                    deliver_fun       = deliver_fun(ConnPid),
                    client_id         = ClientId,
                    username          = Username,
                    conn_pid          = ConnPid,
                    subscriptions     = #{},
-                   max_subscriptions = get_env(Zone, max_subscriptions, 0),
-                   upgrade_qos       = get_env(Zone, upgrade_qos, false),
                    inflight          = emqx_inflight:new(MaxInflight),
                    mqueue            = init_mqueue(Zone),
-                   retry_interval    = get_env(Zone, retry_interval, 0),
                    awaiting_rel      = #{},
-                   await_rel_timeout = get_env(Zone, await_rel_timeout),
-                   max_awaiting_rel  = get_env(Zone, max_awaiting_rel),
                    expiry_interval   = ExpiryInterval,
-                   enable_stats      = get_env(Zone, enable_stats, true),
                    gc_state          = emqx_gc:init(GcPolicy),
                    created_at        = os:timestamp(),
                    will_msg          = WillMsg
@@ -433,9 +408,10 @@ handle_call({discard, ByPid}, _From, State = #state{client_id = ClientId, conn_p
 %% PUBLISH: This is only to register packetId to session state.
 %% The actual message dispatching should be done by the caller (e.g. connection) process.
 handle_call({register_publish_packet_id, PacketId, Ts}, _From,
-            State = #state{awaiting_rel = AwaitingRel}) ->
+            State = #state{zone = Zone, awaiting_rel = AwaitingRel}) ->
+    MaxAwaitingRel = get_env(Zone, max_awaiting_rel),
     reply(
-      case is_awaiting_full(State) of
+      case is_awaiting_full(MaxAwaitingRel, AwaitingRel) of
           false ->
               case maps:is_key(PacketId, AwaitingRel) of
                   true ->
@@ -742,7 +718,8 @@ retry_delivery(_Force, [], _Now, State) ->
     ensure_retry_timer(State);
 
 retry_delivery(Force, [{Type, Msg0, Ts} | Msgs], Now,
-               State = #state{inflight = Inflight, retry_interval = Interval}) ->
+               State = #state{zone = Zone, inflight = Inflight}) ->
+    Interval = get_env(Zone, retry_interval, 0),
     %% Microseconds -> MilliSeconds
     Age = timer:now_diff(Now, Ts) div 1000,
     if
@@ -789,7 +766,8 @@ expire_awaiting_rel([], _Now, State) ->
     State#state{await_rel_timer = undefined};
 
 expire_awaiting_rel([{PacketId, Ts} | More], Now,
-                    State = #state{awaiting_rel = AwaitingRel, await_rel_timeout = Timeout}) ->
+                    State = #state{zone = Zone, awaiting_rel = AwaitingRel}) ->
+    Timeout = get_env(Zone, await_rel_timeout),
     case (timer:now_diff(Now, Ts) div 1000) of
         Age when Age >= Timeout ->
             emqx_metrics:trans(inc, 'messages/qos2/expired'),
@@ -803,11 +781,10 @@ expire_awaiting_rel([{PacketId, Ts} | More], Now,
 %% Check awaiting rel
 %%------------------------------------------------------------------------------
 
-is_awaiting_full(#state{max_awaiting_rel = 0}) ->
+is_awaiting_full(_MaxAwaitingRel = 0, _AwaitingRel) ->
     false;
-is_awaiting_full(#state{awaiting_rel = AwaitingRel,
-                        max_awaiting_rel = MaxLen}) ->
-    maps:size(AwaitingRel) >= MaxLen.
+is_awaiting_full(MaxAwaitingRel, AwaitingRel) ->
+    maps:size(AwaitingRel) >= MaxAwaitingRel.
 
 %%------------------------------------------------------------------------------
 %% Dispatch messages
@@ -900,10 +877,11 @@ process_subopts([{nl, 1}|_Opts], #message{from = ClientId}, #state{client_id = C
     ignore;
 process_subopts([{nl, _}|Opts], Msg, State) ->
     process_subopts(Opts, Msg, State);
-process_subopts([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS}, State = #state{upgrade_qos = false}) ->
-    process_subopts(Opts, Msg#message{qos = min(SubQoS, PubQoS)}, State);
-process_subopts([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS}, State = #state{upgrade_qos = true}) ->
-    process_subopts(Opts, Msg#message{qos = max(SubQoS, PubQoS)}, State);
+process_subopts([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS}, State = #state{zone = Zone}) ->
+    case get_env(Zone, upgrade_qos, false) of
+        true -> process_subopts(Opts, Msg#message{qos = max(SubQoS, PubQoS)}, State);
+        false -> process_subopts(Opts, Msg#message{qos = min(SubQoS, PubQoS)}, State)
+    end;
 process_subopts([{rap, _Rap}|Opts], Msg = #message{flags = Flags, headers = #{retained := true}}, State = #state{}) ->
     process_subopts(Opts, Msg#message{flags = maps:put(retain, true, Flags)}, State);
 process_subopts([{rap, 0}|Opts], Msg = #message{flags = Flags}, State = #state{}) ->
@@ -1053,8 +1031,9 @@ drain_q(Cnt, Msgs, Q) ->
 %%------------------------------------------------------------------------------
 %% Ensure timers
 
-ensure_await_rel_timer(State = #state{await_rel_timer = undefined,
-                                      await_rel_timeout = Timeout}) ->
+ensure_await_rel_timer(State = #state{zone = Zone,
+                                      await_rel_timer = undefined}) ->
+    Timeout = get_env(Zone, await_rel_timeout),
     ensure_await_rel_timer(Timeout, State);
 ensure_await_rel_timer(State) ->
     State.
@@ -1064,8 +1043,8 @@ ensure_await_rel_timer(Timeout, State = #state{await_rel_timer = undefined}) ->
 ensure_await_rel_timer(_Timeout, State) ->
     State.
 
-ensure_retry_timer(State = #state{retry_timer = undefined,
-                                  retry_interval = Interval}) ->
+ensure_retry_timer(State = #state{zone = Zone, retry_timer = undefined}) ->
+    Interval = get_env(Zone, retry_interval, 0),
     ensure_retry_timer(Interval, State);
 ensure_retry_timer(State) ->
     State.
@@ -1087,10 +1066,13 @@ ensure_will_delay_timer(State = #state{will_msg = WillMsg}) ->
     send_willmsg(WillMsg),
     State#state{will_msg = undefined}.
 
-ensure_stats_timer(State = #state{enable_stats = true,
+ensure_stats_timer(State = #state{zone = Zone,
                                   stats_timer = undefined,
                                   idle_timeout = IdleTimeout}) ->
-    State#state{stats_timer = emqx_misc:start_timer(IdleTimeout, emit_stats)};
+    case get_env(Zone, enable_stats, true) of
+        true -> State#state{stats_timer = emqx_misc:start_timer(IdleTimeout, emit_stats)};
+        _Other -> State
+    end;
 ensure_stats_timer(State) ->
     State.
 
