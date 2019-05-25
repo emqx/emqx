@@ -62,7 +62,7 @@ get_env(Zone, Key) ->
 get_env(undefined, Key, Def) ->
     emqx_config:get_env(Key, Def);
 get_env(Zone, Key, Def) ->
-    try ets:lookup_element(?TAB, {Zone, Key}, 2)
+    try persistent_term:get({Zone, Key})
     catch error:badarg ->
         emqx_config:get_env(Key, Def)
     end.
@@ -84,7 +84,6 @@ stop() ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    ok = emqx_tables:new(?TAB, [set, {read_concurrency, true}]),
     {ok, element(2, handle_info(reload, #{timer => undefined}))}.
 
 handle_call(force_reload, _From, State) ->
@@ -96,7 +95,7 @@ handle_call(Req, _From, State) ->
     {reply, ignored, State}.
 
 handle_cast({set_env, Zone, Key, Val}, State) ->
-    true = ets:insert(?TAB, {{Zone, Key}, Val}),
+    persistent_term:put({Zone, Key}, Val),
     {noreply, State};
 
 handle_cast(Msg, State) ->
@@ -122,11 +121,11 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 
 do_reload() ->
-    [ets:insert(?TAB, [{{Zone, Key}, Val} || {Key, Val} <- Opts])
+    [[persistent_term:put({Zone, Key}, Val)
+      || {Key, Val} <- Opts]
      || {Zone, Opts} <- emqx_config:get_env(zones, [])].
 
 ensure_reload_timer(State = #{timer := undefined}) ->
     State#{timer := erlang:send_after(timer:minutes(5), self(), reload)};
 ensure_reload_timer(State) ->
     State.
-
