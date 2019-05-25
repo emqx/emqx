@@ -85,7 +85,8 @@ init([Pool, Id, Mod, Opts]) ->
     process_flag(trap_exit, true),
     State = #state{pool = Pool, id = Id, mod = Mod, opts = Opts},
     case connect(State) of
-        {ok, Client} ->
+        {ok, Client} when is_pid(Client) ->
+            erlang:link(Client),
             gproc_pool:connect_worker(ecpool:name(Pool), {Pool, Id}),
             {ok, State#state{client = Client}};
         {error, Error} ->
