@@ -80,11 +80,16 @@
                      | banned
                      | bad_authentication_method).
 -type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | none | atom()).
--type(credentials() :: #{client_id := client_id(),
-                         username  := username(),
-                         peername  := peername(),
-                         auth_result := auth_result(),
-                         zone      => zone(),
+-type(credentials() :: #{zone       := zone(),
+                         client_id  := client_id(),
+                         username   := username(),
+                         sockname   := peername(),
+                         peername   := peername(),
+                         ws_cookie  := undefined | list(),
+                         mountpoint := binary(),
+                         password   => binary(),
+                         auth_result => auth_result(),
+                         anonymous => boolean(),
                          atom()    => term()
                         }).
 -type(subscription() :: #subscription{}).

@@ -1,37 +1,9 @@
-.PHONY: plugins tests
+## shallow clone for speed
 
-PROJECT = emqx
-PROJECT_DESCRIPTION = EMQ X Broker
+REBAR_GIT_CLONE_OPTIONS += --depth 1
+export REBAR_GIT_CLONE_OPTIONS
 
-DEPS = jsx gproc gen_rpc ekka esockd cowboy replayq
-
-dep_jsx     = git-emqx https://github.com/talentdeficit/jsx 2.9.0
-dep_gproc   = git-emqx https://github.com/uwiger/gproc 0.8.0
-dep_gen_rpc = git-emqx https://github.com/emqx/gen_rpc 2.3.1
-dep_esockd  = git-emqx https://github.com/emqx/esockd v5.4.4
-dep_ekka    = git-emqx https://github.com/emqx/ekka v0.5.4
-dep_cowboy  = git-emqx https://github.com/ninenines/cowboy 2.6.1
-dep_replayq = git-emqx https://github.com/emqx/replayq v0.1.1
-
-NO_AUTOPATCH = cuttlefish
-
-ERLC_OPTS += +debug_info -DAPPLICATION=emqx
-
-BUILD_DEPS = cuttlefish
-dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish v2.2.1
-
-CUR_BRANCH := $(shell git branch | grep -e "^*" | cut -d' ' -f 2)
-BRANCH := $(if $(filter $(CUR_BRANCH), master develop), $(CUR_BRANCH), develop)
-
-TEST_DEPS = emqx_ct_helpers
-dep_emqx_ct_helpers = git-emqx https://github.com/emqx/emqx-ct-helpers.git v1.0
-
-TEST_ERLC_OPTS += +debug_info -DAPPLICATION=emqx
-
-EUNIT_OPTS = verbose
-
-# CT_SUITES = emqx_bridge
-## emqx_trie emqx_router emqx_frame emqx_mqtt_compat
+# CT_SUITES = emqx_trie emqx_router emqx_frame emqx_mqtt_compat
 
 CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
 			emqx_broker emqx_cm emqx_frame emqx_guid emqx_inflight emqx_json \
@@ -44,31 +16,68 @@ CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
             emqx_vm_mon emqx_alarm_handler emqx_rpc emqx_flapping
 
 CT_NODE_NAME = emqxct@127.0.0.1
-CT_OPTS = -cover test/ct.cover.spec -erl_args -name $(CT_NODE_NAME)
 
-COVER = true
+compile:
+	@rebar3 compile
 
-PLT_APPS = sasl asn1 ssl syntax_tools runtime_tools crypto xmerl os_mon inets public_key ssl compiler mnesia
-DIALYZER_DIRS := ebin/
-DIALYZER_OPTS := --verbose --statistics -Werror_handling -Wrace_conditions #-Wunmatched_returns
+clean: distclean
 
-$(shell [ -f erlang.mk ] || curl -s -o erlang.mk https://raw.githubusercontent.com/emqx/erlmk/master/erlang.mk)
-include erlang.mk
+## Cuttlefish escript is built by default when cuttlefish app (as dependency) was built
+CUTTLEFISH_SCRIPT := _build/default/lib/cuttlefish/cuttlefish
 
-clean:: gen-clean
+.PHONY: cover
+cover:
+	@rebar3 cover
 
-.PHONY: gen-clean
-gen-clean:
-	@rm -rf bbmustache
-	@rm -f etc/gen.emqx.conf
+.PHONY: coveralls
+coveralls:
+	@rebar3 coveralls send
+
+.PHONY: xref
+xref:
+	@rebar3 xref
+
+.PHONY: deps
+deps:
+	@rebar3 get-deps
+
+.PHONY: eunit
+eunit:
+	@rebar3 eunit -v
+
+.PHONY: ct-setup
+ct-setup:
+	rebar3 as test compile
+	@mkdir -p data
+	@if [ ! -f data/loaded_plugins ]; then touch data/loaded_plugins; fi
+	@ln -s -f '../../../../etc' _build/test/lib/emqx/
+	@ln -s -f '../../../../data' _build/test/lib/emqx/
+
+.PHONY: ct
+ct: ct-setup
+	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(shell echo $(foreach var,$(CT_SUITES),test/$(var)_SUITE) | tr ' ' ',')
+
+## Run one single CT with rebar3
+## e.g. make ct-one-suite suite=emqx_bridge
+.PHONY: ct-one-suite
+ct-one-suite: ct-setup
+	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(suite)_SUITE
+
+.PHONY: app.config
+app.config: $(CUTTLEFISH_SCRIPT) etc/gen.emqx.conf
+	$(CUTTLEFISH_SCRIPT) -l info -e etc/ -c etc/gen.emqx.conf -i priv/emqx.schema -d data/
+
+$(CUTTLEFISH_SCRIPT):
+	@rebar3 get-deps
+	@if [ ! -f cuttlefish ]; then make -C _build/default/lib/cuttlefish; fi
 
 bbmustache:
-	$(verbose) git clone https://github.com/soranoba/bbmustache.git && cd bbmustache && ./rebar3 compile && cd ..
+	@git clone https://github.com/soranoba/bbmustache.git && cd bbmustache && ./rebar3 compile && cd ..
 
 # This hack is to generate a conf file for testing
 # relx overlay is used for release
 etc/gen.emqx.conf: bbmustache etc/emqx.conf
-	$(verbose) erl -noshell -pa bbmustache/_build/default/lib/bbmustache/ebin -eval \
+	@erl -noshell -pa bbmustache/_build/default/lib/bbmustache/ebin -eval \
 		"{ok, Temp} = file:read_file('etc/emqx.conf'), \
 		{ok, Vars0} = file:consult('vars'), \
 		Vars = [{atom_to_list(N), list_to_binary(V)} || {N, V} <- Vars0], \
@@ -76,51 +85,12 @@ etc/gen.emqx.conf: bbmustache etc/emqx.conf
 		ok = file:write_file('etc/gen.emqx.conf', Targ), \
 		halt(0)."
 
-CUTTLEFISH_SCRIPT = _build/default/lib/cuttlefish/cuttlefish
+.PHONY: gen-clean
+gen-clean:
+	@rm -rf bbmustache
+	@rm -f etc/gen.emqx.conf etc/emqx.conf.rendered
 
-app.config: $(CUTTLEFISH_SCRIPT) etc/gen.emqx.conf
-	$(verbose) $(CUTTLEFISH_SCRIPT) -l info -e etc/ -c etc/gen.emqx.conf -i priv/emqx.schema -d data/
-
-ct: app.config
-
-rebar-cover:
-	@rebar3 cover
-
-coveralls:
-	@rebar3 coveralls send
-
-
-$(CUTTLEFISH_SCRIPT): rebar-deps
-	@if [ ! -f cuttlefish ]; then make -C _build/default/lib/cuttlefish; fi
-
-rebar-xref:
-	@rebar3 xref
-
-rebar-deps:
-	@rebar3 get-deps
-
-rebar-eunit: $(CUTTLEFISH_SCRIPT)
-	@rebar3 eunit -v
-
-rebar-compile:
-	@rebar3 compile
-
-rebar-ct-setup: app.config
-	@rebar3 as test compile
-	@ln -s -f '../../../../etc' _build/test/lib/emqx/
-	@ln -s -f '../../../../data' _build/test/lib/emqx/
-
-rebar-ct: rebar-ct-setup
-	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(shell echo $(foreach var,$(CT_SUITES),test/$(var)_SUITE) | tr ' ' ',')
-
-## Run one single CT with rebar3
-## e.g. make ct-one-suite suite=emqx_bridge
-ct-one-suite: rebar-ct-setup
-	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(suite)_SUITE
-
-rebar-clean:
-	@rebar3 clean
-
-distclean::
+.PHONY: distclean
+distclean: gen-clean
 	@rm -rf _build cover deps logs log data
-	@rm -f rebar.lock compile_commands.json cuttlefish
+	@rm -f rebar.lock compile_commands.json cuttlefish erl_crash.dump

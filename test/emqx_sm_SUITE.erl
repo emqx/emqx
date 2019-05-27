@@ -30,23 +30,33 @@
                  topic_alias_maximum => 0,
                  will_msg            => undefined}).
 
-all() -> [{group, sm}].
+all() -> [{group, registry}, {group, ets}].
 
 groups() ->
-    [{sm, [non_parallel_tests],
-      [
-       t_resume_session,
-       t_discard_session,
-       t_register_unregister_session,
-       t_get_set_session_attrs,
-       t_get_set_session_stats,
-       t_lookup_session_pids]}].
+    Cases =
+        [ t_resume_session,
+          t_discard_session,
+          t_register_unregister_session,
+          t_get_set_session_attrs,
+          t_get_set_session_stats,
+          t_lookup_session_pids],
+    [ {registry, [non_parallel_tests], Cases},
+      {ets, [non_parallel_tests], Cases}].
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
+    ok.
+
+init_per_group(registry, Config) ->
+    emqx_ct_helpers:start_apps([], fun enable_session_registry/1),
+    Config;
+init_per_group(ets, Config) ->
+    emqx_ct_helpers:start_apps([], fun disable_session_registry/1),
+    Config.
+
+end_per_group(_, _Config) ->
     emqx_ct_helpers:stop_apps([]).
 
 init_per_testcase(_All, Config) ->
@@ -59,6 +69,14 @@ end_per_testcase(_All, Config) ->
         {shutdown, normal} -> ok
     after 500 -> ct:fail({timeout, wait_session_shutdown})
     end.
+
+enable_session_registry(_) ->
+    application:set_env(emqx, enable_session_registry, true),
+    ok.
+
+disable_session_registry(_) ->
+    application:set_env(emqx, enable_session_registry, false),
+    ok.
 
 t_resume_session(Config) ->
     ?assertEqual({ok, ?config(session_pid, Config)}, emqx_sm:resume_session(<<"client">>, ?ATTRS#{conn_pid => self()})).

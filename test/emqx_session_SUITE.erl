@@ -31,7 +31,7 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
 ignore_loop(_Config) ->
-    application:set_env(emqx, mqtt_ignore_loop_deliver, true),
+    emqx_zone:set_env(external, ignore_loop_deliver, true),
     {ok, Client} = emqx_client:start_link(),
     {ok, _} = emqx_client:connect(Client),
     TestTopic = <<"Self">>,
@@ -41,7 +41,7 @@ ignore_loop(_Config) ->
     {ok, _} = emqx_client:publish(Client, TestTopic, <<"testmsg">>, 2),
     ?assertEqual(0, length(emqx_client_SUITE:receive_messages(3))),
     ok = emqx_client:disconnect(Client),
-    application:set_env(emqx, mqtt_ignore_loop_deliver, false).
+    emqx_zone:set_env(external, ignore_loop_deliver, false).
 
 t_session_all(_) ->
     emqx_zone:set_env(internal, idle_timeout, 1000),

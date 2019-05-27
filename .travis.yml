@@ -1,18 +1,17 @@
 language: erlang
 
 otp_release:
-   - 21.2
+   - 21.3
 
 before_install:
     - git clone https://github.com/erlang/rebar3.git; cd rebar3; ./bootstrap; sudo mv rebar3 /usr/local/bin/; cd ..
 
 script:
-  - make dep-vsn-check
-  - make rebar-compile
-  - make rebar-xref
-  - make rebar-eunit
-  - make rebar-ct
-  - make rebar-cover
+  - make compile
+  - make xref
+  - make eunit
+  - make ct
+  - make cover
 
 after_success:
   - make coveralls

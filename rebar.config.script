@@ -1,11 +1,3 @@
-CONFIG0 = case os:getenv("REBAR_GIT_CLONE_OPTIONS") of
-              "--depth 1" ->
-                  CONFIG;
-              _ ->
-                  os:putenv("REBAR_GIT_CLONE_OPTIONS", "--depth 1"),
-                  CONFIG
-          end,
-
 CONFIG1 = case os:getenv("TRAVIS") of
               "true" ->
                   JobId = os:getenv("TRAVIS_JOB_ID"),
@@ -16,28 +8,4 @@ CONFIG1 = case os:getenv("TRAVIS") of
                   CONFIG
           end,
 
-FindDeps = fun(DepsType, Config) ->
-                   case lists:keyfind(DepsType, 1, Config) of
-                       {_, RawDeps} -> RawDeps;
-                       _ -> []
-                   end
-           end,
-Deps = FindDeps(deps, CONFIG1),
-LibDeps = FindDeps(github_emqx_libs, CONFIG1),
-ProjDeps = FindDeps(github_emqx_projects, CONFIG1),
-UrlPrefix = "https://github.com/emqx/",
-RealName = fun TransName([$_ | Tail], Result) ->
-                   TransName(Tail, [$- | Result]);
-               TransName([Head | Tail], Result) ->
-                   TransName(Tail, [Head | Result]);
-               TransName([], Result) ->
-                   lists:reverse(Result)
-           end,
-
-NewLibDeps = [{LibName, {git, UrlPrefix ++ atom_to_list(LibName), {branch, Branch}}}
-              || {LibName, Branch} <- LibDeps],
-NewProjDeps = [{ProjName, {git, UrlPrefix ++ RealName(atom_to_list(ProjName), []), {branch, Branch}}} || {ProjName, Branch} <- ProjDeps],
-
-NewDeps = Deps ++ NewLibDeps ++ NewProjDeps,
-CONFIG2 = lists:keystore(deps, 1, CONFIG1, {deps, NewDeps}),
-CONFIG2.
+CONFIG1.

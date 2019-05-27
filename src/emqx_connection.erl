@@ -45,6 +45,7 @@
         ]).
 
 -record(state, {
+          zone,
           transport,
           socket,
           peername,
@@ -55,12 +56,10 @@
           parse_state,
           gc_state,
           keepalive,
-          enable_stats,
           stats_timer,
           rate_limit,
           pub_limit,
-          limit_timer,
-          idle_timeout
+          limit_timer
          }).
 
 -define(ACTIVE_N, 100).
@@ -152,7 +151,6 @@ init({Transport, RawSocket, Options}) ->
     RateLimit = init_limiter(proplists:get_value(rate_limit, Options)),
     PubLimit = init_limiter(emqx_zone:get_env(Zone, publish_limit)),
     ActiveN = proplists:get_value(active_n, Options, ?ACTIVE_N),
-    EnableStats = emqx_zone:get_env(Zone, enable_stats, true),
     IdleTimout = emqx_zone:get_env(Zone, idle_timeout, 30000),
     SendFun = fun(Packet, SeriaOpts) ->
                       Data = emqx_frame:serialize(Packet, SeriaOpts),
@@ -171,7 +169,8 @@ init({Transport, RawSocket, Options}) ->
     ParseState = emqx_protocol:parser(ProtoState),
     GcPolicy = emqx_zone:get_env(Zone, force_gc_policy, false),
     GcState = emqx_gc:init(GcPolicy),
-    State = #state{transport    = Transport,
+    State = #state{zone         = Zone,
+                   transport    = Transport,
                    socket       = Socket,
                    peername     = Peername,
                    conn_state   = running,
@@ -180,9 +179,7 @@ init({Transport, RawSocket, Options}) ->
                    pub_limit    = PubLimit,
                    proto_state  = ProtoState,
                    parse_state  = ParseState,
-                   gc_state     = GcState,
-                   enable_stats = EnableStats,
-                   idle_timeout = IdleTimout},
+                   gc_state     = GcState},
     ok = emqx_misc:init_proc_mng_policy(Zone),
     gen_statem:enter_loop(?MODULE, [{hibernate_after, 2 * IdleTimout}],
                           idle, State, self(), [IdleTimout]).
@@ -317,9 +314,15 @@ handle(info, {tcp_passive, _Sock}, State) ->
     ok = activate_socket(NState),
     {keep_state, NState};
 
+handle(info, {ssl_passive, _Sock}, State) ->
+    %% Rate limit here:)
+    NState = ensure_rate_limit(State),
+    ok = activate_socket(NState),
+    {keep_state, NState};
+
 handle(info, activate_socket, State) ->
     %% Rate limit timer expired.
-    ok = activate_socket(State),
+    ok = activate_socket(State#state{conn_state = running}),
     {keep_state, State#state{conn_state = running, limit_timer = undefined}};
 
 handle(info, {inet_reply, _Sock, ok}, State) ->
@@ -442,6 +445,7 @@ ensure_rate_limit([{Rl, Pos, Cnt}|Limiters], State) ->
        {0, Rl1} ->
            ensure_rate_limit(Limiters, setelement(Pos, State, Rl1));
        {Pause, Rl1} ->
+           ?LOG(debug, "[Connection] Rate limit pause connection ~pms", [Pause]),
            TRef = erlang:send_after(Pause, self(), activate_socket),
            setelement(Pos, State#state{conn_state = blocked, limit_timer = TRef}, Rl1)
    end.
@@ -453,11 +457,7 @@ activate_socket(#state{conn_state = blocked}) ->
     ok;
 
 activate_socket(#state{transport = Transport, socket = Socket, active_n = N}) ->
-    TrueOrN = case Transport:is_ssl(Socket) of
-                  true  -> true; %% Cannot set '{active, N}' for SSL:(
-                  false -> N
-              end,
-    case Transport:setopts(Socket, [{active, TrueOrN}]) of
+    case Transport:setopts(Socket, [{active, N}]) of
         ok -> ok;
         {error, Reason} ->
             self() ! {shutdown, Reason},
@@ -467,11 +467,14 @@ activate_socket(#state{transport = Transport, socket = Socket, active_n = N}) ->
 %%------------------------------------------------------------------------------
 %% Ensure stats timer
 
-ensure_stats_timer(State = #state{enable_stats = true,
-                                  stats_timer = undefined,
-                                  idle_timeout = IdleTimeout}) ->
-    State#state{stats_timer = emqx_misc:start_timer(IdleTimeout, emit_stats)};
-
+ensure_stats_timer(State = #state{zone = Zone, stats_timer = undefined}) ->
+    case emqx_zone:get_env(Zone, enable_stats, true) of
+        true ->
+            IdleTimeout = emqx_zone:get_env(Zone, idle_timeout, 30000),
+            State#state{stats_timer = emqx_misc:start_timer(IdleTimeout, emit_stats)};
+        false ->
+            State
+    end;
 ensure_stats_timer(State) -> State.
 
 %%------------------------------------------------------------------------------
