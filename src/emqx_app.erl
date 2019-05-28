@@ -45,6 +45,7 @@ start(_Type, _Args) ->
 
 -spec(stop(State :: term()) -> term()).
 stop(_State) ->
+    emqx_alarm_handler:unload(),
     emqx_listeners:stop(),
     emqx_modules:unload().
 
