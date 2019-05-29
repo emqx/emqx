@@ -89,16 +89,18 @@ ranch_opts(Options) ->
     NumAcceptors = proplists:get_value(acceptors, Options, 4),
     MaxConnections = proplists:get_value(max_connections, Options, 1024),
     TcpOptions = proplists:get_value(tcp_options, Options, []),
-    RanchOpts = [{num_acceptors, NumAcceptors}, {max_connections, MaxConnections} | TcpOptions],
+    RanchOpts = #{ num_acceptors => NumAcceptors
+                 , max_connections => MaxConnections
+                 , socket_opts => TcpOptions},
     case proplists:get_value(ssl_options, Options) of
         undefined  -> RanchOpts;
-        SslOptions -> RanchOpts ++ SslOptions
+        SslOptions -> RanchOpts#{socket_opts => TcpOptions ++ SslOptions}
     end.
 
-with_port(Port, Opts) when is_integer(Port) ->
-    [{port, Port}|Opts];
-with_port({Addr, Port}, Opts) ->
-    [{ip, Addr}, {port, Port}|Opts].
+with_port(Port, Opts = #{socket_opts := SocketOption}) when is_integer(Port) ->
+    Opts#{socket_opts => [{port, Port}| SocketOption]};
+with_port({Addr, Port}, Opts = #{socket_opts := SocketOption}) ->
+    Opts#{socket_opts => [{ip, Addr}, {port, Port}| SocketOption]}.
 
 %% @doc Restart all listeners
 -spec(restart() -> ok).
