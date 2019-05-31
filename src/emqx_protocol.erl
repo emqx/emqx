@@ -1016,7 +1016,7 @@ do_check_banned(_EnableBan = true, Credentials) ->
         true  -> {error, ?RC_BANNED};
         false -> ok
     end;
-do_check_banned(_EnableBan, Credentials) -> ok.
+do_check_banned(_EnableBan, _Credentials) -> ok.
 
 do_acl_check(_EnableAcl = true, Action, Credentials, Topic) ->
     AllowTerm = ok,
