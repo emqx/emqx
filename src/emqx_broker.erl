@@ -295,7 +295,7 @@ dispatch({shard, I}, Topic, Msg) ->
 inc_dropped_cnt(<<"$SYS/", _/binary>>) ->
     ok;
 inc_dropped_cnt(_Topic) ->
-    emqx_metrics:inc('messages/dropped').
+    emqx_metrics:inc('messages.dropped').
 
 -spec(subscribers(emqx_topic:topic()) -> [pid()]).
 subscribers(Topic) when is_binary(Topic) ->

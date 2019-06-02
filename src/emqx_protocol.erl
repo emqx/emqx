@@ -699,8 +699,8 @@ send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = Send}) 
             {ok, PState};
         {ok, Data} ->
             trace(send, Packet),
-            emqx_metrics:sent(Packet),
-            emqx_metrics:trans(inc, 'bytes/sent', iolist_size(Data)),
+            ok = emqx_metrics:inc_sent(Packet),
+            ok = emqx_metrics:inc('bytes.sent', iolist_size(Data)),
             {ok, inc_stats(send, Type, PState)};
         {error, Reason} ->
             {error, Reason}

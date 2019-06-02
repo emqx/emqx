@@ -184,8 +184,11 @@ publish(stats, Stats) ->
     [safe_publish(systop(lists:concat(['stats/', Stat])), integer_to_binary(Val))
      || {Stat, Val} <- Stats, is_atom(Stat), is_integer(Val)];
 publish(metrics, Metrics) ->
-    [safe_publish(systop(lists:concat(['metrics/', Metric])), integer_to_binary(Val))
-     || {Metric, Val} <- Metrics, is_atom(Metric), is_integer(Val)].
+    [safe_publish(systop(metric_topic(Name)), integer_to_binary(Val))
+     || {Name, Val} <- Metrics, is_atom(Name), is_integer(Val)].
+
+metric_topic(Name) ->
+    lists:concat(["metrics/", string:replace(atom_to_list(Name), ".", "/", all)]).
 
 safe_publish(Topic, Payload) ->
     safe_publish(Topic, #{}, Payload).

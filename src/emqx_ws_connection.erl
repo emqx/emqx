@@ -190,12 +190,12 @@ websocket_handle({binary, Data}, State = #state{parse_state = ParseState,
     ?LOG(debug, "[WS Connection] RECV ~p", [Data]),
     BinSize = iolist_size(Data),
     emqx_pd:update_counter(recv_oct, BinSize),
-    emqx_metrics:trans(inc, 'bytes/received', BinSize),
+    ok = emqx_metrics:inc('bytes.received', BinSize),
     try emqx_frame:parse(iolist_to_binary(Data), ParseState) of
         {more, ParseState1} ->
             {ok, State#state{parse_state = ParseState1}};
         {ok, Packet, Rest} ->
-            emqx_metrics:received(Packet),
+            ok = emqx_metrics:inc_recv(Packet),
             emqx_pd:update_counter(recv_cnt, 1),
             case emqx_protocol:received(Packet, ProtoState) of
                 {ok, ProtoState1} ->
@@ -255,7 +255,6 @@ websocket_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
 
 websocket_info({timeout, Timer, emit_stats},
                State = #state{stats_timer = Timer, proto_state = ProtoState}) ->
-    emqx_metrics:commit(),
     emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), stats(State)),
     {ok, State#state{stats_timer = undefined}, hibernate};
 

@@ -48,8 +48,8 @@
         ]).
 
 -record(update, {name, countdown, interval, func}).
--record(state, {timer, updates :: [#update{}],
-                tick_ms :: timeout()}).
+
+-record(state, {timer, updates :: [#update{}], tick_ms :: timeout()}).
 
 -type(stats() :: list({atom(), non_neg_integer()})).
 
@@ -181,7 +181,8 @@ start_timer(#state{tick_ms = Ms} = State) ->
     State#state{timer = emqx_misc:start_timer(Ms, tick)}.
 
 handle_call(stop, _From, State) ->
-    {stop, normal, _Reply = ok, State};
+    {stop, normal, ok, State};
+
 handle_call(Req, _From, State) ->
     ?LOG(error, "[Stats] Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
