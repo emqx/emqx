@@ -243,10 +243,10 @@ update_counter({Name, Value}) ->
 update_counter(Name, Value) ->
     CRef = persistent_term:get(?MODULE),
     CIdx = case reserved_idx(Name) of
-              Idx when is_integer(Idx) -> Idx;
+               Idx when is_integer(Idx) -> Idx;
                undefined ->
                    ets:lookup_element(?TAB, Name, 4)
-          end,
+           end,
     counters:add(CRef, CIdx, Value).
 
 %%------------------------------------------------------------------------------
@@ -445,4 +445,3 @@ reserved_idx('messages.dropped')             -> 49;
 reserved_idx('messages.expired')             -> 50;
 reserved_idx('messages.forward')             -> 51;
 reserved_idx(_)                              -> undefined.
-
