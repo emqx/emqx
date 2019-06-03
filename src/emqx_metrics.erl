@@ -20,7 +20,9 @@
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
 
--export([start_link/0]).
+-export([ start_link/0
+        , stop/0
+        ]).
 
 -export([ new/1
         , new/2
@@ -136,6 +138,10 @@
 -spec(start_link() -> startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+-spec(stop() -> ok).
+stop() ->
+    gen_server:stop(?SERVER).
 
 %%------------------------------------------------------------------------------
 %% Metrics API
@@ -296,7 +302,7 @@ do_inc_sent(?CONNACK_PACKET(ReasonCode)) ->
     (ReasonCode == ?RC_SUCCESS) orelse inc('packets.connack.error'),
     (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc('packets.connack.auth_error'),
     (ReasonCode == ?RC_BAD_USER_NAME_OR_PASSWORD) andalso inc('packets.connack.auth_error'),
-    inc('packets.connack');
+    inc('packets.connack.sent');
 
 do_inc_sent(?PUBLISH_PACKET(QoS, _PacketId)) ->
     inc('messages.sent'),
@@ -346,7 +352,7 @@ init([]) ->
                           Idx = reserved_idx(Name),
                           Metric = #metric{name = Name, type = Type, idx = reserved_idx(Name)},
                           true = ets:insert(?TAB, Metric),
-                          ok = counters:set(CRef, Idx, 0)
+                          ok = counters:put(CRef, Idx, 0)
                   end,?BYTES_METRICS ++ ?PACKET_METRICS ++ ?MESSAGE_METRICS),
     {ok, #state{next_idx = ?RESERVED_IDX + 1}, hibernate}.
 
