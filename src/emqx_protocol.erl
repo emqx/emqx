@@ -949,7 +949,7 @@ do_flapping_detect(Action, #pstate{zone = Zone,
                                    client_id = ClientId}) ->
     ok = case emqx_zone:get_env(Zone, enable_flapping_detect, false) of
              true ->
-                 Threshold = emqx_zone:get_env(Zone, flapping_threshold, 20),
+                 Threshold = emqx_zone:get_env(Zone, flapping_threshold, {10, 60}),
                  case emqx_flapping:check(Action, ClientId, Threshold) of
                      flapping ->
                          BanExpiryInterval = emqx_zone:get_env(Zone, flapping_ban_expiry_interval, 3600000),
