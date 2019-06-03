@@ -205,5 +205,5 @@ clean_down({Pid, ClientId}) ->
 stats_fun() ->
     case ets:info(?CONN_TAB, size) of
         undefined -> ok;
-        Size -> emqx_stats:setstat('connections/count', 'connections/max', Size)
+        Size -> emqx_stats:setstat('connections.count', 'connections.max', Size)
     end.

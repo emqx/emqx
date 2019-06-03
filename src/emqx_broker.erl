@@ -377,9 +377,9 @@ topics() ->
 %%------------------------------------------------------------------------------
 
 stats_fun() ->
-    safe_update_stats(?SUBSCRIBER, 'subscribers/count', 'subscribers/max'),
-    safe_update_stats(?SUBSCRIPTION, 'subscriptions/count', 'subscriptions/max'),
-    safe_update_stats(?SUBOPTION, 'suboptions/count', 'suboptions/max').
+    safe_update_stats(?SUBSCRIBER, 'subscribers.count', 'subscribers.max'),
+    safe_update_stats(?SUBSCRIPTION, 'subscriptions.count', 'subscriptions.max'),
+    safe_update_stats(?SUBOPTION, 'suboptions.count', 'suboptions.max').
 
 safe_update_stats(Tab, Stat, MaxStat) ->
     case ets:info(Tab, size) of

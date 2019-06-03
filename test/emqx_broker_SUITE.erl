@@ -165,5 +165,5 @@ inc_dec_metric(_) ->
 %%--------------------------------------------------------------------
 
 set_get_stat(_) ->
-    emqx_stats:setstat('retained/max', 99),
-    99 = emqx_stats:getstat('retained/max').
+    emqx_stats:setstat('retained.max', 99),
+    99 = emqx_stats:getstat('retained.max').

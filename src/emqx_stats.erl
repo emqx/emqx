@@ -57,41 +57,41 @@
 
 %% Connection stats
 -define(CONNECTION_STATS, [
-    'connections/count', % current connections
-    'connections/max'    % maximum connections connected
+    'connections.count', % current connections
+    'connections.max'    % maximum connections connected
 ]).
 
 %% Session stats
 -define(SESSION_STATS, [
-    'sessions/count',
-    'sessions/max',
-    'sessions/persistent/count',
-    'sessions/persistent/max'
+    'sessions.count',
+    'sessions.max',
+    'sessions.persistent.count',
+    'sessions.persistent.max'
 ]).
 
 %% Subscribers, Subscriptions stats
 -define(PUBSUB_STATS, [
-    'topics/count',
-    'topics/max',
-    'suboptions/count',
-    'suboptions/max',
-    'subscribers/count',
-    'subscribers/max',
-    'subscriptions/count',
-    'subscriptions/max',
-    'subscriptions/shared/count',
-    'subscriptions/shared/max'
+    'topics.count',
+    'topics.max',
+    'suboptions.count',
+    'suboptions.max',
+    'subscribers.count',
+    'subscribers.max',
+    'subscriptions.count',
+    'subscriptions.max',
+    'subscriptions.shared.count',
+    'subscriptions.shared.max'
 ]).
 
 -define(ROUTE_STATS, [
-    'routes/count',
-    'routes/max'
+    'routes.count',
+    'routes.max'
 ]).
 
 %% Retained stats
 -define(RETAINED_STATS, [
-    'retained/count',
-    'retained/max'
+    'retained.count',
+    'retained.max'
 ]).
 
 -define(TAB, ?MODULE).
