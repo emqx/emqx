@@ -75,6 +75,8 @@ start() ->
 restart(ConfFile) ->
     reload_config(ConfFile),
     shutdown(),
+    ok = application:stop(mnesia),
+    application:start(mnesia),
     reboot().
 
 %% @doc Stop emqx application.
