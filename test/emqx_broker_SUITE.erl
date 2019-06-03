@@ -157,8 +157,8 @@ start_session(_) ->
 %% Metric Group
 %%--------------------------------------------------------------------
 inc_dec_metric(_) ->
-    emqx_metrics:inc(gauge, 'messages/retained', 10),
-    emqx_metrics:dec(gauge, 'messages/retained', 10).
+    emqx_metrics:inc('messages.retained', 10),
+    emqx_metrics:dec('messages.retained', 10).
 
 %%--------------------------------------------------------------------
 %% Stats Group
