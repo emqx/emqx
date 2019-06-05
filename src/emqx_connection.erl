@@ -219,7 +219,7 @@ connected(enter, _, _State) ->
 
 %% Handle Input
 connected(cast, {incoming, Packet = ?PACKET(Type)}, State) ->
-    _ = emqx_metrics:received(Packet),
+    ok = emqx_metrics:inc_recv(Packet),
     (Type == ?PUBLISH) andalso emqx_pd:update_counter(incoming_pubs, 1),
     handle_packet(Packet, fun(NState) ->
                               {keep_state, NState}
@@ -296,7 +296,7 @@ handle(info, {Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
     Oct = iolist_size(Data),
     ?LOG(debug, "[Connection] RECV ~p", [Data]),
     emqx_pd:update_counter(incoming_bytes, Oct),
-    emqx_metrics:trans(inc, 'bytes/received', Oct),
+    ok = emqx_metrics:inc('bytes.received', Oct),
     NState = ensure_stats_timer(maybe_gc({1, Oct}, State)),
     process_incoming(Data, [], NState);
 
@@ -336,7 +336,6 @@ handle(info, {timeout, Timer, emit_stats},
        State = #state{stats_timer = Timer,
                       proto_state = ProtoState,
                       gc_state = GcState}) ->
-    emqx_metrics:commit(),
     emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), stats(State)),
     NState = State#state{stats_timer = undefined},
     Limits = erlang:get(force_shutdown_policy),

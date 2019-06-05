@@ -422,7 +422,7 @@ handle_call({register_publish_packet_id, PacketId, Ts}, _From,
               end;
           true ->
               ?LOG(warning, "[Session] Dropped qos2 packet ~w for too many awaiting_rel", [PacketId]),
-              emqx_metrics:trans(inc, 'messages/qos2/dropped'),
+              ok = emqx_metrics:inc('messages.qos2.dropped'),
               {{error, ?RC_RECEIVE_MAXIMUM_EXCEEDED}, State}
       end);
 
@@ -434,7 +434,7 @@ handle_call({pubrec, PacketId, _ReasonCode}, _From, State = #state{inflight = In
               {ok, ensure_stats_timer(acked(pubrec, PacketId, State))};
           false ->
               ?LOG(warning, "[Session] The PUBREC PacketId ~w is not found.", [PacketId]),
-              emqx_metrics:trans(inc, 'packets/pubrec/missed'),
+              ok = emqx_metrics:inc('packets.pubrec.missed'),
               {{error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}, State}
       end);
 
@@ -446,7 +446,7 @@ handle_call({pubrel, PacketId, _ReasonCode}, _From, State = #state{awaiting_rel 
               {ok, ensure_stats_timer(State#state{awaiting_rel = AwaitingRel1})};
           error ->
               ?LOG(warning, "[Session] The PUBREL PacketId ~w is not found", [PacketId]),
-              emqx_metrics:trans(inc, 'packets/pubrel/missed'),
+              ok = emqx_metrics:inc('packets.pubrel.missed'),
               {{error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}, State}
       end);
 
@@ -496,7 +496,7 @@ handle_cast({puback, PacketId, _ReasonCode}, State = #state{inflight = Inflight}
               ensure_stats_timer(dequeue(acked(puback, PacketId, State)));
           false ->
               ?LOG(warning, "[Session] The PUBACK PacketId ~w is not found", [PacketId]),
-              emqx_metrics:trans(inc, 'packets/puback/missed'),
+              ok = emqx_metrics:inc('packets.puback.missed'),
               State
       end);
 
@@ -508,7 +508,7 @@ handle_cast({pubcomp, PacketId, _ReasonCode}, State = #state{inflight = Inflight
               ensure_stats_timer(dequeue(acked(pubcomp, PacketId, State)));
           false ->
               ?LOG(warning, "[Session] The PUBCOMP PacketId ~w is not found", [PacketId]),
-              emqx_metrics:trans(inc, 'packets/pubcomp/missed'),
+              ok = emqx_metrics:inc('packets.pubcomp.missed'),
               State
       end);
 
@@ -587,7 +587,6 @@ handle_info({timeout, Timer, emit_stats},
             State = #state{client_id = ClientId,
                            stats_timer = Timer,
                            gc_state = GcState}) ->
-    emqx_metrics:commit(),
     _ = emqx_sm:set_session_stats(ClientId, stats(State)),
     NewState = State#state{stats_timer = undefined},
     Limits = erlang:get(force_shutdown_policy),
@@ -652,7 +651,6 @@ terminate(Reason, #state{will_msg = WillMsg,
                          username = Username,
                          conn_pid = ConnPid,
                          old_conn_pid = OldConnPid}) ->
-    emqx_metrics:commit(),
     send_willmsg(WillMsg),
     [maybe_shutdown(Pid, Reason) || Pid <- [ConnPid, OldConnPid]],
     ok = emqx_hooks:run('session.terminated', [#{client_id => ClientId, username => Username}, Reason]).
@@ -728,7 +726,7 @@ retry_delivery(Force, [{Type, Msg0, Ts} | Msgs], Now,
                             {publish, {PacketId, Msg}} ->
                                 case emqx_message:is_expired(Msg) of
                                     true ->
-                                        emqx_metrics:trans(inc, 'messages/expired'),
+                                        ok = emqx_metrics:inc('messages.expired'),
                                         emqx_inflight:delete(PacketId, Inflight);
                                     false ->
                                         redeliver({PacketId, Msg}, State),
@@ -770,7 +768,7 @@ expire_awaiting_rel([{PacketId, Ts} | More], Now,
     Timeout = get_env(Zone, await_rel_timeout),
     case (timer:now_diff(Now, Ts) div 1000) of
         Age when Age >= Timeout ->
-            emqx_metrics:trans(inc, 'messages/qos2/expired'),
+            ok = emqx_metrics:inc('messages.qos2.expired'),
             ?LOG(warning, "[Session] Dropped qos2 packet ~s for await_rel_timeout", [PacketId]),
             expire_awaiting_rel(More, Now, State#state{awaiting_rel = maps:remove(PacketId, AwaitingRel)});
         Age ->
