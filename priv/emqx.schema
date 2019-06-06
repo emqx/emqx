@@ -400,7 +400,7 @@ end}.
   {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
 ]}.
 
-{mapping, "log.primary_level", "kernel.primary_log_level", [
+{mapping, "log.primary_log_level", "kernel.logger_level", [
    {default, error},
    {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
 ]}.
@@ -461,6 +461,10 @@ end}.
   {datatype, flag},
   hidden
 ]}.
+
+{translation, "kernel.logger_level", fun(_, _, Conf) ->
+    cuttlefish:conf_get("log.level", Conf)
+end}.
 
 {translation, "kernel.logger", fun(Conf) ->
     LogTo = cuttlefish:conf_get("log.to", Conf),
