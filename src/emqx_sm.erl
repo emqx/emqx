@@ -284,8 +284,8 @@ clean_down(Session = {ClientId, SessPid}) ->
     end.
 
 stats_fun() ->
-    safe_update_stats(?SESSION_TAB, 'sessions/count', 'sessions/max'),
-    safe_update_stats(?SESSION_P_TAB, 'sessions/persistent/count', 'sessions/persistent/max').
+    safe_update_stats(?SESSION_TAB, 'sessions.count', 'sessions.max'),
+    safe_update_stats(?SESSION_P_TAB, 'sessions.persistent.count', 'sessions.persistent.max').
 
 safe_update_stats(Tab, Stat, MaxStat) ->
     case ets:info(Tab, size) of

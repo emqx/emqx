@@ -295,7 +295,7 @@ dispatch({shard, I}, Topic, Msg) ->
 inc_dropped_cnt(<<"$SYS/", _/binary>>) ->
     ok;
 inc_dropped_cnt(_Topic) ->
-    emqx_metrics:inc('messages/dropped').
+    emqx_metrics:inc('messages.dropped').
 
 -spec(subscribers(emqx_topic:topic()) -> [pid()]).
 subscribers(Topic) when is_binary(Topic) ->
@@ -377,9 +377,9 @@ topics() ->
 %%------------------------------------------------------------------------------
 
 stats_fun() ->
-    safe_update_stats(?SUBSCRIBER, 'subscribers/count', 'subscribers/max'),
-    safe_update_stats(?SUBSCRIPTION, 'subscriptions/count', 'subscriptions/max'),
-    safe_update_stats(?SUBOPTION, 'suboptions/count', 'suboptions/max').
+    safe_update_stats(?SUBSCRIBER, 'subscribers.count', 'subscribers.max'),
+    safe_update_stats(?SUBSCRIPTION, 'subscriptions.count', 'subscriptions.max'),
+    safe_update_stats(?SUBOPTION, 'suboptions.count', 'suboptions.max').
 
 safe_update_stats(Tab, Stat, MaxStat) ->
     case ets:info(Tab, size) of
