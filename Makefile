@@ -9,7 +9,7 @@ dep_jsx     = git-emqx https://github.com/talentdeficit/jsx 2.9.0
 dep_gproc   = git-emqx https://github.com/uwiger/gproc 0.8.0
 dep_gen_rpc = git-emqx https://github.com/emqx/gen_rpc 2.3.1
 dep_esockd  = git-emqx https://github.com/emqx/esockd v5.4.4
-dep_ekka    = git-emqx https://github.com/emqx/ekka v0.5.4
+dep_ekka    = git-emqx https://github.com/emqx/ekka v0.5.5
 dep_cowboy  = git-emqx https://github.com/ninenines/cowboy 2.6.1
 dep_replayq = git-emqx https://github.com/emqx/replayq v0.1.1
 
@@ -18,7 +18,7 @@ NO_AUTOPATCH = cuttlefish
 ERLC_OPTS += +debug_info -DAPPLICATION=emqx
 
 BUILD_DEPS = cuttlefish
-dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish v2.2.1
+dep_cuttlefish = git-emqx https://github.com/emqx/cuttlefish v2.2.2
 
 CUR_BRANCH := $(shell git branch | grep -e "^*" | cut -d' ' -f 2)
 BRANCH := $(if $(filter $(CUR_BRANCH), master develop), $(CUR_BRANCH), develop)
