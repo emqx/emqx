@@ -699,8 +699,8 @@ send(Packet = ?PACKET(Type), PState = #pstate{proto_ver = Ver, sendfun = Send}) 
             {ok, PState};
         {ok, Data} ->
             trace(send, Packet),
-            emqx_metrics:sent(Packet),
-            emqx_metrics:trans(inc, 'bytes/sent', iolist_size(Data)),
+            emqx_metrics:inc_sent(Packet),
+            ok = emqx_metrics:inc('bytes.sent', iolist_size(Data)),
             {ok, inc_stats(send, Type, PState)};
         {error, Reason} ->
             {error, Reason}
@@ -949,7 +949,7 @@ do_flapping_detect(Action, #pstate{zone = Zone,
                                    client_id = ClientId}) ->
     ok = case emqx_zone:get_env(Zone, enable_flapping_detect, false) of
              true ->
-                 Threshold = emqx_zone:get_env(Zone, flapping_threshold, 20),
+                 Threshold = emqx_zone:get_env(Zone, flapping_threshold, {10, 60}),
                  case emqx_flapping:check(Action, ClientId, Threshold) of
                      flapping ->
                          BanExpiryInterval = emqx_zone:get_env(Zone, flapping_ban_expiry_interval, 3600000),
@@ -1016,7 +1016,7 @@ do_check_banned(_EnableBan = true, Credentials) ->
         true  -> {error, ?RC_BANNED};
         false -> ok
     end;
-do_check_banned(_EnableBan, Credentials) -> ok.
+do_check_banned(_EnableBan, _Credentials) -> ok.
 
 do_acl_check(_EnableAcl = true, Action, Credentials, Topic) ->
     AllowTerm = ok,

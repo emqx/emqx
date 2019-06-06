@@ -364,7 +364,7 @@ cleanup_down(SubPid) ->
         end, mnesia:dirty_match_object(#emqx_shared_subscription{_ = '_', subpid = SubPid})).
 
 update_stats(State) ->
-    emqx_stats:setstat('subscriptions/shared/count', 'subscriptions/shared/max', ets:info(?TAB, size)),
+    emqx_stats:setstat('subscriptions.shared.count', 'subscriptions.shared.max', ets:info(?TAB, size)),
     State.
 
 %% Return 'true' if the subscriber process is alive AND not in the failed list

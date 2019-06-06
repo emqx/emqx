@@ -160,8 +160,8 @@ stats_fun() ->
     case ets:info(?ROUTE, size) of
         undefined -> ok;
         Size ->
-            emqx_stats:setstat('routes/count', 'routes/max', Size),
-            emqx_stats:setstat('topics/count', 'topics/max', Size)
+            emqx_stats:setstat('routes.count', 'routes.max', Size),
+            emqx_stats:setstat('topics.count', 'topics.max', Size)
     end.
 
 cleanup_routes(Node) ->

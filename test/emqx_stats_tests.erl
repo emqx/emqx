@@ -18,27 +18,27 @@
 
 get_state_test() ->
     with_proc(fun() ->
-        SetConnsCount = emqx_stats:statsfun('connections/count'),
+        SetConnsCount = emqx_stats:statsfun('connections.count'),
         SetConnsCount(1),
-        1 = emqx_stats:getstat('connections/count'),
-        emqx_stats:setstat('connections/count', 2),
-        2 = emqx_stats:getstat('connections/count'),
-        emqx_stats:setstat('connections/count', 'connections/max', 3),
+        1 = emqx_stats:getstat('connections.count'),
+        emqx_stats:setstat('connections.count', 2),
+        2 = emqx_stats:getstat('connections.count'),
+        emqx_stats:setstat('connections.count', 'connections.max', 3),
         timer:sleep(100),
-        3 = emqx_stats:getstat('connections/count'),
-        3 = emqx_stats:getstat('connections/max'),
-        emqx_stats:setstat('connections/count', 'connections/max', 2),
+        3 = emqx_stats:getstat('connections.count'),
+        3 = emqx_stats:getstat('connections.max'),
+        emqx_stats:setstat('connections.count', 'connections.max', 2),
         timer:sleep(100),
-        2 = emqx_stats:getstat('connections/count'),
-        3 = emqx_stats:getstat('connections/max'),
-        SetConns = emqx_stats:statsfun('connections/count', 'connections/max'),
+        2 = emqx_stats:getstat('connections.count'),
+        3 = emqx_stats:getstat('connections.max'),
+        SetConns = emqx_stats:statsfun('connections.count', 'connections.max'),
         SetConns(4),
         timer:sleep(100),
-        4 = emqx_stats:getstat('connections/count'),
-        4 = emqx_stats:getstat('connections/max'),
+        4 = emqx_stats:getstat('connections.count'),
+        4 = emqx_stats:getstat('connections.max'),
         Conns = emqx_stats:getstats(),
-        4 = proplists:get_value('connections/count', Conns),
-        4 = proplists:get_value('connections/max', Conns)
+        4 = proplists:get_value('connections.count', Conns),
+        4 = proplists:get_value('connections.max', Conns)
     end).
 
 update_interval_test() ->
@@ -46,10 +46,10 @@ update_interval_test() ->
     with_proc(fun() ->
         SleepMs = TickMs * 2 + TickMs div 2, %% sleep for 2.5 ticks
         emqx_stats:cancel_update(cm_stats),
-        UpdFun = fun() -> emqx_stats:setstat('connections/count',  1) end,
+        UpdFun = fun() -> emqx_stats:setstat('connections.count',  1) end,
         ok = emqx_stats:update_interval(stats_test, UpdFun),
         timer:sleep(SleepMs),
-        ?assertEqual(1, emqx_stats:getstat('connections/count'))
+        ?assertEqual(1, emqx_stats:getstat('connections.count'))
     end, TickMs).
 
 helper_test_() ->
