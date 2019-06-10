@@ -14,25 +14,20 @@
 
 -module(ecpool).
 
--export([pool_spec/4,
-         start_pool/3,
-         start_sup_pool/3,
-         stop_sup_pool/1,
-         get_client/1,
-         get_client/2,
-         with_client/2,
-         with_client/3,
-         workers/1
-        ]).
+-export([pool_spec/4, start_pool/3, start_sup_pool/3, stop_sup_pool/1,
+         get_client/1, get_client/2, with_client/2, with_client/3,
+         set_reconnect_callback/2,
+         name/1, workers/1]).
 
--export([name/1]).
+-type pool_type() :: random | hash | round_robin.
 
--type(pool_name() :: atom()).
--type(pool_type() :: random | hash | round_robin).
--type(option() :: {pool_size, pos_integer()}
+-type reconn_callback() :: {fun((pid()) -> term())}.
+
+-type option() :: {pool_size, pos_integer()}
                 | {pool_type, pool_type()}
                 | {auto_reconnect, false | pos_integer()}
-                | tuple()).
+                | {on_reconnect, reconn_callback()}
+                | tuple().
 
 -export_type([pool_name/0,
               pool_type/0,
@@ -69,6 +64,12 @@ get_client(Pool) ->
 -spec(get_client(atom(), any()) -> pid()).
 get_client(Pool, Key) ->
     gproc_pool:pick_worker(name(Pool), Key).
+
+-spec(set_reconnect_callback(atom(), reconn_callback()) -> ok).
+set_reconnect_callback(Pool, Callback) ->
+    [ecpool_worker:set_reconnect_callback(Worker, Callback)
+     || {_WorkerName, Worker} <- ecpool:workers(Pool)],
+    ok.
 
 %% @doc Call the fun with client/connection
 -spec(with_client(atom(), fun((Client :: pid()) -> any())) -> any()).
