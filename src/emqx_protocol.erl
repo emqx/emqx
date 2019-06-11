@@ -830,13 +830,15 @@ check_will_topic(#mqtt_packet_connect{will_topic = WillTopic} = ConnPkt, PState)
             {error, ?RC_TOPIC_NAME_INVALID}
     end.
 
-check_will_retain(#mqtt_packet_connect{will_retain = false}, _PState) ->
+check_will_retain(#mqtt_packet_connect{will_retain = false, proto_ver = ?MQTT_PROTO_V5}, _PState) ->
     ok;
-check_will_retain(#mqtt_packet_connect{will_retain = true}, #pstate{zone = Zone}) ->
+check_will_retain(#mqtt_packet_connect{will_retain = true, proto_ver = ?MQTT_PROTO_V5}, #pstate{zone = Zone}) ->
     case emqx_zone:get_env(Zone, mqtt_retain_available, true) of
         true -> {error, ?RC_RETAIN_NOT_SUPPORTED};
         false -> ok
-    end.
+    end;
+check_will_retain(_Packet, _PState) ->
+    ok.
 
 check_will_acl(#mqtt_packet_connect{will_topic = WillTopic},
                #pstate{zone = Zone, credentials = Credentials}) ->
