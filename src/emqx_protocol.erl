@@ -430,8 +430,7 @@ process(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PState = #
             do_acl_deny_action(AclDenyAction, Packet, ReasonCode, PState)
     end;
 
-process(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload),
-        PState = #pstate{zone = Zone}) ->
+process(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PState = #pstate{zone = Zone}) ->
     case check_publish(Packet, PState) of
         ok ->
             do_publish(Packet, PState);
@@ -445,8 +444,7 @@ process(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload),
             end
     end;
 
-process(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload),
-        PState = #pstate{zone = Zone}) ->
+process(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PState = #pstate{zone = Zone}) ->
     case check_publish(Packet, PState) of
         ok ->
             do_publish(Packet, PState);
@@ -484,7 +482,7 @@ process(?PUBCOMP_PACKET(PacketId, ReasonCode), PState = #pstate{session = SPid})
     {ok = emqx_session:pubcomp(SPid, PacketId, ReasonCode), PState};
 
 process(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
-        PState = #pstate{zone = Zone, proto_ver = ProtoVer, session = SPid, credentials = Credentials}) ->
+        PState = #pstate{zone = Zone, session = SPid, credentials = Credentials}) ->
     case check_subscribe(parse_topic_filters(?SUBSCRIBE, raw_topic_filters(PState, RawTopicFilters)), PState) of
         {ok, TopicFilters} ->
             TopicFilters0 = emqx_hooks:run_fold('client.subscribe', [Credentials], TopicFilters),
