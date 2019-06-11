@@ -778,7 +778,8 @@ check_connect(Packet, PState) ->
                      fun check_client_id/2,
                      fun check_flapping/2,
                      fun check_banned/2,
-                     fun check_will_topic/2], Packet, PState).
+                     fun check_will_topic/2,
+                     fun check_will_retain/2], Packet, PState).
 
 check_proto_ver(#mqtt_packet_connect{proto_ver  = Ver,
                                      proto_name = Name}, _PState) ->
@@ -827,6 +828,14 @@ check_will_topic(#mqtt_packet_connect{will_topic = WillTopic} = ConnPkt, PState)
         true -> check_will_acl(ConnPkt, PState)
     catch error : _Error ->
             {error, ?RC_TOPIC_NAME_INVALID}
+    end.
+
+check_will_retain(#mqtt_packet_connect{will_retain = false}, _PState) ->
+    ok;
+check_will_retain(#mqtt_packet_connect{will_retain = true}, #pstate{zone = Zone}) ->
+    case emqx_zone:get_env(Zone, mqtt_retain_available, true) of
+        true -> {error, ?RC_RETAIN_NOT_SUPPORTED};
+        false -> ok
     end.
 
 check_will_acl(#mqtt_packet_connect{will_topic = WillTopic},
