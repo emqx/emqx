@@ -419,8 +419,7 @@ process(?CONNECT_PACKET(
               {ReasonCode, PState1}
       end);
 
-process(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload),
-        PState = #pstate{zone = Zone, proto_ver = ProtoVer}) ->
+process(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload), PState = #pstate{zone = Zone}) ->
     case check_publish(Packet, PState) of
         ok ->
             do_publish(Packet, PState);
@@ -428,12 +427,10 @@ process(Packet = ?PUBLISH_PACKET(?QOS_0, Topic, _PacketId, _Payload),
             ?LOG(warning, "[Protocol] Cannot publish qos0 message to ~s for ~s",
                  [Topic, emqx_reason_codes:text(ReasonCode)]),
             AclDenyAction = emqx_zone:get_env(Zone, acl_deny_action, ignore),
-            ErrorTerm = {error, emqx_reason_codes:name(?RC_NOT_AUTHORIZED, ProtoVer), PState},
-            do_acl_deny_action(AclDenyAction, Packet, ReasonCode, ErrorTerm)
+            do_acl_deny_action(AclDenyAction, Packet, ReasonCode, PState)
     end;
 
-process(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload),
-        PState = #pstate{zone = Zone, proto_ver = ProtoVer}) ->
+process(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload), PState = #pstate{zone = Zone}) ->
     case check_publish(Packet, PState) of
         ok ->
             do_publish(Packet, PState);
@@ -442,14 +439,12 @@ process(Packet = ?PUBLISH_PACKET(?QOS_1, Topic, PacketId, _Payload),
             case deliver({puback, PacketId, ReasonCode}, PState) of
                 {ok, PState1} ->
                     AclDenyAction = emqx_zone:get_env(Zone, acl_deny_action, ignore),
-                    ErrorTerm = {error, emqx_reason_codes:name(?RC_NOT_AUTHORIZED, ProtoVer), PState1},
-                    do_acl_deny_action(AclDenyAction, Packet, ReasonCode, ErrorTerm);
+                    do_acl_deny_action(AclDenyAction, Packet, ReasonCode, PState1);
                 Error -> Error
             end
     end;
 
-process(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload),
-        PState = #pstate{zone = Zone, proto_ver = ProtoVer}) ->
+process(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload), PState = #pstate{zone = Zone}) ->
     case check_publish(Packet, PState) of
         ok ->
             do_publish(Packet, PState);
@@ -459,8 +454,7 @@ process(Packet = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, _Payload),
             case deliver({pubrec, PacketId, ReasonCode}, PState) of
                 {ok, PState1} ->
                     AclDenyAction = emqx_zone:get_env(Zone, acl_deny_action, ignore),
-                    ErrorTerm = {error, emqx_reason_codes:name(?RC_NOT_AUTHORIZED, ProtoVer), PState1},
-                    do_acl_deny_action(AclDenyAction, Packet, ReasonCode, ErrorTerm);
+                    do_acl_deny_action(AclDenyAction, Packet, ReasonCode, PState1);
                 Error -> Error
             end
     end;
@@ -488,7 +482,7 @@ process(?PUBCOMP_PACKET(PacketId, ReasonCode), PState = #pstate{session = SPid})
     {ok = emqx_session:pubcomp(SPid, PacketId, ReasonCode), PState};
 
 process(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
-        PState = #pstate{zone = Zone, proto_ver = ProtoVer, session = SPid, credentials = Credentials}) ->
+        PState = #pstate{zone = Zone, session = SPid, credentials = Credentials}) ->
     case check_subscribe(parse_topic_filters(?SUBSCRIBE, raw_topic_filters(PState, RawTopicFilters)), PState) of
         {ok, TopicFilters} ->
             TopicFilters0 = emqx_hooks:run_fold('client.subscribe', [Credentials], TopicFilters),
@@ -507,8 +501,7 @@ process(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters),
             case deliver({suback, PacketId, ReasonCodes}, PState) of
                 {ok, PState1} ->
                     AclDenyAction = emqx_zone:get_env(Zone, acl_deny_action, ignore),
-                    ErrorTerm = {error, emqx_reason_codes:name(?RC_NOT_AUTHORIZED, ProtoVer), PState1},
-                    do_acl_deny_action(AclDenyAction, Packet, ReasonCodes, ErrorTerm);
+                    do_acl_deny_action(AclDenyAction, Packet, ReasonCodes, PState1);
                 Error ->
                     Error
             end
@@ -977,26 +970,33 @@ do_flapping_detect(Action, #pstate{zone = Zone,
          end.
 
 do_acl_deny_action(disconnect, ?PUBLISH_PACKET(?QOS_0, _Topic, _PacketId, _Payload),
-                   ?RC_NOT_AUTHORIZED, ErrorTerm) ->
-    ErrorTerm;
+                   ?RC_NOT_AUTHORIZED, PState = #pstate{proto_ver = ProtoVer}) ->
+    {error, emqx_reason_codes:name(?RC_NOT_AUTHORIZED, ProtoVer), PState};
 
 do_acl_deny_action(disconnect, ?PUBLISH_PACKET(QoS, _Topic, _PacketId, _Payload),
-                   ?RC_NOT_AUTHORIZED, ErrorTerm = {_Error, _CodeName, PState})
+                   ?RC_NOT_AUTHORIZED, PState = #pstate{proto_ver = ProtoVer})
   when QoS =:= ?QOS_1; QoS =:= ?QOS_2 ->
     deliver({disconnect, ?RC_NOT_AUTHORIZED}, PState),
-    ErrorTerm;
+    {error, emqx_reason_codes:name(?RC_NOT_AUTHORIZED, ProtoVer), PState};
 
-do_acl_deny_action(disconnect, ?SUBSCRIBE_PACKET(_PacketId, _Properties, _RawTopicFilters),
-                   ReasonCodes, ErrorTerm = {_Error, _CodeName, PState}) ->
-    case lists:member(?RC_NOT_AUTHORIZED, ReasonCodes) of
-        true ->
-            deliver({disconnect, ?RC_NOT_AUTHORIZED}, PState),
-            ErrorTerm;
-        false ->
-            {ok, PState}
-    end;
-do_acl_deny_action(_OtherAction, _PubSupPacket, _ReasonCode, {_Error, _CodeName, PState}) ->
-    {ok, PState}.
+do_acl_deny_action(Action, ?SUBSCRIBE_PACKET(_PacketId, _Properties, _RawTopicFilters), ReasonCodes, PState)
+  when is_list(ReasonCodes) ->
+    traverse_reason_codes(ReasonCodes, Action, PState);
+do_acl_deny_action(_OtherAction, _PubSubPacket, ?RC_NOT_AUTHORIZED, PState) ->
+    {ok, PState};
+do_acl_deny_action(_OtherAction, _PubSubPacket, ReasonCode, PState = #pstate{proto_ver = ProtoVer}) ->
+    {error, emqx_reason_codes:name(ReasonCode, ProtoVer), PState}.
+
+traverse_reason_codes([], _Action, PState) ->
+    {ok, PState};
+traverse_reason_codes([?RC_SUCCESS | LeftReasonCodes], Action, PState) ->
+    traverse_reason_codes(LeftReasonCodes, Action, PState);
+traverse_reason_codes([?RC_NOT_AUTHORIZED | _LeftReasonCodes], disconnect, PState = #pstate{proto_ver = ProtoVer}) ->
+    {error, emqx_reason_codes:name(?RC_NOT_AUTHORIZED, ProtoVer), PState};
+traverse_reason_codes([?RC_NOT_AUTHORIZED | LeftReasonCodes], Action, PState) ->
+    traverse_reason_codes(LeftReasonCodes, Action, PState);
+traverse_reason_codes([OtherCode | _LeftReasonCodes], _Action, PState =  #pstate{proto_ver = ProtoVer}) ->
+    {error, emqx_reason_codes:name(OtherCode, ProtoVer), PState}.
 
 %% Reason code compat
 reason_codes_compat(_PktType, ReasonCodes, ?MQTT_PROTO_V5) ->
