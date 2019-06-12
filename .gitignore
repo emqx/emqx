@@ -10,4 +10,4 @@ rel/example_project
 .rebar
 tmp
 _build/
-rebar.lock
+rebar

@@ -1,7 +1,7 @@
 {application, ecpool,
  [
   {description, "Erlang Client/Connection Pool"},
-  {vsn, "0.2"},
+  {vsn, "git"},
   {registered, []},
   {applications, [
                   kernel,
