@@ -301,6 +301,7 @@ websocket_info(Info, State) ->
 terminate(SockError, _Req, #state{keepalive   = Keepalive,
                                   proto_state = ProtoState,
                                   shutdown    = Shutdown}) ->
+
     ?LOG(debug, "[WS Connection] Terminated for ~p, sockerror: ~p", [Shutdown, SockError]),
     emqx_keepalive:cancel(Keepalive),
     case {ProtoState, Shutdown} of
@@ -326,8 +327,7 @@ ensure_stats_timer(State) ->
     State.
 
 shutdown(Reason, State) ->
-    self() ! {stop, State#state{shutdown = Reason}},
-    {ok, State}.
+    {stop, State#state{shutdown = Reason}}.
 
 wsock_stats() ->
     [{Key, emqx_pd:get_counter(Key)} || Key <- ?SOCK_STATS].
