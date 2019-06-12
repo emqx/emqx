@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_client).
 
@@ -20,7 +22,9 @@
 -include("types.hrl").
 -include("emqx_client.hrl").
 
--export([start_link/0, start_link/1]).
+-export([ start_link/0
+        , start_link/1
+        ]).
 
 -export([ connect/1
         , disconnect/1
@@ -175,7 +179,8 @@
                 retry_timer     :: reference(),
                 session_present :: boolean(),
                 last_packet_id  :: packet_id(),
-                parse_state     :: emqx_frame:state()}).
+                parse_state     :: emqx_frame:state()
+               }).
 
 -record(call, {id, from, req, ts}).
 
@@ -202,9 +207,9 @@
 
 -type(subscribe_ret() :: {ok, properties(), [reason_code()]} | {error, term()}).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% API
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 -spec(start_link() -> gen_statem:start_ret()).
 start_link() -> start_link([]).
@@ -352,9 +357,9 @@ disconnect(Client, ReasonCode) ->
 disconnect(Client, ReasonCode, Properties) ->
     gen_statem:call(Client, {disconnect, ReasonCode, Properties}).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% For test cases
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 puback(Client, PacketId) when is_integer(PacketId) ->
     puback(Client, PacketId, ?RC_SUCCESS).
@@ -407,9 +412,9 @@ pause(Client) ->
 resume(Client) ->
     gen_statem:call(Client, resume).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% gen_statem callbacks
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 init([Options]) ->
     process_flag(trap_exit, true),
@@ -443,7 +448,8 @@ init([Options]) ->
                                  ack_timeout     = ?DEFAULT_ACK_TIMEOUT,
                                  retry_interval  = 0,
                                  connect_timeout = ?DEFAULT_CONNECT_TIMEOUT,
-                                 last_packet_id  = 1}),
+                                 last_packet_id  = 1
+                                }),
     {ok, initialized, init_parse_state(State)}.
 
 random_client_id() ->
@@ -563,9 +569,10 @@ init_will_msg({qos, QoS}, WillMsg) ->
     WillMsg#mqtt_msg{qos = ?QOS_I(QoS)}.
 
 init_parse_state(State = #state{proto_ver = Ver, properties = Properties}) ->
-    Size = maps:get('Maximum-Packet-Size', Properties, ?MAX_PACKET_SIZE),
-    State#state{parse_state = emqx_frame:initial_state(
-                                #{max_packet_size => Size, version => Ver})}.
+    MaxSize = maps:get('Maximum-Packet-Size', Properties, ?MAX_PACKET_SIZE),
+    ParseState = emqx_frame:initial_parse_state(
+                   #{max_size => MaxSize, version => Ver}),
+    State#state{parse_state = ParseState}.
 
 callback_mode() -> state_functions.
 
@@ -955,9 +962,9 @@ terminate(Reason, _StateName, State = #state{socket = Socket}) ->
 code_change(_Vsn, State, Data, _Extra) ->
     {ok, State, Data}.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 should_ping(Sock) ->
     case emqx_client_sock:getstat(Sock, [send_oct]) of
@@ -1010,7 +1017,8 @@ assign_id(?NO_CLIENT_ID, Props) ->
 assign_id(Id, _Props) ->
     Id.
 
-publish_process(?QOS_1, Packet = ?PUBLISH_PACKET(?QOS_1, PacketId), State0 = #state{auto_ack = AutoAck}) ->
+publish_process(?QOS_1, Packet = ?PUBLISH_PACKET(?QOS_1, PacketId),
+                State0 = #state{auto_ack = AutoAck}) ->
     State = deliver(packet_to_msg(Packet), State0),
     case AutoAck of
         true  -> send_puback(?PUBACK_PACKET(PacketId), State);
@@ -1161,7 +1169,7 @@ msg_to_packet(#mqtt_msg{qos = QoS, dup = Dup, retain = Retain, packet_id = Packe
                                                  properties = Props},
                  payload  = Payload}.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Socket Connect/Send
 
 sock_connect(Hosts, SockOpts, Timeout) ->
@@ -1201,7 +1209,7 @@ send(Packet, State = #state{socket = Sock, proto_ver = Ver})
 run_sock(State = #state{socket = Sock}) ->
     emqx_client_sock:setopts(Sock, [{active, once}]), State.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Process incomming
 
 process_incoming(<<>>, Packets, State) ->
@@ -1209,10 +1217,10 @@ process_incoming(<<>>, Packets, State) ->
 
 process_incoming(Bytes, Packets, State = #state{parse_state = ParseState}) ->
     try emqx_frame:parse(Bytes, ParseState) of
-        {ok, Packet, Rest} ->
-            process_incoming(Rest, [Packet|Packets], init_parse_state(State));
-        {more, NewParseState} ->
-            {keep_state, State#state{parse_state = NewParseState}, next_events(Packets)};
+        {ok, Packet, Rest, NParseState} ->
+            process_incoming(Rest, [Packet|Packets], State#state{parse_state = NParseState});
+        {ok, NParseState} ->
+            {keep_state, State#state{parse_state = NParseState}, next_events(Packets)};
         {error, Reason} ->
             {stop, Reason}
     catch
@@ -1227,7 +1235,7 @@ next_events([Packet]) ->
 next_events(Packets) ->
     [{next_event, cast, Packet} || Packet <- lists:reverse(Packets)].
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% packet_id generation
 
 bump_last_packet_id(State = #state{last_packet_id = Id}) ->
@@ -1236,3 +1244,4 @@ bump_last_packet_id(State = #state{last_packet_id = Id}) ->
 -spec next_packet_id(packet_id()) -> packet_id().
 next_packet_id(?MAX_PACKET_ID) -> 1;
 next_packet_id(Id) -> Id + 1.
+

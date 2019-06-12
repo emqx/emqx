@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,17 +12,18 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
--module(emqx_connection_SUITE).
+-module(emqx_channel_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx_mqtt.hrl").
+
 -include_lib("eunit/include/eunit.hrl").
 
 -include_lib("common_test/include/ct.hrl").
-
--include("emqx_mqtt.hrl").
 
 all() ->
     [t_connect_api].
@@ -40,13 +42,13 @@ t_connect_api(_Config) ->
                                        {password, <<"pass1">>}]),
     {ok, _} = emqx_client:connect(T1),
     CPid = emqx_cm:lookup_conn_pid(<<"client1">>),
-    ConnStats = emqx_connection:stats(CPid),
+    ConnStats = emqx_channel:stats(CPid),
     ok = t_stats(ConnStats),
-    ConnAttrs = emqx_connection:attrs(CPid),
+    ConnAttrs = emqx_channel:attrs(CPid),
     ok = t_attrs(ConnAttrs),
-    ConnInfo = emqx_connection:info(CPid),
+    ConnInfo = emqx_channel:info(CPid),
     ok = t_info(ConnInfo),
-    SessionPid = emqx_connection:session(CPid),
+    SessionPid = emqx_channel:session(CPid),
     true = is_pid(SessionPid),
     emqx_client:disconnect(T1).
 
@@ -59,7 +61,7 @@ t_info(ConnInfo) ->
 
 t_attrs(AttrsData) ->
     ?assertEqual(<<"client1">>, maps:get(client_id, AttrsData)),
-    ?assertEqual(emqx_connection, maps:get(conn_mod, AttrsData)),
+    ?assertEqual(emqx_channel, maps:get(conn_mod, AttrsData)),
     ?assertEqual(<<"testuser1">>, maps:get(username, AttrsData)).
 
 t_stats(StatsData) ->
