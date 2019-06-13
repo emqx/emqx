@@ -421,7 +421,7 @@ end}.
 ]}.
 
 {mapping, "log.chars_limit", "kernel.logger", [
-  {default, 8192},
+  {default, -1},
   {datatype, integer}
 ]}.
 
