@@ -19,8 +19,6 @@
 %% SSL PSK Callbacks
 -export([lookup/3]).
 
--define(TAB, ?MODULE).
-
 -type psk_identity() :: string().
 -type psk_user_state() :: term().
 
