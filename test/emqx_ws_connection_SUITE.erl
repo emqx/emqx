@@ -36,7 +36,9 @@
 -define(PUBQOS, 1).
 
 all() ->
-    [t_ws_connect_api].
+    [ t_ws_connect_api
+    , t_ws_auth_failure
+    ].
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([]),
@@ -45,13 +47,24 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
+t_ws_auth_failure(_Config) ->
+    application:set_env(emqx, allow_anonymous, false),
+    WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
+    {ok, _} = rfc6455_client:open(WS),
+    Packet = raw_send_serialize(?CLIENT),
+    ok = rfc6455_client:send_binary(WS, Packet),
+    {binary, CONNACK} = rfc6455_client:recv(WS),
+    {ok, ?CONNACK_PACKET(?CONNACK_AUTH), _} = raw_recv_pase(CONNACK),
+    application:set_env(emqx, allow_anonymous, true),
+    ok.
+
 t_ws_connect_api(_Config) ->
     WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
     {ok, _} = rfc6455_client:open(WS),
     Packet = raw_send_serialize(?CLIENT),
     ok = rfc6455_client:send_binary(WS, Packet),
-    {binary, CONACK} = rfc6455_client:recv(WS),
-    {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(CONACK),
+    {binary, CONNACK} = rfc6455_client:recv(WS),
+    {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(CONNACK),
     Pid = emqx_cm:lookup_conn_pid(<<"mqtt_client">>),
     ConnInfo = emqx_ws_connection:info(Pid),
     ok = t_info(ConnInfo),

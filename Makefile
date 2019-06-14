@@ -45,8 +45,8 @@ deps:
 eunit:
 	@rebar3 eunit -v
 
-.PHONY: ct-setup
-ct-setup:
+.PHONY: ct_setup
+ct_setup:
 	rebar3 as test compile
 	@mkdir -p data
 	@if [ ! -f data/loaded_plugins ]; then touch data/loaded_plugins; fi
@@ -54,14 +54,14 @@ ct-setup:
 	@ln -s -f '../../../../data' _build/test/lib/emqx/
 
 .PHONY: ct
-ct: ct-setup
+ct: ct_setup
 	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(shell echo $(foreach var,$(CT_SUITES),test/$(var)_SUITE) | tr ' ' ',')
 
 ## Run one single CT with rebar3
 ## e.g. make ct-one-suite suite=emqx_bridge
-.PHONY: ct-one-suite
-ct-one-suite: ct-setup
-	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(suite)_SUITE
+.PHONY: $(SUITES:%=ct-%)
+$(CT_SUITES:%=ct-%): ct_setup
+	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(@:ct-%=%)_SUITE
 
 .PHONY: app.config
 app.config: $(CUTTLEFISH_SCRIPT) etc/gen.emqx.conf
