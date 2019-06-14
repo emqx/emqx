@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,79 +12,95 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_frame).
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
--export([ initial_state/0
-        , initial_state/1
+-export([ initial_parse_state/0
+        , initial_parse_state/1
         ]).
 
--export([ parse/2
+-export([ parse/1
+        , parse/2
         , serialize/1
         , serialize/2
         ]).
 
--type(options() :: #{max_packet_size => 1..?MAX_PACKET_SIZE,
-                     version         => emqx_mqtt_types:version()}).
+-type(options() :: #{max_size => 1..?MAX_PACKET_SIZE,
+                     version  => emqx_mqtt_types:version()
+                    }).
 
--opaque(parse_state() :: {none, options()} | cont_fun(binary())).
+-opaque(parse_state() :: {none, options()} | {more, cont_fun()}).
 
--type(cont_fun(Bin) :: fun((Bin) -> {ok, emqx_mqtt_types:packet(), binary()}
-                                  | {more, cont_fun(Bin)})).
+-opaque(parse_result() :: {ok, parse_state()}
+                        | {ok, emqx_mqtt_types:packet(), binary(), parse_state()}).
 
--export_type([options/0, parse_state/0]).
+-type(cont_fun() :: fun((binary()) -> parse_result())).
 
--define(DEFAULT_OPTIONS, #{max_packet_size => ?MAX_PACKET_SIZE,
-                           version         => ?MQTT_PROTO_V4}).
+-export_type([ options/0
+             , parse_state/0
+             , parse_result/0
+             ]).
 
-%%------------------------------------------------------------------------------
-%% Init parse state
-%%------------------------------------------------------------------------------
+-define(none(Opts), {none, Opts}).
+-define(more(Cont), {more, Cont}).
+-define(DEFAULT_OPTIONS,
+        #{max_size => ?MAX_PACKET_SIZE,
+          version  => ?MQTT_PROTO_V4
+         }).
 
--spec(initial_state() -> {none, options()}).
-initial_state() ->
-    initial_state(#{}).
+%%--------------------------------------------------------------------
+%% Init Parse State
+%%--------------------------------------------------------------------
 
--spec(initial_state(options()) -> {none, options()}).
-initial_state(Options) when is_map(Options) ->
-    {none, merge_opts(Options)}.
+-spec(initial_parse_state() -> {none, options()}).
+initial_parse_state() ->
+    initial_parse_state(#{}).
 
+-spec(initial_parse_state(options()) -> {none, options()}).
+initial_parse_state(Options) when is_map(Options) ->
+    ?none(merge_opts(Options)).
+
+%% @pivate
 merge_opts(Options) ->
     maps:merge(?DEFAULT_OPTIONS, Options).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Parse MQTT Frame
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
--spec(parse(binary(), parse_state()) -> {ok, emqx_mqtt_types:packet(), binary()} |
-                                        {more, cont_fun(binary())}).
+-spec(parse(binary()) -> parse_result()).
+parse(Bin) ->
+    parse(Bin, initial_parse_state()).
+
+-spec(parse(binary(), parse_state()) -> parse_result()).
 parse(<<>>, {none, Options}) ->
-    {more, fun(Bin) -> parse(Bin, {none, Options}) end};
+    {ok, ?more(fun(Bin) -> parse(Bin, {none, Options}) end)};
 parse(<<Type:4, Dup:1, QoS:2, Retain:1, Rest/binary>>, {none, Options}) ->
     parse_remaining_len(Rest, #mqtt_packet_header{type   = Type,
                                                   dup    = bool(Dup),
                                                   qos    = fixqos(Type, QoS),
                                                   retain = bool(Retain)}, Options);
-parse(Bin, Cont) when is_binary(Bin), is_function(Cont) ->
+parse(Bin, {more, Cont}) when is_binary(Bin), is_function(Cont) ->
     Cont(Bin).
 
 parse_remaining_len(<<>>, Header, Options) ->
-    {more, fun(Bin) -> parse_remaining_len(Bin, Header, Options) end};
+    {ok, ?more(fun(Bin) -> parse_remaining_len(Bin, Header, Options) end)};
 parse_remaining_len(Rest, Header, Options) ->
     parse_remaining_len(Rest, Header, 1, 0, Options).
 
-parse_remaining_len(_Bin, _Header, _Multiplier, Length,
-                    #{max_packet_size := MaxSize})
-    when Length > MaxSize ->
+parse_remaining_len(_Bin, _Header, _Multiplier, Length, #{max_size := MaxSize})
+  when Length > MaxSize ->
     error(mqtt_frame_too_large);
 parse_remaining_len(<<>>, Header, Multiplier, Length, Options) ->
-    {more, fun(Bin) -> parse_remaining_len(Bin, Header, Multiplier, Length, Options) end};
+    {ok, ?more(fun(Bin) -> parse_remaining_len(Bin, Header, Multiplier, Length, Options) end)};
 %% Match DISCONNECT without payload
-parse_remaining_len(<<0:8, Rest/binary>>, Header = #mqtt_packet_header{type = ?DISCONNECT}, 1, 0, _Options) ->
-    wrap(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS}, Rest);
+parse_remaining_len(<<0:8, Rest/binary>>, Header = #mqtt_packet_header{type = ?DISCONNECT}, 1, 0, Options) ->
+    Packet = packet(Header, #mqtt_packet_disconnect{reason_code = ?RC_SUCCESS}),
+    {ok, Packet, Rest, ?none(Options)};
 %% Match PINGREQ.
 parse_remaining_len(<<0:8, Rest/binary>>, Header, 1, 0, Options) ->
     parse_frame(Rest, Header, 0, Options);
@@ -92,38 +109,40 @@ parse_remaining_len(<<0:1, 2:7, Rest/binary>>, Header, 1, 0, Options) ->
     parse_frame(Rest, Header, 2, Options);
 parse_remaining_len(<<1:1, Len:7, Rest/binary>>, Header, Multiplier, Value, Options) ->
     parse_remaining_len(Rest, Header, Multiplier * ?HIGHBIT, Value + Len * Multiplier, Options);
-parse_remaining_len(<<0:1, Len:7, Rest/binary>>, Header,  Multiplier, Value,
-                    Options = #{max_packet_size:= MaxSize}) ->
+parse_remaining_len(<<0:1, Len:7, Rest/binary>>, Header, Multiplier, Value,
+                    Options = #{max_size := MaxSize}) ->
     FrameLen = Value + Len * Multiplier,
     if
         FrameLen > MaxSize -> error(mqtt_frame_too_large);
         true -> parse_frame(Rest, Header, FrameLen, Options)
     end.
 
-parse_frame(Bin, Header, 0, _Options) ->
-    wrap(Header, Bin);
+parse_frame(Bin, Header, 0, Options) ->
+    {ok, packet(Header), Bin, ?none(Options)};
 
 parse_frame(Bin, Header, Length, Options) ->
     case Bin of
         <<FrameBin:Length/binary, Rest/binary>> ->
             case parse_packet(Header, FrameBin, Options) of
                 {Variable, Payload} ->
-                    wrap(Header, Variable, Payload, Rest);
+                    {ok, packet(Header, Variable, Payload), Rest, ?none(Options)};
+                Variable = #mqtt_packet_connect{proto_ver = Ver} ->
+                    {ok, packet(Header, Variable), Rest, ?none(Options#{version := Ver})};
                 Variable ->
-                    wrap(Header, Variable, Rest)
+                    {ok, packet(Header, Variable), Rest, ?none(Options)}
             end;
         TooShortBin ->
-            {more, fun(BinMore) ->
-                       parse_frame(<<TooShortBin/binary, BinMore/binary>>, Header, Length, Options)
-                   end}
+            {ok, ?more(fun(BinMore) ->
+                               parse_frame(<<TooShortBin/binary, BinMore/binary>>, Header, Length, Options)
+                       end)}
     end.
 
-wrap(Header, Variable, Payload, Rest) ->
-    {ok, #mqtt_packet{header = Header, variable = Variable, payload = Payload}, Rest}.
-wrap(Header, Variable, Rest) ->
-    {ok, #mqtt_packet{header = Header, variable = Variable}, Rest}.
-wrap(Header, Rest) ->
-    {ok, #mqtt_packet{header = Header}, Rest}.
+packet(Header) ->
+    #mqtt_packet{header = Header}.
+packet(Header, Variable) ->
+    #mqtt_packet{header = Header, variable = Variable}.
+packet(Header, Variable, Payload) ->
+    #mqtt_packet{header = Header, variable = Variable, payload = Payload}.
 
 parse_packet(#mqtt_packet_header{type = ?CONNECT}, FrameBin, _Options) ->
     {ProtoName, Rest} = parse_utf8_string(FrameBin),
@@ -362,9 +381,9 @@ parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>) ->
 parse_binary_data(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
     {Data, Rest}.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Serialize MQTT Packet
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 -spec(serialize(emqx_mqtt_types:packet()) -> iodata()).
 serialize(Packet) ->
