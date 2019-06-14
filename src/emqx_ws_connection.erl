@@ -326,6 +326,7 @@ ensure_stats_timer(State) ->
     State.
 
 shutdown(Reason, State) ->
+    %% Fix the issue#2591(https://github.com/emqx/emqx/issues/2591#issuecomment-500278696)
     self() ! {stop, State#state{shutdown = Reason}},
     {ok, State}.
 
