@@ -290,6 +290,9 @@ websocket_info({binary, Data}, State) ->
 websocket_info({shutdown, Reason}, State) ->
     shutdown(Reason, State);
 
+websocket_info({stop, Reason}, State) ->
+    {stop, State#state{shutdown = Reason}};
+
 websocket_info(Info, State) ->
     ?LOG(error, "[WS Channel] Unexpected info: ~p", [Info]),
     {ok, State}.
@@ -336,7 +339,7 @@ ensure_stats_timer(State) ->
 
 shutdown(Reason, State) ->
     %% Fix the issue#2591(https://github.com/emqx/emqx/issues/2591#issuecomment-500278696)
-    self() ! {stop, State#state{shutdown = Reason}},
+    self() ! {stop, Reason},
     {ok, State}.
 
 wsock_stats() ->
