@@ -23,6 +23,11 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(CLIENT, ?CONNECT_PACKET(#mqtt_packet_connect{
+                                client_id = <<"mqtt_client">>,
+                                username  = <<"admin">>,
+                                password  = <<"public">>})).
+
 all() ->
     [ t_ws_connect_api
     , t_ws_auth_failure
@@ -42,20 +47,14 @@ t_ws_auth_failure(_Config) ->
     Packet = raw_send_serialize(?CLIENT),
     ok = rfc6455_client:send_binary(WS, Packet),
     {binary, CONNACK} = rfc6455_client:recv(WS),
-    {ok, ?CONNACK_PACKET(?CONNACK_AUTH), _} = raw_recv_pase(CONNACK),
+    {ok, ?CONNACK_PACKET(?CONNACK_AUTH), <<>>, _} = raw_recv_pase(CONNACK),
     application:set_env(emqx, allow_anonymous, true),
     ok.
 
 t_ws_connect_api(_Config) ->
     WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
     {ok, _} = rfc6455_client:open(WS),
-    Connect = ?CONNECT_PACKET(
-                 #mqtt_packet_connect{
-                    client_id = <<"mqtt_client">>,
-                    username  = <<"admin">>,
-                    password  = <<"public">>
-                   }),
-    ok = rfc6455_client:send_binary(WS, raw_send_serialize(Connect)),
+    ok = rfc6455_client:send_binary(WS, raw_send_serialize(?CLIENT)),
     {binary, Bin} = rfc6455_client:recv(WS),
     Connack = ?CONNACK_PACKET(?CONNACK_ACCEPT),
     {ok, Connack, <<>>, _} = raw_recv_pase(Bin),
