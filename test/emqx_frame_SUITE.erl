@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_frame_SUITE).
 
@@ -18,10 +20,7 @@
 -compile(nowarn_export_all).
 
 -include("emqx_mqtt.hrl").
-
 -include_lib("eunit/include/eunit.hrl").
-
--import(emqx_frame, [serialize/1, serialize/2]).
 
 all() ->
     [{group, connect},
@@ -44,15 +43,18 @@ groups() ->
        serialize_parse_v5_connect,
        serialize_parse_connect_without_clientid,
        serialize_parse_connect_with_will,
-       serialize_parse_bridge_connect]},
+       serialize_parse_bridge_connect
+      ]},
      {connack, [parallel],
       [serialize_parse_connack,
-       serialize_parse_connack_v5]},
+       serialize_parse_connack_v5
+      ]},
      {publish, [parallel],
       [serialize_parse_qos0_publish,
        serialize_parse_qos1_publish,
        serialize_parse_qos2_publish,
-       serialize_parse_publish_v5]},
+       serialize_parse_publish_v5
+      ]},
      {puback, [parallel],
       [serialize_parse_puback,
        serialize_parse_puback_v5,
@@ -61,27 +63,35 @@ groups() ->
        serialize_parse_pubrel,
        serialize_parse_pubrel_v5,
        serialize_parse_pubcomp,
-       serialize_parse_pubcomp_v5]},
+       serialize_parse_pubcomp_v5
+      ]},
      {subscribe, [parallel],
       [serialize_parse_subscribe,
-       serialize_parse_subscribe_v5]},
+       serialize_parse_subscribe_v5
+      ]},
      {suback, [parallel],
       [serialize_parse_suback,
-       serialize_parse_suback_v5]},
+       serialize_parse_suback_v5
+      ]},
      {unsubscribe, [parallel],
       [serialize_parse_unsubscribe,
-       serialize_parse_unsubscribe_v5]},
+       serialize_parse_unsubscribe_v5
+      ]},
      {unsuback, [parallel],
       [serialize_parse_unsuback,
-       serialize_parse_unsuback_v5]},
+       serialize_parse_unsuback_v5
+      ]},
      {ping, [parallel],
       [serialize_parse_pingreq,
-       serialize_parse_pingresp]},
+       serialize_parse_pingresp
+      ]},
      {disconnect, [parallel],
       [serialize_parse_disconnect,
-       serialize_parse_disconnect_v5]},
+       serialize_parse_disconnect_v5
+      ]},
      {auth, [parallel],
-      [serialize_parse_auth_v5]}].
+      [serialize_parse_auth_v5]
+     }].
 
 init_per_suite(Config) ->
     Config.
@@ -97,7 +107,7 @@ end_per_group(_Group, _Config) ->
 
 serialize_parse_connect(_) ->
     Packet1 = ?CONNECT_PACKET(#mqtt_packet_connect{}),
-    ?assertEqual({ok, Packet1, <<>>}, parse_serialize(Packet1)),
+    ?assertEqual(Packet1, parse_serialize(Packet1)),
     Packet2 = ?CONNECT_PACKET(#mqtt_packet_connect{
                                  client_id    = <<"clientId">>,
                                  will_qos     = ?QOS_1,
@@ -105,8 +115,9 @@ serialize_parse_connect(_) ->
                                  will_retain  = true,
                                  will_topic   = <<"will">>,
                                  will_payload = <<"bye">>,
-                                 clean_start  = true}),
-    ?assertEqual({ok, Packet2, <<>>}, parse_serialize(Packet2)).
+                                 clean_start  = true
+                                }),
+    ?assertEqual(Packet2, parse_serialize(Packet2)).
 
 serialize_parse_v3_connect(_) ->
     Bin = <<16,37,0,6,77,81,73,115,100,112,3,2,0,60,0,23,109,111,115,
@@ -117,8 +128,9 @@ serialize_parse_v3_connect(_) ->
                                      proto_name  = <<"MQIsdp">>,
                                      client_id   = <<"mosqpub/10451-iMac.loca">>,
                                      clean_start = true,
-                                     keepalive   = 60}),
-    ?assertEqual({ok, Packet, <<>>}, parse(Bin)).
+                                     keepalive   = 60
+                                    }),
+    ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).
 
 serialize_parse_v4_connect(_) ->
     Bin = <<16,35,0,4,77,81,84,84,4,2,0,60,0,23,109,111,115,113,112,117,
@@ -128,8 +140,8 @@ serialize_parse_v4_connect(_) ->
                                                   client_id   = <<"mosqpub/10451-iMac.loca">>,
                                                   clean_start = true,
                                                   keepalive   = 60}),
-    ?assertEqual(Bin, iolist_to_binary(serialize(Packet))),
-    ?assertEqual({ok, Packet, <<>>}, parse(Bin)).
+    ?assertEqual(Bin, serialize_to_binary(Packet)),
+    ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).
 
 serialize_parse_v5_connect(_) ->
     Props = #{'Session-Expiry-Interval'      => 60,
@@ -141,7 +153,8 @@ serialize_parse_v5_connect(_) ->
               'Request-Response-Information' => 1,
               'Request-Problem-Information'  => 1,
               'Authentication-Method'        => <<"oauth2">>,
-              'Authentication-Data'          => <<"33kx93k">>},
+              'Authentication-Data'          => <<"33kx93k">>
+             },
 
     WillProps = #{'Will-Delay-Interval'      => 60,
                   'Payload-Format-Indicator' => 1,
@@ -149,7 +162,8 @@ serialize_parse_v5_connect(_) ->
                   'Content-Type'             => <<"text/json">>,
                   'Response-Topic'           => <<"topic">>,
                   'Correlation-Data'         => <<"correlateid">>,
-                  'User-Property'            => [{<<"k">>, <<"v">>}]},
+                  'User-Property'            => [{<<"k">>, <<"v">>}]
+                 },
     Packet = ?CONNECT_PACKET(
                 #mqtt_packet_connect{proto_name   = <<"MQTT">>,
                                      proto_ver    = ?MQTT_PROTO_V5,
@@ -165,18 +179,21 @@ serialize_parse_v5_connect(_) ->
                                      will_topic   = <<"topic">>,
                                      will_payload = <<>>,
                                      username     = <<"device:1">>,
-                                     password     = <<"passwd">>}),
-    ?assertEqual({ok, Packet, <<>>}, parse_serialize(Packet)).
+                                     password     = <<"passwd">>
+                                    }),
+    ?assertEqual(Packet, parse_serialize(Packet)).
 
 serialize_parse_connect_without_clientid(_) ->
     Bin = <<16,12,0,4,77,81,84,84,4,2,0,60,0,0>>,
-    Packet = ?CONNECT_PACKET(#mqtt_packet_connect{proto_ver   = 4,
-                                                  proto_name  = <<"MQTT">>,
-                                                  client_id   = <<>>,
-                                                  clean_start = true,
-                                                  keepalive   = 60}),
-    ?assertEqual(Bin, iolist_to_binary(serialize(Packet))),
-    ?assertEqual({ok, Packet, <<>>}, parse(Bin)).
+    Packet = ?CONNECT_PACKET(
+                #mqtt_packet_connect{proto_ver   = 4,
+                                     proto_name  = <<"MQTT">>,
+                                     client_id   = <<>>,
+                                     clean_start = true,
+                                     keepalive   = 60
+                                    }),
+    ?assertEqual(Bin, serialize_to_binary(Packet)),
+    ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).
 
 serialize_parse_connect_with_will(_) ->
     Bin = <<16,67,0,6,77,81,73,115,100,112,3,206,0,60,0,23,109,111,115,113,112,
@@ -195,9 +212,10 @@ serialize_parse_connect_with_will(_) ->
                                                           will_topic   = <<"/will">>,
                                                           will_payload = <<"willmsg">>,
                                                           username     = <<"test">>,
-                                                          password     = <<"public">>}},
-    ?assertEqual(Bin, iolist_to_binary(serialize(Packet))),
-    ?assertEqual({ok, Packet, <<>>}, parse(Bin)).
+                                                          password     = <<"public">>
+                                                         }},
+    ?assertEqual(Bin, serialize_to_binary(Packet)),
+    ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).
 
 serialize_parse_bridge_connect(_) ->
     Bin = <<16,86,0,6,77,81,73,115,100,112,131,44,0,60,0,19,67,95,48,48,58,48,67,
@@ -216,14 +234,15 @@ serialize_parse_bridge_connect(_) ->
                                                           clean_start  = false,
                                                           keepalive    = 60,
                                                           will_topic   = Topic,
-                                                          will_payload = <<"0">>}},
-    ?assertEqual(Bin, iolist_to_binary(serialize(Packet))),
-    ?assertEqual({ok, Packet, <<>>}, parse(Bin)).
+                                                          will_payload = <<"0">>
+                                                         }},
+    ?assertEqual(Bin, serialize_to_binary(Packet)),
+    ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).
 
 serialize_parse_connack(_) ->
     Packet = ?CONNACK_PACKET(?RC_SUCCESS),
-    ?assertEqual(<<32,2,0,0>>, iolist_to_binary(serialize(Packet))),
-    ?assertEqual({ok, Packet, <<>>}, parse_serialize(Packet)).
+    ?assertEqual(<<32,2,0,0>>, serialize_to_binary(Packet)),
+    ?assertEqual(Packet, parse_serialize(Packet)).
 
 serialize_parse_connack_v5(_) ->
     Props = #{'Session-Expiry-Interval'            => 60,
@@ -241,10 +260,10 @@ serialize_parse_connack_v5(_) ->
               'Response-Information'               => <<"response">>,
               'Server-Reference'                   => <<"192.168.1.10">>,
               'Authentication-Method'              => <<"oauth2">>,
-              'Authentication-Data'                => <<"33kx93k">>},
+              'Authentication-Data'                => <<"33kx93k">>
+             },
     Packet = ?CONNACK_PACKET(?RC_SUCCESS, 0, Props),
-    ?assertEqual({ok, Packet, <<>>},
-                 parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
 serialize_parse_qos0_publish(_) ->
     Bin = <<48,14,0,7,120,120,120,47,121,121,121,104,101,108,108,111>>,
@@ -255,8 +274,8 @@ serialize_parse_qos0_publish(_) ->
                           variable = #mqtt_packet_publish{topic_name = <<"xxx/yyy">>,
                                                           packet_id  = undefined},
                           payload  = <<"hello">>},
-    ?assertEqual(Bin, iolist_to_binary(serialize(Packet))),
-    ?assertEqual({ok, Packet, <<>>}, parse(Bin)).
+    ?assertEqual(Bin, serialize_to_binary(Packet)),
+    ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).
 
 serialize_parse_qos1_publish(_) ->
     Bin = <<50,13,0,5,97,47,98,47,99,0,1,104,97,104,97>>,
@@ -267,12 +286,12 @@ serialize_parse_qos1_publish(_) ->
                           variable = #mqtt_packet_publish{topic_name = <<"a/b/c">>,
                                                           packet_id  = 1},
                           payload  = <<"haha">>},
-    ?assertEqual(Bin, iolist_to_binary(serialize(Packet))),
-    ?assertEqual({ok, Packet, <<>>}, parse(Bin)).
+    ?assertEqual(Bin, serialize_to_binary(Packet)),
+    ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).
 
 serialize_parse_qos2_publish(_) ->
     Packet = ?PUBLISH_PACKET(?QOS_2, <<"Topic">>, 1, payload()),
-    ?assertEqual({ok, Packet, <<>>}, parse_serialize(Packet)).
+    ?assertEqual(Packet, parse_serialize(Packet)).
 
 serialize_parse_publish_v5(_) ->
     Props = #{'Payload-Format-Indicator' => 1,
@@ -283,147 +302,139 @@ serialize_parse_publish_v5(_) ->
               'Subscription-Identifier'  => 1,
               'Content-Type'             => <<"text/json">>},
     Packet = ?PUBLISH_PACKET(?QOS_1, <<"$share/group/topic">>, 1, Props, <<"payload">>),
-    ?assertEqual({ok, Packet, <<>>},
-                 parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
 serialize_parse_puback(_) ->
     Packet = ?PUBACK_PACKET(1),
-    ?assertEqual(<<64,2,0,1>>, iolist_to_binary(serialize(Packet))),
-    ?assertEqual({ok, Packet, <<>>}, parse_serialize(Packet)).
+    ?assertEqual(<<64,2,0,1>>, serialize_to_binary(Packet)),
+    ?assertEqual(Packet, parse_serialize(Packet)).
 
 serialize_parse_puback_v5(_) ->
     Packet = ?PUBACK_PACKET(16, ?RC_SUCCESS, #{'Reason-String' => <<"success">>}),
-    ?assertEqual({ok, Packet, <<>>},
-                 parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
 serialize_parse_pubrec(_) ->
     Packet = ?PUBREC_PACKET(1),
-    ?assertEqual(<<5:4,0:4,2,0,1>>, iolist_to_binary(serialize(Packet))),
-    ?assertEqual({ok, Packet, <<>>}, parse_serialize(Packet)).
+    ?assertEqual(<<5:4,0:4,2,0,1>>, serialize_to_binary(Packet)),
+    ?assertEqual(Packet, parse_serialize(Packet)).
 
 serialize_parse_pubrec_v5(_) ->
     Packet = ?PUBREC_PACKET(16, ?RC_SUCCESS, #{'Reason-String' => <<"success">>}),
-    ?assertEqual({ok, Packet, <<>>},
-                 parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
 serialize_parse_pubrel(_) ->
     Packet = ?PUBREL_PACKET(1),
-    ?assertEqual(<<6:4,2:4,2,0,1>>, iolist_to_binary(serialize(Packet))),
-    ?assertEqual({ok, Packet, <<>>}, parse_serialize(Packet)).
+    Bin = serialize_to_binary(Packet),
+    ?assertEqual(<<6:4,2:4,2,0,1>>, Bin),
+    ?assertEqual(Packet, parse_serialize(Packet)).
 
 serialize_parse_pubrel_v5(_) ->
     Packet = ?PUBREL_PACKET(16, ?RC_SUCCESS, #{'Reason-String' => <<"success">>}),
-    ?assertEqual({ok, Packet, <<>>},
-                 parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
 serialize_parse_pubcomp(_) ->
     Packet = ?PUBCOMP_PACKET(1),
-    ?assertEqual(<<7:4,0:4,2,0,1>>, iolist_to_binary(serialize(Packet))),
-    ?assertEqual({ok, Packet, <<>>}, parse_serialize(Packet)).
+    Bin = serialize_to_binary(Packet),
+    ?assertEqual(<<7:4,0:4,2,0,1>>, Bin),
+    ?assertEqual(Packet, parse_serialize(Packet)).
 
 serialize_parse_pubcomp_v5(_) ->
     Packet = ?PUBCOMP_PACKET(16, ?RC_SUCCESS, #{'Reason-String' => <<"success">>}),
-    ?assertEqual({ok, Packet, <<>>},
-                 parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
 serialize_parse_subscribe(_) ->
     %% SUBSCRIBE(Q1, R0, D0, PacketId=2, TopicTable=[{<<"TopicA">>,2}])
     Bin = <<130,11,0,2,0,6,84,111,112,105,99,65,2>>,
-    TopicOpts = #{ nl => 0 , rap => 0, rc => 0,
-                      rh => 0, qos => 2 },
+    TopicOpts = #{nl => 0 , rap => 0, rc => 0, rh => 0, qos => 2},
     TopicFilters = [{<<"TopicA">>, TopicOpts}],
     Packet = ?SUBSCRIBE_PACKET(2, TopicFilters),
-    ?assertEqual(Bin, iolist_to_binary(serialize(Packet))),
-    ct:log("Bin: ~p, Packet: ~p ~n", [Packet, parse(Bin)]),
-    ?assertEqual({ok, Packet, <<>>}, parse(Bin)).
+    ?assertEqual(Bin, serialize_to_binary(Packet)),
+    %%ct:log("Bin: ~p, Packet: ~p ~n", [Packet, parse(Bin)]),
+    ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).
 
 serialize_parse_subscribe_v5(_) ->
     TopicFilters = [{<<"TopicQos0">>, #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0}},
                     {<<"TopicQos1">>, #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0}}],
-    Packet = ?SUBSCRIBE_PACKET(3, #{'Subscription-Identifier' => 16#FFFFFFF},
-                               TopicFilters),
-    ?assertEqual({ok, Packet, <<>>},
-                 parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+    Packet = ?SUBSCRIBE_PACKET(3, #{'Subscription-Identifier' => 16#FFFFFFF}, TopicFilters),
+    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
 serialize_parse_suback(_) ->
     Packet = ?SUBACK_PACKET(10, [?QOS_0, ?QOS_1, 128]),
-    ?assertEqual({ok, Packet, <<>>}, parse_serialize(Packet)).
+    ?assertEqual(Packet, parse_serialize(Packet)).
 
 serialize_parse_suback_v5(_) ->
     Packet = ?SUBACK_PACKET(1, #{'Reason-String' => <<"success">>,
                                  'User-Property' => [{<<"key">>, <<"value">>}]},
                             [?QOS_0, ?QOS_1, 128]),
-    ?assertEqual({ok, Packet, <<>>},
-                 parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
-
+    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
 serialize_parse_unsubscribe(_) ->
     %% UNSUBSCRIBE(Q1, R0, D0, PacketId=2, TopicTable=[<<"TopicA">>])
     Packet = ?UNSUBSCRIBE_PACKET(2, [<<"TopicA">>]),
     Bin = <<162,10,0,2,0,6,84,111,112,105,99,65>>,
-    ?assertEqual(Bin, iolist_to_binary(serialize(Packet))),
-    ?assertEqual({ok, Packet, <<>>}, parse(Bin)).
+    ?assertEqual(Bin, serialize_to_binary(Packet)),
+    ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin)).
 
 serialize_parse_unsubscribe_v5(_) ->
     Props = #{'User-Property' => [{<<"key">>, <<"val">>}]},
     Packet = ?UNSUBSCRIBE_PACKET(10, Props, [<<"Topic1">>, <<"Topic2">>]),
-    ?assertEqual({ok, Packet, <<>>},
-                 parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
 serialize_parse_unsuback(_) ->
     Packet = ?UNSUBACK_PACKET(10),
-    ?assertEqual({ok, Packet, <<>>}, parse_serialize(Packet)).
+    ?assertEqual(Packet, parse_serialize(Packet)).
 
 serialize_parse_unsuback_v5(_) ->
     Packet = ?UNSUBACK_PACKET(10, #{'Reason-String' => <<"Not authorized">>,
                                     'User-Property' => [{<<"key">>, <<"val">>}]},
                               [16#87, 16#87, 16#87]),
-    ?assertEqual({ok, Packet, <<>>},
-                 parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
 serialize_parse_pingreq(_) ->
     PingReq = ?PACKET(?PINGREQ),
-    ?assertEqual({ok, PingReq, <<>>}, parse_serialize(PingReq)).
+    ?assertEqual(PingReq, parse_serialize(PingReq)).
 
 serialize_parse_pingresp(_) ->
     PingResp = ?PACKET(?PINGRESP),
-    ?assertEqual({ok, PingResp, <<>>}, parse_serialize(PingResp)).
+    ?assertEqual(PingResp, parse_serialize(PingResp)).
 
 parse_disconnect(_) ->
-    ?assertEqual({ok, ?DISCONNECT_PACKET(?RC_SUCCESS), <<>>}, parse(<<224, 0>>)).
+    Packet = ?DISCONNECT_PACKET(?RC_SUCCESS),
+    ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(<<224, 0>>)).
 
 serialize_parse_disconnect(_) ->
     Packet = ?DISCONNECT_PACKET(?RC_SUCCESS),
-    ?assertEqual({ok, Packet, <<>>}, parse_serialize(Packet)).
+    ?assertEqual(Packet, parse_serialize(Packet)).
 
 serialize_parse_disconnect_v5(_) ->
     Packet = ?DISCONNECT_PACKET(?RC_SUCCESS,
                                 #{'Session-Expiry-Interval' => 60,
-                                  'Reason-String'           => <<"server_moved">>,
-                                  'Server-Reference'        => <<"192.168.1.10">>}),
-    ?assertEqual({ok, Packet, <<>>},
-                 parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+                                  'Reason-String' => <<"server_moved">>,
+                                  'Server-Reference' => <<"192.168.1.10">>
+                                 }),
+    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
 serialize_parse_auth_v5(_) ->
     Packet = ?AUTH_PACKET(?RC_SUCCESS,
                           #{'Authentication-Method' => <<"oauth2">>,
-                            'Authentication-Data'   => <<"3zekkd">>,
-                            'Reason-String'         => <<"success">>,
-                            'User-Property'         => [{<<"key">>, <<"val">>}]}),
-    ?assertEqual({ok, Packet, <<>>},
-                 parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+                            'Authentication-Data' => <<"3zekkd">>,
+                            'Reason-String' => <<"success">>,
+                            'User-Property' => [{<<"key">>, <<"val">>}]
+                           }),
+    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 
 parse_serialize(Packet) ->
-    parse(iolist_to_binary(serialize(Packet))).
+    parse_serialize(Packet, #{}).
 
 parse_serialize(Packet, Opts) when is_map(Opts) ->
-    parse(iolist_to_binary(serialize(Packet, Opts)), Opts).
+    Bin = iolist_to_binary(emqx_frame:serialize(Packet, Opts)),
+    ParseState = emqx_frame:initial_parse_state(Opts),
+    {ok, NPacket, <<>>, _} = emqx_frame:parse(Bin, ParseState),
+    NPacket.
 
-parse(Bin) ->
-    parse(Bin, #{}).
-
-parse(Bin, Opts) when is_map(Opts) ->
-    emqx_frame:parse(Bin, emqx_frame:initial_state(Opts)).
+serialize_to_binary(Packet) ->
+    iolist_to_binary(emqx_frame:serialize(Packet)).
 
 payload() ->
     iolist_to_binary(["payload." || _I <- lists:seq(1, 1000)]).
+

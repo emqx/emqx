@@ -11,8 +11,8 @@ CT_SUITES = emqx emqx_client emqx_zone emqx_banned emqx_session \
 			emqx_mqtt_props emqx_mqueue emqx_net emqx_pqueue emqx_router emqx_sm \
 			emqx_tables emqx_time emqx_topic emqx_trie emqx_vm emqx_mountpoint \
 			emqx_listeners emqx_protocol emqx_pool emqx_shared_sub emqx_bridge \
-			emqx_hooks emqx_batch emqx_sequence emqx_pmon emqx_pd emqx_gc emqx_ws_connection \
-			emqx_packet emqx_connection emqx_tracer emqx_sys_mon emqx_message emqx_os_mon \
+			emqx_hooks emqx_batch emqx_sequence emqx_pmon emqx_pd emqx_gc emqx_ws_channel \
+			emqx_packet emqx_channel emqx_tracer emqx_sys_mon emqx_message emqx_os_mon \
             emqx_vm_mon emqx_alarm_handler emqx_rpc emqx_flapping
 
 CT_NODE_NAME = emqxct@127.0.0.1
@@ -45,8 +45,8 @@ deps:
 eunit:
 	@rebar3 eunit -v
 
-.PHONY: ct-setup
-ct-setup:
+.PHONY: ct_setup
+ct_setup:
 	rebar3 as test compile
 	@mkdir -p data
 	@if [ ! -f data/loaded_plugins ]; then touch data/loaded_plugins; fi
@@ -54,14 +54,14 @@ ct-setup:
 	@ln -s -f '../../../../data' _build/test/lib/emqx/
 
 .PHONY: ct
-ct: ct-setup
+ct: ct_setup
 	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(shell echo $(foreach var,$(CT_SUITES),test/$(var)_SUITE) | tr ' ' ',')
 
 ## Run one single CT with rebar3
 ## e.g. make ct-one-suite suite=emqx_bridge
-.PHONY: ct-one-suite
-ct-one-suite: ct-setup
-	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(suite)_SUITE
+.PHONY: $(SUITES:%=ct-%)
+$(CT_SUITES:%=ct-%): ct_setup
+	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(@:ct-%=%)_SUITE
 
 .PHONY: app.config
 app.config: $(CUTTLEFISH_SCRIPT) etc/gen.emqx.conf

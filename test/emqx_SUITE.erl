@@ -110,7 +110,7 @@ mqtt_connect_with_tcp(_) ->
     Packet = raw_send_serialize(?CLIENT2),
     emqx_client_sock:send(Sock, Packet),
     {ok, Data} = gen_tcp:recv(Sock, 0),
-    {ok, ?CONNACK_PACKET(?CONNACK_INVALID_ID), _} = raw_recv_pase(Data),
+    {ok, ?CONNACK_PACKET(?CONNACK_INVALID_ID), <<>>, _} = raw_recv_pase(Data),
     emqx_client_sock:close(Sock).
 
 mqtt_connect_with_will_props(_) ->
@@ -133,7 +133,7 @@ mqtt_connect_with_ssl_oneway(_) ->
     emqx_client_sock:send(Sock, Packet),
     ?assert(
     receive {ssl, _, ConAck}->
-        {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(ConAck), true
+        {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), <<>>, _} = raw_recv_pase(ConAck), true
     after 1000 ->
         false
     end),
@@ -152,7 +152,7 @@ mqtt_connect_with_ssl_twoway(_Config) ->
     timer:sleep(500),
     ?assert(
     receive {ssl, _, Data}->
-        {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(Data), true
+        {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), <<>>, _} = raw_recv_pase(Data), true
     after 1000 ->
         false
     end),
@@ -167,19 +167,19 @@ mqtt_connect_with_ws(_Config) ->
     Packet = raw_send_serialize(?CLIENT),
     ok = rfc6455_client:send_binary(WS, Packet),
     {binary, CONACK} = rfc6455_client:recv(WS),
-    {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(CONACK),
+    {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), <<>>, _} = raw_recv_pase(CONACK),
 
     %% Sub Packet
     SubPacket = raw_send_serialize(?SUBPACKET),
     rfc6455_client:send_binary(WS, SubPacket),
     {binary, SubAck} = rfc6455_client:recv(WS),
-    {ok, ?SUBACK_PACKET(?PACKETID, ?SUBCODE), _} = raw_recv_pase(SubAck),
+    {ok, ?SUBACK_PACKET(?PACKETID, ?SUBCODE), <<>>, _} = raw_recv_pase(SubAck),
 
     %% Pub Packet QoS 1
     PubPacket = raw_send_serialize(?PUBPACKET),
     rfc6455_client:send_binary(WS, PubPacket),
     {binary, PubAck} = rfc6455_client:recv(WS),
-    {ok, ?PUBACK_PACKET(?PACKETID), _} = raw_recv_pase(PubAck),
+    {ok, ?PUBACK_PACKET(?PACKETID), <<>>, _} = raw_recv_pase(PubAck),
     {close, _} = rfc6455_client:close(WS),
     ok.
 
@@ -189,18 +189,18 @@ packet_size(_Config) ->
     Packet = raw_send_serialize(?CLIENT),
     emqx_client_sock:send(Sock, Packet),
     {ok, Data} = gen_tcp:recv(Sock, 0),
-    {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), _} = raw_recv_pase(Data),
+    {ok, ?CONNACK_PACKET(?CONNACK_ACCEPT), <<>>, _} = raw_recv_pase(Data),
 
     %% Pub Packet QoS 1
     PubPacket = raw_send_serialize(?BIG_PUBPACKET),
     emqx_client_sock:send(Sock, PubPacket),
     {ok, Data1} = gen_tcp:recv(Sock, 0),
-    {ok, ?PUBACK_PACKET(?PACKETID), _} = raw_recv_pase(Data1),
+    {ok, ?PUBACK_PACKET(?PACKETID), <<>>, _} = raw_recv_pase(Data1),
     emqx_client_sock:close(Sock).
 
 raw_send_serialize(Packet) ->
     emqx_frame:serialize(Packet).
 
-raw_recv_pase(P) ->
-    emqx_frame:parse(P, {none, #{max_packet_size => ?MAX_PACKET_SIZE,
-                                 version         => ?MQTT_PROTO_V4} }).
+raw_recv_pase(Bin) ->
+    emqx_frame:parse(Bin).
+

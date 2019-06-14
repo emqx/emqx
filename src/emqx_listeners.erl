@@ -73,7 +73,7 @@ start_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
 start_mqtt_listener(Name, ListenOn, Options) ->
     SockOpts = esockd:parse_opt(Options),
     esockd:open(Name, ListenOn, merge_default(SockOpts),
-                {emqx_connection, start_link, [Options -- SockOpts]}).
+                {emqx_channel, start_link, [Options -- SockOpts]}).
 
 start_http_listener(Start, Name, ListenOn, RanchOpts, ProtoOpts) ->
     Start(Name, with_port(ListenOn, RanchOpts), ProtoOpts).
@@ -82,7 +82,7 @@ mqtt_path(Options) ->
     proplists:get_value(mqtt_path, Options, "/mqtt").
 
 ws_opts(Options) ->
-    Dispatch = cowboy_router:compile([{'_', [{mqtt_path(Options), emqx_ws_connection, Options}]}]),
+    Dispatch = cowboy_router:compile([{'_', [{mqtt_path(Options), emqx_ws_channel, Options}]}]),
     #{env => #{dispatch => Dispatch}, proxy_header => proplists:get_value(proxy_protocol, Options, false)}.
 
 ranch_opts(Options) ->
