@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_protocol).
 
@@ -18,24 +20,24 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 
--export([ init/2
-        , info/1
+-export([ info/1
         , attrs/1
         , attr/2
         , caps/1
+        , caps/2
         , stats/1
         , client_id/1
         , credentials/1
-        , parser/1
         , session/1
+        ]).
+
+-export([ init/2
         , received/2
         , process/2
         , deliver/2
         , send/2
         , terminate/2
         ]).
-
--export_type([state/0]).
 
 -record(pstate, {
           zone,
@@ -69,6 +71,8 @@
         }).
 
 -opaque(state() :: #pstate{}).
+
+-export_type([state/0]).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -168,6 +172,8 @@ attrs(#pstate{zone         = Zone,
      , credentials => Credentials
      }.
 
+attr(proto_ver, #pstate{proto_ver = ProtoVer}) ->
+    ProtoVer;
 attr(max_inflight, #pstate{proto_ver = ?MQTT_PROTO_V5, conn_props = ConnProps}) ->
     get_property('Receive-Maximum', ConnProps, 65535);
 attr(max_inflight, #pstate{zone = Zone}) ->
@@ -189,6 +195,9 @@ attr(Name, PState) ->
         {_, Value} -> Value;
         false -> undefined
     end.
+
+caps(Name, PState) ->
+    maps:get(Name, caps(PState)).
 
 caps(#pstate{zone = Zone}) ->
     emqx_mqtt_caps:get_caps(Zone).
@@ -231,10 +240,6 @@ stats(#pstate{recv_stats = #{pkt := RecvPkt, msg := RecvMsg},
 
 session(#pstate{session = SPid}) ->
     SPid.
-
-parser(#pstate{zone = Zone, proto_ver = Ver}) ->
-    Size = emqx_zone:get_env(Zone, max_packet_size),
-    emqx_frame:initial_state(#{max_packet_size => Size, version => Ver}).
 
 %%------------------------------------------------------------------------------
 %% Packet Received
