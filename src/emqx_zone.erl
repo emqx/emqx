@@ -20,6 +20,8 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-logger_header("[Zone]").
+
 %% APIs
 -export([start_link/0]).
 
@@ -96,7 +98,7 @@ handle_call(force_reload, _From, State) ->
     {reply, ok, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "[Zone] Unexpected call: ~p", [Req]),
+    ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({set_env, Zone, Key, Val}, State) ->
@@ -104,11 +106,11 @@ handle_cast({set_env, Zone, Key, Val}, State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "[Zone] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "[Zone] Unexpected info: ~p", [Info]),
+    ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

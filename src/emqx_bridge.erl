@@ -113,6 +113,8 @@
 -include("logger.hrl").
 -include("emqx_mqtt.hrl").
 
+-logger_header("[Bridge]").
+
 %% same as default in-flight limit for emqx_client
 -define(DEFAULT_BATCH_COUNT, 32).
 -define(DEFAULT_BATCH_BYTES, 1 bsl 20).
@@ -304,7 +306,7 @@ standing_by({call, From}, ensure_started, State) ->
 standing_by(state_timeout, do_connect, State) ->
     {next_state, connecting, State};
 standing_by(info, Info, State) ->
-    ?LOG(info, "[Bridge] Bridge ~p discarded info event at state standing_by:\n~p", [name(), Info]),
+    ?LOG(info, "Bridge ~p discarded info event at state standing_by:\n~p", [name(), Info]),
     {keep_state_and_data, State};
 standing_by(Type, Content, State) ->
     common(standing_by, Type, Content, State).
@@ -360,7 +362,7 @@ connected(info, {disconnected, ConnRef, Reason},
           #{conn_ref := ConnRefCurrent} = State) ->
     case ConnRefCurrent =:= ConnRef of
         true ->
-            ?LOG(info, "[Bridge] Bridge ~p diconnected~nreason=~p", [name(), Reason]),
+            ?LOG(info, "Bridge ~p diconnected~nreason=~p", [name(), Reason]),
             {next_state, connecting,
              State#{conn_ref => undefined, connection => undefined}};
         false ->
@@ -372,7 +374,7 @@ connected(info, {batch_ack, Ref}, State) ->
             keep_state_and_data;
         bad_order ->
             %% try re-connect then re-send
-            ?LOG(error, "[Bridge] Bad order ack received by bridge ~p", [name()]),
+            ?LOG(error, "Bad order ack received by bridge ~p", [name()]),
             {next_state, connecting, disconnect(State)};
         {ok, NewState} ->
             {keep_state, NewState, ?maybe_send}
@@ -403,7 +405,7 @@ common(_StateName, info, {dispatch, _, Msg},
     NewQ = replayq:append(Q, collect([Msg])),
     {keep_state, State#{replayq => NewQ}, ?maybe_send};
 common(StateName, Type, Content, State) ->
-    ?LOG(notice, "[Bridge] Bridge ~p discarded ~p type event at state ~p:\n~p",
+    ?LOG(notice, "Bridge ~p discarded ~p type event at state ~p:\n~p",
           [name(), Type, StateName, Content]),
     {keep_state, State}.
 
@@ -459,7 +461,7 @@ do_connect(Type, StateName, #{ forwards := Forwards
               end,
     case ConnectFun(Subs) of
         {ok, ConnRef, Conn} ->
-            ?LOG(info, "[Bridge] Bridge ~p connected", [name()]),
+            ?LOG(info, "Bridge ~p connected", [name()]),
             State0 = State#{conn_ref => ConnRef, connection => Conn},
             State1 = eval_bridge_handler(State0, connected),
             StandingbyAction = {next_state, connected, State1, [{reply, From, ok}]},
@@ -515,7 +517,7 @@ retry_inflight(#{inflight := Inflight} = State,
         {ok, NewState} ->
             retry_inflight(NewState, T);
         {error, Reason} ->
-            ?LOG(error, "[Bridge] Inflight retry failed\n~p", [Reason]),
+            ?LOG(error, "Inflight retry failed\n~p", [Reason]),
             {error, State#{inflight := Inflight ++ Remain}}
     end.
 
@@ -546,7 +548,7 @@ do_send(State = #{inflight := Inflight}, QAckRef, [_ | _] = Batch) ->
                                          batch => Batch}],
             {ok, State#{inflight := NewInflight}};
         {error, Reason} ->
-            ?LOG(info, "[Bridge] Batch produce failed\n~p", [Reason]),
+            ?LOG(info, "Batch produce failed\n~p", [Reason]),
             {error, State}
     end.
 

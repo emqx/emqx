@@ -20,6 +20,8 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-logger_header("[CM]").
+
 -export([start_link/0]).
 
 -export([ register_connection/1
@@ -159,7 +161,7 @@ init([]) ->
     {ok, #{conn_pmon => emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "[CM] Unexpected call: ~p", [Req]),
+    ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({notify, {registered, ClientId, ConnPid}}, State = #{conn_pmon := PMon}) ->
@@ -169,7 +171,7 @@ handle_cast({notify, {unregistered, ConnPid}}, State = #{conn_pmon := PMon}) ->
     {noreply, State#{conn_pmon := emqx_pmon:demonitor(ConnPid, PMon)}};
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "[CM] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{conn_pmon := PMon}) ->
@@ -180,7 +182,7 @@ handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{conn_pmon := PMon}
     {noreply, State#{conn_pmon := PMon1}};
 
 handle_info(Info, State) ->
-    ?LOG(error, "[CM] Unexpected info: ~p", [Info]),
+    ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

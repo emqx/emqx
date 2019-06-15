@@ -20,6 +20,8 @@
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
 
+-logger_header("[Metrics]").
+
 -export([ start_link/0
         , stop/0
         ]).
@@ -357,13 +359,13 @@ init([]) ->
     {ok, #state{next_idx = ?RESERVED_IDX + 1}, hibernate}.
 
 handle_call({create, Type, Name}, _From, State = #state{next_idx = ?MAX_SIZE}) ->
-    ?LOG(error, "[Metrics] Failed to create ~s:~s for index exceeded.", [Type, Name]),
+    ?LOG(error, "Failed to create ~s:~s for index exceeded.", [Type, Name]),
     {reply, {error, metric_index_exceeded}, State};
 
 handle_call({create, Type, Name}, _From, State = #state{next_idx = NextIdx}) ->
     case ets:lookup(?TAB, Name) of
         [#metric{idx = Idx}] ->
-            ?LOG(warning, "[Metrics] ~s already exists.", [Name]),
+            ?LOG(warning, "~s already exists.", [Name]),
             {reply, {ok, Idx}, State};
         [] ->
             Metric = #metric{name = Name, type = Type, idx = NextIdx},
@@ -372,15 +374,15 @@ handle_call({create, Type, Name}, _From, State = #state{next_idx = NextIdx}) ->
     end;
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "[Metrics] Unexpected call: ~p", [Req]),
+    ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "[Metrics] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "[Metrics] Unexpected info: ~p", [Info]),
+    ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

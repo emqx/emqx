@@ -19,6 +19,8 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-logger_header("[Pool]").
+
 %% APIs
 -export([start_link/2]).
 
@@ -97,22 +99,22 @@ handle_call({submit, Task}, _From, State) ->
     {reply, catch run(Task), State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "[Pool] Unexpected call: ~p", [Req]),
+    ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({async_submit, Task}, State) ->
     try run(Task)
     catch _:Error:Stacktrace ->
-        ?LOG(error, "[Pool] Error: ~p, ~p", [Error, Stacktrace])
+        ?LOG(error, "Error: ~p, ~p", [Error, Stacktrace])
     end,
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "[Pool] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "[Pool] Unexpected info: ~p", [Info]),
+    ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->

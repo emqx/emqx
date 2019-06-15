@@ -20,6 +20,8 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-logger_header("[Banned]").
+
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
@@ -88,11 +90,11 @@ init([]) ->
     {ok, ensure_expiry_timer(#{expiry_timer => undefined})}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "[Banned] unexpected call: ~p", [Req]),
+    ?LOG(error, "unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "[Banned] unexpected msg: ~p", [Msg]),
+    ?LOG(error, "unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
@@ -100,7 +102,7 @@ handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
     {noreply, ensure_expiry_timer(State), hibernate};
 
 handle_info(Info, State) ->
-    ?LOG(error, "[Banned] unexpected info: ~p", [Info]),
+    ?LOG(error, "unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{expiry_timer := TRef}) ->
