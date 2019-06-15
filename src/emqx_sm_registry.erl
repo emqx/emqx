@@ -20,6 +20,8 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-logger_header("[Registry]").
+
 -export([start_link/0]).
 
 -export([ is_enabled/0
@@ -96,11 +98,11 @@ init([]) ->
     {ok, #{}}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "[Registry] Unexpected call: ~p", [Req]),
+    ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "[Registry] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({membership, {mnesia, down, Node}}, State) ->
@@ -114,7 +116,7 @@ handle_info({membership, _Event}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    ?LOG(error, "[Registry] Unexpected info: ~p", [Info]),
+    ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

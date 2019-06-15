@@ -20,6 +20,8 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-logger_header("[Router Helper]").
+
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
@@ -103,11 +105,11 @@ init([]) ->
     {ok, #{nodes => Nodes}, hibernate}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "[Router Helper] Unexpected call: ~p", [Req]),
+    ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "[Router Helper] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({mnesia_table_event, {write, {?ROUTING_NODE, Node, _}, _}}, State = #{nodes := Nodes}) ->
@@ -123,7 +125,7 @@ handle_info({mnesia_table_event, {delete, {?ROUTING_NODE, _Node}, _}}, State) ->
     {noreply, State};
 
 handle_info({mnesia_table_event, Event}, State) ->
-    ?LOG(error, "[Router Helper] Unexpected mnesia_table_event: ~p", [Event]),
+    ?LOG(error, "Unexpected mnesia_table_event: ~p", [Event]),
     {noreply, State};
 
 handle_info({nodedown, Node}, State = #{nodes := Nodes}) ->
@@ -141,7 +143,7 @@ handle_info({membership, _Event}, State) ->
     {noreply, State};
 
 handle_info(Info, State) ->
-    ?LOG(error, "[Route Helper] Unexpected info: ~p", [Info]),
+    ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

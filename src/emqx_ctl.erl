@@ -18,6 +18,8 @@
 
 -include("logger.hrl").
 
+-logger_header("[Ctl]").
+
 -export([start_link/0]).
 
 -export([ register_command/2
@@ -79,7 +81,7 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
                 _ -> ok
             catch
                 _:Reason:Stacktrace ->
-                    ?ERROR("[Ctl] CMD Error:~p, Stacktrace:~p", [Reason, Stacktrace]),
+                    ?ERROR("CMD Error:~p, Stacktrace:~p", [Reason, Stacktrace]),
                     {error, Reason}
             end;
         [] ->
@@ -107,14 +109,14 @@ init([]) ->
     {ok, #state{seq = 0}}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "[Ctl] Unexpected call: ~p", [Req]),
+    ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({register_command, Cmd, MF, Opts}, State = #state{seq = Seq}) ->
     case ets:match(?TAB, {{'$1', Cmd}, '_', '_'}) of
         [] -> ets:insert(?TAB, {{Seq, Cmd}, MF, Opts});
         [[OriginSeq] | _] ->
-            ?LOG(warning, "[Ctl] CMD ~s is overidden by ~p", [Cmd, MF]),
+            ?LOG(warning, "CMD ~s is overidden by ~p", [Cmd, MF]),
             ets:insert(?TAB, {{OriginSeq, Cmd}, MF, Opts})
     end,
     noreply(next_seq(State));
@@ -124,11 +126,11 @@ handle_cast({unregister_command, Cmd}, State) ->
     noreply(State);
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "[Ctl] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "Unexpected cast: ~p", [Msg]),
     noreply(State).
 
 handle_info(Info, State) ->
-    ?LOG(error, "[Ctl] Unexpected info: ~p", [Info]),
+    ?LOG(error, "Unexpected info: ~p", [Info]),
     noreply(State).
 
 terminate(_Reason, _State) ->

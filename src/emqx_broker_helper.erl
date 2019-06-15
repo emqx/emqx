@@ -19,6 +19,8 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-logger_header("[Broker Helper]").
+
 -export([start_link/0]).
 
 %% APIs
@@ -110,7 +112,7 @@ init([]) ->
     {ok, #{pmon => emqx_pmon:new()}}.
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "[Broker Helper] Unexpected call: ~p", [Req]),
+    ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({register_sub, SubPid, SubId}, State = #{pmon := PMon}) ->
@@ -119,7 +121,7 @@ handle_cast({register_sub, SubPid, SubId}, State = #{pmon := PMon}) ->
     {noreply, State#{pmon := emqx_pmon:monitor(SubPid, PMon)}};
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "[Broker Helper] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #{pmon := PMon}) ->
@@ -130,7 +132,7 @@ handle_info({'DOWN', _MRef, process, SubPid, _Reason}, State = #{pmon := PMon}) 
     {noreply, State#{pmon := PMon1}};
 
 handle_info(Info, State) ->
-    ?LOG(error, "[Broker Helper] Unexpected info: ~p", [Info]),
+    ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->

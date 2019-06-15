@@ -31,6 +31,8 @@
 
 -include("logger.hrl").
 
+-logger_header("[Bridge Connect]").
+
 %% establish the connection to remote node/cluster
 %% protal worker (the caller process) should be expecting
 %% a message {disconnected, conn_ref()} when disconnected.
@@ -54,7 +56,7 @@ start(Module, Config) ->
             {ok, Ref, Conn};
         {error, Reason} ->
             Config1 = obfuscate(Config),
-            ?LOG(error, "[Bridge connect] Failed to connect with module=~p\n"
+            ?LOG(error, "Failed to connect with module=~p\n"
                  "config=~p\nreason:~p", [Module, Config1, Reason]),
             {error, Reason}
     end.

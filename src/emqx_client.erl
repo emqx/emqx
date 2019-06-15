@@ -22,6 +22,8 @@
 -include("types.hrl").
 -include("emqx_client.hrl").
 
+-logger_header("[Client]").
+
 -export([ start_link/0
         , start_link/1
         ]).
@@ -794,10 +796,10 @@ connected(cast, ?PUBREC_PACKET(PacketId), State = #state{inflight = Inflight}) -
                         Inflight1 = emqx_inflight:update(PacketId, {pubrel, PacketId, os:timestamp()}, Inflight),
                         State#state{inflight = Inflight1};
                     {value, {pubrel, _Ref, _Ts}} ->
-                        ?LOG(notice, "[Client] Duplicated PUBREC Packet: ~p", [PacketId]),
+                        ?LOG(notice, "Duplicated PUBREC Packet: ~p", [PacketId]),
                         State;
                     none ->
-                        ?LOG(warning, "[Client] Unexpected PUBREC Packet: ~p", [PacketId]),
+                        ?LOG(warning, "Unexpected PUBREC Packet: ~p", [PacketId]),
                         State
                 end);
 
@@ -812,7 +814,7 @@ connected(cast, ?PUBREL_PACKET(PacketId),
                  false -> {keep_state, NewState}
              end;
          error ->
-             ?LOG(warning, "[Client] Unexpected PUBREL: ~p", [PacketId]),
+             ?LOG(warning, "Unexpected PUBREL: ~p", [PacketId]),
              keep_state_and_data
      end;
 
@@ -911,37 +913,37 @@ handle_event({call, From}, stop, _StateName, _State) ->
     {stop_and_reply, normal, [{reply, From, ok}]};
 handle_event(info, {TcpOrSsL, _Sock, Data}, _StateName, State)
     when TcpOrSsL =:= tcp; TcpOrSsL =:= ssl ->
-    ?LOG(debug, "[Client] RECV Data: ~p", [Data]),
+    ?LOG(debug, "RECV Data: ~p", [Data]),
     process_incoming(Data, [], run_sock(State));
 
 handle_event(info, {Error, _Sock, Reason}, _StateName, State)
     when Error =:= tcp_error; Error =:= ssl_error ->
-    ?LOG(error, "[Client] The connection error occured ~p, reason:~p", [Error, Reason]),
+    ?LOG(error, "The connection error occured ~p, reason:~p", [Error, Reason]),
     {stop, {shutdown, Reason}, State};
 
 handle_event(info, {Closed, _Sock}, _StateName, State)
     when Closed =:= tcp_closed; Closed =:= ssl_closed ->
-    ?LOG(debug, "[Client] ~p", [Closed]),
+    ?LOG(debug, "~p", [Closed]),
     {stop, {shutdown, Closed}, State};
 
 handle_event(info, {'EXIT', Owner, Reason}, _, State = #state{owner = Owner}) ->
-    ?LOG(debug, "[Client] Got EXIT from owner, Reason: ~p", [Reason]),
+    ?LOG(debug, "Got EXIT from owner, Reason: ~p", [Reason]),
     {stop, {shutdown, Reason}, State};
 
 handle_event(info, {inet_reply, _Sock, ok}, _, _State) ->
     keep_state_and_data;
 
 handle_event(info, {inet_reply, _Sock, {error, Reason}}, _, State) ->
-    ?LOG(error, "[Client] Got tcp error: ~p", [Reason]),
+    ?LOG(error, "Got tcp error: ~p", [Reason]),
     {stop, {shutdown, Reason}, State};
 
 handle_event(info, EventContent = {'EXIT', _Pid, normal}, StateName, _State) ->
-    ?LOG(info, "[Client] State: ~s, Unexpected Event: (info, ~p)",
+    ?LOG(info, "State: ~s, Unexpected Event: (info, ~p)",
          [StateName, EventContent]),
     keep_state_and_data;
 
 handle_event(EventType, EventContent, StateName, _StateData) ->
-    ?LOG(error, "[Client] State: ~s, Unexpected Event: (~p, ~p)",
+    ?LOG(error, "State: ~s, Unexpected Event: (~p, ~p)",
          [StateName, EventType, EventContent]),
     keep_state_and_data.
 
@@ -984,7 +986,7 @@ delete_inflight(?PUBACK_PACKET(PacketId, ReasonCode, Properties),
                                                    properties  => Properties}),
             State#state{inflight = emqx_inflight:delete(PacketId, Inflight)};
         none ->
-            ?LOG(warning, "[Client] Unexpected PUBACK: ~p", [PacketId]),
+            ?LOG(warning, "Unexpected PUBACK: ~p", [PacketId]),
             State
     end;
 delete_inflight(?PUBCOMP_PACKET(PacketId, ReasonCode, Properties),
@@ -996,7 +998,7 @@ delete_inflight(?PUBCOMP_PACKET(PacketId, ReasonCode, Properties),
                                                    properties  => Properties}),
             State#state{inflight = emqx_inflight:delete(PacketId, Inflight)};
         none ->
-            ?LOG(warning, "[Client] Unexpected PUBCOMP Packet: ~p", [PacketId]),
+            ?LOG(warning, "Unexpected PUBCOMP Packet: ~p", [PacketId]),
             State
      end.
 
@@ -1200,7 +1202,7 @@ send(Msg, State) when is_record(Msg, mqtt_msg) ->
 send(Packet, State = #state{socket = Sock, proto_ver = Ver})
     when is_record(Packet, mqtt_packet) ->
     Data = emqx_frame:serialize(Packet, #{version => Ver}),
-    ?LOG(debug, "[Client] SEND Data: ~1000p", [Packet]),
+    ?LOG(debug, "SEND Data: ~1000p", [Packet]),
     case emqx_client_sock:send(Sock, Data) of
         ok  -> {ok, bump_last_packet_id(State)};
         Error -> Error
