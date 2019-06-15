@@ -19,7 +19,7 @@
 
 -behaviour(gen_statem).
 
--export([start_link/1]).
+-export([start_link/0]).
 
 %% This module is used to garbage clean the flapping records
 
@@ -32,6 +32,8 @@
         ]).
 
 -define(FLAPPING_TAB, ?MODULE).
+
+-define(default_flapping_clean_interval, 3600000).
 
 -export([check/3]).
 
@@ -96,11 +98,12 @@ check_flapping(Action, CheckCount, _Threshold = {TimesThreshold, TimeInterval},
 %%--------------------------------------------------------------------
 %% gen_statem callbacks
 %%--------------------------------------------------------------------
--spec(start_link(TimerInterval :: [integer()]) -> startlink_ret()).
-start_link(TimerInterval) ->
-    gen_statem:start_link({local, ?MODULE}, ?MODULE, [TimerInterval], []).
+-spec(start_link() -> startlink_ret()).
+start_link() ->
+    gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-init([TimerInterval]) ->
+init([]) ->
+    TimerInterval = emqx_config:get_env(flapping_clean_interval, ?default_flapping_clean_interval),
     TabOpts = [ public
               , set
               , {keypos, 2}
