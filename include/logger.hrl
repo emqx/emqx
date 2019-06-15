@@ -14,6 +14,8 @@
 
 %% debug | info | notice | warning | error | critical | alert | emergency
 
+-compile({parse_transform, emqx_logger}).
+
 -define(DEBUG(Format), ?LOG(debug, Format, [])).
 -define(DEBUG(Format, Args), ?LOG(debug, Format, Args)).
 
@@ -39,5 +41,5 @@
 
 -define(LOG(Level, Format, Args),
         begin
-          (logger:log(Level,#{},#{report_cb => fun(_) -> {(Format), (Args)} end}))
+          (logger:log(Level,#{},#{report_cb => fun(_) -> {'$logger_header'()++(Format), (Args)} end}))
         end).
