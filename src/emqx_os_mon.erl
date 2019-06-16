@@ -46,7 +46,7 @@
 -define(OS_MON, ?MODULE).
 
 -define(compat_windows(Expression), case os:type() of
-                                        windows -> ok;
+                                        {win32, nt} -> ok;
                                         _Unix -> Expression
                                     end).
 
