@@ -12,7 +12,7 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
--module(emqx_cm_sup).
+-module(emqx_sm_sup).
 
 -behaviour(supervisor).
 
@@ -24,26 +24,41 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Banned = #{id => banned,
-               start => {emqx_banned, start_link, []},
+    %% Session locker
+    Locker = #{id => locker,
+               start => {emqx_sm_locker, start_link, []},
                restart => permanent,
-               shutdown => 1000,
+               shutdown => 5000,
                type => worker,
-               modules => [emqx_banned]},
-    FlappingOption = emqx_config:get_env(flapping_clean_interval, 3600000),
-    Flapping = #{id => flapping,
-                 start => {emqx_flapping, start_link, [FlappingOption]},
+               modules => [emqx_sm_locker]
+              },
+    %% Session registry
+    Registry = #{id => registry,
+                 start => {emqx_sm_registry, start_link, []},
                  restart => permanent,
-                 shutdown => 1000,
+                 shutdown => 5000,
                  type => worker,
-                 modules => [emqx_flapping]},
+                 modules => [emqx_sm_registry]
+                },
+    %% Session Manager
     Manager = #{id => manager,
-                start => {emqx_cm, start_link, []},
+                start => {emqx_sm, start_link, []},
                 restart => permanent,
-                shutdown => 2000,
+                shutdown => 5000,
                 type => worker,
-                modules => [emqx_cm]},
-    SupFlags = #{strategy => one_for_one,
-                 intensity => 100,
-                 period => 10},
-    {ok, {SupFlags, [Banned, Manager, Flapping]}}.
+                modules => [emqx_sm]
+               },
+    %% Session Sup
+    SessSpec = #{start => {emqx_session, start_link, []},
+                 shutdown => brutal_kill,
+                 clean_down => fun emqx_sm:clean_down/1
+                },
+    SessionSup = #{id => session_sup,
+                   start => {emqx_session_sup, start_link, [SessSpec ]},
+                   restart => transient,
+                   shutdown => infinity,
+                   type => supervisor,
+                   modules => [emqx_session_sup]
+                  },
+    {ok, {{rest_for_one, 10, 3600}, [Locker, Registry, Manager, SessionSup]}}.
+
