@@ -30,6 +30,7 @@ start(_Type, _Args) ->
     print_banner(),
     ekka:start(),
     {ok, Sup} = emqx_sup:start_link(),
+    emqx_metrics:new('auth.mqtt.anonymous'),
     emqx_modules:load(),
     emqx_plugins:init(),
     emqx_plugins:load(),
