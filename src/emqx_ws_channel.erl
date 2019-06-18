@@ -148,8 +148,7 @@ websocket_init(#state{request = Req, options = Options}) ->
                        ?LOG(error, "Illegal cookie"),
                        undefined;
                    Error:Reason ->
-                       ?LOG(error,
-                            "Cookie is parsed failed, Error: ~p, Reason ~p",
+                       ?LOG(error, "Cookie is parsed failed, Error: ~p, Reason ~p",
                             [Error, Reason]),
                        undefined
                end,
@@ -346,3 +345,4 @@ shutdown(Reason, State) ->
 
 wsock_stats() ->
     [{Key, emqx_pd:get_counter(Key)} || Key <- ?SOCK_STATS].
+

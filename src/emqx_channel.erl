@@ -32,7 +32,10 @@
         , stats/1
         ]).
 
--export([kick/1]).
+-export([ kick/1
+        , discard/1
+        , takeover/1
+        ]).
 
 -export([session/1]).
 
@@ -136,6 +139,12 @@ stats(#state{transport = Transport,
 
 kick(CPid) ->
     call(CPid, kick).
+
+discard(CPid) ->
+    call(CPid, discard).
+
+takeover(CPid) ->
+    call(CPid, takeover).
 
 session(CPid) ->
     call(CPid, session).
@@ -285,6 +294,10 @@ handle({call, From}, stats, State) ->
 handle({call, From}, kick, State) ->
     ok = gen_statem:reply(From, ok),
     shutdown(kicked, State);
+
+handle({call, From}, discard, State) ->
+    ok = gen_statem:reply(From, ok),
+    shutdown(discard, State);
 
 handle({call, From}, session, State = #state{proto_state = ProtoState}) ->
     reply(From, emqx_protocol:session(ProtoState), State);

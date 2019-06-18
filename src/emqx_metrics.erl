@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_metrics).
 
@@ -145,9 +147,9 @@ start_link() ->
 stop() ->
     gen_server:stop(?SERVER).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Metrics API
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 -spec(new(metric_name()) -> ok).
 new(Name) ->
@@ -251,9 +253,9 @@ update_counter(Name, Value) ->
            end,
     counters:add(CRef, CIdx, Value).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Inc Received/Sent metrics
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 %% @doc Inc packets received.
 -spec(inc_recv(emqx_mqtt_types:packet()) -> ok).
@@ -339,9 +341,9 @@ do_inc_sent(?PACKET(?AUTH)) ->
 do_inc_sent(_Packet) ->
     ignore.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% gen_server callbacks
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 init([]) ->
     % Create counters array
@@ -391,9 +393,9 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 reserved_idx('bytes.received')               -> 01;
 reserved_idx('bytes.sent')                   -> 02;

@@ -1,3 +1,4 @@
+%%--------------------------------------------------------------------
 %% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,7 +12,9 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
+%%--------------------------------------------------------------------
 %% @doc Bridge works in two layers (1) batching layer (2) transport layer
 %% The `bridge' batching layer collects local messages in batches and sends over
 %% to remote MQTT node/cluster via `connetion' transport layer.
@@ -56,8 +59,10 @@
 %%
 %% NOTES:
 %% * Local messages are all normalised to QoS-1 when exporting to remote
+%%--------------------------------------------------------------------
 
 -module(emqx_bridge).
+
 -behaviour(gen_statem).
 
 %% APIs
