@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,9 +12,10 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
-%% @doc This module manages an opaque collection of statistics data used to
-%% force garbage collection on `self()' process when hitting thresholds.
+%% @doc This module manages an opaque collection of statistics data used
+%% to force garbage collection on `self()' process when hitting thresholds.
 %% Namely:
 %% (1) Total number of messages passed through
 %% (2) Total data volume passed through
@@ -85,9 +87,9 @@ reset(?GCS(St)) ->
 reset(undefined) ->
     undefined.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 -spec(dec(cnt | oct, pos_integer(), st()) -> {boolean(), st()}).
 dec(Key, Num, St) ->

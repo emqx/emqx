@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_inflight).
 
@@ -38,17 +40,18 @@
 -opaque(inflight() :: {?MODULE, max_size(), gb_trees:tree()}).
 
 -define(Inflight(Tree), {?MODULE, _MaxSize, Tree}).
+
 -define(Inflight(MaxSize, Tree), {?MODULE, MaxSize, (Tree)}).
 
 -export_type([inflight/0]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 -spec(new(non_neg_integer()) -> inflight()).
 new(MaxSize) when MaxSize >= 0 ->
-    {?MODULE, MaxSize, gb_trees:empty()}.
+    ?Inflight(MaxSize, gb_trees:empty()).
 
 -spec(contain(key(), inflight()) -> boolean()).
 contain(Key, ?Inflight(Tree)) ->

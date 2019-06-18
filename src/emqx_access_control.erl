@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_access_control).
 
@@ -22,9 +24,10 @@
         , reload_acl/0
         ]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
+
 -spec(authenticate(emqx_types:credentials())
       -> {ok, emqx_types:credentials()} | {error, term()}).
 authenticate(Credentials) ->
@@ -36,7 +39,8 @@ authenticate(Credentials) ->
 	end.
 
 %% @doc Check ACL
--spec(check_acl(emqx_types:credentials(), emqx_types:pubsub(), emqx_types:topic()) -> allow | deny).
+-spec(check_acl(emqx_types:credentials(), emqx_types:pubsub(), emqx_types:topic())
+      -> allow | deny).
 check_acl(Credentials, PubSub, Topic) ->
     case emqx_acl_cache:is_enabled() of
         false ->
@@ -47,8 +51,7 @@ check_acl(Credentials, PubSub, Topic) ->
                     AclResult = do_check_acl(Credentials, PubSub, Topic),
                     emqx_acl_cache:put_acl_cache(PubSub, Topic, AclResult),
                     AclResult;
-                AclResult ->
-                    AclResult
+                AclResult -> AclResult
             end
     end.
 

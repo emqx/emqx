@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_router).
 
@@ -66,9 +68,9 @@
 
 -define(ROUTE, emqx_route).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Mnesia bootstrap
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?ROUTE, [
@@ -81,18 +83,18 @@ mnesia(boot) ->
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?ROUTE).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Start a router
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 -spec(start_link(atom(), pos_integer()) -> startlink_ret()).
 start_link(Pool, Id) ->
     gen_server:start_link({local, emqx_misc:proc_name(?MODULE, Id)},
                           ?MODULE, [Pool, Id], [{hibernate_after, 1000}]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Route APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 -spec(add_route(emqx_topic:topic()) -> ok | {error, term()}).
 add_route(Topic) when is_binary(Topic) ->
@@ -181,9 +183,9 @@ call(Router, Msg) ->
 pick(Topic) ->
     gproc_pool:pick_worker(router_pool, Topic).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% gen_server callbacks
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
@@ -215,9 +217,9 @@ terminate(_Reason, #{pool := Pool, id := Id}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 insert_direct_route(Route) ->
     mnesia:async_dirty(fun mnesia:write/3, [?ROUTE, Route, sticky_write]).
