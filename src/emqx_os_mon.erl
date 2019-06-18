@@ -18,6 +18,8 @@
 
 -include("logger.hrl").
 
+-logger_header("[OS Monitor]").
+
 -export([start_link/1]).
 
 %% gen_server callbacks
@@ -132,7 +134,7 @@ handle_info({timeout, Timer, check}, State = #{timer := Timer,
         0 ->
             {noreply, State#{timer := undefined}};
         {error, Reason} ->
-            ?LOG(error, "[OS Monitor] Failed to get cpu utilization: ~p", [Reason]),
+            ?LOG(error, "Failed to get cpu utilization: ~p", [Reason]),
             {noreply, ensure_check_timer(State)};
         Busy when Busy / 100 >= CPUHighWatermark ->
             alarm_handler:set_alarm({cpu_high_watermark, Busy}),

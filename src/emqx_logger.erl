@@ -48,6 +48,8 @@
         , get_log_handler/1
         ]).
 
+-export([parse_transform/2]).
+
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -120,6 +122,9 @@ set_log_level(Level) ->
         {error, Error} -> {error, {primary_logger_level, Error}}
     end.
 
+parse_transform(AST, _Opts) ->
+    trans(AST, "", []).
+
 %%------------------------------------------------------------------------------
 %% Internal Functions
 %%------------------------------------------------------------------------------
@@ -160,3 +165,27 @@ rollback([{ID, Level} | List]) ->
     rollback(List);
 rollback([]) -> ok.
 
+%% Generate a function '$logger_header'/0 into the source code
+trans([], LogHeader, ResAST) ->
+    lists:reverse([header_fun(LogHeader) | ResAST]);
+trans([{eof, L} | AST], LogHeader, ResAST) ->
+    lists:reverse([{eof, L}, header_fun(LogHeader) | ResAST]) ++ AST;
+trans([{attribute, _, module, _Mod} = M | AST], Header, ResAST) ->
+    trans(AST, Header, [export_header_fun(), M | ResAST]);
+trans([{attribute, _, logger_header, Header} | AST], _, ResAST) ->
+    io_lib:printable_list(Header) orelse error({invalid_string, Header}),
+    trans(AST, Header, ResAST);
+trans([F | AST], LogHeader, ResAST) ->
+    trans(AST, LogHeader, [F | ResAST]).
+
+export_header_fun() ->
+    {attribute,erl_anno:new(0),export,[{'$logger_header',0}]}.
+
+header_fun(LogHeader) ->
+    L = erl_anno:new(0),
+    {function,L,'$logger_header',0,
+         [{clause,L,
+             [], [], [{string,L,pad(LogHeader)}]}]}.
+
+pad("") -> "";
+pad(Str) -> Str ++ " ".

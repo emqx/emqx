@@ -19,6 +19,8 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
+-logger_header("[Presence]").
+
 %% APIs
 -export([ on_client_connected/4
         , on_client_disconnected/3
@@ -54,7 +56,7 @@ on_client_connected(#{client_id := ClientId,
         {ok, Payload} ->
             emqx:publish(message(qos(Env), topic(connected, ClientId), Payload));
         {error, Reason} ->
-            ?LOG(error, "[Presence] Encoding connected event error: ~p", [Reason])
+            ?LOG(error, "Encoding connected event error: ~p", [Reason])
     end.
 
 on_client_disconnected(#{client_id := ClientId, username := Username}, Reason, Env) ->
@@ -65,7 +67,7 @@ on_client_disconnected(#{client_id := ClientId, username := Username}, Reason, E
         {ok, Payload} ->
             emqx_broker:publish(message(qos(Env), topic(disconnected, ClientId), Payload));
         {error, Reason} ->
-            ?LOG(error, "[Presence] Encoding disconnected event error: ~p", [Reason])
+            ?LOG(error, "Encoding disconnected event error: ~p", [Reason])
     end.
 
 unload(_Env) ->

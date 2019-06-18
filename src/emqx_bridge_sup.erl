@@ -17,6 +17,8 @@
 
 -include("logger.hrl").
 
+-logger_header("[Bridge]").
+
 %% APIs
 -export([ start_link/0
         , start_link/1
@@ -74,6 +76,6 @@ drop_bridge(Id) ->
         ok ->
             supervisor:delete_child(?SUP, Id);
         Error ->
-            ?LOG(error, "[Bridge] Delete bridge failed, error : ~p", [Error]),
+            ?LOG(error, "Delete bridge failed, error : ~p", [Error]),
             Error
     end.

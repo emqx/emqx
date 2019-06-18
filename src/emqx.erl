@@ -18,6 +18,8 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-logger_header("[EMQ X]").
+
 %% Start/Stop the application
 -export([ start/0
         , restart/1
@@ -183,7 +185,7 @@ shutdown() ->
     shutdown(normal).
 
 shutdown(Reason) ->
-    ?LOG(critical, "[EMQ X] emqx shutdown for ~s", [Reason]),
+    ?LOG(critical, "emqx shutdown for ~s", [Reason]),
     emqx_alarm_handler:unload(),
     emqx_plugins:unload(),
     lists:foreach(fun application:stop/1, [emqx, ekka, cowboy, ranch, esockd, gproc]).

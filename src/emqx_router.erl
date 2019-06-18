@@ -21,6 +21,8 @@
 -include("types.hrl").
 -include_lib("ekka/include/ekka.hrl").
 
+-logger_header("[Router]").
+
 %% Mnesia bootstrap
 -export([mnesia/1]).
 
@@ -198,15 +200,15 @@ handle_call({delete_route, Topic, Dest}, _From, State) ->
     {reply, Ok, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "[Router] Unexpected call: ~p", [Req]),
+    ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "[Router] Unexpected cast: ~p", [Msg]),
+    ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "[Router] Unexpected info: ~p", [Info]),
+    ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->

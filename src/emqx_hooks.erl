@@ -19,6 +19,8 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-logger_header("[Hooks]").
+
 -export([start_link/0, stop/0]).
 
 %% Hooks API
@@ -181,7 +183,7 @@ handle_call({add, HookPoint, Callback = #callback{action = Action}}, _From, Stat
     {reply, Reply, State};
 
 handle_call(Req, _From, State) ->
-    ?LOG(error, "[Hooks] Unexpected call: ~p", [Req]),
+    ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
 handle_cast({del, HookPoint, Action}, State) ->
@@ -194,11 +196,11 @@ handle_cast({del, HookPoint, Action}, State) ->
     {noreply, State};
 
 handle_cast(Msg, State) ->
-    ?LOG(error, "[Hooks] Unexpected msg: ~p", [Msg]),
+    ?LOG(error, "Unexpected msg: ~p", [Msg]),
     {noreply, State}.
 
 handle_info(Info, State) ->
-    ?LOG(error, "[Hooks] Unexpected info: ~p", [Info]),
+    ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
