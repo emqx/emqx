@@ -130,6 +130,10 @@
     {counter, 'messages.forward'}        % Messages forward
 ]).
 
+-define(MQTT_METRICS, [
+    {counter, 'auth.mqtt.anonymous'}
+]).
+
 -record(state, {next_idx = 1}).
 
 -record(metric, {name, type, idx}).
@@ -353,7 +357,7 @@ init([]) ->
                           Metric = #metric{name = Name, type = Type, idx = reserved_idx(Name)},
                           true = ets:insert(?TAB, Metric),
                           ok = counters:put(CRef, Idx, 0)
-                  end,?BYTES_METRICS ++ ?PACKET_METRICS ++ ?MESSAGE_METRICS),
+                  end,?BYTES_METRICS ++ ?PACKET_METRICS ++ ?MESSAGE_METRICS ++ ?MQTT_METRICS),
     {ok, #state{next_idx = ?RESERVED_IDX + 1}, hibernate}.
 
 handle_call({create, Type, Name}, _From, State = #state{next_idx = ?MAX_SIZE}) ->
@@ -444,4 +448,5 @@ reserved_idx('messages.retained')            -> 48;
 reserved_idx('messages.dropped')             -> 49;
 reserved_idx('messages.expired')             -> 50;
 reserved_idx('messages.forward')             -> 51;
+reserved_idx('auth.mqtt.anonymous')          -> 52;
 reserved_idx(_)                              -> undefined.
