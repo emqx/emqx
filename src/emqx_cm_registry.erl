@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,8 +12,10 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
--module(emqx_sm_registry).
+%% Global Channel Registry
+-module(emqx_cm_registry).
 
 -behaviour(gen_server).
 
@@ -22,11 +25,13 @@
 
 -export([start_link/0]).
 
--export([ is_enabled/0
-        , register_session/1
-        , lookup_session/1
-        , unregister_session/1
+-export([is_enabled/0]).
+
+-export([ register_channel/1
+        , unregister_channel/1
         ]).
+
+-export([lookup_channels/1]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -38,57 +43,67 @@
         ]).
 
 -define(REGISTRY, ?MODULE).
--define(TAB, emqx_session_registry).
--define(LOCK, {?MODULE, cleanup_sessions}).
+-define(TAB, emqx_channel_registry).
+-define(LOCK, {?MODULE, cleanup_down}).
 
--record(global_session, {sid, pid}).
+-record(channel, {chid, pid}).
 
--type(session_pid() :: pid()).
-
-%%------------------------------------------------------------------------------
-%% APIs
-%%------------------------------------------------------------------------------
-
-%% @doc Start the global session manager.
+%% @doc Start the global channel registry.
 -spec(start_link() -> startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?REGISTRY}, ?MODULE, [], []).
 
+%%--------------------------------------------------------------------
+%% APIs
+%%--------------------------------------------------------------------
+
+%% @doc Is the global registry enabled?
 -spec(is_enabled() -> boolean()).
 is_enabled() ->
-    emqx_config:get_env(enable_session_registry, true).
+    emqx_config:get_env(enable_channel_registry, true).
 
--spec(lookup_session(emqx_types:client_id()) -> list(session_pid())).
-lookup_session(ClientId) ->
-    [SessPid || #global_session{pid = SessPid} <- mnesia:dirty_read(?TAB, ClientId)].
+%% @doc Register a global channel.
+-spec(register_channel(emqx_types:client_id()
+                    | {emqx_types:client_id(), pid()}) -> ok).
+register_channel(ClientId) when is_binary(ClientId) ->
+    register_channel({ClientId, self()});
 
--spec(register_session({emqx_types:client_id(), session_pid()}) -> ok).
-register_session({ClientId, SessPid}) when is_binary(ClientId), is_pid(SessPid) ->
+register_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
     case is_enabled() of
-        true -> mnesia:dirty_write(?TAB, record(ClientId, SessPid));
+        true -> mnesia:dirty_write(?TAB, record(ClientId, ChanPid));
         false -> ok
     end.
 
--spec(unregister_session({emqx_types:client_id(), session_pid()}) -> ok).
-unregister_session({ClientId, SessPid}) when is_binary(ClientId), is_pid(SessPid) ->
+%% @doc Unregister a global channel.
+-spec(unregister_channel(emqx_types:client_id()
+                      | {emqx_types:client_id(), pid()}) -> ok).
+unregister_channel(ClientId) when is_binary(ClientId) ->
+    unregister_channel({ClientId, self()});
+
+unregister_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) ->
     case is_enabled() of
-        true -> mnesia:dirty_delete_object(?TAB, record(ClientId, SessPid));
+        true -> mnesia:dirty_delete_object(?TAB, record(ClientId, ChanPid));
         false -> ok
     end.
 
-record(ClientId, SessPid) ->
-    #global_session{sid = ClientId, pid = SessPid}.
+%% @doc Lookup the global channels.
+-spec(lookup_channels(emqx_types:client_id()) -> list(pid())).
+lookup_channels(ClientId) ->
+    [ChanPid || #channel{pid = ChanPid} <- mnesia:dirty_read(?TAB, ClientId)].
 
-%%------------------------------------------------------------------------------
+record(ClientId, ChanPid) ->
+    #channel{chid = ClientId, pid = ChanPid}.
+
+%%--------------------------------------------------------------------
 %% gen_server callbacks
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 init([]) ->
     ok = ekka_mnesia:create_table(?TAB, [
                 {type, bag},
                 {ram_copies, [node()]},
-                {record_name, global_session},
-                {attributes, record_info(fields, global_session)},
+                {record_name, channel},
+                {attributes, record_info(fields, channel)},
                 {storage_properties, [{ets, [{read_concurrency, true},
                                              {write_concurrency, true}]}]}]),
     ok = ekka_mnesia:copy_table(?TAB),
@@ -106,7 +121,7 @@ handle_cast(Msg, State) ->
 handle_info({membership, {mnesia, down, Node}}, State) ->
     global:trans({?LOCK, self()},
                  fun() ->
-                     mnesia:transaction(fun cleanup_sessions/1, [Node])
+                     mnesia:transaction(fun cleanup_channels/1, [Node])
                  end),
     {noreply, State};
 
@@ -123,14 +138,14 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
-cleanup_sessions(Node) ->
-    Pat = [{#global_session{pid = '$1', _ = '_'}, [{'==', {node, '$1'}, Node}], ['$_']}],
-    lists:foreach(fun delete_session/1, mnesia:select(?TAB, Pat, write)).
+cleanup_channels(Node) ->
+    Pat = [{#channel{pid = '$1', _ = '_'}, [{'==', {node, '$1'}, Node}], ['$_']}],
+    lists:foreach(fun delete_channel/1, mnesia:select(?TAB, Pat, write)).
 
-delete_session(Session) ->
-    mnesia:delete_object(?TAB, Session, write).
+delete_channel(Chan) ->
+    mnesia:delete_object(?TAB, Chan, write).
 

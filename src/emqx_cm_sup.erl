@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,8 +12,9 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
--module(emqx_sm_sup).
+-module(emqx_cm_sup).
 
 -behaviour(supervisor).
 
@@ -24,41 +26,45 @@ start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    %% Session locker
+    Banned = #{id => banned,
+               start => {emqx_banned, start_link, []},
+               restart => permanent,
+               shutdown => 1000,
+               type => worker,
+               modules => [emqx_banned]},
+    Flapping = #{id => flapping,
+                 start => {emqx_flapping, start_link, []},
+                 restart => permanent,
+                 shutdown => 1000,
+                 type => worker,
+                 modules => [emqx_flapping]},
+    %% Channel locker
     Locker = #{id => locker,
-               start => {emqx_sm_locker, start_link, []},
+               start => {emqx_cm_locker, start_link, []},
                restart => permanent,
                shutdown => 5000,
                type => worker,
-               modules => [emqx_sm_locker]
+               modules => [emqx_cm_locker]
               },
-    %% Session registry
+    %% Channel registry
     Registry = #{id => registry,
-                 start => {emqx_sm_registry, start_link, []},
+                 start => {emqx_cm_registry, start_link, []},
                  restart => permanent,
                  shutdown => 5000,
                  type => worker,
-                 modules => [emqx_sm_registry]
+                 modules => [emqx_cm_registry]
                 },
-    %% Session Manager
+    %% Channel Manager
     Manager = #{id => manager,
-                start => {emqx_sm, start_link, []},
+                start => {emqx_cm, start_link, []},
                 restart => permanent,
                 shutdown => 5000,
                 type => worker,
-                modules => [emqx_sm]
+                modules => [emqx_cm]
                },
-    %% Session Sup
-    SessSpec = #{start => {emqx_session, start_link, []},
-                 shutdown => brutal_kill,
-                 clean_down => fun emqx_sm:clean_down/1
+    SupFlags = #{strategy => one_for_one,
+                 intensity => 100,
+                 period => 10
                 },
-    SessionSup = #{id => session_sup,
-                   start => {emqx_session_sup, start_link, [SessSpec ]},
-                   restart => transient,
-                   shutdown => infinity,
-                   type => supervisor,
-                   modules => [emqx_session_sup]
-                  },
-    {ok, {{rest_for_one, 10, 3600}, [Locker, Registry, Manager, SessionSup]}}.
+    {ok, {SupFlags, [Banned, Flapping, Locker, Registry, Manager]}}.
 
