@@ -51,7 +51,7 @@ on_client_connected(#{client_id := ClientId,
                                       username => Username,
                                       ipaddress => iolist_to_binary(esockd_net:ntoa(IpAddr)),
                                       connack => ConnAck,
-                                      ts => os:system_time(second)
+                                      ts => erlang:system_time(millisecond)
                                      }) of
         {ok, Payload} ->
             emqx:publish(message(qos(Env), topic(connected, ClientId), Payload));
@@ -63,7 +63,7 @@ on_client_disconnected(#{client_id := ClientId, username := Username}, Reason, E
     case emqx_json:safe_encode([{clientid, ClientId},
                                 {username, Username},
                                 {reason, reason(Reason)},
-                                {ts, os:system_time(second)}]) of
+                                {ts, erlang:system_time(millisecond)}]) of
         {ok, Payload} ->
             emqx_broker:publish(message(qos(Env), topic(disconnected, ClientId), Payload));
         {error, Reason} ->
