@@ -22,10 +22,11 @@
 -include_lib("common_test/include/ct.hrl").
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps([{log_level, error} | Config]).
+    emqx_ct_helpers:start_apps([]),
+    Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 all() ->
     [request_response].
