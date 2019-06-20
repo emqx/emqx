@@ -46,7 +46,7 @@
 -define(OS_MON, ?MODULE).
 
 -define(compat_windows(Expression), case os:type() of
-                                        {win32, nt} -> ok;
+                                        {win32, nt} -> windows;
                                         _Unix -> Expression
                                     end).
 
@@ -139,6 +139,8 @@ handle_info({timeout, Timer, check}, State = #{timer := Timer,
         {error, Reason} ->
             ?LOG(error, "[OS Monitor] Failed to get cpu utilization: ~p", [Reason]),
             {noreply, ensure_check_timer(State)};
+        windows ->
+            {noreply, State};
         Busy when Busy / 100 >= CPUHighWatermark ->
             alarm_handler:set_alarm({cpu_high_watermark, Busy}),
             {noreply, ensure_check_timer(State#{is_cpu_alarm_set := true})};
