@@ -116,6 +116,6 @@ gen-clean:
 
 .PHONY: distclean
 distclean: gen-clean
-	@rm -rf
+	@rm -rf Mnesia.*
 	@rm -rf _build cover deps logs log data
 	@rm -f rebar.lock compile_commands.json cuttlefish erl_crash.dump
