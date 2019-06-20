@@ -47,6 +47,11 @@
 
 -define(OS_MON, ?MODULE).
 
+-define(compat_windows(Expression), case os:type() of
+                                        {win32, nt} -> windows;
+                                        _Unix -> Expression
+                                    end).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
@@ -95,7 +100,7 @@ set_procmem_high_watermark(Float) ->
 %%------------------------------------------------------------------------------
 
 init([Opts]) ->
-    _ = cpu_sup:util(),
+    _ = ?compat_windows(cpu_sup:util()),
     set_mem_check_interval(proplists:get_value(mem_check_interval, Opts, 60)),
     set_sysmem_high_watermark(proplists:get_value(sysmem_high_watermark, Opts, 0.70)),
     set_procmem_high_watermark(proplists:get_value(procmem_high_watermark, Opts, 0.05)),
@@ -126,16 +131,18 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
-handle_info({timeout, Timer, check}, State = #{timer := Timer, 
+handle_info({timeout, Timer, check}, State = #{timer := Timer,
                                                cpu_high_watermark := CPUHighWatermark,
                                                cpu_low_watermark := CPULowWatermark,
                                                is_cpu_alarm_set := IsCPUAlarmSet}) ->
-    case cpu_sup:util() of
+    case ?compat_windows(cpu_sup:util()) of
         0 ->
             {noreply, State#{timer := undefined}};
         {error, Reason} ->
             ?LOG(error, "Failed to get cpu utilization: ~p", [Reason]),
             {noreply, ensure_check_timer(State)};
+        windows ->
+            {noreply, State};
         Busy when Busy / 100 >= CPUHighWatermark ->
             alarm_handler:set_alarm({cpu_high_watermark, Busy}),
             {noreply, ensure_check_timer(State#{is_cpu_alarm_set := true})};
@@ -163,4 +170,3 @@ call(Req) ->
 
 ensure_check_timer(State = #{cpu_check_interval := Interval}) ->
     State#{timer := emqx_misc:start_timer(timer:seconds(Interval), check)}.
-
