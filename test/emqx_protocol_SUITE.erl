@@ -55,7 +55,7 @@ groups() ->
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([], fun set_special_configs/1),
-    MqttCaps = emqx_zone:get_env(external, '$mqtt_caps'),
+    MqttCaps = maps:from_list(emqx_mqtt_caps:default_caps()),
     emqx_zone:set_env(external, '$mqtt_caps', MqttCaps#{max_topic_alias => 20}),
     Config.
 

@@ -24,6 +24,8 @@
         , get_caps/2
         ]).
 
+-export([default_caps/0]).
+
 -type(caps() :: #{max_packet_size  => integer(),
                   max_clientid_len => integer(),
                   max_topic_alias  => integer(),
@@ -36,6 +38,7 @@
 -export_type([caps/0]).
 
 -define(UNLIMITED, 0).
+
 -define(DEFAULT_CAPS, [{max_packet_size,  ?MAX_PACKET_SIZE},
                        {max_clientid_len, ?MAX_CLIENTID_LEN},
                        {max_topic_alias,  ?UNLIMITED},
@@ -118,6 +121,9 @@ check_sub(Topic, Opts, [{max_topic_levels, Limit}|Caps]) ->
             {error, Opts#{rc := ?RC_TOPIC_FILTER_INVALID}};
         _ -> check_sub(Topic, Opts, Caps)
     end.
+
+default_caps() ->
+    ?DEFAULT_CAPS.
 
 get_caps(Zone, publish) ->
     with_env(Zone, '$mqtt_pub_caps',
