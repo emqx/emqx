@@ -40,3 +40,5 @@ xrefr
 erlang.mk
 *.coverdata
 etc/emqx.conf.rendered
+test
+Mnesia.*/
