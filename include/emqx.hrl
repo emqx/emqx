@@ -132,7 +132,8 @@
           descr          :: string(),
           vendor         :: string(),
           active = false :: boolean(),
-          info           :: map()
+          info           :: map(),
+          type           :: atom()
         }).
 
 %%--------------------------------------------------------------------
