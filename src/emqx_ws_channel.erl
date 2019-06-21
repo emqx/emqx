@@ -206,7 +206,7 @@ websocket_handle({binary, Data}, State = #state{parse_state = ParseState}) ->
                                     end,
                             State#state{parse_state = NParseState});
         {error, Reason} ->
-             ?LOG(error, "Frame error: ~p", [Reason]),
+            ?LOG(error, "Frame error: ~p", [Reason]),
             shutdown(Reason, State)
     catch
         error:Reason:Stk ->
