@@ -103,7 +103,7 @@ handle_event({set_alarm, Alarm = {AlarmId, AlarmDesc}}, State) ->
             ?LOG(error, "Failed to encode alarm: ~p", [Reason])
     end,
     set_alarm_(AlarmId, AlarmDesc),
-    {ok, State}; 
+    {ok, State};
 handle_event({clear_alarm, AlarmId}, State) ->
     ?LOG(notice, "~p clear", [AlarmId]),
     case encode_alarm({AlarmId, undefined}) of
