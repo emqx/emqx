@@ -31,6 +31,7 @@
 all() ->
     [ t_ws_connect_api
     , t_ws_auth_failure
+    , t_ws_other_type_frame
     ].
 
 init_per_suite(Config) ->
@@ -69,6 +70,18 @@ t_ws_connect_api(_Config) ->
     true = is_pid(SessionPid),
     ok = emqx_ws_channel:kick(Pid),
     {close, _} = rfc6455_client:close(WS),
+    ok.
+
+t_ws_other_type_frame(_Config) ->
+    WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
+    {ok, _} = rfc6455_client:open(WS),
+    ok = rfc6455_client:send_binary(WS, raw_send_serialize(?CLIENT)),
+    {binary, Bin} = rfc6455_client:recv(WS),
+    Connack = ?CONNACK_PACKET(?CONNACK_ACCEPT),
+    {ok, Connack, <<>>, _} = raw_recv_pase(Bin),
+    rfc6455_client:send(WS, <<"testdata">>),
+    timer:sleep(1000),
+    ?assertEqual(undefined, erlang:process_info(WS)),
     ok.
 
 raw_send_serialize(Packet) ->
