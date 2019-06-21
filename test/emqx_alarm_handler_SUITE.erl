@@ -62,8 +62,8 @@ t_alarm_handler(_) ->
             {ok, Data} = gen_tcp:recv(Sock, 0),
             {ok, ?CONNACK_PACKET(?RC_SUCCESS), <<>>, _} = raw_recv_parse(Data, ?MQTT_PROTO_V5),
 
-            Topic1 = emqx_topic:systop(<<"alarms/alarm_for_test/alert">>),
-            Topic2 = emqx_topic:systop(<<"alarms/alarm_for_test/clear">>),
+            Topic1 = emqx_topic:systop(<<"alarms/alert">>),
+            Topic2 = emqx_topic:systop(<<"alarms/clear">>),
             SubOpts = #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0},
             emqx_client_sock:send(Sock,
                                   raw_send_serialize(
