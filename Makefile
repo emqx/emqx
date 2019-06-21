@@ -3,16 +3,43 @@
 REBAR_GIT_CLONE_OPTIONS += --depth 1
 export REBAR_GIT_CLONE_OPTIONS
 
-
 SUITES_FILES := $(shell find test -name '*_SUITE.erl')
 
 CT_SUITES := $(foreach value,$(SUITES_FILES),$(shell val=$$(basename $(value) .erl); echo $${val%_*}))
 
 CT_NODE_NAME = emqxct@127.0.0.1
 
-.PHONY: cover
-run:
-	@echo $(CT_TEST_SUITES)
+RUN_NODE_NAME = emqxdebug@127.0.0.1
+
+.PHONY: run
+run: run_setup
+	@rebar3 as test get-deps
+	@rebar3 as test auto --name $(RUN_NODE_NAME) --script test/run_emqx.escript
+
+.PHONY: run_setup
+run_setup:
+	@erl -noshell -eval \
+	    "{ok, [[HOME]]} = init:get_argument(home), \
+		 FilePath = HOME ++ \"/.config/rebar3/rebar.config\", \
+		 case file:consult(FilePath) of \
+             {ok, Term} -> \
+				 NewTerm = case lists:keyfind(plugins, 1, Term) of \
+	                           false -> [{plugins, [rebar3_auto]} | Term]; \
+	                	  	   {plugins, OldPlugins} -> \
+		          		           NewPlugins0 = OldPlugins -- [rebar3_auto], \
+	             	     	       NewPlugins = [rebar3_auto | NewPlugins0], \
+                                   lists:keyreplace(plugins, 1, Term, {plugins, NewPlugins}) \
+	                       end, \
+	             ok = file:write_file(FilePath, [io_lib:format(\"~p.\n\", [I]) || I <- NewTerm]); \
+            _ -> \
+	            NewTerm=[{plugins, [rebar3_auto]}], \
+	            ok = file:write_file(FilePath, [io_lib:format(\"~p.\n\", [I]) || I <- NewTerm]) \
+	     end, \
+	     halt(0)."
+
+.PHONY: shell
+shell:
+	@rebar3 as test auto
 
 compile:
 	@rebar3 compile
@@ -89,5 +116,6 @@ gen-clean:
 
 .PHONY: distclean
 distclean: gen-clean
+	@rm -rf Mnesia.*
 	@rm -rf _build cover deps logs log data
 	@rm -f rebar.lock compile_commands.json cuttlefish erl_crash.dump
