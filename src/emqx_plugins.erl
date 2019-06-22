@@ -151,20 +151,20 @@ stop_plugins(Names) ->
 -spec(list() -> [emqx_types:plugin()]).
 list() ->
     StartedApps = names(started_app),
-    lists:map(fun({Name, _, _}) ->
-        Plugin = plugin(Name),
+    lists:map(fun({Name, _, [Type| _]}) ->
+        Plugin = plugin(Name, Type),
         case lists:member(Name, StartedApps) of
             true  -> Plugin#plugin{active = true};
             false -> Plugin
         end
     end, lists:sort(ekka_boot:all_module_attributes(emqx_plugin))).
 
-plugin(AppName) ->
+plugin(AppName, Type) ->
     case application:get_all_key(AppName) of
         {ok, Attrs} ->
             Ver = proplists:get_value(vsn, Attrs, "0"),
             Descr = proplists:get_value(description, Attrs, ""),
-            #plugin{name = AppName, version = Ver, descr = Descr};
+            #plugin{name = AppName, version = Ver, descr = Descr, type = plugin_type(Type)};
         undefined -> error({plugin_not_found, AppName})
     end.
 
@@ -316,3 +316,10 @@ write_loaded(AppNames) ->
             ?LOG(error, "Open File ~p Error: ~p", [File, Error]),
             {error, Error}
     end.
+
+plugin_type(auth) -> auth;
+plugin_type(protocol) -> protocol;
+plugin_type(backend) -> backend;
+plugin_type(bridge) -> bridge;
+plugin_type(_) -> feature.
+

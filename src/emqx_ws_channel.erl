@@ -221,7 +221,11 @@ websocket_handle(Frame, State)
     {ok, ensure_stats_timer(State)};
 websocket_handle({FrameType, _}, State)
   when FrameType =:= ping; FrameType =:= pong ->
-    {ok, ensure_stats_timer(State)}.
+    {ok, ensure_stats_timer(State)};
+%% According to mqtt spec[https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901285]
+websocket_handle({_OtherFrameType, _}, State) ->
+    ?LOG(error, "Frame error: Other type of data frame"),
+    shutdown(other_frame_type, State).
 
 websocket_info({call, From, info}, State) ->
     gen_server:reply(From, info(State)),

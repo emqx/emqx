@@ -98,7 +98,7 @@ handle_event({set_alarm, Alarm = {AlarmId, AlarmDesc}}, State) ->
     ?LOG(warning, "~p set", [Alarm]),
     case encode_alarm(Alarm) of
         {ok, Json} ->
-            emqx_broker:safe_publish(alarm_msg(topic(alert, maybe_to_binary(AlarmId)), Json));
+            emqx_broker:safe_publish(alarm_msg(topic(alert), Json));
         {error, Reason} ->
             ?LOG(error, "Failed to encode alarm: ~p", [Reason])
     end,
@@ -106,7 +106,12 @@ handle_event({set_alarm, Alarm = {AlarmId, AlarmDesc}}, State) ->
     {ok, State};
 handle_event({clear_alarm, AlarmId}, State) ->
     ?LOG(notice, "~p clear", [AlarmId]),
-    emqx_broker:safe_publish(alarm_msg(topic(clear, maybe_to_binary(AlarmId)), <<"">>)),
+    case encode_alarm({AlarmId, undefined}) of
+        {ok, Json} ->
+            emqx_broker:safe_publish(alarm_msg(topic(clear), Json));
+        {error, Reason} ->
+            ?LOG(error, "Failed to encode alarm: ~p", [Reason])
+    end,
     clear_alarm_(AlarmId),
     {ok, State};
 handle_event(_, State) ->
@@ -142,19 +147,21 @@ encode_alarm({AlarmId, #alarm{severity  = Severity,
                                    {title, iolist_to_binary(Title)},
                                    {summary, iolist_to_binary(Summary)},
                                    {ts, emqx_time:now_secs(Ts)}]}]);
+encode_alarm({AlarmId, undefined}) ->
+    emqx_json:safe_encode([{id, maybe_to_binary(AlarmId)}]);
 encode_alarm({AlarmId, AlarmDesc}) ->
-    emqx_json:safe_encode([{id, maybe_to_binary(AlarmId)}, 
-                           {desc, maybe_to_binary(AlarmDesc)}]).
+    emqx_json:safe_encode([{id, maybe_to_binary(AlarmId)},
+                           {description, maybe_to_binary(AlarmDesc)}]).
 
 alarm_msg(Topic, Payload) ->
     Msg = emqx_message:make(?MODULE, Topic, Payload),
     emqx_message:set_headers(#{'Content-Type' => <<"application/json">>},
                              emqx_message:set_flag(sys, Msg)).
 
-topic(alert, AlarmId) ->
-    emqx_topic:systop(<<"alarms/", AlarmId/binary, "/alert">>);
-topic(clear, AlarmId) ->
-    emqx_topic:systop(<<"alarms/", AlarmId/binary, "/clear">>).
+topic(alert) ->
+    emqx_topic:systop(<<"alarms/alert">>);
+topic(clear) ->
+    emqx_topic:systop(<<"alarms/clear">>).
 
 maybe_to_binary(Data) when is_binary(Data) ->
     Data;
