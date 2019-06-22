@@ -20,6 +20,8 @@
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
 
+-logger_header("[WS Channel]").
+
 -export([ info/1
         , attrs/1
         , stats/1
@@ -143,11 +145,11 @@ websocket_init(#state{request = Req, options = Options}) ->
     WsCookie = try cowboy_req:parse_cookies(Req)
                catch
                    error:badarg ->
-                       ?LOG(error, "[WS Channel] Illegal cookie"),
+                       ?LOG(error, "Illegal cookie"),
                        undefined;
                    Error:Reason ->
                        ?LOG(error,
-                            "[WS Channel] Cookie is parsed failed, Error: ~p, Reason ~p",
+                            "Cookie is parsed failed, Error: ~p, Reason ~p",
                             [Error, Reason]),
                        undefined
                end,
@@ -189,7 +191,7 @@ websocket_handle({binary, <<>>}, State) ->
 websocket_handle({binary, [<<>>]}, State) ->
     {ok, ensure_stats_timer(State)};
 websocket_handle({binary, Data}, State = #state{parse_state = ParseState}) ->
-    ?LOG(debug, "[WS Channel] RECV ~p", [Data]),
+    ?LOG(debug, "RECV ~p", [Data]),
     BinSize = iolist_size(Data),
     emqx_pd:update_counter(recv_oct, BinSize),
     ok = emqx_metrics:inc('bytes.received', BinSize),
@@ -204,11 +206,11 @@ websocket_handle({binary, Data}, State = #state{parse_state = ParseState}) ->
                                     end,
                             State#state{parse_state = NParseState});
         {error, Reason} ->
-            ?LOG(error, "[WS Channel] Frame error: ~p", [Reason]),
+            ?LOG(error, "Frame error: ~p", [Reason]),
             shutdown(Reason, State)
     catch
         error:Reason:Stk ->
-            ?LOG(error, "[WS Channel] Parse failed for ~p~n\
+            ?LOG(error, "Parse failed for ~p~n\
                  Stacktrace:~p~nFrame data: ~p", [Reason, Stk, Data]),
             shutdown(parse_error, State)
     end;
@@ -219,7 +221,11 @@ websocket_handle(Frame, State)
     {ok, ensure_stats_timer(State)};
 websocket_handle({FrameType, _}, State)
   when FrameType =:= ping; FrameType =:= pong ->
-    {ok, ensure_stats_timer(State)}.
+    {ok, ensure_stats_timer(State)};
+%% According to mqtt spec[https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901285]
+websocket_handle({_OtherFrameType, _}, State) ->
+    ?LOG(error, "Frame error: Other type of data frame"),
+    shutdown(other_frame_type, State).
 
 websocket_info({call, From, info}, State) ->
     gen_server:reply(From, info(State)),
@@ -255,12 +261,12 @@ websocket_info({timeout, Timer, emit_stats},
     {ok, State#state{stats_timer = undefined}, hibernate};
 
 websocket_info({keepalive, start, Interval}, State) ->
-    ?LOG(debug, "[WS Channel] Keepalive at the interval of ~p", [Interval]),
+    ?LOG(debug, "Keepalive at the interval of ~p", [Interval]),
     case emqx_keepalive:start(stat_fun(), Interval, {keepalive, check}) of
         {ok, KeepAlive} ->
             {ok, State#state{keepalive = KeepAlive}};
         {error, Error} ->
-            ?LOG(warning, "[WS Channel] Keepalive error: ~p", [Error]),
+            ?LOG(warning, "Keepalive error: ~p", [Error]),
             shutdown(Error, State)
     end;
 
@@ -269,19 +275,19 @@ websocket_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
         {ok, KeepAlive1} ->
             {ok, State#state{keepalive = KeepAlive1}};
         {error, timeout} ->
-            ?LOG(debug, "[WS Channel] Keepalive Timeout!"),
+            ?LOG(debug, "Keepalive Timeout!"),
             shutdown(keepalive_timeout, State);
         {error, Error} ->
-            ?LOG(error, "[WS Channel] Keepalive error: ~p", [Error]),
+            ?LOG(error, "Keepalive error: ~p", [Error]),
             shutdown(keepalive_error, State)
     end;
 
 websocket_info({shutdown, discard, {ClientId, ByPid}}, State) ->
-    ?LOG(warning, "[WS Channel] Discarded by ~s:~p", [ClientId, ByPid]),
+    ?LOG(warning, "Discarded by ~s:~p", [ClientId, ByPid]),
     shutdown(discard, State);
 
 websocket_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
-    ?LOG(warning, "[WS Channel] Clientid '~s' conflict with ~p", [ClientId, NewPid]),
+    ?LOG(warning, "Clientid '~s' conflict with ~p", [ClientId, NewPid]),
     shutdown(conflict, State);
 
 websocket_info({binary, Data}, State) ->
@@ -294,13 +300,13 @@ websocket_info({stop, Reason}, State) ->
     {stop, State#state{shutdown = Reason}};
 
 websocket_info(Info, State) ->
-    ?LOG(error, "[WS Channel] Unexpected info: ~p", [Info]),
+    ?LOG(error, "Unexpected info: ~p", [Info]),
     {ok, State}.
 
 terminate(SockError, _Req, #state{keepalive   = Keepalive,
                                   proto_state = ProtoState,
                                   shutdown    = Shutdown}) ->
-    ?LOG(debug, "[WS Channel] Terminated for ~p, sockerror: ~p",
+    ?LOG(debug, "Terminated for ~p, sockerror: ~p",
          [Shutdown, SockError]),
     emqx_keepalive:cancel(Keepalive),
     case {ProtoState, Shutdown} of
@@ -320,7 +326,7 @@ handle_incoming(Packet, SuccFun, State = #state{proto_state = ProtoState}) ->
         {ok, NProtoState} ->
             SuccFun(State#state{proto_state = NProtoState});
         {error, Reason} ->
-            ?LOG(error, "[WS Channel] Protocol error: ~p", [Reason]),
+            ?LOG(error, "Protocol error: ~p", [Reason]),
             shutdown(Reason, State);
         {error, Reason, NProtoState} ->
             shutdown(Reason, State#state{proto_state = NProtoState});

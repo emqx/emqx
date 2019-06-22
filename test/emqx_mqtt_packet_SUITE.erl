@@ -68,11 +68,11 @@ groups() -> [{connect, [sequence],
               ]}].
 
 init_per_suite(Config) ->
-    emqx_ct_broker_helpers:run_setup_steps(),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_broker_helpers:run_teardown_steps().
+    emqx_ct_helpers:stop_apps([]).
 
 init_per_group(_Group, Config) ->
     Config.
@@ -85,7 +85,7 @@ case1_protocol_name(_) ->
     MqttPacket = serialize(?CASE1_PROTOCOL_NAME),
     emqx_client_sock:send(Sock, MqttPacket),
     {ok, Data} = gen_tcp:recv(Sock, 0),
-    {ok, ?CONNACK_PACKET(?CONNACK_PROTO_VER), _} = raw_recv_pase(Data),
+    {ok, ?CONNACK_PACKET(?CONNACK_PROTO_VER), <<>>, _} = raw_recv_pase(Data),
     Disconnect  = gen_tcp:recv(Sock, 0),
     ?assertEqual({error, closed}, Disconnect).
 
@@ -95,7 +95,7 @@ case2_protocol_ver(_) ->
     emqx_client_sock:send(Sock, Packet),
     {ok, Data} = gen_tcp:recv(Sock, 0),
     %% case1 Unacceptable protocol version
-    {ok, ?CONNACK_PACKET(?CONNACK_PROTO_VER), _} = raw_recv_pase(Data),
+    {ok, ?CONNACK_PACKET(?CONNACK_PROTO_VER), <<>>, _} = raw_recv_pase(Data),
     Disconnect  = gen_tcp:recv(Sock, 0),
     ?assertEqual({error, closed}, Disconnect).
 

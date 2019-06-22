@@ -17,6 +17,8 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
+-logger_header("[Mountpoint]").
+
 -export([ mount/2
         , unmount/2
         ]).
@@ -46,7 +48,7 @@ unmount(MountPoint, Msg = #message{topic = Topic}) ->
         {MountPoint, Topic1} -> Msg#message{topic = Topic1}
     catch
         _Error:Reason ->
-            ?LOG(error, "[Mountpoint] Unmount error : ~p", [Reason]),
+            ?LOG(error, "Unmount error : ~p", [Reason]),
             Msg
     end.
 

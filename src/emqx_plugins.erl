@@ -17,6 +17,8 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
+-logger_header("[Plugins]").
+
 -export([init/0]).
 
 -export([ load/0
@@ -86,7 +88,7 @@ load_expand_plugin(PluginDir) ->
     end, Modules),
     case filelib:wildcard(Ebin ++ "/*.app") of
         [App|_] -> application:load(list_to_atom(filename:basename(App, ".app")));
-        _ -> ?LOG(alert, "[Plugins] Plugin not found."),
+        _ -> ?LOG(alert, "Plugin not found."),
              {error, load_app_fail}
     end.
 
@@ -112,7 +114,7 @@ with_loaded_file(File, SuccFun) ->
             Names = filter_plugins(Names0),
             SuccFun(Names);
         {error, Error} ->
-            ?LOG(alert, "[Plugins] Failed to read: ~p, error: ~p", [File, Error]),
+            ?LOG(alert, "Failed to read: ~p, error: ~p", [File, Error]),
             {error, Error}
     end.
 
@@ -126,7 +128,7 @@ load_plugins(Names, Persistent) ->
     Plugins = list(), NotFound = Names -- names(Plugins),
     case NotFound of
         []       -> ok;
-        NotFound -> ?LOG(alert, "[Plugins] Cannot find plugins: ~p", [NotFound])
+        NotFound -> ?LOG(alert, "Cannot find plugins: ~p", [NotFound])
     end,
     NeedToLoad = Names -- NotFound -- names(started_app),
     [load_plugin(find_plugin(Name, Plugins), Persistent) || Name <- NeedToLoad].
@@ -149,20 +151,20 @@ stop_plugins(Names) ->
 -spec(list() -> [emqx_types:plugin()]).
 list() ->
     StartedApps = names(started_app),
-    lists:map(fun({Name, _, _}) ->
-        Plugin = plugin(Name),
+    lists:map(fun({Name, _, [Type| _]}) ->
+        Plugin = plugin(Name, Type),
         case lists:member(Name, StartedApps) of
             true  -> Plugin#plugin{active = true};
             false -> Plugin
         end
     end, lists:sort(ekka_boot:all_module_attributes(emqx_plugin))).
 
-plugin(AppName) ->
+plugin(AppName, Type) ->
     case application:get_all_key(AppName) of
         {ok, Attrs} ->
             Ver = proplists:get_value(vsn, Attrs, "0"),
             Descr = proplists:get_value(description, Attrs, ""),
-            #plugin{name = AppName, version = Ver, descr = Descr};
+            #plugin{name = AppName, version = Ver, descr = Descr, type = plugin_type(Type)};
         undefined -> error({plugin_not_found, AppName})
     end.
 
@@ -171,12 +173,12 @@ plugin(AppName) ->
 load(PluginName) when is_atom(PluginName) ->
     case lists:member(PluginName, names(started_app)) of
         true ->
-            ?LOG(notice, "[Plugins] Plugin ~s is already started", [PluginName]),
+            ?LOG(notice, "Plugin ~s is already started", [PluginName]),
             {error, already_started};
         false ->
             case find_plugin(PluginName) of
                 false ->
-                    ?LOG(alert, "[Plugins] Plugin ~s not found", [PluginName]),
+                    ?LOG(alert, "Plugin ~s not found", [PluginName]),
                     {error, not_found};
                 Plugin ->
                     load_plugin(Plugin, true)
@@ -204,12 +206,12 @@ load_app(App) ->
 start_app(App, SuccFun) ->
     case application:ensure_all_started(App) of
         {ok, Started} ->
-            ?LOG(info, "[Plugins] Started plugins: ~p", [Started]),
-            ?LOG(info, "[Plugins] Load plugin ~s successfully", [App]),
+            ?LOG(info, "Started plugins: ~p", [Started]),
+            ?LOG(info, "Load plugin ~s successfully", [App]),
             SuccFun(App),
             {ok, Started};
         {error, {ErrApp, Reason}} ->
-            ?LOG(error, "[Plugins] Load plugin ~s failed, cannot start plugin ~s for ~p", [App, ErrApp, Reason]),
+            ?LOG(error, "Load plugin ~s failed, cannot start plugin ~s for ~p", [App, ErrApp, Reason]),
             {error, {ErrApp, Reason}}
     end.
 
@@ -226,10 +228,10 @@ unload(PluginName) when is_atom(PluginName) ->
         {true, true} ->
             unload_plugin(PluginName, true);
         {false, _} ->
-            ?LOG(error, "[Plugins] Plugin ~s is not started", [PluginName]),
+            ?LOG(error, "Plugin ~s is not started", [PluginName]),
             {error, not_started};
         {true, false} ->
-            ?LOG(error, "[Plugins] ~s is not a plugin, cannot unload it", [PluginName]),
+            ?LOG(error, "~s is not a plugin, cannot unload it", [PluginName]),
             {error, not_found}
     end.
 
@@ -244,11 +246,11 @@ unload_plugin(App, Persistent) ->
 stop_app(App) ->
     case application:stop(App) of
         ok ->
-            ?LOG(info, "[Plugins] Stop plugin ~s successfully", [App]), ok;
+            ?LOG(info, "Stop plugin ~s successfully", [App]), ok;
         {error, {not_started, App}} ->
-            ?LOG(error, "[Plugins] Plugin ~s is not started", [App]), ok;
+            ?LOG(error, "Plugin ~s is not started", [App]), ok;
         {error, Reason} ->
-            ?LOG(error, "[Plugins] Stop plugin ~s error: ~p", [App]), {error, Reason}
+            ?LOG(error, "Stop plugin ~s error: ~p", [App]), {error, Reason}
     end.
 
 %%--------------------------------------------------------------------
@@ -276,7 +278,7 @@ plugin_loaded(Name, true) ->
                     ignore
             end;
         {error, Error} ->
-            ?LOG(error, "[Plugins] Cannot read loaded plugins: ~p", [Error])
+            ?LOG(error, "Cannot read loaded plugins: ~p", [Error])
     end.
 
 plugin_unloaded(_Name, false) ->
@@ -289,10 +291,10 @@ plugin_unloaded(Name, true) ->
                 true ->
                     write_loaded(lists:delete(Name, Names));
                 false ->
-                    ?LOG(error, "[Plugins] Cannot find ~s in loaded_file", [Name])
+                    ?LOG(error, "Cannot find ~s in loaded_file", [Name])
             end;
         {error, Error} ->
-            ?LOG(error, "[Plugins] Cannot read loaded_plugins: ~p", [Error])
+            ?LOG(error, "Cannot read loaded_plugins: ~p", [Error])
     end.
 
 read_loaded() ->
@@ -311,6 +313,13 @@ write_loaded(AppNames) ->
                 file:write(Fd, iolist_to_binary(io_lib:format("~p.~n", [Name])))
             end, AppNames);
         {error, Error} ->
-            ?LOG(error, "[Plugins] Open File ~p Error: ~p", [File, Error]),
+            ?LOG(error, "Open File ~p Error: ~p", [File, Error]),
             {error, Error}
     end.
+
+plugin_type(auth) -> auth;
+plugin_type(protocol) -> protocol;
+plugin_type(backend) -> backend;
+plugin_type(bridge) -> bridge;
+plugin_type(_) -> feature.
+

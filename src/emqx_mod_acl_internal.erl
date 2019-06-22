@@ -19,6 +19,8 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
+-logger_header("[ACL_INTERNAL]").
+
 %% APIs
 -export([ all_rules/0
         , check_acl/5
@@ -99,7 +101,7 @@ rules_from_file(AclFile) ->
             #{publish   => [Rule || Rule <- Rules, filter(publish, Rule)],
               subscribe => [Rule || Rule <- Rules, filter(subscribe, Rule)]};
         {error, Reason} ->
-            ?LOG(alert, "[ACL_INTERNAL] Failed to read ~s: ~p", [AclFile, Reason]),
+            ?LOG(alert, "Failed to read ~s: ~p", [AclFile, Reason]),
             #{}
     end.
 
