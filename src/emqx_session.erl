@@ -798,7 +798,7 @@ handle_dispatch(Msgs, State = #state{inflight = Inflight,
                                      subscriptions = SubMap}) ->
     SessProps = #{client_id => ClientId, username => Username},
     %% Drain the mailbox and batch deliver
-    Msgs1 = drain_m(batch_n(Inflight), Msgs),
+    Msgs1 = Msgs ++ drain_m(batch_n(Inflight)),
     %% Ack the messages for shared subscription
     Msgs2 = maybe_ack_shared(Msgs1, State),
     %% Process suboptions
@@ -820,6 +820,9 @@ batch_n(Inflight) ->
         0 -> ?DEFAULT_BATCH_N;
         Sz -> Sz - emqx_inflight:size(Inflight)
     end.
+
+drain_m(Cnt) ->
+    drain_m(Cnt, []).
 
 drain_m(Cnt, Msgs) when Cnt =< 0 ->
     lists:reverse(Msgs);
