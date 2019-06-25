@@ -11,6 +11,9 @@ CT_NODE_NAME = emqxct@127.0.0.1
 
 RUN_NODE_NAME = emqxdebug@127.0.0.1
 
+.PHONY: all
+all: compile
+
 .PHONY: run
 run: run_setup unlock
 	@rebar3 as test get-deps
