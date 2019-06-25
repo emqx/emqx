@@ -29,7 +29,7 @@
 -type batch() :: emqx_protal:batch().
 -type ack_ref() :: emqx_bridge:ack_ref().
 -type topic() :: emqx_topic:topic().
--type qos() :: emqx_mqtt_types:qos().
+-type qos() :: emqx_mqtt:qos().
 
 -include("logger.hrl").
 
