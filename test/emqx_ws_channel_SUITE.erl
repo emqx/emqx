@@ -66,7 +66,13 @@ t_ws_auth_failure(_Config) ->
 t_ws_other_type_frame(_Config) ->
     WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
     {ok, _} = rfc6455_client:open(WS),
-    ok = rfc6455_client:send_binary(WS, raw_send_serialize(?CLIENT)),
+    Connect = ?CONNECT_PACKET(
+                 #mqtt_packet_connect{
+                    client_id = <<"mqtt_client">>,
+                    username  = <<"admin">>,
+                    password  = <<"public">>
+                   }),
+    ok = rfc6455_client:send_binary(WS, raw_send_serialize(Connect)),
     {binary, Bin} = rfc6455_client:recv(WS),
     Connack = ?CONNACK_PACKET(?CONNACK_ACCEPT),
     {ok, Connack, <<>>, _} = raw_recv_pase(Bin),
