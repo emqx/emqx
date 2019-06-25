@@ -14,15 +14,30 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mqtt_types).
+%% MQTT Types
+-module(emqx_mqtt).
 
 -include("emqx_mqtt.hrl").
 
--export_type([version/0, qos/0, qos_name/0]).
--export_type([connack/0, reason_code/0]).
--export_type([properties/0, subopts/0]).
+-export_type([ version/0
+             , qos/0
+             , qos_name/0
+             ]).
+
+-export_type([ connack/0
+             , reason_code/0
+             ]).
+
+-export_type([ properties/0
+             , subopts/0
+             ]).
+
 -export_type([topic_filters/0]).
--export_type([packet_id/0, packet_type/0, packet/0]).
+
+-export_type([ packet_id/0
+             , packet_type/0
+             , packet/0
+             ]).
 
 -type(qos() :: ?QOS_0 | ?QOS_1 | ?QOS_2).
 -type(version() :: ?MQTT_PROTO_V3 | ?MQTT_PROTO_V4 | ?MQTT_PROTO_V5).
@@ -40,6 +55,6 @@
                      qos := qos(),
                      rc  => reason_code()
                     }).
--type(topic_filters() :: [{emqx_topic:topic(), subopts()}]).
+-type(topic_filters() :: list({emqx_topic:topic(), subopts()})).
 -type(packet() :: #mqtt_packet{}).
 
