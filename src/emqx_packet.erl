@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_packet).
 
@@ -40,10 +42,11 @@ protocol_name(?MQTT_PROTO_V5) ->
 type_name(Type) when Type > ?RESERVED andalso Type =< ?AUTH ->
     lists:nth(Type, ?TYPE_NAMES).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Validate MQTT Packet
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
+-spec(validate(emqx_mqtt_types:packet()) -> true).
 validate(?SUBSCRIBE_PACKET(_PacketId, _Properties, [])) ->
     error(topic_filters_invalid);
 validate(?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters)) ->
@@ -110,7 +113,8 @@ validate_qos(QoS) when ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
 validate_qos(_) -> error(bad_qos).
 
 %% @doc From message to packet
--spec(from_message(emqx_mqtt_types:packet_id(), emqx_types:message()) -> emqx_mqtt_types:packet()).
+-spec(from_message(emqx_mqtt_types:packet_id(), emqx_types:message())
+      -> emqx_mqtt_types:packet()).
 from_message(PacketId, #message{qos = QoS, flags = Flags, headers = Headers,
                                 topic = Topic, payload = Payload}) ->
     Flags1 = if Flags =:= undefined ->

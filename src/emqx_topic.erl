@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_topic).
 
@@ -33,19 +35,23 @@
         , parse/2
         ]).
 
+-export_type([ group/0
+             , topic/0
+             , word/0
+             , triple/0
+             ]).
+
 -type(group() :: binary()).
 -type(topic() :: binary()).
 -type(word() :: '' | '+' | '#' | binary()).
 -type(words() :: list(word())).
 -opaque(triple() :: {root | binary(), word(), binary()}).
 
--export_type([group/0, topic/0, word/0, triple/0]).
-
 -define(MAX_TOPIC_LEN, 4096).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 %% @doc Is wildcard topic?
 -spec(wildcard(topic() | words()) -> true | false).
@@ -230,3 +236,4 @@ parse(Topic, Options = #{qos := QoS}) ->
     {Topic, Options#{rc => QoS}};
 parse(Topic, Options) ->
     {Topic, Options}.
+

@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_bridge_connect).
 
@@ -27,7 +29,7 @@
 -type batch() :: emqx_protal:batch().
 -type ack_ref() :: emqx_bridge:ack_ref().
 -type topic() :: emqx_topic:topic().
--type qos() :: emqx_mqtt_types:qos().
+-type qos() :: emqx_mqtt:qos().
 
 -include("logger.hrl").
 

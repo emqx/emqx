@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_access_rule).
 
@@ -20,6 +22,8 @@
 -export([ match/3
         , compile/1
         ]).
+
+-export_type([rule/0]).
 
 -type(acl_result() :: allow | deny).
 
@@ -33,14 +37,12 @@
 -type(rule() :: {acl_result(), all} |
                 {acl_result(), who(), access(), list(emqx_topic:topic())}).
 
--export_type([rule/0]).
-
 -define(ALLOW_DENY(A), ((A =:= allow) orelse (A =:= deny))).
 -define(PUBSUB(A), ((A =:= subscribe) orelse (A =:= publish) orelse (A =:= pubsub))).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 %% @doc Compile Access Rule.
 compile({A, all}) when ?ALLOW_DENY(A) ->

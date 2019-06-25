@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 %% @doc wrap gen_rpc?
 -module(emqx_rpc).
@@ -32,7 +34,7 @@ cast(Node, Mod, Fun, Args) ->
     filter_result(?RPC:cast(Node, Mod, Fun, Args)).
 
 filter_result(Delivery) ->
-    case Delivery of 
+    case Delivery of
         {badrpc, Reason} -> {badrpc, Reason};
         {badtcp, Reason} -> {badrpc, Reason};
         _ -> Delivery

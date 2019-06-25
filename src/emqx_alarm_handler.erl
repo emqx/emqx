@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_alarm_handler).
 
@@ -46,9 +48,9 @@
 -define(ALARM_TAB, emqx_alarm).
 -define(ALARM_HISTORY_TAB, emqx_alarm_history).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Mnesia bootstrap
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?ALARM_TAB, [
@@ -63,13 +65,14 @@ mnesia(boot) ->
                 {local_content, true},
                 {record_name, alarm_history},
                 {attributes, record_info(fields, alarm_history)}]);
+
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?ALARM_TAB),
     ok = ekka_mnesia:copy_table(?ALARM_HISTORY_TAB).
 
-%%----------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% API
-%%----------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 load() ->
     gen_event:swap_handler(alarm_handler, {alarm_handler, swap}, {?MODULE, []}).
@@ -81,13 +84,14 @@ unload() ->
 get_alarms() ->
     gen_event:call(alarm_handler, ?MODULE, get_alarms).
 
-%%----------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% gen_event callbacks
-%%----------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 init({_Args, {alarm_handler, ExistingAlarms}}) ->
     init_tables(ExistingAlarms),
     {ok, []};
+
 init(_) ->
     init_tables([]),
     {ok, []}.
@@ -138,9 +142,9 @@ init_tables(ExistingAlarms) ->
                       set_alarm_history(Id)
                   end, ExistingAlarms).
 
-encode_alarm({AlarmId, #alarm{severity  = Severity, 
+encode_alarm({AlarmId, #alarm{severity  = Severity,
                               title     = Title,
-                              summary   = Summary, 
+                              summary   = Summary,
                               timestamp = Ts}}) ->
     emqx_json:safe_encode([{id, maybe_to_binary(AlarmId)},
                            {desc, [{severity, Severity},
@@ -180,6 +184,6 @@ get_alarms_() ->
     [{Id, Desc} || #common_alarm{id = Id, desc = Desc} <- Alarms].
 
 set_alarm_history(Id) ->
-    mnesia:dirty_write(?ALARM_HISTORY_TAB, #alarm_history{id = Id,
-                                                          clear_at = undefined}).
+    His = #alarm_history{id = Id, clear_at = undefined},
+    mnesia:dirty_write(?ALARM_HISTORY_TAB, His).
 
