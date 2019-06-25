@@ -14,6 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% MQTT WebSocket Channel
 -module(emqx_ws_channel).
 
 -include("emqx.hrl").
@@ -170,7 +171,8 @@ websocket_init(#state{request = Req, options = Options}) ->
                 parse_state  = ParseState,
                 proto_state  = ProtoState,
                 enable_stats = EnableStats,
-                idle_timeout = IdleTimout}}.
+                idle_timeout = IdleTimout
+               }}.
 
 send_fun(WsPid) ->
     fun(Packet, Options) ->
@@ -242,10 +244,13 @@ websocket_info({call, From, session}, State = #state{proto_state = ProtoState}) 
     gen_server:reply(From, emqx_protocol:session(ProtoState)),
     {ok, State};
 
-websocket_info({deliver, PubOrAck}, State = #state{proto_state = ProtoState}) ->
-    case emqx_protocol:deliver(PubOrAck, ProtoState) of
-        {ok, ProtoState1} ->
-            {ok, ensure_stats_timer(State#state{proto_state = ProtoState1})};
+websocket_info(Delivery, State = #state{proto_state = ProtoState})
+  when element(1, Delivery) =:= deliver ->
+    case emqx_protocol:handle_out(Delivery, ProtoState) of
+        {ok, NProtoState} ->
+            {ok, State#state{proto_state = NProtoState}};
+        {ok, Packet, NProtoState} ->
+            handle_outgoing(Packet, State#state{proto_state = NProtoState});
         {error, Reason} ->
             shutdown(Reason, State)
     end;
@@ -285,8 +290,8 @@ websocket_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
     ?LOG(warning, "Clientid '~s' conflict with ~p", [ClientId, NewPid]),
     shutdown(conflict, State);
 
-websocket_info({binary, Data}, State) ->
-    {reply, {binary, Data}, State};
+%% websocket_info({binary, Data}, State) ->
+%%    {reply, {binary, Data}, State};
 
 websocket_info({shutdown, Reason}, State) ->
     shutdown(Reason, State);
@@ -317,9 +322,12 @@ terminate(SockError, _Req, #state{keepalive   = Keepalive,
 %%--------------------------------------------------------------------
 
 handle_incoming(Packet, SuccFun, State = #state{proto_state = ProtoState}) ->
-    case emqx_protocol:received(Packet, ProtoState) of
+    case emqx_protocol:handle_in(Packet, ProtoState) of
         {ok, NProtoState} ->
             SuccFun(State#state{proto_state = NProtoState});
+        {ok, OutPacket, NProtoState} ->
+            %% TODO: How to call SuccFun???
+            handle_outgoing(OutPacket, State#state{proto_state = NProtoState});
         {error, Reason} ->
             ?LOG(error, "Protocol error: ~p", [Reason]),
             shutdown(Reason, State);
@@ -329,7 +337,12 @@ handle_incoming(Packet, SuccFun, State = #state{proto_state = ProtoState}) ->
             shutdown(Error, State#state{proto_state = NProtoState})
     end.
 
-
+handle_outgoing(Packet, State = #state{proto_state = _NProtoState}) ->
+    Data = emqx_frame:serialize(Packet), %% TODO:, Options),
+    BinSize = iolist_size(Data),
+    emqx_pd:update_counter(send_cnt, 1),
+    emqx_pd:update_counter(send_oct, BinSize),
+    {reply, {binary, Data}, ensure_stats_timer(State)}.
 
 ensure_stats_timer(State = #state{enable_stats = true,
                                   stats_timer  = undefined,

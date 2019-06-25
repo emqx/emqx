@@ -33,6 +33,8 @@
         , window/1
         ]).
 
+-export_type([inflight/0]).
+
 -type(key() :: term()).
 
 -type(max_size() :: pos_integer()).
@@ -42,8 +44,6 @@
 -define(Inflight(Tree), {?MODULE, _MaxSize, Tree}).
 
 -define(Inflight(MaxSize, Tree), {?MODULE, MaxSize, (Tree)}).
-
--export_type([inflight/0]).
 
 %%--------------------------------------------------------------------
 %% APIs

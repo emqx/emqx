@@ -286,7 +286,7 @@ dispatch(Topic, Delivery = #delivery{message = Msg, results = Results}) ->
 dispatch(SubPid, Topic, Msg) when is_pid(SubPid) ->
     case erlang:is_process_alive(SubPid) of
         true ->
-            SubPid ! {dispatch, Topic, Msg},
+            SubPid ! {deliver, Topic, Msg},
             1;
         false -> 0
     end;
