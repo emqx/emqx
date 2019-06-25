@@ -46,6 +46,7 @@ type_name(Type) when Type > ?RESERVED andalso Type =< ?AUTH ->
 %% Validate MQTT Packet
 %%--------------------------------------------------------------------
 
+-spec(validate(emqx_mqtt_types:packet()) -> true).
 validate(?SUBSCRIBE_PACKET(_PacketId, _Properties, [])) ->
     error(topic_filters_invalid);
 validate(?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters)) ->
@@ -112,7 +113,8 @@ validate_qos(QoS) when ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
 validate_qos(_) -> error(bad_qos).
 
 %% @doc From message to packet
--spec(from_message(emqx_mqtt_types:packet_id(), emqx_types:message()) -> emqx_mqtt_types:packet()).
+-spec(from_message(emqx_mqtt_types:packet_id(), emqx_types:message())
+      -> emqx_mqtt_types:packet()).
 from_message(PacketId, #message{qos = QoS, flags = Flags, headers = Headers,
                                 topic = Topic, payload = Payload}) ->
     Flags1 = if Flags =:= undefined ->
