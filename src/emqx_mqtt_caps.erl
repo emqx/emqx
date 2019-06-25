@@ -26,6 +26,8 @@
         , get_caps/2
         ]).
 
+-export_type([caps/0]).
+
 -type(caps() :: #{max_packet_size  => integer(),
                   max_clientid_len => integer(),
                   max_topic_alias  => integer(),
@@ -35,9 +37,8 @@
                   mqtt_shared_subscription   => boolean(),
                   mqtt_wildcard_subscription => boolean()}).
 
--export_type([caps/0]).
-
 -define(UNLIMITED, 0).
+
 -define(DEFAULT_CAPS, [{max_packet_size,  ?MAX_PACKET_SIZE},
                        {max_clientid_len, ?MAX_CLIENTID_LEN},
                        {max_topic_alias,  ?UNLIMITED},

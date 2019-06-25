@@ -60,11 +60,11 @@
         , code_change/3
         ]).
 
+-export_type([metric_idx/0]).
+
 -opaque(metric_idx() :: 1..1024).
 
 -type(metric_name() :: atom() | string() | binary()).
-
--export_type([metric_idx/0]).
 
 -define(MAX_SIZE, 1024).
 -define(RESERVED_IDX, 256).

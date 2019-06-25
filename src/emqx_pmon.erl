@@ -32,8 +32,9 @@
 
 -export([count/1]).
 
--type(pmon() :: {?MODULE, map()}).
 -export_type([pmon/0]).
+
+-opaque(pmon() :: {?MODULE, map()}).
 
 %%--------------------------------------------------------------------
 %% APIs

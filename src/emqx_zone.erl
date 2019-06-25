@@ -45,8 +45,12 @@
         , code_change/3
         ]).
 
+-export_type([zone/0]).
+
 %% dummy state
 -record(state, {}).
+
+-type(zone() :: atom()).
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
@@ -60,13 +64,13 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--spec(get_env(maybe(emqx_types:zone()), atom()) -> maybe(term())).
+-spec(get_env(maybe(zone()), atom()) -> maybe(term())).
 get_env(undefined, Key) ->
     emqx_config:get_env(Key);
 get_env(Zone, Key) ->
     get_env(Zone, Key, undefined).
 
--spec(get_env(maybe(emqx_types:zone()), atom(), term()) -> maybe(term())).
+-spec(get_env(maybe(zone()), atom(), term()) -> maybe(term())).
 get_env(undefined, Key, Def) ->
     emqx_config:get_env(Key, Def);
 get_env(Zone, Key, Def) ->
@@ -75,7 +79,7 @@ get_env(Zone, Key, Def) ->
         emqx_config:get_env(Key, Def)
     end.
 
--spec(set_env(emqx_types:zone(), atom(), term()) -> ok).
+-spec(set_env(zone(), atom(), term()) -> ok).
 set_env(Zone, Key, Val) ->
     gen_server:cast(?SERVER, {set_env, Zone, Key, Val}).
 

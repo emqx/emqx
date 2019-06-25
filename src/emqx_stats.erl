@@ -51,17 +51,17 @@
         , code_change/3
         ]).
 
+-export_type([stats/0]).
+
 -record(update, {name, countdown, interval, func}).
 
 -record(state, {
-          timer   :: reference(),
+          timer :: reference(),
           updates :: [#update{}],
           tick_ms :: timeout()
          }).
 
 -type(stats() :: list({atom(), non_neg_integer()})).
-
--export_type([stats/0]).
 
 %% Connection stats
 -define(CONNECTION_STATS, [

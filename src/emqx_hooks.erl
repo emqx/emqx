@@ -46,6 +46,11 @@
         , code_change/3
         ]).
 
+-export_type([ hookpoint/0
+             , action/0
+             , filter/0
+             ]).
+
 %% Multiple callbacks can be registered on a hookpoint.
 %% The execution order depends on the priority value:
 %%   - Callbacks with greater priority values will be run before
@@ -68,8 +73,6 @@
           name :: hookpoint(),
           callbacks :: list(#callback{})
          }).
-
--export_type([hookpoint/0, action/0, filter/0]).
 
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).

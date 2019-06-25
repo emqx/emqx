@@ -14,12 +14,14 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%%--------------------------------------------------------------------
 %% @doc This module manages an opaque collection of statistics data used
 %% to force garbage collection on `self()' process when hitting thresholds.
 %% Namely:
 %% (1) Total number of messages passed through
 %% (2) Total data volume passed through
 %% @end
+%%--------------------------------------------------------------------
 
 -module(emqx_gc).
 
@@ -31,6 +33,8 @@
         , reset/1
         ]).
 
+-export_type([gc_state/0]).
+
 -type(opts() :: #{count => integer(),
                   bytes => integer()}).
 
@@ -38,8 +42,6 @@
                 oct => {integer(), integer()}}).
 
 -opaque(gc_state() :: {?MODULE, st()}).
-
--export_type([gc_state/0]).
 
 -define(GCS(St), {?MODULE, St}).
 

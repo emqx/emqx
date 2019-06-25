@@ -73,13 +73,13 @@
 %% Internal export
 -export([stats_fun/0]).
 
+-export_type([attrs/0, stats/0]).
+
 -type(chan_pid() :: pid()).
 
 -opaque(attrs() :: #{atom() => term()}).
 
 -opaque(stats() :: #{atom() => integer()}).
-
--export_type([attrs/0, stats/0]).
 
 %% Tables for channel management.
 -define(CHAN_TAB, emqx_channel).
@@ -164,7 +164,7 @@ get_conn_attrs(ClientId, ChanPid) ->
 
 %% @doc Set conn attrs.
 -spec(set_conn_attrs(emqx_types:client_id(), attrs()) -> ok).
-set_conn_attrs(ClientId, Attrs) when is_map(Attrs) ->
+set_conn_attrs(ClientId, Attrs) when is_binary(ClientId), is_map(Attrs) ->
     Chan = {ClientId, self()},
     case ets:update_element(?CONN_TAB, Chan, {2, Attrs}) of
         true  -> ok;

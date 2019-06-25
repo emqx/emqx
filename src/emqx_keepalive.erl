@@ -22,6 +22,8 @@
         , cancel/1
         ]).
 
+-export_type([keepalive/0]).
+
 -record(keepalive, {
           statfun,
           statval,
@@ -32,8 +34,6 @@
          }).
 
 -opaque(keepalive() :: #keepalive{}).
-
--export_type([keepalive/0]).
 
 %%--------------------------------------------------------------------
 %% APIs

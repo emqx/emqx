@@ -27,9 +27,9 @@
 
 -export([replvar/2]).
 
--type(mountpoint() :: binary()).
-
 -export_type([mountpoint/0]).
+
+-type(mountpoint() :: binary()).
 
 %%--------------------------------------------------------------------
 %% APIs

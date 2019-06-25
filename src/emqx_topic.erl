@@ -35,13 +35,17 @@
         , parse/2
         ]).
 
+-export_type([ group/0
+             , topic/0
+             , word/0
+             , triple/0
+             ]).
+
 -type(group() :: binary()).
 -type(topic() :: binary()).
 -type(word() :: '' | '+' | '#' | binary()).
 -type(words() :: list(word())).
 -opaque(triple() :: {root | binary(), word(), binary()}).
-
--export_type([group/0, topic/0, word/0, triple/0]).
 
 -define(MAX_TOPIC_LEN, 4096).
 
@@ -232,3 +236,4 @@ parse(Topic, Options = #{qos := QoS}) ->
     {Topic, Options#{rc => QoS}};
 parse(Topic, Options) ->
     {Topic, Options}.
+

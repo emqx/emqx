@@ -23,13 +23,13 @@
         , delete/1
         ]).
 
+-export_type([seqid/0]).
+
 -type(key() :: term()).
 
 -type(name() :: atom()).
 
 -type(seqid() :: non_neg_integer()).
-
--export_type([seqid/0]).
 
 %%--------------------------------------------------------------------
 %% APIs

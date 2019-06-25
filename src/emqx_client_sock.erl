@@ -26,6 +26,8 @@
         , getstat/2
         ]).
 
+-export_type([socket/0, option/0]).
+
 -record(ssl_socket, {tcp, ssl}).
 
 -type(socket() :: inet:socket() | #ssl_socket{}).
@@ -33,8 +35,6 @@
 -type(sockname() :: {inet:ip_address(), inet:port_number()}).
 
 -type(option() :: gen_tcp:connect_option() | {ssl_opts, [ssl:ssl_option()]}).
-
--export_type([socket/0, option/0]).
 
 -define(DEFAULT_TCP_OPTIONS, [binary, {packet, raw}, {active, false},
                               {nodelay, true}, {reuseaddr, true}]).

@@ -24,6 +24,8 @@
         , items/1
         ]).
 
+-export_type([options/0, batch/0]).
+
 -record(batch, {
           batch_size :: non_neg_integer(),
           batch_q :: list(any()),
@@ -39,10 +41,6 @@
        }).
 
 -opaque(batch() :: #batch{}).
-
--export_type([options/0]).
-
--export_type([batch/0]).
 
 %%--------------------------------------------------------------------
 %% APIs

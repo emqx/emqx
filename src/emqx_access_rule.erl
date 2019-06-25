@@ -23,6 +23,8 @@
         , compile/1
         ]).
 
+-export_type([rule/0]).
+
 -type(acl_result() :: allow | deny).
 
 -type(who() :: all | binary() |
@@ -34,8 +36,6 @@
 
 -type(rule() :: {acl_result(), all} |
                 {acl_result(), who(), access(), list(emqx_topic:topic())}).
-
--export_type([rule/0]).
 
 -define(ALLOW_DENY(A), ((A =:= allow) orelse (A =:= deny))).
 -define(PUBSUB(A), ((A =:= subscribe) orelse (A =:= publish) orelse (A =:= pubsub))).
