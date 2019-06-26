@@ -727,10 +727,11 @@ retry_delivery(Force, [{Type, Msg0, Ts} | Msgs], Now,
     if
         Force orelse (Age >= Interval) ->
             Inflight1 = case {Type, Msg0} of
-                            {publish, {PacketId, Msg}} ->
+                            {publish, {PacketId, Msg = #message{topic = Topic}}} ->
                                 case emqx_message:is_expired(Msg) of
                                     true ->
                                         ok = emqx_metrics:inc('messages.expired'),
+                                        ok = emqx_metrics:inc(<<Topic/binary, ".messages.expired">>),
                                         emqx_inflight:delete(PacketId, Inflight);
                                     false ->
                                         redeliver({PacketId, Msg}, State),

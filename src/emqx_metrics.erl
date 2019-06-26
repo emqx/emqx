@@ -29,6 +29,12 @@
 -export([ new/1
         , new/2
         , all/0
+        , all/1
+        , all/2
+        ]).
+
+-export([ add_topic_metrics/1
+        , del_topic_metrics/1
         ]).
 
 -export([ val/1
@@ -136,7 +142,18 @@
     {counter, 'auth.mqtt.anonymous'}
 ]).
 
--record(state, {next_idx = 1}).
+-define(TOPIC_METRICS, [
+    {counter, <<"messages.received">>},      % All Messages received
+    {counter, <<"messages.sent">>},          % All Messages sent
+    {counter, <<"messages.dropped">>},       % Messages dropped
+    {counter, <<"messages.expired">>},       % Messages expired
+    {counter, <<"messages.forward">>}        % Messages forward
+]).
+
+-record(state, {
+          unused_idxs = [{1, ?MAX_SIZE}],
+          topics = []
+          }).
 
 -record(metric, {name, type, idx}).
 
@@ -170,12 +187,54 @@ create(Type, Name) ->
         {error, Reason} -> error(Reason)
     end.
 
+destroy(Name) ->
+    case gen_server:call(?SERVER, {destroy, Name}) of
+        ok -> ok;
+        {error, Reason} -> error(Reason)
+    end.
+
+add_topic_metrics(Topic) when is_binary(Topic) ->
+    lists:foreach(fun({Type, MetricName}) ->
+                      ok = create(Type, <<Topic/binary, ".", MetricName/binary>>)
+                  end, ?TOPIC_METRICS),
+    case gen_server:call(?SERVER, {add_topic, Topic}) of
+        ok -> ok;
+        {error, Reason} -> error(Reason)
+    end.
+
+del_topic_metrics(Topic) when is_binary(Topic) ->
+    lists:foreach(fun({_Type, MetricName}) ->
+                      ok = destroy(<<Topic/binary, ".", MetricName/binary>>)
+                  end, ?TOPIC_METRICS),
+    case gen_server:call(?SERVER, {del_topic, Topic}) of
+        ok -> ok;
+        {error, Reason} -> error(Reason)
+    end.
+
 %% @doc Get all metrics
 -spec(all() -> [{metric_name(), non_neg_integer()}]).
 all() ->
     CRef = persistent_term:get(?MODULE),
     [{Name, counters:get(CRef, Idx)}
      || #metric{name = Name, idx = Idx} <- ets:tab2list(?TAB)].
+
+all(topic_metrics) ->
+    case gen_server:call(?SERVER, all_topics) of
+        {ok, Topics} ->
+            lists:foldl(fun(Topic, Acc) ->
+                all(topic_metrics, Topic) ++ Acc
+            end, [], Topics);
+        {error, Reason} -> error(Reason)
+    end.
+
+all(topic_metrics, Topic) ->
+    lists:foldl(fun({_Type, MetricName}, Acc) ->
+                    MetricName1 = <<Topic/binary, ".", MetricName/binary>>,
+                    case val(MetricName1) of
+                        undefined -> Acc;
+                        Val -> [{MetricName1, Val} | Acc]
+                    end
+                end, [], ?TOPIC_METRICS).
 
 %% @doc Get metric value
 -spec(val(metric_name()) -> maybe(non_neg_integer())).
@@ -248,12 +307,17 @@ update_counter({Name, Value}) ->
 
 update_counter(Name, Value) ->
     CRef = persistent_term:get(?MODULE),
-    CIdx = case reserved_idx(Name) of
-               Idx when is_integer(Idx) -> Idx;
-               undefined ->
-                   ets:lookup_element(?TAB, Name, 4)
-           end,
-    counters:add(CRef, CIdx, Value).
+    case reserved_idx(Name) of
+        Idx when is_integer(Idx) ->
+            counters:add(CRef, Idx, Value);
+        undefined ->
+            try
+                Idx = ets:lookup_element(?TAB, Name, 4),
+                counters:add(CRef, Idx, Value)
+            catch error:badarg ->
+                ok
+            end
+    end.
 
 %%------------------------------------------------------------------------------
 %% Inc Received/Sent metrics
@@ -267,8 +331,9 @@ inc_recv(Packet) ->
 
 do_inc_recv(?PACKET(?CONNECT)) ->
     inc('packets.connect.received');
-do_inc_recv(?PUBLISH_PACKET(QoS, _PktId)) ->
+do_inc_recv(?PUBLISH_PACKET(QoS, Topic, _PktId, _Payload)) ->
     inc('messages.received'),
+    inc(<<Topic/binary, ".messages.received">>),
     case QoS of
         ?QOS_0 -> inc('messages.qos0.received');
         ?QOS_1 -> inc('messages.qos1.received');
@@ -310,7 +375,8 @@ do_inc_sent(?CONNACK_PACKET(ReasonCode)) ->
     (ReasonCode == ?RC_BAD_USER_NAME_OR_PASSWORD) andalso inc('packets.connack.auth_error'),
     inc('packets.connack.sent');
 
-do_inc_sent(?PUBLISH_PACKET(QoS, _PacketId)) ->
+do_inc_sent(?PUBLISH_PACKET(QoS, Topic, _PktId, _Payload)) ->
+    inc(<<Topic/binary, ".messages.sent">>),
     inc('messages.sent'),
     case QoS of
         ?QOS_0 -> inc('messages.qos0.sent');
@@ -359,23 +425,46 @@ init([]) ->
                           Metric = #metric{name = Name, type = Type, idx = reserved_idx(Name)},
                           true = ets:insert(?TAB, Metric),
                           ok = counters:put(CRef, Idx, 0)
-                  end,?BYTES_METRICS ++ ?PACKET_METRICS ++ ?MESSAGE_METRICS ++ ?MQTT_METRICS),
-    {ok, #state{next_idx = ?RESERVED_IDX + 1}, hibernate}.
+                  end, ?BYTES_METRICS ++ ?PACKET_METRICS ++ ?MESSAGE_METRICS ++ ?MQTT_METRICS),
+    UnusedIdxs = [{?RESERVED_IDX + 1, ?MAX_SIZE}],
+    {ok, #state{unused_idxs = UnusedIdxs}, hibernate}.
 
-handle_call({create, Type, Name}, _From, State = #state{next_idx = ?MAX_SIZE}) ->
+handle_call({create, Type, Name}, _From, State = #state{unused_idxs = []}) ->
     ?LOG(error, "Failed to create ~s:~s for index exceeded.", [Type, Name]),
     {reply, {error, metric_index_exceeded}, State};
 
-handle_call({create, Type, Name}, _From, State = #state{next_idx = NextIdx}) ->
+handle_call({create, Type, Name}, _From, State = #state{unused_idxs = [{StartIdx, EndIdx} | Rest]}) ->
     case ets:lookup(?TAB, Name) of
         [#metric{idx = Idx}] ->
             ?LOG(warning, "~s already exists.", [Name]),
             {reply, {ok, Idx}, State};
         [] ->
-            Metric = #metric{name = Name, type = Type, idx = NextIdx},
+            Metric = #metric{name = Name, type = Type, idx = StartIdx},
             true = ets:insert(?TAB, Metric),
-            {reply, {ok, NextIdx}, State#state{next_idx = NextIdx + 1}}
+            NewUnusedIdxs = case StartIdx =:= EndIdx of
+                                true -> Rest;
+                                false -> [{StartIdx + 1, EndIdx} | Rest]
+                            end,
+            {reply, {ok, StartIdx}, State#state{unused_idxs = NewUnusedIdxs}}
     end;
+
+handle_call({destroy, Name}, _From, State = #state{unused_idxs = UnusedIdxs}) ->
+    case ets:lookup(?TAB, Name) of
+        [#metric{idx = Idx}] ->
+            ets:delete(?TAB, Name),
+            {reply, ok, State#state{unused_idxs = insert_unused_idx(Idx, UnusedIdxs)}};
+        [] ->
+            {reply, ok, State}
+    end;
+
+handle_call({add_topic, Topic}, _From, State = #state{topics = Topics}) ->
+    {reply, ok, State#state{topics = [Topic | lists:delete(Topic, Topics)]}};
+
+handle_call({del_topic, Topic}, _From, State = #state{topics = Topics}) ->
+    {reply, ok, State#state{topics = lists:delete(Topic, Topics)}};
+
+handle_call(all_topics, _From, State = #state{topics = Topics}) ->
+    {reply, {ok, Topics}, State};
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
@@ -398,6 +487,22 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+insert_unused_idx(Idx, UnusedIdxs) ->
+    do_insert_unused_idx(Idx, [], UnusedIdxs).
+
+do_insert_unused_idx(Idx, Pass, [{StartIdx, EndIdx} | Rest]) when Idx + 1 =:= StartIdx ->
+    Pass ++ [{Idx, EndIdx} | Rest];
+do_insert_unused_idx(Idx, Pass, [{StartIdx, EndIdx} | Rest]) when Idx - 1 =:= EndIdx ->
+    Pass ++ [{StartIdx, Idx} | Rest];
+do_insert_unused_idx(Idx, Pass, [{StartIdx, _EndIdx} | Rest]) when Idx < StartIdx ->
+    Pass ++ [{Idx, Idx} | Rest];
+do_insert_unused_idx(Idx, Pass, [{StartIdx, EndIdx} | Rest]) when Idx > EndIdx ->
+    case Rest of
+        [] -> Pass ++ [{StartIdx, EndIdx}, {Idx, Idx}];
+        _ -> do_insert_unused_idx(Idx, Pass ++ [{StartIdx, EndIdx}], Rest)
+    end.
+    
 
 reserved_idx('bytes.received')               -> 01;
 reserved_idx('bytes.sent')                   -> 02;
