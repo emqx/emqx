@@ -75,7 +75,6 @@ init([]) ->
           [KernelSup,
            RouterSup,
            BrokerSup,
-           BridgeSup,
            SMSup,
            CMSup,
            SysSup]}}.
