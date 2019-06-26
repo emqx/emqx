@@ -321,7 +321,7 @@ resume(SPid, SessAttrs) ->
 %% @doc Discard the session
 -spec(discard(spid(), ByPid :: pid()) -> ok).
 discard(SPid, ByPid) ->
-    gen_server:call(SPid, {discard, ByPid}, infinity).
+    gen_server:call(SPid, {discard, ByPid}).
 
 -spec(update_expiry_interval(spid(), timeout()) -> ok).
 update_expiry_interval(SPid, Interval) ->
@@ -329,7 +329,7 @@ update_expiry_interval(SPid, Interval) ->
 
 -spec(close(spid()) -> ok).
 close(SPid) ->
-    gen_server:call(SPid, close, infinity).
+    gen_server:call(SPid, close).
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
