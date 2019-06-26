@@ -31,6 +31,7 @@ start(_Type, _Args) ->
     ekka:start(),
     {ok, Sup} = emqx_sup:start_link(),
     emqx_modules:load(),
+    emqx_delayed_publish:load(),
     emqx_plugins:init(),
     emqx_plugins:load(),
     emqx_listeners:start(),
@@ -69,4 +70,3 @@ start_autocluster() ->
     ekka:callback(prepare, fun emqx:shutdown/1),
     ekka:callback(reboot,  fun emqx:reboot/0),
     ekka:autocluster(?APP).
-
