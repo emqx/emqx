@@ -396,12 +396,12 @@ end}.
 ]}.
 
 {mapping, "log.level", "kernel.logger", [
-  {default, error},
+  {default, warning},
   {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
 ]}.
 
 {mapping, "log.primary_log_level", "kernel.logger_level", [
-   {default, error},
+   {default, warning},
    {datatype, {enum, [debug, info, notice, warning, error, critical, alert, emergency, all]}}
 ]}.
 

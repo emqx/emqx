@@ -75,4 +75,4 @@ start_traces(_Config) ->
     ok = emqx_tracer:stop_trace({topic, <<"a/#">>}),
     emqx_client:disconnect(T),
 
-    emqx_logger:set_log_level(error).
+    emqx_logger:set_log_level(warning).
