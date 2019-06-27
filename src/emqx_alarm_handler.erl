@@ -95,7 +95,7 @@ init(_) ->
 handle_event({set_alarm, {AlarmId, AlarmDesc = #alarm{timestamp = undefined}}}, State) ->
     handle_event({set_alarm, {AlarmId, AlarmDesc#alarm{timestamp = os:timestamp()}}}, State);
 handle_event({set_alarm, Alarm = {AlarmId, AlarmDesc}}, State) ->
-    ?LOG(warning, "~p set", [Alarm]),
+    ?LOG(warning, "New Alarm: ~p, Alarm Info: ~p", [AlarmId, AlarmDesc]),
     case encode_alarm(Alarm) of
         {ok, Json} ->
             emqx_broker:safe_publish(alarm_msg(topic(alert), Json));
@@ -105,7 +105,7 @@ handle_event({set_alarm, Alarm = {AlarmId, AlarmDesc}}, State) ->
     set_alarm_(AlarmId, AlarmDesc),
     {ok, State};
 handle_event({clear_alarm, AlarmId}, State) ->
-    ?LOG(notice, "~p clear", [AlarmId]),
+    ?LOG(warning, "Clear Alarm: ~p", [AlarmId]),
     case encode_alarm({AlarmId, undefined}) of
         {ok, Json} ->
             emqx_broker:safe_publish(alarm_msg(topic(clear), Json));
@@ -138,9 +138,9 @@ init_tables(ExistingAlarms) ->
                       set_alarm_history(Id)
                   end, ExistingAlarms).
 
-encode_alarm({AlarmId, #alarm{severity  = Severity, 
+encode_alarm({AlarmId, #alarm{severity  = Severity,
                               title     = Title,
-                              summary   = Summary, 
+                              summary   = Summary,
                               timestamp = Ts}}) ->
     emqx_json:safe_encode([{id, maybe_to_binary(AlarmId)},
                            {desc, [{severity, Severity},
