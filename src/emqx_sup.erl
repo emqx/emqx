@@ -65,7 +65,6 @@ init([]) ->
     RouterSup = supervisor_spec(emqx_router_sup),
     %% Broker Sup
     BrokerSup = supervisor_spec(emqx_broker_sup),
-    BridgeSup = supervisor_spec(emqx_bridge_sup),
     %% Session Manager
     SMSup = supervisor_spec(emqx_sm_sup),
     %% Connection Manager
@@ -76,7 +75,6 @@ init([]) ->
           [KernelSup,
            RouterSup,
            BrokerSup,
-           BridgeSup,
            SMSup,
            CMSup,
            SysSup]}}.

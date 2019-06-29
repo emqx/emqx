@@ -111,6 +111,7 @@ t_logger_handler(_) ->
                                                {child_type, worker}]}]},
                #{logger_formatter => #{title => "SUPERVISOR REPORT"},
                  report_cb => fun logger:format_otp_report/1}),
+    timer:sleep(20),
     ?assertEqual(true, lists:keymember(supervisor_report, 1, emqx_alarm_handler:get_alarms())).
 
 raw_send_serialize(Packet) ->

@@ -245,7 +245,7 @@ connect_v5(_) ->
                                                       #{version => ?MQTT_PROTO_V5}
                                                   )),
 
-                            {ok, Data3} = gen_tcp:recv(Sock, 0),
+                            {ok, Data3} = gen_tcp:recv(Sock, 6),
 
                             {ok, ?PUBACK_PACKET(1, 0), <<>>, _} = raw_recv_parse(Data3, ?MQTT_PROTO_V5),
 

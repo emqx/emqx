@@ -119,7 +119,7 @@ handle_info({'EXIT', Pid, _Reason}, State = #state{sessions = SessMap, clean_dow
     {noreply, State#state{sessions = SessMap1}};
 
 handle_info(Info, State) ->
-    ?LOG(notice, "Unexpected info: ~p", [Info]),
+    ?LOG(error, "Unexpected info: ~p", [Info]),
     {noreply, State}.
 
 terminate(_Reason, State) ->

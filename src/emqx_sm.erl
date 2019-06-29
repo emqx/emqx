@@ -116,6 +116,7 @@ discard_session(ClientId, ConnPid) when is_binary(ClientId) ->
           try emqx_session:discard(SessPid, ConnPid)
           catch
               _:Error:_Stk ->
+                  unregister_session(ClientId, SessPid),
                   ?LOG(warning, "Failed to discard ~p: ~p", [SessPid, Error])
           end
       end, lookup_session_pids(ClientId)).

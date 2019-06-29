@@ -11,8 +11,11 @@ CT_NODE_NAME = emqxct@127.0.0.1
 
 RUN_NODE_NAME = emqxdebug@127.0.0.1
 
+.PHONY: all
+all: compile
+
 .PHONY: run
-run: run_setup
+run: run_setup unlock
 	@rebar3 as test get-deps
 	@rebar3 as test auto --name $(RUN_NODE_NAME) --script test/run_emqx.escript
 
@@ -31,7 +34,8 @@ run_setup:
                                    lists:keyreplace(plugins, 1, Term, {plugins, NewPlugins}) \
 	                       end, \
 	             ok = file:write_file(FilePath, [io_lib:format(\"~p.\n\", [I]) || I <- NewTerm]); \
-            _ -> \
+            _Enoent -> \
+		        os:cmd(\"mkdir -p ~/.config/rebar3/ \"), \
 	            NewTerm=[{plugins, [rebar3_auto]}], \
 	            ok = file:write_file(FilePath, [io_lib:format(\"~p.\n\", [I]) || I <- NewTerm]) \
 	     end, \
@@ -41,8 +45,11 @@ run_setup:
 shell:
 	@rebar3 as test auto
 
-compile:
+compile: unlock
 	@rebar3 compile
+
+unlock:
+	@rebar3 unlock
 
 clean: distclean
 
