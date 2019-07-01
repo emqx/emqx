@@ -47,10 +47,7 @@
 
 -define(OS_MON, ?MODULE).
 
--define(compat_windows(Expression), case os:type() of
-                                        {win32, nt} -> windows;
-                                        _Unix -> Expression
-                                    end).
+-include("emqx.hrl").
 
 %%------------------------------------------------------------------------------
 %% API
@@ -100,7 +97,7 @@ set_procmem_high_watermark(Float) ->
 %%------------------------------------------------------------------------------
 
 init([Opts]) ->
-    _ = ?compat_windows(cpu_sup:util()),
+    _ = ?compat_windows(cpu_sup:util(), windows),
     set_mem_check_interval(proplists:get_value(mem_check_interval, Opts, 60)),
     set_sysmem_high_watermark(proplists:get_value(sysmem_high_watermark, Opts, 0.70)),
     set_procmem_high_watermark(proplists:get_value(procmem_high_watermark, Opts, 0.05)),
@@ -135,7 +132,7 @@ handle_info({timeout, Timer, check}, State = #{timer := Timer,
                                                cpu_high_watermark := CPUHighWatermark,
                                                cpu_low_watermark := CPULowWatermark,
                                                is_cpu_alarm_set := IsCPUAlarmSet}) ->
-    case ?compat_windows(cpu_sup:util()) of
+    case ?compat_windows(cpu_sup:util(), windows) of
         0 ->
             {noreply, State#{timer := undefined}};
         {error, Reason} ->
