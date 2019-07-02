@@ -14,6 +14,8 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+-define(Otherwise, true).
+
 -type(maybe(T) :: undefined | T).
 
 -type(startlink_ret() :: {ok, pid()} | ignore | {error, term()}).
