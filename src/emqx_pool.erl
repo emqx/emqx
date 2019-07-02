@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_pool).
 
@@ -47,9 +49,9 @@
 
 -type(task() :: fun() | mfa() | {fun(), Args :: list(any())}).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 %% @doc Start pool.
 -spec(start_link(atom(), pos_integer()) -> startlink_ret()).
@@ -87,9 +89,9 @@ cast(Msg) ->
 worker() ->
     gproc_pool:pick_worker(?POOL).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% gen_server callbacks
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 init([Pool, Id]) ->
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
@@ -123,9 +125,9 @@ terminate(_Reason, #{pool := Pool, id := Id}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 run({M, F, A}) ->
     erlang:apply(M, F, A);

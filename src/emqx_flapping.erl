@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,9 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
+
+%% @doc This module is used to garbage clean the flapping records.
 
 -module(emqx_flapping).
 
@@ -21,14 +25,12 @@
 
 -export([start_link/0]).
 
-%% This module is used to garbage clean the flapping records
-
 %% gen_statem callbacks
--export([ terminate/3
-        , code_change/4
-        , init/1
+-export([ init/1
         , initialized/3
         , callback_mode/0
+        , terminate/3
+        , code_change/4
         ]).
 
 -define(FLAPPING_TAB, ?MODULE).
@@ -37,15 +39,15 @@
 
 -export([check/3]).
 
--record(flapping,
-        { client_id   :: binary()
-        , check_count :: integer()
-        , timestamp   :: integer()
-        }).
+-record(flapping, {
+          client_id :: binary(),
+          check_count :: integer(),
+          timestamp :: integer()
+         }).
 
 -type(flapping_record() :: #flapping{}).
--type(flapping_state() :: flapping | ok).
 
+-type(flapping_state() :: flapping | ok).
 
 %% @doc This function is used to initialize flapping records
 %% the expiry time unit is minutes.
@@ -103,14 +105,14 @@ start_link() ->
     gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
-    TimerInterval = emqx_config:get_env(flapping_clean_interval, ?default_flapping_clean_interval),
+    Interval = emqx_config:get_env(flapping_clean_interval, ?default_flapping_clean_interval),
     TabOpts = [ public
               , set
               , {keypos, 2}
               , {write_concurrency, true}
               , {read_concurrency, true}],
     ok = emqx_tables:new(?FLAPPING_TAB, TabOpts),
-    {ok, initialized, #{timer_interval => TimerInterval}}.
+    {ok, initialized, #{timer_interval => Interval}}.
 
 callback_mode() -> [state_functions, state_enter].
 
@@ -137,3 +139,4 @@ clean_expired_records() ->
     NowTime = emqx_time:now_secs(),
     MatchSpec = [{{'$1', '$2', '$3'},[{'<', '$3', NowTime}], [true]}],
     ets:select_delete(?FLAPPING_TAB, MatchSpec).
+

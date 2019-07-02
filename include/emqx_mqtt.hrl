@@ -351,6 +351,13 @@
                  variable = #mqtt_packet_publish{packet_id = PacketId}
                 }).
 
+-define(PUBLISH_PACKET(QoS, Topic, PacketId),
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBLISH,
+                                                qos  = QoS},
+                 variable = #mqtt_packet_publish{topic_name = Topic,
+                                                 packet_id  = PacketId}
+                }).
+
 -define(PUBLISH_PACKET(QoS, Topic, PacketId, Payload),
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBLISH,
                                                 qos  = QoS},

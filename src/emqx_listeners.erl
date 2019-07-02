@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 %% @doc Start/Stop MQTT listeners.
 -module(emqx_listeners).
@@ -33,9 +35,9 @@
 
 -type(listener() :: {esockd:proto(), esockd:listen_on(), [esockd:option()]}).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 %% @doc Start all listeners.
 -spec(start() -> ok).
@@ -73,7 +75,7 @@ start_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
 start_mqtt_listener(Name, ListenOn, Options) ->
     SockOpts = esockd:parse_opt(Options),
     esockd:open(Name, ListenOn, merge_default(SockOpts),
-                {emqx_channel, start_link, [Options -- SockOpts]}).
+                {emqx_connection, start_link, [Options -- SockOpts]}).
 
 start_http_listener(Start, Name, ListenOn, RanchOpts, ProtoOpts) ->
     Start(Name, with_port(ListenOn, RanchOpts), ProtoOpts).
@@ -82,7 +84,7 @@ mqtt_path(Options) ->
     proplists:get_value(mqtt_path, Options, "/mqtt").
 
 ws_opts(Options) ->
-    Dispatch = cowboy_router:compile([{'_', [{mqtt_path(Options), emqx_ws_channel, Options}]}]),
+    Dispatch = cowboy_router:compile([{'_', [{mqtt_path(Options), emqx_ws_connection, Options}]}]),
     #{env => #{dispatch => Dispatch}, proxy_header => proplists:get_value(proxy_protocol, Options, false)}.
 
 ranch_opts(Options) ->
@@ -167,3 +169,4 @@ format({Addr, Port}) when is_list(Addr) ->
     io_lib:format("~s:~w", [Addr, Port]);
 format({Addr, Port}) when is_tuple(Addr) ->
     io_lib:format("~s:~w", [esockd_net:ntoab(Addr), Port]).
+

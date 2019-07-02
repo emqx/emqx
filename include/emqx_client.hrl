@@ -12,7 +12,6 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 
-
 -ifndef(EMQX_CLIENT_HRL).
 -define(EMQX_CLIENT_HRL, true).
 -include("emqx_mqtt.hrl").

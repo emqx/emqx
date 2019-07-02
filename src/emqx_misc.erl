@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_misc).
 
@@ -27,7 +29,14 @@
         , conn_proc_mng_policy/1
         ]).
 
--export([drain_down/1]).
+-export([ drain_deliver/1
+        , drain_down/1
+        ]).
+
+-compile({inline,
+          [ start_timer/2
+          , start_timer/3
+          ]}).
 
 %% @doc Merge options
 -spec(merge_opts(list(), list()) -> list()).
@@ -119,6 +128,16 @@ proc_info(Key) ->
     {Key, Value} = erlang:process_info(self(), Key),
     Value.
 
+%% @doc Drain delivers from channel's mailbox.
+drain_deliver(Acc) ->
+    receive
+        Deliver = {deliver, _Topic, _Msg} ->
+            drain_deliver([Deliver|Acc])
+    after 0 ->
+          lists:reverse(Acc)
+    end.
+
+%% @doc Drain process down events.
 -spec(drain_down(pos_integer()) -> list(pid())).
 drain_down(Cnt) when Cnt > 0 ->
     drain_down(Cnt, []).

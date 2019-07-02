@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_logger_handler).
 
@@ -19,8 +21,8 @@
 -export([init/0]).
 
 init() ->
-    logger:add_handler(emqx_logger_handler, 
-                       emqx_logger_handler, 
+    logger:add_handler(emqx_logger_handler,
+                       emqx_logger_handler,
                        #{level => error,
                          filters => [{easy_filter, {fun filter_by_level/2, []}}],
                          filters_default => stop}).
@@ -41,3 +43,4 @@ filter_by_level(LogEvent = #{level := error}, _Extra) ->
     LogEvent;
 filter_by_level(_LogEvent, _Extra) ->
     stop.
+
