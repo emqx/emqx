@@ -195,4 +195,4 @@ set_alarm_history(Id, Desc) ->
     His = #alarm_history{id = Id,
                          desc = Desc,
                          clear_at = os:timestamp()},
-    mnesia:dirty_write(?ALARM_HISTORY_TAB, His}).
+    mnesia:dirty_write(?ALARM_HISTORY_TAB, His).

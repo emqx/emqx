@@ -234,11 +234,6 @@ connected(cast, {incoming, Packet = ?PACKET(Type)}, State) ->
 connected(info, Deliver = {deliver, _Topic, _Msg},
           State = #state{chan_state = ChanState}) ->
     Delivers = emqx_misc:drain_deliver([Deliver]),
-    %% TODO: ...
-    case BatchLen = length(Delivers) of
-        1 -> ok;
-        N -> io:format("Batch Deliver: ~w~n", [N])
-    end,
     case emqx_channel:handle_out(Delivers, ChanState) of
         {ok, NChanState} ->
             keep_state(State#state{chan_state = NChanState});
