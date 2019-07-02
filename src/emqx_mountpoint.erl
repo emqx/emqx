@@ -19,8 +19,6 @@
 -include("emqx.hrl").
 -include("logger.hrl").
 
--logger_header("[Mountpoint]").
-
 -export([ mount/2
         , unmount/2
         ]).
@@ -41,7 +39,8 @@ mount(MountPoint, Msg = #message{topic = Topic}) ->
     Msg#message{topic = <<MountPoint/binary, Topic/binary>>};
 
 mount(MountPoint, TopicFilters) when is_list(TopicFilters) ->
-    [{<<MountPoint/binary, Topic/binary>>, SubOpts} || {Topic, SubOpts} <- TopicFilters].
+    [{<<MountPoint/binary, Topic/binary>>, SubOpts}
+     || {Topic, SubOpts} <- TopicFilters].
 
 unmount(undefined, Msg) ->
     Msg;
@@ -49,8 +48,7 @@ unmount(MountPoint, Msg = #message{topic = Topic}) ->
     try split_binary(Topic, byte_size(MountPoint)) of
         {MountPoint, Topic1} -> Msg#message{topic = Topic1}
     catch
-        _Error:Reason ->
-            ?LOG(error, "Unmount error : ~p", [Reason]),
+        error:badarg->
             Msg
     end.
 

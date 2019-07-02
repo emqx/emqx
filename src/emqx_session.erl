@@ -69,7 +69,7 @@
         , pubcomp/3
         ]).
 
--export([ deliver/3
+-export([ deliver/2
         , await/3
         , enqueue/2
         ]).
@@ -397,31 +397,29 @@ pubcomp(PacketId, ReasonCode, Session = #session{inflight = Inflight, mqueue = Q
 %% Handle delivery
 %%--------------------------------------------------------------------
 
-deliver(Topic, Msg, Session = #session{subscriptions = SubMap}) ->
-    SubOpts = get_subopts(Topic, SubMap),
-    case enrich(SubOpts, Msg, Session) of
-        {ok, Msg1} ->
-            deliver(Msg1, Session);
-        ignore -> ignore
-    end.
+deliver(Delivers, Session = #session{subscriptions = SubMap})
+  when is_list(Delivers) ->
+    Msgs = [enrich(get_subopts(Topic, SubMap), Msg, Session)
+            || {Topic, Msg} <- Delivers],
+    deliver(Msgs, [], Session).
 
-%% Enqueue message if the client has been disconnected
-%% process_msg(Msg, Session = #session{conn_pid = undefined}) ->
-%%    {ignore, enqueue_msg(Msg, Session)};
 
-deliver(Msg = #message{qos = ?QOS_0}, Session) ->
-    {ok, {publish, undefined, Msg}, Session};
+deliver([], Publishes, Session) ->
+    {ok, lists:reverse(Publishes), Session};
 
-deliver(Msg = #message{qos = QoS},
+deliver([Msg = #message{qos = ?QOS_0}|More], Acc, Session) ->
+    deliver(More, [{publish, undefined, Msg}|Acc], Session);
+
+deliver([Msg = #message{qos = QoS}|More], Acc,
         Session = #session{next_pkt_id = PacketId, inflight = Inflight})
     when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
     case emqx_inflight:is_full(Inflight) of
         true ->
-            {ignore, enqueue(Msg, Session)};
+            deliver(More, Acc, enqueue(Msg, Session));
         false ->
             Publish = {publish, PacketId, Msg},
             NSession = await(PacketId, Msg, Session),
-            {ok, Publish, next_pkt_id(NSession)}
+            deliver(More, [Publish|Acc], next_pkt_id(NSession))
     end.
 
 enqueue(Msg, Session = #session{mqueue = Q}) ->
@@ -454,7 +452,7 @@ get_subopts(Topic, SubMap) ->
     end.
 
 enrich([], Msg, _Session) ->
-    {ok, Msg};
+    Msg;
 %%enrich([{nl, 1}|_Opts], #message{from = ClientId}, #session{client_id = ClientId}) ->
 %%    ignore;
 enrich([{nl, _}|Opts], Msg, Session) ->

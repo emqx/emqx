@@ -14,20 +14,19 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% MQTT WebSocket Channel
--module(emqx_ws_channel).
+%% MQTT WebSocket Connection
+-module(emqx_ws_connection).
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
+-include("types.hrl").
 
--logger_header("[WS Channel]").
+-logger_header("[WS Conn]").
 
 -export([ info/1
         , attrs/1
         , stats/1
-        , kick/1
-        , session/1
         ]).
 
 %% websocket callbacks
@@ -41,18 +40,19 @@
 -record(state, {
           request,
           options,
-          peername,
-          sockname,
-          proto_state,
-          parse_state,
-          keepalive,
-          enable_stats,
-          stats_timer,
-          idle_timeout,
+          peername     :: {inet:ip_address(), inet:port_number()},
+          sockname     :: {inet:ip_address(), inet:port_number()},
+          parse_state  :: emqx_frame:parse_state(),
+          packets      :: list(emqx_mqtt:packet()),
+          chan_state   :: emqx_channel:channel(),
+          keepalive    :: maybe(emqx_keepalive:keepalive()),
+          stats_timer  :: disabled | maybe(reference()),
+          idle_timeout :: timeout(),
           shutdown
          }).
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
+-define(CHAN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -62,42 +62,40 @@
 info(WSPid) when is_pid(WSPid) ->
     call(WSPid, info);
 
-info(#state{peername    = Peername,
-            sockname    = Sockname,
-            proto_state = ProtoState}) ->
-    ProtoInfo = emqx_protocol:info(ProtoState),
+info(#state{peername = Peername,
+            sockname = Sockname,
+            chan_state = ChanState}) ->
     ConnInfo = #{socktype => websocket,
                  conn_state => running,
                  peername => Peername,
-                 sockname => Sockname},
-    maps:merge(ProtoInfo, ConnInfo).
+                 sockname => Sockname
+                },
+    ChanInfo = emqx_channel:info(ChanState),
+    maps:merge(ConnInfo, ChanInfo).
 
 %% for dashboard
 attrs(WSPid) when is_pid(WSPid) ->
     call(WSPid, attrs);
 
-attrs(#state{peername    = Peername,
-             sockname    = Sockname,
-             proto_state = ProtoState}) ->
+attrs(#state{peername = Peername,
+             sockname = Sockname,
+             chan_state = ChanState}) ->
     SockAttrs = #{peername => Peername,
                   sockname => Sockname},
-    ProtoAttrs = emqx_protocol:attrs(ProtoState),
-    maps:merge(SockAttrs, ProtoAttrs).
+    ChanAttrs = emqx_channel:attrs(ChanState),
+    maps:merge(SockAttrs, ChanAttrs).
 
 stats(WSPid) when is_pid(WSPid) ->
     call(WSPid, stats);
 
-stats(#state{proto_state = ProtoState}) ->
-    lists:append([wsock_stats(),
-                  emqx_misc:proc_stats(),
-                  emqx_protocol:stats(ProtoState)
-                 ]).
+stats(#state{}) ->
+    lists:append([chan_stats(), wsock_stats(), emqx_misc:proc_stats()]).
 
-kick(WSPid) when is_pid(WSPid) ->
-    call(WSPid, kick).
+%%kick(WSPid) when is_pid(WSPid) ->
+%%    call(WSPid, kick).
 
-session(WSPid) when is_pid(WSPid) ->
-    call(WSPid, session).
+%%session(WSPid) when is_pid(WSPid) ->
+%%    call(WSPid, session).
 
 call(WSPid, Req) when is_pid(WSPid) ->
     Mref = erlang:monitor(process, WSPid),
@@ -153,24 +151,24 @@ websocket_init(#state{request = Req, options = Options}) ->
                             [Error, Reason]),
                        undefined
                end,
-    ProtoState = emqx_protocol:init(#{peername => Peername,
-                                      sockname => Sockname,
-                                      peercert => Peercert,
-                                      sendfun  => send_fun(self()),
-                                      ws_cookie => WsCookie,
-                                      conn_mod => ?MODULE}, Options),
+    ChanState = emqx_channel:init(#{peername => Peername,
+                                    sockname => Sockname,
+                                    peercert => Peercert,
+                                    ws_cookie => WsCookie,
+                                    conn_mod => ?MODULE}, Options),
     Zone = proplists:get_value(zone, Options),
     MaxSize = emqx_zone:get_env(Zone, max_packet_size, ?MAX_PACKET_SIZE),
     ParseState = emqx_frame:initial_parse_state(#{max_size => MaxSize}),
     EnableStats = emqx_zone:get_env(Zone, enable_stats, true),
+    StatsTimer = if EnableStats -> undefined; ?Otherwise-> disabled end,
     IdleTimout = emqx_zone:get_env(Zone, idle_timeout, 30000),
     emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
     ok = emqx_misc:init_proc_mng_policy(Zone),
     {ok, #state{peername     = Peername,
                 sockname     = Sockname,
                 parse_state  = ParseState,
-                proto_state  = ProtoState,
-                enable_stats = EnableStats,
+                chan_state   = ChanState,
+                stats_timer  = StatsTimer,
                 idle_timeout = IdleTimout
                }}.
 
@@ -244,24 +242,21 @@ websocket_info({call, From, kick}, State) ->
     gen_server:reply(From, ok),
     shutdown(kick, State);
 
-websocket_info({call, From, session}, State = #state{proto_state = ProtoState}) ->
-    gen_server:reply(From, emqx_protocol:session(ProtoState)),
-    {ok, State};
-
-websocket_info(Delivery, State = #state{proto_state = ProtoState})
+websocket_info(Delivery, State = #state{chan_state = ChanState})
   when element(1, Delivery) =:= deliver ->
-    case emqx_protocol:handle_out(Delivery, ProtoState) of
-        {ok, NProtoState} ->
-            {ok, State#state{proto_state = NProtoState}};
-        {ok, Packet, NProtoState} ->
-            handle_outgoing(Packet, State#state{proto_state = NProtoState});
+    case emqx_channel:handle_out(Delivery, ChanState) of
+        {ok, NChanState} ->
+            {ok, State#state{chan_state = NChanState}};
+        {ok, Packet, NChanState} ->
+            handle_outgoing(Packet, State#state{chan_state = NChanState});
         {error, Reason} ->
             shutdown(Reason, State)
     end;
 
 websocket_info({timeout, Timer, emit_stats},
-               State = #state{stats_timer = Timer, proto_state = ProtoState}) ->
-    emqx_cm:set_conn_stats(emqx_protocol:client_id(ProtoState), stats(State)),
+               State = #state{stats_timer = Timer, chan_state = ChanState}) ->
+    ClientId = emqx_channel:client_id(ChanState),
+    ok = emqx_cm:set_conn_stats(ClientId, stats(State)),
     {ok, State#state{stats_timer = undefined}, hibernate};
 
 websocket_info({keepalive, start, Interval}, State) ->
@@ -307,59 +302,74 @@ websocket_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
     {ok, State}.
 
-terminate(SockError, _Req, #state{keepalive   = Keepalive,
-                                  proto_state = ProtoState,
-                                  shutdown    = Shutdown}) ->
+terminate(SockError, _Req, #state{keepalive  = Keepalive,
+                                  chan_state = ChanState,
+                                  shutdown   = Shutdown}) ->
     ?LOG(debug, "Terminated for ~p, sockerror: ~p",
          [Shutdown, SockError]),
     emqx_keepalive:cancel(Keepalive),
-    case {ProtoState, Shutdown} of
+    case {ChanState, Shutdown} of
         {undefined, _} -> ok;
         {_, {shutdown, Reason}} ->
-            emqx_protocol:terminate(Reason, ProtoState);
+            emqx_channel:terminate(Reason, ChanState);
         {_, Error} ->
-            emqx_protocol:terminate(Error, ProtoState)
+            emqx_channel:terminate(Error, ChanState)
     end.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
-handle_incoming(Packet, SuccFun, State = #state{proto_state = ProtoState}) ->
-    case emqx_protocol:handle_in(Packet, ProtoState) of
-        {ok, NProtoState} ->
-            SuccFun(State#state{proto_state = NProtoState});
-        {ok, OutPacket, NProtoState} ->
-            %% TODO: How to call SuccFun???
-            handle_outgoing(OutPacket, State#state{proto_state = NProtoState});
-        {error, Reason} ->
-            ?LOG(error, "Protocol error: ~p", [Reason]),
-            shutdown(Reason, State);
-        {error, Reason, NProtoState} ->
-            shutdown(Reason, State#state{proto_state = NProtoState});
-        {stop, Error, NProtoState} ->
-            shutdown(Error, State#state{proto_state = NProtoState})
+handle_incoming(Packet = ?PACKET(Type), SuccFun,
+                State = #state{chan_state = ChanState}) ->
+    _ = inc_incoming_stats(Type),
+    case emqx_channel:handle_in(Packet, ChanState) of
+        {ok, NChanState} ->
+            SuccFun(State#state{chan_state = NChanState});
+        {ok, OutPacket, NChanState} ->
+            %% TODO: SuccFun,
+            handle_outgoing(OutPacket, State#state{chan_state = NChanState});
+        {error, Reason, NChanState} ->
+            shutdown(Reason, State#state{chan_state = NChanState});
+        {stop, Error, NChanState} ->
+            shutdown(Error, State#state{chan_state = NChanState})
     end.
 
-handle_outgoing(Packet, State = #state{proto_state = _NProtoState}) ->
-    Data = emqx_frame:serialize(Packet), %% TODO:, Options),
+handle_outgoing(Packet = ?PACKET(Type), State = #state{chan_state = ChanState}) ->
+    ProtoVer = emqx_channel:info(proto_ver, ChanState),
+    Data = emqx_frame:serialize(Packet, ProtoVer),
     BinSize = iolist_size(Data),
-    emqx_pd:update_counter(send_cnt, 1),
-    emqx_pd:update_counter(send_oct, BinSize),
+    _ = inc_outgoing_stats(Type, BinSize),
     {reply, {binary, Data}, ensure_stats_timer(State)}.
 
-ensure_stats_timer(State = #state{enable_stats = true,
-                                  stats_timer  = undefined,
-                                  idle_timeout = IdleTimeout}) ->
-    State#state{stats_timer = emqx_misc:start_timer(IdleTimeout, emit_stats)};
-ensure_stats_timer(State) ->
-    State.
+inc_incoming_stats(Type) ->
+    emqx_pd:update_counter(recv_pkt, 1),
+    (Type == ?PUBLISH)
+        andalso emqx_pd:update_counter(recv_msg, 1).
 
+inc_outgoing_stats(Type, BinSize) ->
+    emqx_pd:update_counter(send_cnt, 1),
+    emqx_pd:update_counter(send_oct, BinSize),
+    emqx_pd:update_counter(send_pkt, 1),
+    (Type == ?PUBLISH)
+        andalso emqx_pd:update_counter(send_msg, 1).
+
+ensure_stats_timer(State = #state{stats_timer = undefined,
+                                  idle_timeout = IdleTimeout}) ->
+    TRef = emqx_misc:start_timer(IdleTimeout, emit_stats),
+    State#state{stats_timer = TRef};
+%% disabled or timer existed
+ensure_stats_timer(State) -> State.
+
+-compile({inline, [shutdown/2]}).
 shutdown(Reason, State) ->
     %% Fix the issue#2591(https://github.com/emqx/emqx/issues/2591#issuecomment-500278696)
-    self() ! {stop, Reason},
-    {ok, State}.
+    %% self() ! {stop, Reason},
+    {stop, State#state{shutdown = Reason}}.
 
 wsock_stats() ->
     [{Key, emqx_pd:get_counter(Key)} || Key <- ?SOCK_STATS].
+
+chan_stats() ->
+    [{Name, emqx_pd:get_counter(Name)} || Name <- ?CHAN_STATS].
 

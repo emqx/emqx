@@ -22,6 +22,7 @@
 -export([ name/2
         , text/1
         , connack_error/1
+        , puback/1
         ]).
 
 -export([compat/2]).
@@ -161,3 +162,6 @@ connack_error(server_busy) -> ?RC_SERVER_BUSY;
 connack_error(banned) -> ?RC_BANNED;
 connack_error(bad_authentication_method) -> ?RC_BAD_AUTHENTICATION_METHOD;
 connack_error(_) -> ?RC_NOT_AUTHORIZED.
+
+puback([]) -> ?RC_NO_MATCHING_SUBSCRIBERS;
+puback(L) when is_list(L) -> ?RC_SUCCESS.

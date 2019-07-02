@@ -208,7 +208,7 @@ open_session(Attrs = #{clean_start := true,
                        client_id := ClientId}) ->
     CleanStart = fun(_) ->
                      ok = discard_session(ClientId),
-                     {ok, emqx_session:new(Attrs)}
+                     {ok, emqx_session:new(Attrs), false}
                  end,
     emqx_cm_locker:trans(ClientId, CleanStart);
 
@@ -219,7 +219,7 @@ open_session(Attrs = #{clean_start := false,
                           {ok, Session} ->
                               {ok, Session, true};
                           {error, not_found} ->
-                              {ok, emqx_session:new(Attrs)}
+                              {ok, emqx_session:new(Attrs), false}
                       end
                   end,
     emqx_cm_locker:trans(ClientId, ResumeStart).

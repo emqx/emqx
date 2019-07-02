@@ -24,6 +24,12 @@
         , reset_counter/1
         ]).
 
+-compile({inline,
+          [ update_counter/2
+          , get_counter/1
+          , reset_counter/1
+          ]}).
+
 -type(key() :: term()).
 
 -spec(update_counter(key(), number()) -> maybe(number())).

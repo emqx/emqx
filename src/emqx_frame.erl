@@ -21,7 +21,6 @@
 
 -export([ initial_parse_state/0
         , initial_parse_state/1
-        , init_serializer/1
         ]).
 
 -export([ parse/1
@@ -386,18 +385,15 @@ parse_binary_data(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
 %% Serialize MQTT Packet
 %%--------------------------------------------------------------------
 
-init_serializer(Options) ->
-    fun(Packet) -> serialize(Packet, Options) end.
-
 -spec(serialize(emqx_mqtt:packet()) -> iodata()).
 serialize(Packet) ->
-    serialize(Packet, ?DEFAULT_OPTIONS).
+    serialize(Packet, ?MQTT_PROTO_V4).
 
--spec(serialize(emqx_mqtt:packet(), options()) -> iodata()).
+-spec(serialize(emqx_mqtt:packet(), emqx_mqtt:version()) -> iodata()).
 serialize(#mqtt_packet{header   = Header,
                        variable = Variable,
-                       payload  = Payload}, Options) when is_map(Options) ->
-    serialize(Header, serialize_variable(Variable, merge_opts(Options)), serialize_payload(Payload)).
+                       payload  = Payload}, Ver) ->
+    serialize(Header, serialize_variable(Variable, Ver), serialize_payload(Payload)).
 
 serialize(#mqtt_packet_header{type   = Type,
                               dup    = Dup,
@@ -424,7 +420,7 @@ serialize_variable(#mqtt_packet_connect{
                       will_topic   = WillTopic,
                       will_payload = WillPayload,
                       username     = Username,
-                      password     = Password}, _Options) ->
+                      password     = Password}, _Ver) ->
     [serialize_binary_data(ProtoName),
      <<(case IsBridge of
            true  -> 16#80 + ProtoVer;
@@ -451,14 +447,12 @@ serialize_variable(#mqtt_packet_connect{
 
 serialize_variable(#mqtt_packet_connack{ack_flags   = AckFlags,
                                         reason_code = ReasonCode,
-                                        properties  = Properties},
-                   #{version := Ver}) ->
+                                        properties  = Properties}, Ver) ->
     [AckFlags, ReasonCode, serialize_properties(Properties, Ver)];
 
 serialize_variable(#mqtt_packet_publish{topic_name = TopicName,
                                         packet_id  = PacketId,
-                                        properties = Properties},
-                   #{version := Ver}) ->
+                                        properties = Properties}, Ver) ->
     [serialize_utf8_string(TopicName),
      if
          PacketId =:= undefined -> <<>>;
@@ -466,59 +460,54 @@ serialize_variable(#mqtt_packet_publish{topic_name = TopicName,
      end,
      serialize_properties(Properties, Ver)];
 
-serialize_variable(#mqtt_packet_puback{packet_id = PacketId},
-                   #{version := Ver})
+serialize_variable(#mqtt_packet_puback{packet_id = PacketId}, Ver)
     when Ver == ?MQTT_PROTO_V3; Ver == ?MQTT_PROTO_V4 ->
     <<PacketId:16/big-unsigned-integer>>;
 serialize_variable(#mqtt_packet_puback{packet_id   = PacketId,
                                        reason_code = ReasonCode,
                                        properties  = Properties},
-                   #{version := ?MQTT_PROTO_V5}) ->
+                   ?MQTT_PROTO_V5) ->
     [<<PacketId:16/big-unsigned-integer>>, ReasonCode,
      serialize_properties(Properties, ?MQTT_PROTO_V5)];
 
 serialize_variable(#mqtt_packet_subscribe{packet_id     = PacketId,
                                           properties    = Properties,
-                                          topic_filters = TopicFilters},
-                   #{version := Ver}) ->
+                                          topic_filters = TopicFilters}, Ver) ->
     [<<PacketId:16/big-unsigned-integer>>, serialize_properties(Properties, Ver),
      serialize_topic_filters(subscribe, TopicFilters, Ver)];
 
 serialize_variable(#mqtt_packet_suback{packet_id    = PacketId,
                                        properties   = Properties,
-                                       reason_codes = ReasonCodes},
-                   #{version := Ver}) ->
+                                       reason_codes = ReasonCodes}, Ver) ->
     [<<PacketId:16/big-unsigned-integer>>, serialize_properties(Properties, Ver),
      serialize_reason_codes(ReasonCodes)];
 
 serialize_variable(#mqtt_packet_unsubscribe{packet_id     = PacketId,
                                             properties    = Properties,
-                                            topic_filters = TopicFilters},
-                   #{version := Ver}) ->
+                                            topic_filters = TopicFilters}, Ver) ->
     [<<PacketId:16/big-unsigned-integer>>, serialize_properties(Properties, Ver),
      serialize_topic_filters(unsubscribe, TopicFilters, Ver)];
 
 serialize_variable(#mqtt_packet_unsuback{packet_id    = PacketId,
                                          properties   = Properties,
-                                         reason_codes = ReasonCodes},
-                   #{version := Ver}) ->
+                                         reason_codes = ReasonCodes}, Ver) ->
     [<<PacketId:16/big-unsigned-integer>>, serialize_properties(Properties, Ver),
      serialize_reason_codes(ReasonCodes)];
 
-serialize_variable(#mqtt_packet_disconnect{}, #{version := Ver})
+serialize_variable(#mqtt_packet_disconnect{}, Ver)
     when Ver == ?MQTT_PROTO_V3; Ver == ?MQTT_PROTO_V4 ->
     <<>>;
 
 serialize_variable(#mqtt_packet_disconnect{reason_code = ReasonCode,
                                            properties  = Properties},
-                   #{version := Ver = ?MQTT_PROTO_V5}) ->
+                   Ver = ?MQTT_PROTO_V5) ->
     [ReasonCode, serialize_properties(Properties, Ver)];
 serialize_variable(#mqtt_packet_disconnect{}, _Ver) ->
     <<>>;
 
 serialize_variable(#mqtt_packet_auth{reason_code = ReasonCode,
                                      properties  = Properties},
-                   #{version := Ver = ?MQTT_PROTO_V5}) ->
+                   Ver = ?MQTT_PROTO_V5) ->
     [ReasonCode, serialize_properties(Properties, Ver)];
 
 serialize_variable(PacketId, ?MQTT_PROTO_V3) when is_integer(PacketId) ->

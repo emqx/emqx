@@ -29,7 +29,14 @@
         , conn_proc_mng_policy/1
         ]).
 
--export([drain_down/1]).
+-export([ drain_deliver/1
+        , drain_down/1
+        ]).
+
+-compile({inline,
+          [ start_timer/2
+          , start_timer/3
+          ]}).
 
 %% @doc Merge options
 -spec(merge_opts(list(), list()) -> list()).
@@ -121,6 +128,16 @@ proc_info(Key) ->
     {Key, Value} = erlang:process_info(self(), Key),
     Value.
 
+%% @doc Drain delivers from channel's mailbox.
+drain_deliver(Acc) ->
+    receive
+        Deliver = {deliver, _Topic, _Msg} ->
+            drain_deliver([Deliver|Acc])
+    after 0 ->
+          lists:reverse(Acc)
+    end.
+
+%% @doc Drain process down events.
 -spec(drain_down(pos_integer()) -> list(pid())).
 drain_down(Cnt) when Cnt > 0 ->
     drain_down(Cnt, []).
