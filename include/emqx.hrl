@@ -152,6 +152,7 @@
 %%--------------------------------------------------------------------
 %% Banned
 %%--------------------------------------------------------------------
+
 -type(banned_who() ::  {client_id,  binary()}
                      | {username,   binary()}
                      | {ip_address, inet:ip_address()}).
@@ -165,3 +166,13 @@
         }).
 
 -endif.
+
+%%--------------------------------------------------------------------
+%% Compatible with Windows
+%%--------------------------------------------------------------------
+
+-define(compat_windows(Expression, Default),
+        case os:type() of
+            {win32, nt} -> Default;
+            _Unix -> Expression
+        end).

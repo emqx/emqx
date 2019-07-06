@@ -188,8 +188,24 @@ update_expiry(Msg) -> Msg.
 
 %% @doc Message to map
 -spec(to_map(emqx_types:message()) -> map()).
-to_map(Msg) ->
-    maps:from_list(to_list(Msg)).
+to_map(#message{
+          id = Id,
+          qos = QoS,
+          from = From,
+          flags = Flags,
+          headers = Headers,
+          topic = Topic,
+          payload = Payload,
+          timestamp = Timestamp
+        }) ->
+    #{id => Id,
+      qos => QoS,
+      from => From,
+      flags => Flags,
+      headers => Headers,
+      topic => Topic,
+      payload => Payload,
+      timestamp => Timestamp}.
 
 %% @doc Message to tuple list
 -spec(to_list(emqx_types:message()) -> map()).
