@@ -143,8 +143,8 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal Functions
 %%%=============================================================================
 
-connect(#state{mod = Mod, opts = Opts}) ->
-    Mod:connect(connopts(Opts, [])).
+connect(#state{mod = Mod, opts = Opts, id = Id}) ->
+    Mod:connect([{ecpool_worker_id, Id} | connopts(Opts, [])]).
 
 connopts([], Acc) ->
     Acc;
