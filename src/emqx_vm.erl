@@ -159,6 +159,8 @@
                       sndbuf,
                       tos]).
 
+-include("emqx.hrl").
+
 schedulers() ->
     erlang:system_info(schedulers).
 
@@ -167,9 +169,9 @@ microsecs() ->
     (Mega * 1000000 + Sec) * 1000000 + Micro.
 
 loads() ->
-    [{load1,  ftos(cpu_sup:avg1()/256)},
-     {load5,  ftos(cpu_sup:avg5()/256)},
-     {load15, ftos(cpu_sup:avg15()/256)}].
+    [{load1,  ftos(?compat_windows(cpu_sup:avg1()/256, 0.0))},
+     {load5,  ftos(?compat_windows(cpu_sup:avg5()/256, 0.0))},
+     {load15, ftos(?compat_windows(cpu_sup:avg15()/256, 0.0))}].
 
 get_system_info() ->
     [{Key, format_system_info(Key, get_system_info(Key))} || Key <- ?SYSTEM_INFO].

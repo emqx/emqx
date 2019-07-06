@@ -214,7 +214,7 @@ attrs(#state{clean_start = CleanStart,
      {binding, binding(ConnPid)},
      {client_id, ClientId},
      {username, Username},
-     {expiry_interval, ExpiryInterval div 1000},
+     {expiry_interval, ExpiryInterval},
      {created_at, CreatedAt}].
 
 -spec(stats(spid() | #state{}) -> list({atom(), non_neg_integer()})).
