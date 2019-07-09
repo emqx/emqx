@@ -315,7 +315,7 @@ terminate(SockError, _Req, #state{keepalive   = Keepalive,
             emqx_protocol:terminate(Reason, ProtoState),
             exit(Reason);
         {_, Error} ->
-            ?LOG(error, "Un expected terminated for ~p", [Error]),
+            ?LOG(error, "Unexpected terminated for ~p", [Error]),
             emqx_protocol:terminate(Error, ProtoState),
             exit(unknown)
     end.
