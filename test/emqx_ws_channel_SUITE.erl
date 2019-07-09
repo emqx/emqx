@@ -28,10 +28,23 @@
                                 username  = <<"admin">>,
                                 password  = <<"public">>})).
 
+-define(WILL_TOPIC, <<"test/websocket/will">>).
+
+-define(WILL_CLIENT, ?CONNECT_PACKET(#mqtt_packet_connect{
+                                     client_id = <<"mqtt_client">>,
+                                     username  = <<"admin">>,
+                                     password  = <<"public">>,
+                                     will_flag = true,
+                                     will_qos = ?QOS_1,
+                                     will_topic = ?WILL_TOPIC,
+                                     will_payload = <<"payload">>
+                                   })).
+
 all() ->
     [ t_ws_connect_api
     , t_ws_auth_failure
     , t_ws_other_type_frame
+    , t_ws_will
     ].
 
 init_per_suite(Config) ->
@@ -40,6 +53,22 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
+
+t_ws_will(_Config) ->
+    {ok, ClientPid} = emqx_client:start_link(),
+    {ok, _} = emqx_client:connect(ClientPid),
+    {ok, _, [1]} = emqx_client:subscribe(ClientPid, ?WILL_TOPIC, qos1),
+    WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
+    {ok, _} = rfc6455_client:open(WS),
+    Packet = raw_send_serialize(?WILL_CLIENT),
+    ok = rfc6455_client:send_binary(WS, Packet),
+    {binary, Bin} = rfc6455_client:recv(WS),
+    Connack = ?CONNACK_PACKET(?CONNACK_ACCEPT),
+    {ok, Connack, <<>>, _} = raw_recv_pase(Bin),
+    exit(WS, abnomal),
+    ?assertEqual(1, length(emqx_client_SUITE:receive_messages(1))),
+    ok = emqx_client:disconnect(ClientPid),
+    ok.
 
 t_ws_auth_failure(_Config) ->
     application:set_env(emqx, allow_anonymous, false),
