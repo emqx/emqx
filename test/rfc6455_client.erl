@@ -186,7 +186,6 @@ do_close(State = #state{socket = Socket}, {Code, Reason}) ->
     gen_tcp:send(Socket, encode_frame(1, 8, Payload)),
     State#state{phase = closing}.
 
-
 loop(State = #state{socket = Socket, ppid = PPid, data = Data,
                     phase = Phase}) ->
     receive
