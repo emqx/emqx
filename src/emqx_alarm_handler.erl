@@ -113,7 +113,7 @@ handle_event({set_alarm, Alarm = {AlarmId, AlarmDesc}}, State) ->
     set_alarm_(AlarmId, AlarmDesc),
     {ok, State};
 handle_event({clear_alarm, AlarmId}, State) ->
-    ?LOG(warning, "Clear Alarm: ~p", [AlarmId]),
+    ?LOG(info, "Clear Alarm: ~p", [AlarmId]),
     case encode_alarm({AlarmId, undefined}) of
         {ok, Json} ->
             emqx_broker:safe_publish(alarm_msg(topic(clear), Json));
