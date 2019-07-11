@@ -24,8 +24,7 @@
 -include("emqx_mqtt.hrl").
 -include("emqx.hrl").
 
-all() -> [t_alarm_handler,
-          t_logger_handler].
+all() -> [t_alarm_handler].
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([], fun set_special_configs/1),
@@ -96,23 +95,6 @@ t_alarm_handler(_) ->
             ?assertEqual(false, lists:keymember(alarm_for_test, 1, emqx_alarm_handler:get_alarms()))
 
         end).
-
-t_logger_handler(_) ->
-    %% Meck supervisor report
-    logger:log(error, #{label => {supervisor, start_error},
-                        report => [{supervisor, {local, tmp_sup}},
-                                   {errorContext, shutdown},
-                                   {reason, reached_max_restart_intensity},
-                                   {offender, [{pid, meck},
-                                               {id, meck},
-                                               {mfargs, {meck, start_link, []}},
-                                               {restart_type, permanent},
-                                               {shutdown, 5000},
-                                               {child_type, worker}]}]},
-               #{logger_formatter => #{title => "SUPERVISOR REPORT"},
-                 report_cb => fun logger:format_otp_report/1}),
-    timer:sleep(20),
-    ?assertEqual(true, lists:keymember(supervisor_report, 1, emqx_alarm_handler:get_alarms())).
 
 raw_send_serialize(Packet) ->
     emqx_frame:serialize(Packet).

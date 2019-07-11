@@ -38,8 +38,6 @@ start(_Type, _Args) ->
     register(emqx, self()),
 
     emqx_alarm_handler:load(),
-    emqx_logger_handler:init(),
-
     print_vsn(),
     {ok, Sup}.
 
