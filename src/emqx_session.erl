@@ -301,10 +301,10 @@ pubcomp(SPid, PacketId, ReasonCode) ->
 
 -spec(unsubscribe(spid(), emqx_types:topic_table()) -> ok).
 unsubscribe(SPid, RawTopicFilters) when is_list(RawTopicFilters) ->
-   TopicFilters = lists:map(fun({RawTopic, Opts}) ->
-                                    emqx_topic:parse(RawTopic, Opts);
-                               (RawTopic) when is_binary(RawTopic) ->
-                                    emqx_topic:parse(RawTopic)
+    TopicFilters = lists:map(fun({RawTopic, Opts}) ->
+                                     emqx_topic:parse(RawTopic, Opts);
+                                (RawTopic) when is_binary(RawTopic) ->
+                                     emqx_topic:parse(RawTopic)
                             end, RawTopicFilters),
     unsubscribe(SPid, undefined, #{}, TopicFilters).
 

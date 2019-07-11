@@ -209,7 +209,7 @@ idle(enter, _, State) ->
     keep_state_and_data;
 
 idle(timeout, _Timeout, State) ->
-    {stop, idle_timeout, State};
+    {stop, {shutdown, idle_timeout}, State};
 
 idle(cast, {incoming, Packet}, State) ->
     handle_incoming(Packet, fun(NState) ->

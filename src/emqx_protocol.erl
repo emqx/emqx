@@ -891,11 +891,11 @@ check_sub_acl(TopicFilters, #pstate{credentials = #{is_superuser := IsSuper}})
 check_sub_acl(TopicFilters, #pstate{zone = Zone, credentials = Credentials}) ->
     EnableAcl = emqx_zone:get_env(Zone, enable_acl, false),
     lists:foldr(
-      fun({Topic, SubOpts}, {Ok, Acc}) when EnableAcl ->
-              AllowTerm = {Ok, [{Topic, SubOpts}|Acc]},
+      fun({Topic, SubOpts}, {ok, Acc}) when EnableAcl ->
+              AllowTerm = {ok, [{Topic, SubOpts}|Acc]},
               DenyTerm = {error, [{Topic, SubOpts#{rc := ?RC_NOT_AUTHORIZED}}|Acc]},
               do_acl_check(subscribe, Credentials, Topic, AllowTerm, DenyTerm);
-         (TopicFilter, Acc) ->
+         (TopicFilter, {ok, Acc}) ->
               {ok, [TopicFilter | Acc]}
       end, {ok, []}, TopicFilters).
 
