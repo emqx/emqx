@@ -312,9 +312,12 @@ terminate(SockError, _Req, #state{keepalive   = Keepalive,
     case {ProtoState, Shutdown} of
         {undefined, _} -> ok;
         {_, {shutdown, Reason}} ->
-            emqx_protocol:terminate(Reason, ProtoState);
+            emqx_protocol:terminate(Reason, ProtoState),
+            exit(Reason);
         {_, Error} ->
-            emqx_protocol:terminate(Error, ProtoState)
+            ?LOG(error, "Unexpected terminated for ~p", [Error]),
+            emqx_protocol:terminate(Error, ProtoState),
+            exit(unknown)
     end.
 
 %%--------------------------------------------------------------------
@@ -334,8 +337,6 @@ handle_incoming(Packet, SuccFun, State = #state{proto_state = ProtoState}) ->
             shutdown(Error, State#state{proto_state = NProtoState})
     end.
 
-
-
 ensure_stats_timer(State = #state{enable_stats = true,
                                   stats_timer  = undefined,
                                   idle_timeout = IdleTimeout}) ->
@@ -345,7 +346,7 @@ ensure_stats_timer(State) ->
 
 shutdown(Reason, State) ->
     %% Fix the issue#2591(https://github.com/emqx/emqx/issues/2591#issuecomment-500278696)
-    self() ! {stop, Reason},
+    self() ! {stop, State#state{shutdown = {shutdown, Reason}}},
     {ok, State}.
 
 wsock_stats() ->
