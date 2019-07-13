@@ -14,8 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--define(Otherwise, true).
-
 -type(maybe(T) :: undefined | T).
 
 -type(startlink_ret() :: {ok, pid()} | ignore | {error, term()}).
@@ -23,3 +21,4 @@
 -type(ok_or_error(Reason) :: ok | {error, Reason}).
 
 -type(ok_or_error(Value, Reason) :: {ok, Value} | {error, Reason}).
+
