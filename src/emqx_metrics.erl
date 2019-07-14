@@ -134,9 +134,14 @@
     {counter, 'messages.forward'}        % Messages forward
 ]).
 
+-define(CHAN_METRICS, [
+    {counter, 'channel.gc.cnt'}
+]).
+
 -define(MQTT_METRICS, [
     {counter, 'auth.mqtt.anonymous'}
 ]).
+
 
 -record(state, {next_idx = 1}).
 
@@ -262,7 +267,7 @@ update_counter(Name, Value) ->
 %%--------------------------------------------------------------------
 
 %% @doc Inc packets received.
--spec(inc_recv(emqx_mqtt_types:packet()) -> ok).
+-spec(inc_recv(emqx_types:packet()) -> ok).
 inc_recv(Packet) ->
     inc('packets.received'),
     do_inc_recv(Packet).
@@ -299,7 +304,7 @@ do_inc_recv(_Packet) ->
     ignore.
 
 %% @doc Inc packets sent. Will not count $SYS PUBLISH.
--spec(inc_sent(emqx_mqtt_types:packet()) -> ok | ignore).
+-spec(inc_sent(emqx_types:packet()) -> ok | ignore).
 inc_sent(?PUBLISH_PACKET(_QoS, <<"$SYS/", _/binary>>, _, _)) ->
     ignore;
 inc_sent(Packet) ->
@@ -453,4 +458,5 @@ reserved_idx('messages.dropped')             -> 49;
 reserved_idx('messages.expired')             -> 50;
 reserved_idx('messages.forward')             -> 51;
 reserved_idx('auth.mqtt.anonymous')          -> 52;
+reserved_idx('channel.gc.cnt')               -> 53;
 reserved_idx(_)                              -> undefined.
