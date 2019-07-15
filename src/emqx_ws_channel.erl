@@ -316,7 +316,7 @@ terminate(SockError, _Req, #state{keepalive   = Keepalive,
             exit(Reason);
         {_, Error} ->
             emqx_protocol:terminate(Error, ProtoState),
-            exit({error, Error})
+            exit({error, SockError})
     end.
 
 %%--------------------------------------------------------------------
@@ -346,7 +346,7 @@ ensure_stats_timer(State) ->
 shutdown(Reason, State) ->
     %% Fix the issue#2591(https://github.com/emqx/emqx/issues/2591#issuecomment-500278696)
     self() ! {stop, {shutdown, Reason}},
-    {ok, State#state{shutdown = {shutdown, Reason}}}.
+    {ok, State}.
 
 wsock_stats() ->
     [{Key, emqx_pd:get_counter(Key)} || Key <- ?SOCK_STATS].
