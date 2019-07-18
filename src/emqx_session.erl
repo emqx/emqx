@@ -461,9 +461,6 @@ handle_call({pubrel, PacketId, _ReasonCode}, _From, State = #state{awaiting_rel 
 handle_call(close, _From, State) ->
     {stop, normal, ok, State};
 
-handle_call({close, Reason}, _From, State) ->
-    {stop, Reason, ok, State};
-
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
@@ -633,7 +630,7 @@ handle_info({'EXIT', ConnPid, Reason}, State = #state{will_msg = WillMsg, expiry
         _ ->
             send_willmsg(WillMsg)
     end,
-    {stop, Reason, State#state{will_msg = undefined, conn_pid = undefined}};
+    shutdown(Reason, State#state{will_msg = undefined, conn_pid = undefined});
 
 handle_info({'EXIT', ConnPid, Reason}, State = #state{conn_pid = ConnPid}) ->
     State1 = case Reason of
