@@ -303,20 +303,23 @@ websocket_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
     {ok, State}.
 
-terminate(SockError, _Req, #state{keepalive   = Keepalive,
-                                  proto_state = ProtoState,
-                                  shutdown    = Shutdown}) ->
-    ?LOG(debug, "Terminated for ~p, sockerror: ~p",
-         [Shutdown, SockError]),
+terminate(WsReason, _Req, #state{keepalive   = Keepalive,
+                                 proto_state = ProtoState,
+                                 shutdown    = Shutdown}) ->
+    ?LOG(debug, "Terminated for ~p, websocket reason: ~p",
+         [Shutdown, WsReason]),
     emqx_keepalive:cancel(Keepalive),
     case {ProtoState, Shutdown} of
         {undefined, _} -> ok;
         {_, {shutdown, Reason}} ->
+            SessionPid = emqx_protocol:session(ProtoState),
             emqx_protocol:terminate(Reason, ProtoState),
-            exit(Reason);
-        {_, Error} ->
-            emqx_protocol:terminate(Error, ProtoState),
-            exit({error, SockError})
+            SessionPid ! {'EXIT', self(), Reason};
+        {_, _Error} ->
+            ?LOG(info, "Terminate for unexpected error: ~p", [WsReason]),
+            SessionPid = emqx_protocol:session(ProtoState),
+            emqx_protocol:terminate(unknown, ProtoState),
+            SessionPid ! {'EXIT', self(), unknown}
     end.
 
 %%--------------------------------------------------------------------
