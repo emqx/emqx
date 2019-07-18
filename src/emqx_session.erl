@@ -331,6 +331,10 @@ update_expiry_interval(SPid, Interval) ->
 close(SPid) ->
     gen_server:call(SPid, close).
 
+-spec(close(spid(), atom()) -> ok).
+close(SPid, Reason) ->
+    gen_server:call(SPid, {close, Reason}).
+
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
@@ -456,6 +460,9 @@ handle_call({pubrel, PacketId, _ReasonCode}, _From, State = #state{awaiting_rel 
 
 handle_call(close, _From, State) ->
     {stop, normal, ok, State};
+
+handle_call({close, Reason}, _From, State) ->
+    {stop, Reason, ok, State};
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
