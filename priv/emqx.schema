@@ -1807,6 +1807,11 @@ end}.
   {default, "1m"}
 ]}.
 
+{mapping, "broker.sys_heartbeat", "emqx.broker_sys_heartbeat", [
+  {datatype, {duration, ms}},
+  {default, "30s"}
+]}.
+
 {mapping, "broker.enable_session_registry", "emqx.enable_session_registry", [
   {default, on},
   {datatype, flag}
