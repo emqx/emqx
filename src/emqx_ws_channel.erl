@@ -312,19 +312,24 @@ terminate(WsReason, _Req, #state{keepalive   = Keepalive,
     case {ProtoState, Shutdown} of
         {undefined, _} -> ok;
         {_, {shutdown, Reason}} ->
-            SessionPid = emqx_protocol:session(ProtoState),
-            emqx_protocol:terminate(Reason, ProtoState),
-            SessionPid ! {'EXIT', self(), Reason};
+            terminate_session(Reason, ProtoState);
         {_, _Error} ->
             ?LOG(info, "Terminate for unexpected error: ~p", [WsReason]),
-            SessionPid = emqx_protocol:session(ProtoState),
-            emqx_protocol:terminate(unknown, ProtoState),
-            SessionPid ! {'EXIT', self(), unknown}
+            terminate_session(unknown, ProtoState)
     end.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+terminate_session(Reason, ProtoState) ->
+    emqx_protocol:terminate(Reason, ProtoState),
+    case emqx_protocol:session(ProtoState) of
+        undefined ->
+            ok;
+        SessionPid ->
+            SessionPid ! {'EXIT', self(), Reason}
+    end.
 
 handle_incoming(Packet, SuccFun, State = #state{proto_state = ProtoState}) ->
     case emqx_protocol:received(Packet, ProtoState) of
