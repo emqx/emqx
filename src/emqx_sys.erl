@@ -28,6 +28,7 @@
         , datetime/0
         , sysdescr/0
         , sys_interval/0
+        , sys_heatbeat_interval/0
         ]).
 
 -export([info/0]).
@@ -92,6 +93,11 @@ datetime() ->
 sys_interval() ->
     application:get_env(?APP, broker_sys_interval, 60000).
 
+%% @doc Get sys heatbeat interval
+-spec(sys_heatbeat_interval() -> pos_integer()).
+sys_heatbeat_interval() ->
+    application:get_env(?APP, sys_heartbeat, 30000).
+
 %% @doc Get sys info
 -spec(info() -> list(tuple())).
 info() ->
@@ -111,7 +117,7 @@ init([]) ->
     {ok, heartbeat(tick(State))}.
 
 heartbeat(State) ->
-    State#state{heartbeat = start_timer(timer:seconds(1), heartbeat)}.
+    State#state{heartbeat = start_timer(sys_heatbeat_interval(), heartbeat)}.
 tick(State) ->
     State#state{ticker = start_timer(sys_interval(), tick)}.
 
