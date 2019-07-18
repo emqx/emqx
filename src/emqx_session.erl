@@ -331,10 +331,6 @@ update_expiry_interval(SPid, Interval) ->
 close(SPid) ->
     gen_server:call(SPid, close).
 
--spec(close(spid(), atom()) -> ok).
-close(SPid, Reason) ->
-    gen_server:call(SPid, {close, Reason}).
-
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
 %%------------------------------------------------------------------------------
