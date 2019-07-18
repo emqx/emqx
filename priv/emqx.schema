@@ -129,7 +129,7 @@
 ]}.
 
 {mapping, "cluster.k8s.address_type", "ekka.cluster_discovery", [
-  {datatype, {enum, [ip, dns]}}
+  {datatype, {enum, [ip, dns, hostname]}}
 ]}.
 
 {mapping, "cluster.k8s.app_name", "ekka.cluster_discovery", [
@@ -139,6 +139,11 @@
 {mapping, "cluster.k8s.namespace", "ekka.cluster_discovery", [
   {datatype, string}
 ]}.
+
+{mapping, "cluster.k8s.hostname_suffix", "ekka.cluster_discovery", [
+    {datatype, string},
+    {default, ""}
+  ]}.
 
 {translation, "ekka.cluster_discovery", fun(Conf) ->
   Strategy = cuttlefish:conf_get("cluster.discovery", Conf),
@@ -176,7 +181,8 @@
                   {service_name, cuttlefish:conf_get("cluster.k8s.service_name", Conf)},
                   {address_type, cuttlefish:conf_get("cluster.k8s.address_type", Conf, ip)},
                   {app_name, cuttlefish:conf_get("cluster.k8s.app_name", Conf)},
-                  {namespace, cuttlefish:conf_get("cluster.k8s.namespace", Conf)}];
+                  {namespace, cuttlefish:conf_get("cluster.k8s.namespace", Conf)},
+                  {hostname_suffix, cuttlefish:conf_get("cluster.k8s.hostname_suffix", Conf, "")}];
                (manual) ->
                  [ ]
             end,
