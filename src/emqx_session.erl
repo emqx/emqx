@@ -626,7 +626,7 @@ handle_info({'EXIT', ConnPid, Reason}, State = #state{will_msg = WillMsg, expiry
         _ ->
             send_willmsg(WillMsg)
     end,
-    {stop, Reason, State#state{will_msg = undefined, conn_pid = undefined}};
+    shutdown(Reason, State#state{will_msg = undefined, conn_pid = undefined});
 
 handle_info({'EXIT', ConnPid, Reason}, State = #state{conn_pid = ConnPid}) ->
     State1 = case Reason of

@@ -23,18 +23,28 @@
 -define(RPC, gen_rpc).
 
 call(Node, Mod, Fun, Args) ->
-    filter_result(?RPC:call(Node, Mod, Fun, Args)).
+    filter_result(?RPC:call(rpc_node(Node), Mod, Fun, Args)).
 
 multicall(Nodes, Mod, Fun, Args) ->
-    filter_result(?RPC:multicall(Nodes, Mod, Fun, Args)).
+    filter_result(?RPC:multicall(rpc_nodes(Nodes), Mod, Fun, Args)).
 
 cast(Node, Mod, Fun, Args) ->
-    filter_result(?RPC:cast(Node, Mod, Fun, Args)).
+    filter_result(?RPC:cast(rpc_node(Node), Mod, Fun, Args)).
 
+rpc_node(Node) ->
+    {Node, erlang:system_info(scheduler_id)}.
+
+rpc_nodes(Nodes) ->
+    rpc_nodes(Nodes, []).
+
+rpc_nodes([], Acc) ->
+    Acc;
+rpc_nodes([Node | Nodes], Acc) ->
+    rpc_nodes(Nodes, [rpc_node(Node) | Acc]).
+
+
+filter_result({Error, Reason})
+  when Error =:= badrpc; Error =:= badtcp ->
+    {badrpc, Reason};
 filter_result(Delivery) ->
-    case Delivery of 
-        {badrpc, Reason} -> {badrpc, Reason};
-        {badtcp, Reason} -> {badrpc, Reason};
-        _ -> Delivery
-    end.
-
+    Delivery.
