@@ -28,7 +28,7 @@ git clone https://github.com/emqx/emqx-rel.git
 
 cd emqx-rel && make
 
-cd _rel/emqx && ./bin/emqx console
+cd _build/emqx/rel/emqx && ./bin/emqx console
 
 ```
 
