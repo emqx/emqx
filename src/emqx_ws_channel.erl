@@ -296,8 +296,8 @@ websocket_info({binary, Data}, State) ->
 websocket_info({shutdown, Reason}, State) ->
     shutdown(Reason, State);
 
-websocket_info({stop, Reason}, State) ->
-    {stop, State#state{shutdown = Reason}};
+websocket_info(stop, State) ->
+    {stop, State};
 
 websocket_info(Info = {'EXIT', SessionPid, Reason}, State = #state{proto_state = ProtoState}) ->
     case emqx_protocol:session(ProtoState) of
@@ -363,12 +363,12 @@ ensure_stats_timer(State) ->
     State.
 
 shutdown(Reason = {shutdown, _}, State) ->
-    self() ! {stop, Reason},
-    {ok, State};
+    self() ! stop,
+    {ok, State#state{shutdown = Reason}};
 shutdown(Reason, State) ->
     %% Fix the issue#2591(https://github.com/emqx/emqx/issues/2591#issuecomment-500278696)
-    self() ! {stop, {shutdown, Reason}},
-    {ok, State}.
+    self() ! stop,
+    {ok, State#state{shutdown = {shutdown, Reason}}}.
 
 wsock_stats() ->
     [{Key, emqx_pd:get_counter(Key)} || Key <- ?SOCK_STATS].
