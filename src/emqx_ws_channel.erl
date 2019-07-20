@@ -328,6 +328,7 @@ terminate_session(Reason, ProtoState) ->
         undefined ->
             ok;
         SessionPid ->
+            unlink(SessionPid),
             SessionPid ! {'EXIT', self(), Reason}
     end.
 
