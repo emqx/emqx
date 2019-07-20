@@ -328,8 +328,8 @@ terminate_session(Reason, ProtoState) ->
         undefined ->
             ok;
         SessionPid ->
-            SessionPid ! {'EXIT', self(), Reason},
-            unlink(SessionPid)
+            unlink(SessionPid),
+            SessionPid ! {'EXIT', self(), Reason}
     end.
 
 handle_incoming(Packet, SuccFun, State = #state{proto_state = ProtoState}) ->
