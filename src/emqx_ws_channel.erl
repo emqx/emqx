@@ -299,6 +299,14 @@ websocket_info({shutdown, Reason}, State) ->
 websocket_info({stop, Reason}, State) ->
     {stop, State#state{shutdown = Reason}};
 
+websocket_info(Info = {'EXIT', SessionPid, Reason}, State = #state{proto_state = ProtoState}) ->
+    case emqx_protocol:session(ProtoState) of
+        undefined ->
+            ?LOG(error, "Unexpected EXIT: ~p", [Info]),
+            {ok, State};
+        SessionPid -> shutdown(Reason, State)
+    end;
+
 websocket_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
     {ok, State}.
