@@ -148,6 +148,7 @@ call(CPid, Req) ->
 %%--------------------------------------------------------------------
 
 init({Transport, RawSocket, Options}) ->
+    process_flag(trap_exit, true),
     {ok, Socket} = Transport:wait(RawSocket),
     {ok, Peername} = Transport:ensure_ok_or_exit(peername, [Socket]),
     {ok, Sockname} = Transport:ensure_ok_or_exit(sockname, [Socket]),
@@ -365,6 +366,16 @@ handle(info, {shutdown, conflict, {ClientId, NewPid}}, State) ->
 handle(info, {shutdown, Reason}, State) ->
     shutdown(Reason, State);
 
+handle(info, Info = {'EXIT', SessionPid, Reason}, State = #state{proto_state = ProtoState}) ->
+    case emqx_protocol:session(ProtoState) of
+        undefined ->
+            ?LOG(error, "Unexpected EXIT: ~p", [Info]),
+            {keep_state, State};
+        SessionPid ->
+            ?LOG(error, "Session ~p termiated: ~p", [SessionPid, Reason]),
+            shutdown(Reason, State)
+    end;
+
 handle(info, Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
     {keep_state, State}.
@@ -499,6 +510,8 @@ maybe_gc(_, State) -> State.
 reply(From, Reply, State) ->
     {keep_state, State, [{reply, From, Reply}]}.
 
+shutdown(Reason = {shutdown, _}, State) ->
+    stop(Reason, State);
 shutdown(Reason, State) ->
     stop({shutdown, Reason}, State).
 

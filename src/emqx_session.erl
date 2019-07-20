@@ -626,7 +626,7 @@ handle_info({'EXIT', ConnPid, Reason}, State = #state{will_msg = WillMsg, expiry
         _ ->
             send_willmsg(WillMsg)
     end,
-    {stop, Reason, State#state{will_msg = undefined, conn_pid = undefined}};
+    shutdown(Reason, State#state{will_msg = undefined, conn_pid = undefined});
 
 handle_info({'EXIT', ConnPid, Reason}, State = #state{conn_pid = ConnPid}) ->
     State1 = case Reason of
@@ -652,22 +652,12 @@ handle_info(Info, State) ->
 
 terminate(Reason, #state{will_msg = WillMsg,
                          client_id = ClientId,
-                         username = Username,
-                         conn_pid = ConnPid,
-                         old_conn_pid = OldConnPid}) ->
+                         username = Username}) ->
     send_willmsg(WillMsg),
-    [maybe_shutdown(Pid, Reason) || Pid <- [ConnPid, OldConnPid]],
     ok = emqx_hooks:run('session.terminated', [#{client_id => ClientId, username => Username}, Reason]).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
-maybe_shutdown(undefined, _Reason) ->
-    ok;
-maybe_shutdown(Pid, normal) ->
-    Pid ! {shutdown, normal};
-maybe_shutdown(Pid, Reason) ->
-    exit(Pid, Reason).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
