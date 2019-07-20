@@ -371,7 +371,9 @@ handle(info, Info = {'EXIT', SessionPid, Reason}, State = #state{proto_state = P
         undefined ->
             ?LOG(error, "Unexpected EXIT: ~p", [Info]),
             {keep_state, State};
-        SessionPid -> shutdown(Reason, State)
+        SessionPid ->
+            ?LOG(error, "Session ~p termiated: ~p", [SessionPid, Reason]),
+            shutdown(Reason, State)
     end;
 
 handle(info, Info, State) ->
@@ -508,6 +510,8 @@ maybe_gc(_, State) -> State.
 reply(From, Reply, State) ->
     {keep_state, State, [{reply, From, Reply}]}.
 
+shutdown(Reason = {shutdown, _}, State) ->
+    stop(Reason, State);
 shutdown(Reason, State) ->
     stop({shutdown, Reason}, State).
 
