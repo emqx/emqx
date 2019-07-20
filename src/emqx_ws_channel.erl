@@ -304,7 +304,9 @@ websocket_info(Info = {'EXIT', SessionPid, Reason}, State = #state{proto_state =
         undefined ->
             ?LOG(error, "Unexpected EXIT: ~p", [Info]),
             {ok, State};
-        SessionPid -> shutdown(Reason, State)
+        SessionPid ->
+            ?LOG(error, "Session ~p termiated: ~p", [SessionPid, Reason]),
+            shutdown(Reason, State)
     end;
 
 websocket_info(Info, State) ->
@@ -360,6 +362,9 @@ ensure_stats_timer(State = #state{enable_stats = true,
 ensure_stats_timer(State) ->
     State.
 
+shutdown(Reason = {shutdown, _}, State) ->
+    self() ! {stop, Reason},
+    {ok, State};
 shutdown(Reason, State) ->
     %% Fix the issue#2591(https://github.com/emqx/emqx/issues/2591#issuecomment-500278696)
     self() ! {stop, {shutdown, Reason}},
