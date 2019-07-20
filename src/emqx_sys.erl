@@ -96,7 +96,7 @@ sys_interval() ->
 %% @doc Get sys heatbeat interval
 -spec(sys_heatbeat_interval() -> pos_integer()).
 sys_heatbeat_interval() ->
-    application:get_env(?APP, sys_heartbeat, 30000).
+    application:get_env(?APP, broker_sys_heartbeat, 30000).
 
 %% @doc Get sys info
 -spec(info() -> list(tuple())).
