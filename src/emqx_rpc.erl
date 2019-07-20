@@ -18,6 +18,8 @@
 -export([ call/4
         , cast/4
         , multicall/4
+        , rpc_node/1
+        , rpc_nodes/1
         ]).
 
 -define(RPC, gen_rpc).
