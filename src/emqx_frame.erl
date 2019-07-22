@@ -35,13 +35,13 @@
              ]).
 
 -type(options() :: #{max_size => 1..?MAX_PACKET_SIZE,
-                     version  => emqx_mqtt:version()
+                     version  => emqx_types:version()
                     }).
 
 -opaque(parse_state() :: {none, options()} | {more, cont_fun()}).
 
 -opaque(parse_result() :: {ok, parse_state()}
-                        | {ok, emqx_mqtt:packet(), binary(), parse_state()}).
+                        | {ok, emqx_types:packet(), binary(), parse_state()}).
 
 -type(cont_fun() :: fun((binary()) -> parse_result())).
 
@@ -385,11 +385,11 @@ parse_binary_data(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
 %% Serialize MQTT Packet
 %%--------------------------------------------------------------------
 
--spec(serialize(emqx_mqtt:packet()) -> iodata()).
+-spec(serialize(emqx_types:packet()) -> iodata()).
 serialize(Packet) ->
     serialize(Packet, ?MQTT_PROTO_V4).
 
--spec(serialize(emqx_mqtt:packet(), emqx_mqtt:version()) -> iodata()).
+-spec(serialize(emqx_types:packet(), emqx_types:version()) -> iodata()).
 serialize(#mqtt_packet{header   = Header,
                        variable = Variable,
                        payload  = Payload}, Ver) ->

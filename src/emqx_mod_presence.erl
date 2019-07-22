@@ -46,9 +46,9 @@ load(Env) ->
 on_client_connected(#{client_id := ClientId,
                       username  := Username,
                       peername  := {IpAddr, _}}, ConnAck, ConnAttrs, Env) ->
-    Attrs = maps:filter(fun(K, _) ->
-                                lists:member(K, ?ATTR_KEYS)
-                        end, ConnAttrs),
+    Attrs = #{},%maps:filter(fun(K, _) ->
+                %                lists:member(K, ?ATTR_KEYS)
+                %        end, ConnAttrs),
     case emqx_json:safe_encode(Attrs#{clientid => ClientId,
                                       username => Username,
                                       ipaddress => iolist_to_binary(esockd_net:ntoa(IpAddr)),

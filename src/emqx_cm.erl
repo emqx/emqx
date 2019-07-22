@@ -34,12 +34,12 @@
 
 -export([ get_conn_attrs/1
         , get_conn_attrs/2
-        , set_conn_attrs/2
+        , set_chan_attrs/2
         ]).
 
 -export([ get_conn_stats/1
         , get_conn_stats/2
-        , set_conn_stats/2
+        , set_chan_stats/2
         ]).
 
 -export([ open_session/1
@@ -163,8 +163,8 @@ get_conn_attrs(ClientId, ChanPid) ->
     rpc_call(node(ChanPid), get_conn_attrs, [ClientId, ChanPid]).
 
 %% @doc Set conn attrs.
--spec(set_conn_attrs(emqx_types:client_id(), attrs()) -> ok).
-set_conn_attrs(ClientId, Attrs) when is_binary(ClientId), is_map(Attrs) ->
+-spec(set_chan_attrs(emqx_types:client_id(), attrs()) -> ok).
+set_chan_attrs(ClientId, Attrs) when is_binary(ClientId) ->
     Chan = {ClientId, self()},
     case ets:update_element(?CONN_TAB, Chan, {2, Attrs}) of
         true  -> ok;
@@ -191,12 +191,12 @@ get_conn_stats(ClientId, ChanPid) ->
     rpc_call(node(ChanPid), get_conn_stats, [ClientId, ChanPid]).
 
 %% @doc Set conn stats.
--spec(set_conn_stats(emqx_types:client_id(), stats()) -> ok).
-set_conn_stats(ClientId, Stats) when is_binary(ClientId) ->
-    set_conn_stats(ClientId, self(), Stats).
+-spec(set_chan_stats(emqx_types:client_id(), stats()) -> ok).
+set_chan_stats(ClientId, Stats) when is_binary(ClientId) ->
+    set_chan_stats(ClientId, self(), Stats).
 
--spec(set_conn_stats(emqx_types:client_id(), chan_pid(), stats()) -> ok).
-set_conn_stats(ClientId, ChanPid, Stats) ->
+-spec(set_chan_stats(emqx_types:client_id(), chan_pid(), stats()) -> ok).
+set_chan_stats(ClientId, ChanPid, Stats) ->
     Chan = {ClientId, ChanPid},
     _ = ets:update_element(?CONN_TAB, Chan, {3, Stats}),
     ok.
@@ -208,7 +208,7 @@ open_session(Attrs = #{clean_start := true,
                        client_id := ClientId}) ->
     CleanStart = fun(_) ->
                      ok = discard_session(ClientId),
-                     {ok, emqx_session:new(Attrs), false}
+                     {ok, emqx_session:init(Attrs), false}
                  end,
     emqx_cm_locker:trans(ClientId, CleanStart);
 
@@ -219,7 +219,7 @@ open_session(Attrs = #{clean_start := false,
                           {ok, Session} ->
                               {ok, Session, true};
                           {error, not_found} ->
-                              {ok, emqx_session:new(Attrs), false}
+                              {ok, emqx_session:init(Attrs), false}
                       end
                   end,
     emqx_cm_locker:trans(ClientId, ResumeStart).

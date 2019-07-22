@@ -160,7 +160,7 @@
                 clean_start     :: boolean(),
                 username        :: maybe(binary()),
                 password        :: maybe(binary()),
-                proto_ver       :: emqx_mqtt_types:version(),
+                proto_ver       :: emqx_types:mqtt_ver(),
                 proto_name      :: iodata(),
                 keepalive       :: non_neg_integer(),
                 keepalive_timer :: maybe(reference()),
@@ -192,11 +192,11 @@
 
 -type(payload() :: iodata()).
 
--type(packet_id() :: emqx_mqtt_types:packet_id()).
+-type(packet_id() :: emqx_types:packet_id()).
 
--type(properties() :: emqx_mqtt_types:properties()).
+-type(properties() :: emqx_types:properties()).
 
--type(qos() :: emqx_mqtt_types:qos_name() | emqx_mqtt_types:qos()).
+-type(qos() :: emqx_types:qos_name() | emqx_types:qos()).
 
 -type(pubopt() :: {retain, boolean()} | {qos, qos()} | {timeout, timeout()}).
 

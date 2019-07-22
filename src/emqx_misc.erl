@@ -122,19 +122,20 @@ check([{Pred, Result} | Rest]) ->
 is_message_queue_too_long(Qlength, Max) ->
     is_enabled(Max) andalso Qlength > Max.
 
-is_enabled(Max) -> is_integer(Max) andalso Max > ?DISABLED.
+is_enabled(Max) ->
+    is_integer(Max) andalso Max > ?DISABLED.
 
 proc_info(Key) ->
     {Key, Value} = erlang:process_info(self(), Key),
     Value.
 
-%% @doc Drain delivers from channel's mailbox.
+%% @doc Drain delivers from the channel's mailbox.
 drain_deliver(Acc) ->
     receive
         Deliver = {deliver, _Topic, _Msg} ->
             drain_deliver([Deliver|Acc])
     after 0 ->
-          lists:reverse(Acc)
+        lists:reverse(Acc)
     end.
 
 %% @doc Drain process down events.
@@ -150,6 +151,6 @@ drain_down(Cnt, Acc) ->
         {'DOWN', _MRef, process, Pid, _Reason} ->
             drain_down(Cnt - 1, [Pid|Acc])
     after 0 ->
-          lists:reverse(Acc)
+        drain_down(0, Acc) 
     end.
 

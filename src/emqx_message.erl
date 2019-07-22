@@ -76,7 +76,7 @@ make(From, Topic, Payload) ->
     make(From, ?QOS_0, Topic, Payload).
 
 -spec(make(atom() | emqx_types:client_id(),
-           emqx_mqtt_types:qos(),
+           emqx_types:qos(),
            emqx_topic:topic(),
            emqx_types:payload()) -> emqx_types:message()).
 make(From, QoS, Topic, Payload) when ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
@@ -91,7 +91,7 @@ make(From, QoS, Topic, Payload) when ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
 -spec(id(emqx_types:message()) -> maybe(binary())).
 id(#message{id = Id}) -> Id.
 
--spec(qos(emqx_types:message()) -> emqx_mqtt_types:qos()).
+-spec(qos(emqx_types:message()) -> emqx_types:qos()).
 qos(#message{qos = QoS}) -> QoS.
 
 -spec(from(emqx_types:message()) -> atom() | binary()).

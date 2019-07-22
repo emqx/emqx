@@ -21,6 +21,7 @@
 %% APIs
 -export([ new/0
         , new/1
+        , info/1
         ]).
 
 -export([ zone/1
@@ -36,25 +37,25 @@
 
 -export_type([endpoint/0]).
 
--opaque(endpoint() ::
-        {endpoint,
-         #{zone := emqx_types:zone(),
-           peername := emqx_types:peername(),
-           sockname => emqx_types:peername(),
-           client_id := emqx_types:client_id(),
-           username := emqx_types:username(),
-           peercert := esockd_peercert:peercert(),
-           is_superuser := boolean(),
-           mountpoint := maybe(binary()),
-           ws_cookie := maybe(list()),
-           password => binary(),
-           auth_result => emqx_types:auth_result(),
-           anonymous => boolean(),
-           atom() => term()
-          }
-        }).
+-type(st() :: #{zone         := emqx_types:zone(),
+                conn_mod     := maybe(module()),
+                peername     := emqx_types:peername(),
+                sockname     := emqx_types:peername(),
+                client_id    := emqx_types:client_id(),
+                username     := emqx_types:username(),
+                peercert     := esockd_peercert:peercert(),
+                is_superuser := boolean(),
+                mountpoint   := maybe(binary()),
+                ws_cookie    := maybe(list()),
+                password     => binary(),
+                auth_result  => emqx_types:auth_result(),
+                anonymous    => boolean(),
+                atom()       => term()
+               }).
 
--define(Endpoint(M), {endpoint, M}).
+-opaque(endpoint() :: {endpoint, st()}).
+
+-define(Endpoint(St), {endpoint, St}).
 
 -define(Default, #{is_superuser => false,
                    anonymous => false
@@ -67,6 +68,9 @@ new() ->
 -spec(new(map()) -> endpoint()).
 new(M) when is_map(M) ->
     ?Endpoint(maps:merge(?Default, M)).
+
+info(?Endpoint(M)) ->
+    maps:to_list(M).
 
 -spec(zone(endpoint()) -> emqx_zone:zone()).
 zone(?Endpoint(#{zone := Zone})) ->

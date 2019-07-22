@@ -212,28 +212,27 @@ join(Words) ->
                 end, {true, <<>>}, [bin(W) || W <- Words]),
     Bin.
 
--spec(parse(topic()) -> {topic(), #{}}).
-parse(Topic) when is_binary(Topic) ->
-    parse(Topic, #{}).
+-spec(parse(topic() | {topic(), map()}) -> {topic(), #{share => binary()}}).
+parse(TopicFilter) when is_binary(TopicFilter) ->
+    parse(TopicFilter, #{});
+parse({TopicFilter, Options}) when is_binary(TopicFilter) ->
+    parse(TopicFilter, Options).
 
-parse(Topic = <<"$queue/", _/binary>>, #{share := _Group}) ->
-    error({invalid_topic, Topic});
-parse(Topic = <<?SHARE, "/", _/binary>>, #{share := _Group}) ->
-    error({invalid_topic, Topic});
-parse(<<"$queue/", Topic1/binary>>, Options) ->
-    parse(Topic1, maps:put(share, <<"$queue">>, Options));
-parse(Topic = <<?SHARE, "/", Topic1/binary>>, Options) ->
-    case binary:split(Topic1, <<"/">>) of
-        [<<>>] -> error({invalid_topic, Topic});
-        [_] -> error({invalid_topic, Topic});
-        [Group, Topic2] ->
-            case binary:match(Group, [<<"/">>, <<"+">>, <<"#">>]) of
-                nomatch -> {Topic2, maps:put(share, Group, Options)};
-                _ -> error({invalid_topic, Topic})
+parse(TopicFilter = <<"$queue/", _/binary>>, #{share := _Group}) ->
+    error({invalid_topic_filter, TopicFilter});
+parse(TopicFilter = <<?SHARE, "/", _/binary>>, #{share := _Group}) ->
+    error({invalid_topic_filter, TopicFilter});
+parse(<<"$queue/", TopicFilter/binary>>, Options) ->
+    parse(TopicFilter, Options#{share => <<"$queue">>});
+parse(TopicFilter = <<?SHARE, "/", Rest/binary>>, Options) ->
+    case binary:split(Rest, <<"/">>) of
+        [_Any] -> error({invalid_topic_filter, TopicFilter});
+        [ShareName, Filter] ->
+            case binary:match(ShareName, [<<"+">>, <<"#">>]) of
+                nomatch -> parse(Filter, Options#{share => ShareName});
+                _ -> error({invalid_topic_filter, TopicFilter})
             end
     end;
-parse(Topic, Options = #{qos := QoS}) ->
-    {Topic, Options#{rc => QoS}};
-parse(Topic, Options) ->
-    {Topic, Options}.
+parse(TopicFilter, Options) ->
+    {TopicFilter, Options}.
 

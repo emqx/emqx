@@ -29,7 +29,7 @@
         ]).
 
 %% @doc Protocol name of version
--spec(protocol_name(emqx_mqtt_types:version()) -> binary()).
+-spec(protocol_name(emqx_types:version()) -> binary()).
 protocol_name(?MQTT_PROTO_V3) ->
     <<"MQIsdp">>;
 protocol_name(?MQTT_PROTO_V4) ->
@@ -38,7 +38,7 @@ protocol_name(?MQTT_PROTO_V5) ->
     <<"MQTT">>.
 
 %% @doc Name of MQTT packet type
--spec(type_name(emqx_mqtt_types:packet_type()) -> atom()).
+-spec(type_name(emqx_types:packet_type()) -> atom()).
 type_name(Type) when Type > ?RESERVED andalso Type =< ?AUTH ->
     lists:nth(Type, ?TYPE_NAMES).
 
@@ -46,7 +46,7 @@ type_name(Type) when Type > ?RESERVED andalso Type =< ?AUTH ->
 %% Validate MQTT Packet
 %%--------------------------------------------------------------------
 
--spec(validate(emqx_mqtt_types:packet()) -> true).
+-spec(validate(emqx_types:packet()) -> true).
 validate(?SUBSCRIBE_PACKET(_PacketId, _Properties, [])) ->
     error(topic_filters_invalid);
 validate(?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters)) ->
@@ -113,8 +113,8 @@ validate_qos(QoS) when ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
 validate_qos(_) -> error(bad_qos).
 
 %% @doc From message to packet
--spec(from_message(emqx_mqtt_types:packet_id(), emqx_types:message())
-      -> emqx_mqtt_types:packet()).
+-spec(from_message(emqx_types:packet_id(), emqx_types:message())
+      -> emqx_types:packet()).
 from_message(PacketId, #message{qos = QoS, flags = Flags, headers = Headers,
                                 topic = Topic, payload = Payload}) ->
     Flags1 = if Flags =:= undefined ->
@@ -142,7 +142,7 @@ publish_props(Headers) ->
                'Message-Expiry-Interval'], Headers).
 
 %% @doc Message from Packet
--spec(to_message(emqx_types:credentials(), emqx_mqtt_types:packet())
+-spec(to_message(emqx_types:credentials(), emqx_ypes:packet())
       -> emqx_types:message()).
 to_message(#{client_id := ClientId, username := Username, peername := Peername},
            #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
@@ -177,7 +177,7 @@ merge_props(Headers, Props) ->
     maps:merge(Headers, Props).
 
 %% @doc Format packet
--spec(format(emqx_mqtt_types:packet()) -> iolist()).
+-spec(format(emqx_types:packet()) -> iolist()).
 format(#mqtt_packet{header = Header, variable = Variable, payload = Payload}) ->
     format_header(Header, format_variable(Variable, Payload)).
 

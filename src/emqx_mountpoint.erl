@@ -35,15 +35,23 @@
 
 mount(undefined, Any) ->
     Any;
+mount(MountPoint, Topic) when is_binary(Topic) ->
+    <<MountPoint/binary, Topic/binary>>;
 mount(MountPoint, Msg = #message{topic = Topic}) ->
     Msg#message{topic = <<MountPoint/binary, Topic/binary>>};
-
 mount(MountPoint, TopicFilters) when is_list(TopicFilters) ->
     [{<<MountPoint/binary, Topic/binary>>, SubOpts}
      || {Topic, SubOpts} <- TopicFilters].
 
 unmount(undefined, Msg) ->
     Msg;
+%% TODO: Fixme later
+unmount(MountPoint, Topic) when is_binary(Topic) ->
+    try split_binary(Topic, byte_size(MountPoint)) of
+        {MountPoint, Topic1} -> Topic1
+    catch
+        error:badarg-> Topic
+    end;
 unmount(MountPoint, Msg = #message{topic = Topic}) ->
     try split_binary(Topic, byte_size(MountPoint)) of
         {MountPoint, Topic1} -> Msg#message{topic = Topic1}

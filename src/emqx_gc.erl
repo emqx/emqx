@@ -15,8 +15,9 @@
 %%--------------------------------------------------------------------
 
 %%--------------------------------------------------------------------
-%% @doc This module manages an opaque collection of statistics data used
-%% to force garbage collection on `self()' process when hitting thresholds.
+%% @doc
+%% This module manages an opaque collection of statistics data used to
+%% force garbage collection on `self()' process when hitting thresholds.
 %% Namely:
 %% (1) Total number of messages passed through
 %% (2) Total data volume passed through
@@ -41,9 +42,9 @@
 -type(st() :: #{cnt => {integer(), integer()},
                 oct => {integer(), integer()}}).
 
--opaque(gc_state() :: {?MODULE, st()}).
+-opaque(gc_state() :: {gc_state, st()}).
 
--define(GCS(St), {?MODULE, St}).
+-define(GCS(St), {gc_state, St}).
 
 -define(disabled, disabled).
 -define(ENABLED(X), (is_integer(X) andalso X > 0)).

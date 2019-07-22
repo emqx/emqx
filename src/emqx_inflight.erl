@@ -22,7 +22,7 @@
         , lookup/2
         , insert/3
         , update/3
-        , update_size/2
+        , resize/2
         , delete/2
         , values/1
         , to_list/1
@@ -39,11 +39,11 @@
 
 -type(max_size() :: pos_integer()).
 
--opaque(inflight() :: {?MODULE, max_size(), gb_trees:tree()}).
+-opaque(inflight() :: {inflight, max_size(), gb_trees:tree()}).
 
--define(Inflight(Tree), {?MODULE, _MaxSize, Tree}).
+-define(Inflight(Tree), {inflight, _MaxSize, Tree}).
 
--define(Inflight(MaxSize, Tree), {?MODULE, MaxSize, (Tree)}).
+-define(Inflight(MaxSize, Tree), {inflight, MaxSize, (Tree)}).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -73,8 +73,8 @@ delete(Key, ?Inflight(MaxSize, Tree)) ->
 update(Key, Val, ?Inflight(MaxSize, Tree)) ->
     ?Inflight(MaxSize, gb_trees:update(Key, Val, Tree)).
 
--spec(update_size(integer(), inflight()) -> inflight()).
-update_size(MaxSize, ?Inflight(Tree)) ->
+-spec(resize(integer(), inflight()) -> inflight()).
+resize(MaxSize, ?Inflight(Tree)) ->
     ?Inflight(MaxSize, Tree).
 
 -spec(is_full(inflight()) -> boolean()).
