@@ -27,11 +27,6 @@
 -export([ info/1
         , info/2
         , attrs/1
-        , stats/1
-        ]).
-
--export([ client_id/1
-        , session/1
         ]).
 
 -export([ init/2
@@ -45,48 +40,75 @@
 -export_type([proto_state/0]).
 
 -record(protocol, {
-          proto_name :: binary(),
-          proto_ver  :: emqx_types:version(),
-          client     :: emqx_types:client(),
-          session    :: emqx_session:session(),
-          mountfun   :: fun((emqx_topic:topic()) -> emqx_topic:topic()),
-          keepalive  :: non_neg_integer(),
-          will_msg   :: emqx_types:message(),
-          enable_acl :: boolean(),
-          is_bridge  :: boolean(),
-          connected  :: boolean(),
-          connected_at  :: erlang:timestamp(),
+          proto_name    :: binary(),
+          proto_ver     :: emqx_types:version(),
+          client        :: emqx_types:client(),
+          session       :: emqx_session:session(),
+          mountfun      :: fun((emqx_topic:topic()) -> emqx_topic:topic()),
+          keepalive     :: non_neg_integer(),
+          will_msg      :: emqx_types:message(),
+          enable_acl    :: boolean(),
+          is_bridge     :: boolean(),
           topic_aliases :: map(),
           alias_maximum :: map()
-         }).
+        }).
 
 -opaque(proto_state() :: #protocol{}).
 
-info(#protocol{client = Client, session = Session}) ->
-    lists:append([maps:to_list(Client), emqx_session:info(Session)]).
+-spec(info(proto_state()) -> emqx_types:infos()).
+info(#protocol{proto_name = ProtoName,
+               proto_ver  = ProtoVer,
+               client     = Client,
+               session    = Session,
+               keepalive  = Keepalive,
+               will_msg   = WillMsg,
+               enable_acl = EnableAcl,
+               is_bridge  = IsBridge,
+               topic_aliases = Aliases}) ->
+    #{proto_name => ProtoName,
+      proto_ver => ProtoVer,
+      client => Client,
+      session => emqx_session:info(Session),
+      keepalive => Keepalive,
+      will_msg => WillMsg,
+      enable_acl => EnableAcl,
+      is_bridge => IsBridge,
+      topic_aliases => Aliases
+     }.
 
-info(zone, #protocol{client = #{zone := Zone}}) ->
-    Zone;
+-spec(info(atom(), proto_state()) -> term()).
 info(proto_name, #protocol{proto_name = ProtoName}) ->
     ProtoName;
 info(proto_ver, #protocol{proto_ver = ProtoVer}) ->
     ProtoVer;
+info(client, #protocol{client = Client}) ->
+    Client;
+info(zone, #protocol{client = #{zone := Zone}}) ->
+    Zone;
+info(client_id, #protocol{client = #{client_id := ClientId}}) ->
+    ClientId;
+info(session, #protocol{session = Session}) ->
+    Session;
 info(keepalive, #protocol{keepalive = Keepalive}) ->
-    Keepalive.
+    Keepalive;
+info(is_bridge, #protocol{is_bridge = IsBridge}) ->
+    IsBridge;
+info(topic_aliases, #protocol{topic_aliases = Aliases}) ->
+    Aliases.
 
-attrs(#protocol{}) ->
-    #{}.
-
-stats(#protocol{}) ->
-    [].
-
--spec(client_id(proto_state()) -> emqx_types:client_id()).
-client_id(#protocol{client = #{client_id := ClientId}}) ->
-    ClientId.
-
--spec(session(proto_state()) -> emqx_session:session()).
-session(#protocol{session = Session}) ->
-    Session.
+attrs(#protocol{proto_name = ProtoName,
+                proto_ver  = ProtoVer,
+                client     = Client,
+                session    = Session,
+                keepalive  = Keepalive,
+                is_bridge  = IsBridge}) ->
+    #{proto_name => ProtoName,
+      proto_ver => ProtoVer,
+      client => Client,
+      session => emqx_session:attrs(Session),
+      keepalive => Keepalive,
+      is_bridge => IsBridge
+     }.
 
 -spec(init(map(), proplists:proplist()) -> proto_state()).
 init(ConnInfo, Options) ->
@@ -105,8 +127,7 @@ init(ConnInfo, Options) ->
     #protocol{client     = Client,
               mountfun   = MountFun,
               enable_acl = EnableAcl,
-              is_bridge  = false,
-              connected  = false
+              is_bridge  = false
              }.
 
 peer_cert_as_username(Peercert, Options) ->
@@ -382,10 +403,7 @@ handle_connect(#mqtt_packet_connect{proto_name  = ProtoName,
             case open_session(ConnPkt, PState) of
                 {ok, Session, SP} ->
                     PState1 = PState#protocol{client = Client1,
-                                              session = Session,
-                                              connected = true,
-                                              connected_at = os:timestamp()
-                                             },
+                                              session = Session},
                     ok = emqx_cm:register_channel(ClientId),
                     {ok, SP, PState1};
                 {error, Error} ->

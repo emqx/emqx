@@ -72,6 +72,11 @@
              , command/0
              ]).
 
+-export_type([ infos/0
+             , attrs/0
+             , stats/0
+             ]).
+
 -type(zone() :: emqx_zone:zone()).
 -type(ver() :: ?MQTT_PROTO_V3 | ?MQTT_PROTO_V4 | ?MQTT_PROTO_V5).
 -type(qos() :: ?QOS_0 | ?QOS_1 | ?QOS_2).
@@ -87,7 +92,6 @@
                      rap := 0 | 1,
                      nl  := 0 | 1,
                      qos := qos(),
-                     rc  => reason_code(),
                      share  => binary(),
                      atom() => term()
                     }).
@@ -142,4 +146,8 @@
 -type(alarm() :: #alarm{}).
 -type(plugin() :: #plugin{}).
 -type(command() :: #command{}).
+
+-type(infos() :: #{atom() => term()}).
+-type(attrs() :: #{atom() => term()}).
+-type(stats() :: list({atom(), non_neg_integer()})).
 

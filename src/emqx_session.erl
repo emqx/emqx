@@ -48,9 +48,12 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-logger_header("[Session]").
+
 -export([init/1]).
 
 -export([ info/1
+        , attrs/1
         , stats/1
         ]).
 
@@ -80,11 +83,11 @@
           %% Clean Start Flag
           clean_start :: boolean(),
 
-          %% Max subscriptions allowed
-          max_subscriptions :: non_neg_integer(),
-
           %% Client’s Subscriptions.
           subscriptions :: map(),
+
+          %% Max subscriptions allowed
+          max_subscriptions :: non_neg_integer(),
 
           %% Upgrade QoS?
           upgrade_qos :: boolean(),
@@ -112,11 +115,11 @@
           %% Inflight QoS2 messages received from client and waiting for pubrel.
           awaiting_rel :: map(),
 
-          %% Awaiting PUBREL Timer
-          await_rel_timer :: maybe(reference()),
-
           %% Max Packets Awaiting PUBREL
           max_awaiting_rel :: non_neg_integer(),
+
+          %% Awaiting PUBREL Timer
+          await_rel_timer :: maybe(reference()),
 
           %% Awaiting PUBREL Timeout
           await_rel_timeout :: timeout(),
@@ -132,8 +135,6 @@
          }).
 
 -opaque(session() :: #session{}).
-
--logger_header("[Session]").
 
 -define(DEFAULT_BATCH_N, 1000).
 
@@ -170,10 +171,10 @@ init_mqueue(Zone) ->
                       }).
 
 %%--------------------------------------------------------------------
-%% Info, Stats of Session
+%% Infos of the session
 %%--------------------------------------------------------------------
 
--spec(info(session()) -> proplists:proplist()).
+-spec(info(session()) -> emqx_types:infos()).
 info(#session{clean_start = CleanStart,
               max_subscriptions = MaxSubscriptions,
               subscriptions = Subscriptions,
@@ -187,37 +188,58 @@ info(#session{clean_start = CleanStart,
               await_rel_timeout = AwaitRelTimeout,
               expiry_interval = ExpiryInterval,
               created_at = CreatedAt}) ->
-    [{clean_start, CleanStart},
-     {max_subscriptions, MaxSubscriptions},
-     {subscriptions, Subscriptions},
-     {upgrade_qos, UpgradeQoS},
-     {inflight, Inflight},
-     {retry_interval, RetryInterval},
-     {mqueue_len, emqx_mqueue:len(MQueue)},
-     {next_pkt_id, PacketId},
-     {awaiting_rel, AwaitingRel},
-     {max_awaiting_rel, MaxAwaitingRel},
-     {await_rel_timeout, AwaitRelTimeout},
-     {expiry_interval, ExpiryInterval div 1000},
-     {created_at, CreatedAt}].
+    #{clean_start => CleanStart,
+      subscriptions => Subscriptions,
+      max_subscriptions => MaxSubscriptions,
+      upgrade_qos => UpgradeQoS,
+      inflight => emqx_inflight:size(Inflight),
+      max_inflight => emqx_inflight:max_size(Inflight),
+      retry_interval => RetryInterval,
+      mqueue_len => emqx_mqueue:len(MQueue),
+      max_mqueue => emqx_mqueue:max_len(MQueue),
+      mqueue_dropped => emqx_mqueue:dropped(MQueue),
+      next_pkt_id => PacketId,
+      awaiting_rel => maps:size(AwaitingRel),
+      max_awaiting_rel => MaxAwaitingRel,
+      await_rel_timeout => AwaitRelTimeout,
+      expiry_interval => ExpiryInterval div 1000,
+      created_at => CreatedAt
+     }.
 
-%% @doc Get session stats.
--spec(stats(session()) -> list({atom(), non_neg_integer()})).
-stats(#session{max_subscriptions = MaxSubscriptions,
-               subscriptions = Subscriptions,
+%%--------------------------------------------------------------------
+%% Attrs of the session
+%%--------------------------------------------------------------------
+
+-spec(attrs(session()) -> emqx_types:attrs()).
+attrs(#session{clean_start = CleanStart,
+               expiry_interval = ExpiryInterval,
+               created_at = CreatedAt}) ->
+    #{clean_start => CleanStart,
+      expiry_interval => ExpiryInterval,
+      created_at => CreatedAt
+     }.
+
+%%--------------------------------------------------------------------
+%% Stats of the session
+%%--------------------------------------------------------------------
+
+%% @doc Get stats of the session.
+-spec(stats(session()) -> emqx_types:stats()).
+stats(#session{subscriptions = Subscriptions,
+               max_subscriptions = MaxSubscriptions,
                inflight = Inflight,
                mqueue = MQueue,
-               max_awaiting_rel = MaxAwaitingRel,
-               awaiting_rel = AwaitingRel}) ->
-    [{max_subscriptions, MaxSubscriptions},
-      {subscriptions_count, maps:size(Subscriptions)},
-      {max_inflight, emqx_inflight:max_size(Inflight)},
-      {inflight_len, emqx_inflight:size(Inflight)},
-      {max_mqueue, emqx_mqueue:max_len(MQueue)},
-      {mqueue_len, emqx_mqueue:len(MQueue)},
-      {mqueue_dropped, emqx_mqueue:dropped(MQueue)},
-      {max_awaiting_rel, MaxAwaitingRel},
-      {awaiting_rel_len, maps:size(AwaitingRel)}].
+               awaiting_rel = AwaitingRel,
+               max_awaiting_rel = MaxAwaitingRel}) ->
+    [{subscriptions, maps:size(Subscriptions)},
+     {max_subscriptions, MaxSubscriptions},
+     {inflight, emqx_inflight:size(Inflight)},
+     {max_inflight, emqx_inflight:max_size(Inflight)},
+     {mqueue_len, emqx_mqueue:len(MQueue)},
+     {max_mqueue, emqx_mqueue:max_len(MQueue)},
+     {mqueue_dropped, emqx_mqueue:dropped(MQueue)},
+     {awaiting_rel, maps:size(AwaitingRel)},
+     {max_awaiting_rel, MaxAwaitingRel}].
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: SUBSCRIBE
