@@ -259,8 +259,7 @@ connected(enter, _PrevSt, State = #state{proto_state = ProtoState}) ->
     %% Ensure keepalive after connected successfully.
     Interval = emqx_protocol:info(keepalive, ProtoState),
     case ensure_keepalive(Interval, NState) of
-        ignore ->
-            keep_state(NState);
+        ignore -> keep_state(NState);
         {ok, KeepAlive} ->
             keep_state(NState#state{keepalive = KeepAlive});
         {error, Reason} ->
