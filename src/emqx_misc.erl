@@ -75,9 +75,12 @@ proc_stats() ->
 
 -spec(proc_stats(pid()) -> list()).
 proc_stats(Pid) ->
-    Stats = process_info(Pid, [message_queue_len, heap_size, reductions]),
-    {value, {_, V}, Stats1} = lists:keytake(message_queue_len, 1, Stats),
-    [{mailbox_len, V} | Stats1].
+    case process_info(Pid, [message_queue_len, heap_size,
+                            total_heap_size, reductions, memory]) of
+        undefined -> [];
+        [{message_queue_len, Len}|Stats] ->
+            [{mailbox_len, Len}|Stats]
+    end.
 
 -define(DISABLED, 0).
 
@@ -145,12 +148,11 @@ drain_down(Cnt) when Cnt > 0 ->
 
 drain_down(0, Acc) ->
     lists:reverse(Acc);
-
 drain_down(Cnt, Acc) ->
     receive
         {'DOWN', _MRef, process, Pid, _Reason} ->
             drain_down(Cnt - 1, [Pid|Acc])
     after 0 ->
-        drain_down(0, Acc) 
+        drain_down(0, Acc)
     end.
 
