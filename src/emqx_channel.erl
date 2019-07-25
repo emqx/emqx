@@ -24,12 +24,18 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-logger_header("[Channel]").
+
 -export([start_link/3]).
 
 %% APIs
 -export([ info/1
+        , attrs/1
         , stats/1
         ]).
+
+%% for Debug
+-export([state/1]).
 
 %% state callbacks
 -export([ idle/3
@@ -60,10 +66,12 @@
           gc_state     :: emqx_gc:gc_state(),
           keepalive    :: maybe(emqx_keepalive:keepalive()),
           stats_timer  :: disabled | maybe(reference()),
-          idle_timeout :: timeout()
-         }).
+          idle_timeout :: timeout(),
+          connected    :: boolean(),
+          connected_at :: erlang:timestamp()
+        }).
 
--logger_header("[Channel]").
+-type(state() :: #state{}).
 
 -define(ACTIVE_N, 100).
 -define(HANDLE(T, C, D), handle((T), (C), (D))).
@@ -79,55 +87,81 @@ start_link(Transport, Socket, Options) ->
 %% API
 %%--------------------------------------------------------------------
 
-%% @doc Get channel's info.
--spec(info(pid() | #state{}) -> proplists:proplist()).
+%% @doc Get infos of the channel.
+-spec(info(pid() | state()) -> emqx_types:infos()).
 info(CPid) when is_pid(CPid) ->
     call(CPid, info);
+info(#state{transport = Transport,
+            socket = Socket,
+            peername = Peername,
+            sockname = Sockname,
+            conn_state = ConnState,
+            active_n = ActiveN,
+            rate_limit = RateLimit,
+            pub_limit = PubLimit,
+            proto_state = ProtoState,
+            gc_state = GCState,
+            stats_timer = StatsTimer,
+            idle_timeout = IdleTimeout,
+            connected = Connected,
+            connected_at = ConnectedAt}) ->
+    ChanInfo = #{socktype => Transport:type(Socket),
+                 peername => Peername,
+                 sockname => Sockname,
+                 conn_state => ConnState,
+                 active_n => ActiveN,
+                 rate_limit => limit_info(RateLimit),
+                 pub_limit => limit_info(PubLimit),
+                 gc_state => emqx_gc:info(GCState),
+                 enable_stats => case StatsTimer of
+                                     disabled   -> false;
+                                     _Otherwise -> true
+                                 end,
+                 idle_timeout => IdleTimeout,
+                 connected => Connected,
+                 connected_at => ConnectedAt
+                },
+    maps:merge(ChanInfo, emqx_protocol:info(ProtoState)).
 
-info(#state{transport    = Transport,
-            socket       = Socket,
-            peername     = Peername,
-            sockname     = Sockname,
-            conn_state   = ConnState,
-            active_n     = ActiveN,
-            rate_limit   = RateLimit,
-            pub_limit    = PubLimit,
-            proto_state  = ProtoState,
-            gc_state     = GCState,
-            stats_timer  = StatsTimer,
-            idle_timeout = IdleTimeout}) ->
-    [{socktype, Transport:type(Socket)},
-     {peername, Peername},
-     {sockname, Sockname},
-     {conn_state, ConnState},
-     {active_n, ActiveN},
-     {rate_limit, rate_limit_info(RateLimit)},
-     {pub_limit, rate_limit_info(PubLimit)},
-     {gc_state, emqx_gc:info(GCState)},
-     {enable_stats, case StatsTimer of
-                        disabled -> false;
-                        _Otherwise -> true 
-                    end},
-     {idle_timeout, IdleTimeout} |
-     emqx_protocol:info(ProtoState)].
-
-rate_limit_info(undefined) ->
+limit_info(undefined) ->
     undefined;
-rate_limit_info(Limit) ->
+limit_info(Limit) ->
     esockd_rate_limit:info(Limit).
 
-%% @doc Get channel's stats.
--spec(stats(pid() | #state{}) -> proplists:proplist()).
+%% @doc Get attrs of the channel.
+-spec(attrs(pid() | state()) -> emqx_types:attrs()).
+attrs(CPid) when is_pid(CPid) ->
+    call(CPid, attrs);
+attrs(#state{transport = Transport,
+             socket = Socket,
+             peername = Peername,
+             sockname = Sockname,
+             proto_state = ProtoState,
+             connected = Connected,
+             connected_at = ConnectedAt}) ->
+    ConnAttrs = #{socktype => Transport:type(Socket),
+                  peername => Peername,
+                  sockname => Sockname,
+                  connected => Connected,
+                  connected_at => ConnectedAt},
+    maps:merge(ConnAttrs, emqx_protocol:attrs(ProtoState)).
+
+%% @doc Get stats of the channel.
+-spec(stats(pid() | state()) -> emqx_types:stats()).
 stats(CPid) when is_pid(CPid) ->
     call(CPid, stats);
-
-stats(#state{transport = Transport, socket = Socket}) ->
+stats(#state{transport = Transport,
+             socket = Socket,
+             proto_state = ProtoState}) ->
     SockStats = case Transport:getstat(Socket, ?SOCK_STATS) of
                     {ok, Ss}   -> Ss;
                     {error, _} -> []
                 end,
     ChanStats = [{Name, emqx_pd:get_counter(Name)} || Name <- ?CHAN_STATS],
-    lists:append([SockStats, ChanStats, emqx_misc:proc_stats()]).
+    SessStats = emqx_session:stats(emqx_protocol:info(session, ProtoState)),
+    lists:append([SockStats, ChanStats, SessStats, emqx_misc:proc_stats()]).
+
+state(CPid) -> call(CPid, get_state).
 
 %% @private
 call(CPid, Req) ->
@@ -162,6 +196,7 @@ init({Transport, RawSocket, Options}) ->
     State = #state{transport    = Transport,
                    socket       = Socket,
                    peername     = Peername,
+                   sockname     = Sockname,
                    conn_state   = running,
                    active_n     = ActiveN,
                    rate_limit   = RateLimit,
@@ -170,7 +205,8 @@ init({Transport, RawSocket, Options}) ->
                    proto_state  = ProtoState,
                    gc_state     = GcState,
                    stats_timer  = StatsTimer,
-                   idle_timeout = IdleTimout
+                   idle_timeout = IdleTimout,
+                   connected    = false
                   },
     gen_statem:enter_loop(?MODULE, [{hibernate_after, 2 * IdleTimout}],
                           idle, State, self(), [IdleTimout]).
@@ -216,16 +252,19 @@ idle(EventType, Content, State) ->
 %% Connected State
 
 connected(enter, _PrevSt, State = #state{proto_state = ProtoState}) ->
-    ClientId = emqx_protocol:client_id(ProtoState),
-    ok = emqx_cm:set_chan_attrs(ClientId, info(State)),
+    NState = State#state{connected = true,
+                         connected_at = os:timestamp()},
+    ClientId = emqx_protocol:info(client_id, ProtoState),
+    ok = emqx_cm:set_chan_attrs(ClientId, attrs(NState)),
     %% Ensure keepalive after connected successfully.
     Interval = emqx_protocol:info(keepalive, ProtoState),
-    case ensure_keepalive(Interval, State) of
-        ignore -> keep_state_and_data;
+    case ensure_keepalive(Interval, NState) of
+        ignore ->
+            keep_state(NState);
         {ok, KeepAlive} ->
-            keep_state(State#state{keepalive = KeepAlive});
+            keep_state(NState#state{keepalive = KeepAlive});
         {error, Reason} ->
-            shutdown(Reason, State)
+            shutdown(Reason, NState)
     end;
 
 connected(cast, {incoming, Packet = ?PACKET(?CONNECT)}, State) ->
@@ -279,8 +318,14 @@ disconnected(EventType, Content, State) ->
 handle({call, From}, info, State) ->
     reply(From, info(State), State);
 
+handle({call, From}, attrs, State) ->
+    reply(From, attrs(State), State);
+
 handle({call, From}, stats, State) ->
     reply(From, stats(State), State);
+
+handle({call, From}, get_state, State) ->
+    reply(From, State, State);
 
 %%handle({call, From}, kick, State) ->
 %%    ok = gen_statem:reply(From, ok),
@@ -309,12 +354,12 @@ handle(info, {Inet, _Sock, Data}, State) when Inet == tcp;
     NState = maybe_gc(1, Oct, State),
     process_incoming(Data, ensure_stats_timer(NState));
 
-handle(info, {Error, _Sock, Reason}, State)
-  when Error == tcp_error; Error == ssl_error ->
+handle(info, {Error, _Sock, Reason}, State) when Error == tcp_error;
+                                                 Error == ssl_error ->
     shutdown(Reason, State);
 
-handle(info, {Closed, _Sock}, State)
-  when Closed == tcp_closed; Closed == ssl_closed ->
+handle(info, {Closed, _Sock}, State) when Closed == tcp_closed;
+                                          Closed == ssl_closed ->
     shutdown(closed, State);
 
 handle(info, {Passive, _Sock}, State) when Passive == tcp_passive;
@@ -348,7 +393,7 @@ handle(info, {timeout, Timer, emit_stats},
        State = #state{stats_timer = Timer,
                       proto_state = ProtoState,
                       gc_state    = GcState}) ->
-    ClientId = emqx_protocol:client_id(ProtoState),
+    ClientId = emqx_protocol:info(client_id, ProtoState),
     ok = emqx_cm:set_chan_stats(ClientId, stats(State)),
     NState = State#state{stats_timer = undefined},
     Limits = erlang:get(force_shutdown_policy),
@@ -474,7 +519,7 @@ serialize_fun(ProtoVer) ->
         ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)]),
         _ = inc_outgoing_stats(Type),
         emqx_frame:serialize(Packet, ProtoVer)
-    end. 
+    end.
 
 %%--------------------------------------------------------------------
 %% Send data
