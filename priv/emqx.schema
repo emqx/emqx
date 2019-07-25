@@ -798,6 +798,11 @@ end}.
   {datatype, {enum, [true, false]}}
 ]}.
 
+%% @doc Enable messages batch delivery
+{mapping, "zone.$name.batch_deliver", "emqx.zones", [
+  {datatype, flag}
+]}.
+
 %% @doc Session Expiry Interval
 {mapping, "zone.$name.session_expiry_interval", "emqx.zones", [
   {default, "2h"},

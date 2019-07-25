@@ -785,10 +785,14 @@ is_awaiting_full(MaxAwaitingRel, AwaitingRel) ->
 handle_dispatch(Msgs, State = #state{inflight = Inflight,
                                      client_id = ClientId,
                                      username = Username,
-                                     subscriptions = SubMap}) ->
+                                     subscriptions = SubMap,
+                                     zone = Zone}) ->
     SessProps = #{client_id => ClientId, username => Username},
     %% Drain the mailbox and batch deliver
-    Msgs1 = Msgs ++ drain_m(batch_n(Inflight)),
+    Msgs1 = case get_env(Zone, batch_deliver, false) of
+                true -> Msgs ++ drain_m(batch_n(Inflight));
+                false -> Msgs
+            end,
     %% Ack the messages for shared subscription
     Msgs2 = maybe_ack_shared(Msgs1, State),
     %% Process suboptions

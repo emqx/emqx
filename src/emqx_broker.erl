@@ -260,7 +260,9 @@ forward(Node, To, Delivery) ->
         {badrpc, Reason} ->
             ?LOG(error, "Failed to forward msg to ~s: ~p", [Node, Reason]),
             Delivery;
-        Delivery1 -> Delivery1
+        Delivery1 ->
+            emqx_metrics:inc('messages.forward'),
+            Delivery1
     end.
 
 -spec(dispatch(emqx_topic:topic(), emqx_types:delivery()) -> emqx_types:delivery()).
