@@ -350,6 +350,13 @@ end}.
   {datatype, integer}
 ]}.
 
+%% Default TCP port for outgoing connections
+{mapping, "rpc.tcp_client_num", "gen_rpc.tcp_client_num", [
+  {default, 32},
+  {datatype, integer},
+  {validators, ["range:gt_0_lt_256"]}
+]}.
+
 %% Client connect timeout
 {mapping, "rpc.connect_timeout", "gen_rpc.connect_timeout", [
   {default, "5s"},
@@ -391,6 +398,28 @@ end}.
   {default, 9},
   {datatype, integer}
 ]}.
+
+%% Size of TCP send buffer
+{mapping, "rpc.socket_sndbuf", "gen_rpc.socket_sndbuf", [
+  {default, "1MB"},
+  {datatype, bytesize}
+]}.
+
+%% Size of TCP receive buffer
+{mapping, "rpc.socket_recbuf", "gen_rpc.socket_recbuf", [
+  {default, "1MB"},
+  {datatype, bytesize}
+]}.
+
+%% Size of TCP receive buffer
+{mapping, "rpc.socket_buffer", "gen_rpc.socket_buffer", [
+  {default, "1MB"},
+  {datatype, bytesize}
+]}.
+
+{validator, "range:gt_0_lt_256", "must greater than 0 and less than 256",
+  fun(X) -> X > 0 andalso X < 256 end
+}.
 
 %%--------------------------------------------------------------------
 %% Log
