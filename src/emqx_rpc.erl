@@ -32,7 +32,8 @@ cast(Node, Mod, Fun, Args) ->
     filter_result(?RPC:cast(rpc_node(Node), Mod, Fun, Args)).
 
 rpc_node(Node) ->
-    {Node, erlang:system_info(scheduler_id)}.
+    {ok, ClientNum} = application:get_env(gen_rpc, tcp_client_num),
+    {Node, rand:uniform(ClientNum)}.
 
 rpc_nodes(Nodes) ->
     rpc_nodes(Nodes, []).
