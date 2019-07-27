@@ -17,20 +17,18 @@
 -module(emqx_types).
 
 -include("emqx.hrl").
--include("types.hrl").
 -include("emqx_mqtt.hrl").
-
--export_type([zone/0]).
+-include("types.hrl").
 
 -export_type([ ver/0
              , qos/0
              , qos_name/0
              ]).
 
--export_type([ pubsub/0
+-export_type([ zone/0
+             , pubsub/0
              , topic/0
              , subid/0
-             , subopts/0
              ]).
 
 -export_type([ client/0
@@ -42,9 +40,9 @@
              ]).
 
 -export_type([ connack/0
+             , subopts/0
              , reason_code/0
              , properties/0
-             , topic_filters/0
              ]).
 
 -export_type([ packet_id/0
@@ -54,7 +52,7 @@
 
 -export_type([ subscription/0
              , subscriber/0
-             , topic_table/0
+             , topic_filters/0
              ]).
 
 -export_type([ payload/0
@@ -72,37 +70,24 @@
              , command/0
              ]).
 
--export_type([ infos/0
+-export_type([ caps/0
+             , infos/0
              , attrs/0
              , stats/0
              ]).
 
--type(zone() :: emqx_zone:zone()).
--type(ver() :: ?MQTT_PROTO_V3 | ?MQTT_PROTO_V4 | ?MQTT_PROTO_V5).
+-type(ver() :: ?MQTT_PROTO_V3
+             | ?MQTT_PROTO_V4
+             | ?MQTT_PROTO_V5).
 -type(qos() :: ?QOS_0 | ?QOS_1 | ?QOS_2).
 -type(qos_name() :: qos0 | at_most_once |
                     qos1 | at_least_once |
                     qos2 | exactly_once).
 
+-type(zone() :: emqx_zone:zone()).
 -type(pubsub() :: publish | subscribe).
 -type(topic() :: emqx_topic:topic()).
 -type(subid() :: binary() | atom()).
-
--type(subopts() :: #{rh  := 0 | 1 | 2,
-                     rap := 0 | 1,
-                     nl  := 0 | 1,
-                     qos := qos(),
-                     share  => binary(),
-                     atom() => term()
-                    }).
-
--type(packet_type() :: ?RESERVED..?AUTH).
--type(connack() :: ?CONNACK_ACCEPT..?CONNACK_AUTH).
--type(reason_code() :: 0..16#FF).
--type(packet_id() :: 1..16#FFFF).
--type(properties() :: #{atom() => term()}).
--type(topic_filters() :: list({emqx_topic:topic(), subopts()})).
--type(packet() :: #mqtt_packet{}).
 
 -type(client() :: #{zone         := zone(),
                     conn_mod     := maybe(module()),
@@ -111,6 +96,7 @@
                     client_id    := client_id(),
                     username     := username(),
                     peercert     := esockd_peercert:peercert(),
+                    is_bridge    := boolean(),
                     is_superuser := boolean(),
                     mountpoint   := maybe(binary()),
                     ws_cookie    := maybe(list()),
@@ -123,6 +109,7 @@
 -type(username() :: maybe(binary())).
 -type(password() :: maybe(binary())).
 -type(peername() :: {inet:ip_address(), inet:port_number()}).
+-type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | none | atom()).
 -type(auth_result() :: success
                      | client_identifier_not_valid
                      | bad_username_or_password
@@ -132,21 +119,37 @@
                      | server_busy
                      | banned
                      | bad_authentication_method).
--type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | none | atom()).
+
+-type(packet_type() :: ?RESERVED..?AUTH).
+-type(connack() :: ?CONNACK_ACCEPT..?CONNACK_AUTH).
+-type(subopts() :: #{rh  := 0 | 1 | 2,
+                     rap := 0 | 1,
+                     nl  := 0 | 1,
+                     qos := qos(),
+                     share  => binary(),
+                     atom() => term()
+                    }).
+-type(reason_code() :: 0..16#FF).
+-type(packet_id() :: 1..16#FFFF).
+-type(properties() :: #{atom() => term()}).
+-type(topic_filters() :: list({topic(), subopts()})).
+-type(packet() :: #mqtt_packet{}).
+
 -type(subscription() :: #subscription{}).
 -type(subscriber() :: {pid(), subid()}).
--type(topic_table() :: [{topic(), subopts()}]).
 -type(payload() :: binary() | iodata()).
 -type(message() :: #message{}).
 -type(banned() :: #banned{}).
 -type(delivery() :: #delivery{}).
 -type(deliver_results() :: [{route, node(), topic()} |
-                            {dispatch, topic(), pos_integer()}]).
+                            {deliver, topic(), non_neg_integer()}
+                           ]).
 -type(route() :: #route{}).
 -type(alarm() :: #alarm{}).
 -type(plugin() :: #plugin{}).
 -type(command() :: #command{}).
 
+-type(caps() :: emqx_mqtt_caps:caps()).
 -type(infos() :: #{atom() => term()}).
 -type(attrs() :: #{atom() => term()}).
 -type(stats() :: list({atom(), non_neg_integer()})).
