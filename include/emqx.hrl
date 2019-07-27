@@ -73,8 +73,7 @@
 
 -record(delivery, {
           sender  :: pid(),      %% Sender of the delivery
-          message :: #message{}, %% The message delivered
-          results :: list()      %% Dispatches of the message
+          message :: #message{}  %% The message delivered
         }).
 
 %%--------------------------------------------------------------------

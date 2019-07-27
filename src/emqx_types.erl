@@ -46,10 +46,13 @@
              ]).
 
 -export_type([ delivery/0
-             , deliver_results/0
+             , publish_result/0
+             , deliver_result/0
              ]).
 
--export_type([route/0]).
+-export_type([ route/0
+             , route_entry/0
+             ]).
 
 -export_type([ alarm/0
              , plugin/0
@@ -99,9 +102,12 @@
 -type(message() :: #message{}).
 -type(banned() :: #banned{}).
 -type(delivery() :: #delivery{}).
--type(deliver_results() :: [{route, node(), topic()} |
-                            {dispatch, topic(), pos_integer()}]).
+-type(deliver_result() :: ok | {error, term()}).
+-type(publish_result() :: [ {node(), topic(), deliver_result()}
+                          | {share, topic(), deliver_result()}]).
 -type(route() :: #route{}).
+-type(sub_group() :: tuple() | binary()).
+-type(route_entry() :: {topic(), node()} | {topic, sub_group()}).
 -type(alarm() :: #alarm{}).
 -type(plugin() :: #plugin{}).
 -type(command() :: #command{}).
