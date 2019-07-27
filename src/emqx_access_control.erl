@@ -28,52 +28,57 @@
 %% APIs
 %%--------------------------------------------------------------------
 
--spec(authenticate(emqx_types:credentials())
-      -> {ok, emqx_types:credentials()} | {error, term()}).
-authenticate(Credentials) ->
-    case emqx_hooks:run_fold('client.authenticate', [], init_auth_result(Credentials)) of
-    	#{auth_result := success, anonymous := true} = NewCredentials ->
+-spec(authenticate(emqx_types:client())
+      -> {ok, #{auth_result := emqx_types:auth_result(),
+                anonymous := boolean}} | {error, term()}).
+authenticate(Client = #{zone := Zone}) ->
+    case emqx_hooks:run_fold('client.authenticate',
+                             [Client], default_auth_result(Zone)) of
+    	Result = #{auth_result := success, anonymous := true} ->
             emqx_metrics:inc('auth.mqtt.anonymous'),
-	        {ok, NewCredentials};
-        #{auth_result := success} = NewCredentials ->
-	        {ok, NewCredentials};
-	    NewCredentials ->
-	        {error, maps:get(auth_result, NewCredentials, unknown_error)}
-	end.
-
-%% @doc Check ACL
--spec(check_acl(emqx_types:credentials(), emqx_types:pubsub(), emqx_types:topic())
-      -> allow | deny).
-check_acl(Credentials, PubSub, Topic) ->
-    case emqx_acl_cache:is_enabled() of
-        false ->
-            do_check_acl(Credentials, PubSub, Topic);
-        true ->
-            case emqx_acl_cache:get_acl_cache(PubSub, Topic) of
-                not_found ->
-                    AclResult = do_check_acl(Credentials, PubSub, Topic),
-                    emqx_acl_cache:put_acl_cache(PubSub, Topic, AclResult),
-                    AclResult;
-                AclResult -> AclResult
-            end
+	        {ok, Result};
+        Result = #{auth_result := success} ->
+	        {ok, Result};
+	    Result ->
+	        {error, maps:get(auth_result, Result, unknown_error)}
     end.
 
-do_check_acl(#{zone := Zone} = Credentials, PubSub, Topic) ->
-    case emqx_hooks:run_fold('client.check_acl', [Credentials, PubSub, Topic],
-                             emqx_zone:get_env(Zone, acl_nomatch, deny)) of
-        allow -> allow;
-        _ -> deny
+%% @doc Check ACL
+-spec(check_acl(emqx_types:cient(), emqx_types:pubsub(), emqx_types:topic())
+      -> allow | deny).
+check_acl(Client, PubSub, Topic) ->
+    case emqx_acl_cache:is_enabled() of
+        true ->
+            check_acl_cache(Client, PubSub, Topic);
+        false ->
+            do_check_acl(Client, PubSub, Topic)
+    end.
+
+check_acl_cache(Client, PubSub, Topic) ->
+    case emqx_acl_cache:get_acl_cache(PubSub, Topic) of
+        not_found ->
+            AclResult = do_check_acl(Client, PubSub, Topic),
+            emqx_acl_cache:put_acl_cache(PubSub, Topic, AclResult),
+            AclResult;
+        AclResult -> AclResult
+    end.
+
+do_check_acl(#{zone := Zone} = Client, PubSub, Topic) ->
+    Default = emqx_zone:get_env(Zone, acl_nomatch, deny),
+    case emqx_hooks:run_fold('client.check_acl', [Client, PubSub, Topic], Default) of
+        allow  -> allow;
+        _Other -> deny
     end.
 
 -spec(reload_acl() -> ok | {error, term()}).
 reload_acl() ->
-    emqx_acl_cache:is_enabled() andalso
-        emqx_acl_cache:empty_acl_cache(),
+    emqx_acl_cache:is_enabled()
+        andalso emqx_acl_cache:empty_acl_cache(),
     emqx_mod_acl_internal:reload_acl().
 
-init_auth_result(Credentials) ->
-    case emqx_zone:get_env(maps:get(zone, Credentials, undefined), allow_anonymous, false) of
-	    true -> Credentials#{auth_result => success, anonymous => true};
-	    false -> Credentials#{auth_result => not_authorized, anonymous => false}
+default_auth_result(Zone) ->
+    case emqx_zone:get_env(Zone, allow_anonymous, false) of
+	    true  -> #{auth_result => success, anonymous => true};
+	    false -> #{auth_result => not_authorized, anonymous => false}
     end.
 

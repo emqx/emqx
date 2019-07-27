@@ -40,10 +40,6 @@
 -define(ALLOW_DENY(A), ((A =:= allow) orelse (A =:= deny))).
 -define(PUBSUB(A), ((A =:= subscribe) orelse (A =:= publish) orelse (A =:= pubsub))).
 
-%%--------------------------------------------------------------------
-%% APIs
-%%--------------------------------------------------------------------
-
 %% @doc Compile Access Rule.
 compile({A, all}) when ?ALLOW_DENY(A) ->
     {A, all};
@@ -92,21 +88,21 @@ bin(B) when is_binary(B) ->
 %% @doc Match access rule
 -spec(match(emqx_types:credentials(), emqx_types:topic(), rule())
       -> {matched, allow} | {matched, deny} | nomatch).
-match(_Credentials, _Topic, {AllowDeny, all}) when ?ALLOW_DENY(AllowDeny) ->
+match(_Client, _Topic, {AllowDeny, all}) when ?ALLOW_DENY(AllowDeny) ->
     {matched, AllowDeny};
-match(Credentials, Topic, {AllowDeny, Who, _PubSub, TopicFilters})
+match(Client, Topic, {AllowDeny, Who, _PubSub, TopicFilters})
     when ?ALLOW_DENY(AllowDeny) ->
-    case match_who(Credentials, Who)
-         andalso match_topics(Credentials, Topic, TopicFilters) of
+    case match_who(Client, Who)
+         andalso match_topics(Client, Topic, TopicFilters) of
         true  -> {matched, AllowDeny};
         false -> nomatch
     end.
 
-match_who(_Credentials, all) ->
+match_who(_Client, all) ->
     true;
-match_who(_Credentials, {user, all}) ->
+match_who(_Client, {user, all}) ->
     true;
-match_who(_Credentials, {client, all}) ->
+match_who(_Client, {client, all}) ->
     true;
 match_who(#{client_id := ClientId}, {client, ClientId}) ->
     true;
@@ -116,44 +112,44 @@ match_who(#{peername := undefined}, {ipaddr, _Tup}) ->
     false;
 match_who(#{peername := {IP, _}}, {ipaddr, CIDR}) ->
     esockd_cidr:match(IP, CIDR);
-match_who(Credentials, {'and', Conds}) when is_list(Conds) ->
+match_who(Client, {'and', Conds}) when is_list(Conds) ->
     lists:foldl(fun(Who, Allow) ->
-                  match_who(Credentials, Who) andalso Allow
+                  match_who(Client, Who) andalso Allow
                 end, true, Conds);
-match_who(Credentials, {'or', Conds}) when is_list(Conds) ->
+match_who(Client, {'or', Conds}) when is_list(Conds) ->
     lists:foldl(fun(Who, Allow) ->
-                  match_who(Credentials, Who) orelse Allow
+                  match_who(Client, Who) orelse Allow
                 end, false, Conds);
-match_who(_Credentials, _Who) ->
+match_who(_Client, _Who) ->
     false.
 
-match_topics(_Credentials, _Topic, []) ->
+match_topics(_Client, _Topic, []) ->
     false;
-match_topics(Credentials, Topic, [{pattern, PatternFilter}|Filters]) ->
-    TopicFilter = feed_var(Credentials, PatternFilter),
+match_topics(Client, Topic, [{pattern, PatternFilter}|Filters]) ->
+    TopicFilter = feed_var(Client, PatternFilter),
     match_topic(emqx_topic:words(Topic), TopicFilter)
-        orelse match_topics(Credentials, Topic, Filters);
-match_topics(Credentials, Topic, [TopicFilter|Filters]) ->
+        orelse match_topics(Client, Topic, Filters);
+match_topics(Client, Topic, [TopicFilter|Filters]) ->
    match_topic(emqx_topic:words(Topic), TopicFilter)
-       orelse match_topics(Credentials, Topic, Filters).
+       orelse match_topics(Client, Topic, Filters).
 
 match_topic(Topic, {eq, TopicFilter}) ->
     Topic == TopicFilter;
 match_topic(Topic, TopicFilter) ->
     emqx_topic:match(Topic, TopicFilter).
 
-feed_var(Credentials, Pattern) ->
-    feed_var(Credentials, Pattern, []).
-feed_var(_Credentials, [], Acc) ->
+feed_var(Client, Pattern) ->
+    feed_var(Client, Pattern, []).
+feed_var(_Client, [], Acc) ->
     lists:reverse(Acc);
-feed_var(Credentials = #{client_id := undefined}, [<<"%c">>|Words], Acc) ->
-    feed_var(Credentials, Words, [<<"%c">>|Acc]);
-feed_var(Credentials = #{client_id := ClientId}, [<<"%c">>|Words], Acc) ->
-    feed_var(Credentials, Words, [ClientId |Acc]);
-feed_var(Credentials = #{username := undefined}, [<<"%u">>|Words], Acc) ->
-    feed_var(Credentials, Words, [<<"%u">>|Acc]);
-feed_var(Credentials = #{username := Username}, [<<"%u">>|Words], Acc) ->
-    feed_var(Credentials, Words, [Username|Acc]);
-feed_var(Credentials, [W|Words], Acc) ->
-    feed_var(Credentials, Words, [W|Acc]).
+feed_var(Client = #{client_id := undefined}, [<<"%c">>|Words], Acc) ->
+    feed_var(Client, Words, [<<"%c">>|Acc]);
+feed_var(Client = #{client_id := ClientId}, [<<"%c">>|Words], Acc) ->
+    feed_var(Client, Words, [ClientId |Acc]);
+feed_var(Client = #{username := undefined}, [<<"%u">>|Words], Acc) ->
+    feed_var(Client, Words, [<<"%u">>|Acc]);
+feed_var(Client = #{username := Username}, [<<"%u">>|Words], Acc) ->
+    feed_var(Client, Words, [Username|Acc]);
+feed_var(Client, [W|Words], Acc) ->
+    feed_var(Client, Words, [W|Acc]).
 
