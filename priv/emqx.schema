@@ -344,6 +344,11 @@ end}.
   {datatype, {enum, [sync, async]}}
 ]}.
 
+{mapping, "rpc.async_batch_size", "gen_rpc.max_batch_size", [
+  {default, 256},
+  {datatype, integer}
+]}.
+
 %% RPC server port.
 {mapping, "rpc.tcp_server_port", "gen_rpc.tcp_server_port", [
   {default, 5369},

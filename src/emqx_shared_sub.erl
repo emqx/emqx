@@ -103,7 +103,7 @@ record(Group, Topic, SubPid) ->
     #emqx_shared_subscription{group = Group, topic = Topic, subpid = SubPid}.
 
 -spec(dispatch(emqx_topic:group(), emqx_topic:topic(), emqx_types:delivery())
-      -> emqx_topic:deliver_result()).
+      -> emqx_types:deliver_result()).
 dispatch(Group, Topic, Delivery) ->
     dispatch(Group, Topic, Delivery, _FailedSubs = []).
 
