@@ -94,6 +94,7 @@
     {counter, 'packets.puback.missed'},         % PUBACK packets missed
     {counter, 'packets.pubrec.received'},       % PUBREC packets received
     {counter, 'packets.pubrec.sent'},           % PUBREC packets sent
+    {counter, 'packets.pubrec.inuse'},          % PUBREC packet_id inuse
     {counter, 'packets.pubrec.missed'},         % PUBREC packets missed
     {counter, 'packets.pubrel.received'},       % PUBREL packets received
     {counter, 'packets.pubrel.sent'},           % PUBREL packets sent
@@ -459,4 +460,6 @@ reserved_idx('messages.expired')             -> 50;
 reserved_idx('messages.forward')             -> 51;
 reserved_idx('auth.mqtt.anonymous')          -> 52;
 reserved_idx('channel.gc.cnt')               -> 53;
+reserved_idx('packets.pubrec.inuse')         -> 54;
 reserved_idx(_)                              -> undefined.
+
