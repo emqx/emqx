@@ -64,8 +64,8 @@ all_rules() ->
 -spec(check_acl(emqx_types:credentials(), emqx_types:pubsub(), emqx_topic:topic(),
                 emqx_access_rule:acl_result(), acl_rules())
       -> {ok, allow} | {ok, deny} | ok).
-check_acl(Credentials, PubSub, Topic, _AclResult, Rules) ->
-    case match(Credentials, Topic, lookup(PubSub, Rules)) of
+check_acl(Client, PubSub, Topic, _AclResult, Rules) ->
+    case match(Client, Topic, lookup(PubSub, Rules)) of
         {matched, allow} -> {ok, allow};
         {matched, deny}  -> {ok, deny};
         nomatch          -> ok
@@ -85,12 +85,12 @@ acl_file() ->
 lookup(PubSub, Rules) ->
     maps:get(PubSub, Rules, []).
 
-match(_Credentials, _Topic, []) ->
+match(_Client, _Topic, []) ->
     nomatch;
-match(Credentials, Topic, [Rule|Rules]) ->
-    case emqx_access_rule:match(Credentials, Topic, Rule) of
+match(Client, Topic, [Rule|Rules]) ->
+    case emqx_access_rule:match(Client, Topic, Rule) of
         nomatch ->
-            match(Credentials, Topic, Rules);
+            match(Client, Topic, Rules);
         {matched, AllowDeny} ->
             {matched, AllowDeny}
     end.
