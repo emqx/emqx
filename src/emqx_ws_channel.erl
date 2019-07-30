@@ -293,6 +293,7 @@ websocket_info({timeout, Timer, emit_stats},
                       proto_state = ProtoState,
                       gc_state    = GcState}) ->
     ClientId = emqx_protocol:info(client_id, ProtoState),
+    ok = emqx_cm:register_channel(ClientId),
     ok = emqx_cm:set_chan_stats(ClientId, stats(State)),
     NState = State#state{stats_timer = undefined},
     Limits = erlang:get(force_shutdown_policy),
