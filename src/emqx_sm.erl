@@ -117,7 +117,7 @@ discard_session(ClientId, ConnPid) when is_binary(ClientId) ->
           catch
               _:Error:_Stk ->
                   unregister_session(ClientId, SessPid),
-                  ?LOG(warning, "Failed to discard ~p: ~p", [SessPid, Error])
+                  ?LOG(notice, "Failed to discard ~p: ~p", [SessPid, Error])
           end
       end, lookup_session_pids(ClientId)).
 

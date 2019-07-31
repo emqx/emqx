@@ -356,7 +356,7 @@ handle(info, {timeout, Timer, emit_stats},
     end;
 
 handle(info, {shutdown, discard, {ClientId, ByPid}}, State) ->
-    ?LOG(error, "Discarded by ~s:~p", [ClientId, ByPid]),
+    ?LOG(warning, "Discarded by ~s:~p", [ClientId, ByPid]),
     shutdown(discard, State);
 
 handle(info, {shutdown, conflict, {ClientId, NewPid}}, State) ->
