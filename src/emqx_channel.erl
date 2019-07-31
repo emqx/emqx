@@ -172,7 +172,6 @@ call(CPid, Req) ->
 %%--------------------------------------------------------------------
 
 init({Transport, RawSocket, Options}) ->
-    process_flag(trap_exit, true),
     {ok, Socket} = Transport:wait(RawSocket),
     {ok, Peername} = Transport:ensure_ok_or_exit(peername, [Socket]),
     {ok, Sockname} = Transport:ensure_ok_or_exit(sockname, [Socket]),
