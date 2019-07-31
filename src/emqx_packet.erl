@@ -142,7 +142,7 @@ publish_props(Headers) ->
                'Message-Expiry-Interval'], Headers).
 
 %% @doc Message from Packet
--spec(to_message(emqx_types:credentials(), emqx_ypes:packet())
+-spec(to_message(emqx_types:client(), emqx_ypes:packet())
       -> emqx_types:message()).
 to_message(#{client_id := ClientId, username := Username, peername := Peername},
            #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,

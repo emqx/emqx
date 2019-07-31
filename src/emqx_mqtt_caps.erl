@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc MQTTv5 capabilities
+%% @doc MQTTv5 Capabilities
 -module(emqx_mqtt_caps).
 
 -include("emqx.hrl").
@@ -28,14 +28,17 @@
 
 -export([default_caps/0]).
 
+-export_type([caps/0]).
+
 -type(caps() :: #{max_packet_size  => integer(),
                   max_clientid_len => integer(),
                   max_topic_alias  => integer(),
                   max_topic_levels => integer(),
                   max_qos_allowed  => emqx_types:qos(),
-                  mqtt_retain_available      => boolean(),
-                  mqtt_shared_subscription   => boolean(),
-                  mqtt_wildcard_subscription => boolean()}).
+                  mqtt_retain_available => boolean(),
+                  mqtt_shared_subscription  => boolean(),
+                  mqtt_wildcard_subscription => boolean()
+                 }).
 
 -define(UNLIMITED, 0).
 
@@ -44,18 +47,21 @@
                        {max_topic_alias,  ?UNLIMITED},
                        {max_topic_levels, ?UNLIMITED},
                        {max_qos_allowed,  ?QOS_2},
-                       {mqtt_retain_available,      true},
-                       {mqtt_shared_subscription,   true},
-                       {mqtt_wildcard_subscription, true}]).
+                       {mqtt_retain_available, true},
+                       {mqtt_shared_subscription, true},
+                       {mqtt_wildcard_subscription, true}
+                      ]).
 
 -define(PUBCAP_KEYS, [max_qos_allowed,
                       mqtt_retain_available,
                       max_topic_alias
                      ]).
+
 -define(SUBCAP_KEYS, [max_qos_allowed,
                       max_topic_levels,
                       mqtt_shared_subscription,
-                      mqtt_wildcard_subscription]).
+                      mqtt_wildcard_subscription
+                     ]).
 
 -spec(check_pub(emqx_types:zone(), map()) -> ok | {error, emqx_types:reason_code()}).
 check_pub(Zone, Props) when is_map(Props) ->

@@ -50,7 +50,7 @@
 
 -logger_header("[Session]").
 
--export([init/1]).
+-export([init/3]).
 
 -export([ info/1
         , attrs/1
@@ -68,7 +68,7 @@
         , pubcomp/3
         ]).
 
--export([handle/2]).
+-export([deliver/2]).
 
 -export([timeout/3]).
 
@@ -143,11 +143,9 @@
 %%--------------------------------------------------------------------
 
 %% @doc Init a session.
--spec(init(Attrs :: map()) -> session()).
-init(#{zone            := Zone,
-       clean_start     := CleanStart,
-       max_inflight    := MaxInflight,
-       expiry_interval := ExpiryInterval}) ->
+-spec(init(boolean(), emqx_types:client(), Options :: map()) -> session()).
+init(CleanStart, #{zone := Zone}, #{max_inflight := MaxInflight,
+                                    expiry_interval := ExpiryInterval}) ->
     #session{clean_start       = CleanStart,
              max_subscriptions = get_env(Zone, max_subscriptions, 0),
              subscriptions     = #{},
@@ -361,6 +359,7 @@ pubrec(PacketId, _ReasonCode, Session = #session{inflight = Inflight}) ->
             {ok, Session#session{inflight = Inflight1}};
         {value, {pubrel, _Ts}} ->
             ?LOG(warning, "The PUBREC ~w is duplicated", [PacketId]),
+            ok = emqx_metrics:inc('packets.pubrec.inuse'),
             {error, ?RC_PACKET_IDENTIFIER_IN_USE};
         none ->
             ?LOG(warning, "The PUBREC ~w is not found.", [PacketId]),
@@ -410,7 +409,7 @@ dequeue(Session = #session{inflight = Inflight, mqueue = Q}) ->
         true  -> {ok, Session};
         false ->
             {Msgs, Q1} = dequeue(batch_n(Inflight), [], Q),
-            handle(lists:reverse(Msgs), [], Session#session{mqueue = Q1})
+            deliver(lists:reverse(Msgs), [], Session#session{mqueue = Q1})
     end.
 
 dequeue(Cnt, Msgs, Q) when Cnt =< 0 ->
@@ -433,28 +432,28 @@ batch_n(Inflight) ->
 %% Broker -> Client: Publish | Msg
 %%--------------------------------------------------------------------
 
-handle(Delivers, Session = #session{subscriptions = Subs})
+deliver(Delivers, Session = #session{subscriptions = Subs})
   when is_list(Delivers) ->
     Msgs = [enrich(get_subopts(Topic, Subs), Msg, Session)
             || {deliver, Topic, Msg} <- Delivers],
-    handle(Msgs, [], Session).
+    deliver(Msgs, [], Session).
 
-handle([], Publishes, Session) ->
+deliver([], Publishes, Session) ->
     {ok, lists:reverse(Publishes), Session};
 
-handle([Msg = #message{qos = ?QOS_0}|More], Acc, Session) ->
-    handle(More, [{publish, undefined, Msg}|Acc], Session);
+deliver([Msg = #message{qos = ?QOS_0}|More], Acc, Session) ->
+    deliver(More, [{publish, undefined, Msg}|Acc], Session);
 
-handle([Msg = #message{qos = QoS}|More], Acc,
-       Session = #session{next_pkt_id = PacketId, inflight = Inflight})
+deliver([Msg = #message{qos = QoS}|More], Acc,
+        Session = #session{next_pkt_id = PacketId, inflight = Inflight})
     when QoS =:= ?QOS_1 orelse QoS =:= ?QOS_2 ->
     case emqx_inflight:is_full(Inflight) of
         true ->
-            handle(More, Acc, enqueue(Msg, Session));
+            deliver(More, Acc, enqueue(Msg, Session));
         false ->
             Publish = {publish, PacketId, Msg},
             Session1 = await(PacketId, Msg, Session),
-            handle(More, [Publish|Acc], next_pkt_id(Session1))
+            deliver(More, [Publish|Acc], next_pkt_id(Session1))
     end.
 
 enqueue(Msg, Session = #session{mqueue = Q}) ->

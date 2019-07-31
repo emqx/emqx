@@ -42,7 +42,7 @@
         , set_chan_stats/2
         ]).
 
--export([ open_session/1
+-export([ open_session/3
         , discard_session/1
         , resume_session/1
         ]).
@@ -168,24 +168,22 @@ set_chan_stats(ClientId, ChanPid, Stats) ->
     ok.
 
 %% @doc Open a session.
--spec(open_session(map()) -> {ok, emqx_session:session()}
-                           | {error, Reason :: term()}).
-open_session(Attrs = #{clean_start := true,
-                       client_id := ClientId}) ->
+-spec(open_session(boolean(), emqx_types:client(), map())
+      -> {ok, emqx_session:session()} | {error, Reason :: term()}).
+open_session(true, Client = #{client_id := ClientId}, Options) ->
     CleanStart = fun(_) ->
                      ok = discard_session(ClientId),
-                     {ok, emqx_session:init(Attrs), false}
+                     {ok, emqx_session:init(true, Client, Options), false}
                  end,
     emqx_cm_locker:trans(ClientId, CleanStart);
 
-open_session(Attrs = #{clean_start := false,
-                       client_id := ClientId}) ->
+open_session(false, Client = #{client_id := ClientId}, Options) ->
     ResumeStart = fun(_) ->
                       case resume_session(ClientId) of
                           {ok, Session} ->
                               {ok, Session, true};
                           {error, not_found} ->
-                              {ok, emqx_session:init(Attrs), false}
+                              {ok, emqx_session:init(false, Client, Options), false}
                       end
                   end,
     emqx_cm_locker:trans(ClientId, ResumeStart).

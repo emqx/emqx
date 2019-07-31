@@ -118,7 +118,7 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg, results = Results}, F
         {Type, SubPid} ->
             case do_dispatch(SubPid, Topic, Msg, Type) of
                 ok ->
-                    Delivery#delivery{results = [{dispatch, {Group, Topic}, 1} | Results]};
+                    Delivery#delivery{results = [{deliver, {Group, Topic}, 1} | Results]};
                 {error, _Reason} ->
                     %% Failed to dispatch to this sub, try next.
                     dispatch(Group, Topic, Delivery, [SubPid | FailedSubs])

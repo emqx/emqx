@@ -274,13 +274,13 @@ dispatch(Topic, Delivery = #delivery{message = Msg, results = Results}) ->
             Delivery;
         [Sub] -> %% optimize?
             Cnt = dispatch(Sub, Topic, Msg),
-            Delivery#delivery{results = [{dispatch, Topic, Cnt}|Results]};
+            Delivery#delivery{results = [{deliver, Topic, Cnt}|Results]};
         Subs ->
             Cnt = lists:foldl(
                     fun(Sub, Acc) ->
                             dispatch(Sub, Topic, Msg) + Acc
                     end, 0, Subs),
-            Delivery#delivery{results = [{dispatch, Topic, Cnt}|Results]}
+            Delivery#delivery{results = [{deliver, Topic, Cnt}|Results]}
     end.
 
 dispatch(SubPid, Topic, Msg) when is_pid(SubPid) ->

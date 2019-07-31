@@ -205,7 +205,7 @@
                 | {nl,  boolean()}
                 | {qos, qos()}).
 
--type(reason_code() :: emqx_mqtt_types:reason_code()).
+-type(reason_code() :: emqx_types:reason_code()).
 
 -type(subscribe_ret() :: {ok, properties(), [reason_code()]} | {error, term()}).
 
