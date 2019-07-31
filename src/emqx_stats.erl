@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_stats).
 
@@ -49,13 +51,17 @@
         , code_change/3
         ]).
 
+-export_type([stats/0]).
+
 -record(update, {name, countdown, interval, func}).
 
--record(state, {timer, updates :: [#update{}], tick_ms :: timeout()}).
+-record(state, {
+          timer :: reference(),
+          updates :: [#update{}],
+          tick_ms :: timeout()
+         }).
 
 -type(stats() :: list({atom(), non_neg_integer()})).
-
--export_type([stats/0]).
 
 %% Connection stats
 -define(CONNECTION_STATS, [
@@ -168,9 +174,9 @@ rec(Name, Secs, UpFun) ->
 cast(Msg) ->
     gen_server:cast(?SERVER, Msg).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% gen_server callbacks
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 init(#{tick_ms := TickMs}) ->
     ok = emqx_tables:new(?TAB, [public, set, {write_concurrency, true}]),
@@ -201,7 +207,8 @@ handle_cast({setstat, Stat, MaxStat, Val}, State) ->
     safe_update_element(Stat, Val),
     {noreply, State};
 
-handle_cast({update_interval, Update = #update{name = Name}}, State = #state{updates = Updates}) ->
+handle_cast({update_interval, Update = #update{name = Name}},
+            State = #state{updates = Updates}) ->
     case lists:keyfind(Name, #update.name, Updates) of
         #update{} ->
             ?LOG(warning, "Duplicated update: ~s", [Name]),
@@ -242,9 +249,9 @@ terminate(_Reason, #state{timer = TRef}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 safe_update_element(Key, Val) ->
     try ets:update_element(?TAB, Key, {2, Val}) of
@@ -256,3 +263,4 @@ safe_update_element(Key, Val) ->
         error:badarg ->
             ?LOG(warning, "Update ~p to ~p failed", [Key, Val])
     end.
+

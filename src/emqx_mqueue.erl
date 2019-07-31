@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,7 +12,9 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
+%%--------------------------------------------------------------------
 %% @doc A Simple in-memory message queue.
 %%
 %% Notice that MQTT is not a (on-disk) persistent messaging queue.
@@ -42,6 +45,7 @@
 %%    unless `max_len' is set to `0' which implies (`infinity').
 %%
 %% @end
+%%--------------------------------------------------------------------
 
 -module(emqx_mqueue).
 

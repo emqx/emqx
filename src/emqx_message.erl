@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_message).
 
@@ -74,7 +76,7 @@ make(From, Topic, Payload) ->
     make(From, ?QOS_0, Topic, Payload).
 
 -spec(make(atom() | emqx_types:client_id(),
-           emqx_mqtt_types:qos(),
+           emqx_types:qos(),
            emqx_topic:topic(),
            emqx_types:payload()) -> emqx_types:message()).
 make(From, QoS, Topic, Payload) when ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
@@ -89,7 +91,7 @@ make(From, QoS, Topic, Payload) when ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
 -spec(id(emqx_types:message()) -> maybe(binary())).
 id(#message{id = Id}) -> Id.
 
--spec(qos(emqx_types:message()) -> emqx_mqtt_types:qos()).
+-spec(qos(emqx_types:message()) -> emqx_types:qos()).
 qos(#message{qos = QoS}) -> QoS.
 
 -spec(from(emqx_types:message()) -> atom() | binary()).

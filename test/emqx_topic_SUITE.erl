@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_topic_SUITE).
 
@@ -21,15 +23,15 @@
 -compile(nowarn_export_all).
 
 -import(emqx_topic,
-        [wildcard/1,
-         match/2,
-         validate/1,
-         triples/1,
-         join/1,
-         words/1,
-         systop/1,
-         feed_var/3,
-         parse/1
+        [ wildcard/1
+        , match/2
+        , validate/1
+        , triples/1
+        , join/1
+        , words/1
+        , systop/1
+        , feed_var/3
+        , parse/1
         ]).
 
 -define(N, 10000).
@@ -218,6 +220,7 @@ long_topic() ->
 
 t_parse(_) ->
     ?assertEqual({<<"a/b/+/#">>, #{}}, parse(<<"a/b/+/#">>)),
+    ?assertEqual({<<"a/b/+/#">>, #{qos => 1}}, parse({<<"a/b/+/#">>, #{qos => 1}})),
     ?assertEqual({<<"topic">>, #{ share => <<"$queue">> }}, parse(<<"$queue/topic">>)),
     ?assertEqual({<<"topic">>, #{ share => <<"group">>}}, parse(<<"$share/group/topic">>)),
     ?assertEqual({<<"$local/topic">>, #{}}, parse(<<"$local/topic">>)),
