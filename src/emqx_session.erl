@@ -401,11 +401,11 @@ handle_call(stats, _From, State) ->
     reply(stats(State), State);
 
 handle_call({discard, ByPid}, _From, State = #state{conn_pid = undefined}) ->
-    ?LOG(warning, "Discarded by ~p", [ByPid]),
+    ?LOG(notice, "Discarded by ~p", [ByPid]),
     {stop, {shutdown, discarded}, ok, State};
 
 handle_call({discard, ByPid}, _From, State = #state{client_id = ClientId, conn_pid = ConnPid}) ->
-    ?LOG(warning, "Conn ~p is discarded by ~p", [ConnPid, ByPid]),
+    ?LOG(notice, "Conn ~p is discarded by ~p", [ConnPid, ByPid]),
     ConnPid ! {shutdown, discard, {ClientId, ByPid}},
     {stop, {shutdown, discarded}, ok, State};
 
