@@ -103,19 +103,19 @@ record(Group, Topic, SubPid) ->
     #emqx_shared_subscription{group = Group, topic = Topic, subpid = SubPid}.
 
 -spec(dispatch(emqx_topic:group(), emqx_topic:topic(), emqx_types:delivery())
-      -> emqx_types:delivery()).
+      -> emqx_types:deliver_result()).
 dispatch(Group, Topic, Delivery) ->
     dispatch(Group, Topic, Delivery, _FailedSubs = []).
 
-dispatch(Group, Topic, Delivery = #delivery{message = Msg, results = Results}, FailedSubs) ->
+dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
     #message{from = ClientId} = Msg,
     case pick(strategy(), ClientId, Group, Topic, FailedSubs) of
         false ->
-            Delivery;
+            {error, no_subscribers};
         {Type, SubPid} ->
             case do_dispatch(SubPid, Topic, Msg, Type) of
                 ok ->
-                    Delivery#delivery{results = [{dispatch, {Group, Topic}, 1} | Results]};
+                    ok;
                 {error, _Reason} ->
                     %% Failed to dispatch to this sub, try next.
                     dispatch(Group, Topic, Delivery, [SubPid | FailedSubs])
