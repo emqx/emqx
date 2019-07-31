@@ -65,7 +65,7 @@ info(#protocol{proto_name = ProtoName,
     #{proto_name => ProtoName,
       proto_ver => ProtoVer,
       client => Client,
-      session => emqx_session:info(Session),
+      session => session_info(Session),
       keepalive => Keepalive,
       will_msg => WillMsg,
       topic_aliases => Aliases
@@ -533,7 +533,7 @@ auth_connect(#mqtt_packet_connect{client_id = ClientId,
         {ok, AuthResult} ->
             {ok, PState#protocol{client = maps:merge(Client, AuthResult)}};
         {error, Reason} ->
-            ?LOG(warning, "Client ~s (Username: '~s') login failed for ~p",
+            ?LOG(warning, "Client ~s (Username: '~s') login failed for ~0p",
                  [ClientId, Username, Reason]),
             {error, Reason}
     end.
@@ -761,3 +761,7 @@ sp(false) -> 0.
 flag(true)  -> 1;
 flag(false) -> 0.
 
+session_info(undefined) ->
+    undefined;
+session_info(Session) ->
+    emqx_session:info(Session).
