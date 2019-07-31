@@ -86,7 +86,7 @@ bin(B) when is_binary(B) ->
     B.
 
 %% @doc Match access rule
--spec(match(emqx_types:credentials(), emqx_types:topic(), rule())
+-spec(match(emqx_types:client(), emqx_types:topic(), rule())
       -> {matched, allow} | {matched, deny} | nomatch).
 match(_Client, _Topic, {AllowDeny, all}) when ?ALLOW_DENY(AllowDeny) ->
     {matched, AllowDeny};

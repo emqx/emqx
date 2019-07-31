@@ -68,7 +68,7 @@ mnesia(copy) ->
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec(check(emqx_types:credentials()) -> boolean()).
+-spec(check(emqx_types:client()) -> boolean()).
 check(#{client_id := ClientId, username := Username, peername := {IPAddr, _}}) ->
     ets:member(?BANNED_TAB, {client_id, ClientId})
         orelse ets:member(?BANNED_TAB, {username, Username})
@@ -78,11 +78,10 @@ check(#{client_id := ClientId, username := Username, peername := {IPAddr, _}}) -
 add(Banned) when is_record(Banned, banned) ->
     mnesia:dirty_write(?BANNED_TAB, Banned).
 
--spec(delete({client_id, emqx_types:client_id()}
-             | {username, emqx_types:username()}
-             | {peername, emqx_types:peername()}) -> ok).
-delete(Key) ->
-    mnesia:dirty_delete(?BANNED_TAB, Key).
+-spec(delete({client_id, emqx_types:client_id()} |
+             {username, emqx_types:username()} |
+             {peername, emqx_types:peername()}) -> ok).
+delete(Key) -> mnesia:dirty_delete(?BANNED_TAB, Key).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
