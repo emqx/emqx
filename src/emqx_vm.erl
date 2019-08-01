@@ -451,26 +451,24 @@ mapping([{Key, Value}|Entries], Acc) ->
     mapping(Entries, [{Key, Value}|Acc]).
 
 avg1() ->
-   case cpu_sup:avg1() of
-        V when is_integer(V) -> V;
-        {error, _Reason} -> 0.00
-    end.
+    compat_windows(fun cpu_sup:avg1/0).
 
 avg5() ->
-    case cpu_sup:avg5() of
-        V when is_integer(V) -> V;
-        {error, _Reason} -> 0.00
-    end.
+    compat_windows(fun cpu_sup:avg5/0).
 
 avg15() ->
-    case cpu_sup:avg15() of
-        V when is_integer(V) -> V;
-        {error, _Reason} -> 0.00
-    end.
+    compat_windows(fun cpu_sup:avg15/0).
 
 cpu_util() ->
+    compat_windows(fun cpu_sup:util/0).
+
+compat_windows(Fun) ->
     case os:type() of
         {win32, nt} -> 0;
-        _Other -> cpu_sup:util()
+        _Other -> handle_error(Fun())
     end.
 
+handle_error(Value) when is_number(Value) ->
+    Value;
+handle_error({error, _Reason}) ->
+    0.
