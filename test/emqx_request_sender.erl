@@ -22,8 +22,6 @@
 
 -export([start_link/3, stop/1, send/6]).
 
--include("emqx_client.hrl").
-
 start_link(ResponseTopic, QoS, Options0) ->
     Parent = self(),
     MsgHandler = make_msg_handler(Parent),
@@ -48,12 +46,7 @@ send(Client, ReqTopic, RspTopic, CorrData, Payload, QoS) ->
     Props = #{'Response-Topic' => RspTopic,
               'Correlation-Data' => CorrData
              },
-    Msg = #mqtt_msg{qos = QoS,
-                    topic = ReqTopic,
-                    props = Props,
-                    payload = Payload
-                   },
-    case emqx_client:publish(Client, Msg) of
+    case emqx_client:publish(Client, ReqTopic, Props, Payload, [{qos, QoS}]) of
         ok -> ok; %% QoS = 0
         {ok, _} -> ok;
         {error, _} = E -> E
