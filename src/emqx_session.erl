@@ -136,6 +136,8 @@
 
 -opaque(session() :: #session{}).
 
+-type(publish() :: {publish, emqx_types:packet_id(), emqx_types:message()}).
+
 -define(DEFAULT_BATCH_N, 1000).
 
 %%--------------------------------------------------------------------
@@ -334,7 +336,8 @@ do_publish(PacketId, Msg = #message{timestamp = Ts},
 %%--------------------------------------------------------------------
 
 -spec(puback(emqx_types:packet_id(), emqx_types:reason_code(), session())
-      -> {ok, session()} | {error, emqx_types:reason_code()}).
+      -> {ok, session()} | {ok, list(publish()), session()} |
+         {error, emqx_types:reason_code()}).
 puback(PacketId, _ReasonCode, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
@@ -388,7 +391,8 @@ pubrel(PacketId, _ReasonCode, Session = #session{awaiting_rel = AwaitingRel}) ->
 %%--------------------------------------------------------------------
 
 -spec(pubcomp(emqx_types:packet_id(), emqx_types:reason_code(), session())
-      -> {ok, session()} | {error, emqx_types:reason_code()}).
+      -> {ok, session()} | {ok, list(publish()), session()} |
+         {error, emqx_types:reason_code()}).
 pubcomp(PacketId, _ReasonCode, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:contain(PacketId, Inflight) of
         true ->
