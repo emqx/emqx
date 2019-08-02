@@ -22,8 +22,8 @@
 -include_lib("emqx_mqtt.hrl").
 
 %% APIs
--export([ rewrite_subscribe/3
-        , rewrite_unsubscribe/3
+-export([ rewrite_subscribe/4
+        , rewrite_unsubscribe/4
         , rewrite_publish/2
         ]).
 
@@ -38,23 +38,23 @@
 
 load(RawRules) ->
     Rules = compile(RawRules),
-    emqx_hooks:add('client.subscribe',   fun ?MODULE:rewrite_subscribe/3, [Rules]),
-    emqx_hooks:add('client.unsubscribe', fun ?MODULE:rewrite_unsubscribe/3, [Rules]),
-    emqx_hooks:add('message.publish',    fun ?MODULE:rewrite_publish/2, [Rules]).
+    emqx_hooks:add('client.subscribe',   {?MODULE, rewrite_subscribe, [Rules]}),
+    emqx_hooks:add('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [Rules]}),
+    emqx_hooks:add('message.publish',    {?MODULE, rewrite_publish, [Rules]}).
 
-rewrite_subscribe(_Client, TopicTable, Rules) ->
-    {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicTable]}.
+rewrite_subscribe(_Client, _Properties, TopicFilters, Rules) ->
+    {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
 
-rewrite_unsubscribe(_Client, TopicTable, Rules) ->
-    {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicTable]}.
+rewrite_unsubscribe(_Client, _Properties, TopicFilters, Rules) ->
+    {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
 
 rewrite_publish(Message = #message{topic = Topic}, Rules) ->
     {ok, Message#message{topic = match_rule(Topic, Rules)}}.
 
 unload(_) ->
-    emqx_hooks:del('client.subscribe',   fun ?MODULE:rewrite_subscribe/3),
-    emqx_hooks:del('client.unsubscribe', fun ?MODULE:rewrite_unsubscribe/3),
-    emqx_hooks:del('message.publish',    fun ?MODULE:rewrite_publish/2).
+    emqx_hooks:del('client.subscribe',   {?MODULE, rewrite_subscribe}),
+    emqx_hooks:del('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
+    emqx_hooks:del('message.publish',    {?MODULE, rewrite_publish}).
 
 %%--------------------------------------------------------------------
 %% Internal functions
