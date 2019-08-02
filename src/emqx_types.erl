@@ -31,7 +31,8 @@
              , subid/0
              ]).
 
--export_type([ client/0
+-export_type([ conn/0
+             , client/0
              , client_id/0
              , username/0
              , password/0
@@ -89,6 +90,12 @@
 -type(topic() :: emqx_topic:topic()).
 -type(subid() :: binary() | atom()).
 
+-type(conn() :: #{peername := peername(),
+                  sockname := peername(),
+                  peercert := esockd_peercert:peercert(),
+                  conn_mod := module(),
+                  atom()   => term()
+                 }).
 -type(client() :: #{zone         := zone(),
                     conn_mod     := maybe(module()),
                     peername     := peername(),
