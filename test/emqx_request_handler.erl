@@ -23,8 +23,6 @@
 
 -export([start_link/4, stop/1]).
 
--include("emqx_client.hrl").
-
 -type qos() :: emqx_mqtt_types:qos_name() | emqx_mqtt_types:qos().
 -type topic() :: emqx_topic:topic().
 -type handler() :: fun((CorrData :: binary(), ReqPayload :: binary()) -> RspPayload :: binary()).
@@ -65,26 +63,21 @@ handle_msg(ReqMsg, RequestHandler, Parent) ->
             CorrData = maps:get('Correlation-Data', Props),
             RspProps = maps:without(['Response-Topic'], Props),
             RspPayload = RequestHandler(CorrData, ReqPayload),
-            RspMsg = #mqtt_msg{qos = QoS,
-                               topic = RspTopic,
-                               props = RspProps,
-                               payload = RspPayload
-                              },
             emqx_logger:debug("~p sending response msg to topic ~s with~n"
                               "corr-data=~p~npayload=~p",
                               [?MODULE, RspTopic, CorrData, RspPayload]),
-            ok = send_response(RspMsg);
+            ok = send_response(RspTopic, RspProps, RspPayload, QoS);
         _ ->
             Parent ! {discarded, ReqPayload},
             ok
     end.
 
-send_response(Msg) ->
+send_response(Topic, Properties, Payload, QoS) ->
     %% This function is evaluated by emqx_client itself.
     %% hence delegate to another temp process for the loopback gen_statem call.
     Client = self(),
     _ = spawn_link(fun() ->
-                           case emqx_client:publish(Client, Msg) of
+                           case emqx_client:publish(Client, Topic, Properties, Payload, [{qos, QoS}]) of
                                ok -> ok;
                                {ok, _} -> ok;
                                {error, Reason} -> exit({failed_to_publish_response, Reason})
