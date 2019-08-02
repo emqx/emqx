@@ -322,6 +322,12 @@ websocket_info({timeout, Timer, Msg},
             stop(Reason, State#state{proto_state = NProtoState})
     end;
 
+websocket_info({subscribe, TopicFilters}, State) ->
+    handle_request({subscribe, TopicFilters}, State);
+
+websocket_info({unsubscribe, TopicFilters}, State) ->
+    handle_request({unsubscribe, TopicFilters}, State);
+
 websocket_info({shutdown, discard, {ClientId, ByPid}}, State) ->
     ?LOG(warning, "Discarded by ~s:~p", [ClientId, ByPid]),
     stop(discard, State);
@@ -380,6 +386,17 @@ ensure_keepalive(Interval, #state{proto_state = ProtoState}) ->
     Backoff = emqx_zone:get_env(emqx_protocol:info(zone, ProtoState),
                                 keepalive_backoff, 0.75),
     emqx_keepalive:start(stat_fun(), round(Interval * Backoff), {keepalive, check}).
+
+%%--------------------------------------------------------------------
+%% Handle internal request
+
+handle_request(Req, State = #state{proto_state = ProtoState}) ->
+    case emqx_protocol:handle_req(Req, ProtoState) of
+        {ok, _Result, NProtoState} -> %% TODO:: how to handle the result?
+            {ok, State#state{proto_state = NProtoState}};
+        {error, Reason, NProtoState} ->
+            stop(Reason, State#state{proto_state = NProtoState})
+    end.
 
 %%--------------------------------------------------------------------
 %% Process incoming data
