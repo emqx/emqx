@@ -22,28 +22,32 @@
 -include_lib("emqx_mqtt.hrl").
 
 %% APIs
--export([on_session_created/3]).
+-export([on_client_connected/4]).
 
 %% emqx_gen_mod callbacks
 -export([ load/1
         , unload/1
         ]).
-%%------------------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
 %% Load/Unload Hook
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 load(Topics) ->
-    emqx_hooks:add('session.created', fun ?MODULE:on_session_created/3, [Topics]).
+    emqx_hooks:add('client.connected', {?MODULE, on_client_connected, [Topics]}).
 
-on_session_created(#{client_id := ClientId}, SessAttrs, Topics) ->
-    Username = proplists:get_value(username, SessAttrs),
+on_client_connected(#{client_id := ClientId,
+                      username  := Username,
+                      conn_mod  := ConnMod
+                     }, ?RC_SUCCESS, _ConnAttrs, Topics) ->
     Replace = fun(Topic) ->
                       rep(<<"%u">>, Username, rep(<<"%c">>, ClientId, Topic))
               end,
-    emqx_session:subscribe(self(), [{Replace(Topic), #{qos => QoS}} || {Topic, QoS} <- Topics]).
+    TopicFilters = [{Replace(Topic), #{qos => QoS}} || {Topic, QoS} <- Topics],
+    self() ! {subscribe, TopicFilters}.
 
 unload(_) ->
-    emqx_hooks:del('session.created', fun ?MODULE:on_session_created/3).
+    emqx_hooks:del('client.connected', {?MODULE, on_client_connected}).
 
 %%------------------------------------------------------------------------------
 %% Internal functions

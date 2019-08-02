@@ -32,6 +32,7 @@
 
 -export([ init/2
         , handle_in/2
+        , handle_req/2
         , handle_deliver/2
         , handle_out/2
         , handle_timeout/3
@@ -265,6 +266,31 @@ handle_in(Packet, PState) ->
     {ok, PState}.
 
 %%--------------------------------------------------------------------
+%% Handle internal request
+%%--------------------------------------------------------------------
+
+-spec(handle_req(Req:: term(), proto_state())
+      -> {ok, Result :: term(), proto_state()} |
+         {error, Reason :: term(), proto_state()}).
+handle_req({subscribe, TopicFilters}, PState = #protocol{client = Client}) ->
+    TopicFilters1 = emqx_hooks:run_fold('client.subscribe',
+                                        [Client, #{'Internal' => true}],
+                                        parse(subscribe, TopicFilters)),
+    {ReasonCodes, NPState} = process_subscribe(TopicFilters1, PState),
+    {ok, ReasonCodes, NPState};
+
+handle_req({unsubscribe, TopicFilters}, PState = #protocol{client = Client}) ->
+    TopicFilters1 = emqx_hooks:run_fold('client.unsubscribe',
+                                        [Client, #{'Internal' => true}],
+                                        parse(unsubscribe, TopicFilters)),
+    {ReasonCodes, NPState} = process_unsubscribe(TopicFilters1, PState),
+    {ok, ReasonCodes, NPState};
+
+handle_req(Req, PState) ->
+    ?LOG(error, "Unexpected request: ~p~n", [Req]),
+    {ok, ignored, PState}.
+
+%%--------------------------------------------------------------------
 %% Handle delivers
 %%--------------------------------------------------------------------
 
@@ -306,14 +332,14 @@ handle_out({connack, ?RC_SUCCESS, SP},
     %% subscribe requests or responses that are not intended for them.
     AckProps1 = if AckProps == undefined -> #{}; true -> AckProps end,
     AckProps2 = AckProps1#{'Retain-Available' => flag(Retain),
-                          'Maximum-Packet-Size' => MaxPktSize,
-                          'Topic-Alias-Maximum' => MaxAlias,
-                          'Wildcard-Subscription-Available' => flag(Wildcard),
-                          'Subscription-Identifier-Available' => 1,
-                          %'Response-Information' =>
-                          'Shared-Subscription-Available' => flag(Shared),
-                          'Maximum-QoS' => MaxQoS
-                         },
+                           'Maximum-Packet-Size' => MaxPktSize,
+                           'Topic-Alias-Maximum' => MaxAlias,
+                           'Wildcard-Subscription-Available' => flag(Wildcard),
+                           'Subscription-Identifier-Available' => 1,
+                           %'Response-Information' =>
+                           'Shared-Subscription-Available' => flag(Shared),
+                           'Maximum-QoS' => MaxQoS
+                          },
     AckProps3 = case emqx_zone:get_env(Zone, server_keepalive) of
                     undefined -> AckProps2;
                     Keepalive -> AckProps2#{'Server-Keep-Alive' => Keepalive}
@@ -334,7 +360,7 @@ handle_out({connack, ReasonCode}, PState = #protocol{client = Client,
     Reason = emqx_reason_codes:name(ReasonCode1, ProtoVer),
     {error, Reason, ?CONNACK_PACKET(ReasonCode1), PState};
 
-handle_out({publish, Publishes}, PState = #protocol{client = Client}) ->
+handle_out({publish, Publishes}, PState) ->
     Packets = [element(2, handle_out(Publish, PState)) || Publish <- Publishes],
     {ok, Packets, PState};
 
@@ -809,6 +835,26 @@ is_acl_enabled(#{zone := Zone, is_superuser := IsSuperuser}) ->
     (not IsSuperuser) andalso emqx_zone:get_env(Zone, enable_acl, true).
 
 %%--------------------------------------------------------------------
+%% Parse topic filters
+%%--------------------------------------------------------------------
+
+parse(subscribe, TopicFilters) ->
+    [emqx_topic:parse(TopicFilter, SubOpts) || {TopicFilter, SubOpts} <- TopicFilters];
+
+parse(unsubscribe, TopicFilters) ->
+    lists:map(fun emqx_topic:parse/1, TopicFilters).
+
+%%--------------------------------------------------------------------
+%% Mount/Unmount
+%%--------------------------------------------------------------------
+
+mount(#{mountpoint := MountPoint}, TopicOrMsg) ->
+    emqx_mountpoint:mount(MountPoint, TopicOrMsg).
+
+unmount(#{mountpoint := MountPoint}, TopicOrMsg) ->
+    emqx_mountpoint:unmount(MountPoint, TopicOrMsg).
+
+%%--------------------------------------------------------------------
 %% Pipeline
 %%--------------------------------------------------------------------
 
@@ -827,16 +873,6 @@ pipeline([Fun|More], Packet, PState) ->
         {error, ReasonCode, NPState} ->
             {error, ReasonCode, NPState}
     end.
-
-%%--------------------------------------------------------------------
-%% Mount/Unmount
-%%--------------------------------------------------------------------
-
-mount(#{mountpoint := MountPoint}, TopicOrMsg) ->
-    emqx_mountpoint:mount(MountPoint, TopicOrMsg).
-
-unmount(#{mountpoint := MountPoint}, TopicOrMsg) ->
-    emqx_mountpoint:unmount(MountPoint, TopicOrMsg).
 
 %%--------------------------------------------------------------------
 %% Helper functions
