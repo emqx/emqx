@@ -204,8 +204,7 @@
 -define(DEFAULT_SUBOPTS, #{rh  => 0, %% Retain Handling
                            rap => 0, %% Retain as Publish
                            nl  => 0, %% No Local
-                           qos => 0, %% QoS
-                           rc  => 0  %% Reason Code
+                           qos => 0  %% QoS
                           }).
 
 -record(mqtt_packet_connect, {
@@ -349,6 +348,13 @@
     #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBLISH,
                                                 qos  = QoS},
                  variable = #mqtt_packet_publish{packet_id = PacketId}
+                }).
+
+-define(PUBLISH_PACKET(QoS, Topic, PacketId),
+    #mqtt_packet{header   = #mqtt_packet_header{type = ?PUBLISH,
+                                                qos  = QoS},
+                 variable = #mqtt_packet_publish{topic_name = Topic,
+                                                 packet_id  = PacketId}
                 }).
 
 -define(PUBLISH_PACKET(QoS, Topic, PacketId, Payload),

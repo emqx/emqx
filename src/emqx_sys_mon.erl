@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_sys_mon).
 
@@ -43,18 +45,14 @@
 
 -define(SYSMON, ?MODULE).
 
-%%------------------------------------------------------------------------------
-%% APIs
-%%------------------------------------------------------------------------------
-
-%% @doc Start system monitor
+%% @doc Start the system monitor.
 -spec(start_link(list(option())) -> startlink_ret()).
 start_link(Opts) ->
     gen_server:start_link({local, ?SYSMON}, ?MODULE, [Opts], []).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% gen_server callbacks
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 init([Opts]) ->
     erlang:system_monitor(self(), parse_opt(Opts)),

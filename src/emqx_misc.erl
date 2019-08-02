@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_misc).
 
@@ -27,7 +29,14 @@
         , conn_proc_mng_policy/1
         ]).
 
--export([drain_down/1]).
+-export([ drain_deliver/1
+        , drain_down/1
+        ]).
+
+-compile({inline,
+          [ start_timer/2
+          , start_timer/3
+          ]}).
 
 %% @doc Merge options
 -spec(merge_opts(list(), list()) -> list()).
@@ -66,9 +75,12 @@ proc_stats() ->
 
 -spec(proc_stats(pid()) -> list()).
 proc_stats(Pid) ->
-    Stats = process_info(Pid, [message_queue_len, heap_size, reductions]),
-    {value, {_, V}, Stats1} = lists:keytake(message_queue_len, 1, Stats),
-    [{mailbox_len, V} | Stats1].
+    case process_info(Pid, [message_queue_len, heap_size,
+                            total_heap_size, reductions, memory]) of
+        undefined -> [];
+        [{message_queue_len, Len}|Stats] ->
+            [{mailbox_len, Len}|Stats]
+    end.
 
 -define(DISABLED, 0).
 
@@ -113,24 +125,34 @@ check([{Pred, Result} | Rest]) ->
 is_message_queue_too_long(Qlength, Max) ->
     is_enabled(Max) andalso Qlength > Max.
 
-is_enabled(Max) -> is_integer(Max) andalso Max > ?DISABLED.
+is_enabled(Max) ->
+    is_integer(Max) andalso Max > ?DISABLED.
 
 proc_info(Key) ->
     {Key, Value} = erlang:process_info(self(), Key),
     Value.
 
+%% @doc Drain delivers from the channel's mailbox.
+drain_deliver(Acc) ->
+    receive
+        Deliver = {deliver, _Topic, _Msg} ->
+            drain_deliver([Deliver|Acc])
+    after 0 ->
+        lists:reverse(Acc)
+    end.
+
+%% @doc Drain process down events.
 -spec(drain_down(pos_integer()) -> list(pid())).
 drain_down(Cnt) when Cnt > 0 ->
     drain_down(Cnt, []).
 
 drain_down(0, Acc) ->
     lists:reverse(Acc);
-
 drain_down(Cnt, Acc) ->
     receive
         {'DOWN', _MRef, process, Pid, _Reason} ->
             drain_down(Cnt - 1, [Pid|Acc])
     after 0 ->
-          lists:reverse(Acc)
+        drain_down(0, Acc)
     end.
 

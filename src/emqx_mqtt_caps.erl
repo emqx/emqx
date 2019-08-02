@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,8 +12,9 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
-%% @doc MQTTv5 capabilities
+%% @doc MQTTv5 Capabilities
 -module(emqx_mqtt_caps).
 
 -include("emqx.hrl").
@@ -26,16 +28,17 @@
 
 -export([default_caps/0]).
 
+-export_type([caps/0]).
+
 -type(caps() :: #{max_packet_size  => integer(),
                   max_clientid_len => integer(),
                   max_topic_alias  => integer(),
                   max_topic_levels => integer(),
-                  max_qos_allowed  => emqx_mqtt_types:qos(),
-                  mqtt_retain_available      => boolean(),
-                  mqtt_shared_subscription   => boolean(),
-                  mqtt_wildcard_subscription => boolean()}).
-
--export_type([caps/0]).
+                  max_qos_allowed  => emqx_types:qos(),
+                  mqtt_retain_available => boolean(),
+                  mqtt_shared_subscription  => boolean(),
+                  mqtt_wildcard_subscription => boolean()
+                 }).
 
 -define(UNLIMITED, 0).
 
@@ -44,20 +47,23 @@
                        {max_topic_alias,  ?UNLIMITED},
                        {max_topic_levels, ?UNLIMITED},
                        {max_qos_allowed,  ?QOS_2},
-                       {mqtt_retain_available,      true},
-                       {mqtt_shared_subscription,   true},
-                       {mqtt_wildcard_subscription, true}]).
+                       {mqtt_retain_available, true},
+                       {mqtt_shared_subscription, true},
+                       {mqtt_wildcard_subscription, true}
+                      ]).
 
 -define(PUBCAP_KEYS, [max_qos_allowed,
                       mqtt_retain_available,
                       max_topic_alias
                      ]).
+
 -define(SUBCAP_KEYS, [max_qos_allowed,
                       max_topic_levels,
                       mqtt_shared_subscription,
-                      mqtt_wildcard_subscription]).
+                      mqtt_wildcard_subscription
+                     ]).
 
--spec(check_pub(emqx_types:zone(), map()) -> ok | {error, emqx_mqtt_types:reason_code()}).
+-spec(check_pub(emqx_types:zone(), map()) -> ok | {error, emqx_types:reason_code()}).
 check_pub(Zone, Props) when is_map(Props) ->
     do_check_pub(Props, maps:to_list(get_caps(Zone, publish))).
 
@@ -80,8 +86,8 @@ do_check_pub(Props, [{max_topic_alias, _} | Caps]) ->
 do_check_pub(Props, [{mqtt_retain_available, _}|Caps]) ->
     do_check_pub(Props, Caps).
 
--spec(check_sub(emqx_types:zone(), emqx_mqtt_types:topic_filters())
-      -> {ok | error, emqx_mqtt_types:topic_filters()}).
+-spec(check_sub(emqx_types:zone(), emqx_types:topic_filters())
+      -> {ok | error, emqx_types:topic_filters()}).
 check_sub(Zone, TopicFilters) ->
     Caps = maps:to_list(get_caps(Zone, subscribe)),
     lists:foldr(fun({Topic, Opts}, {Ok, Result}) ->
@@ -154,3 +160,4 @@ with_env(Zone, Key, InitFun) ->
                      Caps;
         ZoneCaps  -> ZoneCaps
     end.
+

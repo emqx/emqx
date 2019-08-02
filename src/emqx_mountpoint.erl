@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,13 +12,12 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_mountpoint).
 
 -include("emqx.hrl").
 -include("logger.hrl").
-
--logger_header("[Mountpoint]").
 
 -export([ mount/2
         , unmount/2
@@ -25,30 +25,38 @@
 
 -export([replvar/2]).
 
--type(mountpoint() :: binary()).
-
 -export_type([mountpoint/0]).
 
-%%------------------------------------------------------------------------------
+-type(mountpoint() :: binary()).
+
+%%--------------------------------------------------------------------
 %% APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 mount(undefined, Any) ->
     Any;
+mount(MountPoint, Topic) when is_binary(Topic) ->
+    <<MountPoint/binary, Topic/binary>>;
 mount(MountPoint, Msg = #message{topic = Topic}) ->
     Msg#message{topic = <<MountPoint/binary, Topic/binary>>};
-
 mount(MountPoint, TopicFilters) when is_list(TopicFilters) ->
-    [{<<MountPoint/binary, Topic/binary>>, SubOpts} || {Topic, SubOpts} <- TopicFilters].
+    [{<<MountPoint/binary, Topic/binary>>, SubOpts}
+     || {Topic, SubOpts} <- TopicFilters].
 
 unmount(undefined, Msg) ->
     Msg;
+%% TODO: Fixme later
+unmount(MountPoint, Topic) when is_binary(Topic) ->
+    try split_binary(Topic, byte_size(MountPoint)) of
+        {MountPoint, Topic1} -> Topic1
+    catch
+        error:badarg-> Topic
+    end;
 unmount(MountPoint, Msg = #message{topic = Topic}) ->
     try split_binary(Topic, byte_size(MountPoint)) of
         {MountPoint, Topic1} -> Msg#message{topic = Topic1}
     catch
-        _Error:Reason ->
-            ?LOG(error, "Unmount error : ~p", [Reason]),
+        error:badarg->
             Msg
     end.
 

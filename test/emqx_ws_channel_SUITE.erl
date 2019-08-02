@@ -74,17 +74,13 @@ t_ws_auth_failure(_Config) ->
     application:set_env(emqx, allow_anonymous, false),
     WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
     {ok, _} = rfc6455_client:open(WS),
-    Packet = raw_send_serialize(?CLIENT),
-    ok = rfc6455_client:send_binary(WS, Packet),
-    {binary, CONNACK} = rfc6455_client:recv(WS),
-    {ok, ?CONNACK_PACKET(?CONNACK_AUTH), <<>>, _} = raw_recv_pase(CONNACK),
-    application:set_env(emqx, allow_anonymous, true),
-    ok.
-
-t_ws_connect_api(_Config) ->
-    WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
-    {ok, _} = rfc6455_client:open(WS),
-    ok = rfc6455_client:send_binary(WS, raw_send_serialize(?CLIENT)),
+    Connect = ?CONNECT_PACKET(
+                 #mqtt_packet_connect{
+                    client_id = <<"mqtt_client">>,
+                    username  = <<"admin">>,
+                    password  = <<"public">>
+                   }),
+    ok = rfc6455_client:send_binary(WS, raw_send_serialize(Connect)),
     {binary, Bin} = rfc6455_client:recv(WS),
     Connack = ?CONNACK_PACKET(?CONNACK_ACCEPT),
     {ok, Connack, <<>>, _} = raw_recv_pase(Bin),
@@ -104,7 +100,13 @@ t_ws_connect_api(_Config) ->
 t_ws_other_type_frame(_Config) ->
     WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
     {ok, _} = rfc6455_client:open(WS),
-    ok = rfc6455_client:send_binary(WS, raw_send_serialize(?CLIENT)),
+    Connect = ?CONNECT_PACKET(
+                 #mqtt_packet_connect{
+                    client_id = <<"mqtt_client">>,
+                    username  = <<"admin">>,
+                    password  = <<"public">>
+                   }),
+    ok = rfc6455_client:send_binary(WS, raw_send_serialize(Connect)),
     {binary, Bin} = rfc6455_client:recv(WS),
     Connack = ?CONNACK_PACKET(?CONNACK_ACCEPT),
     {ok, Connack, <<>>, _} = raw_recv_pase(Bin),
@@ -139,3 +141,4 @@ t_stats(StatsData) ->
     ?assertEqual(true, proplists:get_value(recv_pkt, StatsData) =:=1),
     ?assertEqual(true, proplists:get_value(recv_msg, StatsData) >=0),
     ?assertEqual(true, proplists:get_value(send_pkt, StatsData) =:=1).
+

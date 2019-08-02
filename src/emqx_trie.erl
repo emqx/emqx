@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_trie).
 
@@ -35,9 +37,9 @@
 -define(TRIE, emqx_trie).
 -define(TRIE_NODE, emqx_trie_node).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Mnesia bootstrap
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 %% @doc Create or replicate trie tables.
 -spec(mnesia(boot | copy) -> ok).
@@ -64,9 +66,9 @@ mnesia(copy) ->
     %% Copy trie_node table
     ok = ekka_mnesia:copy_table(?TRIE_NODE).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Trie APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 %% @doc Insert a topic filter into the trie.
 -spec(insert(emqx_topic:topic()) -> ok).
@@ -111,9 +113,9 @@ delete(Topic) when is_binary(Topic) ->
 empty() ->
     ets:info(?TRIE, size) == 0.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 %% @private
 %% @doc Add a path to the trie.

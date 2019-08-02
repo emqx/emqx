@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_mod_rewrite).
 
@@ -30,9 +32,9 @@
         , unload/1
         ]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Load/Unload
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 load(RawRules) ->
     Rules = compile(RawRules),
@@ -40,10 +42,10 @@ load(RawRules) ->
     emqx_hooks:add('client.unsubscribe', fun ?MODULE:rewrite_unsubscribe/3, [Rules]),
     emqx_hooks:add('message.publish',    fun ?MODULE:rewrite_publish/2, [Rules]).
 
-rewrite_subscribe(_Credentials, TopicTable, Rules) ->
+rewrite_subscribe(_Client, TopicTable, Rules) ->
     {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicTable]}.
 
-rewrite_unsubscribe(_Credentials, TopicTable, Rules) ->
+rewrite_unsubscribe(_Client, TopicTable, Rules) ->
     {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicTable]}.
 
 rewrite_publish(Message = #message{topic = Topic}, Rules) ->
@@ -54,9 +56,9 @@ unload(_) ->
     emqx_hooks:del('client.unsubscribe', fun ?MODULE:rewrite_unsubscribe/3),
     emqx_hooks:del('message.publish',    fun ?MODULE:rewrite_publish/2).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 match_rule(Topic, []) ->
     Topic;
@@ -84,3 +86,4 @@ compile(Rules) ->
                   {ok, MP} = re:compile(Re),
                   {rewrite, Topic, MP, Dest}
               end, Rules).
+

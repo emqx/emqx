@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_mod_presence).
 
@@ -33,9 +35,9 @@
 
 -define(ATTR_KEYS, [clean_start, proto_ver, proto_name, keepalive]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 load(Env) ->
     emqx_hooks:add('client.connected',    fun ?MODULE:on_client_connected/4, [Env]),
@@ -44,9 +46,9 @@ load(Env) ->
 on_client_connected(#{client_id := ClientId,
                       username  := Username,
                       peername  := {IpAddr, _}}, ConnAck, ConnAttrs, Env) ->
-    Attrs = maps:filter(fun(K, _) ->
-                                lists:member(K, ?ATTR_KEYS)
-                        end, ConnAttrs),
+    Attrs = #{},%maps:filter(fun(K, _) ->
+                %                lists:member(K, ?ATTR_KEYS)
+                %        end, ConnAttrs),
     case emqx_json:safe_encode(Attrs#{clientid => ClientId,
                                       username => Username,
                                       ipaddress => iolist_to_binary(esockd_net:ntoa(IpAddr)),

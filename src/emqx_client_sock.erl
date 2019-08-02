@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_client_sock).
 
@@ -24,6 +26,8 @@
         , getstat/2
         ]).
 
+-export_type([socket/0, option/0]).
+
 -record(ssl_socket, {tcp, ssl}).
 
 -type(socket() :: inet:socket() | #ssl_socket{}).
@@ -31,8 +35,6 @@
 -type(sockname() :: {inet:ip_address(), inet:port_number()}).
 
 -type(option() :: gen_tcp:connect_option() | {ssl_opts, [ssl:ssl_option()]}).
-
--export_type([socket/0, option/0]).
 
 -define(DEFAULT_TCP_OPTIONS, [binary, {packet, raw}, {active, false},
                               {nodelay, true}, {reuseaddr, true}]).
@@ -105,3 +107,4 @@ default_ciphers(TlsVersions) ->
         fun(TlsVer, Ciphers) ->
             Ciphers ++ ssl:cipher_suites(all, TlsVer)
         end, [], TlsVersions).
+
