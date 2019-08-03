@@ -17,7 +17,7 @@ all: compile
 .PHONY: run
 run: run_setup unlock
 	@rebar3 as test get-deps
-	@rebar3 as test auto --name $(RUN_NODE_NAME) --script test/run_emqx.escript
+	@rebar3 as test auto --name $(RUN_NODE_NAME) --script scripts/run_emqx.escript
 
 .PHONY: run_setup
 run_setup:
