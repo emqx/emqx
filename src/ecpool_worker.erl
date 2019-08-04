@@ -90,18 +90,14 @@ init([Pool, Id, Mod, Opts]) ->
     State = #state{pool = Pool, id = Id, mod = Mod, opts = Opts,
                    on_reconnect = proplists:get_value(on_reconnect, Opts),
                    on_disconnect = proplists:get_value(on_disconnect, Opts)},
-    case connect(State) of
-        {ok, Client} when is_pid(Client) ->
-            erlang:link(Client),
+    case connect_internal(State) of
+        {ok, NewState}  ->
             gproc_pool:connect_worker(ecpool:name(Pool), {Pool, Id}),
-            {ok, State#state{client = Client, supervisees = [Client]}};
-        {{ok, Client}, #{supervisees := SupPids} = _SupOpts} when is_list(SupPids) ->
-            [erlang:link(P) || P <- SupPids],
-            gproc_pool:connect_worker(ecpool:name(Pool), {Pool, Id}),
-            {ok, State#state{client = Client, supervisees = SupPids}};
+            {ok, NewState};
         {error, Error} ->
             {stop, Error}
     end.
+
 
 handle_call(is_connected, _From, State = #state{client = Client}) when is_pid(Client) ->
     {reply, Client =/= undefined andalso is_process_alive(Client), State};
@@ -134,18 +130,13 @@ handle_info({'EXIT', Pid, Reason}, State = #state{opts = Opts, supervisees = Sup
     end;
 
 handle_info(reconnect, State = #state{opts = Opts, on_reconnect = OnReconnect}) ->
-    case catch connect(State) of
-        {ok, Client} ->
-            handle_reconnect(Client, OnReconnect),
-            erlang:link(Client),
-            {noreply, State#state{client = Client, supervisees = [Client]}};
-        {{ok, Client}, #{supervisees := SupPids} = _SupOpts} ->
-            handle_reconnect(Client, OnReconnect),
-            [erlang:link(P) || P <- SupPids],
-            {noreply, State#state{client = Client, supervisees = SupPids}};
-        {Err, _Reason} when Err =:= error orelse Err =:= 'EXIT' ->
-            reconnect(proplists:get_value(auto_reconnect, Opts), State)
-    end;
+     case connect_internal(State) of
+         {ok, NewState = #state{client = Client}}  ->
+             handle_reconnect(Client, OnReconnect),
+             {noreply, NewState};
+         {Err, _Reason} when Err =:= error orelse Err =:= 'EXIT'  ->
+             reconnect(proplists:get_value(auto_reconnect, Opts), State)
+     end;
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -194,3 +185,15 @@ handle_disconnect(_, undefined) ->
     ok;
 handle_disconnect(Client, Disconnect) ->
     Disconnect(Client).
+
+connect_internal(State) ->
+    case connect(State) of
+        {ok, Client} when is_pid(Client) ->
+            erlang:link(Client),
+            {ok, State#state{client = Client, supervisees = [Client]}};
+        {{ok, Client}, #{supervisees := SupPids} = _SupOpts} when is_list(SupPids) ->
+            [erlang:link(P) || P <- SupPids],
+            {ok, State#state{client = Client, supervisees = SupPids}};
+        {error, Error} ->
+            {error, Error}
+    end.
