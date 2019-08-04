@@ -137,9 +137,11 @@ handle_info(reconnect, State = #state{opts = Opts, on_reconnect = OnReconnect}) 
     case catch connect(State) of
         {ok, Client} ->
             handle_reconnect(Client, OnReconnect),
-            {noreply, State#state{client = Client}};
+            erlang:link(Client),
+            {noreply, State#state{client = Client, supervisees = [Client]}};
         {{ok, Client}, #{supervisees := SupPids} = _SupOpts} ->
             handle_reconnect(Client, OnReconnect),
+            [erlang:link(P) || P <- SupPids],
             {noreply, State#state{client = Client, supervisees = SupPids}};
         {Err, _Reason} when Err =:= error orelse Err =:= 'EXIT' ->
             reconnect(proplists:get_value(auto_reconnect, Opts), State)
