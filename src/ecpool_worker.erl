@@ -187,7 +187,7 @@ handle_disconnect(Client, Disconnect) ->
     Disconnect(Client).
 
 connect_internal(State) ->
-    case connect(State) of
+    try connect(State) of
         {ok, Client} when is_pid(Client) ->
             erlang:link(Client),
             {ok, State#state{client = Client, supervisees = [Client]}};
@@ -196,4 +196,6 @@ connect_internal(State) ->
             {ok, State#state{client = Client, supervisees = SupPids}};
         {error, Error} ->
             {error, Error}
+    catch
+        _C:Reason -> {error, Reason}
     end.
