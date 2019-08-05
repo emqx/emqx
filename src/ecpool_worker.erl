@@ -125,7 +125,7 @@ handle_info({'EXIT', Pid, Reason}, State = #state{opts = Opts, supervisees = Sup
                 Secs -> reconnect(Secs, State)
             end;
         false ->
-            logger:warning("~p received unexpected exit: ~p, ~p", [?MODULE, Pid, Reason]),
+            logger:debug("~p received unexpected exit:~0p from ~p. Supervisees: ~p", [?MODULE, Reason, Pid, SupPids]),
             {noreply, State}
     end;
 
@@ -172,7 +172,7 @@ reconnect(Secs, State = #state{client = Client, on_disconnect = Disconnect, supe
     [erlang:unlink(P) || P <- SubPids, is_pid(P)],
     handle_disconnect(Client, Disconnect),
     erlang:send_after(timer:seconds(Secs), self(), reconnect),
-    {noreply, State#state{client = undefined, supervisees = []}}.
+    {noreply, State#state{client = undefined}}.
 
 handle_reconnect(_, undefined) ->
     ok;
@@ -191,7 +191,7 @@ connect_internal(State) ->
         {ok, Client} when is_pid(Client) ->
             erlang:link(Client),
             {ok, State#state{client = Client, supervisees = [Client]}};
-        {{ok, Client}, #{supervisees := SupPids} = _SupOpts} when is_list(SupPids) ->
+        {ok, Client, #{supervisees := SupPids} = _SupOpts} when is_list(SupPids) ->
             [erlang:link(P) || P <- SupPids],
             {ok, State#state{client = Client, supervisees = SupPids}};
         {error, Error} ->
