@@ -39,15 +39,10 @@ base62_size(Data, Encoded) ->
             RangeStart = DataSize div 3 * 4,
             RangeEnd = DataSize div 3 * 8,
             EncodedSize >= RangeStart andalso EncodedSize =< RangeEnd;
-            %% Range = lists:seq(RangeStart, RangeEnd),
-            %% lists:member(EncodedSize, Range);
         _Rem ->
             RangeStart = DataSize * 8 div 6  + 1,
             RangeEnd = DataSize * 8 div 6 * 2 + 1,
             EncodedSize >= RangeStart andalso EncodedSize =< RangeEnd
-
-            %% Range = lists:seq(RangeStart, RangeEnd),
-            %% lists:member(EncodedSize, Range)
     end.
 
 %%%%%%%%%%%%%%%%%%
