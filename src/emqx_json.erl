@@ -16,6 +16,8 @@
 
 -module(emqx_json).
 
+-compile(inline).
+
 -export([ encode/1
         , encode/2
         , safe_encode/1
@@ -32,7 +34,8 @@
 encode(Term) ->
     jsx:encode(Term).
 
--spec(encode(jsx:json_term(), jsx_to_json:config()) -> jsx:json_text()).
+-spec(encode(jsx:json_term(), jsx_to_json:config())
+      -> jsx:json_text()).
 encode(Term, Opts) ->
     jsx:encode(Term, Opts).
 
@@ -55,7 +58,8 @@ safe_encode(Term, Opts) ->
 decode(Json) ->
     jsx:decode(Json).
 
--spec(decode(jsx:json_text(), jsx_to_json:config()) -> jsx:json_term()).
+-spec(decode(jsx:json_text(), jsx_to_json:config())
+      -> jsx:json_term()).
 decode(Json, Opts) ->
     jsx:decode(Json, Opts).
 

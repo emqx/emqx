@@ -32,9 +32,10 @@
 
 -export([start_link/0]).
 
--export([ add/1
+-export([ check/1
+        , add/1
         , delete/1
-        , check/1
+        , info/1
         ]).
 
 %% gen_server callbacks
@@ -81,7 +82,11 @@ add(Banned) when is_record(Banned, banned) ->
 -spec(delete({client_id, emqx_types:client_id()} |
              {username, emqx_types:username()} |
              {peername, emqx_types:peername()}) -> ok).
-delete(Key) -> mnesia:dirty_delete(?BANNED_TAB, Key).
+delete(Key) ->
+    mnesia:dirty_delete(?BANNED_TAB, Key).
+
+info(InfoKey) ->
+    mnesia:table_info(?BANNED_TAB, InfoKey).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
