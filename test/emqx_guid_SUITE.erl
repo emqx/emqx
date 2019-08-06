@@ -16,21 +16,21 @@
 
 -module(emqx_guid_SUITE).
 
--include_lib("eunit/include/eunit.hrl").
-
 -compile(export_all).
 -compile(nowarn_export_all).
 
-all() -> [t_guid_gen, t_guid_hexstr, t_guid_base62].
+-include_lib("eunit/include/eunit.hrl").
+
+all() -> emqx_ct:all(?MODULE).
 
 t_guid_gen(_) ->
     Guid1 = emqx_guid:gen(),
     Guid2 = emqx_guid:gen(),
     <<_:128>> = Guid1,
-    true = (Guid2 >= Guid1),
+    ?assert((Guid2 >= Guid1)),
     {Ts1, _, 0} = emqx_guid:new(),
     Ts2 = emqx_guid:timestamp(emqx_guid:gen()),
-    true = Ts2 > Ts1.
+    ?assert(Ts2 > Ts1).
 
 t_guid_hexstr(_) ->
     Guid = emqx_guid:gen(),

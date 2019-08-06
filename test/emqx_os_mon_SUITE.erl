@@ -21,9 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--include_lib("common_test/include/ct.hrl").
-
-all() -> [t_api].
+all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     application:ensure_all_started(os_mon),
@@ -56,3 +54,4 @@ t_api(_) ->
     % timer:sleep(3000),
     % ?assertEqual(false, lists:keymember(cpu_high_watermark, 1, alarm_handler:get_alarms())),
     ok.
+

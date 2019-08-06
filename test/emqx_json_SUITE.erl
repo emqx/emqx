@@ -19,21 +19,26 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
-all() -> [t_decode_encode, t_safe_decode_encode].
+-include_lib("eunit/include/eunit.hrl").
+
+-define(DEC_OPTS, [{labels, atom}, return_maps]).
+
+all() -> emqx_ct:all(?MODULE).
 
 t_decode_encode(_) ->
     JsonText = <<"{\"library\": \"jsx\", \"awesome\": true}">>,
     JsonTerm = emqx_json:decode(JsonText),
     JsonMaps = #{library => <<"jsx">>, awesome => true},
-    JsonMaps = emqx_json:decode(JsonText, [{labels, atom}, return_maps]),
-    JsonText = emqx_json:encode(JsonTerm, [{space, 1}]).
+    ?assertEqual(JsonText, emqx_json:encode(JsonTerm, [{space, 1}])),
+    ?assertEqual(JsonMaps, emqx_json:decode(JsonText, ?DEC_OPTS)).
 
 t_safe_decode_encode(_) ->
     JsonText = <<"{\"library\": \"jsx\", \"awesome\": true}">>,
     {ok, JsonTerm} = emqx_json:safe_decode(JsonText),
     JsonMaps = #{library => <<"jsx">>, awesome => true},
-    {ok, JsonMaps} = emqx_json:safe_decode(JsonText, [{labels, atom}, return_maps]),
-    {ok, JsonText} = emqx_json:safe_encode(JsonTerm, [{space, 1}]),
+    ?assertEqual({ok, JsonText}, emqx_json:safe_encode(JsonTerm, [{space, 1}])),
+    ?assertEqual({ok, JsonMaps}, emqx_json:safe_decode(JsonText, ?DEC_OPTS)),
     BadJsonText = <<"{\"library\", \"awesome\": true}">>,
-    {error, _} = emqx_json:safe_decode(BadJsonText),
-    {error, _} = emqx_json:safe_encode({a, {b ,1}}).
+    ?assertEqual({error, badarg}, emqx_json:safe_decode(BadJsonText)),
+    {error, badarg} = emqx_json:safe_encode({a, {b ,1}}).
+

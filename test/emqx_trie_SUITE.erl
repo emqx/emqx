@@ -25,8 +25,7 @@
 -define(TRIE, emqx_trie).
 -define(TRIE_TABS, [emqx_trie, emqx_trie_node]).
 
-all() ->
-    [t_mnesia, t_insert, t_match, t_match2, t_match3, t_empty, t_delete, t_delete2, t_delete3].
+all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     application:load(emqx),
@@ -51,7 +50,8 @@ t_insert(_) ->
     TN = #trie_node{node_id = <<"sensor">>,
                     edge_count = 3,
                     topic = <<"sensor">>,
-                    flags = undefined},
+                    flags = undefined
+                   },
     Fun = fun() ->
               ?TRIE:insert(<<"sensor/1/metric/2">>),
               ?TRIE:insert(<<"sensor/+/#">>),

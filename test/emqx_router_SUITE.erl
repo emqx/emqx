@@ -16,26 +16,15 @@
 
 -module(emqx_router_SUITE).
 
--include("emqx.hrl").
--include_lib("eunit/include/eunit.hrl").
-
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx.hrl").
+-include_lib("eunit/include/eunit.hrl").
+
 -define(R, emqx_router).
 
-all() ->
-    [{group, route}].
-
-groups() ->
-    [{route, [sequence],
-      [t_mnesia,
-       t_add_delete,
-       t_do_add_delete,
-       t_match_routes,
-       t_print_routes,
-       t_has_routes,
-       t_unexpected]}].
+all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([]),
@@ -107,4 +96,6 @@ t_unexpected(_) ->
     Router ! bad_info.
 
 clear_tables() ->
-    lists:foreach(fun mnesia:clear_table/1, [emqx_route, emqx_trie, emqx_trie_node]).
+    lists:foreach(fun mnesia:clear_table/1,
+                  [emqx_route, emqx_trie, emqx_trie_node]).
+

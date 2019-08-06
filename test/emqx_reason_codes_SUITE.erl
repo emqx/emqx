@@ -14,12 +14,13 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+-module(emqx_reason_codes_SUITE).
 
--module(emqx_reason_codes_tests).
-
--include_lib("eunit/include/eunit.hrl").
+-compile(export_all).
+-compile(nowarn_export_all).
 
 -include("emqx_mqtt.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -import(lists, [seq/2, zip/2, foreach/2]).
 
@@ -89,25 +90,27 @@
                           ?CONNACK_AUTH,
                           ?CONNACK_SERVER, ?CONNACK_SERVER, ?CONNACK_SERVER, ?CONNACK_SERVER]).
 
-mqttv4_name_test() ->
+all() -> emqx_ct:all(?MODULE).
+
+t_mqttv4_name() ->
     (((codes_test(?MQTT_PROTO_V4))
         (seq(0,6)))
        (?MQTTV4_CODE_NAMES))
       (fun emqx_reason_codes:name/2).
 
-mqttv5_name_test() ->
+t_mqttv5_name() ->
     (((codes_test(?MQTT_PROTO_V5))
         (?MQTTV5_CODES))
        (?MQTTV5_CODE_NAMES))
       (fun emqx_reason_codes:name/2).
 
-text_test() ->
+t_text() ->
     (((codes_test(?MQTT_PROTO_V5))
         (?MQTTV5_CODES))
        (?MQTTV5_TXT))
       (fun emqx_reason_codes:text/1).
 
-compat_test() ->
+t_compat() ->
     (((codes_test(connack))
         (?COMPAT_CODES_V5))
        (?COMPAT_CODES_V4))
@@ -135,3 +138,4 @@ codes_test(AsistVar) ->
             end
         end
     end.
+

@@ -17,7 +17,11 @@
 -module(emqx_acl_test_mod).
 
 %% ACL callbacks
--export([init/1, check_acl/2, reload_acl/1, description/0]).
+-export([ init/1
+        , check_acl/2
+        , reload_acl/1
+        , description/0
+        ]).
 
 init(AclOpts) ->
     {ok, AclOpts}.

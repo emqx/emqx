@@ -19,16 +19,10 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("eunit/include/eunit.hrl").
-
--include_lib("common_test/include/ct.hrl").
-
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
-all() ->
-    [start_stop_listeners,
-     restart_listeners].
+all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     NewConfig = generate_config(),
@@ -41,11 +35,11 @@ end_per_suite(_Config) ->
     application:stop(esockd),
     application:stop(cowboy).
 
-start_stop_listeners(_) ->
+t_start_stop_listeners(_) ->
     ok = emqx_listeners:start(),
     ok = emqx_listeners:stop().
 
-restart_listeners(_) ->
+t_restart_listeners(_) ->
     ok = emqx_listeners:start(),
     ok = emqx_listeners:stop(),
     ok = emqx_listeners:restart(),
@@ -95,3 +89,4 @@ get_base_dir(Module) ->
 
 get_base_dir() ->
     get_base_dir(?MODULE).
+

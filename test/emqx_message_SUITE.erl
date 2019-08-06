@@ -16,7 +16,9 @@
 
 -module(emqx_message_SUITE).
 
--include("emqx.hrl").
+-compile(export_all).
+-compile(nowarn_export_all).
+
 -include("emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
@@ -32,17 +34,22 @@
         , suite/0
         ]).
 
+all() -> emqx_ct:all(?MODULE).
+
+suite() ->
+    [{ct_hooks, [cth_surefire]}, {timetrap, {seconds, 30}}].
+
 t_make(_) ->
     Msg = emqx_message:make(<<"topic">>, <<"payload">>),
-    ?assertEqual(0, emqx_message:qos(Msg)),
+    ?assertEqual(?QOS_0, emqx_message:qos(Msg)),
     ?assertEqual(undefined, emqx_message:from(Msg)),
     ?assertEqual(<<"payload">>, emqx_message:payload(Msg)),
     Msg1 = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
-    ?assertEqual(0, emqx_message:qos(Msg1)),
+    ?assertEqual(?QOS_0, emqx_message:qos(Msg1)),
     ?assertEqual(<<"topic">>, emqx_message:topic(Msg1)),
     Msg2 = emqx_message:make(<<"clientid">>, ?QOS_2, <<"topic">>, <<"payload">>),
     ?assert(is_binary(emqx_message:id(Msg2))),
-    ?assertEqual(2, emqx_message:qos(Msg2)),
+    ?assertEqual(?QOS_2, emqx_message:qos(Msg2)),
     ?assertEqual(<<"clientid">>, emqx_message:from(Msg2)),
     ?assertEqual(<<"topic">>, emqx_message:topic(Msg2)),
     ?assertEqual(<<"payload">>, emqx_message:payload(Msg2)).
@@ -86,21 +93,14 @@ t_expired(_) ->
 
 t_to_map(_) ->
     Msg = emqx_message:make(<<"clientid">>, ?QOS_1, <<"topic">>, <<"payload">>),
-    List = [{id, Msg#message.id},
+    List = [{id, emqx_message:id(Msg)},
             {qos, ?QOS_1},
             {from, <<"clientid">>},
             {flags, #{dup => false}},
             {headers, #{}},
             {topic, <<"topic">>},
             {payload, <<"payload">>},
-            {timestamp, Msg#message.timestamp}],
+            {timestamp, emqx_message:timestamp(Msg)}],
     ?assertEqual(List, emqx_message:to_list(Msg)),
     ?assertEqual(maps:from_list(List), emqx_message:to_map(Msg)).
-
-all() ->
-    IsTestCase = fun("t_" ++ _) -> true; (_) -> false end,
-    [F || {F, _A} <- module_info(exports), IsTestCase(atom_to_list(F))].
-
-suite() ->
-    [{ct_hooks, [cth_surefire]}, {timetrap, {seconds, 30}}].
 
