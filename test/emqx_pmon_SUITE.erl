@@ -21,8 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-all() ->
-    [t_monitor, t_find, t_erase].
+all() -> emqx_ct:all(?MODULE).
 
 t_monitor(_) ->
     PMon = emqx_pmon:new(),

@@ -16,15 +16,15 @@
 
 -module(emqx_pqueue_SUITE).
 
--include("emqx_mqtt.hrl").
--include_lib("eunit/include/eunit.hrl").
-
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(PQ, emqx_pqueue).
+-include_lib("eunit/include/eunit.hrl").
 
-all() -> [t_priority_queue_plen, t_priority_queue_out2, t_priority_queues].
+-define(PQ, emqx_pqueue).
+-define(SUITE, ?MODULE).
+
+all() -> emqx_ct:all(?SUITE).
 
 t_priority_queue_plen(_) ->
     Q = ?PQ:new(),
@@ -87,7 +87,7 @@ t_priority_queues(_) ->
 
     [{1, c}, {1, d}, {0, a}, {0, b}] = ?PQ:to_list(PQueue4),
     PQueue4 = ?PQ:from_list([{1, c}, {1, d}, {0, a}, {0, b}]),
-    
+
     empty = ?PQ:highest(?PQ:new()),
     0 = ?PQ:highest(PQueue1),
     1 = ?PQ:highest(PQueue4),
@@ -121,5 +121,4 @@ t_priority_queues(_) ->
 
     {pqueue,[{-1,{queue,[f],[d,f,d],4}},
              {0,{queue,[b],[a,b,a],4}}]} = ?PQ:join(PQueue8, PQueue8).
-
 

@@ -21,9 +21,21 @@
 
 -include("emqx_mqtt.hrl").
 
-all() -> [t_mqtt_properties_all].
+all() -> emqx_ct:all(?MODULE).
 
-t_mqtt_properties_all(_) ->
+t_id(_) ->
+    'TODO'.
+
+t_name(_) ->
+    'TODO'.
+
+t_filter(_) ->
+    'TODO'.
+
+t_validate(_) ->
+    'TODO'.
+
+deprecated_mqtt_properties_all(_) ->
     Props = emqx_mqtt_props:filter(?CONNECT, #{'Session-Expiry-Interval' => 1, 'Maximum-Packet-Size' => 255}),
     ok = emqx_mqtt_props:validate(Props),
     #{} = emqx_mqtt_props:filter(?CONNECT, #{'Maximum-QoS' => ?QOS_2}).

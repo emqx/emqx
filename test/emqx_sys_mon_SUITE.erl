@@ -19,21 +19,27 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--include_lib("common_test/include/ct.hrl").
+-define(SYSMON, emqx_sys_mon).
 
--include("emqx_mqtt.hrl").
-
--define(SYSMONPID, emqx_sys_mon).
--define(INPUTINFO, [{self(), long_gc, concat_str("long_gc warning: pid = ~p, info: ~p", self(), "hello"), "hello"},
-                    {self(), long_schedule, concat_str("long_schedule warning: pid = ~p, info: ~p", self(), "hello"), "hello"},
-                    {self(), busy_port, concat_str("busy_port warning: suspid = ~p, port = ~p", self(), list_to_port("#Port<0.4>")), list_to_port("#Port<0.4>")},
-                    {self(), busy_dist_port, concat_str("busy_dist_port warning: suspid = ~p, port = ~p", self(), list_to_port("#Port<0.4>")),list_to_port("#Port<0.4>")},
-                    {list_to_port("#Port<0.4>"), long_schedule, concat_str("long_schedule warning: port = ~p, info: ~p", list_to_port("#Port<0.4>"), "hello"), "hello"}
+-define(INPUTINFO, [{self(), long_gc,
+                     concat_str("long_gc warning: pid = ~p, info: ~p", self(), "hello"), "hello"},
+                    {self(), long_schedule,
+                     concat_str("long_schedule warning: pid = ~p, info: ~p", self(), "hello"), "hello"},
+                    {self(), busy_port,
+                     concat_str("busy_port warning: suspid = ~p, port = ~p",
+                                self(), list_to_port("#Port<0.4>")), list_to_port("#Port<0.4>")},
+                    {self(), busy_dist_port,
+                     concat_str("busy_dist_port warning: suspid = ~p, port = ~p",
+                                self(), list_to_port("#Port<0.4>")),list_to_port("#Port<0.4>")},
+                    {list_to_port("#Port<0.4>"), long_schedule,
+                     concat_str("long_schedule warning: port = ~p, info: ~p",
+                                list_to_port("#Port<0.4>"), "hello"), "hello"}
                     ]).
 
-all() -> [t_sys_mon].
+all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([]),
@@ -43,16 +49,17 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
 t_sys_mon(_Config) ->
-    lists:foreach(fun({PidOrPort, SysMonName,ValidateInfo, InfoOrPort}) ->
-                      validate_sys_mon_info(PidOrPort, SysMonName,ValidateInfo, InfoOrPort)
-                  end, ?INPUTINFO).
+    lists:foreach(
+      fun({PidOrPort, SysMonName,ValidateInfo, InfoOrPort}) ->
+              validate_sys_mon_info(PidOrPort, SysMonName,ValidateInfo, InfoOrPort)
+      end, ?INPUTINFO).
 
 validate_sys_mon_info(PidOrPort, SysMonName,ValidateInfo, InfoOrPort) ->
     {ok, C} = emqx_client:start_link([{host, "localhost"}]),
     {ok, _} = emqx_client:connect(C),
     emqx_client:subscribe(C, emqx_topic:systop(lists:concat(['sysmon/', SysMonName])), qos1),
     timer:sleep(100),
-    ?SYSMONPID ! {monitor, PidOrPort, SysMonName, InfoOrPort},
+    ?SYSMON ! {monitor, PidOrPort, SysMonName, InfoOrPort},
     receive
         {publish,  #{payload := Info}} ->
             ?assertEqual(ValidateInfo, binary_to_list(Info)),

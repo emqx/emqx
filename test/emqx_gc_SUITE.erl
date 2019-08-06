@@ -21,8 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-all() ->
-    [t_init, t_run, t_info, t_reset].
+all() -> emqx_ct:all(?MODULE).
 
 t_init(_) ->
     ?assertEqual(undefined, emqx_gc:init(false)),

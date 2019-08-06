@@ -16,8 +16,11 @@
 
 -module(emqx_inflight).
 
+-compile(inline).
+
 %% APIs
--export([ new/1
+-export([ new/0
+        , new/1
         , contain/2
         , lookup/2
         , insert/3
@@ -45,9 +48,8 @@
 
 -define(Inflight(MaxSize, Tree), {inflight, MaxSize, (Tree)}).
 
-%%--------------------------------------------------------------------
-%% APIs
-%%--------------------------------------------------------------------
+-spec(new() -> inflight()).
+new() -> new(0).
 
 -spec(new(non_neg_integer()) -> inflight()).
 new(MaxSize) when MaxSize >= 0 ->

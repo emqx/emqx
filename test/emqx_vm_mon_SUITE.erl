@@ -21,8 +21,6 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--include_lib("common_test/include/ct.hrl").
-
 -define(WAIT(PATTERN, TIMEOUT),
         receive
             PATTERN ->
@@ -32,7 +30,7 @@
                 error(timeout)
         end).
 
-all() -> [t_api].
+all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     application:ensure_all_started(sasl),
@@ -75,3 +73,4 @@ t_api(_) ->
     after
         meck:unload(alarm_handler)
     end.
+

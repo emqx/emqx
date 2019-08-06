@@ -21,20 +21,29 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--import(emqx_sequence, [nextval/2, reclaim/2]).
+-import(emqx_sequence,
+        [ nextval/2
+        , currval/2
+        , reclaim/2
+        ]).
 
-all() ->
-    [sequence_generate].
+all() -> emqx_ct:all(?MODULE).
 
-sequence_generate(_) ->
+t_generate(_) ->
     ok = emqx_sequence:create(seqtab),
+    ?assertEqual(0, currval(seqtab, key)),
     ?assertEqual(1, nextval(seqtab, key)),
+    ?assertEqual(1, currval(seqtab, key)),
     ?assertEqual(2, nextval(seqtab, key)),
+    ?assertEqual(2, currval(seqtab, key)),
     ?assertEqual(3, nextval(seqtab, key)),
     ?assertEqual(2, reclaim(seqtab, key)),
     ?assertEqual(1, reclaim(seqtab, key)),
     ?assertEqual(0, reclaim(seqtab, key)),
-    ?assertEqual(false, ets:member(seqtab, key)),
     ?assertEqual(1, nextval(seqtab, key)),
-    ?assert(emqx_sequence:delete(seqtab)).
+    ?assertEqual(0, reclaim(seqtab, key)),
+    ?assertEqual(0, reclaim(seqtab, key)),
+    ?assertEqual(false, ets:member(seqtab, key)),
+    ?assert(emqx_sequence:delete(seqtab)),
+    ?assertNot(emqx_sequence:delete(seqtab)).
 

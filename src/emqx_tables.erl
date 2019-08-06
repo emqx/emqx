@@ -16,11 +16,20 @@
 
 -module(emqx_tables).
 
--export([new/2, delete/1]).
+-export([ new/1
+        , new/2
+        ]).
 
 -export([ lookup_value/2
         , lookup_value/3
         ]).
+
+-export([delete/1]).
+
+%% Create an ets table.
+-spec(new(atom()) -> ok).
+new(Tab) ->
+    new(Tab, []).
 
 %% Create a named_table ets.
 -spec(new(atom(), list()) -> ok).
@@ -32,26 +41,25 @@ new(Tab, Opts) ->
         Tab -> ok
     end.
 
--spec(delete(atom()) -> ok).
-delete(Tab) ->
-    case ets:info(Tab, name) of
-        undefined ->
-            ok;
-        Tab ->
-            ets:delete(Tab),
-            ok
-    end.
-
 %% KV lookup
--spec(lookup_value(atom(), term()) -> any()).
+-spec(lookup_value(ets:tab(), term()) -> any()).
 lookup_value(Tab, Key) ->
     lookup_value(Tab, Key, undefined).
 
--spec(lookup_value(atom(), term(), any()) -> any()).
+-spec(lookup_value(ets:tab(), term(), any()) -> any()).
 lookup_value(Tab, Key, Def) ->
-    try
-        ets:lookup_element(Tab, Key, 2)
+    try ets:lookup_element(Tab, Key, 2)
     catch
         error:badarg -> Def
+    end.
+
+%% Delete the ets table.
+-spec(delete(ets:tab()) -> ok).
+delete(Tab) ->
+    case ets:info(Tab, name) of
+        undefined -> ok;
+        Tab ->
+            ets:delete(Tab),
+            ok
     end.
 

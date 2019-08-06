@@ -19,13 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
-all() -> [{group, keepalive}].
-
-groups() -> [{keepalive, [], [t_keepalive]}].
-
-%%--------------------------------------------------------------------
-%% Keepalive
-%%--------------------------------------------------------------------
+all() -> emqx_ct:all(?MODULE).
 
 t_keepalive(_) ->
     {ok, KA} = emqx_keepalive:start(fun() -> {ok, 1} end, 1, {keepalive, timeout}),
@@ -38,7 +32,6 @@ keepalive_recv(KA, Acc) ->
                 {ok, KA1} -> keepalive_recv(KA1, [resumed | Acc]);
                 {error, timeout} -> [timeout | Acc]
             end
-        after 4000 ->
-                Acc
+        after 4000 -> Acc
     end.
 

@@ -16,8 +16,6 @@
 
 -module(emqx_topic).
 
--include("emqx_mqtt.hrl").
-
 %% APIs
 -export([ match/2
         , validate/1
@@ -66,7 +64,7 @@ wildcard(['+'|_]) ->
 wildcard([_H|T]) ->
     wildcard(T).
 
-%% @doc Match Topic name with filter
+%% @doc Match Topic name with filter.
 -spec(match(Name, Filter) -> boolean() when
       Name   :: topic() | words(),
       Filter :: topic() | words()).
@@ -74,7 +72,7 @@ match(<<$$, _/binary>>, <<$+, _/binary>>) ->
     false;
 match(<<$$, _/binary>>, <<$#, _/binary>>) ->
     false;
-match(Name, Filter) when is_binary(Name) and is_binary(Filter) ->
+match(Name, Filter) when is_binary(Name), is_binary(Filter) ->
     match(words(Name), words(Filter));
 match([], []) ->
     true;
@@ -101,13 +99,15 @@ validate({Type, Topic}) when Type =:= name; Type =:= filter ->
 -spec(validate(name | filter, topic()) -> true).
 validate(_, <<>>) ->
     error(empty_topic);
-validate(_, Topic) when is_binary(Topic) and (size(Topic) > ?MAX_TOPIC_LEN) ->
+validate(_, Topic) when is_binary(Topic) andalso (size(Topic) > ?MAX_TOPIC_LEN) ->
     error(topic_too_long);
 validate(filter, Topic) when is_binary(Topic) ->
     validate2(words(Topic));
 validate(name, Topic) when is_binary(Topic) ->
     Words = words(Topic),
-    validate2(Words) and (not wildcard(Words)).
+    validate2(Words)
+        andalso (not wildcard(Words))
+            orelse error(topic_name_error).
 
 validate2([]) ->
     true;
@@ -129,7 +129,7 @@ validate3(<<C/utf8, _Rest/binary>>) when C == $#; C == $+; C == 0 ->
 validate3(<<_/utf8, Rest/binary>>) ->
     validate3(Rest).
 
-%% @doc Topic to triples
+%% @doc Topic to triples.
 -spec(triples(topic()) -> list(triple())).
 triples(Topic) when is_binary(Topic) ->
     triples(words(Topic), root, []).
@@ -218,13 +218,14 @@ parse(TopicFilter) when is_binary(TopicFilter) ->
 parse({TopicFilter, Options}) when is_binary(TopicFilter) ->
     parse(TopicFilter, Options).
 
+-spec(parse(topic(), map()) -> {topic(), map()}).
 parse(TopicFilter = <<"$queue/", _/binary>>, #{share := _Group}) ->
     error({invalid_topic_filter, TopicFilter});
-parse(TopicFilter = <<?SHARE, "/", _/binary>>, #{share := _Group}) ->
+parse(TopicFilter = <<"$share/", _/binary>>, #{share := _Group}) ->
     error({invalid_topic_filter, TopicFilter});
 parse(<<"$queue/", TopicFilter/binary>>, Options) ->
     parse(TopicFilter, Options#{share => <<"$queue">>});
-parse(TopicFilter = <<?SHARE, "/", Rest/binary>>, Options) ->
+parse(TopicFilter = <<"$share/", Rest/binary>>, Options) ->
     case binary:split(Rest, <<"/">>) of
         [_Any] -> error({invalid_topic_filter, TopicFilter});
         [ShareName, Filter] ->

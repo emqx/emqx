@@ -16,14 +16,19 @@
 
 -module(emqx_time_SUITE).
 
--include_lib("eunit/include/eunit.hrl").
-
 -compile(export_all).
 -compile(nowarn_export_all).
 
-all() -> [t_time_now_to].
+-include_lib("eunit/include/eunit.hrl").
 
-t_time_now_to(_) ->
-    emqx_time:seed(),
-    emqx_time:now_secs(),
-    emqx_time:now_ms().
+all() -> emqx_ct:all(?MODULE).
+
+t_seed(_) ->
+    ?assert(is_tuple(emqx_time:seed())).
+
+t_now_secs(_) ->
+    ?assert(emqx_time:now_secs() =< emqx_time:now_secs(os:timestamp())).
+
+t_now_ms(_) ->
+    ?assert(emqx_time:now_ms() =< emqx_time:now_ms(os:timestamp())).
+

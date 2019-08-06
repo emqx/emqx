@@ -163,5 +163,7 @@ connack_error(banned) -> ?RC_BANNED;
 connack_error(bad_authentication_method) -> ?RC_BAD_AUTHENTICATION_METHOD;
 connack_error(_) -> ?RC_NOT_AUTHORIZED.
 
+%%TODO: This function should be removed.
 puback([]) -> ?RC_NO_MATCHING_SUBSCRIBERS;
 puback(L) when is_list(L) -> ?RC_SUCCESS.
+

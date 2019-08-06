@@ -20,10 +20,9 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
-
 -include_lib("common_test/include/ct.hrl").
 
-all() -> [start_traces].
+all() -> [t_start_traces].
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([]),
@@ -32,7 +31,7 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
-start_traces(_Config) ->
+t_start_traces(_Config) ->
     {ok, T} = emqx_client:start_link([{host, "localhost"},
                                       {client_id, <<"client">>},
                                       {username, <<"testuser">>},

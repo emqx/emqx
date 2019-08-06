@@ -21,9 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--include_lib("common_test/include/ct.hrl").
-
-all() -> [ignore_loop, t_session_all].
+all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([]),
@@ -31,6 +29,42 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
+
+t_info(_) ->
+    'TODO'.
+
+t_attrs(_) ->
+    'TODO'.
+
+t_stats(_) ->
+    'TODO'.
+
+t_subscribe(_) ->
+    'TODO'.
+
+t_unsubscribe(_) ->
+    'TODO'.
+
+t_publish(_) ->
+    'TODO'.
+
+t_puback(_) ->
+    'TODO'.
+
+t_pubrec(_) ->
+    'TODO'.
+
+t_pubrel(_) ->
+    'TODO'.
+
+t_pubcomp(_) ->
+    'TODO'.
+
+t_deliver(_) ->
+    'TODO'.
+
+t_timeout(_) ->
+    'TODO'.
 
 ignore_loop(_Config) ->
     emqx_zone:set_env(external, ignore_loop_deliver, true),
@@ -45,7 +79,7 @@ ignore_loop(_Config) ->
     ok = emqx_client:disconnect(Client),
     emqx_zone:set_env(external, ignore_loop_deliver, false).
 
-t_session_all(_) ->
+session_all(_) ->
     emqx_zone:set_env(internal, idle_timeout, 1000),
     ClientId = <<"ClientId">>,
     {ok, ConnPid} = emqx_mock_client:start_link(ClientId),
@@ -68,3 +102,4 @@ t_session_all(_) ->
     timer:sleep(200),
     [] = emqx:subscriptions(SPid),
     emqx_mock_client:close_session(ConnPid).
+

@@ -19,7 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("common_test/include/ct.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -define(SYSTEM_INFO, [allocated_areas,
                       allocator,
@@ -94,82 +94,79 @@
                      min_heap_size]).
                      %fullsweep_after]).
 
+all() -> emqx_ct:all(?MODULE).
 
+t_load(_Config) ->
+    ?assertMatch([{load1, _},
+                  {load5, _},
+                  {load15, _}
+                 ], emqx_vm:loads()).
 
-all() ->
-    [load, systeminfo, mem_info, process_list, process_info, process_gc,
-     get_ets_list, get_ets_info, get_ets_object, get_port_types, get_port_info,
-     scheduler_usage, get_memory, microsecs, schedulers, get_process_group_leader_info,
-     get_process_limit].
-
-load(_Config) ->
-    Loads = emqx_vm:loads(),
-    [{load1, _}, {load5, _}, {load15, _}] = Loads.
-
-systeminfo(_Config) ->
+t_systeminfo(_Config) ->
    Keys =  [Key || {Key, _} <- emqx_vm:get_system_info()],
    ?SYSTEM_INFO = Keys.
 
-mem_info(_Config) ->
+t_mem_info(_Config) ->
     application:ensure_all_started(os_mon),
     MemInfo = emqx_vm:mem_info(),
     [{total_memory, _},
      {used_memory, _}]= MemInfo,
     application:stop(os_mon).
 
-process_list(_Config) ->
+t_process_list(_Config) ->
     Pid = self(),
     ProcessInfo = emqx_vm:get_process_list(),
     true = lists:member({pid, Pid}, lists:concat(ProcessInfo)).
 
-process_info(_Config) ->
+t_process_info(_Config) ->
     ProcessInfos = emqx_vm:get_process_info(),
     ProcessInfo = lists:last(ProcessInfos),
     Keys = [K || {K, _V}<- ProcessInfo],
     ?PROCESS_INFO = Keys.
 
-process_gc(_Config) ->
+t_process_gc(_Config) ->
     ProcessGcs = emqx_vm:get_process_gc(),
     ProcessGc = lists:last(ProcessGcs),
     Keys = [K || {K, _V}<- ProcessGc],
     ?PROCESS_GC = Keys.
-   
-get_ets_list(_Config) ->
+
+t_get_ets_list(_Config) ->
     ets:new(test, [named_table]),
     Ets =  emqx_vm:get_ets_list(),
     true = lists:member(test, Ets).
 
-get_ets_info(_Config) ->
+t_get_ets_info(_Config) ->
     ets:new(test, [named_table]),
     [] = emqx_vm:get_ets_info(test1),
     EtsInfo = emqx_vm:get_ets_info(test),
     test = proplists:get_value(name, EtsInfo).
 
-get_ets_object(_Config) ->
+t_get_ets_object(_Config) ->
     ets:new(test, [named_table]),
     ets:insert(test, {k, v}),
     [{k, v}] = emqx_vm:get_ets_object(test).
 
-get_port_types(_Config) ->
+t_get_port_types(_Config) ->
     emqx_vm:get_port_types().
 
-get_port_info(_Config) ->
+t_get_port_info(_Config) ->
     emqx_vm:get_port_info().
 
-scheduler_usage(_Config) ->
+t_scheduler_usage(_Config) ->
     emqx_vm:scheduler_usage(5000).
 
-get_memory(_Config) ->
+t_get_memory(_Config) ->
     emqx_vm:get_memory().
-   
-microsecs(_Config) ->
+
+t_microsecs(_Config) ->
     emqx_vm:microsecs().
 
-schedulers(_Config) ->
+t_schedulers(_Config) ->
     emqx_vm:schedulers().
 
-get_process_group_leader_info(_Config) ->
+t_get_process_group_leader_info(_Config) ->
     emqx_vm:get_process_group_leader_info(self()).
 
-get_process_limit(_Config) ->
+t_get_process_limit(_Config) ->
     emqx_vm:get_process_limit().
+

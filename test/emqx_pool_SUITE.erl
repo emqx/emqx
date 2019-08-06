@@ -19,20 +19,23 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include("emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() ->
-    [
-     {group, submit_case},
-     {group, async_submit_case},
+    [{group, submit},
+     {group, async_submit},
      t_unexpected
     ].
 
 groups() ->
-    [
-     {submit_case, [sequence], [submit_mfa, submit_fa]},
-     {async_submit_case, [sequence], [async_submit_mfa, async_submit_crash]}
+    [{submit, [sequence],
+      [t_submit_mfa,
+       t_submit_fa
+      ]},
+     {async_submit, [sequence],
+      [t_async_submit_mfa,
+       t_async_submit_crash
+      ]}
     ].
 
 init_per_suite(Config) ->
@@ -48,22 +51,28 @@ init_per_testcase(_, Config) ->
 
 end_per_testcase(_, Config) ->
     Sup = proplists:get_value(pool_sup, Config),
+    %% ???
     exit(Sup, normal).
 
-submit_mfa(_Config) ->
+t_submit_mfa(_Config) ->
     Result = emqx_pool:submit({?MODULE, test_mfa, []}),
     ?assertEqual(15, Result).
 
-submit_fa(_Config) ->
-    Fun = fun(X) -> case X rem 2 of 0 -> {true, X div 2}; _ -> false end end,
+t_submit_fa(_Config) ->
+    Fun = fun(X) ->
+              case X rem 2 of
+                  0 -> {true, X div 2};
+                  _ -> false
+              end
+          end,
     Result = emqx_pool:submit(Fun, [2]),
     ?assertEqual({true, 1}, Result).
 
-async_submit_mfa(_Config) ->
+t_async_submit_mfa(_Config) ->
     emqx_pool:async_submit({?MODULE, test_mfa, []}),
     emqx_pool:async_submit(fun ?MODULE:test_mfa/0, []).
 
-async_submit_crash(_) ->
+t_async_submit_crash(_) ->
     emqx_pool:async_submit(fun() -> error(unexpected_error) end).
 
 t_unexpected(_) ->
