@@ -15,6 +15,7 @@
 -module(emqx_mountpoint).
 
 -include("emqx.hrl").
+-include("types.hrl").
 
 -export([ mount/2
         , unmount/2
