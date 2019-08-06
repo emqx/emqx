@@ -232,5 +232,7 @@ parse(TopicFilter = <<"$share/", Rest/binary>>, Options) ->
                 _ -> error({invalid_topic_filter, TopicFilter})
             end
     end;
+parse(TopicFilter, Options = #{qos := QoS}) ->
+	{TopicFilter, Options#{rc => QoS}};
 parse(TopicFilter, Options) ->
     {TopicFilter, Options}.
