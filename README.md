@@ -56,7 +56,7 @@ To view the dashboard after running, use your browser to open: http://localhost:
 
 ## FAQ
 
-You can visit [FAQ](https://developer.emqx.io/docs/tutorial/en/faq/faq.html) to get help of common problems.
+Visiting [FAQ](https://developer.emqx.io/docs/tutorial/en/faq/faq.html) to get help of common problems.
 
 ## Roadmap
 
