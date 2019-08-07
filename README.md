@@ -4,7 +4,7 @@
 [![Build Status](https://travis-ci.org/emqx/emqx.svg)](https://travis-ci.org/emqx/emqx) 
 [![Coverage Status](https://coveralls.io/repos/github/emqx/emqx/badge.svg)](https://coveralls.io/github/emqx/emqx) 
 [![Docker Pulls](https://img.shields.io/docker/pulls/emqx/emqx)](https://hub.docker.com/r/emqx/emqx) 
-[![Slack](https://img.shields.io/badge/Slack-EMQ%20X-brightgreen?logo=slack&style=flat&color=7E4798)](https://emqx.slack.com)  
+[![Slack](https://img.shields.io/badge/Slack-EMQ%20X-brightgreen?logo=slack&style=flat&color=7E4798)](https://emqx.slack.com) 
 [![Twitter](https://img.shields.io/twitter/follow/emqtt?label=EMQ%20X&style=social&color=1DA1F2)](https://twitter.com/emqtt)
 
 English | [简体中文](./README-CN.md)
