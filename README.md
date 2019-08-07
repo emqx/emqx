@@ -13,14 +13,12 @@ English | [简体中文](./README-CN.md)
 
 Starting from 3.0 release, *EMQ X* broker fully supports MQTT V5.0 protocol specifications and backward compatible with MQTT V3.1 and V3.1.1,  as well as other communication protocols such as MQTT-SN, CoAP, LwM2M, WebSocket and STOMP. The 3.0 release of the *EMQ X* broker can scaled to 10+ million concurrent MQTT connections on one cluster.
 
-
-- For full list of new features, please read *EMQ X* broker 3.0 [release notes](https://github.com/emqx/emqx/releases/).
+- For full list of new features, please read [EMQ X Release Notes](https://github.com/emqx/emqx/releases).
 - For more information, please visit [EMQ X homepage](http://emqx.io).
-
 
 ## Installation
 
-The *EMQ X* broker is cross-platform, which can be deployed on Linux, Unix, Mac, Windows and even Raspberry Pi.
+The *EMQ X* broker is cross-platform, which supports Linux, Unix, Mac OS and Windows. It means *EMQ X* can be deployed on x86_64 architecture servers and ARM devices like Raspberry Pi.
 
 Download the binary package for your platform from [here](http://emqx.io/downloads).
 
@@ -43,17 +41,22 @@ cd _rel/emqx && ./bin/emqx console
 
 ## Quick Start
 
-    # Start emqx
-    ./bin/emqx start
+```
+# Start emqx
+./bin/emqx start
 
-    # Check Status
-    ./bin/emqx_ctl status
+# Check Status
+./bin/emqx_ctl status
 
-    # Stop emqx
-    ./bin/emqx stop
+# Stop emqx
+./bin/emqx stop
+```
 
-  To view the dashboard after running, use your browser to open: http://localhost:18083
+To view the dashboard after running, use your browser to open: http://localhost:18083
 
+## FAQ
+
+You can visit [FAQ](https://developer.emqx.io/docs/tutorial/en/faq/faq.html) to get help of common problems.
 
 ## Roadmap
 
@@ -63,8 +66,8 @@ The [EMQ X Roadmap uses Github milestones](https://github.com/emqx/emqx/mileston
 
 You can reach the EMQ community and developers via the following channels:
 - [EMQX Slack](http://emqx.slack.com)
-   -[#emqx-users](https://emqx.slack.com/messages/CBUF2TTB8/)
-   -[#emqx-devs](https://emqx.slack.com/messages/CBSL57DUH/)
+  - [#emqx-users](https://emqx.slack.com/messages/CBUF2TTB8/)
+  - [#emqx-devs](https://emqx.slack.com/messages/CBSL57DUH/)
 - [Mailing Lists](<emqtt@googlegroups.com>)
 - [Twitter](https://twitter.com/emqtt)
 - [Forum](https://groups.google.com/d/forum/emqtt)
@@ -84,11 +87,4 @@ You can read the mqtt protocol via the following links:
 
 ## License
 
-Copyright (c) 2013-2019 [EMQ Technologies Co., Ltd](http://emqx.io). All Rights Reserved.
-
-Licensed under the Apache License, Version 2.0 (the "License");you may not use this file except in compliance with the License.You may obtain a copy of the License at
-
-[http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0)
-
-Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and limitations under the License.
+Apache License 2.0, see [LICENSE](./LICENSE).
