@@ -1,6 +1,6 @@
 # EMQ X Broker
 
-[!GitHub release](https://img.shields.io/github/release/emqx/emqx)(https://github.com/emqx/emqx/releases)
+[![GitHub release](https://img.shields.io/github/release/emqx/emqx)](https://github.com/emqx/emqx/releases)
 
 English | [简体中文](./README-CN.md)
 
