@@ -14,13 +14,13 @@
 从 3.0 版本开始，*EMQ X* 完整支持 MQTT V5.0 协议规范，向下兼容 MQTT V3.1 和 V3.1.1，并支持 MQTT-SN、CoAP、LwM2M、WebSocket 和 STOMP 等通信协议。EMQ X 3.0 单集群可支持千万级别的 MQTT 并发连接。
 
 - 新功能的完整列表，请参阅 [EMQ X Release Notes](https://github.com/emqx/emqx/releases)。
-- 获取更多信息，请访问 [EMQ X](http://emqx.io)。
+- 获取更多信息，请访问 [EMQ X](https://emqx.io)。
 
 ## 安装
 
 *EMQ X* 是跨平台的，支持 Linux、Unix、Mac OS 以及 Windows。这意味着 *EMQ X* 可以部署在 x86_64 架构的服务器上，也可以部署在 Raspberry Pi 这样的 ARM 设备上。
 
-获取适合你的二进制软件包，[点此下载](http://emqx.io/downloads)。
+获取适合你的二进制软件包，[点此下载](https://emqx.io/downloads)。
 
 - [单节点安装](https://developer.emqx.io/docs/emq/v3/en/install.html)
 - [集群安装](https://developer.emqx.io/docs/emq/v3/en/cluster.html)
@@ -65,8 +65,6 @@ cd _rel/emqx && ./bin/emqx console
 你可通过以下途径与 EMQ 社区及开发者联系:
 
 - [EMQX Slack](http://emqx.slack.com)
-  - [#emqx-users](https://emqx.slack.com/messages/CBUF2TTB8/)
-  - [#emqx-devs](https://emqx.slack.com/messages/CBSL57DUH/)
 - [Mailing Lists](<emqtt@googlegroups.com>)
 - [Twitter](https://twitter.com/emqtt)
 - [Forum](https://groups.google.com/d/forum/emqtt)

@@ -14,13 +14,13 @@ English | [简体中文](./README-CN.md)
 Starting from 3.0 release, *EMQ X* broker fully supports MQTT V5.0 protocol specifications and backward compatible with MQTT V3.1 and V3.1.1,  as well as other communication protocols such as MQTT-SN, CoAP, LwM2M, WebSocket and STOMP. The 3.0 release of the *EMQ X* broker can scaled to 10+ million concurrent MQTT connections on one cluster.
 
 - For full list of new features, please read [EMQ X Release Notes](https://github.com/emqx/emqx/releases).
-- For more information, please visit [EMQ X homepage](http://emqx.io).
+- For more information, please visit [EMQ X homepage](https://emqx.io).
 
 ## Installation
 
 The *EMQ X* broker is cross-platform, which supports Linux, Unix, Mac OS and Windows. It means *EMQ X* can be deployed on x86_64 architecture servers and ARM devices like Raspberry Pi.
 
-Download the binary package for your platform from [here](http://emqx.io/downloads).
+Download the binary package for your platform from [here](https://emqx.io/downloads).
 
 - [Single Node Install](https://developer.emqx.io/docs/emq/v3/en/install.html)
 - [Multi Node Install](https://developer.emqx.io/docs/emq/v3/en/cluster.html)
@@ -66,8 +66,6 @@ The [EMQ X Roadmap uses Github milestones](https://github.com/emqx/emqx/mileston
 
 You can reach the EMQ community and developers via the following channels:
 - [EMQX Slack](http://emqx.slack.com)
-  - [#emqx-users](https://emqx.slack.com/messages/CBUF2TTB8/)
-  - [#emqx-devs](https://emqx.slack.com/messages/CBSL57DUH/)
 - [Mailing Lists](<emqtt@googlegroups.com>)
 - [Twitter](https://twitter.com/emqtt)
 - [Forum](https://groups.google.com/d/forum/emqtt)
