@@ -314,10 +314,10 @@ handle_out({connack, ?RC_SUCCESS, SP},
     ok = emqx_hooks:run('client.connected', [Client, ?RC_SUCCESS, attrs(PState)]),
     #{max_packet_size := MaxPktSize,
       max_qos_allowed := MaxQoS,
-      mqtt_retain_available := Retain,
+      retain_available := Retain,
       max_topic_alias := MaxAlias,
-      mqtt_shared_subscription := Shared,
-      mqtt_wildcard_subscription := Wildcard
+      shared_subscription := Shared,
+      wildcard_subscription := Wildcard
      } = caps(PState),
     %% Response-Information is so far not set by broker.
     %% i.e. It's a Client-to-Client contract for the request-response topic naming scheme.
