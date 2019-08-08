@@ -62,10 +62,10 @@
         ]).
 
 -export([ publish/3
-        , puback/3
-        , pubrec/3
-        , pubrel/3
-        , pubcomp/3
+        , puback/2
+        , pubrec/2
+        , pubrel/2
+        , pubcomp/2
         ]).
 
 -export([deliver/2]).
@@ -74,10 +74,10 @@
 
 -export_type([session/0]).
 
--import(emqx_zone,
-        [ get_env/2
-        , get_env/3
-        ]).
+-define(get_env(Zone, Key, Default), emqx_zone:get_env(Zone, Key, Default)).
+
+%% For test case
+-export([set_pkt_id/2]).
 
 -record(session, {
           %% Clean Start Flag
@@ -140,6 +140,8 @@
 
 -define(DEFAULT_BATCH_N, 1000).
 
+-define(DEFAULT_AWAIT_REL_TIMEOUT, 30000).
+
 %%--------------------------------------------------------------------
 %% Init a session
 %%--------------------------------------------------------------------
@@ -149,25 +151,25 @@
 init(CleanStart, #{zone := Zone}, #{max_inflight := MaxInflight,
                                     expiry_interval := ExpiryInterval}) ->
     #session{clean_start       = CleanStart,
-             max_subscriptions = get_env(Zone, max_subscriptions, 0),
+             max_subscriptions = ?get_env(Zone, max_subscriptions, 0),
              subscriptions     = #{},
-             upgrade_qos       = get_env(Zone, upgrade_qos, false),
+             upgrade_qos       = ?get_env(Zone, upgrade_qos, false),
              inflight          = emqx_inflight:new(MaxInflight),
              mqueue            = init_mqueue(Zone),
              next_pkt_id       = 1,
-             retry_interval    = get_env(Zone, retry_interval, 0),
+             retry_interval    = ?get_env(Zone, retry_interval, 0),
              awaiting_rel      = #{},
-             max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
-             await_rel_timeout = get_env(Zone, await_rel_timeout),
+             max_awaiting_rel  = ?get_env(Zone, max_awaiting_rel, 100),
+             await_rel_timeout = ?get_env(Zone, await_rel_timeout, ?DEFAULT_AWAIT_REL_TIMEOUT),
              expiry_interval   = ExpiryInterval,
              created_at        = os:timestamp()
             }.
 
 init_mqueue(Zone) ->
-    emqx_mqueue:init(#{max_len => get_env(Zone, max_mqueue_len, 1000),
-                       store_qos0 => get_env(Zone, mqueue_store_qos0, true),
-                       priorities => get_env(Zone, mqueue_priorities),
-                       default_priority => get_env(Zone, mqueue_default_priority)
+    emqx_mqueue:init(#{max_len => ?get_env(Zone, max_mqueue_len, 1000),
+                       store_qos0 => ?get_env(Zone, mqueue_store_qos0, true),
+                       priorities => ?get_env(Zone, mqueue_priorities, none),
+                       default_priority => ?get_env(Zone, mqueue_default_priority, lowest)
                       }).
 
 %%--------------------------------------------------------------------
@@ -335,15 +337,18 @@ do_publish(PacketId, Msg = #message{timestamp = Ts},
 %% Client -> Broker: PUBACK
 %%--------------------------------------------------------------------
 
--spec(puback(emqx_types:packet_id(), emqx_types:reason_code(), session())
+-spec(puback(emqx_types:packet_id(), session())
       -> {ok, session()} | {ok, list(publish()), session()} |
          {error, emqx_types:reason_code()}).
-puback(PacketId, _ReasonCode, Session = #session{inflight = Inflight}) ->
+puback(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             dequeue(Session#session{inflight = Inflight1});
-        false ->
+        {value, {_OtherPub, _Ts}} ->
+            ?LOG(warning, "The PacketId has been used, PacketId: ~p", [PacketId]),
+            {error, ?RC_PACKET_IDENTIFIER_IN_USE};
+        none ->
             ?LOG(warning, "The PUBACK PacketId ~w is not found", [PacketId]),
             ok = emqx_metrics:inc('packets.puback.missed'),
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
@@ -353,9 +358,9 @@ puback(PacketId, _ReasonCode, Session = #session{inflight = Inflight}) ->
 %% Client -> Broker: PUBREC
 %%--------------------------------------------------------------------
 
--spec(pubrec(emqx_types:packet_id(), emqx_types:reason_code(), session())
+-spec(pubrec(emqx_types:packet_id(), session())
       -> {ok, session()} | {error, emqx_types:reason_code()}).
-pubrec(PacketId, _ReasonCode, Session = #session{inflight = Inflight}) ->
+pubrec(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
             Inflight1 = emqx_inflight:update(PacketId, {pubrel, os:timestamp()}, Inflight),
@@ -374,9 +379,9 @@ pubrec(PacketId, _ReasonCode, Session = #session{inflight = Inflight}) ->
 %% Client -> Broker: PUBREL
 %%--------------------------------------------------------------------
 
--spec(pubrel(emqx_types:packet_id(), emqx_types:reason_code(), session())
+-spec(pubrel(emqx_types:packet_id(), session())
       -> {ok, session()} | {error, emqx_types:reason_code()}).
-pubrel(PacketId, _ReasonCode, Session = #session{awaiting_rel = AwaitingRel}) ->
+pubrel(PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
     case maps:take(PacketId, AwaitingRel) of
         {_Ts, AwaitingRel1} ->
             {ok, Session#session{awaiting_rel = AwaitingRel1}};
@@ -390,10 +395,10 @@ pubrel(PacketId, _ReasonCode, Session = #session{awaiting_rel = AwaitingRel}) ->
 %% Client -> Broker: PUBCOMP
 %%--------------------------------------------------------------------
 
--spec(pubcomp(emqx_types:packet_id(), emqx_types:reason_code(), session())
+-spec(pubcomp(emqx_types:packet_id(), session())
       -> {ok, session()} | {ok, list(publish()), session()} |
          {error, emqx_types:reason_code()}).
-pubcomp(PacketId, _ReasonCode, Session = #session{inflight = Inflight}) ->
+pubcomp(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:contain(PacketId, Inflight) of
         true ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
@@ -623,7 +628,7 @@ expire_awaiting_rel([{PacketId, Ts} | More], Now,
             Session1 = Session#session{awaiting_rel = maps:remove(PacketId, AwaitingRel)},
             expire_awaiting_rel(More, Now, Session1);
         Age ->
-            ensure_await_rel_timer(Timeout - max(0, Age), Session)
+            {ok, ensure_await_rel_timer(Timeout - max(0, Age), Session)}
     end.
 
 %%--------------------------------------------------------------------
@@ -636,3 +641,10 @@ next_pkt_id(Session = #session{next_pkt_id = 16#FFFF}) ->
 next_pkt_id(Session = #session{next_pkt_id = Id}) ->
     Session#session{next_pkt_id = Id + 1}.
 
+%%---------------------------------------------------------------------
+%% For Test case
+%%---------------------------------------------------------------------
+
+
+set_pkt_id(Session, PktId) ->
+    Session#session{next_pkt_id = PktId}.
