@@ -314,10 +314,10 @@ handle_out({connack, ?RC_SUCCESS, SP},
     ok = emqx_hooks:run('client.connected', [Client, ?RC_SUCCESS, attrs(PState)]),
     #{max_packet_size := MaxPktSize,
       max_qos_allowed := MaxQoS,
-      mqtt_retain_available := Retain,
+      retain_available := Retain,
       max_topic_alias := MaxAlias,
-      mqtt_shared_subscription := Shared,
-      mqtt_wildcard_subscription := Wildcard
+      shared_subscription := Shared,
+      wildcard_subscription := Wildcard
      } = caps(PState),
     %% Response-Information is so far not set by broker.
     %% i.e. It's a Client-to-Client contract for the request-response topic naming scheme.
@@ -763,7 +763,7 @@ process_subscribe([{TopicFilter, SubOpts}|More], Acc, PState) ->
 
 do_subscribe(TopicFilter, SubOpts = #{qos := QoS},
              PState = #protocol{client = Client, session = Session}) ->
-    case check_subscribe(TopicFilter, PState) of
+    case check_subscribe(TopicFilter, SubOpts, PState) of
         ok -> TopicFilter1 = mount(Client, TopicFilter),
               SubOpts1 = enrich_subopts(maps:merge(?DEFAULT_SUBOPTS, SubOpts), PState),
               case emqx_session:subscribe(Client, TopicFilter1, SubOpts1, Session) of
@@ -787,9 +787,9 @@ enrich_subopts(SubOpts, #protocol{client = #{zone := Zone, is_bridge := IsBridge
     SubOpts#{rap => Rap, nl => Nl}.
 
 %% Check Sub
-check_subscribe(TopicFilter, PState) ->
+check_subscribe(TopicFilter, SubOpts, PState) ->
     case check_sub_acl(TopicFilter, PState) of
-        allow -> ok; %%TODO: check_sub_caps(TopicFilter, PState);
+        allow -> check_sub_caps(TopicFilter, SubOpts, PState);
         deny  -> {error, ?RC_NOT_AUTHORIZED}
     end.
 
@@ -802,8 +802,8 @@ check_sub_acl(TopicFilter, #protocol{client = Client}) ->
     end.
 
 %% Check Sub Caps
-check_sub_caps(TopicFilter, #protocol{client = #{zone := Zone}}) ->
-    emqx_mqtt_caps:check_sub(Zone, TopicFilter).
+check_sub_caps(TopicFilter, SubOpts, #protocol{client = #{zone := Zone}}) ->
+    emqx_mqtt_caps:check_sub(Zone, TopicFilter, SubOpts).
 
 %%--------------------------------------------------------------------
 %% Process unsubscribe request
