@@ -634,19 +634,19 @@ end}.
 ]}.
 
 %% @doc Whether the server supports MQTT retained messages.
-{mapping, "mqtt.retain_available", "emqx.mqtt_retain_available", [
+{mapping, "mqtt.retain_available", "emqx.retain_available", [
   {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
 
 %% @doc Whether the Server supports MQTT Wildcard Subscriptions.
-{mapping, "mqtt.wildcard_subscription", "emqx.mqtt_wildcard_subscription", [
+{mapping, "mqtt.wildcard_subscription", "emqx.wildcard_subscription", [
   {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
 
 %% @doc Whether the Server supports MQTT Shared Subscriptions.
-{mapping, "mqtt.shared_subscription", "emqx.mqtt_shared_subscription", [
+{mapping, "mqtt.shared_subscription", "emqx.shared_subscription", [
   {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
@@ -876,7 +876,7 @@ end}.
 
 {translation, "emqx.zones", fun(Conf) ->
   Mapping = fun("retain_available", Val) ->
-                    {mqtt_retain_available, Val};
+                    {retain_available, Val};
                ("flapping_threshold", Val) ->
                     [Limit, Duration] = string:tokens(Val, ", "),
                     FlappingThreshold = case cuttlefish_duration:parse(Duration, s) of
@@ -887,9 +887,9 @@ end}.
                                         end,
                     {flapping_threshold, FlappingThreshold};
                ("wildcard_subscription", Val) ->
-                    {mqtt_wildcard_subscription, Val};
+                    {wildcard_subscription, Val};
                ("shared_subscription", Val) ->
-                    {mqtt_shared_subscription, Val};
+                    {shared_subscription, Val};
                ("publish_limit", Val) ->
                     [Limit, Duration] = string:tokens(Val, ", "),
                     PubLimit = case cuttlefish_duration:parse(Duration, s) of

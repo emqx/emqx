@@ -30,6 +30,7 @@
 -export([ get_env/2
         , get_env/3
         , set_env/3
+        , unset_env/2
         , force_reload/0
         ]).
 
@@ -81,7 +82,11 @@ get_env(Zone, Key, Def) ->
 
 -spec(set_env(zone(), atom(), term()) -> ok).
 set_env(Zone, Key, Val) ->
-    gen_server:cast(?SERVER, {set_env, Zone, Key, Val}).
+    persistent_term:put(?KEY(Zone, Key), Val).
+
+-spec(unset_env(zone(), atom()) -> boolean()).
+unset_env(Zone, Key) ->
+    persistent_term:erase(?KEY(Zone, Key)).
 
 -spec(force_reload() -> ok).
 force_reload() ->
@@ -107,10 +112,6 @@ handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
-handle_cast({set_env, Zone, Key, Val}, State) ->
-    ok = persistent_term:put(?KEY(Zone, Key), Val),
-    {noreply, State};
-
 handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
@@ -130,6 +131,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 do_reload() ->
-    [ persistent_term:put(?KEY(Zone, Key), Val)
-      || {Zone, Opts} <- emqx_config:get_env(zones, []), {Key, Val} <- Opts ].
+    [persistent_term:put(?KEY(Zone, Key), Val)
+      || {Zone, Opts} <- emqx_config:get_env(zones, []), {Key, Val} <- Opts].
 

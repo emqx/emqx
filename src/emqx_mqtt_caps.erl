@@ -22,7 +22,9 @@
 
 -export([ check_pub/2
         , check_sub/3
-        , get_caps/1
+        ]).
+
+-export([ get_caps/1
         , get_caps/2
         ]).
 
@@ -49,6 +51,7 @@
                      ]).
 
 -define(SUBCAP_KEYS, [max_topic_levels,
+                      max_qos_allowed,
                       wildcard_subscription,
                       shared_subscription
                      ]).
@@ -94,12 +97,13 @@ check_sub(Zone, Topic, SubOpts) ->
                  (wildcard_subscription, Map) ->
                       Map#{is_wildcard => emqx_topic:wildcard(Topic)};
                  (shared_subscription, Map) ->
-                      Map#{is_shared => maps:is_key(share, SubOpts)}
+                      Map#{is_shared => maps:is_key(share, SubOpts)};
+                 (_Key, Map) -> Map %% Ignore
               end, #{}, maps:keys(Caps)),
     do_check_sub(Flags, Caps).
 
 do_check_sub(#{topic_levels := Levels}, #{max_topic_levels := Limit})
-  when Levels >= Limit ->
+  when Levels > Limit ->
     {error, ?RC_TOPIC_FILTER_INVALID};
 do_check_sub(#{is_wildcard := true}, #{wildcard_subscription := false}) ->
     {error, ?RC_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED};
@@ -119,7 +123,7 @@ get_caps(Zone, subscribe) ->
     with_env(Zone, '$mqtt_sub_caps', fun sub_caps/1).
 
 pub_caps(Zone) ->
-     filter_caps(?PUBCAP_KEYS, get_caps(Zone)).
+    filter_caps(?PUBCAP_KEYS, get_caps(Zone)).
 
 sub_caps(Zone) ->
     filter_caps(?SUBCAP_KEYS, get_caps(Zone)).
@@ -130,12 +134,7 @@ all_caps(Zone) ->
              end, ?DEFAULT_CAPS).
 
 filter_caps(Keys, Caps) ->
-    maps:filter(fun(Key, Val) ->
-                        lists:member(Key, Keys) andalso cap_limited(Key, Val)
-                end, Caps).
-
-cap_limited(Key, Val) ->
-    Val =/= maps:get(Key, ?DEFAULT_CAPS).
+    maps:filter(fun(Key, _Val) -> lists:member(Key, Keys) end, Caps).
 
 with_env(Zone, Key, InitFun) ->
     case emqx_zone:get_env(Zone, Key) of
