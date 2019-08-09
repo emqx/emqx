@@ -516,6 +516,9 @@ handle_incoming(Packet = ?PACKET(Type), SuccFun,
                             State#state{proto_state = NProtoState});
         {error, Reason, NProtoState} ->
             shutdown(Reason, State#state{proto_state = NProtoState});
+        {error, Reason, OutPacket, NProtoState} ->
+            Shutdown = fun(NewSt) -> shutdown(Reason, NewSt) end,
+            handle_outgoing(OutPacket, Shutdown, State#state{proto_state = NProtoState});
         {stop, Error, NProtoState} ->
             stop(Error, State#state{proto_state = NProtoState})
     end.

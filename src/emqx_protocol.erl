@@ -416,11 +416,15 @@ handle_out({unsuback, PacketId, ReasonCodes}, PState = #protocol{proto_ver = ?MQ
 handle_out({unsuback, PacketId, _ReasonCodes}, PState) ->
     {ok, ?UNSUBACK_PACKET(PacketId), PState};
 
-handle_out({disconnect, ReasonCode}, PState) ->
-    {ok, PState};
+handle_out({disconnect, ReasonCode}, PState = #protocol{proto_ver = ?MQTT_PROTO_V5}) ->
+    Reason = emqx_reason_codes:name(ReasonCode),
+    {error, Reason, ?DISCONNECT_PACKET(ReasonCode), PState};
+
+handle_out({disconnect, ReasonCode}, PState = #protocol{proto_ver = ProtoVer}) ->
+    {error, emqx_reason_codes:name(ReasonCode, ProtoVer), PState};
 
 handle_out(Packet, PState) ->
-    io:format("Out: ~p~n", [Packet]),
+    ?LOG(error, "Unexpected out:~p", [Packet]),
     {ok, PState}.
 
 %%--------------------------------------------------------------------
