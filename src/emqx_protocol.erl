@@ -265,8 +265,6 @@ handle_in(?DISCONNECT_PACKET(?RC_SUCCESS), PState) ->
     {stop, normal, PState#protocol{will_msg = undefined}};
 
 handle_in(?DISCONNECT_PACKET(RC), PState = #protocol{proto_ver = Ver}) ->
-    %% TODO:
-    %% {stop, {shutdown, abnormal_disconnet}, PState};
     {stop, {shutdown, emqx_reason_codes:name(RC, Ver)}, PState};
 
 handle_in(?AUTH_PACKET(), PState) ->
@@ -439,9 +437,15 @@ handle_timeout(TRef, Msg, PState = #protocol{session = Session}) ->
             handle_out({publish, Publishes}, PState#protocol{session = NSession})
     end.
 
-terminate(Reason, _PState) ->
-    io:format("Terminated for ~p~n", [Reason]),
-    ok.
+terminate(normal, _PState) ->
+    ok;
+terminate(_Reason, #protocol{will_msg = WillMsg}) ->
+    publish_will_msg(WillMsg).
+
+publish_will_msg(undefined) ->
+    ok;
+publish_will_msg(Msg) ->
+    emqx_broker:publish(Msg).
 
 %%--------------------------------------------------------------------
 %% Validate incoming packet
