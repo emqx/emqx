@@ -42,63 +42,155 @@ end_per_suite(_Config) ->
 %% Test cases for handle_in
 %%--------------------------------------------------------------------
 
-t_handle_in_connect(_) ->
-    'TODO'.
+t_handle_connect(_) ->
+    ConnPkt = #mqtt_packet_connect{
+                 proto_name  = <<"MQTT">>,
+                 proto_ver   = ?MQTT_PROTO_V4,
+                 is_bridge   = false,
+                 clean_start = true,
+                 keepalive   = 30,
+                 properties  = #{},
+                 client_id   = <<"clientid">>,
+                 username    = <<"username">>,
+                 password    = <<"passwd">>
+                },
+    with_proto(
+      fun(PState) ->
+              {ok, ?CONNACK_PACKET(?RC_SUCCESS), PState1}
+                = handle_in(?CONNECT_PACKET(ConnPkt), PState),
+              Client = emqx_protocol:info(client, PState1),
+              ?assertEqual(<<"clientid">>, maps:get(client_id, Client)),
+              ?assertEqual(<<"username">>, maps:get(username, Client))
+      end).
 
-t_handle_in_publish(_) ->
-    'TODO'.
+t_handle_publish_qos0(_) ->
+    with_proto(
+      fun(PState) ->
+              Publish = ?PUBLISH_PACKET(?QOS_0, <<"topic">>, undefined, <<"payload">>),
+              {ok, PState} = handle_in(Publish, PState)
+      end).
 
-t_handle_in_puback(_) ->
-    'TODO'.
+t_handle_publish_qos1(_) ->
+    with_proto(
+      fun(PState) ->
+              Publish = ?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, <<"payload">>),
+              {ok, ?PUBACK_PACKET(1, RC), _} = handle_in(Publish, PState),
+              ?assert((RC == ?RC_SUCCESS) orelse (RC == ?RC_NO_MATCHING_SUBSCRIBERS))
+      end).
 
-t_handle_in_pubrec(_) ->
-    'TODO'.
+t_handle_publish_qos2(_) ->
+    with_proto(
+      fun(PState) ->
+              Publish1 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
+              {ok, ?PUBREC_PACKET(1, RC), PState1} = handle_in(Publish1, PState),
+              Publish2 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 2, <<"payload">>),
+              {ok, ?PUBREC_PACKET(2, RC), PState2} = handle_in(Publish2, PState1),
+              ?assert((RC == ?RC_SUCCESS) orelse (RC == ?RC_NO_MATCHING_SUBSCRIBERS)),
+              Session = emqx_protocol:info(session, PState2),
+              ?assertEqual(2, emqx_session:info(awaiting_rel, Session))
+      end).
 
-t_handle_in_pubrel(_) ->
-    'TODO'.
+t_handle_puback(_) ->
+    with_proto(
+      fun(PState) ->
+              {ok, PState} = handle_in(?PUBACK_PACKET(1, ?RC_SUCCESS), PState)
+      end).
 
-t_handle_in_pubcomp(_) ->
-    'TODO'.
+t_handle_pubrec(_) ->
+    with_proto(
+      fun(PState) ->
+              {ok, ?PUBREL_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND), PState}
+                = handle_in(?PUBREC_PACKET(1, ?RC_SUCCESS), PState)
+      end).
 
-t_handle_in_subscribe(_) ->
-    'TODO'.
+t_handle_pubrel(_) ->
+    with_proto(
+      fun(PState) ->
+              {ok, ?PUBCOMP_PACKET(1, ?RC_PACKET_IDENTIFIER_NOT_FOUND), PState}
+              = handle_in(?PUBREL_PACKET(1, ?RC_SUCCESS), PState)
+      end).
 
-t_handle_in_unsubscribe(_) ->
-    'TODO'.
+t_handle_pubcomp(_) ->
+    with_proto(
+      fun(PState) ->
+              {ok, PState} = handle_in(?PUBCOMP_PACKET(1, ?RC_SUCCESS), PState)
+      end).
 
-t_handle_in_pingreq(_) ->
-    with_proto(fun(PState) ->
-                       {ok, ?PACKET(?PINGRESP), PState} = handle_in(?PACKET(?PINGREQ), PState)
-               end).
+t_handle_subscribe(_) ->
+    with_proto(
+      fun(PState) ->
+              TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS}],
+              {ok, ?SUBACK_PACKET(10, [?QOS_0]), PState1}
+                = handle_in(?SUBSCRIBE_PACKET(10, #{}, TopicFilters), PState),
+              Session = emqx_protocol:info(session, PState1),
+              ?assertEqual(maps:from_list(TopicFilters),
+                           emqx_session:info(subscriptions, Session))
 
-t_handle_in_disconnect(_) ->
-    'TODO'.
+      end).
 
-t_handle_in_auth(_) ->
-    'TODO'.
+t_handle_unsubscribe(_) ->
+    with_proto(
+      fun(PState) ->
+              {ok, ?UNSUBACK_PACKET(11), PState}
+                = handle_in(?UNSUBSCRIBE_PACKET(11, #{}, [<<"+">>]), PState)
+      end).
+
+t_handle_pingreq(_) ->
+    with_proto(
+      fun(PState) ->
+          {ok, ?PACKET(?PINGRESP), PState} = handle_in(?PACKET(?PINGREQ), PState)
+      end).
+
+t_handle_disconnect(_) ->
+    with_proto(
+      fun(PState) ->
+              {stop, normal, PState1} = handle_in(?DISCONNECT_PACKET(?RC_SUCCESS), PState),
+              ?assertEqual(undefined, emqx_protocol:info(will_msg, PState1))
+      end).
+
+t_handle_auth(_) ->
+    with_proto(
+      fun(PState) ->
+              {ok, PState} = handle_in(?AUTH_PACKET(), PState)
+      end).
 
 %%--------------------------------------------------------------------
 %% Test cases for handle_deliver
 %%--------------------------------------------------------------------
 
 t_handle_deliver(_) ->
-    'TODO'.
+    with_proto(
+      fun(PState) ->
+        'TODO'
+      end).
 
 %%--------------------------------------------------------------------
 %% Test cases for handle_out
 %%--------------------------------------------------------------------
 
-t_handle_out_conack(_) ->
-    'TODO'.
+t_handle_conack(_) ->
+    with_proto(
+      fun(PState) ->
+        'TODO'
+      end).
 
 t_handle_out_publish(_) ->
-    'TODO'.
+    with_proto(
+      fun(PState) ->
+        'TODO'
+      end).
 
 t_handle_out_puback(_) ->
-    'TODO'.
+    with_proto(
+      fun(PState) ->
+        'TODO'
+      end).
 
 t_handle_out_pubrec(_) ->
-    'TODO'.
+    with_proto(
+      fun(PState) ->
+        'TODO'
+      end).
 
 t_handle_out_pubrel(_) ->
     'TODO'.
@@ -123,22 +215,36 @@ t_handle_out_auth(_) ->
 %%--------------------------------------------------------------------
 
 t_handle_timeout(_) ->
-    'TODO'.
+    with_proto(
+      fun(PState) ->
+        'TODO'
+      end).
 
 %%--------------------------------------------------------------------
 %% Test cases for terminate
 %%--------------------------------------------------------------------
 
 t_terminate(_) ->
-    'TODO'.
+    with_proto(
+      fun(PState) ->
+        'TODO'
+      end).
 
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
 
 with_proto(Fun) ->
-    Fun(emqx_protocol:init(#{peername => {{127,0,0,1}, 3456},
-                             sockname => {{127,0,0,1}, 1883},
-                             conn_mod => emqx_channel},
-                           #{zone => ?MODULE})).
+    ConnInfo = #{peername => {{127,0,0,1}, 3456},
+                 sockname => {{127,0,0,1}, 1883},
+                 client_id => <<"clientid">>,
+                 username => <<"username">>
+                },
+    Options = [{zone, testing}],
+    PState = emqx_protocol:init(ConnInfo, Options),
+    Session = emqx_session:init(false, #{zone => testing},
+                                #{max_inflight => 100,
+                                  expiry_interval => 0
+                                 }),
+    Fun(emqx_protocol:set(session, Session, PState)).
 
