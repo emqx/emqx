@@ -29,17 +29,17 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
-t_flapping(_Config) ->
-    process_flag(trap_exit, true),
-    flapping_connect(5),
-    {ok, C} = emqx_client:start_link([{client_id, <<"Client">>}]),
-    {error, _} = emqx_client:connect(C),
-    receive
-        {'EXIT', Client, _Reason} ->
-            ct:log("receive exit signal, Client: ~p", [Client])
-    after 1000 ->
-            ct:log("timeout")
-    end.
+%% t_flapping(_Config) ->
+%%     process_flag(trap_exit, true),
+%%     flapping_connect(5),
+%%     {ok, C} = emqx_client:start_link([{client_id, <<"Client">>}]),
+%%     {error, _} = emqx_client:connect(C),
+%%     receive
+%%         {'EXIT', Client, _Reason} ->
+%%             ct:log("receive exit signal, Client: ~p", [Client])
+%%     after 1000 ->
+%%             ct:log("timeout")
+%%     end.
 
 flapping_connect(Times) ->
     lists:foreach(fun do_connect/1, lists:seq(1, Times)).
@@ -50,7 +50,6 @@ do_connect(_I) ->
     ok = emqx_client:disconnect(C).
 
 prepare_for_test() ->
-    emqx_zone:set_env(external, enable_flapping_detect, true),
-    emqx_zone:set_env(external, flapping_threshold, {10, 60}),
-    emqx_zone:set_env(external, flapping_expiry_interval, 3600).
-
+    ok = emqx_zone:set_env(external, enable_flapping_detect, true),
+    ok = emqx_zone:set_env(external, flapping_threshold, {10, 60}),
+    ok = emqx_zone:set_env(external, flapping_expiry_interval, 3600).
