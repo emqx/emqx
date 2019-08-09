@@ -161,7 +161,17 @@ t_handle_auth(_) ->
 t_handle_deliver(_) ->
     with_proto(
       fun(PState) ->
-        'TODO'
+              TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS#{qos => ?QOS_2}}],
+              {ok, ?SUBACK_PACKET(1, [?QOS_2]), PState1}
+                = handle_in(?SUBSCRIBE_PACKET(1, #{}, TopicFilters), PState),
+              Msg0 = emqx_message:make(<<"clientx">>, ?QOS_0, <<"t0">>, <<"qos0">>),
+              Msg1 = emqx_message:make(<<"clientx">>, ?QOS_1, <<"t1">>, <<"qos1">>),
+              Delivers = [{deliver, <<"+">>, Msg0},
+                          {deliver, <<"+">>, Msg1}],
+              {ok, Packets, _PState2} = emqx_protocol:handle_deliver(Delivers, PState1),
+              ?assertMatch([?PUBLISH_PACKET(?QOS_0, <<"t0">>, undefined, <<"qos0">>),
+                            ?PUBLISH_PACKET(?QOS_1, <<"t1">>, 1, <<"qos1">>)
+                           ], Packets)
       end).
 
 %%--------------------------------------------------------------------
@@ -171,44 +181,71 @@ t_handle_deliver(_) ->
 t_handle_conack(_) ->
     with_proto(
       fun(PState) ->
-        'TODO'
+              {ok, ?CONNACK_PACKET(?RC_SUCCESS, SP, _), _}
+                = handle_out({connack, ?RC_SUCCESS, 0}, PState),
+              {error, unauthorized_client, ?CONNACK_PACKET(5), _}
+                = handle_out({connack, ?RC_NOT_AUTHORIZED}, PState)
       end).
 
 t_handle_out_publish(_) ->
     with_proto(
       fun(PState) ->
-        'TODO'
+              Pub0 = {publish, undefined, emqx_message:make(<<"t">>, <<"qos0">>)},
+              Pub1 = {publish, 1, emqx_message:make(<<"c">>, ?QOS_1, <<"t">>, <<"qos1">>)},
+              {ok, ?PUBLISH_PACKET(?QOS_0), PState} = handle_out(Pub0, PState),
+              {ok, ?PUBLISH_PACKET(?QOS_1), PState} = handle_out(Pub1, PState),
+              {ok, Packets, PState} = handle_out({publish, [Pub0, Pub1]}, PState),
+              ?assertEqual(2, length(Packets))
       end).
 
 t_handle_out_puback(_) ->
     with_proto(
       fun(PState) ->
-        'TODO'
+              {ok, PState} = handle_out({puberr, ?RC_NOT_AUTHORIZED}, PState),
+              {ok, ?PUBACK_PACKET(1, ?RC_SUCCESS), PState}
+                = handle_out({puback, 1, ?RC_SUCCESS}, PState)
       end).
 
 t_handle_out_pubrec(_) ->
     with_proto(
       fun(PState) ->
-        'TODO'
+              {ok, ?PUBREC_PACKET(4, ?RC_SUCCESS), PState}
+                = handle_out({pubrec, 4, ?RC_SUCCESS}, PState)
       end).
 
 t_handle_out_pubrel(_) ->
-    'TODO'.
+    with_proto(
+      fun(PState) ->
+              {ok, ?PUBREL_PACKET(2), PState} = handle_out({pubrel, 2}, PState),
+              {ok, ?PUBREL_PACKET(3, ?RC_SUCCESS), PState}
+                = handle_out({pubrel, 3, ?RC_SUCCESS}, PState)
+      end).
 
 t_handle_out_pubcomp(_) ->
-    'TODO'.
+    with_proto(
+      fun(PState) ->
+              {ok, ?PUBCOMP_PACKET(5, ?RC_SUCCESS), PState}
+                = handle_out({pubcomp, 5, ?RC_SUCCESS}, PState)
+      end).
 
 t_handle_out_suback(_) ->
-    'TODO'.
+    with_proto(
+      fun(PState) ->
+              {ok, ?SUBACK_PACKET(1, [?QOS_2]), PState}
+                 = handle_out({suback, 1, [?QOS_2]}, PState)
+      end).
 
 t_handle_out_unsuback(_) ->
-    'TODO'.
+    with_proto(
+      fun(PState) ->
+              {ok, ?UNSUBACK_PACKET(1), PState} = handle_out({unsuback, 1, [?RC_SUCCESS]}, PState)
+      end).
 
 t_handle_out_disconnect(_) ->
-    'TODO'.
-
-t_handle_out_auth(_) ->
-    'TODO'.
+    with_proto(
+      fun(PState) ->
+              handle_out({disconnect, 0}, PState)
+      end).
 
 %%--------------------------------------------------------------------
 %% Test cases for handle_timeout

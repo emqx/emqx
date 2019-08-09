@@ -416,9 +416,12 @@ handle_out({unsuback, PacketId, ReasonCodes}, PState = #protocol{proto_ver = ?MQ
 handle_out({unsuback, PacketId, _ReasonCodes}, PState) ->
     {ok, ?UNSUBACK_PACKET(PacketId), PState};
 
-handle_out(Packet, State) ->
+handle_out({disconnect, ReasonCode}, PState) ->
+    {ok, PState};
+
+handle_out(Packet, PState) ->
     io:format("Out: ~p~n", [Packet]),
-    {ok, State}.
+    {ok, PState}.
 
 %%--------------------------------------------------------------------
 %% Handle timeout
