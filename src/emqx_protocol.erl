@@ -437,9 +437,10 @@ handle_timeout(TRef, Msg, PState = #protocol{session = Session}) ->
             handle_out({publish, Publishes}, PState#protocol{session = NSession})
     end.
 
-terminate(normal, _PState) ->
-    ok;
-terminate(_Reason, #protocol{will_msg = WillMsg}) ->
+terminate(normal, #protocol{client = Client}) ->
+    ok = emqx_hooks:run('client.disconnected', [Client, normal]);
+terminate(Reason, #protocol{client = Client, will_msg = WillMsg}) ->
+    ok = emqx_hooks:run('client.disconnected', [Client, Reason]),
     publish_will_msg(WillMsg).
 
 publish_will_msg(undefined) ->
