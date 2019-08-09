@@ -210,7 +210,7 @@
           retry_timer     :: reference(),
           session_present :: boolean(),
           last_packet_id  :: packet_id(),
-          parse_state     :: emqx_client_frame:parse_state()
+          parse_state     :: emqx_frame:parse_state()
          }).
 
 -record(call, {id, from, req, ts}).
@@ -248,7 +248,7 @@ start_link() -> start_link([]).
 start_link(Options) when is_map(Options) ->
     start_link(maps:to_list(Options));
 start_link(Options) when is_list(Options) ->
-    ok = emqx_client_props:validate(
+    ok = emqx_mqtt_props:validate(
             proplists:get_value(properties, Options, #{})),
     case proplists:get_value(name, Options) of
         undefined ->
@@ -350,7 +350,7 @@ publish(Client, Topic, Payload, Opts) when is_binary(Topic), is_list(Opts) ->
       -> ok | {ok, packet_id()} | {error, term()}).
 publish(Client, Topic, Properties, Payload, Opts)
     when is_binary(Topic), is_map(Properties), is_list(Opts) ->
-    ok = emqx_client_props:validate(Properties),
+    ok = emqx_mqtt_props:validate(Properties),
     Retain = proplists:get_bool(retain, Opts),
     QoS = ?QOS_I(proplists:get_value(qos, Opts, ?QOS_0)),
     publish(Client, #mqtt_msg{qos     = QoS,
@@ -606,7 +606,7 @@ init_will_msg({qos, QoS}, WillMsg) ->
 
 init_parse_state(State = #state{proto_ver = Ver, properties = Properties}) ->
     MaxSize = maps:get('Maximum-Packet-Size', Properties, ?MAX_PACKET_SIZE),
-    ParseState = emqx_client_frame:initial_parse_state(
+    ParseState = emqx_frame:initial_parse_state(
 		   #{max_size => MaxSize, version => Ver}),
     State#state{parse_state = ParseState}.
 
@@ -650,7 +650,7 @@ mqtt_connect(State = #state{client_id   = ClientId,
                             will_msg    = WillMsg,
                             properties  = Properties}) ->
     ?WILL_MSG(WillQoS, WillRetain, WillTopic, WillProps, WillPayload) = WillMsg,
-    ConnProps = emqx_client_props:filter(?CONNECT, Properties),
+    ConnProps = emqx_mqtt_props:filter(?CONNECT, Properties),
     send(?CONNECT_PACKET(
             #mqtt_packet_connect{proto_ver    = ProtoVer,
                                  proto_name   = ProtoName,
@@ -1252,7 +1252,7 @@ send(Msg, State) when is_record(Msg, mqtt_msg) ->
 
 send(Packet, State = #state{conn_mod = ConnMod, socket = Sock, proto_ver = Ver})
     when is_record(Packet, mqtt_packet) ->
-    Data = emqx_client_frame:serialize(Packet, Ver),
+    Data = emqx_frame:serialize(Packet, Ver),
     ?LOG(debug, "SEND Data: ~1000p", [Packet], State),
     case ConnMod:send(Sock, Data) of
         ok  -> {ok, bump_last_packet_id(State)};
@@ -1269,7 +1269,7 @@ process_incoming(<<>>, Packets, State) ->
     {keep_state, State, next_events(Packets)};
 
 process_incoming(Bytes, Packets, State = #state{parse_state = ParseState}) ->
-    try emqx_client_frame:parse(Bytes, ParseState) of
+    try emqx_frame:parse(Bytes, ParseState) of
         {ok, Packet, Rest, NParseState} ->
             process_incoming(Rest, [Packet|Packets], State#state{parse_state = NParseState});
         {ok, NParseState} ->
