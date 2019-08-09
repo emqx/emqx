@@ -66,16 +66,16 @@
 
 -type(group() :: binary()).
 
--type(destination() :: node() | {group(), node()}).
+-type(dest() :: node() | {group(), node()}).
 
--define(ROUTE, emqx_route).
+-define(ROUTE_TAB, emqx_route).
 
 %%--------------------------------------------------------------------
 %% Mnesia bootstrap
 %%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?ROUTE, [
+    ok = ekka_mnesia:create_table(?ROUTE_TAB, [
                 {type, bag},
                 {ram_copies, [node()]},
                 {record_name, route},
@@ -83,7 +83,7 @@ mnesia(boot) ->
                 {storage_properties, [{ets, [{read_concurrency, true},
                                              {write_concurrency, true}]}]}]);
 mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?ROUTE).
+    ok = ekka_mnesia:copy_table(?ROUTE_TAB).
 
 %%--------------------------------------------------------------------
 %% Start a router
@@ -102,7 +102,7 @@ start_link(Pool, Id) ->
 add_route(Topic) when is_binary(Topic) ->
     add_route(Topic, node()).
 
--spec(add_route(emqx_topic:topic(), destination()) -> ok | {error, term()}).
+-spec(add_route(emqx_topic:topic(), dest()) -> ok | {error, term()}).
 add_route(Topic, Dest) when is_binary(Topic) ->
     call(pick(Topic), {add_route, Topic, Dest}).
 
@@ -110,7 +110,7 @@ add_route(Topic, Dest) when is_binary(Topic) ->
 do_add_route(Topic) when is_binary(Topic) ->
     do_add_route(Topic, node()).
 
--spec(do_add_route(emqx_topic:topic(), destination()) -> ok | {error, term()}).
+-spec(do_add_route(emqx_topic:topic(), dest()) -> ok | {error, term()}).
 do_add_route(Topic, Dest) when is_binary(Topic) ->
     Route = #route{topic = Topic, dest = Dest},
     case lists:member(Route, lookup_routes(Topic)) of
@@ -142,17 +142,17 @@ match_trie(Topic) ->
 
 -spec(lookup_routes(emqx_topic:topic()) -> [emqx_types:route()]).
 lookup_routes(Topic) ->
-    ets:lookup(?ROUTE, Topic).
+    ets:lookup(?ROUTE_TAB, Topic).
 
 -spec(has_routes(emqx_topic:topic()) -> boolean()).
 has_routes(Topic) when is_binary(Topic) ->
-    ets:member(?ROUTE, Topic).
+    ets:member(?ROUTE_TAB, Topic).
 
 -spec(delete_route(emqx_topic:topic()) -> ok | {error, term()}).
 delete_route(Topic) when is_binary(Topic) ->
     delete_route(Topic, node()).
 
--spec(delete_route(emqx_topic:topic(), destination()) -> ok | {error, term()}).
+-spec(delete_route(emqx_topic:topic(), dest()) -> ok | {error, term()}).
 delete_route(Topic, Dest) when is_binary(Topic) ->
     call(pick(Topic), {delete_route, Topic, Dest}).
 
@@ -160,7 +160,7 @@ delete_route(Topic, Dest) when is_binary(Topic) ->
 do_delete_route(Topic) when is_binary(Topic) ->
     do_delete_route(Topic, node()).
 
--spec(do_delete_route(emqx_topic:topic(), destination()) -> ok | {error, term()}).
+-spec(do_delete_route(emqx_topic:topic(), dest()) -> ok | {error, term()}).
 do_delete_route(Topic, Dest) ->
     Route = #route{topic = Topic, dest = Dest},
     case emqx_topic:wildcard(Topic) of
@@ -170,7 +170,7 @@ do_delete_route(Topic, Dest) ->
 
 -spec(topics() -> list(emqx_topic:topic())).
 topics() ->
-    mnesia:dirty_all_keys(?ROUTE).
+    mnesia:dirty_all_keys(?ROUTE_TAB).
 
 %% @doc Print routes to a topic
 -spec(print_routes(emqx_topic:topic()) -> ok).
@@ -224,25 +224,25 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 insert_direct_route(Route) ->
-    mnesia:async_dirty(fun mnesia:write/3, [?ROUTE, Route, sticky_write]).
+    mnesia:async_dirty(fun mnesia:write/3, [?ROUTE_TAB, Route, sticky_write]).
 
 insert_trie_route(Route = #route{topic = Topic}) ->
-    case mnesia:wread({?ROUTE, Topic}) of
+    case mnesia:wread({?ROUTE_TAB, Topic}) of
         [] -> emqx_trie:insert(Topic);
         _  -> ok
     end,
-    mnesia:write(?ROUTE, Route, sticky_write).
+    mnesia:write(?ROUTE_TAB, Route, sticky_write).
 
 delete_direct_route(Route) ->
-    mnesia:async_dirty(fun mnesia:delete_object/3, [?ROUTE, Route, sticky_write]).
+    mnesia:async_dirty(fun mnesia:delete_object/3, [?ROUTE_TAB, Route, sticky_write]).
 
 delete_trie_route(Route = #route{topic = Topic}) ->
-    case mnesia:wread({?ROUTE, Topic}) of
+    case mnesia:wread({?ROUTE_TAB, Topic}) of
         [Route] -> %% Remove route and trie
-                   ok = mnesia:delete_object(?ROUTE, Route, sticky_write),
+                  ok = mnesia:delete_object(?ROUTE_TAB, Route, sticky_write),
                    emqx_trie:delete(Topic);
         [_|_]   -> %% Remove route only
-                   mnesia:delete_object(?ROUTE, Route, sticky_write);
+                   mnesia:delete_object(?ROUTE_TAB, Route, sticky_write);
         []      -> ok
     end.
 

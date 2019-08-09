@@ -19,14 +19,9 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include("emqx_mqtt.hrl").
-
 -include_lib("eunit/include/eunit.hrl").
 
--include_lib("common_test/include/ct.hrl").
-
-all() ->
-    [t_connect_api].
+all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([]),
@@ -35,40 +30,28 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
-t_connect_api(_Config) ->
-    {ok, T1} = emqx_client:start_link([{host, "localhost"},
-                                       {client_id, <<"client1">>},
-                                       {username, <<"testuser1">>},
-                                       {password, <<"pass1">>}]),
-    {ok, _} = emqx_client:connect(T1),
-    CPid = emqx_cm:lookup_conn_pid(<<"client1">>),
-    ConnStats = emqx_channel:stats(CPid),
-    ok = t_stats(ConnStats),
-    ConnAttrs = emqx_channel:attrs(CPid),
-    ok = t_attrs(ConnAttrs),
-    ConnInfo = emqx_channel:info(CPid),
-    ok = t_info(ConnInfo),
-    SessionPid = emqx_channel:session(CPid),
-    true = is_pid(SessionPid),
-    emqx_client:disconnect(T1).
+t_basic(_) ->
+    Topic = <<"TopicA">>,
+    {ok, C} = emqtt:start_link([{port, 1883}, {client_id, <<"hello">>}]),
+    {ok, _} = emqtt:connect(C),
+    {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
+    {ok, _, [2]} = emqtt:subscribe(C, Topic, qos2),
+    {ok, _} = emqtt:publish(C, Topic, <<"qos 2">>, 2),
+    {ok, _} = emqtt:publish(C, Topic, <<"qos 2">>, 2),
+    {ok, _} = emqtt:publish(C, Topic, <<"qos 2">>, 2),
+    ?assertEqual(3, length(recv_msgs(3))),
+    ok = emqtt:disconnect(C).
 
-t_info(ConnInfo) ->
-    ?assertEqual(tcp, maps:get(socktype, ConnInfo)),
-    ?assertEqual(running, maps:get(conn_state, ConnInfo)),
-    ?assertEqual(<<"client1">>, maps:get(client_id, ConnInfo)),
-    ?assertEqual(<<"testuser1">>, maps:get(username, ConnInfo)),
-    ?assertEqual(<<"MQTT">>, maps:get(proto_name, ConnInfo)).
+recv_msgs(Count) ->
+    recv_msgs(Count, []).
 
-t_attrs(AttrsData) ->
-    ?assertEqual(<<"client1">>, maps:get(client_id, AttrsData)),
-    ?assertEqual(emqx_channel, maps:get(conn_mod, AttrsData)),
-    ?assertEqual(<<"testuser1">>, maps:get(username, AttrsData)).
+recv_msgs(0, Msgs) ->
+    Msgs;
+recv_msgs(Count, Msgs) ->
+    receive
+        {publish, Msg} ->
+            recv_msgs(Count-1, [Msg|Msgs])
+    after 100 ->
+        Msgs
+    end.
 
-t_stats(StatsData) ->
-    ?assertEqual(true, proplists:get_value(recv_oct, StatsData) >= 0),
-    ?assertEqual(true, proplists:get_value(mailbox_len, StatsData) >= 0),
-    ?assertEqual(true, proplists:get_value(heap_size, StatsData) >= 0),
-    ?assertEqual(true, proplists:get_value(reductions, StatsData) >=0),
-    ?assertEqual(true, proplists:get_value(recv_pkt, StatsData) =:=1),
-    ?assertEqual(true, proplists:get_value(recv_msg, StatsData) >=0),
-    ?assertEqual(true, proplists:get_value(send_pkt, StatsData) =:=1).

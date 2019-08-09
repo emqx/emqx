@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_hooks_SUITE).
 
@@ -18,12 +20,10 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
 
-all() ->
-    [add_delete_hook, run_hook].
+all() -> emqx_ct:all(?MODULE).
 
-add_delete_hook(_) ->
+t_add_del_hook(_) ->
     {ok, _} = emqx_hooks:start_link(),
     ok = emqx:hook(test_hook, fun ?MODULE:hook_fun1/1, []),
     ok = emqx:hook(test_hook, fun ?MODULE:hook_fun2/1, []),
@@ -54,7 +54,7 @@ add_delete_hook(_) ->
     ?assertEqual([], emqx_hooks:lookup(emqx_hook)),
     ok = emqx_hooks:stop().
 
-run_hook(_) ->
+t_run_hooks(_) ->
     {ok, _} = emqx_hooks:start_link(),
     ok = emqx:hook(foldl_hook, fun ?MODULE:hook_fun3/4, [init]),
     ok = emqx:hook(foldl_hook, {?MODULE, hook_fun3, [init]}),
@@ -84,6 +84,10 @@ run_hook(_) ->
 
     ok = emqx_hooks:stop().
 
+%%--------------------------------------------------------------------
+%% Hook fun
+%%--------------------------------------------------------------------
+
 hook_fun1(arg) -> ok;
 hook_fun1(_) -> error.
 
@@ -102,7 +106,7 @@ hook_fun7(arg, initArg) -> ok.
 hook_fun8(arg, initArg) -> ok.
 
 hook_fun9(arg, Acc)  -> {stop, [r9 | Acc]}.
-hook_fun10(arg, Acc)  -> {stop, [r10 | Acc]}.
+hook_fun10(arg, Acc) -> {stop, [r10 | Acc]}.
 
 hook_filter1(arg) -> true;
 hook_filter1(_) -> false.
@@ -110,6 +114,7 @@ hook_filter1(_) -> false.
 hook_filter2(arg, _Acc, init_arg) -> true;
 hook_filter2(_, _Acc, _IntArg) -> false.
 
-hook_filter2_1(arg, _Acc, init_arg) -> true;
+hook_filter2_1(arg, _Acc, init_arg)  -> true;
 hook_filter2_1(arg1, _Acc, init_arg) -> true;
-hook_filter2_1(_, _Acc, _IntArg) -> false.
+hook_filter2_1(_, _Acc, _IntArg)     -> false.
+

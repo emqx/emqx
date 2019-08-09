@@ -293,7 +293,6 @@ websocket_info({timeout, Timer, emit_stats},
                       proto_state = ProtoState,
                       gc_state    = GcState}) ->
     ClientId = emqx_protocol:info(client_id, ProtoState),
-    ok = emqx_cm:register_channel(ClientId),
     ok = emqx_cm:set_chan_stats(ClientId, stats(State)),
     NState = State#state{stats_timer = undefined},
     Limits = erlang:get(force_shutdown_policy),
@@ -321,6 +320,12 @@ websocket_info({timeout, Timer, Msg},
         {error, Reason, NProtoState} ->
             stop(Reason, State#state{proto_state = NProtoState})
     end;
+
+websocket_info({subscribe, TopicFilters}, State) ->
+    handle_request({subscribe, TopicFilters}, State);
+
+websocket_info({unsubscribe, TopicFilters}, State) ->
+    handle_request({unsubscribe, TopicFilters}, State);
 
 websocket_info({shutdown, discard, {ClientId, ByPid}}, State) ->
     ?LOG(warning, "Discarded by ~s:~p", [ClientId, ByPid]),
@@ -360,6 +365,7 @@ connected(State = #state{proto_state = ProtoState}) ->
                          connected_at = os:timestamp()
                         },
     ClientId = emqx_protocol:info(client_id, ProtoState),
+    ok = emqx_cm:register_channel(ClientId),
     ok = emqx_cm:set_chan_attrs(ClientId, info(NState)),
     %% Ensure keepalive after connected successfully.
     Interval = emqx_protocol:info(keepalive, ProtoState),
@@ -380,6 +386,17 @@ ensure_keepalive(Interval, #state{proto_state = ProtoState}) ->
     Backoff = emqx_zone:get_env(emqx_protocol:info(zone, ProtoState),
                                 keepalive_backoff, 0.75),
     emqx_keepalive:start(stat_fun(), round(Interval * Backoff), {keepalive, check}).
+
+%%--------------------------------------------------------------------
+%% Handle internal request
+
+handle_request(Req, State = #state{proto_state = ProtoState}) ->
+    case emqx_protocol:handle_req(Req, ProtoState) of
+        {ok, _Result, NProtoState} -> %% TODO:: how to handle the result?
+            {ok, State#state{proto_state = NProtoState}};
+        {error, Reason, NProtoState} ->
+            stop(Reason, State#state{proto_state = NProtoState})
+    end.
 
 %%--------------------------------------------------------------------
 %% Process incoming data
@@ -419,8 +436,8 @@ handle_incoming(Packet = ?PACKET(Type), SuccFun,
             SuccFun(enqueue(OutPackets, State#state{proto_state = NProtoState}));
         {error, Reason, NProtoState} ->
             stop(Reason, State#state{proto_state = NProtoState});
-        {error, Reason, OutPackets, NProtoState} ->
-            stop(Reason, enqueue(OutPackets, State#state{proto_state = NProtoState}));
+        {error, Reason, OutPacket, NProtoState} ->
+            stop(Reason, enqueue(OutPacket, State#state{proto_state = NProtoState}));
         {stop, Error, NProtoState} ->
             stop(Error, State#state{proto_state = NProtoState})
     end.

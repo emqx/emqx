@@ -53,6 +53,7 @@
 -export([init/3]).
 
 -export([ info/1
+        , info/2
         , attrs/1
         , stats/1
         ]).
@@ -62,10 +63,10 @@
         ]).
 
 -export([ publish/3
-        , puback/3
-        , pubrec/3
-        , pubrel/3
-        , pubcomp/3
+        , puback/2
+        , pubrec/2
+        , pubrel/2
+        , pubcomp/2
         ]).
 
 -export([deliver/2]).
@@ -78,6 +79,9 @@
         [ get_env/2
         , get_env/3
         ]).
+
+%% For test case
+-export([set_pkt_id/2]).
 
 -record(session, {
           %% Clean Start Flag
@@ -136,6 +140,8 @@
 
 -opaque(session() :: #session{}).
 
+-type(publish() :: {publish, emqx_types:packet_id(), emqx_types:message()}).
+
 -define(DEFAULT_BATCH_N, 1000).
 
 %%--------------------------------------------------------------------
@@ -156,7 +162,7 @@ init(CleanStart, #{zone := Zone}, #{max_inflight := MaxInflight,
              retry_interval    = get_env(Zone, retry_interval, 0),
              awaiting_rel      = #{},
              max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
-             await_rel_timeout = get_env(Zone, await_rel_timeout),
+             await_rel_timeout = get_env(Zone, await_rel_timeout, 3600*1000),
              expiry_interval   = ExpiryInterval,
              created_at        = os:timestamp()
             }.
@@ -164,8 +170,8 @@ init(CleanStart, #{zone := Zone}, #{max_inflight := MaxInflight,
 init_mqueue(Zone) ->
     emqx_mqueue:init(#{max_len => get_env(Zone, max_mqueue_len, 1000),
                        store_qos0 => get_env(Zone, mqueue_store_qos0, true),
-                       priorities => get_env(Zone, mqueue_priorities),
-                       default_priority => get_env(Zone, mqueue_default_priority)
+                       priorities => get_env(Zone, mqueue_priorities, none),
+                       default_priority => get_env(Zone, mqueue_default_priority, lowest)
                       }).
 
 %%--------------------------------------------------------------------
@@ -203,6 +209,39 @@ info(#session{clean_start = CleanStart,
       expiry_interval => ExpiryInterval div 1000,
       created_at => CreatedAt
      }.
+
+info(clean_start, #session{clean_start = CleanStart}) ->
+    CleanStart;
+info(subscriptions, #session{subscriptions = Subs}) ->
+    Subs;
+info(max_subscriptions, #session{max_subscriptions = MaxSubs}) ->
+    MaxSubs;
+info(upgrade_qos, #session{upgrade_qos = UpgradeQoS}) ->
+    UpgradeQoS;
+info(inflight, #session{inflight = Inflight}) ->
+    emqx_inflight:size(Inflight);
+info(max_inflight, #session{inflight = Inflight}) ->
+    emqx_inflight:max_size(Inflight);
+info(retry_interval, #session{retry_interval = Interval}) ->
+    Interval;
+info(mqueue_len, #session{mqueue = MQueue}) ->
+    emqx_mqueue:len(MQueue);
+info(max_mqueue, #session{mqueue = MQueue}) ->
+    emqx_mqueue:max_len(MQueue);
+info(mqueue_dropped, #session{mqueue = MQueue}) ->
+    emqx_mqueue:dropped(MQueue);
+info(next_pkt_id, #session{next_pkt_id = PacketId}) ->
+    PacketId;
+info(awaiting_rel, #session{awaiting_rel = AwaitingRel}) ->
+    maps:size(AwaitingRel);
+info(max_awaiting_rel, #session{max_awaiting_rel = MaxAwaitingRel}) ->
+    MaxAwaitingRel;
+info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
+    Timeout;
+info(expiry_interval, #session{expiry_interval = Interval}) ->
+    Interval div 1000;
+info(created_at, #session{created_at = CreatedAt}) ->
+    CreatedAt.
 
 %%--------------------------------------------------------------------
 %% Attrs of the session
@@ -333,14 +372,18 @@ do_publish(PacketId, Msg = #message{timestamp = Ts},
 %% Client -> Broker: PUBACK
 %%--------------------------------------------------------------------
 
--spec(puback(emqx_types:packet_id(), emqx_types:reason_code(), session())
-      -> {ok, session()} | {error, emqx_types:reason_code()}).
-puback(PacketId, _ReasonCode, Session = #session{inflight = Inflight}) ->
+-spec(puback(emqx_types:packet_id(), session())
+      -> {ok, session()} | {ok, list(publish()), session()} |
+         {error, emqx_types:reason_code()}).
+puback(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
             dequeue(Session#session{inflight = Inflight1});
-        false ->
+        {value, {_OtherPub, _Ts}} ->
+            ?LOG(warning, "The PacketId has been used, PacketId: ~p", [PacketId]),
+            {error, ?RC_PACKET_IDENTIFIER_IN_USE};
+        none ->
             ?LOG(warning, "The PUBACK PacketId ~w is not found", [PacketId]),
             ok = emqx_metrics:inc('packets.puback.missed'),
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
@@ -350,9 +393,9 @@ puback(PacketId, _ReasonCode, Session = #session{inflight = Inflight}) ->
 %% Client -> Broker: PUBREC
 %%--------------------------------------------------------------------
 
--spec(pubrec(emqx_types:packet_id(), emqx_types:reason_code(), session())
+-spec(pubrec(emqx_types:packet_id(), session())
       -> {ok, session()} | {error, emqx_types:reason_code()}).
-pubrec(PacketId, _ReasonCode, Session = #session{inflight = Inflight}) ->
+pubrec(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:lookup(PacketId, Inflight) of
         {value, {Msg, _Ts}} when is_record(Msg, message) ->
             Inflight1 = emqx_inflight:update(PacketId, {pubrel, os:timestamp()}, Inflight),
@@ -371,9 +414,9 @@ pubrec(PacketId, _ReasonCode, Session = #session{inflight = Inflight}) ->
 %% Client -> Broker: PUBREL
 %%--------------------------------------------------------------------
 
--spec(pubrel(emqx_types:packet_id(), emqx_types:reason_code(), session())
+-spec(pubrel(emqx_types:packet_id(), session())
       -> {ok, session()} | {error, emqx_types:reason_code()}).
-pubrel(PacketId, _ReasonCode, Session = #session{awaiting_rel = AwaitingRel}) ->
+pubrel(PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
     case maps:take(PacketId, AwaitingRel) of
         {_Ts, AwaitingRel1} ->
             {ok, Session#session{awaiting_rel = AwaitingRel1}};
@@ -387,9 +430,10 @@ pubrel(PacketId, _ReasonCode, Session = #session{awaiting_rel = AwaitingRel}) ->
 %% Client -> Broker: PUBCOMP
 %%--------------------------------------------------------------------
 
--spec(pubcomp(emqx_types:packet_id(), emqx_types:reason_code(), session())
-      -> {ok, session()} | {error, emqx_types:reason_code()}).
-pubcomp(PacketId, _ReasonCode, Session = #session{inflight = Inflight}) ->
+-spec(pubcomp(emqx_types:packet_id(), session())
+      -> {ok, session()} | {ok, list(publish()), session()} |
+         {error, emqx_types:reason_code()}).
+pubcomp(PacketId, Session = #session{inflight = Inflight}) ->
     case emqx_inflight:contain(PacketId, Inflight) of
         true ->
             Inflight1 = emqx_inflight:delete(PacketId, Inflight),
@@ -611,7 +655,8 @@ expire_awaiting_rel([], _Now, Session) ->
     {ok, Session#session{await_rel_timer = undefined}};
 
 expire_awaiting_rel([{PacketId, Ts} | More], Now,
-                    Session = #session{awaiting_rel = AwaitingRel, await_rel_timeout = Timeout}) ->
+                    Session = #session{awaiting_rel = AwaitingRel,
+                                       await_rel_timeout = Timeout}) ->
     case (timer:now_diff(Now, Ts) div 1000) of
         Age when Age >= Timeout ->
             ok = emqx_metrics:inc('messages.qos2.expired'),
@@ -619,7 +664,7 @@ expire_awaiting_rel([{PacketId, Ts} | More], Now,
             Session1 = Session#session{awaiting_rel = maps:remove(PacketId, AwaitingRel)},
             expire_awaiting_rel(More, Now, Session1);
         Age ->
-            ensure_await_rel_timer(Timeout - max(0, Age), Session)
+            {ok, ensure_await_rel_timer(Timeout - max(0, Age), Session)}
     end.
 
 %%--------------------------------------------------------------------
@@ -632,3 +677,10 @@ next_pkt_id(Session = #session{next_pkt_id = 16#FFFF}) ->
 next_pkt_id(Session = #session{next_pkt_id = Id}) ->
     Session#session{next_pkt_id = Id + 1}.
 
+%%---------------------------------------------------------------------
+%% For Test case
+%%---------------------------------------------------------------------
+
+
+set_pkt_id(Session, PktId) ->
+    Session#session{next_pkt_id = PktId}.

@@ -20,7 +20,7 @@
 
 -include("logger.hrl").
 -include("types.hrl").
--include("emqx_client.hrl").
+-include("emqx_mqtt.hrl").
 
 -logger_header("[Client]").
 
@@ -144,7 +144,17 @@
                 | {force_ping, boolean()}
                 | {properties, properties()}).
 
--type(mqtt_msg() :: #mqtt_msg{}).
+-record(mqtt_msg, {
+          qos = ?QOS_0,
+          retain = false,
+          dup = false,
+          packet_id,
+          topic,
+          props,
+          payload
+         }).
+
+-opaque(mqtt_msg() :: #mqtt_msg{}).
 
 -record(state, {name            :: atom(),
                 owner           :: pid(),
@@ -1201,7 +1211,7 @@ send(Msg, State) when is_record(Msg, mqtt_msg) ->
 
 send(Packet, State = #state{socket = Sock, proto_ver = Ver})
     when is_record(Packet, mqtt_packet) ->
-    Data = emqx_frame:serialize(Packet, #{version => Ver}),
+    Data = emqx_frame:serialize(Packet, Ver),
     ?LOG(debug, "SEND Data: ~1000p", [Packet]),
     case emqx_client_sock:send(Sock, Data) of
         ok  -> {ok, bump_last_packet_id(State)};
@@ -1246,4 +1256,3 @@ bump_last_packet_id(State = #state{last_packet_id = Id}) ->
 -spec next_packet_id(packet_id()) -> packet_id().
 next_packet_id(?MAX_PACKET_ID) -> 1;
 next_packet_id(Id) -> Id + 1.
-

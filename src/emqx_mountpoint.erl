@@ -17,7 +17,7 @@
 -module(emqx_mountpoint).
 
 -include("emqx.hrl").
--include("logger.hrl").
+-include("types.hrl").
 
 -export([ mount/2
         , unmount/2
@@ -29,41 +29,46 @@
 
 -type(mountpoint() :: binary()).
 
-%%--------------------------------------------------------------------
-%% APIs
-%%--------------------------------------------------------------------
-
+-spec(mount(maybe(mountpoint()), Any) -> Any
+  when Any :: emqx_types:topic()
+            | emqx_types:message()
+            | emqx_types:topic_filters()).
 mount(undefined, Any) ->
     Any;
 mount(MountPoint, Topic) when is_binary(Topic) ->
-    <<MountPoint/binary, Topic/binary>>;
+    prefix(MountPoint, Topic);
 mount(MountPoint, Msg = #message{topic = Topic}) ->
-    Msg#message{topic = <<MountPoint/binary, Topic/binary>>};
+    Msg#message{topic = prefix(MountPoint, Topic)};
 mount(MountPoint, TopicFilters) when is_list(TopicFilters) ->
-    [{<<MountPoint/binary, Topic/binary>>, SubOpts}
-     || {Topic, SubOpts} <- TopicFilters].
+    [{prefix(MountPoint, Topic), SubOpts} || {Topic, SubOpts} <- TopicFilters].
 
-unmount(undefined, Msg) ->
-    Msg;
-%% TODO: Fixme later
+%% @private
+-compile({inline, [prefix/2]}).
+prefix(MountPoint, Topic) ->
+    <<MountPoint/binary, Topic/binary>>.
+
+-spec(unmount(maybe(mountpoint()), Any) -> Any
+  when Any :: emqx_types:topic()
+            | emqx_types:message()).
+unmount(undefined, Any) ->
+    Any;
 unmount(MountPoint, Topic) when is_binary(Topic) ->
-    try split_binary(Topic, byte_size(MountPoint)) of
-        {MountPoint, Topic1} -> Topic1
-    catch
-        error:badarg-> Topic
+    case string:prefix(Topic, MountPoint) of
+        nomatch -> Topic;
+        Topic1  -> Topic1
     end;
 unmount(MountPoint, Msg = #message{topic = Topic}) ->
-    try split_binary(Topic, byte_size(MountPoint)) of
-        {MountPoint, Topic1} -> Msg#message{topic = Topic1}
-    catch
-        error:badarg->
-            Msg
+    case string:prefix(Topic, MountPoint) of
+        nomatch -> Msg;
+        Topic1  -> Msg#message{topic = Topic1}
     end.
 
+-spec(replvar(maybe(mountpoint()), map()) -> maybe(mountpoint())).
 replvar(undefined, _Vars) ->
     undefined;
 replvar(MountPoint, #{client_id := ClientId, username := Username}) ->
-    lists:foldl(fun feed_var/2, MountPoint, [{<<"%c">>, ClientId}, {<<"%u">>, Username}]).
+    lists:foldl(fun feed_var/2, MountPoint,
+                [{<<"%c">>, ClientId}, {<<"%u">>, Username}]).
 
 feed_var({<<"%c">>, ClientId}, MountPoint) ->
     emqx_topic:feed_var(<<"%c">>, ClientId, MountPoint);

@@ -21,8 +21,15 @@
         , now_secs/1
         , now_ms/0
         , now_ms/1
-        , ts_from_ms/1
         ]).
+
+-compile({inline,
+          [ seed/0
+          , now_secs/0
+          , now_secs/1
+          , now_ms/0
+          , now_ms/1
+          ]}).
 
 seed() ->
     rand:seed(exsplus, erlang:timestamp()).
@@ -38,7 +45,4 @@ now_ms() ->
 
 now_ms({MegaSecs, Secs, MicroSecs}) ->
     (MegaSecs * 1000000 + Secs) * 1000 + round(MicroSecs/1000).
-
-ts_from_ms(Ms) ->
-    {Ms div 1000000, Ms rem 1000000, 0}.
 

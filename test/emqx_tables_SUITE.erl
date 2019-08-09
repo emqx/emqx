@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,18 +12,34 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_tables_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
-all() -> [t_new].
+-include_lib("eunit/include/eunit.hrl").
+
+-define(TAB, ?MODULE).
+
+all() -> emqx_ct:all(?MODULE).
 
 t_new(_) ->
-    ok = emqx_tables:new(test_table, [{read_concurrency, true}]),
-    ets:insert(test_table, {key, 100}),
-    ok = emqx_tables:new(test_table, [{read_concurrency, true}]),
-    100 = ets:lookup_element(test_table, key, 2),
-    ok = emqx_tables:delete(test_table),
-    ok = emqx_tables:delete(test_table).
+    ok = emqx_tables:new(?TAB),
+    ok = emqx_tables:new(?TAB, [{read_concurrency, true}]),
+    ?assertEqual(?TAB, ets:info(?TAB, name)).
+
+t_lookup_value(_) ->
+    ok = emqx_tables:new(?TAB, []),
+    true = ets:insert(?TAB, {key, val}),
+    ?assertEqual(val, emqx_tables:lookup_value(?TAB, key)),
+    ?assertEqual(undefined, emqx_tables:lookup_value(?TAB, badkey)).
+
+t_delete(_) ->
+    ok = emqx_tables:new(?TAB, []),
+    ?assertEqual(?TAB, ets:info(?TAB, name)),
+    ok = emqx_tables:delete(?TAB),
+    ok = emqx_tables:delete(?TAB),
+    ?assertEqual(undefined, ets:info(?TAB, name)).
+

@@ -290,6 +290,13 @@ connected(info, Deliver = {deliver, _Topic, _Msg},
             shutdown(Reason, State#state{proto_state = NProtoState})
     end;
 
+%% TODO: Improve later.
+connected(info, {subscribe, TopicFilters}, State) ->
+    handle_request({subscribe, TopicFilters}, State);
+
+connected(info, {unsubscribe, TopicFilters}, State) ->
+    handle_request({unsubscribe, TopicFilters}, State);
+
 %% Keepalive timer
 connected(info, {keepalive, check}, State = #state{keepalive = KeepAlive}) ->
     case emqx_keepalive:check(KeepAlive) of
@@ -452,6 +459,17 @@ terminate(Reason, _StateName, #state{transport   = Transport,
     emqx_protocol:terminate(Reason, ProtoState).
 
 %%--------------------------------------------------------------------
+%% Handle internal request
+
+handle_request(Req, State = #state{proto_state = ProtoState}) ->
+    case emqx_protocol:handle_req(Req, ProtoState) of
+        {ok, _Result, NProtoState} -> %% TODO:: how to handle the result?
+            keep_state(State#state{proto_state = NProtoState});
+        {error, Reason, NProtoState} ->
+            shutdown(Reason, State#state{proto_state = NProtoState})
+    end.
+
+%%--------------------------------------------------------------------
 %% Process incoming data
 
 -compile({inline, [process_incoming/2]}).
@@ -498,6 +516,9 @@ handle_incoming(Packet = ?PACKET(Type), SuccFun,
                             State#state{proto_state = NProtoState});
         {error, Reason, NProtoState} ->
             shutdown(Reason, State#state{proto_state = NProtoState});
+        {error, Reason, OutPacket, NProtoState} ->
+            Shutdown = fun(NewSt) -> shutdown(Reason, NewSt) end,
+            handle_outgoing(OutPacket, Shutdown, State#state{proto_state = NProtoState});
         {stop, Error, NProtoState} ->
             stop(Error, State#state{proto_state = NProtoState})
     end.

@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,8 +12,13 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
--module(emqx_misc_tests).
+-module(emqx_misc_SUITE).
+
+-compile(export_all).
+-compile(nowarn_export_all).
+
 -include_lib("eunit/include/eunit.hrl").
 
 -define(SOCKOPTS, [binary,
@@ -21,8 +27,9 @@
                    {backlog,   512},
                    {nodelay,   true}]).
 
+all() -> emqx_ct:all(?MODULE).
 
-t_merge_opts_test() ->
+t_merge_opts() ->
     Opts = emqx_misc:merge_opts(?SOCKOPTS, [raw,
                                             binary,
                                             {backlog, 1024},
@@ -39,32 +46,46 @@ t_merge_opts_test() ->
      {packet, raw},
      {reuseaddr, true}] = lists:sort(Opts).
 
-timer_cancel_flush_test() ->
+t_timer_cancel_flush() ->
     Timer = emqx_misc:start_timer(0, foo),
     ok = emqx_misc:cancel_timer(Timer),
-    receive {timeout, Timer, foo} -> error(unexpected)
+    receive
+        {timeout, Timer, foo} ->
+            error(unexpected)
     after 0 -> ok
     end.
 
-shutdown_disabled_test() ->
+t_shutdown_disabled() ->
     ok = drain(),
     self() ! foo,
-    ?assertEqual(continue, conn_proc_mng_policy(0)),
+    ?assertEqual(continue, emqx_misc:conn_proc_mng_policy(0)),
     receive foo -> ok end,
-    ?assertEqual(hibernate, conn_proc_mng_policy(0)).
+    ?assertEqual(hibernate, emqx_misc:conn_proc_mng_policy(0)).
 
-message_queue_too_long_test() ->
+t_message_queue_too_long() ->
     ok = drain(),
     self() ! foo,
     self() ! bar,
     ?assertEqual({shutdown, message_queue_too_long},
-                 conn_proc_mng_policy(1)),
+                 emqx_misc:conn_proc_mng_policy(1)),
     receive foo -> ok end,
-    ?assertEqual(continue, conn_proc_mng_policy(1)),
+    ?assertEqual(continue, emqx_misc:conn_proc_mng_policy(1)),
     receive bar -> ok end.
 
-conn_proc_mng_policy(L) ->
+t_conn_proc_mng_policy(L) ->
     emqx_misc:conn_proc_mng_policy(#{message_queue_len => L}).
+
+t_proc_name(_) ->
+    'TODO'.
+
+t_proc_stats(_) ->
+    'TODO'.
+
+t_drain_deliver(_) ->
+    'TODO'.
+
+t_drain_down(_) ->
+    'TODO'.
 
 %% drain self() msg queue for deterministic test behavior
 drain() ->
