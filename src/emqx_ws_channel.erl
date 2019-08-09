@@ -436,6 +436,8 @@ handle_incoming(Packet = ?PACKET(Type), SuccFun,
             SuccFun(enqueue(OutPackets, State#state{proto_state = NProtoState}));
         {error, Reason, NProtoState} ->
             stop(Reason, State#state{proto_state = NProtoState});
+        {error, Reason, OutPacket, NProtoState} ->
+            stop(Reason, enqueue(OutPacket, State#state{proto_state = NProtoState}));
         {stop, Error, NProtoState} ->
             stop(Error, State#state{proto_state = NProtoState})
     end.
