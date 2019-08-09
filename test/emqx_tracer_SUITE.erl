@@ -20,6 +20,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
+
 -include_lib("common_test/include/ct.hrl").
 
 all() -> [t_start_traces].
@@ -44,7 +45,7 @@ t_start_traces(_Config) ->
     emqx_logger:set_log_level(debug),
     ok = emqx_tracer:start_trace({client_id, <<"client">>}, debug, "tmp/client.log"),
     ok = emqx_tracer:start_trace({client_id, <<"client2">>}, all, "tmp/client2.log"),
-    {error, invalid_log_level} = emqx_tracer:start_trace({client_id, <<"client3">>}, bad_level, "tmp/client3.log"),
+    {error, {invalid_log_level, bad_level}} = emqx_tracer:start_trace({client_id, <<"client3">>}, bad_level, "tmp/client3.log"),
     ok = emqx_tracer:start_trace({topic, <<"a/#">>}, all, "tmp/topic_trace.log"),
     ct:sleep(100),
 
@@ -54,9 +55,9 @@ t_start_traces(_Config) ->
     ?assert(filelib:is_regular("tmp/topic_trace.log")),
 
     %% Get current traces
-    ?assertEqual([{{client_id,<<"client">>},{debug,"tmp/client.log"}},
-                  {{client_id,<<"client2">>},{all,"tmp/client2.log"}},
-                  {{topic,<<"a/#">>},{all,"tmp/topic_trace.log"}}], emqx_tracer:lookup_traces()),
+    ?assertEqual([{{client_id,"client"},{debug,"tmp/client.log"}},
+                  {{client_id,"client2"},{debug,"tmp/client2.log"}},
+                  {{topic,"a/#"},{debug,"tmp/topic_trace.log"}}], emqx_tracer:lookup_traces()),
 
     %% set the overall log level to debug
     emqx_logger:set_log_level(debug),
