@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_alarm_handler).
 
@@ -47,9 +49,9 @@
 -define(ALARM_TAB, emqx_alarm).
 -define(ALARM_HISTORY_TAB, emqx_alarm_history).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Mnesia bootstrap
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?ALARM_TAB, [
@@ -64,13 +66,14 @@ mnesia(boot) ->
                 {local_content, true},
                 {record_name, alarm_history},
                 {attributes, record_info(fields, alarm_history)}]);
+
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?ALARM_TAB),
     ok = ekka_mnesia:copy_table(?ALARM_HISTORY_TAB).
 
-%%----------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% API
-%%----------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 load() ->
     gen_event:swap_handler(alarm_handler, {alarm_handler, swap}, {?MODULE, []}).
@@ -89,13 +92,14 @@ get_alarms(history) ->
     Alarms = ets:tab2list(?ALARM_HISTORY_TAB),
     [{Id, Desc, ClearAt} || #alarm_history{id = Id, desc = Desc, clear_at = ClearAt} <- Alarms].
 
-%%----------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% gen_event callbacks
-%%----------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 init({_Args, {alarm_handler, ExistingAlarms}}) ->
     init_tables(ExistingAlarms),
     {ok, []};
+
 init(_) ->
     init_tables([]),
     {ok, []}.
@@ -188,7 +192,7 @@ clear_alarm_(Id) ->
     end.
 
 set_alarm_history(Id, Desc) ->
-    mnesia:dirty_write(?ALARM_HISTORY_TAB, #alarm_history{id = Id,
-                                                          desc = Desc,
-                                                          clear_at = os:timestamp()}).
-
+    His = #alarm_history{id = Id,
+                         desc = Desc,
+                         clear_at = os:timestamp()},
+    mnesia:dirty_write(?ALARM_HISTORY_TAB, His).

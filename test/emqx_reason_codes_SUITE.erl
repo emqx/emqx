@@ -1,6 +1,7 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
-%% Licensed under the Apache License, Version 2.0 (the "License")
+%% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
 %% You may obtain a copy of the License at
 %%
@@ -11,12 +12,15 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
--module(emqx_reason_codes_tests).
+-module(emqx_reason_codes_SUITE).
 
--include_lib("eunit/include/eunit.hrl").
+-compile(export_all).
+-compile(nowarn_export_all).
 
 -include("emqx_mqtt.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -import(lists, [seq/2, zip/2, foreach/2]).
 
@@ -86,25 +90,27 @@
                           ?CONNACK_AUTH,
                           ?CONNACK_SERVER, ?CONNACK_SERVER, ?CONNACK_SERVER, ?CONNACK_SERVER]).
 
-mqttv4_name_test() ->
+all() -> emqx_ct:all(?MODULE).
+
+t_mqttv4_name(_) ->
     (((codes_test(?MQTT_PROTO_V4))
         (seq(0,6)))
        (?MQTTV4_CODE_NAMES))
       (fun emqx_reason_codes:name/2).
 
-mqttv5_name_test() ->
+t_mqttv5_name(_) ->
     (((codes_test(?MQTT_PROTO_V5))
         (?MQTTV5_CODES))
        (?MQTTV5_CODE_NAMES))
       (fun emqx_reason_codes:name/2).
 
-text_test() ->
+t_text(_) ->
     (((codes_test(?MQTT_PROTO_V5))
         (?MQTTV5_CODES))
        (?MQTTV5_TXT))
       (fun emqx_reason_codes:text/1).
 
-compat_test() ->
+t_compat(_) ->
     (((codes_test(connack))
         (?COMPAT_CODES_V5))
        (?COMPAT_CODES_V4))

@@ -34,18 +34,22 @@
 -define(IS_STRING(String),
         (is_list(String) orelse is_binary(String))).
 
-%%%-----------------------------------------------------------------
-%%% Types
--type config() :: #{chars_limit     => pos_integer() | unlimited,
-                    depth           => pos_integer() | unlimited,
-                    max_size        => pos_integer() | unlimited,
-                    report_cb       => logger:report_cb(),
-                    quit        => template()}.
--type template() :: [metakey() | {metakey(),template(),template()} | string()].
--type metakey() :: atom() | [atom()].
+%%--------------------------------------------------------------------
+%% Types
 
-%%%-----------------------------------------------------------------
-%%% API
+-type(config() :: #{chars_limit => pos_integer() | unlimited,
+                    depth       => pos_integer() | unlimited,
+                    max_size    => pos_integer() | unlimited,
+                    report_cb   => logger:report_cb(),
+                    quit        => template()}).
+
+-type(template() :: [metakey() | {metakey(),template(),template()} | string()]).
+
+-type(metakey() :: atom() | [atom()]).
+
+%%--------------------------------------------------------------------
+%% API
+
 -spec format(LogEvent,Config) -> unicode:chardata() when
       LogEvent :: logger:log_event(),
       Config :: config().

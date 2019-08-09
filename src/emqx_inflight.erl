@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,16 +12,20 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_inflight).
 
+-compile(inline).
+
 %% APIs
--export([ new/1
+-export([ new/0
+        , new/1
         , contain/2
         , lookup/2
         , insert/3
         , update/3
-        , update_size/2
+        , resize/2
         , delete/2
         , values/1
         , to_list/1
@@ -31,24 +36,24 @@
         , window/1
         ]).
 
+-export_type([inflight/0]).
+
 -type(key() :: term()).
 
 -type(max_size() :: pos_integer()).
 
--opaque(inflight() :: {?MODULE, max_size(), gb_trees:tree()}).
+-opaque(inflight() :: {inflight, max_size(), gb_trees:tree()}).
 
--define(Inflight(Tree), {?MODULE, _MaxSize, Tree}).
--define(Inflight(MaxSize, Tree), {?MODULE, MaxSize, (Tree)}).
+-define(Inflight(Tree), {inflight, _MaxSize, Tree}).
 
--export_type([inflight/0]).
+-define(Inflight(MaxSize, Tree), {inflight, MaxSize, (Tree)}).
 
-%%------------------------------------------------------------------------------
-%% APIs
-%%------------------------------------------------------------------------------
+-spec(new() -> inflight()).
+new() -> new(0).
 
 -spec(new(non_neg_integer()) -> inflight()).
 new(MaxSize) when MaxSize >= 0 ->
-    {?MODULE, MaxSize, gb_trees:empty()}.
+    ?Inflight(MaxSize, gb_trees:empty()).
 
 -spec(contain(key(), inflight()) -> boolean()).
 contain(Key, ?Inflight(Tree)) ->
@@ -70,8 +75,8 @@ delete(Key, ?Inflight(MaxSize, Tree)) ->
 update(Key, Val, ?Inflight(MaxSize, Tree)) ->
     ?Inflight(MaxSize, gb_trees:update(Key, Val, Tree)).
 
--spec(update_size(integer(), inflight()) -> inflight()).
-update_size(MaxSize, ?Inflight(Tree)) ->
+-spec(resize(integer(), inflight()) -> inflight()).
+resize(MaxSize, ?Inflight(Tree)) ->
     ?Inflight(MaxSize, Tree).
 
 -spec(is_full(inflight()) -> boolean()).

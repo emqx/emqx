@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_banned).
 
@@ -30,9 +32,10 @@
 
 -export([start_link/0]).
 
--export([ add/1
+-export([ check/1
+        , add/1
         , delete/1
-        , check/1
+        , info/1
         ]).
 
 %% gen_server callbacks
@@ -44,14 +47,14 @@
         , code_change/3
         ]).
 
--define(TAB, ?MODULE).
+-define(BANNED_TAB, ?MODULE).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Mnesia bootstrap
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 mnesia(boot) ->
-    ok = ekka_mnesia:create_table(?TAB, [
+    ok = ekka_mnesia:create_table(?BANNED_TAB, [
                 {type, set},
                 {disc_copies, [node()]},
                 {record_name, banned},
@@ -59,32 +62,35 @@ mnesia(boot) ->
                 {storage_properties, [{ets, [{read_concurrency, true}]}]}]);
 
 mnesia(copy) ->
-    ok = ekka_mnesia:copy_table(?TAB).
+    ok = ekka_mnesia:copy_table(?BANNED_TAB).
 
 %% @doc Start the banned server.
 -spec(start_link() -> startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
--spec(check(emqx_types:credentials()) -> boolean()).
+-spec(check(emqx_types:client()) -> boolean()).
 check(#{client_id := ClientId, username := Username, peername := {IPAddr, _}}) ->
-    ets:member(?TAB, {client_id, ClientId})
-        orelse ets:member(?TAB, {username, Username})
-            orelse ets:member(?TAB, {ipaddr, IPAddr}).
+    ets:member(?BANNED_TAB, {client_id, ClientId})
+        orelse ets:member(?BANNED_TAB, {username, Username})
+            orelse ets:member(?BANNED_TAB, {ipaddr, IPAddr}).
 
 -spec(add(emqx_types:banned()) -> ok).
 add(Banned) when is_record(Banned, banned) ->
-    mnesia:dirty_write(?TAB, Banned).
+    mnesia:dirty_write(?BANNED_TAB, Banned).
 
--spec(delete({client_id, emqx_types:client_id()}
-             | {username, emqx_types:username()}
-             | {peername, emqx_types:peername()}) -> ok).
+-spec(delete({client_id, emqx_types:client_id()} |
+             {username, emqx_types:username()} |
+             {peername, emqx_types:peername()}) -> ok).
 delete(Key) ->
-    mnesia:dirty_delete(?TAB, Key).
+    mnesia:dirty_delete(?BANNED_TAB, Key).
 
-%%------------------------------------------------------------------------------
+info(InfoKey) ->
+    mnesia:table_info(?BANNED_TAB, InfoKey).
+
+%%--------------------------------------------------------------------
 %% gen_server callbacks
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 init([]) ->
     {ok, ensure_expiry_timer(#{expiry_timer => undefined})}.
@@ -98,7 +104,8 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
-    mnesia:async_dirty(fun expire_banned_items/1, [erlang:system_time(second)]),
+    mnesia:async_dirty(fun expire_banned_items/1,
+                       [erlang:system_time(second)]),
     {noreply, ensure_expiry_timer(State), hibernate};
 
 handle_info(Info, State) ->
@@ -111,9 +118,9 @@ terminate(_Reason, #{expiry_timer := TRef}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 -ifdef(TEST).
 ensure_expiry_timer(State) ->
@@ -126,6 +133,7 @@ ensure_expiry_timer(State) ->
 expire_banned_items(Now) ->
     mnesia:foldl(
       fun(B = #banned{until = Until}, _Acc) when Until < Now ->
-              mnesia:delete_object(?TAB, B, sticky_write);
+              mnesia:delete_object(?BANNED_TAB, B, sticky_write);
          (_, _Acc) -> ok
-      end, ok, ?TAB).
+      end, ok, ?BANNED_TAB).
+

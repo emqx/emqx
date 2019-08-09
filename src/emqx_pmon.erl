@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_pmon).
 
@@ -30,50 +32,53 @@
 
 -export([count/1]).
 
--type(pmon() :: {?MODULE, map()}).
 -export_type([pmon/0]).
 
-%%------------------------------------------------------------------------------
+-opaque(pmon() :: {?MODULE, map()}).
+
+-define(PMON(Map), {?MODULE, Map}).
+
+%%--------------------------------------------------------------------
 %% APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 -spec(new() -> pmon()).
-new() ->
-    {?MODULE, maps:new()}.
+new() -> ?PMON(maps:new()).
 
 -spec(monitor(pid(), pmon()) -> pmon()).
-monitor(Pid, PM) ->
-    ?MODULE:monitor(Pid, undefined, PM).
+monitor(Pid, PMon) ->
+    ?MODULE:monitor(Pid, undefined, PMon).
 
 -spec(monitor(pid(), term(), pmon()) -> pmon()).
-monitor(Pid, Val, {?MODULE, PM}) ->
-    {?MODULE, case maps:is_key(Pid, PM) of
-                  true  -> PM;
-                  false -> Ref = erlang:monitor(process, Pid),
-                           maps:put(Pid, {Ref, Val}, PM)
-              end}.
+monitor(Pid, Val, PMon = ?PMON(Map)) ->
+    case maps:is_key(Pid, Map) of
+        true  -> PMon;
+        false ->
+            Ref = erlang:monitor(process, Pid),
+            ?PMON(maps:put(Pid, {Ref, Val}, Map))
+    end.
 
 -spec(demonitor(pid(), pmon()) -> pmon()).
-demonitor(Pid, {?MODULE, PM}) ->
-    {?MODULE, case maps:find(Pid, PM) of
-                  {ok, {Ref, _Val}} ->
-                      %% flush
-                      _ = erlang:demonitor(Ref, [flush]),
-                      maps:remove(Pid, PM);
-                  error -> PM
-              end}.
+demonitor(Pid, PMon = ?PMON(Map)) ->
+    case maps:find(Pid, Map) of
+        {ok, {Ref, _Val}} ->
+            %% flush
+            _ = erlang:demonitor(Ref, [flush]),
+            ?PMON(maps:remove(Pid, Map));
+        error -> PMon
+    end.
 
 -spec(find(pid(), pmon()) -> error | {ok, term()}).
-find(Pid, {?MODULE, PM}) ->
-    case maps:find(Pid, PM) of
+find(Pid, ?PMON(Map)) ->
+    case maps:find(Pid, Map) of
         {ok, {_Ref, Val}} ->
             {ok, Val};
         error -> error
     end.
 
 -spec(erase(pid(), pmon()) -> pmon()).
-erase(Pid, {?MODULE, PM}) ->
-    {?MODULE, maps:remove(Pid, PM)}.
+erase(Pid, ?PMON(Map)) ->
+    ?PMON(maps:remove(Pid, Map)).
 
 -spec(erase_all([pid()], pmon()) -> {[{pid(), term()}], pmon()}).
 erase_all(Pids, PMon0) ->
@@ -87,6 +92,5 @@ erase_all(Pids, PMon0) ->
       end, {[], PMon0}, Pids).
 
 -spec(count(pmon()) -> non_neg_integer()).
-count({?MODULE, PM}) ->
-    maps:size(PM).
+count(?PMON(Map)) -> maps:size(Map).
 

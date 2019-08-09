@@ -20,7 +20,7 @@
 
 -include("logger.hrl").
 -include("types.hrl").
--include("emqx_client.hrl").
+-include("emqx_mqtt.hrl").
 
 -logger_header("[Client]").
 
@@ -144,7 +144,17 @@
                 | {force_ping, boolean()}
                 | {properties, properties()}).
 
--type(mqtt_msg() :: #mqtt_msg{}).
+-record(mqtt_msg, {
+          qos = ?QOS_0,
+          retain = false,
+          dup = false,
+          packet_id,
+          topic,
+          props,
+          payload
+         }).
+
+-opaque(mqtt_msg() :: #mqtt_msg{}).
 
 -record(state, {name            :: atom(),
                 owner           :: pid(),
@@ -160,7 +170,7 @@
                 clean_start     :: boolean(),
                 username        :: maybe(binary()),
                 password        :: maybe(binary()),
-                proto_ver       :: emqx_mqtt_types:version(),
+                proto_ver       :: emqx_types:mqtt_ver(),
                 proto_name      :: iodata(),
                 keepalive       :: non_neg_integer(),
                 keepalive_timer :: maybe(reference()),
@@ -192,11 +202,11 @@
 
 -type(payload() :: iodata()).
 
--type(packet_id() :: emqx_mqtt_types:packet_id()).
+-type(packet_id() :: emqx_types:packet_id()).
 
--type(properties() :: emqx_mqtt_types:properties()).
+-type(properties() :: emqx_types:properties()).
 
--type(qos() :: emqx_mqtt_types:qos_name() | emqx_mqtt_types:qos()).
+-type(qos() :: emqx_types:qos_name() | emqx_types:qos()).
 
 -type(pubopt() :: {retain, boolean()} | {qos, qos()} | {timeout, timeout()}).
 
@@ -205,7 +215,7 @@
                 | {nl,  boolean()}
                 | {qos, qos()}).
 
--type(reason_code() :: emqx_mqtt_types:reason_code()).
+-type(reason_code() :: emqx_types:reason_code()).
 
 -type(subscribe_ret() :: {ok, properties(), [reason_code()]} | {error, term()}).
 
@@ -1201,7 +1211,7 @@ send(Msg, State) when is_record(Msg, mqtt_msg) ->
 
 send(Packet, State = #state{socket = Sock, proto_ver = Ver})
     when is_record(Packet, mqtt_packet) ->
-    Data = emqx_frame:serialize(Packet, #{version => Ver}),
+    Data = emqx_frame:serialize(Packet, Ver),
     ?LOG(debug, "SEND Data: ~1000p", [Packet]),
     case emqx_client_sock:send(Sock, Data) of
         ok  -> {ok, bump_last_packet_id(State)};
@@ -1246,4 +1256,3 @@ bump_last_packet_id(State = #state{last_packet_id = Id}) ->
 -spec next_packet_id(packet_id()) -> packet_id().
 next_packet_id(?MAX_PACKET_ID) -> 1;
 next_packet_id(Id) -> Id + 1.
-

@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_modules).
 
@@ -22,20 +24,25 @@
         , unload/0
         ]).
 
+%% @doc Load all the extended modules.
 -spec(load() -> ok).
 load() ->
     ok = emqx_mod_acl_internal:load([]),
-    lists:foreach(
-      fun({Mod, Env}) ->
-        ok = Mod:load(Env),
-        ?LOG(info, "Load ~s module successfully.", [Mod])
-      end, emqx_config:get_env(modules, [])).
+    lists:foreach(fun load/1, modules()).
 
+load({Mod, Env}) ->
+    ok = Mod:load(Env),
+    ?LOG(info, "Load ~s module successfully.", [Mod]).
+
+modules() ->
+    emqx_config:get_env(modules, []).
+
+%% @doc Unload all the extended modules.
 -spec(unload() -> ok).
 unload() ->
     ok = emqx_mod_acl_internal:unload([]),
-    lists:foreach(
-      fun({Mod, Env}) ->
-          Mod:unload(Env) end,
-      emqx_config:get_env(modules, [])).
+    lists:foreach(fun unload/1, modules()).
+
+unload({Mod, Env}) ->
+    Mod:unload(Env).
 

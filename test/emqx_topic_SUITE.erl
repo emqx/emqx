@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,47 +12,33 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_topic_SUITE).
 
--include_lib("eunit/include/eunit.hrl").
-
-%% CT
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx_ct_helpers/include/emqx_ct.hrl").
+
 -import(emqx_topic,
-        [wildcard/1,
-         match/2,
-         validate/1,
-         triples/1,
-         join/1,
-         words/1,
-         systop/1,
-         feed_var/3,
-         parse/1
+        [ wildcard/1
+        , match/2
+        , validate/1
+        , triples/1
+        , prepend/2
+        , join/1
+        , words/1
+        , systop/1
+        , feed_var/3
+        , parse/1
+        , parse/2
         ]).
 
--define(N, 10000).
+-define(N, 100000).
 
-all() ->
-    [t_wildcard,
-     t_match, t_match2, t_match3,
-     t_validate,
-     t_triples,
-     t_join,
-     t_levels,
-     t_tokens,
-     t_words,
-     t_systop,
-     t_feed_var,
-     t_sys_match,
-     't_#_match',
-     t_sigle_level_validate,
-     t_sigle_level_match,
-     t_match_perf,
-     t_triples_perf,
-     t_parse].
+all() -> emqx_ct:all(?MODULE).
 
 t_wildcard(_) ->
     true  = wildcard(<<"a/b/#">>),
@@ -59,7 +46,7 @@ t_wildcard(_) ->
     false = wildcard(<<"">>),
     false = wildcard(<<"a/b/c">>).
 
-t_match(_) ->
+t_match1(_) ->
     true  = match(<<"a/b/c">>, <<"a/b/+">>),
     true  = match(<<"a/b/c">>, <<"a/#">>),
     true  = match(<<"abcd/ef/g">>, <<"#">>),
@@ -130,74 +117,74 @@ t_match_perf(_) ->
     Name = <<"/abkc/19383/192939/akakdkkdkak/xxxyyuya/akakak">>,
     Filter = <<"/abkc/19383/+/akakdkkdkak/#">>,
     true = match(Name, Filter),
-    {Time, _} = timer:tc(fun() ->
-                [match(Name, Filter) || _I <- lists:seq(1, ?N)]
-        end),
-    io:format("Time for match: ~p(micro)", [Time/?N]).
+    ok = bench('match/2', fun emqx_topic:match/2, [Name, Filter]).
 
 t_validate(_) ->
-    true  = validate({name, <<"abc/de/f">>}),
-    true  = validate({filter, <<"abc/+/f">>}),
-    true  = validate({filter, <<"abc/#">>}),
-    true  = validate({filter, <<"x">>}),
-    true  = validate({name, <<"x//y">>}),
-	true  = validate({filter, <<"sport/tennis/#">>}),
-    catch validate({name, <<>>}),
-    catch validate({name, long_topic()}),
-    catch validate({name, <<"abc/#">>}),
-    catch validate({filter, <<"abc/#/1">>}),
-    catch validate({filter, <<"abc/#xzy/+">>}),
-    catch validate({filter, <<"abc/xzy/+9827">>}),
-	catch validate({filter, <<"sport/tennis#">>}),
-    catch validate({filter, <<"sport/tennis/#/ranking">>}),
-    ok.
+    true = validate(<<"a/+/#">>),
+    true = validate(<<"a/b/c/d">>),
+    true = validate({name, <<"abc/de/f">>}),
+    true = validate({filter, <<"abc/+/f">>}),
+    true = validate({filter, <<"abc/#">>}),
+    true = validate({filter, <<"x">>}),
+    true = validate({name, <<"x//y">>}),
+	true = validate({filter, <<"sport/tennis/#">>}),
+    ok = ?catch_error(empty_topic, validate({name, <<>>})),
+    ok = ?catch_error(topic_name_error, validate({name, <<"abc/#">>})),
+    ok = ?catch_error(topic_too_long, validate({name, long_topic()})),
+    ok = ?catch_error('topic_invalid_#', validate({filter, <<"abc/#/1">>})),
+    ok = ?catch_error(topic_invalid_char, validate({filter, <<"abc/#xzy/+">>})),
+    ok = ?catch_error(topic_invalid_char, validate({filter, <<"abc/xzy/+9827">>})),
+	ok = ?catch_error(topic_invalid_char, validate({filter, <<"sport/tennis#">>})),
+    ok = ?catch_error('topic_invalid_#', validate({filter, <<"sport/tennis/#/ranking">>})).
 
 t_sigle_level_validate(_) ->
-    true  = validate({filter, <<"+">>}),
-    true  = validate({filter, <<"+/tennis/#">>}),
-    true  = validate({filter, <<"sport/+/player1">>}),
-    catch validate({filter, <<"sport+">>}),
-    ok.
+    true = validate({filter, <<"+">>}),
+    true = validate({filter, <<"+/tennis/#">>}),
+    true = validate({filter, <<"sport/+/player1">>}),
+    ok = ?catch_error(topic_invalid_char, validate({filter, <<"sport+">>})).
 
 t_triples(_) ->
     Triples = [{root,<<"a">>,<<"a">>},
                {<<"a">>,<<"b">>,<<"a/b">>},
                {<<"a/b">>,<<"c">>,<<"a/b/c">>}],
-    Triples = triples(<<"a/b/c">>).
+    ?assertEqual(Triples, triples(<<"a/b/c">>)).
 
 t_triples_perf(_) ->
     Topic = <<"/abkc/19383/192939/akakdkkdkak/xxxyyuya/akakak">>,
-    {Time, _} = timer:tc(fun() ->
-                [triples(Topic) || _I <- lists:seq(1, ?N)]
-        end),
-    io:format("Time for triples: ~p(micro)", [Time/?N]).
+    ok = bench('triples/1', fun emqx_topic:triples/1, [Topic]).
+
+t_prepend(_) ->
+    ?assertEqual(<<"a/b/c">>, prepend(root, <<"a/b/c">>)),
+    ?assertEqual(<<"ab">>, prepend(undefined, <<"ab">>)),
+    ?assertEqual(<<"a/b">>, prepend(<<>>, <<"a/b">>)),
+    ?assertEqual(<<"x/a/b">>, prepend("x/", <<"a/b">>)),
+    ?assertEqual(<<"x/y/a/b">>, prepend(<<"x/y">>, <<"a/b">>)),
+    ?assertEqual(<<"+/a/b">>, prepend('+', <<"a/b">>)).
 
 t_levels(_) ->
+    ?assertEqual(3, emqx_topic:levels(<<"a/+/#">>)),
     ?assertEqual(4, emqx_topic:levels(<<"a/b/c/d">>)).
 
 t_tokens(_) ->
-    ?assertEqual([<<"a">>, <<"b">>, <<"+">>, <<"#">>], emqx_topic:tokens(<<"a/b/+/#">>)).
+    ?assertEqual([<<"a">>, <<"b">>, <<"+">>, <<"#">>],
+                 emqx_topic:tokens(<<"a/b/+/#">>)).
 
 t_words(_) ->
-    ['', <<"a">>, '+', '#'] = words(<<"/a/+/#">>),
-    ['', <<"abkc">>, <<"19383">>, '+', <<"akakdkkdkak">>, '#'] = words(<<"/abkc/19383/+/akakdkkdkak/#">>),
-    {Time, _} = timer:tc(fun() ->
-                [words(<<"/abkc/19383/+/akakdkkdkak/#">>) || _I <- lists:seq(1, ?N)]
-        end),
-    io:format("Time for words: ~p(micro)", [Time/?N]),
-    {Time2, _} = timer:tc(fun() ->
-                [binary:split(<<"/abkc/19383/+/akakdkkdkak/#">>, <<"/">>, [global]) || _I <- lists:seq(1, ?N)]
-        end),
-    io:format("Time for binary:split: ~p(micro)", [Time2/?N]).
+    Topic = <<"/abkc/19383/+/akakdkkdkak/#">>,
+    ?assertEqual(['', <<"a">>, '+', '#'], words(<<"/a/+/#">>)),
+    ?assertEqual(['', <<"abkc">>, <<"19383">>, '+', <<"akakdkkdkak">>, '#'], words(Topic)),
+    ok = bench('words/1', fun emqx_topic:words/1, [Topic]),
+    BSplit = fun(Bin) -> binary:split(Bin, <<"/">>, [global]) end,
+    ok = bench('binary:split/3', BSplit, [Topic]).
 
 t_join(_) ->
-    <<>>       = join([]),
-    <<"x">>    = join([<<"x">>]),
-    <<"#">>    = join(['#']),
-    <<"+//#">> = join(['+', '', '#']),
-    <<"x/y/z/+">> = join([<<"x">>, <<"y">>, <<"z">>, '+']),
-    <<"/ab/cd/ef/">> = join(words(<<"/ab/cd/ef/">>)),
-    <<"ab/+/#">> = join(words(<<"ab/+/#">>)).
+    ?assertEqual(<<>>, join([])),
+    ?assertEqual(<<"x">>, join([<<"x">>])),
+    ?assertEqual(<<"#">>, join(['#'])),
+    ?assertEqual(<<"+//#">>, join(['+', '', '#'])),
+    ?assertEqual(<<"x/y/z/+">>, join([<<"x">>, <<"y">>, <<"z">>, '+'])),
+    ?assertEqual(<<"/ab/cd/ef/">>, join(words(<<"/ab/cd/ef/">>))),
+    ?assertEqual(<<"ab/+/#">>, join(words(<<"ab/+/#">>))).
 
 t_systop(_) ->
     SysTop1 = iolist_to_binary(["$SYS/brokers/", atom_to_list(node()), "/xyz"]),
@@ -217,11 +204,29 @@ long_topic() ->
     iolist_to_binary([[integer_to_list(I), "/"] || I <- lists:seq(0, 10000)]).
 
 t_parse(_) ->
+    ok = ?catch_error({invalid_topic_filter, <<"$queue/t">>},
+                      parse(<<"$queue/t">>, #{share => <<"g">>})),
+    ok = ?catch_error({invalid_topic_filter, <<"$share/g/t">>},
+                      parse(<<"$share/g/t">>, #{share => <<"g">>})),
+    ok = ?catch_error({invalid_topic_filter, <<"$share/t">>},
+                      parse(<<"$share/t">>)),
+    ok = ?catch_error({invalid_topic_filter, <<"$share/+/t">>},
+                      parse(<<"$share/+/t">>)),
     ?assertEqual({<<"a/b/+/#">>, #{}}, parse(<<"a/b/+/#">>)),
-    ?assertEqual({<<"topic">>, #{ share => <<"$queue">> }}, parse(<<"$queue/topic">>)),
-    ?assertEqual({<<"topic">>, #{ share => <<"group">>}}, parse(<<"$share/group/topic">>)),
+    ?assertEqual({<<"a/b/+/#">>, #{qos => 1}}, parse({<<"a/b/+/#">>, #{qos => 1}})),
+    ?assertEqual({<<"topic">>, #{share => <<"$queue">>}}, parse(<<"$queue/topic">>)),
+    ?assertEqual({<<"topic">>, #{share => <<"group">>}}, parse(<<"$share/group/topic">>)),
+    %% The '$local' and '$fastlane' topics have been deprecated.
     ?assertEqual({<<"$local/topic">>, #{}}, parse(<<"$local/topic">>)),
     ?assertEqual({<<"$local/$queue/topic">>, #{}}, parse(<<"$local/$queue/topic">>)),
     ?assertEqual({<<"$local/$share/group/a/b/c">>, #{}}, parse(<<"$local/$share/group/a/b/c">>)),
     ?assertEqual({<<"$fastlane/topic">>, #{}}, parse(<<"$fastlane/topic">>)).
+
+bench(Case, Fun, Args) ->
+    {Time, ok} = timer:tc(fun lists:foreach/2,
+                          [fun(_) -> apply(Fun, Args) end,
+                           lists:seq(1, ?N)
+                          ]),
+    ct:pal("Time consumed by ~s: ~.3f(us)~nCall ~s per second: ~w",
+           [Case, Time/?N, Case, (?N * 1000000) div Time]).
 

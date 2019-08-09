@@ -1,19 +1,26 @@
 # EMQ X Broker
 
+[![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen)](https://github.com/emqx/emqx/releases) 
+[![Build Status](https://travis-ci.org/emqx/emqx.svg)](https://travis-ci.org/emqx/emqx) 
+[![Coverage Status](https://coveralls.io/repos/github/emqx/emqx/badge.svg)](https://coveralls.io/github/emqx/emqx) 
+[![Docker Pulls](https://img.shields.io/docker/pulls/emqx/emqx)](https://hub.docker.com/r/emqx/emqx) 
+[![Slack](https://img.shields.io/badge/Slack-EMQ%20X-brightgreen?logo=slack&style=flat&color=7E4798)](https://emqx.slack.com) 
+[![Twitter](https://img.shields.io/badge/Twiiter-EMQ%20X-1DA1F2?logo=twitter)](https://twitter.com/emqtt)
+
+English | [简体中文](./README-CN.md)
+
 *EMQ X* broker is a fully open source, highly scalable, highly available distributed MQTT messaging broker for IoT, M2M and Mobile applications that can handle tens of millions of concurrent clients.
 
 Starting from 3.0 release, *EMQ X* broker fully supports MQTT V5.0 protocol specifications and backward compatible with MQTT V3.1 and V3.1.1,  as well as other communication protocols such as MQTT-SN, CoAP, LwM2M, WebSocket and STOMP. The 3.0 release of the *EMQ X* broker can scaled to 10+ million concurrent MQTT connections on one cluster.
 
-
-- For full list of new features, please read *EMQ X* broker 3.0 [release notes](https://github.com/emqx/emqx/releases/).
-- For more information, please visit [EMQ X homepage](http://emqx.io).
-
+- For full list of new features, please read [EMQ X Release Notes](https://github.com/emqx/emqx/releases).
+- For more information, please visit [EMQ X homepage](https://emqx.io).
 
 ## Installation
 
-The *EMQ X* broker is cross-platform, which can be deployed on Linux, Unix, Mac, Windows and even Raspberry Pi.
+The *EMQ X* broker is cross-platform, which supports Linux, Unix, Mac OS and Windows. It means *EMQ X* can be deployed on x86_64 architecture servers and ARM devices like Raspberry Pi.
 
-Download the binary package for your platform from [here](http://emqx.io/downloads).
+Download the binary package for your platform from [here](https://emqx.io/downloads).
 
 - [Single Node Install](https://developer.emqx.io/docs/emq/v3/en/install.html)
 - [Multi Node Install](https://developer.emqx.io/docs/emq/v3/en/cluster.html)
@@ -34,17 +41,22 @@ cd _build/emqx/rel/emqx && ./bin/emqx console
 
 ## Quick Start
 
-    # Start emqx
-    ./bin/emqx start
+```
+# Start emqx
+./bin/emqx start
 
-    # Check Status
-    ./bin/emqx_ctl status
+# Check Status
+./bin/emqx_ctl status
 
-    # Stop emqx
-    ./bin/emqx stop
+# Stop emqx
+./bin/emqx stop
+```
 
-  To view the dashboard after running, use your browser to open: http://localhost:18083
+To view the dashboard after running, use your browser to open: http://localhost:18083
 
+## FAQ
+
+Visiting [FAQ](https://developer.emqx.io/docs/tutorial/en/faq/faq.html) to get help of common problems.
 
 ## Roadmap
 
@@ -54,8 +66,6 @@ The [EMQ X Roadmap uses Github milestones](https://github.com/emqx/emqx/mileston
 
 You can reach the EMQ community and developers via the following channels:
 - [EMQX Slack](http://emqx.slack.com)
-   -[#emqx-users](https://emqx.slack.com/messages/CBUF2TTB8/)
-   -[#emqx-devs](https://emqx.slack.com/messages/CBSL57DUH/)
 - [Mailing Lists](<emqtt@googlegroups.com>)
 - [Twitter](https://twitter.com/emqtt)
 - [Forum](https://groups.google.com/d/forum/emqtt)
@@ -75,11 +85,4 @@ You can read the mqtt protocol via the following links:
 
 ## License
 
-Copyright (c) 2013-2019 [EMQ Technologies Co., Ltd](http://emqx.io). All Rights Reserved.
-
-Licensed under the Apache License, Version 2.0 (the "License");you may not use this file except in compliance with the License.You may obtain a copy of the License at
-
-[http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0)
-
-Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and limitations under the License.
+Apache License 2.0, see [LICENSE](./LICENSE).

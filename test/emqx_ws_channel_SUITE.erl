@@ -19,33 +19,9 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include("emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
 
--define(CLIENT, ?CONNECT_PACKET(#mqtt_packet_connect{
-                                client_id = <<"mqtt_client">>,
-                                username  = <<"admin">>,
-                                password  = <<"public">>})).
-
--define(WILL_TOPIC, <<"test/websocket/will">>).
-
--define(WILL_CLIENT, ?CONNECT_PACKET(#mqtt_packet_connect{
-                                     client_id = <<"mqtt_client">>,
-                                     username  = <<"admin">>,
-                                     password  = <<"public">>,
-                                     will_flag = true,
-                                     will_qos = ?QOS_1,
-                                     will_topic = ?WILL_TOPIC,
-                                     will_payload = <<"payload">>
-                                   })).
-
-all() ->
-    [ t_ws_connect_api
-    , t_ws_auth_failure
-    , t_ws_other_type_frame
-    , t_ws_will
-    ].
+all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([]),
@@ -54,88 +30,27 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
-t_ws_will(_Config) ->
-    {ok, ClientPid} = emqx_client:start_link(),
-    {ok, _} = emqx_client:connect(ClientPid),
-    {ok, _, [1]} = emqx_client:subscribe(ClientPid, ?WILL_TOPIC, qos1),
-    WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
-    {ok, _} = rfc6455_client:open(WS),
-    Packet = raw_send_serialize(?WILL_CLIENT),
-    ok = rfc6455_client:send_binary(WS, Packet),
-    {binary, Bin} = rfc6455_client:recv(WS),
-    Connack = ?CONNACK_PACKET(?CONNACK_ACCEPT),
-    {ok, Connack, <<>>, _} = raw_recv_pase(Bin),
-    exit(WS, abnomal),
-    ?assertEqual(1, length(emqx_client_SUITE:receive_messages(1))),
-    ok = emqx_client:disconnect(ClientPid),
-    ok.
+t_basic(_) ->
+    Topic = <<"TopicA">>,
+    {ok, C} = emqtt:start_link([{host, "127.0.0.1"}, {port, 8083}]),
+    {ok, _} = emqtt:ws_connect(C),
+    {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
+    {ok, _, [2]} = emqtt:subscribe(C, Topic, qos2),
+    {ok, _} = emqtt:publish(C, Topic, <<"qos 2">>, 2),
+    {ok, _} = emqtt:publish(C, Topic, <<"qos 2">>, 2),
+    {ok, _} = emqtt:publish(C, Topic, <<"qos 2">>, 2),
+    ?assertEqual(3, length(recv_msgs(3))),
+    ok = emqx_client:disconnect(C).
 
-t_ws_auth_failure(_Config) ->
-    application:set_env(emqx, allow_anonymous, false),
-    WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
-    {ok, _} = rfc6455_client:open(WS),
-    Packet = raw_send_serialize(?CLIENT),
-    ok = rfc6455_client:send_binary(WS, Packet),
-    {binary, CONNACK} = rfc6455_client:recv(WS),
-    {ok, ?CONNACK_PACKET(?CONNACK_AUTH), <<>>, _} = raw_recv_pase(CONNACK),
-    application:set_env(emqx, allow_anonymous, true),
-    ok.
+recv_msgs(Count) ->
+    recv_msgs(Count, []).
 
-t_ws_connect_api(_Config) ->
-    WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
-    {ok, _} = rfc6455_client:open(WS),
-    ok = rfc6455_client:send_binary(WS, raw_send_serialize(?CLIENT)),
-    {binary, Bin} = rfc6455_client:recv(WS),
-    Connack = ?CONNACK_PACKET(?CONNACK_ACCEPT),
-    {ok, Connack, <<>>, _} = raw_recv_pase(Bin),
-    Pid = emqx_cm:lookup_conn_pid(<<"mqtt_client">>),
-    ConnInfo = emqx_ws_channel:info(Pid),
-    ok = t_info(ConnInfo),
-    ConnAttrs = emqx_ws_channel:attrs(Pid),
-    ok = t_attrs(ConnAttrs),
-    ConnStats = emqx_ws_channel:stats(Pid),
-    ok = t_stats(ConnStats),
-    SessionPid = emqx_ws_channel:session(Pid),
-    true = is_pid(SessionPid),
-    ok = emqx_ws_channel:kick(Pid),
-    {close, _} = rfc6455_client:close(WS),
-    ok.
-
-t_ws_other_type_frame(_Config) ->
-    WS = rfc6455_client:new("ws://127.0.0.1:8083" ++ "/mqtt", self()),
-    {ok, _} = rfc6455_client:open(WS),
-    ok = rfc6455_client:send_binary(WS, raw_send_serialize(?CLIENT)),
-    {binary, Bin} = rfc6455_client:recv(WS),
-    Connack = ?CONNACK_PACKET(?CONNACK_ACCEPT),
-    {ok, Connack, <<>>, _} = raw_recv_pase(Bin),
-    rfc6455_client:send(WS, <<"testdata">>),
-    timer:sleep(1000),
-    ?assertEqual(undefined, erlang:process_info(WS)),
-    ok.
-
-raw_send_serialize(Packet) ->
-    emqx_frame:serialize(Packet).
-
-raw_recv_pase(Packet) ->
-    emqx_frame:parse(Packet).
-
-t_info(InfoData) ->
-    ?assertEqual(websocket, maps:get(socktype, InfoData)),
-    ?assertEqual(running, maps:get(conn_state, InfoData)),
-    ?assertEqual(<<"mqtt_client">>, maps:get(client_id, InfoData)),
-    ?assertEqual(<<"admin">>, maps:get(username, InfoData)),
-    ?assertEqual(<<"MQTT">>, maps:get(proto_name, InfoData)).
-
-t_attrs(AttrsData) ->
-    ?assertEqual(<<"mqtt_client">>, maps:get(client_id, AttrsData)),
-    ?assertEqual(emqx_ws_channel, maps:get(conn_mod, AttrsData)),
-    ?assertEqual(<<"admin">>, maps:get(username, AttrsData)).
-
-t_stats(StatsData) ->
-    ?assertEqual(true, proplists:get_value(recv_oct, StatsData) >= 0),
-    ?assertEqual(true, proplists:get_value(mailbox_len, StatsData) >= 0),
-    ?assertEqual(true, proplists:get_value(heap_size, StatsData) >= 0),
-    ?assertEqual(true, proplists:get_value(reductions, StatsData) >=0),
-    ?assertEqual(true, proplists:get_value(recv_pkt, StatsData) =:=1),
-    ?assertEqual(true, proplists:get_value(recv_msg, StatsData) >=0),
-    ?assertEqual(true, proplists:get_value(send_pkt, StatsData) =:=1).
+recv_msgs(0, Msgs) ->
+    Msgs;
+recv_msgs(Count, Msgs) ->
+    receive
+        {publish, Msg} ->
+            recv_msgs(Count-1, [Msg|Msgs])
+    after 100 ->
+        Msgs
+    end.

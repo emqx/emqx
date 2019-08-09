@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_shared_sub).
 
@@ -67,11 +69,12 @@
 -define(no_ack, no_ack).
 
 -record(state, {pmon}).
+
 -record(emqx_shared_subscription, {group, topic, subpid}).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Mnesia bootstrap
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 mnesia(boot) ->
     ok = ekka_mnesia:create_table(?TAB, [
@@ -83,9 +86,9 @@ mnesia(boot) ->
 mnesia(copy) ->
     ok = ekka_mnesia:copy_table(?TAB).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% API
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 -spec(start_link() -> startlink_ret()).
 start_link() ->
@@ -103,19 +106,19 @@ record(Group, Topic, SubPid) ->
     #emqx_shared_subscription{group = Group, topic = Topic, subpid = SubPid}.
 
 -spec(dispatch(emqx_topic:group(), emqx_topic:topic(), emqx_types:delivery())
-      -> emqx_types:delivery()).
+      -> emqx_types:deliver_result()).
 dispatch(Group, Topic, Delivery) ->
     dispatch(Group, Topic, Delivery, _FailedSubs = []).
 
-dispatch(Group, Topic, Delivery = #delivery{message = Msg, results = Results}, FailedSubs) ->
+dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
     #message{from = ClientId} = Msg,
     case pick(strategy(), ClientId, Group, Topic, FailedSubs) of
         false ->
-            Delivery;
+            {error, no_subscribers};
         {Type, SubPid} ->
             case do_dispatch(SubPid, Topic, Msg, Type) of
                 ok ->
-                    Delivery#delivery{results = [{dispatch, {Group, Topic}, 1} | Results]};
+                    ok;
                 {error, _Reason} ->
                     %% Failed to dispatch to this sub, try next.
                     dispatch(Group, Topic, Delivery, [SubPid | FailedSubs])
@@ -132,7 +135,7 @@ ack_enabled() ->
 
 do_dispatch(SubPid, Topic, Msg, _Type) when SubPid =:= self() ->
     %% Deadlock otherwise
-    _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
+    _ = erlang:send(SubPid, {deliver, Topic, Msg}),
     ok;
 do_dispatch(SubPid, Topic, Msg, Type) ->
     dispatch_per_qos(SubPid, Topic, Msg, Type).
@@ -140,18 +143,18 @@ do_dispatch(SubPid, Topic, Msg, Type) ->
 %% return either 'ok' (when everything is fine) or 'error'
 dispatch_per_qos(SubPid, Topic, #message{qos = ?QOS_0} = Msg, _Type) ->
     %% For QoS 0 message, send it as regular dispatch
-    _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
+    _ = erlang:send(SubPid, {deliver, Topic, Msg}),
     ok;
 dispatch_per_qos(SubPid, Topic, Msg, retry) ->
     %% Retry implies all subscribers nack:ed, send again without ack
-    _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
+    _ = erlang:send(SubPid, {deliver, Topic, Msg}),
     ok;
 dispatch_per_qos(SubPid, Topic, Msg, fresh) ->
     case ack_enabled() of
         true ->
             dispatch_with_ack(SubPid, Topic, Msg);
         false ->
-            _ = erlang:send(SubPid, {dispatch, Topic, Msg}),
+            _ = erlang:send(SubPid, {deliver, Topic, Msg}),
             ok
     end.
 
@@ -159,7 +162,7 @@ dispatch_with_ack(SubPid, Topic, Msg) ->
     %% For QoS 1/2 message, expect an ack
     Ref = erlang:monitor(process, SubPid),
     Sender = self(),
-    _ = erlang:send(SubPid, {dispatch, Topic, with_ack_ref(Msg, {Sender, Ref})}),
+    _ = erlang:send(SubPid, {deliver, Topic, with_ack_ref(Msg, {Sender, Ref})}),
     Timeout = case Msg#message.qos of
                   ?QOS_1 -> timer:seconds(?SHARED_SUB_QOS1_DISPATCH_TIMEOUT_SECONDS);
                   ?QOS_2 -> infinity
@@ -275,12 +278,12 @@ do_pick_subscriber(Group, Topic, round_robin, _ClientId, Count) ->
 subscribers(Group, Topic) ->
     ets:select(?TAB, [{{emqx_shared_subscription, Group, Topic, '$1'}, [], ['$1']}]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% gen_server callbacks
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 init([]) ->
-    mnesia:subscribe({table, ?TAB, simple}),
+    {ok, _} = mnesia:subscribe({table, ?TAB, simple}),
     {atomic, PMon} = mnesia:transaction(fun init_monitors/0),
     ok = emqx_tables:new(?SHARED_SUBS, [protected, bag]),
     ok = emqx_tables:new(?ALIVE_SUBS, [protected, set, {read_concurrency, true}]),
@@ -345,9 +348,9 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 %% keep track of alive remote pids
 maybe_insert_alive_tab(Pid) when ?IS_LOCAL_PID(Pid) -> ok;

@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_mqueue_SUITE).
 
@@ -24,8 +26,7 @@
 
 -define(Q, emqx_mqueue).
 
-all() -> [t_in, t_in_qos0, t_out, t_simple_mqueue, t_infinity_simple_mqueue,
-          t_priority_mqueue, t_infinity_priority_mqueue].
+all() -> emqx_ct:all(?MODULE).
 
 t_in(_) ->
     Opts = #{max_len => 5, store_qos0 => true},
@@ -128,15 +129,18 @@ t_infinity_priority_mqueue(_) ->
     ?assertEqual(510, ?Q:len(Qx)),
     ?assertEqual([{len, 510}, {max_len, 0}, {dropped, 0}], ?Q:stats(Qx)).
 
-t_priority_mqueue2(_) ->
-    Opts = #{max_length => 2, store_qos0 => false},
-    Q = ?Q:init("priority_queue2_test", Opts),
+%%TODO: fixme later
+t_length_priority_mqueue(_) ->
+    Opts = #{max_len => 2,
+             store_qos0 => false
+            },
+    Q = ?Q:init(Opts),
     2 = ?Q:max_len(Q),
     {_, Q1} = ?Q:in(#message{topic = <<"x">>, qos = 1, payload = <<1>>}, Q),
     {_, Q2} = ?Q:in(#message{topic = <<"x">>, qos = 1, payload = <<2>>}, Q1),
     {_, Q3} = ?Q:in(#message{topic = <<"y">>, qos = 1, payload = <<3>>}, Q2),
     {_, Q4} = ?Q:in(#message{topic = <<"y">>, qos = 1, payload = <<4>>}, Q3),
-    4 = ?Q:len(Q4),
+    ?assertEqual(2, ?Q:len(Q4)),
     {{value, _Val}, Q5} = ?Q:out(Q4),
-    3 = ?Q:len(Q5).
+    ?assertEqual(1, ?Q:len(Q5)).
 
