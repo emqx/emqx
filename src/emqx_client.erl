@@ -693,7 +693,7 @@ waiting_for_connack(cast, ?CONNACK_PACKET(ReasonCode,
                                           _SessPresent,
                                           Properties),
                     State = #state{proto_ver = ProtoVer}) ->
-    Reason = reason_code_name(ReasonCode, ProtoVer),
+    Reason = emqx_reason_codes:name(ReasonCode, ProtoVer),
     case take_call(connect, State) of
         {value, #call{from = From}, _State} ->
             Reply = {error, {Reason, Properties}},
@@ -1297,61 +1297,3 @@ bump_last_packet_id(State = #state{last_packet_id = Id}) ->
 -spec next_packet_id(packet_id()) -> packet_id().
 next_packet_id(?MAX_PACKET_ID) -> 1;
 next_packet_id(Id) -> Id + 1.
-
-%%--------------------------------------------------------------------
-%% ReasonCode Name
-
-reason_code_name(I, Ver) when Ver >= ?MQTT_PROTO_V5 ->
-    reason_code_name(I);
-reason_code_name(0, _Ver) -> connection_acceptd;
-reason_code_name(1, _Ver) -> unacceptable_protocol_version;
-reason_code_name(2, _Ver) -> client_identifier_not_valid;
-reason_code_name(3, _Ver) -> server_unavaliable;
-reason_code_name(4, _Ver) -> malformed_username_or_password;
-reason_code_name(5, _Ver) -> unauthorized_client;
-reason_code_name(_, _Ver) -> unknown_error.
-
-reason_code_name(16#00) -> success;
-reason_code_name(16#01) -> granted_qos1;
-reason_code_name(16#02) -> granted_qos2;
-reason_code_name(16#04) -> disconnect_with_will_message;
-reason_code_name(16#10) -> no_matching_subscribers;
-reason_code_name(16#11) -> no_subscription_existed;
-reason_code_name(16#18) -> continue_authentication;
-reason_code_name(16#19) -> re_authenticate;
-reason_code_name(16#80) -> unspecified_error;
-reason_code_name(16#81) -> malformed_Packet;
-reason_code_name(16#82) -> protocol_error;
-reason_code_name(16#83) -> implementation_specific_error;
-reason_code_name(16#84) -> unsupported_protocol_version;
-reason_code_name(16#85) -> client_identifier_not_valid;
-reason_code_name(16#86) -> bad_username_or_password;
-reason_code_name(16#87) -> not_authorized;
-reason_code_name(16#88) -> server_unavailable;
-reason_code_name(16#89) -> server_busy;
-reason_code_name(16#8A) -> banned;
-reason_code_name(16#8B) -> server_shutting_down;
-reason_code_name(16#8C) -> bad_authentication_method;
-reason_code_name(16#8D) -> keepalive_timeout;
-reason_code_name(16#8E) -> session_taken_over;
-reason_code_name(16#8F) -> topic_filter_invalid;
-reason_code_name(16#90) -> topic_name_invalid;
-reason_code_name(16#91) -> packet_identifier_inuse;
-reason_code_name(16#92) -> packet_identifier_not_found;
-reason_code_name(16#93) -> receive_maximum_exceeded;
-reason_code_name(16#94) -> topic_alias_invalid;
-reason_code_name(16#95) -> packet_too_large;
-reason_code_name(16#96) -> message_rate_too_high;
-reason_code_name(16#97) -> quota_exceeded;
-reason_code_name(16#98) -> administrative_action;
-reason_code_name(16#99) -> payload_format_invalid;
-reason_code_name(16#9A) -> retain_not_supported;
-reason_code_name(16#9B) -> qos_not_supported;
-reason_code_name(16#9C) -> use_another_server;
-reason_code_name(16#9D) -> server_moved;
-reason_code_name(16#9E) -> shared_subscriptions_not_supported;
-reason_code_name(16#9F) -> connection_rate_exceeded;
-reason_code_name(16#A0) -> maximum_connect_time;
-reason_code_name(16#A1) -> subscription_identifiers_not_supported;
-reason_code_name(16#A2) -> wildcard_subscriptions_not_supported;
-reason_code_name(_Code) -> unknown_error.
