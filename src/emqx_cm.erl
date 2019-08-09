@@ -194,15 +194,18 @@ open_session(false, Client = #{client_id := ClientId}, Options) ->
 resume_session(ClientId) ->
     case lookup_channels(ClientId) of
         [] -> {error, not_found};
-        [ChanPid] ->
-            emqx_channel:resume(ChanPid);
+        [_ChanPid] ->
+            ok;
+            % emqx_channel:resume(ChanPid);
         ChanPids ->
-            [ChanPid|StalePids] = lists:reverse(ChanPids),
+            [_ChanPid|StalePids] = lists:reverse(ChanPids),
             ?LOG(error, "[SM] More than one channel found: ~p", [ChanPids]),
-            lists:foreach(fun(StalePid) ->
-                              catch emqx_channel:discard(StalePid)
+            lists:foreach(fun(_StalePid) ->
+                            %   catch emqx_channel:discard(StalePid)
+                            ok
                           end, StalePids),
-            emqx_channel:resume(ChanPid)
+            % emqx_channel:resume(ChanPid)
+            ok
     end.
 
 %% @doc Discard all the sessions identified by the ClientId.
@@ -213,7 +216,8 @@ discard_session(ClientId) when is_binary(ClientId) ->
         ChanPids ->
             lists:foreach(
               fun(ChanPid) ->
-                      try emqx_channel:discard(ChanPid)
+                      try ok
+                        % emqx_channel:discard(ChanPid)
                       catch
                           _:Error:_Stk ->
                               ?LOG(warning, "[SM] Failed to discard ~p: ~p", [ChanPid, Error])
@@ -222,8 +226,8 @@ discard_session(ClientId) when is_binary(ClientId) ->
     end.
 
 %% @doc Is clean start?
-is_clean_start(#{clean_start := false}) -> false;
-is_clean_start(_Attrs) -> true.
+% is_clean_start(#{clean_start := false}) -> false;
+% is_clean_start(_Attrs) -> true.
 
 with_channel(ClientId, Fun) ->
     case lookup_channels(ClientId) of
