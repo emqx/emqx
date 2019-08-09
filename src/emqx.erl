@@ -120,7 +120,7 @@ subscribe(Topic, SubOpts) when is_map(SubOpts) ->
 subscribe(Topic, SubId, SubOpts) when (is_atom(SubId) orelse is_binary(SubId)), is_map(SubOpts) ->
     emqx_broker:subscribe(iolist_to_binary(Topic), SubId, SubOpts).
 
--spec(publish(emqx_types:message()) -> emqx_types:deliver_results()).
+-spec(publish(emqx_types:message()) -> emqx_types:publish_result()).
 publish(Msg) ->
     emqx_broker:publish(Msg).
 

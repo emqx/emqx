@@ -237,11 +237,11 @@ format_variable(#mqtt_packet_puback{packet_id = PacketId}) ->
 
 format_variable(#mqtt_packet_subscribe{packet_id     = PacketId,
                                        topic_filters = TopicFilters}) ->
-    io_lib:format("PacketId=~p, TopicFilters=~p", [PacketId, TopicFilters]);
+    io_lib:format("PacketId=~p, TopicFilters=~0p", [PacketId, TopicFilters]);
 
 format_variable(#mqtt_packet_unsubscribe{packet_id     = PacketId,
                                          topic_filters = Topics}) ->
-    io_lib:format("PacketId=~p, TopicFilters=~p", [PacketId, Topics]);
+    io_lib:format("PacketId=~p, TopicFilters=~0p", [PacketId, Topics]);
 
 format_variable(#mqtt_packet_suback{packet_id = PacketId,
                                     reason_codes = ReasonCodes}) ->

@@ -74,12 +74,8 @@
         }).
 
 -record(delivery, {
-          %% Sender of the delivery
-          sender  :: pid(),
-          %% The message delivered
-          message :: #message{},
-          %% Dispatches of the message
-          results :: list()
+          sender  :: pid(),      %% Sender of the delivery
+          message :: #message{}  %% The message delivered
         }).
 
 %%--------------------------------------------------------------------

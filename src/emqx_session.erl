@@ -332,8 +332,8 @@ unsubscribe(Client, TopicFilter, Session = #session{subscriptions = Subs}) ->
 %%--------------------------------------------------------------------
 
 -spec(publish(emqx_types:packet_id(), emqx_types:message(), session())
-      -> {ok, emqx_types:deliver_results()} |
-         {ok, emqx_types:deliver_results(), session()} |
+      -> {ok, emqx_types:publish_result()} |
+         {ok, emqx_types:publish_result(), session()} |
          {error, emqx_types:reason_code()}).
 publish(PacketId, Msg = #message{qos = ?QOS_2}, Session) ->
     case is_awaiting_full(Session) of

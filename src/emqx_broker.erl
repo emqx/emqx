@@ -193,7 +193,7 @@ do_unsubscribe(Group, Topic, SubPid, _SubOpts) ->
 %% Publish
 %%------------------------------------------------------------------------------
 
--spec(publish(emqx_types:message()) -> emqx_types:deliver_results()).
+-spec(publish(emqx_types:message()) -> emqx_types:publish_result()).
 publish(Msg) when is_record(Msg, message) ->
     _ = emqx_tracer:trace(publish, Msg),
     Headers = Msg#message.headers,
@@ -202,8 +202,7 @@ publish(Msg) when is_record(Msg, message) ->
             ?LOG(notice, "Publishing interrupted: ~s", [emqx_message:format(Msg)]),
             [];
         #message{topic = Topic} = Msg1 ->
-            Delivery = route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1)),
-            Delivery#delivery.results
+            route(aggre(emqx_router:match_routes(Topic)), delivery(Msg1))
     end.
 
 %% Called internally
@@ -219,27 +218,27 @@ safe_publish(Msg) when is_record(Msg, message) ->
     end.
 
 delivery(Msg) ->
-    #delivery{sender = self(), message = Msg, results = []}.
+    #delivery{sender = self(), message = Msg}.
 
 %%------------------------------------------------------------------------------
 %% Route
 %%------------------------------------------------------------------------------
-
-route([], Delivery = #delivery{message = Msg}) ->
+-spec(route([emqx_types:route_entry()], emqx_types:delivery()) -> emqx_types:publish_result()).
+route([], #delivery{message = Msg}) ->
     emqx_hooks:run('message.dropped', [#{node => node()}, Msg]),
-    inc_dropped_cnt(Msg#message.topic), Delivery;
-
-route([{To, Node}], Delivery) when Node =:= node() ->
-    dispatch(To, Delivery);
-
-route([{To, Node}], Delivery = #delivery{results = Results}) when is_atom(Node) ->
-    forward(Node, To, Delivery#delivery{results = [{route, Node, To}|Results]});
-
-route([{To, Group}], Delivery) when is_tuple(Group); is_binary(Group) ->
-    emqx_shared_sub:dispatch(Group, To, Delivery);
-
+    inc_dropped_cnt(Msg#message.topic),
+    [];
 route(Routes, Delivery) ->
-    lists:foldl(fun(Route, Acc) -> route([Route], Acc) end, Delivery, Routes).
+    lists:foldl(fun(Route, Acc) ->
+            [do_route(Route, Delivery) | Acc]
+        end, [], Routes).
+
+do_route({To, Node}, Delivery) when Node =:= node() ->
+    {Node, To, dispatch(To, Delivery)};
+do_route({To, Node}, Delivery) when is_atom(Node) ->
+    {Node, To, forward(Node, To, Delivery, emqx_config:get_env(rpc_mode, async))};
+do_route({To, Group}, Delivery) when is_tuple(Group); is_binary(Group) ->
+    {share, To, emqx_shared_sub:dispatch(Group, To, Delivery)}.
 
 aggre([]) ->
     [];
@@ -256,45 +255,58 @@ aggre(Routes) ->
       end, [], Routes).
 
 %% @doc Forward message to another node.
-forward(Node, To, Delivery) ->
-    %% rpc:call to ensure the delivery, but the latency:(
+-spec(forward(node(), emqx_types:topic(), emqx_types:delivery(), RPCMode::sync|async)
+    -> emqx_types:deliver_result()).
+forward(Node, To, Delivery, async) ->
+    case emqx_rpc:cast(Node, ?BROKER, dispatch, [To, Delivery]) of
+        true -> ok;
+        {badrpc, Reason} ->
+            ?LOG(error, "Ansync forward msg to ~s failed: ~p", [Node, Reason]),
+            {error, badrpc}
+    end;
+
+forward(Node, To, Delivery, sync) ->
     case emqx_rpc:call(Node, ?BROKER, dispatch, [To, Delivery]) of
         {badrpc, Reason} ->
-            ?LOG(error, "Failed to forward msg to ~s: ~p", [Node, Reason]),
-            Delivery;
-        Delivery1 -> Delivery1
+            ?LOG(error, "Sync forward msg to ~s failed: ~p", [Node, Reason]),
+            {error, badrpc};
+        Result -> Result
     end.
 
--spec(dispatch(emqx_topic:topic(), emqx_types:delivery()) -> emqx_types:delivery()).
-dispatch(Topic, Delivery = #delivery{message = Msg, results = Results}) ->
+-spec(dispatch(emqx_topic:topic(), emqx_types:delivery()) -> emqx_types:deliver_result()).
+dispatch(Topic, #delivery{message = Msg}) ->
     case subscribers(Topic) of
         [] ->
             emqx_hooks:run('message.dropped', [#{node => node()}, Msg]),
             inc_dropped_cnt(Topic),
-            Delivery;
+            {error, no_subscribers};
         [Sub] -> %% optimize?
-            Cnt = dispatch(Sub, Topic, Msg),
-            Delivery#delivery{results = [{deliver, Topic, Cnt}|Results]};
+            dispatch(Sub, Topic, Msg);
         Subs ->
-            Cnt = lists:foldl(
-                    fun(Sub, Acc) ->
-                            dispatch(Sub, Topic, Msg) + Acc
-                    end, 0, Subs),
-            Delivery#delivery{results = [{deliver, Topic, Cnt}|Results]}
+            lists:foldl(
+                fun(Sub, Res) ->
+                    case dispatch(Sub, Topic, Msg) of
+                        ok -> Res;
+                        Err -> Err
+                    end
+                end, ok, Subs)
     end.
 
 dispatch(SubPid, Topic, Msg) when is_pid(SubPid) ->
     case erlang:is_process_alive(SubPid) of
         true ->
             SubPid ! {deliver, Topic, Msg},
-            1;
-        false -> 0
+            ok;
+        false -> {error, subscriber_die}
     end;
 dispatch({shard, I}, Topic, Msg) ->
     lists:foldl(
-      fun(SubPid, Cnt) ->
-              dispatch(SubPid, Topic, Msg) + Cnt
-      end, 0, subscribers({shard, Topic, I})).
+        fun(SubPid, Res) ->
+            case dispatch(SubPid, Topic, Msg) of
+                ok -> Res;
+                Err -> Err
+            end
+        end, ok, subscribers({shard, Topic, I})).
 
 inc_dropped_cnt(<<"$SYS/", _/binary>>) ->
     ok;
