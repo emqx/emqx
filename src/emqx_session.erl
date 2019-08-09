@@ -53,6 +53,7 @@
 -export([init/3]).
 
 -export([ info/1
+        , info/2
         , attrs/1
         , stats/1
         ]).
@@ -143,8 +144,6 @@
 
 -define(DEFAULT_BATCH_N, 1000).
 
--define(DEFAULT_AWAIT_REL_TIMEOUT, 30000).
-
 %%--------------------------------------------------------------------
 %% Init a session
 %%--------------------------------------------------------------------
@@ -163,7 +162,7 @@ init(CleanStart, #{zone := Zone}, #{max_inflight := MaxInflight,
              retry_interval    = get_env(Zone, retry_interval, 0),
              awaiting_rel      = #{},
              max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
-             await_rel_timeout = get_env(Zone, await_rel_timeout, ?DEFAULT_AWAIT_REL_TIMEOUT),
+             await_rel_timeout = get_env(Zone, await_rel_timeout, 3600*1000),
              expiry_interval   = ExpiryInterval,
              created_at        = os:timestamp()
             }.
@@ -210,6 +209,39 @@ info(#session{clean_start = CleanStart,
       expiry_interval => ExpiryInterval div 1000,
       created_at => CreatedAt
      }.
+
+info(clean_start, #session{clean_start = CleanStart}) ->
+    CleanStart;
+info(subscriptions, #session{subscriptions = Subs}) ->
+    Subs;
+info(max_subscriptions, #session{max_subscriptions = MaxSubs}) ->
+    MaxSubs;
+info(upgrade_qos, #session{upgrade_qos = UpgradeQoS}) ->
+    UpgradeQoS;
+info(inflight, #session{inflight = Inflight}) ->
+    emqx_inflight:size(Inflight);
+info(max_inflight, #session{inflight = Inflight}) ->
+    emqx_inflight:max_size(Inflight);
+info(retry_interval, #session{retry_interval = Interval}) ->
+    Interval;
+info(mqueue_len, #session{mqueue = MQueue}) ->
+    emqx_mqueue:len(MQueue);
+info(max_mqueue, #session{mqueue = MQueue}) ->
+    emqx_mqueue:max_len(MQueue);
+info(mqueue_dropped, #session{mqueue = MQueue}) ->
+    emqx_mqueue:dropped(MQueue);
+info(next_pkt_id, #session{next_pkt_id = PacketId}) ->
+    PacketId;
+info(awaiting_rel, #session{awaiting_rel = AwaitingRel}) ->
+    maps:size(AwaitingRel);
+info(max_awaiting_rel, #session{max_awaiting_rel = MaxAwaitingRel}) ->
+    MaxAwaitingRel;
+info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
+    Timeout;
+info(expiry_interval, #session{expiry_interval = Interval}) ->
+    Interval div 1000;
+info(created_at, #session{created_at = CreatedAt}) ->
+    CreatedAt.
 
 %%--------------------------------------------------------------------
 %% Attrs of the session
@@ -623,7 +655,8 @@ expire_awaiting_rel([], _Now, Session) ->
     {ok, Session#session{await_rel_timer = undefined}};
 
 expire_awaiting_rel([{PacketId, Ts} | More], Now,
-                    Session = #session{awaiting_rel = AwaitingRel, await_rel_timeout = Timeout}) ->
+                    Session = #session{awaiting_rel = AwaitingRel,
+                                       await_rel_timeout = Timeout}) ->
     case (timer:now_diff(Now, Ts) div 1000) of
         Age when Age >= Timeout ->
             ok = emqx_metrics:inc('messages.qos2.expired'),

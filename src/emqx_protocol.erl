@@ -30,6 +30,9 @@
         , caps/1
         ]).
 
+%% for tests
+-export([set/3]).
+
 -export([ init/2
         , handle_in/2
         , handle_req/2
@@ -94,8 +97,16 @@ info(proto_ver, #protocol{proto_ver = ProtoVer}) ->
     ProtoVer;
 info(keepalive, #protocol{keepalive = Keepalive}) ->
     Keepalive;
+info(will_msg, #protocol{will_msg = WillMsg}) ->
+    WillMsg;
 info(topic_aliases, #protocol{topic_aliases = Aliases}) ->
     Aliases.
+
+%% For tests
+set(client, Client, PState) ->
+    PState#protocol{client = Client};
+set(session, Session, PState) ->
+    PState#protocol{session = Session}.
 
 attrs(#protocol{client     = Client,
                 session    = Session,
@@ -111,6 +122,7 @@ attrs(#protocol{client     = Client,
 
 caps(#protocol{client = #{zone := Zone}}) ->
     emqx_mqtt_caps:get_caps(Zone).
+
 
 -spec(init(emqx_types:conn(), proplists:proplist()) -> proto_state()).
 init(ConnInfo, Options) ->
@@ -195,16 +207,16 @@ handle_in(?PUBREC_PACKET(PacketId, ReasonCode), PState = #protocol{session = Ses
     case emqx_session:pubrec(PacketId, Session) of
         {ok, NSession} ->
             handle_out({pubrel, PacketId}, PState#protocol{session = NSession});
-        {error, ReasonCode} ->
-            handle_out({pubrel, PacketId, ReasonCode}, PState)
+        {error, ReasonCode1} ->
+            handle_out({pubrel, PacketId, ReasonCode1}, PState)
     end;
 
 handle_in(?PUBREL_PACKET(PacketId, ReasonCode), PState = #protocol{session = Session}) ->
     case emqx_session:pubrel(PacketId, Session) of
         {ok, NSession} ->
             handle_out({pubcomp, PacketId}, PState#protocol{session = NSession});
-        {error, ReasonCode} ->
-            handle_out({pubcomp, PacketId, ReasonCode}, PState)
+        {error, ReasonCode1} ->
+            handle_out({pubcomp, PacketId, ReasonCode1}, PState)
     end;
 
 handle_in(?PUBCOMP_PACKET(PacketId, _ReasonCode), PState = #protocol{session = Session}) ->
@@ -314,10 +326,10 @@ handle_out({connack, ?RC_SUCCESS, SP},
     ok = emqx_hooks:run('client.connected', [Client, ?RC_SUCCESS, attrs(PState)]),
     #{max_packet_size := MaxPktSize,
       max_qos_allowed := MaxQoS,
-      mqtt_retain_available := Retain,
+      retain_available := Retain,
       max_topic_alias := MaxAlias,
-      mqtt_shared_subscription := Shared,
-      mqtt_wildcard_subscription := Wildcard
+      shared_subscription := Shared,
+      wildcard_subscription := Wildcard
      } = caps(PState),
     %% Response-Information is so far not set by broker.
     %% i.e. It's a Client-to-Client contract for the request-response topic naming scheme.
@@ -763,7 +775,7 @@ process_subscribe([{TopicFilter, SubOpts}|More], Acc, PState) ->
 
 do_subscribe(TopicFilter, SubOpts = #{qos := QoS},
              PState = #protocol{client = Client, session = Session}) ->
-    case check_subscribe(TopicFilter, PState) of
+    case check_subscribe(TopicFilter, SubOpts, PState) of
         ok -> TopicFilter1 = mount(Client, TopicFilter),
               SubOpts1 = enrich_subopts(maps:merge(?DEFAULT_SUBOPTS, SubOpts), PState),
               case emqx_session:subscribe(Client, TopicFilter1, SubOpts1, Session) of
@@ -787,9 +799,9 @@ enrich_subopts(SubOpts, #protocol{client = #{zone := Zone, is_bridge := IsBridge
     SubOpts#{rap => Rap, nl => Nl}.
 
 %% Check Sub
-check_subscribe(TopicFilter, PState) ->
+check_subscribe(TopicFilter, SubOpts, PState) ->
     case check_sub_acl(TopicFilter, PState) of
-        allow -> ok; %%TODO: check_sub_caps(TopicFilter, PState);
+        allow -> check_sub_caps(TopicFilter, SubOpts, PState);
         deny  -> {error, ?RC_NOT_AUTHORIZED}
     end.
 
@@ -802,8 +814,8 @@ check_sub_acl(TopicFilter, #protocol{client = Client}) ->
     end.
 
 %% Check Sub Caps
-check_sub_caps(TopicFilter, #protocol{client = #{zone := Zone}}) ->
-    emqx_mqtt_caps:check_sub(Zone, TopicFilter).
+check_sub_caps(TopicFilter, SubOpts, #protocol{client = #{zone := Zone}}) ->
+    emqx_mqtt_caps:check_sub(Zone, TopicFilter, SubOpts).
 
 %%--------------------------------------------------------------------
 %% Process unsubscribe request
