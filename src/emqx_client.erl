@@ -68,7 +68,9 @@
 -export([info/1, stop/1]).
 
 %% For test cases
--export([pause/1, resume/1]).
+-export([ pause/1
+        , resume/1
+        ]).
 
 -export([ initialized/3
         , waiting_for_connack/3
@@ -84,26 +86,14 @@
         ]).
 
 -export_type([ host/0
-             , client/0
              , option/0
              , properties/0
              , payload/0
              , pubopt/0
              , subopt/0
              , mqtt_msg/0
+             , client/0
              ]).
-
-%% Default timeout
--define(DEFAULT_KEEPALIVE,       60).
--define(DEFAULT_ACK_TIMEOUT,     30000).
--define(DEFAULT_CONNECT_TIMEOUT, 60000).
-
--define(PROPERTY(Name, Val), #state{properties = #{Name := Val}}).
-
--define(WILL_MSG(QoS, Retain, Topic, Props, Payload),
-        #mqtt_msg{qos = QoS, retain = Retain, topic = Topic, props = Props, payload = Payload}).
-
--define(NO_CLIENT_ID, <<>>).
 
 -type(host() :: inet:ip_address() | inet:hostname()).
 
@@ -144,80 +134,108 @@
                 | {force_ping, boolean()}
                 | {properties, properties()}).
 
+-type(topic() :: binary()).
+-type(payload() :: iodata()).
+-type(packet_id() :: 0..16#FF).
+-type(reason_code() :: 0..16#FF).
+-type(properties() :: #{atom() => term()}).
+-type(version() :: ?MQTT_PROTO_V3
+      		 | ?MQTT_PROTO_V4
+		 | ?MQTT_PROTO_V5).
+-type(qos() :: ?QOS_0 | ?QOS_1 | ?QOS_2).
+-type(qos_name() :: qos0 | at_most_once |
+                    qos1 | at_least_once |
+                    qos2 | exactly_once).
+-type(pubopt() :: {retain, boolean()}
+      		| {qos, qos() | qos_name()}
+		| {timeout, timeout()}).
+-type(subopt() :: {rh, 0 | 1 | 2}
+                | {rap, boolean()}
+                | {nl,  boolean()}
+                | {qos, qos() | qos_name()}).
+
+-type(subscribe_ret() ::
+      {ok, properties(), [reason_code()]} | {error, term()}).
+
+-type(conn_mod() :: emqx_client_sock).
+
+-type(client() :: pid() | atom()).
+
 -record(mqtt_msg, {
-          qos = ?QOS_0,
-          retain = false,
-          dup = false,
-          packet_id,
-          topic,
-          props,
-          payload
+          qos = ?QOS_0   :: emqx_client:qos(),
+          retain = false :: boolean(),
+          dup = false    :: boolean(),
+          packet_id      :: emqx_client:packet_id(),
+          topic          :: emqx_client:topic(),
+          props          :: emqx_client:properties(),
+          payload        :: binary()
          }).
 
 -opaque(mqtt_msg() :: #mqtt_msg{}).
 
--record(state, {name            :: atom(),
-                owner           :: pid(),
-                msg_handler     :: ?NO_MSG_HDLR | msg_handler(),
-                host            :: host(),
-                port            :: inet:port_number(),
-                hosts           :: [{host(), inet:port_number()}],
-                socket          :: inet:socket(),
-                sock_opts       :: [emqx_client_sock:option()],
-                connect_timeout :: pos_integer(),
-                bridge_mode     :: boolean(),
-                client_id       :: binary(),
-                clean_start     :: boolean(),
-                username        :: maybe(binary()),
-                password        :: maybe(binary()),
-                proto_ver       :: emqx_types:mqtt_ver(),
-                proto_name      :: iodata(),
-                keepalive       :: non_neg_integer(),
-                keepalive_timer :: maybe(reference()),
-                force_ping      :: boolean(),
-                paused          :: boolean(),
-                will_flag       :: boolean(),
-                will_msg        :: mqtt_msg(),
-                properties      :: properties(),
-                pending_calls   :: list(),
-                subscriptions   :: map(),
-                max_inflight    :: infinity | pos_integer(),
-                inflight        :: emqx_inflight:inflight(),
-                awaiting_rel    :: map(),
-                auto_ack        :: boolean(),
-                ack_timeout     :: pos_integer(),
-                ack_timer       :: reference(),
-                retry_interval  :: pos_integer(),
-                retry_timer     :: reference(),
-                session_present :: boolean(),
-                last_packet_id  :: packet_id(),
-                parse_state     :: emqx_frame:state()
-               }).
+-record(state, {
+          name            :: atom(),
+          owner           :: pid(),
+          msg_handler     :: ?NO_MSG_HDLR | msg_handler(),
+          host            :: host(),
+          port            :: inet:port_number(),
+          hosts           :: [{host(), inet:port_number()}],
+          conn_mod        :: conn_mod(),
+          socket          :: inet:socket() | pid(),
+          sock_opts       :: [emqx_client_sock:option()],
+          connect_timeout :: pos_integer(),
+          bridge_mode     :: boolean(),
+          client_id       :: binary(),
+          clean_start     :: boolean(),
+          username        :: maybe(binary()),
+          password        :: maybe(binary()),
+          proto_ver       :: version(),
+          proto_name      :: iodata(),
+          keepalive       :: non_neg_integer(),
+          keepalive_timer :: maybe(reference()),
+          force_ping      :: boolean(),
+          paused          :: boolean(),
+          will_flag       :: boolean(),
+          will_msg        :: mqtt_msg(),
+          properties      :: properties(),
+          pending_calls   :: list(),
+          subscriptions   :: map(),
+          max_inflight    :: infinity | pos_integer(),
+          inflight        :: #{packet_id() => term()},
+          awaiting_rel    :: map(),
+          auto_ack        :: boolean(),
+          ack_timeout     :: pos_integer(),
+          ack_timer       :: reference(),
+          retry_interval  :: pos_integer(),
+          retry_timer     :: reference(),
+          session_present :: boolean(),
+          last_packet_id  :: packet_id(),
+          parse_state     :: emqx_client_frame:parse_state()
+         }).
 
 -record(call, {id, from, req, ts}).
 
--type(client() :: pid() | atom()).
+%% Default timeout
+-define(DEFAULT_KEEPALIVE, 60).
+-define(DEFAULT_ACK_TIMEOUT, 30000).
+-define(DEFAULT_CONNECT_TIMEOUT, 60000).
 
--type(topic() :: emqx_topic:topic()).
+-define(PROPERTY(Name, Val), #state{properties = #{Name := Val}}).
 
--type(payload() :: iodata()).
+-define(WILL_MSG(QoS, Retain, Topic, Props, Payload),
+        #mqtt_msg{qos = QoS,
+		  retain = Retain,
+		  topic = Topic,
+		  props = Props,
+		  payload = Payload
+		 }).
 
--type(packet_id() :: emqx_types:packet_id()).
+-define(NO_CLIENT_ID, <<>>).
 
--type(properties() :: emqx_types:properties()).
-
--type(qos() :: emqx_types:qos_name() | emqx_types:qos()).
-
--type(pubopt() :: {retain, boolean()} | {qos, qos()} | {timeout, timeout()}).
-
--type(subopt() :: {rh, 0 | 1 | 2}
-                | {rap, boolean()}
-                | {nl,  boolean()}
-                | {qos, qos()}).
-
--type(reason_code() :: emqx_types:reason_code()).
-
--type(subscribe_ret() :: {ok, properties(), [reason_code()]} | {error, term()}).
+-define(LOG(Level, Format, Args, State),
+        begin
+          (logger:log(Level, #{}, #{report_cb => fun(_) -> {"emqx_client(~s): "++(Format), ([State#state.client_id|Args])} end}))
+        end).
 
 %%--------------------------------------------------------------------
 %% API
@@ -230,7 +248,7 @@ start_link() -> start_link([]).
 start_link(Options) when is_map(Options) ->
     start_link(maps:to_list(Options));
 start_link(Options) when is_list(Options) ->
-    ok = emqx_mqtt_props:validate(
+    ok = emqx_client_props:validate(
             proplists:get_value(properties, Options, #{})),
     case proplists:get_value(name, Options) of
         undefined ->
@@ -247,9 +265,13 @@ with_owner(Options) ->
 
 -spec(connect(client()) -> {ok, properties()} | {error, term()}).
 connect(Client) ->
-    gen_statem:call(Client, connect, infinity).
+    call(Client, {connect, emqx_client_sock}).
 
--spec(subscribe(client(), topic() | {topic(), qos() | [subopt()]} | [{topic(), qos()}])
+%% @private
+call(Client, Req) ->
+    gen_statem:call(Client, Req, infinity).
+
+-spec(subscribe(client(), topic() | {topic(), qos() | qos_name() | [subopt()]} | [{topic(), qos()}])
       -> subscribe_ret()).
 subscribe(Client, Topic) when is_binary(Topic) ->
     subscribe(Client, {Topic, ?QOS_0});
@@ -267,7 +289,7 @@ subscribe(Client, Topics) when is_list(Topics) ->
                                  {Topic, Opts}
                              end, Topics)).
 
--spec(subscribe(client(), topic(), qos() | [subopt()]) ->
+-spec(subscribe(client(), topic(), qos() | qos_name() | [subopt()]) ->
                 subscribe_ret();
                (client(), properties(), [{topic(), qos() | [subopt()]}]) ->
                 subscribe_ret()).
@@ -281,7 +303,7 @@ subscribe(Client, Properties, Topics) when is_map(Properties), is_list(Topics) -
     Topics1 = [{Topic, parse_subopt(Opts)} || {Topic, Opts} <- Topics],
     gen_statem:call(Client, {subscribe, Properties, Topics1}).
 
--spec(subscribe(client(), properties(), topic(), qos() | [subopt()])
+-spec(subscribe(client(), properties(), topic(), qos() | qos_name() | [subopt()])
       -> subscribe_ret()).
 subscribe(Client, Properties, Topic, QoS)
     when is_map(Properties), is_binary(Topic), is_atom(QoS) ->
@@ -315,7 +337,7 @@ parse_subopt([{qos, QoS} | Opts], Result) ->
 publish(Client, Topic, Payload) when is_binary(Topic) ->
     publish(Client, #mqtt_msg{topic = Topic, qos = ?QOS_0, payload = iolist_to_binary(Payload)}).
 
--spec(publish(client(), topic(), payload(), qos() | [pubopt()])
+-spec(publish(client(), topic(), payload(), qos() | qos_name() | [pubopt()])
         -> ok | {ok, packet_id()} | {error, term()}).
 publish(Client, Topic, Payload, QoS) when is_binary(Topic), is_atom(QoS) ->
     publish(Client, Topic, Payload, [{qos, ?QOS_I(QoS)}]);
@@ -328,7 +350,7 @@ publish(Client, Topic, Payload, Opts) when is_binary(Topic), is_list(Opts) ->
       -> ok | {ok, packet_id()} | {error, term()}).
 publish(Client, Topic, Properties, Payload, Opts)
     when is_binary(Topic), is_map(Properties), is_list(Opts) ->
-    ok = emqx_mqtt_props:validate(Properties),
+    ok = emqx_client_props:validate(Properties),
     Retain = proplists:get_bool(retain, Opts),
     QoS = ?QOS_I(proplists:get_value(qos, Opts, ?QOS_0)),
     publish(Client, #mqtt_msg{qos     = QoS,
@@ -439,6 +461,7 @@ init([Options]) ->
     State = init(Options, #state{host            = {127,0,0,1},
                                  port            = 1883,
                                  hosts           = [],
+                                 conn_mod        = emqx_client_sock,
                                  sock_opts       = [],
                                  bridge_mode     = false,
                                  client_id       = ClientId,
@@ -453,7 +476,7 @@ init([Options]) ->
                                  pending_calls   = [],
                                  subscriptions   = #{},
                                  max_inflight    = infinity,
-                                 inflight        = emqx_inflight:new(0),
+                                 inflight        = #{},
                                  awaiting_rel    = #{},
                                  properties      = #{},
                                  auto_ack        = true,
@@ -469,7 +492,8 @@ random_client_id() ->
     I1 = rand:uniform(round(math:pow(2, 48))) - 1,
     I2 = rand:uniform(round(math:pow(2, 32))) - 1,
     {ok, Host} = inet:gethostname(),
-    iolist_to_binary(["emqx-client-", Host, "-", io_lib:format("~12.16.0b~8.16.0b", [I1, I2])]).
+    RandId = io_lib:format("~12.16.0b~8.16.0b", [I1, I2]),
+    iolist_to_binary(["emqx_client-", Host, "-", RandId]).
 
 init([], State) ->
     State;
@@ -493,7 +517,7 @@ init([{hosts, Hosts} | Opts], State) ->
                 end, [], Hosts),
     init(Opts, State#state{hosts = Hosts1});
 init([{tcp_opts, TcpOpts} | Opts], State = #state{sock_opts = SockOpts}) ->
-    init(Opts, State#state{sock_opts = emqx_misc:merge_opts(SockOpts, TcpOpts)});
+    init(Opts, State#state{sock_opts = merge_opts(SockOpts, TcpOpts)});
 init([{ssl, EnableSsl} | Opts], State) ->
     case lists:keytake(ssl_opts, 1, Opts) of
         {value, SslOpts, WithOutSslOpts} ->
@@ -505,7 +529,7 @@ init([{ssl_opts, SslOpts} | Opts], State = #state{sock_opts = SockOpts}) ->
     case lists:keytake(ssl, 1, Opts) of
         {value, {ssl, true}, WithOutEnableSsl} ->
             ok = ssl:start(),
-            SockOpts1 = emqx_misc:merge_opts(SockOpts, [{ssl_opts, SslOpts}]),
+            SockOpts1 = merge_opts(SockOpts, [{ssl_opts, SslOpts}]),
             init(WithOutEnableSsl, State#state{sock_opts = SockOpts1});
         {value, {ssl, false}, WithOutEnableSsl} ->
             init(WithOutEnableSsl, State);
@@ -554,10 +578,10 @@ init([{properties, Properties} | Opts], State = #state{properties = InitProps}) 
     init(Opts, State#state{properties = maps:merge(InitProps, Properties)});
 init([{max_inflight, infinity} | Opts], State) ->
     init(Opts, State#state{max_inflight = infinity,
-                           inflight     = emqx_inflight:new(0)});
+                           inflight     = #{}});
 init([{max_inflight, I} | Opts], State) when is_integer(I) ->
     init(Opts, State#state{max_inflight = I,
-                           inflight     = emqx_inflight:new(I)});
+                           inflight     = #{}});
 init([auto_ack | Opts], State) ->
     init(Opts, State#state{auto_ack = true});
 init([{auto_ack, AutoAck} | Opts], State) when is_boolean(AutoAck) ->
@@ -582,17 +606,25 @@ init_will_msg({qos, QoS}, WillMsg) ->
 
 init_parse_state(State = #state{proto_ver = Ver, properties = Properties}) ->
     MaxSize = maps:get('Maximum-Packet-Size', Properties, ?MAX_PACKET_SIZE),
-    ParseState = emqx_frame:initial_parse_state(
-                   #{max_size => MaxSize, version => Ver}),
+    ParseState = emqx_client_frame:initial_parse_state(
+		   #{max_size => MaxSize, version => Ver}),
     State#state{parse_state = ParseState}.
+
+merge_opts(Defaults, Options) ->
+    lists:foldl(
+      fun({Opt, Val}, Acc) ->
+          lists:keystore(Opt, 1, Acc, {Opt, Val});
+         (Opt, Acc) ->
+          lists:usort([Opt | Acc])
+      end, Defaults, Options).
 
 callback_mode() -> state_functions.
 
-initialized({call, From}, connect, State = #state{sock_opts       = SockOpts,
-                                                  connect_timeout = Timeout}) ->
-    case sock_connect(hosts(State), SockOpts, Timeout) of
+initialized({call, From}, {connect, ConnMod}, State = #state{sock_opts = SockOpts,
+                                                             connect_timeout = Timeout}) ->
+    case sock_connect(ConnMod, hosts(State), SockOpts, Timeout) of
         {ok, Sock} ->
-            case mqtt_connect(run_sock(State#state{socket = Sock})) of
+            case mqtt_connect(run_sock(State#state{conn_mod = ConnMod, socket = Sock})) of
                 {ok, NewState} ->
                     {next_state, waiting_for_connack,
                      add_call(new_call(connect, From), NewState), [Timeout]};
@@ -618,7 +650,7 @@ mqtt_connect(State = #state{client_id   = ClientId,
                             will_msg    = WillMsg,
                             properties  = Properties}) ->
     ?WILL_MSG(WillQoS, WillRetain, WillTopic, WillProps, WillPayload) = WillMsg,
-    ConnProps = emqx_mqtt_props:filter(?CONNECT, Properties),
+    ConnProps = emqx_client_props:filter(?CONNECT, Properties),
     send(?CONNECT_PACKET(
             #mqtt_packet_connect{proto_ver    = ProtoVer,
                                  proto_name   = ProtoName,
@@ -661,7 +693,7 @@ waiting_for_connack(cast, ?CONNACK_PACKET(ReasonCode,
                                           _SessPresent,
                                           Properties),
                     State = #state{proto_ver = ProtoVer}) ->
-    Reason = emqx_reason_codes:name(ReasonCode, ProtoVer),
+    Reason = reason_code_name(ReasonCode, ProtoVer),
     case take_call(connect, State) of
         {value, #call{from = From}, _State} ->
             Reply = {error, {Reason, Properties}},
@@ -734,10 +766,10 @@ connected({call, From}, {publish, Msg = #mqtt_msg{qos = QoS}},
     Msg1 = Msg#mqtt_msg{packet_id = PacketId},
     case send(Msg1, State) of
         {ok, NewState} ->
-            Inflight1 = emqx_inflight:insert(PacketId, {publish, Msg1, os:timestamp()}, Inflight),
+            Inflight1 = maps:put(PacketId, {publish, Msg1, os:timestamp()}, Inflight),
             State1 = ensure_retry_timer(NewState#state{inflight = Inflight1}),
             Actions = [{reply, From, {ok, PacketId}}],
-            case emqx_inflight:is_full(Inflight1) of
+            case is_inflight_full(State1) of
                 true -> {next_state, inflight_full, State1, Actions};
                 false -> {keep_state, State1, Actions}
             end;
@@ -800,18 +832,18 @@ connected(cast, ?PUBACK_PACKET(_PacketId, _ReasonCode, _Properties) = PubAck, St
     {keep_state, delete_inflight(PubAck, State)};
 
 connected(cast, ?PUBREC_PACKET(PacketId), State = #state{inflight = Inflight}) ->
-    send_puback(?PUBREL_PACKET(PacketId),
-                case emqx_inflight:lookup(PacketId, Inflight) of
-                    {value, {publish, _Msg, _Ts}} ->
-                        Inflight1 = emqx_inflight:update(PacketId, {pubrel, PacketId, os:timestamp()}, Inflight),
-                        State#state{inflight = Inflight1};
-                    {value, {pubrel, _Ref, _Ts}} ->
-                        ?LOG(notice, "Duplicated PUBREC Packet: ~p", [PacketId]),
-                        State;
-                    none ->
-                        ?LOG(warning, "Unexpected PUBREC Packet: ~p", [PacketId]),
-                        State
-                end);
+	NState = case maps:find(PacketId, Inflight) of
+				 {ok, {publish, _Msg, _Ts}} ->
+					 Inflight1 = maps:put(PacketId, {pubrel, PacketId, os:timestamp()}, Inflight),
+					 State#state{inflight = Inflight1};
+				 {ok, {pubrel, _Ref, _Ts}} ->
+					 ?LOG(notice, "Duplicated PUBREC Packet: ~p", [PacketId], State),
+					 State;
+				 error ->
+					 ?LOG(warning, "Unexpected PUBREC Packet: ~p", [PacketId], State),
+					 State
+			 end,
+    send_puback(?PUBREL_PACKET(PacketId), NState);
 
 %%TODO::... if auto_ack is false, should we take PacketId from the map?
 connected(cast, ?PUBREL_PACKET(PacketId),
@@ -824,7 +856,7 @@ connected(cast, ?PUBREL_PACKET(PacketId),
                  false -> {keep_state, NewState}
              end;
          error ->
-             ?LOG(warning, "Unexpected PUBREL: ~p", [PacketId]),
+             ?LOG(warning, "Unexpected PUBREL: ~p", [PacketId], State),
              keep_state_and_data
      end;
 
@@ -877,8 +909,9 @@ connected(info, {timeout, _TRef, keepalive}, State = #state{force_ping = true}) 
     end;
 
 connected(info, {timeout, TRef, keepalive},
-          State = #state{socket = Sock, paused = Paused, keepalive_timer = TRef}) ->
-    case (not Paused) andalso should_ping(Sock) of
+          State = #state{conn_mod = ConnMod, socket = Sock,
+                         paused = Paused, keepalive_timer = TRef}) ->
+    case (not Paused) andalso should_ping(ConnMod, Sock) of
         true ->
             case send(?PACKET(?PINGREQ), State) of
                 {ok, NewState} ->
@@ -900,7 +933,7 @@ connected(info, {timeout, TRef, ack}, State = #state{ack_timer     = TRef,
 
 connected(info, {timeout, TRef, retry}, State = #state{retry_timer = TRef,
                                                        inflight    = Inflight}) ->
-    case emqx_inflight:is_empty(Inflight) of
+	case maps:size(Inflight) == 0 of
         true  -> {keep_state, State#state{retry_timer = undefined}};
         false -> retry_send(State)
     end;
@@ -921,44 +954,46 @@ inflight_full(EventType, EventContent, Data) ->
 
 handle_event({call, From}, stop, _StateName, _State) ->
     {stop_and_reply, normal, [{reply, From, ok}]};
+
 handle_event(info, {TcpOrSsL, _Sock, Data}, _StateName, State)
     when TcpOrSsL =:= tcp; TcpOrSsL =:= ssl ->
-    ?LOG(debug, "RECV Data: ~p", [Data]),
+    ?LOG(debug, "RECV Data: ~p", [Data], State),
     process_incoming(Data, [], run_sock(State));
 
 handle_event(info, {Error, _Sock, Reason}, _StateName, State)
     when Error =:= tcp_error; Error =:= ssl_error ->
-    ?LOG(error, "The connection error occured ~p, reason:~p", [Error, Reason]),
+    ?LOG(error, "The connection error occured ~p, reason:~p",
+	 [Error, Reason], State),
     {stop, {shutdown, Reason}, State};
 
 handle_event(info, {Closed, _Sock}, _StateName, State)
     when Closed =:= tcp_closed; Closed =:= ssl_closed ->
-    ?LOG(debug, "~p", [Closed]),
+    ?LOG(debug, "~p", [Closed], State),
     {stop, {shutdown, Closed}, State};
 
 handle_event(info, {'EXIT', Owner, Reason}, _, State = #state{owner = Owner}) ->
-    ?LOG(debug, "Got EXIT from owner, Reason: ~p", [Reason]),
+    ?LOG(debug, "Got EXIT from owner, Reason: ~p", [Reason], State),
     {stop, {shutdown, Reason}, State};
 
 handle_event(info, {inet_reply, _Sock, ok}, _, _State) ->
     keep_state_and_data;
 
 handle_event(info, {inet_reply, _Sock, {error, Reason}}, _, State) ->
-    ?LOG(error, "Got tcp error: ~p", [Reason]),
+    ?LOG(error, "Got tcp error: ~p", [Reason], State),
     {stop, {shutdown, Reason}, State};
 
-handle_event(info, EventContent = {'EXIT', _Pid, normal}, StateName, _State) ->
+handle_event(info, EventContent = {'EXIT', _Pid, normal}, StateName, State) ->
     ?LOG(info, "State: ~s, Unexpected Event: (info, ~p)",
-         [StateName, EventContent]),
+         [StateName, EventContent], State),
     keep_state_and_data;
 
-handle_event(EventType, EventContent, StateName, _StateData) ->
+handle_event(EventType, EventContent, StateName, State) ->
     ?LOG(error, "State: ~s, Unexpected Event: (~p, ~p)",
-         [StateName, EventType, EventContent]),
+         [StateName, EventType, EventContent], State),
     keep_state_and_data.
 
 %% Mandatory callback functions
-terminate(Reason, _StateName, State = #state{socket = Socket}) ->
+terminate(Reason, _StateName, State = #state{conn_mod = ConnMod, socket = Socket}) ->
     case Reason of
         {disconnected, ReasonCode, Properties} ->
             %% backward compatible
@@ -968,7 +1003,7 @@ terminate(Reason, _StateName, State = #state{socket = Socket}) ->
     end,
     case Socket =:= undefined of
         true -> ok;
-        _ -> emqx_client_sock:close(Socket)
+        _ -> ConnMod:close(Socket)
     end.
 
 code_change(_Vsn, State, Data, _Extra) ->
@@ -978,8 +1013,8 @@ code_change(_Vsn, State, Data, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-should_ping(Sock) ->
-    case emqx_client_sock:getstat(Sock, [send_oct]) of
+should_ping(ConnMod, Sock) ->
+    case ConnMod:getstat(Sock, [send_oct]) of
         {ok, [{send_oct, Val}]} ->
             OldVal = get(send_oct), put(send_oct, Val),
             OldVal == undefined orelse OldVal == Val;
@@ -987,36 +1022,41 @@ should_ping(Sock) ->
             Error
     end.
 
+is_inflight_full(#state{max_inflight = infinity}) ->
+    false;
+is_inflight_full(#state{max_inflight = MaxLimit, inflight = Inflight}) ->
+    maps:size(Inflight) >= MaxLimit.
+
 delete_inflight(?PUBACK_PACKET(PacketId, ReasonCode, Properties),
                 State = #state{inflight = Inflight}) ->
-    case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, {publish, #mqtt_msg{packet_id = PacketId}, _Ts}} ->
+	case maps:find(PacketId, Inflight) of
+        {ok, {publish, #mqtt_msg{packet_id = PacketId}, _Ts}} ->
             ok = eval_msg_handler(State, puback, #{packet_id   => PacketId,
                                                    reason_code => ReasonCode,
                                                    properties  => Properties}),
-            State#state{inflight = emqx_inflight:delete(PacketId, Inflight)};
-        none ->
-            ?LOG(warning, "Unexpected PUBACK: ~p", [PacketId]),
+            State#state{inflight = maps:remove(PacketId, Inflight)};
+        error ->
+            ?LOG(warning, "Unexpected PUBACK: ~p", [PacketId], State),
             State
     end;
 delete_inflight(?PUBCOMP_PACKET(PacketId, ReasonCode, Properties),
                 State = #state{inflight = Inflight}) ->
-    case emqx_inflight:lookup(PacketId, Inflight) of
-        {value, {pubrel, _PacketId, _Ts}} ->
+    case maps:find(PacketId, Inflight) of
+        {ok, {pubrel, _PacketId, _Ts}} ->
             ok = eval_msg_handler(State, puback, #{packet_id   => PacketId,
                                                    reason_code => ReasonCode,
                                                    properties  => Properties}),
-            State#state{inflight = emqx_inflight:delete(PacketId, Inflight)};
-        none ->
-            ?LOG(warning, "Unexpected PUBCOMP Packet: ~p", [PacketId]),
+            State#state{inflight = maps:remove(PacketId, Inflight)};
+        error ->
+            ?LOG(warning, "Unexpected PUBCOMP Packet: ~p", [PacketId], State),
             State
      end.
 
-delete_inflight_when_full(Packet, State0) ->
-    State = #state{inflight = Inflight} = delete_inflight(Packet, State0),
-    case emqx_inflight:is_full(Inflight) of
-        true -> {keep_state, State};
-        false -> {next_state, connected, State}
+delete_inflight_when_full(Packet, State) ->
+    State1 = delete_inflight(Packet, State),
+    case is_inflight_full(State1) of
+        true -> {keep_state, State1};
+        false -> {next_state, connected, State1}
     end.
 
 assign_id(?NO_CLIENT_ID, Props) ->
@@ -1097,7 +1137,7 @@ do_ensure_retry_timer(_Interval, State) ->
 
 retry_send(State = #state{inflight = Inflight}) ->
     SortFun = fun({_, _, Ts1}, {_, _, Ts2}) -> Ts1 < Ts2 end,
-    Msgs = lists:sort(SortFun, emqx_inflight:values(Inflight)),
+    Msgs = lists:sort(SortFun, maps:values(Inflight)),
     retry_send(Msgs, os:timestamp(), State ).
 
 retry_send([], _Now, State) ->
@@ -1117,7 +1157,7 @@ retry_send(publish, Msg = #mqtt_msg{qos = QoS, packet_id = PacketId},
     Msg1 = Msg#mqtt_msg{dup = (QoS =:= ?QOS_1)},
     case send(Msg1, State) of
         {ok, NewState} ->
-            Inflight1 = emqx_inflight:update(PacketId, {publish, Msg1, Now}, Inflight),
+            Inflight1 = maps:put(PacketId, {publish, Msg1, Now}, Inflight),
             {ok, NewState#state{inflight = Inflight1}};
         Error = {error, _Reason} ->
             Error
@@ -1125,7 +1165,7 @@ retry_send(publish, Msg = #mqtt_msg{qos = QoS, packet_id = PacketId},
 retry_send(pubrel, PacketId, Now, State = #state{inflight = Inflight}) ->
     case send(?PUBREL_PACKET(PacketId), State) of
         {ok, NewState} ->
-            Inflight1 = emqx_inflight:update(PacketId, {pubrel, PacketId, Now}, Inflight),
+            Inflight1 = maps:put(PacketId, {pubrel, PacketId, Now}, Inflight),
             {ok, NewState#state{inflight = Inflight1}};
         Error = {error, _Reason} ->
             Error
@@ -1184,16 +1224,17 @@ msg_to_packet(#mqtt_msg{qos = QoS, dup = Dup, retain = Retain, packet_id = Packe
 %%--------------------------------------------------------------------
 %% Socket Connect/Send
 
-sock_connect(Hosts, SockOpts, Timeout) ->
-    sock_connect(Hosts, SockOpts, Timeout, {error, no_hosts}).
+sock_connect(ConnMod, Hosts, SockOpts, Timeout) ->
+    sock_connect(ConnMod, Hosts, SockOpts, Timeout, {error, no_hosts}).
 
-sock_connect([], _SockOpts, _Timeout, LastErr) ->
+sock_connect(_ConnMod, [], _SockOpts, _Timeout, LastErr) ->
     LastErr;
-sock_connect([{Host, Port} | Hosts], SockOpts, Timeout, _LastErr) ->
-    case emqx_client_sock:connect(Host, Port, SockOpts, Timeout) of
-        {ok, Socket} -> {ok, Socket};
-        Err = {error, _Reason} ->
-            sock_connect(Hosts, SockOpts, Timeout, Err)
+sock_connect(ConnMod, [{Host, Port} | Hosts], SockOpts, Timeout, _LastErr) ->
+    case ConnMod:connect(Host, Port, SockOpts, Timeout) of
+        {ok, SockOrPid} ->
+            {ok, SockOrPid};
+        Error = {error, _Reason} ->
+            sock_connect(ConnMod, Hosts, SockOpts, Timeout, Error)
     end.
 
 hosts(#state{hosts = [], host = Host, port = Port}) ->
@@ -1209,17 +1250,17 @@ send_puback(Packet, State) ->
 send(Msg, State) when is_record(Msg, mqtt_msg) ->
     send(msg_to_packet(Msg), State);
 
-send(Packet, State = #state{socket = Sock, proto_ver = Ver})
+send(Packet, State = #state{conn_mod = ConnMod, socket = Sock, proto_ver = Ver})
     when is_record(Packet, mqtt_packet) ->
-    Data = emqx_frame:serialize(Packet, #{version => Ver}),
-    ?LOG(debug, "SEND Data: ~1000p", [Packet]),
-    case emqx_client_sock:send(Sock, Data) of
+    Data = emqx_client_frame:serialize(Packet, Ver),
+    ?LOG(debug, "SEND Data: ~1000p", [Packet], State),
+    case ConnMod:send(Sock, Data) of
         ok  -> {ok, bump_last_packet_id(State)};
         Error -> Error
     end.
 
-run_sock(State = #state{socket = Sock}) ->
-    emqx_client_sock:setopts(Sock, [{active, once}]), State.
+run_sock(State = #state{conn_mod = ConnMod, socket = Sock}) ->
+    ConnMod:setopts(Sock, [{active, once}]), State.
 
 %%--------------------------------------------------------------------
 %% Process incomming
@@ -1228,7 +1269,7 @@ process_incoming(<<>>, Packets, State) ->
     {keep_state, State, next_events(Packets)};
 
 process_incoming(Bytes, Packets, State = #state{parse_state = ParseState}) ->
-    try emqx_frame:parse(Bytes, ParseState) of
+    try emqx_client_frame:parse(Bytes, ParseState) of
         {ok, Packet, Rest, NParseState} ->
             process_incoming(Rest, [Packet|Packets], State#state{parse_state = NParseState});
         {ok, NParseState} ->
@@ -1257,3 +1298,60 @@ bump_last_packet_id(State = #state{last_packet_id = Id}) ->
 next_packet_id(?MAX_PACKET_ID) -> 1;
 next_packet_id(Id) -> Id + 1.
 
+%%--------------------------------------------------------------------
+%% ReasonCode Name
+
+reason_code_name(I, Ver) when Ver >= ?MQTT_PROTO_V5 ->
+    reason_code_name(I);
+reason_code_name(0, _Ver) -> connection_acceptd;
+reason_code_name(1, _Ver) -> unacceptable_protocol_version;
+reason_code_name(2, _Ver) -> client_identifier_not_valid;
+reason_code_name(3, _Ver) -> server_unavaliable;
+reason_code_name(4, _Ver) -> malformed_username_or_password;
+reason_code_name(5, _Ver) -> unauthorized_client;
+reason_code_name(_, _Ver) -> unknown_error.
+
+reason_code_name(16#00) -> success;
+reason_code_name(16#01) -> granted_qos1;
+reason_code_name(16#02) -> granted_qos2;
+reason_code_name(16#04) -> disconnect_with_will_message;
+reason_code_name(16#10) -> no_matching_subscribers;
+reason_code_name(16#11) -> no_subscription_existed;
+reason_code_name(16#18) -> continue_authentication;
+reason_code_name(16#19) -> re_authenticate;
+reason_code_name(16#80) -> unspecified_error;
+reason_code_name(16#81) -> malformed_Packet;
+reason_code_name(16#82) -> protocol_error;
+reason_code_name(16#83) -> implementation_specific_error;
+reason_code_name(16#84) -> unsupported_protocol_version;
+reason_code_name(16#85) -> client_identifier_not_valid;
+reason_code_name(16#86) -> bad_username_or_password;
+reason_code_name(16#87) -> not_authorized;
+reason_code_name(16#88) -> server_unavailable;
+reason_code_name(16#89) -> server_busy;
+reason_code_name(16#8A) -> banned;
+reason_code_name(16#8B) -> server_shutting_down;
+reason_code_name(16#8C) -> bad_authentication_method;
+reason_code_name(16#8D) -> keepalive_timeout;
+reason_code_name(16#8E) -> session_taken_over;
+reason_code_name(16#8F) -> topic_filter_invalid;
+reason_code_name(16#90) -> topic_name_invalid;
+reason_code_name(16#91) -> packet_identifier_inuse;
+reason_code_name(16#92) -> packet_identifier_not_found;
+reason_code_name(16#93) -> receive_maximum_exceeded;
+reason_code_name(16#94) -> topic_alias_invalid;
+reason_code_name(16#95) -> packet_too_large;
+reason_code_name(16#96) -> message_rate_too_high;
+reason_code_name(16#97) -> quota_exceeded;
+reason_code_name(16#98) -> administrative_action;
+reason_code_name(16#99) -> payload_format_invalid;
+reason_code_name(16#9A) -> retain_not_supported;
+reason_code_name(16#9B) -> qos_not_supported;
+reason_code_name(16#9C) -> use_another_server;
+reason_code_name(16#9D) -> server_moved;
+reason_code_name(16#9E) -> shared_subscriptions_not_supported;
+reason_code_name(16#9F) -> connection_rate_exceeded;
+reason_code_name(16#A0) -> maximum_connect_time;
+reason_code_name(16#A1) -> subscription_identifiers_not_supported;
+reason_code_name(16#A2) -> wildcard_subscriptions_not_supported;
+reason_code_name(_Code) -> unknown_error.

@@ -26,8 +26,6 @@
         , getstat/2
         ]).
 
--export_type([socket/0, option/0]).
-
 -record(ssl_socket, {tcp, ssl}).
 
 -type(socket() :: inet:socket() | #ssl_socket{}).
@@ -36,6 +34,8 @@
 
 -type(option() :: gen_tcp:connect_option() | {ssl_opts, [ssl:ssl_option()]}).
 
+-export_type([socket/0, option/0]).
+
 -define(DEFAULT_TCP_OPTIONS, [binary, {packet, raw}, {active, false},
                               {nodelay, true}, {reuseaddr, true}]).
 
@@ -43,8 +43,8 @@
               inet:port_number(), [option()], timeout())
       -> {ok, socket()} | {error, term()}).
 connect(Host, Port, SockOpts, Timeout) ->
-    TcpOpts = emqx_misc:merge_opts(?DEFAULT_TCP_OPTIONS,
-                                   lists:keydelete(ssl_opts, 1, SockOpts)),
+    TcpOpts = merge_opts(?DEFAULT_TCP_OPTIONS,
+			 lists:keydelete(ssl_opts, 1, SockOpts)),
     case gen_tcp:connect(Host, Port, TcpOpts, Timeout) of
         {ok, Sock} ->
             case lists:keyfind(ssl_opts, 1, SockOpts) of
@@ -59,7 +59,7 @@ connect(Host, Port, SockOpts, Timeout) ->
 ssl_upgrade(Sock, SslOpts, Timeout) ->
     TlsVersions = proplists:get_value(versions, SslOpts, []),
     Ciphers = proplists:get_value(ciphers, SslOpts, default_ciphers(TlsVersions)),
-    SslOpts2 = emqx_misc:merge_opts(SslOpts, [{ciphers, Ciphers}]),
+    SslOpts2 = merge_opts(SslOpts, [{ciphers, Ciphers}]),
     case ssl:connect(Sock, SslOpts2, Timeout) of
         {ok, SslSock} ->
             ok = ssl:controlling_process(SslSock, self()),
@@ -102,9 +102,17 @@ sockname(Sock) when is_port(Sock) ->
 sockname(#ssl_socket{ssl = SslSock}) ->
     ssl:sockname(SslSock).
 
+-spec(merge_opts(list(), list()) -> list()).
+merge_opts(Defaults, Options) ->
+    lists:foldl(
+      fun({Opt, Val}, Acc) ->
+          lists:keystore(Opt, 1, Acc, {Opt, Val});
+         (Opt, Acc) ->
+          lists:usort([Opt | Acc])
+      end, Defaults, Options).
+
 default_ciphers(TlsVersions) ->
     lists:foldl(
         fun(TlsVer, Ciphers) ->
             Ciphers ++ ssl:cipher_suites(all, TlsVer)
         end, [], TlsVersions).
-
