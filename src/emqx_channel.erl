@@ -256,7 +256,7 @@ connected(enter, _PrevSt, State = #state{proto_state = ProtoState}) ->
                          connected_at = os:timestamp()},
     ClientId = emqx_protocol:info(client_id, ProtoState),
     ok = emqx_cm:register_channel(ClientId),
-    ok = emqx_cm:set_chan_attrs(ClientId, attrs(NState)),
+    ok = emqx_cm:set_chan_attrs(ClientId, info(NState)),
     %% Ensure keepalive after connected successfully.
     Interval = emqx_protocol:info(keepalive, ProtoState),
     case ensure_keepalive(Interval, NState) of
