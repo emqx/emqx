@@ -32,7 +32,7 @@ end_per_suite(_Config) ->
 
 t_basic(_) ->
     Topic = <<"TopicA">>,
-    {ok, C} = emqtt:start_link([{port, 8083}]),
+    {ok, C} = emqtt:start_link([{host, "127.0.0.1"}, {port, 8083}]),
     {ok, _} = emqtt:ws_connect(C),
     {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
     {ok, _, [2]} = emqtt:subscribe(C, Topic, qos2),
@@ -54,4 +54,3 @@ recv_msgs(Count, Msgs) ->
     after 100 ->
         Msgs
     end.
-
