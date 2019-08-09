@@ -92,25 +92,25 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-t_mqttv4_name() ->
+t_mqttv4_name(_) ->
     (((codes_test(?MQTT_PROTO_V4))
         (seq(0,6)))
        (?MQTTV4_CODE_NAMES))
       (fun emqx_reason_codes:name/2).
 
-t_mqttv5_name() ->
+t_mqttv5_name(_) ->
     (((codes_test(?MQTT_PROTO_V5))
         (?MQTTV5_CODES))
        (?MQTTV5_CODE_NAMES))
       (fun emqx_reason_codes:name/2).
 
-t_text() ->
+t_text(_) ->
     (((codes_test(?MQTT_PROTO_V5))
         (?MQTTV5_CODES))
        (?MQTTV5_TXT))
       (fun emqx_reason_codes:text/1).
 
-t_compat() ->
+t_compat(_) ->
     (((codes_test(connack))
         (?COMPAT_CODES_V5))
        (?COMPAT_CODES_V4))
@@ -138,4 +138,3 @@ codes_test(AsistVar) ->
             end
         end
     end.
-
