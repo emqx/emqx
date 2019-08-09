@@ -30,6 +30,9 @@
         , caps/1
         ]).
 
+%% for tests
+-export([set/3]).
+
 -export([ init/2
         , handle_in/2
         , handle_req/2
@@ -94,8 +97,16 @@ info(proto_ver, #protocol{proto_ver = ProtoVer}) ->
     ProtoVer;
 info(keepalive, #protocol{keepalive = Keepalive}) ->
     Keepalive;
+info(will_msg, #protocol{will_msg = WillMsg}) ->
+    WillMsg;
 info(topic_aliases, #protocol{topic_aliases = Aliases}) ->
     Aliases.
+
+%% For tests
+set(client, Client, PState) ->
+    PState#protocol{client = Client};
+set(session, Session, PState) ->
+    PState#protocol{session = Session}.
 
 attrs(#protocol{client     = Client,
                 session    = Session,
@@ -111,6 +122,7 @@ attrs(#protocol{client     = Client,
 
 caps(#protocol{client = #{zone := Zone}}) ->
     emqx_mqtt_caps:get_caps(Zone).
+
 
 -spec(init(emqx_types:conn(), proplists:proplist()) -> proto_state()).
 init(ConnInfo, Options) ->
@@ -195,16 +207,16 @@ handle_in(?PUBREC_PACKET(PacketId, ReasonCode), PState = #protocol{session = Ses
     case emqx_session:pubrec(PacketId, ReasonCode, Session) of
         {ok, NSession} ->
             handle_out({pubrel, PacketId}, PState#protocol{session = NSession});
-        {error, ReasonCode} ->
-            handle_out({pubrel, PacketId, ReasonCode}, PState)
+        {error, ReasonCode1} ->
+            handle_out({pubrel, PacketId, ReasonCode1}, PState)
     end;
 
 handle_in(?PUBREL_PACKET(PacketId, ReasonCode), PState = #protocol{session = Session}) ->
     case emqx_session:pubrel(PacketId, ReasonCode, Session) of
         {ok, NSession} ->
             handle_out({pubcomp, PacketId}, PState#protocol{session = NSession});
-        {error, ReasonCode} ->
-            handle_out({pubcomp, PacketId, ReasonCode}, PState)
+        {error, ReasonCode1} ->
+            handle_out({pubcomp, PacketId, ReasonCode1}, PState)
     end;
 
 handle_in(?PUBCOMP_PACKET(PacketId, ReasonCode), PState = #protocol{session = Session}) ->

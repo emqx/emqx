@@ -103,7 +103,7 @@ check_sub(Zone, Topic, SubOpts) ->
     do_check_sub(Flags, Caps).
 
 do_check_sub(#{topic_levels := Levels}, #{max_topic_levels := Limit})
-  when Levels > Limit ->
+  when Limit > 0, Levels > Limit ->
     {error, ?RC_TOPIC_FILTER_INVALID};
 do_check_sub(#{is_wildcard := true}, #{wildcard_subscription := false}) ->
     {error, ?RC_WILDCARD_SUBSCRIPTIONS_NOT_SUPPORTED};
