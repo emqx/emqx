@@ -74,7 +74,10 @@
 
 -export_type([session/0]).
 
--define(get_env(Zone, Key, Default), emqx_zone:get_env(Zone, Key, Default)).
+-import(emqx_zone,
+        [ get_env/2
+        , get_env/3
+        ]).
 
 %% For test case
 -export([set_pkt_id/2]).
@@ -151,25 +154,25 @@
 init(CleanStart, #{zone := Zone}, #{max_inflight := MaxInflight,
                                     expiry_interval := ExpiryInterval}) ->
     #session{clean_start       = CleanStart,
-             max_subscriptions = ?get_env(Zone, max_subscriptions, 0),
+             max_subscriptions = get_env(Zone, max_subscriptions, 0),
              subscriptions     = #{},
-             upgrade_qos       = ?get_env(Zone, upgrade_qos, false),
+             upgrade_qos       = get_env(Zone, upgrade_qos, false),
              inflight          = emqx_inflight:new(MaxInflight),
              mqueue            = init_mqueue(Zone),
              next_pkt_id       = 1,
-             retry_interval    = ?get_env(Zone, retry_interval, 0),
+             retry_interval    = get_env(Zone, retry_interval, 0),
              awaiting_rel      = #{},
-             max_awaiting_rel  = ?get_env(Zone, max_awaiting_rel, 100),
-             await_rel_timeout = ?get_env(Zone, await_rel_timeout, ?DEFAULT_AWAIT_REL_TIMEOUT),
+             max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
+             await_rel_timeout = get_env(Zone, await_rel_timeout, ?DEFAULT_AWAIT_REL_TIMEOUT),
              expiry_interval   = ExpiryInterval,
              created_at        = os:timestamp()
             }.
 
 init_mqueue(Zone) ->
-    emqx_mqueue:init(#{max_len => ?get_env(Zone, max_mqueue_len, 1000),
-                       store_qos0 => ?get_env(Zone, mqueue_store_qos0, true),
-                       priorities => ?get_env(Zone, mqueue_priorities, none),
-                       default_priority => ?get_env(Zone, mqueue_default_priority, lowest)
+    emqx_mqueue:init(#{max_len => get_env(Zone, max_mqueue_len, 1000),
+                       store_qos0 => get_env(Zone, mqueue_store_qos0, true),
+                       priorities => get_env(Zone, mqueue_priorities, none),
+                       default_priority => get_env(Zone, mqueue_default_priority, lowest)
                       }).
 
 %%--------------------------------------------------------------------

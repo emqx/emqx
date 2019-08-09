@@ -22,8 +22,6 @@
 
 -define(mock_modules,
         [ emqx_metrics
-        , emqx_mqueue
-        , emqx_inflight
         , emqx_broker
         , emqx_misc
         , emqx_message
@@ -44,8 +42,8 @@ prop_session_pub() ->
     emqx_logger:set_log_level(emergency),
 
     ?SETUP(fun() ->
-                   ok = emqx_mocker:load(?mock_modules),
-                   fun() -> ok = emqx_mocker:unload(?mock_modules) end
+                   ok = load(?mock_modules),
+                   fun() -> ok = unload(?mock_modules) end
            end,
            ?FORALL({Session, OpList}, {session(), session_op_list()},
                    begin
@@ -288,3 +286,42 @@ make_subopts(RH, RAP, NL, QOS, SHARE, SubId) ->
       qos => QOS,
       share => SHARE,
       subid => SubId}.
+
+
+load(Modules) ->
+    [mock(Module) || Module <- Modules],
+    ok.
+
+unload(Modules) ->
+    lists:foreach(fun(Module) ->
+                          ok = meck:unload(Module)
+                  end, Modules),
+    ok.
+
+mock(Module) ->
+    ok = meck:new(Module, [passthrough, no_history]),
+    do_mock(Module, expect(Module)).
+
+do_mock(emqx_metrics, Expect) ->
+    Expect(inc, fun(_Anything) -> ok end);
+do_mock(emqx_broker, Expect) ->
+    Expect(subscribe, fun(_, _, _) -> ok end),
+    Expect(set_subopts, fun(_, _) -> ok end),
+    Expect(unsubscribe, fun(_) -> ok end),
+    Expect(publish, fun(_) -> ok end);
+do_mock(emqx_misc, Expect) ->
+    Expect(start_timer, fun(_, _) -> tref end);
+do_mock(emqx_message, Expect) ->
+    Expect(set_header, fun(_Hdr, _Val, Msg) -> Msg end),
+    Expect(is_expired, fun(_Msg) -> (rand:uniform(16) > 8) end);
+do_mock(emqx_hooks, Expect) ->
+    Expect(run, fun(_Hook, _Args) -> ok end);
+do_mock(emqx_zone, Expect) ->
+    Expect(get_env, fun(Env, Key, Default) -> maps:get(Key, Env, Default) end);
+do_mock(emqx_pd, Expect) ->
+    Expect(update_counter, fun(_stats, _num) -> ok end).
+
+expect(Module) ->
+    fun(OldFun, NewFun) ->
+            ok = meck:expect(Module, OldFun, NewFun)
+    end.
