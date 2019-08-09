@@ -193,8 +193,8 @@ handle_in(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), PState) ->
             puback(QoS, PacketId, ReasonCode, NPState)
     end;
 
-handle_in(?PUBACK_PACKET(PacketId, ReasonCode), PState = #protocol{session = Session}) ->
-    case emqx_session:puback(PacketId, ReasonCode, Session) of
+handle_in(?PUBACK_PACKET(PacketId, _ReasonCode), PState = #protocol{session = Session}) ->
+    case emqx_session:puback(PacketId, Session) of
         {ok, Publishes, NSession} ->
             handle_out({publish, Publishes}, PState#protocol{session = NSession});
         {ok, NSession} ->
@@ -204,7 +204,7 @@ handle_in(?PUBACK_PACKET(PacketId, ReasonCode), PState = #protocol{session = Ses
     end;
 
 handle_in(?PUBREC_PACKET(PacketId, ReasonCode), PState = #protocol{session = Session}) ->
-    case emqx_session:pubrec(PacketId, ReasonCode, Session) of
+    case emqx_session:pubrec(PacketId, Session) of
         {ok, NSession} ->
             handle_out({pubrel, PacketId}, PState#protocol{session = NSession});
         {error, ReasonCode1} ->
@@ -212,15 +212,15 @@ handle_in(?PUBREC_PACKET(PacketId, ReasonCode), PState = #protocol{session = Ses
     end;
 
 handle_in(?PUBREL_PACKET(PacketId, ReasonCode), PState = #protocol{session = Session}) ->
-    case emqx_session:pubrel(PacketId, ReasonCode, Session) of
+    case emqx_session:pubrel(PacketId, Session) of
         {ok, NSession} ->
             handle_out({pubcomp, PacketId}, PState#protocol{session = NSession});
         {error, ReasonCode1} ->
             handle_out({pubcomp, PacketId, ReasonCode1}, PState)
     end;
 
-handle_in(?PUBCOMP_PACKET(PacketId, ReasonCode), PState = #protocol{session = Session}) ->
-    case emqx_session:pubcomp(PacketId, ReasonCode, Session) of
+handle_in(?PUBCOMP_PACKET(PacketId, _ReasonCode), PState = #protocol{session = Session}) ->
+    case emqx_session:pubcomp(PacketId, Session) of
         {ok, Publishes, NSession} ->
             handle_out({publish, Publishes}, PState#protocol{session = NSession});
         {ok, NSession} ->
@@ -905,4 +905,3 @@ sp(false) -> 0.
 
 flag(true)  -> 1;
 flag(false) -> 0.
-
