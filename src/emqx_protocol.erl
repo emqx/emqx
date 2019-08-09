@@ -203,7 +203,7 @@ handle_in(?PUBACK_PACKET(PacketId, _ReasonCode), PState = #protocol{session = Se
             {ok, PState}
     end;
 
-handle_in(?PUBREC_PACKET(PacketId, ReasonCode), PState = #protocol{session = Session}) ->
+handle_in(?PUBREC_PACKET(PacketId, _ReasonCode), PState = #protocol{session = Session}) ->
     case emqx_session:pubrec(PacketId, Session) of
         {ok, NSession} ->
             handle_out({pubrel, PacketId}, PState#protocol{session = NSession});
@@ -211,7 +211,7 @@ handle_in(?PUBREC_PACKET(PacketId, ReasonCode), PState = #protocol{session = Ses
             handle_out({pubrel, PacketId, ReasonCode1}, PState)
     end;
 
-handle_in(?PUBREL_PACKET(PacketId, ReasonCode), PState = #protocol{session = Session}) ->
+handle_in(?PUBREL_PACKET(PacketId, _ReasonCode), PState = #protocol{session = Session}) ->
     case emqx_session:pubrel(PacketId, Session) of
         {ok, NSession} ->
             handle_out({pubcomp, PacketId}, PState#protocol{session = NSession});
@@ -871,11 +871,11 @@ parse(unsubscribe, TopicFilters) ->
 %% Mount/Unmount
 %%--------------------------------------------------------------------
 
-mount(#{mountpoint := MountPoint}, TopicOrMsg) ->
-    emqx_mountpoint:mount(MountPoint, TopicOrMsg).
+mount(Client = #{mountpoint := MountPoint}, TopicOrMsg) ->
+    emqx_mountpoint:mount(emqx_mountpoint:replvar(MountPoint, Client), TopicOrMsg).
 
-unmount(#{mountpoint := MountPoint}, TopicOrMsg) ->
-    emqx_mountpoint:unmount(MountPoint, TopicOrMsg).
+unmount(Client = #{mountpoint := MountPoint}, TopicOrMsg) ->
+    emqx_mountpoint:unmount(emqx_mountpoint:replvar(MountPoint, Client), TopicOrMsg).
 
 %%--------------------------------------------------------------------
 %% Pipeline
