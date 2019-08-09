@@ -65,26 +65,3 @@ t_check_sub(_) ->
     ?assertEqual({error, ?RC_SHARED_SUBSCRIPTIONS_NOT_SUPPORTED},
                  emqx_mqtt_caps:check_sub(zone, <<"topic">>, SubOpts#{share => true})),
     true = emqx_zone:unset_env(zone, '$mqtt_sub_caps').
-
-t_get_set_caps(_) ->
-    Caps = emqx_mqtt_caps:default(),
-    ?assertEqual(Caps, emqx_mqtt_caps:get_caps(zone)),
-    PubCaps = #{max_qos_allowed => ?QOS_2,
-                retain_available => true,
-                max_topic_alias => 0
-               },
-    ?assertEqual(PubCaps, emqx_mqtt_caps:get_caps(zone, publish)),
-    NewPubCaps = PubCaps#{max_qos_allowed => ?QOS_1,
-                          retain_available => true
-                         },
-    emqx_zone:set_env(zone, '$mqtt_pub_caps', NewPubCaps),
-    ?assertEqual(NewPubCaps, emqx_mqtt_caps:get_caps(zone, publish)),
-
-    SubCaps = #{max_topic_levels => 0,
-                max_qos_allowed => ?QOS_2,
-                shared_subscription => true,
-                wildcard_subscription => true
-               },
-    ?assertEqual(SubCaps, emqx_mqtt_caps:get_caps(zone, subscribe)),
-    true = emqx_zone:unset_env(zone, '$mqtt_pub_caps').
-

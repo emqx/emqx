@@ -56,11 +56,11 @@ groups() ->
       [t_basic_v4,
        %% t_will_message,
        %% t_offline_message_queueing,
-       t_overlapping_subscriptions
+       t_overlapping_subscriptions,
        %% t_keepalive,
        %% t_redelivery_on_reconnect,
        %% subscribe_failure_test,
-       %% t_dollar_topics_test
+       t_dollar_topics
       ]},
      {mqttv5, [non_parallel_tests],
       [t_basic_with_props_v5
