@@ -19,7 +19,8 @@
 
 -include("emqx_mqtt.hrl").
 
--export([ name/2
+-export([ name/1
+        , name/2
         , text/1
         , connack_error/1
         , puback/1
