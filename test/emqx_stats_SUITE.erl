@@ -23,7 +23,7 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-t_get_state() ->
+t_get_state(_) ->
     with_proc(fun() ->
         SetConnsCount = emqx_stats:statsfun('connections.count'),
         SetConnsCount(1),
@@ -48,7 +48,7 @@ t_get_state() ->
         ?assertEqual(4, proplists:get_value('connections.max', Conns))
     end).
 
-t_update_interval() ->
+t_update_interval(_) ->
     TickMs = 200,
     with_proc(fun() ->
         SleepMs = TickMs * 2 + TickMs div 2, %% sleep for 2.5 ticks
@@ -59,7 +59,7 @@ t_update_interval() ->
         ?assertEqual(1, emqx_stats:getstat('connections.count'))
     end, TickMs).
 
-helper_test_() ->
+t_helper(_) ->
     TickMs = 200,
     TestF =
         fun(CbModule, CbFun) ->
@@ -105,4 +105,3 @@ with_stop(F) ->
     after
         ok = emqx_stats:stop()
     end.
-
