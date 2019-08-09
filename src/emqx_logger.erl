@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,10 +12,11 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_logger).
 
--compile({no_auto_import,[error/1]}).
+-compile({no_auto_import, [error/1]}).
 
 %% Logs
 -export([ debug/1
@@ -50,84 +52,127 @@
 
 -export([parse_transform/2]).
 
-%%------------------------------------------------------------------------------
-%% APIs
-%%------------------------------------------------------------------------------
+-type(peername_str() :: list()).
+-type(logger_dst() :: file:filename() | console | unknown).
+-type(logger_handler_info() :: {logger:handler_id(), logger:level(), logger_dst()}).
 
+%%--------------------------------------------------------------------
+%% APIs
+%%--------------------------------------------------------------------
+-spec(debug(unicode:chardata()) -> ok).
 debug(Msg) ->
     logger:debug(Msg).
+
+-spec(debug(io:format(), [term()]) -> ok).
 debug(Format, Args) ->
     logger:debug(Format, Args).
+
+-spec(debug(logger:metadata(), io:format(), [term()]) -> ok).
 debug(Metadata, Format, Args) when is_map(Metadata) ->
     logger:debug(Format, Args, Metadata).
 
+
+-spec(info(unicode:chardata()) -> ok).
 info(Msg) ->
     logger:info(Msg).
+
+-spec(info(io:format(), [term()]) -> ok).
 info(Format, Args) ->
     logger:info(Format, Args).
+
+-spec(info(logger:metadata(), io:format(), [term()]) -> ok).
 info(Metadata, Format, Args) when is_map(Metadata) ->
     logger:info(Format, Args, Metadata).
 
+
+-spec(warning(unicode:chardata()) -> ok).
 warning(Msg) ->
     logger:warning(Msg).
+
+-spec(warning(io:format(), [term()]) -> ok).
 warning(Format, Args) ->
     logger:warning(Format, Args).
+
+-spec(warning(logger:metadata(), io:format(), [term()]) -> ok).
 warning(Metadata, Format, Args) when is_map(Metadata) ->
     logger:warning(Format, Args, Metadata).
 
+
+-spec(error(unicode:chardata()) -> ok).
 error(Msg) ->
     logger:error(Msg).
+-spec(error(io:format(), [term()]) -> ok).
 error(Format, Args) ->
     logger:error(Format, Args).
+-spec(error(logger:metadata(), io:format(), [term()]) -> ok).
 error(Metadata, Format, Args) when is_map(Metadata) ->
     logger:error(Format, Args, Metadata).
 
+
+-spec(critical(unicode:chardata()) -> ok).
 critical(Msg) ->
     logger:critical(Msg).
+
+-spec(critical(io:format(), [term()]) -> ok).
 critical(Format, Args) ->
     logger:critical(Format, Args).
+
+-spec(critical(logger:metadata(), io:format(), [term()]) -> ok).
 critical(Metadata, Format, Args) when is_map(Metadata) ->
     logger:critical(Format, Args, Metadata).
 
+-spec(set_metadata_client_id(emqx_types:client_id()) -> ok).
 set_metadata_client_id(ClientId) ->
     set_proc_metadata(#{client_id => ClientId}).
 
+-spec(set_metadata_peername(peername_str()) -> ok).
 set_metadata_peername(Peername) ->
     set_proc_metadata(#{peername => Peername}).
 
+-spec(set_proc_metadata(logger:metadata()) -> ok).
 set_proc_metadata(Meta) ->
     logger:update_process_metadata(Meta).
 
+-spec(get_primary_log_level() -> logger:level()).
 get_primary_log_level() ->
     #{level := Level} = logger:get_primary_config(),
     Level.
 
+-spec(set_primary_log_level(logger:level()) -> ok | {error, term()}).
 set_primary_log_level(Level) ->
     logger:set_primary_config(level, Level).
 
+-spec(get_log_handlers() -> [logger_handler_info()]).
 get_log_handlers() ->
     lists:map(fun log_hanlder_info/1, logger:get_handler_config()).
 
+-spec(get_log_handler(logger:handler_id()) -> logger_handler_info()).
 get_log_handler(HandlerId) ->
     {ok, Conf} = logger:get_handler_config(HandlerId),
     log_hanlder_info(Conf).
 
+-spec(set_log_handler_level(logger:handler_id(), logger:level()) -> ok | {error, term()}).
 set_log_handler_level(HandlerId, Level) ->
     logger:set_handler_config(HandlerId, level, Level).
 
-%% Set both the primary and all handlers level in one command
+%% @doc Set both the primary and all handlers level in one command
+-spec(set_log_level(logger:handler_id()) -> ok | {error, term()}).
 set_log_level(Level) ->
     case set_primary_log_level(Level) of
         ok -> set_all_log_handlers_level(Level);
         {error, Error} -> {error, {primary_logger_level, Error}}
     end.
 
+%% @doc The parse transform for prefixing a module-specific logger header to the logs.
+%% The logger header can be specified by "-logger_header(Header)", where Header
+%% must be a string (list).
+%% @end
 parse_transform(AST, _Opts) ->
     trans(AST, "", []).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal Functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 log_hanlder_info(#{id := Id, level := Level, module := logger_std_h,
                    config := #{type := Type}}) when Type =:= standard_io;
@@ -165,7 +210,10 @@ rollback([{ID, Level} | List]) ->
     rollback(List);
 rollback([]) -> ok.
 
-%% Generate a function '$logger_header'/0 into the source code
+%% @doc The following parse-transforms stripped off the module attribute named
+%% `-logger_header(Header)` (if there's one) from the source code, and then
+%% generate a function named '$logger_header'/0, which returns the logger header.
+%% @end
 trans([], LogHeader, ResAST) ->
     lists:reverse([header_fun(LogHeader) | ResAST]);
 trans([{eof, L} | AST], LogHeader, ResAST) ->

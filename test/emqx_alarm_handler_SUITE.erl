@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,20 +12,18 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_alarm_handler_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx.hrl").
+-include("emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--include_lib("common_test/include/ct.hrl").
-
--include("emqx_mqtt.hrl").
--include("emqx.hrl").
-
-all() -> [t_alarm_handler].
+all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([], fun set_special_configs/1),
@@ -34,9 +33,57 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
 set_special_configs(emqx) ->
-    application:set_env(emqx, acl_file, emqx_ct_helpers:deps_path(emqx, "test/emqx_access_SUITE_data/acl_deny_action.conf"));
-set_special_configs(_App) ->
-    ok.
+    AclFile = emqx_ct_helpers:deps_path(emqx, "test/emqx_access_SUITE_data/acl_deny_action.conf"),
+    application:set_env(emqx, acl_file, AclFile);
+set_special_configs(_App) -> ok.
+
+t_alarm_handler(_) ->
+    with_connection(
+        fun(Sock) ->
+            emqx_client_sock:send(Sock,
+                                  raw_send_serialize(
+                                      ?CONNECT_PACKET(
+                                          #mqtt_packet_connect{
+                                          proto_ver = ?MQTT_PROTO_V5})
+                                   )),
+            {ok, Data} = gen_tcp:recv(Sock, 0),
+            {ok, ?CONNACK_PACKET(?RC_SUCCESS), <<>>, _} = raw_recv_parse(Data),
+
+            Topic1 = emqx_topic:systop(<<"alarms/alert">>),
+            Topic2 = emqx_topic:systop(<<"alarms/clear">>),
+            SubOpts = #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0},
+            emqx_client_sock:send(Sock,
+                                  raw_send_serialize(
+                                      ?SUBSCRIBE_PACKET(
+                                          1,
+                                          [{Topic1, SubOpts},
+                                           {Topic2, SubOpts}])
+                                      )),
+
+            {ok, Data2} = gen_tcp:recv(Sock, 0),
+            {ok, ?SUBACK_PACKET(1, #{}, [2, 2]), <<>>, _} = raw_recv_parse(Data2),
+
+            alarm_handler:set_alarm({alarm_for_test, #alarm{id = alarm_for_test,
+                                                            severity = error,
+                                                            title="alarm title",
+                                                            summary="alarm summary"
+                                                           }}),
+
+            {ok, Data3} = gen_tcp:recv(Sock, 0),
+
+            {ok, ?PUBLISH_PACKET(?QOS_0, Topic1, _, _), <<>>, _} = raw_recv_parse(Data3),
+
+            ?assertEqual(true, lists:keymember(alarm_for_test, 1, emqx_alarm_handler:get_alarms())),
+
+            alarm_handler:clear_alarm(alarm_for_test),
+
+            {ok, Data4} = gen_tcp:recv(Sock, 0),
+
+            {ok, ?PUBLISH_PACKET(?QOS_0, Topic2, _, _), <<>>, _} = raw_recv_parse(Data4),
+
+            ?assertEqual(false, lists:keymember(alarm_for_test, 1, emqx_alarm_handler:get_alarms()))
+
+        end).
 
 with_connection(DoFun) ->
     {ok, Sock} = emqx_client_sock:connect({127, 0, 0, 1}, 1883,
@@ -48,61 +95,9 @@ with_connection(DoFun) ->
         emqx_client_sock:close(Sock)
     end.
 
-t_alarm_handler(_) ->
-    with_connection(
-        fun(Sock) ->
-            emqx_client_sock:send(Sock,
-                                  raw_send_serialize(
-                                      ?CONNECT_PACKET(
-                                          #mqtt_packet_connect{
-                                          proto_ver  = ?MQTT_PROTO_V5}),
-                                      #{version => ?MQTT_PROTO_V5}
-                                  )),
-            {ok, Data} = gen_tcp:recv(Sock, 0),
-            {ok, ?CONNACK_PACKET(?RC_SUCCESS), <<>>, _} = raw_recv_parse(Data, ?MQTT_PROTO_V5),
-
-            Topic1 = emqx_topic:systop(<<"alarms/alert">>),
-            Topic2 = emqx_topic:systop(<<"alarms/clear">>),
-            SubOpts = #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0},
-            emqx_client_sock:send(Sock,
-                                  raw_send_serialize(
-                                      ?SUBSCRIBE_PACKET(
-                                          1,
-                                          [{Topic1, SubOpts},
-                                           {Topic2, SubOpts}]),
-                                      #{version => ?MQTT_PROTO_V5})),
-
-            {ok, Data2} = gen_tcp:recv(Sock, 0),
-            {ok, ?SUBACK_PACKET(1, #{}, [2, 2]), <<>>, _} = raw_recv_parse(Data2, ?MQTT_PROTO_V5),
-
-            alarm_handler:set_alarm({alarm_for_test, #alarm{id = alarm_for_test,
-                                                            severity = error,
-                                                            title="alarm title",
-                                                            summary="alarm summary"}}),
-
-            {ok, Data3} = gen_tcp:recv(Sock, 0),
-
-            {ok, ?PUBLISH_PACKET(?QOS_0, Topic1, _, _), <<>>, _} = raw_recv_parse(Data3, ?MQTT_PROTO_V5),
-
-            ?assertEqual(true, lists:keymember(alarm_for_test, 1, emqx_alarm_handler:get_alarms())),
-
-            alarm_handler:clear_alarm(alarm_for_test),
-
-            {ok, Data4} = gen_tcp:recv(Sock, 0),
-
-            {ok, ?PUBLISH_PACKET(?QOS_0, Topic2, _, _), <<>>, _} = raw_recv_parse(Data4, ?MQTT_PROTO_V5),
-
-            ?assertEqual(false, lists:keymember(alarm_for_test, 1, emqx_alarm_handler:get_alarms()))
-
-        end).
-
 raw_send_serialize(Packet) ->
-    emqx_frame:serialize(Packet).
+    emqx_frame:serialize(Packet, ?MQTT_PROTO_V5).
 
-raw_send_serialize(Packet, Opts) ->
-    emqx_frame:serialize(Packet, Opts).
-
-raw_recv_parse(Bin, ProtoVer) ->
-    emqx_frame:parse(Bin, {none, #{max_size => ?MAX_PACKET_SIZE,
-                                   version  => ProtoVer}}).
+raw_recv_parse(Bin) ->
+    emqx_frame:parse(Bin, emqx_frame:initial_parse_state(#{version => ?MQTT_PROTO_V5})).
 

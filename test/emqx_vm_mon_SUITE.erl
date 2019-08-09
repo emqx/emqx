@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2013-2013-2019 EMQ Enterprise, Inc. (http://emqtt.io)
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -21,8 +21,6 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--include_lib("common_test/include/ct.hrl").
-
 -define(WAIT(PATTERN, TIMEOUT),
         receive
             PATTERN ->
@@ -32,7 +30,7 @@
                 error(timeout)
         end).
 
-all() -> [t_api].
+all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
     application:ensure_all_started(sasl),
@@ -75,3 +73,4 @@ t_api(_) ->
     after
         meck:unload(alarm_handler)
     end.
+

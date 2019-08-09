@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 %% @doc Start/Stop MQTT listeners.
 -module(emqx_listeners).
@@ -33,9 +35,9 @@
 
 -type(listener() :: {esockd:proto(), esockd:listen_on(), [esockd:option()]}).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 %% @doc Start all listeners.
 -spec(start() -> ok).
@@ -44,13 +46,15 @@ start() ->
 
 -spec(start_listener(listener()) -> {ok, pid()} | {error, term()}).
 start_listener({Proto, ListenOn, Options}) ->
-    case start_listener(Proto, ListenOn, Options) of
-        {ok, _} ->
-            io:format("Start mqtt:~s listener on ~s successfully.~n", [Proto, format(ListenOn)]);
+    StartRet = start_listener(Proto, ListenOn, Options),
+    case StartRet of
+        {ok, _} -> io:format("Start mqtt:~s listener on ~s successfully.~n",
+                             [Proto, format(ListenOn)]);
         {error, Reason} ->
             io:format(standard_error, "Failed to start mqtt:~s listener on ~s - ~p~n!",
                       [Proto, format(ListenOn), Reason])
-    end.
+    end,
+    StartRet.
 
 %% Start MQTT/TCP listener
 -spec(start_listener(esockd:proto(), esockd:listen_on(), [esockd:option()])
@@ -64,11 +68,13 @@ start_listener(Proto, ListenOn, Options) when Proto == ssl; Proto == tls ->
 
 %% Start MQTT/WS listener
 start_listener(Proto, ListenOn, Options) when Proto == http; Proto == ws ->
-    start_http_listener(fun cowboy:start_clear/3, 'mqtt:ws', ListenOn, ranch_opts(Options), ws_opts(Options));
+    start_http_listener(fun cowboy:start_clear/3, 'mqtt:ws', ListenOn,
+                        ranch_opts(Options), ws_opts(Options));
 
 %% Start MQTT/WSS listener
 start_listener(Proto, ListenOn, Options) when Proto == https; Proto == wss ->
-    start_http_listener(fun cowboy:start_tls/3, 'mqtt:wss', ListenOn, ranch_opts(Options), ws_opts(Options)).
+    start_http_listener(fun cowboy:start_tls/3, 'mqtt:wss', ListenOn,
+                        ranch_opts(Options), ws_opts(Options)).
 
 start_mqtt_listener(Name, ListenOn, Options) ->
     SockOpts = esockd:parse_opt(Options),
@@ -82,8 +88,10 @@ mqtt_path(Options) ->
     proplists:get_value(mqtt_path, Options, "/mqtt").
 
 ws_opts(Options) ->
-    Dispatch = cowboy_router:compile([{'_', [{mqtt_path(Options), emqx_ws_channel, Options}]}]),
-    #{env => #{dispatch => Dispatch}, proxy_header => proplists:get_value(proxy_protocol, Options, false)}.
+    WsPaths = [{mqtt_path(Options), emqx_ws_channel, Options}],
+    Dispatch = cowboy_router:compile([{'_', WsPaths}]),
+    ProxyProto = proplists:get_value(proxy_protocol, Options, false),
+    #{env => #{dispatch => Dispatch}, proxy_header => ProxyProto}.
 
 ranch_opts(Options) ->
     NumAcceptors = proplists:get_value(acceptors, Options, 4),
@@ -132,13 +140,15 @@ stop() ->
 
 -spec(stop_listener(listener()) -> ok | {error, term()}).
 stop_listener({Proto, ListenOn, Opts}) ->
-    case stop_listener(Proto, ListenOn, Opts) of
-        ok ->
-            io:format("Stop mqtt:~s listener on ~s successfully.~n", [Proto, format(ListenOn)]);
+    StopRet = stop_listener(Proto, ListenOn, Opts),
+    case StopRet of
+        ok -> io:format("Stop mqtt:~s listener on ~s successfully.~n",
+                        [Proto, format(ListenOn)]);
         {error, Reason} ->
             io:format(standard_error, "Failed to stop mqtt:~s listener on ~s - ~p~n.",
                       [Proto, format(ListenOn), Reason])
-    end.
+    end,
+    StopRet.
 
 -spec(stop_listener(esockd:proto(), esockd:listen_on(), [esockd:option()])
       -> ok | {error, term()}).
@@ -167,3 +177,4 @@ format({Addr, Port}) when is_list(Addr) ->
     io_lib:format("~s:~w", [Addr, Port]);
 format({Addr, Port}) when is_tuple(Addr) ->
     io_lib:format("~s:~w", [esockd_net:ntoab(Addr), Port]).
+

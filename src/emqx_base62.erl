@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,26 +12,25 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_base62).
 
 %% APIs
 -export([ encode/1
-        , encode/2
         , decode/1
-        , decode/2
         ]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 %% @doc Encode any data to base62 binary
 -spec encode(string() | integer() | binary()) -> binary().
 encode(I) when is_integer(I) ->
     encode(integer_to_binary(I));
 encode(S) when is_list(S)->
-    encode(list_to_binary(S));
+    encode(unicode:characters_to_binary(S));
 encode(B) when is_binary(B) ->
     encode(B, <<>>).
 
@@ -38,17 +38,13 @@ encode(B) when is_binary(B) ->
 %%     binary_to_list(encode(D)).
 
 %% @doc Decode base62 binary to origin data binary
-decode(L) when is_list(L) ->
-    decode(list_to_binary(L));
 decode(B) when is_binary(B) ->
     decode(B, <<>>).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Interval Functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
-encode(D, string) ->
-    binary_to_list(encode(D));
 encode(<<Index1:6, Index2:6, Index3:6, Index4:6, Rest/binary>>, Acc) ->
     CharList = [encode_char(Index1), encode_char(Index2), encode_char(Index3), encode_char(Index4)],
     NewAcc = <<Acc/binary,(iolist_to_binary(CharList))/binary>>,
@@ -64,10 +60,6 @@ encode(<<Index1:6, Index2:2>>, Acc) ->
 encode(<<>>, Acc) ->
     Acc.
 
-decode(D, integer) ->
-    binary_to_integer(decode(D));
-decode(D, string) ->
-    binary_to_list(decode(D));
 decode(<<Head:8, Rest/binary>>, Acc)
   when bit_size(Rest) >= 8->
     case Head == $9 of
@@ -112,4 +104,3 @@ decode_char(I) when I >= $A andalso I =< $Z->
 
 decode_char(9, I) ->
     I + 61 - $A.
-

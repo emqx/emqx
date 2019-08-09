@@ -11,6 +11,7 @@ script:
   - make xref
   - make eunit
   - make ct
+  - make proper
   - make cover
 
 after_success:

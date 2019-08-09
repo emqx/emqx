@@ -85,6 +85,13 @@
   {datatype, string}
 ]}.
 
+%% @doc The erlang distributed protocol
+{mapping, "cluster.proto_dist", "ekka.proto_dist", [
+  {default, "inet_tcp"},
+  {datatype, {enum, [inet_tcp, inet6_tcp, inet_tls]}},
+  hidden
+]}.
+
 {mapping, "cluster.dns.app", "ekka.cluster_discovery", [
   {datatype, string}
 ]}.
@@ -198,12 +205,7 @@ end}.
   {default, "emqx@127.0.0.1"}
 ]}.
 
-%% @doc The erlang distributed protocol
-{mapping, "node.proto_dist", "vm_args.-proto_dist", [
-  %{default, "inet_tcp"},
-  {datatype, {enum, [inet_tcp, inet6_tcp, inet_tls]}},
-  hidden
-]}.
+
 
 %% @doc Specify SSL Options in the file if using SSL for erlang distribution
 {mapping, "node.ssl_dist_optfile", "vm_args.-ssl_dist_optfile", [
@@ -338,6 +340,17 @@ end}.
 %% RPC
 %%--------------------------------------------------------------------
 
+%% RPC Mode.
+{mapping, "rpc.mode", "emqx.rpc_mode", [
+  {default, async},
+  {datatype, {enum, [sync, async]}}
+]}.
+
+{mapping, "rpc.async_batch_size", "gen_rpc.max_batch_size", [
+  {default, 256},
+  {datatype, integer}
+]}.
+
 %% RPC server port.
 {mapping, "rpc.tcp_server_port", "gen_rpc.tcp_server_port", [
   {default, 5369},
@@ -348,6 +361,13 @@ end}.
 {mapping, "rpc.tcp_client_port", "gen_rpc.tcp_client_port", [
   {default, 5369},
   {datatype, integer}
+]}.
+
+%% Default TCP port for outgoing connections
+{mapping, "rpc.tcp_client_num", "gen_rpc.tcp_client_num", [
+  {default, 32},
+  {datatype, integer},
+  {validators, ["range:gt_0_lt_256"]}
 ]}.
 
 %% Client connect timeout
@@ -391,6 +411,28 @@ end}.
   {default, 9},
   {datatype, integer}
 ]}.
+
+%% Size of TCP send buffer
+{mapping, "rpc.socket_sndbuf", "gen_rpc.socket_sndbuf", [
+  {default, "1MB"},
+  {datatype, bytesize}
+]}.
+
+%% Size of TCP receive buffer
+{mapping, "rpc.socket_recbuf", "gen_rpc.socket_recbuf", [
+  {default, "1MB"},
+  {datatype, bytesize}
+]}.
+
+%% Size of TCP receive buffer
+{mapping, "rpc.socket_buffer", "gen_rpc.socket_buffer", [
+  {default, "1MB"},
+  {datatype, bytesize}
+]}.
+
+{validator, "range:gt_0_lt_256", "must greater than 0 and less than 256",
+  fun(X) -> X > 0 andalso X < 256 end
+}.
 
 %%--------------------------------------------------------------------
 %% Log
@@ -634,19 +676,19 @@ end}.
 ]}.
 
 %% @doc Whether the server supports MQTT retained messages.
-{mapping, "mqtt.retain_available", "emqx.mqtt_retain_available", [
+{mapping, "mqtt.retain_available", "emqx.retain_available", [
   {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
 
 %% @doc Whether the Server supports MQTT Wildcard Subscriptions.
-{mapping, "mqtt.wildcard_subscription", "emqx.mqtt_wildcard_subscription", [
+{mapping, "mqtt.wildcard_subscription", "emqx.wildcard_subscription", [
   {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
 
 %% @doc Whether the Server supports MQTT Shared Subscriptions.
-{mapping, "mqtt.shared_subscription", "emqx.mqtt_shared_subscription", [
+{mapping, "mqtt.shared_subscription", "emqx.shared_subscription", [
   {default, true},
   {datatype, {enum, [true, false]}}
 ]}.
@@ -876,7 +918,7 @@ end}.
 
 {translation, "emqx.zones", fun(Conf) ->
   Mapping = fun("retain_available", Val) ->
-                    {mqtt_retain_available, Val};
+                    {retain_available, Val};
                ("flapping_threshold", Val) ->
                     [Limit, Duration] = string:tokens(Val, ", "),
                     FlappingThreshold = case cuttlefish_duration:parse(Duration, s) of
@@ -887,9 +929,9 @@ end}.
                                         end,
                     {flapping_threshold, FlappingThreshold};
                ("wildcard_subscription", Val) ->
-                    {mqtt_wildcard_subscription, Val};
+                    {wildcard_subscription, Val};
                ("shared_subscription", Val) ->
-                    {mqtt_shared_subscription, Val};
+                    {shared_subscription, Val};
                ("publish_limit", Val) ->
                     [Limit, Duration] = string:tokens(Val, ", "),
                     PubLimit = case cuttlefish_duration:parse(Duration, s) of

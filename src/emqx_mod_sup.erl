@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,10 +12,13 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_mod_sup).
 
 -behaviour(supervisor).
+
+-include("types.hrl").
 
 -export([ start_link/0
         , start_child/1
@@ -25,8 +29,14 @@
 -export([init/1]).
 
 %% Helper macro for declaring children of supervisor
--define(CHILD(Mod, Type), {Mod, {Mod, start_link, []}, permanent, 5000, Type, [Mod]}).
+-define(CHILD(Mod, Type), #{id => Mod,
+                            start => {Mod, start_link, []},
+                            restart => permanent,
+                            shutdown => 5000,
+                            type => Type,
+                            modules => [Mod]}).
 
+-spec(start_link() -> startlink_ret()).
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
@@ -39,13 +49,14 @@ start_child(Mod, Type) when is_atom(Mod) andalso is_atom(Type) ->
 -spec(stop_child(any()) -> ok | {error, term()}).
 stop_child(ChildId) ->
     case supervisor:terminate_child(?MODULE, ChildId) of
-        ok    -> supervisor:delete_child(?MODULE, ChildId);
+        ok -> supervisor:delete_child(?MODULE, ChildId);
         Error -> Error
     end.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Supervisor callbacks
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 init([]) ->
     {ok, {{one_for_one, 10, 100}, []}}.
+

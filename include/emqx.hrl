@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,17 +12,20 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -ifndef(EMQ_X_HRL).
 -define(EMQ_X_HRL, true).
 
 %%--------------------------------------------------------------------
-%% Banner
+%% Common
 %%--------------------------------------------------------------------
 
--define(COPYRIGHT, "Copyright (c) 2013-2019 EMQ Technologies Co., Ltd").
+-define(Otherwise, true).
 
--define(LICENSE_MESSAGE, "Licensed under the Apache License, Version 2.0").
+%%--------------------------------------------------------------------
+%% Banner
+%%--------------------------------------------------------------------
 
 -define(PROTOCOL_VERSION, "MQTT/5.0").
 
@@ -47,8 +51,6 @@
 %% Message and Delivery
 %%--------------------------------------------------------------------
 
--record(session, {sid, pid}).
-
 -record(subscription, {topic, subid, subopts}).
 
 %% See 'Application Message' in MQTT Version 5.0
@@ -73,8 +75,7 @@
 
 -record(delivery, {
           sender  :: pid(),      %% Sender of the delivery
-          message :: #message{}, %% The message delivered
-          results :: list()      %% Dispatches of the message
+          message :: #message{}  %% The message delivered
         }).
 
 %%--------------------------------------------------------------------
@@ -167,12 +168,3 @@
 
 -endif.
 
-%%--------------------------------------------------------------------
-%% Compatible with Windows
-%%--------------------------------------------------------------------
-
--define(compat_windows(Expression, Default),
-        case os:type() of
-            {win32, nt} -> Default;
-            _Unix -> Expression
-        end).

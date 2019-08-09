@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_mod_rewrite).
 
@@ -20,8 +22,8 @@
 -include_lib("emqx_mqtt.hrl").
 
 %% APIs
--export([ rewrite_subscribe/3
-        , rewrite_unsubscribe/3
+-export([ rewrite_subscribe/4
+        , rewrite_unsubscribe/4
         , rewrite_publish/2
         ]).
 
@@ -30,33 +32,33 @@
         , unload/1
         ]).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Load/Unload
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 load(RawRules) ->
     Rules = compile(RawRules),
-    emqx_hooks:add('client.subscribe',   fun ?MODULE:rewrite_subscribe/3, [Rules]),
-    emqx_hooks:add('client.unsubscribe', fun ?MODULE:rewrite_unsubscribe/3, [Rules]),
-    emqx_hooks:add('message.publish',    fun ?MODULE:rewrite_publish/2, [Rules]).
+    emqx_hooks:add('client.subscribe',   {?MODULE, rewrite_subscribe, [Rules]}),
+    emqx_hooks:add('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [Rules]}),
+    emqx_hooks:add('message.publish',    {?MODULE, rewrite_publish, [Rules]}).
 
-rewrite_subscribe(_Credentials, TopicTable, Rules) ->
-    {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicTable]}.
+rewrite_subscribe(_Client, _Properties, TopicFilters, Rules) ->
+    {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
 
-rewrite_unsubscribe(_Credentials, TopicTable, Rules) ->
-    {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicTable]}.
+rewrite_unsubscribe(_Client, _Properties, TopicFilters, Rules) ->
+    {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
 
 rewrite_publish(Message = #message{topic = Topic}, Rules) ->
     {ok, Message#message{topic = match_rule(Topic, Rules)}}.
 
 unload(_) ->
-    emqx_hooks:del('client.subscribe',   fun ?MODULE:rewrite_subscribe/3),
-    emqx_hooks:del('client.unsubscribe', fun ?MODULE:rewrite_unsubscribe/3),
-    emqx_hooks:del('message.publish',    fun ?MODULE:rewrite_publish/2).
+    emqx_hooks:del('client.subscribe',   {?MODULE, rewrite_subscribe}),
+    emqx_hooks:del('client.unsubscribe', {?MODULE, rewrite_unsubscribe}),
+    emqx_hooks:del('message.publish',    {?MODULE, rewrite_publish}).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Internal functions
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 match_rule(Topic, []) ->
     Topic;
@@ -84,3 +86,4 @@ compile(Rules) ->
                   {ok, MP} = re:compile(Re),
                   {rewrite, Topic, MP, Dest}
               end, Rules).
+

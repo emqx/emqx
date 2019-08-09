@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,10 +12,9 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_topic).
-
--include("emqx_mqtt.hrl").
 
 %% APIs
 -export([ match/2
@@ -33,19 +33,23 @@
         , parse/2
         ]).
 
+-export_type([ group/0
+             , topic/0
+             , word/0
+             , triple/0
+             ]).
+
 -type(group() :: binary()).
 -type(topic() :: binary()).
 -type(word() :: '' | '+' | '#' | binary()).
 -type(words() :: list(word())).
 -opaque(triple() :: {root | binary(), word(), binary()}).
 
--export_type([group/0, topic/0, word/0, triple/0]).
-
 -define(MAX_TOPIC_LEN, 4096).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% APIs
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 %% @doc Is wildcard topic?
 -spec(wildcard(topic() | words()) -> true | false).
@@ -60,7 +64,7 @@ wildcard(['+'|_]) ->
 wildcard([_H|T]) ->
     wildcard(T).
 
-%% @doc Match Topic name with filter
+%% @doc Match Topic name with filter.
 -spec(match(Name, Filter) -> boolean() when
       Name   :: topic() | words(),
       Filter :: topic() | words()).
@@ -68,7 +72,7 @@ match(<<$$, _/binary>>, <<$+, _/binary>>) ->
     false;
 match(<<$$, _/binary>>, <<$#, _/binary>>) ->
     false;
-match(Name, Filter) when is_binary(Name) and is_binary(Filter) ->
+match(Name, Filter) when is_binary(Name), is_binary(Filter) ->
     match(words(Name), words(Filter));
 match([], []) ->
     true;
@@ -95,13 +99,15 @@ validate({Type, Topic}) when Type =:= name; Type =:= filter ->
 -spec(validate(name | filter, topic()) -> true).
 validate(_, <<>>) ->
     error(empty_topic);
-validate(_, Topic) when is_binary(Topic) and (size(Topic) > ?MAX_TOPIC_LEN) ->
+validate(_, Topic) when is_binary(Topic) andalso (size(Topic) > ?MAX_TOPIC_LEN) ->
     error(topic_too_long);
 validate(filter, Topic) when is_binary(Topic) ->
     validate2(words(Topic));
 validate(name, Topic) when is_binary(Topic) ->
     Words = words(Topic),
-    validate2(Words) and (not wildcard(Words)).
+    validate2(Words)
+        andalso (not wildcard(Words))
+            orelse error(topic_name_error).
 
 validate2([]) ->
     true;
@@ -123,7 +129,7 @@ validate3(<<C/utf8, _Rest/binary>>) when C == $#; C == $+; C == 0 ->
 validate3(<<_/utf8, Rest/binary>>) ->
     validate3(Rest).
 
-%% @doc Topic to triples
+%% @doc Topic to triples.
 -spec(triples(topic()) -> list(triple())).
 triples(Topic) when is_binary(Topic) ->
     triples(words(Topic), root, []).
@@ -206,27 +212,28 @@ join(Words) ->
                 end, {true, <<>>}, [bin(W) || W <- Words]),
     Bin.
 
--spec(parse(topic()) -> {topic(), #{}}).
-parse(Topic) when is_binary(Topic) ->
-    parse(Topic, #{}).
+-spec(parse(topic() | {topic(), map()}) -> {topic(), #{share => binary()}}).
+parse(TopicFilter) when is_binary(TopicFilter) ->
+    parse(TopicFilter, #{});
+parse({TopicFilter, Options}) when is_binary(TopicFilter) ->
+    parse(TopicFilter, Options).
 
-parse(Topic = <<"$queue/", _/binary>>, #{share := _Group}) ->
-    error({invalid_topic, Topic});
-parse(Topic = <<?SHARE, "/", _/binary>>, #{share := _Group}) ->
-    error({invalid_topic, Topic});
-parse(<<"$queue/", Topic1/binary>>, Options) ->
-    parse(Topic1, maps:put(share, <<"$queue">>, Options));
-parse(Topic = <<?SHARE, "/", Topic1/binary>>, Options) ->
-    case binary:split(Topic1, <<"/">>) of
-        [<<>>] -> error({invalid_topic, Topic});
-        [_] -> error({invalid_topic, Topic});
-        [Group, Topic2] ->
-            case binary:match(Group, [<<"/">>, <<"+">>, <<"#">>]) of
-                nomatch -> {Topic2, maps:put(share, Group, Options)};
-                _ -> error({invalid_topic, Topic})
+-spec(parse(topic(), map()) -> {topic(), map()}).
+parse(TopicFilter = <<"$queue/", _/binary>>, #{share := _Group}) ->
+    error({invalid_topic_filter, TopicFilter});
+parse(TopicFilter = <<"$share/", _/binary>>, #{share := _Group}) ->
+    error({invalid_topic_filter, TopicFilter});
+parse(<<"$queue/", TopicFilter/binary>>, Options) ->
+    parse(TopicFilter, Options#{share => <<"$queue">>});
+parse(TopicFilter = <<"$share/", Rest/binary>>, Options) ->
+    case binary:split(Rest, <<"/">>) of
+        [_Any] -> error({invalid_topic_filter, TopicFilter});
+        [ShareName, Filter] ->
+            case binary:match(ShareName, [<<"+">>, <<"#">>]) of
+                nomatch -> parse(Filter, Options#{share => ShareName});
+                _ -> error({invalid_topic_filter, TopicFilter})
             end
     end;
-parse(Topic, Options = #{qos := QoS}) ->
-    {Topic, Options#{rc => QoS}};
-parse(Topic, Options) ->
-    {Topic, Options}.
+parse(TopicFilter, Options) ->
+    {TopicFilter, Options}.
+

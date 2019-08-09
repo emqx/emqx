@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_vm).
 
@@ -44,6 +46,8 @@
         , get_port_info/0
         , get_port_info/1
         ]).
+
+-export([cpu_util/0]).
 
 -define(UTIL_ALLOCATORS, [temp_alloc,
                           eheap_alloc,
@@ -159,8 +163,6 @@
                       sndbuf,
                       tos]).
 
--include("emqx.hrl").
-
 schedulers() ->
     erlang:system_info(schedulers).
 
@@ -169,9 +171,9 @@ microsecs() ->
     (Mega * 1000000 + Sec) * 1000000 + Micro.
 
 loads() ->
-    [{load1,  ftos(?compat_windows(cpu_sup:avg1()/256, 0.0))},
-     {load5,  ftos(?compat_windows(cpu_sup:avg5()/256, 0.0))},
-     {load15, ftos(?compat_windows(cpu_sup:avg15()/256, 0.0))}].
+    [{load1,  ftos(avg1()/256)},
+     {load5,  ftos(avg5()/256)},
+     {load15, ftos(avg15()/256)}].
 
 get_system_info() ->
     [{Key, format_system_info(Key, get_system_info(Key))} || Key <- ?SYSTEM_INFO].
@@ -447,3 +449,26 @@ mapping([{owner, V}|Entries], Acc) when is_pid(V) ->
     mapping(Entries, [{owner, Owner}|Acc]);
 mapping([{Key, Value}|Entries], Acc) ->
     mapping(Entries, [{Key, Value}|Acc]).
+
+avg1() ->
+    compat_windows(fun cpu_sup:avg1/0).
+
+avg5() ->
+    compat_windows(fun cpu_sup:avg5/0).
+
+avg15() ->
+    compat_windows(fun cpu_sup:avg15/0).
+
+cpu_util() ->
+    compat_windows(fun cpu_sup:util/0).
+
+compat_windows(Fun) ->
+    case os:type() of
+        {win32, nt} -> 0;
+        _Other -> handle_error(Fun())
+    end.
+
+handle_error(Value) when is_number(Value) ->
+    Value;
+handle_error({error, _Reason}) ->
+    0.

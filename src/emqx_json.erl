@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,8 +12,11 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_json).
+
+-compile(inline).
 
 -export([ encode/1
         , encode/2
@@ -30,17 +34,18 @@
 encode(Term) ->
     jsx:encode(Term).
 
--spec(encode(jsx:json_term(), jsx_to_json:config()) -> jsx:json_text()).
+-spec(encode(jsx:json_term(), jsx_to_json:config())
+      -> jsx:json_text()).
 encode(Term, Opts) ->
     jsx:encode(Term, Opts).
 
 -spec(safe_encode(jsx:json_term())
-      -> {ok, jsx:json_text()} | {error, term()}).
+      -> {ok, jsx:json_text()} | {error, Reason :: term()}).
 safe_encode(Term) ->
     safe_encode(Term, []).
 
 -spec(safe_encode(jsx:json_term(), jsx_to_json:config())
-      -> {ok, jsx:json_text()} | {error, term()}).
+      -> {ok, jsx:json_text()} | {error, Reason :: term()}).
 safe_encode(Term, Opts) ->
     try encode(Term, Opts) of
         Json -> {ok, Json}
@@ -53,17 +58,18 @@ safe_encode(Term, Opts) ->
 decode(Json) ->
     jsx:decode(Json).
 
--spec(decode(jsx:json_text(), jsx_to_json:config()) -> jsx:json_term()).
+-spec(decode(jsx:json_text(), jsx_to_json:config())
+      -> jsx:json_term()).
 decode(Json, Opts) ->
     jsx:decode(Json, Opts).
 
 -spec(safe_decode(jsx:json_text())
-      -> {ok, jsx:json_term()} | {error, term()}).
+      -> {ok, jsx:json_term()} | {error, Reason :: term()}).
 safe_decode(Json) ->
     safe_decode(Json, []).
 
 -spec(safe_decode(jsx:json_text(), jsx_to_json:config())
-      -> {ok, jsx:json_term()} | {error, term()}).
+      -> {ok, jsx:json_term()} | {error, Reason :: term()}).
 safe_decode(Json, Opts) ->
     try decode(Json, Opts) of
         Term -> {ok, Term}

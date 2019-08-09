@@ -1,12 +1,14 @@
-{application,emqx,
-             [{description,"EMQ X Broker"},
-              {vsn,"git"},
-              {modules,[]},
-              {registered,[emqx_sup]},
-              {applications,[kernel,stdlib,jsx,gproc,gen_rpc,esockd,cowboy,
-                             replayq,sasl,os_mon]},
-              {env,[]},
-              {mod,{emqx_app,[]}},
-              {maintainers,["Feng Lee <feng@emqx.io>"]},
-              {licenses,["Apache-2.0"]},
-              {links,[{"Github","https://github.com/emqx/emqx"}]}]}.
+{application, emqx, [
+  {id, "emqx"},
+  {vsn, "git"},
+  {description, "EMQ X Broker"},
+  {modules, []},
+  {registered, []},
+  {applications, [kernel,stdlib,jsx,gproc,gen_rpc,esockd,cowboy,
+                  sasl,os_mon]},
+  {env, []},
+  {mod, {emqx_app,[]}},
+  {maintainers, ["Feng Lee <feng@emqx.io>"]},
+  {licenses, ["Apache-2.0"]},
+  {links, [{"Github", "https://github.com/emqx/emqx"}]}
+]}.

@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,37 +12,43 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
--module(emqx_stats_tests).
+-module(emqx_stats_SUITE).
+
+-compile(export_all).
+-compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
 
-get_state_test() ->
+all() -> emqx_ct:all(?MODULE).
+
+t_get_state(_) ->
     with_proc(fun() ->
         SetConnsCount = emqx_stats:statsfun('connections.count'),
         SetConnsCount(1),
-        1 = emqx_stats:getstat('connections.count'),
+        ?assertEqual(1, emqx_stats:getstat('connections.count')),
         emqx_stats:setstat('connections.count', 2),
-        2 = emqx_stats:getstat('connections.count'),
+        ?assertEqual(2, emqx_stats:getstat('connections.count')),
         emqx_stats:setstat('connections.count', 'connections.max', 3),
         timer:sleep(100),
-        3 = emqx_stats:getstat('connections.count'),
-        3 = emqx_stats:getstat('connections.max'),
+        ?assertEqual(3, emqx_stats:getstat('connections.count')),
+        ?assertEqual(3, emqx_stats:getstat('connections.max')),
         emqx_stats:setstat('connections.count', 'connections.max', 2),
         timer:sleep(100),
-        2 = emqx_stats:getstat('connections.count'),
-        3 = emqx_stats:getstat('connections.max'),
+        ?assertEqual(2, emqx_stats:getstat('connections.count')),
+        ?assertEqual(3, emqx_stats:getstat('connections.max')),
         SetConns = emqx_stats:statsfun('connections.count', 'connections.max'),
         SetConns(4),
         timer:sleep(100),
-        4 = emqx_stats:getstat('connections.count'),
-        4 = emqx_stats:getstat('connections.max'),
+        ?assertEqual(4, emqx_stats:getstat('connections.count')),
+        ?assertEqual(4, emqx_stats:getstat('connections.max')),
         Conns = emqx_stats:getstats(),
-        4 = proplists:get_value('connections.count', Conns),
-        4 = proplists:get_value('connections.max', Conns)
+        ?assertEqual(4, proplists:get_value('connections.count', Conns)),
+        ?assertEqual(4, proplists:get_value('connections.max', Conns))
     end).
 
-update_interval_test() ->
+t_update_interval(_) ->
     TickMs = 200,
     with_proc(fun() ->
         SleepMs = TickMs * 2 + TickMs div 2, %% sleep for 2.5 ticks
@@ -52,7 +59,7 @@ update_interval_test() ->
         ?assertEqual(1, emqx_stats:getstat('connections.count'))
     end, TickMs).
 
-helper_test_() ->
+t_helper(_) ->
     TickMs = 200,
     TestF =
         fun(CbModule, CbFun) ->
@@ -98,4 +105,3 @@ with_stop(F) ->
     after
         ok = emqx_stats:stop()
     end.
-

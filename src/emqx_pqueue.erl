@@ -57,14 +57,14 @@
         , highest/1
         ]).
 
+-export_type([q/0]).
+
 %%----------------------------------------------------------------------------
 
 -type(priority() :: integer() | 'infinity').
 -type(squeue() :: {queue, [any()], [any()], non_neg_integer()}).
 -type(pqueue() ::  squeue() | {pqueue, [{priority(), squeue()}]}).
 -type(q() :: pqueue()).
-
--export_type([q/0]).
 
 %%----------------------------------------------------------------------------
 

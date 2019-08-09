@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,15 +12,18 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 %% @doc MQTT5 reason codes
 -module(emqx_reason_codes).
 
 -include("emqx_mqtt.hrl").
 
--export([ name/2
+-export([ name/1
+        , name/2
         , text/1
         , connack_error/1
+        , puback/1
         ]).
 
 -export([compat/2]).
@@ -159,3 +163,8 @@ connack_error(server_busy) -> ?RC_SERVER_BUSY;
 connack_error(banned) -> ?RC_BANNED;
 connack_error(bad_authentication_method) -> ?RC_BAD_AUTHENTICATION_METHOD;
 connack_error(_) -> ?RC_NOT_AUTHORIZED.
+
+%%TODO: This function should be removed.
+puback([]) -> ?RC_NO_MATCHING_SUBSCRIBERS;
+puback(L) when is_list(L) -> ?RC_SUCCESS.
+

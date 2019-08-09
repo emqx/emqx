@@ -1,4 +1,5 @@
-%% Copyright (c) 2013-2019 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+%% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(emqx_pd_SUITE).
 
@@ -19,9 +21,9 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-all() -> [update_counter].
+all() -> emqx_ct:all(?MODULE).
 
-update_counter(_) ->
+t_update_counter(_) ->
     ?assertEqual(undefined, emqx_pd:update_counter(bytes, 1)),
     ?assertEqual(1, emqx_pd:update_counter(bytes, 1)),
     ?assertEqual(2, emqx_pd:update_counter(bytes, 1)),
