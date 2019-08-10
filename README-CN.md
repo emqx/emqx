@@ -22,8 +22,8 @@
 
 获取适合你的二进制软件包，[点此下载](https://emqx.io/downloads)。
 
-- [单节点安装](https://developer.emqx.io/docs/emq/v3/en/install.html)
-- [集群安装](https://developer.emqx.io/docs/emq/v3/en/cluster.html)
+- [单节点安装](https://docs.emqx.io/broker/v3/cn/install.html)
+- [集群安装](https://docs.emqx.io/broker/v3/cn/cluster.html)
 
 ## 从源码构建
 
@@ -54,7 +54,7 @@ cd _rel/emqx && ./bin/emqx console
 
 ## FAQ
 
-访问 [FAQ](https://developer.emqx.io/docs/tutorial/zh/faq/faq.html) 以获取常见问题的帮助。
+访问 [FAQ](https://docs.emqx.io/tutorial/zh/faq/faq.html) 以获取常见问题的帮助。
 
 ## 产品路线
 
