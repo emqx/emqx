@@ -25,13 +25,15 @@
 -export_type([keepalive/0]).
 
 -record(keepalive, {
-          statfun,
-          statval,
-          tsec,
-          tmsg,
-          tref,
-          repeat = 0
+          statfun    :: statfun(),
+          statval    :: integer(),
+          tsec       :: pos_integer(),
+          tmsg       :: term(),
+          tref       :: reference(),
+          repeat = 0 :: non_neg_integer()
          }).
+
+-type(statfun() :: fun(() -> {ok, integer()} | {error, term()})).
 
 -opaque(keepalive() :: #keepalive{}).
 
@@ -40,15 +42,17 @@
 %%--------------------------------------------------------------------
 
 %% @doc Start a keepalive
--spec(start(fun(), integer(), any()) -> {ok, keepalive()} | {error, term()}).
-start(_, 0, _) ->
-    {ok, #keepalive{}};
-start(StatFun, TimeoutSec, TimeoutMsg) ->
+-spec(start(statfun(), pos_integer(), term())
+      -> {ok, keepalive()} | {error, term()}).
+start(StatFun, TimeoutSec, TimeoutMsg) when TimeoutSec > 0 ->
     try StatFun() of
         {ok, StatVal} ->
-            {ok, #keepalive{statfun = StatFun, statval = StatVal,
-                            tsec = TimeoutSec, tmsg = TimeoutMsg,
-                            tref = timer(TimeoutSec, TimeoutMsg)}};
+            TRef = timer(TimeoutSec, TimeoutMsg),
+            {ok, #keepalive{statfun = StatFun,
+                            statval = StatVal,
+                            tsec = TimeoutSec,
+                            tmsg = TimeoutMsg,
+                            tref = TRef}};
         {error, Error} ->
             {error, Error}
     catch
@@ -82,9 +86,7 @@ resume(KeepAlive = #keepalive{tsec = TimeoutSec, tmsg = TimeoutMsg}) ->
 %% @doc Cancel Keepalive
 -spec(cancel(keepalive()) -> ok).
 cancel(#keepalive{tref = TRef}) when is_reference(TRef) ->
-    catch erlang:cancel_timer(TRef), ok;
-cancel(_) ->
-    ok.
+    catch erlang:cancel_timer(TRef), ok.
 
 timer(Secs, Msg) ->
     erlang:send_after(timer:seconds(Secs), self(), Msg).
