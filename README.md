@@ -22,8 +22,8 @@ The *EMQ X* broker is cross-platform, which supports Linux, Unix, Mac OS and Win
 
 Download the binary package for your platform from [here](https://emqx.io/downloads).
 
-- [Single Node Install](https://developer.emqx.io/docs/emq/v3/en/install.html)
-- [Multi Node Install](https://developer.emqx.io/docs/emq/v3/en/cluster.html)
+- [Single Node Install](https://docs.emqx.io/broker/v3/en/install.html)
+- [Multi Node Install](https://docs.emqx.io/broker/v3/en/cluster.html)
 
 
 ## Build From Source
@@ -56,7 +56,7 @@ To view the dashboard after running, use your browser to open: http://localhost:
 
 ## FAQ
 
-Visiting [FAQ](https://developer.emqx.io/docs/tutorial/en/faq/faq.html) to get help of common problems.
+Visiting [FAQ](https://docs.emqx.io/tutorial/en/faq/faq.html) to get help of common problems.
 
 ## Roadmap
 
