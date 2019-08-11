@@ -35,3 +35,7 @@ keepalive_recv(KA, Acc) ->
         after 4000 -> Acc
     end.
 
+t_cancel(_) ->
+    {ok, KA} = emqx_keepalive:start(fun() -> {ok, 1} end, 1, {keepalive, timeout}),
+    ok = emqx_keepalive:cancel(KA).
+
