@@ -15,9 +15,7 @@
 -module(emqx_mountpoint).
 
 -include("emqx.hrl").
--include("logger.hrl").
-
--logger_header("[Mountpoint]").
+-include("types.hrl").
 
 -export([ mount/2
         , unmount/2
@@ -32,30 +30,34 @@
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
-
 mount(undefined, Any) ->
     Any;
+mount(MountPoint, Topic) when is_binary(Topic) ->
+    prefix(MountPoint, Topic);
 mount(MountPoint, Msg = #message{topic = Topic}) ->
-    Msg#message{topic = <<MountPoint/binary, Topic/binary>>};
-
+    Msg#message{topic = prefix(MountPoint, Topic)};
 mount(MountPoint, TopicFilters) when is_list(TopicFilters) ->
-    [{<<MountPoint/binary, Topic/binary>>, SubOpts} || {Topic, SubOpts} <- TopicFilters].
+    [{prefix(MountPoint, Topic), SubOpts} || {Topic, SubOpts} <- TopicFilters].
 
-unmount(undefined, Msg) ->
-    Msg;
+unmount(undefined, Any) ->
+    Any;
+unmount(MountPoint, Topic) when is_binary(Topic) ->
+    case string:prefix(Topic, MountPoint) of
+        nomatch -> Topic;
+        Topic1  -> Topic1
+    end;
 unmount(MountPoint, Msg = #message{topic = Topic}) ->
-    try split_binary(Topic, byte_size(MountPoint)) of
-        {MountPoint, Topic1} -> Msg#message{topic = Topic1}
-    catch
-        _Error:Reason ->
-            ?LOG(error, "Unmount error : ~p", [Reason]),
-            Msg
+    case string:prefix(Topic, MountPoint) of
+        nomatch -> Msg;
+        Topic1  -> Msg#message{topic = Topic1}
     end.
 
+-spec(replvar(maybe(mountpoint()), map()) -> maybe(mountpoint())).
 replvar(undefined, _Vars) ->
     undefined;
 replvar(MountPoint, #{client_id := ClientId, username := Username}) ->
-    lists:foldl(fun feed_var/2, MountPoint, [{<<"%c">>, ClientId}, {<<"%u">>, Username}]).
+    lists:foldl(fun feed_var/2, MountPoint,
+                [{<<"%c">>, ClientId}, {<<"%u">>, Username}]).
 
 feed_var({<<"%c">>, ClientId}, MountPoint) ->
     emqx_topic:feed_var(<<"%c">>, ClientId, MountPoint);
@@ -64,3 +66,5 @@ feed_var({<<"%u">>, undefined}, MountPoint) ->
 feed_var({<<"%u">>, Username}, MountPoint) ->
     emqx_topic:feed_var(<<"%u">>, Username, MountPoint).
 
+prefix(MountPoint, Topic) ->
+    <<MountPoint/binary, Topic/binary>>.

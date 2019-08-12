@@ -1027,7 +1027,7 @@ raw_topic_filters(#pstate{zone = Zone, proto_ver = ProtoVer, is_bridge = IsBridg
     end.
 
 mountpoint(Credentials) ->
-    maps:get(mountpoint, Credentials, undefined).
+    emqx_mountpoint:replvar(maps:get(mountpoint, Credentials, undefined), Credentials).
 
 do_check_banned(_EnableBan = true, Credentials) ->
     case emqx_banned:check(Credentials) of
