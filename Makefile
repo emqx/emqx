@@ -15,11 +15,7 @@ RUN_NODE_NAME = emqxdebug@127.0.0.1
 all: compile
 
 .PHONY: tests
-tests: eunit ct proper
-
-.PHONY: proper
-proper:
-	@rebar3 proper
+tests: eunit ct
 
 .PHONY: run
 run: run_setup unlock
