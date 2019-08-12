@@ -47,7 +47,7 @@ pre_proper() ->
 
 post_proper() ->
     ok = unload(?mock_modules),
-    emqx_logger:set_log_level(warning).
+    emqx_logger:set_log_level(error).
 
 prop_session_pub() ->
     ?FORALL({Session, OpList}, {session(), session_op_list()},
