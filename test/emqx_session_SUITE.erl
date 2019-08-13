@@ -255,10 +255,11 @@ share() -> binary().
 
 clientid() -> binary().
 
-topic() -> ?LET(No, choose(1, 10), begin
-                                       NoBin = integer_to_binary(No),
-                                       <<"topic/", NoBin/binary>>
-                                   end).
+topic() -> ?LET(No, choose(1, 10),
+                begin
+                    NoBin = integer_to_binary(No),
+                    <<"topic/", NoBin/binary>>
+                end).
 
 payload() -> binary().
 
@@ -272,9 +273,10 @@ zone() ->
                 {await_rel_timeout, await_rel_timeout()}]
         , maps:from_list(Zone)).
 
-max_subscription() -> frequency([{33, 0},
-                                 {33, 1},
-                                 {34, choose(0,10)}]).
+max_subscription() ->
+    frequency([{33, 0},
+               {33, 1},
+               {34, choose(0,10)}]).
 
 upgrade_qos() -> bool().
 
