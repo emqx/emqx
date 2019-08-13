@@ -1020,7 +1020,13 @@ drain_q(Cnt, Msgs, Q) ->
     case emqx_mqueue:out(Q) of
         {empty, _Q} -> {Msgs, Q};
         {{value, Msg}, Q1} ->
-            drain_q(Cnt-1, [Msg|Msgs], Q1)
+            case emqx_message:is_expired(Msg) of
+                true ->
+                    ok = emqx_metrics:inc('messages.expired'),
+                    drain_q(Cnt-1, Msgs, Q1);
+                false ->
+                    drain_q(Cnt-1, [Msg|Msgs], Q1)
+            end
     end.
 
 %%------------------------------------------------------------------------------
