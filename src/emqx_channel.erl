@@ -267,9 +267,9 @@ connected(enter, _PrevSt, State = #state{proto_state = ProtoState}) ->
             shutdown(Reason, NState)
     end;
 
-connected(cast, {incoming, Packet = ?PACKET(?CONNECT)}, State) ->
-    ?LOG(warning, "Unexpected connect: ~p", [Packet]),
-    shutdown(unexpected_incoming_connect, State);
+connected(cast, {incoming, ?PACKET(?CONNECT)}, State) ->
+    Shutdown = fun(NewSt) -> shutdown(?RC_PROTOCOL_ERROR, NewSt) end,
+    handle_outgoing(?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR), Shutdown, State);
 
 connected(cast, {incoming, Packet}, State) when is_record(Packet, mqtt_packet) ->
     handle_incoming(Packet, fun keep_state/1, State);

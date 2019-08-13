@@ -79,10 +79,6 @@ do_check_pub(#{qos := QoS}, #{max_qos_allowed := MaxQoS})
     {error, ?RC_QOS_NOT_SUPPORTED};
 do_check_pub(#{retain := true}, #{retain_available := false}) ->
     {error, ?RC_RETAIN_NOT_SUPPORTED};
-do_check_pub(#{topic_alias := TopicAlias},
-             #{max_topic_alias := MaxTopicAlias})
-  when 0 == TopicAlias; TopicAlias >= MaxTopicAlias ->
-    {error, ?RC_TOPIC_ALIAS_INVALID};
 do_check_pub(_Flags, _Caps) -> ok.
 
 -spec(check_sub(emqx_types:zone(),
