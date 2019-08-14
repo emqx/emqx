@@ -27,16 +27,25 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-t_proper_rcs(_) ->
-    Opts = [{to_file, user}],
-    ?assert(proper:quickcheck(prop_name_text(), [{numtests, 512} | Opts])),
-    ?assert(proper:quickcheck(prop_compat(), [{numtests, 512} | Opts])),
-    ?assert(proper:quickcheck(prop_connack_error(), Opts)).
+t_prop_name_text(_) ->
+    ?assert(proper:quickcheck(prop_name_text(), prop_name_text(opts))).
+
+t_prop_compat(_) ->
+    ?assert(proper:quickcheck(prop_compat(), prop_compat(opts))).
+
+t_prop_connack_error(_) ->
+    ?assert(proper:quickcheck(prop_connack_error(), default_opts([]))).
+
+prop_name_text(opts) ->
+    default_opts([{numtests, 1000}]).
 
 prop_name_text() ->
     ?FORALL(UnionArgs, union_args(),
             is_atom(apply_fun(name, UnionArgs)) andalso
             is_binary(apply_fun(text, UnionArgs))).
+
+prop_compat(opts) ->
+    default_opts([{numtests, 512}]).
 
 prop_compat() ->
     ?FORALL(CompatArgs, compat_args(),
@@ -52,9 +61,14 @@ prop_connack_error() ->
 %%--------------------------------------------------------------------
 %% Helper
 %%--------------------------------------------------------------------
+default_opts() ->
+    default_opts([]).
+
+default_opts(AdditionalOpts) ->
+    [{to_file, user} | AdditionalOpts].
+
 apply_fun(Fun, Args) ->
     apply(emqx_reason_codes, Fun, Args).
-
 
 %%--------------------------------------------------------------------
 %% Generator
