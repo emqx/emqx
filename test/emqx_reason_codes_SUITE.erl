@@ -23,8 +23,6 @@
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(VERSIONS, []).
-
 all() -> emqx_ct:all(?MODULE).
 
 t_prop_name_text(_) ->

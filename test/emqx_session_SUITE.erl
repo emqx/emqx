@@ -325,8 +325,7 @@ load(Modules) ->
 unload(Modules) ->
     lists:foreach(fun(Module) ->
                           ok = meck:unload(Module)
-                  end, Modules),
-    ok.
+                  end, Modules).
 
 mock(Module) ->
     ok = meck:new(Module, [passthrough, no_history]),
