@@ -29,7 +29,7 @@
 
 -define(RPC, gen_rpc).
 
--define(DefaultClientNum, {ok, 1}).
+-define(DefaultClientNum, 1).
 
 call(Node, Mod, Fun, Args) ->
     filter_result(?RPC:call(rpc_node(Node), Mod, Fun, Args)).
@@ -41,7 +41,7 @@ cast(Node, Mod, Fun, Args) ->
     filter_result(?RPC:cast(rpc_node(Node), Mod, Fun, Args)).
 
 rpc_node(Node) ->
-    {ok, ClientNum} = application:get_env(gen_rpc, tcp_client_num, ?DefaultClientNum),
+    ClientNum = application:get_env(gen_rpc, tcp_client_num, ?DefaultClientNum),
     {Node, rand:uniform(ClientNum)}.
 
 rpc_nodes(Nodes) ->

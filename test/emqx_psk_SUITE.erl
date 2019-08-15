@@ -26,9 +26,6 @@
 all() -> emqx_ct:all(?MODULE).
 
 t_lookup(_) ->
-                dbg:start(),
-                dbg:tracer(),
-                dbg:p(all, c),
     ok = load(),
     ok = emqx_logger:set_log_level(emergency),
     Opts = [{to_file, user}, {numtests, 10}],
@@ -40,8 +37,6 @@ prop_lookup() ->
     ?FORALL({ClientPSKID, UserState},
             {client_pskid(), user_state()},
             begin
-
-                dbg:tpl(emqx_hooks, run_fold, x),
                 case emqx_psk:lookup(psk, ClientPSKID, UserState) of
                     {ok, _Result} -> true;
                     error -> true;

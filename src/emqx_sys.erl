@@ -23,7 +23,9 @@
 
 -logger_header("[SYS]").
 
--export([start_link/0]).
+-export([ start_link/0
+        , stop/0
+        ]).
 
 -export([ version/0
         , uptime/0
@@ -41,23 +43,36 @@
         , handle_cast/2
         , handle_info/2
         , terminate/2
-        , code_change/3
         ]).
 
 -import(emqx_topic, [systop/1]).
 -import(emqx_misc, [start_timer/2]).
 
--record(state, {start_time, heartbeat, ticker, version, sysdescr}).
+-type(timeref() :: reference()).
+
+-type(tickeref() :: reference()).
+
+-type(version() :: string()).
+
+-type(sysdescr() :: string()).
+
+-record(state,
+        { start_time :: erlang:timestamp()
+        , heartbeat  :: timeref()
+        , ticker     :: tickeref()
+        , version    :: version()
+        , sysdescr   :: sysdescr()
+        }).
 
 -define(APP, emqx).
 -define(SYS, ?MODULE).
 
--define(INFO_KEYS, [
-    version,  % Broker version
-    uptime,   % Broker uptime
-    datetime, % Broker local datetime
-    sysdescr  % Broker description
-]).
+-define(INFO_KEYS,
+        [ version  % Broker version
+        , uptime   % Broker uptime
+        , datetime % Broker local datetime
+        , sysdescr % Broker description
+        ]).
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -66,6 +81,9 @@
 -spec(start_link() -> {ok, pid()} | ignore | {error, any()}).
 start_link() ->
     gen_server:start_link({local, ?SYS}, ?MODULE, [], []).
+
+stop() ->
+    gen_server:stop(?SYS).
 
 %% @doc Get sys version
 -spec(version() -> string()).
@@ -93,12 +111,12 @@ datetime() ->
 %% @doc Get sys interval
 -spec(sys_interval() -> pos_integer()).
 sys_interval() ->
-    application:get_env(?APP, broker_sys_interval, 60000).
+    emqx_config:get_env(broker_sys_interval, 60000).
 
 %% @doc Get sys heatbeat interval
 -spec(sys_heatbeat_interval() -> pos_integer()).
 sys_heatbeat_interval() ->
-    application:get_env(?APP, broker_sys_heartbeat, 30000).
+    emqx_config:get_env(broker_sys_heartbeat, 30000).
 
 %% @doc Get sys info
 -spec(info() -> list(tuple())).
@@ -154,9 +172,6 @@ handle_info(Info, State) ->
 terminate(_Reason, #state{heartbeat = TRef1, ticker = TRef2}) ->
     lists:foreach(fun emqx_misc:cancel_timer/1, [TRef1, TRef2]).
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
 %%-----------------------------------------------------------------------------
 %% Internal functions
 %%-----------------------------------------------------------------------------
@@ -207,4 +222,3 @@ safe_publish(Topic, Flags, Payload) ->
       emqx_message:set_flags(
         maps:merge(#{sys => true}, Flags),
         emqx_message:make(?SYS, Topic, iolist_to_binary(Payload)))).
-

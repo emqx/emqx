@@ -25,20 +25,19 @@
 all() -> emqx_ct:all(?MODULE).
 
 t_prop_rpc(_) ->
-    Opts = [{to_file, user}, {numtests, 10}],
     ok = load(),
+    Opts = [{to_file, user}, {numtests, 10}],
     {ok, _Apps} = application:ensure_all_started(gen_rpc),
     ok = application:set_env(gen_rpc, call_receive_timeout, 1),
     ok = emqx_logger:set_log_level(emergency),
     ?assert(proper:quickcheck(prop_node(), Opts)),
     ?assert(proper:quickcheck(prop_nodes(), Opts)),
-    ok = emqx_logger:set_log_level(error),
+    ok = application:stop(gen_rpc),
     ok = unload().
 
 prop_node() ->
     ?FORALL(Node, nodename(),
             begin
-                io:format("Nodename: ~p~n", [Node]),
                 ?assert(emqx_rpc:cast(Node, erlang, system_time, [])),
                 case emqx_rpc:call(Node, erlang, system_time, []) of
                     {badrpc, _Reason} -> true;
