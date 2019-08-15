@@ -32,6 +32,7 @@ t_prop_rpc(_) ->
     ok = emqx_logger:set_log_level(emergency),
     ?assert(proper:quickcheck(prop_node(), Opts)),
     ?assert(proper:quickcheck(prop_nodes(), Opts)),
+    ok = emqx_logger:set_log_level(error),
     ok = unload().
 
 prop_node() ->
