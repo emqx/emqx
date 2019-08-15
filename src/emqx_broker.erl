@@ -206,7 +206,7 @@ publish(Msg) when is_record(Msg, message) ->
     end.
 
 %% Called internally
--spec(safe_publish(emqx_types:message()) -> ok).
+-spec(safe_publish(emqx_types:message()) -> ok | emqx_types:publish_result()).
 safe_publish(Msg) when is_record(Msg, message) ->
     try
         publish(Msg)
