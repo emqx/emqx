@@ -54,6 +54,7 @@ groups() ->
       ]},
      {mqttv4, [non_parallel_tests],
       [t_basic_v4,
+       t_cm,
        %% t_will_message,
        %% t_offline_message_queueing,
        t_overlapping_subscriptions,
@@ -87,6 +88,19 @@ t_basic_v3(_) ->
 
 t_basic_v4(_Config) ->
     t_basic([{proto_ver, v4}]).
+
+t_cm(_) ->
+    IdleTimeout = emqx_zone:get_env(external, idle_timeout, 30000),
+    emqx_zone:set_env(external, idle_timeout, 1000),
+    ClientId = <<"myclient">>,
+    {ok, C} = emqx_client:start_link([{client_id, ClientId}]),
+    {ok, _} = emqx_client:connect(C),
+    #{client := #{client_id := ClientId}} = emqx_cm:get_chan_attrs(ClientId),
+    emqx_client:subscribe(C, <<"mytopic">>, 0),
+    ct:sleep(1200),
+    Stats = emqx_cm:get_chan_stats(ClientId),
+    ?assertEqual(1, proplists:get_value(subscriptions, Stats)),
+    emqx_zone:set_env(external, idle_timeout, IdleTimeout).
 
 t_will_message(_Config) ->
     {ok, C1} = emqx_client:start_link([{clean_start, true},
