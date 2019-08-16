@@ -22,6 +22,7 @@
 -export([ name/1
         , name/2
         , text/1
+        , text/2
         , connack_error/1
         , puback/1
         ]).
@@ -30,7 +31,7 @@
 
 name(I, Ver) when Ver >= ?MQTT_PROTO_V5 ->
     name(I);
-name(0, _Ver) -> connection_acceptd;
+name(0, _Ver) -> connection_accepted;
 name(1, _Ver) -> unacceptable_protocol_version;
 name(2, _Ver) -> client_identifier_not_valid;
 name(3, _Ver) -> server_unavaliable;
@@ -82,6 +83,16 @@ name(16#A0) -> maximum_connect_time;
 name(16#A1) -> subscription_identifiers_not_supported;
 name(16#A2) -> wildcard_subscriptions_not_supported;
 name(_Code) -> unknown_error.
+
+text(I, Ver) when Ver >= ?MQTT_PROTO_V5 ->
+    text(I);
+text(0, _Ver) -> <<"Connection accepted">>;
+text(1, _Ver) -> <<"unacceptable_protocol_version">>;
+text(2, _Ver) -> <<"client_identifier_not_valid">>;
+text(3, _Ver) -> <<"server_unavaliable">>;
+text(4, _Ver) -> <<"malformed_username_or_password">>;
+text(5, _Ver) -> <<"unauthorized_client">>;
+text(_, _Ver) -> <<"unknown_error">>.
 
 text(16#00) -> <<"Success">>;
 text(16#01) -> <<"Granted QoS 1">>;
@@ -150,7 +161,8 @@ compat(connack, 16#9F) -> ?CONNACK_SERVER;
 compat(suback, Code) when Code =< ?QOS_2 -> Code;
 compat(suback, Code) when Code >= 16#80  -> 16#80;
 
-compat(unsuback, _Code) -> undefined.
+compat(unsuback, _Code) -> undefined;
+compat(_Other, _Code) -> undefined.
 
 connack_error(client_identifier_not_valid) -> ?RC_CLIENT_IDENTIFIER_NOT_VALID;
 connack_error(bad_username_or_password) -> ?RC_BAD_USER_NAME_OR_PASSWORD;
@@ -167,4 +179,3 @@ connack_error(_) -> ?RC_NOT_AUTHORIZED.
 %%TODO: This function should be removed.
 puback([]) -> ?RC_NO_MATCHING_SUBSCRIBERS;
 puback(L) when is_list(L) -> ?RC_SUCCESS.
-

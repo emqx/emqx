@@ -181,7 +181,7 @@ handle_in(?CONNECT_PACKET(
             handle_out({disconnect, ReasonCode}, NPState)
     end;
 
-handle_in(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), PState) ->
+handle_in(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), PState= #protocol{proto_ver = Ver}) ->
     case pipeline([fun validate_in/2,
                    fun process_alias/2,
                    fun check_publish/2], Packet, PState) of
@@ -189,7 +189,7 @@ handle_in(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), PState) ->
             process_publish(NPacket, NPState);
         {error, ReasonCode, NPState} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s",
-                 [Topic, emqx_reason_codes:text(ReasonCode)]),
+                 [Topic, emqx_reason_codes:text(ReasonCode, Ver)]),
             puback(QoS, PacketId, ReasonCode, NPState)
     end;
 

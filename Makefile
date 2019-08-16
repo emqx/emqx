@@ -15,11 +15,7 @@ RUN_NODE_NAME = emqxdebug@127.0.0.1
 all: compile
 
 .PHONY: tests
-tests: eunit ct proper
-
-.PHONY: proper
-proper:
-	@rebar3 proper
+tests: eunit ct
 
 .PHONY: run
 run: run_setup unlock
@@ -99,7 +95,7 @@ ct: ct_setup
 ## e.g. make ct-one-suite suite=emqx_bridge
 .PHONY: $(SUITES:%=ct-%)
 $(CT_SUITES:%=ct-%): ct_setup
-	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(@:ct-%=%)_SUITE
+	@rebar3 ct -v --readable=false --name $(CT_NODE_NAME) --suite=$(@:ct-%=%)_SUITE --cover
 
 .PHONY: app.config
 app.config: $(CUTTLEFISH_SCRIPT) etc/gen.emqx.conf
