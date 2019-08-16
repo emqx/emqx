@@ -761,17 +761,6 @@ process_publish(PacketId, Msg = #message{qos = ?QOS_2},
     end.
 
 %%--------------------------------------------------------------------
-%% Puback
-%%--------------------------------------------------------------------
-
-puback(?QOS_0, _PacketId, ReasonCode, PState) ->
-    handle_out({disconnect, ReasonCode}, PState);
-puback(?QOS_1, PacketId, ReasonCode, PState) ->
-    handle_out({puback, PacketId, ReasonCode}, PState);
-puback(?QOS_2, PacketId, ReasonCode, PState) ->
-    handle_out({pubrec, PacketId, ReasonCode}, PState).
-
-%%--------------------------------------------------------------------
 %% Process subscribe request
 %%--------------------------------------------------------------------
 
