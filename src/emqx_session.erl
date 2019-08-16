@@ -465,7 +465,13 @@ dequeue(Cnt, Msgs, Q) ->
     case emqx_mqueue:out(Q) of
         {empty, _Q} -> {Msgs, Q};
         {{value, Msg}, Q1} ->
-            dequeue(Cnt-1, [Msg|Msgs], Q1)
+            case emqx_message:is_expired(Msg) of
+                true ->
+                    ok = emqx_metrics:inc('messages.expired'),
+                    dequeue(Cnt-1, Msgs, Q1);
+                false ->
+                    dequeue(Cnt-1, [Msg|Msgs], Q1)
+            end
     end.
 
 batch_n(Inflight) ->
