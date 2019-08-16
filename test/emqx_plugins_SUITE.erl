@@ -57,4 +57,3 @@ t_load(_) ->
     {error, not_started} = emqx_plugins:unload(emqx_mini_plugin),
     {ok, _} = emqx_plugins:load(emqx_mini_plugin),
     ok = emqx_plugins:unload(emqx_mini_plugin).
-
