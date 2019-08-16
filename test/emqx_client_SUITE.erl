@@ -55,6 +55,7 @@ groups() ->
      {mqttv4, [non_parallel_tests],
       [t_basic_v4,
        t_cm,
+       t_cm_registry,
        %% t_will_message,
        %% t_offline_message_queueing,
        t_overlapping_subscriptions,
@@ -101,6 +102,15 @@ t_cm(_) ->
     Stats = emqx_cm:get_chan_stats(ClientId),
     ?assertEqual(1, proplists:get_value(subscriptions, Stats)),
     emqx_zone:set_env(external, idle_timeout, IdleTimeout).
+
+t_cm_registry(_) ->
+    Info = supervisor:which_children(emqx_cm_sup),
+    {_, Pid, _, _} = lists:keyfind(registry, 1, Info),
+    ignored = gen_server:call(Pid, <<"Unexpected call">>),
+    gen_server:cast(Pid, <<"Unexpected cast">>),
+    Pid ! <<"Unexpected info">>,
+    ok = application:stop(mnesia),
+    application:start(mnesia).
 
 t_will_message(_Config) ->
     {ok, C1} = emqx_client:start_link([{clean_start, true},
