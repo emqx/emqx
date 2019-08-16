@@ -1,0 +1,5 @@
+%%-*- mode: erlang -*-
+
+{mapping, "mini.name", "emqx_mini_plugin.name", [
+  {datatype, string}
+]}.

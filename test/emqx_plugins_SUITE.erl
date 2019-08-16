@@ -19,8 +19,41 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
-
 all() -> emqx_ct:all(?MODULE).
+
+init_per_suite(Config) ->
+
+    %% Compile extra plugin code
+
+    DataPath = proplists:get_value(data_dir, Config),
+    AppPath = filename:join([DataPath, "emqx_mini_plugin"]),
+    Cmd = lists:flatten(io_lib:format("cd ~s && make", [AppPath])),
+
+    ct:pal("Executing ~s~n", [Cmd]),
+    ct:pal("~n ~s~n", [os:cmd(Cmd)]),
+
+    code:add_path(filename:join([AppPath, "_build", "default", "lib", "emqx_mini_plugin", "ebin"])),
+
+    put(loaded_file, filename:join([DataPath, "loaded_plugins"])),
+    emqx_ct_helpers:start_apps([], fun set_sepecial_cfg/1),
+
+    Config.
+
+set_sepecial_cfg(_) ->
+    ExpandPath = filename:dirname(code:lib_dir(emqx_mini_plugin)),
+
+    application:set_env(emqx, plugins_loaded_file, get(loaded_file)),
+    application:set_env(emqx, expand_plugins_dir, ExpandPath),
+    ok.
+
+end_per_suite(_Config) ->
+    emqx_ct_helpers:stop_apps([]).
+
+t_load(_) ->
+    {error, load_app_fail} = emqx_plugins:load_expand_plugin("./not_existed_path/"),
+
+    {error, not_started} = emqx_plugins:unload(emqx_mini_plugin),
+    {ok, _} = emqx_plugins:load(emqx_mini_plugin),
+    ok = emqx_plugins:unload(emqx_mini_plugin).
