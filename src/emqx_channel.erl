@@ -674,4 +674,3 @@ shutdown(Reason, State) ->
 
 stop(Reason, State) ->
     {stop, Reason, State}.
-

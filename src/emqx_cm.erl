@@ -28,8 +28,6 @@
 -export([start_link/0]).
 
 -export([ register_channel/1
-        , unregister_channel/1
-        , unregister_channel/2
         ]).
 
 -export([ get_chan_attrs/1
@@ -94,6 +92,7 @@ start_link() ->
 %%--------------------------------------------------------------------
 
 %% @doc Register a channel.
+%% Channel will be unregistered automatically when the channel process dies
 -spec(register_channel(emqx_types:client_id()) -> ok).
 register_channel(ClientId) when is_binary(ClientId) ->
     register_channel(ClientId, self()).
@@ -105,17 +104,6 @@ register_channel(ClientId, ChanPid) ->
     true = ets:insert(?CHAN_TAB, Chan),
     ok = emqx_cm_registry:register_channel(Chan),
     cast({registered, Chan}).
-
-%% @doc Unregister a channel.
--spec(unregister_channel(emqx_types:client_id()) -> ok).
-unregister_channel(ClientId) when is_binary(ClientId) ->
-    unregister_channel(ClientId, self()).
-
--spec(unregister_channel(emqx_types:client_id(), chan_pid()) -> ok).
-unregister_channel(ClientId, ChanPid) ->
-    Chan = {ClientId, ChanPid},
-    true = do_unregister_channel(Chan),
-    cast({unregistered, Chan}).
 
 %% @private
 do_unregister_channel(Chan) ->
@@ -285,10 +273,6 @@ handle_cast({registered, {ClientId, ChanPid}}, State = #{chan_pmon := PMon}) ->
     PMon1 = emqx_pmon:monitor(ChanPid, ClientId, PMon),
     {noreply, State#{chan_pmon := PMon1}};
 
-handle_cast({unregistered, {_ClientId, ChanPid}}, State = #{chan_pmon := PMon}) ->
-    PMon1 = emqx_pmon:demonitor(ChanPid, PMon),
-    {noreply, State#{chan_pmon := PMon1}};
-
 handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
@@ -325,4 +309,3 @@ update_stats({Tab, Stat, MaxStat}) ->
         undefined -> ok;
         Size -> emqx_stats:setstat(Stat, MaxStat, Size)
     end.
-

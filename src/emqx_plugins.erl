@@ -81,9 +81,9 @@ load_expand_plugins() ->
 
 load_expand_plugin(PluginDir) ->
     init_expand_plugin_config(PluginDir),
-    Ebin = PluginDir ++ "/ebin",
+    Ebin = filename:join([PluginDir, "ebin"]),
     code:add_patha(Ebin),
-    Modules = filelib:wildcard(Ebin ++ "/*.beam"),
+    Modules = filelib:wildcard(filename:join([Ebin ++ "*.beam"])),
     lists:foreach(fun(Mod) ->
         Module = list_to_atom(filename:basename(Mod, ".beam")),
         code:load_file(Module)
@@ -308,14 +308,11 @@ read_loaded() ->
 read_loaded(File) -> file:consult(File).
 
 write_loaded(AppNames) ->
-    File = emqx_config:get_env(plugins_loaded_file),
-    case file:open(File, [binary, write]) of
-        {ok, Fd} ->
-            lists:foreach(fun(Name) ->
-                file:write(Fd, iolist_to_binary(io_lib:format("~p.~n", [Name])))
-            end, AppNames);
+    FilePath = emqx_config:get_env(plugins_loaded_file),
+    case file:write_file(FilePath, [io_lib:format("~p.~n", [Name]) || Name <- AppNames]) of
+        ok -> ok;
         {error, Error} ->
-            ?LOG(error, "Open File ~p Error: ~p", [File, Error]),
+            ?LOG(error, "Write File ~p Error: ~p", [FilePath, Error]),
             {error, Error}
     end.
 
@@ -324,4 +321,3 @@ plugin_type(protocol) -> protocol;
 plugin_type(backend) -> backend;
 plugin_type(bridge) -> bridge;
 plugin_type(_) -> feature.
-

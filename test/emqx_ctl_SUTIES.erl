@@ -14,28 +14,4 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_keepalive_SUITE).
-
--compile(export_all).
--compile(nowarn_export_all).
-
-all() -> emqx_ct:all(?MODULE).
-
-t_keepalive(_) ->
-    {ok, KA} = emqx_keepalive:start(fun() -> {ok, 1} end, 1, {keepalive, timeout}),
-    [resumed, timeout] = lists:reverse(keepalive_recv(KA, [])).
-
-keepalive_recv(KA, Acc) ->
-    receive
-        {keepalive, timeout} ->
-            case emqx_keepalive:check(KA) of
-                {ok, KA1} -> keepalive_recv(KA1, [resumed | Acc]);
-                {error, timeout} -> [timeout | Acc]
-            end
-        after 4000 -> Acc
-    end.
-
-t_cancel(_) ->
-    {ok, KA} = emqx_keepalive:start(fun() -> {ok, 1} end, 1, {keepalive, timeout}),
-    ok = emqx_keepalive:cancel(KA).
-
+-module(emqx_ctl_SUTIES).

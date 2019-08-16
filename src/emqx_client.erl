@@ -144,15 +144,7 @@
                 | {force_ping, boolean()}
                 | {properties, properties()}).
 
--record(mqtt_msg, {
-          qos = ?QOS_0,
-          retain = false,
-          dup = false,
-          packet_id,
-          topic,
-          props,
-          payload
-         }).
+
 
 -opaque(mqtt_msg() :: #mqtt_msg{}).
 
