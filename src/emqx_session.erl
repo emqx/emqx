@@ -206,7 +206,7 @@ info(#session{clean_start = CleanStart,
       awaiting_rel => maps:size(AwaitingRel),
       max_awaiting_rel => MaxAwaitingRel,
       await_rel_timeout => AwaitRelTimeout,
-      expiry_interval => ExpiryInterval div 1000,
+      expiry_interval => ExpiryInterval,
       created_at => CreatedAt
      }.
 
