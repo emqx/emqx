@@ -110,7 +110,8 @@ t_cm_registry(_) ->
     gen_server:cast(Pid, <<"Unexpected cast">>),
     Pid ! <<"Unexpected info">>,
     ok = application:stop(mnesia),
-    application:start(mnesia).
+    emqx_ct_helpers:stop_apps([]),
+    emqx_ct_helpers:start_apps([]).
 
 t_will_message(_Config) ->
     {ok, C1} = emqx_client:start_link([{clean_start, true},
