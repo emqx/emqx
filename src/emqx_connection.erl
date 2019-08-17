@@ -360,7 +360,8 @@ handle(info, {Inet, _Sock, Data}, State = #state{chan_state = ChanState})
     ?LOG(debug, "RECV ~p", [Data]),
     emqx_pd:update_counter(incoming_bytes, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
-    NChanState = emqx_channel:gc(1, Oct, ChanState),
+    NChanState = emqx_channel:ensure_timer(
+                   emit_stats, emqx_channel:gc(1, Oct, ChanState)),
     process_incoming(Data, State#state{chan_state = NChanState});
 
 handle(info, {Error, _Sock, Reason}, State)
@@ -398,24 +399,19 @@ handle(info, activate_socket, State) ->
             shutdown(Reason, NState)
     end;
 
-handle(info, {inet_reply, _Sock, ok}, State) ->
+handle(info, {inet_reply, _Sock, ok}, State = #state{chan_state = ChanState}) ->
     %% something sent
-    keep_state(State);
+    NChanState = emqx_channel:ensure_timer(emit_stats, ChanState),
+    keep_state(State#state{chan_state = NChanState});
 
 handle(info, {inet_reply, _Sock, {error, Reason}}, State) ->
     shutdown(Reason, State);
 
-handle(info, {timeout, TRef, Msg}, State = #state{chan_state = ChanState})
-  when is_reference(TRef) ->
-    case emqx_channel:timeout(TRef, Msg, ChanState) of
-        {ok, NChanState} ->
-            keep_state(State#state{chan_state = NChanState});
-        {ok, Packets, NChanState} ->
-            handle_outgoing(Packets, fun keep_state/1,
-                            State#state{chan_state = NChanState});
-        {stop, Reason, NChanState} ->
-            stop(Reason, State#state{chan_state = NChanState})
-    end;
+handle(info, {timeout, TRef, emit_stats}, State) when is_reference(TRef) ->
+    handle_timeout(TRef, {emit_stats, stats(State)}, State);
+
+handle(info, {timeout, TRef, Msg}, State) when is_reference(TRef) ->
+    handle_timeout(TRef, Msg, State);
 
 handle(info, {shutdown, conflict, {ClientId, NewPid}}, State) ->
     ?LOG(warning, "Clientid '~s' conflict with ~p", [ClientId, NewPid]),
@@ -528,7 +524,19 @@ send(IoData, SuccFun, State = #state{transport = Transport,
             shutdown(Reason, State)
     end.
 
-%% TODO: maybe_gc(1, Oct, State)
+%%--------------------------------------------------------------------
+%% Handle timeout
+
+handle_timeout(TRef, Msg, State = #state{chan_state = ChanState}) ->
+    case emqx_channel:timeout(TRef, Msg, ChanState) of
+        {ok, NChanState} ->
+            keep_state(State#state{chan_state = NChanState});
+        {ok, Packets, NChanState} ->
+            handle_outgoing(Packets, fun keep_state/1,
+                            State#state{chan_state = NChanState});
+        {stop, Reason, NChanState} ->
+            stop(Reason, State#state{chan_state = NChanState})
+    end.
 
 %%--------------------------------------------------------------------
 %% Ensure keepalive

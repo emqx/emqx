@@ -46,12 +46,16 @@
         , terminate/2
         ]).
 
+-export([ensure_timer/2]).
+
 -export([gc/3]).
 
 -import(emqx_access_control,
         [ authenticate/1
         , check_acl/3
         ]).
+
+-import(emqx_misc, [start_timer/2]).
 
 -export_type([channel/0]).
 
@@ -659,16 +663,16 @@ handle_info(Info, Channel) ->
       -> {ok, channel()}
        | {ok, Result :: term(), channel()}
        | {stop, Reason :: term(), channel()}).
+timeout(TRef, {emit_stats, Stats}, Channel = #channel{stats_timer = TRef}) ->
+    ClientId = info(client_id, Channel),
+    ok = emqx_cm:set_chan_stats(ClientId, Stats),
+    {ok, Channel#channel{stats_timer = undefined}};
+
 timeout(TRef, retry_deliver, Channel = #channel{%%session = Session,
                                                 retry_timer = TRef}) ->
     %% case emqx_session:retry(Session) of
     %% TODO: ...
     {ok, Channel#channel{retry_timer = undefined}};
-
-timeout(TRef, emit_stats, Channel = #channel{stats_timer = TRef}) ->
-    ClientId = info(client_id, Channel),
-    %% ok = emqx_cm:set_chan_stats(ClientId, stats(Channel)),
-    {ok, Channel#channel{stats_timer = undefined}};
 
 timeout(_TRef, Msg, Channel) ->
     ?LOG(error, "Unexpected timeout: ~p~n", [Msg]),
@@ -678,16 +682,16 @@ timeout(_TRef, Msg, Channel) ->
 %% Ensure timers
 %%--------------------------------------------------------------------
 
+ensure_timer(emit_stats, Channel = #channel{stats_timer = undefined,
+                                            idle_timeout = IdleTimeout
+                                           }) ->
+    Channel#channel{stats_timer = start_timer(IdleTimeout, emit_stats)};
+
 ensure_timer(retry, Channel = #channel{session = Session,
                                        retry_timer = undefined}) ->
     Interval = emqx_session:info(retry_interval, Session),
     TRef = emqx_misc:start_timer(Interval, retry_deliver),
     Channel#channel{retry_timer = TRef};
-
-ensure_timer(stats, Channel = #channel{stats_timer = undefined,
-                                       idle_timeout = IdleTimeout}) ->
-    TRef = emqx_misc:start_timer(IdleTimeout, emit_stats),
-    Channel#channel{stats_timer = TRef};
 
 %% disabled or timer existed
 ensure_timer(_Name, Channel) ->
