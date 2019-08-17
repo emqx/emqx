@@ -37,9 +37,10 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-load(Env) ->
-    emqx_hooks:add('client.connected',    {?MODULE, on_client_connected, [Env]}),
-    emqx_hooks:add('client.disconnected', {?MODULE, on_client_disconnected, [Env]}).
+load(_Env) ->
+    ok.
+    %% emqx_hooks:add('client.connected',    {?MODULE, on_client_connected, [Env]}),
+    %% emqx_hooks:add('client.disconnected', {?MODULE, on_client_disconnected, [Env]}).
 
 on_client_connected(#{client_id := ClientId,
                       username  := Username,
