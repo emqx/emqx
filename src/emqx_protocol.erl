@@ -137,6 +137,7 @@ init(ConnInfo, Options) ->
     MountPoint = emqx_zone:get_env(Zone, mountpoint),
     Client = maps:merge(#{zone         => Zone,
                           username     => Username,
+                          client_id    => <<>>,
                           mountpoint   => MountPoint,
                           is_bridge    => false,
                           is_superuser => false
@@ -175,13 +176,14 @@ handle_in(?CONNECT_PACKET(
                    fun check_connect/2,
                    fun enrich_client/2,
                    fun auth_connect/2], ConnPkt, PState1) of
-        {ok, NConnPkt, NPState} ->
-            process_connect(NConnPkt, maybe_assign_clientid(NPState));
+        {ok, NConnPkt, NPState = #protocol{client = #{client_id := ClientId1}}} ->
+            ok = emqx_logger:set_metadata_client_id(ClientId1),
+            process_connect(NConnPkt, NPState);
         {error, ReasonCode, NPState} ->
-            handle_out({disconnect, ReasonCode}, NPState)
+            handle_out({connack, ReasonCode}, NPState)
     end;
 
-handle_in(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), PState= #protocol{proto_ver = Ver}) ->
+handle_in(Packet = ?PUBLISH_PACKET(_QoS, Topic, _PacketId), PState= #protocol{proto_ver = Ver}) ->
     case pipeline([fun validate_in/2,
                    fun process_alias/2,
                    fun check_publish/2], Packet, PState) of
@@ -190,7 +192,7 @@ handle_in(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), PState= #protocol{prot
         {error, ReasonCode, NPState} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s",
                  [Topic, emqx_reason_codes:text(ReasonCode, Ver)]),
-            puback(QoS, PacketId, ReasonCode, NPState)
+            handle_out({disconnect, ReasonCode}, NPState)
     end;
 
 handle_in(?PUBACK_PACKET(PacketId, _ReasonCode), PState = #protocol{session = Session}) ->
@@ -380,10 +382,6 @@ handle_out({publish, PacketId, Msg}, PState = #protocol{client = Client}) ->
     Packet = emqx_packet:from_message(PacketId, unmount(Client, Msg1)),
     {ok, Packet, PState};
 
-%% TODO: How to handle the err?
-handle_out({puberr, _ReasonCode}, PState) ->
-    {ok, PState};
-
 handle_out({puback, PacketId, ReasonCode}, PState) ->
     {ok, ?PUBACK_PACKET(PacketId, ReasonCode), PState};
 
@@ -500,7 +498,7 @@ check_connect(ConnPkt, PState) ->
                    fun check_banned/2,
                    fun check_will_topic/2,
                    fun check_will_retain/2], ConnPkt, PState) of
-        ok -> {ok, PState};
+        {ok, NConnPkt, NPState} -> {ok, NConnPkt, NPState};
         Error -> Error
     end.
 
@@ -508,7 +506,7 @@ check_proto_ver(#mqtt_packet_connect{proto_ver  = Ver,
                                      proto_name = Name}, _PState) ->
     case lists:member({Ver, Name}, ?PROTOCOL_NAMES) of
         true  -> ok;
-        false -> {error, ?RC_PROTOCOL_ERROR}
+        false -> {error, ?RC_UNSUPPORTED_PROTOCOL_VERSION}
     end.
 
 %% MQTT3.1 does not allow null clientId
@@ -571,29 +569,43 @@ check_will_retain(#mqtt_packet_connect{will_retain = true},
 %% Enrich client
 %%--------------------------------------------------------------------
 
-enrich_client(#mqtt_packet_connect{client_id  = ClientId,
-                                   username   = Username,
-                                   is_bridge  = IsBridge
-                                  },
-              PState = #protocol{client = Client}) ->
-    Client1 = set_username(Username, Client#{client_id => ClientId,
-                                             is_bridge => IsBridge
-                                            }),
-    {ok, PState#protocol{client = maybe_username_as_clientid(Client1)}}.
+enrich_client(ConnPkt, PState) ->
+    case pipeline([fun set_username/2,
+                   fun maybe_use_username_as_clientid/2,
+                   fun maybe_assign_clientid/2,
+                   fun set_rest_client_fields/2], ConnPkt, PState) of
+        {ok, NConnPkt, NPState} -> {ok, NConnPkt, NPState};
+        Error -> Error
+    end.
+
+maybe_use_username_as_clientid(_ConnPkt, PState = #protocol{client = #{username := undefined}}) ->
+    {ok, PState};
+maybe_use_username_as_clientid(_ConnPkt, PState = #protocol{client = Client = #{zone := Zone,
+                                                                                username := Username}}) ->
+    NClient = 
+        case emqx_zone:get_env(Zone, use_username_as_clientid, false) of
+            true -> Client#{client_id => Username};
+            false -> Client
+        end,
+    {ok, PState#protocol{client = NClient}}.
+
+maybe_assign_clientid(#mqtt_packet_connect{client_id = <<>>},
+             PState = #protocol{client = Client, ack_props = AckProps}) ->
+    ClientId = emqx_guid:to_base62(emqx_guid:gen()),
+    AckProps1 = set_property('Assigned-Client-Identifier', ClientId, AckProps),
+    {ok, PState#protocol{client = Client#{client_id => ClientId}, ack_props = AckProps1}};
+maybe_assign_clientid(#mqtt_packet_connect{client_id = ClientId}, PState = #protocol{client = Client}) ->
+    {ok, PState#protocol{client = Client#{client_id => ClientId}}}.
 
 %% Username maybe not undefined if peer_cert_as_username
-set_username(Username, Client = #{username := undefined}) ->
-    Client#{username => Username};
-set_username(_Username, Client) -> Client.
+set_username(#mqtt_packet_connect{username = Username},
+             PState = #protocol{client = Client = #{username := undefined}}) ->
+    {ok, PState#protocol{client = Client#{username => Username}}};
+set_username(_ConnPkt, PState) -> 
+    {ok, PState}.
 
-maybe_username_as_clientid(Client = #{username := undefined}) ->
-    Client;
-maybe_username_as_clientid(Client = #{zone := Zone,
-                                      username := Username}) ->
-    case emqx_zone:get_env(Zone, use_username_as_clientid, false) of
-        true -> Client#{client_id => Username};
-        false -> Client
-    end.
+set_rest_client_fields(#mqtt_packet_connect{is_bridge  = IsBridge}, PState = #protocol{client = Client}) ->
+    {ok, PState#protocol{client = Client#{is_bridge => IsBridge}}}.
 
 %%--------------------------------------------------------------------
 %% Auth Connect
@@ -611,18 +623,6 @@ auth_connect(#mqtt_packet_connect{client_id = ClientId,
                  [ClientId, Username, Reason]),
             {error, emqx_reason_codes:connack_error(Reason)}
     end.
-
-%%--------------------------------------------------------------------
-%% Assign a random clientId
-%%--------------------------------------------------------------------
-
-maybe_assign_clientid(PState = #protocol{client = Client = #{client_id := <<>>},
-                                         ack_props = AckProps}) ->
-    ClientId = emqx_guid:to_base62(emqx_guid:gen()),
-    Client1 = Client#{client_id => ClientId},
-    AckProps1 = set_property('Assigned-Client-Identifier', ClientId, AckProps),
-    PState#protocol{client = Client1, ack_props = AckProps1};
-maybe_assign_clientid(PState) -> PState.
 
 %%--------------------------------------------------------------------
 %% Process Connect
@@ -671,7 +671,7 @@ process_alias(Packet = #mqtt_packet{
             {ok, Packet#mqtt_packet{
                    variable = Publish#mqtt_packet_publish{
                                 topic_name = Topic}}, PState};
-        false -> {error, ?RC_TOPIC_ALIAS_INVALID}
+        false -> {error, ?RC_PROTOCOL_ERROR}
     end;
 
 process_alias(#mqtt_packet{
@@ -759,17 +759,6 @@ process_publish(PacketId, Msg = #message{qos = ?QOS_2},
         {error, ReasonCode} ->
             handle_out({pubrec, PacketId, ReasonCode}, PState)
     end.
-
-%%--------------------------------------------------------------------
-%% Puback
-%%--------------------------------------------------------------------
-
-puback(?QOS_0, _PacketId, ReasonCode, PState) ->
-    handle_out({puberr, ReasonCode}, PState);
-puback(?QOS_1, PacketId, ReasonCode, PState) ->
-    handle_out({puback, PacketId, ReasonCode}, PState);
-puback(?QOS_2, PacketId, ReasonCode, PState) ->
-    handle_out({pubrec, PacketId, ReasonCode}, PState).
 
 %%--------------------------------------------------------------------
 %% Process subscribe request

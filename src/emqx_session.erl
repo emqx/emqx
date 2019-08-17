@@ -248,6 +248,8 @@ info(created_at, #session{created_at = CreatedAt}) ->
 %%--------------------------------------------------------------------
 
 -spec(attrs(session()) -> emqx_types:attrs()).
+attrs(undefined) ->
+    #{};
 attrs(#session{clean_start = CleanStart,
                expiry_interval = ExpiryInterval,
                created_at = CreatedAt}) ->
