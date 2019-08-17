@@ -177,7 +177,6 @@ websocket_init([Req, Opts]) ->
     MaxSize = emqx_zone:get_env(Zone, max_packet_size, ?MAX_PACKET_SIZE),
     ParseState = emqx_frame:initial_parse_state(#{max_size => MaxSize}),
     emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
-    ok = emqx_misc:init_proc_mng_policy(Zone),
     {ok, #state{peername     = Peername,
                 sockname     = Sockname,
                 fsm_state    = idle,

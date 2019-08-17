@@ -166,9 +166,9 @@ t_handle_deliver(_) ->
                 = handle_in(?SUBSCRIBE_PACKET(1, #{}, TopicFilters), Channel),
               Msg0 = emqx_message:make(<<"clientx">>, ?QOS_0, <<"t0">>, <<"qos0">>),
               Msg1 = emqx_message:make(<<"clientx">>, ?QOS_1, <<"t1">>, <<"qos1">>),
-              Delivers = [{deliver, <<"+">>, Msg0},
-                          {deliver, <<"+">>, Msg1}],
-              {ok, Packets, _Channel2} = emqx_channel:handle_deliver(Delivers, Channel1),
+              %% TODO: Fixme later.
+              self() ! {deliver, <<"+">>, Msg1},
+              {ok, Packets, _Channel2} = emqx_channel:handle_out({deliver, <<"+">>, Msg0}, Channel1),
               ?assertMatch([?PUBLISH_PACKET(?QOS_0, <<"t0">>, undefined, <<"qos0">>),
                             ?PUBLISH_PACKET(?QOS_1, <<"t1">>, 1, <<"qos1">>)
                            ], Packets)
@@ -183,7 +183,7 @@ t_handle_conack(_) ->
       fun(Channel) ->
               {ok, ?CONNACK_PACKET(?RC_SUCCESS, SP, _), _}
                 = handle_out(connack, {?RC_SUCCESS, 0}, Channel),
-              {error, unauthorized_client, ?CONNACK_PACKET(5), _}
+              {stop, {shutdown, unauthorized_client}, ?CONNACK_PACKET(5), _}
                 = handle_out(connack, ?RC_NOT_AUTHORIZED, Channel)
       end).
 

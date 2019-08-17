@@ -24,11 +24,23 @@
 all() -> emqx_ct:all(?MODULE).
 
 t_init(_) ->
-    'TODO'.
+    ?assertEqual(undefined, emqx_oom:init(undefined)),
+    Opts = #{message_queue_len => 10,
+             max_heap_size => 1024*1024*8
+            },
+    Oom = emqx_oom:init(Opts),
+    ?assertEqual(#{message_queue_len => 10,
+                   max_heap_size => 1024*1024
+                  }, emqx_oom:info(Oom)).
 
 t_check(_) ->
-    'TODO'.
-
-t_info(_) ->
-    'TODO'.
+    ?assertEqual(ok, emqx_oom:check(undefined)),
+    Opts = #{message_queue_len => 10,
+             max_heap_size => 1024*1024*8
+            },
+    Oom = emqx_oom:init(Opts),
+    [self() ! {msg, I} || I <- lists:seq(1, 5)],
+    ?assertEqual(ok, emqx_oom:check(Oom)),
+    [self() ! {msg, I} || I <- lists:seq(1, 6)],
+    ?assertEqual({shutdown, message_queue_too_long}, emqx_oom:check(Oom)).
 
