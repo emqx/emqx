@@ -198,7 +198,8 @@ websocket_handle({binary, Data}, State = #state{chan_state = ChanState})
     emqx_pd:update_counter(recv_cnt, 1),
     emqx_pd:update_counter(recv_oct, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
-    NChanState = emqx_channel:gc(1, Oct, ChanState),
+    NChanState = emqx_channel:ensure_timer(
+                   emit_stats, emqx_channel:gc(1, Oct, ChanState)),
     process_incoming(Data, State#state{chan_state = NChanState});
 
 %% Pings should be replied with pongs, cowboy does it automatically
@@ -281,16 +282,11 @@ websocket_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
             stop(keepalive_error, State)
     end;
 
-websocket_info({timeout, TRef, Msg}, State = #state{chan_state = ChanState})
-  when is_reference(TRef) ->
-    case emqx_channel:timeout(TRef, Msg, ChanState) of
-        {ok, NChanState} ->
-            {ok, State#state{chan_state = NChanState}};
-        {ok, Packets, NChanState} ->
-            reply(enqueue(Packets, State#state{chan_state = NChanState}));
-        {stop, Reason, NChanState} ->
-            stop(Reason, State#state{chan_state = NChanState})
-    end;
+websocket_info({timeout, TRef, emit_stats}, State) when is_reference(TRef) ->
+    handle_timeout(TRef, {emit_stats, stats(State)}, State);
+
+websocket_info({timeout, TRef, Msg}, State) when is_reference(TRef) ->
+    handle_timeout(TRef, Msg, State);
 
 websocket_info({shutdown, discard, {ClientId, ByPid}}, State) ->
     ?LOG(warning, "Discarded by ~s:~p", [ClientId, ByPid]),
@@ -339,6 +335,19 @@ connected(State = #state{chan_state = ChanState}) ->
             reply(NState#state{keepalive = KeepAlive});
         {error, Reason} ->
             stop(Reason, NState)
+    end.
+
+%%--------------------------------------------------------------------
+%% Handle timeout
+
+handle_timeout(TRef, Msg, State = #state{chan_state = ChanState}) ->
+    case emqx_channel:timeout(TRef, Msg, ChanState) of
+        {ok, NChanState} ->
+            {ok, State#state{chan_state = NChanState}};
+        {ok, Packets, NChanState} ->
+            reply(enqueue(Packets, State#state{chan_state = NChanState}));
+        {stop, Reason, NChanState} ->
+            stop(Reason, State#state{chan_state = NChanState})
     end.
 
 %%--------------------------------------------------------------------
@@ -429,9 +438,10 @@ inc_outgoing_stats(Type) ->
 
 reply(State = #state{pendings = []}) ->
     {ok, State};
-reply(State = #state{pendings = Pendings}) ->
+reply(State = #state{chan_state = ChanState, pendings = Pendings}) ->
     Reply = handle_outgoing(Pendings, State),
-    {reply, Reply, State#state{pendings = []}}.
+    NChanState = emqx_channel:ensure_timer(emit_stats, ChanState),
+    {reply, Reply, State#state{chan_state = NChanState, pendings = []}}.
 
 stop(Reason, State = #state{pendings = []}) ->
     {stop, State#state{reason = Reason}};
