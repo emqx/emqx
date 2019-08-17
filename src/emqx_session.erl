@@ -58,6 +58,10 @@
         , stats/1
         ]).
 
+-export([ takeover/1
+        , resume/2
+        ]).
+
 -export([ subscribe/4
         , unsubscribe/3
         ]).
@@ -277,6 +281,25 @@ stats(#session{subscriptions = Subscriptions,
      {mqueue_dropped, emqx_mqueue:dropped(MQueue)},
      {awaiting_rel, maps:size(AwaitingRel)},
      {max_awaiting_rel, MaxAwaitingRel}].
+
+-spec(takeover(session()) -> ok).
+takeover(#session{subscriptions = Subs}) ->
+    lists:foreach(fun({TopicFilter, _SubOpts}) ->
+                          ok = emqx_broker:unsubscribe(TopicFilter)
+                  end, maps:to_list(Subs)).
+
+-spec(resume(emqx_types:client_id(), session()) -> {ok, session()}).
+resume(ClientId, Session = #session{subscriptions = Subs}) ->
+    ?LOG(info, "Session is resumed."),
+    %% 1. Subscribe again
+    ok = lists:foreach(fun({TopicFilter, SubOpts}) ->
+                               ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts)
+                       end, maps:to_list(Subs)),
+    %% 2. Run hooks.
+    ok = emqx_hooks:run('session.resumed', [#{client_id => ClientId}, attrs(Session)]),
+    %% TODO: 3. Redeliver: Replay delivery and Dequeue pending messages
+    %% noreply(ensure_stats_timer(dequeue(retry_delivery(true, State1))));
+    {ok, Session}.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: SUBSCRIBE
@@ -683,6 +706,6 @@ next_pkt_id(Session = #session{next_pkt_id = Id}) ->
 %% For Test case
 %%---------------------------------------------------------------------
 
-
 set_pkt_id(Session, PktId) ->
     Session#session{next_pkt_id = PktId}.
+

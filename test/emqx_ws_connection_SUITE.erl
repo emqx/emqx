@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_ws_channel_SUITE).
+-module(emqx_ws_connection_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
