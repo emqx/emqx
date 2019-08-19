@@ -280,7 +280,7 @@ handle_in(?CONNECT_PACKET(
             handle_out(connack, ReasonCode, NChannel)
     end;
 
-handle_in(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel = #channel{proto_ver = Ver}) ->
+handle_in(Packet = ?PUBLISH_PACKET(_QoS, Topic, _PacketId), Channel = #channel{proto_ver = Ver}) ->
     case pipeline([fun validate_in/2,
                    fun process_alias/2,
                    fun check_publish/2], Packet, Channel) of
@@ -289,11 +289,7 @@ handle_in(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel = #channel{pro
         {error, ReasonCode, NChannel} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s",
                  [Topic, emqx_reason_codes:text(ReasonCode, Ver)]),
-            case QoS of
-                ?QOS_0 -> handle_out(puberr, ReasonCode, NChannel);
-                ?QOS_1 -> handle_out(puback, {PacketId, ReasonCode}, NChannel);
-                ?QOS_2 -> handle_out(pubrec, {PacketId, ReasonCode}, NChannel)
-            end
+                 handle_out(disconnect, ReasonCode, NChannel)
     end;
 
 %%TODO: How to handle the ReasonCode?
@@ -845,13 +841,10 @@ check_will_retain(#mqtt_packet_connect{will_retain = true},
 %%--------------------------------------------------------------------
 
 enrich_client(ConnPkt, Channel) ->
-    case pipeline([fun set_username/2,
-                   fun maybe_use_username_as_clientid/2,
-                   fun maybe_assign_clientid/2,
-                   fun set_rest_client_fields/2], ConnPkt, Channel) of
-        {ok, NConnPkt, NChannel} -> {ok, NConnPkt, NChannel};
-        Error -> Error
-    end.
+    pipeline([fun set_username/2,
+              fun maybe_use_username_as_clientid/2,
+              fun maybe_assign_clientid/2,
+              fun set_rest_client_fields/2], ConnPkt, Channel).
 
 maybe_use_username_as_clientid(_ConnPkt, Channel = #channel{client = #{username := undefined}}) ->
     {ok, Channel};
