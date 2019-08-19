@@ -166,4 +166,7 @@ call(Req) ->
     gen_server:call(?OS_MON, Req, infinity).
 
 ensure_check_timer(State = #{cpu_check_interval := Interval}) ->
-    State#{timer := emqx_misc:start_timer(timer:seconds(Interval), check)}.
+    case erlang:system_info(system_architecture) of
+        "x86_64-pc-linux-musl" -> State;
+        _ -> State#{timer := emqx_misc:start_timer(timer:seconds(Interval), check)}
+    end.
