@@ -285,7 +285,7 @@ handle_in(Packet = ?PUBLISH_PACKET(_QoS, Topic, _PacketId), Channel = #channel{p
         {error, ReasonCode, NChannel} ->
             ?LOG(warning, "Cannot publish message to ~s due to ~s",
                  [Topic, emqx_reason_codes:text(ReasonCode, Ver)]),
-                 handle_out({disconnect, ReasonCode}, NChannel)
+                 handle_out(disconnect, ReasonCode, NChannel)
     end;
 
 %%TODO: How to handle the ReasonCode?
