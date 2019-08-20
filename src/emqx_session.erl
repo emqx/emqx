@@ -567,12 +567,14 @@ enrich([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS}, Session = #session{up
     enrich(Opts, Msg#message{qos = max(SubQoS, PubQoS)}, Session);
 enrich([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS}, Session = #session{upgrade_qos= false}) ->
     enrich(Opts, Msg#message{qos = min(SubQoS, PubQoS)}, Session);
-enrich([{rap, _Rap}|Opts], Msg = #message{flags = Flags, headers = #{retained := true}}, Session = #session{}) ->
-    enrich(Opts, Msg#message{flags = maps:put(retain, true, Flags)}, Session);
-enrich([{rap, 0}|Opts], Msg = #message{flags = Flags}, Session) ->
+enrich([{rap, 0}|Opts], Msg = #message{flags = Flags, headers = #{proto_ver := ?MQTT_PROTO_V5}}, Session) ->
     enrich(Opts, Msg#message{flags = maps:put(retain, false, Flags)}, Session);
-enrich([{rap, _}|Opts], Msg, Session) ->
+enrich([{rap, _}|Opts], Msg = #message{headers = #{proto_ver := ?MQTT_PROTO_V5}}, Session) ->
     enrich(Opts, Msg, Session);
+enrich([{rap, _}|Opts], Msg = #message{headers = #{retained := true}}, Session = #session{}) ->
+    enrich(Opts, Msg, Session);
+enrich([{rap, _}|Opts], Msg = #message{flags = Flags}, Session) ->
+    enrich(Opts, Msg#message{flags = maps:put(retain, false, Flags)}, Session);
 enrich([{subid, SubId}|Opts], Msg, Session) ->
     enrich(Opts, emqx_message:set_header('Subscription-Identifier', SubId, Msg), Session).
 
