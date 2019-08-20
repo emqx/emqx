@@ -40,7 +40,7 @@ set_special_configs(_App) -> ok.
 t_alarm_handler(_) ->
     with_connection(
         fun(Sock) ->
-            emqx_client_sock:send(Sock,
+            emqtt_sock:send(Sock,
                                   raw_send_serialize(
                                       ?CONNECT_PACKET(
                                           #mqtt_packet_connect{
@@ -52,7 +52,7 @@ t_alarm_handler(_) ->
             Topic1 = emqx_topic:systop(<<"alarms/alert">>),
             Topic2 = emqx_topic:systop(<<"alarms/clear">>),
             SubOpts = #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0},
-            emqx_client_sock:send(Sock,
+            emqtt_sock:send(Sock,
                                   raw_send_serialize(
                                       ?SUBSCRIBE_PACKET(
                                           1,
@@ -86,13 +86,13 @@ t_alarm_handler(_) ->
         end).
 
 with_connection(DoFun) ->
-    {ok, Sock} = emqx_client_sock:connect({127, 0, 0, 1}, 1883,
+    {ok, Sock} = emqtt_sock:connect({127, 0, 0, 1}, 1883,
                                           [binary, {packet, raw}, {active, false}],
                                           3000),
     try
         DoFun(Sock)
     after
-        emqx_client_sock:close(Sock)
+        emqtt_sock:close(Sock)
     end.
 
 raw_send_serialize(Packet) ->
@@ -100,4 +100,3 @@ raw_send_serialize(Packet) ->
 
 raw_recv_parse(Bin) ->
     emqx_frame:parse(Bin, emqx_frame:initial_parse_state(#{version => ?MQTT_PROTO_V5})).
-

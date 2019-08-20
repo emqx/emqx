@@ -35,8 +35,8 @@ end_per_suite(_Config) ->
 t_emqx_pubsub_api(_) ->
     emqx:start(),
     true = emqx:is_running(node()),
-    {ok, C} = emqx_client:start_link([{host, "localhost"}, {client_id, "myclient"}]),
-    {ok, _} = emqx_client:connect(C),
+    {ok, C} = emqtt:start_link([{host, "localhost"}, {client_id, "myclient"}]),
+    {ok, _} = emqtt:connect(C),
     ClientId = <<"myclient">>,
     Topic = <<"mytopic">>,
     Payload = <<"Hello World">>,
