@@ -55,9 +55,9 @@ t_sys_mon(_Config) ->
       end, ?INPUTINFO).
 
 validate_sys_mon_info(PidOrPort, SysMonName,ValidateInfo, InfoOrPort) ->
-    {ok, C} = emqx_client:start_link([{host, "localhost"}]),
-    {ok, _} = emqx_client:connect(C),
-    emqx_client:subscribe(C, emqx_topic:systop(lists:concat(['sysmon/', SysMonName])), qos1),
+    {ok, C} = emqtt:start_link([{host, "localhost"}]),
+    {ok, _} = emqtt:connect(C),
+    emqtt:subscribe(C, emqx_topic:systop(lists:concat(['sysmon/', SysMonName])), qos1),
     timer:sleep(100),
     ?SYSMON ! {monitor, PidOrPort, SysMonName, InfoOrPort},
     receive
@@ -68,7 +68,7 @@ validate_sys_mon_info(PidOrPort, SysMonName,ValidateInfo, InfoOrPort) ->
         1000 ->
             ct:fail("flase")
     end,
-    emqx_client:stop(C).
+    emqtt:stop(C).
 
 concat_str(ValidateInfo, InfoOrPort, Info) ->
     WarnInfo = io_lib:format(ValidateInfo, [InfoOrPort, Info]),

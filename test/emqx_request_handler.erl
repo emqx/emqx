@@ -24,28 +24,28 @@
 -type topic() :: emqx_topic:topic().
 -type handler() :: fun((CorrData :: binary(), ReqPayload :: binary()) -> RspPayload :: binary()).
 
--spec start_link(topic(), qos(), handler(), emqx_client:options()) ->
+-spec start_link(topic(), qos(), handler(), emqtt:options()) ->
         {ok, pid()} | {error, any()}.
 start_link(RequestTopic, QoS, RequestHandler, Options0) ->
     Parent = self(),
     MsgHandler = make_msg_handler(RequestHandler, Parent),
     Options = [{msg_handler, MsgHandler} | Options0],
-    case emqx_client:start_link(Options) of
+    case emqtt:start_link(Options) of
         {ok, Pid} ->
-            {ok, _} = emqx_client:connect(Pid),
+            {ok, _} = emqtt:connect(Pid),
             try subscribe(Pid, RequestTopic, QoS) of
                 ok -> {ok, Pid};
                 {error, _} = Error -> Error
             catch
                 C : E : S ->
-                    emqx_client:stop(Pid),
+                    emqtt:stop(Pid),
                     {error, {C, E, S}}
             end;
         {error, _} = Error -> Error
     end.
 
 stop(Pid) ->
-    emqx_client:disconnect(Pid).
+    emqtt:disconnect(Pid).
 
 make_msg_handler(RequestHandler, Parent) ->
     #{publish => fun(Msg) -> handle_msg(Msg, RequestHandler, Parent) end,
@@ -75,11 +75,11 @@ handle_msg(ReqMsg, RequestHandler, Parent) ->
     end.
 
 send_response(Msg) ->
-    %% This function is evaluated by emqx_client itself.
+    %% This function is evaluated by emqtt itself.
     %% hence delegate to another temp process for the loopback gen_statem call.
     Client = self(),
     _ = spawn_link(fun() ->
-                           case emqx_client:publish(Client, Msg) of
+                           case emqtt:publish(Client, Msg) of
                                ok -> ok;
                                {ok, _} -> ok;
                                {error, Reason} -> exit({failed_to_publish_response, Reason})
@@ -89,6 +89,6 @@ send_response(Msg) ->
 
 subscribe(Client, Topic, QoS) ->
     {ok, _Props, _QoS} =
-        emqx_client:subscribe(Client, [{Topic, [{rh, 2}, {rap, false},
+        emqtt:subscribe(Client, [{Topic, [{rh, 2}, {rap, false},
                                        {nl, true}, {qos, QoS}]}]),
     ok.

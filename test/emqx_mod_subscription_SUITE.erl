@@ -36,10 +36,10 @@ end_per_suite(_Config) ->
 
 t_mod_subscription(_) ->
     emqx_mod_subscription:load([{<<"connected/%c/%u">>, ?QOS_0}]),
-    {ok, C} = emqx_client:start_link([{host, "localhost"}, {client_id, "myclient"}, {username, "admin"}]),
-    {ok, _} = emqx_client:connect(C),
+    {ok, C} = emqtt:start_link([{host, "localhost"}, {client_id, "myclient"}, {username, "admin"}]),
+    {ok, _} = emqtt:connect(C),
     % ct:sleep(100),
-    emqx_client:publish(C, <<"connected/myclient/admin">>, <<"Hello world">>, ?QOS_0),
+    emqtt:publish(C, <<"connected/myclient/admin">>, <<"Hello world">>, ?QOS_0),
     receive
         {publish, #{topic := Topic, payload := Payload}} ->
             ?assertEqual(<<"connected/myclient/admin">>, Topic),
@@ -47,5 +47,5 @@ t_mod_subscription(_) ->
     after 100 ->
         ct:fail("no_message")
     end,
-    ok = emqx_client:disconnect(C),
+    ok = emqtt:disconnect(C),
     emqx_mod_subscription:unload([]).
