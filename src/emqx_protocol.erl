@@ -834,8 +834,8 @@ check_will_retain(#mqtt_packet_connect{will_retain = false, proto_ver = ?MQTT_PR
     ok;
 check_will_retain(#mqtt_packet_connect{will_retain = true, proto_ver = ?MQTT_PROTO_V5}, #pstate{zone = Zone}) ->
     case emqx_zone:get_env(Zone, mqtt_retain_available, true) of
-        true -> {error, ?RC_RETAIN_NOT_SUPPORTED};
-        false -> ok
+        true -> ok;
+        false -> {error, ?RC_RETAIN_NOT_SUPPORTED}
     end;
 check_will_retain(_Packet, _PState) ->
     ok.
