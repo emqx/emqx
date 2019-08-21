@@ -877,12 +877,14 @@ process_subopts([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS}, State = #sta
         true -> process_subopts(Opts, Msg#message{qos = max(SubQoS, PubQoS)}, State);
         false -> process_subopts(Opts, Msg#message{qos = min(SubQoS, PubQoS)}, State)
     end;
-process_subopts([{rap, _Rap}|Opts], Msg = #message{flags = Flags, headers = #{retained := true}}, State = #state{}) ->
-    process_subopts(Opts, Msg#message{flags = maps:put(retain, true, Flags)}, State);
-process_subopts([{rap, 0}|Opts], Msg = #message{flags = Flags}, State = #state{}) ->
-    process_subopts(Opts, Msg#message{flags = maps:put(retain, false, Flags)}, State);
-process_subopts([{rap, _}|Opts], Msg, State) ->
-    process_subopts(Opts, Msg, State);
+process_subopts([{rap, 0}|Opts], Msg = #message{flags = Flags, headers = #{proto_ver := ?MQTT_PROTO_V5}}, Session) ->
+    process_subopts(Opts, Msg#message{flags = maps:put(retain, false, Flags)}, Session);
+process_subopts([{rap, _}|Opts], Msg = #message{headers = #{proto_ver := ?MQTT_PROTO_V5}}, Session) ->
+    process_subopts(Opts, Msg, Session);
+process_subopts([{rap, _}|Opts], Msg = #message{headers = #{retained := true}}, Session = #session{}) ->
+    process_subopts(Opts, Msg, Session);
+process_subopts([{rap, _}|Opts], Msg = #message{flags = Flags}, Session) ->
+    process_subopts(Opts, Msg#message{flags = maps:put(retain, false, Flags)}, Session);
 process_subopts([{subid, SubId}|Opts], Msg, State) ->
     process_subopts(Opts, emqx_message:set_header('Subscription-Identifier', SubId, Msg), State).
 

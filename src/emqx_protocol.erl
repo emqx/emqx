@@ -562,10 +562,10 @@ connack({ReasonCode, PState = #pstate{proto_ver = ProtoVer, credentials = Creden
 %%------------------------------------------------------------------------------
 
 do_publish(Packet = ?PUBLISH_PACKET(QoS, PacketId),
-           PState = #pstate{session = SPid, credentials = Credentials}) ->
+           PState = #pstate{session = SPid, credentials = Credentials, proto_ver = ProtoVer}) ->
     Msg = emqx_mountpoint:mount(mountpoint(Credentials),
                                 emqx_packet:to_message(Credentials, Packet)),
-    puback(QoS, PacketId, emqx_session:publish(SPid, PacketId, emqx_message:set_flag(dup, false, Msg)), PState).
+    puback(QoS, PacketId, emqx_session:publish(SPid, PacketId, emqx_message:set_flag(dup, false, emqx_message:set_header(proto_ver, ProtoVer, Msg))), PState).
 
 %%------------------------------------------------------------------------------
 %% Puback -> Client
