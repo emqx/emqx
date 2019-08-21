@@ -14,19 +14,26 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_config).
+-module(emqx_config_SUITE).
 
--export([ get_env/1
-        , get_env/2
-        ]).
+-compile(export_all).
+-compile(nowarn_export_all).
 
--define(APP, emqx).
+-include_lib("eunit/include/eunit.hrl").
 
-%% @doc Get environment
--spec(get_env(Key :: atom()) -> term() | undefined).
-get_env(Key) ->
-    get_env(Key, undefined).
+all() -> emqx_ct:all(?MODULE).
 
--spec(get_env(Key :: atom(), Default :: term()) -> term()).
-get_env(Key, Default) ->
-    application:get_env(?APP, Key, Default).
+init_per_suite(Config) ->
+    emqx_ct_helpers:start_apps([]),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_ct_helpers:stop_apps([]).
+
+t_get_env(_) ->
+    ?assertEqual(undefined, emqx_config:get_env(undefined_key)),
+    ?assertEqual(default_value, emqx_config:get_env(undefined_key, default_value)),
+    application:set_env(emqx, undefined_key, hello),
+    ?assertEqual(hello, emqx_config:get_env(undefined_key)),
+    ?assertEqual(hello, emqx_config:get_env(undefined_key, default_value)),
+    application:unset_env(emqx, undefined_key).
