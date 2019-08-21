@@ -54,7 +54,7 @@ cd _rel/emqx && ./bin/emqx console
 
 ## FAQ
 
-访问 [FAQ](https://docs.emqx.io/tutorial/zh/faq/faq.html) 以获取常见问题的帮助。
+访问 [FAQ](https://docs.emqx.io/tutorial/v3/cn/faq/faq.html) 以获取常见问题的帮助。
 
 ## 产品路线
 
