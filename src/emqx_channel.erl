@@ -243,11 +243,12 @@ handle_in(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel = #channel{pro
             ProtoVer = emqx_protocol:info(proto_ver, Protocol),
             ?LOG(warning, "Cannot publish message to ~s due to ~s",
                  [Topic, emqx_reason_codes:text(ReasonCode, ProtoVer)]),
-            case QoS of
-                ?QOS_0 -> handle_out({puberr, ReasonCode}, NChannel);
-                ?QOS_1 -> handle_out({puback, PacketId, ReasonCode}, NChannel);
-                ?QOS_2 -> handle_out({pubrec, PacketId, ReasonCode}, NChannel)
-            end
+            handle_out({disconnect, ReasonCode}, NChannel)
+            % case QoS of
+            %     ?QOS_0 -> handle_out({puberr, ReasonCode}, NChannel);
+            %     ?QOS_1 -> handle_out({puback, PacketId, ReasonCode}, NChannel);
+            %     ?QOS_2 -> handle_out({pubrec, PacketId, ReasonCode}, NChannel)
+            % end
     end;
 
 %%TODO: How to handle the ReasonCode?
@@ -901,11 +902,19 @@ auth_connect(#mqtt_packet_connect{client_id = ClientId,
 
 open_session(#mqtt_packet_connect{clean_start = CleanStart,
                                   properties  = ConnProps},
-             #channel{client = Client = #{zone := Zone}}) ->
+             #channel{client = Client = #{zone := Zone}, protocol = Protocol}) ->
     MaxInflight = get_property('Receive-Maximum', ConnProps,
                                emqx_zone:get_env(Zone, max_inflight, 65535)),
-    Interval = get_property('Session-Expiry-Interval', ConnProps,
-                            emqx_zone:get_env(Zone, session_expiry_interval, 0)),
+    
+    Interval = 
+        case emqx_protocol:info(proto_ver, Protocol) of
+            ?MQTT_PROTO_V5 -> get_property('Session-Expiry-Interval', ConnProps, 0);
+            _ ->
+                case CleanStart of
+                    true -> 0;
+                    false -> emqx_zone:get_env(Zone, session_expiry_interval, 0)
+                end
+        end,
     emqx_cm:open_session(CleanStart, Client, #{max_inflight    => MaxInflight,
                                                expiry_interval => Interval
                                               }).
