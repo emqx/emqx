@@ -27,9 +27,9 @@
 all() -> emqx_ct:all(?MODULE).
 
 t_proto_name(_) ->
-    ?assertEqual(<<"MQIsdp">>, emqx_packet:protocol_name(3)),
-    ?assertEqual(<<"MQTT">>, emqx_packet:protocol_name(4)),
-    ?assertEqual(<<"MQTT">>, emqx_packet:protocol_name(5)).
+    ?assertEqual(<<"MQIsdp">>, emqx_packet:proto_name(3)),
+    ?assertEqual(<<"MQTT">>, emqx_packet:proto_name(4)),
+    ?assertEqual(<<"MQTT">>, emqx_packet:proto_name(5)).
 
 t_type_name(_) ->
     ?assertEqual('CONNECT', emqx_packet:type_name(?CONNECT)),

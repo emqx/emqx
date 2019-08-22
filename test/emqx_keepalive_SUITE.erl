@@ -19,23 +19,24 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("eunit/include/eunit.hrl").
+
 all() -> emqx_ct:all(?MODULE).
 
-t_keepalive(_) ->
-    {ok, KA} = emqx_keepalive:start(fun() -> {ok, 1} end, 1, {keepalive, timeout}),
-    [resumed, timeout] = lists:reverse(keepalive_recv(KA, [])).
-
-keepalive_recv(KA, Acc) ->
-    receive
-        {keepalive, timeout} ->
-            case emqx_keepalive:check(KA) of
-                {ok, KA1} -> keepalive_recv(KA1, [resumed | Acc]);
-                {error, timeout} -> [timeout | Acc]
-            end
-        after 4000 -> Acc
-    end.
-
-t_cancel(_) ->
-    {ok, KA} = emqx_keepalive:start(fun() -> {ok, 1} end, 1, {keepalive, timeout}),
-    ok = emqx_keepalive:cancel(KA).
+t_check(_) ->
+    Keepalive = emqx_keepalive:init(60),
+    ?assertEqual(60, emqx_keepalive:info(interval, Keepalive)),
+    ?assertEqual(0, emqx_keepalive:info(statval, Keepalive)),
+    ?assertEqual(0, emqx_keepalive:info(repeat, Keepalive)),
+    Info = emqx_keepalive:info(Keepalive),
+    ?assertEqual(#{interval => 60,
+                   statval  => 0,
+                   repeat   => 0}, Info),
+    {ok, Keepalive1} = emqx_keepalive:check(1, Keepalive),
+    ?assertEqual(1, emqx_keepalive:info(statval, Keepalive1)),
+    ?assertEqual(0, emqx_keepalive:info(repeat, Keepalive1)),
+    {ok, Keepalive2} = emqx_keepalive:check(1, Keepalive1),
+    ?assertEqual(1, emqx_keepalive:info(statval, Keepalive2)),
+    ?assertEqual(1, emqx_keepalive:info(repeat, Keepalive2)),
+    ?assertEqual({error, timeout}, emqx_keepalive:check(1, Keepalive2)).
 

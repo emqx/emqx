@@ -35,7 +35,7 @@
         ]).
 
 %% For Debug
--export([state/1]).
+-export([get_state/1]).
 
 -export([ kick/1
         , discard/1
@@ -68,15 +68,14 @@
           limit_timer :: maybe(reference()),
           parse_state :: emqx_frame:parse_state(),
           serialize   :: fun((emqx_types:packet()) -> iodata()),
-          chan_state  :: emqx_channel:channel(),
-          keepalive   :: maybe(emqx_keepalive:keepalive())
+          chan_state  :: emqx_channel:channel()
         }).
 
 -type(state() :: #state{}).
 
 -define(ACTIVE_N, 100).
 -define(HANDLE(T, C, D), handle((T), (C), (D))).
--define(CHAN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
+-define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
 -spec(start_link(esockd:transport(), esockd:socket(), proplists:proplist())
@@ -92,61 +91,63 @@ start_link(Transport, Socket, Options) ->
 -spec(info(pid() | state()) -> emqx_types:infos()).
 info(CPid) when is_pid(CPid) ->
     call(CPid, info);
-info(#state{transport = Transport,
-            socket = Socket,
-            peername = Peername,
-            sockname = Sockname,
+info(#state{transport  = Transport,
+            socket     = Socket,
+            peername   = Peername,
+            sockname   = Sockname,
             conn_state = ConnState,
-            active_n = ActiveN,
+            active_n   = ActiveN,
             rate_limit = RateLimit,
-            pub_limit = PubLimit,
+            pub_limit  = PubLimit,
             chan_state = ChanState}) ->
-    ConnInfo = #{socktype => Transport:type(Socket),
-                 peername => Peername,
-                 sockname => Sockname,
+    ConnInfo = #{socktype   => Transport:type(Socket),
+                 peername   => Peername,
+                 sockname   => Sockname,
                  conn_state => ConnState,
-                 active_n => ActiveN,
+                 active_n   => ActiveN,
                  rate_limit => limit_info(RateLimit),
-                 pub_limit => limit_info(PubLimit)
+                 pub_limit  => limit_info(PubLimit)
                 },
-    maps:merge(ConnInfo, emqx_channel:info(ChanState)).
+    ChanInfo = emqx_channel:info(ChanState),
+    maps:merge(ConnInfo, ChanInfo).
 
-limit_info(undefined) ->
-    undefined;
 limit_info(Limit) ->
-    esockd_rate_limit:info(Limit).
+    emqx_misc:maybe_apply(fun esockd_rate_limit:info/1, Limit).
 
 %% @doc Get attrs of the channel.
 -spec(attrs(pid() | state()) -> emqx_types:attrs()).
 attrs(CPid) when is_pid(CPid) ->
     call(CPid, attrs);
-attrs(#state{transport = Transport,
-             socket = Socket,
-             peername = Peername,
-             sockname = Sockname,
+attrs(#state{transport  = Transport,
+             socket     = Socket,
+             peername   = Peername,
+             sockname   = Sockname,
              chan_state = ChanState}) ->
     ConnAttrs = #{socktype => Transport:type(Socket),
                   peername => Peername,
                   sockname => Sockname
                  },
-    maps:merge(ConnAttrs, emqx_channel:attrs(ChanState)).
+    ChanAttrs = emqx_channel:attrs(ChanState),
+    maps:merge(ConnAttrs, ChanAttrs).
 
 %% @doc Get stats of the channel.
 -spec(stats(pid() | state()) -> emqx_types:stats()).
 stats(CPid) when is_pid(CPid) ->
     call(CPid, stats);
-stats(#state{transport = Transport,
-             socket = Socket,
+stats(#state{transport  = Transport,
+             socket     = Socket,
              chan_state = ChanState}) ->
+    ProcStats = emqx_misc:proc_stats(),
     SockStats = case Transport:getstat(Socket, ?SOCK_STATS) of
                     {ok, Ss}   -> Ss;
                     {error, _} -> []
                 end,
-    ChanStats = [{Name, emqx_pd:get_counter(Name)} || Name <- ?CHAN_STATS],
-    SessStats = emqx_session:stats(emqx_channel:info(session, ChanState)),
-    lists:append([SockStats, ChanStats, SessStats, emqx_misc:proc_stats()]).
+    ConnStats = [{Name, emqx_pd:get_counter(Name)} || Name <- ?CONN_STATS],
+    ChanStats = emqx_channel:stats(ChanState),
+    lists:append([ProcStats, SockStats, ConnStats, ChanStats]).
 
-state(CPid) ->
+-spec(get_state(pid()) -> state()).
+get_state(CPid) ->
     call(CPid, get_state).
 
 -spec(kick(pid()) -> ok).
@@ -157,8 +158,7 @@ kick(CPid) ->
 discard(CPid) ->
     gen_statem:cast(CPid, discard).
 
-%% TODO:
--spec(takeover(pid(), 'begin'|'end') -> {ok, Result :: term()}).
+-spec(takeover(pid(), 'begin'|'end') -> Result :: term()).
 takeover(CPid, Phase) ->
     gen_statem:call(CPid, {takeover, Phase}).
 
@@ -187,16 +187,16 @@ init({Transport, RawSocket, Options}) ->
                                     peercert => Peercert,
                                     conn_mod => ?MODULE}, Options),
     IdleTimout = emqx_zone:get_env(Zone, idle_timeout, 30000),
-    State = #state{transport    = Transport,
-                   socket       = Socket,
-                   peername     = Peername,
-                   sockname     = Sockname,
-                   conn_state   = running,
-                   active_n     = ActiveN,
-                   rate_limit   = RateLimit,
-                   pub_limit    = PubLimit,
-                   parse_state  = ParseState,
-                   chan_state   = ChanState
+    State = #state{transport   = Transport,
+                   socket      = Socket,
+                   peername    = Peername,
+                   sockname    = Sockname,
+                   conn_state  = running,
+                   active_n    = ActiveN,
+                   rate_limit  = RateLimit,
+                   pub_limit   = PubLimit,
+                   parse_state = ParseState,
+                   chan_state  = ChanState
                   },
     gen_statem:enter_loop(?MODULE, [{hibernate_after, 2 * IdleTimout}],
                           idle, State, self(), [IdleTimout]).
@@ -242,18 +242,10 @@ idle(EventType, Content, State) ->
 %% Connected State
 
 connected(enter, _PrevSt, State = #state{chan_state = ChanState}) ->
-    ClientId = emqx_channel:info(client_id, ChanState),
+    #{client_id := ClientId} = emqx_channel:info(client, ChanState),
     ok = emqx_cm:register_channel(ClientId),
-    ok = emqx_cm:set_chan_attrs(ClientId, info(State)),
-    %% Ensure keepalive after connected successfully.
-    Interval = emqx_channel:info(keepalive, ChanState),
-    case ensure_keepalive(Interval, State) of
-        ignore -> keep_state(State);
-        {ok, KeepAlive} ->
-            keep_state(State#state{keepalive = KeepAlive});
-        {error, Reason} ->
-            shutdown(Reason, State)
-    end;
+    ok = emqx_cm:set_chan_attrs(ClientId, attrs(State)),
+    keep_state_and_data;
 
 connected(cast, {incoming, Packet = ?PACKET(?CONNECT)}, State) ->
     ?LOG(warning, "Unexpected connect: ~p", [Packet]),
@@ -264,7 +256,8 @@ connected(cast, {incoming, Packet}, State) when is_record(Packet, mqtt_packet) -
 
 connected(info, Deliver = {deliver, _Topic, _Msg},
           State = #state{chan_state = ChanState}) ->
-    case emqx_channel:handle_out(Deliver, ChanState) of
+    Delivers = emqx_misc:drain_deliver([Deliver]),
+    case emqx_channel:handle_out({deliver, Delivers}, ChanState) of
         {ok, NChanState} ->
             keep_state(State#state{chan_state = NChanState});
         {ok, Packets, NChanState} ->
@@ -272,17 +265,6 @@ connected(info, Deliver = {deliver, _Topic, _Msg},
             handle_outgoing(Packets, fun keep_state/1, NState);
         {stop, Reason, NChanState} ->
             stop(Reason, State#state{chan_state = NChanState})
-    end;
-
-%% Keepalive timer
-connected(info, {keepalive, check}, State = #state{keepalive = KeepAlive}) ->
-    case emqx_keepalive:check(KeepAlive) of
-        {ok, KeepAlive1} ->
-            keep_state(State#state{keepalive = KeepAlive1});
-        {error, timeout} ->
-            shutdown(keepalive_timeout, State);
-        {error, Reason} ->
-            shutdown(Reason, State)
     end;
 
 connected(EventType, Content, State) ->
@@ -325,16 +307,6 @@ handle({call, From}, kick, State) ->
     ok = gen_statem:reply(From, ok),
     shutdown(kicked, State);
 
-handle({call, From}, {takeover, 'begin'}, State = #state{chan_state = ChanState}) ->
-    {ok, Session, NChanState} = emqx_channel:takeover('begin', ChanState),
-    ok = gen_statem:reply(From, {ok, Session}),
-    {next_state, takeovering, State#state{chan_state = NChanState}};
-
-handle({call, From}, {takeover, 'end'}, State = #state{chan_state = ChanState}) ->
-    {ok, Delivers, NChanState} = emqx_channel:takeover('end', ChanState),
-    ok = gen_statem:reply(From, {ok, Delivers}),
-    shutdown(takeovered, State#state{chan_state = NChanState});
-
 handle({call, From}, Req, State = #state{chan_state = ChanState}) ->
     case emqx_channel:handle_call(Req, ChanState) of
         {ok, Reply, NChanState} ->
@@ -361,22 +333,22 @@ handle(info, {Inet, _Sock, Data}, State = #state{chan_state = ChanState})
     emqx_pd:update_counter(incoming_bytes, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
     NChanState = emqx_channel:ensure_timer(
-                   emit_stats, emqx_channel:gc(1, Oct, ChanState)),
+                   stats_timer, emqx_channel:gc(1, Oct, ChanState)),
     process_incoming(Data, State#state{chan_state = NChanState});
 
 handle(info, {Error, _Sock, Reason}, State)
   when Error == tcp_error; Error == ssl_error ->
     shutdown(Reason, State);
 
+%%TODO: fixme later.
 handle(info, {Closed, _Sock}, State = #state{chan_state = ChanState})
   when Closed == tcp_closed; Closed == ssl_closed ->
-    case emqx_channel:info(session, ChanState) of
+    case emqx_channel:info(protocol, ChanState) of
         undefined -> shutdown(closed, State);
-        Session ->
-            case emqx_session:info(clean_start, Session) of
-                true -> shutdown(closed, State);
-                false -> {next_state, disconnected, State}
-            end
+        #{clean_start := true} ->
+            shutdown(closed, State);
+        #{clean_start := false} ->
+            {next_state, disconnected, State}
     end;
 
 handle(info, {Passive, _Sock}, State) when Passive == tcp_passive;
@@ -401,11 +373,21 @@ handle(info, activate_socket, State) ->
 
 handle(info, {inet_reply, _Sock, ok}, State = #state{chan_state = ChanState}) ->
     %% something sent
-    NChanState = emqx_channel:ensure_timer(emit_stats, ChanState),
+    NChanState = emqx_channel:ensure_timer(stats_timer, ChanState),
     keep_state(State#state{chan_state = NChanState});
 
 handle(info, {inet_reply, _Sock, {error, Reason}}, State) ->
     shutdown(Reason, State);
+
+handle(info, {timeout, TRef, keepalive},
+       State = #state{transport = Transport, socket = Socket})
+  when is_reference(TRef) ->
+    case Transport:getstat(Socket, [recv_oct]) of
+        {ok, [{recv_oct, RecvOct}]} ->
+            handle_timeout(TRef, {keepalive, RecvOct}, State);
+        {error, Reason} ->
+            shutdown(Reason, State)
+    end;
 
 handle(info, {timeout, TRef, emit_stats}, State) when is_reference(TRef) ->
     handle_timeout(TRef, {emit_stats, stats(State)}, State);
@@ -433,12 +415,9 @@ code_change(_Vsn, State, Data, _Extra) ->
 
 terminate(Reason, _StateName, #state{transport  = Transport,
                                      socket     = Socket,
-                                     keepalive  = KeepAlive,
                                      chan_state = ChanState}) ->
     ?LOG(debug, "Terminated for ~p", [Reason]),
     ok = Transport:fast_close(Socket),
-    KeepAlive =/= undefined
-        andalso emqx_keepalive:cancel(KeepAlive),
     emqx_channel:terminate(Reason, ChanState).
 
 %%--------------------------------------------------------------------
@@ -538,24 +517,6 @@ handle_timeout(TRef, Msg, State = #state{chan_state = ChanState}) ->
             stop(Reason, State#state{chan_state = NChanState})
     end.
 
-%%--------------------------------------------------------------------
-%% Ensure keepalive
-
-ensure_keepalive(0, _State) ->
-    ignore;
-ensure_keepalive(Interval, #state{transport  = Transport,
-                                  socket     = Socket,
-                                  chan_state = ChanState}) ->
-    StatFun = fun() ->
-                  case Transport:getstat(Socket, [recv_oct]) of
-                      {ok, [{recv_oct, RecvOct}]} ->
-                          {ok, RecvOct};
-                      Error -> Error
-                  end
-              end,
-    Backoff = emqx_zone:get_env(emqx_channel:info(zone, ChanState),
-                                keepalive_backoff, 0.75),
-    emqx_keepalive:start(StatFun, round(Interval * Backoff), {keepalive, check}).
 
 %%--------------------------------------------------------------------
 %% Ensure rate limit
