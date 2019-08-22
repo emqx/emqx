@@ -358,10 +358,10 @@ process_connect(ConnPkt, Channel) ->
 
 %% Process Publish
 process_publish(Packet = ?PUBLISH_PACKET(_QoS, _Topic, PacketId),
-                Channel = #channel{client = Client, proto_ver = ProtoVer}) ->
+                Channel = #channel{client = Client, protocol = Protocol}) ->
     Msg = emqx_packet:to_message(Client, Packet),
     %%TODO: Improve later.
-    Msg1 = emqx_message:set_flag(dup, false, emqx_message:set_header(proto_ver, ProtoVer, Msg)),
+    Msg1 = emqx_message:set_flag(dup, false, emqx_message:set_header(proto_ver, emqx_protocol:info(proto_ver, Protocol), Msg)),
     process_publish(PacketId, mount(Client, Msg1), Channel).
 
 process_publish(_PacketId, Msg = #message{qos = ?QOS_0}, Channel) ->
