@@ -189,7 +189,7 @@ takeover_session(ClientId) ->
             takeover_session(ClientId, ChanPid);
         ChanPids ->
             [ChanPid|StalePids] = lists:reverse(ChanPids),
-            ?LOG(error, "[SM] More than one channel found: ~p", [ChanPids]),
+            ?LOG(error, "More than one channel found: ~p", [ChanPids]),
             lists:foreach(fun(StalePid) ->
                                   catch discard_session(ClientId, StalePid)
                           end, StalePids),
@@ -220,7 +220,7 @@ discard_session(ClientId) when is_binary(ClientId) ->
                           discard_session(ClientId, ChanPid)
                       catch
                           _:Error:_Stk ->
-                              ?LOG(error, "[SM] Failed to discard ~p: ~p", [ChanPid, Error])
+                              ?LOG(error, "Failed to discard ~p: ~p", [ChanPid, Error])
                       end
               end, ChanPids)
     end.

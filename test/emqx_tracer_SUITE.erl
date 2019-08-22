@@ -33,11 +33,11 @@ end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
 t_start_traces(_Config) ->
-    {ok, T} = emqx_client:start_link([{host, "localhost"},
+    {ok, T} = emqtt:start_link([{host, "localhost"},
                                       {client_id, <<"client">>},
                                       {username, <<"testuser">>},
                                       {password, <<"pass">>}]),
-    emqx_client:connect(T),
+    emqtt:connect(T),
 
     %% Start tracing
     emqx_logger:set_log_level(error),
@@ -63,7 +63,7 @@ t_start_traces(_Config) ->
     emqx_logger:set_log_level(debug),
 
     %% Client with clientid = "client" publishes a "hi" message to "a/b/c".
-    emqx_client:publish(T, <<"a/b/c">>, <<"hi">>),
+    emqtt:publish(T, <<"a/b/c">>, <<"hi">>),
     ct:sleep(200),
 
     %% Verify messages are logged to "tmp/client.log" and "tmp/topic_trace.log", but not "tmp/client2.log".
@@ -75,6 +75,6 @@ t_start_traces(_Config) ->
     ok = emqx_tracer:stop_trace({client_id, <<"client">>}),
     ok = emqx_tracer:stop_trace({client_id, <<"client2">>}),
     ok = emqx_tracer:stop_trace({topic, <<"a/#">>}),
-    emqx_client:disconnect(T),
+    emqtt:disconnect(T),
 
     emqx_logger:set_log_level(warning).

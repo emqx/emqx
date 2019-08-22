@@ -40,7 +40,7 @@ t_basic(_) ->
     {ok, _} = emqtt:publish(C, Topic, <<"qos 2">>, 2),
     {ok, _} = emqtt:publish(C, Topic, <<"qos 2">>, 2),
     ?assertEqual(3, length(recv_msgs(3))),
-    ok = emqx_client:disconnect(C).
+    ok = emqtt:disconnect(C).
 
 recv_msgs(Count) ->
     recv_msgs(Count, []).

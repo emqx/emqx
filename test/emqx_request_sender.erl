@@ -24,15 +24,15 @@ start_link(ResponseTopic, QoS, Options0) ->
     Parent = self(),
     MsgHandler = make_msg_handler(Parent),
     Options = [{msg_handler, MsgHandler} | Options0],
-    case emqx_client:start_link(Options) of
+    case emqtt:start_link(Options) of
         {ok, Pid} ->
-            {ok, _} = emqx_client:connect(Pid),
+            {ok, _} = emqtt:connect(Pid),
             try subscribe(Pid, ResponseTopic, QoS) of
                 ok -> {ok, Pid};
                 {error, _} = Error -> Error
             catch
                 C : E : S ->
-                    emqx_client:stop(Pid),
+                    emqtt:stop(Pid),
                     {error, {C, E, S}}
             end;
         {error, _} = Error -> Error
@@ -49,17 +49,17 @@ send(Client, ReqTopic, RspTopic, CorrData, Payload, QoS) ->
                     props = Props,
                     payload = Payload
                    },
-    case emqx_client:publish(Client, Msg) of
+    case emqtt:publish(Client, Msg) of
         ok -> ok; %% QoS = 0
         {ok, _} -> ok;
         {error, _} = E -> E
     end.
 
 stop(Pid) ->
-    emqx_client:disconnect(Pid).
+    emqtt:disconnect(Pid).
 
 subscribe(Client, Topic, QoS) ->
-    case emqx_client:subscribe(Client, Topic, QoS) of
+    case emqtt:subscribe(Client, Topic, QoS) of
         {ok, _, _} -> ok;
         {error, _} = Error -> Error
     end.

@@ -230,8 +230,7 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
             handle_out({connack, ReasonCode}, NChannel)
     end;
 
-handle_in(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId),
-          Channel = #channel{protocol = Protocol}) ->
+handle_in(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel = #channel{protocol = Protocol}) ->
     case pipeline([fun validate_packet/2,
                    fun process_alias/2,
                    fun check_publish/2], Packet, Channel) of
@@ -824,13 +823,10 @@ init_protocol(ConnPkt, Channel) ->
 %%--------------------------------------------------------------------
 
 enrich_client(ConnPkt, Channel) ->
-    case pipeline([fun set_username/2,
-                   fun maybe_use_username_as_clientid/2,
-                   fun maybe_assign_clientid/2,
-                   fun set_rest_client_fields/2], ConnPkt, Channel) of
-        {ok, NConnPkt, NChannel} -> {ok, NConnPkt, NChannel};
-        Error -> Error
-    end.
+    pipeline([fun set_username/2,
+              fun maybe_use_username_as_clientid/2,
+              fun maybe_assign_clientid/2,
+              fun set_rest_client_fields/2], ConnPkt, Channel).
 
 maybe_use_username_as_clientid(_ConnPkt, Channel = #channel{client = #{username := undefined}}) ->
     {ok, Channel};
