@@ -74,6 +74,7 @@
           %% Connected
           connected :: boolean(),
           connected_at :: erlang:timestamp(),
+          disconnected_at :: erlang:timestamp(),
           %% Takeover/Resume
           resuming :: boolean(),
           pendings :: list()
@@ -169,7 +170,9 @@ info(oom_policy, #channel{oom_policy = Policy}) ->
 info(connected, #channel{connected = Connected}) ->
     Connected;
 info(connected_at, #channel{connected_at = ConnectedAt}) ->
-    ConnectedAt.
+    ConnectedAt;
+info(disconnected_at, #channel{disconnected_at = DisconnectedAt}) ->
+    DisconnectedAt.
 
 -spec(attrs(channel()) -> emqx_types:attrs()).
 attrs(#channel{client       = Client,
@@ -597,9 +600,9 @@ handle_info(sock_closed, Channel = #channel{protocol = Protocol,
     Interval = emqx_session:info(expiry_interval, Session),
     case {CleanStart, Interval} of
         {false, ?UINT_MAX} ->
-            {ok, Channel};
+            {ok, ensure_disconnected(Channel)};
         {false, Int} when Int > 0 ->
-            {ok, ensure_timer(expire_timer, Channel)};
+            {ok, ensure_timer(expire_timer, ensure_disconnected(Channel))};
         _Other -> shutdown(closed, Channel)
     end;
 
@@ -1047,6 +1050,9 @@ enrich_assigned_clientid(AckProps, #channel{client = #{client_id := ClientId},
 
 ensure_connected(Channel) ->
     Channel#channel{connected = true, connected_at = os:timestamp()}.
+
+ensure_disconnected(Channel) ->
+    Channel#channel{connected = false, disconnected_at = os:timestamp()}.
 
 ensure_keepalive(#{'Server-Keep-Alive' := Interval}, Channel) ->
     ensure_keepalive_timer(Interval, Channel);
