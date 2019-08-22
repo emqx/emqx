@@ -589,6 +589,20 @@ handle_info({unsubscribe, TopicFilters}, Channel = #channel{client = Client}) ->
     {_ReasonCodes, NChannel} = process_unsubscribe(TopicFilters1, Channel),
     {ok, NChannel};
 
+handle_info(sock_closed, Channel = #channel{connected = false}) ->
+    shutdown(closed, Channel);
+handle_info(sock_closed, Channel = #channel{protocol = Protocol,
+                                            session  = Session}) ->
+    CleanStart = emqx_protocol:info(clean_start, Protocol),
+    Interval = emqx_session:info(expiry_interval, Session),
+    case {CleanStart, Interval} of
+        {false, ?UINT_MAX} ->
+            {ok, Channel};
+        {false, Int} when Int > 0 ->
+            {ok, ensure_timer(expire_timer, Channel)};
+        _Other -> shutdown(closed, Channel)
+    end;
+
 handle_info(Info, Channel) ->
     ?LOG(error, "Unexpected info: ~p~n", [Info]),
     {ok, Channel}.
@@ -643,7 +657,7 @@ timeout(TRef, expire_awaiting_rel, Channel = #channel{session = Session,
     end;
 
 timeout(_TRef, expire_session, Channel) ->
-    {ok, Channel};
+    shutdown(expired, Channel);
 
 timeout(_TRef, Msg, Channel) ->
     ?LOG(error, "Unexpected timeout: ~p~n", [Msg]),
@@ -685,7 +699,7 @@ interval(retry_timer, #channel{session = Session}) ->
 interval(await_timer, #channel{session = Session}) ->
     emqx_session:info(await_rel_timeout, Session);
 interval(expire_timer, #channel{session = Session}) ->
-    emqx_session:info(expiry_interval, Session).
+    timer:seconds(emqx_session:info(expiry_interval, Session)).
 
 %%--------------------------------------------------------------------
 %% Terminate
@@ -1110,4 +1124,7 @@ sp(false) -> 0.
 
 flag(true)  -> 1;
 flag(false) -> 0.
+
+shutdown(Reason, Channel) ->
+    {stop, {shutdown, Reason}, Channel}.
 

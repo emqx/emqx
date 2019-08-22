@@ -341,15 +341,13 @@ handle(info, {Error, _Sock, Reason}, State)
   when Error == tcp_error; Error == ssl_error ->
     shutdown(Reason, State);
 
-%%TODO: fixme later.
 handle(info, {Closed, _Sock}, State = #state{chan_state = ChanState})
   when Closed == tcp_closed; Closed == ssl_closed ->
-    case emqx_channel:info(protocol, ChanState) of
-        undefined -> shutdown(closed, State);
-        #{clean_start := true} ->
-            shutdown(closed, State);
-        #{clean_start := false} ->
-            {next_state, disconnected, State}
+    case emqx_channel:handle_info(sock_closed, ChanState) of
+        {ok, NChanState} ->
+            {next_state, disconnected, State#state{chan_state = NChanState}};
+        {stop, Reason, NChanState} ->
+            stop(Reason, State#state{chan_state = NChanState})
     end;
 
 handle(info, {Passive, _Sock}, State) when Passive == tcp_passive;

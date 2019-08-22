@@ -214,7 +214,7 @@ info(max_awaiting_rel, #session{max_awaiting_rel = MaxAwaitingRel}) ->
 info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
     Timeout;
 info(expiry_interval, #session{expiry_interval = Interval}) ->
-    Interval div 1000;
+    Interval;
 info(created_at, #session{created_at = CreatedAt}) ->
     CreatedAt.
 
