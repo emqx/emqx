@@ -19,7 +19,7 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
--export([ protocol_name/1
+-export([ proto_name/1
         , type_name/1
         , validate/1
         , format/1
@@ -28,18 +28,20 @@
         , will_msg/1
         ]).
 
-%% @doc Protocol name of version
--spec(protocol_name(emqx_types:version()) -> binary()).
-protocol_name(?MQTT_PROTO_V3) ->
+-compile(inline).
+
+%% @doc Protocol name of the version.
+-spec(proto_name(emqx_types:version()) -> binary()).
+proto_name(?MQTT_PROTO_V3) ->
     <<"MQIsdp">>;
-protocol_name(?MQTT_PROTO_V4) ->
+proto_name(?MQTT_PROTO_V4) ->
     <<"MQTT">>;
-protocol_name(?MQTT_PROTO_V5) ->
+proto_name(?MQTT_PROTO_V5) ->
     <<"MQTT">>.
 
-%% @doc Name of MQTT packet type
+%% @doc Name of MQTT packet type.
 -spec(type_name(emqx_types:packet_type()) -> atom()).
-type_name(Type) when Type > ?RESERVED andalso Type =< ?AUTH ->
+type_name(Type) when ?RESERVED < Type, Type =< ?AUTH ->
     lists:nth(Type, ?TYPE_NAMES).
 
 %%--------------------------------------------------------------------

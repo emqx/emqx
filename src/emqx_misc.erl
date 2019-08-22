@@ -16,7 +16,11 @@
 
 -module(emqx_misc).
 
+-include("types.hrl").
+
 -export([ merge_opts/2
+        , maybe_apply/2
+        , run_fold/3
         , start_timer/2
         , start_timer/3
         , cancel_timer/1
@@ -44,6 +48,19 @@ merge_opts(Defaults, Options) ->
           lists:usort([Opt | Acc])
       end, Defaults, Options).
 
+%% @doc Apply a function to a maybe argument.
+-spec(maybe_apply(fun((maybe(A)) -> maybe(A)), maybe(A))
+      -> maybe(A) when A :: any()).
+maybe_apply(_Fun, undefined) ->
+    undefined;
+maybe_apply(Fun, Arg) when is_function(Fun) ->
+    erlang:apply(Fun, [Arg]).
+
+run_fold([], Acc, _State) ->
+    Acc;
+run_fold([Fun|More], Acc, State) ->
+    run_fold(More, Fun(Acc, State), State).
+
 -spec(start_timer(integer(), term()) -> reference()).
 start_timer(Interval, Msg) ->
     start_timer(Interval, self(), Msg).
@@ -52,7 +69,7 @@ start_timer(Interval, Msg) ->
 start_timer(Interval, Dest, Msg) ->
     erlang:start_timer(Interval, Dest, Msg).
 
--spec(cancel_timer(undefined | reference()) -> ok).
+-spec(cancel_timer(maybe(reference())) -> ok).
 cancel_timer(Timer) when is_reference(Timer) ->
     case erlang:cancel_timer(Timer) of
         false ->

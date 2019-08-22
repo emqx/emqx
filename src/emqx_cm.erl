@@ -161,7 +161,7 @@ set_chan_stats(ClientId, ChanPid, Stats) ->
 open_session(true, Client = #{client_id := ClientId}, Options) ->
     CleanStart = fun(_) ->
                      ok = discard_session(ClientId),
-                     {ok, emqx_session:init(true, Client, Options), false}
+                     {ok, emqx_session:init(Client, Options), false}
                  end,
     emqx_cm_locker:trans(ClientId, CleanStart);
 
@@ -169,12 +169,12 @@ open_session(false, Client = #{client_id := ClientId}, Options) ->
     ResumeStart = fun(_) ->
                       case takeover_session(ClientId) of
                           {ok, ConnMod, ChanPid, Session} ->
-                              {ok, NSession} = emqx_session:resume(ClientId, Session),
-                              {ok, Pendings} = ConnMod:takeover(ChanPid, 'end'),
+                              NSession = emqx_session:resume(ClientId, Session),
+                              Pendings = ConnMod:takeover(ChanPid, 'end'),
                               io:format("Pending Delivers: ~p~n", [Pendings]),
                               {ok, NSession, true};
                           {error, not_found} ->
-                              {ok, emqx_session:init(false, Client, Options), false}
+                              {ok, emqx_session:init(Client, Options), false}
                       end
                   end,
     emqx_cm_locker:trans(ClientId, ResumeStart).
@@ -199,7 +199,7 @@ takeover_session(ClientId) ->
 takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chan_attrs(ClientId, ChanPid) of
         #{client := #{conn_mod := ConnMod}} ->
-            {ok, Session} = ConnMod:takeover(ChanPid, 'begin'),
+            Session = ConnMod:takeover(ChanPid, 'begin'),
             {ok, ConnMod, ChanPid, Session};
         undefined ->
             {error, not_found}

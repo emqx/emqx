@@ -22,7 +22,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 
--logger_header("[WsConn]").
+-logger_header("[WsConnection]").
 
 -export([ info/1
         , attrs/1
@@ -49,7 +49,6 @@
           serialize   :: fun((emqx_types:packet()) -> iodata()),
           parse_state :: emqx_frame:parse_state(),
           chan_state  :: emqx_channel:channel(),
-          keepalive   :: maybe(emqx_keepalive:keepalive()),
           pendings    :: list(),
           reason      :: term()
         }).
@@ -57,7 +56,7 @@
 -type(state() :: #state{}).
 
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
--define(CHAN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
+-define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 
 %%--------------------------------------------------------------------
 %% API
@@ -66,36 +65,37 @@
 -spec(info(pid() | state()) -> emqx_types:infos()).
 info(WSPid) when is_pid(WSPid) ->
     call(WSPid, info);
-info(#state{peername = Peername,
-            sockname = Sockname,
-            chan_state = ChanState
-           }) ->
-    ConnInfo = #{socktype => websocket,
-                 peername => Peername,
-                 sockname => Sockname,
+info(#state{peername   = Peername,
+            sockname   = Sockname,
+            chan_state = ChanState}) ->
+    ConnInfo = #{socktype   => websocket,
+                 peername   => Peername,
+                 sockname   => Sockname,
                  conn_state => running
                 },
-    maps:merge(ConnInfo, emqx_channel:info(ChanState)).
+    ChanInfo = emqx_channel:info(ChanState),
+    maps:merge(ConnInfo, ChanInfo).
 
 -spec(attrs(pid() | state()) -> emqx_types:attrs()).
 attrs(WSPid) when is_pid(WSPid) ->
     call(WSPid, attrs);
-attrs(#state{peername = Peername,
-             sockname = Sockname,
+attrs(#state{peername   = Peername,
+             sockname   = Sockname,
              chan_state = ChanState}) ->
     ConnAttrs = #{socktype => websocket,
                   peername => Peername,
                   sockname => Sockname
                  },
-    maps:merge(ConnAttrs, emqx_channel:attrs(ChanState)).
+    ChanAttrs = emqx_channel:attrs(ChanState),
+    maps:merge(ConnAttrs, ChanAttrs).
 
 -spec(stats(pid() | state()) -> emqx_types:stats()).
 stats(WSPid) when is_pid(WSPid) ->
     call(WSPid, stats);
 stats(#state{chan_state = ChanState}) ->
     ProcStats = emqx_misc:proc_stats(),
-    SessStats = emqx_session:stats(emqx_channel:info(session, ChanState)),
-    lists:append([ProcStats, SessStats, chan_stats(), wsock_stats()]).
+    ChanStats = emqx_channel:stats(ChanState),
+    lists:append([ProcStats, wsock_stats(), conn_stats(), ChanStats]).
 
 -spec(kick(pid()) -> ok).
 kick(CPid) ->
@@ -105,7 +105,7 @@ kick(CPid) ->
 discard(WSPid) ->
     WSPid ! {cast, discard}, ok.
 
--spec(takeover(pid(), 'begin'|'end') -> {ok, Result :: term()}).
+-spec(takeover(pid(), 'begin'|'end') -> Result :: term()).
 takeover(CPid, Phase) ->
     call(CPid, {takeover, Phase}).
 
@@ -177,16 +177,13 @@ websocket_init([Req, Opts]) ->
     MaxSize = emqx_zone:get_env(Zone, max_packet_size, ?MAX_PACKET_SIZE),
     ParseState = emqx_frame:initial_parse_state(#{max_size => MaxSize}),
     emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
-    {ok, #state{peername     = Peername,
-                sockname     = Sockname,
-                fsm_state    = idle,
-                parse_state  = ParseState,
-                chan_state   = ChanState,
-                pendings     = []
+    {ok, #state{peername    = Peername,
+                sockname    = Sockname,
+                fsm_state   = idle,
+                parse_state = ParseState,
+                chan_state  = ChanState,
+                pendings    = []
                }}.
-
-stat_fun() ->
-    fun() -> {ok, emqx_pd:get_counter(recv_oct)} end.
 
 websocket_handle({binary, Data}, State) when is_list(Data) ->
     websocket_handle({binary, iolist_to_binary(Data)}, State);
@@ -199,7 +196,7 @@ websocket_handle({binary, Data}, State = #state{chan_state = ChanState})
     emqx_pd:update_counter(recv_oct, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
     NChanState = emqx_channel:ensure_timer(
-                   emit_stats, emqx_channel:gc(1, Oct, ChanState)),
+                   stats_timer, emqx_channel:gc(1, Oct, ChanState)),
     process_incoming(Data, State#state{chan_state = NChanState});
 
 %% Pings should be replied with pongs, cowboy does it automatically
@@ -230,6 +227,16 @@ websocket_info({call, From, stats}, State) ->
 websocket_info({call, From, kick}, State) ->
     gen_server:reply(From, ok),
     stop(kicked, State);
+
+websocket_info({call, From, Req}, State = #state{chan_state = ChanState}) ->
+    case emqx_channel:handle_call(Req, ChanState) of
+        {ok, Reply, NChanState} ->
+            _ = gen_server:reply(From, Reply),
+            {ok, State#state{chan_state = NChanState}};
+        {stop, Reason, Reply, NChanState} ->
+            _ = gen_server:reply(From, Reply),
+            stop(Reason, State#state{chan_state = NChanState})
+    end;
 
 websocket_info({cast, Msg}, State = #state{chan_state = ChanState}) ->
     case emqx_channel:handle_cast(Msg, ChanState) of
@@ -262,7 +269,8 @@ websocket_info({incoming, Packet}, State = #state{fsm_state = connected})
 
 websocket_info(Deliver = {deliver, _Topic, _Msg},
                State = #state{chan_state = ChanState}) ->
-    case emqx_channel:handle_out(Deliver, ChanState) of
+    Delivers = emqx_misc:drain_deliver([Deliver]),
+    case emqx_channel:handle_out({deliver, Delivers}, ChanState) of
         {ok, NChanState} ->
             reply(State#state{chan_state = NChanState});
         {ok, Packets, NChanState} ->
@@ -271,16 +279,9 @@ websocket_info(Deliver = {deliver, _Topic, _Msg},
             stop(Reason, State#state{chan_state = NChanState})
     end;
 
-websocket_info({keepalive, check}, State = #state{keepalive = KeepAlive}) ->
-    case emqx_keepalive:check(KeepAlive) of
-        {ok, KeepAlive1} ->
-            {ok, State#state{keepalive = KeepAlive1}};
-        {error, timeout} ->
-            stop(keepalive_timeout, State);
-        {error, Error} ->
-            ?LOG(error, "Keepalive error: ~p", [Error]),
-            stop(keepalive_error, State)
-    end;
+websocket_info({timeout, TRef, keepalive}, State) when is_reference(TRef) ->
+    RecvOct = emqx_pd:get_counter(recv_oct),
+    handle_timeout(TRef, {keepalive, RecvOct}, State);
 
 websocket_info({timeout, TRef, emit_stats}, State) when is_reference(TRef) ->
     handle_timeout(TRef, {emit_stats, stats(State)}, State);
@@ -310,13 +311,10 @@ websocket_info(Info, State = #state{chan_state = ChanState}) ->
             stop(Reason, State#state{chan_state = NChanState})
     end.
 
-terminate(SockError, _Req, #state{keepalive  = KeepAlive,
-                                  chan_state = ChanState,
+terminate(SockError, _Req, #state{chan_state = ChanState,
                                   reason     = Reason}) ->
     ?LOG(debug, "Terminated for ~p, sockerror: ~p",
          [Reason, SockError]),
-    KeepAlive =/= undefined
-        andalso emqx_keepalive:cancel(KeepAlive),
     emqx_channel:terminate(Reason, ChanState).
 
 %%--------------------------------------------------------------------
@@ -324,18 +322,10 @@ terminate(SockError, _Req, #state{keepalive  = KeepAlive,
 
 connected(State = #state{chan_state = ChanState}) ->
     NState = State#state{fsm_state = connected},
-    ClientId = emqx_channel:info(client_id, ChanState),
+    #{client_id := ClientId} = emqx_channel:info(client, ChanState),
     ok = emqx_cm:register_channel(ClientId),
-    ok = emqx_cm:set_chan_attrs(ClientId, info(NState)),
-    %% Ensure keepalive after connected successfully.
-    Interval = emqx_channel:info(keepalive, ChanState),
-    case ensure_keepalive(Interval, NState) of
-        ignore -> reply(NState);
-        {ok, KeepAlive} ->
-            reply(NState#state{keepalive = KeepAlive});
-        {error, Reason} ->
-            stop(Reason, NState)
-    end.
+    ok = emqx_cm:set_chan_attrs(ClientId, attrs(NState)),
+    reply(NState).
 
 %%--------------------------------------------------------------------
 %% Handle timeout
@@ -349,16 +339,6 @@ handle_timeout(TRef, Msg, State = #state{chan_state = ChanState}) ->
         {stop, Reason, NChanState} ->
             stop(Reason, State#state{chan_state = NChanState})
     end.
-
-%%--------------------------------------------------------------------
-%% Ensure keepalive
-
-ensure_keepalive(0, _State) ->
-    ignore;
-ensure_keepalive(Interval, #state{chan_state = ChanState}) ->
-    Backoff = emqx_zone:get_env(emqx_channel:info(zone, ChanState),
-                                keepalive_backoff, 0.75),
-    emqx_keepalive:start(stat_fun(), round(Interval * Backoff), {keepalive, check}).
 
 %%--------------------------------------------------------------------
 %% Process incoming data
@@ -440,7 +420,7 @@ reply(State = #state{pendings = []}) ->
     {ok, State};
 reply(State = #state{chan_state = ChanState, pendings = Pendings}) ->
     Reply = handle_outgoing(Pendings, State),
-    NChanState = emqx_channel:ensure_timer(emit_stats, ChanState),
+    NChanState = emqx_channel:ensure_timer(stats_timer, ChanState),
     {reply, Reply, State#state{chan_state = NChanState, pendings = []}}.
 
 stop(Reason, State = #state{pendings = []}) ->
@@ -458,6 +438,6 @@ enqueue(Packets, State = #state{pendings = Pendings}) ->
 wsock_stats() ->
     [{Key, emqx_pd:get_counter(Key)} || Key <- ?SOCK_STATS].
 
-chan_stats() ->
-    [{Name, emqx_pd:get_counter(Name)} || Name <- ?CHAN_STATS].
+conn_stats() ->
+    [{Name, emqx_pd:get_counter(Name)} || Name <- ?CONN_STATS].
 

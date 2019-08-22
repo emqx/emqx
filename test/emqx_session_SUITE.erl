@@ -181,8 +181,7 @@ timeout_args() ->
     {tref(), timeout_msg()}.
 
 info_args() ->
-    oneof([clean_start,
-           subscriptions,
+    oneof([subscriptions,
            max_subscriptions,
            upgrade_qos,
            inflight,
@@ -292,16 +291,14 @@ expiry_interval() -> ?LET(EI, choose(1, 10), EI * 3600).
 
 option() ->
     ?LET(Option, [{max_inflight, max_inflight()},
-                  {expiry_interval, expiry_interval()}]
-        , maps:from_list(Option)).
-
-cleanstart() -> bool().
+                  {expiry_interval, expiry_interval()}],
+         maps:from_list(Option)).
 
 session() ->
-    ?LET({CleanStart, Zone, Options},
-         {cleanstart(), zone(), option()},
+    ?LET({Zone, Options},
+         {zone(), option()},
          begin
-             Session = emqx_session:init(CleanStart, #{zone => Zone}, Options),
+             Session = emqx_session:init(#{zone => Zone}, Options),
              emqx_session:set_pkt_id(Session, 16#ffff)
          end).
 
