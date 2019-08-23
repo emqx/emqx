@@ -335,25 +335,21 @@ handle_in(?PACKET(?PINGREQ), Channel) ->
 
 handle_in(?DISCONNECT_PACKET(RC, Properties), Channel = #channel{session = Session, protocol = Protocol}) ->
     OldInterval = emqx_session:info(expiry_interval, Session),
-    Interval = maps:get('Session-Expiry-Interval', case Properties of
-                                                       undefined -> #{};
-                                                       _ -> Properties
-                                                   end, OldInterval),
+    Interval = get_property('Session-Expiry-Interval', Properties, OldInterval),
     case OldInterval =:= 0 andalso Interval =/= OldInterval of
         true ->
             handle_out({disconnect, ?RC_PROTOCOL_ERROR}, Channel);
         false ->
-            NChannel = ensure_disconnected(case RC of
-                                               ?RC_SUCCESS -> 
-                                                   Channel#channel{protocol = emqx_protocol:clear_will_msg(Protocol),
-                                                                   session = emqx_session:update_expiry_interval(Interval, Session)};
-                                               _ -> Channel#channel{session = emqx_session:update_expiry_interval(Interval, Session)}
-                                           end),
+            Channel1 = case RC of
+                           ?RC_SUCCESS -> Channel#channel{protocol = emqx_protocol:clear_will_msg(Protocol)};
+                           _ -> Channel
+                       end,
+            Channel2 = ensure_disconnected(Channel1#channel{session = emqx_session:update_expiry_interval(Interval, Session)}),
             case Interval of
                 ?UINT_MAX ->
-                    {ok, ensure_timer(will_timer, NChannel)};
+                    {ok, ensure_timer(will_timer, Channel2)};
                 Int when Int > 0 ->
-                    {ok, ensure_timer([will_timer, expire_timer], NChannel)};
+                    {ok, ensure_timer([will_timer, expire_timer], Channel2)};
                 _Other ->
                     Reason = case RC of
                                  ?RC_SUCCESS -> normal;
@@ -361,7 +357,7 @@ handle_in(?DISCONNECT_PACKET(RC, Properties), Channel = #channel{session = Sessi
                                      Ver = emqx_protocol:info(proto_ver, Protocol),
                                      emqx_reason_codes:name(RC, Ver)
                              end,
-                    {stop, {shutdown, Reason}, NChannel}
+                    {stop, {shutdown, Reason}, Channel2}
             end
     end;
 
