@@ -610,9 +610,6 @@ handle_call(Req, Channel) ->
 %% Handle cast
 %%--------------------------------------------------------------------
 
-handle_cast(discard, Channel) ->
-    {stop, {shutdown, discarded}, Channel};
-
 handle_cast(Msg, Channel) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {ok, Channel}.
