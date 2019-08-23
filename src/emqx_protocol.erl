@@ -107,6 +107,8 @@ info(#protocol{proto_name  = ProtoName,
 
 info(proto_name, #protocol{proto_name = ProtoName}) ->
     ProtoName;
+info(proto_ver, undefined) ->
+    ?MQTT_PROTO_V4;
 info(proto_ver, #protocol{proto_ver = ProtoVer}) ->
     ProtoVer;
 info(clean_start, #protocol{clean_start = CleanStart}) ->
