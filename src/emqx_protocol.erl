@@ -119,6 +119,8 @@ info(username, #protocol{username = Username}) ->
     Username;
 info(will_msg, #protocol{will_msg = WillMsg}) ->
     WillMsg;
+info(will_delay_interval, #protocol{will_msg = undefined}) ->
+    0;
 info(will_delay_interval, #protocol{will_msg = WillMsg}) ->
     emqx_message:get_header('Will-Delay-Interval', WillMsg, 0);
 info(conn_props, #protocol{conn_props = ConnProps}) ->
