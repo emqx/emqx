@@ -87,7 +87,8 @@
           alive_timer  => keepalive,
           retry_timer  => retry_delivery,
           await_timer  => expire_awaiting_rel,
-          expire_timer => expire_session
+          expire_timer => expire_session,
+          will_timer   => will_message
          }).
 
 %%--------------------------------------------------------------------
@@ -342,16 +343,18 @@ handle_in(?DISCONNECT_PACKET(RC, Properties), Channel = #channel{session = Sessi
                                                _ -> Channel#channel{session = emqx_session:update_expiry_interval(Interval, Session)}
                                            end),
             case Interval of
-                ?UINT_MAX -> {ok, NChannel};
-                Int when Int > 0 -> {ok, ensure_timer(expire_timer, NChannel)};
+                ?UINT_MAX ->
+                    {ok, ensure_timer(will_timer, NChannel)};
+                Int when Int > 0 ->
+                    {ok, ensure_timer([will_timer, expire_timer], NChannel)};
                 _Other ->
                     Reason = case RC of
-                                 ?RC_SUCCESS -> closed;
+                                 ?RC_SUCCESS -> normal;
                                  _ ->
                                      Ver = emqx_protocol:info(proto_ver, Protocol),
                                      emqx_reason_codes:name(RC, Ver)
                              end,
-                    {stop, {shutdown, Reason}, Channel}
+                    {stop, {shutdown, Reason}, NChannel}
             end
     end;
 
@@ -680,8 +683,13 @@ timeout(TRef, expire_awaiting_rel, Channel = #channel{session = Session,
             {ok, reset_timer(await_timer, Timeout, Channel#channel{session = Session})}
     end;
 
-timeout(_TRef, expire_session, Channel) ->
+timeout(TRef, expire_session, Channel = #channel{timers = #{expire_timer := TRef}}) ->
     shutdown(expired, Channel);
+
+timeout(TRef, will_message, Channel = #channel{protocol = Protocol,
+                                               timers = #{will_timer := TRef}}) ->
+    publish_will_msg(emqx_protocol:info(will_msg, Protocol)),
+    {ok, clean_timer(will_timer, Channel#channel{protocol = emqx_protocol:clear_will_msg(Protocol)})};
 
 timeout(_TRef, Msg, Channel) ->
     ?LOG(error, "Unexpected timeout: ~p~n", [Msg]),
@@ -690,6 +698,11 @@ timeout(_TRef, Msg, Channel) ->
 %%--------------------------------------------------------------------
 %% Ensure timers
 %%--------------------------------------------------------------------
+
+ensure_timer([Name], Channel) ->
+    ensure_timer(Name, Channel);
+ensure_timer([Name | Rest], Channel) ->
+    ensure_timer(Rest, ensure_timer(Name, Channel));
 
 ensure_timer(Name, Channel = #channel{timers = Timers}) ->
     TRef = maps:get(Name, Timers, undefined),
@@ -723,7 +736,9 @@ interval(retry_timer, #channel{session = Session}) ->
 interval(await_timer, #channel{session = Session}) ->
     emqx_session:info(await_rel_timeout, Session);
 interval(expire_timer, #channel{session = Session}) ->
-    timer:seconds(emqx_session:info(expiry_interval, Session)).
+    timer:seconds(emqx_session:info(expiry_interval, Session));
+interval(will_timer, #channel{protocol = Protocol}) ->
+    timer:seconds(emqx_protocol:info(will_delay_interval, Protocol)).
 
 %%--------------------------------------------------------------------
 %% Terminate

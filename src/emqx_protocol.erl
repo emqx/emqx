@@ -59,13 +59,22 @@
 -spec(init(#mqtt_packet_connect{}) -> protocol()).
 init(#mqtt_packet_connect{proto_name  = ProtoName,
                           proto_ver   = ProtoVer,
+                          will_props  = WillProps,
                           clean_start = CleanStart,
                           keepalive   = Keepalive,
                           properties  = Properties,
                           client_id   = ClientId,
                           username    = Username
                          } = ConnPkt) ->
-    WillMsg = emqx_packet:will_msg(ConnPkt),
+    WillMsg = emqx_packet:will_msg(
+        case ProtoVer of
+            ?MQTT_PROTO_V5 ->
+                WillDelayInterval = get_property('Will-Delay-Interval', WillProps, 0),
+                ConnPkt#mqtt_packet_connect{
+                    will_props = set_property('Will-Delay-Interval', WillDelayInterval, WillProps)};
+            _ ->
+                ConnPkt
+        end),
     #protocol{proto_name  = ProtoName,
               proto_ver   = ProtoVer,
               clean_start = CleanStart,
@@ -110,6 +119,8 @@ info(username, #protocol{username = Username}) ->
     Username;
 info(will_msg, #protocol{will_msg = WillMsg}) ->
     WillMsg;
+info(will_delay_interval, #protocol{will_msg = WillMsg}) ->
+    emqx_message:get_header('Will-Delay-Interval', WillMsg, 0);
 info(conn_props, #protocol{conn_props = ConnProps}) ->
     ConnProps;
 info(topic_aliases, #protocol{topic_aliases = Aliases}) ->
@@ -137,3 +148,13 @@ save_alias(AliasId, Topic, Protocol = #protocol{topic_aliases = Aliases}) ->
 
 clear_will_msg(Protocol) ->
     Protocol#protocol{will_msg = undefined}.
+
+set_property(Name, Value, undefined) ->
+    #{Name => Value};
+set_property(Name, Value, Props) ->
+    Props#{Name => Value}.
+
+get_property(_Name, undefined, Default) ->
+    Default;
+get_property(Name, Props, Default) ->
+    maps:get(Name, Props, Default).
