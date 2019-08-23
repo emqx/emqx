@@ -1,10 +1,10 @@
 # EMQ X Broker
 
-[![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen)](https://github.com/emqx/emqx/releases) 
-[![Build Status](https://travis-ci.org/emqx/emqx.svg)](https://travis-ci.org/emqx/emqx) 
-[![Coverage Status](https://coveralls.io/repos/github/emqx/emqx/badge.svg)](https://coveralls.io/github/emqx/emqx) 
-[![Docker Pulls](https://img.shields.io/docker/pulls/emqx/emqx)](https://hub.docker.com/r/emqx/emqx) 
-[![Slack](https://img.shields.io/badge/Slack-EMQ%20X-brightgreen?logo=slack&style=flat&color=7E4798)](https://emqx.slack.com) 
+[![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen)](https://github.com/emqx/emqx/releases)
+[![Build Status](https://travis-ci.org/emqx/emqx.svg)](https://travis-ci.org/emqx/emqx)
+[![Coverage Status](https://coveralls.io/repos/github/emqx/emqx/badge.svg)](https://coveralls.io/github/emqx/emqx)
+[![Docker Pulls](https://img.shields.io/docker/pulls/emqx/emqx)](https://hub.docker.com/r/emqx/emqx)
+[![Slack Invite](<https://slack-invite.emqx.io/badge.svg>)](https://slack-invite.emqx.io)
 [![Twitter](https://img.shields.io/badge/Twiiter-EMQ%20X-1DA1F2?logo=twitter)](https://twitter.com/emqtt)
 
 English | [简体中文](./README-CN.md)
@@ -22,8 +22,8 @@ The *EMQ X* broker is cross-platform, which supports Linux, Unix, Mac OS and Win
 
 Download the binary package for your platform from [here](https://emqx.io/downloads).
 
-- [Single Node Install](https://developer.emqx.io/docs/emq/v3/en/install.html)
-- [Multi Node Install](https://developer.emqx.io/docs/emq/v3/en/cluster.html)
+- [Single Node Install](https://docs.emqx.io/broker/v3/en/install.html)
+- [Multi Node Install](https://docs.emqx.io/broker/v3/en/cluster.html)
 
 
 ## Build From Source
@@ -56,7 +56,7 @@ To view the dashboard after running, use your browser to open: http://localhost:
 
 ## FAQ
 
-Visiting [FAQ](https://developer.emqx.io/docs/tutorial/en/faq/faq.html) to get help of common problems.
+Visiting [FAQ](https://docs.emqx.io/tutorial/v3/en/faq/faq.html) to get help of common problems.
 
 ## Roadmap
 

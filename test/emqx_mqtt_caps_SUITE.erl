@@ -26,23 +26,17 @@ all() -> emqx_ct:all(?MODULE).
 
 t_check_pub(_) ->
     PubCaps = #{max_qos_allowed => ?QOS_1,
-                retain_available => false,
-                max_topic_alias => 4
+                retain_available => false
                },
     ok = emqx_zone:set_env(zone, '$mqtt_pub_caps', PubCaps),
     ok = emqx_mqtt_caps:check_pub(zone, #{qos => ?QOS_1,
-                                          retain => false,
-                                          topic_alias => 1
-                                         }),
+                                          retain => false}),
     PubFlags1 = #{qos => ?QOS_2, retain => false},
     ?assertEqual({error, ?RC_QOS_NOT_SUPPORTED},
                  emqx_mqtt_caps:check_pub(zone, PubFlags1)),
     PubFlags2 = #{qos => ?QOS_1, retain => true},
     ?assertEqual({error, ?RC_RETAIN_NOT_SUPPORTED},
                  emqx_mqtt_caps:check_pub(zone, PubFlags2)),
-    PubFlags3 = #{qos => ?QOS_1, retain => false, topic_alias => 5},
-    ?assertEqual({error, ?RC_TOPIC_ALIAS_INVALID},
-                 emqx_mqtt_caps:check_pub(zone, PubFlags3)),
     true = emqx_zone:unset_env(zone, '$mqtt_pub_caps').
 
 t_check_sub(_) ->

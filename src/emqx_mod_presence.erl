@@ -37,33 +37,30 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-load(Env) ->
-    emqx_hooks:add('client.connected',    {?MODULE, on_client_connected, [Env]}),
-    emqx_hooks:add('client.disconnected', {?MODULE, on_client_disconnected, [Env]}).
+load(_Env) ->
+    ok.
+    %% emqx_hooks:add('client.connected',    {?MODULE, on_client_connected, [Env]}),
+    %% emqx_hooks:add('client.disconnected', {?MODULE, on_client_disconnected, [Env]}).
 
 on_client_connected(#{client_id := ClientId,
                       username  := Username,
                       peername  := {IpAddr, _}
                      }, ConnAck,
-                    #{session    := #{clean_start     := CleanStart,
-                                      expiry_interval := Interval
-                                     },
+                    #{session    := Session,
                       proto_name := ProtoName,
                       proto_ver  := ProtoVer,
                       keepalive  := Keepalive
                      }, Env) ->
-
-    case emqx_json:safe_encode(#{clientid => ClientId,
-                                 username => Username,
-                                 ipaddress => iolist_to_binary(esockd_net:ntoa(IpAddr)),
-                                 proto_name => ProtoName,
-                                 proto_ver => ProtoVer,
-                                 keepalive => Keepalive,
-                                 clean_start => CleanStart,
-                                 expiry_interval => Interval,
-                                 connack => ConnAck,
-                                 ts => erlang:system_time(millisecond)
-                                }) of
+    
+    case emqx_json:safe_encode(maps:merge(#{clientid => ClientId,
+                               username => Username,
+                               ipaddress => iolist_to_binary(esockd_net:ntoa(IpAddr)),
+                               proto_name => ProtoName,
+                               proto_ver => ProtoVer,
+                               keepalive => Keepalive,
+                               connack => ConnAck,
+                               ts => erlang:system_time(millisecond)
+                               }, maps:with([clean_start, expiry_interval], Session))) of
         {ok, Payload} ->
             emqx:publish(message(qos(Env), topic(connected, ClientId), Payload));
         {error, Reason} ->

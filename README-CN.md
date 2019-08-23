@@ -1,10 +1,10 @@
 # EMQ X Broker
 
-[![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen)](https://github.com/emqx/emqx/releases) 
-[![Build Status](https://travis-ci.org/emqx/emqx.svg)](https://travis-ci.org/emqx/emqx) 
-[![Coverage Status](https://coveralls.io/repos/github/emqx/emqx/badge.svg)](https://coveralls.io/github/emqx/emqx) 
-[![Docker Pulls](https://img.shields.io/docker/pulls/emqx/emqx)](https://hub.docker.com/r/emqx/emqx) 
-[![Slack](https://img.shields.io/badge/Slack-EMQ%20X-brightgreen?logo=slack&style=flat&color=7E4798)](https://emqx.slack.com) 
+[![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen)](https://github.com/emqx/emqx/releases)
+[![Build Status](https://travis-ci.org/emqx/emqx.svg)](https://travis-ci.org/emqx/emqx)
+[![Coverage Status](https://coveralls.io/repos/github/emqx/emqx/badge.svg)](https://coveralls.io/github/emqx/emqx)
+[![Docker Pulls](https://img.shields.io/docker/pulls/emqx/emqx)](https://hub.docker.com/r/emqx/emqx)
+[![Slack Invite](<https://slack-invite.emqx.io/badge.svg>)](https://slack-invite.emqx.io)
 [![Twitter](https://img.shields.io/badge/Twiiter-EMQ%20X-1DA1F2?logo=twitter)](https://twitter.com/emqtt)
 
 [English](./README.md) | 简体中文
@@ -22,8 +22,8 @@
 
 获取适合你的二进制软件包，[点此下载](https://emqx.io/downloads)。
 
-- [单节点安装](https://developer.emqx.io/docs/emq/v3/en/install.html)
-- [集群安装](https://developer.emqx.io/docs/emq/v3/en/cluster.html)
+- [单节点安装](https://docs.emqx.io/broker/v3/cn/install.html)
+- [集群安装](https://docs.emqx.io/broker/v3/cn/cluster.html)
 
 ## 从源码构建
 
@@ -54,7 +54,7 @@ cd _rel/emqx && ./bin/emqx console
 
 ## FAQ
 
-访问 [FAQ](https://developer.emqx.io/docs/tutorial/zh/faq/faq.html) 以获取常见问题的帮助。
+访问 [FAQ](https://docs.emqx.io/tutorial/v3/cn/faq/faq.html) 以获取常见问题的帮助。
 
 ## 产品路线
 

@@ -50,13 +50,15 @@
 
 -logger_header("[Session]").
 
--export([init/3]).
+-export([init/2]).
 
 -export([ info/1
         , info/2
         , attrs/1
         , stats/1
         ]).
+
+-export([update_expiry_interval/2]).
 
 -export([ subscribe/4
         , unsubscribe/3
@@ -69,71 +71,53 @@
         , pubcomp/2
         ]).
 
--export([deliver/2]).
+-export([ deliver/2
+        , enqueue/2
+        , retry/1
+        ]).
 
--export([timeout/3]).
+-export([ takeover/1
+        , resume/2
+        , redeliver/1
+        ]).
+
+-export([expire/2]).
 
 -export_type([session/0]).
-
--import(emqx_zone,
-        [ get_env/2
-        , get_env/3
-        ]).
 
 %% For test case
 -export([set_pkt_id/2]).
 
--record(session, {
-          %% Clean Start Flag
-          clean_start :: boolean(),
+-import(emqx_zone, [get_env/3]).
 
+-record(session, {
           %% Client’s Subscriptions.
           subscriptions :: map(),
-
           %% Max subscriptions allowed
           max_subscriptions :: non_neg_integer(),
-
           %% Upgrade QoS?
           upgrade_qos :: boolean(),
-
           %% Client <- Broker:
           %% Inflight QoS1, QoS2 messages sent to the client but unacked.
           inflight :: emqx_inflight:inflight(),
-
           %% All QoS1, QoS2 messages published to when client is disconnected.
           %% QoS 1 and QoS 2 messages pending transmission to the Client.
           %%
           %% Optionally, QoS 0 messages pending transmission to the Client.
           mqueue :: emqx_mqueue:mqueue(),
-
           %% Next packet id of the session
           next_pkt_id = 1 :: emqx_types:packet_id(),
-
           %% Retry interval for redelivering QoS1/2 messages
           retry_interval :: timeout(),
-
-          %% Retry delivery timer
-          retry_timer :: maybe(reference()),
-
           %% Client -> Broker:
           %% Inflight QoS2 messages received from client and waiting for pubrel.
           awaiting_rel :: map(),
-
           %% Max Packets Awaiting PUBREL
           max_awaiting_rel :: non_neg_integer(),
-
-          %% Awaiting PUBREL Timer
-          await_rel_timer :: maybe(reference()),
-
           %% Awaiting PUBREL Timeout
           await_rel_timeout :: timeout(),
-
           %% Session Expiry Interval
           expiry_interval :: timeout(),
-
-          %% Expired Timer
-          expiry_timer :: maybe(reference()),
-
           %% Created at
           created_at :: erlang:timestamp()
          }).
@@ -149,11 +133,10 @@
 %%--------------------------------------------------------------------
 
 %% @doc Init a session.
--spec(init(boolean(), emqx_types:client(), Options :: map()) -> session()).
-init(CleanStart, #{zone := Zone}, #{max_inflight := MaxInflight,
-                                    expiry_interval := ExpiryInterval}) ->
-    #session{clean_start       = CleanStart,
-             max_subscriptions = get_env(Zone, max_subscriptions, 0),
+-spec(init(emqx_types:client(), Options :: map()) -> session()).
+init(#{zone := Zone}, #{max_inflight    := MaxInflight,
+                        expiry_interval := ExpiryInterval}) ->
+    #session{max_subscriptions = get_env(Zone, max_subscriptions, 0),
              subscriptions     = #{},
              upgrade_qos       = get_env(Zone, upgrade_qos, false),
              inflight          = emqx_inflight:new(MaxInflight),
@@ -179,8 +162,7 @@ init_mqueue(Zone) ->
 %%--------------------------------------------------------------------
 
 -spec(info(session()) -> emqx_types:infos()).
-info(#session{clean_start = CleanStart,
-              max_subscriptions = MaxSubscriptions,
+info(#session{max_subscriptions = MaxSubscriptions,
               subscriptions = Subscriptions,
               upgrade_qos = UpgradeQoS,
               inflight = Inflight,
@@ -192,8 +174,7 @@ info(#session{clean_start = CleanStart,
               await_rel_timeout = AwaitRelTimeout,
               expiry_interval = ExpiryInterval,
               created_at = CreatedAt}) ->
-    #{clean_start => CleanStart,
-      subscriptions => Subscriptions,
+    #{subscriptions => Subscriptions,
       max_subscriptions => MaxSubscriptions,
       upgrade_qos => UpgradeQoS,
       inflight => emqx_inflight:size(Inflight),
@@ -206,12 +187,10 @@ info(#session{clean_start = CleanStart,
       awaiting_rel => maps:size(AwaitingRel),
       max_awaiting_rel => MaxAwaitingRel,
       await_rel_timeout => AwaitRelTimeout,
-      expiry_interval => ExpiryInterval div 1000,
+      expiry_interval => ExpiryInterval,
       created_at => CreatedAt
      }.
 
-info(clean_start, #session{clean_start = CleanStart}) ->
-    CleanStart;
 info(subscriptions, #session{subscriptions = Subs}) ->
     Subs;
 info(max_subscriptions, #session{max_subscriptions = MaxSubs}) ->
@@ -239,20 +218,23 @@ info(max_awaiting_rel, #session{max_awaiting_rel = MaxAwaitingRel}) ->
 info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
     Timeout;
 info(expiry_interval, #session{expiry_interval = Interval}) ->
-    Interval div 1000;
+    Interval;
 info(created_at, #session{created_at = CreatedAt}) ->
     CreatedAt.
+
+update_expiry_interval(ExpiryInterval, Session) ->
+    Session#session{expiry_interval = ExpiryInterval}.
 
 %%--------------------------------------------------------------------
 %% Attrs of the session
 %%--------------------------------------------------------------------
 
 -spec(attrs(session()) -> emqx_types:attrs()).
-attrs(#session{clean_start = CleanStart,
-               expiry_interval = ExpiryInterval,
+attrs(undefined) ->
+    #{};
+attrs(#session{expiry_interval = ExpiryInterval,
                created_at = CreatedAt}) ->
-    #{clean_start => CleanStart,
-      expiry_interval => ExpiryInterval,
+    #{expiry_interval => ExpiryInterval,
       created_at => CreatedAt
      }.
 
@@ -277,6 +259,37 @@ stats(#session{subscriptions = Subscriptions,
      {mqueue_dropped, emqx_mqueue:dropped(MQueue)},
      {awaiting_rel, maps:size(AwaitingRel)},
      {max_awaiting_rel, MaxAwaitingRel}].
+
+-spec(takeover(session()) -> ok).
+takeover(#session{subscriptions = Subs}) ->
+    lists:foreach(fun({TopicFilter, _SubOpts}) ->
+                          ok = emqx_broker:unsubscribe(TopicFilter)
+                  end, maps:to_list(Subs)).
+
+-spec(resume(emqx_types:client_id(), session()) -> ok).
+resume(ClientId, #session{subscriptions = Subs}) ->
+    ?LOG(info, "Session is resumed."),
+    %% 1. Subscribe again.
+    lists:foreach(fun({TopicFilter, SubOpts}) ->
+                          ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts)
+                  end, maps:to_list(Subs)).
+    %% 2. Run hooks.
+    %% ok = emqx_hooks:run('session.resumed', [#{client_id => ClientId}, attrs(Session)]),
+    %% TODO: 3. Redeliver: Replay delivery and Dequeue pending messages
+    %%Session.
+
+redeliver(Session = #session{inflight = Inflight}) ->
+    Publishes = lists:map(fun({PacketId, {pubrel, _Ts}}) ->
+                                  {pubrel, PacketId, ?RC_SUCCESS};
+                             ({PacketId, {Msg, _Ts}}) ->
+                                  {publish, PacketId, Msg}
+                          end, emqx_inflight:to_list(Inflight)),
+    case dequeue(Session) of
+        {ok, NSession} ->
+            {ok, Publishes, NSession};
+        {ok, More, NSession} ->
+            {ok, lists:append(Publishes, More), NSession}
+    end.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: SUBSCRIBE
@@ -363,7 +376,7 @@ do_publish(PacketId, Msg = #message{timestamp = Ts},
             DeliverResults = emqx_broker:publish(Msg),
             AwaitingRel1 = maps:put(PacketId, Ts, AwaitingRel),
             Session1 = Session#session{awaiting_rel = AwaitingRel1},
-            {ok, DeliverResults, ensure_await_rel_timer(Session1)};
+            {ok, DeliverResults, Session1};
         true ->
             {error, ?RC_PACKET_IDENTIFIER_IN_USE}
     end.
@@ -502,7 +515,13 @@ deliver([Msg = #message{qos = QoS}|More], Acc,
             deliver(More, [Publish|Acc], next_pkt_id(Session1))
     end.
 
-enqueue(Msg, Session = #session{mqueue = Q}) ->
+enqueue(Delivers, Session = #session{subscriptions = Subs})
+  when is_list(Delivers) ->
+    Msgs = [enrich(get_subopts(Topic, Subs), Msg, Session)
+            || {deliver, Topic, Msg} <- Delivers],
+    lists:foldl(fun enqueue/2, Session, Msgs);
+
+enqueue(Msg, Session = #session{mqueue = Q}) when is_record(Msg, message) ->
     emqx_pd:update_counter(enqueue_stats, 1),
     {Dropped, NewQ} = emqx_mqueue:in(Msg, Q),
     if
@@ -519,9 +538,8 @@ enqueue(Msg, Session = #session{mqueue = Q}) ->
 %%--------------------------------------------------------------------
 
 await(PacketId, Msg, Session = #session{inflight = Inflight}) ->
-    Inflight1 = emqx_inflight:insert(
-                  PacketId, {Msg, os:timestamp()}, Inflight),
-    ensure_retry_timer(Session#session{inflight = Inflight1}).
+    Inflight1 = emqx_inflight:insert(PacketId, {Msg, os:timestamp()}, Inflight),
+    Session#session{inflight = Inflight1}.
 
 get_subopts(Topic, SubMap) ->
     case maps:find(Topic, SubMap) of
@@ -542,53 +560,23 @@ enrich([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS}, Session = #session{up
     enrich(Opts, Msg#message{qos = max(SubQoS, PubQoS)}, Session);
 enrich([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS}, Session = #session{upgrade_qos= false}) ->
     enrich(Opts, Msg#message{qos = min(SubQoS, PubQoS)}, Session);
-enrich([{rap, _Rap}|Opts], Msg = #message{flags = Flags, headers = #{retained := true}}, Session = #session{}) ->
-    enrich(Opts, Msg#message{flags = maps:put(retain, true, Flags)}, Session);
-enrich([{rap, 0}|Opts], Msg = #message{flags = Flags}, Session) ->
+enrich([{rap, 0}|Opts], Msg = #message{flags = Flags, headers = #{proto_ver := ?MQTT_PROTO_V5}}, Session) ->
     enrich(Opts, Msg#message{flags = maps:put(retain, false, Flags)}, Session);
-enrich([{rap, _}|Opts], Msg, Session) ->
+enrich([{rap, _}|Opts], Msg = #message{headers = #{proto_ver := ?MQTT_PROTO_V5}}, Session) ->
     enrich(Opts, Msg, Session);
+enrich([{rap, _}|Opts], Msg = #message{headers = #{retained := true}}, Session = #session{}) ->
+    enrich(Opts, Msg, Session);
+enrich([{rap, _}|Opts], Msg = #message{flags = Flags}, Session) ->
+    enrich(Opts, Msg#message{flags = maps:put(retain, false, Flags)}, Session);
 enrich([{subid, SubId}|Opts], Msg, Session) ->
     enrich(Opts, emqx_message:set_header('Subscription-Identifier', SubId, Msg), Session).
-
-%%--------------------------------------------------------------------
-%% Handle timeout
-%%--------------------------------------------------------------------
-
--spec(timeout(reference(), atom(), session())
-      -> {ok, session()} | {ok, list(), session()}).
-timeout(TRef, retry_delivery, Session = #session{retry_timer = TRef}) ->
-    retry_delivery(Session#session{retry_timer = undefined});
-
-timeout(TRef, check_awaiting_rel, Session = #session{await_rel_timer = TRef}) ->
-    expire_awaiting_rel(Session);
-
-timeout(TRef, Msg, Session) ->
-    ?LOG(error, "unexpected timeout - ~p: ~p", [TRef, Msg]),
-    {ok, Session}.
-
-%%--------------------------------------------------------------------
-%% Ensure retry timer
-%%--------------------------------------------------------------------
-
-ensure_retry_timer(Session = #session{retry_interval = Interval,
-                                      retry_timer = undefined}) ->
-    ensure_retry_timer(Interval, Session);
-ensure_retry_timer(Session) ->
-    Session.
-
-ensure_retry_timer(Interval, Session = #session{retry_timer = undefined}) ->
-    TRef = emqx_misc:start_timer(Interval, retry_delivery),
-    Session#session{retry_timer = TRef};
-ensure_retry_timer(_Interval, Session) ->
-    Session.
 
 %%--------------------------------------------------------------------
 %% Retry Delivery
 %%--------------------------------------------------------------------
 
 %% Redeliver at once if force is true
-retry_delivery(Session = #session{inflight = Inflight}) ->
+retry(Session = #session{inflight = Inflight}) ->
     case emqx_inflight:is_empty(Inflight) of
         true  -> {ok, Session};
         false ->
@@ -599,10 +587,11 @@ retry_delivery(Session = #session{inflight = Inflight}) ->
 
 retry_delivery([], _Now, Acc, Session) ->
     %% Retry again...
-    {ok, lists:reverse(Acc), ensure_retry_timer(Session)};
+    {ok, lists:reverse(Acc), Session};
 
 retry_delivery([{PacketId, {Val, Ts}}|More], Now, Acc,
-               Session = #session{retry_interval = Interval, inflight = Inflight}) ->
+               Session = #session{retry_interval = Interval,
+                                  inflight = Inflight}) ->
     %% Microseconds -> MilliSeconds
     Age = timer:now_diff(Now, Ts) div 1000,
     if
@@ -610,7 +599,7 @@ retry_delivery([{PacketId, {Val, Ts}}|More], Now, Acc,
             {Acc1, Inflight1} = retry_delivery(PacketId, Val, Now, Acc, Inflight),
             retry_delivery(More, Now, Acc1, Session#session{inflight = Inflight1});
         true ->
-            {ok, lists:reverse(Acc), ensure_retry_timer(Interval - max(0, Age), Session)}
+            {ok, lists:reverse(Acc), Interval - max(0, Age), Session}
     end.
 
 retry_delivery(PacketId, Msg, Now, Acc, Inflight) when is_record(Msg, message) ->
@@ -628,33 +617,19 @@ retry_delivery(PacketId, pubrel, Now, Acc, Inflight) ->
     {[{pubrel, PacketId}|Acc], Inflight1}.
 
 %%--------------------------------------------------------------------
-%% Ensure await_rel timer
-%%--------------------------------------------------------------------
-
-ensure_await_rel_timer(Session = #session{await_rel_timeout = Timeout,
-                                          await_rel_timer = undefined}) ->
-    ensure_await_rel_timer(Timeout, Session);
-ensure_await_rel_timer(Session) ->
-    Session.
-
-ensure_await_rel_timer(Timeout, Session = #session{await_rel_timer = undefined}) ->
-    TRef = emqx_misc:start_timer(Timeout, check_awaiting_rel),
-    Session#session{await_rel_timer = TRef};
-ensure_await_rel_timer(_Timeout, Session) ->
-    Session.
-
-%%--------------------------------------------------------------------
 %% Expire Awaiting Rel
 %%--------------------------------------------------------------------
 
-expire_awaiting_rel(Session = #session{awaiting_rel = AwaitingRel}) ->
+expire(awaiting_rel, Session = #session{awaiting_rel = AwaitingRel}) ->
     case maps:size(AwaitingRel) of
         0 -> {ok, Session};
-        _ -> expire_awaiting_rel(lists:keysort(2, maps:to_list(AwaitingRel)), os:timestamp(), Session)
+        _ ->
+            AwaitingRel1 = lists:keysort(2, maps:to_list(AwaitingRel)),
+            expire_awaiting_rel(AwaitingRel1, os:timestamp(), Session)
     end.
 
 expire_awaiting_rel([], _Now, Session) ->
-    {ok, Session#session{await_rel_timer = undefined}};
+    {ok, Session};
 
 expire_awaiting_rel([{PacketId, Ts} | More], Now,
                     Session = #session{awaiting_rel = AwaitingRel,
@@ -666,7 +641,7 @@ expire_awaiting_rel([{PacketId, Ts} | More], Now,
             Session1 = Session#session{awaiting_rel = maps:remove(PacketId, AwaitingRel)},
             expire_awaiting_rel(More, Now, Session1);
         Age ->
-            {ok, ensure_await_rel_timer(Timeout - max(0, Age), Session)}
+            {ok, Timeout - max(0, Age), Session}
     end.
 
 %%--------------------------------------------------------------------
@@ -683,6 +658,6 @@ next_pkt_id(Session = #session{next_pkt_id = Id}) ->
 %% For Test case
 %%---------------------------------------------------------------------
 
-
 set_pkt_id(Session, PktId) ->
     Session#session{next_pkt_id = PktId}.
+

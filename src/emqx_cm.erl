@@ -28,8 +28,6 @@
 -export([start_link/0]).
 
 -export([ register_channel/1
-        , unregister_channel/1
-        , unregister_channel/2
         ]).
 
 -export([ get_chan_attrs/1
@@ -44,7 +42,7 @@
 
 -export([ open_session/3
         , discard_session/1
-        , resume_session/1
+        , takeover_session/1
         ]).
 
 -export([ lookup_channels/1
@@ -94,6 +92,7 @@ start_link() ->
 %%--------------------------------------------------------------------
 
 %% @doc Register a channel.
+%% Channel will be unregistered automatically when the channel process dies
 -spec(register_channel(emqx_types:client_id()) -> ok).
 register_channel(ClientId) when is_binary(ClientId) ->
     register_channel(ClientId, self()).
@@ -105,17 +104,6 @@ register_channel(ClientId, ChanPid) ->
     true = ets:insert(?CHAN_TAB, Chan),
     ok = emqx_cm_registry:register_channel(Chan),
     cast({registered, Chan}).
-
-%% @doc Unregister a channel.
--spec(unregister_channel(emqx_types:client_id()) -> ok).
-unregister_channel(ClientId) when is_binary(ClientId) ->
-    unregister_channel(ClientId, self()).
-
--spec(unregister_channel(emqx_types:client_id(), chan_pid()) -> ok).
-unregister_channel(ClientId, ChanPid) ->
-    Chan = {ClientId, ChanPid},
-    true = do_unregister_channel(Chan),
-    cast({unregistered, Chan}).
 
 %% @private
 do_unregister_channel(Chan) ->
@@ -169,44 +157,62 @@ set_chan_stats(ClientId, ChanPid, Stats) ->
 
 %% @doc Open a session.
 -spec(open_session(boolean(), emqx_types:client(), map())
-      -> {ok, emqx_session:session()} | {error, Reason :: term()}).
+      -> {ok, #{session  := emqx_session:session(),
+                present  := boolean(),
+                pendings => list()}}
+       | {error, Reason :: term()}).
 open_session(true, Client = #{client_id := ClientId}, Options) ->
     CleanStart = fun(_) ->
                      ok = discard_session(ClientId),
-                     {ok, emqx_session:init(true, Client, Options), false}
+                     Session = emqx_session:init(Client, Options),
+                     {ok, #{session => Session, present => false}}
                  end,
     emqx_cm_locker:trans(ClientId, CleanStart);
 
 open_session(false, Client = #{client_id := ClientId}, Options) ->
     ResumeStart = fun(_) ->
-                      case resume_session(ClientId) of
-                          {ok, Session} ->
-                              {ok, Session, true};
+                      case takeover_session(ClientId) of
+                          {ok, ConnMod, ChanPid, Session} ->
+                              ok = emqx_session:resume(ClientId, Session),
+                              Pendings = ConnMod:takeover(ChanPid, 'end'),
+                              {ok, #{session  => Session,
+                                     present  => true,
+                                     pendings => Pendings}};
                           {error, not_found} ->
-                              {ok, emqx_session:init(false, Client, Options), false}
+                              Session = emqx_session:init(Client, Options),
+                              {ok, #{session => Session, present => false}}
                       end
                   end,
     emqx_cm_locker:trans(ClientId, ResumeStart).
 
-%% @doc Try to resume a session.
--spec(resume_session(emqx_types:client_id())
+%% @doc Try to takeover a session.
+-spec(takeover_session(emqx_types:client_id())
       -> {ok, emqx_session:session()} | {error, Reason :: term()}).
-resume_session(ClientId) ->
+takeover_session(ClientId) ->
     case lookup_channels(ClientId) of
         [] -> {error, not_found};
-        [_ChanPid] ->
-            ok;
-            % emqx_channel:resume(ChanPid);
+        [ChanPid] ->
+            takeover_session(ClientId, ChanPid);
         ChanPids ->
-            [_ChanPid|StalePids] = lists:reverse(ChanPids),
-            ?LOG(error, "[SM] More than one channel found: ~p", [ChanPids]),
-            lists:foreach(fun(_StalePid) ->
-                            %   catch emqx_channel:discard(StalePid)
-                            ok
+            [ChanPid|StalePids] = lists:reverse(ChanPids),
+            ?LOG(error, "More than one channel found: ~p", [ChanPids]),
+            lists:foreach(fun(StalePid) ->
+                                  catch discard_session(ClientId, StalePid)
                           end, StalePids),
-            % emqx_channel:resume(ChanPid)
-            ok
+            takeover_session(ClientId, ChanPid)
     end.
+
+takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
+    case get_chan_attrs(ClientId, ChanPid) of
+        #{client := #{conn_mod := ConnMod}} ->
+            Session = ConnMod:takeover(ChanPid, 'begin'),
+            {ok, ConnMod, ChanPid, Session};
+        undefined ->
+            {error, not_found}
+    end;
+
+takeover_session(ClientId, ChanPid) ->
+    rpc_call(node(ChanPid), takeover_session, [ClientId, ChanPid]).
 
 %% @doc Discard all the sessions identified by the ClientId.
 -spec(discard_session(emqx_types:client_id()) -> ok).
@@ -216,14 +222,24 @@ discard_session(ClientId) when is_binary(ClientId) ->
         ChanPids ->
             lists:foreach(
               fun(ChanPid) ->
-                      try ok
-                        % emqx_channel:discard(ChanPid)
+                      try
+                          discard_session(ClientId, ChanPid)
                       catch
                           _:Error:_Stk ->
-                              ?LOG(warning, "[SM] Failed to discard ~p: ~p", [ChanPid, Error])
+                              ?LOG(error, "Failed to discard ~p: ~p", [ChanPid, Error])
                       end
               end, ChanPids)
     end.
+
+discard_session(ClientId, ChanPid) when node(ChanPid) == node() ->
+    case get_chan_attrs(ClientId, ChanPid) of
+        #{client := #{conn_mod := ConnMod}} ->
+            ConnMod:discard(ChanPid);
+        undefined -> ok
+    end;
+
+discard_session(ClientId, ChanPid) ->
+    rpc_call(node(ChanPid), discard_session, [ClientId, ChanPid]).
 
 %% @doc Is clean start?
 % is_clean_start(#{clean_start := false}) -> false;
@@ -285,10 +301,6 @@ handle_cast({registered, {ClientId, ChanPid}}, State = #{chan_pmon := PMon}) ->
     PMon1 = emqx_pmon:monitor(ChanPid, ClientId, PMon),
     {noreply, State#{chan_pmon := PMon1}};
 
-handle_cast({unregistered, {_ClientId, ChanPid}}, State = #{chan_pmon := PMon}) ->
-    PMon1 = emqx_pmon:demonitor(ChanPid, PMon),
-    {noreply, State#{chan_pmon := PMon1}};
-
 handle_cast(Msg, State) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
     {noreply, State}.
@@ -314,8 +326,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 clean_down({ChanPid, ClientId}) ->
-    Chan = {ClientId, ChanPid},
-    do_unregister_channel(Chan).
+    do_unregister_channel({ClientId, ChanPid}).
 
 stats_fun() ->
     lists:foreach(fun update_stats/1, ?CHAN_STATS).
@@ -325,4 +336,3 @@ update_stats({Tab, Stat, MaxStat}) ->
         undefined -> ok;
         Size -> emqx_stats:setstat(Stat, MaxStat, Size)
     end.
-

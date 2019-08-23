@@ -55,26 +55,6 @@ t_timer_cancel_flush() ->
     after 0 -> ok
     end.
 
-t_shutdown_disabled() ->
-    ok = drain(),
-    self() ! foo,
-    ?assertEqual(continue, emqx_misc:conn_proc_mng_policy(0)),
-    receive foo -> ok end,
-    ?assertEqual(hibernate, emqx_misc:conn_proc_mng_policy(0)).
-
-t_message_queue_too_long() ->
-    ok = drain(),
-    self() ! foo,
-    self() ! bar,
-    ?assertEqual({shutdown, message_queue_too_long},
-                 emqx_misc:conn_proc_mng_policy(1)),
-    receive foo -> ok end,
-    ?assertEqual(continue, emqx_misc:conn_proc_mng_policy(1)),
-    receive bar -> ok end.
-
-t_conn_proc_mng_policy(L) ->
-    emqx_misc:conn_proc_mng_policy(#{message_queue_len => L}).
-
 t_proc_name(_) ->
     'TODO'.
 
