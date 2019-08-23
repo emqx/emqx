@@ -325,13 +325,35 @@ handle_in(Packet = ?UNSUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
 handle_in(?PACKET(?PINGREQ), Channel) ->
     {ok, ?PACKET(?PINGRESP), Channel};
 
-handle_in(?DISCONNECT_PACKET(?RC_SUCCESS), Channel) ->
-    %% Clear will msg
-    {stop, normal, Channel};
-
-handle_in(?DISCONNECT_PACKET(RC), Channel = #channel{protocol = Protocol}) ->
-    Ver = emqx_protocol:info(proto_ver, Protocol),
-    {stop, {shutdown, emqx_reason_codes:name(RC, Ver)}, Channel};
+handle_in(?DISCONNECT_PACKET(RC, Properties), Channel = #channel{session = Session, protocol = Protocol}) ->
+    OldInterval = emqx_session:info(expiry_interval, Session),
+    Interval = maps:get('Session-Expiry-Interval', case Properties of
+                                                       undefined -> #{};
+                                                       _ -> Properties
+                                                   end, OldInterval),
+    case OldInterval =:= 0 andalso Interval =/= OldInterval of
+        true ->
+            handle_out({disconnect, ?RC_PROTOCOL_ERROR}, Channel);
+        false ->
+            NChannel = ensure_disconnected(case RC of
+                                               ?RC_SUCCESS -> 
+                                                   Channel#channel{protocol = emqx_protocol:clear_will_msg(Protocol),
+                                                                   session = emqx_session:update_expiry_interval(Interval, Session)};
+                                               _ -> Channel#channel{session = emqx_session:update_expiry_interval(Interval, Session)}
+                                           end),
+            case Interval of
+                ?UINT_MAX -> {ok, NChannel};
+                Int when Int > 0 -> {ok, ensure_timer(expire_timer, NChannel)};
+                _Other ->
+                    Reason = case RC of
+                                 ?RC_SUCCESS -> closed;
+                                 _ ->
+                                     Ver = emqx_protocol:info(proto_ver, Protocol),
+                                     emqx_reason_codes:name(RC, Ver)
+                             end,
+                    {stop, {shutdown, Reason}, Channel}
+            end
+    end;
 
 handle_in(?AUTH_PACKET(), Channel) ->
     %%TODO: implement later.
@@ -905,7 +927,6 @@ open_session(#mqtt_packet_connect{clean_start = CleanStart,
              #channel{client = Client = #{zone := Zone}, protocol = Protocol}) ->
     MaxInflight = get_property('Receive-Maximum', ConnProps,
                                emqx_zone:get_env(Zone, max_inflight, 65535)),
-    
     Interval = 
         case emqx_protocol:info(proto_ver, Protocol) of
             ?MQTT_PROTO_V5 -> get_property('Session-Expiry-Interval', ConnProps, 0);
