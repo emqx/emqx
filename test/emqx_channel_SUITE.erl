@@ -166,10 +166,7 @@ t_handle_deliver(_) ->
               Msg0 = emqx_message:make(<<"clientx">>, ?QOS_0, <<"t0">>, <<"qos0">>),
               Msg1 = emqx_message:make(<<"clientx">>, ?QOS_1, <<"t1">>, <<"qos1">>),
               Delivers = [{deliver, <<"+">>, Msg0}, {deliver, <<"+">>, Msg1}],
-              {ok, Packets, _Ch} = emqx_channel:handle_out({deliver, Delivers}, Channel1),
-              ?assertMatch([?PUBLISH_PACKET(?QOS_0, <<"t0">>, undefined, <<"qos0">>),
-                            ?PUBLISH_PACKET(?QOS_1, <<"t1">>, 1, <<"qos1">>)
-                           ], Packets)
+              {ok, _Ch} = emqx_channel:handle_out({deliver, Delivers}, Channel1)
       end).
 
 %%--------------------------------------------------------------------
