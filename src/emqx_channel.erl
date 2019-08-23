@@ -639,14 +639,17 @@ handle_info({unsubscribe, TopicFilters}, Channel = #channel{client = Client}) ->
 
 handle_info(sock_closed, Channel = #channel{connected = false}) ->
     shutdown(closed, Channel);
-handle_info(sock_closed, Channel = #channel{session  = Session}) ->
+handle_info(sock_closed, Channel = #channel{protocol = Protocol,
+                                            session  = Session}) ->
+    publish_will_msg(emqx_protocol:info(will_msg, Protocol)),
+    NChannel = Channel#channel{protocol = emqx_protocol:clear_will_msg(Protocol)},
     Interval = emqx_session:info(expiry_interval, Session),
     case Interval of
         ?UINT_MAX ->
-            {ok, ensure_disconnected(Channel)};
+            {ok, ensure_disconnected(NChannel)};
         Int when Int > 0 ->
-            {ok, ensure_timer(expire_timer, ensure_disconnected(Channel))};
-        _Other -> shutdown(closed, Channel)
+            {ok, ensure_timer(expire_timer, ensure_disconnected(NChannel))};
+        _Other -> shutdown(closed, NChannel)
     end;
 
 handle_info(Info, Channel) ->
