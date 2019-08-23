@@ -58,6 +58,8 @@
         , stats/1
         ]).
 
+-export([update_expiry_interval/2]).
+
 -export([ subscribe/4
         , unsubscribe/3
         ]).
@@ -217,6 +219,9 @@ info(expiry_interval, #session{expiry_interval = Interval}) ->
     Interval;
 info(created_at, #session{created_at = CreatedAt}) ->
     CreatedAt.
+
+update_expiry_interval(ExpiryInterval, Session) ->
+    Session#session{expiry_interval = ExpiryInterval}.
 
 %%--------------------------------------------------------------------
 %% Attrs of the session
