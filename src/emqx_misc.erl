@@ -29,7 +29,8 @@
         , proc_stats/1
         ]).
 
--export([ drain_deliver/1
+-export([ drain_deliver/0
+        , drain_deliver/1
         , drain_down/1
         ]).
 
@@ -96,6 +97,9 @@ proc_stats(Pid) ->
     end.
 
 %% @doc Drain delivers from the channel's mailbox.
+drain_deliver() ->
+    drain_deliver([]).
+
 drain_deliver(Acc) ->
     receive
         Deliver = {deliver, _Topic, _Msg} ->
