@@ -57,6 +57,10 @@ start_link(Opts) ->
 init([Opts]) ->
     erlang:system_monitor(self(), parse_opt(Opts)),
     emqx_logger:set_proc_metadata(#{sysmon => true}),
+
+    %% Monitor cluster partition event
+    ekka:monitor(partition, fun handle_partition_event/1),
+
     {ok, start_timer(#{timer => undefined, events => []})}.
 
 start_timer(State) ->
@@ -155,6 +159,15 @@ terminate(_Reason, #{timer := TRef}) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+%%--------------------------------------------------------------------
+%% Internal Functions
+%%--------------------------------------------------------------------
+
+handle_partition_event({partition, {occurred, Node}}) ->
+    alarm_handler:set_alarm({partitioned, Node});
+handle_partition_event({partition, {healed, Node}}) ->
+    alarm_handler:clear_alarm(partitioned).
 
 suppress(Key, SuccFun, State = #{events := Events}) ->
     case lists:member(Key, Events) of
