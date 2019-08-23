@@ -74,6 +74,7 @@
           %% Connected
           connected :: boolean(),
           connected_at :: erlang:timestamp(),
+          disconnected_at :: erlang:timestamp(),
           %% Takeover/Resume
           resuming :: boolean(),
           pendings :: list()
@@ -169,7 +170,9 @@ info(oom_policy, #channel{oom_policy = Policy}) ->
 info(connected, #channel{connected = Connected}) ->
     Connected;
 info(connected_at, #channel{connected_at = ConnectedAt}) ->
-    ConnectedAt.
+    ConnectedAt;
+info(disconnected_at, #channel{disconnected_at = DisconnectedAt}) ->
+    DisconnectedAt.
 
 -spec(attrs(channel()) -> emqx_types:attrs()).
 attrs(#channel{client       = Client,
@@ -240,11 +243,12 @@ handle_in(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel = #channel{pro
             ProtoVer = emqx_protocol:info(proto_ver, Protocol),
             ?LOG(warning, "Cannot publish message to ~s due to ~s",
                  [Topic, emqx_reason_codes:text(ReasonCode, ProtoVer)]),
-            case QoS of
-                ?QOS_0 -> handle_out({puberr, ReasonCode}, NChannel);
-                ?QOS_1 -> handle_out({puback, PacketId, ReasonCode}, NChannel);
-                ?QOS_2 -> handle_out({pubrec, PacketId, ReasonCode}, NChannel)
-            end
+            handle_out({disconnect, ReasonCode}, NChannel)
+            % case QoS of
+            %     ?QOS_0 -> handle_out({puberr, ReasonCode}, NChannel);
+            %     ?QOS_1 -> handle_out({puback, PacketId, ReasonCode}, NChannel);
+            %     ?QOS_2 -> handle_out({pubrec, PacketId, ReasonCode}, NChannel)
+            % end
     end;
 
 %%TODO: How to handle the ReasonCode?
@@ -589,6 +593,18 @@ handle_info({unsubscribe, TopicFilters}, Channel = #channel{client = Client}) ->
     {_ReasonCodes, NChannel} = process_unsubscribe(TopicFilters1, Channel),
     {ok, NChannel};
 
+handle_info(sock_closed, Channel = #channel{connected = false}) ->
+    shutdown(closed, Channel);
+handle_info(sock_closed, Channel = #channel{session  = Session}) ->
+    Interval = emqx_session:info(expiry_interval, Session),
+    case Interval of
+        ?UINT_MAX ->
+            {ok, ensure_disconnected(Channel)};
+        Int when Int > 0 ->
+            {ok, ensure_timer(expire_timer, ensure_disconnected(Channel))};
+        _Other -> shutdown(closed, Channel)
+    end;
+
 handle_info(Info, Channel) ->
     ?LOG(error, "Unexpected info: ~p~n", [Info]),
     {ok, Channel}.
@@ -643,7 +659,7 @@ timeout(TRef, expire_awaiting_rel, Channel = #channel{session = Session,
     end;
 
 timeout(_TRef, expire_session, Channel) ->
-    {ok, Channel};
+    shutdown(expired, Channel);
 
 timeout(_TRef, Msg, Channel) ->
     ?LOG(error, "Unexpected timeout: ~p~n", [Msg]),
@@ -685,7 +701,7 @@ interval(retry_timer, #channel{session = Session}) ->
 interval(await_timer, #channel{session = Session}) ->
     emqx_session:info(await_rel_timeout, Session);
 interval(expire_timer, #channel{session = Session}) ->
-    emqx_session:info(expiry_interval, Session).
+    timer:seconds(emqx_session:info(expiry_interval, Session)).
 
 %%--------------------------------------------------------------------
 %% Terminate
@@ -886,11 +902,19 @@ auth_connect(#mqtt_packet_connect{client_id = ClientId,
 
 open_session(#mqtt_packet_connect{clean_start = CleanStart,
                                   properties  = ConnProps},
-             #channel{client = Client = #{zone := Zone}}) ->
+             #channel{client = Client = #{zone := Zone}, protocol = Protocol}) ->
     MaxInflight = get_property('Receive-Maximum', ConnProps,
                                emqx_zone:get_env(Zone, max_inflight, 65535)),
-    Interval = get_property('Session-Expiry-Interval', ConnProps,
-                            emqx_zone:get_env(Zone, session_expiry_interval, 0)),
+    
+    Interval = 
+        case emqx_protocol:info(proto_ver, Protocol) of
+            ?MQTT_PROTO_V5 -> get_property('Session-Expiry-Interval', ConnProps, 0);
+            _ ->
+                case CleanStart of
+                    true -> 0;
+                    false -> emqx_zone:get_env(Zone, session_expiry_interval, 0)
+                end
+        end,
     emqx_cm:open_session(CleanStart, Client, #{max_inflight    => MaxInflight,
                                                expiry_interval => Interval
                                               }).
@@ -1034,6 +1058,9 @@ enrich_assigned_clientid(AckProps, #channel{client = #{client_id := ClientId},
 ensure_connected(Channel) ->
     Channel#channel{connected = true, connected_at = os:timestamp()}.
 
+ensure_disconnected(Channel) ->
+    Channel#channel{connected = false, disconnected_at = os:timestamp()}.
+
 ensure_keepalive(#{'Server-Keep-Alive' := Interval}, Channel) ->
     ensure_keepalive_timer(Interval, Channel);
 ensure_keepalive(_AckProp, Channel = #channel{protocol = Protocol}) ->
@@ -1110,4 +1137,7 @@ sp(false) -> 0.
 
 flag(true)  -> 1;
 flag(false) -> 0.
+
+shutdown(Reason, Channel) ->
+    {stop, {shutdown, Reason}, Channel}.
 
