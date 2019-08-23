@@ -480,14 +480,14 @@ do_unsubscribe(TopicFilter, _SubOpts,
 %%--------------------------------------------------------------------
 
 handle_out({connack, ?RC_SUCCESS, SP}, Channel = #channel{client = Client}) ->
-    ok = emqx_hooks:run('client.connected',
-                        [Client, ?RC_SUCCESS, attrs(Channel)]),
     AckProps = emqx_misc:run_fold([fun enrich_caps/2,
                                    fun enrich_server_keepalive/2,
                                    fun enrich_assigned_clientid/2
                                   ], #{}, Channel),
     AckPacket = ?CONNACK_PACKET(?RC_SUCCESS, SP, AckProps),
     Channel1 = ensure_keepalive(AckProps, ensure_connected(Channel)),
+    ok = emqx_hooks:run('client.connected',
+                        [Client, ?RC_SUCCESS, attrs(Channel1)]),
     case maybe_resume_session(Channel1) of
         ignore -> {ok, AckPacket, Channel1};
         {ok, Publishes, NSession} ->
