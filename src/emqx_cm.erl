@@ -157,11 +157,15 @@ set_chan_stats(ClientId, ChanPid, Stats) ->
 
 %% @doc Open a session.
 -spec(open_session(boolean(), emqx_types:client(), map())
-      -> {ok, emqx_session:session()} | {error, Reason :: term()}).
+      -> {ok, #{session  := emqx_session:session(),
+                present  := boolean(),
+                pendings => list()}}
+       | {error, Reason :: term()}).
 open_session(true, Client = #{client_id := ClientId}, Options) ->
     CleanStart = fun(_) ->
                      ok = discard_session(ClientId),
-                     {ok, emqx_session:init(Client, Options), false}
+                     Session = emqx_session:init(Client, Options),
+                     {ok, #{session => Session, present => false}}
                  end,
     emqx_cm_locker:trans(ClientId, CleanStart);
 
@@ -169,12 +173,14 @@ open_session(false, Client = #{client_id := ClientId}, Options) ->
     ResumeStart = fun(_) ->
                       case takeover_session(ClientId) of
                           {ok, ConnMod, ChanPid, Session} ->
-                              NSession = emqx_session:resume(ClientId, Session),
+                              ok = emqx_session:resume(ClientId, Session),
                               Pendings = ConnMod:takeover(ChanPid, 'end'),
-                              io:format("Pending Delivers: ~p~n", [Pendings]),
-                              {ok, NSession, true};
+                              {ok, #{session  => Session,
+                                     present  => true,
+                                     pendings => Pendings}};
                           {error, not_found} ->
-                              {ok, emqx_session:init(Client, Options), false}
+                              Session = emqx_session:init(Client, Options),
+                              {ok, #{session => Session, present => false}}
                       end
                   end,
     emqx_cm_locker:trans(ClientId, ResumeStart).

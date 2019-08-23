@@ -255,18 +255,8 @@ connected(cast, {incoming, Packet = ?PACKET(?CONNECT)}, State) ->
 connected(cast, {incoming, Packet}, State) when is_record(Packet, mqtt_packet) ->
     handle_incoming(Packet, fun keep_state/1, State);
 
-connected(info, Deliver = {deliver, _Topic, _Msg},
-          State = #state{chan_state = ChanState}) ->
-    Delivers = emqx_misc:drain_deliver([Deliver]),
-    case emqx_channel:handle_out({deliver, Delivers}, ChanState) of
-        {ok, NChanState} ->
-            keep_state(State#state{chan_state = NChanState});
-        {ok, Packets, NChanState} ->
-            NState = State#state{chan_state = NChanState},
-            handle_outgoing(Packets, fun keep_state/1, NState);
-        {stop, Reason, NChanState} ->
-            stop(Reason, State#state{chan_state = NChanState})
-    end;
+connected(info, Deliver = {deliver, _Topic, _Msg}, State) ->
+    handle_deliver(emqx_misc:drain_deliver([Deliver]), State);
 
 connected(EventType, Content, State) ->
     ?HANDLE(EventType, Content, State).
@@ -278,6 +268,9 @@ disconnected(enter, _, _State) ->
     %% TODO: What to do?
     %% CleanStart is true
     keep_state_and_data;
+
+disconnected(info, Deliver = {deliver, _Topic, _Msg}, State) ->
+    handle_deliver([Deliver], State);
 
 disconnected(EventType, Content, State) ->
     ?HANDLE(EventType, Content, State).
@@ -467,6 +460,20 @@ handle_incoming(Packet = ?PACKET(Type), SuccFun,
         {stop, Reason, OutPacket, NChanState} ->
             Shutdown = fun(NewSt) -> shutdown(Reason, NewSt) end,
             handle_outgoing(OutPacket, Shutdown, State#state{chan_state = NChanState})
+    end.
+
+%%-------------------------------------------------------------------
+%% Handle deliver
+
+handle_deliver(Delivers,  State = #state{chan_state = ChanState}) ->
+    case emqx_channel:handle_out({deliver, Delivers}, ChanState) of
+        {ok, NChanState} ->
+            keep_state(State#state{chan_state = NChanState});
+        {ok, Packets, NChanState} ->
+            NState = State#state{chan_state = NChanState},
+            handle_outgoing(Packets, fun keep_state/1, NState);
+        {stop, Reason, NChanState} ->
+            stop(Reason, State#state{chan_state = NChanState})
     end.
 
 %%--------------------------------------------------------------------

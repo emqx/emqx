@@ -70,11 +70,13 @@
         ]).
 
 -export([ deliver/2
+        , enqueue/2
         , retry/1
         ]).
 
 -export([ takeover/1
         , resume/2
+        , redeliver/1
         ]).
 
 -export([expire/2]).
@@ -259,18 +261,30 @@ takeover(#session{subscriptions = Subs}) ->
                           ok = emqx_broker:unsubscribe(TopicFilter)
                   end, maps:to_list(Subs)).
 
--spec(resume(emqx_types:client_id(), session()) -> session()).
-resume(ClientId, Session = #session{subscriptions = Subs}) ->
+-spec(resume(emqx_types:client_id(), session()) -> ok).
+resume(ClientId, #session{subscriptions = Subs}) ->
     ?LOG(info, "Session is resumed."),
-    %% 1. Subscribe again
-    ok = lists:foreach(fun({TopicFilter, SubOpts}) ->
-                               ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts)
-                       end, maps:to_list(Subs)),
+    %% 1. Subscribe again.
+    lists:foreach(fun({TopicFilter, SubOpts}) ->
+                          ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts)
+                  end, maps:to_list(Subs)).
     %% 2. Run hooks.
-    ok = emqx_hooks:run('session.resumed', [#{client_id => ClientId}, attrs(Session)]),
+    %% ok = emqx_hooks:run('session.resumed', [#{client_id => ClientId}, attrs(Session)]),
     %% TODO: 3. Redeliver: Replay delivery and Dequeue pending messages
-    %% noreply(dequeue(retry_delivery(true, State1)));
-    Session.
+    %%Session.
+
+redeliver(Session = #session{inflight = Inflight}) ->
+    Publishes = lists:map(fun({PacketId, {pubrel, _Ts}}) ->
+                                  {pubrel, PacketId, ?RC_SUCCESS};
+                             ({PacketId, {Msg, _Ts}}) ->
+                                  {publish, PacketId, Msg}
+                          end, emqx_inflight:to_list(Inflight)),
+    case dequeue(Session) of
+        {ok, NSession} ->
+            {ok, Publishes, NSession};
+        {ok, More, NSession} ->
+            {ok, lists:append(Publishes, More), NSession}
+    end.
 
 %%--------------------------------------------------------------------
 %% Client -> Broker: SUBSCRIBE
@@ -496,7 +510,13 @@ deliver([Msg = #message{qos = QoS}|More], Acc,
             deliver(More, [Publish|Acc], next_pkt_id(Session1))
     end.
 
-enqueue(Msg, Session = #session{mqueue = Q}) ->
+enqueue(Delivers, Session = #session{subscriptions = Subs})
+  when is_list(Delivers) ->
+    Msgs = [enrich(get_subopts(Topic, Subs), Msg, Session)
+            || {deliver, Topic, Msg} <- Delivers],
+    lists:foldl(fun enqueue/2, Session, Msgs);
+
+enqueue(Msg, Session = #session{mqueue = Q}) when is_record(Msg, message) ->
     emqx_pd:update_counter(enqueue_stats, 1),
     {Dropped, NewQ} = emqx_mqueue:in(Msg, Q),
     if

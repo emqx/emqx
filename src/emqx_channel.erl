@@ -73,10 +73,14 @@
           oom_policy :: emqx_oom:oom_policy(),
           %% Connected
           connected :: boolean(),
+          %% Connected at
           connected_at :: erlang:timestamp(),
           disconnected_at :: erlang:timestamp(),
-          %% Takeover/Resume
+          %% Takeover
+          takeover :: boolean(),
+          %% Resume
           resuming :: boolean(),
+          %% Pending delivers when takeovering
           pendings :: list()
          }).
 
@@ -124,7 +128,10 @@ init(ConnInfo, Options) ->
              gc_state   = GcState,
              oom_policy = OomPolicy,
              timers     = #{stats_timer => StatsTimer},
-             connected  = false
+             connected  = false,
+             takeover   = false,
+             resuming   = false,
+             pendings   = []
             }.
 
 peer_cert_as_username(Options) ->
@@ -233,7 +240,7 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
             handle_out({connack, ReasonCode}, NChannel)
     end;
 
-handle_in(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel = #channel{protocol = Protocol}) ->
+handle_in(Packet = ?PUBLISH_PACKET(_QoS, Topic, _PacketId), Channel = #channel{protocol = Protocol}) ->
     case pipeline([fun validate_packet/2,
                    fun process_alias/2,
                    fun check_publish/2], Packet, Channel) of
@@ -347,9 +354,15 @@ handle_in(Packet, Channel) ->
 
 process_connect(ConnPkt, Channel) ->
     case open_session(ConnPkt, Channel) of
-        {ok, Session, SP} ->
+        {ok, #{session := Session, present := false}} ->
             NChannel = Channel#channel{session = Session},
-            handle_out({connack, ?RC_SUCCESS, sp(SP)}, NChannel);
+            handle_out({connack, ?RC_SUCCESS, sp(false)}, NChannel);
+        {ok, #{session := Session, present := true, pendings := Pendings}} ->
+            NPendings = lists:usort(lists:append(Pendings, emqx_misc:drain_deliver())),
+            NChannel = Channel#channel{session  = Session,
+                                       resuming = true,
+                                       pendings = NPendings},
+            handle_out({connack, ?RC_SUCCESS, sp(true)}, NChannel);
         {error, Reason} ->
             %% TODO: Unknown error?
             ?LOG(error, "Failed to open session: ~p", [Reason]),
@@ -449,8 +462,17 @@ handle_out({connack, ?RC_SUCCESS, SP}, Channel = #channel{client = Client}) ->
                                    fun enrich_server_keepalive/2,
                                    fun enrich_assigned_clientid/2
                                   ], #{}, Channel),
-    NChannel = ensure_keepalive(AckProps, ensure_connected(Channel)),
-    {ok, ?CONNACK_PACKET(?RC_SUCCESS, SP, AckProps), NChannel};
+    AckPacket = ?CONNACK_PACKET(?RC_SUCCESS, SP, AckProps),
+    Channel1 = ensure_keepalive(AckProps, ensure_connected(Channel)),
+    case maybe_resume_session(Channel1) of
+        ignore -> {ok, AckPacket, Channel1};
+        {ok, Publishes, NSession} ->
+            Channel2 = Channel1#channel{session  = NSession,
+                                        resuming = false,
+                                        pendings = []},
+            {ok, Packets, _} = handle_out({publish, Publishes}, Channel2),
+            {ok, [AckPacket|Packets], Channel2}
+    end;
 
 handle_out({connack, ReasonCode}, Channel = #channel{client = Client,
                                                      protocol = Protocol
@@ -464,9 +486,12 @@ handle_out({connack, ReasonCode}, Channel = #channel{client = Client,
     Reason = emqx_reason_codes:name(ReasonCode1, ProtoVer),
     {stop, {shutdown, Reason}, ?CONNACK_PACKET(ReasonCode1), Channel};
 
-handle_out({deliver, Delivers}, Channel = #channel{resuming = true,
-                                                   pendings = Pendings
-                                                  }) ->
+handle_out({deliver, Delivers}, Channel = #channel{session  = Session,
+                                                   connected = false}) ->
+    {ok, Channel#channel{session = emqx_session:enqueue(Delivers, Session)}};
+
+handle_out({deliver, Delivers}, Channel = #channel{takeover = true,
+                                                   pendings = Pendings}) ->
     {ok, Channel#channel{pendings = lists:append(Pendings, Delivers)}};
 
 handle_out({deliver, Delivers}, Channel = #channel{session = Session}) ->
@@ -546,20 +571,18 @@ handle_out({Type, Data}, Channel) ->
 %% Handle call
 %%--------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% Takeover session
-%%--------------------------------------------------------------------
-
+%% Session Takeover
 handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
-    {ok, Session, Channel#channel{resuming = true}};
+    {ok, Session, Channel#channel{takeover = true}};
 
 handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
                                                   pendings = Pendings}) ->
     ok = emqx_session:takeover(Session),
-    {stop, {shutdown, takeovered}, Pendings, Channel};
+    AllPendings = lists:append(emqx_misc:drain_deliver(), Pendings),
+    {stop, {shutdown, takeovered}, AllPendings, Channel};
 
 handle_call(Req, Channel) ->
-    ?LOG(error, "Unexpected call: Req", [Req]),
+    ?LOG(error, "Unexpected call: ~p", [Req]),
     {ok, ignored, Channel}.
 
 %%--------------------------------------------------------------------
@@ -1073,6 +1096,19 @@ ensure_keepalive_timer(Interval, Channel = #channel{client = #{zone := Zone}}) -
     Backoff = emqx_zone:get_env(Zone, keepalive_backoff, 0.75),
     Keepalive = emqx_keepalive:init(round(timer:seconds(Interval) * Backoff)),
     ensure_timer(alive_timer, Channel#channel{keepalive = Keepalive}).
+
+maybe_resume_session(#channel{resuming = false}) ->
+    ignore;
+maybe_resume_session(#channel{session  = Session,
+                              resuming = true,
+                              pendings = Pendings}) ->
+    {ok, Publishes, Session1} = emqx_session:redeliver(Session),
+    case emqx_session:deliver(Pendings, Session1) of
+        {ok, Session2} ->
+            {ok, Publishes, Session2};
+        {ok, More, Session2} ->
+            {ok, lists:append(Publishes, More), Session2}
+    end.
 
 %%--------------------------------------------------------------------
 %% Is ACL enabled?
