@@ -20,121 +20,126 @@
 -compile(nowarn_export_all).
 
 -include("emqx_mqtt.hrl").
+-include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
-
--import(lists, [seq/2, zip/2, foreach/2]).
-
--define(MQTTV4_CODE_NAMES, [connection_acceptd,
-                            unacceptable_protocol_version,
-                            client_identifier_not_valid,
-                            server_unavaliable,
-                            malformed_username_or_password,
-                            unauthorized_client,
-                            unknown_error]).
-
--define(MQTTV5_CODE_NAMES, [success, granted_qos1, granted_qos2, disconnect_with_will_message,
-                            no_matching_subscribers, no_subscription_existed, continue_authentication,
-                            re_authenticate, unspecified_error, malformed_Packet, protocol_error,
-                            implementation_specific_error, unsupported_protocol_version,
-                            client_identifier_not_valid, bad_username_or_password, not_authorized,
-                            server_unavailable, server_busy, banned,server_shutting_down,
-                            bad_authentication_method, keepalive_timeout, session_taken_over,
-                            topic_filter_invalid, topic_name_invalid, packet_identifier_inuse,
-                            packet_identifier_not_found, receive_maximum_exceeded, topic_alias_invalid,
-                            packet_too_large, message_rate_too_high, quota_exceeded,
-                            administrative_action, payload_format_invalid, retain_not_supported,
-                            qos_not_supported, use_another_server, server_moved,
-                            shared_subscriptions_not_supported, connection_rate_exceeded,
-                            maximum_connect_time, subscription_identifiers_not_supported,
-                            wildcard_subscriptions_not_supported, unknown_error]).
-
--define(MQTTV5_CODES, [16#00, 16#01, 16#02, 16#04, 16#10, 16#11, 16#18, 16#19, 16#80, 16#81, 16#82,
-                       16#83, 16#84, 16#85, 16#86, 16#87, 16#88, 16#89, 16#8A, 16#8B, 16#8C, 16#8D,
-                       16#8E, 16#8F, 16#90, 16#91, 16#92, 16#93, 16#94, 16#95, 16#96, 16#97, 16#98,
-                       16#99, 16#9A, 16#9B, 16#9C, 16#9D, 16#9E, 16#9F, 16#A0, 16#A1, 16#A2, code]).
-
--define(MQTTV5_TXT, [<<"Success">>, <<"Granted QoS 1">>, <<"Granted QoS 2">>,
-                     <<"Disconnect with Will Message">>, <<"No matching subscribers">>,
-                     <<"No subscription existed">>, <<"Continue authentication">>,
-                     <<"Re-authenticate">>, <<"Unspecified error">>, <<"Malformed Packet">>,
-                     <<"Protocol Error">>, <<"Implementation specific error">>,
-                     <<"Unsupported Protocol Version">>, <<"Client Identifier not valid">>,
-                     <<"Bad User Name or Password">>, <<"Not authorized">>,
-                     <<"Server unavailable">>, <<"Server busy">>, <<"Banned">>,
-                     <<"Server shutting down">>, <<"Bad authentication method">>,
-                     <<"Keep Alive timeout">>, <<"Session taken over">>,
-                     <<"Topic Filter invalid">>, <<"Topic Name invalid">>,
-                     <<"Packet Identifier in use">>, <<"Packet Identifier not found">>,
-                     <<"Receive Maximum exceeded">>, <<"Topic Alias invalid">>,
-                     <<"Packet too large">>, <<"Message rate too high">>, <<"Quota exceeded">>,
-                     <<"Administrative action">>, <<"Payload format invalid">>,
-                     <<"Retain not supported">>, <<"QoS not supported">>,
-                     <<"Use another server">>, <<"Server moved">>,
-                     <<"Shared Subscriptions not supported">>, <<"Connection rate exceeded">>,
-                     <<"Maximum connect time">>, <<"Subscription Identifiers not supported">>,
-                     <<"Wildcard Subscriptions not supported">>, <<"Unknown error">>]).
-
--define(COMPAT_CODES_V5, [16#80, 16#81, 16#82, 16#83, 16#84, 16#85, 16#86, 16#87,
-                          16#88, 16#89, 16#8A, 16#8B, 16#8C, 16#97, 16#9C, 16#9D,
-                          16#9F]).
-
--define(COMPAT_CODES_V4, [?CONNACK_PROTO_VER, ?CONNACK_PROTO_VER, ?CONNACK_PROTO_VER,
-                          ?CONNACK_PROTO_VER, ?CONNACK_PROTO_VER,
-                          ?CONNACK_INVALID_ID,
-                          ?CONNACK_CREDENTIALS,
-                          ?CONNACK_AUTH,
-                          ?CONNACK_SERVER,
-                          ?CONNACK_SERVER,
-                          ?CONNACK_AUTH,
-                          ?CONNACK_SERVER,
-                          ?CONNACK_AUTH,
-                          ?CONNACK_SERVER, ?CONNACK_SERVER, ?CONNACK_SERVER, ?CONNACK_SERVER]).
 
 all() -> emqx_ct:all(?MODULE).
 
-t_mqttv4_name(_) ->
-    (((codes_test(?MQTT_PROTO_V4))
-        (seq(0,6)))
-       (?MQTTV4_CODE_NAMES))
-      (fun emqx_reason_codes:name/2).
+t_prop_name_text(_) ->
+    ?assert(proper:quickcheck(prop_name_text(), prop_name_text(opts))).
 
-t_mqttv5_name(_) ->
-    (((codes_test(?MQTT_PROTO_V5))
-        (?MQTTV5_CODES))
-       (?MQTTV5_CODE_NAMES))
-      (fun emqx_reason_codes:name/2).
+t_prop_compat(_) ->
+    ?assert(proper:quickcheck(prop_compat(), prop_compat(opts))).
 
-t_text(_) ->
-    (((codes_test(?MQTT_PROTO_V5))
-        (?MQTTV5_CODES))
-       (?MQTTV5_TXT))
-      (fun emqx_reason_codes:text/1).
+t_prop_connack_error(_) ->
+    ?assert(proper:quickcheck(prop_connack_error(), default_opts([]))).
 
-t_compat(_) ->
-    (((codes_test(connack))
-        (?COMPAT_CODES_V5))
-       (?COMPAT_CODES_V4))
-      (fun emqx_reason_codes:compat/2),
-    (((codes_test(suback))
-        ([0,1,2, 16#80]))
-       ([0,1,2, 16#80]))
-      (fun emqx_reason_codes:compat/2),
-    (((codes_test(unsuback))
-        ([0, 1, 2]))
-       ([undefined, undefined, undefined]))
-      (fun emqx_reason_codes:compat/2).
+prop_name_text(opts) ->
+    default_opts([{numtests, 1000}]).
 
-codes_test(AsistVar) ->
-    fun(CODES) ->
-        fun(NAMES) ->
-            fun(Procedure) ->
-                foreach(fun({Code, Result}) ->
-                            ?assertEqual(Result, case erlang:fun_info(Procedure, name) of
-                                                     {name, text}   -> Procedure(Code);
-                                                     {name, name}   -> Procedure(Code, AsistVar);
-                                                     {name, compat} -> Procedure(AsistVar, Code)
-                                                 end)
-                        end, zip(CODES, NAMES))
-            end
-        end
-    end.
+prop_name_text() ->
+    ?FORALL(UnionArgs, union_args(),
+            is_atom(apply_fun(name, UnionArgs)) andalso
+            is_binary(apply_fun(text, UnionArgs))).
+
+prop_compat(opts) ->
+    default_opts([{numtests, 512}]).
+
+prop_compat() ->
+    ?FORALL(CompatArgs, compat_args(),
+            begin
+                Result = apply_fun(compat, CompatArgs),
+                is_number(Result) orelse Result =:= undefined
+            end).
+
+prop_connack_error() ->
+    ?FORALL(CONNACK_ERROR_ARGS, connack_error_args(),
+            is_integer(apply_fun(connack_error, CONNACK_ERROR_ARGS))).
+
+%%--------------------------------------------------------------------
+%% Helper
+%%--------------------------------------------------------------------
+default_opts() ->
+    default_opts([]).
+
+default_opts(AdditionalOpts) ->
+    [{to_file, user} | AdditionalOpts].
+
+apply_fun(Fun, Args) ->
+    apply(emqx_reason_codes, Fun, Args).
+
+%%--------------------------------------------------------------------
+%% Generator
+%%--------------------------------------------------------------------
+
+union_args() ->
+    frequency([{6, [real_mqttv3_rc(), mqttv3_version()]},
+               {43, [real_mqttv5_rc(), mqttv5_version()]}]).
+
+compat_args() ->
+    frequency([{18, [connack, compat_rc()]},
+               {2, [suback, compat_rc()]},
+               {1, [unsuback, compat_rc()]}]).
+
+connack_error_args() ->
+    [frequency([{10, connack_error()},
+                {1, unexpected_connack_error()}])].
+
+connack_error() ->
+    oneof([client_identifier_not_valid,
+           bad_username_or_password,
+           bad_clientid_or_password,
+           username_or_password_undefined,
+           password_error,
+           not_authorized,
+           server_unavailable,
+           server_busy,
+           banned,
+           bad_authentication_method]).
+
+unexpected_connack_error() ->
+    oneof([who_knows]).
+
+
+real_mqttv3_rc() ->
+    frequency([{6, mqttv3_rc()},
+               {1, unexpected_rc()}]).
+
+real_mqttv5_rc() ->
+    frequency([{43, mqttv5_rc()},
+               {2, unexpected_rc()}]).
+
+compat_rc() ->
+    frequency([{95, ?SUCHTHAT(RC , mqttv5_rc(), RC >= 16#80 orelse RC =< 2)},
+               {5, unexpected_rc()}]).
+
+mqttv3_rc() ->
+    oneof(mqttv3_rcs()).
+
+mqttv5_rc() ->
+    oneof(mqttv5_rcs()).
+
+unexpected_rc() ->
+    oneof(unexpected_rcs()).
+
+mqttv3_rcs() ->
+    [0, 1, 2, 3, 4, 5].
+
+mqttv5_rcs() ->
+    [16#00, 16#01, 16#02, 16#04, 16#10, 16#11, 16#18, 16#19,
+     16#80, 16#81, 16#82, 16#83, 16#84, 16#85, 16#86, 16#87,
+     16#88, 16#89, 16#8A, 16#8B, 16#8C, 16#8D, 16#8E, 16#8F,
+     16#90, 16#91, 16#92, 16#93, 16#94, 16#95, 16#96, 16#97,
+     16#98, 16#99, 16#9A, 16#9B, 16#9C, 16#9D, 16#9E, 16#9F,
+     16#A0, 16#A1, 16#A2].
+
+unexpected_rcs() ->
+    ReasonCodes = mqttv3_rcs() ++ mqttv5_rcs(),
+    Unexpected = lists:seq(0, 16#FF) -- ReasonCodes,
+    lists:sublist(Unexpected, 5).
+
+mqttv5_version() ->
+    ?MQTT_PROTO_V5.
+
+mqttv3_version() ->
+    oneof([?MQTT_PROTO_V3, ?MQTT_PROTO_V4]).

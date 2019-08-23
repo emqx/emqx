@@ -17,6 +17,8 @@
 -ifndef(EMQ_X_MQTT_HRL).
 -define(EMQ_X_MQTT_HRL, true).
 
+-define(UINT_MAX, 16#FFFFFFFF).
+
 %%--------------------------------------------------------------------
 %% MQTT SockOpts
 %%--------------------------------------------------------------------
@@ -297,6 +299,20 @@
                     | undefined,
           payload  :: binary() | undefined
         }).
+
+%%--------------------------------------------------------------------
+%% MQTT Message Internal
+%%--------------------------------------------------------------------
+
+-record(mqtt_msg, {
+          qos = ?QOS_0,
+          retain = false,
+          dup = false,
+          packet_id,
+          topic,
+          props,
+          payload
+         }).
 
 %%--------------------------------------------------------------------
 %% MQTT Packet Match

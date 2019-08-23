@@ -32,8 +32,8 @@ end_per_suite(_Config) ->
 %% t_flapping(_Config) ->
 %%     process_flag(trap_exit, true),
 %%     flapping_connect(5),
-%%     {ok, C} = emqx_client:start_link([{client_id, <<"Client">>}]),
-%%     {error, _} = emqx_client:connect(C),
+%%     {ok, C} = emqtt:start_link([{client_id, <<"Client">>}]),
+%%     {error, _} = emqtt:connect(C),
 %%     receive
 %%         {'EXIT', Client, _Reason} ->
 %%             ct:log("receive exit signal, Client: ~p", [Client])
@@ -45,9 +45,9 @@ flapping_connect(Times) ->
     lists:foreach(fun do_connect/1, lists:seq(1, Times)).
 
 do_connect(_I) ->
-    {ok, C} = emqx_client:start_link([{client_id, <<"Client">>}]),
-    {ok, _} = emqx_client:connect(C),
-    ok = emqx_client:disconnect(C).
+    {ok, C} = emqtt:start_link([{client_id, <<"Client">>}]),
+    {ok, _} = emqtt:connect(C),
+    ok = emqtt:disconnect(C).
 
 prepare_for_test() ->
     ok = emqx_zone:set_env(external, enable_flapping_detect, true),

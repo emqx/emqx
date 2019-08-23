@@ -19,7 +19,7 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
--export([ protocol_name/1
+-export([ proto_name/1
         , type_name/1
         , validate/1
         , format/1
@@ -28,18 +28,20 @@
         , will_msg/1
         ]).
 
-%% @doc Protocol name of version
--spec(protocol_name(emqx_types:version()) -> binary()).
-protocol_name(?MQTT_PROTO_V3) ->
+-compile(inline).
+
+%% @doc Protocol name of the version.
+-spec(proto_name(emqx_types:version()) -> binary()).
+proto_name(?MQTT_PROTO_V3) ->
     <<"MQIsdp">>;
-protocol_name(?MQTT_PROTO_V4) ->
+proto_name(?MQTT_PROTO_V4) ->
     <<"MQTT">>;
-protocol_name(?MQTT_PROTO_V5) ->
+proto_name(?MQTT_PROTO_V5) ->
     <<"MQTT">>.
 
-%% @doc Name of MQTT packet type
+%% @doc Name of MQTT packet type.
 -spec(type_name(emqx_types:packet_type()) -> atom()).
-type_name(Type) when Type > ?RESERVED andalso Type =< ?AUTH ->
+type_name(Type) when ?RESERVED < Type, Type =< ?AUTH ->
     lists:nth(Type, ?TYPE_NAMES).
 
 %%--------------------------------------------------------------------
@@ -82,8 +84,7 @@ validate_packet_id(_) ->
 validate_properties(?SUBSCRIBE, #{'Subscription-Identifier' := I})
     when I =< 0; I >= 16#FFFFFFF ->
     error(subscription_identifier_invalid);
-validate_properties(?PUBLISH, #{'Topic-Alias':= I})
-    when I =:= 0 ->
+validate_properties(?PUBLISH, #{'Topic-Alias':= 0}) ->
     error(topic_alias_invalid);
 validate_properties(?PUBLISH, #{'Subscription-Identifier' := _I}) ->
     error(protocol_error);
@@ -166,10 +167,11 @@ will_msg(#mqtt_packet_connect{client_id    = ClientId,
                               will_qos     = QoS,
                               will_topic   = Topic,
                               will_props   = Properties,
-                              will_payload = Payload}) ->
+                              will_payload = Payload,
+                              proto_ver    = ProtoVer}) ->
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
     Msg#message{flags = #{dup => false, retain => Retain},
-                headers = merge_props(#{username => Username}, Properties)}.
+                headers = merge_props(#{username => Username, proto_ver => ProtoVer}, Properties)}.
 
 merge_props(Headers, undefined) ->
     Headers;

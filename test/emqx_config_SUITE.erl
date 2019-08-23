@@ -14,32 +14,26 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_net_SUITE).
+-module(emqx_config_SUITE).
 
-%% CT
 -compile(export_all).
 -compile(nowarn_export_all).
 
-all() -> [{group, keepalive}].
+-include_lib("eunit/include/eunit.hrl").
 
-groups() -> [{keepalive, [], [t_keepalive]}].
+all() -> emqx_ct:all(?MODULE).
 
-%%--------------------------------------------------------------------
-%% Keepalive
-%%--------------------------------------------------------------------
+init_per_suite(Config) ->
+    emqx_ct_helpers:start_apps([]),
+    Config.
 
-t_keepalive(_) ->
-    {ok, KA} = emqx_keepalive:start(fun() -> {ok, 1} end, 1, {keepalive, timeout}),
-    [resumed, timeout] = lists:reverse(keepalive_recv(KA, [])).
+end_per_suite(_Config) ->
+    emqx_ct_helpers:stop_apps([]).
 
-keepalive_recv(KA, Acc) ->
-    receive
-        {keepalive, timeout} ->
-            case emqx_keepalive:check(KA) of
-                {ok, KA1} -> keepalive_recv(KA1, [resumed | Acc]);
-                {error, timeout} -> [timeout | Acc]
-            end
-        after 4000 ->
-                Acc
-    end.
-
+t_get_env(_) ->
+    ?assertEqual(undefined, emqx_config:get_env(undefined_key)),
+    ?assertEqual(default_value, emqx_config:get_env(undefined_key, default_value)),
+    application:set_env(emqx, undefined_key, hello),
+    ?assertEqual(hello, emqx_config:get_env(undefined_key)),
+    ?assertEqual(hello, emqx_config:get_env(undefined_key, default_value)),
+    application:unset_env(emqx, undefined_key).

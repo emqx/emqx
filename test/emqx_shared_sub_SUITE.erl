@@ -150,24 +150,24 @@ t_not_so_sticky(_) ->
     ok = ensure_config(sticky),
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
-    {ok, C1} = emqx_client:start_link([{client_id, ClientId1}]),
-    {ok, _} = emqx_client:connect(C1),
-    {ok, C2} = emqx_client:start_link([{client_id, ClientId2}]),
-    {ok, _} = emqx_client:connect(C2),
+    {ok, C1} = emqtt:start_link([{client_id, ClientId1}]),
+    {ok, _} = emqtt:connect(C1),
+    {ok, C2} = emqtt:start_link([{client_id, ClientId2}]),
+    {ok, _} = emqtt:connect(C2),
 
-    emqx_client:subscribe(C1, {<<"$share/group1/foo/bar">>, 0}),
+    emqtt:subscribe(C1, {<<"$share/group1/foo/bar">>, 0}),
     timer:sleep(50),
-    emqx_client:publish(C2, <<"foo/bar">>, <<"hello1">>),
+    emqtt:publish(C2, <<"foo/bar">>, <<"hello1">>),
     ?assertMatch([#{payload := <<"hello1">>}], recv_msgs(1)),
 
-    emqx_client:unsubscribe(C1, <<"$share/group1/foo/bar">>),
+    emqtt:unsubscribe(C1, <<"$share/group1/foo/bar">>),
     timer:sleep(50),
-    emqx_client:subscribe(C1, {<<"$share/group1/foo/#">>, 0}),
+    emqtt:subscribe(C1, {<<"$share/group1/foo/#">>, 0}),
     timer:sleep(50),
-    emqx_client:publish(C2, <<"foo/bar">>, <<"hello2">>),
+    emqtt:publish(C2, <<"foo/bar">>, <<"hello2">>),
     ?assertMatch([#{payload := <<"hello2">>}], recv_msgs(1)),
-    emqx_client:disconnect(C1),
-    emqx_client:disconnect(C2),
+    emqtt:disconnect(C1),
+    emqtt:disconnect(C2),
     ok.
 
 test_two_messages(Strategy) ->
@@ -178,15 +178,15 @@ test_two_messages(Strategy, WithAck) ->
     Topic = <<"foo/bar">>,
     ClientId1 = <<"ClientId1">>,
     ClientId2 = <<"ClientId2">>,
-    {ok, ConnPid1} = emqx_client:start_link([{client_id, ClientId1}]),
-    {ok, _} = emqx_client:connect(ConnPid1),
-    {ok, ConnPid2} = emqx_client:start_link([{client_id, ClientId2}]),
-    {ok, _} = emqx_client:connect(ConnPid2),
+    {ok, ConnPid1} = emqtt:start_link([{client_id, ClientId1}]),
+    {ok, _} = emqtt:connect(ConnPid1),
+    {ok, ConnPid2} = emqtt:start_link([{client_id, ClientId2}]),
+    {ok, _} = emqtt:connect(ConnPid2),
 
     Message1 = emqx_message:make(ClientId1, 0, Topic, <<"hello1">>),
     Message2 = emqx_message:make(ClientId1, 0, Topic, <<"hello2">>),
-    emqx_client:subscribe(ConnPid1, {<<"$share/group1/foo/bar">>, 0}),
-    emqx_client:subscribe(ConnPid2, {<<"$share/group1/foo/bar">>, 0}),
+    emqtt:subscribe(ConnPid1, {<<"$share/group1/foo/bar">>, 0}),
+    emqtt:subscribe(ConnPid2, {<<"$share/group1/foo/bar">>, 0}),
     ct:sleep(100),
     emqx:publish(Message1),
     Me = self(),
@@ -210,8 +210,8 @@ test_two_messages(Strategy, WithAck) ->
         hash -> ?assert(UsedSubPid1 =:= UsedSubPid2);
         _ -> ok
     end,
-    emqx_client:stop(ConnPid1),
-    emqx_client:stop(ConnPid2),
+    emqtt:stop(ConnPid1),
+    emqtt:stop(ConnPid2),
     ok.
 
 last_message(ExpectedPayload, Pids) ->

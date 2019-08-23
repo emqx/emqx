@@ -40,7 +40,7 @@
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-start_child(ChildSpec) when is_tuple(ChildSpec) ->
+start_child(ChildSpec) when is_map(ChildSpec) ->
     supervisor:start_child(?MODULE, ChildSpec).
 
 start_child(Mod, Type) when is_atom(Mod) andalso is_atom(Type) ->

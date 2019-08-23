@@ -16,76 +16,58 @@
 
 -module(emqx_keepalive).
 
-%% APIs
--export([ start/3
-        , check/1
-        , cancel/1
+-export([ init/1
+        , info/1
+        , info/2
+        , check/2
         ]).
 
 -export_type([keepalive/0]).
 
 -record(keepalive, {
-          statfun,
-          statval,
-          tsec,
-          tmsg,
-          tref,
-          repeat = 0
+          interval :: pos_integer(),
+          statval  :: non_neg_integer(),
+          repeat   :: non_neg_integer()
          }).
 
 -opaque(keepalive() :: #keepalive{}).
 
-%%--------------------------------------------------------------------
-%% APIs
-%%--------------------------------------------------------------------
+%% @doc Init keepalive.
+-spec(init(Interval :: non_neg_integer()) -> keepalive()).
+init(Interval) when Interval > 0 ->
+    #keepalive{interval = Interval,
+               statval  = 0,
+               repeat   = 0}.
 
-%% @doc Start a keepalive
--spec(start(fun(), integer(), any()) -> {ok, keepalive()} | {error, term()}).
-start(_, 0, _) ->
-    {ok, #keepalive{}};
-start(StatFun, TimeoutSec, TimeoutMsg) ->
-    try StatFun() of
-        {ok, StatVal} ->
-            {ok, #keepalive{statfun = StatFun, statval = StatVal,
-                            tsec = TimeoutSec, tmsg = TimeoutMsg,
-                            tref = timer(TimeoutSec, TimeoutMsg)}};
-        {error, Error} ->
-            {error, Error}
-    catch
-        _Error:Reason ->
-            {error, Reason}
+%% @doc Get Info of the keepalive.
+-spec(info(keepalive()) -> emqx_types:infos()).
+info(#keepalive{interval = Interval,
+                statval  = StatVal,
+                repeat   = Repeat}) ->
+    #{interval => Interval,
+      statval  => StatVal,
+      repeat   => Repeat
+     }.
+
+-spec(info(interval|statval|repeat, keepalive())
+      -> non_neg_integer()).
+info(interval, #keepalive{interval = Interval}) ->
+    Interval;
+info(statval, #keepalive{statval = StatVal}) ->
+    StatVal;
+info(repeat, #keepalive{repeat = Repeat}) ->
+    Repeat.
+
+%% @doc Check keepalive.
+-spec(check(non_neg_integer(), keepalive())
+      -> {ok, keepalive()} | {error, timeout}).
+check(NewVal, KeepAlive = #keepalive{statval = OldVal,
+                                     repeat  = Repeat}) ->
+    if
+        NewVal =/= OldVal ->
+            {ok, KeepAlive#keepalive{statval = NewVal, repeat = 0}};
+        Repeat < 1 ->
+            {ok, KeepAlive#keepalive{repeat = Repeat + 1}};
+        true -> {error, timeout}
     end.
-
-%% @doc Check keepalive, called when timeout...
--spec(check(keepalive()) -> {ok, keepalive()} | {error, term()}).
-check(KeepAlive = #keepalive{statfun = StatFun, statval = LastVal, repeat = Repeat}) ->
-    try StatFun() of
-        {ok, NewVal} ->
-            if NewVal =/= LastVal ->
-                    {ok, resume(KeepAlive#keepalive{statval = NewVal, repeat = 0})};
-                Repeat < 1 ->
-                    {ok, resume(KeepAlive#keepalive{statval = NewVal, repeat = Repeat + 1})};
-                true ->
-                    {error, timeout}
-            end;
-        {error, Error} ->
-            {error, Error}
-    catch
-        _Error:Reason ->
-            {error, Reason}
-    end.
-
--spec(resume(keepalive()) -> keepalive()).
-resume(KeepAlive = #keepalive{tsec = TimeoutSec, tmsg = TimeoutMsg}) ->
-    KeepAlive#keepalive{tref = timer(TimeoutSec, TimeoutMsg)}.
-
-%% @doc Cancel Keepalive
--spec(cancel(keepalive()) -> ok).
-cancel(#keepalive{tref = TRef}) when is_reference(TRef) ->
-    catch erlang:cancel_timer(TRef), ok;
-cancel(_) ->
-    ok.
-
-timer(Secs, Msg) ->
-    erlang:send_after(timer:seconds(Secs), self(), Msg).
 

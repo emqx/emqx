@@ -14,43 +14,38 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_ws_channel_SUITE).
+-module(emqx_mod_subscription_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx_mqtt.hrl").
+-include("emqx.hrl").
+
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([]),
+    emqx_ct_helpers:start_apps([emqx]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
+    emqx_ct_helpers:stop_apps([emqx]).
 
-t_basic(_) ->
-    Topic = <<"TopicA">>,
-    {ok, C} = emqtt:start_link([{host, "127.0.0.1"}, {port, 8083}]),
-    {ok, _} = emqtt:ws_connect(C),
-    {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
-    {ok, _, [2]} = emqtt:subscribe(C, Topic, qos2),
-    {ok, _} = emqtt:publish(C, Topic, <<"qos 2">>, 2),
-    {ok, _} = emqtt:publish(C, Topic, <<"qos 2">>, 2),
-    {ok, _} = emqtt:publish(C, Topic, <<"qos 2">>, 2),
-    ?assertEqual(3, length(recv_msgs(3))),
-    ok = emqx_client:disconnect(C).
-
-recv_msgs(Count) ->
-    recv_msgs(Count, []).
-
-recv_msgs(0, Msgs) ->
-    Msgs;
-recv_msgs(Count, Msgs) ->
+t_mod_subscription(_) ->
+    emqx_mod_subscription:load([{<<"connected/%c/%u">>, ?QOS_0}]),
+    {ok, C} = emqtt:start_link([{host, "localhost"}, {client_id, "myclient"}, {username, "admin"}]),
+    {ok, _} = emqtt:connect(C),
+    % ct:sleep(100),
+    emqtt:publish(C, <<"connected/myclient/admin">>, <<"Hello world">>, ?QOS_0),
     receive
-        {publish, Msg} ->
-            recv_msgs(Count-1, [Msg|Msgs])
+        {publish, #{topic := Topic, payload := Payload}} ->
+            ?assertEqual(<<"connected/myclient/admin">>, Topic),
+            ?assertEqual(<<"Hello world">>, Payload)
     after 100 ->
-        Msgs
-    end.
+        ct:fail("no_message")
+    end,
+    ok = emqtt:disconnect(C),
+    emqx_mod_subscription:unload([]).
