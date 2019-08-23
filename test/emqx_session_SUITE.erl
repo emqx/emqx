@@ -73,12 +73,12 @@ apply_ops(Session, [Op | Rest]) ->
 apply_op(Session, info) ->
     Info = emqx_session:info(Session),
     ?assert(is_map(Info)),
-    ?assertEqual(16, maps:size(Info)),
+    ?assertEqual(15, maps:size(Info)),
     Session;
 apply_op(Session, attrs) ->
     Attrs = emqx_session:attrs(Session),
     ?assert(is_map(Attrs)),
-    ?assertEqual(3, maps:size(Attrs)),
+    ?assertEqual(2, maps:size(Attrs)),
     Session;
 apply_op(Session, stats) ->
     Stats = emqx_session:stats(Session),
@@ -145,14 +145,7 @@ apply_op(Session, {pubcomp, PacketId}) ->
     end;
 apply_op(Session, {deliver, Delivers}) ->
     {ok, _Msgs, NSession} = emqx_session:deliver(Delivers, Session),
-    NSession;
-apply_op(Session, {timeout, {TRef, TimeoutMsg}}) ->
-    case emqx_session:timeout(TRef, TimeoutMsg, Session) of
-        {ok, NSession} ->
-            NSession;
-        {ok, _Msg, NSession} ->
-            NSession
-    end.
+    NSession.
 
 %%%%%%%%%%%%%%%%%%
 %%% Generators %%%
@@ -169,16 +162,12 @@ session_op_list() ->
              {pubrec, pubrec_args()},
              {pubrel, pubrel_args()},
              {pubcomp, pubcomp_args()},
-             {deliver, deliver_args()},
-             {timeout, timeout_args()}
+             {deliver, deliver_args()}
             ],
     list(?LAZY(oneof(Union))).
 
 deliver_args() ->
     list({deliver, topic(), message()}).
-
-timeout_args() ->
-    {tref(), timeout_msg()}.
 
 info_args() ->
     oneof([subscriptions,
@@ -224,11 +213,6 @@ pubrel_args() ->
 
 pubcomp_args() ->
     packetid().
-
-timeout_msg() ->
-    oneof([retry_delivery, check_awaiting_rel]).
-
-tref() -> oneof([tref, undefined]).
 
 sub_opts() ->
     ?LET({RH, RAP, NL, QOS, SHARE, SUBID},
