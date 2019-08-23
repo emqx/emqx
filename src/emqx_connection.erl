@@ -310,6 +310,9 @@ handle({call, From}, Req, State = #state{chan_state = ChanState}) ->
             stop(Reason, State#state{chan_state = NChanState})
     end;
 
+handle(cast, discard, State) ->
+    shutdown(discarded, State);
+
 %% Handle cast
 handle(cast, Msg, State = #state{chan_state = ChanState}) ->
     case emqx_channel:handle_cast(Msg, ChanState) of

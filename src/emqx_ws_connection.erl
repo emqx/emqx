@@ -244,6 +244,9 @@ websocket_info({call, From, Req}, State = #state{chan_state = ChanState}) ->
             stop(Reason, State#state{chan_state = NChanState})
     end;
 
+websocket_info({cast, discard}, State) ->
+    stop(discarded, State);
+
 websocket_info({cast, Msg}, State = #state{chan_state = ChanState}) ->
     case emqx_channel:handle_cast(Msg, ChanState) of
         {ok, NChanState} ->
@@ -294,10 +297,6 @@ websocket_info({timeout, TRef, emit_stats}, State) when is_reference(TRef) ->
 
 websocket_info({timeout, TRef, Msg}, State) when is_reference(TRef) ->
     handle_timeout(TRef, Msg, State);
-
-websocket_info({shutdown, discard, {ClientId, ByPid}}, State) ->
-    ?LOG(warning, "Discarded by ~s:~p", [ClientId, ByPid]),
-    stop(discard, State);
 
 websocket_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
     ?LOG(warning, "Clientid '~s' conflict with ~p", [ClientId, NewPid]),
