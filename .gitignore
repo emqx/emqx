@@ -10,4 +10,5 @@ rel/example_project
 .rebar
 tmp
 _build/
-rebar
+rebar.lock
+logs/

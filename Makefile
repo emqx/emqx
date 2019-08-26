@@ -1,7 +1,6 @@
 .PHONY: deps test
 
-BASE_DIR = $(shell pwd)
-REBAR=$(BASE_DIR)/rebar
+REBAR=rebar3
 
 all: deps compile xref
 
@@ -12,25 +11,19 @@ compile:
 	@$(REBAR) compile
 
 xref:
-	@$(REBAR) xref skip_deps=true
+	@$(REBAR) xref
 
 clean:
 	@$(REBAR) clean
 
-test:
-	@$(REBAR) skip_deps=true eunit
+ct:
+	@$(REBAR) ct
+
+cover:
+	@$(REBAR) cover
 
 edoc:
-	@$(REBAR) doc
-
-PLT  = $(BASE_DIR)/.ecpool_dialyzer.plt
-APPS = erts kernel stdlib sasl crypto syntax_tools ssl public_key mnesia inets compiler
-
-check_plt: compile
-	dialyzer --check_plt --plt $(PLT) --apps $(APPS) deps/*/ebin ebin
-
-build_plt: compile
-	dialyzer --build_plt --output_plt $(PLT) --apps $(APPS) deps/*/ebin ebin
+	@$(REBAR) edoc
 
 dialyzer: compile
-	dialyzer -Wno_return --plt $(PLT) deps/*/ebin ebin
+	@$(REBAR) dialyzer
