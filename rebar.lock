@@ -1,0 +1,4 @@
+[{<<"gproc">>,
+  {git,"git://github.com/uwiger/gproc.git",
+       {ref,"b7b0748d7adaf9b2243921d7e9cf320690eb0544"}},
+  0}].

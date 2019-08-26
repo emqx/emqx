@@ -1,13 +1,15 @@
 {application, ecpool,
  [
   {description, "Erlang Client/Connection Pool"},
-  {vsn, "0.3.1"},
+  {vsn, "git"},
   {registered, []},
   {applications, [
                   kernel,
                   stdlib,
                   gproc
                  ]},
-  {mod, {ecpool_app, []}},
-  {env, []}
+  {mod, { ecpool_app, []}},
+  {env, []},
+  {licenses,["Apache-2.0"]},
+  {links,[{"Github","https://github.com/emqx/ecpool"}]}
  ]}.
