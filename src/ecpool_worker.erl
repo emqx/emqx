@@ -21,18 +21,30 @@
 -export([start_link/4]).
 
 %% API Function Exports
--export([client/1, is_connected/1, set_reconnect_callback/2]).
-
-%% gen_server Function Exports
--export([init/1,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2,
-         terminate/2,
-         code_change/3
+-export([ client/1
+        , is_connected/1
+        , set_reconnect_callback/2
         ]).
 
--record(state, {pool, id, client, mod, on_reconnect, on_disconnect, supervisees = [], opts}).
+%% gen_server Function Exports
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
+        ]).
+
+-record(state, {
+          pool :: ecpool:poo_name(),
+          id :: pos_integer(),
+          client :: pid(),
+          mod :: module(),
+          on_reconnect :: ecpool:reconn_callback(),
+          on_disconnect :: ecpool:reconn_callback(),
+          supervisees = [],
+          opts :: proplists:proplist()
+         }).
 
 %%--------------------------------------------------------------------
 %% Callback
@@ -84,15 +96,18 @@ set_reconnect_callback(Pid, OnReconnect) ->
 
 init([Pool, Id, Mod, Opts]) ->
     process_flag(trap_exit, true),
-    State = #state{pool = Pool, id = Id, mod = Mod, opts = Opts,
+    State = #state{pool = Pool,
+                   id   = Id,
+                   mod  = Mod,
+                   opts = Opts,
                    on_reconnect = proplists:get_value(on_reconnect, Opts),
-                   on_disconnect = proplists:get_value(on_disconnect, Opts)},
+                   on_disconnect = proplists:get_value(on_disconnect, Opts)
+                  },
     case connect_internal(State) of
-        {ok, NewState}  ->
+        {ok, NewState} ->
             gproc_pool:connect_worker(ecpool:name(Pool), {Pool, Id}),
             {ok, NewState};
-        {error, Error} ->
-            {stop, Error}
+        {error, Error} -> {stop, Error}
     end.
 
 handle_call(is_connected, _From, State = #state{client = Client}) ->
@@ -165,10 +180,6 @@ connopts([{pool_type, _}|Opts], Acc) ->
     connopts(Opts, Acc);
 connopts([{auto_reconnect, _}|Opts], Acc) ->
     connopts(Opts, Acc);
-connopts([{bind, _}|Opts], Acc) ->
-    connopts(Opts, Acc);
-connopts([{unbind, _}|Opts], Acc) ->
-    connopts(Opts, Acc);
 connopts([Opt|Opts], Acc) ->
     connopts(Opts, [Opt|Acc]).
 
@@ -203,3 +214,4 @@ connect_internal(State) ->
     catch
         _C:Reason -> {error, Reason}
     end.
+
