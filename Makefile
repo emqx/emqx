@@ -19,6 +19,9 @@ clean:
 ct:
 	@$(REBAR) ct
 
+cover:
+	@$(REBAR) cover
+
 edoc:
 	@$(REBAR) edoc
 
