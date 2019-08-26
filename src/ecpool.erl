@@ -1,3 +1,4 @@
+%%--------------------------------------------------------------------
 %% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(ecpool).
 
@@ -18,6 +20,13 @@
          get_client/1, get_client/2, with_client/2, with_client/3,
          set_reconnect_callback/2,
          name/1, workers/1]).
+
+-export_type([pool_name/0,
+              pool_type/0,
+              option/0
+             ]).
+
+-type pool_name() :: term().
 
 -type pool_type() :: random | hash | round_robin.
 
@@ -28,11 +37,6 @@
                 | {auto_reconnect, false | pos_integer()}
                 | {on_reconnect, reconn_callback()}
                 | tuple().
-
--export_type([pool_name/0,
-              pool_type/0,
-              option/0
-             ]).
 
 pool_spec(ChildId, Pool, Mod, Opts) ->
     #{id => ChildId,

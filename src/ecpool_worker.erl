@@ -1,3 +1,4 @@
+%%--------------------------------------------------------------------
 %% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -11,6 +12,7 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
+%%--------------------------------------------------------------------
 
 -module(ecpool_worker).
 
@@ -19,7 +21,7 @@
 -export([start_link/4]).
 
 %% API Function Exports
--export([start_link/4, client/1, is_connected/1, set_reconnect_callback/2]).
+-export([client/1, is_connected/1, set_reconnect_callback/2]).
 
 %% gen_server Function Exports
 -export([init/1,
@@ -121,8 +123,8 @@ handle_info({'EXIT', Pid, Reason}, State = #state{client = Pid, opts = Opts}) ->
             reconnect_after(Secs, State)
     end;
 
-handle_info(reconnect, State = #state{opts = Opts, on_reconnect = OnReconnect}) ->
-    case catch connect(State) of
+handle_info(reconnect, State = #state{pool = Pool, opts = Opts, on_reconnect = OnReconnect}) ->
+    try connect(State) of
         {ok, Client} ->
             handle_reconnect(Client, OnReconnect),
             {noreply, State#state{client = Client}};
@@ -176,3 +178,7 @@ handle_reconnect(_, undefined) ->
     ok;
 handle_reconnect(Client, OnReconnect) ->
     OnReconnect(Client).
+
+maybe_apply(undefined, _) -> ok;
+maybe_apply(Fun, Arg)     -> erlang:apply(Fun, [Arg]).
+
