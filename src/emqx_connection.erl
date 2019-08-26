@@ -245,6 +245,7 @@ connected(enter, _PrevSt, State = #state{chan_state = ChanState}) ->
     #{client_id := ClientId} = emqx_channel:info(client, ChanState),
     ok = emqx_cm:register_channel(ClientId),
     ok = emqx_cm:set_chan_attrs(ClientId, attrs(State)),
+    ok = emqx_cm:set_chan_stats(ClientId, stats(State)),
     keep_state_and_data;
 
 connected(cast, {incoming, Packet = ?PACKET(?CONNECT)}, State) ->
