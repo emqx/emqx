@@ -76,15 +76,16 @@ set_reconnect_callback(Pool, Callback) ->
     ok.
 
 %% @doc Call the fun with client/connection
--spec(with_client(atom(), fun((Client :: pid()) -> any())) -> any()).
+-spec(with_client(atom(), fun((Client :: pid()) -> any())) -> no_return()).
 with_client(Pool, Fun) when is_atom(Pool) ->
     with_worker(gproc_pool:pick_worker(name(Pool)), Fun).
 
 %% @doc Call the fun with client/connection
--spec(with_client(atom(), any(), fun((Client :: pid()) -> any())) -> any()).
+-spec(with_client(atom(), any(), fun((Client :: pid()) -> term())) -> no_return()).
 with_client(Pool, Key, Fun) when is_atom(Pool) ->
     with_worker(gproc_pool:pick_worker(name(Pool), Key), Fun).
 
+-spec(with_worker(Worker :: pid(), fun((Client :: pid()) -> any())) -> no_return()).
 with_worker(Worker, Fun) ->
     case ecpool_worker:client(Worker) of
         {ok, Client}    -> Fun(Client);

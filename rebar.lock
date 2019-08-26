@@ -1,4 +1,6 @@
-[{<<"gproc">>,
-  {git,"git://github.com/uwiger/gproc.git",
-       {ref,"b7b0748d7adaf9b2243921d7e9cf320690eb0544"}},
-  0}].
+{"1.1.0",
+[{<<"gproc">>,{pkg,<<"gproc">>,<<"0.8.0">>},0}]}.
+[
+{pkg_hash,[
+ {<<"gproc">>, <<"CEA02C578589C61E5341FCE149EA36CCEF236CC2ECAC8691FBA408E7EA77EC2F">>}]}
+].

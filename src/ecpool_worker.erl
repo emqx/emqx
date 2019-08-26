@@ -65,7 +65,7 @@ start_link(Pool, Id, Mod, Opts) ->
     gen_server:start_link(?MODULE, [Pool, Id, Mod, Opts], []).
 
 %% @doc Get client/connection.
--spec(client(pid()) -> undefined | pid()).
+-spec(client(pid()) -> {ok, Client :: pid()} | {error, Reason :: term()}).
 client(Pid) ->
     gen_server:call(Pid, client, infinity).
 
@@ -73,10 +73,6 @@ client(Pid) ->
 -spec(is_connected(pid()) -> boolean()).
 is_connected(Pid) ->
     gen_server:call(Pid, is_connected, infinity).
-
--spec(set_reconnect_callback(pid(), ecpool:reconn_callback()) -> ok).
-set_reconnect_callback(Pid, OnReconnect) ->
-    gen_server:cast(Pid, {set_reconn_callbk, OnReconnect}).
 
 -spec(set_reconnect_callback(pid(), ecpool:reconn_callback()) -> ok).
 set_reconnect_callback(Pid, OnReconnect) ->
@@ -103,9 +99,6 @@ handle_call(is_connected, _From, State = #state{client = Client}) ->
     IsAlive = Client =/= undefined andalso is_process_alive(Client),
     {reply, IsAlive, State};
 
-handle_call(is_connected, _From, State = #state{client = Client}) ->
-    {reply, Client =/= undefined, State};
-
 handle_call(client, _From, State = #state{client = undefined}) ->
     {reply, {error, disconnected}, State};
 
@@ -115,9 +108,6 @@ handle_call(client, _From, State = #state{client = Client}) ->
 handle_call(Req, _From, State) ->
     logger:error("[PoolWorker] unexpected call: ~p", [Req]),
     {reply, ignored, State}.
-
-handle_cast({set_reconn_callbk, OnReconnect}, State) ->
-    {noreply, State#state{on_reconnect = OnReconnect}};
 
 handle_cast({set_reconn_callbk, OnReconnect}, State) ->
     {noreply, State#state{on_reconnect = OnReconnect}};

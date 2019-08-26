@@ -85,7 +85,7 @@ t_restart_client(_Config) ->
     ?debugFmt("~n~p~n", [ecpool:workers(?POOL)]),
     ?assertEqual(2, length(ecpool:workers(?POOL))),
     ecpool:with_client(?POOL, fun(Client) ->
-                                      test_client:stop(Client, {shutdown, badarg})
+                                      test_client:stop(Client, badarg)
                               end),
     timer:sleep(100),
     ?debugFmt("~n~p~n", [ecpool:workers(?POOL)]),
