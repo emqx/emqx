@@ -21,6 +21,7 @@
 -export([ merge_opts/2
         , maybe_apply/2
         , run_fold/3
+        , pipeline/3
         , start_timer/2
         , start_timer/3
         , cancel_timer/1
@@ -57,10 +58,28 @@ maybe_apply(_Fun, undefined) ->
 maybe_apply(Fun, Arg) when is_function(Fun) ->
     erlang:apply(Fun, [Arg]).
 
+%% @doc RunFold
 run_fold([], Acc, _State) ->
     Acc;
 run_fold([Fun|More], Acc, State) ->
     run_fold(More, Fun(Acc, State), State).
+
+%% @doc Pipeline
+pipeline([], Input, State) ->
+    {ok, Input, State};
+
+pipeline([Fun|More], Input, State) ->
+    case Fun(Input, State) of
+        ok -> pipeline(More, Input, State);
+        {ok, NState} ->
+            pipeline(More, Input, NState);
+        {ok, NInput, NState} ->
+            pipeline(More, NInput, NState);
+        {error, Reason} ->
+            {error, Reason, State};
+        {error, Reason, NState} ->
+            {error, Reason, NState}
+    end.
 
 -spec(start_timer(integer(), term()) -> reference()).
 start_timer(Interval, Msg) ->
