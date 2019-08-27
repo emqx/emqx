@@ -50,9 +50,11 @@
 
 -export([gc/3]).
 
--import(emqx_misc, [maybe_apply/2]).
-
--import(emqx_access_control, [check_acl/3]).
+-import(emqx_misc,
+        [ run_fold/3
+        , pipeline/3
+        , maybe_apply/2
+        ]).
 
 -export_type([channel/0]).
 
@@ -480,10 +482,10 @@ do_unsubscribe(TopicFilter, _SubOpts,
 %%--------------------------------------------------------------------
 
 handle_out({connack, ?RC_SUCCESS, SP}, Channel = #channel{client = Client}) ->
-    AckProps = emqx_misc:run_fold([fun enrich_caps/2,
-                                   fun enrich_server_keepalive/2,
-                                   fun enrich_assigned_clientid/2
-                                  ], #{}, Channel),
+    AckProps = run_fold([fun enrich_caps/2,
+                         fun enrich_server_keepalive/2,
+                         fun enrich_assigned_clientid/2
+                        ], #{}, Channel),
     AckPacket = ?CONNACK_PACKET(?RC_SUCCESS, SP, AckProps),
     Channel1 = ensure_keepalive(AckProps, ensure_connected(Channel)),
     ok = emqx_hooks:run('client.connected',
@@ -1016,7 +1018,8 @@ check_publish(Packet, Channel) ->
 %% Check Pub ACL
 check_pub_acl(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
               #channel{client = Client}) ->
-    case is_acl_enabled(Client) andalso check_acl(Client, publish, Topic) of
+    case is_acl_enabled(Client) andalso
+         emqx_access_control:check_acl(Client, publish, Topic) of
         false -> ok;
         allow -> ok;
         deny  -> {error, ?RC_NOT_AUTHORIZED}
@@ -1057,7 +1060,7 @@ check_subscribe(TopicFilter, SubOpts, Channel) ->
 %% Check Sub ACL
 check_sub_acl(TopicFilter, #channel{client = Client}) ->
     case is_acl_enabled(Client) andalso
-         check_acl(Client, subscribe, TopicFilter) of
+         emqx_access_control:check_acl(Client, subscribe, TopicFilter) of
         false  -> allow;
         Result -> Result
     end.
@@ -1175,26 +1178,6 @@ mount(Client = #{mountpoint := MountPoint}, TopicOrMsg) ->
 unmount(Client = #{mountpoint := MountPoint}, TopicOrMsg) ->
     emqx_mountpoint:unmount(
       emqx_mountpoint:replvar(MountPoint, Client), TopicOrMsg).
-
-%%--------------------------------------------------------------------
-%% Pipeline
-%%--------------------------------------------------------------------
-
-pipeline([], Packet, Channel) ->
-    {ok, Packet, Channel};
-
-pipeline([Fun|More], Packet, Channel) ->
-    case Fun(Packet, Channel) of
-        ok -> pipeline(More, Packet, Channel);
-        {ok, NChannel} ->
-            pipeline(More, Packet, NChannel);
-        {ok, NPacket, NChannel} ->
-            pipeline(More, NPacket, NChannel);
-        {error, ReasonCode} ->
-            {error, ReasonCode, Channel};
-        {error, ReasonCode, NChannel} ->
-            {error, ReasonCode, NChannel}
-    end.
 
 %%--------------------------------------------------------------------
 %% Helper functions
