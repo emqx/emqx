@@ -16,27 +16,36 @@
 
 -module(ecpool).
 
--export([pool_spec/4, start_pool/3, start_sup_pool/3, stop_sup_pool/1,
-         get_client/1, get_client/2, with_client/2, with_client/3,
-         set_reconnect_callback/2,
-         name/1, workers/1]).
+-export([ pool_spec/4
+        , start_pool/3
+        , start_sup_pool/3
+        , stop_sup_pool/1
+        , get_client/1
+        , get_client/2
+        , with_client/2
+        , with_client/3
+        , name/1
+        , workers/1
+        ]).
 
--export_type([pool_name/0,
-              pool_type/0,
-              option/0
+-export([set_reconnect_callback/2]).
+
+-export_type([ pool_name/0
+             , pool_type/0
+             , option/0
              ]).
 
--type pool_name() :: term().
+-type(pool_name() :: term()).
 
--type pool_type() :: random | hash | round_robin.
+-type(pool_type() :: random | hash | round_robin).
 
--type reconn_callback() :: {fun((pid()) -> term())}.
+-type(reconn_callback() :: {fun((pid()) -> term())}).
 
--type option() :: {pool_size, pos_integer()}
+-type(option() :: {pool_size, pos_integer()}
                 | {pool_type, pool_type()}
                 | {auto_reconnect, false | pos_integer()}
                 | {on_reconnect, reconn_callback()}
-                | tuple().
+                | tuple()).
 
 pool_spec(ChildId, Pool, Mod, Opts) ->
     #{id => ChildId,
