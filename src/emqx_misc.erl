@@ -41,7 +41,7 @@
           ]}).
 
 %% @doc Merge options
--spec(merge_opts(list(), list()) -> list()).
+-spec(merge_opts(Opts, Opts) -> Opts when Opts :: proplists:proplist()).
 merge_opts(Defaults, Options) ->
     lists:foldl(
       fun({Opt, Val}, Acc) ->
