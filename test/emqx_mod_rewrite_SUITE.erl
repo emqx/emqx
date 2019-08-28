@@ -20,7 +20,6 @@
 -compile(nowarn_export_all).
 
 -include("emqx_mqtt.hrl").
--include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 -define(rules, [{rewrite,<<"x/#">>,<<"^x/y/(.+)$">>,<<"z/y/$1">>},
