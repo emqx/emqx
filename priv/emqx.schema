@@ -334,6 +334,13 @@ end}.
   hidden
 ]}.
 
+%% @see node.max_clients
+{mapping, "node.max_clients", "emqx.max_clients", [
+  {default, 1024000},
+  {datatype, integer},
+  hidden
+]}.
+
 %%--------------------------------------------------------------------
 %% RPC
 %%--------------------------------------------------------------------

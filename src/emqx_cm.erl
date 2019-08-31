@@ -44,6 +44,8 @@
 
 -export([lookup_conn_pid/1]).
 
+-export([max_client_size/0]).
+
 %% gen_server callbacks
 -export([ init/1
         , handle_call/3
@@ -147,6 +149,9 @@ lookup_conn_pid(ClientId) when is_binary(ClientId) ->
 
 notify(Msg) ->
     gen_server:cast(?CM, {notify, Msg}).
+
+max_client_size() ->
+    ets:info(?CONN_TAB, size).
 
 %%-----------------------------------------------------------------------------
 %% gen_server callbacks
