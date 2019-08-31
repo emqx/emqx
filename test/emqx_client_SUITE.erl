@@ -70,6 +70,7 @@ receive_messages(Count, Msgs) ->
 basic_test(_Config) ->
     Topic = nth(1, ?TOPICS),
     ct:print("Basic test starting"),
+    init_caps(),
     {ok, C} = emqx_client:start_link(),
     {ok, _} = emqx_client:connect(C),
     {ok, _, [1]} = emqx_client:subscribe(C, Topic, qos1),
@@ -81,6 +82,7 @@ basic_test(_Config) ->
     ok = emqx_client:disconnect(C).
 
 will_message_test(_Config) ->
+    init_caps(),
     {ok, C1} = emqx_client:start_link([{clean_start, true},
                                           {will_topic, nth(3, ?TOPICS)},
                                           {will_payload, <<"client disconnected">>},
@@ -99,10 +101,10 @@ will_message_test(_Config) ->
     ct:print("Will message test succeeded").
 
 offline_message_queueing_test(_) ->
+    init_caps(),
     {ok, C1} = emqx_client:start_link([{clean_start, false},
                                        {client_id, <<"c1">>}]),
     {ok, _} = emqx_client:connect(C1),
-    ct:print("subscribe:~p", [emqx_mqtt_caps:get_caps(external, subscribe)]),
     {ok, _, [2]} = emqx_client:subscribe(C1, nth(6, ?WILD_TOPICS), 2),
     ok = emqx_client:disconnect(C1),
     {ok, C2} = emqx_client:start_link([{clean_start, true},
@@ -123,6 +125,7 @@ offline_message_queueing_test(_) ->
     ?assertEqual(3, length(receive_messages(3))).
 
 overlapping_subscriptions_test(_) ->
+    init_caps(),
     {ok, C} = emqx_client:start_link([]),
     {ok, _} = emqx_client:connect(C),
 
@@ -163,6 +166,7 @@ overlapping_subscriptions_test(_) ->
 
 redelivery_on_reconnect_test(_) ->
     ct:print("Redelivery on reconnect test starting"),
+    init_caps(),
     {ok, C1} = emqx_client:start_link([{clean_start, false},
                                        {client_id, <<"c">>}]),
     {ok, _} = emqx_client:connect(C1),
@@ -194,6 +198,7 @@ redelivery_on_reconnect_test(_) ->
 
 dollar_topics_test(_) ->
     ct:print("$ topics test starting"),
+    init_caps(),
     {ok, C} = emqx_client:start_link([{clean_start, true},
                                       {keepalive, 0}]),
     {ok, _} = emqx_client:connect(C),
@@ -205,3 +210,13 @@ dollar_topics_test(_) ->
     ?assertEqual(0, length(receive_messages(1))),
     ok = emqx_client:disconnect(C),
     ct:print("$ topics test succeeded").
+
+init_caps() ->
+    Caps = #{max_qos_allowed => 2,
+             max_topic_levels => 0,
+             mqtt_shared_subscription => true,
+             mqtt_wildcard_subscription => true,
+             max_topic_alias => 0,
+             mqtt_retain_available => true},
+    [emqx_zone:set_env(external, Key, Val) ||{Key, Val} <- maps:to_list(Caps)],
+    timer:sleep(100).
