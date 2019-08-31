@@ -260,10 +260,22 @@ set_protover(_Packet, PState) ->
 received(?PACKET(Type), PState = #pstate{connected = false}) when Type =/= ?CONNECT ->
     {error, proto_not_connected, PState};
 
+received(Packet = ?PACKET(?CONNECT), PState = #pstate{connected = false}) ->
+    case check_max_clients() of
+        true ->
+            ?LOG(error, "Connection rejected due to max clients limitation"),
+            connack({?RC_QUOTA_EXCEEDED, PState});
+        false ->
+            do_received(Packet, PState)
+    end;
+
 received(?PACKET(?CONNECT), PState = #pstate{connected = true}) ->
     {error, proto_unexpected_connect, PState};
 
-received(Packet = ?PACKET(Type), PState) ->
+received(Packet, PState) ->
+    do_received(Packet, PState).
+
+do_received(Packet = ?PACKET(Type), PState) ->
     trace(recv, Packet),
     PState1 = set_protover(Packet, PState),
     try emqx_packet:validate(Packet) of
@@ -1048,3 +1060,8 @@ do_acl_check(Action, Credentials, Topic, AllowTerm, DenyTerm) ->
         allow -> AllowTerm;
         deny -> DenyTerm
     end.
+
+check_max_clients() ->
+    CurrentClientSize = emqx_cm:max_client_size(),
+    MaxClients = emqx_config:get_env(max_clients, 1024000),
+    CurrentClientSize >= MaxClients.
