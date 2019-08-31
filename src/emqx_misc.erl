@@ -28,6 +28,7 @@
         , proc_name/2
         , proc_stats/0
         , proc_stats/1
+        , index_of/2
         ]).
 
 -export([ drain_deliver/0
@@ -141,4 +142,15 @@ drain_down(Cnt, Acc) ->
     after 0 ->
         drain_down(0, Acc)
     end.
+
+%% lists:index_of/2
+index_of(E, L) ->
+    index_of(E, 1, L).
+
+index_of(_E, _I, []) ->
+    error(badarg);
+index_of(E, I, [E|_]) ->
+    I;
+index_of(E, I, [_|L]) ->
+    index_of(E, I+1, L).
 
