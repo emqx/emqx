@@ -33,8 +33,8 @@
         , caps/1
         ]).
 
-%% for tests
--export([set/3]).
+%% For tests
+-export([set_field/3]).
 
 -export([ handle_in/2
         , handle_out/2
@@ -45,10 +45,9 @@
         , terminate/2
         ]).
 
-%% Ensure timer
--export([ensure_timer/2]).
-
--export([gc/3]).
+-export([ received/2
+        , sent/2
+        ]).
 
 -import(emqx_misc,
         [ run_fold/3
@@ -70,15 +69,14 @@
           %% Timers
           timers :: #{atom() => disabled | maybe(reference())},
           %% GC State
-          gc_state :: emqx_gc:gc_state(),
+          gc_state :: maybe(emqx_gc:gc_state()),
           %% OOM Policy
-          oom_policy :: emqx_oom:oom_policy(),
+          oom_policy :: maybe(emqx_oom:oom_policy()),
           %% Connected
           connected :: boolean(),
-          %% Disonnected
-          disconnected :: boolean(),
           %% Connected at
           connected_at :: erlang:timestamp(),
+          %% Disconnected at
           disconnected_at :: erlang:timestamp(),
           %% Takeover
           takeover :: boolean(),
@@ -119,22 +117,22 @@ init(ConnInfo, Options) ->
                           client_id    => <<>>,
                           mountpoint   => MountPoint,
                           is_bridge    => false,
-                          is_superuser => false}, ConnInfo),
+                          is_superuser => false
+                         }, ConnInfo),
     EnableStats = emqx_zone:get_env(Zone, enable_stats, true),
     StatsTimer = if
                      EnableStats -> undefined;
                      ?Otherwise  -> disabled
                  end,
-    GcState = emqx_gc:init(emqx_zone:get_env(Zone, force_gc_policy, false)),
-    OomPolicy = emqx_oom:init(emqx_zone:get_env(Zone, force_shutdown_policy)),
+    GcState = maybe_apply(fun emqx_gc:init/1,
+                          emqx_zone:get_env(Zone, force_gc_policy)),
+    OomPolicy = maybe_apply(fun emqx_oom:init/1,
+                            emqx_zone:get_env(Zone, force_shutdown_policy)),
     #channel{client       = Client,
-             session      = undefined,
-             protocol     = undefined,
              gc_state     = GcState,
              oom_policy   = OomPolicy,
              timers       = #{stats_timer => StatsTimer},
              connected    = false,
-             disconnected = false,
              takeover     = false,
              resuming     = false,
              pendings     = []
@@ -161,8 +159,8 @@ info(#channel{client       = Client,
       session      => maybe_apply(fun emqx_session:info/1, Session),
       protocol     => maybe_apply(fun emqx_protocol:info/1, Protocol),
       keepalive    => maybe_apply(fun emqx_keepalive:info/1, Keepalive),
-      gc_state     => emqx_gc:info(GCState),
-      oom_policy   => emqx_oom:info(OomPolicy),
+      gc_state     => maybe_apply(fun emqx_gc:info/1, GCState),
+      oom_policy   => maybe_apply(fun emqx_oom:info/1, OomPolicy),
       connected    => Connected,
       connected_at => ConnectedAt
      }.
@@ -177,9 +175,9 @@ info(protocol, #channel{protocol = Protocol}) ->
 info(keepalive, #channel{keepalive = Keepalive}) ->
     maybe_apply(fun emqx_keepalive:info/1, Keepalive);
 info(gc_state, #channel{gc_state = GCState}) ->
-    emqx_gc:info(GCState);
+    maybe_apply(fun emqx_gc:info/1, GCState);
 info(oom_policy, #channel{oom_policy = Policy}) ->
-    emqx_oom:info(Policy);
+    maybe_apply(fun emqx_oom:info/1, Policy);
 info(connected, #channel{connected = Connected}) ->
     Connected;
 info(connected_at, #channel{connected_at = ConnectedAt}) ->
@@ -200,7 +198,6 @@ attrs(#channel{client       = Client,
       connected_at => ConnectedAt
      }.
 
-%%TODO: ChanStats?
 -spec(stats(channel()) -> emqx_types:stats()).
 stats(#channel{session = Session}) ->
     emqx_session:stats(Session).
@@ -209,16 +206,11 @@ stats(#channel{session = Session}) ->
 caps(#channel{client = #{zone := Zone}}) ->
     emqx_mqtt_caps:get_caps(Zone).
 
-%%--------------------------------------------------------------------
-%% For unit tests
-%%--------------------------------------------------------------------
-
-set(client, Client, Channel) ->
-    Channel#channel{client = Client};
-set(session, Session, Channel) ->
-    Channel#channel{session = Session};
-set(protocol, Protocol, Channel) ->
-    Channel#channel{protocol = Protocol}.
+%% For tests
+set_field(Name, Val, Channel) ->
+    Fields = record_info(fields, channel),
+    Pos = emqx_misc:index_of(Name, Fields),
+    setelement(Pos+1, Channel, Val).
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet
@@ -597,6 +589,12 @@ handle_out({Type, Data}, Channel) ->
 %% Handle call
 %%--------------------------------------------------------------------
 
+handle_call(kick, Channel) ->
+    {stop, {shutdown, kicked}, ok, Channel};
+
+handle_call(discard, Channel) ->
+    {stop, {shutdown, discarded}, ok, Channel};
+
 %% Session Takeover
 handle_call({takeover, 'begin'}, Channel = #channel{session = Session}) ->
     {ok, Session, Channel#channel{takeover = true}};
@@ -614,6 +612,12 @@ handle_call(Req, Channel) ->
 %%--------------------------------------------------------------------
 %% Handle cast
 %%--------------------------------------------------------------------
+
+-spec(handle_cast(Msg :: term(), channel())
+      -> ok | {ok, channel()} | {stop, Reason :: term(), channel()}).
+handle_cast({register, Attrs}, #channel{client = #{client_id := ClientId}}) ->
+    ok = emqx_cm:register_channel(ClientId),
+    emqx_cm:set_chan_attrs(ClientId, Attrs);
 
 handle_cast(Msg, Channel) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
@@ -639,12 +643,11 @@ handle_info({unsubscribe, TopicFilters}, Channel = #channel{client = Client}) ->
     {_ReasonCodes, NChannel} = process_unsubscribe(TopicFilters1, Channel),
     {ok, NChannel};
 
-handle_info(sock_closed, Channel = #channel{disconnected = true}) ->
-    {ok, Channel};
-handle_info(sock_closed, Channel = #channel{connected = false}) ->
+handle_info(disconnected, Channel = #channel{connected = false}) ->
     shutdown(closed, Channel);
-handle_info(sock_closed, Channel = #channel{protocol = Protocol,
-                                            session  = Session}) ->
+handle_info(disconnected, Channel = #channel{protocol = Protocol,
+                                             session  = Session}) ->
+    %% TODO: Why handle will_msg here?
     publish_will_msg(emqx_protocol:info(will_msg, Protocol)),
     NChannel = Channel#channel{protocol = emqx_protocol:clear_will_msg(Protocol)},
     Interval = emqx_session:info(expiry_interval, Session),
@@ -781,22 +784,19 @@ terminate(Reason, #channel{client = Client,
         true -> publish_will_msg(emqx_protocol:info(will_msg, Protocol))
     end.
 
+-spec(received(pos_integer(), channel()) -> channel()).
+received(Oct, Channel) ->
+    ensure_timer(stats_timer, maybe_gc_and_check_oom(Oct, Channel)).
+
+-spec(sent(pos_integer(), channel()) -> channel()).
+sent(Oct, Channel) ->
+    ensure_timer(stats_timer, maybe_gc_and_check_oom(Oct, Channel)).
+
 %%TODO: Improve will msg:)
 publish_will_msg(undefined) ->
     ok;
 publish_will_msg(Msg) ->
     emqx_broker:publish(Msg).
-
-%%--------------------------------------------------------------------
-%% GC the channel.
-%%--------------------------------------------------------------------
-
-gc(_Cnt, _Oct, Channel = #channel{gc_state = undefined}) ->
-    Channel;
-gc(Cnt, Oct, Channel = #channel{gc_state = GCSt}) ->
-    {Ok, GCSt1} = emqx_gc:run(Cnt, Oct, GCSt),
-    Ok andalso emqx_metrics:inc('channel.gc.cnt'),
-    Channel#channel{gc_state = GCSt1}.
 
 %% @doc Validate incoming packet.
 -spec(validate_packet(emqx_types:packet(), channel())
@@ -1119,10 +1119,10 @@ enrich_assigned_clientid(AckProps, #channel{client = #{client_id := ClientId},
     end.
 
 ensure_connected(Channel) ->
-    Channel#channel{connected = true, connected_at = os:timestamp(), disconnected = false}.
+    Channel#channel{connected = true, connected_at = os:timestamp()}.
 
 ensure_disconnected(Channel) ->
-    Channel#channel{connected = false, disconnected_at = os:timestamp(), disconnected = true}.
+    Channel#channel{connected = false, disconnected_at = os:timestamp()}.
 
 ensure_keepalive(#{'Server-Keep-Alive' := Interval}, Channel) ->
     ensure_keepalive_timer(Interval, Channel);
@@ -1162,7 +1162,8 @@ is_acl_enabled(#{zone := Zone, is_superuser := IsSuperuser}) ->
 %%--------------------------------------------------------------------
 
 parse(subscribe, TopicFilters) ->
-    [emqx_topic:parse(TopicFilter, SubOpts) || {TopicFilter, SubOpts} <- TopicFilters];
+    [emqx_topic:parse(TopicFilter, SubOpts)
+     || {TopicFilter, SubOpts} <- TopicFilters];
 
 parse(unsubscribe, TopicFilters) ->
     lists:map(fun emqx_topic:parse/1, TopicFilters).
@@ -1178,6 +1179,25 @@ mount(Client = #{mountpoint := MountPoint}, TopicOrMsg) ->
 unmount(Client = #{mountpoint := MountPoint}, TopicOrMsg) ->
     emqx_mountpoint:unmount(
       emqx_mountpoint:replvar(MountPoint, Client), TopicOrMsg).
+
+%%--------------------------------------------------------------------
+%% Maybe GC and Check OOM
+%%--------------------------------------------------------------------
+
+maybe_gc_and_check_oom(_Oct, Channel = #channel{gc_state = undefined}) ->
+    Channel;
+maybe_gc_and_check_oom(Oct, Channel = #channel{gc_state   = GCSt,
+                                               oom_policy = OomPolicy}) ->
+    {IsGC, GCSt1} = emqx_gc:run(1, Oct, GCSt),
+    IsGC andalso emqx_metrics:inc('channel.gc.cnt'),
+    IsGC andalso maybe_apply(fun check_oom/1, OomPolicy),
+    Channel#channel{gc_state = GCSt1}.
+
+check_oom(OomPolicy) ->
+    case emqx_oom:check(OomPolicy) of
+        ok -> ok;
+        Shutdown -> self() ! Shutdown
+    end.
 
 %%--------------------------------------------------------------------
 %% Helper functions
