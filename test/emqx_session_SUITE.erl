@@ -89,7 +89,7 @@ message_expiry_interval_exipred(ClientA, QoS) ->
     ct:pal("~p ~p", [?FUNCTION_NAME, QoS]),
     %% publish to t/a and waiting for the message expired
     emqx_client:publish(ClientA, <<"t/a">>, #{'Message-Expiry-Interval' => 1}, <<"this will be purged in 1s">>, [{qos, QoS}]),
-    ct:sleep(1000),
+    ct:sleep(2000),
 
     %% resume the session for client-b
     {ok, ClientB1} = emqx_client:start_link([{proto_ver,v5}, {client_id, <<"client-b">>}, {clean_start, false},{properties, #{'Session-Expiry-Interval' => 360}}]),

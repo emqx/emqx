@@ -126,31 +126,13 @@ default_caps() ->
     ?DEFAULT_CAPS.
 
 get_caps(Zone, publish) ->
-    with_env(Zone, '$mqtt_pub_caps',
-             fun() ->
-                 filter_caps(?PUBCAP_KEYS, get_caps(Zone))
-             end);
+    filter_caps(?PUBCAP_KEYS, get_caps(Zone));
 
 get_caps(Zone, subscribe) ->
-    with_env(Zone, '$mqtt_sub_caps',
-             fun() ->
-                 filter_caps(?SUBCAP_KEYS, get_caps(Zone))
-             end).
+    filter_caps(?SUBCAP_KEYS, get_caps(Zone)).
 
 get_caps(Zone) ->
-    with_env(Zone, '$mqtt_caps',
-             fun() ->
-                 maps:from_list([{Cap, emqx_zone:get_env(Zone, Cap, Def)}
-                                 || {Cap, Def} <- ?DEFAULT_CAPS])
-             end).
+    maps:from_list([{Cap, emqx_zone:get_env(Zone, Cap, Def)} || {Cap, Def} <- ?DEFAULT_CAPS]).
 
 filter_caps(Keys, Caps) ->
     maps:filter(fun(Key, _Val) -> lists:member(Key, Keys) end, Caps).
-
-with_env(Zone, Key, InitFun) ->
-    case emqx_zone:get_env(Zone, Key) of
-        undefined -> Caps = InitFun(),
-                     ok = emqx_zone:set_env(Zone, Key, Caps),
-                     Caps;
-        ZoneCaps  -> ZoneCaps
-    end.
