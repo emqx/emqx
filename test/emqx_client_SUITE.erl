@@ -102,7 +102,7 @@ offline_message_queueing_test(_) ->
     {ok, C1} = emqx_client:start_link([{clean_start, false},
                                        {client_id, <<"c1">>}]),
     {ok, _} = emqx_client:connect(C1),
-
+    ct:print("subscribe:~p", [emqx_mqtt_caps:get_caps(external, subscribe)]),
     {ok, _, [2]} = emqx_client:subscribe(C1, nth(6, ?WILD_TOPICS), 2),
     ok = emqx_client:disconnect(C1),
     {ok, C2} = emqx_client:start_link([{clean_start, true},
