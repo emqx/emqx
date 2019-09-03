@@ -61,6 +61,8 @@
 
 -type(ws_connection() :: #ws_connection{}).
 
+-define(INFO_KEYS, [socktype, peername, sockname, active_state]).
+-define(ATTR_KEYS, [socktype, peername, sockname]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 
@@ -71,29 +73,31 @@
 -spec(info(pid()|ws_connection()) -> emqx_types:infos()).
 info(WsPid) when is_pid(WsPid) ->
     call(WsPid, info);
-info(#ws_connection{peername   = Peername,
-                    sockname   = Sockname,
-                    chan_state = ChanState}) ->
-    ConnInfo = #{socktype     => websocket,
-                 peername     => Peername,
-                 sockname     => Sockname,
-                 active_state => running
-                },
+info(WsConn = #ws_connection{chan_state = ChanState}) ->
+    ConnInfo = info(?INFO_KEYS, WsConn),
     ChanInfo = emqx_channel:info(ChanState),
-    maps:merge(#{connection => ConnInfo}, ChanInfo).
+    maps:merge(ChanInfo, #{connection => maps:from_list(ConnInfo)}).
+
+info(Keys, WsConn) when is_list(Keys) ->
+    [{Key, info(Key, WsConn)} || Key <- Keys];
+info(socktype, #ws_connection{}) ->
+    websocket;
+info(peername, #ws_connection{peername = Peername}) ->
+    Peername;
+info(sockname, #ws_connection{sockname = Sockname}) ->
+    Sockname;
+info(active_state, #ws_connection{}) ->
+    running;
+info(chan_state, #ws_connection{chan_state = ChanState}) ->
+    emqx_channel:info(ChanState).
 
 -spec(attrs(pid()|ws_connection()) -> emqx_types:attrs()).
 attrs(WsPid) when is_pid(WsPid) ->
     call(WsPid, attrs);
-attrs(#ws_connection{peername   = Peername,
-                     sockname   = Sockname,
-                     chan_state = ChanState}) ->
-    ConnAttrs = #{socktype => websocket,
-                  peername => Peername,
-                  sockname => Sockname
-                 },
+attrs(WsConn = #ws_connection{chan_state = ChanState}) ->
+    ConnAttrs = info(?ATTR_KEYS, WsConn),
     ChanAttrs = emqx_channel:attrs(ChanState),
-    maps:merge(#{connection => ConnAttrs}, ChanAttrs).
+    maps:merge(ChanAttrs, #{connection => maps:from_list(ConnAttrs)}).
 
 -spec(stats(pid()|ws_connection()) -> emqx_types:stats()).
 stats(WsPid) when is_pid(WsPid) ->

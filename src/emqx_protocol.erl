@@ -28,7 +28,6 @@
 
 -export([ find_alias/2
         , save_alias/3
-        , clear_will_msg/1
         ]).
 
 -export_type([protocol/0]).
@@ -56,25 +55,19 @@
 
 -opaque(protocol() :: #protocol{}).
 
+-define(INFO_KEYS, record_info(fields, protocol)).
+
+-define(ATTR_KEYS, [proto_name, proto_ver, clean_start, keepalive]).
+
 -spec(init(#mqtt_packet_connect{}) -> protocol()).
 init(#mqtt_packet_connect{proto_name  = ProtoName,
                           proto_ver   = ProtoVer,
-                          will_props  = WillProps,
                           clean_start = CleanStart,
                           keepalive   = Keepalive,
                           properties  = Properties,
                           client_id   = ClientId,
-                          username    = Username
-                         } = ConnPkt) ->
-    WillMsg = emqx_packet:will_msg(
-        case ProtoVer of
-            ?MQTT_PROTO_V5 ->
-                WillDelayInterval = get_property('Will-Delay-Interval', WillProps, 0),
-                ConnPkt#mqtt_packet_connect{
-                    will_props = set_property('Will-Delay-Interval', WillDelayInterval, WillProps)};
-            _ ->
-                ConnPkt
-        end),
+                          username    = Username} = ConnPkt) ->
+    WillMsg = emqx_packet:will_msg(ConnPkt),
     #protocol{proto_name  = ProtoName,
               proto_ver   = ProtoVer,
               clean_start = CleanStart,
@@ -85,30 +78,15 @@ init(#mqtt_packet_connect{proto_name  = ProtoName,
               conn_props  = Properties
              }.
 
-info(#protocol{proto_name  = ProtoName,
-               proto_ver   = ProtoVer,
-               clean_start = CleanStart,
-               keepalive   = Keepalive,
-               client_id   = ClientId,
-               username    = Username,
-               will_msg    = WillMsg,
-               conn_props  = ConnProps,
-               topic_aliases = Aliases }) ->
-    #{proto_name  => ProtoName,
-      proto_ver   => ProtoVer,
-      clean_start => CleanStart,
-      keepalive   => Keepalive,
-      client_id   => ClientId,
-      username    => Username,
-      will_msg    => WillMsg,
-      conn_props => ConnProps,
-      topic_aliases => Aliases
-     }.
+-spec(info(protocol()) -> emqx_types:infos()).
+info(Proto) ->
+    maps:from_list(info(?INFO_KEYS, Proto)).
 
+-spec(info(atom()|list(atom()), protocol()) -> term()).
+info(Keys, Proto) when is_list(Keys) ->
+    [{Key, info(Key, Proto)} || Key <- Keys];
 info(proto_name, #protocol{proto_name = ProtoName}) ->
     ProtoName;
-info(proto_ver, undefined) ->
-    ?MQTT_PROTO_V4;
 info(proto_ver, #protocol{proto_ver = ProtoVer}) ->
     ProtoVer;
 info(clean_start, #protocol{clean_start = CleanStart}) ->
@@ -130,35 +108,21 @@ info(conn_props, #protocol{conn_props = ConnProps}) ->
 info(topic_aliases, #protocol{topic_aliases = Aliases}) ->
     Aliases.
 
-attrs(#protocol{proto_name  = ProtoName,
-                proto_ver   = ProtoVer,
-                clean_start = CleanStart,
-                keepalive   = Keepalive}) ->
-    #{proto_name  => ProtoName,
-      proto_ver   => ProtoVer,
-      clean_start => CleanStart,
-      keepalive   => Keepalive
-     }.
+-spec(attrs(protocol()) -> emqx_types:attrs()).
+attrs(Proto) ->
+    maps:from_list(info(?ATTR_KEYS, Proto)).
 
+-spec(find_alias(emqx_types:alias_id(), protocol())
+      -> {ok, emqx_types:topic()} | false).
 find_alias(_AliasId, #protocol{topic_aliases = undefined}) ->
     false;
 find_alias(AliasId, #protocol{topic_aliases = Aliases}) ->
     maps:find(AliasId, Aliases).
 
-save_alias(AliasId, Topic, Protocol = #protocol{topic_aliases = undefined}) ->
-    Protocol#protocol{topic_aliases = #{AliasId => Topic}};
-save_alias(AliasId, Topic, Protocol = #protocol{topic_aliases = Aliases}) ->
-    Protocol#protocol{topic_aliases = maps:put(AliasId, Topic, Aliases)}.
+-spec(save_alias(emqx_types:alias_id(), emqx_types:topic(), protocol())
+      -> protocol()).
+save_alias(AliasId, Topic, Proto = #protocol{topic_aliases = undefined}) ->
+    Proto#protocol{topic_aliases = #{AliasId => Topic}};
+save_alias(AliasId, Topic, Proto = #protocol{topic_aliases = Aliases}) ->
+    Proto#protocol{topic_aliases = maps:put(AliasId, Topic, Aliases)}.
 
-clear_will_msg(Protocol) ->
-    Protocol#protocol{will_msg = undefined}.
-
-set_property(Name, Value, undefined) ->
-    #{Name => Value};
-set_property(Name, Value, Props) ->
-    Props#{Name => Value}.
-
-get_property(_Name, undefined, Default) ->
-    Default;
-get_property(Name, Props, Default) ->
-    maps:get(Name, Props, Default).

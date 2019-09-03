@@ -81,6 +81,9 @@
 
 -define(ACTIVE_N, 100).
 -define(HANDLE(T, C, D), handle((T), (C), (D))).
+-define(ATTR_KEYS, [socktype, peername, sockname]).
+-define(INFO_KEYS, [socktype, peername, sockname, active_n, active_state,
+                    rate_limit, pub_limit]).
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt, send_pend]).
 
@@ -94,48 +97,45 @@ start_link(Transport, Socket, Options) ->
 %% API
 %%--------------------------------------------------------------------
 
-%% @doc Get infos of the channel.
+%% @doc Get infos of the connection.
 -spec(info(pid()|connection()) -> emqx_types:infos()).
 info(CPid) when is_pid(CPid) ->
     call(CPid, info);
-info(#connection{transport    = Transport,
-                 socket       = Socket,
-                 peername     = Peername,
-                 sockname     = Sockname,
-                 active_n     = ActiveN,
-                 active_state = ActiveSt,
-                 rate_limit   = RateLimit,
-                 pub_limit    = PubLimit,
-                 chan_state   = ChanState}) ->
-    ConnInfo = #{socktype     => Transport:type(Socket),
-                 peername     => Peername,
-                 sockname     => Sockname,
-                 active_n     => ActiveN,
-                 active_state => ActiveSt,
-                 rate_limit   => limit_info(RateLimit),
-                 pub_limit    => limit_info(PubLimit)
-                },
+info(Conn = #connection{chan_state = ChanState}) ->
+    ConnInfo = info(?INFO_KEYS, Conn),
     ChanInfo = emqx_channel:info(ChanState),
-    maps:merge(#{connection => ConnInfo}, ChanInfo).
+    maps:merge(ChanInfo, #{connection => maps:from_list(ConnInfo)}).
+
+info(Keys, Conn) when is_list(Keys) ->
+    [{Key, info(Key, Conn)} || Key <- Keys];
+info(socktype, #connection{transport = Transport, socket = Socket}) ->
+    Transport:type(Socket);
+info(peername, #connection{peername = Peername}) ->
+    Peername;
+info(sockname, #connection{sockname = Sockname}) ->
+    Sockname;
+info(active_n, #connection{active_n = ActiveN}) ->
+    ActiveN;
+info(active_state, #connection{active_state = ActiveSt}) ->
+    ActiveSt;
+info(rate_limit, #connection{rate_limit = RateLimit}) ->
+    limit_info(RateLimit);
+info(pub_limit, #connection{pub_limit = PubLimit}) ->
+    limit_info(PubLimit);
+info(chan_state, #connection{chan_state = ChanState}) ->
+    emqx_channel:info(ChanState).
 
 limit_info(Limit) ->
     emqx_misc:maybe_apply(fun esockd_rate_limit:info/1, Limit).
 
-%% @doc Get attrs of the channel.
+%% @doc Get attrs of the connection.
 -spec(attrs(pid()|connection()) -> emqx_types:attrs()).
 attrs(CPid) when is_pid(CPid) ->
     call(CPid, attrs);
-attrs(#connection{transport  = Transport,
-                  socket     = Socket,
-                  peername   = Peername,
-                  sockname   = Sockname,
-                  chan_state = ChanState}) ->
-    ConnAttrs = #{socktype => Transport:type(Socket),
-                  peername => Peername,
-                  sockname => Sockname
-                 },
+attrs(Conn = #connection{chan_state = ChanState}) ->
+    ConnAttrs = info(?ATTR_KEYS, Conn),
     ChanAttrs = emqx_channel:attrs(ChanState),
-    maps:merge(#{connection => ConnAttrs}, ChanAttrs).
+    maps:merge(ChanAttrs, #{connection => maps:from_list(ConnAttrs)}).
 
 %% @doc Get stats of the channel.
 -spec(stats(pid()|connection()) -> emqx_types:stats()).
