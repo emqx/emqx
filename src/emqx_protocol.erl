@@ -264,7 +264,7 @@ received(Packet = ?PACKET(?CONNECT), PState = #pstate{connected = false}) ->
     case check_max_clients() of
         true ->
             ?LOG(error, "Connection rejected due to max clients limitation"),
-            connack({?RC_QUOTA_EXCEEDED, PState});
+            connack({?RC_QUOTA_EXCEEDED, PState#pstate{credentials = credentials(PState)}});
         false ->
             do_received(Packet, PState)
     end;
