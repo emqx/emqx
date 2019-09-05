@@ -564,8 +564,9 @@ retry_delivery(PacketId, Msg, Now, Acc, Inflight) when is_record(Msg, message) -
             ok = emqx_metrics:inc('messages.expired'),
             {Acc, emqx_inflight:delete(PacketId, Inflight)};
         false ->
-            {[{publish, PacketId, Msg}|Acc],
-             emqx_inflight:update(PacketId, {Msg, Now}, Inflight)}
+            Msg1 = emqx_message:set_flag(dup, true, Msg),
+            {[{publish, PacketId, Msg1}|Acc],
+             emqx_inflight:update(PacketId, {Msg1, Now}, Inflight)}
     end;
 
 retry_delivery(PacketId, pubrel, Now, Acc, Inflight) ->
