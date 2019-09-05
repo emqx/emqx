@@ -336,7 +336,7 @@ handle_timeout(TRef, Msg, State = #ws_connection{chan_state = ChanState}) ->
 process_incoming(<<>>, State) ->
     {ok, State};
 
-process_incoming(Data, State = #ws_connection{parse_state = ParseState}) ->
+process_incoming(Data, State = #ws_connection{parse_state = ParseState, chan_state = ChanState}) ->
     try emqx_frame:parse(Data, ParseState) of
         {ok, NParseState} ->
             {ok, State#ws_connection{parse_state = NParseState}};
@@ -350,7 +350,13 @@ process_incoming(Data, State = #ws_connection{parse_state = ParseState}) ->
         error:Reason:Stk ->
             ?LOG(error, "Parse failed for ~p~n\
                  Stacktrace:~p~nFrame data: ~p", [Reason, Stk, Data]),
-            stop(parse_error, State)
+            case emqx_channel:handle_out({disconnect, emqx_reason_codes:mqtt_frame_error(Reason)}, ChanState) of
+                {stop, Reason0, OutPackets, NChanState} ->
+                    NState = State#ws_connection{chan_state = NChanState},
+                    stop(Reason0, enqueue(OutPackets, NState));
+                {stop, Reason0, NChanState} ->
+                    stop(Reason0, State#ws_connection{chan_state = NChanState})
+            end
     end.
 
 %%--------------------------------------------------------------------

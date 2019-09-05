@@ -402,7 +402,7 @@ process_incoming(Data, State) ->
 process_incoming(<<>>, Packets, State) ->
     {keep_state, State, next_incoming_events(Packets)};
 
-process_incoming(Data, Packets, State = #connection{parse_state = ParseState}) ->
+process_incoming(Data, Packets, State = #connection{parse_state = ParseState, chan_state = ChanState}) ->
     try emqx_frame:parse(Data, ParseState) of
         {ok, NParseState} ->
             NState = State#connection{parse_state = NParseState},
@@ -416,7 +416,14 @@ process_incoming(Data, Packets, State = #connection{parse_state = ParseState}) -
         error:Reason:Stk ->
             ?LOG(error, "Parse failed for ~p~n\
                  Stacktrace:~p~nError data:~p", [Reason, Stk, Data]),
-            shutdown(parse_error, State)
+            case emqx_channel:handle_out({disconnect, emqx_reason_codes:mqtt_frame_error(Reason)}, ChanState) of
+                {stop, Reason0, OutPackets, NChanState} ->
+                    Shutdown = fun(NewSt) -> stop(Reason0, NewSt) end,
+                    NState = State#connection{chan_state = NChanState},
+                    handle_outgoing(OutPackets, Shutdown, NState);
+                {stop, Reason0, NChanState} ->
+                    stop(Reason0, State#connection{chan_state = NChanState})
+            end
     end.
 
 -compile({inline, [next_incoming_events/1]}).

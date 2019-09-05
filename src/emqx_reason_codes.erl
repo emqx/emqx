@@ -24,6 +24,7 @@
         , text/1
         , text/2
         , connack_error/1
+        , mqtt_frame_error/1
         ]).
 
 -export([compat/2]).
@@ -175,3 +176,5 @@ connack_error(banned) -> ?RC_BANNED;
 connack_error(bad_authentication_method) -> ?RC_BAD_AUTHENTICATION_METHOD;
 connack_error(_) -> ?RC_NOT_AUTHORIZED.
 
+mqtt_frame_error(mqtt_frame_too_large) -> ?RC_PACKET_TOO_LARGE;
+mqtt_frame_error(_) -> ?RC_MALFORMED_PACKET.
