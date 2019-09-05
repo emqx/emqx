@@ -330,6 +330,7 @@ connected(State = #state{chan_state = ChanState}) ->
     #{client_id := ClientId} = emqx_channel:info(client, ChanState),
     ok = emqx_cm:register_channel(ClientId),
     ok = emqx_cm:set_chan_attrs(ClientId, attrs(NState)),
+    ok = emqx_cm:set_chan_stats(ClientId, stats(NState)),
     reply(NState).
 
 %%--------------------------------------------------------------------
