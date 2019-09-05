@@ -74,7 +74,7 @@
           %% OOM Policy
           oom_policy :: maybe(emqx_oom:oom_policy()),
           %% Connected
-          connected :: boolean(),
+          connected :: undefined | boolean(),
           %% Connected at
           connected_at :: erlang:timestamp(),
           %% Disconnected at
@@ -98,7 +98,7 @@
           will_timer   => will_message
          }).
 
--define(ATTR_KEYS, [client, session, protocol, connected, connected_at]).
+-define(ATTR_KEYS, [client, session, protocol, connected, connected_at, disconnected_at]).
 
 -define(INFO_KEYS, ?ATTR_KEYS ++ [keepalive, gc_state, disconnected_at]).
 
@@ -137,7 +137,7 @@ init(ConnInfo, Options) ->
              gc_state     = GcState,
              oom_policy   = OomPolicy,
              timers       = #{stats_timer => StatsTimer},
-             connected    = false,
+             connected    = undefined,
              takeover     = false,
              resuming     = false,
              pendings     = []
@@ -334,7 +334,8 @@ handle_in(?DISCONNECT_PACKET(RC, Properties), Channel = #channel{session = Sessi
                            ?RC_SUCCESS -> Channel#channel{protocol = emqx_protocol:clear_will_msg(Protocol)};
                            _ -> Channel
                        end,
-            Channel2 = ensure_disconnected(Channel1#channel{session = emqx_session:update_expiry_interval(Interval, Session)}),
+            Channel2 = Channel1#channel{session = emqx_session:update_expiry_interval(Interval, Session)},
+            io:format("Interval: ~p~n", [Interval]),
             case Interval of
                 ?UINT_MAX ->
                     {ok, ensure_timer(will_timer, Channel2)};
@@ -677,7 +678,7 @@ handle_info({unsubscribe, RawTopicFilters}, Channel) ->
     {_ReasonCodes, NChannel} = process_unsubscribe(TopicFilters, Channel),
     {ok, NChannel};
 
-handle_info(disconnected, Channel = #channel{connected = false}) ->
+handle_info(disconnected, Channel = #channel{connected = undefined}) ->
     shutdown(closed, Channel);
 
 handle_info(disconnected, Channel = #channel{protocol = Protocol,
@@ -1150,7 +1151,7 @@ enrich_assigned_clientid(AckProps, #channel{client = #{client_id := ClientId},
     end.
 
 ensure_connected(Channel) ->
-    Channel#channel{connected = true, connected_at = os:timestamp()}.
+    Channel#channel{connected = true, connected_at = os:timestamp(), disconnected_at = undefined}.
 
 ensure_disconnected(Channel) ->
     Channel#channel{connected = false, disconnected_at = os:timestamp()}.

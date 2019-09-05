@@ -28,6 +28,7 @@
 
 -export([ find_alias/2
         , save_alias/3
+        , clear_will_msg/1
         ]).
 
 -export_type([protocol/0]).
@@ -126,3 +127,5 @@ save_alias(AliasId, Topic, Proto = #protocol{topic_aliases = undefined}) ->
 save_alias(AliasId, Topic, Proto = #protocol{topic_aliases = Aliases}) ->
     Proto#protocol{topic_aliases = maps:put(AliasId, Topic, Aliases)}.
 
+clear_will_msg(Protocol) ->
+    Protocol#protocol{will_msg = undefined}.

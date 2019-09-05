@@ -66,7 +66,6 @@ The [EMQ X Roadmap uses Github milestones](https://github.com/emqx/emqx/mileston
 
 You can reach the EMQ community and developers via the following channels:
 - [EMQX Slack](http://emqx.slack.com)
-- [Mailing Lists](<emqtt@googlegroups.com>)
 - [Twitter](https://twitter.com/emqtt)
 - [Forum](https://groups.google.com/d/forum/emqtt)
 - [Blog](https://medium.com/@emqtt)
