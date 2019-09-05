@@ -251,7 +251,7 @@ connected(EventType, Content, State) ->
 disconnected(enter, _, State = #connection{chan_state = ChanState}) ->
     case emqx_channel:handle_info(disconnected, ChanState) of
         {ok, NChanState} ->
-            ok = register_self(State),
+            ok = register_self(State#connection{chan_state = NChanState}),
             keep_state(State#connection{chan_state = NChanState});
         {stop, Reason, NChanState} ->
             stop(Reason, State#connection{chan_state = NChanState})
