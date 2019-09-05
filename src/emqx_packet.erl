@@ -19,6 +19,10 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
+-export([ type/1
+        , qos/1
+        ]).
+
 -export([ proto_name/1
         , type_name/1
         , validate/1
@@ -29,6 +33,12 @@
         ]).
 
 -compile(inline).
+
+type(#mqtt_packet{header = #mqtt_packet_header{type = Type}}) ->
+    Type.
+
+qos(#mqtt_packet{header = #mqtt_packet_header{qos = QoS}}) ->
+    QoS.
 
 %% @doc Protocol name of the version.
 -spec(proto_name(emqx_types:version()) -> binary()).
