@@ -525,7 +525,10 @@ handle_out({connack, ReasonCode}, Channel = #channel{client = Client,
                                                      protocol = Protocol
                                                     }) ->
     ok = emqx_hooks:run('client.connected', [Client, ReasonCode, attrs(Channel)]),
-    ProtoVer = emqx_protocol:info(proto_ver, Protocol),
+    ProtoVer = case Protocol of
+                   undefined -> undefined;
+                   _ -> emqx_protocol:info(proto_ver, Protocol)
+               end,
     ReasonCode1 = if
                       ProtoVer == ?MQTT_PROTO_V5 -> ReasonCode;
                       true -> emqx_reason_codes:compat(connack, ReasonCode)
