@@ -419,20 +419,13 @@ process_publish(PacketId, Msg = #message{qos = ?QOS_2},
             handle_out({pubrec, PacketId, RC}, Channel)
     end.
 
-publish_to_msg(Packet, Channel = #channel{client = Client, protocol = Protocol}) ->
-    RawMsg = emqx_packet:to_message(Client, Packet),
-    SetHdr = fun(Msg) ->
-                     ProtoVer = emqx_protocol:info(proto_ver, Protocol),
-                     emqx_message:set_header(proto_ver, ProtoVer, Msg)
-             end,
-    FixDup = fun(Msg) ->
-                     emqx_message:set_flag(dup, false, Msg)
-             end,
-    Mount = fun(Msg) ->
-                    #{mountpoint := MountPoint} = Client,
-                    emqx_mountpoint:mount(MountPoint, Msg)
-            end,
-    run_fold([SetHdr, FixDup, Mount], RawMsg, Channel).
+publish_to_msg(Packet, #channel{client   = Client = #{mountpoint := MountPoint},
+                                protocol = Protocol}) ->
+    Msg = emqx_packet:to_message(Client, Packet),
+    Msg1 = emqx_message:set_flag(dup, false, Msg),
+    ProtoVer = emqx_protocol:info(proto_ver, Protocol),
+    Msg2 = emqx_message:set_header(proto_ver, ProtoVer, Msg1),
+    emqx_mountpoint:mount(MountPoint, Msg2).
 
 %%--------------------------------------------------------------------
 %% Process Subscribe
@@ -509,17 +502,17 @@ do_unsubscribe(TopicFilter, _SubOpts, Channel =
 %% Handle outgoing packet
 %%--------------------------------------------------------------------
 
+%%TODO: RunFold or Pipeline
 handle_out({connack, ?RC_SUCCESS, SP}, Channel = #channel{client = Client}) ->
     AckProps = run_fold([fun enrich_caps/2,
                          fun enrich_server_keepalive/2,
                          fun enrich_assigned_clientid/2
                         ], #{}, Channel),
-    AckPacket = ?CONNACK_PACKET(?RC_SUCCESS, SP, AckProps),
     Channel1 = ensure_keepalive(AckProps, ensure_connected(Channel)),
     ok = emqx_hooks:run('client.connected', [Client, ?RC_SUCCESS, attrs(Channel1)]),
+    AckPacket = ?CONNACK_PACKET(?RC_SUCCESS, SP, AckProps),
     case maybe_resume_session(Channel1) of
-        ignore ->
-            {ok, AckPacket, Channel1};
+        ignore -> {ok, AckPacket, Channel1};
         {ok, Publishes, NSession} ->
             Channel2 = Channel1#channel{session  = NSession,
                                         resuming = false,
@@ -558,20 +551,32 @@ handle_out({deliver, Delivers}, Channel = #channel{session = Session}) ->
             {ok, Channel#channel{session = NSession}}
     end;
 
-handle_out({publish, Publishes}, Channel) ->
-    Packets = [element(2, handle_out(Publish, Channel)) || Publish <- Publishes],
-    {ok, Packets, Channel};
+handle_out({publish, [Publish]}, Channel) ->
+    handle_out(Publish, Channel);
 
-handle_out({publish, PacketId, Msg0}, Channel =
+handle_out({publish, Publishes}, Channel) when is_list(Publishes) ->
+    Packets = lists:foldl(
+                fun(Publish, Acc) ->
+                    case handle_out(Publish, Channel) of
+                        {ok, Packet, _Ch} ->
+                            [Packet|Acc];
+                        {ok, _Ch} -> Acc
+                    end
+                end, [], Publishes),
+    {ok, lists:reverse(Packets), Channel};
+
+%% Ignore loop deliver
+handle_out({publish, _PacketId, #message{from  = ClientId,
+                                         flags = #{nl := true}}},
+            Channel = #channel{client = #{client_id := ClientId}}) ->
+    {ok, Channel};
+
+handle_out({publish, PacketId, Msg}, Channel =
            #channel{client = Client = #{mountpoint := MountPoint}}) ->
-    RunHook = fun(Msg) ->
-                  emqx_hooks:run_fold('message.delivered', [Client], Msg)
-              end,
-    Unmount = fun(Msg) ->
-                  emqx_mountpoint:unmount(MountPoint, Msg)
-              end,
-    Msg = run_fold([RunHook, Unmount], emqx_message:update_expiry(Msg0)),
-    {ok, emqx_packet:from_message(PacketId, Msg), Channel};
+    Msg1 = emqx_message:update_expiry(Msg),
+    Msg2 = emqx_hooks:run_fold('message.delivered', [Client], Msg1),
+    Msg3 = emqx_mountpoint:unmount(MountPoint, Msg2),
+    {ok, emqx_packet:from_message(PacketId, Msg3), Channel};
 
 handle_out({puback, PacketId, ReasonCode}, Channel) ->
     {ok, ?PUBACK_PACKET(PacketId, ReasonCode), Channel};
@@ -931,42 +936,38 @@ init_protocol(ConnPkt, Channel) ->
 %% Enrich client
 %%--------------------------------------------------------------------
 
-enrich_client(ConnPkt, Channel) ->
-    pipeline([fun set_username/2,
-              fun maybe_use_username_as_clientid/2,
-              fun maybe_assign_clientid/2,
-              fun set_rest_client_fields/2], ConnPkt, Channel).
+enrich_client(ConnPkt = #mqtt_packet_connect{is_bridge = IsBridge},
+              Channel = #channel{client = Client}) ->
+    {ok, NConnPkt, NClient} = pipeline([fun set_username/2,
+                                        fun maybe_username_as_clientid/2,
+                                        fun maybe_assign_clientid/2,
+                                        fun fix_mountpoint/2
+                                       ], ConnPkt, Client),
+    {ok, NConnPkt, Channel#channel{client = NClient#{is_bridge => IsBridge}}}.
 
-maybe_use_username_as_clientid(_ConnPkt, Channel = #channel{client = #{username := undefined}}) ->
-    {ok, Channel};
-maybe_use_username_as_clientid(_ConnPkt, Channel = #channel{client = Client = #{zone := Zone,
-                                                                                username := Username}}) ->
-    NClient =
-        case emqx_zone:get_env(Zone, use_username_as_clientid, false) of
-            true -> Client#{client_id => Username};
-            false -> Client
-        end,
-    {ok, Channel#channel{client = NClient}}.
+%% Username may be not undefined if peer_cert_as_username
+set_username(#mqtt_packet_connect{username = Username}, Client = #{username := undefined}) ->
+    {ok, Client#{username => Username}};
+set_username(_ConnPkt, Client) ->
+    {ok, Client}.
 
-maybe_assign_clientid(#mqtt_packet_connect{client_id = <<>>},
-                      Channel = #channel{client = Client}) ->
+maybe_username_as_clientid(_ConnPkt, Client = #{username := undefined}) ->
+    {ok, Client};
+maybe_username_as_clientid(_ConnPkt, Client = #{zone := Zone, username := Username}) ->
+    case emqx_zone:get_env(Zone, use_username_as_clientid, false) of
+        true  -> {ok, Client#{client_id => Username}};
+        false -> ok
+    end.
+
+maybe_assign_clientid(#mqtt_packet_connect{client_id = <<>>}, Client) ->
     RandClientId = emqx_guid:to_base62(emqx_guid:gen()),
-    {ok, Channel#channel{client = Client#{client_id => RandClientId}}};
+    {ok, Client#{client_id => RandClientId}};
+maybe_assign_clientid(#mqtt_packet_connect{client_id = ClientId}, Client) ->
+    {ok, Client#{client_id => ClientId}}.
 
-maybe_assign_clientid(#mqtt_packet_connect{client_id = ClientId},
-                      Channel = #channel{client = Client}) ->
-    {ok, Channel#channel{client = Client#{client_id => ClientId}}}.
-
-%% Username maybe not undefined if peer_cert_as_username
-set_username(#mqtt_packet_connect{username = Username},
-             Channel = #channel{client = Client = #{username := undefined}}) ->
-    {ok, Channel#channel{client = Client#{username => Username}}};
-set_username(_ConnPkt, Channel) ->
-    {ok, Channel}.
-
-set_rest_client_fields(#mqtt_packet_connect{is_bridge = IsBridge},
-                       Channel = #channel{client = Client}) ->
-    {ok, Channel#channel{client = Client#{is_bridge => IsBridge}}}.
+fix_mountpoint(_ConnPkt, #{mountpoint := undefined}) -> ok;
+fix_mountpoint(_ConnPkt, Client = #{mountpoint := Mountpoint}) ->
+    {ok, Client#{mountpoint := emqx_mountpoint:replvar(Mountpoint, Client)}}.
 
 %% @doc Set logger metadata.
 set_logger_meta(_ConnPkt, #channel{client = #{client_id := ClientId}}) ->
@@ -1188,16 +1189,6 @@ is_acl_enabled(#{zone := Zone, is_superuser := IsSuperuser}) ->
 -compile({inline, [parse_topic_filters/1]}).
 parse_topic_filters(TopicFilters) ->
     lists:map(fun emqx_topic:parse/1, TopicFilters).
-
-%%--------------------------------------------------------------------
-%% Mount/Unmount
-%%--------------------------------------------------------------------
-
-%%TODO: emqx_mountpoint:replvar(MountPoint, Client), TopicOrMsg).
-
-unmount(Client = #{mountpoint := MountPoint}, TopicOrMsg) ->
-    emqx_mountpoint:unmount(
-      emqx_mountpoint:replvar(MountPoint, Client), TopicOrMsg).
 
 %%--------------------------------------------------------------------
 %% Maybe GC and Check OOM

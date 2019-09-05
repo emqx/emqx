@@ -58,7 +58,7 @@
         , stats/1
         ]).
 
-%% For tests
+%% Exports for unit tests
 -export([set_field/3]).
 
 -export([update_expiry_interval/2]).
@@ -87,9 +87,6 @@
 -export([expire/2]).
 
 -export_type([session/0]).
-
-%% For test case
--export([set_pkt_id/2]).
 
 -import(emqx_zone, [get_env/3]).
 
@@ -121,6 +118,7 @@
           await_rel_timeout :: timeout(),
           %% Session Expiry Interval
           expiry_interval :: timeout(),
+          %% Enqueue Count
           enqueue_cnt :: non_neg_integer(),
           %% Created at
           created_at :: erlang:timestamp()
@@ -139,7 +137,7 @@
                     await_rel_timeout, expiry_interval, created_at]).
 -define(STATS_KEYS, [subscriptions_cnt, max_subscriptions, inflight, max_inflight,
                      mqueue_len, max_mqueue, mqueue_dropped, awaiting_rel,
-                     max_awaiting_rel]).
+                     max_awaiting_rel, enqueue_cnt]).
 
 %%--------------------------------------------------------------------
 %% Init a session
@@ -217,6 +215,8 @@ info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
     Timeout;
 info(expiry_interval, #session{expiry_interval = Interval}) ->
     Interval;
+info(enqueue_cnt, #session{enqueue_cnt = Cnt}) ->
+    Cnt;
 info(created_at, #session{created_at = CreatedAt}) ->
     CreatedAt.
 
@@ -450,8 +450,9 @@ batch_n(Inflight) ->
 %% Broker -> Client: Publish | Msg
 %%--------------------------------------------------------------------
 
-deliver(Delivers, Session = #session{subscriptions = Subs}) when is_list(Delivers) ->
-    Msgs = [enrich(get_subopts(Topic, Subs), Msg, Session)
+deliver(Delivers, Session = #session{subscriptions = Subs})
+  when is_list(Delivers) ->
+    Msgs = [enrich_subopt(get_subopts(Topic, Subs), Msg, Session)
             || {deliver, Topic, Msg} <- Delivers],
     deliver(Msgs, [], Session).
 
@@ -473,21 +474,18 @@ deliver([Msg = #message{qos = QoS}|More], Acc,
             deliver(More, [Publish|Acc], next_pkt_id(Session1))
     end.
 
-enqueue(Delivers, Session = #session{subscriptions = Subs})
-  when is_list(Delivers) ->
-    Msgs = [enrich(get_subopts(Topic, Subs), Msg, Session)
+enqueue(Delivers, Session = #session{subscriptions = Subs}) when is_list(Delivers) ->
+    Msgs = [enrich_subopt(get_subopts(Topic, Subs), Msg, Session)
             || {deliver, Topic, Msg} <- Delivers],
     lists:foldl(fun enqueue/2, Session, Msgs);
 
 enqueue(Msg, Session = #session{mqueue = Q, enqueue_cnt = Cnt})
   when is_record(Msg, message) ->
     {Dropped, NewQ} = emqx_mqueue:in(Msg, Q),
-    if
-        Dropped =/= undefined ->
-            %% TODO:...
-            %% SessProps = #{client_id => ClientId, username => Username},
-            ok; %% = emqx_hooks:run('message.dropped', [SessProps, Dropped]);
-        true -> ok
+    if is_record(Dropped, message) ->
+           ?LOG(warning, "Dropped msg due to mqueue is full: ~s",
+                [emqx_message:format(Dropped)]);
+       true -> ok
     end,
     Session#session{mqueue = NewQ, enqueue_cnt = Cnt+1}.
 
@@ -508,26 +506,26 @@ get_subopts(Topic, SubMap) ->
         error -> []
     end.
 
-enrich([], Msg, _Session) ->
-    Msg;
-%%enrich([{nl, 1}|_Opts], #message{from = ClientId}, #session{client_id = ClientId}) ->
-%%    ignore;
-enrich([{nl, _}|Opts], Msg, Session) ->
-    enrich(Opts, Msg, Session);
-enrich([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS}, Session = #session{upgrade_qos= true}) ->
-    enrich(Opts, Msg#message{qos = max(SubQoS, PubQoS)}, Session);
-enrich([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS}, Session = #session{upgrade_qos= false}) ->
-    enrich(Opts, Msg#message{qos = min(SubQoS, PubQoS)}, Session);
-enrich([{rap, 0}|Opts], Msg = #message{flags = Flags, headers = #{proto_ver := ?MQTT_PROTO_V5}}, Session) ->
-    enrich(Opts, Msg#message{flags = maps:put(retain, false, Flags)}, Session);
-enrich([{rap, _}|Opts], Msg = #message{headers = #{proto_ver := ?MQTT_PROTO_V5}}, Session) ->
-    enrich(Opts, Msg, Session);
-enrich([{rap, _}|Opts], Msg = #message{headers = #{retained := true}}, Session = #session{}) ->
-    enrich(Opts, Msg, Session);
-enrich([{rap, _}|Opts], Msg = #message{flags = Flags}, Session) ->
-    enrich(Opts, Msg#message{flags = maps:put(retain, false, Flags)}, Session);
-enrich([{subid, SubId}|Opts], Msg, Session) ->
-    enrich(Opts, emqx_message:set_header('Subscription-Identifier', SubId, Msg), Session).
+enrich_subopt([], Msg, _Session) -> Msg;
+enrich_subopt([{nl, 1}|Opts], Msg, Session) ->
+    enrich_subopt(Opts, emqx_message:set_flag(nl, Msg), Session);
+enrich_subopt([{nl, 0}|Opts], Msg, Session) ->
+    enrich_subopt(Opts, Msg, Session);
+enrich_subopt([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS},
+              Session = #session{upgrade_qos= true}) ->
+    enrich_subopt(Opts, Msg#message{qos = max(SubQoS, PubQoS)}, Session);
+enrich_subopt([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS},
+              Session = #session{upgrade_qos= false}) ->
+    enrich_subopt(Opts, Msg#message{qos = min(SubQoS, PubQoS)}, Session);
+enrich_subopt([{rap, 1}|Opts], Msg, Session) ->
+    enrich_subopt(Opts, Msg, Session);
+enrich_subopt([{rap, 0}|Opts], Msg = #message{headers = #{retained := true}}, Session) ->
+    enrich_subopt(Opts, Msg, Session);
+enrich_subopt([{rap, 0}|Opts], Msg, Session) ->
+    enrich_subopt(Opts, emqx_message:set_flag(retain, false, Msg), Session);
+enrich_subopt([{subid, SubId}|Opts], Msg, Session) ->
+    Msg1 = emqx_message:set_header('Subscription-Identifier', SubId, Msg),
+    enrich_subopt(Opts, Msg1, Session).
 
 %%--------------------------------------------------------------------
 %% Retry Delivery
@@ -611,11 +609,4 @@ next_pkt_id(Session = #session{next_pkt_id = 16#FFFF}) ->
 
 next_pkt_id(Session = #session{next_pkt_id = Id}) ->
     Session#session{next_pkt_id = Id + 1}.
-
-%%---------------------------------------------------------------------
-%% For Test case
-%%---------------------------------------------------------------------
-
-set_pkt_id(Session, PktId) ->
-    Session#session{next_pkt_id = PktId}.
 
