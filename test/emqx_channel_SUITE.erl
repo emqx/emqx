@@ -178,7 +178,8 @@ t_handle_connack(_) ->
       fun(Channel) ->
               {ok, ?CONNACK_PACKET(?RC_SUCCESS, SP, _), _}
                 = handle_out({connack, ?RC_SUCCESS, 0}, Channel),
-              {stop, {shutdown, unauthorized_client}, ?CONNACK_PACKET(5), _}
+              {stop, {shutdown, not_authorized},
+               ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _}
                 = handle_out({connack, ?RC_NOT_AUTHORIZED}, Channel)
       end).
 
@@ -278,18 +279,20 @@ with_channel(Fun) ->
     Channel = emqx_channel:init(ConnInfo, Options),
     ConnPkt = #mqtt_packet_connect{
                  proto_name  = <<"MQTT">>,
-                 proto_ver   = ?MQTT_PROTO_V4,
+                 proto_ver   = ?MQTT_PROTO_V5,
                  clean_start = true,
                  keepalive   = 30,
                  properties  = #{},
                  client_id   = <<"clientid">>,
-                 username    = <<"username">>
+                 username    = <<"username">>,
+                 password    = <<"passwd">>
                 },
     Protocol = emqx_protocol:init(ConnPkt),
     Session = emqx_session:init(#{zone => testing},
                                 #{max_inflight    => 100,
                                   expiry_interval => 0
                                  }),
-    Fun(emqx_channel:set(protocol, Protocol,
-                         emqx_channel:set(session, Session, Channel))).
+    Fun(emqx_channel:set_field(protocol, Protocol,
+                               emqx_channel:set_field(
+                                 session, Session, Channel))).
 

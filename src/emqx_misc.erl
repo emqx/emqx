@@ -20,6 +20,7 @@
 
 -export([ merge_opts/2
         , maybe_apply/2
+        , run_fold/2
         , run_fold/3
         , pipeline/3
         , start_timer/2
@@ -28,6 +29,7 @@
         , proc_name/2
         , proc_stats/0
         , proc_stats/1
+        , index_of/2
         ]).
 
 -export([ drain_deliver/0
@@ -57,6 +59,11 @@ maybe_apply(_Fun, undefined) ->
     undefined;
 maybe_apply(Fun, Arg) when is_function(Fun) ->
     erlang:apply(Fun, [Arg]).
+
+run_fold([], Acc) ->
+    Acc;
+run_fold([Fun|More], Acc) ->
+    run_fold(More, Fun(Acc)).
 
 %% @doc RunFold
 run_fold([], Acc, _State) ->
@@ -141,4 +148,15 @@ drain_down(Cnt, Acc) ->
     after 0 ->
         drain_down(0, Acc)
     end.
+
+%% lists:index_of/2
+index_of(E, L) ->
+    index_of(E, 1, L).
+
+index_of(_E, _I, []) ->
+    error(badarg);
+index_of(E, I, [E|_]) ->
+    I;
+index_of(E, I, [_|L]) ->
+    index_of(E, I+1, L).
 

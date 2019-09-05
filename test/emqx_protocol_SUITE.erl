@@ -24,26 +24,58 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-t_init_and_info(_) ->
-    ConnPkt = #mqtt_packet_connect{
-                 proto_name  = <<"MQTT">>,
-                 proto_ver   = ?MQTT_PROTO_V4,
-                 is_bridge   = false,
-                 clean_start = true,
-                 keepalive   = 30,
-                 properties  = #{},
-                 client_id   = <<"clientid">>,
-                 username    = <<"username">>,
-                 password    = <<"passwd">>
-                },
-    Proto = emqx_protocol:init(ConnPkt),
+init_per_suite(Config) ->
+    [{proto, init_protocol()}|Config].
+
+init_protocol() ->
+    emqx_protocol:init(#mqtt_packet_connect{
+                          proto_name  = <<"MQTT">>,
+                          proto_ver   = ?MQTT_PROTO_V5,
+                          is_bridge   = false,
+                          clean_start = true,
+                          keepalive   = 30,
+                          properties  = #{},
+                          client_id   = <<"clientid">>,
+                          username    = <<"username">>,
+                          password    = <<"passwd">>
+                         }).
+
+end_per_suite(_Config) -> ok.
+
+t_init_info_1(Config) ->
+    Proto = proplists:get_value(proto, Config),
+    ?assertEqual(#{proto_name    => <<"MQTT">>,
+                   proto_ver     => ?MQTT_PROTO_V5,
+                   clean_start   => true,
+                   keepalive     => 30,
+                   conn_props    => #{},
+                   will_msg      => undefined,
+                   client_id     => <<"clientid">>,
+                   username      => <<"username">>,
+                   topic_aliases => undefined
+                  }, emqx_protocol:info(Proto)).
+
+t_init_info_2(Config) ->
+    Proto = proplists:get_value(proto, Config),
     ?assertEqual(<<"MQTT">>, emqx_protocol:info(proto_name, Proto)),
-    ?assertEqual(?MQTT_PROTO_V4, emqx_protocol:info(proto_ver, Proto)),
+    ?assertEqual(?MQTT_PROTO_V5, emqx_protocol:info(proto_ver, Proto)),
     ?assertEqual(true, emqx_protocol:info(clean_start, Proto)),
+    ?assertEqual(30, emqx_protocol:info(keepalive, Proto)),
     ?assertEqual(<<"clientid">>, emqx_protocol:info(client_id, Proto)),
     ?assertEqual(<<"username">>, emqx_protocol:info(username, Proto)),
     ?assertEqual(undefined, emqx_protocol:info(will_msg, Proto)),
-    ?assertEqual(#{}, emqx_protocol:info(conn_props, Proto)).
+    ?assertEqual(0, emqx_protocol:info(will_delay_interval, Proto)),
+    ?assertEqual(#{}, emqx_protocol:info(conn_props, Proto)),
+    ?assertEqual(undefined, emqx_protocol:info(topic_aliases, Proto)).
 
-
+t_find_save_alias(Config) ->
+    Proto = proplists:get_value(proto, Config),
+    ?assertEqual(undefined, emqx_protocol:info(topic_aliases, Proto)),
+    ?assertEqual(false, emqx_protocol:find_alias(1, Proto)),
+    Proto1 = emqx_protocol:save_alias(1, <<"t1">>, Proto),
+    Proto2 = emqx_protocol:save_alias(2, <<"t2">>, Proto1),
+    ?assertEqual(#{1 => <<"t1">>, 2 => <<"t2">>},
+                 emqx_protocol:info(topic_aliases, Proto2)),
+    ?assertEqual({ok, <<"t1">>}, emqx_protocol:find_alias(1, Proto2)),
+    ?assertEqual({ok, <<"t2">>}, emqx_protocol:find_alias(2, Proto2)).
 

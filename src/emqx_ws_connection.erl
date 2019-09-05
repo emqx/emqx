@@ -27,12 +27,10 @@
 -export([ info/1
         , attrs/1
         , stats/1
+        , state/1
         ]).
 
--export([ kick/1
-        , discard/1
-        , takeover/2
-        ]).
+-export([call/2]).
 
 %% WebSocket callbacks
 -export([ init/2
@@ -42,19 +40,29 @@
         , terminate/3
         ]).
 
--record(state, {
-          peername    :: emqx_types:peername(),
-          sockname    :: emqx_types:peername(),
-          fsm_state   :: idle | connected | disconnected,
-          serialize   :: fun((emqx_types:packet()) -> iodata()),
+-record(ws_connection, {
+          %% Peername of the ws connection.
+          peername :: emqx_types:peername(),
+          %% Sockname of the ws connection
+          sockname :: emqx_types:peername(),
+          %% FSM state
+          fsm_state :: idle | connected | disconnected,
+          %% Parser State
           parse_state :: emqx_frame:parse_state(),
-          chan_state  :: emqx_channel:channel(),
-          pendings    :: list(),
+          %% Serialize function
+          serialize :: fun((emqx_types:packet()) -> iodata()),
+          %% Channel State
+          chan_state :: emqx_channel:channel(),
+          %% Out Pending Packets
+          pendings :: list(emqx_types:packet()),
+          %% The stop reason
           stop_reason :: term()
         }).
 
--type(state() :: #state{}).
+-type(ws_connection() :: #ws_connection{}).
 
+-define(INFO_KEYS, [socktype, peername, sockname, active_state]).
+-define(ATTR_KEYS, [socktype, peername, sockname]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 
@@ -62,40 +70,44 @@
 %% API
 %%--------------------------------------------------------------------
 
--spec(info(pid() | state()) -> emqx_types:infos()).
-info(WSPid) when is_pid(WSPid) ->
-    call(WSPid, info);
-info(#state{peername   = Peername,
-            sockname   = Sockname,
-            chan_state = ChanState}) ->
-    ConnInfo = #{socktype   => websocket,
-                 peername   => Peername,
-                 sockname   => Sockname,
-                 conn_state => running
-                },
+-spec(info(pid()|ws_connection()) -> emqx_types:infos()).
+info(WsPid) when is_pid(WsPid) ->
+    call(WsPid, info);
+info(WsConn = #ws_connection{chan_state = ChanState}) ->
+    ConnInfo = info(?INFO_KEYS, WsConn),
     ChanInfo = emqx_channel:info(ChanState),
-    maps:merge(ConnInfo, ChanInfo).
+    maps:merge(ChanInfo, #{connection => maps:from_list(ConnInfo)}).
 
--spec(attrs(pid() | state()) -> emqx_types:attrs()).
-attrs(WSPid) when is_pid(WSPid) ->
-    call(WSPid, attrs);
-attrs(#state{peername   = Peername,
-             sockname   = Sockname,
-             chan_state = ChanState}) ->
-    ConnAttrs = #{socktype => websocket,
-                  peername => Peername,
-                  sockname => Sockname
-                 },
+info(Keys, WsConn) when is_list(Keys) ->
+    [{Key, info(Key, WsConn)} || Key <- Keys];
+info(socktype, #ws_connection{}) ->
+    websocket;
+info(peername, #ws_connection{peername = Peername}) ->
+    Peername;
+info(sockname, #ws_connection{sockname = Sockname}) ->
+    Sockname;
+info(active_state, #ws_connection{}) ->
+    running;
+info(chan_state, #ws_connection{chan_state = ChanState}) ->
+    emqx_channel:info(ChanState).
+
+-spec(attrs(pid()|ws_connection()) -> emqx_types:attrs()).
+attrs(WsPid) when is_pid(WsPid) ->
+    call(WsPid, attrs);
+attrs(WsConn = #ws_connection{chan_state = ChanState}) ->
+    ConnAttrs = info(?ATTR_KEYS, WsConn),
     ChanAttrs = emqx_channel:attrs(ChanState),
-    maps:merge(ConnAttrs, ChanAttrs).
+    maps:merge(ChanAttrs, #{connection => maps:from_list(ConnAttrs)}).
 
--spec(stats(pid() | state()) -> emqx_types:stats()).
-stats(WSPid) when is_pid(WSPid) ->
-    call(WSPid, stats);
-stats(#state{chan_state = ChanState}) ->
+-spec(stats(pid()|ws_connection()) -> emqx_types:stats()).
+stats(WsPid) when is_pid(WsPid) ->
+    call(WsPid, stats);
+stats(#ws_connection{chan_state = ChanState}) ->
     ProcStats = emqx_misc:proc_stats(),
+    SockStats = wsock_stats(),
+    ConnStats = conn_stats(),
     ChanStats = emqx_channel:stats(ChanState),
-    lists:append([ProcStats, wsock_stats(), conn_stats(), ChanStats]).
+    lists:append([ProcStats, SockStats, ConnStats, ChanStats]).
 
 wsock_stats() ->
     [{Key, emqx_pd:get_counter(Key)} || Key <- ?SOCK_STATS].
@@ -103,22 +115,14 @@ wsock_stats() ->
 conn_stats() ->
     [{Name, emqx_pd:get_counter(Name)} || Name <- ?CONN_STATS].
 
--spec(kick(pid()) -> ok).
-kick(CPid) ->
-    call(CPid, kick).
+-spec(state(pid()) -> ws_connection()).
+state(WsPid) -> call(WsPid, state).
 
--spec(discard(pid()) -> ok).
-discard(WSPid) ->
-    WSPid ! {cast, discard}, ok.
-
--spec(takeover(pid(), 'begin'|'end') -> Result :: term()).
-takeover(CPid, Phase) ->
-    call(CPid, {takeover, Phase}).
-
-%% @private
-call(WSPid, Req) when is_pid(WSPid) ->
-    Mref = erlang:monitor(process, WSPid),
-    WSPid ! {call, {self(), Mref}, Req},
+%% kick|discard|takeover
+-spec(call(pid(), Req :: term()) -> Reply :: term()).
+call(WsPid, Req) when is_pid(WsPid) ->
+    Mref = erlang:monitor(process, WsPid),
+    WsPid ! {call, {self(), Mref}, Req},
     receive
         {Mref, Reply} ->
             erlang:demonitor(Mref, [flush]),
@@ -142,10 +146,10 @@ init(Req, Opts) ->
                        I -> I
                    end,
     Compress = proplists:get_value(compress, Opts, false),
-    WsOpts = #{compress => Compress,
-               deflate_opts => DeflateOptions,
+    WsOpts = #{compress       => Compress,
+               deflate_opts   => DeflateOptions,
                max_frame_size => MaxFrameSize,
-               idle_timeout => IdleTimeout
+               idle_timeout   => IdleTimeout
               },
     case cowboy_req:parse_header(<<"sec-websocket-protocol">>, Req) of
         undefined ->
@@ -156,7 +160,7 @@ init(Req, Opts) ->
                      <<"sec-websocket-protocol">>, <<"mqtt", Vsn/binary>>, Req),
             {cowboy_websocket, Resp, [Req, Opts], WsOpts};
         _ ->
-            {ok, cowboy_req:reply(400, Req), #state{}}
+            {ok, cowboy_req:reply(400, Req), WsOpts}
     end.
 
 websocket_init([Req, Opts]) ->
@@ -169,54 +173,51 @@ websocket_init([Req, Opts]) ->
                        ?LOG(error, "Illegal cookie"),
                        undefined;
                    Error:Reason ->
-                       ?LOG(error, "Cookie is parsed failed, Error: ~p, Reason ~p",
+                       ?LOG(error, "Failed to parse cookie, Error: ~p, Reason ~p",
                             [Error, Reason]),
                        undefined
                end,
-    ChanState = emqx_channel:init(#{peername => Peername,
-                                    sockname => Sockname,
-                                    peercert => Peercert,
+    ChanState = emqx_channel:init(#{peername  => Peername,
+                                    sockname  => Sockname,
+                                    peercert  => Peercert,
                                     ws_cookie => WsCookie,
-                                    conn_mod => ?MODULE
+                                    conn_mod  => ?MODULE
                                    }, Opts),
     Zone = proplists:get_value(zone, Opts),
     MaxSize = emqx_zone:get_env(Zone, max_packet_size, ?MAX_PACKET_SIZE),
     ParseState = emqx_frame:initial_parse_state(#{max_size => MaxSize}),
     emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
-    {ok, #state{peername    = Peername,
-                sockname    = Sockname,
-                fsm_state   = idle,
-                parse_state = ParseState,
-                chan_state  = ChanState,
-                pendings    = []
-               }}.
+    {ok, #ws_connection{peername    = Peername,
+                        sockname    = Sockname,
+                        fsm_state   = idle,
+                        parse_state = ParseState,
+                        chan_state  = ChanState,
+                        pendings    = []}}.
 
 websocket_handle({binary, Data}, State) when is_list(Data) ->
     websocket_handle({binary, iolist_to_binary(Data)}, State);
 
-websocket_handle({binary, Data}, State = #state{chan_state = ChanState})
-  when is_binary(Data) ->
+websocket_handle({binary, Data}, State = #ws_connection{chan_state = ChanState}) ->
     ?LOG(debug, "RECV ~p", [Data]),
     Oct = iolist_size(Data),
-    emqx_pd:update_counter(recv_cnt, 1),
-    emqx_pd:update_counter(recv_oct, Oct),
-    ok = emqx_metrics:inc('bytes.received', Oct),
-    NChanState = emqx_channel:ensure_timer(
-                   stats_timer, emqx_channel:gc(1, Oct, ChanState)),
-    process_incoming(Data, State#state{chan_state = NChanState});
+    ok = inc_recv_stats(1, Oct),
+    NChanState = emqx_channel:received(Oct, ChanState),
+    NState = State#ws_connection{chan_state = NChanState},
+    process_incoming(Data, NState);
 
 %% Pings should be replied with pongs, cowboy does it automatically
 %% Pongs can be safely ignored. Clause here simply prevents crash.
 websocket_handle(Frame, State)
   when Frame =:= ping; Frame =:= pong ->
     {ok, State};
+
 websocket_handle({FrameType, _}, State)
   when FrameType =:= ping; FrameType =:= pong ->
     {ok, State};
-%% According to mqtt spec[https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901285]
+
 websocket_handle({FrameType, _}, State) ->
-    ?LOG(error, "Frame error: unexpected frame - ~p", [FrameType]),
-    stop(unexpected_ws_frame, State).
+    ?LOG(error, "Unexpected frame - ~p", [FrameType]),
+    stop({shutdown, unexpected_ws_frame}, State).
 
 websocket_info({call, From, info}, State) ->
     gen_server:reply(From, info(State)),
@@ -230,62 +231,52 @@ websocket_info({call, From, stats}, State) ->
     gen_server:reply(From, stats(State)),
     {ok, State};
 
-websocket_info({call, From, kick}, State) ->
-    gen_server:reply(From, ok),
-    stop(kicked, State);
+websocket_info({call, From, state}, State) ->
+    gen_server:reply(From, State),
+    {ok, State};
 
-websocket_info({call, From, Req}, State = #state{chan_state = ChanState}) ->
+websocket_info({call, From, Req}, State = #ws_connection{chan_state = ChanState}) ->
     case emqx_channel:handle_call(Req, ChanState) of
         {ok, Reply, NChanState} ->
             _ = gen_server:reply(From, Reply),
-            {ok, State#state{chan_state = NChanState}};
+            {ok, State#ws_connection{chan_state = NChanState}};
         {stop, Reason, Reply, NChanState} ->
             _ = gen_server:reply(From, Reply),
-            stop(Reason, State#state{chan_state = NChanState})
+            stop(Reason, State#ws_connection{chan_state = NChanState})
     end;
 
-websocket_info({cast, discard}, State) ->
-    stop(discarded, State);
-
-websocket_info({cast, Msg}, State = #state{chan_state = ChanState}) ->
+websocket_info({cast, Msg}, State = #ws_connection{chan_state = ChanState}) ->
     case emqx_channel:handle_cast(Msg, ChanState) of
         {ok, NChanState} ->
-            {ok, State#state{chan_state = NChanState}};
+            {ok, State#ws_connection{chan_state = NChanState}};
         {stop, Reason, NChanState} ->
-            stop(Reason, State#state{chan_state = NChanState})
+            stop(Reason, State#ws_connection{chan_state = NChanState})
     end;
 
-websocket_info({incoming, Packet = ?CONNECT_PACKET(
-                                      #mqtt_packet_connect{
-                                         proto_ver = ProtoVer}
-                                     )},
-               State = #state{fsm_state = idle}) ->
-    handle_incoming(Packet, fun connected/1,
-                    State#state{serialize = serialize_fun(ProtoVer)});
+websocket_info({incoming, Packet = ?CONNECT_PACKET(ConnPkt)},
+                State = #ws_connection{fsm_state = idle}) ->
+    #mqtt_packet_connect{proto_ver = ProtoVer} = ConnPkt,
+    NState = State#ws_connection{serialize = serialize_fun(ProtoVer)},
+    handle_incoming(Packet, fun connected/1, NState);
 
-websocket_info({incoming, Packet}, State = #state{fsm_state = idle}) ->
+websocket_info({incoming, Packet}, State = #ws_connection{fsm_state = idle}) ->
     ?LOG(warning, "Unexpected incoming: ~p", [Packet]),
     stop(unexpected_incoming_packet, State);
 
-websocket_info({incoming, Packet = ?PACKET(?CONNECT)},
-               State = #state{fsm_state = connected}) ->
-    ?LOG(warning, "Unexpected connect: ~p", [Packet]),
-    stop(unexpected_incoming_connect, State);
-
-websocket_info({incoming, Packet}, State = #state{fsm_state = connected})
+websocket_info({incoming, Packet}, State = #ws_connection{fsm_state = connected})
   when is_record(Packet, mqtt_packet) ->
     handle_incoming(Packet, fun reply/1, State);
 
 websocket_info(Deliver = {deliver, _Topic, _Msg},
-               State = #state{chan_state = ChanState}) ->
+               State = #ws_connection{chan_state = ChanState}) ->
     Delivers = emqx_misc:drain_deliver([Deliver]),
     case emqx_channel:handle_out({deliver, Delivers}, ChanState) of
         {ok, NChanState} ->
-            reply(State#state{chan_state = NChanState});
+            reply(State#ws_connection{chan_state = NChanState});
         {ok, Packets, NChanState} ->
-            reply(enqueue(Packets, State#state{chan_state = NChanState}));
+            reply(enqueue(Packets, State#ws_connection{chan_state = NChanState}));
         {stop, Reason, NChanState} ->
-            stop(Reason, State#state{chan_state = NChanState})
+            stop(Reason, State#ws_connection{chan_state = NChanState})
     end;
 
 websocket_info({timeout, TRef, keepalive}, State) when is_reference(TRef) ->
@@ -298,26 +289,22 @@ websocket_info({timeout, TRef, emit_stats}, State) when is_reference(TRef) ->
 websocket_info({timeout, TRef, Msg}, State) when is_reference(TRef) ->
     handle_timeout(TRef, Msg, State);
 
-websocket_info({shutdown, conflict, {ClientId, NewPid}}, State) ->
-    ?LOG(warning, "Clientid '~s' conflict with ~p", [ClientId, NewPid]),
-    stop(conflict, State);
-
 websocket_info({shutdown, Reason}, State) ->
-    stop(Reason, State);
+    stop({shutdown, Reason}, State);
 
 websocket_info({stop, Reason}, State) ->
     stop(Reason, State);
 
-websocket_info(Info, State = #state{chan_state = ChanState}) ->
+websocket_info(Info, State = #ws_connection{chan_state = ChanState}) ->
     case emqx_channel:handle_info(Info, ChanState) of
         {ok, NChanState} ->
-            {ok, State#state{chan_state = NChanState}};
+            {ok, State#ws_connection{chan_state = NChanState}};
         {stop, Reason, NChanState} ->
-            stop(Reason, State#state{chan_state = NChanState})
+            stop(Reason, State#ws_connection{chan_state = NChanState})
     end.
 
-terminate(SockError, _Req, #state{chan_state  = ChanState,
-                                  stop_reason = Reason}) ->
+terminate(SockError, _Req, #ws_connection{chan_state  = ChanState,
+                                          stop_reason = Reason}) ->
     ?LOG(debug, "Terminated for ~p, sockerror: ~p",
          [Reason, SockError]),
     emqx_channel:terminate(Reason, ChanState).
@@ -325,25 +312,22 @@ terminate(SockError, _Req, #state{chan_state  = ChanState,
 %%--------------------------------------------------------------------
 %% Connected callback
 
-connected(State = #state{chan_state = ChanState}) ->
-    NState = State#state{fsm_state = connected},
-    #{client_id := ClientId} = emqx_channel:info(client, ChanState),
-    ok = emqx_cm:register_channel(ClientId),
-    ok = emqx_cm:set_chan_attrs(ClientId, attrs(NState)),
-    ok = emqx_cm:set_chan_stats(ClientId, stats(NState)),
-    reply(NState).
+connected(State = #ws_connection{chan_state = ChanState}) ->
+    ok = emqx_channel:handle_cast({register, attrs(State), stats(State)}, ChanState),
+    reply(State#ws_connection{fsm_state = connected}).
 
 %%--------------------------------------------------------------------
 %% Handle timeout
 
-handle_timeout(TRef, Msg, State = #state{chan_state = ChanState}) ->
+handle_timeout(TRef, Msg, State = #ws_connection{chan_state = ChanState}) ->
     case emqx_channel:timeout(TRef, Msg, ChanState) of
         {ok, NChanState} ->
-            {ok, State#state{chan_state = NChanState}};
+            {ok, State#ws_connection{chan_state = NChanState}};
         {ok, Packets, NChanState} ->
-            reply(enqueue(Packets, State#state{chan_state = NChanState}));
+            NState = State#ws_connection{chan_state = NChanState},
+            reply(enqueue(Packets, NState));
         {stop, Reason, NChanState} ->
-            stop(Reason, State#state{chan_state = NChanState})
+            stop(Reason, State#ws_connection{chan_state = NChanState})
     end.
 
 %%--------------------------------------------------------------------
@@ -352,13 +336,13 @@ handle_timeout(TRef, Msg, State = #state{chan_state = ChanState}) ->
 process_incoming(<<>>, State) ->
     {ok, State};
 
-process_incoming(Data, State = #state{parse_state = ParseState}) ->
+process_incoming(Data, State = #ws_connection{parse_state = ParseState}) ->
     try emqx_frame:parse(Data, ParseState) of
         {ok, NParseState} ->
-            {ok, State#state{parse_state = NParseState}};
+            {ok, State#ws_connection{parse_state = NParseState}};
         {ok, Packet, Rest, NParseState} ->
             self() ! {incoming, Packet},
-            process_incoming(Rest, State#state{parse_state = NParseState});
+            process_incoming(Rest, State#ws_connection{parse_state = NParseState});
         {error, Reason} ->
             ?LOG(error, "Frame error: ~p", [Reason]),
             stop(Reason, State)
@@ -372,28 +356,34 @@ process_incoming(Data, State = #state{parse_state = ParseState}) ->
 %%--------------------------------------------------------------------
 %% Handle incoming packets
 
-handle_incoming(Packet = ?PACKET(Type), SuccFun, State = #state{chan_state = ChanState}) ->
+handle_incoming(Packet = ?PACKET(Type), SuccFun,
+                State = #ws_connection{chan_state = ChanState}) ->
     _ = inc_incoming_stats(Type),
     ok = emqx_metrics:inc_recv(Packet),
     ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]),
     case emqx_channel:handle_in(Packet, ChanState) of
         {ok, NChanState} ->
-            SuccFun(State#state{chan_state= NChanState});
+            SuccFun(State#ws_connection{chan_state= NChanState});
         {ok, OutPackets, NChanState} ->
-            SuccFun(enqueue(OutPackets, State#state{chan_state= NChanState}));
+            NState = State#ws_connection{chan_state= NChanState},
+            SuccFun(enqueue(OutPackets, NState));
         {stop, Reason, NChanState} ->
-            stop(Reason, State#state{chan_state= NChanState});
+            stop(Reason, State#ws_connection{chan_state= NChanState});
         {stop, Reason, OutPacket, NChanState} ->
-            stop(Reason, enqueue(OutPacket, State#state{chan_state= NChanState}))
+            NState = State#ws_connection{chan_state= NChanState},
+            stop(Reason, enqueue(OutPacket, NState))
     end.
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
 
-handle_outgoing(Packets, #state{serialize = Serialize}) ->
+handle_outgoing(Packets, State = #ws_connection{serialize  = Serialize,
+                                                chan_state = ChanState}) ->
     Data = lists:map(Serialize, Packets),
-    emqx_pd:update_counter(send_oct, iolist_size(Data)),
-    {binary, Data}.
+    Oct = iolist_size(Data),
+    ok = inc_sent_stats(length(Packets), Oct),
+    NChanState = emqx_channel:sent(Oct, ChanState),
+    {{binary, Data}, State#ws_connection{chan_state = NChanState}}.
 
 %%--------------------------------------------------------------------
 %% Serialize fun
@@ -402,11 +392,24 @@ serialize_fun(ProtoVer) ->
     fun(Packet = ?PACKET(Type)) ->
         ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)]),
         _ = inc_outgoing_stats(Type),
+        _ = emqx_metrics:inc_sent(Packet),
         emqx_frame:serialize(Packet, ProtoVer)
     end.
 
 %%--------------------------------------------------------------------
 %% Inc incoming/outgoing stats
+
+-compile({inline,
+          [ inc_recv_stats/2
+          , inc_incoming_stats/1
+          , inc_outgoing_stats/1
+          , inc_sent_stats/2
+          ]}).
+
+inc_recv_stats(Cnt, Oct) ->
+    emqx_pd:update_counter(recv_cnt, Cnt),
+    emqx_pd:update_counter(recv_oct, Oct),
+    emqx_metrics:inc('bytes.received', Oct).
 
 inc_incoming_stats(Type) ->
     emqx_pd:update_counter(recv_pkt, 1),
@@ -414,30 +417,35 @@ inc_incoming_stats(Type) ->
         andalso emqx_pd:update_counter(recv_msg, 1).
 
 inc_outgoing_stats(Type) ->
-    emqx_pd:update_counter(send_cnt, 1),
     emqx_pd:update_counter(send_pkt, 1),
     (Type == ?PUBLISH)
         andalso emqx_pd:update_counter(send_msg, 1).
 
+inc_sent_stats(Cnt, Oct) ->
+    emqx_pd:update_counter(send_cnt, Cnt),
+    emqx_pd:update_counter(send_oct, Oct),
+    emqx_metrics:inc('bytes.sent', Oct).
+
 %%--------------------------------------------------------------------
 %% Reply or Stop
 
-reply(State = #state{pendings = []}) ->
-    {ok, State};
-reply(State = #state{chan_state = ChanState, pendings = Pendings}) ->
-    Reply = handle_outgoing(Pendings, State),
-    NChanState = emqx_channel:ensure_timer(stats_timer, ChanState),
-    {reply, Reply, State#state{chan_state = NChanState, pendings = []}}.
+-compile({inline, [reply/1]}).
 
-stop(Reason, State = #state{pendings = []}) ->
-    {stop, State#state{stop_reason = Reason}};
-stop(Reason, State = #state{pendings = Pendings}) ->
-    Reply = handle_outgoing(Pendings, State),
-    {reply, [Reply, close],
-     State#state{pendings = [], stop_reason = Reason}}.
+reply(State = #ws_connection{pendings = []}) ->
+    {ok, State};
+reply(State = #ws_connection{pendings = Pendings}) ->
+    {Reply, NState} = handle_outgoing(Pendings, State),
+    {reply, Reply, NState#ws_connection{pendings = []}}.
+
+stop(Reason, State = #ws_connection{pendings = []}) ->
+    {stop, State#ws_connection{stop_reason = Reason}};
+stop(Reason, State = #ws_connection{pendings = Pendings}) ->
+    {Reply, State1} = handle_outgoing(Pendings, State),
+    State2 = State1#ws_connection{pendings = [], stop_reason = Reason},
+    {reply, [Reply, close], State2}.
 
 enqueue(Packet, State) when is_record(Packet, mqtt_packet) ->
     enqueue([Packet], State);
-enqueue(Packets, State = #state{pendings = Pendings}) ->
-    State#state{pendings = lists:append(Pendings, Packets)}.
+enqueue(Packets, State = #ws_connection{pendings = Pendings}) ->
+    State#ws_connection{pendings = lists:append(Pendings, Packets)}.
 
