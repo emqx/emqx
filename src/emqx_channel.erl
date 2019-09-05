@@ -335,7 +335,6 @@ handle_in(?DISCONNECT_PACKET(RC, Properties), Channel = #channel{session = Sessi
                            _ -> Channel
                        end,
             Channel2 = Channel1#channel{session = emqx_session:update_expiry_interval(Interval, Session)},
-            io:format("Interval: ~p~n", [Interval]),
             case Interval of
                 ?UINT_MAX ->
                     {ok, ensure_timer(will_timer, Channel2)};
