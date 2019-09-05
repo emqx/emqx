@@ -655,7 +655,7 @@ handle_call(Req, Channel) ->
 handle_cast({register, Attrs, Stats}, #channel{client = #{client_id := ClientId}}) ->
     ok = emqx_cm:register_channel(ClientId),
     emqx_cm:set_chan_attrs(ClientId, Attrs),
-    emqx_cm:set_chan_attrs(ClientId, Stats);
+    emqx_cm:set_chan_stats(ClientId, Stats);
 
 handle_cast(Msg, Channel) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),

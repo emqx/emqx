@@ -100,7 +100,7 @@ t_cm(_) ->
     emqtt:subscribe(C, <<"mytopic">>, 0),
     ct:sleep(1200),
     Stats = emqx_cm:get_chan_stats(ClientId),
-    ?assertEqual(1, proplists:get_value(subscriptions, Stats)),
+    ?assertEqual(1, proplists:get_value(subscriptions_cnt, Stats)),
     emqx_zone:set_env(external, idle_timeout, IdleTimeout).
 
 t_cm_registry(_) ->
