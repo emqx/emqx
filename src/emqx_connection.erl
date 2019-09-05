@@ -390,7 +390,7 @@ terminate(Reason, _StateName, State) ->
 %%--------------------------------------------------------------------
 
 register_self(State = #connection{chan_state = ChanState}) ->
-    emqx_channel:handle_cast({register, attrs(State)}, ChanState).
+    emqx_channel:handle_cast({register, attrs(State), stats(State)}, ChanState).
 
 %%--------------------------------------------------------------------
 %% Process incoming data

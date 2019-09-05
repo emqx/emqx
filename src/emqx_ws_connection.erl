@@ -313,7 +313,7 @@ terminate(SockError, _Req, #ws_connection{chan_state  = ChanState,
 %% Connected callback
 
 connected(State = #ws_connection{chan_state = ChanState}) ->
-    ok = emqx_channel:handle_cast({register, attrs(State)}, ChanState),
+    ok = emqx_channel:handle_cast({register, attrs(State), stats(State)}, ChanState),
     reply(State#ws_connection{fsm_state = connected}).
 
 %%--------------------------------------------------------------------

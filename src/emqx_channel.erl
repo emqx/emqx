@@ -652,9 +652,10 @@ handle_call(Req, Channel) ->
 
 -spec(handle_cast(Msg :: term(), channel())
       -> ok | {ok, channel()} | {stop, Reason :: term(), channel()}).
-handle_cast({register, Attrs}, #channel{client = #{client_id := ClientId}}) ->
+handle_cast({register, Attrs, Stats}, #channel{client = #{client_id := ClientId}}) ->
     ok = emqx_cm:register_channel(ClientId),
-    emqx_cm:set_chan_attrs(ClientId, Attrs);
+    emqx_cm:set_chan_attrs(ClientId, Attrs),
+    emqx_cm:set_chan_attrs(ClientId, Stats);
 
 handle_cast(Msg, Channel) ->
     ?LOG(error, "Unexpected cast: ~p", [Msg]),
