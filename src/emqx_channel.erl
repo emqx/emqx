@@ -419,13 +419,10 @@ process_publish(PacketId, Msg = #message{qos = ?QOS_2},
             handle_out({pubrec, PacketId, RC}, Channel)
     end.
 
-publish_to_msg(Packet, #channel{client   = Client = #{mountpoint := MountPoint},
-                                protocol = Protocol}) ->
+publish_to_msg(Packet, #channel{client = Client = #{mountpoint := MountPoint}}) ->
     Msg = emqx_packet:to_message(Client, Packet),
     Msg1 = emqx_message:set_flag(dup, false, Msg),
-    ProtoVer = emqx_protocol:info(proto_ver, Protocol),
-    Msg2 = emqx_message:set_header(proto_ver, ProtoVer, Msg1),
-    emqx_mountpoint:mount(MountPoint, Msg2).
+    emqx_mountpoint:mount(MountPoint, Msg1).
 
 %%--------------------------------------------------------------------
 %% Process Subscribe

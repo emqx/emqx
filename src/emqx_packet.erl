@@ -177,11 +177,10 @@ will_msg(#mqtt_packet_connect{client_id    = ClientId,
                               will_qos     = QoS,
                               will_topic   = Topic,
                               will_props   = Properties,
-                              will_payload = Payload,
-                              proto_ver    = ProtoVer}) ->
+                              will_payload = Payload}) ->
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
     Msg#message{flags = #{dup => false, retain => Retain},
-                headers = merge_props(#{username => Username, proto_ver => ProtoVer}, Properties)}.
+                headers = merge_props(#{username => Username}, Properties)}.
 
 merge_props(Headers, undefined) ->
     Headers;
