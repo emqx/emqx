@@ -38,7 +38,7 @@
 -record(state, {
           pool :: ecpool:poo_name(),
           id :: pos_integer(),
-          client :: pid(),
+          client :: pid() | undefined,
           mod :: module(),
           on_reconnect :: ecpool:reconn_callback(),
           on_disconnect :: ecpool:reconn_callback(),
@@ -110,9 +110,12 @@ init([Pool, Id, Mod, Opts]) ->
         {error, Error} -> {stop, Error}
     end.
 
-handle_call(is_connected, _From, State = #state{client = Client}) ->
+handle_call(is_connected, _From, State = #state{client = Client}) when is_pid(Client) ->
     IsAlive = Client =/= undefined andalso is_process_alive(Client),
     {reply, IsAlive, State};
+
+handle_call(is_connected, _From, State = #state{client = Client}) ->
+    {reply, Client =/= undefined, State};
 
 handle_call(client, _From, State = #state{client = undefined}) ->
     {reply, {error, disconnected}, State};

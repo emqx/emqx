@@ -17,26 +17,28 @@
 -module(ecpool_SUITE).
 
 -compile(export_all).
+-compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
 
 -define(POOL, test_pool).
 
--define(POOL_OPTS, [
-        %% schedulers number
-        {pool_size, 10},
-        %% round-robbin | random | hash
-        {pool_type, random},
-        %% false | pos_integer()
-        {auto_reconnect, false},
+-define(POOL_OPTS,
+        [%% schedulers number
+         {pool_size, 10},
+         %% round-robbin | random | hash
+         {pool_type, random},
+         %% false | pos_integer()
+         {auto_reconnect, false},
 
-        %% DB Parameters
-        {host, "localhost"},
-        {port, 5432},
-        {username, "feng"},
-        {password, ""},
-        {database, "mqtt"},
-        {encoding,  utf8}]).
+         %% DB Parameters
+         {host, "localhost"},
+         {port, 5432},
+         {username, "feng"},
+         {password, ""},
+         {database, "mqtt"},
+         {encoding,  utf8}
+        ]).
 
 all() ->
     [{group, all}].
@@ -46,7 +48,9 @@ groups() ->
       [t_start_pool,
        t_start_sup_pool,
        t_restart_client,
-       t_reconnect_client
+       t_reconnect_client,
+       t_multiprocess_client,
+       t_multiprocess_client_not_restart
       ]}].
 
 init_per_suite(Config) ->
@@ -107,3 +111,53 @@ t_reconnect_client(_Config) ->
     timer:sleep(1100),
     ?assertEqual(4, length(ecpool:workers(?POOL))).
 
+t_multiprocess_client(_Config) ->
+    ecpool:start_pool(?POOL, test_client, [{pool_size, 4}, {auto_reconnect, 1}, {multiprocess, true}]),
+    ?assertEqual(4, length(ecpool:workers(?POOL))),
+    %% check client status
+    [begin
+        true = ecpool_worker:is_connected(Worker),
+        {ok, _C = {Pid1, Pid2}} = ecpool_worker:client(Worker),
+        true = is_process_alive(Pid1),
+        true = is_process_alive(Pid2)
+     end || {_WorkerName, Worker} <- ecpool:workers(?POOL)],
+
+    %% stop one of the clients
+    Client = ecpool:with_client(?POOL,
+                    fun(C = {P1, _P2}) ->
+                        test_client:stop(P1, normal), C
+                    end),
+    ct:sleep(1500),
+
+    %% check that client is reconnected
+    [begin
+        true = ecpool_worker:is_connected(Worker),
+        {ok, Client2 = {Pid3, Pid4}} = ecpool_worker:client(Worker),
+        true = is_process_alive(Pid3),
+        true = is_process_alive(Pid4),
+        ?assert(Client2 =/= Client)
+     end || {_WorkerName, Worker} <- ecpool:workers(?POOL)].
+
+t_multiprocess_client_not_restart(_Config) ->
+    ecpool:start_pool(?POOL, test_client, [{pool_size, 4}, {auto_reconnect, false}, {multiprocess, true}]),
+    ?assertEqual(4, length(ecpool:workers(?POOL))),
+    %% check client status
+    [begin
+        true = ecpool_worker:is_connected(Worker),
+        {ok, {Pid1, Pid2}} = ecpool_worker:client(Worker),
+        true = is_process_alive(Pid1),
+        true = is_process_alive(Pid2)
+     end || {_WorkerName, Worker} <- ecpool:workers(?POOL)],
+
+    %% stop all the clients
+    [begin
+        true = ecpool_worker:is_connected(Worker),
+        {ok, {Pid1, _Pid2}} = ecpool_worker:client(Worker),
+        test_client:stop(Pid1, normal)
+     end || {_WorkerName, Worker} <- ecpool:workers(?POOL)],
+    ct:sleep(1500),
+
+    %% check that all the clients are disconnected and not restarted.
+    [begin
+        ?assertEqual(false, ecpool_worker:is_connected(Worker))
+     end || {_WorkerName, Worker} <- ecpool:workers(?POOL)].
