@@ -25,6 +25,7 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_ct_helpers:boot_modules([]),
     emqx_ct_helpers:start_apps([]),
     Config.
 
@@ -49,6 +50,5 @@ test(["error"]) ->
     error(test_failed);
 test(_) ->
     io:format("Hello world").
-
 
 

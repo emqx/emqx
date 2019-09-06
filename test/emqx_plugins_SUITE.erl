@@ -37,6 +37,7 @@ init_per_suite(Config) ->
     code:add_path(filename:join([AppPath, "_build", "default", "lib", "emqx_mini_plugin", "ebin"])),
 
     put(loaded_file, filename:join([DataPath, "loaded_plugins"])),
+    emqx_ct_helpers:boot_modules([]),
     emqx_ct_helpers:start_apps([], fun set_sepecial_cfg/1),
 
     Config.

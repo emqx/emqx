@@ -31,6 +31,7 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_ct_helpers:boot_modules([router, broker]),
     emqx_ct_helpers:start_apps([]),
     Config.
 
