@@ -166,7 +166,8 @@ t_handle_deliver(_) ->
               Msg0 = emqx_message:make(<<"clientx">>, ?QOS_0, <<"t0">>, <<"qos0">>),
               Msg1 = emqx_message:make(<<"clientx">>, ?QOS_1, <<"t1">>, <<"qos1">>),
               Delivers = [{deliver, <<"+">>, Msg0}, {deliver, <<"+">>, Msg1}],
-              {ok, _Ch} = emqx_channel:handle_out({deliver, Delivers}, Channel1)
+              {ok, Packets, _Ch} = emqx_channel:handle_out({deliver, Delivers}, Channel1),
+              ?assertEqual([?QOS_0, ?QOS_1], [emqx_packet:qos(Pkt)|| Pkt <- Packets])
       end).
 
 %%--------------------------------------------------------------------
@@ -178,7 +179,8 @@ t_handle_connack(_) ->
       fun(Channel) ->
               {ok, ?CONNACK_PACKET(?RC_SUCCESS, SP, _), _}
                 = handle_out({connack, ?RC_SUCCESS, 0}, Channel),
-              {stop, {shutdown, unauthorized_client}, ?CONNACK_PACKET(5), _}
+              {stop, {shutdown, not_authorized},
+               ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _}
                 = handle_out({connack, ?RC_NOT_AUTHORIZED}, Channel)
       end).
 
@@ -278,18 +280,20 @@ with_channel(Fun) ->
     Channel = emqx_channel:init(ConnInfo, Options),
     ConnPkt = #mqtt_packet_connect{
                  proto_name  = <<"MQTT">>,
-                 proto_ver   = ?MQTT_PROTO_V4,
+                 proto_ver   = ?MQTT_PROTO_V5,
                  clean_start = true,
                  keepalive   = 30,
                  properties  = #{},
                  client_id   = <<"clientid">>,
-                 username    = <<"username">>
+                 username    = <<"username">>,
+                 password    = <<"passwd">>
                 },
     Protocol = emqx_protocol:init(ConnPkt),
     Session = emqx_session:init(#{zone => testing},
                                 #{max_inflight    => 100,
                                   expiry_interval => 0
                                  }),
-    Fun(emqx_channel:set(protocol, Protocol,
-                         emqx_channel:set(session, Session, Channel))).
+    Fun(emqx_channel:set_field(protocol, Protocol,
+                               emqx_channel:set_field(
+                                 session, Session, Channel))).
 

@@ -51,7 +51,6 @@ on_client_connected(#{client_id := ClientId,
                       proto_ver  := ProtoVer,
                       keepalive  := Keepalive
                      }, Env) ->
-    
     case emqx_json:safe_encode(maps:merge(#{clientid => ClientId,
                                username => Username,
                                ipaddress => iolist_to_binary(esockd_net:ntoa(IpAddr)),
@@ -66,6 +65,9 @@ on_client_connected(#{client_id := ClientId,
         {error, Reason} ->
             ?LOG(error, "Encoding connected event error: ~p", [Reason])
     end.
+
+
+
 
 on_client_disconnected(#{client_id := ClientId,
                          username := Username}, Reason, Env) ->

@@ -24,7 +24,6 @@
 all() -> emqx_ct:all(?MODULE).
 
 t_init(_) ->
-    ?assertEqual(undefined, emqx_oom:init(undefined)),
     Opts = #{message_queue_len => 10,
              max_heap_size => 1024*1024*8
             },
@@ -34,7 +33,6 @@ t_init(_) ->
                   }, emqx_oom:info(Oom)).
 
 t_check(_) ->
-    ?assertEqual(ok, emqx_oom:check(undefined)),
     Opts = #{message_queue_len => 10,
              max_heap_size => 1024*1024*8
             },

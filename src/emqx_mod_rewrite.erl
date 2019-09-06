@@ -21,6 +21,11 @@
 -include_lib("emqx.hrl").
 -include_lib("emqx_mqtt.hrl").
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
 %% APIs
 -export([ rewrite_subscribe/4
         , rewrite_unsubscribe/4
@@ -86,4 +91,3 @@ compile(Rules) ->
                   {ok, MP} = re:compile(Re),
                   {rewrite, Topic, MP, Dest}
               end, Rules).
-
