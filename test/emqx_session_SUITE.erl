@@ -30,7 +30,6 @@
         , emqx_message
         , emqx_hooks
         , emqx_zone
-        , emqx_pd
         ]).
 
 all() -> emqx_ct:all(?MODULE).
@@ -83,7 +82,7 @@ apply_op(Session, attrs) ->
 apply_op(Session, stats) ->
     Stats = emqx_session:stats(Session),
     ?assert(is_list(Stats)),
-    ?assertEqual(9, length(Stats)),
+    ?assertEqual(10, length(Stats)),
     Session;
 apply_op(Session, {info, InfoArg}) ->
     _Ret = emqx_session:info(InfoArg, Session),
@@ -113,16 +112,16 @@ apply_op(Session, {publish, {PacketId, Msg}}) ->
     end;
 apply_op(Session, {puback, PacketId}) ->
     case emqx_session:puback(PacketId, Session) of
-        {ok, _Msg} ->
-            Session;
-        {ok, _Deliver, NSession} ->
+        {ok, _Msg, NSession} ->
+            NSession;
+        {ok, _Msg, _Publishes, NSession} ->
             NSession;
         {error, _ErrorCode} ->
             Session
     end;
 apply_op(Session, {pubrec, PacketId}) ->
     case emqx_session:pubrec(PacketId, Session) of
-        {ok, NSession} ->
+        {ok, _Msg, NSession} ->
             NSession;
         {error, _ErrorCode} ->
             Session
@@ -283,7 +282,7 @@ session() ->
          {zone(), option()},
          begin
              Session = emqx_session:init(#{zone => Zone}, Options),
-             emqx_session:set_pkt_id(Session, 16#ffff)
+             emqx_session:set_field(next_pkt_id, 16#ffff, Session)
          end).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -327,6 +326,5 @@ do_mock(emqx_message) ->
 do_mock(emqx_hooks) ->
     meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end);
 do_mock(emqx_zone) ->
-    meck:expect(emqx_zone, get_env, fun(Env, Key, Default) -> maps:get(Key, Env, Default) end);
-do_mock(emqx_pd) ->
-    meck:expect(emqx_pd, update_counter, fun(_stats, _num) -> ok end).
+    meck:expect(emqx_zone, get_env, fun(Env, Key, Default) -> maps:get(Key, Env, Default) end).
+

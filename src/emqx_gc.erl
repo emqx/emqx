@@ -50,45 +50,38 @@
 -define(ENABLED(X), (is_integer(X) andalso X > 0)).
 
 %% @doc Initialize force GC state.
--spec(init(opts() | false) -> maybe(gc_state())).
+-spec(init(opts()) -> gc_state()).
 init(#{count := Count, bytes := Bytes}) ->
     Cnt = [{cnt, {Count, Count}} || ?ENABLED(Count)],
     Oct = [{oct, {Bytes, Bytes}} || ?ENABLED(Bytes)],
-    ?GCS(maps:from_list(Cnt ++ Oct));
-init(false) -> undefined.
+    ?GCS(maps:from_list(Cnt ++ Oct)).
 
 %% @doc Try to run GC based on reduntions of count or bytes.
 -spec(run(pos_integer(), pos_integer(), gc_state())
       -> {boolean(), gc_state()}).
 run(Cnt, Oct, ?GCS(St)) ->
     {Res, St1} = run([{cnt, Cnt}, {oct, Oct}], St),
-    {Res, ?GCS(St1)};
-run(_Cnt, _Oct, undefined) ->
-    {false, undefined}.
+    {Res, ?GCS(St1)}.
 
 run([], St) ->
     {false, St};
 run([{K, N}|T], St) ->
     case dec(K, N, St) of
         {true, St1} ->
-            {true, do_gc(St1)};
+            true = erlang:garbage_collect(),
+            {true, do_reset(St1)};
         {false, St1} ->
             run(T, St1)
     end.
 
 %% @doc Info of GC state.
--spec(info(gc_state()) -> maybe(map())).
-info(?GCS(St)) ->
-    St;
-info(undefined) ->
-    undefined.
+-spec(info(maybe(gc_state())) -> maybe(map())).
+info(?GCS(St)) -> St.
 
 %% @doc Reset counters to zero.
--spec(reset(gc_state()) -> gc_state()).
+-spec(reset(maybe(gc_state())) -> gc_state()).
 reset(?GCS(St)) ->
-    ?GCS(do_reset(St));
-reset(undefined) ->
-    undefined.
+    ?GCS(do_reset(St)).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -104,10 +97,6 @@ dec(Key, Num, St) ->
         _ ->
             {true, St}
     end.
-
-do_gc(St) ->
-    true = erlang:garbage_collect(),
-    do_reset(St).
 
 do_reset(St) ->
     do_reset(cnt, do_reset(oct, St)).

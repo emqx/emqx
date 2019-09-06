@@ -174,7 +174,7 @@ open_session(false, Client = #{client_id := ClientId}, Options) ->
                       case takeover_session(ClientId) of
                           {ok, ConnMod, ChanPid, Session} ->
                               ok = emqx_session:resume(ClientId, Session),
-                              Pendings = ConnMod:takeover(ChanPid, 'end'),
+                              Pendings = ConnMod:call(ChanPid, {takeover, 'end'}),
                               {ok, #{session  => Session,
                                      present  => true,
                                      pendings => Pendings}};
@@ -205,7 +205,7 @@ takeover_session(ClientId) ->
 takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chan_attrs(ClientId, ChanPid) of
         #{client := #{conn_mod := ConnMod}} ->
-            Session = ConnMod:takeover(ChanPid, 'begin'),
+            Session = ConnMod:call(ChanPid, {takeover, 'begin'}),
             {ok, ConnMod, ChanPid, Session};
         undefined ->
             {error, not_found}
@@ -234,7 +234,7 @@ discard_session(ClientId) when is_binary(ClientId) ->
 discard_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chan_attrs(ClientId, ChanPid) of
         #{client := #{conn_mod := ConnMod}} ->
-            ConnMod:discard(ChanPid);
+            ConnMod:call(ChanPid, discard);
         undefined -> ok
     end;
 

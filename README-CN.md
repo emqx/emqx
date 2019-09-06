@@ -65,7 +65,6 @@ cd _rel/emqx && ./bin/emqx console
 你可通过以下途径与 EMQ 社区及开发者联系:
 
 - [EMQX Slack](http://emqx.slack.com)
-- [Mailing Lists](<emqtt@googlegroups.com>)
 - [Twitter](https://twitter.com/emqtt)
 - [Forum](https://groups.google.com/d/forum/emqtt)
 - [Blog](https://medium.com/@emqtt)

@@ -24,7 +24,6 @@
 all() -> emqx_ct:all(?MODULE).
 
 t_init(_) ->
-    ?assertEqual(undefined, emqx_gc:init(false)),
     GC1 = emqx_gc:init(#{count => 10, bytes => 0}),
     ?assertEqual(#{cnt => {10, 10}}, emqx_gc:info(GC1)),
     GC2 = emqx_gc:init(#{count => 0, bytes => 10}),
@@ -33,9 +32,6 @@ t_init(_) ->
     ?assertEqual(#{cnt => {10, 10}, oct => {10, 10}}, emqx_gc:info(GC3)).
 
 t_run(_) ->
-    Undefined = emqx_gc:init(false),
-    ?assertEqual(undefined, Undefined),
-    ?assertEqual({false, undefined}, emqx_gc:run(1, 1, Undefined)),
     GC = emqx_gc:init(#{count => 10, bytes => 10}),
     ?assertEqual({true, GC}, emqx_gc:run(1, 1000, GC)),
     ?assertEqual({true, GC}, emqx_gc:run(1000, 1, GC)),
@@ -51,12 +47,10 @@ t_run(_) ->
     ?assertEqual({false, DisabledGC}, emqx_gc:run(1, 1, DisabledGC)).
 
 t_info(_) ->
-    ?assertEqual(undefined, emqx_gc:info(undefined)),
     GC = emqx_gc:init(#{count => 10, bytes => 0}),
     ?assertEqual(#{cnt => {10, 10}}, emqx_gc:info(GC)).
 
 t_reset(_) ->
-    ?assertEqual(undefined, emqx_gc:reset(undefined)),
     GC = emqx_gc:init(#{count => 10, bytes => 10}),
     {false, GC1} = emqx_gc:run(5, 5, GC),
     ?assertEqual(#{cnt => {10, 5}, oct => {10, 5}}, emqx_gc:info(GC1)),

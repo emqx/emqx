@@ -41,8 +41,7 @@
 -define(DISABLED, 0).
 
 %% @doc Init the OOM policy.
--spec(init(maybe(opts())) -> oom_policy()).
-init(undefined) -> undefined;
+-spec(init(opts()) -> oom_policy()).
 init(#{message_queue_len := MaxQLen,
        max_heap_size := MaxHeapSizeInBytes}) ->
     MaxHeapSize = MaxHeapSizeInBytes div erlang:system_info(wordsize),
@@ -60,8 +59,7 @@ init(#{message_queue_len := MaxQLen,
 %% `ok': There is nothing out of the ordinary.
 %% `shutdown': Some numbers (message queue length hit the limit),
 %%             hence shutdown for greater good (system stability).
--spec(check(maybe(oom_policy())) -> ok | {shutdown, reason()}).
-check(undefined) -> ok;
+-spec(check(oom_policy()) -> ok | {shutdown, reason()}).
 check({oom_policy, #{message_queue_len := MaxQLen,
                      max_heap_size := MaxHeapSize}}) ->
     Qlength = proc_info(message_queue_len),
@@ -71,18 +69,15 @@ check({oom_policy, #{message_queue_len := MaxQLen,
               {fun() -> is_exceeded(HeapSize, MaxHeapSize) end,
                {shutdown, proc_heap_too_large}}]).
 
-do_check([]) ->
-    ok;
+do_check([]) -> ok;
 do_check([{Pred, Result} | Rest]) ->
     case Pred() of
         true -> Result;
         false -> do_check(Rest)
     end.
 
--spec(info(maybe(oom_policy())) -> maybe(opts())).
-info(undefined) -> undefined;
-info({oom_policy, Opts}) ->
-    Opts.
+-spec(info(oom_policy()) -> opts()).
+info({oom_policy, Opts}) -> Opts.
 
 -compile({inline,
           [ is_exceeded/2

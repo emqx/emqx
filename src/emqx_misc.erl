@@ -20,13 +20,16 @@
 
 -export([ merge_opts/2
         , maybe_apply/2
+        , run_fold/2
         , run_fold/3
+        , pipeline/3
         , start_timer/2
         , start_timer/3
         , cancel_timer/1
         , proc_name/2
         , proc_stats/0
         , proc_stats/1
+        , index_of/2
         ]).
 
 -export([ drain_deliver/0
@@ -40,7 +43,7 @@
           ]}).
 
 %% @doc Merge options
--spec(merge_opts(list(), list()) -> list()).
+-spec(merge_opts(Opts, Opts) -> Opts when Opts :: proplists:proplist()).
 merge_opts(Defaults, Options) ->
     lists:foldl(
       fun({Opt, Val}, Acc) ->
@@ -57,10 +60,33 @@ maybe_apply(_Fun, undefined) ->
 maybe_apply(Fun, Arg) when is_function(Fun) ->
     erlang:apply(Fun, [Arg]).
 
+run_fold([], Acc) ->
+    Acc;
+run_fold([Fun|More], Acc) ->
+    run_fold(More, Fun(Acc)).
+
+%% @doc RunFold
 run_fold([], Acc, _State) ->
     Acc;
 run_fold([Fun|More], Acc, State) ->
     run_fold(More, Fun(Acc, State), State).
+
+%% @doc Pipeline
+pipeline([], Input, State) ->
+    {ok, Input, State};
+
+pipeline([Fun|More], Input, State) ->
+    case Fun(Input, State) of
+        ok -> pipeline(More, Input, State);
+        {ok, NState} ->
+            pipeline(More, Input, NState);
+        {ok, NInput, NState} ->
+            pipeline(More, NInput, NState);
+        {error, Reason} ->
+            {error, Reason, State};
+        {error, Reason, NState} ->
+            {error, Reason, NState}
+    end.
 
 -spec(start_timer(integer(), term()) -> reference()).
 start_timer(Interval, Msg) ->
@@ -122,4 +148,15 @@ drain_down(Cnt, Acc) ->
     after 0 ->
         drain_down(0, Acc)
     end.
+
+%% lists:index_of/2
+index_of(E, L) ->
+    index_of(E, 1, L).
+
+index_of(_E, _I, []) ->
+    error(badarg);
+index_of(E, I, [E|_]) ->
+    I;
+index_of(E, I, [_|L]) ->
+    index_of(E, I+1, L).
 

@@ -31,7 +31,7 @@
              , subid/0
              ]).
 
--export_type([ conn/0
+-export_type([ conninfo/0
              , client/0
              , client_id/0
              , username/0
@@ -43,6 +43,7 @@
 -export_type([ connack/0
              , subopts/0
              , reason_code/0
+             , alias_id/0
              , properties/0
              ]).
 
@@ -94,12 +95,12 @@
 -type(topic() :: emqx_topic:topic()).
 -type(subid() :: binary() | atom()).
 
--type(conn() :: #{peername := peername(),
-                  sockname := peername(),
-                  peercert := esockd_peercert:peercert(),
-                  conn_mod := module(),
-                  atom()   => term()
-                 }).
+-type(conninfo() :: #{peername := peername(),
+                      sockname := peername(),
+                      peercert := esockd_peercert:peercert(),
+                      conn_mod := module(),
+                      atom()   => term()
+                     }).
 -type(client() :: #{zone         := zone(),
                     conn_mod     := maybe(module()),
                     peername     := peername(),
@@ -142,6 +143,7 @@
                     }).
 -type(reason_code() :: 0..16#FF).
 -type(packet_id() :: 1..16#FFFF).
+-type(alias_id() :: 0..16#FFFF).
 -type(properties() :: #{atom() => term()}).
 -type(topic_filters() :: list({topic(), subopts()})).
 -type(packet() :: #mqtt_packet{}).

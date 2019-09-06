@@ -167,6 +167,7 @@ bin(L) when is_list(L) -> list_to_binary(L).
 levels(Topic) when is_binary(Topic) ->
     length(tokens(Topic)).
 
+-compile({inline, [tokens/1]}).
 %% @doc Split topic to tokens.
 -spec(tokens(topic()) -> list(binary())).
 tokens(Topic) ->
@@ -204,12 +205,12 @@ join([]) ->
 join([W]) ->
     bin(W);
 join(Words) ->
-    {_, Bin} =
-    lists:foldr(fun(W, {true, Tail}) ->
-                    {false, <<W/binary, Tail/binary>>};
-                   (W, {false, Tail}) ->
-                    {false, <<W/binary, "/", Tail/binary>>}
-                end, {true, <<>>}, [bin(W) || W <- Words]),
+    {_, Bin} = lists:foldr(
+                 fun(W, {true, Tail}) ->
+                         {false, <<W/binary, Tail/binary>>};
+                    (W, {false, Tail}) ->
+                         {false, <<W/binary, "/", Tail/binary>>}
+                 end, {true, <<>>}, [bin(W) || W <- Words]),
     Bin.
 
 -spec(parse(topic() | {topic(), map()}) -> {topic(), #{share => binary()}}).

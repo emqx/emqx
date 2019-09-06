@@ -19,63 +19,32 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--import(emqx_mod_rewrite,
-        [ rewrite_subscribe/4
-        , rewrite_unsubscribe/4
-        , rewrite_publish/2
-        ]).
-
--include_lib("emqx.hrl").
+-include("emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(TEST_RULES, [<<"x/# ^x/y/(.+)$ z/y/$1">>,
-                     <<"y/+/z/# ^y/(.+)/z/(.+)$ y/z/$2">>
-                    ]).
+-define(rules, [{rewrite,<<"x/#">>,<<"^x/y/(.+)$">>,<<"z/y/$1">>},
+                {rewrite,<<"y/+/z/#">>,<<"^y/(.+)/z/(.+)$">>,<<"y/z/$2">>}]).
 
 all() -> emqx_ct:all(?MODULE).
 
-%%--------------------------------------------------------------------
-%% Test cases
-%%--------------------------------------------------------------------
-
-t_rewrite_subscribe(_) ->
-    ?assertEqual({ok, [{<<"test">>, #{}}]},
-                 rewrite(subscribe, [{<<"test">>, #{}}])),
-    ?assertEqual({ok, [{<<"z/y/test">>, #{}}]},
-                 rewrite(subscribe, [{<<"x/y/test">>, #{}}])),
-    ?assertEqual({ok, [{<<"y/z/test_topic">>, #{}}]},
-                 rewrite(subscribe, [{<<"y/test/z/test_topic">>, #{}}])).
-
-t_rewrite_unsubscribe(_) ->
-    ?assertEqual({ok, [{<<"test">>, #{}}]},
-                 rewrite(unsubscribe, [{<<"test">>, #{}}])),
-    ?assertEqual({ok, [{<<"z/y/test">>, #{}}]},
-                 rewrite(unsubscribe, [{<<"x/y/test">>, #{}}])),
-    ?assertEqual({ok, [{<<"y/z/test_topic">>, #{}}]},
-                 rewrite(unsubscribe, [{<<"y/test/z/test_topic">>, #{}}])).
-
-t_rewrite_publish(_) ->
-    ?assertMatch({ok, #message{topic = <<"test">>}},
-                 rewrite(publish, #message{topic = <<"test">>})),
-    ?assertMatch({ok, #message{topic = <<"z/y/test">>}},
-                 rewrite(publish, #message{topic = <<"x/y/test">>})),
-    ?assertMatch({ok, #message{topic = <<"y/z/test_topic">>}},
-                 rewrite(publish, #message{topic = <<"y/test/z/test_topic">>})).
-
-%%--------------------------------------------------------------------
-%% Helper functions
-%%--------------------------------------------------------------------
-
-rewrite(subscribe, TopicFilters) ->
-    rewrite_subscribe(#{}, #{}, TopicFilters, rules());
-rewrite(unsubscribe, TopicFilters) ->
-    rewrite_unsubscribe(#{}, #{}, TopicFilters, rules());
-rewrite(publish, Msg) -> rewrite_publish(Msg, rules()).
-
-rules() ->
-    [begin
-         [Topic, Re, Dest] = string:split(Rule, " ", all),
-         {ok, MP} = re:compile(Re),
-         {rewrite, Topic, MP, Dest}
-     end || Rule <- ?TEST_RULES].
-
+t_rewrite_rule(_Config) ->
+    {ok, _} = emqx_hooks:start_link(),
+    ok = emqx_mod_rewrite:load(?rules),
+    RawTopicFilters = [{<<"x/y/2">>, opts},
+                       {<<"x/1/2">>, opts},
+                       {<<"y/a/z/b">>, opts},
+                       {<<"y/def">>, opts}],
+    SubTopicFilters = emqx_hooks:run_fold('client.subscribe', [client, properties], RawTopicFilters),
+    UnSubTopicFilters = emqx_hooks:run_fold('client.unsubscribe', [client, properties], RawTopicFilters),
+    Messages = [emqx_hooks:run_fold('message.publish', [], emqx_message:make(Topic, <<"payload">>))
+                || {Topic, _Opts} <- RawTopicFilters],
+    ExpectedTopicFilters = [{<<"z/y/2">>, opts},
+                            {<<"x/1/2">>, opts},
+                            {<<"y/z/b">>, opts},
+                            {<<"y/def">>, opts}],
+    ?assertEqual(ExpectedTopicFilters, SubTopicFilters),
+    ?assertEqual(ExpectedTopicFilters, UnSubTopicFilters),
+    [?assertEqual(ExpectedTopic, emqx_message:topic(Message))
+     || {{ExpectedTopic, _opts}, Message} <- lists:zip(ExpectedTopicFilters, Messages)],
+    ok = emqx_mod_rewrite:unload(?rules),
+    ok = emqx_hooks:stop().
