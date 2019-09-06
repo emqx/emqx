@@ -18,21 +18,21 @@
 
 -behaviour(gen_server).
 
--import(proplists, [get_value/3]).
-
 %% API Function Exports
 -export([start_link/2]).
 
 -export([info/1]).
 
 %% gen_server Function Exports
--export([init/1,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2,
-         terminate/2,
-         code_change/3
+-export([ init/1
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
         ]).
+
+-import(proplists, [get_value/3]).
 
 -record(state, {name, size, type}).
 

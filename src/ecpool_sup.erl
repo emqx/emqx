@@ -21,9 +21,9 @@
 -export([start_link/0]).
 
 %% API
--export([start_pool/3,
-         stop_pool/1,
-         get_pool/1
+-export([ start_pool/3
+        , stop_pool/1
+        , get_pool/1
         ]).
 
 -export([pools/0]).
