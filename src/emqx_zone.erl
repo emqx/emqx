@@ -66,18 +66,17 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 -spec(get_env(maybe(zone()), atom()) -> maybe(term())).
-get_env(undefined, Key) ->
-    emqx_config:get_env(Key);
+get_env(undefined, Key) -> emqx:get_env(Key);
 get_env(Zone, Key) ->
     get_env(Zone, Key, undefined).
 
 -spec(get_env(maybe(zone()), atom(), term()) -> maybe(term())).
 get_env(undefined, Key, Def) ->
-    emqx_config:get_env(Key, Def);
+    emqx:get_env(Key, Def);
 get_env(Zone, Key, Def) ->
     try persistent_term:get(?KEY(Zone, Key))
     catch error:badarg ->
-        emqx_config:get_env(Key, Def)
+        emqx:get_env(Key, Def)
     end.
 
 -spec(set_env(zone(), atom(), term()) -> ok).
@@ -132,5 +131,5 @@ code_change(_OldVsn, State, _Extra) ->
 
 do_reload() ->
     [persistent_term:put(?KEY(Zone, Key), Val)
-      || {Zone, Opts} <- emqx_config:get_env(zones, []), {Key, Val} <- Opts].
+      || {Zone, Opts} <- emqx:get_env(zones, []), {Key, Val} <- Opts].
 
