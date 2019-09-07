@@ -105,7 +105,7 @@ start_link() ->
     gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 init([]) ->
-    Interval = emqx_config:get_env(flapping_clean_interval, ?default_flapping_clean_interval),
+    Interval = emqx:get_env(flapping_clean_interval, ?default_flapping_clean_interval),
     TabOpts = [ public
               , set
               , {keypos, 2}
