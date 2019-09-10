@@ -39,7 +39,7 @@
 %% @doc Init plugins' config
 -spec(init() -> ok).
 init() ->
-    case emqx_config:get_env(plugins_etc_dir) of
+    case emqx:get_env(plugins_etc_dir) of
         undefined  -> ok;
         PluginsEtc ->
             CfgFiles = [filename:join(PluginsEtc, File) ||
@@ -57,16 +57,15 @@ init_config(CfgFile) ->
 -spec(load() -> list() | {error, term()}).
 load() ->
     load_expand_plugins(),
-    case emqx_config:get_env(plugins_loaded_file) of
-        undefined -> %% No plugins available
-            ignore;
+    case emqx:get_env(plugins_loaded_file) of
+        undefined -> ignore; %% No plugins available
         File ->
             ensure_file(File),
             with_loaded_file(File, fun(Names) -> load_plugins(Names, false) end)
     end.
 
 load_expand_plugins() ->
-    case emqx_config:get_env(expand_plugins_dir) of
+    case emqx:get_env(expand_plugins_dir) of
         undefined -> ok;
         ExpandPluginsDir ->
             Plugins = filelib:wildcard("*", ExpandPluginsDir),
@@ -138,9 +137,8 @@ load_plugins(Names, Persistent) ->
 %% @doc Unload all plugins before broker stopped.
 -spec(unload() -> list() | {error, term()}).
 unload() ->
-    case emqx_config:get_env(plugins_loaded_file) of
-        undefined ->
-            ignore;
+    case emqx:get_env(plugins_loaded_file) of
+        undefined -> ignore;
         File ->
             with_loaded_file(File, fun stop_plugins/1)
     end.
@@ -300,7 +298,7 @@ plugin_unloaded(Name, true) ->
     end.
 
 read_loaded() ->
-    case emqx_config:get_env(plugins_loaded_file) of
+    case emqx:get_env(plugins_loaded_file) of
         undefined -> {error, not_found};
         File      -> read_loaded(File)
     end.
@@ -308,7 +306,7 @@ read_loaded() ->
 read_loaded(File) -> file:consult(File).
 
 write_loaded(AppNames) ->
-    FilePath = emqx_config:get_env(plugins_loaded_file),
+    FilePath = emqx:get_env(plugins_loaded_file),
     case file:write_file(FilePath, [io_lib:format("~p.~n", [Name]) || Name <- AppNames]) of
         ok -> ok;
         {error, Error} ->

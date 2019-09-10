@@ -79,8 +79,7 @@ reload_acl() ->
 %% Internal Functions
 %%--------------------------------------------------------------------
 
-acl_file() ->
-    emqx_config:get_env(acl_file).
+acl_file() -> emqx:get_env(acl_file).
 
 lookup(PubSub, Rules) ->
     maps:get(PubSub, Rules, []).
