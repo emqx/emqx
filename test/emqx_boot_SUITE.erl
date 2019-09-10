@@ -14,41 +14,30 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_ctl_SUITE).
+-module(emqx_boot_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
 
 all() -> emqx_ct:all(?MODULE).
 
-init_per_suite(Config) ->
-    emqx_ct_helpers:boot_modules([]),
-    emqx_ct_helpers:start_apps([]),
-    Config.
-
-end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
-
-t_command(_) ->
-    emqx_ctl:start_link(),
-    emqx_ctl:register_command(test, {?MODULE, test}),
-    ct:sleep(50),
-    ?assertEqual([{emqx_ctl_SUITE,test}], emqx_ctl:lookup_command(test)),
-    ?assertEqual(ok, emqx_ctl:run_command(["test", "ok"])),
-    ?assertEqual({error, test_failed}, emqx_ctl:run_command(["test", "error"])),
-    ?assertEqual({error, cmd_not_found}, emqx_ctl:run_command(["test2", "ok"])),
-    emqx_ctl:unregister_command(test),
-    ct:sleep(50),
-    ?assertEqual([], emqx_ctl:lookup_command(test)).
-
-test(["ok"]) ->
-    ok;
-test(["error"]) ->
-    error(test_failed);
-test(_) ->
-    io:format("Hello world").
-
+t_is_enabled(_) ->
+    ok = application:set_env(emqx, boot_modules, all),
+    ?assert(emqx_boot:is_enabled(router)),
+    ?assert(emqx_boot:is_enabled(broker)),
+    ?assert(emqx_boot:is_enabled(listeners)),
+    ok = application:set_env(emqx, boot_modules, [router]),
+    ?assert(emqx_boot:is_enabled(router)),
+    ?assertNot(emqx_boot:is_enabled(broker)),
+    ?assertNot(emqx_boot:is_enabled(listeners)),
+    ok = application:set_env(emqx, boot_modules, [router, broker]),
+    ?assert(emqx_boot:is_enabled(router)),
+    ?assert(emqx_boot:is_enabled(broker)),
+    ?assertNot(emqx_boot:is_enabled(listeners)),
+    ok = application:set_env(emqx, boot_modules, [router, broker, listeners]),
+    ?assert(emqx_boot:is_enabled(router)),
+    ?assert(emqx_boot:is_enabled(broker)),
+    ?assert(emqx_boot:is_enabled(listeners)).
 
