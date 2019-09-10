@@ -34,8 +34,7 @@ load({Mod, Env}) ->
     ok = Mod:load(Env),
     ?LOG(info, "Load ~s module successfully.", [Mod]).
 
-modules() ->
-    emqx_config:get_env(modules, []).
+modules() -> emqx:get_env(modules, []).
 
 %% @doc Unload all the extended modules.
 -spec(unload() -> ok).

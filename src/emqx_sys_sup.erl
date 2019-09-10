@@ -48,6 +48,5 @@ child_spec(Mod, Args) ->
       modules => [Mod]
      }.
 
-config(Name) ->
-    emqx_config:get_env(Name, []).
+config(Name) -> emqx:get_env(Name, []).
 
