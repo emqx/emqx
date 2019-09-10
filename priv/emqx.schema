@@ -631,10 +631,26 @@ end}.
   {datatype, {enum, [ignore, disconnect]}}
 ]}.
 
-%% @doc time interval to clean flapping records
-{mapping, "flapping_clean_interval", "emqx.flapping_clean_interval", [
-  {datatype, {duration, ms}}
+%% @doc Flapping detect policy
+{mapping, "flapping_detect_policy", "emqx.flapping_detect_policy", [
+  {datatype, string},
+  {default, "30,1m,5m"}
 ]}.
+
+{translation, "emqx.flapping_detect_policy", fun(Conf) ->
+    Policy = cuttlefish:conf_get("flapping_detect_policy", Conf),
+    [Threshold, Duration, Interval] = string:tokens(Policy, ", "),
+    ParseDuration = fun(S) ->
+                        case cuttlefish_duration:parse(S, ms) of
+                            I when is_integer(I) -> I;
+                            {error, Reason} -> error(Reason)
+                        end
+                    end,
+    #{threshold => list_to_integer(Threshold),
+      duration  => ParseDuration(Duration),
+      banned_interval => ParseDuration(Interval)
+     }
+end}.
 
 {validator, "range:gt_0", "must greater than 0",
   fun(X) -> X > 0 end
@@ -877,15 +893,8 @@ end}.
 ]}.
 
 {mapping, "zone.$name.enable_flapping_detect", "emqx.zones", [
-  {datatype, flag}
-]}.
-
-{mapping, "zone.$name.flapping_threshold", "emqx.zones", [
-  {datatype, string}
-]}.
-
-{mapping, "zone.$name.flapping_banned_expiry_interval", "emqx.zones", [
-  {datatype, {duration, s}}
+  {datatype, flag},
+  {default, off}
 ]}.
 
 %% @doc Force connection/session process GC after this number of
@@ -919,15 +928,6 @@ end}.
 {translation, "emqx.zones", fun(Conf) ->
   Mapping = fun("retain_available", Val) ->
                     {retain_available, Val};
-               ("flapping_threshold", Val) ->
-                    [Limit, Duration] = string:tokens(Val, ", "),
-                    FlappingThreshold = case cuttlefish_duration:parse(Duration, s) of
-                                            Min when is_integer(Min) ->
-                                                {list_to_integer(Limit), Min};
-                                           {error, Reason} ->
-                                                error(Reason)
-                                        end,
-                    {flapping_threshold, FlappingThreshold};
                ("wildcard_subscription", Val) ->
                     {wildcard_subscription, Val};
                ("shared_subscription", Val) ->

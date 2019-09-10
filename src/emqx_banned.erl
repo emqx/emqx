@@ -38,6 +38,8 @@
         , info/1
         ]).
 
+-export([is_enabled/1]).
+
 %% gen_server callbacks
 -export([ init/1
         , handle_call/3
@@ -70,10 +72,18 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 -spec(check(emqx_types:client()) -> boolean()).
-check(#{client_id := ClientId, username := Username, peername := {IPAddr, _}}) ->
-    ets:member(?BANNED_TAB, {client_id, ClientId})
-        orelse ets:member(?BANNED_TAB, {username, Username})
-            orelse ets:member(?BANNED_TAB, {ipaddr, IPAddr}).
+check(#{zone      := Zone,
+        client_id := ClientId,
+        username  := Username,
+        peername  := {IPAddr, _}
+       }) ->
+    is_enabled(Zone) andalso
+        ets:member(?BANNED_TAB, {client_id, ClientId})
+            orelse ets:member(?BANNED_TAB, {username, Username})
+                orelse ets:member(?BANNED_TAB, {ipaddr, IPAddr}).
+
+is_enabled(Zone) ->
+    emqx_zone:get_env(Zone, enable_ban, false).
 
 -spec(add(emqx_types:banned()) -> ok).
 add(Banned) when is_record(Banned, banned) ->

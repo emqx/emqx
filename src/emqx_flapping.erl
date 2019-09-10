@@ -14,129 +14,186 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% @doc This module is used to garbage clean the flapping records.
-
 -module(emqx_flapping).
+
+-behaviour(gen_server).
 
 -include("emqx.hrl").
 -include("types.hrl").
+-include("logger.hrl").
 
--behaviour(gen_statem).
+-logger_header("[Flapping]").
 
 -export([start_link/0]).
 
-%% gen_statem callbacks
+%% API
+-export([check/1, detect/1]).
+
+%% gen_server callbacks
 -export([ init/1
-        , initialized/3
-        , callback_mode/0
-        , terminate/3
-        , code_change/4
+        , handle_call/3
+        , handle_cast/2
+        , handle_info/2
+        , terminate/2
+        , code_change/3
         ]).
 
+%% Tab
 -define(FLAPPING_TAB, ?MODULE).
-
--define(default_flapping_clean_interval, 3600000).
-
--export([check/3]).
-
--record(flapping, {
-          client_id :: binary(),
-          check_count :: integer(),
-          timestamp :: integer()
+%% Default Policy
+-define(FLAPPING_THRESHOLD, 30).
+-define(FLAPPING_DURATION, 60000).
+-define(FLAPPING_BANNED_INTERVAL, 300000).
+-define(DEFAULT_DETECT_POLICY,
+        #{threshold => ?FLAPPING_THRESHOLD,
+          duration => ?FLAPPING_DURATION,
+          banned_interval => ?FLAPPING_BANNED_INTERVAL
          }).
 
--type(flapping_record() :: #flapping{}).
+-record(flapping, {
+          client_id  :: emqx_types:client_id(),
+          peername   :: emqx_types:peername(),
+          started_at :: pos_integer(),
+          detect_cnt :: pos_integer(),
+          banned_at  :: pos_integer()
+         }).
 
--type(flapping_state() :: flapping | ok).
+-opaque(flapping() :: #flapping{}).
 
-%% @doc This function is used to initialize flapping records
-%% the expiry time unit is minutes.
--spec(init_flapping(ClientId :: binary(), Interval :: integer()) -> flapping_record()).
-init_flapping(ClientId, Interval) ->
-    #flapping{client_id = ClientId,
-              check_count = 1,
-              timestamp = emqx_time:now_secs() + Interval}.
+-export_type([flapping/0]).
 
-%% @doc This function is used to initialize flapping records
-%% the expiry time unit is minutes.
--spec(check(Action :: atom(), ClientId :: binary(),
-            Threshold :: {integer(), integer()}) -> flapping_state()).
-check(Action, ClientId, Threshold = {_TimesThreshold, TimeInterval}) ->
-    check(Action, ClientId, Threshold, init_flapping(ClientId, TimeInterval)).
-
--spec(check(Action :: atom(), ClientId :: binary(),
-            Threshold :: {integer(), integer()},
-            InitFlapping :: flapping_record()) -> flapping_state()).
-check(Action, ClientId, Threshold, InitFlapping) ->
-    case ets:update_counter(?FLAPPING_TAB, ClientId, {#flapping.check_count, 1}, InitFlapping) of
-        1 -> ok;
-        CheckCount ->
-            case ets:lookup(?FLAPPING_TAB, ClientId) of
-                [Flapping] ->
-                    check_flapping(Action, CheckCount, Threshold, Flapping);
-                _Flapping ->
-                    ok
-            end
-    end.
-
-check_flapping(Action, CheckCount, _Threshold = {TimesThreshold, TimeInterval},
-               Flapping = #flapping{ client_id = ClientId
-                                   , timestamp = Timestamp }) ->
-    case emqx_time:now_secs() of
-        NowTimestamp when NowTimestamp =< Timestamp,
-                          CheckCount > TimesThreshold ->
-            ets:delete(?FLAPPING_TAB, ClientId),
-            flapping;
-        NowTimestamp when NowTimestamp > Timestamp,
-                          Action =:= disconnect ->
-            ets:delete(?FLAPPING_TAB, ClientId),
-            ok;
-        NowTimestamp ->
-            NewFlapping = Flapping#flapping{timestamp = NowTimestamp + TimeInterval},
-            ets:insert(?FLAPPING_TAB, NewFlapping),
-            ok
-    end.
-
-%%--------------------------------------------------------------------
-%% gen_statem callbacks
-%%--------------------------------------------------------------------
--spec(start_link() -> startlink_ret()).
+-spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
-    gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+%% @doc Check flapping when a MQTT client connected.
+-spec(check(emqx_types:client()) -> boolean()).
+check(#{zone := Zone, client_id := ClientId}) ->
+    is_enabled(Zone) andalso check(ClientId, get_policy()).
+
+check(ClientId, #{banned_interval := Interval}) ->
+    case ets:lookup(?FLAPPING_TAB, {banned, ClientId}) of
+        [] -> false;
+        [#flapping{banned_at = BannedAt}] ->
+            now_diff(BannedAt) < Interval
+    end.
+
+%% @doc Detect flapping when a MQTT client disconnected.
+-spec(detect(emqx_types:client()) -> boolean()).
+detect(Client = #{zone := Zone}) ->
+    is_enabled(Zone) andalso detect(Client, get_policy()).
+
+detect(#{client_id := ClientId, peername := Peername},
+       Policy = #{threshold := Threshold}) ->
+    try ets:update_counter(?FLAPPING_TAB, ClientId, {#flapping.detect_cnt, 1}) of
+        Cnt when Cnt < Threshold -> false;
+        _Cnt -> case ets:lookup(?FLAPPING_TAB, ClientId) of
+                    [Flapping] ->
+                        ok = gen_server:cast(?MODULE, {detected, Flapping, Policy}),
+                        true;
+                    [] -> false
+                end
+    catch
+        error:badarg ->
+            %% Create a flapping record.
+            Flapping = #flapping{client_id  = ClientId,
+                                 peername   = Peername,
+                                 started_at = emqx_time:now_ms(),
+                                 detect_cnt = 1
+                                },
+            true = ets:insert(?FLAPPING_TAB, Flapping),
+            false
+    end.
+
+-compile({inline, [is_enabled/1, get_policy/0, now_diff/1]}).
+
+-spec(is_enabled(emqx_types:zone()) -> boolean()).
+is_enabled(Zone) ->
+    emqx_zone:get(Zone, enable_flapping_detect, false).
+
+get_policy() ->
+    emqx:get_env(flapping_detect_policy, ?DEFAULT_DETECT_POLICY).
+
+now_diff(TS) -> emqx_time:now_ms() - TS.
+
+%%--------------------------------------------------------------------
+%% gen_server callbacks
+%%--------------------------------------------------------------------
 
 init([]) ->
-    Interval = emqx:get_env(flapping_clean_interval, ?default_flapping_clean_interval),
-    TabOpts = [ public
-              , set
-              , {keypos, 2}
-              , {write_concurrency, true}
-              , {read_concurrency, true}],
-    ok = emqx_tables:new(?FLAPPING_TAB, TabOpts),
-    {ok, initialized, #{timer_interval => Interval}}.
+    #{duration := Duration, banned_interval := Interval} = get_policy(),
+    ok = emqx_tables:new(?FLAPPING_TAB, [public, set,
+                                         {keypos, 2},
+                                         {read_concurrency, true},
+                                         {write_concurrency, true}
+                                        ]),
+    State = #{time => max(Duration, Interval) + 1, tref => undefined},
+    {ok, ensure_timer(State), hibernate}.
 
-callback_mode() -> [state_functions, state_enter].
+handle_call(Req, _From, State) ->
+    ?LOG(error, "Unexpected call: ~p", [Req]),
+    {reply, ignored, State}.
 
-initialized(enter, _OldState, #{timer_interval := Time}) ->
-    Action = {state_timeout, Time, clean_expired_records},
-    {keep_state_and_data, Action};
-initialized(state_timeout, clean_expired_records, #{}) ->
-    clean_expired_records(),
-    repeat_state_and_data.
+handle_cast({detected, Flapping = #flapping{client_id  = ClientId,
+                                            peername   = Peername,
+                                            started_at = StartedAt,
+                                            detect_cnt = DetectCnt},
+             #{duration := Duration}}, State) ->
+    case (Interval = now_diff(StartedAt)) < Duration of
+        true -> %% Flapping happened:(
+            %% Log first
+            ?LOG(error, "Flapping detected: ~s(~s) disconnected ~w times in ~wms",
+                 [ClientId, esockd_net:format(Peername), DetectCnt, Duration]),
+            %% TODO: Send Alarm
+            %% Banned.
+            BannedFlapping = Flapping#flapping{client_id = {banned, ClientId},
+                                               banned_at = emqx_time:now_ms()
+                                              },
+            ets:insert(?FLAPPING_TAB, BannedFlapping);
+        false ->
+            ?LOG(warning, "~s(~s) disconnected ~w times in ~wms",
+                 [ClientId, esockd_net:format(Peername), DetectCnt, Interval]),
+            ets:delete_object(?FLAPPING_TAB, Flapping)
+    end,
+    {noreply, State};
 
-code_change(_Vsn, State, Data, _Extra) ->
-    {ok, State, Data}.
+handle_cast(Msg, State) ->
+    ?LOG(error, "Unexpected cast: ~p", [Msg]),
+    {noreply, State}.
 
-terminate(_Reason, _StateName, _State) ->
-    emqx_tables:delete(?FLAPPING_TAB),
+handle_info({timeout, TRef, expire_flapping}, State = #{tref := TRef}) ->
+    with_flapping_tab(fun expire_flapping/2,
+                      [emqx_time:now_ms(), get_policy()]),
+    {noreply, ensure_timer(State#{tref => undefined}), hibernate};
+
+handle_info(Info, State) ->
+    ?LOG(error, "Unexpected info: ~p", [Info]),
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
     ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
-%% @doc clean expired records in ets
-clean_expired_records() ->
-    NowTime = emqx_time:now_secs(),
-    MatchSpec = [{{'$1', '$2', '$3'},[{'<', '$3', NowTime}], [true]}],
-    ets:select_delete(?FLAPPING_TAB, MatchSpec).
+ensure_timer(State = #{time := Time, tref := undefined}) ->
+    State#{tref => emqx_misc:start_timer(Time, expire_flapping)};
+ensure_timer(State) -> State.
 
+with_flapping_tab(Fun, Args) ->
+    case ets:info(?FLAPPING_TAB, size) of
+        undefined -> ok;
+        0         -> ok;
+        _Size     -> erlang:apply(Fun, Args)
+    end.
+
+expire_flapping(NowTime, #{duration := Duration, banned_interval := Interval}) ->
+    ets:select_delete(?FLAPPING_TAB,
+                      [{#flapping{started_at = '$1', banned_at = undefined, _ = '_'},
+                        [{'<', '$1', NowTime-Duration}], [true]},
+                       {#flapping{client_id = {banned, '_'}, banned_at = '$1', _ = '_'},
+                        [{'<', '$1', NowTime-Interval}], [true]}]).

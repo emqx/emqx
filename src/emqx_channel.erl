@@ -221,6 +221,8 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
                    fun init_protocol/2,
                    fun enrich_client/2,
                    fun set_logger_meta/2,
+                   fun check_banned/2,
+                   fun check_flapping/2,
                    fun auth_connect/2], ConnPkt, Channel) of
         {ok, NConnPkt, NChannel} ->
             process_connect(NConnPkt, NChannel);
@@ -862,8 +864,6 @@ validate_packet(Packet, _Channel) ->
 check_connect(ConnPkt, Channel) ->
     pipeline([fun check_proto_ver/2,
               fun check_client_id/2,
-              %%fun check_flapping/2,
-              fun check_banned/2,
               fun check_will_topic/2,
               fun check_will_retain/2], ConnPkt, Channel).
 
@@ -896,20 +896,6 @@ check_client_id(#mqtt_packet_connect{client_id = ClientId},
     case (1 =< Len) andalso (Len =< MaxLen) of
         true  -> ok;
         false -> {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID}
-    end.
-
-%%TODO: check banned...
-check_banned(#mqtt_packet_connect{client_id = ClientId,
-                                  username = Username},
-             #channel{client = Client = #{zone := Zone}}) ->
-    case emqx_zone:get_env(Zone, enable_ban, false) of
-        true ->
-            case emqx_banned:check(Client#{client_id => ClientId,
-                                           username  => Username}) of
-                true  -> {error, ?RC_BANNED};
-                false -> ok
-            end;
-        false -> ok
     end.
 
 check_will_topic(#mqtt_packet_connect{will_flag = false}, _Channel) ->
@@ -973,6 +959,22 @@ fix_mountpoint(_ConnPkt, Client = #{mountpoint := Mountpoint}) ->
 %% @doc Set logger metadata.
 set_logger_meta(_ConnPkt, #channel{client = #{client_id := ClientId}}) ->
     emqx_logger:set_metadata_client_id(ClientId).
+
+%%--------------------------------------------------------------------
+%% Check banned/flapping
+%%--------------------------------------------------------------------
+
+check_banned(_ConnPkt, #channel{client = Client}) ->
+    case emqx_banned:check(Client) of
+        true  -> {error, ?RC_BANNED};
+        false -> ok
+    end.
+
+check_flapping(_ConnPkt, #channel{client = Client}) ->
+    case emqx_flapping:check(Client) of
+        true -> {error, ?RC_CONNECTION_RATE_EXCEEDED};
+        false -> ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Auth Connect
