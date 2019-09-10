@@ -70,8 +70,8 @@ stop() -> gen_server:stop(?MODULE).
 
 %% @doc Check flapping when a MQTT client connected.
 -spec(check(emqx_types:client()) -> boolean()).
-check(#{zone := Zone, client_id := ClientId}) ->
-    is_enabled(Zone) andalso check(ClientId, get_policy()).
+check(#{client_id := ClientId}) ->
+    check(ClientId, get_policy()).
 
 check(ClientId, #{banned_interval := Interval}) ->
     case ets:lookup(?FLAPPING_TAB, {banned, ClientId}) of
@@ -82,8 +82,7 @@ check(ClientId, #{banned_interval := Interval}) ->
 
 %% @doc Detect flapping when a MQTT client disconnected.
 -spec(detect(emqx_types:client()) -> boolean()).
-detect(Client = #{zone := Zone}) ->
-    is_enabled(Zone) andalso detect(Client, get_policy()).
+detect(Client) -> detect(Client, get_policy()).
 
 detect(#{client_id := ClientId, peername := Peername},
        Policy = #{threshold := Threshold}) ->
@@ -107,11 +106,7 @@ detect(#{client_id := ClientId, peername := Peername},
             false
     end.
 
--compile({inline, [is_enabled/1, get_policy/0, now_diff/1]}).
-
--spec(is_enabled(emqx_types:zone()) -> boolean()).
-is_enabled(Zone) ->
-    emqx_zone:get_env(Zone, enable_flapping_detect, false).
+-compile({inline, [get_policy/0, now_diff/1]}).
 
 get_policy() ->
     emqx:get_env(flapping_detect_policy, ?DEFAULT_DETECT_POLICY).
