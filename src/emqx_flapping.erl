@@ -24,7 +24,7 @@
 
 -logger_header("[Flapping]").
 
--export([start_link/0]).
+-export([start_link/0, stop/0]).
 
 %% API
 -export([check/1, detect/1]).
@@ -65,6 +65,8 @@
 -spec(start_link() -> emqx_types:startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+stop() -> gen_server:stop(?MODULE).
 
 %% @doc Check flapping when a MQTT client connected.
 -spec(check(emqx_types:client()) -> boolean()).
@@ -109,7 +111,7 @@ detect(#{client_id := ClientId, peername := Peername},
 
 -spec(is_enabled(emqx_types:zone()) -> boolean()).
 is_enabled(Zone) ->
-    emqx_zone:get(Zone, enable_flapping_detect, false).
+    emqx_zone:get_env(Zone, enable_flapping_detect, false).
 
 get_policy() ->
     emqx:get_env(flapping_detect_policy, ?DEFAULT_DETECT_POLICY).
@@ -197,3 +199,4 @@ expire_flapping(NowTime, #{duration := Duration, banned_interval := Interval}) -
                         [{'<', '$1', NowTime-Duration}], [true]},
                        {#flapping{client_id = {banned, '_'}, banned_at = '$1', _ = '_'},
                         [{'<', '$1', NowTime-Interval}], [true]}]).
+
