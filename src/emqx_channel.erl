@@ -964,14 +964,15 @@ set_logger_meta(_ConnPkt, #channel{client = #{client_id := ClientId}}) ->
 %% Check banned/flapping
 %%--------------------------------------------------------------------
 
-check_banned(_ConnPkt, #channel{client = Client}) ->
-    case emqx_banned:check(Client) of
+check_banned(_ConnPkt, #channel{client = Client = #{zone := Zone}}) ->
+    case emqx_zone:enable_banned(Zone) andalso emqx_banned:check(Client) of
         true  -> {error, ?RC_BANNED};
         false -> ok
     end.
 
-check_flapping(_ConnPkt, #channel{client = Client}) ->
-    case emqx_flapping:check(Client) of
+check_flapping(_ConnPkt, #channel{client = Client = #{zone := Zone}}) ->
+    case emqx_zone:enable_flapping_detect(Zone)
+         andalso emqx_flapping:check(Client) of
         true -> {error, ?RC_CONNECTION_RATE_EXCEEDED};
         false -> ok
     end.
@@ -1186,7 +1187,7 @@ maybe_resume_session(#channel{session  = Session,
 
 %% @doc Is ACL enabled?
 is_acl_enabled(#{zone := Zone, is_superuser := IsSuperuser}) ->
-    (not IsSuperuser) andalso emqx_zone:get_env(Zone, enable_acl, true).
+    (not IsSuperuser) andalso emqx_zone:enable_acl(Zone).
 
 %% @doc Parse Topic Filters
 -compile({inline, [parse_topic_filters/1]}).
