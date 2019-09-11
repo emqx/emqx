@@ -20,7 +20,7 @@
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
 
--export([ init/1
+-export([ init/2
         , info/1
         , info/2
         , attrs/1
@@ -48,10 +48,10 @@
           username :: emqx_types:username(),
           %% MQTT Will Msg
           will_msg :: emqx_types:message(),
-          %% MQTT Conn Properties
-          conn_props :: maybe(emqx_types:properties()),
           %% MQTT Topic Aliases
-          topic_aliases :: maybe(map())
+          topic_aliases :: maybe(map()),
+          %% MQTT Topic Alias Maximum
+          alias_maximum :: maybe(map())
          }).
 
 -opaque(protocol() :: #protocol{}).
@@ -60,23 +60,24 @@
 
 -define(ATTR_KEYS, [proto_name, proto_ver, clean_start, keepalive]).
 
--spec(init(#mqtt_packet_connect{}) -> protocol()).
+-spec(init(#mqtt_packet_connect{}, atom()) -> protocol()).
 init(#mqtt_packet_connect{proto_name  = ProtoName,
                           proto_ver   = ProtoVer,
                           clean_start = CleanStart,
                           keepalive   = Keepalive,
                           properties  = Properties,
                           client_id   = ClientId,
-                          username    = Username} = ConnPkt) ->
+                          username    = Username} = ConnPkt, Zone) ->
     WillMsg = emqx_packet:will_msg(ConnPkt),
-    #protocol{proto_name  = ProtoName,
-              proto_ver   = ProtoVer,
-              clean_start = CleanStart,
-              keepalive   = Keepalive,
-              client_id   = ClientId,
-              username    = Username,
-              will_msg    = WillMsg,
-              conn_props  = Properties
+    #protocol{proto_name    = ProtoName,
+              proto_ver     = ProtoVer,
+              clean_start   = CleanStart,
+              keepalive     = Keepalive,
+              client_id     = ClientId,
+              username      = Username,
+              will_msg      = WillMsg,
+              alias_maximum = #{outbound => get_property('Topic-Alias-Maximum', Properties, 0),
+                                inbound => maps:get(max_topic_alias, emqx_mqtt_caps:get_caps(Zone), 0)}
              }.
 
 -spec(info(protocol()) -> emqx_types:infos()).
@@ -104,10 +105,10 @@ info(will_delay_interval, #protocol{will_msg = undefined}) ->
     0;
 info(will_delay_interval, #protocol{will_msg = WillMsg}) ->
     emqx_message:get_header('Will-Delay-Interval', WillMsg, 0);
-info(conn_props, #protocol{conn_props = ConnProps}) ->
-    ConnProps;
 info(topic_aliases, #protocol{topic_aliases = Aliases}) ->
-    Aliases.
+    Aliases;
+info(alias_maximum, #protocol{alias_maximum = AliasMaximum}) ->
+    AliasMaximum.
 
 -spec(attrs(protocol()) -> emqx_types:attrs()).
 attrs(Proto) ->
@@ -129,3 +130,8 @@ save_alias(AliasId, Topic, Proto = #protocol{topic_aliases = Aliases}) ->
 
 clear_will_msg(Protocol) ->
     Protocol#protocol{will_msg = undefined}.
+
+get_property(_Name, undefined, Default) ->
+    Default;
+get_property(Name, Props, Default) ->
+    maps:get(Name, Props, Default).

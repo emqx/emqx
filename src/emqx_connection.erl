@@ -191,7 +191,8 @@ init({Transport, RawSocket, Options}) ->
                         rate_limit   = RateLimit,
                         pub_limit    = PubLimit,
                         parse_state  = ParseState,
-                        chan_state   = ChanState
+                        chan_state   = ChanState,
+                        serialize    = serialize_fun(?MQTT_PROTO_V5, undefined)
                        },
     gen_statem:enter_loop(?MODULE, [{hibernate_after, 2 * IdleTimout}],
                           idle, State, self(), [IdleTimout]).
@@ -217,8 +218,9 @@ idle(timeout, _Timeout, State) ->
     shutdown(idle_timeout, State);
 
 idle(cast, {incoming, Packet = ?CONNECT_PACKET(ConnPkt)}, State) ->
-    #mqtt_packet_connect{proto_ver = ProtoVer} = ConnPkt,
-    NState = State#connection{serialize = serialize_fun(ProtoVer)},
+    #mqtt_packet_connect{proto_ver = ProtoVer, properties = Properties} = ConnPkt,
+    MaxPacketSize = maps:get('Maximum-Packet-Size', Properties, undefined),
+    NState = State#connection{serialize = serialize_fun(ProtoVer, MaxPacketSize)},
     SuccFun = fun(NewSt) -> {next_state, connected, NewSt} end,
     handle_incoming(Packet, SuccFun, NState);
 
@@ -283,6 +285,10 @@ handle({call, From}, Req, State = #connection{chan_state = ChanState}) ->
         {ok, Reply, NChanState} ->
             reply(From, Reply, State#connection{chan_state = NChanState});
         {stop, Reason, Reply, NChanState} ->
+            ok = gen_statem:reply(From, Reply),
+            stop(Reason, State#connection{chan_state = NChanState});
+        {stop, Reason, Packet, Reply, NChanState} ->
+            handle_outgoing(Packet, fun (_) -> ok end, State#connection{chan_state = NChanState}),
             ok = gen_statem:reply(From, Reply),
             stop(Reason, State#connection{chan_state = NChanState})
     end;
@@ -414,15 +420,25 @@ process_incoming(Data, Packets, State = #connection{parse_state = ParseState, ch
             shutdown(Reason, State)
     catch
         error:Reason:Stk ->
-            ?LOG(error, "Parse failed for ~p~n\
-                 Stacktrace:~p~nError data:~p", [Reason, Stk, Data]),
-            case emqx_channel:handle_out({disconnect, emqx_reason_codes:mqtt_frame_error(Reason)}, ChanState) of
+            ?LOG(error, "Parse failed for ~p~nStacktrace:~p~nError data:~p", [Reason, Stk, Data]),
+            Result = 
+                case emqx_channel:info(connected, ChanState) of
+                    undefined ->
+                        emqx_channel:handle_out({connack, emqx_reason_codes:mqtt_frame_error(Reason)}, ChanState);
+                    true ->
+                        emqx_channel:handle_out({disconnect, emqx_reason_codes:mqtt_frame_error(Reason)}, ChanState);
+                    _ ->
+                        ignore
+                end,
+            case Result of
                 {stop, Reason0, OutPackets, NChanState} ->
                     Shutdown = fun(NewSt) -> stop(Reason0, NewSt) end,
                     NState = State#connection{chan_state = NChanState},
                     handle_outgoing(OutPackets, Shutdown, NState);
                 {stop, Reason0, NChanState} ->
-                    stop(Reason0, State#connection{chan_state = NChanState})
+                    stop(Reason0, State#connection{chan_state = NChanState});
+                ignore ->
+                    keep_state(State)
             end
     end.
 
@@ -479,12 +495,19 @@ handle_outgoing(Packet, SuccFun, State = #connection{serialize = Serialize}) ->
 %%--------------------------------------------------------------------
 %% Serialize fun
 
-serialize_fun(ProtoVer) ->
+serialize_fun(ProtoVer, MaxPacketSize) ->
     fun(Packet = ?PACKET(Type)) ->
-        ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)]),
-        _ = inc_outgoing_stats(Type),
-        _ = emqx_metrics:inc_sent(Packet),
-        emqx_frame:serialize(Packet, ProtoVer)
+        IoData = emqx_frame:serialize(Packet, ProtoVer),
+        case Type =/= ?PUBLISH orelse MaxPacketSize =:= undefined orelse iolist_size(IoData) =< MaxPacketSize of
+            true ->
+                ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)]),
+                _ = inc_outgoing_stats(Type),
+                _ = emqx_metrics:inc_sent(Packet),
+                IoData;
+            false ->
+                ?LOG(warning, "DROP ~s due to oversize packet size", [emqx_packet:format(Packet)]),
+                <<"">>
+        end        
     end.
 
 %%--------------------------------------------------------------------
