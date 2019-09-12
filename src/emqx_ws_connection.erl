@@ -257,7 +257,7 @@ websocket_info({cast, Msg}, State = #ws_connection{chan_state = ChanState}) ->
 websocket_info({incoming, Packet = ?CONNECT_PACKET(ConnPkt)},
                 State = #ws_connection{fsm_state = idle}) ->
     #mqtt_packet_connect{proto_ver = ProtoVer, properties = Properties} = ConnPkt,
-    MaxPacketSize = maps:get('Maximum-Packet-Size', Properties, undefined),
+    MaxPacketSize = emqx_mqtt_props:get_property('Maximum-Packet-Size', Properties, undefined),
     NState = State#ws_connection{serialize = serialize_fun(ProtoVer, MaxPacketSize)},
     handle_incoming(Packet, fun connected/1, NState);
 

@@ -219,7 +219,7 @@ idle(timeout, _Timeout, State) ->
 
 idle(cast, {incoming, Packet = ?CONNECT_PACKET(ConnPkt)}, State) ->
     #mqtt_packet_connect{proto_ver = ProtoVer, properties = Properties} = ConnPkt,
-    MaxPacketSize = maps:get('Maximum-Packet-Size', Properties, undefined),
+    MaxPacketSize = emqx_mqtt_props:get_property('Maximum-Packet-Size', Properties, undefined),
     NState = State#connection{serialize = serialize_fun(ProtoVer, MaxPacketSize)},
     SuccFun = fun(NewSt) -> {next_state, connected, NewSt} end,
     handle_incoming(Packet, SuccFun, NState);

@@ -38,7 +38,7 @@ init_protocol() ->
                           client_id   = <<"clientid">>,
                           username    = <<"username">>,
                           password    = <<"passwd">>
-                         }).
+                         }, testing).
 
 end_per_suite(_Config) -> ok.
 
@@ -48,11 +48,11 @@ t_init_info_1(Config) ->
                    proto_ver     => ?MQTT_PROTO_V5,
                    clean_start   => true,
                    keepalive     => 30,
-                   conn_props    => #{},
                    will_msg      => undefined,
                    client_id     => <<"clientid">>,
                    username      => <<"username">>,
-                   topic_aliases => undefined
+                   topic_aliases => undefined,
+                   alias_maximum => #{outbound => 0, inbound => 0}
                   }, emqx_protocol:info(Proto)).
 
 t_init_info_2(Config) ->
@@ -65,8 +65,8 @@ t_init_info_2(Config) ->
     ?assertEqual(<<"username">>, emqx_protocol:info(username, Proto)),
     ?assertEqual(undefined, emqx_protocol:info(will_msg, Proto)),
     ?assertEqual(0, emqx_protocol:info(will_delay_interval, Proto)),
-    ?assertEqual(#{}, emqx_protocol:info(conn_props, Proto)),
-    ?assertEqual(undefined, emqx_protocol:info(topic_aliases, Proto)).
+    ?assertEqual(undefined, emqx_protocol:info(topic_aliases, Proto)),
+    ?assertEqual(#{outbound => 0, inbound => 0}, emqx_protocol:info(alias_maximum, Proto)).
 
 t_find_save_alias(Config) ->
     Proto = proplists:get_value(proto, Config),

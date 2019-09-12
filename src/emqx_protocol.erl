@@ -76,7 +76,7 @@ init(#mqtt_packet_connect{proto_name  = ProtoName,
               client_id     = ClientId,
               username      = Username,
               will_msg      = WillMsg,
-              alias_maximum = #{outbound => get_property('Topic-Alias-Maximum', Properties, 0),
+              alias_maximum = #{outbound => emqx_mqtt_props:get_property('Topic-Alias-Maximum', Properties, 0),
                                 inbound => maps:get(max_topic_alias, emqx_mqtt_caps:get_caps(Zone), 0)}
              }.
 
@@ -131,7 +131,3 @@ save_alias(AliasId, Topic, Proto = #protocol{topic_aliases = Aliases}) ->
 clear_will_msg(Protocol) ->
     Protocol#protocol{will_msg = undefined}.
 
-get_property(_Name, undefined, Default) ->
-    Default;
-get_property(Name, Props, Default) ->
-    maps:get(Name, Props, Default).

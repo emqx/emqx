@@ -49,7 +49,7 @@ t_validate(_) ->
                                      [{<<"topic">>, #{qos => ?QOS_0}}]))),
     ?assertError(topic_filters_invalid,
                  emqx_packet:validate(?UNSUBSCRIBE_PACKET(1,[]))),
-    ?assertError(topic_name_invalid,
+    ?assertError(protocol_error,
                  emqx_packet:validate(?PUBLISH_PACKET(1,<<>>,1,#{},<<"payload">>))),
     ?assertError(topic_name_invalid,
                  emqx_packet:validate(?PUBLISH_PACKET
