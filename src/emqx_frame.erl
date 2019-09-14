@@ -200,6 +200,7 @@ parse_packet(#mqtt_packet_header{type = ?PUBLISH, qos = QoS}, Bin,
                             ?QOS_0 -> {undefined, Rest};
                             _ -> parse_packet_id(Rest)
                         end,
+    (PacketId =/= undefined) andalso validate_packet_id(PacketId),
     {Properties, Payload} = parse_properties(Rest1, Ver),
     {#mqtt_packet_publish{topic_name = TopicName,
                           packet_id  = PacketId,
@@ -207,10 +208,12 @@ parse_packet(#mqtt_packet_header{type = ?PUBLISH, qos = QoS}, Bin,
 
 parse_packet(#mqtt_packet_header{type = PubAck}, <<PacketId:16/big>>, _Options)
     when ?PUBACK =< PubAck, PubAck =< ?PUBCOMP ->
+    ok = validate_packet_id(PacketId),
     #mqtt_packet_puback{packet_id = PacketId, reason_code = 0};
 parse_packet(#mqtt_packet_header{type = PubAck}, <<PacketId:16/big, ReasonCode, Rest/binary>>,
              #{version := Ver = ?MQTT_PROTO_V5})
     when ?PUBACK =< PubAck, PubAck =< ?PUBCOMP ->
+    ok = validate_packet_id(PacketId),
     {Properties, <<>>} = parse_properties(Rest, Ver),
     #mqtt_packet_puback{packet_id   = PacketId,
                         reason_code = ReasonCode,
@@ -218,6 +221,7 @@ parse_packet(#mqtt_packet_header{type = PubAck}, <<PacketId:16/big, ReasonCode, 
 
 parse_packet(#mqtt_packet_header{type = ?SUBSCRIBE}, <<PacketId:16/big, Rest/binary>>,
              #{version := Ver}) ->
+    ok = validate_packet_id(PacketId),
     {Properties, Rest1} = parse_properties(Rest, Ver),
     TopicFilters = parse_topic_filters(subscribe, Rest1),
     #mqtt_packet_subscribe{packet_id     = PacketId,
@@ -226,6 +230,7 @@ parse_packet(#mqtt_packet_header{type = ?SUBSCRIBE}, <<PacketId:16/big, Rest/bin
 
 parse_packet(#mqtt_packet_header{type = ?SUBACK}, <<PacketId:16/big, Rest/binary>>,
              #{version := Ver}) ->
+    ok = validate_packet_id(PacketId),
     {Properties, Rest1} = parse_properties(Rest, Ver),
     #mqtt_packet_suback{packet_id    = PacketId,
                         properties   = Properties,
@@ -233,6 +238,7 @@ parse_packet(#mqtt_packet_header{type = ?SUBACK}, <<PacketId:16/big, Rest/binary
 
 parse_packet(#mqtt_packet_header{type = ?UNSUBSCRIBE}, <<PacketId:16/big, Rest/binary>>,
              #{version := Ver}) ->
+    ok = validate_packet_id(PacketId),
     {Properties, Rest1} = parse_properties(Rest, Ver),
     TopicFilters = parse_topic_filters(unsubscribe, Rest1),
     #mqtt_packet_unsubscribe{packet_id     = PacketId,
@@ -240,9 +246,11 @@ parse_packet(#mqtt_packet_header{type = ?UNSUBSCRIBE}, <<PacketId:16/big, Rest/b
                              topic_filters = TopicFilters};
 
 parse_packet(#mqtt_packet_header{type = ?UNSUBACK}, <<PacketId:16/big>>, _Options) ->
+    ok = validate_packet_id(PacketId),
     #mqtt_packet_unsuback{packet_id = PacketId};
 parse_packet(#mqtt_packet_header{type = ?UNSUBACK}, <<PacketId:16/big, Rest/binary>>,
              #{version := Ver}) ->
+    ok = validate_packet_id(PacketId),
     {Properties, Rest1} = parse_properties(Rest, Ver),
     ReasonCodes = parse_reason_codes(Rest1),
     #mqtt_packet_unsuback{packet_id    = PacketId,
@@ -271,11 +279,11 @@ parse_will_message(Packet = #mqtt_packet_connect{will_flag = true,
 parse_will_message(Packet, Bin) ->
     {Packet, Bin}.
 
-% protocol_approved(Ver, Name) ->
-%     lists:member({Ver, Name}, ?PROTOCOL_NAMES).
-
 parse_packet_id(<<PacketId:16/big, Rest/binary>>) ->
     {PacketId, Rest}.
+
+validate_packet_id(0) -> error(bad_packet_id);
+validate_packet_id(_) -> ok.
 
 parse_properties(Bin, Ver) when Ver =/= ?MQTT_PROTO_V5 ->
     {undefined, Bin};
