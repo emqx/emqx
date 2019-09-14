@@ -420,7 +420,8 @@ t_serialize_parse_subscribe(_) ->
     Bin0 = <<?SUBSCRIBE:4,0:4,11,0,2,0,6,84,111,112,105,99,65,2>>,
     ?assertMatch(Packet, parse_to_packet(Bin0, #{strict_mode => false})),
     ?catch_error(bad_frame_header, parse_to_packet(Bin0, #{strict_mode => true})),
-    ?catch_error(bad_packet_id, parse_serialize(?SUBSCRIBE_PACKET(0, TopicFilters))).
+    ?catch_error(bad_packet_id, parse_serialize(?SUBSCRIBE_PACKET(0, TopicFilters))),
+    ?catch_error(bad_subqos, parse_serialize(?SUBSCRIBE_PACKET(1, [{<<"t">>, #{qos => 3}}]))).
 
 t_serialize_parse_subscribe_v5(_) ->
     TopicFilters = [{<<"TopicQos0">>, #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0}},

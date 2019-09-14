@@ -377,7 +377,7 @@ parse_variable_byte_integer(<<0:1, Len:7, Rest/binary>>, Multiplier, Value) ->
     {Value + Len * Multiplier, Rest}.
 
 parse_topic_filters(subscribe, Bin) ->
-    [{Topic, #{rh => Rh, rap => Rap, nl => Nl, qos => QoS, rc => 0}}
+    [{Topic, #{rh => Rh, rap => Rap, nl => Nl, qos => validate_subqos(QoS), rc => 0}}
      || <<Len:16/big, Topic:Len/binary, _:2, Rh:2, Rap:1, Nl:1, QoS:2>> <= Bin];
 
 parse_topic_filters(unsubscribe, Bin) ->
@@ -677,6 +677,10 @@ validate_header(?PINGRESP, 0, 0, 0)     -> ok;
 validate_header(?DISCONNECT, 0, 0, 0)   -> ok;
 validate_header(?AUTH, 0, 0, 0)         -> ok;
 validate_header(_Type, _Dup, _QoS, _Rt) -> error(bad_frame_header).
+
+validate_subqos(QoS) when ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
+    QoS;
+validate_subqos(_) -> error(bad_subqos).
 
 bool(0) -> false;
 bool(1) -> true.
