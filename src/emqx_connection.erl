@@ -104,7 +104,7 @@ info(CPid) when is_pid(CPid) ->
 info(Conn = #connection{chan_state = ChanState}) ->
     ConnInfo = info(?INFO_KEYS, Conn),
     ChanInfo = emqx_channel:info(ChanState),
-    maps:merge(ChanInfo, #{connection => maps:from_list(ConnInfo)}).
+    maps:merge(ChanInfo, #{conninfo => maps:from_list(ConnInfo)}).
 
 info(Keys, Conn) when is_list(Keys) ->
     [{Key, info(Key, Conn)} || Key <- Keys];
@@ -217,7 +217,7 @@ idle(timeout, _Timeout, State) ->
     shutdown(idle_timeout, State);
 
 idle(cast, {incoming, Packet = ?CONNECT_PACKET(ConnPkt)}, State) ->
-    #mqtt_packet_connect{proto_ver = ProtoVer} = ConnPkt,
+    ProtoVer = emqx_packet:proto_ver(ConnPkt),
     NState = State#connection{serialize = serialize_fun(ProtoVer)},
     SuccFun = fun(NewSt) -> {next_state, connected, NewSt} end,
     handle_incoming(Packet, SuccFun, NState);

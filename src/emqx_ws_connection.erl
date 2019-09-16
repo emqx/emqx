@@ -97,7 +97,7 @@ attrs(WsPid) when is_pid(WsPid) ->
 attrs(WsConn = #ws_connection{chan_state = ChanState}) ->
     ConnAttrs = info(?ATTR_KEYS, WsConn),
     ChanAttrs = emqx_channel:attrs(ChanState),
-    maps:merge(ChanAttrs, #{connection => maps:from_list(ConnAttrs)}).
+    maps:merge(ChanAttrs, #{conninfo => maps:from_list(ConnAttrs)}).
 
 -spec(stats(pid()|ws_connection()) -> emqx_types:stats()).
 stats(WsPid) when is_pid(WsPid) ->
@@ -255,7 +255,7 @@ websocket_info({cast, Msg}, State = #ws_connection{chan_state = ChanState}) ->
 
 websocket_info({incoming, Packet = ?CONNECT_PACKET(ConnPkt)},
                 State = #ws_connection{fsm_state = idle}) ->
-    #mqtt_packet_connect{proto_ver = ProtoVer} = ConnPkt,
+    ProtoVer = emqx_packet:proto_ver(ConnPkt),
     NState = State#ws_connection{serialize = serialize_fun(ProtoVer)},
     handle_incoming(Packet, fun connected/1, NState);
 
