@@ -27,7 +27,8 @@
 %% APIs
 -export([start_link/0, stop/0]).
 
--export([ enable_acl/1
+-export([ use_username_as_clientid/1
+        , enable_acl/1
         , enable_banned/1
         , enable_flapping_detect/1
         ]).
@@ -66,6 +67,10 @@
 -spec(start_link() -> startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+-spec(use_username_as_clientid(zone()) -> boolean()).
+use_username_as_clientid(Zone) ->
+    get_env(Zone, use_username_as_clientid, false).
 
 -spec(enable_acl(zone()) -> boolean()).
 enable_acl(Zone) ->
