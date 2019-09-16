@@ -280,7 +280,8 @@ do_inc_recv(?PUBLISH_PACKET(QoS, _PktId)) ->
     case QoS of
         ?QOS_0 -> inc('messages.qos0.received');
         ?QOS_1 -> inc('messages.qos1.received');
-        ?QOS_2 -> inc('messages.qos2.received')
+        ?QOS_2 -> inc('messages.qos2.received');
+        _ -> ignore
     end,
     inc('packets.publish.received');
 do_inc_recv(?PACKET(?PUBACK)) ->

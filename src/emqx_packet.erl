@@ -75,10 +75,11 @@ validate(?UNSUBSCRIBE_PACKET(PacketId, TopicFilters)) ->
 validate(?PUBLISH_PACKET(_QoS, <<>>, _, #{'Topic-Alias':= _I}, _)) ->
     true;
 validate(?PUBLISH_PACKET(_QoS, <<>>, _, _, _)) ->
-    error(topic_name_invalid);
-validate(?PUBLISH_PACKET(_QoS, Topic, _, Properties, _)) ->
-    ((not emqx_topic:wildcard(Topic)) orelse error(topic_name_invalid))
-        andalso validate_properties(?PUBLISH, Properties);
+    error(protocol_error);
+validate(?PUBLISH_PACKET(QoS, Topic, _, Properties, _)) ->
+    ((not (QoS =:= 3)) orelse error(qos_invalid))
+        andalso ((not emqx_topic:wildcard(Topic)) orelse error(topic_name_invalid))
+            andalso validate_properties(?PUBLISH, Properties);
 
 validate(?CONNECT_PACKET(#mqtt_packet_connect{properties = Properties})) ->
     validate_properties(?CONNECT, Properties);

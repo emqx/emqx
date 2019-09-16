@@ -289,7 +289,7 @@ with_channel(Fun) ->
                  username    = <<"username">>,
                  password    = <<"passwd">>
                 },
-    Protocol = emqx_protocol:init(ConnPkt),
+    Protocol = emqx_protocol:init(ConnPkt, testing),
     Session = emqx_session:init(#{zone => testing},
                                 #{max_inflight    => 100,
                                   expiry_interval => 0
