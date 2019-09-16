@@ -31,6 +31,7 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_ct_helpers:boot_modules([router, broker]),
     emqx_ct_helpers:start_apps([]),
     Config.
 
@@ -288,7 +289,7 @@ with_channel(Fun) ->
                  username    = <<"username">>,
                  password    = <<"passwd">>
                 },
-    Protocol = emqx_protocol:init(ConnPkt),
+    Protocol = emqx_protocol:init(ConnPkt, testing),
     Session = emqx_session:init(#{zone => testing},
                                 #{max_inflight    => 100,
                                   expiry_interval => 0

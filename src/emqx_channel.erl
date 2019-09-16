@@ -50,8 +50,7 @@
         ]).
 
 -import(emqx_misc,
-        [ run_fold/2
-        , run_fold/3
+        [ run_fold/3
         , pipeline/3
         , maybe_apply/2
         ]).
@@ -106,7 +105,7 @@
 %% Init the channel
 %%--------------------------------------------------------------------
 
--spec(init(emqx_types:conn(), proplists:proplist()) -> channel()).
+-spec(init(emqx_types:conninfo(), proplists:proplist()) -> channel()).
 init(ConnInfo, Options) ->
     Zone = proplists:get_value(zone, Options),
     Peercert = maps:get(peercert, ConnInfo, undefined),
@@ -216,11 +215,12 @@ handle_in(?CONNECT_PACKET(_), Channel = #channel{connected = true}) ->
      handle_out({disconnect, ?RC_PROTOCOL_ERROR}, Channel);
 
 handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
-    case pipeline([fun validate_packet/2,
-                   fun check_connect/2,
+    case pipeline([fun check_connpkt/2,
                    fun init_protocol/2,
                    fun enrich_client/2,
                    fun set_logger_meta/2,
+                   fun check_banned/2,
+                   fun check_flapping/2,
                    fun auth_connect/2], ConnPkt, Channel) of
         {ok, NConnPkt, NChannel} ->
             process_connect(NConnPkt, NChannel);
@@ -230,7 +230,7 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
 
 handle_in(Packet = ?PUBLISH_PACKET(_QoS, Topic, _PacketId),
           Channel = #channel{protocol = Protocol}) ->
-    case pipeline([fun validate_packet/2,
+    case pipeline([fun emqx_packet:check/1,
                    fun process_alias/2,
                    fun check_publish/2], Packet, Channel) of
         {ok, NPacket, NChannel} ->
@@ -300,22 +300,27 @@ handle_in(?PUBCOMP_PACKET(PacketId, _ReasonCode), Channel = #channel{session = S
             {ok, Channel}
     end;
 
-handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters), Channel) ->
-    case validate_packet(Packet, Channel) of
-        ok ->
-            TopicFilters = preprocess_subscribe(Properties, RawTopicFilters, Channel),
-            {ReasonCodes, NChannel} = process_subscribe(TopicFilters, Channel),
-            handle_out({suback, PacketId, ReasonCodes}, NChannel);
+handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
+          Channel = #channel{client = Client}) ->
+    case emqx_packet:check(Packet) of
+        ok -> TopicFilters1 = emqx_hooks:run_fold('client.subscribe',
+                                                  [Client, Properties],
+                                                  parse_topic_filters(TopicFilters)),
+              TopicFilters2 = enrich_subid(Properties, TopicFilters1),
+              {ReasonCodes, NChannel} = process_subscribe(TopicFilters2, Channel),
+              handle_out({suback, PacketId, ReasonCodes}, NChannel);
         {error, ReasonCode} ->
             handle_out({disconnect, ReasonCode}, Channel)
     end;
 
-handle_in(Packet = ?UNSUBSCRIBE_PACKET(PacketId, Properties, RawTopicFilters), Channel) ->
-    case validate_packet(Packet, Channel) of
-        ok ->
-            TopicFilters = preprocess_unsubscribe(Properties, RawTopicFilters, Channel),
-            {ReasonCodes, NChannel} = process_unsubscribe(TopicFilters, Channel),
-            handle_out({unsuback, PacketId, ReasonCodes}, NChannel);
+handle_in(Packet = ?UNSUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
+          Channel = #channel{client = Client}) ->
+    case emqx_packet:check(Packet) of
+        ok -> TopicFilters1 = emqx_hooks:run_fold('client.unsubscribe',
+                                                  [Client, Properties],
+                                                  parse_topic_filters(TopicFilters)),
+              {ReasonCodes, NChannel} = process_unsubscribe(TopicFilters1, Channel),
+              handle_out({unsuback, PacketId, ReasonCodes}, NChannel);
         {error, ReasonCode} ->
             handle_out({disconnect, ReasonCode}, Channel)
     end;
@@ -419,23 +424,17 @@ process_publish(PacketId, Msg = #message{qos = ?QOS_2},
             handle_out({pubrec, PacketId, RC}, Channel)
     end.
 
-publish_to_msg(Packet, #channel{client = Client = #{mountpoint := MountPoint}}) ->
+publish_to_msg(Packet, #channel{client   = Client = #{mountpoint := MountPoint},
+                                protocol = Protocol}) ->
     Msg = emqx_packet:to_message(Client, Packet),
     Msg1 = emqx_message:set_flag(dup, false, Msg),
-    emqx_mountpoint:mount(MountPoint, Msg1).
+    ProtoVer = emqx_protocol:info(proto_ver, Protocol),
+    Msg2 = emqx_message:set_header(proto_ver, ProtoVer, Msg1),
+    emqx_mountpoint:mount(MountPoint, Msg2).
 
 %%--------------------------------------------------------------------
 %% Process Subscribe
 %%--------------------------------------------------------------------
-
--compile({inline, [preprocess_subscribe/3]}).
-preprocess_subscribe(Properties, RawTopicFilters, #channel{client = Client}) ->
-    RunHook = fun(TopicFilters) ->
-                      emqx_hooks:run_fold('client.subscribe',
-                                          [Client, Properties], TopicFilters)
-              end,
-    Enrich = fun(TopicFilters) -> enrich_subid(Properties, TopicFilters) end,
-    run_fold([fun parse_topic_filters/1, RunHook, Enrich], RawTopicFilters).
 
 process_subscribe(TopicFilters, Channel) ->
     process_subscribe(TopicFilters, [], Channel).
@@ -465,14 +464,6 @@ do_subscribe(TopicFilter, SubOpts = #{qos := QoS}, Channel =
 %%--------------------------------------------------------------------
 %% Process Unsubscribe
 %%--------------------------------------------------------------------
-
--compile({inline, [preprocess_unsubscribe/3]}).
-preprocess_unsubscribe(Properties, RawTopicFilter, #channel{client = Client}) ->
-    RunHook = fun(TopicFilters) ->
-                      emqx_hooks:run_fold('client.unsubscribe',
-                                          [Client, Properties], TopicFilters)
-              end,
-    run_fold([fun parse_topic_filters/1, RunHook], RawTopicFilter).
 
 -compile({inline, [process_unsubscribe/2]}).
 process_unsubscribe(TopicFilters, Channel) ->
@@ -523,7 +514,7 @@ handle_out({connack, ReasonCode}, Channel = #channel{client = Client,
                                                     }) ->
     ok = emqx_hooks:run('client.connected', [Client, ReasonCode, attrs(Channel)]),
     ProtoVer = case Protocol of
-                   undefined -> undefined;
+                   undefined -> ?MQTT_PROTO_V5;
                    _ -> emqx_protocol:info(proto_ver, Protocol)
                end,
     ReasonCode1 = if
@@ -551,9 +542,6 @@ handle_out({deliver, Delivers}, Channel = #channel{session = Session}) ->
             {ok, Channel#channel{session = NSession}}
     end;
 
-handle_out({publish, [Publish]}, Channel) ->
-    handle_out(Publish, Channel);
-
 handle_out({publish, Publishes}, Channel) when is_list(Publishes) ->
     Packets = lists:foldl(
                 fun(Publish, Acc) ->
@@ -576,7 +564,7 @@ handle_out({publish, PacketId, Msg}, Channel =
     Msg1 = emqx_message:update_expiry(Msg),
     Msg2 = emqx_hooks:run_fold('message.delivered', [Client], Msg1),
     Msg3 = emqx_mountpoint:unmount(MountPoint, Msg2),
-    {ok, emqx_packet:from_message(PacketId, Msg3), Channel};
+    {ok, emqx_message:to_packet(PacketId, Msg3), Channel};
 
 handle_out({puback, PacketId, ReasonCode}, Channel) ->
     {ok, ?PUBACK_PACKET(PacketId, ReasonCode), Channel};
@@ -628,7 +616,10 @@ handle_out({Type, Data}, Channel) ->
 handle_call(kick, Channel) ->
     {stop, {shutdown, kicked}, ok, Channel};
 
-handle_call(discard, Channel) ->
+handle_call(discard, Channel = #channel{connected = true}) ->
+    Packet = ?DISCONNECT_PACKET(?RC_SESSION_TAKEN_OVER),
+    {stop, {shutdown, discarded}, Packet, ok, Channel};
+handle_call(discard, Channel = #channel{connected = false}) ->
     {stop, {shutdown, discarded}, ok, Channel};
 
 %% Session Takeover
@@ -666,16 +657,18 @@ handle_cast(Msg, Channel) ->
 
 -spec(handle_info(Info :: term(), channel())
       -> {ok, channel()} | {stop, Reason :: term(), channel()}).
-handle_info({subscribe, RawTopicFilters}, Channel) ->
-    TopicFilters = preprocess_subscribe(#{'Internal' => true},
-                                        RawTopicFilters, Channel),
-    {_ReasonCodes, NChannel} = process_subscribe(TopicFilters, Channel),
+handle_info({subscribe, TopicFilters}, Channel = #channel{client = Client}) ->
+    TopicFilters1 = emqx_hooks:run_fold('client.subscribe',
+                                        [Client, #{'Internal' => true}],
+                                        parse_topic_filters(TopicFilters)),
+    {_ReasonCodes, NChannel} = process_subscribe(TopicFilters1, Channel),
     {ok, NChannel};
 
-handle_info({unsubscribe, RawTopicFilters}, Channel) ->
-    TopicFilters = preprocess_unsubscribe(#{'Internal' => true},
-                                          RawTopicFilters, Channel),
-    {_ReasonCodes, NChannel} = process_unsubscribe(TopicFilters, Channel),
+handle_info({unsubscribe, TopicFilters}, Channel = #channel{client = Client}) ->
+    TopicFilters1 = emqx_hooks:run_fold('client.unsubscribe',
+                                        [Client, #{'Internal' => true}],
+                                        parse_topic_filters(TopicFilters)),
+    {_ReasonCodes, NChannel} = process_unsubscribe(TopicFilters1, Channel),
     {ok, NChannel};
 
 handle_info(disconnected, Channel = #channel{connected = undefined}) ->
@@ -828,141 +821,51 @@ received(Oct, Channel) ->
 sent(Oct, Channel) ->
     ensure_timer(stats_timer, maybe_gc_and_check_oom(Oct, Channel)).
 
-%%TODO: Improve will msg:)
+%% TODO: Improve will msg:)
 publish_will_msg(undefined) ->
     ok;
 publish_will_msg(Msg) ->
     emqx_broker:publish(Msg).
 
-%% @doc Validate incoming packet.
--spec(validate_packet(emqx_types:packet(), channel())
-      -> ok | {error, emqx_types:reason_code()}).
-validate_packet(Packet, _Channel) ->
-    try emqx_packet:validate(Packet) of
-        true -> ok
-    catch
-        error:protocol_error ->
-            {error, ?RC_PROTOCOL_ERROR};
-        error:subscription_identifier_invalid ->
-            {error, ?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED};
-        error:topic_alias_invalid ->
-            {error, ?RC_TOPIC_ALIAS_INVALID};
-        error:topic_filters_invalid ->
-            {error, ?RC_TOPIC_FILTER_INVALID};
-        error:topic_name_invalid ->
-            {error, ?RC_TOPIC_FILTER_INVALID};
-        error:_Reason ->
-            {error, ?RC_MALFORMED_PACKET}
-    end.
+%% @doc Check connect packet.
+check_connpkt(ConnPkt, #channel{client = #{zone := Zone}}) ->
+    emqx_packet:check(ConnPkt, emqx_mqtt_caps:get_caps(Zone)).
 
-%%--------------------------------------------------------------------
-%% Check connect packet
-%%--------------------------------------------------------------------
+%% @doc Init protocol record.
+init_protocol(ConnPkt, Channel = #channel{client = #{zone := Zone}}) ->
+    {ok, Channel#channel{protocol = emqx_protocol:init(ConnPkt, Zone)}}.
 
-check_connect(ConnPkt, Channel) ->
-    pipeline([fun check_proto_ver/2,
-              fun check_client_id/2,
-              %%fun check_flapping/2,
-              fun check_banned/2,
-              fun check_will_topic/2,
-              fun check_will_retain/2], ConnPkt, Channel).
-
-check_proto_ver(#mqtt_packet_connect{proto_ver  = Ver,
-                                     proto_name = Name}, _Channel) ->
-    case lists:member({Ver, Name}, ?PROTOCOL_NAMES) of
-        true  -> ok;
-        false -> {error, ?RC_UNSUPPORTED_PROTOCOL_VERSION}
-    end.
-
-%% MQTT3.1 does not allow null clientId
-check_client_id(#mqtt_packet_connect{proto_ver = ?MQTT_PROTO_V3,
-                                     client_id = <<>>
-                                    }, _Channel) ->
-    {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID};
-
-%% Issue#599: Null clientId and clean_start = false
-check_client_id(#mqtt_packet_connect{client_id   = <<>>,
-                                     clean_start = false}, _Channel) ->
-    {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID};
-
-check_client_id(#mqtt_packet_connect{client_id   = <<>>,
-                                     clean_start = true}, _Channel) ->
-    ok;
-
-check_client_id(#mqtt_packet_connect{client_id = ClientId},
-                #channel{client = #{zone := Zone}}) ->
-    Len = byte_size(ClientId),
-    MaxLen = emqx_zone:get_env(Zone, max_clientid_len),
-    case (1 =< Len) andalso (Len =< MaxLen) of
-        true  -> ok;
-        false -> {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID}
-    end.
-
-%%TODO: check banned...
-check_banned(#mqtt_packet_connect{client_id = ClientId,
-                                  username = Username},
-             #channel{client = Client = #{zone := Zone}}) ->
-    case emqx_zone:get_env(Zone, enable_ban, false) of
-        true ->
-            case emqx_banned:check(Client#{client_id => ClientId,
-                                           username  => Username}) of
-                true  -> {error, ?RC_BANNED};
-                false -> ok
-            end;
-        false -> ok
-    end.
-
-check_will_topic(#mqtt_packet_connect{will_flag = false}, _Channel) ->
-    ok;
-check_will_topic(#mqtt_packet_connect{will_topic = WillTopic}, _Channel) ->
-    try emqx_topic:validate(WillTopic) of
-        true -> ok
-    catch error:_Error ->
-        {error, ?RC_TOPIC_NAME_INVALID}
-    end.
-
-check_will_retain(#mqtt_packet_connect{will_retain = false}, _Channel) ->
-    ok;
-check_will_retain(#mqtt_packet_connect{will_retain = true},
-                  #channel{client = #{zone := Zone}}) ->
-    case emqx_zone:get_env(Zone, mqtt_retain_available, true) of
-        true  -> ok;
-        false -> {error, ?RC_RETAIN_NOT_SUPPORTED}
-    end.
-
-init_protocol(ConnPkt, Channel) ->
-    {ok, Channel#channel{protocol = emqx_protocol:init(ConnPkt)}}.
-
-%%--------------------------------------------------------------------
-%% Enrich client
-%%--------------------------------------------------------------------
-
-enrich_client(ConnPkt = #mqtt_packet_connect{is_bridge = IsBridge},
-              Channel = #channel{client = Client}) ->
+%% @doc Enrich client
+enrich_client(ConnPkt, Channel = #channel{client = Client}) ->
     {ok, NConnPkt, NClient} = pipeline([fun set_username/2,
+                                        fun set_bridge_mode/2,
                                         fun maybe_username_as_clientid/2,
                                         fun maybe_assign_clientid/2,
                                         fun fix_mountpoint/2
                                        ], ConnPkt, Client),
-    {ok, NConnPkt, Channel#channel{client = NClient#{is_bridge => IsBridge}}}.
+    {ok, NConnPkt, Channel#channel{client = NClient}}.
 
-%% Username may be not undefined if peer_cert_as_username
 set_username(#mqtt_packet_connect{username = Username}, Client = #{username := undefined}) ->
     {ok, Client#{username => Username}};
 set_username(_ConnPkt, Client) ->
     {ok, Client}.
 
+set_bridge_mode(#mqtt_packet_connect{is_bridge = true}, Client) ->
+    {ok, Client#{is_bridge => true}};
+set_bridge_mode(_ConnPkt, _Client) -> ok.
+
 maybe_username_as_clientid(_ConnPkt, Client = #{username := undefined}) ->
     {ok, Client};
 maybe_username_as_clientid(_ConnPkt, Client = #{zone := Zone, username := Username}) ->
-    case emqx_zone:get_env(Zone, use_username_as_clientid, false) of
+    case emqx_zone:use_username_as_clientid(Zone) of
         true  -> {ok, Client#{client_id => Username}};
         false -> ok
     end.
 
 maybe_assign_clientid(#mqtt_packet_connect{client_id = <<>>}, Client) ->
-    RandClientId = emqx_guid:to_base62(emqx_guid:gen()),
-    {ok, Client#{client_id => RandClientId}};
+    %% Generate a rand clientId
+    RandId = emqx_guid:to_base62(emqx_guid:gen()),
+    {ok, Client#{client_id => RandId}};
 maybe_assign_clientid(#mqtt_packet_connect{client_id = ClientId}, Client) ->
     {ok, Client#{client_id => ClientId}}.
 
@@ -973,6 +876,23 @@ fix_mountpoint(_ConnPkt, Client = #{mountpoint := Mountpoint}) ->
 %% @doc Set logger metadata.
 set_logger_meta(_ConnPkt, #channel{client = #{client_id := ClientId}}) ->
     emqx_logger:set_metadata_client_id(ClientId).
+
+%%--------------------------------------------------------------------
+%% Check banned/flapping
+%%--------------------------------------------------------------------
+
+check_banned(_ConnPkt, #channel{client = Client = #{zone := Zone}}) ->
+    case emqx_zone:enable_banned(Zone) andalso emqx_banned:check(Client) of
+        true  -> {error, ?RC_BANNED};
+        false -> ok
+    end.
+
+check_flapping(_ConnPkt, #channel{client = Client = #{zone := Zone}}) ->
+    case emqx_zone:enable_flapping_detect(Zone)
+         andalso emqx_flapping:check(Client) of
+        true -> {error, ?RC_CONNECTION_RATE_EXCEEDED};
+        false -> ok
+    end.
 
 %%--------------------------------------------------------------------
 %% Auth Connect
@@ -1184,7 +1104,7 @@ maybe_resume_session(#channel{session  = Session,
 
 %% @doc Is ACL enabled?
 is_acl_enabled(#{zone := Zone, is_superuser := IsSuperuser}) ->
-    (not IsSuperuser) andalso emqx_zone:get_env(Zone, enable_acl, true).
+    (not IsSuperuser) andalso emqx_zone:enable_acl(Zone).
 
 %% @doc Parse Topic Filters
 -compile({inline, [parse_topic_filters/1]}).

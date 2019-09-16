@@ -22,6 +22,7 @@
 -include_lib("common_test/include/ct.hrl").
 
 init_per_suite(Config) ->
+    emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
     Config.
 

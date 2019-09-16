@@ -26,6 +26,7 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
+    emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([], fun set_special_configs/1),
     Config.
 

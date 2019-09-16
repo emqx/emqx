@@ -35,10 +35,10 @@ start(_Type, _Args) ->
     ok = emqx_modules:load(),
     ok = emqx_plugins:init(),
     emqx_plugins:load(),
-    ok = emqx_listeners:start(),
+    emqx_boot:is_enabled(listeners)
+      andalso (ok = emqx_listeners:start()),
     start_autocluster(),
     register(emqx, self()),
-
     emqx_alarm_handler:load(),
     print_vsn(),
     {ok, Sup}.
@@ -46,7 +46,8 @@ start(_Type, _Args) ->
 -spec(stop(State :: term()) -> term()).
 stop(_State) ->
     emqx_alarm_handler:unload(),
-    emqx_listeners:stop(),
+    emqx_boot:is_enabled(listeners)
+      andalso emqx_listeners:stop(),
     emqx_modules:unload().
 
 %%--------------------------------------------------------------------

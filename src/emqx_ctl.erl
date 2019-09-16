@@ -34,6 +34,19 @@
         , lookup_command/1
         ]).
 
+-export([ print/1
+        , print/2
+        , usage/1
+        , usage/2
+        ]).
+
+%% format/1,2 and format_usage/1,2 are exported mainly for test cases
+-export([ format/1
+        , format/2
+        , format_usage/1
+        , format_usage/2
+        ]).
+
 %% gen_server callbacks
 -export([ init/1
         , handle_call/3
@@ -46,6 +59,8 @@
 -record(state, {seq = 0}).
 
 -type(cmd() :: atom()).
+-type(cmd_descr() :: string()).
+-type(cmd_usage() :: {cmd(), cmd_descr()}).
 
 -define(SERVER, ?MODULE).
 -define(TAB, emqx_command).
@@ -75,7 +90,7 @@ run_command([Cmd | Args]) ->
 
 -spec(run_command(cmd(), [string()]) -> ok | {error, term()}).
 run_command(help, []) ->
-    usage();
+    help();
 run_command(Cmd, Args) when is_atom(Cmd) ->
     case lookup_command(Cmd) of
         [{Mod, Fun}] ->
@@ -87,7 +102,7 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
                     {error, Reason}
             end;
         [] ->
-            usage(), {error, cmd_not_found}
+            help(), {error, cmd_not_found}
     end.
 
 -spec(lookup_command(cmd()) -> [{module(), atom()}]).
@@ -97,10 +112,50 @@ lookup_command(Cmd) when is_atom(Cmd) ->
         []   -> []
     end.
 
-usage() ->
-    io:format("Usage: ~s~n", [?MODULE]),
-    [begin io:format("~80..-s~n", [""]), Mod:Cmd(usage) end
+help() ->
+    print("Usage: ~s~n", [?MODULE]),
+    [begin print("~80..-s~n", [""]), Mod:Cmd(usage) end
      || {_, {Mod, Cmd}, _} <- ets:tab2list(?TAB)].
+
+-spec(print(io:format()) -> ok).
+print(Msg) ->
+    io:format(format(Msg)).
+
+-spec(print(io:format(), [term()]) -> ok).
+print(Format, Args) ->
+    io:format(format(Format, Args)).
+
+-spec(usage([cmd_usage()]) -> ok).
+usage(UsageList) ->
+    io:format(format_usage(UsageList)).
+
+-spec(usage(cmd(), cmd_descr()) -> ok).
+usage(Cmd, Desc) ->
+    io:format(format_usage(Cmd, Desc)).
+
+-spec(format(io:format()) -> string()).
+format(Msg) ->
+    lists:flatten(io_lib:format("~p", [Msg])).
+
+-spec(format(io:format(), [term()]) -> string()).
+format(Format, Args) ->
+    lists:flatten(io_lib:format(Format, Args)).
+
+-spec(format_usage([cmd_usage()]) -> ok).
+format_usage(UsageList) ->
+    lists:map(
+        fun({Cmd, Desc}) ->
+            format_usage(Cmd, Desc)
+        end, UsageList).
+
+-spec(format_usage(cmd(), cmd_descr()) -> string()).
+format_usage(Cmd, Desc) ->
+    CmdLines = split_cmd(Cmd),
+    DescLines = split_cmd(Desc),
+    lists:foldl(
+        fun({CmdStr, DescStr}, Usage) ->
+            Usage ++ format("~-48s# ~s~n", [CmdStr, DescStr])
+        end, "", zip_cmd(CmdLines, DescLines)).
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -151,3 +206,11 @@ noreply(State) ->
 next_seq(State = #state{seq = Seq}) ->
     State#state{seq = Seq + 1}.
 
+split_cmd(CmdStr) ->
+    Lines = string:split(CmdStr, "\n", all),
+    [L || L <- Lines, L =/= []].
+
+zip_cmd([X | Xs], [Y | Ys]) -> [{X, Y} | zip_cmd(Xs, Ys)];
+zip_cmd([X | Xs], []) -> [{X, ""} | zip_cmd(Xs, [])];
+zip_cmd([], [Y | Ys]) -> [{"", Y} | zip_cmd([], Ys)];
+zip_cmd([], []) -> [].

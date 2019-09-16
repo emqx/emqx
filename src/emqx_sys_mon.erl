@@ -166,7 +166,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 handle_partition_event({partition, {occurred, Node}}) ->
     alarm_handler:set_alarm({partitioned, Node});
-handle_partition_event({partition, {healed, Node}}) ->
+handle_partition_event({partition, {healed, _Node}}) ->
     alarm_handler:clear_alarm(partitioned).
 
 suppress(Key, SuccFun, State = #{events := Events}) ->
