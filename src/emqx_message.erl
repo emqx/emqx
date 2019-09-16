@@ -57,7 +57,8 @@
         , update_expiry/1
         ]).
 
--export([ to_map/1
+-export([ to_packet/2
+        , to_map/1
         , to_list/1
         ]).
 
@@ -188,6 +189,34 @@ update_expiry(Msg = #message{headers = #{'Message-Expiry-Interval' := Interval},
     end;
 update_expiry(Msg) -> Msg.
 
+%% @doc Message to PUBLISH Packet.
+-spec(to_packet(emqx_types:packet_id(), emqx_types:message())
+      -> emqx_types:packet()).
+to_packet(PacketId, #message{qos = QoS, flags = Flags, headers = Headers,
+                                topic = Topic, payload = Payload}) ->
+    Flags1 = if Flags =:= undefined -> #{};
+                true -> Flags
+             end,
+    Dup = maps:get(dup, Flags1, false),
+    Retain = maps:get(retain, Flags1, false),
+    Publish = #mqtt_packet_publish{topic_name = Topic,
+                                   packet_id  = PacketId,
+                                   properties = publish_props(Headers)},
+    #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
+                                              dup    = Dup,
+                                              qos    = QoS,
+                                              retain = Retain},
+                 variable = Publish, payload = Payload}.
+
+publish_props(Headers) ->
+    maps:with(['Payload-Format-Indicator',
+               'Response-Topic',
+               'Correlation-Data',
+               'User-Property',
+               'Subscription-Identifier',
+               'Content-Type',
+               'Message-Expiry-Interval'], Headers).
+
 %% @doc Message to map
 -spec(to_map(emqx_types:message()) -> map()).
 to_map(#message{
@@ -228,3 +257,4 @@ format(flags, Flags) ->
     io_lib:format("~p", [[Flag || {Flag, true} <- maps:to_list(Flags)]]);
 format(headers, Headers) ->
     io_lib:format("~p", [Headers]).
+
