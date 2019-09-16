@@ -70,7 +70,10 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 -spec(check(emqx_types:client()) -> boolean()).
-check(#{client_id := ClientId, username := Username, peername := {IPAddr, _}}) ->
+check(#{client_id := ClientId,
+        username  := Username,
+        peername  := {IPAddr, _}
+       }) ->
     ets:member(?BANNED_TAB, {client_id, ClientId})
         orelse ets:member(?BANNED_TAB, {username, Username})
             orelse ets:member(?BANNED_TAB, {ipaddr, IPAddr}).

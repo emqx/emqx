@@ -127,11 +127,11 @@ dispatch(Group, Topic, Delivery = #delivery{message = Msg}, FailedSubs) ->
 
 -spec(strategy() -> random | round_robin | sticky | hash).
 strategy() ->
-    emqx_config:get_env(shared_subscription_strategy, round_robin).
+    emqx:get_env(shared_subscription_strategy, round_robin).
 
 -spec(ack_enabled() -> boolean()).
 ack_enabled() ->
-    emqx_config:get_env(shared_dispatch_ack_enabled, false).
+    emqx:get_env(shared_dispatch_ack_enabled, false).
 
 do_dispatch(SubPid, Topic, Msg, _Type) when SubPid =:= self() ->
     %% Deadlock otherwise

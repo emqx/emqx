@@ -111,12 +111,12 @@ datetime() ->
 %% @doc Get sys interval
 -spec(sys_interval() -> pos_integer()).
 sys_interval() ->
-    emqx_config:get_env(broker_sys_interval, 60000).
+    emqx:get_env(broker_sys_interval, 60000).
 
 %% @doc Get sys heatbeat interval
 -spec(sys_heatbeat_interval() -> pos_integer()).
 sys_heatbeat_interval() ->
-    emqx_config:get_env(broker_sys_heartbeat, 30000).
+    emqx:get_env(broker_sys_heartbeat, 30000).
 
 %% @doc Get sys info
 -spec(info() -> list(tuple())).

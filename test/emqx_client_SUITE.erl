@@ -70,6 +70,7 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
+    emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
     Config.
 
@@ -96,6 +97,7 @@ t_cm(_) ->
     ClientId = <<"myclient">>,
     {ok, C} = emqtt:start_link([{client_id, ClientId}]),
     {ok, _} = emqtt:connect(C),
+    ct:sleep(50),
     #{client := #{client_id := ClientId}} = emqx_cm:get_chan_attrs(ClientId),
     emqtt:subscribe(C, <<"mytopic">>, 0),
     ct:sleep(1200),

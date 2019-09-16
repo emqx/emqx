@@ -25,7 +25,13 @@
 -logger_header("[Zone]").
 
 %% APIs
--export([start_link/0]).
+-export([start_link/0, stop/0]).
+
+-export([ use_username_as_clientid/1
+        , enable_acl/1
+        , enable_banned/1
+        , enable_flapping_detect/1
+        ]).
 
 -export([ get_env/2
         , get_env/3
@@ -33,9 +39,6 @@
         , unset_env/2
         , force_reload/0
         ]).
-
-%% for test
--export([stop/0]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -65,19 +68,34 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
+-spec(use_username_as_clientid(zone()) -> boolean()).
+use_username_as_clientid(Zone) ->
+    get_env(Zone, use_username_as_clientid, false).
+
+-spec(enable_acl(zone()) -> boolean()).
+enable_acl(Zone) ->
+    get_env(Zone, enable_acl, true).
+
+-spec(enable_banned(zone()) -> boolean()).
+enable_banned(Zone) ->
+    get_env(Zone, enable_banned, false).
+
+-spec(enable_flapping_detect(zone()) -> boolean()).
+enable_flapping_detect(Zone) ->
+    get_env(Zone, enable_flapping_detect, false).
+
 -spec(get_env(maybe(zone()), atom()) -> maybe(term())).
-get_env(undefined, Key) ->
-    emqx_config:get_env(Key);
+get_env(undefined, Key) -> emqx:get_env(Key);
 get_env(Zone, Key) ->
     get_env(Zone, Key, undefined).
 
 -spec(get_env(maybe(zone()), atom(), term()) -> maybe(term())).
 get_env(undefined, Key, Def) ->
-    emqx_config:get_env(Key, Def);
+    emqx:get_env(Key, Def);
 get_env(Zone, Key, Def) ->
     try persistent_term:get(?KEY(Zone, Key))
     catch error:badarg ->
-        emqx_config:get_env(Key, Def)
+        emqx:get_env(Key, Def)
     end.
 
 -spec(set_env(zone(), atom(), term()) -> ok).
@@ -132,5 +150,5 @@ code_change(_OldVsn, State, _Extra) ->
 
 do_reload() ->
     [persistent_term:put(?KEY(Zone, Key), Val)
-      || {Zone, Opts} <- emqx_config:get_env(zones, []), {Key, Val} <- Opts].
+      || {Zone, Opts} <- emqx:get_env(zones, []), {Key, Val} <- Opts].
 

@@ -42,7 +42,7 @@
 %% @doc Start all listeners.
 -spec(start() -> ok).
 start() ->
-    lists:foreach(fun start_listener/1, emqx_config:get_env(listeners, [])).
+    lists:foreach(fun start_listener/1, emqx:get_env(listeners, [])).
 
 -spec(start_listener(listener()) -> {ok, pid()} | {error, term()}).
 start_listener({Proto, ListenOn, Options}) ->
@@ -113,7 +113,7 @@ with_port({Addr, Port}, Opts = #{socket_opts := SocketOption}) ->
 %% @doc Restart all listeners
 -spec(restart() -> ok).
 restart() ->
-    lists:foreach(fun restart_listener/1, emqx_config:get_env(listeners, [])).
+    lists:foreach(fun restart_listener/1, emqx:get_env(listeners, [])).
 
 -spec(restart_listener(listener()) -> any()).
 restart_listener({Proto, ListenOn, Options}) ->
@@ -136,7 +136,7 @@ restart_listener(Proto, ListenOn, _Opts) ->
 %% @doc Stop all listeners.
 -spec(stop() -> ok).
 stop() ->
-    lists:foreach(fun stop_listener/1, emqx_config:get_env(listeners, [])).
+    lists:foreach(fun stop_listener/1, emqx:get_env(listeners, [])).
 
 -spec(stop_listener(listener()) -> ok | {error, term()}).
 stop_listener({Proto, ListenOn, Opts}) ->

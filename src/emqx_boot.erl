@@ -14,26 +14,16 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_config_SUITE).
+-module(emqx_boot).
 
--compile(export_all).
--compile(nowarn_export_all).
+-export([is_enabled/1]).
 
--include_lib("eunit/include/eunit.hrl").
+-define(BOOT_MODULES, [router, broker, listeners]).
 
-all() -> emqx_ct:all(?MODULE).
+-spec(is_enabled(all|list(router|broker|listeners)) -> boolean()).
+is_enabled(Mod) ->
+    (BootMods = boot_modules()) =:= all orelse lists:member(Mod, BootMods).
 
-init_per_suite(Config) ->
-    emqx_ct_helpers:start_apps([]),
-    Config.
+boot_modules() ->
+    application:get_env(emqx, boot_modules, ?BOOT_MODULES).
 
-end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
-
-t_get_env(_) ->
-    ?assertEqual(undefined, emqx_config:get_env(undefined_key)),
-    ?assertEqual(default_value, emqx_config:get_env(undefined_key, default_value)),
-    application:set_env(emqx, undefined_key, hello),
-    ?assertEqual(hello, emqx_config:get_env(undefined_key)),
-    ?assertEqual(hello, emqx_config:get_env(undefined_key, default_value)),
-    application:unset_env(emqx, undefined_key).

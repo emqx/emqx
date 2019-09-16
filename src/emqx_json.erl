@@ -24,11 +24,21 @@
         , safe_encode/2
         ]).
 
+-compile({inline,
+          [ encode/1
+          , encode/2
+          ]}).
+
 -export([ decode/1
         , decode/2
         , safe_decode/1
         , safe_decode/2
         ]).
+
+-compile({inline,
+          [ decode/1
+          , decode/2
+          ]}).
 
 -spec(encode(jsx:json_term()) -> jsx:json_text()).
 encode(Term) ->

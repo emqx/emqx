@@ -62,5 +62,5 @@ unlock(ClientId) ->
 
 -spec(strategy() -> local | one | quorum | all).
 strategy() ->
-    emqx_config:get_env(session_locking_strategy, quorum).
+    emqx:get_env(session_locking_strategy, quorum).
 

@@ -32,6 +32,14 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
+t_get_env(_) ->
+    ?assertEqual(undefined, emqx:get_env(undefined_key)),
+    ?assertEqual(default_value, emqx:get_env(undefined_key, default_value)),
+    application:set_env(emqx, undefined_key, hello),
+    ?assertEqual(hello, emqx:get_env(undefined_key)),
+    ?assertEqual(hello, emqx:get_env(undefined_key, default_value)),
+    application:unset_env(emqx, undefined_key).
+
 t_emqx_pubsub_api(_) ->
     emqx:start(),
     true = emqx:is_running(node()),
@@ -42,6 +50,7 @@ t_emqx_pubsub_api(_) ->
     Payload = <<"Hello World">>,
     Topic1 = <<"mytopic1">>,
     emqx:subscribe(Topic, ClientId),
+    ct:sleep(100),
     ?assertEqual([Topic], emqx:topics()),
     ?assertEqual([self()], emqx:subscribers(Topic)),
     ?assertEqual([{Topic,#{qos => 0,subid => ClientId}}], emqx:subscriptions(self())),
