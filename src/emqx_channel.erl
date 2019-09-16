@@ -542,9 +542,6 @@ handle_out({deliver, Delivers}, Channel = #channel{session = Session}) ->
             {ok, Channel#channel{session = NSession}}
     end;
 
-handle_out({publish, [Publish]}, Channel) ->
-    handle_out(Publish, Channel);
-
 handle_out({publish, Publishes}, Channel) when is_list(Publishes) ->
     Packets = lists:foldl(
                 fun(Publish, Acc) ->

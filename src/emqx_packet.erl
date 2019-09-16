@@ -110,6 +110,10 @@ check(#mqtt_packet{variable = SubPkt}) when is_record(SubPkt, mqtt_packet_subscr
 check(#mqtt_packet{variable = UnsubPkt}) when is_record(UnsubPkt, mqtt_packet_unsubscribe) ->
     check(UnsubPkt);
 
+check(#mqtt_packet_publish{topic_name = <<>>, properties = #{'Topic-Alias':= _TopicAlias}}) ->
+    ok;
+check(#mqtt_packet_publish{topic_name = <<>>, properties = #{}}) ->
+    {error, ?RC_PROTOCOL_ERROR};
 check(#mqtt_packet_publish{topic_name = TopicName, properties = Props}) ->
     try emqx_topic:validate(name, TopicName) of
         true -> check_pub_props(Props)
