@@ -514,7 +514,7 @@ handle_out({connack, ReasonCode}, Channel = #channel{client = Client,
                                                     }) ->
     ok = emqx_hooks:run('client.connected', [Client, ReasonCode, attrs(Channel)]),
     ProtoVer = case Protocol of
-                   undefined -> undefined;
+                   undefined -> ?MQTT_PROTO_V5;
                    _ -> emqx_protocol:info(proto_ver, Protocol)
                end,
     ReasonCode1 = if
@@ -619,7 +619,10 @@ handle_out({Type, Data}, Channel) ->
 handle_call(kick, Channel) ->
     {stop, {shutdown, kicked}, ok, Channel};
 
-handle_call(discard, Channel) ->
+handle_call(discard, Channel = #channel{connected = true}) ->
+    Packet = ?DISCONNECT_PACKET(?RC_SESSION_TAKEN_OVER),
+    {stop, {shutdown, discarded}, Packet, ok, Channel};
+handle_call(discard, Channel = #channel{connected = false}) ->
     {stop, {shutdown, discarded}, ok, Channel};
 
 %% Session Takeover
@@ -832,8 +835,8 @@ check_connpkt(ConnPkt, #channel{client = #{zone := Zone}}) ->
     emqx_packet:check(ConnPkt, emqx_mqtt_caps:get_caps(Zone)).
 
 %% @doc Init protocol record.
-init_protocol(ConnPkt, Channel) ->
-    {ok, Channel#channel{protocol = emqx_protocol:init(ConnPkt)}}.
+init_protocol(ConnPkt, Channel = #channel{client = #{zone := Zone}}) ->
+    {ok, Channel#channel{protocol = emqx_protocol:init(ConnPkt, Zone)}}.
 
 %% @doc Enrich client
 enrich_client(ConnPkt, Channel = #channel{client = Client}) ->

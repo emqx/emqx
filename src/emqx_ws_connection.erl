@@ -192,7 +192,8 @@ websocket_init([Req, Opts]) ->
                         fsm_state   = idle,
                         parse_state = ParseState,
                         chan_state  = ChanState,
-                        pendings    = []}}.
+                        pendings    = [],
+                        serialize   = serialize_fun(?MQTT_PROTO_V5, undefined)}}.
 
 websocket_handle({binary, Data}, State) when is_list(Data) ->
     websocket_handle({binary, iolist_to_binary(Data)}, State);
@@ -255,8 +256,9 @@ websocket_info({cast, Msg}, State = #ws_connection{chan_state = ChanState}) ->
 
 websocket_info({incoming, Packet = ?CONNECT_PACKET(ConnPkt)},
                 State = #ws_connection{fsm_state = idle}) ->
-    ProtoVer = emqx_packet:proto_ver(ConnPkt),
-    NState = State#ws_connection{serialize = serialize_fun(ProtoVer)},
+    #mqtt_packet_connect{proto_ver = ProtoVer, properties = Properties} = ConnPkt,
+    MaxPacketSize = emqx_mqtt_props:get_property('Maximum-Packet-Size', Properties, undefined),
+    NState = State#ws_connection{serialize = serialize_fun(ProtoVer, MaxPacketSize)},
     handle_incoming(Packet, fun connected/1, NState);
 
 websocket_info({incoming, Packet}, State = #ws_connection{fsm_state = idle}) ->
@@ -336,9 +338,10 @@ handle_timeout(TRef, Msg, State = #ws_connection{chan_state = ChanState}) ->
 process_incoming(<<>>, State) ->
     {ok, State};
 
-process_incoming(Data, State = #ws_connection{parse_state = ParseState, chan_state = ChanState}) ->
+process_incoming(Data, State = #ws_connection{parse_state = ParseState,
+                                              chan_state  = ChanState}) ->
     try emqx_frame:parse(Data, ParseState) of
-        {ok, NParseState} ->
+        {more, NParseState} ->
             {ok, State#ws_connection{parse_state = NParseState}};
         {ok, Packet, Rest, NParseState} ->
             self() ! {incoming, Packet},
@@ -348,14 +351,24 @@ process_incoming(Data, State = #ws_connection{parse_state = ParseState, chan_sta
             stop(Reason, State)
     catch
         error:Reason:Stk ->
-            ?LOG(error, "Parse failed for ~p~n\
-                 Stacktrace:~p~nFrame data: ~p", [Reason, Stk, Data]),
-            case emqx_channel:handle_out({disconnect, emqx_reason_codes:mqtt_frame_error(Reason)}, ChanState) of
+            ?LOG(error, "Parse failed for ~p~nStacktrace:~p~nFrame data: ~p", [Reason, Stk, Data]),
+            Result = 
+                case emqx_channel:info(connected, ChanState) of
+                    undefined ->
+                        emqx_channel:handle_out({connack, emqx_reason_codes:mqtt_frame_error(Reason)}, ChanState);
+                    true ->
+                        emqx_channel:handle_out({disconnect, emqx_reason_codes:mqtt_frame_error(Reason)}, ChanState);
+                    _ ->
+                        ignore
+                end,
+            case Result of
                 {stop, Reason0, OutPackets, NChanState} ->
                     NState = State#ws_connection{chan_state = NChanState},
                     stop(Reason0, enqueue(OutPackets, NState));
                 {stop, Reason0, NChanState} ->
-                    stop(Reason0, State#ws_connection{chan_state = NChanState})
+                    stop(Reason0, State#ws_connection{chan_state = NChanState});
+                ignore ->
+                    {ok, State}
             end
     end.
 
@@ -394,12 +407,19 @@ handle_outgoing(Packets, State = #ws_connection{serialize  = Serialize,
 %%--------------------------------------------------------------------
 %% Serialize fun
 
-serialize_fun(ProtoVer) ->
+serialize_fun(ProtoVer, MaxPacketSize) ->
     fun(Packet = ?PACKET(Type)) ->
-        ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)]),
-        _ = inc_outgoing_stats(Type),
-        _ = emqx_metrics:inc_sent(Packet),
-        emqx_frame:serialize(Packet, ProtoVer)
+        IoData = emqx_frame:serialize(Packet, ProtoVer),
+        case Type =/= ?PUBLISH orelse MaxPacketSize =:= undefined orelse iolist_size(IoData) =< MaxPacketSize of
+            true ->
+                ?LOG(debug, "SEND ~s", [emqx_packet:format(Packet)]),
+                _ = inc_outgoing_stats(Type),
+                _ = emqx_metrics:inc_sent(Packet),
+                IoData;
+            false ->
+                ?LOG(warning, "DROP ~s due to oversize packet size", [emqx_packet:format(Packet)]),
+                <<"">>
+        end
     end.
 
 %%--------------------------------------------------------------------
