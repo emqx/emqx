@@ -97,7 +97,7 @@ attrs(WsPid) when is_pid(WsPid) ->
 attrs(WsConn = #ws_connection{chan_state = ChanState}) ->
     ConnAttrs = info(?ATTR_KEYS, WsConn),
     ChanAttrs = emqx_channel:attrs(ChanState),
-    maps:merge(ChanAttrs, #{connection => maps:from_list(ConnAttrs)}).
+    maps:merge(ChanAttrs, #{conninfo => maps:from_list(ConnAttrs)}).
 
 -spec(stats(pid()|ws_connection()) -> emqx_types:stats()).
 stats(WsPid) when is_pid(WsPid) ->

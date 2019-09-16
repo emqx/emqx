@@ -104,7 +104,7 @@ info(CPid) when is_pid(CPid) ->
 info(Conn = #connection{chan_state = ChanState}) ->
     ConnInfo = info(?INFO_KEYS, Conn),
     ChanInfo = emqx_channel:info(ChanState),
-    maps:merge(ChanInfo, #{connection => maps:from_list(ConnInfo)}).
+    maps:merge(ChanInfo, #{conninfo => maps:from_list(ConnInfo)}).
 
 info(Keys, Conn) when is_list(Keys) ->
     [{Key, info(Key, Conn)} || Key <- Keys];

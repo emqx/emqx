@@ -27,6 +27,7 @@
         , t_header/1
         , t_format/1
         , t_expired/1
+        , t_to_packet/1
         , t_to_map/1
         ]).
 
@@ -90,6 +91,18 @@ t_expired(_) ->
     timer:sleep(1000),
     Msg2 = emqx_message:update_expiry(Msg1),
     ?assertEqual(1, emqx_message:get_header('Message-Expiry-Interval', Msg2)).
+
+t_to_packet(_) ->
+    Pkt = #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
+                                                    qos    = ?QOS_0,
+                                                    retain = false,
+                                                    dup    = false},
+                       variable = #mqtt_packet_publish{topic_name = <<"topic">>,
+                                                       packet_id  = 10,
+                                                       properties = #{}},
+                       payload = <<"payload">>},
+    Msg = emqx_message:make(<<"clientid">>, ?QOS_0, <<"topic">>, <<"payload">>),
+    ?assertEqual(Pkt, emqx_message:to_packet(10, Msg)).
 
 t_to_map(_) ->
     Msg = emqx_message:make(<<"clientid">>, ?QOS_1, <<"topic">>, <<"payload">>),
