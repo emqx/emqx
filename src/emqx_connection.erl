@@ -135,7 +135,7 @@ attrs(CPid) when is_pid(CPid) ->
 attrs(Conn = #connection{chan_state = ChanState}) ->
     ConnAttrs = info(?ATTR_KEYS, Conn),
     ChanAttrs = emqx_channel:attrs(ChanState),
-    maps:merge(ChanAttrs, #{connection => maps:from_list(ConnAttrs)}).
+    maps:merge(ChanAttrs, #{conninfo => maps:from_list(ConnAttrs)}).
 
 %% @doc Get stats of the channel.
 -spec(stats(pid()|connection()) -> emqx_types:stats()).

@@ -76,7 +76,7 @@ info(WsPid) when is_pid(WsPid) ->
 info(WsConn = #ws_connection{chan_state = ChanState}) ->
     ConnInfo = info(?INFO_KEYS, WsConn),
     ChanInfo = emqx_channel:info(ChanState),
-    maps:merge(ChanInfo, #{connection => maps:from_list(ConnInfo)}).
+    maps:merge(ChanInfo, #{conninfo => maps:from_list(ConnInfo)}).
 
 info(Keys, WsConn) when is_list(Keys) ->
     [{Key, info(Key, WsConn)} || Key <- Keys];
