@@ -338,9 +338,10 @@ handle_timeout(TRef, Msg, State = #ws_connection{chan_state = ChanState}) ->
 process_incoming(<<>>, State) ->
     {ok, State};
 
-process_incoming(Data, State = #ws_connection{parse_state = ParseState, chan_state = ChanState}) ->
+process_incoming(Data, State = #ws_connection{parse_state = ParseState,
+                                              chan_state  = ChanState}) ->
     try emqx_frame:parse(Data, ParseState) of
-        {ok, NParseState} ->
+        {more, NParseState} ->
             {ok, State#ws_connection{parse_state = NParseState}};
         {ok, Packet, Rest, NParseState} ->
             self() ! {incoming, Packet},

@@ -408,9 +408,10 @@ process_incoming(Data, State) ->
 process_incoming(<<>>, Packets, State) ->
     {keep_state, State, next_incoming_events(Packets)};
 
-process_incoming(Data, Packets, State = #connection{parse_state = ParseState, chan_state = ChanState}) ->
+process_incoming(Data, Packets, State = #connection{parse_state = ParseState,
+                                                    chan_state  = ChanState}) ->
     try emqx_frame:parse(Data, ParseState) of
-        {ok, NParseState} ->
+        {more, NParseState} ->
             NState = State#connection{parse_state = NParseState},
             {keep_state, NState, next_incoming_events(Packets)};
         {ok, Packet, Rest, NParseState} ->
