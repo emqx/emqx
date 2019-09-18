@@ -28,7 +28,7 @@
         , info/1
         ]).
 
--export_type([oom_policy/0]).
+-export_type([opts/0, oom_policy/0]).
 
 -type(opts() :: #{message_queue_len => non_neg_integer(),
                   max_heap_size => non_neg_integer()
