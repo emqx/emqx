@@ -108,9 +108,9 @@ match_who(#{client_id := ClientId}, {client, ClientId}) ->
     true;
 match_who(#{username := Username}, {user, Username}) ->
     true;
-match_who(#{peername := undefined}, {ipaddr, _Tup}) ->
+match_who(#{peerhost := undefined}, {ipaddr, _Tup}) ->
     false;
-match_who(#{peername := {IP, _}}, {ipaddr, CIDR}) ->
+match_who(#{peerhost := IP}, {ipaddr, CIDR}) ->
     esockd_cidr:match(IP, CIDR);
 match_who(Client, {'and', Conds}) when is_list(Conds) ->
     lists:foldl(fun(Who, Allow) ->
