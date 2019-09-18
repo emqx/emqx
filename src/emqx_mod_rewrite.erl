@@ -47,10 +47,10 @@ load(RawRules) ->
     emqx_hooks:add('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [Rules]}),
     emqx_hooks:add('message.publish',    {?MODULE, rewrite_publish, [Rules]}).
 
-rewrite_subscribe(_Client, _Properties, TopicFilters, Rules) ->
+rewrite_subscribe(_ClientInfo, _Properties, TopicFilters, Rules) ->
     {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
 
-rewrite_unsubscribe(_Client, _Properties, TopicFilters, Rules) ->
+rewrite_unsubscribe(_ClientInfo, _Properties, TopicFilters, Rules) ->
     {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
 
 rewrite_publish(Message = #message{topic = Topic}, Rules) ->
@@ -91,3 +91,4 @@ compile(Rules) ->
                   {ok, MP} = re:compile(Re),
                   {rewrite, Topic, MP, Dest}
               end, Rules).
+
