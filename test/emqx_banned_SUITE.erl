@@ -51,32 +51,32 @@ t_check(_) ->
     ok = emqx_banned:add(#banned{who = {username, <<"BannedUser">>}}),
     ok = emqx_banned:add(#banned{who = {ipaddr, {192,168,0,1}}}),
     ?assertEqual(3, emqx_banned:info(size)),
-    Client1 = #{client_id => <<"BannedClient">>,
-                username => <<"user">>,
-                peername => {{127,0,0,1}, 5000}
-               },
-    Client2 = #{client_id => <<"client">>,
-                username => <<"BannedUser">>,
-                peername => {{127,0,0,1}, 5000}
-               },
-    Client3 = #{client_id => <<"client">>,
-                username => <<"user">>,
-                peername => {{192,168,0,1}, 5000}
-               },
-    Client4 = #{client_id => <<"client">>,
-                username => <<"user">>,
-                peername => {{127,0,0,1}, 5000}
-               },
-    ?assert(emqx_banned:check(Client1)),
-    ?assert(emqx_banned:check(Client2)),
-    ?assert(emqx_banned:check(Client3)),
-    ?assertNot(emqx_banned:check(Client4)),
+    ClientInfo1 = #{client_id => <<"BannedClient">>,
+                    username => <<"user">>,
+                    peerhost => {127,0,0,1}
+                   },
+    ClientInfo2 = #{client_id => <<"client">>,
+                    username => <<"BannedUser">>,
+                    peerhost => {127,0,0,1}
+                   },
+    ClientInfo3 = #{client_id => <<"client">>,
+                    username => <<"user">>,
+                    peerhost => {192,168,0,1}
+                   },
+    ClientInfo4 = #{client_id => <<"client">>,
+                    username => <<"user">>,
+                    peerhost => {127,0,0,1}
+                   },
+    ?assert(emqx_banned:check(ClientInfo1)),
+    ?assert(emqx_banned:check(ClientInfo2)),
+    ?assert(emqx_banned:check(ClientInfo3)),
+    ?assertNot(emqx_banned:check(ClientInfo4)),
     ok = emqx_banned:delete({client_id, <<"BannedClient">>}),
     ok = emqx_banned:delete({username, <<"BannedUser">>}),
     ok = emqx_banned:delete({ipaddr, {192,168,0,1}}),
-    ?assertNot(emqx_banned:check(Client1)),
-    ?assertNot(emqx_banned:check(Client2)),
-    ?assertNot(emqx_banned:check(Client3)),
-    ?assertNot(emqx_banned:check(Client4)),
+    ?assertNot(emqx_banned:check(ClientInfo1)),
+    ?assertNot(emqx_banned:check(ClientInfo2)),
+    ?assertNot(emqx_banned:check(ClientInfo3)),
+    ?assertNot(emqx_banned:check(ClientInfo4)),
     ?assertEqual(0, emqx_banned:info(size)).
 

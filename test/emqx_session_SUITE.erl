@@ -273,7 +273,7 @@ max_inflight() -> choose(0, 10).
 expiry_interval() -> ?LET(EI, choose(1, 10), EI * 3600).
 
 option() ->
-    ?LET(Option, [{max_inflight, max_inflight()},
+    ?LET(Option, [{receive_maximum , max_inflight()},
                   {expiry_interval, expiry_interval()}],
          maps:from_list(Option)).
 

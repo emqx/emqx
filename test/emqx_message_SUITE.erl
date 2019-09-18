@@ -19,21 +19,9 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
-
--export([ t_make/1
-        , t_flag/1
-        , t_header/1
-        , t_format/1
-        , t_expired/1
-        , t_to_packet/1
-        , t_to_map/1
-        ]).
-
--export([ all/0
-        , suite/0
-        ]).
 
 all() -> emqx_ct:all(?MODULE).
 
@@ -55,7 +43,12 @@ t_make(_) ->
     ?assertEqual(<<"topic">>, emqx_message:topic(Msg2)),
     ?assertEqual(<<"payload">>, emqx_message:payload(Msg2)).
 
-t_flag(_) ->
+t_get_set_flags(_) ->
+    Msg = #message{id = <<"id">>, qos = ?QOS_1, flags = undefined},
+    Msg1 = emqx_message:set_flags(#{retain => true}, Msg),
+    ?assertEqual(#{retain => true}, emqx_message:get_flags(Msg1)).
+
+t_get_set_flag(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
     Msg2 = emqx_message:set_flag(retain, false, Msg),
     Msg3 = emqx_message:set_flag(dup, Msg2),
@@ -67,19 +60,33 @@ t_flag(_) ->
     ?assertEqual(undefined, emqx_message:get_flag(retain, Msg5, undefined)),
     Msg6 = emqx_message:set_flags(#{dup => true, retain => true}, Msg5),
     ?assert(emqx_message:get_flag(dup, Msg6)),
-    ?assert(emqx_message:get_flag(retain, Msg6)).
+    ?assert(emqx_message:get_flag(retain, Msg6)),
+    Msg7 = #message{id = <<"id">>, qos = ?QOS_1, flags = undefined},
+    Msg8 = emqx_message:set_flag(retain, Msg7),
+    Msg9 = emqx_message:set_flag(retain, true, Msg7),
+    ?assertEqual(#{retain => true}, emqx_message:get_flags(Msg8)),
+    ?assertEqual(#{retain => true}, emqx_message:get_flags(Msg9)).
 
-t_header(_) ->
+t_get_set_headers(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
     Msg1 = emqx_message:set_headers(#{a => 1, b => 2}, Msg),
-    Msg2 = emqx_message:set_header(c, 3, Msg1),
-    ?assertEqual(1, emqx_message:get_header(a, Msg2)),
+    Msg2 = emqx_message:set_headers(#{c => 3}, Msg1),
+    ?assertEqual(#{a => 1, b => 2, c => 3}, emqx_message:get_headers(Msg2)).
+
+t_get_set_header(_) ->
+    Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
+    Msg1 = emqx_message:set_header(a, 1, Msg),
+    Msg2 = emqx_message:set_header(b, 2, Msg1),
+    Msg3 = emqx_message:set_header(c, 3, Msg2),
+    ?assertEqual(1, emqx_message:get_header(a, Msg3)),
     ?assertEqual(4, emqx_message:get_header(d, Msg2, 4)),
-    Msg3 = emqx_message:remove_header(a, Msg2),
-    ?assertEqual(#{b => 2, c => 3}, emqx_message:get_headers(Msg3)).
+    Msg4 = emqx_message:remove_header(a, Msg3),
+    Msg4 = emqx_message:remove_header(a, Msg3),
+    ?assertEqual(#{b => 2, c => 3}, emqx_message:get_headers(Msg4)).
 
 t_format(_) ->
-    io:format("~s", [emqx_message:format(emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>))]).
+    Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
+    io:format("~s", [emqx_message:format(Msg)]).
 
 t_expired(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
