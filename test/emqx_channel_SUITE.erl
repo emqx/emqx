@@ -144,7 +144,7 @@ t_handle_pingreq(_) ->
 t_handle_disconnect(_) ->
     with_channel(
       fun(Channel) ->
-              {stop, {shutdown, normal}, Channel1} = handle_in(?DISCONNECT_PACKET(?RC_SUCCESS), Channel),
+              {wait_session_expire, {shutdown, normal}, Channel1} = handle_in(?DISCONNECT_PACKET(?RC_SUCCESS), Channel),
               ?assertMatch(#{will_msg := undefined}, emqx_channel:info(protocol, Channel1))
       end).
 
