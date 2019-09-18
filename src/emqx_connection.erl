@@ -102,9 +102,9 @@ start_link(Transport, Socket, Options) ->
 info(CPid) when is_pid(CPid) ->
     call(CPid, info);
 info(Conn = #connection{chan_state = ChanState}) ->
-    ConnInfo = info(?INFO_KEYS, Conn),
     ChanInfo = emqx_channel:info(ChanState),
-    maps:merge(ChanInfo, #{conninfo => maps:from_list(ConnInfo)}).
+    SockInfo = maps:from_list(info(?INFO_KEYS, Conn)),
+    maps:merge(ChanInfo, #{sockinfo => SockInfo}).
 
 info(Keys, Conn) when is_list(Keys) ->
     [{Key, info(Key, Conn)} || Key <- Keys];
@@ -133,9 +133,9 @@ limit_info(Limit) ->
 attrs(CPid) when is_pid(CPid) ->
     call(CPid, attrs);
 attrs(Conn = #connection{chan_state = ChanState}) ->
-    ConnAttrs = info(?ATTR_KEYS, Conn),
     ChanAttrs = emqx_channel:attrs(ChanState),
-    maps:merge(ChanAttrs, #{connection => maps:from_list(ConnAttrs)}).
+    SockAttrs = maps:from_list(info(?ATTR_KEYS, Conn)),
+    maps:merge(ChanAttrs, #{sockinfo => SockAttrs}).
 
 %% @doc Get stats of the channel.
 -spec(stats(pid()|connection()) -> emqx_types:stats()).
@@ -219,7 +219,7 @@ idle(timeout, _Timeout, State) ->
 
 idle(cast, {incoming, Packet = ?CONNECT_PACKET(ConnPkt)}, State) ->
     #mqtt_packet_connect{proto_ver = ProtoVer, properties = Properties} = ConnPkt,
-    MaxPacketSize = emqx_mqtt_props:get_property('Maximum-Packet-Size', Properties, undefined),
+    MaxPacketSize = emqx_mqtt_props:get('Maximum-Packet-Size', Properties, undefined),
     NState = State#connection{serialize = serialize_fun(ProtoVer, MaxPacketSize)},
     SuccFun = fun(NewSt) -> {next_state, connected, NewSt} end,
     handle_incoming(Packet, SuccFun, NState);
@@ -422,7 +422,7 @@ process_incoming(Data, Packets, State = #connection{parse_state = ParseState,
     catch
         error:Reason:Stk ->
             ?LOG(error, "Parse failed for ~p~nStacktrace:~p~nError data:~p", [Reason, Stk, Data]),
-            Result = 
+            Result =
                 case emqx_channel:info(connected, ChanState) of
                     undefined ->
                         emqx_channel:handle_out({connack, emqx_reason_codes:mqtt_frame_error(Reason)}, ChanState);
@@ -508,7 +508,7 @@ serialize_fun(ProtoVer, MaxPacketSize) ->
             false ->
                 ?LOG(warning, "DROP ~s due to oversize packet size", [emqx_packet:format(Packet)]),
                 <<"">>
-        end        
+        end
     end.
 
 %%--------------------------------------------------------------------
@@ -530,7 +530,7 @@ send(IoData, SuccFun, State = #connection{transport  = Transport,
 %% Handle timeout
 
 handle_timeout(TRef, Msg, State = #connection{chan_state = ChanState}) ->
-    case emqx_channel:timeout(TRef, Msg, ChanState) of
+    case emqx_channel:handle_timeout(TRef, Msg, ChanState) of
         {ok, NChanState} ->
             keep_state(State#connection{chan_state = NChanState});
         {ok, Packets, NChanState} ->
