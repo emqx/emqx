@@ -61,8 +61,6 @@
 %% Exports for unit tests
 -export([set_field/3]).
 
--export([update_expiry_interval/2]).
-
 -export([ subscribe/4
         , unsubscribe/3
         ]).
@@ -122,7 +120,6 @@
           enqueue_cnt :: non_neg_integer(),
           %% Created at
           created_at :: erlang:timestamp()
-
          }).
 
 -opaque(session() :: #session{}).
@@ -145,7 +142,7 @@
 
 %% @doc Init a session.
 -spec(init(emqx_types:client(), Options :: map()) -> session()).
-init(#{zone := Zone}, #{max_inflight    := MaxInflight,
+init(#{zone := Zone}, #{receive_maximum := MaxInflight,
                         expiry_interval := ExpiryInterval}) ->
     #session{max_subscriptions = get_env(Zone, max_subscriptions, 0),
              subscriptions     = #{},
@@ -225,9 +222,6 @@ set_field(Name, Val, Channel) ->
     Fields = record_info(fields, session),
     Pos = emqx_misc:index_of(Name, Fields),
     setelement(Pos+1, Channel, Val).
-
-update_expiry_interval(ExpiryInterval, Session) ->
-    Session#session{expiry_interval = ExpiryInterval}.
 
 -spec(takeover(session()) -> ok).
 takeover(#session{subscriptions = Subs}) ->
