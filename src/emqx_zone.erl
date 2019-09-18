@@ -28,17 +28,25 @@
 -export([start_link/0, stop/0]).
 
 -export([ use_username_as_clientid/1
+        , enable_stats/1
         , enable_acl/1
         , enable_banned/1
         , enable_flapping_detect/1
+        , ignore_loop_deliver/1
+        , server_keepalive/1
+        , max_inflight/1
+        , session_expiry_interval/1
+        , force_gc_policy/1
+        , force_shutdown_policy/1
         ]).
 
 -export([ get_env/2
         , get_env/3
         , set_env/3
         , unset_env/2
-        , force_reload/0
         ]).
+
+-export([force_reload/0]).
 
 %% gen_server callbacks
 -export([ init/1
@@ -72,6 +80,10 @@ start_link() ->
 use_username_as_clientid(Zone) ->
     get_env(Zone, use_username_as_clientid, false).
 
+-spec(enable_stats(zone()) -> boolean()).
+enable_stats(Zone) ->
+    get_env(Zone, enable_stats, true).
+
 -spec(enable_acl(zone()) -> boolean()).
 enable_acl(Zone) ->
     get_env(Zone, enable_acl, true).
@@ -83,6 +95,30 @@ enable_banned(Zone) ->
 -spec(enable_flapping_detect(zone()) -> boolean()).
 enable_flapping_detect(Zone) ->
     get_env(Zone, enable_flapping_detect, false).
+
+-spec(ignore_loop_deliver(zone()) -> boolean()).
+ignore_loop_deliver(Zone) ->
+    get_env(Zone, ignore_loop_deliver, false).
+
+-spec(server_keepalive(zone()) -> pos_integer()).
+server_keepalive(Zone) ->
+    get_env(Zone, server_keepalive).
+
+-spec(max_inflight(zone()) -> 0..65535).
+max_inflight(Zone) ->
+    get_env(Zone, max_inflight, 65535).
+
+-spec(session_expiry_interval(zone()) -> non_neg_integer()).
+session_expiry_interval(Zone) ->
+    get_env(Zone, session_expiry_interval, 0).
+
+-spec(force_gc_policy(zone()) -> maybe(emqx_gc:opts())).
+force_gc_policy(Zone) ->
+    get_env(Zone, force_gc_policy).
+
+-spec(force_shutdown_policy(zone()) -> maybe(emqx_oom:opts())).
+force_shutdown_policy(Zone) ->
+    get_env(Zone, force_shutdown_policy).
 
 -spec(get_env(maybe(zone()), atom()) -> maybe(term())).
 get_env(undefined, Key) -> emqx:get_env(Key);
