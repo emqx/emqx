@@ -32,6 +32,10 @@
         , on_client_disconnected/4
         ]).
 
+-ifdef(TEST).
+-export([ reason/1 ]).
+-endif.
+
 load(Env) ->
     emqx_hooks:add('client.connected',    {?MODULE, on_client_connected, [Env]}),
     emqx_hooks:add('client.disconnected', {?MODULE, on_client_disconnected, [Env]}).

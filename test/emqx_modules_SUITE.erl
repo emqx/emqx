@@ -69,6 +69,12 @@ t_mod_presence(_) ->
     ok = emqtt:disconnect(C1),
     ok = emqx_mod_presence:unload([{qos, ?QOS_1}]).
 
+t_mod_presence_reason(_) ->
+    ?assertEqual(normal, emqx_mod_presence:reason(normal)),
+    ?assertEqual(discarded, emqx_mod_presence:reason({shutdown, discarded})),
+    ?assertEqual(tcp_error, emqx_mod_presence:reason({tcp_error, einval})),
+    ?assertEqual(internal_error, emqx_mod_presence:reason(<<"unknown error">>)).
+
 recv_and_check_presence(ClientId, Presence) ->
     {ok, #{qos := ?QOS_1, topic := Topic, payload := Payload}} = receive_publish(100),
     ?assertMatch([<<"$SYS">>, <<"brokers">>, _Node, <<"clients">>, ClientId, Presence],
