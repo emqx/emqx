@@ -671,7 +671,9 @@ handle_info(disconnected, Channel = #channel{connected = false}) ->
     {ok, Channel};
 
 handle_info(disconnected, Channel = #channel{protocol = Protocol,
-                                             session  = Session}) ->
+                                             session  = Session,
+                                             client   = Client = #{zone := Zone}}) ->
+    emqx_zone:enable_flapping_detect(Zone) andalso emqx_flapping:detect(Client),
     Channel1 = ensure_disconnected(Channel),
     Channel2 = case timer:seconds(emqx_protocol:info(will_delay_interval, Protocol)) of
                    0 ->
