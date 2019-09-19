@@ -84,6 +84,13 @@ t_get_set_header(_) ->
     Msg4 = emqx_message:remove_header(a, Msg3),
     ?assertEqual(#{b => 2, c => 3}, emqx_message:get_headers(Msg4)).
 
+t_undefined_headers(_) ->
+    Msg = #message{id = <<"id">>, qos = ?QOS_0, headers = undefined},
+    Msg1 = emqx_message:set_headers(#{a => 1, b => 2}, Msg),
+    ?assertEqual(1, emqx_message:get_header(a, Msg1)),
+    Msg2 = emqx_message:set_header(c, 3, Msg),
+    ?assertEqual(3, emqx_message:get_header(c, Msg2)).
+
 t_format(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
     io:format("~s", [emqx_message:format(Msg)]).
