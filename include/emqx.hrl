@@ -64,7 +64,7 @@
           %% Message flags
           flags :: #{atom() => boolean()},
           %% Message headers, or MQTT 5.0 Properties
-          headers = #{},
+          headers :: map(),
           %% Topic that the message is published to
           topic :: binary(),
           %% Message Payload
