@@ -141,11 +141,11 @@ handle_cast({detected, Flapping = #flapping{client_id  = ClientId,
             %% Log first
             ?LOG(error, "Flapping detected: ~s(~s) disconnected ~w times in ~wms",
                  [ClientId, esockd_net:format(Peername), DetectCnt, Duration]),
-            %% TODO: Send Alarm
             %% Banned.
             BannedFlapping = Flapping#flapping{client_id = {banned, ClientId},
                                                banned_at = emqx_time:now_ms()
                                               },
+            alarm_handler:set_alarm({{flapping_detected, ClientId}, BannedFlapping}),
             ets:insert(?FLAPPING_TAB, BannedFlapping);
         false ->
             ?LOG(warning, "~s(~s) disconnected ~w times in ~wms",
@@ -189,9 +189,17 @@ with_flapping_tab(Fun, Args) ->
     end.
 
 expire_flapping(NowTime, #{duration := Duration, banned_interval := Interval}) ->
-    ets:select_delete(?FLAPPING_TAB,
-                      [{#flapping{started_at = '$1', banned_at = undefined, _ = '_'},
-                        [{'<', '$1', NowTime-Duration}], [true]},
-                       {#flapping{client_id = {banned, '_'}, banned_at = '$1', _ = '_'},
-                        [{'<', '$1', NowTime-Interval}], [true]}]).
+    case ets:select(?FLAPPING_TAB,
+                    [{#flapping{started_at = '$1', banned_at = undefined, _ = '_'},
+                      [{'<', '$1', NowTime-Duration}], ['$_']},
+                     {#flapping{client_id = {banned, '_'}, banned_at = '$1', _ = '_'},
+                      [{'<', '$1', NowTime-Interval}], ['$_']}]) of
+        [] -> ok;
+        Flappings ->
+            lists:foreach(fun(Flapping = #flapping{client_id = {banned, ClientId}}) ->
+                              ets:delete_object(?FLAPPING_TAB, Flapping),
+                              alarm_handler:clear_alarm({flapping_detected, ClientId});
+                             (_) -> ok
+                            end, Flappings)
+    end.
 
