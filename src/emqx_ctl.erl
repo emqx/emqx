@@ -61,8 +61,9 @@
 -record(state, {seq = 0}).
 
 -type(cmd() :: atom()).
+-type(cmd_params() :: string()).
 -type(cmd_descr() :: string()).
--type(cmd_usage() :: {cmd(), cmd_descr()}).
+-type(cmd_usage() :: {cmd_params(), cmd_descr()}).
 
 -define(SERVER, ?MODULE).
 -define(CMD_TAB, emqx_command).
@@ -140,9 +141,9 @@ print(Format, Args) ->
 usage(UsageList) ->
     io:format(format_usage(UsageList)).
 
--spec(usage(cmd(), cmd_descr()) -> ok).
-usage(Cmd, Desc) ->
-    io:format(format_usage(Cmd, Desc)).
+-spec(usage(cmd_params(), cmd_descr()) -> ok).
+usage(CmdParams, Desc) ->
+    io:format(format_usage(CmdParams, Desc)).
 
 -spec(format(io:format()) -> string()).
 format(Msg) ->
@@ -155,13 +156,13 @@ format(Format, Args) ->
 -spec(format_usage([cmd_usage()]) -> ok).
 format_usage(UsageList) ->
     lists:map(
-        fun({Cmd, Desc}) ->
-            format_usage(Cmd, Desc)
+        fun({CmdParams, Desc}) ->
+            format_usage(CmdParams, Desc)
         end, UsageList).
 
--spec(format_usage(cmd(), cmd_descr()) -> string()).
-format_usage(Cmd, Desc) ->
-    CmdLines = split_cmd(Cmd),
+-spec(format_usage(cmd_params(), cmd_descr()) -> string()).
+format_usage(CmdParams, Desc) ->
+    CmdLines = split_cmd(CmdParams),
     DescLines = split_cmd(Desc),
     lists:foldl(fun({CmdStr, DescStr}, Usage) ->
                         Usage ++ format("~-48s# ~s~n", [CmdStr, DescStr])
