@@ -49,7 +49,7 @@ t_detect_check(_) ->
     false = emqx_flapping:detect(ClientInfo),
     false = emqx_flapping:check(ClientInfo),
     true = emqx_flapping:detect(ClientInfo),
-    timer:sleep(50),
+    timer:sleep(100),
     true = emqx_flapping:check(ClientInfo),
     timer:sleep(300),
     false = emqx_flapping:check(ClientInfo),
