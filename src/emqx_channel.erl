@@ -334,30 +334,26 @@ handle_in(Packet = ?UNSUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
 handle_in(?PACKET(?PINGREQ), Channel) ->
     {ok, ?PACKET(?PINGRESP), Channel};
 
-handle_in(?DISCONNECT_PACKET(RC, Props),
-          Channel = #channel{conninfo = ConnInfo = #{expiry_interval := OldInterval}}) ->
+handle_in(?DISCONNECT_PACKET(ReasonCode, Properties), Channel = #channel{session = Session,
+                                                                         conninfo = ConnInfo = #{expiry_interval := OldInterval}}) ->
+    OldInterval = emqx_session:info(expiry_interval, Session),
     Interval = emqx_mqtt_props:get('Session-Expiry-Interval', Props, OldInterval),
     case OldInterval =:= 0 andalso Interval =/= OldInterval of
         true ->
             handle_out({disconnect, ?RC_PROTOCOL_ERROR}, Channel);
         false ->
-            Channel1 = case RC of
-                           ?RC_SUCCESS -> Channel#channel{will_msg = undefined};
-                           _ -> Channel
-                       end,
-            Channel2 = Channel1#channel{conninfo = ConnInfo#{expiry_interval => Interval}},
-            case Interval of
-                ?UINT_MAX ->
-                    {ok, ensure_timer(will_timer, Channel2)};
-                Int when Int > 0 ->
-                    {ok, ensure_timer([will_timer, expire_timer], Channel2)};
-                _Other ->
-                    Reason = case RC of
-                                 ?RC_SUCCESS -> normal;
-                                 _ -> emqx_reason_codes:name(RC, maps:get(proto_ver, ConnInfo))
-                             end,
-                    {stop, {shutdown, Reason}, Channel2}
-            end
+            Reason = case ReasonCode of
+                         ?RC_SUCCESS -> normal;
+                         _ ->
+                             ProtoVer = emqx_protocol:info(proto_ver, Protocol),
+                             emqx_reason_codes:name(ReasonCode, ProtoVer)
+                     end,
+            {wait_session_expire, {shutdown, Reason},
+             Channel#channel{session = emqx_session:update_expiry_interval(Interval, Session),
+                             protocol = case ReasonCode of
+                                            ?RC_SUCCESS -> emqx_protocol:clear_will_msg(Protocol);
+                                            _ -> Protocol
+                                        end}}
     end;
 
 handle_in(?AUTH_PACKET(), Channel) ->
@@ -366,7 +362,7 @@ handle_in(?AUTH_PACKET(), Channel) ->
 
 handle_in(Packet, Channel) ->
     ?LOG(error, "Unexpected incoming: ~p", [Packet]),
-    {stop, {shutdown, unexpected_incoming_packet}, Channel}.
+    handle_out({disconnect, ?RC_MALFORMED_PACKET}, Channel).
 
 %%--------------------------------------------------------------------
 %% Process Connect
@@ -562,9 +558,6 @@ handle_out({deliver, Delivers}, Channel = #channel{session = Session}) ->
             {ok, Channel#channel{session = NSession}}
     end;
 
-handle_out({publish, [Publish]}, Channel) ->
-    handle_out(Publish, Channel);
-
 handle_out({publish, Publishes}, Channel) when is_list(Publishes) ->
     Packets = lists:foldl(
                 fun(Publish, Acc) ->
@@ -621,10 +614,10 @@ handle_out({disconnect, ReasonCode}, Channel = #channel{conninfo = ConnInfo}) ->
         ?MQTT_PROTO_V5 ->
             Reason = emqx_reason_codes:name(ReasonCode),
             Packet = ?DISCONNECT_PACKET(ReasonCode),
-            {stop, {shutdown, Reason}, Packet, Channel};
+            {wait_session_expire, {shutdown, Reason}, Packet, Channel};
         ProtoVer ->
             Reason = emqx_reason_codes:name(ReasonCode, ProtoVer),
-            {stop, {shutdown, Reason}, Channel}
+            {wait_session_expire, {shutdown, Reason}, Channel}
     end;
 
 handle_out({Type, Data}, Channel) ->
@@ -696,17 +689,29 @@ handle_info({unsubscribe, TopicFilters}, Channel = #channel{client = ClientInfo}
 handle_info(disconnected, Channel = #channel{connected = undefined}) ->
     shutdown(closed, Channel);
 
-handle_info(disconnected, Channel = #channel{conninfo = #{expiry_interval := Interval},
+handle_info(disconnected, Channel = #channel{connected = false}) ->
+    {ok, Channel};
+
+handle_info(disconnected, Channel = #channel{conninfo = #{expiry_interval := ExpiryInterval},
+                                             client   = ClientInfo = #{zone := Zone},
+                                             session  = Session,
                                              will_msg = WillMsg}) ->
-    %% TODO: Why handle will_msg here?
-    publish_will_msg(WillMsg),
-    NChannel = Channel#channel{will_msg = undefined},
-    case Interval of
+    emqx_zone:enable_flapping_detect(Zone) andalso emqx_flapping:detect(ClientInfo),
+    Channel1 = ensure_disconnected(Channel),
+    Channel2 = case timer:seconds(will_delay_interval(WillMsg)) of
+                   0 ->
+                       publish_will_msg(WillMsg),
+                       Channel1#channel{will_msg = undefined};
+                   _ ->
+                       ensure_timer(will_timer, Channel1)
+               end,
+    case ExpiryInterval of
         ?UINT_MAX ->
-            {ok, ensure_disconnected(NChannel)};
+            {ok, Channel2};
         Int when Int > 0 ->
-            {ok, ensure_timer(expire_timer, ensure_disconnected(NChannel))};
-        _Other -> shutdown(closed, NChannel)
+            {ok, ensure_timer(expire_timer, Channel2)};
+        _Other ->
+            shutdown(closed, Channel2)
     end;
 
 handle_info(Info, Channel) ->
@@ -735,7 +740,7 @@ handle_timeout(TRef, {keepalive, StatVal},
             NChannel = Channel#channel{keepalive = NKeepalive},
             {ok, reset_timer(alive_timer, NChannel)};
         {error, timeout} ->
-            {stop, {shutdown, keepalive_timeout}, Channel}
+            {wait_session_expire, {shutdown, keepalive_timeout}, Channel}
     end;
 
 handle_timeout(TRef, retry_delivery,
@@ -818,7 +823,11 @@ interval(expire_timer, #channel{conninfo = ConnInfo}) ->
     timer:seconds(maps:get(expiry_interval, ConnInfo));
 interval(will_timer, #channel{will_msg = WillMsg}) ->
     %% TODO: Ensure the header exists.
-    timer:seconds(emqx_message:get_header('Will-Delay-Interval', WillMsg)).
+    timer:seconds(will_delay_interval(WillMsg)).
+
+will_delay_interval(undefined) -> 0;
+will_delay_interval(WillMsg) ->
+    emqx_message:get_header('Will-Delay-Interval', WillMsg, 0).
 
 %%--------------------------------------------------------------------
 %% Terminate
@@ -826,9 +835,16 @@ interval(will_timer, #channel{will_msg = WillMsg}) ->
 
 terminate(normal, #channel{conninfo = ConnInfo, client = ClientInfo}) ->
     ok = emqx_hooks:run('client.disconnected', [ClientInfo, normal, ConnInfo]);
+terminate({shutdown, Reason}, #channel{conninfo = ConnInfo, client = ClientInfo,})
+    when Reason =:= kicked orelse Reason =:= discarded orelse Reason =:= takeovered ->
+    ok = emqx_hooks:run('client.disconnected', [ClientInfo, Reason, ConnInfo]);
 terminate(Reason, #channel{conninfo = ConnInfo, client = ClientInfo, will_msg = WillMsg}) ->
     publish_will_msg(WillMsg),
     ok = emqx_hooks:run('client.disconnected', [ClientInfo, Reason, ConnInfo]).
+    if
+        Protocol == undefined -> ok;
+        true -> publish_will_msg(emqx_protocol:info(will_msg, Protocol))
+    end.
 
 -spec(received(pos_integer(), channel()) -> channel()).
 received(Oct, Channel) ->

@@ -22,22 +22,24 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    prepare_env(),
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([], fun set_special_configs/1),
     Config.
 
-prepare_env() ->
+set_special_configs(emqx) ->
     emqx_zone:set_env(external, enable_flapping_detect, true),
     application:set_env(emqx, flapping_detect_policy,
                         #{threshold => 3,
                           duration => 100,
                           banned_interval => 200
-                         }).
+                         });
+set_special_configs(_App) -> ok.
 
 end_per_suite(_Config) ->
+    emqx_ct_helpers:stop_apps([]),
     ok.
 
 t_detect_check(_) ->
-    {ok, _Pid} = emqx_flapping:start_link(),
     ClientInfo = #{zone => external,
                    client_id => <<"clientid">>,
                    peerhost => {127,0,0,1}

@@ -50,6 +50,7 @@ t_emqx_pubsub_api(_) ->
     Payload = <<"Hello World">>,
     Topic1 = <<"mytopic1">>,
     emqx:subscribe(Topic, ClientId),
+    ct:sleep(100),
     ?assertEqual([Topic], emqx:topics()),
     ?assertEqual([self()], emqx:subscribers(Topic)),
     ?assertEqual([{Topic,#{qos => 0,subid => ClientId}}], emqx:subscriptions(self())),
