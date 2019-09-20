@@ -83,7 +83,7 @@ pipeline([Fun|More], Input, State) ->
             {error, Reason, NState}
     catch
         Error:Reason:Stacktrace ->
-            ?LOG(error, "pipeline ~p failed: ~p, stacktrace: ~p",
+            ?LOG(error, "pipeline ~p failed: ~p,\nstacktrace: ~0p",
                 [{Fun, Input, State}, {Error, Reason}, Stacktrace]),
             {error, Reason, State}
     end.
