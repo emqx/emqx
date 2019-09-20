@@ -239,7 +239,7 @@ discard_session(ClientId) when is_binary(ClientId) ->
 
 discard_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chan_attrs(ClientId, ChanPid) of
-        #{client := #{conn_mod := ConnMod}} ->
+        #{conninfo := #{conn_mod := ConnMod}} ->
             ConnMod:call(ChanPid, discard);
         undefined -> ok
     end;
