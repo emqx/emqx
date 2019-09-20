@@ -24,6 +24,30 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+t_new(_) ->
+    with_metrics_server(
+      fun() ->
+          ok = emqx_metrics:new('metrics.test'),
+          0 = emqx_metrics:val('metrics.test'),
+          ok = emqx_metrics:inc('metrics.test'),
+          1 = emqx_metrics:val('metrics.test'),
+          ok = emqx_metrics:new(counter, 'metrics.test.cnt'),
+          0 = emqx_metrics:val('metrics.test.cnt'),
+          ok = emqx_metrics:inc('metrics.test.cnt'),
+          1 = emqx_metrics:val('metrics.test.cnt'),
+          ok = emqx_metrics:new(gauge, 'metrics.test.total'),
+          0 = emqx_metrics:val('metrics.test.total'),
+          ok = emqx_metrics:inc('metrics.test.total'),
+          1 = emqx_metrics:val('metrics.test.total')
+      end).
+
+t_all(_) ->
+    with_metrics_server(
+      fun() ->
+          Metrics = emqx_metrics:all(),
+          ?assert(length(Metrics) > 50)
+      end).
+
 t_inc_dec(_) ->
     with_metrics_server(
       fun() ->
