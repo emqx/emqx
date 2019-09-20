@@ -64,20 +64,33 @@ t_run_commands(_) ->
       end).
 
 t_print(_) ->
-    emqx_ctl:print("help").
+    ok = emqx_ctl:print("help"),
+    ok = emqx_ctl:print("~s", [help]),
+    % - check the output of the usage
+    print_mock(),
+    ?assertEqual("help", emqx_ctl:print("help")),
+    ?assertEqual("help", emqx_ctl:print("~s", [help])).
 
 t_usage(_) ->
-    emqx_ctl:usage([{cmd1, "Cmd1 usage"}, {cmd2, "Cmd2 usage"}]),
-    emqx_ctl:usage(cmd1, "Cmd1 usage"),
-    emqx_ctl:usage(cmd2, "Cmd2 usage").
+    CmdParams1 = "emqx_cmd_1 param1 param2",
+    CmdDescr1 = "emqx_cmd_1 is a test command means nothing",
+    Output1 = "emqx_cmd_1 param1 param2                        # emqx_cmd_1 is a test command means nothing\n",
+    % - usage/1,2 should return ok
+    ok = emqx_ctl:usage([{CmdParams1, CmdDescr1}, {CmdParams1, CmdDescr1}]),
+    ok = emqx_ctl:usage(CmdParams1, CmdDescr1),
 
-t_format(_) ->
-    emqx_ctl:format("help"),
-    emqx_ctl:format("~s", [help]).
+    % - check the output of the usage
+    print_mock(),
+    ?assertEqual(Output1, emqx_ctl:usage(CmdParams1, CmdDescr1)),
+    ?assertEqual([Output1, Output1], emqx_ctl:usage([{CmdParams1, CmdDescr1}, {CmdParams1, CmdDescr1}])),
 
-t_format_usage(_) ->
-    emqx_ctl:format_usage(cmd1, "Cmd1 usage"),
-    emqx_ctl:format_usage([{cmd1, "Cmd1 usage"}, {cmd2, "Cmd2 usage"}]).
+    % - for the commands or descriptions have multi-lines
+    CmdParams2 = "emqx_cmd_2 param1 param2",
+    CmdDescr2 = "emqx_cmd_2 is a test command\nmeans nothing",
+    Output2 = "emqx_cmd_2 param1 param2                        # emqx_cmd_2 is a test command\n"
+            "                                                ""# means nothing\n",
+    ?assertEqual(Output2, emqx_ctl:usage(CmdParams2, CmdDescr2)),
+    ?assertEqual([Output2, Output2], emqx_ctl:usage([{CmdParams2, CmdDescr2}, {CmdParams2, CmdDescr2}])).
 
 t_unexpected(_) ->
     with_ctl_server(
@@ -103,3 +116,10 @@ with_ctl_server(Fun) ->
     _ = Fun(Pid),
     ok = emqx_ctl:stop().
 
+print_mock() ->
+    %% proxy usage/1,2 and print/1,2 to format_xx/1,2 funcs
+    meck:new(emqx_ctl, [non_strict, passthrough]),
+    meck:expect(emqx_ctl, print, fun(Arg) -> emqx_ctl:format(Arg) end),
+    meck:expect(emqx_ctl, print, fun(Msg, Arg) -> emqx_ctl:format(Msg, Arg) end),
+    meck:expect(emqx_ctl, usage, fun(Usages) -> emqx_ctl:format_usage(Usages) end),
+    meck:expect(emqx_ctl, usage, fun(CmdParams, CmdDescr) -> emqx_ctl:format_usage(CmdParams, CmdDescr) end).

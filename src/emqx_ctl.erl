@@ -147,7 +147,7 @@ usage(CmdParams, Desc) ->
 
 -spec(format(io:format()) -> string()).
 format(Msg) ->
-    lists:flatten(io_lib:format("~p", [Msg])).
+    lists:flatten(io_lib:format("~s", [Msg])).
 
 -spec(format(io:format(), [term()]) -> string()).
 format(Format, Args) ->
