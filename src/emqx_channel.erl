@@ -526,7 +526,7 @@ handle_out({connack, ?RC_SUCCESS, SP, ConnPkt},
                                         resuming = false,
                                         pendings = []},
             {ok, Packets, _} = handle_out({publish, Publishes}, Channel3),
-            {ok, [AckPacket|Packets], Channel2}
+            {ok, [AckPacket|Packets], Channel3}
     end;
 
 handle_out({connack, ReasonCode, _ConnPkt}, Channel = #channel{conninfo = ConnInfo,

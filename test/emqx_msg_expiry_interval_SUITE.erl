@@ -33,11 +33,13 @@ end_per_suite(_Config) ->
 
 t_message_expiry_interval_1(_) ->
 	ClientA = message_expiry_interval_init(),
-	[message_expiry_interval_exipred(ClientA, QoS) || QoS <- [0,1,2]].
+	[message_expiry_interval_exipred(ClientA, QoS) || QoS <- [0,1,2]],
+	emqtt:stop(ClientA).
 
 t_message_expiry_interval_2(_) ->
 	ClientA = message_expiry_interval_init(),
-	[message_expiry_interval_not_exipred(ClientA, QoS) || QoS <- [0,1,2]].
+	[message_expiry_interval_not_exipred(ClientA, QoS) || QoS <- [0,1,2]],
+	emqtt:stop(ClientA).
 
 message_expiry_interval_init() ->
 	{ok, ClientA} = emqtt:start_link([{proto_ver,v5}, {client_id, <<"client-a">>}, {clean_start, false},{properties, #{'Session-Expiry-Interval' => 360}}]),
