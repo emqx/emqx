@@ -22,6 +22,10 @@
 -include("emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
+%%--------------------------------------------------------------------
+%% CT callbacks
+%%--------------------------------------------------------------------
+
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
@@ -31,30 +35,55 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
 
+%%--------------------------------------------------------------------
+%% TODO: Add more test cases
+%%--------------------------------------------------------------------
+
 t_reg_unreg_channel(_) ->
-    error(not_implemented).
+    ok = emqx_cm:register_channel(<<"clientid">>),
+    ?assertEqual([self()], emqx_cm:lookup_channels(<<"clientid">>)),
+    ok = emqx_cm:unregister_channel(<<"clientid">>),
+    ?assertEqual([], emqx_cm:lookup_channels(<<"clientid">>)).
 
 t_get_set_chan_attrs(_) ->
-    error(not_implemented).
+    Attrs = #{proto_ver => 4, proto_name => <<"MQTT">>},
+    ok = emqx_cm:register_channel(<<"clientid">>),
+    ok = emqx_cm:set_chan_attrs(<<"clientid">>, Attrs),
+    ?assertEqual(Attrs, emqx_cm:get_chan_attrs(<<"clientid">>)),
+    ok = emqx_cm:unregister_channel(<<"clientid">>),
+    ?assertEqual(undefined, emqx_cm:get_chan_attrs(<<"clientid">>)).
 
 t_get_set_chan_stats(_) ->
-    error(not_implemented).
+    Stats = [{recv_oct, 10}, {send_oct, 8}],
+    ok = emqx_cm:register_channel(<<"clientid">>),
+    ok = emqx_cm:set_chan_stats(<<"clientid">>, Stats),
+    ?assertEqual(Stats, emqx_cm:get_chan_stats(<<"clientid">>)),
+    ok = emqx_cm:unregister_channel(<<"clientid">>),
+    ?assertEqual(undefined, emqx_cm:get_chan_stats(<<"clientid">>)).
 
 t_open_session(_) ->
-    error(not_implemented).
+    ClientInfo = #{zone => external,
+                   client_id => <<"clientid">>,
+                   username => <<"username">>,
+                   peerhost => {127,0,0,1}},
+    ConnInfo = #{peername => {{127,0,0,1}, 5000},
+                 receive_maximum => 100},
+    {ok, #{session := Session1, present := false}}
+        = emqx_cm:open_session(true, ClientInfo, ConnInfo),
+    ?assertEqual(100, emqx_session:info(max_inflight, Session1)),
+    {ok, #{session := Session2, present := false}}
+        = emqx_cm:open_session(false, ClientInfo, ConnInfo),
+    ?assertEqual(100, emqx_session:info(max_inflight, Session2)).
 
 t_discard_session(_) ->
-    error(not_implemented).
+    ok = emqx_cm:discard_session(<<"clientid">>).
 
 t_takeover_session(_) ->
-    error(not_implemented).
-
-t_lookup_channels(_) ->
-    error(not_implemented).
+    {error, not_found} = emqx_cm:takeover_session(<<"clientid">>).
 
 t_lock_clientid(_) ->
-    error(not_implemented).
-
-t_unlock_clientid(_) ->
-    error(not_implemented).
+    {true, _Nodes} = emqx_cm_locker:lock(<<"clientid">>),
+    {true, _Nodes} = emqx_cm_locker:lock(<<"clientid">>),
+    {true, _Nodes} = emqx_cm_locker:unlock(<<"clientid">>),
+    {true, _Nodes} = emqx_cm_locker:unlock(<<"clientid">>).
 

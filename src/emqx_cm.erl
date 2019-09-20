@@ -28,6 +28,7 @@
 -export([start_link/0]).
 
 -export([ register_channel/1
+        , unregister_channel/1
         ]).
 
 -export([ get_chan_attrs/1
@@ -104,6 +105,11 @@ register_channel(ClientId, ChanPid) ->
     true = ets:insert(?CHAN_TAB, Chan),
     ok = emqx_cm_registry:register_channel(Chan),
     cast({registered, Chan}).
+
+-spec(unregister_channel(emqx_types:client_id()) -> ok).
+unregister_channel(ClientId) when is_binary(ClientId) ->
+    true = do_unregister_channel({ClientId, self()}),
+    ok.
 
 %% @private
 do_unregister_channel(Chan) ->
@@ -336,3 +342,4 @@ update_stats({Tab, Stat, MaxStat}) ->
         undefined -> ok;
         Size -> emqx_stats:setstat(Stat, MaxStat, Size)
     end.
+
