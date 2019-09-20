@@ -56,6 +56,7 @@ t_get_set_flag(_) ->
     ?assertNot(emqx_message:get_flag(retain, Msg3)),
     Msg4 = emqx_message:unset_flag(dup, Msg3),
     Msg5 = emqx_message:unset_flag(retain, Msg4),
+    Msg5 = emqx_message:unset_flag(badflag, Msg5),
     ?assertEqual(undefined, emqx_message:get_flag(dup, Msg5, undefined)),
     ?assertEqual(undefined, emqx_message:get_flag(retain, Msg5, undefined)),
     Msg6 = emqx_message:set_flags(#{dup => true, retain => true}, Msg5),
@@ -81,7 +82,7 @@ t_get_set_header(_) ->
     ?assertEqual(1, emqx_message:get_header(a, Msg3)),
     ?assertEqual(4, emqx_message:get_header(d, Msg2, 4)),
     Msg4 = emqx_message:remove_header(a, Msg3),
-    Msg4 = emqx_message:remove_header(a, Msg3),
+    Msg4 = emqx_message:remove_header(a, Msg4),
     ?assertEqual(#{b => 2, c => 3}, emqx_message:get_headers(Msg4)).
 
 t_undefined_headers(_) ->
@@ -93,16 +94,24 @@ t_undefined_headers(_) ->
 
 t_format(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
-    io:format("~s", [emqx_message:format(Msg)]).
+    io:format("~s~n", [emqx_message:format(Msg)]),
+    Msg1 = #message{id = <<"id">>,
+                    qos = ?QOS_0,
+                    flags = undefined,
+                    headers = undefined
+                   },
+    io:format("~s~n", [emqx_message:format(Msg1)]).
 
 t_expired(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
+    ?assertNot(emqx_message:is_expired(Msg)),
     Msg1 = emqx_message:set_headers(#{'Message-Expiry-Interval' => 1}, Msg),
     timer:sleep(500),
     ?assertNot(emqx_message:is_expired(Msg1)),
     timer:sleep(600),
     ?assert(emqx_message:is_expired(Msg1)),
     timer:sleep(1000),
+    Msg = emqx_message:update_expiry(Msg),
     Msg2 = emqx_message:update_expiry(Msg1),
     ?assertEqual(1, emqx_message:get_header('Message-Expiry-Interval', Msg2)).
 

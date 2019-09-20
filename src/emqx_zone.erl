@@ -30,7 +30,7 @@
 -export([ use_username_as_clientid/1
         , enable_stats/1
         , enable_acl/1
-        , enable_banned/1
+        , enable_ban/1
         , enable_flapping_detect/1
         , ignore_loop_deliver/1
         , server_keepalive/1
@@ -88,9 +88,9 @@ enable_stats(Zone) ->
 enable_acl(Zone) ->
     get_env(Zone, enable_acl, true).
 
--spec(enable_banned(zone()) -> boolean()).
-enable_banned(Zone) ->
-    get_env(Zone, enable_banned, false).
+-spec(enable_ban(zone()) -> boolean()).
+enable_ban(Zone) ->
+    get_env(Zone, enable_ban, false).
 
 -spec(enable_flapping_detect(zone()) -> boolean()).
 enable_flapping_detect(Zone) ->

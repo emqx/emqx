@@ -30,7 +30,7 @@
 -boot_mnesia({mnesia, [boot]}).
 -copy_mnesia({mnesia, [copy]}).
 
--export([start_link/0]).
+-export([start_link/0, stop/0]).
 
 -export([ check/1
         , add/1
@@ -69,6 +69,10 @@ mnesia(copy) ->
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
+%% for tests
+-spec(stop() -> ok).
+stop() -> gen_server:stop(?MODULE).
+
 -spec(check(emqx_types:client()) -> boolean()).
 check(#{client_id := ClientId,
         username  := Username,
@@ -105,8 +109,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({timeout, TRef, expire}, State = #{expiry_timer := TRef}) ->
-    mnesia:async_dirty(fun expire_banned_items/1,
-                       [erlang:system_time(second)]),
+    mnesia:async_dirty(fun expire_banned_items/1, [erlang:system_time(second)]),
     {noreply, ensure_expiry_timer(State), hibernate};
 
 handle_info(Info, State) ->
@@ -125,7 +128,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 -ifdef(TEST).
 ensure_expiry_timer(State) ->
-    State#{expiry_timer := emqx_misc:start_timer(timer:seconds(1), expire)}.
+    State#{expiry_timer := emqx_misc:start_timer(10, expire)}.
 -else.
 ensure_expiry_timer(State) ->
     State#{expiry_timer := emqx_misc:start_timer(timer:minutes(1), expire)}.

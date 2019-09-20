@@ -27,6 +27,8 @@ all() -> emqx_ct:all(?MODULE).
 init_per_suite(Config) ->
     application:load(emqx),
     ok = ekka:start(),
+    %% for coverage
+    ok = emqx_banned:mnesia(copy),
     Config.
 
 end_per_suite(_Config) ->
@@ -79,4 +81,15 @@ t_check(_) ->
     ?assertNot(emqx_banned:check(ClientInfo3)),
     ?assertNot(emqx_banned:check(ClientInfo4)),
     ?assertEqual(0, emqx_banned:info(size)).
+
+t_unused(_) ->
+    {ok, Banned} = emqx_banned:start_link(),
+    ok = emqx_banned:add(#banned{who = {client_id, <<"BannedClient">>},
+                                 until = erlang:system_time(second)
+                                }),
+    ?assertEqual(ignored, gen_server:call(Banned, unexpected_req)),
+    ?assertEqual(ok, gen_server:cast(Banned, unexpected_msg)),
+    ?assertEqual(ok, Banned ! ok),
+    timer:sleep(500), %% expiry timer
+    ok = emqx_banned:stop().
 

@@ -103,9 +103,7 @@
                       atom()   => term()
                      }).
 -type(client() :: #{zone         := zone(),
-                    conn_mod     := maybe(module()),
                     peerhost     := peerhost(),
-                    sockname     := peername(),
                     client_id    := client_id(),
                     username     := username(),
                     peercert     := esockd_peercert:peercert(),
