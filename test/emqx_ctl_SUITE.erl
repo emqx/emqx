@@ -25,30 +25,81 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:boot_modules([]),
-    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
+    ok.
 
-t_command(_) ->
-    emqx_ctl:start_link(),
-    emqx_ctl:register_command(test, {?MODULE, test}),
-    ct:sleep(50),
-    ?assertEqual([{emqx_ctl_SUITE,test}], emqx_ctl:lookup_command(test)),
-    ?assertEqual(ok, emqx_ctl:run_command(["test", "ok"])),
-    ?assertEqual({error, test_failed}, emqx_ctl:run_command(["test", "error"])),
-    ?assertEqual({error, cmd_not_found}, emqx_ctl:run_command(["test2", "ok"])),
-    emqx_ctl:unregister_command(test),
-    ct:sleep(50),
-    ?assertEqual([], emqx_ctl:lookup_command(test)).
+%%--------------------------------------------------------------------
+%% Test cases
+%%--------------------------------------------------------------------
 
-test(["ok"]) ->
-    ok;
-test(["error"]) ->
-    error(test_failed);
-test(_) ->
-    io:format("Hello world").
+t_reg_unreg_command(_) ->
+    with_ctl_server(
+      fun(_CtlSrv) ->
+            emqx_ctl:register_command(cmd1, {?MODULE, cmd1_fun}),
+            emqx_ctl:register_command(cmd2, {?MODULE, cmd2_fun}),
+            ?assertEqual([{?MODULE, cmd1_fun}], emqx_ctl:lookup_command(cmd1)),
+            ?assertEqual([{?MODULE, cmd2_fun}], emqx_ctl:lookup_command(cmd2)),
+            ?assertEqual([{cmd1, ?MODULE, cmd1_fun}, {cmd2, ?MODULE, cmd2_fun}],
+                         emqx_ctl:get_commands()),
+            emqx_ctl:unregister_command(cmd1),
+            emqx_ctl:unregister_command(cmd2),
+            ct:sleep(100),
+            ?assertEqual([], emqx_ctl:lookup_command(cmd1)),
+            ?assertEqual([], emqx_ctl:lookup_command(cmd2)),
+            ?assertEqual([], emqx_ctl:get_commands())
+      end).
 
+t_run_commands(_) ->
+    with_ctl_server(
+      fun(_CtlSrv) ->
+            ?assertEqual({error, cmd_not_found}, emqx_ctl:run_command(["cmd", "arg"])),
+            emqx_ctl:register_command(cmd1, {?MODULE, cmd1_fun}),
+            emqx_ctl:register_command(cmd2, {?MODULE, cmd2_fun}),
+            ok = emqx_ctl:run_command(["cmd1", "arg"]),
+            {error, badarg} = emqx_ctl:run_command(["cmd1", "badarg"]),
+            ok = emqx_ctl:run_command(["cmd2", "arg1", "arg2"]),
+            {error, badarg} = emqx_ctl:run_command(["cmd2", "arg1", "badarg"])
+      end).
+
+t_print(_) ->
+    emqx_ctl:print("help").
+
+t_usage(_) ->
+    emqx_ctl:usage([{cmd1, "Cmd1 usage"}, {cmd2, "Cmd2 usage"}]),
+    emqx_ctl:usage(cmd1, "Cmd1 usage"),
+    emqx_ctl:usage(cmd2, "Cmd2 usage").
+
+t_format(_) ->
+    emqx_ctl:format("help"),
+    emqx_ctl:format("~s", [help]).
+
+t_format_usage(_) ->
+    emqx_ctl:format_usage(cmd1, "Cmd1 usage"),
+    emqx_ctl:format_usage([{cmd1, "Cmd1 usage"}, {cmd2, "Cmd2 usage"}]).
+
+t_unexpected(_) ->
+    with_ctl_server(
+      fun(CtlSrv) ->
+              ignored = gen_server:call(CtlSrv, unexpected_call),
+              ok = gen_server:cast(CtlSrv, unexpected_cast),
+              CtlSrv ! unexpected_info,
+              ?assert(is_process_alive(CtlSrv))
+      end).
+
+%%--------------------------------------------------------------------
+%% Cmds for test
+%%--------------------------------------------------------------------
+
+cmd1_fun(["arg"]) -> ok;
+cmd1_fun(["badarg"]) -> error(badarg).
+
+cmd2_fun(["arg1", "arg2"]) -> ok;
+cmd2_fun(["arg1", "badarg"]) -> error(badarg).
+
+with_ctl_server(Fun) ->
+    {ok, Pid} = emqx_ctl:start_link(),
+    _ = Fun(Pid),
+    ok = emqx_ctl:stop().
 
