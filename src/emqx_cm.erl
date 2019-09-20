@@ -204,7 +204,7 @@ takeover_session(ClientId) ->
 
 takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chan_attrs(ClientId, ChanPid) of
-        #{client := #{conn_mod := ConnMod}} ->
+        #{conninfo := #{conn_mod := ConnMod}} ->
             Session = ConnMod:call(ChanPid, {takeover, 'begin'}),
             {ok, ConnMod, ChanPid, Session};
         undefined ->
