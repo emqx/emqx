@@ -172,7 +172,7 @@ set_field(Name, Val, Channel) ->
 %%--------------------------------------------------------------------
 
 -spec(init(emqx_types:conninfo(), proplists:proplist()) -> channel()).
-init(ConnInfo = #{peername := {PeerHost, _Port}}, Options) ->
+init(ConnInfo = #{peername := {PeerHost, PeerPort}}, Options) ->
     Zone = proplists:get_value(zone, Options),
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Username = case peer_cert_as_username(Options) of
@@ -184,6 +184,7 @@ init(ConnInfo = #{peername := {PeerHost, _Port}}, Options) ->
     MountPoint = emqx_zone:get_env(Zone, mountpoint),
     ClientInfo = #{zone         => Zone,
                    peerhost     => PeerHost,
+                   peerport     => PeerPort,
                    peercert     => Peercert,
                    client_id    => undefined,
                    username     => Username,
