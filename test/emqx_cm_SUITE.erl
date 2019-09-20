@@ -14,39 +14,47 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_subscription_SUITE).
+-module(emqx_cm_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include("emqx_mqtt.hrl").
 -include("emqx.hrl").
-
 -include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
 
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([emqx]),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([emqx]).
+    emqx_ct_helpers:stop_apps([]).
 
-t_mod_subscription(_) ->
-    emqx_mod_subscription:load([{<<"connected/%c/%u">>, ?QOS_0}]),
-    {ok, C} = emqtt:start_link([{host, "localhost"}, {client_id, "myclient"}, {username, "admin"}]),
-    {ok, _} = emqtt:connect(C),
-    % ct:sleep(100),
-    emqtt:publish(C, <<"connected/myclient/admin">>, <<"Hello world">>, ?QOS_0),
-    receive
-        {publish, #{topic := Topic, payload := Payload}} ->
-            ?assertEqual(<<"connected/myclient/admin">>, Topic),
-            ?assertEqual(<<"Hello world">>, Payload)
-    after 100 ->
-        ct:fail("no_message")
-    end,
-    ok = emqtt:disconnect(C),
-    emqx_mod_subscription:unload([]).
+t_reg_unreg_channel(_) ->
+    error(not_implemented).
+
+t_get_set_chan_attrs(_) ->
+    error(not_implemented).
+
+t_get_set_chan_stats(_) ->
+    error(not_implemented).
+
+t_open_session(_) ->
+    error(not_implemented).
+
+t_discard_session(_) ->
+    error(not_implemented).
+
+t_takeover_session(_) ->
+    error(not_implemented).
+
+t_lookup_channels(_) ->
+    error(not_implemented).
+
+t_lock_clientid(_) ->
+    error(not_implemented).
+
+t_unlock_clientid(_) ->
+    error(not_implemented).
+

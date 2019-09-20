@@ -22,8 +22,9 @@
 -include_lib("emqx_mqtt.hrl").
 
 -ifdef(TEST).
--compile(export_all).
--compile(nowarn_export_all).
+-export([ compile/1
+        , match_and_rewrite/2
+        ]).
 -endif.
 
 %% APIs
@@ -47,14 +48,14 @@ load(RawRules) ->
     emqx_hooks:add('client.unsubscribe', {?MODULE, rewrite_unsubscribe, [Rules]}),
     emqx_hooks:add('message.publish',    {?MODULE, rewrite_publish, [Rules]}).
 
-rewrite_subscribe(_Client, _Properties, TopicFilters, Rules) ->
-    {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
+rewrite_subscribe(_ClientInfo, _Properties, TopicFilters, Rules) ->
+    {ok, [{match_and_rewrite(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
 
-rewrite_unsubscribe(_Client, _Properties, TopicFilters, Rules) ->
-    {ok, [{match_rule(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
+rewrite_unsubscribe(_ClientInfo, _Properties, TopicFilters, Rules) ->
+    {ok, [{match_and_rewrite(Topic, Rules), Opts} || {Topic, Opts} <- TopicFilters]}.
 
 rewrite_publish(Message = #message{topic = Topic}, Rules) ->
-    {ok, Message#message{topic = match_rule(Topic, Rules)}}.
+    {ok, Message#message{topic = match_and_rewrite(Topic, Rules)}}.
 
 unload(_) ->
     emqx_hooks:del('client.subscribe',   {?MODULE, rewrite_subscribe}),
@@ -65,16 +66,22 @@ unload(_) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-match_rule(Topic, []) ->
+compile(Rules) ->
+    lists:map(fun({rewrite, Topic, Re, Dest}) ->
+                  {ok, MP} = re:compile(Re),
+                  {rewrite, Topic, MP, Dest}
+              end, Rules).
+
+match_and_rewrite(Topic, []) ->
     Topic;
 
-match_rule(Topic, [{rewrite, Filter, MP, Dest} | Rules]) ->
+match_and_rewrite(Topic, [{rewrite, Filter, MP, Dest} | Rules]) ->
     case emqx_topic:match(Topic, Filter) of
-        true  -> match_regx(Topic, MP, Dest);
-        false -> match_rule(Topic, Rules)
+        true  -> rewrite(Topic, MP, Dest);
+        false -> match_and_rewrite(Topic, Rules)
     end.
 
-match_regx(Topic, MP, Dest) ->
+rewrite(Topic, MP, Dest) ->
     case re:run(Topic, MP, [{capture, all_but_first, list}]) of
         {match, Captured} ->
             Vars = lists:zip(["\\$" ++ integer_to_list(I)
@@ -86,8 +93,3 @@ match_regx(Topic, MP, Dest) ->
         nomatch -> Topic
     end.
 
-compile(Rules) ->
-    lists:map(fun({rewrite, Topic, Re, Dest}) ->
-                  {ok, MP} = re:compile(Re),
-                  {rewrite, Topic, MP, Dest}
-              end, Rules).

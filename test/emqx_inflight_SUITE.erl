@@ -84,8 +84,9 @@ t_is_empty(_) ->
     ?assert(emqx_inflight:is_empty(Inflight1)).
 
 t_window(_) ->
+    ?assertEqual([], emqx_inflight:window(emqx_inflight:new(0))),
     Inflight = emqx_inflight:insert(
                  b, 2, emqx_inflight:insert(
                          a, 1, emqx_inflight:new(2))),
-    [a, b] = emqx_inflight:window(Inflight).
+    ?assertEqual([a, b], emqx_inflight:window(Inflight)).
 

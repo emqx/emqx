@@ -176,13 +176,20 @@ t_handle_deliver(_) ->
 %%--------------------------------------------------------------------
 
 t_handle_connack(_) ->
+    ConnPkt = #mqtt_packet_connect{
+                 proto_name  = <<"MQTT">>,
+                 proto_ver   = ?MQTT_PROTO_V4,
+                 clean_start = true,
+                 properties  = #{},
+                 client_id   = <<"clientid">>
+                },
     with_channel(
       fun(Channel) ->
               {ok, ?CONNACK_PACKET(?RC_SUCCESS, SP, _), _}
-                = handle_out({connack, ?RC_SUCCESS, 0}, Channel),
+                = handle_out({connack, ?RC_SUCCESS, 0, ConnPkt}, Channel),
               {stop, {shutdown, not_authorized},
                ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _}
-                = handle_out({connack, ?RC_NOT_AUTHORIZED}, Channel)
+                = handle_out({connack, ?RC_NOT_AUTHORIZED, ConnPkt}, Channel)
       end).
 
 t_handle_out_publish(_) ->
@@ -271,30 +278,31 @@ t_terminate(_) ->
 %% Helper functions
 %%--------------------------------------------------------------------
 
-with_channel(Fun) ->
-    ConnInfo = #{peername  => {{127,0,0,1}, 3456},
-                 sockname  => {{127,0,0,1}, 1883},
+with_channel(TestFun) ->
+    ConnInfo = #{peername => {{127,0,0,1}, 3456},
+                 sockname => {{127,0,0,1}, 1883},
+                 conn_mod => emqx_connection,
+                 proto_name => <<"MQTT">>,
+                 proto_ver => ?MQTT_PROTO_V5,
+                 clean_start => true,
+                 keepalive => 30,
                  client_id => <<"clientid">>,
-                 username  => <<"username">>
+                 username => <<"username">>,
+                 conn_props => #{},
+                 receive_maximum => 100,
+                 expiry_interval => 60
                 },
-    Options = [{zone, testing}],
-    Channel = emqx_channel:init(ConnInfo, Options),
-    ConnPkt = #mqtt_packet_connect{
-                 proto_name  = <<"MQTT">>,
-                 proto_ver   = ?MQTT_PROTO_V5,
-                 clean_start = true,
-                 keepalive   = 30,
-                 properties  = #{},
-                 client_id   = <<"clientid">>,
-                 username    = <<"username">>,
-                 password    = <<"passwd">>
-                },
-    Protocol = emqx_protocol:init(ConnPkt, testing),
-    Session = emqx_session:init(#{zone => testing},
-                                #{max_inflight    => 100,
-                                  expiry_interval => 0
-                                 }),
-    Fun(emqx_channel:set_field(protocol, Protocol,
-                               emqx_channel:set_field(
-                                 session, Session, Channel))).
+    ClientInfo = #{zone => <<"external">>,
+                   peerhost => {127,0,0,1},
+                   client_id => <<"clientid">>,
+                   username => <<"username">>,
+                   peercert => undefined,
+                   is_bridge => false,
+                   is_superuser => false,
+                   mountpoint => undefined
+                  },
+    Channel = emqx_channel:init(ConnInfo, [{zone, testing}]),
+    Session = emqx_session:init(ClientInfo, ConnInfo),
+    Channel1 = emqx_channel:set_field(client, ClientInfo, Channel),
+    TestFun(emqx_channel:set_field(session, Session, Channel1)).
 

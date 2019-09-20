@@ -74,9 +74,9 @@
 info(WsPid) when is_pid(WsPid) ->
     call(WsPid, info);
 info(WsConn = #ws_connection{chan_state = ChanState}) ->
-    ConnInfo = info(?INFO_KEYS, WsConn),
     ChanInfo = emqx_channel:info(ChanState),
-    maps:merge(ChanInfo, #{conninfo => maps:from_list(ConnInfo)}).
+    SockInfo = maps:from_list(info(?INFO_KEYS, WsConn)),
+    maps:merge(ChanInfo, #{sockinfo => SockInfo}).
 
 info(Keys, WsConn) when is_list(Keys) ->
     [{Key, info(Key, WsConn)} || Key <- Keys];
@@ -95,9 +95,9 @@ info(chan_state, #ws_connection{chan_state = ChanState}) ->
 attrs(WsPid) when is_pid(WsPid) ->
     call(WsPid, attrs);
 attrs(WsConn = #ws_connection{chan_state = ChanState}) ->
-    ConnAttrs = info(?ATTR_KEYS, WsConn),
     ChanAttrs = emqx_channel:attrs(ChanState),
-    maps:merge(ChanAttrs, #{conninfo => maps:from_list(ConnAttrs)}).
+    SockAttrs = maps:from_list(info(?ATTR_KEYS, WsConn)),
+    maps:merge(ChanAttrs, #{sockinfo => SockAttrs}).
 
 -spec(stats(pid()|ws_connection()) -> emqx_types:stats()).
 stats(WsPid) when is_pid(WsPid) ->
@@ -273,7 +273,7 @@ websocket_info({incoming, {error, _Reason}}, State = #ws_connection{fsm_state = 
 websocket_info({incoming, Packet = ?CONNECT_PACKET(ConnPkt)},
                 State = #ws_connection{fsm_state = idle}) ->
     #mqtt_packet_connect{proto_ver = ProtoVer, properties = Properties} = ConnPkt,
-    MaxPacketSize = emqx_mqtt_props:get_property('Maximum-Packet-Size', Properties, undefined),
+    MaxPacketSize = emqx_mqtt_props:get('Maximum-Packet-Size', Properties, undefined),
     NState = State#ws_connection{serialize = serialize_fun(ProtoVer, MaxPacketSize)},
     handle_incoming(Packet, fun connected/1, NState);
 
@@ -341,7 +341,7 @@ disconnected(State) ->
 %% Handle timeout
 
 handle_timeout(TRef, Msg, State = #ws_connection{chan_state = ChanState}) ->
-    case emqx_channel:timeout(TRef, Msg, ChanState) of
+    case emqx_channel:handle_timeout(TRef, Msg, ChanState) of
         {ok, NChanState} ->
             {ok, State#ws_connection{chan_state = NChanState}};
         {ok, Packets, NChanState} ->

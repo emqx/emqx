@@ -89,7 +89,7 @@ proto_name(#mqtt_packet_connect{proto_name = Name}) ->
 
 %% @doc Protocol version of the CONNECT Packet.
 -spec(proto_ver(emqx_types:packet()|connect()) -> emqx_types:version()).
-proto_ver(?CONNACK_PACKET(ConnPkt)) ->
+proto_ver(?CONNECT_PACKET(ConnPkt)) ->
     proto_ver(ConnPkt);
 proto_ver(#mqtt_packet_connect{proto_ver = Ver}) ->
     Ver.
@@ -241,7 +241,7 @@ validate_topic_filters(TopicFilters) ->
 
 %% @doc Publish Packet to Message.
 -spec(to_message(emqx_types:client(), emqx_ypes:packet()) -> emqx_types:message()).
-to_message(#{client_id := ClientId, username := Username, peername := Peername},
+to_message(#{client_id := ClientId, username := Username, peerhost := PeerHost},
            #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                                                        retain = Retain,
                                                        qos    = QoS,
@@ -252,7 +252,7 @@ to_message(#{client_id := ClientId, username := Username, peername := Peername},
     Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
     Msg#message{flags = #{dup => Dup, retain => Retain},
                 headers = merge_props(#{username => Username,
-                                        peername => Peername}, Props)}.
+                                        peerhost => PeerHost}, Props)}.
 
 -spec(will_msg(#mqtt_packet_connect{}) -> emqx_types:message()).
 will_msg(#mqtt_packet_connect{will_flag = false}) ->

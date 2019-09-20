@@ -40,18 +40,18 @@ end_per_suite(_Config) ->
     ok.
 
 t_detect_check(_) ->
-    Client = #{zone => external,
-               client_id => <<"clientid">>,
-               peername => {{127,0,0,1}, 5000}
-              },
-    false = emqx_flapping:detect(Client),
-    false = emqx_flapping:check(Client),
-    false = emqx_flapping:detect(Client),
-    false = emqx_flapping:check(Client),
-    true = emqx_flapping:detect(Client),
+    ClientInfo = #{zone => external,
+                   client_id => <<"clientid">>,
+                   peerhost => {127,0,0,1}
+                  },
+    false = emqx_flapping:detect(ClientInfo),
+    false = emqx_flapping:check(ClientInfo),
+    false = emqx_flapping:detect(ClientInfo),
+    false = emqx_flapping:check(ClientInfo),
+    true = emqx_flapping:detect(ClientInfo),
     timer:sleep(50),
-    true = emqx_flapping:check(Client),
+    true = emqx_flapping:check(ClientInfo),
     timer:sleep(300),
-    false = emqx_flapping:check(Client),
+    false = emqx_flapping:check(ClientInfo),
     ok = emqx_flapping:stop().
 

@@ -18,11 +18,12 @@
 
 -behaviour(gen_server).
 
+-include("types.hrl").
 -include("logger.hrl").
 
 -logger_header("[Ctl]").
 
--export([start_link/0]).
+-export([start_link/0, stop/0]).
 
 -export([ register_command/2
         , register_command/3
@@ -32,6 +33,7 @@
 -export([ run_command/1
         , run_command/2
         , lookup_command/1
+        , get_commands/0
         ]).
 
 -export([ print/1
@@ -40,7 +42,7 @@
         , usage/2
         ]).
 
-%% format/1,2 and format_usage/1,2 are exported mainly for test cases
+%% Exports mainly for test cases
 -export([ format/1
         , format/2
         , format_usage/1
@@ -59,14 +61,19 @@
 -record(state, {seq = 0}).
 
 -type(cmd() :: atom()).
+-type(cmd_params() :: string()).
 -type(cmd_descr() :: string()).
--type(cmd_usage() :: {cmd(), cmd_descr()}).
+-type(cmd_usage() :: {cmd_params(), cmd_descr()}).
 
 -define(SERVER, ?MODULE).
--define(TAB, emqx_command).
+-define(CMD_TAB, emqx_command).
 
+-spec(start_link() -> startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+-spec(stop() -> ok).
+stop() -> gen_server:stop(?SERVER).
 
 -spec(register_command(cmd(), {module(), atom()}) -> ok).
 register_command(Cmd, MF) when is_atom(Cmd) ->
@@ -74,23 +81,24 @@ register_command(Cmd, MF) when is_atom(Cmd) ->
 
 -spec(register_command(cmd(), {module(), atom()}, list()) -> ok).
 register_command(Cmd, MF, Opts) when is_atom(Cmd) ->
-    cast({register_command, Cmd, MF, Opts}).
+    call({register_command, Cmd, MF, Opts}).
 
 -spec(unregister_command(cmd()) -> ok).
 unregister_command(Cmd) when is_atom(Cmd) ->
     cast({unregister_command, Cmd}).
 
-cast(Msg) ->
-    gen_server:cast(?SERVER, Msg).
+call(Req) -> gen_server:call(?SERVER, Req).
 
+cast(Msg) -> gen_server:cast(?SERVER, Msg).
+
+-spec(run_command(list(string())) -> ok | {error, term()}).
 run_command([]) ->
     run_command(help, []);
 run_command([Cmd | Args]) ->
     run_command(list_to_atom(Cmd), Args).
 
--spec(run_command(cmd(), [string()]) -> ok | {error, term()}).
-run_command(help, []) ->
-    help();
+-spec(run_command(cmd(), list(string())) -> ok | {error, term()}).
+run_command(help, []) -> help();
 run_command(Cmd, Args) when is_atom(Cmd) ->
     case lookup_command(Cmd) of
         [{Mod, Fun}] ->
@@ -107,15 +115,19 @@ run_command(Cmd, Args) when is_atom(Cmd) ->
 
 -spec(lookup_command(cmd()) -> [{module(), atom()}]).
 lookup_command(Cmd) when is_atom(Cmd) ->
-    case ets:match(?TAB, {{'_', Cmd}, '$1', '_'}) of
+    case ets:match(?CMD_TAB, {{'_', Cmd}, '$1', '_'}) of
         [El] -> El;
         []   -> []
     end.
 
+-spec(get_commands() -> list({cmd(), module(), atom()})).
+get_commands() ->
+    [{Cmd, M, F} || {{_Seq, Cmd}, {M, F}, _Opts} <- ets:tab2list(?CMD_TAB)].
+
 help() ->
     print("Usage: ~s~n", [?MODULE]),
     [begin print("~80..-s~n", [""]), Mod:Cmd(usage) end
-     || {_, {Mod, Cmd}, _} <- ets:tab2list(?TAB)].
+     || {_, {Mod, Cmd}, _} <- ets:tab2list(?CMD_TAB)].
 
 -spec(print(io:format()) -> ok).
 print(Msg) ->
@@ -129,13 +141,13 @@ print(Format, Args) ->
 usage(UsageList) ->
     io:format(format_usage(UsageList)).
 
--spec(usage(cmd(), cmd_descr()) -> ok).
-usage(Cmd, Desc) ->
-    io:format(format_usage(Cmd, Desc)).
+-spec(usage(cmd_params(), cmd_descr()) -> ok).
+usage(CmdParams, Desc) ->
+    io:format(format_usage(CmdParams, Desc)).
 
 -spec(format(io:format()) -> string()).
 format(Msg) ->
-    lists:flatten(io_lib:format("~p", [Msg])).
+    lists:flatten(io_lib:format("~s", [Msg])).
 
 -spec(format(io:format(), [term()]) -> string()).
 format(Format, Args) ->
@@ -144,42 +156,41 @@ format(Format, Args) ->
 -spec(format_usage([cmd_usage()]) -> ok).
 format_usage(UsageList) ->
     lists:map(
-        fun({Cmd, Desc}) ->
-            format_usage(Cmd, Desc)
+        fun({CmdParams, Desc}) ->
+            format_usage(CmdParams, Desc)
         end, UsageList).
 
--spec(format_usage(cmd(), cmd_descr()) -> string()).
-format_usage(Cmd, Desc) ->
-    CmdLines = split_cmd(Cmd),
+-spec(format_usage(cmd_params(), cmd_descr()) -> string()).
+format_usage(CmdParams, Desc) ->
+    CmdLines = split_cmd(CmdParams),
     DescLines = split_cmd(Desc),
-    lists:foldl(
-        fun({CmdStr, DescStr}, Usage) ->
-            Usage ++ format("~-48s# ~s~n", [CmdStr, DescStr])
-        end, "", zip_cmd(CmdLines, DescLines)).
+    lists:foldl(fun({CmdStr, DescStr}, Usage) ->
+                        Usage ++ format("~-48s# ~s~n", [CmdStr, DescStr])
+                end, "", zip_cmd(CmdLines, DescLines)).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% gen_server callbacks
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 init([]) ->
-    ok = emqx_tables:new(?TAB, [protected, ordered_set]),
+    ok = emqx_tables:new(?CMD_TAB, [protected, ordered_set]),
     {ok, #state{seq = 0}}.
+
+handle_call({register_command, Cmd, MF, Opts}, _From, State = #state{seq = Seq}) ->
+    case ets:match(?CMD_TAB, {{'$1', Cmd}, '_', '_'}) of
+        [] -> ets:insert(?CMD_TAB, {{Seq, Cmd}, MF, Opts});
+        [[OriginSeq] | _] ->
+            ?LOG(warning, "CMD ~s is overidden by ~p", [Cmd, MF]),
+            true = ets:insert(?CMD_TAB, {{OriginSeq, Cmd}, MF, Opts})
+    end,
+    {reply, ok, next_seq(State)};
 
 handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
-handle_cast({register_command, Cmd, MF, Opts}, State = #state{seq = Seq}) ->
-    case ets:match(?TAB, {{'$1', Cmd}, '_', '_'}) of
-        [] -> ets:insert(?TAB, {{Seq, Cmd}, MF, Opts});
-        [[OriginSeq] | _] ->
-            ?LOG(warning, "CMD ~s is overidden by ~p", [Cmd, MF]),
-            ets:insert(?TAB, {{OriginSeq, Cmd}, MF, Opts})
-    end,
-    noreply(next_seq(State));
-
 handle_cast({unregister_command, Cmd}, State) ->
-    ets:match_delete(?TAB, {{'_', Cmd}, '_', '_'}),
+    ets:match_delete(?CMD_TAB, {{'_', Cmd}, '_', '_'}),
     noreply(State);
 
 handle_cast(Msg, State) ->
@@ -214,3 +225,4 @@ zip_cmd([X | Xs], [Y | Ys]) -> [{X, Y} | zip_cmd(Xs, Ys)];
 zip_cmd([X | Xs], []) -> [{X, ""} | zip_cmd(Xs, [])];
 zip_cmd([], [Y | Ys]) -> [{"", Y} | zip_cmd([], Ys)];
 zip_cmd([], []) -> [].
+
