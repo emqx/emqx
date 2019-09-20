@@ -352,7 +352,7 @@ handle(info, {timeout, Timer, emit_stats},
             {keep_state, NState#state{gc_state = GcState1}, hibernate};
         {shutdown, Reason} ->
             ?LOG(error, "Shutdown exceptionally due to ~p", [Reason]),
-            shutdown(Reason, NState)
+            self() ! {shutdown, Reason}
     end;
 
 handle(info, {shutdown, discard, {ClientId, ByPid}}, State) ->
