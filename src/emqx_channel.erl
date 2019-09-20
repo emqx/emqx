@@ -129,6 +129,8 @@ info(topic_aliases, #channel{topic_aliases = Aliases}) ->
     Aliases;
 info(alias_maximum, #channel{alias_maximum = Limits}) ->
     Limits;
+info(will_msg, #channel{will_msg = WillMsg}) ->
+    WillMsg;
 info(gc_state, #channel{gc_state = GcState}) ->
     maybe_apply(fun emqx_gc:info/1, GcState);
 info(oom_policy, #channel{oom_policy = OomPolicy}) ->

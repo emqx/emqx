@@ -145,7 +145,7 @@ t_handle_disconnect(_) ->
     with_channel(
       fun(Channel) ->
               {wait_session_expire, {shutdown, normal}, Channel1} = handle_in(?DISCONNECT_PACKET(?RC_SUCCESS), Channel),
-              ?assertMatch(#{will_msg := undefined}, emqx_channel:info(protocol, Channel1))
+              ?assertEqual(undefined, emqx_channel:info(will_msg, Channel1))
       end).
 
 t_handle_auth(_) ->
