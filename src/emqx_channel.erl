@@ -831,6 +831,8 @@ will_delay_interval(WillMsg) ->
 %% Terminate
 %%--------------------------------------------------------------------
 
+terminate(_, #channel{connected = undefined}) ->
+    ok;
 terminate(normal, #channel{conninfo = ConnInfo, client = ClientInfo}) ->
     ok = emqx_hooks:run('client.disconnected', [ClientInfo, normal, ConnInfo]);
 terminate({shutdown, Reason}, #channel{conninfo = ConnInfo, client = ClientInfo})
