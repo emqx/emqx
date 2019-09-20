@@ -239,7 +239,7 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
         {ok, NConnPkt, NChannel} ->
             process_connect(NConnPkt, NChannel);
         {error, ReasonCode, NChannel} ->
-            handle_out({connack, ReasonCode, ConnPkt}, NChannel)
+            handle_out({connack, emqx_reason_codes:formalized(connack, ReasonCode), ConnPkt}, NChannel)
     end;
 
 handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
