@@ -181,5 +181,5 @@ mqtt_frame_error(mqtt_frame_too_large) -> ?RC_PACKET_TOO_LARGE;
 mqtt_frame_error(_) -> ?RC_MALFORMED_PACKET.
 
 formalized(connack, Code) when is_integer(Code) -> Code;
-formalized(connack, Code) when is_integer(Code) ->
+formalized(connack, _Code) ->
     ?RC_SERVER_UNAVAILABLE.
