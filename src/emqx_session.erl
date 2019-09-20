@@ -603,7 +603,7 @@ handle_info({timeout, Timer, emit_stats},
             {noreply, NewState#state{gc_state = GcState1}, hibernate};
         {shutdown, Reason} ->
             ?LOG(warning, "Shutdown exceptionally due to ~p", [Reason]),
-            shutdown(Reason, NewState)
+            self() ! {shutdown, Reason}
     end;
 
 handle_info({timeout, Timer, expired}, State = #state{expiry_timer = Timer}) ->
@@ -645,6 +645,9 @@ handle_info({'EXIT', Pid, Reason}, State = #state{conn_pid = ConnPid}) ->
     ?LOG(error, "Unexpected EXIT: conn_pid=~p, exit_pid=~p, reason=~p",
          [ConnPid, Pid, Reason]),
     {noreply, State};
+
+handle_info({shutdown, Reason}, State) ->
+    shutdown(Reason, State);
 
 handle_info(Info, State) ->
     ?LOG(error, "Unexpected info: ~p", [Info]),
