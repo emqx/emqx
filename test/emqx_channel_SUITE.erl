@@ -281,6 +281,7 @@ t_terminate(_) ->
 with_channel(TestFun) ->
     ConnInfo = #{peername => {{127,0,0,1}, 3456},
                  sockname => {{127,0,0,1}, 1883},
+                 protocol => mqtt,
                  conn_mod => emqx_connection,
                  proto_name => <<"MQTT">>,
                  proto_ver => ?MQTT_PROTO_V5,
