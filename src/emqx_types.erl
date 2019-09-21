@@ -36,6 +36,7 @@
              , client_id/0
              , username/0
              , password/0
+             , peerhost/0
              , peername/0
              , protocol/0
              ]).
@@ -102,9 +103,8 @@
                       atom()   => term()
                      }).
 -type(client() :: #{zone         := zone(),
-                    conn_mod     := maybe(module()),
-                    peername     := peername(),
-                    sockname     := peername(),
+                    protocol     := protocol(),
+                    peerhost     := peerhost(),
                     client_id    := client_id(),
                     username     := username(),
                     peercert     := esockd_peercert:peercert(),
@@ -117,11 +117,12 @@
                     anonymous    => boolean(),
                     atom()       => term()
                    }).
--type(client_id() :: binary() | atom()).
+-type(client_id() :: binary()|atom()).
 -type(username() :: maybe(binary())).
 -type(password() :: maybe(binary())).
+-type(peerhost() :: inet:ip_address()).
 -type(peername() :: {inet:ip_address(), inet:port_number()}).
--type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | none | atom()).
+-type(protocol() :: mqtt | 'mqtt-sn' | coap | lwm2m | stomp | none | atom()).
 -type(auth_result() :: success
                      | client_identifier_not_valid
                      | bad_username_or_password

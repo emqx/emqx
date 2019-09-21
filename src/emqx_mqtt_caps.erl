@@ -26,6 +26,7 @@
 
 -export([ get_caps/1
         , get_caps/2
+        , get_caps/3
         ]).
 
 -export([default/0]).
@@ -114,9 +115,12 @@ get_caps(Zone) ->
 -spec(get_caps(emqx_zone:zone(), publish|subscribe) -> caps()).
 get_caps(Zone, publish) ->
     with_env(Zone, '$mqtt_pub_caps', fun pub_caps/1);
-
 get_caps(Zone, subscribe) ->
     with_env(Zone, '$mqtt_sub_caps', fun sub_caps/1).
+
+-spec(get_caps(emqx_zone:zone(), atom(), term()) -> term()).
+get_caps(Zone, Cap, Def) ->
+    emqx_zone:get_env(Zone, Cap, Def).
 
 pub_caps(Zone) ->
     filter_caps(?PUBCAP_KEYS, get_caps(Zone)).

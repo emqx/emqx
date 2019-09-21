@@ -21,13 +21,13 @@
 -include_lib("emqx.hrl").
 -include_lib("emqx_mqtt.hrl").
 
-%% APIs
--export([on_client_connected/4]).
-
 %% emqx_gen_mod callbacks
 -export([ load/1
         , unload/1
         ]).
+
+%% APIs
+-export([on_client_connected/4]).
 
 %%--------------------------------------------------------------------
 %% Load/Unload Hook
@@ -37,7 +37,7 @@ load(Topics) ->
     emqx_hooks:add('client.connected', {?MODULE, on_client_connected, [Topics]}).
 
 on_client_connected(#{client_id := ClientId,
-                      username  := Username}, ?RC_SUCCESS, _ConnAttrs, Topics) ->
+                      username  := Username}, ?RC_SUCCESS, _ConnInfo, Topics) ->
     Replace = fun(Topic) ->
                       rep(<<"%u">>, Username, rep(<<"%c">>, ClientId, Topic))
               end,

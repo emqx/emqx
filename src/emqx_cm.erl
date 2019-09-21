@@ -28,6 +28,7 @@
 -export([start_link/0]).
 
 -export([ register_channel/1
+        , unregister_channel/1
         ]).
 
 -export([ get_chan_attrs/1
@@ -105,6 +106,11 @@ register_channel(ClientId, ChanPid) ->
     ok = emqx_cm_registry:register_channel(Chan),
     cast({registered, Chan}).
 
+-spec(unregister_channel(emqx_types:client_id()) -> ok).
+unregister_channel(ClientId) when is_binary(ClientId) ->
+    true = do_unregister_channel({ClientId, self()}),
+    ok.
+
 %% @private
 do_unregister_channel(Chan) ->
     ok = emqx_cm_registry:unregister_channel(Chan),
@@ -161,15 +167,15 @@ set_chan_stats(ClientId, ChanPid, Stats) ->
                 present  := boolean(),
                 pendings => list()}}
        | {error, Reason :: term()}).
-open_session(true, Client = #{client_id := ClientId}, Options) ->
+open_session(true, ClientInfo = #{client_id := ClientId}, ConnInfo) ->
     CleanStart = fun(_) ->
                      ok = discard_session(ClientId),
-                     Session = emqx_session:init(Client, Options),
+                     Session = emqx_session:init(ClientInfo, ConnInfo),
                      {ok, #{session => Session, present => false}}
                  end,
     emqx_cm_locker:trans(ClientId, CleanStart);
 
-open_session(false, Client = #{client_id := ClientId}, Options) ->
+open_session(false, ClientInfo = #{client_id := ClientId}, ConnInfo) ->
     ResumeStart = fun(_) ->
                       case takeover_session(ClientId) of
                           {ok, ConnMod, ChanPid, Session} ->
@@ -179,7 +185,7 @@ open_session(false, Client = #{client_id := ClientId}, Options) ->
                                      present  => true,
                                      pendings => Pendings}};
                           {error, not_found} ->
-                              Session = emqx_session:init(Client, Options),
+                              Session = emqx_session:init(ClientInfo, ConnInfo),
                               {ok, #{session => Session, present => false}}
                       end
                   end,
@@ -204,7 +210,7 @@ takeover_session(ClientId) ->
 
 takeover_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chan_attrs(ClientId, ChanPid) of
-        #{client := #{conn_mod := ConnMod}} ->
+        #{conninfo := #{conn_mod := ConnMod}} ->
             Session = ConnMod:call(ChanPid, {takeover, 'begin'}),
             {ok, ConnMod, ChanPid, Session};
         undefined ->
@@ -233,7 +239,7 @@ discard_session(ClientId) when is_binary(ClientId) ->
 
 discard_session(ClientId, ChanPid) when node(ChanPid) == node() ->
     case get_chan_attrs(ClientId, ChanPid) of
-        #{client := #{conn_mod := ConnMod}} ->
+        #{conninfo := #{conn_mod := ConnMod}} ->
             ConnMod:call(ChanPid, discard);
         undefined -> ok
     end;
@@ -336,3 +342,4 @@ update_stats({Tab, Stat, MaxStat}) ->
         undefined -> ok;
         Size -> emqx_stats:setstat(Stat, MaxStat, Size)
     end.
+

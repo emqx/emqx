@@ -61,8 +61,6 @@
 %% Exports for unit tests
 -export([set_field/3]).
 
--export([update_expiry_interval/2]).
-
 -export([ subscribe/4
         , unsubscribe/3
         ]).
@@ -116,13 +114,10 @@
           max_awaiting_rel :: non_neg_integer(),
           %% Awaiting PUBREL Timeout
           await_rel_timeout :: timeout(),
-          %% Session Expiry Interval
-          expiry_interval :: timeout(),
           %% Enqueue Count
           enqueue_cnt :: non_neg_integer(),
           %% Created at
           created_at :: erlang:timestamp()
-
          }).
 
 -opaque(session() :: #session{}).
@@ -130,11 +125,12 @@
 -type(publish() :: {publish, emqx_types:packet_id(), emqx_types:message()}).
 
 -define(DEFAULT_BATCH_N, 1000).
--define(ATTR_KEYS, [expiry_interval, created_at]).
+-define(ATTR_KEYS, [max_inflight, max_mqueue, retry_interval,
+                    max_awaiting_rel, await_rel_timeout, created_at]).
 -define(INFO_KEYS, [subscriptions, max_subscriptions, upgrade_qos, inflight,
                     max_inflight, retry_interval, mqueue_len, max_mqueue,
                     mqueue_dropped, next_pkt_id, awaiting_rel, max_awaiting_rel,
-                    await_rel_timeout, expiry_interval, created_at]).
+                    await_rel_timeout, created_at]).
 -define(STATS_KEYS, [subscriptions_cnt, max_subscriptions, inflight, max_inflight,
                      mqueue_len, max_mqueue, mqueue_dropped, awaiting_rel,
                      max_awaiting_rel, enqueue_cnt]).
@@ -145,8 +141,7 @@
 
 %% @doc Init a session.
 -spec(init(emqx_types:client(), Options :: map()) -> session()).
-init(#{zone := Zone}, #{max_inflight    := MaxInflight,
-                        expiry_interval := ExpiryInterval}) ->
+init(#{zone := Zone}, #{receive_maximum := MaxInflight}) ->
     #session{max_subscriptions = get_env(Zone, max_subscriptions, 0),
              subscriptions     = #{},
              upgrade_qos       = get_env(Zone, upgrade_qos, false),
@@ -157,7 +152,6 @@ init(#{zone := Zone}, #{max_inflight    := MaxInflight,
              awaiting_rel      = #{},
              max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
              await_rel_timeout = get_env(Zone, await_rel_timeout, 3600*1000),
-             expiry_interval   = ExpiryInterval,
              enqueue_cnt       = 0,
              created_at        = os:timestamp()
             }.
@@ -213,8 +207,6 @@ info(max_awaiting_rel, #session{max_awaiting_rel = MaxAwaitingRel}) ->
     MaxAwaitingRel;
 info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
     Timeout;
-info(expiry_interval, #session{expiry_interval = Interval}) ->
-    Interval;
 info(enqueue_cnt, #session{enqueue_cnt = Cnt}) ->
     Cnt;
 info(created_at, #session{created_at = CreatedAt}) ->
@@ -225,9 +217,6 @@ set_field(Name, Val, Channel) ->
     Fields = record_info(fields, session),
     Pos = emqx_misc:index_of(Name, Fields),
     setelement(Pos+1, Channel, Val).
-
-update_expiry_interval(ExpiryInterval, Session) ->
-    Session#session{expiry_interval = ExpiryInterval}.
 
 -spec(takeover(session()) -> ok).
 takeover(#session{subscriptions = Subs}) ->
