@@ -17,6 +17,7 @@
 -module(emqx_misc).
 
 -include("types.hrl").
+-include("logger.hrl").
 
 -export([ merge_opts/2
         , maybe_apply/2
@@ -70,7 +71,7 @@ pipeline([], Input, State) ->
     {ok, Input, State};
 
 pipeline([Fun|More], Input, State) ->
-    case apply_fun(Fun, Input, State) of
+    try apply_fun(Fun, Input, State) of
         ok -> pipeline(More, Input, State);
         {ok, NState} ->
             pipeline(More, Input, NState);
@@ -80,6 +81,11 @@ pipeline([Fun|More], Input, State) ->
             {error, Reason, State};
         {error, Reason, NState} ->
             {error, Reason, NState}
+    catch
+        Error:Reason:Stacktrace ->
+            ?LOG(error, "pipeline ~p failed: ~p,\nstacktrace: ~0p",
+                [{Fun, Input, State}, {Error, Reason}, Stacktrace]),
+            {error, Reason, State}
     end.
 
 -compile({inline, [apply_fun/3]}).

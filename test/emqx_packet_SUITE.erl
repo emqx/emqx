@@ -24,45 +24,41 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(PACKETS,
+        [{?CONNECT, 'CONNECT', ?CONNECT_PACKET(#mqtt_packet_connect{})},
+         {?CONNACK, 'CONNACK', ?CONNACK_PACKET(?RC_SUCCESS)},
+         {?PUBLISH, 'PUBLISH', ?PUBLISH_PACKET(?QOS_1)},
+         {?PUBACK, 'PUBACK', ?PUBACK_PACKET(1)},
+         {?PUBREC, 'PUBREC', ?PUBREC_PACKET(1)},
+         {?PUBREL, 'PUBREL', ?PUBREL_PACKET(1)},
+         {?PUBCOMP, 'PUBCOMP', ?PUBCOMP_PACKET(1)},
+         {?SUBSCRIBE, 'SUBSCRIBE', ?SUBSCRIBE_PACKET(1, [])},
+         {?SUBACK, 'SUBACK', ?SUBACK_PACKET(1, [0])},
+         {?UNSUBSCRIBE, 'UNSUBSCRIBE', ?UNSUBSCRIBE_PACKET(1, [])},
+         {?UNSUBACK, 'UNSUBACK', ?UNSUBACK_PACKET(1)},
+         {?DISCONNECT, 'DISCONNECT', ?DISCONNECT_PACKET(?RC_SUCCESS)},
+         {?AUTH, 'AUTH', ?AUTH_PACKET()}
+        ]).
+
 all() -> emqx_ct:all(?MODULE).
 
 t_type(_) ->
-    ?assertEqual(?CONNECT, emqx_packet:type(?CONNECT_PACKET(#mqtt_packet_connect{}))),
-    ?assertEqual(?CONNACK, emqx_packet:type(?CONNACK_PACKET(?RC_SUCCESS))),
-    ?assertEqual(?PUBLISH, emqx_packet:type(?PUBLISH_PACKET(?QOS_1))),
-    ?assertEqual(?PUBACK, emqx_packet:type(?PUBACK_PACKET(1))),
-    ?assertEqual(?PUBREC, emqx_packet:type(?PUBREC_PACKET(1))),
-    ?assertEqual(?PUBREL, emqx_packet:type(?PUBREL_PACKET(1))),
-    ?assertEqual(?PUBCOMP, emqx_packet:type(?PUBCOMP_PACKET(1))),
-    ?assertEqual(?SUBSCRIBE, emqx_packet:type(?SUBSCRIBE_PACKET(1, []))),
-    ?assertEqual(?SUBACK, emqx_packet:type(?SUBACK_PACKET(1, [0]))),
-    ?assertEqual(?UNSUBSCRIBE, emqx_packet:type(?UNSUBSCRIBE_PACKET(1, []))),
-    ?assertEqual(?UNSUBACK, emqx_packet:type(?UNSUBACK_PACKET(1))),
-    ?assertEqual(?DISCONNECT, emqx_packet:type(?DISCONNECT_PACKET(?RC_SUCCESS))),
-    ?assertEqual(?AUTH, emqx_packet:type(?AUTH_PACKET())).
+    lists:foreach(fun({Type, _Name, Packet}) ->
+                          ?assertEqual(Type, emqx_packet:type(Packet))
+                  end, ?PACKETS).
 
 t_type_name(_) ->
-    ?assertEqual('CONNECT', emqx_packet:type_name(?CONNECT_PACKET(#mqtt_packet_connect{}))),
-    ?assertEqual('CONNACK', emqx_packet:type_name(?CONNACK_PACKET(?RC_SUCCESS))),
-    ?assertEqual('PUBLISH', emqx_packet:type_name(?PUBLISH_PACKET(?QOS_1))),
-    ?assertEqual('PUBACK', emqx_packet:type_name(?PUBACK_PACKET(1))),
-    ?assertEqual('PUBREC', emqx_packet:type_name(?PUBREC_PACKET(1))),
-    ?assertEqual('PUBREL', emqx_packet:type_name(?PUBREL_PACKET(1))),
-    ?assertEqual('PUBCOMP', emqx_packet:type_name(?PUBCOMP_PACKET(1))),
-    ?assertEqual('SUBSCRIBE', emqx_packet:type_name(?SUBSCRIBE_PACKET(1, []))),
-    ?assertEqual('SUBACK', emqx_packet:type_name(?SUBACK_PACKET(1, [0]))),
-    ?assertEqual('UNSUBSCRIBE', emqx_packet:type_name(?UNSUBSCRIBE_PACKET(1, []))),
-    ?assertEqual('UNSUBACK', emqx_packet:type_name(?UNSUBACK_PACKET(1))),
-    ?assertEqual('DISCONNECT', emqx_packet:type_name(?DISCONNECT_PACKET(?RC_SUCCESS))),
-    ?assertEqual('AUTH', emqx_packet:type_name(?AUTH_PACKET())).
+    lists:foreach(fun({_Type, Name, Packet}) ->
+                          ?assertEqual(Name, emqx_packet:type_name(Packet))
+                  end, ?PACKETS).
 
 t_dup(_) ->
     ?assertEqual(false, emqx_packet:dup(?PUBLISH_PACKET(?QOS_1))).
 
 t_qos(_) ->
-    ?assertEqual(?QOS_0, emqx_packet:qos(?PUBLISH_PACKET(?QOS_0))),
-    ?assertEqual(?QOS_1, emqx_packet:qos(?PUBLISH_PACKET(?QOS_1))),
-    ?assertEqual(?QOS_2, emqx_packet:qos(?PUBLISH_PACKET(?QOS_2))).
+    lists:foreach(fun(QoS) ->
+                          ?assertEqual(QoS, emqx_packet:qos(?PUBLISH_PACKET(QoS)))
+                  end, [?QOS_0, ?QOS_1, ?QOS_2]).
 
 t_retain(_) ->
     ?assertEqual(false, emqx_packet:retain(?PUBLISH_PACKET(?QOS_1))).
@@ -78,15 +74,16 @@ t_proto_name(_) ->
 t_proto_ver(_) ->
     lists:foreach(
       fun(Ver) ->
-              ?assertEqual(Ver, emqx_packet:proto_ver(#mqtt_packet_connect{proto_ver = Ver}))
+              ConnPkt = ?CONNECT_PACKET(#mqtt_packet_connect{proto_ver = Ver}),
+              ?assertEqual(Ver, emqx_packet:proto_ver(ConnPkt))
       end, [?MQTT_PROTO_V3, ?MQTT_PROTO_V4, ?MQTT_PROTO_V5]).
 
 t_check_publish(_) ->
     Props = #{'Response-Topic' => <<"responsetopic">>, 'Topic-Alias' => 1},
     ok = emqx_packet:check(?PUBLISH_PACKET(?QOS_1, <<"topic">>, 1, Props, <<"payload">>)),
     ok = emqx_packet:check(#mqtt_packet_publish{packet_id = 1, topic_name = <<"t">>}),
-    {error, ?RC_PROTOCOL_ERROR} = emqx_packet:check(?PUBLISH_PACKET(1,<<>>,1,#{},<<"payload">>)),
-    {error, ?RC_TOPIC_NAME_INVALID} = emqx_packet:check(?PUBLISH_PACKET(1, <<"+/+">>, 1, #{}, <<"payload">>)),
+    {error, ?RC_PROTOCOL_ERROR} = emqx_packet:check(?PUBLISH_PACKET(?QOS_1, <<>>, 1, #{}, <<"payload">>)),
+    {error, ?RC_TOPIC_NAME_INVALID} = emqx_packet:check(?PUBLISH_PACKET(?QOS_1, <<"+/+">>, 1, #{}, <<"payload">>)),
     {error, ?RC_TOPIC_ALIAS_INVALID} = emqx_packet:check(?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Topic-Alias' => 0}, <<"payload">>)),
     %% TODO::
     %% {error, ?RC_PROTOCOL_ERROR} = emqx_packet:check(?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Subscription-Identifier' => 10}, <<"payload">>)),
@@ -143,10 +140,10 @@ t_check_connect(_) ->
                                                        properties = #{'Receive-Maximum' => 0}}), Opts).
 
 t_from_to_message(_) ->
-    ExpectedMsg = emqx_message:set_headers(
-                    #{peername => {{127,0,0,1}, 9527}, username => <<"test">>},
-                    emqx_message:make(<<"clientid">>, ?QOS_0, <<"topic">>, <<"payload">>)),
+    ExpectedMsg = emqx_message:make(<<"clientid">>, ?QOS_0, <<"topic">>, <<"payload">>),
     ExpectedMsg1 = emqx_message:set_flag(retain, false, ExpectedMsg),
+    ExpectedMsg2 = emqx_message:set_headers(#{peerhost => {127,0,0,1},
+                                              username => <<"test">>}, ExpectedMsg1),
     Pkt = #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
                                                     qos    = ?QOS_0,
                                                     retain = false,
@@ -157,8 +154,8 @@ t_from_to_message(_) ->
                        payload = <<"payload">>},
     MsgFromPkt = emqx_packet:to_message(#{client_id => <<"clientid">>,
                                           username => <<"test">>,
-                                          peername => {{127,0,0,1}, 9527}}, Pkt),
-    ?assertEqual(ExpectedMsg1, MsgFromPkt#message{id = emqx_message:id(ExpectedMsg),
+                                          peerhost => {127,0,0,1}}, Pkt),
+    ?assertEqual(ExpectedMsg2, MsgFromPkt#message{id = emqx_message:id(ExpectedMsg),
                                                   timestamp = emqx_message:timestamp(ExpectedMsg)
                                                  }).
 

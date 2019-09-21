@@ -25,6 +25,7 @@
         , text/2
         , connack_error/1
         , mqtt_frame_error/1
+        , formalized/2
         ]).
 
 -export([compat/2]).
@@ -178,3 +179,7 @@ connack_error(_) -> ?RC_NOT_AUTHORIZED.
 
 mqtt_frame_error(mqtt_frame_too_large) -> ?RC_PACKET_TOO_LARGE;
 mqtt_frame_error(_) -> ?RC_MALFORMED_PACKET.
+
+formalized(connack, Code) when is_integer(Code) -> Code;
+formalized(connack, _Code) ->
+    ?RC_SERVER_UNAVAILABLE.

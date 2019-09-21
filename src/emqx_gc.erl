@@ -34,7 +34,7 @@
         , reset/1
         ]).
 
--export_type([gc_state/0]).
+-export_type([opts/0, gc_state/0]).
 
 -type(opts() :: #{count => integer(),
                   bytes => integer()}).

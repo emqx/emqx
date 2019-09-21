@@ -74,9 +74,9 @@
 info(WsPid) when is_pid(WsPid) ->
     call(WsPid, info);
 info(WsConn = #ws_connection{chan_state = ChanState}) ->
-    ConnInfo = info(?INFO_KEYS, WsConn),
     ChanInfo = emqx_channel:info(ChanState),
-    maps:merge(ChanInfo, #{conninfo => maps:from_list(ConnInfo)}).
+    SockInfo = maps:from_list(info(?INFO_KEYS, WsConn)),
+    maps:merge(ChanInfo, #{sockinfo => SockInfo}).
 
 info(Keys, WsConn) when is_list(Keys) ->
     [{Key, info(Key, WsConn)} || Key <- Keys];
@@ -95,9 +95,9 @@ info(chan_state, #ws_connection{chan_state = ChanState}) ->
 attrs(WsPid) when is_pid(WsPid) ->
     call(WsPid, attrs);
 attrs(WsConn = #ws_connection{chan_state = ChanState}) ->
-    ConnAttrs = info(?ATTR_KEYS, WsConn),
     ChanAttrs = emqx_channel:attrs(ChanState),
-    maps:merge(ChanAttrs, #{conninfo => maps:from_list(ConnAttrs)}).
+    SockAttrs = maps:from_list(info(?ATTR_KEYS, WsConn)),
+    maps:merge(ChanAttrs, #{sockinfo => SockAttrs}).
 
 -spec(stats(pid()|ws_connection()) -> emqx_types:stats()).
 stats(WsPid) when is_pid(WsPid) ->
@@ -181,6 +181,7 @@ websocket_init([Req, Opts]) ->
                                     sockname  => Sockname,
                                     peercert  => Peercert,
                                     ws_cookie => WsCookie,
+                                    protocol  => mqtt,
                                     conn_mod  => ?MODULE
                                    }, Opts),
     Zone = proplists:get_value(zone, Opts),
@@ -254,10 +255,26 @@ websocket_info({cast, Msg}, State = #ws_connection{chan_state = ChanState}) ->
             stop(Reason, State#ws_connection{chan_state = NChanState})
     end;
 
+websocket_info({incoming, {error, Reason}}, State = #ws_connection{fsm_state = idle}) ->
+    stop({shutdown, Reason}, State);
+
+websocket_info({incoming, {error, Reason}}, State = #ws_connection{fsm_state = connected, chan_state = ChanState}) ->
+    case emqx_channel:handle_out({disconnect, emqx_reason_codes:mqtt_frame_error(Reason)}, ChanState) of
+        {wait_session_expire, _, NChanState} ->
+            ?LOG(debug, "Disconnect and wait for session to expire due to ~p", [Reason]),
+            disconnected(State#ws_connection{chan_state= NChanState});
+        {wait_session_expire, _, OutPackets, NChanState} ->
+            ?LOG(debug, "Disconnect and wait for session to expire due to ~p", [Reason]),
+            disconnected(enqueue(OutPackets, State#ws_connection{chan_state = NChanState}))
+    end;
+
+websocket_info({incoming, {error, _Reason}}, State = #ws_connection{fsm_state = disconnected}) ->
+    reply(State);
+    
 websocket_info({incoming, Packet = ?CONNECT_PACKET(ConnPkt)},
                 State = #ws_connection{fsm_state = idle}) ->
     #mqtt_packet_connect{proto_ver = ProtoVer, properties = Properties} = ConnPkt,
-    MaxPacketSize = emqx_mqtt_props:get_property('Maximum-Packet-Size', Properties, undefined),
+    MaxPacketSize = emqx_mqtt_props:get('Maximum-Packet-Size', Properties, undefined),
     NState = State#ws_connection{serialize = serialize_fun(ProtoVer, MaxPacketSize)},
     handle_incoming(Packet, fun connected/1, NState);
 
@@ -276,9 +293,7 @@ websocket_info(Deliver = {deliver, _Topic, _Msg},
         {ok, NChanState} ->
             reply(State#ws_connection{chan_state = NChanState});
         {ok, Packets, NChanState} ->
-            reply(enqueue(Packets, State#ws_connection{chan_state = NChanState}));
-        {stop, Reason, NChanState} ->
-            stop(Reason, State#ws_connection{chan_state = NChanState})
+            reply(enqueue(Packets, State#ws_connection{chan_state = NChanState}))
     end;
 
 websocket_info({timeout, TRef, keepalive}, State) when is_reference(TRef) ->
@@ -307,8 +322,7 @@ websocket_info(Info, State = #ws_connection{chan_state = ChanState}) ->
 
 terminate(SockError, _Req, #ws_connection{chan_state  = ChanState,
                                           stop_reason = Reason}) ->
-    ?LOG(debug, "Terminated for ~p, sockerror: ~p",
-         [Reason, SockError]),
+    ?LOG(debug, "Terminated for ~p, sockerror: ~p", [Reason, SockError]),
     emqx_channel:terminate(Reason, ChanState).
 
 %%--------------------------------------------------------------------
@@ -319,15 +333,24 @@ connected(State = #ws_connection{chan_state = ChanState}) ->
     reply(State#ws_connection{fsm_state = connected}).
 
 %%--------------------------------------------------------------------
+%% Disconnected callback
+
+disconnected(State) ->
+    reply(State#ws_connection{fsm_state = disconnected}).
+
+%%--------------------------------------------------------------------
 %% Handle timeout
 
 handle_timeout(TRef, Msg, State = #ws_connection{chan_state = ChanState}) ->
-    case emqx_channel:timeout(TRef, Msg, ChanState) of
+    case emqx_channel:handle_timeout(TRef, Msg, ChanState) of
         {ok, NChanState} ->
             {ok, State#ws_connection{chan_state = NChanState}};
         {ok, Packets, NChanState} ->
             NState = State#ws_connection{chan_state = NChanState},
             reply(enqueue(Packets, NState));
+        {wait_session_expire, Reason, NChanState} ->
+            ?LOG(debug, "Disconnect and wait for session to expire due to ~p", [Reason]),
+            disconnected(State#ws_connection{chan_state = NChanState});
         {stop, Reason, NChanState} ->
             stop(Reason, State#ws_connection{chan_state = NChanState})
     end.
@@ -338,8 +361,7 @@ handle_timeout(TRef, Msg, State = #ws_connection{chan_state = ChanState}) ->
 process_incoming(<<>>, State) ->
     {ok, State};
 
-process_incoming(Data, State = #ws_connection{parse_state = ParseState,
-                                              chan_state  = ChanState}) ->
+process_incoming(Data, State = #ws_connection{parse_state = ParseState}) ->
     try emqx_frame:parse(Data, ParseState) of
         {more, NParseState} ->
             {ok, State#ws_connection{parse_state = NParseState}};
@@ -347,29 +369,13 @@ process_incoming(Data, State = #ws_connection{parse_state = ParseState,
             self() ! {incoming, Packet},
             process_incoming(Rest, State#ws_connection{parse_state = NParseState});
         {error, Reason} ->
-            ?LOG(error, "Frame error: ~p", [Reason]),
-            stop(Reason, State)
+            self() ! {incoming, {error, Reason}},
+            {ok, State}
     catch
         error:Reason:Stk ->
-            ?LOG(error, "Parse failed for ~p~nStacktrace:~p~nFrame data: ~p", [Reason, Stk, Data]),
-            Result = 
-                case emqx_channel:info(connected, ChanState) of
-                    undefined ->
-                        emqx_channel:handle_out({connack, emqx_reason_codes:mqtt_frame_error(Reason)}, ChanState);
-                    true ->
-                        emqx_channel:handle_out({disconnect, emqx_reason_codes:mqtt_frame_error(Reason)}, ChanState);
-                    _ ->
-                        ignore
-                end,
-            case Result of
-                {stop, Reason0, OutPackets, NChanState} ->
-                    NState = State#ws_connection{chan_state = NChanState},
-                    stop(Reason0, enqueue(OutPackets, NState));
-                {stop, Reason0, NChanState} ->
-                    stop(Reason0, State#ws_connection{chan_state = NChanState});
-                ignore ->
-                    {ok, State}
-            end
+            ?LOG(error, "~nParse failed for ~p~nStacktrace: ~p~nFrame data: ~p", [Reason, Stk, Data]),
+            self() ! {incoming, {error, Reason}},
+            {ok, State}
     end.
 
 %%--------------------------------------------------------------------
@@ -386,11 +392,17 @@ handle_incoming(Packet = ?PACKET(Type), SuccFun,
         {ok, OutPackets, NChanState} ->
             NState = State#ws_connection{chan_state= NChanState},
             SuccFun(enqueue(OutPackets, NState));
+        {wait_session_expire, Reason, NChanState} ->
+            ?LOG(debug, "Disconnect and wait for session to expire due to ~p", [Reason]),
+            disconnected(State#ws_connection{chan_state = NChanState});
+        {wait_session_expire, Reason, OutPackets, NChanState} ->
+            ?LOG(debug, "Disconnect and wait for session to expire due to ~p", [Reason]),
+            disconnected(enqueue(OutPackets, State#ws_connection{chan_state = NChanState}));
         {stop, Reason, NChanState} ->
-            stop(Reason, State#ws_connection{chan_state= NChanState});
-        {stop, Reason, OutPacket, NChanState} ->
+            stop(Reason, State#ws_connection{chan_state = NChanState});
+        {stop, Reason, OutPackets, NChanState} ->
             NState = State#ws_connection{chan_state= NChanState},
-            stop(Reason, enqueue(OutPacket, NState))
+            stop(Reason, enqueue(OutPackets, NState))
     end.
 
 %%--------------------------------------------------------------------

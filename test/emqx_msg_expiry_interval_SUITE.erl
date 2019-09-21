@@ -33,11 +33,13 @@ end_per_suite(_Config) ->
 
 t_message_expiry_interval_1(_) ->
 	ClientA = message_expiry_interval_init(),
-	[message_expiry_interval_exipred(ClientA, QoS) || QoS <- [0,1,2]].
+	[message_expiry_interval_exipred(ClientA, QoS) || QoS <- [0,1,2]],
+	emqtt:stop(ClientA).
 
 t_message_expiry_interval_2(_) ->
 	ClientA = message_expiry_interval_init(),
-	[message_expiry_interval_not_exipred(ClientA, QoS) || QoS <- [0,1,2]].
+	[message_expiry_interval_not_exipred(ClientA, QoS) || QoS <- [0,1,2]],
+	emqtt:stop(ClientA).
 
 message_expiry_interval_init() ->
 	{ok, ClientA} = emqtt:start_link([{proto_ver,v5}, {client_id, <<"client-a">>}, {clean_start, false},{properties, #{'Session-Expiry-Interval' => 360}}]),
@@ -53,7 +55,7 @@ message_expiry_interval_exipred(ClientA, QoS) ->
 	ct:pal("~p ~p", [?FUNCTION_NAME, QoS]),
 	%% publish to t/a and waiting for the message expired
 	emqtt:publish(ClientA, <<"t/a">>, #{'Message-Expiry-Interval' => 1}, <<"this will be purged in 1s">>, [{qos, QoS}]),
-	ct:sleep(1000),
+	ct:sleep(1500),
 
 	%% resume the session for client-b
 	{ok, ClientB1} = emqtt:start_link([{proto_ver,v5}, {client_id, <<"client-b">>}, {clean_start, false},{properties, #{'Session-Expiry-Interval' => 360}}]),

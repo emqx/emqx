@@ -344,35 +344,35 @@ t_compile_rule(_) ->
     {deny, all} = compile({deny, all}).
 
 t_match_rule(_) ->
-    Client1 = #{zone => external,
-                client_id => <<"testClient">>,
-                username => <<"TestUser">>,
-                peername => {{127,0,0,1}, 2948}
-               },
-    Client2 = #{zone => external,
-                client_id => <<"testClient">>,
-                username => <<"TestUser">>,
-                peername => {{192,168,0,10}, 3028}
-               },
-    {matched, allow} = match(Client1, <<"Test/Topic">>, {allow, all}),
-    {matched, deny} = match(Client1, <<"Test/Topic">>, {deny, all}),
-    {matched, allow} = match(Client1, <<"Test/Topic">>,
+    ClientInfo1 = #{zone => external,
+                    client_id => <<"testClient">>,
+                    username => <<"TestUser">>,
+                    peerhost => {127,0,0,1}
+                   },
+    ClientInfo2 = #{zone => external,
+                    client_id => <<"testClient">>,
+                    username => <<"TestUser">>,
+                    peerhost => {192,168,0,10}
+                   },
+    {matched, allow} = match(ClientInfo1, <<"Test/Topic">>, {allow, all}),
+    {matched, deny} = match(ClientInfo1, <<"Test/Topic">>, {deny, all}),
+    {matched, allow} = match(ClientInfo1, <<"Test/Topic">>,
                              compile({allow, {ipaddr, "127.0.0.1"}, subscribe, ["$SYS/#", "#"]})),
-    {matched, allow} = match(Client2, <<"Test/Topic">>,
+    {matched, allow} = match(ClientInfo2, <<"Test/Topic">>,
                              compile({allow, {ipaddr, "192.168.0.1/24"}, subscribe, ["$SYS/#", "#"]})),
-    {matched, allow} = match(Client1, <<"d/e/f/x">>,
+    {matched, allow} = match(ClientInfo1, <<"d/e/f/x">>,
                              compile({allow, {user, "TestUser"}, subscribe, ["a/b/c", "d/e/f/#"]})),
-    nomatch = match(Client1, <<"d/e/f/x">>, compile({allow, {user, "admin"}, pubsub, ["d/e/f/#"]})),
-    {matched, allow} = match(Client1, <<"testTopics/testClient">>,
+    nomatch = match(ClientInfo1, <<"d/e/f/x">>, compile({allow, {user, "admin"}, pubsub, ["d/e/f/#"]})),
+    {matched, allow} = match(ClientInfo1, <<"testTopics/testClient">>,
                              compile({allow, {client, "testClient"}, publish, ["testTopics/testClient"]})),
-    {matched, allow} = match(Client1, <<"clients/testClient">>, compile({allow, all, pubsub, ["clients/%c"]})),
+    {matched, allow} = match(ClientInfo1, <<"clients/testClient">>, compile({allow, all, pubsub, ["clients/%c"]})),
     {matched, allow} = match(#{username => <<"user2">>}, <<"users/user2/abc/def">>,
                              compile({allow, all, subscribe, ["users/%u/#"]})),
-    {matched, deny} = match(Client1, <<"d/e/f">>, compile({deny, all, subscribe, ["$SYS/#", "#"]})),
+    {matched, deny} = match(ClientInfo1, <<"d/e/f">>, compile({deny, all, subscribe, ["$SYS/#", "#"]})),
     Rule = compile({allow, {'and', [{ipaddr, "127.0.0.1"}, {user, <<"WrongUser">>}]}, publish, <<"Topic">>}),
-    nomatch = match(Client1, <<"Topic">>, Rule),
+    nomatch = match(ClientInfo1, <<"Topic">>, Rule),
     AndRule = compile({allow, {'and', [{ipaddr, "127.0.0.1"}, {user, <<"TestUser">>}]}, publish, <<"Topic">>}),
-    {matched, allow} = match(Client1, <<"Topic">>, AndRule),
+    {matched, allow} = match(ClientInfo1, <<"Topic">>, AndRule),
     OrRule = compile({allow, {'or', [{ipaddr, "127.0.0.1"}, {user, <<"WrongUser">>}]}, publish, ["Topic"]}),
-    {matched, allow} = match(Client1, <<"Topic">>, OrRule).
+    {matched, allow} = match(ClientInfo1, <<"Topic">>, OrRule).
 
