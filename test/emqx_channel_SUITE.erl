@@ -293,6 +293,7 @@ with_channel(TestFun) ->
                  expiry_interval => 60
                 },
     ClientInfo = #{zone => <<"external">>,
+                   protocol => mqtt,
                    peerhost => {127,0,0,1},
                    client_id => <<"clientid">>,
                    username => <<"username">>,

@@ -181,6 +181,7 @@ websocket_init([Req, Opts]) ->
                                     sockname  => Sockname,
                                     peercert  => Peercert,
                                     ws_cookie => WsCookie,
+                                    protocol  => mqtt,
                                     conn_mod  => ?MODULE
                                    }, Opts),
     Zone = proplists:get_value(zone, Opts),

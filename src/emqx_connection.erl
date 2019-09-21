@@ -180,6 +180,7 @@ init({Transport, RawSocket, Options}) ->
     ChanState = emqx_channel:init(#{peername => Peername,
                                     sockname => Sockname,
                                     peercert => Peercert,
+                                    protocol => mqtt,
                                     conn_mod => ?MODULE}, Options),
     IdleTimout = emqx_zone:get_env(Zone, idle_timeout, 30000),
     State = #connection{transport    = Transport,
