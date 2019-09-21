@@ -140,7 +140,7 @@
 %%--------------------------------------------------------------------
 
 %% @doc Init a session.
--spec(init(emqx_types:client(), Options :: map()) -> session()).
+-spec(init(emqx_types:client_info(), emqx_types:conninfo()) -> session()).
 init(#{zone := Zone}, #{receive_maximum := MaxInflight}) ->
     #session{max_subscriptions = get_env(Zone, max_subscriptions, 0),
              subscriptions     = #{},
@@ -252,14 +252,14 @@ redeliver(Session = #session{inflight = Inflight}) ->
 %% Client -> Broker: SUBSCRIBE
 %%--------------------------------------------------------------------
 
--spec(subscribe(emqx_types:client(), emqx_types:topic(), emqx_types:subopts(), session())
+-spec(subscribe(emqx_types:client_info(), emqx_types:topic(), emqx_types:subopts(), session())
       -> {ok, session()} | {error, emqx_types:reason_code()}).
-subscribe(Client, TopicFilter, SubOpts, Session = #session{subscriptions = Subs}) ->
+subscribe(ClientInfo, TopicFilter, SubOpts, Session = #session{subscriptions = Subs}) ->
     case is_subscriptions_full(Session)
         andalso (not maps:is_key(TopicFilter, Subs)) of
         true  -> {error, ?RC_QUOTA_EXCEEDED};
         false ->
-            do_subscribe(Client, TopicFilter, SubOpts, Session)
+            do_subscribe(ClientInfo, TopicFilter, SubOpts, Session)
     end.
 
 is_subscriptions_full(#session{max_subscriptions = 0}) ->
@@ -285,13 +285,13 @@ do_subscribe(Client = #{client_id := ClientId}, TopicFilter, SubOpts,
 %% Client -> Broker: UNSUBSCRIBE
 %%--------------------------------------------------------------------
 
--spec(unsubscribe(emqx_types:client(), emqx_types:topic(), session())
+-spec(unsubscribe(emqx_types:client_info(), emqx_types:topic(), session())
       -> {ok, session()} | {error, emqx_types:reason_code()}).
-unsubscribe(Client, TopicFilter, Session = #session{subscriptions = Subs}) ->
+unsubscribe(ClientInfo, TopicFilter, Session = #session{subscriptions = Subs}) ->
     case maps:find(TopicFilter, Subs) of
         {ok, SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
-            ok = emqx_hooks:run('session.unsubscribed', [Client, TopicFilter, SubOpts]),
+            ok = emqx_hooks:run('session.unsubscribed', [ClientInfo, TopicFilter, SubOpts]),
             {ok, Session#session{subscriptions = maps:remove(TopicFilter, Subs)}};
         error ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}

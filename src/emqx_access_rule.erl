@@ -86,23 +86,23 @@ bin(B) when is_binary(B) ->
     B.
 
 %% @doc Match access rule
--spec(match(emqx_types:client(), emqx_types:topic(), rule())
+-spec(match(emqx_types:client_info(), emqx_types:topic(), rule())
       -> {matched, allow} | {matched, deny} | nomatch).
-match(_Client, _Topic, {AllowDeny, all}) when ?ALLOW_DENY(AllowDeny) ->
+match(_ClientInfo, _Topic, {AllowDeny, all}) when ?ALLOW_DENY(AllowDeny) ->
     {matched, AllowDeny};
-match(Client, Topic, {AllowDeny, Who, _PubSub, TopicFilters})
+match(ClientInfo, Topic, {AllowDeny, Who, _PubSub, TopicFilters})
     when ?ALLOW_DENY(AllowDeny) ->
-    case match_who(Client, Who)
-         andalso match_topics(Client, Topic, TopicFilters) of
+    case match_who(ClientInfo, Who)
+         andalso match_topics(ClientInfo, Topic, TopicFilters) of
         true  -> {matched, AllowDeny};
         false -> nomatch
     end.
 
-match_who(_Client, all) ->
+match_who(_ClientInfo, all) ->
     true;
-match_who(_Client, {user, all}) ->
+match_who(_ClientInfo, {user, all}) ->
     true;
-match_who(_Client, {client, all}) ->
+match_who(_ClientInfo, {client, all}) ->
     true;
 match_who(#{client_id := ClientId}, {client, ClientId}) ->
     true;
@@ -112,44 +112,44 @@ match_who(#{peerhost := undefined}, {ipaddr, _Tup}) ->
     false;
 match_who(#{peerhost := IP}, {ipaddr, CIDR}) ->
     esockd_cidr:match(IP, CIDR);
-match_who(Client, {'and', Conds}) when is_list(Conds) ->
+match_who(ClientInfo, {'and', Conds}) when is_list(Conds) ->
     lists:foldl(fun(Who, Allow) ->
-                  match_who(Client, Who) andalso Allow
+                  match_who(ClientInfo, Who) andalso Allow
                 end, true, Conds);
-match_who(Client, {'or', Conds}) when is_list(Conds) ->
+match_who(ClientInfo, {'or', Conds}) when is_list(Conds) ->
     lists:foldl(fun(Who, Allow) ->
-                  match_who(Client, Who) orelse Allow
+                  match_who(ClientInfo, Who) orelse Allow
                 end, false, Conds);
-match_who(_Client, _Who) ->
+match_who(_ClientInfo, _Who) ->
     false.
 
-match_topics(_Client, _Topic, []) ->
+match_topics(_ClientInfo, _Topic, []) ->
     false;
-match_topics(Client, Topic, [{pattern, PatternFilter}|Filters]) ->
-    TopicFilter = feed_var(Client, PatternFilter),
+match_topics(ClientInfo, Topic, [{pattern, PatternFilter}|Filters]) ->
+    TopicFilter = feed_var(ClientInfo, PatternFilter),
     match_topic(emqx_topic:words(Topic), TopicFilter)
-        orelse match_topics(Client, Topic, Filters);
-match_topics(Client, Topic, [TopicFilter|Filters]) ->
+        orelse match_topics(ClientInfo, Topic, Filters);
+match_topics(ClientInfo, Topic, [TopicFilter|Filters]) ->
    match_topic(emqx_topic:words(Topic), TopicFilter)
-       orelse match_topics(Client, Topic, Filters).
+       orelse match_topics(ClientInfo, Topic, Filters).
 
 match_topic(Topic, {eq, TopicFilter}) ->
     Topic == TopicFilter;
 match_topic(Topic, TopicFilter) ->
     emqx_topic:match(Topic, TopicFilter).
 
-feed_var(Client, Pattern) ->
-    feed_var(Client, Pattern, []).
-feed_var(_Client, [], Acc) ->
+feed_var(ClientInfo, Pattern) ->
+    feed_var(ClientInfo, Pattern, []).
+feed_var(_ClientInfo, [], Acc) ->
     lists:reverse(Acc);
-feed_var(Client = #{client_id := undefined}, [<<"%c">>|Words], Acc) ->
-    feed_var(Client, Words, [<<"%c">>|Acc]);
-feed_var(Client = #{client_id := ClientId}, [<<"%c">>|Words], Acc) ->
-    feed_var(Client, Words, [ClientId |Acc]);
-feed_var(Client = #{username := undefined}, [<<"%u">>|Words], Acc) ->
-    feed_var(Client, Words, [<<"%u">>|Acc]);
-feed_var(Client = #{username := Username}, [<<"%u">>|Words], Acc) ->
-    feed_var(Client, Words, [Username|Acc]);
-feed_var(Client, [W|Words], Acc) ->
-    feed_var(Client, Words, [W|Acc]).
+feed_var(ClientInfo = #{client_id := undefined}, [<<"%c">>|Words], Acc) ->
+    feed_var(ClientInfo, Words, [<<"%c">>|Acc]);
+feed_var(ClientInfo = #{client_id := ClientId}, [<<"%c">>|Words], Acc) ->
+    feed_var(ClientInfo, Words, [ClientId |Acc]);
+feed_var(ClientInfo = #{username := undefined}, [<<"%u">>|Words], Acc) ->
+    feed_var(ClientInfo, Words, [<<"%u">>|Acc]);
+feed_var(ClientInfo = #{username := Username}, [<<"%u">>|Words], Acc) ->
+    feed_var(ClientInfo, Words, [Username|Acc]);
+feed_var(ClientInfo, [W|Words], Acc) ->
+    feed_var(ClientInfo, Words, [W|Acc]).
 

@@ -162,7 +162,7 @@ set_chan_stats(ClientId, ChanPid, Stats) ->
     ok.
 
 %% @doc Open a session.
--spec(open_session(boolean(), emqx_types:client(), map())
+-spec(open_session(boolean(), emqx_types:client_info(), emqx_types:conninfo())
       -> {ok, #{session  := emqx_session:session(),
                 present  := boolean(),
                 pendings => list()}}

@@ -28,7 +28,7 @@
 %% APIs
 %%--------------------------------------------------------------------
 
--spec(authenticate(emqx_types:client())
+-spec(authenticate(emqx_types:client_info())
       -> {ok, #{auth_result := emqx_types:auth_result(),
                 anonymous := boolean}} | {error, term()}).
 authenticate(Client) ->

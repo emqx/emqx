@@ -240,7 +240,7 @@ validate_topic_filters(TopicFilters) ->
       end, TopicFilters).
 
 %% @doc Publish Packet to Message.
--spec(to_message(emqx_types:client(), emqx_ypes:packet()) -> emqx_types:message()).
+-spec(to_message(emqx_types:client_info(), emqx_ypes:packet()) -> emqx_types:message()).
 to_message(#{client_id := ClientId, username := Username, peerhost := PeerHost},
            #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                                                        retain = Retain,

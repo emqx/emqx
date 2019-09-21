@@ -73,7 +73,7 @@ start_link() ->
 -spec(stop() -> ok).
 stop() -> gen_server:stop(?MODULE).
 
--spec(check(emqx_types:client()) -> boolean()).
+-spec(check(emqx_types:client_info()) -> boolean()).
 check(#{client_id := ClientId,
         username  := Username,
         peerhost  := IPAddr}) ->

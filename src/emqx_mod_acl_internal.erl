@@ -61,7 +61,7 @@ all_rules() ->
 %%--------------------------------------------------------------------
 
 %% @doc Check ACL
--spec(check_acl(emqx_types:client(), emqx_types:pubsub(), emqx_topic:topic(),
+-spec(check_acl(emqx_types:client_info(), emqx_types:pubsub(), emqx_topic:topic(),
                 emqx_access_rule:acl_result(), acl_rules())
       -> {ok, allow} | {ok, deny} | ok).
 check_acl(Client, PubSub, Topic, _AclResult, Rules) ->

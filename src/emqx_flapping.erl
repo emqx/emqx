@@ -69,7 +69,7 @@ start_link() ->
 stop() -> gen_server:stop(?MODULE).
 
 %% @doc Check flapping when a MQTT client connected.
--spec(check(emqx_types:client()) -> boolean()).
+-spec(check(emqx_types:client_info()) -> boolean()).
 check(#{client_id := ClientId}) ->
     check(ClientId, get_policy()).
 
@@ -81,7 +81,7 @@ check(ClientId, #{banned_interval := Interval}) ->
     end.
 
 %% @doc Detect flapping when a MQTT client disconnected.
--spec(detect(emqx_types:client()) -> boolean()).
+-spec(detect(emqx_types:client_info()) -> boolean()).
 detect(Client) -> detect(Client, get_policy()).
 
 detect(#{client_id := ClientId, peerhost := PeerHost},
