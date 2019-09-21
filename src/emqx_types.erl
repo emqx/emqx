@@ -103,6 +103,7 @@
                       atom()   => term()
                      }).
 -type(client() :: #{zone         := zone(),
+                    protocol     := protocol(),
                     peerhost     := peerhost(),
                     client_id    := client_id(),
                     username     := username(),
@@ -121,7 +122,7 @@
 -type(password() :: maybe(binary())).
 -type(peerhost() :: inet:ip_address()).
 -type(peername() :: {inet:ip_address(), inet:port_number()}).
--type(protocol() :: mqtt | 'mqtt-sn' | coap | stomp | none | atom()).
+-type(protocol() :: mqtt | 'mqtt-sn' | coap | lwm2m | stomp | none | atom()).
 -type(auth_result() :: success
                      | client_identifier_not_valid
                      | bad_username_or_password
