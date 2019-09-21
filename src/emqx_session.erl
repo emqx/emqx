@@ -463,12 +463,17 @@ handle_call(Req, _From, State) ->
 
 %% SUBSCRIBE:
 handle_cast({subscribe, FromPid, {PacketId, _Properties, TopicFilters}},
-            State = #state{client_id = ClientId, username = Username, subscriptions = Subscriptions}) ->
+            State = #state{zone = Zone, client_id = ClientId, username = Username, subscriptions = Subscriptions}) ->
+    MaxSub = get_env(Zone, max_subscriptions, 0),
     {ReasonCodes, Subscriptions1} =
         lists:foldr(
-            fun ({Topic, SubOpts = #{qos := QoS, rc := RC}}, {RcAcc, SubMap}) when
-                      RC == ?QOS_0; RC == ?QOS_1; RC == ?QOS_2 ->
-                    {[QoS|RcAcc], do_subscribe(ClientId, Username, Topic, SubOpts, SubMap)};
+            fun ({Topic, SubOpts = #{qos := QoS, rc := RC}}, {RcAcc, SubMap}) when ?IS_QOS(RC) ->
+                    case exceeded_subscription_quota(MaxSub, SubMap) of
+                        true ->
+                            {[?RC_QUOTA_EXCEEDED|RcAcc], SubMap};
+                        false ->
+                            {[QoS|RcAcc], do_subscribe(ClientId, Username, Topic, SubOpts, SubMap)}
+                    end;
                 ({_Topic, #{rc := RC}}, {RcAcc, SubMap}) ->
                     {[RC|RcAcc], SubMap}
             end, {[], Subscriptions}, TopicFilters),
@@ -1141,3 +1146,9 @@ do_subscribe(ClientId, Username, Topic, SubOpts, SubMap) ->
             ok = emqx_hooks:run('session.subscribed', [#{client_id => ClientId, username => Username}, Topic, SubOpts#{first => true}]),
             maps:put(Topic, SubOpts, SubMap)
     end.
+
+exceeded_subscription_quota(0, SubMap) ->
+    false;
+exceeded_subscription_quota(Max, SubMap) ->
+    Max > maps:size(SubMap).
+
