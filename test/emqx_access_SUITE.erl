@@ -113,7 +113,7 @@ t_reload_acl(_) ->
 
 t_check_acl_1(_) ->
     Client = #{zone => external,
-               client_id => <<"client1">>,
+               clientid => <<"client1">>,
                username => <<"testuser">>
               },
     allow = ?AC:check_acl(Client, subscribe, <<"users/testuser/1">>),
@@ -124,14 +124,14 @@ t_check_acl_1(_) ->
 
 t_check_acl_2(_) ->
     Client = #{zone => external,
-               client_id => <<"client2">>,
+               clientid => <<"client2">>,
                username => <<"xyz">>
               },
     deny = ?AC:check_acl(Client, subscribe, <<"a/b/c">>).
 
 t_acl_cache_basic(_) ->
     Client = #{zone => external,
-               client_id => <<"client1">>,
+               clientid => <<"client1">>,
                username => <<"testuser">>
               },
     not_found = ?CACHE:get_acl_cache(subscribe, <<"users/testuser/1">>),
@@ -146,7 +146,7 @@ t_acl_cache_basic(_) ->
 t_acl_cache_expiry(_) ->
     application:set_env(emqx, acl_cache_ttl, 100),
     Client = #{zone => external,
-               client_id => <<"client1">>,
+               clientid => <<"client1">>,
                username => <<"testuser">>
               },
     allow = ?AC:check_acl(Client, subscribe, <<"clients/client1">>),
@@ -157,7 +157,7 @@ t_acl_cache_expiry(_) ->
 t_acl_cache_full(_) ->
     application:set_env(emqx, acl_cache_max_size, 1),
     Client = #{zone => external,
-               client_id => <<"client1">>,
+               clientid => <<"client1">>,
                username => <<"testuser">>
               },
     allow = ?AC:check_acl(Client, subscribe, <<"users/testuser/1">>),
@@ -173,7 +173,7 @@ t_acl_cache_cleanup(_) ->
     application:set_env(emqx, acl_cache_ttl, 100),
     application:set_env(emqx, acl_cache_max_size, 2),
     Client = #{zone => external,
-               client_id => <<"client1">>,
+               clientid => <<"client1">>,
                username => <<"testuser">>
               },
     allow = ?AC:check_acl(Client, subscribe, <<"users/testuser/1">>),
@@ -345,12 +345,12 @@ t_compile_rule(_) ->
 
 t_match_rule(_) ->
     ClientInfo1 = #{zone => external,
-                    client_id => <<"testClient">>,
+                    clientid => <<"testClient">>,
                     username => <<"TestUser">>,
                     peerhost => {127,0,0,1}
                    },
     ClientInfo2 = #{zone => external,
-                    client_id => <<"testClient">>,
+                    clientid => <<"testClient">>,
                     username => <<"TestUser">>,
                     peerhost => {192,168,0,10}
                    },

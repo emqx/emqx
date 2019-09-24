@@ -32,8 +32,8 @@
              ]).
 
 -export_type([ conninfo/0
-             , client_info/0
-             , client_id/0
+             , clientinfo/0
+             , clientid/0
              , username/0
              , password/0
              , peerhost/0
@@ -78,6 +78,7 @@
              ]).
 
 -export_type([ caps/0
+             , attrs/0
              , infos/0
              , stats/0
              ]).
@@ -97,28 +98,39 @@
 
 -type(socktype() :: tcp | udp | ssl | proxy | atom()).
 -type(conninfo() :: #{socktype := socktype(),
-                      peername := peername(),
                       sockname := peername(),
+                      peername := peername(),
                       peercert := esockd_peercert:peercert(),
                       conn_mod := module(),
-                      atom()   => term()
+                      proto_name := binary(),
+                      proto_ver := ver(),
+                      clean_start := boolean(),
+                      clientid := clientid(),
+                      username := username(),
+                      conn_props := properties(),
+                      connected := boolean(),
+                      connected_at := erlang:timestamp(),
+                      keepalive := 0..16#FFFF,
+                      receive_maximum := non_neg_integer(),
+                      expiry_interval := non_neg_integer(),
+                      atom() => term()
                      }).
--type(client_info() :: #{zone         := zone(),
-                         protocol     := protocol(),
-                         peerhost     := peerhost(),
-                         client_id    := client_id(),
-                         username     := username(),
-                         peercert     := esockd_peercert:peercert(),
-                         is_bridge    := boolean(),
-                         is_superuser := boolean(),
-                         mountpoint   := maybe(binary()),
-                         ws_cookie    := maybe(list()),
-                         password     => maybe(binary()),
-                         auth_result  => auth_result(),
-                         anonymous    => boolean(),
-                         atom()       => term()
-                        }).
--type(client_id() :: binary()|atom()).
+-type(clientinfo() :: #{zone         := zone(),
+                        protocol     := protocol(),
+                        peerhost     := peerhost(),
+                        clientid     := clientid(),
+                        username     := username(),
+                        peercert     := esockd_peercert:peercert(),
+                        is_bridge    := boolean(),
+                        is_superuser := boolean(),
+                        mountpoint   := maybe(binary()),
+                        ws_cookie    := maybe(list()),
+                        password     => maybe(binary()),
+                        auth_result  => auth_result(),
+                        anonymous    => boolean(),
+                        atom()       => term()
+                       }).
+-type(clientid() :: binary()|atom()).
 -type(username() :: maybe(binary())).
 -type(password() :: maybe(binary())).
 -type(peerhost() :: inet:ip_address()).
@@ -167,6 +179,7 @@
 -type(command() :: #command{}).
 
 -type(caps() :: emqx_mqtt_caps:caps()).
+-type(attrs() :: #{atom() => term()}).
 -type(infos() :: #{atom() => term()}).
 -type(stats() :: #{atom() => non_neg_integer()|stats()}).
 

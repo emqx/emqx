@@ -88,8 +88,8 @@ on_client_disconnected(ClientInfo, Reason, ConnInfo, Env) ->
             ?LOG(error, "Failed to encode 'disconnected' presence: ~p", [Presence])
     end.
 
-clientid(#{client_id := undefined}, #{client_id := ClientId}) -> ClientId;
-clientid(#{client_id := ClientId}, _ConnInfo) -> ClientId.
+clientid(#{clientid := undefined}, #{clientid := ClientId}) -> ClientId;
+clientid(#{clientid := ClientId}, _ConnInfo) -> ClientId.
 
 username(#{username := undefined}, #{username := Username}) -> Username;
 username(#{username := Username}, _ConnInfo) -> Username.

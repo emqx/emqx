@@ -38,7 +38,7 @@
 
 %% Configs
 -export([ set_metadata_peername/1
-        , set_metadata_client_id/1
+        , set_metadata_clientid/1
         , set_proc_metadata/1
         , set_primary_log_level/1
         , set_log_handler_level/2
@@ -121,11 +121,11 @@ critical(Format, Args) ->
 critical(Metadata, Format, Args) when is_map(Metadata) ->
     logger:critical(Format, Args, Metadata).
 
--spec(set_metadata_client_id(emqx_types:client_id()) -> ok).
-set_metadata_client_id(<<>>) ->
+-spec(set_metadata_clientid(emqx_types:clientid()) -> ok).
+set_metadata_clientid(<<>>) ->
     ok;
-set_metadata_client_id(ClientId) ->
-    set_proc_metadata(#{client_id => ClientId}).
+set_metadata_clientid(ClientId) ->
+    set_proc_metadata(#{clientid => ClientId}).
 
 -spec(set_metadata_peername(peername_str()) -> ok).
 set_metadata_peername(Peername) ->

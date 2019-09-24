@@ -86,7 +86,7 @@ bin(B) when is_binary(B) ->
     B.
 
 %% @doc Match access rule
--spec(match(emqx_types:client_info(), emqx_types:topic(), rule())
+-spec(match(emqx_types:clientinfo(), emqx_types:topic(), rule())
       -> {matched, allow} | {matched, deny} | nomatch).
 match(_ClientInfo, _Topic, {AllowDeny, all}) when ?ALLOW_DENY(AllowDeny) ->
     {matched, AllowDeny};
@@ -104,7 +104,7 @@ match_who(_ClientInfo, {user, all}) ->
     true;
 match_who(_ClientInfo, {client, all}) ->
     true;
-match_who(#{client_id := ClientId}, {client, ClientId}) ->
+match_who(#{clientid := ClientId}, {client, ClientId}) ->
     true;
 match_who(#{username := Username}, {user, Username}) ->
     true;
@@ -142,9 +142,9 @@ feed_var(ClientInfo, Pattern) ->
     feed_var(ClientInfo, Pattern, []).
 feed_var(_ClientInfo, [], Acc) ->
     lists:reverse(Acc);
-feed_var(ClientInfo = #{client_id := undefined}, [<<"%c">>|Words], Acc) ->
+feed_var(ClientInfo = #{clientid := undefined}, [<<"%c">>|Words], Acc) ->
     feed_var(ClientInfo, Words, [<<"%c">>|Acc]);
-feed_var(ClientInfo = #{client_id := ClientId}, [<<"%c">>|Words], Acc) ->
+feed_var(ClientInfo = #{clientid := ClientId}, [<<"%c">>|Words], Acc) ->
     feed_var(ClientInfo, Words, [ClientId |Acc]);
 feed_var(ClientInfo = #{username := undefined}, [<<"%u">>|Words], Acc) ->
     feed_var(ClientInfo, Words, [<<"%u">>|Acc]);

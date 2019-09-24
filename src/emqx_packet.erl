@@ -181,16 +181,16 @@ check_proto_ver(#mqtt_packet_connect{proto_ver  = Ver,
 
 %% MQTT3.1 does not allow null clientId
 check_client_id(#mqtt_packet_connect{proto_ver = ?MQTT_PROTO_V3,
-                                     client_id = <<>>}, _Opts) ->
+                                     clientid  = <<>>}, _Opts) ->
     {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID};
 %% Issue#599: Null clientId and clean_start = false
-check_client_id(#mqtt_packet_connect{client_id   = <<>>,
+check_client_id(#mqtt_packet_connect{clientid    = <<>>,
                                      clean_start = false}, _Opts) ->
     {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID};
-check_client_id(#mqtt_packet_connect{client_id   = <<>>,
+check_client_id(#mqtt_packet_connect{clientid    = <<>>,
                                      clean_start = true}, _Opts) ->
     ok;
-check_client_id(#mqtt_packet_connect{client_id = ClientId},
+check_client_id(#mqtt_packet_connect{clientid = ClientId},
                 _Opts = #{max_clientid_len := MaxLen}) ->
     case (1 =< (Len = byte_size(ClientId))) andalso (Len =< MaxLen) of
         true  -> ok;
@@ -240,8 +240,8 @@ validate_topic_filters(TopicFilters) ->
       end, TopicFilters).
 
 %% @doc Publish Packet to Message.
--spec(to_message(emqx_types:client_info(), emqx_ypes:packet()) -> emqx_types:message()).
-to_message(#{client_id := ClientId, username := Username, peerhost := PeerHost},
+-spec(to_message(emqx_types:clientinfo(), emqx_ypes:packet()) -> emqx_types:message()).
+to_message(#{clientid := ClientId, username := Username, peerhost := PeerHost},
            #mqtt_packet{header   = #mqtt_packet_header{type   = ?PUBLISH,
                                                        retain = Retain,
                                                        qos    = QoS,
@@ -257,7 +257,7 @@ to_message(#{client_id := ClientId, username := Username, peerhost := PeerHost},
 -spec(will_msg(#mqtt_packet_connect{}) -> emqx_types:message()).
 will_msg(#mqtt_packet_connect{will_flag = false}) ->
     undefined;
-will_msg(#mqtt_packet_connect{client_id    = ClientId,
+will_msg(#mqtt_packet_connect{clientid     = ClientId,
                               username     = Username,
                               will_retain  = Retain,
                               will_qos     = QoS,
@@ -304,7 +304,7 @@ format_variable(#mqtt_packet_connect{
                  will_flag    = WillFlag,
                  clean_start  = CleanStart,
                  keepalive    = KeepAlive,
-                 client_id    = ClientId,
+                 clientid     = ClientId,
                  will_topic   = WillTopic,
                  will_payload = WillPayload,
                  username     = Username,
