@@ -219,7 +219,7 @@
           will_retain  = false,
           keepalive    = 0,
           properties   = undefined,
-          client_id    = <<>>,
+          clientid     = <<>>,
           will_props   = undefined,
           will_topic   = undefined,
           will_payload = undefined,
