@@ -116,17 +116,19 @@ cancel_timer(_) -> ok.
 proc_name(Mod, Id) ->
     list_to_atom(lists:concat([Mod, "_", Id])).
 
--spec(proc_stats() -> list()).
-proc_stats() ->
-    proc_stats(self()).
+%% Get Proc's Stats.
+-spec(proc_stats() -> emqx_types:stats()).
+proc_stats() -> proc_stats(self()).
 
--spec(proc_stats(pid()) -> list()).
+-spec(proc_stats(pid()) -> emqx_types:stats()).
 proc_stats(Pid) ->
-    case process_info(Pid, [message_queue_len, heap_size,
-                            total_heap_size, reductions, memory]) of
+    case process_info(Pid, [message_queue_len,
+                            heap_size,
+                            total_heap_size,
+                            reductions,
+                            memory]) of
         undefined -> [];
-        [{message_queue_len, Len}|Stats] ->
-            [{mailbox_len, Len}|Stats]
+        ProcStats -> ProcStats
     end.
 
 %% @doc Drain delivers from the channel's mailbox.
