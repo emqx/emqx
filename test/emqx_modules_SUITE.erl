@@ -91,7 +91,7 @@ recv_and_check_presence(ClientId, Presence) ->
         <<"disconnected">> ->
             ?assertMatch(#{clientid := <<"clientid">>,
                            username := <<"username">>,
-                           reason := <<"closed">>}, emqx_json:decode(Payload, [{labels, atom}, return_maps]))
+                           reason := <<"normal">>}, emqx_json:decode(Payload, [{labels, atom}, return_maps]))
     end.
 
 %% Test case for emqx_mod_subscription

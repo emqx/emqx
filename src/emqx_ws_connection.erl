@@ -92,10 +92,11 @@ info(chan_state, #state{chan_state = ChanState}) ->
 stats(WsPid) when is_pid(WsPid) ->
     call(WsPid, stats);
 stats(#state{chan_state = ChanState}) ->
-    [{sock_stats, emqx_pd:get_counters(?SOCK_STATS)},
-     {conn_stats, emqx_pd:get_counters(?CONN_STATS)},
-     {chan_stats, emqx_channel:stats(ChanState)},
-     {proc_stats, emqx_misc:proc_stats()}].
+    SockStats = emqx_pd:get_counters(?SOCK_STATS),
+    ConnStats = emqx_pd:get_counters(?CONN_STATS),
+    ChanStats = emqx_channel:stats(ChanState),
+    ProcStats = emqx_misc:proc_stats(),
+    lists:append([SockStats, ConnStats, ChanStats, ProcStats]).
 
 %% kick|discard|takeover
 -spec(call(pid(), Req :: term()) -> Reply :: term()).

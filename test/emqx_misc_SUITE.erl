@@ -87,7 +87,7 @@ t_proc_stats(_) ->
     Pid2 = spawn(fun() -> timer:sleep(100) end),
     Pid2 ! msg,
     timer:sleep(10),
-    ?assertMatch([{message_queue_len, 1}|_], emqx_misc:proc_stats(Pid2)).
+    ?assertMatch([{mailbox_len, 1}|_], emqx_misc:proc_stats(Pid2)).
 
 t_drain_deliver(_) ->
     self() ! {deliver, t1, m1},

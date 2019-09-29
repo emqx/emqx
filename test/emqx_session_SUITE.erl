@@ -170,17 +170,17 @@ deliver_args() ->
 
 info_args() ->
     oneof([subscriptions,
-           max_subscriptions,
+           subscriptions_max,
            upgrade_qos,
            inflight,
-           max_inflight,
+           inflight_max,
            retry_interval,
            mqueue_len,
-           max_mqueue,
+           mqueue_max,
            mqueue_dropped,
            next_pkt_id,
            awaiting_rel,
-           max_awaiting_rel,
+           awaiting_rel_max,
            await_rel_timeout,
            created_at
           ]).

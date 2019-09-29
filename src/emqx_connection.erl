@@ -139,8 +139,7 @@ stats(#state{transport  = Transport,
     ConnStats = emqx_pd:get_counters(?CONN_STATS),
     ChanStats = emqx_channel:stats(ChanState),
     ProcStats = emqx_misc:proc_stats(),
-    [{sock_stats, SockStats}, {conn_stats, ConnStats},
-     {chan_stats, ChanStats}, {proc_stats, ProcStats}].
+    lists:append([SockStats, ConnStats, ChanStats, ProcStats]).
 
 %% kick|discard|takeover
 -spec(call(pid(), Req :: term()) -> Reply :: term()).

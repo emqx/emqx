@@ -106,9 +106,9 @@
           will_timer   => will_message
          }).
 
--define(ATTR_KEYS, [conninfo, client, session]).
+-define(ATTR_KEYS, [conninfo, clientinfo, session]).
 
--define(INFO_KEYS, ?ATTR_KEYS ++ [conninfo, client, session, keepalive,
+-define(INFO_KEYS, ?ATTR_KEYS ++ [conninfo, clientinfo, session, keepalive,
                     will_msg, topic_aliases, alias_maximum, gc_state]).
 
 %%--------------------------------------------------------------------
@@ -125,7 +125,7 @@ info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 info(conninfo, #channel{conninfo = ConnInfo}) ->
     ConnInfo;
-info(client, #channel{clientinfo = ClientInfo}) ->
+info(clientinfo, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
 info(session, #channel{session = Session}) ->
     maybe_apply(fun emqx_session:info/1, Session);

@@ -74,7 +74,7 @@ t_handle_connect(_) ->
               {ok, ?CONNACK_PACKET(?RC_SUCCESS), Channel1}
                 = handle_in(?CONNECT_PACKET(ConnPkt), Channel),
               #{clientid := ClientId, username := Username}
-                = emqx_channel:info(client, Channel1),
+                = emqx_channel:info(clientinfo, Channel1),
               ?assertEqual(<<"clientid">>, ClientId),
               ?assertEqual(<<"username">>, Username)
       end).

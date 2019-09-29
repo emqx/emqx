@@ -128,7 +128,8 @@ proc_stats(Pid) ->
                             reductions,
                             memory]) of
         undefined -> [];
-        ProcStats -> ProcStats
+        [{message_queue_len, Len}|ProcStats] ->
+            [{mailbox_len, Len}|ProcStats]
     end.
 
 %% @doc Drain delivers from the channel's mailbox.
