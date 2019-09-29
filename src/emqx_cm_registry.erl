@@ -65,8 +65,8 @@ is_enabled() ->
     emqx:get_env(enable_channel_registry, true).
 
 %% @doc Register a global channel.
--spec(register_channel(emqx_types:client_id()
-                    | {emqx_types:client_id(), pid()}) -> ok).
+-spec(register_channel(emqx_types:clientid()
+                    | {emqx_types:clientid(), pid()}) -> ok).
 register_channel(ClientId) when is_binary(ClientId) ->
     register_channel({ClientId, self()});
 
@@ -77,8 +77,8 @@ register_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid) 
     end.
 
 %% @doc Unregister a global channel.
--spec(unregister_channel(emqx_types:client_id()
-                      | {emqx_types:client_id(), pid()}) -> ok).
+-spec(unregister_channel(emqx_types:clientid()
+                      | {emqx_types:clientid(), pid()}) -> ok).
 unregister_channel(ClientId) when is_binary(ClientId) ->
     unregister_channel({ClientId, self()});
 
@@ -89,7 +89,7 @@ unregister_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid
     end.
 
 %% @doc Lookup the global channels.
--spec(lookup_channels(emqx_types:client_id()) -> list(pid())).
+-spec(lookup_channels(emqx_types:clientid()) -> list(pid())).
 lookup_channels(ClientId) ->
     [ChanPid || #channel{pid = ChanPid} <- mnesia:dirty_read(?TAB, ClientId)].
 

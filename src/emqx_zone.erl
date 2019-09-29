@@ -19,6 +19,7 @@
 -behaviour(gen_server).
 
 -include("emqx.hrl").
+-include("emqx_mqtt.hrl").
 -include("logger.hrl").
 -include("types.hrl").
 
@@ -27,7 +28,10 @@
 %% APIs
 -export([start_link/0, stop/0]).
 
--export([ use_username_as_clientid/1
+-export([ frame_options/1
+        , mqtt_strict_mode/1
+        , max_packet_size/1
+        , use_username_as_clientid/1
         , enable_stats/1
         , enable_acl/1
         , enable_ban/1
@@ -39,6 +43,8 @@
         , force_gc_policy/1
         , force_shutdown_policy/1
         ]).
+
+-export([check_oom/2]).
 
 -export([ get_env/2
         , get_env/3
@@ -75,6 +81,20 @@
 -spec(start_link() -> startlink_ret()).
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+-spec(frame_options(zone()) -> emqx_frame:options()).
+frame_options(Zone) ->
+    #{strict_mode => mqtt_strict_mode(Zone),
+      max_size    => max_packet_size(Zone)
+     }.
+
+-spec(mqtt_strict_mode(zone()) -> boolean()).
+mqtt_strict_mode(Zone) ->
+    get_env(Zone, mqtt_strict_mode, false).
+
+-spec(max_packet_size(zone()) -> integer()).
+max_packet_size(Zone) ->
+    get_env(Zone, max_packet_size, ?MAX_PACKET_SIZE).
 
 -spec(use_username_as_clientid(zone()) -> boolean()).
 use_username_as_clientid(Zone) ->
@@ -119,6 +139,19 @@ force_gc_policy(Zone) ->
 -spec(force_shutdown_policy(zone()) -> maybe(emqx_oom:opts())).
 force_shutdown_policy(Zone) ->
     get_env(Zone, force_shutdown_policy).
+
+-spec(check_oom(zone(), fun()) -> ok | term()).
+check_oom(Zone, Action) ->
+    case emqx_zone:force_shutdown_policy(Zone) of
+        undefined -> ok;
+        Policy -> do_check_oom(emqx_oom:init(Policy), Action)
+    end.
+
+do_check_oom(OomPolicy, Action) ->
+    case emqx_oom:check(OomPolicy) of
+        ok -> ok;
+        Shutdown -> Action(Shutdown)
+    end.
 
 -spec(get_env(maybe(zone()), atom()) -> maybe(term())).
 get_env(undefined, Key) -> emqx:get_env(Key);

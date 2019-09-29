@@ -71,13 +71,13 @@
 make(Topic, Payload) ->
     make(undefined, Topic, Payload).
 
--spec(make(atom() | emqx_types:client_id(),
+-spec(make(atom() | emqx_types:clientid(),
            emqx_topic:topic(),
            emqx_types:payload()) -> emqx_types:message()).
 make(From, Topic, Payload) ->
     make(From, ?QOS_0, Topic, Payload).
 
--spec(make(atom() | emqx_types:client_id(),
+-spec(make(atom() | emqx_types:clientid(),
            emqx_types:qos(),
            emqx_topic:topic(),
            emqx_types:payload()) -> emqx_types:message()).

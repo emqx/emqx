@@ -117,7 +117,7 @@
           %% Enqueue Count
           enqueue_cnt :: non_neg_integer(),
           %% Created at
-          created_at :: erlang:timestamp()
+          created_at :: pos_integer()
          }).
 
 -opaque(session() :: #session{}).
@@ -125,22 +125,49 @@
 -type(publish() :: {publish, emqx_types:packet_id(), emqx_types:message()}).
 
 -define(DEFAULT_BATCH_N, 1000).
--define(ATTR_KEYS, [max_inflight, max_mqueue, retry_interval,
-                    max_awaiting_rel, await_rel_timeout, created_at]).
--define(INFO_KEYS, [subscriptions, max_subscriptions, upgrade_qos, inflight,
-                    max_inflight, retry_interval, mqueue_len, max_mqueue,
-                    mqueue_dropped, next_pkt_id, awaiting_rel, max_awaiting_rel,
-                    await_rel_timeout, created_at]).
--define(STATS_KEYS, [subscriptions_cnt, max_subscriptions, inflight, max_inflight,
-                     mqueue_len, max_mqueue, mqueue_dropped, awaiting_rel,
-                     max_awaiting_rel, enqueue_cnt]).
+
+-define(ATTR_KEYS, [inflight_max,
+                    mqueue_max,
+                    retry_interval,
+                    awaiting_rel_max,
+                    await_rel_timeout,
+                    created_at
+                   ]).
+
+-define(INFO_KEYS, [subscriptions,
+                    subscriptions_max,
+                    upgrade_qos,
+                    inflight,
+                    inflight_max,
+                    retry_interval,
+                    mqueue_len,
+                    mqueue_max,
+                    mqueue_dropped,
+                    next_pkt_id,
+                    awaiting_rel,
+                    awaiting_rel_max,
+                    await_rel_timeout,
+                    created_at
+                   ]).
+
+-define(STATS_KEYS, [subscriptions_cnt,
+                     subscriptions_max,
+                     inflight,
+                     inflight_max,
+                     mqueue_len,
+                     mqueue_max,
+                     mqueue_dropped,
+                     awaiting_rel,
+                     awaiting_rel_max,
+                     enqueue_cnt
+                    ]).
 
 %%--------------------------------------------------------------------
 %% Init a session
 %%--------------------------------------------------------------------
 
 %% @doc Init a session.
--spec(init(emqx_types:client(), Options :: map()) -> session()).
+-spec(init(emqx_types:clientinfo(), emqx_types:conninfo()) -> session()).
 init(#{zone := Zone}, #{receive_maximum := MaxInflight}) ->
     #session{max_subscriptions = get_env(Zone, max_subscriptions, 0),
              subscriptions     = #{},
@@ -153,7 +180,7 @@ init(#{zone := Zone}, #{receive_maximum := MaxInflight}) ->
              max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
              await_rel_timeout = get_env(Zone, await_rel_timeout, 3600*1000),
              enqueue_cnt       = 0,
-             created_at        = os:timestamp()
+             created_at        = erlang:system_time(second)
             }.
 
 init_mqueue(Zone) ->
@@ -183,19 +210,19 @@ info(subscriptions, #session{subscriptions = Subs}) ->
     Subs;
 info(subscriptions_cnt, #session{subscriptions = Subs}) ->
     maps:size(Subs);
-info(max_subscriptions, #session{max_subscriptions = MaxSubs}) ->
+info(subscriptions_max, #session{max_subscriptions = MaxSubs}) ->
     MaxSubs;
 info(upgrade_qos, #session{upgrade_qos = UpgradeQoS}) ->
     UpgradeQoS;
 info(inflight, #session{inflight = Inflight}) ->
     emqx_inflight:size(Inflight);
-info(max_inflight, #session{inflight = Inflight}) ->
+info(inflight_max, #session{inflight = Inflight}) ->
     emqx_inflight:max_size(Inflight);
 info(retry_interval, #session{retry_interval = Interval}) ->
     Interval;
 info(mqueue_len, #session{mqueue = MQueue}) ->
     emqx_mqueue:len(MQueue);
-info(max_mqueue, #session{mqueue = MQueue}) ->
+info(mqueue_max, #session{mqueue = MQueue}) ->
     emqx_mqueue:max_len(MQueue);
 info(mqueue_dropped, #session{mqueue = MQueue}) ->
     emqx_mqueue:dropped(MQueue);
@@ -203,7 +230,7 @@ info(next_pkt_id, #session{next_pkt_id = PacketId}) ->
     PacketId;
 info(awaiting_rel, #session{awaiting_rel = AwaitingRel}) ->
     maps:size(AwaitingRel);
-info(max_awaiting_rel, #session{max_awaiting_rel = MaxAwaitingRel}) ->
+info(awaiting_rel_max, #session{max_awaiting_rel = MaxAwaitingRel}) ->
     MaxAwaitingRel;
 info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
     Timeout;
@@ -224,14 +251,14 @@ takeover(#session{subscriptions = Subs}) ->
                           ok = emqx_broker:unsubscribe(TopicFilter)
                   end, maps:to_list(Subs)).
 
--spec(resume(emqx_types:client_id(), session()) -> ok).
+-spec(resume(emqx_types:clientid(), session()) -> ok).
 resume(ClientId, #session{subscriptions = Subs}) ->
     %% 1. Subscribe again.
     lists:foreach(fun({TopicFilter, SubOpts}) ->
                           ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts)
                   end, maps:to_list(Subs)).
     %% 2. Run hooks.
-    %% ok = emqx_hooks:run('session.resumed', [#{client_id => ClientId}, attrs(Session)]),
+    %% ok = emqx_hooks:run('session.resumed', [#{clientid => ClientId}, attrs(Session)]),
     %% TODO: 3. Redeliver: Replay delivery and Dequeue pending messages
     %%Session.
 
@@ -252,14 +279,14 @@ redeliver(Session = #session{inflight = Inflight}) ->
 %% Client -> Broker: SUBSCRIBE
 %%--------------------------------------------------------------------
 
--spec(subscribe(emqx_types:client(), emqx_types:topic(), emqx_types:subopts(), session())
+-spec(subscribe(emqx_types:clientinfo(), emqx_types:topic(), emqx_types:subopts(), session())
       -> {ok, session()} | {error, emqx_types:reason_code()}).
-subscribe(Client, TopicFilter, SubOpts, Session = #session{subscriptions = Subs}) ->
+subscribe(ClientInfo, TopicFilter, SubOpts, Session = #session{subscriptions = Subs}) ->
     case is_subscriptions_full(Session)
         andalso (not maps:is_key(TopicFilter, Subs)) of
         true  -> {error, ?RC_QUOTA_EXCEEDED};
         false ->
-            do_subscribe(Client, TopicFilter, SubOpts, Session)
+            do_subscribe(ClientInfo, TopicFilter, SubOpts, Session)
     end.
 
 is_subscriptions_full(#session{max_subscriptions = 0}) ->
@@ -269,7 +296,7 @@ is_subscriptions_full(#session{max_subscriptions = MaxLimit,
     maps:size(Subs) >= MaxLimit.
 
 -compile({inline, [do_subscribe/4]}).
-do_subscribe(Client = #{client_id := ClientId}, TopicFilter, SubOpts,
+do_subscribe(Client = #{clientid := ClientId}, TopicFilter, SubOpts,
              Session = #session{subscriptions = Subs}) ->
     case IsNew = (not maps:is_key(TopicFilter, Subs)) of
         true ->
@@ -285,13 +312,13 @@ do_subscribe(Client = #{client_id := ClientId}, TopicFilter, SubOpts,
 %% Client -> Broker: UNSUBSCRIBE
 %%--------------------------------------------------------------------
 
--spec(unsubscribe(emqx_types:client(), emqx_types:topic(), session())
+-spec(unsubscribe(emqx_types:clientinfo(), emqx_types:topic(), session())
       -> {ok, session()} | {error, emqx_types:reason_code()}).
-unsubscribe(Client, TopicFilter, Session = #session{subscriptions = Subs}) ->
+unsubscribe(ClientInfo, TopicFilter, Session = #session{subscriptions = Subs}) ->
     case maps:find(TopicFilter, Subs) of
         {ok, SubOpts} ->
             ok = emqx_broker:unsubscribe(TopicFilter),
-            ok = emqx_hooks:run('session.unsubscribed', [Client, TopicFilter, SubOpts]),
+            ok = emqx_hooks:run('session.unsubscribed', [ClientInfo, TopicFilter, SubOpts]),
             {ok, Session#session{subscriptions = maps:remove(TopicFilter, Subs)}};
         error ->
             {error, ?RC_NO_SUBSCRIPTION_EXISTED}

@@ -37,7 +37,9 @@
         , setstat/3
         , statsfun/1
         , statsfun/2
-        , update_interval/2
+        ]).
+
+-export([ update_interval/2
         , update_interval/3
         , cancel_update/1
         ]).

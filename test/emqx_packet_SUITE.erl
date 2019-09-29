@@ -112,11 +112,11 @@ t_check_connect(_) ->
 
     ConnPkt2 = #mqtt_packet_connect{proto_ver  = ?MQTT_PROTO_V3,
                                     proto_name = <<"MQIsdp">>,
-                                    client_id  = <<>>
+                                    clientid   = <<>>
                                    },
     {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID} = emqx_packet:check(ConnPkt2, Opts),
 
-    ConnPkt3 = #mqtt_packet_connect{client_id = <<"123456">>},
+    ConnPkt3 = #mqtt_packet_connect{clientid = <<"123456">>},
     {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID} = emqx_packet:check(ConnPkt3, Opts),
 
     ConnPkt4 = #mqtt_packet_connect{will_flag   = true,
@@ -152,7 +152,7 @@ t_from_to_message(_) ->
                                                        packet_id  = 10,
                                                        properties = #{}},
                        payload = <<"payload">>},
-    MsgFromPkt = emqx_packet:to_message(#{client_id => <<"clientid">>,
+    MsgFromPkt = emqx_packet:to_message(#{clientid => <<"clientid">>,
                                           username => <<"test">>,
                                           peerhost => {127,0,0,1}}, Pkt),
     ?assertEqual(ExpectedMsg2, MsgFromPkt#message{id = emqx_message:id(ExpectedMsg),
@@ -161,7 +161,7 @@ t_from_to_message(_) ->
 
 t_will_msg(_) ->
     Pkt = #mqtt_packet_connect{will_flag = true,
-                               client_id = <<"clientid">>,
+                               clientid = <<"clientid">>,
                                username = "test",
                                will_retain = true,
                                will_qos = ?QOS_2,
