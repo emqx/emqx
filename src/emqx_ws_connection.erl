@@ -279,7 +279,7 @@ websocket_info(Info, State = #state{chan_state = ChanState}) ->
     end.
 
 terminate(SockError, _Req, #state{chan_state  = ChanState,
-                                          stop_reason = Reason}) ->
+                                  stop_reason = Reason}) ->
     ?LOG(debug, "Terminated for ~p, sockerror: ~p", [Reason, SockError]),
     emqx_channel:terminate(Reason, ChanState).
 

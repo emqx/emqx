@@ -442,6 +442,11 @@ handle_incoming(Packet = ?PACKET(Type), SuccFun, State = #state{chan_state = Cha
         {ok, OutPackets, NChanState} ->
             NState = State#state{chan_state = NChanState},
             handle_outgoing(OutPackets, SuccFun, NState);
+        {close, Reason, NChanState} ->
+            close(Reason, State#state{chan_state = NChanState});
+        {close, Reason, OutPackets, NChanState} ->
+            NState = State#state{chan_state= NChanState},
+            close(Reason, handle_outgoing(OutPackets, fun(NewSt) -> NewSt end, NState));
         {stop, Reason, NChanState} ->
             stop(Reason, State#state{chan_state = NChanState});
         {stop, Reason, OutPackets, NChanState} ->
