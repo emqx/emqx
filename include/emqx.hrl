@@ -154,7 +154,7 @@
 %% Banned
 %%--------------------------------------------------------------------
 
--type(banned_who() ::  {client_id,  binary()}
+-type(banned_who() ::  {clientid,  binary()}
                      | {username,   binary()}
                      | {ip_address, inet:ip_address()}).
 

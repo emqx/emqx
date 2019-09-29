@@ -524,10 +524,10 @@ end}.
     Formatter = {emqx_logger_formatter,
                   #{template =>
                       [time," [",level,"] ",
-                       {client_id,
+                       {clientid,
                           [{peername,
-                              [client_id,"@",peername," "],
-                              [client_id, " "]}],
+                              [clientid,"@",peername," "],
+                              [clientid, " "]}],
                           [{peername,
                               [peername," "],
                               []}]},
