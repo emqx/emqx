@@ -38,9 +38,9 @@
         , handle_in/2
         , handle_out/2
         , handle_call/2
-        , handle_cast/2
         , handle_info/2
         , handle_timeout/3
+        , disconnect/2
         , terminate/2
         ]).
 
@@ -60,7 +60,7 @@
           %% MQTT ConnInfo
           conninfo :: emqx_types:conninfo(),
           %% MQTT ClientInfo
-          client_info :: emqx_types:client_info(),
+          clientinfo :: emqx_types:clientinfo(),
           %% MQTT Session
           session :: emqx_session:session(),
           %% Keepalive
@@ -71,18 +71,14 @@
           topic_aliases :: maybe(map()),
           %% MQTT Topic Alias Maximum
           alias_maximum :: maybe(map()),
+          %% Publish Stats
+          pub_stats :: emqx_types:stats(),
           %% Timers
           timers :: #{atom() => disabled | maybe(reference())},
+          %% Fsm State
+          fsm_state :: fsm_state(),
           %% GC State
           gc_state :: maybe(emqx_gc:gc_state()),
-          %% OOM Policy TODO: should be removed from channel.
-          oom_policy :: maybe(emqx_oom:oom_policy()),
-          %% Connected
-          connected :: undefined | boolean(),
-          %% Connected at
-          connected_at :: erlang:timestamp(),
-          %% Disconnected at
-          disconnected_at :: erlang:timestamp(),
           %% Takeover
           takeover :: boolean(),
           %% Resume
@@ -93,6 +89,14 @@
 
 -opaque(channel() :: #channel{}).
 
+-type(fsm_state() :: #{state_name := initialized
+                                   | connecting
+                                   | connected
+                                   | disconnected,
+                       connected_at := pos_integer(),
+                       disconnected := pos_integer()
+                      }).
+
 -define(TIMER_TABLE, #{
           stats_timer  => emit_stats,
           alive_timer  => keepalive,
@@ -102,8 +106,10 @@
           will_timer   => will_message
          }).
 
--define(ATTR_KEYS, [conninfo, client_info, session, connected, connected_at, disconnected_at]).
--define(INFO_KEYS, ?ATTR_KEYS ++ [keepalive, topic_aliases, alias_maximum, gc_state, disconnected_at]).
+-define(ATTR_KEYS, [conninfo, client, session]).
+
+-define(INFO_KEYS, ?ATTR_KEYS ++ [conninfo, client, session, keepalive,
+                    will_msg, topic_aliases, alias_maximum, gc_state]).
 
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
@@ -119,7 +125,7 @@ info(Keys, Channel) when is_list(Keys) ->
     [{Key, info(Key, Channel)} || Key <- Keys];
 info(conninfo, #channel{conninfo = ConnInfo}) ->
     ConnInfo;
-info(client_info, #channel{client_info = ClientInfo}) ->
+info(client, #channel{clientinfo = ClientInfo}) ->
     ClientInfo;
 info(session, #channel{session = Session}) ->
     maybe_apply(fun emqx_session:info/1, Session);
@@ -129,36 +135,31 @@ info(topic_aliases, #channel{topic_aliases = Aliases}) ->
     Aliases;
 info(alias_maximum, #channel{alias_maximum = Limits}) ->
     Limits;
+info(will_msg, #channel{will_msg = undefined}) ->
+    undefined;
 info(will_msg, #channel{will_msg = WillMsg}) ->
-    WillMsg;
+    emqx_message:to_map(WillMsg);
+info(pub_stats, #channel{pub_stats = PubStats}) ->
+    PubStats;
 info(gc_state, #channel{gc_state = GcState}) ->
-    maybe_apply(fun emqx_gc:info/1, GcState);
-info(oom_policy, #channel{oom_policy = OomPolicy}) ->
-    maybe_apply(fun emqx_oom:info/1, OomPolicy);
-info(connected, #channel{connected = Connected}) ->
-    Connected;
-info(connected_at, #channel{connected_at = ConnectedAt}) ->
-    ConnectedAt;
-info(disconnected_at, #channel{disconnected_at = DisconnectedAt}) ->
-    DisconnectedAt.
+    maybe_apply(fun emqx_gc:info/1, GcState).
 
 %% @doc Get attrs of the channel.
 -spec(attrs(channel()) -> emqx_types:attrs()).
 attrs(Channel) ->
-    maps:from_list([{Key, attr(Key, Channel)} || Key <- ?ATTR_KEYS]).
+    Attrs = [{Key, attrs(Key, Channel)} || Key <- ?ATTR_KEYS],
+    maps:from_list(Attrs).
 
-attr(conninfo, #channel{conninfo = ConnInfo}) ->
-    ConnInfo;
-attr(session, #channel{session = Session}) ->
+attrs(session, #channel{session = Session}) ->
     maybe_apply(fun emqx_session:attrs/1, Session);
-attr(Key, Channel) -> info(Key, Channel).
+attrs(Key, Channel) -> info(Key, Channel).
 
 -spec(stats(channel()) -> emqx_types:stats()).
-stats(#channel{session = Session}) ->
-    emqx_session:stats(Session).
+stats(#channel{pub_stats = PubStats, session = Session}) ->
+    maps:to_list(PubStats) ++ emqx_session:stats(Session).
 
 -spec(caps(channel()) -> emqx_types:caps()).
-caps(#channel{client_info = #{zone := Zone}}) ->
+caps(#channel{clientinfo = #{zone := Zone}}) ->
     emqx_mqtt_caps:get_caps(Zone).
 
 %% For tests
@@ -172,7 +173,7 @@ set_field(Name, Val, Channel) ->
 %%--------------------------------------------------------------------
 
 -spec(init(emqx_types:conninfo(), proplists:proplist()) -> channel()).
-init(ConnInfo = #{peername := {PeerHost, _Port}, protocol := Protocol}, Options) ->
+init(ConnInfo = #{peername := {PeerHost, _Port}}, Options) ->
     Zone = proplists:get_value(zone, Options),
     Peercert = maps:get(peercert, ConnInfo, undefined),
     Username = case peer_cert_as_username(Options) of
@@ -181,12 +182,13 @@ init(ConnInfo = #{peername := {PeerHost, _Port}, protocol := Protocol}, Options)
                    crt -> Peercert;
                    _   -> undefined
                end,
+    Protocol = maps:get(protocol, ConnInfo, mqtt),
     MountPoint = emqx_zone:get_env(Zone, mountpoint),
     ClientInfo = #{zone         => Zone,
                    protocol     => Protocol,
                    peerhost     => PeerHost,
                    peercert     => Peercert,
-                   client_id    => undefined,
+                   clientid     => undefined,
                    username     => Username,
                    mountpoint   => MountPoint,
                    is_bridge    => false,
@@ -196,15 +198,15 @@ init(ConnInfo = #{peername := {PeerHost, _Port}, protocol := Protocol}, Options)
                      true  -> undefined;
                      false -> disabled
                  end,
-    #channel{conninfo    = ConnInfo,
-             client_info = ClientInfo,
-             gc_state    = init_gc_state(Zone),
-             oom_policy  = init_oom_policy(Zone),
-             timers      = #{stats_timer => StatsTimer},
-             connected   = undefined,
-             takeover    = false,
-             resuming    = false,
-             pendings    = []
+    #channel{conninfo   = ConnInfo,
+             clientinfo = ClientInfo,
+             pub_stats  = #{},
+             timers     = #{stats_timer => StatsTimer},
+             fsm_state  = #{state_name => initialized},
+             gc_state   = init_gc_state(Zone),
+             takeover   = false,
+             resuming   = false,
+             pendings   = []
             }.
 
 peer_cert_as_username(Options) ->
@@ -212,9 +214,6 @@ peer_cert_as_username(Options) ->
 
 init_gc_state(Zone) ->
     maybe_apply(fun emqx_gc:init/1, emqx_zone:force_gc_policy(Zone)).
-
-init_oom_policy(Zone) ->
-    maybe_apply(fun emqx_oom:init/1, emqx_zone:force_shutdown_policy(Zone)).
 
 %%--------------------------------------------------------------------
 %% Handle incoming packet
@@ -224,9 +223,11 @@ init_oom_policy(Zone) ->
       -> {ok, channel()}
        | {ok, emqx_types:packet(), channel()}
        | {ok, list(emqx_types:packet()), channel()}
+       | {close, channel()}
+       | {close, emqx_types:packet(), channel()}
        | {stop, Error :: term(), channel()}
        | {stop, Error :: term(), emqx_types:packet(), channel()}).
-handle_in(?CONNECT_PACKET(_), Channel = #channel{connected = true}) ->
+handle_in(?CONNECT_PACKET(_), Channel = #channel{fsm_state = #{state_name := connected}}) ->
      handle_out({disconnect, ?RC_PROTOCOL_ERROR}, Channel);
 
 handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
@@ -244,73 +245,77 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
     end;
 
 handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
+    Channel1 = inc_pub_stats(publish_in, Channel),
     case emqx_packet:check(Packet) of
-        ok ->
-            handle_publish(Packet, Channel);
+        ok -> handle_publish(Packet, Channel1);
         {error, ReasonCode} ->
-            handle_out({disconnect, ReasonCode}, Channel)
+            handle_out({disconnect, ReasonCode}, Channel1)
     end;
 
 handle_in(?PUBACK_PACKET(PacketId, _ReasonCode),
-          Channel = #channel{client_info = ClientInfo, session = Session}) ->
+          Channel = #channel{clientinfo = ClientInfo, session = Session}) ->
+    Channel1 = inc_pub_stats(puback_in, Channel),
     case emqx_session:puback(PacketId, Session) of
         {ok, Msg, Publishes, NSession} ->
             ok = emqx_hooks:run('message.acked', [ClientInfo, Msg]),
-            handle_out({publish, Publishes}, Channel#channel{session = NSession});
+            handle_out({publish, Publishes}, Channel1#channel{session = NSession});
         {ok, Msg, NSession} ->
             ok = emqx_hooks:run('message.acked', [ClientInfo, Msg]),
-            {ok, Channel#channel{session = NSession}};
+            {ok, Channel1#channel{session = NSession}};
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?LOG(warning, "The PUBACK PacketId ~w is inuse.", [PacketId]),
             ok = emqx_metrics:inc('packets.puback.inuse'),
-            {ok, Channel};
+            {ok, Channel1};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?LOG(warning, "The PUBACK PacketId ~w is not found", [PacketId]),
             ok = emqx_metrics:inc('packets.puback.missed'),
-            {ok, Channel}
+            {ok, Channel1}
     end;
 
 handle_in(?PUBREC_PACKET(PacketId, _ReasonCode),
-          Channel = #channel{client_info = ClientInfo, session = Session}) ->
+          Channel = #channel{clientinfo = ClientInfo, session = Session}) ->
+    Channel1 = inc_pub_stats(pubrec_in, Channel),
     case emqx_session:pubrec(PacketId, Session) of
         {ok, Msg, NSession} ->
             ok = emqx_hooks:run('message.acked', [ClientInfo, Msg]),
-            NChannel = Channel#channel{session = NSession},
+            NChannel = Channel1#channel{session = NSession},
             handle_out({pubrel, PacketId, ?RC_SUCCESS}, NChannel);
         {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?LOG(warning, "The PUBREC PacketId ~w is inuse.", [PacketId]),
             ok = emqx_metrics:inc('packets.pubrec.inuse'),
-            handle_out({pubrel, PacketId, RC}, Channel);
+            handle_out({pubrel, PacketId, RC}, Channel1);
         {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?LOG(warning, "The PUBREC ~w is not found.", [PacketId]),
             ok = emqx_metrics:inc('packets.pubrec.missed'),
-            handle_out({pubrel, PacketId, RC}, Channel)
+            handle_out({pubrel, PacketId, RC}, Channel1)
     end;
 
 handle_in(?PUBREL_PACKET(PacketId, _ReasonCode), Channel = #channel{session = Session}) ->
+    Channel1 = inc_pub_stats(pubrel_in, Channel),
     case emqx_session:pubrel(PacketId, Session) of
         {ok, NSession} ->
-            handle_out({pubcomp, PacketId, ?RC_SUCCESS}, Channel#channel{session = NSession});
+            handle_out({pubcomp, PacketId, ?RC_SUCCESS}, Channel1#channel{session = NSession});
         {error, NotFound} ->
-            ?LOG(warning, "The PUBREL PacketId ~w is not found", [PacketId]),
             ok = emqx_metrics:inc('packets.pubrel.missed'),
-            handle_out({pubcomp, PacketId, NotFound}, Channel)
+            ?LOG(warning, "The PUBREL PacketId ~w is not found", [PacketId]),
+            handle_out({pubcomp, PacketId, NotFound}, Channel1)
     end;
 
 handle_in(?PUBCOMP_PACKET(PacketId, _ReasonCode), Channel = #channel{session = Session}) ->
+    Channel1 = inc_pub_stats(pubcomp_in, Channel),
     case emqx_session:pubcomp(PacketId, Session) of
         {ok, Publishes, NSession} ->
-            handle_out({publish, Publishes}, Channel#channel{session = NSession});
+            handle_out({publish, Publishes}, Channel1#channel{session = NSession});
         {ok, NSession} ->
-            {ok, Channel#channel{session = NSession}};
+            {ok, Channel1#channel{session = NSession}};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?LOG(warning, "The PUBCOMP PacketId ~w is not found", [PacketId]),
             ok = emqx_metrics:inc('packets.pubcomp.missed'),
-            {ok, Channel}
+            {ok, Channel1}
     end;
 
 handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
-          Channel = #channel{client_info = ClientInfo}) ->
+          Channel = #channel{clientinfo = ClientInfo}) ->
     case emqx_packet:check(Packet) of
         ok -> TopicFilters1 = emqx_hooks:run_fold('client.subscribe',
                                                   [ClientInfo, Properties],
@@ -323,7 +328,7 @@ handle_in(Packet = ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
     end;
 
 handle_in(Packet = ?UNSUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
-          Channel = #channel{client_info = ClientInfo}) ->
+          Channel = #channel{clientinfo = ClientInfo}) ->
     case emqx_packet:check(Packet) of
         ok -> TopicFilters1 = emqx_hooks:run_fold('client.unsubscribe',
                                                   [ClientInfo, Properties],
@@ -339,37 +344,49 @@ handle_in(?PACKET(?PINGREQ), Channel) ->
 
 handle_in(?DISCONNECT_PACKET(ReasonCode, Properties), Channel = #channel{conninfo = ConnInfo}) ->
     #{proto_ver := ProtoVer, expiry_interval := OldInterval} = ConnInfo,
+    {ReasonName, Channel1} = case ReasonCode of
+                                 ?RC_SUCCESS ->
+                                     {normal, Channel#channel{will_msg = undefined}};
+                                 _Other ->
+                                     {emqx_reason_codes:name(ReasonCode, ProtoVer), Channel}
+                             end,
     Interval = emqx_mqtt_props:get('Session-Expiry-Interval', Properties, OldInterval),
-    case OldInterval =:= 0 andalso Interval =/= OldInterval of
+    if
+        OldInterval == 0 andalso Interval > OldInterval ->
+            handle_out({disconnect, ?RC_PROTOCOL_ERROR}, Channel1);
+        Interval == 0 ->
+            {stop, ReasonName, Channel1};
         true ->
-            handle_out({disconnect, ?RC_PROTOCOL_ERROR}, Channel);
-        false ->
-            Reason = case ReasonCode of
-                         ?RC_SUCCESS -> normal;
-                         _ -> emqx_reason_codes:name(ReasonCode, ProtoVer)
-                     end,
-             Channel1 = Channel#channel{conninfo = ConnInfo#{expiry_interval := Interval}},
-             Channel2 = case ReasonCode of
-                            ?RC_SUCCESS -> Channel1#channel{will_msg = undefined};
-                            _ -> Channel1
-                        end,
-            {wait_session_expire, {shutdown, Reason}, Channel2}
+            Channel2 = Channel1#channel{conninfo = ConnInfo#{expiry_interval => Interval}},
+            {close, ReasonName, Channel2}
     end;
 
 handle_in(?AUTH_PACKET(), Channel) ->
-    %%TODO: implement later.
-    {ok, Channel};
+    handle_out({disconnect, ?RC_IMPLEMENTATION_SPECIFIC_ERROR}, Channel);
+
+handle_in({frame_error, Reason}, Channel = #channel{fsm_state = FsmState}) ->
+    case FsmState of
+        #{state_name := initialized} ->
+            {stop, {shutdown, Reason}, Channel};
+        #{state_name := connecting} ->
+            {stop, {shutdown, Reason}, ?CONNACK_PACKET(?RC_MALFORMED_PACKET), Channel};
+        #{state_name := connected} ->
+            handle_out({disconnect, ?RC_MALFORMED_PACKET}, Channel);
+        #{state_name := disconnected} ->
+            ?LOG(error, "Unexpected frame error: ~p", [Reason]),
+            {ok, Channel}
+    end;
 
 handle_in(Packet, Channel) ->
     ?LOG(error, "Unexpected incoming: ~p", [Packet]),
-    handle_out({disconnect, ?RC_MALFORMED_PACKET}, Channel).
+    handle_out({disconnect, ?RC_PROTOCOL_ERROR}, Channel).
 
 %%--------------------------------------------------------------------
 %% Process Connect
 %%--------------------------------------------------------------------
 
 process_connect(ConnPkt = #mqtt_packet_connect{clean_start = CleanStart},
-                Channel = #channel{conninfo = ConnInfo, client_info = ClientInfo}) ->
+                Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
     case emqx_cm:open_session(CleanStart, ClientInfo, ConnInfo) of
         {ok, #{session := Session, present := false}} ->
             NChannel = Channel#channel{session = Session},
@@ -390,6 +407,11 @@ process_connect(ConnPkt = #mqtt_packet_connect{clean_start = CleanStart},
 %%--------------------------------------------------------------------
 %% Process Publish
 %%--------------------------------------------------------------------
+
+inc_pub_stats(Key, Channel) -> inc_pub_stats(Key, 1, Channel).
+inc_pub_stats(Key, I, Channel = #channel{pub_stats = PubStats}) ->
+    NPubStats = maps:update_with(Key, fun(V) -> V+I end, I, PubStats),
+    Channel#channel{pub_stats = NPubStats}.
 
 handle_publish(Packet = ?PUBLISH_PACKET(_QoS, Topic, _PacketId),
                Channel = #channel{conninfo = #{proto_ver := ProtoVer}}) ->
@@ -440,7 +462,7 @@ process_publish(PacketId, Msg = #message{qos = ?QOS_2},
     end.
 
 publish_to_msg(Packet, #channel{conninfo = #{proto_ver := ProtoVer},
-                                client_info = ClientInfo = #{mountpoint := MountPoint}}) ->
+                                clientinfo = ClientInfo = #{mountpoint := MountPoint}}) ->
     Msg = emqx_packet:to_message(ClientInfo, Packet),
     Msg1 = emqx_message:set_flag(dup, false, Msg),
     Msg2 = emqx_message:set_header(proto_ver, ProtoVer, Msg1),
@@ -461,7 +483,7 @@ process_subscribe([{TopicFilter, SubOpts}|More], Acc, Channel) ->
     process_subscribe(More, [RC|Acc], NChannel).
 
 do_subscribe(TopicFilter, SubOpts = #{qos := QoS}, Channel =
-             #channel{client_info = ClientInfo = #{mountpoint := MountPoint},
+             #channel{clientinfo = ClientInfo = #{mountpoint := MountPoint},
                       session = Session}) ->
     case check_subscribe(TopicFilter, SubOpts, Channel) of
         ok ->
@@ -491,7 +513,7 @@ process_unsubscribe([{TopicFilter, SubOpts}|More], Acc, Channel) ->
     process_unsubscribe(More, [RC|Acc], NChannel).
 
 do_unsubscribe(TopicFilter, _SubOpts, Channel =
-               #channel{client_info  = ClientInfo = #{mountpoint := MountPoint},
+               #channel{clientinfo = ClientInfo = #{mountpoint := MountPoint},
                         session = Session}) ->
     TopicFilter1 = emqx_mountpoint:mount(MountPoint, TopicFilter),
     case emqx_session:unsubscribe(ClientInfo, TopicFilter1, Session) of
@@ -506,22 +528,24 @@ do_unsubscribe(TopicFilter, _SubOpts, Channel =
 
 %%TODO: RunFold or Pipeline
 handle_out({connack, ?RC_SUCCESS, SP, ConnPkt},
-           Channel = #channel{conninfo = ConnInfo, client_info = ClientInfo}) ->
+           Channel = #channel{conninfo = ConnInfo,
+                              clientinfo = ClientInfo,
+                              fsm_state = FsmState}) ->
     AckProps = run_fold([fun enrich_caps/2,
                          fun enrich_server_keepalive/2,
-                         fun enrich_assigned_clientid/2
-                        ], #{}, Channel),
-    Channel1 = Channel#channel{will_msg = emqx_packet:will_msg(ConnPkt),
-                               alias_maximum = init_alias_maximum(ConnPkt, ClientInfo),
-                               connected = true,
-                               connected_at = os:timestamp()
+                         fun enrich_assigned_clientid/2], #{}, Channel),
+    FsmState1 = FsmState#{state_name => connected,
+                          connected_at => erlang:system_time(second)
+                         },
+    Channel1 = Channel#channel{fsm_state = FsmState1,
+                               will_msg = emqx_packet:will_msg(ConnPkt),
+                               alias_maximum = init_alias_maximum(ConnPkt, ClientInfo)
                               },
     Channel2 = ensure_keepalive(AckProps, Channel1),
     ok = emqx_hooks:run('client.connected', [ClientInfo, ?RC_SUCCESS, ConnInfo]),
     AckPacket = ?CONNACK_PACKET(?RC_SUCCESS, SP, AckProps),
     case maybe_resume_session(Channel2) of
-        ignore ->
-            {ok, AckPacket, Channel2};
+        ignore -> {ok, AckPacket, Channel2};
         {ok, Publishes, NSession} ->
             Channel3 = Channel2#channel{session  = NSession,
                                         resuming = false,
@@ -531,7 +555,7 @@ handle_out({connack, ?RC_SUCCESS, SP, ConnPkt},
     end;
 
 handle_out({connack, ReasonCode, _ConnPkt}, Channel = #channel{conninfo = ConnInfo,
-                                                               client_info = ClientInfo}) ->
+                                                               clientinfo = ClientInfo}) ->
     ok = emqx_hooks:run('client.connected', [ClientInfo, ReasonCode, ConnInfo]),
     ReasonCode1 = case ProtoVer = maps:get(proto_ver, ConnInfo) of
                       ?MQTT_PROTO_V5 -> ReasonCode;
@@ -540,8 +564,8 @@ handle_out({connack, ReasonCode, _ConnPkt}, Channel = #channel{conninfo = ConnIn
     Reason = emqx_reason_codes:name(ReasonCode1, ProtoVer),
     {stop, {shutdown, Reason}, ?CONNACK_PACKET(ReasonCode1), Channel};
 
-handle_out({deliver, Delivers}, Channel = #channel{session   = Session,
-                                                   connected = false}) ->
+handle_out({deliver, Delivers}, Channel = #channel{fsm_state = #{state_name := disconnected},
+                                                   session   = Session}) ->
     NSession = emqx_session:enqueue(Delivers, Session),
     {ok, Channel#channel{session = NSession}};
 
@@ -567,32 +591,33 @@ handle_out({publish, Publishes}, Channel) when is_list(Publishes) ->
                         {ok, _Ch} -> Acc
                     end
                 end, [], Publishes),
-    {ok, lists:reverse(Packets), Channel};
+    NChannel = inc_pub_stats(publish_out, length(Packets), Channel),
+    {ok, lists:reverse(Packets), NChannel};
 
 %% Ignore loop deliver
 handle_out({publish, _PacketId, #message{from  = ClientId,
                                          flags = #{nl := true}}},
-            Channel = #channel{client_info = #{client_id := ClientId}}) ->
+            Channel = #channel{clientinfo = #{clientid := ClientId}}) ->
     {ok, Channel};
 
 handle_out({publish, PacketId, Msg}, Channel =
-           #channel{client_info = ClientInfo = #{mountpoint := MountPoint}}) ->
+           #channel{clientinfo = ClientInfo = #{mountpoint := MountPoint}}) ->
     Msg1 = emqx_message:update_expiry(Msg),
     Msg2 = emqx_hooks:run_fold('message.delivered', [ClientInfo], Msg1),
     Msg3 = emqx_mountpoint:unmount(MountPoint, Msg2),
     {ok, emqx_message:to_packet(PacketId, Msg3), Channel};
 
 handle_out({puback, PacketId, ReasonCode}, Channel) ->
-    {ok, ?PUBACK_PACKET(PacketId, ReasonCode), Channel};
+    {ok, ?PUBACK_PACKET(PacketId, ReasonCode), inc_pub_stats(puback_out, Channel)};
 
 handle_out({pubrel, PacketId, ReasonCode}, Channel) ->
-    {ok, ?PUBREL_PACKET(PacketId, ReasonCode), Channel};
+    {ok, ?PUBREL_PACKET(PacketId, ReasonCode), inc_pub_stats(pubrel_out, Channel)};
 
 handle_out({pubrec, PacketId, ReasonCode}, Channel) ->
-    {ok, ?PUBREC_PACKET(PacketId, ReasonCode), Channel};
+    {ok, ?PUBREC_PACKET(PacketId, ReasonCode), inc_pub_stats(pubrec_out, Channel)};
 
 handle_out({pubcomp, PacketId, ReasonCode}, Channel) ->
-    {ok, ?PUBCOMP_PACKET(PacketId, ReasonCode), Channel};
+    {ok, ?PUBCOMP_PACKET(PacketId, ReasonCode), inc_pub_stats(pubcomp_out, Channel)};
 
 handle_out({suback, PacketId, ReasonCodes},
            Channel = #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
@@ -609,15 +634,28 @@ handle_out({unsuback, PacketId, ReasonCodes},
 handle_out({unsuback, PacketId, _ReasonCodes}, Channel) ->
     {ok, ?UNSUBACK_PACKET(PacketId), Channel};
 
-handle_out({disconnect, ReasonCode}, Channel = #channel{conninfo = ConnInfo}) ->
-    case maps:get(proto_ver, ConnInfo) of
-        ?MQTT_PROTO_V5 ->
-            Reason = emqx_reason_codes:name(ReasonCode),
-            Packet = ?DISCONNECT_PACKET(ReasonCode),
-            {wait_session_expire, {shutdown, Reason}, Packet, Channel};
-        ProtoVer ->
-            Reason = emqx_reason_codes:name(ReasonCode, ProtoVer),
-            {wait_session_expire, {shutdown, Reason}, Channel}
+handle_out({disconnect, ReasonCode}, Channel = #channel{conninfo = #{proto_ver := ProtoVer}}) ->
+    ReasonName = emqx_reason_codes:name(ReasonCode, ProtoVer),
+    handle_out({disconnect, ReasonCode, ReasonName}, Channel);
+
+%%TODO: Improve later...
+handle_out({disconnect, ReasonCode, ReasonName},
+           Channel = #channel{conninfo = #{proto_ver := ProtoVer,
+                                           expiry_interval := ExpiryInterval}}) ->
+    case {ExpiryInterval, ProtoVer} of
+        {0, ?MQTT_PROTO_V5} ->
+            {stop, ReasonName, ?DISCONNECT_PACKET(ReasonCode), Channel};
+        {0, _Ver} ->
+            {stop, ReasonName, Channel};
+        {?UINT_MAX, ?MQTT_PROTO_V5} ->
+            {close, ReasonName, ?DISCONNECT_PACKET(ReasonCode), Channel};
+        {?UINT_MAX, _Ver} ->
+            {close, ReasonName, Channel};
+        {Interval, ?MQTT_PROTO_V5} ->
+            NChannel = ensure_timer(expire_timer, Interval, Channel),
+            {close, ReasonName, ?DISCONNECT_PACKET(ReasonCode), NChannel};
+        {Interval, _Ver} ->
+            {close, ReasonName, ensure_timer(expire_timer, Interval, Channel)}
     end;
 
 handle_out({Type, Data}, Channel) ->
@@ -631,10 +669,10 @@ handle_out({Type, Data}, Channel) ->
 handle_call(kick, Channel) ->
     {stop, {shutdown, kicked}, ok, Channel};
 
-handle_call(discard, Channel = #channel{connected = true}) ->
+handle_call(discard, Channel = #channel{fsm_state = #{state_name := connected}}) ->
     Packet = ?DISCONNECT_PACKET(?RC_SESSION_TAKEN_OVER),
     {stop, {shutdown, discarded}, Packet, ok, Channel};
-handle_call(discard, Channel = #channel{connected = false}) ->
+handle_call(discard, Channel = #channel{fsm_state = #{state_name := disconnected}}) ->
     {stop, {shutdown, discarded}, ok, Channel};
 
 %% Session Takeover
@@ -652,48 +690,39 @@ handle_call(Req, Channel) ->
     {ok, ignored, Channel}.
 
 %%--------------------------------------------------------------------
-%% Handle cast
-%%--------------------------------------------------------------------
-
--spec(handle_cast(Msg :: term(), channel())
-      -> ok | {ok, channel()} | {stop, Reason :: term(), channel()}).
-handle_cast({register, Attrs, Stats}, #channel{client_info = #{client_id := ClientId}}) ->
-    ok = emqx_cm:register_channel(ClientId),
-    emqx_cm:set_chan_attrs(ClientId, Attrs),
-    emqx_cm:set_chan_stats(ClientId, Stats);
-
-handle_cast(Msg, Channel) ->
-    ?LOG(error, "Unexpected cast: ~p", [Msg]),
-    {ok, Channel}.
-
-%%--------------------------------------------------------------------
 %% Handle Info
 %%--------------------------------------------------------------------
 
 -spec(handle_info(Info :: term(), channel())
-      -> {ok, channel()} | {stop, Reason :: term(), channel()}).
-handle_info({subscribe, TopicFilters}, Channel = #channel{client_info = ClientInfo}) ->
+      -> ok | {ok, channel()} | {stop, Reason :: term(), channel()}).
+handle_info({subscribe, TopicFilters}, Channel = #channel{clientinfo = ClientInfo}) ->
     TopicFilters1 = emqx_hooks:run_fold('client.subscribe',
                                         [ClientInfo, #{'Internal' => true}],
                                         parse_topic_filters(TopicFilters)),
     {_ReasonCodes, NChannel} = process_subscribe(TopicFilters1, Channel),
     {ok, NChannel};
 
-handle_info({unsubscribe, TopicFilters}, Channel = #channel{client_info = ClientInfo}) ->
+handle_info({unsubscribe, TopicFilters}, Channel = #channel{clientinfo = ClientInfo}) ->
     TopicFilters1 = emqx_hooks:run_fold('client.unsubscribe',
                                         [ClientInfo, #{'Internal' => true}],
                                         parse_topic_filters(TopicFilters)),
     {_ReasonCodes, NChannel} = process_unsubscribe(TopicFilters1, Channel),
     {ok, NChannel};
 
-handle_info(disconnected, Channel = #channel{connected = undefined}) ->
-    shutdown(closed, Channel);
+handle_info({register, Attrs, Stats}, #channel{clientinfo = #{clientid := ClientId}}) ->
+    ok = emqx_cm:register_channel(ClientId),
+    emqx_cm:set_chan_attrs(ClientId, Attrs),
+    emqx_cm:set_chan_stats(ClientId, Stats);
 
-handle_info(disconnected, Channel = #channel{connected = false}) ->
+%%TODO: Fixme later
+%%handle_info(disconnected, Channel = #channel{connected = undefined}) ->
+%%    shutdown(closed, Channel);
+
+handle_info(disconnected, Channel = #channel{fsm_state = #{state_name := disconnected}}) ->
     {ok, Channel};
 
 handle_info(disconnected, Channel = #channel{conninfo = #{expiry_interval := ExpiryInterval},
-                                             client_info = ClientInfo = #{zone := Zone},
+                                             clientinfo = ClientInfo = #{zone := Zone},
                                              will_msg = WillMsg}) ->
     emqx_zone:enable_flapping_detect(Zone) andalso emqx_flapping:detect(ClientInfo),
     Channel1 = ensure_disconnected(Channel),
@@ -726,7 +755,7 @@ handle_info(Info, Channel) ->
        | {ok, Result :: term(), channel()}
        | {stop, Reason :: term(), channel()}).
 handle_timeout(TRef, {emit_stats, Stats},
-               Channel = #channel{client_info = #{client_id := ClientId},
+               Channel = #channel{clientinfo = #{clientid := ClientId},
                                   timers = #{stats_timer := TRef}}) ->
     ok = emqx_cm:set_chan_stats(ClientId, Stats),
     {ok, clean_timer(stats_timer, Channel)};
@@ -739,7 +768,7 @@ handle_timeout(TRef, {keepalive, StatVal},
             NChannel = Channel#channel{keepalive = NKeepalive},
             {ok, reset_timer(alive_timer, NChannel)};
         {error, timeout} ->
-            {wait_session_expire, {shutdown, keepalive_timeout}, Channel}
+            handle_out({disconnect, ?RC_KEEP_ALIVE_TIMEOUT}, Channel)
     end;
 
 handle_timeout(TRef, retry_delivery,
@@ -810,7 +839,7 @@ reset_timer(Name, Time, Channel) ->
 clean_timer(Name, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = maps:remove(Name, Timers)}.
 
-interval(stats_timer, #channel{client_info = #{zone := Zone}}) ->
+interval(stats_timer, #channel{clientinfo = #{zone := Zone}}) ->
     emqx_zone:get_env(Zone, idle_timeout, 30000);
 interval(alive_timer, #channel{keepalive = KeepAlive}) ->
     emqx_keepalive:info(interval, KeepAlive);
@@ -828,18 +857,21 @@ will_delay_interval(undefined) -> 0;
 will_delay_interval(WillMsg) ->
     emqx_message:get_header('Will-Delay-Interval', WillMsg, 0).
 
+%% TODO: Implement later.
+disconnect(_Reason, Channel) -> {ok, Channel}.
+
 %%--------------------------------------------------------------------
 %% Terminate
 %%--------------------------------------------------------------------
 
-terminate(_, #channel{connected = undefined}) ->
+terminate(_, #channel{fsm_state = #{state_name := initialized}}) ->
     ok;
-terminate(normal, #channel{conninfo = ConnInfo, client_info = ClientInfo}) ->
+terminate(normal, #channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
     ok = emqx_hooks:run('client.disconnected', [ClientInfo, normal, ConnInfo]);
-terminate({shutdown, Reason}, #channel{conninfo = ConnInfo, client_info = ClientInfo})
+terminate({shutdown, Reason}, #channel{conninfo = ConnInfo, clientinfo = ClientInfo})
     when Reason =:= kicked orelse Reason =:= discarded orelse Reason =:= takeovered ->
     ok = emqx_hooks:run('client.disconnected', [ClientInfo, Reason, ConnInfo]);
-terminate(Reason, #channel{conninfo = ConnInfo, client_info = ClientInfo, will_msg = WillMsg}) ->
+terminate(Reason, #channel{conninfo = ConnInfo, clientinfo = ClientInfo, will_msg = WillMsg}) ->
     publish_will_msg(WillMsg),
     ok = emqx_hooks:run('client.disconnected', [ClientInfo, Reason, ConnInfo]).
 
@@ -864,9 +896,9 @@ enrich_conninfo(#mqtt_packet_connect{
                    clean_start = CleanStart,
                    keepalive   = Keepalive,
                    properties  = ConnProps,
-                   client_id   = ClientId,
+                   clientid    = ClientId,
                    username    = Username}, Channel) ->
-    #channel{conninfo = ConnInfo, client_info = #{zone := Zone}} = Channel,
+    #channel{conninfo = ConnInfo, clientinfo = #{zone := Zone}} = Channel,
     MaxInflight = emqx_mqtt_props:get('Receive-Maximum',
                                       ConnProps, emqx_zone:max_inflight(Zone)),
     Interval = if ProtoVer == ?MQTT_PROTO_V5 ->
@@ -880,7 +912,7 @@ enrich_conninfo(#mqtt_packet_connect{
                           proto_ver   => ProtoVer,
                           clean_start => CleanStart,
                           keepalive   => Keepalive,
-                          client_id   => ClientId,
+                          clientid    => ClientId,
                           username    => Username,
                           conn_props  => ConnProps,
                           receive_maximum => MaxInflight,
@@ -889,18 +921,18 @@ enrich_conninfo(#mqtt_packet_connect{
     {ok, Channel#channel{conninfo = NConnInfo}}.
 
 %% @doc Check connect packet.
-check_connect(ConnPkt, #channel{client_info = #{zone := Zone}}) ->
+check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone}}) ->
     emqx_packet:check(ConnPkt, emqx_mqtt_caps:get_caps(Zone)).
 
 %% @doc Enrich client
-enrich_client(ConnPkt, Channel = #channel{client_info = ClientInfo}) ->
+enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
     {ok, NConnPkt, NClientInfo} =
         pipeline([fun set_username/2,
                   fun set_bridge_mode/2,
                   fun maybe_username_as_clientid/2,
                   fun maybe_assign_clientid/2,
                   fun fix_mountpoint/2], ConnPkt, ClientInfo),
-    {ok, NConnPkt, Channel#channel{client_info = NClientInfo}}.
+    {ok, NConnPkt, Channel#channel{clientinfo = NClientInfo}}.
 
 set_username(#mqtt_packet_connect{username = Username},
              ClientInfo = #{username := undefined}) ->
@@ -916,35 +948,35 @@ maybe_username_as_clientid(_ConnPkt, ClientInfo = #{username := undefined}) ->
     {ok, ClientInfo};
 maybe_username_as_clientid(_ConnPkt, ClientInfo = #{zone := Zone, username := Username}) ->
     case emqx_zone:use_username_as_clientid(Zone) of
-        true  -> {ok, ClientInfo#{client_id => Username}};
+        true  -> {ok, ClientInfo#{clientid => Username}};
         false -> ok
     end.
 
-maybe_assign_clientid(#mqtt_packet_connect{client_id = <<>>}, ClientInfo) ->
+maybe_assign_clientid(#mqtt_packet_connect{clientid = <<>>}, ClientInfo) ->
     %% Generate a rand clientId
-    {ok, ClientInfo#{client_id => emqx_guid:to_base62(emqx_guid:gen())}};
-maybe_assign_clientid(#mqtt_packet_connect{client_id = ClientId}, ClientInfo) ->
-    {ok, ClientInfo#{client_id => ClientId}}.
+    {ok, ClientInfo#{clientid => emqx_guid:to_base62(emqx_guid:gen())}};
+maybe_assign_clientid(#mqtt_packet_connect{clientid = ClientId}, ClientInfo) ->
+    {ok, ClientInfo#{clientid => ClientId}}.
 
 fix_mountpoint(_ConnPkt, #{mountpoint := undefined}) -> ok;
 fix_mountpoint(_ConnPkt, ClientInfo = #{mountpoint := Mountpoint}) ->
     {ok, ClientInfo#{mountpoint := emqx_mountpoint:replvar(Mountpoint, ClientInfo)}}.
 
 %% @doc Set logger metadata.
-set_logger_meta(_ConnPkt, #channel{client_info = #{client_id := ClientId}}) ->
-    emqx_logger:set_metadata_client_id(ClientId).
+set_logger_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId}}) ->
+    emqx_logger:set_metadata_clientid(ClientId).
 
 %%--------------------------------------------------------------------
 %% Check banned/flapping
 %%--------------------------------------------------------------------
 
-check_banned(_ConnPkt, #channel{client_info = ClientInfo = #{zone := Zone}}) ->
+check_banned(_ConnPkt, #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
     case emqx_zone:enable_ban(Zone) andalso emqx_banned:check(ClientInfo) of
         true  -> {error, ?RC_BANNED};
         false -> ok
     end.
 
-check_flapping(_ConnPkt, #channel{client_info = ClientInfo = #{zone := Zone}}) ->
+check_flapping(_ConnPkt, #channel{clientinfo = ClientInfo = #{zone := Zone}}) ->
     case emqx_zone:enable_flapping_detect(Zone)
          andalso emqx_flapping:check(ClientInfo) of
         true -> {error, ?RC_CONNECTION_RATE_EXCEEDED};
@@ -955,13 +987,13 @@ check_flapping(_ConnPkt, #channel{client_info = ClientInfo = #{zone := Zone}}) -
 %% Auth Connect
 %%--------------------------------------------------------------------
 
-auth_connect(#mqtt_packet_connect{client_id = ClientId,
+auth_connect(#mqtt_packet_connect{clientid = ClientId,
                                   username  = Username,
                                   password  = Password},
-             Channel = #channel{client_info = ClientInfo}) ->
+             Channel = #channel{clientinfo = ClientInfo}) ->
     case emqx_access_control:authenticate(ClientInfo#{password => Password}) of
         {ok, AuthResult} ->
-            {ok, Channel#channel{client_info = maps:merge(ClientInfo, AuthResult)}};
+            {ok, Channel#channel{clientinfo = maps:merge(ClientInfo, AuthResult)}};
         {error, Reason} ->
             ?LOG(warning, "Client ~s (Username: '~s') login failed for ~0p",
                  [ClientId, Username, Reason]),
@@ -1004,7 +1036,7 @@ save_alias(AliasId, Topic, Aliases) -> maps:put(AliasId, Topic, Aliases).
 
 %% Check Pub ACL
 check_pub_acl(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
-              #channel{client_info = ClientInfo}) ->
+              #channel{clientinfo = ClientInfo}) ->
     case is_acl_enabled(ClientInfo) andalso
          emqx_access_control:check_acl(ClientInfo, publish, Topic) of
         false -> ok;
@@ -1033,7 +1065,7 @@ check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos = QoS,
                                                          retain = Retain
                                                         }
                            },
-               #channel{client_info = #{zone := Zone}}) ->
+               #channel{clientinfo = #{zone := Zone}}) ->
     emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain}).
 
 %% Check Sub
@@ -1044,7 +1076,7 @@ check_subscribe(TopicFilter, SubOpts, Channel) ->
     end.
 
 %% Check Sub ACL
-check_sub_acl(TopicFilter, #channel{client_info = ClientInfo}) ->
+check_sub_acl(TopicFilter, #channel{clientinfo = ClientInfo}) ->
     case is_acl_enabled(ClientInfo) andalso
          emqx_access_control:check_acl(ClientInfo, subscribe, TopicFilter) of
         false  -> allow;
@@ -1052,7 +1084,7 @@ check_sub_acl(TopicFilter, #channel{client_info = ClientInfo}) ->
     end.
 
 %% Check Sub Caps
-check_sub_caps(TopicFilter, SubOpts, #channel{client_info = #{zone := Zone}}) ->
+check_sub_caps(TopicFilter, SubOpts, #channel{clientinfo = #{zone := Zone}}) ->
     emqx_mqtt_caps:check_sub(Zone, TopicFilter, SubOpts).
 
 enrich_subid(#{'Subscription-Identifier' := SubId}, TopicFilters) ->
@@ -1063,12 +1095,12 @@ enrich_subid(_Properties, TopicFilters) ->
 enrich_subopts(SubOpts, #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5}}) ->
     SubOpts;
 
-enrich_subopts(SubOpts, #channel{client_info = #{zone := Zone, is_bridge := IsBridge}}) ->
+enrich_subopts(SubOpts, #channel{clientinfo = #{zone := Zone, is_bridge := IsBridge}}) ->
     NL = flag(emqx_zone:ignore_loop_deliver(Zone)),
     SubOpts#{rap => flag(IsBridge), nl => NL}.
 
 enrich_caps(AckProps, #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5},
-                               client_info = #{zone := Zone}}) ->
+                               clientinfo = #{zone := Zone}}) ->
     #{max_packet_size       := MaxPktSize,
       max_qos_allowed       := MaxQoS,
       retain_available      := Retain,
@@ -1087,16 +1119,16 @@ enrich_caps(AckProps, #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5},
 enrich_caps(AckProps, _Channel) ->
     AckProps.
 
-enrich_server_keepalive(AckProps, #channel{client_info = #{zone := Zone}}) ->
+enrich_server_keepalive(AckProps, #channel{clientinfo = #{zone := Zone}}) ->
     case emqx_zone:server_keepalive(Zone) of
         undefined -> AckProps;
         Keepalive -> AckProps#{'Server-Keep-Alive' => Keepalive}
     end.
 
 enrich_assigned_clientid(AckProps, #channel{conninfo = ConnInfo,
-                                            client_info = #{client_id := ClientId}
+                                            clientinfo = #{clientid := ClientId}
                                            }) ->
-    case maps:get(client_id, ConnInfo) of
+    case maps:get(clientid, ConnInfo) of
         <<>> -> %% Original ClientId is null.
             AckProps#{'Assigned-Client-Identifier' => ClientId};
         _Origin -> AckProps
@@ -1108,8 +1140,10 @@ init_alias_maximum(#mqtt_packet_connect{proto_ver  = ?MQTT_PROTO_V5,
       inbound  => emqx_mqtt_caps:get_caps(Zone, max_topic_alias, 0)};
 init_alias_maximum(_ConnPkt, _ClientInfo) -> undefined.
 
-ensure_disconnected(Channel) ->
-    Channel#channel{connected = false, disconnected_at = os:timestamp()}.
+ensure_disconnected(Channel = #channel{fsm_state = FsmState}) ->
+    Channel#channel{fsm_state = FsmState#{state_name := disconnected,
+                                          disconnected_at => erlang:system_time(second)
+                                         }}.
 
 ensure_keepalive(#{'Server-Keep-Alive' := Interval}, Channel) ->
     ensure_keepalive_timer(Interval, Channel);
@@ -1117,7 +1151,7 @@ ensure_keepalive(_AckProps, Channel = #channel{conninfo = ConnInfo}) ->
     ensure_keepalive_timer(maps:get(keepalive, ConnInfo), Channel).
 
 ensure_keepalive_timer(0, Channel) -> Channel;
-ensure_keepalive_timer(Interval, Channel = #channel{client_info = #{zone := Zone}}) ->
+ensure_keepalive_timer(Interval, Channel = #channel{clientinfo = #{zone := Zone}}) ->
     Backoff = emqx_zone:get_env(Zone, keepalive_backoff, 0.75),
     Keepalive = emqx_keepalive:init(round(timer:seconds(Interval) * Backoff)),
     ensure_timer(alive_timer, Channel#channel{keepalive = Keepalive}).
@@ -1150,18 +1184,12 @@ parse_topic_filters(TopicFilters) ->
 
 maybe_gc_and_check_oom(_Oct, Channel = #channel{gc_state = undefined}) ->
     Channel;
-maybe_gc_and_check_oom(Oct, Channel = #channel{gc_state   = GCSt,
-                                               oom_policy = OomPolicy}) ->
+maybe_gc_and_check_oom(Oct, Channel = #channel{clientinfo = #{zone := Zone},
+                                               gc_state   = GCSt}) ->
     {IsGC, GCSt1} = emqx_gc:run(1, Oct, GCSt),
     IsGC andalso emqx_metrics:inc('channel.gc.cnt'),
-    IsGC andalso maybe_apply(fun check_oom/1, OomPolicy),
+    IsGC andalso emqx_zone:check_oom(Zone, fun(Shutdown) -> self() ! Shutdown end),
     Channel#channel{gc_state = GCSt1}.
-
-check_oom(OomPolicy) ->
-    case emqx_oom:check(OomPolicy) of
-        ok -> ok;
-        Shutdown -> self() ! Shutdown
-    end.
 
 %%--------------------------------------------------------------------
 %% Helper functions

@@ -129,8 +129,8 @@ t_parse_cont(_) ->
 
 t_parse_frame_too_large(_) ->
     Packet = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, payload(1000)),
-    ?catch_error(mqtt_frame_too_large, parse_serialize(Packet, #{max_size => 256})),
-    ?catch_error(mqtt_frame_too_large, parse_serialize(Packet, #{max_size => 512})),
+    ?catch_error(frame_too_large, parse_serialize(Packet, #{max_size => 256})),
+    ?catch_error(frame_too_large, parse_serialize(Packet, #{max_size => 512})),
     ?assertEqual(Packet, parse_serialize(Packet, #{max_size => 2048, version => ?MQTT_PROTO_V4})).
 
 t_serialize_parse_connect(_) ->
@@ -411,7 +411,7 @@ t_serialize_parse_pubcomp_v5(_) ->
 t_serialize_parse_subscribe(_) ->
     %% SUBSCRIBE(Q1, R0, D0, PacketId=2, TopicTable=[{<<"TopicA">>,2}])
     Bin = <<?SUBSCRIBE:4,2:4,11,0,2,0,6,84,111,112,105,99,65,2>>,
-    TopicOpts = #{nl => 0 , rap => 0, rc => 0, rh => 0, qos => 2},
+    TopicOpts = #{nl => 0 , rap => 0, rh => 0, qos => 2},
     TopicFilters = [{<<"TopicA">>, TopicOpts}],
     Packet = ?SUBSCRIBE_PACKET(2, TopicFilters),
     ?assertEqual(Bin, serialize_to_binary(Packet)),
@@ -424,8 +424,8 @@ t_serialize_parse_subscribe(_) ->
     ?catch_error(bad_subqos, parse_serialize(?SUBSCRIBE_PACKET(1, [{<<"t">>, #{qos => 3}}]))).
 
 t_serialize_parse_subscribe_v5(_) ->
-    TopicFilters = [{<<"TopicQos0">>, #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0}},
-                    {<<"TopicQos1">>, #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0, rc => 0}}],
+    TopicFilters = [{<<"TopicQos0">>, #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0}},
+                    {<<"TopicQos1">>, #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0}}],
     Packet = ?SUBSCRIBE_PACKET(3, #{'Subscription-Identifier' => 16#FFFFFFF}, TopicFilters),
     ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
 

@@ -188,12 +188,12 @@ info_args() ->
 sub_args() ->
     ?LET({ClientId, TopicFilter, SubOpts},
          {clientid(), topic(), sub_opts()},
-         {#{client_id => ClientId}, TopicFilter, SubOpts}).
+         {#{clientid => ClientId}, TopicFilter, SubOpts}).
 
 unsub_args() ->
     ?LET({ClientId, TopicFilter},
          {clientid(), topic()},
-         {#{client_id => ClientId}, TopicFilter}).
+         {#{clientid => ClientId}, TopicFilter}).
 
 publish_args() ->
     ?LET({PacketId, Message},
