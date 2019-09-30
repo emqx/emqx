@@ -170,17 +170,17 @@ deliver_args() ->
 
 info_args() ->
     oneof([subscriptions,
-           max_subscriptions,
+           subscriptions_max,
            upgrade_qos,
            inflight,
-           max_inflight,
+           inflight_max,
            retry_interval,
            mqueue_len,
-           max_mqueue,
+           mqueue_max,
            mqueue_dropped,
            next_pkt_id,
            awaiting_rel,
-           max_awaiting_rel,
+           awaiting_rel_max,
            await_rel_timeout,
            created_at
           ]).
@@ -188,12 +188,12 @@ info_args() ->
 sub_args() ->
     ?LET({ClientId, TopicFilter, SubOpts},
          {clientid(), topic(), sub_opts()},
-         {#{client_id => ClientId}, TopicFilter, SubOpts}).
+         {#{clientid => ClientId}, TopicFilter, SubOpts}).
 
 unsub_args() ->
     ?LET({ClientId, TopicFilter},
          {clientid(), topic()},
-         {#{client_id => ClientId}, TopicFilter}).
+         {#{clientid => ClientId}, TopicFilter}).
 
 publish_args() ->
     ?LET({PacketId, Message},

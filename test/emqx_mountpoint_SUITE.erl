@@ -56,12 +56,12 @@ t_replvar(_) ->
     ?assertEqual(undefined, replvar(undefined, #{})),
     ?assertEqual(<<"mount/user/clientid/">>,
                  replvar(<<"mount/%u/%c/">>,
-                         #{client_id => <<"clientid">>,
+                         #{clientid => <<"clientid">>,
                            username => <<"user">>
                           })),
     ?assertEqual(<<"mount/%u/clientid/">>,
                  replvar(<<"mount/%u/%c/">>,
-                         #{client_id => <<"clientid">>,
+                         #{clientid => <<"clientid">>,
                            username => undefined
                           })).
 

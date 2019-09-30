@@ -51,7 +51,7 @@
          }).
 
 -record(flapping, {
-          client_id  :: emqx_types:client_id(),
+          clientid   :: emqx_types:clientid(),
           peerhost   :: emqx_types:peerhost(),
           started_at :: pos_integer(),
           detect_cnt :: pos_integer(),
@@ -69,8 +69,8 @@ start_link() ->
 stop() -> gen_server:stop(?MODULE).
 
 %% @doc Check flapping when a MQTT client connected.
--spec(check(emqx_types:client()) -> boolean()).
-check(#{client_id := ClientId}) ->
+-spec(check(emqx_types:clientinfo()) -> boolean()).
+check(#{clientid := ClientId}) ->
     check(ClientId, get_policy()).
 
 check(ClientId, #{banned_interval := Interval}) ->
@@ -81,10 +81,10 @@ check(ClientId, #{banned_interval := Interval}) ->
     end.
 
 %% @doc Detect flapping when a MQTT client disconnected.
--spec(detect(emqx_types:client()) -> boolean()).
+-spec(detect(emqx_types:clientinfo()) -> boolean()).
 detect(Client) -> detect(Client, get_policy()).
 
-detect(#{client_id := ClientId, peerhost := PeerHost},
+detect(#{clientid := ClientId, peerhost := PeerHost},
        Policy = #{threshold := Threshold}) ->
     try ets:update_counter(?FLAPPING_TAB, ClientId, {#flapping.detect_cnt, 1}) of
         Cnt when Cnt < Threshold -> false;
@@ -97,7 +97,7 @@ detect(#{client_id := ClientId, peerhost := PeerHost},
     catch
         error:badarg ->
             %% Create a flapping record.
-            Flapping = #flapping{client_id  = ClientId,
+            Flapping = #flapping{clientid   = ClientId,
                                  peerhost   = PeerHost,
                                  started_at = emqx_time:now_ms(),
                                  detect_cnt = 1
@@ -131,7 +131,7 @@ handle_call(Req, _From, State) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, State}.
 
-handle_cast({detected, Flapping = #flapping{client_id  = ClientId,
+handle_cast({detected, Flapping = #flapping{clientid   = ClientId,
                                             peerhost   = PeerHost,
                                             started_at = StartedAt,
                                             detect_cnt = DetectCnt},
@@ -142,7 +142,7 @@ handle_cast({detected, Flapping = #flapping{client_id  = ClientId,
             ?LOG(error, "Flapping detected: ~s(~s) disconnected ~w times in ~wms",
                  [ClientId, esockd_net:ntoa(PeerHost), DetectCnt, Duration]),
             %% Banned.
-            BannedFlapping = Flapping#flapping{client_id = {banned, ClientId},
+            BannedFlapping = Flapping#flapping{clientid  = {banned, ClientId},
                                                banned_at = emqx_time:now_ms()
                                               },
             alarm_handler:set_alarm({{flapping_detected, ClientId}, BannedFlapping}),
@@ -192,11 +192,11 @@ expire_flapping(NowTime, #{duration := Duration, banned_interval := Interval}) -
     case ets:select(?FLAPPING_TAB,
                     [{#flapping{started_at = '$1', banned_at = undefined, _ = '_'},
                       [{'<', '$1', NowTime-Duration}], ['$_']},
-                     {#flapping{client_id = {banned, '_'}, banned_at = '$1', _ = '_'},
+                     {#flapping{clientid = {banned, '_'}, banned_at = '$1', _ = '_'},
                       [{'<', '$1', NowTime-Interval}], ['$_']}]) of
         [] -> ok;
         Flappings ->
-            lists:foreach(fun(Flapping = #flapping{client_id = {banned, ClientId}}) ->
+            lists:foreach(fun(Flapping = #flapping{clientid = {banned, ClientId}}) ->
                               ets:delete_object(?FLAPPING_TAB, Flapping),
                               alarm_handler:clear_alarm({flapping_detected, ClientId});
                              (_) -> ok

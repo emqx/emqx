@@ -66,7 +66,7 @@ unmount(MountPoint, Msg = #message{topic = Topic}) ->
 -spec(replvar(maybe(mountpoint()), map()) -> maybe(mountpoint())).
 replvar(undefined, _Vars) ->
     undefined;
-replvar(MountPoint, #{client_id := ClientId, username := Username}) ->
+replvar(MountPoint, #{clientid := ClientId, username := Username}) ->
     lists:foldl(fun feed_var/2, MountPoint,
                 [{<<"%c">>, ClientId}, {<<"%u">>, Username}]).
 

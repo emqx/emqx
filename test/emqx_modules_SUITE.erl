@@ -55,11 +55,11 @@ end_per_suite(_Config) ->
 %% Test case for emqx_mod_presence
 t_mod_presence(_) ->
     ok = emqx_mod_presence:load([{qos, ?QOS_1}]),
-    {ok, C1} = emqtt:start_link([{client_id, <<"monsys">>}]),
+    {ok, C1} = emqtt:start_link([{clientid, <<"monsys">>}]),
     {ok, _} = emqtt:connect(C1),
     {ok, _Props, [?QOS_1]} = emqtt:subscribe(C1, <<"$SYS/brokers/+/clients/#">>, qos1),
     %% Connected Presence
-    {ok, C2} = emqtt:start_link([{client_id, <<"clientid">>},
+    {ok, C2} = emqtt:start_link([{clientid, <<"clientid">>},
                                  {username, <<"username">>}]),
     {ok, _} = emqtt:connect(C2),
     ok = recv_and_check_presence(<<"clientid">>, <<"connected">>),
@@ -91,14 +91,14 @@ recv_and_check_presence(ClientId, Presence) ->
         <<"disconnected">> ->
             ?assertMatch(#{clientid := <<"clientid">>,
                            username := <<"username">>,
-                           reason := <<"closed">>}, emqx_json:decode(Payload, [{labels, atom}, return_maps]))
+                           reason := <<"normal">>}, emqx_json:decode(Payload, [{labels, atom}, return_maps]))
     end.
 
 %% Test case for emqx_mod_subscription
 t_mod_subscription(_) ->
     emqx_mod_subscription:load([{<<"connected/%c/%u">>, ?QOS_0}]),
     {ok, C} = emqtt:start_link([{host, "localhost"},
-                                {client_id, "myclient"},
+                                {clientid, "myclient"},
                                 {username, "admin"}]),
     {ok, _} = emqtt:connect(C),
     emqtt:publish(C, <<"connected/myclient/admin">>, <<"Hello world">>, ?QOS_0),
@@ -111,7 +111,7 @@ t_mod_subscription(_) ->
 %% Test case for emqx_mod_write
 t_mod_rewrite(_Config) ->
     ok = emqx_mod_rewrite:load(?RULES),
-    {ok, C} = emqtt:start_link([{client_id, <<"rewrite_client">>}]),
+    {ok, C} = emqtt:start_link([{clientid, <<"rewrite_client">>}]),
     {ok, _} = emqtt:connect(C),
     OrigTopics = [<<"x/y/2">>, <<"x/1/2">>, <<"y/a/z/b">>, <<"y/def">>],
     DestTopics = [<<"z/y/2">>, <<"x/1/2">>, <<"y/z/b">>, <<"y/def">>],
