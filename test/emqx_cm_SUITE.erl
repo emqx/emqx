@@ -64,17 +64,17 @@ t_get_set_chan_stats(_) ->
 
 t_open_session(_) ->
     ClientInfo = #{zone => external,
-                   client_id => <<"clientid">>,
+                   clientid => <<"clientid">>,
                    username => <<"username">>,
                    peerhost => {127,0,0,1}},
     ConnInfo = #{peername => {{127,0,0,1}, 5000},
                  receive_maximum => 100},
     {ok, #{session := Session1, present := false}}
         = emqx_cm:open_session(true, ClientInfo, ConnInfo),
-    ?assertEqual(100, emqx_session:info(max_inflight, Session1)),
+    ?assertEqual(100, emqx_session:info(inflight_max, Session1)),
     {ok, #{session := Session2, present := false}}
         = emqx_cm:open_session(false, ClientInfo, ConnInfo),
-    ?assertEqual(100, emqx_session:info(max_inflight, Session2)).
+    ?assertEqual(100, emqx_session:info(inflight_max, Session2)).
 
 t_discard_session(_) ->
     ok = emqx_cm:discard_session(<<"clientid">>).

@@ -41,7 +41,7 @@ end_per_suite(_Config) ->
 
 t_detect_check(_) ->
     ClientInfo = #{zone => external,
-                   client_id => <<"clientid">>,
+                   clientid => <<"clientid">>,
                    peerhost => {127,0,0,1}
                   },
     false = emqx_flapping:detect(ClientInfo),

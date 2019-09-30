@@ -43,7 +43,7 @@ t_get_env(_) ->
 t_emqx_pubsub_api(_) ->
     emqx:start(),
     true = emqx:is_running(node()),
-    {ok, C} = emqtt:start_link([{host, "localhost"}, {client_id, "myclient"}]),
+    {ok, C} = emqtt:start_link([{host, "localhost"}, {clientid, "myclient"}]),
     {ok, _} = emqtt:connect(C),
     ClientId = <<"myclient">>,
     Topic = <<"mytopic">>,

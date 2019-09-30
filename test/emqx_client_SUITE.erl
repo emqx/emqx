@@ -95,10 +95,10 @@ t_cm(_) ->
     IdleTimeout = emqx_zone:get_env(external, idle_timeout, 30000),
     emqx_zone:set_env(external, idle_timeout, 1000),
     ClientId = <<"myclient">>,
-    {ok, C} = emqtt:start_link([{client_id, ClientId}]),
+    {ok, C} = emqtt:start_link([{clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
     ct:sleep(50),
-    #{client := #{client_id := ClientId}} = emqx_cm:get_chan_attrs(ClientId),
+    #{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_attrs(ClientId),
     emqtt:subscribe(C, <<"mytopic">>, 0),
     ct:sleep(1200),
     Stats = emqx_cm:get_chan_stats(ClientId),
@@ -135,13 +135,13 @@ t_will_message(_Config) ->
 
 t_offline_message_queueing(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, false},
-                                       {client_id, <<"c1">>}]),
+                                       {clientid, <<"c1">>}]),
     {ok, _} = emqtt:connect(C1),
 
     {ok, _, [2]} = emqtt:subscribe(C1, nth(6, ?WILD_TOPICS), 2),
     ok = emqtt:disconnect(C1),
     {ok, C2} = emqtt:start_link([{clean_start, true},
-                                       {client_id, <<"c2">>}]),
+                                       {clientid, <<"c2">>}]),
     {ok, _} = emqtt:connect(C2),
 
     ok = emqtt:publish(C2, nth(2, ?TOPICS), <<"qos 0">>, 0),
@@ -149,8 +149,7 @@ t_offline_message_queueing(_) ->
     {ok, _} = emqtt:publish(C2, nth(4, ?TOPICS), <<"qos 2">>, 2),
     timer:sleep(10),
     emqtt:disconnect(C2),
-    {ok, C3} = emqtt:start_link([{clean_start, false},
-                                       {client_id, <<"c1">>}]),
+    {ok, C3} = emqtt:start_link([{clean_start, false}, {clientid, <<"c1">>}]),
     {ok, _} = emqtt:connect(C3),
 
     timer:sleep(10),
@@ -198,8 +197,7 @@ t_overlapping_subscriptions(_) ->
 
 t_redelivery_on_reconnect(_) ->
     ct:pal("Redelivery on reconnect test starting"),
-    {ok, C1} = emqtt:start_link([{clean_start, false},
-                                       {client_id, <<"c">>}]),
+    {ok, C1} = emqtt:start_link([{clean_start, false}, {clientid, <<"c">>}]),
     {ok, _} = emqtt:connect(C1),
 
     {ok, _, [2]} = emqtt:subscribe(C1, nth(7, ?WILD_TOPICS), 2),
@@ -212,8 +210,7 @@ t_redelivery_on_reconnect(_) ->
     timer:sleep(10),
     ok = emqtt:disconnect(C1),
     ?assertEqual(0, length(recv_msgs(2))),
-    {ok, C2} = emqtt:start_link([{clean_start, false},
-                                       {client_id, <<"c">>}]),
+    {ok, C2} = emqtt:start_link([{clean_start, false}, {clientid, <<"c">>}]),
     {ok, _} = emqtt:connect(C2),
 
     timer:sleep(10),

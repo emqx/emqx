@@ -36,8 +36,8 @@
 load(Topics) ->
     emqx_hooks:add('client.connected', {?MODULE, on_client_connected, [Topics]}).
 
-on_client_connected(#{client_id := ClientId,
-                      username  := Username}, ?RC_SUCCESS, _ConnInfo, Topics) ->
+on_client_connected(#{clientid := ClientId,
+                      username := Username}, ?RC_SUCCESS, _ConnInfo, Topics) ->
     Replace = fun(Topic) ->
                       rep(<<"%u">>, Username, rep(<<"%c">>, ClientId, Topic))
               end,
