@@ -281,8 +281,10 @@ websocket_info(Info, State = #state{chan_state = ChanState}) ->
 terminate(SockError, _Req, #state{chan_state  = ChanState,
                                   stop_reason = Reason}) ->
     ?LOG(debug, "Terminated for ~p, sockerror: ~p", [Reason, SockError]),
-    emqx_channel:terminate(Reason, ChanState).
+    emqx_channel:terminate(Reason, ChanState);
 
+terminate(_Reason, _Req, _State) ->
+    ok.
 %%--------------------------------------------------------------------
 %% Connected callback
 
