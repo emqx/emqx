@@ -31,7 +31,7 @@
         , caps/1
         ]).
 
-%% Exports for unit tests:(
+%% Test Exports
 -export([set_field/3]).
 
 -export([ init/2
@@ -96,6 +96,13 @@
                        connected_at := pos_integer(),
                        disconnected_at := pos_integer()
                       }).
+
+-type(action() :: {enter, connected | disconnected}
+                | {close, Reason :: atom()}
+                | {outgoing, emqx_types:packet()}
+                | {outgoing, [emqx_types:packet()]}).
+
+-type(output() :: emqx_types:packet() | action() | [action()]).
 
 -define(TIMER_TABLE, #{
           stats_timer  => emit_stats,
@@ -223,12 +230,9 @@ init_gc_state(Zone) ->
 
 -spec(handle_in(emqx_types:packet(), channel())
       -> {ok, channel()}
-       | {ok, emqx_types:packet(), channel()}
-       | {ok, list(emqx_types:packet()), channel()}
-       | {close, channel()}
-       | {close, emqx_types:packet(), channel()}
-       | {stop, Error :: term(), channel()}
-       | {stop, Error :: term(), emqx_types:packet(), channel()}).
+       | {ok, output(), channel()}
+       | {stop, Reason :: term(), channel()}
+       | {stop, Reason :: term(), output(), channel()}).
 handle_in(?CONNECT_PACKET(_), Channel = #channel{state = #{state_name := connected}}) ->
      handle_out({disconnect, ?RC_PROTOCOL_ERROR}, Channel);
 
@@ -243,35 +247,36 @@ handle_in(?CONNECT_PACKET(ConnPkt), Channel) ->
         {ok, NConnPkt, NChannel} ->
             process_connect(NConnPkt, NChannel);
         {error, ReasonCode, NChannel} ->
-            handle_out({connack, emqx_reason_codes:formalized(connack, ReasonCode), ConnPkt}, NChannel)
+            ReasonName = emqx_reason_codes:formalized(connack, ReasonCode),
+            handle_out({connack, ReasonName, ConnPkt}, NChannel)
     end;
 
 handle_in(Packet = ?PUBLISH_PACKET(_QoS), Channel) ->
-    Channel1 = inc_pub_stats(publish_in, Channel),
+    NChannel = inc_pub_stats(publish_in, Channel),
     case emqx_packet:check(Packet) of
-        ok -> handle_publish(Packet, Channel1);
+        ok -> handle_publish(Packet, NChannel);
         {error, ReasonCode} ->
-            handle_out({disconnect, ReasonCode}, Channel1)
+            handle_out({disconnect, ReasonCode}, NChannel)
     end;
 
 handle_in(?PUBACK_PACKET(PacketId, _ReasonCode),
           Channel = #channel{clientinfo = ClientInfo, session = Session}) ->
-    Channel1 = inc_pub_stats(puback_in, Channel),
+    NChannel = inc_pub_stats(puback_in, Channel),
     case emqx_session:puback(PacketId, Session) of
         {ok, Msg, Publishes, NSession} ->
             ok = emqx_hooks:run('message.acked', [ClientInfo, Msg]),
-            handle_out({publish, Publishes}, Channel1#channel{session = NSession});
+            handle_out({publish, Publishes}, NChannel#channel{session = NSession});
         {ok, Msg, NSession} ->
             ok = emqx_hooks:run('message.acked', [ClientInfo, Msg]),
-            {ok, Channel1#channel{session = NSession}};
+            {ok, NChannel#channel{session = NSession}};
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?LOG(warning, "The PUBACK PacketId ~w is inuse.", [PacketId]),
             ok = emqx_metrics:inc('packets.puback.inuse'),
-            {ok, Channel1};
+            {ok, NChannel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?LOG(warning, "The PUBACK PacketId ~w is not found", [PacketId]),
             ok = emqx_metrics:inc('packets.puback.missed'),
-            {ok, Channel1}
+            {ok, NChannel}
     end;
 
 handle_in(?PUBREC_PACKET(PacketId, _ReasonCode),
@@ -342,7 +347,7 @@ handle_in(Packet = ?UNSUBSCRIBE_PACKET(PacketId, Properties, TopicFilters),
     end;
 
 handle_in(?PACKET(?PINGREQ), Channel) ->
-    {ok, ?PACKET(?PINGRESP), Channel};
+    {ok, Channel, {outgoing, ?PACKET(?PINGRESP)}};
 
 handle_in(?DISCONNECT_PACKET(ReasonCode, Properties), Channel = #channel{conninfo = ConnInfo}) ->
     #{proto_ver := ProtoVer, expiry_interval := OldInterval} = ConnInfo,
@@ -360,7 +365,7 @@ handle_in(?DISCONNECT_PACKET(ReasonCode, Properties), Channel = #channel{conninf
             {stop, ReasonName, Channel1};
         true ->
             Channel2 = Channel1#channel{conninfo = ConnInfo#{expiry_interval => Interval}},
-            {close, ReasonName, Channel2}
+            {ok, {close, ReasonName}, Channel2}
     end;
 
 handle_in(?AUTH_PACKET(), Channel) ->
@@ -371,7 +376,8 @@ handle_in({frame_error, Reason}, Channel = #channel{state = FsmState}) ->
         #{state_name := initialized} ->
             {stop, {shutdown, Reason}, Channel};
         #{state_name := connecting} ->
-            {stop, {shutdown, Reason}, ?CONNACK_PACKET(?RC_MALFORMED_PACKET), Channel};
+            Packet = ?CONNACK_PACKET(?RC_MALFORMED_PACKET),
+            {stop, {shutdown, Reason}, Packet, Channel};
         #{state_name := connected} ->
             handle_out({disconnect, ?RC_MALFORMED_PACKET}, Channel);
         #{state_name := disconnected} ->
@@ -528,7 +534,7 @@ do_unsubscribe(TopicFilter, _SubOpts, Channel =
 %% Handle outgoing packet
 %%--------------------------------------------------------------------
 
-%%TODO: RunFold or Pipeline
+%% TODO: RunFold or Pipeline
 handle_out({connack, ?RC_SUCCESS, SP, ConnPkt},
            Channel = #channel{conninfo   = ConnInfo,
                               clientinfo = ClientInfo,
@@ -553,7 +559,8 @@ handle_out({connack, ?RC_SUCCESS, SP, ConnPkt},
                                         resuming = false,
                                         pendings = []},
             {ok, Packets, _} = handle_out({publish, Publishes}, Channel3),
-            {ok, [AckPacket|Packets], Channel3}
+            Output = [{outgoing, [AckPacket|Packets]}, {enter, connected}],
+            {ok, Output, Channel3}
     end;
 
 handle_out({connack, ReasonCode, _ConnPkt}, Channel = #channel{conninfo = ConnInfo,
@@ -594,12 +601,12 @@ handle_out({publish, Publishes}, Channel) when is_list(Publishes) ->
                     end
                 end, [], Publishes),
     NChannel = inc_pub_stats(publish_out, length(Packets), Channel),
-    {ok, lists:reverse(Packets), NChannel};
+    {ok, {outgoing, lists:reverse(Packets)}, NChannel};
 
 %% Ignore loop deliver
 handle_out({publish, _PacketId, #message{from  = ClientId,
                                          flags = #{nl := true}}},
-            Channel = #channel{clientinfo = #{clientid := ClientId}}) ->
+           Channel = #channel{clientinfo = #{clientid := ClientId}}) ->
     {ok, Channel};
 
 handle_out({publish, PacketId, Msg}, Channel =
@@ -640,7 +647,6 @@ handle_out({disconnect, ReasonCode}, Channel = #channel{conninfo = #{proto_ver :
     ReasonName = emqx_reason_codes:name(ReasonCode, ProtoVer),
     handle_out({disconnect, ReasonCode, ReasonName}, Channel);
 
-%%TODO: Improve later...
 handle_out({disconnect, ReasonCode, ReasonName},
            Channel = #channel{conninfo = #{proto_ver := ProtoVer,
                                            expiry_interval := ExpiryInterval}}) ->
@@ -650,14 +656,19 @@ handle_out({disconnect, ReasonCode, ReasonName},
         {0, _Ver} ->
             {stop, ReasonName, Channel};
         {?UINT_MAX, ?MQTT_PROTO_V5} ->
-            {close, ReasonName, ?DISCONNECT_PACKET(ReasonCode), Channel};
+            Output = [{outgoing, ?DISCONNECT_PACKET(ReasonCode)},
+                      {close, ReasonName}],
+            {ok, Output, Channel};
         {?UINT_MAX, _Ver} ->
-            {close, ReasonName, Channel};
+            {ok, {close, ReasonName}, Channel};
         {Interval, ?MQTT_PROTO_V5} ->
             NChannel = ensure_timer(expire_timer, Interval, Channel),
-            {close, ReasonName, ?DISCONNECT_PACKET(ReasonCode), NChannel};
+            Output = [{outgoing, ?DISCONNECT_PACKET(ReasonCode)},
+                      {close, ReasonName}],
+            {ok, Output, NChannel};
         {Interval, _Ver} ->
-            {close, ReasonName, ensure_timer(expire_timer, Interval, Channel)}
+            NChannel = ensure_timer(expire_timer, Interval, Channel),
+            {ok, {close, ReasonName}, NChannel}
     end;
 
 handle_out({Type, Data}, Channel) ->
