@@ -1,8 +1,0 @@
-
-- emqx_connection
-  Biz message
-  Timeout message
-  Sys message
-  EXIT message
-  Batch Process
-  Postponed Queue
