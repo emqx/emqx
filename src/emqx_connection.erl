@@ -150,7 +150,14 @@ call(CPid, Req) -> gen_statem:call(CPid, Req).
 %%--------------------------------------------------------------------
 
 init({Transport, RawSocket, Options}) ->
-    {ok, Socket} = Transport:wait(RawSocket),
+    case Transport:wait(RawSocket) of
+         {ok, Socket} ->
+             do_init(Transport, Socket, Options);
+         {error, Reason} ->
+             ?LOG(warning, "connection failed to establish: ~p", [Reason])
+    end.
+
+do_init(Transport, Socket, Options) ->
     {ok, Peername} = Transport:ensure_ok_or_exit(peername, [Socket]),
     {ok, Sockname} = Transport:ensure_ok_or_exit(sockname, [Socket]),
     Peercert = Transport:ensure_ok_or_exit(peercert, [Socket]),
