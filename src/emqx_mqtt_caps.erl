@@ -46,7 +46,7 @@
 
 -define(UNLIMITED, 0).
 
--define(PUBCAP_KEYS, [max_topic_alias,
+-define(PUBCAP_KEYS, [max_topic_levels,
                       max_qos_allowed,
                       retain_available
                      ]).
@@ -73,8 +73,16 @@
                   retain => boolean()})
       -> ok_or_error(emqx_types:reason_code())).
 check_pub(Zone, Flags) when is_map(Flags) ->
-    do_check_pub(Flags, get_caps(Zone, publish)).
+    do_check_pub(case maps:take(topic, Flags) of
+                     {Topic, Flags1} ->
+                         Flags1#{topic_levels => emqx_topic:levels(Topic)};
+                     error ->
+                         Flags
+                 end, get_caps(Zone, publish)).
 
+do_check_pub(#{topic_levels := Levels}, #{max_topic_levels := Limit})
+  when Limit > 0, Levels > Limit ->
+    {error, ?RC_TOPIC_NAME_INVALID};
 do_check_pub(#{qos := QoS}, #{max_qos_allowed := MaxQoS})
   when QoS > MaxQoS ->
     {error, ?RC_QOS_NOT_SUPPORTED};

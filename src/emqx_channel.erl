@@ -1064,11 +1064,11 @@ check_pub_alias(_Packet, _Channel) -> ok.
 
 %% Check Pub Caps
 check_pub_caps(#mqtt_packet{header = #mqtt_packet_header{qos = QoS,
-                                                         retain = Retain
-                                                        }
+                                                         retain = Retain},
+                            variable = #mqtt_packet_publish{topic_name = Topic}
                            },
                #channel{clientinfo = #{zone := Zone}}) ->
-    emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain}).
+    emqx_mqtt_caps:check_pub(Zone, #{qos => QoS, retain => Retain, topic => Topic}).
 
 %% Check Sub
 check_subscribe(TopicFilter, SubOpts, Channel) ->
