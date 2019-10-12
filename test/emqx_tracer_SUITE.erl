@@ -35,7 +35,7 @@ end_per_suite(_Config) ->
 
 t_start_traces(_Config) ->
     {ok, T} = emqtt:start_link([{host, "localhost"},
-                                {clientid, <<"client">>},
+                                {client_id, <<"client">>},
                                 {username, <<"testuser">>},
                                 {password, <<"pass">>}
                                ]),

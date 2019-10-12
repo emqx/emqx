@@ -42,8 +42,8 @@ t_message_expiry_interval_2(_) ->
 	emqtt:stop(ClientA).
 
 message_expiry_interval_init() ->
-	{ok, ClientA} = emqtt:start_link([{proto_ver,v5}, {clientid, <<"client-a">>}, {clean_start, false},{properties, #{'Session-Expiry-Interval' => 360}}]),
-	{ok, ClientB} = emqtt:start_link([{proto_ver,v5}, {clientid, <<"client-b">>}, {clean_start, false},{properties, #{'Session-Expiry-Interval' => 360}}]),
+	{ok, ClientA} = emqtt:start_link([{proto_ver,v5}, {client_id, <<"client-a">>}, {clean_start, false},{properties, #{'Session-Expiry-Interval' => 360}}]),
+	{ok, ClientB} = emqtt:start_link([{proto_ver,v5}, {client_id, <<"client-b">>}, {clean_start, false},{properties, #{'Session-Expiry-Interval' => 360}}]),
 	{ok, _} = emqtt:connect(ClientA),
 	{ok, _} = emqtt:connect(ClientB),
 		%% subscribe and disconnect client-b
@@ -58,7 +58,7 @@ message_expiry_interval_exipred(ClientA, QoS) ->
 	ct:sleep(1500),
 
 	%% resume the session for client-b
-	{ok, ClientB1} = emqtt:start_link([{proto_ver,v5}, {clientid, <<"client-b">>}, {clean_start, false},{properties, #{'Session-Expiry-Interval' => 360}}]),
+	{ok, ClientB1} = emqtt:start_link([{proto_ver,v5}, {client_id, <<"client-b">>}, {clean_start, false},{properties, #{'Session-Expiry-Interval' => 360}}]),
 	{ok, _} = emqtt:connect(ClientB1),
 
 	%% verify client-b could not receive the publish message
@@ -78,7 +78,7 @@ message_expiry_interval_not_exipred(ClientA, QoS) ->
 	%% wait for 1s and then resume the session for client-b, the message should not expires
 	%% as Message-Expiry-Interval = 20s
 	ct:sleep(1000),
-	{ok, ClientB1} = emqtt:start_link([{proto_ver,v5}, {clientid, <<"client-b">>}, {clean_start, false},{properties, #{'Session-Expiry-Interval' => 360}}]),
+	{ok, ClientB1} = emqtt:start_link([{proto_ver,v5}, {client_id, <<"client-b">>}, {clean_start, false},{properties, #{'Session-Expiry-Interval' => 360}}]),
 	{ok, _} = emqtt:connect(ClientB1),
 
 	%% verify client-b could receive the publish message and the Message-Expiry-Interval is set

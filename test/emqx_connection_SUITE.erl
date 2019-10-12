@@ -33,7 +33,7 @@ end_per_suite(_Config) ->
 
 t_basic(_) ->
     Topic = <<"TopicA">>,
-    {ok, C} = emqtt:start_link([{port, 1883}, {clientid, <<"hello">>}]),
+    {ok, C} = emqtt:start_link([{port, 1883}, {client_id, <<"hello">>}]),
     {ok, _} = emqtt:connect(C),
     {ok, _, [1]} = emqtt:subscribe(C, Topic, qos1),
     {ok, _, [2]} = emqtt:subscribe(C, Topic, qos2),
