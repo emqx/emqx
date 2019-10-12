@@ -725,6 +725,12 @@ end}.
   {datatype, {duration, ms}}
 ]}.
 
+%% @doc Hibernate after a duration of idle state.
+{mapping, "zone.$name.hibernate_after", "emqx.zones", [
+  {default, "60s"},
+  {datatype, {duration, ms}}
+]}.
+
 {mapping, "zone.$name.allow_anonymous", "emqx.zones", [
   {datatype, {enum, [true, false]}}
 ]}.
