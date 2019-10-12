@@ -357,7 +357,7 @@ handle_in(?DISCONNECT_PACKET(ReasonCode, Properties), Channel = #channel{conninf
         OldInterval == 0 andalso Interval > OldInterval ->
             handle_out({disconnect, ?RC_PROTOCOL_ERROR}, Channel1);
         Interval == 0 ->
-            {stop, ReasonName, Channel1};
+            shutdown(ReasonName, Channel1);
         true ->
             Channel2 = Channel1#channel{conninfo = ConnInfo#{expiry_interval => Interval}},
             {close, ReasonName, Channel2}
@@ -369,9 +369,9 @@ handle_in(?AUTH_PACKET(), Channel) ->
 handle_in({frame_error, Reason}, Channel = #channel{state = FsmState}) ->
     case FsmState of
         #{state_name := initialized} ->
-            {stop, {shutdown, Reason}, Channel};
+            shutdown(Reason, Channel);
         #{state_name := connecting} ->
-            {stop, {shutdown, Reason}, ?CONNACK_PACKET(?RC_MALFORMED_PACKET), Channel};
+            shutdown(Reason, ?CONNACK_PACKET(?RC_MALFORMED_PACKET), Channel);
         #{state_name := connected} ->
             handle_out({disconnect, ?RC_MALFORMED_PACKET}, Channel);
         #{state_name := disconnected} ->
@@ -564,7 +564,7 @@ handle_out({connack, ReasonCode, _ConnPkt}, Channel = #channel{conninfo = ConnIn
                       _Ver -> emqx_reason_codes:compat(connack, ReasonCode)
                   end,
     Reason = emqx_reason_codes:name(ReasonCode1, ProtoVer),
-    {stop, {shutdown, Reason}, ?CONNACK_PACKET(ReasonCode1), Channel};
+    shutdown(Reason, ?CONNACK_PACKET(ReasonCode1), Channel);
 
 handle_out({deliver, Delivers}, Channel = #channel{state   = #{state_name := disconnected},
                                                    session = Session}) ->
@@ -646,9 +646,9 @@ handle_out({disconnect, ReasonCode, ReasonName},
                                            expiry_interval := ExpiryInterval}}) ->
     case {ExpiryInterval, ProtoVer} of
         {0, ?MQTT_PROTO_V5} ->
-            {stop, ReasonName, ?DISCONNECT_PACKET(ReasonCode), Channel};
+            shutdown(ReasonName, ?DISCONNECT_PACKET(ReasonCode), Channel);
         {0, _Ver} ->
-            {stop, ReasonName, Channel};
+            shutdown(ReasonName, Channel);
         {?UINT_MAX, ?MQTT_PROTO_V5} ->
             {close, ReasonName, ?DISCONNECT_PACKET(ReasonCode), Channel};
         {?UINT_MAX, _Ver} ->
@@ -1206,3 +1206,5 @@ flag(false) -> 0.
 shutdown(Reason, Channel) ->
     {stop, {shutdown, Reason}, Channel}.
 
+shutdown(Reason, Packets, Channel) ->
+    {stop, {shutdown, Reason}, Packets, Channel}.

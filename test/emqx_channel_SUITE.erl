@@ -164,7 +164,7 @@ t_handle_pingreq(_) ->
 t_handle_disconnect(_) ->
     with_channel(
       fun(Channel) ->
-              {stop, normal, Channel1} = handle_in(?DISCONNECT_PACKET(?RC_SUCCESS), Channel),
+              {stop, {shutdown, normal}, Channel1} = handle_in(?DISCONNECT_PACKET(?RC_SUCCESS), Channel),
               ?assertEqual(undefined, emqx_channel:info(will_msg, Channel1))
       end).
 
@@ -172,7 +172,7 @@ t_handle_in_auth(_) ->
     with_channel(
       fun(Channel) ->
               Packet = ?DISCONNECT_PACKET(?RC_IMPLEMENTATION_SPECIFIC_ERROR),
-              {stop, implementation_specific_error, Packet, Channel} = handle_in(?AUTH_PACKET(), Channel)
+              {stop, {shutdown, implementation_specific_error}, Packet, Channel} = handle_in(?AUTH_PACKET(), Channel)
       end).
 
 %%--------------------------------------------------------------------
