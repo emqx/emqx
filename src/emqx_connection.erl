@@ -554,7 +554,7 @@ handle_info(sock_closed, State) ->
 
 handle_info({close, Reason}, State) ->
     ?LOG(debug, "Force close due to : ~p", [Reason]),
-    {ok, close_socket(State)};
+    handle_info({sock_closed, Reason}, close_socket(State));
 
 handle_info(Info, State = #state{channel = Channel}) ->
     handle_return(emqx_channel:handle_info(Info, Channel), State).

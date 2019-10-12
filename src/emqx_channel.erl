@@ -737,9 +737,9 @@ handle_info({register, Attrs, Stats}, #channel{clientinfo = #{clientid := Client
 handle_info({sock_closed, _Reason}, Channel = #channel{conn_state = disconnected}) ->
     {ok, Channel};
 
-handle_info({sock_closed, _Reason}, Channel = #channel{conninfo = ConnInfo,
-                                                       clientinfo = ClientInfo = #{zone := Zone},
-                                                       will_msg = WillMsg}) ->
+handle_info({sock_closed, Reason}, Channel = #channel{conninfo = ConnInfo,
+                                                      clientinfo = ClientInfo = #{zone := Zone},
+                                                      will_msg = WillMsg}) ->
     emqx_zone:enable_flapping_detect(Zone) andalso emqx_flapping:detect(ClientInfo),
     ConnInfo1 = ConnInfo#{disconnected_at => erlang:system_time(second)},
     Channel1 = Channel#channel{conninfo = ConnInfo1, conn_state = disconnected},
@@ -750,11 +750,11 @@ handle_info({sock_closed, _Reason}, Channel = #channel{conninfo = ConnInfo,
                end,
     case maps:get(expiry_interval, ConnInfo) of
         ?UINT_MAX ->
-            {ok, Channel2};
+            {ok, {enter, disconnected}, Channel2};
         Int when Int > 0 ->
-            {ok, ensure_timer(expire_timer, Channel2)};
+            {ok, {enter, disconnected}, ensure_timer(expire_timer, Channel2)};
         _Other ->
-            shutdown(closed, Channel2)
+            shutdown(Reason, Channel2)
     end;
 
 handle_info(Info, Channel) ->
@@ -1206,3 +1206,4 @@ shutdown(Reason, Channel) ->
 
 shutdown(Reason, Packets, Channel) ->
     {stop, {shutdown, Reason}, Packets, Channel}.
+
