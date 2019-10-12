@@ -31,7 +31,9 @@
              , subid/0
              ]).
 
--export_type([ conninfo/0
+-export_type([ socktype/0
+             , sockstate/0
+             , conninfo/0
              , clientinfo/0
              , clientid/0
              , username/0
@@ -97,6 +99,7 @@
 -type(subid() :: binary() | atom()).
 
 -type(socktype() :: tcp | udp | ssl | proxy | atom()).
+-type(sockstate() :: idle | running | blocked | closed).
 -type(conninfo() :: #{socktype := socktype(),
                       sockname := peername(),
                       peername := peername(),

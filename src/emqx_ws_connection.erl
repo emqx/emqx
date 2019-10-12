@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
-%% MQTT WebSocket Connection
+%% MQTT/WS Connection
 -module(emqx_ws_connection).
 
 -include("emqx.hrl").
@@ -22,8 +22,9 @@
 -include("logger.hrl").
 -include("types.hrl").
 
--logger_header("[WsConnection]").
+-logger_header("[MQTT/WS]").
 
+%% API
 -export([ info/1
         , stats/1
         ]).
@@ -35,6 +36,7 @@
         , websocket_init/1
         , websocket_handle/2
         , websocket_info/2
+        , websocket_close/2
         , terminate/3
         ]).
 
@@ -43,14 +45,14 @@
           peername :: emqx_types:peername(),
           %% Sockname of the ws connection
           sockname :: emqx_types:peername(),
-          %% Conn state
-          conn_state :: idle | connected | disconnected,
+          %% Sock state
+          sockstate :: emqx_types:sockstate(),
           %% Parser State
           parse_state :: emqx_frame:parse_state(),
           %% Serialize function
           serialize :: emqx_frame:serialize_fun(),
-          %% Channel State
-          chan_state :: emqx_channel:channel(),
+          %% Channel
+          channel :: emqx_channel:channel(),
           %% Out Pending Packets
           pendings :: list(emqx_types:packet()),
           %% The stop reason
@@ -59,7 +61,7 @@
 
 -type(state() :: #state{}).
 
--define(INFO_KEYS, [socktype, peername, sockname, active_state]).
+-define(INFO_KEYS, [socktype, peername, sockname, sockstate]).
 -define(SOCK_STATS, [recv_oct, recv_cnt, send_oct, send_cnt]).
 -define(CONN_STATS, [recv_pkt, recv_msg, send_pkt, send_msg]).
 
@@ -70,8 +72,8 @@
 -spec(info(pid()|state()) -> emqx_types:infos()).
 info(WsPid) when is_pid(WsPid) ->
     call(WsPid, info);
-info(WsConn = #state{chan_state = ChanState}) ->
-    ChanInfo = emqx_channel:info(ChanState),
+info(WsConn = #state{channel = Channel}) ->
+    ChanInfo = emqx_channel:info(Channel),
     SockInfo = maps:from_list(info(?INFO_KEYS, WsConn)),
     maps:merge(ChanInfo, #{sockinfo => SockInfo}).
 
@@ -83,18 +85,18 @@ info(peername, #state{peername = Peername}) ->
     Peername;
 info(sockname, #state{sockname = Sockname}) ->
     Sockname;
-info(active_state, _State) ->
-    running;
-info(chan_state, #state{chan_state = ChanState}) ->
-    emqx_channel:info(ChanState).
+info(sockstate, #state{sockstate = SockSt}) ->
+    SockSt;
+info(channel, #state{channel = Channel}) ->
+    emqx_channel:info(Channel).
 
 -spec(stats(pid()|state()) -> emqx_types:stats()).
 stats(WsPid) when is_pid(WsPid) ->
     call(WsPid, stats);
-stats(#state{chan_state = ChanState}) ->
+stats(#state{channel = Channel}) ->
     SockStats = emqx_pd:get_counters(?SOCK_STATS),
     ConnStats = emqx_pd:get_counters(?CONN_STATS),
-    ChanStats = emqx_channel:stats(ChanState),
+    ChanStats = emqx_channel:stats(Channel),
     ProcStats = emqx_misc:proc_stats(),
     lists:append([SockStats, ConnStats, ChanStats, ProcStats]).
 
@@ -168,27 +170,26 @@ websocket_init([Req, Opts]) ->
     FrameOpts = emqx_zone:frame_options(Zone),
     ParseState = emqx_frame:initial_parse_state(FrameOpts),
     Serialize = emqx_frame:serialize_fun(),
-    ChanState = emqx_channel:init(ConnInfo, Opts),
+    Channel = emqx_channel:init(ConnInfo, Opts),
     emqx_logger:set_metadata_peername(esockd_net:format(Peername)),
     {ok, #state{peername    = Peername,
                 sockname    = Sockname,
-                conn_state  = idle,
+                sockstate   = idle,
                 parse_state = ParseState,
                 serialize   = Serialize,
-                chan_state  = ChanState,
+                channel     = Channel,
                 pendings    = []
                }}.
 
 websocket_handle({binary, Data}, State) when is_list(Data) ->
     websocket_handle({binary, iolist_to_binary(Data)}, State);
 
-websocket_handle({binary, Data}, State = #state{chan_state = ChanState}) ->
+websocket_handle({binary, Data}, State = #state{channel = Channel}) ->
     ?LOG(debug, "RECV ~p", [Data]),
     Oct = iolist_size(Data),
     ok = inc_recv_stats(1, Oct),
-    NChanState = emqx_channel:received(Oct, ChanState),
-    NState = State#state{chan_state = NChanState},
-    process_incoming(Data, NState);
+    {ok, NChannel} = emqx_channel:handle_in(Oct, Channel),
+    process_incoming(Data, State#state{channel = NChannel});
 
 %% Pings should be replied with pongs, cowboy does it automatically
 %% Pongs can be safely ignored. Clause here simply prevents crash.
@@ -203,56 +204,27 @@ websocket_handle({FrameType, _}, State) ->
     ?LOG(error, "Unexpected frame - ~p", [FrameType]),
     stop({shutdown, unexpected_ws_frame}, State).
 
-websocket_info({call, From, info}, State) ->
-    gen_server:reply(From, info(State)),
-    {ok, State};
+websocket_info({call, From, Req}, State) ->
+    handle_call(From, Req, State);
 
-websocket_info({call, From, stats}, State) ->
-    gen_server:reply(From, stats(State)),
-    {ok, State};
-
-websocket_info({call, From, state}, State) ->
-    gen_server:reply(From, State),
-    {ok, State};
-
-websocket_info({call, From, Req}, State = #state{chan_state = ChanState}) ->
-    case emqx_channel:handle_call(Req, ChanState) of
-        {ok, Reply, NChanState} ->
-            _ = gen_server:reply(From, Reply),
-            {ok, State#state{chan_state = NChanState}};
-        {stop, Reason, Reply, NChanState} ->
-            _ = gen_server:reply(From, Reply),
-            stop(Reason, State#state{chan_state = NChanState})
-    end;
-
-websocket_info({cast, Msg}, State = #state{chan_state = ChanState}) ->
-    case emqx_channel:handle_info(Msg, ChanState) of
-        ok -> {ok, State};
-        {ok, NChanState} ->
-            {ok, State#state{chan_state = NChanState}};
-        {stop, Reason, NChanState} ->
-            stop(Reason, State#state{chan_state = NChanState})
-    end;
+websocket_info({cast, Msg}, State = #state{channel = Channel}) ->
+    handle_return(emqx_channel:handle_info(Msg, Channel), State);
 
 websocket_info({incoming, Packet = ?CONNECT_PACKET(ConnPkt)}, State) ->
-    NState = State#state{serialize = emqx_frame:serialize_fun(ConnPkt)},
-    handle_incoming(Packet, fun connected/1, NState);
+    Serialize = emqx_frame:serialize_fun(ConnPkt),
+    NState = State#state{sockstate = running,
+                         serialize = Serialize
+                        },
+    handle_incoming(Packet, NState);
 
-websocket_info({incoming, Packet}, State) when is_record(Packet, mqtt_packet) ->
-    handle_incoming(Packet, fun reply/1, State);
-
-websocket_info({incoming, FrameError = {frame_error, _Reason}}, State) ->
-    handle_incoming(FrameError, State);
+websocket_info({incoming, Packet}, State) ->
+    handle_incoming(Packet, State);
 
 websocket_info(Deliver = {deliver, _Topic, _Msg},
-               State = #state{chan_state = ChanState}) ->
+               State = #state{channel = Channel}) ->
     Delivers = emqx_misc:drain_deliver([Deliver]),
-    case emqx_channel:handle_out({deliver, Delivers}, ChanState) of
-        {ok, NChanState} ->
-            reply(State#state{chan_state = NChanState});
-        {ok, Packets, NChanState} ->
-            reply(enqueue(Packets, State#state{chan_state = NChanState}))
-    end;
+    Result = emqx_channel:handle_out(Delivers, Channel),
+    handle_return(Result, State);
 
 websocket_info({timeout, TRef, keepalive}, State) when is_reference(TRef) ->
     RecvOct = emqx_pd:get_counter(recv_oct),
@@ -264,60 +236,70 @@ websocket_info({timeout, TRef, emit_stats}, State) when is_reference(TRef) ->
 websocket_info({timeout, TRef, Msg}, State) when is_reference(TRef) ->
     handle_timeout(TRef, Msg, State);
 
+websocket_info({close, Reason}, State) ->
+    stop({shutdown, Reason}, State);
+
 websocket_info({shutdown, Reason}, State) ->
     stop({shutdown, Reason}, State);
 
 websocket_info({stop, Reason}, State) ->
     stop(Reason, State);
 
-websocket_info(Info, State = #state{chan_state = ChanState}) ->
-    case emqx_channel:handle_info(Info, ChanState) of
-        {ok, NChanState} ->
-            {ok, State#state{chan_state = NChanState}};
-        {stop, Reason, NChanState} ->
-            stop(Reason, State#state{chan_state = NChanState})
-    end.
+websocket_info(Info, State) ->
+    handle_info(Info, State).
 
-terminate(SockError, _Req, #state{chan_state  = ChanState,
+websocket_close(Reason, State) ->
+    ?LOG(debug, "WebSocket closed due to ~p~n", [Reason]),
+    handle_info({sock_closed, Reason}, State).
+
+terminate(SockError, _Req, #state{channel = Channel,
                                   stop_reason = Reason}) ->
     ?LOG(debug, "Terminated for ~p, sockerror: ~p", [Reason, SockError]),
-    emqx_channel:terminate(Reason, ChanState).
+    emqx_channel:terminate(Reason, Channel).
 
 %%--------------------------------------------------------------------
-%% Connected callback
+%% Handle call
 
-connected(State = #state{chan_state = ChanState}) ->
-    ChanAttrs = emqx_channel:attrs(ChanState),
-    SockAttrs = #{active_state => running},
-    Attrs = maps:merge(ChanAttrs, #{sockinfo => SockAttrs}),
-    ok = emqx_channel:handle_info({register, Attrs, stats(State)}, ChanState),
-    reply(State#state{conn_state = connected}).
+handle_call(From, info, State) ->
+    gen_server:reply(From, info(State)),
+    {ok, State};
 
-%%--------------------------------------------------------------------
-%% Close
+handle_call(From, stats, State) ->
+    gen_server:reply(From, stats(State)),
+    {ok, State};
 
-close(Reason, State) ->
-    ?LOG(warning, "Closed for ~p", [Reason]),
-    reply(State#state{conn_state = disconnected}).
+handle_call(From, Req, State = #state{channel = Channel}) ->
+    case emqx_channel:handle_call(Req, Channel) of
+        {reply, Reply, NChannel} ->
+            _ = gen_server:reply(From, Reply),
+            {ok, State#state{channel = NChannel}};
+        {stop, Reason, Reply, NChannel} ->
+            _ = gen_server:reply(From, Reply),
+            stop(Reason, State#state{channel = NChannel});
+        {stop, Reason, Reply, OutPacket, NChannel} ->
+            gen_server:reply(From, Reply),
+            NState = State#state{channel = NChannel},
+            stop(Reason, enqueue(OutPacket, NState))
+    end.
 
 %%--------------------------------------------------------------------
 %% Handle timeout
 
-handle_timeout(TRef, Msg, State = #state{chan_state = ChanState}) ->
-    case emqx_channel:handle_timeout(TRef, Msg, ChanState) of
-        {ok, NChanState} ->
-            {ok, State#state{chan_state = NChanState}};
-        {ok, Packets, NChanState} ->
-            NState = State#state{chan_state = NChanState},
-            reply(enqueue(Packets, NState));
-        {close, Reason, NChanState} ->
-            close(Reason, State#state{chan_state = NChanState});
-        {close, Reason, OutPackets, NChanState} ->
-            NState = State#state{chan_state= NChanState},
-            close(Reason, enqueue(OutPackets, NState));
-        {stop, Reason, NChanState} ->
-            stop(Reason, State#state{chan_state = NChanState})
-    end.
+handle_timeout(TRef, Msg, State = #state{channel = Channel}) ->
+    handle_return(emqx_channel:handle_timeout(TRef, Msg, Channel), State).
+
+%%--------------------------------------------------------------------
+%% Handle Info
+
+handle_info({enter, _}, State = #state{channel = Channel}) ->
+    ChanAttrs = emqx_channel:attrs(Channel),
+    SockAttrs = maps:from_list(info(?INFO_KEYS, State)),
+    Attrs = maps:merge(ChanAttrs, #{sockinfo => SockAttrs}),
+    ok = emqx_channel:handle_info({register, Attrs, stats(State)}, Channel),
+    reply(State);
+
+handle_info(Info, State = #state{channel = Channel}) ->
+    handle_return(emqx_channel:handle_info(Info, Channel), State).
 
 %%--------------------------------------------------------------------
 %% Process incoming data
@@ -343,48 +325,39 @@ process_incoming(Data, State = #state{parse_state = ParseState}) ->
 %%--------------------------------------------------------------------
 %% Handle incoming packets
 
-handle_incoming(Packet = ?PACKET(Type), SuccFun,
-                State = #state{chan_state = ChanState}) ->
+handle_incoming(Packet = ?PACKET(Type), State = #state{channel = Channel}) ->
     _ = inc_incoming_stats(Type),
     _ = emqx_metrics:inc_recv(Packet),
     ?LOG(debug, "RECV ~s", [emqx_packet:format(Packet)]),
-    case emqx_channel:handle_in(Packet, ChanState) of
-        {ok, NChanState} ->
-            SuccFun(State#state{chan_state= NChanState});
-        {ok, OutPackets, NChanState} ->
-            NState = State#state{chan_state= NChanState},
-            SuccFun(enqueue(OutPackets, NState));
-        {close, Reason, NChanState} ->
-            close(Reason, State#state{chan_state = NChanState});
-        {close, Reason, OutPackets, NChanState} ->
-            NState = State#state{chan_state= NChanState},
-            close(Reason, enqueue(OutPackets, NState));
-        {stop, Reason, NChanState} ->
-            stop(Reason, State#state{chan_state = NChanState});
-        {stop, Reason, OutPackets, NChanState} ->
-            NState = State#state{chan_state= NChanState},
-            stop(Reason, enqueue(OutPackets, NState))
-    end.
+    handle_return(emqx_channel:handle_in(Packet, Channel), State);
 
-handle_incoming(FrameError = {frame_error, _Reason},
-                State = #state{chan_state = ChanState}) ->
-    case emqx_channel:handle_in(FrameError, ChanState) of
-        {stop, Reason, NChanState} ->
-            stop(Reason, State#state{chan_state = NChanState});
-        {stop, Reason, OutPackets, NChanState} ->
-            NState = State#state{chan_state = NChanState},
-            stop(Reason, enqueue(OutPackets, NState))
-    end.
+handle_incoming(FrameError, State = #state{channel = Channel}) ->
+    handle_return(emqx_channel:handle_in(FrameError, Channel), State).
+
+%%--------------------------------------------------------------------
+%% Handle channel return
+
+handle_return(ok, State) ->
+    reply(State);
+handle_return({ok, NChannel}, State) ->
+    reply(State#state{channel= NChannel});
+handle_return({ok, Replies, NChannel}, State) ->
+    reply(Replies, State#state{channel= NChannel});
+handle_return({stop, Reason, NChannel}, State) ->
+    stop(Reason, State#state{channel = NChannel});
+handle_return({stop, Reason, OutPacket, NChannel}, State) ->
+    NState = State#state{channel = NChannel},
+    stop(Reason, enqueue(OutPacket, NState)).
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
 
-handle_outgoing(Packets, State = #state{chan_state = ChanState}) ->
+handle_outgoing(Packets, State = #state{channel = Channel}) ->
     IoData = lists:map(serialize_and_inc_stats_fun(State), Packets),
     Oct = iolist_size(IoData),
     ok = inc_sent_stats(length(Packets), Oct),
-    NChanState = emqx_channel:sent(Oct, ChanState),
-    {{binary, IoData}, State#state{chan_state = NChanState}}.
+    {ok, NChannel} = emqx_channel:handle_out(Oct, Channel),
+    {{binary, IoData}, State#state{channel = NChannel}}.
 
 %% TODO: Duplicated with emqx_channel:serialize_and_inc_stats_fun/1
 serialize_and_inc_stats_fun(#state{serialize = Serialize}) ->
@@ -433,7 +406,25 @@ inc_sent_stats(Cnt, Oct) ->
 %%--------------------------------------------------------------------
 %% Reply or Stop
 
--compile({inline, [reply/1]}).
+reply(Packet, State) when is_record(Packet, mqtt_packet) ->
+    reply(enqueue(Packet, State));
+reply({outgoing, Packets}, State) ->
+    reply(enqueue(Packets, State));
+reply(Close = {close, _Reason}, State) ->
+    self() ! Close,
+    reply(State);
+
+reply([], State) ->
+    reply(State);
+reply([Packet|More], State) when is_record(Packet, mqtt_packet) ->
+    reply(More, enqueue(Packet, State));
+reply([{outgoing, Packets}|More], State) ->
+    reply(More, enqueue(Packets, State));
+reply([Other|More], State) ->
+    self() ! Other,
+    reply(More, State).
+
+-compile({inline, [reply/1, enqueue/2]}).
 
 reply(State = #state{pendings = []}) ->
     {ok, State};
@@ -441,15 +432,15 @@ reply(State = #state{pendings = Pendings}) ->
     {Reply, NState} = handle_outgoing(Pendings, State),
     {reply, Reply, NState#state{pendings = []}}.
 
+enqueue(Packet, State) when is_record(Packet, mqtt_packet) ->
+    enqueue([Packet], State);
+enqueue(Packets, State = #state{pendings = Pendings}) ->
+    State#state{pendings = lists:append(Pendings, Packets)}.
+
 stop(Reason, State = #state{pendings = []}) ->
     {stop, State#state{stop_reason = Reason}};
 stop(Reason, State = #state{pendings = Pendings}) ->
     {Reply, State1} = handle_outgoing(Pendings, State),
     State2 = State1#state{pendings = [], stop_reason = Reason},
     {reply, [Reply, close], State2}.
-
-enqueue(Packet, State) when is_record(Packet, mqtt_packet) ->
-    enqueue([Packet], State);
-enqueue(Packets, State = #state{pendings = Pendings}) ->
-    State#state{pendings = lists:append(Pendings, Packets)}.
 

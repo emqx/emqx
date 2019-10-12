@@ -64,17 +64,18 @@ t_handle_connect(_) ->
                  is_bridge   = false,
                  clean_start = true,
                  keepalive   = 30,
-                 properties  = #{},
+                 properties  = undefined,
                  clientid    = <<"clientid">>,
                  username    = <<"username">>,
                  password    = <<"passwd">>
                 },
     with_channel(
       fun(Channel) ->
-              {ok, ?CONNACK_PACKET(?RC_SUCCESS), Channel1}
-                = handle_in(?CONNECT_PACKET(ConnPkt), Channel),
-              #{clientid := ClientId, username := Username}
-                = emqx_channel:info(clientinfo, Channel1),
+              ConnAck = ?CONNACK_PACKET(?RC_SUCCESS, 0, #{}),
+              ExpectedOutput = [{outgoing, ConnAck},{enter, connected}],
+              {ok, Output, Channel1} = handle_in(?CONNECT_PACKET(ConnPkt), Channel),
+              ?assertEqual(ExpectedOutput, Output),
+              #{clientid := ClientId, username := Username} = emqx_channel:info(clientinfo, Channel1),
               ?assertEqual(<<"clientid">>, ClientId),
               ?assertEqual(<<"username">>, Username)
       end).
@@ -180,7 +181,7 @@ t_handle_in_auth(_) ->
 %%--------------------------------------------------------------------
 
 t_handle_deliver(_) ->
-    with_channel(
+    with_connected_channel(
       fun(Channel) ->
               TopicFilters = [{<<"+">>, ?DEFAULT_SUBOPTS#{qos => ?QOS_2}}],
               {ok, ?SUBACK_PACKET(1, [?QOS_2]), Channel1}
@@ -188,7 +189,7 @@ t_handle_deliver(_) ->
               Msg0 = emqx_message:make(<<"clientx">>, ?QOS_0, <<"t0">>, <<"qos0">>),
               Msg1 = emqx_message:make(<<"clientx">>, ?QOS_1, <<"t1">>, <<"qos1">>),
               Delivers = [{deliver, <<"+">>, Msg0}, {deliver, <<"+">>, Msg1}],
-              {ok, Packets, _Ch} = emqx_channel:handle_out({deliver, Delivers}, Channel1),
+              {ok, {outgoing, Packets}, _Ch} = emqx_channel:handle_out(Delivers, Channel1),
               ?assertEqual([?QOS_0, ?QOS_1], [emqx_packet:qos(Pkt)|| Pkt <- Packets])
       end).
 
@@ -206,10 +207,9 @@ t_handle_out_connack(_) ->
                 },
     with_channel(
       fun(Channel) ->
-              {ok, ?CONNACK_PACKET(?RC_SUCCESS, SP, _), _}
+              {ok, [{outgoing, ?CONNACK_PACKET(?RC_SUCCESS, SP, _)}, {enter, connected}], _Chan}
                 = handle_out({connack, ?RC_SUCCESS, 0, ConnPkt}, Channel),
-              {stop, {shutdown, not_authorized},
-               ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _}
+              {stop, {shutdown, not_authorized}, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _}
                 = handle_out({connack, ?RC_NOT_AUTHORIZED, ConnPkt}, Channel)
       end).
 
@@ -220,7 +220,7 @@ t_handle_out_publish(_) ->
               Pub1 = {publish, 1, emqx_message:make(<<"c">>, ?QOS_1, <<"t">>, <<"qos1">>)},
               {ok, ?PUBLISH_PACKET(?QOS_0), Channel} = handle_out(Pub0, Channel),
               {ok, ?PUBLISH_PACKET(?QOS_1), Channel} = handle_out(Pub1, Channel),
-              {ok, Packets, Channel1} = handle_out({publish, [Pub0, Pub1]}, Channel),
+              {ok, {outgoing, Packets}, Channel1} = handle_out({publish, [Pub0, Pub1]}, Channel),
               ?assertEqual(2, length(Packets)),
               ?assertEqual(#{publish_out => 2}, emqx_channel:info(pub_stats, Channel1))
       end).
@@ -303,6 +303,12 @@ t_terminate(_) ->
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+with_connected_channel(TestFun) ->
+    with_channel(
+      fun(Channel) ->
+          TestFun(emqx_channel:set_field(conn_state, connected, Channel))
+      end).
 
 with_channel(TestFun) ->
     with_channel(#{}, TestFun).
