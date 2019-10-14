@@ -72,7 +72,7 @@ t_handle_connect(_) ->
     with_channel(
       fun(Channel) ->
               ConnAck = ?CONNACK_PACKET(?RC_SUCCESS, 0, #{}),
-              ExpectedOutput = [{outgoing, ConnAck},{enter, connected}],
+              ExpectedOutput = [{enter, connected},{outgoing, ConnAck}],
               {ok, Output, Channel1} = handle_in(?CONNECT_PACKET(ConnPkt), Channel),
               ?assertEqual(ExpectedOutput, Output),
               #{clientid := ClientId, username := Username} = emqx_channel:info(clientinfo, Channel1),
@@ -207,7 +207,7 @@ t_handle_out_connack(_) ->
                 },
     with_channel(
       fun(Channel) ->
-              {ok, [{outgoing, ?CONNACK_PACKET(?RC_SUCCESS, SP, _)}, {enter, connected}], _Chan}
+              {ok, [{enter, connected},{outgoing, ?CONNACK_PACKET(?RC_SUCCESS, SP, _)}], _Chan}
                 = handle_out({connack, ?RC_SUCCESS, 0, ConnPkt}, Channel),
               {stop, {shutdown, not_authorized}, ?CONNACK_PACKET(?RC_NOT_AUTHORIZED), _}
                 = handle_out({connack, ?RC_NOT_AUTHORIZED, ConnPkt}, Channel)
