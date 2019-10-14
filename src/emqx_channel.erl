@@ -153,6 +153,8 @@ attrs(session, #channel{session = Session}) ->
 attrs(Key, Channel) -> info(Key, Channel).
 
 -spec(stats(channel()) -> emqx_types:stats()).
+stats(#channel{pub_stats = PubStats, session = undefined}) ->
+    maps:to_list(PubStats);
 stats(#channel{pub_stats = PubStats, session = Session}) ->
     maps:to_list(PubStats) ++ emqx_session:stats(Session).
 
