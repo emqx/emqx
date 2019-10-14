@@ -25,6 +25,7 @@
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
+    ok = emqx_logger:set_log_level(emergency),
     Config.
 
 end_per_suite(_Config) ->

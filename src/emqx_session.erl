@@ -539,12 +539,12 @@ enrich_subopt([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS},
 enrich_subopt([{qos, SubQoS}|Opts], Msg = #message{qos = PubQoS},
               Session = #session{upgrade_qos= false}) ->
     enrich_subopt(Opts, Msg#message{qos = min(SubQoS, PubQoS)}, Session);
-enrich_subopt([{rap, 1}|Opts], Msg, Session) ->
-    enrich_subopt(Opts, Msg, Session);
-enrich_subopt([{rap, 0}|Opts], Msg = #message{headers = #{retained := true}}, Session) ->
-    enrich_subopt(Opts, Msg, Session);
+enrich_subopt([{rap, _}|Opts], Msg = #message{headers = #{retained := true}}, Session) ->
+    enrich_subopt(Opts, emqx_message:set_flag(retain, true, Msg), Session);
 enrich_subopt([{rap, 0}|Opts], Msg, Session) ->
     enrich_subopt(Opts, emqx_message:set_flag(retain, false, Msg), Session);
+enrich_subopt([{rap, 1}|Opts], Msg, Session) ->
+    enrich_subopt(Opts, Msg, Session);
 enrich_subopt([{subid, SubId}|Opts], Msg, Session) ->
     Msg1 = emqx_message:set_header('Subscription-Identifier', SubId, Msg),
     enrich_subopt(Opts, Msg1, Session).
