@@ -572,15 +572,13 @@ handle_out({connack, ?RC_SUCCESS, SP, ConnPkt},
     AckPacket = ?CONNACK_PACKET(?RC_SUCCESS, SP, AckProps),
     case maybe_resume_session(Channel2) of
         ignore ->
-            Output = [{outgoing, AckPacket}, {enter, connected}],
-            {ok, Output, Channel2};
+            {ok, [{enter, connected}, {outgoing, AckPacket}], Channel2};
         {ok, Publishes, NSession} ->
             Channel3 = Channel2#channel{session  = NSession,
                                         resuming = false,
                                         pendings = []},
             {ok, {outgoing, Packets}, _} = handle_out({publish, Publishes}, Channel3),
-            Output = [{outgoing, [AckPacket|Packets]}, {enter, connected}],
-            {ok, Output, Channel3}
+            {ok, [{enter, connected}, {outgoing, [AckPacket|Packets]}], Channel3}
     end;
 
 handle_out({connack, ReasonCode, _ConnPkt}, Channel = #channel{conninfo = ConnInfo,
