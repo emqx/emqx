@@ -21,17 +21,28 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(Transport, esockd_transport).
+
 all() -> emqx_ct:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([]),
+    ok = meck:new(esockd_transport, [passthrough, no_history]),
+    ok = meck:new(emqx_channel, [passthrough, no_history]),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
+    ok.
 
-t_basic(_) ->
+t_start_link_error(_) ->
+    process_flag(trap_exit, true),
+    ok = meck:expect(esockd_transport, wait, fun(_Sock) -> {error, enotconn} end),
+    ok = meck:expect(esockd_transport, fast_close, fun(_Sock) -> ok end),
+    {ok, Pid} = emqx_connection:start_link(esockd_transport, socket, []),
+    timer:sleep(100),
+    ?assertNot(erlang:is_process_alive(Pid)),
+    ?assertEqual([{'EXIT', Pid, normal}], proc_mailbox()).
+
+todo_t_basic(_) ->
     Topic = <<"TopicA">>,
     {ok, C} = emqtt:start_link([{port, 1883}, {clientid, <<"hello">>}]),
     {ok, _} = emqtt:connect(C),
@@ -42,6 +53,12 @@ t_basic(_) ->
     {ok, _} = emqtt:publish(C, Topic, <<"qos 2">>, 2),
     ?assertEqual(3, length(recv_msgs(3))),
     ok = emqtt:disconnect(C).
+
+proc_mailbox() ->
+    proc_mailbox(self()).
+proc_mailbox(Pid) ->
+    {messages, Msgs} = erlang:process_info(Pid, messages),
+    Msgs.
 
 recv_msgs(Count) ->
     recv_msgs(Count, []).
