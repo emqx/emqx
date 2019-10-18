@@ -50,6 +50,11 @@
 
 -logger_header("[Session]").
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
 -export([init/2]).
 
 -export([ info/1
@@ -57,9 +62,6 @@
         , attrs/1
         , stats/1
         ]).
-
-%% Exports for unit tests
--export([set_field/3]).
 
 -export([ subscribe/4
         , unsubscribe/3
@@ -83,6 +85,9 @@
         ]).
 
 -export([expire/2]).
+
+%% export for ct
+-export([set_field/3]).
 
 -export_type([session/0]).
 

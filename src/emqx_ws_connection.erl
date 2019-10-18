@@ -24,6 +24,11 @@
 
 -logger_header("[MQTT/WS]").
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
 %% API
 -export([ info/1
         , stats/1
@@ -188,8 +193,8 @@ websocket_handle({binary, Data}, State = #state{channel = Channel}) ->
     ?LOG(debug, "RECV ~p", [Data]),
     Oct = iolist_size(Data),
     ok = inc_recv_stats(1, Oct),
-    {ok, NChannel} = emqx_channel:handle_in(Oct, Channel),
-    process_incoming(Data, State#state{channel = NChannel});
+    {ok, NChannel} = emqx_channel:recvd(Oct, Channel),
+    parse_incoming(Data, State#state{channel = NChannel});
 
 %% Pings should be replied with pongs, cowboy does it automatically
 %% Pongs can be safely ignored. Clause here simply prevents crash.
@@ -283,12 +288,6 @@ handle_call(From, Req, State = #state{channel = Channel}) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Handle timeout
-
-handle_timeout(TRef, Msg, State = #state{channel = Channel}) ->
-    handle_return(emqx_channel:handle_timeout(TRef, Msg, Channel), State).
-
-%%--------------------------------------------------------------------
 %% Handle Info
 
 handle_info({enter, _}, State = #state{channel = Channel}) ->
@@ -302,18 +301,24 @@ handle_info(Info, State = #state{channel = Channel}) ->
     handle_return(emqx_channel:handle_info(Info, Channel), State).
 
 %%--------------------------------------------------------------------
-%% Process incoming data
+%% Handle timeout
 
-process_incoming(<<>>, State) ->
+handle_timeout(TRef, Msg, State = #state{channel = Channel}) ->
+    handle_return(emqx_channel:handle_timeout(TRef, Msg, Channel), State).
+
+%%--------------------------------------------------------------------
+%% Parse incoming data
+
+parse_incoming(<<>>, State) ->
     {ok, State};
 
-process_incoming(Data, State = #state{parse_state = ParseState}) ->
+parse_incoming(Data, State = #state{parse_state = ParseState}) ->
     try emqx_frame:parse(Data, ParseState) of
         {more, NParseState} ->
             {ok, State#state{parse_state = NParseState}};
         {ok, Packet, Rest, NParseState} ->
             self() ! {incoming, Packet},
-            process_incoming(Rest, State#state{parse_state = NParseState})
+            parse_incoming(Rest, State#state{parse_state = NParseState})
     catch
         error:Reason:Stk ->
             ?LOG(error, "~nParse failed for ~p~nStacktrace: ~p~nFrame data: ~p",
@@ -343,9 +348,9 @@ handle_return({ok, NChannel}, State) ->
     reply(State#state{channel= NChannel});
 handle_return({ok, Replies, NChannel}, State) ->
     reply(Replies, State#state{channel= NChannel});
-handle_return({stop, Reason, NChannel}, State) ->
+handle_return({shutdown, Reason, NChannel}, State) ->
     stop(Reason, State#state{channel = NChannel});
-handle_return({stop, Reason, OutPacket, NChannel}, State) ->
+handle_return({shutdown, Reason, OutPacket, NChannel}, State) ->
     NState = State#state{channel = NChannel},
     stop(Reason, enqueue(OutPacket, NState)).
 
@@ -356,7 +361,7 @@ handle_outgoing(Packets, State = #state{channel = Channel}) ->
     IoData = lists:map(serialize_and_inc_stats_fun(State), Packets),
     Oct = iolist_size(IoData),
     ok = inc_sent_stats(length(Packets), Oct),
-    {ok, NChannel} = emqx_channel:handle_out(Oct, Channel),
+    NChannel = emqx_channel:sent(Oct, Channel),
     {{binary, IoData}, State#state{channel = NChannel}}.
 
 %% TODO: Duplicated with emqx_channel:serialize_and_inc_stats_fun/1
