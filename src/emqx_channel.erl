@@ -148,6 +148,8 @@ info(will_msg, #channel{will_msg = WillMsg}) ->
     emqx_message:to_map(WillMsg);
 info(pub_stats, #channel{pub_stats = PubStats}) ->
     PubStats;
+info(timers, #channel{timers = Timers}) ->
+    Timers;
 info(gc_state, #channel{gc_state = GcState}) ->
     maybe_apply(fun emqx_gc:info/1, GcState).
 
@@ -635,11 +637,11 @@ handle_out(connack, {ReasonCode, _ConnPkt}, Channel = #channel{conninfo = ConnIn
 handle_out(puback, {PacketId, ReasonCode}, Channel) ->
     {ok, ?PUBACK_PACKET(PacketId, ReasonCode), inc_pub_stats(puback_out, Channel)};
 
-handle_out(pubrel, {PacketId, ReasonCode}, Channel) ->
-    {ok, ?PUBREL_PACKET(PacketId, ReasonCode), inc_pub_stats(pubrel_out, Channel)};
-
 handle_out(pubrec, {PacketId, ReasonCode}, Channel) ->
     {ok, ?PUBREC_PACKET(PacketId, ReasonCode), inc_pub_stats(pubrec_out, Channel)};
+
+handle_out(pubrel, {PacketId, ReasonCode}, Channel) ->
+    {ok, ?PUBREL_PACKET(PacketId, ReasonCode), inc_pub_stats(pubrel_out, Channel)};
 
 handle_out(pubcomp, {PacketId, ReasonCode}, Channel) ->
     {ok, ?PUBCOMP_PACKET(PacketId, ReasonCode), inc_pub_stats(pubcomp_out, Channel)};
@@ -1120,6 +1122,7 @@ enrich_subopts(SubOpts, #channel{clientinfo = #{zone := Zone, is_bridge := IsBri
     NL = flag(emqx_zone:ignore_loop_deliver(Zone)),
     SubOpts#{rap => flag(IsBridge), nl => NL}.
 
+%% TODO: Default caps should not be returned.
 enrich_caps(AckProps, #channel{conninfo = #{proto_ver := ?MQTT_PROTO_V5},
                                clientinfo = #{zone := Zone}}) ->
     #{max_packet_size       := MaxPktSize,
