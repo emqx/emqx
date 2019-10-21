@@ -23,304 +23,240 @@
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--define(mock_modules,
-        [ emqx_metrics
-        , emqx_broker
-        , emqx_misc
-        , emqx_message
-        , emqx_hooks
-        , emqx_zone
-        ]).
+-import(emqx_session, [set_field/3]).
 
 all() -> emqx_ct:all(?MODULE).
 
-t_proper_session(_) ->
-    Opts = [{numtests, 100}, {to_file, user}],
-    ok = emqx_logger:set_log_level(emergency),
-    ok = before_proper(),
-    ?assert(proper:quickcheck(prop_session(), Opts)),
-    ok = after_proper().
+%%--------------------------------------------------------------------
+%% CT callbacks
+%%--------------------------------------------------------------------
 
-before_proper() ->
-    load(?mock_modules).
+init_per_testcase(_TestCase, Config) ->
+    %% Meck Broker
+    ok = meck:new(emqx_broker, [passthrough, no_history]),
+    ok = meck:new(emqx_hooks, [passthrough, no_history]),
+    ok = meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end),
+    Config.
 
-after_proper() ->
-    unload(?mock_modules),
-    emqx_logger:set_log_level(error).
+end_per_testcase(_TestCase, Config) ->
+    ok = meck:unload(emqx_broker),
+    ok = meck:unload(emqx_hooks),
+    Config.
 
-prop_session() ->
-    ?FORALL({Session, OpList}, {session(), session_op_list()},
-            begin
-                try
-                    apply_ops(Session, OpList),
-                    true
-                after
-                    true
-                end
-            end).
+%%--------------------------------------------------------------------
+%% Test cases for session init
+%%--------------------------------------------------------------------
 
-%%%%%%%%%%%%%%%
-%%% Helpers %%%
-%%%%%%%%%%%%%%%
+t_session_init(_) ->
+    Session = emqx_session:init(#{zone => zone}, #{receive_maximum => 64}),
+    ?assertEqual(#{}, emqx_session:info(subscriptions, Session)),
+    ?assertEqual(0, emqx_session:info(subscriptions_cnt, Session)),
+    ?assertEqual(0, emqx_session:info(subscriptions_max, Session)),
+    ?assertEqual(false, emqx_session:info(upgrade_qos, Session)),
+    ?assertEqual(0, emqx_session:info(inflight_cnt, Session)),
+    ?assertEqual(64, emqx_session:info(inflight_max, Session)),
+    ?assertEqual(1, emqx_session:info(next_pkt_id, Session)),
+    ?assertEqual(0, emqx_session:info(retry_interval, Session)),
+    ?assertEqual(0, emqx_session:info(awaiting_rel_cnt, Session)),
+    ?assertEqual(100, emqx_session:info(awaiting_rel_max, Session)),
+    ?assertEqual(3600000, emqx_session:info(awaiting_rel_timeout, Session)),
+    ?assert(is_integer(emqx_session:info(created_at, Session))).
 
-apply_ops(Session, []) ->
-    ?assertEqual(session, element(1, Session));
-apply_ops(Session, [Op | Rest]) ->
-    NSession = apply_op(Session, Op),
-    apply_ops(NSession, Rest).
+%%--------------------------------------------------------------------
+%% Test cases for session info/stats
+%%--------------------------------------------------------------------
 
-apply_op(Session, info) ->
-    Info = emqx_session:info(Session),
-    ?assert(is_map(Info)),
-    ?assert(maps:size(Info) > 0),
-    Session;
-apply_op(Session, attrs) ->
-    Attrs = emqx_session:attrs(Session),
-    ?assert(is_map(Attrs)),
-    ?assert(maps:size(Attrs) > 0),
-    Session;
-apply_op(Session, stats) ->
-    Stats = emqx_session:stats(Session),
-    ?assert(is_list(Stats)),
-    ?assert(length(Stats) > 0),
-    Session;
-apply_op(Session, {info, InfoArg}) ->
-    _Ret = emqx_session:info(InfoArg, Session),
-    Session;
-apply_op(Session, {subscribe, {Client, TopicFilter, SubOpts}}) ->
-    case emqx_session:subscribe(Client, TopicFilter, SubOpts, Session) of
-        {ok, NSession} ->
-            NSession;
-        {error, ?RC_QUOTA_EXCEEDED} ->
-            Session
-    end;
-apply_op(Session, {unsubscribe, {Client, TopicFilter}}) ->
-    case emqx_session:unsubscribe(Client, TopicFilter, Session) of
-        {ok, NSession} ->
-            NSession;
-        {error, ?RC_NO_SUBSCRIPTION_EXISTED} ->
-            Session
-    end;
-apply_op(Session, {publish, {PacketId, Msg}}) ->
-    case emqx_session:publish(PacketId, Msg, Session) of
-        {ok, _Msg} ->
-            Session;
-        {ok, _Deliver, NSession} ->
-            NSession;
-        {error, _ErrorCode} ->
-            Session
-    end;
-apply_op(Session, {puback, PacketId}) ->
-    case emqx_session:puback(PacketId, Session) of
-        {ok, _Msg, NSession} ->
-            NSession;
-        {ok, _Msg, _Publishes, NSession} ->
-            NSession;
-        {error, _ErrorCode} ->
-            Session
-    end;
-apply_op(Session, {pubrec, PacketId}) ->
-    case emqx_session:pubrec(PacketId, Session) of
-        {ok, _Msg, NSession} ->
-            NSession;
-        {error, _ErrorCode} ->
-            Session
-    end;
-apply_op(Session, {pubrel, PacketId}) ->
-    case emqx_session:pubrel(PacketId, Session) of
-        {ok, NSession} ->
-            NSession;
-        {error, _ErrorCode} ->
-            Session
-    end;
-apply_op(Session, {pubcomp, PacketId}) ->
-    case emqx_session:pubcomp(PacketId, Session) of
-        {ok, _Msgs} ->
-            Session;
-        {ok, _Msgs, NSession} ->
-            NSession;
-        {error, _ErrorCode} ->
-            Session
-    end;
-apply_op(Session, {deliver, Delivers}) ->
-    {ok, _Msgs, NSession} = emqx_session:deliver(Delivers, Session),
-    NSession.
+t_session_info(_) ->
+    Info = emqx_session:info(session()),
+    ?assertMatch(#{subscriptions := #{},
+                   subscriptions_max := 0,
+                   upgrade_qos := false,
+                   inflight_max := 0,
+                   retry_interval := 0,
+                   mqueue_len := 0,
+                   mqueue_max := 1000,
+                   mqueue_dropped := 0,
+                   next_pkt_id := 1,
+                   awaiting_rel := #{},
+                   awaiting_rel_max := 100,
+                   awaiting_rel_timeout := 3600000
+                  }, Info).
 
-%%%%%%%%%%%%%%%%%%
-%%% Generators %%%
-%%%%%%%%%%%%%%%%%%
-session_op_list() ->
-    Union = [info,
-             attrs,
-             stats,
-             {info, info_args()},
-             {subscribe, sub_args()},
-             {unsubscribe, unsub_args()},
-             {publish, publish_args()},
-             {puback, puback_args()},
-             {pubrec, pubrec_args()},
-             {pubrel, pubrel_args()},
-             {pubcomp, pubcomp_args()},
-             {deliver, deliver_args()}
-            ],
-    list(?LAZY(oneof(Union))).
+t_session_attrs(_) ->
+    Attrs = emqx_session:attrs(session()),
+    io:format("~p~n", [Attrs]).
 
-deliver_args() ->
-    list({deliver, topic(), message()}).
+t_session_stats(_) ->
+    Stats = emqx_session:stats(session()),
+    io:format("~p~n", [Stats]).
 
-info_args() ->
-    oneof([subscriptions,
-           subscriptions_max,
-           upgrade_qos,
-           inflight,
-           inflight_max,
-           retry_interval,
-           mqueue_len,
-           mqueue_max,
-           mqueue_dropped,
-           next_pkt_id,
-           awaiting_rel,
-           awaiting_rel_max,
-           await_rel_timeout,
-           created_at
-          ]).
+%%--------------------------------------------------------------------
+%% Test cases for pub/sub
+%%--------------------------------------------------------------------
 
-sub_args() ->
-    ?LET({ClientId, TopicFilter, SubOpts},
-         {clientid(), topic(), sub_opts()},
-         {#{clientid => ClientId}, TopicFilter, SubOpts}).
+t_subscribe(_) ->
+    ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
+    ok = meck:expect(emqx_broker, set_subopts, fun(_, _) -> ok end),
+    {ok, Session} = emqx_session:subscribe(
+                      clientinfo(), <<"#">>, subopts(), session()),
+    ?assertEqual(1, emqx_session:info(subscriptions_cnt, Session)).
 
-unsub_args() ->
-    ?LET({ClientId, TopicFilter},
-         {clientid(), topic()},
-         {#{clientid => ClientId}, TopicFilter}).
+t_is_subscriptions_full_false(_) ->
+    Session = session(#{max_subscriptions => 0}),
+    ?assertNot(emqx_session:is_subscriptions_full(Session)).
 
-publish_args() ->
-    ?LET({PacketId, Message},
-         {packetid(), message()},
-         {PacketId, Message}).
+t_is_subscriptions_full_true(_) ->
+    Session = session(#{max_subscriptions => 1}),
+    ?assertNot(emqx_session:is_subscriptions_full(Session)),
+    Subs = #{<<"t1">> => subopts(), <<"t2">> => subopts()},
+    NSession = set_field(subscriptions, Subs, Session),
+    ?assert(emqx_session:is_subscriptions_full(NSession)).
 
-puback_args() ->
-    packetid().
+t_unsubscribe(_) ->
+    ok = meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),
+    Session = session(#{subscriptions => #{<<"#">> => subopts()}}),
+    {ok, NSession} = emqx_session:unsubscribe(clientinfo(), <<"#">>, Session),
+    Error = emqx_session:unsubscribe(clientinfo(), <<"#">>, NSession),
+    ?assertEqual({error, ?RC_NO_SUBSCRIPTION_EXISTED}, Error).
 
-pubrec_args() ->
-    packetid().
+t_publish_qos2(_) ->
+    ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
+    Msg = emqx_message:make(test, ?QOS_2, <<"t">>, <<"payload">>),
+    {ok, [], Session} = emqx_session:publish(1, Msg, session()),
+    ?assertEqual(1, emqx_session:info(awaiting_rel_cnt, Session)).
 
-pubrel_args() ->
-    packetid().
+t_publish_qos1(_) ->
+    ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
+    Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<"payload">>),
+    {ok, [], Session} = emqx_session:publish(1, Msg, session()).
 
-pubcomp_args() ->
-    packetid().
+t_publish_qos0(_) ->
+    ok = meck:expect(emqx_broker, publish, fun(_) -> [] end),
+    Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<"payload">>),
+    {ok, [], Session} = emqx_session:publish(0, Msg, session()).
 
-sub_opts() ->
-    ?LET({RH, RAP, NL, QOS, SHARE, SUBID},
-         {rh(), rap(), nl(), qos(), share(), subid()}
-        , make_subopts(RH, RAP, NL, QOS, SHARE, SUBID)).
+t_is_awaiting_full_false(_) ->
+    ?assertNot(emqx_session:is_awaiting_full(session(#{max_awaiting_rel => 0}))).
 
-message() ->
-    ?LET({QoS, Topic, Payload},
-         {qos(), topic(), payload()},
-         emqx_message:make(proper, QoS, Topic, Payload)).
+t_is_awaiting_full_true(_) ->
+    Session = session(#{max_awaiting_rel => 1,
+                        awaiting_rel => #{1 => 1}
+                       }),
+    ?assert(emqx_session:is_awaiting_full(Session)).
 
-subid() -> integer().
+t_puback(_) ->
+    Msg = emqx_message:make(test, ?QOS_1, <<"t">>, <<>>),
+    Inflight = emqx_inflight:insert(1, {Msg, os:timestamp()}, emqx_inflight:new()),
+    Session = set_field(inflight, Inflight, session()),
+    {ok, Msg, NSession} = emqx_session:puback(1, Session),
+    ?assertEqual(0, emqx_session:info(inflight_cnt, NSession)).
 
-rh() -> oneof([0, 1, 2]).
+t_puback_error_packet_id_in_use(_) ->
+    Inflight = emqx_inflight:insert(1, {pubrel, os:timestamp()}, emqx_inflight:new()),
+    Session = set_field(inflight, Inflight, session()),
+    {error, ?RC_PACKET_IDENTIFIER_IN_USE} = emqx_session:puback(1, Session).
 
-rap() -> oneof([0, 1]).
+t_puback_error_packet_id_not_found(_) ->
+    {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} = emqx_session:puback(1, session()).
 
-nl() -> oneof([0, 1]).
+t_pubrec(_) ->
+    Msg = emqx_message:make(test, ?QOS_2, <<"t">>, <<>>),
+    Inflight = emqx_inflight:insert(2, {Msg, os:timestamp()}, emqx_inflight:new()),
+    Session = set_field(inflight, Inflight, session()),
+    {ok, Msg, NSession} = emqx_session:pubrec(2, Session),
+    ?assertMatch([{pubrel, _}], emqx_inflight:values(emqx_session:info(inflight, NSession))).
 
-qos() -> oneof([0, 1, 2]).
+t_pubrec_packet_id_in_use_error(_) ->
+    Inflight = emqx_inflight:insert(1, {pubrel, ts()}, emqx_inflight:new()),
+    Session = set_field(inflight, Inflight, session()),
+    {error, ?RC_PACKET_IDENTIFIER_IN_USE} = emqx_session:puback(1, Session).
 
-share() -> binary().
+t_pubrec_packet_id_not_found_error(_) ->
+    {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} = emqx_session:pubrec(1, session()).
 
-clientid() -> binary().
+t_pubrel(_) ->
+    Session = set_field(awaiting_rel, #{1 => os:timestamp()}, session()),
+    {ok, NSession} = emqx_session:pubrel(1, Session),
+    ?assertEqual(#{}, emqx_session:info(awaiting_rel, NSession)).
 
-topic() -> ?LET(No, choose(1, 10),
-                begin
-                    NoBin = integer_to_binary(No),
-                    <<"topic/", NoBin/binary>>
-                end).
+t_pubrel_id_not_found(_) ->
+    {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} = emqx_session:pubrel(1, session()).
 
-payload() -> binary().
+t_pubcomp(_) ->
+    Inflight = emqx_inflight:insert(2, {pubrel, os:timestamp()}, emqx_inflight:new()),
+    Session = emqx_session:set_field(inflight, Inflight, session()),
+    {ok, NSession} = emqx_session:pubcomp(2, Session),
+    ?assertEqual(0, emqx_session:info(inflight_cnt, NSession)).
 
-packetid() -> choose(1, 30).
+t_pubcomp_id_not_found(_) ->
+    {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} = emqx_session:pubcomp(2, session()).
 
-zone() ->
-    ?LET(Zone, [{max_subscriptions, max_subscription()},
-                {upgrade_qos, upgrade_qos()},
-                {retry_interval, retry_interval()},
-                {max_awaiting_rel, max_awaiting_rel()},
-                {await_rel_timeout, await_rel_timeout()}]
-        , maps:from_list(Zone)).
+%%--------------------------------------------------------------------
+%% Test cases for deliver/retry
+%%--------------------------------------------------------------------
 
-max_subscription() ->
-    frequency([{33, 0},
-               {33, 1},
-               {34, choose(0,10)}]).
+t_dequeue(_) ->
+    {ok, Session} = emqx_session:dequeue(session()).
 
-upgrade_qos() -> bool().
+t_deliver(_) ->
+    Delivers = [delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)],
+    {ok, Publishes, _Session} = emqx_session:deliver(Delivers, session()),
+    ?assertEqual(2, length(Publishes)).
 
-retry_interval() -> ?LET(Interval, choose(0, 20), Interval*1000).
+t_enqueue(_) ->
+    Delivers = [delivery(?QOS_1, <<"t1">>), delivery(?QOS_2, <<"t2">>)],
+    Session = emqx_session:enqueue(Delivers, session()),
+    ?assertEqual(2, emqx_session:info(mqueue_len, Session)).
 
-max_awaiting_rel() -> choose(0, 10).
+t_retry(_) ->
+    {ok, _Session} = emqx_session:retry(session()).
 
-await_rel_timeout() -> ?LET(Interval, choose(0, 150), Interval*1000).
+%%--------------------------------------------------------------------
+%% Test cases for takeover/resume
+%%--------------------------------------------------------------------
 
-max_inflight() -> choose(0, 10).
+t_takeover(_) ->
+    ok = meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),
+    Session = session(#{subscriptions => #{<<"t">> => ?DEFAULT_SUBOPTS}}),
+    ok = emqx_session:takeover(Session).
 
-option() ->
-    ?LET(Option, [{receive_maximum , max_inflight()}],
-         maps:from_list(Option)).
+t_resume(_) ->
+    ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
+    Subs = #{<<"t">> => ?DEFAULT_SUBOPTS},
+    Session = session(#{subscriptions => #{<<"t">> => ?DEFAULT_SUBOPTS}}),
+    ok = emqx_session:resume(<<"clientid">>, Session).
 
-session() ->
-    ?LET({Zone, Options},
-         {zone(), option()},
-         begin
-             Session = emqx_session:init(#{zone => Zone}, Options),
-             emqx_session:set_field(next_pkt_id, 16#ffff, Session)
-         end).
+t_redeliver(_) ->
+    {ok, [], _Session} = emqx_session:redeliver(session()).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%% Internal functions %%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%
+t_expire(_) ->
+    {ok, _Session} = emqx_session:expire(awaiting_rel, session()).
 
-make_subopts(RH, RAP, NL, QOS, SHARE, SubId) ->
-    #{rh => RH,
-      rap => RAP,
-      nl => NL,
-      qos => QOS,
-      share => SHARE,
-      subid => SubId}.
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
+
+session() -> session(#{}).
+session(InitFields) when is_map(InitFields) ->
+    maps:fold(fun(Field, Value, Session) ->
+                      emqx_session:set_field(Field, Value, Session)
+              end,
+              emqx_session:init(#{zone => zone}, #{receive_maximum => 0}),
+              InitFields).
 
 
-load(Modules) ->
-    [mock(Module) || Module <- Modules],
-    ok.
+clientinfo() -> clientinfo(#{}).
+clientinfo(Init) ->
+    maps:merge(#{clientid => <<"clientid">>,
+                 username => <<"username">>
+                }, Init).
 
-unload(Modules) ->
-    lists:foreach(fun(Module) ->
-                          ok = meck:unload(Module)
-                  end, Modules).
+subopts() -> subopts(#{}).
+subopts(Init) ->
+    maps:merge(?DEFAULT_SUBOPTS, Init).
 
-mock(Module) ->
-    ok = meck:new(Module, [passthrough, no_history]),
-    do_mock(Module).
+delivery(QoS, Topic) ->
+    {deliver, Topic, emqx_message:make(test, QoS, Topic, <<"payload">>)}.
 
-do_mock(emqx_metrics) ->
-    meck:expect(emqx_metrics, inc, fun(_Anything) -> ok end);
-do_mock(emqx_broker) ->
-    meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
-    meck:expect(emqx_broker, set_subopts, fun(_, _) -> ok end),
-    meck:expect(emqx_broker, unsubscribe, fun(_) -> ok end),
-    meck:expect(emqx_broker, publish, fun(_) -> ok end);
-do_mock(emqx_misc) ->
-    meck:expect(emqx_misc, start_timer, fun(_, _) -> tref end);
-do_mock(emqx_message) ->
-    meck:expect(emqx_message, set_header, fun(_Hdr, _Val, Msg) -> Msg end),
-    meck:expect(emqx_message, is_expired, fun(_Msg) -> (rand:uniform(16) > 8) end);
-do_mock(emqx_hooks) ->
-    meck:expect(emqx_hooks, run, fun(_Hook, _Args) -> ok end);
-do_mock(emqx_zone) ->
-    meck:expect(emqx_zone, get_env, fun(Env, Key, Default) -> maps:get(Key, Env, Default) end).
+ts() -> erlang:system_time(second).
 
