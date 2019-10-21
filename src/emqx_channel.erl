@@ -615,13 +615,13 @@ handle_out(connack, {?RC_SUCCESS, SP, ConnPkt},
     AckPacket = ?CONNACK_PACKET(?RC_SUCCESS, SP, AckProps),
     case maybe_resume_session(Channel2) of
         ignore ->
-            {ok, [{enter, connected}, {outgoing, AckPacket}], Channel2};
+            {ok, [{connack, AckPacket}], Channel2};
         {ok, Publishes, NSession} ->
             Channel3 = Channel2#channel{session  = NSession,
                                         resuming = false,
                                         pendings = []},
             {ok, {outgoing, Packets}, _} = handle_out({publish, Publishes}, Channel3),
-            {ok, [{enter, connected}, {outgoing, [AckPacket|Packets]}], Channel3}
+            {ok, [{connack, AckPacket}, {outgoing, Packets}], Channel3}
     end;
 
 handle_out(connack, {ReasonCode, _ConnPkt}, Channel = #channel{conninfo = ConnInfo,
@@ -880,7 +880,7 @@ interval(alive_timer, #channel{keepalive = KeepAlive}) ->
 interval(retry_timer, #channel{session = Session}) ->
     emqx_session:info(retry_interval, Session);
 interval(await_timer, #channel{session = Session}) ->
-    emqx_session:info(await_rel_timeout, Session);
+    emqx_session:info(awaiting_rel_timeout, Session);
 interval(expire_timer, #channel{conninfo = ConnInfo}) ->
     timer:seconds(maps:get(expiry_interval, ConnInfo));
 interval(will_timer, #channel{will_msg = WillMsg}) ->
@@ -1068,13 +1068,13 @@ check_pub_acl(#mqtt_packet{variable = #mqtt_packet_publish{topic_name = Topic}},
     end.
 
 %% Check Pub Alias
+%% TODO: Fixme later
 check_pub_alias(#mqtt_packet{
                    variable = #mqtt_packet_publish{
                                  properties = #{'Topic-Alias' := AliasId}
                                 }
                   },
                 #channel{alias_maximum = Limits}) ->
-    %% TODO: Move to Protocol
     case (Limits == undefined)
             orelse (Max = maps:get(inbound, Limits, 0)) == 0
                 orelse (AliasId > Max) of
@@ -1219,10 +1219,14 @@ reply(Reply, Channel) ->
     {reply, Reply, Channel}.
 
 -compile({inline, [shutdown/2]}).
+shutdown(success, Channel) ->
+    shutdown(normal, Channel);
 shutdown(Reason, Channel) ->
     {shutdown, Reason, Channel}.
 
 -compile({inline, [shutdown/3]}).
+shutdown(success, Reply, Channel) ->
+    shutdown(normal, Reply, Channel);
 shutdown(Reason, Reply, Channel) ->
     {shutdown, Reason, Reply, Channel}.
 

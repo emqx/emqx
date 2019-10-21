@@ -516,9 +516,20 @@ send(IoData, State = #state{transport = Transport,
 %%--------------------------------------------------------------------
 %% Handle Info
 
-handle_info({enter, _}, State = #state{active_n  = ActiveN,
-                                       sockstate = SockSt,
-                                       channel   = Channel}) ->
+handle_info({connack, ConnAck}, State = #state{active_n  = ActiveN,
+                                                sockstate = SockSt,
+                                                channel   = Channel}) ->
+    NState = handle_outgoing(ConnAck, State),
+    ChanAttrs = emqx_channel:attrs(Channel),
+    SockAttrs = #{active_n  => ActiveN,
+                  sockstate => SockSt
+                 },
+    Attrs = maps:merge(ChanAttrs, #{sockinfo => SockAttrs}),
+    handle_info({register, Attrs, stats(State)}, NState);
+
+handle_info({enter, disconnected}, State = #state{active_n  = ActiveN,
+                                                sockstate = SockSt,
+                                                channel   = Channel}) ->
     ChanAttrs = emqx_channel:attrs(Channel),
     SockAttrs = #{active_n  => ActiveN,
                   sockstate => SockSt

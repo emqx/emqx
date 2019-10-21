@@ -116,7 +116,7 @@
           %% Max Packets Awaiting PUBREL
           max_awaiting_rel :: non_neg_integer(),
           %% Awaiting PUBREL Timeout
-          await_rel_timeout :: timeout(),
+          awaiting_rel_timeout :: timeout(),
           %% Deliver Stats
           deliver_stats :: emqx_types:stats(),
           %% Created at
@@ -135,7 +135,7 @@
                     mqueue_max,
                     retry_interval,
                     awaiting_rel_max,
-                    await_rel_timeout,
+                    awaiting_rel_timeout,
                     created_at
                    ]).
 
@@ -151,7 +151,7 @@
                     next_pkt_id,
                     awaiting_rel,
                     awaiting_rel_max,
-                    await_rel_timeout,
+                    awaiting_rel_timeout,
                     created_at
                    ]).
 
@@ -183,7 +183,7 @@ init(#{zone := Zone}, #{receive_maximum := MaxInflight}) ->
              retry_interval    = get_env(Zone, retry_interval, 0),
              awaiting_rel      = #{},
              max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
-             await_rel_timeout = get_env(Zone, await_rel_timeout, 3600*1000),
+             awaiting_rel_timeout = get_env(Zone, awaiting_rel_timeout, 3600*1000),
              created_at        = erlang:system_time(second)
             }.
 
@@ -236,13 +236,17 @@ info(mqueue_dropped, #session{mqueue = MQueue}) ->
 info(next_pkt_id, #session{next_pkt_id = PacketId}) ->
     PacketId;
 info(awaiting_rel, #session{awaiting_rel = AwaitingRel}) ->
-    maps:values(AwaitingRel);
-info(awaiting_rel_cnt, #session{awaiting_rel = AwaitingRel}) ->
     AwaitingRel;
+info(awaiting_rel_cnt, #session{awaiting_rel = AwaitingRel}) ->
+    maps:size(AwaitingRel);
 info(awaiting_rel_max, #session{max_awaiting_rel = MaxAwaitingRel}) ->
     MaxAwaitingRel;
-info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
+info(awaiting_rel_timeout, #session{awaiting_rel_timeout = Timeout}) ->
     Timeout;
+info(enqueue_cnt, #session{deliver_stats = undefined}) ->
+    0;
+info(enqueue_cnt, #session{deliver_stats = Stats}) ->
+    maps:get(enqueue_cnt, Stats, 0);
 info(deliver_stats, #session{deliver_stats = Stats}) ->
     Stats;
 info(created_at, #session{created_at = CreatedAt}) ->
@@ -338,8 +342,7 @@ unsubscribe(ClientInfo, TopicFilter, Session = #session{subscriptions = Subs}) -
 %%--------------------------------------------------------------------
 
 -spec(publish(emqx_types:packet_id(), emqx_types:message(), session())
-      -> {ok, emqx_types:publish_result()} |
-         {ok, emqx_types:publish_result(), session()} |
+      -> {ok, emqx_types:publish_result(), session()} |
          {error, emqx_types:reason_code()}).
 publish(PacketId, Msg = #message{qos = ?QOS_2}, Session) ->
     case is_awaiting_full(Session) of
@@ -350,8 +353,8 @@ publish(PacketId, Msg = #message{qos = ?QOS_2}, Session) ->
     end;
 
 %% Publish QoS0/1 directly
-publish(_PacketId, Msg, _Session) ->
-    {ok, emqx_broker:publish(Msg)}.
+publish(_PacketId, Msg, Session) ->
+    {ok, emqx_broker:publish(Msg), Session}.
 
 is_awaiting_full(#session{max_awaiting_rel = 0}) ->
     false;
@@ -621,11 +624,11 @@ expire_awaiting_rel([], _Now, Session) ->
 
 expire_awaiting_rel([{PacketId, Ts} | More], Now,
                     Session = #session{awaiting_rel = AwaitingRel,
-                                       await_rel_timeout = Timeout}) ->
+                                       awaiting_rel_timeout = Timeout}) ->
     case (timer:now_diff(Now, Ts) div 1000) of
         Age when Age >= Timeout ->
             ok = emqx_metrics:inc('messages.qos2.expired'),
-            ?LOG(warning, "Dropped qos2 packet ~s for await_rel_timeout", [PacketId]),
+            ?LOG(warning, "Dropped qos2 packet ~s for awaiting_rel_timeout", [PacketId]),
             Session1 = Session#session{awaiting_rel = maps:remove(PacketId, AwaitingRel)},
             expire_awaiting_rel(More, Now, Session1);
         Age ->
@@ -648,6 +651,8 @@ next_pkt_id(Session = #session{next_pkt_id = Id}) ->
 
 inc_deliver_stats(Key, Session) ->
     inc_deliver_stats(Key, 1, Session).
+inc_deliver_stats(Key, I, Session = #session{deliver_stats = undefined}) ->
+    Session#session{deliver_stats = #{Key => I}};
 inc_deliver_stats(Key, I, Session = #session{deliver_stats = Stats}) ->
     NStats = maps:update_with(Key, fun(V) -> V+I end, I, Stats),
     Session#session{deliver_stats = NStats}.

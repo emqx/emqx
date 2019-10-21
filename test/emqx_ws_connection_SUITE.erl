@@ -120,8 +120,8 @@ t_websocket_handle_ping_pong(_) ->
 
 t_websocket_handle_bad_frame(_) ->
     with_ws_conn(fun(WsConn) ->
-                         {stop, {shutdown, unexpected_ws_frame}, WsConn}
-                            = websocket_handle({badframe, <<>>}, WsConn)
+                         {stop, WsConn1} = websocket_handle({badframe, <<>>}, WsConn),
+                         ?assertEqual({shutdown, unexpected_ws_frame}, stop_reason(WsConn1))
                  end).
 
 t_websocket_info_call(_) ->
@@ -132,11 +132,11 @@ t_websocket_info_call(_) ->
                  end).
 
 t_websocket_info_cast(_) ->
-    with_ws_conn(fun(WsConn) ->
-                         websocket_info({cast, msg}, WsConn)
-                 end).
+    ok = meck:expect(emqx_channel, handle_info, fun(_Msg, Channel) -> {ok, Channel} end),
+    with_ws_conn(fun(WsConn) -> websocket_info({cast, msg}, WsConn) end).
 
 t_websocket_info_incoming(_) ->
+    ok = meck:expect(emqx_channel, handle_in, fun(_Packet, Channel) -> {ok, Channel} end),
     with_ws_conn(fun(WsConn) ->
                          Connect = ?CONNECT_PACKET(
                                       #mqtt_packet_connect{proto_ver   = ?MQTT_PROTO_V5,
@@ -146,14 +146,18 @@ t_websocket_info_incoming(_) ->
                                                            keepalive   = 60}),
                          {ok, WsConn1} = websocket_info({incoming, Connect}, WsConn),
                          Publish = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, <<"payload">>),
-                         {ok, WsConn2} = websocket_info({incoming, Publish}, WsConn1)
+                         {ok, _WsConn2} = websocket_info({incoming, Publish}, WsConn1)
                  end).
 
 t_websocket_info_deliver(_) ->
     with_ws_conn(fun(WsConn) ->
-                         Msg = emqx_message:make(<<"topic">>, <<"payload">>),
-                         Deliver = {deliver, <<"#">>, Msg},
-                         {ok, WsConn1} = websocket_info(Deliver, WsConn)
+                         ok = meck:expect(emqx_channel, handle_out,
+                                          fun(Delivers, Channel) ->
+                                                  Packets = [emqx_message:to_packet(1, Msg) || {deliver, _, Msg} <- Delivers],
+                                                  {ok, {outgoing, Packets}, Channel}
+                                          end),
+                         Deliver = {deliver, <<"#">>, emqx_message:make(<<"topic">>, <<"payload">>)},
+                         {reply, {binary, _Data}, _WsConn1} = websocket_info(Deliver, WsConn)
                  end).
 
 t_websocket_info_timeout(_) ->
@@ -165,23 +169,31 @@ t_websocket_info_timeout(_) ->
 
 t_websocket_info_close(_) ->
     with_ws_conn(fun(WsConn) ->
-                         {stop, {shutdown, sock_error}, WsConn} = websocket_info({close, sock_error}, WsConn)
+                         {stop, WsConn1} = websocket_info({close, sock_error}, WsConn),
+                         ?assertEqual({shutdown, sock_error}, stop_reason(WsConn1))
                  end).
 
 t_websocket_info_shutdown(_) ->
     with_ws_conn(fun(WsConn) ->
-                         {stop, {shutdown, reason}, WsConn} = websocket_info({shutdown, reason}, WsConn)
+                         {stop, WsConn1} = websocket_info({shutdown, reason}, WsConn),
+                         ?assertEqual({shutdown, reason}, stop_reason(WsConn1))
                  end).
+
 
 t_websocket_info_stop(_) ->
     with_ws_conn(fun(WsConn) ->
-                         {stop, normal, WsConn} = websocket_info({stop, normal}, WsConn)
+                         {stop, WsConn1} = websocket_info({stop, normal}, WsConn),
+                         ?assertEqual(normal, stop_reason(WsConn1))
                  end).
 
 t_websocket_close(_) ->
+    ok = meck:expect(emqx_channel, handle_info,
+                     fun({sock_closed, badframe}, Channel) ->
+                             {shutdown, sock_closed, Channel}
+                     end),
     with_ws_conn(fun(WsConn) ->
-                         {stop, sock_closed, WsConn}
-                            = emqx_ws_connection:websocket_close(badframe, WsConn)
+                         {stop, WsConn1} = emqx_ws_connection:websocket_close(badframe, WsConn),
+                         ?assertEqual(sock_closed, stop_reason(WsConn1))
                  end).
 
 t_handle_call(_) ->
@@ -216,4 +228,7 @@ with_ws_conn(TestFun, Opts) ->
     {ok, WsConn} = emqx_ws_connection:websocket_init(
                      [req, emqx_misc:merge_opts([{zone, external}], Opts)]),
     TestFun(WsConn).
+
+stop_reason(WsConn) ->
+    emqx_ws_connection:info(stop_reason, WsConn).
 

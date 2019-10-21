@@ -93,7 +93,9 @@ info(sockname, #state{sockname = Sockname}) ->
 info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
 info(channel, #state{channel = Channel}) ->
-    emqx_channel:info(Channel).
+    emqx_channel:info(Channel);
+info(stop_reason, #state{stop_reason = Reason}) ->
+    Reason.
 
 -spec(stats(pid()|state()) -> emqx_types:stats()).
 stats(WsPid) when is_pid(WsPid) ->
@@ -290,7 +292,14 @@ handle_call(From, Req, State = #state{channel = Channel}) ->
 %%--------------------------------------------------------------------
 %% Handle Info
 
-handle_info({enter, _}, State = #state{channel = Channel}) ->
+handle_info({connack, ConnAck}, State = #state{channel = Channel}) ->
+    ChanAttrs = emqx_channel:attrs(Channel),
+    SockAttrs = maps:from_list(info(?INFO_KEYS, State)),
+    Attrs = maps:merge(ChanAttrs, #{sockinfo => SockAttrs}),
+    ok = emqx_channel:handle_info({register, Attrs, stats(State)}, Channel),
+    reply(enqueue(ConnAck, State));
+
+handle_info({enter, disconnected}, State = #state{channel = Channel}) ->
     ChanAttrs = emqx_channel:attrs(Channel),
     SockAttrs = maps:from_list(info(?INFO_KEYS, State)),
     Attrs = maps:merge(ChanAttrs, #{sockinfo => SockAttrs}),
