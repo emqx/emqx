@@ -195,7 +195,7 @@ websocket_handle({binary, Data}, State = #state{channel = Channel}) ->
     ?LOG(debug, "RECV ~p", [Data]),
     Oct = iolist_size(Data),
     ok = inc_recv_stats(1, Oct),
-    {ok, NChannel} = emqx_channel:recvd(Oct, Channel),
+    NChannel = emqx_channel:recvd(Oct, Channel),
     parse_incoming(Data, State#state{channel = NChannel});
 
 %% Pings should be replied with pongs, cowboy does it automatically
