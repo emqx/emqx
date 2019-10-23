@@ -55,9 +55,9 @@ t_api(_) ->
     ?assertEqual(0.75, emqx_os_mon:get_cpu_low_watermark()),
     % timer:sleep(3000),
     % ?assertEqual(false, lists:keymember(cpu_high_watermark, 1, alarm_handler:get_alarms())),
-    ?assertEqual(ignored, gen_server:call(emqx_os_mon, unexpected)),
-    ?assertEqual(ok, gen_server:cast(emqx_os_mon, unexpected)),
-    emqx_os_mon ! unexpected,
+    ?assertEqual(ignored, gen_server:call(emqx_os_mon, ignored)),
+    ?assertEqual(ok, gen_server:cast(emqx_os_mon, ignored)),
+    emqx_os_mon ! ignored,
     gen_server:stop(emqx_os_mon),
     ok.
 
