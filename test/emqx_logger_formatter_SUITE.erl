@@ -567,6 +567,8 @@ check_config(_Config) ->
 %% Test that formatter config can be changed, and that the default
 %% template is updated accordingly
 update_config(_Config) ->
+    #{level := OldLevel} = logger:get_primary_config(),
+    logger:set_primary_config(level, debug),
     {error,{not_found,?MODULE}} = logger:update_formatter_config(?MODULE,#{}),
 
     logger:add_handler_filter(default,silence,{fun(_,_) -> stop end,ok}),
@@ -596,6 +598,7 @@ update_config(_Config) ->
     ?assertMatch({error,{invalid_formatter_config,emqx_logger_formatter,{depth,bad}}},
         logger:update_formatter_config(?MODULE,depth,bad)),
 
+    logger:set_primary_config(level, OldLevel),
     ok.
 
 update_config(cleanup,_Config) ->
