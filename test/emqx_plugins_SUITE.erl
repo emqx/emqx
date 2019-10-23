@@ -23,6 +23,7 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+
 init_per_suite(Config) ->
 
     %% Compile extra plugin code
@@ -41,6 +42,23 @@ init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([], fun set_sepecial_cfg/1),
 
     Config.
+    
+    
+t_load_expand_plugin(_) ->
+    error('TODO').
+
+t_list(_) ->
+    error('TODO').
+
+t_find_plugin(_) ->
+    error('TODO').
+
+t_unload(_) ->
+    error('TODO').
+
+
+t_init(_) ->
+    error('TODO').
 
 set_sepecial_cfg(_) ->
     ExpandPath = filename:dirname(code:lib_dir(emqx_mini_plugin)),

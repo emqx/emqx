@@ -24,6 +24,17 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+t_multicall(_) ->
+    error('TODO').
+
+t_cast(_) ->
+    error('TODO').
+
+t_call(_) ->
+    error('TODO').
+
+
+
 t_prop_rpc(_) ->
     ok = load(),
     Opts = [{to_file, user}, {numtests, 10}],

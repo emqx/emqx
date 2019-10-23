@@ -27,10 +27,7 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 
-all() ->
-    [{group, pubsub},
-     {group, metrics},
-     {group, stats}].
+all() -> emqx_ct:all(?MODULE).
 
 groups() ->
     [{pubsub, [sequence],
@@ -159,3 +156,57 @@ set_get_stat(_) ->
     emqx_stats:setstat('retained.max', 99),
     ?assertEqual(99, emqx_stats:getstat('retained.max')).
 
+
+t_dispatch(_) ->
+    error('TODO').
+
+t_subscriber_down(_) ->
+    error('TODO').
+
+t_get_subopts(_) ->
+    error('TODO').
+
+t_set_subopts(_) ->
+    error('TODO').
+
+t_topics(_) ->
+    error('TODO').
+
+t_stats_fun(_) ->
+    error('TODO').
+
+t_init(_) ->
+    error('TODO').
+
+t_handle_call(_) ->
+    error('TODO').
+
+t_handle_cast(_) ->
+    error('TODO').
+
+t_handle_info(_) ->
+    error('TODO').
+
+t_terminate(_) ->
+    error('TODO').
+
+t_code_change(_) ->
+    error('TODO').
+
+t_safe_publish(_) ->
+    error('TODO').
+
+t_subscribed(_) ->
+    error('TODO').
+
+t_subscriptions(_) ->
+    error('TODO').
+
+t_subscribers(_) ->
+    error('TODO').
+
+t_unsubscribe(_) ->
+    error('TODO').
+
+t_subscribe(_) ->
+    error('TODO').

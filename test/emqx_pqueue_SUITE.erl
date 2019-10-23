@@ -26,6 +26,49 @@
 
 all() -> emqx_ct:all(?SUITE).
 
+
+t_is_queue(_) ->
+    error('TODO').
+
+t_is_empty(_) ->
+    error('TODO').
+
+t_to_list(_) ->
+    error('TODO').
+
+t_from_list(_) ->
+    error('TODO').
+
+t_in(_) ->
+    error('TODO').
+
+t_out_p(_) ->
+    error('TODO').
+
+t_join(_) ->
+    error('TODO').
+
+t_filter(_) ->
+    error('TODO').
+
+t_fold(_) ->
+    error('TODO').
+
+t_highest(_) ->
+    error('TODO').
+
+t_out(_) ->
+    error('TODO').
+
+t_len(_) ->
+    error('TODO').
+
+t_plen(_) ->
+    error('TODO').
+
+t_new(_) ->
+    error('TODO').
+
 t_priority_queue_plen(_) ->
     Q = ?PQ:new(),
     0 = ?PQ:plen(0, Q),

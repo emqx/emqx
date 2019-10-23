@@ -172,6 +172,10 @@ t_will_msg(_) ->
     Msg = emqx_packet:will_msg(Pkt),
     ?assertEqual(<<"clientid">>, Msg#message.from),
     ?assertEqual(<<"topic">>, Msg#message.topic).
+    
+t_to_message(_) ->
+    error('TODO').
+
 
 t_format(_) ->
     io:format("~s", [emqx_packet:format(?CONNECT_PACKET(#mqtt_packet_connect{}))]),

@@ -230,3 +230,6 @@ bench(Case, Fun, Args) ->
     ct:pal("Time consumed by ~s: ~.3f(us)~nCall ~s per second: ~w",
            [Case, Time/?N, Case, (?N * 1000000) div Time]).
 
+
+t_match(_) ->
+    error('TODO').

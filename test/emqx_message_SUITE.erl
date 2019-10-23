@@ -91,6 +91,9 @@ t_undefined_headers(_) ->
     ?assertEqual(1, emqx_message:get_header(a, Msg1)),
     Msg2 = emqx_message:set_header(c, 3, Msg),
     ?assertEqual(3, emqx_message:get_header(c, Msg2)).
+      
+t_remove_header(_) ->
+    error('TODO').
 
 t_format(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
@@ -102,7 +105,7 @@ t_format(_) ->
                    },
     io:format("~s~n", [emqx_message:format(Msg1)]).
 
-t_expired(_) ->
+t_is_expired(_) ->
     Msg = emqx_message:make(<<"clientid">>, <<"topic">>, <<"payload">>),
     ?assertNot(emqx_message:is_expired(Msg)),
     Msg1 = emqx_message:set_headers(#{'Message-Expiry-Interval' => 1}, Msg),
@@ -115,6 +118,10 @@ t_expired(_) ->
     Msg2 = emqx_message:update_expiry(Msg1),
     ?assertEqual(1, emqx_message:get_header('Message-Expiry-Interval', Msg2)).
 
+
+t_to_list(_) ->
+    error('TODO').
+    
 t_to_packet(_) ->
     Pkt = #mqtt_packet{header = #mqtt_packet_header{type   = ?PUBLISH,
                                                     qos    = ?QOS_0,
@@ -139,4 +146,16 @@ t_to_map(_) ->
             {timestamp, emqx_message:timestamp(Msg)}],
     ?assertEqual(List, emqx_message:to_list(Msg)),
     ?assertEqual(maps:from_list(List), emqx_message:to_map(Msg)).
+    
+t_update_expiry(_) ->
+    error('TODO').
+
+t_set_header(_) ->
+    error('TODO').
+
+t_set_flag(_) ->
+    error('TODO').
+
+t_set_headers(_) ->
+    error('TODO').
 

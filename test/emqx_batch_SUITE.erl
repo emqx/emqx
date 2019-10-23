@@ -23,6 +23,22 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+
+t_init(_) ->
+    error('TODO').
+
+t_push(_) ->
+    error('TODO').
+
+t_commit(_) ->
+    error('TODO').
+
+t_size(_) ->
+    error('TODO').
+
+t_items(_) ->
+    error('TODO').
+
 t_batch_full_commit(_) ->
     B0 = emqx_batch:init(#{batch_size => 3,
                            linger_ms => 2000,

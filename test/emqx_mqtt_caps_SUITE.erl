@@ -24,6 +24,14 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+
+t_get_caps(_) ->
+    error('TODO').
+
+t_default(_) ->
+    error('TODO').
+
+
 t_check_pub(_) ->
     PubCaps = #{max_qos_allowed => ?QOS_1,
                 retain_available => false
