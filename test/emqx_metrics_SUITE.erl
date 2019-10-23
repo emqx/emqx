@@ -24,6 +24,21 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+t_val(_) ->
+    error('TODO').
+
+t_dec(_) ->
+    error('TODO').
+
+t_set(_) ->
+    error('TODO').
+
+t_commit(_) ->
+    error('TODO').
+
+t_inc(_) ->
+    error('TODO').
+
 t_new(_) ->
     with_metrics_server(
       fun() ->
