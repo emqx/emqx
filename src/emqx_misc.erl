@@ -101,7 +101,7 @@ start_timer(Interval, Msg) ->
 
 -spec(start_timer(integer(), pid() | atom(), term()) -> reference()).
 start_timer(Interval, Dest, Msg) ->
-    erlang:start_timer(Interval, Dest, Msg).
+    erlang:start_timer(erlang:ceil(Interval), Dest, Msg).
 
 -spec(cancel_timer(maybe(reference())) -> ok).
 cancel_timer(Timer) when is_reference(Timer) ->
