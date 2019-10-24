@@ -56,6 +56,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
+    emqx_zone:unset_all_env(),
     application:unset_env(emqx, zone_env),
     application:unset_env(emqx, zones).
 

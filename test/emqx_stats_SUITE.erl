@@ -23,6 +23,16 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+t_cast_useless_msg(_)->
+    emqx_stats:setstat('notExis', 1),
+    with_proc(fun() ->
+        emqx_stats ! useless,
+        ?assertEqual(ok, gen_server:cast(emqx_stats, useless))
+        end).
+
+t_get_error_state(_) ->
+    Conns = emqx_stats:getstats(),
+    ?assertEqual([], Conns).
 
 t_statsfun(_) ->
     error('TODO').
@@ -38,6 +48,7 @@ t_setstat(_) ->
 
 t_get_state(_) ->
     with_proc(fun() ->
+        ?assertEqual(undefined, emqx_stats:getstat('notExist')),
         SetConnsCount = emqx_stats:statsfun('connections.count'),
         SetConnsCount(1),
         ?assertEqual(1, emqx_stats:getstat('connections.count')),
@@ -67,6 +78,8 @@ t_update_interval(_) ->
         SleepMs = TickMs * 2 + TickMs div 2, %% sleep for 2.5 ticks
         emqx_stats:cancel_update(cm_stats),
         UpdFun = fun() -> emqx_stats:setstat('connections.count',  1) end,
+        ok = emqx_stats:update_interval(stats_test, UpdFun),
+        timer:sleep(SleepMs),
         ok = emqx_stats:update_interval(stats_test, UpdFun),
         timer:sleep(SleepMs),
         ?assertEqual(1, emqx_stats:getstat('connections.count'))

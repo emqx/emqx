@@ -106,7 +106,7 @@ t_websocket_init(_) ->
 
 t_websocket_handle_binary(_) ->
     with_ws_conn(fun(WsConn) ->
-                         ok = meck:expect(emqx_channel, recvd, fun(_Oct, Channel) -> {ok, Channel} end),
+                         ok = meck:expect(emqx_channel, recvd, fun(_Oct, Channel) -> Channel end),
                          {ok, WsConn} = websocket_handle({binary, [<<>>]}, WsConn)
                  end).
 
