@@ -50,6 +50,7 @@
         , get_env/3
         , set_env/3
         , unset_env/2
+        , unset_all_env/0
         ]).
 
 -export([force_reload/0]).
@@ -174,6 +175,11 @@ set_env(Zone, Key, Val) ->
 -spec(unset_env(zone(), atom()) -> boolean()).
 unset_env(Zone, Key) ->
     persistent_term:erase(?KEY(Zone, Key)).
+
+-spec(unset_all_env() -> ok).
+unset_all_env() ->
+    [unset_env(Zone, Key) || {?KEY(Zone, Key), _Val} <- persistent_term:get()],
+    ok.
 
 -spec(force_reload() -> ok).
 force_reload() ->
