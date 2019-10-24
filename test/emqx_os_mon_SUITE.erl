@@ -29,6 +29,43 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     application:stop(os_mon).
+    
+    
+t_get_cpu_check_interval(_) ->
+    error('TODO').
+
+t_set_cpu_check_interval(_) ->
+    error('TODO').
+
+t_get_cpu_high_watermark(_) ->
+    error('TODO').
+
+t_set_cpu_high_watermark(_) ->
+    error('TODO').
+
+t_get_cpu_low_watermark(_) ->
+    error('TODO').
+
+t_set_cpu_low_watermark(_) ->
+    error('TODO').
+
+t_get_mem_check_interval(_) ->
+    error('TODO').
+
+t_set_mem_check_interval(_) ->
+    error('TODO').
+
+t_get_sysmem_high_watermark(_) ->
+    error('TODO').
+
+t_set_sysmem_high_watermark(_) ->
+    error('TODO').
+
+t_get_procmem_high_watermark(_) ->
+    error('TODO').
+
+t_set_procmem_high_watermark(_) ->
+    error('TODO').
 
 t_api(_) ->
     gen_event:swap_handler(alarm_handler, {emqx_alarm_handler, swap}, {alarm_handler, []}),

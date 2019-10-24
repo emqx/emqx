@@ -34,6 +34,18 @@ t_get_error_state(_) ->
     Conns = emqx_stats:getstats(),
     ?assertEqual([], Conns).
 
+t_statsfun(_) ->
+    error('TODO').
+
+t_getstats(_) ->
+    error('TODO').
+
+t_getstat(_) ->
+    error('TODO').
+
+t_setstat(_) ->
+    error('TODO').
+
 t_get_state(_) ->
     with_proc(fun() ->
         ?assertEqual(undefined, emqx_stats:getstat('notExist')),

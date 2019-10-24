@@ -14,53 +14,63 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_sequence_SUITE).
+-module(emqx_logger_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
 -include_lib("eunit/include/eunit.hrl").
 
--import(emqx_sequence,
-        [ nextval/2
-        , currval/2
-        , reclaim/2
-        ]).
-
 all() -> emqx_ct:all(?MODULE).
 
+init_per_testcase(_TestCase, Config) ->
+    Config.
 
-t_currval(_) ->
+end_per_testcase(_TestCase, Config) ->
+    Config.
+
+t_debug(_) ->
     error('TODO').
 
-t_delete(_) ->
+t_info(_) ->
     error('TODO').
 
-t_create(_) ->
+t_warning(_) ->
     error('TODO').
 
-t_reclaim(_) ->
+t_error(_) ->
     error('TODO').
 
-t_nextval(_) ->
+t_critical(_) ->
     error('TODO').
 
+t_set_proc_metadata(_) ->
+    error('TODO').
 
-t_generate(_) ->
-    ok = emqx_sequence:create(seqtab),
-    ?assertEqual(0, currval(seqtab, key)),
-    ?assertEqual(1, nextval(seqtab, key)),
-    ?assertEqual(1, currval(seqtab, key)),
-    ?assertEqual(2, nextval(seqtab, key)),
-    ?assertEqual(2, currval(seqtab, key)),
-    ?assertEqual(3, nextval(seqtab, key)),
-    ?assertEqual(2, reclaim(seqtab, key)),
-    ?assertEqual(1, reclaim(seqtab, key)),
-    ?assertEqual(0, reclaim(seqtab, key)),
-    ?assertEqual(1, nextval(seqtab, key)),
-    ?assertEqual(0, reclaim(seqtab, key)),
-    ?assertEqual(0, reclaim(seqtab, key)),
-    ?assertEqual(false, ets:member(seqtab, key)),
-    ?assert(emqx_sequence:delete(seqtab)),
-    ?assertNot(emqx_sequence:delete(seqtab)).
+t_get_primary_log_level(_) ->
+    error('TODO').
+
+t_set_primary_log_level(_) ->
+    error('TODO').
+
+t_get_log_handlers(_) ->
+    error('TODO').
+
+t_get_log_handler(_) ->
+    error('TODO').
+
+t_set_log_handler_level(_) ->
+    error('TODO').
+
+t_set_log_level(_) ->
+    error('TODO').
+
+t_parse_transform(_) ->
+    error('TODO').
+
+t_set_metadata_peername(_) ->
+    error('TODO').
+
+t_set_metadata_clientid(_) ->
+    error('TODO').
 

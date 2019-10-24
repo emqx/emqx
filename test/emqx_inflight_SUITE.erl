@@ -24,6 +24,10 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+
+t_new(_) ->
+    error('TODO').
+    
 t_contain(_) ->
     Inflight = emqx_inflight:insert(k, v, emqx_inflight:new()),
     ?assert(emqx_inflight:contain(k, Inflight)),
@@ -89,4 +93,13 @@ t_window(_) ->
                  b, 2, emqx_inflight:insert(
                          a, 1, emqx_inflight:new(2))),
     ?assertEqual([a, b], emqx_inflight:window(Inflight)).
+
+t_to_list(_) ->
+    error('TODO').
+
+t_size(_) ->
+    error('TODO').
+
+t_max_size(_) ->
+    error('TODO').
 
