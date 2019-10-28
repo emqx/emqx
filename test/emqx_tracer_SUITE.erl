@@ -32,6 +32,7 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
+    
 
 t_start_traces(_Config) ->
     {ok, T} = emqtt:start_link([{host, "localhost"},
@@ -80,3 +81,19 @@ t_start_traces(_Config) ->
     emqtt:disconnect(T),
 
     emqx_logger:set_log_level(warning).
+    
+    
+t_start_trace(_) ->
+    error('TODO').
+
+t_stop_trace(_) ->
+    error('TODO').
+
+t_lookup_traces(_) ->
+    error('TODO').
+
+
+
+t_trace(_) ->
+    error('TODO').
+

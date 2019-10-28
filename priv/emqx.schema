@@ -939,14 +939,14 @@ end}.
                ("shared_subscription", Val) ->
                     {shared_subscription, Val};
                ("publish_limit", Val) ->
-                    [Limit, Duration] = string:tokens(Val, ", "),
-                    PubLimit = case cuttlefish_duration:parse(Duration, s) of
-                                   Secs when is_integer(Secs) ->
-                                       {list_to_integer(Limit) / Secs, list_to_integer(Limit)};
-                                   {error, Reason} ->
-                                       error(Reason)
+                    [L, D] = string:tokens(Val, ", "),
+                    Limit = list_to_integer(L),
+                    Duration = case cuttlefish_duration:parse(D, s) of
+                                   Secs when is_integer(Secs) -> Secs;
+                                   {error, Reason} -> error(Reason)
                                end,
-                    {publish_limit, PubLimit};
+                    Rate = Limit / Duration,
+                    {publish_limit, {Rate, Limit}};
                ("force_gc_policy", Val) ->
                     [Count, Bytes] = string:tokens(Val, "| "),
                     GcPolicy = case cuttlefish_bytesize:parse(Bytes) of
@@ -1644,10 +1644,20 @@ end}.
                   end
               end,
 
-    Ratelimit = fun(undefined) ->
-                    undefined;
-                   (S) ->
-                    list_to_tuple([list_to_integer(Token) || Token <- string:tokens(S, ",")])
+    RateLimit = fun(undefined) ->
+                        undefined;
+                   (Val) ->
+                        [L, D] = string:tokens(Val, ", "),
+                        Limit = case cuttlefish_bytesize:parse(L) of
+                                    Sz when is_integer(Sz) -> Sz;
+                                    {error, Reason} -> error(Reason)
+                                end,
+                        Duration = case cuttlefish_duration:parse(D, s) of
+                                       Secs when is_integer(Secs) -> Secs;
+                                       {error, Reason1} -> error(Reason1)
+                                   end,
+                        Rate = Limit / Duration,
+                        {Rate, Limit}
                 end,
 
     LisOpts = fun(Prefix) ->
@@ -1658,7 +1668,7 @@ end}.
                           {active_n, cuttlefish:conf_get(Prefix ++ ".active_n", Conf, undefined)},
                           {tune_buffer, cuttlefish:conf_get(Prefix ++ ".tune_buffer", Conf, undefined)},
                           {zone, Atom(cuttlefish:conf_get(Prefix ++ ".zone", Conf, undefined))},
-                          {rate_limit, Ratelimit(cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined))},
+                          {rate_limit, RateLimit(cuttlefish:conf_get(Prefix ++ ".rate_limit", Conf, undefined))},
                           {proxy_protocol, cuttlefish:conf_get(Prefix ++ ".proxy_protocol", Conf, undefined)},
                           {proxy_protocol_timeout, cuttlefish:conf_get(Prefix ++ ".proxy_protocol_timeout", Conf, undefined)},
                           {verify_protocol_header, cuttlefish:conf_get(Prefix ++ ".verify_protocol_header", Conf, undefined)},

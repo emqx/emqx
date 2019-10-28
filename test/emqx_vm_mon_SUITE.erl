@@ -38,6 +38,18 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     application:stop(sasl).
+    
+    t_get_process_high_watermark(_) ->
+    error('TODO').
+
+t_set_process_high_watermark(_) ->
+    error('TODO').
+
+t_get_process_low_watermark(_) ->
+    error('TODO').
+
+t_set_process_low_watermark(_) ->
+    error('TODO').
 
 t_api(_) ->
     meck:new(alarm_handler, [passthrough, no_history]),

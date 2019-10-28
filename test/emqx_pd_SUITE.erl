@@ -23,6 +23,12 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+t_get_counter(_) ->
+    error('TODO').
+
+t_reset_counter(_) ->
+    error('TODO').
+
 t_update_counter(_) ->
     ?assertEqual(undefined, emqx_pd:update_counter(bytes, 1)),
     ?assertEqual(1, emqx_pd:update_counter(bytes, 1)),

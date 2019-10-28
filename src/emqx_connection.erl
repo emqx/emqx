@@ -24,6 +24,11 @@
 
 -logger_header("[MQTT]").
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
 %% API
 -export([ start_link/3
         , stop/1
@@ -121,9 +126,7 @@ info(active_n, #state{active_n = ActiveN}) ->
 info(pub_limit, #state{pub_limit = PubLimit}) ->
     limit_info(PubLimit);
 info(rate_limit, #state{rate_limit = RateLimit}) ->
-    limit_info(RateLimit);
-info(channel, #state{channel = Channel}) ->
-    emqx_channel:info(Channel).
+    limit_info(RateLimit).
 
 limit_info(Limit) ->
     emqx_misc:maybe_apply(fun esockd_rate_limit:info/1, Limit).
@@ -158,17 +161,9 @@ init(Parent, Transport, RawSocket, Options) ->
     case Transport:wait(RawSocket) of
         {ok, Socket} ->
             do_init(Parent, Transport, Socket, Options);
-        {error, Reason} when Reason =:= enotconn;
-                             Reason =:= einval;
-                             Reason =:= closed ->
-            Transport:fast_close(RawSocket),
-            exit(normal);
-        {error, timeout} ->
-            Transport:fast_close(RawSocket),
-            exit({shutdown, ssl_upgrade_timeout});
         {error, Reason} ->
-            Transport:fast_close(RawSocket),
-            exit(Reason)
+            ok = Transport:fast_close(RawSocket),
+            exit_on_sock_error(Reason)
     end.
 
 do_init(Parent, Transport, Socket, Options) ->
@@ -209,21 +204,25 @@ do_init(Parent, Transport, Socket, Options) ->
                   },
     case activate_socket(State) of
         {ok, NState} ->
-            recvloop(NState, #{hibernate_after => HibAfterTimeout});
-        {error, Reason} when Reason =:= einval;
-                             Reason =:= enotconn;
-                             Reason =:= closed ->
-            Transport:fast_close(Socket),
-            exit(normal);
+            hibernate(NState, #{hibernate_after => HibAfterTimeout});
         {error, Reason} ->
-            Transport:fast_close(Socket),
-            erlang:exit({shutdown, Reason})
+            ok = Transport:fast_close(Socket),
+            exit_on_sock_error(Reason)
     end.
 
 -compile({inline, [init_limiter/1]}).
 init_limiter(undefined) -> undefined;
 init_limiter({Rate, Burst}) ->
     esockd_rate_limit:new(Rate, Burst).
+
+exit_on_sock_error(Reason) when Reason =:= einval;
+                                Reason =:= enotconn;
+                                Reason =:= closed ->
+    erlang:exit(normal);
+exit_on_sock_error(timeout) ->
+    erlang:exit({shutdown, ssl_upgrade_timeout});
+exit_on_sock_error(Reason) ->
+    erlang:exit({shutdown, Reason}).
 
 %%--------------------------------------------------------------------
 %% Recv Loop
@@ -291,8 +290,8 @@ handle_msg({Inet, _Sock, Data}, State = #state{channel = Channel})
     Oct = iolist_size(Data),
     emqx_pd:update_counter(incoming_bytes, Oct),
     ok = emqx_metrics:inc('bytes.received', Oct),
-    {ok, NChannel} = emqx_channel:handle_in(Oct, Channel),
-    process_incoming(Data, State#state{channel = NChannel});
+    NChannel = emqx_channel:recvd(Oct, Channel),
+    parse_incoming(Data, State#state{channel = NChannel});
 
 handle_msg({incoming, Packet = ?CONNECT_PACKET(ConnPkt)},
            State = #state{idle_timer = IdleTimer}) ->
@@ -316,24 +315,16 @@ handle_msg({Closed, _Sock}, State)
 
 handle_msg({Passive, _Sock}, State)
   when Passive == tcp_passive; Passive == ssl_passive ->
-    %% Rate limit and activate socket here.
+    %% Rate limit here:)
     NState = ensure_rate_limit(State),
-    case activate_socket(NState) of
-        {ok, NState} -> {ok, NState};
-        {error, Reason} ->
-            {ok, {sock_error, Reason}, NState}
-    end;
+    handle_info(activate_socket, NState);
 
 %% Rate limit timer expired.
 handle_msg(activate_socket, State) ->
     NState = State#state{sockstate   = idle,
                          limit_timer = undefined
                         },
-    case activate_socket(NState) of
-        {ok, NState} -> {ok, NState};
-        {error, Reason} ->
-            {ok, {sock_error, Reason}, State}
-    end;
+    handle_info(activate_socket, NState);
 
 handle_msg(Deliver = {deliver, _Topic, _Msg},
            State = #state{channel = Channel}) ->
@@ -342,7 +333,8 @@ handle_msg(Deliver = {deliver, _Topic, _Msg},
     handle_return(Result, State);
 
 handle_msg({outgoing, Packets}, State) ->
-    {ok, handle_outgoing(Packets, State)};
+    NState = handle_outgoing(Packets, State),
+    {ok, NState};
 
 %% something sent
 handle_msg({inet_reply, _Sock, ok}, _State) ->
@@ -362,13 +354,10 @@ handle_msg(Msg, State) -> handle_info(Msg, State).
 %%--------------------------------------------------------------------
 %% Terminate
 
-terminate(Reason, #state{transport = Transport,
-                         socket    = Socket,
-                         sockstate = SockSt,
-                         channel   = Channel}) ->
-    ?LOG(debug, "Terminated for ~p", [Reason]),
-    SockSt =:= closed orelse Transport:fast_close(Socket),
+terminate(Reason, State = #state{channel = Channel}) ->
+    ?LOG(debug, "Terminated due to ~p", [Reason]),
     emqx_channel:terminate(Reason, Channel),
+    close_socket(State),
     exit(Reason).
 
 %%--------------------------------------------------------------------
@@ -399,19 +388,19 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
     case emqx_channel:handle_call(Req, Channel) of
         {reply, Reply, NChannel} ->
             {reply, Reply, State#state{channel = NChannel}};
-        {stop, Reason, Reply, NChannel} ->
-            {stop, Reason, Reply, State#state{channel = NChannel}};
-        {stop, Reason, Reply, OutPacket, NChannel} ->
+        {shutdown, Reason, Reply, NChannel} ->
+            shutdown(Reason, Reply, State#state{channel = NChannel});
+        {shutdown, Reason, Reply, OutPacket, NChannel} ->
             NState = State#state{channel = NChannel},
             NState1 = handle_outgoing(OutPacket, NState),
-            {stop, Reason, Reply, NState1}
+            shutdown(Reason, Reply, NState1)
     end.
 
 %%--------------------------------------------------------------------
 %% Handle timeout
 
 handle_timeout(TRef, idle_timeout, State = #state{idle_timer = TRef}) ->
-    stop(idle_timeout, State);
+    shutdown(idle_timeout, State);
 
 handle_timeout(TRef, emit_stats, State) ->
     handle_timeout(TRef, {emit_stats, stats(State)}, State);
@@ -422,23 +411,19 @@ handle_timeout(TRef, keepalive, State = #state{transport = Transport,
         {ok, [{recv_oct, RecvOct}]} ->
             handle_timeout(TRef, {keepalive, RecvOct}, State);
         {error, Reason} ->
-            handle_info({sockerr, Reason}, State)
+            handle_info({sock_error, Reason}, State)
     end;
 
 handle_timeout(TRef, Msg, State = #state{channel = Channel}) ->
     handle_return(emqx_channel:handle_timeout(TRef, Msg, Channel), State).
 
 %%--------------------------------------------------------------------
-%% Process/Parse incoming data.
-
--compile({inline, [process_incoming/2]}).
-process_incoming(Data, State) ->
-    {Packets, NState} = parse_incoming(Data, State),
-    {ok, next_incoming_msgs(Packets), NState}.
+%% Parse incoming data
 
 -compile({inline, [parse_incoming/2]}).
 parse_incoming(Data, State) ->
-    parse_incoming(Data, [], State).
+    {Packets, NState} = parse_incoming(Data, [], State),
+    {ok, next_incoming_msgs(Packets), NState}.
 
 parse_incoming(<<>>, Packets, State) ->
     {Packets, State};
@@ -483,12 +468,12 @@ handle_return({ok, NChannel}, State) ->
     {ok, State#state{channel = NChannel}};
 handle_return({ok, Replies, NChannel}, State) ->
     {ok, next_msgs(Replies), State#state{channel = NChannel}};
-handle_return({stop, Reason, NChannel}, State) ->
-    stop(Reason, State#state{channel = NChannel});
-handle_return({stop, Reason, OutPacket, NChannel}, State) ->
+handle_return({shutdown, Reason, NChannel}, State) ->
+    shutdown(Reason, State#state{channel = NChannel});
+handle_return({shutdown, Reason, OutPacket, NChannel}, State) ->
     NState = State#state{channel = NChannel},
     NState1 = handle_outgoing(OutPacket, NState),
-    stop(Reason, NState1).
+    shutdown(Reason, NState1).
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
@@ -522,8 +507,7 @@ send(IoData, State = #state{transport = Transport,
     ok = emqx_metrics:inc('bytes.sent', Oct),
     case Transport:async_send(Socket, IoData) of
         ok ->
-            {ok, NChannel} = emqx_channel:handle_out(Oct, Channel),
-            State#state{channel = NChannel};
+            State#state{channel = emqx_channel:sent(Oct, Channel)};
         Error = {error, _Reason} ->
             %% Simulate an inet_reply to postpone handling the error
             self() ! {inet_reply, Socket, Error}, State
@@ -532,9 +516,20 @@ send(IoData, State = #state{transport = Transport,
 %%--------------------------------------------------------------------
 %% Handle Info
 
-handle_info({enter, _}, State = #state{active_n  = ActiveN,
-                                       sockstate = SockSt,
-                                       channel   = Channel}) ->
+handle_info({connack, ConnAck}, State = #state{active_n  = ActiveN,
+                                                sockstate = SockSt,
+                                                channel   = Channel}) ->
+    NState = handle_outgoing(ConnAck, State),
+    ChanAttrs = emqx_channel:attrs(Channel),
+    SockAttrs = #{active_n  => ActiveN,
+                  sockstate => SockSt
+                 },
+    Attrs = maps:merge(ChanAttrs, #{sockinfo => SockAttrs}),
+    handle_info({register, Attrs, stats(State)}, NState);
+
+handle_info({enter, disconnected}, State = #state{active_n  = ActiveN,
+                                                sockstate = SockSt,
+                                                channel   = Channel}) ->
     ChanAttrs = emqx_channel:attrs(Channel),
     SockAttrs = #{active_n  => ActiveN,
                   sockstate => SockSt
@@ -542,8 +537,16 @@ handle_info({enter, _}, State = #state{active_n  = ActiveN,
     Attrs = maps:merge(ChanAttrs, #{sockinfo => SockAttrs}),
     handle_info({register, Attrs, stats(State)}, State);
 
-handle_info({sockerr, _Reason}, #state{sockstate = closed}) -> ok;
-handle_info({sockerr, Reason}, State) ->
+handle_info(activate_socket, State) ->
+    case activate_socket(State) of
+        {ok, NState} -> {ok, NState};
+        {error, Reason} ->
+            handle_info({sock_error, Reason}, State)
+    end;
+
+%%TODO: this is not right
+handle_info({sock_error, _Reason}, #state{sockstate = closed}) -> ok;
+handle_info({sock_error, Reason}, State) ->
     ?LOG(debug, "Socket error: ~p", [Reason]),
     handle_info({sock_closed, Reason}, close_socket(State));
 
@@ -578,6 +581,8 @@ activate_socket(State = #state{transport = Transport,
 %%--------------------------------------------------------------------
 %% Close Socket
 
+close_socket(State = #state{sockstate = closed}) ->
+    State;
 close_socket(State = #state{transport = Transport, socket = Socket}) ->
     ok = Transport:fast_close(Socket),
     State#state{sockstate = closed}.
@@ -641,7 +646,16 @@ next_msgs(Action) when is_tuple(Action) ->
 next_msgs(Actions) when is_list(Actions) ->
     Actions.
 
+shutdown(Reason, State) ->
+    stop({shutdown, Reason}, State).
+
+shutdown(Reason, Reply, State) ->
+    stop({shutdown, Reason}, Reply, State).
+
 -compile({inline, [stop/2]}).
 stop(Reason, State) ->
     {stop, Reason, State}.
+
+stop(Reason, Reply, State) ->
+    {stop, Reason, Reply, State}.
 

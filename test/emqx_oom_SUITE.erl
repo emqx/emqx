@@ -41,4 +41,8 @@ t_check(_) ->
     ?assertEqual(ok, emqx_oom:check(Oom)),
     [self() ! {msg, I} || I <- lists:seq(1, 6)],
     ?assertEqual({shutdown, message_queue_too_long}, emqx_oom:check(Oom)).
+    
+    
+t_info(_) ->
+    error('TODO').
 

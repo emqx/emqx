@@ -25,12 +25,66 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+
 init_per_suite(Config) ->
     emqx_ct_helpers:start_apps([]),
     Config.
 
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
+
+
+t_start(_) ->
+    error('TODO').
+
+t_restart(_) ->
+    error('TODO').
+
+t_stop(_) ->
+    error('TODO').
+
+t_is_running(_) ->
+    error('TODO').
+
+t_subscribe(_) ->
+    error('TODO').
+
+t_publish(_) ->
+    error('TODO').
+
+t_unsubscribe(_) ->
+    error('TODO').
+
+t_topics(_) ->
+    error('TODO').
+
+t_subscribers(_) ->
+    error('TODO').
+
+t_subscriptions(_) ->
+    error('TODO').
+
+t_subscribed(_) ->
+    error('TODO').
+
+t_hook(_) ->
+    error('TODO').
+
+t_unhook(_) ->
+    error('TODO').
+
+t_run_hook(_) ->
+    error('TODO').
+
+t_run_fold_hook(_) ->
+    error('TODO').
+
+t_shutdown(_) ->
+    error('TODO').
+
+t_reboot(_) ->
+    error('TODO').
+
 
 t_get_env(_) ->
     ?assertEqual(undefined, emqx:get_env(undefined_key)),

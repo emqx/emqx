@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_guid_SUITE).
+-module(emqx_access_rule_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -23,42 +23,15 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-t_guid_gen(_) ->
-    Guid1 = emqx_guid:gen(),
-    Guid2 = emqx_guid:gen(),
-    <<_:128>> = Guid1,
-    ?assert((Guid2 >= Guid1)),
-    {Ts1, _, 0} = emqx_guid:new(),
-    Ts2 = emqx_guid:timestamp(emqx_guid:gen()),
-    ?assert(Ts2 > Ts1).
+init_per_testcase(_TestCase, Config) ->
+    Config.
 
-t_guid_hexstr(_) ->
-    Guid = emqx_guid:gen(),
-    ?assertEqual(Guid, emqx_guid:from_hexstr(emqx_guid:to_hexstr(Guid))).
+end_per_testcase(_TestCase, Config) ->
+    Config.
 
-t_guid_base62(_) ->
-    Guid = emqx_guid:gen(),
-    ?assertEqual(Guid, emqx_guid:from_base62(emqx_guid:to_base62(Guid))).
-    
-t_new(_) ->
+t_compile(_) ->
     error('TODO').
 
-t_timestamp(_) ->
+t_match(_) ->
     error('TODO').
-
-t_to_hexstr(_) ->
-    error('TODO').
-
-t_from_hexstr(_) ->
-    error('TODO').
-
-t_from_base62(_) ->
-    error('TODO').
-
-t_to_base62(_) ->
-    error('TODO').
-
-t_gen(_) ->
-    error('TODO').
-
 
