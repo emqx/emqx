@@ -705,6 +705,9 @@ handle_call({takeover, 'end'}, Channel = #channel{session  = Session,
     AllPendings = lists:append(Delivers, Pendings),
     {stop, {shutdown, takeovered}, AllPendings, Channel};
 
+handle_call(list_acl_cache, Channel) ->
+    {reply, emqx_acl_cache:list_acl_cache(), Channel};
+
 handle_call(Req, Channel) ->
     ?LOG(error, "Unexpected call: ~p", [Req]),
     {reply, ignored, Channel}.
@@ -756,6 +759,11 @@ handle_info({sock_closed, Reason}, Channel = #channel{conninfo = ConnInfo,
         _Other ->
             shutdown(Reason, Channel2)
     end;
+
+handle_info(clean_acl_cache, Channel) ->
+    ?LOG(debug, "clear acl cache"),
+    ok = emqx_acl_cache:empty_acl_cache(),
+    {ok, Channel};
 
 handle_info(Info, Channel) ->
     ?LOG(error, "Unexpected info: ~p~n", [Info]),
