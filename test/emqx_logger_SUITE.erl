@@ -21,6 +21,8 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-define(LOGGER, emqx_logger).
+
 all() -> emqx_ct:all(?MODULE).
 
 init_per_testcase(_TestCase, Config) ->
@@ -30,47 +32,62 @@ end_per_testcase(_TestCase, Config) ->
     Config.
 
 t_debug(_) ->
-    error('TODO').
+    ?assertEqual(ok, ?LOGGER:debug("for_test")),
+    ?assertEqual(ok, ?LOGGER:debug("for_test", [])),
+    ?assertEqual(ok, ?LOGGER:debug(#{pid => self()}, "for_test", [])).
 
 t_info(_) ->
-    error('TODO').
+    ?assertEqual(ok, ?LOGGER:info("for_test")),
+    ?assertEqual(ok, ?LOGGER:info("for_test", [])),
+    ?assertEqual(ok, ?LOGGER:info(#{pid => self()}, "for_test", [])).
 
 t_warning(_) ->
-    error('TODO').
+    ?assertEqual(ok, ?LOGGER:warning("for_test")),
+    ?assertEqual(ok, ?LOGGER:warning("for_test", [])),
+    ?assertEqual(ok, ?LOGGER:warning(#{pid => self()}, "for_test", [])).
 
 t_error(_) ->
-    error('TODO').
+    ?assertEqual(ok, ?LOGGER:error("for_test")),
+    ?assertEqual(ok, ?LOGGER:error("for_test", [])),
+    ?assertEqual(ok, ?LOGGER:error(#{pid => self()}, "for_test", [])).
 
 t_critical(_) ->
-    error('TODO').
+    ?assertEqual(ok, ?LOGGER:critical("for_test")),
+    ?assertEqual(ok, ?LOGGER:critical("for_test", [])),
+    ?assertEqual(ok, ?LOGGER:critical(#{pid => self()}, "for_test", [])).
 
 t_set_proc_metadata(_) ->
-    error('TODO').
+    ?assertEqual(ok, ?LOGGER:set_proc_metadata(#{pid => self()})).
 
-t_get_primary_log_level(_) ->
-    error('TODO').
-
-t_set_primary_log_level(_) ->
-    error('TODO').
+t_primary_log_level(_) ->
+    ?assertEqual(ok, ?LOGGER:set_primary_log_level(debug)),
+    ?assertEqual(debug, ?LOGGER:get_primary_log_level()).
 
 t_get_log_handlers(_) ->
-    error('TODO').
+    ok = logger:add_handler(logger_std_h_for_test, logger_std_h,  #{config => #{type => file, file => "logger_std_h_for_test"}}),
+    ok = logger:add_handler(logger_disk_log_h_for_test, logger_disk_log_h,  #{config => #{file => "logger_disk_log_h_for_test"}}),
+    ?assertMatch([_|_], ?LOGGER:get_log_handlers()).
 
 t_get_log_handler(_) ->
-    error('TODO').
+    [{HandlerId, _, _} | _ ] = ?LOGGER:get_log_handlers(),
+    ?assertMatch({HandlerId, _, _}, ?LOGGER:get_log_handler(HandlerId)).
 
 t_set_log_handler_level(_) ->
-    error('TODO').
+    [{HandlerId, _, _} | _ ] = ?LOGGER:get_log_handlers(),
+    Level = debug,
+    ?LOGGER:set_log_handler_level(HandlerId, Level),
+    ?assertMatch({HandlerId, Level, _}, ?LOGGER:get_log_handler(HandlerId)).
 
 t_set_log_level(_) ->
-    error('TODO').
+    ?assertMatch({error, _Error}, ?LOGGER:set_log_level(for_test)),
+    ?assertEqual(ok, ?LOGGER:set_log_level(debug)).
 
 t_parse_transform(_) ->
     error('TODO').
 
 t_set_metadata_peername(_) ->
-    error('TODO').
+    ?assertEqual(ok, ?LOGGER:set_metadata_peername("for_test")).
 
 t_set_metadata_clientid(_) ->
-    error('TODO').
-
+    ?assertEqual(ok, ?LOGGER:set_metadata_clientid(<<>>)),
+    ?assertEqual(ok, ?LOGGER:set_metadata_clientid("for_test")).
