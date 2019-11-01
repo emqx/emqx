@@ -24,17 +24,6 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-t_multicall(_) ->
-    error('TODO').
-
-t_cast(_) ->
-    error('TODO').
-
-t_call(_) ->
-    error('TODO').
-
-
-
 t_prop_rpc(_) ->
     ok = load(),
     Opts = [{to_file, user}, {numtests, 10}],
@@ -42,7 +31,9 @@ t_prop_rpc(_) ->
     ok = application:set_env(gen_rpc, call_receive_timeout, 1),
     ok = emqx_logger:set_log_level(emergency),
     ?assert(proper:quickcheck(prop_node(), Opts)),
+    ?assert(proper:quickcheck(prop_node_with_key(), Opts)),
     ?assert(proper:quickcheck(prop_nodes(), Opts)),
+    ?assert(proper:quickcheck(prop_nodes_with_key(), Opts)),
     ok = application:stop(gen_rpc),
     ok = unload().
 
@@ -57,10 +48,34 @@ prop_node() ->
                 end
             end).
 
+prop_node_with_key() ->
+    ?FORALL({Node, Key}, nodename_with_key(),
+            begin
+                ?assert(emqx_rpc:cast(Key, Node, erlang, system_time, [])),
+                case emqx_rpc:call(Key, Node, erlang, system_time, []) of
+                    {badrpc, _Reason} -> true;
+                    Delivery when is_integer(Delivery) -> true;
+                    _Other -> false
+                end
+            end).
+
 prop_nodes() ->
     ?FORALL(Nodes, nodesname(),
             begin
                 case emqx_rpc:multicall(Nodes, erlang, system_time, []) of
+                    {badrpc, _Reason} -> true;
+                    {RealResults, RealBadNodes}
+                      when is_list(RealResults);
+                           is_list(RealBadNodes) ->
+                        true;
+                    _Other -> false
+                end
+            end).
+
+prop_nodes_with_key() ->
+    ?FORALL({Nodes, Key}, nodesname_with_key(),
+            begin
+                case emqx_rpc:multicall(Key, Nodes, erlang, system_time, []) of
                     {badrpc, _Reason} -> true;
                     {RealResults, RealBadNodes}
                       when is_list(RealResults);
@@ -96,8 +111,19 @@ nodename() ->
              list_to_atom(Node)
          end).
 
+nodename_with_key() ->
+    ?LET({NodePrefix, HostName, Key},
+         {node_prefix(), hostname(), choose(0, 10)},
+         begin
+             Node = NodePrefix ++ "@" ++ HostName,
+             {list_to_atom(Node), Key}
+         end).
+
 nodesname() ->
-    oneof([list(nodename()), ["emqxct@127.0.0.1"]]).
+    oneof([list(nodename()), ['emqxct@127.0.0.1']]).
+
+nodesname_with_key() ->
+    oneof([{list(nodename()), choose(0, 10)}, {['emqxct@127.0.0.1'], 1}]).
 
 node_prefix() ->
     oneof(["emqxct", text_like()]).
