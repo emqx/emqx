@@ -82,8 +82,18 @@ t_alarm_handler(_) ->
 
             {ok, ?PUBLISH_PACKET(?QOS_0, Topic2, _, _), <<>>, _} = raw_recv_parse(Data4),
 
-            ?assertEqual(false, lists:keymember(alarm_for_test, 1, emqx_alarm_handler:get_alarms()))
+            ?assertEqual(false, lists:keymember(alarm_for_test, 1, emqx_alarm_handler:get_alarms())),
 
+            emqx_alarm_handler:mnesia(copy),
+            ?assertEqual(true, lists:keymember(alarm_for_test, 1, emqx_alarm_handler:get_alarms(history))),
+
+            alarm_handler:clear_alarm(not_exist),
+
+            gen_event:start({local, alarm_handler_2}, []),
+            gen_event:add_handler(alarm_handler_2, emqx_alarm_handler, []),
+            ?assertEqual({error,bad_query}, gen_event:call(alarm_handler_2, emqx_alarm_handler, bad_query)),
+            ?assertEqual(ok, gen_event:notify(alarm_handler_2, ignored)),
+            gen_event:stop(alarm_handler_2)
         end).
 
 with_connection(DoFun) ->
