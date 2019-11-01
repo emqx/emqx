@@ -38,14 +38,6 @@ set_special_configs(_App) -> ok.
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]),
     ok.
-    
-    
-t_check(_) ->
-    error('TODO').
-
-t_detect(_) ->
-    error('TODO').
-
 
 t_detect_check(_) ->
     ClientInfo = #{zone => external,

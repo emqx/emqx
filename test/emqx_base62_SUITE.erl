@@ -24,13 +24,6 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-t_encode(_) ->
-    error('TODO').
-
-t_decode(_) ->
-    error('TODO').
-
-
 t_proper_base62(_) ->
     Opts = [{numtests, 100}, {to_file, user}],
     ?assert(proper:quickcheck(prop_symmetric(), Opts)),

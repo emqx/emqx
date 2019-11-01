@@ -57,39 +57,39 @@ t_clean_acl_cache(_Config) ->
     ?assertEqual(0, length(gen_server:call(ClientPid, list_acl_cache))),
     emqtt:stop(Client).
 
-t_cache_k(_) ->
-    error('TODO').
+% t_cache_k(_) ->
+%     error('TODO').
 
-t_cache_v(_) ->
-    error('TODO').
+% t_cache_v(_) ->
+%     error('TODO').
 
-t_cleanup_acl_cache(_) ->
-    error('TODO').
+% t_cleanup_acl_cache(_) ->
+%     error('TODO').
 
-t_get_oldest_key(_) ->
-    error('TODO').
+% t_get_oldest_key(_) ->
+%     error('TODO').
 
-t_get_newest_key(_) ->
-    error('TODO').
+% t_get_newest_key(_) ->
+%     error('TODO').
 
-t_get_cache_max_size(_) ->
-    error('TODO').
+% t_get_cache_max_size(_) ->
+%     error('TODO').
 
-t_get_cache_size(_) ->
-    error('TODO').
+% t_get_cache_size(_) ->
+%     error('TODO').
 
-t_dump_acl_cache(_) ->
-    error('TODO').
+% t_dump_acl_cache(_) ->
+%     error('TODO').
 
-t_empty_acl_cache(_) ->
-    error('TODO').
+% t_empty_acl_cache(_) ->
+%     error('TODO').
 
-t_put_acl_cache(_) ->
-    error('TODO').
+% t_put_acl_cache(_) ->
+%     error('TODO').
 
-t_get_acl_cache(_) ->
-    error('TODO').
+% t_get_acl_cache(_) ->
+%     error('TODO').
 
-t_is_enabled(_) ->
-    error('TODO').
+% t_is_enabled(_) ->
+%     error('TODO').
 

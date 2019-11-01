@@ -29,22 +29,20 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+% t_currval(_) ->
+%     error('TODO').
 
-t_currval(_) ->
-    error('TODO').
+% t_delete(_) ->
+%     error('TODO').
 
-t_delete(_) ->
-    error('TODO').
+% t_create(_) ->
+%     error('TODO').
 
-t_create(_) ->
-    error('TODO').
+% t_reclaim(_) ->
+%     error('TODO').
 
-t_reclaim(_) ->
-    error('TODO').
-
-t_nextval(_) ->
-    error('TODO').
-
+% t_nextval(_) ->
+%     error('TODO').
 
 t_generate(_) ->
     ok = emqx_sequence:create(seqtab),

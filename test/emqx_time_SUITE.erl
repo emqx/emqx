@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_mod_acl_internal_SUITE).
+-module(emqx_time_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -23,24 +23,11 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-init_per_testcase(_TestCase, Config) ->
-    Config.
+t_seed(_) ->
+    ?assert(is_tuple(emqx_time:seed())).
 
-end_per_testcase(_TestCase, Config) ->
-    Config.
+t_now_secs(_) ->
+    ?assert(emqx_time:now_secs() =< emqx_time:now_secs(os:timestamp())).
 
-% t_load(_) ->
-%     error('TODO').
-
-% t_unload(_) ->
-%     error('TODO').
-
-% t_all_rules(_) ->
-%     error('TODO').
-
-% t_check_acl(_) ->
-%     error('TODO').
-
-% t_reload_acl(_) ->
-%     error('TODO').
-
+t_now_ms(_) ->
+    ?assert(emqx_time:now_ms() =< emqx_time:now_ms(os:timestamp())).

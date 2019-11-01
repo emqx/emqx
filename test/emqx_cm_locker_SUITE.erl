@@ -29,15 +29,15 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, Config) ->
     Config.
 
-t_start_link(_) ->
-    error('TODO').
+% t_start_link(_) ->
+%     error('TODO').
 
-t_trans(_) ->
-    error('TODO').
+% t_trans(_) ->
+%     error('TODO').
 
-t_lock(_) ->
-    error('TODO').
+% t_lock(_) ->
+%     error('TODO').
 
-t_unlock(_) ->
-    error('TODO').
+% t_unlock(_) ->
+%     error('TODO').
 

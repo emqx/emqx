@@ -101,11 +101,4 @@ t_uncovered_func(_) ->
     emqx_zone:stop().
 
 t_frame_options(_) ->
-    ?assertMatch(#{strict_mode := _, max_size := _ }, emqx_zone:frame_options(zone)).
-
-t_check_oom(_) ->
-    {ok, _} = emqx_zone:start_link(),
-    application:set_env(emqx, zones, [{zone, ?ENVS}]),
-    ok = emqx_zone:force_reload(),
-    ?assertEqual(ok, emqx_zone:check_oom(zone, fun() -> ok end)),
-    emqx_zone:stop().
+    ?assertMatch(#{strict_mode := _, max_size := _ }, emqx_zone:mqtt_frame_options(zone)).

@@ -86,6 +86,5 @@ t_unexpected(_) ->
 test_mfa() ->
     lists:foldl(fun(X, Sum) -> X + Sum end, 0, [1,2,3,4,5]).
 
-
-t_async_submit(_) ->
-    error('TODO').
+% t_async_submit(_) ->
+%     error('TODO').

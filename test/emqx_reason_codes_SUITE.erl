@@ -25,24 +25,23 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+% t_name(_) ->
+%     error('TODO').
 
-t_name(_) ->
-    error('TODO').
+% t_text(_) ->
+%     error('TODO').
 
-t_text(_) ->
-    error('TODO').
+% t_mqtt_frame_error(_) ->
+%     error('TODO').
 
-t_mqtt_frame_error(_) ->
-    error('TODO').
+% t_connack_error(_) ->
+%     error('TODO').
 
-t_connack_error(_) ->
-    error('TODO').
+% t_compat(_) ->
+%     error('TODO').
 
-t_compat(_) ->
-    error('TODO').
-
-t_formalized(_) ->
-    error('TODO').
+% t_formalized(_) ->
+%     error('TODO').
 
 t_prop_name_text(_) ->
     ?assert(proper:quickcheck(prop_name_text(), prop_name_text(opts))).

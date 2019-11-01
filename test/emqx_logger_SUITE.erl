@@ -109,9 +109,9 @@ t_parse_transform(_) ->
                      erlang:error({parse_form_error, Ts, Reason})
              end
              || Ts <- FormToks],
-    ct:log("=====: ~p", [Forms]),
+    %ct:log("=====: ~p", [Forms]),
     AST1 = emqx_logger:parse_transform(Forms, []),
-    ct:log("=====: ~p", [AST1]),
+    %ct:log("=====: ~p", [AST1]),
     ?assertNotEqual(false, lists:keyfind('$logger_header', 3, AST1)).
 
 t_parse_transform_empty_header(_) ->
@@ -124,9 +124,9 @@ t_parse_transform_empty_header(_) ->
                      erlang:error({parse_form_error, Ts, Reason})
              end
              || Ts <- FormToks],
-    ct:log("=====: ~p", [Forms]),
+    %ct:log("=====: ~p", [Forms]),
     AST2 = emqx_logger:parse_transform(Forms++[{eof, 15}], []),
-    ct:log("=====: ~p", [AST2]),
+    %ct:log("=====: ~p", [AST2]),
     ?assertNotEqual(false, lists:keyfind('$logger_header', 3, AST2)).
 
 
