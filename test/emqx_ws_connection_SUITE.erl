@@ -52,10 +52,6 @@ init_per_testcase(_TestCase, Config) ->
     ok = meck:expect(cowboy_req, parse_cookies, fun(_) -> undefined end),
     %% Meck Channel
     ok = meck:new(emqx_channel, [passthrough, no_history]),
-    ok = meck:expect(emqx_channel, recvd,
-                     fun(_Oct, Channel) ->
-                             {ok, Channel}
-                     end),
     %% Meck Metrics
     ok = meck:new(emqx_metrics, [passthrough, no_history]),
     ok = meck:expect(emqx_metrics, inc, fun(_, _) -> ok end),
@@ -83,15 +79,7 @@ t_ws_conn_info(_) ->
                          #{socktype  := ws,
                            peername  := {{127,0,0,1}, 3456},
                            sockname  := {{127,0,0,1}, 8883},
-                           sockstate := idle} = SockInfo
-                 end).
-
-t_ws_conn_stats(_) ->
-    with_ws_conn(fun(WsConn) ->
-                         Stats = emqx_ws_connection:stats(WsConn),
-                         lists:foreach(fun(Key) ->
-                                               0 = proplists:get_value(Key, Stats)
-                                       end, ?STATS_KEYS)
+                           sockstate := running} = SockInfo
                  end).
 
 t_websocket_init(_) ->
@@ -100,14 +88,13 @@ t_websocket_init(_) ->
                          #{socktype  := ws,
                            peername  := {{127,0,0,1}, 3456},
                            sockname  := {{127,0,0,1}, 8883},
-                           sockstate := idle
+                           sockstate := running
                           } = SockInfo
                  end).
 
 t_websocket_handle_binary(_) ->
     with_ws_conn(fun(WsConn) ->
-                         ok = meck:expect(emqx_channel, recvd, fun(_Oct, Channel) -> Channel end),
-                         {ok, WsConn} = websocket_handle({binary, [<<>>]}, WsConn)
+                         {ok, _} = websocket_handle({binary, [<<>>]}, WsConn)
                  end).
 
 t_websocket_handle_ping_pong(_) ->
@@ -225,7 +212,7 @@ with_ws_conn(TestFun) ->
     with_ws_conn(TestFun, []).
 
 with_ws_conn(TestFun, Opts) ->
-    {ok, WsConn} = emqx_ws_connection:websocket_init(
+    {ok, WsConn, _} = emqx_ws_connection:websocket_init(
                      [req, emqx_misc:merge_opts([{zone, external}], Opts)]),
     TestFun(WsConn).
 
