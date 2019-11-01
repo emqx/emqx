@@ -45,6 +45,24 @@ t_mnesia(_) ->
     %% for coverage
     ok = emqx_router:mnesia(copy).
 
+% t_add_route(_) ->
+%     error('TODO').
+
+% t_do_add_route(_) ->
+%     error('TODO').
+
+% t_lookup_routes(_) ->
+%     error('TODO').
+
+% t_delete_route(_) ->
+%     error('TODO').
+
+% t_do_delete_route(_) ->
+%     error('TODO').
+
+% t_topics(_) ->
+%     error('TODO').
+
 t_add_delete(_) ->
     ?R:add_route(<<"a/b/c">>),
     ?R:add_route(<<"a/b/c">>, node()),

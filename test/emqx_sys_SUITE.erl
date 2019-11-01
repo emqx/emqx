@@ -42,6 +42,27 @@ end_per_suite(_Config) ->
     application:unload(emqx),
     ok = emqx_logger:set_log_level(error),
     ok.
+    
+% t_version(_) ->
+%     error('TODO').
+
+% t_sysdescr(_) ->
+%     error('TODO').
+
+% t_uptime(_) ->
+%     error('TODO').
+
+% t_datetime(_) ->
+%     error('TODO').
+
+% t_sys_interval(_) ->
+%     error('TODO').
+
+% t_sys_heatbeat_interval(_) ->
+%     error('TODO').
+
+% t_info(_) ->
+%     error('TODO').
 
 t_prop_sys(_) ->
     Opts = [{numtests, 100}, {to_file, user}],

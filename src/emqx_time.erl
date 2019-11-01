@@ -49,4 +49,3 @@ now_ms() ->
 -spec(now_ms(erlang:timestamp()) -> pos_integer()).
 now_ms({MegaSecs, Secs, MicroSecs}) ->
     (MegaSecs * 1000000 + Secs) * 1000 + round(MicroSecs/1000).
-

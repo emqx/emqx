@@ -37,6 +37,7 @@ end_per_suite(_Config) ->
 
 t_start_stop_listeners(_) ->
     ok = emqx_listeners:start(),
+    {error, _} = emqx_listeners:start_listener({ws,{"127.0.0.1", 8083}, []}),
     ok = emqx_listeners:stop().
 
 t_restart_listeners(_) ->
@@ -89,4 +90,4 @@ get_base_dir(Module) ->
 
 get_base_dir() ->
     get_base_dir(?MODULE).
-
+    

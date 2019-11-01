@@ -31,4 +31,3 @@ t_now_secs(_) ->
 
 t_now_ms(_) ->
     ?assert(emqx_time:now_ms() =< emqx_time:now_ms(os:timestamp())).
-

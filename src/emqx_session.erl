@@ -50,6 +50,11 @@
 
 -logger_header("[Session]").
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
 -export([init/2]).
 
 -export([ info/1
@@ -57,9 +62,6 @@
         , attrs/1
         , stats/1
         ]).
-
-%% Exports for unit tests
--export([set_field/3]).
 
 -export([ subscribe/4
         , unsubscribe/3
@@ -84,6 +86,9 @@
 
 -export([expire/2]).
 
+%% export for ct
+-export([set_field/3]).
+
 -export_type([session/0]).
 
 -import(emqx_zone, [get_env/3]).
@@ -95,27 +100,25 @@
           max_subscriptions :: non_neg_integer(),
           %% Upgrade QoS?
           upgrade_qos :: boolean(),
-          %% Client <- Broker:
-          %% Inflight QoS1, QoS2 messages sent to the client but unacked.
+          %% Client <- Broker: QoS1/2 messages sent to the client but unacked.
           inflight :: emqx_inflight:inflight(),
-          %% All QoS1, QoS2 messages published to when client is disconnected.
-          %% QoS 1 and QoS 2 messages pending transmission to the Client.
+          %% All QoS1/2 messages published to when client is disconnected,
+          %% or QoS1/2 messages pending transmission to the Client.
           %%
-          %% Optionally, QoS 0 messages pending transmission to the Client.
+          %% Optionally, QoS0 messages pending transmission to the Client.
           mqueue :: emqx_mqueue:mqueue(),
           %% Next packet id of the session
           next_pkt_id = 1 :: emqx_types:packet_id(),
           %% Retry interval for redelivering QoS1/2 messages
           retry_interval :: timeout(),
-          %% Client -> Broker:
-          %% Inflight QoS2 messages received from client and waiting for pubrel.
+          %% Client -> Broker: QoS2 messages received from client and waiting for pubrel.
           awaiting_rel :: map(),
           %% Max Packets Awaiting PUBREL
           max_awaiting_rel :: non_neg_integer(),
           %% Awaiting PUBREL Timeout
-          await_rel_timeout :: timeout(),
-          %% Enqueue Count
-          enqueue_cnt :: non_neg_integer(),
+          awaiting_rel_timeout :: timeout(),
+          %% Deliver Stats
+          deliver_stats :: emqx_types:stats(),
           %% Created at
           created_at :: pos_integer()
          }).
@@ -126,11 +129,13 @@
 
 -define(DEFAULT_BATCH_N, 1000).
 
--define(ATTR_KEYS, [inflight_max,
+-define(ATTR_KEYS, [inflight_cnt,
+                    inflight_max,
+                    mqueue_len,
                     mqueue_max,
                     retry_interval,
                     awaiting_rel_max,
-                    await_rel_timeout,
+                    awaiting_rel_timeout,
                     created_at
                    ]).
 
@@ -146,7 +151,7 @@
                     next_pkt_id,
                     awaiting_rel,
                     awaiting_rel_max,
-                    await_rel_timeout,
+                    awaiting_rel_timeout,
                     created_at
                    ]).
 
@@ -163,7 +168,7 @@
                     ]).
 
 %%--------------------------------------------------------------------
-%% Init a session
+%% Init a Session
 %%--------------------------------------------------------------------
 
 %% @doc Init a session.
@@ -178,11 +183,11 @@ init(#{zone := Zone}, #{receive_maximum := MaxInflight}) ->
              retry_interval    = get_env(Zone, retry_interval, 0),
              awaiting_rel      = #{},
              max_awaiting_rel  = get_env(Zone, max_awaiting_rel, 100),
-             await_rel_timeout = get_env(Zone, await_rel_timeout, 3600*1000),
-             enqueue_cnt       = 0,
+             awaiting_rel_timeout = get_env(Zone, awaiting_rel_timeout, 3600*1000),
              created_at        = erlang:system_time(second)
             }.
 
+%% @private init mq
 init_mqueue(Zone) ->
     emqx_mqueue:init(#{max_len => get_env(Zone, max_mqueue_len, 1000),
                        store_qos0 => get_env(Zone, mqueue_store_qos0, true),
@@ -215,6 +220,8 @@ info(subscriptions_max, #session{max_subscriptions = MaxSubs}) ->
 info(upgrade_qos, #session{upgrade_qos = UpgradeQoS}) ->
     UpgradeQoS;
 info(inflight, #session{inflight = Inflight}) ->
+    Inflight;
+info(inflight_cnt, #session{inflight = Inflight}) ->
     emqx_inflight:size(Inflight);
 info(inflight_max, #session{inflight = Inflight}) ->
     emqx_inflight:max_size(Inflight);
@@ -229,13 +236,19 @@ info(mqueue_dropped, #session{mqueue = MQueue}) ->
 info(next_pkt_id, #session{next_pkt_id = PacketId}) ->
     PacketId;
 info(awaiting_rel, #session{awaiting_rel = AwaitingRel}) ->
+    AwaitingRel;
+info(awaiting_rel_cnt, #session{awaiting_rel = AwaitingRel}) ->
     maps:size(AwaitingRel);
 info(awaiting_rel_max, #session{max_awaiting_rel = MaxAwaitingRel}) ->
     MaxAwaitingRel;
-info(await_rel_timeout, #session{await_rel_timeout = Timeout}) ->
+info(awaiting_rel_timeout, #session{awaiting_rel_timeout = Timeout}) ->
     Timeout;
-info(enqueue_cnt, #session{enqueue_cnt = Cnt}) ->
-    Cnt;
+info(enqueue_cnt, #session{deliver_stats = undefined}) ->
+    0;
+info(enqueue_cnt, #session{deliver_stats = Stats}) ->
+    maps:get(enqueue_cnt, Stats, 0);
+info(deliver_stats, #session{deliver_stats = Stats}) ->
+    Stats;
 info(created_at, #session{created_at = CreatedAt}) ->
     CreatedAt.
 
@@ -329,8 +342,7 @@ unsubscribe(ClientInfo, TopicFilter, Session = #session{subscriptions = Subs}) -
 %%--------------------------------------------------------------------
 
 -spec(publish(emqx_types:packet_id(), emqx_types:message(), session())
-      -> {ok, emqx_types:publish_result()} |
-         {ok, emqx_types:publish_result(), session()} |
+      -> {ok, emqx_types:publish_result(), session()} |
          {error, emqx_types:reason_code()}).
 publish(PacketId, Msg = #message{qos = ?QOS_2}, Session) ->
     case is_awaiting_full(Session) of
@@ -341,8 +353,8 @@ publish(PacketId, Msg = #message{qos = ?QOS_2}, Session) ->
     end;
 
 %% Publish QoS0/1 directly
-publish(_PacketId, Msg, _Session) ->
-    {ok, emqx_broker:publish(Msg)}.
+publish(_PacketId, Msg, Session) ->
+    {ok, emqx_broker:publish(Msg), Session}.
 
 is_awaiting_full(#session{max_awaiting_rel = 0}) ->
     false;
@@ -501,7 +513,7 @@ enqueue(Delivers, Session = #session{subscriptions = Subs}) when is_list(Deliver
             || {deliver, Topic, Msg} <- Delivers],
     lists:foldl(fun enqueue/2, Session, Msgs);
 
-enqueue(Msg, Session = #session{mqueue = Q, enqueue_cnt = Cnt})
+enqueue(Msg, Session = #session{mqueue = Q})
   when is_record(Msg, message) ->
     {Dropped, NewQ} = emqx_mqueue:in(Msg, Q),
     if is_record(Dropped, message) ->
@@ -509,7 +521,7 @@ enqueue(Msg, Session = #session{mqueue = Q, enqueue_cnt = Cnt})
                 [emqx_message:format(Dropped)]);
        true -> ok
     end,
-    Session#session{mqueue = NewQ, enqueue_cnt = Cnt+1}.
+    inc_deliver_stats(enqueue_cnt, Session#session{mqueue = NewQ}).
 
 %%--------------------------------------------------------------------
 %% Awaiting ACK for QoS1/QoS2 Messages
@@ -612,11 +624,11 @@ expire_awaiting_rel([], _Now, Session) ->
 
 expire_awaiting_rel([{PacketId, Ts} | More], Now,
                     Session = #session{awaiting_rel = AwaitingRel,
-                                       await_rel_timeout = Timeout}) ->
+                                       awaiting_rel_timeout = Timeout}) ->
     case (timer:now_diff(Now, Ts) div 1000) of
         Age when Age >= Timeout ->
             ok = emqx_metrics:inc('messages.qos2.expired'),
-            ?LOG(warning, "Dropped qos2 packet ~s for await_rel_timeout", [PacketId]),
+            ?LOG(warning, "Dropped qos2 packet ~s for awaiting_rel_timeout", [PacketId]),
             Session1 = Session#session{awaiting_rel = maps:remove(PacketId, AwaitingRel)},
             expire_awaiting_rel(More, Now, Session1);
         Age ->
@@ -632,4 +644,16 @@ next_pkt_id(Session = #session{next_pkt_id = 16#FFFF}) ->
 
 next_pkt_id(Session = #session{next_pkt_id = Id}) ->
     Session#session{next_pkt_id = Id + 1}.
+
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
+
+inc_deliver_stats(Key, Session) ->
+    inc_deliver_stats(Key, 1, Session).
+inc_deliver_stats(Key, I, Session = #session{deliver_stats = undefined}) ->
+    Session#session{deliver_stats = #{Key => I}};
+inc_deliver_stats(Key, I, Session = #session{deliver_stats = Stats}) ->
+    NStats = maps:update_with(Key, fun(V) -> V+I end, I, Stats),
+    Session#session{deliver_stats = NStats}.
 

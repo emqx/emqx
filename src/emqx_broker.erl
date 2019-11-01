@@ -258,7 +258,7 @@ aggre(Routes) ->
 -spec(forward(node(), emqx_types:topic(), emqx_types:delivery(), RPCMode::sync|async)
     -> emqx_types:deliver_result()).
 forward(Node, To, Delivery, async) ->
-    case emqx_rpc:cast(Node, ?BROKER, dispatch, [To, Delivery]) of
+    case emqx_rpc:cast(To, Node, ?BROKER, dispatch, [To, Delivery]) of
         true -> ok;
         {badrpc, Reason} ->
             ?LOG(error, "Ansync forward msg to ~s failed: ~p", [Node, Reason]),
@@ -266,7 +266,7 @@ forward(Node, To, Delivery, async) ->
     end;
 
 forward(Node, To, Delivery, sync) ->
-    case emqx_rpc:call(Node, ?BROKER, dispatch, [To, Delivery]) of
+    case emqx_rpc:call(To, Node, ?BROKER, dispatch, [To, Delivery]) of
         {badrpc, Reason} ->
             ?LOG(error, "Sync forward msg to ~s failed: ~p", [Node, Reason]),
             {error, badrpc};
@@ -486,3 +486,4 @@ code_change(_OldVsn, State, _Extra) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+

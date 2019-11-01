@@ -56,6 +56,7 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
+    emqx_zone:unset_all_env(),
     application:unset_env(emqx, zone_env),
     application:unset_env(emqx, zones).
 
@@ -99,3 +100,5 @@ t_uncovered_func(_) ->
     ok = Pid ! ok,
     emqx_zone:stop().
 
+t_frame_options(_) ->
+    ?assertMatch(#{strict_mode := _, max_size := _ }, emqx_zone:mqtt_frame_options(zone)).

@@ -43,6 +43,11 @@
         , code_change/3
         ]).
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
 -define(HELPER, ?MODULE).
 -define(SUBID, emqx_subid).
 -define(SUBMON, emqx_submon).

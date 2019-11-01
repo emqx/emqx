@@ -43,6 +43,7 @@
         , set_primary_log_level/1
         , set_log_handler_level/2
         , set_log_level/1
+        , set_all_log_handlers_level/1
         ]).
 
 -export([ get_primary_log_level/0
@@ -181,12 +182,9 @@ log_hanlder_info(#{id := Id, level := Level, module := logger_std_h,
                                                     Type =:= standard_error ->
     {Id, Level, console};
 log_hanlder_info(#{id := Id, level := Level, module := logger_std_h,
-                   config := #{type := Type}}) ->
-    case Type of
-        {file, Filename} -> {Id, Level, Filename};
-        {file, Filename, _Opts} -> {Id, Level, Filename};
-        _ -> {Id, Level, unknown}
-    end;
+                   config := Config = #{type := file}}) ->
+    {Id, Level, maps:get(file, Config, atom_to_list(Id))};
+
 log_hanlder_info(#{id := Id, level := Level, module := logger_disk_log_h,
                    config := #{file := Filename}}) ->
     {Id, Level, Filename};

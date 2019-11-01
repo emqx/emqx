@@ -52,6 +52,12 @@ end_per_suite(_Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+% t_unload(_) ->
+%     error('TODO').
+
+% t_load(_) ->
+%     error('TODO').
+
 %% Test case for emqx_mod_presence
 t_mod_presence(_) ->
     ok = emqx_mod_presence:load([{qos, ?QOS_1}]),
