@@ -62,7 +62,7 @@ on_client_connected(ClientInfo, ConnAck, ConnInfo, Env) ->
                  connack => ConnAck,
                  clean_start => CleanStart,
                  expiry_interval => ExpiryInterval,
-                 ts => emqx_time:now_ms()
+                 ts => erlang:system_time(millisecond)
                 },
     case emqx_json:safe_encode(Presence) of
         {ok, Payload} ->
@@ -78,7 +78,7 @@ on_client_disconnected(ClientInfo, Reason, ConnInfo, Env) ->
     Presence = #{clientid => ClientId,
                  username => Username,
                  reason => reason(Reason),
-                 ts => emqx_time:now_ms()
+                 ts => erlang:system_time(millisecond)
                 },
     case emqx_json:safe_encode(Presence) of
         {ok, Payload} ->

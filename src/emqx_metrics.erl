@@ -281,7 +281,7 @@ do_inc_recv(?PUBLISH_PACKET(QoS, _PktId)) ->
         ?QOS_0 -> inc('messages.qos0.received');
         ?QOS_1 -> inc('messages.qos1.received');
         ?QOS_2 -> inc('messages.qos2.received');
-        _ -> ignore
+        _ -> ok
     end,
     inc('packets.publish.received');
 do_inc_recv(?PACKET(?PUBACK)) ->
@@ -302,13 +302,12 @@ do_inc_recv(?PACKET(?DISCONNECT)) ->
     inc('packets.disconnect.received');
 do_inc_recv(?PACKET(?AUTH)) ->
     inc('packets.auth.received');
-do_inc_recv(_Packet) ->
-    ignore.
+do_inc_recv(_Packet) -> ok.
 
 %% @doc Inc packets sent. Will not count $SYS PUBLISH.
--spec(inc_sent(emqx_types:packet()) -> ok | ignore).
+-spec(inc_sent(emqx_types:packet()) -> ok).
 inc_sent(?PUBLISH_PACKET(_QoS, <<"$SYS/", _/binary>>, _, _)) ->
-    ignore;
+    ok;
 inc_sent(Packet) ->
     inc('packets.sent'),
     do_inc_sent(Packet).
@@ -349,8 +348,7 @@ do_inc_sent(?PACKET(?DISCONNECT)) ->
     inc('packets.disconnect.sent');
 do_inc_sent(?PACKET(?AUTH)) ->
     inc('packets.auth.sent');
-do_inc_sent(_Packet) ->
-    ignore.
+do_inc_sent(_Packet) -> ok.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

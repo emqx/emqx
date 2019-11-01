@@ -21,14 +21,14 @@
 
 -export([ get_counters/1
         , get_counter/1
-        , update_counter/2
+        , inc_counter/2
         , reset_counter/1
         ]).
 
 -compile({inline,
           [ get_counters/1
           , get_counter/1
-          , update_counter/2
+          , inc_counter/2
           , reset_counter/1
           ]}).
 
@@ -42,8 +42,8 @@ get_counters(Keys) when is_list(Keys) ->
 get_counter(Key) ->
     case get(Key) of undefined -> 0; Cnt -> Cnt end.
 
--spec(update_counter(key(), number()) -> maybe(number())).
-update_counter(Key, Inc) ->
+-spec(inc_counter(key(), number()) -> maybe(number())).
+inc_counter(Key, Inc) ->
     put(Key, get_counter(Key) + Inc).
 
 -spec(reset_counter(key()) -> number()).

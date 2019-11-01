@@ -1,4 +1,4 @@
-%%--------------------------------------------------------------------
+%%-------------------------------------------------------------------
 %% Copyright (c) 2019 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
@@ -93,7 +93,6 @@ start_link() ->
 %%--------------------------------------------------------------------
 
 %% @doc Register a channel.
-%% Channel will be unregistered automatically when the channel process dies
 -spec(register_channel(emqx_types:clientid()) -> ok).
 register_channel(ClientId) when is_binary(ClientId) ->
     register_channel(ClientId, self()).
