@@ -22,6 +22,14 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(LOGGER, emqx_logger).
+-define(a, "a").
+
+-define(PARSE_TRANS_TEST_CODE,
+        "-module(mytest).\n"
+        "-logger_header(\"[MyTest]\").\n"
+        "-export([run/0]).\n"
+        "-compile({parse_transform, logger_header}).\n"
+        "run() -> '$logger_header'().").
 
 all() -> emqx_ct:all(?MODULE).
 
@@ -83,7 +91,19 @@ t_set_log_level(_) ->
     ?assertEqual(ok, ?LOGGER:set_log_level(debug)).
 
 t_parse_transform(_) ->
-    error('TODO').
+    {ok, Toks, _EndLine} = erl_scan:string(?PARSE_TRANS_TEST_CODE),
+    FormToks = split_toks_at_dot(Toks),
+    Forms = [case erl_parse:parse_form(Ts) of
+                 {ok, Form} ->
+                     Form;
+                 {error, Reason} ->
+                     erlang:error({parse_form_error, Ts, Reason})
+             end
+             || Ts <- FormToks],
+    ct:log("=====: ~p", [Forms]),
+    AST = emqx_logger:parse_transform(Forms, []),
+    ct:log("=====: ~p", [AST]),
+    ?assertNotEqual(false, lists:keyfind('$logger_header', 3, AST)).
 
 t_set_metadata_peername(_) ->
     ?assertEqual(ok, ?LOGGER:set_metadata_peername("for_test")).
@@ -91,3 +111,13 @@ t_set_metadata_peername(_) ->
 t_set_metadata_clientid(_) ->
     ?assertEqual(ok, ?LOGGER:set_metadata_clientid(<<>>)),
     ?assertEqual(ok, ?LOGGER:set_metadata_clientid("for_test")).
+
+
+split_toks_at_dot(AllToks) ->
+    case lists:splitwith(fun is_no_dot/1, AllToks) of
+        {Toks, [{dot,_}=Dot]}      -> [Toks ++ [Dot]];
+        {Toks, [{dot,_}=Dot | Tl]} -> [Toks ++ [Dot] | split_toks_at_dot(Tl)]
+    end.
+
+is_no_dot({dot,_}) -> false;
+is_no_dot(_)       -> true.
