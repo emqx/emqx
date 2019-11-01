@@ -1147,8 +1147,8 @@ do_subscribe(ClientId, Username, Topic, SubOpts, SubMap) ->
             maps:put(Topic, SubOpts, SubMap)
     end.
 
-exceeded_subscription_quota(0, SubMap) ->
+exceeded_subscription_quota(0, _SubMap) ->
     false;
 exceeded_subscription_quota(Max, SubMap) ->
-    Max > maps:size(SubMap).
+    maps:size(SubMap) >= Max.
 
