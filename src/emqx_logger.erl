@@ -43,6 +43,7 @@
         , set_primary_log_level/1
         , set_log_handler_level/2
         , set_log_level/1
+        , set_all_log_handlers_level/1
         ]).
 
 -export([ get_primary_log_level/0

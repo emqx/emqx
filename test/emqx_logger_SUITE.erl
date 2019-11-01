@@ -31,6 +31,12 @@
         "-compile({parse_transform, logger_header}).\n"
         "run() -> '$logger_header'().").
 
+-define(PARSE_TRANS_TEST_CODE2,
+        "-module(mytest).\n"
+        "-export([run/0]).\n"
+        "-compile({parse_transform, logger_header}).\n"
+        "run() -> '$logger_header'().").
+
 all() -> emqx_ct:all(?MODULE).
 
 init_per_testcase(_TestCase, Config) ->
@@ -90,6 +96,9 @@ t_set_log_level(_) ->
     ?assertMatch({error, _Error}, ?LOGGER:set_log_level(for_test)),
     ?assertEqual(ok, ?LOGGER:set_log_level(debug)).
 
+t_set_all_log_handlers_level(_) ->
+    ?assertMatch({error, _Error}, ?LOGGER:set_all_log_handlers_level(for_test)).
+
 t_parse_transform(_) ->
     {ok, Toks, _EndLine} = erl_scan:string(?PARSE_TRANS_TEST_CODE),
     FormToks = split_toks_at_dot(Toks),
@@ -101,9 +110,25 @@ t_parse_transform(_) ->
              end
              || Ts <- FormToks],
     ct:log("=====: ~p", [Forms]),
-    AST = emqx_logger:parse_transform(Forms, []),
-    ct:log("=====: ~p", [AST]),
-    ?assertNotEqual(false, lists:keyfind('$logger_header', 3, AST)).
+    AST1 = emqx_logger:parse_transform(Forms, []),
+    ct:log("=====: ~p", [AST1]),
+    ?assertNotEqual(false, lists:keyfind('$logger_header', 3, AST1)).
+
+t_parse_transform_empty_header(_) ->
+    {ok, Toks, _EndLine} = erl_scan:string(?PARSE_TRANS_TEST_CODE2),
+    FormToks = split_toks_at_dot(Toks),
+    Forms = [case erl_parse:parse_form(Ts) of
+                 {ok, Form} ->
+                     Form;
+                 {error, Reason} ->
+                     erlang:error({parse_form_error, Ts, Reason})
+             end
+             || Ts <- FormToks],
+    ct:log("=====: ~p", [Forms]),
+    AST2 = emqx_logger:parse_transform(Forms++[{eof, 15}], []),
+    ct:log("=====: ~p", [AST2]),
+    ?assertNotEqual(false, lists:keyfind('$logger_header', 3, AST2)).
+
 
 t_set_metadata_peername(_) ->
     ?assertEqual(ok, ?LOGGER:set_metadata_peername("for_test")).
