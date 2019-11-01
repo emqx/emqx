@@ -14,20 +14,38 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_pd_SUITE).
+-module(emqx_time).
 
--compile(export_all).
--compile(nowarn_export_all).
+-export([ seed/0
+        , now_secs/0
+        , now_secs/1
+        , now_ms/0
+        , now_ms/1
+        ]).
 
--include_lib("eunit/include/eunit.hrl").
+-compile({inline,
+          [ seed/0
+          , now_secs/0
+          , now_secs/1
+          , now_ms/0
+          , now_ms/1
+          ]}).
 
-all() -> emqx_ct:all(?MODULE).
+seed() ->
+    rand:seed(exsplus, erlang:timestamp()).
 
-t_update_counter(_) ->
-    ?assertEqual(undefined, emqx_pd:inc_counter(bytes, 1)),
-    ?assertEqual(1, emqx_pd:inc_counter(bytes, 1)),
-    ?assertEqual(2, emqx_pd:inc_counter(bytes, 1)),
-    ?assertEqual(3, emqx_pd:get_counter(bytes)),
-    ?assertEqual(3, emqx_pd:reset_counter(bytes)),
-    ?assertEqual(0, emqx_pd:get_counter(bytes)).
+-spec(now_secs() -> pos_integer()).
+now_secs() ->
+    erlang:system_time(second).
 
+-spec(now_secs(erlang:timestamp()) -> pos_integer()).
+now_secs({MegaSecs, Secs, _MicroSecs}) ->
+    MegaSecs * 1000000 + Secs.
+
+-spec(now_ms() -> pos_integer()).
+now_ms() ->
+    erlang:system_time(millisecond).
+
+-spec(now_ms(erlang:timestamp()) -> pos_integer()).
+now_ms({MegaSecs, Secs, MicroSecs}) ->
+    (MegaSecs * 1000000 + Secs) * 1000 + round(MicroSecs/1000).

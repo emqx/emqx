@@ -23,15 +23,8 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-init_per_suite(Config) ->
-    emqx_ct_helpers:boot_modules(all),
-    emqx_ct_helpers:start_apps([]),
-    Config.
-
-end_per_suite(_Config) ->
-    emqx_ct_helpers:stop_apps([]).
-
 init_per_testcase(_TestCase, Config) ->
+    emqx_broker_helper:start_link(),
     Config.
 
 end_per_testcase(_TestCase, Config) ->

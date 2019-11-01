@@ -85,7 +85,7 @@ t_inc_recv(_) ->
         ok = emqx_metrics:inc_recv(?PACKET(?PINGREQ)),
         ok = emqx_metrics:inc_recv(?PACKET(?DISCONNECT)),
         ok = emqx_metrics:inc_recv(?PACKET(?AUTH)),
-        ignore = emqx_metrics:inc_recv(?PACKET(?RESERVED)),
+        ok = emqx_metrics:inc_recv(?PACKET(?RESERVED)),
         ?assertEqual(15, emqx_metrics:val('packets.received')),
         ?assertEqual(1, emqx_metrics:val('packets.connect.received')),
         ?assertEqual(4, emqx_metrics:val('messages.received')),

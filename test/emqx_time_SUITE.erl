@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_pd_SUITE).
+-module(emqx_time_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -23,11 +23,11 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-t_update_counter(_) ->
-    ?assertEqual(undefined, emqx_pd:inc_counter(bytes, 1)),
-    ?assertEqual(1, emqx_pd:inc_counter(bytes, 1)),
-    ?assertEqual(2, emqx_pd:inc_counter(bytes, 1)),
-    ?assertEqual(3, emqx_pd:get_counter(bytes)),
-    ?assertEqual(3, emqx_pd:reset_counter(bytes)),
-    ?assertEqual(0, emqx_pd:get_counter(bytes)).
+t_seed(_) ->
+    ?assert(is_tuple(emqx_time:seed())).
 
+t_now_secs(_) ->
+    ?assert(emqx_time:now_secs() =< emqx_time:now_secs(os:timestamp())).
+
+t_now_ms(_) ->
+    ?assert(emqx_time:now_ms() =< emqx_time:now_ms(os:timestamp())).
