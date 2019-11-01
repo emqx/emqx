@@ -119,6 +119,14 @@ t_index_of(_) ->
     end,
     ?assertEqual(3, emqx_misc:index_of(a, [b, c, a, e, f])).
 
+t_check(_) ->
+    Policy = #{message_queue_len => 10,
+               max_heap_size => 1024 * 1024 * 8},
+    [self() ! {msg, I} || I <- lists:seq(1, 5)],
+    ?assertEqual(ok, emqx_misc:check_oom(Policy)),
+    [self() ! {msg, I} || I <- lists:seq(1, 6)],
+    ?assertEqual({shutdown, message_queue_too_long}, emqx_misc:check_oom(Policy)).
+
 drain() ->
     drain([]).
 
