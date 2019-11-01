@@ -85,6 +85,8 @@
              , stats/0
              ]).
 
+-export_type([oom_policy/0]).
+
 -type(ver() :: ?MQTT_PROTO_V3
              | ?MQTT_PROTO_V4
              | ?MQTT_PROTO_V5).
@@ -185,4 +187,8 @@
 -type(attrs() :: #{atom() => term()}).
 -type(infos() :: #{atom() => term()}).
 -type(stats() :: #{atom() => non_neg_integer()|stats()}).
+
+-type(oom_policy() :: #{message_queue_len => non_neg_integer(),
+                        max_heap_size => non_neg_integer()
+                       }).
 

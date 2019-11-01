@@ -16,6 +16,8 @@
 
 -module(emqx_misc).
 
+-compile(inline).
+
 -include("types.hrl").
 -include("logger.hrl").
 
@@ -26,21 +28,19 @@
         , start_timer/2
         , start_timer/3
         , cancel_timer/1
+        , drain_deliver/0
+        , drain_down/1
+        , check_oom/1
+        , check_oom/2
+        , tune_heap_size/1
         , proc_name/2
         , proc_stats/0
         , proc_stats/1
+        , rand_seed/0
+        , now_to_secs/1
+        , now_to_ms/1
         , index_of/2
         ]).
-
--export([ drain_deliver/0
-        , drain_deliver/1
-        , drain_down/1
-        ]).
-
--compile({inline,
-          [ start_timer/2
-          , start_timer/3
-          ]}).
 
 %% @doc Merge options
 -spec(merge_opts(Opts, Opts) -> Opts when Opts :: proplists:proplist()).
@@ -101,7 +101,7 @@ start_timer(Interval, Msg) ->
 
 -spec(start_timer(integer(), pid() | atom(), term()) -> reference()).
 start_timer(Interval, Dest, Msg) ->
-    erlang:start_timer(Interval, Dest, Msg).
+    erlang:start_timer(erlang:ceil(Interval), Dest, Msg).
 
 -spec(cancel_timer(maybe(reference())) -> ok).
 cancel_timer(Timer) when is_reference(Timer) ->
@@ -111,6 +111,68 @@ cancel_timer(Timer) when is_reference(Timer) ->
         _ -> ok
     end;
 cancel_timer(_) -> ok.
+
+%% @doc Drain delivers from the channel proc's mailbox.
+drain_deliver() ->
+    drain_deliver([]).
+
+drain_deliver(Acc) ->
+    receive
+        Deliver = {deliver, _Topic, _Msg} ->
+            drain_deliver([Deliver|Acc])
+    after 0 ->
+        lists:reverse(Acc)
+    end.
+
+%% @doc Drain process 'DOWN' events.
+-spec(drain_down(pos_integer()) -> list(pid())).
+drain_down(Cnt) when Cnt > 0 ->
+    drain_down(Cnt, []).
+
+drain_down(0, Acc) ->
+    lists:reverse(Acc);
+drain_down(Cnt, Acc) ->
+    receive
+        {'DOWN', _MRef, process, Pid, _Reason} ->
+            drain_down(Cnt - 1, [Pid|Acc])
+    after 0 ->
+        lists:reverse(Acc)
+    end.
+
+%% @doc Check process's mailbox and heapsize against OOM policy,
+%% return `ok | {shutdown, Reason}' accordingly.
+%% `ok': There is nothing out of the ordinary.
+%% `shutdown': Some numbers (message queue length hit the limit),
+%%             hence shutdown for greater good (system stability).
+-spec(check_oom(emqx_types:oom_policy()) -> ok | {shutdown, term()}).
+check_oom(Policy) ->
+    check_oom(self(), Policy).
+
+-spec(check_oom(pid(), emqx_types:oom_policy()) -> ok | {shutdown, term()}).
+check_oom(Pid, #{message_queue_len := MaxQLen,
+                 max_heap_size := MaxHeapSize}) ->
+    case process_info(Pid, [message_queue_len, total_heap_size]) of
+        undefined -> ok;
+        [{message_queue_len, QLen}, {total_heap_size, HeapSize}] ->
+            do_check_oom([{QLen, MaxQLen, message_queue_too_long},
+                          {HeapSize, MaxHeapSize, proc_heap_too_large}
+                         ])
+    end.
+
+do_check_oom([]) -> ok;
+do_check_oom([{Val, Max, Reason}|Rest]) ->
+    case is_integer(Max) andalso (0 < Max) andalso (Max < Val) of
+        true  -> {shutdown, Reason};
+        false -> do_check_oom(Rest)
+    end.
+
+tune_heap_size(#{max_heap_size := MaxHeapSize}) ->
+    %% If set to zero, the limit is disabled.
+    erlang:process_flag(max_heap_size, #{size => MaxHeapSize,
+                                         kill => false,
+                                         error_logger => true
+                                        });
+tune_heap_size(undefined) -> ok.
 
 -spec(proc_name(atom(), pos_integer()) -> atom()).
 proc_name(Mod, Id) ->
@@ -132,32 +194,16 @@ proc_stats(Pid) ->
             [{mailbox_len, Len}|ProcStats]
     end.
 
-%% @doc Drain delivers from the channel's mailbox.
-drain_deliver() ->
-    drain_deliver([]).
+rand_seed() ->
+    rand:seed(exsplus, erlang:timestamp()).
 
-drain_deliver(Acc) ->
-    receive
-        Deliver = {deliver, _Topic, _Msg} ->
-            drain_deliver([Deliver|Acc])
-    after 0 ->
-        lists:reverse(Acc)
-    end.
+-spec(now_to_secs(erlang:timestamp()) -> pos_integer()).
+now_to_secs({MegaSecs, Secs, _MicroSecs}) ->
+    MegaSecs * 1000000 + Secs.
 
-%% @doc Drain process down events.
--spec(drain_down(pos_integer()) -> list(pid())).
-drain_down(Cnt) when Cnt > 0 ->
-    drain_down(Cnt, []).
-
-drain_down(0, Acc) ->
-    lists:reverse(Acc);
-drain_down(Cnt, Acc) ->
-    receive
-        {'DOWN', _MRef, process, Pid, _Reason} ->
-            drain_down(Cnt - 1, [Pid|Acc])
-    after 0 ->
-        drain_down(0, Acc)
-    end.
+-spec(now_to_ms(erlang:timestamp()) -> pos_integer()).
+now_to_ms({MegaSecs, Secs, MicroSecs}) ->
+    (MegaSecs * 1000000 + Secs) * 1000 + round(MicroSecs/1000).
 
 %% lists:index_of/2
 index_of(E, L) ->

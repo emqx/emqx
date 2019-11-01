@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_pd_SUITE).
+-module(emqx_mod_presence_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -23,11 +23,22 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-t_update_counter(_) ->
-    ?assertEqual(undefined, emqx_pd:inc_counter(bytes, 1)),
-    ?assertEqual(1, emqx_pd:inc_counter(bytes, 1)),
-    ?assertEqual(2, emqx_pd:inc_counter(bytes, 1)),
-    ?assertEqual(3, emqx_pd:get_counter(bytes)),
-    ?assertEqual(3, emqx_pd:reset_counter(bytes)),
-    ?assertEqual(0, emqx_pd:get_counter(bytes)).
+init_per_testcase(_TestCase, Config) ->
+    Config.
+
+end_per_testcase(_TestCase, Config) ->
+    Config.
+
+% t_load(_) ->
+%     error('TODO').
+
+% t_unload(_) ->
+%     error('TODO').
+
+% t_on_client_connected(_) ->
+%     error('TODO').
+
+% t_on_client_disconnected(_) ->
+%     error('TODO').
+
 

@@ -79,7 +79,7 @@ format(#{level:=Level,msg:=Msg0,meta:=Meta},Config0)
                                 end,
                             Config#{chars_limit=>Size}
                     end,
-                string:trim(format_msg(Msg0,Meta,Config1));
+                format_msg(Msg0,Meta,Config1);
            true ->
                 ""
         end,
@@ -138,7 +138,7 @@ to_string(X,_) when is_list(X) ->
         _ -> io_lib:format(?FormatP,[X])
     end;
 to_string(X,_) ->
-    io_lib:format("~s",[X]).
+    io_lib:format(?FormatP,[X]).
 
 printable_list([]) ->
     false;
@@ -194,14 +194,14 @@ do_format_msg({Format0,Args},Depth,Opts) ->
         Format = reformat(Format1, Depth),
         io_lib:build_text(Format,Opts)
     catch C:R:S ->
-            FormatError = "FORMAT ERROR: ~0tp - ~0tp",
-            case Format0 of
-                FormatError ->
-                    %% already been here - avoid failing cyclically
-                    erlang:raise(C,R,S);
-                _ ->
-                    format_msg({FormatError,[Format0,Args]},Depth,Opts)
-            end
+        FormatError = "FORMAT ERROR: ~0tp - ~0tp",
+        case Format0 of
+            FormatError ->
+                %% already been here - avoid failing cyclically
+                erlang:raise(C,R,S);
+            _ ->
+                do_format_msg({FormatError,[Format0,Args]},Depth,Opts)
+        end
     end.
 
 reformat(Format,unlimited) ->

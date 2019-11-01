@@ -158,7 +158,7 @@ encode_alarm({AlarmId, #alarm{severity  = Severity,
                            {desc, [{severity, Severity},
                                    {title, iolist_to_binary(Title)},
                                    {summary, iolist_to_binary(Summary)},
-                                   {timestamp, emqx_time:now_ms(Ts)}]}]);
+                                   {timestamp, emqx_misc:now_to_secs(Ts)}]}]);
 encode_alarm({AlarmId, undefined}) ->
     emqx_json:safe_encode([{id, maybe_to_binary(AlarmId)}]);
 encode_alarm({AlarmId, AlarmDesc}) ->

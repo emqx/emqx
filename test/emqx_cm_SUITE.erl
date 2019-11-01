@@ -88,3 +88,27 @@ t_lock_clientid(_) ->
     {true, _Nodes} = emqx_cm_locker:unlock(<<"clientid">>),
     {true, _Nodes} = emqx_cm_locker:unlock(<<"clientid">>).
 
+
+% t_unregister_channel(_) ->
+%     error('TODO').
+
+% t_get_chan_attrs(_) ->
+%     error('TODO').
+
+% t_get_chan_stats(_) ->
+%     error('TODO').
+
+% t_lookup_channels(_) ->
+%     error('TODO').
+
+% t_set_chan_stats(_) ->
+%     error('TODO').
+
+% t_set_chan_attrs(_) ->
+%     error('TODO').
+
+% t_register_channel(_) ->
+%     error('TODO').
+
+% t_stats_fun(_) ->
+%     error('TODO').

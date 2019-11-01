@@ -23,6 +23,12 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+% t_new(_) ->
+%     error('TODO').
+
+% t_count(_) ->
+%     error('TODO').
+
 t_monitor(_) ->
     PMon = emqx_pmon:new(),
     PMon1 = emqx_pmon:monitor(self(), PMon),
@@ -30,6 +36,9 @@ t_monitor(_) ->
     PMon2 = emqx_pmon:demonitor(self(), PMon1),
     PMon2 = emqx_pmon:demonitor(self(), PMon2),
     ?assertEqual(0, emqx_pmon:count(PMon2)).
+
+% t_demonitor(_) ->
+%     error('TODO').
 
 t_find(_) ->
     PMon = emqx_pmon:new(),
@@ -51,3 +60,5 @@ t_erase(_) ->
     ?assertEqual([{self(), val}], Items),
     ?assertEqual(0, emqx_pmon:count(PMon3)).
 
+% t_erase_all(_) ->
+%     error('TODO').

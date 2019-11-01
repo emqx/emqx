@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_oom_SUITE).
+-module(emqx_mod_acl_internal_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -23,22 +23,24 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-t_init(_) ->
-    Opts = #{message_queue_len => 10,
-             max_heap_size => 1024*1024*8
-            },
-    Oom = emqx_oom:init(Opts),
-    ?assertEqual(#{message_queue_len => 10,
-                   max_heap_size => 1024*1024
-                  }, emqx_oom:info(Oom)).
+init_per_testcase(_TestCase, Config) ->
+    Config.
 
-t_check(_) ->
-    Opts = #{message_queue_len => 10,
-             max_heap_size => 1024*1024*8
-            },
-    Oom = emqx_oom:init(Opts),
-    [self() ! {msg, I} || I <- lists:seq(1, 5)],
-    ?assertEqual(ok, emqx_oom:check(Oom)),
-    [self() ! {msg, I} || I <- lists:seq(1, 6)],
-    ?assertEqual({shutdown, message_queue_too_long}, emqx_oom:check(Oom)).
+end_per_testcase(_TestCase, Config) ->
+    Config.
+
+% t_load(_) ->
+%     error('TODO').
+
+% t_unload(_) ->
+%     error('TODO').
+
+% t_all_rules(_) ->
+%     error('TODO').
+
+% t_check_acl(_) ->
+%     error('TODO').
+
+% t_reload_acl(_) ->
+%     error('TODO').
 
