@@ -23,13 +23,6 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-
-t_init(_) ->
-    error('TODO').
-
-t_info(_) ->
-    error('TODO').
-
 t_check(_) ->
     Keepalive = emqx_keepalive:init(60),
     ?assertEqual(60, emqx_keepalive:info(interval, Keepalive)),

@@ -43,22 +43,20 @@ init_per_suite(Config) ->
 
     Config.
     
-    
-t_load_expand_plugin(_) ->
-    error('TODO').
+% t_load_expand_plugin(_) ->
+%     error('TODO').
 
-t_list(_) ->
-    error('TODO').
+% t_list(_) ->
+%     error('TODO').
 
-t_find_plugin(_) ->
-    error('TODO').
+% t_find_plugin(_) ->
+%     error('TODO').
 
-t_unload(_) ->
-    error('TODO').
+% t_unload(_) ->
+%     error('TODO').
 
-
-t_init(_) ->
-    error('TODO').
+% t_init(_) ->
+%     error('TODO').
 
 set_sepecial_cfg(_) ->
     ExpandPath = filename:dirname(code:lib_dir(emqx_mini_plugin)),

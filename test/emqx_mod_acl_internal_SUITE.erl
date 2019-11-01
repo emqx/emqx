@@ -29,18 +29,18 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, Config) ->
     Config.
 
-t_load(_) ->
-    error('TODO').
+% t_load(_) ->
+%     error('TODO').
 
-t_unload(_) ->
-    error('TODO').
+% t_unload(_) ->
+%     error('TODO').
 
-t_all_rules(_) ->
-    error('TODO').
+% t_all_rules(_) ->
+%     error('TODO').
 
-t_check_acl(_) ->
-    error('TODO').
+% t_check_acl(_) ->
+%     error('TODO').
 
-t_reload_acl(_) ->
-    error('TODO').
+% t_reload_acl(_) ->
+%     error('TODO').
 

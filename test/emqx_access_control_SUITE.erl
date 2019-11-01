@@ -29,12 +29,12 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, Config) ->
     Config.
 
-t_authenticate(_) ->
-    error('TODO').
+% t_authenticate(_) ->
+%     error('TODO').
 
-t_check_acl(_) ->
-    error('TODO').
+% t_check_acl(_) ->
+%     error('TODO').
 
-t_reload_acl(_) ->
-    error('TODO').
+% t_reload_acl(_) ->
+%     error('TODO').
 

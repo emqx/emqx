@@ -39,20 +39,20 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     emqx_ct_helpers:stop_apps([]).
     
-    t_is_ack_required(_) ->
-    error('TODO').
+% t_is_ack_required(_) ->
+%     error('TODO').
 
-t_maybe_nack_dropped(_) ->
-    error('TODO').
+% t_maybe_nack_dropped(_) ->
+%     error('TODO').
 
-t_nack_no_connection(_) ->
-    error('TODO').
+% t_nack_no_connection(_) ->
+%     error('TODO').
 
-t_maybe_ack(_) ->
-    error('TODO').
+% t_maybe_ack(_) ->
+%     error('TODO').
 
-t_subscribers(_) ->
-    error('TODO').
+% t_subscribers(_) ->
+%     error('TODO').
 
 t_random_basic(_) ->
     ok = ensure_config(random),
@@ -239,15 +239,14 @@ last_message(ExpectedPayload, Pids) ->
         <<"not yet?">>
     end.
     
-t_dispatch(_) ->
-    error('TODO').
+% t_dispatch(_) ->
+%     error('TODO').
 
-t_unsubscribe(_) ->
-    error('TODO').
+% t_unsubscribe(_) ->
+%     error('TODO').
 
-t_subscribe(_) ->
-    error('TODO').
-
+% t_subscribe(_) ->
+%     error('TODO').
 
 %%--------------------------------------------------------------------
 %% help functions

@@ -29,9 +29,9 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, Config) ->
     Config.
 
-t_compile(_) ->
-    error('TODO').
+% t_compile(_) ->
+%     error('TODO').
 
-t_match(_) ->
-    error('TODO').
+% t_match(_) ->
+%     error('TODO').
 

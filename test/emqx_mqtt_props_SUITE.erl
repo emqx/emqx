@@ -79,11 +79,11 @@ foreach_prop(Fun) ->
     lists:foreach(Fun, maps:to_list(emqx_mqtt_props:all())).
 
 
-t_all(_) ->
-    error('TODO').
+% t_all(_) ->
+%     error('TODO').
 
-t_set(_) ->
-    error('TODO').
+% t_set(_) ->
+%     error('TODO').
 
-t_get(_) ->
-    error('TODO').
+% t_get(_) ->
+%     error('TODO').

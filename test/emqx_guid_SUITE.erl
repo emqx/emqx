@@ -39,26 +39,3 @@ t_guid_hexstr(_) ->
 t_guid_base62(_) ->
     Guid = emqx_guid:gen(),
     ?assertEqual(Guid, emqx_guid:from_base62(emqx_guid:to_base62(Guid))).
-    
-t_new(_) ->
-    error('TODO').
-
-t_timestamp(_) ->
-    error('TODO').
-
-t_to_hexstr(_) ->
-    error('TODO').
-
-t_from_hexstr(_) ->
-    error('TODO').
-
-t_from_base62(_) ->
-    error('TODO').
-
-t_to_base62(_) ->
-    error('TODO').
-
-t_gen(_) ->
-    error('TODO').
-
-

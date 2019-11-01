@@ -82,8 +82,8 @@ t_set_log_level(_) ->
     ?assertMatch({error, _Error}, ?LOGGER:set_log_level(for_test)),
     ?assertEqual(ok, ?LOGGER:set_log_level(debug)).
 
-t_parse_transform(_) ->
-    error('TODO').
+% t_parse_transform(_) ->
+%     error('TODO').
 
 t_set_metadata_peername(_) ->
     ?assertEqual(ok, ?LOGGER:set_metadata_peername("for_test")).
