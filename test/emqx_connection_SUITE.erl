@@ -27,7 +27,14 @@
                      send_pend
                     ]).
 
-all() -> emqx_ct:all(?MODULE).
+all() -> emqx_ct:all(?MODULE) ++ [{group, real_client}].
+
+groups() ->
+    [{real_client, [non_parallel_tests],
+        [
+            g_get_conn_stats,
+            g_handle_sock_passive
+        ]}].
 
 %%--------------------------------------------------------------------
 %% CT callbacks
@@ -38,6 +45,16 @@ init_per_suite(Config) ->
 
 end_per_suite(_Config) ->
     ok.
+
+init_per_group(real_client, Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([]),
+    Config;
+init_per_group(_, Config) -> Config.
+
+end_per_group(real_client, _Config) ->
+    emqx_ct_helpers:stop_apps([]);
+end_per_group(_, Config) -> Config.
 
 init_per_testcase(_TestCase, Config) ->
     %% Meck Transport
@@ -95,22 +112,19 @@ t_start_link_exit_on_activate(_) ->
 t_get_conn_info(_) ->
     with_connection(fun(CPid) ->
                             #{sockinfo := SockInfo} = emqx_connection:info(CPid),
-                            ?assertEqual(#{active_n   => 100,
-                                           peername   => {{127,0,0,1},3456},
-                                           pub_limit  => undefined,
-                                           rate_limit => undefined,
-                                           sockname   => {{127,0,0,1},1883},
-                                           sockstate  => running,
-                                           socktype   => tcp}, SockInfo)
+                            ?assertEqual(#{active_n => 100,limiter => undefined,
+                                           peername => {{127,0,0,1},3456},
+                                           sockname => {{127,0,0,1},1883},
+                                           sockstate => running,
+                                           socktype => tcp}, SockInfo)
                     end).
 
-t_get_conn_stats(_) ->
-    with_connection(fun(CPid) ->
+g_get_conn_stats(_) ->
+    with_client(fun(CPid) ->
                             Stats = emqx_connection:stats(CPid),
-                            lists:foreach(fun(Key) ->
-                                                  0 = proplists:get_value(Key, Stats)
-                                          end, ?STATS_KYES)
-                    end).
+                            ct:pal("==== stats: ~p", [Stats]),
+                            [?assert(proplists:get_value(Key, Stats) >= 0) || Key <- ?STATS_KYES]
+                    end, []).
 
 t_handle_call_discard(_) ->
     with_connection(fun(CPid) ->
@@ -190,8 +204,8 @@ t_handle_sock_error(_) ->
                             trap_exit(CPid, {shutdown, econnreset})
                     end, #{trap_exit => true}).
 
-t_handle_sock_passive(_) ->
-    with_connection(fun(CPid) -> CPid ! {tcp_passive, sock} end).
+g_handle_sock_passive(_) ->
+    with_client(fun(CPid) -> CPid ! {tcp_passive, sock} end, []).
 
 t_handle_sock_activate(_) ->
     with_connection(fun(CPid) -> CPid ! activate_socket end).
@@ -312,6 +326,18 @@ with_connection(TestFun, Options) ->
     TestFun(CPid),
     TrapExit orelse emqx_connection:stop(CPid),
     ok.
+
+with_client(TestFun, _Options) ->
+    ClientId = <<"t_conn">>,
+    {ok, C} = emqtt:start_link([{clientid, ClientId}]),
+    {ok, _} = emqtt:connect(C),
+    timer:sleep(50),
+    case emqx_cm:lookup_channels(ClientId) of
+        [] -> ct:fail({client_not_started, ClientId});
+        [ChanPid] ->
+            TestFun(ChanPid),
+            emqtt:stop(C)
+    end.
 
 trap_exit(Pid, Reason) ->
     receive
