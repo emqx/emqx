@@ -47,6 +47,11 @@
         , get_port_info/1
         ]).
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
 -export([cpu_util/0]).
 
 -define(UTIL_ALLOCATORS, [temp_alloc,

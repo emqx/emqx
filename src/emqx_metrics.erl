@@ -368,7 +368,7 @@ init([]) ->
                           Metric = #metric{name = Name, type = Type, idx = reserved_idx(Name)},
                           true = ets:insert(?TAB, Metric),
                           ok = counters:put(CRef, Idx, 0)
-                  end,?BYTES_METRICS ++ ?PACKET_METRICS ++ ?MESSAGE_METRICS ++ ?MQTT_METRICS),
+                  end,?BYTES_METRICS ++ ?PACKET_METRICS ++ ?MESSAGE_METRICS ++ ?CHAN_METRICS ++ ?MQTT_METRICS),
     {ok, #state{next_idx = ?RESERVED_IDX + 1}, hibernate}.
 
 handle_call({create, Type, Name}, _From, State = #state{next_idx = ?MAX_SIZE}) ->

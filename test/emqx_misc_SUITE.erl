@@ -64,7 +64,10 @@ t_pipeline(_) ->
             fun(_I, St)  -> {ok, St+1} end,
             fun(I, St)   -> {ok, I+1, St+1} end,
             fun(I, St)   -> {ok, I*2, St*2} end],
-    ?assertEqual({ok, 4, 6}, emqx_misc:pipeline(Funs, 1, 1)).
+    ?assertEqual({ok, 4, 6}, emqx_misc:pipeline(Funs, 1, 1)),
+    ?assertEqual({error, undefined, 1}, emqx_misc:pipeline([fun(_I) -> {error, undefined} end], 1, 1)),
+    ?assertEqual({error, undefined, 2}, emqx_misc:pipeline([fun(_I, _St) -> {error, undefined, 2} end], 1, 1)),
+    ?assertEqual({error, undefined, 1}, emqx_misc:pipeline([fun(_I, _St) -> erlang:error(undefined) end], 1, 1)).
 
 t_start_timer(_) ->
     TRef = emqx_misc:start_timer(1, tmsg),
@@ -75,7 +78,8 @@ t_start_timer(_) ->
 t_cancel_timer(_) ->
     Timer = emqx_misc:start_timer(0, foo),
     ok = emqx_misc:cancel_timer(Timer),
-    ?assertEqual([], drain()).
+    ?assertEqual([], drain()),
+    ok = emqx_misc:cancel_timer(undefined).
 
 t_proc_name(_) ->
     ?assertEqual(emqx_pool_1, emqx_misc:proc_name(emqx_pool, 1)).
@@ -84,7 +88,11 @@ t_proc_stats(_) ->
     Pid1 = spawn(fun() -> exit(normal) end),
     timer:sleep(10),
     ?assertEqual([], emqx_misc:proc_stats(Pid1)),
-    Pid2 = spawn(fun() -> timer:sleep(100) end),
+    Pid2 = spawn(fun() ->
+                     ?assertMatch([{mailbox_len, 0}|_], emqx_misc:proc_stats()),
+                     timer:sleep(200)
+                 end),
+    timer:sleep(10),
     Pid2 ! msg,
     timer:sleep(10),
     ?assertMatch([{mailbox_len, 1}|_], emqx_misc:proc_stats(Pid2)).
@@ -100,7 +108,16 @@ t_drain_down(_) ->
     {Pid1, _Ref1} = erlang:spawn_monitor(fun() -> ok end),
     {Pid2, _Ref2} = erlang:spawn_monitor(fun() -> ok end),
     timer:sleep(100),
-    ?assertEqual([Pid1, Pid2], emqx_misc:drain_down(2)).
+    ?assertEqual([Pid1, Pid2], emqx_misc:drain_down(2)),
+    ?assertEqual([], emqx_misc:drain_down(1)).
+
+t_index_of(_) ->
+    try emqx_misc:index_of(a, []) of
+        _ -> ct:fail(should_throw_error)
+    catch error:Reason ->
+        ?assertEqual(badarg, Reason)
+    end,
+    ?assertEqual(3, emqx_misc:index_of(a, [b, c, a, e, f])).
 
 drain() ->
     drain([]).

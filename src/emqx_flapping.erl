@@ -149,9 +149,9 @@ handle_cast({detected, Flapping = #flapping{clientid   = ClientId,
             ets:insert(?FLAPPING_TAB, BannedFlapping);
         false ->
             ?LOG(warning, "~s(~s) disconnected ~w times in ~wms",
-                 [ClientId, esockd_net:ntoa(PeerHost), DetectCnt, Interval]),
-            ets:delete_object(?FLAPPING_TAB, Flapping)
+                 [ClientId, esockd_net:ntoa(PeerHost), DetectCnt, Interval])
     end,
+    ets:delete_object(?FLAPPING_TAB, Flapping),
     {noreply, State};
 
 handle_cast(Msg, State) ->
