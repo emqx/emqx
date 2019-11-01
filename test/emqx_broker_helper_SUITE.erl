@@ -23,48 +23,52 @@
 
 all() -> emqx_ct:all(?MODULE).
 
+init_per_suite(Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([]),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_ct_helpers:stop_apps([]).
+
 init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, Config) ->
     Config.
 
-t_start_link(_) ->
-    error('TODO').
-
 t_lookup_subid(_) ->
-    error('TODO').
-
-t_create_seq(_) ->
-    error('TODO').
-
-t_init(_) ->
-    error('TODO').
-
-t_handle_call(_) ->
-    error('TODO').
-
-t_handle_cast(_) ->
-    error('TODO').
-
-t_handle_info(_) ->
-    error('TODO').
-
-t_terminate(_) ->
-    error('TODO').
-
-t_code_change(_) ->
-    error('TODO').
+    ?assertEqual(undefined, emqx_broker_helper:lookup_subid(self())),
+    emqx_broker_helper:register_sub(self(), <<"clientid">>),
+    ct:sleep(10),
+    ?assertEqual(<<"clientid">>, emqx_broker_helper:lookup_subid(self())).
 
 t_lookup_subpid(_) ->
-    error('TODO').
-
-t_reclaim_seq(_) ->
-    error('TODO').
-
-t_get_sub_shard(_) ->
-    error('TODO').
-
+    ?assertEqual(undefined, emqx_broker_helper:lookup_subpid(<<"clientid">>)),
+    emqx_broker_helper:register_sub(self(), <<"clientid">>),
+    ct:sleep(10),
+    ?assertEqual(self(), emqx_broker_helper:lookup_subpid(<<"clientid">>)).
+    
 t_register_sub(_) ->
-    error('TODO').
+    ok = emqx_broker_helper:register_sub(self(), <<"clientid">>),
+    ct:sleep(10),
+    ok = emqx_broker_helper:register_sub(self(), <<"clientid">>),
+    try emqx_broker_helper:register_sub(self(), <<"clientid2">>) of
+        _ -> ct:fail(should_throw_error)
+    catch error:Reason ->
+        ?assertEqual(Reason, subid_conflict)
+    end,
+    ?assertEqual(self(), emqx_broker_helper:lookup_subpid(<<"clientid">>)).
 
+t_shard_seq(_) ->
+    ?assertEqual([], ets:lookup(emqx_subseq, <<"topic">>)),
+    emqx_broker_helper:create_seq(<<"topic">>),
+    ?assertEqual([{<<"topic">>, 1}], ets:lookup(emqx_subseq, <<"topic">>)),
+    emqx_broker_helper:reclaim_seq(<<"topic">>),
+    ?assertEqual([], ets:lookup(emqx_subseq, <<"topic">>)).
+
+t_shards_num(_) ->
+    ?assertEqual(emqx_vm:schedulers() * 32, emqx_broker_helper:shards_num()).
+    
+t_get_sub_shard(_) ->
+    ?assertEqual(0, emqx_broker_helper:get_sub_shard(self(), <<"topic">>)).
