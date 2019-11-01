@@ -350,14 +350,14 @@ handle_call(From, Req, State = #state{channel = Channel}) ->
 %% Handle Info
 
 handle_info({connack, ConnAck}, State = #state{channel = Channel}) ->
-    ClientId = emqx_channel:info(clientid, Channel),
+    #{clientid := ClientId} = emqx_channel:info(clientinfo, Channel),
     ok = emqx_cm:register_channel(ClientId),
     ok = emqx_cm:set_chan_attrs(ClientId, attrs(State)),
     ok = emqx_cm:set_chan_stats(ClientId, stats(State)),
     reply(enqueue(ConnAck, State));
 
 handle_info({enter, disconnected}, State = #state{channel = Channel}) ->
-    ClientId = emqx_channel:info(clientid, Channel),
+    #{clientid := ClientId} = emqx_channel:info(clientinfo, Channel),
     emqx_cm:set_chan_attrs(ClientId, attrs(State)),
     emqx_cm:set_chan_stats(ClientId, stats(State)),
     reply(State);
@@ -378,7 +378,7 @@ handle_timeout(TRef, keepalive, State) when is_reference(TRef) ->
 
 handle_timeout(TRef, emit_stats, State = #state{channel = Channel,
                                                 stats_timer = TRef}) ->
-    ClientId = emqx_channel:info(clientid, Channel),
+    #{clientid := ClientId} = emqx_channel:info(clientinfo, Channel),
     (ClientId =/= undefined) andalso emqx_cm:set_chan_stats(ClientId, stats(State)),
     reply(State#state{stats_timer = undefined});
 
