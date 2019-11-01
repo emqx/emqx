@@ -99,7 +99,7 @@ detect(#{clientid := ClientId, peerhost := PeerHost},
             %% Create a flapping record.
             Flapping = #flapping{clientid   = ClientId,
                                  peerhost   = PeerHost,
-                                 started_at = emqx_time:now_ms(),
+                                 started_at = erlang:system_time(millisecond),
                                  detect_cnt = 1
                                 },
             true = ets:insert(?FLAPPING_TAB, Flapping),
@@ -111,7 +111,7 @@ detect(#{clientid := ClientId, peerhost := PeerHost},
 get_policy() ->
     emqx:get_env(flapping_detect_policy, ?DEFAULT_DETECT_POLICY).
 
-now_diff(TS) -> emqx_time:now_ms() - TS.
+now_diff(TS) -> erlang:system_time(millisecond) - TS.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -143,7 +143,7 @@ handle_cast({detected, Flapping = #flapping{clientid   = ClientId,
                  [ClientId, esockd_net:ntoa(PeerHost), DetectCnt, Duration]),
             %% Banned.
             BannedFlapping = Flapping#flapping{clientid  = {banned, ClientId},
-                                               banned_at = emqx_time:now_ms()
+                                               banned_at = erlang:system_time(millisecond)
                                               },
             alarm_handler:set_alarm({{flapping_detected, ClientId}, BannedFlapping}),
             ets:insert(?FLAPPING_TAB, BannedFlapping);
@@ -160,7 +160,8 @@ handle_cast(Msg, State) ->
 
 handle_info({timeout, TRef, expire_flapping}, State = #{tref := TRef}) ->
     with_flapping_tab(fun expire_flapping/2,
-                      [emqx_time:now_ms(), get_policy()]),
+                      [erlang:system_time(millisecond),
+                       get_policy()]),
     {noreply, ensure_timer(State#{tref => undefined}), hibernate};
 
 handle_info(Info, State) ->
