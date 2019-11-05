@@ -23,21 +23,23 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-init_per_testcase(_TestCase, Config) ->
+init_per_suite(Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([]),
     Config.
 
-end_per_testcase(_TestCase, Config) ->
-    Config.
+end_per_suite(_Config) ->
+    emqx_ct_helpers:stop_apps([]).
 
-% t_start_link(_) ->
-%     error('TODO').
+t_start_link(_) ->
+    emqx_cm_locker:start_link().
 
-% t_trans(_) ->
-%     error('TODO').
+t_trans(_) ->
+    ok = emqx_cm_locker:trans(undefined, fun(_) -> ok end, []),
+    ok = emqx_cm_locker:trans(<<"clientid">>, fun(_) -> ok end).
 
-% t_lock(_) ->
-%     error('TODO').
-
-% t_unlock(_) ->
-%     error('TODO').
-
+t_lock_unlocak(_) ->
+    {true, _Nodes} = emqx_cm_locker:lock(<<"clientid">>),
+    {true, _Nodes} = emqx_cm_locker:lock(<<"clientid">>),
+    {true, _Nodes} = emqx_cm_locker:unlock(<<"clientid">>),
+    {true, _Nodes} = emqx_cm_locker:unlock(<<"clientid">>).
