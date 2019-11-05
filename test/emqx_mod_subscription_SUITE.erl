@@ -19,22 +19,44 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() -> emqx_ct:all(?MODULE).
 
-init_per_testcase(_TestCase, Config) ->
+init_per_suite(Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([emqx]),
     Config.
 
-end_per_testcase(_TestCase, Config) ->
-    Config.
+end_per_suite(_Config) ->
+    emqx_ct_helpers:stop_apps([emqx]).
 
-% t_load(_) ->
-%     error('TODO').
+t_load(_) ->
+    ?assertEqual(ok, emqx_mod_subscription:load([{<<"connected/%c/%u">>, ?QOS_0}])).
 
-% t_on_client_connected(_) ->
-%     error('TODO').
+t_on_client_connected(_) ->
+    {ok, C} = emqtt:start_link([{host, "localhost"},
+                            {clientid, "myclient"},
+                            {username, "admin"}]),
+    {ok, _} = emqtt:connect(C),
+    emqtt:publish(C, <<"connected/myclient/admin">>, <<"Hello world">>, ?QOS_0),
+    {ok, #{topic := Topic, payload := Payload}} = receive_publish(100),
+    ?assertEqual(<<"connected/myclient/admin">>, Topic),
+    ?assertEqual(<<"Hello world">>, Payload),
+    ok = emqtt:disconnect(C).
 
-% t_unload(_) ->
-%     error('TODO').
+t_unload(_) ->
+    ?assertEqual(ok, emqx_mod_subscription:unload([{<<"connected/%c/%u">>, ?QOS_0}])).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+receive_publish(Timeout) ->
+    receive
+        {publish, Publish} -> {ok, Publish}
+    after
+        Timeout -> {error, timeout}
+    end.
 
