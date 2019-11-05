@@ -20,7 +20,13 @@
 
 *EMQ X* 是跨平台的，支持 Linux、Unix、Mac OS 以及 Windows。这意味着 *EMQ X* 可以部署在 x86_64 架构的服务器上，也可以部署在 Raspberry Pi 这样的 ARM 设备上。
 
-获取适合你的二进制软件包，[点此下载](https://emqx.io/downloads)。
+**使用 EMQ X Docker 镜像安装**
+
+```
+docker run -d --name emqx -p 1883:1883 -p 8083:8083 -p 8883:8883 -p 8084:8084 -p 18083:18083 emqx/emqx
+```
+
+**或者 [点此下载](https://emqx.io/downloads) 适合你的二进制软件包**
 
 - [单节点安装](https://docs.emqx.io/broker/v3/cn/install.html)
 - [集群安装](https://docs.emqx.io/broker/v3/cn/cluster.html)
