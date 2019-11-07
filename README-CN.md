@@ -7,6 +7,9 @@
 [![Slack Invite](<https://slack-invite.emqx.io/badge.svg>)](https://slack-invite.emqx.io)
 [![Twitter](https://img.shields.io/badge/Twiiter-EMQ%20X-1DA1F2?logo=twitter)](https://twitter.com/emqtt)
 
+
+[![We are hiring](https://www.emqx.io/static/img/github_readme_cn_bg.png)](https://emqx.io/cn/about/jobs)
+
 [English](./README.md) | 简体中文
 
 *EMQ X* 是一款完全开源，高度可伸缩，高可用的分布式 MQTT 消息服务器，适用于 IoT、M2M 和移动应用程序，可处理千万级别的并发客户端。

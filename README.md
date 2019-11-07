@@ -7,6 +7,9 @@
 [![Slack Invite](<https://slack-invite.emqx.io/badge.svg>)](https://slack-invite.emqx.io)
 [![Twitter](https://img.shields.io/badge/Twiiter-EMQ%20X-1DA1F2?logo=twitter)](https://twitter.com/emqtt)
 
+
+[![We are hiring](https://www.emqx.io/static/img/github_readme_en_bg.png)](https://emqx.io/about/jobs)
+
 English | [简体中文](./README-CN.md)
 
 *EMQ X* broker is a fully open source, highly scalable, highly available distributed MQTT messaging broker for IoT, M2M and Mobile applications that can handle tens of millions of concurrent clients.
