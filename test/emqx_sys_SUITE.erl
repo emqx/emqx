@@ -49,8 +49,11 @@ end_per_suite(_Config) ->
 % t_sysdescr(_) ->
 %     error('TODO').
 
-% t_uptime(_) ->
-%     error('TODO').
+t_uptime(_) ->
+    ?assertEqual(<<"1 seconds">>, iolist_to_binary(emqx_sys:uptime(seconds, 1))),
+    ?assertEqual(<<"1 minutes, 0 seconds">>, iolist_to_binary(emqx_sys:uptime(seconds, 60))),
+    ?assertEqual(<<"1 hours, 0 minutes, 0 seconds">>, iolist_to_binary(emqx_sys:uptime(seconds, 3600))),
+    ?assertEqual(<<"1 days, 0 hours, 0 minutes, 0 seconds">>, iolist_to_binary(emqx_sys:uptime(seconds, 86400))).
 
 % t_datetime(_) ->
 %     error('TODO').
