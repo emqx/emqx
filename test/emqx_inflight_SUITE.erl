@@ -23,10 +23,6 @@
 -include_lib("emqx_ct_helpers/include/emqx_ct.hrl").
 
 all() -> emqx_ct:all(?MODULE).
-
-
-t_new(_) ->
-    error('TODO').
     
 t_contain(_) ->
     Inflight = emqx_inflight:insert(k, v, emqx_inflight:new()),
@@ -94,12 +90,5 @@ t_window(_) ->
                          a, 1, emqx_inflight:new(2))),
     ?assertEqual([a, b], emqx_inflight:window(Inflight)).
 
-t_to_list(_) ->
-    error('TODO').
-
-t_size(_) ->
-    error('TODO').
-
-t_max_size(_) ->
-    error('TODO').
-
+% t_to_list(_) ->
+%     error('TODO').

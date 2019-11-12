@@ -959,17 +959,18 @@ end}.
                     {force_gc_policy, GcPolicy};
                ("force_shutdown_policy", "default") ->
                     {DefaultLen, DefaultSize} =
-                        case erlang:system_info(wordsize) of
+                        case WordSize = erlang:system_info(wordsize) of
                             8 -> % arch_64
                               {8000, cuttlefish_bytesize:parse("800MB")};
                             4 -> % arch_32
                               {1000, cuttlefish_bytesize:parse("100MB")}
                         end,
                     {force_shutdown_policy, #{message_queue_len => DefaultLen,
-                                              max_heap_size => DefaultSize}};
+                                              max_heap_size => DefaultSize div WordSize
+                                             }};
                ("force_shutdown_policy", Val) ->
                     [Len, Siz] = string:tokens(Val, "| "),
-                    MaxSiz = case erlang:system_info(wordsize) of
+                    MaxSiz = case WordSize = erlang:system_info(wordsize) of
                                 8 -> % arch_64
                                   (1 bsl 59) - 1;
                                 4 -> % arch_32
@@ -983,7 +984,7 @@ end}.
                               cuttlefish:invalid(io_lib:format("force_shutdown_policy: heap-size ~s is too large", [Siz]));
                           Siz1 ->
                               #{message_queue_len => list_to_integer(Len),
-                                max_heap_size => Siz1}
+                                max_heap_size => Siz1 div WordSize}
                       end,
                     {force_shutdown_policy, ShutdownPolicy};
                ("mqueue_priorities", Val) ->
@@ -1289,6 +1290,11 @@ end}.
   {datatype, integer}
 ]}.
 
+{mapping, "listener.ws.$name.active_n", "emqx.listeners", [
+  {default, 100},
+  {datatype, integer}
+]}.
+
 {mapping, "listener.ws.$name.zone", "emqx.listeners", [
   {datatype, string}
 ]}.
@@ -1439,6 +1445,11 @@ end}.
 ]}.
 
 {mapping, "listener.wss.$name.max_conn_rate", "emqx.listeners", [
+  {datatype, integer}
+]}.
+
+{mapping, "listener.wss.$name.active_n", "emqx.listeners", [
+  {default, 100},
   {datatype, integer}
 ]}.
 

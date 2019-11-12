@@ -29,13 +29,12 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, Config) ->
     Config.
 
-t_mnesia(_) ->
-    error('TODO').
+% t_mnesia(_) ->
+%     error('TODO').
 
+% t_monitor(_) ->
+%     error('TODO').
 
-t_monitor(_) ->
-    error('TODO').
-
-t_stats_fun(_) ->
-    error('TODO').
+% t_stats_fun(_) ->
+%     error('TODO').
 

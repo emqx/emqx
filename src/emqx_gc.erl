@@ -29,6 +29,7 @@
 -include("types.hrl").
 
 -export([ init/1
+        , run/2
         , run/3
         , info/1
         , reset/1
@@ -57,21 +58,26 @@ init(#{count := Count, bytes := Bytes}) ->
     ?GCS(maps:from_list(Cnt ++ Oct)).
 
 %% @doc Try to run GC based on reduntions of count or bytes.
+-spec(run(#{cnt := pos_integer(), oct := pos_integer()}, gc_state())
+      -> {boolean(), gc_state()}).
+run(#{cnt := Cnt, oct := Oct}, GcSt) ->
+    run(Cnt, Oct, GcSt).
+
 -spec(run(pos_integer(), pos_integer(), gc_state())
       -> {boolean(), gc_state()}).
 run(Cnt, Oct, ?GCS(St)) ->
-    {Res, St1} = run([{cnt, Cnt}, {oct, Oct}], St),
+    {Res, St1} = do_run([{cnt, Cnt}, {oct, Oct}], St),
     {Res, ?GCS(St1)}.
 
-run([], St) ->
+do_run([], St) ->
     {false, St};
-run([{K, N}|T], St) ->
+do_run([{K, N}|T], St) ->
     case dec(K, N, St) of
         {true, St1} ->
-            true = erlang:garbage_collect(),
+            erlang:garbage_collect(),
             {true, do_reset(St1)};
         {false, St1} ->
-            run(T, St1)
+            do_run(T, St1)
     end.
 
 %% @doc Info of GC state.

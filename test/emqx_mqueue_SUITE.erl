@@ -29,23 +29,23 @@
 all() -> emqx_ct:all(?MODULE).
 
 
-t_init(_) ->
-    error('TODO').
+% t_init(_) ->
+%     error('TODO').
 
-t_is_empty(_) ->
-    error('TODO').
+% t_is_empty(_) ->
+%     error('TODO').
 
-t_len(_) ->
-    error('TODO').
+% t_len(_) ->
+%     error('TODO').
 
-t_max_len(_) ->
-    error('TODO').
+% t_max_len(_) ->
+%     error('TODO').
 
-t_dropped(_) ->
-    error('TODO').
+% t_dropped(_) ->
+%     error('TODO').
 
-t_stats(_) ->
-    error('TODO').
+% t_stats(_) ->
+%     error('TODO').
 
 t_in(_) ->
     Opts = #{max_len => 5, store_qos0 => true},

@@ -29,24 +29,8 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-groups() ->
-    [{pubsub, [sequence],
-      [t_sub_unsub,
-       t_publish,
-       t_pubsub,
-       t_shared_subscribe,
-       t_dispatch_with_no_sub,
-       't_pubsub#',
-       't_pubsub+'
-      ]},
-     {metrics, [sequence],
-      [inc_dec_metric]},
-     {stats, [sequence],
-      [set_get_stat]
-     }].
-
 init_per_suite(Config) ->
-    emqx_ct_helpers:boot_modules([router, broker]),
+    emqx_ct_helpers:boot_modules(all),
     emqx_ct_helpers:start_apps([]),
     Config.
 
@@ -57,156 +41,173 @@ end_per_suite(_Config) ->
 %% PubSub Test
 %%--------------------------------------------------------------------
 
-t_sub_unsub(_) ->
-    ok = emqx_broker:subscribe(<<"topic">>, <<"clientId">>),
-    ok = emqx_broker:subscribe(<<"topic/1">>, <<"clientId">>, #{qos => 1}),
-    ok = emqx_broker:subscribe(<<"topic/2">>, <<"clientId">>, #{qos => 2}),
-    true = emqx_broker:subscribed(<<"clientId">>, <<"topic">>),
-    Topics = emqx_broker:topics(),
-    lists:foreach(fun(Topic) ->
-                      ?assert(lists:member(Topic, Topics))
-                  end, Topics),
-    ok = emqx_broker:unsubscribe(<<"topic">>),
-    ok = emqx_broker:unsubscribe(<<"topic/1">>),
-    ok = emqx_broker:unsubscribe(<<"topic/2">>).
+t_subscribed(_) ->
+    emqx_broker:subscribe(<<"topic">>),
+    ?assertEqual(false, emqx_broker:subscribed(undefined, <<"topic">>)),
+    ?assertEqual(true, emqx_broker:subscribed(self(), <<"topic">>)),
+    emqx_broker:unsubscribe(<<"topic">>).
 
-t_publish(_) ->
-    Msg = emqx_message:make(ct, <<"test/pubsub">>, <<"hello">>),
-    ok = emqx_broker:subscribe(<<"test/+">>),
-    timer:sleep(10),
-    emqx_broker:publish(Msg),
-    ?assert(receive {deliver, <<"test/+">>, #message{payload = <<"hello">>}} -> true after 100 -> false end).
+t_subscribed_2(_) ->
+    emqx_broker:subscribe(<<"topic">>, <<"clientid">>),
+    ?assertEqual(true, emqx_broker:subscribed(<<"clientid">>, <<"topic">>)),
+    ?assertEqual(true, emqx_broker:subscribed(self(), <<"topic">>)),
+    emqx_broker:unsubscribe(<<"topic">>).
 
-t_dispatch_with_no_sub(_) ->
-    Msg = emqx_message:make(ct, <<"no_subscribers">>, <<"hello">>),
-    Delivery = #delivery{sender = self(), message = Msg},
-    ?assertEqual([{node(),<<"no_subscribers">>,{error,no_subscribers}}],
-                 emqx_broker:route([{<<"no_subscribers">>, node()}], Delivery)).
+t_subopts(_) ->
+    ?assertEqual(false, emqx_broker:set_subopts(<<"topic">>, #{qos => 1})),
+    ?assertEqual(undefined, emqx_broker:get_subopts(self(), <<"topic">>)),
+    ?assertEqual(undefined, emqx_broker:get_subopts(<<"clientid">>, <<"topic">>)),
+    emqx_broker:subscribe(<<"topic">>, <<"clientid">>, #{qos => 1}),
+    ?assertEqual(#{qos => 1, subid => <<"clientid">>}, emqx_broker:get_subopts(self(), <<"topic">>)),
+    ?assertEqual(#{qos => 1, subid => <<"clientid">>}, emqx_broker:get_subopts(<<"clientid">>,<<"topic">>)),
+    emqx_broker:subscribe(<<"topic">>, <<"clientid">>, #{qos => 2}),
+    ?assertEqual(#{qos => 1, subid => <<"clientid">>}, emqx_broker:get_subopts(self(), <<"topic">>)),
+    ?assertEqual(true, emqx_broker:set_subopts(<<"topic">>, #{qos => 2})),
+    ?assertEqual(#{qos => 2, subid => <<"clientid">>}, emqx_broker:get_subopts(self(), <<"topic">>)),
+    emqx_broker:unsubscribe(<<"topic">>).
 
-t_pubsub(_) ->
-    true = emqx:is_running(node()),
-    Self = self(),
-    Subscriber = <<"clientId">>,
-    ok = emqx_broker:subscribe(<<"a/b/c">>, Subscriber, #{ qos => 1 }),
-    #{qos := 1} = ets:lookup_element(emqx_suboption, {Self, <<"a/b/c">>}, 2),
-    #{qos := 1} = emqx_broker:get_subopts(Subscriber, <<"a/b/c">>),
-    true = emqx_broker:set_subopts(<<"a/b/c">>, #{qos => 0}),
-    #{qos := 0} = emqx_broker:get_subopts(Subscriber, <<"a/b/c">>),
-    ok = emqx_broker:subscribe(<<"a/b/c">>, Subscriber, #{ qos => 2 }),
-    %% ct:log("Emq Sub: ~p.~n", [ets:lookup(emqx_suboption, {<<"a/b/c">>, Subscriber})]),
-    timer:sleep(10),
-    [Self] = emqx_broker:subscribers(<<"a/b/c">>),
-    emqx_broker:publish(
-      emqx_message:make(ct, <<"a/b/c">>, <<"hello">>)),
+t_topics(_) ->
+    Topics = [<<"topic">>, <<"topic/1">>, <<"topic/2">>],
+    ok = emqx_broker:subscribe(lists:nth(1, Topics), <<"clientId">>),
+    ok = emqx_broker:subscribe(lists:nth(2, Topics), <<"clientId">>),
+    ok = emqx_broker:subscribe(lists:nth(3, Topics), <<"clientId">>),
+    Topics1 = emqx_broker:topics(),
+    ?assertEqual(true, lists:foldl(fun(Topic, Acc) ->
+                                       case lists:member(Topic, Topics1) of
+                                           true -> Acc;
+                                           false -> false
+                                       end
+                                   end, true, Topics)),
+    emqx_broker:unsubscribe(lists:nth(1, Topics)),
+    emqx_broker:unsubscribe(lists:nth(2, Topics)),
+    emqx_broker:unsubscribe(lists:nth(3, Topics)).
+
+t_subscribers(_) ->
+    emqx_broker:subscribe(<<"topic">>, <<"clientid">>),
+    ?assertEqual([self()], emqx_broker:subscribers(<<"topic">>)),
+    emqx_broker:unsubscribe(<<"topic">>).
+
+t_subscriptions(_) ->
+    emqx_broker:subscribe(<<"topic">>, <<"clientid">>, #{qos => 1}),
+    ?assertEqual(#{qos => 1, subid => <<"clientid">>},
+                 proplists:get_value(<<"topic">>, emqx_broker:subscriptions(self()))),
+    ?assertEqual(#{qos => 1, subid => <<"clientid">>},
+                 proplists:get_value(<<"topic">>, emqx_broker:subscriptions(<<"clientid">>))),
+    emqx_broker:unsubscribe(<<"topic">>).
+
+t_sub_pub(_) ->
+    ok = emqx_broker:subscribe(<<"topic">>),
+    ct:sleep(10),
+    emqx_broker:safe_publish(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
     ?assert(
-        receive {deliver, <<"a/b/c">>, _ } ->
+        receive
+            {deliver, <<"topic">>, #message{payload = <<"hello">>}} ->
                 true;
-            P ->
-                ct:log("Receive Message: ~p~n",[P])
+            _ ->
+                false
+        after 100 ->
+            false
+        end).
+
+t_nosub_pub(_) ->
+    ?assertEqual(0, emqx_metrics:val('messages.dropped')),
+    emqx_broker:publish(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
+    ?assertEqual(1, emqx_metrics:val('messages.dropped')).
+
+t_shared_subscribe(_) ->
+    emqx_broker:subscribe(<<"topic">>, <<"clientid">>, #{share => <<"group">>}),
+    ct:sleep(10),
+    emqx_broker:safe_publish(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
+    ?assert(receive
+                {deliver, <<"topic">>, #message{payload = <<"hello">>}} ->
+                    true;
+                Msg ->
+                    ct:pal("Msg: ~p", [Msg]),
+                    false
+            after 100 ->
+                false
+            end),
+    emqx_broker:unsubscribe(<<"$share/group/topic">>).
+
+t_shared_subscribe_2(_) ->
+    {ok, ConnPid} = emqtt:start_link([{clean_start, true}, {clientid, <<"clientid">>}]),
+    {ok, _} = emqtt:connect(ConnPid),
+    {ok, _, [0]} = emqtt:subscribe(ConnPid, <<"$share/group/topic">>, 0),
+
+    {ok, ConnPid2} = emqtt:start_link([{clean_start, true}, {clientid, <<"clientid2">>}]),
+    {ok, _} = emqtt:connect(ConnPid2),
+    {ok, _, [0]} = emqtt:subscribe(ConnPid2, <<"$share/group2/topic">>, 0),
+
+    ct:sleep(10),
+    ok = emqtt:publish(ConnPid, <<"topic">>, <<"hello">>, 0),
+    Msgs = recv_msgs(2),
+    ?assertEqual(2, length(Msgs)),
+    ?assertEqual(true, lists:foldl(fun(#{payload := <<"hello">>, topic := <<"topic">>}, Acc) ->
+                                       Acc;
+                                      (_, _) ->
+                                       false
+                                   end, true, Msgs)),
+    emqtt:disconnect(ConnPid),
+    emqtt:disconnect(ConnPid2).
+
+t_shared_subscribe_3(_) ->
+    {ok, ConnPid} = emqtt:start_link([{clean_start, true}, {clientid, <<"clientid">>}]),
+    {ok, _} = emqtt:connect(ConnPid),
+    {ok, _, [0]} = emqtt:subscribe(ConnPid, <<"$share/group/topic">>, 0),
+
+    {ok, ConnPid2} = emqtt:start_link([{clean_start, true}, {clientid, <<"clientid2">>}]),
+    {ok, _} = emqtt:connect(ConnPid2),
+    {ok, _, [0]} = emqtt:subscribe(ConnPid2, <<"$share/group/topic">>, 0),
+
+    ct:sleep(10),
+    ok = emqtt:publish(ConnPid, <<"topic">>, <<"hello">>, 0),
+    Msgs = recv_msgs(2),
+    ?assertEqual(1, length(Msgs)),
+    emqtt:disconnect(ConnPid),
+    emqtt:disconnect(ConnPid2).
+
+t_shard(_) ->
+    ok = meck:new(emqx_broker_helper, [passthrough, no_history]),
+    ok = meck:expect(emqx_broker_helper, get_sub_shard, fun(_, _) -> 1 end),
+    emqx_broker:subscribe(<<"topic">>, <<"clientid">>),
+    ct:sleep(10),
+    emqx_broker:safe_publish(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
+    ?assert(
+        receive
+            {deliver, <<"topic">>, #message{payload = <<"hello">>}} ->
+                true;
+            _ ->
+                false
         after 100 ->
             false
         end),
-    spawn(fun() ->
-            emqx_broker:subscribe(<<"a/b/c">>),
-            emqx_broker:subscribe(<<"c/d/e">>),
-            timer:sleep(10),
-            emqx_broker:unsubscribe(<<"a/b/c">>)
-          end),
-    timer:sleep(20),
-    emqx_broker:unsubscribe(<<"a/b/c">>).
-
-t_shared_subscribe(_) ->
-    emqx_broker:subscribe(<<"$share/group2/topic2">>),
-    emqx_broker:subscribe(<<"$queue/topic3">>),
-    timer:sleep(10),
-    ct:pal("Share subscriptions: ~p",
-           [emqx_broker:subscriptions(self())]),
-    ?assertEqual(2, length(emqx_broker:subscriptions(self()))),
-    emqx_broker:unsubscribe(<<"$share/group2/topic2">>),
-    emqx_broker:unsubscribe(<<"$queue/topic3">>),
-    ?assertEqual(0, length(emqx_broker:subscriptions(self()))).
-
-'t_pubsub#'(_) ->
-    emqx_broker:subscribe(<<"a/#">>),
-    timer:sleep(10),
-    emqx_broker:publish(emqx_message:make(ct, <<"a/b/c">>, <<"hello">>)),
-    ?assert(receive {deliver, <<"a/#">>, _} -> true after 100 -> false end),
-    emqx_broker:unsubscribe(<<"a/#">>).
-
-'t_pubsub+'(_) ->
-    emqx_broker:subscribe(<<"a/+/+">>),
-    timer:sleep(10), %% TODO: why sleep?
-    emqx_broker:publish(emqx_message:make(ct, <<"a/b/c">>, <<"hello">>)),
-    ?assert(receive {deliver, <<"a/+/+">>, _} -> true after 100 -> false end),
-    emqx_broker:unsubscribe(<<"a/+/+">>).
-
-%%--------------------------------------------------------------------
-%% Metric Group
-%%--------------------------------------------------------------------
-
-inc_dec_metric(_) ->
-    emqx_metrics:inc('messages.retained', 10),
-    emqx_metrics:dec('messages.retained', 10).
-
-%%--------------------------------------------------------------------
-%% Stats Group
-%%--------------------------------------------------------------------
-
-set_get_stat(_) ->
-    emqx_stats:setstat('retained.max', 99),
-    ?assertEqual(99, emqx_stats:getstat('retained.max')).
-
-
-t_dispatch(_) ->
-    error('TODO').
-
-t_subscriber_down(_) ->
-    error('TODO').
-
-t_get_subopts(_) ->
-    error('TODO').
-
-t_set_subopts(_) ->
-    error('TODO').
-
-t_topics(_) ->
-    error('TODO').
+    ok = meck:unload(emqx_broker_helper).
 
 t_stats_fun(_) ->
-    error('TODO').
+    ?assertEqual(0, emqx_stats:getstat('subscribers.count')),
+    ?assertEqual(0, emqx_stats:getstat('subscriptions.count')),
+    ?assertEqual(0, emqx_stats:getstat('suboptions.count')),
+    ok = emqx_broker:subscribe(<<"topic">>, <<"clientid">>),
+    ok = emqx_broker:subscribe(<<"topic2">>, <<"clientid">>),
+    emqx_broker:stats_fun(),
+    ct:sleep(10),
+    ?assertEqual(2, emqx_stats:getstat('subscribers.count')),
+    ?assertEqual(2, emqx_stats:getstat('subscribers.max')),
+    ?assertEqual(2, emqx_stats:getstat('subscriptions.count')),
+    ?assertEqual(2, emqx_stats:getstat('subscriptions.max')),
+    ?assertEqual(2, emqx_stats:getstat('suboptions.count')),
+    ?assertEqual(2, emqx_stats:getstat('suboptions.max')).
 
-t_init(_) ->
-    error('TODO').
+recv_msgs(Count) ->
+    recv_msgs(Count, []).
 
-t_handle_call(_) ->
-    error('TODO').
-
-t_handle_cast(_) ->
-    error('TODO').
-
-t_handle_info(_) ->
-    error('TODO').
-
-t_terminate(_) ->
-    error('TODO').
-
-t_code_change(_) ->
-    error('TODO').
-
-t_safe_publish(_) ->
-    error('TODO').
-
-t_subscribed(_) ->
-    error('TODO').
-
-t_subscriptions(_) ->
-    error('TODO').
-
-t_subscribers(_) ->
-    error('TODO').
-
-t_unsubscribe(_) ->
-    error('TODO').
-
-t_subscribe(_) ->
-    error('TODO').
+recv_msgs(0, Msgs) ->
+    Msgs;
+recv_msgs(Count, Msgs) ->
+    receive
+        {publish, Msg} ->
+            recv_msgs(Count-1, [Msg|Msgs]);
+        _Other -> recv_msgs(Count, Msgs)
+    after 100 ->
+        Msgs
+    end.

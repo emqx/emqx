@@ -24,24 +24,10 @@
 
 all() -> emqx_ct:all(?MODULE).
 
-t_val(_) ->
-    error('TODO').
-
-t_dec(_) ->
-    error('TODO').
-
-t_set(_) ->
-    error('TODO').
-
-t_commit(_) ->
-    error('TODO').
-
-t_inc(_) ->
-    error('TODO').
-
 t_new(_) ->
     with_metrics_server(
       fun() ->
+          ok = emqx_metrics:new('metrics.test'),
           ok = emqx_metrics:new('metrics.test'),
           0 = emqx_metrics:val('metrics.test'),
           ok = emqx_metrics:inc('metrics.test'),
@@ -86,16 +72,70 @@ t_inc_recv(_) ->
     with_metrics_server(
       fun() ->
         ok = emqx_metrics:inc_recv(?PACKET(?CONNECT)),
-        ?assertEqual(1, emqx_metrics:val('packets.received')),
-        ?assertEqual(1, emqx_metrics:val('packets.connect.received'))
+        ok = emqx_metrics:inc_recv(?PUBLISH_PACKET(0, 0)),
+        ok = emqx_metrics:inc_recv(?PUBLISH_PACKET(1, 0)),
+        ok = emqx_metrics:inc_recv(?PUBLISH_PACKET(2, 0)),
+        ok = emqx_metrics:inc_recv(?PUBLISH_PACKET(3, 0)),
+        ok = emqx_metrics:inc_recv(?PACKET(?PUBACK)),
+        ok = emqx_metrics:inc_recv(?PACKET(?PUBREC)),
+        ok = emqx_metrics:inc_recv(?PACKET(?PUBREL)),
+        ok = emqx_metrics:inc_recv(?PACKET(?PUBCOMP)),
+        ok = emqx_metrics:inc_recv(?PACKET(?SUBSCRIBE)),
+        ok = emqx_metrics:inc_recv(?PACKET(?UNSUBSCRIBE)),
+        ok = emqx_metrics:inc_recv(?PACKET(?PINGREQ)),
+        ok = emqx_metrics:inc_recv(?PACKET(?DISCONNECT)),
+        ok = emqx_metrics:inc_recv(?PACKET(?AUTH)),
+        ok = emqx_metrics:inc_recv(?PACKET(?RESERVED)),
+        ?assertEqual(15, emqx_metrics:val('packets.received')),
+        ?assertEqual(1, emqx_metrics:val('packets.connect.received')),
+        ?assertEqual(4, emqx_metrics:val('messages.received')),
+        ?assertEqual(1, emqx_metrics:val('messages.qos0.received')),
+        ?assertEqual(1, emqx_metrics:val('messages.qos1.received')),
+        ?assertEqual(1, emqx_metrics:val('messages.qos2.received')),
+        ?assertEqual(4, emqx_metrics:val('packets.publish.received')),
+        ?assertEqual(1, emqx_metrics:val('packets.puback.received')),
+        ?assertEqual(1, emqx_metrics:val('packets.pubrec.received')),
+        ?assertEqual(1, emqx_metrics:val('packets.pubrel.received')),
+        ?assertEqual(1, emqx_metrics:val('packets.pubcomp.received')),
+        ?assertEqual(1, emqx_metrics:val('packets.subscribe.received')),
+        ?assertEqual(1, emqx_metrics:val('packets.unsubscribe.received')),
+        ?assertEqual(1, emqx_metrics:val('packets.pingreq.received')),
+        ?assertEqual(1, emqx_metrics:val('packets.disconnect.received')),
+        ?assertEqual(1, emqx_metrics:val('packets.auth.received'))
       end).
 
 t_inc_sent(_) ->
     with_metrics_server(
       fun() ->
         ok = emqx_metrics:inc_sent(?CONNACK_PACKET(0)),
-        ?assertEqual(1, emqx_metrics:val('packets.sent')),
-        ?assertEqual(1, emqx_metrics:val('packets.connack.sent'))
+        ok = emqx_metrics:inc_sent(?PUBLISH_PACKET(0, 0)),
+        ok = emqx_metrics:inc_sent(?PUBLISH_PACKET(1, 0)),
+        ok = emqx_metrics:inc_sent(?PUBLISH_PACKET(2, 0)),
+        ok = emqx_metrics:inc_sent(?PUBACK_PACKET(0, 0)),
+        ok = emqx_metrics:inc_sent(?PUBREC_PACKET(3, 0)),
+        ok = emqx_metrics:inc_sent(?PACKET(?PUBREL)),
+        ok = emqx_metrics:inc_sent(?PACKET(?PUBCOMP)),
+        ok = emqx_metrics:inc_sent(?PACKET(?SUBACK)),
+        ok = emqx_metrics:inc_sent(?PACKET(?UNSUBACK)),
+        ok = emqx_metrics:inc_sent(?PACKET(?PINGRESP)),
+        ok = emqx_metrics:inc_sent(?PACKET(?DISCONNECT)),
+        ok = emqx_metrics:inc_sent(?PACKET(?AUTH)),
+        ?assertEqual(13, emqx_metrics:val('packets.sent')),
+        ?assertEqual(1, emqx_metrics:val('packets.connack.sent')),
+        ?assertEqual(3, emqx_metrics:val('messages.sent')),
+        ?assertEqual(1, emqx_metrics:val('messages.qos0.sent')),
+        ?assertEqual(1, emqx_metrics:val('messages.qos1.sent')),
+        ?assertEqual(1, emqx_metrics:val('messages.qos2.sent')),
+        ?assertEqual(3, emqx_metrics:val('packets.publish.sent')),
+        ?assertEqual(1, emqx_metrics:val('packets.puback.sent')),
+        ?assertEqual(1, emqx_metrics:val('packets.pubrec.sent')),
+        ?assertEqual(1, emqx_metrics:val('packets.pubrel.sent')),
+        ?assertEqual(1, emqx_metrics:val('packets.pubcomp.sent')),
+        ?assertEqual(1, emqx_metrics:val('packets.suback.sent')),
+        ?assertEqual(1, emqx_metrics:val('packets.unsuback.sent')),
+        ?assertEqual(1, emqx_metrics:val('packets.pingresp.sent')),
+        ?assertEqual(1, emqx_metrics:val('packets.disconnect.sent')),
+        ?assertEqual(1, emqx_metrics:val('packets.auth.sent'))
       end).
 
 t_trans(_) ->

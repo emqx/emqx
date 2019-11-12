@@ -21,7 +21,19 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+%%--------------------------------------------------------------------
+%% CT callbacks
+%%--------------------------------------------------------------------
+
 all() -> emqx_ct:all(?MODULE).
+
+init_per_suite(Config) ->
+    emqx_ct_helpers:boot_modules(all),
+    emqx_ct_helpers:start_apps([]),
+    Config.
+
+end_per_suite(_Config) ->
+    emqx_ct_helpers:stop_apps([]).
 
 init_per_testcase(_TestCase, Config) ->
     Config.
@@ -29,36 +41,37 @@ init_per_testcase(_TestCase, Config) ->
 end_per_testcase(_TestCase, Config) ->
     Config.
 
-t_start_link(_) ->
-    error('TODO').
-
-t_init(_) ->
-    error('TODO').
-
-t_handle_call(_) ->
-    error('TODO').
-
-t_handle_cast(_) ->
-    error('TODO').
-
-t_handle_info(_) ->
-    error('TODO').
-
-t_terminate(_) ->
-    error('TODO').
-
-t_code_change(_) ->
-    error('TODO').
-
-t_lookup_channels(_) ->
-    error('TODO').
-
 t_is_enabled(_) ->
-    error('TODO').
+    application:set_env(emqx, enable_channel_registry, false),
+    ?assertEqual(false, emqx_cm_registry:is_enabled()),
+    application:set_env(emqx, enable_channel_registry, true),
+    ?assertEqual(true, emqx_cm_registry:is_enabled()).
 
-t_unregister_channel(_) ->
-    error('TODO').
+t_register_unregister_channel(_) ->
+    ClientId = <<"clientid">>,
+    application:set_env(emqx, enable_channel_registry, false),
+    emqx_cm_registry:register_channel(ClientId),
+    ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId)),
 
-t_register_channel(_) ->
-    error('TODO').
+    application:set_env(emqx, enable_channel_registry, true),
+    emqx_cm_registry:register_channel(ClientId),
+    ?assertEqual([self()], emqx_cm_registry:lookup_channels(ClientId)),
 
+    application:set_env(emqx, enable_channel_registry, false),
+    emqx_cm_registry:unregister_channel(ClientId),
+    ?assertEqual([self()], emqx_cm_registry:lookup_channels(ClientId)),
+
+    application:set_env(emqx, enable_channel_registry, true),
+    emqx_cm_registry:unregister_channel(ClientId),
+    ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId)).
+
+t_cleanup_channels(_) ->
+    ClientId = <<"clientid">>,
+    ClientId2 = <<"clientid2">>,
+    emqx_cm_registry:register_channel(ClientId),
+    emqx_cm_registry:register_channel(ClientId2),
+    ?assertEqual([self()], emqx_cm_registry:lookup_channels(ClientId)),
+    emqx_cm_registry ! {membership, {mnesia, down, node()}},
+    ct:sleep(100),
+    ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId)),
+    ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId2)).
