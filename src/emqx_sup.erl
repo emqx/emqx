@@ -43,7 +43,7 @@ start_link() ->
     supervisor:start_link({local, ?SUP}, ?MODULE, []).
 
 -spec(start_child(supervisor:child_spec()) -> startchild_ret()).
-start_child(ChildSpec) when is_tuple(ChildSpec) ->
+start_child(ChildSpec) when is_map(ChildSpec) ->
     supervisor:start_child(?SUP, ChildSpec).
 
 -spec(start_child(module(), worker | supervisor) -> startchild_ret()).
