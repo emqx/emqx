@@ -77,6 +77,7 @@ cd _rel/emqx && ./bin/emqx console
 - [Twitter](https://twitter.com/emqtt)
 - [Forum](https://groups.google.com/d/forum/emqtt)
 - [Blog](https://medium.com/@emqtt)
+- [Reddit](https://www.reddit.com/r/emqx/)
 
 欢迎你将任何 bug、问题和功能请求提交到 [emqx/emqx](https://github.com/emqx/emqx/issues)。
 

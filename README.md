@@ -78,6 +78,7 @@ You can reach the EMQ community and developers via the following channels:
 - [Twitter](https://twitter.com/emqtt)
 - [Forum](https://groups.google.com/d/forum/emqtt)
 - [Blog](https://medium.com/@emqtt)
+- [Reddit](https://www.reddit.com/r/emqx/)
 
 Please submit any bugs, issues, and feature requests to [emqx/emqx](https://github.com/emqx/emqx/issues).
 
